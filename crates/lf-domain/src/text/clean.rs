@@ -193,6 +193,8 @@ mod tests {
             clean("&unknown; &#xZZ; &#; & seul &#1114112;"),
             "&unknown; &#xZZ; &#; & seul &#1114112;"
         );
+        // Hexadécimal sans chiffre : ni signe ni chiffre à lire.
+        assert_eq!(clean("&#x; &#X;"), "&#x; &#X;");
         assert_eq!(clean("&verylongentityname;"), "&verylongentityname;");
         // Octet 12 au milieu d'un caractère multi-octet : texte conservé, sans panique.
         assert_eq!(clean("&ammmmmmmmmmé;"), "&ammmmmmmmmmé;");
