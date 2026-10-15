@@ -3,6 +3,15 @@
 //! Règle nouvelle, absente de la référence, qui ne coupe que `snippet[:280]`
 //! (`citations.py:162`) : la fenêtre découle de l'économie de contexte (§6).
 //!
+//! Coupe douce : un point d'abréviation juridique (`L.`, `art.`, `M.`, `G.`) ne
+//! compte pas comme fin de phrase, sinon la fenêtre trancherait « l'article L. |
+//! 1234-5 » et séparerait une citation de son numéro. Règle nouvelle, absente
+//! de la référence : un point est une fin de phrase si le mot qui le précède
+//! est non vide et n'est pas une abréviation (une lettre seule, ou un mot de
+//! [`ABBREVIATIONS`]) ; sinon ce blanc est un espace ordinaire (repli). `! ? …
+//! ;` et le saut de ligne restent des fins de phrase. Limite : on n'exige pas
+//! de majuscule après le point.
+//!
 //! Tient lieu de `text::truncate` (§4 de docs/plan/00-decisions.md) :
 //! `window(t, 0, n).text` est la troncature en fin de phrase.
 //!
@@ -40,6 +49,34 @@ fn byte_at(s: &str, chars: usize) -> usize {
     s.char_indices().nth(chars).map_or(s.len(), |(i, _)| i)
 }
 
+/// Abréviations juridiques courantes, en minuscules, dont le point final ne
+/// termine pas la phrase (en plus des lettres seules : `L.`, `M.`, `G.`).
+const ABBREVIATIONS: [&str; 18] = [
+    "al", "art", "cass", "cf", "chap", "civ", "com", "cons", "const", "crim", "ex", "mm", "pén",
+    "préc", "réf", "soc", "trav", "vol",
+];
+
+/// Vrai pour une lettre seule ou un mot de [`ABBREVIATIONS`] (casse ignorée).
+/// Un chiffre seul n'en est pas une : « article 5. Suite » se coupe après « 5. ».
+fn is_abbreviation(word: &str) -> bool {
+    let mut letters = word.chars();
+    let single_letter = letters.next().is_some_and(char::is_alphabetic) && letters.next().is_none();
+    single_letter || ABBREVIATIONS.contains(&word.to_lowercase().as_str())
+}
+
+/// Vrai si le caractère `p`, trouvé à l'octet `j` de `head`, termine une phrase.
+fn ends_sentence(head: &str, j: usize, p: char) -> bool {
+    if p != '.' {
+        return matches!(p, '!' | '?' | '…' | ';');
+    }
+    let word = head[..j]
+        .trim_end_matches('.')
+        .rsplit(|c: char| !c.is_alphanumeric())
+        .next()
+        .unwrap_or_default();
+    !word.is_empty() && !is_abbreviation(word)
+}
+
 /// Coupe juste après un espace, dans la seconde moitié de `head` : d'abord un
 /// espace précédé d'une fin de phrase ou un saut de ligne, sinon tout espace.
 fn soft_cut(head: &str) -> Option<usize> {
@@ -54,8 +91,7 @@ fn soft_cut(head: &str) -> Option<usize> {
             continue;
         }
         let end = i + c.len_utf8();
-        let after_sentence =
-            chars.peek().is_some_and(|&(_, p)| matches!(p, '.' | '!' | '?' | '…' | ';'));
+        let after_sentence = chars.peek().is_some_and(|&(j, p)| ends_sentence(head, j, p));
         if c == '\n' || after_sentence {
             return Some(end);
         }
@@ -124,6 +160,75 @@ mod tests {
         assert_eq!(window(text, 4, 4), Window { text: "été ", next_offset: Some(8) });
     }
 
+    const ARTICLE: &str = "En application de l'article L. 1234-5 du code du travail, le salarié a droit à une indemnité.";
+
+    #[test]
+    fn legal_abbreviation_dot_is_not_a_sentence_end() {
+        // Sans la règle, la coupe tombait après « L. » : « l'article L. | 1234-5 ».
+        assert_eq!(
+            window(ARTICLE, 0, 40),
+            Window { text: "En application de l'article L. 1234-5 ", next_offset: Some(38) }
+        );
+        // Mot de la liste.
+        let text = "Voir les dispositions de l'art. 9 du code civil";
+        assert_eq!(
+            window(text, 0, 36),
+            Window { text: "Voir les dispositions de l'art. 9 ", next_offset: Some(34) }
+        );
+        // Lettres seules : « M. Amine G. ».
+        let text = "Le contrat de M. Amine G. porte sur un bail";
+        assert_eq!(
+            window(text, 0, 28),
+            Window { text: "Le contrat de M. Amine G. ", next_offset: Some(26) }
+        );
+    }
+
+    #[test]
+    fn digit_dot_and_ellipsis_still_end_a_sentence() {
+        let text = "Voir article 5. Suite des dispositions";
+        assert_eq!(window(text, 0, 30), Window { text: "Voir article 5. ", next_offset: Some(16) });
+        let text = "Il hésite à conclure... Suite du texte";
+        assert_eq!(
+            window(text, 0, 30),
+            Window { text: "Il hésite à conclure... ", next_offset: Some(24) }
+        );
+        // Points seuls : aucun mot, donc pas une fin de phrase (repli sur l'espace).
+        let text = "a bbbbbbbbbb . cccccccc";
+        assert_eq!(window(text, 0, 20), Window { text: "a bbbbbbbbbb . ", next_offset: Some(15) });
+    }
+
+    #[test]
+    fn abbreviation_rules() {
+        assert!(is_abbreviation("L"));
+        assert!(is_abbreviation("é"));
+        assert!(is_abbreviation("Art"));
+        assert!(is_abbreviation("PÉN"));
+        assert!(is_abbreviation("vol"));
+        assert!(!is_abbreviation("5"));
+        assert!(!is_abbreviation(""));
+        assert!(!is_abbreviation("article"));
+        assert!(!is_abbreviation("LL"));
+    }
+
+    #[test]
+    fn soft_cut_recognizes_each_terminator() {
+        for t in ['!', '?', '…', ';'] {
+            let text = format!("abcdef{t} gh ijklmno");
+            assert_eq!(
+                window(&text, 0, 12),
+                Window { text: &format!("abcdef{t} "), next_offset: Some(8) }
+            );
+        }
+        let text = "abcdefx gh ijklmno";
+        assert_eq!(window(text, 0, 12), Window { text: "abcdefx gh ", next_offset: Some(11) });
+    }
+
+    #[test]
+    fn extreme_bounds_do_not_overflow() {
+        assert_eq!(window("abc", usize::MAX, usize::MAX), Window { text: "", next_offset: None });
+        assert_eq!(window("abc", 0, usize::MAX), Window { text: "abc", next_offset: None });
+    }
+
     #[test]
     fn zero_max_chars_still_progresses() {
         assert_eq!(window("ab", 0, 0), Window { text: "a", next_offset: Some(1) });
@@ -132,6 +237,32 @@ mod tests {
     proptest! {
         #[test]
         fn windows_partition_the_text(text in "\\PC{0,300}", max in 1usize..60) {
+            let len = text.chars().count();
+            let mut rebuilt = String::new();
+            let mut offset = 0;
+            loop {
+                let w = window(&text, offset, max);
+                prop_assert!(w.text.chars().count() <= max);
+                rebuilt.push_str(w.text);
+                match w.next_offset {
+                    Some(next) => {
+                        prop_assert!(next > offset);
+                        prop_assert!(next < len);
+                        offset = next;
+                    }
+                    None => break,
+                }
+            }
+            prop_assert_eq!(rebuilt, text);
+        }
+
+        /// Alphabet de terminateurs, de points et de blancs : les coupes douces
+        /// (phrase, saut de ligne, abréviation, repli) sont exercées à chaque tirage.
+        #[test]
+        fn windows_partition_with_soft_boundaries(
+            text in "[a-zéà .!?…;\n]{0,300}",
+            max in 1usize..40,
+        ) {
             let len = text.chars().count();
             let mut rebuilt = String::new();
             let mut offset = 0;

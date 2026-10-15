@@ -66,5 +66,23 @@ mod tests {
             }
             prop_assert_eq!(rebuilt, text);
         }
+
+        /// Même partition avec un alphabet riche en terminateurs et en blancs.
+        #[test]
+        fn passages_partition_with_soft_boundaries(
+            text in "[a-zéà .!?…;\n]{1,300}",
+            max in 0usize..40,
+        ) {
+            let mut seen = 0;
+            let mut rebuilt = String::new();
+            for p in passages(&text, max) {
+                prop_assert_eq!(p.offset, seen);
+                prop_assert!(!p.text.is_empty());
+                prop_assert!(p.text.chars().count() <= max.max(1));
+                seen += p.text.chars().count();
+                rebuilt.push_str(p.text);
+            }
+            prop_assert_eq!(rebuilt, text);
+        }
     }
 }
