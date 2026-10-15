@@ -1,0 +1,26 @@
+[package]
+name = "lf-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+lf-domain = { path = "../crates/lf-domain" }
+
+[[bin]]
+name = "ids"
+path = "fuzz_targets/ids.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "text"
+path = "fuzz_targets/text.rs"
+test = false
+doc = false
+bench = false
