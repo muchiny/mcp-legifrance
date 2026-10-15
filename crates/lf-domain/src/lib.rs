@@ -8,5 +8,6 @@ pub mod ecli;
 pub mod error;
 pub mod fond;
 pub mod id;
+pub mod url;
 
 pub use error::DomainError;
