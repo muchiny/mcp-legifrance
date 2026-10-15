@@ -4,6 +4,7 @@
 //! URL Légifrance, contrat de citation, entités et utilitaires texte.
 
 pub mod citation;
+pub mod coverage;
 pub mod date;
 pub mod ecli;
 pub mod entity;
