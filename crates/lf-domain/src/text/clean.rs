@@ -79,17 +79,30 @@ fn entity(tail: &str) -> Option<(char, usize)> {
         "quot" => '"',
         "apos" => '\'',
         "nbsp" => ' ',
-        _ => {
-            let code =
-                if let Some(hex) = name.strip_prefix("#x").or_else(|| name.strip_prefix("#X")) {
-                    u32::from_str_radix(hex, 16).ok()?
-                } else {
-                    name.strip_prefix('#')?.parse().ok()?
-                };
-            char::from_u32(code)?
-        }
+        _ => numeric(name)?,
     };
     Some((ch, end + 1))
+}
+
+/// Entité numérique `#…` (décimale) ou `#x…` (hexadécimale), sans signe.
+///
+/// Refuse les contrôles (hors tabulation, saut de ligne, retour chariot), les
+/// contrôles bidi et les tags Unicode : le texte décodé est destiné à un
+/// modèle, et une entité ne doit pas y fabriquer ce que la source n'a pas.
+fn numeric(name: &str) -> Option<char> {
+    let code = if let Some(hex) = name.strip_prefix("#x").or_else(|| name.strip_prefix("#X")) {
+        let digits = hex.bytes().all(|b| b.is_ascii_hexdigit()).then_some(hex)?;
+        u32::from_str_radix(digits, 16).ok()?
+    } else {
+        let digits = name.strip_prefix('#')?;
+        let digits = digits.bytes().all(|b| b.is_ascii_digit()).then_some(digits)?;
+        digits.parse().ok()?
+    };
+    let c = char::from_u32(code)?;
+    let control = c.is_control() && !matches!(c, '\t' | '\n' | '\r');
+    let bidi = matches!(c, '\u{61c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
+    let tag = matches!(c, '\u{e0000}'..='\u{e007f}');
+    (!control && !bidi && !tag).then_some(c)
 }
 
 /// Espaces internes réduits à un, lignes rognées, au plus une ligne vide.
@@ -175,6 +188,41 @@ mod tests {
     }
 
     #[test]
+    fn keeps_control_and_signed_numeric_refs_literal() {
+        // Une assertion par classe : contrôle C0, ESC en hexadécimal, contrôle bidi
+        // (RLO), tag Unicode, puis signes `+` acceptés à tort par `parse`.
+        assert_eq!(clean("a&#0;b"), "a&#0;b");
+        assert_eq!(clean("a&#x1b;b"), "a&#x1b;b");
+        assert_eq!(clean("a&#8238;b"), "a&#8238;b");
+        assert_eq!(clean("a&#xE0041;b"), "a&#xE0041;b");
+        assert_eq!(clean("a&#+65;b"), "a&#+65;b");
+        assert_eq!(clean("a&#x+41;b"), "a&#x+41;b");
+        // Exceptions : tabulation, saut de ligne et retour chariot sont décodés.
+        assert_eq!(clean("a&#10;b"), "a\nb");
+        assert_eq!(clean("a&#9;b&#13;c"), "a b c");
+    }
+
+    #[test]
+    fn keeps_every_bidi_and_c1_control_ref_literal() {
+        for code in [0x7f_u32, 0x85, 0x9f, 0x61c, 0x200e, 0x200f, 0x202a, 0x202e, 0x2066, 0x2069] {
+            let reference = format!("&#{code};");
+            assert_eq!(clean(&reference), reference);
+        }
+        for code in [0xE0000_u32, 0xE007F] {
+            let reference = format!("&#x{code:X};");
+            assert_eq!(clean(&reference), reference);
+        }
+        // Bornes voisines : décodées.
+        for (code, decoded) in
+            [(0x7e_u32, '~'), (0xa0, ' '), (0x61d, '\u{61d}'), (0x2065, '\u{2065}'), (0x202f, ' ')]
+        {
+            assert_eq!(clean(&format!("a&#{code};b")), format!("a{decoded}b"));
+        }
+        assert_eq!(clean("&#xDFFFF;"), "\u{dffff}");
+        assert_eq!(clean("&#xE0080;"), "\u{e0080}");
+    }
+
+    #[test]
     fn normalizes_whitespace() {
         assert_eq!(clean("  a \t b\r\n\n\n\n  c  "), "a b\n\nc");
         assert_eq!(clean("\u{a0}a\u{202f}:"), "a :");
@@ -188,6 +236,12 @@ mod tests {
             let out = clean(&s);
             prop_assert_eq!(out.trim(), out.as_str());
             prop_assert!(!out.contains("\n\n\n"));
+        }
+
+        #[test]
+        fn output_has_no_decoded_controls(s in "[a-z&#x0-9;<>/ \n]{0,80}") {
+            let out = clean(&s);
+            prop_assert!(out.chars().all(|c| !c.is_control() || c == '\n'));
         }
 
         #[test]
