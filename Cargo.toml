@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/lf-domain"]
+members = ["crates/lf-domain", "xtask"]
 exclude = ["fuzz"]
 
 [workspace.package]

@@ -1,0 +1,10 @@
+# Configuration cargo-mutants (https://mutants.rs/config-file.html).
+# Toute exclusion (`exclude_re`) doit être justifiée en commentaire : mutant
+# prouvé équivalent, avec le raisonnement. Le code `#[cfg(test)]` n'est jamais muté.
+test_tool = "nextest"
+profile = "mutants"
+exclude_globs = [
+    "xtask/src/main.rs", # glue d'I/O (cargo metadata, stdout) ; la logique est dans arch.rs
+    "fuzz/**", # cibles cargo-fuzz hors workspace (Cargo.toml exclude) : pas du code livré ; filet si le dossier y entrait
+]
+exclude_re = []

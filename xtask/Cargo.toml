@@ -1,0 +1,17 @@
+[package]
+name = "xtask"
+description = "Tâches de développement de mcp-legifrance (cargo xtask …)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true
