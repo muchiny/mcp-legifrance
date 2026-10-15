@@ -51,6 +51,12 @@ pub fn article_citation(code_title: Option<&str>, num: Option<&str>) -> Option<S
 }
 
 /// Premier contenu entre crochets, non vide et sur une seule ligne.
+///
+/// Divergence avec `re.search(r"\[(.+?)\]", titre)` (`citations.py:315-317`) :
+/// ici, premier `[` puis premier `]` qui suit, sinon `None`. Sur `a [] [b]`, la
+/// référence capture `] [b` (artefact de la regex) et on renvoie `None` ; sur
+/// `a [b\nc] [d]`, elle capture `d` et on renvoie `None`. On ne fabrique pas
+/// d'objet hors du premier segment.
 fn bracketed(title: &str) -> Option<&str> {
     let (_, after) = title.split_once('[')?;
     let (inner, _) = after.split_once(']')?;
@@ -164,6 +170,9 @@ mod tests {
         assert_eq!(bracketed("a []"), None);
         assert_eq!(bracketed("a [b\nc]"), None);
         assert_eq!(bracketed("a [b"), None);
+        // Divergence assumée avec la regex de la référence (voir `bracketed`).
+        assert_eq!(bracketed("a [] [b]"), None);
+        assert_eq!(bracketed("a [b\nc] [d]"), None);
         assert_eq!(bracketed("a b]"), None);
     }
 
@@ -206,13 +215,13 @@ mod tests {
         }
 
         #[test]
-        fn bracketed_finds_inner(s in "[a-z]{0,5}\\[[a-z]{1,5}\\][a-z]{0,5}") {
-            let found = bracketed(&s);
-            prop_assert!(found.is_some());
-            let inner = found.unwrap_or_default();
-            prop_assert!(!inner.is_empty());
-            let wrapped = format!("[{inner}]");
-            prop_assert!(s.contains(&wrapped));
+        fn bracketed_finds_inner(
+            pre in "[a-z ]{0,5}",
+            inner in "[a-z ]{1,5}",
+            post in "[a-z \\[\\]\n]{0,8}",
+        ) {
+            let title = format!("{pre}[{inner}]{post}");
+            prop_assert_eq!(bracketed(&title), Some(inner.as_str()));
         }
     }
 }
