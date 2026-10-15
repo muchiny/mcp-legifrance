@@ -6,6 +6,7 @@
 pub mod citation;
 pub mod date;
 pub mod ecli;
+pub mod entity;
 pub mod error;
 pub mod fond;
 pub mod id;
