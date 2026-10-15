@@ -8,6 +8,9 @@ COV_FLAGS := --workspace --lib --summary-only \
 	--fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
 MUTANTS_SAFE := TMPDIR=/var/tmp NEXTEST_TEST_THREADS=2 cargo mutants -j 1
 BASE ?= origin/main
+# Contrôle mémoire (>= 8 Gio disponibles), expansé directement dans les recettes
+# pour que `make -n` reste un vrai dry run (aucun $(MAKE) récursif).
+MEM_CHECK := free -m | awk 'NR==2 { if ($$7 >= 8*1024) print "OK: -j 1 safe"; else { print "BLOCK: not enough RAM, wait"; exit 1 } }'
 
 .PHONY: fmt fmt-check lint test doc arch deny machete cov mem-check mutants mutants-diff ci
 
@@ -42,18 +45,18 @@ cov:
 
 # Contrôle mémoire obligatoire avant cargo-mutants : au moins 8 Gio disponibles.
 mem-check:
-	@free -m | awk 'NR==2 { if ($$7 >= 8*1024) print "OK: -j 1 safe"; else { print "BLOCK: not enough RAM, wait"; exit 1 } }'
+	@$(MEM_CHECK)
 
 # Un fichier : make mutants FILE=crates/lf-domain/src/id.rs
 mutants: mem-check
 	@test -n "$(FILE)" || { echo "usage: make mutants FILE=<path>"; exit 2; }
-	$(MUTANTS_SAFE) --file $(FILE)
+	$(MUTANTS_SAFE) --file "$(FILE)"
 
 # Chaque fichier .rs modifié depuis $(BASE), l'un après l'autre.
 mutants-diff: mem-check
-	@set -e; files=$$(git diff --name-only $(BASE)...HEAD -- '*.rs'); \
+	@set -e; files=$$(git diff --name-only "$(BASE)...HEAD" -- '*.rs'); \
 	for f in $$files; do \
-		if [ -f "$$f" ]; then $(MAKE) --no-print-directory mem-check; $(MUTANTS_SAFE) --file "$$f"; fi; \
+		if [ -f "$$f" ]; then $(MEM_CHECK) && $(MUTANTS_SAFE) --file "$$f"; fi; \
 	done
 
 ci: fmt-check lint test doc arch deny machete cov

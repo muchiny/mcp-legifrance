@@ -31,7 +31,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest,cargo-mutants
-      - run: cargo mutants --shard ${{ matrix.shard }}/4 -j 2 --baseline skip --timeout 60
+      - run: cargo mutants --shard ${{ matrix.shard }}/4 -j 2 --timeout 60
       - uses: actions/upload-artifact@v7
         if: always()
         with:
