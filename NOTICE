@@ -1,0 +1,8 @@
+mcp-legifrance
+Copyright 2026 Loïc Wernert
+
+Ce produit porte en Rust des règles de normalisation et de citation issues de
+fr-eli-mcp (https://github.com/matematicsolutions/fr-eli-mcp, commit d3b5b13),
+Copyright Matematic Solutions et Wieslaw Mazur, distribué sous licence
+Apache-2.0. Les emplacements d'origine sont cités en commentaire dans le code
+(`citations.py:<ligne>`, `server.py:<ligne>`, `coverage.py:<ligne>`).
