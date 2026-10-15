@@ -1,0 +1,184 @@
+//! Résultats de recherche (`fr_search`, `citations.py:110-182`).
+
+use crate::{
+    citation::{Citable, CitationContract, with_company},
+    fond::Fond,
+    id::{AnyId, ArticleId},
+    text::clean,
+    url::{ResourceKind, legifrance_url},
+};
+
+/// Longueur maximale d'un extrait d'article, en caractères (`citations.py:162`).
+pub const SNIPPET_MAX_CHARS: usize = 280;
+
+/// Article trouvé dans un résultat de recherche sur les codes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeArticleRef {
+    /// Identifiant de l'article.
+    pub article_id: ArticleId,
+    /// Numéro affiché.
+    pub num: Option<String>,
+    /// Extrait nettoyé, au plus [`SNIPPET_MAX_CHARS`] caractères.
+    pub snippet: String,
+}
+
+impl CodeArticleRef {
+    /// Nettoie l'extrait brut puis le coupe.
+    ///
+    /// Divergence assumée : l'extrait passe par [`clean`] (balises, entités,
+    /// espaces) au lieu de `strip_marks` (`citations.py:48-52`, `157`), pour un
+    /// rendu homogène avec les titres ; la coupe à [`SNIPPET_MAX_CHARS`] se fait
+    /// après normalisation.
+    pub fn new(article_id: ArticleId, num: Option<String>, raw_snippet: &str) -> Self {
+        let snippet = clean(raw_snippet).chars().take(SNIPPET_MAX_CHARS).collect();
+        Self { article_id, num, snippet }
+    }
+}
+
+/// Un résultat de recherche.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchHit {
+    /// Fond interrogé.
+    pub fond: Fond,
+    /// Identifiant du texte, suffixe de version retiré.
+    pub id: AnyId,
+    /// Identifiant chronologique, préféré pour l'URL hors LODA/CODE.
+    pub cid: Option<AnyId>,
+    /// Titre nettoyé.
+    pub title: Option<String>,
+    /// Nature.
+    pub nature: Option<String>,
+    /// État juridique brut.
+    pub etat: Option<String>,
+    /// IDCC (KALI, ACCO).
+    pub idcc: Option<String>,
+    /// Raison sociale (ACCO).
+    pub raison_sociale: Option<String>,
+    /// Articles trouvés (CODE).
+    pub articles: Vec<CodeArticleRef>,
+}
+
+impl Citable for SearchHit {
+    fn citation(&self) -> CitationContract {
+        let key = match self.fond {
+            Fond::Loda | Fond::Code => &self.id,
+            _ => self.cid.as_ref().unwrap_or(&self.id),
+        };
+        let citation = match self.fond {
+            Fond::Acco => with_company(self.title.as_deref(), self.raison_sociale.as_deref()),
+            _ => self.title.clone(),
+        };
+        CitationContract::from_url(
+            legifrance_url(ResourceKind::from(self.fond), key.as_str()),
+            citation,
+        )
+    }
+}
+
+/// Page de résultats.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchPage {
+    /// Fond interrogé.
+    pub fond: Fond,
+    /// Requête, espaces retirés.
+    pub query: String,
+    /// Nombre total de résultats annoncé par la source.
+    pub total: u64,
+    /// Résultats de la page.
+    pub hits: Vec<SearchHit>,
+}
+
+impl SearchPage {
+    /// `total` absent : on retient le nombre de résultats reçus (`citations.py:179-181`).
+    pub fn new(fond: Fond, query: &str, total: Option<u64>, hits: Vec<SearchHit>) -> Self {
+        let total = total.unwrap_or_else(|| u64::try_from(hits.len()).unwrap_or(u64::MAX));
+        Self { fond, query: query.trim().to_owned(), total, hits }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use proptest::prelude::*;
+
+    fn hit(fond: Fond, id: &str, cid: Option<&str>) -> SearchHit {
+        SearchHit {
+            fond,
+            id: AnyId::parse(id).unwrap(),
+            cid: cid.map(|c| AnyId::parse(c).unwrap()),
+            title: Some("Titre".into()),
+            nature: None,
+            etat: None,
+            idcc: None,
+            raison_sociale: Some("CORSAIR".into()),
+            articles: vec![],
+        }
+    }
+
+    #[test]
+    fn loda_and_code_use_id() {
+        let loda = hit(Fond::Loda, "JORFTEXT000020445850", Some("JORFTEXT000099999999"));
+        assert_eq!(
+            loda.citation().source_url,
+            "https://www.legifrance.gouv.fr/loda/id/JORFTEXT000020445850"
+        );
+        let code = hit(Fond::Code, "LEGITEXT000006070721", Some("LEGITEXT000099999999"));
+        assert_eq!(
+            code.citation().source_url,
+            "https://www.legifrance.gouv.fr/codes/texte_lc/LEGITEXT000006070721"
+        );
+    }
+
+    #[test]
+    fn other_fonds_prefer_cid() {
+        let constit = hit(Fond::Constit, "CONSTEXT000043596386", Some("CONSTEXT000011111111"));
+        assert_eq!(
+            constit.citation().source_url,
+            "https://www.legifrance.gouv.fr/cons/id/CONSTEXT000011111111"
+        );
+        let juri = hit(Fond::Juri, "JURITEXT000048465611", None);
+        assert_eq!(
+            juri.citation().source_url,
+            "https://www.legifrance.gouv.fr/juri/id/JURITEXT000048465611"
+        );
+        assert_eq!(juri.citation().human_readable_citation.as_deref(), Some("Titre"));
+    }
+
+    #[test]
+    fn acco_cites_company() {
+        let acco = hit(Fond::Acco, "ACCOTEXT000051888026", None);
+        assert_eq!(acco.citation().human_readable_citation.as_deref(), Some("Titre (CORSAIR)"));
+    }
+
+    #[test]
+    fn snippet_is_cleaned_and_cut() {
+        let id = ArticleId::parse("LEGIARTI000006419288").unwrap();
+        let r = CodeArticleRef::new(
+            id.clone(),
+            Some("9".into()),
+            "Chacun a droit au <mark>respect</mark>",
+        );
+        assert_eq!(r.snippet, "Chacun a droit au respect");
+        let long = "é".repeat(SNIPPET_MAX_CHARS + 10);
+        assert_eq!(CodeArticleRef::new(id, None, &long).snippet.chars().count(), SNIPPET_MAX_CHARS);
+    }
+
+    #[test]
+    fn page_total_defaults_to_hit_count() {
+        let hits = vec![hit(Fond::Juri, "JURITEXT000048465611", None)];
+        let page = SearchPage::new(Fond::Juri, "  responsabilité ", None, hits.clone());
+        assert_eq!((page.total, page.query.as_str()), (1, "responsabilité"));
+        assert_eq!(SearchPage::new(Fond::Juri, "q", Some(1817), hits).total, 1817);
+    }
+
+    proptest! {
+        #[test]
+        fn snippet_never_exceeds_cap(s in "\\PC{0,600}") {
+            let id = ArticleId::parse("LEGIARTI000006419288").unwrap();
+            prop_assert!(
+                CodeArticleRef::new(id, None, &s).snippet.chars().count() <= SNIPPET_MAX_CHARS
+            );
+        }
+    }
+}
