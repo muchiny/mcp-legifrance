@@ -69,7 +69,8 @@ fn tag_text(name: &str, closing: bool) -> &'static str {
 
 /// Entité en tête de `tail` : (caractère, longueur avec `;`).
 fn entity(tail: &str) -> Option<(char, usize)> {
-    let end = tail.get(..12).unwrap_or(tail).find(';')?;
+    // Fenêtre bornée en octets : `;` est ASCII, donc `end` est une frontière de caractère.
+    let end = tail.bytes().take(12).position(|b| b == b';')?;
     let name = &tail[1..end];
     let ch = match name {
         "amp" => '&',
@@ -168,6 +169,9 @@ mod tests {
             "&unknown; &#xZZ; &#; & seul &#1114112;"
         );
         assert_eq!(clean("&verylongentityname;"), "&verylongentityname;");
+        // Octet 12 au milieu d'un caractère multi-octet : texte conservé, sans panique.
+        assert_eq!(clean("&ammmmmmmmmmé;"), "&ammmmmmmmmmé;");
+        assert_eq!(clean("&amp;ééééééééé; &lt;"), "&ééééééééé; <");
     }
 
     #[test]
