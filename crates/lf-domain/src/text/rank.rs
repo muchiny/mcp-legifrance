@@ -23,13 +23,21 @@ pub struct Scored {
     pub score: f64,
 }
 
+/// Termes distincts de la requête, en ordre trié : la somme flottante des
+/// scores est ainsi reproductible d'une exécution à l'autre.
+fn query_terms(query: &str) -> BTreeSet<String> {
+    tokens(query).into_iter().collect()
+}
+
 /// Les `k` meilleurs passages pour `query`, score décroissant puis indice
-/// croissant ; les passages sans terme commun sont exclus.
+/// croissant. Le score est strictement positif : un passage sans terme commun
+/// avec la requête est exclu, et une requête sans jeton donne un résultat vide.
+///
+/// Coût linéaire en passages × termes : l'idf de chaque terme est calculé une
+/// seule fois, hors de la boucle des passages.
 #[allow(clippy::cast_precision_loss)] // comptes de passages et de jetons ≪ 2^52
 pub fn rank(passages: &[&str], query: &str, k: usize) -> Vec<Scored> {
     let docs: Vec<Vec<String>> = passages.iter().map(|p| tokens(p)).collect();
-    // Ordre trié : la somme flottante est ainsi reproductible d'une exécution à l'autre.
-    let terms: BTreeSet<String> = tokens(query).into_iter().collect();
     let total_len: usize = docs.iter().map(Vec::len).sum();
     // Aucun jeton (y compris aucun passage) : rien à classer, et pas de 0/0.
     // Une requête sans jeton donne des scores nuls, filtrés plus bas.
@@ -38,17 +46,23 @@ pub fn rank(passages: &[&str], query: &str, k: usize) -> Vec<Scored> {
     }
     let n = docs.len() as f64;
     let avg_len = total_len as f64 / n;
+    let idf: Vec<(String, f64)> = query_terms(query)
+        .into_iter()
+        .map(|term| {
+            let df = docs.iter().filter(|d| d.contains(&term)).count() as f64;
+            let idf = (1.0 + (n - df + 0.5) / (df + 0.5)).ln();
+            (term, idf)
+        })
+        .collect();
     let mut scored: Vec<Scored> = docs
         .iter()
         .enumerate()
         .filter_map(|(index, doc)| {
             let len_norm = 1.0 - B + B * doc.len() as f64 / avg_len;
-            let score: f64 = terms
+            let score: f64 = idf
                 .iter()
-                .map(|term| {
+                .map(|(term, idf)| {
                     let tf = doc.iter().filter(|t| *t == term).count() as f64;
-                    let df = docs.iter().filter(|d| d.contains(term)).count() as f64;
-                    let idf = (1.0 + (n - df + 0.5) / (df + 0.5)).ln();
                     idf * tf * (K1 + 1.0) / (tf + K1 * len_norm)
                 })
                 .sum();
@@ -124,24 +138,59 @@ mod tests {
     }
 
     #[test]
+    fn query_terms_are_sorted_and_deduplicated() {
+        // Un `HashSet` ne tomberait dans cet ordre qu'une fois sur 720.
+        assert_eq!(
+            query_terms("ff ee dd cc bb aa bb").into_iter().collect::<Vec<_>>(),
+            ["aa", "bb", "cc", "dd", "ee", "ff"]
+        );
+    }
+
+    #[test]
     fn score_sums_terms_in_sorted_order() {
-        // Trois termes : la somme se fait dans l'ordre alphabétique des termes,
-        // au bit près, quel que soit l'ordre de la requête.
-        let passages = ["alpha beta gamma delta", "beta gamma", "gamma epsilon alpha", "zeta"];
+        // Fixture sensible à l'ordre : la somme dans l'ordre trié (aa, bb, cc) et
+        // dans l'ordre (bb, cc, aa) diffèrent d'un bit.
+        let passages = ["bb dd ee cc bb aa", "aa ee bb ee dd", "ee ee", "dd"];
         let n = 4.0f64;
-        let avg = 10.0 / n;
-        let term_score = |df: f64, tf: f64, len: f64| {
+        let avg = 14.0 / n;
+        let len_norm = 1.0 - B + B * 6.0 / avg;
+        let term_score = |df: f64, tf: f64| {
             let idf = (1.0 + (n - df + 0.5) / (df + 0.5)).ln();
-            idf * tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * len / avg))
+            idf * tf * (K1 + 1.0) / (tf + K1 * len_norm)
         };
-        // doc 0 (4 jetons) : alpha df 2, beta df 2, gamma df 3.
-        let expected =
-            term_score(2.0, 1.0, 4.0) + term_score(2.0, 1.0, 4.0) + term_score(3.0, 1.0, 4.0);
-        for query in ["gamma beta alpha", "alpha beta gamma", "beta alpha gamma"] {
-            let ranked = rank(&passages, query, 1);
-            assert_eq!(ranked[0].index, 0);
-            assert_eq!(ranked[0].score.to_bits(), expected.to_bits());
+        // Passage 0 : aa (df 2, tf 1), bb (df 2, tf 2), cc (df 1, tf 1).
+        let (aa, bb, cc) = (term_score(2.0, 1.0), term_score(2.0, 2.0), term_score(1.0, 1.0));
+        let sorted = aa + bb + cc;
+        let unsorted = bb + cc + aa;
+        assert_eq!(sorted.to_bits(), 0x4002_1817_8936_d1f1);
+        assert_eq!(unsorted.to_bits(), 0x4002_1817_8936_d1f0);
+        assert_ne!(sorted.to_bits(), unsorted.to_bits());
+        for query in ["cc bb aa", "aa bb cc", "bb aa cc cc"] {
+            let ranked = rank(&passages, query, 4);
+            let first = ranked.iter().find(|s| s.index == 0).map(|s| s.score.to_bits());
+            assert_eq!(first, Some(sorted.to_bits()));
         }
+    }
+
+    #[test]
+    fn duplicate_query_terms_count_once() {
+        let docs = ["loyer loyer", "bail loyer"];
+        assert_eq!(rank(&docs, "loyer loyer", 5), rank(&docs, "loyer", 5));
+    }
+
+    #[test]
+    fn term_in_every_passage_still_scores() {
+        // df = N : l'idf de Lucene reste strictement positif.
+        assert_eq!(rank(&["loyer", "loyer bail"], "loyer", 5).len(), 2);
+    }
+
+    #[test]
+    fn empty_passage_counts_in_corpus_stats() {
+        // N = 2, df = 1 : idf = ln 2 ; avg = 0.5 ; len_norm = 0.25 + 0.75 * 1 / 0.5 = 1.75.
+        let ranked = rank(&["", "loyer"], "loyer", 5);
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].index, 1);
+        assert_eq!(r12(ranked[0].score), r12(2.0f64.ln() * 2.2 / (1.0 + 1.2 * 1.75)));
     }
 
     proptest! {
@@ -166,7 +215,11 @@ mod tests {
             }
             for pair in ranked.windows(2) {
                 prop_assert!(pair[0].score >= pair[1].score, "scores not sorted");
+                if pair[0].score.to_bits() == pair[1].score.to_bits() {
+                    prop_assert!(pair[0].index < pair[1].index, "tie not broken by index");
+                }
             }
+            prop_assert_eq!(rank(&refs, &query.to_uppercase(), k), ranked);
         }
     }
 }
