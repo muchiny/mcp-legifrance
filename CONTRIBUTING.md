@@ -20,7 +20,7 @@ exigences de qualité (§9) y font foi. Ce fichier dit comment les tenir au quot
 | Lint | `make lint` | zéro avertissement (`clippy::pedantic` inclus) |
 | Tests | `make test` | tous verts |
 | Doc | `make doc` | zéro avertissement |
-| Architecture | `make arch` | aucune dépendance interdite (§2) |
+| Architecture | `make arch` | liste blanche des dépendances normales (`lf-domain` : `thiserror` seul), frontières application et adapters (§2) ; échoue fermé si `cargo metadata` est incomplet |
 | Dépendances | `make deny`, `make machete` | aucun avis, aucune dépendance inutile |
 | Couverture | `make cov` | 100 % lignes, régions, fonctions (`--lib`) |
 | Mutation | `make mutants FILE=…` / CI | 0 mutant `MISSED` |
