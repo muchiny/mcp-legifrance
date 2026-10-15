@@ -40,7 +40,16 @@ pub fn clean(html: &str) -> String {
     normalize_whitespace(&out)
 }
 
-/// Balise en tête de `tail` : (nom en minuscules, fermante, longueur avec `>`).
+/// Balise en tête de `tail`.
+///
+/// Limites connues, figées par `known_tag_limits` : une seule passe, donc
+/// `clean` n'est pas idempotent (`<<b>b>` donne `<b>`) ; un `>` dans un
+/// attribut cité coupe la balise (`<a title="a>b">` s'arrête au `>` de
+/// l'attribut) ; les commentaires `<!-- … -->` restent littéraux (un nom de
+/// balise commence par une lettre). Les blocs (`li`, `div`, `td`…) sont
+/// effacés sans séparateur (hors périmètre).
+///
+/// Résultat : (nom en minuscules, fermante, longueur avec `>`).
 fn tag(tail: &str) -> Option<(String, bool, usize)> {
     // Premier `<` ou `>` après l'ouvrant : un `<` d'abord, et l'ouvrant est littéral.
     // Un seul balayage, donc linéaire même sur « <<<<… ».
@@ -59,6 +68,9 @@ fn tag(tail: &str) -> Option<(String, bool, usize)> {
     starts_with_letter.then_some((name, closing, end + 1))
 }
 
+/// Texte de remplacement d'une balise reconnue : `<br>` donne un saut de ligne,
+/// `<p>` et `</p>` un paragraphe, toute autre balise (ouvrante ou fermante,
+/// `</br>` compris) est effacée sans séparateur.
 fn tag_text(name: &str, closing: bool) -> &'static str {
     match (name, closing) {
         ("br", false) => "\n",
@@ -223,6 +235,22 @@ mod tests {
     }
 
     #[test]
+    fn entities_are_decoded_once() {
+        assert_eq!(clean("&amp;lt;b&amp;gt;"), "&lt;b&gt;");
+        assert_eq!(clean("&lt;script&gt;"), "<script>");
+    }
+
+    #[test]
+    fn known_tag_limits() {
+        // Une seule passe : la sortie peut contenir une balise (non idempotent).
+        assert_eq!(clean("<<b>b>"), "<b>");
+        // Un `>` dans un attribut cité coupe la balise.
+        assert_eq!(clean("<a title=\"a>b\">t</a>"), "b\">t");
+        // Les commentaires restent littéraux.
+        assert_eq!(clean("a<!-- c -->b"), "a<!-- c -->b");
+    }
+
+    #[test]
     fn normalizes_whitespace() {
         assert_eq!(clean("  a \t b\r\n\n\n\n  c  "), "a b\n\nc");
         assert_eq!(clean("\u{a0}a\u{202f}:"), "a :");
@@ -234,6 +262,18 @@ mod tests {
         #[test]
         fn never_panics_and_is_trimmed(s in "\\PC*") {
             let out = clean(&s);
+            prop_assert_eq!(out.trim(), out.as_str());
+            prop_assert!(!out.contains("\n\n\n"));
+        }
+
+        // Générateur de fragments HTML : `\\PC*` ne tire presque jamais `<` ni `&`.
+        // Pas d'idempotence ici (limite connue, voir `known_tag_limits`).
+        #[test]
+        fn html_fragments_give_trimmed_output(parts in proptest::collection::vec(
+            prop_oneof!["<", ">", "&", ";", "#", "x", "br", "/p", "amp", "\n", "[a-z ]{1,3}"],
+            0..40,
+        )) {
+            let out = clean(&parts.concat());
             prop_assert_eq!(out.trim(), out.as_str());
             prop_assert!(!out.contains("\n\n\n"));
         }
