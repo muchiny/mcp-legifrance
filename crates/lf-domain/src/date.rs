@@ -254,6 +254,9 @@ mod tests {
         assert_eq!(CivilDate::from_unix_millis(i64::MIN), None);
         assert_eq!(CivilDate::from_unix_millis(i64::MAX), None);
         assert_eq!(CivilDate::from_unix_millis(-62_135_596_800_001), None); // 0000-12-31
+        assert_eq!(CivilDate::from_unix_millis(-62_135_596_800_000), Some(d(1, 1, 1)));
+        assert_eq!(CivilDate::from_unix_millis(253_402_300_799_999), Some(d(9999, 12, 31)));
+        assert_eq!(CivilDate::from_unix_millis(253_402_300_800_000), None); // 10000-01-01
     }
 
     #[test]
@@ -273,7 +276,54 @@ mod tests {
         assert_eq!(d(2026, 12, 31).to_french(), "31 décembre 2026");
     }
 
+    #[test]
+    fn french_prose_covers_all_twelve_months() {
+        let prose: Vec<String> = (1..=12).map(|m| d(2026, m, 15).to_french()).collect();
+        assert_eq!(
+            prose,
+            [
+                "15 janvier 2026",
+                "15 février 2026",
+                "15 mars 2026",
+                "15 avril 2026",
+                "15 mai 2026",
+                "15 juin 2026",
+                "15 juillet 2026",
+                "15 août 2026",
+                "15 septembre 2026",
+                "15 octobre 2026",
+                "15 novembre 2026",
+                "15 décembre 2026",
+            ]
+        );
+        assert_eq!(d(2026, 3, 1).to_french(), "1er mars 2026");
+    }
+
     proptest! {
+        #[test]
+        fn ordering_is_chronological(
+            (ya, ma, da) in (1u16..=9999, 1u8..=12, 1u8..=28),
+            (yb, mb, db) in (1u16..=9999, 1u8..=12, 1u8..=28),
+        ) {
+            let (a, b) = (d(ya, ma, da), d(yb, mb, db));
+            prop_assert_eq!(a.cmp(&b), days_from_civil(a).cmp(&days_from_civil(b)));
+        }
+
+        #[test]
+        fn display_parse_roundtrip(y in 1u16..=9999, m in 1u8..=12, day in 1u8..=28) {
+            let date = d(y, m, day);
+            prop_assert_eq!(CivilDate::parse(&date.to_string()), Ok(date));
+        }
+
+        #[test]
+        fn millis_in_range_always_give_a_date(
+            millis in -62_135_596_800_000_i64..253_402_300_800_000_i64,
+        ) {
+            let date = CivilDate::from_unix_millis(millis).map(days_from_civil);
+            let day = millis.div_euclid(MILLIS_PER_DAY);
+            prop_assert_eq!(date, Some(day));
+        }
+
         #[test]
         fn civil_roundtrips_through_oracle(y in 1u16..=9999, m in 1u8..=12, day in 1u8..=31) {
             if let Some(date) = CivilDate::new(y, m, day) {
