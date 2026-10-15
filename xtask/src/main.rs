@@ -15,7 +15,7 @@ fn check_arch() -> Result<(), String> {
     }
     let metadata =
         serde_json::from_slice(&output.stdout).map_err(|e| format!("cargo metadata JSON: {e}"))?;
-    let found = violations(&workspace_packages(&metadata));
+    let found = violations(&workspace_packages(&metadata)?);
     if found.is_empty() {
         println!("check-arch: ok");
         Ok(())

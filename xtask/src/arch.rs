@@ -1,9 +1,15 @@
 //! Règle de dépendance de l'architecture hexagonale (00-decisions.md §2).
 //!
-//! `lf-domain` ne dépend d'aucun crate `lf-*` ni d'I/O ; `lf-application` ne
-//! dépend d'aucun adapter ; un adapter ne dépend d'aucun autre adapter ; seul
-//! `lf-app` connaît tout. Seules les dépendances normales comptent (pas `dev`
-//! ni `build`).
+//! `lf-domain` n'a pour dépendance normale que `thiserror` ; `lf-application`
+//! ne dépend d'aucun adapter ; un adapter ne dépend d'aucun autre adapter ;
+//! seul `lf-app` connaît tout. Seules les dépendances normales comptent (pas
+//! `dev` ni `build`).
+//!
+//! La liste blanche de `lf-domain` outille la Global Constraint « dépendance
+//! normale unique `thiserror` », plus stricte que la formulation du §2 (qui
+//! interdit seulement l'I/O et les crates `lf-*`). La porte échoue fermée :
+//! un `cargo metadata` sans membre, sans nom ou sans `dependencies`, ou un
+//! graphe sans `lf-domain`, est une erreur et non un succès à vide.
 
 use serde_json::Value;
 
@@ -16,8 +22,8 @@ pub struct Package {
     pub deps: Vec<String>,
 }
 
-/// Crates d'I/O ou de protocole interdits dans `lf-domain`.
-const DOMAIN_FORBIDDEN: [&str; 6] = ["tokio", "reqwest", "serde_json", "rmcp", "hyper", "moka"];
+/// Seules dépendances normales admises dans `lf-domain`.
+const DOMAIN_ALLOWED: [&str; 1] = ["thiserror"];
 
 fn is_adapter(name: &str) -> bool {
     name.starts_with("lf-adapter-")
@@ -25,7 +31,7 @@ fn is_adapter(name: &str) -> bool {
 
 fn forbidden(package: &str, dep: &str) -> bool {
     match package {
-        "lf-domain" => dep.starts_with("lf-") || DOMAIN_FORBIDDEN.contains(&dep),
+        "lf-domain" => !DOMAIN_ALLOWED.contains(&dep),
         "lf-application" => is_adapter(dep) || dep == "lf-app",
         p if is_adapter(p) => is_adapter(dep) || dep == "lf-app",
         _ => false,
@@ -34,41 +40,58 @@ fn forbidden(package: &str, dep: &str) -> bool {
 
 /// Liste des violations, une ligne lisible par violation.
 pub fn violations(packages: &[Package]) -> Vec<String> {
-    packages
-        .iter()
-        .flat_map(|p| {
+    let missing = (!packages.iter().any(|p| p.name == "lf-domain"))
+        .then(|| "lf-domain missing from workspace metadata".to_owned());
+    missing
+        .into_iter()
+        .chain(packages.iter().flat_map(|p| {
             p.deps
                 .iter()
                 .filter(|dep| forbidden(&p.name, dep))
                 .map(move |dep| format!("{} must not depend on {dep}", p.name))
-        })
+        }))
         .collect()
 }
 
 /// Extrait les membres du workspace de la sortie de `cargo metadata --format-version 1`.
-pub fn workspace_packages(metadata: &Value) -> Vec<Package> {
+///
+/// # Errors
+///
+/// Échoue fermé : aucun membre trouvé, ou un membre sans `name` chaîne ou sans
+/// tableau `dependencies`.
+pub fn workspace_packages(metadata: &Value) -> Result<Vec<Package>, String> {
     let members: Vec<&str> = metadata["workspace_members"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
         .collect();
-    metadata["packages"]
+    let packages = metadata["packages"]
         .as_array()
         .into_iter()
         .flatten()
         .filter(|p| p["id"].as_str().is_some_and(|id| members.contains(&id)))
-        .map(|p| Package {
-            name: p["name"].as_str().unwrap_or_default().to_owned(),
-            deps: p["dependencies"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|d| d["kind"].is_null())
-                .filter_map(|d| d["name"].as_str().map(str::to_owned))
-                .collect(),
-        })
-        .collect()
+        .map(read_package)
+        .collect::<Result<Vec<_>, _>>()?;
+    if packages.is_empty() {
+        return Err("cargo metadata: no workspace member found".to_owned());
+    }
+    Ok(packages)
+}
+
+fn read_package(p: &Value) -> Result<Package, String> {
+    let name = p["name"].as_str().ok_or("cargo metadata: workspace member without a name")?;
+    let dependencies = p["dependencies"]
+        .as_array()
+        .ok_or_else(|| format!("cargo metadata: {name} has no dependencies array"))?;
+    Ok(Package {
+        name: name.to_owned(),
+        deps: dependencies
+            .iter()
+            .filter(|d| d["kind"].is_null())
+            .filter_map(|d| d["name"].as_str().map(str::to_owned))
+            .collect(),
+    })
 }
 
 #[cfg(test)]
@@ -94,37 +117,35 @@ mod tests {
     }
 
     #[test]
-    fn domain_stays_pure() {
+    fn domain_only_allows_thiserror() {
         let graph = [pkg(
             "lf-domain",
-            &[
-                "lf-application",
-                "tokio",
-                "reqwest",
-                "serde_json",
-                "rmcp",
-                "hyper",
-                "moka",
-                "thiserror",
-            ],
+            &["lf-application", "tokio", "regex", "chrono", "futures", "thiserror", "serde_json"],
         )];
         assert_eq!(
             violations(&graph),
             [
                 "lf-domain must not depend on lf-application",
                 "lf-domain must not depend on tokio",
-                "lf-domain must not depend on reqwest",
+                "lf-domain must not depend on regex",
+                "lf-domain must not depend on chrono",
+                "lf-domain must not depend on futures",
                 "lf-domain must not depend on serde_json",
-                "lf-domain must not depend on rmcp",
-                "lf-domain must not depend on hyper",
-                "lf-domain must not depend on moka",
             ]
         );
     }
 
     #[test]
+    fn missing_domain_is_a_violation() {
+        let graph = [pkg("lf-application", &["thiserror"]), pkg("xtask", &[])];
+        assert_eq!(violations(&graph), ["lf-domain missing from workspace metadata"]);
+        assert_eq!(violations(&[]), ["lf-domain missing from workspace metadata"]);
+    }
+
+    #[test]
     fn application_and_adapters_respect_boundaries() {
         let graph = [
+            pkg("lf-domain", &["thiserror"]),
             pkg("lf-application", &["lf-adapter-piste", "lf-app"]),
             pkg("lf-adapter-cache", &["lf-adapter-piste", "lf-app", "lf-application"]),
         ];
@@ -156,13 +177,38 @@ mod tests {
                 { "id": "registry+https://x#thiserror@2.0.21", "name": "thiserror", "dependencies": [] }
             ]
         });
-        assert_eq!(workspace_packages(&metadata), [pkg("lf-domain", &["thiserror"])]);
+        assert_eq!(workspace_packages(&metadata), Ok(vec![pkg("lf-domain", &["thiserror"])]));
     }
 
     #[test]
-    fn tolerates_missing_fields() {
-        assert_eq!(workspace_packages(&json!({})), Vec::<Package>::new());
-        let metadata = json!({ "workspace_members": ["a"], "packages": [{ "id": "a" }] });
-        assert_eq!(workspace_packages(&metadata), [pkg("", &[])]);
+    fn fails_closed_without_members() {
+        let error = Err("cargo metadata: no workspace member found".to_owned());
+        assert_eq!(workspace_packages(&json!({})), error);
+        let metadata = json!({ "workspace_members": ["b"], "packages": [{ "id": "a" }] });
+        assert_eq!(workspace_packages(&metadata), error);
+    }
+
+    #[test]
+    fn fails_closed_on_member_without_name() {
+        let metadata = json!({
+            "workspace_members": ["a"],
+            "packages": [{ "id": "a", "dependencies": [] }]
+        });
+        assert_eq!(
+            workspace_packages(&metadata),
+            Err("cargo metadata: workspace member without a name".to_owned())
+        );
+    }
+
+    #[test]
+    fn fails_closed_on_member_without_dependencies() {
+        let metadata = json!({
+            "workspace_members": ["a"],
+            "packages": [{ "id": "a", "name": "lf-domain" }]
+        });
+        assert_eq!(
+            workspace_packages(&metadata),
+            Err("cargo metadata: lf-domain has no dependencies array".to_owned())
+        );
     }
 }
