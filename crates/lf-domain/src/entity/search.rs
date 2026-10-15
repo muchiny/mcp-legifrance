@@ -44,7 +44,8 @@ pub struct SearchHit {
     pub id: AnyId,
     /// Identifiant chronologique, préféré pour l'URL hors LODA/CODE.
     pub cid: Option<AnyId>,
-    /// Titre nettoyé.
+    /// Titre brut. Le mapper le passe par `text::clean`, car les résultats
+    /// contiennent des balises `<mark>`, y compris entre crochets.
     pub title: Option<String>,
     /// Nature.
     pub nature: Option<String>,

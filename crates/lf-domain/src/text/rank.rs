@@ -1,5 +1,7 @@
 //! Classement BM25 des passages pour le paramètre `focus` (jalon M5).
 //!
+//! Règle nouvelle, absente de la référence (qui n'a pas de BM25).
+//!
 //! Okapi BM25, IDF de Lucene `ln(1 + (N - df + 0.5) / (df + 0.5))` (toujours
 //! positif), `k1 = 1.2`, `b = 0.75`.
 

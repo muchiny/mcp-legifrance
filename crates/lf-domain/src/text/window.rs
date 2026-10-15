@@ -1,5 +1,8 @@
 //! Fenêtres de lecture paginées (`offset` / `max_chars`, jalon M5).
 //!
+//! Règle nouvelle, absente de la référence, qui ne coupe que `snippet[:280]`
+//! (`citations.py:162`) : la fenêtre découle de l'économie de contexte (§6).
+//!
 //! Tient lieu de `text::truncate` (§4 de docs/plan/00-decisions.md) :
 //! `window(t, 0, n).text` est la troncature en fin de phrase.
 //!

@@ -61,7 +61,8 @@ impl Fond {
         }
     }
 
-    /// Lit un nom de fond, sans tenir compte de la casse ni des espaces.
+    /// Lit un nom de fond, sans tenir compte de la casse ni des espaces
+    /// (parité avec `(fond or "").strip().upper()`, `server.py:191`).
     ///
     /// # Errors
     ///

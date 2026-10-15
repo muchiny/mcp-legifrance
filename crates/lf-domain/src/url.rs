@@ -67,7 +67,12 @@ impl From<Fond> for ResourceKind {
 }
 
 /// URL publique d'une ressource ; `id` est un identifiant déjà validé.
-pub fn legifrance_url(kind: ResourceKind, id: &str) -> String {
+///
+/// Divergence avec `citations.py:76-102`, où la référence renvoie `None` pour
+/// un id vide ou un `kind` inconnu : ici la fonction est totale, parce que
+/// `kind` est un enum et que l'id vient toujours d'un identifiant typé déjà
+/// validé (d'où la visibilité `pub(crate)`).
+pub(crate) fn legifrance_url(kind: ResourceKind, id: &str) -> String {
     format!("{WEB_BASE}/{}/{id}", kind.path())
 }
 

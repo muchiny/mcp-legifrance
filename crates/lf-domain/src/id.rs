@@ -1,6 +1,6 @@
 //! Identifiants Légifrance typés (« parse, don't validate »).
 //!
-//! Forme vérifiée sur les 170 identifiants des fixtures de la référence Python
+//! Forme vérifiée sur les 164 identifiants des fixtures de la référence Python
 //! (`tests/fixtures/*.json`, d3b5b13) : préfixe de 8 lettres + 12 chiffres.
 //! Le suffixe de version `_JJ-MM-AAAA` (ex. `LEGITEXT000033205014_08-09-2023`)
 //! est retiré à la normalisation (`citations.py:55-63`). Contrairement à la
@@ -19,9 +19,12 @@ pub const ID_DIGITS: usize = 12;
 /// Normalise une entrée : espaces retirés, suffixe `_…` retiré, majuscules ASCII.
 /// Renvoie `None` si le reste n'a pas la forme `[A-Z]{8}[0-9]{12}`.
 ///
-/// La découpe se fait au premier `_` : tout ce qui suit est ignoré, comme dans
-/// la référence (`citations.py:55-63`). Divergences assumées :
-/// - `CONSTEXT` est accepté, la référence l'oublie (`citations.py:33-44`) ;
+/// La découpe se fait au premier `_` : tout ce qui suit est ignoré
+/// (`citations.py:55-63`). Divergences assumées :
+/// - `CONSTEXT` est accepté, la référence l'oublie (`citations.py:34-44`) ;
+/// - la référence ne découpe au premier `_` que si la tête porte un préfixe
+///   connu (`citations.py:59-62`), ici la découpe vaut pour tout préfixe de
+///   8 lettres ;
 /// - `trim` et mise en majuscules ASCII, par tolérance envers les
 ///   identifiants tapés par un humain ou un modèle (la référence ne le fait pas).
 fn normalize(input: &str) -> Option<String> {

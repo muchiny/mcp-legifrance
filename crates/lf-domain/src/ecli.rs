@@ -1,5 +1,8 @@
 //! European Case Law Identifier, tel que renvoyé par PISTE — jamais fabriqué.
 //!
+//! Règle nouvelle, absente de la référence, qui stocke l'ECLI brut
+//! (`models.py:177`, `server.py:48`).
+//!
 //! Forme : `ECLI:FR:<juridiction 1-7>:<année 4>:<numéro 1-25>` (conclusions du
 //! Conseil de l'UE 2011/C 127/01, annexe). Exemples des fixtures :
 //! `ECLI:FR:CC:2025:2025.1173.QPC`, `ECLI:FR:CCASS:2025:C100399`,
@@ -28,7 +31,7 @@ fn ordinal_ok(ordinal: &str) -> bool {
 }
 
 impl Ecli {
-    /// Valide `input` (espaces autour tolérés).
+    /// Valide `input` (blancs Unicode autour tolérés, `str::trim`).
     ///
     /// # Errors
     ///

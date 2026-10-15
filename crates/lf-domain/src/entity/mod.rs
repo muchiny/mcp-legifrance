@@ -1,5 +1,5 @@
-//! Entités renvoyées par le corpus. Les entités consultables (et, à la tâche 12,
-//! chaque `SearchHit`) implémentent [`Citable`](crate::citation::Citable) ;
+//! Entités renvoyées par le corpus. Les entités consultables et chaque
+//! `SearchHit` implémentent [`Citable`](crate::citation::Citable) ;
 //! `TocEntry` et `TextBody` non.
 //!
 //! Les champs publics en français (`etat`, `juridiction`, `raison_sociale`…)

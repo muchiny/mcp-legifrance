@@ -1,5 +1,10 @@
 //! Tokenisation pour la recherche plein texte : minuscules, accents français
 //! repliés, découpe sur les non-alphanumériques, jetons d'au moins 2 caractères.
+//!
+//! Règle nouvelle, absente de la référence (qui n'a pas de BM25).
+//!
+//! Limite : NFD non replié (PISTE renvoie du NFC) ; normalisation de `focus`
+//! en M5.
 
 /// Minuscules et accents français repliés (`é` → `e`, `œ` → `oe`).
 pub(crate) fn fold(s: &str) -> String {
