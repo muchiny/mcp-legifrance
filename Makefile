@@ -56,7 +56,7 @@ mutants: mem-check
 mutants-diff: mem-check
 	@set -e; files=$$(git diff --name-only "$(BASE)...HEAD" -- '*.rs'); \
 	for f in $$files; do \
-		if [ -f "$$f" ]; then $(MEM_CHECK) && $(MUTANTS_SAFE) --file "$$f"; fi; \
+		if [ -f "$$f" ]; then $(MEM_CHECK) || exit 1; $(MUTANTS_SAFE) --file "$$f"; fi; \
 	done
 
 ci: fmt-check lint test doc arch deny machete cov
