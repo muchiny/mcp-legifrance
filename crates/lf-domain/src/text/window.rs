@@ -7,7 +7,7 @@
 //! compte pas comme fin de phrase, sinon la fenêtre trancherait « l'article L. |
 //! 1234-5 » et séparerait une citation de son numéro. Règle nouvelle, absente
 //! de la référence : un point est une fin de phrase si le mot qui le précède
-//! est non vide et n'est pas une abréviation (une lettre seule, ou un mot de
+//! est vide ou n'est pas une abréviation (une lettre seule, ou un mot de
 //! [`ABBREVIATIONS`]) ; sinon ce blanc est un espace ordinaire (repli). `! ? …
 //! ;` et le saut de ligne restent des fins de phrase. Limite : on n'exige pas
 //! de majuscule après le point.
@@ -74,7 +74,7 @@ fn ends_sentence(head: &str, j: usize, p: char) -> bool {
         .rsplit(|c: char| !c.is_alphanumeric())
         .next()
         .unwrap_or_default();
-    !word.is_empty() && !is_abbreviation(word)
+    word.is_empty() || !is_abbreviation(word)
 }
 
 /// Coupe juste après un espace, dans la seconde moitié de `head` : d'abord un
@@ -176,10 +176,11 @@ mod tests {
             Window { text: "Voir les dispositions de l'art. 9 ", next_offset: Some(34) }
         );
         // Lettres seules : « M. Amine G. ».
+        // Un espace ordinaire plus tard : sans la règle, la coupe tomberait à 26.
         let text = "Le contrat de M. Amine G. porte sur un bail";
         assert_eq!(
-            window(text, 0, 28),
-            Window { text: "Le contrat de M. Amine G. ", next_offset: Some(26) }
+            window(text, 0, 34),
+            Window { text: "Le contrat de M. Amine G. porte ", next_offset: Some(32) }
         );
     }
 
@@ -192,9 +193,26 @@ mod tests {
             window(text, 0, 30),
             Window { text: "Il hésite à conclure... ", next_offset: Some(24) }
         );
-        // Points seuls : aucun mot, donc pas une fin de phrase (repli sur l'espace).
-        let text = "a bbbbbbbbbb . cccccccc";
-        assert_eq!(window(text, 0, 20), Window { text: "a bbbbbbbbbb . ", next_offset: Some(15) });
+        // Point sans mot devant : seule une abréviation bloque, c'est une fin de phrase.
+        let text = "a bbbbbbbbbbbbbbbbbbbb . cc dd ee ff gg";
+        assert_eq!(
+            window(text, 0, 34),
+            Window { text: "a bbbbbbbbbbbbbbbbbbbb . ", next_offset: Some(25) }
+        );
+    }
+
+    #[test]
+    fn dot_after_punctuation_or_symbol_ends_a_sentence() {
+        // Guillemet, parenthèse, apostrophe, symbole : le mot devant le point est vide.
+        for closing in ["».", ").", "\".", "’.", "€.", "%."] {
+            let text = format!("bail résilié{closing} Suite du texte long");
+            let expected = format!("bail résilié{closing} ");
+            assert_eq!(
+                window(&text, 0, 26),
+                Window { text: &expected, next_offset: Some(15) },
+                "{closing}"
+            );
+        }
     }
 
     #[test]
