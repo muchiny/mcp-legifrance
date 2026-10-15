@@ -1,4 +1,6 @@
 > **Brouillon en cours** — décisions communes du plan de réécriture Rust/hexagonale (MCP 2026-07-28). Le plan complet (architecture, domaine, adapter PISTE, outils MCP, qualité, feuille de route, distribution, ADR) remplacera ce fichier.
+>
+> Plans d'implémentation exécutables (format superpowers, tâche par tâche, TDD) : `docs/superpowers/plans/`. Plan 1 = M0 + M1 (`2026-10-15-m0-m1-fondations-domaine.md`). Les exigences de qualité du §9 s'appliquent à tous les plans.
 
 # Décisions communes — plan de réécriture Rust/hexagonale du MCP Légifrance
 
@@ -96,3 +98,25 @@ Règle de dépendance (vérifiée en CI, ex. `cargo deny` bans / script `cargo m
 - Q6 Ouverture réseau du conteneur de dev (`static.crates.io`, `echanges.dila.gouv.fr`).
 - Q7 Versions MCP legacy à servir (proposition : 2025-11-25 et 2025-06-18 ; 2025-03-26 ?).
 - Q8 Valeurs `ttlMs`/`cacheScope` (données publiques servies via un compte PISTE : `public` ou `private` ?).
+- Q9 Typographie des citations. Proposition retenue par le plan 1 (réversible) : français correct, soit `décision`, `délibération`, mois accentués (`février`, `août`, `décembre`) et `1er` pour le premier du mois. La référence écrit `decision`, `deliberation`, `fevrier` et `1 janvier` (`citations.py:283-318`, `376-378`), alors que Légifrance accentue lui-même ses titres (fixture `consult_cnil.json` : « Délibération SAN-2026-002 du 8 janvier 2026 »).
+- Q10 **NON VÉRIFIÉ** : l'URL `/codes/article_lc/<LEGIARTI>` utilisée par la référence pour tout `LEGIARTI` (`citations.py:262`) résout-elle aussi pour l'article d'une loi non codifiée ? À vérifier en M2 : ouvrir l'URL d'un `LEGIARTI` tiré de `consult_loda.json` et noter le code HTTP final.
+
+## 9. Qualité : tests unitaires, couverture, mutation (EXIGENCE UTILISATEUR)
+- Principe : **tests unitaires au maximum, mutation testing au maximum, couverture au maximum**. Les seuils ci-dessous bloquent, en local (`make ci`, `make mutants`) comme en CI. Ils ne baissent jamais ; un nouveau crate entre directement à ces seuils.
+- TDD strict : test rouge, code minimal, test vert, refactorisation. Toute règle portée de la référence Python cite `fichier:ligne` dans le code ou le test.
+- Tests unitaires dans le fichier du code testé (`#[cfg(test)] mod tests`), avec accès aux items privés. Viennent en plus :
+  - des propriétés `proptest` pour chaque parseur, normaliseur et utilitaire texte : ne panique jamais, aller-retour, partition exacte ;
+  - des cibles `cargo-fuzz` pour les entrées non fiables (identifiants, dates, HTML, texte) ;
+  - en M2, les fixtures JSON de la référence pour le mapping DTO.
+- Couverture mesurée par `cargo llvm-cov --workspace --lib` : **100 % des lignes, des régions et des fonctions**. Le code de test compte dans la mesure, d'où trois formes interdites dans les tests (détail dans `CONTRIBUTING.md`) :
+  - `assert!` avec des arguments de message non capturés ;
+  - `assert!(matches!(…))` ;
+  - `let … else { panic!() }`.
+
+  Les adapters à I/O isolent leur logique en fonctions pures testées (mapping, retry, backoff, rendu). La glue irréductible (`main.rs`, appel réseau brut) tient dans des fichiers minces, exclus nommément et avec justification.
+- Mutation par `cargo-mutants` : **0 mutant `MISSED`** sur les mutants viables. Un `TIMEOUT` (code de sortie 3) bloque aussi. Toute boucle doit donc garantir sa progression, même mutée : consommer au moins un élément par tour, ou borner le nombre de tours. Un mutant de `text::clean` bouclait sans fin à l'essai à blanc. Un mutant n'est exclu que s'il est prouvé équivalent, preuve en commentaire dans `.cargo/mutants.toml` (`exclude_re`).
+  - En local, un fichier à la fois : `make mutants FILE=…`, soit `TMPDIR=/var/tmp NEXTEST_TEST_THREADS=2 cargo mutants -j 1 --file …` après contrôle mémoire, selon la règle WSL.
+  - En CI, le diff de chaque PR est muté et bloque la PR. Le workspace entier est balayé chaque semaine en 4 shards, avec les cibles de fuzz.
+- Mesure de référence : essai à blanc du plan 1 sur M0–M1, le 2026-10-15. Le relevé (nombre de tests, couverture lignes/régions/fonctions, mutants testés et survivants) figure dans l'en-tête du plan 1.
+- Outils écartés : `typos`, faux positifs sur le français (30 mots distincts relevés sur l'essai à blanc).
+- Fin de jalon : agents `quality-checker`, `test-amplifier`, `security-auditor` puis `code-reviewer`, dans l'ordre de `~/.claude/rules/agent-coordination.md`.
