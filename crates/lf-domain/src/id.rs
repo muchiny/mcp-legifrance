@@ -345,6 +345,11 @@ mod tests {
         // Tout suffixe après le premier « _ » est ignoré (citations.py:55-63).
         let any = LegiTextId::parse("LEGITEXT000006070721_foo").unwrap();
         assert_eq!(any.as_str(), "LEGITEXT000006070721");
+        // Suffixe vide : « _ » seul est accepté.
+        assert_eq!(
+            LegiTextId::parse("LEGITEXT000006070721_").unwrap().as_str(),
+            "LEGITEXT000006070721"
+        );
     }
 
     #[test]
@@ -380,6 +385,10 @@ mod tests {
             "LEGITEX1000006070721",
             "LÉGITEXT000006070721", // préfixe non ASCII
             "_LEGITEXT000006070721",
+            "LEGITEXT 000006070721",
+            "LEGITEX€000006070721", // multi-octet à la frontière du préfixe (`split_at_checked`)
+            // Blanc avant le « _ » : comportement actuel figé (entrée improbable).
+            "LEGITEXT000006070721 _x",
         ] {
             assert!(LegiTextId::parse(bad).is_err(), "{bad:?} doit être refusé");
         }
@@ -463,7 +472,41 @@ mod tests {
         );
     }
 
+    /// Chaque famille accepte son préfixe et refuse celui des neuf autres.
+    macro_rules! each_kind_rejects_every_other_prefix {
+        ($($kind:ty),+ $(,)?) => {{
+            let prefixes = [$(<$kind>::PREFIX),+];
+            $(
+                let expected = <$kind>::PREFIX;
+                for prefix in prefixes {
+                    let input = format!("{prefix}000006070721");
+                    let parsed = Id::<$kind>::parse(&input);
+                    assert_eq!(parsed.is_ok(), prefix == expected, "{input} as {expected}");
+                }
+            )+
+        }};
+    }
+
+    #[test]
+    fn each_kind_rejects_every_other_prefix() {
+        each_kind_rejects_every_other_prefix!(
+            LegiText, LegiArti, JorfText, KaliText, KaliArti, JuriText, ConsText, CetaText,
+            CnilText, AccoText,
+        );
+    }
+
     proptest! {
+        #[test]
+        fn any_id_roundtrips(
+            prefix in "[a-zA-Z]{8}",
+            digits in "[0-9]{12}",
+            pad in "[ \\t]{0,3}",
+        ) {
+            let id = AnyId::parse(&format!("{pad}{prefix}{digits}{pad}")).unwrap();
+            prop_assert_eq!(id.as_str(), format!("{}{digits}", prefix.to_ascii_uppercase()));
+            prop_assert_eq!(AnyId::parse(id.as_str()).unwrap(), id);
+        }
+
         #[test]
         fn parse_never_panics(s in "\\PC*") {
             let _ = LegiTextId::parse(&s);
