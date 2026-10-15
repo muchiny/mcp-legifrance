@@ -47,7 +47,7 @@ Règle de dépendance (vérifiée en CI, ex. `cargo deny` bans / script `cargo m
 - `CitationContract { eli_uri, human_readable_citation, source_url }` présent sur toute entité citable ; `eli_uri` = URL Légifrance stable (pas d'ELI fabriqué), avec la note ELI.
 - Entités : `SearchHit`, `SearchPage`, `Act`, `TocEntry`, `ArticleText`, `Decision`, `Deliberation`, `Convention`, `CompanyAgreement`, `Coverage`.
 - Parseur de citations : `lf_domain::citation::parse(&str) -> Vec<Spanned<CitationRef>>` (v0.2).
-- Texte : `text::clean` (HTML→texte, espaces, `<mark>`), `text::passages` (découpe), `text::rank` (BM25), `text::truncate` (coupe en fin de phrase).
+- Texte : `text::clean` (HTML→texte, espaces, `<mark>`), `text::passages` (découpe), `text::rank` (BM25), `text::window` (tient lieu de `text::truncate` : coupe en fin de phrase).
 - Erreurs : `DomainError` (thiserror).
 
 ## 5. Erreurs et contrat MCP
@@ -77,8 +77,8 @@ Règle de dépendance (vérifiée en CI, ex. `cargo deny` bans / script `cargo m
 ## 7. Jalons (doivent être identiques partout)
 | Jalon | Contenu | Version |
 |---|---|---|
-| M0 Fondations | workspace, toolchain, lints, rustfmt, CI, cargo-deny, ADR, CONTRIBUTING, NOTICE/licence | — |
-| M1 Domaine | IDs, fonds, entités, contrat de citation, règles de citation de parité, URL, dates FR, utilitaires texte | — |
+| M0 Fondations | workspace, toolchain, lints, rustfmt, CI, cargo-deny, ADR, CONTRIBUTING, NOTICE/licence ; livré, plan 1 | — |
+| M1 Domaine | IDs, fonds, entités, contrat de citation, règles de citation de parité, URL, dates FR, utilitaires texte ; livré, plan 1 | — |
 | M2 Adapter PISTE | OAuth, client, retries, rate limit, DTO, mapping, réparation d'encodage, tests wiremock + fixtures | — |
 | M3 Application | ports, cas d'usage, `Audited`, `lf-adapter-audit`, `lf-adapter-cache`, `Clock` | — |
 | M4 Adapter MCP (parité) | 8 outils, instructions, mapping d'erreurs, descriptor lock, test de dérive des instructions, binaire `lf-app` | — |
