@@ -79,6 +79,8 @@ mod tests {
         ] {
             assert_eq!(Ecli::parse(ecli).unwrap().as_str(), ecli);
         }
+        // Juridiction alphanumérique : le chiffre est admis.
+        assert_eq!(Ecli::parse("ECLI:FR:CE2:2025:1").unwrap().as_str(), "ECLI:FR:CE2:2025:1");
         assert_eq!(Ecli::parse(" ECLI:FR:CC:2025:1 ").unwrap().to_string(), "ECLI:FR:CC:2025:1");
     }
 
@@ -106,6 +108,7 @@ mod tests {
             "ECLI:FR:CC:2025:",
             "ECLI:FR:CC:2025:1-2",
             "ECLI:FR:CC:2025:1:extra",
+            "ECLI:FR:CC:2025:é",
             "ECLI:FR:CC:2025",
         ] {
             assert_eq!(
@@ -117,6 +120,14 @@ mod tests {
     }
 
     proptest! {
+        #[test]
+        fn valid_eclis_roundtrip(
+            s in "ECLI:FR:[A-Z0-9]{1,7}:[0-9]{4}:[A-Za-z0-9.]{1,25}",
+        ) {
+            let ecli = Ecli::parse(&s).unwrap();
+            prop_assert_eq!(ecli.as_str(), s.as_str());
+        }
+
         #[test]
         fn parse_never_panics(s in "\\PC*") {
             let _ = Ecli::parse(&s);
