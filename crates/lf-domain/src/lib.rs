@@ -4,5 +4,6 @@
 //! URL Légifrance, contrat de citation, entités et utilitaires texte.
 
 pub mod error;
+pub mod id;
 
 pub use error::DomainError;
