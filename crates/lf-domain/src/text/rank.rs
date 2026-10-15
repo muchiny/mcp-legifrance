@@ -3,7 +3,7 @@
 //! Okapi BM25, IDF de Lucene `ln(1 + (N - df + 0.5) / (df + 0.5))` (toujours
 //! positif), `k1 = 1.2`, `b = 0.75`.
 
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use super::fold::tokens;
 
@@ -26,7 +26,8 @@ pub struct Scored {
 #[allow(clippy::cast_precision_loss)] // comptes de passages et de jetons ≪ 2^52
 pub fn rank(passages: &[&str], query: &str, k: usize) -> Vec<Scored> {
     let docs: Vec<Vec<String>> = passages.iter().map(|p| tokens(p)).collect();
-    let terms: HashSet<String> = tokens(query).into_iter().collect();
+    // Ordre trié : la somme flottante est ainsi reproductible d'une exécution à l'autre.
+    let terms: BTreeSet<String> = tokens(query).into_iter().collect();
     let total_len: usize = docs.iter().map(Vec::len).sum();
     // Aucun jeton (y compris aucun passage) : rien à classer, et pas de 0/0.
     // Une requête sans jeton donne des scores nuls, filtrés plus bas.
@@ -120,6 +121,27 @@ mod tests {
         assert_eq!(rank(&["loyer"], "loyer", 0), []);
     }
 
+    #[test]
+    fn score_sums_terms_in_sorted_order() {
+        // Trois termes : la somme se fait dans l'ordre alphabétique des termes,
+        // au bit près, quel que soit l'ordre de la requête.
+        let passages = ["alpha beta gamma delta", "beta gamma", "gamma epsilon alpha", "zeta"];
+        let n = 4.0f64;
+        let avg = 10.0 / n;
+        let term_score = |df: f64, tf: f64, len: f64| {
+            let idf = (1.0 + (n - df + 0.5) / (df + 0.5)).ln();
+            idf * tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * len / avg))
+        };
+        // doc 0 (4 jetons) : alpha df 2, beta df 2, gamma df 3.
+        let expected =
+            term_score(2.0, 1.0, 4.0) + term_score(2.0, 1.0, 4.0) + term_score(3.0, 1.0, 4.0);
+        for query in ["gamma beta alpha", "alpha beta gamma", "beta alpha gamma"] {
+            let ranked = rank(&passages, query, 1);
+            assert_eq!(ranked[0].index, 0);
+            assert_eq!(ranked[0].score.to_bits(), expected.to_bits());
+        }
+    }
+
     proptest! {
         /// Le premier passage est dupliqué en dernier et la requête est son
         /// premier mot : au moins deux résultats (k >= 2), donc les boucles de
@@ -136,8 +158,9 @@ mod tests {
             prop_assert!(ranked.len() >= 2, "expected at least two results");
             prop_assert!(ranked.len() <= k);
             for s in &ranked {
-                prop_assert!(s.score > 0.0 && s.score.is_finite(), "bad score {}", s.score);
-                prop_assert!(s.index < docs.len(), "index out of range: {}", s.index);
+                let Scored { index, score } = *s;
+                prop_assert!(score > 0.0 && score.is_finite(), "bad score {score}");
+                prop_assert!(index < docs.len(), "index out of range: {index}");
             }
             for pair in ranked.windows(2) {
                 prop_assert!(pair[0].score >= pair[1].score, "scores not sorted");
