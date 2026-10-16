@@ -125,7 +125,7 @@ Champs (`SPEC/server/tools.mdx:284-302` ; `SCHEMA:1973-2015`, `BaseMetadata` `:9
 | *(contrainte client)* | L'API Claude exige `^[a-zA-Z0-9_-]{1,128}$`, **sans point** (`[API-TOOLS]`, tableau « Specifying client tools »). Claude Code écarte un tool dont le nom complet `mcp__<server>__<tool>` dépasse 128 caractères (`[CC-DOC]`, « Tools with names longer than 128 characters »). Le traitement des points dans un nom de tool MCP par Claude Code est **NON VÉRIFIÉ**. **→ Noms `snake_case` ASCII sans point.** | web |
 | *(collisions)* | L'unicité ne vaut que dans un serveur ; les agrégateurs SHOULD préfixer par serveur, et `serverInfo.name` n'est pas fiable pour désambiguïser | `SPEC/server/tools.mdx:322-332` |
 | `title` | Nom d'affichage optionnel. Précédence d'affichage selon la spec : `title`, puis `annotations.title`, puis `name` (`SCHEMA:2010`) | `SPEC/server/tools.mdx:287` |
-| *(écart client)* | VS Code applique l'ordre inverse : `annotations.title || title || name` (`[VS] …ToolContribution.ts:148-149`, `:228-229`). **→ Renseigner les deux avec la même valeur.** | `[VS]` |
+| *(écart client)* | VS Code applique l'ordre inverse : `annotations.title \|\| title \|\| name` (`[VS] …ToolContribution.ts:148-149`, `:228-229`). **→ Renseigner les deux avec la même valeur.** | `[VS]` |
 | `description` | « hint » pour le modèle | `SCHEMA:1974-1979` |
 | `icons` | Optionnel ; `src` en HTTPS ou `data:` ; le client doit rejeter les autres schémas et se méfier des SVG | `SPEC/basic/index.mdx:448-498` ; `SCHEMA:890-927` |
 | `inputSchema` | Objet JSON Schema, **`type: "object"` requis à la racine**, tout mot-clé 2020-12 admis ; dialecte 2020-12 par défaut sans `$schema` | `SCHEMA:1981-1997` ; `SPEC/server/tools.mdx:290-296` |

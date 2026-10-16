@@ -2,8 +2,9 @@
 
 - **Statut** : Accepté
 - **Date** : 2026-10-15
-- **Jalons concernés** : spike rmcp (compilation du squelette, avant M3), M3 (ports, `LegalService`, décorateurs), M9 (`AnyCorpus`)
+- **Jalons concernés** : spike rmcp (compilation du squelette, avant la conception des ports de M3 ; 00 §11.1), M3 (ports, faits avant l'adapter de M2 : T-M3-01, 00 §11 ; `LegalService`, décorateurs), M9 (`AnyCorpus`)
 - **Questions liées** : —
+- Révisé le 2026-10-15 (revue) : délai global par l'échéance `Deadline` en variable locale de tâche, sans paramètre ajouté aux ports ; liste fermée des crates externes de `lf-application`, dont tokio `rt` pour `task_local!` seulement (00 §2-§3, AM-07) ; contrôle final du 2026-10-16 : liste cible, dépendances déclarées seulement quand un code les emploie (00 §2).
 
 ## Contexte
 
@@ -18,6 +19,7 @@
   - des décorateurs génériques : `CachedCorpus<C>` ([ADR-0007](0007-cache-memoire-port.md)) et `Audited` ([ADR-0008](0008-audit-decorateur-strict.md)) ;
   - un choix d'adapter à l'exécution en M9 ([ADR-0004](0004-piste-puis-dila.md)).
 - **Proposition écartée.** La recherche 07 §9.2 proposait un port `CitationResolver` en `async_trait` (annexe B §6.6).
+- **Délai global.** Les signatures des ports n'ont pas de paramètre de délai (00 §3), mais l'adapter PISTE doit plafonner ses réessais et ses attentes par le délai de l'outil (00 §8 ; D-14). `tokio::task_local!` n'existe qu'avec la feature tokio `rt` (documentation de tokio, « Available on crate feature rt only » ; à confirmer à la création de `lf-application` en M2 (spike `task_local!`, T-M0-15, 00 §11.1)).
 
 ## Décision
 
@@ -45,7 +47,12 @@
 3. **Choix à l'exécution** : un `enum AnyCorpus` dans `lf-app` (M9), qui implémente le port par un `match` sur chaque méthode.
 4. **Côté entrant** : pas de trait. Chaque cas d'usage est un `…UseCase` avec `async fn execute(&self, input) -> Result<Output, AppError>`, regroupé dans `LegalService` (00 §3).
 5. **Ni `async_trait` ni `dyn`**, sauf justification dans un **nouvel ADR**. Aucune exception n'est prévue en v0.x.
-6. **Runtime dans l'application.** `lf-application` peut utiliser `tokio` (features `time` et `macros` seulement) et `futures`, pour le délai global et le `select!` d'annulation dans `Audited`. Le contrôle est fait par `check-arch` (02 §13, §13.1 n° 7), qui borne les features de tokio à partir de M3. Aucune E/S n'y est faite.
+6. **Runtime dans l'application.** Les crates externes de `lf-application` forment une liste fermée (00 §2), vérifiée par `cargo xtask check-arch` (`make arch` ; règle R2 de 02 §4.1, §13.1 n° 7, ajoutée à `check-arch` en M2 à la création de `lf-application`, features de tokio bornées en M3 ; 00 §11.1) : `thiserror`, `chrono` (`std`), `tracing`, `futures` (`std`, `async-await`), `tokio` (`time`, `macros`, `rt` — `rt` pour `task_local!` seulement), `similar` (M7). Sont interdits : `serde`, `serde_json`, `rmcp`, `reqwest`, `moka`, `governor`, `backon`, `async-trait`. Aucune E/S n'y est faite, aucune tâche n'y est lancée, aucun runtime n'y est construit. Cette liste décrit la cible : le squelette ne déclare une dépendance que lorsqu'un code l'emploie (00 §2).
+7. **Délai global** (00 §3) :
+   - `Audited` mesure la durée (`tokio::time::Instant`), exécute le cas d'usage sous `tokio::time::timeout(LF_TOOL_DEADLINE_S)`, seule garde dure, et publie l'échéance dans `lf_application::deadline::Deadline`, variable locale de tâche (`tokio::task_local!`) ;
+   - les adapters la lisent (`Deadline::current_or(défaut)`) comme une **durée restante** (`Duration`), convertie dans leur propre horloge monotone à l'entrée de la méthode du port, ce qui garde cohérentes leurs horloges de test ; ils ne programment aucune tentative ni attente qui la dépasserait et rendent tout de suite une erreur explicite (`RateLimited { retry_after }`, `Timeout` ou dernière erreur) ;
+   - les cas d'usage n'utilisent pas `tokio::spawn` (sinon, propagation explicite) ; ceux à appels multiples cessent d'en lancer à 80 % du délai et rendent un résultat partiel motivé ;
+   - dépassement → `upstream_error` (`UpstreamCause::Deadline`).
 
 ## Conséquences
 
@@ -64,15 +71,17 @@
 
 ### À surveiller
 
-- **NON VÉRIFIÉ** [v:squelette-compile-m0] : le squelette (traits, décorateurs, `LegalService` dans un `ServerHandler` rmcp) compile, et ses futurs sont `Send`, au spike rmcp, avant la conception des ports de M3.
+- **NON VÉRIFIÉ** [V-01 · squelette-compile-m0] : le squelette (traits, décorateurs, `LegalService` dans un `ServerHandler` rmcp) compile, et ses futurs sont `Send`, au spike rmcp, avant la conception des ports de M3.
 - Si un vrai `dyn` devient nécessaire (registre d'extensions), on reprend le motif de rmcp : un trait statique, plus un trait objet-sûr à futurs boxés avec une implémentation générique (`service.rs:334-336`, recherche 04 §5.1, point 5). Cela passe par un nouvel ADR.
 - Le nombre de paramètres génériques : au-delà de trois, regrouper les ports dans un trait « bundle » à types associés (recherche 04 §5.1, point 7).
+- `Deadline` n'est visible que dans la tâche qui exécute le cas d'usage : un `tokio::spawn` ajouté plus tard perdrait l'échéance sans erreur de compilation. Le test `deadline_is_published_to_the_port` et la revue (02 §7.1) le gardent.
 
 ### Tests qui la gardent
 
 - Suite de contrat du port exécutée sur `FakeCorpus` et `PisteCorpus` (06 §14 M3), puis sur `DilaCorpus` en M9.
 - Assertion de compilation `Send` sur les futurs des cas d'usage (proposition : `fn assert_send<T: Send>(_: &T)`).
-- `cargo xtask check-arch` (`make arch`) : features de tokio admises dans `lf-application`.
+- `cargo xtask check-arch` (`make arch`) : liste fermée des crates externes et features de tokio admises dans `lf-application` ; `cargo check -p lf-application` seul (02 §4.4).
+- `deadline_is_published_to_the_port`, `deadline_maps_to_upstream_error_before_deadline_plus_epsilon`, `multi_call_use_case_stops_at_80_percent` (application) ; `deadline_from_task_local_is_used`, `no_deadline_published_uses_tool_deadline`, `tool_deadline_caps_retries` (adapter PISTE) (06 §2.2, §2.3).
 
 ## Alternatives envisagées
 
@@ -84,6 +93,8 @@
 | `Box<dyn LegalCorpus>` pour PISTE et DILA | Exige l'objet-sûreté et le boxing des futurs ; l'enum suffit pour deux variantes (02 §13). |
 | Port `CitationResolver` séparé, en `async_trait` (recherche 07 §9.2) | 00 §3 impose un port sortant unique. La résolution est un service de l'application (annexe B §6.6). |
 | Méthode `sleep` dans `Clock` au lieu de `tokio::time` | Modifierait le port normatif de 00 §3 (02 §13). |
+| Paramètre de délai dans chaque méthode du port | Touche tous les cas d'usage, `CachedCorpus`, `AnyCorpus` et les faux, pour un effet obtenu par `Deadline` (AM-07). |
+| Garde extérieure seule, ou budget de l'adapter mesuré depuis le début de l'appel au port | L'adapter programmerait des attentes que la garde couperait (« tool deadline exceeded » au lieu de `rate_limited` avec délai) et ignorerait le temps déjà consommé par un cas d'usage à appels multiples (02 §13). |
 
 ## Références et sources
 
