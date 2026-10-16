@@ -3,7 +3,8 @@
 - **Statut** : Accepté
 - **Date** : 2026-10-15
 - **Jalons concernés** : M4 (vues de sortie, schémas), M5 (économie de contexte, budgets mesurés : v0.1.0)
-- **Questions liées** : —
+- **Questions liées** : Q11 (`openWorldHint`, proposition adoptée par défaut, à confirmer avant v0.1.0)
+- Révisé le 2026-10-15 (revue) : champs omissibles en `#[serde(default, …)]` ; `detail = "full"` quand `offset > 0` (AM-43) ; sources du résumé (AM-16) ; plafond dur de 45 000 caractères estimé puis mesuré, avec ordre de dégradation complet (AM-15) ; annotations et Q11 (AM-14).
 
 ## Contexte
 
@@ -26,8 +27,9 @@
 ## Décision
 
 1. **Le `structuredContent` EST la réponse compacte** (00 §6) :
-   - champs `None` omis (`skip_serializing_if`) ;
+   - champs `None` omis (`skip_serializing_if = "Option::is_none"`) ;
    - listes optionnelles vides omises ; les listes principales (`hits`, `toc`, `passages`…) restent toujours présentes ;
+   - tout champ non-`Option` omis conditionnellement (liste vide, booléen par défaut) porte `#[serde(default, skip_serializing_if = …)]` : sans `default`, schemars le laisse dans `required`, car rmcp génère l'`outputSchema` en contrat `Deserialize`, et le `structuredContent` qui l'omet ne serait plus conforme au schéma annoncé (05 §1.4 règle 1 ; 02 §3.6) ;
    - aucun doublon : `eli_uri` disparaît ([ADR-0009](0009-contrat-de-citation-v2.md)) et `title` est omis quand `citation` le contient ;
    - aucune note répétée : elles vont dans les instructions et dans `fr_coverage` ;
    - racine toujours objet.
@@ -37,16 +39,20 @@
 
    | Paramètre | Défaut | Bornes | Effet |
    |---|---|---|---|
-   | `detail` | `"summary"` | `"summary"`, `"full"` | `summary` : sommaire officiel, sinon dispositif, sinon début du texte |
+   | `detail` | `"summary"` ; `"full"` quand `offset > 0` est fourni sans `detail` | `"summary"`, `"full"` ; `"summary"` explicite avec `offset > 0` → `invalid_arg` | `summary` : sommaire officiel (`OfficialSummary` mappé par fond), sinon dispositif, sinon début du texte (`lead`), indiqué par `summary_source` ; résumé ≤ min(`max_chars`, 1 200) |
    | `offset` | 0 | ≥ 0, en caractères Unicode | début de la fenêtre |
    | `max_chars` | 4 000 | 500 à 40 000 | taille de la fenêtre, coupée en fin de paragraphe ou de phrase |
    | `focus` | — | chaîne | remplace la fenêtre par des `passages` classés par BM25 |
    | `passages` | 3 | ≤ 10 | nombre de passages |
 
-   La sortie porte `text_length` et `next_offset` (absent en fin de texte). Les tables des matières se paginent par `toc_offset` et `toc_limit` (100, ≤ 500), avec `next_toc_offset`. La recherche se pagine selon [ADR-0014](0014-recherche-mode-pagination.md).
-5. **Plafond dur** : le `structuredContent` sérialisé ne dépasse jamais 45 000 caractères. La politique de budget de `lf-application` réduit dans l'ordre les entrées de TOC, puis les extraits de recherche (avec `note`), puis les listes (`truncated`) (05 §6.4).
+   La sortie porte `text_length` et `next_offset` (absent en fin de texte). `max_chars` borne tout texte rendu : en mode résumé, un texte de longueur ≤ min(`max_chars`, 1 200) est rendu entier dans `text`, un texte plus long donne `summary` (00 §7). Les tables des matières se paginent par `toc_offset` et `toc_limit` (100, ≤ 500), avec `next_toc_offset`. La recherche se pagine selon [ADR-0014](0014-recherche-mode-pagination.md).
+5. **Plafond dur** (00 §7, 05 §6.4) : le `structuredContent` sérialisé (JSON compact) ne dépasse jamais 45 000 caractères.
+   - **Estimation** dans `lf-application`, qui n'a pas `serde_json` : somme des longueurs en caractères des chaînes + 64 par champ ou élément, cible 42 000. **Mesure exacte** dans `lf-adapter-mcp`, seul crate qui sérialise ; si l'estimation est prise en défaut, la dégradation reprend sur la vue, avec un `warn!`.
+   - Ordre de dégradation : (1) TOC : moins d'entrées, `next_toc_offset` ajusté ; (2) recherches : retrait des `snippet` en partant du dernier hit, jamais d'un hit, avec `note`, puis des `articles[]` et des champs optionnels des derniers hits ; si la page ne tient toujours pas, `[invalid_arg]` qui donne le `page_size` maximal (règle déterministe et rejouable) ; (3) listes de `fr_verify_citations` et `fr_get_related` tronquées avec `truncated: true` ; (4) lectures longues : fenêtre effective raccourcie pour tenir sous le plafond, `next_offset` restant exact.
+   - Aucune clé `_meta` `anthropic/*`.
 6. **Pas de `resource_link`** en v0.1 ni en v0.2 : Claude Code le perdrait sur un succès (05 §1.2, point e).
 7. **Coût fixe borné en CI** : `tools/list` ≤ 20 000 octets en v0.1, instructions ≤ 3 500 caractères. Ces budgets seront recalibrés sur la mesure de M4 (05 §6.6).
+8. **Annotations** (00 §6) : `read_only_hint = true`, `destructive_hint = false`, `idempotent_hint = true`, `open_world_hint = true` (parité P-002 ; contenu externe traité comme non fiable ; adoptée par défaut, Q11). Réexamen avant v0.1.0 au vu de V-53 (confirmation des résultats dans VS Code) ; tout changement passe par le verrou des descripteurs et le CHANGELOG.
 
 ## Conséquences
 
@@ -71,11 +77,13 @@
   - [v:cc-output-schema-contexte] : Claude Code transmet-il l'`outputSchema` au modèle ?
 - Si un client majeur transmet le **texte** et non le `structuredContent`, cet ADR est à revoir (09).
 - Ratio tokens par caractère en français juridique : **NON VÉRIFIÉ** [v:tokens-par-caractere]. Tailles réelles des textes et des TOC : **NON VÉRIFIÉ** [v:taille-max-textes], à mesurer en M5 sur des fixtures recapturées.
+- Effet de `openWorldHint: true` dans VS Code (confirmation des résultats après exécution) : **NON VÉRIFIÉ** [v:vscode-openworld-confirm] (V-53), mesuré avant v0.1.0 pour Q11.
 
 ### Tests qui la gardent
 
-- `text_content_is_json_of_structured_content` et `structured_content_validates_against_output_schema` (P-004).
-- `paged_reading_reconstructs_full_text`, `every_tool_response_under_hard_cap`, `descriptor_size_budget`, `instructions_fit_budget`.
+- `text_content_is_json_of_structured_content` et `structured_content_validates_against_output_schema` (P-004), y compris sur des vues dont toutes les listes omissibles sont vides.
+- `paged_reading_reconstructs_full_text`, `offset_without_detail_defaults_to_full`, `summary_mode_returns_whole_text_only_within_max_chars`, `descriptor_size_budget`, `instructions_fit_budget`.
+- `every_tool_response_under_hard_cap` (dont 100 hits à citations de 1 000 caractères et une fenêtre de 40 000 caractères riche en échappements), `snippets_removed_from_last_hits_when_over_cap`, `oversized_page_is_invalid_arg_with_max_page_size`.
 - `tool_output_matches_golden`, avec les clés `notes_dropped`, `nulls_omitted` et `title_omitted_when_in_citation` (annexe A §4.1).
 
 ## Alternatives envisagées

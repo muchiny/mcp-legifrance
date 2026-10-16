@@ -1,12 +1,13 @@
 # 06 — Qualité : tests, CI, lints, sécurité, audit et performance
 
-> **Statut** : plan, sans implémentation, rédigé le 2026-10-15. Ce document applique [00-decisions.md](00-decisions.md), qui est normatif et l'emporte en cas de doute ; 00 §10 en donne le résumé.
+> **Statut** : plan, sans implémentation, rédigé le 2026-10-15 ; révision 2 du même jour, alignée sur 00 révision 2 (amendements `AM-01…AM-43`, 00 §14). Ce document applique [00-decisions.md](00-decisions.md), qui est normatif et l'emporte en cas de doute ; 00 §10 en donne le résumé.
+> **Document propriétaire** (00 §0) : ce document fait foi pour les tests, les chemins et les noms de tests, la CI, les lints et les règles de `cargo xtask check-deps` (dont R9) ; les autres documents y renvoient. Il renvoie à son tour à 04 pour les fixtures de `lf-adapter-piste`, à 05 pour le contrat des outils et les budgets par outil, à l'annexe D pour l'énoncé des exigences protocolaires `C-xx`, à 08 pour la distribution et à 09 pour les registres.
 > **Jalons concernés** : M0 (CI, lints, `cargo-deny`, `xtask`, `SECURITY.md`, CONTRIBUTING), M1 à M5 (tests par crate, budgets mesurés, v0.1.0), M6 et M7 (corpus de citations, navigation), M8 (conformité HTTP), M9 (adapter DILA).
 > **Lecteurs** : développeurs (humains ou agents) qui écrivent les tests, la CI et les règles de qualité, sans accès aux échanges qui ont mené aux décisions.
 > **Conventions** :
 > - Les extraits Rust sont **non compilés, à valider en M0**. Les extraits YAML et TOML sont des **esquisses, à valider en M0**.
 > - Un point non vérifié est marqué **NON VÉRIFIÉ** suivi d'une étiquette `[v:…]`, reprise par le registre V-xx de [09-risques-et-questions.md](09-risques-et-questions.md). Les étiquettes déjà employées par d'autres documents du plan sont reprises telles quelles.
-> - Identifiants : défauts `D-01…D-47` ([recherche 02](../recherche/02-defauts.md) §1) ; points de parité `P-0xx`, écarts `E-xx` et scénarios d'erreur `S1…S17` ([recherche 01](../recherche/01-parite.md) §15, §14, §2.6) ; exigences protocolaires `C-xx` ([annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md) §8). Ce document ne crée ni tâche `T-…`, ni risque `R-…`, ni vérification `V-…`.
+> - Identifiants : défauts `D-01…D-47` ([recherche 02](../recherche/02-defauts.md) §1) ; points de parité `P-0xx`, écarts `E-xx` et scénarios d'erreur `S1…S17` ([recherche 01](../recherche/01-parite.md) §15, §14, §2.6) ; exigences protocolaires `C-xx` ([annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md) §8) ; questions ouvertes `Q1…Q15` (00 §13 : chacune porte une proposition adoptée par défaut, appliquée ici jusqu'à la réponse de l'utilisateur) ; amendements `AM-xx` (00 §14). Ce document ne crée ni tâche `T-…`, ni risque `R-…`, ni vérification `V-…`.
 > - Repères locaux, non transverses et propres à ce document : principes de test `PT1…PT11` (§1.2) et menaces `MEN-01…MEN-23` (§10.2). Ils ne se confondent ni avec les scénarios d'erreur `S1…S17`, ni avec les tâches `T-…`.
 > - « La référence Python » désigne `matematicsolutions/fr-eli-mcp@d3b5b13` (v0.5.3, Apache-2.0).
 
@@ -39,10 +40,11 @@ Documents liés : [02-architecture.md](02-architecture.md) (crates, ports, déco
 
 ## 0. Résumé
 
-- **Pyramide** : la base est faite de tests unitaires et de propriétés (`proptest`) du domaine et de l'application, avec des doubles des ports. Viennent ensuite les tests d'intégration des adapters (`wiremock`, fixtures, `tempfile`), puis les tests MCP en processus (`tokio::io::duplex`, transcriptions JSON-RPC brutes, snapshots `insta`), puis les tests de bout en bout du binaire en stdio (deux ères). Au sommet : les tests live opt-in, la suite de conformité officielle en HTTP (M8) et un protocole de test manuel par client.
+- **Pyramide** : la base est faite de tests unitaires et de propriétés (`proptest`) du domaine et de l'application, avec des doubles des ports. Viennent ensuite les tests d'intégration des adapters (`wiremock`, fixtures, `tempfile`), puis les tests MCP en processus (`tokio::io::duplex`, transcriptions JSON-RPC brutes, snapshots `insta`), puis les tests de bout en bout du binaire en stdio (deux ères). Au sommet : les tests live opt-in (sandbox par défaut ; en production, seulement des sondes en lecture seule lancées à la main par le mainteneur, Q3), la suite de conformité officielle en HTTP (M8) et un protocole de test manuel par client.
 - **Principes** : aucun réseau hors boucle locale en CI, horloges injectées (port `Clock`, horloges monotones et sommeils simulés dans l'adapter PISTE), aucune lecture de l'environnement réel dans les tests, aucun test instable toléré.
 - **Catalogue** : chacun des 47 défauts de la référence reçoit au moins un test nommé (§3.1). Les tests proposés par la recherche 02 qui contredisent 00 sont remplacés, et chaque remplacement est justifié. Les points de parité P-xxx et le harnais golden suivent l'annexe A (§3.2).
-- **CI** : `fmt`, `clippy -D warnings`, `cargo nextest` sur Linux, macOS et Windows, doc-tests, job MSRV 1.91, `cargo deny`, `cargo xtask check-deps`, verrou des descripteurs, lint des workflows ; actions épinglées par SHA ; cible de 12 minutes au p50 pour une PR.
+- **CI** : `fmt`, `clippy -D warnings`, `cargo nextest` sur Linux, macOS et Windows, doc-tests, job MSRV 1.91, `cargo deny`, `cargo xtask check-deps`, âge minimal des dépendances (14 jours, 00 §2), verrou des descripteurs, reproduction du golden par son script versionné, lint des workflows ; actions épinglées par SHA ; cible de 12 minutes au p50 pour une PR.
+- **Données dérivées** : le golden de parité et le contrôle du mojibake viennent des scripts versionnés de `docs/plan/annexes/donnees/scripts/` (`golden.py`, `check_golden.py`, `dto_repair_check.py` ; Python 3.13, `python3 -I` ; empreintes : 00 §10), jamais d'une copie locale.
 - **Sécurité** : modèle de menaces en 23 lignes (secrets, injection de prompt, rug pull, SSRF, déni de service, chaîne d'approvisionnement, journaux…), chacune reliée à une mesure et à un test ; plan de `SECURITY.md`.
 - **Audit** : spécification complète du journal JSONL (ordre normatif des clés, empreinte SHA-256 canonique avec ses vecteurs, permissions `0600`/`0700`, rotation sûre entre processus, modes `strict` et `best-effort`, emplacement par OS).
 - **Budgets** : démarrage jusqu'à `server/discover` en 100 ms au p95 ; réponse de 45 000 caractères au plus ; `tools/list` sous 20 000 octets en v0.1 ; instructions sous 3 500 caractères ; cibles par outil.
@@ -85,7 +87,7 @@ Les « parts visées » sont des ordres de grandeur, pas des seuils : elles dise
 | # | Principe | Mise en œuvre | Sources |
 |---|---|---|---|
 | PT1 | **Aucun réseau hors boucle locale en CI.** | Tout HTTP passe par un `wiremock::MockServer` sur `127.0.0.1`. `PisteConfig` de test pointe vers la boucle locale en `http`, ce que la validation n'admet que pour la boucle locale (`ConfigWarning::InsecureLoopback`). Les tests de bout en bout lancent le binaire avec `env_clear()`, PISTE pointé vers `127.0.0.1:1` (port fermé) quand aucun mock n'est utile, et `HTTPS_PROXY=http://127.0.0.1:9`. Le job de test exécute `cargo fetch` puis `cargo nextest run --offline` avec ces proxys : toute sortie non locale échoue. La prise en compte de `HTTPS_PROXY` par reqwest est **NON VÉRIFIÉ** [v:reqwest-proxy-env]. Sur Linux, une exécution dans un espace de noms réseau isolé (`unshare -rn`, boucle locale réactivée) est tentée en plus ; sa faisabilité sur les runners GitHub est **NON VÉRIFIÉ** [v:ci-unshare-reseau]. | 00 §10 ; 04 §2.3, §13.1 ; annexe D §8.3 |
-| PT2 | **Horloge injectée, jamais lue directement.** | Le domaine ne lit aucune horloge (`chrono` sans `clock`, 03 §1.1). L'application passe par le port `Clock` (`FixedClock` en test). L'adapter PISTE utilise `ManualClock` et `RecordingSleeper` pour le jeton, le backoff, `Retry-After`, le limiteur et le délai global (04 §13.1). `tokio::time::pause` n'est employé que dans les tests **sans socket réelle** (application avec faux corpus), car l'avance automatique d'une horloge gelée peut déclencher à tort les délais de reqwest **NON VÉRIFIÉ** [v:wiremock-temps-pause]. Le limiteur `governor` reçoit une horloge factice **NON VÉRIFIÉ** [v:governor-api]. Les TTL de moka se testent par la fonction `Expiry`, faute d'horloge injectable **NON VÉRIFIÉ** [v:moka-horloge-tests]. `SystemClock` (dans `lf-app`) expose une fonction pure `paris_date(DateTime<Utc>) -> NaiveDate`, testée sur des instants fixes. `clippy.toml` interdit `Utc::now`, `Local::now` et `SystemTime::now` hors de `SystemClock` (02 §2.2). | 02 §3.2, §5.3 ; 03 §6.4 ; 04 §13.1 |
+| PT2 | **Horloge injectée, jamais lue directement.** | Le domaine ne lit aucune horloge (`chrono` sans `clock`, 03 §1.1). L'application passe par le port `Clock` (`FixedClock` en test). L'adapter PISTE utilise `ManualClock` et `RecordingSleeper` pour le jeton, le backoff, `Retry-After`, le limiteur et le délai global, lu dans `Deadline` comme une durée restante convertie dans l'horloge de l'adapter (00 §3 ; 04 §13.1). `tokio::time::pause` n'est employé que dans les tests **sans socket réelle** (application avec faux corpus), car l'avance automatique d'une horloge gelée peut déclencher à tort les délais de reqwest **NON VÉRIFIÉ** [v:wiremock-temps-pause]. Le limiteur `governor` reçoit une horloge factice **NON VÉRIFIÉ** [v:governor-api]. Les TTL de moka se testent par la fonction `Expiry`, faute d'horloge injectable **NON VÉRIFIÉ** [v:moka-horloge-tests]. `SystemClock` (dans `lf-app`) expose une fonction pure `paris_date(DateTime<Utc>) -> NaiveDate`, testée sur des instants fixes. `clippy.toml` interdit `Utc::now`, `Local::now` et `SystemTime::now` hors de `SystemClock` (02 §2.2). | 02 §3.2, §5.3 ; 03 §6.4 ; 04 §13.1 |
 | PT3 | **Hasard maîtrisé.** | `proptest` : graines d'échec conservées dans `proptest-regressions/`, versionné ; 256 cas en PR, 4 096 la nuit (`PROPTEST_CASES`) ; graine fixable par l'environnement **NON VÉRIFIÉ** [v:proptest-graine-env]. La gigue du backoff n'est jamais figée : les tests vérifient des intervalles (`[0,5 s ; 1 s)`, 04 §13.2). Aucun aléa dans le domaine. | recherche 04 §4.1 |
 | PT4 | **Environnement du processus intouché.** | `std::env::set_var` est `unsafe` en édition 2024 et `unsafe_code = "forbid"` l'interdit (02 §3.0.3). La configuration se teste par un `EnvSource` injecté (02 §8.2). Les processus fils reçoivent `env_clear()` puis une liste explicite : un `LF_PISTE_CLIENT_SECRET` réel du développeur ne peut donc jamais atteindre un test. `LF_AUDIT_DIR` vaut toujours un répertoire temporaire ; `HOME` et `dirs::data_dir()` ne sont jamais utilisés par un test. | 02 §3.0.3, §8.2 |
 | PT5 | **Système de fichiers jetable.** | `tempfile::TempDir` par test ; fixtures en lecture seule ; `**/tests/fixtures/** -text` dans `.gitattributes`, pour que l'empreinte `sha256_raw` reste stable sous Windows (02 §2.2). | 02 §2.2 ; D-35 |
@@ -98,7 +100,7 @@ Les « parts visées » sont des ordres de grandeur, pas des seuils : elles dise
 
 ### 1.3 Outils de test
 
-Versions relues dans l'index crates.io le 2026-10-15 (recherche 04 §4.1 ; 02 §3.0.1).
+Versions relues dans l'index crates.io le 2026-10-15 (recherche 04 §4.1 ; 02 §3.0.1). Ce sont des planchers : la version figée dans `Cargo.lock` est publiée depuis au moins 14 jours à la date du verrouillage (règle d'âge de 00 §2, contrôlée au §9.4), sauf l'exception `rmcp`/`rmcp-macros` `=3.5.1`.
 
 | Outil ou crate | Version | Usage | Remarques |
 |---|---|---|---|
@@ -108,13 +110,14 @@ Versions relues dans l'index crates.io le 2026-10-15 (recherche 04 §4.1 ; 02 §
 | `proptest` | 1.12.0 | propriétés | MSRV 1.88, compatible avec 1.91. |
 | `tempfile` | 3.27.0 | répertoires d'audit, fixtures écrites | — |
 | `assert_cmd` / `predicates` | 2.2.2 / 3.1.4 | lancement du binaire | — |
-| `jsonschema` | 0.58.6 | validation de `structuredContent` contre `outputSchema`, et des lignes d'audit | **`default-features = false`**, sinon il tire reqwest (02 §3.0.1). |
+| `jsonschema` | 0.58.6 | validation de `structuredContent` contre `outputSchema` (fixtures et vues à listes omissibles vides), des lignes d'audit, et validité 2020-12 des schémas dans `lock-descriptors` (dépendance de `xtask`, 02 §3.8 ; 05 §9.2 point 8) | **`default-features = false`**, sinon il tire reqwest (02 §3.0.1). |
 | client `rmcp` | `=3.5.1`, feature `client` (dev) | tests MCP en processus | `().serve(client_io)` ; l'ère choisie par défaut par ce client est **NON VÉRIFIÉ** [v:rmcp-client-ere-tests] : les transcriptions brutes (§6.1) couvrent donc les deux ères explicitement. |
 | `tokio` (`test-util`, `io-util`) | 1.53.3 | `start_paused`, `duplex` | — |
 | `cargo-fuzz` | version épinglée en M1 | fuzzing nocturne non bloquant | demande une toolchain nightly ; répertoire `fuzz/` hors du workspace. |
 | `cargo-llvm-cov` | 0.9.1 | couverture, à titre indicatif | jamais bloquant (§7.6). |
 | `cargo-deny` | 0.20.2 | §9 | — |
 | `cargo-machete` | 0.9.2 | dépendances inutilisées | `[package.metadata.cargo-machete] ignored = ["rmcp-macros"]` (02 §3.0.1). |
+| Python | 3.13, lancé en `python3 -I` | scripts versionnés de `docs/plan/annexes/donnees/scripts/` : `golden.py` (production du golden de parité), `check_golden.py` (assertions de `test_parse.py` sur le golden), `dto_repair_check.py` (stratégies de réparation du mojibake sur les fixtures) | outil de données, pas de test Rust ; empreintes SHA-256 des versions qui ont produit les données du plan : 00 §10 ; job `surface` (§7.1). |
 
 `mockall` n'est pas retenu. Les doubles des ports sont écrits à la main dans `lf-application::testing`, derrière la feature `test-support` (02 §3.2). Ils sont plus lisibles, et l'absence de méthode par défaut dans les ports oblige à les compléter quand le port évolue.
 
@@ -128,12 +131,13 @@ crates/lf-domain/
   proptest-regressions/        versionné
 crates/lf-application/
   src/testing.rs               feature test-support : FakeCorpus, FixedClock, MemoryAuditLog, FailingAuditLog ;
-                               (M9) contract::corpus_contract, suite de contrat commune aux corpus
-  tests/audited.rs usecases.rs budget.rs coverage.rs error_matrix.rs
+                               (M3 ; DILA en M9) contract::corpus_contract, suite de contrat commune aux corpus
+  tests/audited.rs deadline.rs usecases.rs messages.rs budget.rs coverage.rs error_matrix.rs
   tests/verify_citations.rs    (M6) ; tests/search_all.rs (M7)
 crates/lf-adapter-piste/
   tests/oauth.rs resilience.rs bodies.rs endpoints.rs config.rs fixtures_contract.rs
   tests/ported_test_parse.rs parity_golden.rs live.rs (#[ignore])
+  tests/record_fixture.rs      (feature record, required-features) écrivain de fixtures de l'exemple, sur wiremock
   tests/support/{mod.rs, golden.rs, clock.rs}
   tests/fixtures/reference/    16 fixtures de la référence + .meta.toml + parite-golden.json (A §5.3)
   tests/fixtures/recorded/     captures de cargo xtask record-fixture (04 §13.4)
@@ -155,7 +159,7 @@ fuzz/                          hors workspace : fuzz_targets/{from_html, clean, 
 xtask/src/**                   tests unitaires : moteur de check-deps, JSON canonique, classement des différences de verrou
 ```
 
-Choix de chemins faits ici, signalés au §15.1 : les fixtures PISTE sont **locales au crate** `lf-adapter-piste`, comme dans 04 §13.3 et l'annexe A §5.3, et non à la racine du dépôt comme dans 02 §2. Les transcriptions vivent dans `tests/jsonrpc/` (02 §2), alors que l'annexe D §8.3 proposait `tests/protocol/`.
+Chemins : cette arborescence fait foi pour les chemins et les noms de tests (00 §0) ; 02 §2 y renvoie. Les fixtures PISTE sont **locales au crate** `lf-adapter-piste` (04 §1.5 et §13.3, qui font foi pour les fixtures ; annexe A §5.3). Les transcriptions vivent dans `tests/jsonrpc/` (02 §2), et non dans `tests/protocol/` comme le proposait l'annexe D §8.3 (§15.1 n° 2). Les données dérivées du plan et leurs scripts restent dans `docs/plan/annexes/donnees/` (§4.1).
 
 ---
 
@@ -171,15 +175,15 @@ Chaque fiche donne l'objectif, la technique, les doubles employés et les cas ob
 
 | Groupe | Tests | Couvre |
 |---|---|---|
-| Identifiants | `id_error_messages_table` (tous les cas de 03 §2.7, première phrase de la référence), `versioned_id_splits_suffix`, `suffix_only_on_legitext`, `parse_param_trims_and_uppercases_prefix` | D-31, D-28, P-012, P-030 |
+| Identifiants | `id_error_messages_table` (tous les cas de 03 §2.7, première phrase de la référence), `versioned_id_splits_suffix`, `suffix_only_on_legitext` (entrée utilisateur : suffixe sur un autre préfixe ⇒ erreur), `upstream_suffix_on_other_prefix_is_stripped_with_diagnostic` (données amont : suffixe retiré, `debug!` et compteur, 00 §4), `parse_param_trims_and_uppercases_prefix` | D-31, D-28, P-012, P-030 |
 | Fonds et statuts | `fond_parse_is_case_and_space_insensitive`, `fond_error_message_matches_reference`, `legal_status_from_etat_or_juris_state` | P-010, D-21 |
 | Contrat de citation | `constit_citation_golden` (« Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025 »), `cnil_citation_golden` (« CNIL, délibération n° SAN-2026-002 du 8 janvier 2026 »), `juri_and_cetat_citation_is_clean_title`, `article_citation_rules_table` (« Code civil, art. 9 »), `citation_never_empty`, `ecli_is_never_fabricated` | D-27, D-30, P-034, P-035, P-039 |
-| URL | `source_url_snapshot_all_kinds` (12 kinds, `insta`), `law_article_url_uses_loda_article_lc`, `url_depends_on_id_type_not_payload_origine` | D-28, D-29, P-031 |
+| URL | `source_url_snapshot_all_kinds` (12 kinds, `insta`), `law_article_url_uses_loda_article_lc`, `unknown_parent_nature_falls_back_to_codes_url` (repli de parité, 00 §4), `url_depends_on_id_type_not_payload_origine` | D-28, D-29, P-031 |
 | Dates | `from_epoch_ms_vectors` (`-5231606400000` ⇒ 1804-03-21 ; `17193600000` ⇒ 1970-07-19 ; `1762473600000` ⇒ 2025-11-07 ; `32472144000000` ⇒ 2999-01-01, puis `None`), `open_ended_maps_sentinels_to_none` (2999-01-01, 2222-02-22, 2222-01-01 exclus ; 2221-12-31 conservé), `format_fr_twelve_months_and_premier`, `version_date_rejects_bad_formats` (« 07/10/2016 », « 2016-13-45 », « hier », 2026-02-29) | D-20, D-22, D-27, P-030 |
-| Texte | `clean_strips_mark_tags`, `clean_folds_whitespace_after_repair`, `clean_removes_invisible_and_control_chars`, `from_html_block_tags_split_paragraphs`, `from_html_drops_rech_and_script_with_content`, `from_html_unclosed_tag_at_end`, `from_html_literal_less_than`, `from_html_invalid_numeric_entity_kept`, `snippet_is_truncated_to_280_chars` (ellipse comprise) | D-26, P-030, P-032 |
+| Texte | `clean_strips_mark_tags`, `clean_folds_whitespace_after_repair`, `clean_removes_invisible_and_control_chars`, `clean_removes_bidi_controls` (U+202A–U+202E et U+2066–U+2069 retirés, compteur de diagnostic incrémenté ; 00 §4, AM-25), `from_html_block_tags_split_paragraphs`, `from_html_drops_rech_and_script_with_content`, `from_html_unclosed_tag_at_end`, `from_html_literal_less_than`, `from_html_invalid_numeric_entity_kept`, `snippet_is_truncated_to_280_chars` (ellipse comprise) | D-26, P-030, P-032, MEN-06 |
 | Table des matières | `toc_preserves_section_titles` (88 entrées sur consult_loda.json), `toc_sorted_by_int_ordre`, `toc_dedups_articles`, `toc_depth_65_is_too_deep` | D-25, P-033 |
-| Fenêtre et résumé | `window_last_page_has_no_next_offset`, `offset_past_end_is_error`, `summary_constit_dispositif_551_chars`, `summary_cetat_official_analysis`, `summary_falls_back_to_lead` | D-33, P-037 |
-| Recherche | `query_too_long_is_invalid_arg` (501 caractères), `query_control_chars_are_stripped`, `page_size_bounds` (0, 1, 100, 101) | D-32, D-31 |
+| Fenêtre et résumé | `window_last_page_has_no_next_offset`, `offset_past_end_is_error`, `summary_constit_dispositif_551_chars`, `summary_cetat_official_analysis` (CETAT : `resumePrincipal` → analyses ; JURI : `abstrats` → analyses, 00 §4), `summary_source_order_official_dispositif_lead`, `summary_falls_back_to_lead` | D-33, P-037 |
+| Recherche | `query_too_long_is_invalid_arg` (501 caractères), `query_control_chars_are_stripped`, `page_size_bounds` (0, 1, 100, 101), `has_more_false_at_reachable_window_end` (`page × page_size = 10 000 < total` ⇒ `has_more = false`, 03 §10, 05 §5.1), `date_range_with_one_bound_uses_range_limit` (borne absente remplacée par 1500-01-01 ou 2221-12-31, 03 §6.1), `inverted_date_range_is_rejected` | D-32, D-31, D-09 |
 
 **Propriétés** (`proptest`, M1, M5 pour la fenêtre) :
 
@@ -206,7 +210,7 @@ Chaque fiche donne l'objectif, la technique, les doubles employés et les cas ob
 
 ### 2.2 `lf-application`
 
-**Objectif** : prouver l'orchestration (ordre de validation, messages, dates par défaut, métriques), le décorateur `Audited` dans **toutes** les issues, le délai global, l'annulation et la politique de budget, sans réseau ni disque.
+**Objectif** : prouver l'orchestration (ordre de validation, rejets locaux, messages finaux rédigés par `lf_application::messages`, dates par défaut, métriques), le décorateur `Audited` dans **toutes** les issues, le délai global et sa publication dans `Deadline` (variable locale de tâche, 00 §3), l'annulation et la politique de budget (estimation et dégradation, 00 §7), sans réseau ni disque.
 
 **Doubles** (`lf-application::testing`, feature `test-support`) :
 
@@ -226,7 +230,7 @@ Les tests tournent sous `#[tokio::test(start_paused = true)]` : aucune socket r�
 | 1 | succès (`fr_get_decision`) | `get_decision` → `Ok`, délai de 150 ms | `ok` | — | caractères renvoyés | ≥ 150 | `Ok` |
 | 2 | décodage impossible | `ToolCall { input: Err(InputError) }` | `error` | `invalid_arg` | 0 | ≥ 0 | `InvalidArgument` ; 0 appel au port |
 | 3 | validation du domaine | `decision_id = "CNILTEXT000053352643"` | `error` | `invalid_arg` | 0 | ≥ 0 | `InvalidArgument` ; 0 appel |
-| 4 | introuvable | `NotFound` (404 de ressource, puis 200 vide : deux variantes de `what`) | `error` | `not_found` | 0 | réelle | `NotFound`, message propre à l'outil (P-013) |
+| 4 | introuvable | `NotFound` (404 de ressource, puis 200 vide : deux variantes de `what`) | `error` | `not_found` | 0 | réelle | `NotFound`, message propre à l'outil (P-013 ; fond selon le préfixe pour `fr_get_decision`, E-15) |
 | 5 | erreur amont | `Upstream { 503, retryable: true }` après 200 ms | `error` | `upstream_error` | 0 | ≥ 200 | `Upstream` |
 | 6 | quota | `RateLimited { retry_after: 12 s }` | `error` | `rate_limited` | 0 | réelle | `RateLimited` |
 | 7 | identifiants absents | `Config` | `error` | `config_error` | 0 | réelle | `Config` |
@@ -265,22 +269,26 @@ async fn audit_written_for_every_outcome() {
 |---|---|---|---|
 | `error_duration_is_nonzero`, `duration_includes_normalization` | durée réelle sur erreur ; le mapping et le rendu sont inclus | D-03 | M3 |
 | `deadline_maps_to_upstream_error_before_deadline_plus_epsilon` | le délai global est respecté à 10 ms près (temps virtuel) | D-14 | M3 |
+| `deadline_is_published_to_the_port` | un `FakeCorpus` qui lit `Deadline::current_or(défaut)` pendant l'appel obtient la durée restante (`LF_TOOL_DEADLINE_S` moins le temps écoulé), y compris après un premier appel au port ; hors portée d'`Audited`, il obtient le défaut | D-14, 00 §3 | M3 |
+| `multi_call_use_case_stops_at_80_percent` | un cas d'usage à appels multiples (`fr_verify_citations`, `fr_search_all`) dont le faux corpus est lent ne lance plus d'appel après 80 % du délai et rend un résultat partiel motivé, jamais `UpstreamCause::Deadline` | D-14, 00 §3 | M6, M7 |
 | `cancelled_call_is_audited` | une ligne `error` sans code, `error = "cancelled by client"` | D-02, 02 §9.2 ligne 21 | M3 |
 | `audit_failure_returns_audit_error`, `audit_failure_does_not_mask_original_cause`, `best_effort_keeps_result` | issues 13 à 15 | D-02, P-043, Q9 | M3 |
 | `audit_write_is_acknowledged_before_tool_returns` | l'appel ne rend pas la main tant que l'accusé d'écriture n'est pas reçu | D-16 | M3 |
 | `invalid_arg_is_not_logged_as_error` | une erreur attendue est journalisée en `info` (subscriber de capture) | D-08 | M3 |
 | `search_validation_order_matches_reference` | ordre `fond` → `query` → `page_size`, puis nouveaux paramètres | P-011 | M3 |
-| `not_found_messages_match_reference` | 6 outils × 3 origines ; première phrase de la référence | P-013 | M3 |
+| `page_beyond_reachable_window_is_invalid_arg_without_network`, `code_date_range_is_invalid_arg`, `version_date_outside_loda_code_is_invalid_arg`, `inverted_date_range_is_invalid_arg` | rejets `invalid_arg` de `fr_search` dans le cas d'usage, 0 appel au port (00 §7) : `page × page_size` > 10 000, `date_from`/`date_to` sur CODE, `version_date` hors LODA/CODE, `date_from` > `date_to` ; messages de 05 §7.3 ; le rejet a lieu avant l'appel du port, si bien que la copie défensive de l'adapter (`InvalidRequest`, 00 §5 ; `code_date_range_is_defensive_invalid_request_without_network`, 04 §6.10) n'est jamais atteinte par ce chemin | D-09, D-22 | M3 |
+| `not_found_messages_match_reference` | 6 outils × 3 origines ; première phrase de la référence, sauf `fr_get_decision` sur CONSTEXT et CETATEXT (`No CONSTIT decision found for {id}.`, `No CETAT decision found for {id}.`, divergence E-15, 00 §5) ; message final rédigé par `lf_application::messages` (02 §9.3) | P-013, E-15 | M3 |
 | `corpus_error_maps_to_app_error_table` | chaque variante de `CorpusError` donne l'`AppError` et le code de 02 §9.2 | P-014 | M3 |
 | `error_matrix_s1_to_s17` | scénarios S1 à S17 transposés (annexe A §2.2) | P-014, P-015 | M3 |
 | `get_act_default_date_is_today_paris` | `FixedClock` 2026-07-14T22:30Z ⇒ `2026-07-15` | D-19, P-021 | M3 |
+| `get_act_suffix_date_is_default_date` | `text_id` suffixé (`LEGITEXT…_15-07-2020`) sans `date` ⇒ `VersionDate` 2020-07-15 et identifiant nu envoyé au port ; une `date` explicite l'emporte (00 §7 ; annexe A E-17) | E-17, P-021 | M3 |
 | `cache_key_changes_when_paris_day_changes` | `FixedClock` 2026-03-28T22:59Z (23:59 à Paris) puis 23:01Z (00:01 le 29) ⇒ deux `VersionDate`, donc deux `SearchQuery` différentes | D-01, D-19 | M3 |
 | `invalid_date_is_rejected_locally` | `date = "2016-13-45"` ⇒ `invalid_arg`, 0 appel au port | D-22 | M3 |
-| `audit_metric_per_tool` | métrique de 00 §7 pour chaque outil | P-042 | M3 |
+| `audit_metric_per_tool` | métrique de 00 §7 pour chaque outil, et « caractères renvoyés » pour une lecture de resource (M7) | P-042 | M3, M7 |
 | `input_hash_of_invalid_arguments_is_computed` | l'empreinte existe même quand le décodage échoue | P-041, D-02 | M3 |
-| `coverage_invariants_ported`, `coverage_degraded_without_credentials`, `coverage_makes_no_port_call`, `coverage_lists_known_gaps` | couverture calculée (05 §5.8), lacunes FR-001 à FR-009 toujours présentes | D-34, P-050 | M3 |
-| `reading_request_modes`, `focus_takes_precedence_over_window`, `offset_with_summary_is_invalid_arg`, `passages_without_focus_is_ignored` | politique de lecture (02 §6.1, 05 §1.4 règle 6) | D-33 | M5 |
-| `every_tool_response_under_hard_cap`, `snippets_removed_from_last_hits_when_over_cap` | plafond de 45 000 caractères et ordre des réductions (05 §6.4) | D-33 | M5 |
+| `coverage_invariants_ported`, `coverage_degraded_without_credentials`, `coverage_degraded_on_config_problem` (FR-104, mode dégradé et `EnvMismatch`), `coverage_custom_host_is_a_gap_not_a_problem` (FR-103, `status` inchangé), `coverage_makes_no_port_call`, `coverage_lists_known_gaps` | couverture calculée (05 §5.8) : lacunes statiques FR-001 à FR-006, FR-008 et FR-009 toujours présentes, FR-007 tant que le fond JORF n'est pas servi (surface JORF tranchée à l'ouverture de M7) ; lacunes calculées FR-101 à FR-104 | D-34, P-050 | M3 |
+| `reading_request_modes`, `focus_takes_precedence_over_window`, `offset_with_summary_is_invalid_arg`, `offset_without_detail_defaults_to_full`, `passages_without_focus_is_ignored`, `summary_mode_returns_whole_text_only_within_max_chars` | politique de lecture (00 §7 ; 02 §6.1, 05 §1.4 règle 6) : `detail` vaut `"full"` quand `offset > 0` est fourni sans `detail` ; en mode résumé, un texte n'est rendu entier que si sa longueur est ≤ min(`max_chars`, 1 200) | D-33 | M5 |
+| `snippets_removed_from_last_hits_when_over_cap`, `toc_entries_reduced_when_over_cap`, `oversized_page_is_invalid_arg_with_max_page_size` | politique de budget de `lf-application` : estimation (somme des longueurs des chaînes + 64 par champ ou élément, cible 42 000) et ordre de dégradation de 00 §7 et 05 §6.4 ; la mesure exacte et le plafond de 45 000 caractères se testent dans `lf-adapter-mcp` (`every_tool_response_under_hard_cap`, §2.6), seul crate qui sérialise | D-33 | M5 |
 | tests de l'annexe B §8.6 (N24, N14, N07, N25, N20, N02, N32, P110, erreurs partielles, budget épuisé, dédoublonnage, concurrence ≤ 4) | `fr_verify_citations` et `fr_resolve` | annexe B | M6 |
 | `search_all_respects_concurrency_cap`, `search_all_partial_failure_is_per_group` | `fr_search_all` (02 §6.2) | D-13 | M7 |
 
@@ -291,13 +299,14 @@ async fn audit_written_for_every_outcome() {
 | Fichier | Contenu (04 §13.2, §13.3) | Nombre indicatif |
 |---|---|---|
 | `tests/oauth.rs` | 16 scénarios OAuth : réutilisation du jeton, renouvellement 60 s avant expiration, `expires_in` nul, mono-vol, 401 renouvelé une seule fois, classification des erreurs de l'endpoint token, identifiants absents sans E/S, annulation pendant le renouvellement | 16 |
-| `tests/resilience.rs` | 429 et `Retry-After` (secondes, date HTTP, au-delà du délai), 5xx et backoff avec gigue, 400 non réessayé, 403, 404 de routage contre 404 de ressource, redirection non suivie, erreur réseau, délai HTTP, délai global, limiteur, plafond de concurrence | 19 |
-| `tests/bodies.rs` | JSON invalide (avec chemin), HTML, `null`, 200 vide, corps trop gros (avec et sans `Content-Length`), bombe gzip, UTF-8 invalide, mojibake réparé et compté, corps sain intact, marqueur d'erreur en mojibake | 11 |
+| `tests/resilience.rs` | 429 et `Retry-After` (secondes, date HTTP, au-delà du délai), 502, 503 et 504 réessayés 3 fois avec backoff et gigue, 500 limité à 2 tentatives puis `Upstream { 500, retryable: false }` (`500_twice_maps_to_upstream_not_retryable`, `503_then_500_then_500_stops_at_second_500` ; 00 §8, AM-03), 400 non réessayé, 403, 404 de routage contre 404 de ressource, redirection non suivie, erreur réseau, délai HTTP, délai global (dont `deadline_from_task_local_is_used` et `no_deadline_published_uses_tool_deadline`), limiteur consulté par `check()`, plafond de concurrence | 24 |
+| `tests/bodies.rs` | JSON invalide (avec chemin), HTML, `null`, 200 vide, corps trop gros (avec et sans `Content-Length`), bombe gzip, UTF-8 invalide, mojibake réparé et compté, corps sain intact, marqueur d'erreur en mojibake, `mojibake_repair_off_keeps_body_but_detects` (`LF_PISTE_MOJIBAKE_REPAIR=off` : corps non réparé, détection et `warn` maintenus, 04 §10) | 12 |
 | `tests/endpoints.rs` | un test par fixture et par endpoint (`body_json` du corps envoyé), pagination, `typePagination`, facettes de date, en-têtes | 25 |
-| `tests/config.rs` | `config_rejects_http_scheme_except_loopback`, `config_rejects_userinfo_query_fragment`, `config_warns_on_custom_host`, `config_rejects_env_mismatch`, `debug_of_config_redacts_secret`, `bearer_header_is_sensitive`, `error_messages_never_contain_secret_or_token` | 7 |
+| `tests/config.rs` | `config_rejects_http_scheme_except_loopback`, `config_rejects_userinfo_query_fragment`, `config_warns_on_custom_host` (hors des quatre hôtes officiels), `config_rejects_env_mismatch`, `config_env_mismatch_on_production_host_with_default_env` (aucune déduction ; message qui demande `LF_PISTE_ENV=production`), `config_problem_starts_in_degraded_mode` (`Config` immédiat, `expect(0)`), `debug_of_config_redacts_secret`, `bearer_header_is_sensitive`, `error_messages_never_contain_secret_or_token` (00 §1, AM-27 ; 04 §13.2) | 9 |
+| `tests/record_fixture.rs` | `record_fixture_writes_raw_bytes_and_meta`, `record_fixture_refuses_overwrite`, `record_fixture_redacts_acco_data`, `record_fixture_never_writes_authorization` : l'exemple `record_fixture` (feature `record`), qui écrit les fichiers et calcule `sha256_raw`, `sha256_file` et `mojibake_detected` (04 §13.4), testé contre wiremock dans un répertoire temporaire | 4 |
 | `tests/fixtures_contract.rs` | `dto_parses_every_fixture`, `mapping_snapshots`, `no_mojibake_after_mapping`, `fixtures_have_meta_sidecar`, `fixture_sha256_matches_meta`, helpers de 04 §8.4, `fixture_mutations_never_panic` | 20 |
 | `tests/ported_test_parse.rs` | les 19 tests de `test_parse.py`, préfixés `ported_` (annexe A §2.3) | 19 |
-| `tests/parity_golden.rs` | `mapping_matches_golden` (niveau 1), `golden_divergences_match_annex_a`, `every_golden_divergence_is_exercised`, `overrides_point_to_existing_golden_values`, `golden_meta_is_expected`, `golden_copy_matches_plan_data` (annexe A §5.4) | 6 |
+| `tests/parity_golden.rs` | `mapping_matches_golden` (niveau 1), `golden_divergences_match_annex_a`, `every_golden_divergence_is_exercised`, `overrides_point_to_existing_golden_values`, `golden_meta_is_expected`, `golden_copy_matches_plan_data` (annexe A §5.4) ; le golden lui-même est reproduit par son script versionné dans le job `surface` (§7.1) | 6 |
 | `tests/live.rs` | §5, `#[ignore]` | — |
 
 **Compléments fixés ici** :
@@ -351,7 +360,7 @@ Le cas « échec d'écriture du cache » de la recherche 02 (`cache_write_failur
 **Trois harnais** :
 
 1. **Client rmcp en processus** (`tests/inprocess.rs`) : `tokio::io::duplex(64 * 1024)`, serveur `serve(server_io)` dans une tâche, client `().serve(client_io)`, puis `list_all_tools`, `call_tool` (recherche 04 §2.18). Ce harnais vérifie l'ergonomie et les formes, dans l'ère choisie par le client rmcp ([v:rmcp-client-ere-tests]).
-2. **Transcriptions brutes** (`tests/protocol_raw.rs`) : le serveur tourne sur `duplex`, enveloppé par `PreLifecycleFilter` comme en production (annexe D §4.3). Le test écrit des lignes JSON brutes et lit les réponses (§6.1). Les deux ères sont couvertes explicitement.
+2. **Transcriptions brutes** (`tests/protocol_raw.rs`) : le serveur tourne sur `duplex`, enveloppé par `PreLifecycleFilter` comme en production (annexe D §4.3). Le tuple de flux n'implémente que `IntoTransport` : le harnais construit donc `let (r, w) = tokio::io::split(server_io); PreLifecycleFilter::new(AsyncRwTransport::new_server(r, w))` (rmcp 3.5.1, `transport/async_rw.rs`), comme la production enveloppe `AsyncRwTransport::new_server(tokio::io::stdin(), tokio::io::stdout())` ; esquisse non compilée, à valider au spike M0 ([v:rmcp-transport-enveloppe]). Le test écrit des lignes JSON brutes et lit les réponses (§6.1). Les deux ères sont couvertes explicitement.
 3. **Assertions de descripteurs** (`tests/descriptors.rs`, `tests/instructions.rs`) : sur la sortie de `tools/list` des deux ères.
 
 | Test | Vérifie | Couvre | Jalon |
@@ -359,38 +368,44 @@ Le cas « échec d'écriture du cache » de la recherche 02 (`cache_write_failur
 | `tool_router_builds_and_roots_are_objects` | aucune panique à la construction ; racines objet en entrée et en sortie, sans combinateur racine | 05 §3.6, #1337 | M4 |
 | `tools_list_matches_v01_surface` | exactement les 8 outils en v0.1 (10 en v0.2, 13 en v0.3) | P-001 | M4 |
 | `tools_list_snapshot` | snapshot `insta` normalisé de `tools/list` (second filet derrière le verrou) | D-37 | M4 |
-| `annotations_are_read_only_on_all_tools` | `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` exacts, `title == annotations.title` | P-002 | M4 |
+| `annotations_are_read_only_on_all_tools` | `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` exacts (`openWorldHint: true`, adopté par défaut, Q11 ; réexamen avant v0.1.0 au vu de V-53), `title == annotations.title` | P-002 | M4 |
 | `reference_parameters_preserved` | comparaison avec `tests/reference/tools.lock.reference.json`, paramètre par paramètre | P-003 | M4 |
 | `schema_has_enum_for_fond_and_bounds_for_page_size` | `enum`, `minimum`, `maximum`, `additionalProperties: false` | D-31 | M4 |
-| `every_tool_has_object_output_schema`, `structured_content_validates_against_output_schema` | `outputSchema` présent, objet, et chaque `structuredContent` produit sur les fixtures le respecte | P-004 | M4 |
+| `every_tool_has_object_output_schema`, `structured_content_validates_against_output_schema` | `outputSchema` présent, objet, sans clé `$schema` (05 §2.5) ; chaque `structuredContent` produit sur les fixtures le respecte, ainsi que celui de vues construites avec toutes les listes et tous les champs omissibles vides ou absents : un champ omis conditionnellement qui resterait `required` (contrat `Deserialize` de schemars, 05 §1.4 règle 1 et §3.6) fait échouer le test | P-004, C-21 | M4 |
 | `text_content_is_json_of_structured_content` | `content[0].text` = sérialisation JSON de `structuredContent` | P-004, ADR-0006 | M4 |
 | `structured_content_identical_across_eras` | même appel en moderne et en legacy ⇒ même `structuredContent` | 00 §6 ; annexe A §5.4 | M4 |
 | `legacy_tools_call_structured_content_is_object` | `structuredContent` objet pour un pair 2025-06-18 et 2025-11-25 | #1337, C-21 | M4 |
-| `error_results_are_text_with_code_prefix` | `isError: true`, un seul bloc texte qui commence par `[code] `, aucun `structuredContent` ; un cas par code et par outil | D-08, P-015, ADR-0010 | M4 |
-| `error_text_snapshot_per_code` | snapshot des gabarits de message (05 §7.2) | D-08 | M4 |
+| `error_results_are_text_with_code_prefix` | `isError: true`, un seul bloc texte qui commence par `[code] `, aucun `structuredContent` ; un cas par code applicable à l'outil (matrice de 05 §5.0.1 : ni `not_found` pour `fr_search`, ni `config_error` pour `fr_coverage`, par exemple) | D-08, P-015, ADR-0010 | M4 |
+| `error_text_snapshot_per_code` | snapshot des gabarits de message (05 §7.2), rédigés une seule fois par `lf_application::messages` (02 §9.3) | D-08 | M4 |
+| `rendered_error_equals_audited_error` | pour chaque code, le texte vu par le modèle, préfixe `[code] ` retiré, est exactement le champ `error` de la ligne d'audit (tronqué à 500 caractères) : aucun texte d'aide n'est ajouté après `Audited` (§11.2) | P-040, D-08 | M4 |
 | `invalid_id_message_starts_with_reference_sentence`, `hint_messages_cite_existing_tools` | messages `invalid_arg` (03 §2.7) | P-012, P-006 | M4 |
 | `invalid_input_audited` | argument mal typé ou inconnu ⇒ `[invalid_arg]` **et** une ligne d'audit ([v:rmcp-jsonobject-input-schema]) | E-29, D-02 | M4 |
 | `unknown_tool_is_jsonrpc_32602_without_audit` | outil inconnu ⇒ `-32602`, aucune ligne | 00 §5 | M4 |
 | `every_tool_goes_through_audited` | chaque outil enregistré, appelé avec `FakeCorpus`, produit exactement une ligne | D-07 | M4 |
 | `instructions_fit_budget` | `INSTRUCTIONS.chars().count() <= 3_500` | 00 §6, P-005 | M4 |
+| `instructions_carry_attribution` | les instructions des trois versions contiennent la mention exacte « Source : Légifrance / DILA — Licence Ouverte 2.0 » (00 §12, adoptée par défaut, Q15 ; la date de consultation est rendue par `fr_coverage`, 05 §4.2) | Q15 | M4 |
 | `instructions_drift` | jetons `fr_*` = outils enregistrés ; jetons `[code]` = `ErrorCode::ALL` ; autres jetons = paramètres ou champs réels ; valeurs d'`enum` citées valides (05 §4.3) | P-006, D-43 | M4 |
 | `descriptions_cite_only_registered_tools` | outils cités dans une description enregistrés **dans la même version** | P-006 | M4 |
 | `descriptions_have_no_cross_server_directives` | heuristique : aucune description ni instruction ne contient `mcp__`, « other server », « ignore previous », ni d'URL hors `legifrance.gouv.fr` | §10, rug pull | M4 |
-| `notes_are_static_templates` | toute valeur de `note` produite appartient à l'ensemble des gabarits du code : aucun texte amont n'y entre | §10, injection | M4 |
+| `notes_are_static_templates` | toute valeur de `note` produite correspond à l'un des gabarits du code, dont chaque paramètre a un type fermé : vocabulaire fermé du code (titre d'un code tiré de `CodeKey`, famille, juridiction), date ISO, identifiant validé ou nombre ; jamais une chaîne libre issue de l'API. Le test reconnaît le gabarit puis vérifie le type de chaque paramètre (gabarits de 05 et de l'annexe B) | §10, injection | M4 |
 | `server_info_is_mcp_legifrance_with_crate_version` | `Implementation::new("mcp-legifrance", version)` dans les deux ères, jamais l'identité de rmcp | D-43, E-09 | M4 |
 | `discover_and_initialize_announce_tools`, `capabilities_same_in_both_eras`, `supported_versions_are_explicit` | capacités et versions (C-12, C-18) | 00 §6 | M4 |
 | `no_view_has_eli_uri`, `acco_view_has_no_text_field` | contrat v2 (00 §4) | P-031, P-036 | M4 |
 | `get_act_on_code_adds_note` | `nature = CODE` ⇒ `note` de 05 §5.2 | D-47 | M4 |
-| `coverage_v01_sandbox` (snapshot), `every_registered_tool_is_in_a_family_or_general`, `every_served_fond_has_a_family`, `gaps_never_empty`, `coverage_lists_sandbox_gap`, `coverage_lists_pseudonymisation_gap` | couverture (05 §5.8) | D-18, D-34, D-45 | M4 |
+| `coverage_v01_sandbox` (snapshot), `every_registered_tool_is_in_a_family_or_general` (en v0.3, `fr_get_related` et `fr_diff_article` rattachés à leurs familles, 05 §5.8), `every_served_fond_has_a_family`, `gaps_never_empty`, `coverage_lists_sandbox_gap`, `coverage_lists_pseudonymisation_gap`, `coverage_attribution_and_consultation_date` (`attribution` exacte, `consulted_on` = date Europe/Paris de `FixedClock`) | couverture (05 §5.8) | D-18, D-34, D-45, Q15 | M4 |
 | `canonical_input_matches_python_vectors` | `CanonicalInput` produit exactement les chaînes canoniques des 8 vecteurs de l'annexe A §6.6 et du vecteur d'échappement du §11.4 | P-041 | M4 |
 | `default_outputs_within_target`, `default_decision_response_under_budget`, `descriptor_size_budget` | budgets du §12 | D-33 | M5 |
-| transcriptions du §6.1 | C-01 à C-30 de l'annexe D | annexe D §8 | M4 |
-| `raw_unknown_resource_32602`, completions ≤ 100 valeurs, prompts | M7 (C-31, C-32) | annexe D | M7 |
+| `every_tool_response_under_hard_cap` (`tests/budgets.rs`) | mesure exacte du `structuredContent` sérialisé (JSON compact) ≤ 45 000 caractères sur les combinaisons extrêmes, sur données synthétiques : 100 hits avec extraits, 100 hits à citations de 1 000 caractères, 8 fonds × 10 hits, 500 entrées de TOC à titres longs, fenêtre de 40 000 caractères riche en sauts de ligne et en guillemets ; le repli de l'adapter (dégradation reprise sur la vue, avec `warn!`) n'est jamais emprunté, ce qui prouve que l'estimation de `lf-application` majore la taille réelle (00 §7 ; 05 §6.4) | D-33 | M5 |
+| transcriptions du §6.1 | C-01 à C-30 de l'annexe D (correspondance au §6.1) | annexe D §8 | M4 |
+| `tool_invocations_are_rate_limited` | seulement si l'annexe D retient une limitation du débit des invocations d'outils (exigence « rate limit tool invocations ») ; sinon sans objet, la justification écrite de l'annexe D en tient lieu | annexe D §8.1 | M4 |
+| transcriptions M7 du §6.1 : `resource_not_found_by_era`, `malformed_resource_uri`, `modern_resources_and_prompts_lists`, `cancel_search_all_with_progress_then_silence` ; tests `resource_read_is_audited`, `completion_only_for_code_variable`, `completions_are_rate_limited`, `prompts_without_free_text_arguments` | ressource introuvable : `-32002` + `data.uri` aux pairs legacy, `-32602` + `data.uri` aux pairs 2026-07-28, jamais `contents: []` ; identifiant invalide ou URI hors grammaire (traversée, encodage invalide) : `-32602` dans les deux ères (00 §6) ; lecture auditée avec `tool: resource:<nom du gabarit>` et la métrique « caractères renvoyés » (00 §7) ; completions sur la seule variable `code` du gabarit `legifrance://code/{code}/article/{num}`, ≤ 100 valeurs, liste vide en cas d'erreur, 10 par seconde et par processus au plus, non auditées, jamais sur `fond` (00 §7) ; `verifier_citations` et `etat_du_droit` sans argument, `analyser_decision` avec `decision_id` validé (`-32602` sinon) ; aucune `notifications/progress` après l'annulation de `fr_search_all` | C-15, C-23, C-31, C-32 | M7 |
 | `http_*` (C-40 à C-60) | M8, en processus par `tower::ServiceExt::oneshot` sur le routeur axum (§6.2) | annexe D §8.2 | M8 |
 
-Une seule source pour les textes : les tests lisent `lf_adapter_mcp::text`. Aucune copie des descriptions dans un test : le verrou et les snapshots suffisent.
+Une seule source pour les textes : les tests lisent `lf_adapter_mcp::text` (instructions, descriptions) et `lf_application::messages` (messages d'erreur, 02 §9.3). Aucune copie des descriptions ni des messages dans un test : le verrou et les snapshots suffisent.
 
 ### 2.7 `lf-app` (binaire)
+
+Paquet Cargo `mcp-legifrance`, répertoire `crates/lf-app` (00 §2 ; Q1) : les commandes ciblent le paquet (`cargo test -p mcp-legifrance`), les chemins le répertoire.
 
 **Objectif** : prouver ce que seul le binaire montre : le câblage réel, la lecture de l'environnement, stdout réservé au protocole, les deux ères sur le vrai transport stdio, les codes de sortie, et le démarrage sans réseau.
 
@@ -402,11 +417,12 @@ Une seule source pour les textes : les tests lisent `lf_adapter_mcp::text`. Aucu
 | `stdio_tools_list_both_eras` | `server/discover` 2026-07-28 puis `initialize` 2025-11-25 : même liste | P-001 | M4 |
 | `stdout_contains_only_jsonrpc` | chaque ligne de stdout est un message JSON-RPC 2.0 valide, sur un scénario qui couvre succès, erreurs métier, erreurs de protocole, annulation et arrêt ; aussi avec `LF_LOG=trace` | D-46, C-01 | M4 |
 | `e2e_discover_without_network` | `server/discover` et `initialize` répondent avec PISTE vers un port fermé et un proxy en échec, sans identifiants | 00 §6, C-06 | M4 |
-| `e2e_eof_after_discover_exits_zero`, `e2e_eof_in_session_exits_zero` | sortie avec le code 0 en moins d'une seconde | C-09 | M4 |
+| `e2e_eof_after_discover_exits_zero`, `e2e_eof_in_session_exits_zero`, transcription `eof_with_open_listen` | sortie avec le code 0 en moins d'une seconde, y compris quand un `subscriptions/listen` est ouvert (critère M4 de 00 §6, V-35 [v:rmcp-listen-cloture]) | C-09, C-24 | M4 |
 | `e2e_sigterm_exits_quickly` (Unix) | SIGTERM pendant un appel en vol : sortie en moins de 500 ms | 02 §8.8 ; recherche 08 §5.1 | M4 |
 | `e2e_missing_credentials_config_error_audited` | sans identifiants : `[config_error]`, 0 requête vers wiremock, une ligne d'audit `config_error` | D-39, S6 | M4 |
+| `e2e_invalid_config_starts_degraded` | valeur PISTE invalide, puis hôtes de production sans `LF_PISTE_ENV` (`EnvMismatch`) : le processus démarre (`error!` sur stderr), `server/discover` répond, chaque outil PISTE rend `[config_error] …` sans E/S réseau, `fr_coverage` rend `status: degraded` et la lacune FR-104, `check-config` décrit le problème (00 §1, AM-27) | D-39, D-18 | M4 |
 | `no_network_call_except_piste` | sur un scénario complet, toute requête reçue par wiremock vise un chemin PISTE connu, et aucune autre connexion ne réussit (proxy en échec) | D-04 | M4 |
-| `fr_eli_runtime_url_is_ignored` | `FR_ELI_RUNTIME_URL` défini vers un mock ⇒ 0 requête | D-04, `no_remote_manifest` | M4 |
+| `fr_eli_runtime_url_is_ignored` | `FR_ELI_RUNTIME_URL` défini vers un mock ⇒ 0 requête, et avertissement « ignored » sur stderr | D-04, `no_remote_manifest` | M4 |
 | `second_identical_loda_search_hits_cache` | composition réelle : deux `fr_search` LODA identiques ⇒ `/search` reçu une fois (`expect(1)`) | D-01 | M4 |
 | `tool_output_matches_golden` | niveau 2 du harnais golden, dans les deux ères (annexe A §5.4) | P-004, P-038 | M5 |
 | `audit_unwritable_dir_fails_call`, `best_effort_unwritable_dir_returns_result` | modes `strict` et `best-effort` sur un vrai répertoire en lecture seule (Unix, hors root) | P-043, Q9 | M4 |
@@ -415,13 +431,15 @@ Une seule source pour les textes : les tests lisent `lf_adapter_mcp::text`. Aucu
 | `logs_never_contain_query_text` | une requête marquée (`lf-test-query-…`) n'apparaît pas dans stderr, même en `trace` | §10, D-15 | M4 |
 | `default_log_filter_caps_rmcp` | avec `LF_LOG=debug`, aucune réponse complète de rmcp dans stderr (02 §8.6) | C-02 | M4 |
 | `fr_eli_variables_are_read_with_deprecation_warning` | `FR_ELI_CLIENT_ID` lu, avertissement sur stderr ; `LF_*` prioritaire | E-25, 00 §1 | M4 |
-| `check_config_*` (`_exit_codes`, `_masks_secret`, `_lists_every_variable`, `_online_makes_one_token_request`) | codes 0, 2, 3, 4 ; secrets jamais affichés ; une ligne par variable de 02 §8.2 | D-42, 02 §8.1 | M4 |
+| `legacy_unread_variables_warn_ignored` | `FR_ELI_CACHE_DIR`, `FR_ELI_RUNTIME_URL`, `FR_ELI_ENV`, `PISTE_CLIENT_ID` et `PISTE_CLIENT_SECRET` définies : jamais lues, avertissement « ignored » au démarrage et dans `check-config` (00 §1, AM-05) | E-25, D-42 | M4 |
+| `invalid_advanced_setting_falls_back_to_default_with_warn` | `LF_PISTE_RPS=0`, `LF_PISTE_BURST=1000`, `LF_PISTE_CONCURRENCY=x`, `LF_PISTE_MOJIBAKE_REPAIR=maybe` : défaut appliqué, `warn!`, valeur affichée par `check-config` (00 §1, 02 §8.2 ; 04 §13.2) | D-13, D-42 | M4 |
+| `check_config_*` (`_exit_codes`, `_masks_secret`, `_lists_every_variable`, `_online_makes_one_token_request`) | codes 0, 2, 3, 4 ; secrets jamais affichés ; une ligne par variable de 02 §8.2, réglages avancés compris, et une ligne par variable héritée ignorée | D-42, 02 §8.1 | M4 |
 | `today_is_paris_date_at_2230_utc_in_summer`, `today_paris_in_winter`, `dst_transition_days` | `paris_date` : 2026-07-14T22:30Z ⇒ 07-15 ; 2026-01-14T23:30Z ⇒ 01-15 ; 2026-03-29 et 2026-10-25 | D-19 | M3 |
 | `tz_env_does_not_change_today` | `TZ=Pacific/Kiritimati` sans effet sur la date par défaut | PT7 | M4 |
 | `user_agent_contains_crate_version` | User-Agent reçu par wiremock | D-43, P-025 | M4 |
 | `readme_mentions_only_supported_env_vars` | les jetons `[A-Z][A-Z0-9_]{5,}` du README qui ressemblent à des variables sont dans la table de 02 §8.2 (ou dans la liste des variables obsolètes) | D-42 | M4 |
 | `production_sources_contain_only_allowlisted_urls` | aucune URL littérale hors liste blanche (`*.piste.gouv.fr`, `www.legifrance.gouv.fr`, dépôt du projet) dans `crates/*/src` | D-04 | M4 |
-| `versions_are_consistent` | version du crate = `serverInfo.version` = `server_version` du verrou = version de `server.json` | recherche 06 §8.3 | M4 |
+| `versions_are_consistent` | version du paquet `mcp-legifrance` = `serverInfo.version` = `server_version` du verrou = version de `server.json` = version du manifeste MCPB (les deux derniers générés et contrôlés par `cargo xtask lock-descriptors`, 00 §2) | recherche 06 §8.3 | M4 |
 | `regression_catalog_is_implemented` | chaque nom de test du §3.1 dont le jalon est atteint existe dans le code (lecture de ce document ; ignoré, avec un message, si `docs/` est absent) | D-43 | M5 |
 | `perf_*` (`#[ignore]`) | mesures du §12 | — | M5 |
 
@@ -429,18 +447,21 @@ Une seule source pour les textes : les tests lisent `lf_adapter_mcp::text`. Aucu
 
 | Test | Vérifie |
 |---|---|
-| `check_deps_detects_each_rule` | le moteur `check(&Metadata, &[CrateRule])` signale au moins une violation par règle R1 à R8 sur des métadonnées JSON synthétiques (02 §4.2) ; un membre inconnu est lui-même une violation ; `rmcp` renommé ; `async-trait` direct ; feature `clock` de chrono dans `lf-domain` |
+| `check_deps_detects_each_rule` | le moteur `check(&Metadata, &[CrateRule])` signale au moins une violation par règle R1 à R9 sur des métadonnées JSON synthétiques (02 §4.1 et §4.2 ; R9 et contrôles de manifeste : §9.3) ; un membre inconnu est lui-même une violation ; `rmcp` renommé ; `async-trait` direct ; feature `clock` de chrono dans `lf-domain` ; feature `tokio` hors de `{time, macros, rt}` dans `lf-application` ; deux versions de `tokio` dans le graphe résolu (R9) |
 | `check_deps_reports_transitive_path` | la violation transitive cite le chemin complet (« lf-domain → x → tokio ») |
 | `canonical_json_matches_python` | JSON canonique du verrou (`ensure_ascii=False`) : `{"b":1,"a":"é","c":{"z":null,"y":[true,2]}}` ⇒ `{"a":"é","b":1,"c":{"y":[true,2],"z":null}}`, SHA-256 `ba3d64630739f6049ffe92346e10b9805aa8833d82fb2f08d2ba379cd5471296` ; `{"name":"fr_coverage","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}` ⇒ SHA-256 `662718e129b8211e1a3da8d30d1200902cffe8f3f3009c55dbbcc78bab1775b2` (vecteurs calculés pour ce document avec `json.dumps(sort_keys=True, ensure_ascii=False, separators=(",", ":"))`) |
 | `canonical_json_rejects_floats` | un nombre flottant dans un descripteur fait échouer le verrou (05 §9.2 point 6) |
 | `lock_diff_classification` | paires de verrous synthétiques classées en rupture, ajout ou correctif (05 §9.5) |
 | `descriptor_lock_rejects_empty_baseline` | un verrou vide ou absent n'est jamais accepté comme base (P-007) |
-| `record_fixture_writes_raw_bytes_and_meta`, `record_fixture_refuses_overwrite`, `record_fixture_redacts_acco_data`, `record_fixture_never_writes_authorization` | écrivain de fixtures testé sur une réponse factice (04 §13.4) |
+| `lock_controls_reject_forbidden_shapes` | contrôles du verrou (05 §9.2 point 8) sur des descripteurs synthétiques : clé `$schema`, racine non objet, combinateur racine, `$ref` externe, propriété de premier niveau de plus de 64 caractères, nom d'outil hors grammaire |
+| `lock_generates_mcpb_manifest_and_server_json_version` | `lock-descriptors --update` génère le manifeste MCPB et la version de `server.json` depuis les descripteurs ; `--check` échoue si l'un d'eux diffère (00 §2 ; 08 §4.4) |
+| `record_fixture_forwards_to_example` | `cargo xtask record-fixture` lance `cargo run -p lf-adapter-piste --example record_fixture --features record` avec ses arguments, sans dépendre d'aucun crate `lf-*` (00 §2) ; l'écrivain de fixtures est testé dans `lf-adapter-piste` (`tests/record_fixture.rs`, §2.3) |
 
 ### 2.9 `lf-adapter-dila` (M9)
 
 - **Suite de contrat commune** : `lf_application::testing::contract::corpus_contract`, générique sur `C: LegalCorpus` et sur un fournisseur de cas. Elle vérifie les formes de sortie : contrat de citation v2, sentinelles à `None`, TOC ordonnée et dédoublonnée, `NotFound` sur un identifiant absent. Elle est exécutée par `FakeCorpus` (M3), `PisteCorpus` sur wiremock et fixtures (M3, rétroactivement), puis `DilaCorpus` sur un petit dump de test (M9), comme le demande 02 §12.2.
-- Tests propres : extraction `tar`/`flate2` d'un dump fixture, analyse `quick-xml`, index `tantivy` dans un répertoire temporaire, analyseur français (racinisation, mots vides), opérations indisponibles hors ligne ⇒ erreur documentée dans `fr_coverage`.
+- Tests propres : extraction `tar`/`flate2` d'un dump fixture, analyse `quick-xml`, index `tantivy` dans un répertoire temporaire, analyseur français (racinisation, mots vides), opérations indisponibles hors ligne ⇒ erreur documentée dans `fr_coverage` (rendu tranché en M9, 00 §5).
+- Les tests ne téléchargent rien : selon la proposition par défaut de 02 §3.9, le binaire ne lit qu'un répertoire local de dumps, téléchargés hors binaire (`reqwest` reste confiné à `lf-adapter-piste`, R6 et ban `wrappers` du §9.1). Toute autre option amende R3 ou R6, le `deny.toml` du §9.1 et ce paragraphe.
 
 ---
 
@@ -448,11 +469,13 @@ Une seule source pour les textes : les tests lisent `lf_adapter_mcp::text`. Aucu
 
 ### 3.1 Défauts D-01…D-47
 
+Ce catalogue **fait foi** pour les tests de non-régression et pour le jalon de clôture de chaque défaut (00 §0) ; 01 §4.16 en est la projection par jalon et y renvoie. La colonne « Jalon » donne les jalons où les tests du défaut deviennent verts ; un défaut traité à plusieurs jalons est clos au dernier. Trois cas sont répartis explicitement : D-25 (modèle de TOC en M1–M2 ; la pagination de la TOC relève de D-47), D-32 (borne de `query` en M1, `match` en M2 ; la valeur par défaut, Q10, est consignée avant le verrou de M4 sans conditionner la clôture) et D-44 (partie CI en M0, partie release avec la distribution, 08).
+
 Colonne « Écart » : différence avec la matrice de la recherche 02 §6, quand la mesure proposée par la recherche contredit 00 ou un document du plan. Le test remplaçant est alors justifié.
 
 | D | Défaut (résumé) | Test(s) de non-régression | Crate | Jalon | Écart avec la recherche 02 §6 |
 |---|---|---|---|---|---|
-| D-01 | cache de recherche LODA/CODE jamais réutilisé | `cache_key_is_stable_across_calls_same_day`, `second_identical_search_calls_inner_once` ; `cache_key_changes_when_paris_day_changes` ; `search_request_matches_reference_json`, `paris_midnight_vectors` ; `second_identical_loda_search_hits_cache` | cache ; app ; piste ; bin | M2–M4 | le test wiremock passe dans `lf-app` (R8 de 02 §4.1) |
+| D-01 | cache de recherche LODA/CODE jamais réutilisé | `cache_key_is_stable_across_calls_same_day`, `second_identical_search_calls_inner_once` ; `cache_key_changes_when_paris_day_changes` ; `search_request_matches_reference_json`, `paris_noon_vectors` (`singleDate` à midi Europe/Paris, vecteurs de 00 §8 ; V-76 bloquante en M2) ; `second_identical_loda_search_hits_cache` | cache ; app ; piste ; bin | M2–M4 | le test wiremock passe dans `lf-app` (R8 de 02 §4.1) |
 | D-02 | audit absent pour `invalid_arg`, `not_found` et erreurs de parsing | `audit_written_for_every_outcome` (15 issues), `invalid_input_audited`, `every_tool_goes_through_audited`, `audit_failure_returns_audit_error`, `audit_failure_does_not_mask_original_cause`, `audit_unwritable_dir_fails_call` | app ; mcp ; bin | M3–M4 | 15 issues au lieu de 8 |
 | D-03 | `duration_ms = 0` en erreur | `error_duration_is_nonzero`, `duration_includes_normalization`, `cancelled_call_is_audited` | app | M3 | — |
 | D-04 | manifeste distant qui redirige le Bearer ; télémétrie | `no_network_call_except_piste`, `fr_eli_runtime_url_is_ignored`, `production_sources_contain_only_allowlisted_urls`, `config_rejects_http_scheme_except_loopback`, `config_rejects_userinfo_query_fragment`, `config_warns_on_custom_host`, `urls_in_responses_are_never_fetched` | bin ; piste | M2–M4 | `config_rejects_non_allowlisted_host` devient `config_warns_on_custom_host` : 02 §13.1 n° 8 et 04 §2.3 acceptent un hôte personnalisé avec avertissement et lacune FR-103 |
@@ -460,12 +483,12 @@ Colonne « Écart » : différence avec la matrice de la recherche 02 §6, quand
 | D-06 | client HTTP recréé à chaque appel | `piste_client_is_built_once` ; `clippy.toml` interdit `reqwest::Client::new` et `ClientBuilder::new` hors de `http.rs` (§8.3) | piste | M2 | — |
 | D-07 | boilerplate d'audit dupliqué | `every_tool_goes_through_audited` ; `check-deps` (aucun adapter ne dépend d'un autre) | mcp ; xtask | M4 | — |
 | D-08 | erreurs en chaînes, code perdu, trace de pile ERROR | `error_results_are_text_with_code_prefix`, `error_text_snapshot_per_code`, `invalid_arg_is_not_logged_as_error` | mcp ; app | M3–M4 | `error_result_has_structured_code` remplacé : ADR-0010 impose un texte seul, sans `structuredContent` |
-| D-09 | ni pagination, ni facettes | `search_page_2_sends_page_number_2`, `has_more_computed_from_total`, `type_pagination_is_echoed_on_next_page`, `code_page_2_without_memo_sends_article` | piste ; app | M2, M5 | `code_search_reports_article_totals` reporté : `total_articles` est proposé pour la v0.2 (05 §13.1 n° 9) |
+| D-09 | ni pagination, ni facettes | `search_page_2_sends_page_number_2`, `has_more_computed_from_total`, `has_more_false_at_reachable_window_end`, `page_beyond_reachable_window_is_invalid_arg_without_network`, `type_pagination_is_echoed_on_next_page`, `code_page_2_without_memo_sends_article`, `date_range_maps_to_fond_facet` | domain ; piste ; app | M1–M3, M5 | `code_search_reports_article_totals` reporté : `total_articles?` arrive en v0.2 (classe « ajout », 00 §7), porté dès v0.1 par le domaine |
 | D-10 | erreurs OAuth et 404 mal classés | `oauth_invalid_client_401_maps_to_auth_no_retry`, `oauth_400_maps_to_auth`, `oauth_404_maps_to_config_not_not_found`, `404_on_search_is_config_not_not_found`, `404_html_is_config`, `oauth_expires_in_null_uses_default_3600`, `corpus_error_maps_to_app_error_table` | piste ; app | M2–M3 | — |
 | D-11 | corps non JSON ou `null` non mappés | `html_body_maps_to_decode`, `json_null_body_maps_to_decode`, `invalid_json_maps_to_decode_with_path`, `invalid_utf8_body_maps_to_decode`, ligne 9 de `audit_written_for_every_outcome` | piste ; app | M2–M3 | `invalid_response` n'est pas un code : `Decode` devient `upstream_error` (00 §5) |
-| D-12 | politique de réessai incorrecte | `401_then_503_then_200_requests_exactly_two_tokens`, `api_401_twice_maps_to_auth`, `429_retry_after_is_honoured`, `429_retry_after_http_date_is_honoured`, `500_then_200_succeeds_after_backoff`, `concurrent_calls_share_one_token_refresh` | piste | M2 | — |
-| D-13 | aucune limitation de débit ni de concurrence | `rate_limiter_spaces_requests`, `rate_limit_wait_beyond_deadline_fails_fast`, `concurrency_cap_is_respected`, `search_all_respects_concurrency_cap` | piste ; app | M2, M7 | — |
-| D-14 | aucun délai global | `tool_deadline_caps_retries`, `request_timeout_maps_to_timeout`, `deadline_maps_to_upstream_error_before_deadline_plus_epsilon` | piste ; app | M2–M3 | code `upstream_error` (00 §5), pas `timeout` |
+| D-12 | politique de réessai incorrecte | `401_then_503_then_200_requests_exactly_two_tokens`, `api_401_twice_maps_to_auth`, `429_retry_after_is_honoured`, `429_retry_after_http_date_is_honoured`, `500_then_200_succeeds_after_backoff`, `500_twice_maps_to_upstream_not_retryable`, `503_then_500_then_500_stops_at_second_500`, `concurrent_calls_share_one_token_refresh` | piste | M2 | un 500 n'a que 2 tentatives, puis `retryable: false` (00 §8, AM-03 ; retour à 3 si V-69 montre des 500 transitoires fréquents) |
+| D-13 | aucune limitation de débit ni de concurrence | `rate_limiter_spaces_requests`, `rate_limit_wait_beyond_deadline_fails_fast`, `concurrency_cap_is_respected`, `invalid_advanced_setting_falls_back_to_default_with_warn`, `search_all_respects_concurrency_cap` | piste ; bin ; app | M2, M4, M7 | défauts réglables par `LF_PISTE_RPS`, `LF_PISTE_BURST`, `LF_PISTE_CONCURRENCY` (00 §1) |
+| D-14 | aucun délai global | `tool_deadline_caps_retries`, `deadline_from_task_local_is_used`, `no_deadline_published_uses_tool_deadline`, `429_retry_after_beyond_deadline_fails_fast`, `request_timeout_maps_to_timeout`, `deadline_maps_to_upstream_error_before_deadline_plus_epsilon`, `deadline_is_published_to_the_port` | piste ; app | M2–M3 | code `upstream_error` (00 §5), pas `timeout` ; échéance publiée dans `Deadline` (00 §3, AM-07) |
 | D-15 | cache non namespacé, négatifs cachés, pickle | `cache_namespaced_by_env`, `errors_and_empty_results_are_not_cached` | cache | M3 | `negative_result_ttl_is_short` remplacé : 00 §9 ne met en cache ni erreur ni réponse vide ; les tests disque sont **sans objet** (aucun cache disque en v0.1) |
 | D-16 | journal sans rotation, sans durabilité, append concurrent | `rotation_creates_new_file_after_limit`, `rotation_on_utc_date_change`, `rotation_renames_under_lock`, `concurrent_writers_produce_valid_jsonl`, `two_writers_same_dir_interleave_whole_lines`, `two_processes_share_audit_file`, `record_returns_only_after_sync`, `audit_write_is_acknowledged_before_tool_returns` | audit ; app ; bin | M3–M4 | — |
 | D-17 | enregistrement d'audit pauvre ; empreinte non salée | `audit_record_schema_snapshot`, `audit_line_key_order_is_normative`, `audit_line_validates_against_schema` | audit | M3 | `input_digest_differs_between_installations` (HMAC) écarté : 00 §7 fixe un SHA-256 canonique non salé (02 §13.1 n° 6) ; `request_id` reste dans `tracing` |
@@ -476,29 +499,29 @@ Colonne « Écart » : différence avec la matrice de la recherche 02 §6, quand
 | D-22 | paramètre `date` non validé | `version_date_rejects_bad_formats`, `invalid_date_is_rejected_locally` | domain ; app | M1, M3 | 0 appel au faux corpus au lieu de wiremock `expect(0)` (même garantie, niveau plus bas) |
 | D-23 | `null` dans les listes ⇒ `AttributeError` | `null_list_is_empty_vec`, `missing_list_is_empty_vec`, `fixture_mutations_never_panic`, cible de fuzzing `dto_decode` | piste | M2 | — |
 | D-24 | typage rigide (`int` refusé pour `str`) | `idcc_accepts_string_and_number`, `num_accepts_int_and_string`, `numero_affaire_accepts_scalar_and_list` | piste | M2 | — |
-| D-25 | TOC aplatie, désordonnée, dupliquée | `toc_preserves_section_titles`, `toc_sorted_by_int_ordre`, `toc_dedups_articles`, `toc_article_projection_matches_reference_order`, `kali_inline_content_is_available_without_extra_call` | domain ; piste | M1–M2 | — |
+| D-25 | TOC aplatie, désordonnée, dupliquée | `toc_preserves_section_titles`, `toc_sorted_by_int_ordre`, `toc_dedups_articles`, `toc_article_projection_matches_reference_order`, `kali_inline_content_is_available_without_extra_call` | domain ; piste | M1–M2 | la pagination de la TOC (`toc_offset`, `toc_limit`, `next_toc_offset`) est suivie avec D-47 |
 | D-26 | structure en alinéas perdue | `cetat_fixture_yields_multiple_paragraphs` (43), `constit_fixture_yields_49_paragraphs`, `verbatim_text_is_unchanged_except_markup`, `article_9_has_two_paragraphs` (sur fixture recapturée avec `texteHtml`) | domain ; piste | M1–M2 | le dernier dépend de [v:texte-html-getarticle-juri] |
-| D-27 | typographie des citations fautive | `constit_citation_golden`, `cnil_citation_golden`, `format_fr_twelve_months_and_premier` | domain | M1 | `nested_brackets_are_balanced` sans objet : la citation n'inclut plus l'objet entre crochets (P-035) ; il est remplacé par `constit_citation_ignores_bracketed_subject` |
+| D-27 | typographie des citations fautive | `constit_citation_golden`, `cnil_citation_golden`, `format_fr_twelve_months_and_premier` | domain | M1 | `nested_brackets_are_balanced` sans objet : la citation n'inclut plus l'objet entre crochets (P-035 ; formes complémentaires adoptées par défaut, Q12, arrêtées avant les golden de M1) ; il est remplacé par `constit_citation_ignores_bracketed_subject` |
 | D-28 | URL routée par `origine` ; préfixes incomplets | `url_depends_on_id_type_not_payload_origine`, `origine_mismatch_emits_diagnostic`, `suffix_only_on_legitext` | domain ; piste | M1–M2 | `strip_date_suffix_handles_all_known_prefixes` adapté : le suffixe n'est admis que sur `LEGITEXT` (00 §4) |
-| D-29 | URL `/codes/` pour un article de loi | `law_article_url_uses_loda_article_lc` ; scénario live 3 (P-060) | domain ; live | M1, M2 | dépend de [v:texttitles-nature-loi] et [v:url-loda-article-lc] |
+| D-29 | URL `/codes/` pour un article de loi | `law_article_url_uses_loda_article_lc`, `unknown_parent_nature_falls_back_to_codes_url` ; scénario live 3 (P-060) | domain ; live | M1, M2 | dépend de [v:texttitles-nature-loi] et [v:url-loda-article-lc], bloquantes pour v0.1.0 (V-142, V-140 ; 00 §4) |
 | D-30 | contrat de citation optionnel ; `eli_uri` trompeur | `every_normalized_fixture_has_contract`, `invalid_hit_is_dropped_and_counted`, `citation_never_empty`, `no_view_has_eli_uri`, `ported_no_fabricated_eli` (16 fixtures) | domain ; piste ; mcp | M1–M4 | — |
 | D-31 | validation par préfixe seul ; schémas permissifs | `id_parse_roundtrip`, `id_error_messages_table`, `schema_has_enum_for_fond_and_bounds_for_page_size`, `ids_go_in_body_never_in_path` | domain ; mcp ; piste | M1–M4 | — |
-| D-32 | mode de recherche figé ; requête non bornée | `type_recherche_follows_match`, `query_too_long_is_invalid_arg`, `query_control_chars_are_stripped` | piste ; domain | M1–M2 | le défaut reste `any` (Q10, ADR-0014) |
+| D-32 | mode de recherche figé ; requête non bornée | `type_recherche_follows_match`, `query_too_long_is_invalid_arg`, `query_control_chars_are_stripped` ; `live_match_modes_totals` (V-79) | piste ; domain ; live | M1–M2 | défaut `any` (parité) jusqu'à V-79, puis `all` si V-79 confirme la sémantique et un rappel acceptable ; décision consignée avant le verrou des descripteurs de M4 (adoptée par défaut, Q10 ; ADR-0014) |
 | D-33 | taille des réponses non maîtrisée | `default_decision_response_under_budget`, `paged_reading_reconstructs_full_text`, `focus_returns_relevant_paragraphs`, `descriptor_size_budget`, `every_tool_response_under_hard_cap`, `default_outputs_within_target` | domain ; app ; mcp | M5 | — |
-| D-34 | `fr_coverage` incomplet et figé | `every_registered_tool_is_in_a_family_or_general`, `every_served_fond_has_a_family`, `gaps_never_empty`, `coverage_degraded_without_credentials`, `coverage_lists_known_gaps` | mcp ; app | M3–M4 | — |
-| D-35 | fixtures en mojibake, tronquées, sans métadonnées | `fixtures_have_meta_sidecar`, `fixture_sha256_matches_meta`, `recorded_fixtures_have_no_mojibake`, `mojibake_body_is_repaired_and_counted`, `no_mojibake_after_mapping`, `ported_search_loda_hits` | piste | M2 | `fixtures_have_no_mojibake` restreint aux fixtures **enregistrées** : les 6 fixtures en mojibake de la référence sont conservées exprès pour tester la réparation (§4.2) |
+| D-34 | `fr_coverage` incomplet et figé | `every_registered_tool_is_in_a_family_or_general`, `every_served_fond_has_a_family`, `gaps_never_empty`, `coverage_degraded_without_credentials`, `coverage_degraded_on_config_problem`, `coverage_custom_host_is_a_gap_not_a_problem`, `coverage_lists_known_gaps` | mcp ; app | M3–M4 | — |
+| D-35 | fixtures en mojibake, tronquées, sans métadonnées | `fixtures_have_meta_sidecar`, `fixture_sha256_matches_meta`, `recorded_fixtures_have_no_mojibake`, `mojibake_body_is_repaired_and_counted`, `mojibake_repair_off_keeps_body_but_detects`, `no_mojibake_after_mapping`, `ported_search_loda_hits` | piste | M2 | `fixtures_have_no_mojibake` restreint aux fixtures **enregistrées** : les 6 fixtures en mojibake de la référence sont conservées exprès pour tester la réparation (§4.3) |
 | D-36 | couverture de tests et CI insuffisantes | la CI elle-même : jobs requis du §7, matrice Linux, macOS et Windows, MSRV | CI | M0 | garanti par la protection de branche, pas par un test |
 | D-37 | verrou des descripteurs fragile | `cargo xtask lock-descriptors --check` (trois sessions, deux ères), `tools_list_snapshot`, `descriptor_lock_rejects_empty_baseline`, `lock-descriptors --compare <étiquette précédente>` (job de release), `versions_are_consistent` | xtask ; mcp ; bin | M4 | le contrôle de version se fait par `--compare` (05 §9.4) |
 | D-38 | E/S synchrones dans la boucle d'événements | `tool_calls_progress_while_audit_write_is_slow` (audit retenu 500 ms pour un appel, un second appel progresse) ; lint `disallowed-methods` (§8.3) | app ; mcp | M3–M4 | `concurrent_tool_calls_progress_while_disk_is_slow` adapté : il n'y a pas de cache disque, seul l'audit écrit sur disque |
-| D-39 | fuites de ressources, ordre de construction | `missing_credentials_makes_no_network_call`, `e2e_missing_credentials_config_error_audited`, `new_does_no_io` (piste et audit) | piste ; audit ; bin | M2–M4 | la recherche demandait « aucune E/S disque » : la ligne d'audit reste obligatoire (00 §3), seul le réseau est exclu |
+| D-39 | fuites de ressources, ordre de construction | `missing_credentials_makes_no_network_call`, `config_problem_starts_in_degraded_mode`, `e2e_missing_credentials_config_error_audited`, `e2e_invalid_config_starts_degraded`, `new_does_no_io` (piste et audit) | piste ; audit ; bin | M2–M4 | la recherche demandait « aucune E/S disque » : la ligne d'audit reste obligatoire (00 §3), seul le réseau est exclu |
 | D-40 | messages avec URL, userinfo, chemin local | `error_messages_never_contain_secret_or_userinfo`, `error_messages_never_contain_secret_or_token`, `debug_of_config_redacts_secret`, `bearer_header_is_sensitive`, `redact_url_drops_userinfo_and_query`, `audit_error_message_has_no_path` | bin ; piste ; app | M2–M4 | — |
 | D-41 | taille des corps non bornée | `oversized_body_is_rejected`, `gzip_body_is_limited_after_decompression`, `acco_large_data_field_is_skipped` | piste | M2 | — |
-| D-42 | variables du README fausses | `readme_mentions_only_supported_env_vars`, `check_config_lists_every_variable` | bin | M4 | — |
+| D-42 | variables du README fausses | `readme_mentions_only_supported_env_vars`, `check_config_lists_every_variable`, `legacy_unread_variables_warn_ignored`, `invalid_advanced_setting_falls_back_to_default_with_warn` | bin | M4 | les quatre réglages avancés figurent dans la table de 02 §8.2 et dans le README, jamais dans `server.json` ni le manifeste MCPB (00 §1) |
 | D-43 | dérives documentation et code | `user_agent_contains_crate_version`, `instructions_drift`, `server_info_is_mcp_legifrance_with_crate_version`, `changelog_has_entry_for_version` (job de release, §13.3), `regression_catalog_is_implemented` | bin ; mcp ; CI | M4–M5 | — |
-| D-44 | chaîne CI et release non épinglée | job `workflow-lint` (zizmor, actionlint) qui exige des actions épinglées par SHA ; publication par cargo-dist avec sommes de contrôle et signature ([08-distribution.md](08-distribution.md)) | CI | M0 | — |
-| D-45 | pseudonymisation non signalée ; attribution | `coverage_lists_pseudonymisation_gap` (FR-006), `coverage_source_mentions_licence` | mcp | M4 | `juri_and_cnil_responses_carry_redaction_note` remplacé : 05 §5.8 signale la pseudonymisation par une lacune de couverture, pas dans chaque réponse |
-| D-46 | aucun journal de diagnostic | `stdout_contains_only_jsonrpc`, `tool_call_emits_one_info_event`, `piste_call_span_fields` | bin ; app ; piste | M2–M4 | — |
-| D-47 | `fr_get_act` sur un code | `get_act_on_code_adds_note`, `toc_page_bounds` (`toc_limit` ≤ 500) ; M7 : `get_act_on_code_uses_table_matieres` si [v:lawdecree-sur-code] le justifie | mcp ; app ; piste | M4, M7 | `get_act_rejects_code_id_with_hint` écarté : 00 §3 garde `get_act(&LegiTextId)` pour les codes, et 05 §5.2 ajoute une `note` |
+| D-44 | chaîne CI et release non épinglée | job `workflow-lint` (zizmor, actionlint) qui exige des actions épinglées par SHA ; publication par cargo-dist avec sommes de contrôle et signature ([08-distribution.md](08-distribution.md), Q5) | CI ; distribution | M0 ; Distribution (v0.1.0) | partie release vérifiée par 08 ; clos à la première release signée |
+| D-45 | pseudonymisation non signalée ; attribution | `coverage_lists_pseudonymisation_gap` (FR-006), `coverage_attribution_and_consultation_date`, `instructions_carry_attribution` | mcp | M4 | `juri_and_cnil_responses_carry_redaction_note` remplacé : 05 §5.8 signale la pseudonymisation par une lacune de couverture, pas dans chaque réponse ; attribution et date de consultation adoptées par défaut (Q15) |
+| D-46 | aucun journal de diagnostic | `stdout_contains_only_jsonrpc`, `tool_call_emits_one_info_event`, `piste_request_span_fields` (span `piste_request` de 02 §11.1, un événement par tentative) | bin ; app ; piste | M2–M4 | — |
+| D-47 | `fr_get_act` sur un code | `live_lawdecree_on_code_size` (V-96, bloquante en M2 : taille et durée de `lawDecree` sur un code, seuils 4 Mio et 10 s) ; `get_act_on_code_adds_note`, `toc_page_bounds` (`toc_limit` ≤ 500) ; pagination de la TOC et plafond dur (M5) ; `get_act_on_code_uses_table_matieres` dès la v0.1 si V-96 l'exige (00 §8) | live ; mcp ; app ; piste | M2, M4–M5 | `get_act_rejects_code_id_with_hint` écarté : 00 §3 garde `get_act(&LegiTextId)` pour les codes, et 05 §5.2 ajoute une `note` |
 
 ### 3.2 Points de parité et golden
 
@@ -508,13 +531,15 @@ L'annexe A §2.1 **fait foi** pour chaque point P-xxx (décision, comportement, 
 |---|---|---|---|---|
 | Surface MCP | P-001 à P-007 | `tools_list_matches_v01_surface`, `stdio_tools_list_both_eras`, `annotations_are_read_only_on_all_tools`, `reference_parameters_preserved`, `structured_content_validates_against_output_schema`, `text_content_is_json_of_structured_content`, `instructions_fit_budget`, `instructions_drift`, `descriptions_cite_only_registered_tools`, `hint_messages_cite_existing_tools`, `descriptor_lock_matches`, `descriptor_lock_rejects_empty_baseline` | mcp, bin, xtask | M4 |
 | Validation et erreurs | P-010 à P-015 | `fond_parse_is_case_and_space_insensitive`, `fond_error_message_matches_reference`, `search_validation_order_matches_reference`, `id_error_messages_table`, `invalid_id_message_starts_with_reference_sentence`, `not_found_messages_match_reference`, `corpus_error_maps_to_app_error_table`, `error_results_are_text_with_code_prefix`, `error_matrix_s1_to_s17` | domain, app, mcp, piste | M1–M4 |
-| Requêtes PISTE | P-020 à P-026 | `search_request_matches_reference_json`, `search_*_fixture_maps`, `paris_midnight_vectors`, `consult_*_fixture_maps`, `oauth_*`, `api_401_*`, `500_then_200_succeeds_after_backoff`, `user_agent_contains_crate_version`, `redirect_is_not_followed`, `bearer_header_is_sensitive` | piste, app | M2–M3 |
+| Requêtes PISTE | P-020 à P-026 | `search_request_matches_reference_json`, `search_*_fixture_maps`, `paris_noon_vectors`, `consult_*_fixture_maps`, `oauth_*`, `api_401_*`, `500_then_200_succeeds_after_backoff`, `user_agent_contains_crate_version`, `redirect_is_not_followed`, `bearer_header_is_sensitive` | piste, app | M2–M3 |
 | Normalisation (golden niveau 1) | P-030 à P-039 | `mapping_matches_golden`, les 19 `ported_*`, `source_url_snapshot_all_kinds`, `toc_article_projection_matches_reference_order`, `constit_citation_golden`, `cnil_citation_golden`, `consult_acco_fixture_maps`, `text_length_counts_chars_of_canonical_text`, `ported_no_fabricated_eli` | domain, piste | M1–M2 |
 | Sortie d'outil (golden niveau 2) | P-004, P-038 | `tool_output_matches_golden` (deux ères), `golden_divergences_match_annex_a`, `every_golden_divergence_is_exercised`, `overrides_point_to_existing_golden_values`, `golden_meta_is_expected`, `golden_copy_matches_plan_data` | bin, piste | M5 |
 | Audit | P-040 à P-043 | `audit_written_for_every_outcome`, `audit_line_key_order_is_normative`, `audit_ts_uses_plus_00_00`, `audit_error_truncated_to_500_chars`, `input_hash_reference_vectors`, `canonical_input_matches_python_vectors`, `audit_metric_per_tool`, `audit_failure_returns_audit_error`, `best_effort_keeps_result`, `audit_unwritable_dir_fails_call` | app, audit, mcp, bin | M3–M4 |
 | Couverture et live | P-050, P-060 | `coverage_invariants_ported`, tests de 05 §5.8 ; `live_reference_scenario_1` à `_9`, `live_e2e_reference_scenarios` | app, mcp, piste, bin | M3–M4 ; P-060 avant l'étiquette v0.1.0 |
 
 **Règles du harnais golden** (rappel de l'annexe A §5.4) : le golden est figé ; les divergences volontaires sont des **données** (`GoldenDivergence`, 18 variantes, et `OVERRIDES`, 4 entrées) ; une divergence non déclarée fait échouer `golden_divergences_match_annex_a` ; un champ Rust absent du golden transformé doit figurer dans `ADDED_FIELDS`.
+
+**Origine du golden** (00 §10) : `docs/plan/annexes/donnees/parite-golden.json` est produit par [annexes/donnees/scripts/golden.py](annexes/donnees/scripts/golden.py) (réimplémentation indépendante des normaliseurs de la référence, sans importer son code) et contrôlé par `check_golden.py` (assertions de `test_parse.py`), tous deux exécutés en Python 3.13 par `python3 -I` ; les empreintes SHA-256 des versions qui ont produit les données du plan sont dans 00 §10. Contrôle fait pour ce document le 2026-10-15 : `golden.py` relancé sur les 16 fixtures de la référence redonne le fichier versionné octet pour octet, et `check_golden.py` passe. Le job `surface` (§7.1) refait ce contrôle sur les copies de `crates/lf-adapter-piste/tests/fixtures/reference/` ; toute régénération passe par ces scripts versionnés, jamais par une copie locale.
 
 ### 3.3 Règles du catalogue
 
@@ -535,7 +560,7 @@ L'annexe A §2.1 **fait foi** pour chaque point P-xxx (décision, comportement, 
 | Enregistrées | `crates/lf-adapter-piste/tests/fixtures/recorded/<endpoint>/<nom>.json` | octets bruts reçus de PISTE, produits par `cargo xtask record-fixture`, plus `<nom>.meta.toml` (04 §13.4) | seulement par une nouvelle capture (`--force`) |
 | Dérivées | à côté de la fixture d'origine, `<nom>.reduced.json` | réduction produite par un script versionné (élagage d'une TOC trop longue, par exemple), avec `derived_from` et `sha256_raw` de l'original dans le `.meta.toml` | par le script seulement |
 | Synthétiques | `crates/lf-adapter-piste/tests/fixtures/synthetic/` | cas construits à la main : listes `null`, sentinelles 2222-02-22, entiers en chaîne, corps d'erreur, `data` ACCO de 5 Mio généré à l'exécution | oui, revue en PR |
-| Données du plan | `docs/plan/annexes/donnees/` | golden, corpus de citations, table des codes | par modification de l'annexe, puis de la copie (contrôle `cmp`) |
+| Données du plan | `docs/plan/annexes/donnees/` | golden, corpus de citations, table des codes ; scripts versionnés `scripts/golden.py`, `scripts/check_golden.py`, `scripts/dto_repair_check.py` (Python 3.13, `python3 -I` ; empreintes : 00 §10) | par modification de l'annexe (le golden : par régénération avec `golden.py`, jamais à la main ni par une copie locale du script), puis de la copie (contrôle `cmp`) |
 
 ### 4.2 Provenance, licence et attribution
 
@@ -566,7 +591,7 @@ license       = "Apache-2.0 (référence) ; données Légifrance / DILA, Licence
 
 ### 4.3 Fixtures en mojibake : conservées pour tester la réparation
 
-- Les 6 fixtures touchées (`consult_article`, `consult_juri`, `consult_loda`, `search_code`, `search_juri`, `search_loda` : 235 séquences, 60 champs, toutes réparables par un aller-retour latin-1 → UTF-8 ; recherche 02 §5) sont **gardées telles quelles**, avec `known_issues = ["mojibake"]`.
+- Les 6 fixtures touchées (`consult_article`, `consult_juri`, `consult_loda`, `search_code`, `search_juri`, `search_loda`) contiennent **252 séquences** de mojibake (13 motifs distincts) : 235 dans 60 valeurs et 17 dans 14 clés de facettes, toutes ces clés dans `search_juri.json` (recherche 02 §5 pour les valeurs, recherche 03 §11.1 pour le total). Toutes sont réparables par un aller-retour latin-1 → UTF-8. Décompte refait pour ce document le 2026-10-15 avec le script versionné `docs/plan/annexes/donnees/scripts/dto_repair_check.py` (Python 3.13, `python3 -I`) : 60 valeurs et 14 clés réparées, réparation du corps entier égale à la réparation champ par champ sur les 6 fixtures, aucun changement à un second passage, et 10 champs cassés si les NBSP étaient normalisées avant la réparation. Ces fixtures sont **gardées telles quelles**, avec `known_issues = ["mojibake"]`.
 - Elles servent d'oracle : `mojibake_body_is_repaired_and_counted` (« PREMIÈRE CHAMBRE CIVILE » attendu, compteur à 1, un `warn`), `no_mojibake_after_mapping`, `clean_body_is_untouched` sur les 10 fixtures saines, et le niveau 1 du golden, qui répare d'abord la valeur golden (annexe A §5.4, transformation 1).
 - Le motif `[U+00C2–U+00F4][U+0080–U+00BF]` n'est pas un oracle suffisant : `consult_juri_constit.json`, saine, contient `é` suivi d'une NBSP (annexe A §5.5 point 3). Ce sont la garde « aucun caractère au-delà de U+00FF » et le marqueur `known_issues` qui décident.
 - Les fixtures **enregistrées** doivent être exemptes de mojibake (`recorded_fixtures_have_no_mojibake`, avec le champ `mojibake_detected = false` de leur sidecar). Si une capture en direct en contient, c'est un résultat de [v:mojibake-origine] : la fixture est gardée avec `known_issues = ["mojibake:source"]`, et le registre V-xx est mis à jour.
@@ -575,14 +600,14 @@ license       = "Apache-2.0 (référence) ; données Légifrance / DILA, Licence
 
 Procédure (04 §13.4 fait foi pour la commande) :
 
-1. Identifiants dans l'environnement uniquement (`LF_PISTE_CLIENT_ID`, `LF_PISTE_CLIENT_SECRET`), sandbox par défaut. `--env production` est un choix explicite, soumis à Q3 et aux CGU (04 §16 question 10).
+1. Identifiants dans l'environnement uniquement (`LF_PISTE_CLIENT_ID`, `LF_PISTE_CLIENT_SECRET`), sandbox par défaut. En production (politique adoptée par défaut, Q3 ; 00 §10) : `--env production` n'est lancé qu'à la main par le mainteneur, pour des sondes en lecture seule et des fixtures de données publiques marquées `env = "production"` dans leur sidecar ; jamais en CI, où aucun identifiant de production n'existe (04 §13.4).
 2. `cargo xtask record-fixture --plan …` exécute le lot à 1 requête par seconde au plus.
 3. Les sorties contiennent les **octets bruts**, non reformatés et non réparés, et un `.meta.toml` (`endpoint`, `request`, `env`, `captured_at`, `http_status`, `content_type`, `content_encoding`, `bytes_raw`, `sha256_raw`, `sha256_file`, `mojibake_detected`, `redactions`, `tool`, `license`).
 4. **Caviardage** : aucun en-tête ni jeton n'est jamais écrit. Par défaut, seul `acco.data` (base64 du `.docx`) est remplacé par `"<redacted: N bytes base64>"` ; le fichier devient alors une dérivée, et `sha256_raw` garde l'empreinte d'origine.
 5. **Contrôles avant commit**, automatisés par `fixtures_contain_no_token_like_strings` : aucune chaîne `Bearer `, `access_token`, `client_secret`, aucun JWT (`eyJ…` suivi de deux points), aucune valeur de plus de 40 caractères en base64 hors pointeurs déclarés dans `redactions`.
 6. **Taille** : 1 Mio au plus par fichier versionné. Au-delà, on versionne une dérivée réduite, et l'original reste hors dépôt, décrit par son empreinte.
 7. **Données personnelles** : les décisions JURI sont pseudonymisées et les textes CNIL occultés par la DILA (D-45). Aucune donnée personnelle n'est ajoutée ; un nom de personne qui apparaîtrait dans une fixture enregistrée est signalé en revue.
-8. Le lot par défaut recapture les 6 fixtures en mojibake (mêmes identifiants), des versions **complètes** de `consult_juri` (JURI), `consult_cnil` et `lawDecree`, un `getArticle` avec `texteHtml`, les sondes « introuvable » de chaque endpoint, une page 2 de recherche CODE et une recherche par facette de date (04 §13.4).
+8. Le lot par défaut recapture les 6 fixtures en mojibake (mêmes identifiants), des versions **complètes** de `consult_juri` (JURI), `consult_cnil` et `lawDecree`, un `getArticle` avec `texteHtml`, les sondes « introuvable » de chaque endpoint, `lawDecree` sur le Code civil et le Code du travail (taille et durée, V-96), une page 2 de recherche CODE et une recherche par facette de date (04 §13.4). Il s'exécute en sandbox ; ses éventuelles entrées de production sont lancées à la main par le mainteneur (point 1).
 
 ### 4.5 Fixtures tronquées et fixtures complètes
 
@@ -607,7 +632,8 @@ Procédure (04 §13.4 fait foi pour la commande) :
 - Variables requises : `LF_PISTE_CLIENT_ID`, `LF_PISTE_CLIENT_SECRET`. Variable facultative : `LF_PISTE_ENV` (défaut `sandbox`, 00 §1). Aucune autre variable n'est inventée pour les tests.
 - Exécution locale : `LF_PISTE_ENV=sandbox cargo nextest run --profile live --run-ignored only -p lf-adapter-piste --test live` (syntaxe nextest **NON VÉRIFIÉ** [v:nextest-config-cles]), ou `cargo test -p lf-adapter-piste --test live -- --ignored --test-threads=1` (04 §13.5). Exécution séquentielle, 200 ms au moins entre deux appels (recherche 05 §3.3).
 - Aucune provocation volontaire de 429 ou de `Retry-After`, contraire à l'esprit des CGU (04 §13.5) : [v:retry-after-piste] et [v:quota-piste-prod] se vérifient par observation fortuite et dans la console PISTE.
-- Les tests live **ne bloquent jamais** une PR. Ils tournent dans un workflow distinct (§7.5).
+- Les tests live **ne bloquent jamais** une PR. Ils tournent dans un workflow distinct (§7.5), en sandbox seulement.
+- Politique adoptée par défaut (Q3 ; 00 §10, AM-40) : sandbox par défaut ; en production, uniquement des sondes en lecture seule lancées à la main par le mainteneur avant chaque étiquette, à 1 requête/s au plus, et des fixtures de données publiques marquées `env = production` ; jamais d'identifiants de production en CI (§5.2).
 
 ### 5.2 Sandbox et production
 
@@ -616,8 +642,9 @@ Procédure (04 §13.4 fait foi pour la commande) :
 | Identifiants | application PISTE sandbox | application **distincte** ; des identifiants sandbox y reçoivent `invalid_client` (04 §2.1) |
 | Données | « pas identiques à celles de Production » ; écart **NON VÉRIFIÉ** [v:sandbox-prod-donnees] | référence |
 | Engagement de service | aucun (CGU 2022, recherche 05 §3.2) | objectif de 95 % par jour |
-| Qui, quand | CI (`live.yml`, hebdomadaire et manuel) et développeur | mainteneur seulement, à la main, avant une étiquette, si Q3 le permet |
-| Ce qu'on vérifie | tout le §5.3 | `live_oauth_production_endpoints` et les 9 scénarios P-060 en lecture seule ([v:oauth-production-live]) |
+| Qui, quand | CI (`live.yml`, hebdomadaire et manuel) et développeur | mainteneur seulement, à la main, avant chaque étiquette, à 1 requête/s au plus (`LF_PISTE_RPS=1`, `LF_PISTE_BURST=1`) ; jamais en CI, qui n'a aucun identifiant de production (adopté par défaut, Q3) |
+| Ce qu'on vérifie | tout le §5.3 | sondes en lecture seule : `live_oauth_production_endpoints` et les 9 scénarios P-060 ([v:oauth-production-live]), puis les vérifications propres à la production (V-59, V-61) |
+| Fixtures | enregistrées par défaut (§4.4) | admises pour des données publiques, sidecar `env = "production"` (§4.4 point 1) |
 | Résultat | registre du §5.4 | idem, colonne `env` |
 
 ### 5.3 Ce que vérifient les tests live, et les étiquettes qu'ils lèvent
@@ -628,18 +655,20 @@ Procédure (04 §13.4 fait foi pour la commande) :
 | `live_token_reuse_and_expires_in` | `expires_in`, `scope`, réutilisation du jeton | [v:oauth-reponses] | M2 |
 | `live_unknown_ids_classification` | réponse de chaque consultation à `…000000000000` et `…999999999999` (enregistrée par xtask) | [v:introuvable-par-endpoint], [v:forme-404-piste], [v:corps-erreur-piste] | M2 |
 | `live_no_mojibake_on_reference_ids` | les identifiants des 6 fixtures en mojibake reviennent sans mojibake | [v:mojibake-origine], [v:json-echappements-unicode] | M2 |
-| `live_singledate_midnight_paris_semantics` | un texte qui entre en vigueur le jour J est retenu avec `version_date = J` | [v:singledate-minuit-paris] | M2 |
+| `live_singledate_noon_paris_semantics` (bloquant) | avec `singleDate` à midi Europe/Paris (00 §8), un texte qui entre en vigueur le jour J est retenu avec `version_date = J` ; comparaison avec minuit UTC, minuit Paris et la veille (04 §6.3) | [v:singledate-minuit-paris] (V-76) | M2 |
+| `live_lawdecree_on_code_size` (bloquant) | taille et durée de `lawDecree` sur le Code civil et le Code du travail, seuils 4 Mio et 10 s : décide de `tableMatieres` en v0.1 (00 §8, 04 §7.3) | [v:lawdecree-sur-code] (V-96), [v:taille-max-textes] | M2 |
 | `live_type_pagination_page2_code`, `live_deep_pagination_limit` | `typePagination` en page 2 ; fenêtre maximale de `/search` | [v:typepagination-page2], [v:pagination-profonde] | M5 |
 | `live_date_facets_reduce_total` | chaque facette de date réduit le total ; bornes incluses | [v:filtres-dates-effet] | M2 |
-| `live_match_modes_totals` | `any` ≥ `all` ≥ `exact` sur une même requête | [v:mode-all-semantique] | M2 |
+| `live_match_modes_totals` | `any` ≥ `all` ≥ `exact` sur une même requête ; sémantique de `all` et rappel sur les 9 scénarios de la référence, qui tranchent Q10 avant le verrou de M4 | [v:mode-all-semantique] (V-79) | M2 |
 | `live_gzip_negotiated` | en-tête `Content-Encoding` | [v:piste-gzip] | M2 |
 | `live_texte_html_presence` | `texteHtml` sur `getArticle` et sur `juri` (JURI) | [v:texte-html-getarticle-juri] | M2 |
 | `live_dates_are_midnight_utc` | les horodatages de date sont à minuit UTC | [v:convention-horaire-timestamps] | M2 |
 | `live_eli_fields_are_null` | `eli` et `idEli` restent `null` | [v:eli-natif-null] | M2 |
 | `live_401_under_load_is_not_misclassified` (observation passive dans les journaux) | `401 invalid_client` pendant une limitation | [v:401-sous-throttling] | M2 |
-| (M6) `live_find_article_today_and_past`, `live_exact_number_searches`, les 26 `resolve_hint` de l'annexe B §8.7 | résolution des citations | [v:idandnum-comportement], [v:recherche-exacte-par-numero], [v:num-article-forme-api], [v:endpoints-m6-reponses], [v:corpus-cas-de-memoire] | M6 |
-| (M7) `live_versions_links_toc_suggest` | endpoints de navigation ; `lawDecree` sur un code | [v:endpoints-m7-reponses], [v:lawdecree-sur-code] | M7 |
-| (production) `live_oauth_production_endpoints` | URL OAuth et API de production | [v:oauth-production-live], [v:sandbox-prod-donnees] | avant v0.1.0, si Q3 |
+| (M6) `live_find_article_today_and_past`, `live_exact_number_searches`, les 26 `resolve_hint` de l'annexe B §8.7 | résolution des citations | [v:idandnum-comportement], [v:recherche-exacte-par-numero], [v:num-article-forme-api], [v:endpoints-m6-reponses], [v:nom-code-filtre], [v:corpus-cas-de-memoire] | M6 |
+| (M6) `live_ecli_facet_and_eli_redirects` | facette `ECLI` sur JURI et CETAT ; `getArticleWithIdEliOrAlias` et `eliAndAliasRedirectionTexte` pour des ELI cités, jamais fabriqués (04 §7.2) | [v:ecli-filtre-juri-cetat], [v:eli-redirection-endpoints] | M6 |
+| (M7) `live_versions_links_toc` | endpoints de navigation (`/suggest` retiré, 00 §8) | [v:endpoints-m7-reponses], [v:related-links-forme] | M7 |
+| (production) `live_oauth_production_endpoints` | URL OAuth et API de production, en lecture seule, lancé à la main | [v:oauth-production-live], [v:sandbox-prod-donnees] | avant v0.1.0 (Q3) |
 
 ### 5.4 Registre des exécutions live
 
@@ -681,11 +710,48 @@ La suite officielle ne teste pas stdio : son option `--url` est obligatoire (ann
 | `expect_alive` | envoie `server/discover` et exige une réponse : le processus n'a pas quitté |
 | `close_stdin`, `expect_exit` | binaire seulement : EOF, code et délai de sortie |
 
-**Liste minimale pour M4** (annexe D §8.3 ; cas (a) à (f) de 05 §11) : `modern_discover`, `modern_tools_list`, `modern_tools_call`, `modern_meta_incomplete`, `modern_unsupported_version`, `modern_removed_methods`, `modern_listen`, `legacy_2025_11_25`, `legacy_2025_06_18`, `legacy_then_modern`, `initialize_negotiation`, `premature_notification`, `garbage_and_batch`, `cancel_then_silence`, `eof_after_discover`, `interleaved_two_conversations`, `mrtr_fields_tolerated`.
+**Modèle** : une transcription par fichier `tests/jsonrpc/<nom>.jsonl`, rejouée par les deux exécuteurs ; chaque fichier est un cas nommé par son `<nom>`, sans préfixe. Les noms `raw_*` et `e2e_*` de la colonne « Test prévu » de l'annexe D §8.1 désignent ces fichiers ou les tests nommés ci-dessous : **l'annexe D fait foi pour l'énoncé des exigences C-xx** (niveau, source), **ce document pour les noms et les chemins** des transcriptions et des tests (00 §0).
 
-**Correspondance avec la check-list** : chaque exigence C-01 à C-30 de l'annexe D §8.1 a son test ou sa transcription (colonne « Test prévu » de l'annexe D, qui fait foi). Le spike M0 fait passer `modern_discover`, `legacy_2025_11_25` et `premature_notification` (annexe D §8.4), ce qui tranche [v:rmcp-transport-enveloppe], [v:rmcp-methode-inattendue] et [v:rmcp-mrtr-champs-toleres].
+**Liste minimale pour M4** (annexe D §8.3 ; cas (a) à (f) de 05 §11) : `modern_discover`, `modern_tools_list`, `modern_tools_call`, `modern_meta_incomplete`, `modern_unsupported_version`, `modern_envelope_legacy_version`, `modern_removed_methods`, `modern_listen`, `legacy_2025_11_25`, `legacy_2025_06_18`, `legacy_then_modern`, `discover_after_initialize`, `initialize_negotiation`, `unknown_method_lifecycle`, `premature_notification`, `garbage_and_batch`, `cancel_then_silence`, `eof_after_discover`, `eof_with_open_listen` (binaire seulement), `interleaved_two_conversations`, `mrtr_fields_tolerated`, `results_carry_server_info`. En M7 s'ajoutent `modern_resources_and_prompts_lists`, `resource_not_found_by_era`, `malformed_resource_uri` et `cancel_search_all_with_progress_then_silence` (§2.6).
 
-**Écarts acceptés** : `ping` avant toute ère, `initialize` portant un `_meta` moderne, ligne non JSON ignorée, longueur de ligne non bornée en 3.5.1 (annexe D §4.7). Les transcriptions les figent comme comportements attendus : une montée de rmcp qui les change fait échouer le test, ce qui oblige à relire l'annexe D.
+`modern_envelope_legacy_version` tranche V-34 ([v:rmcp-enveloppe-version-legacy]) : d'après la lecture du code de rmcp 3.5.1, une requête à enveloppe moderne portant une version legacy est acceptée et servie sans `resultType` ni indices de cache. Si l'exécution le confirme en M4, le repli de 00 §6 s'applique : la transcription attend alors `-32022` avec `data.supported = ["2026-07-28"]` (réponse de `PreLifecycleFilter`), et `modern_discover` n'annonce plus que `2026-07-28` ; sinon, elle fige le comportement observé et l'écart est consigné dans l'annexe D.
+
+**Correspondance avec la check-list** (annexe D §8.1) :
+
+| C-xx | Transcription (`tests/jsonrpc/`) ou test |
+|---|---|
+| C-01 | `stdout_contains_only_jsonrpc` (lf-app ; `e2e_stdout_only_jsonrpc` dans l'annexe D) |
+| C-02 | `default_log_filter_caps_rmcp`, `error_messages_never_contain_secret_or_userinfo` |
+| C-03 | contrôle commun à toutes les transcriptions : aucun message du serveur ne porte à la fois `method` et `id` ; `disallowed-methods` (§8.3) |
+| C-04, C-05 | `garbage_and_batch` (tableau JSON → `-32600` sans `id` ; ligne non JSON ignorée sans réponse ; puis `expect_alive`) |
+| C-06 | `e2e_discover_without_network` |
+| C-07 | `unknown_method_lifecycle` |
+| C-08 | `premature_notification` |
+| C-09 | `eof_after_discover` ; `e2e_eof_after_discover_exits_zero`, `e2e_eof_in_session_exits_zero` |
+| C-10 | `modern_meta_incomplete` |
+| C-11 | `modern_unsupported_version` |
+| C-12 | `supported_versions_are_explicit` |
+| C-13 | `modern_discover` (snapshot), `discover_after_initialize` |
+| C-14, C-15 | `modern_tools_list`, `modern_tools_call` (`resultType`, `ttlMs`, `cacheScope` présents) ; `legacy_2025_11_25`, `legacy_2025_06_18` (absents) ; M7 : `modern_resources_and_prompts_lists` |
+| C-16 | `interleaved_two_conversations` |
+| C-17 | `modern_removed_methods` |
+| C-18, C-19, C-22 | `capabilities_same_in_both_eras` ; verrou des descripteurs (05 §9) |
+| C-20 | `modern_tools_call` ; `unknown_tool_is_jsonrpc_32602_without_audit`, `error_results_are_text_with_code_prefix` |
+| C-21 | `legacy_2025_06_18`, `legacy_tools_call_structured_content_is_object`, `structured_content_validates_against_output_schema` |
+| C-23 | `cancel_then_silence` ; M7 : `cancel_search_all_with_progress_then_silence` |
+| C-24 | `modern_listen` (accusé minimal, puis silence jusqu'à l'annulation), `eof_with_open_listen` ; en legacy, `subscriptions/listen` → `-32601` (`legacy_2025_11_25`) |
+| C-25 | `mrtr_fields_tolerated` |
+| C-26 | contrôle commun à toutes les transcriptions (aucun code maison ; `id` repris) |
+| C-27 | `initialize_negotiation` |
+| C-28 | `legacy_then_modern`, `legacy_2025_11_25` |
+| C-29 | `instructions_fit_budget`, `instructions_drift` (deux ères) |
+| C-30 | `results_carry_server_info` (ou écart acté, V-32) |
+| C-31 (M7) | `resource_not_found_by_era`, `malformed_resource_uri` |
+| C-32 (M7) | `completion_only_for_code_variable`, `completions_are_rate_limited`, `prompts_without_free_text_arguments`, `cancel_search_all_with_progress_then_silence` |
+
+**Spike M0** : `modern_discover`, `legacy_2025_11_25`, `premature_notification` et `mrtr_fields_tolerated` passent en processus (annexe D §8.4). Ils lèvent V-29 ([v:rmcp-transport-enveloppe]) et V-31 ([v:rmcp-mrtr-champs-toleres]). V-30 ([v:rmcp-methode-inattendue]) n'est levée que partiellement en M0 (en processus) : elle l'est en M4, sur le binaire, par `garbage_and_batch`, `premature_notification` et `modern_removed_methods` suivies d'`expect_alive` (09, V-30).
+
+**Écarts acceptés** : `ping` avant toute ère (`{}`, même avec un `_meta` moderne), `initialize` portant un `_meta` moderne et des paramètres legacy complets (poignée de main legacy ; sans paramètres legacy : `-32601`), ligne non JSON ignorée, longueur de ligne non bornée en 3.5.1 (annexe D §4.7 ; 05 §7.5). Les transcriptions les figent comme comportements attendus : une montée de rmcp qui les change fait échouer le test, ce qui oblige à relire l'annexe D.
 
 **Test documentaire de bug** : #1347 (méthode connue avec des `params` non désérialisables ⇒ `-32601` au lieu de `-32602`). Le test attend `-32601` tant que l'issue est ouverte, et doit être inversé à sa correction (05 §3.6 ; annexe D §9.1). Statut des issues **NON VÉRIFIÉ** [v:rmcp-bugs-statut].
 
@@ -694,12 +760,13 @@ La suite officielle ne teste pas stdio : son option `--url` est obligatoire (ann
 - **Suite** : `@modelcontextprotocol/conformance`, version épinglée, exécutée par `npx` dans le job `conformance-http`. La CI de rmcp utilise `0.2.0-alpha.10` avec `--spec-version 2025-11-25` puis `2026-07-28` (recherche 09 §3.1). La version à épingler en M8, les options exactes (`--url`, `--spec-version` ou `--requirements`, `--expected-failures`) et la prise en charge d'un en-tête d'authentification sont **NON VÉRIFIÉ** [v:conformance-suite-cli].
 - **Serveur testé** : la suite exige des outils de test dédiés (`test_missing_capability`, etc., recherche 08 §14.1). On ne les ajoute pas au serveur de production. Un **binaire de test** (`crates/lf-adapter-mcp/examples/conformance_server.rs`, jamais distribué) sert `LegifranceServer` sur `127.0.0.1` avec `FakeCorpus`, sans authentification, les outils de test enregistrés à part, et la même configuration HTTP que la production (annexe D §5.2). Ce choix suit la recherche 08 §14.1 (« prévoir un binaire de test séparé »).
 - **Échecs attendus** : `tests/conformance-baseline.yml`, versionné ; chaque entrée porte une raison et un lien (écart accepté, bug rmcp, fonction non servie). Une entrée sans raison fait échouer le job. La liste est revue à chaque montée de rmcp. Que rmcp 3.5.1 passe la suite dans notre configuration est **NON VÉRIFIÉ** [v:rmcp-conformance-http].
-- **Tests maison HTTP** (C-40 à C-60 de l'annexe D §8.2) : en processus par `tower::ServiceExt::oneshot` sur le routeur axum, sans socket ; et un test de bout en bout du binaire `serve-http` avec un client HTTP/1.1 minimal écrit sur `std::net::TcpStream`. Ni l'un ni l'autre n'ajoute reqwest en dépendance de développement, que le ban `cargo-deny` de 02 §4.3 interdirait (§15.1 n° 6).
+- **Tests maison HTTP** (C-40 à C-60 de l'annexe D §8.2) : en processus par `tower::ServiceExt::oneshot` sur le routeur axum, sans socket ; et un test de bout en bout du binaire `serve-http` avec un client HTTP/1.1 minimal écrit sur `std::net::TcpStream`. Ni l'un ni l'autre n'ajoute reqwest en dépendance de développement, que le ban `cargo-deny` de 02 §4.3 interdirait (00 §0 ; §15.1 n° 6).
+- **En-tête de version** (00 §6 ; V-39 [v:rmcp-http-entete-absent]) : `http_missing_version_header_rejected` (POST autre qu'`initialize` sans `MCP-Protocol-Version` → 400 + `-32020`, posé par notre couche axum) et `http_unsupported_known_version_header_rejected` (`MCP-Protocol-Version: 2025-03-26`, version connue de rmcp mais non servie, Q7 → 400 ; code JSON-RPC et `data` fixés par l'annexe D §5.2) ; `http_origin_forbidden` (`Origin` hors liste → 403) ; `http_body_too_large_413` (corps > 256 Kio).
 - **Profils** : le profil local (jeton statique) est testé par `http_local_token_required` ([v:clients-entete-statique]) ; le profil distant (resource server OAuth) par `http_prm_document`, `http_401_challenge`, `http_token_wrong_audience_401`, `http_insufficient_scope_403` et `http_inbound_token_never_reaches_piste` (C-57 à C-59), conditionnés à Q4.
 
 ### 6.3 Tests manuels par client
 
-Le protocole de l'annexe D §10.3 s'exécute avant chaque étiquette : Claude Code par défaut, puis avec `MCP_PROTOCOL_NEGOTIATION=legacy` ; VS Code ; MCP Inspector en `legacy`, `auto` et `modern` ; Claude Desktop par le bundle MCPB ; Cursor. Les constats lèvent [v:cc-structured-content-succes], [v:cc-sonde-delai], [v:cc-sonde-processus-frere], [v:vscode-openworld-confirm], [v:desktop-structured-content] et [v:cursor-ere-et-contenu]. Ils sont notés dans la PR de release.
+Le protocole de l'annexe D §10.3 s'exécute avant chaque étiquette : Claude Code par défaut, puis avec `MCP_PROTOCOL_NEGOTIATION=legacy` ; VS Code ; MCP Inspector en `legacy`, `auto` et `modern` ; Claude Desktop par le bundle MCPB ; Cursor. Les constats lèvent [v:cc-structured-content-succes], [v:cc-sonde-delai], [v:cc-sonde-processus-frere], [v:vscode-openworld-confirm], [v:desktop-structured-content] et [v:cursor-ere-et-contenu]. Ils sont notés dans la PR de release. Deux constats conditionnent la v0.1.0 : le réexamen d'`openWorldHint` (Q11) au vu de la confirmation des résultats dans VS Code (V-53), et l'acceptation par les clients legacy (MCP Inspector en `legacy`, VS Code) de schémas sans clé `$schema` (05 §2.5), **NON VÉRIFIÉ** [v:schemas-sans-dollar-schema-legacy]. Un argument de prompt multi-mots n'est ajouté que si V-50 ([v:cc-prompt-args-espaces]) montre que Claude Code transmet le reste de la ligne intact (00 §7).
 
 ---
 
@@ -711,11 +778,11 @@ Le protocole de l'annexe D §10.3 s'exécute avant chaque étiquette : Claude Co
 |---|---|---|---|---|---|
 | `fmt` | PR, `main` | Linux | `cargo fmt --all --check` | oui | 1 min |
 | `clippy` | PR, `main` | Linux | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, puis la même commande avec `--no-default-features` | oui | 5 min |
-| `test` | PR, `main` | Linux, macOS, Windows | `cargo fetch --locked` ; `cargo nextest run --workspace --all-features --locked --offline --profile ci` (proxys en échec, PT1) ; `cargo test --doc --workspace --all-features --locked --exclude lf-app --exclude xtask` | oui (les 3) | Linux 7, macOS 9, Windows 12 min |
+| `test` | PR, `main` | Linux, macOS, Windows | `cargo fetch --locked` ; `cargo nextest run --workspace --all-features --locked --offline --profile ci` (proxys en échec, PT1) ; `cargo test --doc --workspace --all-features --locked --exclude mcp-legifrance --exclude xtask` (paquet du binaire, répertoire `crates/lf-app`, 00 §2) | oui (les 3) | Linux 7, macOS 9, Windows 12 min |
 | `msrv` | PR, `main` | Linux | `rustup toolchain install 1.91 --profile minimal` ; `cargo +1.91 check --workspace --all-targets --all-features --locked` (la toolchain de la ligne de commande l'emporte sur `rust-toolchain.toml`) | oui | 5 min |
-| `deny` | PR, `main`, nuit | Linux | `cargo deny --all-features check` (advisories, bans, licenses, sources) | oui | 2 min |
+| `deny` | PR, `main`, nuit | Linux | `cargo deny --all-features check` (advisories, bans, licenses, sources) ; sur une PR, étape `min-age` : `.github/scripts/check-min-age.sh` (§9.4) | oui | 3 min |
 | `architecture` | PR, `main` | Linux | `cargo xtask check-deps` ; `cargo check -p lf-domain --locked` ; `cargo check -p lf-application --locked` (02 §4.4) ; `cargo tree -p lf-domain -e normal --prefix none` (artefact) ; `cargo machete` | oui | 4 min |
-| `surface` | PR, `main` | Linux | `cargo xtask lock-descriptors --check` ; `cargo xtask instructions-size` ; `cmp` des copies du golden et du corpus (annexe A §5.3, annexe B §8.1) | oui | 4 min |
+| `surface` | PR, `main` | Linux | `cargo xtask lock-descriptors --check` (descripteurs, manifeste MCPB et version de `server.json`, 00 §2) ; `cargo xtask instructions-size` ; `cmp` des copies du golden et du corpus (annexe A §5.3, annexe B §8.1) ; à partir de M2, reproduction du golden par `docs/plan/annexes/donnees/scripts/golden.py` depuis les fixtures de la référence copiées dans le crate, `cmp` avec le fichier versionné, puis `check_golden.py` (Python 3.13, `python3 -I`, §3.2) | oui | 5 min |
 | `docs` | PR, `main` | Linux | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked` | oui | 4 min |
 | `workflow-lint` | PR qui touche `.github/` | Linux | zizmor et actionlint, versions épinglées **NON VÉRIFIÉ** [v:outils-lint-workflows] | oui | 1 min |
 | `extended` | nuit | Linux, Windows | nextest avec `PROPTEST_CASES=4096` ; `perf_*` (§12) | non (alerte) | 20 min |
@@ -723,7 +790,7 @@ Le protocole de l'annexe D §10.3 s'exécute avant chaque étiquette : Claude Co
 | `coverage` | nuit | Linux | `cargo llvm-cov nextest --workspace --lcov` (indicatif) | non | 15 min |
 | `release-plan` | PR qui touche la configuration de distribution ; release | Linux | `dist plan`, via le `release.yml` généré par `dist init` en mode `pr-run-mode = "plan"` **NON VÉRIFIÉ** [v:cargo-dist-pr-run-mode] ; à la release : `cargo xtask lock-descriptors --compare <étiquette précédente>` et `changelog_has_entry_for_version` | oui pour ces PR | 3 min |
 | `conformance-http` | PR (à partir de M8) | Linux | §6.2 | oui à partir de M8 | 5 min |
-| `live` | manuel, hebdomadaire | Linux | §5 et §7.5 | non | 10 min |
+| `live` | manuel, hebdomadaire | Linux | §5 et §7.5, sandbox seulement (Q3) | non | 10 min |
 
 **Cible globale** : une PR obtient tous les jobs requis en 12 minutes au p50 et en 20 minutes au p95, avec cache chaud ; Windows est le chemin critique. Ces cibles sont des propositions, à mesurer en M0 puis en M5.
 
@@ -790,7 +857,7 @@ jobs:
           HTTP_PROXY: http://127.0.0.1:9
           NO_PROXY: 127.0.0.1,localhost,::1
         run: cargo nextest run --workspace --all-features --locked --offline --profile ci
-      - run: cargo test --doc --workspace --all-features --locked --offline --exclude lf-app --exclude xtask
+      - run: cargo test --doc --workspace --all-features --locked --offline --exclude mcp-legifrance --exclude xtask   # paquet de crates/lf-app (00 §2)
       - if: always()
         uses: actions/upload-artifact@<sha>
         with: { name: "junit-${{ matrix.os }}", path: target/nextest/ci/junit.xml }
@@ -811,9 +878,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@<sha>
-        with: { persist-credentials: false }
+        with: { persist-credentials: false, fetch-depth: 0 }   # historique : comparaison de Cargo.lock avec la base
       - uses: EmbarkStudios/cargo-deny-action@<sha>   # cargo-deny 0.20.2
         with: { command: check, arguments: --all-features }
+      - name: âge minimal des dépendances (00 §2 ; §9.4)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}                  # jamais interpolé directement dans le script (zizmor)
+          SECURITY_FIX: ${{ contains(github.event.pull_request.labels.*.name, 'security-fix') }}
+        run: .github/scripts/check-min-age.sh "origin/$BASE_REF" 14
 
   architecture:
     runs-on: ubuntu-24.04
@@ -849,6 +922,14 @@ jobs:
           for f in citations-corpus-positifs citations-corpus-negatifs; do        # à partir de M6
             cmp "docs/plan/annexes/donnees/$f.jsonl" "crates/lf-domain/tests/data/citations/$f.jsonl"
           done
+      - uses: actions/setup-python@<sha>                # à partir de M2
+        with: { python-version: "3.13" }
+      - name: golden reproductible par ses scripts versionnés (00 §10 ; §3.2)
+        run: |
+          python3 -I docs/plan/annexes/donnees/scripts/golden.py \
+              crates/lf-adapter-piste/tests/fixtures/reference "$RUNNER_TEMP/parite-golden.json"
+          cmp "$RUNNER_TEMP/parite-golden.json" docs/plan/annexes/donnees/parite-golden.json
+          python3 -I docs/plan/annexes/donnees/scripts/check_golden.py docs/plan/annexes/donnees/parite-golden.json
 
   docs:
     runs-on: ubuntu-24.04
@@ -888,16 +969,16 @@ default-filter = "test(/^live_/)"
 stdio-e2e = { max-threads = 4 }              # les tests qui lancent le binaire
 
 [[profile.default.overrides]]
-filter = "package(lf-app) & kind(test)"
+filter = "package(mcp-legifrance) & kind(test)"   # paquet du binaire, répertoire crates/lf-app (00 §2)
 test-group = "stdio-e2e"
 ```
 
 ### 7.4 Cache, toolchain et réseau
 
-- **Toolchain** : `rust-toolchain.toml` épingle 1.99.0 avec `rustfmt` et `clippy` (00 §2 ; date de sortie **NON VÉRIFIÉ** [v:date-rust-1-99]). Les runners installent la toolchain au premier appel de `cargo`. Le job MSRV force 1.91 par `cargo +1.91`.
+- **Toolchain** : `rust-toolchain.toml` épingle 1.99.0 avec `rustfmt` et `clippy` (00 §2 ; sortie le 2026-10-01 d'après la cadence de six semaines, **NON VÉRIFIÉ** [v:date-rust-1-99], V-16). Les runners installent la toolchain au premier appel de `cargo`. Le job MSRV force 1.91 par `cargo +1.91`. Dans le conteneur de développement, tant qu'il ne peut pas installer la toolchain épinglée (Q6, adoptée par défaut), `RUSTUP_TOOLCHAIN=1.97.0` la remplace en local (≥ MSRV 1.91) ; la CI garde l'épinglage, si bien que les lints propres à 1.98 et 1.99 ne sont vus qu'en CI.
 - **Cache** : `Swatinem/rust-cache`, une clé par job et par OS, sauvegardée **seulement sur `main`** (`save-if`), pour éviter que des PR n'évincent le cache utile. `CARGO_INCREMENTAL=0` réduit la taille du cache. On ne fixe pas `RUSTFLAGS` au niveau du workflow, ce qui invaliderait le cache : `-D warnings` passe par les arguments de clippy et par `RUSTDOCFLAGS` dans le seul job `docs`.
 - **Outils** : nextest et cargo-machete sont installés en binaire par `taiki-e/install-action` (recherche 04 §4.1 : nextest demande Rust 1.91 pour être compilé ; action **NON VÉRIFIÉ** [v:actions-versions-sha]).
-- **Réseau** : la construction a besoin de crates.io (et de `static.crates.io`, Q6) ; les tests n'ont besoin d'aucun réseau (PT1). `cargo fetch` précède les tests, qui tournent en `--offline`.
+- **Réseau** : la construction a besoin de l'index (`index.crates.io`), des archives (`static.crates.io`) et, pour la toolchain, de `static.rust-lang.org`, ouverts sur les runners GitHub ; dans le conteneur de développement, leur ouverture est la proposition adoptée par défaut de Q6 (puis `echanges.dila.gouv.fr` en M9). Les tests n'ont besoin d'aucun réseau (PT1). `cargo fetch` précède les tests, qui tournent en `--offline`. L'étape `min-age` du job `deny` interroge en plus l'index sparse et l'API de crates.io (§9.4).
 
 ### 7.5 Workflow `live.yml`
 
@@ -911,8 +992,8 @@ on:
 permissions: { contents: read }
 concurrency: { group: live, cancel-in-progress: false }   # un passage à la fois : quota PISTE
 jobs:
-  sandbox:
-    if: github.repository == 'muchiny/mcp-ligitfrance'    # jamais sur un fork (nom final : Q1)
+  sandbox:                                                # seul job : aucun identifiant de production en CI (Q3, 00 §10)
+    if: github.repository == 'muchiny/mcp-legifrance'     # jamais sur un fork ; dépôt renommé avant M0 (proposition par défaut de Q1)
     runs-on: ubuntu-24.04
     environment: piste-sandbox                            # secrets protégés, approbation possible
     timeout-minutes: 30
@@ -932,7 +1013,7 @@ jobs:
         with: { name: live-report, path: target/nextest/live/ }
 ```
 
-Le workflow ne s'exécute pas sur `pull_request` : une PR venue d'un fork n'a jamais accès aux secrets. Les journaux ne contiennent aucun secret (§10, ligne MEN-01), puisque GitHub masque les secrets déclarés et que le code ne les journalise jamais.
+Le workflow ne s'exécute pas sur `pull_request` : une PR venue d'un fork n'a jamais accès aux secrets. Les journaux ne contiennent aucun secret (§10, ligne MEN-01), puisque GitHub masque les secrets déclarés et que le code ne les journalise jamais. Il n'existe ni job ni environnement `production` : les sondes de production sont lancées à la main par le mainteneur, hors CI (§5.2).
 
 ### 7.6 Protection de branche et couverture
 
@@ -945,14 +1026,14 @@ Le workflow ne s'exécute pas sur `pull_request` : une PR venue d'un fork n'a ja
 
 ### 8.1 Lints de workspace
 
-Base : 02 §3.0.3, qui reprend la recherche 04 §5.4 avec `unsafe_code = "forbid"` (00 §2). Les lignes marquées `# +` sont ajoutées par ce document.
+Cette liste fait foi pour les lints (00 §0) ; 02 §3.0.3 y renvoie. Base : le socle de 02 §3.0.3, qui reprend la recherche 04 §5.4 avec `unsafe_code = "forbid"` (00 §2). Les lignes marquées `# +` sont ajoutées par ce document.
 
 ```toml
 # Cargo.toml racine — extrait, esquisse à valider en M0
 [workspace.lints.rust]
 unsafe_code = "forbid"
 rust_2018_idioms = { level = "warn", priority = -1 }
-unused_qualifications = "warn"            # exige schemars >= 1.2.3
+unused_qualifications = "warn"            # exige schemars >= 1.2.3 ; désactivé tant que 1.2.3 n'a pas 14 jours (00 §2, R-22)
 missing_debug_implementations = "warn"
 missing_docs = "warn"                     # + API publique documentée (§8.4)
 unused_lifetimes = "warn"                 # +
@@ -1016,17 +1097,17 @@ Les fixtures JSON, les transcriptions et les snapshots ne sont jamais reformaté
 
 | Élément | Convention | Exemples |
 |---|---|---|
-| Crates | `lf-<rôle>` (00 §1) | `lf-adapter-piste` |
+| Crates | `lf-<rôle>` (00 §1), sauf le paquet du binaire, `mcp-legifrance`, dont le répertoire reste `crates/lf-app` (00 §1, §2 ; adopté par défaut, Q1) | `lf-adapter-piste`, `cargo test -p mcp-legifrance` |
 | Types | `UpperCamelCase` ; erreurs `<Couche>Error` ; cas d'usage `<Outil>UseCase` ; entrées et sorties `<Outil>Input`, `<Outil>Output` ; vues `<Outil>View` ; paramètres `<Outil>Params` ; décorateurs nommés par l'adjectif et le port | `CorpusError`, `GetDecisionUseCase`, `DecisionView`, `CachedCorpus`, `Audited` |
 | Fonctions | `snake_case` ; constructeurs `new`, `with_*`, `try_*` ; conversions par `From` et `TryFrom` ; analyse par `FromStr` ou `parse` | `VersionDate::parse` |
 | Constantes | `SCREAMING_SNAKE_CASE` ; textes servis au modèle dans `lf_adapter_mcp::text` | `INSTRUCTIONS`, `FR_GET_DECISION` |
 | Features Cargo | `kebab-case` | `test-support`, `http`, `dila`, `record` |
-| Tests | `snake_case` en anglais, `<sujet>_<comportement attendu>` ; préfixes réservés : `live_` (live), `ported_` (portage de la référence), `raw_` (transcription JSON-RPC unitaire), `e2e_` (binaire), `http_` (M8), `perf_` (mesure) | `api_401_twice_maps_to_auth` |
+| Tests | `snake_case` en anglais, `<sujet>_<comportement attendu>` ; préfixes réservés : `live_` (live), `ported_` (portage de la référence), `raw_` (test JSON-RPC brut écrit en Rust, hors fichier de transcription), `e2e_` (binaire), `http_` (M8), `perf_` (mesure). Une transcription de `tests/jsonrpc/` est nommée par son fichier, sans préfixe (§6.1) | `api_401_twice_maps_to_auth`, `garbage_and_batch` |
 | Snapshots | nommés explicitement (`assert_json_snapshot!("nom", …)`), jamais par numéro d'ordre | `legacy_2025_11_25_tools_list` |
 | Variables d'environnement | `LF_*` (00 §1) ; aucune variable de test propre | `LF_AUDIT_DIR` |
-| Langue | identifiants, messages au modèle, rustdoc et commentaires de code en **anglais** ; documents du plan, ADR et CHANGELOG en français | — |
+| Langue | identifiants, messages au modèle, `title` et descriptions des outils, rustdoc et commentaires de code en **anglais** ; noms et textes des prompts en **français** (00 §6, adopté par défaut, Q14) ; documents du plan, ADR et CHANGELOG en français | — |
 
-La langue du rustdoc est une proposition (question ouverte §15.2 n° 4) : l'anglais est cohérent avec les messages et les descriptions (02 §9.3), et avec une publication éventuelle sur crates.io.
+La langue du rustdoc est une proposition (question ouverte §15.2 n° 4) : l'anglais est cohérent avec les messages et les descriptions (02 §9.3), et avec une publication éventuelle sur crates.io, réexaminée à v1.0.0 (Q13 : en v0.x, `cargo install --git` seulement).
 
 ### 8.5 Documentation rustdoc obligatoire
 
@@ -1111,7 +1192,7 @@ allow-git = []
 
 - **Avis** : `yanked = "deny"` et vulnérabilités refusées (02 §2.2). Le job `deny` tourne aussi **chaque nuit** sur `main`, car un avis apparaît sans changement de code. Un avis bloquant se traite par une montée de version ou, à défaut, par une entrée `ignore` justifiée (raison, date de revue, échéance, ticket), relue à chaque étiquette.
 - **Bans** : TLS par rustls uniquement (`openssl`, `openssl-sys`, `native-tls` refusés) ; `backoff` refusé ; confinement de `rmcp`, `reqwest` et `moka` par `wrappers` (02 §4.3). `[graph] all-features = true` inclut les dépendances de développement : c'est pourquoi `jsonschema` est déclaré sans ses features par défaut (02 §3.0.1), et pourquoi les tests HTTP de M8 n'emploient pas reqwest (§6.2).
-- **Doublons** : `multiple-versions = "warn"` en M0 (02 §4.3), pendant que le graphe se stabilise. À partir de M5 (avant v0.1.0) : `deny`, avec une liste `skip` dont chaque entrée porte une raison (dépendance tierce non maîtrisable, montée en attente). En complément, `cargo xtask check-deps` refuse dès M0 toute double version des crates **critiques** : `tokio`, `rustls`, `reqwest`, `hyper`, `http`, `serde`, `schemars`, `rmcp`, `chrono`. C'est une règle de plus pour le moteur de 02 §4.2, signalée au §15.1 n° 9.
+- **Doublons** : `multiple-versions = "warn"` en M0 (02 §4.3), pendant que le graphe se stabilise. À partir de M5 (avant v0.1.0) : `deny`, avec une liste `skip` dont chaque entrée porte une raison (dépendance tierce non maîtrisable, montée en attente). En complément, `cargo xtask check-deps` refuse dès M0 toute double version des crates **critiques** : `tokio`, `rustls`, `reqwest`, `hyper`, `http`, `serde`, `schemars`, `rmcp`, `chrono`. C'est la règle **R9** de `check-deps`, dont ce document est propriétaire (00 §0) ; 02 §4.1 et §4.2 (étape 7) la reprennent. Ce document inscrit aussi parmi les règles de `check-deps` le contrôle de manifeste proposé par 02 §4.2 (étape 5) : chaque exigence interne de `[workspace.dependencies]` vaut `=` suivi de la version de `[workspace.package]`.
 - **Sources** : crates.io uniquement ; aucune dépendance git. Un correctif amont non publié de rmcp (plafond de ligne stdio, annexe D §9.4) n'est pas utilisé avant sa publication.
 
 ### 9.4 Chaîne d'approvisionnement, au-delà de cargo-deny
@@ -1121,10 +1202,10 @@ allow-git = []
 | `Cargo.lock` versionné, `--locked` partout | produit binaire (02 §2) ; toute commande de CI échoue si le verrou n'est pas à jour | CI |
 | rmcp et rmcp-macros épinglés `=3.5.1` | contrôlé par `check-deps` (02 §4.2 étape 6) ; montée manuelle selon l'annexe D §9.4 | xtask |
 | Dependabot | `cargo` et `github-actions`, hebdomadaire ; `rmcp` et `rmcp-macros` ignorés (02 §2.2) | `.github/dependabot.yml` |
-| Âge minimal | une version publiée depuis moins de 14 jours n'est pas fusionnée, sauf correctif de sécurité (02 §13.1 n° 12) ; vérifié en revue | revue |
+| Âge minimal (00 §2) | toute version figée dans `Cargo.lock` est publiée depuis au moins 14 jours à la date du verrouillage, sauf correctif de sécurité justifié dans la PR ; les versions citées par le plan sont des planchers relevés le 2026-10-15 ; le verrou initial est fait à l'ouverture de M0, en prenant le correctif précédent d'une version trop récente ; exception `rmcp`/`rmcp-macros` `=3.5.1` (14 jours le 2026-10-19 ; le spike M0 peut commencer avant). Contrôle : étape `min-age` du job `deny` (§7.1), script `.github/scripts/check-min-age.sh` (esquisse, à valider en M0) qui, pour chaque paquet du registre ajouté ou changé dans `Cargo.lock` par rapport à la branche de base, lit la date de publication (`pubtime` de l'index sparse, à défaut `created_at` de l'API crates.io) et échoue en dessous de 14 jours, sauf libellé `security-fix` et justification dans la description de la PR ; exception `rmcp` listée dans le script avec son échéance | CI et revue |
 | Toolchain épinglée | `rust-toolchain.toml` ; montée par PR dédiée | dépôt |
 | Actions épinglées par SHA | et contrôlées par zizmor ([v:outils-lint-workflows]) ; `permissions: contents: read` par défaut ; jamais `pull_request_target` ; `persist-credentials: false` | CI |
-| Artefacts de release | sommes de contrôle, signature Authenticode et notarisation, `fileSha256` du MCPB, attestation de provenance et SBOM : outils à choisir dans [08-distribution.md](08-distribution.md) (`cargo auditable`, SBOM CycloneDX, attestations GitHub : **NON VÉRIFIÉ** [v:sbom-provenance-outils]) | 08 |
+| Artefacts de release | sommes de contrôle, signature Authenticode (Azure Artifact Signing si éligible, sinon SSL.com) et notarisation macOS (`codesign` + `notarytool`), adoptées par défaut (Q5), `fileSha256` du bundle MCPB unique, attestation de provenance et SBOM : outils à choisir dans [08-distribution.md](08-distribution.md) (`cargo auditable`, SBOM CycloneDX, attestations GitHub : **NON VÉRIFIÉ** [v:sbom-provenance-outils]) | 08 |
 | Publication | OIDC (`mcp-publisher login github-oidc`), après les gates de CI (recherche 06 §10.8) | 08 |
 
 ---
@@ -1162,18 +1243,18 @@ flowchart LR
 |---|---|---|---|---|---|
 | MEN-01 | Fuite du `client_secret` | journaux, messages d'erreur, ligne d'audit, `check-config`, fixtures, `Debug`, argument de ligne de commande visible dans `ps` | `SecretString` dès la lecture ; aucune option CLI pour un secret ; `Debug` expurgé ; `expose_secret()` à un seul endroit (formulaire OAuth) ; `check-config` affiche « défini (n caractères) » (02 §8.1, §8.3) | `error_messages_never_contain_secret_or_userinfo`, `debug_of_config_redacts_secret`, `check_config_masks_secret`, `fixtures_contain_no_token_like_strings` | M2–M4 |
 | MEN-02 | Vol ou abus du jeton PISTE | journal, cache, disque, redirection vers un autre hôte | jeton en mémoire seulement, jamais dans le cache ni l'audit ; `bearer_auth` marque l'en-tête sensible ; redirections non suivies ; `https_only` (04 §3.6, §4.2) | `bearer_header_is_sensitive`, `redirect_is_not_followed` | M2 |
-| MEN-03 | Redirection de la cible par configuration distante | manifeste téléchargé (D-04), surcharge silencieuse | aucune configuration distante (ADR-0005) ; URL locales validées (`https`, sans userinfo ni requête) ; hôte non officiel ⇒ avertissement et lacune FR-103 ; environnements cohérents (04 §2.3) | `no_network_call_except_piste`, `fr_eli_runtime_url_is_ignored`, `production_sources_contain_only_allowlisted_urls`, `config_warns_on_custom_host`, `config_rejects_env_mismatch` | M2–M4 |
-| MEN-04 | SSRF | argument d'outil, URL contenue dans une réponse, URI de resource | aucun paramètre d'outil n'est une URL ; identifiants validés strictement (8 lettres + 12 chiffres) et envoyés dans le **corps** ; chemins constants ; aucune URL de réponse n'est jamais appelée (04 §14.3) ; URI `legifrance://` analysées par une grammaire stricte (M7) | `ids_go_in_body_never_in_path`, `urls_in_responses_are_never_fetched`, `tool_schemas_have_no_url_parameter` (contrôle du verrou), `resource_uri_parser_rejects_foreign_schemes` (M7) | M2, M4, M7 |
-| MEN-05 | Injection de prompt par les textes juridiques | contenu amont (décision, titre, note) contenant des consignes adressées au modèle | les textes sont des **données** : champs de `structuredContent`, jamais concaténés aux instructions ni aux descriptions ; HTML ramené à du texte (`script`, `style`, `RECH_*` supprimés) ; caractères invisibles et de contrôle retirés (03 §7.3) ; les `note` sont des gabarits statiques ; aucune action à effet de bord n'existe (lecture seule) ; les instructions disent que les textes sont restitués verbatim. Risque résiduel documenté dans `SECURITY.md` : la décision d'obéir ou non appartient au client et au modèle. | `from_html_drops_rech_and_script_with_content`, `clean_removes_invisible_and_control_chars`, `notes_are_static_templates` | M1, M4 |
-| MEN-06 | Texte caché par des contrôles bidirectionnels | U+202A–U+202E, U+2066–U+2069 dans un texte amont, qui peuvent masquer ou réordonner l'affichage | **proposition** : `clean` retire aussi ces caractères, avec un compteur de diagnostic. Ils ne figurent pas dans la liste de 03 §7.3 (§15.1 n° 7). | `clean_removes_bidi_controls` (si 03 l'adopte) | M1 |
+| MEN-03 | Redirection de la cible par configuration distante | manifeste téléchargé (D-04), surcharge silencieuse | aucune configuration distante (ADR-0005) ; URL locales validées (`https`, sans userinfo ni requête) ; hôte hors des quatre hôtes officiels ⇒ avertissement `CustomHost` et lacune FR-103 ; hôte officiel d'un autre environnement ⇒ `EnvMismatch`, sans déduction implicite ; configuration invalide ⇒ mode dégradé, outils PISTE en `[config_error]` sans E/S (00 §1 ; 04 §2.3) | `no_network_call_except_piste`, `fr_eli_runtime_url_is_ignored`, `production_sources_contain_only_allowlisted_urls`, `config_warns_on_custom_host`, `config_rejects_env_mismatch`, `config_env_mismatch_on_production_host_with_default_env`, `e2e_invalid_config_starts_degraded` | M2–M4 |
+| MEN-04 | SSRF | argument d'outil, URL contenue dans une réponse, URI de resource | aucun paramètre d'outil n'est une URL ; identifiants validés strictement (8 lettres + 12 chiffres) et envoyés dans le **corps** ; chemins constants ; aucune URL de réponse n'est jamais appelée (04 §14.3) ; URI `legifrance://` analysées par une grammaire stricte (M7) | `ids_go_in_body_never_in_path`, `urls_in_responses_are_never_fetched`, `tool_schemas_have_no_url_parameter` (contrôle du verrou), `resource_uri_parser_rejects_foreign_schemes` et transcription `malformed_resource_uri` (M7) | M2, M4, M7 |
+| MEN-05 | Injection de prompt par les textes juridiques | contenu amont (décision, titre, note) contenant des consignes adressées au modèle | les textes sont des **données** : champs de `structuredContent`, jamais concaténés aux instructions ni aux descriptions ; HTML ramené à du texte (`script`, `style`, `RECH_*` supprimés) ; caractères invisibles, de contrôle et bidirectionnels retirés (03 §7.3) ; les `note` sont des gabarits dont les paramètres ont un type fermé, jamais une chaîne libre de l'API (§2.6) ; aucune action à effet de bord n'existe (lecture seule) ; les instructions disent que les textes sont restitués verbatim. Risque résiduel documenté dans `SECURITY.md` : la décision d'obéir ou non appartient au client et au modèle. | `from_html_drops_rech_and_script_with_content`, `clean_removes_invisible_and_control_chars`, `notes_are_static_templates` | M1, M4 |
+| MEN-06 | Texte caché par des contrôles bidirectionnels | U+202A–U+202E, U+2066–U+2069 dans un texte amont, qui peuvent masquer ou réordonner l'affichage | `text::clean` retire ces caractères des textes issus de l'API, avec un compteur de diagnostic (00 §4, AM-25 ; 03 §7.3). Le texte soumis à `fr_verify_citations` n'est pas nettoyé : ses spans s'y rapportent. | `clean_removes_bidi_controls` ; `verify_citations_input_is_not_cleaned` (M6) | M1, M6 |
 | MEN-07 | Empoisonnement de nos propres descriptions | modification d'une description ou des instructions qui y glisse une directive visant d'autres serveurs | textes `const` en anglais, relus comme du code ; aucune directive inter-serveurs (05 §1.4 règle 12) ; verrou des descripteurs | `descriptions_have_no_cross_server_directives`, `descriptions_cite_only_registered_tools`, `descriptor_lock_matches` | M4 |
 | MEN-08 | Rug pull : changement silencieux des définitions après approbation | nouvelle version, montée de rmcp ou de schemars qui change les schémas | verrou (`tests/tools.lock.json`, trois sessions, deux ères, 05 §9) ; politique SemVer de la surface et `--compare` à la release ; rubrique « Tool surface » du CHANGELOG ; listes statiques (pas de `listChanged`) ; binaires signés (08) | `descriptor_lock_matches`, `lock_diff_classification`, `tools_list_is_static_across_calls`, `changelog_has_entry_for_version` | M4 |
 | MEN-09 | Usurpation de l'amont (interception TLS, faux serveur) | réseau, proxy d'entreprise | rustls avec `rustls-platform-verifier`, TLS ≥ 1.2, jamais `danger_accept_invalid_certs` (interdit par `clippy.toml`), `https_only` (04 §14.2) | `disallowed-methods` (§8.3) ; `tls_invalid_cert_is_rejected` (proposition, avec un serveur rustls local et un certificat auto-signé, si le coût en dépendances de test est acceptable) | M2 |
 | MEN-10 | Réponse amont hostile ou volumineuse | corps géant, bombe gzip, JSON profond, TOC très profonde, HTML pathologique | corps borné à 16 Mio après décompression ; profondeur de TOC 64 ; texte ≤ 16 000 000 caractères ; analyseurs linéaires sans récursion non bornée ; aucune panique (03 §1.3, 04 §14.4) | `oversized_body_is_rejected`, `gzip_body_is_limited_after_decompression`, `toc_depth_65_is_too_deep`, `fixture_mutations_never_panic`, fuzzing | M1–M2 |
 | MEN-11 | Déni de service par les entrées du client | requêtes géantes, paramètres extrêmes, rafales | bornes de 00 §7 (`query` ≤ 500, `text` ≤ 20 000, `max_chars` ≤ 40 000, `page_size` ≤ 100, `toc_limit` ≤ 500, `per_fond` ≤ 10) ; plafond de réponse de 45 000 caractères ; délai global de 60 s ; une tâche par requête ; en M8, corps HTTP ≤ 256 Kio et flux `listen` bornés (annexe D §5.2, §5.3) | `*_out_of_range_is_invalid_arg`, `every_tool_response_under_hard_cap`, `deadline_maps_to_upstream_error_before_deadline_plus_epsilon`, `http_body_too_large_413` | M1–M8 |
-| MEN-12 | Épuisement du quota PISTE | boucle d'un modèle, `fr_search_all`, `fr_verify_citations` | limiteur 5 req/s (rafale 10), 4 requêtes en vol, cache et coalescence, aucune provocation de 429 en live ; une surconsommation impose la réinitialisation des identifiants selon les CGU (recherche 05 §4) | tests D-13 ; règle du §5.1 | M2, M7 |
-| MEN-13 | Chaîne d'approvisionnement | crate compromise ou vulnérable, action GitHub compromise, toolchain | §9 : cargo-deny, `Cargo.lock`, `--locked`, rmcp épinglé, âge minimal de 14 jours, actions épinglées par SHA, zizmor, toolchain épinglée, artefacts signés (08) | jobs `deny`, `architecture`, `workflow-lint` | M0 |
-| MEN-14 | Compromission de la CI ou de ses secrets | PR d'un fork, workflow vulnérable | `permissions: contents: read` ; jamais `pull_request_target` ; secrets live dans un environnement protégé, jamais sur une PR ; publication par OIDC (08) | `workflow-lint` | M0 |
+| MEN-12 | Épuisement du quota PISTE | boucle d'un modèle, `fr_search_all`, `fr_verify_citations` | limiteur par défaut 5 req/s (rafale 10) et 4 requêtes en vol, réglables (`LF_PISTE_RPS`, `LF_PISTE_BURST`, `LF_PISTE_CONCURRENCY`, 00 §1) ; un 500 n'est réessayé qu'une fois (00 §8) ; cache et coalescence ; aucune provocation de 429 en live ; sondes de production à 1 requête/s au plus (Q3) ; une surconsommation impose la réinitialisation des identifiants selon les CGU (recherche 05 §4) | tests D-12, D-13 ; règles du §5.1 | M2, M7 |
+| MEN-13 | Chaîne d'approvisionnement | crate compromise ou vulnérable, action GitHub compromise, toolchain | §9 : cargo-deny, `Cargo.lock`, `--locked`, rmcp épinglé, âge minimal de 14 jours contrôlé en CI (§9.4), actions épinglées par SHA, zizmor, toolchain épinglée, artefacts signés (08, Q5) | jobs `deny` (dont `min-age`), `architecture`, `workflow-lint` | M0 |
+| MEN-14 | Compromission de la CI ou de ses secrets | PR d'un fork, workflow vulnérable | `permissions: contents: read` ; jamais `pull_request_target` ; secrets live (sandbox seulement) dans un environnement protégé, jamais sur une PR ; aucun identifiant de production en CI (Q3) ; publication par OIDC (08) | `workflow-lint` | M0 |
 | MEN-15 | Journaux (stderr) trop bavards | `LF_LOG=debug` qui vide les réponses de rmcp ; requêtes en clair | `tracing` sur stderr seulement ; `rmcp=warn` imposé sauf mention explicite (02 §8.6) ; `RUST_LOG` ignoré ; aucun contenu, aucune valeur d'argument, `redact_url` (02 §11.3) | `default_log_filter_caps_rmcp`, `logs_never_contain_query_text`, `redact_url_drops_userinfo_and_query` | M4 |
 | MEN-16 | Pollution de stdout | `println!`, journal mal dirigé | `print_stdout` et `print_stderr` refusés ; seule `check-config` écrit sur stdout (02 §3.7) | `stdout_contains_only_jsonrpc` | M4 |
 | MEN-17 | Confidentialité du journal d'audit | empreinte non salée, réversible par énumération pour une entrée courte (D-17) ; lecture par un autre utilisateur | aucune valeur d'argument dans la ligne ; fichiers `0600`, répertoire `0700` (§11.6) ; limite documentée dans `SECURITY.md` | `audit_never_contains_argument_values`, `audit_file_mode_is_0600`, `audit_dir_mode_is_0700` | M3 |
@@ -1222,7 +1303,8 @@ Cette section consolide 00 §3 et §7, 02 §3.5, §5.2 et §7.1, et l'annexe A �
 ### 11.1 Principe
 
 - **Une ligne par exécution d'outil**, quelle qu'en soit l'issue (00 §3, ADR-0008). `Audited` construit l'`AuditRecord` ; `JsonlAuditLog` le sérialise, l'écrit et l'acquitte.
-- Ne sont pas audités : les erreurs de protocole (outil inconnu, JSON-RPC malformé : rien n'a été exécuté, 02 §9.2) et les completions (02 §6.2). Les lectures de resources (M7) sont auditées sous le nom proposé `resource:<gabarit>` (05 §13.2 question 8).
+- Ne sont pas audités (00 §7) : les erreurs de protocole (outil inconnu, JSON-RPC malformé : rien n'a été exécuté, 02 §9.2), les prompts et les completions (aucun cas d'usage d'outil exécuté). Les lectures de resources (M7) sont auditées avec `tool: resource:<nom du gabarit>` (`resource:article`, `resource:decision`, `resource:act`, `resource:code_article`, `resource:coverage` ; 05 §8.2) et la métrique « caractères renvoyés », y compris une lecture introuvable qui a exécuté un cas d'usage (`not_found`, 05 §7.5).
+- Une annulation donne `status: "error"`, sans `error_code`, avec `error: "cancelled by client"` (00 §7).
 
 ### 11.2 Format de ligne
 
@@ -1231,13 +1313,13 @@ JSON compact, UTF-8 **non échappé** (comme `ensure_ascii=False` de la référe
 | # | Clé | Type | Présence | Règle |
 |---|---|---|---|---|
 | 1 | `ts` | chaîne | toujours | instant d'entrée dans la façade (`Clock::now_utc()`), format `AAAA-MM-JJTHH:MM:SS.mmm+00:00`, suffixe `+00:00` et non `Z` (parité E-33) |
-| 2 | `tool` | chaîne | toujours | nom enregistré (`fr_search`…) |
+| 2 | `tool` | chaîne | toujours | nom enregistré (`fr_search`…), ou `resource:<nom du gabarit>` pour une lecture de resource (M7) |
 | 3 | `input_hash` | chaîne | toujours | 64 caractères hexadécimaux minuscules (§11.4) |
 | 4 | `output_count_or_size` | entier ≥ 0 | toujours | métrique de 00 §7 ; 0 en erreur |
 | 5 | `duration_ms` | entier ≥ 0 | toujours | durée réelle mesurée par `tokio::time::Instant`, troncature à la milliseconde |
 | 6 | `status` | `"ok"` ou `"error"` | toujours | — |
 | 7 | `error_code` | chaîne | si `status = "error"`, sauf annulation | l'un des 6 codes de 00 §5 |
-| 8 | `error` | chaîne | si `status = "error"` | message rendu au modèle, **sans** le préfixe `[code] ` (porté par `error_code`), au plus 500 caractères Unicode ; `"cancelled by client"` pour une annulation (02 §9.2 ligne 21) ; jamais de secret, de jeton, de chemin ni d'URL à paramètres |
+| 8 | `error` | chaîne | si `status = "error"` | message final porté par l'`AppError`, rédigé par `lf_application::messages` (02 §9.3) avant que `Audited` ne construise la ligne : c'est exactement le texte que voit le modèle, **sans** le préfixe `[code] ` (ajouté ensuite par `ToolFailure` dans `lf-adapter-mcp`, et porté ici par `error_code`) ; aucun texte d'aide n'est ajouté après `Audited` (test `rendered_error_equals_audited_error`, §2.6) ; au plus 500 caractères Unicode ; `"cancelled by client"` pour une annulation (02 §9.2 ligne 21) ; jamais de secret, de jeton, de chemin ni d'URL à paramètres |
 | 9 | `env` | `"sandbox"` ou `"production"` | toujours | `LF_PISTE_ENV` |
 | 10 | `server_version` | chaîne | toujours | `env!("CARGO_PKG_VERSION")` |
 
@@ -1291,7 +1373,7 @@ Sert à `audit_line_validates_against_schema` et aux consommateurs du journal.
   5. nombres non entiers au format `repr` de Python : `1.0`, `0.1`, `123.456`, `1e+16`, `1e-05`, `1.5e-07`, `1000000000000000.0` (mesures de ce document, Python 3, `python3 -I`). `serde_json` écrirait `1e16` : un formateur dédié est donc nécessaire. Aucun vecteur P-041 ne contient de flottant ; le test `canonical_float_matches_python_repr` fige ces sept valeurs.
 - **Vecteurs** : les 8 vecteurs de l'annexe A §6.6 (`{}` ⇒ `44136fa3…`, `{"query":"emoji 😀",…}` ⇒ `b097b014…`…), plus un vecteur d'échappement calculé pour ce document : l'objet `{"q": …}` dont la valeur est la suite « `a`, DEL (U+007F), `b`, U+2028, `c` » ⇒ chaîne canonique `{"q":"a\u007fb\u2028c"}`, SHA-256 `e572d0bdd4ef1a25a73c32790c9d221a7050b5684cbda7cc2c6c7f178fa44928`.
 - **Piège** : le verrou des descripteurs utilise une autre forme canonique, `ensure_ascii=False`, qui n'échappe que U+0000–U+001F, `"` et `\` (05 §9.2 ; vecteurs du §2.8). Les deux fonctions sont distinctes, nommées différemment (`canonical_input` et `canonical_descriptor`), et testées séparément.
-- **Limite connue** (D-17) : sans sel, l'empreinte d'une entrée courte est retrouvable par énumération. 00 §7 retient ce choix pour la parité ; une révision passerait par ADR-0008 (02 §13.1 n° 6).
+- **Limite connue** (D-17) : sans sel, l'empreinte d'une entrée courte est retrouvable par énumération. 00 §7 retient ce choix (SHA-256 non salé des arguments bruts canonicalisés, non compatible avec les empreintes de la référence : P-041 documenté) ; un sel ou un HMAC sera réexaminé par ADR après v0.1.0 (00 §7 ; ADR-0008).
 
 ### 11.5 Écriture, durabilité et rotation
 
@@ -1316,7 +1398,7 @@ sequenceDiagram
 1. **Paresse** : rien n'est créé avant le premier `record()`. Le démarrage ne fait aucune E/S disque (02 §3.5 ; test `new_does_no_io`).
 2. **Fil dédié** : un `std::thread` reçoit les lignes par un canal `tokio::sync::mpsc` borné (capacité proposée : 1 024) et répond par un `oneshot`. Le cas d'usage attend l'accusé, ce qu'exige le mode `strict` (D-16). Si le fil disparaît, l'erreur est `WriterGone`.
 3. **Verrou** : verrou consultatif exclusif `fs4`, pris sur un fichier dédié `.mcp-legifrance.lock` plutôt que sur le journal, pour que la rotation puisse renommer le journal. Plusieurs processus (Claude Code et VS Code) écrivent ainsi le même répertoire. L'API exacte de `fs4` 1.1 est **NON VÉRIFIÉ** [v:fs4-verrou-api] ; l'atomicité multi-processus, surtout sous Windows, est **NON VÉRIFIÉ** [v:audit-multi-processus].
-4. **Ouverture à chaque ligne, sous le verrou** : le fichier est ouvert, écrit, synchronisé et fermé pour chaque ligne. Aucun descripteur ne reste ouvert entre deux lignes. Ainsi, un renommage fait par un autre processus ne laisse jamais un écrivain sur un fichier obsolète, et Windows ne refuse pas le renommage d'un fichier encore ouvert. Le coût (une ligne par appel d'outil) est négligeable devant un appel PISTE. Cette précision complète 02 §3.5 (§15.1 n° 10).
+4. **Ouverture à chaque ligne, sous le verrou** : le fichier est ouvert, écrit, synchronisé et fermé pour chaque ligne. Aucun descripteur ne reste ouvert entre deux lignes. Ainsi, un renommage fait par un autre processus ne laisse jamais un écrivain sur un fichier obsolète, et Windows ne refuse pas le renommage d'un fichier encore ouvert. Le coût (une ligne par appel d'outil) est négligeable devant un appel PISTE. C'est le schéma d'écriture de 00 §7 (AM-30), repris par 02 §3.5.
 5. **Durabilité** : `write_all` d'une ligne complète, puis `sync_data` avant l'accusé. Une ligne acquittée survit à un arrêt brutal. Le coût de `sync_data` selon le système de fichiers (SSD, répertoire personnel réseau, Windows) est **NON VÉRIFIÉ** [v:cout-sync-data].
 6. **Rotation** : le fichier actif est `mcp-legifrance.jsonl` (annexe A §4.8). Comme `ts` est la première clé, la date UTC de la première ligne occupe les octets 7 à 16 du fichier (`{"ts":"AAAA-MM-JJ…`). Sous le verrou, si cette date diffère de la date UTC de la nouvelle ligne, ou si la taille du fichier plus celle de la ligne dépasse 16 Mio (02 §3.5), le fichier actif est renommé en `mcp-legifrance-AAAA-MM-JJ.jsonl`, suivi de `-1`, `-2`… si ce nom existe déjà. Sous Unix, le répertoire est ensuite synchronisé (`File::open(dir)?.sync_all()`).
 7. **Rétention** : aucune suppression automatique (02 §3.5). La purge relève de l'utilisateur, qui en est informé par le README (question §15.2 n° 1).
@@ -1371,7 +1453,7 @@ Les cibles marquées « proposition » ne viennent d'aucune décision : elles so
 | Latence ajoutée, appel servi par le cache | p95 ≤ 5 ms sans écriture disque, ≤ 15 ms avec `sync_data` (proposition, [v:cout-sync-data]) | en processus | `perf_cached_call_latency` | non |
 | Latence ajoutée, appel amont (hors temps PISTE) | p95 ≤ 20 ms pour une décision de 16 000 caractères : lecture, réparation, DTO, mapping, rendu (proposition) | wiremock local | `perf_upstream_overhead` (durée totale moins délai simulé) | non |
 | Premier appel d'outil (jeton et client TLS) | temps PISTE + 50 ms au plus (proposition) ; coût de construction du client **NON VÉRIFIÉ** [v:cout-init-reqwest] | live | `live_token_reuse_and_expires_in` | non |
-| Débit amont | ≤ 5 req/s, rafale 10, ≤ 4 requêtes en vol (00 §8 ; 04 §5.5) ; quotas réels **NON VÉRIFIÉ** [v:quota-piste-prod] | — | tests D-13 | oui |
+| Débit amont | par défaut ≤ 5 req/s, rafale 10, ≤ 4 requêtes en vol, réglables par `LF_PISTE_RPS`, `LF_PISTE_BURST` et `LF_PISTE_CONCURRENCY` (00 §1, §8 ; 04 §5.5) ; quotas réels **NON VÉRIFIÉ** [v:quota-piste-prod] | — | tests D-13 | oui |
 | Analyse de citations | texte de 20 000 caractères dense en citations : ≤ 50 ms (proposition ; plafond fixé en M6, annexe B §8.8) | release | `perf_parse_20k` | non |
 | Taille du binaire | ≤ 25 Mio par cible, release et symboles retirés (proposition) ; mesure réelle **NON VÉRIFIÉ** [v:binaire-taille-memoire] | 7 cibles | job `release-plan` | non |
 
@@ -1379,32 +1461,16 @@ Les cibles marquées « proposition » ne viennent d'aucune décision : elles so
 
 | Budget | Cible | Source | Test | Bloquant |
 |---|---|---|---|---|
-| `instructions` | ≤ 3 500 caractères ; mesuré : 2 633 (v0.1), 2 834 (v0.2), 3 032 (v0.3) | 00 §6 ; 05 §4.2 | `instructions_fit_budget`, `cargo xtask instructions-size` | oui |
+| `instructions` | ≤ 3 500 caractères ; mesures par version et marge : 05 §4.2, qui fait foi (attribution de Q15 comprise) | 00 §6 ; 05 §4.2 | `instructions_fit_budget`, `cargo xtask instructions-size` | oui |
 | `tools/list` complet | ≤ 20 000 octets (v0.1), 24 000 (v0.2), 29 000 (v0.3) ; à recalibrer en M4 sur la mesure réelle + 10 % | 05 §6.6 | `descriptor_size_budget` | oui |
 | Une description d'outil | ≤ 1 000 caractères (Claude Code coupe à 4 096) | 05 §6.6 | verrou (05 §9.2) | oui |
-| Toute réponse | `structuredContent` sérialisé ≤ 45 000 caractères (Claude Code écrit sur disque au-delà de 50 000) | 05 §6.4 | `every_tool_response_under_hard_cap` | oui |
+| Toute réponse | `structuredContent` sérialisé (JSON compact) ≤ 45 000 caractères (Claude Code écrit sur disque au-delà de 50 000) ; estimation conservatrice dans `lf-application` (cible 42 000), mesure exacte dans `lf-adapter-mcp` | 00 §7 ; 05 §6.4 | `every_tool_response_under_hard_cap` (`lf-adapter-mcp`, §2.6) | oui |
 | Lecture longue, mode `full` | `max_chars` ≤ 40 000 (00 §7) ; une page fait de `max_chars / 2` à `max_chars` caractères de texte | 03 §7.6 | `window_guarantees_g1_to_g7` | oui |
 | Ratio caractères par token | 4 supposé par D-33 ; **NON VÉRIFIÉ** [v:tokens-par-caractere] pour le français juridique | 05 §6.4 | mesure manuelle (§6.3) | non |
 
-**Tailles par outil**, appel par défaut sur les fixtures de la référence (caractères de JSON compact du `structuredContent`). La cible vient du prototype de 05 §6.5. Le budget, bloquant à partir de M5 (`default_outputs_within_target`), vaut la cible + 10 % ; les valeurs mesurées en M5 remplacent la colonne « Cible » dans le même changement.
+**Tailles par outil**, appel par défaut sur les fixtures de la référence (caractères de JSON compact du `structuredContent`) : le tableau de **05 §6.5 est la seule référence** des tailles de la référence (golden produit par `golden.py`) et des cibles (00 §0 : contrat des outils → 05). Ce document n'en garde que la règle de test : le budget, bloquant à partir de M5 (`default_outputs_within_target`), vaut la colonne « Cible » de 05 §6.5 + 10 %, lue par le test depuis une table de constantes dérivée de 05 §6.5 et modifiée avec lui ; les décisions CONSTIT et CETAT en résumé restent en outre ≤ 2 000 caractères (`default_decision_response_under_budget`, D-33). Les valeurs mesurées en M5 remplacent la colonne « Cible » de 05 §6.5 dans le même changement.
 
-| Outil (fixture) | Référence | Cible | Budget (+10 %) | Remarque |
-|---|---|---|---|---|
-| `fr_search` LODA (2 hits) | 2 034 | 782 | 860 | — |
-| `fr_search` CODE (1 hit) | 1 141 | 408 | 449 | — |
-| `fr_search` CETAT (3 hits) | 1 949 | 1 501 | 1 651 | extraits ≤ 280 |
-| `fr_search` JURI / CONSTIT / CNIL / KALI / ACCO | 1 645 / 2 518 / 1 883 / 1 761 / 1 491 | 1 099 / 1 853 / 1 108 / 1 031 / 821 | 1 209 / 2 038 / 1 219 / 1 134 / 903 | — |
-| `fr_get_act` (consult_loda.json, 88 entrées) | 4 847 | 6 035 | 6 639 | sections ajoutées (D-25) ; avec `toc_limit=8` : 1 002 |
-| `fr_get_text` (consult_article.json) | 949 | 686 | 755 | article entier |
-| `fr_get_decision` CONSTIT | 15 140 | 1 147 | 1 262 | et ≤ 2 000 (`default_decision_response_under_budget`) ; page `full` ≈ 4 350 ; `focus` ≈ 1 716 |
-| `fr_get_decision` CETAT | 15 191 | 1 171 | 1 288 | et ≤ 2 000 |
-| `fr_get_decision` JURI (texte tronqué) | 1 225 | 1 881 | 2 069 | texte entier (577) et sommaire (854) |
-| `fr_get_deliberation` (consult_cnil.json) | 1 258 | 1 099 | 1 209 | — |
-| `fr_get_convention` (consult_kali.json) | 1 127 | 689 | 758 | — |
-| `fr_get_company_agreement` (consult_acco.json) | 804 | 664 | 730 | — |
-| `fr_coverage` (sandbox, identifiants présents) | 1 343 | 3 358 | 3 694 | 8 familles et 10 lacunes au lieu de 3 et 2 (D-34) |
-
-Les volumes réels (grandes décisions, longues TOC, codes) ne sont connus qu'après recapture : **NON VÉRIFIÉ** [v:taille-max-textes]. Les tests de budget sur données extrêmes (100 hits avec extraits, 8 fonds × 10 hits, 500 entrées de TOC) utilisent des données synthétiques (05 §6.4).
+Les volumes réels (grandes décisions, longues TOC, codes) ne sont connus qu'après recapture : **NON VÉRIFIÉ** [v:taille-max-textes]. Les tests de budget sur données extrêmes (100 hits avec extraits, 100 hits à citations de 1 000 caractères, 8 fonds × 10 hits, 500 entrées de TOC, fenêtre de 40 000 caractères riche en échappements JSON) utilisent des données synthétiques (05 §6.4 ; `every_tool_response_under_hard_cap`, §2.6).
 
 ### 12.3 Méthode de mesure
 
@@ -1431,6 +1497,7 @@ Les volumes réels (grandes décisions, longues TOC, codes) ne sont connus qu'ap
 - [ ] Snapshots modifiés relus (`cargo insta review`), aucun `.snap.new` committé
 - [ ] Divergence de parité ? clé ajoutée dans annexes/A-parite.md §4 avant la fusion
 - [ ] Décision de 00 ou d'un ADR modifiée ? ADR nouveau ou amendé, et 00-decisions.md mis à jour dans la même PR
+- [ ] Question Q1…Q15 tranchée par l'utilisateur ? réponse datée dans 09 §3, puis 00 §13 et §14 et l'ADR concerné (00 §13)
 - [ ] CHANGELOG mis à jour
 ```
 
@@ -1479,26 +1546,27 @@ Commune à toutes les tâches de [07-feuille-de-route.md](07-feuille-de-route.md
 **M0 — Fondations**
 
 - [ ] `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, `[workspace.lints]` (§8), `deny.toml` (§9), `.config/nextest.toml` (§7.3), `.gitattributes`, `.gitignore` (dont `.env` et `*.snap.new`).
-- [ ] `ci.yml` avec les jobs requis du §7.1, actions épinglées par SHA, protection de branche active ; `dependabot.yml` ; modèle de PR.
-- [ ] `cargo xtask check-deps` opérationnel, avec les tests de son moteur (§2.8) et la règle des doublons critiques (§9.3).
-- [ ] `SECURITY.md` (§10.3), `CONTRIBUTING.md`, `LICENSE`, `NOTICE` (§4.2).
-- [ ] Spike rmcp : transcriptions `modern_discover`, `legacy_2025_11_25`, `premature_notification` vertes (annexe D §8.4) ; mesure du bruit de pedantic et de `forbid(unsafe_code)` sur les macros ([v:rmcp-macros-unsafe-forbid]) ; inventaire des licences ([v:licences-graphe-m0]).
+- [ ] `ci.yml` avec les jobs requis du §7.1, actions épinglées par SHA, protection de branche active ; `dependabot.yml` ; modèle de PR ; script `.github/scripts/check-min-age.sh` (§9.4).
+- [ ] Verrou initial de `Cargo.lock` fait à l'ouverture de M0 selon la règle d'âge de 00 §2 (planchers du plan, correctif précédent d'une version trop récente, exception `rmcp`/`rmcp-macros` `=3.5.1`) ; `unused_qualifications` désactivé si `schemars` 1.2.3 n'a pas 14 jours (R-22).
+- [ ] `cargo xtask check-deps` opérationnel, avec les tests de son moteur (§2.8) et la règle des doublons critiques R9 (§9.3).
+- [ ] `SECURITY.md` (§10.3), `CONTRIBUTING.md`, `LICENSE`, `NOTICE` (§4.2), `CHANGELOG.md` avec sa section `Unreleased` (§13.3 ; D-43, 00 §11).
+- [ ] Spike rmcp : transcriptions `modern_discover`, `legacy_2025_11_25`, `premature_notification` et `mrtr_fields_tolerated` vertes en processus (annexe D §8.4) : V-29 et V-31 levées, V-30 partielle (§6.1) ; arguments `JsonObject` (V-28, [v:rmcp-jsonobject-input-schema]) ; `tokio::task_local!` de `Deadline` compilé dans `lf-application` avec la seule feature `rt` ; fournisseur TLS en compilation croisée (V-02, [v:tls-fournisseur-cross]) ; mesure du bruit de pedantic et de `forbid(unsafe_code)` sur les macros ([v:rmcp-macros-unsafe-forbid]) ; inventaire des licences ([v:licences-graphe-m0]).
 
-**M1 — Domaine** : tests du §2.1 verts, propriétés comprises, et dates aussi sous Windows ; lignes D-20, D-22, D-25 à D-33 du catalogue vertes pour leur partie domaine ; fuzzing configuré.
+**M1 — Domaine** : tests du §2.1 verts, propriétés comprises, et dates aussi sous Windows ; lignes D-20, D-22, D-25 à D-33 du catalogue vertes pour leur partie domaine ; formes de citation complémentaires (Q12, adoptées par défaut) arrêtées avant la génération des golden ; fuzzing configuré.
 
-**M2 — Adapter PISTE** : tests du §2.3 verts ; fixtures de la référence installées avec leurs sidecars ; `cargo xtask record-fixture` opérationnel et lot exécuté en sandbox (Q3) ; premier passage du workflow `live` consigné au §5.4.
+**M2 — Adapter PISTE** : tests du §2.3 verts ; fixtures de la référence installées avec leurs sidecars ; golden reproduit par son script versionné dans le job `surface` (§3.2) ; `cargo xtask record-fixture` opérationnel et lot exécuté en sandbox (Q3) ; V-76 (`live_singledate_noon_paris_semantics`) et V-96 (`live_lawdecree_on_code_size`), **bloquantes**, levées et consignées (§5.4, 09) ; V-79 (`live_match_modes_totals`) exécutée pour trancher Q10 ; premier passage du workflow `live` consigné au §5.4.
 
-**M3 — Application** : tests des §2.2, §2.4 et §2.5 verts, dont les 15 issues d'`Audited` ; spécification du §11 implémentée ; suite de contrat du port exécutée sur `FakeCorpus` et `PisteCorpus`.
+**M3 — Application** : tests des §2.2, §2.4 et §2.5 verts, dont les 15 issues d'`Audited`, les rejets locaux de `fr_search` et la publication de `Deadline` ; spécification du §11 implémentée ; suite de contrat du port exécutée sur `FakeCorpus` et `PisteCorpus`.
 
-**M4 — Adapter MCP** : tests des §2.6 et §2.7 verts ; transcriptions de la liste minimale du §6.1 versionnées et vertes dans les deux exécuteurs ; C-01 à C-30 de l'annexe D verts ou écart acté ; verrou versionné ; modèle de menaces MEN-01 à MEN-22 couvert.
+**M4 — Adapter MCP** : tests des §2.6 et §2.7 verts ; transcriptions de la liste minimale du §6.1 versionnées et vertes dans les deux exécuteurs, dont l'EOF avec un `listen` ouvert en moins d'une seconde (V-35) ; C-01 à C-30 de l'annexe D verts ou écart acté, selon la correspondance du §6.1 ; Q10 tranchée (au vu de V-79) et Q14 confirmée ou remplacée avant le premier verrou ; verrou versionné ; modèle de menaces MEN-01 à MEN-22 couvert.
 
-**M5 — Économie de contexte (v0.1.0)** : budgets du §12 mesurés et devenus bloquants ; `tool_output_matches_golden` vert ; `regression_catalog_is_implemented` vert ; `multiple-versions = "deny"` ; P-060 exécuté en sandbox et consigné (§5.4) ; protocole manuel du §6.3 exécuté ; CHANGELOG v0.1.0 avec la note de migration.
+**M5 — Économie de contexte (v0.1.0)** : budgets du §12 mesurés et devenus bloquants, dont le plafond dur mesuré dans `lf-adapter-mcp` ; `tool_output_matches_golden` vert ; `regression_catalog_is_implemented` vert ; `multiple-versions = "deny"` ; P-060 exécuté en sandbox et consigné (§5.4) ; sondes de production lancées à la main avant l'étiquette (Q3) ; protocole manuel du §6.3 exécuté, `openWorldHint` réexaminé au vu de V-53 (Q11) ; V-140 et V-142 levées (00 §4) ; CHANGELOG v0.1.0 avec la note de migration.
 
 **M6 — Citations (v0.2.0)** : corpus de l'annexe B vert (copie identique, contrôle `cmp`) ; tests de l'annexe B §8.6 verts ; fuzzing de `parse_with` sans panique ; `perf_parse_20k` mesuré ; tests live M6 exécutés.
 
-**M7 — Navigation (v0.3.0)** : C-15 étendu, C-31 et C-32 ; `search_all_respects_concurrency_cap` ; lecture de resources auditée ; tests live M7 exécutés.
+**M7 — Navigation (v0.3.0)** : C-15 étendu, C-31 et C-32, avec les transcriptions M7 du §6.1 ; completions sur la seule variable `code` ; `verifier_citations` et `etat_du_droit` sans argument ; `search_all_respects_concurrency_cap` ; lecture de resources auditée (`resource:<nom du gabarit>`) ; tests live M7 exécutés.
 
-**M8 — HTTP (v0.4.0)** : job `conformance-http` requis, avec un fichier d'échecs attendus revu ; C-40 à C-60 verts ; ligne MEN-23 du modèle de menaces couverte ; `SECURITY.md` complété pour le mode HTTP.
+**M8 — HTTP (v0.4.0)** : job `conformance-http` requis, avec un fichier d'échecs attendus revu ; C-40 à C-60 verts, dont les deux tests d'en-tête de version du §6.2 ; ligne MEN-23 du modèle de menaces couverte ; `SECURITY.md` complété pour le mode HTTP.
 
 **M9 — Hors ligne (v1.0.0)** : suite de contrat exécutée sur `DilaCorpus` ; licence de tantivy et de ses dépendances dans `deny.toml` ; ban `tantivy` confiné.
 
@@ -1510,33 +1578,37 @@ Commune à toutes les tâches de [07-feuille-de-route.md](07-feuille-de-route.md
 
 | # | Sources | Divergence | Appliqué ici | Recommandation |
 |---|---|---|---|---|
-| 1 | 02 §2 (`tests/fixtures/piste/reference/` à la racine) ; 04 §13.3-§13.4 et annexe A §5.3 (`crates/lf-adapter-piste/tests/fixtures/{reference,recorded}/`) | emplacement des fixtures | local au crate | aligner l'arborescence de 02 §2 ; `.gitattributes` en `**/tests/fixtures/** -text` |
-| 2 | 02 §2 (`tests/jsonrpc/`, `lf-app/tests/e2e_stdio.rs`, `lf-adapter-piste/tests/live_smoke.rs`) ; annexe D §8.3 (`tests/protocol/*.jsonl`, `stdio_e2e.rs`) ; 04 §13.5 (`tests/live.rs`) ; annexe D C-01 (`e2e_stdout_only_jsonrpc`) contre 02 §11.3 (`stdout_contains_only_jsonrpc`) | chemins et noms de tests | `tests/jsonrpc/`, `crates/lf-adapter-mcp/tests/protocol_raw.rs`, `crates/lf-app/tests/e2e_stdio.rs`, `crates/lf-adapter-piste/tests/live.rs`, `stdout_contains_only_jsonrpc` | aligner l'annexe D et 02 §2 sur ces noms |
-| 3 | 02 [v:tls-aws-lc-cross] et 04 [v:tls-fournisseur-cross] ; 02 [v:origine-mojibake] et 03, 04, A [v:mojibake-origine] ; 04 [v:quotas-piste] et 02, 05, A [v:quota-piste-prod] | deux étiquettes pour la même vérification | la seconde de chaque paire | fusionner dans le registre V-xx de 09 |
-| 4 | 02 §3.3 piège 5 (borne de corps proposée à 32 Mio) ; 04 §4.3 et §14.4 (16 Mio, tests à 17 Mio) | borne de corps | 16 Mio | corriger 02 |
+| 1 | 02 §2 (`tests/fixtures/piste/reference/` à la racine) ; 04 §13.3-§13.4 et annexe A §5.3 (`crates/lf-adapter-piste/tests/fixtures/{reference,recorded}/`) | emplacement des fixtures | local au crate (04 fait foi, 00 §0) | aligné en révision 2 : 02 §2 et §2.2 (`**/tests/fixtures/** -text`) |
+| 2 | 02 §2 (`tests/jsonrpc/`, `lf-app/tests/e2e_stdio.rs`, `lf-adapter-piste/tests/live_smoke.rs`) ; annexe D §8.3 (`tests/protocol/*.jsonl`, `stdio_e2e.rs`) ; 04 §13.5 (`tests/live.rs`) ; annexe D C-01 (`e2e_stdout_only_jsonrpc`) contre 02 §11.3 (`stdout_contains_only_jsonrpc`) ; annexe D §8.1 (fonctions `raw_*`, deux tests pour C-04 et C-05) | chemins et noms de tests | `tests/jsonrpc/<nom>.jsonl`, `crates/lf-adapter-mcp/tests/protocol_raw.rs`, `crates/lf-app/tests/e2e_stdio.rs`, `crates/lf-adapter-piste/tests/live.rs`, `stdout_contains_only_jsonrpc` ; correspondance C-xx → transcription au §6.1 (ce document fait foi pour les noms, 00 §0) | 02 §2 aligné ; aligner l'annexe D §8.1 et §8.3 sur la correspondance du §6.1 |
+| 3 | 02 [v:tls-aws-lc-cross] et 04 [v:tls-fournisseur-cross] ; 02 [v:origine-mojibake] et 03, 04, A [v:mojibake-origine] ; 04 [v:quotas-piste] et 02, 05, A [v:quota-piste-prod] | deux étiquettes pour la même vérification | la seconde de chaque paire | fusionnées par le registre de 09 (V-02, V-72, V-62) |
+| 4 | 02 §3.3 piège 5 (borne de corps proposée à 32 Mio) ; 04 §4.3 et §14.4 (16 Mio, tests à 17 Mio) | borne de corps | 16 Mio (00 §8) | aligné en révision 2 (02 §3.3) |
 | 5 | recherche 02 §6 (tests `startup_fails_without_env`, `negative_result_ttl_is_short`, `input_digest_differs_between_installations`, `error_result_has_structured_code`, `config_rejects_non_allowlisted_host`, `get_act_rejects_code_id_with_hint`, `juri_and_cnil_responses_carry_redaction_note`, `server_answers_ping_while_tool_waits_upstream`, `missing_credentials_makes_no_network_or_disk_io`) ; 00 §1, §5, §7, §9 ; 02 §13.1 ; 05 §5.8 | mesures de la recherche contraires aux décisions | tests remplacés, colonne « Écart » du §3.1 | conserver 00 |
-| 6 | annexe D §8.3 (transcriptions HTTP « rejouées par POST, reqwest en dev-dependency ») ; 02 §4.3 (ban `reqwest`, `wrappers = ["lf-adapter-piste"]`, graphe `all-features` incluant les dev-dependencies) | client HTTP des tests M8 | `tower::ServiceExt::oneshot` en processus et client HTTP/1.1 minimal sur `TcpStream` ; aucun reqwest de développement | mettre à jour l'annexe D §8.3 ; à défaut, élargir `wrappers` et faire vérifier « dev seulement » par `check-deps` |
-| 7 | 03 §7.3 (liste des caractères invisibles retirés par `clean`) ; menace MEN-06 du §10.2 | contrôles bidirectionnels (U+202A–U+202E, U+2066–U+2069) conservés | non appliqué : 03 fait foi pour `clean` | ajouter ces caractères à `clean`, avec un compteur ; c'est un arbitrage entre fidélité verbatim et sécurité, à trancher dans 03 |
+| 6 | annexe D §8.3 (transcriptions HTTP « rejouées par POST, reqwest en dev-dependency ») ; 02 §4.3 (ban `reqwest`, `wrappers = ["lf-adapter-piste"]`, graphe `all-features` incluant les dev-dependencies) | client HTTP des tests M8 | `tower::ServiceExt::oneshot` en processus et client HTTP/1.1 minimal sur `TcpStream` ; aucun reqwest de développement | tranché par 00 §0 (AM-36) ; mettre à jour l'annexe D §8.3 |
+| 7 | 03 §7.3 (liste des caractères invisibles retirés par `clean`) ; menace MEN-06 du §10.2 | contrôles bidirectionnels (U+202A–U+202E, U+2066–U+2069) conservés | tranché par 00 §4 (AM-25) : retirés par `clean`, avec un compteur, sur les textes issus de l'API seulement | appliqué (§2.1, MEN-06) ; 03 §7.3 aligné |
 | 8 | recherche 02 D-35 (`fixtures_have_no_mojibake` sur toutes les fixtures) ; 04 §13.3 et annexe A §5.5 (fixtures en mojibake gardées) | test anti-mojibake | restreint aux fixtures enregistrées (§4.3) | — |
-| 9 | 02 §4.2 (algorithme de `check-deps`, règles R1 à R8) | règle des doublons de crates critiques | ajoutée comme règle de `check-deps` (§9.3) | inscrire la règle (R9) dans 02 §4 |
-| 10 | 02 §3.5 (« un fil d'exécution dédié qui possède le fichier ») | sûreté de la rotation entre processus | réouverture du fichier à chaque ligne, sous un verrou pris sur un fichier dédié (§11.5) | préciser 02 §3.5 |
-| 11 | 02 §3.0.3 (lints) | lints supplémentaires (`missing_docs`, `print_stderr`, `allow_attributes_without_reason`, `large_futures`, `exit`, `[workspace.lints.rustdoc]`) | ajoutés (§8.1) | reporter dans 02 §3.0.3 |
-| 12 | 04 §13.4 (xtask réutilise le client de l'adapter « au moyen d'une API brute exposée derrière une feature `record` ») ; 02 §3.8 et 00 §2 (`xtask` ne dépend d'aucun `lf-*`) | dépendances de `xtask record-fixture` | `xtask` lance `cargo run -p lf-adapter-piste --example record_fixture --features record` ; seul l'exemple utilise l'API brute (§1.4) | confirmer dans 04 |
+| 9 | 02 §4.2 (algorithme de `check-deps`, règles R1 à R8) | règle des doublons de crates critiques | règle R9 de `check-deps`, dont ce document est propriétaire (00 §0 ; §9.3) | aligné en révision 2 : 02 §4.1 et §4.2 (étape 7) la reprennent |
+| 10 | 02 §3.5 (« un fil d'exécution dédié qui possède le fichier ») | sûreté de la rotation entre processus | réouverture du fichier à chaque ligne, sous un verrou pris sur un fichier dédié (§11.5) | tranché par 00 §7 (AM-30) ; 02 §3.5 aligné |
+| 11 | 02 §3.0.3 (lints) | lints supplémentaires (`missing_docs`, `print_stderr`, `allow_attributes_without_reason`, `large_futures`, `exit`, `[workspace.lints.rustdoc]`) | ajoutés (§8.1) ; ce document fait foi pour les lints (00 §0) | aligné : 02 §3.0.3 renvoie au §8.1 |
+| 12 | 04 §13.4 (xtask réutilise le client de l'adapter « au moyen d'une API brute exposée derrière une feature `record` ») ; 02 §3.8 et 00 §2 (`xtask` ne dépend d'aucun `lf-*`) | dépendances de `xtask record-fixture` | `xtask` lance `cargo run -p lf-adapter-piste --example record_fixture --features record` ; seul l'exemple utilise l'API brute et écrit les fichiers (§1.4, §2.3) | tranché par 00 §2 (AM-31) ; 04 §13.4 et 02 §3.8 alignés |
 | 13 | recherche 04 §5.2 (MSRV 1.88) ; 00 §2 (1.91) | MSRV | 1.91 | conserver 00 (déjà noté par 02 §13.1 n° 3) |
+| 14 | 01 §4.16 (jalons de clôture des défauts, version initiale) ; §3.1 | 16 défauts sur 47 rangés à des jalons différents | ce document fait foi (00 §0) ; D-25, D-32, D-44 et D-47 répartis explicitement (§3.1) | 01 §4.16 aligné en révision 2 comme projection du §3.1 |
+| 15 | 02 §10 (`server_answers_ping_while_tool_waits_upstream`, D-05) ; §3.1 (`server_answers_discover_while_tool_waits_upstream`) | nom du test de D-05 | `server/discover` (`ping` est supprimé en ère moderne, annexe D §7) | renommer le test dans 02 §10 |
+| 16 | annexe B §8.4 (surcharge P159 dans le harnais : `ECLI:EU:…` attendu `Unsupported`) ; 03 §10 (« sans surcharge dans le harnais », attente portée par le fichier de données) | harnais du corpus de citations | annexe B, propriétaire du corpus : une seule surcharge, P159 (§2.1) | corriger 03 §10, ou retirer la surcharge si l'annexe B met à jour l'attente de P159 dans le fichier de données |
+| 17 | annexe D §4.3 et 05 §3.2 (`PreLifecycleFilter { inner: rmcp::transport::stdio(), … }`) ; rmcp 3.5.1 (`stdio()` renvoie un tuple qui n'implémente que `IntoTransport`) | construction du transport enveloppé | `AsyncRwTransport::new_server(…)` enveloppé, en production comme dans le harnais (§2.6) | corriger l'extrait de l'annexe D §4.3 et de 05 §3.2 ; features tokio `io-std` et `io-util` de `lf-adapter-mcp` dans 02 §3.6 |
 
 ### 15.2 Questions ouvertes propres à la qualité
 
 1. **Rétention du journal d'audit** : aucune suppression (02 §3.5). Faut-il une variable de rétention, ou une simple consigne dans le README ? (Proposition : consigne en v0.1, réévaluation en M9.)
 2. **Preuve d'intégrité du journal** : une chaîne d'empreintes (chaque ligne contenant l'empreinte de la précédente) rendrait une altération détectable. Elle change le format de 00 §7 : à porter par une révision d'ADR-0008 ? (Proposition : non en v0.x.)
-3. **Rotation** : fichier actif renommé (02 §3.5, appliqué au §11.5) ou fichiers quotidiens écrits directement sous leur nom daté, plus simples entre processus ? (Proposition : garder 02, la lecture des 17 premiers octets suffit.)
+3. **Rotation** — *tranchée* (00 §7, AM-30) : fichier actif renommé sous le verrou (§11.5) ; les fichiers quotidiens écrits sous leur nom daté sont écartés, car ils changeraient le nom du fichier actif fixé par l'annexe A §4.8.
 4. **Langue du rustdoc et des commentaires de code** : anglais (proposé, §8.4) ou français ?
-5. **Contrôles bidirectionnels** (§15.1 n° 7) : les retirer dans `clean` ?
+5. **Contrôles bidirectionnels** — *tranchée* (00 §4, AM-25) : retirés par `clean` sur les textes issus de l'API, avec un compteur (§15.1 n° 7).
 6. **Couverture de code** : indicative (proposé, §7.6) ou seuil bloquant par crate ?
 7. **Fuzzing** : job nocturne non bloquant (proposé) ou exécution locale seulement ?
 8. **Revue avec un seul mainteneur** : la règle « une PR produite par un agent est relue par un humain » suffit-elle, ou faut-il un second relecteur pour les changements de surface et de sécurité ?
-9. **Exécutions live en production** : qui les lance, et à quelle fréquence, au regard des CGU et de Q3 ? (Proposition : le mainteneur, avant chaque étiquette, en lecture seule.)
+9. **Exécutions live en production** — *adoptée par défaut, à confirmer par l'utilisateur (Q3 ; 00 §10, AM-40)* : sandbox par défaut ; en production, sondes en lecture seule lancées à la main par le mainteneur avant chaque étiquette, à 1 requête/s au plus, et fixtures de données publiques marquées `env = production` ; jamais d'identifiants de production en CI (§5.1, §5.2).
 10. **Cibles de performance** du §12.1 (mémoire, latence ajoutée, taille du binaire) : à confirmer après la première mesure de M5.
-11. **`regression_catalog_is_implemented`** lit ce document depuis un test : ce couplage entre `docs/` et le code est-il acceptable ? (Il suit le précédent de `golden_divergences_match_annex_a`, annexe A §5.4.)
+11. **`regression_catalog_is_implemented`** lit ce document depuis un test : ce couplage entre `docs/` et le code est-il acceptable ? (Il suit le précédent de `golden_divergences_match_annex_a`, annexe A §5.4, et du job `surface`, qui exécute les scripts versionnés de `docs/plan/annexes/donnees/scripts/`.)
 12. **Liens symboliques** : refuser un lien à la place du fichier journal (proposé, §11.6) ou l'accepter pour les utilisateurs qui redirigent un seul fichier ?
 
 ---
@@ -1557,7 +1629,10 @@ Les étiquettes reprises d'autres documents sont suivies de leur origine entre p
 | [v:insta-options-ci] | Comportement d'insta 1.49 en CI (aucune écriture de snapshot, échec sur écart) et option `--unreferenced=reject` de cargo-insta. |
 | [v:rmcp-client-ere-tests] | Ère utilisée par défaut par le client rmcp 3.5.1 dans les tests en processus. |
 | [v:rmcp-jsonobject-input-schema] | (02) `JsonObject` et `input_schema` explicite avec détection de l'`outputSchema`, en 3.5.1. |
-| [v:rmcp-transport-enveloppe] | (annexe D) `PreLifecycleFilter` compile et est accepté par `serve_with_ct`. |
+| [v:rmcp-transport-enveloppe] | (annexe D) `PreLifecycleFilter`, enveloppe d'un `AsyncRwTransport::new_server(…)` (le tuple de `stdio()` n'implémente que `IntoTransport`), compile et est accepté par `serve_with_ct`. |
+| [v:rmcp-enveloppe-version-legacy] | (annexe D) Requête à enveloppe moderne portant une version legacy : acceptée et servie sans `resultType` ni indices de cache (lecture du code), à confirmer à l'exécution en M4 (V-34) ; sinon repli de 00 §6. |
+| [v:rmcp-listen-cloture] | (annexe D) Un EOF de stdin avec un `subscriptions/listen` ouvert termine le processus (code 0) en moins d'une seconde (V-35). |
+| [v:rmcp-http-entete-absent] | (annexe D) Comportement de rmcp 3.5.1 sur un POST sans `MCP-Protocol-Version` ou avec une version connue mais non servie (V-39). |
 | [v:rmcp-methode-inattendue] | (02) Aucun message inattendu ne fait quitter le processus. |
 | [v:rmcp-mrtr-champs-toleres] | (annexe D) Champs MRTR tolérés sans la feature `request-state`. |
 | [v:rmcp-bugs-statut] | (annexe D) Statut des issues rmcp #1337, #1347, #1348, #1325, #1321, #1362, #1108. |
@@ -1568,8 +1643,8 @@ Les étiquettes reprises d'autres documents sont suivies de leur origine entre p
 | [v:clients-entete-statique] | (annexe D) Les clients savent envoyer un en-tête `Authorization` statique en HTTP. |
 | [v:clippy-disallowed-chrono] | (02) Correspondance des chemins ré-exportés de chrono dans `disallowed-methods`. |
 | [v:clippy-config-cles] | Options de `clippy.toml` disponibles (par exemple une autorisation des impressions dans les tests). |
-| [v:date-rust-1-99] | (02) Date de sortie de Rust 1.99.0. |
-| [v:actions-versions-sha] | Versions et SHA des actions (`actions/checkout`, `Swatinem/rust-cache`, `taiki-e/install-action`, `EmbarkStudios/cargo-deny-action`, `actions/upload-artifact`) à épingler. |
+| [v:date-rust-1-99] | (02) Date de sortie de Rust 1.99.0 (2026-10-01 d'après la cadence de six semaines, V-16). |
+| [v:actions-versions-sha] | Versions et SHA des actions (`actions/checkout`, `Swatinem/rust-cache`, `taiki-e/install-action`, `EmbarkStudios/cargo-deny-action`, `actions/upload-artifact`, `actions/setup-python`) à épingler. |
 | [v:outils-lint-workflows] | Versions de zizmor et d'actionlint, et règles qui exigent l'épinglage par SHA. |
 | [v:cargo-dist-pr-run-mode] | Option `pr-run-mode = "plan"` de cargo-dist 0.33 pour le plan de release sur les PR. |
 | [v:cargo-deny-schema-0-20] | Schéma exact de `deny.toml` en cargo-deny 0.20.2 (`unmaintained`, `yanked`, forme d'`ignore`). |
@@ -1597,11 +1672,11 @@ Les étiquettes reprises d'autres documents sont suivies de leur origine entre p
 | [v:corps-erreur-piste] | (04) Forme générale des corps d'erreur de l'API. |
 | [v:mojibake-origine] | (03) Origine du mojibake : capture ou API. |
 | [v:json-echappements-unicode] | (04) Caractères non ASCII bruts ou échappés dans les réponses PISTE. |
-| [v:singledate-minuit-paris] | (04) Sémantique de `singleDate` à minuit Europe/Paris. |
+| [v:singledate-minuit-paris] | (04) Avec `singleDate` à midi Europe/Paris (00 §8), un texte entrant en vigueur le jour J est-il retenu le jour J ? Comparaison avec minuit UTC, minuit Paris et la veille (bloquante en M2, V-76). |
 | [v:typepagination-page2] | (04) Effet de `typePagination` en page 2. |
 | [v:pagination-profonde] | (04) Fenêtre maximale de `/search`. |
 | [v:filtres-dates-effet] | (04) Effet réel des facettes de date. |
-| [v:mode-all-semantique] | (04) Sens de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp = ALL`. |
+| [v:mode-all-semantique] | (04) Sens de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp = ALL`, et rappel sur les 9 scénarios de la référence (V-79 ; tranche Q10 avant le verrou de M4). |
 | [v:piste-gzip] | (04) Compression des réponses par PISTE. |
 | [v:texte-html-getarticle-juri] | (03) Présence de `texteHtml` sur `getArticle` et `juri` (JURI). |
 | [v:convention-horaire-timestamps] | (03) Horodatages de date à minuit UTC. |
@@ -1612,14 +1687,20 @@ Les étiquettes reprises d'autres documents sont suivies de leur origine entre p
 | [v:idandnum-comportement] | (04) Comportement de `/consult/getArticleWithIdAndNum`. |
 | [v:recherche-exacte-par-numero] | (04) Recherches `EXACTE` par numéro. |
 | [v:num-article-forme-api] | (03) Forme attendue par `NUM_ARTICLE`. |
+| [v:nom-code-filtre] | (04) Le filtre `NOM_CODE` (ou `TEXT_NOM_CODE`) sur `CODE_DATE` provoque-t-il un 500 ? Jamais employé sans cette vérification (00 §8 ; V-121). |
+| [v:ecli-filtre-juri-cetat] | (annexes B et C) Effet de la facette `ECLI` de `/search` sur JURI et CETAT avec une valeur exacte (V-128). |
+| [v:eli-redirection-endpoints] | (annexes B et C) `getArticleWithIdEliOrAlias` et `eliAndAliasRedirectionTexte` pour un ELI cité, jamais fabriqué (V-133). |
 | [v:endpoints-m6-reponses] | (04) Formes des réponses des endpoints de M6. |
 | [v:endpoints-m7-reponses] | (04) Formes et tailles des réponses des endpoints de M7. |
-| [v:lawdecree-sur-code] | (03) `/consult/lawDecree` sur le `LEGITEXT` d'un code. |
+| [v:related-links-forme] | (03) Forme et taille de `/consult/relatedLinksArticle` ; prise en charge des `KALIARTI` (V-136). |
+| [v:lawdecree-sur-code] | (03) `/consult/lawDecree` sur le `LEGITEXT` d'un code : taille et durée, seuils 4 Mio et 10 s, qui décident de `tableMatieres` en v0.1 (bloquante en M2, V-96). |
 | [v:corpus-cas-de-memoire] | (annexe B) Cas du corpus construits de mémoire. |
 | [v:cc-structured-content-succes] | (05) Ce que Claude Code transmet au modèle, en succès et en erreur. |
 | [v:cc-sonde-delai] | (05) Délai de la sonde `server/discover` de Claude Code. |
 | [v:cc-sonde-processus-frere] | (annexe D) Sonde de Claude Code dans un processus frère ou non. |
-| [v:vscode-openworld-confirm] | (05) Interface de VS Code pour `openWorldHint: true`. |
+| [v:vscode-openworld-confirm] | (05) Interface de VS Code pour `openWorldHint: true` (V-53 ; réexamen de Q11 avant v0.1.0). |
+| [v:cc-prompt-args-espaces] | (05) Claude Code transmet-il intact le reste de la ligne d'une commande de prompt, ou le découpe-t-il sur les blancs (V-50) ? |
+| [v:schemas-sans-dollar-schema-legacy] | Les clients legacy (MCP Inspector en mode `legacy`, VS Code) acceptent les `inputSchema` et `outputSchema` sans clé `$schema` (dialecte 2020-12 par défaut, 05 §2.5). Étiquette créée par ce document. |
 | [v:desktop-structured-content] | (05) Ère et forme transmise par Claude Desktop et claude.ai. |
 | [v:cursor-ere-et-contenu] | (05) Ère et forme transmise par Cursor. |
 
@@ -1628,7 +1709,8 @@ Les étiquettes reprises d'autres documents sont suivies de leur origine entre p
 ## Sources
 
 **Plan et décisions**
-- [00-decisions.md](00-decisions.md) (normatif) : §1 (variables `LF_*`), §2 (workspace, MSRV, lints, xtask, règles de dépendance), §3 (ports, `Audited`), §4 (domaine), §5 (erreurs), §6 (protocole, instructions, sortie), §7 (outils, métriques et ligne d'audit), §8 (adapter PISTE), §9 (cache), §10 (qualité), §11 (jalons), §12 (distribution, licence), §13 (Q1 à Q10).
+- [00-decisions.md](00-decisions.md) (normatif, révision 2) : §0 (documents propriétaires), §1 (variables `LF_*`, réglages avancés, surcharges d'URL, mode dégradé), §2 (workspace, MSRV, toolchain, âge minimal des dépendances, lints, xtask, règles de dépendance), §3 (ports, `Audited`, `Deadline`), §4 (domaine), §5 (erreurs), §6 (protocole, instructions, sortie), §7 (outils, plafond dur, métriques et ligne d'audit), §8 (adapter PISTE), §9 (cache), §10 (qualité, données dérivées, tests live), §11 (jalons), §12 (distribution, licence, attribution), §13 (Q1 à Q15), §14 (journal des amendements AM-01 à AM-43).
+- Scripts versionnés de [annexes/donnees/scripts/](annexes/donnees/scripts/) (Python 3.13, `python3 -I`) : `golden.py`, `check_golden.py`, `dto_repair_check.py` ; empreintes SHA-256 dans 00 §10.
 - [02-architecture.md](02-architecture.md) : §1.2, §2 et §2.2 (arborescence, fichiers racine, `clippy.toml`, profils nextest), §3.0.1 à §3.0.3 (versions, `Cargo.toml`, lints), §3.2 à §3.8 (fiches des crates, `test-support`, audit, xtask), §4.1 à §4.4 (règles, `check-deps`, `deny.toml`, pureté), §5.2 et §5.3 (`AuditLog`, `Clock`), §6.1 et §6.2 (empreinte, budgets, cas d'usage), §7.1 et §7.2 (`Audited`, cache), §8.1 à §8.8 (CLI, configuration, secrets, journalisation, arrêt), §9.2 (correspondance des erreurs), §10, §11, §12.1 à §12.3, §13.1.
 - [03-domaine.md](03-domaine.md) : §1.1 à §1.4, §2.3 à §2.7, §6.1 à §6.5, §7.1 à §7.10, §8.8, §9, §10, §11, points non vérifiés.
 - [04-adapter-piste.md](04-adapter-piste.md) : §2.1 à §2.4, §3.3 à §3.6, §4.1 à §4.4, §5, §10, §11, §13.1 à §13.6, §14, §15, §16, points non vérifiés.
@@ -1655,6 +1737,7 @@ Les étiquettes reprises d'autres documents sont suivies de leur origine entre p
 - JSON canonique `ensure_ascii=False` et SHA-256 des deux vecteurs du §2.8 (`ba3d6463…`, `662718e1…`).
 - JSON canonique `ensure_ascii=True` du vecteur d'échappement du §11.4 (`{"q":"a\u007fb\u2028c"}` ⇒ `e572d0bd…`), règles d'échappement de DEL, des contrôles C0 et C1.
 - Format `repr` des flottants de Python (`1e+16`, `1e-05`, `1.5e-07`, `1000000000000000.0`…).
+- Révision 2, Python 3.13.16 : `golden.py` relancé sur les 16 fixtures de la référence, sortie identique octet pour octet à `docs/plan/annexes/donnees/parite-golden.json`, et `check_golden.py` vert (§3.2) ; `dto_repair_check.py` sur les 16 fixtures (60 valeurs et 14 clés réparées, 10 champs cassés si les NBSP étaient normalisées d'abord) et décompte des séquences de mojibake par valeur et par clé (252 = 235 + 17, 13 motifs ; §4.3). Les fixtures et le golden sont lus comme données.
 
 **Web**
 - Spécification MCP 2026-07-28 et suite de conformité : https://github.com/modelcontextprotocol/modelcontextprotocol, https://github.com/modelcontextprotocol/conformance (via les rapports 06, 08 et 09).

@@ -1,7 +1,7 @@
 # 03 — Domaine (`lf-domain`) : types, règles et algorithmes purs
 
 > **Statut** : plan, sans implémentation. Ce document applique [00-decisions.md](00-decisions.md), qui est normatif et l'emporte en cas de doute.
-> **Jalons** : M1 (tout le crate sauf le parseur), M5 (réglages de l'économie de contexte : fenêtre, passages, résumé), M6 (parseur de citations), M7 (types de navigation : versions, liens, fond `Jorf`).
+> **Jalons** : M1 (tout le crate sauf le parseur), M5 (réglages de l'économie de contexte : fenêtre, passages, résumé), M6 (parseur de citations ; types `NumberQuery` et `CodeListing` des ports), M7 (types de navigation : versions, liens ; fond `Jorf` si la surface JORF est retenue à l'ouverture de M7, 00 §4).
 > **Lecteurs** : développeurs de `lf-domain` et des crates qui en consomment les types (`lf-application`, `lf-adapter-piste`, `lf-adapter-cache`, `lf-adapter-mcp`).
 > Les extraits Rust sont **non compilés, à valider en M0**. Les points non vérifiés sont marqués **NON VÉRIFIÉ** avec une étiquette `[v:…]`. Le registre `V-xx` les reprend dans [09-risques-et-questions.md](09-risques-et-questions.md).
 
@@ -14,10 +14,10 @@ Documents liés : [02-architecture.md](02-architecture.md) (place du crate), [04
 - `lf-domain` est le cœur pur : pas d'I/O, pas d'async, pas d'horloge, pas de journalisation, pas de sérialisation. Il **construit** des valeurs typées, ne les transporte pas.
 - **Identifiants** : 10 newtypes (préfixe de 8 lettres + 12 chiffres), stockés en `u64`. `FromStr` est strict. Le suffixe `_JJ-MM-AAAA` d'un `LEGITEXT` devient `VersionedId`. Les enums `ArticleId`, `DecisionId` et `DocumentId` sont dérivés du préfixe. Le routage d'URL et le choix de la règle de citation se font sur le **type**, jamais sur le champ `origine` (corrige D-28).
 - **Contrat de citation v2** (ADR-0009) : chaque entité citable porte un `CitationContract { citation, source_url, ecli, eli }`. `citation` n'est jamais vide et `source_url` est toujours présente. `ecli` et `eli` ne sont renseignés que s'ils viennent de l'API, sans jamais être fabriqués. La typographie est corrigée (« décision », « délibération », mois accentués, « 1er »). Corrige D-27 et D-30.
-- **Dates** : `chrono::NaiveDate`. Toute date ≥ 2222-01-01 (sentinelles `2999-01-01`, `2222-02-22`) devient `None`. Les epoch ms négatifs sont convertis par un calcul calendaire pur. Le domaine ne connaît pas « aujourd'hui » : l'application le lui passe (`Clock::today_paris()`).
-- **Texte** : `text::from_html` reconstruit les paragraphes depuis `texteHtml` (49, 43 et 3 paragraphes sur les fixtures CONSTIT, CETAT et CNIL). `text::clean` nettoie le texte, après la réparation du mojibake faite par l'adapter. `text::window` découpe une fenêtre `offset`/`max_chars` en caractères Unicode, avec des garanties de reconstruction. `text::passages` et `text::rank` assurent la recherche BM25 maison. `text::summary` renvoie, dans l'ordre de préférence, le sommaire officiel, le dispositif ou le début du texte.
+- **Dates** : `chrono::NaiveDate`. Toute date ≥ 2222-01-01 (sentinelles `2999-01-01`, `2222-02-22`) et tout `…Computed` nul deviennent `None`, dont le sens est documenté par champ : fin, début ou publication (00 §4, §6.2). Les epoch ms négatifs sont convertis par un calcul calendaire pur. Le domaine ne connaît pas « aujourd'hui » : l'application le lui passe (`Clock::today_paris()`).
+- **Texte** : `text::from_html` reconstruit les paragraphes depuis `texteHtml` (49, 43 et 3 paragraphes sur les fixtures CONSTIT, CETAT et CNIL). `text::clean` nettoie le texte, après la réparation du mojibake faite par l'adapter, et retire les contrôles bidirectionnels des textes issus de l'API. `text::window` découpe une fenêtre `offset`/`max_chars` en caractères Unicode, avec des garanties de reconstruction. `text::passages` et `text::rank` assurent la recherche BM25 maison. `text::summary` renvoie, dans l'ordre de préférence, le sommaire officiel, le dispositif ou le début du texte.
 - **Entités** : `SearchHit`, `SearchPage`, `Act`, `TocNode`/`Toc` (titres de sections, tri `intOrdre`, dédoublonnage, profondeur), `ArticleText`, `Decision`, `Deliberation`, `Convention`, `CompanyAgreement`, `Coverage`, `LongText`.
-- **Parseur de citations (M6)** : `citation::parse(&str) -> Vec<Spanned<CitationRef>>`. Il enchaîne normalisation avec table d'offsets, vue « clé » repliée 1:1, ancres aho-corasick, grammaires winnow 1.0 par famille et désambiguïsation. La résolution vers des identifiants relève de l'application.
+- **Parseur de citations (M6)** : `citation::parse(&str) -> Vec<Spanned<CitationRef>>`, égal à `parse_with(&str, &ParseOptions::default())`. Un ECLI d'un autre pays que FR donne `Unsupported { family: ForeignEcli }`. Il enchaîne normalisation avec table d'offsets, vue « clé » repliée 1:1, ancres aho-corasick, grammaires winnow 1.0 par famille et désambiguïsation. La résolution vers des identifiants relève de l'application.
 
 ---
 
@@ -28,7 +28,7 @@ Documents liés : [02-architecture.md](02-architecture.md) (place du crate), [04
 | Dépendance (00 §2) | Usage dans le domaine | Jalon |
 |---|---|---|
 | `thiserror` | `DomainError` et erreurs filles (`IdError`, `DateError`) | M1 |
-| `chrono` **sans** feature `clock` | `NaiveDate`, conversion epoch ms (`DateTime::from_timestamp_millis`). Sans `clock`, `Utc::now()` et `Local` n'existent pas, donc aucune lecture d'horloge n'est possible par construction | M1 |
+| `chrono` **sans** features `clock` ni `now` déclarées (`default-features = false`, `std`) | `NaiveDate`, conversion epoch ms (`DateTime::from_timestamp_millis`). L'absence d'horloge n'est **pas** garantie par construction : rmcp active `chrono/now` et l'unification des features rend `Utc::now` compilable dans `lf-domain` lors d'un `cargo build --workspace` (02 §3.1, piège 2). La garantie vient du job `cargo check -p lf-domain` seul, qui résout les features de ce seul graphe (02 §4.4), et des `disallowed-methods` de `clippy.toml` (`Utc::now`, `Local::now`, `SystemTime::now`) | M1 |
 | `unicode-normalization` | NFD puis retrait des marques combinantes pour la vue repliée (BM25, détection du dispositif, vue clé du parseur) | M1 |
 | `winnow` 1.0, `aho-corasick`, `regex` | parseur de citations uniquement | M6 |
 
@@ -45,12 +45,14 @@ Toute valeur externe est convertie **une seule fois**, à la frontière, en un t
 
 | Valeur brute | Type du domaine | Où se fait la conversion |
 |---|---|---|
-| paramètre d'identifiant (`text_id`, `article_id`, …) | `LegiTextId`, `ArticleId`, `DecisionId`, … | `lf-adapter-mcp` appelle `id::parse_param` (§2.6) |
+| paramètre d'identifiant (`text_id`, `article_id`, …) | `LegiTextId`, `ArticleId`, `DecisionId`, … | cas d'usage de `lf-application`, sous `Audited` (02 §6.1), qui appelle `id::parse_param` (§2.6) |
 | `fond` | `Fond` | idem (`Fond::parse_param`) |
-| `date`, `version_date`, `date_from`/`date_to` | `VersionDate`, `DateRange` | `VersionDate::parse` |
-| `page_size`, `page`, `toc_limit`, `max_chars`, `passages`, `offset` | `PageSize`, `NonZeroU32`, `TocLimit`, `MaxChars`, `PassageCount`, `u32` | constructeurs bornés (bornes en 00 §7) |
-| `focus`, `query` | `Focus`, `QueryText` | constructeurs (§4.1, §7.8) |
+| `date`, `version_date`, `date_from`/`date_to` | `VersionDate`, `DateRange` | idem (`VersionDate::parse`, `DateRange::new`) |
+| `page_size`, `page`, `toc_limit`, `max_chars`, `passages`, `offset` | `PageSize`, `NonZeroU32`, `TocLimit`, `MaxChars`, `PassageCount`, `u32` | idem, constructeurs bornés (bornes en 00 §7) |
+| `focus`, `query` | `Focus`, `QueryText` | idem, constructeurs (§4.1, §7.8) |
 | identifiants, dates et textes renvoyés par l'API | mêmes types | fonctions de mapping de `lf-adapter-piste` (recherche 03 §12.8) |
+
+`lf-adapter-mcp` ne fait que décoder l'objet `arguments` en types primitifs (`XInput`, serde, 00 §5) ; la conversion en types du domaine a lieu dans le cas d'usage, dans l'ordre de validation de la référence (P-011), pour qu'un `DomainError` devienne un `invalid_arg` audité (00 §3).
 
 ### 1.3 Fonctions totales, aucune panique
 
@@ -68,7 +70,7 @@ Toute valeur externe est convertie **une seule fois**, à la frontière, en un t
 | La famille d'un `SearchHit` correspond à son `id` (ex. `Fond::Cetat` ⇒ `CETATEXT`) | `SearchHit::new` renvoie `Err` sinon : le hit est écarté et compté (§4.1) |
 | Toute entité citable a une `citation` non vide et une `source_url` Légifrance | `CitationContract` sans `Option` sur ces deux champs (§5.1) |
 | Un ECLI ou un ELI n'est jamais fabriqué | `Ecli` et `Eli` n'ont pas de constructeur à partir d'autres champs : seulement `FromStr` sur une chaîne venue de l'API ou du texte cité (§5.2, §5.3) |
-| Pas de date « 2999 » | `date::open_ended()` est appliquée par tous les constructeurs d'entités (§6.2) |
+| Pas de date sentinelle (≥ 2222-01-01, dont « 2999 ») | `date::open_ended()` est appliquée par tous les constructeurs d'entités (§6.2) |
 | Bornes des paramètres (00 §7) | `PageSize` 1..=100, `TocLimit` 1..=500, `MaxChars` 500..=40 000, `PassageCount` 1..=10 |
 | Fenêtre de texte reconstructible et toujours en progression | `text::window` (§7.6, garanties G1 à G7) |
 | La liste des lacunes de couverture n'est jamais vide | `Coverage` construit sur le catalogue statique, qui contient toujours FR-001 (§4.8) |
@@ -86,9 +88,11 @@ crates/lf-domain/src/
   date.rs           VersionDate, DateRange, epoch, open_ended, format_fr (§6)
   contract/         mod.rs (CitationContract, Citable), url.rs (SourceUrl, UrlKind), rules.rs (règles de citation),
                     ecli.rs (Ecli), eli.rs (Eli), nor.rs (Nor), idcc.rs (Idcc)
-  search.rs         SearchQuery, QueryText, MatchMode, PageSize, DateRange (§4.1)
+  search.rs         SearchQuery, QueryText, MatchMode, PageSize, REACHABLE_RESULTS (§4.1) ;
+                    M6 : NumberQuery, NumberKind, NumberValue (§4.11)
   entity/           search.rs, toc.rs, act.rs, article.rs, decision.rs, deliberation.rs, convention.rs, agreement.rs,
-                    coverage.rs (§4)
+                    coverage.rs (Coverage, PisteEnvironment) (§4) ; M6 : codes.rs (CodeListing) ;
+                    M7 : versions.rs (ArticleVersion), related.rs (RelatedLinks) (§4.11)
   text/             html.rs (from_html), clean.rs (clean), long_text.rs (LongText), fold.rs (vue repliée),
                     sentence.rs (fins de phrase), window.rs, passages.rs, rank.rs (BM25), summary.rs,
                     encoding.rs (repair_latin1_mojibake : fonction pure appelée par l'adapter, §7.1)
@@ -103,9 +107,10 @@ crates/lf-domain/src/
 | Décoder le corps HTTP et réparer le mojibake **au niveau du corps** | `lf-adapter-piste` (00 §8) | réparation tout-ou-rien avant `serde`. La fonction pure `text::encoding::repair_latin1_mojibake` vit dans le domaine et l'adapter l'appelle (recherche 03 §11.1) |
 | Lire les dates multi-formats (epoch ms entier ou chaîne, ISO `+0000`, `AAAA-MM-JJ`) | `lf-adapter-piste` (00 §4) | format propre à l'API. Le domaine fournit les conversions pures `date::from_epoch_ms` et `date::open_ended` |
 | « Aujourd'hui » à Paris | `lf-app` (`SystemClock`), via le port `Clock` | pas d'horloge dans le domaine |
-| Construire les requêtes `/search`, les facettes, `singleDate` (minuit Paris en ms) | `lf-adapter-piste` | dépend du fuseau et de l'API |
+| Construire les requêtes `/search`, les facettes, `singleDate` (midi Europe/Paris en ms, 00 §8), la `typePagination` (`PaginationMemo`, 00 §7) | `lf-adapter-piste` | dépend du fuseau, de l'API et d'un état propre à l'adapter |
 | Associer les codes à leurs `LEGITEXT` (`/list/code`) | `lf-adapter-piste` (avec cache) | données vivantes (recherche 07 §5.1) |
-| Noms d'outils MCP, textes d'aide, schémas JSON, rendu compact | `lf-adapter-mcp` | le domaine ignore MCP. Ses erreurs portent des **faits**, l'adapter MCP rédige l'aide (§2.7) |
+| Messages destinés au modèle : parité, phrase d'aide, table préfixe ⇒ outil, gabarits `not_found` et autres | `lf-application` (module `messages`, noms d'outils `ToolName` ; 02 §3.2, §6.1) | les erreurs du domaine portent des **faits** ; l'application rédige le message final, inscrit tel quel dans l'audit (§2.7) |
+| Schémas JSON, rendu compact, préfixe `[code] ` des erreurs | `lf-adapter-mcp` | le domaine ignore MCP (ADR-0006, ADR-0010) |
 | Résolution des citations vers des identifiants (M6) | `lf-application` (cas d'usage) + port `LegalCorpus` | I/O (§8.7) |
 
 ---
@@ -120,7 +125,7 @@ Format vérifié sur les 16 fixtures : **préfixe de 8 lettres majuscules ASCII 
 |---|---|---|---|---|---|
 | `LEGITEXT` | `LegiTextId` | texte LEGI : loi ou décret consolidé, **ou code** | `LEGITEXT000033205014` (loi n° 2016-1321, consult_loda.json) ; `LEGITEXT000006070721` (Code civil, search_code.json) | `/consult/lawDecree` | `loda`, `code` |
 | `LEGIARTI` | `LegiArtiId` | version d'un article LEGI | `LEGIARTI000006419288` (C. civ., art. 9, consult_article.json) | `/consult/getArticle` | `code_article`, `loda_article` |
-| `JORFTEXT` | `JorfTextId` | texte du JO (version initiale), `cid` d'un texte LODA | `JORFTEXT000033202746` (`cid`, consult_loda.json) | non servi en v0.1 (fond `Jorf` en M7, voir 04) | `jorf` |
+| `JORFTEXT` | `JorfTextId` | texte du JO (version initiale), `cid` d'un texte LODA | `JORFTEXT000033202746` (`cid`, consult_loda.json) | non servi en v0.1 ni en v0.2 ; surface JORF (lecture, fond `Jorf`) tranchée à l'ouverture de M7 (00 §4, §8 ; V-135) | `jorf` |
 | `KALITEXT` | `KaliTextId` | texte de convention collective | `KALITEXT000049878950` (consult_kali.json) | `/consult/kaliText` | `kali` |
 | `KALIARTI` | `KaliArtiId` | article KALI | `KALIARTI000049886059` (consult_kali.json) | `/consult/getArticle` | `kali_article` |
 | `JURITEXT` | `JuriTextId` | décision judiciaire (Cour de cassation, cours d'appel) | `JURITEXT000051743650` (consult_juri.json) | `/consult/juri` | `juri` |
@@ -181,8 +186,9 @@ impl FromStr for VersionedId { /* "LEGITEXT…" ou "LEGITEXT…_JJ-MM-AAAA" (dat
 ```
 
 - **Entrée utilisateur** : le suffixe n'est accepté que sur `LEGITEXT` (00 §4). Ailleurs, il produit `IdError::SuffixNotAllowed`.
-- **Données amont** : le suffixe n'a été observé que sur `LEGITEXT`. Pour résister à une évolution de l'API, le mapping de l'adapter retire un suffixe trouvé sur un autre préfixe connu (D-28), le signale par un diagnostic et ne le conserve pas. La présence de suffixes sur d'autres préfixes est **NON VÉRIFIÉ** [v:suffixe-version-autres-prefixes].
+- **Données amont** : le suffixe n'a été observé que sur `LEGITEXT`. Pour résister à une évolution de l'API, le mapping de l'adapter retire un suffixe trouvé sur un autre préfixe connu (D-28), le signale par un diagnostic (`debug!` + compteur côté adapter, 00 §4) et ne le conserve pas. La présence de suffixes sur d'autres préfixes est **NON VÉRIFIÉ** [v:suffixe-version-autres-prefixes].
 - `version_start` alimente `SearchHit.version_start` et `Act.version_start`. Pour `Act`, c'est le suffixe, sinon `dateDebutVersion`.
+- `fr_get_act` sans `date` : la date demandée est le `version_start` du suffixe de `text_id` s'il y en a un, sinon aujourd'hui à Paris (00 §7). Le choix est fait par le cas d'usage, qui construit la `VersionDate`.
 
 ### 2.5 Enums dérivées du préfixe
 
@@ -217,7 +223,7 @@ Normalisation appliquée **avant** `FromStr` (E-16, E-17, D-31) :
 
 ### 2.7 Messages `invalid_arg` actionnables
 
-Le domaine fournit des erreurs **structurées** (`IdError` + `field` + valeur tronquée `Shown`). `lf-adapter-mcp` les rend en anglais (langue des descriptions, 00 §6), précédées de `[invalid_arg] ` (ADR-0010), et ajoute l'outil à utiliser, qu'il est seul à connaître. `Shown` affiche la valeur entre apostrophes simples, comme le `repr()` Python le plus courant (E-27), échappe les caractères de contrôle et tronque à 64 caractères suivis de `…`.
+Le domaine fournit des erreurs **structurées** (`IdError` + `field` + valeur tronquée `Shown`). Le module `messages` de `lf-application` les rédige en anglais (langue des descriptions, 00 §6 ; textes de 05 §7.3) et ajoute l'outil à utiliser, que l'application connaît (`ToolName`) ; `AppError` porte ce message final, qu'`Audited` inscrit tel quel dans l'audit, et `lf-adapter-mcp` n'y ajoute que le préfixe `[invalid_arg] ` (ADR-0010 ; 02 §3.2, §6.1). `Shown` affiche la valeur entre apostrophes simples, comme le `repr()` Python le plus courant (E-27), échappe les caractères de contrôle et tronque à 64 caractères suivis de `…`.
 
 | Cas (`IdError`) | Message rendu (exemple) | Parité |
 |---|---|---|
@@ -231,9 +237,9 @@ Le domaine fournit des erreurs **structurées** (`IdError` + `field` + valeur tr
 | `BadSuffix` | `text_id='LEGITEXT000033205014_31-02-2023': invalid version suffix (expected _DD-MM-YYYY, e.g. _08-09-2023).` | nouveau |
 | `JORFTEXT` passé à `fr_get_act` | `text_id='JORFTEXT000033202746' must be a Legifrance LEGITEXT... identifier. JORFTEXT... is the original Journal officiel text: search it with fr_search fond=LODA and use the LEGITEXT id of the hit.` | nouveau |
 
-Table d'aide (préfixe ⇒ outil), propriété de `lf-adapter-mcp` : LEGITEXT → `fr_get_act` ; LEGIARTI/KALIARTI → `fr_get_text` ; JURITEXT/CONSTEXT/CETATEXT → `fr_get_decision` ; CNILTEXT → `fr_get_deliberation` ; KALITEXT → `fr_get_convention` ; ACCOTEXT → `fr_get_company_agreement`. Un test de dérive vérifie que chaque outil cité existe (00 §6).
+Table d'aide (préfixe ⇒ outil), propriété du module `messages` de `lf-application` : LEGITEXT → `fr_get_act` ; LEGIARTI/KALIARTI → `fr_get_text` ; JURITEXT/CONSTEXT/CETATEXT → `fr_get_decision` ; CNILTEXT → `fr_get_deliberation` ; KALITEXT → `fr_get_convention` ; ACCOTEXT → `fr_get_company_agreement`. Un test de dérive vérifie que chaque outil cité existe (00 §6).
 
-**Limite connue (D-47)** : `LegiTextId` ne distingue pas un texte LODA d'un code, car le préfixe est le même (00 §3 : `get_act(&LegiTextId, …)`). La protection contre une réponse énorme vient de la pagination de la TOC (`toc_limit`, §4.2). Quand l'API renvoie `nature = CODE`, l'adapter MCP peut ajouter un avertissement (voir 05). Le comportement de `/consult/lawDecree` sur un code est **NON VÉRIFIÉ** [v:lawdecree-sur-code].
+**Limite connue (D-47)** : `LegiTextId` ne distingue pas un texte LODA d'un code, car le préfixe est le même (00 §3 : `get_act(&LegiTextId, …)`). La protection contre une réponse énorme vient de la pagination de la TOC (`toc_limit`, §4.2). Quand l'API renvoie `nature = CODE`, la réponse peut porter un avertissement (voir 05). Le comportement de `/consult/lawDecree` sur un code est **NON VÉRIFIÉ** [v:lawdecree-sur-code].
 
 ---
 
@@ -244,7 +250,7 @@ Table d'aide (préfixe ⇒ outil), propriété de `lf-adapter-mcp` : LEGITEXT �
 ```rust
 // non compilé, à valider en M0
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Fond { Loda, Code, Juri, Constit, Cetat, Cnil, Kali, Acco /* , Jorf (M7) */ }
+pub enum Fond { Loda, Code, Juri, Constit, Cetat, Cnil, Kali, Acco /* , Jorf : si la surface JORF est retenue en M7 */ }
 impl Fond {
     pub const ALL_V01: [Fond; 8];
     pub const fn user_name(self) -> &'static str;      // "LODA", "CODE", …  (valeur du paramètre `fond`)
@@ -252,6 +258,7 @@ impl Fond {
     pub const fn kind(self) -> &'static str;           // "loda", "code", …  (champ `kind` des hits)
     pub const fn hit_prefix(self) -> IdPrefix;         // préfixe attendu de `titles[0].id`
     pub const fn needs_version_date(self) -> bool;     // Loda | Code
+    pub const fn has_date_filter(self) -> bool;        // facette de date pour date_from/date_to ; false pour Code (00 §7)
 }
 ```
 
@@ -265,15 +272,15 @@ impl Fond {
 | `Cnil` | `CNIL` | `CNIL` | `cnil` | `CNILTEXT` | non | `fr_get_deliberation` | `cnil` |
 | `Kali` | `KALI` | `KALI` | `kali` | `KALITEXT` | non | `fr_get_convention` ; articles : `fr_get_text` | `kali` ; articles : `kali_article` |
 | `Acco` | `ACCO` | `ACCO` | `acco` | `ACCOTEXT` | non | `fr_get_company_agreement` | `acco` |
-| `Jorf` (M7) | `JORF` | `JORF` | `jorf` | `JORFTEXT` | à vérifier en M7 | M7 (voir 04) | `jorf` |
+| `Jorf` (M7, si retenu) | `JORF` | `JORF` | `jorf` | `JORFTEXT` | à vérifier en M7 | tranchée à l'ouverture de M7 avec son endpoint (00 §4, §8 ; V-135) | `jorf` |
 
-Sources : référence server.py:91-100 et citations.py:110-182, via la recherche 01 §3.1 et §4.6 ; fond API `JORF` (recherche 03 §3.2). Les facettes de date propres à chaque fond (pour `date_from`/`date_to`) sont des noms d'API : elles relèvent de [04-adapter-piste.md](04-adapter-piste.md), pas du domaine.
+Sources : référence server.py:91-100 et citations.py:110-182, via la recherche 01 §3.1 et §4.6 ; fond API `JORF` (recherche 03 §3.2). Les facettes de date propres à chaque fond (pour `date_from`/`date_to`) sont des noms d'API : elles relèvent de [04-adapter-piste.md](04-adapter-piste.md), pas du domaine ; le domaine sait seulement si le fond en a une (`has_date_filter`). Jusqu'à la décision de M7, `fond` a 8 valeurs (00 §4).
 
-`PaginationMode { Defaut, Article }` : valeur opaque de `typePagination`, reçue dans `SearchPage` et renvoyée telle quelle à la page suivante (00 §7). `CODE_DATE` répond `ARTICLE` à une requête `DEFAUT` (search_code.json, recherche 03 §3.2). Le transport du mode entre deux appels sans état est décrit dans 04.
+`PaginationMode { Defaut, Article }` : valeur opaque de `typePagination`, reçue dans `SearchPage.pagination` et **jamais exposée** au modèle (00 §7). `CODE_DATE` répond `ARTICLE` à une requête `DEFAUT` (search_code.json, recherche 03 §3.2). La valeur envoyée à la page suivante est choisie par l'adapter, pas par le domaine ni par l'application, qui sont sans état : `PaginationMemo` par requête normalisée sans `page` (TTL 1 h, 1 024 entrées), sinon `ARTICLE` pour CODE en page > 1 et `DEFAUT` ailleurs (00 §7, 04 §6.6). L'effet réel en page 2 est **NON VÉRIFIÉ** [v:typepagination-page2]. `SearchQuery` ne porte donc pas ce mode, et la clé de cache n'en dépend pas (§4.1).
 
 ### 3.2 Lecture du paramètre `fond`
 
-`Fond::parse_param(raw)` applique `trim()` puis une comparaison insensible à la casse (parité P-010 : `" loda "` est accepté). En cas d'échec, le message reste celui de la référence : `fond='XYZ' must be one of ['ACCO', 'CETAT', 'CNIL', 'CODE', 'CONSTIT', 'JURI', 'KALI', 'LODA'].` La liste est triée et devient plus longue en M7 avec `JORF` (recherche 01 §3.1). Le schéma JSON portera aussi un `enum` (D-31, voir 05). Ce chemin ne sert donc qu'aux clients qui ne valident pas le schéma.
+`Fond::parse_param(raw)` applique `trim()` puis une comparaison insensible à la casse (parité P-010 : `" loda "` est accepté). En cas d'échec, le message reste celui de la référence : `fond='XYZ' must be one of ['ACCO', 'CETAT', 'CNIL', 'CODE', 'CONSTIT', 'JURI', 'KALI', 'LODA'].` La liste est triée ; elle ne s'allongera de `JORF` que si la surface JORF est retenue à l'ouverture de M7 (00 §4 ; recherche 01 §3.1). Le schéma JSON portera aussi un `enum` (D-31, voir 05). Ce chemin ne sert donc qu'aux clients qui ne valident pas le schéma.
 
 ### 3.3 Statut juridique : `LegalStatus`
 
@@ -282,7 +289,8 @@ L'API emploie `etat` (`VIGUEUR`, `ABROGE`) et `jurisState` (`Vigueur` pour LODA,
 ```rust
 // non compilé, à valider en M0
 pub enum LegalStatus { Vigueur, VigueurEtendue, VigueurNonEtendue, VigueurDifferee, Abroge, AbrogeDiff,
-                       Modifie, ModifieMortNe, Perime, Annule, Disjoint, Transfere, Remplace, Other(String) }
+                       Modifie, ModifieMortNe, Perime, Annule, Disjoint, Transfere, Remplace, Denonce,
+                       Initiale, SansEtat, Substitue, Other(String) }    // 17 codes de l'API + Other
 impl LegalStatus {
     pub fn parse(raw: &str) -> Option<LegalStatus>;   // trim, insensible à la casse ; "" -> None ; inconnu -> Other
     pub fn as_api_code(&self) -> &str;                // "VIGUEUR", "VIGUEUR_ETEN", … ; Other -> brut
@@ -291,7 +299,7 @@ pub fn status_of(etat: Option<&str>, juris_state: Option<&str>) -> Option<LegalS
 ```
 
 - Règle unique pour LODA et KALI : `etat` s'il n'est pas vide, sinon `jurisState`. Sur consult_loda.json, la sortie devient donc `VIGUEUR` au lieu de `null`. C'est une divergence volontaire (§5.6).
-- Codes observés : `VIGUEUR`, `ABROGE`, `VIGUEUR_ETEN`, `VIGUEUR_NON_ETEN`, `REMPLACE` (facettes KALI, recherche 03 §5) et `Vigueur` (consult_loda.json). Les autres variantes proviennent du lexique LEGI et la liste complète est **NON VÉRIFIÉ** [v:etats-juridiques-liste]. `Other(String)` garantit qu'aucun code inconnu n'est perdu.
+- Liste fermée de 17 codes : `ABROGE`, `ABROGE_DIFF`, `ANNULE`, `DENONCE`, `DISJOINT`, `INITIALE`, `MODIFIE`, `MODIFIE_MORT_NE`, `PERIME`, `REMPLACE`, `SANS_ETAT`, `SUBSTITUE`, `TRANSFERE`, `VIGUEUR`, `VIGUEUR_DIFF`, `VIGUEUR_ETEN`, `VIGUEUR_NON_ETEN` (facette `ARTICLE_LEGAL_STATUS` de search_loda.json ; Swagger 2.4.2 `CodeListRequest.states` ; annexe C §3.7). `DENONCE` est courant en KALI (479 textes dans la facette `LEGAL_STATUS` de search_kali.json). `Other(String)` couvre une évolution de l'API : aucun code inconnu n'est perdu. Restent à confirmer la casse et les variantes de `jurisState` (`Vigueur` sur consult_loda.json), dont les valeurs possibles hors des fixtures sont **NON VÉRIFIÉ** [v:etats-juridiques-liste].
 
 ---
 
@@ -315,16 +323,20 @@ pub struct SearchQuery {
     pub text: QueryText,                 // trim + blancs repliés ; 1..=500 caractères (D-32) ; contrôles retirés
     pub page: NonZeroU32,                // défaut 1
     pub page_size: PageSize,             // 1..=100, défaut 10
-    pub mode: MatchMode,                 // Any (UN_DES_MOTS) | All | Exact ; défaut : Q10 (proposition `any`)
-    pub date_range: Option<DateRange>,   // date_from <= date_to
+    pub mode: MatchMode,                 // Any (UN_DES_MOTS) | All | Exact ; défaut Any jusqu'à V-79, puis All si confirmé,
+                                         // avant le verrou de M4 (Q10)
+    pub date_range: Option<DateRange>,   // date_from <= date_to ; seulement si fond.has_date_filter()
     pub version_date: Option<VersionDate>, // Some pour Loda|Code (défaut today_paris fourni par l'application)
-    pub pagination: PaginationMode,      // Defaut, ou la valeur reçue à la page précédente
 }
+pub const REACHABLE_RESULTS: u64 = 10_000;   // fenêtre de résultats atteignables (00 §7, V-83)
+impl SearchQuery { pub fn new(/* champs ci-dessus */) -> Result<SearchQuery, DomainError>; }
 ```
 
-- `SearchQuery` est `Eq + Hash`. Sa forme normalisée sert de clé au cache (00 §9). Parce que `version_date` est au jour près, deux recherches LODA identiques le même jour donnent la même clé. Cela corrige D-01 et E-06 : la référence mettait `singleDate=now_ms` dans la clé.
+- `SearchQuery` est `Eq + Hash`. Sa forme normalisée sert de clé au cache (00 §9). Parce que `version_date` est au jour près, deux recherches LODA identiques le même jour donnent la même clé. Cela corrige D-01 et E-06 : la référence mettait `singleDate=now_ms` dans la clé. Elle ne porte pas la `typePagination`, choisie par l'adapter (§3.1).
 - La borne de 500 caractères sur `query` est une proposition (D-32). La limite réelle côté API est **NON VÉRIFIÉ** [v:longueur-max-query].
-- Le rejet ou l'ignorance de `version_date` pour un fond qui n'est ni LODA ni CODE est décidé dans [05-outils-mcp.md](05-outils-mcp.md). Le domaine expose `Fond::needs_version_date`.
+- `SearchQuery::new`, appelé par le cas d'usage, applique sans réseau les rejets de 00 §7, rendus en `invalid_arg` (messages de 05 §7.3) : `version_date` sur un fond qui n'est ni LODA ni CODE (`Fond::needs_version_date`) ; `date_from`/`date_to` sur un fond sans facette de date, soit CODE (`Fond::has_date_filter`) ; `date_from` > `date_to` (§6.1) ; `page × page_size > REACHABLE_RESULTS`, en arithmétique `checked`. La fenêtre de 10 000 résultats est supposée : **NON VÉRIFIÉ** [v:pagination-profonde]. L'adapter n'en garde qu'une copie défensive (00 §5).
+
+**M6** : `NumberQuery`, `NumberKind` et `NumberValue` (recherche par numéro, `find_by_number`) vivent aussi dans `search.rs` (§4.11).
 
 **`SearchHit`**
 
@@ -341,7 +353,7 @@ pub struct SearchQuery {
 | `solution` | `Option<String>` | `solution` (JURI, CONSTIT) | non rendu en v0.1 (05) | — |
 | `snippet` | `Option<Snippet>` | `text`, sinon `sections[].extracts[0].values[0]` | `clean` (`<mark>`, `<br/>`, `\t`, `\n`) ; conserve les `[...]` de l'API ; ≤ 280 caractères (§7.3) | D-33 (extraits jetés hors CODE) |
 | `articles` | `Vec<HitArticle>` | `sections[].extracts[]` avec `id` | CODE : `{article_id: Legi, num, snippet ≤ 280}` (parité référence citations.py:150-165) ; KALI : `{article_id: Kali, num: None, snippet}`, car le `num` des extraits KALI est malformé (`"8.4 de la convention)"`, search_kali.json). Fiabilité **NON VÉRIFIÉ** [v:kali-extraits-num] | E-26 (extraits KALI ignorés) |
-| `company`, `idcc` | `Option<String>`, `Option<Idcc>` | `raisonSociale`, `idcc` (ACCO) | utilisés par la citation ACCO ; `idcc` arrive sous forme de chaîne (`"275"`) ou de nombre (désérialiseur tolérant dans 04) | E-14 |
+| `company`, `idcc` | `Option<String>`, `Option<Idcc>` | `raisonSociale` (ACCO), `idcc` (ACCO, KALI) | `company` sert à la citation ACCO ; `idcc` arrive sous forme de chaîne (`"275"`, search_acco.json) ou de nombre (désérialiseur tolérant dans 04), `null` sur le hit KALI de search_kali.json. `idcc` est porté dès v0.1 et rendu en v0.2 (`idcc?` des hits KALI et ACCO, classe « ajout », 00 §7) | E-14 |
 | `contract` | `CitationContract` | — | §5.4 ; `ecli` et `eli` toujours `None` en recherche (aucun ECLI dans `/search`, recherche 03 §4.2) | D-30 |
 
 **`SearchPage`**
@@ -349,12 +361,12 @@ pub struct SearchQuery {
 | Champ | Type | Règle |
 |---|---|---|
 | `total` | `u64` | `totalResultNumber`, sinon `hits.len()` (parité référence citations.py:179-182) |
-| `total_articles` | `Option<u64>` | `totalArticleResultNumber` quand il est > 0 (CODE). D-09 : la référence le jetait. Rendu décidé dans 05 |
+| `total_articles` | `Option<u64>` | `totalArticleResultNumber` quand il est > 0 (CODE). D-09 : la référence le jetait. Porté dès v0.1, rendu en v0.2 (`total_articles?`, 00 §7) |
 | `page`, `page_size` | `NonZeroU32`, `PageSize` | repris de la requête |
-| `has_more` | `bool` | `page × page_size < total`, en arithmétique `checked` (recherche 03 §12.8) |
+| `has_more` | `bool` | `page × page_size < min(total, REACHABLE_RESULTS)`, en arithmétique `checked` (recherche 03 §12.8) : à la fin de la fenêtre atteignable, `has_more` vaut `false` même si `total` est plus grand, car la page suivante serait refusée (§4.1). `total` reste la valeur brute de l'API ; une `note` qui renvoie à la lacune FR-008 (affiner la requête) relève du rendu (05) |
 | `hits` | `Vec<SearchHit>` | ordre de l'API (tri `PERTINENCE`) |
 | `dropped` | `u32` | hits écartés (id absent ou incohérent) ; journalisés par l'adapter, jamais rendus en masse |
-| `pagination` | `PaginationMode` | `typePagination` reçu |
+| `pagination` | `PaginationMode` | `typePagination` reçu : alimente le `PaginationMemo` de l'adapter et les journaux ; jamais rendu au modèle (00 §7) |
 
 Les facettes ne sont **pas** dans le domaine en v0.1 (00 §7 : jamais renvoyées brutes, recherche 03 §5).
 
@@ -398,8 +410,8 @@ pub struct ArticleDraft { pub id: Option<String>, pub num: Option<String>, pub i
 
 impl Toc {
     pub fn build(draft: TocDraft) -> Result<Toc, DomainError>;      // TocTooDeep au-delà de 64 niveaux
-    pub fn len(&self) -> u32;                                        // nombre d'entrées aplaties
-    pub fn page(&self, offset: u32, limit: TocLimit) -> TocPage<'_>;
+    pub fn len(&self) -> u32;                                        // nombre d'entrées aplaties (= toc_total)
+    pub fn page(&self, offset: u32, limit: TocLimit) -> Result<TocPage<'_>, DomainError>; // TocOffsetPastEnd
 }
 pub struct TocEntry<'a> { pub depth: u16, pub node: TocEntryRef<'a> }   // préordre ; depth = 1 au premier niveau
 pub struct TocPage<'a> { pub entries: Vec<TocEntry<'a>>, pub total: u32, pub next_offset: Option<u32> }
@@ -415,7 +427,7 @@ Règles de `Toc::build`, dans l'ordre :
 3. **Dédoublonnage** : sur `ArticleId` sur tout l'arbre, la première occurrence en préordre est conservée ; idem pour les sections par `SectionId`. Les doublons ont été démontrés sur une entrée synthétique (D-25) ; leur fréquence réelle est **NON VÉRIFIÉ** [v:toc-doublons-reels].
 4. **Texte en ligne** : si `content_html` est présent (attesté pour `/consult/kaliText`, recherche 03 §9), `inline_text = Some(text::from_html(..))`. En v0.1, il n'est pas rendu par défaut (05), mais il est disponible sans appel supplémentaire (D-25, `kali_inline_content_is_available_without_extra_call`).
 
-`Toc::page` aplatit en préordre et renvoie au plus `limit` entrées à partir de `offset`. `next_offset = offset + entries.len()` s'il reste des entrées. Sur consult_loda.json : 26 sections + 62 articles = **88 entrées**, contre 62 dans la référence (P-033), soit une page avec `toc_limit` par défaut (100). La métrique d'audit compte les entrées renvoyées (00 §7).
+`Toc::page` aplatit en préordre et renvoie au plus `limit` entrées à partir de `offset`. `next_offset = offset + entries.len()` s'il reste des entrées. `offset ≥ len()` (hors TOC vide à `offset = 0`) donne `DomainError::TocOffsetPastEnd`. **Seules les entrées rendues sont aplaties** : une section sans titre n'est pas une entrée (05 §5.0.4), mais ses enfants sont aplatis à leur profondeur d'origine. `Toc::len`, `Toc::page`, donc `toc_total`, `toc_offset`, `next_toc_offset` et la métrique d'audit, comptent ainsi le même ensemble d'entrées. Sur consult_loda.json : 26 sections + 62 articles = **88 entrées**, contre 62 dans la référence (P-033), soit une page avec `toc_limit` par défaut (100). La métrique d'audit compte les entrées renvoyées (00 §7).
 
 ### 4.3 Article : `ArticleText`
 
@@ -425,7 +437,7 @@ Règles de `Toc::build`, dans l'ordre :
 | `num` | `Option<String>` | `num` | `"9"` |
 | `etat` | `Option<LegalStatus>` | `etat` | `VIGUEUR` |
 | `code_title` | `Option<String>` | `textTitles[nature=="CODE"].titre`, sinon `textTitles[0].titre` | parité (référence citations.py:236-245) : `Code civil` |
-| `parent` | `Option<ParentText { id: DocumentId, nature: ParentNature }>` | même entrée de `textTitles` : `cid`, `nature` | `ParentNature::{Code, Text, Kali, Unknown}` décide de l'URL (§5.5) |
+| `parent` | `Option<ParentText { id: DocumentId, nature: ParentNature }>` | même entrée de `textTitles` : `cid`, `nature` | `ParentNature::{Code, Text, Kali, Unknown}` décide de l'URL (§5.5). La valeur de `textTitles[].nature` pour un article de loi (fixture d'article de code seulement) est **NON VÉRIFIÉ** [v:texttitles-nature-loi], bloquant pour v0.1.0 (00 §4) |
 | `path` | `Vec<String>` | `context.titresTM[].titre` | chemin complet `["Livre Ier : Des personnes", "Titre Ier : Des droits civils"]` (consult_article.json). Piège de renommage `titresTM` (04) |
 | `full_sections_titre` | `Option<String>` | `fullSectionsTitre` | conservé pour la parité, mais incomplet (`Livre Ier : Des personnes`, recherche 03 §7) ; `path` est préféré au rendu |
 | `date_debut`, `date_fin` | `Option<NaiveDate>` | `dateDebut`, `dateFin` (ms) | `1970-07-19` et `None` (sentinelle) |
@@ -434,7 +446,9 @@ Règles de `Toc::build`, dans l'ordre :
 | `previous_version` | `Option<ArticleId>` | `versionPrecedente` | M7 (`fr_diff_article`) |
 | `contract` | `CitationContract` | — | « Code civil, art. 9 » ; URL selon `parent.nature` (§5.4, §5.5) |
 
-M7 ajoute `ArticleVersion { id: LegiArtiId, num: Option<String>, etat: Option<LegalStatus>, date_debut: Option<NaiveDate>, date_fin: Option<NaiveDate> }` pour le port `article_versions` (00 §3).
+M7 ajoute `ArticleVersion` (port `article_versions`) et `RelatedLinks` (port `related_links`), définis au §4.11.
+
+Les deux dates sont des champs de sens différent quand elles sont omises (00 §4, §6.2) : `date_fin` absente = en vigueur sans date de fin ; `date_debut` absente = date d'entrée en vigueur non déterminée.
 
 ### 4.4 Décision : `Decision`
 
@@ -457,7 +471,7 @@ M7 ajoute `ArticleVersion { id: LegiArtiId, num: Option<String>, etat: Option<Le
 
 **`OfficialSummary { analyses: Vec<String>, titrages: Vec<String> }`.** Les fixtures montrent que la **sémantique des champs du sommaire dépend du fond**, ce que la recherche 03 §12.8 n'avait pas relevé :
 
-| Fond | `resumePrincipal` | `abstrats` | `autreResume` | Mapping proposé (adapter) |
+| Fond | `resumePrincipal` | `abstrats` | `autreResume` | Mapping (adapter, décidé par 00 §4) |
 |---|---|---|---|---|
 | JURI (consult_juri.json) | **titrage** en mots-clés : `Cassation civil - RESPONSABILITE DU FAIT DES PRODUITS DEFECTUEUX - Producteur - …` (193 caractères) | **sommaire rédigé** : `L'action en responsabilité dirigée contre le fabricant d'un produit…` (854 caractères) | titrage étendu (978 caractères) | `analyses ← abstrats` ; `titrages ← resumePrincipal, autreResume` |
 | CETAT (consult_juri_cetat.json) | **analyse rédigée**, préfixée d'un code de classement (`01-03-02-02 `, `44 `, `68-01-002 `) et **répétée 3 fois** (736 caractères chacune, identiques une fois le code retiré) | **titrage** en capitales préfixé (`CETAT01-03-02-02 ACTES LÉGISLATIFS…`) | — | `analyses ← resumePrincipal` ; `titrages ← abstrats` |
@@ -488,7 +502,7 @@ M7 ajoute `ArticleVersion { id: LegiArtiId, num: Option<String>, etat: Option<Le
 | `title` | `Option<String>` | `title` | `clean` (174 caractères, `Annexe IX - Stipulations spécifiques…`) |
 | `nor` | `Option<Nor>` | `nor` | `ASET2450455M` (majuscules ; la recherche le renvoie en minuscules) |
 | `etat` | `Option<LegalStatus>` | `etat`, sinon `jurisState` | `VIGUEUR_ETEN` (même règle que LODA) |
-| `date_publication` | `Option<NaiveDate>` | `dateParution` | sentinelle ⇒ `None`, contre `2999-01-01` dans la référence (D-20) |
+| `date_publication` | `Option<NaiveDate>` | `dateParution` | sentinelle ⇒ `None` (date de publication « inconnue », 00 §4), contre `2999-01-01` dans la référence (D-20) |
 | `idcc` | `Option<Idcc>` | `conteneurs[0].num` | `2121`. Absent des hits KALI de recherche (recherche 03 §9) |
 | `container_title` | `Option<String>` | `conteneurs[0].titre` | `Convention collective nationale de l'édition du 14 janvier 2000` (saut de ligne final retiré) |
 | `container_id` | `Option<String>` | `conteneurs[0].cid` | `KALICONT000005635096` |
@@ -506,22 +520,28 @@ Métadonnées seules : le texte intégral n'existe qu'en pièce jointe `.docx` (
 
 ```rust
 // non compilé, à valider en M0
+pub enum PisteEnvironment { Sandbox, Production }  // seul type d'environnement du workspace (00 §1 : LF_PISTE_ENV)
 pub struct Coverage {
-    pub status: CoverageStatus,                 // Ok | Degraded | Failed
-    pub environment: PisteEnvironment,          // Sandbox | Production (00 §1 : LF_PISTE_ENV)
+    pub status: CoverageStatus,                 // Ok | Degraded | Failed (Failed : énumération de parité, jamais produit en v0.x)
+    pub environment: PisteEnvironment,
     pub credentials_configured: bool,
     pub families: Vec<FamilyCoverage>,          // une par Fond servi
     pub gaps: Vec<CoverageGap>,                 // jamais vide (invariant du constructeur)
     pub eli_note: &'static str,                 // note ELI unique (D-30, ADR-0009)
 }
-pub struct FamilyCoverage { pub fond: Fond, pub label: &'static str, pub live: bool }
+pub struct FamilyCoverage { pub fond: Fond, pub label: &'static str }
 pub struct CoverageGap { pub id: &'static str, pub fond: Option<Fond>, pub missing: Cow<'static, str>, pub fallback: Cow<'static, str> }
-pub fn coverage(env: PisteEnvironment, credentials_configured: bool) -> Coverage; // pur : catalogue statique + état passé en argument
+/// Faits de configuration, extraits par lf-application de son ConfigurationState (02 §6.3, §8.2).
+pub struct ConfigFacts { pub credentials_configured: bool, pub custom_host: bool, pub has_problems: bool }
+pub fn coverage(env: PisteEnvironment, facts: &ConfigFacts, served: &[Fond]) -> Coverage; // pur : catalogue statique + faits passés en argument
 ```
 
-- **Catalogue statique** (domaine), proposé ici et rédigé définitivement dans 05 : FR-001 pas d'ELI natif (référence) ; FR-002 force juridique non évaluée (référence) ; plus les lacunes non déclarées relevées par D-34 : texte ACCO seulement en `.docx`, ECLI souvent absent pour CAA et TA, fond JORF non exposé avant M7, Judilibre non intégré (couverture partielle des CA et TJ), pseudonymisation JURI et occultation CNIL (D-45), pagination limitée à `page_size ≤ 100`.
-- **Lacunes dynamiques** : `Sandbox` ⇒ lacune « données sandbox, possiblement différentes de la production » (D-18) ; identifiants absents ⇒ lacune et `status = Degraded`.
-- Le domaine ne connaît pas les **noms d'outils** : `lf-adapter-mcp` les rattache à chaque `Fond`. Le test « tout outil enregistré appartient à une famille » (D-34) vit donc dans l'adapter MCP.
+- `PisteEnvironment` est défini ici et n'a pas de double : `PisteConfig.env` et `PisteCorpus::environment()` (04), `CacheKey.env`, `ServiceSettings.env` et `AuditRecord.env` (02) l'emploient tous, sans type propre à un adapter (R3 : `lf-adapter-cache` ne dépend pas de `lf-adapter-piste`).
+- **Catalogue statique** (domaine), rédigé définitivement dans 05 §5.8 (identifiants FR-001 à FR-009) : FR-001 pas d'ELI natif (référence) ; FR-002 force juridique non évaluée (référence) ; plus les lacunes non déclarées relevées par D-34 : texte ACCO seulement en `.docx`, ECLI souvent absent pour CAA et TA, Judilibre non intégré (couverture partielle des CA et TJ), pseudonymisation JURI et occultation CNIL (D-45), pages de 100 hits au plus et résultats au-delà de 10 000 inaccessibles (FR-008), droit de l'UE et doctrine non couverts.
+- **Lacunes calculées** par `coverage` : FR-007 (fond JORF non interrogeable) tant que `Fond::Jorf` n'est pas dans `served`, ce qui dépend de la décision de M7 (00 §4) ; FR-101 si `env = Sandbox` (données sandbox, possiblement différentes de la production, D-18) ; FR-102 si les identifiants sont absents ; FR-103 si `custom_host` (hôte hors des quatre hôtes officiels, avertissement `CustomHost`, 00 §1).
+- **Statut** : `Ok` si les identifiants sont présents et qu'aucun problème n'est détecté ; `Degraded` sinon (identifiants absents ou `has_problems`, dont le mode dégradé de 00 §1). La liste des problèmes, en phrases sans secret, reste dans `lf-application` (`ConfigurationState`) et n'entre pas dans le domaine.
+- Hors du domaine : le mode d'audit, le texte de `source` et `as_of_note`, et l'attribution « Source : Légifrance / DILA — Licence Ouverte 2.0 » avec la date de consultation (date du jour Europe/Paris, `clock.today_paris()`), ajoutés par le cas d'usage et le rendu (00 §12, Q15 ; 05 §5.8).
+- Le domaine ne connaît pas les **noms d'outils** : ils sont rattachés à chaque `Fond` (`families[].tools`, `general_tools`) hors du domaine (05 §5.8). Le test « tout outil enregistré appartient à une famille ou aux outils généraux » (D-34) vit donc dans l'adapter MCP, qui connaît les outils enregistrés.
 
 ### 4.9 Texte structuré : `LongText`
 
@@ -541,6 +561,31 @@ Voir §7.5. Toutes les entités à texte long (`ArticleText.text`, `Decision.tex
 | D-33, E-26 : extraits jetés | `SearchHit.snippet`, `HitArticle` pour KALI |
 | D-09 : totaux d'articles CODE jetés | `SearchPage.total_articles` |
 | D-45 : pseudonymisation non signalée | lacune de couverture ; note par fond (rendu dans 05) |
+
+### 4.11 Types des ports M6 et M7 : `NumberQuery`, `CodeListing`, `ArticleVersion`, `RelatedLinks`
+
+Ces types sont des entrées ou des sorties du port `LegalCorpus` (00 §3, 02 §5.1). Ils sont placés dans `lf-domain` parce que la clé de cache (`Op::FindByNumber`, `Op::Codes`, `Op::Versions`, `Op::Related`, 02 §7.2) et l'adapter PISTE les emploient sans dépendre de `lf-application`.
+
+```rust
+// non compilé, à valider en M0
+// M6 — search.rs : forme et couples (fond, kind) autorisés fixés par l'annexe B §6.6, qui fait foi pour ces champs
+pub struct NumberQuery { pub fond: Fond, pub kind: NumberKind, pub value: NumberValue,
+                         pub within: Option<DateRange>, pub version_date: Option<VersionDate> } // version_date : Code, Loda
+// M6 — entity/codes.rs : une entrée de list_codes() (/list/code, codes abrogés compris, 00 §3)
+pub struct CodeListing { pub id: LegiTextId, pub title: String, pub etat: Option<LegalStatus> }
+// M7 — entity/versions.rs : port article_versions
+pub struct ArticleVersion { pub id: LegiArtiId, pub num: Option<String>, pub etat: Option<LegalStatus>,
+                            pub date_debut: Option<NaiveDate>, pub date_fin: Option<NaiveDate> }
+// M7 — entity/related.rs : port related_links (/consult/relatedLinksArticle)
+pub struct RelatedLinks { pub cites: Vec<RelatedLink>, pub cited_by: Vec<RelatedLink> }   // liensCite, liensCitePar
+pub struct RelatedLink { pub target: Option<DocumentId>, pub nature: RelatedNature,
+                         pub title: Option<String>, pub date: Option<NaiveDate> }
+pub enum RelatedNature { Loda, Jorf, Code, Kali, JorfCont, Other(String) }               // LiensRelatifsDTO.nature
+```
+
+- `NumberQuery::new` renvoie un `DomainError` pour un couple (fond, kind) non autorisé ; `version_date` est obligatoire pour CODE et LODA (`DATE_VERSION`, 00 §8 ; annexe B §6.6).
+- `CodeListing` ne reprend pas le nom `CodeEntry`, déjà pris par l'entrée statique du dictionnaire des codes (`citation::dict::codes`, champs `&'static`, annexe B). Une entrée sans `id` `LEGITEXT` valide ou sans titre est écartée et comptée. La forme réelle de `/list/code` est **NON VÉRIFIÉ** [v:list-code-forme].
+- `RelatedLink.target` vient de `id` (sinon `cidText`), validé en `DocumentId` ; un identifiant sans type consultable (`JORFCONT`, `JORFARTI`, §2.2) donne `None` : le lien garde son titre (`name`, nettoyé), sa nature et sa date (`dateVigeur`, sentinelles du §6.2), sans `source_url`. Correspondance `nature` → `kind`, borne de 100 liens et suite éventuelle : 05 §5.11. Forme et taille réelles de la réponse **NON VÉRIFIÉ** [v:related-links-forme].
 
 ---
 
@@ -566,7 +611,7 @@ pub trait Citable { fn contract(&self) -> &CitationContract; }
 | `ecli` | `Some` seulement si l'API le renvoie et qu'il est valide | inchangé sur le fond ; ajoute la validation |
 | `eli` | `Some` seulement si l'API renvoie un ELI non nul | **`eli_uri` n'est pas reproduit** : la référence le rendait toujours égal à `source_url` (D-30, P-031). La note ELI passe dans les instructions et dans `fr_coverage` (00 §4) |
 
-`CitationText` est limité à 1 000 caractères ; au-delà, coupure en fin de mot suivie de `…`. Garde-fou contre un titre anormal ; aucun titre des fixtures n'en approche.
+`CitationText` est limité à 1 000 caractères ; au-delà, coupure en fin de mot suivie de `…`. Garde-fou contre un titre anormal ; aucun titre des fixtures n'en approche. Le respect du plafond dur de réponse (45 000 caractères, 00 §7) ne repose pas sur cette borne : il relève de la politique de budget de `lf-application` et de la mesure de `lf-adapter-mcp` (05 §6.4).
 
 ### 5.2 Politique ECLI
 
@@ -574,7 +619,7 @@ pub trait Citable { fn contract(&self) -> &CitationContract; }
 - **Jamais fabriqué** : aucune fonction ne dérive un ECLI d'une juridiction, d'une date ou d'un numéro. La recherche 07 §2.3 documente des règles de dérivation (`C1` + n° d'arrêt, `requête.AAAAMMJJ`) : elles servent seulement **au contrôle** d'un ECLI cité (`fr_verify_citations`, M6), jamais à la production d'un champ `ecli`.
 - Mapping : `ecli` trimé, `""` ⇒ `None` ; chaîne invalide ⇒ `None` + diagnostic `invalid_native_ecli`. Pas de correction.
 - Souvent `null` pour les CAA et TA (référence DISCOVERY.md:80-82, via la recherche 07 §4.8). C'est une lacune de couverture déclarée.
-- Exemples natifs : `ECLI:FR:CCASS:2025:C100399` (consult_juri.json), `ECLI:FR:CC:2025:2025.1173.QPC` (consult_juri_constit.json), `ECLI:FR:CECHR:2026:506507.20260529` (consult_juri_cetat.json). Un ECLI d'un autre pays, cité dans un texte, n'est pas un `Ecli` : le parseur le classe `Unsupported` (§8.6).
+- Exemples natifs : `ECLI:FR:CCASS:2025:C100399` (consult_juri.json), `ECLI:FR:CC:2025:2025.1173.QPC` (consult_juri_constit.json), `ECLI:FR:CECHR:2026:506507.20260529` (consult_juri_cetat.json). Un ECLI d'un autre pays, cité dans un texte, n'est pas un `Ecli` : le parseur le classe `CitationRef::Unsupported { family: ForeignEcli }` (code `ecli_etranger`), de statut `unresolvable` (00 §4, §8.6).
 
 ### 5.3 Politique ELI
 
@@ -590,23 +635,25 @@ Fonctions pures de `contract::rules`. Les exemples sont réels : fixtures, aprè
 | Famille | Règle (dans l'ordre, première applicable) | Exemple réel | Source |
 |---|---|---|---|
 | Article de code (`LEGIARTI`, parent `CODE`) | `{code_title}, art. {num}` ; sinon `Art. {num}` ; sinon `{code_title}` ; sinon repli | « Code civil, art. 9 » (**inchangé**, 00 §4) | consult_article.json ; référence citations.py:256-261 |
-| Article d'un texte non codifié (`LEGIARTI`, parent LOI ou DECRET…) | même règle, avec le titre du texte parent | forme attendue « LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1), art. 1 » (règle de parité ; pas de fixture) | référence citations.py:256-261 ; question ouverte sur une forme courte (§11) |
+| Article d'un texte non codifié (`LEGIARTI`, parent LOI ou DECRET…) | `{titre officiel du texte parent, sans appel de note final « (n) »}, art. {num}`, `num` verbatim ; mêmes replis | forme attendue « LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique, art. 1 » (pas de fixture ; la référence garde « (1) ») | référence citations.py:256-261 ; format adopté par défaut, Q12 (00 §4) |
 | Article KALI (`KALIARTI`) | même règle | — (le `num` KALI peut être long : `19 (des dispositions communes …)`) | consult_kali.json |
 | Texte LODA (`Act`, hit `loda`) | titre officiel nettoyé | « LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1) » | consult_loda.json |
 | Code (hit `code`) | titre | « Code civil » | search_code.json |
 | Cour de cassation et juridictions judiciaires (`JURITEXT`) | `titre` | « Cour de cassation, civile, Chambre civile 1, 4 juin 2025, 24-13.470, Publié au bulletin » | consult_juri.json |
 | Juridictions administratives (`CETATEXT`) | `titre` | « Conseil d'État, 2ème - 7ème chambres réunies, 29/05/2026, 506507 » ; « CAA de MARSEILLE, 4ème chambre, 09/06/2026, 24MA02429 » | consult_juri_cetat.json ; search_cetat.json |
 | Conseil constitutionnel (`CONSTEXT`, consultation) | `Cons. const., décision n° {num}[ {NATURE}] du {date en prose}` si `num` et `date` présents ; sinon `titre` | « Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025 » (**corrigé**, 00 §4) | consult_juri_constit.json ; référence citations.py:298-318 |
-| Conseil constitutionnel (hit de recherche) | `titre` (parité : pas de `num` ni de date structurés en recherche) | « Décision 2025-1173 QPC - 07 novembre 2025 - M. Amine G. [Absence de publicité …] - Conformité » | search_constit.json |
+| Conseil constitutionnel (hit de recherche) | `titre` (parité : pas de `num` ni de date structurés en recherche ; adopté par défaut en v0.1, réexamen en v0.2 avec le parseur, Q12) | « Décision 2025-1173 QPC - 07 novembre 2025 - M. Amine G. [Absence de publicité …] - Conformité » | search_constit.json |
 | CNIL (`CNILTEXT`, consultation) | `CNIL, délibération n° {num} du {date en prose}`, ou `CNIL, décision n° …` si `nature` vaut « Décision » après repli ; sinon `titre` | « CNIL, délibération n° SAN-2026-002 du 8 janvier 2026 » (**corrigé**, 00 §4) | consult_cnil.json ; référence citations.py:376-380 |
-| CNIL (hit) | `titre` | — | search_cnil.json |
-| Convention KALI | `titre` nettoyé | « Avenant n° 18 du 19 juillet 2002 relatif à la médaille d'honneur du travail » | search_kali.json |
+| CNIL (hit) | `titre` (parité ; même statut que le hit CONSTIT, Q12) | — | search_cnil.json |
+| Convention KALI | `titre` nettoyé, sans IDCC (l'IDCC est un champ ; Q12) | « Avenant n° 18 du 19 juillet 2002 relatif à la médaille d'honneur du travail » | search_kali.json |
 | Accord ACCO | `{titre} ({raison sociale})` si les deux sont présents ; sinon `{titre}` | « Accord d'entreprise relatif au télétravail (CORSAIR (Télétravail)) » | search_acco.json ; référence citations.py:141-142, 458 |
 
 Précisions :
 
 - `NATURE` du Conseil constitutionnel : `nature` en majuscules (`QPC`, `DC`). Le libellé des natures rares (contentieux électoral…) est **NON VÉRIFIÉ** [v:natures-constit]. Si `nature` est vide, il est omis, comme dans la référence.
-- Le **suffixe « - {objet entre crochets} »** de la référence (premier crochet, regex fragile, D-27) n'est pas reproduit, puisque le format normatif de 00 §4 n'en a pas. L'objet reste lisible dans `title`, le titre officiel verbatim.
+- Le **suffixe « - {objet entre crochets} »** de la référence (premier crochet, regex fragile, D-27) n'est pas reproduit, puisque le format normatif de 00 §4 n'en a pas (confirmé par défaut, Q12). L'objet reste lisible dans `title`, le titre officiel verbatim.
+- Les formats complémentaires (article de texte non codifié, KALI, hits CONSTIT et CNIL, objet du Conseil constitutionnel) sont adoptés par défaut (Q12, 00 §4 et §13) et figés avant la génération des golden de M1 ; une autre réponse de l'utilisateur ne change que `contract::rules` et les golden.
+- Le retrait de l'appel de note final ne touche que la citation d'un **article** : la citation du texte lui-même (`Act`, hit `loda`) reste le titre officiel complet, « (1) » compris (parité).
 - La variante « décision » pour la CNIL est une extension cohérente avec 00. Le libellé exact des décisions CNIL est **NON VÉRIFIÉ** [v:cnil-nature-decision-format].
 - Signe numéro : `n°` suivi d'une espace normale U+0020, comme dans les exemples de 00 §4. Le parseur (M6) accepte toutes les variantes (recherche 07 §6).
 - Aucune donnée officielle n'est réécrite dans les champs autres que `citation` : `num`, `title` et `formation` restent verbatim après `clean`. Les ordinaux non typographiques des données (`2ème`) ne sont **pas** corrigés dans les titres.
@@ -624,14 +671,14 @@ Précisions :
 | `juri` | `/juri/id/{JURITEXT}` | `DecisionId::Juri` | référence ; [v:url-patterns-navigateur] |
 | `constit` | `/cons/id/{CONSTEXT}` | `DecisionId::Constit` | vérifié par l'auteur de la référence par recherche web (DISCOVERY.md:83-88, via la recherche 01 §4.5) ; test test_parse.py:106 |
 | `cetat` | `/ceta/id/{CETATEXT}` | `DecisionId::Cetat` | idem (DISCOVERY.md) ; pylegifrance affirme que `/juri/id/` fonctionne aussi. Forme canonique **NON VÉRIFIÉ** [v:url-ceta-vs-juri] |
-| `jorf` | `/jorf/id/{JORFTEXT}` | M7 (fond `Jorf`, `cid` LODA) | **VÉRIFIÉ par une donnée de l'API** : `lienJo = "https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000052541898"` (consult_juri_constit.json) |
+| `jorf` | `/jorf/id/{JORFTEXT}` | M7 (fond `Jorf` si la surface JORF est retenue, 00 §4 ; `cid` LODA) | **VÉRIFIÉ par une donnée de l'API** : `lienJo = "https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000052541898"` (consult_juri_constit.json) |
 | `cnil` | `/cnil/id/{CNILTEXT}` | `Deliberation`, hit CNIL | référence ; test test_parse.py:189 ; [v:url-patterns-navigateur] |
 | `kali` | `/conv_coll/id/{KALITEXT}` | `Convention`, hit KALI | référence ; [v:url-patterns-navigateur] |
 | `kali_article` | `/conv_coll/id/{KALIARTI}` | article KALI | référence (test test_parse.py:226) ; aucune occurrence trouvée sur le web : **NON VÉRIFIÉ** [v:url-kaliarti] |
 | `acco` | `/acco/id/{ACCOTEXT}` | `CompanyAgreement`, hit ACCO | référence ; [v:url-patterns-navigateur] |
 | versions datées (M7) | `/codes/article_lc/{LEGIARTI}/{AAAA-MM-JJ}`, `/loda/article_lc/{LEGIARTI}/{AAAA-MM-JJ}` | `fr_diff_article` | WEB : https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000006258433/2011-08-31 (recherche 02 D-29) ; **NON VÉRIFIÉ** pour les textes [v:url-version-datee] |
 
-Choix du kind d'un `LEGIARTI` : `ParentNature::Code` ⇒ `code_article` ; `ParentNature::Text` (LOI, DECRET, ORDONNANCE, ARRETE…) ⇒ `loda_article` ; `Unknown` ⇒ `code_article` (parité). En v0.1, `source_url` est **non datée** (stable). Une recherche d'acceptation dans un navigateur est prévue avant v0.1.0 pour toutes les URL marquées [v:url-patterns-navigateur].
+Choix du kind d'un `LEGIARTI` (00 §4) : `ParentNature::Code` ⇒ `code_article` ; `ParentNature::Text` (LOI, DECRET, ORDONNANCE, ARRETE…) ⇒ `loda_article` ; `Unknown` ⇒ `code_article` (repli de parité). En v0.1, `source_url` est **non datée** (stable). Divergence volontaire E-19/D-29 (scénario smoke 3 transposé). Bloquant pour v0.1.0 : V-140 (forme canonique de `/loda/article_lc/`, [v:url-loda-article-lc]) et V-142 (`textTitles[].nature`, [v:texttitles-nature-loi]) ; voir aussi V-141 ([v:url-codes-article-lc-loi]). Une recette d'acceptation dans un navigateur est prévue avant v0.1.0 pour tous les motifs servis en v0.1, marqués [v:url-patterns-navigateur], y compris `cetat` ([v:url-ceta-vs-juri]) et `kali_article` ([v:url-kaliarti]) ; le statut bloquant de chaque vérification est tenu par le registre de 09 (V-139 à V-145).
 
 ### 5.6 Divergences volontaires par rapport à la référence
 
@@ -664,6 +711,7 @@ Ces divergences doivent apparaître dans la liste des écarts des tests golden (
 | 23 | Suffixe de version | jeté | `version_start` | recherche 03 §11.3 | search_loda.json, search_code.json, consult_loda.json |
 | 24 | Préfixe `CONSTEXT` | absent de `_ID_PREFIXES` | présent | E-36, D-28 | aucun |
 | 25 | NBSP dans les textes restitués | conservés | remplacés par U+0020 (§7.3) | — (00 §4) | consult_juri_constit.json (65 NBSP) |
+| 26 | Citation d'un article de texte non codifié | titre complet, appel de note « (1) » compris, puis `, art. {num}` | titre sans appel de note final (Q12, adopté par défaut) | AM-19, 00 §4 | aucun sur les fixtures (pas d'article de loi consulté) |
 
 ---
 
@@ -673,11 +721,11 @@ Ces divergences doivent apparaître dans la liste des écarts des tests golden (
 
 | Type | Rôle | Construction |
 |---|---|---|
-| `chrono::NaiveDate` | toute date juridique civile (champs d'entités, dates citées) | conversions pures (§6.3) ; feature `clock` exclue |
+| `chrono::NaiveDate` | toute date juridique civile (champs d'entités, dates citées) | conversions pures (§6.3) ; features `clock` et `now` non déclarées, pureté contrôlée en CI (§1.1) |
 | `VersionDate(NaiveDate)` | date de version demandée (`fr_get_act.date`, `fr_search.version_date`), argument des ports (`get_act(&LegiTextId, VersionDate)`) | `VersionDate::parse(&str)` : format strict `AAAA-MM-JJ` (10 caractères ASCII), date calendaire valide, plage 1500-01-01..=2221-12-31 ; sinon `DomainError::InvalidDate` (corrige D-22 : « 07/10/2016 » ou « 2016-13-45 » n'atteignent plus l'API). Ou `VersionDate::from(today)` fourni par l'application |
-| `DateRange { from, to }` | `date_from`/`date_to` de `fr_search` | `from <= to`, sinon `DomainError::InvertedDateRange` |
+| `DateRange { from, to }` (deux `NaiveDate`, période fermée) | `date_from`/`date_to` de `fr_search` (et `NumberQuery.within`, M6) | `DateRange::new(from: Option<VersionDate>, to: Option<VersionDate>) -> Result<Option<DateRange>, DomainError>` : chaque borne est lue comme une `VersionDate` (même format et même plage) ; aucune borne ⇒ `None` ; une seule borne ⇒ l'autre prend l'extrémité de la plage (`1500-01-01` ou `2221-12-31`), de sorte que l'adapter envoie toujours une période fermée et que la clé de cache est unique ; `from > to` ⇒ `DomainError::InvertedDateRange` |
 
-Choix des bornes de `VersionDate` : la borne basse doit couvrir les textes anciens consolidés. L'ordonnance de Villers-Cotterêts de 1539 figurerait dans LEGI, ce qui est un souvenir non sourcé, donc **NON VÉRIFIÉ** [v:version-date-bornes]. Toute date future est admise jusqu'à la veille de la zone sentinelle, à cause des entrées en vigueur différées. Le comportement de l'API pour des dates extrêmes est **NON VÉRIFIÉ** [v:version-date-bornes].
+Choix des bornes de `VersionDate` : la borne basse doit couvrir les textes anciens consolidés. L'ordonnance de Villers-Cotterêts de 1539 figurerait dans LEGI, ce qui est un souvenir non sourcé, donc **NON VÉRIFIÉ** [v:version-date-bornes]. Toute date future est admise jusqu'à la veille de la zone sentinelle, à cause des entrées en vigueur différées. Le comportement de l'API pour des dates extrêmes, en `DATE_VERSION` comme en bornes de période complétées par `DateRange::new`, est **NON VÉRIFIÉ** [v:version-date-bornes].
 
 ### 6.2 Sentinelles
 
@@ -688,11 +736,11 @@ pub const SENTINEL_FLOOR: NaiveDate = /* 2222-01-01 */;
 pub fn open_ended(d: Option<NaiveDate>) -> Option<NaiveDate>;
 ```
 
-- Règle : toute date ≥ 2222-01-01 devient `None`. C'est la règle de l'OpenAPI pour les champs `…Computed`, `null` si la date est ≥ 2222-01-01 (recherche 03 §8.1, §11.2). Elle couvre `2999-01-01`, observée 22 fois dans les fixtures (11 en ms, 6 en `AAAA-MM-JJ`, 5 en ISO), et `2222-02-22` (00 §4). Un champ `…Computed` à `null` donne aussi `None` : l'adapter le lit en priorité.
-- Sens selon le champ. Ce sens est documenté dans les descriptions d'outils (05), car il **n'est pas toujours** « sans date de fin » :
-  - date de fin (`date_fin`, `version_end`) : `None` = **sans date de fin** (en vigueur sans terme connu) ;
-  - date de début (`date_debut`) à `2222-02-22` : selon les dumps DILA, la valeur signifie « entrée en vigueur différée à une date non déterminée » (recherche 05 §6.3). `None` signifie alors « date non déterminée », et l'état juridique (`VIGUEUR_DIFF`) porte l'information. **NON VÉRIFIÉ** côté API [v:sentinelle-2222-debut] ;
-  - date de publication ou de texte (`date_publication` d'une convention) : `None` = **inconnue**.
+- Règle (00 §4) : toute date ≥ 2222-01-01 devient `None`, donc un champ omis en sortie. C'est la règle de l'OpenAPI pour les champs `…Computed`, `null` si la date est ≥ 2222-01-01 (recherche 03 §8.1, §11.2). Elle couvre `2999-01-01`, observée 22 fois dans les fixtures (11 en ms, 6 en `AAAA-MM-JJ`, 5 en ISO), et `2222-02-22`. Un champ `…Computed` à `null` donne aussi `None` : l'adapter le lit en priorité.
+- Sens selon le champ, fixé par 00 §4 et repris dans les descriptions d'outils (05), car il **n'est pas toujours** « sans date de fin » :
+  - date de fin (`date_fin`, `version_end`) : `None` = **en vigueur sans date de fin** ;
+  - date de début (`date_debut`, `version_start`) : `None` = **date d'entrée en vigueur non déterminée**. Selon les dumps DILA, `2222-02-22` signifie « entrée en vigueur différée à une date non déterminée » (recherche 05 §6.3) ; l'état juridique (`VIGUEUR_DIFF`) porte l'information. **NON VÉRIFIÉ** côté API [v:sentinelle-2222-debut] ;
+  - date de publication ou du texte (`date_publication`, `date_parution`, `date` d'une décision ou d'une délibération, `date_texte`) : `None` = **inconnue**.
 - On n'affiche jamais « 2999 ». Le modèle ne peut plus écrire « en vigueur jusqu'au 1er janvier 2999 » (D-20).
 
 ### 6.3 Epoch millisecondes, y compris négatifs
@@ -712,7 +760,7 @@ pub fn from_epoch_ms(ms: i64) -> Option<NaiveDate> { DateTime::from_timestamp_mi
 
 - Le domaine ne calcule jamais « aujourd'hui ». `lf-application` obtient `Clock::today_paris() -> NaiveDate` (00 §3) et en fait le défaut de `VersionDate`. Cela corrige D-19 et E-05 : la référence utilisait la date UTC.
 - Vecteurs de test pour `SystemClock` (dans `lf-app`, pas dans le domaine) : `2026-07-14T22:30Z` ⇒ `2026-07-15` ; `2026-01-14T23:30Z` ⇒ `2026-01-15` ; changements d'heure du 2026-03-29 et du 2026-10-25 (recherche 02 D-19).
-- `DATE_VERSION.singleDate` = minuit Europe/Paris de `version_date`, exprimé en ms (00 §8). Calcul fait par l'adapter. Vecteurs : `2026-10-15` ⇒ `1792015200000` (2026-10-14T22:00Z, heure d'été) ; `2026-01-15` ⇒ `1768431600000` (2026-01-14T23:00Z, heure d'hiver).
+- `DATE_VERSION.singleDate` = **midi** Europe/Paris du jour `version_date`, exprimé en ms (00 §8). Calcul fait par l'adapter (`chrono-tz`, 00 §2), jamais par le domaine. Midi est stable sur la journée et reste correct que PISTE compare l'instant à des bornes stockées à minuit UTC ou le tronque en date UTC ou Paris ; la clé de cache repose sur `VersionDate`, pas sur l'instant. Vecteurs (00 §8, base IANA) : `2026-10-15` ⇒ `1792058400000` (10:00Z, heure d'été) ; `2026-01-15` ⇒ `1768474800000` (11:00Z, heure d'hiver) ; `2026-03-29` ⇒ `1774778400000` (10:00Z, jour du passage à l'heure d'été) ; `2026-10-25` ⇒ `1792926000000` (11:00Z, jour du retour à l'heure d'hiver). La sémantique réelle de `singleDate` est **NON VÉRIFIÉ** [v:singledate-minuit-paris] (V-76, bloquante en M2).
 
 ### 6.5 Dates en prose française
 
@@ -744,12 +792,12 @@ flowchart LR
   G --> J["text::summary"]
 ```
 
-- **La réparation du mojibake vient AVANT toute normalisation des NBSP** (00 §4, §8). La séquence mojibake de `à` est `Ã` suivi de U+00A0. Normaliser U+00A0 avant la réparation casse 10 champs des fixtures (recherche 03 §11.1, mesure `dto_repair_check.py`). Le domaine suppose donc que ses entrées sont déjà réparées. `text::encoding::repair_latin1_mojibake(&str) -> Cow<str>` est une fonction pure du domaine (esquisse dans la recherche 03 §11.1). L'adapter l'applique au corps entier. Le parseur peut l'appliquer, en option, à une entrée utilisateur (§8.2).
+- **La réparation du mojibake vient AVANT toute normalisation des NBSP** (00 §4, §8). La séquence mojibake de `à` est `Ã` suivi de U+00A0. Normaliser U+00A0 avant la réparation casse 10 champs des fixtures (recherche 03 §11.1 ; contrôle versionné [annexes/donnees/scripts/dto_repair_check.py](annexes/donnees/scripts/dto_repair_check.py), SHA-256 `ef5c1c80c82a063a407ba9134d3afc3e5526bc659e5650810b38a3096d9d0530`, Python 3.13 en `python3 -I`, 00 §10). Le domaine suppose donc que ses entrées sont déjà réparées. `text::encoding::repair_latin1_mojibake(&str) -> Cow<str>` est une fonction pure du domaine (esquisse dans la recherche 03 §11.1). L'adapter l'applique au corps entier. Le parseur peut l'appliquer, en option, à une entrée utilisateur (§8.2).
 - Règle de réparation, rappelée pour les tests : la réparation s'applique s'il n'y a aucun caractère au-delà de U+00FF **et** au moins un motif `[U+00C2–U+00F4][U+0080–U+00BF]` ou un caractère C1. On encode alors en latin-1 et on décode en UTF-8 strict. Le résultat n'est accepté que s'il ne reste aucun motif. La fonction est idempotente et donne l'identité sur les 10 fixtures saines (recherche 03 §11.1). L'origine du mojibake (capture ou API) est **NON VÉRIFIÉ** [v:mojibake-origine].
 
 ### 7.2 `text::from_html` : HTML vers paragraphes
 
-Entrée : un fragment HTML (`texteHtml` de `/consult/juri` et `/consult/cnil`, `content` d'article KALI, `notaHtml`). Sortie : `LongText`. Scanner tolérant écrit à la main, en un seul passage, linéaire.
+Entrée : un fragment HTML (`texteHtml` de `/consult/juri` et `/consult/cnil`, `content` d'article KALI, `notaHtml`). Sortie : `LongText`. Scanner de balises écrit à la main (aucun crate HTML : liste de dépendances fermée, 00 §2 et §4), tolérant (balise non refermée, `<` littéral, entités invalides), en un seul passage, linéaire, sans récursion non bornée, fuzzé (§10).
 
 Balises et constructions observées dans les fixtures (scan de ce document, cohérent avec la recherche 03 §11.5) :
 
@@ -758,7 +806,7 @@ Balises et constructions observées dans les fixtures (scan de ce document, coh�
 | `<BR>` + `</BR>` (majuscules, fermante non standard) | consult_juri_constit.json `texteHtml` | 52 paires | **coupure de paragraphe** pour chacune ; les paragraphes vides qui en résultent sont supprimés |
 | `<br/>` | consult_juri_constit.json (4), consult_juri_cetat.json (85), `sommaire[].abstrats` et `resumePrincipal` (JURI, CETAT) | 89 + sommaires | coupure de paragraphe ; dans un champ court (`clean`), devient une espace |
 | `<p>`, `</p>`, `<p align="left">` | consult_cnil.json (3 et 2), consult_kali.json `content` | — | coupure de paragraphe ; attributs ignorés |
-| `<RECH_ECLI>…</RECH_ECLI>` | fin du `texteHtml` CONSTIT et CETAT | 1 + 1 | **élément supprimé avec son contenu**, puisque l'ECLI est déjà dans `ecli`. Explique que `texte` soit plus long de 30 (CONSTIT) et 35 (CETAT) caractères (recherche 03 §8.2) |
+| `<RECH_ECLI>…</RECH_ECLI>` | fin du `texteHtml` CONSTIT et CETAT | 1 + 1 | **élément supprimé avec son contenu**, puisque l'ECLI est déjà dans `ecli`. Explique que `texte` soit plus long de 30 (CONSTIT) et 35 (CETAT) caractères, soit une espace suivie de l'ECLI (recherche 03 §8.2). Conséquence pour la parité : le `text` du golden (= `texte`) finit par cet ECLI ; le comparateur `LongText` de l'annexe A §5.4 doit retirer ce suffixe « espace + `ecli` », égal à `contract.ecli`, avant de comparer |
 | `<a href="/affichCodeArticle.do?…idArticle=LEGIARTI…" title="…">` | consult_kali.json `content` | 1 (**non refermée**, fixture tronquée) | balise retirée, texte conservé ; balise non refermée en fin d'entrée : supprimée jusqu'à la fin. Extraction des `idArticle=` pour les liens : M7 |
 | `<mark>`, `</mark>` | titres et extraits de `/search` (jamais dans les consultations) | nombreuses | retirées, contenu conservé (relève surtout de `clean`) |
 | indentation `\n` + espaces + `\t` | consult_juri_cetat.json | — | blancs repliés à l'intérieur d'un paragraphe |
@@ -791,11 +839,13 @@ Mesures sur les fixtures (prototype de ce document, cohérent avec la recherche 
 
 1. Retirer les balises (même scanner que §7.2). Une balise de bloc devient une espace, une balise en ligne disparaît. `<mark>` et `</mark>` sont retirées quelle que soit la casse, ce qui généralise `strip_marks` (référence citations.py:48-52, P-030).
 2. Décoder les entités (§7.2 étape 3).
-3. Supprimer les caractères invisibles : U+00AD (césure molle, retirée par legi.py selon la recherche 05 §6.3), U+200B, U+200C, U+200D, U+2060, U+FEFF, et les caractères de contrôle C0 et C1 autres que `\t`, `\n` et `\r`.
+3. Supprimer les caractères invisibles : U+00AD (césure molle, retirée par legi.py selon la recherche 05 §6.3), U+200B, U+200C, U+200D, U+2060, U+FEFF, les caractères de contrôle C0 et C1 autres que `\t`, `\n` et `\r`, et les **contrôles bidirectionnels** U+202A–U+202E et U+2066–U+2069 (00 §4). Un texte officiel français n'en a aucun usage légitime, et ils peuvent masquer ou réordonner le texte montré au modèle ou à l'utilisateur (attaques « Trojan Source », menace MEN-06 de 06). Leur nombre est rendu comme valeur (diagnostic, §1.1), et l'adapter l'ajoute à un compteur journalisé.
 4. **Replier les blancs** : toute suite de caractères `White_Space` (espace, `\t`, `\n`, `\r`, **U+00A0 NBSP**, U+202F, U+2007, U+2000–U+200A…) devient **une** espace U+0020. Le NBSP est donc normalisé (00 §4). Cela n'est sûr que parce que la réparation du mojibake a eu lieu avant (§7.1).
 5. `trim`. Une chaîne vide donne `None`.
 
 Non modifiés : apostrophes typographiques U+2019 (117 dans le texte CONSTIT, recherche 03 §11.5), guillemets, tirets U+2013, ligatures, casse. Ces replis sont réservés aux vues de recherche (§7.8, §8.2).
+
+`clean` ne s'applique qu'aux textes issus de l'API. Le texte soumis par l'utilisateur à `fr_verify_citations` n'est pas nettoyé, puisque ses spans s'y rapportent : le parseur travaille sur sa propre vue normalisée, avec une table d'offsets vers le texte d'origine (§8.2). Le texte canonique de `LongText` est défini **après** `clean`, de sorte que la fenêtre, le BM25 et le parseur restent cohérents.
 
 `Snippet` est un extrait de recherche d'au plus 280 caractères (`char`). Si le texte nettoyé dépasse 280, on coupe à la dernière espace située dans les 40 derniers caractères (sinon coupure franche) et on ajoute `…`, inclus dans les 280. Les `[...]` de l'API (début et fin d'extrait, recherche 03 §2) sont conservés. La référence tronquait à 280 points de code sans ellipse ; aucun extrait CODE des fixtures n'atteint la limite (108 caractères, recherche 01 §11.5).
 
@@ -812,9 +862,10 @@ Non modifiés : apostrophes typographiques U+2019 (117 dans le texte CONSTIT, re
 
 ```rust
 // non compilé, à valider en M0
+#[derive(Clone)]
 pub struct LongText {
-    canonical: String,         // paragraphes joints par "\n\n" (forme exposée au modèle et base des offsets)
-    paras: Vec<Para>,          // une entrée par paragraphe
+    canonical: Arc<str>,       // paragraphes joints par "\n\n" (forme exposée au modèle et base des offsets)
+    paras: Arc<[Para]>,        // une entrée par paragraphe
     char_len: u32,             // longueur de `canonical` en caractères Unicode (scalaires)
 }
 struct Para { byte_start: u32, char_start: u32, char_len: u32 }
@@ -835,6 +886,7 @@ Invariants :
 - `char_len` tient en `u32`. Au-delà de 16 000 000 caractères, la construction échoue (`DomainError::TextTooLarge`, mappée en `Decode`). La taille maximale réelle des textes est **NON VÉRIFIÉ** [v:taille-max-textes].
 - `text_length` (00 §7) = `char_len` du texte canonique, séparateurs compris. Exemple : CONSTIT = 14 236 + 2 × 48 = **14 332** caractères.
 - Le `LongText` est construit **une fois**, dans le mapping. Le cache au niveau du port (ADR-0007) stocke l'entité qui le contient. Fenêtres, passages et résumés sont recalculés à chaque appel, pour un coût linéaire.
+- Le texte et la table des paragraphes sont partagés par `Arc` (`std::sync::Arc`, pas de dépendance) : le clone d'une entité servie par le cache (02 §7.2 : l'appelant reçoit `T::clone(&arc)`) ne copie pas le texte, qui peut atteindre la borne de 16 000 000 caractères. Le type reste `Send + Sync`.
 
 ### 7.6 `text::window` : fenêtre `offset` / `max_chars`
 
@@ -933,7 +985,7 @@ Test d'acceptation (prototype de ce document, avec ces paramètres) : sur consul
 
 ```rust
 // non compilé, à valider en M0
-pub enum SummarySource { Official, Dispositif, Lead }
+pub enum SummarySource { Official, Dispositif, Lead }   // summary_source : "official", "dispositif", "lead" (00 §7)
 pub struct Summary { pub source: SummarySource, pub text: String, pub truncated: bool }
 pub enum DispositifRule { ConseilConstitutionnel, ConseilEtat, None }  // choisi d'après DecisionId
 pub fn summary(text: &LongText, official: &OfficialSummary, rule: DispositifRule, budget: MaxChars) -> Summary;
@@ -948,19 +1000,21 @@ Ordre de préférence (00 §4) :
    - Ces marqueurs ont été validés sur **une** décision chacun (recherche 03 §12.9 et prototype de ce document). Variantes anciennes ou propres aux CAA et TA : **NON VÉRIFIÉ** [v:dispositif-constit-variantes] [v:dispositif-cetat-variantes]. Si l'en-tête est introuvable, ou si le dispositif est vide, on passe à l'étape 3.
 3. **Repli** (`Lead`) : premiers paragraphes jusqu'à au moins 600 caractères. Concerne CNIL, les décisions JURI sans sommaire, et les décisions CONSTIT ou CETAT sans dispositif repérable.
 
-Dans tous les cas, `text` est limité à `min(budget, 1 200)` caractères, coupé en fin de phrase (§7.7), avec `truncated = true` si une coupure a eu lieu. Le plafond de 1 200 caractères est une proposition à confirmer par les mesures de budget de M5 (06). Le choix du résumé par outil, par exemple pas de résumé pour un article court rendu en entier, est décrit dans [05-outils-mcp.md](05-outils-mcp.md).
+Pas d'heuristique « PAR CES MOTIFS » pour la Cour de cassation en v0.1 (00 §4) : elle n'a été essayée sur aucun texte JURI complet (fixture tronquée à 600 caractères).
+
+Dans tous les cas, `text` est limité à `min(budget, 1 200)` caractères, coupé en fin de phrase (§7.7), avec `truncated = true` si une coupure a eu lieu. Le plafond de 1 200 caractères est fixé par 00 §4 ; les mesures de budget de M5 (06) ne peuvent que le confirmer ou motiver un amendement de 00. En mode résumé, un texte de longueur ≤ `min(max_chars, 1 200)` caractères est rendu entier dans `text`, avec le sommaire officiel s'il existe, au lieu d'un résumé : `max_chars` borne tout texte rendu (00 §7). Ce choix est fait par la politique de budget de `lf-application` ; le rendu par outil est décrit dans [05-outils-mcp.md](05-outils-mcp.md) §6.2.
 
 ### 7.10 Tailles mesurées (recherche 03 §8.3 et §13 ; recherche 02 §4)
 
-| Fixture | Brut (octets / JSON compact) | `texte` | `texteHtml` | Sortie de la référence | `summary` prototype | Page `full` à 4 000 | `full` complet | Paragraphes |
+| Fixture | Brut (octets / JSON compact) | `texte` | `texteHtml` | Sortie de la référence | Appel par défaut (05 §6.5) | Page `full` à 4 000 (recherche 03) | `full` complet (recherche 03) | Paragraphes |
 |---|---|---|---|---|---|---|---|---|
-| consult_juri_constit.json | 34 758 / 32 324 | 14 322 | 14 791 | 15 140 | **1 154** (÷ 13) | 4 233 | 14 889 | 49 |
-| consult_juri_cetat.json | 39 367 / 37 220 | 14 601 | 15 572 | 15 191 | **1 658** (÷ 9) | 4 240 | 15 052 | 43 |
-| consult_juri.json (tronquée à 600) | 8 239 / 7 421 | 600 | absent | 1 225 | 646 | 1 010 | 991 | 1 |
-| consult_cnil.json (tronquée) | 4 042 / 3 551 | 606 | 606 | 1 258 | 426 | 1 010 | 991 | 3 |
-| consult_article.json | 3 198 / 2 612 | 336 | absent | 949 | 610 | 610 | 610 | 1 |
+| consult_juri_constit.json | 34 758 / 32 324 | 14 322 | 14 791 | 15 140 | **1 147** (dispositif, ÷ 13) | 4 233 | 14 889 | 49 |
+| consult_juri_cetat.json | 39 367 / 37 220 | 14 601 | 15 572 | 15 191 | **1 171** (sommaire officiel, ÷ 13) | 4 240 | 15 052 | 43 |
+| consult_juri.json (tronquée à 600) | 8 239 / 7 421 | 600 | absent | 1 225 | 1 881 (texte entier et sommaire officiel) | 1 010 | 991 | 1 |
+| consult_cnil.json (tronquée) | 4 042 / 3 551 | 606 | 606 | 1 258 | 1 099 (texte entier) | 1 010 | 991 | 3 |
+| consult_article.json | 3 198 / 2 612 | 336 | absent | 949 | 686 (article entier) | 610 | 610 | 1 |
 
-Unité : caractères de JSON compact, sauf la colonne « octets ». Le texte figure deux fois dans la réponse brute : 90 % du JSON pour CONSTIT, 81 % pour CETAT (recherche 03 §8.3). Les volumes réels (grandes décisions, longues TOC) sont **NON VÉRIFIÉ** [v:taille-max-textes] et seront mesurés sur des fixtures recapturées (`cargo xtask record-fixture`, 06).
+Unité : caractères de JSON compact, sauf la colonne « octets ». La colonne « Appel par défaut » reprend la table de [05-outils-mcp.md](05-outils-mcp.md) §6.5, **seule référence** pour les budgets bloquants de M5 (06 §12.2) ; les valeurs d'un prototype antérieur de ce document (1 154, 1 658, 646, 426, 610) sont obsolètes. Les deux colonnes `full` viennent du prototype de la recherche 03 §13, antérieur au format de sortie de 05 (05 §6.5 donne une page `full` d'environ 4 350 caractères pour CONSTIT). `texte` est la longueur brute du champ ; sa forme repliée (`fold_ws`) fait 14 314 caractères pour CONSTIT. Le texte figure deux fois dans la réponse brute : 90 % du JSON pour CONSTIT, 81 % pour CETAT (recherche 03 §8.3). Les volumes réels (grandes décisions, longues TOC) sont **NON VÉRIFIÉ** [v:taille-max-textes] et seront mesurés sur des fixtures recapturées (`cargo xtask record-fixture`, 06).
 
 ---
 
@@ -986,15 +1040,17 @@ API (00 §4) :
 // non compilé, à valider en M0
 pub fn parse(input: &str) -> Vec<Spanned<CitationRef>>;                       // = parse_with(input, &ParseOptions::default())
 pub fn parse_with(input: &str, opts: &ParseOptions) -> Vec<Spanned<CitationRef>>;
-pub struct ParseOptions {
+pub struct ParseOptions {                   // Default : valeurs de 00 §4
+    pub strip_html: bool,                   // false par défaut ; true pour les champs amont (`citationJp`, `liens[].title`, M7)
     pub repair_mojibake: bool,              // false par défaut (texte utilisateur) ; deux cas du corpus `requires: repair_mojibake`
-    pub strip_html: bool,                   // true pour les champs amont (`citationJp`, `liens[].title`, M7)
-    pub default_text: Option<TextContext>,  // contexte implicite (« l'article R. 132-5 » dans un article cité, recherche 07 §4.15)
-    pub max_citations: usize,               // borne de sortie (fr_verify_citations : défaut 50, 00 §7)
+    pub default_text: Option<TextContext>,  // None par défaut ; contexte implicite (« l'article R. 132-5 » dans un article cité,
+                                            // recherche 07 §4.15)
+    pub max_citations: usize,               // 1 000 par défaut : garde-fou du domaine (§8.8), pas la borne de l'outil
+    pub today: Option<NaiveDate>,           // None par défaut ; fourni par l'application via `Clock` (drapeau annee_future, N13)
 }
 ```
 
-`parse_with` ajoute des options sans changer la signature normative de `parse`.
+`parse_with` ajoute des options sans changer la signature normative de `parse`. La borne de l'outil (`max_citations` de `fr_verify_citations`, 1 à 100, défaut 50, 00 §7) est appliquée par le cas d'usage, après le parseur : sinon `found` ne serait plus calculable. Le domaine n'ayant pas d'horloge, `today` est passé par l'application ; à `None`, le drapeau d'année future n'est pas posé.
 
 ### 8.2 Normalisation et table d'offsets
 
@@ -1046,9 +1102,9 @@ pub enum CitationRef {
     CodeArticle { code: CodeRef, article: ArticleRef, version: Option<VersionQualifier>, code_via: Option<CodeVia> },
     TextArticle { text: Option<TextCite>, article: ArticleRef, at_date: Option<NaiveDate> },
     Text(TextCite),               // nature, number { year, seq, raw }, date, title_hint, nor, anaphora, appellation
-    Decision(DecisionCite),       // court (Cass{chamber} | CourAppel | Tj | ConseilEtat{formation} | Caa | Ta | ConseilConstitutionnel | …),
-                                  // date, numbers (Pourvoi | Rg | CeRequete | Caa | Ta | Cc | …), publication, solution, …
-    Ecli(Ecli),                   // ECLI:FR seulement (00 §4) ; un ECLI étranger donne Unsupported
+    Decision(DecisionCite),       // court: Option<Court> (Cass{chamber} | CourAppel | Tj | ConseilEtat{formation} | Caa | Ta |
+                                  // ConseilConstitutionnel | …), date, numbers (Pourvoi | Rg | CeRequete | Caa | Ta | Cc | …), publication, …
+    Ecli(Ecli),                   // ECLI:FR seulement (00 §4) ; un ECLI étranger donne Unsupported { family: ForeignEcli }
     CnilDeliberation(CnilCite),   // series, year, seq, date, formation_restreinte
     Convention(ConventionCite),   // kind, idcc, brochure, avenant, title_hint, date
     Jorf(JorfCite),               // number, date, texte, page
@@ -1056,25 +1112,28 @@ pub enum CitationRef {
     Eli(Eli),
     LegifranceId(LegifranceIdRef),// prefix (16 préfixes, §2.2), digits, version_start ; to_document_id() -> Option<DocumentId>
     Unsupported(UnsupportedCite), // family : Ue | Cjue | Cedh | Doctrine | Recueil | ForeignEcli
+                                  // (codes : UE, CJUE, CEDH, doctrine, recueil, ecli_etranger) ; statut unresolvable
 }
 pub enum CodeRef { Known(CodeKey), Unknown(String), Anaphora(Anaphora), Missing }
 pub struct ArticleRef { pub num: ArticleNum, pub sub: Vec<Subdivision>, pub range_to: Option<ArticleNum> }
+// ArticleNum.special : Option<SpecialNum> = Premier | Unique | Liminaire | Preliminaire | SansNumero (alinéa du Préambule, P085)
 impl ArticleNum { pub fn num_key(&self) -> String; pub fn key_variants(&self) -> Vec<String>; } // "L. 761-1" -> "L761-1"
 ```
 
 - Les dates citées sont des `NaiveDate`, conformément à 00 §4 : pas de `LegalDate` maison (écart avec la recherche 07 §9.3). Une date invalide (31 février) donne `None` avec le drapeau `DateInvalide`. Une date du calendrier républicain est reconnue, conservée brute et marquée par un drapeau, sans conversion en v0.2.
 - `num_key` produit la forme interrogeable par `NUM_ARTICLE`, sans point ni espace (`L36-11`, recherche 07 §4.2). La forme exacte attendue par l'API pour `R*`, `1er` et les suffixes latins est **NON VÉRIFIÉ** [v:num-article-forme-api]. `key_variants` fournit donc les candidats (`1er` → `["1er", "1"]`).
 - `CodeKey` est une enum fermée (77 entrées, `codes-table.md`) plus `Other(String)`. Elle porte le titre officiel attendu par la facette `NOM_CODE` et les abréviations. La correspondance `CodeKey → LEGITEXT` n'est **pas** dans le domaine : elle vient de `/list/code`, mis en cache par l'adapter (recherche 07 §5.1). Les `LEGITEXT` de `codes-table.md` sont des données tierces, réservées aux tests d'intégration.
-- Rendu MCP de `span` (05) : la proposition est d'exposer `{start, end}` en **caractères** Unicode, cohérent avec `offset`/`max_chars`, accompagné de `raw` (extrait d'origine). `Span::to_chars(input)` fait la conversion. La recherche 07 §9.4 proposait des octets plus des caractères, ce qui ferait deux unités.
+- Rendu MCP de `span` (00 §7) : `{start, end}` en **points de code Unicode** du texte reçu, intervalle semi-ouvert, même unité que `offset`/`max_chars`, accompagné de `raw` (extrait d'origine). Le domaine travaille en octets ; `Span::to_chars(input) -> Span` fait la conversion, linéaire, et reste correcte pour toute frontière UTF-8 garantie par le parseur. La recherche 07 §9.4 proposait des octets plus des caractères, ce qui aurait fait deux unités.
+- `DecisionCite.court` est une `Option<Court>` (décision citée sans juridiction explicite, cas N21, N28, P114 de l'annexe B) et `ArticleNum.special` admet `SansNumero` (P085) ; le détail des sous-types est dans l'annexe B, qui emploie les mêmes noms.
 
 ### 8.7 Ce qui relève du domaine et ce qui relève de l'application
 
 | Domaine (`lf-domain::citation`, pur) | Application (`lf-application`, M6) |
 |---|---|
 | reconnaissance, spans, normalisation, `OffsetMap` | `VerifyCitationsUseCase`, `ResolveUseCase` |
-| contrôles **syntaxiques** et drapeaux : date valide, chambre existante (pas de « 4e civ. »), structure de l'ECLI, ordinal CE égal à la date citée, année du numéro égale à l'année de la date (recherche 07 §7.4, colonne « hors ligne ») | contrôles **en ligne** : existence, état à la date, ECLI natif égal à l'ECLI cité, extrait cité égal au texte (`quote_mismatch`) |
+| contrôles **syntaxiques** et drapeaux : date valide, chambre existante (pas de « 4e civ. »), structure de l'ECLI, ordinal CE égal à la date citée, année du numéro égale à l'année de la date (recherche 07 §7.4, colonne « hors ligne ») | contrôles **en ligne** : existence, état à la date, ECLI natif égal à l'ECLI cité ; champ `quote` (`match` ou `quote_mismatch`) calculé automatiquement quand un extrait entre guillemets jouxte la citation et que le texte officiel a été lu (00 §7) |
 | anaphores intra-document (pile de contexte) | choix des appels de port : `find_article(&CodeRef, &ArticleNum, VersionDate)`, `find_by_number(...)`, `get_*` (00 §3) |
-| `CitationRef::resolvability()` → `Resolvable` ou `Unresolvable(reason)` : hors périmètre (UE, CEDH, doctrine), anaphore sans antécédent, sigle ambigu sans contexte | statut final : `verified`, `not_found`, `ambiguous`, `unresolvable`, `invalid` (00 §7) |
+| `CitationRef::resolvability()` → `Resolvable` ou `Unresolvable(reason)` : hors périmètre (UE, CEDH, doctrine, ECLI étranger), anaphore sans antécédent, sigle ambigu sans contexte | statut final : `verified`, `not_found`, `ambiguous`, `unresolvable`, `invalid` (00 §7) ; en environnement sandbox, un introuvable est rendu `unresolvable` avec la note « sandbox data differ from production », jamais `not_found` (00 §7 ; ampleur de l'écart des données sandbox **NON VÉRIFIÉ** [v:sandbox-prod-donnees]) ; spans convertis en points de code (§8.6) |
 | forme canonique d'une citation reconnue (`format`), qui réutilise `contract::rules` et `date::format_fr` (« Code civil, art. 9 ») | candidats et `confidence` de `fr_resolve` |
 | `text::fold`, la vue repliée partagée, pour comparer un extrait cité | comparaison de l'extrait avec le texte consulté (BM25 ou similarité) |
 
@@ -1082,9 +1141,9 @@ Règle générale : **jamais d'identifiant fabriqué**. Un identifiant résolu v
 
 ### 8.8 Limites (pas de déni de service)
 
-- Entrée bornée par l'application : 20 000 caractères pour `fr_verify_citations` (00 §7), 1 000 pour `fr_resolve` (proposition, voir 05).
+- Entrée bornée par l'application : 20 000 caractères pour `fr_verify_citations`, 1 000 pour `fr_resolve` (00 §7).
 - Fenêtre d'analyse par ancre : [ancre − 80, ancre + 400] caractères. Aucune récursion non bornée. Coût linéaire en nombre d'ancres × taille de fenêtre.
-- Sortie tronquée à `max_citations`, avec un diagnostic « tronqué ».
+- Sortie du parseur tronquée à `ParseOptions.max_citations` (garde-fou de 1 000, 00 §4), avec un diagnostic « tronqué ». Les bornes de l'outil (`max_citations` 1 à 100, `truncated`, au plus 5 candidats pour `fr_resolve`) sont appliquées par le cas d'usage (00 §7).
 - Fuzzing de `parse` et des `FromStr` (06) : aucune panique, spans toujours valides (`input.get(span.start..span.end).is_some()`).
 
 ---
@@ -1105,6 +1164,12 @@ pub enum DomainError {
     #[error("query is too long ({len} characters, max {max}).")]      QueryTooLong { len: usize, max: usize },
     #[error("offset={offset} is past the end of the text (text_length={text_length}).")] OffsetPastEnd { offset: u32, text_length: u32 },
     #[error("focus contains no searchable word.")]                    FocusWithoutTerms,
+    #[error("toc_offset={offset} is past the end (toc_total={total}).")] TocOffsetPastEnd { offset: u32, total: u32 },
+    #[error("version_date only applies to fond LODA or CODE.")]       VersionDateNotApplicable { fond: Fond },
+    #[error("date_from/date_to are not supported for fond={fond}.")] DateFilterNotApplicable { fond: Fond },
+    #[error("page={page} with page_size={page_size} goes beyond the {max} reachable results.")]
+                                                                      PageBeyondReach { page: u32, page_size: u32, max: u64 },
+    #[error("{kind} is not a number kind of fond {fond}.")]          NumberKindNotApplicable { fond: Fond, kind: &'static str }, // M6
     // — Données amont incohérentes → CorpusError::Decode (adapter) → [upstream_error]
     #[error("hit {id} does not belong to fond {fond}")]               HitKindMismatch { id: String, fond: &'static str },
     #[error("table of contents deeper than {max} levels")]             TocTooDeep { max: u16 },
@@ -1116,7 +1181,7 @@ pub enum IdError { Empty, UnknownPrefix, WrongFamily { found: IdPrefix, expected
 pub enum DateError { Format, Calendar, OutOfRange }
 ```
 
-- **Parité des messages** : `Missing` et `OutOfRange` (« page_size=0 out of range (1..100). », P-011/S3), `InvalidFond` (P-010) et la première phrase d'`InvalidId` (P-012/S4–S5) reprennent le texte de la référence, que la recherche 01 §2.6 donne exactement. Les cas nouveaux (§2.7) ajoutent une phrase d'aide. Le texte d'aide et le préfixe `[code]` sont produits par `lf-adapter-mcp` (ADR-0010).
+- **Parité des messages** : `Missing` et `OutOfRange` (« page_size=0 out of range (1..100). », P-011/S3), `InvalidFond` (P-010) et la première phrase d'`InvalidId` (P-012/S4–S5) reprennent le texte de la référence, que la recherche 01 §2.6 donne exactement. Les cas nouveaux (§2.7) ajoutent une phrase d'aide. Les textes `#[error]` ci-dessus sont indicatifs : le message final, phrase d'aide comprise, est rédigé par le module `messages` de `lf-application` (textes de 05 §7.3), et seul le préfixe `[code] ` est ajouté par `lf-adapter-mcp` (ADR-0010 ; 02 §3.2).
 - **Deux familles** : `is_input()` vrai ⇒ `AppError::InvalidArgument`, journalisée par `Audited` avec `error_code = invalid_arg` (00 §3, corrige D-02). Faux ⇒ incohérence des données amont : l'adapter l'encapsule en `CorpusError::Decode`.
 - Jamais de secret, de jeton ni d'URL sensible dans une erreur du domaine, qui n'en voit aucun. `Shown` tronque les valeurs utilisateur (64 caractères).
 - Les erreurs ne portent pas de `String` construite inutilement : les noms de champs et les listes autorisées sont des `&'static str`.
@@ -1127,12 +1192,12 @@ pub enum DateError { Format, Calendar, OutOfRange }
 
 | Famille | Contenu | Défauts et points couverts |
 |---|---|---|
-| Unitaires, table-driven | IDs (§2.7, tous les cas), `Fond` (mapping complet §3.1), `LegalStatus`, règles de citation (golden : « Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025 », « CNIL, délibération n° SAN-2026-002 du 8 janvier 2026 », « Code civil, art. 9 »), `format_fr` (12 mois et « 1er »), URL (snapshot des 12 kinds), `open_ended`, `from_epoch_ms` (vecteurs du §6.3) | D-20, D-27, D-28, D-29, D-31, P-030, P-031, P-034, P-035 |
+| Unitaires, table-driven | IDs (§2.7, tous les cas), `Fond` (mapping complet §3.1), `LegalStatus` (17 codes et `Other`), règles de citation (golden : « Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025 », « CNIL, délibération n° SAN-2026-002 du 8 janvier 2026 », « Code civil, art. 9 »), `format_fr` (12 mois et « 1er »), URL (snapshot des 12 kinds), `open_ended`, `from_epoch_ms` (vecteurs du §6.3) | D-20, D-27, D-28, D-29, D-31, P-030, P-031, P-034, P-035 |
 | proptest | `FromStr`/`Display` aller-retour et absence de panique sur toute chaîne ; `from_epoch_ms` sur [−10^13, 10^13] ; `window` (G1 à G7 pour tout texte, offset et `max_chars`) ; `from_html` (aucune panique ; concaténation des paragraphes = HTML débalisé aux blancs près ; `clean` idempotent) ; `rank` (déterminisme, Σ ≤ `max_chars`) | D-23, D-26, D-33 |
-| Fixtures (texte extrait des JSON de la référence, `serde_json` en dev-dependency, attribution dans NOTICE) | `from_html` : 49, 43 et 3 paragraphes ; ECLI de `<RECH_ECLI>` absent du texte ; `summary` : CONSTIT dispositif de 2 paragraphes (551 caractères), CETAT analyse dédoublonnée (1 entrée), JURI abstrat ; `Toc::build` sur consult_loda.json (26 sections + 62 articles = 88 entrées, titres présents) ; BM25 « publicité des débats » ⇒ considérant 14 en tête | D-25, D-26, D-33 (`cetat_fixture_yields_multiple_paragraphs`, `toc_preserves_section_titles`, `focus_returns_relevant_paragraphs`) |
-| Synthétiques | TOC : tri `intOrdre`, dédoublonnage, profondeur 65 ⇒ `TocTooDeep` ; balise non refermée ; `<` littéral ; entités numériques invalides ; sentinelle `2222-02-22` | D-25 (`toc_sorted_by_int_ordre`, `toc_dedups_articles`) |
+| Fixtures (texte extrait des JSON de la référence, `serde_json` en dev-dependency, attribution dans NOTICE) | `from_html` : 49, 43 et 3 paragraphes ; ECLI de `<RECH_ECLI>` absent du texte (et `fold_ws(texte) == fold_ws(canonique) + " " + ecli` sur CONSTIT et CETAT, 14 284 + 30 = 14 314 caractères pour CONSTIT) ; `summary` : CONSTIT dispositif de 2 paragraphes (551 caractères), CETAT analyse dédoublonnée (1 entrée), JURI abstrat ; `Toc::build` sur consult_loda.json (26 sections + 62 articles = 88 entrées, titres présents) ; BM25 « publicité des débats » ⇒ considérant 14 en tête | D-25, D-26, D-33 (`cetat_fixture_yields_multiple_paragraphs`, `toc_preserves_section_titles`, `focus_returns_relevant_paragraphs`) |
+| Synthétiques | TOC : tri `intOrdre`, dédoublonnage, profondeur 65 ⇒ `TocTooDeep`, section sans titre non comptée dans `len`/`page` et enfants à leur profondeur, `toc_offset` au-delà de la fin ⇒ `TocOffsetPastEnd` ; balise non refermée ; `<` littéral ; entités numériques invalides ; contrôles bidirectionnels retirés et comptés par `clean` ; sentinelles `2222-02-22` et `2222-01-01` (`None`), `2221-12-31` (conservée) ; `has_more` faux en fin de fenêtre atteignable (`page × page_size = 10 000 < total`, `has_more_false_at_reachable_window_end`) ; `DateRange::new` à une seule borne | D-25 (`toc_sorted_by_int_ordre`, `toc_dedups_articles`) ; MEN-06 |
 | Snapshots `insta` | sortie complète des entités construites depuis les fixtures (dans `lf-adapter-piste`, qui fait le mapping) ; résumés et TOC | P-038 (avec la liste des divergences du §5.6) |
-| Corpus de citations (M6) | 170 positifs et 42 négatifs table-driven : span égal à la position de `match`, champs attendus inclus (recherche 07 §8.2) ; proptest `parse(format(c)) == c`, y compris les formes historiques de la référence (« decision », « fevrier ») | annexe B |
+| Corpus de citations (M6) | 170 positifs et 42 négatifs table-driven, sans surcharge dans le harnais (P159 `ECLI:EU:…` attendu `Unsupported`, `ecli_etranger`, dans le fichier de données) : span égal à la position de `match`, champs attendus inclus (recherche 07 §8.2) ; proptest `parse(format(c)) == c`, y compris les formes historiques de la référence (« decision », « fevrier ») | annexe B |
 | Fuzzing (`cargo fuzz`, job non bloquant) | `from_html`, `clean`, `parse`, tous les `FromStr` | « aucune panique » |
 | CI Windows | tests de dates et d'epoch négatifs (00 §10 : matrice Linux, macOS, Windows) | D-20, E-35 |
 
@@ -1143,28 +1208,28 @@ pub enum DateError { Format, Calendar, OutOfRange }
 **M1 — Domaine**
 
 - [ ] 10 newtypes, `SectionId`, `VersionedId`, `ArticleId`, `DecisionId`, `DocumentId` ; `parse_param` ; messages du §2.7 testés.
-- [ ] `Fond` (8 variantes), `LegalStatus`, `PaginationMode`, `SearchQuery` et ses bornes (00 §7).
-- [ ] `CitationContract`, `SourceUrl` (12 kinds), `Ecli`, `Eli`, `Nor`, `Idcc`, règles de citation du §5.4 avec leurs tests golden.
-- [ ] `VersionDate`, `DateRange`, `from_epoch_ms`, `open_ended`, `format_fr`.
-- [ ] Entités du §4 avec constructeurs et invariants ; `Toc::build` et `Toc::page`.
+- [ ] `Fond` (8 variantes), `LegalStatus` (17 codes + `Other`), `PaginationMode`, `SearchQuery` et ses bornes et rejets (00 §7), `has_more` borné par `REACHABLE_RESULTS`.
+- [ ] `CitationContract`, `SourceUrl` (12 kinds), `Ecli`, `Eli`, `Nor`, `Idcc`, règles de citation du §5.4 avec leurs tests golden ; formats complémentaires de Q12 figés **avant** la génération des golden (00 §11).
+- [ ] `VersionDate`, `DateRange` (bornes ouvertes complétées), `from_epoch_ms`, `open_ended`, `format_fr`.
+- [ ] Entités du §4 avec constructeurs et invariants (dont `Coverage`, `PisteEnvironment`) ; `Toc::build` et `Toc::page`.
 - [ ] `text::from_html`, `clean`, `LongText`, `window` (G1 à G7), `passages`, `rank`, `summary`, `encoding::repair_latin1_mojibake`.
 - [ ] Lints du §1.3 actifs et `cargo xtask check-deps` vert (aucune dépendance hors du §1.1).
 - [ ] Liste des divergences du §5.6 reportée dans [annexes/A-parite.md](annexes/A-parite.md).
 
 **M5 — Économie de contexte** : plafonds de `summary`, taille des passages et seuil de `best_of` confirmés par les budgets mesurés (06), sur les fixtures recapturées.
 
-**M6 — Citations** : module `citation` complet ; corpus de l'annexe B entièrement vert ; fuzzing sans panique ; `resolvability()` et contrôles syntaxiques documentés pour chaque drapeau.
+**M6 — Citations** : module `citation` complet (`parse` = `parse_with` + `ParseOptions::default()`, `ForeignEcli`, `Span::to_chars`) ; corpus de l'annexe B entièrement vert, sans surcharge dans le harnais ; fuzzing sans panique ; `resolvability()` et contrôles syntaxiques documentés pour chaque drapeau ; `NumberQuery` et `CodeListing` (§4.11).
 
-**M7 — Navigation** : `ArticleVersion`, liens d'articles, `Fond::Jorf` et kind `jorf`, URL datées, extraction des liens `idArticle=` du HTML KALI.
+**M7 — Navigation** : `ArticleVersion`, `RelatedLinks` (§4.11), URL datées, extraction des liens `idArticle=` du HTML KALI ; `Fond::Jorf` et kind `jorf` si la surface JORF est retenue à l'ouverture de M7 (00 §4), sinon lacune FR-007 maintenue.
 
-**Questions ouvertes propres au domaine.** Elles sont reportées dans [09-risques-et-questions.md](09-risques-et-questions.md). Aucune ne modifie une décision de 00.
+**Questions du domaine.** Les questions de l'utilisateur ont leur numérotation dans 00 §13 ; les vérifications sont dans [09-risques-et-questions.md](09-risques-et-questions.md). Aucune ne modifie une décision de 00.
 
-1. Citation d'un article de loi : garder le titre complet de la référence (« LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1), art. 1 ») ou adopter une forme courte (« Loi n° 2016-1321 du 7 octobre 2016, art. 1 ») ?
-2. Hits de recherche du Conseil constitutionnel et de la CNIL : garder le titre comme citation (parité) ou appliquer la règle de consultation en relisant le titre avec le parseur (M6) ?
-3. Dispositif JURI (« PAR CES MOTIFS ») : heuristique à ajouter quand des textes JURI complets auront été recapturés ?
-4. Racinisation légère en BM25 (pluriels en -s ou -x) ?
-5. Citation KALI enrichie de l'IDCC (« … (IDCC 2121) ») ?
-6. Un identifiant `LEGITEXT…_JJ-MM-AAAA` passé à `fr_get_act` sans `date` : sa `version_start` doit-elle servir de date par défaut ? (05)
+1. Citation d'un article de loi : **adopté par défaut (Q12, 00 §4)** : titre officiel complet sans l'appel de note final « (n) », « art. {num} » verbatim (« LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique, art. 1 »), plutôt que la parité (« … (1), art. 1 ») ou une forme courte (« Loi n° 2016-1321 du 7 octobre 2016, art. 1er »). À confirmer par l'utilisateur avant les golden de M1.
+2. Hits de recherche du Conseil constitutionnel et de la CNIL : **adopté par défaut (Q12)** : titre officiel comme citation (parité) en v0.1 ; réexamen en v0.2 avec le parseur (M6).
+3. Dispositif JURI (« PAR CES MOTIFS ») : **décidé (00 §4)** : pas d'heuristique en v0.1 ; réexamen quand des textes JURI complets auront été recapturés.
+4. Racinisation légère en BM25 (pluriels en -s ou -x) ? **Ouverte**, propre au domaine ; aucune en v0.1 (§7.8), à trancher sur les mesures de M5.
+5. Citation KALI enrichie de l'IDCC (« … (IDCC 2121) ») : **adopté par défaut (Q12)** : sans IDCC, l'IDCC étant un champ.
+6. `LEGITEXT…_JJ-MM-AAAA` passé à `fr_get_act` sans `date` : **décidé (00 §7)** : la date du suffixe sert de date par défaut (§2.4).
 
 ---
 
@@ -1175,7 +1240,7 @@ pub enum DateError { Format, Calendar, OutOfRange }
 | [v:id-format-hors-fixtures] | Le format 8 lettres + 12 chiffres vaut pour tous les identifiants servis par l'API, pas seulement pour les fixtures. |
 | [v:suffixe-version-autres-prefixes] | Le suffixe `_JJ-MM-AAAA` n'apparaît que sur des `LEGITEXT`. |
 | [v:lawdecree-sur-code] | Comportement et taille de `/consult/lawDecree` avec le `LEGITEXT` d'un code. |
-| [v:etats-juridiques-liste] | Liste complète des valeurs d'`etat` et de `jurisState`. |
+| [v:etats-juridiques-liste] | Casse et variantes de `jurisState` hors fixtures ; les 17 codes d'`etat` sont connus (facette `ARTICLE_LEGAL_STATUS`, Swagger `CodeListRequest.states`). |
 | [v:date-hit-semantique] | Sens du champ `date` des hits selon le fond (entrée en vigueur, date du code…). |
 | [v:kali-extraits-num] | Fiabilité du `num` des extraits KALI en recherche. |
 | [v:longueur-max-query] | Longueur maximale de `query` acceptée par `/search`. |
@@ -1207,13 +1272,21 @@ pub enum DateError { Format, Calendar, OutOfRange }
 | [v:dispositif-constit-variantes] | Marqueurs du dispositif du Conseil constitutionnel sur d'autres décisions et époques. |
 | [v:dispositif-cetat-variantes] | Marqueurs du dispositif du CE, des CAA et des TA sur d'autres décisions. |
 | [v:num-article-forme-api] | Forme attendue par `NUM_ARTICLE` pour `R*`, `1er`, suffixes latins et lettres. |
+| [v:typepagination-page2] | Effet réel de la `typePagination` envoyée en page 2 (mémo de l'adapter, repli `ARTICLE` pour CODE). |
+| [v:pagination-profonde] | Fenêtre de 10 000 résultats atteignables (`REACHABLE_RESULTS`, `has_more`). |
+| [v:texttitles-nature-loi] | Valeur de `textTitles[].nature` pour un article de loi (choix de `loda_article`). |
+| [v:singledate-minuit-paris] | Sémantique de `DATE_VERSION.singleDate` côté PISTE ; le plan envoie midi Europe/Paris (00 §8). |
+| [v:sandbox-prod-donnees] | Écart des données entre sandbox et production (règle `unresolvable` en sandbox). |
+| [v:list-code-forme] | Forme réelle des entrées de `/list/code` (`CodeListing`). |
+| [v:related-links-forme] | Forme et taille de `relatedLinksArticle` (`RelatedLinks`). |
 
 ---
 
 ## Sources
 
 **Plan et décisions**
-- [00-decisions.md](00-decisions.md) §2 (crates et dépendances), §3 (ports), §4 (domaine), §5 (erreurs), §7 (outils et paramètres), §8 (adapter PISTE), §9 (cache), §11 (jalons).
+- [00-decisions.md](00-decisions.md), révision 2 : §2 (crates et dépendances), §3 (ports), §4 (domaine), §5 (erreurs), §7 (outils et paramètres), §8 (adapter PISTE), §9 (cache), §10 (scripts versionnés), §11 (jalons), §12 (attribution), §13 (Q10, Q12), §14 (AM-01, AM-02, AM-16, AM-18 à AM-21, AM-25, AM-43).
+- [02-architecture.md](02-architecture.md) §3.1-§3.2 (contenu des crates, module `messages`), §4.4 (pureté), §5.1 (types du port), §6.1-§6.3 (cas d'usage, `ConfigurationState`), §7.2 (clé de cache).
 
 **Rapports de recherche** (`docs/recherche/`)
 - [01-parite.md](../recherche/01-parite.md) : §2.6 (messages d'erreur), §3.1–§3.7 (validations, mapping des fonds), §4.1–§4.13 (normalisation : constantes, `strip_marks`, `strip_date_suffix`, dates, `legifrance_url`, hits, LODA, article, décisions, CNIL, KALI, ACCO, pièges Python), §5 (modèles de sortie), §11.4–§11.5 (assertions et golden), §13 (fixtures), §14 (écarts E-01…E-36), §15 (P-001…P-060).
@@ -1227,10 +1300,14 @@ pub enum DateError { Format, Calendar, OutOfRange }
 - `src/fr_eli_mcp/server.py:91-100` (fonds), `:125-126` (date UTC), `:159-165` (validation par préfixe).
 - `tests/test_parse.py:69, 106-116, 189-198, 222, 226` ; `tests/test_smoke.py:57` ; `DISCOVERY.md:34-40, 80-88` (via les rapports 01 et 07).
 
+**Swagger** 2.4.2 de l'API Légifrance (via l'annexe C) : `CodeListRequest.states` (17 états), `LiensRelatifsDTO`.
+
 **Fixtures** (`tests/fixtures/`, Apache-2.0, attribution dans NOTICE)
 - consult_loda.json, consult_article.json, consult_juri.json, consult_juri_constit.json, consult_juri_cetat.json, consult_cnil.json, consult_kali.json, consult_acco.json, search_loda.json, search_code.json, search_juri.json, search_constit.json, search_cetat.json, search_cnil.json, search_kali.json, search_acco.json.
 
-**Mesures complémentaires de ce document** (prototypes Python lancés en `python3 -I` sur les fixtures, non versionnés) : comptage des préfixes et des chiffres d'identifiants ; inventaire des balises et entités des consultations ; HTML vers paragraphes (49, 43 et 3) ; extraction des dispositifs (551 et 411 caractères) ; sémantique et dédoublonnage des sommaires ; comptage de la TOC (26 + 62) ; BM25 (k1 = 1,2, b = 0,75) ; vecteurs d'epoch et de minuit à Paris.
+**Mesures complémentaires de ce document** (prototypes Python lancés en `python3 -I` sur les fixtures, non versionnés) : comptage des préfixes et des chiffres d'identifiants ; inventaire des balises et entités des consultations ; HTML vers paragraphes (49, 43 et 3) ; extraction des dispositifs (551 et 411 caractères) ; sémantique et dédoublonnage des sommaires ; comptage de la TOC (26 + 62) ; BM25 (k1 = 1,2, b = 0,75) ; vecteurs d'epoch ; facettes d'état juridique (17 codes) ; suffixe ECLI de `texte` (30 et 35 caractères). Vecteurs de midi à Paris : 00 §8 (base IANA, `zoneinfo`).
+
+**Scripts versionnés** (Python 3.13, `python3 -I` ; empreintes SHA-256 dans 00 §10) : [annexes/donnees/scripts/golden.py](annexes/donnees/scripts/golden.py) (générateur du golden de parité), [annexes/donnees/scripts/check_golden.py](annexes/donnees/scripts/check_golden.py), [annexes/donnees/scripts/dto_repair_check.py](annexes/donnees/scripts/dto_repair_check.py) (stratégies de réparation du mojibake, §7.1).
 
 **Données du plan** : [annexes/donnees/parite-golden.json](annexes/donnees/parite-golden.json), [annexes/donnees/citations-corpus-positifs.jsonl](annexes/donnees/citations-corpus-positifs.jsonl), [annexes/donnees/citations-corpus-negatifs.jsonl](annexes/donnees/citations-corpus-negatifs.jsonl), [annexes/donnees/codes-table.md](annexes/donnees/codes-table.md).
 

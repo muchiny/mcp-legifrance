@@ -3,7 +3,8 @@
 - **Statut** : Accepté
 - **Date** : 2026-10-15
 - **Jalons concernés** : M1 (`lf-domain::contract`), M2 (mapping), M4 (schémas de sortie), M6 (vérification des citations)
-- **Questions liées** : —
+- **Questions liées** : Q12 (formes de citation complémentaires ; proposition adoptée par défaut, à confirmer en M1, avant la génération des golden)
+- Révisé le 2026-10-15 (revue) : formes complémentaires adoptées par défaut (00 §4, AM-19, Q12) ; URL d'un `LEGIARTI` et vérifications bloquantes pour v0.1.0 (00 §4, AM-18).
 
 ## Contexte
 
@@ -39,9 +40,18 @@
    | JURI, CETAT | titre nettoyé (parité) |
    | Signe numéro | `n°` suivi d'une espace U+0020 |
 
-6. **URL et règle de citation viennent du préfixe validé** (`DecisionId`, `ArticleId`), jamais de `origine`, qui ne sert qu'au contrôle de cohérence. Un `LEGIARTI` dont le texte parent n'est pas un code reçoit `/loda/article_lc/` ; une nature de parent inconnue retombe sur `/codes/article_lc/` (03 §5.5).
+   Formes complémentaires (00 §4, adoptées par défaut, Q12 ; décidées avant les golden de M1) :
+
+   | Cas | Forme |
+   |---|---|
+   | Article d'un texte non codifié | « {titre officiel du texte, sans appel de note final « (n) »}, art. {num} », `num` verbatim (aucune réécriture, par exemple de « 1 » en « 1er ») ; la citation du texte lui-même (`fr_get_act`, hit LODA) garde l'appel de note (annexe A, clé `law_article_citation`) |
+   | Convention KALI | titre nettoyé, sans IDCC (l'IDCC est un champ) |
+   | Hits de recherche CONSTIT et CNIL | titre officiel (parité) ; la règle de consultation (lignes ci-dessus) s'applique aux consultations ; réexamen en v0.2 avec le parseur de M6 |
+   | Conseil constitutionnel | sans l'objet entre crochets, qui reste lisible dans `title` |
+
+6. **URL et règle de citation viennent du préfixe validé** (`DecisionId`, `ArticleId`), jamais de `origine`, qui ne sert qu'au contrôle de cohérence. Un `LEGIARTI` dont le texte parent est un code reçoit `/codes/article_lc/{id}` ; dont le texte parent n'est pas codifié (LOI, ORDONNANCE, DECRET, ARRETE…), `/loda/article_lc/{id}` ; une nature de parent inconnue retombe sur `/codes/article_lc/{id}`, repli de parité (00 §4, 03 §5.5). URL non datée en v0.1. Divergence volontaire E-19/D-29 (scénario smoke 3 transposé) ; bloquant pour v0.1.0 : V-140 (forme canonique) et V-142 (`textTitles[].nature`).
 7. **Les données officielles des autres champs restent verbatim** après `clean` : `num`, `title`, `formation`. Les ordinaux comme « 2ème » ne sont pas corrigés.
-8. Les divergences portent les clés de l'annexe A §4 : `citation_renamed`, `eli_uri_dropped`, `notes_dropped`, `citation_typography`, `citation_never_empty`, `law_article_url`, `decision_routing_by_prefix`.
+8. Les divergences portent les clés de l'annexe A §4 : `citation_renamed`, `eli_uri_dropped`, `notes_dropped`, `citation_typography`, `citation_never_empty`, `law_article_url`, `law_article_citation`, `decision_routing_by_prefix`.
 
 ## Conséquences
 
@@ -59,13 +69,9 @@
 
 ### À surveiller
 
-- URL jamais ouvertes dans un navigateur : **NON VÉRIFIÉ** [v:url-patterns-navigateur] ; `/loda/article_lc/` canonique [v:url-loda-article-lc] ; `/ceta/id/` ou `/juri/id/` [v:url-ceta-vs-juri]. Une recette est prévue avant v0.1.0.
+- URL jamais ouvertes dans un navigateur : **NON VÉRIFIÉ** [v:url-patterns-navigateur] ; `/loda/article_lc/` canonique [v:url-loda-article-lc] (V-140, bloquante pour v0.1.0) ; valeur de `textTitles[].nature` pour un article de loi [v:texttitles-nature-loi] (V-142, bloquante pour v0.1.0) ; `/codes/article_lc/` pour un article de loi, assertion de la référence [v:url-codes-article-lc-loi] (V-141) ; `/ceta/id/` ou `/juri/id/` [v:url-ceta-vs-juri]. Une recette est prévue avant v0.1.0.
 - Libellés des natures rares du Conseil constitutionnel : **NON VÉRIFIÉ** [v:natures-constit]. Format des décisions CNIL : **NON VÉRIFIÉ** [v:cnil-nature-decision-format].
-- Deux formats restent ouverts (09 §3.11.3, d'après 03 §11) :
-  - article d'un texte non codifié : forme courte « Loi n° 2016-1321 du 7 octobre 2016, art. 1 » (proposée) ou titre complet de la référence ;
-  - IDCC dans la citation KALI (« … (IDCC 2121) », proposé).
-
-  Les deux se tranchent en M1, avant les golden.
+- Les formes complémentaires de la décision 5 sont adoptées par défaut (Q12, 09 §3.12) : la réponse de l'utilisateur est attendue en M1, avant la génération des golden. Une réponse contraire produit un nouvel ADR (index, §2). Les hits CONSTIT et CNIL sont réexaminés en v0.2 avec le parseur de M6.
 
 ### Tests qui la gardent
 
@@ -81,11 +87,12 @@
 | Garder `eli_uri` égal à `source_url` | Doublon et nom trompeur (D-30). |
 | Fabriquer l'ELI depuis le NOR et la date (`/eli/loi/AAAA/M/J/NOR/jo/texte`) | Interdit par la règle « jamais fabriqué » (00 §4, P-039). Risque de lien faux. |
 | Garder le suffixe « - objet » avec une analyse équilibrée des crochets (recherche 02 D-27) | Absent du format normatif de 00 §4 ; l'objet reste disponible dans `title`. |
+| Forme courte « Loi n° 2016-1321 du 7 octobre 2016, art. 1 » pour un article de loi non codifiée ; IDCC dans la citation KALI (« … (IDCC 2121) ») (première version de 03 §11) | Réécrivent les données officielles au-delà du nécessaire ; 00 §4 retient le titre officiel sans l'appel de note, et l'IDCC comme champ (Q12). |
 | Router par `origine` avec repli sur le préfixe (recherche 01 E-18) | Le préfixe est déjà validé et fiable ; `origine` peut être nul ou bruité (`"constit "`). |
 | Champ `official_title` obligatoire dans le contrat (recherche 02 D-30) | Doublon de `title` dans la plupart des familles ([ADR-0006](0006-sortie-compacte-retour-progressif.md)). |
 
 ## Références et sources
 
-- Plan : [00-decisions.md](../plan/00-decisions.md) §4, §7 ; [03-domaine.md](../plan/03-domaine.md) §5 (champs, ECLI, ELI, règles, URL, divergences 1 à 25), §6.5 ; [05-outils-mcp.md](../plan/05-outils-mcp.md) §1.4 ; [annexes/A-parite.md](../plan/annexes/A-parite.md) §2.1 (P-031, P-034, P-035, P-039), §4.1, §4.2 ; [annexes/B-citations.md](../plan/annexes/B-citations.md).
+- Plan : [00-decisions.md](../plan/00-decisions.md) §4 (révision 2, AM-18, AM-19), §7, §13 (Q12) ; [09-risques-et-questions.md](../plan/09-risques-et-questions.md) §3.12 ; [03-domaine.md](../plan/03-domaine.md) §5 (champs, ECLI, ELI, règles, URL, divergences 1 à 25), §6.5 ; [05-outils-mcp.md](../plan/05-outils-mcp.md) §1.4 ; [annexes/A-parite.md](../plan/annexes/A-parite.md) §2.1 (P-031, P-034, P-035, P-039), §4.1, §4.2 ; [annexes/B-citations.md](../plan/annexes/B-citations.md).
 - Recherche : [02-defauts.md](../recherche/02-defauts.md) D-27 à D-30, D-33 ; [01-parite.md](../recherche/01-parite.md) §4.5, §11.4, E-12, E-18, E-19 ; [07-citations.md](../recherche/07-citations.md) §4.10, §4.13, §6.
 - Référence Python (`d3b5b13`) : `src/fr_eli_mcp/citations.py:76-102, 166-171, 256-261, 283-318, 333-338, 376-380` ; `tests/test_parse.py:106-118, 189-199` ; `CONSTITUTION.md:37-46`.

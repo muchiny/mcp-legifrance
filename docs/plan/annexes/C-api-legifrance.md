@@ -1,11 +1,12 @@
 # Annexe C — API Légifrance (PISTE), Judilibre et dumps DILA
 
 > **Statut** : annexe de référence du plan, rédigée le 2026-10-15. Elle décrit l'API Légifrance telle que la documentent le Swagger 2.4.2 et les documents de la DILA, et telle que l'observent les 16 fixtures de la référence Python. Elle est subordonnée à [00-decisions.md](../00-decisions.md). Les choix de conception de l'adapter (classification des erreurs, réessais, mémo de pagination, mapping) relèvent de [04-adapter-piste.md](../04-adapter-piste.md), qui s'appuie sur cette annexe. En cas d'écart, 00 prévaut, puis 04 ; l'écart est signalé au §9.
-> **Jalons** : M2 (7 endpoints de v0.1), M5 (pagination vérifiée en direct), M6 (résolution), M7 (navigation), M9 (dumps DILA). Judilibre : hors périmètre jusqu'à décision (§6.6).
+> **Jalons** : M2 (7 endpoints de v0.1, plus `/consult/legi/tableMatieres` si V-96 l'exige), M5 (pagination vérifiée en direct), M6 (résolution), M7 (navigation), M9 (dumps DILA). Judilibre : hors périmètre jusqu'à décision (§6.6).
+> **Révision** : alignée sur 00 révision 2 du 2026-10-15 (amendements AM-02, AM-03, AM-28, AM-29 et AM-39 notamment ; journal en 00 §14). Les choix adoptés par défaut sur une question de l'utilisateur sont appliqués ici et restent à confirmer (Q3, Q10, Q15 notamment, 00 §13).
 > **Lecteurs** : développeurs de `lf-adapter-piste` et de `lf-adapter-dila`, auteurs des tests wiremock et des smoke tests live, et toute personne qui doit savoir ce que l'API permet sans accès au portail PISTE.
 > **Conventions** : « VÉRIFIÉ » signifie lu dans une source primaire (Swagger, document DILA, CGU, fixture enregistrée) ; « tiers » signifie observé dans le code d'un client tiers, sans recoupement ; **NON VÉRIFIÉ** suivi d'une étiquette `[v:…]` signifie à confirmer (registre `V-xx` dans [09-risques-et-questions.md](../09-risques-et-questions.md), liste au §8). Les extraits Rust sont **non compilés, à valider en M0**. Dans les corps de requête, les champs requis par le Swagger sont en **gras**.
 
-Documents liés : [00-decisions.md](../00-decisions.md) §4, §5, §8, §11, §12 (normatif) ; [02-architecture.md](../02-architecture.md) (ports, erreurs) ; [03-domaine.md](../03-domaine.md) (identifiants, dates, `Fond`) ; [04-adapter-piste.md](../04-adapter-piste.md) (comportement de l'adapter) ; [05-outils-mcp.md](../05-outils-mcp.md) (paramètres des outils) ; [06-qualite.md](../06-qualite.md) (tests) ; [07-feuille-de-route.md](../07-feuille-de-route.md) ; [09-risques-et-questions.md](../09-risques-et-questions.md) ; [A-parite.md](A-parite.md) ; [B-citations.md](B-citations.md) ; [donnees/codes-table.md](donnees/codes-table.md) ; ADR-0004 (PISTE d'abord, DILA ensuite derrière le même port), ADR-0005, ADR-0007, ADR-0010, ADR-0011 (index : [../../adr/README.md](../../adr/README.md)). Rapports bruts : [recherche 05](../../recherche/05-piste-dila.md) et [recherche 03](../../recherche/03-dto.md).
+Documents liés : [00-decisions.md](../00-decisions.md) §3, §4, §5, §8, §10, §11, §12, §13 (normatif) ; [02-architecture.md](../02-architecture.md) (ports, erreurs) ; [03-domaine.md](../03-domaine.md) (identifiants, dates, `Fond`) ; [04-adapter-piste.md](../04-adapter-piste.md) (comportement de l'adapter) ; [05-outils-mcp.md](../05-outils-mcp.md) (paramètres des outils) ; [06-qualite.md](../06-qualite.md) (tests) ; [07-feuille-de-route.md](../07-feuille-de-route.md) ; [09-risques-et-questions.md](../09-risques-et-questions.md) ; [A-parite.md](A-parite.md) ; [B-citations.md](B-citations.md) ; [donnees/codes-table.md](donnees/codes-table.md) ; ADR-0004 (PISTE d'abord, DILA ensuite derrière le même port), ADR-0005, ADR-0007, ADR-0010, ADR-0011 (index : [../../adr/README.md](../../adr/README.md)). Rapports bruts : [recherche 05](../../recherche/05-piste-dila.md) et [recherche 03](../../recherche/03-dto.md).
 
 ## Sommaire
 
@@ -26,11 +27,11 @@ Documents liés : [00-decisions.md](../00-decisions.md) §4, §5, §8, §11, §1
 
 ## 0. Résumé
 
-- **Surface** : 68 opérations (59 `POST`, 9 `GET`) réparties en 6 contrôleurs : Consult 39, List 13, Search 5, Suggest 4, Chrono 4, Misc 3. Le Swagger 2.4.2 est identique en sandbox et en production, hors hôtes et URLs OAuth. Le plan utilise 7 chemins en v0.1, 4 de plus en M6 (sans compter `/search` en recherche exacte) et 5 en M7, soit 16 chemins. Aucun chemin absent du Swagger n'est appelé (00 §8).
+- **Surface** : 68 opérations (59 `POST`, 9 `GET`) réparties en 6 contrôleurs : Consult 39, List 13, Search 5, Suggest 4, Chrono 4, Misc 3. Le Swagger 2.4.2 est identique en sandbox et en production, hors hôtes et URLs OAuth. Le plan utilise 7 chemins en v0.1, plus `/consult/legi/tableMatieres` si V-96 (bloquante en M2) l'exige, 6 de plus en M6 (sans compter `/search` en recherche exacte et filtré par la facette `ECLI`) et 3 en M7, soit 17 chemins au plus, 18 si `/consult/jorf` est retenu à l'ouverture de M7 (V-135) ; `/suggest` est retiré (00 §8 révision 2, AM-29). Aucun chemin absent du Swagger n'est appelé (00 §8).
 - **Accès** : compte PISTE nominatif, une application par environnement, OAuth2 `client_credentials`, jeton de 3 600 s envoyé en `Bearer`. Les quotas s'appliquent par seconde, minute ou jour, à l'application ou à une méthode. Leurs valeurs ne sont pas publiques.
-- **Codes HTTP** : le Swagger ne déclare que 200, 201, 401, 403 et 404. Les 400 (identifiant inexistant sur `/consult/juri`), 429 (quota) et 500 sont observés ou rapportés par des tiers.
+- **Codes HTTP** : le Swagger ne déclare que 200, 201, 401, 403 et 404. Les 400 (identifiant `JURITEXT` inexistant sur `/consult/juri`), 429 (quota) et 500 sont observés ou rapportés par des tiers. Réessais : 3 tentatives au plus sur 429, 502, 503, 504 et erreurs réseau, 2 au plus sur 500 (00 §8, AM-03).
 - **Recherche** : 14 fonds, 32 `typeChamp`, 5 `typeRecherche`, 3 niveaux d'opérateurs, filtres sous 4 formes, facettes et tris propres à chaque fonds (document officiel), `pageSize` ≤ 100, `typePagination` à renvoyer tel que reçu.
-- **Formes JSON** : dates sous 3 encodages, sentinelle `2999-01-01`, epoch négatifs, identifiants suffixés `_JJ-MM-AAAA`, texte servi deux fois (`texte` et `texteHtml`, 81 à 90 % du JSON d'une décision), mojibake dans 6 fixtures sur 16 (origine probable : la capture), fixtures élaguées et tronquées.
+- **Formes JSON** : dates sous 3 encodages, horodatages de date à minuit UTC dans les fixtures (d'où `singleDate` à midi Europe/Paris, 00 §8), sentinelle `2999-01-01`, epoch négatifs, identifiants suffixés `_JJ-MM-AAAA`, texte servi deux fois (`texte` et `texteHtml`, 81 à 90 % du JSON d'une décision), mojibake dans 6 fixtures sur 16 (origine probable : la capture), fixtures élaguées et tronquées.
 - **DTO** : un module par endpoint, tolérants, tout en `Option` avec `#[serde(default)]`, quatre helpers (`null_default`, `opt_nonempty`, `opt_raw_date`, `opt_string_or_number`) et `opt_u64_lenient` (04 §8.2).
 - **Judilibre** : API distincte de la Cour de cassation, souscription PISTE séparée. Elle apporte le zonage des décisions et des rapprochements identifiés. Hors périmètre.
 - **Dumps DILA** : un global `Freemium_*_global_*.tar.gz` puis des incréments quotidiens, à appliquer dans l'ordre strict, avec listes de suppression. XML LEGI documenté par le code tiers ; règle de vigueur `debut ≤ D < fin` ; Licence Ouverte 2.0. C'est la base de `lf-adapter-dila` (M9).
@@ -48,7 +49,7 @@ Documents liés : [00-decisions.md](../00-decisions.md) §4, §5, §8, §11, §1
 3. Une **application par environnement** : sandbox et production sont deux applications distinctes, chacune avec son `client_id` et son `client_secret`, lus dans la section « OAuth Credentials » de l'application (référence client.py:55-56). Des identifiants sandbox présentés à `oauth.piste.gouv.fr` reçoivent `invalid_client` (référence SOURCES.md:12).
 4. Les quotas de l'application se lisent dans l'onglet « Applications », puis l'application, « Actions » et « Consulter les quotas » (CGU API l.224-227).
 
-Le projet ne fournit aucun identifiant. Un compte et une application sandbox sont nécessaires aux smoke tests live (Q3). Judilibre exige une souscription séparée (§6.2).
+Le projet ne fournit aucun identifiant. Un compte et une application sandbox sont nécessaires aux smoke tests live (Q3, adoptée par défaut : sandbox avant M2, production avant v0.1.0 ; en production, sondes en lecture seule lancées à la main par le mainteneur, jamais d'identifiants de production en CI, 00 §10). Judilibre exige une souscription séparée (§6.2).
 
 ### 1.2 Environnements
 
@@ -61,7 +62,7 @@ Le projet ne fournit aucun identifiant. Un compte et une application sandbox son
 | Disponibilité | aucun engagement (tests de performance, réindexation) ; « peut donc être indisponible sans information préalable » | 95 % par jour visés, engagement de moyens, aucun niveau minimal garanti | CGU API l.187-202 |
 | État pour nous | utilisé en direct par la référence | jamais appelé : **NON VÉRIFIÉ** [v:oauth-production-live] | référence DISCOVERY.md:3, SOURCES.md:12 |
 
-- `LF_PISTE_ENV=sandbox|production` (défaut `sandbox`) fixe ensemble les deux URLs. Les surcharges `LF_PISTE_OAUTH_URL` et `LF_PISTE_BASE_URL` sont validées par l'adapter (00 §1 ; 04 §2.3).
+- `LF_PISTE_ENV=sandbox|production` (défaut `sandbox`) fixe ensemble les deux URLs. Les surcharges `LF_PISTE_OAUTH_URL` et `LF_PISTE_BASE_URL` sont validées (00 §1 ; 04 §2.3) : `https` obligatoire (sauf boucle locale), hôte hors des quatre hôtes officiels accepté avec l'avertissement `CustomHost`, hôte officiel d'un autre environnement que `LF_PISTE_ENV` = problème `EnvMismatch` (mode dégradé, `config_error`, sans déduction implicite), chemin officiel exact `/dila/legifrance/lf-engine-app`.
 - Un client tiers affirme que sandbox et production partagent les mêmes données et ne diffèrent que par les quotas (recherche 05 §3.2, `[KMCP]/README.md:67`). Le Swagger officiel le contredit : affirmation rejetée. L'ampleur réelle de l'écart de données est **NON VÉRIFIÉ** [v:sandbox-prod-donnees].
 - Version : la copie lue déclare `info.version = 2.4.2`. Elle a été générée le 2025-05-28 par un projet tiers (recherche 03 §1.1). Un fil data.gouv.fr de juillet 2025 signale une spec publiée en 1.6.2.5 alors que PISTE affichait 2.4.2 (recherche 05 §0). La version servie aujourd'hui par PISTE est **NON VÉRIFIÉ** [v:swagger-version-servie]. Le test de dérive de 04 §7.1 compare les chemins appelés à une liste versionnée des chemins de la 2.4.2.
 
@@ -87,8 +88,8 @@ Réponse documentée (l.135-151) :
 - `expires_in` est en secondes (l.151). Observé en sandbox par la référence : `token_type=Bearer`, `expires_in=3600`, scope `openid resource.READ` (référence DISCOVERY.md:9-12).
 - Appels à l'API : en-tête `Authorization: Bearer <access_token>` ; pour les `POST`, aussi `accept: application/json` et `Content-Type: application/json` (l.155-163). L'exemple officiel teste avec `GET …/list/ping` (l.159).
 - Le Swagger déclare aussi des profils `implicit` et `accessCode` (`authorizationUrl https://oauth.piste.gouv.fr/api/oauth/authorize`, scope `openid`). Ils sont inutiles pour un serveur et ne sont pas utilisés.
-- Les formes réelles des erreurs de l'endpoint token (statut, corps) sont **NON VÉRIFIÉ** [v:oauth-reponses]. Seule forme connue : `401 {"error":"invalid_client"}` pour des identifiants d'un autre environnement (référence SOURCES.md:12).
-- Comportement retenu (00 §8 ; détail 04 §3) : formulaire ci-dessus, jeton en mémoire (`SecretString`), renouvelé 60 s avant expiration, rafraîchissement mono-vol, un seul renouvellement après un 401 de l'API puis `Auth`. Une erreur de l'endpoint token donne `config_error`, jamais `not_found` (00 §5, corrige D-10, D-12, E-20).
+- Les formes réelles des erreurs de l'endpoint token (statut, corps) ne sont pas connues. Seule indication : la valeur `invalid_client` pour des identifiants d'un autre environnement (statut et corps exacts non relevés, référence SOURCES.md:12 ; RFC 6749 §5.2 prévoit 400 ou 401) **NON VÉRIFIÉ** [v:oauth-reponses]. Les tests de l'adapter couvrent donc 400 **et** 401 (04 §3.5, §13.2).
+- Comportement retenu (00 §8 ; détail 04 §3) : formulaire ci-dessus, jeton en mémoire (`SecretString`), renouvelé 60 s avant expiration, rafraîchissement mono-vol, un seul renouvellement après un 401 de l'API puis `Auth`. Une erreur de l'endpoint token (400, 401 ou 404) donne `Auth` ou `Config`, rendu `config_error`, jamais `not_found` (00 §5, corrige D-10, D-12, E-20).
 
 ### 1.4 Quotas
 
@@ -104,7 +105,7 @@ Ce que disent les sources officielles (CGU API l.212-231 ; Swagger `info.descrip
 
 - **Valeurs numériques** : non publiques, aucune source officielle trouvée : **NON VÉRIFIÉ** [v:quota-piste-prod]. À relever dans la console PISTE pour les deux environnements, méthode par méthode si la granularité l'impose.
 - Pratiques de clients tiers, qui ne sont pas des quotas : 5 appels/s (README du même projet : 10/s), pause de 0,5 s, 200 ms entre appels de test, 4 requêtes simultanées (recherche 05 §3.3).
-- Décisions du plan : `governor` global au processus, 5 req/s, rafale 10, configurable ; sémaphore de 4 requêtes en vol (00 §8 ; 04 §5.4, §5.5).
+- Décisions du plan : `governor` global au processus, consulté par `check()` avant chaque tentative (jamais `until_ready`), 5 req/s, rafale 10 (`LF_PISTE_RPS`, `LF_PISTE_BURST`) ; sémaphore de 4 requêtes en vol (`LF_PISTE_CONCURRENCY`) (00 §1, §8 ; 04 §5.4, §5.5).
 - Dépassement : 429, selon des tiers concordants (recherche 05 §3.4). La présence et le format de `Retry-After` sont **NON VÉRIFIÉ** [v:retry-after-piste]. Un tiers rapporte des `401 invalid_client` pendant de courtes fenêtres de limitation : **NON VÉRIFIÉ** [v:401-sous-throttling].
 - Les quotas valent pour toute l'application. En mode HTTP partagé (M8), ils seraient donc communs à tous les utilisateurs du serveur (§1.7.3, Q4).
 
@@ -116,13 +117,15 @@ Le Swagger déclare pour **chaque** opération `POST` les réponses `200`, `201`
 |---|---|---|---|---|
 | 200 | oui | toutes les fixtures | fixtures | DTO puis entité |
 | 201 | oui (`POST`) | jamais observé | Swagger | traité comme un 2xx |
-| 400 | non | `/consult/juri` avec un `JURITEXT` ou `CETATEXT` bien formé mais inexistant : corps `"message": "L'expression à valider est fausse."` | pylegifrance, sonde live du 2026-04-13 (recherche 03 §3.4 ; 04 §11.1) | `NotFound` si le marqueur est présent sur une consultation, sinon `InvalidRequest` |
-| 401 | oui | jeton absent ou expiré ; sur l'endpoint token, `invalid_client` (mauvais environnement) | référence client.py:164-168, SOURCES.md:12 | API : un renouvellement puis `Auth` ; token : `Auth` (rendu `config_error`) |
-| 403 | oui | application non abonnée (constaté sur Judilibre avec un jeton Légifrance) | référence DISCOVERY.md:89-93 | `Auth` ; sens exact sur l'API Légifrance **NON VÉRIFIÉ** [v:forme-403-piste] |
+| 400 | non | `/consult/juri` avec un `JURITEXT` bien formé mais inexistant : corps `"message": "L'expression à valider est fausse."` ; même 400 affirmé pour `CETATEXT`, sans sonde (docstring d'un test unitaire sur réponse simulée) : **NON VÉRIFIÉ** [v:introuvable-par-endpoint] | `JURITEXT` : pylegifrance, sonde live du 2026-04-13 avec `JURITEXT000000000000` et `JURITEXT999999999999` (`pylegifrance/fonds/juri.py:124-135`, `tests/integration/fonds/juri/test_verification_endpoints.py:52-59`) ; `CETATEXT` : `tests/unit/fonds/test_juri_verification_endpoints.py:108-112` (recherche 03 §3.4 ; 04 §11.1) | `NotFound` si le marqueur est présent sur une consultation, sinon `InvalidRequest`, rendu `[upstream_error] Legifrance rejected the request (HTTP 400): {détail PISTE nettoyé, ≤ 200 caractères}` (00 §5, AM-28) ; endpoint token : `Auth` (`config_error`) |
+| 401 | oui | jeton absent ou expiré ; sur l'endpoint token, la valeur `invalid_client` (mauvais environnement), statut non relevé (400 ou 401, RFC 6749 §5.2 ; [v:oauth-reponses], §1.3) | référence client.py:164-168, SOURCES.md:12 | API : un renouvellement puis `Auth` ; token : `Auth` (rendu `config_error`) |
+| 403 | oui | application non abonnée (constaté sur Judilibre avec un jeton Légifrance) | référence DISCOVERY.md:89-93 | `Auth`, rendu `config_error` avec le message « check that the PISTE application is subscribed to the Legifrance API » (00 §5, AM-28) ; sens exact sur l'API Légifrance **NON VÉRIFIÉ** [v:forme-403-piste] |
 | 404 | oui | ressource inconnue (supposé) ; mauvais chemin ou mauvaise méthode (ex. `GET /suggest`) | recherche 05 §3.4 ; `[JRX]` | `NotFound` ou `Config` selon 04 §11.2 ; forme réelle **NON VÉRIFIÉ** [v:forme-404-piste] |
-| 429 | non | dépassement de quota | tiers concordants | réessais puis `RateLimited { retry_after }` |
-| 500 | non | erreur serveur ; selon un tiers, aussi facette inconnue, champ JSON inconnu ou `fond=ALL` avec filtres (« Une exception non gérée est survenue ») | `[JRX]` (recherche 05 §2.2) | réessais (00 §8) puis `Upstream` ; cause **NON VÉRIFIÉ** [v:500-requete-invalide] |
-| 502, 503, 504 | non | — | — | réessais puis `Upstream` |
+| 429 | non | dépassement de quota | tiers concordants | 3 tentatives au plus, `Retry-After` respecté (≤ 30 s), puis `RateLimited { retry_after }` |
+| 500 | non | erreur serveur ; selon un tiers, aussi facette inconnue, champ JSON inconnu ou `fond=ALL` avec filtres (« Une exception non gérée est survenue ») | `[JRX]` (recherche 05 §2.2) | 2 tentatives au plus (00 §8, AM-03), puis `Upstream { status: 500, retryable: false }` : un 500 répété est présumé déterministe ; retour à 3 tentatives si V-69 montre des 500 transitoires fréquents ; cause **NON VÉRIFIÉ** [v:500-requete-invalide] |
+| 502, 503, 504 | non | — | — | 3 tentatives au plus, puis `Upstream { status, retryable: true }` |
+
+Les réessais sont plafonnés par le délai global de l'outil (`LF_TOOL_DEADLINE_S`, `Deadline`, 00 §3). `retryable` ne sert qu'au message : seul un échec `retryable: true` (429, 502, 503, 504, réseau, timeout) invite le modèle à réessayer (00 §8). Toute contrainte imputable à l'entrée (dates, fond sans facette, pagination profonde, formats) est rejetée en `invalid_arg` avant l'appel du port : un 400 de PISTE sans marqueur « introuvable » signale donc un défaut de l'adapter (00 §5).
 
 Le comportement « introuvable » des autres consultations (400, 404, 200 avec enveloppe `null` ou 500) est **NON VÉRIFIÉ** [v:introuvable-par-endpoint]. La forme générale des corps d'erreur est **NON VÉRIFIÉ** [v:corps-erreur-piste]. Seule forme connue, celle du 400 de `/consult/juri` :
 
@@ -181,8 +184,8 @@ Interdits de conception, quel que soit le mode : ne jamais renvoyer le `client_s
 
 - « Les données mises à disposition par l'interface de programmation sont soumises à la licence ouverte 2.0 » (CGU API l.360-365) ; le Swagger déclare aussi `info.license = Licence ouverte v2.0` (VÉRIFIÉ).
 - La licence autorise copie, redistribution et réutilisation, y compris commerciale, à condition de mentionner au minimum le nom du concédant et la **date de dernière mise à jour** de l'information réutilisée. Un lien vers l'information suffit s'il assure une attribution effective. L'attribution ne doit suggérer aucun aval du concédant (recherche 05 §4.2, d'après le texte Etalab).
-- Mise en œuvre (00 §12) : mention « Légifrance / DILA » dans `NOTICE`, le README et le champ `source` de `fr_coverage` (05) ; `source_url` sur chaque entité citable (00 §4).
-- Date de mise à jour : l'API n'expose pas de champ uniforme. Champs candidats : `modifDate` (lawDecree, kaliText), `dateMaj` (ACCO), `lastUpdate` (`/list/code`), et `refInjection` dont la valeur `MD-20260424_200447_879_BDJQUOT` semble horodater l'injection (fixture consult_article.json). Leur sémantique est **NON VÉRIFIÉ** [v:date-maj-par-document]. Choix du champ exposé : question ouverte (§10).
+- Mise en œuvre (00 §12, adoptée par défaut, Q15, AM-39) : `fr_coverage` et les instructions serveur portent « Source : Légifrance / DILA — Licence Ouverte 2.0 » et la date de consultation (date du jour, Europe/Paris) ; dans `fr_coverage`, ce sont les champs `attribution` et `consulted_on`, et les instructions, statiques, renvoient à `consulted_on` (05 §4, §5.8) ; le README le rappelle ; mention « Légifrance / DILA » dans `NOTICE` (Q2) ; `source_url` sur chaque entité citable (00 §4). Qu'une mention globale suffise, sans mention dans chaque réponse, est **NON VÉRIFIÉ** [v:attribution-licence-ouverte] (V-177).
+- Date de mise à jour : l'API n'expose pas de champ uniforme. Champs candidats : `modifDate` (lawDecree, kaliText), `dateMaj` (ACCO), `lastUpdate` (`/list/code`), et `refInjection` dont la valeur `MD-20260424_200447_879_BDJQUOT` semble horodater l'injection (fixture consult_article.json). Leur sémantique est **NON VÉRIFIÉ** [v:date-maj-par-document] (V-108). Un champ `last_update?` par document n'est ajouté (classe « ajout ») que lorsqu'un champ fiable de l'API est identifié (00 §12) ; d'ici là, la date de consultation en tient lieu (§10 question 5, Q15).
 
 #### 1.7.5 Données personnelles et contenus sensibles
 
@@ -204,14 +207,14 @@ v2020 : API « en bêta », aucune disponibilité garantie, quotas sous « API S
 - Tous les `POST` consomment et produisent `application/json`, sauf les `ping` (`text/plain`, « pong »).
 - Champ facultatif commun à de nombreuses requêtes de consultation : `searchedString`, « Texte de la recherche ayant aboutie à la consultation du texte ». Son effet (surlignage ?) n'est pas documenté. Le plan ne l'envoie jamais (04 §7.1).
 - Champs communs à de nombreuses réponses : `executionTime` (ignoré) et `dereferenced` (§1.7.5).
-- Colonne « Plan » : **M2**, **M6** ou **M7** = chemin utilisé à ce jalon (liste fermée de 00 §8) ; « candidat » = hors plan, utile plus tard, à ajouter par amendement de 00 §8 (§2.10) ; « hors plan » = sans usage prévu ; « interdit » = à ne jamais appeler (§2.9).
+- Colonne « Plan » : **M2**, **M6** ou **M7** = chemin utilisé à ce jalon (liste fermée de 00 §8 révision 2) ; « **M2**, conditionnel » = utilisé dès v0.1 seulement si la vérification indiquée l'exige ; « candidat » = hors plan, utile plus tard, à ajouter par amendement de 00 §8 (§2.10) ; « hors plan » = sans usage prévu ; « retiré » = sorti de la liste par 00 §8 révision 2 ; « interdit » = à ne jamais appeler (§2.9).
 - La référence Python n'utilise que les 7 chemins de v0.1 (référence client.py:187-208).
 
 ### 2.2 Search Controller (5)
 
 | Chemin | Corps | Réponse (champs clés) | Rôle | Plan |
 |---|---|---|---|---|
-| `POST /search` | `SearchRequestDTO {`**`fond`**`, `**`recherche`**`}` (§3) | `SearchResponseDTO {totalResultNumber, totalArticleResultNumber, typePagination, facets[], results[], executionTime, descriptionFusionHtml}` | recherche générique | **M2** (`fr_search`) ; **M6** (recherche exacte par numéro) ; **M7** (`fr_search_all`, fond `JORF`) |
+| `POST /search` | `SearchRequestDTO {`**`fond`**`, `**`recherche`**`}` (§3) | `SearchResponseDTO {totalResultNumber, totalArticleResultNumber, typePagination, facets[], results[], executionTime, descriptionFusionHtml}` | recherche générique | **M2** (`fr_search`) ; **M6** (recherche exacte par numéro, `find_article` à une autre date que le jour, facette `ECLI` sur JURI et CETAT) ; **M7** (`fr_search_all` ; fond `JORF` si la surface JORF est retenue à l'ouverture de M7, 00 §4) |
 | `POST /search/canonicalArticleVersion` | `ArticleRequest {`**`id`**`}` | `{articleVersions[ArticleVersion{id, version, numero, etat, dateDebut, dateFin, ordre}]}` | versions d'un article, métadonnées seules | **M7** (`article_versions`) |
 | `POST /search/canonicalVersion` | `{`**`cidText`**`, `**`date`**`, cidSection}` | `{cid, dateDebut, dateFin}` | version d'un texte en vigueur à une date | candidat |
 | `POST /search/nearestVersion` | `{`**`cidText`**`, `**`date`**`, cidSection}` | `{title: SearchTitle, sectionTitle}` | version la plus proche d'une date | candidat |
@@ -226,7 +229,7 @@ v2020 : API « en bêta », aucune disponibilité garantie, quotas sous « API S
 | `POST /consult/lawDecree` | `{`**`textId`**`, `**`date`**`, searchedString, fromSuggest}` | `ConsultTextResponse` | texte LODA à une date | **M2** (`get_act`) |
 | `POST /consult/code` | `{`**`textId`**`, `**`date`**`, sctCid, abrogated, searchedString, fromSuggest}` ; `sctCid` « Non requis pour la consultation de la table des matières sinon obligatoire » | `ConsultTextResponse` | contenu d'une section de code | candidat (lecture d'un gros code par section, D-47) |
 | `POST /consult/legiPart` | `{`**`textId`**`, `**`date`**`, searchedString}` | `ConsultTextResponse` | texte LEGI à une date (exemple officiel pour une loi, doc « exemples » l.483-491) | hors plan |
-| `POST /consult/legi/tableMatieres` | `{`**`textId`**`, `**`date`**`, nature}` ; `textId` « id OU cid du texte » ; `nature` ∈ CODE, DECRET, ARRETE, LOI, ORDONNANCE… | `ConsultTextResponse` | table des matières d'un code ou d'une LODA | **M7** (`get_act` sur un code, 04 §7.3) |
+| `POST /consult/legi/tableMatieres` | `{`**`textId`**`, `**`date`**`, nature}` ; `textId` « id OU cid du texte » ; `nature` ∈ CODE, DECRET, ARRETE, LOI, ORDONNANCE… | `ConsultTextResponse` | table des matières d'un code ou d'une LODA | **M2**, conditionnel (`get_act` sur un code, nature `CODE`, si V-96, bloquante en M2, montre que `lawDecree` sur un code dépasse 4 Mio ou 10 s ; 00 §8, 04 §7.3) |
 | `POST /consult/code/tableMatieres` | `CodeConsultRequest` | `ConsultTextResponse` | **déprécié** : « utiliser /legi/tableMatieres avec le champ 'nature'='CODE' à la place » | interdit |
 | `POST /consult/getSectionByCid` | `{`**`cid`**`}` (LEGISCTA) | `{listSection[Section{id, cid, titre, dateDebut, dateFin, liensSection[], liensArticle[], commentaire, nota, notaHtml, liensModification[], context}]}` | toutes les versions d'une section | candidat (navigation TOC) |
 | `POST /consult/getCodeWithAncienId` | `{ancienId}` (ex. `CASSURAL`) | `ConsultTextResponse` | résolution d'un ancien identifiant de code | candidat |
@@ -237,8 +240,8 @@ v2020 : API « en bêta », aucune disponibilité garantie, quotas sous « API S
 |---|---|---|---|---|
 | `POST /consult/getArticle` | `{`**`id`**`}` (LEGIARTI ; KALIARTI validé en direct par la référence, SOURCES.md:14) | `GetArticleResponse {article: Article, executionTime, dereferenced}` | un article (une version) | **M2** (`get_article`) |
 | `POST /consult/getArticleByCid` | `{`**`cid`**`}` | `{listArticle[Article]}`, « Liste des versions de l'article » | toutes les versions, texte compris | **M7** (repli de `article_versions`, `fr_diff_article`) |
-| `POST /consult/getArticleWithIdAndNum` | `{id, num}` (aucun champ requis selon le Swagger ; les deux sont nécessaires) | `GetArticleResponse` | article en vigueur d'un texte par numéro | **M6** (`find_article`) |
-| `POST /consult/getArticleWithIdEliOrAlias` | `{`**`idEliOrAlias`**`}` (ex. `/eli/decret/2021/7/13/PRMD2117108D/jo/article_1`) | `GetArticleResponse` | ELI → article | candidat (`fr_resolve` sur un ELI cité) |
+| `POST /consult/getArticleWithIdAndNum` | `{id, num}` (aucun champ requis selon le Swagger ; les deux sont nécessaires) | `GetArticleResponse` | article en vigueur d'un texte par numéro | **M6** (`find_article`, version en vigueur seulement ; autre date : `/search`, §3.10) |
+| `POST /consult/getArticleWithIdEliOrAlias` | `{`**`idEliOrAlias`**`}` (ex. `/eli/decret/2021/7/13/PRMD2117108D/jo/article_1`) | `GetArticleResponse` | ELI → article | **M6** (ELI d'article cité, jamais fabriqué ; 00 §8, V-133) |
 | `POST /consult/relatedLinksArticle` | `{`**`articleId`**`}` | `{liensCite[LiensRelatifsDTO], liensCitePar[LiensRelatifsDTO]}` | graphe « cite / cité par » | **M7** (`related_links`) |
 | `POST /consult/concordanceLinksArticle` | `{`**`articleId`**`}` | `SectionsRevisionArticleResponse {oldTexts[ArticleDTO], newTexts[ArticleDTO]}` | concordances (renumérotation, recodification) | candidat (citations anciennes) |
 | `POST /consult/sameNumArticle` | `{`**`textCid`**`, `**`articleCid`**`, `**`articleNum`**`, `**`date`**`}` | `SectionsRevisionArticleResponse` | articles ayant porté le même numéro | candidat (citations anciennes) |
@@ -249,12 +252,12 @@ v2020 : API « en bêta », aucune disponibilité garantie, quotas sous « API S
 
 | Chemin | Corps | Réponse | Rôle | Plan |
 |---|---|---|---|---|
-| `POST /consult/jorf` | `{`**`textCid`**`, searchedString}` (JORFTEXT) | `ConsultJorfResponse` (= `ConsultTextResponse` + `hasLoda`, `jorfFileMetadata[]`, `hasSinglePdf`) | texte JO initial ; `hasLoda` « Indique si le texte a une version consolidée » | candidat (consultation d'un hit `Jorf` en M7, §10) |
+| `POST /consult/jorf` | `{`**`textCid`**`, searchedString}` (JORFTEXT) | `ConsultJorfResponse` (= `ConsultTextResponse` + `hasLoda`, `jorfFileMetadata[]`, `hasSinglePdf`) | texte JO initial ; `hasLoda` « Indique si le texte a une version consolidée » | candidat M7 : consultation d'un hit `Jorf`, tranchée à l'ouverture de M7 (00 §8, V-135 ; §10 question 1) |
 | `POST /consult/jorfPart` | `{`**`textCid`**`}` | `ConsultJorfResponse` | partie (section, article) d'un texte JO | hors plan |
 | `POST /consult/jorfCont` | `{id, num, date, start, end, searchText, pageNumber, pageSize, highlightActivated}` ; `pageSize` max 100 | `GetJosResponse {totalNbResult, items[{joCont, joEA, joInap, josPat[]}]}` | sommaire d'un JO (JORFCONT → JORFTEXT) | hors plan |
 | `POST /consult/lastNJo` | `{`**`nbElement`**`}` ; « Ce chiffre doit être inférieur à 2500, sinon vous aurez des erreurs » (doc « exemples » l.1187) | `GetJorfContResponse {totalNbResult, containers[]}` | derniers JO | hors plan |
 | `POST /consult/getJoWithNor` | `{`**`nor`**`}` | `ConsultJorfResponse` | NOR → texte JO ; « tous les textes n'ont pas de NOR » (l.1209) | **M6** (`find_by_number`, NOR) |
-| `POST /consult/eliAndAliasRedirectionTexte` | `{`**`idEliOrAlias`**`}` (ex. `/eli/decret/2018/2/13/JUSC1732516D/jo/texte`) | `ConsultJorfResponse` | ELI → texte JO | candidat (`fr_resolve`) |
+| `POST /consult/eliAndAliasRedirectionTexte` | `{`**`idEliOrAlias`**`}` (ex. `/eli/decret/2018/2/13/JUSC1732516D/jo/texte`) | `ConsultJorfResponse` | ELI → texte JO | **M6** (ELI de texte cité, jamais fabriqué ; 00 §8, V-133) |
 | `POST /consult/getTables` | `{`**`endYear`**`, startYear}` | `{tables[FileMetadata]}` | tables annuelles (PDF) | hors plan |
 
 Les JO antérieurs à juin 2004 n'ont pas de version HTML et ne sont pas récupérables par l'API (doc « exemples » l.1223).
@@ -294,7 +297,7 @@ Toutes les listes paginées exigent `pageNumber` et `pageSize` (« max 100 ») (
 
 | Chemin | Corps | Réponse | Rôle | Plan |
 |---|---|---|---|---|
-| `POST /list/code` | `{`**`pageNumber`**`, `**`pageSize`**`, sort ∈ {TITLE_ASC}, states[] (17 états), codeName}` | `CodeListResponse {totalResultNumber, results[CodeListResult{id, cid, titre, etat, dateDebut, dateFin, lastUpdate, pdfFile*}], codeNames: Facet, states: Facet}` | liste des codes | **M6** (table des codes interne) ; **M7** (`list_codes`, complétions) |
+| `POST /list/code` | `{`**`pageNumber`**`, `**`pageSize`**`, sort ∈ {TITLE_ASC}, states[] (17 états), codeName}` | `CodeListResponse {totalResultNumber, results[CodeListResult{id, cid, titre, etat, dateDebut, dateFin, lastUpdate, pdfFile*}], codeNames: Facet, states: Facet}` | liste des codes | **M6** (`list_codes`, codes abrogés compris, et table des codes interne, une seule table TTL 7 j, chargée paresseusement au premier besoin, jamais au démarrage ; 00 §3) ; **M7** (complétions de la variable `code`) |
 | `POST /list/loda` | `{`**`pageNumber`**`, `**`pageSize`**`, sort/secondSort ∈ {PUBLICATION_DATE_*, SIGNATURE_DATE_*, ID_*}, natures[], legalStatus[], signatureDate, publicationDate}` | `{results[{id, cid, titre, etat, dateDebut, dateFin, lastUpdate, dossiersLegislatifs[]}], natures, legalStatus}` | listes chronologiques sans plein texte | hors plan |
 | `POST /list/conventions` | `{`**`pageNumber`**`, `**`pageSize`**`, idcc, titre, keyWords[], legalStatus[], textesBase[], sort, secondSort}` | `{results[{id, cid, titre, etat, idcc, cidConteneur, descriptionFusion}], legalStatus, typeTexte, moteCles}` | conventions par IDCC ou mots-clés | candidat (repli IDCC) |
 | `POST /list/dossiersLegislatifs` | `{`**`type`**`, `**`legislatureId`**`}` | `DossiersLegislatifsListResponse` | dossiers législatifs par législature | hors plan |
@@ -314,7 +317,7 @@ Un client tiers envoie `"sort": "CODE_DATE_MAJ"` à `/list/code`, valeur absente
 
 | Chemin | Corps | Réponse | Rôle | Plan |
 |---|---|---|---|---|
-| `POST /suggest` | `{searchText, supplies[], documentsDits}` (aucun champ requis) ; `supplies` ∈ {ALL, ALL_SUGGEST, LODA_LIST, CODE_LIST, CODE_RELEASE_DATE, CODE_RELEASE_DATE_SUGGEST, CODE_LEGAL_STATUS, LODA_RELEASE_DATE, LODA_RELEASE_DATE_SUGGEST, LODA_LEGAL_STATUS, KALI, KALI_TEXT, CONSTIT, CETAT, JUFI, JURI, JORF, JORF_SUGGEST, CNIL, ARTICLE, CIRC, ACCO, PDF} | `SuggestResponse {totalResultNumber, results: map<id, object>}` ; la définition `SuggestValue {id, idTexte, section, label, nature, origin, dateVersion, appellations[]}` existe mais la map est typée `object` | suggestions (appellations usuelles : « Loi Macron ») | **M7** (méthode de port à définir, 04 §16) |
+| `POST /suggest` | `{searchText, supplies[], documentsDits}` (aucun champ requis) ; `supplies` ∈ {ALL, ALL_SUGGEST, LODA_LIST, CODE_LIST, CODE_RELEASE_DATE, CODE_RELEASE_DATE_SUGGEST, CODE_LEGAL_STATUS, LODA_RELEASE_DATE, LODA_RELEASE_DATE_SUGGEST, LODA_LEGAL_STATUS, KALI, KALI_TEXT, CONSTIT, CETAT, JUFI, JURI, JORF, JORF_SUGGEST, CNIL, ARTICLE, CIRC, ACCO, PDF} | `SuggestResponse {totalResultNumber, results: map<id, object>}` ; la définition `SuggestValue {id, idTexte, section, label, nature, origin, dateVersion, appellations[]}` existe mais la map est typée `object` | suggestions (appellations usuelles : « Loi Macron ») | retiré (00 §8 révision 2, AM-29 : aucun consommateur ni méthode de port) |
 | `POST /suggest/acco` | `{searchText}` | `{results: map<string, {siret, raisonSociale}>}` | SIRET et raison sociale | hors plan |
 | `POST /suggest/pdc` | `{searchText, origin, fond}` | `SuggestResponse` | libellés du plan de classement | hors plan |
 | `GET /suggest/ping` | — | « pong » | test | hors plan |
@@ -346,22 +349,26 @@ Les corps exacts envoyés et les DTO sont fixés dans 04 §7.1 et §8.3 ; les fo
 
 | Endpoint | Jalon, méthode du port | Corps envoyé | Champs utiles de la réponse | Points d'attention |
 |---|---|---|---|---|
-| `/search` | M2 `search` ; M6 `find_article`, `find_by_number` ; M7 `search` (`Fond::Jorf`) | §3.10 ; 04 §6.1 | `totalResultNumber`, `totalArticleResultNumber`, `typePagination`, `results[]` (§4.2) | `DATE_VERSION` requis pour LODA_DATE et CODE_DATE ; `typePagination` à renvoyer |
+| `/search` | M2 `search` ; M6 `find_article` (autre date que le jour), `find_by_number` (numéros, facette `ECLI` sur JURI et CETAT) ; M7 `search` (`Fond::Jorf`, si la surface JORF est retenue) | §3.10 ; 04 §6.1, §7.2 | `totalResultNumber`, `totalArticleResultNumber`, `typePagination`, `results[]` (§4.2) | `DATE_VERSION` requis pour LODA_DATE et CODE_DATE ; `typePagination` à renvoyer |
 | `/consult/lawDecree` | M2 `get_act` | `{"textId": "LEGITEXT…", "date": "AAAA-MM-JJ"}` (référence client.py:190-193, validé en direct) | `id` suffixé, `cid` (JORFTEXT), `title`, `nor`, `nature`, `jurisState`, `dateDebutVersion`, `dateFinVersion`, `dateParution`, `jorfText`, `numParution`, `textAbroge`, `appellations`, `sections[]`, `articles[]` (§4.3) | `etat` nul mais `jurisState` rempli ; `content`, `intOrdre`, `visa` absents de la fixture élaguée |
 | `/consult/getArticle` | M2 `get_article` | `{"id": "LEGIARTI…" \| "KALIARTI…"}` | `article.{id, num, etat, texte, texteHtml, nota, dateDebut, dateFin, context.titresTM, textTitles, versionPrecedente, isMultipleVersions}` (§4.4) | `texteHtml`, `articleVersions`, liens absents de la fixture |
-| `/consult/juri` | M2 `get_decision` | `{"textId": "JURITEXT…" \| "CONSTEXT…" \| "CETATEXT…"}` | `text.{ecli, juridiction, formation, solution, numeroAffaire, num, titre, dateTexteComputed, texte, texteHtml, sommaire, citationJp, liens, titrages}` (§4.5) | identifiant inexistant : 400 avec marqueur |
+| `/consult/juri` | M2 `get_decision` | `{"textId": "JURITEXT…" \| "CONSTEXT…" \| "CETATEXT…"}` | `text.{ecli, juridiction, formation, solution, numeroAffaire, num, titre, dateTexteComputed, texte, texteHtml, sommaire, citationJp, liens, titrages}` (§4.5) | identifiant inexistant : 400 avec marqueur (sondé en direct pour `JURITEXT` seulement, §1.5) |
 | `/consult/cnil` | M2 `get_deliberation` | `{"textId": "CNILTEXT…"}` | `text.{num, nature, natureDelib, etat, titre, titreLong, dateTexte, datePubli, texte, texteHtml}` | pas d'ECLI ni d'ELI |
 | `/consult/kaliText` | M2 `get_convention` | `{"id": "KALITEXT…"}` | `title`, `nor`, `jurisState`, `conteneurs[0].{cid, num (IDCC), titre}`, `numeroBo`, `originePubli`, `typeTexte`, `sections[].articles[].{content, lstLienCitation, lstLienModification}` (§4.6) | contenu HTML des articles inclus (pas d'appel N+1) |
 | `/consult/acco` | M2 `get_company_agreement` | `{"id": "ACCOTEXT…"}` | `acco.{titreTexte, raisonSociale, siret, codeIdcc, codeApe, secteur, themes, syndicats, numero, dates}` (§4.7) | `data` (base64) jamais déclaré |
-| `/consult/getArticleWithIdAndNum` | M6 `find_article` (date du jour) | `{"id": "LEGITEXT…", "num": "L1242-2"}` | `GetArticleResponse` | « Récupère uniquement les versions d'un article qui est en vigueur au moment de la recherche » ; « seuls les articles ne comportant pas de version en vigueur différée peuvent être trouvés par cette méthode » (Swagger) ; forme de `num` : Swagger `5-8`, document officiel `L5-8` : **NON VÉRIFIÉ** [v:num-article-forme-api] ; comportement **NON VÉRIFIÉ** [v:idandnum-comportement] |
+| `/consult/getArticleWithIdAndNum` | M6 `find_article` (date du jour ; autre date : `/search` `CODE_DATE` en `EXACTE` sur `NUM_ARTICLE` + `DATE_VERSION`, hits filtrés par `cid`, jamais `NOM_CODE` sans V-121, 00 §8) | `{"id": "LEGITEXT…", "num": "L1242-2"}` | `GetArticleResponse` | « Récupère uniquement les versions d'un article qui est en vigueur au moment de la recherche » ; « seuls les articles ne comportant pas de version en vigueur différée peuvent être trouvés par cette méthode » (Swagger) ; forme de `num` : Swagger `5-8`, document officiel `L5-8` : **NON VÉRIFIÉ** [v:num-article-forme-api] ; comportement **NON VÉRIFIÉ** [v:idandnum-comportement] |
 | `/consult/getJoWithNor` | M6 `find_by_number` (NOR) | `{"nor": "ECFI1524250L"}` | `id`, `cid`, `title`, `nor`, `nature`, `dateTexte`, `dateParution`, `hasLoda`, `eli` | `hasLoda` permet de basculer vers la version consolidée |
 | `/consult/kaliContIdcc` | M6 `find_by_number` (IDCC) | `{"id": "2121"}` | `id` (KALICONT), `titre`, `num`, `numeroTexte` (« IDCC 1261 »), `nature` (« IDCC »), `texteBaseId[]`, `sections[]` | — |
-| `/list/code` | M6 interne ; M7 `list_codes` | `{"pageNumber": 1, "pageSize": 100, "sort": "TITLE_ASC"}` | `totalResultNumber`, `results[].{id, cid, titre, etat, dateDebut, dateFin, lastUpdate}` (dates ISO `+0000` d'après les exemples du Swagger) | 76 codes indexés en sandbox (facette `FOND`) ; formes réelles M6 **NON VÉRIFIÉ** [v:endpoints-m6-reponses] |
+| `/consult/getArticleWithIdEliOrAlias` | M6 `find_by_number` (ELI d'article cité, 04 §7.2) | `{"idEliOrAlias": "/eli/decret/2021/7/13/PRMD2117108D/jo/article_1"}` (ELI reçu de l'utilisateur, transmis tel quel) | `GetArticleResponse` (`article.id` validé par le domaine) | jamais d'ELI fabriqué (00 §4) ; comportement **NON VÉRIFIÉ** [v:eli-redirection-endpoints] |
+| `/consult/eliAndAliasRedirectionTexte` | M6 `find_by_number` (ELI de texte cité, 04 §7.2) | `{"idEliOrAlias": "/eli/decret/2018/2/13/JUSC1732516D/jo/texte"}` | `ConsultJorfResponse` : `id`, `cid`, `title`, `nor`, `hasLoda`, `eli` | idem [v:eli-redirection-endpoints] |
+| `/list/code` | M6 `list_codes` et table des codes interne (une seule table, TTL 7 j, chargée paresseusement, sert aussi `find_article` et, en M7, les complétions) | `{"pageNumber": 1, "pageSize": 100, "sort": "TITLE_ASC"}` (sans `states` : codes abrogés compris, avec leur `etat`) | `totalResultNumber`, `results[].{id, cid, titre, etat, dateDebut, dateFin, lastUpdate}` (dates ISO `+0000` d'après les exemples du Swagger) | 76 codes indexés en sandbox (facette `FOND`) ; formes réelles M6 **NON VÉRIFIÉ** [v:endpoints-m6-reponses] |
 | `/consult/getArticleByCid` | M7 `article_versions` (repli) | `{"cid": "LEGIARTI…"}` | `listArticle[Article]` | réponse potentiellement lourde (texte de chaque version) |
 | `/search/canonicalArticleVersion` | M7 `article_versions` | `{"id": "LEGIARTI…"}` | `articleVersions[].{id, version, numero, etat, dateDebut, dateFin, ordre}` | — |
 | `/consult/relatedLinksArticle` | M7 `related_links` | `{"articleId": "LEGIARTI…"}` | `liensCite[]`, `liensCitePar[]` de `{id, cidText, cidParent, nature ∈ {LODA, JORF, CODE, KALI, JORFCONT}, name, dateVigeur}` ; `dateVigeur` exemple `"1470787200000"` (chaîne) | KALIARTI accepté ? **NON VÉRIFIÉ** [v:related-links-forme] |
-| `/consult/legi/tableMatieres` | M7 `get_act` sur un code | `{"textId": "LEGITEXT…", "date": "AAAA-MM-JJ", "nature": "CODE"}` | `ConsultTextResponse` ; l'absence du contenu des articles est supposée : **NON VÉRIFIÉ** [v:endpoints-m7-reponses] | conditionné à [v:lawdecree-sur-code] (04 §7.3) |
-| `/suggest` | M7 (méthode à définir) | `{"searchText": "…", "supplies": ["LODA_LIST", "CODE_LIST"]}` | `results` : map id → `{id, idTexte, label, nature, origin, dateVersion, appellations[]}` | formes réelles M7 **NON VÉRIFIÉ** [v:endpoints-m7-reponses] |
+| `/consult/legi/tableMatieres` | M2, conditionnel : `get_act` sur un code si V-96 (bloquante en M2) montre que `lawDecree` sur un code dépasse 4 Mio ou 10 s (00 §8) | `{"textId": "LEGITEXT…", "date": "AAAA-MM-JJ", "nature": "CODE"}` | `ConsultTextResponse` ; l'absence du contenu des articles est supposée : **NON VÉRIFIÉ** [v:endpoints-m7-reponses] | conditionné à [v:lawdecree-sur-code] (04 §7.3) ; reconnaître un code avant l'appel : 04 §16 question 13 |
+| `/consult/jorf` (candidat M7) | M7, tranché à l'ouverture (consultation d'un hit `Jorf`, 00 §8, V-135) | `{"textCid": "JORFTEXT…"}` | `ConsultJorfResponse` : `title`, `nor`, `hasLoda`, `eli`, sections et articles | bascule vers la version consolidée si `hasLoda = true` (§10 question 1) ; formes réelles **NON VÉRIFIÉ** [v:endpoints-m7-reponses] |
+
+`/suggest` est **retiré** de la liste (00 §8 révision 2, AM-29 : aucun outil ni méthode de port ne le consomme ; pas de méthode `suggest` au port, 00 §3) ; son corps et sa réponse restent décrits au §2.5 pour mémoire.
 
 `ConsultArticle` (articles des TOC) déclare `comporteLiens` (« Utiliser l'API relatedLinksArticle pour récupérer la liste des liens ») et `lstLienCitation` (« Toujours vide (voir propriété comporteLiens) »). Or la fixture KALI contient un `lstLienCitation` rempli (§4.6) : le DTO le lit quand il est présent.
 
@@ -379,10 +386,11 @@ Les corps exacts envoyés et les DTO sont fixés dans 04 §7.1 et §8.3 ; les fo
 
 Utiles plus tard, chacune exige un amendement de 00 §8 (liste fermée) et, si elle change le port, de 00 §3. Elles sont listées ici pour éviter de les redécouvrir.
 
+La résolution d'un ELI cité par l'utilisateur, candidate dans la version initiale de cette annexe (l'API ne fournit pas d'ELI côté LODA, référence DISCOVERY.md:34-40, mais l'accepte en entrée), est adoptée en M6 par 00 §8 révision 2 (AM-29) : `/consult/getArticleWithIdEliOrAlias` et `/consult/eliAndAliasRedirectionTexte` (§2.8), sans changer la règle « jamais d'ELI fabriqué » (00 §4) ; comportement **NON VÉRIFIÉ** [v:eli-redirection-endpoints] (V-133).
+
 | Besoin | Opérations | Jalon envisageable | Condition |
 |---|---|---|---|
-| Résoudre un ELI cité par l'utilisateur (l'API ne fournit pas d'ELI côté LODA, référence DISCOVERY.md:34-40, mais l'accepte en entrée) | `/consult/getArticleWithIdEliOrAlias`, `/consult/eliAndAliasRedirectionTexte` | M6 ou M7 (`fr_resolve`) | test live, **NON VÉRIFIÉ** [v:eli-redirection-endpoints] ; ne change pas la règle « jamais d'ELI fabriqué » (00 §4) |
-| Consulter un hit JORF (`Fond::Jorf`, M7) | `/consult/jorf` | M7 | §10 question 1 |
+| Consulter un hit JORF (`Fond::Jorf`, M7) | `/consult/jorf` | M7 | tranché à l'ouverture de M7 avec la surface JORF (00 §4, §8 ; V-135) ; §10 question 1 |
 | Anciens identifiants (`ancienId` CETAT `JG_L_…`, CNIL `MCN…`, codes `CASSURAL`) | `/consult/getJuriWithAncienId`, `/consult/getCnilWithAncienId`, `/consult/getCodeWithAncienId` | M6 | besoin attesté dans le corpus de citations (annexe B) |
 | Lire un gros code par section (D-47) | `/consult/code` (`sctCid`), `/consult/getSectionByCid` | M7 | taille réelle des TOC [v:taille-max-textes] |
 | Expliquer un changement de version | `/chrono/textCidAndElementCid` | M7 (`fr_diff_article`) | forme réelle |
@@ -390,7 +398,7 @@ Utiles plus tard, chacune exige un amendement de 00 §8 (liste fermée) et, si e
 | Version d'un texte à une date | `/search/canonicalVersion`, `/search/nearestVersion` | M6 | — |
 | Veille JO, listes chronologiques | `/consult/lastNJo`, `/consult/jorfCont`, `/list/loda`, `/misc/datesWithoutJo` | après v1.0 | nouvel outil ou ressource |
 | Conventions par IDCC ou mots-clés | `/list/conventions` | M6 (repli) | — |
-| Diagnostic de l'API amont | `/*/ping`, `/misc/commitId` | `check-config --online` | jamais au démarrage (00 §6) |
+| Diagnostic de l'API amont | `/*/ping`, `/misc/commitId` | après v1.0 | `check-config --online` n'appelle que l'endpoint token, une seule fois, sans appel à l'API (04 §2.4, §16 question 9) ; jamais au démarrage (00 §6) |
 
 ---
 
@@ -425,7 +433,7 @@ FiltreDTO               { facette: string, valeurs: [string], dates: DatePeriod{
 | `LODA_ETAT` | idem, recherche par état juridique | — | — | hors plan |
 | `CODE_DATE` | codes, à une date de version (`DATE_VERSION` requis) | `CODE` = 76 | `Code` | M2 |
 | `CODE_ETAT` | codes, par état juridique | — | — | hors plan |
-| `JORF` | textes publiés au Journal officiel | ≈ 1 125 515 | `Jorf` | M7 |
+| `JORF` | textes publiés au Journal officiel | ≈ 1 125 515 | `Jorf` | M7, si la surface JORF est retenue à l'ouverture de M7 (00 §4) |
 | `JURI` | jurisprudence judiciaire (Cour de cassation, appel, premier degré) | ≈ 605 651 | `Juri` | M2 |
 | `CETAT` | jurisprudence administrative (CE, CAA, TA, Tribunal des conflits…) | ≈ 569 322 | `Cetat` | M2 |
 | `CONSTIT` | Conseil constitutionnel | ≈ 7 372 | `Constit` | M2 |
@@ -449,7 +457,7 @@ Enum du Swagger (`ChampDTO.typeChamp`), VÉRIFIÉ. Fonds qui acceptent chaque ch
 | `TABLE` | CODE_* | — |
 | `NOR` | JORF, LODA_*, CIRC, CNIL | — (le NOR passe par `/consult/getJoWithNor` en M6) |
 | `NUM` | JORF, LODA_* | **M6** (numéro de texte, `EXACTE`) |
-| `NUM_ARTICLE` | JORF, CODE_*, LODA_* | **M6** (numéro d'article, `EXACTE`, `typePagination=ARTICLE`) |
+| `NUM_ARTICLE` | JORF, CODE_*, LODA_* | **M6** (numéro d'article, `EXACTE`, `typePagination=ARTICLE` ; `find_article` à une autre date que le jour, `find_by_number`) |
 | `ARTICLE` | JORF, CODE_*, LODA_*, KALI | — |
 | `VISA`, `NOTICE`, `VISA_NOTICE`, `TRAVAUX_PREP`, `SIGNATURE`, `NOTA` | JORF, LODA_* | — |
 | `NUM_DEC` | CONSTIT, CETAT, JUFI | **M6** (numéro de décision ou de requête) |
@@ -462,14 +470,14 @@ Enum du Swagger (`ChampDTO.typeChamp`), VÉRIFIÉ. Fonds qui acceptent chaque ch
 | `RESUME_CIRC`, `TEXTE_REF` | CIRC | — |
 | `RAISON_SOCIALE` | ACCO | — |
 | `MOTS_CLES` | KALI | — |
-| `ADVANCED_TEXTE_ID`, `MINISTERE`, `ECLI`, `NUM_LOI_DEF`, `TYPE_DECISION`, `NUMERO_INTERNE`, `REF_PUBLI`, `TITRE_LOI_DEF` | **aucun** fonds dans le document officiel (8 valeurs) | — ; pylegifrance cherche pourtant par `typeChamp=ECLI` en `EXACTE` (recherche 03 §3.2), et `ECLI` est une **facette** documentée pour JURI et CETAT (§3.7) : effet **NON VÉRIFIÉ** [v:ecli-filtre-juri-cetat] ; §10 question 2 |
+| `ADVANCED_TEXTE_ID`, `MINISTERE`, `ECLI`, `NUM_LOI_DEF`, `TYPE_DECISION`, `NUMERO_INTERNE`, `REF_PUBLI`, `TITRE_LOI_DEF` | **aucun** fonds dans le document officiel (8 valeurs) | — ; pylegifrance cherche pourtant par `typeChamp=ECLI` en `EXACTE` (recherche 03 §3.2), et `ECLI` est une **facette** documentée pour JURI et CETAT (§3.7). 00 §8 révision 2 (AM-29) adopte en M6 la **facette** `ECLI` (JURI, CETAT), pas le `typeChamp` : effet **NON VÉRIFIÉ** [v:ecli-filtre-juri-cetat] (V-128) ; `typeChamp = ECLI` reste un repli à sonder (V-127) ; §10 question 2 |
 
 ### 3.4 `typeRecherche` (5 valeurs)
 
 | `typeRecherche` | Sens | Plan |
 |---|---|---|
-| `UN_DES_MOTS` | OU logique entre les mots ; avec `proximite`, recherche d'expression approchée | `match=any` (défaut proposé, Q10) |
-| `TOUS_LES_MOTS_DANS_UN_CHAMP` | tous les mots dans un même champ ; sémantique exacte avec `typeChamp=ALL` **NON VÉRIFIÉ** [v:mode-all-semantique] | `match=all` |
+| `UN_DES_MOTS` | OU logique entre les mots ; avec `proximite`, recherche d'expression approchée | `match=any`, valeur par défaut (parité) adoptée par défaut (Q10) jusqu'à V-79 en M2 ; passage à `all` si V-79 le confirme, décision consignée avant le verrou des descripteurs de M4 (00 §7) |
+| `TOUS_LES_MOTS_DANS_UN_CHAMP` | tous les mots dans un même champ ; sémantique exacte avec `typeChamp=ALL` **NON VÉRIFIÉ** [v:mode-all-semantique] (V-79, qui conditionne Q10) | `match=all` |
 | `EXACTE` | expression exacte (doc « exemples » l.837-843) | `match=exact` ; recherches par numéro (M6) |
 | `AUCUN_DES_MOTS` | exclusion | non exposé |
 | `AUCUNE_CORRESPONDANCE_A_CETTE_EXPRESSION` | exclusion d'expression | non exposé |
@@ -487,13 +495,14 @@ Correspondance `match` → `typeRecherche` : 00 §8 ; 04 §6.4.
 
 | Forme | Champs | Exemple | Usage du plan |
 |---|---|---|---|
-| textuelle | `facette` + `valeurs[]` | `{"facette": "NATURE", "valeurs": ["LOI", "ORDONNANCE", "ARRETE"]}` (Swagger) | non utilisé en v0.1 |
+| textuelle | `facette` + `valeurs[]` | `{"facette": "NATURE", "valeurs": ["LOI", "ORDONNANCE", "ARRETE"]}` (Swagger) | non utilisé en v0.1 ; M6 : facette `ECLI` à valeur exacte (JURI, CETAT ; 00 §8, §3.10) |
 | plage de dates | `facette` + `dates {start, end}` | `{"facette": "DATE_SIGNATURE", "dates": {"start": "2015-01-01", "end": "2018-01-31"}}` (Swagger) | `date_from` / `date_to` (00 §7 ; 04 §6.5) |
-| date unique | `facette` + `singleDate` | `{"facette": "DATE_VERSION", "singleDate": 1514802418000}` (exemples officiels, pylegifrance) | `version_date` pour LODA_DATE et CODE_DATE, minuit Europe/Paris (00 §8) |
+| date unique | `facette` + `singleDate` | `{"facette": "DATE_VERSION", "singleDate": 1514802418000}` (exemples officiels, pylegifrance) | `version_date` pour LODA_DATE et CODE_DATE, midi Europe/Paris du jour, en epoch ms (00 §8, AM-02) |
 | hiérarchique | `facette` + `valeurs[]` + `multiValeurs` | `valeurs: ["TRIBUNAL_ADMINISTATIF", "COURS_APPEL"]`, `multiValeurs: {"TRIBUNAL_ADMINISTATIF": ["Bordeaux", "Lille"]}` (Swagger) | non utilisé |
 
 - `LODA_DATE` et `CODE_DATE` **exigent** un filtre `DATE_VERSION` en `singleDate` (constat live, référence DISCOVERY.md:22-25). VÉRIFIÉ.
-- `singleDate` est déclaré `date-time` avec l'exemple `"2016-01-01"`. Les exemples officiels utilisent un entier epoch ms (`1514802418000`) et aussi `"singleDate": "2025-04-15"` (l.221, l.815). La référence envoie un entier ms, validé en direct (référence server.py:136). La forme chaîne et le fuseau attendu pour l'entier sont **NON VÉRIFIÉ** [v:formats-dates-entree]. L'effet de minuit Europe/Paris est **NON VÉRIFIÉ** [v:singledate-minuit-paris] (04 §6.3).
+- `singleDate` est déclaré `date-time` avec l'exemple `"2016-01-01"`. Les exemples officiels utilisent un entier epoch ms (`1514802418000`) et aussi `"singleDate": "2025-04-15"` (l.221, l.815). La référence envoie un entier ms, l'instant de l'appel (`now_ms`), validé en direct à des heures de journée seulement (référence server.py:130-136). La forme chaîne et le fuseau attendu pour l'entier sont **NON VÉRIFIÉ** [v:formats-dates-entree].
+- Règle du plan (00 §8 révision 2, AM-02) : `singleDate` = midi Europe/Paris du jour `version_date`, en epoch ms, stable sur la journée (la clé de cache repose sur `VersionDate`, pas sur l'instant). Elle est correcte que PISTE compare l'instant à des bornes stockées à minuit UTC (§4.9) ou le tronque en date UTC ou Paris ; minuit Paris (règle de la version initiale de 00) n'était correct que dans le dernier cas. Vecteurs (00 §8) : 2026-10-15 → `1792058400000` (10:00Z) ; 2026-01-15 → `1768474800000` (11:00Z) ; 2026-03-29 → `1774778400000` ; 2026-10-25 → `1792926000000`. L'effet réel est **NON VÉRIFIÉ** [v:singledate-minuit-paris] (V-76, bloquante en M2 ; l'étiquette garde le nom de l'ancienne règle ; 04 §6.3, R-17).
 - `dates {start, end}` : `AAAA-MM-JJ` dans les exemples officiels et le Swagger ; pylegifrance envoie un ISO naïf `"2020-03-04T00:00:00"`. L'effet réel (total réduit, bornes incluses) est **NON VÉRIFIÉ** [v:filtres-dates-effet].
 - Faute d'orthographe officielle à reproduire telle quelle : **`TRIBUNAL_ADMINISTATIF`** (sans R), dans le Swagger et les facettes CETAT (fixture search_cetat.json).
 - Contradictions documentaires : des exemples officiels écrivent `"facette": "TEXT_LEGAL_STATUS", "valeur": "VIGUEUR"` au singulier (l.461, l.561, l.667) alors que `FiltreDTO` ne définit que `valeurs`. Un exemple filtre `CASSATION_NATURE_DECISION` avec `ARRET` alors que la facette renvoie `arret` (recherche 05 §2.3). Toujours envoyer `valeurs: [..]` avec la valeur exacte renvoyée par la facette. Le comportement du singulier et la sensibilité à la casse sont **NON VÉRIFIÉ** [v:facette-casse-valeurs]. L'acceptation en filtre des valeurs de facettes fermées (`NATURE`, `CASSATION_FORMATION`, `JURIDICTION_NATURE`) est **NON VÉRIFIÉ** [v:facettes-fermees-filtre] ; le plan n'en envoie aucune en v0.1 et v0.2 (annexe [B](B-citations.md)).
@@ -541,7 +550,7 @@ Document officiel « description des tris et filtres » (recherche 05 §2.2 ; fe
 |---|---|---|
 | tous sauf CODE | `FOND` → `origine` | JORF, JURI, CETAT, ACCO, LEGI, CNIL, KALI, CIRC, CONSTIT, JUFI, CODE (volumétrie, §3.2) |
 | LODA | `NATURE` → `nature` | ARRETE, DECLARATION, DECISION, LOI, ORDONNANCE, DECRET, DECRET_LOI, CONVENTION, CONSTITUTION, DELIBERATION, ACCORD_FONCTION_PUBLIQUE |
-| LODA | `ARTICLE_LEGAL_STATUS` → `articles.etat` | les 17 états de l'enum `legalStatus` : ABROGE, ABROGE_DIFF, ANNULE, DENONCE, DISJOINT, INITIALE, MODIFIE, MODIFIE_MORT_NE, PERIME, REMPLACE, SANS_ETAT, SUBSTITUE, TRANSFERE, VIGUEUR, VIGUEUR_DIFF, VIGUEUR_ETEN, VIGUEUR_NON_ETEN |
+| LODA | `ARTICLE_LEGAL_STATUS` → `articles.etat` | les 17 états de l'enum `legalStatus` (liste fermée, identique à l'enum `CodeListRequest.states` du Swagger, recomptée le 2026-10-15 ; `DENONCE` est courant en KALI, facette `LEGAL_STATUS` de search_kali.json) : ABROGE, ABROGE_DIFF, ANNULE, DENONCE, DISJOINT, INITIALE, MODIFIE, MODIFIE_MORT_NE, PERIME, REMPLACE, SANS_ETAT, SUBSTITUE, TRANSFERE, VIGUEUR, VIGUEUR_DIFF, VIGUEUR_ETEN, VIGUEUR_NON_ETEN |
 | JURI | `JURIDICTION_JUDICIAIRE`, `CASSATION_TYPE_PUBLICATION_BULLETIN` (T, F), `CASSATION_NATURE_DECISION` (avis, ordonnance, arret, autres_decisions), `CASSATION_FORMATION` (16 : CHAMBRE_CIVILE_1… TRIBUNAL_CONFLIT), `CASSATION_DECISION_ATTAQUEE` (19), `APPEL_SIEGE_APPEL` (35), `PREMIER_DEGRE_TYPE_JURIDICTION` (19), `PDC_CHECKBOX_RESTREINDRE_ARRET` (vide) | sémantique de `T`/`F` **NON VÉRIFIÉ** [v:publication-bulletin-semantique] |
 | CETAT | `JURIDICTION_NATURE` (CONSEIL_ETAT, COURS_APPEL, TRIBUNAL_ADMINISTATIF, TRIBUNAL_CONFLIT, COURS_DE_DISCIPLINE, COURS_APPEL_FINANCIERE, COURS_COMPTES, CHAMBRES_COMPTES ; `childs` : 9 cours, 42 tribunaux), `PUBLICATION_RECUEIL` (PUBLIE, NON_PUBLIE), `pdcRestreindreArret` | — |
 | CONSTIT | `NATURE_CONSTIT` (8), `SOLUTION_CONSTIT` (34), `SOLUTION_ELECT` (12), `SOLUTION_AUTRE` (4), `NATURE_AUTRE` (5), `NATURE_ELCT` (5), `NATURE_NORME_AUTRE` (2) | `NATURE_ELCT` dans la réponse, `TYPE_DECISION` dans le document officiel |
@@ -558,13 +567,13 @@ Conséquences : les facettes sont découvrables à l'exécution et très volumin
 
 - `pageSize` : **max 100** (`RechercheSpecifiqueDTO.pageSize` « (max=100) » ; toutes les `/list/*` « (max 100) » ; `jorfCont.pageSize` « (max 100) »). Un exemple officiel CETAT utilise 100 (l.1027). VÉRIFIÉ.
 - `pageNumber` commence à **1** (exemples officiels ; référence server.py:150). Le document officiel indique « 0 (valeur par défaut) » pour `jorfCont` seulement (recherche 05 §2.4).
-- `typePagination` : `DEFAUT` ou `ARTICLE`, « Spécifique pour les recherches dans les articles d'un texte, dans les autres cas la valeur sera toujours DEFAULT. Lors de la navigation dans plusieurs pages, il est nécessaire de passer la valeur reçue dans la réponse précédente » (Swagger). Observé : `CODE_DATE` répond `ARTICLE` avec `totalArticleResultNumber = 1` (fixture search_code.json) ; les 7 autres fixtures répondent `DEFAUT`. Le plan mémorise la valeur reçue et la renvoie (04 §6.6). Effet réel en page 2 : **NON VÉRIFIÉ** [v:typepagination-page2].
-- Pagination profonde : aucune limite documentée. Le moteur est vraisemblablement Elasticsearch (`idTechInjection: "index_DATA_NEXT_ARTICLE_…"`, paramètre `page` de `getJuriPlanClassement` décrit comme « la requete ELK »), dont la fenêtre par défaut est de 10 000 résultats, limite appliquée par Judilibre (§6.4). **NON VÉRIFIÉ** [v:pagination-profonde]. Proposition de 04 §6.7 : refuser `page × page_size > 10 000`.
+- `typePagination` : `DEFAUT` ou `ARTICLE`, « Spécifique pour les recherches dans les articles d'un texte, dans les autres cas la valeur sera toujours DEFAULT. Lors de la navigation dans plusieurs pages, il est nécessaire de passer la valeur reçue dans la réponse précédente » (Swagger). Observé : `CODE_DATE` répond `ARTICLE` avec `totalArticleResultNumber = 1` (fixture search_code.json) ; les 7 autres fixtures répondent `DEFAUT`. Le plan mémorise la valeur reçue par requête normalisée sans `page` (`PaginationMemo`, TTL 1 h, 1 024 entrées) et la renvoie pour la page suivante ; sans mémo, `ARTICLE` pour CODE en page > 1, `DEFAUT` sinon ; `typePagination` n'est jamais exposé au modèle (00 §7 ; 04 §6.6). Effet réel en page 2 : **NON VÉRIFIÉ** [v:typepagination-page2] (V-82).
+- Pagination profonde : aucune limite documentée. Le moteur est vraisemblablement Elasticsearch (`idTechInjection: "index_DATA_NEXT_ARTICLE_…"`, paramètre `page` de `getJuriPlanClassement` décrit comme « la requete ELK »), dont la fenêtre par défaut est de 10 000 résultats, limite appliquée par Judilibre (§6.4). **NON VÉRIFIÉ** [v:pagination-profonde] (V-83). Décision (00 §7, AM-04) : `page × page_size > 10 000` est rejeté en `invalid_arg` par le cas d'usage, sans appel réseau (04 §6.7).
 
 ### 3.9 Limites et pièges connus
 
-1. Facette inexistante, champ JSON inconnu ou `fond=ALL` avec filtres → 500 selon un tiers ; « ALL : aucun filtre de date » selon un autre (recherche 05 §1.13, §2.2). **NON VÉRIFIÉ** [v:500-requete-invalide], [v:fond-all-comportement]. Parade : n'envoyer que des facettes des tables du §3.7, jamais de champ hors Swagger, jamais `ALL`.
-2. `NOM_CODE` (CODE_DATE) et `TEXT_NOM_CODE` (CODE_ETAT) : la documentation officielle les utilise avec le titre exact du code ; deux tiers les disent cause de 500 avec du texte libre. **NON VÉRIFIÉ** [v:nom-code-filtre]. Le plan ne les envoie pas (04 §7.2).
+1. Facette inexistante, champ JSON inconnu ou `fond=ALL` avec filtres → 500 selon un tiers ; « ALL : aucun filtre de date » selon un autre (recherche 05 §1.13, §2.2). **NON VÉRIFIÉ** [v:500-requete-invalide], [v:fond-all-comportement]. Parade : n'envoyer que des facettes des tables du §3.7, jamais de champ hors Swagger, jamais `ALL` ; un 500 n'est réessayé qu'une fois (00 §8, §1.5).
+2. `NOM_CODE` (CODE_DATE) et `TEXT_NOM_CODE` (CODE_ETAT) : la documentation officielle les utilise avec le titre exact du code ; deux tiers les disent cause de 500 avec du texte libre. **NON VÉRIFIÉ** [v:nom-code-filtre]. Le plan ne les envoie pas : jamais `NOM_CODE` sans V-121 ; `find_article` filtre les hits par `cid` (00 §8 ; 04 §7.2).
 3. Le filtre `CASSATION_TYPE_PUBLICATION_BULLETIN` serait inopérant (commentaire pylegifrance, recherche 03 §3.2) : non utilisé.
 4. `nature` et NOR changent de casse entre recherche et consultation (`arret`/`ARRET`, `cscl2115694s`/`CSCX2531180S`, §4.12).
 5. Aucune date dans les hits JURI, CONSTIT et CETAT : la date n'est que dans le titre en prose (recherche 03 §4.2). Sémantique de `date` par fonds **NON VÉRIFIÉ** [v:date-hit-semantique].
@@ -574,7 +583,7 @@ Conséquences : les facettes sont découvrables à l'exécution et très volumin
 
 ### 3.10 Gabarits du plan
 
-Gabarit v0.1 (`fr_search`, parité de la référence server.py:133-156, `typeRecherche` selon `match`, `singleDate` à minuit Paris) : 04 §6.1. Gabarit M6 de recherche exacte, d'après l'exemple officiel « article 57 de la loi du 17 juillet 1978 » (doc « exemples » l.497-570) :
+Gabarit v0.1 (`fr_search`, parité de la référence server.py:133-156, `typeRecherche` selon `match`, `singleDate` à midi Europe/Paris, 00 §8) : 04 §6.1. Gabarit M6 de recherche exacte, d'après l'exemple officiel « article 57 de la loi du 17 juillet 1978 » (doc « exemples » l.497-570), pour `version_date` = 2026-10-15 :
 
 ```json
 {
@@ -583,7 +592,7 @@ Gabarit v0.1 (`fr_search`, parité de la référence server.py:133-156, `typeRec
     "champs": [{ "typeChamp": "NUM_ARTICLE", "operateur": "ET",
                  "criteres": [{ "typeRecherche": "EXACTE", "valeur": "57", "operateur": "ET" }] }],
     "filtres": [
-      { "facette": "DATE_VERSION", "singleDate": 1792015200000 },
+      { "facette": "DATE_VERSION", "singleDate": 1792058400000 },
       { "facette": "DATE_SIGNATURE", "dates": { "start": "1978-07-17", "end": "1978-07-17" } }
     ],
     "pageNumber": 1, "pageSize": 20, "operateur": "ET", "sort": "PERTINENCE", "typePagination": "ARTICLE"
@@ -591,7 +600,12 @@ Gabarit v0.1 (`fr_search`, parité de la référence server.py:133-156, `typeRec
 }
 ```
 
-Les autres recherches exactes (`NUM`, `NUM_AFFAIRE`, `NUM_DEC`, `NUM_DELIB`, `IDCC`) suivent la même forme avec la facette de date du fonds pour lever une ambiguïté (04 §6.9, §7.2). Leur comportement réel (casse, tirets typographiques, zéros de tête) est **NON VÉRIFIÉ** [v:recherche-exacte-par-numero].
+`singleDate` vaut ici midi Europe/Paris du 2026-10-15 (vecteur de 00 §8). Les autres recherches exactes (`NUM`, `NUM_AFFAIRE`, `NUM_DEC`, `NUM_DELIB`, `IDCC`) suivent la même forme avec la facette de date du fonds pour lever une ambiguïté (04 §6.9, §7.2). Leur comportement réel (casse, tirets typographiques, zéros de tête) est **NON VÉRIFIÉ** [v:recherche-exacte-par-numero].
+
+Autres gabarits M6 (00 §8 révision 2, AM-29 ; détail 04 §7.2) :
+
+- `find_article` à une autre date que le jour : `fond = CODE_DATE`, `NUM_ARTICLE` en `EXACTE`, filtre `DATE_VERSION` (midi Paris de la date demandée), `typePagination = ARTICLE`, `pageSize = 100`, **sans** `NOM_CODE` ([v:nom-code-filtre], V-121) ; l'adapter garde le hit dont `titles[0].cid` est le `LEGITEXT` du code, puis l'extrait dont `num` égale le numéro demandé. `/consult/getArticleWithIdAndNum` ne sert que la version en vigueur (§2.8).
+- ECLI cité (JURI, CETAT) : `valeur: "*"` sur `ALL`, filtre textuel `{"facette": "ECLI", "valeurs": ["ECLI:FR:CCASS:2025:C100399"]}` (forme de la sonde V-128) ; effet **NON VÉRIFIÉ** [v:ecli-filtre-juri-cetat].
 
 ---
 
@@ -622,7 +636,7 @@ Les autres recherches exactes (`NUM`, `NUM_AFFAIRE`, `NUM_DEC`, `NUM_DELIB`, `ID
 
 - **Trois campagnes de capture** se distinguent (recherche 03 §2) : (a) indentation 1 et mojibake, fonds de la v0.1.0 de la référence (2026-06-24) ; (b) indentation 2, saines, CONSTIT et CETAT (v0.2.0, 2026-07-07) ; (c) indentation 1, saines, CNIL, KALI, ACCO (v0.3.0). Le même endpoint `/consult/juri` est corrompu en (a) et sain en (b).
 - Les `[...]` en tête et en fin d'**extraits de recherche** viennent de l'API (présents dans les 8 fixtures `/search`, saines comprises). Les `[...]` en fin de **texte intégral** (CNIL, KALI) sont des troncatures de l'outil de capture.
-- Conséquence : ces fixtures valent pour les **types**, la **nullabilité** et les **clés**, pas pour les **volumes**. Les volumes (textes longs, TOC réelles, listes de liens) exigent de nouvelles captures brutes par `cargo xtask record-fixture` (00 §2 ; 04 §13). Tailles réelles **NON VÉRIFIÉ** [v:taille-max-textes] (D-35).
+- Conséquence : ces fixtures valent pour les **types**, la **nullabilité** et les **clés**, pas pour les **volumes**. Les volumes (textes longs, TOC réelles, listes de liens) exigent de nouvelles captures brutes par `cargo xtask record-fixture` (00 §2 ; 04 §13.4) : sandbox par défaut ; en production, seulement des fixtures de données publiques marquées `env = production`, enregistrées à la main par le mainteneur (00 §10, adoptée par défaut, Q3). Tailles réelles **NON VÉRIFIÉ** [v:taille-max-textes] (D-35).
 
 ### 4.2 `/search` : `SearchResponseDTO`
 
@@ -693,7 +707,7 @@ Fixture consult_loda.json (élaguée) :
 | `sections…articles[]` | objets | 62 articles `{id, num, etat}` | TOC |
 | `articles[]` (racine) | tableau | [] | articles hors section |
 
-Le Swagger déclare en plus `visa`, `signers`, `prepWork`, `notice`, `nota`, `liens`, `dossiersLegislatifs`, et pour chaque `ConsultSection`/`ConsultArticle` : `intOrdre` (« Numéro indiquant l'ordre d'affichage »), `dateDebut`, `dateFin`, `content` (« Contenu HTML de l'article »), `lstLienModification`, `comporteLiens`. Les listes `sections` et `articles` sont « ordonnées ». Présences réelles : `intOrdre` **NON VÉRIFIÉ** [v:intordre-lawdecree] ; `content` **NON VÉRIFIÉ** [v:lawdecree-content-articles] ; ordre sans `intOrdre` **NON VÉRIFIÉ** [v:toc-ordre-sans-intordre]. Comportement sur un `LEGITEXT` de code : **NON VÉRIFIÉ** [v:lawdecree-sur-code] (D-47).
+Le Swagger déclare en plus `visa`, `signers`, `prepWork`, `notice`, `nota`, `liens`, `dossiersLegislatifs`, et pour chaque `ConsultSection`/`ConsultArticle` : `intOrdre` (« Numéro indiquant l'ordre d'affichage »), `dateDebut`, `dateFin`, `content` (« Contenu HTML de l'article »), `lstLienModification`, `comporteLiens`. Les listes `sections` et `articles` sont « ordonnées ». Présences réelles : `intOrdre` **NON VÉRIFIÉ** [v:intordre-lawdecree] ; `content` **NON VÉRIFIÉ** [v:lawdecree-content-articles] ; ordre sans `intOrdre` **NON VÉRIFIÉ** [v:toc-ordre-sans-intordre]. Comportement, taille et durée sur un `LEGITEXT` de code : **NON VÉRIFIÉ** [v:lawdecree-sur-code] (D-47 ; V-96, bloquante en M2 : au-delà de 4 Mio ou 10 s, `get_act` sur un code passe par `/consult/legi/tableMatieres` dès v0.1, 00 §8, 04 §7.3).
 
 ### 4.4 `/consult/getArticle` : `GetArticleResponse`
 
@@ -771,11 +785,12 @@ Absents de la fixture, déclarés par le Swagger : `data` (« Contenu du fichier
 
 Aucune fixture : formes du Swagger seulement (§2.8). Points notables :
 
-- `ConsultJorfResponse.id` a pour exemple `LEGITEXT000006070994_01-08-2016` (suffixe de version, comme `ConsultTextResponse.id`) ; `eli` a pour exemple `/eli/arrete/2019/1/18/TREK1901124A/jo/texte`. Côté JORF, un ELI natif est donc plausible ; il serait rendu tel quel, jamais fabriqué (00 §4).
-- `CodeListResult` et `SuggestValue.dateVersion` : exemples ISO `2021-04-15T16:49:47.707+0000`.
+- `ConsultJorfResponse.id` a pour exemple `LEGITEXT000006070994_01-08-2016` (suffixe de version, comme `ConsultTextResponse.id`) ; `eli` a pour exemple `/eli/arrete/2019/1/18/TREK1901124A/jo/texte`. Côté JORF, un ELI natif est donc plausible ; il serait rendu tel quel, jamais fabriqué (00 §4). `ConsultJorfResponse` est la réponse de `getJoWithNor`, `eliAndAliasRedirectionTexte` (M6) et `/consult/jorf` (candidat M7).
+- `getArticleWithIdEliOrAlias` (M6) renvoie un `GetArticleResponse`, de même forme que `/consult/getArticle` (§4.4) ; son corps est `ArticleIdEliOrAliasRequest {`**`idEliOrAlias`**`}`, celui d'`eliAndAliasRedirectionTexte` `JorfConsultWithIdEliAliasRequest {`**`idEliOrAlias`**`}` (Swagger).
+- `CodeListResult` et `SuggestValue.dateVersion` (`/suggest`, retiré) : exemples ISO `2021-04-15T16:49:47.707+0000`.
 - `ArticleVersion.ordre` : « Sert au tri des articles au sein de leur élément parent ».
 - `LiensRelatifsDTO.cidParent` : « Renseigné si besoin pour créer le lien vers l'élément ».
-- Formes réelles : **NON VÉRIFIÉ** [v:endpoints-m6-reponses], [v:endpoints-m7-reponses], [v:related-links-forme].
+- Formes réelles : **NON VÉRIFIÉ** [v:endpoints-m6-reponses], [v:eli-redirection-endpoints], [v:endpoints-m7-reponses], [v:related-links-forme].
 
 ### 4.9 Dates
 
@@ -792,8 +807,8 @@ Mesure sur les 16 fixtures (recherche 03 §11.2) : **39** entiers epoch ms (27 d
 
 Règles (00 §4 ; 03-domaine §6 ; 04 §9.1) :
 
-- Tous les entiers non sentinelles sont des multiples exacts de 86 400 000 (minuit UTC) ; une seule chaîne ISO n'est pas à minuit (heure de requête KALI). La date civile UTC est donc la bonne lecture. Convention générale **NON VÉRIFIÉ** [v:convention-horaire-timestamps].
-- Toute date ≥ 2222-01-01 devient `None` : règle des champs `…Computed` du Swagger, qui couvre `2999-01-01` (fin ouverte) et `2222-02-22`. Cette seconde valeur signifie, dans les dumps DILA, « entrée en vigueur différée à une date non déterminée » (§7.8) ; son emploi par l'API est **NON VÉRIFIÉ** [v:sentinelle-2222-debut].
+- Tous les entiers non sentinelles sont des multiples exacts de 86 400 000 (minuit UTC) ; une seule chaîne ISO n'est pas à minuit (heure de requête KALI). La date civile UTC est donc la bonne lecture. Convention générale **NON VÉRIFIÉ** [v:convention-horaire-timestamps] (V-100). C'est aussi la raison de la règle de midi Europe/Paris pour `singleDate` en entrée (00 §8, §3.6).
+- Toute date ≥ 2222-01-01 devient `None`, donc un champ omis en sortie dont le sens est documenté par champ (00 §4, AM-01) : règle des champs `…Computed` du Swagger, qui couvre `2999-01-01` (fin ouverte) et `2222-02-22`. Cette seconde valeur signifie, dans les dumps DILA, « entrée en vigueur différée à une date non déterminée » (§7.8) ; son emploi par l'API est **NON VÉRIFIÉ** [v:sentinelle-2222-debut].
 - Epoch négatifs : conversion calendaire pure (`chrono::DateTime::from_timestamp_millis` utilise `div_euclid`, recherche 03 §11.2), indépendante de la plateforme (corrige D-20, E-35).
 - Un booléen n'est jamais une date (la référence acceptait `true`, D-20).
 
@@ -820,9 +835,9 @@ Règles (00 §4 ; 03-domaine §6 ; 04 §9.1) :
 
 ### 4.13 Mojibake
 
-- 6 fixtures sur 16 (search_loda, search_code, search_juri, consult_loda, consult_article, consult_juri) contiennent de l'UTF-8 décodé à tort en ISO-8859-1 : **252** séquences, **13** motifs (`Ã©` → `é` ×184, `Ã` + NBSP → `à` ×15, `Ã¨` → `è` ×15, `Â°` → `°` ×14, `Ãª` → `ê` ×8, `Ã\x89` → `É` ×6, `Ã\x88` → `È` ×3, `Ã\x87` → `Ç` ×2, et 5 motifs uniques), 60 valeurs et **14 clés** de facettes, 12 caractères de contrôle C1 (recherche 03 §11.1). Les 6 fichiers n'ont aucun caractère accentué correct ni aucun caractère > U+00FF ; aucun motif Windows-1252 (`â€`, `Å“`).
+- 6 fixtures sur 16 (search_loda, search_code, search_juri, consult_loda, consult_article, consult_juri) contiennent de l'UTF-8 décodé à tort en ISO-8859-1 : **252** séquences, chiffre de référence (235 dans 60 valeurs, 17 dans **14 clés** de facettes, toutes dans search_juri.json ; les « 235 séquences, 60 champs » de la recherche 02, D-35, ne comptent que les valeurs), **13** motifs (`Ã©` → `é` ×184, `Ã` + NBSP → `à` ×15, `Ã¨` → `è` ×15, `Â°` → `°` ×14, `Ãª` → `ê` ×8, `Ã\x89` → `É` ×6, `Ã\x88` → `È` ×3, `Ã\x87` → `Ç` ×2, et 5 motifs uniques), 12 caractères de contrôle C1 (recherche 03 §11.1 ; recompté pour cette annexe en `python3 -I`, Python 3.13, sur les 16 fixtures ; `docs/plan/annexes/donnees/scripts/dto_repair_check.py` répare exactement 60 valeurs et 14 clés). Les 6 fichiers n'ont aucun caractère accentué correct ni aucun caractère > U+00FF ; aucun motif Windows-1252 (`â€`, `Å“`).
 - **Origine probable : la capture**, pas l'API : le même endpoint est sain dans une campagne ultérieure (§4.1) et pylegifrance filtre avec la chaîne correcte `Juridictions du premier degré` (recherche 03 §11.1 ; D-35). **NON VÉRIFIÉ** [v:mojibake-origine]. Les fixtures ne contiennent aucun échappement `\uXXXX` ; la forme servie par PISTE (caractères bruts ou échappés) est **NON VÉRIFIÉ** [v:json-echappements-unicode].
-- Traitement (00 §8 ; 04 §10) : réparation tout-ou-rien du corps entier, avant serde et **avant** toute normalisation des NBSP (`Ã` + U+00A0 est l'encodage de `à` : normaliser d'abord casse 10 champs), active par défaut, comptée, journalisée en `warn`.
+- Traitement (00 §4, §8 ; 04 §10) : fonction pure du domaine `text::encoding::repair_latin1_mojibake`, appliquée par l'adapter au corps entier, tout-ou-rien, après le décodage UTF-8 strict, avant serde et **avant** toute normalisation des NBSP (`Ã` + U+00A0 est l'encodage de `à` : normaliser d'abord casse 10 champs, mesuré par `dto_repair_check.py`), active par défaut, désactivable par `LF_PISTE_MOJIBAKE_REPAIR=off`, comptée, journalisée en `warn`. Stratégies contrôlées sur les fixtures par `docs/plan/annexes/donnees/scripts/dto_repair_check.py` (empreinte SHA-256 de la version qui a produit ces mesures : `ef5c1c80c82a063a407ba9134d3afc3e5526bc659e5650810b38a3096d9d0530` ; Python 3.13, `python3 -I` ; 00 §10).
 
 ---
 
@@ -839,7 +854,7 @@ Consolidation de la recherche 03 §12, alignée sur la liste de champs fixée pa
 5. **`""` → `None`** par `opt_nonempty` là où `""` signifie absent ; jamais de `trim` du texte juridique.
 6. **Renommages explicites** : `rename_all = "camelCase"` produirait `titresTm` alors que l'API envoie `titresTM` ; alias `isMultipleVersions`/`multipleVersions`.
 7. **Erreurs lisibles** : `serde_path_to_error` ; `CorpusError::Decode` cite l'endpoint, le chemin JSON et la catégorie serde, jamais une valeur (04 §8.5).
-8. **Avant serde** : décodage UTF-8 strict et réparation du mojibake (§4.13) ; corps borné à 16 Mio (04 §4.3).
+8. **Avant serde** : décodage UTF-8 strict et réparation du mojibake (§4.13) ; corps lu en flux et borné à 16 Mio après décompression, `Decode` au-delà (00 §8 ; 04 §4.3).
 
 ### 5.2 Helpers (`dto/de.rs`)
 
@@ -912,7 +927,8 @@ pub(crate) struct CritereDto<'a> { pub type_recherche: TypeRecherche, pub valeur
 #[derive(Serialize)] #[serde(rename_all = "camelCase")]
 pub(crate) struct FiltreDto<'a> {
     pub facette: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")] pub single_date: Option<i64>,      // epoch ms
+    #[serde(skip_serializing_if = "Option::is_none")] pub valeurs: Option<Vec<&'a str>>, // M6 : facette ECLI (§3.10)
+    #[serde(skip_serializing_if = "Option::is_none")] pub single_date: Option<i64>,      // epoch ms, midi Paris (00 §8)
     #[serde(skip_serializing_if = "Option::is_none")] pub dates: Option<DatePeriodDto>,  // AAAA-MM-JJ
 }
 #[derive(Serialize)] pub(crate) struct DatePeriodDto { pub start: String, pub end: String }
@@ -937,10 +953,12 @@ pub(crate) enum TypeChamp { All, Title, Table, Nor, Num, AdvancedTexteId, NumDel
 #[derive(Serialize)] pub(crate) struct CidReq<'a> { pub cid: &'a str }      // getArticleByCid
 #[derive(Serialize)] #[serde(rename_all = "camelCase")] pub(crate) struct ArticleIdReq<'a> { pub article_id: &'a str } // relatedLinksArticle
 #[derive(Serialize)] #[serde(rename_all = "camelCase")] pub(crate) struct CodeListReq { pub page_number: u32, pub page_size: u8, pub sort: &'static str }
-#[derive(Serialize)] #[serde(rename_all = "camelCase")] pub(crate) struct SuggestReq<'a> { pub search_text: &'a str, pub supplies: &'a [&'a str] }
+#[derive(Serialize)] #[serde(rename_all = "camelCase")] pub(crate) struct IdEliOrAliasReq<'a> { pub id_eli_or_alias: &'a str } // getArticleWithIdEliOrAlias, eliAndAliasRedirectionTexte (M6)
+#[derive(Serialize)] #[serde(rename_all = "camelCase")] pub(crate) struct TextCidReq<'a> { pub text_cid: &'a str }  // consult/jorf, si retenu à l'ouverture de M7
+// /suggest retiré (00 §8 révision 2) : pas de SuggestReq
 ```
 
-Le passage `SCREAMING_SNAKE_CASE` donne exactement les valeurs du Swagger (`AucuneCorrespondanceACetteExpression` → `AUCUNE_CORRESPONDANCE_A_CETTE_EXPRESSION`, `AdvancedTexteId` → `ADVANCED_TEXTE_ID`) ; un test de sérialisation le verrouille (04 §6.10). Les variantes inutiles (`multiValeurs`, `valeurs`, `proximite`, sous-critères, `secondSort`, `fromAdvancedRecherche`, `searchedString`, `fromSuggest`) ne sont pas déclarées.
+Le passage `SCREAMING_SNAKE_CASE` donne exactement les valeurs du Swagger (`AucuneCorrespondanceACetteExpression` → `AUCUNE_CORRESPONDANCE_A_CETTE_EXPRESSION`, `AdvancedTexteId` → `ADVANCED_TEXTE_ID`) ; un test de sérialisation le verrouille (04 §6.10). Les variantes inutiles (`multiValeurs`, `proximite`, sous-critères, `secondSort`, `fromAdvancedRecherche`, `searchedString`, `fromSuggest`) ne sont pas déclarées ; `valeurs` ne sert qu'à la facette `ECLI` de M6 (jamais envoyé en v0.1, 04 §6.1).
 
 ### 5.4 Réponse `/search`
 
@@ -994,7 +1012,7 @@ Pour un usage ultérieur des facettes (complétions, hors plan en v0.1) : `Facet
 ```rust
 // non compilé, à valider en M0 — #[serde(default)] partout ; RD = Option<RawDate> via de::opt_raw_date ;
 // NE = Option<String> via de::opt_nonempty ; V<T> = Vec<T> via de::null_default
-// dto/text.rs — /consult/lawDecree, /consult/kaliText (et /consult/legi/tableMatieres en M7)
+// dto/text.rs — /consult/lawDecree, /consult/kaliText (et /consult/legi/tableMatieres, dès M2 si V-96 l'exige)
 pub(crate) struct ConsultTextDto {           // rename_all = "camelCase"
     id, cid, title, nor, nature, etat, juris_state: Option<String>, text_abroge: Option<bool>,
     date_parution, date_debut_version, date_fin_version: RD,
@@ -1058,16 +1076,18 @@ Notation abrégée pour la lisibilité : `id, cid: Option<String>` signifie un c
 
 | DTO | Endpoint | Champs |
 |---|---|---|
-| `ConsultJorfDto` | `/consult/getJoWithNor` | `id`, `cid`, `title`, `nor`, `nature`, `textNumber` ; `dateTexte`, `dateParution` (RD) ; `hasLoda: bool` ; `eli` (NE, jamais fabriqué) |
+| `ConsultJorfDto` | `/consult/getJoWithNor`, `/consult/eliAndAliasRedirectionTexte` (M6) ; `/consult/jorf` si retenu en M7 | `id`, `cid`, `title`, `nor`, `nature`, `textNumber` ; `dateTexte`, `dateParution` (RD) ; `hasLoda: bool` ; `eli` (NE, jamais fabriqué) |
+| `GetArticleResponseDto` (réutilisé) | `/consult/getArticleWithIdEliOrAlias` (M6), `/consult/getArticleWithIdAndNum` (M6) | §5.5 |
 | `KaliContDto` | `/consult/kaliContIdcc` | `id` (KALICONT), `titre`, `num`, `numeroTexte`, `nature`, `texteBaseId: V<String>`, `sections: V<TocSectionDto>` |
 | `CodeListResponseDto` | `/list/code` | `totalResultNumber` (`opt_u64_lenient`), `results: V<CodeListResultDto { id, cid, titre, etat, dateDebut, dateFin, lastUpdate }>` |
 | `CanonicalVersionsDto` | `/search/canonicalArticleVersion` | `articleVersions: V<ArticleVersionDto { id, version, numero, etat, dateDebut, dateFin (RD), ordre: i64 }>` |
 | `GetListArticleResponseDto` | `/consult/getArticleByCid` | `listArticle: V<ArticleDto>` |
 | `RelatedLinksDto` | `/consult/relatedLinksArticle` | `liensCite`, `liensCitePar: V<LienRelatifDto { id, cidText, cidParent, nature, name, dateVigeur (RD) }>` |
-| `SuggestResponseDto` | `/suggest` | `totalResultNumber`, `results: BTreeMap<String, SuggestValueDto { id, idTexte, section, label, nature, origin, dateVersion (RD), appellations: V<String> }>` (`null_default`) |
-| `ConsultTextDto` (réutilisé) | `/consult/legi/tableMatieres` | §5.5 |
+| `ConsultTextDto` (réutilisé) | `/consult/legi/tableMatieres` (M2, conditionnel : V-96) | §5.5 |
 | `TokenResponseDto`, `OAuthErrorDto` | endpoint token | 04 §3.2 |
 | `PisteErrorDto` | corps d'erreur | `error` (`opt_u64_lenient`), `status` (forme variable), `message`, `errorCode` (04 §11.3) |
+
+`/suggest` étant retiré (00 §8 révision 2), le `SuggestResponseDto` de la version initiale de cette annexe (`totalResultNumber`, `results: BTreeMap<String, SuggestValueDto { id, idTexte, section, label, nature, origin, dateVersion (RD), appellations: V<String> }>` en `null_default`) n'est plus prévu ; il ne serait repris que par un amendement de 00 §3 et §8.
 
 ### 5.7 Mapping et tests
 
@@ -1255,7 +1275,7 @@ Aucun de ces projets n'est sous AGPL à notre connaissance (la licence du code d
 | Étiquette | Vérification à faire |
 |---|---|
 | [v:oauth-production-live] | L'endpoint token et la base de production répondent comme documenté avec une application de production. |
-| [v:oauth-reponses] | Statuts et corps réels des erreurs de l'endpoint token ; `expires_in` et `token_type` réels. |
+| [v:oauth-reponses] | Statuts et corps réels des erreurs de l'endpoint token (dont le statut, 400 ou 401, de `invalid_client`) ; `expires_in` et `token_type` réels. |
 | [v:sandbox-prod-donnees] | Ampleur des écarts de données entre sandbox et production. |
 | [v:swagger-version-servie] | Version du Swagger servie aujourd'hui par PISTE, comparée à la copie 2.4.2 ; existence des chemins `consult/loda/version(s)` et `consult/juri/*`. |
 | [v:quota-piste-prod] | Valeurs des quotas (sandbox, production, Judilibre), granularité (application ou méthode, requêtes ou bande passante). |
@@ -1264,25 +1284,26 @@ Aucun de ces projets n'est sous AGPL à notre connaissance (la licence du code d
 | [v:forme-403-piste] | Sens et corps d'un 403 de l'API Légifrance. |
 | [v:forme-404-piste] | Forme d'un 404 PISTE, de routage ou de ressource. |
 | [v:corps-erreur-piste] | Forme générale des corps d'erreur de l'API. |
-| [v:introuvable-par-endpoint] | Réponse de chaque consultation à un identifiant bien formé mais inexistant. |
-| [v:500-requete-invalide] | Une facette ou un champ inconnu provoque-t-il un 500 plutôt qu'un 400 ? |
+| [v:introuvable-par-endpoint] | Réponse de chaque consultation à un identifiant bien formé mais inexistant (dont `CETATEXT` et `CONSTEXT` sur `/consult/juri` : seul `JURITEXT` a été sondé en direct). |
+| [v:500-requete-invalide] | Une facette ou un champ inconnu provoque-t-il un 500 plutôt qu'un 400 ? Fréquence des 500 transitoires (retour à 3 tentatives sur 500 si elle est élevée, 00 §8). |
 | [v:fond-all-comportement] | Comportement de `fond=ALL` (avec filtres, filtres de date, mélange, tri). |
 | [v:piste-gzip] | Compression des réponses de l'API. |
 | [v:cgu-piste-generales] | CGU générales du portail PISTE : partage de compte, application mutualisée, cache. |
-| [v:date-maj-par-document] | Sémantique de `modifDate`, `dateMaj`, `lastUpdate`, `refInjection` comme « date de dernière mise à jour » (Licence Ouverte). |
+| [v:date-maj-par-document] | Sémantique de `modifDate`, `dateMaj`, `lastUpdate`, `refInjection` comme « date de dernière mise à jour » (Licence Ouverte) ; condition d'un champ `last_update?` par document (00 §12, Q15). |
+| [v:attribution-licence-ouverte] | Une mention globale (`fr_coverage`, instructions, README, `NOTICE`) suffit-elle à l'attribution exigée par la Licence Ouverte 2.0, ou faut-il une mention dans chaque réponse ? (étiquette de 09, V-177) |
 | [v:profilage-magistrats-article] | Article exact de l'interdiction de profilage des magistrats. |
 | [v:dereferenced-inap-obligation] | Obligations attachées à `dereferenced = true` et `inap = true`. |
 | [v:contenu-fonds-hors-plan] | Contenu réel du fonds JUFI. |
-| [v:mode-all-semantique] | Sens de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp = ALL`. |
+| [v:mode-all-semantique] | Sens de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp = ALL` et rappel sur les scénarios de la référence (conditionne Q10). |
 | [v:syntaxe-moteur-valeur] | Syntaxe interne du moteur dans `valeur` (guillemets, jokers, `*`). |
 | [v:longueur-max-query] | Longueur maximale acceptée pour `valeur`. |
 | [v:formats-dates-entree] | `singleDate` en chaîne ; fuseau attendu pour l'entier ms ; formats acceptés pour `dates {start, end}`. |
-| [v:singledate-minuit-paris] | Un texte entrant en vigueur le jour J est-il retenu avec `singleDate` = minuit Paris du jour J ? |
+| [v:singledate-minuit-paris] | Un texte entrant en vigueur le jour J est-il retenu avec `singleDate` = midi Europe/Paris du jour J (règle de 00 §8 révision 2), et la version précédente le jour J-1 ? Comparaison avec minuit UTC, minuit Paris et la veille (V-76, bloquante en M2 ; l'étiquette garde le nom de l'ancienne règle). |
 | [v:filtres-dates-effet] | Effet réel des facettes de date (total réduit, bornes incluses, combinaison avec `DATE_VERSION`). |
 | [v:facette-casse-valeurs] | Filtre `valeur` au singulier ; sensibilité à la casse des valeurs (`ARRET` contre `arret`). |
 | [v:facettes-fermees-filtre] | Les valeurs de facettes fermées (`NATURE`, `CASSATION_FORMATION`, `JURIDICTION_NATURE`) sont-elles acceptées en filtre ? (étiquette de l'annexe B) |
-| [v:ecli-filtre-juri-cetat] | Effet du filtre `ECLI` (JURI, CETAT) et du `typeChamp = ECLI` (étiquette de l'annexe B). |
-| [v:eli-redirection-endpoints] | Comportement de `getArticleWithIdEliOrAlias` et `eliAndAliasRedirectionTexte` (étiquette de l'annexe B). |
+| [v:ecli-filtre-juri-cetat] | Effet du filtre `ECLI` (JURI, CETAT), adopté en M6 par 00 §8, et du `typeChamp = ECLI` (étiquette de l'annexe B). |
+| [v:eli-redirection-endpoints] | Comportement de `getArticleWithIdEliOrAlias` et `eliAndAliasRedirectionTexte`, adoptés en M6 par 00 §8 (étiquette de l'annexe B). |
 | [v:tris-par-fond] | Tris valides par fonds (CODE notamment) et liste des `secondSort`. |
 | [v:nom-code-filtre] | `NOM_CODE` / `TEXT_NOM_CODE` avec un titre exact : résultat ou 500 ? |
 | [v:typepagination-page2] | Effet de `DEFAUT` contre `ARTICLE` en page 2 (CODE) et cohérence de `has_more`. |
@@ -1292,7 +1313,7 @@ Aucun de ces projets n'est sous AGPL à notre connaissance (la licence du code d
 | [v:idandnum-comportement] | Réponse de `getArticleWithIdAndNum` (article sans version en vigueur, numéro inexistant). |
 | [v:list-code-sort] | Valeurs acceptées par `/list/code.sort` (`TITLE_ASC`, `CODE_DATE_MAJ`). |
 | [v:endpoints-m6-reponses] | Formes réelles de `getJoWithNor`, `kaliContIdcc` et `/list/code`. |
-| [v:endpoints-m7-reponses] | Formes et tailles réelles de `tableMatieres`, `canonicalArticleVersion`, `getArticleByCid`, `relatedLinksArticle`, `suggest`. |
+| [v:endpoints-m7-reponses] | Formes et tailles réelles de `tableMatieres`, `canonicalArticleVersion`, `getArticleByCid`, `relatedLinksArticle` et, pour la surface JORF, `/consult/jorf` (`/suggest` est retiré). |
 | [v:related-links-forme] | Forme et taille de `relatedLinksArticle` ; prise en charge de `KALIARTI`. |
 | [v:date-hit-semantique] | Sens du champ `date` des hits par fonds. |
 | [v:kali-extraits-num] | Fiabilité du `num` des extraits KALI. |
@@ -1303,7 +1324,7 @@ Aucun de ces projets n'est sous AGPL à notre connaissance (la licence du code d
 | [v:intordre-lawdecree] | Présence d'`intOrdre` dans les réponses `lawDecree` réelles. |
 | [v:toc-ordre-sans-intordre] | Ordre réel des sections et articles sans `intOrdre`. |
 | [v:lawdecree-content-articles] | Présence du `content` HTML des articles dans `lawDecree`. |
-| [v:lawdecree-sur-code] | Comportement de `lawDecree` sur un `LEGITEXT` de code. |
+| [v:lawdecree-sur-code] | Comportement, taille et durée de `lawDecree` sur un `LEGITEXT` de code, comparés aux seuils de 4 Mio et 10 s (V-96, bloquante en M2). |
 | [v:texte-html-getarticle-juri] | Présence de `texteHtml` sur `getArticle` et sur `/consult/juri` pour JURI. |
 | [v:getarticle-champs-elagues] | Présence de `articleVersions`, `lienCitations`, `lienModifications`, `lienConcordes`, `notaHtml` sur `getArticle`. |
 | [v:texthtml-vs-texte-complet] | Seuil de complétude de `texteHtml` par rapport à `texte`. |
@@ -1331,41 +1352,45 @@ Aucun de ces projets n'est sous AGPL à notre connaissance (la licence du code d
 
 ## 9. Écarts entre sources et décisions
 
-Chaque fois, la décision de 00 (ou, à défaut, de 04) est appliquée dans cette annexe.
+Chaque fois, la décision de 00 révision 2 (ou, à défaut, de 04) est appliquée dans cette annexe. Les lignes 2, 9, 11, 12, 17, 20 et 21 décrivent des écarts tranchés par la révision 2 (la ligne 10 l'est à l'ouverture de M7) ; elles sont gardées pour la traçabilité.
 
 | # | Écart | Décision appliquée | Recommandation |
 |---|---|---|---|
-| 1 | La recherche 05 §3.4 propose des variantes d'erreur `NotSubscribed` (403), `BadRequestSuspected` (500 répété), `Transport` | `CorpusError` de 00 §5 : 403 → `Auth`, 500 → `Upstream`, réseau → `Upstream { status: None }` | garder 00 ; le message d'`Auth` distingue le 403 (« application non abonnée ») |
-| 2 | La recherche 05 §3.4 et §2.2 recommande de ne jamais réessayer plus d'une fois un 500 dû à la requête | 00 §8 : 3 tentatives sur 500 | trancher après [v:500-requete-invalide] (04 §16 question 3) |
-| 3 | La recherche 05 §6.7 propose `2222-02-22 → DateDifferee` ; la recherche 03 §11.2 propose `LegalDate::Open` | 00 §4 : toute sentinelle → `None` ; l'état `VIGUEUR_DIFF` porte l'information | garder 00 |
+| 1 | La recherche 05 §3.4 propose des variantes d'erreur `NotSubscribed` (403), `BadRequestSuspected` (500 répété), `Transport` | `CorpusError` de 00 §5 (AM-28) : 403 → `Auth`, rendu `config_error` avec le message « check that the PISTE application is subscribed to the Legifrance API » ; 400 sans marqueur → `InvalidRequest`, rendu `upstream_error` avec le détail PISTE nettoyé ; 500 répété → `Upstream { status: 500, retryable: false }` ; réseau → `Upstream { status: None, retryable: true }` | appliqué (00 §5) |
+| 2 | La recherche 05 §3.4 et §2.2 recommande de ne jamais réessayer plus d'une fois un 500 dû à la requête ; la version initiale de 00 §8 prévoyait 3 tentatives sur 500 | 00 §8 révision 2 (AM-03) : 2 tentatives au plus sur 500, puis `Upstream { status: 500, retryable: false }` ; 3 sur 429, 502, 503, 504 et réseau | réévaluer après [v:500-requete-invalide] (V-69) : retour à 3 tentatives si les 500 transitoires sont fréquents (04 §16 question 3) |
+| 3 | La recherche 05 §6.7 propose `2222-02-22 → DateDifferee` ; la recherche 03 §11.2 propose `LegalDate::Open` | 00 §4 (AM-01) : toute date ≥ 2222-01-01 → `None`, champ omis en sortie, sens documenté par champ (date de début omise : « date d'entrée en vigueur non déterminée ») ; l'état `VIGUEUR_DIFF` porte l'information (V-101) | garder 00 |
 | 4 | La recherche 03 §12.3 déclare `facets: Option<Box<RawValue>>` | 04 §8.1 : facettes non déclarées (00 §7 : jamais renvoyées) | garder 04 ; `FacetDto` seulement si des complétions de facettes sont décidées |
 | 5 | La recherche 05 §1.13 suggère `fond=ALL` pour `fr_search_all` | 00 §7 : une requête par fond, bornée par le limiteur | garder 00 ; `ALL` est en outre réputé fragile avec filtres |
 | 6 | La recherche 05 §6.7 propose SQLite (rusqlite) comme stockage de vérité plus tantivy | 00 §2 : `lf-adapter-dila` dépend de `tar`, `flate2`, `quick-xml`, `tantivy` | tantivy seul (champs stockés) pour v1.0 ; réévaluer par ADR en M9 si les mises à jour incrémentales ou la taille l'exigent |
-| 7 | La recherche 05 §7 nomme le port `LegalSource` et lui ajoute suggest, listes JO, TOC par section | 00 §3 : port `LegalCorpus` et méthodes listées | garder 00 ; candidats au §2.10 |
+| 7 | La recherche 05 §7 nomme le port `LegalSource` et lui ajoute suggest, listes JO, TOC par section | 00 §3 : port `LegalCorpus` et méthodes listées, sans méthode `suggest` (`/suggest` retiré, 00 §8) | garder 00 ; candidats au §2.10 |
 | 8 | La recherche 05 §1.13 évoque des outils `fr_get_toc`, `fr_status` et des ressources `legifrance://codes`, `legifrance://jorf/latest` | 00 §7 : 13 outils et 5 ressources nommés | non repris |
-| 9 | La recherche 05 §1.13 propose pour `fr_resolve` des endpoints ELI, `ancienId`, `chrono`, `typeChamp=ECLI` | 00 §8 : liste fermée sans ces chemins | candidats au §2.10 ; questions 2 et 3 du §10 |
-| 10 | 00 §4 ajoute `Fond::Jorf` en M7 et 00 §8 la recherche JORF, mais aucun endpoint de consultation d'un `JORFTEXT` | la liste de 00 §8 est appliquée telle quelle | ajouter `/consult/jorf` en M7, ou rendre les hits JORF avec `source_url` seulement (§10 question 1) |
-| 11 | 00 §8 liste `/suggest` en M7 sans méthode de port en 00 §3 | — | définir la méthode dans 02 et 00 §3 (04 §16 question 7) |
-| 12 | 00 §8 fixe `singleDate` à minuit Europe/Paris ; tous les horodatages observés sont à minuit UTC | 00 §8 appliqué | vérifier [v:singledate-minuit-paris] ; alternative midi Paris (04 §16 question 1) |
+| 9 | La recherche 05 §1.13 propose pour `fr_resolve` des endpoints ELI, `ancienId`, `chrono`, `typeChamp=ECLI` | 00 §8 révision 2 (AM-29) : ELI cités (`getArticleWithIdEliOrAlias`, `eliAndAliasRedirectionTexte`) et facette `ECLI` (JURI, CETAT) adoptés en M6 ; `ancienId`, `chrono` et `typeChamp=ECLI` non retenus | `ancienId` et `chrono` restent candidats au §2.10 (question 4 du §10) ; vérifier [v:ecli-filtre-juri-cetat] et [v:eli-redirection-endpoints] (questions 2 et 3 du §10) |
+| 10 | 00 §4 ajoute `Fond::Jorf` en M7 et la recherche JORF, mais aucun endpoint de consultation d'un `JORFTEXT` | 00 §4 et §8 révision 2 (AM-29) : consultation des hits `Jorf` (`/consult/jorf`, ou hits limités à `citation` + `source_url`) et surface JORF tranchées à l'ouverture de M7 (V-135) ; d'ici là, `fond` a 8 valeurs | ajouter `/consult/jorf`, avec bascule vers LODA si `hasLoda = true` (§10 question 1) |
+| 11 | La version initiale de 00 §8 listait `/suggest` en M7 sans méthode de port en 00 §3 | 00 §8 révision 2 (AM-29) : `/suggest` retiré (aucun consommateur) ; pas de méthode `suggest` (00 §3) | résolu (04 §16 question 7) |
+| 12 | La version initiale de 00 §8 fixait `singleDate` à minuit Europe/Paris ; tous les horodatages observés sont à minuit UTC | 00 §8 révision 2 (AM-02) : midi Europe/Paris du jour, vecteurs fixés (§3.6, §3.10) | confirmer par V-76, bloquante en M2 ([v:singledate-minuit-paris] ; 04 §16 question 1) |
 | 13 | Le document officiel inverse les exemples de `/consult/kaliCont` et `/consult/kaliContIdcc` par rapport au Swagger | Swagger | — |
-| 14 | Le document officiel utilise `NOM_CODE` ; deux tiers le disent cause de 500 | 04 §7.2 : non envoyé | vérifier [v:nom-code-filtre] |
+| 14 | Le document officiel utilise `NOM_CODE` ; deux tiers le disent cause de 500 | 00 §8 et 04 §7.2 : jamais `NOM_CODE` sans V-121 ; `find_article` filtre les hits par `cid` | vérifier [v:nom-code-filtre] |
 | 15 | Swagger : `lstLienCitation` « Toujours vide » ; fixture KALI : rempli | lu quand présent | — |
 | 16 | Swagger `multipleVersions` ; fixture `isMultipleVersions` | `alias` | — |
-| 17 | Borne de taille du corps : 16 Mio dans 04 (§0, §2.3, §4.3), « proposition : 32 Mio » dans [02-architecture.md](../02-architecture.md) §3.3 | 16 Mio (04, qui possède la lecture du corps) | aligner 02 §3.3 sur 16 Mio |
-| 18 | Étiquettes en double dans le plan : `v:quota-piste-prod` (02, 05, annexes A et B) et `v:quotas-piste` (04) ; `v:origine-mojibake` (02) et `v:mojibake-origine` (03, 04, annexes A et B) | cette annexe emploie les étiquettes majoritaires `v:quota-piste-prod` et `v:mojibake-origine` | fusionner chaque paire dans le registre de 09 |
+| 17 | Borne de taille du corps : 16 Mio dans 04 (§0, §2.3, §4.3), « proposition : 32 Mio » dans la version initiale de [02-architecture.md](../02-architecture.md) §3.3 | 16 Mio après décompression (00 §8, AM-06) | résolu : 02 §3.3 est aligné sur 16 Mio |
+| 18 | Étiquettes en double dans le plan : `v:quota-piste-prod` (02, 05, annexes A et B) et `v:quotas-piste` (04) ; `v:origine-mojibake` (02) et `v:mojibake-origine` (03, 04, annexes A et B) | cette annexe emploie les étiquettes majoritaires `v:quota-piste-prod` et `v:mojibake-origine` | fusionnées dans le registre de 09 (V-62, V-72) |
 | 19 | Un client tiers affirme que sandbox et production ont les mêmes données | Swagger officiel : données non identiques | — |
+| 20 | 00 §3 donne `find_article(&CodeRef, &ArticleNum, VersionDate)`, mais `/consult/getArticleWithIdAndNum` n'a pas de paramètre de date et ne sert que la version en vigueur (Swagger) | 00 §8 révision 2 (AM-29) : `getArticleWithIdAndNum` pour la version en vigueur seulement ; autre date : `/search` `EXACTE` sur `NUM_ARTICLE` + `DATE_VERSION`, hits filtrés par `cid` (§3.10) | vérifier [v:idandnum-comportement] et [v:recherche-exacte-par-numero] |
+| 21 | `fr_get_act` sur un code est servi dès v0.1 (`fr_search` CODE renvoie des `LEGITEXT` de codes), alors que la version initiale de 00 §8 plaçait `/consult/legi/tableMatieres` en M7 | 00 §8 révision 2 (AM-29) : `tableMatieres` (nature `CODE`) en v0.1 si V-96, bloquante en M2, montre que `lawDecree` sur un code dépasse 4 Mio ou 10 s | reconnaître un code avant l'appel : 04 §7.3, §16 question 13 |
+| 22 | La version initiale de cette annexe donnait pour l'endpoint token la forme `401 {"error":"invalid_client"}`, alors que la référence ne relève que la valeur `invalid_client` (SOURCES.md:12) | statut et corps exacts non relevés ; 400 et 401 traités de même (04 §3.5) | vérifier [v:oauth-reponses] |
+| 23 | La version initiale de cette annexe attribuait le 400 « L'expression à valider est fausse » de `/consult/juri` à une sonde live portant sur `JURITEXT` et `CETATEXT` ; pylegifrance n'a sondé que des `JURITEXT` (le cas `CETATEXT` vient d'une docstring de test unitaire sur réponse simulée) | §1.5 corrigé ; même règle de classification (marqueur) pour tous les préfixes (04 §11.1, §11.2) | vérifier [v:introuvable-par-endpoint] |
 
 ---
 
 ## 10. Questions ouvertes propres à l'annexe
 
-Elles sont reportées dans [09-risques-et-questions.md](../09-risques-et-questions.md). Les questions communes Q1 à Q10 de 00 restent la référence (Q3 conditionne toutes les vérifications live, Q4 le mode HTTP, Q6 l'accès aux dumps).
+Elles sont reportées dans [09-risques-et-questions.md](../09-risques-et-questions.md). Les questions communes Q1 à Q15 de 00 §13 restent la référence (Q3 conditionne les vérifications live et les fixtures de production, Q4 le mode HTTP, Q6 l'accès aux dumps, Q10 le mode de recherche par défaut, Q15 l'attribution). La numérotation ci-dessous est conservée, car d'autres documents la citent ; les questions 2, 3 et 5 sont tranchées ou adoptées par défaut par la révision 2 de 00.
 
-1. **Consultation JORF en M7** : ajouter `/consult/jorf` à 00 §8 pour consulter les hits `Fond::Jorf`, ou limiter ces hits à `citation` + `source_url` ? (Proposition : ajouter, avec bascule vers LODA quand `hasLoda = true`.)
-2. **Résolution par ECLI** (`fr_resolve`, M6) : `typeChamp = ECLI` (enum du Swagger, utilisé par pylegifrance, absent du document officiel) ou facette `ECLI` (CETAT, JURI) ? Aucun n'est dans 00 §8. (Proposition : ajouter la facette `ECLI` après test live [v:ecli-filtre-juri-cetat] ; même question posée par l'annexe [B](B-citations.md).)
-3. **Résolution d'un ELI cité** : ajouter `/consult/getArticleWithIdEliOrAlias` et `/consult/eliAndAliasRedirectionTexte` en M6 ? (Proposition : oui, en lecture seule, sans changer la règle « jamais d'ELI fabriqué », après [v:eli-redirection-endpoints].)
+1. **Consultation JORF en M7** — *à trancher à l'ouverture de M7* (00 §4, §8, AM-29 ; V-135) : ajouter `/consult/jorf` à 00 §8 pour consulter les hits `Fond::Jorf`, ou limiter ces hits à `citation` + `source_url` ? (Proposition maintenue : ajouter, avec bascule vers LODA quand `hasLoda = true`.)
+2. **Résolution par ECLI** (`fr_resolve`, M6) — *tranchée* (00 §8, AM-29) : facette `ECLI` (JURI, CETAT) en M6, effet à vérifier [v:ecli-filtre-juri-cetat] (V-128) ; repli par `ALL` en `EXACTE` puis `typeChamp = ECLI` (enum du Swagger, utilisé par pylegifrance, absent du document officiel) à sonder (V-127) ; même question posée par l'annexe [B](B-citations.md).
+3. **Résolution d'un ELI cité** — *tranchée* (00 §8, AM-29) : `/consult/getArticleWithIdEliOrAlias` et `/consult/eliAndAliasRedirectionTexte` en M6, en lecture seule, sans changer la règle « jamais d'ELI fabriqué » ; comportement [v:eli-redirection-endpoints] (V-133).
 4. **Anciens identifiants** (`getJuriWithAncienId`, `getCnilWithAncienId`, `getCodeWithAncienId`) : utiles au corpus de citations de l'annexe B ? (Proposition : à décider en M6 selon le corpus.)
-5. **Date de mise à jour** pour l'attribution Licence Ouverte : quel champ exposer par entité (`modifDate`, `dateMaj`, `refInjection`), ou la date de consultation ? (Proposition : la date de consultation au niveau de `fr_coverage`, plus `modifDate` quand il existe, après [v:date-maj-par-document].)
+5. **Date de mise à jour** pour l'attribution Licence Ouverte — *adoptée par défaut, à confirmer par l'utilisateur* (Q15, AM-39 ; 00 §12) : « Source : Légifrance / DILA — Licence Ouverte 2.0 » et la date de consultation (date du jour, Europe/Paris) dans `fr_coverage` (`attribution`, `consulted_on`) et les instructions serveur, rappel dans le README ; un champ `last_update?` par document (`modifDate`, `dateMaj`, `refInjection`…) n'est ajouté (classe « ajout ») que lorsqu'un champ fiable est identifié ([v:date-maj-par-document], V-108). Suffisance d'une mention globale : [v:attribution-licence-ouverte] (V-177).
 6. **Copie du Swagger dans le dépôt** : versionner seulement la liste des chemins (04 §7.1) ou tout le fichier, dont la licence de redistribution n'est pas explicite ? (Proposition : liste des chemins et des définitions utilisées seulement.)
 7. **Périmètre de M9** : quels fonds DILA en v1.0 (LEGI seul, ou aussi JORF, KALI, CASS, CONSTIT, JADE, CNIL) et quel budget disque (justicelibre : plus de 40 Go pour tout) ? (Proposition : LEGI d'abord.)
 8. **Contenus `dereferenced` et `inap`** : les exclure de tout index et de toute réponse en mode HTTP distant ? (Proposition : oui par défaut.)
@@ -1376,21 +1401,22 @@ Elles sont reportées dans [09-risques-et-questions.md](../09-risques-et-questio
 ## Sources
 
 **Plan et décisions**
-- [00-decisions.md](../00-decisions.md) (normatif) : §1 (variables `LF_*`), §2 (crates, dépendances de `lf-adapter-dila`), §3 (port `LegalCorpus`), §4 (identifiants, dates, sentinelles, contrat de citation), §5 (erreurs), §6 (démarrage sans réseau, HTTP), §7 (outils, facettes jamais brutes), §8 (adapter PISTE, liste fermée des endpoints), §9 (cache), §11 (jalons), §12 (licence), §13 (Q1 à Q10).
+- [00-decisions.md](../00-decisions.md) (normatif) : §1 (variables `LF_*`), §2 (crates, dépendances de `lf-adapter-dila`), §3 (port `LegalCorpus`), §4 (identifiants, dates, sentinelles, contrat de citation), §5 (erreurs), §6 (démarrage sans réseau, HTTP), §7 (outils, facettes jamais brutes), §8 (adapter PISTE, liste fermée des endpoints, révision 2), §9 (cache), §10 (scripts versionnés dans `docs/plan/annexes/donnees/scripts/`), §11 (jalons), §12 (licence, attribution), §13 (Q1 à Q15), §14 (journal des amendements AM-01…AM-43).
 - [04-adapter-piste.md](../04-adapter-piste.md) : §2 (environnements, validation des URL), §3 (OAuth), §4.3 (borne de 16 Mio), §5 (résilience), §6 (requêtes `/search`, facettes de date, `typePagination`, recherches exactes), §7 (endpoints par jalon, test de dérive), §8 (DTO), §9 (mapping), §10 (mojibake), §11 (introuvable, corps d'erreur), §13 (tests), §16 (questions).
-- [03-domaine.md](../03-domaine.md) : §3.1 (`Fond`, `api_name`), §6 (dates, sentinelles) ; [02-architecture.md](../02-architecture.md) §3.3 (borne de corps proposée à 32 Mio) ; [05-outils-mcp.md](../05-outils-mcp.md) (champ `source` de `fr_coverage`).
+- [03-domaine.md](../03-domaine.md) : §3.1 (`Fond`, `api_name`), §6 (dates, sentinelles) ; [02-architecture.md](../02-architecture.md) §3.3 (borne de corps, alignée sur 16 Mio) ; [05-outils-mcp.md](../05-outils-mcp.md) §4 et §5.8 (attribution dans les instructions, champs `attribution` et `consulted_on` de `fr_coverage`).
+- Scripts versionnés (`docs/plan/annexes/donnees/scripts/`, Python 3.13, `python3 -I`) : `dto_repair_check.py` (`ef5c1c80c82a063a407ba9134d3afc3e5526bc659e5650810b38a3096d9d0530`), relancé pour cette annexe sur les 16 fixtures (§4.13).
 
 **Rapports de recherche** (`docs/recherche/`)
 - [05-piste-dila.md](../../recherche/05-piste-dila.md), lu en entier : §0 (sources, identité des Swagger sandbox et prod), §1 (catalogue, pièges de données), §2 (recherche, facettes, tris, pagination), §3 (OAuth, environnements, quotas, codes d'erreur), §4 (CGU), §5 (Judilibre), §6 (dumps DILA), §7, §8.
 - [03-dto.md](../../recherche/03-dto.md), lu en entier : §2 (fixtures et campagnes), §3 (payloads), §4 (enveloppe et résultats de recherche), §5 (facettes), §6 à §10 (consultations), §11 (mojibake, dates, identifiants, HTML, liens, casse), §12 (DTO, helpers, mapping), §13 (économie de contexte), §14, §15.
 - [01-parite.md](../../recherche/01-parite.md) : P-020 à P-026, P-036 ; E-04, E-10, E-14, E-20, E-35. [02-defauts.md](../../recherche/02-defauts.md) : D-10, D-12, D-20, D-25, D-26, D-28, D-35, D-45, D-47.
 
-**Swagger officiel** : Swagger 2.0 de l'API Légifrance, `info.version = 2.4.2`, host `api.piste.gouv.fr`, basePath `/dila/legifrance/lf-engine-app`, copie embarquée par `rdassignies/pylegifrance@d8e0e59` (MIT), fichier `pylegifrance/models/generated/legifrance.json`. Relu pour cette annexe par trois scripts en `python3 -I` (2026-10-15) : liste des 68 opérations (tag, méthode, corps, réponse, codes déclarés), champs requis et exemples de chaque corps, définitions des réponses utilisées (`ConsultTextResponse`, `ConsultSection`, `ConsultArticle`, `Article`, `TexteSimple`, `ConsultKaliTextResponse`, `Accord`, `Attachment`, `ConsultJorfResponse`, `ConsultKaliContResponse`, `CodeListResponse`, `ArticleVersion`, `LiensRelatifsDTO`, `SuggestResponse`, `SuggestValue`, `TexteLien`, `LienCitation`, `LienModification`), descriptions de chemins (`getArticleWithIdAndNum`, `legi/tableMatieres`, `kaliContIdcc`), `info.description`, `info.license`, `securityDefinitions`, `tags`.
+**Swagger officiel** : Swagger 2.0 de l'API Légifrance, `info.version = 2.4.2`, host `api.piste.gouv.fr`, basePath `/dila/legifrance/lf-engine-app`, copie embarquée par `rdassignies/pylegifrance@d8e0e59` (MIT), fichier `pylegifrance/models/generated/legifrance.json`. Relu pour cette annexe par trois scripts en `python3 -I` (2026-10-15) : liste des 68 opérations (tag, méthode, corps, réponse, codes déclarés), champs requis et exemples de chaque corps, définitions des réponses utilisées (`ConsultTextResponse`, `ConsultSection`, `ConsultArticle`, `Article`, `TexteSimple`, `ConsultKaliTextResponse`, `Accord`, `Attachment`, `ConsultJorfResponse`, `ConsultKaliContResponse`, `CodeListResponse`, `ArticleVersion`, `LiensRelatifsDTO`, `SuggestResponse`, `SuggestValue`, `TexteLien`, `LienCitation`, `LienModification`), descriptions de chemins (`getArticleWithIdAndNum`, `legi/tableMatieres`, `kaliContIdcc`), `info.description`, `info.license`, `securityDefinitions`, `tags` ; relu pour la révision 2 : corps `ArticleIdEliOrAliasRequest` et `JorfConsultWithIdEliAliasRequest`, réponses de `eliAndAliasRedirectionTexte` et `/consult/jorf`, propriétés de `FiltreDTO`, enum `CodeListRequest.states` (17 valeurs).
 
 **Documents DILA archivés** (copies dans `pylegifrance/docs/raw/legifrance/`, même commit) : `exemples-d-utilisation-de-l-api.md` (V3 du 17/09/2025 : OAuth l.105-163, `NUM_ARTICLE` l.497-570, `*` l.1063, `lastNJo` l.1187, NOR l.1209, JO avant 2004 l.1223, `fromAdvancedRecherche` l.1263, OPENDATA l.1333-1337) ; `cgu-legifrance-api.md` (v1.0 du 15/12/2022 : l.94-111, l.150-231, l.235-285, l.289-365, l.367-402, relues) ; `description-des-tris-et-filtres-de-l-api.md` (feuilles ALL, JORF, CODE relues l.22-82) ; `lexique-api-lgf.md` ; `cgu-piste-legifrance-beta.md`.
 
 **Référence Python** (`/home/user/matematicsolutions/fr-eli-mcp`, commit `d3b5b13`, lecture seule) : `src/fr_eli_mcp/client.py:28-35` (URLs sandbox, délais, statuts réessayés, marge de jeton), `:42-58` (variables `FR_ELI_*`, message d'identifiants), `:150-208` (boucle de réessai, 401, 7 endpoints) ; `DISCOVERY.md:3-44` (sondes live, ELI nul, ECLI natif), `:63-93` (CONSTIT, CETAT, Judilibre 403) ; `SOURCES.md:8-15` (Judilibre rejeté, identifiants sandbox, ACCO). Fixtures `tests/fixtures/*.json` (16 fichiers), relues par script pour cette annexe : `typePagination` et `totalArticleResultNumber` de search_code.json, totaux et noms de facettes des 7 autres recherches, champs de consult_article.json, consult_kali.json, consult_loda.json, consult_juri*.json, consult_acco.json.
 
-**Projets tiers** (clones en lecture seule de la recherche 05) : `Cour-de-cassation/judilibre-search@ddfc166` (`README.md`, `public/JUDILIBRE-public.json` relu : v1.2.5, 8 chemins, `KeyId`, `page_size` ≤ 50, `page` base 0) ; `Legilibre/legi.py@bc68599` (CC0 ; `legi/tar2sqlite.py` relu : l.63, 79, 230-262, 541-544, 596, 604) ; `Dahliyaal/justicelibre@c2440ab` (MIT ; `scripts/dila_reingest_all.sh:1-12` relu) ; `LawCodex/fr@a1681ad` ; `Legilibre/Archeo-Lex@f35c3bc` ; `matematicsolutions/mcp-fr-legal@3a0ad0f` ; `tantivy@e1acb3e`. Les projets AGPL (`Ktulu-Analog/juridix`, `Ktulu-Analog/mcp-legifrance`) ne sont cités que pour des constats, sans reprise de code.
+**Projets tiers** (clones en lecture seule de la recherche 05) : `rdassignies/pylegifrance@d8e0e59` (MIT ; relus pour le 400 de `/consult/juri` : `pylegifrance/fonds/juri.py:124-135`, `tests/integration/fonds/juri/test_verification_endpoints.py:52-59`, `tests/unit/fonds/test_juri_verification_endpoints.py:105-121`) ; `Cour-de-cassation/judilibre-search@ddfc166` (`README.md`, `public/JUDILIBRE-public.json` relu : v1.2.5, 8 chemins, `KeyId`, `page_size` ≤ 50, `page` base 0) ; `Legilibre/legi.py@bc68599` (CC0 ; `legi/tar2sqlite.py` relu : l.63, 79, 230-262, 541-544, 596, 604) ; `Dahliyaal/justicelibre@c2440ab` (MIT ; `scripts/dila_reingest_all.sh:1-12` relu) ; `LawCodex/fr@a1681ad` ; `Legilibre/Archeo-Lex@f35c3bc` ; `matematicsolutions/mcp-fr-legal@3a0ad0f` ; `tantivy@e1acb3e`. Les projets AGPL (`Ktulu-Analog/juridix`, `Ktulu-Analog/mcp-legifrance`) ne sont cités que pour des constats, sans reprise de code.
 
 **Web** (résumés de la recherche 05, pages injoignables directement) : https://www.legifrance.gouv.fr/contenu/pied-de-page/open-data-et-api ; https://www.data.gouv.fr/dataservices/legifrance/discussions ; https://www.etalab.gouv.fr/wp-content/uploads/2017/04/ETALAB-Licence-Ouverte-v2.0.pdf ; https://www.data.gouv.fr/datasets/legi-codes-lois-et-reglements-consolides ; https://piste.gouv.fr/images/cgu/CGU_open_data_V8.pdf.
