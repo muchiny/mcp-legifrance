@@ -4,6 +4,7 @@
 - **Date** : 2026-10-15
 - **Jalons concernés** : M3 (`lf-adapter-cache`), M9 (réévaluation d'un cache disque)
 - **Questions liées** : —
+- Révisé le 2026-10-15 (revue) : `singleDate` à midi Europe/Paris (00 §8, AM-02) ; `typePagination` mémorisée par l'adapter, hors de la clé (00 §7, AM-04) ; contrôle final du 2026-10-16 : V-76 citée par son étiquette de référence, à midi (09 §2.1).
 
 ## Contexte
 
@@ -27,8 +28,9 @@
 2. **Mémoire uniquement** en v0.x (`moka`, feature `future`) : pas de cache disque, pas de pickle. Un cache disque optionnel sera réévalué en M9, par un nouvel ADR.
 3. **Clé de domaine** : `CacheKey { env, op }`, où `op` est une variante typée par opération (`Search(SearchQuery)`, `Act(LegiTextId, VersionDate)`, `Article(ArticleId)`…, 02 §7.2).
    - Elle est construite à partir des types du domaine déjà normalisés, **jamais** à partir du JSON envoyé à PISTE.
-   - `singleDate` est recalculé par l'adapter à partir de `VersionDate`, qui est au jour près : la clé est stable sur la journée de Paris ([ADR-0011](0011-dates-chrono-paris.md)).
+   - `singleDate` est recalculé par l'adapter à partir de `VersionDate`, qui est au jour près (midi Europe/Paris du jour, 00 §8) : la clé est stable sur la journée de Paris ([ADR-0011](0011-dates-chrono-paris.md)).
    - Le texte de la requête n'est pas replié (ni casse, ni accents) : la clé reflète exactement ce qui part vers PISTE.
+   - La `typePagination` n'entre pas dans la clé : elle est choisie par l'adapter (`PaginationMemo`, même TTL d'une heure, ou repli `ARTICLE` pour CODE en page > 1 ; 00 §7, 04 §12.2).
 4. **TTL** : recherche 1 h ; consultations 24 h ; listes (codes) 7 jours (00 §9).
 5. **Non mis en cache** : toutes les erreurs, les réponses vides (recherche sans hit, listes vides) et `fr_coverage`.
 6. **Coalescence** des appels concurrents identiques (`entry(key).or_try_insert_with`).
@@ -53,9 +55,10 @@
 
 ### À surveiller
 
-- **NON VÉRIFIÉ** [v:moka-horloge-tests] : moka n'utilise pas l'horloge tokio, si bien que tester les TTL sans attente réelle n'est pas acquis. À défaut, on teste directement la fonction `Expiry` (02 §3.4).
-- **NON VÉRIFIÉ** [v:singledate-minuit-paris] : avec `singleDate` à minuit Europe/Paris, un texte qui entre en vigueur le jour J est-il retenu le jour J ? La clé stable sur la journée en dépend. Repli proposé : midi Europe/Paris (04 §16).
-- La taille réelle des réponses, pour calibrer la capacité : **NON VÉRIFIÉ** [v:taille-max-textes].
+- **NON VÉRIFIÉ** [V-08 · moka-horloge-tests] : moka n'utilise pas l'horloge tokio, si bien que tester les TTL sans attente réelle n'est pas acquis. À défaut, on teste directement la fonction `Expiry` (02 §3.4).
+- **NON VÉRIFIÉ** [V-76 · singledate-midi-paris] : avec `singleDate` à midi Europe/Paris (00 §8 révision 2 ; minuit dans la première version du plan), un texte qui entre en vigueur le jour J est-il retenu le jour J ? Vérification bloquante en M2 (V-76). La clé stable sur la journée n'en dépend pas : elle repose sur `VersionDate`.
+- Une page > 1 mise en cache a pu être obtenue avec la valeur de repli de `typePagination` plutôt qu'avec la valeur mémorisée ; pour CODE, seul cas observé, les deux coïncident. **NON VÉRIFIÉ** [V-82 · typepagination-page2] (V-82, M5).
+- La taille réelle des réponses, pour calibrer la capacité : **NON VÉRIFIÉ** [V-75 · taille-max-textes].
 
 ### Tests qui la gardent
 
@@ -78,7 +81,7 @@
 
 ## Références et sources
 
-- Plan : [00-decisions.md](../plan/00-decisions.md) §2, §9 ; [02-architecture.md](../plan/02-architecture.md) §7.2, §8.4, §13 ; [04-adapter-piste.md](../plan/04-adapter-piste.md) §12 ; [06-qualite.md](../plan/06-qualite.md) §2.4 ; [annexes/A-parite.md](../plan/annexes/A-parite.md) §4.9 (clé `memory_cache`).
+- Plan : [00-decisions.md](../plan/00-decisions.md) §2, §7, §8, §9 ; [02-architecture.md](../plan/02-architecture.md) §7.2, §8.4, §13 ; [04-adapter-piste.md](../plan/04-adapter-piste.md) §6.3, §6.6, §12 ; [06-qualite.md](../plan/06-qualite.md) §2.4 ; [annexes/A-parite.md](../plan/annexes/A-parite.md) §4.9 (clé `memory_cache`).
 - Recherche : [02-defauts.md](../recherche/02-defauts.md) §2.a, D-01, D-06, D-15, D-38 ; [01-parite.md](../recherche/01-parite.md) §7, E-06, E-30 ; [05-piste-dila.md](../recherche/05-piste-dila.md) §4.2.
 - Référence Python (`d3b5b13`) : `src/fr_eli_mcp/server.py:129-136` ; `src/fr_eli_mcp/client.py:144-154, 169-171` ; `src/fr_eli_mcp/cache.py:15-57`.
 - moka : https://github.com/moka-rs/moka (tag `v0.12.16`, `a616ec1`).

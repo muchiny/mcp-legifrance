@@ -64,7 +64,7 @@ fn bracketed(title: &str) -> Option<&str> {
 }
 
 /// `Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025 - <objet>`
-/// (`citations.py:298-318`, accents rétablis : décision Q11, 00 §4 / ADR-0009).
+/// (`citations.py:298-318`, accents rétablis : décision Q16, 00 §4 / ADR-0009).
 pub fn constit_citation(
     num: Option<&str>,
     nature: Option<&str>,
@@ -87,7 +87,7 @@ pub fn constit_citation(
 }
 
 /// `CNIL, délibération n° SAN-2026-002 du 8 janvier 2026`
-/// (`citations.py:376-380`). Accent rétabli : délibération (décision Q11, 00 §4 / ADR-0009) ; la
+/// (`citations.py:376-380`). Accent rétabli : délibération (décision Q16, 00 §4 / ADR-0009) ; la
 /// référence écrit `deliberation` (`citations.py:377-378`).
 pub fn cnil_citation(num: Option<&str>, date: Option<CivilDate>) -> Option<String> {
     Some(format!("CNIL, délibération n° {} du {}", present(num)?, date?.to_french()))

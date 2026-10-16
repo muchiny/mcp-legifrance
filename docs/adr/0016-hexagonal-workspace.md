@@ -5,7 +5,8 @@
 - **Statut** : Accepté ; remplace ADR-0001
 - **Date** : 2026-10-15
 - **Jalons concernés** : M0 (workspace, `check-arch`, livré), M1 à M4 (remplissage des crates), M9 (`lf-adapter-dila`)
-- **Questions liées** : —
+- **Questions liées** : Q1 (nom du paquet du binaire, décidée le 2026-10-16), Q13 (canal `cargo install` ; proposition adoptée par défaut, à confirmer, 00 §13)
+- Révisé le 2026-10-15 (revue) : liste fermée des crates externes de `lf-application` et `Deadline` (00 §2-§3, AM-07) ; paquet `mcp-legifrance` dans `crates/lf-app` (AM-32) ; pas de publication crates.io en v0.x (AM-33) ; `xtask` sans dépendance `lf-*` (AM-31) ; contrôle final du 2026-10-16 : dépendances déclarées dans un crate seulement quand un code les emploie (00 §2). Réconcilié le 2026-10-16 avec le livré (`check-arch`, liste blanche qui échoue fermé, MSRV 1.88 ; décisions C3 et C5).
 
 ## Contexte
 
@@ -29,11 +30,11 @@
    | Rôle | Crates |
    |---|---|
    | Cœur pur | `lf-domain` |
-   | Ports, cas d'usage, `LegalService`, `Audited`, politique de budget | `lf-application` |
+   | Ports, cas d'usage, `LegalService`, `Audited`, échéance `Deadline`, politique de budget (estimation) | `lf-application` |
    | Adapters sortants | `lf-adapter-piste`, `lf-adapter-cache`, `lf-adapter-audit` ; `lf-adapter-dila` en M9 |
    | Adapter entrant | `lf-adapter-mcp` |
-   | Composition root et binaire | `lf-app` |
-   | Outillage | `xtask` |
+   | Composition root et binaire | `lf-app` : paquet Cargo `mcp-legifrance`, seule exception au préfixe `lf-`, pour que cargo-dist, `cargo install` et les archives portent le nom du produit ; répertoire `crates/lf-app` (Q1) |
+   | Outillage | `xtask`, sans dépendance `lf-*` : il pilote le binaire et les exemples en boîte noire |
 
    L'horloge système est un module `clock` de `lf-app`, pas un crate.
 3. **Règles de dépendance** (00 §2), vérifiées en CI :
@@ -57,9 +58,11 @@
    ```
 
    - `lf-domain` : `thiserror` pour seule dépendance normale (liste blanche) ; donc ni crate `lf-*`, ni tokio, reqwest, serde_json, rmcp, ni `chrono` : les dates du domaine sont `CivilDate` ([ADR-0011](0011-dates-chrono-paris.md)).
-   - `lf-application` : aucun adapter, ni rmcp, ni reqwest.
-   - Aucun adapter ne dépend d'un autre ; seul `lf-app` dépend de tout.
+   - `lf-application` : aucun adapter ; ses crates externes forment une liste fermée (`thiserror`, `chrono` `std`, `tracing`, `futures`, `tokio` `time`/`macros`/`rt` — `rt` pour `task_local!` seulement —, `similar` en M7) ; ni serde, serde_json, rmcp, reqwest, moka, governor, backon ou async-trait ([ADR-0012](0012-ports-async-rpitit.md)).
+   - Aucun adapter ne dépend d'un autre ; `xtask` ne dépend d'aucun crate `lf-*` ; seul `lf-app` dépend de tout.
+   - `chrono-tz` n'est employé que par `lf-app` (`clock`) et `lf-adapter-piste` ([ADR-0011](0011-dates-chrono-paris.md)).
    - `lf-adapter-mcp` ne dépend **pas** de `lf-app` : l'inversion proposée par le squelette de la recherche 09 §8 est écartée. `lf-app` ne voit pas rmcp : il appelle `lf_adapter_mcp::serve_stdio`, dont l'API publique ne contient aucun type du SDK (02 §12.3).
+   - Ces listes décrivent la cible, pas les squelettes : un crate ne déclare une dépendance que lorsqu'un code l'emploie, pour que `cargo machete` reste vert ; seule exception, `rmcp-macros`, déclaré dans `lf-adapter-mcp` pour son épinglage et ignoré par `cargo machete` (00 §2, 02 §3.0.1).
 4. **Contrôle** : `cargo xtask check-arch` (`make arch`, `xtask/src/arch.rs`) lit `cargo metadata` et applique les règles. Pour `lf-domain`, c'est une **liste blanche qui échoue fermé** : `DOMAIN_ALLOWED` = `thiserror` seul (`arch.rs:26`), toute autre dépendance normale est une violation, et un `cargo metadata` sans membre, sans nom ou sans `lf-domain` est une erreur et non un succès à vide. Cette liste ne s'élargit que par un ADR, au jalon qui en a besoin (`winnow`, `aho-corasick`, `regex` et `unicode-normalization` en M6, décision C3). `cargo deny check bans` sert de seconde ligne (02 §4.2, §4.3).
    - Extensions de `check-arch`, ajoutées au jalon où elles servent : membre inconnu = violation (tâche de tête de M2) ; R2, fermeture transitive (`cargo metadata --format-version 1 --all-features --locked`) et R9 (doublons) à la création de `lf-application` (M2) ; features de tokio bornées en M3 ; épinglage de rmcp en M4 (00 §11.1).
 5. **Ports** : les ports vivent dans `lf-application::ports`, à côté de leurs consommateurs. Le style est fixé par [ADR-0012](0012-ports-async-rpitit.md).
@@ -75,13 +78,13 @@
 ### Négatives
 
 - **Plus de surface** : huit manifestes, des alias de types génériques dans `lf-app`, des temps de compilation plus longs (monomorphisation, ADR-0012).
-- **Publication** : le canal `cargo install` impose de publier les sept crates `lf-*` sur crates.io (non tranché avant M5, C6 ; repli `cargo install --git`, 08 §6.4 ; 08 §12.1 n° 2, [ADR-0013](0013-distribution.md)).
+- **Publication** : un `cargo install` depuis crates.io imposerait de publier les sept crates (les six `lf-*` et `mcp-legifrance`), dont les API internes deviendraient des engagements semver publics (08 §12.1 n° 2). En v0.x, seul `cargo install --git … --tag vX.Y.Z --locked` est documenté (`publish = false` ; la publication crates.io n'est pas tranchée avant M5, décision C6) ; elle est réexaminée à v1.0.0 (00 §12, Q13, [ADR-0013](0013-distribution.md)).
 - Les DTO MCP (schemars) et les DTO PISTE (serde) dupliquent en partie les entités du domaine : c'est le prix du découplage, assumé.
 
 ### À surveiller
 
-- Le comportement de `forbid(unsafe_code)` et de clippy pedantic sur le code généré par les macros rmcp : **NON VÉRIFIÉ** [v:rmcp-macros-unsafe-forbid], à mesurer au spike rmcp, avant la conception des ports de M3.
-- **Interprétation à confirmer** : `lf-application` utilise `tokio` (features `time` et `macros` seulement) et `futures` pour le délai global et `select!` dans `Audited`. La colonne « Dépend de » de 00 §2 ne liste que les crates internes. `check-arch` borne ces features (à partir de M3) (02 §13.1 n° 7, ADR-0012).
+- Le comportement de `forbid(unsafe_code)` et de clippy pedantic sur le code généré par les macros rmcp : **NON VÉRIFIÉ** [V-15 · rmcp-macros-unsafe-forbid], à mesurer au spike rmcp, avant la conception des ports de M3.
+- **Tranché par 00 §2 révision 2** (l'ancienne « interprétation à confirmer ») : la colonne « Dépend de » de 00 §2 liste désormais la liste fermée des crates externes de `lf-application`, dont `tokio` `rt` pour `task_local!` (`Deadline`). Reste à confirmer à la création de `lf-application` en M2 (spike `task_local!`, T-M0-15, 00 §11.1) que `task_local!` n'exige que `rt` (02 §13.1 n° 7, ADR-0012) ; `check-arch` borne ces features à partir de M3.
 
 ### Tests qui la gardent
 

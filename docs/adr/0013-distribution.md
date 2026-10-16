@@ -1,9 +1,10 @@
 # ADR-0013 — Distribution : cargo-dist, MCPB, OCI, signature
 
-- **Statut** : **Proposé**. L'acceptation dépend de Q5 (certificats), de Q1 (nom, avant toute publication immuable) et du spike TLS (tâche 0 de M2, 00 §11.1). Q1 est décidée le 2026-10-16 (nom `mcp-legifrance`).
+- **Statut** : **Proposé**. L'acceptation dépend de Q5 (certificats, avant v0.1.0), de Q13 (canal `cargo install`, avant v0.1.0) et du spike TLS (tâche 0 de M2, 00 §11.1). Q1 (nom `mcp-legifrance`) et Q2 (Apache-2.0) sont décidées le 2026-10-16. Les propositions adoptées par défaut des autres questions sont appliquées d'ici là (00 §13).
 - **Date** : 2026-10-15
-- **Jalons concernés** : M2 (spike TLS, tâche 0), M4 (`dist init`), transverse « Distribution » dès v0.1.0, M8 et M9 (features `http` et `dila`)
-- **Questions liées** : Q1 (décidée le 2026-10-16), Q2 (décidée le 2026-10-16), Q5 (et Q4 pour l'éventuel mode HTTP partagé)
+- **Jalons concernés** : M2 (spike TLS, tâche 0), M4 (`dist init`), transverse « Distribution » dès v0.1.0, M8 et M9 (features `http` et `dila`), v1.0.0 (réexamen de la publication crates.io)
+- **Questions liées** : Q1 (décidée le 2026-10-16), Q2 (décidée le 2026-10-16), Q5, Q13 (et Q4 pour l'éventuel mode HTTP partagé, Q15 pour la mention d'attribution)
+- Révisé le 2026-10-15 (revue) : paquet Cargo `mcp-legifrance` (AM-32, Q1) ; `cargo install --git` en v0.x, sans crates.io (AM-33, Q13) ; signature et notarisation par défaut, bundle MCPB unique sans bundle par architecture (AM-34, Q5) ; attribution des données (AM-39, Q15) ; contrôle final du 2026-10-16 : date de consultation rendue par `fr_coverage` (AM-39) ; étiquette de référence de V-18 (09 §2.1). Réconcilié le 2026-10-16 (C6) : Q1 et Q2 décidées ; publication crates.io non tranchée avant M5 (`publish = false`, `cargo install --git` documenté).
 
 ## Contexte
 
@@ -25,35 +26,41 @@
 
 ## Décision (proposée)
 
-1. **Un seul binaire** `mcp-legifrance`, construit par **cargo-dist 0.33.0** pour 7 cibles : Linux x86_64 et aarch64 (gnu et musl), macOS x86_64 et aarch64, Windows x86_64 msvc (00 §12). Sont publiés sur GitHub Releases :
+1. **Un seul binaire** `mcp-legifrance`, construit par **cargo-dist 0.33.0** pour 7 cibles : Linux x86_64 et aarch64 (gnu et musl), macOS x86_64 et aarch64, Windows x86_64 msvc (00 §12).
+   - Le paquet Cargo du binaire s'appelle `mcp-legifrance` (exception au préfixe `lf-`, répertoire `crates/lf-app`, 00 §2), car dist nomme archives et installeurs d'après le paquet, soit `mcp-legifrance-<triple>` (Q1, décidée le 2026-10-16, C6).
+   - Q1 est décidée (2026-10-16) avant toute publication immuable (registre MCP, MCPB, crates.io, GHCR), au vu de l'homonymie avec `Ktulu-Analog/mcp-legifrance` (AGPL) et du statut de la marque « Légifrance » (V-215).
+
+   Sont publiés sur GitHub Releases :
    - les archives, avec `sha256.sum` ;
    - les installeurs `sh` et `ps1` ;
    - les attestations de provenance GitHub ;
    - `cargo-auditable` et un SBOM `cargo-cyclonedx`.
 
    `install-updater = false` ([ADR-0005](0005-pas-de-configuration-distante.md)).
-2. **Bundle MCPB unique multi-plateforme**, seul référencé par `server.json`. Il contient les binaires et un lanceur POSIX qui choisit l'architecture. Des bundles par architecture peuvent être publiés en complément, hors registre (08 §4.1).
+2. **Bundle MCPB unique multi-plateforme** par version (registryType `mcpb`, asset de release dont l'URL contient « mcp », `fileSha256`), seul référencé par `server.json`. Il contient les binaires et un lanceur POSIX qui choisit le binaire selon `uname -m`, avec l'override `win32` pour Windows. **Aucun bundle par architecture**, même hors registre, tant que MCPB n'a pas de sélecteur d'architecture (00 §12, V-197 ; 08 §4.1).
 3. **Image OCI** distroless, `nonroot`, sur `ghcr.io/muchiny/mcp-legifrance` (linux/amd64 et linux/arm64), avec `LABEL io.modelcontextprotocol.server.name`.
-4. **`cargo install`** (`registryType: cargo`) : le jeton `mcp-name:` est visible dans le README. Ce canal impose de publier les sept crates `lf-*` ; s'il est jugé trop coûteux, on se limite à `cargo install --git`, sans entrée au registre (08 §12.1 n° 2).
+4. **Canal Cargo** (00 §12, adoptée par défaut, Q13) : en v0.x, le README documente `cargo install --git https://github.com/<dépôt> --tag vX.Y.Z --locked mcp-legifrance` (nom du paquet requis, le dépôt en contenant plusieurs, 08 §6.4). Ni publication crates.io, ni paquet `cargo` dans `server.json`, ni jeton `mcp-name:` dans le README.
+   - La publication des crates (les six `lf-*` et `mcp-legifrance`, dont les API internes deviendraient des engagements semver publics) et le `registryType: cargo` sont réexaminés à v1.0.0 (V-172, V-207 ; 08 §12.1 n° 2).
 5. **Registre MCP** : nom `io.github.muchiny/mcp-legifrance` (Q1).
-   - Publication par `mcp-publisher` avec OIDC GitHub, **après** publication du MCPB, de l'image et du crate.
+   - Publication par `mcp-publisher` avec OIDC GitHub, **après** publication du MCPB et de l'image.
    - `server.json` déclare `LF_PISTE_CLIENT_ID` et `LF_PISTE_CLIENT_SECRET` en `environmentVariables` avec `isSecret: true`.
-6. **Signature selon Q5** (08 §3.8) :
+6. **Signature selon Q5** (00 §12, 08 §3.8) :
 
    | Q5 | Windows | macOS |
    |---|---|---|
-   | certificat Windows et compte Apple | Authenticode (SSL.com **ou** Azure Artifact Signing) | `macos-sign = true` et notarisation par un job dédié (`notarytool`) |
+   | certificat Windows et compte Apple (proposition adoptée par défaut, 00 §12-§13) | Authenticode (Smart App Control) par Azure Artifact Signing si le projet est éligible, sinon SSL.com eSigner, seuls fournisseurs pris en charge par dist | `codesign` (`macos-sign = true`, option expérimentale de dist) puis notarisation par un job dédié (`notarytool`) |
    | certificat Windows seul | signé | non signé ; installeur shell recommandé |
    | compte Apple seul | non signé, avec avertissement et repli OCI ou WSL | signé et notarisé |
-   | aucun (défaut de 00 §13) | non signé | non signé, avec avertissement en tête du README et des notes de release |
+   | aucun (repli si aucun certificat n'est obtenu) | non signé | non signé, avec avertissement en tête du README et des notes de release ; repli OCI ou WSL documenté |
 
-   Ne **jamais** conseiller de désactiver Smart App Control ou Gatekeeper.
-7. **Fournisseur TLS** : il sera consigné ici après le spike TLS de M2. Règle de choix : si aws-lc impose cmake ou NASM sur les postes des utilisateurs (`cargo install`) ou fait échouer une cible musl, on retient `ring` ; sinon, on garde le défaut aws-lc.
+   - Ne **jamais** conseiller de désactiver Smart App Control ou Gatekeeper.
+   - Tant que Q5 n'est pas tranchée, `dist-workspace.toml` n'active aucune signature ; Q5 n'est pas bloquante avant v0.1.0 (08 §2.2, §10).
+7. **Fournisseur TLS** : il sera consigné ici après le spike TLS de M2 (tâche 0). Règle de choix : si aws-lc impose cmake ou NASM sur les postes des utilisateurs (`cargo install`) ou fait échouer une cible musl, on retient `ring` ; sinon, on garde le défaut aws-lc.
 8. **Chaîne CI durcie** (corrige D-44) :
    - actions épinglées par SHA ;
    - aucune clé PISTE dans les artefacts ;
    - versions alignées : crate, verrou des descripteurs, `server.json` et manifeste MCPB, vérifiés par `release-gates`.
-9. **Licence** : Apache-2.0, avec un `NOTICE` qui crédite la référence et ses fixtures (Q2, décidée le 2026-10-16 ; titulaire « Loïc Wernert » dans NOTICE ; la vérification V-214 sur le crédit du titulaire de la référence reste ouverte). Les données sont sous Licence Ouverte 2.0, avec la mention « Légifrance / DILA ».
+9. **Licence** : Apache-2.0, avec un `NOTICE` qui crédite la référence et ses fixtures (Q2, décidée le 2026-10-16 ; titulaire « Loïc Wernert » dans NOTICE ; la vérification V-214 sur le crédit du titulaire de la référence reste ouverte). Les données sont sous Licence Ouverte 2.0 : `fr_coverage`, les instructions serveur et le README portent « Source : Légifrance / DILA — Licence Ouverte 2.0 » ; la date de consultation est rendue par `fr_coverage` (`consulted_on`), à laquelle renvoient les instructions, texte statique (00 §12, adoptée par défaut, Q15).
 
 ## Conséquences
 
@@ -67,19 +74,22 @@
 - **Coût et dépendance externe** : certificat EV ou Azure Artifact Signing, compte Apple Developer payant. Sans eux, l'expérience Windows est dégradée.
 - **Versions immuables au registre** : une erreur de publication coûte une nouvelle version ; d'où les vérifications bloquantes avant publication.
 - Pipeline de release plus complexe : job de notarisation personnalisé, job `build-mcpb`, publication OCI.
-- Le paquet `lf-app` donne son nom aux archives (`lf-app-<triple>`). Le renommer en `mcp-legifrance` est recommandé avec Q1 (08 §12.1 n° 1).
+- Le paquet du binaire déroge au préfixe `lf-` des crates (00 §1) : sans cela, dist nommerait les archives `lf-app-<triple>` et la commande serait `cargo install lf-app` (08 §12.1 n° 1).
+- En v0.x, `cargo install --git` compile chez l'utilisateur, avec la toolchain et la chaîne C du fournisseur TLS retenu ; le binaire obtenu n'est pas signé.
 
 ### À surveiller
 
 - Points **NON VÉRIFIÉS** :
-  - [v:sac-signature-suffit] : un binaire signé est-il accepté par Smart App Control, et un binaire non signé bloqué ;
-  - [v:tls-fournisseur-cross] : aws-lc et ring sur les 7 cibles ;
-  - [v:mcpb-multi-architecture] : bundle unique avec lanceur ;
-  - [v:registre-mcp-cargo] : `registryType: cargo` accepté en production ;
-  - [v:macos-notarisation-binaire-nu] : notarisation d'un exécutable nu ;
-  - [v:cargo-dist-macos-sign] : signature macOS expérimentale de dist ;
-  - [v:azure-artifact-signing-eligibilite] : conditions d'éligibilité ;
-  - [v:taille-binaire] : taille des binaires et du MCPB.
+  - [V-173 · sac-signature-suffit] : un binaire signé est-il accepté par Smart App Control, et un binaire non signé bloqué ;
+  - [V-02 · tls-fournisseur-cross] : aws-lc et ring sur les 7 cibles ;
+  - [V-197 · mcpb-multi-architecture] : bundle unique avec lanceur ;
+  - [V-172 · registre-mcp-cargo] : `registryType: cargo` accepté en production (réexamen à v1.0.0, Q13) ;
+  - [V-207 · cargo-publish-workspace] : publication ordonnée des sept crates (réexamen à v1.0.0, Q13) ;
+  - [V-215 · marque-legifrance] : statut de la marque « Légifrance », avant toute publication immuable (Q1) ;
+  - [V-195 · macos-notarisation-binaire-nu] : notarisation d'un exécutable nu ;
+  - [V-194 · cargo-dist-macos-sign] : signature macOS expérimentale de dist ;
+  - [V-193 · azure-artifact-signing-eligibilite] : conditions d'éligibilité ;
+  - [V-18 · binaire-taille-memoire] : taille des binaires et du MCPB (V-18, mesurée au spike TLS de M2).
 
 ### Tests qui la gardent
 
@@ -95,14 +105,16 @@
 | Paquet PyPI ou `uvx` | Le produit est un binaire Rust (00 §12). |
 | Image Docker seule | Exclut Claude Desktop (MCPB) et les postes sans Docker. |
 | Workflows GitHub Actions écrits à la main, sans cargo-dist | Réinvente archives, installeurs, sommes et attestations. Plus de code de CI à maintenir. |
-| MCPB par architecture seulement | `server.json` et MCPB n'ont pas de champ architecture : un client ne saurait pas lequel installer (08 §4.1). |
-| Binaire universel macOS (`lipo`) | Alternative possible, mais la conservation des signatures est **NON VÉRIFIÉE** [v:lipo-signatures]. |
+| MCPB par architecture, seuls ou en complément hors registre | `server.json` et MCPB n'ont pas de champ architecture : un client ne saurait pas lequel installer (00 §12, V-197, 08 §4.1). |
+| Publier les sept crates sur crates.io dès v0.1 (`registryType: cargo`) | Engagement semver public sur des API internes, limites de création de crates ; `cargo install --git` suffit en v0.x (00 §12, Q13 ; réexamen à v1.0.0). |
+| Garder le paquet `lf-app` (règle du préfixe sans exception) | Archives, installeurs et commande `cargo install` porteraient un nom autre que celui du produit (08 §12.1 n° 1). |
+| Binaire universel macOS (`lipo`) | Alternative possible, mais la conservation des signatures est **NON VÉRIFIÉE** [V-198 · lipo-signatures]. |
 | MSI, Homebrew, winget, deb ou rpm dès v0.1 | Hors périmètre v0.1. Possibles plus tard (08 §1.3, §12.2). |
 | Programme de mise à jour intégré | Appel réseau non sollicité ([ADR-0005](0005-pas-de-configuration-distante.md)). |
 
 ## Références et sources
 
-- Plan : [00-decisions.md](../plan/00-decisions.md) §11 (ligne « Transverse Distribution »), §12, §13 (Q1, Q2, Q5) ; [08-distribution.md](../plan/08-distribution.md) §0 à §7, §12 ; [04-adapter-piste.md](../plan/04-adapter-piste.md) §4.1 ; [06-qualite.md](../plan/06-qualite.md) §7, §9 ; [09-risques-et-questions.md](../plan/09-risques-et-questions.md) (risques TLS et Smart App Control).
+- Plan : [00-decisions.md](../plan/00-decisions.md) §1, §2, §11 (ligne « Transverse Distribution »), §12, §13 (Q1, Q2, Q5, Q13, Q15), §14 (AM-32 à AM-34) ; [08-distribution.md](../plan/08-distribution.md) §0 à §7, §12 ; [04-adapter-piste.md](../plan/04-adapter-piste.md) §4.1 ; [06-qualite.md](../plan/06-qualite.md) §7, §9 ; [09-risques-et-questions.md](../plan/09-risques-et-questions.md) (risques TLS et Smart App Control).
 - Recherche : [01-parite.md](../recherche/01-parite.md) §12 ; [06-mcp-spec.md](../recherche/06-mcp-spec.md) §9 ; [04-rmcp-rust.md](../recherche/04-rmcp-rust.md) §4.1, §4.2, §6 (points 5 et 6) ; [05-piste-dila.md](../recherche/05-piste-dila.md) §4 ; [02-defauts.md](../recherche/02-defauts.md) D-44.
 - Référence Python (`d3b5b13`) : `src/fr_eli_mcp/__main__.py:1-9` ; `README.md:3, 22-42` ; `Dockerfile:1-5` ; `.github/workflows/release.yml:1-91`.
 - Outils : https://github.com/axodotdev/cargo-dist (tag `v0.33.0`) ; https://github.com/modelcontextprotocol/mcpb ; https://github.com/modelcontextprotocol/registry.
