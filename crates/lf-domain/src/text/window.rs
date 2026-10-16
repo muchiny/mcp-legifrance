@@ -1,7 +1,7 @@
 //! Fenêtres de lecture paginées (`offset` / `max_chars`, jalon M5).
 //!
 //! Règle nouvelle, absente de la référence, qui ne coupe que `snippet[:280]`
-//! (`citations.py:162`) : la fenêtre découle de l'économie de contexte (§6).
+//! (`citations.py:162`) : la fenêtre découle de l'économie de contexte (00 §7 / ADR-0006).
 //!
 //! Coupe douce : un point d'abréviation juridique (`L.`, `art.`, `M.`, `G.`) ne
 //! compte pas comme fin de phrase, sinon la fenêtre trancherait « l'article L. |
@@ -12,7 +12,7 @@
 //! ;` et le saut de ligne restent des fins de phrase. Limite : on n'exige pas
 //! de majuscule après le point.
 //!
-//! Tient lieu de `text::truncate` (§4 de docs/plan/00-decisions.md) :
+//! Tient lieu de `text::truncate` (§4 de docs/plan/00-decisions.md, Domaine) :
 //! `window(t, 0, n).text` est la troncature en fin de phrase.
 //!
 //! Positions en caractères (pas en octets) : sûres en UTF-8 et compréhensibles

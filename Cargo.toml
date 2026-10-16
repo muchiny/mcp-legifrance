@@ -8,7 +8,7 @@ version = "0.0.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
-repository = "https://github.com/muchiny/mcp-ligitfrance"
+repository = "https://github.com/muchiny/mcp-legifrance"
 publish = false
 
 [workspace.dependencies]

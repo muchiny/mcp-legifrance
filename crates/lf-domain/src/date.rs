@@ -8,7 +8,7 @@ use std::{fmt, str::FromStr};
 
 use crate::error::{DomainError, echo};
 
-/// Noms de mois français, accentués (décision Q9 : la référence les écrit
+/// Noms de mois français, accentués (décision Q11 : la référence les écrit
 /// sans accents, `citations.py:283-286`).
 const FR_MONTHS: [&str; 12] = [
     "janvier",
@@ -110,7 +110,7 @@ impl CivilDate {
     /// Date en prose française : `1er janvier 2026`, `7 novembre 2025`.
     ///
     /// Divergence assumée : `1er` pour le premier du mois et mois accentués
-    /// (décision Q9, `docs/plan/00-decisions.md` §8) ; la référence écrit
+    /// (décision Q11, `docs/plan/00-decisions.md` §4 et ADR-0009) ; la référence écrit
     /// `1 janvier` (`_fr_date`, `citations.py:289-295`).
     pub fn to_french(self) -> String {
         let month = FR_MONTHS[usize::from(self.month - 1)];

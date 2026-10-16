@@ -1,6 +1,6 @@
-# ADR 0001 — Architecture hexagonale en workspace de crates
+# ADR-0001 — Architecture hexagonale en workspace de crates
 
-Statut : accepté (2026-10-15).
+Statut : remplacé par [ADR-0016](0016-hexagonal-workspace.md) (2026-10-16). Accepté le 2026-10-15 ; le remplaçant reprend `check-arch`, la liste blanche qui échoue fermé et la MSRV 1.88.
 
 ## Contexte
 
@@ -21,5 +21,5 @@ seule racine de composition. La règle de dépendance est vérifiée par
 - Le protocole MCP reste confiné à `lf-adapter-mcp` : un changement de `rmcp`
   ne touche qu'un crate.
 - `lf-domain` se teste sans réseau ni runtime async, ce qui rend tenables les
-  portes de couverture et de mutation de l'ADR 0002.
+  portes de couverture et de mutation de l'ADR-0002.
 - Plus de manifestes à maintenir qu'un crate unique.

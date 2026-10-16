@@ -1,6 +1,6 @@
-# ADR 0002 — Tests unitaires, couverture et mutation au maximum
+# ADR-0002 — Tests unitaires, couverture et mutation au maximum
 
-Statut : accepté (2026-10-15). Exigence utilisateur, `docs/plan/00-decisions.md` §9.
+Statut : accepté (2026-10-15). Exigence utilisateur, `docs/plan/00-decisions.md` §10.
 
 ## Contexte
 
