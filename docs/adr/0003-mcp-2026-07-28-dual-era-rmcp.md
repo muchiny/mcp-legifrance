@@ -4,7 +4,7 @@
 - **Date** : 2026-10-15
 - **Jalons concernés** : M0 (spike de compilation), M4 (stdio, deux ères), M7 (resources, prompts, completions), M8 (HTTP)
 - **Questions liées** : Q7 (versions legacy servies), Q8 (`ttlMs`/`cacheScope`), Q4 (HTTP partagé), Q14 (langues) ; propositions adoptées par défaut, à confirmer (00 §13). Spikes M0 V-28 et V-29 ; V-34 et V-35 en M4.
-- Révisé le 2026-10-15 (revue) : alignement sur 00 §6 révision 2 : `supportedVersions` et repli `-32022` (AM-11) ; `PreLifecycleFilter` et écarts du cycle de vie (AM-12) ; ressource introuvable en `-32002` aux pairs legacy (AM-09) ; `subscriptions/listen` (AM-10) ; HTTP de M8 (AM-13).
+- Révisé le 2026-10-15 (revue) : alignement sur 00 §6 révision 2 : `supportedVersions` et repli `-32022` (AM-11) ; `PreLifecycleFilter` et écarts du cycle de vie (AM-12) ; ressource introuvable en `-32002` aux pairs legacy (AM-09) ; `subscriptions/listen` (AM-10) ; HTTP de M8 (AM-13) ; contrôle final du 2026-10-16 : rmcp soumis à la règle d'âge (éligible le 2026-10-19) ; version connue non servie dans l'en-tête HTTP et débit des invocations (00 §6).
 
 ## Contexte
 
@@ -39,7 +39,7 @@
    - `supported_protocol_versions()` explicite `[2026-07-28, 2025-11-25, 2025-06-18]` ;
    - `supportedVersions` de `server/discover` = ces trois versions (00 §6, AM-11) ;
    - 2025-03-26 et 2024-11-05 ne sont **pas** servies (Q7, 00 §6).
-2. **SDK** : `rmcp` **et** `rmcp-macros` épinglés `=3.5.1`, avec les features par défaut et `transport-io`. C'est la seule exception à la règle d'âge minimal des dépendances (14 jours atteints le 2026-10-19 ; le spike M0 peut commencer avant, 00 §2). `transport-streamable-http-server` n'est ajoutée qu'en M8 ; `request-state`, `elicitation` et `auth` ne sont pas activées ; `Cargo.lock` est versionné.
+2. **SDK** : `rmcp` **et** `rmcp-macros` épinglés `"=3.5.1"`, avec les features par défaut et `transport-io` : seuls crates épinglés exactement, les autres exigences étant écrites au niveau mineur (00 §2). La règle d'âge minimal s'applique aussi : 3.5.1 (2026-10-05) devient éligible le 2026-10-19, et M0 ne fait pas le verrou initial avant cette date ; le spike M0 peut commencer avant (00 §2, §6). `rmcp-macros`, déclaré pour son épinglage sans emploi direct, est ignoré par `cargo machete` (02 §3.0.1). `transport-streamable-http-server` n'est ajoutée qu'en M8 ; `request-state`, `elicitation` et `auth` ne sont pas activées ; `Cargo.lock` est versionné.
 3. **Confinement** : seul `lf-adapter-mcp` dépend de rmcp ([ADR-0002](0002-hexagonal-workspace.md)).
 4. **Identité** : `get_info()` renvoie un `ServerConfig` avec `Implementation::new("mcp-legifrance", env!("CARGO_PKG_VERSION"))`, jamais `from_build_env`. Les instructions sont identiques dans `DiscoverResult` et `InitializeResult`. Elles sont en anglais et font au plus 3 500 caractères. Langues (00 §6, adoptées par défaut, Q14) : instructions, descriptions, `title` des outils, messages d'erreur et libellés de resources en anglais ; noms et textes des prompts en français.
 5. **Règles de 00 §6** :
@@ -63,8 +63,8 @@
 7. **Montée de version** : toujours manuelle (procédure de l'annexe D §9.4) : lire le CHANGELOG (`LATEST`, `KNOWN_VERSIONS`, `fill_missing_cache_hints`, boucle pré-cycle) ; rejouer les transcriptions JSON-RPC des deux ères ; régénérer et comparer le verrou des descripteurs ; en M8, relancer la suite officielle de conformité.
 8. **Retrait futur du legacy** : seulement par un nouvel ADR, et seulement quand le support de 2026-07-28 est vérifié dans VS Code, Cursor et Claude Desktop (annexe D §10.2).
 9. **HTTP (M8, optionnel, conditionné aux CGU, Q4)** (00 §6, annexe D §5.2) : Streamable HTTP sans session (POST seul ; GET et DELETE → 405, gestionnaire de sessions sans event store, V-40), écoute sur `127.0.0.1` par défaut, `allowed_hosts`.
-   - Validation `Origin` à notre charge : `with_allowed_origins(liste)` + `enforce_origin_validation()`, car rmcp ne valide rien avec la liste vide par défaut ; `Origin` invalide → 403. Tout POST autre qu'`initialize` sans `MCP-Protocol-Version` → 400 + `-32020` par une couche axum : rmcp supposerait 2025-03-26, non servie (V-39).
-   - Corps ≤ 256 Kio ; fabrique sans état = clone d'un prototype `LegifranceServer` (routeur construit une fois) ; profil local à jeton statique (`LF_MCP_HTTP_TOKEN`, nom proposé, figé en M8), puis profil distant (resource server OAuth, jamais de token passthrough vers PISTE).
+   - Validation `Origin` à notre charge : `with_allowed_origins(liste)` + `enforce_origin_validation()`, car rmcp ne valide rien avec la liste vide par défaut ; `Origin` invalide → 403. Tout POST autre qu'`initialize` sans `MCP-Protocol-Version` → 400 + `-32020` par une couche axum : rmcp supposerait 2025-03-26, non servie (V-39) ; un en-tête qui nomme une version connue non servie (`2025-03-26`, `2024-11-05`) → 400 + `-32022` par la même couche (annexe D §5.2, C-48).
+   - Débit des invocations d'outils (C-34) : limiteur dans la couche axum, 429 + `Retry-After` au-delà ; sur stdio, écart justifié (annexe D §4.7). Corps ≤ 256 Kio ; fabrique sans état = clone d'un prototype `LegifranceServer` (routeur construit une fois) ; profil local à jeton statique (`LF_MCP_HTTP_TOKEN`, nom proposé, figé en M8), puis profil distant (resource server OAuth, jamais de token passthrough vers PISTE).
 
 ## Conséquences
 

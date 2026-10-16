@@ -326,7 +326,7 @@ Chaque divergence porte une **clé** stable. La colonne « Golden » vaut **oui*
 | Clé | Référence | Rust v0.1 | Justification | Impact client | Golden |
 |---|---|---|---|---|---|
 | `search_params_added` | `query`, `fond`, `page_size` | en plus : `page`, `match` (`any` par défaut jusqu'à V-79, puis `all` si V-79 le confirme, décision avant le verrou de M4, Q10), `date_from`/`date_to`, `version_date` | 00 §7, D-09, D-32, ADR-0014 | pagination désormais possible | non |
-| `search_singledate_noon_paris` | `singleDate` = instant de l'appel | midi Europe/Paris du jour `version_date`, en epoch ms (10:00Z en été, 11:00Z en hiver ; vecteurs de 00 §8). Correct que PISTE compare l'instant à des bornes stockées à minuit UTC ou le tronque en date UTC ou Paris ; sémantique réelle **NON VÉRIFIÉ** [v:singledate-minuit-paris] (V-76, bloquante en M2) | 00 §8, AM-02, D-01, E-06 | résultats stables sur la journée ; cache efficace | non |
+| `search_singledate_noon_paris` | `singleDate` = instant de l'appel | midi Europe/Paris du jour `version_date`, en epoch ms (10:00Z en été, 11:00Z en hiver ; vecteurs de 00 §8). Correct que PISTE compare l'instant à des bornes stockées à minuit UTC ou le tronque en date UTC ou Paris ; sémantique réelle **NON VÉRIFIÉ** [v:singledate-midi-paris] (V-76, bloquante en M2) | 00 §8, AM-02, D-01, E-06 | résultats stables sur la journée ; cache efficace | non |
 | `query_normalized` | `query.strip()` | `QueryText` : trim, blancs repliés, contrôles retirés, 1 à 500 caractères (au-delà, `invalid_arg`) | D-32, 03 §4.1 | requêtes de plus de 500 caractères refusées | non |
 | `snippets_all_fonds` | extraits CODE seulement (`articles`) | `snippet` ≤ 280 caractères pour tous les fonds ; `articles` aussi pour KALI | D-33, E-26 | champs nouveaux | non (liste blanche) |
 | `snippet_ellipsis` | coupe franche à 280 points de code | coupe à la dernière espace des 40 derniers caractères, puis `…` inclus dans les 280 caractères | 03 §7.3 | extraits légèrement plus courts | non (aucun extrait des fixtures n'atteint 280) |
@@ -425,7 +425,7 @@ Chaque divergence porte une **clé** stable. La colonne « Golden » vaut **oui*
 
 | Section | Entrées | Contenu | Usage en test |
 |---|---|---|---|
-| `_meta` | 4 clés | provenance et définition des deux sections. Le chemin `scratchpad/scripts/golden.py` de `generated_by` est historique (session de recherche) et n'est pas corrigé, puisque `_meta` est figé : le générateur versionné est `donnees/scripts/golden.py` (§5.1) | contrôlé par `golden_meta_is_expected` (garde-fou contre un remplacement de fichier) |
+| `_meta` | 4 clés | provenance et définition des deux sections. Le chemin `scratchpad/scripts/golden.py` de `generated_by` est historique (session de recherche) : `golden.py` l'écrit en dur, ce qui garde la reproduction à l'octet près (§5.1). Il est gardé tel quel pour ne changer ni le golden ni les empreintes de 00 §10 ; le générateur versionné est `donnees/scripts/golden.py`. Il est corrigé à la prochaine régénération éventuelle du golden, dont la PR met à jour, dans le même changement, l'empreinte de `golden.py` (00 §10 et §5.1), le `sha256` de `parite-golden.meta.toml` (§5.3) et la valeur attendue par `golden_meta_is_expected` | contrôlé par `golden_meta_is_expected` (garde-fou contre un remplacement de fichier) |
 | `normalizer` | 17 : les 16 fixtures + `consult_article.json[id=KALIARTI000049886059]` (variante de test_parse.py:226) | dictionnaire brut renvoyé par `normalize_*`, **avant** pydantic : aucune valeur par défaut (un hit non CODE n'a pas de clé `articles`, un hit non ACCO pas de clé `idcc`), ni `byte_size`, ni notes ; `eli_uri` présent. Recherches : `{total, hits}`. Consultations : les champs de l'entité. | niveau 1, entités : `lf-adapter-piste` |
 | `tool_output` | 16 (pas de variante KALIARTI) | `structuredContent` de l'outil dans la référence : ordre des champs des modèles, défauts remplis (`articles: []`, `idcc: null`, `raison_sociale: null`), `byte_size`, `eli_note` (`SearchResult`, `Act` — dont `fr_get_convention` —, `ArticleText` : les 8 recherches, `consult_loda`, `consult_article`, `consult_kali`), `dataset_note` (les 8 recherches), `fond` et `query` (recherches ; `query` vaut le marqueur `<query.strip()>`). | niveau 2, sortie d'outil : `lf-app` (e2e) |
 
@@ -777,7 +777,7 @@ La colonne « JSON canonique » montre les échappements `\uXXXX` produits par `
 
 ## 7. Points NON VÉRIFIÉS de ce document
 
-Registre de référence : [09-risques-et-questions.md](../09-risques-et-questions.md) §2, qui fait foi pour l'échéance, la méthode et le statut de chaque vérification (colonne « V-xx ») ; ce tableau ne sert que d'index local des étiquettes employées ici. Les étiquettes déjà employées par d'autres documents du plan sont reprises telles quelles ; ce document n'en crée aucune.
+Registre de référence : [09-risques-et-questions.md](../09-risques-et-questions.md) §2, qui fait foi pour l'échéance, la méthode et le statut de chaque vérification (colonne « V-xx ») ; ce tableau ne sert que d'index local des étiquettes employées ici. Les étiquettes déjà employées par d'autres documents du plan sont reprises telles quelles ; ce document n'en crée aucune et n'emploie que des étiquettes de référence, aucun alias (09 §2.1, §2.19).
 
 | Étiquette | V-xx | Vérification à faire | Où |
 |---|---|---|---|
@@ -785,7 +785,7 @@ Registre de référence : [09-risques-et-questions.md](../09-risques-et-question
 | [v:forme-404-piste] | V-66 | Forme d'un 404 PISTE, de routage ou de ressource. Reprise de 02 et 04. | S9 |
 | [v:forme-403-piste] | V-65 | Sens d'un 403 de l'API Légifrance (application non abonnée ?). Reprise de 02 et 04. | S10 |
 | [v:retry-after-piste] | V-63 | Présence et format de `Retry-After` sur les 429 et 503 de PISTE. Reprise de 02 et 04. | P-024 |
-| [v:quota-piste-prod] | V-62 | Valeurs réelles des quotas PISTE (par seconde, minute, jour). Reprise de 02 ; 04 emploie l'étiquette `quotas-piste` pour le même point. | E-31 |
+| [v:quota-piste-prod] | V-62 | Valeurs réelles des quotas PISTE (par seconde, minute, jour). Reprise de 02 et 04 ; l'ancienne étiquette `quotas-piste` est un alias de celle-ci (09 §2.1). | E-31 |
 | [v:mojibake-origine] | V-72 | Le mojibake des 6 fixtures vient-il de l'outil de capture ou de l'API ? Reprise de 03 et 04. | E-13 |
 | [v:url-loda-article-lc] | V-140 | `/loda/article_lc/{LEGIARTI}` est-elle la forme canonique pour un article de texte non codifié ? Reprise de 03. Bloquante pour v0.1.0 (00 §4). | E-19 |
 | [v:url-codes-article-lc-loi] | V-141 | `/codes/article_lc/{LEGIARTI d'une loi}` résout-elle ? Reprise de 03. | E-19 |
@@ -798,7 +798,7 @@ Registre de référence : [09-risques-et-questions.md](../09-risques-et-question
 | [v:eli-natif-null] | V-102 | `eli` et `idEli` restent `null` en production. Reprise de 03. | P-039 |
 | [v:intordre-lawdecree] | V-97 | Présence d'`intOrdre` dans les réponses réelles de `/consult/lawDecree`, qui changerait l'ordre de la TOC par rapport à la référence. Reprise de 03. | P-033 |
 | [v:texte-html-getarticle-juri] | V-90 | Présence de `texteHtml` sur `/consult/getArticle` et sur `/consult/juri` pour JURI. Reprise de 03 et 04. | `long_text_structured` |
-| [v:singledate-minuit-paris] | V-76 | Avec `singleDate` à midi Europe/Paris (00 §8 ; minuit Paris dans la première version du plan, d'où le nom de l'étiquette), un texte qui entre en vigueur le jour J est-il retenu le jour J ? Comparaison avec minuit UTC, minuit Paris et la veille. Bloquante en M2. Reprise de 04. | `search_singledate_noon_paris`, E-06 |
+| [v:singledate-midi-paris] | V-76 | Avec `singleDate` à midi Europe/Paris (00 §8), un texte qui entre en vigueur le jour J est-il retenu le jour J ? Comparaison avec minuit UTC, minuit Paris et la veille. Bloquante en M2. Reprise de 04 ; étiquette de référence renommée au contrôle final du 2026-10-16, l'ancien nom `singledate-minuit-paris` (règle de minuit de la première version du plan) restant un alias (09 §2.19). | `search_singledate_noon_paris`, E-06 |
 | [v:oauth-production-live] | V-59 | Les URL de production OAuth et API fonctionnent avec des identifiants de production. Reprise de 04. | §6.2 |
 | [v:versions-mcp-reference] | V-190 | Versions de FastMCP et du SDK MCP Python réellement installées avec la référence (contrainte `fastmcp>=3.4,<4`), donc versions du protocole qu'elle servait. Avec le SDK 1.26.0 : 2024-11-05, 2025-03-26, 2025-06-18, 2025-11-25 (`mcp/shared/version.py:3`). | `protocol_versions`, §6.1 |
 

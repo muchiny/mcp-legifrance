@@ -4,7 +4,7 @@
 - **Date** : 2026-10-15
 - **Jalons concernés** : M1 (types et conversions pures), M2 (formats d'entrée, `singleDate`), M3 (`Clock`, `SystemClock`)
 - **Questions liées** : —
-- Révisé le 2026-10-15 (revue) : alignement sur 00 révision 2 ; `chrono-tz` aussi dans `lf-adapter-piste` ; seuil ≥ 2222-01-01 et sens de l'absence par champ, désormais décision de 00 §4 (AM-01) ; `singleDate` à midi Europe/Paris et nouveaux vecteurs (AM-02).
+- Révisé le 2026-10-15 (revue) : alignement sur 00 révision 2 ; `chrono-tz` aussi dans `lf-adapter-piste` ; seuil ≥ 2222-01-01 et sens de l'absence par champ, désormais décision de 00 §4 (AM-01) ; `singleDate` à midi Europe/Paris et nouveaux vecteurs (AM-02) ; contrôle final du 2026-10-16 : V-76 citée par son étiquette de référence, à midi (09 §2.1).
 
 ## Contexte
 
@@ -66,7 +66,7 @@
 
 ### À surveiller
 
-- **NON VÉRIFIÉ** [v:singledate-minuit-paris] : un texte qui entre en vigueur le jour J est-il retenu avec `singleDate` à midi Paris (10 h ou 11 h UTC du jour J) ? Comparaison avec minuit UTC, minuit Paris et la veille, bloquante en M2 (V-76). Le nom de l'étiquette vient de la première version du plan, qui envoyait minuit Paris.
+- **NON VÉRIFIÉ** [v:singledate-midi-paris] : un texte qui entre en vigueur le jour J est-il retenu avec `singleDate` à midi Paris (10 h ou 11 h UTC du jour J) ? Comparaison avec minuit UTC, minuit Paris et la veille, bloquante en M2 (V-76).
 - **NON VÉRIFIÉ** [v:convention-horaire-timestamps] : les horodatages de date sont-ils tous à minuit UTC ?
 - **NON VÉRIFIÉ** [v:sentinelle-2222-debut] : sens de `2222-02-22` en date de début, côté API.
 - **NON VÉRIFIÉ** [v:version-date-bornes] : bornes de `VersionDate` et réaction de l'API aux dates extrêmes.

@@ -8,8 +8,8 @@
 > - Les extraits Rust sont **non compilés, à valider en M0**.
 > - « La référence Python » désigne `matematicsolutions/fr-eli-mcp@d3b5b13`.
 > - Un point non vérifié est marqué **NON VÉRIFIÉ** suivi d'une étiquette `[v:…]`, reprise ensuite dans le registre `V-01…V-215` de [09-risques-et-questions.md](09-risques-et-questions.md).
-> - Les choix adoptés par défaut sur une question de l'utilisateur (`Q1…Q15`, 00 §13) sont appliqués ici et restent à confirmer.
-> - Les sources sont citées en ligne. Les vérifications faites spécialement pour ce document (index crates.io, sources de `rmcp-v3.5.1`, `moka v0.12.16`, `governor v0.10.4`, `cargo-deny 0.20.2`, `cargo-dist v0.33.0`, lues le 2026-10-15) sont listées dans la section [Sources](#sources).
+> - Les choix adoptés par défaut sur une question de l'utilisateur (`Q1…Q15`, 00 §13) sont appliqués ici et restent à confirmer. Sans réponse de l'utilisateur à l'ouverture de M0, M0 démarre sous le nom actuel du dépôt avec ces propositions par défaut ; le renommage éventuel du dépôt (Q1) se fait ensuite, redirection GitHub vérifiée (00 §13).
+> - Les sources sont citées en ligne. Les vérifications faites spécialement pour ce document (index crates.io, sources de `rmcp-v3.5.1`, `moka v0.12.16`, `governor v0.10.4`, `cargo-deny 0.20.2`, `cargo-dist v0.33.0`, lues le 2026-10-15 ; dates de publication de l'index et sources de `tokio-1.53.3`, lues le 2026-10-16) sont listées dans la section [Sources](#sources).
 
 ---
 
@@ -165,9 +165,12 @@ sequenceDiagram
 ## 2. Arborescence du dépôt cible
 
 ```text
-mcp-ligitfrance/                     # renommé en mcp-legifrance avant le premier commit de M0 (adopté par défaut, Q1)
+mcp-ligitfrance/                     # renommé en mcp-legifrance (Q1, adopté par défaut) : avant le premier commit de M0 si
+                                     # l'utilisateur a répondu, sinon après le démarrage de M0 sous le nom actuel (redirection
+                                     # GitHub vérifiée, T-M0-02 ; 00 §13)
 ├── Cargo.toml                       # workspace virtuel : resolver = "3", [workspace.package|dependencies|lints], profils
-├── Cargo.lock                       # versionné (produit binaire) ; montée de rmcp manuelle uniquement
+├── Cargo.lock                       # versionné (produit binaire) ; verrou initial T-M0-05, pas avant le 2026-10-19 (§3.0.1) ;
+│                                    # montée de rmcp manuelle uniquement
 ├── rust-toolchain.toml              # toolchain épinglée 1.99.0 + rustfmt, clippy (RUSTUP_TOOLCHAIN=1.97.0 en local tant que le conteneur ne peut pas l'installer, Q6)
 ├── rustfmt.toml                     # style_edition = "2024", max_width = 100
 ├── clippy.toml                      # disallowed-methods (horloge, env, exit), allow-unwrap/expect-in-tests
@@ -193,8 +196,10 @@ mcp-ligitfrance/                     # renommé en mcp-legifrance avant le premi
 │   │   ├── release.yml              # généré par `dist init` (ne pas éditer à la main) — 08
 │   │   ├── release-gates.yml, build-mcpb.yml, publish-oci.yml, publish-mcp-registry.yml …
 │   │   │                            # jobs personnalisés de la release ; liste et contenu : 08 §7.4-§7.5
+│   │   │                            # (pas de publish-crates.yml en v0.x, Q13)
 │   │   └── live.yml                 # smoke tests PISTE sandbox seulement (déclenchement manuel + planifié) ; jamais d'identifiants de production en CI (Q3)
-│   ├── scripts/install-mcp-publisher.sh   # 08 §7.5
+│   ├── scripts/                     # install-mcp-publisher.sh (08 §7.5) ; check-min-age.sh (règle d'âge minimal,
+│   │                                # 00 §2 ; étape min-age du job deny, 06 §9.4 ; esquisse à valider en M0, T-M0-05)
 │   ├── dependabot.yml               # cargo + github-actions ; rmcp et rmcp-macros ignorés (montée manuelle)
 │   └── pull_request_template.md     # case « descripteurs/instructions modifiés ? », « règles de dépendance ? »
 ├── crates/
@@ -214,9 +219,10 @@ mcp-ligitfrance/                     # renommé en mcp-legifrance avant le premi
 ├── fuzz/                            # hors workspace : cibles cargo-fuzz (06 §1.4)
 ├── packaging/
 │   ├── mcpb/                        # manifest.json, launcher (lanceur POSIX), icon.png — bundle MCPB unique, 08 §4.2
-│   └── oci/                         # Dockerfile (distroless non-root, LABEL io.modelcontextprotocol.server.name), prebuilt/ — 08 §5.2
+│   └── oci/                         # Dockerfile (distroless non-root, LABEL io.modelcontextprotocol.server.name), prebuilt/,
+│                                    # data/audit/.keep (répertoire /data/audit de l'image) — 08 §5.2
 └── docs/
-    ├── plan/                        # ce plan (00…09, annexes/) ; annexes/donnees/ : golden de parité et scripts
+    ├── plan/                        # ce plan (README.md : index ; 00…09, annexes/) ; annexes/donnees/ : golden de parité et scripts
     │                                # versionnés scripts/golden.py, check_golden.py, dto_repair_check.py (00 §10)
     ├── adr/                         # README.md + 0001…0014
     └── recherche/                   # rapports bruts 01…09
@@ -335,34 +341,39 @@ xtask/src/                # main.rs, check_deps.rs (+ rules.rs), lock_descriptor
 
 #### 3.0.1 Versions des dépendances externes
 
-Versions relues dans l'index sparse crates.io le 2026-10-15 (recherche 04 §4.1, contre-vérifiées pour ce document). Ce sont des **planchers** : la règle d'âge minimal de 00 §2 s'applique. Toute version figée dans `Cargo.lock` est publiée depuis au moins 14 jours à la date du verrouillage (pubtime de l'index sparse), sauf correctif de sécurité justifié dans la PR. Le verrou initial est fait à l'ouverture de M0 : une version trop récente est remplacée par son correctif précédent. Exception : `rmcp`/`rmcp-macros` `=3.5.1`, qui atteignent 14 jours le 2026-10-19 (le spike M0 peut commencer avant). Si `schemars` 1.2.3 est encore trop récent, le lint `unused_qualifications` reste désactivé jusqu'à ses 14 jours (R-22). Un crate publié moins de 14 jours avant le 2026-10-15 est marqué ⚠.
+Versions relues dans l'index sparse crates.io le 2026-10-15 (recherche 04 §4.1, contre-vérifiées pour ce document), dates de publication relues le 2026-10-16. Ce sont des **versions de référence**, pas des planchers (00 §2, AM-26) :
+- **Exigence écrite.** `[workspace.dependencies]` (§3.0.2) écrit l'exigence au niveau mineur de la version de référence : `tokio = "1.53"`, `schemars = "1.2"`, `serde_json = "1.0"`, `reqwest = "0.13"`, `rustls = "0.23"`, etc. Seuls `rmcp` et `rmcp-macros` sont épinglés `"=3.5.1"` (00 §6). Une exigence écrite au correctif de référence serait un plancher caret (`"1.53.3"` signifie ≥ 1.53.3) et interdirait le verrou ci-dessous.
+- **Règle d'âge minimal.** Toute version figée dans `Cargo.lock` est publiée depuis au moins 14 jours à la date du verrouillage (pubtime de l'index sparse), sauf correctif de sécurité justifié dans la PR.
+- **Verrou initial** (T-M0-05). Pour chaque crate, il retient la plus haute version publiée depuis au moins 14 jours à la date du verrou, relevée par script dans l'index sparse, et la fixe par `cargo update -p <crate> --precise <version>`. Si aucune version de la série mineure n'est assez ancienne, l'exigence descend d'une version mineure et c'est cette exigence qui est écrite : c'est le cas de `proptest`, `"1.11"` pour un verrou fait avant le 2026-10-24. `rmcp` et `rmcp-macros` 3.5.1 (publiés le 2026-10-05) deviennent éligibles le 2026-10-19 : M0 ne fait pas le verrou initial avant cette date, mais le spike M0 peut commencer avant.
+- **Lint lié à schemars.** Si le `schemars` retenu par le verrou est antérieur à 1.2.3, le lint `unused_qualifications` reste désactivé jusqu'à ce que 1.2.3 soit éligible (le 2026-10-26) et verrouillé (R-22).
+- **Marque ⚠.** Elle signale une version de référence publiée moins de 14 jours avant le 2026-10-15, avec sa date d'éligibilité (pubtime + 14 jours). Avant cette date, le verrou prend la plus haute version éligible de la même série. Au 2026-10-19, ce sont `tokio` 1.53.2, `schemars` 1.2.2, `serde_json` 1.0.151, `tokio-util` 0.7.19, `rustls` 0.23.45, `sha2` 0.11.0 et `jsonschema` 0.58.5, avec `proptest` 1.11.0 dans la série inférieure (pubtime de l'index, relevé le 2026-10-16).
 
-| Crate | Version | MSRV déclarée | Publiée | Crates utilisateurs | Features et remarques |
+| Crate | Version de référence | MSRV déclarée | Publiée | Crates utilisateurs | Features et remarques |
 |---|---|---|---|---|---|
-| `rmcp` | `=3.5.1` | 1.88 | 2026-10-05 ⚠ | lf-adapter-mcp (dev : idem avec `client`) | features par défaut (`base64`, `macros`, `server` ; `server` active `schemars`) + `transport-io` ; `transport-streamable-http-server` en M8 seulement. Ni `request-state`, ni `elicitation`, ni `auth` (recherche 09 §7a). Exception à la règle d'âge minimal : 14 jours le 2026-10-19 (00 §2). |
-| `rmcp-macros` | `=3.5.1` | 1.88 | 2026-10-05 ⚠ | lf-adapter-mcp | rmcp 3.5.1 déclare `rmcp-macros = { version = "3.5.1" }`, une exigence **caret** (`Cargo.toml` racine du tag `rmcp-v3.5.1`, ligne 9, vérifié). Sans épinglage direct, un `cargo update` pourrait associer rmcp 3.5.1 à un rmcp-macros plus récent. Le crate est déclaré mais pas utilisé directement : `[package.metadata.cargo-machete] ignored = ["rmcp-macros"]`. |
-| `schemars` | `1.2.3` | 1.74 | 2026-10-12 ⚠ | lf-adapter-mcp | 1.x imposé par rmcp (`schemars ^1.0`, feature `chrono04`). Dépendance directe nécessaire, car le derive émet des chemins `schemars::…`. ≥ 1.2.3 si `unused_qualifications` est activé (recherche 04 §2.16) ; lint désactivé tant que 1.2.3 a moins de 14 jours (00 §2). |
+| `rmcp` | `=3.5.1` | 1.88 | 2026-10-05 ⚠ (éligible le 2026-10-19) | lf-adapter-mcp (dev : idem avec `client`) | features par défaut (`base64`, `macros`, `server` ; `server` active `schemars`) + `transport-io` ; `transport-streamable-http-server` en M8 seulement. Ni `request-state`, ni `elicitation`, ni `auth` (recherche 09 §7a). Épinglé exactement, comme rmcp-macros : ce sont les deux seuls crates dans ce cas (00 §6). Il reste soumis à la règle d'âge : M0 ne fait pas le verrou initial avant le 2026-10-19 (00 §2). |
+| `rmcp-macros` | `=3.5.1` | 1.88 | 2026-10-05 ⚠ (éligible le 2026-10-19) | lf-adapter-mcp | rmcp 3.5.1 déclare `rmcp-macros = { version = "3.5.1" }`, une exigence **caret** (`Cargo.toml` racine du tag `rmcp-v3.5.1`, ligne 9, vérifié). Sans épinglage direct, un `cargo update` pourrait associer rmcp 3.5.1 à un rmcp-macros plus récent. Le crate est déclaré mais pas utilisé directement : `[package.metadata.cargo-machete] ignored = ["rmcp-macros"]`. C'est la seule exception à la règle des squelettes de M0 (une dépendance n'est déclarée que lorsqu'un code l'emploie, 00 §2 ; §3.0.2). |
+| `schemars` | `1.2.3` | 1.74 | 2026-10-12 ⚠ (éligible le 2026-10-26) | lf-adapter-mcp | 1.x imposé par rmcp (`schemars ^1.0`, feature `chrono04`). Dépendance directe nécessaire, car le derive émet des chemins `schemars::…`. Exigence `"1.2"`. Le lint `unused_qualifications` exige ≥ 1.2.3 (recherche 04 §2.16) : il reste désactivé tant que le verrou retient une version antérieure, 1.2.2 avant le 2026-10-26 (00 §2, R-22). |
 | `serde` | `1.0.229` | 1.56 | 2026-07-18 | adapters, lf-app | `derive`. Interdit dans lf-domain et lf-application (00 §2, §4). |
-| `serde_json` | `1.0.154` | 1.71 | 2026-10-11 ⚠ | adapters, lf-app, xtask | Interdit dans lf-domain et dans lf-application (liste fermée de 00 §2, §4). |
+| `serde_json` | `1.0.154` | 1.71 | 2026-10-11 ⚠ (éligible le 2026-10-25) | adapters, lf-app, xtask | Interdit dans lf-domain et dans lf-application (liste fermée de 00 §2, §4). |
 | `serde_path_to_error` | `0.1.20` | 1.61 | 2025-09-15 | lf-adapter-piste, lf-adapter-mcp | chemin JSON fautif dans `Decode` et `InputError` (recherche 03 §8). |
 | `thiserror` | `2.0.21` | 1.77 | 2026-09-23 | tous les crates bibliothèques | |
-| `tokio` | `1.53.3` | 1.71 | 2026-10-13 ⚠ | plusieurs (ci-contre) | `default-features = false` au workspace (la valeur par défaut de tokio est déjà vide). Features par membre : lf-application `time`, `macros`, `rt` (`rt` pour `tokio::task_local!` seulement, `Deadline`, 00 §2-§3) ; lf-adapter-piste `time`, `sync` ; lf-adapter-audit `sync` (canal et accusé ; le fil d'écriture est un `std::thread`) ; lf-adapter-mcp `macros` (rmcp ajoute `io-std` via `transport-io`) ; lf-app `rt-multi-thread`, `macros`, `signal`, `sync`, `time` ; tests : `test-util`, `io-util`. |
-| `tokio-util` | `0.7.20` | 1.85 | 2026-10-09 | lf-adapter-mcp, lf-app | `CancellationToken`, que rmcp ne ré-exporte pas (recherche 04 §4.1). |
+| `tokio` | `1.53.3` | 1.71 | 2026-10-13 ⚠ (éligible le 2026-10-27) | plusieurs (ci-contre) | `default-features = false` au workspace (la valeur par défaut de tokio est déjà vide). Features par membre : lf-application `time`, `macros`, `rt` (`rt` pour `tokio::task_local!` seulement, `Deadline`, 00 §2-§3) ; lf-adapter-piste `time`, `sync` ; lf-adapter-audit `sync` (canal et accusé ; le fil d'écriture est un `std::thread`) ; lf-adapter-mcp `macros`, `io-std` (`tokio::io::stdin()`/`stdout()` de l'`AsyncRwTransport` enveloppé, §3.6 ; rmcp l'active aussi via `transport-io`, `crates/rmcp/Cargo.toml:176` du tag `rmcp-v3.5.1`, vérifié) ; lf-app `rt-multi-thread`, `macros`, `signal`, `sync`, `time` ; tests : `test-util`, `io-util`. |
+| `tokio-util` | `0.7.20` | 1.85 | 2026-10-09 ⚠ (éligible le 2026-10-23) | lf-adapter-mcp, lf-app | `CancellationToken`, que rmcp ne ré-exporte pas (recherche 04 §4.1). |
 | `futures` | `0.3.34` | 1.71 | 2026-08-11 | lf-application | `default-features = false`, `["std", "async-await"]` : `join_all` et `buffer_unordered` (M6, M7). |
-| `reqwest` | `0.13.5` | 1.85 | 2026-09-08 | lf-adapter-piste | Liste de 04 §1.4 (00 §8). Workspace : `default-features = false`, `["json", "form"]` ; lf-adapter-piste ajoute `gzip`, `system-proxy` et la feature TLS retenue au spike M0 (`rustls`, ou `rustls-no-provider`). Ni `charset` (décodage UTF-8 strict depuis les octets, avant la réparation du mojibake), ni `http2`. `form` est indispensable au POST OAuth et n'est plus activée par défaut en 0.13 ; `rustls-tls` s'appelle désormais `rustls` ; `default-features = false` retire aussi `system-proxy`, d'où sa déclaration explicite (recherche 04 §4.1, §4.2). Variante `ring` : `rustls-no-provider` + `rustls` 0.23.46 (ligne suivante) + `install_default()` au démarrage, faute de quoi reqwest panique. Le choix final est un spike M0 : **NON VÉRIFIÉ** [v:tls-aws-lc-cross] (R-09, V-02). `reqwest::Url` (ré-export de `url` 2.5.8) sert à la validation de la configuration : pas de dépendance directe à `url`. |
-| `rustls` (option `ring`) | `0.23.46` | 1.71 | 2026-10-14 ⚠ | lf-adapter-piste | Seulement si `rustls-no-provider` est retenu : `default-features = false`, `["ring", "std", "tls12", "logging"]` (04 §1.4 ; recherche 04 §4.1). |
+| `reqwest` | `0.13.5` | 1.85 | 2026-09-08 | lf-adapter-piste | Liste de 04 §1.4 (00 §8). Workspace : `default-features = false`, `["json", "form"]` ; lf-adapter-piste ajoute `gzip`, `system-proxy` et la feature TLS retenue au spike M0 (`rustls`, ou `rustls-no-provider`). Ni `charset` (décodage UTF-8 strict depuis les octets, avant la réparation du mojibake), ni `http2`. `form` est indispensable au POST OAuth et n'est plus activée par défaut en 0.13 ; `rustls-tls` s'appelle désormais `rustls` ; `default-features = false` retire aussi `system-proxy`, d'où sa déclaration explicite (recherche 04 §4.1, §4.2). Variante `ring` : `rustls-no-provider` + `rustls` 0.23.46 (ligne suivante) + `install_default()` au démarrage, faute de quoi reqwest panique. Le choix final est un spike M0 : **NON VÉRIFIÉ** [v:tls-fournisseur-cross] (R-09, V-02). `reqwest::Url` (ré-export de `url` 2.5.8) sert à la validation de la configuration : pas de dépendance directe à `url`. |
+| `rustls` (option `ring`) | `0.23.46` | 1.71 | 2026-10-14 ⚠ (éligible le 2026-10-28) | lf-adapter-piste | Seulement si `rustls-no-provider` est retenu : `default-features = false`, `["ring", "std", "tls12", "logging"]` (04 §1.4 ; recherche 04 §4.1). |
 | `secrecy` | `0.10.3` | 1.60 | 2024-10-09 | lf-adapter-piste, lf-app | `SecretString` ; `Debug` affiche `[REDACTED]`. lf-adapter-piste active la feature `serde` : le jeton OAuth est désérialisé directement en `SecretString` (04 §3.2, 00 §8). |
 | `backon` | `1.6.0` | 1.85 | 2025-10-18 | lf-adapter-piste | Workspace : `default-features = false`, `["std"]` ; lf-adapter-piste ajoute `tokio-sleep` (04 §1.4), inutile si toutes les attentes passent par le `Sleeper` du crate (04 §5.2). L'API exacte de backon 1.6 est **NON VÉRIFIÉ** [v:backon-api] ; le choix se fait au spike M0. |
 | `governor` | `0.10.4` | — | 2025-12-16 | lf-adapter-piste | `default-features = false`, `["std"]` seule (00 §8 ; 04 §1.4) : horloge injectée bâtie sur `MonoClock`, consultée par `check()` ; ni `quanta`, ni `jitter`, ni `dashmap` (limiteurs à clés, inutiles ici). `until_ready` n'est pas utilisé : ses attentes passent par `futures_timer` et échappent au délai global (`state/direct/future.rs:11-30` du tag `v0.10.4`, vérifié ; §3.3). |
 | `moka` | `0.12.16` | 1.71.1 | 2026-08-09 | lf-adapter-cache | `["future"]`. La valeur par défaut est vide. |
 | `chrono` | `0.4.45` | 1.62 | 2026-06-04 | lf-domain, lf-application, adapters | `default-features = false`, `["std"]` au workspace ; **lf-app seul** ajoute `clock`. Déjà présent dans le graphe via rmcp (`now`, `serde`) : l'unification des features rend `Utc::now` compilable partout, d'où `clippy.toml` et le job de pureté (§4.4). |
-| `chrono-tz` | `0.10.4` | 1.65 | 2025-07-11 | lf-app (`SystemClock`), lf-adapter-piste (minuit Europe/Paris pour `DATE_VERSION`) | Base IANA embarquée à la compilation. |
+| `chrono-tz` | `0.10.4` | 1.65 | 2025-07-11 | lf-app (`SystemClock`), lf-adapter-piste (midi Europe/Paris de `DATE_VERSION`, 00 §8) | Base IANA embarquée à la compilation. |
 | `unicode-normalization` | `0.1.25` | 1.36 | 2025-10-30 | lf-domain | |
 | `winnow` | `1.0.4` | 1.65 | 2026-07-13 | lf-domain | API 1.0 : les tutoriels 0.6/0.7 ne s'appliquent pas tels quels. |
 | `aho-corasick` | `1.1.5` | 1.60 | 2026-08-03 | lf-domain | |
 | `regex` | `1.13.1` | 1.65 | 2026-07-15 | lf-domain (M6) | compilées une fois (`std::sync::LazyLock`). |
 | `similar` | `3.2.0` | 1.85 | 2026-08-17 | lf-application (M7) | `fr_diff_article`. Ne figure pas dans la liste des dépendances de lf-domain fixée par la décision. |
-| `sha2` / `hex` | `0.11.1` / `0.4.3` | 1.88 / — | 2026-10-12 ⚠ / 2021-03-03 | lf-adapter-audit, xtask | API `digest 0.11` **NON VÉRIFIÉE** [v:api-sha2-0-11] ; 0.11.0 (2026-03-25, MSRV 1.85) en repli. |
+| `sha2` / `hex` | `0.11.1` / `0.4.3` | 1.88 / — | 2026-10-12 ⚠ (éligible le 2026-10-26) / 2021-03-03 | lf-adapter-audit, xtask | API `digest 0.11` **NON VÉRIFIÉE** [v:api-sha2-0-11] ; 0.11.0 (2026-03-25, MSRV 1.85), retenue par un verrou fait avant le 2026-10-26. |
 | `fs4` | `1.1.0` | 1.75 | 2026-04-28 | lf-adapter-audit | verrou consultatif inter-processus sur `.mcp-legifrance.lock`, pris pour chaque ligne (00 §2, §7 ; §3.5). |
 | `tracing` | `0.1.44` | 1.65 | 2025-12-18 | tous sauf lf-domain | |
 | `tracing-subscriber` | `0.3.23` | 1.65 | 2026-03-13 | lf-app | `default-features = false`, `["std", "fmt", "env-filter", "smallvec", "tracing-log"]` (sans `ansi`). `env-filter` ne fait pas partie des features par défaut. |
@@ -370,10 +381,10 @@ Versions relues dans l'index sparse crates.io le 2026-10-15 (recherche 04 §4.1,
 | `dirs` | `6.0.0` | — | 2025-01-12 | lf-app | `data_dir()` donne le défaut de `LF_AUDIT_DIR`. 7.0.0 existe (2026-09-05, nouvelle majeure non évaluée). |
 | `anyhow` | `1.0.104` | 1.68 | 2026-07-18 | lf-app, xtask | jamais dans un crate bibliothèque. |
 | `cargo_metadata` / `toml` | `0.23.1` / `0.9.8` | 1.86 / 1.76 | 2025-11-12 / 2025-10-09 | xtask | |
-| `jsonschema` | `0.58.6` | 1.85 | | xtask (validité 2020-12 des schémas dans `lock-descriptors`, 05 §9.2) ; dev des adapters | **`default-features = false`** (voir la ligne dev ci-dessous). |
+| `jsonschema` | `0.58.6` | 1.85 | 2026-10-06 ⚠ (éligible le 2026-10-20) | xtask (validité 2020-12 des schémas dans `lock-descriptors`, 05 §9.2) ; dev des adapters | **`default-features = false`** (voir la ligne dev ci-dessous). |
 | `axum` (M8) | `0.8.9` | 1.80 | 2026-04-14 | lf-adapter-mcp (feature `http`) | utilisé par les exemples rmcp. |
 | `tantivy`, `quick-xml`, `tar`, `flate2` (M9) | `0.26.2`, `0.42.0`, `0.4.46`, `1.1.10` | 1.86, 1.86, 1.63, 1.67 | 2026 | lf-adapter-dila | |
-| dev : `wiremock`, `insta`, `proptest`, `tempfile`, `assert_cmd`, `predicates`, `jsonschema` | `0.6.5`, `1.49.0`, `1.12.0` ⚠, `3.27.0`, `2.2.2`, `3.1.4`, `0.58.6` | —, 1.66, 1.88, 1.63, 1.85, 1.74, 1.85 | | selon les crates | `insta` : `["json", "redactions"]`. `jsonschema` : **`default-features = false`**, car ses features par défaut (`resolve-http`, `resolve-file`, `tls-aws-lc-rs`, `idna`) tirent `reqwest` (index, version 0.58.6, vérifié), ce qui violerait R6 et le ban `cargo-deny` du §4.3. |
+| dev : `wiremock`, `insta`, `proptest`, `tempfile`, `assert_cmd`, `predicates`, `jsonschema` | `0.6.5`, `1.49.0` ⚠, `1.12.0` ⚠, `3.27.0`, `2.2.2`, `3.1.4`, `0.58.6` ⚠ | —, 1.66, 1.88, 1.63, 1.85, 1.74, 1.85 | `insta` 2026-10-03 (éligible le 2026-10-17) ; `proptest` 2026-10-10 (éligible le 2026-10-24) ; `jsonschema` : ligne ci-dessus | selon les crates | `insta` : `["json", "redactions"]`. `proptest` : exigence `"1.11"` (1.11.0, MSRV 1.85) pour un verrou fait avant le 2026-10-24, car 1.12.0 est la seule version de sa série ; `"1.12"` ensuite. `jsonschema` : **`default-features = false`**, car ses features par défaut (`resolve-http`, `resolve-file`, `tls-aws-lc-rs`, `idna`) tirent `reqwest` (index, version 0.58.6, vérifié), ce qui violerait R6 et le ban `cargo-deny` du §4.3. |
 
 **MSRV 1.91** (00-decisions §2) : elle couvre rmcp (1.88), proptest 1.12 (1.88), sha2 0.11.1 (1.88), cargo-nextest 0.9.148 (1.91, installé en binaire) et uuid. uuid ≥ 1.27 exige 1.89 (1.27.0 et 1.28.0 déclarent `rust_version = 1.89.0` dans l'index). rmcp tire `uuid ^1` via `server`, et ce piège est sans objet avec une MSRV à 1.91 : aucune dépendance directe à `uuid` n'est nécessaire (recherche 04 §4.1 le signalait pour une MSRV 1.88).
 
@@ -406,30 +417,33 @@ lf-adapter-piste = { path = "crates/lf-adapter-piste", version = "=0.1.0" }
 lf-adapter-cache = { path = "crates/lf-adapter-cache", version = "=0.1.0" }
 lf-adapter-audit = { path = "crates/lf-adapter-audit", version = "=0.1.0" }
 lf-adapter-mcp   = { path = "crates/lf-adapter-mcp",   version = "=0.1.0" }
-# MCP (confiné à lf-adapter-mcp)
+# externes : exigence au niveau mineur de la version de référence (§3.0.1, 00 §2) ; le correctif est choisi
+# par le verrou (plus haute version publiée depuis au moins 14 jours, `cargo update -p <crate> --precise <v>`)
+# MCP (confiné à lf-adapter-mcp) : rmcp et rmcp-macros, seuls crates épinglés exactement (00 §6)
 rmcp        = { version = "=3.5.1", features = ["transport-io"] }
 rmcp-macros = "=3.5.1"
-schemars    = "1.2.3"
+schemars    = "1.2"                  # unused_qualifications activé seulement si le verrou retient >= 1.2.3 (R-22)
 # default-features = false déclaré ICI quand c'est voulu : au niveau d'un membre,
 # l'héritage n'est respecté qu'à partir de Rust 1.99 (édition 2024), alors que la MSRV est 1.91
-tokio   = { version = "1.53.3", default-features = false }
-chrono  = { version = "0.4.45", default-features = false, features = ["std"] }
-reqwest = { version = "0.13.5", default-features = false, features = ["json", "form"] }   # + gzip, system-proxy, TLS : membre
-rustls  = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] } # option ring seulement
-governor = { version = "0.10.4", default-features = false, features = ["std"] }
-backon  = { version = "1.6.0", default-features = false, features = ["std"] }               # + tokio-sleep : membre (04 §1.4)
-secrecy = "0.10.3"                                                                          # + serde : lf-adapter-piste
-moka    = { version = "0.12.16", features = ["future"] }
-tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt", "env-filter", "smallvec", "tracing-log"] }
-futures = { version = "0.3.34", default-features = false, features = ["std", "async-await"] }
-# … autres lignes du tableau §3.0.1, versions exactes
+tokio   = { version = "1.53", default-features = false }
+chrono  = { version = "0.4", default-features = false, features = ["std"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "form"] }   # + gzip, system-proxy, TLS : membre
+rustls  = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] } # option ring seulement
+governor = { version = "0.10", default-features = false, features = ["std"] }
+backon  = { version = "1.6", default-features = false, features = ["std"] }               # + tokio-sleep : membre (04 §1.4)
+secrecy = "0.10"                                                                          # + serde : lf-adapter-piste
+moka    = { version = "0.12", features = ["future"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "fmt", "env-filter", "smallvec", "tracing-log"] }
+futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+serde_json = "1.0"
+# … autres lignes du tableau §3.0.1, même règle (ex. proptest = "1.11" pour un verrou fait avant le 2026-10-24)
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
 ```
 
-Chaque membre écrit `version.workspace = true`, `edition.workspace = true`, `rust-version.workspace = true`, `license.workspace = true`, `[lints] workspace = true`, et déclare ses dépendances sous la forme `x = { workspace = true, features = [...] }`, les features étant additives.
+Chaque membre écrit `version.workspace = true`, `edition.workspace = true`, `rust-version.workspace = true`, `license.workspace = true`, `[lints] workspace = true`, et déclare ses dépendances sous la forme `x = { workspace = true, features = [...] }`, les features étant additives. Les listes « Dépendances » des fiches (§3.1 à §3.9) décrivent la cible, pas le contenu des squelettes. En M0, un crate ne déclare une dépendance que lorsqu'un code l'emploie : les squelettes n'en déclarent pas d'avance, pour que `cargo machete` reste vert (00 §2). La seule exception est `rmcp-macros`, déclaré dans lf-adapter-mcp pour son épinglage et ignoré par `cargo machete` (§3.0.1).
 
 #### 3.0.3 Lints de workspace
 
@@ -439,7 +453,7 @@ La liste qui fait foi est celle de [06-qualite.md](06-qualite.md) §8.1 (documen
 [workspace.lints.rust]
 unsafe_code = "forbid"
 rust_2018_idioms = { level = "warn", priority = -1 }
-unused_qualifications = "warn"            # exige schemars >= 1.2.3 ; désactivé tant que 1.2.3 a moins de 14 jours (00 §2)
+unused_qualifications = "warn"            # exige schemars >= 1.2.3 ; désactivé tant que le verrou retient une version antérieure (00 §2, R-22)
 missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]
@@ -473,7 +487,7 @@ Deux points sont à mesurer au premier `cargo clippy` du spike M0, tous deux **N
   - M6 et M7 : `NumberQuery`, `NumberKind`, `NumberValue` (forme : annexe B §6.6, placés dans `search.rs`), `CodeListing` (entrée de `list_codes()`, M6), `ArticleVersion` et `RelatedLinks` (M7), définis dans 03 ;
   - erreurs : `DomainError`.
   - Les types de sortie sont `Clone`, `Send` et `Sync`. Une recommandation pour 03 : `LongText` partage ses paragraphes par `Arc<str>`, pour que le clone servi par le cache (§7.2) reste bon marché.
-- **Dépendances (liste blanche normative)** : `thiserror` 2.0.21, `chrono` 0.4.45 (`std`, sans `clock`), `unicode-normalization` 0.1.25, `winnow` 1.0.4, `aho-corasick` 1.1.5, `regex` 1.13.1 (M6). Rien d'autre, ni `tracing`, ni `serde`. Dev : `proptest` 1.12.0, `insta`.
+- **Dépendances (liste blanche normative ; versions de référence, exigences au niveau mineur, §3.0.1)** : `thiserror` 2.0.21, `chrono` 0.4.45 (`std`, sans `clock`), `unicode-normalization` 0.1.25, `winnow` 1.0.4, `aho-corasick` 1.1.5, `regex` 1.13.1 (M6). Rien d'autre, ni `tracing`, ni `serde`. Dev : `proptest` 1.12.0, `insta`.
 - **Features Cargo** : aucune.
 - **Pièges** :
   1. La décision ne prévoit **aucun crate HTML** dans le domaine. `text::from_html` (reconstitution des paragraphes depuis `texteHtml`, D-26) est donc écrit à la main : tokeniseur de balises de bloc (`<p>`, `<br/>`, `<div>`, `<li>`), décodage des entités (`&nbsp;`, `&amp;`, `&#NNN;`), et tests sur les fixtures CETAT (85 `<br/>`) et CNIL (`<p>`) (recherche 02 D-26).
@@ -493,7 +507,7 @@ Deux points sont à mesurer au premier `cargo clippy` du spike M0, tous deux **N
   - Ré-exports : `pub use lf_domain::PisteEnvironment` (et les types de domaine cités par les ports). Grâce à eux, `lf-adapter-audit` n'a pas besoin de dépendre directement de `lf-domain` (décision §2).
 - **Dépendances (liste fermée, 00 §2, vérifiée par `cargo xtask check-deps`)** :
   - `lf-domain`, `thiserror`, `chrono` (`std`) et `tracing` ;
-  - `tokio` avec **seulement** `time`, `macros` et `rt` : `tokio::time::timeout` (délai global), `tokio::time::Instant` (durée mesurable en temps suspendu dans les tests D-03) et `tokio::task_local!` pour `Deadline`. `rt` n'est admis que pour `task_local!` : l'application ne lance aucune tâche et ne construit aucun runtime (§13). Que `task_local!` soit bien derrière la seule feature `rt` se confirme au spike M0 (00 §11) ;
+  - `tokio` avec **seulement** `time`, `macros` et `rt` : `tokio::time::timeout` (délai global), `tokio::time::Instant` (durée mesurable en temps suspendu dans les tests D-03) et `tokio::task_local!` pour `Deadline`. `rt` n'est admis que pour `task_local!` : l'application ne lance aucune tâche et ne construit aucun runtime (§13). `task_local!` ne demande que la feature `rt` : son module est déclaré dans le bloc `cfg_rt!` de `tokio/src/task/mod.rs:277-331` (`mod task_local`, ligne 307, tag `tokio-1.53.3`, vérifié), et `task_local.rs` n'importe que `std` et `pin_project_lite`. `cargo check -p lf-application` seul le confirme à la compilation en M0 (§4.4) ;
   - `futures` (`std`, `async-await` : `join_all`, `buffer_unordered`) et `similar` (M7).
   - Sont interdits : tout adapter, `serde`, `serde_json`, `rmcp`, `reqwest`, `moka`, `governor`, `backon` et `async-trait`.
 - **Features Cargo** : `test-support` expose `FakeCorpus` (réponses programmées par méthode, compteur d'appels), `FixedClock`, `MemoryAuditLog` et `FailingAuditLog`. Les autres crates l'activent en dev-dependency.
@@ -510,7 +524,7 @@ Deux points sont à mesurer au premier `cargo clippy` du spike M0, tous deux **N
 - **Responsabilité** : `PisteCorpus: LegalCorpus` ([00-decisions §8](00-decisions.md#8-adapter-piste-lf-adapter-piste)). Il couvre :
   - l'OAuth2 `client_credentials` paresseux, mono-vol, renouvelé 60 s avant expiration ;
   - un seul `reqwest::Client`, avec des timeouts de 10 s à la connexion et de `LF_HTTP_TIMEOUT_S` (40 s) par requête ;
-  - les retries `backon` : 3 tentatives au plus sur 429, 502, 503, 504 et les erreurs réseau ; 2 au plus sur 500, puis `Upstream { status: 500, retryable: false }` (un 500 répété est présumé déterministe, V-69) ; gigue, respect de `Retry-After` (≤ 30 s), plafond fixé par `LF_TOOL_DEADLINE_S` (00 §8) ;
+  - les retries `backon` : 3 tentatives au plus sur 429, 502, 503, 504 et les erreurs réseau ; 2 au plus sur 500, puis `Upstream { status: 500, retryable: false }` (un 500 répété est présumé déterministe, V-69) ; gigue, respect de `Retry-After` (≤ 30 s), plafond fixé par `LF_TOOL_DEADLINE_S` (00 §8). `Retry-After` est lu en secondes, ou en date HTTP convertie en délai par différence avec l'en-tête `Date` de la même réponse, sans horloge murale ; une date HTTP sans `Date` exploitable est ignorée et l'attente revient au backoff (04 §5.2). La présence de ces deux en-têtes chez PISTE est **NON VÉRIFIÉE** [v:retry-after-piste] ;
   - le respect du délai global : lecture de `lf_application::deadline::Deadline` (durée restante, convertie dans l'horloge monotone de l'adapter à l'entrée de la méthode du port) ; aucune tentative ni attente programmée au-delà (00 §3) ;
   - le limiteur `governor` du processus, consulté par `check()` avant chaque tentative (jamais `until_ready`), et un sémaphore de `LF_PISTE_CONCURRENCY` requêtes en vol ;
   - des DTO serde minimaux, le mapping DTO → domaine et l'application au corps de la réparation du mojibake (fonction pure du domaine, interrupteur `LF_PISTE_MOJIBAKE_REPAIR`) ;
@@ -529,9 +543,9 @@ Deux points sont à mesurer au premier `cargo clippy` du spike M0, tous deux **N
   2. `rustls-platform-verifier` exige un magasin de certificats CA système dans l'image OCI ([08-distribution.md](08-distribution.md)).
   3. Les attentes de `governor::until_ready` passent par `futures_timer::Delay` et non par les timers tokio (`state/direct/future.rs:11` du tag `v0.10.4`, vérifié) : elles échapperaient au délai global et aux horloges de test. L'adapter **n'utilise pas** `until_ready` : il boucle sur `check()` avec une horloge `governor` bâtie sur `MonoClock` ; si l'attente prévue dépasse le reste du délai, il rend tout de suite `RateLimited { retry_after }` (00 §8 ; 04 §5.4). Les tests du limiteur, du jeton et du backoff utilisent `ManualClock` et `RecordingSleeper` (04 §1.5, §13.1), sans `FakeRelativeClock`, sans constructeur `with_clock` et sans geler l'horloge tokio.
   4. `tokio::time::pause()` avance automatiquement l'horloge quand le runtime est inactif. Combiné à de vraies sockets (wiremock), il peut déclencher à tort les timeouts reqwest. Les tests de l'adapter ne l'utilisent donc pas ; il reste réservé aux tests sans réseau de `lf-application`.
-  5. Corps de réponse lus en flux, bornés à **16 Mio après décompression** → `Decode` au-delà (00 §8 ; D-41 ; 04 §4.3, testé à 17 Mio). La taille réelle maximale des réponses est **NON VÉRIFIÉE** [v:taille-max-reponse-piste].
+  5. Corps de réponse lus en flux, bornés à **16 Mio après décompression** → `Decode` au-delà (00 §8 ; D-41 ; 04 §4.3, testé à 17 Mio). La taille réelle maximale des réponses est **NON VÉRIFIÉE** [v:taille-max-textes].
   6. Jamais d'en-tête `Authorization`, de corps de réponse ni de corps OAuth dans un log (§11).
-  7. Réparation du mojibake sur le corps entier, après le décodage UTF-8 strict, avant serde et **avant** toute normalisation des NBSP ; jamais appliquée par défaut au texte soumis par l'utilisateur. Son origine reste à confirmer en live, **NON VÉRIFIÉ** [v:origine-mojibake] (décision §8 ; V-72 ; D-35). Les stratégies sont contrôlées sur les fixtures par `docs/plan/annexes/donnees/scripts/dto_repair_check.py` (00 §10).
+  7. Réparation du mojibake sur le corps entier, après le décodage UTF-8 strict, avant serde et **avant** toute normalisation des NBSP ; jamais appliquée par défaut au texte soumis par l'utilisateur. Son origine reste à confirmer en live, **NON VÉRIFIÉ** [v:mojibake-origine] (décision §8 ; V-72 ; D-35). Les stratégies sont contrôlées sur les fixtures par `docs/plan/annexes/donnees/scripts/dto_repair_check.py` (00 §10).
   8. Renommages serde explicites (`titresTM`) et `null_default` sur toutes les listes, car serde refuse `null` pour un `Vec` (recherche 03 §8).
 
 ### 3.4 `lf-adapter-cache`
@@ -601,10 +615,10 @@ pub fn registered_tool_names() -> Vec<&'static str>;   // pour les tests de coh�
   - Prompts (M7) : **pas** de `#[prompt_handler]`. Contrairement à `#[tool_handler]`, cette macro **remplace** un `list_prompts` ou un `get_prompt` écrit à la main, pose `ttl_ms: 0` aux pairs modernes et reconstruit par défaut `Self::prompt_router()` à chaque appel (`rmcp-macros/src/prompt_handler.rs:28-30`, `:56-75`, `:77-104` du tag `rmcp-v3.5.1`, vérifié). Les définitions passent par `#[prompt_router]`/`#[prompt]` ; `get_prompt` et `list_prompts` sont écrits à la main sur le champ `self.prompt_router`, avec les indications de cache de Q8 pour les pairs modernes.
   - `supported_protocol_versions()` renvoie le tableau statique `[2026-07-28, 2025-11-25, 2025-06-18]` (décision §6). Repli si V-34 confirme en M4 qu'une enveloppe moderne portant une version legacy est servie sans `resultType` : `[2026-07-28]` seul dans discover, et `-32022` répondu par `PreLifecycleFilter` (00 §6).
   - `subscriptions/listen` (décision 00 §6) : par défaut, rmcp répond `-32601` (`handler/server.rs:147-154`, vérifié). En ère moderne, `accepted_subscription_filter` renvoie un filtre vide (accusé minimal, premier message `notifications: {}`), puis le `listen` par défaut attend l'annulation sans émettre de notification (`handler/server.rs:454-480`) ; en ère legacy, `-32601`. Critère M4 : un EOF de stdin avec un `listen` ouvert termine le processus (code 0) en moins d'une seconde (V-35).
-  - Cycle de vie stdio : `PreLifecycleFilter` enveloppe `rmcp::transport::stdio()` dès le spike M0 et écarte (`debug!`) toute notification ou réponse reçue avant l'ouverture d'une ère, que rmcp 3.5.1 traiterait comme une erreur fatale (`service/server.rs:681-685`) ; filtre retiré quand rmcp le corrige. Écarts acceptés et testés : `ping` avant toute ère → `{}` ; `initialize` portant un `_meta` moderne → poignée de main legacy ; ligne non JSON ignorée (00 §6 ; annexe D §4.3, §4.7 ; V-29, V-30).
+  - Cycle de vie stdio : `PreLifecycleFilter` enveloppe `AsyncRwTransport::new_server(tokio::io::stdin(), tokio::io::stdout())` dès le spike M0. Le tuple `(Stdin, Stdout)` que renvoie `rmcp::transport::stdio()` n'implémente que `IntoTransport` (annexe D §4.3) ; que `serve_with_ct` accepte l'enveloppe est **NON VÉRIFIÉ** [v:rmcp-transport-enveloppe] (V-29). Le filtre écarte (`debug!`) toute notification ou réponse reçue avant l'ouverture d'une ère, que rmcp 3.5.1 traiterait comme une erreur fatale (`service/server.rs:681-685`) ; filtre retiré quand rmcp le corrige. Écarts acceptés et testés : `ping` avant toute ère → `{}` ; `initialize` portant un `_meta` moderne → poignée de main legacy ; ligne non JSON ignorée (00 §6 ; annexe D §4.3, §4.7 ; V-29, V-30).
   - Ressources (M7) : ressource inconnue ou introuvable → `ErrorData::resource_not_found` avec `data.uri`, que rmcp émet en `-32002` aux pairs legacy et en `-32602` aux pairs 2026-07-28 ; identifiant invalide dans une URI de gabarit → `-32602` (`invalid_params`) dans les deux ères ; jamais `contents: []` (00 §6).
   - Transport HTTP (M8, Q4) : POST seul, sans session (GET/DELETE → 405, V-40) ; validation `Origin` à notre charge (`with_allowed_origins(liste)` + `enforce_origin_validation()`, rmcp ne validant rien avec la liste vide par défaut ; `Origin` invalide → 403) ; tout POST autre qu'`initialize` sans `MCP-Protocol-Version` → 400 + `-32020` par une couche axum (V-39) ; corps ≤ 256 Kio ; la fabrique sans état clone un prototype `LegifranceServer` dont le routeur est construit une fois ; jeton du profil local lu dans `LF_MCP_HTTP_TOKEN` (00 §1, §6 ; annexe D §5.2).
-- **Dépendances** : `lf-application`, `lf-domain`, `rmcp`, `rmcp-macros`, `schemars`, `serde`, `serde_json`, `serde_path_to_error`, `tokio` (`macros`), `tokio-util`, `tracing`, `thiserror` ; M8 : `axum`. Dev : `rmcp` (+ `client`), `insta`, `jsonschema`, `tokio` (`io-util`, `test-util`), `lf-application` (`test-support`).
+- **Dépendances** : `lf-application`, `lf-domain`, `rmcp`, `rmcp-macros`, `schemars`, `serde`, `serde_json`, `serde_path_to_error`, `tokio` (`macros`, `io-std` : `stdin()`/`stdout()` de `serve_stdio`), `tokio-util`, `tracing`, `thiserror` ; M8 : `axum`. Dev : `rmcp` (+ `client`), `insta`, `jsonschema`, `tokio` (`io-util` pour `tokio::io::split` d'un `duplex` dans le harnais de 06 §2.6, `test-util`), `lf-application` (`test-support`).
 - **Features Cargo** : `http` = `["rmcp/transport-streamable-http-server", "dep:axum"]` (M8).
 - **Pièges**. Ce sont ceux de la recherche 04 §2.19 et de la recherche 09 §4-5 :
   1. `get_info()` renvoie `ServerConfig` ; un `get_info` écrit à la main doit appeler `enable_tools()` (et `enable_resources/prompts/completions` en M7), sans `enable_logging()` (déprécié).
@@ -786,6 +800,9 @@ pub trait LegalCorpus: Send + Sync + 'static {
     /// CodeRef → LegiTextId par la table des codes (celle de list_codes) ; à la date du jour,
     /// /consult/getArticleWithIdAndNum (version en vigueur seulement) ; à une autre date, /search EXACTE
     /// sur NUM_ARTICLE + DATE_VERSION, hits filtrés par cid, jamais NOM_CODE sans V-121 (00 §8 ; 04 §7.2).
+    /// L'adapter n'a pas d'horloge : il ne sait que `date` est le jour que si l'application le lui indique.
+    /// La forme de ce signal est fixée avec la signature en M6 (amendement de 00 §3 si elle change) ;
+    /// à défaut, la voie /search sert pour toutes les dates (04 §7.2 étape 2).
     fn find_article(&self, code: &CodeRef, num: &ArticleNum, date: VersionDate)
         -> impl Future<Output = Result<ArticleText, CorpusError>> + Send;
     /// /search en EXACTE sur NUM_ARTICLE, NUM, NUM_AFFAIRE, NUM_DEC, NUM_DELIB, IDCC ; /search filtré par
@@ -848,10 +865,12 @@ pub struct VersionDate(chrono::NaiveDate);        // au jour près : stabilise l
 pub struct SearchQuery {                           // Eq + Hash : clé de cache (§7.2) ; construit par SearchQuery::new
     pub fond: Fond,
     pub text: QueryText,                           // trim, 1..=500 caractères, sans caractères de contrôle (D-32)
-    pub page: std::num::NonZeroU32,                // défaut 1 ; page × page_size ≤ 10 000 (V-83)
+    pub page: std::num::NonZeroU32,                // défaut 1 ; page × page_size ≤ REACHABLE_RESULTS = 10 000 (V-83)
     pub page_size: PageSize,                       // 1..=100, défaut 10
     pub mode: MatchMode,
-    pub date_range: Option<DateRange>,             // date_from ≤ date_to ; seulement sur un fond qui a une facette de date
+    pub date_range: Option<DateRange>,             // date_from ≤ date_to ; seulement si fond.has_date_filter() ; une
+                                                   // borne absente est complétée par DateRange::new (03 §6.1) : période
+                                                   // toujours fermée, clé de cache unique
     pub version_date: Option<VersionDate>,         // Some pour Loda et Code seulement (DATE_VERSION)
     // … autres champs éventuels : 03 §4.1. La typePagination envoyée à PISTE est choisie par l'adapter
     //   (PaginationMemo, 00 §7 ; 04 §6.6) : un éventuel champ `pagination` de 03 reste à Defaut côté application.
@@ -968,13 +987,13 @@ pub struct InputError { pub message: String }     // ex. "page_size: invalid typ
 | Outil | Jalon | Cas d'usage | Analyse (→ domaine) | Appels au port | Politique | Métrique d'audit |
 |---|---|---|---|---|---|---|
 | `fr_search` | v0.1 | `SearchUseCase` | `Fond` (insensible à la casse et aux espaces, défaut `LODA`, P-010), `QueryText`, `PageSize` (1–100, défaut 10), `page` (`NonZeroU32`, défaut 1), `MatchMode` (défaut `any` jusqu'à V-79, Q10), `DateRange`, `VersionDate` (LODA/CODE seulement, défaut aujourd'hui Paris) → `SearchQuery::new`, qui rejette sans réseau (`invalid_arg`) `version_date` hors LODA/CODE, `date_from`/`date_to` sur CODE, `date_from` > `date_to` et `page × page_size` > 10 000 (§5.1) | `search` | `has_more` ; snippet ≤ 280 ; facettes jamais brutes ; `typePagination` jamais exposé (choisi par l'adapter, 00 §7) ; `idcc?` et `total_articles?` rendus en v0.2 (classe « ajout ») | nombre de hits |
-| `fr_get_act` | v0.1 | `GetActUseCase` | `LegiTextId` (suffixe de version `_JJ-MM-AAAA` séparé ; admis sur `LEGITEXT` seulement), `VersionDate` (défaut : date du suffixe de `text_id` s'il y en a un, sinon aujourd'hui Paris ; 00 §7, AM-43), `toc_offset` (défaut 0), `toc_limit` (100, au plus 500) | `get_act` | TOC aplatie en ordre préfixe avec profondeur, fenêtre `[offset, offset + limit)`, `next_toc_offset` (D-25) | entrées de TOC renvoyées |
+| `fr_get_act` | v0.1 | `GetActUseCase` | `LegiTextId` (suffixe de version `_JJ-MM-AAAA` séparé ; admis sur `LEGITEXT` seulement), `VersionDate` (défaut : date du suffixe de `text_id` s'il y en a un, sinon aujourd'hui Paris ; 00 §7, AM-43), `toc_offset` (défaut 0 ; au-delà de la fin de la TOC : `invalid_arg`, `DomainError::TocOffsetPastEnd` de `Toc::page`, 03 §4.2), `toc_limit` (100, au plus 500) | `get_act` | TOC aplatie en ordre préfixe avec profondeur, fenêtre `[offset, offset + limit)`, `next_toc_offset` (D-25) | entrées de TOC renvoyées |
 | `fr_get_text` | v0.1 | `GetTextUseCase` | `ArticleId` (Legi ou Kali), `ReadingRequest` | `get_article` | lecture + `date_debut`, `date_fin` (`None`, donc omises, si ≥ 2222-01-01 ; sens d'un champ omis documenté par champ, 00 §4), `etat`, `code_title` | caractères renvoyés |
 | `fr_get_decision` | v0.1 | `GetDecisionUseCase` | `DecisionId` (Juri, Constit ou Cetat ; la juridiction se déduit du préfixe, D-28), `ReadingRequest` | `get_decision` | lecture + `ecli` natif, `juridiction`, `formation`, `solution`, `numero_affaire`, `date` | caractères renvoyés |
 | `fr_get_deliberation` | v0.1 | `GetDeliberationUseCase` | `CnilTextId`, `ReadingRequest` | `get_deliberation` | lecture | caractères renvoyés |
 | `fr_get_convention` | v0.1 | `GetConventionUseCase` | `KaliTextId`, `toc_offset`, `toc_limit` | `get_convention` | TOC (les articles KALIARTI se lisent avec `fr_get_text`) ; `idcc`, `nor?` (comme `fr_get_act`) | entrées de TOC renvoyées |
 | `fr_get_company_agreement` | v0.1 | `GetCompanyAgreementUseCase` | `AccoTextId` | `get_company_agreement` | métadonnées seules (texte en pièce jointe .docx) | 1 |
-| `fr_coverage` | v0.1 | `CoverageUseCase` | aucune ; l'empreinte est celle de `{}` | aucun | lacunes calculées par la fonction pure du domaine (`coverage(…)`, signature : 03 §4.8), avec l'environnement PISTE et l'état de configuration de `ServiceSettings` : identifiants, problèmes détectés (dont `CustomHost` et mode dégradé, 00 §1), mode d'audit. Il porte la note ELI et l'attribution des données « Source : Légifrance / DILA — Licence Ouverte 2.0 » avec la date de consultation (date du jour Europe/Paris, `clock.today_paris()` ; Q15). Les lacunes ne sont jamais vides (D-34). | nombre de lacunes |
+| `fr_coverage` | v0.1 | `CoverageUseCase` | aucune ; l'empreinte est celle de `{}` | aucun | lacunes calculées par la fonction pure du domaine (`coverage(env, &ConfigFacts, served)`, 03 §4.8 ; `ConfigFacts` est tiré de `ServiceSettings.configuration`), avec l'environnement PISTE et l'état de configuration de `ServiceSettings` : identifiants, problèmes détectés (dont `CustomHost` et mode dégradé, 00 §1), mode d'audit. Il porte la note ELI et l'attribution des données « Source : Légifrance / DILA — Licence Ouverte 2.0 » avec la date de consultation (date du jour Europe/Paris, `clock.today_paris()` ; Q15). Les lacunes ne sont jamais vides (D-34). | nombre de lacunes |
 | `fr_verify_citations` | v0.2 (M6) | `VerifyCitationsUseCase` | `text` (1 à 20 000 caractères), `max_citations` (1 à 100, défaut 50) → `citation::parse_with` | `find_article`, `find_by_number`, `get_*` | résolutions concurrentes `buffer_unordered(4)` (débit effectif régulé par le limiteur PISTE) ; `span` en points de code (conversion depuis les octets du domaine) ; `quote` calculé automatiquement ; en sandbox, un introuvable est rendu `unresolvable` avec la note « sandbox data differ from production », jamais `not_found` (V-61). Le cas d'usage cesse de lancer des résolutions à 80 % du délai global : les citations restantes passent en `unresolvable` avec une `note`, au lieu d'un échec global (00 §3). | nombre de citations |
 | `fr_resolve` | v0.2 (M6) | `ResolveUseCase` | `citation` libre (1 à 1 000 caractères), `date?` (défaut aujourd'hui Paris) → `citation::parse_with` | `find_article`, `find_by_number` | au plus 5 candidats avec `confidence`, meilleur d'abord | 1 |
 | `fr_get_related` | v0.3 (M7) | `GetRelatedUseCase` | `id` (article ou décision) | article : `related_links` ; décision : `get_decision`, puis analyse de `citationJp` et `liens` | au plus 100 liens, `truncated: true` au-delà ou sous le plafond dur | nombre de liens |
@@ -1080,7 +1099,7 @@ where O: AuditMetric, W: Future<Output = Result<O, AppError>> + Send, X: Future<
 
 L'annulation est **explicite** : l'adapter passe `ct.cancelled()` en paramètre. On évite ainsi un garde `Drop` qui ne pourrait pas attendre (`await`) l'écriture d'audit. `select!` en mode `biased` fait gagner l'annulation en cas de simultanéité. Abandonner `work` abandonne en cascade la requête reqwest en vol, l'attente du limiteur et les pauses de backon.
 
-**Délai global** (00 §3). `tokio::time::timeout(LF_TOOL_DEADLINE_S)` est la seule garde dure. `Deadline::scope` publie l'échéance dans `lf_application::deadline::Deadline`, variable locale de tâche (`tokio::task_local!`, feature `rt`). Les adapters la lisent par `Deadline::current_or(défaut)` comme une **durée restante** (`Duration`), qu'ils convertissent dans leur propre horloge monotone à l'entrée de la méthode du port, ce qui garde cohérentes leurs horloges de test (`ManualClock`, 04 §13.1). Ils ne programment aucune tentative ni attente qui dépasserait l'échéance et rendent tout de suite une erreur explicite (`RateLimited { retry_after }`, `Timeout` ou dernière erreur). Les cas d'usage n'utilisent pas `tokio::spawn` (sinon, propagation explicite) ; ceux à appels multiples cessent d'en lancer à 80 % du délai et rendent un résultat partiel motivé. Dépassement → `upstream_error` (`UpstreamCause::Deadline`).
+**Délai global** (00 §3). `tokio::time::timeout(LF_TOOL_DEADLINE_S)` est la seule garde dure. `Deadline::scope` publie l'échéance dans `lf_application::deadline::Deadline`, variable locale de tâche (`tokio::task_local!`, feature `rt` seule, §3.2). `Deadline::scope` et `Deadline::current_or` sont publics : les tests des adapters ouvrent eux-mêmes une portée (`deadline_from_task_local_is_used`, 04 §13.2), sans passer par `Audited`. Les adapters la lisent par `Deadline::current_or(défaut)` comme une **durée restante** (`Duration`), qu'ils convertissent dans leur propre horloge monotone à l'entrée de la méthode du port, ce qui garde cohérentes leurs horloges de test (`ManualClock`, 04 §13.1). Ils ne programment aucune tentative ni attente qui dépasserait l'échéance et rendent tout de suite une erreur explicite (`RateLimited { retry_after }`, `Timeout` ou dernière erreur). Les cas d'usage n'utilisent pas `tokio::spawn` (sinon, propagation explicite) ; ceux à appels multiples cessent d'en lancer à 80 % du délai et rendent un résultat partiel motivé. Dépassement → `upstream_error` (`UpstreamCause::Deadline`).
 
 **Tests** à écrire, détaillés dans [06-qualite.md](06-qualite.md) :
 - `audit_written_for_every_outcome` : les 15 issues de 06 §2.2 (12 avec une ligne, 3 sans ligne en cas d'échec d'écriture) ;
@@ -1101,7 +1120,7 @@ L'annulation est **explicite** : l'adapter passe `ct.cancelled()` en paramètre.
 | Coalescence | `cache.entry(key).or_try_insert_with(init)` (`entry_selector.rs:651`) : les appels concurrents identiques n'évaluent qu'un seul `init` (`future/cache.rs:1201-1207`). `Entry::is_fresh()` (`common/entry.rs:80`) distingue `miss` de `hit` pour les logs. | vérifié (tag `v0.12.16`) |
 | Non mis en cache | **toutes les erreurs** : un `Err` n'est jamais inséré (`future/cache.rs:1194-1197`) ; les **réponses vides** (`SearchPage.hits` vide, listes vides), que `init` renvoie sous la forme `Err(Bypass(valeur))` pour qu'elles ne soient pas insérées puis reconverties en `Ok` pour l'appelant ; `fr_coverage`, qui n'appelle pas le port. | décision §9 ; D-15 |
 | Ordre de composition | `CachedCorpus<PisteCorpus>` : sur un `hit`, ni jeton, ni limiteur, ni retry. `Audited` est au-dessus, au niveau du cas d'usage, donc l'attente d'une entrée coalescée compte dans le délai global. | ADR-0007 |
-| Bascule de jour | La clé change à minuit heure de Paris, parce que la `VersionDate` par défaut vient de `clock.today_paris()`. | D-01, D-19 |
+| Bascule de jour | La clé change à minuit heure de Paris, au changement de date civile, parce que la `VersionDate` par défaut vient de `clock.today_paris()`. Cette bascule ne se confond pas avec l'instant envoyé à PISTE pour `DATE_VERSION`, qui est midi Europe/Paris (00 §8). | D-01, D-19 |
 
 Tests ([06-qualite.md](06-qualite.md)) :
 - `second_identical_loda_search_hits_cache` (wiremock `expect(1)`) ;
@@ -1291,7 +1310,7 @@ Cette table est la source unique de la correspondance cause → `CorpusError` �
 | 3 | Outil inconnu | `tools/call {name:"x"}` | rmcp : `invalid_params("tool not found")` (`router/tool.rs:566-571`, vérifié) | — | JSON-RPC `-32602` | aucune ligne : aucune exécution |
 | 4 | JSON-RPC malformé, batch, `_meta` moderne incomplet | | rmcp | — | `-32700`, `-32600` ou `-32602` ; version non supportée → `-32022` | aucune |
 | 5 | Identifiants absents | `LF_PISTE_CLIENT_ID` non défini | `CorpusError::Config`, sans E/S | `Config` | `[config_error] PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET …` (S6, E-34) | `error` / `config_error` |
-| 6 | Configuration invalide | `LF_PISTE_ENV=prod`, URL `ftp://…` | `CorpusError::Config` (mode dégradé, §8.2) | `Config` | `[config_error] LF_PISTE_ENV='prod' is invalid: expected sandbox or production` | idem |
+| 6 | Configuration invalide | `LF_PISTE_ENV=prod`, URL `ftp://…` ; hôte officiel de production avec `LF_PISTE_ENV=sandbox` (`EnvMismatch`, 00 §1) | `CorpusError::Config` (mode dégradé, §8.2) | `Config` | `[config_error] LF_PISTE_ENV='prod' is invalid: expected sandbox or production.` ; `EnvMismatch` : `[config_error] LF_PISTE_BASE_URL points to the PISTE production host but LF_PISTE_ENV is sandbox: set LF_PISTE_ENV=production, or fix the URL.` (05 §7.2 ; aucune déduction implicite de l'environnement) | idem |
 | 7 | OAuth 400 ou 401 | `invalid_client` | `CorpusError::Auth` | `Config` | `[config_error] PISTE rejected the credentials (HTTP {status}): check LF_PISTE_CLIENT_ID, LF_PISTE_CLIENT_SECRET and LF_PISTE_ENV.` — la référence répond `upstream_error` (S8) : corrigé (D-10) | idem |
 | 8 | OAuth 404 | mauvaise `LF_PISTE_OAUTH_URL` | `CorpusError::Config` | `Config` | `[config_error] PISTE OAuth endpoint not found: check LF_PISTE_OAUTH_URL.` — **jamais `not_found`** (décision §5) | idem |
 | 9 | OAuth 200 sans `access_token`, ou JSON OAuth illisible | | `CorpusError::Config` | `Config` | `[config_error] PISTE OAuth returned no access_token.` (S7) | idem |
@@ -1300,7 +1319,7 @@ Cette table est la source unique de la correspondance cause → `CorpusError` �
 | 12 | API 403 | application non abonnée | `CorpusError::Auth` (décision 00 §5). Le sens d'un 403 PISTE est **NON VÉRIFIÉ** [v:forme-403-piste] (V-65) ; la parité (S10) donnait `upstream_error`. | `Config` | `[config_error] PISTE denied access (HTTP 403): check that the PISTE application is subscribed to the Legifrance API.` | idem |
 | 13 | Ressource absente | 404 sur une consultation, URL de base officielle et corps qui n'est pas du HTML ; ou 2xx sans contenu (`text: null`, enveloppe vide) | `CorpusError::NotFound` | `NotFound` | `[not_found] No JURI decision found for …` (P-013) | `error` / `not_found` |
 | 13 bis | Identifiant inexistant signalé par un 400 | 400 sur une consultation dont `message` contient « valider est fausse » (`/consult/juri`, seul comportement observé) | `CorpusError::NotFound` (04 §11.2 règle 2) | `NotFound` | `[not_found] …` (message de l'outil, P-013) | `error` / `not_found` |
-| 14 | **404 de routage** | 404 sur `/search` ou sur l'endpoint token ; 404 à corps HTML (passerelle) ; 404 sur un hôte non officiel ; `LF_PISTE_BASE_URL` erronée | `CorpusError::Config` | `Config` | `[config_error] Legifrance endpoint not found: check LF_PISTE_BASE_URL.` (D-10). La forme d'un 404 PISTE est **NON VÉRIFIÉE** [v:forme-404-piste]. | `error` / `config_error` |
+| 14 | **404 de routage** | 404 sur `/search` ; 404 à corps HTML (passerelle) ; 404 sur un hôte non officiel ; `LF_PISTE_BASE_URL` erronée (un 404 de l'endpoint token relève de la ligne 8) | `CorpusError::Config` | `Config` | `[config_error] Legifrance endpoint not found: check LF_PISTE_BASE_URL.` (D-10). La forme d'un 404 PISTE est **NON VÉRIFIÉE** [v:forme-404-piste]. | `error` / `config_error` |
 | 15 | API 400 | 400 sans le marqueur « introuvable » ; ou garde défensive de l'adapter (contrainte d'entrée que le cas d'usage aurait dû rejeter) | `CorpusError::InvalidRequest` (non réessayé, `warn!` « bug probable ») | `Upstream` | `[upstream_error] Legifrance rejected the request (HTTP 400): {détail PISTE nettoyé, ≤ 200 caractères}` (parité S10 ; 00 §5) | `error` / `upstream_error` |
 | 16 | API 429 | quota | retries respectant `Retry-After`, puis `CorpusError::RateLimited`. La présence de l'en-tête est **NON VÉRIFIÉE** [v:retry-after-piste]. | `RateLimited` | `[rate_limited] PISTE quota reached; retry in N s` | `error` / `rate_limited` |
 | 17 | API 500, 502, 503 ou 504 | | 502, 503, 504 : 3 tentatives au plus, puis `CorpusError::Upstream { retryable: true }` ; 500 : 2 tentatives au plus, puis `Upstream { status: 500, retryable: false }` (un 500 répété est présumé déterministe, V-69 ; 00 §8) | `Upstream` | `[upstream_error] Legifrance/PISTE HTTP 503 (service unavailable); retry once, then report it.` (sans URL, D-40) ; l'invitation à réessayer n'apparaît que si `retryable: true` | `error` / `upstream_error` |
@@ -1340,7 +1359,7 @@ Cette table est la source unique de la correspondance cause → `CorpusError` �
 | Audit | fil dédié + canal borné + accusé `oneshot` ; aucune E/S bloquante dans une tâche tokio | D-16, D-38 |
 | E/S bloquante | interdite dans les tâches async : audit dans un fil dédié ; tantivy (M9) dans `spawn_blocking` ; aucune E/S `std::fs` dans les cas d'usage | D-05, D-38 |
 | Verrous | jamais de `std::sync::MutexGuard` tenu à travers un `.await` (`clippy::await_holding_lock = deny`) ; préférer `tokio::sync::Mutex` ou un état sans verrou | |
-| Tests de concurrence | `server_answers_ping_while_tool_waits_upstream` (D-05), `concurrent_calls_share_one_token_refresh` (D-12), `concurrent_identical_calls_coalesce` (§7.2). Horloges : `lf-application` teste `Audited`, le délai global et la durée en temps suspendu (`start_paused`, `tokio::time::Instant`) ; l'adapter PISTE teste jeton, backoff, `Retry-After`, limiteur et délai restant avec `ManualClock` et `RecordingSleeper`, sans geler l'horloge tokio (§3.3 ; 04 §13.1). | 06-qualite ; 04 §13 |
+| Tests de concurrence | `server_answers_discover_while_tool_waits_upstream` (D-05 ; `server/discover`, car `ping` est supprimé en ère moderne, annexe D §7 ; 06 §3.1), `concurrent_calls_share_one_token_refresh` (D-12), `concurrent_identical_calls_coalesce` (§7.2). Horloges : `lf-application` teste `Audited`, le délai global et la durée en temps suspendu (`start_paused`, `tokio::time::Instant`) ; l'adapter PISTE teste jeton, backoff, `Retry-After`, limiteur et délai restant avec `ManualClock` et `RecordingSleeper`, sans geler l'horloge tokio (§3.3 ; 04 §13.1). | 06-qualite ; 04 §13 |
 
 ---
 
@@ -1463,7 +1482,7 @@ Dans chaque cas, ce document applique [00-decisions.md](00-decisions.md). Les re
 | 9 | recherche 02 D-26, recherche 04 §4.1 | `scraper` ou `html2text` pour `texteHtml` | aucun crate HTML dans lf-domain (liste fermée de la décision) : conversion maison | conserver ; prévoir des tests sur toutes les fixtures HTML |
 | 10 | spécification 2025-11-25 ; rmcp (`resource_not_found` → `-32002` en legacy, `-32602` en moderne) | ancienne règle de 00 : « ressource inconnue → `-32602` » dans les deux ères | `ErrorData::resource_not_found` : `-32002` aux pairs legacy, `-32602` aux pairs 2026-07-28 ; identifiant invalide dans une URI de gabarit → `-32602` dans les deux ères | décidé (00 §6, AM-09) |
 | 11 | recherche 08 §7.6, §14.1 | `subscriptions/listen` : accusé minimal obligatoire en moderne ; rmcp répond `-32601` par défaut | `accepted_subscription_filter` → filtre vide en moderne, `-32601` en legacy ; EOF avec un `listen` ouvert → code 0 en moins d'une seconde (M4) | décidé (00 §6, AM-10) ; V-35 |
-| 12 | recherche 03 §8 (exigence du brief : crates âgés d'au moins 2 semaines) | rmcp 3.5.1 (2026-10-05), schemars 1.2.3, tokio 1.53.3, serde_json 1.0.154, sha2 0.11.1, proptest 1.12.0, rustls 0.23.46, aws-lc-rs 1.18.2 ont moins de 14 jours au 2026-10-15 | versions du plan = planchers ; règle d'âge minimal de 14 jours au verrouillage, correctif précédent d'une version trop récente, exception rmcp (§3.0.1) | décidé (00 §2, AM-26) ; R-22 |
+| 12 | recherche 03 §8 (exigence du brief : crates âgés d'au moins 2 semaines) | rmcp 3.5.1 (2026-10-05), schemars 1.2.3, tokio 1.53.3, serde_json 1.0.154, sha2 0.11.1, proptest 1.12.0, rustls 0.23.46, aws-lc-rs 1.18.2 ont moins de 14 jours au 2026-10-15 | versions du plan = versions de référence, pas des planchers ; exigences au niveau mineur, sauf `rmcp`/`rmcp-macros` `=3.5.1` ; règle d'âge minimal de 14 jours au verrouillage ; verrou initial sur la plus haute version éligible, pas avant le 2026-10-19 (éligibilité de rmcp 3.5.1) (§3.0.1) | décidé (00 §2, AM-26, correction du 2026-10-16) ; R-22 |
 | 13 | recherche 01 E-29 | « échec de `Parameters<T>` → erreur JSON-RPC » | Le code de rmcp 3.5.1 donne un résultat in-band **non audité**. Ici : `JsonObject` + décodage audité (`invalid_arg`). | décidé (00 §5, AM-08) ; le spike M0 valide ([v:rmcp-jsonobject-input-schema]) ; repli `Parameters<T>` par ADR |
 | 14 | 04 §1.4, §1.5, §5.4 et 02 (version initiale) | features de reqwest, governor et secrecy ; noms des modules de l'adapter ; limiteur `until_ready` ; borne de corps 32 Mio | liste de 04 ; modules de 04 §1.5 ; `check()` ; 16 Mio | décidé (00 §8, AM-06, AM-36) |
 
@@ -1515,3 +1534,10 @@ Dans chaque cas, ce document applique [00-decisions.md](00-decisions.md). Les re
 - `GREsau/schemars`, tag `v1.2.3` : `schemars_derive/src/schema_exprs.rs:725-739` (propriété facultative en contrat `Deserialize` seulement avec `default` ou `Option`) ; `schemars/src/generate.rs` (préréglages en `Contract::Deserialize`).
 - `EmbarkStudios/cargo-deny`, tag `0.20.2` : `docs/src/checks/bans/cfg.md:23-36` (`wildcards`, `allow-wildcard-paths`), `:90-96` (`wrappers`).
 - `axodotdev/cargo-dist`, tag `v0.33.0` : `book/src/reference/config.md:8-11` (`dist-workspace.toml` ou `[workspace.metadata.dist]`), `book/src/quickstart/rust.md:34-35`.
+
+**Vérifications complémentaires (2026-10-16)**
+- Index sparse crates.io, champ `pubtime`, pour les versions de référence marquées ⚠ et les versions que retient un verrou fait le 2026-10-19 :
+  - versions de référence : rmcp et rmcp-macros 3.5.1 (2026-10-05T18:35:06Z et 18:34:44Z), schemars 1.2.3 (2026-10-12T20:30:07Z), serde_json 1.0.154 (2026-10-11T15:31:46Z), tokio 1.53.3 (2026-10-13T20:51:46Z), tokio-util 0.7.20 (2026-10-09T11:02:11Z), rustls 0.23.46 (2026-10-14T09:54:15Z), sha2 0.11.1 (2026-10-12T18:58:22Z), jsonschema 0.58.6 (2026-10-06T14:51:18Z), insta 1.49.0 (2026-10-03T01:12:59Z), proptest 1.12.0 (2026-10-10T18:18:05Z) ;
+  - versions retenues le 2026-10-19 : tokio 1.53.2 (2026-10-03), schemars 1.2.2 (2026-07-27), serde_json 1.0.151 (2026-07-20 ; 1.0.152 et 1.0.153 publiés les 2026-10-10 et 2026-10-11), tokio-util 0.7.19 (2026-07-21, MSRV 1.71), rustls 0.23.45 (2026-09-14), sha2 0.11.0 (2026-03-25, MSRV 1.85), jsonschema 0.58.5 (2026-10-02), proptest 1.11.0 (2026-03-24, MSRV 1.85).
+- `tokio-rs/tokio`, tag `tokio-1.53.3` (`a85c3f5`) : `tokio/src/task/mod.rs:277-331` (bloc `cfg_rt!`, `mod task_local` ligne 307) ; `tokio/src/task/task_local.rs:1-8` (imports : `pin_project_lite` et `std` seulement), `:34-36` (`task_local!`, `doc(cfg(feature = "rt"))`).
+- `modelcontextprotocol/rust-sdk`, tag `rmcp-v3.5.1` : `crates/rmcp/Cargo.toml:175-176` (`transport-async-rw` active `tokio/io-util`, `transport-io` active `tokio/io-std`).

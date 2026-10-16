@@ -71,7 +71,7 @@ Documents liés : [03-domaine.md](../03-domaine.md) §8 (architecture et types d
 | `lf-adapter-cache` | `CachedCorpus` | `Op::FindArticle` (24 h), `Op::FindByNumber` (1 h), `Op::Codes` (7 j) en M6 ; `Op::Related` (24 h) en M7 ; aucune mise en cache d'erreur ni de réponse vide (00 §9) | M6, M7 |
 | `lf-adapter-mcp` | vues de sortie | `VerifyView`, `ResolveView`, `RelatedView` ; `kind` en `snake_case` ; `span` en points de code Unicode (00 §7) ; rendu anglais des notes | M6, M7 |
 
-Le parseur ne dépend que des crates de 00 §2 pour `lf-domain` : `winnow`, `aho-corasick`, `regex`, `unicode-normalization`, `chrono` sans `clock`, `thiserror`. Pas de `serde` dans le domaine (03 §1.1) ; `serde_json` seulement en `[dev-dependencies]` pour charger le corpus.
+Le parseur ne dépend que des crates de 00 §2 pour `lf-domain` : `winnow`, `aho-corasick`, `regex`, `unicode-normalization`, `chrono` sans `clock`, `thiserror`. Pas de `serde` dans le domaine (03 §1.1) ; `serde_json` seulement en `[dev-dependencies]` pour charger le corpus. Chaque dépendance n'entre dans `crates/lf-domain/Cargo.toml` qu'avec le premier code qui l'emploie, jamais d'avance dans le squelette de M0 (`cargo machete` vert, 00 §2, 03 §1.1) : `winnow`, `aho-corasick` et `regex` arrivent avec le parseur (M6) ; les exigences de version suivent 00 §2 (niveau mineur, versions du plan = versions de référence).
 
 ### 1.3 Flux d'un appel `fr_verify_citations`
 
@@ -803,7 +803,7 @@ Le cas N28 est le plus exposé aux faux positifs (« facture n° 123456 ») : un
 
 ### 5.1 Contenu
 
-[donnees/codes-table.md](donnees/codes-table.md) est la source du dictionnaire : **77 entrées** (recherche 07 §5.2).
+[donnees/codes-table.md](donnees/codes-table.md) est la source du dictionnaire : **77 entrées** (recherche 07 §5.2). Le fichier porte en tête la légende de ses sources et statuts (`JL`, `KM`, `FX`, `DILA`, `WEB`, `TIERS`, `[PLF]`, `¹`, `?`), reprise de la recherche 07 §0.1, §0.2 et §5.1, et ses mentions **NON VÉRIFIÉ** portent les étiquettes [v:abreviations-codes] (formes d'usage), [v:list-code-etats] (statuts « abrogé »), [v:codes-legitext-tiers] et [v:list-code-forme] (légende).
 
 | Colonne | Contenu | Fiabilité |
 |---|---|---|
@@ -872,7 +872,7 @@ impl CodeKey { pub fn title(self) -> &'static str; pub fn entry(self) -> &'stati
 
 - `CodeEntry` est l'entrée **statique** du dictionnaire (champs `&'static`) ; l'entrée dynamique de `list_codes()` (`/list/code` : `LEGITEXT`, titre et `etat` lus à l'exécution) est un autre type, `CodeListing { id: LegiTextId, title: String, etat: Option<LegalStatus> }` (03 §4.11, 02 §5.1), pour éviter deux types homonymes dans `lf-domain`.
 - Noms de variantes : titre en CamelCase ASCII, articles compris (`CodeDeLaSantePublique`, `LivreDesProceduresFiscales`, `CodeGeneralDesImpotsAnnexeIi`) ; un test vérifie l'absence de doublon.
-- **Test de synchronisation** (`dict_matches_codes_table`) : lit [donnees/codes-table.md](donnees/codes-table.md) (copie de test, §8.1), vérifie 77 lignes, l'égalité des titres et la présence de chaque abréviation des colonnes 4 et 5, hors mentions entre parenthèses.
+- **Test de synchronisation** (`dict_matches_codes_table`) : lit la copie de test de [donnees/codes-table.md](donnees/codes-table.md) (§8.1) ; ne retient que les lignes du tableau dont la première cellule est un numéro (le titre, la légende, l'en-tête et la ligne finale sont ignorés) ; vérifie 77 lignes numérotées 1 à 77, l'égalité des titres et la présence de chaque abréviation des colonnes 4 et 5, hors mentions entre parenthèses (provenances, `**NON VÉRIFIÉ** [v:…]`). Une forme dont les seules sources sont `[KM]` ou `[JRX]` (AGPL-3.0 : `C. conso.`, `COJ`, `CSI`, `CGFP`, `CJPM`, `C. rur.`) n'entre dans `CODES`, et n'est exigée par ce test, qu'après vérification sur une source non AGPL (08 §9.4 règle 3, [v:abreviations-codes]) ; le test tient la liste de ces exceptions.
 - **Test d'intégration** (`codes_table_matches_list_code`, `#[ignore]`, identifiants PISTE requis, Q3) : chaque `CodeKey` trouve une entrée dans `/list/code` ; le test **rapporte** (sans échouer) les `LEGITEXT` qui diffèrent de `codes-table.md`, ce qui tranche le conflit du Code rural.
 
 ---
@@ -1374,7 +1374,7 @@ Chaque outil est enveloppé par `Audited` (00 §3) : succès, `invalid_arg`, err
 
 ### 8.1 Fichiers et effectifs
 
-Fichiers de référence : [donnees/citations-corpus-positifs.jsonl](donnees/citations-corpus-positifs.jsonl) et [donnees/citations-corpus-negatifs.jsonl](donnees/citations-corpus-negatifs.jsonl), issus de la recherche 07 §8. Ils sont **copiés** en M6 dans `crates/lf-domain/tests/data/citations/` (crate autonome, publiable) ; un pas de CI compare octet pour octet la copie et l'annexe (`cmp`), pour qu'il n'existe qu'un contenu.
+Fichiers de référence : [donnees/citations-corpus-positifs.jsonl](donnees/citations-corpus-positifs.jsonl) et [donnees/citations-corpus-negatifs.jsonl](donnees/citations-corpus-negatifs.jsonl), issus de la recherche 07 §8. Ils sont **copiés** en M6 dans `crates/lf-domain/tests/data/citations/` (crate autonome, publiable), avec [donnees/codes-table.md](donnees/codes-table.md) que lit `dict_matches_codes_table` (§5.5) ; un pas de CI compare octet pour octet chaque copie et l'annexe (`cmp`), pour qu'il n'existe qu'un contenu.
 
 Contrôle refait le 2026-10-15 sur les fichiers de l'annexe (script ponctuel non versionné, Python 3.13 en `python3 -I`, en lecture seule) : 214 attentes, toutes les sous-chaînes `match` retrouvées dans leur `in`, en respectant l'ordre des énumérations ; 0 erreur. Le contrôle qui fait foi est le test Rust `corpus_matches_are_substrings` (§8.5) ; les seuls scripts Python versionnés du plan sont ceux de [donnees/scripts/](donnees/scripts/) (golden de parité et réparation du mojibake, 00 §10), qui ne lisent pas ce corpus.
 
@@ -1459,7 +1459,7 @@ Le harnais compare le fichier **tel quel** : il n'a pas de table de surcharges. 
 
 | Cas | Attente de la recherche 07 | Attente du fichier (corrigée) | Raison |
 |---|---|---|---|
-| P159 `ECLI:EU:C:2024:216` | `{"kind": "Ecli", "country": "EU", …, "resolvable": false}` | `{"kind": "Unsupported", "family": "ecli_etranger", "match": "ECLI:EU:C:2024:216"}` | 00 §4 : `Ecli` n'accepte que `ECLI:FR:…` ; un ECLI d'un autre pays est `Unsupported { family: ForeignEcli }` (code `ecli_etranger`), statut `unresolvable` (03 §8.6) |
+| P159 `ECLI:EU:C:2024:216` (ligne 144 de `citations-corpus-positifs.jsonl`) | `{"kind": "Ecli", "country": "EU", …, "resolvable": false}` | `{"kind": "Unsupported", "family": "ecli_etranger", "match": "ECLI:EU:C:2024:216"}` | 00 §4 : `Ecli` n'accepte que `ECLI:FR:…` ; un ECLI d'un autre pays est `Unsupported { family: ForeignEcli }` (code `ecli_etranger`), statut `unresolvable` (03 §8.6) |
 
 Les autres écarts entre la recherche 07 et 00 n'affectent pas le corpus : les dates sont comparées en ISO (indifférent à `NaiveDate` contre `LegalDate`), et une date invalide attendue `null` correspond à `None` + `date_invalide` (N09, N37). Toute nouvelle correction d'attente imposée par 00 exige une ligne dans cette table.
 
@@ -1575,7 +1575,7 @@ La recherche 07 §10 n° 18 désigne des cas construits de mémoire : **P065 à 
 - [ ] Normalisation : table de repli du §3.2 complète, vue clé 1:1, `OffsetMap` ; invariants du §3.5 en proptest.
 - [ ] Grammaires des 12 familles et du puits (§4.2 à §4.14), énumérations, anaphores, qualificatifs de version (§4.15), arbitrage du §4.16.
 - [ ] Dictionnaire de 77 codes synchronisé avec [donnees/codes-table.md](donnees/codes-table.md) ; sigles ambigus testés (§5.3).
-- [ ] Corpus entièrement vert : 170 positifs et 42 négatifs, sans surcharge dans le harnais (attente de P159 corrigée dans le fichier, §8.4) ; copie de test identique à l'annexe (CI).
+- [ ] Corpus entièrement vert : 170 positifs et 42 négatifs, sans surcharge dans le harnais (attente de P159 corrigée dans le fichier, §8.4) ; copies de test (corpus et table des codes, §8.1) identiques à l'annexe (CI).
 - [ ] Fuzzing sans panique ; snapshots des fixtures CETAT et CONSTIT figés.
 - [ ] `NumberQuery`, `NumberKind` (dont `Ecli` et `Eli`) et `NumberValue` dans `lf-domain::search` (§6.6, 03 §4.11) ; `find_article`, `find_by_number` et `list_codes()` dans le port ; facette `ECLI` et endpoints ELI de 00 §8 ; `CodeTable` paresseuse, seule table des codes (aucun appel réseau au démarrage, test stdio de 00 §6 toujours vert).
 - [ ] `VerifyCitationsUseCase` et `ResolveUseCase` : statuts du §7.6, preuve d'absence du §7.2 (table de politique testée), règle sandbox (`unresolvable`, jamais `not_found`, 00 §7), budget, concurrence bornée, dédoublonnage ; tests du §8.6 verts.

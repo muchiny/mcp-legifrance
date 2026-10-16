@@ -35,7 +35,7 @@
 - l'adapter PISTE résilient (sandbox par défaut, production par `LF_PISTE_ENV`), le cache mémoire, l'audit strict, la configuration par variables `LF_*` (lecture des `FR_ELI_*` avec avertissement de dépréciation) ;
 - la distribution : binaires cargo-dist pour 7 cibles, bundle MCPB, image OCI, registre MCP (`io.github.muchiny/mcp-legifrance`, Q1), `cargo install --git` ; signature selon Q5 ([08](08-distribution.md)).
 
-**État du plan.** Le plan a été rédigé et relu le 2026-10-15 (révision 2 de 00, amendements `AM-01…AM-43`). Aucune ligne de code n'existe : les extraits Rust ne sont pas compilés (« à valider en M0 »). Le conteneur de rédaction n'avait accès ni aux archives des crates (`static.crates.io`) ni à la toolchain 1.99.0, ni à PISTE, ni à legifrance.gouv.fr, ni aux dumps DILA ([09](09-risques-et-questions.md) §0.3). Les faits sur l'API viennent des 16 fixtures de la référence, du Swagger 2.4.2 et de clients tiers ; ceux sur rmcp, de la lecture de son code au tag `rmcp-v3.5.1`. Tout ce qui n'a pas pu être vérifié est marqué **NON VÉRIFIÉ** et inscrit au registre `V-01…V-215` de 09. Aucune vérification n'est levée et neuf sont partielles (V-31 à V-34, V-39, V-40, V-169 à V-171 ; 09 §2.20). Vingt-cinq bloquent un jalon d'ici v0.1.0 ([09 §2.18](09-risques-et-questions.md#218-synthèse-par-jalon)). Les plus structurantes :
+**État du plan.** Le plan a été rédigé et relu le 2026-10-15 (révision 2 de 00, amendements `AM-01…AM-43`), puis contrôlé le 2026-10-16 sans nouvel amendement (00 §14). Aucune ligne de code n'existe : les extraits Rust ne sont pas compilés (« à valider en M0 »). Le conteneur de rédaction n'avait accès ni aux archives des crates (`static.crates.io`) ni à la toolchain 1.99.0, ni à PISTE, ni à legifrance.gouv.fr, ni aux dumps DILA ([09](09-risques-et-questions.md) §0.3) ; l'état revérifié le 2026-10-16 et ce qu'il permet déjà sont dans [07 §1.4](07-feuille-de-route.md#14-ce-qui-peut-être-fait-tout-de-suite). Les faits sur l'API viennent des 16 fixtures de la référence, du Swagger 2.4.2 et de clients tiers ; ceux sur rmcp, de la lecture de son code au tag `rmcp-v3.5.1`. Tout ce qui n'a pas pu être vérifié est marqué **NON VÉRIFIÉ** et inscrit au registre `V-01…V-215` de 09. Aucune vérification n'est levée et neuf sont partielles (V-31 à V-34, V-39, V-40, V-169 à V-171 ; 09 §2.20). Vingt-cinq bloquent un jalon d'ici v0.1.0 ([09 §2.18](09-risques-et-questions.md#218-synthèse-par-jalon)). Les plus structurantes :
 
 - compilation du squelette et TLS en compilation croisée (V-01, V-02) ;
 - arguments `JsonObject` et filtre pré-cycle de rmcp (V-28, V-29) ;
@@ -47,7 +47,7 @@ Deux prérequis conditionnent la plupart des levées : un réseau de constructio
 
 ## 2. Ordre de lecture selon le profil
 
-Tous les profils commencent par ce README, puis par [00-decisions.md](00-decisions.md) (250 lignes).
+Tous les profils commencent par ce README, puis par [00-decisions.md](00-decisions.md) (environ 250 lignes).
 
 **Décideur** (propriétaire du dépôt : produit, juridique, comptes, budget)
 
@@ -60,11 +60,12 @@ Tous les profils commencent par ce README, puis par [00-decisions.md](00-decisio
 **Développeur qui démarre M0**
 
 1. [00](00-decisions.md) en entier.
-2. [02](02-architecture.md) §1 à §4 (hexagone, arborescence, socle du workspace, `check-deps`), puis §5 (ports).
-3. [06](06-qualite.md) §1.4, §7 à §9 et §14 : fichiers de test, CI, lints, cargo-deny, critères de M0.
-4. Les spikes : [05](05-outils-mcp.md) §3.2 et §3.3 (squelette rmcp, `JsonObject`, V-28), [annexe D](annexes/D-mcp-2026-07-28.md) §4.3 (`PreLifecycleFilter`, V-29), [08](08-distribution.md) §2 (cargo-dist, TLS aws-lc ou ring, V-02).
-5. [09](09-risques-et-questions.md) §0.3 (état du réseau), §2.3 et §2.4 (V-01 à V-45), §5 (critères de M0).
-6. [07](07-feuille-de-route.md) : tâches `T-M0-yy` ; ADR-0001, ADR-0002, ADR-0003 et ADR-0012.
+2. [07 §1.4](07-feuille-de-route.md#14-ce-qui-peut-être-fait-tout-de-suite) et [§2.0](07-feuille-de-route.md#20-m0--fondations) : état du conteneur constaté le 2026-10-16, tâches faisables sans réseau ni identifiants, prérequis de M0 (questions, réseau), dates de la règle d'âge du verrou initial (pas avant le 2026-10-19) et critères de M0.
+3. [02](02-architecture.md) §1 à §4 (hexagone, arborescence, socle du workspace, `check-deps`), puis §5 (ports).
+4. [06](06-qualite.md) §1.4, §7 à §9 et §14 : fichiers de test, CI, lints, cargo-deny, critères de M0.
+5. Les spikes : [05](05-outils-mcp.md) §3.2 et §3.3 (squelette rmcp, `JsonObject`, V-28), [annexe D](annexes/D-mcp-2026-07-28.md) §4.3 (`PreLifecycleFilter`, V-29), [08](08-distribution.md) §2 (cargo-dist, TLS aws-lc ou ring, V-02).
+6. [09](09-risques-et-questions.md) §0.3 (état du réseau au 2026-10-15), §2.3 et §2.4 (V-01 à V-45), §5 (critères de M0).
+7. [07](07-feuille-de-route.md) §2.0 (tâches `T-M0-yy` et vérifications qu'elles lèvent) et §3 (ordre et parallélisation) ; ADR-0001, ADR-0002, ADR-0003 et ADR-0012.
 
 **Contributeur aux outils MCP**
 
@@ -156,10 +157,10 @@ Jalons de 00 §11, identiques dans tout le plan ; découpage en tâches dans [07
 
 | Jalon | Contenu | Version | Questions à trancher | Vérifications bloquantes |
 |---|---|---|---|---|
-| M0 Fondations | workspace, toolchain, CI, cargo-deny, xtask, ADR, `LICENSE`/`NOTICE`, `CHANGELOG.md`, verrou de `Cargo.lock`, spikes (rmcp, `task_local!`, TLS) | — | Q1, Q2, Q6 | V-01, V-02, V-25, V-28, V-29 |
+| M0 Fondations | workspace, toolchain, CI, cargo-deny, xtask, ADR, `LICENSE`/`NOTICE`, `CHANGELOG.md`, verrou initial de `Cargo.lock` (règle d'âge, pas avant le 2026-10-19), spikes (rmcp, `task_local!`, TLS) | — | Q1, Q2, Q6 | V-01, V-02, V-25, V-28, V-29 |
 | M1 Domaine | IDs, fonds, entités, contrat de citation v2, URL, dates, texte | — | Q12 | — |
 | M2 Adapter PISTE | OAuth, client, réessais, débit, délai, DTO, mapping, mojibake, wiremock, smoke tests live | — | Q3 (sandbox) | V-66, V-68, V-76, V-96 |
-| M3 Application | ports, cas d'usage, `LegalService`, `Audited`, `Deadline`, audit, cache, horloge | — | Q9 | — |
+| M3 Application | ports (faits avant l'adapter de M2, T-M3-01), cas d'usage, `LegalService`, `Audited`, `Deadline`, audit, cache, horloge | — | Q9 | — |
 | M4 Adapter MCP | rmcp dual-era, 8 outils, instructions, `server/discover`, `subscriptions/listen`, verrou des descripteurs, binaire | — | Q7, Q8 (listes), Q10, Q14 | V-30, V-35, V-38 |
 | M5 Économie de contexte | `detail`, fenêtre, `focus`, pagination, plafond dur, budgets mesurés | **v0.1.0** (M0→M5) | Q3 (production), Q5, Q11, Q13, Q15 | V-75, V-82 ; recette : V-46, V-59, V-103, V-139, V-140, V-142, V-143, V-144, V-173 (si certificat), V-197, V-204 |
 | M6 Citations | parseur et corpus, `fr_verify_citations`, `fr_resolve`, `list_codes()`, ECLI, ELI cités | **v0.2.0** | Q12 (réexamen des hits CONSTIT et CNIL) | V-119, V-120, V-122, V-163 |
@@ -170,9 +171,9 @@ Jalons de 00 §11, identiques dans tout le plan ; découpage en tâches dans [07
 
 ## 6. Questions ouvertes Q1 à Q15
 
-Chaque question porte une proposition **adoptée par défaut**, appliquée dans tout le plan jusqu'à la réponse de l'utilisateur, qui la confirme ou la remplace (00 §13). Contexte, options, décideur et réponses datées : [09 §3](09-risques-et-questions.md#3-questions-ouvertes-q1-à-q15-et-arbitrages-secondaires). Au 2026-10-15, aucune réponse n'est consignée.
+Chaque question porte une proposition **adoptée par défaut**, appliquée dans tout le plan jusqu'à la réponse de l'utilisateur, qui la confirme ou la remplace (00 §13). Sans réponse à l'ouverture de M0, M0 démarre sous le nom actuel du dépôt avec les propositions par défaut de Q1 à Q15 ; le renommage éventuel du dépôt se fait ensuite, redirection GitHub vérifiée. Contexte, options, décideur et réponses datées : [09 §3](09-risques-et-questions.md#3-questions-ouvertes-q1-à-q15-et-arbitrages-secondaires). Au 2026-10-15, aucune réponse n'est consignée.
 
-- **Q1 — Nom** : `mcp-legifrance` partout ; dépôt renommé avant le premier commit de M0 ; paquet `mcp-legifrance` dans `crates/lf-app`. Avant M0 et avant toute publication immuable.
+- **Q1 — Nom** : produit et binaire `mcp-legifrance` ; dépôt renommé en `mcp-legifrance` avant le premier commit de M0 si l'utilisateur a répondu, sinon après le démarrage de M0 sous le nom actuel (redirection GitHub vérifiée, T-M0-02) ; paquet `mcp-legifrance` dans `crates/lf-app`. Réponse avant le premier commit de M0 ; renommage effectif, en tout cas, avant toute publication immuable.
 - **Q2 — Licence** : Apache-2.0 + `NOTICE`. Au premier commit de M0.
 - **Q3 — Compte PISTE** : compte du propriétaire ; sandbox par défaut ; en production, sondes manuelles en lecture seule, jamais en CI. Sandbox avant M2, production avant v0.1.0.
 - **Q4 — HTTP partagé et CGU** : profil local seulement tant que les CGU ne sont pas clarifiées. Avant M8.
@@ -193,6 +194,7 @@ Chaque question porte une proposition **adoptée par défaut**, appliquée dans 
 - **Langue** : français ; identifiants Rust, crates, champs JSON et noms d'outils tels quels (00 §0).
 - **Document propriétaire** : un seul document fait foi par sujet, les autres y renvoient sans recopier ; 00 reste au-dessus de tous (00 §0).
 - **Code** : tout extrait non compilé est marqué « non compilé, à valider en M0 ».
+- **Versions des crates** : celles que cite le plan sont des versions de référence relevées les 2026-10-15 et 2026-10-16, pas des planchers ; `[workspace.dependencies]` écrit l'exigence au niveau mineur, sauf `rmcp` et `rmcp-macros` épinglés `"=3.5.1"`, et le verrou initial de `Cargo.lock` suit la règle d'âge de 14 jours (00 §2 ; dates : 07 §2.0). En M0, un crate ne déclare une dépendance que lorsqu'un code l'emploie (les squelettes n'en déclarent pas d'avance, pour que `cargo machete` reste vert), sauf `rmcp-macros`, déclaré pour son épinglage (00 §2).
 - **Questions** : un choix pris sur une question ouverte est écrit « adopté par défaut — à confirmer Qn ».
 
 | Identifiants | Objet | Défini dans | Nouveaux identifiants |
@@ -212,7 +214,7 @@ Autres identifiants locaux : `S1…S17` (scénarios d'erreur, annexe A §2.2), `
 
 **Marquage des points non vérifiés.**
 
-- Un fait non vérifié est écrit **NON VÉRIFIÉ**, suivi d'une étiquette `[v:…]` (par exemple `[v:quota-piste-prod]`). L'index de [09 §2.19](09-risques-et-questions.md#219-index-des-étiquettes) rattache les 225 étiquettes du plan, des ADR et du registre aux 215 vérifications, alias compris ; 09 cite directement les `V-xx`.
+- Un fait non vérifié est écrit **NON VÉRIFIÉ**, suivi d'une étiquette `[v:…]` (par exemple `[v:quota-piste-prod]`). L'index de [09 §2.19](09-risques-et-questions.md#219-index-des-étiquettes) rattache chaque étiquette du plan, des ADR et du registre, alias compris, à l'une des 215 vérifications (son décompte fait foi) ; 09 cite directement les `V-xx`. Un document qui emploie un alias le remplace par l'étiquette de référence (09 §2.1 et §2.19).
 - Les listes « points NON VÉRIFIÉS » de chaque document sont des index locaux. En cas d'écart (jalon, caractère bloquant, formulation), le registre de 09 fait foi.
 - Statuts d'une vérification : `ouvert`, `levé`, `partiel`, `contourné`, `caduc`. Une levée produit une ligne du [journal des levées](09-risques-et-questions.md#220-journal-des-levées) avec sa preuve, et le marqueur est retiré des documents concernés.
 - Une nouvelle incertitude reçoit l'identifiant suivant. Une étiquette qui recouvre une vérification existante en devient un alias (09 §0.1).

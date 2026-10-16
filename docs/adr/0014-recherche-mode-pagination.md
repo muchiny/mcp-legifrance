@@ -4,7 +4,7 @@
 - **Date** : 2026-10-15
 - **Jalons concernés** : M2 (payload `/search`, mesure V-79), M3 (validations du cas d'usage), M4 (verrou des descripteurs : Q10 tranchée avant), M5 (pagination, mesures, v0.1.0), M7 (`fr_search_all`)
 - **Questions liées** : Q10 (proposition adoptée par défaut, à confirmer)
-- Révisé le 2026-10-15 (revue) : défaut de `match` et calendrier de Q10 (AM-41) ; `PaginationMemo` et rejets `invalid_arg` dans le cas d'usage (00 §7, AM-04) ; `has_more` borné par la fenêtre atteignable ; copie défensive de l'adapter (00 §5, AM-28).
+- Révisé le 2026-10-15 (revue) : défaut de `match` et calendrier de Q10 (AM-41) ; `PaginationMemo` et rejets `invalid_arg` dans le cas d'usage (00 §7, AM-04) ; `has_more` borné par la fenêtre atteignable ; copie défensive de l'adapter (00 §5, AM-28) ; contrôle final du 2026-10-16 : règle exacte de `has_more` (05 §5.1, 03 §4.1).
 
 ## Contexte
 
@@ -36,7 +36,7 @@
    - `page` ≥ 1, 1 par défaut ;
    - `page_size` de 1 à 100, 10 par défaut ;
    - la sortie porte `total` (valeur brute de l'API), `page` et `has_more` ;
-   - `has_more` est vrai si la page suivante existe **et** reste atteignable dans la fenêtre de 10 000 résultats (règle exacte : 05 §5.1, 03 §4.1) : à la fin de la fenêtre, `has_more` vaut `false` même si `total` est plus grand, et une `note` invite à affiner la requête (lacune FR-008).
+   - `has_more` est vrai si la page suivante existe **et** reste atteignable dans la fenêtre de 10 000 résultats : `page × page_size < total` et `(page + 1) × page_size ≤ 10 000`, même borne que la validation de la décision 3 (05 §5.1, 03 §4.1). Cela revient à `page × page_size < min(total, 10 000)` quand `page_size` divise 10 000 ; avec `page_size = 30`, la page 333 a `has_more = false`, car la page 334 serait refusée. À la fin de la fenêtre, `has_more` vaut `false` même si `total` est plus grand, et une `note` invite à affiner la requête (lacune FR-008).
 3. **Validations sans réseau, dans le cas d'usage** (00 §7, AM-04) : rejet `[invalid_arg]` de `page × page_size` > 10 000 (fenêtre supposée, V-83, confirmée en M5), de `version_date` hors LODA/CODE, de `date_from`/`date_to` sur un fond sans facette de date (CODE) et de `date_from` > `date_to`, avec les messages de 05 §7.3 (filtrer par `date_from`/`date_to` ou par `match`). On évite ainsi un 500 opaque ou un filtre ignoré en silence.
    - L'adapter n'en garde qu'une copie défensive (`CorpusError::InvalidRequest`, 00 §5 ; 04 §6.5, §6.7), qu'aucun appel normal n'atteint : le rejet a lieu avant l'appel du port.
 4. **`typePagination`, jamais exposée au modèle** (00 §7) :

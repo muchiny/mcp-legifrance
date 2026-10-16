@@ -2,9 +2,9 @@
 
 - **Statut** : Accepté
 - **Date** : 2026-10-15
-- **Jalons concernés** : M0 (compilation du squelette), M3 (ports, `LegalService`, décorateurs), M9 (`AnyCorpus`)
+- **Jalons concernés** : M0 (compilation du squelette), M3 (ports, faits avant l'adapter de M2 : T-M3-01, 00 §11 ; `LegalService`, décorateurs), M9 (`AnyCorpus`)
 - **Questions liées** : —
-- Révisé le 2026-10-15 (revue) : délai global par l'échéance `Deadline` en variable locale de tâche, sans paramètre ajouté aux ports ; liste fermée des crates externes de `lf-application`, dont tokio `rt` pour `task_local!` seulement (00 §2-§3, AM-07).
+- Révisé le 2026-10-15 (revue) : délai global par l'échéance `Deadline` en variable locale de tâche, sans paramètre ajouté aux ports ; liste fermée des crates externes de `lf-application`, dont tokio `rt` pour `task_local!` seulement (00 §2-§3, AM-07) ; contrôle final du 2026-10-16 : liste cible, dépendances déclarées seulement quand un code les emploie (00 §2).
 
 ## Contexte
 
@@ -47,7 +47,7 @@
 3. **Choix à l'exécution** : un `enum AnyCorpus` dans `lf-app` (M9), qui implémente le port par un `match` sur chaque méthode.
 4. **Côté entrant** : pas de trait. Chaque cas d'usage est un `…UseCase` avec `async fn execute(&self, input) -> Result<Output, AppError>`, regroupé dans `LegalService` (00 §3).
 5. **Ni `async_trait` ni `dyn`**, sauf justification dans un **nouvel ADR**. Aucune exception n'est prévue en v0.x.
-6. **Runtime dans l'application.** Les crates externes de `lf-application` forment une liste fermée (00 §2), vérifiée par `cargo xtask check-deps` (règle R2 de 02 §4.1, §13.1 n° 7) : `thiserror`, `chrono` (`std`), `tracing`, `futures` (`std`, `async-await`), `tokio` (`time`, `macros`, `rt` — `rt` pour `task_local!` seulement), `similar` (M7). Sont interdits : `serde`, `serde_json`, `rmcp`, `reqwest`, `moka`, `governor`, `backon`, `async-trait`. Aucune E/S n'y est faite, aucune tâche n'y est lancée, aucun runtime n'y est construit.
+6. **Runtime dans l'application.** Les crates externes de `lf-application` forment une liste fermée (00 §2), vérifiée par `cargo xtask check-deps` (règle R2 de 02 §4.1, §13.1 n° 7) : `thiserror`, `chrono` (`std`), `tracing`, `futures` (`std`, `async-await`), `tokio` (`time`, `macros`, `rt` — `rt` pour `task_local!` seulement), `similar` (M7). Sont interdits : `serde`, `serde_json`, `rmcp`, `reqwest`, `moka`, `governor`, `backon`, `async-trait`. Aucune E/S n'y est faite, aucune tâche n'y est lancée, aucun runtime n'y est construit. Cette liste décrit la cible : en M0, le squelette ne déclare une dépendance que lorsqu'un code l'emploie (00 §2).
 7. **Délai global** (00 §3) :
    - `Audited` mesure la durée (`tokio::time::Instant`), exécute le cas d'usage sous `tokio::time::timeout(LF_TOOL_DEADLINE_S)`, seule garde dure, et publie l'échéance dans `lf_application::deadline::Deadline`, variable locale de tâche (`tokio::task_local!`) ;
    - les adapters la lisent (`Deadline::current_or(défaut)`) comme une **durée restante** (`Duration`), convertie dans leur propre horloge monotone à l'entrée de la méthode du port, ce qui garde cohérentes leurs horloges de test ; ils ne programment aucune tentative ni attente qui la dépasserait et rendent tout de suite une erreur explicite (`RateLimited { retry_after }`, `Timeout` ou dernière erreur) ;

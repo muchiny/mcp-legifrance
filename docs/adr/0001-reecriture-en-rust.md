@@ -3,8 +3,8 @@
 - **Statut** : Accepté
 - **Date** : 2026-10-15
 - **Jalons concernés** : tous (M0 → M9)
-- **Questions liées** : Q1 (nom du produit, du dépôt et du paquet), Q2 (licence), Q6 (réseau du conteneur de développement et toolchain) ; propositions adoptées par défaut, à confirmer avant M0 (00 §13)
-- Révisé le 2026-10-15 (revue) : paquet Cargo du binaire `mcp-legifrance` (AM-32) ; toolchain locale et réseau du conteneur (Q6, AM-35) ; règle d'âge minimal des dépendances (AM-26) ; décompte des versions incompatibles de rmcp (AM-42).
+- **Questions liées** : Q1 (nom du produit, du dépôt et du paquet), Q2 (licence), Q6 (réseau du conteneur de développement et toolchain) ; propositions adoptées par défaut, à confirmer : Q1 avant le premier commit de M0, Q2 au premier commit, Q6 avant M0. Sans réponse à l'ouverture de M0, M0 démarre sous le nom actuel du dépôt avec ces propositions ; le renommage éventuel suit, redirection GitHub vérifiée (00 §13)
+- Révisé le 2026-10-15 (revue) : paquet Cargo du binaire `mcp-legifrance` (AM-32) ; toolchain locale et réseau du conteneur (Q6, AM-35) ; règle d'âge minimal des dépendances (AM-26) ; décompte des versions incompatibles de rmcp (AM-42) ; contrôle final du 2026-10-16 : versions de référence, exigences au niveau mineur et verrou initial pas avant le 2026-10-19 (AM-26) ; démarrage de M0 sans réponse aux questions (00 §13).
 
 ## Contexte
 
@@ -22,7 +22,7 @@
 1. Le serveur est **réécrit entièrement en Rust** :
    - produit et binaire `mcp-legifrance`, crates `lf-*` ; le paquet Cargo du binaire s'appelle aussi `mcp-legifrance` (répertoire `crates/lf-app`), seule exception au préfixe (00 §1, §2 ; Q1) ;
    - édition 2024, MSRV 1.91, toolchain épinglée sur 1.99.0 dans `rust-toolchain.toml` ; tant que le conteneur de développement ne peut pas l'installer, `RUSTUP_TOOLCHAIN=1.97.0` en local, la CI gardant l'épinglage (00 §2, Q6) ;
-   - toute version figée dans `Cargo.lock` est publiée depuis au moins 14 jours au verrouillage, sauf l'exception `rmcp =3.5.1` (00 §2).
+   - les versions de crates citées par le plan sont des versions de référence, pas des planchers : `[workspace.dependencies]` écrit l'exigence au niveau mineur (par exemple `tokio = "1.53"`), sauf `rmcp` et `rmcp-macros`, épinglés `"=3.5.1"` ; toute version figée dans `Cargo.lock` est publiée depuis au moins 14 jours au verrouillage (pubtime de l'index sparse ; sauf correctif de sécurité justifié dans la PR) ; le verrou initial (T-M0-05) retient la plus haute version éligible de chaque crate et n'a pas lieu avant le 2026-10-19, date d'éligibilité de rmcp 3.5.1 (00 §2).
 2. **Parité fonctionnelle en v0.1.0** (M0 à M5) : 8 outils de mêmes noms, paramètres et sens, définis par [annexes/A-parite.md](../plan/annexes/A-parite.md). Les divergences volontaires sont listées par clé dans l'annexe A §4 et justifiées par les ADR 0005 à 0011.
 3. **Aucune ligne Python n'est portée telle quelle.**
    - Sont réutilisés, avec attribution dans `NOTICE` (00 §12) : les fixtures de la référence, ses assertions de test (`ported_*`) et les sorties golden ([parite-golden.json](../plan/annexes/donnees/parite-golden.json)).

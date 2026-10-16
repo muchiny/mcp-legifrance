@@ -2,7 +2,7 @@
 
 > **Statut** : plan, sans implémentation. Ce document applique [00-decisions.md](00-decisions.md) (révision 2), qui est normatif et l'emporte en cas de doute.
 > **Document propriétaire** (00 §0) : ce document fait foi pour les internes de `lf-adapter-piste` (modules, configuration, classification « introuvable », stratégies par endpoint) et pour ses fixtures (disposition, sidecars, `cargo xtask record-fixture`). Il renvoie sans recopier le détail à [02-architecture.md](02-architecture.md) (dépendances, règles d'architecture, correspondance des erreurs, spans), à [05-outils-mcp.md](05-outils-mcp.md) (gabarits des messages vus par le modèle), à [06-qualite.md](06-qualite.md) (chemins des fichiers de test, CI, lints) et à [09-risques-et-questions.md](09-risques-et-questions.md) (registres R-xx et V-xx).
-> **Jalons** : M0 (spike TLS), **M2** (tout le socle v0.1 : OAuth, client, réessais, débit, délai, DTO, mapping, mojibake, tests wiremock et fixtures, smoke tests live ; V-76 et V-96 bloquantes), M5 (pagination de la recherche vérifiée en direct), M6 (endpoints de résolution), M7 (endpoints de navigation).
+> **Jalons** : M0 (spike TLS), **M2** (tout le socle v0.1 : OAuth, client, réessais, débit, délai, DTO, mapping, mojibake, tests wiremock et fixtures, smoke tests live ; V-66, V-68, V-76 et V-96 bloquantes, 00 §11, 09 §2.18), M5 (pagination de la recherche vérifiée en direct), M6 (endpoints de résolution), M7 (endpoints de navigation).
 > **Lecteurs** : développeurs de `lf-adapter-piste`, et de `lf-app` (composition, configuration) et `lf-adapter-cache` (clés, TTL).
 > Les extraits Rust sont **non compilés, à valider en M0**. Les points non vérifiés sont marqués **NON VÉRIFIÉ** avec une étiquette `[v:…]`. Le registre `V-xx` les reprend dans [09-risques-et-questions.md](09-risques-et-questions.md).
 
@@ -98,9 +98,9 @@ impl<K: MonoClock, S: Sleeper> LegalCorpus for PisteCorpus<K, S> { /* async fn �
 
 ### 1.4 Dépendances
 
-Versions relevées dans l'index crates.io le 2026-10-15 (recherche 04 §4.1) : ce sont des planchers, le verrou initial de `Cargo.lock` suit la règle d'âge minimal de 14 jours (00 §2). Les features sont celles de ce crate. Elles se déclarent `default-features = false` au niveau du workspace quand c'est voulu (piège d'héritage, 00 §2) ; les déclarations de workspace et le confinement des crates sont fixés par 02 §3.0 et §4.1 (document propriétaire, 00 §0). Au workspace, reqwest ne porte que `json` et `form` ; ce crate ajoute `gzip`, `system-proxy` et la feature TLS retenue au spike, puisque les features sont additives et qu'un membre ne peut pas en retirer.
+Versions de référence relevées dans l'index crates.io le 2026-10-15 (recherche 04 §4.1), **pas des planchers** (00 §2, AM-26) : `[workspace.dependencies]` écrit l'exigence au niveau mineur (`reqwest = "0.13"`, `tokio = "1.53"`, `serde_json = "1.0"`, `rustls = "0.23"`…, 02 §3.0.1). Le verrou initial de `Cargo.lock` (T-M0-05, pas avant le 2026-10-19) retient, pour chaque crate, la plus haute version publiée depuis au moins 14 jours à la date du verrou (pubtime de l'index sparse, contrôlé par script), fixée par `cargo update -p <crate> --precise <version>` ; si aucune version de la série mineure n'est assez ancienne, l'exigence descend d'une version mineure et c'est elle qui est écrite (00 §2 ; versions retenues au 2026-10-19 : 02 §3.0.1). La table décrit la cible : en M0, une dépendance n'est déclarée dans le manifeste du crate que lorsqu'un code l'emploie, sans déclaration d'avance dans le squelette, pour que `cargo machete` reste vert (00 §2). Les features sont celles de ce crate. Elles se déclarent `default-features = false` au niveau du workspace quand c'est voulu (piège d'héritage, 00 §2) ; les déclarations de workspace et le confinement des crates sont fixés par 02 §3.0 et §4.1 (document propriétaire, 00 §0). Au workspace, reqwest ne porte que `json` et `form` ; ce crate ajoute `gzip`, `system-proxy` et la feature TLS retenue au spike, puisque les features sont additives et qu'un membre ne peut pas en retirer.
 
-| Crate | Version | Features | Usage |
+| Crate | Version de référence | Features | Usage |
 |---|---|---|---|
 | `reqwest` | 0.13.5 | `json`, `form`, `rustls` **ou** `rustls-no-provider` (spike M0), `gzip`, `system-proxy` | client HTTP (§4) |
 | `rustls` | 0.23.46 | seulement si `rustls-no-provider` : `ring`, `std`, `tls12`, `logging` | fournisseur crypto (§4.1) |
@@ -194,7 +194,7 @@ flowchart TD
 | Engagement de service | **aucun** : tests de performance, réindexation, indisponibilité « sans information préalable » | objectif de 95 % par jour, engagement de moyens, aucun niveau minimal garanti | CGU API Légifrance 2022, `cgu-legifrance-api.md:187-202` (recherche 05 §3.2) |
 | Quotas | consultables dans PISTE (« Applications » → « Actions » → « Consulter les quotas ») | idem ; modifiables par la DILA avec information par courriel | `cgu-legifrance-api.md:212-231` (recherche 05 §3.3) |
 
-Les URLs de production sont documentées (Swagger) mais n'ont jamais été appelées par nous ni par la référence, qui n'avait qu'une application sandbox : **NON VÉRIFIÉ** [v:oauth-production-live]. L'ampleur de l'écart de données entre sandbox et production est **NON VÉRIFIÉ** [v:sandbox-prod-donnees]. Les valeurs numériques des quotas ne sont pas publiques : **NON VÉRIFIÉ** [v:quotas-piste].
+Les URLs de production sont documentées (Swagger) mais n'ont jamais été appelées par nous ni par la référence, qui n'avait qu'une application sandbox : **NON VÉRIFIÉ** [v:oauth-production-live]. L'ampleur de l'écart de données entre sandbox et production est **NON VÉRIFIÉ** [v:sandbox-prod-donnees]. Les valeurs numériques des quotas ne sont pas publiques : **NON VÉRIFIÉ** [v:quota-piste-prod].
 
 Conséquences pour l'adapter :
 
@@ -410,7 +410,7 @@ Un seul `reqwest::Client`, construit une fois au premier appel (`OnceCell`, mono
 |---|---|---|
 | `connect_timeout` | 10 s | 00 §8 ; parité P-025 (référence client.py:30) |
 | `timeout` (total par tentative, connexion et corps compris) | `LF_HTTP_TIMEOUT_S` (40 s), réduit tentative par tentative à `min(40 s, reste du délai global)` via `RequestBuilder::timeout` | reqwest : « applied from when the request starts connecting until the response body has finished » (`RQ:src/async_impl/client.rs:1444-1453`, `request.rs:289-299`) |
-| `user_agent` | `mcp-legifrance/<version> (+https://github.com/muchiny/mcp-ligitfrance)`, chaîne fournie par `lf-app` avec `env!("CARGO_PKG_VERSION")` du binaire | 00 §8 ; corrige D-43 et E-08. L'URL suivra le renommage du dépôt (Q1) |
+| `user_agent` | `mcp-legifrance/<version> (+https://github.com/muchiny/mcp-ligitfrance)`, chaîne fournie par `lf-app` avec `env!("CARGO_PKG_VERSION")` du binaire | 00 §8 ; corrige D-43 et E-08. L'URL garde le nom actuel du dépôt jusqu'à son renommage éventuel, fait après le démarrage de M0 si l'utilisateur n'a pas répondu (Q1, 00 §13), puis est remplacée en bloc |
 | en-tête par défaut | `Accept: application/json` | exemple officiel (`exemples…md:155-163`) ; `Content-Type: application/json` est posé par `.json()` |
 | `redirect` | `redirect::Policy::none()` | un 3xx devient `Upstream { status, retryable: false }`. Parité : la référence ne suivait pas les redirections (recherche 01 §6.3). Un `POST` authentifié n'a aucune raison d'être redirigé. reqwest suit 10 redirections par défaut (`RQ:src/redirect.rs:160-165`) |
 | `https_only` | `true`, sauf `ConfigWarning::InsecureLoopback` (tests) | `RQ:src/async_impl/client.rs:2262` |
@@ -529,7 +529,7 @@ Décision (00 §3, AM-07) ; les signatures du port n'ont pas de paramètre de d�
 
 ### 5.4 Limitation de débit
 
-- Un `governor::RateLimiter` **direct** (non indexé), global au processus, **5 requêtes/s, rafale 10** par défaut (00 §8), configurable par `LF_PISTE_RPS` et `LF_PISTE_BURST` (00 §1, §2.2). Les quotas PISTE valent pour toute l'application consommatrice et sont donc partagés par tous les utilisateurs d'un éventuel serveur HTTP (recherche 05 §3.3, §4.3, Q4). Valeurs réelles **NON VÉRIFIÉ** [v:quotas-piste] : l'utilisateur les lit dans la console PISTE et ajuste `LF_PISTE_RPS`/`LF_PISTE_BURST`.
+- Un `governor::RateLimiter` **direct** (non indexé), global au processus, **5 requêtes/s, rafale 10** par défaut (00 §8), configurable par `LF_PISTE_RPS` et `LF_PISTE_BURST` (00 §1, §2.2). Les quotas PISTE valent pour toute l'application consommatrice et sont donc partagés par tous les utilisateurs d'un éventuel serveur HTTP (recherche 05 §3.3, §4.3, Q4). Valeurs réelles **NON VÉRIFIÉ** [v:quota-piste-prod] : l'utilisateur les lit dans la console PISTE et ajuste `LF_PISTE_RPS`/`LF_PISTE_BURST`.
 - Le limiteur est consulté **avant chaque tentative**, réessais compris. Il ne l'est pas pour la requête token (§3.3).
 - **Piège vérifié** : `RateLimiter::until_ready` attend avec `futures_timer::Delay` (governor 0.10.4, `src/state/direct/future.rs:11`, `:45-56`), pas avec `tokio::time`. Il échappe donc à toute horloge de test et ne se borne pas proprement par le délai global. L'adapter **n'utilise pas** `until_ready`. Il boucle sur `check()` (`src/state/direct.rs:73`) : en cas de refus, `wait = not_until.wait_time_from(clock.now())` ; si `wait` dépasse le reste du délai, échec immédiat `RateLimited { retry_after: Some(wait) }` ; sinon `Sleeper::sleep(wait)`.
 - Horloge du limiteur : une implémentation de `governor::clock::Clock` dont l'`Instant` est un `Duration` écoulé depuis une origine `MonoClock`. C'est la seule horloge du limiteur, en production comme en test (02 §3.3, piège 3 : ni `FakeRelativeClock`, ni constructeur `with_clock`, ni horloge tokio gelée). `Duration` implémente déjà `Reference` et `Add<Nanos>` (`src/clock.rs:61-117`). En test, `ManualClock` rend le limiteur déterministe. Les features `quanta`, `jitter` et `dashmap` sont inutiles (seule `std` est activée, §1.4). Les noms de constructeurs (`Quota::per_second`, `allow_burst`, `RateLimiter::direct_with_clock`) sont à confirmer à la compilation : **NON VÉRIFIÉ** [v:governor-api].
@@ -637,7 +637,7 @@ Vecteurs de test (00 §8 ; calculés avec la base IANA, `zoneinfo` de Python 3.1
 
 Les changements d'heure à Paris ont lieu à 2 h et à 3 h : midi n'est jamais ambigu ni inexistant. Le repli ne sert qu'à rendre la fonction totale. La version de la base IANA embarquée par `chrono-tz` 0.10.4 est **NON VÉRIFIÉ** [v:chrono-tz-iana] (V-17) : le test `paris_noon_vectors` la contrôle pour l'adapter dès M2.
 
-**Vérification (bloquante en M2).** La sémantique réelle de `singleDate` chez PISTE est **NON VÉRIFIÉ** [v:singledate-minuit-paris] (V-76, R-17). Vérification live (§13.5) : chercher un texte dont une version commence à une date D connue, avec `version_date = D`, et comparer avec des instants à minuit UTC, à minuit Paris et à la veille. Le suffixe `_JJ-MM-AAAA` de `titles[0].id`, qui est la date de début de la version (03 §2.4), dit quelle version l'API a retenue. Midi reste appliqué jusqu'au résultat ; s'il se révélait faux, toute autre règle amende 00 §8.
+**Vérification (bloquante en M2).** La sémantique réelle de `singleDate` chez PISTE est **NON VÉRIFIÉ** [v:singledate-midi-paris] (V-76, R-17). Vérification live (§13.5) : chercher un texte dont une version commence à une date D connue, avec `version_date = D`, et comparer avec des instants à minuit UTC, à minuit Paris et à la veille. Le suffixe `_JJ-MM-AAAA` de `titles[0].id`, qui est la date de début de la version (03 §2.4), dit quelle version l'API a retenue. Midi reste appliqué jusqu'au résultat ; s'il se révélait faux, toute autre règle amende 00 §8.
 
 ### 6.4 `match` → `typeRecherche`
 
@@ -667,9 +667,9 @@ Valeurs de l'enum vérifiées dans le Swagger 2.4.2 (`CritereDTO.typeRecherche`)
 
 Règles :
 
-- La facette retenue représente « la date du document » pour un juriste : signature d'un acte, date d'une décision ou d'une délibération. La table vit dans l'adapter (`request/search.rs`, `fn date_facet(Fond) -> Option<&'static str>`), car ce sont des noms d'API (03 §3.1).
+- La facette retenue représente « la date du document » pour un juriste : signature d'un acte, date d'une décision ou d'une délibération. La table vit dans l'adapter (`request/search.rs`, `fn date_facet(Fond) -> Option<&'static str>`), car ce sont des noms d'API (03 §3.1) ; le domaine sait seulement si le fond en a une : `date_facet(f).is_some()` vaut `f.has_date_filter()` pour chaque fond (03 §3.1), ce que contrôle `date_facet_table_matches_doc` (§6.10).
 - `Code` avec une plage de dates : rejeté en `invalid_arg` par le cas d'usage, sans réseau (00 §7 ; `SearchQuery::new`, 03 §4.1 ; message de 05 §7.3). L'adapter n'en garde qu'une copie défensive (00 §5) : `date_facet(Fond::Code)` vaut `None`, et une `SearchQuery` qui porterait quand même une plage sur CODE donne `CorpusError::InvalidRequest { status: None, detail }` sans appel réseau, avec un `warn!` « bug probable » ; aucun statut HTTP n'est fabriqué (02 §5.1).
-- Borne absente : si `DateRange` admet une borne ouverte (forme à fixer en M1, 03 §6.1), l'adapter envoie toujours les deux champs, avec `1500-01-01` ou `2221-12-31`, les bornes de `VersionDate` (03 §6.1). Tous les exemples officiels fournissent les deux bornes.
+- Borne absente : `DateRange` est toujours une période fermée (03 §6.1). `DateRange::new` complète une borne absente par l'extrémité de la plage de `VersionDate` (`1500-01-01` ou `2221-12-31`) ; l'adapter envoie donc toujours les deux champs, tels que le domaine les fournit, sans valeur de remplissage propre, et la clé de cache reste unique. Tous les exemples officiels fournissent les deux bornes.
 - Noms de facettes : vérifiés dans la documentation officielle. **Effet réel** en direct (le total diminue-t-il ?), caractère inclusif de `end`, comportement d'une borne lointaine, et combinaison avec `DATE_VERSION` : **NON VÉRIFIÉ** [v:filtres-dates-effet]. Un exemple officiel combine déjà `DATE_SIGNATURE` et `DATE_VERSION` sur `LODA_DATE` (`exemples…md:535-553`).
 
 ### 6.6 Pagination et `typePagination`
@@ -718,7 +718,7 @@ Le comportement réel de chaque recherche exacte (casse, tirets typographiques, 
 ### 6.10 Tests de sérialisation
 
 - `search_request_matches_reference_json` : pour chacun des 8 fonds, avec `match=any`, `page=1` et `page_size=10`, le corps est égal, comme `serde_json::Value`, au payload de la référence (recherche 01 §3.1). Seule exception : la valeur de `singleDate`, qui est midi Paris (divergence volontaire listée dans [annexes/A-parite.md](annexes/A-parite.md), P-020).
-- `type_recherche_follows_match` (3 cas) ; `filtres_order_is_deterministic` ; `date_facet_table_matches_doc` (table du §6.5) ; `code_date_range_is_defensive_invalid_request_without_network` (garde défensive : `InvalidRequest { status: None }`, wiremock `expect(0)` ; le rejet `invalid_arg` lui-même est testé dans `lf-application`, 06 §2.2) ; `paris_noon_vectors` (table du §6.3) ; `enum_serialization_screaming_snake_case` (`AucuneCorrespondanceACetteExpression` donne `AUCUNE_CORRESPONDANCE_A_CETTE_EXPRESSION`, recherche 03 §12.3).
+- `type_recherche_follows_match` (3 cas) ; `filtres_order_is_deterministic` ; `date_facet_table_matches_doc` (table du §6.5, cohérente avec `Fond::has_date_filter`) ; `code_date_range_is_defensive_invalid_request_without_network` (garde défensive : `InvalidRequest { status: None }`, wiremock `expect(0)` ; le rejet `invalid_arg` lui-même est testé dans `lf-application`, 06 §2.2) ; `paris_noon_vectors` (table du §6.3) ; `enum_serialization_screaming_snake_case` (`AucuneCorrespondanceACetteExpression` donne `AUCUNE_CORRESPONDANCE_A_CETTE_EXPRESSION`, recherche 03 §12.3).
 
 ---
 
@@ -768,7 +768,7 @@ Chemins utilisés par des tiers mais **absents** du Swagger 2.4.2 (`consult/loda
 4. Pas de `NOM_CODE` : la documentation officielle l'utilise, mais deux clients tiers le disent cause de 500 (recherche 05 §2.2) : **NON VÉRIFIÉ** [v:nom-code-filtre]. Il ne servira d'optimisation qu'après V-121 (00 §8).
 5. Comportement réel de `getArticleWithIdAndNum` (forme de `num`, réponse sans article) : **NON VÉRIFIÉ** [v:idandnum-comportement].
 
-**`find_by_number(&NumberQuery)`** — signature fixée par [02-architecture.md](02-architecture.md) §5.1. `NumberQuery`, `NumberKind` et `NumberValue` sont des types de `lf-domain::search` (03 §4.11, 02 §5.1) dont la forme et les couples (fond, kind) autorisés sont fixés par [annexes/B-citations.md](annexes/B-citations.md) §6.6, qui fait foi ; ce document ne les redéfinit pas. L'adapter y lit : le fond, la nature du numéro (`NumberKind` → `typeChamp` du §6.9), la valeur (envoyée telle quelle), la plage `within` (facette du §6.5) et `version_date`, **obligatoire pour CODE et LODA** (`DATE_VERSION`, §6.2) : l'adapter n'a pas d'horloge, l'application fournit la date (§1.2).
+**`find_by_number(&NumberQuery)`** — signature fixée par [02-architecture.md](02-architecture.md) §5.1. `NumberQuery`, `NumberKind` et `NumberValue` sont des types de `lf-domain::search` (03 §4.11, 02 §5.1) dont la forme et les couples (fond, kind) autorisés sont fixés par [annexes/B-citations.md](annexes/B-citations.md) §6.6, qui fait foi ; ce document ne les redéfinit pas. L'adapter y lit : le fond, la nature du numéro (`NumberKind` → `typeChamp` du §6.9), la valeur (envoyée telle quelle), la plage `within` (facette du §6.5) et `version_date`, **présente pour les recherches CODE et LODA** (`Article`, `Text` ; `DATE_VERSION`, §6.2) et absente pour les autres couples (annexe B §6.6) : l'adapter n'a pas d'horloge, l'application fournit la date (§1.2).
 
 - `Article` (CODE, LODA) : `/search` `NUM_ARTICLE` en `EXACTE`, `DATE_VERSION`, `typePagination = ARTICLE` (§6.9).
 - `Nor` : `/consult/getJoWithNor`. Une réponse avec `hasLoda = true` permet de basculer vers la version consolidée. La documentation rappelle que « tous les textes n'ont pas de NOR » (`exemples…md:1209`).
@@ -776,7 +776,7 @@ Chemins utilisés par des tiers mais **absents** du Swagger 2.4.2 (`consult/loda
 - Autres : `/search` du fond, `typeChamp` du §6.9, `EXACTE`, `pageSize = 20`, `within` mappé sur la facette du §6.5 (ex. `DATE_DECISION` pour lever l'ambiguïté d'un numéro de pourvoi, comme pylegifrance, recherche 03 §11.6).
 - **ECLI cité** (JURI, CETAT ; 00 §8) : `/search` du fond, requête `*` (forme de la sonde V-128 ; sens de `*` : §6.8), filtre par la facette `ECLI` à valeur exacte ; l'adapter rend les hits, et le contrôle de l'ECLI natif de la décision consultée relève de la résolution (annexe B). Sans ce filtre, un ECLI de la Cour de cassation ne serait vérifiable que par une recherche plein texte. Effet réel du filtre **NON VÉRIFIÉ** [v:ecli-filtre-juri-cetat] (V-128). Un ECLI d'un autre pays n'atteint pas l'adapter (`ForeignEcli`, 00 §4).
 - **ELI cité** (00 §8) : `/consult/getArticleWithIdEliOrAlias {idEliOrAlias}` pour un ELI d'article, `/consult/eliAndAliasRedirectionTexte {idEliOrAlias}` pour un ELI de texte ; l'ELI reçu de l'utilisateur est transmis tel quel, l'identifiant renvoyé (`LEGIARTI`, `JORFTEXT`…) est validé par le domaine, et aucun ELI n'est jamais fabriqué ni renvoyé s'il n'est pas natif (00 §4). Comportement réel **NON VÉRIFIÉ** [v:eli-redirection-endpoints] (V-133).
-- La variante de `NumberQuery` (ou la méthode du port) qui porte les requêtes ECLI et ELI est fixée par l'annexe B §6.6 (proposition de l'annexe B §10.1 : `NumberKind::Ecli`) ; l'adapter n'en dépend que par le `typeChamp`/la facette et l'endpoint ci-dessus.
+- Les requêtes ECLI et ELI passent par `NumberQuery`, avec les variantes `NumberKind::Ecli` (fonds `Juri`, `Cetat`) et `NumberKind::Eli` (fond `Loda` ; valeur = chemin `/eli/…` cité, sans hôte), fixées par l'annexe B §6.6 ; l'adapter n'en dépend que par le `typeChamp`/la facette et l'endpoint ci-dessus. `Nor`, `Eli` et `Idcc` sur `Kali` passent par une consultation et rendent au plus un hit, dont l'identifiant est validé par le domaine (annexe B §6.6).
 - Formes réelles des réponses de `getJoWithNor`, `kaliContIdcc` et `/list/code` (champs effectivement remplis) : **NON VÉRIFIÉ** [v:endpoints-m6-reponses].
 
 ### 7.3 Stratégies M7
@@ -938,7 +938,7 @@ Fonctions pures de `map/`, du type `fn(dto, &contexte de requête) -> Result<Ent
 | (e) Dates | `RawDate::Millis(ms)` → `date::from_epoch_ms` (03 §6.3, epoch négatifs compris, sans dépendance à la plateforme) ; `Text("AAAA-MM-JJ")` → `NaiveDate` ; `Text("AAAA-MM-JJT…+0000")` → partie date ; puis `date::open_ended` (toute date ≥ 2222-01-01 devient `None`) ; les champs `…Computed` sont lus en priorité. Un horodatage qui n'est pas à minuit UTC produit un diagnostic : convention générale **NON VÉRIFIÉ** [v:convention-horaire-timestamps] (03) | D-20, D-21, E-11, E-35 |
 | (f) Textes | `LongText::best_of(texteHtml, texte)` (03 §7.4) ; les champs courts passent par `text::clean` | D-26 |
 | (g) Statut | `status_of(etat, jurisState)` | D-21, E-10 |
-| (h) Erreurs du domaine | `DomainError` non utilisateur (`TocTooDeep`, `TextTooLarge`) ⇒ `Decode` | — |
+| (h) Erreurs du domaine | `DomainError` non utilisateur (`is_input()` faux, 03 §9 : `TocTooDeep`, `TextTooLarge`) ⇒ `Decode` ; `HitKindMismatch` sur un hit de recherche ⇒ hit écarté et compté (règle i) | — |
 | (i) Contrat de citation | construit par le domaine, jamais `None` (03 §5) ; un hit dont l'identifiant est invalide ou incohérent avec le fond est **écarté et compté** (`SearchPage.dropped`) au lieu d'être renvoyé à moitié | D-30 |
 
 ### 9.2 Par entité
@@ -946,7 +946,7 @@ Fonctions pures de `map/`, du type `fn(dto, &contexte de requête) -> Result<Ent
 | Entité (03 §4) | Fonction | Sources principales | Points propres | Défauts |
 |---|---|---|---|---|
 | `SearchPage`, `SearchHit` | `map::search_page(dto, &SearchQuery)` | `results[]`, `totalResultNumber`, `totalArticleResultNumber`, `typePagination` | `kind` = fond demandé ; `id` = `titles[0].id` ; `title` sans `<mark>` ; `date` = `date`, puis `datePublication`, puis `dateSignature` ; `snippet` = `text`, sinon `extracts[0].values[0]` (≤ 280 caractères) ; `articles` CODE et KALI depuis `sections[].extracts[]` ; `company`, `idcc` (ACCO) ; `total_articles` si > 0 ; `has_more = page × page_size < total` | D-09, D-30, D-33, E-26 |
-| `Act` | `map::act(dto, &LegiTextId, VersionDate)` | lawDecree | `version_start` = suffixe ou `dateDebutVersion` ; `version_end` = `dateFinVersion` (2999 → `None`) ; `cid: JorfTextId` ; `Toc::build(TocDraft)` depuis `sections`/`articles` (titres de sections, tri `intOrdre`, dédoublonnage ; 03 §4.2) ; `nature == "CODE"` : avertissement prévu par 05 | D-25, D-47, E-10, E-11 |
+| `Act` | `map::act(dto, &LegiTextId, VersionDate)` | lawDecree | `version_start` = suffixe ou `dateDebutVersion` ; `version_end` = `dateFinVersion` (≥ 2222-01-01 → `None`, 00 §4) ; `cid: JorfTextId` ; `Toc::build(TocDraft)` depuis `sections`/`articles` (titres de sections, tri `intOrdre`, dédoublonnage ; 03 §4.2) ; `nature == "CODE"` : avertissement prévu par 05 | D-25, D-47, E-10, E-11 |
 | `ArticleText` | `map::article(dto, &ArticleId)` | getArticle | `code_title` = `textTitles[nature=="CODE"].titre`, sinon `textTitles[0].titre` ; `parent` (nature du texte parent → URL `code_article` ou `loda_article`, 03 §5.5) ; `path` = `context.titresTM[].titre` ; `nota` = `notaHtml`, sinon `nota` ; `previous_version` | D-26, D-29 |
 | `Decision` | `map::decision(dto, &DecisionId)` | juri | `ecli` natif validé (`Ecli::from_str`), jamais fabriqué ; `numero_affaire` = `numeroAffaire`, sinon `[num]` pour CETAT ; `date` = `dateTexteComputed`, sinon `dateTexte` ; `OfficialSummary { analyses, titrages }` mappé par fond (00 §4 ; 03 §4.4) : JURI `abstrats` → analyses, `resumePrincipal`/`autreResume` → titrages ; CETAT `resumePrincipal` → analyses, `abstrats` → titrages ; codes de classement retirés et doublons supprimés par le domaine (sémantique par fond **NON VÉRIFIÉ** [v:sommaire-semantique-par-fond], V-109) ; `cited_case_law` = `citationJp` ; `applied_texts` | D-26, D-27, D-28 |
 | `Deliberation` | `map::deliberation(dto, &CnilTextId)` | cnil | `date`, `date_publication` (`…Computed` d'abord) ; `nature_delib` | D-27 |
@@ -1029,7 +1029,7 @@ Smoke test live (§13.5) : requêtes sur `JURITEXT000051743650`, `LEGIARTI000006
 | `/search` | 0 résultat = **succès** (`total = 0`, `hits = []`) | parité S16, E-04 | jamais `NotFound` |
 | endpoint token | — | — | jamais `NotFound` (§3.5) |
 
-Le smoke test live `live_unknown_ids_classification` (§13.5) enregistre la réponse réelle de chaque endpoint pour des identifiants `…000000000000` et `…999999999999`. Le résultat complète cette table en M2.
+Le smoke test live `live_unknown_ids_classification` (§13.5) enregistre la réponse réelle de chaque endpoint pour des identifiants `…000000000000` et `…999999999999`. Le résultat complète cette table en M2 et rend définitive la classification du §11.2 : V-68 (réponses à un identifiant inexistant) et V-66 (forme d'un 404 PISTE) sont bloquantes en M2 (00 §11, 09 §2.18).
 
 ### 11.2 Classification
 
@@ -1039,10 +1039,11 @@ Arbre appliqué par `classify.rs`, après lecture bornée, décodage et réparat
 2. **400** sur une consultation, et `PisteErrorDto.message` contient `valider est fausse` (comparaison insensible à la casse, sur le texte réparé ; la forme `a valider` sans accent est aussi acceptée) ⇒ `NotFound`. Le marqueur ne s'applique qu'aux consultations dont l'identifiant a été validé par le domaine, comme le fait pylegifrance (`juri.py:829-838`) : un 400 ne peut alors pas venir d'un identifiant malformé.
 3. **400**, autres cas ⇒ `InvalidRequest { status: Some(400), detail }` (message PISTE nettoyé, ≤ 200 caractères, sans caractère de contrôle), journalisé en `warn` comme bug probable, rendu `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` (00 §5, parité S10). Jamais `invalid_arg` : toute contrainte imputable à l'entrée (dates, fond sans facette, pagination profonde, formats, longueur de `query`) est validée avant l'appel du port, et une heuristique sur un corps d'erreur de forme inconnue (V-67) produirait des `invalid_arg` trompeurs ; le détail nettoyé permet quand même au modèle de reformuler.
 4. **404** :
-   - sur `/search` ou sur l'endpoint token ⇒ `Config`. Il n'y a pas de « ressource » à ne pas trouver : le chemin ou l'URL est faux ;
+   - sur l'endpoint token ⇒ `Config`, rendu `PISTE OAuth endpoint not found: check LF_PISTE_OAUTH_URL.` (05 §7.2 ; 02 §9.2 ligne 8 ; §3.5) ;
+   - sur `/search` ⇒ `Config`, rendu `Legifrance endpoint not found: check LF_PISTE_BASE_URL.` (05 §7.2, 404 de routage ; 02 §9.2 ligne 14). Il n'y a pas de « ressource » à ne pas trouver : le chemin ou l'URL est faux ;
    - sur une consultation, si l'URL de base est officielle (`PisteEndpoints.official`) et que le corps n'est pas du HTML ⇒ `NotFound`. Le chemin vient de la liste vérifiée du Swagger, donc il existe ;
-   - sinon (hôte personnalisé ou page HTML de passerelle) ⇒ `Config`, rendu `Legifrance endpoint not found: check LF_PISTE_BASE_URL.` (05 §7.2 ; 02 §9.2 ligne 14) ; sur l'endpoint token, le message renvoie à `LF_PISTE_OAUTH_URL` (§3.5).
-   - La forme réelle d'un 404 PISTE, de routage ou de ressource, est **NON VÉRIFIÉ** [v:forme-404-piste] (recherche 02 D-10). Cette règle est provisoire jusqu'au smoke test.
+   - sinon (hôte personnalisé ou page HTML de passerelle) ⇒ `Config`, rendu par le même gabarit `Legifrance endpoint not found: check LF_PISTE_BASE_URL.` (05 §7.2).
+   - La forme réelle d'un 404 PISTE, de routage ou de ressource, est **NON VÉRIFIÉ** [v:forme-404-piste] (recherche 02 D-10 ; V-66, bloquante en M2). Cette règle est provisoire jusqu'au smoke test.
 5. **500** après 2 tentatives : `Upstream { status: 500, retryable: false }` (§5.1), jamais `NotFound`. « Ne jamais conclure à l'inexistence sans preuve », principe repris d'un client tiers (recherche 05 §1.13).
 
 Un `not_found` signifie donc toujours que l'API a dit que la ressource n'existait pas. Un problème d'URL ou de configuration ne peut jamais faire croire au modèle qu'un texte n'existe pas, ce que la référence permettait (D-10).
@@ -1232,7 +1233,7 @@ Les 16 fixtures de la référence (Apache-2.0, attribution dans `NOTICE`) sont c
 |---|---|---|
 | `dto_parses_every_fixture` | les 16 fixtures se désérialisent dans leur DTO | D-11, D-23 |
 | `mapping_snapshots` | snapshot `insta` (feature `json`, maps triées) de chaque entité produite | P-038 |
-| `mapping_matches_golden` | valeurs de [annexes/donnees/parite-golden.json](annexes/donnees/parite-golden.json), divergences volontaires exceptées (liste de [annexes/A-parite.md](annexes/A-parite.md) : typographie des citations, sentinelles 2999 → `None`, `etat` LODA, textes réparés des 6 fixtures en mojibake, TOC avec sections…) | P-030 à P-039 |
+| `mapping_matches_golden` | valeurs de [annexes/donnees/parite-golden.json](annexes/donnees/parite-golden.json), divergences volontaires exceptées (liste de [annexes/A-parite.md](annexes/A-parite.md) : typographie des citations, sentinelles (toute date ≥ 2222-01-01, 00 §4) → `None`, `etat` LODA, textes réparés des 6 fixtures en mojibake, TOC avec sections…) | P-030 à P-039 |
 | `no_mojibake_after_mapping` | aucune chaîne d'une entité produite ne contient de motif | §10 |
 | `fixtures_have_meta_sidecar` ; `fixture_sha256_matches_meta` | intégrité des fixtures | D-35 |
 | `toc_preserves_section_titles` (consult_loda.json : 26 sections + 62 articles = 88 entrées) ; `kali_inline_content_is_available_without_extra_call` (`expect(0)` sur `getArticle`) | TOC | D-25 |
@@ -1285,9 +1286,9 @@ license = "Licence Ouverte 2.0 — source : Légifrance / DILA"
 |---|---|---|
 | les 9 scénarios de la référence (recherche 01 §11.7 : LODA, CODE, JURI, CONSTIT, CETAT, CNIL, KALI, ACCO, puis consultation des hits) | parité de bout en bout | P-060 |
 | `live_token_reuse_and_expires_in` | `expires_in`, `scope`, réutilisation | [v:oauth-reponses] |
-| `live_unknown_ids_classification` | réponse de chaque endpoint pour `…000000000000` et `…999999999999` (enregistrée par xtask) | [v:introuvable-par-endpoint], [v:forme-404-piste], [v:corps-erreur-piste] |
+| `live_unknown_ids_classification` (M2, bloquant : V-66, V-68) | réponse de chaque endpoint pour `…000000000000` et `…999999999999` (enregistrée par xtask) | [v:introuvable-par-endpoint], [v:forme-404-piste], [v:corps-erreur-piste] |
 | `live_no_mojibake_on_reference_ids` | §10.7 | [v:mojibake-origine], [v:json-echappements-unicode] |
-| `live_singledate_noon_paris_semantics` (M2, bloquant) | §6.3 : suffixe de version du hit pour `version_date = D` avec `singleDate` à midi Paris, comparé à minuit UTC, à minuit Paris et à la veille | [v:singledate-minuit-paris] |
+| `live_singledate_noon_paris_semantics` (M2, bloquant) | §6.3 : suffixe de version du hit pour `version_date = D` avec `singleDate` à midi Paris, comparé à minuit UTC, à minuit Paris et à la veille | [v:singledate-midi-paris] |
 | `live_lawdecree_on_code_size` (M2, bloquant) | §7.3 : taille et durée de `lawDecree` sur le Code civil et le Code du travail, seuils 4 Mio et 10 s | [v:lawdecree-sur-code], [v:taille-max-textes] |
 | `live_type_pagination_page2_code` (M5) | §6.6 | [v:typepagination-page2] |
 | `live_deep_pagination_limit` (M5) | §6.7 : positions 9 901 à 10 000, puis au-delà | [v:pagination-profonde] |
@@ -1299,7 +1300,7 @@ license = "Licence Ouverte 2.0 — source : Légifrance / DILA"
 | (M6) `live_ecli_facet_and_eli_redirects` | §7.2 : facette `ECLI` sur JURI et CETAT ; `getArticleWithIdEliOrAlias`, `eliAndAliasRedirectionTexte` | [v:ecli-filtre-juri-cetat], [v:eli-redirection-endpoints] |
 | (M7) `live_versions_links_toc` | §7.3 (`/suggest` retiré) | [v:endpoints-m7-reponses], [v:related-links-forme] |
 
-Ni 429 ni `Retry-After` ne sont provoqués volontairement : ce serait contraire à l'esprit des CGU. [v:retry-after-piste] et [v:quotas-piste] se vérifient par observation fortuite (journal `warn`) et par la console PISTE.
+Ni 429 ni `Retry-After` ne sont provoqués volontairement : ce serait contraire à l'esprit des CGU. [v:retry-after-piste] et [v:quota-piste-prod] se vérifient par observation fortuite (journal `warn`) et par la console PISTE.
 
 ### 13.6 Couverture des défauts
 
@@ -1366,7 +1367,7 @@ Les requêtes de recherche peuvent révéler l'activité d'un juriste : elles ne
 
 - [ ] Spike TLS : options A et B compilées pour les 7 cibles cargo-dist ; poignée de main TLS testée ; choix consigné dans ADR-0013 et dans 09 ([v:tls-fournisseur-cross]).
 - [ ] Spike proxy : prise en compte de `HTTPS_PROXY` et `NO_PROXY` avec les features retenues ([v:reqwest-proxy-env]).
-- [ ] Squelette du crate compilé avec les dépendances du §1.4 ; `cargo xtask check-deps` vert (pas de `rmcp`, pas d'autre adapter, pas de dépendance directe à `url`).
+- [ ] Squelette du crate compilé ; une dépendance du §1.4 n'y est déclarée que lorsqu'un code l'emploie (aucune déclaration d'avance, 00 §2), `cargo machete` vert ; `cargo xtask check-deps` vert (pas de `rmcp`, pas d'autre adapter, pas de dépendance directe à `url`) ; exigences au niveau mineur et `Cargo.lock` verrouillé selon la règle d'âge (§1.4, T-M0-05).
 - [ ] API de `backon` 1.6 et de `governor` 0.10.4 confirmées à la compilation ([v:backon-api], [v:governor-api]) ; `backon` sans `tokio-sleep` si le `Sleeper` du crate suffit.
 - [ ] Lecture de `lf_application::deadline::Deadline` (`tokio::task_local!`) depuis l'adapter, dans le spike `task_local!` de M0 (00 §11).
 
@@ -1377,9 +1378,9 @@ Les requêtes de recherche peuvent révéler l'activité d'un juriste : elles ne
 - [ ] Client unique du §4.2 ; lecture bornée ; décodage strict ; réparation du mojibake (§10) avec compteur et `warn`, interrupteur `LF_PISTE_MOJIBAKE_REPAIR`.
 - [ ] Politique de réessai du §5.2 (2 tentatives sur 500, `Retry-After` en secondes ou en date HTTP rapportée à `Date`), respect du délai global du §5.3 (`Deadline` converti en `CallDeadline`), `RateGate` du §5.4 et §5.5.
 - [ ] Les 7 endpoints v0.1 du §7.1 ; payload `/search` du §6 (`singleDate` à midi Paris, facettes de date, `typePagination` et `PaginationMemo`, gardes défensives `InvalidRequest { status: None }`).
-- [ ] V-76 (`live_singledate_noon_paris_semantics`) et V-96 (`live_lawdecree_on_code_size`), **bloquantes** : résultats consignés dans 09 ; décision sur `tableMatieres` en v0.1 (§7.3) et sur le moyen de reconnaître un code (§16, question 13).
+- [ ] V-66 et V-68 (`live_unknown_ids_classification`), V-76 (`live_singledate_noon_paris_semantics`) et V-96 (`live_lawdecree_on_code_size`), **bloquantes** (00 §11, 09 §2.18) : résultats consignés dans 09 ; décision sur `tableMatieres` en v0.1 (§7.3) et sur le moyen de reconnaître un code (§16, question 13).
 - [ ] DTO du §8.3 (v0.1) ; mapping du §9 vers les entités de 03.
-- [ ] Classification « introuvable » du §11, complétée par les résultats de `live_unknown_ids_classification`.
+- [ ] Classification « introuvable » du §11 rendue définitive par les résultats de `live_unknown_ids_classification` (V-66, V-68).
 - [ ] Tous les tests des §13.2 et §13.3 verts sous Linux, macOS et Windows, sans réseau.
 - [ ] `cargo xtask record-fixture` opérationnel ; plan de lot exécuté en sandbox (Q3) ; résultats reportés dans le registre V-xx.
 - [ ] Smoke tests live du §13.5 (partie v0.1) exécutés au moins une fois en sandbox ; résultats consignés dans 09. En production, sondes manuelles en lecture seule seulement (Q3).
@@ -1416,9 +1417,9 @@ Elles sont reportées dans [09-risques-et-questions.md](09-risques-et-questions.
 9. **`check-config --online`** — *tranchée* (02 §8.1, 08) : option explicite, une seule requête token, aucun appel à l'API (§2.4).
 10. **Enregistrement de fixtures en production** — *adoptée par défaut, à confirmer par l'utilisateur* (Q3, AM-40) : sandbox par défaut ; en production, sondes en lecture seule et fixtures de données publiques marquées `env = production`, lancées à la main par le mainteneur avant chaque étiquette (≤ 1 requête/s) ; jamais d'identifiants de production en CI (§13.4, §13.5).
 
-Questions encore ouvertes :
+Questions 11 à 13 (la question 11 est tranchée depuis ; 12 et 13 restent ouvertes) :
 
-11. **Requêtes ECLI et ELI au port** : variante de `NumberQuery` (proposition de l'annexe B §10.1 : `NumberKind::Ecli`) ou autre forme pour l'ELI cité ; à fixer dans l'annexe B §6.6 avant M6 (§7.2). L'adapter n'en dépend que par le `typeChamp`/la facette et l'endpoint.
+11. **Requêtes ECLI et ELI au port** — *tranchée* (annexe B §6.6) : variantes `NumberKind::Ecli` (fonds `Juri`, `Cetat`) et `NumberKind::Eli` (fond `Loda`) de `NumberQuery`, constructeur `NumberQuery::new(fond, kind, value, at)` et `with_within` (§7.2). L'adapter n'en dépend que par le `typeChamp`/la facette et l'endpoint.
 12. **Surface JORF** : `/consult/jorf` (avec bascule vers LODA si `hasLoda = true`) ou hits limités à `citation` + `source_url` ; à l'ouverture de M7, avec la valeur `JORF` des enums et les instructions (00 §4, §8 ; V-135).
 13. **Reconnaître un code avant `get_act`** : si V-96 impose `tableMatieres` en v0.1, comment l'adapter sait-il, avant l'appel, qu'un `LEGITEXT` est un code (table des codes chargée paresseusement, ce qui avancerait `/list/code` de M6 à M2 et amenderait 00 §8, ou autre critère) ? À décider en M2 avec le résultat de V-96 (§7.3).
 
@@ -1430,7 +1431,7 @@ Index local des étiquettes employées ci-dessus ; le registre qui fait foi (num
 
 | Étiquette | Vérification à faire |
 |---|---|
-| [v:quotas-piste] | Valeurs des quotas PISTE (sandbox et production), granularité (par application, par méthode), pour calibrer `governor`. |
+| [v:quota-piste-prod] | Valeurs des quotas PISTE (sandbox et production), granularité (par application, par méthode), pour calibrer `governor` (V-62). |
 | [v:oauth-production-live] | L'endpoint token et la base API de production répondent comme documenté avec une application de production. |
 | [v:sandbox-prod-donnees] | Ampleur des écarts de données entre sandbox et production. |
 | [v:oauth-reponses] | Statuts et corps réels des erreurs de l'endpoint token (dont le statut, 400 ou 401, de `invalid_client`) ; valeurs de `expires_in` et `token_type`. |
@@ -1445,7 +1446,7 @@ Index local des étiquettes employées ci-dessus ; le registre qui fait foi (num
 | [v:backon-api] | Noms et sémantique de l'API backon 1.6 (`when`, `adjust`, `sleep`, `notify`, gigue). |
 | [v:governor-api] | Constructeurs de `Quota` et `RateLimiter::direct_with_clock` avec une horloge `Duration`, à la compilation. |
 | [v:delai-clients-mcp] | Délais imposés par Claude Code et VS Code à un appel d'outil, à comparer aux 60 s de `LF_TOOL_DEADLINE_S`. |
-| [v:singledate-minuit-paris] | Avec `singleDate` à midi Paris (règle de 00 §8), un texte entrant en vigueur le jour J est-il retenu le jour J ? Comparaison avec minuit UTC, minuit Paris et la veille (bloquante en M2, V-76). |
+| [v:singledate-midi-paris] | Avec `singleDate` à midi Paris (règle de 00 §8), un texte entrant en vigueur le jour J est-il retenu le jour J ? Comparaison avec minuit UTC, minuit Paris et la veille (bloquante en M2, V-76, dont c'est l'étiquette de référence dans 09 §2.19). |
 | [v:chrono-tz-iana] | Version de la base IANA embarquée par `chrono-tz` 0.10.4 ; reproduction des vecteurs du §6.3 (dont 1804-03-21). |
 | [v:mode-all-semantique] | Sens de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp = ALL`. |
 | [v:filtres-dates-effet] | Effet réel des facettes de date du §6.5, bornes incluses, borne lointaine, combinaison avec `DATE_VERSION`. |
@@ -1463,8 +1464,8 @@ Index local des étiquettes employées ci-dessus ; le registre qui fait foi (num
 | [v:sommaire-semantique-par-fond] | (03) Sens de `resumePrincipal` et `abstrats` (titrage ou analyse) en JURI et en CETAT, pour `OfficialSummary` (§9.2). |
 | [v:json-echappements-unicode] | PISTE sert-il les caractères non ASCII bruts ou échappés en `\uXXXX` (angle mort de la réparation au niveau du corps) ? |
 | [v:serde-json-recursion] | Valeur exacte de la limite de récursion par défaut de serde_json. |
-| [v:introuvable-par-endpoint] | Réponse de chaque consultation (CETATEXT et CONSTEXT compris : seul JURITEXT a été sondé en direct, par pylegifrance) à un identifiant bien formé mais inexistant. |
-| [v:forme-404-piste] | Forme d'un 404 PISTE (routage ou ressource), pour la règle du §11.2. |
+| [v:introuvable-par-endpoint] | Réponse de chaque consultation (CETATEXT et CONSTEXT compris : seul JURITEXT a été sondé en direct, par pylegifrance) à un identifiant bien formé mais inexistant (bloquante en M2, V-68). |
+| [v:forme-404-piste] | Forme d'un 404 PISTE (routage ou ressource), pour la règle du §11.2 (bloquante en M2, V-66). |
 | [v:corps-erreur-piste] | Forme générale des corps d'erreur de l'API (champs `error`, `status`, `message`). |
 | [v:forme-403-piste] | (02) Sens exact d'un 403 de l'API Légifrance (application non abonnée ou autre cause). |
 | [v:wiremock-temps-pause] | Interaction entre une horloge `tokio` gelée et les E/S réelles de wiremock (motive le choix de `ManualClock`). |
@@ -1480,10 +1481,10 @@ Index local des étiquettes employées ci-dessus ; le registre qui fait foi (num
 ## Sources
 
 **Plan et décisions**
-- [00-decisions.md](00-decisions.md) (révision 2) : §0 (documents propriétaires), §1 (variables, surcharges, mode dégradé), §2 (crates et dépendances, `chrono-tz`, `xtask`), §3 (ports, délai global `Deadline`), §5 (erreurs, `InvalidRequest`, 403), §6 (démarrage sans réseau), §7 (paramètres et règles de `fr_search`, `PaginationMemo`), §8 (adapter PISTE), §9 (cache), §10 (tests, scripts versionnés, tests live et fixtures), §11 (jalons), §13 (Q1 à Q15), §14 (amendements AM-02 à AM-07, AM-16, AM-27 à AM-29, AM-31, AM-36, AM-40).
+- [00-decisions.md](00-decisions.md) (révision 2) : §0 (documents propriétaires), §1 (variables, surcharges, mode dégradé), §2 (crates et dépendances, `chrono-tz`, `xtask`), §3 (ports, délai global `Deadline`), §5 (erreurs, `InvalidRequest`, 403), §6 (démarrage sans réseau), §7 (paramètres et règles de `fr_search`, `PaginationMemo`), §8 (adapter PISTE), §9 (cache), §10 (tests, scripts versionnés, tests live et fixtures), §11 (jalons), §13 (Q1 à Q15), §14 (amendements AM-02 à AM-07, AM-16, AM-26 à AM-29, AM-31, AM-36, AM-40 ; contrôle final du 2026-10-16 : versions de référence, dépendances des squelettes, bloquantes de M2).
 - [02-architecture.md](02-architecture.md) : §2.2 (`clippy.toml`), §3.0 (déclarations de workspace), §3.2 (`lf-application`, `Deadline`), §3.3 (fiche du crate : `PisteCorpus::new` sans E/S, `check_credentials`, `mojibake_repairs`, `RateQuota`, feature `record`), §3.8 (`xtask`), §5.1 (`LegalCorpus`, `CorpusError`, `find_by_number(&NumberQuery)`), §7.1 (délai global), §7.2 (clés et TTL du cache), §8.1-§8.2 (CLI, variables), §9.2-§9.3 (correspondance des erreurs, messages), §11.1 (spans).
 - [03-domaine.md](03-domaine.md) : §1.5–§1.6 (frontières, `repair_latin1_mojibake`), §2.4 (`VersionedId`), §3.1 (`Fond`, `PaginationMode`), §3.3 (`status_of`), §4 (entités ; §4.1 `SearchQuery::new` et ses rejets ; §4.8 `PisteEnvironment` ; §4.11 `NumberQuery`, `CodeListing`, `RelatedLinks`), §6 (dates, midi Paris), §7.1 (ordre mojibake/NBSP), §9 (erreurs), étiquettes partagées.
-- [annexes/B-citations.md](annexes/B-citations.md) §6.6 (`NumberQuery`), §10.1 ; [annexes/C-api-legifrance.md](annexes/C-api-legifrance.md) §2.3, §3.7 (chemins ELI, `/consult/jorf`, facette `ECLI`) ; [05-outils-mcp.md](05-outils-mcp.md) §5.11, §7.2-§7.3 (liens, gabarits) ; [06-qualite.md](06-qualite.md) §1.2 (PT5, `.gitattributes`), §1.4, §2.2, §7.5 (fichiers de test, tests de `lf-application`, `live.yml`).
+- [annexes/B-citations.md](annexes/B-citations.md) §6.6 (`NumberQuery`, `NumberKind::Ecli` et `Eli`, couples autorisés), §10.1 ; [annexes/C-api-legifrance.md](annexes/C-api-legifrance.md) §2.3, §3.7 (chemins ELI, `/consult/jorf`, facette `ECLI`) ; [05-outils-mcp.md](05-outils-mcp.md) §5.11, §7.2-§7.3 (liens, gabarits) ; [06-qualite.md](06-qualite.md) §1.2 (PT5, `.gitattributes`), §1.4, §2.2, §7.5 (fichiers de test, tests de `lf-application`, `live.yml`).
 - Scripts versionnés (00 §10) : `docs/plan/annexes/donnees/scripts/dto_repair_check.py` (SHA-256 `ef5c1c80c82a063a407ba9134d3afc3e5526bc659e5650810b38a3096d9d0530`), relancé par ce document sur les 16 fixtures (Python 3.13, `python3 -I`).
 
 **Rapports de recherche** (`docs/recherche/`)

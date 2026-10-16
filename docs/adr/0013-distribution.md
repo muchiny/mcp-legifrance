@@ -4,7 +4,7 @@
 - **Date** : 2026-10-15
 - **Jalons concernés** : M0 (spike TLS, `dist init`), transverse « Distribution » dès v0.1.0, M8 et M9 (features `http` et `dila`), v1.0.0 (réexamen de la publication crates.io)
 - **Questions liées** : Q1, Q2, Q5, Q13 (et Q4 pour l'éventuel mode HTTP partagé, Q15 pour la mention d'attribution)
-- Révisé le 2026-10-15 (revue) : paquet Cargo `mcp-legifrance` (AM-32, Q1) ; `cargo install --git` en v0.x, sans crates.io (AM-33, Q13) ; signature et notarisation par défaut, bundle MCPB unique sans bundle par architecture (AM-34, Q5) ; attribution des données (AM-39, Q15).
+- Révisé le 2026-10-15 (revue) : paquet Cargo `mcp-legifrance` (AM-32, Q1) ; `cargo install --git` en v0.x, sans crates.io (AM-33, Q13) ; signature et notarisation par défaut, bundle MCPB unique sans bundle par architecture (AM-34, Q5) ; attribution des données (AM-39, Q15) ; contrôle final du 2026-10-16 : date de consultation rendue par `fr_coverage` (AM-39) ; étiquette de référence de V-18 (09 §2.1).
 
 ## Contexte
 
@@ -60,7 +60,7 @@
    - actions épinglées par SHA ;
    - aucune clé PISTE dans les artefacts ;
    - versions alignées : crate, verrou des descripteurs, `server.json` et manifeste MCPB, vérifiés par `release-gates`.
-9. **Licence** : Apache-2.0, avec un `NOTICE` qui crédite la référence et ses fixtures (Q2). Les données sont sous Licence Ouverte 2.0 : `fr_coverage`, les instructions serveur et le README portent « Source : Légifrance / DILA — Licence Ouverte 2.0 » et la date de consultation (00 §12, adoptée par défaut, Q15).
+9. **Licence** : Apache-2.0, avec un `NOTICE` qui crédite la référence et ses fixtures (Q2). Les données sont sous Licence Ouverte 2.0 : `fr_coverage`, les instructions serveur et le README portent « Source : Légifrance / DILA — Licence Ouverte 2.0 » ; la date de consultation est rendue par `fr_coverage` (`consulted_on`), à laquelle renvoient les instructions, texte statique (00 §12, adoptée par défaut, Q15).
 
 ## Conséquences
 
@@ -89,7 +89,7 @@
   - [v:macos-notarisation-binaire-nu] : notarisation d'un exécutable nu ;
   - [v:cargo-dist-macos-sign] : signature macOS expérimentale de dist ;
   - [v:azure-artifact-signing-eligibilite] : conditions d'éligibilité ;
-  - [v:taille-binaire] : taille des binaires et du MCPB.
+  - [v:binaire-taille-memoire] : taille des binaires et du MCPB (V-18, mesurée au spike M0).
 
 ### Tests qui la gardent
 

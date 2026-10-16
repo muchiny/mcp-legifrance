@@ -4,7 +4,7 @@
 
 ## 1. Rôle des ADR
 
-- [00-decisions.md](../plan/00-decisions.md) est **normatif** (révision 2 du 2026-10-15, amendements AM-01 à AM-43 journalisés en 00 §14). Il fixe ce qui est décidé : noms, crates, ports, outils, erreurs, protocole, jalons M0 à M9, questions Q1 à Q15 (00 §13 ; contexte, options et réponses : 09 §3). Un ADR dit **pourquoi** : le contexte sourcé, les options écartées et le prix à payer. Il ne contredit jamais 00. Si une source semble justifier un autre choix, l'ADR applique la décision et signale l'écart (section « À surveiller » ou « Alternatives »).
+- [00-decisions.md](../plan/00-decisions.md) est **normatif** (révision 2 du 2026-10-15, amendements AM-01 à AM-43 journalisés en 00 §14, avec les corrections du contrôle final du 2026-10-16). Il fixe ce qui est décidé : noms, crates, ports, outils, erreurs, protocole, jalons M0 à M9, questions Q1 à Q15 (00 §13 ; contexte, options et réponses : 09 §3). Un ADR dit **pourquoi** : le contexte sourcé, les options écartées et le prix à payer. Il ne contredit jamais 00. Si une source semble justifier un autre choix, l'ADR applique la décision et signale l'écart (section « À surveiller » ou « Alternatives »).
 - Les documents du plan ([02-architecture.md](../plan/02-architecture.md) à [09-risques-et-questions.md](../plan/09-risques-et-questions.md), annexes A à D) détaillent la mise en œuvre et renvoient aux ADR par leur numéro (`ADR-00NN`).
 - Un ADR est **requis** (06 §13.2, [06-qualite.md](../plan/06-qualite.md)) pour :
   - toute modification d'une décision de 00 ;
@@ -38,9 +38,9 @@ stateDiagram-v2
 
 Corrections admises sur un ADR accepté : coquilles, liens, ajout d'une référence. Tout le reste passe par un nouvel ADR. Dans la même PR, on coche la case « Décision de 00 ou d'un ADR modifiée ? » du modèle de PR (06 §13.1) et on met à jour 00-decisions.md.
 
-**Questions adoptées par défaut.** Chaque question Q1 à Q15 porte une proposition adoptée par défaut, appliquée dans 00 et dans le plan jusqu'à la réponse de l'utilisateur (00 §13). Un ADR peut être accepté sur cette proposition : la question reste « à confirmer » et figure au §5. Une réponse conforme est consignée dans 09 §3 et ajoutée à l'ADR comme référence (correction admise) ; une réponse contraire produit un nouvel ADR qui remplace l'ancien (09 §3). De même, un spike ou une mesure qui invalide un ADR accepté produit un nouvel ADR (par exemple le repli `Parameters<T>` d'ADR-0008). Un ADR reste « Proposé » quand une partie de son contenu n'est pas encore écrite : choix TLS d'ADR-0013, défaut et mesures d'ADR-0014.
+**Questions adoptées par défaut.** Chaque question Q1 à Q15 porte une proposition adoptée par défaut, appliquée dans 00 et dans le plan jusqu'à la réponse de l'utilisateur (00 §13). Un ADR peut être accepté sur cette proposition : la question reste « à confirmer » et figure au §5. Sans réponse de l'utilisateur à l'ouverture de M0, M0 démarre sous le nom actuel du dépôt avec les propositions par défaut de Q1 à Q15 ; le renommage éventuel du dépôt (Q1) se fait ensuite, redirection GitHub vérifiée, et en tout cas avant toute publication immuable (00 §13). Une réponse conforme est consignée dans 09 §3 et ajoutée à l'ADR comme référence (correction admise) ; une réponse contraire produit un nouvel ADR qui remplace l'ancien (09 §3). De même, un spike ou une mesure qui invalide un ADR accepté produit un nouvel ADR (par exemple le repli `Parameters<T>` d'ADR-0008). Un ADR reste « Proposé » quand une partie de son contenu n'est pas encore écrite : choix TLS d'ADR-0013, défaut et mesures d'ADR-0014.
 
-**Révision du 2026-10-15.** Avant l'ouverture de M0, aucun code n'applique encore ces ADR. La revue du plan les a donc alignés en place sur 00 révision 2, au lieu de les remplacer. Chaque ADR modifié porte, sous son en-tête, une ligne « Révisé le 2026-10-15 (revue) : … » qui résume les changements et cite les amendements. À partir de l'ouverture de M0, la règle ci-dessus s'applique sans exception.
+**Révision du 2026-10-15.** Avant l'ouverture de M0, aucun code n'applique encore ces ADR. La revue du plan les a donc alignés en place sur 00 révision 2, au lieu de les remplacer. Chaque ADR modifié porte, sous son en-tête, une ligne « Révisé le 2026-10-15 (revue) : … » qui résume les changements et cite les amendements. Les alignements du contrôle final du 2026-10-16 (00 §14, sans nouvel amendement) sont ajoutés à la fin de cette même ligne, après « contrôle final du 2026-10-16 : ». À partir de l'ouverture de M0, la règle ci-dessus s'applique sans exception.
 
 ## 3. Conventions
 
@@ -48,7 +48,8 @@ Corrections admises sur un ADR accepté : coquilles, liens, ajout d'une référe
 - Langue : français ; identifiants techniques tels quels.
 - Longueur : 40 à 120 lignes. Un ADR est court ; le détail est dans le plan, vers lequel il renvoie.
 - Sources : chaque fait non trivial est sourcé, par exemple (recherche 03 §4), (référence `citations.py:309`), (fixture `consult_juri_cetat.json`) ou une URL. Les défauts de la référence sont cités `D-01…D-47` ([recherche 02](../recherche/02-defauts.md)), les points de parité `P-xxx` et les écarts `E-xx` ([recherche 01](../recherche/01-parite.md)).
-- Ce qui n'est pas vérifié est marqué **NON VÉRIFIÉ** et suivi d'une étiquette `[v:…]`. Les étiquettes sont reprises dans le registre V-xx de [09-risques-et-questions.md](../plan/09-risques-et-questions.md).
+- Ce qui n'est pas vérifié est marqué **NON VÉRIFIÉ** et suivi d'une étiquette `[v:…]`. Les étiquettes sont reprises dans le registre V-xx de [09-risques-et-questions.md](../plan/09-risques-et-questions.md). Un ADR emploie l'étiquette de référence, jamais un alias (09 §2.1, index §2.19) ; au remplacement des étiquettes (T-M0-12), le marqueur prend la forme finale de 09 §2.19.
+- Les versions de crates citées (par exemple moka 0.12.16, fs4 1.1, chrono-tz 0.10.4) sont des **versions de référence** relevées les 2026-10-15 et 2026-10-16, pas des planchers : `[workspace.dependencies]` écrit l'exigence au niveau mineur, sauf `rmcp` et `rmcp-macros`, épinglés `"=3.5.1"`, et le verrou initial retient la plus haute version éligible à la règle d'âge (00 §2).
 - Tout extrait de code Rust est « non compilé, à valider en M0 ».
 
 ## 4. Modèle
@@ -110,8 +111,8 @@ Conditions d'acceptation des ADR proposés :
 
 Questions et vérifications à confirmer des ADR acceptés (une réponse contraire produit un nouvel ADR, §2) :
 
-- [ ] **ADR-0001** : Q1, Q2 et Q6 (réseau de construction), avant M0.
-- [ ] **ADR-0002** : Q1 (paquet `mcp-legifrance`), avant M0 ; Q13 (publication des crates), réexamen à v1.0.0.
+- [ ] **ADR-0001** : Q1 (réponse avant le premier commit de M0 ; sans réponse, démarrage sous le nom actuel et renommage éventuel ensuite, en tout cas avant toute publication immuable) et Q2 (premier commit de M0) ; Q6 (réseau de construction), avant M0.
+- [ ] **ADR-0002** : Q1 (paquet `mcp-legifrance`), réponse avant le premier commit de M0 ; Q13 (canal `cargo install`), avant v0.1.0, la publication des crates étant réexaminée à v1.0.0.
 - [ ] **ADR-0003** : spikes V-28 et V-29 en M0 ; Q7 et Q14 avant M4 ; Q8 en M4 (listes) et M7 (resources) ; V-34 et V-35 en M4 ; Q4 avant M8.
 - [ ] **ADR-0004** : Q3 (sandbox avant M2, production avant v0.1.0) ; Q15 avant v0.1.0 ; Q6 (DILA) avant M9.
 - [ ] **ADR-0006** : Q11 (V-53), avant v0.1.0.

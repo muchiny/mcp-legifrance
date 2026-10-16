@@ -4,9 +4,9 @@
 >
 > **Jalons** : M4 (adapter MCP) et M5 (économie de contexte) livrent la v0.1.0 ; M6 la v0.2.0 ; M7 la v0.3.0 ; M8 (HTTP, optionnel) la v0.4.0 ([07-feuille-de-route.md](07-feuille-de-route.md)).
 >
-> **Conventions** : « caractère » = scalaire Unicode (`char` Rust). Les tailles de JSON sont en caractères de JSON compact (sans espaces), comme dans la recherche 03 §13. Tout extrait Rust est **non compilé, à valider en M0**. Ce qui n'est pas vérifié porte la mention **NON VÉRIFIÉ** et une étiquette `[v:…]`, recensée au §12 et reprise dans le registre de [09-risques-et-questions.md](09-risques-et-questions.md).
+> **Conventions** : « caractère » = scalaire Unicode (`char` Rust). Les tailles de JSON sont en caractères de JSON compact (sans espaces), comme dans la recherche 03 §13. Tout extrait Rust est **non compilé, à valider en M0**. Les versions de crates citées (schemars 1.2.3, par exemple) sont des versions de référence relevées les 2026-10-15 et 2026-10-16, pas des planchers (00 §2) ; seuls `rmcp` et `rmcp-macros` sont épinglés `=3.5.1` (00 §6). Un comportement lu au tag d'une version de référence est revérifié sur la version verrouillée par le verrou des descripteurs (§9) et les tests du §11. Ce qui n'est pas vérifié porte la mention **NON VÉRIFIÉ** et une étiquette `[v:…]`, recensée au §12 et reprise dans le registre de [09-risques-et-questions.md](09-risques-et-questions.md).
 >
-> **Révision** : alignée sur 00 révision 2 du 2026-10-15 (amendements AM-01…AM-43, journal en 00 §14). Les choix adoptés par défaut sur une question de l'utilisateur sont appliqués ici et restent à confirmer : Q10 (mode de recherche), Q11 (`openWorldHint`), Q14 (langues), Q15 (attribution), notamment (00 §13).
+> **Révision** : alignée sur 00 révision 2 du 2026-10-15 (amendements AM-01…AM-43, journal en 00 §14) et sur ses corrections du contrôle final du 2026-10-16. Les choix adoptés par défaut sur une question de l'utilisateur sont appliqués ici et restent à confirmer : Q10 (mode de recherche), Q11 (`openWorldHint`), Q14 (langues), Q15 (attribution), notamment (00 §13).
 
 ## Sommaire
 
@@ -83,7 +83,7 @@ Source : documentation « Connect Claude Code to tools via MCP », lue le 2026-1
 | Limite de sortie | 25 000 tokens (`MAX_MCP_OUTPUT_TOKENS`) | jamais atteinte avec le plafond dur du §6.4 |
 | Persistance sur disque | résultat texte > 50 000 caractères, sauf `_meta["anthropic/maxResultSizeChars"]` (plafond 500 000) | `max_chars` ≤ 40 000 (00 §7) et plafond dur de 45 000 caractères par réponse (§6.4) ; aucune clé `anthropic/*` émise |
 | `instructions` serveur | coupées à 4 096 caractères | ≤ 3 500 (00 §6), mesuré : 3 278 en v0.3 (§4) |
-| Description d'un outil chargé d'emblée / via tool search | 4 096 / 16 384 caractères | 349 à 815 caractères (§5) |
+| Description d'un outil chargé d'emblée / via tool search | 4 096 / 16 384 caractères | 349 à 830 caractères (§5) |
 | Nom complet `mcp__<serveur>__<outil>` | 128 caractères | `fr_get_company_agreement` (24 caractères) laisse 97 caractères au nom du serveur |
 | Schéma d'entrée | pas de `anyOf`/`oneOf`/`allOf` à la racine ; propriétés de premier niveau sur 1 à 64 caractères `[A-Za-z0-9_.-]` ; schéma valide 2020-12, sinon l'outil est exclu | §2.5, vérifié par le verrou (§9.4) |
 | Arguments de prompt | « Claude Code splits the arguments on whitespace » | `verifier_citations` et `etat_du_droit` sans argument ; `analyser_decision` n'a qu'un argument d'un seul jeton (00 §7, §8.5) |
@@ -115,7 +115,7 @@ Source : documentation « Connect Claude Code to tools via MCP », lue le 2026-1
 - **Pourquoi dual-era** : VS Code n'envoie que `initialize` en 2025-11-25 (`modelContextProtocol.ts:43`, recherche 08 §1 point 6) ; Claude Code sonde `server/discover` sur stdio par défaut depuis la 2.1.292 (`CHANGELOG.md:652`) ; un client legacy face à un serveur modern-only échoue (`versioning.mdx:159-172`).
 - **`supported_protocol_versions()` explicite** : `[2026-07-28, 2025-11-25, 2025-06-18]` (00 §6). Par défaut, rmcp annonce tout `KNOWN_VERSIONS`, et `LATEST` a changé dans une mineure (3.5.0) : on ne s'y fie pas (recherche 09 §3.2). 2025-03-26 est exclue, car elle n'a ni `structuredContent` ni `title` (Q7, recherche 08 §15.1).
 - **`supportedVersions` de `server/discover`** : les trois versions servies (00 §6), passées explicitement à `DiscoverResult::from_server_info` (§3.2), comme dans l'exemple de l'erreur `-32022` de la spécification (recherche 08 §13 point 7). Le SDK TypeScript n'annonce que `2026-07-28` ; la spécification ne tranche pas. D'après la lecture du code de rmcp 3.5.1 (annexe D §4.4), une requête à enveloppe moderne portant une version legacy est acceptée et servie sans `resultType` ni indices de cache (**NON VÉRIFIÉ** [v:rmcp-enveloppe-version-legacy], V-34). Si V-34 le confirme en M4, repli décidé par 00 §6 : `[2026-07-28]` seul dans `discover`, sans toucher `supported_protocol_versions()`, et `-32022` (`data.supported = ["2026-07-28"]`) répondu par `PreLifecycleFilter` à toute requête non-`initialize` dont le `_meta` déclare une version antérieure ; sinon, écart consigné dans l'annexe D. `serverInfo` dans le `_meta` des autres résultats modernes : posé si rmcp le permet (**NON VÉRIFIÉ** [v:rmcp-meta-serverinfo-resultats], V-32), sinon écart accepté et documenté.
-- **Démarrage** : aucune E/S réseau avant le premier appel d'outil. `server/discover` et `initialize` sont servis depuis un `ServerConfig` précalculé (§3.2). Depuis la 2.1.292, Claude Code négocie 2026-07-28 par défaut en stdio, avec une sonde `server/discover` (`CHANGELOG.md:652`) qui tournerait dans un processus frère éphémère, comme dans le SDK TypeScript (**NON VÉRIFIÉ** [v:cc-sonde-processus-frere], recherche 08 §5.1). La note de la 2.1.238 (« Fixed stdio MCP servers receiving a `server/discover` request before `initialize` », `CHANGELOG.md:3400`) montre le coût d'une sonde qui forcerait le démarrage du backend à chaque ouverture de session. Le délai de la sonde est **NON VÉRIFIÉ** [v:cc-sonde-delai] (« 3 s » selon un tiers).
+- **Démarrage** : aucune E/S réseau avant le premier appel d'outil. `server/discover` et `initialize` sont servis depuis un `ServerConfig` précalculé (§3.2). Depuis la 2.1.292, Claude Code négocie 2026-07-28 par défaut en stdio, avec une sonde `server/discover` (`CHANGELOG.md:652`) qui tournerait dans un processus frère éphémère, comme dans le SDK TypeScript (**NON VÉRIFIÉ** [v:cc-sonde-delai], V-49, recherche 08 §5.1). La note de la 2.1.238 (« Fixed stdio MCP servers receiving a `server/discover` request before `initialize` », `CHANGELOG.md:3400`) montre le coût d'une sonde qui forcerait le démarrage du backend à chaque ouverture de session. Le délai de la sonde, mesuré par le même essai, est **NON VÉRIFIÉ** [v:cc-sonde-delai] (« 3 s » selon un tiers).
 - **Ne jamais quitter sur un message inattendu** (00 §6). D'après la lecture du code (annexe D §4.2), aucune requête, prématurée ou inconnue, ne fait quitter rmcp 3.5.1 ; en revanche, une notification ou une réponse reçue avant l'ouverture d'une ère arrête le service (`service/server.rs:681-685`). `PreLifecycleFilter` enveloppe donc le transport stdio dès le spike M0 et écarte (`debug!`) ces messages (**NON VÉRIFIÉ** [v:rmcp-transport-enveloppe], V-29) ; il sera retiré quand rmcp le corrigera. Un EOF avant toute ère (processus de sonde) termine le processus avec le code 0 (§3.2). Écarts acceptés et testés : `ping` avant toute ère → `{}` ; `initialize` à paramètres legacy complets portant aussi un `_meta` moderne → poignée de main legacy ; ligne non JSON ignorée (§7.5 ; confirmation à l'exécution : **NON VÉRIFIÉ** [v:rmcp-methode-inattendue], V-30, §11).
 
 ### 2.2 `ServerConfig` et capacités par jalon
@@ -128,7 +128,7 @@ Source : documentation « Connect Claude Code to tools via MCP », lue le 2026-1
 | M8 | v0.4.0 | identiques à M7 | transport Streamable HTTP en plus de stdio |
 
 - Jamais de `listChanged` (listes statiques pour un binaire donné), ni de `subscribe`, ni de `logging`, ni d'`extensions`, ni d'`experimental` (recherche 08 §4.4).
-- `serverInfo` : `Implementation::new("mcp-legifrance", <version du crate>)` avec `title` « Légifrance (PISTE) » et `websiteUrl` du dépôt (nom du dépôt : Q1). Jamais `Implementation::from_build_env()`, qui renvoie l'identité de rmcp (`model.rs:1556-1565`, recherche 04 §2.3). La version vient de `lf-app` par `ServerIdentity` (02 §3.6).
+- `serverInfo` : `Implementation::new("mcp-legifrance", <version du crate>)` avec `title` « Légifrance (PISTE) » et `websiteUrl` du dépôt (nom actuel, gardé jusqu'au renommage éventuel du dépôt : Q1, 00 §0). Jamais `Implementation::from_build_env()`, qui renvoie l'identité de rmcp (`model.rs:1556-1565`, recherche 04 §2.3). La version vient de `lf-app` par `ServerIdentity` (02 §3.6).
 - `instructions` : texte du §4, identique dans `DiscoverResult` et `InitializeResult`.
 - `subscriptions/listen` (00 §6) : en ère moderne, accusé minimal (`accepted_subscription_filter` → filtre vide ; premier message `notifications: {}`), puis aucune notification jusqu'à l'annulation ; en ère legacy, `-32601` (ni `resources/subscribe` ni `listChanged`). Critère M4 : un EOF de stdin avec un `listen` ouvert termine le processus (code 0) en moins d'une seconde (**NON VÉRIFIÉ** [v:rmcp-listen-cloture], V-35 ; §11). Aucun effet sur les outils.
 
@@ -144,7 +144,7 @@ En ère moderne, les résultats « cachables » DOIVENT porter `ttlMs` et `cache
 | `resources/read` | 3 600 000 | `public` | M7 | Q8 ; données publiques identiques pour tous ; mises à jour de Légifrance quotidiennes (recherche 08 §17 question 4) |
 | `tools/call`, `prompts/get`, `completion/complete` | — | — | — | non cachables (`schema.ts:1634-1640`, recherche 06 §4.4) |
 
-Mise en œuvre : rmcp remplit `ttl_ms: 0` et `cache_scope: Public` dans le `list_tools` généré par `#[tool_handler]`, et `0`/`Private` pour toute indication manquante (`tool_handler.rs:71-81`, `model.rs:4830-4854`, recherche 09 §3.5). On écrit donc `list_tools` et `discover` à la main (§3.2), comme `list_prompts` en M7, et l'on pose les valeurs seulement si `ctx.protocol_version() >= 2026-07-28`. La lecture du code (annexe D §3.4) tranche les deux questions qui restaient ouvertes : pour un pair legacy, rmcp ne retire que `resultType` (`model.rs:4788-4801`), d'où la pose conditionnelle ; `DiscoverResult` et `ListToolsResult` ont bien `with_ttl_ms` et `with_cache_scope`. Confirmation à l'exécution par les tests (b) et (f) de M4 (§11) : **NON VÉRIFIÉ** [v:rmcp-ttl-legacy], **NON VÉRIFIÉ** [v:rmcp-discover-ttl] (V-33).
+Mise en œuvre : rmcp remplit `ttl_ms: 0` et `cache_scope: Public` dans le `list_tools` généré par `#[tool_handler]`, et `0`/`Private` pour toute indication manquante (`tool_handler.rs:71-81`, `model.rs:4830-4854`, recherche 09 §3.5). On écrit donc `list_tools` et `discover` à la main (§3.2), comme `list_prompts` en M7, et l'on pose les valeurs seulement si `ctx.protocol_version() >= 2026-07-28`. La lecture du code (annexe D §3.4) tranche les deux questions qui restaient ouvertes : pour un pair legacy, rmcp ne retire que `resultType` (`model.rs:4788-4801`), d'où la pose conditionnelle ; `DiscoverResult` et `ListToolsResult` ont bien `with_ttl_ms` et `with_cache_scope`. Confirmation à l'exécution par les tests (b) et (f) de M4 (§11) : **NON VÉRIFIÉ** [v:rmcp-ttl-legacy] (V-33).
 
 ### 2.4 Ce que nous n'implémentons pas, et pourquoi
 
@@ -160,7 +160,7 @@ Mise en œuvre : rmcp remplit `ttl_ms: 0` et `cache_scope: Public` dans le `list
 | `listChanged`, `subscribe` | actif | non | listes statiques, corpus en lecture |
 | `notifications/progress` | actif | optionnel, seulement pour `fr_search_all` (M7) quand le client fournit un `progressToken` ; aucune notification après une annulation (`ct.is_cancelled()` testé avant chaque `notify_progress`) | recherche 06 §4.7 ; non exigé pour l'acceptation de v0.3. Après `notifications/cancelled`, rmcp ne jette que la réponse (`service.rs:1497-1507`) et laisse partir les notifications (`:1537-1556`), alors que la spécification interdit tout message ultérieur pour cette requête (`basic/transports/stdio.mdx:76-83`) |
 | Icônes | actif | non en v0.x | aucun bénéfice pour le modèle ; risque SVG (recherche 06 §6) |
-| Clés `_meta` `anthropic/*` (`alwaysLoad`, `maxResultSizeChars`) | propriétaires | non | couplage à un client ; réponses sous 50 000 caractères (§6.4) ; question ouverte §13.2 |
+| Clés `_meta` `anthropic/*` (`alwaysLoad`, `maxResultSizeChars`) | propriétaires | non | couplage à un client ; réponses sous 50 000 caractères (§6.4) ; aucune clé `anthropic/*` (00 §7), réexamen éventuel après V-48 (§13.2 question 4) |
 
 ### 2.5 Contraintes de schéma
 
@@ -199,7 +199,7 @@ Arborescence de référence : 02 §2.1, document propriétaire des crates (00 §
 | `failure.rs` | `ToolFailure` (`IntoContents`) : préfixe `[code] ` + message final porté par l'`AppError` (rédigé par `lf-application::messages`, 02 §9.3) ; erreurs des resources → `ErrorData` (M7) | M4 |
 | `text.rs` | `const` des `title`, des descriptions (anglais) et des instructions (avec l'attribution des données, Q15), textes des prompts (français, Q14) ; seule source de ces textes | M4 |
 | `canonical.rs` | `CanonicalInput` : JSON canonique des arguments **bruts**, pour l'empreinte d'audit (02 §6.1) | M4 |
-| `stdio.rs` | `serve_stdio` : `PreLifecycleFilter` autour de `stdio()` ; `ConnectionClosed` et `Cancelled` avant toute ère → fin normale, code 0 (annexe D §4.3) | M4 |
+| `stdio.rs` | `serve_stdio` : `PreLifecycleFilter` autour d'`AsyncRwTransport::new_server(stdin(), stdout())` (le tuple de `stdio()` n'est pas un `Transport`) ; `ConnectionClosed` et `Cancelled` avant toute ère → fin normale, code 0 (annexe D §4.3) | M4 |
 | `resources.rs`, `prompts.rs`, `completions.rs` | §8 ; `get_prompt` et `list_prompts` écrits à la main (§3.6) | M7 |
 | `http.rs` | §10.1 (feature `http`) | M8 |
 
@@ -327,7 +327,9 @@ pub async fn serve_stdio<C: LegalCorpus, A: AuditLog, K: Clock>(
 ) -> Result<ServeOutcome, ServeError> {
     let server = LegifranceServer::new(service, &identity);
     // Écarte les notifications et réponses reçues avant toute ère (rmcp arrêterait le service, service/server.rs:681-685).
-    let transport = PreLifecycleFilter { inner: rmcp::transport::stdio(), opened: false };   // feature transport-io
+    // stdio() renvoie un tuple qui n'implémente que IntoTransport : on enveloppe le Transport qu'il construirait.
+    let transport = PreLifecycleFilter::new(                           // feature transport-io ; tokio io-std (02 §3.6)
+        AsyncRwTransport::new_server(tokio::io::stdin(), tokio::io::stdout()));
     match server.serve_with_ct(transport, shutdown).await {
         Ok(running) => Ok(match running.waiting().await? {
             rmcp::service::QuitReason::Cancelled => ServeOutcome::Shutdown,
@@ -340,7 +342,7 @@ pub async fn serve_stdio<C: LegalCorpus, A: AuditLog, K: Clock>(
 }
 ```
 
-API rmcp à confirmer au spike M0 : la combinaison `JsonObject` + `input_schema` + `output_schema` explicite + `Result<Json<T>, ToolFailure>` est **NON VÉRIFIÉE** [v:rmcp-jsonobject-input-schema] ; `ListToolsResult::with_all_items`, `with_ttl_ms` et `with_cache_scope` existent d'après la lecture du code (macro `paginated_result!`, `model.rs:1782-1806`, annexe D §3.4), compilation à confirmer : **NON VÉRIFIÉ** [v:rmcp-list-tools-result-api] ; l'enveloppe `PreLifecycleFilter` acceptée par `serve_with_ct` : **NON VÉRIFIÉ** [v:rmcp-transport-enveloppe].
+API rmcp à confirmer au spike M0 : la combinaison `JsonObject` + `input_schema` + `output_schema` explicite + `Result<Json<T>, ToolFailure>` est **NON VÉRIFIÉE** [v:rmcp-jsonobject-input-schema] ; `ListToolsResult::with_all_items`, `with_ttl_ms` et `with_cache_scope` existent d'après la lecture du code (macro `paginated_result!`, `model.rs:1782-1806`, annexe D §3.4), compilation à confirmer : **NON VÉRIFIÉ** [v:rmcp-ttl-legacy] (V-33) ; l'enveloppe `PreLifecycleFilter` acceptée par `serve_with_ct` : **NON VÉRIFIÉ** [v:rmcp-transport-enveloppe].
 
 ### 3.3 Décodage des arguments : `JsonObject` plutôt que `Parameters<T>`
 
@@ -416,7 +418,7 @@ Règles de décodage :
 - Délai global `LF_TOOL_DEADLINE_S` (défaut 60 s) appliqué dans `Audited`, autour du décodage et du cas d'usage (02 §10).
 - Chaque requête tourne dans sa propre tâche tokio (`service.rs:1322-1328`) : les futurs d'outils doivent être `Send` (recherche 04 §2.4). Les ports sont RPITIT `+ Send` (ADR-0012).
 - Après une annulation, rmcp ne jette que la réponse : un outil qui émet `notifications/progress` (`fr_search_all`, M7) teste `ct.is_cancelled()` avant chaque notification (§2.4).
-- Débit des invocations : le limiteur PISTE (00 §8) ne borne que les appels amont, pas les invocations servies par le cache, `fr_coverage` ni les `invalid_arg`. L'exigence « rate limit tool invocations » de la spécification (`server/tools.mdx:789-794`) est à traiter dans la check-list de l'annexe D (constat de revue ouvert).
+- Débit des invocations : le limiteur PISTE (00 §8) ne borne que les appels amont, pas les invocations servies par le cache, `fr_coverage` ni les `invalid_arg`. L'exigence « rate limit tool invocations » de la spécification (`server/tools.mdx:789-794`) est tranchée par 00 §6 et l'annexe D (C-34) : sur stdio, écart justifié, car l'unique appelant est le client qui a lancé le processus et toute invocation qui consomme le quota PISTE passe par le limiteur (annexe D §4.7) ; en HTTP (M8), limiteur dans la couche axum, au-delà 429 + `Retry-After`, valeurs figées en M8 (annexe D §5.2 ; ici §10.1).
 
 ### 3.6 Pièges rmcp vérifiés par un test
 
@@ -472,7 +474,7 @@ A failed call returns isError with a text that starts with a code:
 - `[invalid_arg]` an argument is missing or malformed: fix it as the message says.
 - `[not_found]` nothing exists for that id: search again.
 - `[rate_limited]` PISTE quota reached: wait the delay given, then retry.
-- `[upstream_error]` Légifrance or PISTE failed or timed out: retry once, then report it.
+- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.
 - `[config_error]` credentials or settings are missing or rejected: ask the user to fix the server configuration.
 - `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user.
 ```
@@ -487,7 +489,7 @@ Le test de dérive exige que les outils cités soient exactement les outils enre
 | v0.2 | ligne v0.1 suivie de `` `fr_resolve` turns a free-text citation (…) into Legifrance ids. `` | `` 3. Check: `fr_verify_citations` checks every citation of a draft against the official record. `` | `` 4. Limits: … `` | **3 080** | 3 088 | 10 |
 | v0.3 | texte du §4.1 | texte du §4.1 | texte du §4.1 | **3 278** | 3 286 | 13 |
 
-Comptage : `len()` Python sur le texte exact, sans saut de ligne final, refait le 2026-10-15 sur ce brouillon après la révision 2 (ligne « Attribution », Q15 ; règle des versions qui renvoie à `fr_get_act`). Les six codes d'erreur sont cités dans les trois versions. Marge sous la limite de 3 500 (00 §6) : 222 caractères en v0.3. L'attribution est la même dans les trois versions et ne contient pas de date, car le texte est statique et verrouillé (§4.3 règle 5) : la date de consultation du jour est rendue par `fr_coverage` (`consulted_on`, §5.8).
+Comptage : `len()` Python sur le texte exact, sans saut de ligne final, refait le 2026-10-15 sur ce brouillon après la révision 2 (ligne « Attribution », Q15 ; règle des versions qui renvoie à `fr_get_act`), puis le 2026-10-16 après la reformulation, à longueur égale, de la ligne `[upstream_error]` : l'invitation à réessayer vient du message, qui ne la porte que pour un échec réessayable (00 §8, §7.2). Les six codes d'erreur sont cités dans les trois versions. Marge sous la limite de 3 500 (00 §6) : 222 caractères en v0.3. L'attribution est la même dans les trois versions et ne contient pas de date, car le texte est statique et verrouillé (§4.3 règle 5) : la date de consultation du jour est rendue par `fr_coverage` (`consulted_on`, §5.8).
 
 ### 4.3 Règles de maintenance
 
@@ -590,10 +592,10 @@ flowchart LR
 
 **Objectif.** Trouver des textes, articles de code ou décisions par mots-clés dans un fond, avec pagination et filtres de date (corrige D-09, D-32 en partie, D-33).
 
-**Description** (815 caractères, 5 phrases) :
+**Description** (830 caractères, 5 phrases) :
 
 ```text
-Keyword search in one Légifrance fond: laws and decrees (LODA), codes (CODE), case law (JURI, CONSTIT, CETAT), CNIL deliberations (CNIL), collective agreements (KALI) or company agreements (ACCO). Returns one page of hits (default 10) with id, title, snippet, citation and source_url; ask for the next `page` while `has_more` is true. `match` defaults to any word; use `all` or `exact` for precise queries, and `date_from`/`date_to` to filter by date. LODA and CODE hits are the versions in force on `version_date` (default: today in Paris). Open a hit with the fr_get_* tool for its id prefix (LEGITEXT: fr_get_act, JURITEXT/CONSTEXT/CETATEXT: fr_get_decision, CNILTEXT: fr_get_deliberation, KALITEXT: fr_get_convention, ACCOTEXT: fr_get_company_agreement); CODE hits also list matching `articles` for fr_get_text.
+Keyword search in one Légifrance fond (default LODA): laws and decrees (LODA), codes (CODE), case law (JURI, CONSTIT, CETAT), CNIL deliberations (CNIL), collective agreements (KALI) or company agreements (ACCO). Returns one page of hits (default 10) with id, title, snippet, citation and source_url; ask for the next `page` while `has_more` is true. `match` defaults to any word; use `all` or `exact` for precise queries, and `date_from`/`date_to` to filter by date. LODA and CODE hits are the versions in force on `version_date` (default: today in Paris). Open a hit with the fr_get_* tool for its id prefix (LEGITEXT: fr_get_act, JURITEXT/CONSTEXT/CETATEXT: fr_get_decision, CNILTEXT: fr_get_deliberation, KALITEXT: fr_get_convention, ACCOTEXT: fr_get_company_agreement); CODE hits also list matching `articles` for fr_get_text.
 ```
 
 **Entrée** (ordre de validation : `fond`, `query`, `page_size` comme la référence, P-011 ; puis `page`, `match`, dates) :
@@ -605,7 +607,7 @@ Keyword search in one Légifrance fond: laws and decrees (LODA), codes (CODE), c
 | `match` | string, `enum ["any","all","exact"]` | non | `"any"` (adopté par défaut, Q10 : parité jusqu'à V-79 en M2 ; passage à `all` si V-79 confirme la sémantique « tous les mots dans un champ quelconque » et un rappel acceptable sur les 9 scénarios de la référence ; décision consignée avant le verrou des descripteurs de M4) | `any` → `UN_DES_MOTS`, `all` → `TOUS_LES_MOTS_DANS_UN_CHAMP`, `exact` → `EXACTE` (00 §8) ; sens de `all` avec `typeChamp = ALL` **NON VÉRIFIÉ** [v:mode-all-semantique] | `"any": any word (default); "all": all words; "exact": exact phrase.` (le défaut cité suit Q10) |
 | `page` | integer | non | 1 | ≥ 1 ; `page × page_size ≤ 10 000` (limite de fenêtre Elasticsearch supposée, recherche 05 et [04-adapter-piste.md](04-adapter-piste.md) §6.7 : **NON VÉRIFIÉ** [v:pagination-profonde]) | `Page number, from 1.` |
 | `page_size` | integer | non | 10 | 1 à 100 (P-011) | `Hits per page (1..100).` |
-| `date_from` | string, `format: date` | non | — | `AAAA-MM-JJ` valide ; ≤ `date_to` ; le fond doit avoir une facette de date ; seule, une borne est admise et l'autre reste ouverte (valeur de remplissage : 04 §6.5) | `Earliest date YYYY-MM-DD (fond date filter).` |
+| `date_from` | string, `format: date` | non | — | `AAAA-MM-JJ` valide ; ≤ `date_to` ; le fond doit avoir une facette de date (`Fond::has_date_filter`, 03 §3.1) ; seule, une borne est admise : `DateRange::new` complète l'autre par l'extrémité de la plage de `VersionDate` (`1500-01-01` ou `2221-12-31`), et l'adapter envoie toujours une période fermée (03 §6.1, 04 §6.5) | `Earliest date YYYY-MM-DD (fond date filter).` |
 | `date_to` | string, `format: date` | non | — | idem | `Latest date YYYY-MM-DD.` |
 | `version_date` | string, `format: date` | non | aujourd'hui (Europe/Paris) pour LODA et CODE | refusé pour les autres fonds ; au jour près, d'où une clé de cache stable (00 §7, D-01) | `LODA and CODE only: version in force on this date, YYYY-MM-DD (default today, Paris).` |
 
@@ -748,10 +750,10 @@ Le suffixe comme date par défaut est décidé par 00 §7 (AM-43) et répond à 
 
 **Objectif.** Lire un article (LEGI ou KALI), avec sa citation, son statut, ses dates de validité, sa place dans le code, et la lecture progressive.
 
-**Description** (714 caractères, 5 phrases) :
+**Description** (726 caractères, 5 phrases) :
 
 ```text
-Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (e.g. "Code civil, art. 9"), source_url, status, validity dates and parent code or text. By default (`detail`="summary") a short article comes back whole and a long one is cut after about 1,200 characters; `detail`="full" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead. Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).
+Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (e.g. "Code civil, art. 9"), source_url, status, validity dates and parent code or text. By default (`detail`="summary") a short article comes back whole and a long one is cut after about 1,200 characters; `detail`="full" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).
 ```
 
 **Entrée** : `article_id` (string, requis, `LEGIARTI` ou `KALIARTI` + 12 chiffres ; description `A LEGIARTI... id (from fr_get_act or a CODE hit) or a KALIARTI... id (from fr_get_convention).`) et les paramètres communs du §5.0.2.
@@ -967,7 +969,7 @@ Describe what this server covers, how it is sourced and what it does NOT cover. 
 
 | Champ | Type | Règle |
 |---|---|---|
-| `status` | `enum ["ok","degraded","failed"]` | `ok` : identifiants présents et aucun problème de configuration ; `degraded` : identifiants absents ou problème détecté, dont le mode dégradé et `EnvMismatch` (00 §1, 02 §8.2) ; `failed` : réservé (énumération de parité), jamais produit en v0.x. Un hôte personnalisé (`CustomHost`) est un avertissement, pas un problème : il donne FR-103 sans changer `status` |
+| `status` | `enum ["ok","degraded","failed"]` | `ok` : identifiants présents et aucun problème de configuration ; `degraded` : identifiants absents ou problème détecté, dont le mode dégradé et `EnvMismatch` (00 §1, 02 §8.2) ; `failed` : réservé (énumération de parité), jamais produit en v0.x. Un hôte personnalisé (`CustomHost`) est un avertissement, pas un problème : il donne FR-103 sans changer `status`. Statut et lacunes calculées viennent de la fonction pure `coverage(env, &ConfigFacts, served)` du domaine (03 §4.8) |
 | `environment` | `enum ["sandbox","production"]` | `LF_PISTE_ENV` (00 §1) |
 | `configuration` | objet `{credentials_configured, audit_mode, problems?}` | `problems` : liste de phrases sans valeur secrète (variable, problème), tirées du `ConfigurationState` de `lf-application` (03 §4.8) |
 | `source` | string | constante de `lf-adapter-mcp` : `Légifrance (DILA), through the official PISTE API.` (03 §4.8) |
@@ -1256,7 +1258,7 @@ Search several Légifrance fonds at once (default LODA, CODE, JURI, CETAT, CONST
 | `fr_get_text` | début (`lead`) | un article de `min(max_chars, 1 200)` caractères au plus est rendu entier dans `text` |
 | tous | si `text_length ≤ min(max_chars, 1 200)` : `text` entier, sans `next_offset`, plus `summary` seulement s'il existe un sommaire officiel (00 §7) | ex. JURI tronqué de la fixture (§6.5) |
 
-Le plafond de 1 200 caractères est la proposition de 03 §7.9, à confirmer par les mesures de M5 sur des fixtures recapturées ([v:taille-max-textes]).
+Le plafond de 1 200 caractères est fixé par 00 §4 (et §7) ; les mesures de M5 sur des fixtures recapturées ([v:taille-max-textes]) ne servent qu'à un éventuel amendement.
 
 ### 6.3 Passages (`focus`)
 
@@ -1307,9 +1309,9 @@ Estimation de ce document : prototype qui reconstitue les descripteurs (descript
 | `instructions` | 4 470 caractères | 2 879 | 3 080 | 3 278 |
 | `tools/list` complet | 17 643 octets, dont 12 167 d'`outputSchema` (D-33) | ≈ 19 400 octets | ≈ 22 900 | ≈ 27 900 |
 | `tools/list` sans `outputSchema` | ≈ 5 500 | ≈ 11 800 | ≈ 14 300 | ≈ 17 400 |
-| Descriptions seules | 55 à 81 caractères pour la plupart (recherche 06 §3.2) | 4 609 caractères | 5 903 | 7 198 |
+| Descriptions seules | 55 à 81 caractères pour la plupart (recherche 06 §3.2) | 4 636 caractères | 5 930 | 7 225 |
 
-Révision 2 : descriptions recomptées exactement (sens des dates absentes, défauts et suites demandés par 00 §6, 00 §4) ; les deux lignes `tools/list` sont l'estimation initiale augmentée de ces écarts et des champs ajoutés (`attribution`, `consulted_on`, `nor`, `title`, puis `idcc`, `total_articles` en v0.2), sans `$schema` (§2.5).
+Révision 2 : descriptions recomptées exactement (sens des dates absentes, défauts et suites demandés par 00 §6, 00 §4), puis le 2026-10-16 (défaut de `fond` dans `fr_search`, de `passages` dans `fr_get_text` : 27 caractères, sans effet sur les arrondis des lignes `tools/list`) ; les deux lignes `tools/list` sont l'estimation initiale augmentée de ces écarts et des champs ajoutés (`attribution`, `consulted_on`, `nor`, `title`, puis `idcc`, `total_articles` en v0.2), sans `$schema` (§2.5).
 
 Lecture :
 
@@ -1357,9 +1359,9 @@ Correspondance complète cause → `CorpusError` → `AppError` → code : 02 §
 | `InvalidArgument` (domaine) | `invalid_arg` | message de parité + phrase d'aide (03 §2.7, §7.3) | `[invalid_arg] text_id='JURITEXT000051743650' must be a Legifrance LEGITEXT... identifier. JURITEXT... identifies a court decision: use fr_get_decision.` | changer d'outil ou d'argument |
 | `NotFound` | `not_found` | message de parité par outil + aide (§7.4) | `[not_found] No article found for LEGIARTI000006419999. Check the id, or find the article with fr_get_act or fr_search.` | chercher autrement |
 | `RateLimited` | `rate_limited` | `PISTE quota reached; retry in {n} s.` (ou `retry in a few seconds` sans `Retry-After`, [v:retry-after-piste]) | `[rate_limited] PISTE quota reached; retry in 12 s.` | attendre puis réessayer |
-| `Upstream` (HTTP 5xx, réseau) | `upstream_error` | `Legifrance/PISTE HTTP {status} ({raison}); retry once, then report it.` (préfixe de parité P-014, sans URL, D-40) | `[upstream_error] Legifrance/PISTE HTTP 503 (service unavailable); retry once, then report it.` | réessayer une fois |
+| `Upstream` (HTTP 5xx, réseau, `Timeout`) | `upstream_error` | cause : `Legifrance/PISTE HTTP {status} ({raison})` (HTTP 5xx ; préfixe de parité P-014, sans URL, D-40), `could not reach Legifrance/PISTE ({kind})` (réseau, `status: None` ; `{kind}` : catégorie fixe sans hôte ni URL, comme `connection failed` ou `TLS error`) ou `Legifrance/PISTE did not answer within {n} s` (`Timeout`, `LF_HTTP_TIMEOUT_S`) ; puis `; retry once, then report it.` pour un échec réessayable (502, 503, 504, réseau, timeout : `retryable: true`, 00 §8), sinon `; report it.` (500 après deux tentatives, ou tout autre échec `retryable: false`, 04 §3.5) | `[upstream_error] Legifrance/PISTE HTTP 503 (service unavailable); retry once, then report it.` ; `[upstream_error] Legifrance/PISTE HTTP 500 (internal server error); report it.` | réessayer une fois si le message l'y invite, sinon signaler |
 | `Upstream` (`CorpusError::InvalidRequest` : HTTP 400 sans marqueur « introuvable », ou garde défensive de l'adapter) | `upstream_error` | `Legifrance rejected the request (HTTP 400): {détail PISTE nettoyé, ≤ 200 caractères}` (parité S10 ; `warn!` « bug probable » ; 00 §5) | `[upstream_error] Legifrance rejected the request (HTTP 400): …` | reformuler la requête, sinon signaler |
-| `Upstream` (`Decode`) | `upstream_error` | `unexpected response from Legifrance; retry once, then report it.` (E-21) | — | réessayer une fois |
+| `Upstream` (`Decode`) | `upstream_error` | `unexpected response from Legifrance; report it.` (E-21 ; `Decode` n'est pas réessayable, donc sans invitation à réessayer, 00 §8) | `[upstream_error] unexpected response from Legifrance; report it.` | signaler |
 | `Upstream` (`Deadline`) | `upstream_error` | `tool deadline of {n} s exceeded; retry, or narrow the request (smaller page_size, fewer fonds).` | `[upstream_error] tool deadline of 60 s exceeded; …` | réduire la demande |
 | `Upstream` (`Cancelled`) | — | aucune réponse émise (rmcp jette la réponse d'une requête annulée) ; audit `status: error`, `error_code` absent, `error: cancelled by client` (00 §7) | — | — |
 | `Config` (identifiants absents) | `config_error` | `PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET (from your piste.gouv.fr application, section OAuth Credentials).` (S6, E-34) | — | prévenir l'utilisateur |
@@ -1573,7 +1575,7 @@ Ce paragraphe fait foi pour la commande (00 §2 et §10 y renvoient ; 02 §3.8 s
 | `--update` | développeur | réécrit le fichier ; refuse si un contrôle du §9.2 échoue |
 | `--compare <ref-git>` | job de release | compare au verrou du tag précédent, classe chaque différence selon le §9.5 et échoue si le saut de version de `Cargo.toml` est inférieur à la classe calculée |
 
-Le manifeste MCPB (`tools`, `prompts`) et la liste d'outils de `server.json` éventuelle sont **générés depuis ce fichier** par la même commande, et contrôlés par `--check` avec la version de `server.json` (00 §2 ; [08-distribution.md](08-distribution.md) ; recherche 06 §8.1 point 6). La version du verrou, du crate, de `serverInfo.version` et de `server.json` doivent être égales (recherche 06 §8.3).
+Le manifeste MCPB (`tools`, `prompts`) est **généré depuis ce fichier** par la même commande, et contrôlé par `--check` avec la version de `server.json` (00 §2 ; [08-distribution.md](08-distribution.md) §4.4 ; recherche 06 §8.1 point 6). `server.json` ne porte pas de liste d'outils : son schéma n'en prévoit pas, et `_meta` n'est pas détourné pour cela (08 §6.2). La version du verrou, du crate, de `serverInfo.version` et de `server.json` doivent être égales (recherche 06 §8.3).
 
 ### 9.5 Politique SemVer de la surface d'outils
 
@@ -1601,7 +1603,7 @@ Détails, en-têtes et statuts : [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-202
 
 - Feature `http` de `lf-adapter-mcp` (`rmcp/transport-streamable-http-server`, axum) ; sous-commande `serve-http` de `lf-app` (02 §8.1).
 - **Sans session** : POST seul ; GET et DELETE → 405 (gestionnaire de sessions sans event store, **NON VÉRIFIÉ** [v:rmcp-http-get-405], V-40) ; aucun `Mcp-Session-Id` émis ; pas de reprise SSE (`with_legacy_session_mode(false)`, `with_json_response(true)`, recherche 04 §2.15). Les clients legacy sont servis par `initialize` sans session (recherche 08 §15.2). La fabrique sans état, appelée à chaque requête, clone un prototype `LegifranceServer` dont le routeur est construit une fois (00 §6).
-- Sécurité de l'endpoint (00 §6) : écoute sur `127.0.0.1` par défaut, `allowed_hosts` (loopback par défaut dans rmcp) ; validation d'`Origin` **à notre charge** (`with_allowed_origins(liste)` + `enforce_origin_validation()`, car rmcp ne valide rien avec la liste vide par défaut), `Origin` invalide → 403 ; en-têtes `MCP-Protocol-Version` (forme), `Mcp-Method` et `Mcp-Name` validés par rmcp ; tout POST autre qu'`initialize` sans `MCP-Protocol-Version` → 400 + `-32020` par une couche axum, car rmcp supposerait 2025-03-26, non servie (**NON VÉRIFIÉ** [v:rmcp-http-entete-absent], V-39). rmcp compare l'en-tête à `KNOWN_VERSIONS`, pas à `supported_protocol_versions()` (`transport/streamable_http_server/tower.rs:293-326`) : une version connue mais non servie (`2025-03-26`, `2024-11-05`) doit être rejetée par la même couche (annexe D §5.2). Corps ≤ 256 Kio ; **pas de `x-mcp-header`** (#1348).
+- Sécurité de l'endpoint (00 §6) : écoute sur `127.0.0.1` par défaut, `allowed_hosts` (loopback par défaut dans rmcp) ; validation d'`Origin` **à notre charge** (`with_allowed_origins(liste)` + `enforce_origin_validation()`, car rmcp ne valide rien avec la liste vide par défaut), `Origin` invalide → 403 ; en-têtes `MCP-Protocol-Version` (forme), `Mcp-Method` et `Mcp-Name` validés par rmcp ; tout POST autre qu'`initialize` sans `MCP-Protocol-Version` → 400 + `-32020` par une couche axum, car rmcp supposerait 2025-03-26, non servie (**NON VÉRIFIÉ** [v:rmcp-http-entete-absent], V-39). rmcp compare l'en-tête à `KNOWN_VERSIONS`, pas à `supported_protocol_versions()` (`transport/streamable_http_server/tower.rs:293-326`) : une version connue mais non servie (`2025-03-26`, `2024-11-05`) doit être rejetée par la même couche (annexe D §5.2). Débit des invocations limité dans la couche axum, au-delà 429 + `Retry-After` (C-34 ; valeurs figées en M8, sans nouvelle variable d'environnement, 00 §6). Corps ≤ 256 Kio ; **pas de `x-mcp-header`** (#1348).
 - Deux profils (00 §6) : **local**, jeton statique lu dans `LF_MCP_HTTP_TOKEN` (nom proposé, figé en M8, 00 §1) ; **distant**, resource server OAuth (PRM RFC 9728, audience RFC 8707, 401/403 `insufficient_scope`), **jamais** de transmission du jeton du client MCP vers PISTE (`security-considerations.mdx:116-126`). `cacheScope` passe à `private` si les listes dépendent des scopes (recherche 08 §10).
 - Les outils, schémas, messages et budgets de ce document sont **identiques** en HTTP ; le verrou est produit sur stdio et un test vérifie l'égalité des descripteurs servis en HTTP.
 - La suite officielle `@modelcontextprotocol/conformance` s'exécute sur ce transport (00 §10).
@@ -1627,11 +1629,11 @@ Le dual-era rend le serveur utilisable par tous ces clients : un client legacy f
 - [ ] `tool_router()` se construit sans panique ; les 8 descripteurs ont des racines objet en entrée et en sortie, sans combinateur racine (`tool_router_builds_and_roots_are_objects`).
 - [ ] Noms, titres, annotations et descriptions conformes au §5 ; descriptions de 3 à 6 phrases ; P-001, P-002.
 - [ ] `get_info` : `Implementation::new("mcp-legifrance", version du crate)`, capacités `{tools: {}}`, instructions du §4 ; `supported_protocol_versions()` = `[2026-07-28, 2025-11-25, 2025-06-18]` ; repli d'`initialize` explicite en 2025-11-25 (`with_protocol_version`, annexe D C-12).
-- [ ] JSON-RPC brut sur le binaire stdio, deux ères (recherche 09 §8 ; transcriptions : 06 §6.1) : (a) `initialize` 2025-11-25 → `notifications/initialized` → `tools/list` sans `resultType` ni `ttlMs` ; (b) `server/discover` moderne : les trois `supportedVersions`, `ttlMs = 3 600 000`, `cacheScope = public` ([v:rmcp-discover-ttl]) ; (c) `tools/call` moderne : `resultType: "complete"` ; (d) `_meta` sans `clientCapabilities` → `-32602` ; (e) même scénario en 2025-06-18 ; (f) `tools/list` legacy sans indications de cache ([v:rmcp-ttl-legacy]) ; (g) EOF juste après `server/discover` → code 0 en moins d'une seconde (C-09) ; (h) notification reçue avant toute ère écartée, processus vivant (`PreLifecycleFilter`, [v:rmcp-transport-enveloppe]) ; (i) ligne non JSON ignorée sans réponse, `ping` avant toute ère → `{}` (§7.5) ; (j) `subscriptions/listen` moderne : accusé minimal, et EOF avec un `listen` ouvert → code 0 en moins d'une seconde ([v:rmcp-listen-cloture]) ; legacy → `-32601` ; (k) enveloppe moderne portant une version legacy (V-34) : résultat consigné, repli de 00 §6 appliqué s'il est servi sans `resultType` ([v:rmcp-enveloppe-version-legacy]).
+- [ ] JSON-RPC brut sur le binaire stdio, deux ères (recherche 09 §8 ; transcriptions : 06 §6.1) : (a) `initialize` 2025-11-25 → `notifications/initialized` → `tools/list` sans `resultType` ni `ttlMs` ; (b) `server/discover` moderne : les trois `supportedVersions`, `ttlMs = 3 600 000`, `cacheScope = public` ([v:rmcp-ttl-legacy]) ; (c) `tools/call` moderne : `resultType: "complete"` ; (d) `_meta` sans `clientCapabilities` → `-32602` ; (e) même scénario en 2025-06-18 ; (f) `tools/list` legacy sans indications de cache ([v:rmcp-ttl-legacy]) ; (g) EOF juste après `server/discover` → code 0 en moins d'une seconde (C-09) ; (h) notification reçue avant toute ère écartée, processus vivant (`PreLifecycleFilter`, [v:rmcp-transport-enveloppe]) ; (i) ligne non JSON ignorée sans réponse, `ping` avant toute ère → `{}` (§7.5) ; (j) `subscriptions/listen` moderne : accusé minimal, et EOF avec un `listen` ouvert → code 0 en moins d'une seconde ([v:rmcp-listen-cloture]) ; legacy → `-32601` ; (k) enveloppe moderne portant une version legacy (V-34) : résultat consigné, repli de 00 §6 appliqué s'il est servi sans `resultType` ([v:rmcp-enveloppe-version-legacy]).
 - [ ] `tools/call` réussi : `structuredContent` objet conforme à l'`outputSchema` (validation `jsonschema`) **et** `content[0].text` = sérialisation JSON de ce même objet ; conformité vérifiée aussi sur des vues dont toutes les listes omissibles sont vides (§1.4 règle 1) ; aucun `$schema` dans les schémas (§2.5).
 - [ ] `tools/call` en erreur : `isError: true`, un seul bloc texte commençant par `[code] `, aucun `structuredContent` ; un cas par code applicable à l'outil (matrice §5.0.1 : par exemple, ni `not_found` pour `fr_search`, ni `config_error` pour `fr_coverage`).
 - [ ] Argument mal typé ou inconnu → `[invalid_arg]` **audité** ([v:rmcp-jsonobject-input-schema]) ; outil inconnu → `-32602` sans ligne d'audit ; méthode inconnue → `-32601` sans sortie du processus ([v:rmcp-methode-inattendue]).
-- [ ] Q10 tranchée au vu de V-79 et Q14 confirmée ou remplacée **avant** le premier verrou des descripteurs (00 §11, §13).
+- [ ] Q10 tranchée au vu de V-79 et Q14 confirmée ou remplacée **avant** le premier verrou des descripteurs (00 §11, §13) ; sans réponse de l'utilisateur sur Q14, la proposition par défaut est verrouillée telle quelle (00 §13).
 - [ ] Démarrage et réponse à `server/discover` sans aucune connexion réseau (test avec un proxy qui échoue sur toute connexion).
 - [ ] stdout ne contient que du JSON-RPC ; aucun secret dans stderr, les messages ou l'audit.
 - [ ] Instructions : test de taille et test de dérive (§4.3).
@@ -1659,7 +1661,7 @@ Le dual-era rend le serveur utilisable par tous ces clients : un client legacy f
 - [ ] Resources, templates, completions, prompts du §8 : resource inconnue ou introuvable → `resource_not_found` + `data.uri` (`-32002` legacy, `-32602` moderne), identifiant invalide → `-32602` ; completion de `code` seulement, ≤ 100 valeurs, 10 par seconde ; `verifier_citations` et `etat_du_droit` sans argument ; `prompts/list` moderne avec `ttlMs = 3 600 000` (sans `#[prompt_handler]`) ; lectures de resource auditées (`resource:<gabarit>`).
 - [ ] Instructions v0.3 (3 278 caractères) ; prompts et templates dans le verrou.
 
-**M8 — HTTP** (v0.4.0) : §10.1 (`Origin` validé par nous, 400 + `-32020` sans `MCP-Protocol-Version`, rejet d'une version connue non servie, corps ≤ 256 Kio, GET/DELETE → 405) ; suite de conformité officielle ; égalité des descripteurs HTTP et stdio.
+**M8 — HTTP** (v0.4.0) : §10.1 (`Origin` validé par nous, 400 + `-32020` sans `MCP-Protocol-Version`, rejet d'une version connue non servie, débit des invocations limité avec 429 + `Retry-After`, corps ≤ 256 Kio, GET/DELETE → 405) ; suite de conformité officielle ; égalité des descripteurs HTTP et stdio.
 
 ---
 
@@ -1670,9 +1672,7 @@ Registre de référence : 09 §2 (identifiants V-xx, entre parenthèses ci-desso
 | Étiquette | Vérification à faire |
 |---|---|
 | [v:rmcp-jsonobject-input-schema] | (02) `JsonObject` + `input_schema` + `output_schema` explicite + `Result<Json<T>, ToolFailure>` compilent ensemble et produisent l'`outputSchema` attendu (V-28, spike M0). |
-| [v:rmcp-list-tools-result-api] | `ListToolsResult::with_all_items`, `with_ttl_ms`, `with_cache_scope` : présents d'après la lecture du code (annexe D §3.4) ; compilation au spike M0 (V-33). |
-| [v:rmcp-discover-ttl] | `DiscoverResult::from_server_info(versions, config)` et `with_ttl_ms`/`with_cache_scope` : tranchés par lecture (annexe D §3.2, §3.4) ; confirmés par le test (b) de M4 (V-33). |
-| [v:rmcp-ttl-legacy] | (02) rmcp ne retire que `resultType` pour un pair legacy (lecture, annexe D §3.4), d'où la pose conditionnelle ; confirmé par le test (f) de M4 (V-33). |
+| [v:rmcp-ttl-legacy] | (02) `ListToolsResult::with_all_items`, `with_ttl_ms`, `with_cache_scope` et `DiscoverResult::from_server_info(versions, config)` : présents d'après la lecture du code (annexe D §3.2, §3.4), compilation au spike M0 ; rmcp ne retire que `resultType` pour un pair legacy (lecture, annexe D §3.4), d'où la pose conditionnelle ; confirmé par les tests (b) et (f) de M4 (V-33, qui regroupe les étiquettes fusionnées de 09 §2.1). |
 | [v:rmcp-methode-inattendue] | (02) Aucun message inattendu ne fait quitter le processus : requêtes tranchées par lecture (annexe D §4.2), notifications prématurées écartées par `PreLifecycleFilter` ; confirmé par les transcriptions de M4 (V-30). |
 | [v:rmcp-transport-enveloppe] | `PreLifecycleFilter` (enveloppe `Transport<RoleServer>`) compile et est accepté par `serve_with_ct` (V-29, spike M0). |
 | [v:rmcp-enveloppe-version-legacy] | Réponse de rmcp à une requête à enveloppe moderne portant 2025-11-25 ou 2025-06-18, et repli de 00 §6 si elle est servie sans `resultType` (V-34, M4). |
@@ -1680,13 +1680,12 @@ Registre de référence : 09 §2 (identifiants V-xx, entre parenthèses ci-desso
 | [v:rmcp-listen-cloture] | Messages émis à l'arrêt avec un `subscriptions/listen` ouvert ; EOF → code 0 en moins d'une seconde (V-35). |
 | [v:rmcp-http-entete-absent] | (M8) POST non-`initialize` sans `MCP-Protocol-Version`, ou avec une version connue non servie : rejet par notre couche axum (V-39). |
 | [v:rmcp-http-get-405] | (M8) GET et DELETE → 405 en mode sans session (V-40). |
-| [v:cc-sonde-processus-frere] | Claude Code sonde-t-il dans un processus frère éphémère ou dans le processus de session (V-49) ? |
 | [v:schemars-enum-chaine] | (02) Attributs schemars (`with`, `extend`, `required`, `range`) qui produisent les schémas d'entrée voulus pour des `Option<String>`/`Option<i64>`. |
 | [v:schemars-sortie-defs] | Forme des `$defs` produits pour les sorties et acceptation par les clients. |
 | [v:cc-structured-content-succes] | Claude Code transmet `structuredContent` sur un succès et le texte seul sur une erreur (version courante). |
 | [v:cc-output-schema-contexte] | Claude Code transmet ou non l'`outputSchema` au modèle. |
 | [v:cc-tool-search-seuil] | Seuil à partir duquel Claude Code diffère le chargement des descriptions (tool search). |
-| [v:cc-sonde-delai] | Délai de la sonde `server/discover` de Claude Code. |
+| [v:cc-sonde-delai] | Délai de la sonde `server/discover` de Claude Code, et sonde lancée dans un processus frère éphémère ou dans le processus de session : même essai (V-49). |
 | [v:cc-prompt-args-espaces] | Effet du découpage des arguments de prompt sur les blancs (arguments perdus, concaténés ?). |
 | [v:desktop-structured-content] | Ère et forme transmise au modèle par Claude Desktop et claude.ai. |
 | [v:cursor-ere-et-contenu] | Cursor : `initialize` seul ? forme transmise au modèle ? |
@@ -1729,7 +1728,7 @@ Registre de référence : 09 §2 (identifiants V-xx, entre parenthèses ci-desso
 
 ### 13.1 Divergences (décision 00 appliquée ; recommandation pour 09)
 
-Révision 2 : les lignes 1 à 4 et 7 à 13 sont tranchées par 00 révision 2 (amendement cité dans la colonne « Recommandation ») ; elles restent ici pour l'historique.
+Révision 2 : les lignes 1 à 4 et 7 à 14 sont tranchées par 00 révision 2 (amendement cité dans la colonne « Recommandation » ; ligne 14 par les corrections du contrôle final du 2026-10-16) ; elles restent ici pour l'historique.
 
 | # | Sources | Divergence | Appliqué ici | Recommandation |
 |---|---|---|---|---|
@@ -1746,16 +1745,16 @@ Révision 2 : les lignes 1 à 4 et 7 à 13 sont tranchées par 00 révision 2 (a
 | 11 | recherche 01 E-15 ; P-013 | « No JURI decision found » renvoyé pour un `CONSTEXT`/`CETATEXT` | `No CONSTIT…`/`No CETAT…` pour ces préfixes (divergence de parité listée dans l'annexe A) | tranché : 00 §5 (AM-24) |
 | 12 | 00 §7 (`page_size` ≤ 100, `toc_limit` ≤ 500, `per_fond` ≤ 10, `max_chars` ≤ 40 000) ; Claude Code (50 000 caractères) | certaines combinaisons extrêmes dépassent 50 000 caractères | plafond dur de 45 000 caractères (§6.4), complété ici pour les recherches à citations longues et les lectures longues | tranché : 00 §7 (AM-15) ; le dernier recours `invalid_arg` du §6.4 est à confirmer par les mesures de M5 |
 | 13 | recherche 06 §10.1 (`title` en français) ; 00 §6 (descriptions en anglais) | langue des titres d'affichage | anglais (cohérence des descripteurs) | adopté par défaut (AM-38, Q14) |
-| 14 | 00 §6, §12 (« les instructions serveur portent […] la date de consultation ») ; §4.3 règle 5 (texte statique, verrouillé) | les instructions ne peuvent pas contenir la date du jour | mention exacte de la source et de la licence dans les instructions, qui renvoient à `consulted_on` de `fr_coverage` (§4.2) | interprétation à confirmer avec Q15 |
+| 14 | 00 §6, §12 dans leur première rédaction (« les instructions serveur portent […] la date de consultation ») ; §4.3 règle 5 (texte statique, verrouillé) | les instructions ne peuvent pas contenir la date du jour | mention exacte de la source et de la licence dans les instructions, qui renvoient à `consulted_on` de `fr_coverage` (§4.2) | tranché : 00 §6 et §12 (AM-39, corrections du 2026-10-16) disent désormais que les instructions, texte statique, renvoient à `consulted_on` ; Q15 reste adoptée par défaut |
 
 ### 13.2 Questions ouvertes propres aux outils
 
 1. **Langue des `title` d'outils** : anglais, adopté par défaut (00 §6, Q14), à confirmer par l'utilisateur avant le verrou de M4 ; l'alternative est le français (utilisateurs juristes francophones, affichage dans VS Code).
 2. **Langue des prompts et des contenus de resources** : prompts en français et libellés Markdown des resources en anglais, adoptés par défaut (00 §6, Q14).
-3. **`resource_link` et `resource_uri`** en v0.3 : ajouter l'URI `legifrance://…` dans les sorties de lecture (doublée dans `structuredContent`, recherche 06 §4.3) ou s'en abstenir (« pas de métadonnées inutiles ») ?
-4. **Clés `_meta` `anthropic/alwaysLoad`** sur `fr_search` pour qu'il reste chargé sous tool search ?
-5. **Texte KALI en ligne** : rendre en option le contenu des articles déjà fourni par `/consult/kaliText` (économise N appels à `fr_get_text`) ?
-6. **Plafond du résumé** (1 200 caractères) et **défaut de `max_chars`** (4 000) : à confirmer sur fixtures recapturées en M5.
+3. **`resource_link` et `resource_uri`** en v0.3 : ajouter l'URI `legifrance://…` dans les sorties de lecture (doublée dans `structuredContent`, recherche 06 §4.3) ou s'en abstenir (« pas de métadonnées inutiles ») ? Proposition de 09 §3.16.3 : non en v0.3, réexamen après V-54.
+4. **Clés `_meta` `anthropic/alwaysLoad`** sur `fr_search` pour qu'il reste chargé sous tool search ? Tranché par 00 §7 (AM-15) : aucune clé `_meta` `anthropic/*` ; réexamen éventuel après V-48, par amendement de 00 (09 §3.16.3).
+5. **Texte KALI en ligne** : rendre en option le contenu des articles déjà fourni par `/consult/kaliText` (économise N appels à `fr_get_text`) ? Proposition de 09 §3.16.3 : non en v0.1 ; option en v0.2 si les mesures de M5 le justifient.
+6. **Plafond du résumé** (1 200 caractères) et **défaut de `max_chars`** (4 000) : fixés par 00 §4 et §7 ; les mesures de M5 sur fixtures recapturées ne servent qu'à un éventuel amendement.
 7. **`max_citations` ≤ 100** et **`fr_resolve` ≤ 5 candidats** : tranché, désormais dans 00 §7 (AM-20).
 8. **Audit des lectures de resources** : tranché par 00 §7 (`tool: resource:<nom du gabarit>`, métrique « caractères renvoyés », §8.2).
 9. **Dernier recours du plafond dur** (§6.4) : `[invalid_arg]` avec un `page_size` conseillé quand une page de recherche ne tient pas sous 45 000 caractères sans retirer de hit ; à confirmer sur les mesures de M5.
@@ -1792,6 +1791,6 @@ Révision 2 : les lignes 1 à 4 et 7 à 13 sont tranchées par 00 révision 2 (a
 - SDK `modelcontextprotocol/rust-sdk`, tag `rmcp-v3.5.1` (`79437f2`).
 
 **Mesures faites pour ce document (2026-10-15)**
-- Comptage des instructions (§4.2) et des descriptions (§5) : `len()` Python (`python3 -I`) sur les textes exacts de ce document, refait après la révision 2 (instructions v0.1, v0.2 et v0.3 reconstruites selon le tableau du §4.2).
+- Comptage des instructions (§4.2) et des descriptions (§5) : `len()` Python (`python3 -I`) sur les textes exacts de ce document, refait après la révision 2 (instructions v0.1, v0.2 et v0.3 reconstruites selon le tableau du §4.2), puis le 2026-10-16 (ligne `[upstream_error]` des instructions ; défauts de `fond` et de `passages` dans les descriptions de `fr_search` et `fr_get_text`).
 - Exemples et tailles du §6.5 : script Python de prototypage (`python3 -I`) appliquant les règles des §5 et §6 aux fixtures de la référence, dans le répertoire de travail temporaire de la session ; non versionné, remplacé en M5 par les snapshots `insta`.
 - Estimation des descripteurs (§6.6) : même script, schémas reconstitués à la main à partir des tableaux du §5.

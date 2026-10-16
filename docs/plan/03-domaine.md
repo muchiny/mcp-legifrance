@@ -32,6 +32,8 @@ Documents liés : [02-architecture.md](02-architecture.md) (place du crate), [04
 | `unicode-normalization` | NFD puis retrait des marques combinantes pour la vue repliée (BM25, détection du dispositif, vue clé du parseur) | M1 |
 | `winnow` 1.0, `aho-corasick`, `regex` | parseur de citations uniquement | M6 |
 
+La colonne « Jalon » indique quand la dépendance entre dans `crates/lf-domain/Cargo.toml` : le squelette de M0 n'en déclare aucune d'avance, et chacune arrive avec le premier code qui l'emploie, pour que `cargo machete` reste vert (00 §2). Les exigences de version suivent la politique de 00 §2 (niveau mineur dans `[workspace.dependencies]`, versions du plan = versions de référence).
+
 Règles complémentaires (contrôlées par `cargo xtask check-deps` et la revue) :
 
 - **Pas de `serde`, `serde_json`, `schemars`.** Les entités sont des structs Rust. La sérialisation (noms JSON, `skip_serializing_if`, schémas) est faite par des **vues de sortie** dans `lf-adapter-mcp` (ADR-0006). Les DTO amont restent dans `lf-adapter-piste` (recherche 03 §12.1 point 7). `serde_json` est permis en `[dev-dependencies]` pour charger les fixtures et le corpus de citations dans les tests (recherche 07 §8.2). `check-deps` ne doit donc contrôler que les dépendances normales (voir [06-qualite.md](06-qualite.md)).
@@ -363,7 +365,7 @@ impl SearchQuery { pub fn new(/* champs ci-dessus */) -> Result<SearchQuery, Dom
 | `total` | `u64` | `totalResultNumber`, sinon `hits.len()` (parité référence citations.py:179-182) |
 | `total_articles` | `Option<u64>` | `totalArticleResultNumber` quand il est > 0 (CODE). D-09 : la référence le jetait. Porté dès v0.1, rendu en v0.2 (`total_articles?`, 00 §7) |
 | `page`, `page_size` | `NonZeroU32`, `PageSize` | repris de la requête |
-| `has_more` | `bool` | `page × page_size < min(total, REACHABLE_RESULTS)`, en arithmétique `checked` (recherche 03 §12.8) : à la fin de la fenêtre atteignable, `has_more` vaut `false` même si `total` est plus grand, car la page suivante serait refusée (§4.1). `total` reste la valeur brute de l'API ; une `note` qui renvoie à la lacune FR-008 (affiner la requête) relève du rendu (05) |
+| `has_more` | `bool` | vrai si la page suivante existe **et** serait acceptée : `page × page_size < total` et `(page + 1) × page_size ≤ REACHABLE_RESULTS`, en arithmétique `checked` (recherche 03 §12.8 ; même borne que le rejet de `SearchQuery::new`, §4.1 ; règle de 05 §5.1). Quand `page_size` divise 10 000 (10, 20, 25, 50, 100…), cela revient à `page × page_size < min(total, REACHABLE_RESULTS)` ; avec `page_size = 30`, la page 333 (9 990 résultats) a `has_more = false`, car la page 334 serait refusée. À la fin de la fenêtre atteignable, `has_more` vaut donc `false` même si `total` est plus grand. `total` reste la valeur brute de l'API ; une `note` qui renvoie à la lacune FR-008 (affiner la requête) relève du rendu (05) |
 | `hits` | `Vec<SearchHit>` | ordre de l'API (tri `PERTINENCE`) |
 | `dropped` | `u32` | hits écartés (id absent ou incohérent) ; journalisés par l'adapter, jamais rendus en masse |
 | `pagination` | `PaginationMode` | `typePagination` reçu : alimente le `PaginationMemo` de l'adapter et les journaux ; jamais rendu au modèle (00 §7) |
@@ -538,9 +540,9 @@ pub fn coverage(env: PisteEnvironment, facts: &ConfigFacts, served: &[Fond]) -> 
 
 - `PisteEnvironment` est défini ici et n'a pas de double : `PisteConfig.env` et `PisteCorpus::environment()` (04), `CacheKey.env`, `ServiceSettings.env` et `AuditRecord.env` (02) l'emploient tous, sans type propre à un adapter (R3 : `lf-adapter-cache` ne dépend pas de `lf-adapter-piste`).
 - **Catalogue statique** (domaine), rédigé définitivement dans 05 §5.8 (identifiants FR-001 à FR-009) : FR-001 pas d'ELI natif (référence) ; FR-002 force juridique non évaluée (référence) ; plus les lacunes non déclarées relevées par D-34 : texte ACCO seulement en `.docx`, ECLI souvent absent pour CAA et TA, Judilibre non intégré (couverture partielle des CA et TJ), pseudonymisation JURI et occultation CNIL (D-45), pages de 100 hits au plus et résultats au-delà de 10 000 inaccessibles (FR-008), droit de l'UE et doctrine non couverts.
-- **Lacunes calculées** par `coverage` : FR-007 (fond JORF non interrogeable) tant que `Fond::Jorf` n'est pas dans `served`, ce qui dépend de la décision de M7 (00 §4) ; FR-101 si `env = Sandbox` (données sandbox, possiblement différentes de la production, D-18) ; FR-102 si les identifiants sont absents ; FR-103 si `custom_host` (hôte hors des quatre hôtes officiels, avertissement `CustomHost`, 00 §1).
-- **Statut** : `Ok` si les identifiants sont présents et qu'aucun problème n'est détecté ; `Degraded` sinon (identifiants absents ou `has_problems`, dont le mode dégradé de 00 §1). La liste des problèmes, en phrases sans secret, reste dans `lf-application` (`ConfigurationState`) et n'entre pas dans le domaine.
-- Hors du domaine : le mode d'audit, le texte de `source` et `as_of_note`, et l'attribution « Source : Légifrance / DILA — Licence Ouverte 2.0 » avec la date de consultation (date du jour Europe/Paris, `clock.today_paris()`), ajoutés par le cas d'usage et le rendu (00 §12, Q15 ; 05 §5.8).
+- **Lacunes calculées** par `coverage` : FR-007 (fond JORF non interrogeable) tant que `Fond::Jorf` n'est pas dans `served`, ce qui dépend de la décision de M7 (00 §4) ; FR-101 si `env = Sandbox` (données sandbox, possiblement différentes de la production, D-18) ; FR-102 si les identifiants sont absents ; FR-103 si `custom_host` (hôte hors des quatre hôtes officiels, avertissement `CustomHost`, 00 §1) ; FR-104 si `has_problems` (configuration invalide, mode dégradé de 00 §1, dont `EnvMismatch`). Textes de ces lacunes : 05 §5.8.
+- **Statut** : `Ok` si les identifiants sont présents et qu'aucun problème n'est détecté ; `Degraded` sinon (identifiants absents ou `has_problems`, dont le mode dégradé de 00 §1). Un hôte personnalisé est un avertissement, pas un problème : il donne FR-103 sans changer le statut (05 §5.8). La liste des problèmes, en phrases sans secret, reste dans `lf-application` (`ConfigurationState`) et n'entre pas dans le domaine.
+- Hors du domaine : le mode d'audit et les problèmes (`configuration.audit_mode`, `configuration.problems`), les textes de `source` et `as_of_note`, `attribution` (« Source : Légifrance / DILA — Licence Ouverte 2.0 ») et `consulted_on` (date de consultation : date du jour Europe/Paris, `clock.today_paris()`). Ces champs de la vue `CoverageView` sont ajoutés par le cas d'usage et le rendu (00 §12, Q15 ; 05 §5.8) ; le type `Coverage` du domaine ne les porte pas.
 - Le domaine ne connaît pas les **noms d'outils** : ils sont rattachés à chaque `Fond` (`families[].tools`, `general_tools`) hors du domaine (05 §5.8). Le test « tout outil enregistré appartient à une famille ou aux outils généraux » (D-34) vit donc dans l'adapter MCP, qui connaît les outils enregistrés.
 
 ### 4.9 Texte structuré : `LongText`
@@ -570,7 +572,8 @@ Ces types sont des entrées ou des sorties du port `LegalCorpus` (00 §3, 02 §5
 // non compilé, à valider en M0
 // M6 — search.rs : forme et couples (fond, kind) autorisés fixés par l'annexe B §6.6, qui fait foi pour ces champs
 pub struct NumberQuery { pub fond: Fond, pub kind: NumberKind, pub value: NumberValue,
-                         pub within: Option<DateRange>, pub version_date: Option<VersionDate> } // version_date : Code, Loda
+                         pub within: Option<DateRange>, pub version_date: Option<VersionDate> }
+                         // version_date : Some pour (Code | Loda, Article | Text), None sinon (annexe B §6.6)
 // M6 — entity/codes.rs : une entrée de list_codes() (/list/code, codes abrogés compris, 00 §3)
 pub struct CodeListing { pub id: LegiTextId, pub title: String, pub etat: Option<LegalStatus> }
 // M7 — entity/versions.rs : port article_versions
@@ -583,7 +586,7 @@ pub struct RelatedLink { pub target: Option<DocumentId>, pub nature: RelatedNatu
 pub enum RelatedNature { Loda, Jorf, Code, Kali, JorfCont, Other(String) }               // LiensRelatifsDTO.nature
 ```
 
-- `NumberQuery::new` renvoie un `DomainError` pour un couple (fond, kind) non autorisé ; `version_date` est obligatoire pour CODE et LODA (`DATE_VERSION`, 00 §8 ; annexe B §6.6).
+- `NumberQuery::new(fond, kind, value, at: VersionDate)` renvoie `DomainError::NumberKindNotApplicable` (§9) pour un couple (fond, kind) non autorisé. `at` devient `version_date` pour les couples (CODE | LODA, `Article` | `Text`), envoyés avec `DATE_VERSION` (00 §8), et il est ignoré ailleurs, ce qui garde une clé de cache stable ; `with_within` ajoute la période. Les variantes de `NumberKind` (dont `Ecli` et `Eli`), la valeur `NumberValue` (1 à 128 caractères `[A-Za-z0-9.*/:_ -]`) et la liste des couples autorisés sont celles de l'annexe B §6.6.
 - `CodeListing` ne reprend pas le nom `CodeEntry`, déjà pris par l'entrée statique du dictionnaire des codes (`citation::dict::codes`, champs `&'static`, annexe B). Une entrée sans `id` `LEGITEXT` valide ou sans titre est écartée et comptée. La forme réelle de `/list/code` est **NON VÉRIFIÉ** [v:list-code-forme].
 - `RelatedLink.target` vient de `id` (sinon `cidText`), validé en `DocumentId` ; un identifiant sans type consultable (`JORFCONT`, `JORFARTI`, §2.2) donne `None` : le lien garde son titre (`name`, nettoyé), sa nature et sa date (`dateVigeur`, sentinelles du §6.2), sans `source_url`. Correspondance `nature` → `kind`, borne de 100 liens et suite éventuelle : 05 §5.11. Forme et taille réelles de la réponse **NON VÉRIFIÉ** [v:related-links-forme].
 
@@ -652,7 +655,7 @@ Précisions :
 
 - `NATURE` du Conseil constitutionnel : `nature` en majuscules (`QPC`, `DC`). Le libellé des natures rares (contentieux électoral…) est **NON VÉRIFIÉ** [v:natures-constit]. Si `nature` est vide, il est omis, comme dans la référence.
 - Le **suffixe « - {objet entre crochets} »** de la référence (premier crochet, regex fragile, D-27) n'est pas reproduit, puisque le format normatif de 00 §4 n'en a pas (confirmé par défaut, Q12). L'objet reste lisible dans `title`, le titre officiel verbatim.
-- Les formats complémentaires (article de texte non codifié, KALI, hits CONSTIT et CNIL, objet du Conseil constitutionnel) sont adoptés par défaut (Q12, 00 §4 et §13) et figés avant la génération des golden de M1 ; une autre réponse de l'utilisateur ne change que `contract::rules` et les golden.
+- Les formats complémentaires (article de texte non codifié, KALI, hits CONSTIT et CNIL, objet du Conseil constitutionnel) sont adoptés par défaut (Q12, 00 §4 et §13) et figés avant la génération des golden de M1, sans attendre de réponse de l'utilisateur (00 §13) ; une autre réponse ne change que `contract::rules`, ce tableau, la ligne 26 du §5.6 et les golden.
 - Le retrait de l'appel de note final ne touche que la citation d'un **article** : la citation du texte lui-même (`Act`, hit `loda`) reste le titre officiel complet, « (1) » compris (parité).
 - La variante « décision » pour la CNIL est une extension cohérente avec 00. Le libellé exact des décisions CNIL est **NON VÉRIFIÉ** [v:cnil-nature-decision-format].
 - Signe numéro : `n°` suivi d'une espace normale U+0020, comme dans les exemples de 00 §4. Le parseur (M6) accepte toutes les variantes (recherche 07 §6).
@@ -711,7 +714,7 @@ Ces divergences doivent apparaître dans la liste des écarts des tests golden (
 | 23 | Suffixe de version | jeté | `version_start` | recherche 03 §11.3 | search_loda.json, search_code.json, consult_loda.json |
 | 24 | Préfixe `CONSTEXT` | absent de `_ID_PREFIXES` | présent | E-36, D-28 | aucun |
 | 25 | NBSP dans les textes restitués | conservés | remplacés par U+0020 (§7.3) | — (00 §4) | consult_juri_constit.json (65 NBSP) |
-| 26 | Citation d'un article de texte non codifié | titre complet, appel de note « (1) » compris, puis `, art. {num}` | titre sans appel de note final (Q12, adopté par défaut) | AM-19, 00 §4 | aucun sur les fixtures (pas d'article de loi consulté) |
+| 26 | Citation d'un article de texte non codifié | titre complet, appel de note « (1) » compris, puis `, art. {num}` | titre sans appel de note final (Q12, adopté par défaut) | AM-19, 00 §4 ; clé `law_article_citation` (annexe A §4.2) | aucun sur les fixtures (pas d'article de loi consulté) |
 
 ---
 
@@ -760,7 +763,7 @@ pub fn from_epoch_ms(ms: i64) -> Option<NaiveDate> { DateTime::from_timestamp_mi
 
 - Le domaine ne calcule jamais « aujourd'hui ». `lf-application` obtient `Clock::today_paris() -> NaiveDate` (00 §3) et en fait le défaut de `VersionDate`. Cela corrige D-19 et E-05 : la référence utilisait la date UTC.
 - Vecteurs de test pour `SystemClock` (dans `lf-app`, pas dans le domaine) : `2026-07-14T22:30Z` ⇒ `2026-07-15` ; `2026-01-14T23:30Z` ⇒ `2026-01-15` ; changements d'heure du 2026-03-29 et du 2026-10-25 (recherche 02 D-19).
-- `DATE_VERSION.singleDate` = **midi** Europe/Paris du jour `version_date`, exprimé en ms (00 §8). Calcul fait par l'adapter (`chrono-tz`, 00 §2), jamais par le domaine. Midi est stable sur la journée et reste correct que PISTE compare l'instant à des bornes stockées à minuit UTC ou le tronque en date UTC ou Paris ; la clé de cache repose sur `VersionDate`, pas sur l'instant. Vecteurs (00 §8, base IANA) : `2026-10-15` ⇒ `1792058400000` (10:00Z, heure d'été) ; `2026-01-15` ⇒ `1768474800000` (11:00Z, heure d'hiver) ; `2026-03-29` ⇒ `1774778400000` (10:00Z, jour du passage à l'heure d'été) ; `2026-10-25` ⇒ `1792926000000` (11:00Z, jour du retour à l'heure d'hiver). La sémantique réelle de `singleDate` est **NON VÉRIFIÉ** [v:singledate-minuit-paris] (V-76, bloquante en M2).
+- `DATE_VERSION.singleDate` = **midi** Europe/Paris du jour `version_date`, exprimé en ms (00 §8). Calcul fait par l'adapter (`chrono-tz`, 00 §2), jamais par le domaine. Midi est stable sur la journée et reste correct que PISTE compare l'instant à des bornes stockées à minuit UTC ou le tronque en date UTC ou Paris ; la clé de cache repose sur `VersionDate`, pas sur l'instant. Vecteurs (00 §8, base IANA) : `2026-10-15` ⇒ `1792058400000` (10:00Z, heure d'été) ; `2026-01-15` ⇒ `1768474800000` (11:00Z, heure d'hiver) ; `2026-03-29` ⇒ `1774778400000` (10:00Z, jour du passage à l'heure d'été) ; `2026-10-25` ⇒ `1792926000000` (11:00Z, jour du retour à l'heure d'hiver). La sémantique réelle de `singleDate` est **NON VÉRIFIÉ** [v:singledate-midi-paris] (V-76, bloquante en M2).
 
 ### 6.5 Dates en prose française
 
@@ -1084,7 +1087,7 @@ Un module par famille dans `citation/grammar/` : `code_article`, `text`, `consti
 
 ### 8.6 Types : `CitationRef`, `Spanned`, `Span`
 
-Les noms de variantes reprennent exactement les valeurs `kind` du corpus : CodeArticle 59/8, Decision 50/8, Text 24/2, TextArticle 16/1, Ecli 13/4, CnilDeliberation 7/1, Convention 6/1, LegifranceId 4, Jorf 3, Nor 2, Eli 2, Unsupported 0/3 (cas positifs/négatifs, comptés dans les fichiers de données). Ils restent ainsi chargeables tels quels en tests table-driven.
+Les noms de variantes reprennent exactement les valeurs `kind` du corpus : CodeArticle 59/8, Decision 50/8, Text 24/2, TextArticle 16/1, Ecli 12/4, CnilDeliberation 7/1, Convention 6/1, LegifranceId 4, Jorf 3, Nor 2, Eli 2, Unsupported 1/3 (attentes positives/négatives, annexe B §8.1, P159 compté en `Unsupported` après la correction de son attente dans le fichier de données, annexe B §8.4). Ils restent ainsi chargeables tels quels en tests table-driven.
 
 ```rust
 // non compilé, à valider en M0 — détail des sous-types : annexe B
@@ -1195,9 +1198,9 @@ pub enum DateError { Format, Calendar, OutOfRange }
 | Unitaires, table-driven | IDs (§2.7, tous les cas), `Fond` (mapping complet §3.1), `LegalStatus` (17 codes et `Other`), règles de citation (golden : « Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025 », « CNIL, délibération n° SAN-2026-002 du 8 janvier 2026 », « Code civil, art. 9 »), `format_fr` (12 mois et « 1er »), URL (snapshot des 12 kinds), `open_ended`, `from_epoch_ms` (vecteurs du §6.3) | D-20, D-27, D-28, D-29, D-31, P-030, P-031, P-034, P-035 |
 | proptest | `FromStr`/`Display` aller-retour et absence de panique sur toute chaîne ; `from_epoch_ms` sur [−10^13, 10^13] ; `window` (G1 à G7 pour tout texte, offset et `max_chars`) ; `from_html` (aucune panique ; concaténation des paragraphes = HTML débalisé aux blancs près ; `clean` idempotent) ; `rank` (déterminisme, Σ ≤ `max_chars`) | D-23, D-26, D-33 |
 | Fixtures (texte extrait des JSON de la référence, `serde_json` en dev-dependency, attribution dans NOTICE) | `from_html` : 49, 43 et 3 paragraphes ; ECLI de `<RECH_ECLI>` absent du texte (et `fold_ws(texte) == fold_ws(canonique) + " " + ecli` sur CONSTIT et CETAT, 14 284 + 30 = 14 314 caractères pour CONSTIT) ; `summary` : CONSTIT dispositif de 2 paragraphes (551 caractères), CETAT analyse dédoublonnée (1 entrée), JURI abstrat ; `Toc::build` sur consult_loda.json (26 sections + 62 articles = 88 entrées, titres présents) ; BM25 « publicité des débats » ⇒ considérant 14 en tête | D-25, D-26, D-33 (`cetat_fixture_yields_multiple_paragraphs`, `toc_preserves_section_titles`, `focus_returns_relevant_paragraphs`) |
-| Synthétiques | TOC : tri `intOrdre`, dédoublonnage, profondeur 65 ⇒ `TocTooDeep`, section sans titre non comptée dans `len`/`page` et enfants à leur profondeur, `toc_offset` au-delà de la fin ⇒ `TocOffsetPastEnd` ; balise non refermée ; `<` littéral ; entités numériques invalides ; contrôles bidirectionnels retirés et comptés par `clean` ; sentinelles `2222-02-22` et `2222-01-01` (`None`), `2221-12-31` (conservée) ; `has_more` faux en fin de fenêtre atteignable (`page × page_size = 10 000 < total`, `has_more_false_at_reachable_window_end`) ; `DateRange::new` à une seule borne | D-25 (`toc_sorted_by_int_ordre`, `toc_dedups_articles`) ; MEN-06 |
+| Synthétiques | TOC : tri `intOrdre`, dédoublonnage, profondeur 65 ⇒ `TocTooDeep`, section sans titre non comptée dans `len`/`page` et enfants à leur profondeur, `toc_offset` au-delà de la fin ⇒ `TocOffsetPastEnd` ; balise non refermée ; `<` littéral ; entités numériques invalides ; contrôles bidirectionnels retirés et comptés par `clean` ; sentinelles `2222-02-22` et `2222-01-01` (`None`), `2221-12-31` (conservée) ; `has_more` faux en fin de fenêtre atteignable (`page × page_size = 10 000 < total`, et `page_size = 30`, `page = 333` : 9 990 < `total` mais page 334 refusée ; `has_more_false_at_reachable_window_end`) ; `DateRange::new` à une seule borne | D-25 (`toc_sorted_by_int_ordre`, `toc_dedups_articles`) ; MEN-06 |
 | Snapshots `insta` | sortie complète des entités construites depuis les fixtures (dans `lf-adapter-piste`, qui fait le mapping) ; résumés et TOC | P-038 (avec la liste des divergences du §5.6) |
-| Corpus de citations (M6) | 170 positifs et 42 négatifs table-driven, sans surcharge dans le harnais (P159 `ECLI:EU:…` attendu `Unsupported`, `ecli_etranger`, dans le fichier de données) : span égal à la position de `match`, champs attendus inclus (recherche 07 §8.2) ; proptest `parse(format(c)) == c`, y compris les formes historiques de la référence (« decision », « fevrier ») | annexe B |
+| Corpus de citations (M6) | 170 positifs et 42 négatifs table-driven, sans surcharge dans le harnais (P159 `ECLI:EU:…` attendu `Unsupported`, `ecli_etranger`, dans le fichier de données, annexe B §8.4) : span égal à la position de `match`, champs attendus inclus (recherche 07 §8.2) ; proptest `parse(format(c)) == c`, y compris les formes historiques de la référence (« decision », « fevrier ») | annexe B |
 | Fuzzing (`cargo fuzz`, job non bloquant) | `from_html`, `clean`, `parse`, tous les `FromStr` | « aucune panique » |
 | CI Windows | tests de dates et d'epoch négatifs (00 §10 : matrice Linux, macOS, Windows) | D-20, E-35 |
 
@@ -1224,7 +1227,7 @@ pub enum DateError { Format, Calendar, OutOfRange }
 
 **Questions du domaine.** Les questions de l'utilisateur ont leur numérotation dans 00 §13 ; les vérifications sont dans [09-risques-et-questions.md](09-risques-et-questions.md). Aucune ne modifie une décision de 00.
 
-1. Citation d'un article de loi : **adopté par défaut (Q12, 00 §4)** : titre officiel complet sans l'appel de note final « (n) », « art. {num} » verbatim (« LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique, art. 1 »), plutôt que la parité (« … (1), art. 1 ») ou une forme courte (« Loi n° 2016-1321 du 7 octobre 2016, art. 1er »). À confirmer par l'utilisateur avant les golden de M1.
+1. Citation d'un article de loi : **adopté par défaut (Q12, 00 §4)** : titre officiel complet sans l'appel de note final « (n) », « art. {num} » verbatim (« LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique, art. 1 »), plutôt que la parité (« … (1), art. 1 ») ou une forme courte (« Loi n° 2016-1321 du 7 octobre 2016, art. 1er »). Sans réponse de l'utilisateur, la proposition par défaut s'applique et est figée avant la génération des golden de M1 (00 §13) ; une autre réponse ne change que `contract::rules`, le §5.4, la ligne 26 du §5.6 et les golden.
 2. Hits de recherche du Conseil constitutionnel et de la CNIL : **adopté par défaut (Q12)** : titre officiel comme citation (parité) en v0.1 ; réexamen en v0.2 avec le parseur (M6).
 3. Dispositif JURI (« PAR CES MOTIFS ») : **décidé (00 §4)** : pas d'heuristique en v0.1 ; réexamen quand des textes JURI complets auront été recapturés.
 4. Racinisation légère en BM25 (pluriels en -s ou -x) ? **Ouverte**, propre au domaine ; aucune en v0.1 (§7.8), à trancher sur les mesures de M5.
@@ -1275,7 +1278,7 @@ pub enum DateError { Format, Calendar, OutOfRange }
 | [v:typepagination-page2] | Effet réel de la `typePagination` envoyée en page 2 (mémo de l'adapter, repli `ARTICLE` pour CODE). |
 | [v:pagination-profonde] | Fenêtre de 10 000 résultats atteignables (`REACHABLE_RESULTS`, `has_more`). |
 | [v:texttitles-nature-loi] | Valeur de `textTitles[].nature` pour un article de loi (choix de `loda_article`). |
-| [v:singledate-minuit-paris] | Sémantique de `DATE_VERSION.singleDate` côté PISTE ; le plan envoie midi Europe/Paris (00 §8). |
+| [v:singledate-midi-paris] | Sémantique de `DATE_VERSION.singleDate` côté PISTE ; le plan envoie midi Europe/Paris (00 §8). |
 | [v:sandbox-prod-donnees] | Écart des données entre sandbox et production (règle `unresolvable` en sandbox). |
 | [v:list-code-forme] | Forme réelle des entrées de `/list/code` (`CodeListing`). |
 | [v:related-links-forme] | Forme et taille de `relatedLinksArticle` (`RelatedLinks`). |

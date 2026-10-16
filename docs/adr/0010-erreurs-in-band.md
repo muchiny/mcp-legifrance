@@ -4,7 +4,7 @@
 - **Date** : 2026-10-15
 - **Jalons concernés** : M2 (`CorpusError`), M3 (`AppError`, table de correspondance), M4 (rendu MCP, instructions)
 - **Questions liées** : —
-- Révisé le 2026-10-15 (revue) : rendu de `InvalidRequest` et du 403 (00 §5, AM-28) ; contraintes de l'entrée validées avant le port ; sens de `retryable` (AM-03) ; erreurs de protocole restantes et ressource introuvable selon l'ère (AM-08, AM-09).
+- Révisé le 2026-10-15 (revue) : rendu de `InvalidRequest` et du 403 (00 §5, AM-28) ; contraintes de l'entrée validées avant le port ; sens de `retryable` (AM-03) ; erreurs de protocole restantes et ressource introuvable selon l'ère (AM-08, AM-09) ; contrôle final du 2026-10-16 : code de `arguments` non objet (00 §5) et ligne non JSON ignorée sur stdio (annexe D §4.7).
 
 ## Contexte
 
@@ -30,8 +30,8 @@
    - Correspondance complète, cause par cause : 02 §9.2.
 3. **Erreurs de protocole → JSON-RPC** (liste fermée de 00 §5-§6) :
    - outil inconnu : `-32602` ;
-   - `arguments` qui n'est pas un objet : erreur de paramètres produite par rmcp avant notre code (code exact sous réserve du bug #1347) ;
-   - JSON illisible, batch, `_meta` moderne incomplet : `-32700`, `-32600` ou `-32602` ;
+   - `arguments` qui n'est pas un objet : rejeté par rmcp avant notre code, `-32601` tant que le bug #1347 est ouvert, `-32602` après sa correction (test documentaire, 00 §5) ;
+   - ligne non JSON : ignorée sur stdio, sans réponse (écart accepté, [ADR-0003](0003-mcp-2026-07-28-dual-era-rmcp.md)), `-32700` en HTTP (M8) seulement ; batch, `_meta` moderne incomplet : `-32600` ou `-32602` (annexe D §3.5, §4.7) ;
    - version non supportée : `-32022` ;
    - méthode inconnue : `-32601` ;
    - arguments de prompt invalides (`Parameters<T>`, prompts seulement) : `-32602` ;
@@ -74,7 +74,7 @@
 ### À surveiller
 
 - Points **NON VÉRIFIÉS** sur PISTE :
-  - [v:forme-404-piste] : forme d'un 404 PISTE ;
+  - [v:forme-404-piste] : forme d'un 404 PISTE (V-66, bloquante en M2, comme V-68 sur la réponse de chaque consultation à un identifiant inexistant) ;
   - [v:forme-403-piste] : sens réel d'un 403 ; le rendu `config_error` est décidé par 00 §5 (AM-28), seul le message dépend de la mesure (V-65) ;
   - [v:retry-after-piste] : présence de `Retry-After` sur un 429 ;
   - [v:401-sous-throttling] : 401 `invalid_client` renvoyé sous throttling.

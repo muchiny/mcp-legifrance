@@ -4,7 +4,7 @@
 - **Date** : 2026-10-15
 - **Jalons concernés** : M3 (`lf-adapter-cache`), M9 (réévaluation d'un cache disque)
 - **Questions liées** : —
-- Révisé le 2026-10-15 (revue) : `singleDate` à midi Europe/Paris (00 §8, AM-02) ; `typePagination` mémorisée par l'adapter, hors de la clé (00 §7, AM-04).
+- Révisé le 2026-10-15 (revue) : `singleDate` à midi Europe/Paris (00 §8, AM-02) ; `typePagination` mémorisée par l'adapter, hors de la clé (00 §7, AM-04) ; contrôle final du 2026-10-16 : V-76 citée par son étiquette de référence, à midi (09 §2.1).
 
 ## Contexte
 
@@ -56,7 +56,7 @@
 ### À surveiller
 
 - **NON VÉRIFIÉ** [v:moka-horloge-tests] : moka n'utilise pas l'horloge tokio, si bien que tester les TTL sans attente réelle n'est pas acquis. À défaut, on teste directement la fonction `Expiry` (02 §3.4).
-- **NON VÉRIFIÉ** [v:singledate-minuit-paris] : avec `singleDate` à midi Europe/Paris (00 §8 révision 2 ; minuit dans la première version du plan, d'où le nom de l'étiquette), un texte qui entre en vigueur le jour J est-il retenu le jour J ? Vérification bloquante en M2 (V-76). La clé stable sur la journée n'en dépend pas : elle repose sur `VersionDate`.
+- **NON VÉRIFIÉ** [v:singledate-midi-paris] : avec `singleDate` à midi Europe/Paris (00 §8 révision 2 ; minuit dans la première version du plan), un texte qui entre en vigueur le jour J est-il retenu le jour J ? Vérification bloquante en M2 (V-76). La clé stable sur la journée n'en dépend pas : elle repose sur `VersionDate`.
 - Une page > 1 mise en cache a pu être obtenue avec la valeur de repli de `typePagination` plutôt qu'avec la valeur mémorisée ; pour CODE, seul cas observé, les deux coïncident. **NON VÉRIFIÉ** [v:typepagination-page2] (V-82, M5).
 - La taille réelle des réponses, pour calibrer la capacité : **NON VÉRIFIÉ** [v:taille-max-textes].
 

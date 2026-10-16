@@ -4,7 +4,7 @@
 - **Date** : 2026-10-15
 - **Jalons concernés** : M0 (workspace, `check-deps`), M1 à M4 (remplissage des crates), M9 (`lf-adapter-dila`)
 - **Questions liées** : Q1 (nom du paquet du binaire), Q13 (canal `cargo install`) ; propositions adoptées par défaut, à confirmer (00 §13)
-- Révisé le 2026-10-15 (revue) : liste fermée des crates externes de `lf-application` et `Deadline` (00 §2-§3, AM-07) ; paquet `mcp-legifrance` dans `crates/lf-app` (AM-32) ; pas de publication crates.io en v0.x (AM-33) ; `xtask` sans dépendance `lf-*` (AM-31).
+- Révisé le 2026-10-15 (revue) : liste fermée des crates externes de `lf-application` et `Deadline` (00 §2-§3, AM-07) ; paquet `mcp-legifrance` dans `crates/lf-app` (AM-32) ; pas de publication crates.io en v0.x (AM-33) ; `xtask` sans dépendance `lf-*` (AM-31) ; contrôle final du 2026-10-16 : dépendances déclarées dans un crate seulement quand un code les emploie (00 §2).
 
 ## Contexte
 
@@ -59,6 +59,7 @@
    - Aucun adapter ne dépend d'un autre ; `xtask` ne dépend d'aucun crate `lf-*` ; seul `lf-app` dépend de tout.
    - `chrono-tz` n'est employé que par `lf-app` (`clock`) et `lf-adapter-piste` ([ADR-0011](0011-dates-chrono-paris.md)).
    - `lf-adapter-mcp` ne dépend **pas** de `lf-app` : l'inversion proposée par le squelette de la recherche 09 §8 est écartée. `lf-app` ne voit pas rmcp : il appelle `lf_adapter_mcp::serve_stdio`, dont l'API publique ne contient aucun type du SDK (02 §12.3).
+   - Ces listes décrivent la cible, pas les squelettes : en M0, un crate ne déclare une dépendance que lorsqu'un code l'emploie, pour que `cargo machete` reste vert ; seule exception, `rmcp-macros`, déclaré dans `lf-adapter-mcp` pour son épinglage et ignoré par `cargo machete` (00 §2, 02 §3.0.1).
 4. **Contrôle** : `cargo xtask check-deps` lit `cargo metadata` et applique les règles écrites comme des données. `cargo deny check bans` sert de seconde ligne (02 §4.2, §4.3).
 5. **Ports** : les ports vivent dans `lf-application::ports`, à côté de leurs consommateurs. Le style est fixé par [ADR-0012](0012-ports-async-rpitit.md).
 

@@ -2,9 +2,9 @@
 
 - **Statut** : Accepté
 - **Date** : 2026-10-15
-- **Jalons concernés** : M2 (adapter PISTE), M3 (port), M6 et M7 (extensions du port), M9 (`lf-adapter-dila`, v1.0.0)
+- **Jalons concernés** : M2 (adapter PISTE), M3 (port, fait avant l'adapter de M2 : T-M3-01, 00 §11), M6 et M7 (extensions du port), M9 (`lf-adapter-dila`, v1.0.0)
 - **Questions liées** : Q3 (compte PISTE, sandbox puis production), Q6 (accès réseau à `echanges.dila.gouv.fr`), Q15 (attribution Licence Ouverte et date) ; propositions adoptées par défaut, à confirmer (00 §13)
-- Révisé le 2026-10-15 (revue) : `list_codes()` en M6 (00 §3, AM-29) ; politique des tests live et des fixtures de production (00 §10, AM-40, Q3) ; attribution des données (00 §12, AM-39, Q15) ; classement des erreurs hors ligne renvoyé à M9 (00 §5, AM-28).
+- Révisé le 2026-10-15 (revue) : `list_codes()` en M6 (00 §3, AM-29) ; politique des tests live et des fixtures de production (00 §10, AM-40, Q3) ; attribution des données (00 §12, AM-39, Q15) ; classement des erreurs hors ligne renvoyé à M9 (00 §5, AM-28) ; contrôle final du 2026-10-16 : date de consultation rendue par `fr_coverage`, à laquelle renvoient les instructions statiques (00 §12, AM-39).
 
 ## Contexte
 
@@ -48,7 +48,7 @@
    - Le **nom de la variable de sélection** et la valeur `env` de l'audit pour DILA ne sont **pas fixés avant M9**, faute de décision (02 §8.5).
 4. **Opérations indisponibles hors ligne** : erreur explicite, déclarée comme lacune dans `fr_coverage` ; son code est tranché en M9 (00 §5). Les entités du domaine sont identiques quelle que soit la source.
 5. **Fraîcheur et provenance** :
-   - dès v0.1 (00 §12, adoptée par défaut, Q15) : `fr_coverage` et les instructions serveur portent « Source : Légifrance / DILA — Licence Ouverte 2.0 » et la date de consultation (date du jour, Europe/Paris) ; un champ `last_update?` par document n'est ajouté (classe « ajout ») que lorsqu'un champ fiable de l'API est identifié (V-108) ;
+   - dès v0.1 (00 §12, adoptée par défaut, Q15) : `fr_coverage` porte « Source : Légifrance / DILA — Licence Ouverte 2.0 » et la date de consultation (date du jour, Europe/Paris, champ `consulted_on`) ; les instructions serveur, texte statique, portent la même mention et renvoient à `consulted_on` pour la date ; un champ `last_update?` par document n'est ajouté (classe « ajout ») que lorsqu'un champ fiable de l'API est identifié (V-108) ;
    - en M9 : la date du dernier incrément appliqué et la source (dump DILA ou API) figurent au moins dans `fr_coverage`. Leur présence dans chaque réponse, recommandée par la recherche 05 §6.7, sera tranchée en M9.
 6. **Configuration par défaut** : `LF_PISTE_ENV=sandbox`, affichée dans `fr_coverage` (00 §1). La production demande une application PISTE dédiée (Q3).
    - Tests live et fixtures (00 §10, adoptée par défaut, Q3) : sandbox par défaut ; en production, uniquement des sondes en lecture seule lancées à la main par le mainteneur avant chaque étiquette (≤ 1 requête/s), et des fixtures de données publiques marquées `env = production` ; jamais d'identifiants de production en CI.
@@ -81,7 +81,7 @@
 ### Tests qui la gardent
 
 - Suite de contrat du port exécutée sur `FakeCorpus` et `PisteCorpus` dès M3 (06 §14), puis sur `DilaCorpus` en M9.
-- `every_fond_has_a_family` et `coverage_lists_known_gaps` (D-34).
+- `every_served_fond_has_a_family` et `coverage_lists_known_gaps` (D-34) ; `coverage_attribution_and_consultation_date` (Q15).
 
 ## Alternatives envisagées
 
