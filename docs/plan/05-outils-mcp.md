@@ -1,10 +1,11 @@
 # 05 — Outils MCP : contrat, protocole et mise en œuvre (`lf-adapter-mcp`)
 
-> **Statut** : plan, sans implémentation. Ce document détaille [00-decisions.md](00-decisions.md) §6 et §7, qui restent **normatifs** : en cas de doute, 00 l'emporte. Il fixe ce que [02-architecture.md](02-architecture.md) §3.6 et [03-domaine.md](03-domaine.md) §4.0 lui délèguent : les noms des champs JSON, les schémas d'entrée et de sortie, les textes des descriptions et des instructions, les messages d'erreur, les budgets de réponse et le verrou des descripteurs.
+> **Statut** : M0-M1 livrés (plan 1), le reste est un plan. Ce document détaille [00-decisions.md](00-decisions.md) §6 et §7, qui restent **normatifs** : en cas de doute, 00 l'emporte. Il fixe ce que [02-architecture.md](02-architecture.md) §3.6 et [03-domaine.md](03-domaine.md) §4.0 lui délèguent : les noms des champs JSON, les schémas d'entrée et de sortie, les textes des descriptions et des instructions, les messages d'erreur, les budgets de réponse et le verrou des descripteurs.
 >
-> **Jalons** : M4 (adapter MCP) et M5 (économie de contexte) livrent la v0.1.0 ; M6 la v0.2.0 ; M7 la v0.3.0 ; M8 (HTTP, optionnel) la v0.4.0 ([07-feuille-de-route.md](07-feuille-de-route.md)).
+> **Jalons** : M4 (adapter MCP) et M5 (économie de contexte) livrent la v0.1.0 ; M6 la v0.2.0 ; M7 la v0.3.0 ; M8 (HTTP, optionnel) la v0.4.0 (plans d'implémentation dans [docs/superpowers/plans/](../superpowers/plans/), « plan N, tâche M »).
 >
-> **Conventions** : « caractère » = scalaire Unicode (`char` Rust). Les tailles de JSON sont en caractères de JSON compact (sans espaces), comme dans la recherche 03 §13. Tout extrait Rust est **non compilé, à valider en M0**. Ce qui n'est pas vérifié porte la mention **NON VÉRIFIÉ** et une étiquette `[v:…]`, recensée au §12 et reprise dans le registre de [09-risques-et-questions.md](09-risques-et-questions.md).
+> **Conventions** : « caractère » = scalaire Unicode (`char` Rust). Les tailles de JSON sont en caractères de JSON compact (sans espaces), comme dans la recherche 03 §13. Tout extrait Rust est **non compilé, à valider au jalon qui l'implémente**. Ce qui n'est pas vérifié porte la mention **NON VÉRIFIÉ** et une étiquette `[v:…]`, recensée au §12 et reprise dans le registre de [09-risques-et-questions.md](09-risques-et-questions.md).
+> **Domaine livré et prérequis** : `lf-domain` (M1) fait foi pour ses types. Les vues de ce document supposent des éléments qu'il ne porte pas encore, **tâches de tête de M2** (00 §11.1) : contrat de citation v2 (`CitationText`, `SourceUrl`, `Eli` ; module `citation` renommé `contract`, `Citable::contract()` ; citation du Conseil constitutionnel sans suffixe « - objet »), TOC en arbre (`TocNode`, `Toc::build`, `Toc::page` ; le `TocEntry` livré devient `TocArticle`), suffixe `_JJ-MM-AAAA` conservé (`parse_versioned`, `SearchHit.version_start`), `open_ended` (sentinelles → `None`), `VersionDate` borné. Reports de M2 (00 §11.1, hors tâche 0) : `LegalStatus`, `Nor`, `Idcc`, `LongText`. Règle `/loda/article_lc/` et citation courte d'un article de loi seulement après V-140/V-142 en M2 ; d'ici là `/codes/article_lc/`. Les dates sont des `CivilDate` (`date.rs` : `from_unix_millis`, `to_french`), jamais des `chrono::NaiveDate`. `Coverage` est remodelé en M3 (M1-D20) ; `summary`, mots vides, repli NFD, `Focus`, `MaxChars` et la fenêtre en caractères (moitié comptée en caractères, niveaux paragraphe > phrase > proposition > mot) arrivent en M5 ; le parseur de citations (M6) ajoute `winnow`, `aho-corasick` et `regex` par ADR. Les phrases d'erreur de parité (§7) sont rédigées par `lf-adapter-mcp` (`render.rs`) à partir des champs typés de `DomainError` (tronqué à 64 caractères, `expected`, famille retrouvée par `AnyId::parse`).
 
 ## Sommaire
 
@@ -202,7 +203,7 @@ Mise en œuvre : rmcp remplit `ttl_ms: 0` et `cache_scope: Public` dans le `list
 Le squelette suit la recherche 09 §8, avec trois écarts imposés par le plan : `lf-adapter-mcp` ne dépend pas de `lf-app` (02 §13.1 #2) ; les arguments sont reçus bruts (§3.3) ; `list_tools` et `discover` sont écrits à la main (§2.3).
 
 ```rust
-// crates/lf-adapter-mcp/src/server.rs (le bloc #[tool_router] vit dans tools.rs) — non compilé, à valider en M0
+// crates/lf-adapter-mcp/src/server.rs (le bloc #[tool_router] vit dans tools.rs) — non compilé, à valider au jalon qui l'implémente
 use std::{borrow::Cow, sync::Arc};
 use rmcp::{
     ErrorData as McpError, Json, RoleServer, ServerHandler,
@@ -279,7 +280,7 @@ fn server_config(id: &ServerIdentity) -> ServerConfig {
     ServerConfig::new(ServerCapabilities::builder().enable_tools().build()) // M7 : + enable_resources/prompts/completions
         .with_server_info(Implementation::new(id.name, id.version)        // jamais from_build_env()
             .with_title("Légifrance (PISTE)")
-            .with_website_url("https://github.com/muchiny/mcp-ligitfrance"))
+            .with_website_url("https://github.com/muchiny/mcp-legifrance"))
         .with_instructions(text::INSTRUCTIONS)
 }
 
@@ -289,7 +290,7 @@ fn is_modern(ctx: &RequestContext<RoleServer>) -> bool {
 ```
 
 ```rust
-// crates/lf-adapter-mcp/src/failure.rs — non compilé, à valider en M0
+// crates/lf-adapter-mcp/src/failure.rs — non compilé, à valider au jalon qui l'implémente
 use rmcp::model::{ContentBlock, IntoContents};
 use lf_application::{AppError, ErrorCode};
 
@@ -309,7 +310,7 @@ impl IntoContents for ToolFailure {   // IntoContents n'existe que pour String, 
 ```
 
 ```rust
-// crates/lf-adapter-mcp/src/stdio.rs — non compilé, à valider en M0
+// crates/lf-adapter-mcp/src/stdio.rs — non compilé, à valider au jalon qui l'implémente
 pub async fn serve_stdio<C: LegalCorpus, A: AuditLog, K: Clock>(
     service: Arc<LegalService<C, A, K>>, identity: ServerIdentity, shutdown: CancellationToken,
 ) -> Result<ServeOutcome, ServeError> {
@@ -322,7 +323,7 @@ pub async fn serve_stdio<C: LegalCorpus, A: AuditLog, K: Clock>(
 }
 ```
 
-API rmcp à confirmer au spike M0 : la combinaison `JsonObject` + `input_schema` + détection de `Result<Json<T>, ToolFailure>` est **NON VÉRIFIÉE** [v:rmcp-jsonobject-input-schema] ; les constructeurs `ListToolsResult::with_all_items`, `with_ttl_ms` et `with_cache_scope` sur `ListToolsResult` sont **NON VÉRIFIÉS** [v:rmcp-list-tools-result-api] (ils existent pour `ListResourceTemplatesResult`, `model.rs:1782-1791`, recherche 09 §8).
+API rmcp à confirmer au spike rmcp (avant la conception des ports de M3, car `ToolCall` en dépend ; 00 §11.1, V-28) : la combinaison `JsonObject` + `input_schema` + détection de `Result<Json<T>, ToolFailure>` est **NON VÉRIFIÉE** [v:rmcp-jsonobject-input-schema] ; les constructeurs `ListToolsResult::with_all_items`, `with_ttl_ms` et `with_cache_scope` sur `ListToolsResult` sont **NON VÉRIFIÉS** [v:rmcp-list-tools-result-api] (ils existent pour `ListResourceTemplatesResult`, `model.rs:1782-1791`, recherche 09 §8).
 
 ### 3.3 Décodage des arguments : `JsonObject` plutôt que `Parameters<T>`
 
@@ -331,10 +332,10 @@ API rmcp à confirmer au spike M0 : la combinaison `JsonObject` + `input_schema`
 | `Parameters<T>` (extracteur typé) | un échec de désérialisation devient un résultat in-band `failed to deserialize parameters: …`, produit par le routeur **avant** notre code (`router/tool.rs:144-156` ; CHANGELOG 3.5.1, #1322 ; recherche 04 §2.5) | ni audité (D-02, E-02), ni préfixé `[invalid_arg]` (E-01, E-29) | repli seulement |
 | `JsonObject` (arguments bruts, `handler/server/tool.rs:252-258`) + `input_schema = params::input_schema::<P>()` (`schema_for_input` public, `common.rs:77`) | l'outil reçoit l'objet tel quel ; l'adapter décode, l'application audite | `ToolCall { input: Result<I, InputError>, canonical }` : l'échec de décodage devient un `invalid_arg` audité (02 §5.4) | **retenu** (02 §13 « Décodage des arguments ») |
 
-Repli si le spike M0 échoue : `Parameters<P>` avec des champs tous `Option<…>` et numériques tolérants. La désérialisation devient alors quasi infaillible et la validation reste dans le cas d'usage ; seul un JSON de type aberrant (`query: [1]`) échapperait à l'audit.
+Repli si le spike rmcp échoue : `Parameters<P>` avec des champs tous `Option<…>` et numériques tolérants. La désérialisation devient alors quasi infaillible et la validation reste dans le cas d'usage ; seul un JSON de type aberrant (`query: [1]`) échapperait à l'audit.
 
 ```rust
-// crates/lf-adapter-mcp/src/params.rs — non compilé, à valider en M0
+// crates/lf-adapter-mcp/src/params.rs — non compilé, à valider au jalon qui l'implémente
 pub(crate) fn input_schema<P: schemars::JsonSchema + 'static>() -> std::sync::Arc<rmcp::model::JsonObject> {
     rmcp::handler::server::common::schema_for_input::<P>()   // racine objet vérifiée par un test (§11)
 }
@@ -657,12 +658,12 @@ Read a consolidated law, decree or code by its LEGITEXT id (from fr_search on LO
 
 | Nom | Type JSON | Requis | Défaut | Contraintes | Description (anglais) |
 |---|---|---|---|---|---|
-| `text_id` | string | oui | — | `LEGITEXT` + 12 chiffres après `trim` et majuscules (03 §2.6) ; le suffixe `_JJ-MM-AAAA` est accepté | `A LEGITEXT... id (from fr_search on LODA or CODE).` |
+| `text_id` | string | oui | — | `LEGITEXT` + 12 chiffres après `trim` et majuscules (03 §2.6) ; le suffixe `_JJ-MM-AAAA` est accepté s'il est une vraie date (`parse_versioned`, tâche de tête de M2 ; un suffixe mal formé est refusé) | `A LEGITEXT... id (from fr_search on LODA or CODE).` |
 | `date` | string, `format: date` | non | date du suffixe de `text_id` s'il y en a un, sinon aujourd'hui (Europe/Paris) | date valide (D-22) ; bornes extrêmes **NON VÉRIFIÉES** [v:version-date-bornes] | `Version date YYYY-MM-DD (default: today in Paris).` |
 | `toc_offset` | integer | non | 0 | ≥ 0 ; < `toc_total` si `toc_total > 0` | `First table-of-contents entry (pass next_toc_offset).` |
 | `toc_limit` | integer | non | 100 | 1 à 500 | `Maximum table-of-contents entries (1..500).` |
 
-Le suffixe comme date par défaut répond à la question 6 de 03 §11 : un identifiant suffixé désigne une version, et c'est elle que le modèle veut lire. Une `date` explicite l'emporte.
+Le suffixe comme date par défaut (conservé par `parse_versioned` au lieu d'être jeté par `Id::parse` livré) répond à la question 6 de 03 §11 : un identifiant suffixé désigne une version, et c'est elle que le modèle veut lire. Une `date` explicite l'emporte.
 
 **Sortie** (`ActView`) : `text_id`, `title?` (§5.0.4), `nature?`, `etat?` (`etat`, sinon `jurisState`, E-10), `nor?`, `date_parution?`, `num_parution?`, `jo_reference?` (`jorfText`), `aliases?` (`appellations`, utiles pour reconnaître « loi Lemaire »), `date_debut_version?`, `date_fin_version?` (omis si sentinelle), `date` (version servie), `eli?` (natif seulement), `citation`, `source_url`, `toc` (toujours), `toc_total`, `next_toc_offset?`, `note?`.
 
@@ -1625,7 +1626,7 @@ Le dual-era rend le serveur utilisable par tous ces clients : un client legacy f
 
 | # | Sources | Divergence | Appliqué ici | Recommandation |
 |---|---|---|---|---|
-| 1 | Brief de rédaction de ce document ; 02 §3.6 et §13 | Le brief cite `Parameters<T>` ; 02 retient `JsonObject` + `input_schema` pour auditer et préfixer les erreurs de décodage | `JsonObject` (§3.3) ; `Parameters<T>` en repli et pour les prompts | conserver ; trancher au spike M0 |
+| 1 | Brief de rédaction de ce document ; 02 §3.6 et §13 | Le brief cite `Parameters<T>` ; 02 retient `JsonObject` + `input_schema` pour auditer et préfixer les erreurs de décodage | `JsonObject` (§3.3) ; `Parameters<T>` en repli et pour les prompts | conserver ; trancher au spike rmcp (avant M3) |
 | 2 | 00 §7 (completions sur `fond`) ; 00 §7 (prompts sans argument `fond`, templates sans `{fond}`) | La completion de `fond` n'a aucun argument à servir en M7 | servie pour tout argument de prompt nommé `fond` (code mort en v0.3) | ajouter un argument optionnel `fond` à `etat_du_droit`, ou retirer cette completion de 00 |
 | 3 | 00 §7 (prompts `verifier_citations(texte)`, `etat_du_droit(question)`) ; recherche 06 §4.4 (Claude Code découpe les arguments sur les blancs) | Un texte ou une question de plusieurs mots ne passe pas en un argument dans Claude Code | arguments rendus optionnels ; le prompt sait lire le texte fourni ensuite (§8.5) | confirmer [v:cc-prompt-args-espaces] ; sinon prompts sans argument |
 | 4 | 00 §6 (`openWorldHint: true`) ; billet officiel du 2026-03-16 (`openWorldHint: false` pour un domaine fermé) ; VS Code (confirmation des résultats si `true`) | coût d'une étape d'approbation dans VS Code | `true` (parité P-002) | réévaluer après test VS Code ([v:vscode-openworld-confirm]) |
@@ -1655,7 +1656,7 @@ Le dual-era rend le serveur utilisable par tous ces clients : un client legacy f
 ## Sources
 
 **Plan**
-- [00-decisions.md](00-decisions.md) (normatif) : §1 (noms, variables), §2 (crates), §3 (ports), §4 (contrat de citation, dates, texte), §5 (erreurs), §6 (protocole), §7 (outils, paramètres, métriques), §8 (adapter PISTE), §9 (cache), §10 (qualité), §11 (jalons), §12 (licence), §13 (Q1-Q10).
+- [00-decisions.md](00-decisions.md) (normatif) : §1 (noms, variables), §2 (crates), §3 (ports), §4 (contrat de citation, dates, texte), §5 (erreurs), §6 (protocole), §7 (outils, paramètres, métriques), §8 (adapter PISTE), §9 (cache), §10 (qualité), §11 (jalons), §12 (licence), §13 (Q1-Q12).
 - [02-architecture.md](02-architecture.md) : §3.6 (`lf-adapter-mcp`), §5.4 (`ToolCall`), §6.1-§6.3 (cas d'usage, budget, façade), §7.1-§7.2 (`Audited`, cache), §8.1-§8.8 (CLI, configuration, arrêt), §9.1-§9.3 (erreurs), §10, §11.2-§11.3, §12.1, §12.3, §13 et §13.1.
 - [03-domaine.md](03-domaine.md) : §2.6-§2.7 (identifiants, messages), §3.1-§3.3 (fonds, statuts), §4.0-§4.8 (entités, TOC, couverture), §5.1-§5.6 (contrat de citation, URL, divergences), §7.3-§7.10 (texte, fenêtre, passages, BM25, résumé, tailles), §8.6-§8.8 (citations), §11 (questions).
 

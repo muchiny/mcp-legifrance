@@ -2,11 +2,11 @@
 
 > Ce document applique [00-decisions.md](00-decisions.md) (normatif), en particulier §1 (noms, variables `LF_*`), §2 (crates, binaire `mcp-legifrance` porté par `lf-app`), §6 (protocole), §11 (ligne « Transverse Distribution », dès v0.1.0), §12 (distribution et licence) et §13 (Q1, Q2, Q4, Q5). Il détaille **comment** le binaire est construit, signé, empaqueté, publié et configuré chez l'utilisateur, ainsi que les obligations de licence et de conformité.
 >
-> Documents liés : [02-architecture.md](02-architecture.md) (arborescence, `lf-app`, CLI, configuration), [05-outils-mcp.md](05-outils-mcp.md) (§9 descriptor lock et SemVer de surface, §10.2 clients), [06-qualite.md](06-qualite.md) (CI, cargo-deny), [07-feuille-de-route.md](07-feuille-de-route.md) (tâches), [09-risques-et-questions.md](09-risques-et-questions.md) (registre des vérifications et des risques), [annexes/A-parite.md](annexes/A-parite.md) §6 (note de migration), [annexes/C-api-legifrance.md](annexes/C-api-legifrance.md) §1.7 (CGU, Licence Ouverte), [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md) (protocole), [index des ADR](../adr/README.md) (ADR-0005, ADR-0013).
+> Documents liés : [02-architecture.md](02-architecture.md) (arborescence, `lf-app`, CLI, configuration), [05-outils-mcp.md](05-outils-mcp.md) (§9 descriptor lock et SemVer de surface, §10.2 clients), [06-qualite.md](06-qualite.md) (CI, cargo-deny), [docs/superpowers/plans/](../superpowers/plans/) (plans exécutables, « plan N, tâche M » ; 07-feuille-de-route.md n'existe pas), [09-risques-et-questions.md](09-risques-et-questions.md) (registre des vérifications et des risques), [annexes/A-parite.md](annexes/A-parite.md) §6 (note de migration), [annexes/C-api-legifrance.md](annexes/C-api-legifrance.md) §1.7 (CGU, Licence Ouverte), [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md) (protocole), [index des ADR](../adr/README.md) (ADR-0005, ADR-0013).
 >
 > Conventions :
 > - « La référence Python » désigne `matematicsolutions/fr-eli-mcp@d3b5b13` (v0.5.3, Apache-2.0).
-> - Tous les extraits (TOML, YAML, JSON, Dockerfile, shell) sont des **esquisses non exécutées, à valider en M0** ; les extraits Rust éventuels sont **non compilés, à valider en M0**.
+> - Tous les extraits (TOML, YAML, JSON, Dockerfile, shell) sont des **esquisses non exécutées, à valider au jalon qui les implémente** ; les extraits Rust éventuels sont **non compilés, à valider au jalon qui les implémente**.
 > - Un point non vérifié est marqué **NON VÉRIFIÉ** suivi d'une étiquette `[v:…]`, reprise au §11 puis dans le registre V-xx de [09-risques-et-questions.md](09-risques-et-questions.md).
 > - Les vérifications faites spécialement pour ce document (lecture le 2026-10-15 des sources de `axodotdev/cargo-dist` v0.33.0, `modelcontextprotocol/registry` `11b7b0e`, `modelcontextprotocol/mcpb` `70fe3b3`, `microsoft/vscode` `3f98d21`, `anthropics/claude-code` `94506ff`, index sparse crates.io) sont listées dans la section [Sources](#sources).
 
@@ -33,7 +33,7 @@
 
 ## 0. Résumé
 
-- **Un seul binaire** `mcp-legifrance` (paquet `lf-app`, 00 §2), construit par **cargo-dist 0.33.0** (binaire `dist`) pour **7 cibles** : Linux x86_64/aarch64 en gnu et musl, macOS x86_64/aarch64, Windows x86_64 msvc. Il est publié en **GitHub Releases** avec archives, sommes SHA-256, installeurs shell et PowerShell, et attestations de provenance GitHub.
+- **Un seul binaire** `mcp-legifrance` (paquet `mcp-legifrance` dès M4, ex-`lf-app` ; répertoire `crates/lf-app`, 00 §2), construit par **cargo-dist 0.33.0** (binaire `dist`) pour **7 cibles** : Linux x86_64/aarch64 en gnu et musl, macOS x86_64/aarch64, Windows x86_64 msvc. Il est publié en **GitHub Releases** avec archives, sommes SHA-256, installeurs shell et PowerShell, et attestations de provenance GitHub.
 - **Quatre canaux** dès v0.1.0, tous déclarés dans `server.json` sauf le premier : archives et installeurs ; **bundle MCPB** (`registryType: mcpb`, installation en un clic) ; **image OCI** distroless non root sur `ghcr.io` (`registryType: oci`, seul type que la galerie de VS Code sait installer) ; **`cargo install`** via crates.io (`registryType: cargo`).
 - **Signature** : Authenticode sous Windows (Smart App Control bloque les exécutables non signés, constat de la référence) et signature + notarisation sous macOS, **si Q5 le permet**. À défaut : binaires non signés, avertissement explicite, et chemins de repli documentés (image OCI, WSL).
 - **Registre MCP** : nom `io.github.muchiny/mcp-legifrance` (Q1), publication par `mcp-publisher` avec OIDC GitHub, **après** que le MCPB, l'image et le crate sont publics. Les versions publiées sont **immuables** : toute release est précédée de vérifications bloquantes (descriptor lock, versions alignées, tests, licences).
@@ -52,7 +52,7 @@
 | Installeurs | `…-installer.sh` (Linux, macOS), `…-installer.ps1` (Windows) | développeurs, juristes à l'aise en terminal | `curl … \| sh`, `irm … \| iex` | HTTPS ; script PowerShell signé si Windows signé (§3.2) | — | v0.1.0 |
 | **MCPB** | `mcp-legifrance-<version>.mcpb` (multi-plateforme, §4) | juristes, Claude Desktop | double-clic, glisser-déposer | `fileSha256` vérifié par le client (recherche 06 §9.2) ; binaires signés à l'intérieur | `mcpb` | v0.1.0 |
 | **Image OCI** | `ghcr.io/muchiny/mcp-legifrance:<version>` (linux/amd64, linux/arm64) | isolation, VS Code (galerie), Docker Desktop | `docker run -i --rm …` | digest, attestation, label du registre | `oci` | v0.1.0 |
-| **crates.io** | paquets `lf-*` dont `lf-app` | développeurs Rust | `cargo install lf-app --locked` | sommes du registre crates.io ; **binaire non signé** compilé localement | `cargo` | v0.1.0, sous réserve du §6.4 |
+| **crates.io** | paquets `lf-*` dont `mcp-legifrance` (ex-`lf-app`, renommé en M4) | développeurs Rust | `cargo install mcp-legifrance --locked` | sommes du registre crates.io ; **binaire non signé** compilé localement | `cargo` | v0.1.0 (M5), sous réserve du §6.4 ; **non tranché avant M5** (00 §12) : le livré garde `version = "0.0.0"` et `publish = false` (`Cargo.toml:7`, `:12`), repli `cargo install --git` |
 | Registre MCP | `server.json` publié | clients et agrégateurs | découverte | namespace authentifié par OIDC GitHub ; preuve de propriété de chaque paquet | — | v0.1.0 |
 
 La recherche 06 recommande le **MCPB comme paquet principal** pour un public non développeur, avec cargo et OCI en secondaires ; plusieurs entrées `packages[]` sont permises dans un même `server.json` (recherche 06 §9.3).
@@ -123,21 +123,21 @@ Les installeurs shell et PowerShell ne copient que le binaire (« Will throw out
 ### 2.1 Outil, version et fichiers
 
 - **Version** : `cargo-dist-version = "0.33.0"`, la dernière publiée sur GitHub (2026-09-10). crates.io n'a que 0.32.0 (recherche 04 §4.1). Le workflow généré télécharge dist depuis GitHub ; aucun `cargo install cargo-dist` n'est nécessaire. Le binaire s'appelle `dist`.
-- **Emplacement de la configuration** : pour un workspace Rust initialisé pour la première fois, `dist init` écrit **`dist-workspace.toml`** avec `[workspace] members = ["cargo:."]` et une section `[dist]` (`cargo-dist/src/init.rs:79-92`, `:284-333`, lus). Cela lève l'incertitude notée par 02 §2.2 ([v:cargo-dist-emplacement-config]), à confirmer au premier `dist init` du M0.
+- **Emplacement de la configuration** : pour un workspace Rust initialisé pour la première fois, `dist init` écrit **`dist-workspace.toml`** avec `[workspace] members = ["cargo:."]` et une section `[dist]` (`cargo-dist/src/init.rs:79-92`, `:284-333`, lus). Cela lève l'incertitude notée par 02 §2.2 ([v:cargo-dist-emplacement-config]), à confirmer au premier `dist init` (M4, 00 §11.1).
 - **Profil** : `dist init` ajoute `[profile.dist]` avec `inherits = "release"` (`init.rs:398-416`). Il hérite donc de `lto = "thin"`, `codegen-units = 1` et `panic = "unwind"` (02 §2.2). dist compile toujours avec `--profile=dist` (book `artifacts/archives.md`).
 - **`release.yml` généré** : il ne doit jamais être édité à la main (02 §2) ; dist le considère comme une erreur s'il est modifié (book `ci/customizing.md`, « Hand-editing release.yml »). Nos ajouts passent par des **jobs personnalisés**, qui sont des workflows réutilisables (§7.4).
-- **Toolchain** : dist ne fixe pas de toolchain (`rust-toolchain-version` est déprécié, `reference/config.md:694-713`). `rust-toolchain.toml` (1.99.0, 00 §2) s'applique donc aux builds de release.
+- **Toolchain** : dist ne fixe pas de toolchain (`rust-toolchain-version` est déprécié, `reference/config.md:694-713`). `rust-toolchain.toml` (livré : canal `stable` flottant ; épinglage sur 1.99.0 avec `llvm-tools-preview` en tâche de tête de M2, 00 §11.1) s'applique donc aux builds de release.
 
 ### 2.2 Esquisse de `dist-workspace.toml`
 
 ```toml
-# dist-workspace.toml — esquisse non exécutée, à valider en M0 (`dist init`, puis `dist plan`)
+# dist-workspace.toml — esquisse non exécutée, à valider au jalon qui l'implémente (`dist init`, puis `dist plan` ; `dist init` en M4, 00 §11.1)
 [workspace]
 members = ["cargo:."]
 
 [dist]
 cargo-dist-version = "0.33.0"
-packages = ["lf-app"]                # seul paquet distribué (xtask est `publish = false`) ; reference/config.md:202-215
+packages = ["mcp-legifrance"]                # seul paquet distribué (xtask est `publish = false`) ; reference/config.md:202-215
 ci = ["github"]
 targets = [
   "x86_64-unknown-linux-gnu",  "aarch64-unknown-linux-gnu",
@@ -152,7 +152,7 @@ checksum = "sha256"                      # .sha256 par archive + sha256.sum unif
 include = ["NOTICE", "THIRD_PARTY_LICENSES.md"]
 cargo-auditable = true                   # dépendances embarquées dans le binaire (cargo audit bin)
 cargo-cyclonedx = true                   # SBOM CycloneDX (bom.xml) dans les archives
-pr-run-mode = "plan"                     # « upload » temporairement pendant les spikes M0
+pr-run-mode = "plan"                     # « upload » temporairement pendant les spikes TLS (tâche 0 de M2)
 fail-fast = false
 
 # Provenance : attestations sur TOUS les fichiers de la release, y compris le MCPB et server.json (§3.5)
@@ -183,7 +183,7 @@ post-announce-jobs = ["./publish-mcp-registry"]
 "publish-crates" = { contents = "read", id-token = "write" }
 "publish-mcp-registry" = { contents = "read", id-token = "write" }
 
-# Épinglage par SHA des actions utilisées par le workflow généré (D-44) ; SHA relevés en M0 [v:actions-versions-sha]
+# Épinglage par SHA des actions utilisées par le workflow généré (D-44) ; SHA à relever [v:actions-versions-sha] ; en retard sur la CI livrée (M1-D15, hygiène à faire tout de suite, 00 §11.1)
 [dist.github-action-commits]
 "actions/checkout" = "<sha de v6>"
 "actions/upload-artifact" = "<sha de v7>"
@@ -194,7 +194,7 @@ post-announce-jobs = ["./publish-mcp-registry"]
 ```
 
 Points de configuration :
-- **`packages = ["lf-app"]`** évite toute ambiguïté : seul `lf-app` porte un `[[bin]]` en dehors de xtask (02 §4.2, étape 5).
+- **`packages = ["mcp-legifrance"]`** évite toute ambiguïté : seul `mcp-legifrance` (répertoire `crates/lf-app`) porte un `[[bin]]` en dehors de xtask (02 §4.2, étape 5).
 - **Actions par défaut** de dist 0.33.0 : `actions/checkout@v6`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`, `actions/attest@v4`, `swatinem/rust-cache@v2`, `actions/setup-node@v6`, `azure/login@v2` (`github.rs:377-385`). `github-action-commits` les remplace par des SHA (`reference/config.md:1537-1550`), ce qui corrige D-44.
 - **Permissions des jobs personnalisés** : par défaut, un job de publication personnalisé reçoit `{ id-token = "write", packages = "write" }`, et redéfinir ses permissions retire ces valeurs par défaut (`reference/config.md:1498-1516`). Les permissions sont donc déclarées explicitement et au plus juste.
 - **Fonctionnalités Cargo** : aucune en v0.1 à v0.3. `features = ["http"]` à partir de v0.4.0 si Q4 le permet, `dila` à partir de v1.0.0 (§10). dist impose alors des builds précis si les paquets divergent (`reference/config.md:652-691`), ce qui est sans effet ici : un seul paquet est distribué.
@@ -202,14 +202,14 @@ Points de configuration :
 ### 2.3 Métadonnées Cargo nécessaires
 
 ```toml
-# Cargo.toml racine — complément de 02 §3.0.2, non exécuté, à valider en M0
+# Cargo.toml racine — complément de 02 §3.0.2, non exécuté, à valider au jalon qui l'implémente
 [workspace.package]
-version = "0.1.0"
+version = "0.1.0"       # livré : 0.0.0 avec publish = false (Cargo.toml:7, :12) ; 0.1.0 en M5
 edition = "2024"
-rust-version = "1.91"
+rust-version = "1.88"   # MSRV livrée (00 §2), réévaluée par ADR si le job MSRV casse à l'arrivée de rmcp en M4
 license = "Apache-2.0"
-repository = "https://github.com/muchiny/mcp-ligitfrance"   # Q1
-homepage = "https://github.com/muchiny/mcp-ligitfrance"
+repository = "https://github.com/muchiny/mcp-legifrance"   # Q1 décidée (2026-10-16), livré : Cargo.toml:11
+homepage = "https://github.com/muchiny/mcp-legifrance"
 readme = "README.md"                    # relatif à la racine du workspace (doc Cargo, workspaces.md)
 keywords = ["mcp", "legifrance", "law", "france", "legal"]
 categories = ["command-line-utilities"]
@@ -219,12 +219,12 @@ inherits = "release"
 lto = "thin"
 ```
 
-- `lf-app` hérite de `readme.workspace = true` : le README racine, qui porte le jeton `mcp-name:` (§6.4), devient celui du crate publié. Cargo résout `readme` hérité par rapport à la racine du workspace (doc Cargo `reference/workspaces.md`, tableau des clés héritables).
+- `mcp-legifrance` (répertoire `crates/lf-app`) hérite de `readme.workspace = true` : le README racine, qui porte le jeton `mcp-name:` (§6.4), devient celui du crate publié. Cargo résout `readme` hérité par rapport à la racine du workspace (doc Cargo `reference/workspaces.md`, tableau des clés héritables).
 - Chaque crate bibliothèque reçoit une `description` explicite, par exemple « Composant interne de mcp-legifrance ; aucune garantie de stabilité d'API ». crates.io exige `description` et `license`, et l'API publique de ces crates n'est pas un produit (§6.4).
 
 ### 2.4 TLS : aws-lc ou ring selon les cibles
 
-La décision (00 §8, §11 M0) laisse le fournisseur crypto de rustls au spike M0. 04 §4.1 décrit les options A (`reqwest/rustls`, aws-lc, défaut) et B (`rustls-no-provider` + `ring`, installé par `PisteCorpus::new`). La distribution ajoute ses propres contraintes :
+La décision (00 §8, §11.1) laisse le fournisseur crypto de rustls au spike TLS, tâche 0 de M2. 04 §4.1 décrit les options A (`reqwest/rustls`, aws-lc, défaut) et B (`rustls-no-provider` + `ring`, installé par `PisteCorpus::new`). La distribution ajoute ses propres contraintes :
 
 | Contexte de compilation | Option A (aws-lc) | Option B (ring) | À mesurer au spike |
 |---|---|---|---|
@@ -243,29 +243,29 @@ La taille des binaires selon la cible et le fournisseur, ainsi que celle du bund
 
 ### 2.5 Artefacts produits et installeurs
 
-cargo-dist nomme archives et installeurs d'après le **nom du paquet** (`app_name = package_info.name`, `cargo-dist/src/tasks.rs:1323` ; variante `{release_id}-{target}`, `:1397` ; installeurs `{release_id}-installer.sh` et `.ps1`, `:2063`, `:2313`). Avec le paquet `lf-app` imposé par 00 §2, une release v0.1.0 contient :
+cargo-dist nomme archives et installeurs d'après le **nom du paquet** (`app_name = package_info.name`, `cargo-dist/src/tasks.rs:1323` ; variante `{release_id}-{target}`, `:1397` ; installeurs `{release_id}-installer.sh` et `.ps1`, `:2063`, `:2313`). Le paquet `lf-app` étant renommé `mcp-legifrance` en M4 (C6, 00 §11.1), donc avant v0.1.0, une release v0.1.0 contient :
 
 | Fichier | Contenu |
 |---|---|
-| `lf-app-<triple>.tar.xz` (Unix) / `lf-app-x86_64-pc-windows-msvc.zip` | binaire `mcp-legifrance` (`.exe`), LICENSE, NOTICE, THIRD_PARTY_LICENSES.md, README, CHANGELOG, `bom.xml` |
-| `lf-app-<triple>.tar.xz.sha256` (etc.) et `sha256.sum` | sommes par archive et somme unifiée, vérifiable par `sha256sum -c` (book `artifacts/checksums.md`, depuis 0.24.0) |
-| `lf-app-installer.sh`, `lf-app-installer.ps1` | installeurs |
+| `mcp-legifrance-<triple>.tar.xz` (Unix) / `mcp-legifrance-x86_64-pc-windows-msvc.zip` | binaire `mcp-legifrance` (`.exe`), LICENSE, NOTICE, THIRD_PARTY_LICENSES.md, README, CHANGELOG, `bom.xml` |
+| `mcp-legifrance-<triple>.tar.xz.sha256` (etc.) et `sha256.sum` | sommes par archive et somme unifiée, vérifiable par `sha256sum -c` (book `artifacts/checksums.md`, depuis 0.24.0) |
+| `mcp-legifrance-installer.sh`, `mcp-legifrance-installer.ps1` | installeurs |
 | `source.tar.gz` (+ `.sha256`) | archive source (défaut `source-tarball = true`) |
 | `dist-manifest.json` | manifeste machine de la release |
 | `mcp-legifrance-<version>.mcpb` (+ `.sha256`), `server.json` | ajoutés par le job `build-mcpb` (§4.5) |
 
-Le binaire s'appelle bien `mcp-legifrance` (`[[bin]] name`, 02 §3.7), mais les noms d'archives `lf-app-*` sont peu parlants : c'est une conséquence directe de 00 §2, signalée au §12.1.
+Le binaire s'appelle bien `mcp-legifrance` (`[[bin]] name`, 02 §3.7), et les archives portent le même nom grâce au renommage du paquet en M4 (§12.1, point 1).
 
 **Installeurs** (commande affichée par dist, book `installers/shell.md` et `installers/powershell.md`) :
 
 ```sh
 # Linux, macOS — esquisse
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/muchiny/mcp-ligitfrance/releases/download/v0.1.0/lf-app-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/muchiny/mcp-legifrance/releases/download/v0.1.0/mcp-legifrance-installer.sh | sh
 ```
 
 ```powershell
 # Windows — esquisse
-powershell -c "irm https://github.com/muchiny/mcp-ligitfrance/releases/download/v0.1.0/lf-app-installer.ps1 | iex"
+powershell -c "irm https://github.com/muchiny/mcp-legifrance/releases/download/v0.1.0/mcp-legifrance-installer.ps1 | iex"
 ```
 
 - **Répertoire d'installation proposé : `~/.mcp-legifrance/bin`** au lieu du défaut `CARGO_HOME` (`~/.cargo/bin`, `reference/config.md:865-908`). Le public juriste n'a pas de toolchain Rust, et un `~/.cargo/bin` créé pour l'occasion serait trompeur. Le chemin cascade `["$VAR/bin", "~/…"]` impliquerait une nouvelle variable d'environnement, absente de 00 §1 : on s'en abstient.
@@ -276,7 +276,7 @@ powershell -c "irm https://github.com/muchiny/mcp-ligitfrance/releases/download/
 
 - `dist plan` : ce que la CI construira, sans rien compiler ; exécuté sur chaque PR (`pr-run-mode = "plan"`, `reference/config.md:1420-1437`).
 - `dist build` : artefacts de la plateforme locale.
-- Spikes M0 : une PR dédiée passe temporairement en `pr-run-mode = "upload"` pour construire les 7 cibles avec chacune des deux options TLS, et avec la signature en mode test si un compte existe (`ssldotcom-windows-sign = "test"` ou profil Azure « Public Trust Test », book `supplychain-security/signing/windows.md`).
+- Spikes TLS (tâche 0 de M2, 00 §11.1) : une PR dédiée passe temporairement en `pr-run-mode = "upload"` pour construire les 7 cibles avec chacune des deux options TLS, et avec la signature en mode test si un compte existe (`ssldotcom-windows-sign = "test"` ou profil Azure « Public Trust Test », book `supplychain-security/signing/windows.md`).
 
 ---
 
@@ -347,9 +347,9 @@ powershell -c "irm https://github.com/muchiny/mcp-ligitfrance/releases/download/
 - Conditions : dépôt public, ou dépôt privé d'une organisation GitHub Enterprise ; les attestations d'un dépôt public sont inscrites dans le journal public Rekor de Sigstore (book `supplychain-security/attestations/github.md`).
 - Vérification par l'utilisateur, documentée dans le README :
   ```sh
-  gh attestation verify lf-app-x86_64-unknown-linux-musl.tar.xz --repo muchiny/mcp-ligitfrance
-  gh attestation verify mcp-legifrance-0.1.0.mcpb --repo muchiny/mcp-ligitfrance
-  gh attestation verify oci://ghcr.io/muchiny/mcp-legifrance:0.1.0 --repo muchiny/mcp-ligitfrance
+  gh attestation verify mcp-legifrance-x86_64-unknown-linux-musl.tar.xz --repo muchiny/mcp-legifrance
+  gh attestation verify mcp-legifrance-0.1.0.mcpb --repo muchiny/mcp-legifrance
+  gh attestation verify oci://ghcr.io/muchiny/mcp-legifrance:0.1.0 --repo muchiny/mcp-legifrance
   ```
 - Niveau SLSA atteint (prédicat de provenance SLSA v1 ; niveau de build 2 ou 3 selon l'usage de workflows réutilisables) et entrées exactes d'`actions/attest@v4` pour une image OCI : **NON VÉRIFIÉ** [v:slsa-niveau-attestations]. Le plan ne revendique aucun niveau SLSA tant que ce point n'est pas vérifié.
 
@@ -433,14 +433,14 @@ mcp-legifrance-0.1.0.mcpb          # ZIP (mcpb pack), construit sous Linux
   "description": "Unofficial MCP server for French law via the Légifrance API (PISTE): search, read and cite texts.",
   "long_description": "Search and read French legislation, codes and case law from Légifrance through the official PISTE API, with stable citations and source URLs. Requires your own free PISTE application credentials. Not affiliated with or endorsed by DILA.",
   "author": { "name": "<mainteneur, à compléter>", "url": "https://github.com/muchiny" },
-  "repository": { "type": "git", "url": "https://github.com/muchiny/mcp-ligitfrance.git" },
-  "homepage": "https://github.com/muchiny/mcp-ligitfrance",
-  "support": "https://github.com/muchiny/mcp-ligitfrance/issues",
+  "repository": { "type": "git", "url": "https://github.com/muchiny/mcp-legifrance.git" },
+  "homepage": "https://github.com/muchiny/mcp-legifrance",
+  "support": "https://github.com/muchiny/mcp-legifrance/issues",
   "icon": "icon.png",
   "license": "Apache-2.0",
   "keywords": ["legifrance", "law", "france", "legal", "jurisprudence"],
   "privacy_policies": [
-    "https://github.com/muchiny/mcp-ligitfrance/blob/main/PRIVACY.md",
+    "https://github.com/muchiny/mcp-legifrance/blob/main/PRIVACY.md",
     "<URL de la politique de données personnelles DILA/PISTE>"
   ],
   "compatibility": { "platforms": ["darwin", "win32", "linux"] },
@@ -497,7 +497,7 @@ Lanceur `server/launcher` (aucune écriture sur stdout, conformément au transpo
 
 ```sh
 #!/bin/sh
-# Lanceur MCPB de mcp-legifrance — esquisse, à valider en M0.
+# Lanceur MCPB de mcp-legifrance — esquisse, à valider au jalon qui l'implémente.
 # Choisit le binaire natif ; stdin/stdout restent ceux du client MCP (exec).
 set -eu
 d=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -546,7 +546,7 @@ La sonde moderne `server/discover`, dont la forme exacte est donnée dans l'[ann
 
 ### 4.7 Points d'attention
 
-- Le nom du fichier et l'URL contiennent « mcp », comme l'exige le registre (`registry/internal/validators/registries/mcpb.go:52-55`) : le fichier s'appelle `mcp-legifrance-*`, et le dépôt `mcp-ligitfrance` le contient aussi.
+- Le nom du fichier et l'URL contiennent « mcp », comme l'exige le registre (`registry/internal/validators/registries/mcpb.go:52-55`) : le fichier s'appelle `mcp-legifrance-*`, et le dépôt `mcp-legifrance` (renommé le 2026-10-16) le contient aussi.
 - Taille : cinq binaires, à mesurer au spike [v:taille-binaire]. Si le bundle devient trop lourd, le binaire universel macOS (§4.1) supprime une copie.
 - Claude Code accepte aussi des bundles `.mcpb` embarqués dans un plugin, configurables à l'installation (`claude plugin install --config <server>.<key>=<value>`, CHANGELOG Claude Code `:1199`, `:1246`). C'est un canal possible plus tard, non retenu en v0.1 (§12.2).
 - Claude Desktop n'est pas distribué officiellement pour Linux : **NON VÉRIFIÉ** [v:desktop-linux]. Le bundle garde pourtant la partie Linux, utile aux autres clients MCPB comme les plugins de Claude Code.
@@ -567,7 +567,7 @@ La sonde moderne `server/discover`, dont la forme exacte est donnée dans l'[ann
 
 ```dockerfile
 # syntax=docker/dockerfile:1
-# packaging/oci/Dockerfile — esquisse non exécutée, à valider en M0.
+# packaging/oci/Dockerfile — esquisse non exécutée, à valider au jalon qui l'implémente.
 # Contexte de build : racine du dépôt. Images épinglées par digest [v:images-oci-base].
 ARG RUST_IMAGE=docker.io/library/rust:1.99.0-slim-bookworm@sha256:<digest>
 ARG RUNTIME_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:<digest>
@@ -578,13 +578,13 @@ FROM ${RUST_IMAGE} AS bin-source
 RUN apt-get update \
  && apt-get install -y --no-install-recommends musl-tools \
  && rm -rf /var/lib/apt/lists/*
-# + paquets exigés par le fournisseur TLS retenu au spike M0 (cmake, clang…) [v:tls-fournisseur-cross]
+# + paquets exigés par le fournisseur TLS retenu au spike TLS (cmake, clang…) [v:tls-fournisseur-cross]
 WORKDIR /src
 COPY . .
 RUN set -eu; \
     case "$(uname -m)" in x86_64) T=x86_64-unknown-linux-musl;; aarch64) T=aarch64-unknown-linux-musl;; esac; \
     rustup target add "$T"; \
-    RUSTFLAGS="-C target-feature=+crt-static" cargo build --locked --profile dist --target "$T" -p lf-app; \
+    RUSTFLAGS="-C target-feature=+crt-static" cargo build --locked --profile dist --target "$T" -p mcp-legifrance; \
     cp "target/$T/dist/mcp-legifrance" /mcp-legifrance
 
 # --- Binaire de la release (CI) ---------------------------------------------
@@ -603,7 +603,7 @@ LABEL io.modelcontextprotocol.server.name="io.github.muchiny/mcp-legifrance" \
       org.opencontainers.image.description="Unofficial MCP server for French law (Légifrance API via PISTE)" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
-      org.opencontainers.image.source="https://github.com/muchiny/mcp-ligitfrance" \
+      org.opencontainers.image.source="https://github.com/muchiny/mcp-legifrance" \
       org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=bin --chmod=0755 /mcp-legifrance /usr/local/bin/mcp-legifrance
 COPY LICENSE NOTICE THIRD_PARTY_LICENSES.md /usr/share/doc/mcp-legifrance/
@@ -626,7 +626,7 @@ Notes :
 
 Le workflow réutilisable `publish-oci`, déclaré dans `publish-jobs`, s'exécute après `host` : la release est alors publique (`release.yml.j2:692-701`).
 
-1. `gh release download "$TAG" --pattern 'lf-app-*-unknown-linux-musl.tar.xz*' --pattern sha256.sum`, puis `sha256sum -c` et `gh attestation verify` sur chaque archive.
+1. `gh release download "$TAG" --pattern 'mcp-legifrance-*-unknown-linux-musl.tar.xz*' --pattern sha256.sum`, puis `sha256sum -c` et `gh attestation verify` sur chaque archive.
 2. Extraction vers `packaging/oci/prebuilt/{amd64,arm64}/mcp-legifrance`.
 3. `docker buildx build --platform linux/amd64,linux/arm64 --build-arg BIN_STAGE=bin-prebuilt --build-arg VERSION=… --build-arg REVISION=… -f packaging/oci/Dockerfile -t ghcr.io/muchiny/mcp-legifrance:<X.Y.Z> -t …:<X.Y> --push .`. Aucune étape `RUN` dans le chemin « prebuilt » : l'émulation QEMU est inutile.
 4. Contrôles après publication, par lecture anonyme du manifeste : label `io.modelcontextprotocol.server.name` présent sur **chaque** plateforme, utilisateur 65532, taille. Test fumée `docker run -i --rm` avec la requête du §4.5.
@@ -657,9 +657,9 @@ docker run -i --rm \
 
 ### 6.1 Nom et namespace
 
-- **Nom** : `io.github.muchiny/mcp-legifrance` (00 §12). Il dépend de Q1 pour le propriétaire GitHub, pas pour le dépôt : l'authentification GitHub accorde `io.github.<utilisateur>/*`, quel que soit le dépôt (`registry/docs/modelcontextprotocol-io/authentication.mdx:12-18`, `:50-54`). Format : DNS inversé, un seul `/`, motif `^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$` (recherche 06 §9.1).
-- **Renommage du dépôt (Q1)** : à faire **avant la première publication**. Les versions publiées sont immuables et leurs URL MCPB pointeraient sinon vers l'ancien nom. GitHub redirige, et le validateur MCPB accepte une redirection 3xx avec `Location` au premier saut (`mcpb.go:84-91`), mais les clients ne suivent pas forcément cette redirection : mieux vaut ne pas en dépendre.
-- **`repository.id`** : l'identifiant GitHub du dépôt, stable lors d'un renommage. Il sert à détecter la « résurrection » d'un dépôt supprimé puis recréé (`server.schema.json`, `Repository.id` ; `gh api repos/muchiny/mcp-ligitfrance --jq .id`).
+- **Nom** : `io.github.muchiny/mcp-legifrance` (00 §12). Q1 est décidée ; il dépend du propriétaire GitHub, pas du dépôt : l'authentification GitHub accorde `io.github.<utilisateur>/*`, quel que soit le dépôt (`registry/docs/modelcontextprotocol-io/authentication.mdx:12-18`, `:50-54`). Format : DNS inversé, un seul `/`, motif `^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$` (recherche 06 §9.1).
+- **Renommage du dépôt (Q1, décidée le 2026-10-16)** : `mcp-ligitfrance` devient `mcp-legifrance`, **avant la première publication** (livré : `Cargo.toml:11`, `README.md:1`). Les versions publiées sont immuables et leurs URL MCPB pointeraient sinon vers l'ancien nom. GitHub redirige l'ancien nom (dépôt privé, sans tag ni release), et le validateur MCPB accepte une redirection 3xx avec `Location` au premier saut (`mcpb.go:84-91`), mais les clients ne suivent pas forcément cette redirection : mieux vaut ne pas en dépendre.
+- **`repository.id`** : l'identifiant GitHub du dépôt, stable lors d'un renommage. Il sert à détecter la « résurrection » d'un dépôt supprimé puis recréé (`server.schema.json`, `Repository.id` ; `gh api repos/muchiny/mcp-legifrance --jq .id`).
 
 ### 6.2 `server.json` proposé
 
@@ -672,16 +672,16 @@ Le fichier est versionné à la racine (02 §2). Le `fileSha256` provisoire (64 
   "title": "Légifrance (unofficial)",
   "description": "Unofficial MCP server for French law via the Légifrance API (PISTE): search, read and cite texts.",
   "version": "0.1.0",
-  "websiteUrl": "https://github.com/muchiny/mcp-ligitfrance#readme",
+  "websiteUrl": "https://github.com/muchiny/mcp-legifrance#readme",
   "repository": {
-    "url": "https://github.com/muchiny/mcp-ligitfrance",
+    "url": "https://github.com/muchiny/mcp-legifrance",
     "source": "github",
-    "id": "<gh api repos/muchiny/mcp-ligitfrance --jq .id>"
+    "id": "<gh api repos/muchiny/mcp-legifrance --jq .id>"
   },
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/muchiny/mcp-ligitfrance/releases/download/v0.1.0/mcp-legifrance-0.1.0.mcpb",
+      "identifier": "https://github.com/muchiny/mcp-legifrance/releases/download/v0.1.0/mcp-legifrance-0.1.0.mcpb",
       "version": "0.1.0",
       "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "transport": { "type": "stdio" },
@@ -700,7 +700,7 @@ Le fichier est versionné à la racine (02 §2). Le `fileSha256` provisoire (64 
     {
       "registryType": "cargo",
       "registryBaseUrl": "https://crates.io",
-      "identifier": "lf-app",
+      "identifier": "mcp-legifrance",
       "version": "0.1.0",
       "transport": { "type": "stdio" },
       "environmentVariables": [ "… mêmes trois entrées …" ]
@@ -751,13 +751,13 @@ Rendu en `<code>mcp-name: io.github.muchiny/mcp-legifrance</code>`, le jeton est
 
 Il s'ajoute au test `readme_mentions_only_supported_env_vars` (D-42), qui doit tolérer les noms `FR_ELI_*` documentés comme compatibilité.
 
-**Publication des crates.** crates.io n'accepte pas de dépendance `path` seule, hors dev-dependencies (doc Cargo `specifying-dependencies.md`, « Multiple locations »). `cargo install lf-app` exige donc de publier **les sept crates** `lf-domain`, `lf-application`, `lf-adapter-piste`, `lf-adapter-cache`, `lf-adapter-audit`, `lf-adapter-mcp` et `lf-app`. Cela explique le `version = "=0.1.0"` des dépendances internes de 02 §3.0.2. Faits et conditions :
+**Publication des crates.** crates.io n'accepte pas de dépendance `path` seule, hors dev-dependencies (doc Cargo `specifying-dependencies.md`, « Multiple locations »). `cargo install mcp-legifrance` exige donc de publier **les sept crates** `lf-domain`, `lf-application`, `lf-adapter-piste`, `lf-adapter-cache`, `lf-adapter-audit`, `lf-adapter-mcp` et `mcp-legifrance` (répertoire `crates/lf-app`). Cela explique le `version = "=0.1.0"` des dépendances internes de 02 §3.0.2. Faits et conditions :
 - Ces noms, ainsi que `mcp-legifrance`, sont **absents** de l'index sparse crates.io au 2026-10-15 (réponse 404 pour chaque chemin, contrôle fait avec `rmcp` et `serde` qui répondent 200). Ils peuvent être pris d'ici la première publication.
 - Ordre topologique : `cargo publish --workspace`, qui gère l'ordre des dépendances internes avec la toolchain épinglée, est **NON VÉRIFIÉ** [v:cargo-publish-workspace]. À défaut, une boucle ordonnée de `cargo publish -p`.
 - Limites de débit de crates.io pour la création de nouveaux crates (sept d'un coup) : **NON VÉRIFIÉ** [v:crates-io-limites-publication]. Le job réessaie avec attente, ou la v0.1.0 est publiée une première fois à la main.
 - Authentification : publication de confiance (OIDC GitHub) si crates.io la propose, sinon jeton `CARGO_REGISTRY_TOKEN` restreint à la publication et stocké dans l'environnement `release` : **NON VÉRIFIÉ** [v:crates-io-trusted-publishing].
 - Les crates bibliothèques ne promettent aucune stabilité d'API (`description` explicite, §2.3). Seul le binaire et sa surface MCP suivent la politique SemVer du §7.1.
-- **Si ces conditions ne sont pas réunies**, l'entrée `cargo` est retirée de `server.json`, ce qui reste possible dans une version ultérieure. Le README documente alors `cargo install --git https://github.com/muchiny/mcp-ligitfrance --tag vX.Y.Z --locked lf-app`.
+- **Décision (2026-10-16)** : la publication sur crates.io n'est pas tranchée avant M5 ; d'ici là `publish = false` et version `0.0.0`. Le seul risque à attendre est qu'un tiers prenne les noms (réservation anticipée possible, point 3 du §12.2). **Si ces conditions ne sont pas réunies**, l'entrée `cargo` est retirée de `server.json`, ce qui reste possible dans une version ultérieure. Le README documente alors `cargo install --git https://github.com/muchiny/mcp-legifrance --tag vX.Y.Z --locked mcp-legifrance`.
 
 ### 6.5 Publication (job `publish-mcp-registry`)
 
@@ -765,7 +765,7 @@ Le workflow réutilisable est déclaré dans `post-announce-jobs` : il s'exécut
 
 1. **Préversion → arrêt.** Si `plan.announcement_is_prerelease` est vrai, le job s'arrête : les jobs post-annonce n'ont pas le garde-fou automatique des jobs de publication (`release.yml.j2:701`).
 2. Télécharger les assets `server.json`, `mcp-legifrance-<v>.mcpb` et `.sha256` de la release ; vérifier que `sha256(mcpb)` égale `fileSha256` ; vérifier `gh attestation verify` sur les deux fichiers.
-3. Vérifier les prérequis du §6.3 sans le registre : l'URL du MCPB répond 200 ou 302 à un HEAD ; le label de l'image se lit en anonyme ; `GET https://crates.io/api/v1/crates/lf-app/<v>` répond 200 si l'entrée `cargo` existe.
+3. Vérifier les prérequis du §6.3 sans le registre : l'URL du MCPB répond 200 ou 302 à un HEAD ; le label de l'image se lit en anonyme ; `GET https://crates.io/api/v1/crates/mcp-legifrance/<v>` répond 200 si l'entrée `cargo` existe.
 4. Installer `mcp-publisher` à la version épinglée (v1.8.1 au 2026-10-15) et vérifier sa somme (§3.7).
 5. `mcp-publisher validate server.json`, qui fait une validation exhaustive (schéma, sémantique, linter) (`docs/reference/cli/commands.md`, `validate`).
 6. `mcp-publisher login github-oidc`, puis `mcp-publisher publish server.json` (`commands.md`, `login`, `publish`).
@@ -871,10 +871,10 @@ Chaque workflow réutilisable reçoit le plan de dist en entrée `plan` (book `c
 
 ### 7.5 Vérifications avant publication (`release-gates`)
 
-Esquisse du workflow réutilisable (SHA d'actions à compléter en M0) :
+Esquisse du workflow réutilisable (SHA d'actions à compléter, cf. M1-D15) :
 
 ```yaml
-# .github/workflows/release-gates.yml — esquisse non exécutée, à valider en M0
+# .github/workflows/release-gates.yml — esquisse non exécutée, à valider au jalon qui l'implémente
 name: release-gates
 on:
   workflow_call:
@@ -892,7 +892,7 @@ jobs:
       - name: Tag = version du workspace
         run: |
           TAG="${GITHUB_REF_NAME}"                 # workflow appelé depuis release.yml, déclenché par le tag
-          VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="lf-app") | .version')"
+          VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="mcp-legifrance") | .version')"
           test "$TAG" = "v$VERSION"
       - name: Verrou, versions alignées (verrou, crate, server.json, manifeste MCPB), surface
         run: |
@@ -907,7 +907,7 @@ jobs:
           cargo clippy --workspace --all-targets --locked -- -D warnings
           cargo nextest run --workspace --locked --profile ci
           cargo test --doc --workspace --locked
-          cargo xtask check-deps
+          cargo xtask check-arch
           cargo deny check
       - name: Documentation et licences
         run: |
@@ -919,6 +919,8 @@ jobs:
       - name: Crates publiables (si canal cargo retenu)
         run: cargo publish --workspace --dry-run --locked   # [v:cargo-publish-workspace]
 ```
+
+Les extraits `cargo nextest`, `dtolnay/rust-toolchain@stable` et l'absence de couverture et de mutation sont des esquisses : le dépôt livré exécute `make ci` (`check-arch`, couverture) et la mutation du diff (job `mutants`) de 00 §10 et la toolchain sera épinglée sur 1.99.0 en tâche de tête de M2 ; la matrice et `.config/nextest.toml` (`--profile ci`) démarrent en M2 (00 §11.1), l'alignement de `release-gates` se fait à ce moment.
 
 Ces vérifications reprennent la CI de [06-qualite.md](06-qualite.md) sur le commit tagué. Le job `release-plan` de 06 §7.1 exécute `dist plan` sur les PR qui touchent la distribution ; `release-gates` en est le pendant au moment du tag. Elles ajoutent les contrôles propres à la release : tag, versions, `--compare`, CHANGELOG, jeton README, licences tierces, `server.json`, crates publiables.
 
@@ -1108,17 +1110,17 @@ Le client pose les variables sur le processus `docker`, qui les transmet par `-e
 
 ### 9.1 Licence du code (Q2)
 
-- **Apache-2.0** (proposition par défaut de Q2) : `license = "Apache-2.0"` dans `[workspace.package]`, hérité par tous les crates ; `LICENSE` à la racine (texte intégral) ; en-tête SPDX facultatif `// SPDX-License-Identifier: Apache-2.0`.
+- **Apache-2.0** (Q2 décidée le 2026-10-16 ; déjà dans `LICENSE`, `NOTICE` et `Cargo.toml:10`) : `license = "Apache-2.0"` dans `[workspace.package]`, hérité par tous les crates ; `LICENSE` à la racine (texte intégral) ; en-tête SPDX facultatif `// SPDX-License-Identifier: Apache-2.0`.
 - C'est la licence de la référence (`pyproject.toml:10` ; `LICENSE`). La réécriture reste dans la même famille, ce qui simplifie la reprise de ses fixtures et de certains textes (§9.2).
 - Contributions : licence entrante = licence sortante, sans accord de contributeur (Apache-2.0 §5), avec une mention dans `CONTRIBUTING.md`.
 
-### 9.2 Fichier `NOTICE` proposé
+### 9.2 Fichier `NOTICE`
 
-Le `LICENSE` de la référence ne porte aucune ligne de copyright (gabarit de l'annexe non rempli), et la référence n'a pas de `NOTICE`. Ses auteurs déclarés sont « Matematic Solutions » et « Wieslaw Mazur » (`pyproject.toml:12-15` ; auteur du commit `d3b5b13`). Le titulaire exact des droits est **NON VÉRIFIÉ** [v:titulaire-droits-reference].
+Le `LICENSE` de la référence ne porte aucune ligne de copyright (gabarit de l'annexe non rempli), et la référence n'a pas de `NOTICE`. Ses auteurs déclarés sont « Matematic Solutions » et « Wieslaw Mazur » (`pyproject.toml:12-15` ; auteur du commit `d3b5b13`). Le titulaire du `NOTICE` du présent projet est « Loïc Wernert » (confirmé le 2026-10-16, livré dans `NOTICE:2`). Le titulaire exact des droits de la référence reste **NON VÉRIFIÉ** [v:titulaire-droits-reference] (V-214, ouverte).
 
 ```text
 mcp-legifrance
-Copyright 2026 <titulaire à confirmer> et les contributeurs de mcp-legifrance.
+Copyright 2026 Loïc Wernert
 
 Ce produit est distribué sous la licence Apache, version 2.0 (fichier LICENSE).
 
@@ -1180,8 +1182,8 @@ Projets concernés (recherche 05 §0) : **juridix** (`Ktulu-Analog/juridix`, cli
 ### 9.6 Nom et image : « Légifrance »
 
 - « Légifrance » désigne le service public de diffusion du droit de la DILA. Le produit s'appelle `mcp-legifrance` (00 §1). Pour respecter la Licence Ouverte (pas d'aval suggéré) et éviter toute confusion : les titres affichés portent « (unofficial) » (`server.json.title`, `display_name` du MCPB) ; la description commence par « Unofficial » ; le README affiche la mention de non-affiliation en tête ; **aucun logo** Légifrance, Marianne ou charte de l'État (l'icône est propre au projet).
-- Le statut de marque éventuel de « Légifrance » et les conditions d'usage du nom sont **NON VÉRIFIÉS** [v:marque-legifrance], à traiter avec Q1.
-- **Homonymie** : le projet AGPL de Ktulu-Analog s'appelle déjà `mcp-legifrance` (recherche 05 §0). Les namespaces du registre (`io.github.muchiny/…`) et de GHCR évitent tout conflit technique, mais pas la confusion pour les utilisateurs : point ajouté à Q1 (§12.2).
+- Le statut de marque éventuel de « Légifrance » et les conditions d'usage du nom sont **NON VÉRIFIÉS** [v:marque-legifrance], à traiter avec Q1 (nom retenu, 2026-10-16).
+- **Homonymie** : le projet AGPL de Ktulu-Analog s'appelle déjà `mcp-legifrance` (recherche 05 §0). Les namespaces du registre (`io.github.muchiny/…`) et de GHCR évitent tout conflit technique, mais pas la confusion pour les utilisateurs : point ajouté à Q1, décidée (§12.2).
 
 ### 9.7 CGU PISTE : clés et partage
 
@@ -1211,13 +1213,13 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 
 ## 10. Jalons et critères d'acceptation
 
-**M0 — Fondations**
+**M0 — Fondations** (livré, plan 1 ; reports en 00 §11.1)
 
-- [ ] `dist init` exécuté ; `dist-workspace.toml` (§2.2) et `[profile.dist]` versionnés ; `dist plan` vert en PR.
-- [ ] Spike TLS : options A et B construites par dist pour les 7 cibles (`pr-run-mode = "upload"` temporaire) ; tailles mesurées ; choix consigné dans ADR-0013 ([v:tls-fournisseur-cross], [v:taille-binaire]).
-- [ ] `LICENSE`, `NOTICE` (§9.2), `PRIVACY.md`, `SECURITY.md`, `about.toml`, liste blanche cargo-deny (§9.3).
-- [ ] Q1 (nom, renommage du dépôt), Q2 (licence) et Q5 (certificats) tranchées ; disponibilité des noms crates.io revérifiée.
-- [ ] SHA des actions relevés (`github-action-commits`) ; version et somme de `mcp-publisher` épinglées.
+- [ ] `dist init` : **M4** (00 §11.1) ; puis `dist-workspace.toml` (§2.2) et `[profile.dist]` versionnés, `dist plan` vert en PR.
+- [ ] Spike TLS : options A et B construites par dist pour les 7 cibles (`pr-run-mode = "upload"` temporaire) ; tailles mesurées ; choix consigné dans ADR-0013 ([v:tls-fournisseur-cross], [v:taille-binaire]) : **tâche 0 de M2**.
+- [x] `LICENSE`, `NOTICE` (§9.2) livrés. [ ] `PRIVACY.md`, `SECURITY.md` (hygiène, tout de suite), `about.toml`, liste blanche cargo-deny (§9.3 ; licences élargies en M2, M1-D17).
+- [x] Q1 (nom `mcp-legifrance`) et Q2 (Apache-2.0, titulaire « Loïc Wernert ») tranchées le 2026-10-16. [ ] Q5 (certificats) ; disponibilité des noms crates.io revérifiée avant M5.
+- [ ] SHA des actions relevés (`github-action-commits`, M1-D15, en retard) ; version et somme de `mcp-publisher` épinglées.
 
 **M4 — le binaire existe**
 
@@ -1230,7 +1232,7 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 - [ ] Signatures selon Q5 (§3.8) : `Get-AuthenticodeSignature` = `Valid`, notarisation `Accepted` ; sinon avertissement en tête du README et des notes.
 - [ ] MCPB installé et utilisé dans Claude Desktop sous macOS et Windows ([v:mcpb-multi-architecture], [v:desktop-structured-content]).
 - [ ] Image `ghcr.io/muchiny/mcp-legifrance:0.1.0` multi-architecture, publique, non root, label présent sur chaque plateforme, test fumée en conteneur ([v:oci-racines-tls]).
-- [ ] Crates publiés si le canal cargo est retenu (§6.4) ; `cargo install lf-app --locked` fonctionne sur les trois OS.
+- [ ] Crates publiés si le canal cargo est retenu (§6.4) ; `cargo install mcp-legifrance --locked` fonctionne sur les trois OS.
 - [ ] `server.json` publié au registre ; `mcp-publisher` sans erreur ; serveur visible sous son nom.
 - [ ] README : installation par canal, configuration des clients (§8, testée au moins dans Claude Code et VS Code), hôtes contactés, jeton `mcp-name`, note de migration ([annexes/A-parite.md](annexes/A-parite.md) §6), mentions de licence (§9.5, §9.6) ; CHANGELOG `0.1.0`.
 
@@ -1306,7 +1308,7 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 
 | # | Sources | Divergence | Appliqué ici | Recommandation |
 |---|---|---|---|---|
-| 1 | 00 §2 (paquet `lf-app`) ; cargo-dist (`tasks.rs:1323`, `:1397`, `:2063`, `:2313`) | dist nomme archives et installeurs d'après le **paquet** : `lf-app-<triple>.tar.xz`, `lf-app-installer.sh`. L'identifiant crates.io et la commande `cargo install` sont aussi `lf-app`, alors que le produit s'appelle `mcp-legifrance` (00 §1) | noms `lf-app-*` et `cargo install lf-app` | arbitrer avec Q1 : soit renommer le **paquet** `lf-app` en `mcp-legifrance` (répertoire `crates/lf-app` inchangé, binaire inchangé), soit accepter ces noms. Recommandation : renommer le paquet |
+| 1 | 00 §2 ; cargo-dist (`tasks.rs:1323`, `:1397`, `:2063`, `:2313`) | dist nomme archives et installeurs d'après le **paquet** ; sans renommage ils seraient `lf-app-<triple>.tar.xz`, `lf-app-installer.sh`, et `cargo install lf-app` | noms `lf-app-*` | **décidé le 2026-10-16 (C6), en M4** : le **paquet** `lf-app` devient `mcp-legifrance` (répertoire `crates/lf-app` et binaire inchangés) ; archives, installeurs et `cargo install mcp-legifrance` en découlent |
 | 2 | 00 §12 (`cargo install` possible) ; doc Cargo (pas de dépendance `path` seule sur crates.io) | le canal cargo impose de publier les **sept** crates `lf-*`, avec obligations de nommage et de débit (§6.4) | publication des sept crates avec description « composant interne » ; entrée `cargo` conditionnelle | confirmer que le canal cargo vaut ce coût ; sinon `cargo install --git` documenté, sans entrée `cargo` au registre |
 | 3 | 00 §12 (notarisation macOS) ; cargo-dist 0.33.0 (`sign/macos.rs:21`, book `supplychain-security/index.md:12`) | dist signe (option expérimentale) mais ne notarise pas | notarisation par un job personnalisé (§3.3) | conserver ; suivre les évolutions de dist |
 | 4 | 00 §12 (Authenticode) ; cargo-dist (`reference/config.md:353-414`) | dist ne signe qu'avec SSL.com ou Azure Artifact Signing, sur HSM en nuage ; un autre fournisseur imposerait une signature hors de dist | choix laissé à Q5 entre ces deux fournisseurs | compléter Q5 : « certificat chez SSL.com ou Azure Artifact Signing » |
@@ -1325,15 +1327,15 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 
 ### 12.2 Questions ouvertes
 
-1. **Q1, élargie** : renommer le dépôt **avant** la première publication (URL MCPB immuables) ; renommer le paquet `lf-app` en `mcp-legifrance` (§12.1, point 1) ; homonymie avec le projet AGPL `Ktulu-Analog/mcp-legifrance` ; statut du nom « Légifrance » ([v:marque-legifrance]).
+1. **Q1, DÉCIDÉE le 2026-10-16** (dépôt renommé `mcp-legifrance`) ; élargie : renommer le dépôt **avant** la première publication (URL MCPB immuables) ; renommer le paquet `lf-app` en `mcp-legifrance` (§12.1, point 1, en M4 : le paquet devient `mcp-legifrance` sans changer le répertoire ni le binaire) ; homonymie avec le projet AGPL `Ktulu-Analog/mcp-legifrance` ; statut du nom « Légifrance » ([v:marque-legifrance]).
 2. **Q5, précisée** : fournisseur Windows (Azure Artifact Signing ou SSL.com eSigner) et éligibilité ; compte Apple Developer pour la signature et la notarisation ; sans certificat, accepter des binaires Windows non signés avec repli OCI/WSL.
-3. **Canal cargo** : publier les sept crates (et réserver les noms tôt), ou se limiter à `cargo install --git` sans entrée `cargo` au registre ?
+3. **Canal cargo** (non tranché avant M5, 00 §12 ; livré : `publish = false`, version 0.0.0) : publier les sept crates (et réserver les noms tôt), ou se limiter à `cargo install --git` sans entrée `cargo` au registre ?
 4. **MCPB** : bundle unique avec lanceur (proposé) ou binaire universel macOS ? Publier aussi des bundles par architecture ? Signer le bundle, et avec quel certificat ?
 5. **Registres OCI** : `ghcr.io` seul (proposé), ou aussi Docker Hub ?
 6. **Répertoire d'installation** des installeurs : `~/.mcp-legifrance/bin` (proposé) ou le défaut `~/.cargo/bin` ?
 7. **Canaux supplémentaires** après v0.1 : MSI, Homebrew, winget, plugin Claude Code embarquant le MCPB (CHANGELOG Claude Code `:1199`), annuaires tiers (Glama) ?
 8. **Préversions** : jamais au registre MCP (proposé) ; publier les `-rc` sur crates.io et GHCR ?
-9. **Titulaire du copyright** dans `NOTICE` et `LICENSE` (nom du mainteneur ou « les contributeurs de mcp-legifrance ») ([v:titulaire-droits-reference]).
+9. **Titulaire du copyright** : décidé le 2026-10-16, « Loïc Wernert » dans `NOTICE` (livré) ; le titulaire de la référence reste à vérifier ([v:titulaire-droits-reference], V-214).
 10. **Attribution Licence Ouverte** : quelle date de mise à jour exposer (annexe C, question 5 ; [v:date-maj-par-document]) ?
 
 ---

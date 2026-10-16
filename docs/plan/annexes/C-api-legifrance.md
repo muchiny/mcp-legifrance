@@ -1,11 +1,11 @@
 # Annexe C — API Légifrance (PISTE), Judilibre et dumps DILA
 
-> **Statut** : annexe de référence du plan, rédigée le 2026-10-15. Elle décrit l'API Légifrance telle que la documentent le Swagger 2.4.2 et les documents de la DILA, et telle que l'observent les 16 fixtures de la référence Python. Elle est subordonnée à [00-decisions.md](../00-decisions.md). Les choix de conception de l'adapter (classification des erreurs, réessais, mémo de pagination, mapping) relèvent de [04-adapter-piste.md](../04-adapter-piste.md), qui s'appuie sur cette annexe. En cas d'écart, 00 prévaut, puis 04 ; l'écart est signalé au §9.
+> **Statut** : annexe de référence du plan, rédigée le 2026-10-15. Elle décrit l'API Légifrance telle que la documentent le Swagger 2.4.2 et les documents de la DILA, et telle que l'observent les 16 fixtures de la référence Python. Elle est subordonnée à [00-decisions.md](../00-decisions.md). Les choix de conception de l'adapter (classification des erreurs, réessais, mémo de pagination, mapping) relèvent de [04-adapter-piste.md](../04-adapter-piste.md), qui s'appuie sur cette annexe. En cas d'écart, 00 prévaut, puis 04 ; l'écart est signalé au §9. M0-M1 sont livrés (plan 1) : pour le domaine (`CivilDate`, `Id<K>`, `Fond`), le code livré fait foi et les écarts sont en 00 §11.1 ; les points reportés par la décision du 2026-10-16 (suffixe de version, TOC en arbre `TocNode` avec renommage du `TocEntry` livré en `TocArticle`, `text::encoding`) sont des tâches de tête de M2.
 > **Jalons** : M2 (7 endpoints de v0.1), M5 (pagination vérifiée en direct), M6 (résolution), M7 (navigation), M9 (dumps DILA). Judilibre : hors périmètre jusqu'à décision (§6.6).
 > **Lecteurs** : développeurs de `lf-adapter-piste` et de `lf-adapter-dila`, auteurs des tests wiremock et des smoke tests live, et toute personne qui doit savoir ce que l'API permet sans accès au portail PISTE.
-> **Conventions** : « VÉRIFIÉ » signifie lu dans une source primaire (Swagger, document DILA, CGU, fixture enregistrée) ; « tiers » signifie observé dans le code d'un client tiers, sans recoupement ; **NON VÉRIFIÉ** suivi d'une étiquette `[v:…]` signifie à confirmer (registre `V-xx` dans [09-risques-et-questions.md](../09-risques-et-questions.md), liste au §8). Les extraits Rust sont **non compilés, à valider en M0**. Dans les corps de requête, les champs requis par le Swagger sont en **gras**.
+> **Conventions** : « VÉRIFIÉ » signifie lu dans une source primaire (Swagger, document DILA, CGU, fixture enregistrée) ; « tiers » signifie observé dans le code d'un client tiers, sans recoupement ; **NON VÉRIFIÉ** suivi d'une étiquette `[v:…]` signifie à confirmer (registre `V-xx` dans [09-risques-et-questions.md](../09-risques-et-questions.md), liste au §8). Les extraits Rust sont **non compilés, à valider au jalon qui l'implémente**. Dans les corps de requête, les champs requis par le Swagger sont en **gras**.
 
-Documents liés : [00-decisions.md](../00-decisions.md) §4, §5, §8, §11, §12 (normatif) ; [02-architecture.md](../02-architecture.md) (ports, erreurs) ; [03-domaine.md](../03-domaine.md) (identifiants, dates, `Fond`) ; [04-adapter-piste.md](../04-adapter-piste.md) (comportement de l'adapter) ; [05-outils-mcp.md](../05-outils-mcp.md) (paramètres des outils) ; [06-qualite.md](../06-qualite.md) (tests) ; [07-feuille-de-route.md](../07-feuille-de-route.md) ; [09-risques-et-questions.md](../09-risques-et-questions.md) ; [A-parite.md](A-parite.md) ; [B-citations.md](B-citations.md) ; [donnees/codes-table.md](donnees/codes-table.md) ; ADR-0004 (PISTE d'abord, DILA ensuite derrière le même port), ADR-0005, ADR-0007, ADR-0010, ADR-0011 (index : [../../adr/README.md](../../adr/README.md)). Rapports bruts : [recherche 05](../../recherche/05-piste-dila.md) et [recherche 03](../../recherche/03-dto.md).
+Documents liés : [00-decisions.md](../00-decisions.md) §4, §5, §8, §11, §12 (normatif) ; [02-architecture.md](../02-architecture.md) (ports, erreurs) ; [03-domaine.md](../03-domaine.md) (identifiants, dates, `Fond`) ; [04-adapter-piste.md](../04-adapter-piste.md) (comportement de l'adapter) ; [05-outils-mcp.md](../05-outils-mcp.md) (paramètres des outils) ; [06-qualite.md](../06-qualite.md) (tests) ; les plans exécutables de `docs/superpowers/plans/` ; [09-risques-et-questions.md](../09-risques-et-questions.md) ; [A-parite.md](A-parite.md) ; [B-citations.md](B-citations.md) ; [donnees/codes-table.md](donnees/codes-table.md) ; ADR-0004 (PISTE d'abord, DILA ensuite derrière le même port), ADR-0005, ADR-0007, ADR-0010, ADR-0011 (index : [../../adr/README.md](../../adr/README.md)). Rapports bruts : [recherche 05](../../recherche/05-piste-dila.md) et [recherche 03](../../recherche/03-dto.md).
 
 ## Sommaire
 
@@ -794,13 +794,13 @@ Règles (00 §4 ; 03-domaine §6 ; 04 §9.1) :
 
 - Tous les entiers non sentinelles sont des multiples exacts de 86 400 000 (minuit UTC) ; une seule chaîne ISO n'est pas à minuit (heure de requête KALI). La date civile UTC est donc la bonne lecture. Convention générale **NON VÉRIFIÉ** [v:convention-horaire-timestamps].
 - Toute date ≥ 2222-01-01 devient `None` : règle des champs `…Computed` du Swagger, qui couvre `2999-01-01` (fin ouverte) et `2222-02-22`. Cette seconde valeur signifie, dans les dumps DILA, « entrée en vigueur différée à une date non déterminée » (§7.8) ; son emploi par l'API est **NON VÉRIFIÉ** [v:sentinelle-2222-debut].
-- Epoch négatifs : conversion calendaire pure (`chrono::DateTime::from_timestamp_millis` utilise `div_euclid`, recherche 03 §11.2), indépendante de la plateforme (corrige D-20, E-35).
+- Epoch négatifs : conversion calendaire pure : le mapping appelle `CivilDate::from_unix_millis` (domaine, `div_euclid`, date.rs:91 ; la recherche 03 §11.2 avait relevé le même comportement dans `chrono`, historique), indépendante de la plateforme (corrige D-20, E-35).
 - Un booléen n'est jamais une date (la référence acceptait `true`, D-20).
 
 ### 4.10 Identifiants
 
 - Préfixes observés, tous suivis d'exactement **12 chiffres** : `LEGITEXT`, `JORFTEXT`, `LEGIARTI`, `LEGISCTA`, `JURITEXT`, `CONSTEXT`, `CETATEXT`, `CNILTEXT`, `KALITEXT`, `KALIARTI`, `KALISCTA`, `KALICONT`, `JORFARTI`, `ACCOTEXT`, `JURINOME`, `CETANOME` (recherche 03 §11.3). Autres préfixes du Swagger : `JORFCONT`, `JORFDOLE`. Généralité du format hors fixtures : **NON VÉRIFIÉ** [v:id-format-hors-fixtures].
-- Suffixe `_JJ-MM-AAAA` : observé seulement sur des `LEGITEXT`, dans `titles[].id` (LODA, CODE) et l'`id` de `/consult/lawDecree`. C'est la **date de début de la version** (`LEGITEXT000033205014_08-09-2023` ↔ `dateDebutVersion = 2023-09-08`). Le domaine la sépare en `VersionedId` (00 §4). Suffixe sur d'autres préfixes : **NON VÉRIFIÉ** [v:suffixe-version-autres-prefixes].
+- Suffixe `_JJ-MM-AAAA` : observé seulement sur des `LEGITEXT`, dans `titles[].id` (LODA, CODE) et l'`id` de `/consult/lawDecree`. C'est la **date de début de la version** (`LEGITEXT000033205014_08-09-2023` ↔ `dateDebutVersion = 2023-09-08`). Le domaine la sépare par `parse_versioned` (00 §4), qui vérifie que le suffixe est une vraie date, la conserve, et refuse un suffixe mal formé (`_foo`, `_` seul, `_31-02-2023`) ; `Id::parse` livré reste tolérant et jette encore le suffixe (**tâche de tête de M2**, 00 §11.1). Suffixe bien formé sur un autre préfixe que `LEGITEXT` : toléré puis retiré, tolérance documentée ; **NON VÉRIFIÉ** [v:suffixe-version-autres-prefixes].
 - `id` (version) contre `cid` (« Chronical ID », commun à toutes les versions, lexique DILA l.37-59) : LODA `cid = JORFTEXT…` ≠ `id` ; CODE `cid = LEGITEXT` sans suffixe ; ailleurs `cid = id` en recherche et `cid = null` en `/consult/juri`.
 - La juridiction et l'URL se déduisent du préfixe validé, jamais d'`origine` (00 §4, corrige D-28).
 - Identifiants dans les textes : `idArticle=(LEGIARTI\d{12})` dans les `href` KALI ; `<RECH_ECLI>ECLI:…</RECH_ECLI>` dans `texteHtml`.
@@ -835,7 +835,7 @@ Consolidation de la recherche 03 §12, alignée sur la liste de champs fixée pa
 1. **Un module par endpoint** (`dto::search`, `dto::text` pour lawDecree et kaliText, `dto::article`, `dto::juri` pour juri et cnil, `dto::acco`, `dto::oauth`, `dto::error`, puis `dto::m6`, `dto::m7`). Aucune struct partagée pour des homonymes de types différents (`signataires`).
 2. **Tolérance** : jamais `deny_unknown_fields` ; on ne déclare que les champs lus. Serde parcourt sans allouer les champs non déclarés : `facets` et `acco.data` ne sont jamais déclarés.
 3. **Tout est optionnel** : `Option<T>` + `#[serde(default)]`. Un champ à désérialiseur personnalisé **sans** `default` absent produit `missing field` : `default` est donc obligatoire avec `deserialize_with`. `Vec<T>` refuse `null` : toute liste passe par `null_default` (recherche 03 §12.1, d'après le code de serde).
-4. **Dates brutes** `RawDate` dans le DTO, converties en `NaiveDate` par le mapping (§4.9).
+4. **Dates brutes** `RawDate` dans le DTO, converties en `CivilDate` par le mapping (§4.9).
 5. **`""` → `None`** par `opt_nonempty` là où `""` signifie absent ; jamais de `trim` du texte juridique.
 6. **Renommages explicites** : `rename_all = "camelCase"` produirait `titresTm` alors que l'API envoie `titresTM` ; alias `isMultipleVersions`/`multipleVersions`.
 7. **Erreurs lisibles** : `serde_path_to_error` ; `CorpusError::Decode` cite l'endpoint, le chemin JSON et la catégorie serde, jamais une valeur (04 §8.5).
@@ -844,7 +844,7 @@ Consolidation de la recherche 03 §12, alignée sur la liste de champs fixée pa
 ### 5.2 Helpers (`dto/de.rs`)
 
 ```rust
-// non compilé, à valider en M0 — d'après la recherche 03 §12.2 et 04 §8.2
+// non compilé, à valider au jalon qui l'implémente — d'après la recherche 03 §12.2 et 04 §8.2
 use serde::{de::{self, IgnoredAny}, Deserialize, Deserializer};
 
 /// `null` ou absent -> Default (listes, maps).
@@ -892,7 +892,7 @@ La variante `Other(IgnoredAny)` rend les deux derniers helpers tolérants à un 
 ### 5.3 Requêtes
 
 ```rust
-// non compilé, à valider en M0
+// non compilé, à valider au jalon qui l'implémente
 #[derive(Serialize)] pub(crate) struct SearchRequestDto<'a> { pub fond: &'a str, pub recherche: RechercheDto<'a> }
 
 #[derive(Serialize)] #[serde(rename_all = "camelCase")]
@@ -944,10 +944,10 @@ Le passage `SCREAMING_SNAKE_CASE` donne exactement les valeurs du Swagger (`Aucu
 
 ### 5.4 Réponse `/search`
 
-Tous les champs des DTO de réponse portent `#[serde(default)]`, omis dans les extraits pour la lisibilité. Variante plus compacte, à valider en M0 : `#[derive(Default, Deserialize)]` avec `#[serde(default)]` au niveau du conteneur ; un champ absent prend alors la valeur du `Default` du conteneur, y compris s'il a un `deserialize_with` (comportement de serde_derive à confirmer par un test `missing_custom_field_is_default`).
+Tous les champs des DTO de réponse portent `#[serde(default)]`, omis dans les extraits pour la lisibilité. Variante plus compacte, à valider au jalon qui l'implémente : `#[derive(Default, Deserialize)]` avec `#[serde(default)]` au niveau du conteneur ; un champ absent prend alors la valeur du `Default` du conteneur, y compris s'il a un `deserialize_with` (comportement de serde_derive à confirmer par un test `missing_custom_field_is_default`).
 
 ```rust
-// non compilé, à valider en M0
+// non compilé, à valider au jalon qui l'implémente
 #[derive(Deserialize)] #[serde(rename_all = "camelCase")]
 pub(crate) struct SearchResponseDto {
     #[serde(deserialize_with = "de::null_default")] pub results: Vec<SearchResultDto>,
@@ -992,7 +992,7 @@ Pour un usage ultérieur des facettes (complétions, hors plan en v0.1) : `Facet
 ### 5.5 Consultations v0.1
 
 ```rust
-// non compilé, à valider en M0 — #[serde(default)] partout ; RD = Option<RawDate> via de::opt_raw_date ;
+// non compilé, à valider au jalon qui l'implémente — #[serde(default)] partout ; RD = Option<RawDate> via de::opt_raw_date ;
 // NE = Option<String> via de::opt_nonempty ; V<T> = Vec<T> via de::null_default
 // dto/text.rs — /consult/lawDecree, /consult/kaliText (et /consult/legi/tableMatieres en M7)
 pub(crate) struct ConsultTextDto {           // rename_all = "camelCase"
@@ -1071,7 +1071,7 @@ Notation abrégée pour la lisibilité : `id, cid: Option<String>` signifie un c
 
 ### 5.7 Mapping et tests
 
-Le mapping DTO → entités (`SearchHit`, `SearchPage`, `Act`, `TocNode`, `ArticleText`, `Decision`, `Deliberation`, `Convention`, `CompanyAgreement`) est fixé par 04 §9 et 03-domaine §4. Tests propres aux DTO, détaillés dans 04 §13.3 : `dto_parses_every_fixture`, `null_list_is_empty_vec`, `missing_list_is_empty_vec`, `empty_string_is_none`, `raw_date_accepts_ms_numeric_string_ymd_iso`, `sentinel_2999_and_2222_are_none`, `negative_ms_1804`, `bool_is_not_a_date`, `suffix_is_version_date`, `titres_tm_is_renamed`, `multiple_versions_alias`, `idcc_accepts_string_and_number`, `search_request_matches_reference_json`, `facets_are_never_allocated`, `acco_large_data_field_is_skipped`, fuzz « jamais de panique ». Limite de récursion de serde_json non levée : **NON VÉRIFIÉ** [v:serde-json-recursion].
+Le mapping DTO → entités (`SearchHit`, `SearchPage`, `Act`, `TocNode` (arbre ; le livré a `TocEntry`, renommé `TocArticle` en tête de M2), `ArticleText`, `Decision`, `Deliberation`, `Convention`, `CompanyAgreement`) est fixé par 04 §9 et 03-domaine §4. Tests propres aux DTO, détaillés dans 04 §13.3 : `dto_parses_every_fixture`, `null_list_is_empty_vec`, `missing_list_is_empty_vec`, `empty_string_is_none`, `raw_date_accepts_ms_numeric_string_ymd_iso`, `sentinel_2999_and_2222_are_none`, `negative_ms_1804`, `bool_is_not_a_date`, `suffix_is_version_date`, `titres_tm_is_renamed`, `multiple_versions_alias`, `idcc_accepts_string_and_number`, `search_request_matches_reference_json`, `facets_are_never_allocated`, `acco_large_data_field_is_skipped`, fuzz « jamais de panique ». Limite de récursion de serde_json non levée : **NON VÉRIFIÉ** [v:serde-json-recursion].
 
 ---
 
@@ -1359,7 +1359,7 @@ Chaque fois, la décision de 00 (ou, à défaut, de 04) est appliquée dans cett
 
 ## 10. Questions ouvertes propres à l'annexe
 
-Elles sont reportées dans [09-risques-et-questions.md](../09-risques-et-questions.md). Les questions communes Q1 à Q10 de 00 restent la référence (Q3 conditionne toutes les vérifications live, Q4 le mode HTTP, Q6 l'accès aux dumps).
+Elles sont reportées dans [09-risques-et-questions.md](../09-risques-et-questions.md). Les questions communes Q1 à Q12 de 00 restent la référence (Q11 : typographie des citations, décidée par le plan 1 ; Q12 : URL `/codes/article_lc/` d'un article de loi, à vérifier en M2 par V-140 à V-142) (Q3 conditionne toutes les vérifications live, Q4 le mode HTTP, Q6 l'accès aux dumps).
 
 1. **Consultation JORF en M7** : ajouter `/consult/jorf` à 00 §8 pour consulter les hits `Fond::Jorf`, ou limiter ces hits à `citation` + `source_url` ? (Proposition : ajouter, avec bascule vers LODA quand `hasLoda = true`.)
 2. **Résolution par ECLI** (`fr_resolve`, M6) : `typeChamp = ECLI` (enum du Swagger, utilisé par pylegifrance, absent du document officiel) ou facette `ECLI` (CETAT, JURI) ? Aucun n'est dans 00 §8. (Proposition : ajouter la facette `ECLI` après test live [v:ecli-filtre-juri-cetat] ; même question posée par l'annexe [B](B-citations.md).)
@@ -1376,7 +1376,7 @@ Elles sont reportées dans [09-risques-et-questions.md](../09-risques-et-questio
 ## Sources
 
 **Plan et décisions**
-- [00-decisions.md](../00-decisions.md) (normatif) : §1 (variables `LF_*`), §2 (crates, dépendances de `lf-adapter-dila`), §3 (port `LegalCorpus`), §4 (identifiants, dates, sentinelles, contrat de citation), §5 (erreurs), §6 (démarrage sans réseau, HTTP), §7 (outils, facettes jamais brutes), §8 (adapter PISTE, liste fermée des endpoints), §9 (cache), §11 (jalons), §12 (licence), §13 (Q1 à Q10).
+- [00-decisions.md](../00-decisions.md) (normatif) : §1 (variables `LF_*`), §2 (crates, dépendances de `lf-adapter-dila`), §3 (port `LegalCorpus`), §4 (identifiants, dates, sentinelles, contrat de citation), §5 (erreurs), §6 (démarrage sans réseau, HTTP), §7 (outils, facettes jamais brutes), §8 (adapter PISTE, liste fermée des endpoints), §9 (cache), §11 (jalons), §12 (licence), §13 (Q1 à Q12).
 - [04-adapter-piste.md](../04-adapter-piste.md) : §2 (environnements, validation des URL), §3 (OAuth), §4.3 (borne de 16 Mio), §5 (résilience), §6 (requêtes `/search`, facettes de date, `typePagination`, recherches exactes), §7 (endpoints par jalon, test de dérive), §8 (DTO), §9 (mapping), §10 (mojibake), §11 (introuvable, corps d'erreur), §13 (tests), §16 (questions).
 - [03-domaine.md](../03-domaine.md) : §3.1 (`Fond`, `api_name`), §6 (dates, sentinelles) ; [02-architecture.md](../02-architecture.md) §3.3 (borne de corps proposée à 32 Mio) ; [05-outils-mcp.md](../05-outils-mcp.md) (champ `source` de `fr_coverage`).
 

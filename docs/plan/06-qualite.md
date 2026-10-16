@@ -1,16 +1,16 @@
 # 06 — Qualité : tests, CI, lints, sécurité, audit et performance
 
-> **Statut** : plan, sans implémentation, rédigé le 2026-10-15. Ce document applique [00-decisions.md](00-decisions.md), qui est normatif et l'emporte en cas de doute ; 00 §10 en donne le résumé.
-> **Jalons concernés** : M0 (CI, lints, `cargo-deny`, `xtask`, `SECURITY.md`, CONTRIBUTING), M1 à M5 (tests par crate, budgets mesurés, v0.1.0), M6 et M7 (corpus de citations, navigation), M8 (conformité HTTP), M9 (adapter DILA).
+> **Statut** : M0-M1 livrés (plan 1), le reste est un plan ; rédigé le 2026-10-15, réconcilié avec le livré le 2026-10-16. Ce document applique [00-decisions.md](00-decisions.md), qui est normatif et l'emporte en cas de doute. **L'exigence qualité de 00 §10 (couverture 100 %, mutation à 0 survivant, ADR-0002) l'emporte sur tout passage de ce document** ; pour M0 et M1, le code livré et le plan 1 font foi, et leurs écarts avec ce document sont listés en 00 §11.1.
+> **Jalons concernés** : M0 (CI, lints, `cargo-deny`, `xtask`, CONTRIBUTING ; `SECURITY.md` : hygiène, 00 §11.1), M1 à M5 (tests par crate, budgets mesurés, v0.1.0), M6 et M7 (corpus de citations, navigation), M8 (conformité HTTP), M9 (adapter DILA).
 > **Lecteurs** : développeurs (humains ou agents) qui écrivent les tests, la CI et les règles de qualité, sans accès aux échanges qui ont mené aux décisions.
 > **Conventions** :
-> - Les extraits Rust sont **non compilés, à valider en M0**. Les extraits YAML et TOML sont des **esquisses, à valider en M0**.
+> - Les extraits Rust sont **non compilés, à valider au jalon qui l'implémente**. Les extraits YAML et TOML sont des **esquisses, à valider au jalon qui l'implémente**.
 > - Un point non vérifié est marqué **NON VÉRIFIÉ** suivi d'une étiquette `[v:…]`, reprise par le registre V-xx de [09-risques-et-questions.md](09-risques-et-questions.md). Les étiquettes déjà employées par d'autres documents du plan sont reprises telles quelles.
-> - Identifiants : défauts `D-01…D-47` ([recherche 02](../recherche/02-defauts.md) §1) ; points de parité `P-0xx`, écarts `E-xx` et scénarios d'erreur `S1…S17` ([recherche 01](../recherche/01-parite.md) §15, §14, §2.6) ; exigences protocolaires `C-xx` ([annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md) §8). Ce document ne crée ni tâche `T-…`, ni risque `R-…`, ni vérification `V-…`.
+> - Identifiants : défauts `D-01…D-47` ([recherche 02](../recherche/02-defauts.md) §1) ; points de parité `P-0xx`, écarts `E-xx` et scénarios d'erreur `S1…S17` ([recherche 01](../recherche/01-parite.md) §15, §14, §2.6) ; exigences protocolaires `C-xx` ([annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md) §8). Ce document ne crée ni tâche `T-…`, ni risque `R-…`, ni vérification `V-…`. Les tâches sont celles des plans exécutables de `docs/superpowers/plans/` (forme « plan N, tâche M »). Les points différés de la revue de clôture M1 portent l'identifiant `M1-D1…M1-D24` (00 §11.1), distinct des défauts `D-01…`.
 > - Repères locaux, non transverses et propres à ce document : principes de test `PT1…PT11` (§1.2) et menaces `MEN-01…MEN-23` (§10.2). Ils ne se confondent ni avec les scénarios d'erreur `S1…S17`, ni avec les tâches `T-…`.
 > - « La référence Python » désigne `matematicsolutions/fr-eli-mcp@d3b5b13` (v0.5.3, Apache-2.0).
 
-Documents liés : [02-architecture.md](02-architecture.md) (crates, ports, décorateurs, erreurs), [03-domaine.md](03-domaine.md) (types et algorithmes purs), [04-adapter-piste.md](04-adapter-piste.md) (OAuth, résilience, fixtures, tests wiremock), [05-outils-mcp.md](05-outils-mcp.md) (outils, instructions, verrou, budgets), [07-feuille-de-route.md](07-feuille-de-route.md) (tâches), [08-distribution.md](08-distribution.md) (release, signature), [09-risques-et-questions.md](09-risques-et-questions.md) (registres), [annexes/A-parite.md](annexes/A-parite.md) (parité et golden), [annexes/B-citations.md](annexes/B-citations.md) (corpus de citations), [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md) (protocole et conformité), ADR-0008 et ADR-0010 ([index des ADR](../adr/README.md)).
+Documents liés : [02-architecture.md](02-architecture.md) (crates, ports, décorateurs, erreurs), [03-domaine.md](03-domaine.md) (types et algorithmes purs), [04-adapter-piste.md](04-adapter-piste.md) (OAuth, résilience, fixtures, tests wiremock), [05-outils-mcp.md](05-outils-mcp.md) (outils, instructions, verrou, budgets), [docs/superpowers/plans/](../superpowers/plans/) (plans exécutables, tâches), [08-distribution.md](08-distribution.md) (release, signature), [09-risques-et-questions.md](09-risques-et-questions.md) (registres), [annexes/A-parite.md](annexes/A-parite.md) (parité et golden), [annexes/B-citations.md](annexes/B-citations.md) (corpus de citations), [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md) (protocole et conformité), ADR-0002 (`portes-qualite.md`, livré), ADR-0008, ADR-0010 et ADR-0016 ([index des ADR](../adr/README.md)).
 
 ---
 
@@ -42,7 +42,8 @@ Documents liés : [02-architecture.md](02-architecture.md) (crates, ports, déco
 - **Pyramide** : la base est faite de tests unitaires et de propriétés (`proptest`) du domaine et de l'application, avec des doubles des ports. Viennent ensuite les tests d'intégration des adapters (`wiremock`, fixtures, `tempfile`), puis les tests MCP en processus (`tokio::io::duplex`, transcriptions JSON-RPC brutes, snapshots `insta`), puis les tests de bout en bout du binaire en stdio (deux ères). Au sommet : les tests live opt-in, la suite de conformité officielle en HTTP (M8) et un protocole de test manuel par client.
 - **Principes** : aucun réseau hors boucle locale en CI, horloges injectées (port `Clock`, horloges monotones et sommeils simulés dans l'adapter PISTE), aucune lecture de l'environnement réel dans les tests, aucun test instable toléré.
 - **Catalogue** : chacun des 47 défauts de la référence reçoit au moins un test nommé (§3.1). Les tests proposés par la recherche 02 qui contredisent 00 sont remplacés, et chaque remplacement est justifié. Les points de parité P-xxx et le harnais golden suivent l'annexe A (§3.2).
-- **CI** : `fmt`, `clippy -D warnings`, `cargo nextest` sur Linux, macOS et Windows, doc-tests, job MSRV 1.91, `cargo deny`, `cargo xtask check-deps`, verrou des descripteurs, lint des workflows ; actions épinglées par SHA ; cible de 12 minutes au p50 pour une PR.
+- **Portes bloquantes (00 §10, ADR-0002)** : couverture de 100 % des lignes, régions et fonctions (`cargo llvm-cov --workspace --lib`, `make cov`) ; mutation `cargo-mutants` à 0 `MISSED` et 0 `TIMEOUT` (`make mutants FILE=…` en local sous contrôle mémoire WSL, mutation du diff de chaque PR en CI, balayage hebdomadaire en 4 shards avec fuzz). Chiffres de clôture M0-M1 : 137 tests, 369 mutants, 0 survivant.
+- **CI** : livré (M0) : `make ci` = `fmt-check`, `lint` (`clippy -D warnings`), `test` (nextest et doc-tests), `doc`, `arch` (`cargo xtask check-arch`), `deny`, `machete`, `cov` ; jobs `check`, `test`, `coverage`, `deny`, `msrv` (1.88) et `mutants` de `ci.yml`, plus `weekly.yml`. Prévu : matrice Linux, macOS et Windows dès M2, verrou des descripteurs, lint des workflows, actions épinglées par SHA ; cible de 12 minutes au p50 pour les jobs hors `mutants`.
 - **Sécurité** : modèle de menaces en 23 lignes (secrets, injection de prompt, rug pull, SSRF, déni de service, chaîne d'approvisionnement, journaux…), chacune reliée à une mesure et à un test ; plan de `SECURITY.md`.
 - **Audit** : spécification complète du journal JSONL (ordre normatif des clés, empreinte SHA-256 canonique avec ses vecteurs, permissions `0600`/`0700`, rotation sûre entre processus, modes `strict` et `best-effort`, emplacement par OS).
 - **Budgets** : démarrage jusqu'à `server/discover` en 100 ms au p95 ; réponse de 45 000 caractères au plus ; `tools/list` sous 20 000 octets en v0.1 ; instructions sous 3 500 caractères ; cibles par outil.
@@ -63,16 +64,16 @@ flowchart TB
   L3["3. Adapter MCP en processus<br/>tokio::io::duplex, transcriptions JSON-RPC brutes, insta, verrou"]
   L2["2. Intégration des adapters<br/>wiremock + fixtures (PISTE), tempfile (audit), faux corpus (cache)"]
   L1["1. Unitaires et propriétés<br/>lf-domain (proptest, corpus), lf-application (doubles des ports)"]
-  L0["0. Contrôles statiques<br/>compilation, clippy, check-deps, cargo-deny, rustdoc"]
+  L0["0. Contrôles statiques<br/>compilation, clippy, check-arch, cargo-deny, rustdoc"]
   L7 --- L6 --- L5 --- L4 --- L3 --- L2 --- L1 --- L0
 ```
 
 | Niveau | Où | Outils | Réseau | Bloquant en CI | Part visée | Durée cible (exécution seule) |
 |---|---|---|---|---|---|---|
-| 0 Statique | tout le workspace | rustc, clippy, `cargo xtask check-deps`, `cargo deny`, rustdoc | non | oui | — | 5 min (compilation comprise) |
-| 1 Unitaires et propriétés | `lf-domain`, `lf-application`, `xtask` | `#[test]`, `proptest`, `insta`, `tokio::time::pause` | non | oui | environ 60 % des tests | < 30 s |
-| 2 Intégration des adapters | `lf-adapter-piste`, `-cache`, `-audit` | `wiremock`, `tempfile`, fixtures | boucle locale seulement | oui | environ 20 % | < 60 s |
-| 3 MCP en processus | `lf-adapter-mcp` | client `rmcp` (feature `client`), `tokio::io::duplex`, `jsonschema`, `insta` | non | oui | environ 12 % | < 30 s |
+| 0 Statique | tout le workspace | rustc, clippy, `cargo xtask check-arch`, `cargo deny`, rustdoc | non | oui | — | 5 min (compilation comprise) |
+| 1 Unitaires et propriétés | tous les crates, dans le fichier testé (`#[cfg(test)] mod tests`) | `#[test]`, `proptest`, `insta`, `tokio::time::pause` | non | oui | environ 60 % des tests | < 30 s |
+| 2 Intégration des adapters | `lf-adapter-piste`, `-cache`, `-audit` (en `#[cfg(test)] mod tests`, comptés par `--lib`) | `wiremock`, `tempfile`, fixtures | boucle locale seulement | oui | environ 20 % | < 60 s |
+| 3 MCP en processus | `lf-adapter-mcp` (en `#[cfg(test)] mod tests`) | client `rmcp` (feature `client`), `tokio::io::duplex`, `jsonschema`, `insta` | non | oui | environ 12 % | < 30 s |
 | 4 Bout en bout | `lf-app/tests` | `assert_cmd`, `predicates`, `wiremock`, `tempfile` | boucle locale seulement | oui | environ 8 % | < 90 s |
 | 5 Live | `lf-adapter-piste/tests/live.rs`, `lf-app/tests` (`live_*`) | `#[ignore]`, profil nextest `live` | **oui** (sandbox PISTE) | non | — | < 10 min, séquentiel |
 | 6 Conformité HTTP | job `conformance-http` (M8) | suite officielle (npx), binaire de test dédié | boucle locale | oui à partir de M8 | — | < 5 min |
@@ -80,12 +81,14 @@ flowchart TB
 
 Les « parts visées » sont des ordres de grandeur, pas des seuils : elles disent où doit porter l'effort. Un comportement se teste au niveau le plus bas qui peut l'observer. Une règle de citation se teste dans le domaine, pas à travers le binaire. Le niveau 4 ne refait que ce que seul le binaire peut prouver : câblage, environnement, stdout, codes de sortie, deux ères sur le vrai transport.
 
+**Mesure de couverture** : la porte (`cargo llvm-cov --workspace --lib`, 100 % lignes, régions et fonctions, 00 §10) ne compte que les tests de bibliothèque. Les niveaux 1 à 3 s'écrivent donc en `#[cfg(test)] mod tests` du fichier testé (§1.4) ; les niveaux 4 et 5 (`tests/`) s'ajoutent à la mesure sans y compter, mais tournent sous `make test` et tuent des mutants en complément.
+
 ### 1.2 Principes
 
 | # | Principe | Mise en œuvre | Sources |
 |---|---|---|---|
 | PT1 | **Aucun réseau hors boucle locale en CI.** | Tout HTTP passe par un `wiremock::MockServer` sur `127.0.0.1`. `PisteConfig` de test pointe vers la boucle locale en `http`, ce que la validation n'admet que pour la boucle locale (`ConfigWarning::InsecureLoopback`). Les tests de bout en bout lancent le binaire avec `env_clear()`, PISTE pointé vers `127.0.0.1:1` (port fermé) quand aucun mock n'est utile, et `HTTPS_PROXY=http://127.0.0.1:9`. Le job de test exécute `cargo fetch` puis `cargo nextest run --offline` avec ces proxys : toute sortie non locale échoue. La prise en compte de `HTTPS_PROXY` par reqwest est **NON VÉRIFIÉ** [v:reqwest-proxy-env]. Sur Linux, une exécution dans un espace de noms réseau isolé (`unshare -rn`, boucle locale réactivée) est tentée en plus ; sa faisabilité sur les runners GitHub est **NON VÉRIFIÉ** [v:ci-unshare-reseau]. | 00 §10 ; 04 §2.3, §13.1 ; annexe D §8.3 |
-| PT2 | **Horloge injectée, jamais lue directement.** | Le domaine ne lit aucune horloge (`chrono` sans `clock`, 03 §1.1). L'application passe par le port `Clock` (`FixedClock` en test). L'adapter PISTE utilise `ManualClock` et `RecordingSleeper` pour le jeton, le backoff, `Retry-After`, le limiteur et le délai global (04 §13.1). `tokio::time::pause` n'est employé que dans les tests **sans socket réelle** (application avec faux corpus), car l'avance automatique d'une horloge gelée peut déclencher à tort les délais de reqwest **NON VÉRIFIÉ** [v:wiremock-temps-pause]. Le limiteur `governor` reçoit une horloge factice **NON VÉRIFIÉ** [v:governor-api]. Les TTL de moka se testent par la fonction `Expiry`, faute d'horloge injectable **NON VÉRIFIÉ** [v:moka-horloge-tests]. `SystemClock` (dans `lf-app`) expose une fonction pure `paris_date(DateTime<Utc>) -> NaiveDate`, testée sur des instants fixes. `clippy.toml` interdit `Utc::now`, `Local::now` et `SystemTime::now` hors de `SystemClock` (02 §2.2). | 02 §3.2, §5.3 ; 03 §6.4 ; 04 §13.1 |
+| PT2 | **Horloge injectée, jamais lue directement.** | Le domaine ne lit aucune horloge (`lf-domain` n'a que `thiserror` en dépendance normale : dates en `CivilDate`, liste blanche de `check-arch`, 00 §2 et §4). L'application passe par le port `Clock` (`FixedClock` en test). L'adapter PISTE utilise `ManualClock` et `RecordingSleeper` pour le jeton, le backoff, `Retry-After`, le limiteur et le délai global (04 §13.1). `tokio::time::pause` n'est employé que dans les tests **sans socket réelle** (application avec faux corpus), car l'avance automatique d'une horloge gelée peut déclencher à tort les délais de reqwest **NON VÉRIFIÉ** [v:wiremock-temps-pause]. Le limiteur `governor` reçoit une horloge factice **NON VÉRIFIÉ** [v:governor-api]. Les TTL de moka se testent par la fonction `Expiry`, faute d'horloge injectable **NON VÉRIFIÉ** [v:moka-horloge-tests]. `SystemClock` (dans `lf-app::clock`, avec l'adapter PISTE les seuls endroits qui emploient `chrono-tz`, et la feature `clock` de `chrono` pour `lf-app::clock` ; `lf-application` et `lf-adapter-audit` emploient `chrono` sans cette feature : 02 §3.0.1, ADR-0011) expose une fonction pure `paris_date(DateTime<Utc>) -> CivilDate`, testée sur des instants fixes. `clippy.toml` interdit `Utc::now`, `Local::now` et `SystemTime::now` hors de `SystemClock` (02 §2.2). | 02 §3.2, §5.3 ; 03 §6.4 ; 04 §13.1 |
 | PT3 | **Hasard maîtrisé.** | `proptest` : graines d'échec conservées dans `proptest-regressions/`, versionné ; 256 cas en PR, 4 096 la nuit (`PROPTEST_CASES`) ; graine fixable par l'environnement **NON VÉRIFIÉ** [v:proptest-graine-env]. La gigue du backoff n'est jamais figée : les tests vérifient des intervalles (`[0,5 s ; 1 s)`, 04 §13.2). Aucun aléa dans le domaine. | recherche 04 §4.1 |
 | PT4 | **Environnement du processus intouché.** | `std::env::set_var` est `unsafe` en édition 2024 et `unsafe_code = "forbid"` l'interdit (02 §3.0.3). La configuration se teste par un `EnvSource` injecté (02 §8.2). Les processus fils reçoivent `env_clear()` puis une liste explicite : un `LF_PISTE_CLIENT_SECRET` réel du développeur ne peut donc jamais atteindre un test. `LF_AUDIT_DIR` vaut toujours un répertoire temporaire ; `HOME` et `dirs::data_dir()` ne sont jamais utilisés par un test. | 02 §3.0.3, §8.2 |
 | PT5 | **Système de fichiers jetable.** | `tempfile::TempDir` par test ; fixtures en lecture seule ; `**/tests/fixtures/** -text` dans `.gitattributes`, pour que l'empreinte `sha256_raw` reste stable sous Windows (02 §2.2). | 02 §2.2 ; D-35 |
@@ -105,57 +108,63 @@ Versions relues dans l'index crates.io le 2026-10-15 (recherche 04 §4.1 ; 02 §
 | `cargo-nextest` | 0.9.148 | exécution des tests (profils `default`, `ci`, `live`) | MSRV de compilation 1.91 : on l'installe **en binaire** (recherche 04 §4.1). nextest n'exécute pas les doc-tests, d'où une étape `cargo test --doc` distincte **NON VÉRIFIÉ** [v:nextest-config-cles]. |
 | `insta` + `cargo-insta` | 1.49.0 | snapshots JSON (`json`, `redactions`) | `sort_maps => true` ; `insta::with_settings!` est synchrone, sans `.await` dans le bloc (recherche 04 §3). Comportement en CI (aucune écriture, échec sur écart) **NON VÉRIFIÉ** [v:insta-options-ci]. |
 | `wiremock` | 0.6.5 | faux PISTE (OAuth, API) | un `MockServer` par test ; `Mock::expect(n)` vérifié à la fin. Ne tire ni reqwest ni async-trait (02 §4.3). |
-| `proptest` | 1.12.0 | propriétés | MSRV 1.88, compatible avec 1.91. |
+| `proptest` | 1.12.0 | propriétés | MSRV 1.88 : avec `rmcp` 3.5.1, c'est le plancher de la MSRV du projet (00 §2). |
 | `tempfile` | 3.27.0 | répertoires d'audit, fixtures écrites | — |
 | `assert_cmd` / `predicates` | 2.2.2 / 3.1.4 | lancement du binaire | — |
 | `jsonschema` | 0.58.6 | validation de `structuredContent` contre `outputSchema`, et des lignes d'audit | **`default-features = false`**, sinon il tire reqwest (02 §3.0.1). |
 | client `rmcp` | `=3.5.1`, feature `client` (dev) | tests MCP en processus | `().serve(client_io)` ; l'ère choisie par défaut par ce client est **NON VÉRIFIÉ** [v:rmcp-client-ere-tests] : les transcriptions brutes (§6.1) couvrent donc les deux ères explicitement. |
 | `tokio` (`test-util`, `io-util`) | 1.53.3 | `start_paused`, `duplex` | — |
-| `cargo-fuzz` | version épinglée en M1 | fuzzing nocturne non bloquant | demande une toolchain nightly ; répertoire `fuzz/` hors du workspace. |
-| `cargo-llvm-cov` | 0.9.1 | couverture, à titre indicatif | jamais bloquant (§7.6). |
+| `cargo-fuzz` | installé en CI (`taiki-e/install-action`) | fuzzing hebdomadaire (`weekly.yml`), non bloquant pour la PR | demande une toolchain nightly ; répertoire `fuzz/` hors du workspace (`exclude`) ; cibles `ids` et `text` livrées. |
+| `cargo-llvm-cov` | 0.9.1 | couverture **bloquante** : 100 % des lignes, régions et fonctions, `--workspace --lib` (`make cov`, §7.6) | demande le composant `llvm-tools-preview` dans `rust-toolchain.toml` (livré). |
+| `cargo-mutants` | 27 | mutation **bloquante** : 0 `MISSED`, 0 `TIMEOUT` (`make mutants FILE=…`, diff de PR, balayage hebdomadaire ; §7.6) | `.cargo/mutants.toml` (nextest, profil `mutants`) ; toute exclusion est justifiée en commentaire ; sous WSL, `TMPDIR=/var/tmp`, `-j 1`, un fichier à la fois, contrôle mémoire (§7.6). |
 | `cargo-deny` | 0.20.2 | §9 | — |
 | `cargo-machete` | 0.9.2 | dépendances inutilisées | `[package.metadata.cargo-machete] ignored = ["rmcp-macros"]` (02 §3.0.1). |
 
-`mockall` n'est pas retenu. Les doubles des ports sont écrits à la main dans `lf-application::testing`, derrière la feature `test-support` (02 §3.2). Ils sont plus lisibles, et l'absence de méthode par défaut dans les ports oblige à les compléter quand le port évolue.
+`mockall` n'est pas retenu. Les doubles des ports sont écrits à la main dans `lf-application::testing`, derrière la feature `test-support` (02 §3.2). Ils sont plus lisibles, et l'absence de méthode par défaut dans les ports oblige à les compléter quand le port évolue. Le code de ces doubles compte dans la mesure `--lib` : ils sont soit compilés en `#[cfg(test)]`, soit exclus nommément de la couverture (`--ignore-filename-regex` de `COV_FLAGS`, avec justification) ; jamais laissés partiellement exercés.
 
 ### 1.4 Organisation des fichiers de test
 
+**Règle (ADR-0002, 00 §10)** : un test unitaire vit dans un `#[cfg(test)] mod tests` du fichier qu'il teste. La porte de couverture mesure `cargo llvm-cov --workspace --lib` : un test placé dans `tests/` n'y compte pas. Sont donc des tests unitaires, dans le crate : le mapping des DTO, le classement HTTP vers `CorpusError`, la politique de retry, les scénarios `wiremock` (modules de test `async`), `Audited` sur doubles, les harnais MCP en processus. `tests/` est réservé à `live.rs` (`#[ignore]`), aux tests de bout en bout du binaire (`assert_cmd`) et aux compléments qui ne portent pas la couverture. Les doubles de `lf-application::testing` sont compilés en `#[cfg(test)]` ou exclus nommément de la mesure ; la glue d'E/S irréductible l'est aussi (§7.6).
+
+Dans les sections suivantes, un nom de test cité avec un ancien chemin `tests/<x>.rs` désigne le module de test `<x>` du crate (même nom, même contenu), sauf pour `live.rs` et pour `lf-app`.
+
 ```text
-crates/lf-domain/
-  src/**                       #[cfg(test)] mod tests : unitaires table-driven
-  tests/ids.rs dates.rs contract.rs toc.rs text_html.rs text_window.rs text_rank.rs summary.rs
-  tests/citations_corpus.rs    (M6) ; tests/data/citations/*.jsonl (copies de l'annexe B, cmp en CI)
+crates/lf-domain/                       (livré, M1)
+  src/**                       #[cfg(test)] mod tests : unitaires table-driven et proptest (129 tests)
   proptest-regressions/        versionné
+  tests/data/citations/*.jsonl (M6) copies de l'annexe B, `cmp` via `make surface` (job `surface` de la CI) ; lues par include_str! depuis les tests unitaires
 crates/lf-application/
-  src/testing.rs               feature test-support : FakeCorpus, FixedClock, MemoryAuditLog, FailingAuditLog ;
+  src/testing.rs               FakeCorpus, FixedClock, MemoryAuditLog, FailingAuditLog : cfg(test) ou exclu nommément ;
                                (M9) contract::corpus_contract, suite de contrat commune aux corpus
-  tests/audited.rs usecases.rs budget.rs coverage.rs error_matrix.rs
-  tests/verify_citations.rs    (M6) ; tests/search_all.rs (M7)
+  src/**                       mod tests : audited, usecases, budget, coverage, error_matrix ; (M6) verify_citations ; (M7) search_all
 crates/lf-adapter-piste/
-  tests/oauth.rs resilience.rs bodies.rs endpoints.rs config.rs fixtures_contract.rs
-  tests/ported_test_parse.rs parity_golden.rs live.rs (#[ignore])
-  tests/support/{mod.rs, golden.rs, clock.rs}
+  src/**                       mod tests : oauth (auth.rs), resilience (retry.rs, limit.rs, deadline.rs), bodies (http.rs, encoding.rs),
+                               endpoints, config, fixtures_contract, ported_test_parse, parity_golden (map/)
+  src/time.rs                  ManualClock et RecordingSleeper en cfg(test) (04 §1.5)
+  tests/live.rs                #[ignore], seul fichier d'intégration obligatoire (§5)
   tests/fixtures/reference/    16 fixtures de la référence + .meta.toml + parite-golden.json (A §5.3)
   tests/fixtures/recorded/     captures de cargo xtask record-fixture (04 §13.4)
   tests/fixtures/synthetic/    cas construits (null, sentinelles, types mêlés)
   examples/record_fixture.rs   (feature record) appelé par cargo xtask record-fixture
-crates/lf-adapter-cache/tests/cache.rs
-crates/lf-adapter-audit/tests/format.rs hash_vectors.rs rotation.rs concurrency.rs permissions.rs
+crates/lf-adapter-cache/src/**       mod tests (cache)
+crates/lf-adapter-audit/src/**       mod tests (format, hash_vectors, rotation, concurrency, permissions, errors)
 crates/lf-adapter-mcp/
-  tests/inprocess.rs protocol_raw.rs descriptors.rs instructions.rs rendering.rs budgets.rs http.rs (M8)
-  tests/snapshots/             snapshots insta
-  tests/reference/tools.lock.reference.json   verrou de la référence, copié sans modification (P-003)
+  src/**                       mod tests : inprocess, protocol_raw, descriptors, instructions, rendering, budgets, http (M8) ;
+                               snapshots insta à l'emplacement par défaut (src/**/snapshots/)
+  tests/reference/tools.lock.reference.json   verrou de la référence, copié sans modification (P-003), lu par include_str!
 crates/lf-app/
+  src/**                       mod tests : clock (paris_date), config, check_config
   tests/cli.rs e2e_stdio.rs stdout_only_jsonrpc.rs composition.rs parity_tool_output.rs
-  tests/audit_e2e.rs security_leaks.rs docs_consistency.rs perf.rs (#[ignore])
-tests/tools.lock.json          verrou des descripteurs (cargo xtask lock-descriptors)
+  tests/audit_e2e.rs security_leaks.rs docs_consistency.rs perf.rs (#[ignore])     e2e du binaire : hors couverture
+tests/tools.lock.json          verrou des descripteurs (cargo xtask lock-descriptors, M4)
 tests/jsonrpc/*.jsonl          transcriptions JSON-RPC brutes, deux ères (§6.1)
 tests/conformance-baseline.yml (M8) échecs attendus de la suite officielle, chacun justifié
-fuzz/                          hors workspace : fuzz_targets/{from_html, clean, ids, version_date, dto_decode, citation_parse}.rs
-xtask/src/**                   tests unitaires : moteur de check-deps, JSON canonique, classement des différences de verrou
+fuzz/                          hors workspace : fuzz_targets/{ids, text} livrés ; {from_html, version_date, dto_decode, citation_parse} au jalon de leur objet
+xtask/src/arch.rs              tests unitaires dans le fichier : liste blanche, frontières, échec fermé (livré)
+Makefile, .cargo/mutants.toml  pipeline local et configuration de cargo-mutants (livrés)
 ```
 
-Choix de chemins faits ici, signalés au §15.1 : les fixtures PISTE sont **locales au crate** `lf-adapter-piste`, comme dans 04 §13.3 et l'annexe A §5.3, et non à la racine du dépôt comme dans 02 §2. Les transcriptions vivent dans `tests/jsonrpc/` (02 §2), alors que l'annexe D §8.3 proposait `tests/protocol/`.
+Choix de chemins faits ici, signalés au §15.1 : les fixtures PISTE sont **locales au crate** `lf-adapter-piste`, comme dans 04 §13.3 et l'annexe A §5.3, et non à la racine du dépôt comme dans 02 §2. Les transcriptions vivent dans `tests/jsonrpc/` (02 §2), alors que l'annexe D §8.3 proposait `tests/protocol/`. La glue d'E/S irréductible (une tentative HTTP dans `http.rs`, le fil d'écriture de l'audit, `main.rs`) est amincie d'abord, puis exclue nommément, avec sa justification : `exclude_globs` pour la mutation, `--ignore-filename-regex` dans `COV_FLAGS` pour la couverture (M2).
 
 ---
 
@@ -171,14 +180,14 @@ Chaque fiche donne l'objectif, la technique, les doubles employés et les cas ob
 
 | Groupe | Tests | Couvre |
 |---|---|---|
-| Identifiants | `id_error_messages_table` (tous les cas de 03 §2.7, première phrase de la référence), `versioned_id_splits_suffix`, `suffix_only_on_legitext`, `parse_param_trims_and_uppercases_prefix` | D-31, D-28, P-012, P-030 |
+| Identifiants | `id_error_messages_table` (tous les cas de 03 §2.7, première phrase de la référence), `versioned_id_splits_suffix`, `suffix_kept_on_legitext_stripped_elsewhere`, `id_parse_is_tolerant_on_whitespace_and_case` (`parse_param` est abandonné : `Id::parse` et `FromStr` restent tolérants) | D-31, D-28, P-012, P-030 |
 | Fonds et statuts | `fond_parse_is_case_and_space_insensitive`, `fond_error_message_matches_reference`, `legal_status_from_etat_or_juris_state` | P-010, D-21 |
-| Contrat de citation | `constit_citation_golden` (« Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025 »), `cnil_citation_golden` (« CNIL, délibération n° SAN-2026-002 du 8 janvier 2026 »), `juri_and_cetat_citation_is_clean_title`, `article_citation_rules_table` (« Code civil, art. 9 »), `citation_never_empty`, `ecli_is_never_fabricated` | D-27, D-30, P-034, P-035, P-039 |
-| URL | `source_url_snapshot_all_kinds` (12 kinds, `insta`), `law_article_url_uses_loda_article_lc`, `url_depends_on_id_type_not_payload_origine` | D-28, D-29, P-031 |
-| Dates | `from_epoch_ms_vectors` (`-5231606400000` ⇒ 1804-03-21 ; `17193600000` ⇒ 1970-07-19 ; `1762473600000` ⇒ 2025-11-07 ; `32472144000000` ⇒ 2999-01-01, puis `None`), `open_ended_maps_sentinels_to_none` (2999-01-01, 2222-02-22, 2222-01-01 exclus ; 2221-12-31 conservé), `format_fr_twelve_months_and_premier`, `version_date_rejects_bad_formats` (« 07/10/2016 », « 2016-13-45 », « hier », 2026-02-29) | D-20, D-22, D-27, P-030 |
+| Contrat de citation (v1 livré ; contrat v2 : tâche de tête de M2, 00 §11.1) | `constit_citation_golden` (« Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025 »), `cnil_citation_golden` (« CNIL, délibération n° SAN-2026-002 du 8 janvier 2026 »), `juri_and_cetat_citation_is_clean_title`, `article_citation_rules_table` (« Code civil, art. 9 »), `citation_never_empty`, `ecli_is_never_fabricated` | D-27, D-30, P-034, P-035, P-039 |
+| URL | `source_url_snapshot_all_kinds` (10 kinds livrés, 11 après `loda_article` en M2, après V-140/V-142 ; `insta`), `law_article_url_uses_loda_article_lc`, `url_depends_on_id_type_not_payload_origine` | D-28, D-29, P-031 |
+| Dates | `from_epoch_ms_vectors` (`CivilDate::from_unix_millis` ; `-5231606400000` ⇒ 1804-03-21 ; `17193600000` ⇒ 1970-07-19 ; `1762473600000` ⇒ 2025-11-07 ; `32472144000000` ⇒ 2999-01-01, puis `None`), `open_ended_maps_sentinels_to_none` (2999-01-01, 2222-02-22, 2222-01-01 exclus ; 2221-12-31 conservé), `format_fr_twelve_months_and_premier` (`CivilDate::to_french`), `version_date_rejects_bad_formats` (« 07/10/2016 », « 2016-13-45 », « hier », 2026-02-29) | D-20, D-22, D-27, P-030 |
 | Texte | `clean_strips_mark_tags`, `clean_folds_whitespace_after_repair`, `clean_removes_invisible_and_control_chars`, `from_html_block_tags_split_paragraphs`, `from_html_drops_rech_and_script_with_content`, `from_html_unclosed_tag_at_end`, `from_html_literal_less_than`, `from_html_invalid_numeric_entity_kept`, `snippet_is_truncated_to_280_chars` (ellipse comprise) | D-26, P-030, P-032 |
 | Table des matières | `toc_preserves_section_titles` (88 entrées sur consult_loda.json), `toc_sorted_by_int_ordre`, `toc_dedups_articles`, `toc_depth_65_is_too_deep` | D-25, P-033 |
-| Fenêtre et résumé | `window_last_page_has_no_next_offset`, `offset_past_end_is_error`, `summary_constit_dispositif_551_chars`, `summary_cetat_official_analysis`, `summary_falls_back_to_lead` | D-33, P-037 |
+| Fenêtre et résumé | `window_last_page_has_no_next_offset`, `offset_past_end_is_empty_window` (la fenêtre est totale ; `OffsetPastEnd` est vérifié par le cas d'usage de M5), `summary_constit_dispositif_551_chars`, `summary_cetat_official_analysis`, `summary_falls_back_to_lead` | D-33, P-037 |
 | Recherche | `query_too_long_is_invalid_arg` (501 caractères), `query_control_chars_are_stripped`, `page_size_bounds` (0, 1, 100, 101) | D-32, D-31 |
 
 **Propriétés** (`proptest`, M1, M5 pour la fenêtre) :
@@ -186,34 +195,35 @@ Chaque fiche donne l'objectif, la technique, les doubles employés et les cas ob
 | Propriété | Énoncé | Couvre |
 |---|---|---|
 | `id_parse_roundtrip` | Pour tout préfixe et tout nombre de 12 chiffres, `Display ∘ FromStr` est l'identité ; pour toute chaîne, `FromStr` ne panique pas. | D-31 |
-| `pre_1970_dates_roundtrip` | Pour tout `ms` de [−10¹³, 10¹³], `from_epoch_ms(ms)` est égal au calcul de référence `1970-01-01 + ms.div_euclid(86_400_000)` jours. Exécuté aussi en **CI Windows**. | D-20, E-35 |
+| `pre_1970_dates_roundtrip` | Pour tout `ms` de [−10¹³, 10¹³], `CivilDate::from_unix_millis(ms)` est égal au calcul de référence `1970-01-01 + ms.div_euclid(86_400_000)` jours. Exécuté aussi en **CI Windows** dès M2 (la matrice démarre avec les premières E/S). | D-20, E-35 |
 | `version_date_roundtrip` | Toute date valide de la plage de 03 §6.1 survit à `format` puis `parse` ; toute chaîne hors format est refusée sans panique. | D-22 |
 | `window_guarantees_g1_to_g7` | G1 à G7 de 03 §7.6 pour tout texte (paragraphes, phrases, NBSP, caractères hors plan de base), tout `offset` et tout `max_chars` de 500 à 40 000. | D-33 |
 | `paged_reading_reconstructs_full_text` | Enchaîner les fenêtres depuis 0 reconstruit exactement le texte canonique (G3). | D-33 |
 | `window_offsets_are_char_based` | `offset` et `next_offset` comptent des scalaires Unicode, jamais des octets. | P-037 |
 | `from_html_never_panics_and_preserves_text` | Pour tout HTML généré, aucune panique ; la concaténation des paragraphes est égale au HTML débalisé, aux blancs près. | D-26 |
-| `clean_is_idempotent` | `clean(clean(s)) == clean(s)`. | — |
 | `rank_is_deterministic_and_within_budget` | Mêmes entrées ⇒ même sortie ; au plus `n` passages ; Σ des longueurs ≤ `max_chars` ; tri par score décroissant puis par `offset` ; un segment sans terme du focus n'est jamais rendu. | D-33 |
 | `repair_mojibake_inverts_latin1_misdecoding` | Pour toute chaîne française `s` sans motif de mojibake, `repair(misdecode(s)) == s`, où `misdecode` décode en latin-1 les octets UTF-8 de `s` ; `repair` est l'identité sur toute chaîne qui contient un caractère au-delà de U+00FF ; `repair` est idempotente. | D-35 ; 03 §7.1 |
+
+**Périmètre par jalon** : M1 est livré (plan 1) ; la table de correspondance du §3.1 donne les noms livrés. Les lignes dont l'objet est reporté (00 §11.1) ne sont dues qu'au jalon qui le livre : en tête de M2, `contract` (contrat de citation v2), `TocArticle` puis `TocNode`, `parse_versioned`, le module `lf_domain::text::encoding` (`repair_latin1_mojibake`, `has_latin1_mojibake`, reliquat de M1), le vecteur 1804-03-21 de `CivilDate`, `VersionDate` borné, `open_ended`, `DateRange`, `VersionedId` (type de retour de `parse_versioned`), `Hash`, le membre inconnu de check-arch, les spikes TLS, proxy, `backon` et `governor` (V-02, V-03, V-06, V-07) et le `#[non_exhaustive]` de `DomainError` tranché d'abord (M1-D13 ; reste de la tâche 0 de 00 §11.1) ; ensuite `from_html`, `LongText`, `LegalStatus`, `SearchQuery` et ses types ; en M5 le résumé, les mots vides, le repli NFD, `Focus`, `MaxChars` et `PassageCount` ; en M6 le parseur de citations.
 
 **Fixtures** : les tests qui lisent un JSON de la référence (paragraphes CONSTIT 49, CETAT 43, CNIL 3 ; dispositif CONSTIT de 551 caractères ; `focus_returns_relevant_paragraphs`, où « publicité des débats » met le considérant 14 en tête) chargent `../lf-adapter-piste/tests/fixtures/reference/` par chemin relatif. Si le chemin est absent, par exemple dans un paquet publié, ils s'arrêtent avec un message, comme `golden_copy_matches_plan_data` (annexe A §5.3). Ce couplage de test est accepté ; une copie dans le domaine dupliquerait 16 fichiers.
 
 **Corpus de citations (M6)** : `corpus_citations` et `corpus_matches_are_substrings` (annexe B §8.5), avec la seule surcharge P159 (annexe B §8.4) ; propriété `parse(format::canonical(c)) == c` ; snapshots de l'extraction sur consult_juri_cetat.json et consult_juri_constit.json ; `perf_parse_20k` (§12).
 
-**Fuzzing** (nocturne, non bloquant) : `from_html`, `clean`, tous les `FromStr`, `VersionDate::parse`, et en M6 `citation::parse_with`. Le critère est « aucune panique, spans valides » (03 §8.8). Le corpus de départ vient des fixtures.
+**Fuzzing** (hebdomadaire, `weekly.yml`, non bloquant pour la PR) : cibles `ids` (les `FromStr`) et `text` (`clean`, `window`, `passages`) livrées ; `from_html`, `VersionDate::parse` et en M6 `citation::parse_with` s'ajoutent avec leur objet. Le critère est « aucune panique, spans valides » (03 §8.8). Le corpus de départ vient des fixtures. Le durcissement (`-timeout`, `-max_len`, corpus persistant, assertions d'écho) est reporté en M5 avec la correction de `passages` (M1-D1, M1-D2).
 
-**Lints propres** : les `#![deny(...)]` de 03 §1.3 (`unwrap_used`, `expect_used`, `panic`, `indexing_slicing`, `string_slice`, `arithmetic_side_effects`…).
+**Lints propres** : `unwrap_used` et `expect_used` (livrés), puis `clippy::panic`, `clippy::unreachable` et `clippy::unimplemented` en `warn` de `[workspace.lints.clippy]`, donc bloquants par `-D warnings` (tâche de tête de M2, 00 §11.1 ; C7). `indexing_slicing`, `string_slice` et `arithmetic_side_effects` sont écartés : ils imposeraient de réécrire environ 28 lignes avec des branches mortes, incompatibles avec 100 % des régions. L'absence de panique est prouvée par proptest, fuzz et mutation.
 
 ### 2.2 `lf-application`
 
-**Objectif** : prouver l'orchestration (ordre de validation, messages, dates par défaut, métriques), le décorateur `Audited` dans **toutes** les issues, le délai global, l'annulation et la politique de budget, sans réseau ni disque.
+**Objectif** : prouver, en `#[cfg(test)] mod tests` des modules testés (§1.4), l'orchestration (ordre de validation, messages, dates par défaut, métriques), le décorateur `Audited` dans **toutes** les issues, le délai global, l'annulation et la politique de budget, sans réseau ni disque.
 
 **Doubles** (`lf-application::testing`, feature `test-support`) :
 
 | Double | Comportement | Remarques |
 |---|---|---|
 | `FakeCorpus` | réponses programmées par méthode (file de `Result<T, CorpusError>`), délai optionnel (`tokio::time::sleep`, donc compatible avec `start_paused`), compteur d'appels par méthode, mesure de la concurrence maximale observée | Aucune méthode par défaut dans le port : `FakeCorpus` doit tout implémenter (02 §3.2). |
-| `FixedClock` | `now_utc` et `today_paris` fournis séparément | `lf-application` n'a pas besoin de `chrono-tz` (02 §5.3). |
+| `FixedClock` | `now_utc` et `today_paris` (un `CivilDate`) fournis séparément | `lf-application` n'a pas besoin de `chrono-tz` (02 §5.3). |
 | `MemoryAuditLog` | conserve les `AuditRecord` ; porte optionnelle qui retient l'accusé tant qu'elle n'est pas ouverte | sert à `audit_write_is_acknowledged_before_tool_returns`. |
 | `FailingAuditLog` | renvoie `AuditError { kind }` (`Io`, `DiskFull`, `PermissionDenied`, `Encode`, `WriterGone`) | modes `strict` et `best-effort`. |
 
@@ -240,7 +250,7 @@ Les tests tournent sous `#[tokio::test(start_paused = true)]` : aucune socket r�
 | 15 | audit impossible, mode `best-effort` | `FailingAuditLog` + succès | aucune ligne | — | — | — | `Ok`, `warn!` et compteur incrémenté |
 
 ```rust
-// crates/lf-application/tests/audited.rs — non compilé, à valider en M0
+// crates/lf-application/src/audited.rs, mod tests — non compilé, à valider au jalon qui l'implémente
 #[tokio::test(start_paused = true)]
 async fn audit_written_for_every_outcome() {
     for case in OUTCOMES {                               // table ci-dessus, une entrée par ligne
@@ -286,9 +296,9 @@ async fn audit_written_for_every_outcome() {
 
 ### 2.3 `lf-adapter-piste`
 
-**Objectif** : prouver le contrat HTTP (OAuth, résilience, corps, endpoints), le mapping vers le domaine et la réparation du mojibake, contre un faux PISTE et sur les octets réels des fixtures. **04 §13 fait foi** pour la liste détaillée des scénarios ; ce paragraphe en fixe l'organisation et les compléments.
+**Objectif** : prouver le contrat HTTP (OAuth, résilience, corps, endpoints), le mapping vers le domaine et la réparation du mojibake, contre un faux PISTE et sur les octets réels des fixtures. **04 §13 fait foi** pour la liste détaillée des scénarios ; ce paragraphe en fixe l'organisation et les compléments. Les ensembles du tableau sont des `#[cfg(test)] mod tests` (async pour `wiremock`) des modules du crate, comptés par `--lib` ; seul `tests/live.rs` reste dans `tests/`. La colonne « Fichier » donne le nom de l'ensemble (ancien nom de fichier de `tests/`), le module hôte figurant au §1.4. La glue HTTP irréductible est exclue nommément (§1.4) ; M2 ajoute l'`--ignore-filename-regex` de `COV_FLAGS` en même temps que les `exclude_globs` justifiés.
 
-| Fichier | Contenu (04 §13.2, §13.3) | Nombre indicatif |
+| Ensemble (module `#[cfg(test)]` du crate, §1.4) | Contenu (04 §13.2, §13.3) | Nombre indicatif |
 |---|---|---|
 | `tests/oauth.rs` | 16 scénarios OAuth : réutilisation du jeton, renouvellement 60 s avant expiration, `expires_in` nul, mono-vol, 401 renouvelé une seule fois, classification des erreurs de l'endpoint token, identifiants absents sans E/S, annulation pendant le renouvellement | 16 |
 | `tests/resilience.rs` | 429 et `Retry-After` (secondes, date HTTP, au-delà du délai), 5xx et backoff avec gigue, 400 non réessayé, 403, 404 de routage contre 404 de ressource, redirection non suivie, erreur réseau, délai HTTP, délai global, limiteur, plafond de concurrence | 19 |
@@ -311,7 +321,7 @@ async fn audit_written_for_every_outcome() {
 | `sentinel_occurrences_in_fixtures_become_none` | les 22 occurrences de `2999-01-01` des fixtures (11 en ms, 6 en `AAAA-MM-JJ`, 5 en ISO, 03 §6.2) donnent `None`. | D-20 |
 | `toc_article_projection_matches_reference_order` | la projection « articles seuls » de la TOC redonne les 62 `article_id` de la référence, dans l'ordre. | P-033 |
 
-**Infrastructure** : un `MockServer` par test ; `ManualClock` et `RecordingSleeper` (04 §13.1) ; fixtures chargées par `include_bytes!` et servies par `set_body_raw`, pour éprouver la réparation sur les octets réels ; subscriber `tracing` de capture pour les tests de non-fuite.
+**Infrastructure** : un `MockServer` par test ; `ManualClock` et `RecordingSleeper` (04 §13.1), définis dans `time.rs` en `#[cfg(test)]` ; fixtures chargées par `include_bytes!` et servies par `set_body_raw`, pour éprouver la réparation sur les octets réels ; subscriber `tracing` de capture pour les tests de non-fuite.
 
 ### 2.4 `lf-adapter-cache`
 
@@ -329,13 +339,13 @@ async fn audit_written_for_every_outcome() {
 | `capacity_is_bounded_by_weight` | des insertions au-delà de la capacité finissent par évincer (après `run_pending_tasks`) | 00 §9 |
 | `cancelled_initializer_lets_next_caller_retry` | un appelant abandonné pendant l'initialisation ne bloque pas le suivant | 02 §3.4 piège 3 |
 
-Le cas « échec d'écriture du cache » de la recherche 02 (`cache_write_failure_does_not_fail_tool`) est **sans objet** : le cache est en mémoire et ne peut pas échouer en écriture. L'absence d'accès disque est garantie par construction, puisque `check-deps` limite les dépendances du crate à `moka`, `tracing` et aux crates internes (02 §3.4).
+Le cas « échec d'écriture du cache » de la recherche 02 (`cache_write_failure_does_not_fail_tool`) est **sans objet** : le cache est en mémoire et ne peut pas échouer en écriture. L'absence d'accès disque est garantie par construction, puisque `check-arch` limite les dépendances du crate à `moka`, `tracing` et aux crates internes (02 §3.4).
 
 ### 2.5 `lf-adapter-audit`
 
-**Objectif** : prouver le format exact, l'empreinte, la rotation, la durabilité, la concurrence et les permissions du journal (§11), dans des répertoires temporaires. Le mode `strict` ou `best-effort` est appliqué par `Audited` (§2.2) ; l'adapter, lui, renvoie une erreur typée.
+**Objectif** : prouver le format exact, l'empreinte, la rotation, la durabilité, la concurrence et les permissions du journal (§11), dans des répertoires temporaires. Les ensembles ci-dessous sont des `#[cfg(test)] mod tests` du crate (un module par ligne). Le mode `strict` ou `best-effort` est appliqué par `Audited` (§2.2) ; l'adapter, lui, renvoie une erreur typée.
 
-| Fichier | Tests | Couvre |
+| Ensemble (module `#[cfg(test)]` du crate, §1.4) | Tests | Couvre |
 |---|---|---|
 | `format.rs` | `audit_line_key_order_is_normative`, `audit_ts_uses_plus_00_00`, `audit_error_truncated_to_500_chars` (troncature en caractères, avec un texte multi-octets), `audit_line_is_compact_unescaped_utf8`, `audit_line_validates_against_schema` (schéma JSON du §11.3, crate `jsonschema`), `audit_record_schema_snapshot` (`insta`, rédaction de `ts` et `duration_ms`), `audit_never_contains_argument_values` (seule l'empreinte figure dans la ligne) | P-040, D-17 |
 | `hash_vectors.rs` | `input_hash_reference_vectors` : les 8 vecteurs de l'annexe A §6.6 (SHA-256 de la chaîne canonique) ; `input_hash_escape_vector` (§11.4) | P-041 |
@@ -348,11 +358,11 @@ Le cas « échec d'écriture du cache » de la recherche 02 (`cache_write_failur
 
 **Objectif** : prouver le protocole dual-era, les descripteurs, le rendu des erreurs, la conformité des sorties et les budgets, en processus et sans réseau. Le service applicatif est construit avec `FakeCorpus` (`test-support`).
 
-**Trois harnais** :
+**Trois harnais** (en `#[cfg(test)] mod tests` du crate, comptés par `--lib`, §1.4) :
 
-1. **Client rmcp en processus** (`tests/inprocess.rs`) : `tokio::io::duplex(64 * 1024)`, serveur `serve(server_io)` dans une tâche, client `().serve(client_io)`, puis `list_all_tools`, `call_tool` (recherche 04 §2.18). Ce harnais vérifie l'ergonomie et les formes, dans l'ère choisie par le client rmcp ([v:rmcp-client-ere-tests]).
-2. **Transcriptions brutes** (`tests/protocol_raw.rs`) : le serveur tourne sur `duplex`, enveloppé par `PreLifecycleFilter` comme en production (annexe D §4.3). Le test écrit des lignes JSON brutes et lit les réponses (§6.1). Les deux ères sont couvertes explicitement.
-3. **Assertions de descripteurs** (`tests/descriptors.rs`, `tests/instructions.rs`) : sur la sortie de `tools/list` des deux ères.
+1. **Client rmcp en processus** (module de test `inprocess`) : `tokio::io::duplex(64 * 1024)`, serveur `serve(server_io)` dans une tâche, client `().serve(client_io)`, puis `list_all_tools`, `call_tool` (recherche 04 §2.18). Ce harnais vérifie l'ergonomie et les formes, dans l'ère choisie par le client rmcp ([v:rmcp-client-ere-tests]).
+2. **Transcriptions brutes** (module de test `protocol_raw`) : le serveur tourne sur `duplex`, enveloppé par `PreLifecycleFilter` comme en production (annexe D §4.3). Le test écrit des lignes JSON brutes et lit les réponses (§6.1). Les deux ères sont couvertes explicitement.
+3. **Assertions de descripteurs** (modules de test `descriptors` et `instructions`) : sur la sortie de `tools/list` des deux ères.
 
 | Test | Vérifie | Couvre | Jalon |
 |---|---|---|---|
@@ -422,15 +432,17 @@ Une seule source pour les textes : les tests lisent `lf_adapter_mcp::text`. Aucu
 | `readme_mentions_only_supported_env_vars` | les jetons `[A-Z][A-Z0-9_]{5,}` du README qui ressemblent à des variables sont dans la table de 02 §8.2 (ou dans la liste des variables obsolètes) | D-42 | M4 |
 | `production_sources_contain_only_allowlisted_urls` | aucune URL littérale hors liste blanche (`*.piste.gouv.fr`, `www.legifrance.gouv.fr`, dépôt du projet) dans `crates/*/src` | D-04 | M4 |
 | `versions_are_consistent` | version du crate = `serverInfo.version` = `server_version` du verrou = version de `server.json` | recherche 06 §8.3 | M4 |
-| `regression_catalog_is_implemented` | chaque nom de test du §3.1 dont le jalon est atteint existe dans le code (lecture de ce document ; ignoré, avec un message, si `docs/` est absent) | D-43 | M5 |
+| `regression_catalog_is_implemented` | chaque nom de test du §3.1 dont le jalon est atteint existe dans le code, ou est couvert par la table de correspondance « livré » du §3.1 (lecture de ce document ; ignoré, avec un message, si `docs/` est absent) ; les quelque 130 tests livrés ne sont pas renommés | D-43 | M5 |
 | `perf_*` (`#[ignore]`) | mesures du §12 | — | M5 |
 
 ### 2.8 `xtask`
 
 | Test | Vérifie |
 |---|---|
-| `check_deps_detects_each_rule` | le moteur `check(&Metadata, &[CrateRule])` signale au moins une violation par règle R1 à R8 sur des métadonnées JSON synthétiques (02 §4.2) ; un membre inconnu est lui-même une violation ; `rmcp` renommé ; `async-trait` direct ; feature `clock` de chrono dans `lf-domain` |
-| `check_deps_reports_transitive_path` | la violation transitive cite le chemin complet (« lf-domain → x → tokio ») |
+| `clean_graph_has_no_violation`, `domain_only_allows_thiserror`, `application_and_adapters_respect_boundaries` | livrés (`xtask/src/arch.rs`) : liste blanche de `lf-domain` (`thiserror` seul), frontières de `lf-application` et des adapters |
+| `missing_domain_is_a_violation`, `fails_closed_without_members`, `fails_closed_on_member_without_name`, `fails_closed_on_member_without_dependencies`, `reads_cargo_metadata_members_and_normal_deps` | livrés : la porte échoue fermé (métadonnées sans membre, sans nom, sans `dependencies`, ou sans `lf-domain`) |
+| `check_arch_detects_each_rule` | extensions du moteur, ajoutées au jalon où elles servent (00 §11.1) : un membre inconnu est une violation (tâche de tête de M2) ; règle R2, fermeture transitive (`cargo metadata --format-version 1 --all-features --locked`) et R9 (doublons) en M2, à la création de `lf-application` ; features `tokio` bornées en M3 ; épinglage de `rmcp` en M4 (02 §4.2) |
+| `check_arch_reports_transitive_path` | (M2) la violation transitive cite le chemin complet (« lf-domain → x → tokio ») |
 | `canonical_json_matches_python` | JSON canonique du verrou (`ensure_ascii=False`) : `{"b":1,"a":"é","c":{"z":null,"y":[true,2]}}` ⇒ `{"a":"é","b":1,"c":{"y":[true,2],"z":null}}`, SHA-256 `ba3d64630739f6049ffe92346e10b9805aa8833d82fb2f08d2ba379cd5471296` ; `{"name":"fr_coverage","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}` ⇒ SHA-256 `662718e129b8211e1a3da8d30d1200902cffe8f3f3009c55dbbcc78bab1775b2` (vecteurs calculés pour ce document avec `json.dumps(sort_keys=True, ensure_ascii=False, separators=(",", ":"))`) |
 | `canonical_json_rejects_floats` | un nombre flottant dans un descripteur fait échouer le verrou (05 §9.2 point 6) |
 | `lock_diff_classification` | paires de verrous synthétiques classées en rupture, ajout ou correctif (05 §9.5) |
@@ -458,7 +470,7 @@ Colonne « Écart » : différence avec la matrice de la recherche 02 §6, quand
 | D-04 | manifeste distant qui redirige le Bearer ; télémétrie | `no_network_call_except_piste`, `fr_eli_runtime_url_is_ignored`, `production_sources_contain_only_allowlisted_urls`, `config_rejects_http_scheme_except_loopback`, `config_rejects_userinfo_query_fragment`, `config_warns_on_custom_host`, `urls_in_responses_are_never_fetched` | bin ; piste | M2–M4 | `config_rejects_non_allowlisted_host` devient `config_warns_on_custom_host` : 02 §13.1 n° 8 et 04 §2.3 acceptent un hôte personnalisé avec avertissement et lacune FR-103 |
 | D-05 | E/S réseau bloquante dans un outil async | `server_answers_discover_while_tool_waits_upstream` (amont lent de 2 s ; `server/discover` répond en moins de 100 ms) | mcp | M4 | `ping` est supprimé en ère moderne (`-32601`, annexe D §7) : on sonde avec `server/discover`, et `ping` reste utilisé en legacy |
 | D-06 | client HTTP recréé à chaque appel | `piste_client_is_built_once` ; `clippy.toml` interdit `reqwest::Client::new` et `ClientBuilder::new` hors de `http.rs` (§8.3) | piste | M2 | — |
-| D-07 | boilerplate d'audit dupliqué | `every_tool_goes_through_audited` ; `check-deps` (aucun adapter ne dépend d'un autre) | mcp ; xtask | M4 | — |
+| D-07 | boilerplate d'audit dupliqué | `every_tool_goes_through_audited` ; `check-arch` (aucun adapter ne dépend d'un autre) | mcp ; xtask | M4 | — |
 | D-08 | erreurs en chaînes, code perdu, trace de pile ERROR | `error_results_are_text_with_code_prefix`, `error_text_snapshot_per_code`, `invalid_arg_is_not_logged_as_error` | mcp ; app | M3–M4 | `error_result_has_structured_code` remplacé : ADR-0010 impose un texte seul, sans `structuredContent` |
 | D-09 | ni pagination, ni facettes | `search_page_2_sends_page_number_2`, `has_more_computed_from_total`, `type_pagination_is_echoed_on_next_page`, `code_page_2_without_memo_sends_article` | piste ; app | M2, M5 | `code_search_reports_article_totals` reporté : `total_articles` est proposé pour la v0.2 (05 §13.1 n° 9) |
 | D-10 | erreurs OAuth et 404 mal classés | `oauth_invalid_client_401_maps_to_auth_no_retry`, `oauth_400_maps_to_auth`, `oauth_404_maps_to_config_not_not_found`, `404_on_search_is_config_not_not_found`, `404_html_is_config`, `oauth_expires_in_null_uses_default_3600`, `corpus_error_maps_to_app_error_table` | piste ; app | M2–M3 | — |
@@ -473,21 +485,21 @@ Colonne « Écart » : différence avec la matrice de la recherche 02 §6, quand
 | D-19 | « aujourd'hui » en UTC | `today_is_paris_date_at_2230_utc_in_summer`, `today_paris_in_winter`, `dst_transition_days`, `get_act_default_date_is_today_paris`, `tz_env_does_not_change_today` | bin ; app | M3–M4 | — |
 | D-20 | dates pré-1970 sous Windows, sentinelle exposée, booléen accepté | `pre_1970_dates_roundtrip` (aussi en CI Windows), `from_epoch_ms_vectors`, `negative_ms_1804`, `sentinel_2999_and_2222_are_none`, `sentinel_occurrences_in_fixtures_become_none`, `bool_is_not_a_date` | domain ; piste | M1–M2 | — |
 | D-21 | formats de date hétérogènes ; `etat` LODA `null` | `raw_date_accepts_ms_numeric_string_ymd_iso`, `iso_plus0000_string_parses`, `loda_status_falls_back_to_juris_state` | piste | M2 | — |
-| D-22 | paramètre `date` non validé | `version_date_rejects_bad_formats`, `invalid_date_is_rejected_locally` | domain ; app | M1, M3 | 0 appel au faux corpus au lieu de wiremock `expect(0)` (même garantie, niveau plus bas) |
+| D-22 | paramètre `date` non validé | `version_date_rejects_bad_formats`, `invalid_date_is_rejected_locally` | domain ; app | tête de M2, M3 | 0 appel au faux corpus au lieu de wiremock `expect(0)` (même garantie, niveau plus bas) |
 | D-23 | `null` dans les listes ⇒ `AttributeError` | `null_list_is_empty_vec`, `missing_list_is_empty_vec`, `fixture_mutations_never_panic`, cible de fuzzing `dto_decode` | piste | M2 | — |
 | D-24 | typage rigide (`int` refusé pour `str`) | `idcc_accepts_string_and_number`, `num_accepts_int_and_string`, `numero_affaire_accepts_scalar_and_list` | piste | M2 | — |
-| D-25 | TOC aplatie, désordonnée, dupliquée | `toc_preserves_section_titles`, `toc_sorted_by_int_ordre`, `toc_dedups_articles`, `toc_article_projection_matches_reference_order`, `kali_inline_content_is_available_without_extra_call` | domain ; piste | M1–M2 | — |
-| D-26 | structure en alinéas perdue | `cetat_fixture_yields_multiple_paragraphs` (43), `constit_fixture_yields_49_paragraphs`, `verbatim_text_is_unchanged_except_markup`, `article_9_has_two_paragraphs` (sur fixture recapturée avec `texteHtml`) | domain ; piste | M1–M2 | le dernier dépend de [v:texte-html-getarticle-juri] |
-| D-27 | typographie des citations fautive | `constit_citation_golden`, `cnil_citation_golden`, `format_fr_twelve_months_and_premier` | domain | M1 | `nested_brackets_are_balanced` sans objet : la citation n'inclut plus l'objet entre crochets (P-035) ; il est remplacé par `constit_citation_ignores_bracketed_subject` |
-| D-28 | URL routée par `origine` ; préfixes incomplets | `url_depends_on_id_type_not_payload_origine`, `origine_mismatch_emits_diagnostic`, `suffix_only_on_legitext` | domain ; piste | M1–M2 | `strip_date_suffix_handles_all_known_prefixes` adapté : le suffixe n'est admis que sur `LEGITEXT` (00 §4) |
-| D-29 | URL `/codes/` pour un article de loi | `law_article_url_uses_loda_article_lc` ; scénario live 3 (P-060) | domain ; live | M1, M2 | dépend de [v:texttitles-nature-loi] et [v:url-loda-article-lc] |
-| D-30 | contrat de citation optionnel ; `eli_uri` trompeur | `every_normalized_fixture_has_contract`, `invalid_hit_is_dropped_and_counted`, `citation_never_empty`, `no_view_has_eli_uri`, `ported_no_fabricated_eli` (16 fixtures) | domain ; piste ; mcp | M1–M4 | — |
+| D-25 | TOC aplatie, désordonnée, dupliquée | `toc_preserves_section_titles`, `toc_sorted_by_int_ordre`, `toc_dedups_articles`, `toc_article_projection_matches_reference_order`, `kali_inline_content_is_available_without_extra_call` | domain ; piste | M2 (tâche de tête : `TocNode`) ; contenu KALI en ligne : M2 | livré : `TocEntry` (à renommer `TocArticle`) ; `TocNode`, `Toc::build` et `Toc::page` : tâche de tête de M2 (00 §11.1) |
+| D-26 | structure en alinéas perdue | `cetat_fixture_yields_multiple_paragraphs` (43), `constit_fixture_yields_49_paragraphs`, `verbatim_text_is_unchanged_except_markup`, `article_9_has_two_paragraphs` (sur fixture recapturée avec `texteHtml`) | domain ; piste | M2 | le dernier dépend de [v:texte-html-getarticle-juri] |
+| D-27 | typographie des citations fautive | `constit_citation_golden`, `cnil_citation_golden`, `format_fr_twelve_months_and_premier` | domain | M2 (tâche de tête) | `nested_brackets_are_balanced` sans objet : la citation n'inclut plus l'objet entre crochets (P-035) ; il est remplacé par `constit_citation_ignores_bracketed_subject` ; livré : typographie v1 avec suffixe « - objet » ; contrat v2 sans suffixe dû en M2 (00 §11.1) ; CivilDate::to_french livré |
+| D-28 | URL routée par `origine` ; préfixes incomplets | `url_depends_on_id_type_not_payload_origine`, `origine_mismatch_emits_diagnostic`, `suffix_kept_on_legitext_stripped_elsewhere` | domain ; piste | M1–M2 ; suffixe daté : M2 (tâche de tête) | `strip_date_suffix_handles_all_known_prefixes` adapté : suffixe conservé (`parse_versioned`) sur `LEGITEXT` ; bien formé ailleurs : toléré puis retiré ; mal formé : `BadSuffix` (C4, 00 §4) ; livré : suffixe jeté ; `parse_versioned` conservant la date dû en M2 (00 §11.1) |
+| D-29 | URL `/codes/` pour un article de loi | `law_article_url_uses_loda_article_lc` ; scénario live 3 (P-060) | domain ; live | M2 | dépend de [v:texttitles-nature-loi] et [v:url-loda-article-lc] |
+| D-30 | contrat de citation optionnel ; `eli_uri` trompeur | `every_normalized_fixture_has_contract`, `invalid_hit_is_dropped_and_counted`, `citation_never_empty`, `no_view_has_eli_uri`, `ported_no_fabricated_eli` (16 fixtures) | domain ; piste ; mcp | M2 (tâche de tête) – M4 | livré : v1 (`eli_uri` copie de `source_url`) ; contrat v2 (`citation` jamais vide, `source_url`, `ecli`, `eli`, module `contract`) dû en M2 (00 §11.1) |
 | D-31 | validation par préfixe seul ; schémas permissifs | `id_parse_roundtrip`, `id_error_messages_table`, `schema_has_enum_for_fond_and_bounds_for_page_size`, `ids_go_in_body_never_in_path` | domain ; mcp ; piste | M1–M4 | — |
-| D-32 | mode de recherche figé ; requête non bornée | `type_recherche_follows_match`, `query_too_long_is_invalid_arg`, `query_control_chars_are_stripped` | piste ; domain | M1–M2 | le défaut reste `any` (Q10, ADR-0014) |
+| D-32 | mode de recherche figé ; requête non bornée | `type_recherche_follows_match`, `query_too_long_is_invalid_arg`, `query_control_chars_are_stripped` | piste ; domain | M2 | le défaut reste `any` (Q10, ADR-0014) |
 | D-33 | taille des réponses non maîtrisée | `default_decision_response_under_budget`, `paged_reading_reconstructs_full_text`, `focus_returns_relevant_paragraphs`, `descriptor_size_budget`, `every_tool_response_under_hard_cap`, `default_outputs_within_target` | domain ; app ; mcp | M5 | — |
 | D-34 | `fr_coverage` incomplet et figé | `every_registered_tool_is_in_a_family_or_general`, `every_served_fond_has_a_family`, `gaps_never_empty`, `coverage_degraded_without_credentials`, `coverage_lists_known_gaps` | mcp ; app | M3–M4 | — |
 | D-35 | fixtures en mojibake, tronquées, sans métadonnées | `fixtures_have_meta_sidecar`, `fixture_sha256_matches_meta`, `recorded_fixtures_have_no_mojibake`, `mojibake_body_is_repaired_and_counted`, `no_mojibake_after_mapping`, `ported_search_loda_hits` | piste | M2 | `fixtures_have_no_mojibake` restreint aux fixtures **enregistrées** : les 6 fixtures en mojibake de la référence sont conservées exprès pour tester la réparation (§4.2) |
-| D-36 | couverture de tests et CI insuffisantes | la CI elle-même : jobs requis du §7, matrice Linux, macOS et Windows, MSRV | CI | M0 | garanti par la protection de branche, pas par un test |
+| D-36 | couverture de tests et CI insuffisantes | la CI elle-même : jobs requis du §7, couverture 100 % (`make cov`), mutation du diff de PR, MSRV 1.88 (livrés avec M0) ; matrice Linux, macOS et Windows (dès M2) | CI | M0, M2 | garanti par la protection de branche, pas par un test |
 | D-37 | verrou des descripteurs fragile | `cargo xtask lock-descriptors --check` (trois sessions, deux ères), `tools_list_snapshot`, `descriptor_lock_rejects_empty_baseline`, `lock-descriptors --compare <étiquette précédente>` (job de release), `versions_are_consistent` | xtask ; mcp ; bin | M4 | le contrôle de version se fait par `--compare` (05 §9.4) |
 | D-38 | E/S synchrones dans la boucle d'événements | `tool_calls_progress_while_audit_write_is_slow` (audit retenu 500 ms pour un appel, un second appel progresse) ; lint `disallowed-methods` (§8.3) | app ; mcp | M3–M4 | `concurrent_tool_calls_progress_while_disk_is_slow` adapté : il n'y a pas de cache disque, seul l'audit écrit sur disque |
 | D-39 | fuites de ressources, ordre de construction | `missing_credentials_makes_no_network_call`, `e2e_missing_credentials_config_error_audited`, `new_does_no_io` (piste et audit) | piste ; audit ; bin | M2–M4 | la recherche demandait « aucune E/S disque » : la ligne d'audit reste obligatoire (00 §3), seul le réseau est exclu |
@@ -495,10 +507,36 @@ Colonne « Écart » : différence avec la matrice de la recherche 02 §6, quand
 | D-41 | taille des corps non bornée | `oversized_body_is_rejected`, `gzip_body_is_limited_after_decompression`, `acco_large_data_field_is_skipped` | piste | M2 | — |
 | D-42 | variables du README fausses | `readme_mentions_only_supported_env_vars`, `check_config_lists_every_variable` | bin | M4 | — |
 | D-43 | dérives documentation et code | `user_agent_contains_crate_version`, `instructions_drift`, `server_info_is_mcp_legifrance_with_crate_version`, `changelog_has_entry_for_version` (job de release, §13.3), `regression_catalog_is_implemented` | bin ; mcp ; CI | M4–M5 | — |
-| D-44 | chaîne CI et release non épinglée | job `workflow-lint` (zizmor, actionlint) qui exige des actions épinglées par SHA ; publication par cargo-dist avec sommes de contrôle et signature ([08-distribution.md](08-distribution.md)) | CI | M0 | — |
+| D-44 | chaîne CI et release non épinglée | job `workflow-lint` (zizmor, actionlint) qui exige des actions épinglées par SHA ; publication par cargo-dist avec sommes de contrôle et signature ([08-distribution.md](08-distribution.md)) | CI | hygiène du dépôt, tout de suite (en retard ; M1-D15, au plus tard début de M2) | — |
 | D-45 | pseudonymisation non signalée ; attribution | `coverage_lists_pseudonymisation_gap` (FR-006), `coverage_source_mentions_licence` | mcp | M4 | `juri_and_cnil_responses_carry_redaction_note` remplacé : 05 §5.8 signale la pseudonymisation par une lacune de couverture, pas dans chaque réponse |
 | D-46 | aucun journal de diagnostic | `stdout_contains_only_jsonrpc`, `tool_call_emits_one_info_event`, `piste_call_span_fields` | bin ; app ; piste | M2–M4 | — |
 | D-47 | `fr_get_act` sur un code | `get_act_on_code_adds_note`, `toc_page_bounds` (`toc_limit` ≤ 500) ; M7 : `get_act_on_code_uses_table_matieres` si [v:lawdecree-sur-code] le justifie | mcp ; app ; piste | M4, M7 | `get_act_rejects_code_id_with_hint` écarté : 00 §3 garde `get_act(&LegiTextId)` pour les codes, et 05 §5.2 ajoute une `note` |
+
+**Correspondance avec les tests livrés de M1 (plan 1).** Les noms du catalogue ci-dessus restent les identifiants de référence ; les tests livrés de `lf-domain` ne sont pas renommés. `regression_catalog_is_implemented` lit cette table pour les noms livrés.
+
+| Nom du catalogue | Test(s) livré(s) (`lf-domain/src/…`) | Reste dû |
+|---|---|---|
+| `id_error_messages_table` | `rejects_wrong_prefix_with_actionable_error`, `rejects_malformed_digits`, `error_echo_is_truncated` (`id.rs`) ; `messages_are_actionable` (`error.rs`) | phrases de parité de `render.rs`, M4 |
+| `id_parse_roundtrip` | `valid_shape_roundtrips`, `any_id_roundtrips`, `parse_never_panics` (`id.rs`) | `valid_shape_roundtrips` à corriger (dates valides, C4) |
+| `versioned_id_splits_suffix`, `suffix_kept_on_legitext_stripped_elsewhere` | `strips_version_suffix`, `strips_version_suffix_on_constext_too` (`id.rs`) | `parse_versioned`, suffixes malformés refusés : tâche de tête de M2 |
+| `parse_param_trims_and_uppercases_prefix` | `tolerates_whitespace_and_lowercase` (`id.rs`) | — (`parse_param` abandonné) |
+| `fond_parse_is_case_and_space_insensitive` | `parse_is_case_and_space_insensitive`, `parse_rejects_api_names_and_unknowns`, `parse_round_trips` (`fond.rs`) | — |
+| `fond_error_message_matches_reference` | `names_match_reference`, `api_names_match_reference` (`fond.rs`) | message de parité, M4 |
+| `constit_citation_golden`, `cnil_citation_golden`, `juri_and_cetat_citation_is_clean_title`, `article_citation_rules_table` | `constit_full_citation_from_fixture`, `constit_optional_parts`, `cnil_rules`, `article_rules`, `company_rules` (`citation.rs`) ; `constit_uses_french_convention`, `juri_cites_title`, `cetat_cites_title`, `cites_with_cnil_convention`, `legi_article_cites_code_and_number` (`entity/`) | contrat v2 (`contract`, `CitationText`), sans suffixe « - objet » : tâche de tête de M2 ; les tests de `bracketed` disparaissent |
+| `citation_never_empty`, `ecli_is_never_fabricated` | `accepts_fixture_eclis`, `rejects_malformed`, `valid_eclis_roundtrip` (`ecli.rs`) | `CitationText` jamais vide, M2 |
+| `source_url_snapshot_all_kinds`, `url_depends_on_id_type_not_payload_origine` | `urls_match_reference`, `fond_maps_to_its_page_kind` (`url.rs`) | règle `/loda/article_lc/` après V-140 et V-142, M2 |
+| `from_epoch_ms_vectors`, `pre_1970_dates_roundtrip` | `from_unix_millis_matches_fixtures`, `from_unix_millis_edges`, `civil_roundtrips_through_oracle`, `millis_in_range_always_give_a_date` (`date.rs`) | vecteur 1804-03-21 (-5231606400000) : tâche de tête de M2 |
+| `format_fr_twelve_months_and_premier` | `french_prose`, `french_prose_covers_all_twelve_months` (`date.rs`) | — |
+| `version_date_rejects_bad_formats` | `new_validates_calendar`, `parse_rejects_other_shapes`, `display_parse_roundtrip` (`date.rs`) | `VersionDate` borné, M2 |
+| `clean_strips_mark_tags`, `clean_folds_whitespace_after_repair` | `strips_search_marks`, `normalizes_whitespace`, `html_fragments_give_trimmed_output` (`text/clean.rs`) | réparation du mojibake (`text::encoding`), M2 |
+| `clean_removes_invisible_and_control_chars` | `output_has_no_decoded_controls`, `keeps_every_bidi_and_c1_control_ref_literal` (`text/clean.rs`) | filtrage des caractères bruts, M2 (M1-D7) |
+| `snippet_is_truncated_to_280_chars` | `snippet_is_cleaned_and_cut`, `snippet_never_exceeds_cap` (`entity/search.rs`) | espace final après la coupe : M2 (M1-D18) |
+| `window_last_page_has_no_next_offset`, `offset_past_end_is_empty_window` | `whole_text_fits`, `offset_past_end_is_empty` (`text/window.rs`) | `OffsetPastEnd` dans le cas d'usage, M5 |
+| `window_guarantees_g1_to_g7`, `paged_reading_reconstructs_full_text`, `window_offsets_are_char_based` | `windows_partition_the_text`, `windows_partition_with_soft_boundaries`, `extreme_bounds_do_not_overflow`, `zero_max_chars_still_progresses`, `offsets_are_in_chars` (`text/window.rs`) ; `passages_partition_the_text` (`text/passages.rs`) | coupe douce, règle (b) : M5 (M1-D9) |
+| `rank_is_deterministic_and_within_budget` | `ranking_is_bounded_positive_and_sorted`, `ties_keep_input_order_and_k_truncates`, `score_sums_terms_in_sorted_order` (`text/rank.rs`) | borne des termes de `focus`, M5 (M1-D3) |
+| `coverage_invariants_ported` | `refuses_empty_gaps`, `exposes_its_parts` (`coverage.rs`) | remodelage et `fr_coverage`, M3-M4 (M1-D20) |
+
+Les lignes `toc_*`, `from_html_*`, `summary_*`, `query_*` et `page_size_bounds` du §2.1 n'ont pas de test livré : leur objet arrive en M2 ou M5 (00 §11.1).
 
 ### 3.2 Points de parité et golden
 
@@ -683,7 +721,7 @@ La suite officielle ne teste pas stdio : son option `--url` est obligatoire (ann
 
 **Liste minimale pour M4** (annexe D §8.3 ; cas (a) à (f) de 05 §11) : `modern_discover`, `modern_tools_list`, `modern_tools_call`, `modern_meta_incomplete`, `modern_unsupported_version`, `modern_removed_methods`, `modern_listen`, `legacy_2025_11_25`, `legacy_2025_06_18`, `legacy_then_modern`, `initialize_negotiation`, `premature_notification`, `garbage_and_batch`, `cancel_then_silence`, `eof_after_discover`, `interleaved_two_conversations`, `mrtr_fields_tolerated`.
 
-**Correspondance avec la check-list** : chaque exigence C-01 à C-30 de l'annexe D §8.1 a son test ou sa transcription (colonne « Test prévu » de l'annexe D, qui fait foi). Le spike M0 fait passer `modern_discover`, `legacy_2025_11_25` et `premature_notification` (annexe D §8.4), ce qui tranche [v:rmcp-transport-enveloppe], [v:rmcp-methode-inattendue] et [v:rmcp-mrtr-champs-toleres].
+**Correspondance avec la check-list** : chaque exigence C-01 à C-30 de l'annexe D §8.1 a son test ou sa transcription (colonne « Test prévu » de l'annexe D, qui fait foi). Le spike rmcp (avant la conception de `ToolCall` et des cas d'usage de M3, V-28) fait passer `modern_discover`, `legacy_2025_11_25` et `premature_notification` (annexe D §8.4), ce qui tranche [v:rmcp-transport-enveloppe], [v:rmcp-methode-inattendue] et [v:rmcp-mrtr-champs-toleres].
 
 **Écarts acceptés** : `ping` avant toute ère, `initialize` portant un `_meta` moderne, ligne non JSON ignorée, longueur de ligne non bornée en 3.5.1 (annexe D §4.7). Les transcriptions les figent comme comportements attendus : une montée de rmcp qui les change fait échouer le test, ce qui oblige à relire l'annexe D.
 
@@ -709,35 +747,38 @@ Le protocole de l'annexe D §10.3 s'exécute avant chaque étiquette : Claude Co
 
 | Job | Déclencheur | OS | Commandes principales | Requis pour fusionner | Durée cible |
 |---|---|---|---|---|---|
-| `fmt` | PR, `main` | Linux | `cargo fmt --all --check` | oui | 1 min |
-| `clippy` | PR, `main` | Linux | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, puis la même commande avec `--no-default-features` | oui | 5 min |
-| `test` | PR, `main` | Linux, macOS, Windows | `cargo fetch --locked` ; `cargo nextest run --workspace --all-features --locked --offline --profile ci` (proxys en échec, PT1) ; `cargo test --doc --workspace --all-features --locked --exclude lf-app --exclude xtask` | oui (les 3) | Linux 7, macOS 9, Windows 12 min |
-| `msrv` | PR, `main` | Linux | `rustup toolchain install 1.91 --profile minimal` ; `cargo +1.91 check --workspace --all-targets --all-features --locked` (la toolchain de la ligne de commande l'emporte sur `rust-toolchain.toml`) | oui | 5 min |
+| `fmt` | PR, `main` | Linux | livré : job `check` (`make fmt-check lint doc arch machete`) ; cible : `make fmt-check` (`cargo fmt --all -- --check`) | oui | 1 min |
+| `clippy` | PR, `main` | Linux | livré : job `check` (`make fmt-check lint doc arch machete`) ; cible : `make lint`, dont la cible reçoit en M2 `--all-features --locked` puis une seconde passe `--no-default-features` | oui | 5 min |
+| `test` | PR, `main` | Linux (livré) ; macOS et Windows dès M2 | livré : `make test` (`cargo nextest run --workspace` puis `cargo test --workspace --doc`) ; cible dès M2 : `make test`, dont la cible reçoit `cargo fetch --locked` puis `cargo nextest run --workspace --all-features --locked --offline --profile ci` (proxys en échec, PT1) ; `cargo test --doc --workspace --all-features --locked --exclude lf-app --exclude xtask` | oui (Linux ; les 3 dès M2) | Linux 7, macOS 9, Windows 12 min |
+| `msrv` | PR, `main` | Linux | job `MSRV 1.88` (livré) : `cargo +1.88 check --workspace --all-targets` (la toolchain de la ligne de commande l'emporte sur `rust-toolchain.toml`) ; `--all-features --locked` dès M2 | oui | 5 min |
 | `deny` | PR, `main`, nuit | Linux | `cargo deny --all-features check` (advisories, bans, licenses, sources) | oui | 2 min |
-| `architecture` | PR, `main` | Linux | `cargo xtask check-deps` ; `cargo check -p lf-domain --locked` ; `cargo check -p lf-application --locked` (02 §4.4) ; `cargo tree -p lf-domain -e normal --prefix none` (artefact) ; `cargo machete` | oui | 4 min |
-| `surface` | PR, `main` | Linux | `cargo xtask lock-descriptors --check` ; `cargo xtask instructions-size` ; `cmp` des copies du golden et du corpus (annexe A §5.3, annexe B §8.1) | oui | 4 min |
-| `docs` | PR, `main` | Linux | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked` | oui | 4 min |
+| `architecture` | PR, `main` | Linux | livré : job `check` (`make fmt-check lint doc arch machete`) ; cible : `cargo xtask check-arch` (`make arch`) ; `cargo check -p lf-domain --locked` ; `cargo check -p lf-application --locked` (02 §4.4) ; `cargo tree -p lf-domain -e normal --prefix none` (artefact) ; `cargo machete` | oui | 4 min |
+| `surface` | PR, `main` | Linux | cible : `make surface` (`cargo xtask lock-descriptors --check`, `cargo xtask instructions-size`, `cmp` des copies du golden et du corpus : annexe A §5.3, annexe B §8.1) | oui | 4 min |
+| `docs` | PR, `main` | Linux | livré : job `check` (`make fmt-check lint doc arch machete`) ; cible : `make doc` (`RUSTDOCFLAGS="-D warnings"` déjà dans la cible ; `--all-features --locked` ajoutés à la cible en M2) | oui | 4 min |
 | `workflow-lint` | PR qui touche `.github/` | Linux | zizmor et actionlint, versions épinglées **NON VÉRIFIÉ** [v:outils-lint-workflows] | oui | 1 min |
 | `extended` | nuit | Linux, Windows | nextest avec `PROPTEST_CASES=4096` ; `perf_*` (§12) | non (alerte) | 20 min |
-| `fuzz` | nuit | Linux | `cargo +nightly fuzz run <cible> -- -max_total_time=120` pour chaque cible | non | 15 min |
-| `coverage` | nuit | Linux | `cargo llvm-cov nextest --workspace --lcov` (indicatif) | non | 15 min |
+| `fuzz` | hebdomadaire (`weekly.yml`, lundi) | Linux | `cargo +nightly fuzz run <cible> -- -max_total_time=300` pour `ids` et `text` (livrés) ; autres cibles avec leur objet | non (alerte) | 30 min |
+| `coverage` | PR, `main` | Linux | `make cov` = `cargo llvm-cov --workspace --lib --summary-only --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100` (toolchain avec `llvm-tools-preview`) | **oui** (livré) | à mesurer |
+| `mutants` | PR uniquement | Linux | `cargo mutants --in-diff pr.diff -j 2 --baseline skip --timeout 60` sur le diff de la PR ; `MISSED` (code 2) et `TIMEOUT` (code 3) bloquent | **oui** (livré) | suit la taille du diff ; `timeout-minutes: 60` ; exempt de la cible globale |
+| `weekly` | lundi 03:17 UTC, manuel | Linux | `cargo mutants --shard k/4 -j 2 --timeout 60` sur tout le workspace (4 shards), plus le job `fuzz` | non requis (un mutant survivant ouvre un correctif) | 120 min par shard |
 | `release-plan` | PR qui touche la configuration de distribution ; release | Linux | `dist plan`, via le `release.yml` généré par `dist init` en mode `pr-run-mode = "plan"` **NON VÉRIFIÉ** [v:cargo-dist-pr-run-mode] ; à la release : `cargo xtask lock-descriptors --compare <étiquette précédente>` et `changelog_has_entry_for_version` | oui pour ces PR | 3 min |
 | `conformance-http` | PR (à partir de M8) | Linux | §6.2 | oui à partir de M8 | 5 min |
 | `live` | manuel, hebdomadaire | Linux | §5 et §7.5 | non | 10 min |
 
-**Cible globale** : une PR obtient tous les jobs requis en 12 minutes au p50 et en 20 minutes au p95, avec cache chaud ; Windows est le chemin critique. Ces cibles sont des propositions, à mesurer en M0 puis en M5.
+**Cible globale** : une PR obtient tous les jobs requis, hors `mutants`, en 12 minutes au p50 et en 20 minutes au p95, avec cache chaud ; Windows (dès M2) est le chemin critique. Le job `mutants` est exempté : son coût suit la taille du diff (mesure unique : la PR #2 mutait tout M0-M1, soit 20 fichiers et 369 mutants). Ces cibles sont des propositions, à mesurer en M2 puis en M5. Les jobs `check`, `test` et `coverage` appellent les cibles `make` (`fmt-check`, `lint`, `doc`, `arch`, `machete`, `test`, `cov`) ; `deny` (`cargo-deny-action`), `msrv` (`cargo +1.88 check`) et `mutants` (`cargo mutants --in-diff`, diff de la PR) appellent directement leur outil. Une porte nouvelle du plan (`xtask lock-descriptors`, `instructions-size`, contrôle des fixtures) s'ajoute au `Makefile`, jamais directement en CI.
 
 ### 7.2 Esquisse de `ci.yml`
 
 ```yaml
-# .github/workflows/ci.yml — esquisse, à valider en M0.
+# .github/workflows/ci.yml — esquisse de la cible, à valider au jalon qui l'implémente.
+# Livré (M0) : jobs check, test et coverage (cibles make), deny (cargo-deny-action), msrv (`cargo +1.88 check`) et mutants (`cargo mutants --in-diff`, appel direct).
 # Chaque `uses:` est épinglé par SHA complet, version en commentaire (D-44) : [v:actions-versions-sha].
 name: ci
 on:
   pull_request:
   push: { branches: [main] }
   merge_group:
-  schedule: [{ cron: "23 3 * * *" }]          # nuit : advisories, propriétés étendues, fuzz, couverture
+  schedule: [{ cron: "23 3 * * *" }]          # nuit : advisories, propriétés étendues ; fuzz et mutation complète : weekly.yml
   workflow_dispatch:
 permissions: { contents: read }
 concurrency:
@@ -757,7 +798,7 @@ jobs:
     steps:
       - uses: actions/checkout@<sha>                  # vX.Y.Z
         with: { persist-credentials: false }
-      - run: cargo fmt --all --check                  # toolchain lue dans rust-toolchain.toml (1.99.0)
+      - run: make fmt-check                           # toolchain lue dans rust-toolchain.toml (1.99.0)
 
   clippy:
     runs-on: ubuntu-24.04
@@ -767,8 +808,7 @@ jobs:
         with: { persist-credentials: false }
       - uses: Swatinem/rust-cache@<sha>
         with: { shared-key: clippy, save-if: "${{ github.ref == 'refs/heads/main' }}" }
-      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      - run: cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
+      - run: make lint        # drapeaux --all-features --locked et passe --no-default-features : à ajouter à la cible (M2)
 
   test:
     strategy:
@@ -789,8 +829,7 @@ jobs:
           HTTPS_PROXY: http://127.0.0.1:9
           HTTP_PROXY: http://127.0.0.1:9
           NO_PROXY: 127.0.0.1,localhost,::1
-        run: cargo nextest run --workspace --all-features --locked --offline --profile ci
-      - run: cargo test --doc --workspace --all-features --locked --offline --exclude lf-app --exclude xtask
+        run: make test          # --all-features --locked --offline --profile ci, --exclude lf-app --exclude xtask en doc-test : à ajouter à la cible (M2)
       - if: always()
         uses: actions/upload-artifact@<sha>
         with: { name: "junit-${{ matrix.os }}", path: target/nextest/ci/junit.xml }
@@ -801,10 +840,10 @@ jobs:
     steps:
       - uses: actions/checkout@<sha>
         with: { persist-credentials: false }
-      - run: rustup toolchain install 1.91 --profile minimal
+      - run: rustup toolchain install 1.88 --profile minimal
       - uses: Swatinem/rust-cache@<sha>
         with: { shared-key: msrv, save-if: "${{ github.ref == 'refs/heads/main' }}" }
-      - run: cargo +1.91 check --workspace --all-targets --all-features --locked
+      - run: cargo +1.88 check --workspace --all-targets --all-features --locked
 
   deny:
     runs-on: ubuntu-24.04
@@ -823,7 +862,7 @@ jobs:
         with: { persist-credentials: false }
       - uses: Swatinem/rust-cache@<sha>
         with: { shared-key: arch, save-if: "${{ github.ref == 'refs/heads/main' }}" }
-      - run: cargo xtask check-deps
+      - run: make arch
       - run: cargo check -p lf-domain --locked && cargo check -p lf-application --locked
       - run: cargo tree -p lf-domain -e normal --prefix none > lf-domain.tree
       - uses: taiki-e/install-action@<sha>
@@ -840,15 +879,9 @@ jobs:
         with: { persist-credentials: false }
       - uses: Swatinem/rust-cache@<sha>
         with: { shared-key: surface, save-if: "${{ github.ref == 'refs/heads/main' }}" }
-      - run: cargo xtask lock-descriptors --check
-      - run: cargo xtask instructions-size
-      - name: copies des données du plan
-        run: |
-          cmp docs/plan/annexes/donnees/parite-golden.json \
-              crates/lf-adapter-piste/tests/fixtures/reference/parite-golden.json
-          for f in citations-corpus-positifs citations-corpus-negatifs; do        # à partir de M6
-            cmp "docs/plan/annexes/donnees/$f.jsonl" "crates/lf-domain/tests/data/citations/$f.jsonl"
-          done
+      - run: make surface   # lock-descriptors --check, instructions-size, et le `cmp` des copies du golden
+                            # (docs/plan/annexes/donnees/parite-golden.json et sa copie de fixtures) et du corpus
+                            # de citations (à partir de M6) : ces contrôles vivent dans la cible, pas dans le job
 
   docs:
     runs-on: ubuntu-24.04
@@ -858,16 +891,44 @@ jobs:
         with: { persist-credentials: false }
       - uses: Swatinem/rust-cache@<sha>
         with: { shared-key: docs, save-if: "${{ github.ref == 'refs/heads/main' }}" }
-      - run: cargo doc --workspace --all-features --no-deps --locked
-        env: { RUSTDOCFLAGS: "-D warnings" }
+      - run: make doc         # -D warnings dans la cible ; --all-features --locked : à ajouter à la cible (M2)
+
+  coverage:                                       # livré : requis à chaque PR (ADR-0002)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@<sha>
+        with: { persist-credentials: false }
+      - uses: Swatinem/rust-cache@<sha>
+        with: { shared-key: cov, save-if: "${{ github.ref == 'refs/heads/main' }}" }
+      - uses: taiki-e/install-action@<sha>
+        with: { tool: cargo-llvm-cov }
+      - run: make cov                             # --workspace --lib, 100 % lignes, régions et fonctions
+
+  mutants:                                        # livré : diff de la PR, bloquant (MISSED code 2, TIMEOUT code 3)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@<sha>
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: Swatinem/rust-cache@<sha>
+        with: { shared-key: mutants-diff }
+      - uses: taiki-e/install-action@<sha>
+        with: { tool: "cargo-nextest,cargo-mutants" }
+      - name: muter le diff
+        env: { BASE_REF: "${{ github.base_ref }}" }       # jamais interpolé dans le script
+        run: |
+          git diff "origin/${BASE_REF}...HEAD" > pr.diff
+          cargo mutants --in-diff pr.diff -j 2 --baseline skip --timeout 60
 ```
 
-Les jobs `workflow-lint`, `extended`, `fuzz`, `coverage` et `conformance-http` suivent le même modèle et ne sont pas détaillés ici.
+Les jobs `workflow-lint`, `extended` et `conformance-http` suivent le même modèle et ne sont pas détaillés ici. `fuzz` et le balayage de mutation complet (4 shards) sont dans `weekly.yml`.
 
 ### 7.3 Configuration nextest
 
 ```toml
-# .config/nextest.toml — esquisse, à valider en M0 ([v:nextest-config-cles])
+# .config/nextest.toml — esquisse, à valider au jalon qui l'implémente ([v:nextest-config-cles])
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
 
@@ -894,9 +955,9 @@ test-group = "stdio-e2e"
 
 ### 7.4 Cache, toolchain et réseau
 
-- **Toolchain** : `rust-toolchain.toml` épingle 1.99.0 avec `rustfmt` et `clippy` (00 §2 ; date de sortie **NON VÉRIFIÉ** [v:date-rust-1-99]). Les runners installent la toolchain au premier appel de `cargo`. Le job MSRV force 1.91 par `cargo +1.91`.
+- **Toolchain** : `rust-toolchain.toml` épingle 1.99.0 avec `rustfmt`, `clippy` et `llvm-tools-preview`, ce dernier requis par `make cov` (00 §2 ; date de sortie **NON VÉRIFIÉ** [v:date-rust-1-99], 1.99.0 étant la stable installée, build du 2026-09-28). Livré : `channel = "stable"` avec les trois composants ; l'épinglage à 1.99.0 est une **tâche de tête de M2** (00 §11.1), qui aligne sur le fichier les 5 étapes `dtolnay/rust-toolchain@stable` de `ci.yml` et `weekly.yml`. Raison : la prochaine stable (mi-novembre 2026) peut casser `clippy::pedantic` en `-D warnings` et changer le comptage des régions de couverture sans aucun changement de code. Le job MSRV force 1.88 par `cargo +1.88` et ne change pas.
 - **Cache** : `Swatinem/rust-cache`, une clé par job et par OS, sauvegardée **seulement sur `main`** (`save-if`), pour éviter que des PR n'évincent le cache utile. `CARGO_INCREMENTAL=0` réduit la taille du cache. On ne fixe pas `RUSTFLAGS` au niveau du workflow, ce qui invaliderait le cache : `-D warnings` passe par les arguments de clippy et par `RUSTDOCFLAGS` dans le seul job `docs`.
-- **Outils** : nextest et cargo-machete sont installés en binaire par `taiki-e/install-action` (recherche 04 §4.1 : nextest demande Rust 1.91 pour être compilé ; action **NON VÉRIFIÉ** [v:actions-versions-sha]).
+- **Outils** : nextest, cargo-machete, cargo-llvm-cov et cargo-mutants sont installés en binaire par `taiki-e/install-action` (recherche 04 §4.1 : nextest demande Rust 1.91 pour être compilé ; action **NON VÉRIFIÉ** [v:actions-versions-sha]).
 - **Réseau** : la construction a besoin de crates.io (et de `static.crates.io`, Q6) ; les tests n'ont besoin d'aucun réseau (PT1). `cargo fetch` précède les tests, qui tournent en `--offline`.
 
 ### 7.5 Workflow `live.yml`
@@ -912,7 +973,7 @@ permissions: { contents: read }
 concurrency: { group: live, cancel-in-progress: false }   # un passage à la fois : quota PISTE
 jobs:
   sandbox:
-    if: github.repository == 'muchiny/mcp-ligitfrance'    # jamais sur un fork (nom final : Q1)
+    if: github.repository == 'muchiny/mcp-legifrance'    # jamais sur un fork (nom final : Q1 décidée le 2026-10-16)
     runs-on: ubuntu-24.04
     environment: piste-sandbox                            # secrets protégés, approbation possible
     timeout-minutes: 30
@@ -934,10 +995,15 @@ jobs:
 
 Le workflow ne s'exécute pas sur `pull_request` : une PR venue d'un fork n'a jamais accès aux secrets. Les journaux ne contiennent aucun secret (§10, ligne MEN-01), puisque GitHub masque les secrets déclarés et que le code ne les journalise jamais.
 
-### 7.6 Protection de branche et couverture
+### 7.6 Protection de branche et portes de qualité
 
-- Checks requis sur `main` : `fmt`, `clippy`, `test` (×3), `msrv`, `deny`, `architecture`, `surface`, `docs`, `workflow-lint` quand il s'exécute, puis `conformance-http` à partir de M8. Historique linéaire ; fusion par squash.
-- La couverture (`cargo llvm-cov`) est **indicative**, jamais un seuil bloquant : un pourcentage n'atteste ni les bons cas ni les bons oracles. Repères suivis en revue : domaine ≥ 90 % des lignes, application ≥ 85 %, adapters ≥ 75 %. Une baisse de plus de 2 points sur un crate demande une explication dans la PR.
+- **Checks requis sur `main`** : `check` (fmt, clippy, doc, arch, machete), `test`, `coverage`, `mutants` (sur PR), `msrv` et `deny` (livrés) ; puis, quand ils existent, `surface`, `workflow-lint`, les trois OS du job `test` (dès M2) et `conformance-http` (à partir de M8). Le réglage de protection de branche n'est pas versionné : il se vérifie sur GitHub.
+- **Fusion par commit de merge** (C7, pratique des PR #1 et #2) : il conserve les commits atomiques utiles à `git bisect`. La protection « historique linéaire » de GitHub n'est de toute façon pas disponible sur un dépôt privé sans offre payante (l'API répond 403) ; la fusion par rebase donnerait un historique linéaire en gardant les commits.
+- **Couverture bloquante à 100 %** (00 §10, ADR-0002) : `cargo llvm-cov --workspace --lib` à 100 % des lignes, des régions et des fonctions, sans repère inférieur ; les seuils ne baissent jamais et tout nouveau crate y entre directement. La glue d'E/S irréductible est exclue nommément (`--ignore-filename-regex` de `COV_FLAGS`, M2), avec sa justification. Les formes de test qui laissent une région non exécutée sont interdites (CONTRIBUTING.md).
+- **Mutation bloquante** : 0 `MISSED` et 0 `TIMEOUT`. Un mutant survivant signale un test manquant, qu'on écrit ; seules exceptions, déclarées dans `.cargo/mutants.toml` avec leur preuve en commentaire : un mutant prouvé équivalent (`exclude_re`) et un fichier de glue d'E/S irréductible (`exclude_globs`, par exemple `xtask/src/main.rs`). Toute boucle garantit sa progression, même mutée.
+- **Mutation en local, sous WSL** : `make mutants FILE=<chemin>` (contrôle mémoire `mem-check` d'au moins 8 Gio disponibles, `TMPDIR=/var/tmp`, `NEXTEST_TEST_THREADS=2`, `-j 1`, un fichier à la fois), ou `make mutants-diff` pour chaque fichier modifié depuis `BASE`. Jamais de mutation du workspace entier sur cette machine.
+- **Mutation en CI** : le diff de chaque PR est muté (job `mutants`, `-j 2 --timeout 60`) ; le lundi, `weekly.yml` mute tout le workspace en 4 shards et lance les cibles de fuzz. Le fuzz est hebdomadaire, non nocturne.
+- **Fin de jalon** : les agents de revue de fin de jalon s'ajoutent à ces portes (00 §10).
 
 ---
 
@@ -945,64 +1011,54 @@ Le workflow ne s'exécute pas sur `pull_request` : une PR venue d'un fork n'a ja
 
 ### 8.1 Lints de workspace
 
-Base : 02 §3.0.3, qui reprend la recherche 04 §5.4 avec `unsafe_code = "forbid"` (00 §2). Les lignes marquées `# +` sont ajoutées par ce document.
+Base : les lints **livrés** de `Cargo.toml` (M0), puis les ajouts datés ci-dessous. 02 §3.0.3 est réécrit à partir de cette base.
 
 ```toml
-# Cargo.toml racine — extrait, esquisse à valider en M0
+# Cargo.toml racine — [workspace.lints] livré (M0)
 [workspace.lints.rust]
 unsafe_code = "forbid"
-rust_2018_idioms = { level = "warn", priority = -1 }
-unused_qualifications = "warn"            # exige schemars >= 1.2.3
-missing_debug_implementations = "warn"
-missing_docs = "warn"                     # + API publique documentée (§8.4)
-unused_lifetimes = "warn"                 # +
-let_underscore_drop = "warn"              # + un `let _ = futur;` silencieux est presque toujours un bug
-
-[workspace.lints.rustdoc]
-broken_intra_doc_links = "deny"           # +
-private_intra_doc_links = "warn"          # +
+missing_docs = "warn"                     # API publique documentée (§8.5)
+unreachable_pub = "warn"
 
 [workspace.lints.clippy]
-all = { level = "warn", priority = -1 }
-pedantic = { level = "warn", priority = -1 }
-module_name_repetitions = "allow"
-missing_errors_doc = "allow"
+pedantic = { level = "warn", priority = -1 }   # inclut missing_errors_doc (actif) et large_futures
 must_use_candidate = "allow"
-print_stdout = "deny"                     # stdout = canal JSON-RPC
-print_stderr = "deny"                     # + journaux par tracing seulement
-dbg_macro = "deny"
-unwrap_used = "deny"
+unwrap_used = "warn"
 expect_used = "warn"
+dbg_macro = "warn"
 todo = "warn"
-unimplemented = "warn"                    # +
-await_holding_lock = "deny"
-allow_attributes_without_reason = "warn"  # + chaque dérogation s'écrit #[expect(lint, reason = "…")]
-large_futures = "warn"                    # + futurs d'outils boxés par rmcp (02 §3.2)
-mem_forget = "deny"                       # +
-exit = "deny"                             # + doublon volontaire de disallowed-methods (02 §2.2)
+
+# Ajouts, au jalon qui en a besoin
+# tâche de tête de M2 (C7, 00 §11.1) : trois lints gratuits, aujourd'hui sans occurrence
+panic = "warn"
+unreachable = "warn"
+unimplemented = "warn"
+# M4 : print_stdout, print_stderr et exit, avec #[expect(…, reason)] dans xtask/src/main.rs (l.20 et l.35)
+# après correction de rank.rs:38 : allow_attributes_without_reason
 ```
 
-- **pedantic, ciblé** : le groupe est actif en `warn` (donc bloquant en CI par `-D warnings`), avec trois exclusions globales et des `#[expect(…, reason = "…")]` locaux. Deux points restent à mesurer au premier `cargo clippy` du spike M0 : le bruit de pedantic sur le code des macros rmcp, et la compatibilité de ce code avec `forbid(unsafe_code)` (**NON VÉRIFIÉ** [v:rmcp-macros-unsafe-forbid], 02 §3.0.3).
-- **Dérogations** : toujours `#[expect]` (stabilisé en Rust 1.81, sous la MSRV), qui signale une dérogation devenue inutile, et jamais `#[allow]` sans `reason`.
-- **Tests** : `clippy.toml` autorise `unwrap` et `expect` dans les tests (02 §2.2). Un test qui écrit sur stderr (message « identifiants absents » des tests live, 04 §13.5) le fait par `#[expect(clippy::print_stderr, reason = "message de test live")]` ; l'option de clippy qui l'autoriserait globalement est **NON VÉRIFIÉ** [v:clippy-config-cles].
-- **Lints par crate** : `[lints] workspace = true` ne peut pas être complété dans le `Cargo.toml` d'un membre. Les durcissements propres à un crate passent donc par des attributs de crate : `lf-domain` reprend la liste de 03 §1.3 ; `lf-application` et les adapters ajoutent `#![deny(clippy::panic, clippy::expect_used)]` ; `xtask` et `lf-app` ajoutent `#![allow(missing_docs, reason = "binaires internes")]`.
+- **Bloquant par `-D warnings`** : un lint en `warn` bloque la CI, `make lint` passant `-D warnings` à clippy et `make doc` `RUSTDOCFLAGS="-D warnings"`. `await_holding_lock` (groupe par défaut de clippy) et `large_futures` (pedantic) sont donc déjà actifs.
+- **Retraits par rapport à l'esquisse initiale** : `clippy::all` (déjà actif par défaut), l'`allow` de `module_name_repetitions`, la section `[workspace.lints.rustdoc]` (les liens cassés sont couverts par `make doc`) et `allow(missing_docs)` pour `xtask`. `missing_errors_doc` n'est pas désactivé. Les lints `rust_2018_idioms`, `missing_debug_implementations`, `unused_lifetimes`, `let_underscore_drop` et `unused_qualifications` (schemars ≥ 1.2.3) ne sont pas adoptés ; ils se décident au jalon qui les rend utiles.
+- **Anti-panique du domaine (C7)** : seuls `clippy::panic`, `unreachable` et `unimplemented` sont retenus. `indexing_slicing`, `string_slice` et `arithmetic_side_effects` sont écartés : ils imposeraient de réécrire environ 28 lignes (`date.rs`, `window.rs`, `clean.rs`) avec des branches mortes, incompatibles avec 100 % des régions. L'absence de panique reste prouvée par proptest, fuzz et mutation.
+- **pedantic, ciblé** : le groupe est actif en `warn` avec une seule exclusion globale (`must_use_candidate`) et des `#[expect(…, reason = "…")]` locaux. Deux points restent à mesurer au spike rmcp (avant la conception de `ToolCall` et des cas d'usage de M3) : le bruit de pedantic sur le code des macros rmcp, et la compatibilité de ce code avec `forbid(unsafe_code)` (**NON VÉRIFIÉ** [v:rmcp-macros-unsafe-forbid], 02 §3.0.3).
+- **Dérogations** : toujours `#[expect]` (stabilisé en Rust 1.81, sous la MSRV 1.88), qui signale une dérogation devenue inutile, et jamais `#[allow]` sans `reason`.
+- **Tests** : `clippy.toml` autorise `unwrap` et `expect` dans les tests (livré). Un test qui écrit sur stderr (message « identifiants absents » des tests live, 04 §13.5) le fait par `#[expect(clippy::print_stderr, reason = "message de test live")]` ; l'option de clippy qui l'autoriserait globalement est **NON VÉRIFIÉ** [v:clippy-config-cles].
+- **Lints par crate** : `[lints] workspace = true` ne peut pas être complété dans le `Cargo.toml` d'un membre. Un durcissement propre à un crate passe par un attribut de crate, ajouté au jalon qui le justifie (par exemple `#![deny(clippy::panic, clippy::expect_used)]` pour `lf-application` et les adapters).
 
 ### 8.2 `rustfmt.toml`
 
 ```toml
-# rustfmt.toml — options stables uniquement (02 §2.2 ; recherche 04 §5.2)
-style_edition = "2024"
+# rustfmt.toml — livré (M0) ; options stables uniquement
 max_width = 100
-newline_style = "Unix"
-use_field_init_shorthand = true
-use_try_shorthand = true
+use_small_heuristics = "Max"
+# newline_style = "Unix"   # à l'arrivée de la matrice Windows (M2)
 ```
 
-Les fixtures JSON, les transcriptions et les snapshots ne sont jamais reformatés (`.gitattributes` : `**/tests/fixtures/** -text`, `tests/jsonrpc/** -text`, `**/snapshots/** -text`).
+Les fixtures JSON, les transcriptions et les snapshots ne sont jamais reformatés (`.gitattributes`, M2 : `**/tests/fixtures/** -text`, `tests/jsonrpc/** -text`, `**/snapshots/** -text`).
 
 ### 8.3 `clippy.toml`
 
-02 §2.2 fixe : `allow-unwrap-in-tests`, `allow-expect-in-tests`, et des `disallowed-methods` pour `chrono::Utc::now`, `chrono::Local::now`, `std::time::SystemTime::now`, `std::env::var*`, `std::process::exit` ([v:clippy-disallowed-chrono]). Ce document ajoute, à confirmer au spike M0 :
+Livré (M0) : `msrv = "1.88.0"`, `allow-unwrap-in-tests` et `allow-expect-in-tests`. Chaque entrée `disallowed-methods` s'ajoute au jalon qui introduit la dépendance concernée : `reqwest` en M2 ; l'horloge (`chrono::Utc::now`, `chrono::Local::now`, `std::time::SystemTime::now`), les variables d'environnement (`std::env::var*`) et `std::process::exit` en M3-M4 ([v:clippy-disallowed-chrono]). Le tableau donne la cible, à confirmer au spike rmcp :
 
 | Méthode interdite | Raison | Seul usage admis (`#[expect]`) |
 |---|---|---|
@@ -1010,7 +1066,7 @@ Les fixtures JSON, les transcriptions et les snapshots ne sont jamais reformaté
 | `reqwest::ClientBuilder::danger_accept_invalid_certs`, `danger_accept_invalid_hostnames` | jamais de TLS affaibli (04 §14.2) | aucun |
 | `std::thread::sleep` | aucune attente bloquante dans une tâche async (D-05, D-38) | tests |
 | `std::env::set_var`, `std::env::remove_var` | environnement intouché (PT4) | aucun |
-| méthodes émettrices de `rmcp::Peer` (liste à établir au spike M0, annexe D C-03) | aucune requête serveur → client | aucun |
+| méthodes émettrices de `rmcp::Peer` (liste à établir au spike rmcp, annexe D C-03) | aucune requête serveur → client | aucun |
 
 ### 8.4 Conventions de nommage
 
@@ -1024,17 +1080,17 @@ Les fixtures JSON, les transcriptions et les snapshots ne sont jamais reformaté
 | Tests | `snake_case` en anglais, `<sujet>_<comportement attendu>` ; préfixes réservés : `live_` (live), `ported_` (portage de la référence), `raw_` (transcription JSON-RPC unitaire), `e2e_` (binaire), `http_` (M8), `perf_` (mesure) | `api_401_twice_maps_to_auth` |
 | Snapshots | nommés explicitement (`assert_json_snapshot!("nom", …)`), jamais par numéro d'ordre | `legacy_2025_11_25_tools_list` |
 | Variables d'environnement | `LF_*` (00 §1) ; aucune variable de test propre | `LF_AUDIT_DIR` |
-| Langue | identifiants, messages au modèle, rustdoc et commentaires de code en **anglais** ; documents du plan, ADR et CHANGELOG en français | — |
+| Langue | identifiants et texte servi au modèle (descriptions, instructions, messages d'erreur) en **anglais** ; rustdoc, commentaires de code, documents du plan, ADR et CHANGELOG en **français** | — |
 
-La langue du rustdoc est une proposition (question ouverte §15.2 n° 4) : l'anglais est cohérent avec les messages et les descriptions (02 §9.3), et avec une publication éventuelle sur crates.io.
+Décision du 2026-10-16 (C7, consignée en 09 §3.11.3) : le rustdoc et les commentaires de code sont en français, comme dans le code livré ; tout texte servi au modèle reste en anglais (02 §9.3). Une publication éventuelle sur crates.io (décision reportée à M5) rouvrirait la question pour le rustdoc des crates publiés.
 
 ### 8.5 Documentation rustdoc obligatoire
 
 - Chaque crate a une documentation de tête (`//!`) : rôle, place dans l'hexagone, dépendances autorisées (02 §4.1), et ce que le crate ne fait pas.
-- Chaque élément public des crates bibliothèques est documenté (`missing_docs`, bloquant en CI par `-D warnings`). Le résumé tient en une phrase. Les ports et les cas d'usage ont une section `# Errors` qui liste les variantes possibles, bien que `missing_errors_doc` reste désactivé globalement. Aucune section `# Panics` n'est attendue : le code de production ne panique pas.
-- Les invariants des types (03 §1.4) figurent dans la documentation du type, avec un exemple **exécuté** en doc-test pour les analyseurs du domaine (`FromStr` des identifiants, `VersionDate::parse`, `format_fr`, `window`).
-- Les liens intra-documentation sont vérifiés (`rustdoc::broken_intra_doc_links = "deny"`), et `cargo doc` tourne en CI avec `-D warnings` (§7.1).
-- Les décisions ne se recopient pas dans le rustdoc : celui-ci renvoie à l'ADR ou à la section du plan (par exemple « see ADR-0010 »).
+- Chaque élément public des crates bibliothèques est documenté (`missing_docs`, bloquant en CI par `-D warnings`). Le résumé tient en une phrase. Les ports et les cas d'usage ont une section `# Errors` qui liste les variantes possibles, et `missing_errors_doc` (pedantic) est actif. Aucune section `# Panics` n'est attendue : le code de production ne panique pas.
+- Les invariants des types (03 §1.4) figurent dans la documentation du type, avec un exemple **exécuté** en doc-test pour les analyseurs du domaine (`FromStr` des identifiants, `VersionDate::parse`, `CivilDate::to_french`, `window`).
+- Les liens intra-documentation sont vérifiés par `make doc` (`RUSTDOCFLAGS="-D warnings"`), qui tourne en CI (§7.1).
+- Les décisions ne se recopient pas dans le rustdoc : celui-ci renvoie à l'ADR ou à la section du plan (par exemple « voir ADR-0010 »).
 
 ---
 
@@ -1042,10 +1098,10 @@ La langue du rustdoc est une proposition (question ouverte §15.2 n° 4) : l'ang
 
 ### 9.1 `deny.toml` proposé
 
-Il complète l'extrait de 02 §4.3, qui fait foi pour les bans confinés. Le schéma exact des clés en 0.20.2 (`unmaintained`, `yanked`, forme de `ignore`) est **NON VÉRIFIÉ** [v:cargo-deny-schema-0-20].
+Livré (M0) : un `deny.toml` minimal (licences MIT, Apache-2.0 et Unicode-3.0 ; `multiple-versions = "warn"` ; `wildcards = "deny"` ; sources crates.io seulement). Cette esquisse est la cible : elle s'élargit en M2 d'après `cargo deny list` (M1-D17), avec le lockfile `fuzz/Cargo.lock` (M1-D16). Elle complète l'extrait de 02 §4.3, qui fait foi pour les bans confinés. Le schéma exact des clés en 0.20.2 (`unmaintained`, `yanked`, forme de `ignore`) est **NON VÉRIFIÉ** [v:cargo-deny-schema-0-20].
 
 ```toml
-# deny.toml — esquisse, à valider en M0
+# deny.toml — esquisse de la cible, à valider au jalon qui l'implémente
 [graph]
 all-features = true                     # inclut http (M8), dila (M9) et les dev-dependencies
 targets = [                             # les 7 cibles de cargo-dist (00 §12)
@@ -1056,7 +1112,7 @@ targets = [                             # les 7 cibles de cargo-dist (00 §12)
 
 [advisories]
 yanked = "deny"
-unmaintained = "workspace"              # dépendances directes ; transitives signalées en revue
+# unmaintained : valeur par défaut ("all"), non surchargée
 ignore = [
   # { id = "RUSTSEC-AAAA-NNNN", reason = "<pourquoi c'est sans effet ici> ; revu le AAAA-MM-JJ ; échéance AAAA-MM-JJ ; ticket #N" },
 ]
@@ -1096,7 +1152,7 @@ skip-tree = []
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]   # valeur par défaut, écrite pour documenter
 allow-git = []
 ```
 
@@ -1104,14 +1160,14 @@ allow-git = []
 
 - Liste blanche : licences permissives compatibles avec la distribution Apache-2.0 du binaire (Q2). Elle exclut de fait l'AGPL, la GPL et la LGPL, ce qui protège la règle « aucune ligne des projets AGPL » de 00 §12 (juridix, mcp-legifrance de Ktulu-Analog).
 - `Unicode-3.0` est nécessaire : `unicode-normalization` est sous « (MIT OR Apache-2.0) AND Unicode-3.0 » (recherche 07, tableau des crates).
-- Les licences atypiques (MPL-2.0, OpenSSL, CDLA) ne sont admises que par **exception nominative**. L'inventaire réel du graphe se fait au spike M0 par `cargo deny list` : par exemple, `option-ext` (dépendance de `dirs-sys`) serait sous MPL-2.0, et `aws-lc-sys` sous une combinaison qui inclut la licence OpenSSL, deux affirmations **NON VÉRIFIÉ** [v:licences-graphe-m0]. Le choix du fournisseur TLS ([v:tls-fournisseur-cross]) change cette liste.
+- Les licences atypiques (MPL-2.0, OpenSSL, CDLA) ne sont admises que par **exception nominative**. L'inventaire réel du graphe se fait en M2 par `cargo deny list` : par exemple, `option-ext` (dépendance de `dirs-sys`) serait sous MPL-2.0, et `aws-lc-sys` sous une combinaison qui inclut la licence OpenSSL, deux affirmations **NON VÉRIFIÉ** [v:licences-graphe-m0]. Le choix du fournisseur TLS ([v:tls-fournisseur-cross]) change cette liste.
 - Les fixtures et données ne sont pas du code : leur licence (Licence Ouverte 2.0, Apache-2.0 pour les fichiers de la référence) est tracée par `NOTICE` et les sidecars (§4.2).
 
 ### 9.3 Avis de sécurité, bans et doublons
 
 - **Avis** : `yanked = "deny"` et vulnérabilités refusées (02 §2.2). Le job `deny` tourne aussi **chaque nuit** sur `main`, car un avis apparaît sans changement de code. Un avis bloquant se traite par une montée de version ou, à défaut, par une entrée `ignore` justifiée (raison, date de revue, échéance, ticket), relue à chaque étiquette.
 - **Bans** : TLS par rustls uniquement (`openssl`, `openssl-sys`, `native-tls` refusés) ; `backoff` refusé ; confinement de `rmcp`, `reqwest` et `moka` par `wrappers` (02 §4.3). `[graph] all-features = true` inclut les dépendances de développement : c'est pourquoi `jsonschema` est déclaré sans ses features par défaut (02 §3.0.1), et pourquoi les tests HTTP de M8 n'emploient pas reqwest (§6.2).
-- **Doublons** : `multiple-versions = "warn"` en M0 (02 §4.3), pendant que le graphe se stabilise. À partir de M5 (avant v0.1.0) : `deny`, avec une liste `skip` dont chaque entrée porte une raison (dépendance tierce non maîtrisable, montée en attente). En complément, `cargo xtask check-deps` refuse dès M0 toute double version des crates **critiques** : `tokio`, `rustls`, `reqwest`, `hyper`, `http`, `serde`, `schemars`, `rmcp`, `chrono`. C'est une règle de plus pour le moteur de 02 §4.2, signalée au §15.1 n° 9.
+- **Doublons** : `multiple-versions = "warn"` en M0 (02 §4.3), pendant que le graphe se stabilise. À partir de M5 (avant v0.1.0) : `deny`, avec une liste `skip` dont chaque entrée porte une raison (dépendance tierce non maîtrisable, montée en attente). En complément, `cargo xtask check-arch` refusera (règle R9, M2, à la création de `lf-application`) toute double version des crates **critiques** : `tokio`, `rustls`, `reqwest`, `hyper`, `http`, `serde`, `schemars`, `rmcp`, `chrono`. C'est une règle de plus pour le moteur de 02 §4.2, signalée au §15.1 n° 9.
 - **Sources** : crates.io uniquement ; aucune dépendance git. Un correctif amont non publié de rmcp (plafond de ligne stdio, annexe D §9.4) n'est pas utilisé avant sa publication.
 
 ### 9.4 Chaîne d'approvisionnement, au-delà de cargo-deny
@@ -1119,10 +1175,10 @@ allow-git = []
 | Mesure | Détail | Où |
 |---|---|---|
 | `Cargo.lock` versionné, `--locked` partout | produit binaire (02 §2) ; toute commande de CI échoue si le verrou n'est pas à jour | CI |
-| rmcp et rmcp-macros épinglés `=3.5.1` | contrôlé par `check-deps` (02 §4.2 étape 6) ; montée manuelle selon l'annexe D §9.4 | xtask |
+| rmcp et rmcp-macros épinglés `=3.5.1` | contrôlé par `check-arch` (02 §4.2 étape 6 ; M4) ; montée manuelle selon l'annexe D §9.4 | xtask |
 | Dependabot | `cargo` et `github-actions`, hebdomadaire ; `rmcp` et `rmcp-macros` ignorés (02 §2.2) | `.github/dependabot.yml` |
 | Âge minimal | une version publiée depuis moins de 14 jours n'est pas fusionnée, sauf correctif de sécurité (02 §13.1 n° 12) ; vérifié en revue | revue |
-| Toolchain épinglée | `rust-toolchain.toml` ; montée par PR dédiée | dépôt |
+| Toolchain épinglée | `rust-toolchain.toml` (1.99.0, tâche de tête de M2) ; montée par PR dédiée | dépôt |
 | Actions épinglées par SHA | et contrôlées par zizmor ([v:outils-lint-workflows]) ; `permissions: contents: read` par défaut ; jamais `pull_request_target` ; `persist-credentials: false` | CI |
 | Artefacts de release | sommes de contrôle, signature Authenticode et notarisation, `fileSha256` du MCPB, attestation de provenance et SBOM : outils à choisir dans [08-distribution.md](08-distribution.md) (`cargo auditable`, SBOM CycloneDX, attestations GitHub : **NON VÉRIFIÉ** [v:sbom-provenance-outils]) | 08 |
 | Publication | OIDC (`mcp-publisher login github-oidc`), après les gates de CI (recherche 06 §10.8) | 08 |
@@ -1165,11 +1221,11 @@ flowchart LR
 | MEN-03 | Redirection de la cible par configuration distante | manifeste téléchargé (D-04), surcharge silencieuse | aucune configuration distante (ADR-0005) ; URL locales validées (`https`, sans userinfo ni requête) ; hôte non officiel ⇒ avertissement et lacune FR-103 ; environnements cohérents (04 §2.3) | `no_network_call_except_piste`, `fr_eli_runtime_url_is_ignored`, `production_sources_contain_only_allowlisted_urls`, `config_warns_on_custom_host`, `config_rejects_env_mismatch` | M2–M4 |
 | MEN-04 | SSRF | argument d'outil, URL contenue dans une réponse, URI de resource | aucun paramètre d'outil n'est une URL ; identifiants validés strictement (8 lettres + 12 chiffres) et envoyés dans le **corps** ; chemins constants ; aucune URL de réponse n'est jamais appelée (04 §14.3) ; URI `legifrance://` analysées par une grammaire stricte (M7) | `ids_go_in_body_never_in_path`, `urls_in_responses_are_never_fetched`, `tool_schemas_have_no_url_parameter` (contrôle du verrou), `resource_uri_parser_rejects_foreign_schemes` (M7) | M2, M4, M7 |
 | MEN-05 | Injection de prompt par les textes juridiques | contenu amont (décision, titre, note) contenant des consignes adressées au modèle | les textes sont des **données** : champs de `structuredContent`, jamais concaténés aux instructions ni aux descriptions ; HTML ramené à du texte (`script`, `style`, `RECH_*` supprimés) ; caractères invisibles et de contrôle retirés (03 §7.3) ; les `note` sont des gabarits statiques ; aucune action à effet de bord n'existe (lecture seule) ; les instructions disent que les textes sont restitués verbatim. Risque résiduel documenté dans `SECURITY.md` : la décision d'obéir ou non appartient au client et au modèle. | `from_html_drops_rech_and_script_with_content`, `clean_removes_invisible_and_control_chars`, `notes_are_static_templates` | M1, M4 |
-| MEN-06 | Texte caché par des contrôles bidirectionnels | U+202A–U+202E, U+2066–U+2069 dans un texte amont, qui peuvent masquer ou réordonner l'affichage | **proposition** : `clean` retire aussi ces caractères, avec un compteur de diagnostic. Ils ne figurent pas dans la liste de 03 §7.3 (§15.1 n° 7). | `clean_removes_bidi_controls` (si 03 l'adopte) | M1 |
+| MEN-06 | Texte caché par des contrôles bidirectionnels | U+202A–U+202E, U+2066–U+2069 dans un texte amont, qui peuvent masquer ou réordonner l'affichage | **mesure décidée** : `clean` retire aussi ces caractères (et les tags U+E0000), avec un compteur de diagnostic, en M2 avec la réparation d'encodage (00 §11.1, M1-D7) ; invariant de sortie en M4. | `clean_removes_bidi_controls` | M2 (invariant de sortie : M4) |
 | MEN-07 | Empoisonnement de nos propres descriptions | modification d'une description ou des instructions qui y glisse une directive visant d'autres serveurs | textes `const` en anglais, relus comme du code ; aucune directive inter-serveurs (05 §1.4 règle 12) ; verrou des descripteurs | `descriptions_have_no_cross_server_directives`, `descriptions_cite_only_registered_tools`, `descriptor_lock_matches` | M4 |
 | MEN-08 | Rug pull : changement silencieux des définitions après approbation | nouvelle version, montée de rmcp ou de schemars qui change les schémas | verrou (`tests/tools.lock.json`, trois sessions, deux ères, 05 §9) ; politique SemVer de la surface et `--compare` à la release ; rubrique « Tool surface » du CHANGELOG ; listes statiques (pas de `listChanged`) ; binaires signés (08) | `descriptor_lock_matches`, `lock_diff_classification`, `tools_list_is_static_across_calls`, `changelog_has_entry_for_version` | M4 |
 | MEN-09 | Usurpation de l'amont (interception TLS, faux serveur) | réseau, proxy d'entreprise | rustls avec `rustls-platform-verifier`, TLS ≥ 1.2, jamais `danger_accept_invalid_certs` (interdit par `clippy.toml`), `https_only` (04 §14.2) | `disallowed-methods` (§8.3) ; `tls_invalid_cert_is_rejected` (proposition, avec un serveur rustls local et un certificat auto-signé, si le coût en dépendances de test est acceptable) | M2 |
-| MEN-10 | Réponse amont hostile ou volumineuse | corps géant, bombe gzip, JSON profond, TOC très profonde, HTML pathologique | corps borné à 16 Mio après décompression ; profondeur de TOC 64 ; texte ≤ 16 000 000 caractères ; analyseurs linéaires sans récursion non bornée ; aucune panique (03 §1.3, 04 §14.4) | `oversized_body_is_rejected`, `gzip_body_is_limited_after_decompression`, `toc_depth_65_is_too_deep`, `fixture_mutations_never_panic`, fuzzing | M1–M2 |
+| MEN-10 | Réponse amont hostile ou volumineuse | corps géant, bombe gzip, JSON profond, TOC très profonde, HTML pathologique | corps borné à 16 Mio après décompression ; profondeur de TOC 64 ; texte ≤ 16 000 000 caractères ; analyseurs linéaires sans récursion non bornée ; aucune panique (03 §1.3, 04 §14.4) | `oversized_body_is_rejected`, `gzip_body_is_limited_after_decompression`, `toc_depth_65_is_too_deep`, `fixture_mutations_never_panic`, fuzzing | M2 (tête) |
 | MEN-11 | Déni de service par les entrées du client | requêtes géantes, paramètres extrêmes, rafales | bornes de 00 §7 (`query` ≤ 500, `text` ≤ 20 000, `max_chars` ≤ 40 000, `page_size` ≤ 100, `toc_limit` ≤ 500, `per_fond` ≤ 10) ; plafond de réponse de 45 000 caractères ; délai global de 60 s ; une tâche par requête ; en M8, corps HTTP ≤ 256 Kio et flux `listen` bornés (annexe D §5.2, §5.3) | `*_out_of_range_is_invalid_arg`, `every_tool_response_under_hard_cap`, `deadline_maps_to_upstream_error_before_deadline_plus_epsilon`, `http_body_too_large_413` | M1–M8 |
 | MEN-12 | Épuisement du quota PISTE | boucle d'un modèle, `fr_search_all`, `fr_verify_citations` | limiteur 5 req/s (rafale 10), 4 requêtes en vol, cache et coalescence, aucune provocation de 429 en live ; une surconsommation impose la réinitialisation des identifiants selon les CGU (recherche 05 §4) | tests D-13 ; règle du §5.1 | M2, M7 |
 | MEN-13 | Chaîne d'approvisionnement | crate compromise ou vulnérable, action GitHub compromise, toolchain | §9 : cargo-deny, `Cargo.lock`, `--locked`, rmcp épinglé, âge minimal de 14 jours, actions épinglées par SHA, zizmor, toolchain épinglée, artefacts signés (08) | jobs `deny`, `architecture`, `workflow-lint` | M0 |
@@ -1180,16 +1236,16 @@ flowchart LR
 | MEN-18 | Altération du journal d'audit | utilisateur local, processus du même compte, lien symbolique posé à la place du fichier | fichier en ajout seul, liens symboliques refusés pour le fichier (§11.6), rotation sans suppression. Limite : aucune chaîne d'empreintes, donc aucune preuve d'intégrité contre le même utilisateur (question §15.2 n° 2). | `audit_file_symlink_is_refused`, `rotation_never_deletes` | M3 |
 | MEN-19 | Confidentialité des recherches | requête qui révèle l'activité d'un juriste | jamais journalisée ni auditée en clair ; aucun cache disque ; envoyée à PISTE seulement (nécessaire) | `logs_never_contain_query_text`, `audit_never_contains_argument_values` | M3–M4 |
 | MEN-20 | Ré-identification de personnes | décisions pseudonymisées (JURI) et textes occultés (CNIL) | données restituées telles que publiées ; lacune FR-006 qui demande de ne pas ré-identifier ; champs nominatifs (présidents, avocats, rapporteurs) non désérialisés (04 §14.5) | `coverage_lists_pseudonymisation_gap`, snapshot des DTO | M2–M4 |
-| MEN-21 | Exécution de code à la désérialisation | cache pickle de la référence (D-15) | serde uniquement, aucun cache disque, aucune désérialisation de code | par construction (`check-deps`) | M3 |
+| MEN-21 | Exécution de code à la désérialisation | cache pickle de la référence (D-15) | serde uniquement, aucun cache disque, aucune désérialisation de code | par construction (`check-arch`) | M3 |
 | MEN-22 | Arrêt du serveur provoqué | panique dans un outil, notification prématurée, méthode inconnue | aucune panique en production (lints), `panic = "unwind"` (02 §2.2), une tâche par requête ; `PreLifecycleFilter` (annexe D §4.3) ; ne jamais quitter sur une méthode inattendue (00 §6) | transcriptions `premature_notification`, `garbage_and_batch` ; `panic_in_tool_is_contained` (faux corpus qui panique : processus vivant, réponse d'erreur ; comportement exact de rmcp **NON VÉRIFIÉ** [v:rmcp-panique-outil]) | M4 |
 | MEN-23 | Mode HTTP (M8) : rebinding DNS, absence d'authentification, transmission du jeton | page web malveillante, client distant | validation d'`Origin` (403) à configurer explicitement, écoute sur 127.0.0.1, jeton statique en profil local, resource server OAuth en profil distant, **jamais** de transmission du jeton entrant à PISTE (annexe D §5.2, §6) | C-40 à C-60 (`http_origin_forbidden`, `http_local_token_required`, `http_inbound_token_never_reaches_piste`…) | M8 |
 
 ### 10.3 Plan de `SECURITY.md`
 
-Fichier à la racine (02 §2.2), rédigé en anglais et en français, livré en M0 :
+Fichier à la racine (02 §2.2), rédigé en anglais et en français, à livrer dans l'hygiène du dépôt (00 §11.1 ; absent du livré) :
 
 ```markdown
-# Security policy — esquisse, à valider en M0
+# Security policy — esquisse, à valider au jalon qui l'implémente
 ## Supported versions
 Seule la dernière version mineure publiée reçoit des correctifs (pré-1.0).
 ## Reporting a vulnerability
@@ -1422,7 +1478,7 @@ Les volumes réels (grandes décisions, longues TOC, codes) ne sont connus qu'ap
 - **Modèle de PR** (`.github/pull_request_template.md`, 02 §2) :
 
 ```markdown
-- [ ] Jalon et tâche concernés (07-feuille-de-route) :
+- [ ] Jalon et tâche concernés (plan et tâche, `docs/superpowers/plans/`) :
 - [ ] Surface MCP modifiée ? (descripteurs, instructions, capacités, versions de protocole)
       → `cargo xtask lock-descriptors --update`, diff du verrou relu, rubrique « Tool surface » du CHANGELOG
 - [ ] Règles de dépendance touchées ? (nouvelle dépendance : licence, âge ≥ 14 jours, justification, `cargo deny` vert)
@@ -1436,11 +1492,11 @@ Les volumes réels (grandes décisions, longues TOC, codes) ne sont connus qu'ap
 
 - **Points d'attention du relecteur** : mapping des erreurs (02 §9.2) ; aucune E/S bloquante dans une tâche async ; propagation de l'annulation ; déterminisme des tests (PT1 à PT11) ; aucune `unwrap` hors tests ; rustdoc des éléments publics ; textes servis au modèle (anglais, 3 à 6 phrases, aucune directive inter-serveurs).
 - **Changements à revue renforcée**, avec un délai de 24 h avant fusion pour permettre une relecture : surface MCP, `deny.toml`, workflows, `SECURITY.md`, `lf-adapter-audit`, gestion des secrets, montée de rmcp (procédure de l'annexe D §9.4).
-- Titres de PR au format Conventional Commits (`feat:`, `fix:`, `docs:`…), proposé pour faciliter la rédaction du CHANGELOG ; fusion par squash.
+- Titres de PR au format Conventional Commits (`feat:`, `fix:`, `docs:`…), proposé pour faciliter la rédaction du CHANGELOG ; fusion par commit de merge (C7, §7.6).
 
 ### 13.2 ADR
 
-- Emplacement : `docs/adr/NNNN-titre-en-kebab-case.md`, index dans [../adr/README.md](../adr/README.md). Les ADR 0001 à 0014 sont listés par ce plan ; la numérotation continue à 0015, sans jamais réutiliser un numéro.
+- Emplacement : `docs/adr/NNNN-titre-en-kebab-case.md`, index dans [../adr/README.md](../adr/README.md). Les ADR 0001 et 0002 ont été livrés avec M0 (0001 « Architecture hexagonale en workspace de crates », remplacé par ADR-0016 ; 0002 « Tests unitaires, couverture et mutation au maximum ») ; ce plan crée les ADR 0003 à 0016 ; la numérotation continue à 0017, sans jamais réutiliser un numéro.
 - Gabarit : **Titre** ; **Statut** (proposé, accepté, déprécié, remplacé par ADR-NNNN) ; **Date** ; **Contexte** (avec les sources : D-xx, rapports de recherche, URL) ; **Décision** ; **Conséquences** (positives, négatives, tests qui la gardent) ; **Alternatives écartées** et raisons ; **Références**.
 - Un ADR est requis pour : toute modification d'une décision de [00-decisions.md](00-decisions.md) ; une nouvelle dépendance structurante (SDK, TLS, base de données, crate de validation de jetons en M8) ; un changement de protocole servi ; un changement de posture de sécurité (mode d'audit, empreinte salée, mode HTTP partagé).
 - Un ADR est **accepté avant** la fusion du code qui l'applique. Un ADR accepté n'est plus modifié sur le fond : on le remplace.
@@ -1458,12 +1514,13 @@ Les volumes réels (grandes décisions, longues TOC, codes) ne sont connus qu'ap
 
 ### 13.4 Définition de « terminé »
 
-Commune à toutes les tâches de [07-feuille-de-route.md](07-feuille-de-route.md). Une tâche est terminée quand **toutes** les cases applicables sont cochées :
+Commune à toutes les tâches des plans exécutables de `docs/superpowers/plans/`. Une tâche est terminée quand **toutes** les cases applicables sont cochées :
 
 - [ ] Le code respecte [00-decisions.md](00-decisions.md) ; tout écart est un ADR accepté.
-- [ ] Les tests prévus par ce document pour la tâche existent et sont verts sous Linux, macOS et Windows ; les noms du catalogue (§3) sont respectés ; aucun test ignoré sans ticket.
+- [ ] `make ci` est vert (`fmt-check`, `lint`, `test`, `doc`, `arch`, `deny`, `machete`, `cov`), `make cov` est à 100 % des lignes, régions et fonctions, et le diff a 0 `MISSED` et 0 `TIMEOUT` (`make mutants FILE=…`, 00 §10).
+- [ ] Les tests prévus par ce document pour la tâche existent et sont verts sous Linux (macOS et Windows dès M2) ; les noms du catalogue (§3) sont respectés ; aucun test ignoré sans ticket.
 - [ ] Chaque nouveau comportement d'erreur a son test : code, message, ligne d'audit.
-- [ ] `cargo fmt`, `cargo clippy -D warnings`, `cargo deny`, `cargo xtask check-deps`, `cargo doc -D warnings` et le job MSRV sont verts.
+- [ ] Le job MSRV 1.88 est vert ; les portes nouvelles du plan (`cargo xtask lock-descriptors`, `instructions-size`, contrôle des fixtures) sont ajoutées au `Makefile` et appelées par lui, jamais directement en CI.
 - [ ] Aucune E/S réseau dans les tests hors `live_*` ; aucune dépendance au temps réel ni à l'environnement du développeur.
 - [ ] Éléments publics documentés (rustdoc), invariants énoncés.
 - [ ] Surface MCP : verrou régénéré et relu, instructions sous 3 500 caractères, test de dérive vert, budgets du §12 respectés.
@@ -1476,23 +1533,19 @@ Commune à toutes les tâches de [07-feuille-de-route.md](07-feuille-de-route.md
 
 ## 14. Critères d'acceptation qualité par jalon
 
-**M0 — Fondations**
+**Portes communes (00 §10 ; §13.4 de ce document)** : à chaque jalon, `make ci` est vert, `make cov` est à 100 % des lignes, régions et fonctions, et le diff a 0 `MISSED` et 0 `TIMEOUT`. Elles s'ajoutent aux critères propres ci-dessous.
 
-- [ ] `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, `[workspace.lints]` (§8), `deny.toml` (§9), `.config/nextest.toml` (§7.3), `.gitattributes`, `.gitignore` (dont `.env` et `*.snap.new`).
-- [ ] `ci.yml` avec les jobs requis du §7.1, actions épinglées par SHA, protection de branche active ; `dependabot.yml` ; modèle de PR.
-- [ ] `cargo xtask check-deps` opérationnel, avec les tests de son moteur (§2.8) et la règle des doublons critiques (§9.3).
-- [ ] `SECURITY.md` (§10.3), `CONTRIBUTING.md`, `LICENSE`, `NOTICE` (§4.2).
-- [ ] Spike rmcp : transcriptions `modern_discover`, `legacy_2025_11_25`, `premature_notification` vertes (annexe D §8.4) ; mesure du bruit de pedantic et de `forbid(unsafe_code)` sur les macros ([v:rmcp-macros-unsafe-forbid]) ; inventaire des licences ([v:licences-graphe-m0]).
+**M0 — Fondations (livré, plan 1)** : `rust-toolchain.toml` (stable flottante, avec `clippy`, `rustfmt` et `llvm-tools-preview`), `rustfmt.toml`, `clippy.toml`, `[workspace.lints]` (§8), `deny.toml` minimal (§9), `Makefile`, `.cargo/mutants.toml`, `ci.yml` (jobs `check`, `test`, `coverage`, `deny`, `msrv` 1.88, `mutants`), `weekly.yml`, `xtask check-arch` (liste blanche, échec fermé), `CONTRIBUTING.md`, `LICENSE`, `NOTICE`, ADR-0001 et ADR-0002. **Reportés** (00 §11.1) : hygiène du dépôt (`.gitignore` avec `.env` et `*.snap.new`, `SECURITY.md`, `CHANGELOG.md`, `dependabot.yml`, actions épinglées par SHA, `--locked` partout, `cargo deny` planifié, `workflow-lint`, `cancel-in-progress` sur les PR seulement) ; `.gitattributes`, `.config/nextest.toml` et la matrice des trois OS en M2 ; spike rmcp avant la conception de `ToolCall` et des cas d'usage de M3 ; spike TLS en tâche 0 de M2.
 
-**M1 — Domaine** : tests du §2.1 verts, propriétés comprises, et dates aussi sous Windows ; lignes D-20, D-22, D-25 à D-33 du catalogue vertes pour leur partie domaine ; fuzzing configuré.
+**M1 — Domaine (livré, plan 1)** : 137 tests (129 pour `lf-domain`, 8 pour `xtask`), 100 % des lignes, régions et fonctions, 369 mutants à 0 survivant (ADR-0002) ; noms de tests selon la table de correspondance du §3.1 ; fuzz `ids` et `text` hebdomadaires. Le reste du §2.1 (contrat v2, `TocNode`, `parse_versioned`, `text::encoding`, `from_html`, `VersionDate` borné…) est dû au jalon indiqué par 00 §11.1.
 
-**M2 — Adapter PISTE** : tests du §2.3 verts ; fixtures de la référence installées avec leurs sidecars ; `cargo xtask record-fixture` opérationnel et lot exécuté en sandbox (Q3) ; premier passage du workflow `live` consigné au §5.4.
+**M2 — Adapter PISTE** : tâches de tête (00 §11.1) : contrat de citation v2, `TocArticle` puis `TocNode`, `parse_versioned`, toolchain 1.99.0 et étapes CI alignées, lints `panic`/`unreachable`/`unimplemented`, `lf_domain::text::encoding`, vecteur 1804-03-21, `VersionDate` borné, `open_ended`, `DateRange`, `VersionedId`, `Hash`, membre inconnu de check-arch, spikes TLS, proxy, `backon` et `governor` (V-02, V-03, V-06, V-07), `#[non_exhaustive]` de `DomainError` tranché d'abord (M1-D13 ; reste de la tâche 0 de 00 §11.1) ; hygiène du dépôt ; matrice Linux, macOS et Windows, `.gitattributes`, `.config/nextest.toml` ; `--ignore-filename-regex` de `COV_FLAGS` et `exclude_globs` justifiés pour la glue d'E/S ; élargissement de `deny.toml` ; tests du §2.3 verts ; fixtures de la référence installées avec leurs sidecars ; `cargo xtask record-fixture` opérationnel et lot exécuté en sandbox (Q3) ; premier passage du workflow `live` consigné au §5.4.
 
-**M3 — Application** : tests des §2.2, §2.4 et §2.5 verts, dont les 15 issues d'`Audited` ; spécification du §11 implémentée ; suite de contrat du port exécutée sur `FakeCorpus` et `PisteCorpus`.
+**M3 — Application** : spike rmcp (V-28) avant la conception de `ToolCall` et des cas d'usage de M3 ; remodelage de `Coverage` (M1-D20) ; tests des §2.2, §2.4 et §2.5 verts, dont les 15 issues d'`Audited` ; spécification du §11 implémentée ; suite de contrat du port exécutée sur `FakeCorpus` et `PisteCorpus`.
 
-**M4 — Adapter MCP** : tests des §2.6 et §2.7 verts ; transcriptions de la liste minimale du §6.1 versionnées et vertes dans les deux exécuteurs ; C-01 à C-30 de l'annexe D verts ou écart acté ; verrou versionné ; modèle de menaces MEN-01 à MEN-22 couvert.
+**M4 — Adapter MCP** : `xtask lock-descriptors` et `instructions-size` (cibles `make`) ; lints `print_stdout`, `print_stderr` et `exit` ; épinglage de `rmcp` contrôlé par `check-arch` ; réévaluation de la MSRV ; tests des §2.6 et §2.7 verts ; transcriptions de la liste minimale du §6.1 versionnées et vertes dans les deux exécuteurs ; C-01 à C-30 de l'annexe D verts ou écart acté ; verrou versionné ; modèle de menaces MEN-01 à MEN-22 couvert.
 
-**M5 — Économie de contexte (v0.1.0)** : budgets du §12 mesurés et devenus bloquants ; `tool_output_matches_golden` vert ; `regression_catalog_is_implemented` vert ; `multiple-versions = "deny"` ; P-060 exécuté en sandbox et consigné (§5.4) ; protocole manuel du §6.3 exécuté ; CHANGELOG v0.1.0 avec la note de migration.
+**M5 — Économie de contexte (v0.1.0)** : durcissement du fuzz (`-timeout=10`, `-max_len=65536`, corpus persistant) avec la correction de `passages` (M1-D1, M1-D2) ; budgets du §12 mesurés et devenus bloquants ; `tool_output_matches_golden` vert ; `regression_catalog_is_implemented` vert ; `multiple-versions = "deny"` ; P-060 exécuté en sandbox et consigné (§5.4) ; protocole manuel du §6.3 exécuté ; CHANGELOG v0.1.0 avec la note de migration.
 
 **M6 — Citations (v0.2.0)** : corpus de l'annexe B vert (copie identique, contrôle `cmp`) ; tests de l'annexe B §8.6 verts ; fuzzing de `parse_with` sans panique ; `perf_parse_20k` mesuré ; tests live M6 exécutés.
 
@@ -1515,24 +1568,24 @@ Commune à toutes les tâches de [07-feuille-de-route.md](07-feuille-de-route.md
 | 3 | 02 [v:tls-aws-lc-cross] et 04 [v:tls-fournisseur-cross] ; 02 [v:origine-mojibake] et 03, 04, A [v:mojibake-origine] ; 04 [v:quotas-piste] et 02, 05, A [v:quota-piste-prod] | deux étiquettes pour la même vérification | la seconde de chaque paire | fusionner dans le registre V-xx de 09 |
 | 4 | 02 §3.3 piège 5 (borne de corps proposée à 32 Mio) ; 04 §4.3 et §14.4 (16 Mio, tests à 17 Mio) | borne de corps | 16 Mio | corriger 02 |
 | 5 | recherche 02 §6 (tests `startup_fails_without_env`, `negative_result_ttl_is_short`, `input_digest_differs_between_installations`, `error_result_has_structured_code`, `config_rejects_non_allowlisted_host`, `get_act_rejects_code_id_with_hint`, `juri_and_cnil_responses_carry_redaction_note`, `server_answers_ping_while_tool_waits_upstream`, `missing_credentials_makes_no_network_or_disk_io`) ; 00 §1, §5, §7, §9 ; 02 §13.1 ; 05 §5.8 | mesures de la recherche contraires aux décisions | tests remplacés, colonne « Écart » du §3.1 | conserver 00 |
-| 6 | annexe D §8.3 (transcriptions HTTP « rejouées par POST, reqwest en dev-dependency ») ; 02 §4.3 (ban `reqwest`, `wrappers = ["lf-adapter-piste"]`, graphe `all-features` incluant les dev-dependencies) | client HTTP des tests M8 | `tower::ServiceExt::oneshot` en processus et client HTTP/1.1 minimal sur `TcpStream` ; aucun reqwest de développement | mettre à jour l'annexe D §8.3 ; à défaut, élargir `wrappers` et faire vérifier « dev seulement » par `check-deps` |
-| 7 | 03 §7.3 (liste des caractères invisibles retirés par `clean`) ; menace MEN-06 du §10.2 | contrôles bidirectionnels (U+202A–U+202E, U+2066–U+2069) conservés | non appliqué : 03 fait foi pour `clean` | ajouter ces caractères à `clean`, avec un compteur ; c'est un arbitrage entre fidélité verbatim et sécurité, à trancher dans 03 |
+| 6 | annexe D §8.3 (transcriptions HTTP « rejouées par POST, reqwest en dev-dependency ») ; 02 §4.3 (ban `reqwest`, `wrappers = ["lf-adapter-piste"]`, graphe `all-features` incluant les dev-dependencies) | client HTTP des tests M8 | `tower::ServiceExt::oneshot` en processus et client HTTP/1.1 minimal sur `TcpStream` ; aucun reqwest de développement | mettre à jour l'annexe D §8.3 ; à défaut, élargir `wrappers` et faire vérifier « dev seulement » par `check-arch` |
+| 7 | 03 §7.3 (liste des caractères invisibles retirés par `clean`) ; menace MEN-06 du §10.2 | contrôles bidirectionnels (U+202A–U+202E, U+2066–U+2069) conservés | appliqué en M2 (00 §11.1, M1-D7) | ajouter ces caractères à `clean`, avec un compteur ; c'est un arbitrage entre fidélité verbatim et sécurité, tranché (00 §11.1, M1-D7) : retrait par `clean` en M2, invariant de sortie en M4 |
 | 8 | recherche 02 D-35 (`fixtures_have_no_mojibake` sur toutes les fixtures) ; 04 §13.3 et annexe A §5.5 (fixtures en mojibake gardées) | test anti-mojibake | restreint aux fixtures enregistrées (§4.3) | — |
-| 9 | 02 §4.2 (algorithme de `check-deps`, règles R1 à R8) | règle des doublons de crates critiques | ajoutée comme règle de `check-deps` (§9.3) | inscrire la règle (R9) dans 02 §4 |
+| 9 | 02 §4.2 (algorithme de `check-arch`, règles R1 à R8) | règle des doublons de crates critiques | ajoutée comme règle de `check-arch` (§9.3) | inscrire la règle (R9) dans 02 §4 : fait (2026-10-16) |
 | 10 | 02 §3.5 (« un fil d'exécution dédié qui possède le fichier ») | sûreté de la rotation entre processus | réouverture du fichier à chaque ligne, sous un verrou pris sur un fichier dédié (§11.5) | préciser 02 §3.5 |
-| 11 | 02 §3.0.3 (lints) | lints supplémentaires (`missing_docs`, `print_stderr`, `allow_attributes_without_reason`, `large_futures`, `exit`, `[workspace.lints.rustdoc]`) | ajoutés (§8.1) | reporter dans 02 §3.0.3 |
+| 11 | 02 §3.0.3 (lints) | lints supplémentaires (`missing_docs`, `print_stderr`, `allow_attributes_without_reason`, `large_futures`, `exit`, `[workspace.lints.rustdoc]`) | `missing_docs` livré ; `large_futures` actif via pedantic ; section rustdoc retirée (§8.1, C7) ; `panic`, `unreachable` et `unimplemented` entrent en M2 ; `print_*` et `exit` en M4 ; `allow_attributes_without_reason` après rank.rs:38 | réécrire 02 §3.0.3 à partir des lints livrés |
 | 12 | 04 §13.4 (xtask réutilise le client de l'adapter « au moyen d'une API brute exposée derrière une feature `record` ») ; 02 §3.8 et 00 §2 (`xtask` ne dépend d'aucun `lf-*`) | dépendances de `xtask record-fixture` | `xtask` lance `cargo run -p lf-adapter-piste --example record_fixture --features record` ; seul l'exemple utilise l'API brute (§1.4) | confirmer dans 04 |
-| 13 | recherche 04 §5.2 (MSRV 1.88) ; 00 §2 (1.91) | MSRV | 1.91 | conserver 00 (déjà noté par 02 §13.1 n° 3) |
+| 13 | recherche 04 §5.2 (MSRV 1.88) ; 00 §2 (1.91 avant amendement) | MSRV | 1.88 (livré : plancher imposé par `rmcp` 3.5.1 et `proptest` 1.12 ; 00 §2 amendé le 2026-10-16, C5) | réévaluer par un ADR seulement si le job MSRV casse à l'arrivée de `rmcp` en M4 |
 
 ### 15.2 Questions ouvertes propres à la qualité
 
 1. **Rétention du journal d'audit** : aucune suppression (02 §3.5). Faut-il une variable de rétention, ou une simple consigne dans le README ? (Proposition : consigne en v0.1, réévaluation en M9.)
 2. **Preuve d'intégrité du journal** : une chaîne d'empreintes (chaque ligne contenant l'empreinte de la précédente) rendrait une altération détectable. Elle change le format de 00 §7 : à porter par une révision d'ADR-0008 ? (Proposition : non en v0.x.)
 3. **Rotation** : fichier actif renommé (02 §3.5, appliqué au §11.5) ou fichiers quotidiens écrits directement sous leur nom daté, plus simples entre processus ? (Proposition : garder 02, la lecture des 17 premiers octets suffit.)
-4. **Langue du rustdoc et des commentaires de code** : anglais (proposé, §8.4) ou français ?
-5. **Contrôles bidirectionnels** (§15.1 n° 7) : les retirer dans `clean` ?
-6. **Couverture de code** : indicative (proposé, §7.6) ou seuil bloquant par crate ?
-7. **Fuzzing** : job nocturne non bloquant (proposé) ou exécution locale seulement ?
+4. **Langue du rustdoc et des commentaires de code** : **tranchée le 2026-10-16 (C7)** : français pour le rustdoc et les commentaires, anglais pour tout texte servi au modèle (§8.4 ; consignée en 09 §3.11.3).
+5. **Contrôles bidirectionnels** (§15.1 n° 7) : **tranchée : M2 (M1-D7)**, retrait par `clean` (00 §11.1).
+6. **Couverture de code** : **tranchée** par l'ADR-0002 (livré) et 00 §10 : seuil bloquant, 100 % des lignes, régions et fonctions en `--lib` (§7.6).
+7. **Fuzzing** : **tranché** par 00 §10 : job hebdomadaire (`weekly.yml`), non bloquant pour la PR, avec la mutation complète ; durcissement en M5 (M1-D2).
 8. **Revue avec un seul mainteneur** : la règle « une PR produite par un agent est relue par un humain » suffit-elle, ou faut-il un second relecteur pour les changements de surface et de sécurité ?
 9. **Exécutions live en production** : qui les lance, et à quelle fréquence, au regard des CGU et de Q3 ? (Proposition : le mainteneur, avant chaque étiquette, en lecture seule.)
 10. **Cibles de performance** du §12.1 (mémoire, latence ajoutée, taille du binaire) : à confirmer après la première mesure de M5.
@@ -1568,7 +1621,7 @@ Les étiquettes reprises d'autres documents sont suivies de leur origine entre p
 | [v:clients-entete-statique] | (annexe D) Les clients savent envoyer un en-tête `Authorization` statique en HTTP. |
 | [v:clippy-disallowed-chrono] | (02) Correspondance des chemins ré-exportés de chrono dans `disallowed-methods`. |
 | [v:clippy-config-cles] | Options de `clippy.toml` disponibles (par exemple une autorisation des impressions dans les tests). |
-| [v:date-rust-1-99] | (02) Date de sortie de Rust 1.99.0. |
+| [v:date-rust-1-99] | (02) Date de sortie de Rust 1.99.0 (stable installée, build du 2026-09-28 : sortie vers le 2026-10-01 à confirmer). |
 | [v:actions-versions-sha] | Versions et SHA des actions (`actions/checkout`, `Swatinem/rust-cache`, `taiki-e/install-action`, `EmbarkStudios/cargo-deny-action`, `actions/upload-artifact`) à épingler. |
 | [v:outils-lint-workflows] | Versions de zizmor et d'actionlint, et règles qui exigent l'épinglage par SHA. |
 | [v:cargo-dist-pr-run-mode] | Option `pr-run-mode = "plan"` de cargo-dist 0.33 pour le plan de release sur les PR. |
@@ -1629,7 +1682,7 @@ Les étiquettes reprises d'autres documents sont suivies de leur origine entre p
 
 **Plan et décisions**
 - [00-decisions.md](00-decisions.md) (normatif) : §1 (variables `LF_*`), §2 (workspace, MSRV, lints, xtask, règles de dépendance), §3 (ports, `Audited`), §4 (domaine), §5 (erreurs), §6 (protocole, instructions, sortie), §7 (outils, métriques et ligne d'audit), §8 (adapter PISTE), §9 (cache), §10 (qualité), §11 (jalons), §12 (distribution, licence), §13 (Q1 à Q10).
-- [02-architecture.md](02-architecture.md) : §1.2, §2 et §2.2 (arborescence, fichiers racine, `clippy.toml`, profils nextest), §3.0.1 à §3.0.3 (versions, `Cargo.toml`, lints), §3.2 à §3.8 (fiches des crates, `test-support`, audit, xtask), §4.1 à §4.4 (règles, `check-deps`, `deny.toml`, pureté), §5.2 et §5.3 (`AuditLog`, `Clock`), §6.1 et §6.2 (empreinte, budgets, cas d'usage), §7.1 et §7.2 (`Audited`, cache), §8.1 à §8.8 (CLI, configuration, secrets, journalisation, arrêt), §9.2 (correspondance des erreurs), §10, §11, §12.1 à §12.3, §13.1.
+- [02-architecture.md](02-architecture.md) : §1.2, §2 et §2.2 (arborescence, fichiers racine, `clippy.toml`, profils nextest), §3.0.1 à §3.0.3 (versions, `Cargo.toml`, lints), §3.2 à §3.8 (fiches des crates, `test-support`, audit, xtask), §4.1 à §4.4 (règles, `check-arch`, `deny.toml`, pureté), §5.2 et §5.3 (`AuditLog`, `Clock`), §6.1 et §6.2 (empreinte, budgets, cas d'usage), §7.1 et §7.2 (`Audited`, cache), §8.1 à §8.8 (CLI, configuration, secrets, journalisation, arrêt), §9.2 (correspondance des erreurs), §10, §11, §12.1 à §12.3, §13.1.
 - [03-domaine.md](03-domaine.md) : §1.1 à §1.4, §2.3 à §2.7, §6.1 à §6.5, §7.1 à §7.10, §8.8, §9, §10, §11, points non vérifiés.
 - [04-adapter-piste.md](04-adapter-piste.md) : §2.1 à §2.4, §3.3 à §3.6, §4.1 à §4.4, §5, §10, §11, §13.1 à §13.6, §14, §15, §16, points non vérifiés.
 - [05-outils-mcp.md](05-outils-mcp.md) : §1.2 à §1.4, §2.1 à §2.5, §3.6, §4.1 à §4.4, §5.2, §5.8, §6.1 à §6.6, §7.1 à §7.5, §9.1 à §9.5, §10, §11, §12, §13.

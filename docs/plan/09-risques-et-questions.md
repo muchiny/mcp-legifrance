@@ -1,17 +1,17 @@
 # 09 — Risques, vérifications et questions ouvertes
 
-> Plan de réécriture en Rust, en architecture hexagonale, du serveur MCP Légifrance (`mcp-legifrance`). Ce document tient trois registres : les risques `R-xx`, les vérifications `V-xx` (tout ce que le plan et les recherches marquent **NON VÉRIFIÉ**) et les questions `Q1` à `Q10` de [00-decisions.md](00-decisions.md). Il recueille aussi les arbitrages secondaires que les autres documents renvoient ici.
+> Plan de réécriture en Rust, en architecture hexagonale, du serveur MCP Légifrance (`mcp-legifrance`). Ce document tient trois registres : les risques `R-xx`, les vérifications `V-xx` (tout ce que le plan et les recherches marquent **NON VÉRIFIÉ**) et les questions `Q1` à `Q12` de [00-decisions.md](00-decisions.md) (Q11 et Q12 sont propres au livré, §3.12 et §3.13). Il recueille aussi les arbitrages secondaires que les autres documents renvoient ici, les réponses du propriétaire du 2026-10-16 (C1 à C7, §3.11.3) et le registre des points différés de la revue de clôture M1 (`M1-D1…M1-D24`, §3.14).
 >
-> [00-decisions.md](00-decisions.md) est normatif et ce document ne le modifie pas. Les amendements proposés sont listés au §3.11 et attendent une décision.
+> [00-decisions.md](00-decisions.md) est normatif et ce document ne le modifie pas. Depuis le 2026-10-16 (C1 à C7), 00 §10 (exigence qualité) l'emporte sur tout autre document et, pour M0 et M1, le code livré et le plan 1 font foi ; leurs écarts avec le plan sont au §11.1 de 00. Les amendements proposés sont listés au §3.11 ; ceux déjà décidés y portent le statut « fait ».
 >
-> Rédigé le 2026-10-15. « La référence Python » désigne `matematicsolutions/fr-eli-mcp@d3b5b13` (v0.5.3). Les défauts `D-01…D-47` viennent de la [recherche 02](../recherche/02-defauts.md) ; les points de parité `P-xxx` et les écarts `E-xx`, de la [recherche 01](../recherche/01-parite.md).
+> Rédigé le 2026-10-15, mis à jour le 2026-10-16 après le livré M0-M1 (plan 1) et les décisions C1 à C7. « La référence Python » désigne `matematicsolutions/fr-eli-mcp@d3b5b13` (v0.5.3). Les défauts `D-01…D-47` viennent de la [recherche 02](../recherche/02-defauts.md) ; les points de parité `P-xxx` et les écarts `E-xx`, de la [recherche 01](../recherche/01-parite.md).
 
 ## Sommaire
 
 0. [Mode d'emploi](#0-mode-demploi)
 1. [Registre des risques](#1-registre-des-risques)
 2. [Registre des vérifications](#2-registre-des-vérifications)
-3. [Questions ouvertes Q1 à Q10 et arbitrages secondaires](#3-questions-ouvertes-q1-à-q10-et-arbitrages-secondaires)
+3. [Questions Q1 à Q12, arbitrages secondaires et points différés M1](#3-questions-q1-à-q12-arbitrages-secondaires-et-points-différés-m1)
 4. [Hypothèses de travail](#4-hypothèses-de-travail)
 5. [Critères d'acceptation de ce registre par jalon](#5-critères-dacceptation-de-ce-registre-par-jalon)
 6. [Sources](#sources)
@@ -29,6 +29,8 @@
 - **Quand mettre à jour.** Après chaque exécution live (registre de [06-qualite.md](06-qualite.md) §5.4), à la clôture de chaque jalon (revue des `R-xx` et `V-xx` du jalon, §5), à chaque montée de `rmcp`, à chaque réponse à une question `Qn`.
 - **Qui.** Le mainteneur, ou l'agent qui exécute la vérification. Dans ce second cas, un humain relit la PR (06 §13.1).
 - **Nouvelles incertitudes.** Elles prennent l'identifiant suivant (`V-216`, `R-31`…). Un identifiant n'est jamais réutilisé, même après une levée ou une clôture.
+- **Points différés du livré.** Les points différés de la revue de clôture M1 portent le préfixe `M1-D` (`M1-D1…M1-D24`, registre du §3.14) : le préfixe `D-` est pris par les défauts de la référence. Un point n'est jamais renuméroté ; un point traité reçoit le statut `fait` et le commit.
+- **Jalons M0 et M1.** Ils sont livrés (plan 1). Dans les fiches et tableaux de ce document, « M0 » ou « M1 » désigne le jalon *prévu par le plan* ; ce que le livré n'a pas fait est redistribué (§2.18 et 00 §11.1), et la colonne « Jalon » des vérifications cède devant la table de redistribution du §2.18.
 
 ### 0.2 Échelles des risques
 
@@ -50,7 +52,7 @@ Ces constats ont été faits pour ce document depuis le conteneur de développem
 | `https://index.crates.io` (index sparse) | 200 ; le champ `pubtime` donne la date de publication de chaque version | âge des crates vérifiable (R-22) |
 | `https://static.crates.io` (archives des crates) | refusé (403 du proxy) | aucune dépendance téléchargeable : aucune compilation possible (V-01) |
 | `https://static.rust-lang.org` | refusé | la toolchain 1.99.0 épinglée par 00 §2 n'est pas installable (V-16) |
-| Toolchain installée | `rustc 1.97.0 (2d8144b78 2026-07-07)`, `cargo 1.97.0` | supérieure à la MSRV 1.91, inférieure à la toolchain épinglée |
+| Toolchain installée | `rustc 1.97.0 (2d8144b78 2026-07-07)`, `cargo 1.97.0` | supérieure à la MSRV 1.88 (C5), inférieure à la toolchain épinglée |
 | `https://docs.rs`, `https://crates.io/api` | refusés | documentation des crates consultable seulement dans les sources |
 | `sandbox-oauth`, `oauth`, `sandbox-api`, `api` et `piste.gouv.fr` | refusés | aucun appel live depuis le conteneur (R-13, Q3, Q6) |
 | `https://www.legifrance.gouv.fr` | refusé | recette des URL impossible depuis le conteneur (V-139) |
@@ -59,6 +61,8 @@ Ces constats ont été faits pour ce document depuis le conteneur de développem
 | `https://pypi.org`, `https://registry.npmjs.org` | 200 | référence Python et suite de conformité consultables |
 | `git ls-remote` sur GitHub | fonctionne | tags vérifiables : `rmcp-v3.5.1` (`79437f2`) est le dernier tag de rmcp ; `2026-07-28` est la dernière révision de la spécification |
 | API GitHub (`gh api`) sur `modelcontextprotocol/rust-sdk` | refusée pour cette session | statut des issues rmcp non vérifiable ici (V-38) |
+
+**Mise à jour du 2026-10-16.** Ce tableau décrit le conteneur de rédaction du plan. Depuis, M0 et M1 ont été compilés, testés et fusionnés (PR #1 et #2, CI verte) : la compilation et les tests fonctionnent en local et en CI, et la toolchain locale est `rustc 1.99.0 (b940084d7 2026-09-28)`, la version que 00 §2 épingle (l'épinglage dans `rust-toolchain.toml`, aujourd'hui `channel = "stable"`, est une tâche de tête de M2, 00 §11.1). Les lignes `static.crates.io`, `static.rust-lang.org` et « Toolchain installée » sont donc caduques ; les refus des hôtes PISTE, Légifrance et DILA restent valables jusqu'à preuve contraire (R-13, Q3, Q6).
 
 ---
 
@@ -69,35 +73,35 @@ Ces constats ont été faits pour ce document depuis le conteneur de développem
 | R | Risque | P | I | Score | Jalons | Liens principaux |
 |---|---|---|---|---|---|---|
 | [R-01](#r-01--instabilité-de-lapi-rmcp) | Instabilité de l'API rmcp | 3 | 2 | 6 | M0, M4, M8, chaque montée | V-38, ADR-0003 |
-| [R-02](#r-02--bugs-ouverts-et-comportements-de-rmcp-351) | Bugs ouverts et comportements de rmcp 3.5.1 | 2 | 3 | 6 | M0, M4, M8 | V-29, V-30, V-36, V-38 |
+| [R-02](#r-02--bugs-ouverts-et-comportements-de-rmcp-351) | Bugs ouverts et comportements de rmcp 3.5.1 | 2 | 3 | 6 | M3 (spike), M4, M8 | V-29, V-30, V-36, V-38 |
 | [R-03](#r-03--quotas-piste-inconnus) | Quotas PISTE inconnus | 3 | 2 | 6 | M2, M6, M7, M8 | V-62, V-63, V-64, Q4 |
 | [R-04](#r-04--écarts-et-disponibilité-sandbox--production) | Écarts et disponibilité sandbox / production | 3 | 2 | 6 | M2, v0.1.0 | V-59, V-61, Q3 |
 | [R-05](#r-05--origine-du-mojibake) | Origine du mojibake | 1 | 2 | 2 | M2 | V-71, V-72, V-73 |
 | [R-06](#r-06--comportement--introuvable--de-lapi) | Comportement « introuvable » de l'API | 3 | 3 | **9** | M2, M6 | V-66, V-67, V-68, V-134 |
 | [R-07](#r-07--cgu-piste-et-mode-http-partagé) | CGU PISTE et mode HTTP partagé | 2 | 4 | 8 | M8 | V-175, V-176, Q4 |
 | [R-08](#r-08--smart-app-control-gatekeeper-et-signature) | Smart App Control, Gatekeeper et signature | 3 | 3 | **9** | Distribution (v0.1.0) | V-173, V-174, Q5 |
-| [R-09](#r-09--tls-aws-lc-en-compilation-croisée) | TLS aws-lc en compilation croisée | 2 | 2 | 4 | M0, Distribution | V-02, V-25 |
+| [R-09](#r-09--tls-aws-lc-en-compilation-croisée) | TLS aws-lc en compilation croisée | 2 | 2 | 4 | M2 (tête), Distribution | V-02, V-25 |
 | [R-10](#r-10--support-réel-de-2026-07-28-par-les-clients) | Support réel de 2026-07-28 par les clients | 2 | 3 | 6 | M4, v0.1.0, chaque version | V-46, V-49, V-51, V-52, Q7 |
 | [R-11](#r-11--coût-de-contexte) | Coût de contexte | 2 | 2 | 4 | M4, M5, M6, M7 | V-47, V-48, V-58 |
 | [R-12](#r-12--évolution-du-swagger-et-de-lapi-légifrance) | Évolution du Swagger et de l'API Légifrance | 2 | 2 | 4 | M2, en continu | V-74, V-122, V-135 |
-| [R-13](#r-13--accès-réseau-de-lenvironnement-de-développement) | Accès réseau de l'environnement de développement | 3 | 4 | **12** | M0, M2, M9 | Q6, V-01, V-16 |
+| [R-13](#r-13--accès-réseau-de-lenvironnement-de-développement) | Accès réseau de l'environnement de développement | 2 | 3 | 6 | M2, M9 | Q3, Q6, V-185 |
 | [R-14](#r-14--dépendance-à-un-compte-piste-personnel) | Dépendance à un compte PISTE personnel | 2 | 3 | 6 | M2, en continu | Q3, V-60 |
 | [R-15](#r-15--données-personnelles-dans-les-décisions-et-les-journaux) | Données personnelles dans les décisions et les journaux | 2 | 3 | 6 | M2, M4, M8, M9 | V-178, V-179, V-180 |
 | [R-16](#r-16--dumps-dila--volumétrie-et-absence-de-global-récent) | Dumps DILA : volumétrie, absence de global récent | 3 | 3 | **9** | M9 | V-185 à V-189, Q6 |
 | [R-17](#r-17--sémantique-de-singledate--version-de-la-veille) | Sémantique de `singleDate` : version de la veille | 2 | 3 | 6 | M2 | V-76, V-100 |
-| [R-18](#r-18--url-légifrance-et-contrat-de-citation) | URL Légifrance et contrat de citation | 2 | 3 | 6 | M1, v0.1.0 | V-139 à V-145 |
+| [R-18](#r-18--url-légifrance-et-contrat-de-citation) | URL Légifrance et contrat de citation | 2 | 3 | 6 | M2, v0.1.0 | V-139 à V-145 |
 | [R-19](#r-19--fiabilité-du-vérificateur-de-citations) | Fiabilité du vérificateur de citations | 2 | 3 | 6 | M6 | V-119, V-120, V-134, V-163 |
 | [R-20](#r-20--audit-strict-et-indisponibilité) | Audit strict et indisponibilité | 1 | 2 | 2 | M3 | Q9, V-164 à V-167 |
 | [R-21](#r-21--délais-des-clients-et-délai-global) | Délais des clients et délai global | 2 | 2 | 4 | M2, M4 | V-55 |
-| [R-22](#r-22--chaîne-dapprovisionnement-et-versions-trop-récentes) | Chaîne d'approvisionnement et versions trop récentes | 2 | 2 | 4 | M0, Distribution | V-25, V-26, V-171 |
+| [R-22](#r-22--chaîne-dapprovisionnement-et-versions-trop-récentes) | Chaîne d'approvisionnement et versions trop récentes | 2 | 2 | 4 | chaque dépendance, Distribution | V-25, V-26, V-171 |
 | [R-23](#r-23--fuite-de-secrets-ou-de-données-dans-les-journaux) | Fuite de secrets ou de données dans les journaux | 1 | 4 | 4 | M2, M4 | — |
 | [R-24](#r-24--sécurité-du-transport-http) | Sécurité du transport HTTP | 2 | 3 | 6 | M8 | V-39 à V-45, V-56, V-57 |
 | [R-25](#r-25--mainteneur-unique-et-contributions-dagents) | Mainteneur unique et contributions d'agents | 2 | 2 | 4 | tous | — |
 | [R-26](#r-26--contamination-de-licence) | Contamination de licence | 1 | 3 | 3 | M0, M6 | Q2, V-25, V-177 |
 | [R-27](#r-27--évolution-de-la-spécification-mcp) | Évolution de la spécification MCP | 2 | 2 | 4 | après v0.3.0 | Q7 |
-| [R-28](#r-28--format-strict-des-identifiants) | Format strict des identifiants | 1 | 3 | 3 | M1, M2 | V-103, V-104 |
+| [R-28](#r-28--format-strict-des-identifiants) | Format strict des identifiants | 1 | 3 | 3 | M2 | V-103, V-104 |
 | [R-29](#r-29--réponses-volumineuses-et-mémoire) | Réponses volumineuses et mémoire | 2 | 2 | 4 | M2, M5, M7 | V-75, V-96, V-18 |
-| [R-30](#r-30--nom-du-produit--marque--légifrance--et-homonymie) | Nom du produit : marque « Légifrance » et homonymie | 2 | 2 | 4 | M0, Distribution | Q1, V-215 |
+| [R-30](#r-30--nom-du-produit--marque--légifrance--et-homonymie) | Nom du produit : marque « Légifrance » et homonymie | 2 | 2 | 4 | Distribution | V-215 (Q1 décidée) |
 
 ```mermaid
 quadrantChart
@@ -108,7 +112,7 @@ quadrantChart
     quadrant-2 Mesure planifiée
     quadrant-3 Surveiller
     quadrant-4 Mesure planifiée
-    R-13: [0.92, 0.95]
+    R-13: [0.5, 0.66]
     R-06: [0.85, 0.7]
     R-08: [0.8, 0.72]
     R-16: [0.88, 0.68]
@@ -131,7 +135,7 @@ quadrantChart
     R-20: [0.22, 0.38]
 ```
 
-Les positions reprennent les notes du tableau, légèrement décalées pour rester lisibles. Les risques notés 2 × 2 (R-09, R-11, R-12, R-21, R-22, R-25, R-27, R-29, R-30) sont omis du graphique.
+Les positions reprennent les notes du tableau, légèrement décalées pour rester lisibles. R-13 est réduit depuis le 2026-10-16 (fiche R-13). Les risques notés 2 × 2 (R-09, R-11, R-12, R-21, R-22, R-25, R-27, R-29, R-30) sont omis du graphique.
 
 ### 1.2 Fiches
 
@@ -139,7 +143,7 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 
 - **Description.** `rmcp` a publié quatre lignes incompatibles en 2026 : 0.17.0 (2026-02-27), 1.0.0 (2026-03-03), 2.0.0 (2026-06-29), 3.0.0 (2026-07-28), d'après le champ `pubtime` de l'index sparse relevé pour ce document (recherche 04 §1.1, recherche 09 §0). `ProtocolVersion::LATEST` est passé à 2026-07-28 dans une **mineure**, la 3.5.0 (recherche 09 §0). Une montée peut donc changer en silence la version négociée, les indications de cache par défaut (`fill_missing_cache_hints`) ou la boucle avant l'ouverture d'une ère (annexe D §9.4). Un correctif de sécurité publié seulement en 3.6 ou 4.x imposerait une montée en urgence.
 - **Probabilité : 3.** Le rythme de 2026 rend très probable au moins une nouvelle mineure incompatible en pratique avant v1.0.0.
-- **Impact : 2.** Le SDK est confiné à `lf-adapter-mcp` (00 §2, vérifié par `cargo xtask check-deps`) : une montée ne touche qu'un crate, mais elle peut casser les deux ères.
+- **Impact : 2.** Le SDK est confiné à `lf-adapter-mcp` (00 §2, vérifié par `cargo xtask check-arch`, `make arch` ; le contrôle d'épinglage de rmcp arrive en M4) : une montée ne touche qu'un crate, mais elle peut casser les deux ères.
 - **Réduction.** `rmcp` et `rmcp-macros` épinglés `=3.5.1`, `Cargo.lock` versionné (00 §6) ; aucun type `rmcp::model::*` hors de l'adapter ([02-architecture.md](02-architecture.md) §1.2) ; transcriptions JSON-RPC brutes des deux ères qui figent le comportement attendu (06 §6.1) ; descriptor lock (05 §9) ; procédure de montée de l'annexe D §9.4 (CHANGELOG, `LATEST`, `KNOWN_VERSIONS`, transcriptions, verrou, issues). Les outils de mise à jour automatique des dépendances excluent `rmcp` et `rmcp-macros`.
 - **Signal d'alerte.** Nouvelle version de rmcp qui touche `LATEST`, `KNOWN_VERSIONS`, `discover` ou `StreamableHttpServerConfig` ; avis RUSTSEC visant 3.5.1 ; transcription rouge après `cargo update`.
 - **Jalons.** M0 (choix figé), M4, M8, puis chaque montée.
@@ -148,11 +152,11 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 #### R-02 — Bugs ouverts et comportements de rmcp 3.5.1
 
 - **Description.** Issues ouvertes au 2026-10-15 selon la recherche 09 §4 : #1337 (`outputSchema` ou `structuredContent` à racine non objet envoyé tel quel aux pairs legacy), #1347 (`-32601` au lieu de `-32602` pour des params non désérialisables), #1348 (cache de validation de `Mcp-Param-*` jamais invalidé, P0 sécurité), #1325 (sessions HTTP legacy non annulées). La lecture du code de 3.5.1 ajoute qu'une notification reçue avant l'ouverture d'une ère **arrête le service** (`service/server.rs:681-685`, annexe D §9.2 constat 1), ce qui toucherait la sonde de Claude Code. rmcp journalise les réponses complètes au niveau `debug` (`service.rs:1593-1615`). Le comportement sur la panique d'un outil est inconnu (V-36).
-- **Probabilité : 2.** Les parades sont décidées ; elles restent à prouver par le spike M0 et les tests M4.
+- **Probabilité : 2.** Les parades sont décidées ; elles restent à prouver par le spike rmcp (avant la conception de `ToolCall` et des cas d'usage de M3, V-28) et les tests M4.
 - **Impact : 3.** Serveur qui s'arrête à l'ouverture d'une session, ou réponses refusées par VS Code.
 - **Réduction.** `PreLifecycleFilter` autour de `stdio()` (annexe D §4.3, V-29) ; sorties toujours à racine objet (00 §6) ; aucune `x-mcp-header` (00 §6) ; filtre `tracing` qui plafonne `rmcp` à `info` hors développement (00 §6) ; test documentaire de #1347 ; `catch_unwind` dans `call_tool` si V-36 le justifie ; `with_legacy_session_mode(false)` en HTTP (annexe D §9.1).
 - **Signal d'alerte.** Transcriptions `premature_notification`, `garbage_and_batch` ou `legacy_2025_11_25` rouges ; issue rmcp réouverte ; rapport « server disconnected » d'un client.
-- **Jalons.** M0, M4, M8.
+- **Jalons.** M3 (spike, ex-M0), M4, M8.
 - **Liens.** V-29, V-30, V-31, V-36, V-38 ; annexe D §9.
 
 #### R-03 — Quotas PISTE inconnus
@@ -220,9 +224,9 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 - **Description.** Le fournisseur par défaut de rustls est aws-lc-rs, dont `aws-lc-sys` exige selon la cible cmake, NASM ou clang (recherche 04 §6 points 5 et 6). Les 7 cibles de cargo-dist (00 §12), dont musl et aarch64, n'ont pas été essayées. Le repli `ring` demande `rustls-no-provider` et un `install_default()` au démarrage, faute de quoi reqwest panique (02 §3.0.1).
 - **Probabilité : 2.**
 - **Impact : 2.** Cible manquante ou bascule vers `ring` ; panique au premier appel si l'installation du fournisseur est oubliée.
-- **Réduction.** Spike M0 des deux options sur les 7 cibles, avec poignée de main (V-02) ; choix consigné dans ADR-0013 ; test « fournisseur installé avant le premier client » ; inventaire des licences (V-25).
+- **Réduction.** Spike TLS des deux options en tâche 0 de M2 (arrivée de `reqwest` ; M0 est livré sans spike, 00 §11.1), puis sur les 7 cibles avant la distribution, avec poignée de main (V-02) ; choix consigné dans ADR-0013 ; test « fournisseur installé avant le premier client » ; inventaire des licences (V-25).
 - **Signal d'alerte.** Échec de `dist build` sur une cible ; message « no process-level CryptoProvider ».
-- **Jalons.** M0, Distribution.
+- **Jalons.** M2 (tête, ex-M0), Distribution.
 - **Liens.** V-02, V-25 ; ADR-0013.
 
 #### R-10 — Support réel de 2026-07-28 par les clients
@@ -257,12 +261,12 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 
 #### R-13 — Accès réseau de l'environnement de développement
 
-- **Description.** Constat du 2026-10-15 (§0.3) : depuis le conteneur, `static.crates.io`, `static.rust-lang.org`, `docs.rs`, `*.piste.gouv.fr`, `legifrance.gouv.fr` et `echanges.dila.gouv.fr` sont refusés ; seul l'index sparse de crates.io répond. La toolchain installée est 1.97.0, alors que 00 §2 épingle 1.99.0. Les recherches ont été menées dans les mêmes conditions ([README des recherches](../recherche/README.md)).
-- **Probabilité : 3.** Constaté.
-- **Impact : 4.** Aucune compilation en M0, donc aucun spike ; aucun appel live en M2 ; aucun dump en M9.
-- **Réduction.** Q6 : ouvrir `static.crates.io` (indispensable) et `static.rust-lang.org` (toolchain épinglée), puis `*.piste.gouv.fr` pour les sondes et `echanges.dila.gouv.fr` en M9. À défaut, la CI GitHub Actions sert d'environnement de compilation et de test : les agents travaillent par PR, la CI compile, `live.yml` exécute les sondes avec les secrets de l'environnement `piste-sandbox`. Les tests sont conçus pour tourner hors ligne (00 §10). Ne jamais contourner le proxy (désactiver TLS, changer `HTTPS_PROXY`).
-- **Signal d'alerte.** `cargo fetch` en 403 ; `rustup` incapable d'installer la toolchain épinglée ; aucune PR de M0 compilée localement.
-- **Jalons.** M0 (bloquant), M2, M9.
+- **Description.** Constat du 2026-10-15 (§0.3) : depuis le conteneur, `static.crates.io`, `static.rust-lang.org`, `docs.rs`, `*.piste.gouv.fr`, `legifrance.gouv.fr` et `echanges.dila.gouv.fr` sont refusés ; seul l'index sparse de crates.io répond. La toolchain installée est 1.97.0, alors que 00 §2 épingle 1.99.0. Les recherches ont été menées dans les mêmes conditions ([README des recherches](../recherche/README.md)). **Mise à jour du 2026-10-16 : risque réduit.** M0 et M1 ont été compilés et testés en local et en CI (PR #1 et #2) avec `rustc 1.99.0` ; la compilation n'est plus bloquée. Reste l'accès live à PISTE (Q3) et aux hôtes DILA.
+- **Probabilité : 2.** Les hôtes de compilation sont joignables (constaté en M0-M1) ; l'accès live à PISTE dépend de Q3.
+- **Impact : 3.** Aucun appel live en M2 (M2 n'est pas acceptable sans sandbox, Q3), aucun dump en M9. La compilation n'est plus concernée.
+- **Réduction.** Compilation et toolchain : réglées en M0-M1. Q6 reste ouverte pour `*.piste.gouv.fr` pour les sondes et `echanges.dila.gouv.fr` en M9. À défaut, la CI GitHub Actions sert d'environnement de compilation et de test : les agents travaillent par PR, la CI compile, `live.yml` exécute les sondes avec les secrets de l'environnement `piste-sandbox`. Les tests sont conçus pour tourner hors ligne (00 §10). Ne jamais contourner le proxy (désactiver TLS, changer `HTTPS_PROXY`).
+- **Signal d'alerte.** `cargo fetch` en 403 ; `rustup` incapable d'installer la toolchain épinglée (régressions) ; refus persistant des hôtes PISTE (Q3).
+- **Jalons.** M2, M9 (statut : réduit le 2026-10-16 ; M0 n'est plus concerné).
 - **Liens.** Q6 ; V-01, V-16, V-185.
 
 #### R-14 — Dépendance à un compte PISTE personnel
@@ -307,12 +311,12 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 
 #### R-18 — URL Légifrance et contrat de citation
 
-- **Description.** Chaque entité citable expose un `source_url` (ADR-0009). Les motifs d'URL (03 §5.5) n'ont pas été ouverts dans un navigateur : `/loda/article_lc/` ou `/codes/article_lc/` pour un article de loi, `/ceta/id/` ou `/juri/id/` pour un `CETATEXT`, `/conv_coll/id/` pour un `KALIARTI` (V-139 à V-144).
+- **Description.** Chaque entité citable expose un `source_url` (ADR-0009). Les motifs d'URL (03 §5.5) n'ont pas été ouverts dans un navigateur : `/loda/article_lc/` ou `/codes/article_lc/` pour un article de loi, `/ceta/id/` ou `/juri/id/` pour un `CETATEXT`, `/conv_coll/id/` pour un `KALIARTI` (V-139 à V-144). Livré (M1) : `ResourceKind::CodeArticle` pour tout `LEGIARTI` (`crates/lf-domain/src/url.rs:15-21`, `entity/article.rs:34-37`), comme la référence ; la règle `/loda/article_lc/` (E-19) n'est adoptée qu'après V-140 et V-142 (live, M2), et l'URL d'un `LEGIARTI` de loi est la Q12 (V-141). Le contrat de citation v2 est une tâche de tête de M2 (C2, 00 §11.1).
 - **Probabilité : 2.**
 - **Impact : 3.** Une citation au lien mort est invérifiable par l'utilisateur ; or la vérifiabilité est la raison d'être du contrat.
 - **Réduction.** Fonctions d'URL pures dans `lf-domain`, faciles à corriger et couvertes par les tests golden ; recette navigateur avant v0.1.0 ; `textTitles[].nature` lu pour choisir entre `/loda/` et `/codes/` (V-142).
 - **Signal d'alerte.** Recette rouge ; lien signalé comme mort.
-- **Jalons.** M1, recette v0.1.0.
+- **Jalons.** M2 (règle des URL après V-140 et V-142 ; M1 livré sans elle), recette v0.1.0.
 - **Liens.** V-139 à V-145 ; ADR-0009 ; D-28, D-29.
 
 #### R-19 — Fiabilité du vérificateur de citations
@@ -347,12 +351,12 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 
 #### R-22 — Chaîne d'approvisionnement et versions trop récentes
 
-- **Description.** Le cahier des charges des recherches exige des crates publiés depuis au moins deux semaines (02 §13.1 ligne 12 ; recherche 07 §10 point 17). Âge au 2026-10-15, d'après le `pubtime` de l'index sparse relevé pour ce document : `rmcp`/`rmcp-macros` 3.5.1, 9 jours ; `schemars` 1.2.3, 2 ; `tokio` 1.53.3, 1 ; `serde_json` 1.0.154, 3 ; `sha2` 0.11.1, 2 ; `proptest` 1.12.0, 4 ; `rustls` 0.23.46, 0 ; `aws-lc-rs` 1.18.2, 2. À l'inverse, `reqwest` 0.13.5 (36 jours), `moka` 0.12.16 (66), `governor` 0.10.4 (302), `backon` 1.6.0 (361) et `winnow` 1.0.4 (93) respectent la règle. S'y ajoutent les risques usuels : avis RUSTSEC, version retirée, typosquatting, actions GitHub non épinglées (D-44).
+- **Description.** Le cahier des charges des recherches exige des crates publiés depuis au moins deux semaines (02 §13.1 ligne 12 ; recherche 07 §10 point 17). Âge au 2026-10-15, d'après le `pubtime` de l'index sparse relevé pour ce document : `rmcp`/`rmcp-macros` 3.5.1, 9 jours ; `schemars` 1.2.3, 2 ; `tokio` 1.53.3, 1 ; `serde_json` 1.0.154, 3 ; `sha2` 0.11.1, 2 ; `proptest` 1.12.0, 4 ; `rustls` 0.23.46, 0 ; `aws-lc-rs` 1.18.2, 2. À l'inverse, `reqwest` 0.13.5 (36 jours), `moka` 0.12.16 (66), `governor` 0.10.4 (302), `backon` 1.6.0 (361) et `winnow` 1.0.4 (93) respectent la règle. S'y ajoutent les risques usuels : avis RUSTSEC, version retirée, typosquatting, actions GitHub non épinglées (D-44). **2026-10-16.** `proptest` 1.12.0 est livré avec M0-M1 alors qu'il n'avait que 4 jours au 2026-10-15 ; il passe la règle des 14 jours vers le 2026-10-25. Écart accepté : dépendance de test seulement, absente du binaire.
 - **Probabilité : 2.**
 - **Impact : 2.**
-- **Réduction.** Revérifier l'âge à l'ouverture de M0 (`rmcp` 3.5.1 atteint 14 jours le 2026-10-19) ; à défaut, prendre le correctif précédent, sauf pour `rmcp`, imposé par 00 §6 ; `cargo deny check` (advisories, bans, sources, licences) en CI ; `Cargo.lock` versionné ; actions épinglées par SHA (V-26) ; provenance et SBOM (V-171).
+- **Réduction.** Revérifier l'âge à l'introduction de chaque dépendance (`rmcp` 3.5.1 atteint 14 jours le 2026-10-19 et n'entre qu'en M4) ; à défaut, prendre le correctif précédent, sauf pour `rmcp`, imposé par 00 §6 ; `cargo deny check` (advisories, bans, sources, licences) en CI ; `Cargo.lock` versionné ; actions épinglées par SHA (V-26 ; M1-D15 : commit CI dédié au plus tard au début de M2) ; provenance et SBOM (V-171).
 - **Signal d'alerte.** Avis RUSTSEC ; version retirée de l'index ; échec de `cargo deny`.
-- **Jalons.** M0, Distribution.
+- **Jalons.** M0 (livré), chaque jalon qui ajoute une dépendance, Distribution.
 - **Liens.** V-25, V-26, V-27, V-171.
 
 #### R-23 — Fuite de secrets ou de données dans les journaux
@@ -380,7 +384,7 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 - **Description.** Un seul mainteneur ; une part du code sera produite par des agents qui n'ont pas accès aux échanges à l'origine des décisions. Risques : dérive par rapport à 00, tests affaiblis, décisions implicites.
 - **Probabilité : 2.**
 - **Impact : 2.**
-- **Réduction.** 00 normatif et ADR ; descriptor lock, `check-deps`, CI stricte ; relecture humaine de toute PR produite par un agent (06 §13.1) ; ce registre tenu à jour ; définition de « terminé » (06 §13.4).
+- **Réduction.** 00 normatif et ADR ; descriptor lock, `check-arch`, CI stricte ; relecture humaine de toute PR produite par un agent (06 §13.1) ; ce registre tenu à jour ; définition de « terminé » (06 §13.4).
 - **Signal d'alerte.** PR qui modifie une règle de 00 sans ADR ; test désactivé ou snapshot régénéré sans explication.
 - **Jalons.** Tous.
 - **Liens.** 06 §15.2 question 8.
@@ -390,7 +394,7 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 - **Description.** Les projets juridix et mcp-legifrance de Ktulu-Analog sont sous AGPL-3.0 : idées seulement, aucune ligne de code reprise (00 §12). Les fixtures de la référence sont sous Apache-2.0 et exigent une attribution. Les données relèvent de la Licence Ouverte 2.0, qui exige une mention de la source (V-177).
 - **Probabilité : 1.**
 - **Impact : 3.** Relicence forcée ou retrait de code.
-- **Réduction.** Règle « idées seulement » rappelée dans `CONTRIBUTING` ; `NOTICE` ; licences contrôlées par cargo-deny (V-25) ; revue ; aucune copie depuis ces dépôts dans les données du plan (annexe B §11).
+- **Réduction.** Règle « idées seulement » et licence entrante = sortante à rappeler dans `CONTRIBUTING` (hygiène du dépôt, 00 §11.1 ; 08 §9.1, §9.4) ; `NOTICE` ; licences contrôlées par cargo-deny (V-25) ; revue ; aucune copie depuis ces dépôts dans les données du plan (annexe B §11).
 - **Signal d'alerte.** Code ressemblant à un projet AGPL en revue ; licence inattendue dans le graphe.
 - **Jalons.** M0, M6.
 - **Liens.** Q2 ; V-25, V-177.
@@ -407,12 +411,12 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 
 #### R-28 — Format strict des identifiants
 
-- **Description.** 00 §4 impose un préfixe de 8 lettres suivi de 12 chiffres, avec `FromStr` strict, ce qui est vérifié sur toutes les fixtures. Un identifiant réel d'une autre forme serait refusé (V-103) ; un suffixe de version sur un autre préfixe que `LEGITEXT` serait mal analysé (V-104).
+- **Description.** 00 §4 impose un préfixe de 8 lettres suivi de 12 chiffres, avec une forme stricte (`FromStr` tolérant sur blancs et casse), ce qui est vérifié sur toutes les fixtures. Un identifiant réel d'une autre forme serait refusé (V-103) ; un suffixe de version sur un autre préfixe que `LEGITEXT` serait mal analysé (V-104). Le livré tolère et retire le suffixe sur tous les préfixes (`crates/lf-domain/src/id.rs:5-8`, `:22-29`) ; `Id::parse` reste tolérant, et `parse_versioned` (tâche de tête de M2, C4) conserve la date et refuse un suffixe mal formé (`_foo`, `_`, `_31-02-2023`).
 - **Probabilité : 1.**
 - **Impact : 3.** `invalid_arg` sur un identifiant valide issu de `fr_search` : le texte devient inaccessible.
 - **Réduction.** Collecte d'identifiants live sur les 8 fonds en M2 ; proptest ; message d'erreur qui cite le format attendu ; contrôle sur les dumps en M9.
 - **Signal d'alerte.** `invalid_arg` sur un identifiant renvoyé par l'API.
-- **Jalons.** M1, M2.
+- **Jalons.** M1 (livré), M2.
 - **Liens.** V-103, V-104 ; D-31.
 
 #### R-29 — Réponses volumineuses et mémoire
@@ -536,8 +540,8 @@ probe /consult/juri '{"textId":"JURITEXT000000000000"}' juri-inconnu
 
 | V | Étiquette(s) | À vérifier | Pourquoi | Comment | Prér. | Jalon | Bloquant |
 |---|---|---|---|---|---|---|---|
-| **V-01** | `[v:squelette-compile-m0]` *(nouvelle)* | Les squelettes et extraits Rust du plan (workspace, `Cargo.toml` de 02 §3.0.2, squelette rmcp de la recherche 09 §8, extraits marqués « non compilé ») compilent, passent clippy et `cargo test` avec la toolchain épinglée. | Aucune ligne de Rust n'a été compilée pendant la recherche (`static.crates.io` refusé, recherche 04 §6 point 1). Un échec remet en cause des signatures de 02, 03, 04 et 05. | Spike M0 : `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` sur le squelette des 7 crates et de `xtask` ; chaque écart corrigé dans le document qui porte l'extrait. | N, R | M0 | **Oui (M0)** |
-| **V-02** | `[v:tls-aws-lc-cross]`<br>`[v:tls-fournisseur-cross]` | Option A : reqwest 0.13 feature `rustls` (aws-lc-rs). Option B : `rustls-no-provider` + rustls 0.23.46 feature `ring` + `install_default()` au démarrage. Chaque option compile-t-elle pour les 7 cibles de 00 §12, et la poignée de main TLS aboutit-elle ? | aws-lc-sys exige, selon la cible, cmake, NASM ou clang (recherche 04 §6 points 5 et 6) ; sans `install_default()`, reqwest panique (02 §3.0.1). 08 §2.4 ajoute les cas msvc `+crt-static`, l'image de build Docker et `cargo install` chez l'utilisateur. Le choix est consigné dans ADR-0013 (04 §15). | Matrice `cargo build --release --target <t>` (ou `dist build`) pour `x86_64`/`aarch64-unknown-linux-gnu` et `-musl`, `x86_64`/`aarch64-apple-darwin`, `x86_64-pc-windows-msvc`, options A et B ; puis requête `GET https://sandbox-api.piste.gouv.fr/` sans jeton (attendu : un statut HTTP, aucune erreur TLS) ; test « fournisseur installé avant le premier client » pour l'option B. | N, R | M0 | **Oui (M0)** |
+| **V-01** | `[v:squelette-compile-m0]` *(nouvelle)* | Les squelettes et extraits Rust du plan (workspace, `Cargo.toml` de 02 §3.0.2, squelette rmcp de la recherche 09 §8, extraits marqués « non compilé ») compilent, passent clippy et `cargo test` avec la toolchain épinglée. | Aucune ligne de Rust n'a été compilée pendant la recherche (`static.crates.io` refusé, recherche 04 §6 point 1). Un échec remet en cause des signatures de 02, 03, 04 et 05. | Spike M0 : `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` sur le squelette des 7 crates et de `xtask` ; chaque écart corrigé dans le document qui porte l'extrait. | N, R | M0 partiel (`lf-domain` et `xtask`) ; reste par crate à son jalon | **Oui (par crate, à son jalon)** |
+| **V-02** | `[v:tls-aws-lc-cross]`<br>`[v:tls-fournisseur-cross]` | Option A : reqwest 0.13 feature `rustls` (aws-lc-rs). Option B : `rustls-no-provider` + rustls 0.23.46 feature `ring` + `install_default()` au démarrage. Chaque option compile-t-elle pour les 7 cibles de 00 §12, et la poignée de main TLS aboutit-elle ? | aws-lc-sys exige, selon la cible, cmake, NASM ou clang (recherche 04 §6 points 5 et 6) ; sans `install_default()`, reqwest panique (02 §3.0.1). 08 §2.4 ajoute les cas msvc `+crt-static`, l'image de build Docker et `cargo install` chez l'utilisateur. Le choix est consigné dans ADR-0013 (04 §15). | Matrice `cargo build --release --target <t>` (ou `dist build`) pour `x86_64`/`aarch64-unknown-linux-gnu` et `-musl`, `x86_64`/`aarch64-apple-darwin`, `x86_64-pc-windows-msvc`, options A et B ; puis requête `GET https://sandbox-api.piste.gouv.fr/` sans jeton (attendu : un statut HTTP, aucune erreur TLS) ; test « fournisseur installé avant le premier client » pour l'option B. | N, R | M2 (tête) | **Oui (M2)** |
 | **V-03** | `[v:reqwest-proxy-env]` | reqwest 0.13, avec `default-features = false` et les features retenues, applique-t-il `HTTPS_PROXY`, `HTTP_PROXY` et `NO_PROXY` ? | Postes d'entreprise derrière un proxy ; 04 §1.4 retient la feature `system-proxy`, que la liste de 02 §3.0.1 ne cite pas ; 06 §2.3 compte sur un proxy factice pour faire échouer toute sortie non locale dans les tests. | Test local : `HTTPS_PROXY=http://127.0.0.1:9` puis requête vers `https://example.invalid` (attendu : erreur de connexion au proxy) ; puis `NO_PROXY=example.invalid` (attendu : erreur DNS) ; lecture de `src/async_impl/client.rs` (proxy système). | N | M0 | Non |
 | **V-04** | `[v:cout-init-reqwest]` | Durée de construction du `reqwest::Client` (racines TLS via `rustls-platform-verifier`) sur Linux, macOS et Windows. | Le client est construit paresseusement au premier appel (02 §3.3) : ce coût s'ajoute à la latence du premier outil de chaque session. | Micro-mesure (`Instant`) dans un exemple du crate, 10 exécutions par OS sur les runners de CI. | N, R | M2 | Non |
 | **V-05** | `[v:api-sha2-0-11]` | API `digest 0.11` de sha2 0.11.1 (`Sha256::digest`, `finalize`, encodage hex) ; repli 0.11.0. | Empreinte `input_hash` de l'audit (P-041, vecteurs de 06 §2.8). | Compiler le calcul des deux vecteurs de 06 §2.8 (`ba3d6463…`, `662718e1…`) et les comparer. | N | M0 | Non |
@@ -560,7 +564,7 @@ probe /consult/juri '{"textId":"JURITEXT000000000000"}' juri-inconnu
 | **V-22** | `[v:insta-options-ci]` | Comportement d'insta 1.49 en CI (aucune écriture de snapshot, échec sur écart) ; option `--unreferenced=reject` de cargo-insta. | Les snapshots figent les descripteurs et les sorties (06 §1.3). | PR d'essai qui modifie une sortie : la CI échoue sans créer de `.snap.new` versionné ; snapshot orphelin rejeté. | N, R | M0 | Non |
 | **V-23** | `[v:ci-unshare-reseau]` | `unshare -rn` (avec réactivation de la boucle locale) fonctionne-t-il sur les runners `ubuntu-24.04` de GitHub ? | Preuve que les tests n'ont besoin d'aucun réseau (00 §10, 06 §7). | Job d'essai : `unshare -rn sh -c 'ip link set lo up && cargo nextest run --offline'`. | R | M0 | Non (repli : `--offline` seul) |
 | **V-24** | `[v:cargo-deny-schema-0-20]` | Schéma exact de `deny.toml` en cargo-deny 0.20.2 (`unmaintained`, `yanked`, forme d'`ignore`). | Configuration de 06 §9.1 ; une clé refusée casse la CI. | `cargo deny check` sur le `deny.toml` de 06 §9.1 : aucune clé rejetée. | N | M0 | Non |
-| **V-25** | `[v:licences-graphe-m0]` | Licences réelles du graphe de dépendances (`option-ext`, `aws-lc-sys`, `ring`, racines de certificats, données Unicode). | Compatibilité avec Apache-2.0 (Q2) ; liste `allow` de cargo-deny ; contenu de `NOTICE`. | `cargo deny list -l crate` après le spike ; inventaire versionné dans 06 §9.2. | N | M0 | **Oui (M0)** |
+| **V-25** | `[v:licences-graphe-m0]` | Licences réelles du graphe de dépendances (`option-ext`, `aws-lc-sys`, `ring`, racines de certificats, données Unicode). | Compatibilité avec Apache-2.0 (Q2) ; liste `allow` de cargo-deny ; contenu de `NOTICE`. | `cargo deny list -l crate` après le spike ; inventaire versionné dans 06 §9.2. | N | M2 (tête) | **Oui (M2)** |
 | **V-26** | `[v:actions-versions-sha]` | Versions et SHA des actions à épingler (`actions/checkout`, `Swatinem/rust-cache`, `taiki-e/install-action`, `EmbarkStudios/cargo-deny-action`, `actions/upload-artifact`). | Épinglage par SHA (D-44) ; workflows de 06 §7. | `git ls-remote --tags` de chaque dépôt ; SHA du commit visé par le tag ; écriture `@<sha> # vX.Y.Z`. | G | M0 | Non |
 | **V-27** | `[v:outils-lint-workflows]` | Versions de zizmor et d'actionlint ; règles qui exigent l'épinglage par SHA. | Contrôle des workflows (06 §9.4). | Installer les deux outils, les exécuter sur `.github/workflows/` ; lire la documentation de l'audit d'épinglage de zizmor. | G, N | M0 | Non |
 
@@ -568,8 +572,8 @@ probe /consult/juri '{"textId":"JURITEXT000000000000"}' juri-inconnu
 
 | V | Étiquette(s) | À vérifier | Pourquoi | Comment | Prér. | Jalon | Bloquant |
 |---|---|---|---|---|---|---|---|
-| **V-28** | `[v:rmcp-jsonobject-input-schema]` | Arguments reçus en `JsonObject` + `input_schema` explicite + retour `Json<T>` (dans un `Result`) compilent-ils ensemble avec rmcp 3.5.1, et l'`outputSchema` est-il bien détecté ? | Décodage audité des arguments (E-29, D-02, 02 §3.6) : avec `Parameters<T>`, l'erreur de désérialisation est produite par le routeur (`router/tool.rs:144-156`), sans audit ni préfixe `[invalid_arg]`. | Spike sur `fr_search` : `tools/list` doit contenir l'`inputSchema` écrit et l'`outputSchema` dérivé ; `tools/call` avec `{"page_size":"x"}` doit rendre `[invalid_arg]` et écrire une ligne d'audit. | N | M0 | **Oui (M0)** |
-| **V-29** | `[v:rmcp-transport-enveloppe]` | Une enveloppe `Transport<RoleServer>` autour de `stdio()` (`PreLifecycleFilter`) compile-t-elle et est-elle acceptée par `serve_with_ct` ? | rmcp 3.5.1 arrête le service sur une notification reçue avant l'ouverture d'une ère (`service/server.rs:681-685`, annexe D §9.2). | Transcriptions `premature_notification`, `modern_discover` et `legacy_2025_11_25` rejouées en processus sur `duplex` (06 §6.1). | N | M0 | **Oui (M0)** |
+| **V-28** | `[v:rmcp-jsonobject-input-schema]` | Arguments reçus en `JsonObject` + `input_schema` explicite + retour `Json<T>` (dans un `Result`) compilent-ils ensemble avec rmcp 3.5.1, et l'`outputSchema` est-il bien détecté ? | Décodage audité des arguments (E-29, D-02, 02 §3.6) : avec `Parameters<T>`, l'erreur de désérialisation est produite par le routeur (`router/tool.rs:144-156`), sans audit ni préfixe `[invalid_arg]`. | Spike sur `fr_search` : `tools/list` doit contenir l'`inputSchema` écrit et l'`outputSchema` dérivé ; `tools/call` avec `{"page_size":"x"}` doit rendre `[invalid_arg]` et écrire une ligne d'audit. | N | avant la conception des ports de M3 | **Oui (avant M3)** |
+| **V-29** | `[v:rmcp-transport-enveloppe]` | Une enveloppe `Transport<RoleServer>` autour de `stdio()` (`PreLifecycleFilter`) compile-t-elle et est-elle acceptée par `serve_with_ct` ? | rmcp 3.5.1 arrête le service sur une notification reçue avant l'ouverture d'une ère (`service/server.rs:681-685`, annexe D §9.2). | Transcriptions `premature_notification`, `modern_discover` et `legacy_2025_11_25` rejouées en processus sur `duplex` (06 §6.1). | N | avant la conception des ports de M3 | **Oui (avant M3)** |
 | **V-30** | `[v:rmcp-methode-inattendue]` | Aucun message inattendu (méthode inconnue, requête prématurée, notification prématurée une fois le filtre en place, ligne non JSON) ne fait quitter le processus. | Règle de 00 §6 ; une note du SDK TypeScript affirme le contraire (recherche 08 §5.1) ; la lecture du code (annexe D §4.2) le prévoit. | Transcriptions `garbage_and_batch`, `premature_notification`, `modern_removed_methods` suivies d'`expect_alive`, en processus puis sur le binaire (`e2e_stdio.rs`). | N | M0, M4 | **Oui (M4)** |
 | **V-31** | `[v:rmcp-mrtr-champs-toleres]` | Sans la feature `request-state`, rmcp 3.5.1 accepte-t-il `inputResponses` et `requestState` dans les params de `tools/call`, `resources/read` et `prompts/get` ? | Un client moderne peut envoyer ces champs (MRTR) ; un rejet rendrait le serveur inutilisable pour lui. | Transcription `mrtr_fields_tolerated` : `tools/call` sur `fr_coverage` avec `"inputResponses":{}` et `"requestState":"x"` dans `params` et une enveloppe `_meta` moderne ; attendu : résultat normal. | N | M0 | Non |
 | **V-32** | `[v:rmcp-meta-serverinfo-resultats]` | Moyen d'ajouter `serverInfo` en `_meta` à tous les résultats modernes, dont `tools/call` (SHOULD de la révision 2026-07-28). | Conformité (annexe D §12.2 question 3) ; rmcp ne le pose que sur `discover` et la clôture de `listen` (annexe D §9.2 constat 9). | `call_tool` écrit à la main renvoyant un `CallToolResponse` avec `_meta` ; assertion dans la transcription `modern_tools_call`. | N | M0, M4 | Non (écart acceptable) |
@@ -663,7 +667,7 @@ probe /consult/juri '{"textId":"JURITEXT000000000000"}' juri-inconnu
 | **V-100** | `[v:convention-horaire-timestamps]` | Tous les horodatages de date de l'API sont-ils à minuit UTC ? | Dates civiles (ADR-0011) ; interprétation de `singleDate` (V-76). | `live_dates_are_midnight_utc` : sur tout le corpus enregistré, chaque date en epoch ms vérifie `ms mod 86 400 000 = 0`. | S | M2 | Non |
 | **V-101** | `[v:sentinelle-2222-debut]` | Sens de `2222-02-22` dans une date de début, et lien avec l'état `VIGUEUR_DIFF`. | Sentinelles → `None` (00 §4) ; description du champ omis (03 §6.2). | Repérer dans le corpus des articles à `etat = VIGUEUR_DIFF` (ou les chercher via une loi récente à entrée en vigueur différée) et lire `dateDebut`/`dateFin`. | S | M2 | Non |
 | **V-102** | `[v:eli-natif-null]` | `eli`, `idEli` et `idEliAlias` restent-ils `null` en production (LODA, articles) ? | Contrat de citation v2 : `eli` seulement s'il est natif (00 §4) ; lacune FR-001. | `live_eli_fields_are_null` sur `lawDecree` et `getArticle` de 10 textes (dont `LEGITEXT000033205014`), en sandbox puis en production. | S, P | M2 (production avant v0.1.0) | Non |
-| **V-103** | `[v:id-format-hors-fixtures]` | Le format 8 lettres + 12 chiffres vaut-il pour tous les identifiants servis par l'API ? | `FromStr` strict (00 §4) : un identifiant valide refusé donnerait un `invalid_arg` à tort (R-28). | 8 fonds × 3 requêtes × `n=100`, plus les consultations du corpus : extraire tous les identifiants et tester `^[A-Z]{8}[0-9]{12}(_[0-9]{2}-[0-9]{2}-[0-9]{4})?$`. | S | M2 (avant v0.1.0) | **Oui (v0.1.0)** |
+| **V-103** | `[v:id-format-hors-fixtures]` | Le format 8 lettres + 12 chiffres vaut-il pour tous les identifiants servis par l'API ? | Forme stricte 8 + 12 (00 §4, `FromStr` tolérant sur blancs et casse) : un identifiant valide refusé donnerait un `invalid_arg` à tort (R-28). | 8 fonds × 3 requêtes × `n=100`, plus les consultations du corpus : extraire tous les identifiants et tester `^[A-Z]{8}[0-9]{12}(_[0-9]{2}-[0-9]{2}-[0-9]{4})?$`. | S | M2 (avant v0.1.0) | **Oui (v0.1.0)** |
 | **V-104** | `[v:suffixe-version-autres-prefixes]` | Le suffixe `_JJ-MM-AAAA` n'apparaît-il que sur des `LEGITEXT` ? | `VersionedId` réservé à `LEGITEXT` (00 §4). | Même corpus que V-103. | S | M2 | Non |
 | **V-105** | `[v:types-champs-heterogenes]` | `num`, `idcc`, `numParution` et autres numéros arrivent-ils parfois en entier ? | Aucun impact attendu : `opt_string_or_number` couvre les deux formes (D-24). | Même corpus : type JSON de chaque champ de numéro. | S | M2 | Non |
 | **V-106** | `[v:acco-data-attachment]` | Présence, contenu (base64 du .docx ou texte extrait) et taille de `data` et `attachment` sur `/consult/acco`. | Caviardage par défaut d'`acco.data` (04 §13.4) ; texte ACCO disponible seulement en pièce jointe. | `C(/consult/acco; {"id":"ACCOTEXT000053643828"})` (consult_acco.json). | S | M2 | Non |
@@ -711,7 +715,7 @@ probe /consult/juri '{"textId":"JURITEXT000000000000"}' juri-inconnu
 |---|---|---|---|---|---|---|---|
 | **V-139** | `[v:url-patterns-navigateur]` | Chaque motif d'URL du plan (03 §5.5) ouvre-t-il la bonne page dans un navigateur ? | `source_url` du contrat de citation v2 (ADR-0009) : une URL morte rend la citation invérifiable (R-18). | Recette avant v0.1.0 : générer une URL par motif et par fond depuis les fixtures (tests golden), l'ouvrir, noter redirections et titre de la page. | L | M1, recette avant v0.1.0 | **Oui (v0.1.0)** |
 | **V-140** | `[v:url-loda-article-lc]` | `/loda/article_lc/{LEGIARTI}` est-il la forme canonique pour un article de texte non codifié (E-19) ? | URL des articles de loi (03 §5.5). | Ouvrir `https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000033205058` (article de consult_loda.json). | L | v0.1.0 | **Oui (v0.1.0, avec V-139)** |
-| **V-141** | `[v:url-codes-article-lc-loi]` | `/codes/article_lc/{LEGIARTI d'une loi}` résout-il (assertion de la référence, tests/test_smoke.py:57) ? | Divergence volontaire E-19 et assertion transposée du scénario smoke 3. | Ouvrir `https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033205058`. | L | v0.1.0 | Non |
+| **V-141** | `[v:url-codes-article-lc-loi]` | `/codes/article_lc/{LEGIARTI d'une loi}` résout-il (assertion de la référence, tests/test_smoke.py:57) ? | Divergence volontaire E-19 et assertion transposée du scénario smoke 3 ; reprend la Q10 du livré, devenue Q12 (§3.13). | Ouvrir `https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033205058`. | L | v0.1.0 | Non |
 | **V-142** | `[v:texttitles-nature-loi]` | Valeur de `textTitles[].nature` renvoyée par `/consult/getArticle` pour un article de loi. | Choix entre `/loda/article_lc/` et `/codes/article_lc/` ; assertion du scénario smoke 3 (annexe A). | `C(/consult/getArticle; {"id":"LEGIARTI000033205058"})`. | S | M2 | Non |
 | **V-143** | `[v:url-ceta-vs-juri]` | Forme canonique pour un `CETATEXT` : `/ceta/id/` ou `/juri/id/` ? | URL des décisions administratives (03 §5.5) ; la référence et pylegifrance divergent. | Ouvrir `https://www.legifrance.gouv.fr/ceta/id/CETATEXT000054178503` et `https://www.legifrance.gouv.fr/juri/id/CETATEXT000054178503` (consult_juri_cetat.json). | L | v0.1.0 | **Oui (v0.1.0, avec V-139)** |
 | **V-144** | `[v:url-kaliarti]` | `/conv_coll/id/KALIARTI…` ouvre-t-il l'article ? | URL des articles de convention (P-034). | Ouvrir `https://www.legifrance.gouv.fr/conv_coll/id/KALIARTI000049886059`. | L | v0.1.0 | Non |
@@ -828,8 +832,8 @@ Une vérification apparaît sous chaque jalon que cite sa colonne « Jalon ». E
 
 | Jalon | Vérifications à lever (bloquantes en gras) | Nombre | Dont bloquantes |
 |---|---|---|---|
-| M0 | **V-01**, **V-02**, V-03, V-05, V-06, V-07, V-13, V-14, V-15, V-16, V-21, V-22, V-23, V-24, **V-25**, V-26, V-27, **V-28**, **V-29**, V-30, V-31, V-32, V-169, V-170, V-214, V-215 | 26 | 5 |
-| M1 | V-17, V-20, V-139, V-191 | 4 | 0 |
+| M0 (livré ; vérifications reportées, ci-dessous) | **V-01**, **V-02**, V-03, V-05, V-06, V-07, V-13, V-14, V-15, V-16, V-21, V-22, V-23, V-24, **V-25**, V-26, V-27, **V-28**, **V-29**, V-30, V-31, V-32, V-169, V-170, V-214, V-215 | 26 | 5 |
+| M1 (livré ; reportées, ci-dessous) | V-17, V-20, V-139, V-191 | 4 | 0 |
 | M2 | V-04, V-10, V-19, V-60, V-62, V-63, V-64, V-65, **V-66**, V-67, **V-68**, V-69, V-70, V-71, V-72, V-73, V-74, **V-76**, V-77, V-78, V-79, V-80, V-81, V-87, V-88, V-89, V-90, V-91, V-92, V-93, V-94, V-95, V-96, V-97, V-98, V-99, V-100, V-101, V-102, V-103, V-104, V-105, V-106, V-107, V-108, V-109, V-110, V-111, V-112, V-113, V-115, V-142, V-178, V-179 | 54 | 3 |
 | M3 | V-08, V-09, V-164, V-165, V-166, V-167 | 6 | 0 |
 | M4 | V-11, V-12, **V-30**, V-32, V-33, V-34, V-35, V-36, V-37, **V-38**, V-46, V-49, V-55, V-168, V-190 | 15 | 2 |
@@ -842,6 +846,27 @@ Une vérification apparaît sous chaque jalon que cite sa colonne « Jalon ». E
 | Après v0.3.0 (Judilibre) | V-181, V-182, V-183 | 3 | 0 |
 | Après v1.0 | V-184 | 1 | 0 |
 | En continu (chaque montée, chaque version) | V-38, V-46, V-63, V-64, V-74 | 5 | 0 |
+
+**Redistribution du 2026-10-16 (M0 et M1 livrés sans les vérifications ci-dessus, 00 §11.1).** Cette table prime sur la colonne « Jalon » du registre.
+
+| Vérifications | Nouveau jalon | Remarque |
+|---|---|---|
+| V-01 | partielle, puis par crate | `lf-domain` et `xtask` compilent (clippy `-D warnings`, tests) ; chaque crate créé relance V-01 à son jalon |
+| V-02, V-03, V-06, V-07, V-25 | M2, tâche 0 | spikes TLS, proxy, `backon`, `governor` ; licences de `cargo-deny` élargies d'après `cargo deny list` (M1-D17) |
+| V-28, V-29, V-15 | avant la conception des ports de M3 | spike rmcp (`JsonObject` et `input_schema`, `PreLifecycleFilter`, `forbid(unsafe_code)`) : `ToolCall` en dépend |
+| V-30, V-31, V-32 | M4 | V-30 et V-32 déjà dans la ligne M4 ; V-31 reste dans la ligne M0 de la synthèse |
+| V-05, V-08, V-09 | M3 | empreinte d'audit, TTL de `moka`, verrou `fs4` |
+| V-13, V-14 | jalon qui introduit la dépendance | M2 pour `reqwest`, M3-M4 pour l'horloge et l'environnement |
+| V-21, V-23 | M2 | `.config/nextest.toml` avec `--profile ci` et matrice Linux/macOS/Windows |
+| V-22 | M4 | snapshots `insta` des descripteurs |
+| V-24 | M2 | `deny.toml` élargi (M1-D16, M1-D17) |
+| V-26, V-27 | tout de suite (hygiène, 00 §11.1 ; au plus tard début de M2) | actions épinglées par SHA, `workflow-lint` (M1-D15) |
+| V-140, V-141 | M2 (procédure §3.13, Q12) | avant la recette v0.1.0 ; V-142 est déjà en M2 |
+| V-17 | M3 | horloge Paris via `chrono-tz` hors du domaine (C3) |
+| V-20, V-191, V-139 | ouvertes | non consignées au journal ; V-139 pour la recette v0.1.0 |
+| V-16 | partielle | `rustc 1.99.0` installée ; épinglage en tête de M2 (C5) |
+| V-169, V-170 | M4 | `dist init` |
+| V-214, V-215 | avant publication | titulaire de la référence et marque ; Q1 et Q2 sont décidées (§3.1, §3.2) |
 
 Les sondes de M2 (54 vérifications) se regroupent en une dizaine de campagnes : `live_unknown_ids_classification`, `live_no_mojibake_on_reference_ids`, `live_singledate_midnight_paris_semantics`, `live_date_facets_reduce_total`, `live_match_modes_totals`, `live_texte_html_presence`, `live_dates_are_midnight_utc`, `live_eli_fields_are_null`, la collecte d'identifiants de V-103 et le plan de lot de `record-fixture` (04 §13.4). Une journée de travail en sandbox suffit à la plupart d'entre elles, une fois Q3 et Q6 réglées.
 
@@ -936,19 +961,22 @@ Une ligne par vérification levée, partielle, contournée ou caduque. La preuve
 | 2026-10-15 | V-169 | partiel | un nouveau workspace reçoit `dist-workspace.toml` ; à confirmer au premier `dist init` | lecture de `init.rs:284-333` de cargo-dist 0.33.0 (08 §12.1 ligne 7) | — | 02 §2.2 à mettre à jour |
 | 2026-10-15 | V-170 | partiel | `pr-run-mode = "plan"` est documenté et c'est la valeur par défaut ; à confirmer par une PR d'essai | livre de dist 0.33.0, `reference/config.md:1420-1437` (08 §12.1 ligne 15) | — | 06 §7.1 à mettre à jour |
 | 2026-10-15 | V-171 | partiel | outils retenus : `cargo-auditable`, `cargo-cyclonedx`, `github-attestations` ; reste le niveau SLSA | livre de dist 0.33.0, `reference/config.md:715-742`, `:1139-1191` (08 §12.1 ligne 16) | — | 06 §9.4 à mettre à jour |
+| 2026-10-16 | V-01 | partiel | `lf-domain` et `xtask` (M0-M1) compilent, passent clippy en `-D warnings` et les tests ; les autres crates et le squelette rmcp ne sont pas essayés | PR #1 et #2, `make ci` | local et CI | 00 §11.1 |
+| 2026-10-16 | V-16 | partiel | `rustc 1.99.0 (b940084d7 2026-09-28)` est installé et utilisé ; la date de sortie officielle n'est pas relevée (vers 2026-10-01 par inférence) ; l'épinglage reste à poser | `rustc --version` | local | 00 §2, 00 §11.1 |
 
-Aucune vérification n'est levée au 2026-10-15 : il manque à la fois des identifiants PISTE (Q3) et un réseau de construction (Q6).
+Aucune vérification n'est levée au 2026-10-16 : il manque des identifiants PISTE (Q3). Le réseau de construction n'est plus un obstacle (R-13).
 
 ---
 
-## 3. Questions ouvertes Q1 à Q10 et arbitrages secondaires
+## 3. Questions Q1 à Q12, arbitrages secondaires et points différés M1
 
-Les dix questions communes sont celles de 00 §13, avec leur proposition par défaut. Deux décideurs reviennent : le **propriétaire** du dépôt (`muchiny`), pour le produit, le juridique, le budget et les comptes ; le **mainteneur** technique, pour l'architecture et les tests. Il peut s'agir de la même personne. Toute réponse est consignée ici, avec sa date, puis répercutée dans 00 et dans l'ADR concerné.
+Les dix questions communes (Q1 à Q10) sont celles de 00 §13, avec leur proposition par défaut ; Q1 et Q2 sont **décidées** (2026-10-16). Q11 et Q12 sont propres au livré (plan 1) ; elles suivent l'arbitrage du §3.11 (§3.12 et §3.13) pour ne pas renuméroter les renvois « §3.11.x » des autres documents. Les points différés de la revue de clôture M1 forment le registre du §3.14. Deux décideurs reviennent : le **propriétaire** du dépôt (`muchiny`), pour le produit, le juridique, le budget et les comptes ; le **mainteneur** technique, pour l'architecture et les tests. Il peut s'agir de la même personne. Toute réponse est consignée ici, avec sa date, puis répercutée dans 00 et dans l'ADR concerné.
 
 ### 3.1 Q1 — Nom du dépôt et du binaire
 
+- **Statut : DÉCIDÉE le 2026-10-16 (C6) : option A, renommer en `mcp-legifrance` maintenant.** Le dépôt est privé, sans tag, sans release ni `server.json`, et GitHub redirige l'ancien nom : le coût est quasi nul. Le nom entre dans le User-Agent dès M2, puis dans des URL immuables. Répercussions : `Cargo.toml` (`repository`), `README.md`, URL du remote git local (`git remote set-url origin https://github.com/muchiny/mcp-legifrance.git` à lancer par le propriétaire après le renommage GitHub), 00 §0 et §8, 02 §2, 06 §7.5, annexe D, 08 ; en M4, le paquet `lf-app` devient `mcp-legifrance`, sans changer le répertoire ni le binaire (§3.11.1). V-215 (marque) reste à lever avant toute publication.
 - **Question.** Renommer le dépôt `mcp-ligitfrance` en `mcp-legifrance` ? Proposition de 00 : oui.
-- **Contexte.** « ligit » est une coquille probable de « legifrance » (00 §0). Le produit, le binaire et le préfixe des crates sont déjà fixés (`mcp-legifrance`, `lf-`, 00 §1). Le nom du dépôt apparaît dans le User-Agent `mcp-legifrance/<version> (+https://github.com/muchiny/mcp-ligitfrance)` (00 §8), la condition `github.repository == 'muchiny/mcp-ligitfrance'` de `live.yml` (06 §7.5), le nom de registre `io.github.muchiny/mcp-legifrance` (00 §12), le `websiteUrl` (annexe D §12.2), les URL des assets de release et la racine de l'arborescence (02 §2). Une version publiée au registre MCP est immuable (recherche 06 §8), comme les URL des assets MCPB (08 §12.2 question 1). 08 §12.1 ligne 1 relève en outre que cargo-dist nomme archives, installeurs et paquet `cargo install` d'après le **paquet** `lf-app` (`lf-app-<triple>.tar.xz`, `cargo install lf-app`). Le nom `mcp-legifrance` est aussi celui d'un projet AGPL, et le statut de marque de « Légifrance » n'est pas vérifié (R-30, V-215).
+- **Contexte.** « ligit » est une coquille probable de « legifrance » (00 §0). Le produit, le binaire et le préfixe des crates sont déjà fixés (`mcp-legifrance`, `lf-`, 00 §1). Le nom du dépôt apparaissait, avant la décision du 2026-10-16, dans le User-Agent `mcp-legifrance/<version> (+https://github.com/muchiny/mcp-ligitfrance)` (00 §8) et dans la condition `github.repository == 'muchiny/mcp-ligitfrance'` de `live.yml` (06 §7.5), le nom de registre `io.github.muchiny/mcp-legifrance` (00 §12), le `websiteUrl` (annexe D §12.2), les URL des assets de release et la racine de l'arborescence (02 §2). Une version publiée au registre MCP est immuable (recherche 06 §8), comme les URL des assets MCPB (08 §12.2 question 1). 08 §12.1 ligne 1 relève en outre que cargo-dist nomme archives, installeurs et paquet `cargo install` d'après le **paquet** `lf-app` (`lf-app-<triple>.tar.xz`, `cargo install lf-app`). Le nom `mcp-legifrance` est aussi celui d'un projet AGPL, et le statut de marque de « Légifrance » n'est pas vérifié (R-30, V-215).
 
 | Option | Pour | Contre |
 |---|---|---|
@@ -957,11 +985,12 @@ Les dix questions communes sont celles de 00 §13, avec leur proposition par dé
 | C. Renommer après une publication | — | `server.json` et métadonnées déjà publiés impossibles à corriger ; double nom dans l'historique |
 
 - **Proposition par défaut.** A, avant le premier commit de M0 et toute publication (crates.io, registre MCP, release). En complément, renommer le **paquet** `lf-app` en `mcp-legifrance` sans changer le répertoire `crates/lf-app` ni le binaire (08 §12.1 ligne 1 ; amendement au §3.11.1 de ce document), et lever V-215 avant de publier.
-- **Impact sur le plan.** Remplacement de `muchiny/mcp-ligitfrance` dans 00 §8, 02 §2, 06 §7.5, l'annexe D et [08-distribution.md](08-distribution.md). Jusqu'à la décision, les documents gardent le nom actuel.
-- **Décideur, échéance.** Propriétaire ; avant M0.
+- **Impact sur le plan.** Remplacement de `muchiny/mcp-ligitfrance` dans 00 §8, 02 §2, 06 §7.5, l'annexe D et [08-distribution.md](08-distribution.md). Décision prise (C6) : les documents adoptent `mcp-legifrance`.
+- **Décideur, échéance.** Propriétaire ; décidée le 2026-10-16 (l'échéance « avant M0 » était dépassée).
 
 ### 3.2 Q2 — Licence
 
+- **Statut : DÉCIDÉE le 2026-10-16 (C6) : option A, Apache-2.0 avec `NOTICE`.** Apache-2.0 figure déjà dans `LICENSE`, `NOTICE` et `Cargo.toml`. Titulaire confirmé dans `NOTICE` : « Loïc Wernert » (question 9 de 08 §12.2, §3.11.3). V-214 (titulaire de la référence Python crédité dans `NOTICE`) reste ouverte, comme Q5 (signature des binaires).
 - **Question.** Apache-2.0 avec `NOTICE` ? Proposition de 00 : oui.
 - **Contexte.** La référence Python est sous Apache-2.0 (référence `pyproject.toml:10`), sans fichier `NOTICE` (06, Sources). La réécriture ne reprend pas son code, mais reprend ses 16 fixtures, ce qui impose une attribution. Son `LICENSE` ne porte pas de ligne Copyright : le titulaire à créditer reste à établir (V-214). Les projets AGPL (juridix, mcp-legifrance de Ktulu-Analog) ne fournissent que des idées (00 §12). Les données relèvent de la Licence Ouverte 2.0. Les licences réelles du graphe de dépendances restent à inventorier (V-25).
 
@@ -973,7 +1002,7 @@ Les dix questions communes sont celles de 00 §13, avec leur proposition par dé
 
 - **Proposition par défaut.** A.
 - **Impact sur le plan.** `LICENSE`, `NOTICE` (référence Python, fixtures, mention « Légifrance / DILA » et Licence Ouverte 2.0), champ `license` du workspace, liste `allow` de `deny.toml` (06 §9), `server.json` et manifeste MCPB.
-- **Décideur, échéance.** Propriétaire ; M0 (premier commit).
+- **Décideur, échéance.** Propriétaire ; décidée le 2026-10-16.
 
 ### 3.3 Q3 — Compte PISTE
 
@@ -989,7 +1018,7 @@ Les dix questions communes sont celles de 00 §13, avec leur proposition par dé
 - **Sous-questions.** Qui détient le compte (R-14) ? Les secrets vont dans l'environnement GitHub protégé `piste-sandbox` (06 §7.5). Peut-on enregistrer des fixtures en production (04 §16 question 10) ? Qui lance les exécutions live en production, et à quelle fréquence (06 §15.2 question 9) ?
 - **Proposition par défaut.** A. Le compte est détenu par le propriétaire du dépôt ; les fixtures sont enregistrées en sandbox seulement ; la production ne sert qu'aux smoke tests en lecture seule, lancés par le mainteneur avant chaque étiquette.
 - **Impact sur le plan.** Acceptation de M2 ; campagnes du §2.18 ; 06 §5.
-- **Décideur, échéance.** Propriétaire, titulaire du compte. Sandbox avant le début de M2, et dès M0 si possible pour la recette shell du §2.2 ; production avant v0.1.0.
+- **Décideur, échéance.** Propriétaire, titulaire du compte. Sandbox avant le début de M2 pour la recette shell du §2.2 ; production avant v0.1.0.
 
 ### 3.4 Q4 — Mode HTTP partagé et CGU PISTE
 
@@ -1025,8 +1054,9 @@ Les dix questions communes sont celles de 00 §13, avec leur proposition par dé
 
 ### 3.6 Q6 — Ouverture réseau du conteneur de développement
 
+- **Statut : partiellement caduque (2026-10-16).** Les hôtes de compilation (`static.crates.io`, `static.rust-lang.org`) sont joignables depuis M0-M1 (`rustc 1.99.0` locale, CI verte) ; reste ouvert l'accès à `*.piste.gouv.fr`, à `www.legifrance.gouv.fr` et à `echanges.dila.gouv.fr`.
 - **Question.** Ouvrir `static.crates.io` (indispensable) et `echanges.dila.gouv.fr` (M9) ?
-- **Contexte.** Constat du §0.3 : en plus de ces deux hôtes, `static.rust-lang.org` est refusé, alors qu'il faut l'atteindre pour installer la toolchain 1.99.0 épinglée par 00 §2 (le conteneur n'a que 1.97.0). `*.piste.gouv.fr` et `www.legifrance.gouv.fr` sont aussi refusés.
+- **Contexte.** Constat du §0.3 : en plus de ces deux hôtes, `static.rust-lang.org` est refusé, alors qu'il faut l'atteindre pour installer la toolchain 1.99.0 épinglée par 00 §2 (le conteneur n'a que 1.97.0 ; **caduc au 2026-10-16** : `rustc 1.99.0` est installée et utilisée, §0.3). `*.piste.gouv.fr` et `www.legifrance.gouv.fr` sont aussi refusés.
 
 | Option | Conséquence |
 |---|---|
@@ -1034,7 +1064,7 @@ Les dix questions communes sont celles de 00 §13, avec leur proposition par dé
 | B. Minimum : `static.crates.io` et `static.rust-lang.org` ; le reste en CI (`live.yml`) et sur un poste du mainteneur ; `echanges.dila.gouv.fr` en M9 | compilation et tests locaux ; sondes live hors du conteneur |
 | C. Rien | compilation seulement en CI, par PR (boucle lente) ; M0 très ralenti |
 
-- **Proposition par défaut.** B. Si `static.rust-lang.org` reste fermé, `RUSTUP_TOOLCHAIN=1.97.0` en local suffit pour `cargo check` et les tests (MSRV 1.91), et la CI garde la toolchain épinglée. Le piège de l'héritage de `default-features` est neutralisé par la règle de 00 §2, qui déclare `default-features = false` au niveau du workspace.
+- **Proposition par défaut.** B. *(Historique : les hôtes de compilation sont joignables depuis M0-M1, rustc 1.99.0 local.)* Si `static.rust-lang.org` reste fermé, `RUSTUP_TOOLCHAIN=1.97.0` en local suffit pour `cargo check` et les tests (MSRV 1.88, C5), et la CI garde la toolchain épinglée. Le piège de l'héritage de `default-features` est neutralisé par la règle de 00 §2, qui déclare `default-features = false` au niveau du workspace.
 - **Impact sur le plan.** Faisabilité de M0 (R-13) ; lieu d'exécution des campagnes du §2.18. **Écart avec 00** : Q6 ne cite pas `static.rust-lang.org` (voir le §3.11.1).
 - **Décideur, échéance.** Propriétaire, qui administre l'environnement ; avant M0 pour le réseau de construction, avant M9 pour la DILA.
 
@@ -1106,7 +1136,9 @@ Les autres documents ont renvoyé ici leurs divergences entre sources et leurs q
 
 | Sources | Sujet | Proposition | Décideur | Échéance |
 |---|---|---|---|---|
-| ce document §0.3 ; Q6 | Q6 ne cite pas `static.rust-lang.org`, indispensable pour la toolchain épinglée | ajouter l'hôte à Q6 (00 §13) | P | M0 |
+| ce document §0.3 ; Q6 | Q6 ne cite pas `static.rust-lang.org`, indispensable pour la toolchain épinglée | sans objet : hôtes joignables depuis M0-M1 (R-13), 00 §13 inchangé | P | fait |
+| C6 ; 00 §0, §8, §12, §13 | dépôt `mcp-legifrance`, licence Apache-2.0, crates.io (Q1, Q2) | décidé le 2026-10-16 (C6) : voir les lignes suivantes et le §3 | P | fait (2026-10-16) |
+| C7 ; 00 §0, §2 | langue du rustdoc, fusion par commit de merge, trois lints | décidé le 2026-10-16 (C7) : voir §3 | P | fait (2026-10-16) |
 | 02 §13.1 ligne 10 ; annexe D §12.1 écart 1 | ressource inconnue : `-32602` dans les deux ères (00 §6), ou `ErrorData::resource_not_found`, qui donne `-32002` en legacy | amender 00 §6 : laisser rmcp choisir le code selon l'ère | M | M7 |
 | 02 §13.1 ligne 11 ; annexe D §12.1 écart 8 | `subscriptions/listen` absent de 00 §6 | accusé minimal, aucune notification ; l'inscrire dans 00 §6 et ADR-0003 | M | M4 |
 | annexe D §12.1 écart 6 | 00 §6 laisse croire que rmcp valide `Origin` ; il ne le fait pas par défaut | préciser que la validation est configurée par nous (`enforce_origin_validation()`) | M | M8 |
@@ -1119,32 +1151,43 @@ Les autres documents ont renvoyé ici leurs divergences entre sources et leurs q
 | annexe A §8 question 1 ; 05 §13.1 ligne 9 ; 01 §8 question 1 | champs de hits `idcc` (ACCO) et `total_articles` (CODE) | ajout optionnel en v0.2, classe « ajout » de 00 §7 | M | M6 |
 | annexe A §8 question 6 | `nor?` absent de `fr_get_convention` | l'ajouter, classe « ajout » | M | M6 |
 | 05 §13.1 ligne 2 | completion de `fond` sans argument à servir en v0.3 | argument optionnel `fond` pour `etat_du_droit`, ou retrait de la completion de 00 §7 | M | M7 |
-| 02 §13.1 ligne 7 | `tokio` (`time`, `macros`) et `futures` dans `lf-application`, alors que 00 §2 ne liste que `lf-domain` | confirmer l'interprétation : la colonne « Dépend de » ne liste que les crates internes | M | M0 |
+| 02 §13.1 ligne 7 | `tokio` (`time`, `macros`) et `futures` dans `lf-application`, alors que 00 §2 ne liste que `lf-domain` | confirmer l'interprétation : la colonne « Dépend de » ne liste que les crates internes | M | M2 |
 | annexe C §9 ligne 2 ; 04 §16 question 3 | 3 tentatives sur un 500 (00 §8) | si V-69 montre des 500 déterministes : 2 tentatives et `retryable: false` | M | M2 |
 | annexe C §9 ligne 12 ; 04 §16 question 1 | `singleDate` à minuit Europe/Paris (00 §8) | passer à midi Europe/Paris si V-76 est défavorable | M | M2 |
-| 02 §13.1 ligne 12 ; R-22 | versions de moins de 14 jours au 2026-10-15 | revérifier à l'ouverture de M0 ; correctif précédent, sauf rmcp | M | M0 |
-| 08 §12.1 ligne 1 ; Q1 ; R-30 | dist nomme archives et installeurs d'après le paquet `lf-app` (00 §2) ; `cargo install lf-app` | renommer le **paquet** `lf-app` en `mcp-legifrance` (répertoire et binaire inchangés) ; amender le tableau de 00 §2 | P | M0 |
+| 02 §13.1 ligne 12 ; R-22 | versions de moins de 14 jours au 2026-10-15 | revérifier à l'introduction de chaque dépendance ; correctif précédent, sauf rmcp ; écart `proptest` 1.12.0 accepté (dépendance de test, R-22) | M | chaque jalon |
+| 08 §12.1 ligne 1 ; Q1 ; R-30 | dist nomme archives et installeurs d'après le paquet `lf-app` (00 §2) ; `cargo install lf-app` | renommer le **paquet** `lf-app` en `mcp-legifrance` (répertoire et binaire inchangés) ; amender le tableau de 00 §2 | P | M4 (décidé le 2026-10-16, C6) |
 | 08 §12.1 ligne 4 ; Q5 | dist ne signe sous Windows qu'avec SSL.com ou Azure Artifact Signing | compléter Q5 : « certificat chez SSL.com ou Azure Artifact Signing » | P | v0.1.0 |
 | 08 §12.1 ligne 9 ; 00 §2 | génération du manifeste MCPB et de la version de `server.json` | étendre `cargo xtask lock-descriptors`, sans nouvelle commande ; l'entériner dans 02 §3.8 | M | M4 |
-| 08 §12.1 ligne 2, §12.2 question 3 ; 00 §12 | canal `cargo install` : publier les sept crates `lf-*` sur crates.io (V-207 à V-209) | décider si le canal vaut ce coût ; sinon `cargo install --git` documenté, sans entrée `cargo` au registre (V-172) | P | v0.1.0 |
+| 08 §12.1 ligne 2, §12.2 question 3 ; 00 §12 | canal `cargo install` : publier les sept crates `lf-*` sur crates.io (V-207 à V-209) | décidé le 2026-10-16 (C6) : rien avant M5 ; `publish = false` et version `0.0.0` conservés ; repli `cargo install --git` documenté (08:760), sans entrée `cargo` au registre (V-172) ; seul risque à attendre : un tiers prend les noms des crates | P | M5 |
+| C1 ; 00 en-tête et §10 | clause de priorité | 00 §10 (exigence qualité du §9 du brouillon livré, recopiée) l'emporte sur tout autre document ; pour M0 et M1, le code livré et le plan 1 font foi, écarts au §11.1 | P | fait (2026-10-16) |
+| C3 ; 00 §2, §3, §4 | dépendances et dates du domaine | liste blanche `DOMAIN_ALLOWED = ["thiserror"]`, échec fermé (`xtask/src/arch.rs:26`) ; `CivilDate` (`crates/lf-domain/src/date.rs`) ; `Clock::today_paris() -> CivilDate` ; `chrono` et `chrono-tz` hors du domaine ; ADR-0011 amendé | P | fait (2026-10-16) |
+| C5 ; 00 §2 | MSRV et toolchain | MSRV 1.88 (`Cargo.toml`, job MSRV) ; toolchain épinglée 1.99.0 avec `llvm-tools-preview` (tâche de tête de M2) | P | fait (2026-10-16) |
+| 00 §2 ; livré M0 | commande de contrôle d'architecture | `check-arch` (`make arch`, `xtask/src/arch.rs`) à la place de `check-deps` : le livré l'emporte sans décision | M | fait (2026-10-16) |
+| C2, C4 ; 00 §4 | contrat de citation, TOC, suffixe | contrat v2 (module `contract`), `TocEntry` livré renommé `TocArticle` puis `TocNode`, `parse_versioned` ; tâches de tête de M2 | P | fait (document) ; code en M2 |
+| 00 §0 | validation des choix, identifiants | « à valider en M0 » devient « à valider au jalon qui l'implémente » ; identifiants `M1-D1` à `M1-D24` (points différés de la revue de clôture de M1, §3.14) et `C1` à `C7` (décisions du 2026-10-16) | M | fait (2026-10-16) |
+| 00 §1 | source du défaut `LF_AUDIT_MODE` | source « CONSTITUTION art. 2 de la référence » pour le défaut strict ; `best-effort` s'en écarte | M | fait (2026-10-16) |
+| 00 §6 | points repris du §5bis du brouillon livré | conformité 2026-07-28 jamais sacrifiée ; protocole confiné à `lf-adapter-mcp` ; `resultType` géré par rmcp ; codes -32020, -32021, -32022 ; `logging/setLevel` et `ping` supprimés ; en-têtes `Mcp-Param-*` exclus avec `x-mcp-header` | M | fait (2026-10-16) |
+| 00 §13 | questions du brouillon livré | ancienne Q9 (typographie des citations) devenue Q11, décidée ; ancienne Q10 (`/codes/article_lc/` pour un `LEGIARTI` de loi) devenue Q12, ouverte, avec V-140 à V-142 | M | fait (2026-10-16) |
+| 00 §0, §11 | feuille de route | `07-feuille-de-route.md` n'existe pas : renvois remplacés par `docs/superpowers/plans/` (« plan N, tâche M »), identifiants `T-Mx-yy` abandonnés | M | fait (2026-10-16) |
+| 00 §13 ; `docs/adr/` | numérotation des ADR | ADR-0001 et 0002 livrés conservés ; ex-0001 et ex-0002 du plan devenus ADR-0015 et ADR-0016 ; prochain numéro libre : 0017 | M | fait (2026-10-16) |
 
 #### 3.11.2 Alignements entre documents du plan
 
 | Sources | Sujet | Proposition | Décideur | Échéance |
 |---|---|---|---|---|
-| annexe C §9 ligne 17 ; 06 §15.1 ligne 4 | borne de corps : 16 Mio (04 §4.3) ou 32 Mio (02 §3.3) | 16 Mio ; corriger 02 §3.3 | M | M0 |
-| ce document (V-03, V-70) | features de reqwest : `json`, `form`, `http2`, `rustls` (02 §3.0.1) ou `json`, `form`, `rustls`, `gzip`, `system-proxy` (04 §1.4) | une seule liste, l'union des deux, figée au spike TLS de M0 | M | M0 |
+| annexe C §9 ligne 17 ; 06 §15.1 ligne 4 | borne de corps : 16 Mio (04 §4.3) ou 32 Mio (02 §3.3) | 16 Mio ; corriger 02 §3.3 (32 Mio y subsiste, à corriger en M2) | M | M2 |
+| ce document (V-03, V-70) | features de reqwest : `json`, `form`, `http2`, `rustls` (02 §3.0.1) ou `json`, `form`, `rustls`, `gzip`, `system-proxy` (04 §1.4) | une seule liste, l'union des deux, figée au spike TLS, tâche de tête de M2 | M | M2 |
 | annexe A §8 question 4 | URL `FR_ELI_*` de production sans `LF_PISTE_ENV` : problème de configuration (04 §2.3 règle 4) ou simple avertissement (02 §8.2) | une seule règle : échec actionnable qui demande `LF_PISTE_ENV=production` | M | M2 |
 | annexe D §12.1 écart 5 | `DiscoverResult::from_server_info` prend deux arguments ; le squelette de 05 §3.2 n'en passe qu'un | corriger 05 §3.2 | M | M4 |
 | annexe D §12.1 écart 4 | exceptions stdio (`ping`, `initialize` avant toute ère) | les mentionner dans 05 §7.5 | M | M4 |
 | annexe D §12.1 écart 10 | `ToolRouter` construit à chaque requête en HTTP sans état | cloner un prototype ; le noter dans 05 §10.1 | M | M8 |
-| 06 §15.1 lignes 1 et 2 | emplacement des fixtures, chemins et noms des tests | aligner 02 §2 et l'annexe D sur 06 | M | M0 |
+| 06 §15.1 lignes 1 et 2 | emplacement des fixtures, chemins et noms des tests | aligner 02 §2 et l'annexe D sur 06 | M | M2 |
 | 06 §15.1 ligne 6 | `reqwest` en dépendance de développement (annexe D §8.3) malgré le ban de 02 §4.3 | `tower::ServiceExt::oneshot` et client HTTP minimal ; corriger l'annexe D | M | M8 |
 | 06 §15.1 ligne 12 ; 04 §13.4 ; 00 §2 | dépendances de `xtask record-fixture` | exemple `cargo run -p lf-adapter-piste --example record_fixture --features record` ; confirmer dans 04 | M | M2 |
-| 06 §15.1 ligne 7 | contrôles bidirectionnels (U+202A à U+202E, U+2066 à U+2069) conservés par `text::clean` | trancher dans 03 ; proposition : les retirer et les compter | M | M1 |
-| 06 §15.1 lignes 9 à 11 | règle R9 de `check-deps`, lints supplémentaires, verrou de rotation | les reporter dans 02 §4, §3.0.3 et §3.5 | M | M0 |
+| 06 §15.1 ligne 7 | contrôles bidirectionnels (U+202A à U+202E, U+2066 à U+2069), zero-width et contrôles C0/C1 bruts conservés par `text::clean` (`crates/lf-domain/src/text/clean.rs:15-52`) | reporté (M1-D7) : filtre des caractères bruts, tags U+E0000 compris, avec la réparation d'encodage du mapping en M2 ; invariant de sortie en M4 ; 03 §7.3 l'exige | M | M2 |
+| 06 §15.1 lignes 9 à 11 | règle R9 de `check-arch` (extension prévue en M2, avec R2 et la fermeture transitive), lints supplémentaires, verrou de rotation | les reporter dans 02 §4, §3.0.3 et §3.5 ; R9 retenue par 00 §2 (M2) et inscrite dans 02 §4.1 : fait (2026-10-16) pour R9 | M | M2 |
 | 08 §12.1 ligne 8 | 05 §9.4 évoque une liste d'outils dans `server.json`, que le schéma ne permet pas | corriger la phrase de 05 | M | M4 |
-| 08 §12.1 lignes 7, 15 et 16 | V-169, V-170 et V-171 en partie tranchées par lecture du code et du livre de dist | statut `partiel` ; confirmation au premier `dist init` et à la première release d'essai | M | M0 |
+| 08 §12.1 lignes 7, 15 et 16 | V-169, V-170 et V-171 en partie tranchées par lecture du code et du livre de dist | statut `partiel` ; confirmation au premier `dist init` et à la première release d'essai | M | M4 (`dist init`) |
 | recherche 04 §1.1 ; recherche 09 §0, §7a | dates de rmcp 2.0.0 (2026-06-27 ou 2026-06-29) et 3.5.0 (2026-09-27 ou 2026-09-28) | index sparse, relevé pour ce document : 2026-06-29 et 2026-09-28 (UTC) | — | fait |
 
 #### 3.11.3 Questions propres aux documents
@@ -1158,12 +1201,12 @@ Les autres documents ont renvoyé ici leurs divergences entre sources et leurs q
 | 01 §8 question 5 ; 05 §13.2 question 5 | contenu des articles KALI en ligne | non en v0.1 ; option en v0.2 si les mesures de M5 le justifient | M | M5 |
 | 01 §8 question 6 | type `CodeId` et outil de navigation de code | décider en M7 après V-96 | M | M7 |
 | 01 §8 question 2 ; annexe C §10 question 5 | date de mise à jour exigée par la Licence Ouverte | date de consultation dans `fr_coverage`, plus `modifDate` quand il existe, après V-108 et V-177 | P | v0.1.0 |
-| 03 §11 question 1 | citation d'un article de loi : titre complet de la référence, ou forme courte | forme courte (« Loi n° 2016-1321 du 7 octobre 2016, art. 1 »), titre complet dans `title` ; divergence listée dans l'annexe A | M | M1 |
+| 03 §11 question 1 | citation d'un article de loi : titre complet de la référence, ou forme courte | forme livrée (parité, `crates/lf-domain/src/citation.rs:44-51`) : « {titre complet du parent}, art. {n} », alignée sur 03 §5.4 ; la forme courte n'est adoptée qu'après V-140 et V-142 (Q12) ; revue en M2 sur titres réels | M | M2 |
 | 03 §11 question 2 | hits CONSTIT et CNIL : titre comme citation, ou règle de consultation par le parseur | titre en v0.1 (parité) ; règle de consultation en v0.2 | M | M6 |
 | 03 §11 question 3 | dispositif JURI (« PAR CES MOTIFS ») | heuristique après recapture de textes JURI complets (V-90) | M | M5 |
 | 03 §11 question 4 | racinisation légère dans BM25 | non en v0.1 ; à mesurer en M5 | M | M5 |
-| 03 §11 question 5 | IDCC dans la citation KALI | oui : « … (IDCC 2121) » | M | M1 |
-| 03 §11 question 6 | `LEGITEXT…_JJ-MM-AAAA` sans `date` | tranché par 05 §5.2 : date du suffixe | — | fait |
+| 03 §11 question 5 | IDCC dans la citation KALI | non : citation KALI sans IDCC (livré, `crates/lf-domain/src/entity/act.rs:74-81` ; 03 §5.4 ; 05:863) ; revue en M2 sur titres réels | M | M2 |
+| 03 §11 question 6 | `LEGITEXT…_JJ-MM-AAAA` sans `date` | tranché par 05 §5.2 : date du suffixe, conservée par `parse_versioned` (C4, tâche de tête de M2) | — | M2 |
 | 04 §16 question 4 | `Deadline` portée par une variable locale de tâche | à valider dans 02 §7.1 | M | M3 |
 | 04 §16 question 5 | rendu d'`InvalidRequest` | `upstream_error` par défaut ; `invalid_arg` si la cause est l'entrée (requête trop longue) | M | M2 |
 | 04 §16 question 6 | plafond `page × page_size ≤ 10 000` | l'adopter après V-83 | M | M5 |
@@ -1181,11 +1224,11 @@ Les autres documents ont renvoyé ici leurs divergences entre sources et leurs q
 | 06 §15.2 question 1 | rétention du journal d'audit | consigne dans le README en v0.1 ; réexamen en M9 | P | v0.1.0 |
 | 06 §15.2 question 2 | chaîne d'empreintes du journal | non en v0.x | P | après v0.3.0 |
 | 06 §15.2 question 3 | rotation | garder le schéma de 02 §3.5 | M | M3 |
-| 06 §15.2 question 4 | langue du rustdoc et des commentaires | anglais | P | M0 |
-| 06 §15.2 question 5 | contrôles bidirectionnels | voir §3.11.2 | M | M1 |
-| 06 §15.2 question 6 | couverture de code | indicative, sans seuil bloquant | M | M0 |
-| 06 §15.2 question 7 | fuzzing | job nocturne non bloquant | M | M6 |
-| 06 §15.2 question 8 | revue avec un seul mainteneur | relecture humaine de toute PR d'agent ; second relecteur souhaité pour la surface MCP et la sécurité | P | M0 |
+| 06 §15.2 question 4 | langue du rustdoc et des commentaires | français pour le rustdoc et les commentaires, anglais pour tout texte servi au modèle (C7) | P | fait (2026-10-16) |
+| 06 §15.2 question 5 | contrôles bidirectionnels | voir §3.11.2 ; reporté en M2 (M1-D7) | M | M2 |
+| 06 §15.2 question 6 | couverture de code | bloquante à 100 % (lignes, régions, fonctions, `--lib`) et mutation à 0 mutant `MISSED`, `TIMEOUT` bloquant ; tranchée par l'ADR-0002 et 00 §10 | M | fait (2026-10-16) |
+| 06 §15.2 question 7 | fuzzing | balayage hebdomadaire (`.github/workflows/weekly.yml`, 4 shards, cibles `ids` et `text`), hors checks de PR ; tranché par l'ADR-0002 et 00 §10 | M | fait (2026-10-16) |
+| 06 §15.2 question 8 | revue avec un seul mainteneur | relecture humaine de toute PR d'agent ; second relecteur souhaité pour la surface MCP et la sécurité | P | M2 |
 | 06 §15.2 question 10 | cibles de performance | confirmer après la mesure de M5 (V-18) | M | M5 |
 | 06 §15.2 question 11 | test qui lit `docs/` | accepté (précédent `golden_divergences_match_annex_a`) | M | M3 |
 | 06 §15.2 question 12 | lien symbolique à la place du fichier journal | refusé | M | M3 |
@@ -1214,8 +1257,71 @@ Les autres documents ont renvoyé ici leurs divergences entre sources et leurs q
 | 08 §12.2 question 6 | répertoire d'installation des installeurs | `~/.mcp-legifrance/bin` | M | v0.1.0 |
 | 08 §12.2 question 7 | canaux supplémentaires (MSI, Homebrew, winget, plugin Claude Code, annuaires tiers) | après v0.1.0, au cas par cas | P | après v0.1.0 |
 | 08 §12.2 question 8 | préversions | jamais au registre MCP ; `-rc` sur GHCR seulement | M | v0.1.0 |
-| 08 §12.2 question 9 | titulaire du copyright dans `NOTICE` et `LICENSE` | après V-214 : référence créditée à ses auteurs ; code nouveau « les contributeurs de mcp-legifrance » | P | M0 |
-| 08 §12.1 ligne 11 | distribution publique, alors que la référence prévoit un canal gouverné (« PATRON / appliance ») | divergence assumée : aucune clé n'est embarquée | P | M0 |
+| 08 §12.2 question 9 | titulaire du copyright dans `NOTICE` et `LICENSE` | titulaire « Loïc Wernert » confirmé le 2026-10-16 (C6) ; V-214 (référence créditée à ses auteurs) reste ouverte | P | fait |
+| 08 §12.1 ligne 11 | distribution publique, alors que la référence prévoit un canal gouverné (« PATRON / appliance ») | divergence assumée : aucune clé n'est embarquée | P | fait (2026-10-16) |
+
+**Réponses du propriétaire du 2026-10-16 (C1 à C7).** Le propriétaire a accepté toutes les recommandations (réponse « ok »). Les choix C1 à C7 ne sont pas les points différés `M1-D` (§3.14) ni les défauts `D-xx` de la référence.
+
+| C | Question | Réponse (2026-10-16) | Travail et documents |
+|---|---|---|---|
+| C1 | Quel document fait référence après la fusion du plan complet ? | **A.** Le 00 du plan complet est la référence. Son §10 recopie l'exigence qualité du §9 du brouillon livré (100 % de couverture des lignes, régions et fonctions, 0 mutant survivant, `TIMEOUT` bloquant) et l'emporte sur tout autre document. Pour M0 et M1, le code livré et le plan 1 font foi, et leurs écarts sont au §11.1 de 00 | documentation seulement ; 06 §1.3, §1.4, §7.1, §7.2, §7.6, §13.4, §14, §15.2 ; §3.11.3 de ce document, questions 6 et 7 de 06 §15.2 ; renvois du code (`date.rs`, `citation.rs`, `url.rs`, `text/window.rs`, `CONTRIBUTING.md`, ADR-0002) ; note « numérotation historique » en tête du plan 1 |
+| C2 | Quel format de citation rendre aux clients ? | **A.** Format v2 complet : champ `citation` jamais vide (repli « Légifrance {ID} », une ligne, 1 000 caractères au plus), `source_url`, `ecli` et `eli` seulement s'ils sont fournis ; `eli_uri` supprimé ; Conseil constitutionnel sans « - objet » ; module `citation` renommé `contract` (le nom `citation` est libéré pour le parseur de M6), `Citable::citation()` renommée `contract()` | **tâche de tête de M2** (00 §11.1), environ 1 jour : `citation.rs`, newtypes `CitationText`, `SourceUrl` et `Eli`, 7 `impl Citable`, `constit_citation`, tests et passe de couverture et de mutation. Visible des clients venus de la référence (annexe A : `eli_uri_dropped`, `citation_renamed`). La variante CNIL « décision » attend V-115 |
+| C3 | `lf-domain` reste-t-il limité à `thiserror`, avec ses dates maison ? | **A.** Liste blanche livrée, qui échoue fermé (`xtask/src/arch.rs:26`), et `CivilDate`. `chrono` (`std`) seulement hors du domaine (`lf-application`, adapters) ; la feature `clock` seulement dans `lf-app::clock` (date du jour à Paris) ; `chrono-tz` dans `lf-app::clock` et `lf-adapter-piste` (« minuit Paris » de `singleDate`) (ADR-0011). `winnow`, `aho-corasick` et `regex` entrent par ADR en M6, `unicode-normalization` aussi (NFC), en M5 seulement si un retrait maison des marques combinantes ne suffit pas | documents amendés : ADR-0011, 00 §2 à §4, 03 §1.1 et §6, 02, 04, annexes B et A, 01 ; un test du vecteur 1804-03-21 (-5231606400000) est une tâche de tête de M2 |
+| C4 | Adopter la TOC en arbre et la date du suffixe de version en M2 ? | **A.** TOC : `TocNode`, `Toc::build`, `Toc::page` (tri par `intOrdre` si tous les frères l'ont, dédoublonnage, profondeur limitée à 64). Suffixe : `parse_versioned` vérifie que le suffixe est une vraie date et la conserve ; `Id::parse` reste tolérant ; un suffixe mal formé est refusé ; un suffixe bien formé sur un autre préfixe que `LEGITEXT` est toléré puis retiré (documenté). A-strict non retenu | **tâche de tête de M2** : renommer `TocEntry` en `TocArticle` (`act.rs:13`, `:44`, `entity/mod.rs:3`, `:17`) ; `DomainError::TocTooDeep` et `BadSuffix` ; correction du proptest `valid_shape_roundtrips` et du test `strips_version_suffix` ; champ `SearchHit.version_start` ; 00 et 03 §2.4, §4.2 |
+| C5 | Quelle MSRV, et toolchain épinglée ? | MSRV **1.88** (plancher réel de `rmcp` 3.5.1 et `proptest` 1.12), réévaluée par ADR seulement si le job MSRV casse à l'arrivée de `rmcp` en M4. Toolchain épinglée sur **1.99.0** à l'ouverture de M2, avec `llvm-tools-preview` (`make cov` en a besoin) | **tâche de tête de M2**, moins d'une heure : `rust-toolchain.toml` (`channel = "1.99.0"`, composants `clippy`, `rustfmt`, `llvm-tools-preview`, profil minimal), 5 étapes `dtolnay/rust-toolchain@stable` à aligner (`ci.yml`, `weekly.yml`) ; plan : MSRV 1.91 devient 1.88 dans 00, 02, 06, 08, 01 et les ADR-0015 et 0016 |
+| C6 | Renommer le dépôt, titulaire de `NOTICE`, crates.io ? | Q1 : **renommer maintenant** en `mcp-legifrance`. Q2 close : Apache-2.0, titulaire « Loïc Wernert » confirmé. crates.io : **rien avant M5** ; `publish = false` et version `0.0.0` conservés | §3.1 et §3.2 ; 00 §0, §8, §12, §13 ; V-214 et Q5 restent ouvertes ; en M4, le paquet `lf-app` devient `mcp-legifrance` |
+| C7 | Trois conventions laissées au propriétaire | Langue : **français** pour le rustdoc et les commentaires, anglais pour tout texte servi au modèle. Fusion des PR : **commit de merge** (conserve les commits atomiques pour `git bisect` ; l'historique linéaire de GitHub n'est pas disponible sur un dépôt privé sans offre payante). Lints : seulement `clippy::panic`, `unreachable` et `unimplemented`, en `warn` dans `[workspace.lints.clippy]` donc bloquants via `-D warnings` ; les autres lints exigeraient environ 28 lignes de branches mortes, incompatibles avec 100 % des régions | **tâche de tête de M2** (3 lignes de `Cargo.toml`) ; 06 §8.4, §15.2 question 4, §7.6, §13.1 ; 03 §1.3 ; 00 §0 |
+
+### 3.12 Q11 — Typographie des citations
+
+- **Statut : DÉCIDÉE** (plan 1, 2026-10-15). Elle porte le numéro `Q9` dans le brouillon livré ; le numéro `Q9` du plan complet (audit et disque plein, §3.9) est conservé.
+- **Question.** Les citations reprennent-elles à l'identique la typographie de la référence (mois sans accent, « 1 janvier », « decision », « deliberation »), ou un français correct ?
+- **Décision.** Français correct : mois accentués, « 1er » pour le premier jour, « décision » et « délibération » accentués. Sources de la référence : `citations.py:283-318` et `:376-378`, `consult_cnil.json`. Elle rompt la parité stricte (annexe A) et relève de 00 §4 et de l'ADR-0009.
+- **Livré.** `CivilDate::to_french` (`crates/lf-domain/src/date.rs`) et `crates/lf-domain/src/citation.rs` (commentaires « décision Q11, 00 §4 / ADR-0009 »).
+- **Décideur, échéance.** Plan 1 ; close.
+
+### 3.13 Q12 — URL `/codes/article_lc/` pour un `LEGIARTI` non codifié
+
+- **Statut : OUVERTE**, à lever en M2 (elle porte le numéro `Q10` dans le brouillon livré ; le `Q10` du plan complet est le mode de recherche, §3.10).
+- **Question.** `/codes/article_lc/<LEGIARTI>` résout-il pour un article de loi non codifiée ? La référence l'affirme sans preuve (`citations.py:262`, `tests/test_smoke.py:57`). **NON VÉRIFIÉ.**
+- **Contexte.** Le livré produit `ResourceKind::CodeArticle` pour tout `LEGIARTI` (`crates/lf-domain/src/url.rs:15-21`, `entity/article.rs:34-37`). Le plan retient `/loda/article_lc/` quand le texte parent n'est pas un code (D-29, E-19, 03 §5.5) et retombe sur `code_article` quand la nature est inconnue.
+- **Vérifications.** V-141 (c'est la Q12 elle-même), V-140 (`/loda/article_lc/` est-il canonique ?) et V-142 (valeur de `textTitles[].nature`).
+- **Procédure M2.** (1) V-142 en sandbox : lire `textTitles[].nature` pour `LEGIARTI000033205058`. (2) V-140 et V-141 dans un navigateur. (3) Champs `parent`, `path` et `nota` en M2 dans tous les cas ; si `/loda/article_lc/` est canonique : `ResourceKind::LodaArticle`, nature du parent choisissant l'URL (environ 0,5 jour avec les tests), puis forme courte de la citation d'un article de loi ; sinon garder `CodeArticle`.
+- **Impact sur le plan.** `entity/article.rs` et `entity/act.rs`, URL des golden de M4, citation d'un article de loi (03 §5.4), R-18.
+- **Décideur, échéance.** Mainteneur ; M2, avant la recette v0.1.0 (V-139 et V-140 sont bloquantes).
+
+### 3.14 Registre des points différés de la revue de clôture M1 (`M1-D1…M1-D24`)
+
+Ces points ont été différés par la revue de clôture de M1 (plan 1). Ils ne vivaient que dans la mémoire de session ; ce registre les inscrit dans le dépôt, avec un renvoi depuis 00 §11.1. Le préfixe `M1-D` évite la collision avec les défauts `D-xx` de la référence. Les renvois `fichier:ligne` datent du commit de la revue de clôture ; le code a depuis bougé. « Fait » reçoit le commit ; une ligne n'est jamais renumérotée.
+
+| M1-D | Point (emplacement) | Décision de report | Jalon | Statut |
+|---|---|---|---|---|
+| M1-D1 | `passages()` en O(n²/max) : chaque `window()` rebalaye depuis l'octet 0 (`passages.rs:20`) | différé par décision de la revue de clôture M1 : la taille de passage sera fixée côté serveur ; le curseur d'octets (`window_from` privé, partagé par `window` et `passages`) se pose avec le câblage offset/`max_chars` | M5 | ouvert |
+| M1-D2 | Fuzz hebdomadaire : `-timeout`, `-max_len`, `-rss_limit_mb`, corpus persistant, assertions d'écho et d'aller-retour dans `fuzz_targets/ids.rs` et `text.rs`, `rust-cache` du job (`weekly.yml:58`) | avec la correction de `passages` : poser `-timeout=10` et `-max_len=65536` avant ferait passer le job au rouge sur un défaut connu (M1-D1) ; l'écho des 7 parseurs est déjà couvert en test unitaire | M5 | ouvert |
+| M1-D3 | Borne du nombre de termes distincts de `focus` (`rank.rs:48`) | la borne appartient au cas d'usage qui reçoit `focus` ; le coût de `rank` est déjà linéaire | M5 | ouvert |
+| M1-D4 | Jetons numériques d'un seul chiffre jetés par la tokenisation (« article 9 », `fold.rs:28`) | change la sémantique du classement et l'invariant du proptest de `fold` ; à régler avec les tests de `focus` sur des requêtes réelles | M5 | ouvert |
+| M1-D5 | Accents décomposés (NFD) non repliés (`fold.rs:5`) | PISTE renvoie du NFC ; normalisation NFC de la requête `focus` à l'entrée ; limite documentée dans `fold.rs:6-7` | M5 | ouvert |
+| M1-D6 | Balises de bloc (`li`, `div`, `td`, `tr`, `h*`) effacées sans séparateur (`clean.rs:62`) | à trancher en TDD sur des fixtures PISTE réelles (`texteHtml` LEGI, contenu KALI) : aucune fixture actuelle n'en contient | M2 | ouvert |
+| M1-D7 | Contrôles, bidi, tags Unicode, zero-width bruts, et entités vers U+00AD, U+200B-200D, U+2060, U+FEFF (`clean.rs:89`) | avec la réparation d'encodage du mapping ; invariant de sortie en M4 ; le filtre ne protège que les champs passant par `clean` (03 §7.3 l'exige, §3.11.2) | M2, puis M4 | ouvert |
+| M1-D8 | Idempotence de `clean` (`<<b>b>` donne `<b>`) : rescanner jusqu'au point fixe (`clean.rs:187`) | pas de changement : la sortie est du texte, jamais réinterprétée comme HTML ; limite documentée et figée ; à revoir en M4 seulement si un rendu HTML apparaît | aucun | écarté |
+| M1-D9 | Coupe douce, règle (b) : exiger une majuscule ou un saut de ligne après le point (`window.rs:54`) | lire `rest` au-delà de `head` ; la règle (a) couvre les cas mesurés (L., art., M.) ; à ajuster avec les budgets de `max_chars` | M5 | ouvert |
+| M1-D10 | `check-arch` : interdire les crates d'I/O dans `lf-application` et parcourir la fermeture transitive via `resolve.nodes` (`arch.rs:28`) | à la création de `lf-application` : la règle n'a pas d'objet avant. Jalon aligné sur 00 §11.1 : M2, avec la création de `lf-application` (R2, fermeture transitive, R9) | M2 | ouvert |
+| M1-D11 | `Hash`, `Display`, `FromStr` et `Ord` manquants sur `Id<K>`, `AnyId`, `ArticleId`, `DecisionId`, `Ecli`, `Fond`, `CivilDate` (`id.rs:74`, `id.rs:39`, `ecli.rs:14`) | `Hash` en tâche 0 de M2 (clés `moka`, 00 §11.1), `Display` et `FromStr` en M2 (mapper, arguments d'outils), `Ord` en M3, chacun avec son test d'aller-retour et la couverture revérifiée | M2 (`Hash` en tâche 0, `Display`, `FromStr`), M3 (`Ord`) | ouvert |
+| M1-D12 | `IdKind` public non scellé (`id.rs:39`) | avant qu'un crate aval ne dépende de `lf-domain` ; le sceau se pose sans casse avec l'API d'identifiants | M2 | ouvert |
+| M1-D13 | `echo` et `ECHO_MAX_CHARS` publics ; champs de `DomainError` constructibles sans troncature (`error.rs:45`) | avant le premier adapter : `#[non_exhaustive]` (ou constructeurs) et `echo` en `pub(crate)` se décident ensemble | M2 | ouvert |
+| M1-D14 | `legifrance_url` typé par un trait scellé `LegifranceId` (`url.rs:70`) | `legifrance_url` est déjà `pub(crate)` (`url.rs:76`) : la garantie vaut pour l'aval ; trait scellé seulement si un crate aval en a besoin | M2 | ouvert |
+| M1-D15 | Actions tierces épinglées par tag ou branche (`@master`, `@stable`, `@nightly`, `@v2`) (`ci.yml:81`, `weekly.yml`) | commit CI dédié avec Dependabot `github-actions`, dès que possible (premier push déjà fait : en retard, 00 §11.1) ; SHA résolus en ligne et validés par un run CI ; `contents: read`, aucun secret et `persist-credentials: false` couvrent l'intervalle | tout de suite (hygiène, 00 §11.1 ; au plus tard début de M2) | ouvert |
+| M1-D16 | `fuzz/Cargo.lock` hors `cargo-deny` et `cargo-audit` (`ci.yml:72`) | avec l'élargissement de `deny.toml` ; l'exception NCSA de `libfuzzer-sys` se tranche en même temps | M2 | ouvert |
+| M1-D17 | `deny.toml` : liste de licences minimale | les premières dépendances réseau diront quelles licences ajouter ; un échec bruyant d'ici là est voulu (V-24, V-25) | M2 | ouvert |
+| M1-D18 | Tests `SearchHit`, `SearchPage`, `CodeArticleRef` : URL pour chaque fond, `cid` Cnil/Kali/Cetat/Acco, `total` `Some(0)`, requête blanche, espace final après la coupe à 280 (`search.rs:61`) | viendront du mapper qui construit ces entités depuis des fixtures réelles ; l'espace final est une parité de `citations.py:162` | M2 | ouvert |
+| M1-D19 | Replis de citation de `Decision`, `Deliberation`, `Act`, `Convention`, `CompanyAgreement` ; invariant `eli_uri == source_url` ; contenu d'`ATTACHMENT_NOTE` (`entity/agreement.rs:12`) | avec les tests de mapping par fixture ; l'invariant `eli_uri` disparaît avec le contrat v2 (C2) | M2 | ouvert |
+| M1-D20 | `Coverage` : familles vides, n lacunes en proptest, `captured_at`, statuts Ok et Failed ; doc `AS_OF_NOTE` non portée ; constructeur faillible (`coverage.rs:100`) | à revoir avec l'outil `fr_coverage` ; forme et emplacement tranchés en M3 (M1-D20, 03 §4.8), tests en M4 | M3 (forme), M4 (tests) | ouvert |
+| M1-D21 | `TextBody` simplifie la référence (dates brutes, `etat` Kali, fusion d'articles) | à consigner et traiter au mapping DTO | M2 | ouvert |
+| M1-D22 | `#[allow(clippy::cast_precision_loss)]` sur toute la fonction `rank` (`rank.rs:38`) | pas de changement : dérogation imposée par le plan et justifiée en commentaire | aucun | écarté |
+| M1-D23 | `Makefile` : validation de `FILE` (`*.rs`) et `override` de `FILE` et `BASE` hérités de l'environnement | pas de changement : cibles locales, aucune frontière de confiance | aucun | écarté |
+| M1-D24 | Mineurs cosmétiques ou déjà résolus des revues par tâche (plan 1, tâche 1 `serde_json`, `Cargo.lock` en stable flottant, CONTRIBUTING avant la tâche 16 du plan 1, `pr.diff`, variable `any`, proptest `Fond`, commentaire du `?` unique, NBSP dans `is_whitespace`) | pas de changement : résolus, couverts par un test unitaire ou sans effet observable (la NBSP est neutralisée par `clean`) | aucun | écarté |
+
+Synthèse par jalon cible : **M2** : M1-D6, M1-D7 (première partie), M1-D10, M1-D11 (`Hash` en tâche 0, `Display`, `FromStr`), M1-D12, M1-D13, M1-D14, M1-D15 (au plus tard au début), M1-D16, M1-D17, M1-D18, M1-D19, M1-D21. **M3** : M1-D11 (`Ord`), M1-D20 (forme). **M4** : M1-D7 (invariant de sortie), M1-D20 (tests). **M5** : M1-D1, M1-D2, M1-D3, M1-D4, M1-D5, M1-D9. **Écartés** : M1-D8, M1-D22, M1-D23, M1-D24. Les tâches de tête de M2 issues de C1 à C7 et le reliquat `text::encoding` sont dans 00 §11.1.
 
 ---
 
@@ -1225,24 +1331,24 @@ Le plan avance sur ces hypothèses tant que les vérifications ou les questions 
 
 | n° | Hypothèse retenue | Fondement | Invalidée par | Si elle est fausse |
 |---|---|---|---|---|
-| 1 | Les propositions par défaut de Q1 à Q10 (00 §13) s'appliquent. | 00 §13 | réponse contraire du décideur (§3) | reprendre les sections de 00 et des documents cités dans « Impact sur le plan » |
-| 2 | Tant que Q6 n'est pas réglée, M0 compile et teste dans la CI GitHub Actions (ou sur un poste ouvert) ; le conteneur sert à écrire le code et la documentation. | §0.3 | ouverture du réseau (Q6) | aucune : le travail local devient possible |
+| 1 | Les propositions par défaut de Q3 à Q10 (00 §13) s'appliquent ; Q1 et Q2 sont décidées (2026-10-16). | 00 §13 | réponse contraire du décideur (§3) | reprendre les sections de 00 et des documents cités dans « Impact sur le plan » |
+| 2 | La compilation et les tests fonctionnent en local et en CI (vérifié en M0-M1) ; seul l'accès live à PISTE reste soumis à Q3 et Q6. | §0.3, mise à jour du 2026-10-16 | ouverture du réseau (Q6) | aucune : le travail local devient possible |
 | 3 | La surface d'API est identique en sandbox et en production ; seuls les données, les quotas, la disponibilité et les identifiants diffèrent. | Swagger 2.4.2 identique dans les deux copies (recherche 05 §0) | V-59, V-61, V-74 | règles de 04 §2 et fixtures à revoir par environnement |
 | 4 | Les quotas permettent au moins 5 requêtes par seconde, rafale de 10, avec 4 requêtes en vol. | pratiques de clients tiers (recherche 05 §3.3) | V-62 | défauts de `governor` abaissés ; parallélisme de `fr_search_all` et `fr_verify_citations` réduit |
 | 5 | Le mojibake des fixtures vient de l'outil de capture ; PISTE sert de l'UTF-8 brut, sans échappement `\uXXXX`. La réparation reste active quand même. | recherche 03 §11.1 ; 04 §10.1 | V-71, V-72, V-73 | réparation par champ (révision de 00 §8) ; cas réels ajoutés au corpus de tests |
 | 6 | Introuvable : un 400 « valider est fausse » sur une consultation donne `NotFound` ; un 404 sur une consultation officielle à corps non HTML donne `NotFound` ; tout autre 404 donne `Config`. | pylegifrance (04 §11.1) ; 04 §11.2 | V-66, V-67, V-68 | table de 04 §11 réécrite ; tests wiremock et messages d'erreur ajustés |
 | 7 | Un 500 est transitoire et mérite 3 tentatives. | 00 §8 | V-69 | 2 tentatives et `retryable: false` (§3.11.1) |
 | 8 | Les horodatages de date sont à minuit UTC, et `singleDate` à minuit Europe/Paris retient la version qui commence le jour même. | recherche 03 §11.2 ; 00 §8 | V-76, V-100 | passage à midi Europe/Paris (04 §16 question 1) ; conversion des dates revue champ par champ |
-| 9 | Tous les identifiants servis suivent le format 8 lettres + 12 chiffres, et seul `LEGITEXT` porte un suffixe de version. | toutes les fixtures (00 §4) | V-103, V-104 | `FromStr` assoupli (03 §2) ; tests proptest élargis |
+| 9 | Tous les identifiants servis suivent le format 8 lettres + 12 chiffres, et seul `LEGITEXT` porte un suffixe de version (le livré tolère le suffixe sur tous les préfixes). | toutes les fixtures (00 §4) | V-103, V-104 | `FromStr` assoupli (03 §2) ; tests proptest élargis |
 | 10 | `UN_DES_MOTS` est un OU logique ; `TOUS_LES_MOTS_DANS_UN_CHAMP` exige tous les mots dans un même champ. | Swagger ; D-32 | V-79 | description de `match` corrigée (05) ; Q10 réexaminée |
 | 11 | Le mémo de `typePagination` suffit pour paginer, et la fenêtre de `/search` est de 10 000 résultats. | recherche 05 §2.4 ; 04 §6.6, §6.7 | V-82, V-83 | paramètre opaque `pagination` (05 §13.1 ligne 7) ; autre plafond |
 | 12 | `eli` et `idEli` sont toujours nuls, le champ `eli` n'est donc jamais rendu. | référence DISCOVERY.md:34-40 ; fixtures | V-102 | `eli` natif rendu ; lacune FR-001 révisée |
-| 13 | Les motifs d'URL de 03 §5.5 ouvrent les bonnes pages. | recherches 01 et 02 ; fixtures | V-139 à V-145 | fonctions d'URL de `lf-domain` corrigées ; golden mis à jour |
+| 13 | Les motifs d'URL de 03 §5.5 ouvrent les bonnes pages (le livré garde `/codes/article_lc/` pour tout `LEGIARTI` tant que Q12 est ouverte). | recherches 01 et 02 ; fixtures | V-139 à V-145 | fonctions d'URL de `lf-domain` corrigées ; golden mis à jour |
 | 14 | Claude Code transmet le `structuredContent` sur un succès et le texte sur une erreur ; VS Code fait de même (vérifié par lecture de son code). | annexe D §10.1 ; recherche 06 §3.3 | V-46 | ADR-0006 revu : contenu texte compact en plus du `structuredContent` |
 | 15 | Les délais des clients dépassent les 60 s de `LF_TOOL_DEADLINE_S`. | — | V-55 | défaut de `LF_TOOL_DEADLINE_S` abaissé ; réessais réduits |
 | 16 | Un token vaut environ 4 caractères de français juridique. | D-33 | V-58 | `max_chars` par défaut, plafonds et budgets recalibrés (05 §6) |
 | 17 | Les parades de l'annexe D suffisent pour rmcp 3.5.1, et aucune montée n'a lieu avant v0.1.0 sauf correctif de sécurité. | annexe D §4.3, §9 | V-29, V-30, V-38 | montée de rmcp anticipée (procédure de l'annexe D §9.4) |
-| 18 | TLS : l'option A (aws-lc) compile pour les 7 cibles ; sinon l'option B (ring). | recherche 04 §4.2 | V-02 | option B, avec `install_default()` testé |
+| 18 | TLS : l'option A (aws-lc) compile pour les 7 cibles ; sinon l'option B (ring). Spike en tête de M2. | recherche 04 §4.2 | V-02 | option B, avec `install_default()` testé |
 | 19 | Pas de mode HTTP partagé : M8 se limite au profil local. | Q4 | V-175, V-176 et la réponse à Q4 | profil distant conçu par ADR (annexe D §6.3) |
 | 20 | Binaires non signés tant que Q5 n'est pas réglée, avec un avertissement et des alternatives (OCI, `cargo install`). | 00 §12 ; Q5 | réponse à Q5 ; V-173, V-174 | signature et notarisation ajoutées au workflow de release |
 | 21 | Licence Ouverte : une mention globale (`fr_coverage`, README, `NOTICE`) et la date de consultation suffisent. | recherche 05 §4.2 | V-108, V-177 | champ de date de mise à jour par entité (classe « ajout ») |
@@ -1258,38 +1364,43 @@ Le plan avance sur ces hypothèses tant que les vérifications ou les questions 
 
 À la clôture de chaque jalon, le mainteneur vérifie les points suivants et consigne le résultat dans la PR de clôture.
 
-**M0 — Fondations**
+**M0 — Fondations (livré, plan 1)**
 
-- [ ] Q1, Q2 et Q6 (réseau de construction) ont une réponse consignée au §3 ; V-214 et V-215 sont traitées avant le choix du nom et la rédaction de `NOTICE`.
-- [ ] V-01, V-02, V-25, V-28 et V-29 sont levées (bloquantes) ; les autres vérifications de M0 du §2.18 sont levées ou ont un statut explicite.
-- [ ] R-13 est réduit (compilation possible quelque part) ; R-22 est revu (âge des crates à l'ouverture de M0).
-- [ ] Les amendements du §3.11.1 et les alignements du §3.11.2 marqués « M0 » sont décidés.
+- [x] Q1 et Q2 ont une réponse consignée au §3 (2026-10-16, C6). Q6 est sans objet pour la compilation et reste ouverte pour les hôtes PISTE et DILA. V-214 et V-215 restent ouvertes, avant publication.
+- [ ] Reportées (§2.18, 00 §11.1) : V-01 (partielle), V-02 et V-25 en tête de M2 ; V-28 et V-29 avant la conception des ports de M3.
+- [x] R-13 est réduit (2026-10-16) ; R-22 est revu (écart `proptest` 1.12.0 accepté).
+- [x] Les amendements du §3.11.1 et les alignements du §3.11.2 marqués « M0 » sont décidés ou redistribués (les lignes restantes portent l'échéance M2, ou « fait »).
 
-**M1 — Domaine**
+**M1 — Domaine (livré, plan 1)**
 
-- [ ] V-17, V-20 et V-191 sont traitées ; la recette des URL (V-139) est préparée (liste des URL générées par motif).
-- [ ] Les arbitrages « M1 » du §3.11 (citation d'un article de loi, IDCC dans la citation KALI, contrôles bidirectionnels) sont tranchés dans 03.
+- [ ] V-17 passe en M3 ; V-20 et V-191 restent ouvertes ; la recette des URL (V-139) reste à préparer pour la recette v0.1.0.
+- [x] Les arbitrages « M1 » du §3.11 sont tranchés ou reportés : citation d'un article de loi et IDCC KALI en forme de parité, revue en M2 ; contrôles bidirectionnels en M2 (M1-D7).
 
 **M2 — Adapter PISTE**
 
 - [ ] Q3 (sandbox) a une réponse ; les campagnes de M2 du §2.18 ont tourné au moins une fois en sandbox, et le registre de 06 §5.4 est rempli.
 - [ ] V-66, V-68 et V-76 sont levées (bloquantes) ; la table « introuvable » de 04 §11 et la règle `singleDate` sont définitives.
 - [ ] R-03, R-04, R-05, R-06, R-14 et R-17 sont réévalués à la lumière des résultats.
+- [ ] Tâches de tête de M2 (00 §11.1) faites : contrat de citation v2 (C2), TOC en arbre et `TocArticle` (C4), `parse_versioned` (C4), toolchain 1.99.0 épinglée (C5), lints `panic`, `unreachable` et `unimplemented` (C7), `text::encoding` (réparation du mojibake), test du vecteur 1804-03-21 (C3) ; spikes TLS, proxy, `backon`, `governor` (V-02, V-03, V-06, V-07, V-25).
+- [ ] Points différés `M1-D` du jalon M2 (§3.14) traités ou re-différés par écrit ; Q12 (V-140 à V-142) tranchée ; reste de la tâche 0 de 00 §11.1 : `open_ended`, `VersionDate` borné, `DateRange`, `Hash`, membre inconnu de check-arch.
 
 **M3 — Application**
 
-- [ ] Q9 a une réponse ; V-08, V-09 et V-164 à V-167 sont traitées ; R-20 est revu.
+- [ ] Q9 a une réponse ; V-08, V-09, V-17 et V-164 à V-167 sont traitées ; R-20 est revu.
+- [ ] Spike rmcp (V-28, V-29, V-15) fait avant la conception de `ToolCall` et des cas d'usage de M3 ; points différés `M1-D` du jalon M3 (§3.14).
 
 **M4 — Adapter MCP**
 
 - [ ] Q7, Q8 et Q10 ont une réponse avant la génération du verrou des descripteurs.
 - [ ] V-30 et V-38 sont levées ; V-46 a fait l'objet d'un premier essai dans Claude Code ; R-01, R-02 et R-10 sont revus.
+- [ ] Points différés `M1-D` du jalon M4 (§3.14) ; la MSRV 1.88 est réévaluée (ADR) si le job MSRV casse à l'arrivée de `rmcp`.
 
 **M5 — Économie de contexte, v0.1.0**
 
 - [ ] V-75 et V-82 sont levées ; V-47, V-48 et V-58 sont mesurées ; R-11 et R-29 sont revus.
 - [ ] Recette v0.1.0 : V-46, V-103, V-139, V-140, V-143, V-197 (canal MCPB) et V-204 (canal OCI) sont levées ; V-59 l'est si Q3 prévoit la production ; V-173 l'est si Q5 prévoit la signature ; Q5 a une réponse ; les vérifications de distribution du §2.17 ont un statut.
 - [ ] Aucun risque de score supérieur ou égal à 9 n'est sans mesure en place.
+- [ ] Points différés `M1-D` du jalon M5 (§3.14) traités ; la publication sur crates.io est tranchée (C6).
 
 **M6 — Citations, v0.2.0**
 
@@ -1313,7 +1424,7 @@ Le plan avance sur ces hypothèses tant que les vérifications ou les questions 
 
 **Plan** (lus pour ce document)
 
-- [00-decisions.md](00-decisions.md), normatif : §0 (cadre, identifiants transverses), §1 (noms, variables), §2 (workspace, crates, toolchain), §3 (ports), §4 (domaine), §5 (erreurs), §6 (protocole), §7 (outils, métriques), §8 (adapter PISTE), §9 (cache), §10 (qualité), §11 (jalons), §12 (distribution, licence), §13 (Q1 à Q10).
+- [00-decisions.md](00-decisions.md), normatif : §0 (cadre, identifiants transverses), §1 (noms, variables), §2 (workspace, crates, toolchain), §3 (ports), §4 (domaine), §5 (erreurs), §6 (protocole), §7 (outils, métriques), §8 (adapter PISTE), §9 (cache), §10 (qualité), §11 (jalons), §12 (distribution, licence), §11.1 (écarts du livré et reports), §13 (Q1 à Q12).
 - [01-existant.md](01-existant.md) : §6 (incertitudes sur l'API, tableaux « si la réponse est défavorable »), §7 (étiquettes), §8 (questions).
 - [02-architecture.md](02-architecture.md) : §1.2, §2.2 (fichiers racine, toolchain, `clippy.toml`, `dist-workspace.toml`), §3.0.1 (versions, features de reqwest), §3.0.3, §3.3 à §3.6, §8.2, §8.8, §9.2, §10, §13, §13.1 (divergences).
 - [03-domaine.md](03-domaine.md) : §11 (questions), points non vérifiés.
@@ -1322,6 +1433,7 @@ Le plan avance sur ces hypothèses tant que les vérifications ou les questions 
 - [06-qualite.md](06-qualite.md) : §5 (tests live, registre des exécutions), §6 (conformité), §7.4, §7.5 (`live.yml`), §15.1 et §15.2, §16 (points non vérifiés), Sources.
 - [08-distribution.md](08-distribution.md), publié pendant la rédaction de ce document : §1.2, §2.4, §3.2 à §3.8, §4.1, §4.3, §4.6, §5.2, §6.4, §7.4, §7.7, §8, §9.2, §9.6, §11 (points non vérifiés), §12.1 et §12.2.
 - [annexes/A-parite.md](annexes/A-parite.md) §6, §7, §8 ; [annexes/B-citations.md](annexes/B-citations.md) §10.1, §10.2, §11 ; [annexes/C-api-legifrance.md](annexes/C-api-legifrance.md) §1.4 à §1.7, §3.3, §3.8, §7.11, §8, §9, §10 ; [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md) §0, §1.1, §9, §10, §11, §12 ; [annexes/donnees/codes-table.md](annexes/donnees/codes-table.md) (identifiants des codes cités dans les sondes).
+- Livré (M0-M1, lu le 2026-10-16) : `Cargo.toml` (MSRV 1.88, lints), `rust-toolchain.toml`, `Makefile` (`make ci`, `cov`, `mutants`, `mutants-diff`), `.cargo/mutants.toml`, `xtask/src/arch.rs` (`check-arch`, `DOMAIN_ALLOWED`), `crates/lf-domain/src/` (`date.rs`, `id.rs`, `url.rs`, `citation.rs`, `text/clean.rs`), `docs/adr/0002-portes-qualite.md`, `docs/superpowers/plans/2026-10-15-m0-m1-fondations-domaine.md`.
 
 **Rapports de recherche** (`docs/recherche/`, sections « questions ouvertes » et « NON VÉRIFIÉ »)
 

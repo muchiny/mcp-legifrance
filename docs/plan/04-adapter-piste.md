@@ -1,11 +1,11 @@
 # 04 — Adapter PISTE (`lf-adapter-piste`) : OAuth, HTTP, résilience, requêtes, DTO, mapping
 
-> **Statut** : plan, sans implémentation. Ce document applique [00-decisions.md](00-decisions.md), qui est normatif et l'emporte en cas de doute.
-> **Jalons** : M0 (spike TLS), **M2** (tout le socle v0.1 : OAuth, client, réessais, débit, délai, DTO, mapping, mojibake, tests wiremock et fixtures, smoke tests live), M5 (pagination de la recherche vérifiée en direct), M6 (endpoints de résolution), M7 (endpoints de navigation).
+> **Statut** : M0-M1 livrés (plan 1), le reste est un plan. Ce document applique [00-decisions.md](00-decisions.md), qui est normatif et l'emporte en cas de doute.
+> **Jalons** : tâche 0 de M2 (spikes TLS, proxy, `backon`, `governor` ; 00 §11.1), **M2** (tout le socle v0.1 : OAuth, client, réessais, débit, délai, DTO, mapping, mojibake, tests wiremock et fixtures, smoke tests live), M5 (pagination de la recherche vérifiée en direct), M6 (endpoints de résolution), M7 (endpoints de navigation).
 > **Lecteurs** : développeurs de `lf-adapter-piste`, et de `lf-app` (composition, configuration) et `lf-adapter-cache` (clés, TTL).
-> Les extraits Rust sont **non compilés, à valider en M0**. Les points non vérifiés sont marqués **NON VÉRIFIÉ** avec une étiquette `[v:…]`. Le registre `V-xx` les reprend dans [09-risques-et-questions.md](09-risques-et-questions.md).
+> Les extraits Rust sont **non compilés, à valider au jalon qui les implémente**. Le domaine livré (`lf-domain`, M1) fait foi pour ses types : dates en `CivilDate` (`crates/lf-domain/src/date.rs`), identifiants `Id<K>(String)` ; ce qui manque encore au domaine est une tâche de tête de M2 (00 §11.1). Les points non vérifiés sont marqués **NON VÉRIFIÉ** avec une étiquette `[v:…]`. Le registre `V-xx` les reprend dans [09-risques-et-questions.md](09-risques-et-questions.md).
 
-Documents liés : [02-architecture.md](02-architecture.md) (ports, erreurs, décorateurs), [03-domaine.md](03-domaine.md) (types construits par le mapping), [05-outils-mcp.md](05-outils-mcp.md) (paramètres et rendu), [06-qualite.md](06-qualite.md) (stratégie de test et CI), [07-feuille-de-route.md](07-feuille-de-route.md) (tâches), [08-distribution.md](08-distribution.md) (cibles de compilation, images), [09-risques-et-questions.md](09-risques-et-questions.md), [annexes/A-parite.md](annexes/A-parite.md), [annexes/C-api-legifrance.md](annexes/C-api-legifrance.md), ADR-0004, ADR-0005, ADR-0007, ADR-0010, ADR-0011, ADR-0012, ADR-0013, ADR-0014 (index : [../adr/README.md](../adr/README.md)).
+Documents liés : [02-architecture.md](02-architecture.md) (ports, erreurs, décorateurs), [03-domaine.md](03-domaine.md) (types construits par le mapping), [05-outils-mcp.md](05-outils-mcp.md) (paramètres et rendu), [06-qualite.md](06-qualite.md) (stratégie de test et CI), [plans d'implémentation](../superpowers/plans/) (tâches : « plan N, tâche M »), [08-distribution.md](08-distribution.md) (cibles de compilation, images), [09-risques-et-questions.md](09-risques-et-questions.md), [annexes/A-parite.md](annexes/A-parite.md), [annexes/C-api-legifrance.md](annexes/C-api-legifrance.md), ADR-0004, ADR-0005, ADR-0007, ADR-0010, ADR-0011, ADR-0012, ADR-0013, ADR-0014 (index : [../adr/README.md](../adr/README.md)).
 
 ---
 
@@ -14,7 +14,7 @@ Documents liés : [02-architecture.md](02-architecture.md) (ports, erreurs, déc
 - `lf-adapter-piste` fournit `PisteCorpus: LegalCorpus`, la seule implémentation du port sortant jusqu'à M9. Il traduit chaque appel du port en requêtes `POST` JSON vers l'API Légifrance 2.4.2 derrière PISTE, puis convertit la réponse en entités de `lf-domain`. Il ne connaît ni MCP, ni l'audit, ni le cache.
 - **Environnements** : `LF_PISTE_ENV=sandbox|production` (défaut `sandbox`) fixe ensemble l'URL OAuth et la base de l'API. Les surcharges `LF_PISTE_OAUTH_URL` et `LF_PISTE_BASE_URL` sont validées (https, pas d'identifiants dans l'URL, cohérence d'environnement). Aucune URL ne vient d'ailleurs (ADR-0005, corrige D-04).
 - **OAuth2 client_credentials** : jeton en mémoire (`SecretString`), renouvelé 60 s avant expiration, rafraîchissement mono-vol. Sur l'API, un 401 déclenche **un seul** renouvellement, puis `CorpusError::Auth`. Une erreur de l'endpoint token n'est jamais `NotFound` (corrige D-10, D-12, E-20).
-- **HTTP** : un `reqwest::Client` 0.13 unique (rustls, fournisseur crypto tranché par le spike M0), connexion 10 s, requête 40 s, aucune redirection suivie, corps plafonné à 16 Mio, User-Agent versionné (corrige D-06, D-41, D-43).
+- **HTTP** : un `reqwest::Client` 0.13 unique (rustls, fournisseur crypto tranché par le spike TLS (tâche 0 de M2)), connexion 10 s, requête 40 s, aucune redirection suivie, corps plafonné à 16 Mio, User-Agent versionné (corrige D-06, D-41, D-43).
 - **Résilience** : `backon` (3 tentatives sur 429/500/502/503/504 et erreurs réseau, backoff exponentiel avec gigue, `Retry-After`), délai global par outil `LF_TOOL_DEADLINE_S` (60 s), `governor` (5 req/s, rafale 10, configurables) piloté par une horloge `tokio`, sémaphore de 4 requêtes en vol (corrige D-12, D-13, D-14).
 - **Requêtes `/search`** : payload de la référence, `typeRecherche` choisi par `match`, `DATE_VERSION` à minuit Europe/Paris (stable sur la journée, corrige D-01), facettes de date par fond tirées de la documentation officielle, `typePagination` mémorisé et renvoyé.
 - **DTO** serde minimaux et tolérants, un module par endpoint, `serde_path_to_error` pour des `Decode` lisibles. **Mapping** en fonctions pures vers les entités de 03.
@@ -33,7 +33,7 @@ Documents liés : [02-architecture.md](02-architecture.md) (ports, erreurs, déc
 | Jeton OAuth2 client_credentials, mono-vol | `auth.rs` | D-10, D-12 |
 | Client HTTP unique, lecture bornée des corps | `http.rs` | D-06, D-41, D-43 |
 | Réessais, délai global, limitation de débit et de concurrence | `retry.rs`, `limit.rs`, `deadline.rs` | D-12, D-13, D-14 |
-| Décodage UTF-8 strict et réparation du mojibake | `encoding.rs` (appelle `lf_domain::text::encoding::repair_latin1_mojibake`) | D-35 (côté production) |
+| Décodage UTF-8 strict et réparation du mojibake | `encoding.rs` (appelle `lf_domain::text::encoding::repair_latin1_mojibake` ; module du domaine à créer en tâche de tête de M2, 00 §11.1, reliquat de M1, avant `encoding.rs` ; nom du module de l'adapter à trancher : `encoding.rs` ici, `mojibake.rs` en 02) | D-35 (côté production) |
 | Construction des corps de requête (`/search`, consultations) | `request/` | D-01, D-09, D-32 |
 | DTO serde minimaux | `dto/` | D-11, D-23, D-24 |
 | Mapping DTO vers entités du domaine | `map/` | D-20, D-21, D-25, D-26, D-28, D-30, D-33 |
@@ -74,7 +74,7 @@ Règles de dépendance (00 §2) : `lf-adapter-piste` dépend de `lf-application`
 Les traits sont en async natif (RPITIT + `Send`, ADR-0012). L'implémentation utilise `async fn`. La sélection PISTE/DILA par `enum AnyCorpus` arrive en M9 (ADR-0004) et ne change rien ici.
 
 ```rust
-// lf-adapter-piste/src/lib.rs — non compilé, à valider en M0
+// lf-adapter-piste/src/lib.rs — non compilé, à valider au jalon qui l'implémente
 #[derive(Clone)]
 pub struct PisteCorpus<K: MonoClock = TokioClock, S: Sleeper = TokioSleeper> { inner: Arc<Inner<K, S>> }
 
@@ -101,7 +101,7 @@ Versions relevées dans l'index crates.io le 2026-10-15 (recherche 04 §4.1). Le
 
 | Crate | Version | Features | Usage |
 |---|---|---|---|
-| `reqwest` | 0.13.5 | `json`, `form`, `rustls` **ou** `rustls-no-provider` (spike M0), `gzip`, `system-proxy` | client HTTP (§4) |
+| `reqwest` | 0.13.5 | `json`, `form`, `rustls` **ou** `rustls-no-provider` (spike TLS (tâche 0 de M2)), `gzip`, `system-proxy` | client HTTP (§4) |
 | `rustls` | 0.23.46 | seulement si `rustls-no-provider` : `ring`, `std`, `tls12`, `logging` | fournisseur crypto (§4.1) |
 | `tokio` | 1.53.3 | `time`, `sync` | délais, sémaphore, verrou du jeton |
 | `serde`, `serde_json` | 1.0.229, 1.0.154 | `derive` | DTO |
@@ -109,7 +109,7 @@ Versions relevées dans l'index crates.io le 2026-10-15 (recherche 04 §4.1). Le
 | `secrecy` | 0.10.3 | `serde` | `client_secret` et jeton (§3.6) |
 | `backon` | 1.6.0 | `std`, `tokio-sleep` | réessais (§5.2) |
 | `governor` | 0.10.4 | `std` (sans `quanta` ni `dashmap`) | limitation de débit (§5.4) |
-| `chrono`, `chrono-tz` | 0.4.45, 0.10.4 | `std` | dates des DTO, minuit Europe/Paris pour `singleDate` (§6.3) |
+| `chrono`, `chrono-tz` | 0.4.45, 0.10.4 | `std` | minuit Europe/Paris pour `singleDate` (§6.3) et date HTTP de `Retry-After` ; **hors du domaine** : `lf-domain` reste limité à `thiserror` (liste blanche de `xtask/src/arch.rs`, `DOMAIN_ALLOWED`) et porte ses dates en `CivilDate` (00 §2, C3) |
 | `tracing` | 0.1.44 | — | journaux sur stderr (§12.5) |
 | `thiserror` | 2.0.21 | — | erreurs internes |
 | `url` | 2.5.8 | — | validation de la configuration (via `reqwest::Url`) |
@@ -141,8 +141,10 @@ crates/lf-adapter-piste/src/
 crates/lf-adapter-piste/tests/
   fixtures/reference/*.json (+ .meta.toml)   16 fixtures de la référence (attribution NOTICE)
   fixtures/recorded/<endpoint>/*.json (+ .meta.toml)   fixtures enregistrées par xtask
-  oauth.rs, resilience.rs, body.rs, endpoints.rs, search_payload.rs, contract_fixtures.rs, live.rs
+  live.rs   smoke tests live, `#[ignore]` (§13.5)
 ```
+
+Les tests unitaires et wiremock vivent **dans le crate**, en `#[cfg(test)] mod tests` du fichier testé (async pour wiremock), conformément à l'ADR-0002 et à 00 §10 : jeton (`auth.rs`), résilience (`retry.rs`, `limit.rs`, `deadline.rs`), corps (`http.rs`, `encoding.rs`), payloads (`request/search.rs`), mapping et contrats sur fixtures (`map/*.rs`, via `include_bytes!`) et scénarios d'endpoints (`corpus.rs`). `tests/` est réservé à `live.rs`, aux tests e2e du binaire et aux compléments, car `make cov` mesure `--lib` : un code exercé seulement par `tests/*.rs` compterait comme non couvert. La glue HTTP irréductible est exclue **nommément** ; prévoir en M2 un `--ignore-filename-regex` dans `COV_FLAGS` du `Makefile`, en même temps que les `exclude_globs` justifiés de `.cargo/mutants.toml`. Les noms de fichiers de test cités plus bas (`oauth.rs`, `resilience.rs`…) désignent désormais ces modules `tests`.
 
 ### 1.6 Pipeline d'un appel
 
@@ -209,7 +211,7 @@ Le connecteur ne lit aucune configuration distante, ne télécharge aucun manife
 ### 2.3 `PisteConfig` et validation
 
 ```rust
-// lf-adapter-piste/src/config.rs — non compilé, à valider en M0
+// lf-adapter-piste/src/config.rs — non compilé, à valider au jalon qui l'implémente
 pub enum PisteEnv { Sandbox, Production }
 
 pub struct PisteEndpoints { pub oauth_url: Url, pub base_url: Url, pub official: bool }
@@ -274,7 +276,7 @@ Corps et en-têtes conformes à l'exemple officiel (`exemples-d-utilisation-de-l
 Réponse documentée : `{"access_token": "…", "token_type": "Bearer", "expires_in": 3600, "scope": "openid"}`, où `expires_in` est en secondes (`exemples-d-utilisation-de-l-api.md:135-151`). Observé en sandbox : scope `openid resource.READ` (référence DISCOVERY.md:12).
 
 ```rust
-// dto/oauth.rs — non compilé, à valider en M0
+// dto/oauth.rs — non compilé, à valider au jalon qui l'implémente
 #[derive(Deserialize)]
 pub(crate) struct TokenResponseDto {
     #[serde(default)] pub access_token: Option<SecretString>,   // feature serde de secrecy
@@ -295,7 +297,7 @@ Règles :
 ### 3.3 Gestionnaire de jeton
 
 ```rust
-// auth.rs — non compilé, à valider en M0
+// auth.rs — non compilé, à valider au jalon qui l'implémente
 pub(crate) struct TokenManager<K: MonoClock> {
     http: reqwest::Client,                       // le client partagé (§4.2)
     oauth_url: Url,
@@ -372,7 +374,7 @@ Constats sur reqwest 0.13.5 (recherche 04 §4.2, `RQ:Cargo.toml:39-80`, `RQ:CHAN
 - Les racines de certificats viennent de `rustls-platform-verifier`, c'est-à-dire du magasin du système. Sous Unix hors Apple, il faut donc un magasin CA dans l'image OCI (08).
 - Avec `rustls-no-provider`, reqwest panique au premier client construit si aucun fournisseur n'est installé (`RQ:src/async_impl/client.rs:2498-2510`).
 
-**Spike M0** (00 §11), à trancher avant M2 :
+**Spikes TLS et proxy** (tâche 0 de M2, 00 §11.1), à trancher avant d'écrire le client :
 
 | Option | Features | Coût | À mesurer |
 |---|---|---|---|
@@ -389,13 +391,13 @@ Un seul `reqwest::Client`, construit une fois au premier appel (`OnceCell`, mono
 |---|---|---|
 | `connect_timeout` | 10 s | 00 §8 ; parité P-025 (référence client.py:30) |
 | `timeout` (total par tentative, connexion et corps compris) | `LF_HTTP_TIMEOUT_S` (40 s), réduit tentative par tentative à `min(40 s, reste du délai global)` via `RequestBuilder::timeout` | reqwest : « applied from when the request starts connecting until the response body has finished » (`RQ:src/async_impl/client.rs:1444-1453`, `request.rs:289-299`) |
-| `user_agent` | `mcp-legifrance/<version> (+https://github.com/muchiny/mcp-ligitfrance)`, chaîne fournie par `lf-app` avec `env!("CARGO_PKG_VERSION")` du binaire | 00 §8 ; corrige D-43 et E-08. L'URL suivra le renommage du dépôt (Q1) |
+| `user_agent` | `mcp-legifrance/<version> (+https://github.com/muchiny/mcp-legifrance)`, chaîne fournie par `lf-app` avec `env!("CARGO_PKG_VERSION")` du binaire | 00 §8 ; corrige D-43 et E-08. Nom et URL du dépôt `mcp-legifrance` (Q1 décidée le 2026-10-16, C6) ; l'URL du dépôt GitHub suit le renommage |
 | en-tête par défaut | `Accept: application/json` | exemple officiel (`exemples…md:155-163`) ; `Content-Type: application/json` est posé par `.json()` |
 | `redirect` | `redirect::Policy::none()` | un 3xx devient `Upstream { status, retryable: false }`. Parité : la référence ne suivait pas les redirections (recherche 01 §6.3). Un `POST` authentifié n'a aucune raison d'être redirigé. reqwest suit 10 redirections par défaut (`RQ:src/redirect.rs:160-165`) |
 | `https_only` | `true`, sauf `ConfigWarning::InsecureLoopback` (tests) | `RQ:src/async_impl/client.rs:2262` |
 | `gzip` | activé (feature `gzip`) : envoie `Accept-Encoding: gzip`, décompression transparente | réponses JSON très compressibles ; prise en charge par PISTE **NON VÉRIFIÉ** [v:piste-gzip]. La borne de taille s'applique aux octets **décompressés** (§4.3) |
 | `retry` | défaut de reqwest conservé : seuls les NACK de protocole sûrs sont rejoués (`RQ:src/async_impl/client.rs:1405-1414`, `src/retry.rs:9-16`). Toute la politique applicative est dans `backon` (§5.2) | évite deux couches de réessai concurrentes |
-| proxy | défaut conservé (proxy système, feature `system-proxy` : réglages Windows et macOS, `RQ:src/lib.rs:216`) | réseaux d'entreprise ; prise en compte de `HTTPS_PROXY` et `NO_PROXY` selon les features retenues : **NON VÉRIFIÉ** [v:reqwest-proxy-env], à tester au spike M0 |
+| proxy | défaut conservé (proxy système, feature `system-proxy` : réglages Windows et macOS, `RQ:src/lib.rs:216`) | réseaux d'entreprise ; prise en compte de `HTTPS_PROXY` et `NO_PROXY` selon les features retenues : **NON VÉRIFIÉ** [v:reqwest-proxy-env], à tester au spike TLS (tâche 0 de M2) |
 | `pool_idle_timeout` | défaut (90 s) | une connexion fermée par la passerelle PISTE produit une erreur réseau, rejouée par la politique §5.2 |
 | `danger_accept_invalid_certs` | **jamais** | §14.2 |
 
@@ -445,7 +447,7 @@ Une **tentative** produit une issue. La boucle de réessai (§5.2) décide de la
 | délai de tentative dépassé (`reqwest::Error::is_timeout`) | **oui** | `Timeout` | — |
 | délai global dépassé | non | `Timeout` | §5.3 |
 | corps illisible (UTF-8, JSON, trop gros) | non | `Decode` | §4.3, §8.5 |
-| incohérence de domaine (`DomainError` non utilisateur, ex. `TocTooDeep`) | non | `Decode` | 03 §9 |
+| incohérence de domaine (`DomainError` non utilisateur, ex. `TocTooDeep`, variante ajoutée en M2 avec la TOC en arbre) | non | `Decode` | 03 §9 |
 
 `Upstream.status` est un `Option<u16>` (`None` pour une erreur réseau). Le `Display` de chaque `CorpusError` est en anglais, court, sans URL complète ni secret. Il reprend le format de la parité, par exemple `Legifrance/PISTE HTTP 503 on /consult/juri after 3 attempts` (P-014). Les erreurs reqwest passent par `Error::without_url()` (`RQ:src/error.rs:91`) avant tout affichage, et seul le chemin du gabarit d'endpoint est cité. Les noms et champs exacts des variantes sont fixés dans [02-architecture.md](02-architecture.md).
 
@@ -466,7 +468,7 @@ Selon des clients tiers, une facette inconnue, un champ JSON inconnu ou `fond=AL
 Mise en œuvre avec `backon` 1.6.0 (`default = std, std-blocking-sleep, tokio-sleep, gloo-timers-sleep`, index crates.io) : un `ExponentialBuilder` (délai minimal 500 ms, facteur 2, 2 réessais, gigue), un prédicat `when` qui ne retient que les issues transitoires, un ajustement du délai par `Retry-After`, et un « sleeper » qui délègue au `Sleeper` du crate, pour les tests. Les noms exacts de l'API backon 1.6 (`when`, `adjust`, `sleep`, `notify`) et la sémantique de sa gigue sont **NON VÉRIFIÉ** [v:backon-api]. Si `adjust` n'existe pas ou si la gigue de backon peut réduire le délai, on écrit un itérateur `Backoff` maison (backon accepte tout `Iterator<Item = Duration>`), sans changer la politique ci-dessus.
 
 ```rust
-// retry.rs — esquisse non compilée, à valider en M0 (la logique compte, pas l'API backon exacte)
+// retry.rs — esquisse non compilée, à valider au jalon qui l'implémente (la logique compte, pas l'API backon exacte)
 async fn call<D: DeserializeOwned>(&self, ep: Endpoint, body: &impl Serialize) -> Result<D, CorpusError> {
     let deadline = Deadline::current_or(&self.clock, self.cfg.tool_deadline);
     let mut refreshed = false;
@@ -587,9 +589,12 @@ Les DTO de requête de la recherche 03 §12.3 sont repris (`SearchRequestDto`, `
 Règle (00 §8) : `singleDate` = l'instant de minuit, heure de Paris, au jour `version_date`, exprimé en millisecondes depuis l'epoch. Il est stable toute la journée : deux recherches identiques le même jour donnent le même corps, donc la même clé de cache. Cela corrige D-01 et E-06 : la référence envoyait `now_ms`, qui changeait à chaque milliseconde.
 
 ```rust
-// request/search.rs — non compilé, à valider en M0
-fn paris_midnight_ms(d: NaiveDate) -> i64 {
-    let local = d.and_time(NaiveTime::MIN);                       // minuit local, sans unwrap
+// request/search.rs — non compilé, à valider au jalon qui l'implémente
+fn paris_midnight_ms(d: VersionDate) -> i64 {                      // VersionDate = CivilDate (lf-domain)
+    // conversion à la frontière : chrono n'existe que dans l'adapter (pas dans le domaine)
+    let Some(nd) = NaiveDate::from_ymd_opt(i32::from(d.year()), u32::from(d.month()), u32::from(d.day()))
+    else { return 0 };                                            // inatteignable : CivilDate est déjà validée (branche à couvrir ou à restructurer, 100 % des régions)
+    let local = nd.and_time(NaiveTime::MIN);                      // minuit local, sans unwrap
     match chrono_tz::Europe::Paris.from_local_datetime(&local) {
         LocalResult::Single(t) | LocalResult::Ambiguous(t, _) => t.timestamp_millis(), // earliest
         LocalResult::None => Utc.from_utc_datetime(&local).timestamp_millis(),          // repli théorique
@@ -641,7 +646,7 @@ Règles :
 
 - La facette retenue représente « la date du document » pour un juriste : signature d'un acte, date d'une décision ou d'une délibération. La table vit dans l'adapter (`request/search.rs`, `fn date_facet(Fond) -> Option<&'static str>`), car ce sont des noms d'API (03 §3.1).
 - `Code` avec une plage de dates : `CorpusError::InvalidRequest` sans appel réseau (`date_from/date_to are not supported for fond CODE; use version_date`). [05-outils-mcp.md](05-outils-mcp.md) doit rejeter ce cas en amont (`invalid_arg`) ; le contrôle de l'adapter n'est qu'une défense.
-- Borne absente : si `DateRange` admet une borne ouverte (forme à fixer en M1, 03 §6.1), l'adapter envoie toujours les deux champs, avec `1500-01-01` ou `2221-12-31`, les bornes de `VersionDate` (03 §6.1). Tous les exemples officiels fournissent les deux bornes.
+- Borne absente : si `DateRange` admet une borne ouverte (forme fixée en tâche de tête de M2 : `DateRange` avec `InvertedDateRange`, 00 §11.1 ; 03 §6.1), l'adapter envoie toujours les deux champs, avec `1500-01-01` ou `2221-12-31`, les bornes du `VersionDate` borné (1500-01-01 à 2221-12-31, **NON VÉRIFIÉ** ; tâche de tête de M2, aujourd'hui alias non borné de `CivilDate`). Tous les exemples officiels fournissent les deux bornes.
 - Noms de facettes : vérifiés dans la documentation officielle. **Effet réel** en direct (le total diminue-t-il ?), caractère inclusif de `end`, comportement d'une borne lointaine, et combinaison avec `DATE_VERSION` : **NON VÉRIFIÉ** [v:filtres-dates-effet]. Un exemple officiel combine déjà `DATE_SIGNATURE` et `DATE_VERSION` sur `LODA_DATE` (`exemples…md:535-553`).
 
 ### 6.6 Pagination et `typePagination`
@@ -737,7 +742,7 @@ Chemins utilisés par des tiers mais **absents** du Swagger 2.4.2 (`consult/loda
 **`find_by_number(&NumberQuery)`** — signature fixée par [02-architecture.md](02-architecture.md) §5.1 ; les variantes de `NumberQuery` sont définies dans [03-domaine.md](03-domaine.md) et [annexes/B-citations.md](annexes/B-citations.md). L'adapter a seulement besoin de trois informations par requête : le fond, la nature du numéro et, en option, une plage de dates. Forme minimale attendue, à reprendre dans 03 :
 
 ```rust
-// non compilé, à valider en M0 — besoins de l'adapter, pas une définition normative
+// non compilé, à valider au jalon qui l'implémente — besoins de l'adapter, pas une définition normative
 pub enum NumberKind { Text /*NUM*/, Case /*NUM_AFFAIRE*/, Decision /*NUM_DEC*/, Deliberation /*NUM_DELIB*/, Idcc, Nor }
 pub struct NumberQuery { pub fond: Fond, pub kind: NumberKind, pub value: String, pub within: Option<DateRange> }
 ```
@@ -768,7 +773,7 @@ Repris de la recherche 03 §12.1 et figés ici :
 1. **Un module par endpoint** ; aucune struct partagée entre endpoints pour des champs homonymes de types différents. `signataires` est un objet dans `/consult/kaliText` et une chaîne dans `TexteSimple` (recherche 03 §9) ; il n'est d'ailleurs pas déclaré du tout.
 2. **Tolérance** : jamais `#[serde(deny_unknown_fields)]`. Serde ignore les champs inconnus par défaut. On ne déclare **que** les champs utilisés.
 3. **Tout est optionnel** : `Option<T>` et `#[serde(default)]` partout. Tout champ à désérialiseur personnalisé porte `#[serde(default)]`, sinon son absence est une erreur `missing field` (serde_derive, recherche 03 §12.1 point 3). Toute liste passe par `null_default`, car `Vec<T>` refuse `null` (des listes `null` existent : `textTitles[].appellations`).
-4. **Dates brutes** (`RawDate`) dans le DTO, converties en `NaiveDate` dans le mapping (§9.1).
+4. **Dates brutes** (`RawDate`) dans le DTO, converties en `CivilDate` du domaine dans le mapping (§9.1) ; `chrono` ne sert dans l'adapter qu'à `singleDate` (§6.3) et à `Retry-After`.
 5. **Chaînes vides** : `""` devient `None` par `opt_nonempty` pour les champs où `""` signifie « absent ». Le contenu des chaînes non vides n'est jamais retouché (pas de `trim` du texte juridique dans le DTO).
 6. **Rien de volumineux inutile** : `facets` de `/search` (jusqu'à 88 % de la réponse KALI, recherche 03 §5) et `data` d'ACCO (base64) ne sont **pas déclarés**. Serde les parcourt sans les allouer. En v0.1, les facettes ne sont jamais renvoyées (00 §7) : la proposition `Option<Box<RawValue>>` de la recherche 03 est inutile.
 7. Les DTO sont `pub(crate)`. Le domaine ne voit jamais un type serde.
@@ -868,7 +873,7 @@ Les personnes (`president`, `avocats`, `rapporteur`, `commissaire`, `avocatGl`) 
 | NOR en minuscules en recherche (`cscl2115694s`) | search | `Nor` du domaine en majuscules (03 §4.2) | — |
 | `isMultipleVersions` (fixture) contre `multipleVersions` (Swagger, KALI) | getArticle | `alias` | `multiple_versions_alias` |
 | `typePagination` renvoyé différent de l'envoyé | search CODE | §6.6 | `type_pagination_is_echoed_on_next_page` |
-| suffixe `_JJ-MM-AAAA` sur `titles[].id` et `id` de lawDecree | search LODA/CODE, lawDecree | `VersionedId` du domaine (03 §2.4) | `suffix_is_version_date` |
+| suffixe `_JJ-MM-AAAA` sur `titles[].id` et `id` de lawDecree | search LODA/CODE, lawDecree | `parse_versioned` / `VersionedId` du domaine (03 §2.4 ; tâche de tête de M2, C4 : le suffixe est validé comme une vraie date et conservé, un suffixe mal formé est refusé, un suffixe bien formé hors `LEGITEXT` est toléré puis retiré) | `suffix_is_version_date` |
 | `cid` LODA = `JORFTEXT` ≠ `id` | search, lawDecree | `Option<JorfTextId>` | — |
 | `etat` LODA `null` mais `jurisState` = `Vigueur` | lawDecree | `status_of(etat, jurisState)` (03 §3.3, E-10) | `loda_status_falls_back_to_juris_state` |
 | `liens[]` JURI : identifiants `""`, titres fragmentés | juri | `opt_nonempty` ; titres passés au parseur (M7) | `empty_string_is_none` |
@@ -898,9 +903,9 @@ Fonctions pures de `map/`, du type `fn(dto, &contexte de requête) -> Result<Ent
 |---|---|---|
 | (a) Introuvable | enveloppe absente ou `null`, ou objet sans `id`, `cid` ni titre ⇒ `NotFound`. Objet rempli mais sans `id` ⇒ l'identifiant **demandé** est utilisé, avec un diagnostic `warn` | parité (recherche 03 §12.8 a ; S15) |
 | (b) Identifiant renvoyé ≠ identifiant demandé (après retrait du suffixe) | l'entité garde l'identifiant renvoyé, vérité de l'API ; diagnostic `warn` | — |
-| (c) Identifiants | `FromStr` stricts du domaine ; suffixe `_JJ-MM-AAAA` vers `VersionedId` (03 §2.4) | D-28, D-31, E-16 |
+| (c) Identifiants | `FromStr`/`Id::parse` du domaine, tolérants (espaces, casse) ; suffixe malformé refusé ; suffixe `_JJ-MM-AAAA` conservé par `parse_versioned` (tâche de tête de M2, C4 ; 03 §2.4) | D-28, D-31, E-16 |
 | (d) Routage | la famille de juridiction, l'URL et la règle de citation viennent du **type** d'identifiant. `origine` n'est qu'un contrôle de cohérence (diagnostic s'il diverge) | D-28, E-18 |
-| (e) Dates | `RawDate::Millis(ms)` → `date::from_epoch_ms` (03 §6.3, epoch négatifs compris, sans dépendance à la plateforme) ; `Text("AAAA-MM-JJ")` → `NaiveDate` ; `Text("AAAA-MM-JJT…+0000")` → partie date ; puis `date::open_ended` (toute date ≥ 2222-01-01 devient `None`) ; les champs `…Computed` sont lus en priorité. Un horodatage qui n'est pas à minuit UTC produit un diagnostic : convention générale **NON VÉRIFIÉ** [v:convention-horaire-timestamps] (03) | D-20, D-21, E-11, E-35 |
+| (e) Dates | `RawDate::Millis(ms)` → `CivilDate::from_unix_millis` (livré, `date.rs:91` ; epoch négatifs compris par `div_euclid`, sans dépendance à la plateforme ; vecteur 1804-03-21 = -5231606400000, test ajouté en tâche de tête de M2) ; `Text("AAAA-MM-JJ")` → `CivilDate::parse` ; `Text("AAAA-MM-JJT…+0000")` → partie date puis `CivilDate::parse` ; puis `open_ended` sur `CivilDate` (toute date ≥ 2222-01-01 devient `None` ; **tâche de tête de M2**, 00 §11.1 : le livré garde aujourd'hui la sentinelle `2999-01-01`, `act.rs:41`) ; les champs `…Computed` sont lus en priorité. Un horodatage qui n'est pas à minuit UTC produit un diagnostic : convention générale **NON VÉRIFIÉ** [v:convention-horaire-timestamps] (03) | D-20, D-21, E-11, E-35 |
 | (f) Textes | `LongText::best_of(texteHtml, texte)` (03 §7.4) ; les champs courts passent par `text::clean` | D-26 |
 | (g) Statut | `status_of(etat, jurisState)` | D-21, E-10 |
 | (h) Erreurs du domaine | `DomainError` non utilisateur (`TocTooDeep`, `TextTooLarge`) ⇒ `Decode` | — |
@@ -908,12 +913,14 @@ Fonctions pures de `map/`, du type `fn(dto, &contexte de requête) -> Result<Ent
 
 ### 9.2 Par entité
 
+Types et champs absents du livré : `TocNode` = tâche de tête de M2 ; `LegalStatus`, `Nor`, `Idcc`, `parent`/`path`/`nota`, `SearchHit::new`, `DocumentId` et `LongText` = reports de M2 (00 §11.1, « Reports par jalon : M2 ») ; `LodaArticle` seulement après V-140/V-142.
+
 | Entité (03 §4) | Fonction | Sources principales | Points propres | Défauts |
 |---|---|---|---|---|
 | `SearchPage`, `SearchHit` | `map::search_page(dto, &SearchQuery)` | `results[]`, `totalResultNumber`, `totalArticleResultNumber`, `typePagination` | `kind` = fond demandé ; `id` = `titles[0].id` ; `title` sans `<mark>` ; `date` = `date`, puis `datePublication`, puis `dateSignature` ; `snippet` = `text`, sinon `extracts[0].values[0]` (≤ 280 caractères) ; `articles` CODE et KALI depuis `sections[].extracts[]` ; `company`, `idcc` (ACCO) ; `total_articles` si > 0 ; `has_more = page × page_size < total` | D-09, D-30, D-33, E-26 |
-| `Act` | `map::act(dto, &LegiTextId, VersionDate)` | lawDecree | `version_start` = suffixe ou `dateDebutVersion` ; `version_end` = `dateFinVersion` (2999 → `None`) ; `cid: JorfTextId` ; `Toc::build(TocDraft)` depuis `sections`/`articles` (titres de sections, tri `intOrdre`, dédoublonnage ; 03 §4.2) ; `nature == "CODE"` : avertissement prévu par 05 | D-25, D-47, E-10, E-11 |
+| `Act` | `map::act(dto, &LegiTextId, VersionDate)` | lawDecree | `version_start` = suffixe (via `parse_versioned`) ou `dateDebutVersion` ; `version_end` = `dateFinVersion` (2999 → `None` via `open_ended`) ; `cid: JorfTextId` ; `Toc::build(TocDraft)` depuis `sections`/`articles` (arbre `TocNode` : titres de sections, tri `intOrdre`, dédoublonnage, profondeur ≤ 64 ; 03 §4.2). **Tâche de tête de M2** (C4) : le livré n'a que `TocEntry` (liste plate d'articles, `act.rs:13`), renommé `TocArticle` en tâche de tête de M2 (00 §11.1, tâche 2) ; `nature == "CODE"` : avertissement prévu par 05 | D-25, D-47, E-10, E-11 |
 | `ArticleText` | `map::article(dto, &ArticleId)` | getArticle | `code_title` = `textTitles[nature=="CODE"].titre`, sinon `textTitles[0].titre` ; `parent` (nature du texte parent → URL `code_article` ou `loda_article`, 03 §5.5) ; `path` = `context.titresTM[].titre` ; `nota` = `notaHtml`, sinon `nota` ; `previous_version` | D-26, D-29 |
-| `Decision` | `map::decision(dto, &DecisionId)` | juri | `ecli` natif validé (`Ecli::from_str`), jamais fabriqué ; `numero_affaire` = `numeroAffaire`, sinon `[num]` pour CETAT ; `date` = `dateTexteComputed`, sinon `dateTexte` ; `OfficialSummary` selon le fond (03 §4.4) ; `cited_case_law` = `citationJp` ; `applied_texts` | D-26, D-27, D-28 |
+| `Decision` | `map::decision(dto, &DecisionId)` | juri | `ecli` natif validé (`Ecli::parse` livré, `ecli.rs` ; `Display` livré (`ecli.rs:61`), `FromStr` ajouté en M2, M1-D11), jamais fabriqué ; `numero_affaire` = `numeroAffaire`, sinon `[num]` pour CETAT ; `date` = `dateTexteComputed`, sinon `dateTexte` ; `OfficialSummary` selon le fond (03 §4.4) ; `cited_case_law` = `citationJp` ; `applied_texts` | D-26, D-27, D-28 |
 | `Deliberation` | `map::deliberation(dto, &CnilTextId)` | cnil | `date`, `date_publication` (`…Computed` d'abord) ; `nature_delib` | D-27 |
 | `Convention` | `map::convention(dto, &KaliTextId)` | kaliText | `idcc` = `conteneurs[0].num` ; `container_title` (saut de ligne final retiré) ; `bulletin` = `originePubli`, sinon `numeroBo` ; TOC avec `inline_text` depuis `content` (pas de N+1 appels) | D-20, D-25 |
 | `CompanyAgreement` | `map::agreement(dto, &AccoTextId)` | acco | métadonnées seules ; `themes` et `unions` limités aux libellés non vides ; **aucun** champ texte (P-036) | E-14 |
@@ -936,7 +943,7 @@ Le domaine renvoie ses anomalies comme valeurs (03 §1.1). L'adapter les journal
 
 ### 10.2 Algorithme exact
 
-Appliqué au **texte entier du corps** (réponses 2xx et corps d'erreur), après le décodage UTF-8 strict et avant serde (§4.4). La fonction pure est `lf_domain::text::encoding::repair_latin1_mojibake(&str) -> Cow<str>` (03 §1.5, §7.1) ; l'esquisse est dans la recherche 03 §11.1.
+Appliqué au **texte entier du corps** (réponses 2xx et corps d'erreur), après le décodage UTF-8 strict et avant serde (§4.4). La fonction pure est `lf_domain::text::encoding::repair_latin1_mojibake(&str) -> Cow<str>` (module non livré : tâche de tête de M2, 00 §11.1, reliquat de M1 ; 03 §1.5, §7.1) ; l'esquisse est dans la recherche 03 §11.1.
 
 1. **Détection** `has_latin1_mojibake(s)` : vrai si `s` contient un caractère C1 (U+0080 à U+009F), **ou** une paire adjacente `(p, c)` avec `p` ∈ [U+00C2, U+00F4] et `c` ∈ [U+0080, U+00BF].
 2. Si la détection est fausse : identité (`Cow::Borrowed`).
@@ -1014,7 +1021,7 @@ Un `not_found` signifie donc toujours que l'API a dit que la ressource n'existai
 ### 11.3 Corps d'erreur PISTE
 
 ```rust
-// dto/error.rs — non compilé, à valider en M0
+// dto/error.rs — non compilé, à valider au jalon qui l'implémente
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PisteErrorDto {
@@ -1033,7 +1040,7 @@ La désérialisation est **facultative** : un corps d'erreur non JSON (HTML, tex
 
 ### 12.1 Opérations et clés
 
-`lf-adapter-cache` enveloppe l'adapter : `CachedCorpus<PisteCorpus>` (00 §9, ADR-0007). La clé est `(environnement, opération, paramètres normalisés)`. L'environnement vient de `PisteCorpus::environment()`, fourni à la composition par `lf-app`, ce qui corrige D-15.
+`lf-adapter-cache` enveloppe l'adapter : `CachedCorpus<PisteCorpus>` (00 §9, ADR-0007). La clé est `(environnement, opération, paramètres normalisés)`. `Hash` sur les identifiants (clés moka) : tâche de tête de M2 selon 00 §11.1 (M1-D11, avancé depuis M3). L'environnement vient de `PisteCorpus::environment()`, fourni à la composition par `lf-app`, ce qui corrige D-15.
 
 | Opération (nom de cache) | Méthode du port | Paramètres de la clé | TTL (00 §9) |
 |---|---|---|---|
@@ -1089,7 +1096,7 @@ Implémentation : `std::sync::Mutex<…>` avec horodatage `MonoClock`, sans dép
 
 ### 13.1 Infrastructure
 
-- **wiremock** 0.6.5 : un `MockServer` par test. La `PisteConfig` de test pointe `oauth_url` vers `{server}/oauth/token` et `base_url` vers `{server}/dila/legifrance/lf-engine-app` (`ConfigWarning::InsecureLoopback`).
+- **wiremock** 0.6.5 : un `MockServer` par test, dans un `#[cfg(test)] mod tests` async du crate (pas dans `tests/`, 00 §10). La `PisteConfig` de test pointe `oauth_url` vers `{server}/oauth/token` et `base_url` vers `{server}/dila/legifrance/lf-engine-app` (`ConfigWarning::InsecureLoopback`).
 - **Temps** : on ne gèle **pas** l'horloge `tokio` (`start_paused`) pendant des E/S réelles avec wiremock. L'avance automatique d'une horloge gelée pourrait déclencher à tort le délai de reqwest pendant l'attente d'une socket. Ce comportement est **NON VÉRIFIÉ** [v:wiremock-temps-pause], et la conception l'évite. À la place :
   - `ManualClock: MonoClock` et `RecordingSleeper: Sleeper` (qui avance la `ManualClock` de la durée demandée et la note) rendent déterministes l'expiration du jeton, le backoff, `Retry-After`, le limiteur et le délai global, sans attente réelle ;
   - les tests de délai HTTP utilisent de vraies durées courtes : `request_timeout = 200 ms`, réponse retardée de 1 s par `ResponseTemplate::set_delay`.
@@ -1287,7 +1294,7 @@ Ni 429 ni `Retry-After` ne sont provoqués volontairement : ce serait contraire 
 
 ### 14.2 TLS
 
-- rustls uniquement, avec le fournisseur choisi au spike M0 (§4.1) et la vérification par `rustls-platform-verifier` (magasin du système) ; TLS 1.2 minimum (défaut de rustls) ; `https_only`.
+- rustls uniquement, avec le fournisseur choisi au spike TLS (tâche 0 de M2) (§4.1) et la vérification par `rustls-platform-verifier` (magasin du système) ; TLS 1.2 minimum (défaut de rustls) ; `https_only`.
 - Jamais `danger_accept_invalid_certs` ni vérificateur personnalisé. Un proxy d'entreprise qui intercepte TLS fonctionne si sa racine est installée dans le magasin du système. Une image OCI doit embarquer les certificats CA (08).
 
 ### 14.3 Aucune URL pilotée à distance
@@ -1317,11 +1324,11 @@ Les requêtes de recherche peuvent révéler l'activité d'un juriste : elles ne
 
 ## 15. Livrables et critères d'acceptation par jalon
 
-**M0 — Fondations (part de ce crate)**
+**Tâche 0 de M2 — Spikes (part de ce crate ; ex-M0, 00 §11.1)**
 
 - [ ] Spike TLS : options A et B compilées pour les 7 cibles cargo-dist ; poignée de main TLS testée ; choix consigné dans ADR-0013 et dans 09 ([v:tls-fournisseur-cross]).
 - [ ] Spike proxy : prise en compte de `HTTPS_PROXY` et `NO_PROXY` avec les features retenues ([v:reqwest-proxy-env]).
-- [ ] Squelette du crate compilé avec les dépendances du §1.4 ; `cargo xtask check-deps` vert (pas de `rmcp`, pas d'autre adapter).
+- [ ] Squelette du crate compilé avec les dépendances du §1.4 ; `make arch` (`cargo xtask check-arch`, `xtask/src/arch.rs`) vert (pas de `rmcp`, pas d'autre adapter) ; la règle R2 et la fermeture transitive arrivent en M2 avec `lf-application`.
 - [ ] API de `backon` 1.6 et de `governor` 0.10.4 confirmées à la compilation ([v:backon-api], [v:governor-api]).
 
 **M2 — Adapter PISTE (v0.1)**
@@ -1333,7 +1340,7 @@ Les requêtes de recherche peuvent révéler l'activité d'un juriste : elles ne
 - [ ] Les 7 endpoints v0.1 du §7.1 ; payload `/search` du §6 (facettes de date, `typePagination` et `PaginationMemo`).
 - [ ] DTO du §8.3 (v0.1) ; mapping du §9 vers les entités de 03.
 - [ ] Classification « introuvable » du §11, complétée par les résultats de `live_unknown_ids_classification`.
-- [ ] Tous les tests des §13.2 et §13.3 verts sous Linux, macOS et Windows, sans réseau.
+- [ ] Tous les tests des §13.2 et §13.3 verts sous Linux, macOS et Windows (la matrice démarre en M2), sans réseau ; `make cov` à 100 % (glue HTTP irréductible exclue nommément).
 - [ ] `cargo xtask record-fixture` opérationnel ; plan de lot exécuté en sandbox (Q3) ; résultats reportés dans le registre V-xx.
 - [ ] Smoke tests live du §13.5 (partie v0.1) exécutés au moins une fois en sandbox ; résultats consignés dans 09.
 
@@ -1356,7 +1363,7 @@ Les requêtes de recherche peuvent révéler l'activité d'un juriste : elles ne
 
 ## 16. Questions ouvertes propres à l'adapter
 
-Elles sont reportées dans [09-risques-et-questions.md](09-risques-et-questions.md). Les questions communes Q1 à Q10 de 00 restent la référence : Q3 conditionne les tests live, Q4 le partage des quotas en mode HTTP, Q10 le mode de recherche par défaut.
+Elles sont reportées dans [09-risques-et-questions.md](09-risques-et-questions.md). Les questions communes Q1 à Q12 de 00 §13 restent la référence (Q1 et Q2 décidées le 2026-10-16 ; Q11 typographie des citations, décidée ; Q12 URL `/codes/article_lc/` d'un article de loi, à vérifier en M2) : Q3 conditionne les tests live, Q4 le partage des quotas en mode HTTP, Q10 le mode de recherche par défaut.
 
 1. **`singleDate`** : garder minuit Europe/Paris (00 §8) ou passer à **midi** Europe/Paris, tout aussi stable sur la journée et correct quelle que soit l'interprétation de l'instant par PISTE (§6.3) ? À trancher après [v:singledate-minuit-paris].
 2. **Variables de configuration** à inscrire dans 00 §1 : `LF_PISTE_RPS`, `LF_PISTE_BURST`, `LF_PISTE_CONCURRENCY`, `LF_PISTE_MOJIBAKE_REPAIR` (noms proposés).
@@ -1420,7 +1427,7 @@ Elles sont reportées dans [09-risques-et-questions.md](09-risques-et-questions.
 ## Sources
 
 **Plan et décisions**
-- [00-decisions.md](00-decisions.md) : §1 (variables), §2 (crates et dépendances), §3 (ports), §5 (erreurs), §6 (démarrage sans réseau), §7 (paramètres de `fr_search` et des outils), §8 (adapter PISTE), §9 (cache), §10 (tests), §11 (jalons), §13 (Q1 à Q10).
+- [00-decisions.md](00-decisions.md) : §1 (variables), §2 (crates et dépendances), §3 (ports), §5 (erreurs), §6 (démarrage sans réseau), §7 (paramètres de `fr_search` et des outils), §8 (adapter PISTE), §9 (cache), §10 (tests), §11 (jalons), §13 (Q1 à Q12).
 - [02-architecture.md](02-architecture.md) : §3.3 (fiche du crate : `PisteCorpus::new` sans E/S, `check_credentials`, `mojibake_repairs`, `RateQuota`), §5.1 (`LegalCorpus`, `CorpusError`, `find_by_number(&NumberQuery)`), §7.1 (délai global), §7.2 (clés et TTL du cache), §9.2 (correspondance des erreurs).
 - [03-domaine.md](03-domaine.md) : §1.5–§1.6 (frontières, `repair_latin1_mojibake`), §2.4 (`VersionedId`), §3.1 (`Fond`, `PaginationMode`), §3.3 (`status_of`), §4 (entités), §6 (dates, minuit Paris), §7.1 (ordre mojibake/NBSP), §9 (erreurs), étiquettes partagées.
 

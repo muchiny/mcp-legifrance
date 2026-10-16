@@ -1,10 +1,11 @@
 # 02 — Architecture cible (hexagonale, workspace multi-crates)
 
 > Ce document applique les décisions normatives de [00-decisions.md](00-decisions.md). Il en reprend les noms, les crates, les ports, les erreurs et les jalons sans y déroger. Il décrit la **structure** du produit : crates, dépendances, ports, cas d'usage, décorateurs, composition, erreurs, concurrence et observabilité.
-> Les autres documents détaillent le reste : le domaine dans [03-domaine.md](03-domaine.md), l'adapter PISTE dans [04-adapter-piste.md](04-adapter-piste.md), les schémas d'outils dans [05-outils-mcp.md](05-outils-mcp.md), les tests et la CI dans [06-qualite.md](06-qualite.md), l'ordre des tâches dans [07-feuille-de-route.md](07-feuille-de-route.md), la distribution dans [08-distribution.md](08-distribution.md) et le registre des risques et des vérifications dans [09-risques-et-questions.md](09-risques-et-questions.md). Le protocole est détaillé dans [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md).
+> **Statut** : M0-M1 livrés (plan 1), le reste est un plan. Pour M0-M1, le code livré et le plan 1 font foi (00 en-tête, clause de priorité) ; leurs écarts avec ce document sont listés en [00 §11.1](00-decisions.md#111-écarts-et-reports) et résumés ci-dessous là où ils touchent la structure : `check-arch` et sa liste blanche (§4), `CivilDate` (§3.1, §5), MSRV 1.88 et toolchain (§2.2, §3.0), lints (§3.0.3).
+> Les autres documents détaillent le reste : le domaine dans [03-domaine.md](03-domaine.md), l'adapter PISTE dans [04-adapter-piste.md](04-adapter-piste.md), les schémas d'outils dans [05-outils-mcp.md](05-outils-mcp.md), les tests et la CI dans [06-qualite.md](06-qualite.md), l'ordre des tâches dans `docs/superpowers/plans/` (« plan N, tâche M ») et la table des jalons de [00 §11](00-decisions.md#11-jalons-identiques-partout), la distribution dans [08-distribution.md](08-distribution.md) et le registre des risques et des vérifications dans [09-risques-et-questions.md](09-risques-et-questions.md). Le protocole est détaillé dans [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md).
 >
 > Conventions :
-> - Les extraits Rust sont **non compilés, à valider en M0**.
+> - Les extraits Rust sont **non compilés, à valider au jalon qui les implémente** (sauf les éléments marqués « livré », cités avec fichier:ligne).
 > - « La référence Python » désigne `matematicsolutions/fr-eli-mcp@d3b5b13`.
 > - Un point non vérifié est marqué **NON VÉRIFIÉ** suivi d'une étiquette `[v:…]`, reprise ensuite dans le registre V-xx.
 > - Les sources sont citées en ligne. Les vérifications faites spécialement pour ce document (index crates.io, sources de `rmcp-v3.5.1`, `moka v0.12.16`, `governor v0.10.4`, `cargo-deny 0.20.2`, `cargo-dist v0.33.0`, lues le 2026-10-15) sont listées dans la section [Sources](#sources).
@@ -106,7 +107,7 @@ flowchart BT
 
 ### 1.2 Principes
 
-1. **Les dépendances pointent vers l'intérieur.** Les adapters dépendent de `lf-application` et de `lf-domain`. `lf-application` dépend de `lf-domain`. `lf-domain` ne dépend d'aucun crate `lf-*`. Aucun adapter ne dépend d'un autre adapter. Seul `lf-app` connaît les types concrets ([00-decisions §2](00-decisions.md#2-workspace-cargo)). Ces règles sont vérifiées mécaniquement en CI (§4).
+1. **Les dépendances pointent vers l'intérieur.** Les adapters dépendent de `lf-application` et de `lf-domain`. `lf-application` dépend de `lf-domain`. `lf-domain` ne dépend d'aucun crate `lf-*`. Aucun adapter ne dépend d'un autre adapter. Seul `lf-app` connaît les types concrets ([00-decisions §2](00-decisions.md#2-workspace-cargo)). Ces règles sont vérifiées mécaniquement par `cargo xtask check-arch` (`make arch`, CI : §4).
 2. **Le domaine est pur.** `lf-domain` n'a ni I/O, ni async, ni `serde_json`, ni horloge système. Il n'appelle jamais `Utc::now()` ; la date du jour lui est passée en paramètre. Il est donc déterministe et se teste par propriétés (`proptest`).
 3. **L'application orchestre sans connaître les SDK.** `lf-application` contient les ports (traits), les cas d'usage, la façade `LegalService`, le décorateur `Audited` et la politique de budget de réponse. Aucun type `rmcp::model::*` ni `reqwest::*` n'y apparaît. Les changements de majeure de rmcp restent ainsi confinés à un seul crate : il y en a eu quatre en 2026 (recherche 09 §0, §7a).
 4. **Les adapters traduisent.** L'adapter entrant `lf-adapter-mcp` convertit les messages JSON-RPC en appels de la façade, puis les résultats et les erreurs en réponses MCP. Les adapters sortants convertissent les ports en HTTP PISTE, en mémoire (cache), en fichier JSONL (audit) ou en horloge système.
@@ -163,20 +164,23 @@ sequenceDiagram
 ## 2. Arborescence du dépôt cible
 
 ```text
-mcp-ligitfrance/                     # renommage en mcp-legifrance proposé (Q1)
+mcp-legifrance/                      # dépôt renommé (Q1 décidée le 2026-10-16) ; package lf-app renommé en M4
 ├── Cargo.toml                       # workspace virtuel : resolver = "3", [workspace.package|dependencies|lints], profils
+├── Makefile                         # livré : make ci (fmt-check, lint, test, doc, arch, deny, machete, cov), cov, mutants, mutants-diff — la CI appelle ces cibles
 ├── Cargo.lock                       # versionné (produit binaire) ; montée de rmcp manuelle uniquement
-├── rust-toolchain.toml              # toolchain épinglée 1.99.0 + rustfmt, clippy
-├── rustfmt.toml                     # style_edition = "2024", max_width = 100
-├── clippy.toml                      # disallowed-methods (horloge, env, exit), allow-unwrap/expect-in-tests
+├── rust-toolchain.toml              # toolchain épinglée 1.99.0 + clippy, rustfmt, llvm-tools-preview (livré : `stable` flottant, à épingler en tête de M2)
+├── rustfmt.toml                     # livré : max_width = 100, use_small_heuristics = "Max" (newline_style = "Unix" avec la matrice Windows, M2)
+├── clippy.toml                      # livré : msrv = "1.88.0", allow-unwrap/expect-in-tests ; disallowed-methods ajoutées au jalon de la dépendance (reqwest M2 ; horloge, env, exit M3-M4)
 ├── deny.toml                        # cargo-deny : advisories, licenses, bans (wrappers), sources
 ├── dist-workspace.toml              # configuration cargo-dist 0.33 (ou [workspace.metadata.dist]) — 08-distribution
 ├── server.json                      # manifeste du registre MCP (io.github.muchiny/mcp-legifrance, Q1) — 08
 ├── .cargo/config.toml               # alias `cargo xtask`
+├── .cargo/mutants.toml              # livré : cargo-mutants (profil `mutants`, exclusions prouvées) — 00 §10
+├── fuzz/                            # livré : cibles cargo-fuzz (ids, text), hors workspace, balayage hebdomadaire
 ├── .config/nextest.toml             # profils nextest : default, ci, live
 ├── .gitattributes                   # tests/fixtures/** -text (aucune conversion CRLF : sha256 des fixtures stable)
-├── .gitignore                       # target/, *.snap.new, captures locales non versionnées
-├── LICENSE                          # Apache-2.0 (Q2)
+├── .gitignore                       # target/, .env, .env.*, *.snap.new, captures locales non versionnées (hygiène : .env et *.snap.new à ajouter tout de suite, 00 §11.1)
+├── LICENSE                          # Apache-2.0 (Q2 décidée le 2026-10-16)
 ├── NOTICE                           # crédits : référence Python (Apache-2.0), fixtures reprises, données Légifrance/DILA (LO 2.0)
 ├── README.md                        # installation, configuration LF_*, jeton « mcp-name: » visible en texte (registryType cargo)
 ├── CHANGELOG.md                     # format Keep a Changelog ; une section par version (corrige D-43)
@@ -184,7 +188,8 @@ mcp-ligitfrance/                     # renommage en mcp-legifrance proposé (Q1)
 ├── SECURITY.md                      # signalement privé, périmètre, secrets PISTE à ne jamais publier
 ├── .github/
 │   ├── workflows/
-│   │   ├── ci.yml                   # fmt, clippy, nextest (Linux/macOS/Windows), doc-tests, MSRV 1.91, deny, check-deps, pureté
+│   │   ├── ci.yml                   # cibles make : fmt-check, lint, test, doc, arch (check-arch), deny, machete, cov (100 %), mutants du diff de PR ; MSRV 1.88 ; matrice Linux/macOS/Windows à partir de M2
+│   │   ├── weekly.yml               # livré : mutation complète en 4 shards + fuzz hebdomadaire (00 §10)
 │   │   ├── release.yml              # généré par `dist init` (ne pas éditer à la main) — 08
 │   │   └── live.yml                 # smoke tests PISTE sandbox (déclenchement manuel + planifié), secrets du dépôt
 │   ├── dependabot.yml               # cargo + github-actions ; rmcp et rmcp-macros ignorés (montée manuelle)
@@ -198,9 +203,9 @@ mcp-ligitfrance/                     # renommage en mcp-legifrance proposé (Q1)
 │   ├── lf-adapter-mcp/              # §3.6
 │   ├── lf-app/                      # §3.7 (binaire mcp-legifrance)
 │   └── lf-adapter-dila/             # §3.9 (M9 seulement)
-├── xtask/                           # §3.8 : lock-descriptors, check-deps, record-fixture, instructions-size
+├── xtask/                           # §3.8 : check-arch (livré), record-fixture (M2), lock-descriptors, instructions-size (M4)
 ├── tests/                           # données de test partagées, pas un crate
-│   ├── tools.lock.json              # verrou des descripteurs (cargo xtask lock-descriptors) — 00-decisions §10
+│   ├── tools.lock.json              # verrou des descripteurs (cargo xtask lock-descriptors, M4) — 00-decisions §10
 │   ├── jsonrpc/                     # scénarios JSON-RPC bruts stdio : legacy (initialize) et modern (discover, _meta)
 │   └── fixtures/piste/
 │       ├── reference/               # 16 fixtures de la référence (attribution dans NOTICE), dont 6 en mojibake (D-35)
@@ -210,26 +215,29 @@ mcp-ligitfrance/                     # renommage en mcp-legifrance proposé (Q1)
 │   └── oci/Dockerfile               # image distroless non-root, LABEL io.modelcontextprotocol.server.name — 08
 └── docs/
     ├── plan/                        # ce plan (00…09, annexes/)
-    ├── adr/                         # README.md + 0001…0014
+    ├── adr/                         # README.md + 0001…0016 (0001 et 0002 livrés avec M0 ; 0015 et 0016 = ex-0001/0002 du plan)
     └── recherche/                   # rapports bruts 01…09
 ```
 
 ### 2.1 Contenu de chaque crate
 
 ```text
-crates/lf-domain/src/             # disposition détaillée : 03-domaine §1.5 (fait foi)
+crates/lf-domain/src/             # disposition cible : 03-domaine §1.5 (fait foi). Livré en M1 : fichiers plats id.rs, fond.rs, date.rs,
+                                  # citation.rs (devient contract, tâche de tête de M2), ecli.rs, url.rs, coverage.rs, error.rs, entity/, text/{clean,fold,passages,rank,window}
     ├── lib.rs            # lints hérités ; ré-exports
-    ├── error.rs          # DomainError (+ IdError, DateError)
+    ├── error.rs          # DomainError (livré : 5 variantes ; étendu jalon par jalon)
     ├── id/               # newtypes à préfixe (LegiTextId … AccoTextId), VersionedId, ArticleId, DecisionId
     ├── fond.rs           # Fond (+ Jorf en M7) ↔ fond API, PaginationMode
     ├── status.rs         # LegalStatus
-    ├── date.rs           # VersionDate, DateRange, epoch ms (négatifs), sentinelles, format_fr
-    ├── contract/         # contrat de citation v2 : CitationContract, SourceUrl, règles, Ecli, Eli, Nor, Idcc
+    ├── date.rs           # CivilDate (livré : new, parse, from_unix_millis négatifs, to_french, year/month/day), VersionDate borné, DateRange, open_ended (M2)
+    ├── contract/         # contrat de citation v2 (livré sous le nom citation.rs en v1 ; v2 et renommage : tâche de tête de M2, 00 §11.1) :
+    │                 # CitationContract, CitationText, SourceUrl, Eli, règles, Nor, Idcc ; Ecli reste à la racine (ecli.rs, livré)
     ├── search.rs         # SearchQuery, QueryText, MatchMode, PageSize
     ├── entity/           # SearchHit/SearchPage, TocNode, Act, ArticleText, Decision, Deliberation, Convention,
     │                     # CompanyAgreement, Coverage (+ PisteEnvironment)
     ├── text/             # from_html, clean, LongText, window, passages, rank (BM25), summary,
-    │                     # encoding (réparation du mojibake : fonction pure appelée par l'adapter, 03 §7.1)
+    │                     # encoding (réparation du mojibake : fonction pure appelée par l'adapter, 03 §7.1 ;
+    │                     # reliquat de M1 non livré : tâche de tête de M2, 00 §11.1)
     └── citation/         # M6 : parse (winnow 1.0 + aho-corasick), dictionnaires codes et juridictions
 crates/lf-application/src/
     ├── lib.rs
@@ -241,10 +249,12 @@ crates/lf-application/src/
     ├── service.rs        # LegalService<C, A, K>, ServiceSettings
     ├── audited.rs        # Audited<A>, AuditMode, CallMeta
     ├── budget.rs         # ResponseBudget, ReadingRequest, politique résumé / fenêtre / passages
-    ├── coverage.rs       # assemble le catalogue statique du domaine (lf_domain coverage, 03 §4.8) + état de configuration (D-34)
+    ├── coverage.rs       # assemble le catalogue statique du domaine (lf_domain coverage, 03 §4.8) + état de configuration (D-34) ;
+                          # emplacement du catalogue et forme de Coverage tranchés en M3 avec M1-D20 (le type livré est un type seul, sans catalogue)
     ├── tools.rs          # ToolName (constantes fr_*), liste ALL (test de dérive)
     ├── error.rs          # AppError, ErrorCode, UpstreamCause
     └── testing.rs        # feature "test-support" : FakeCorpus, FixedClock, MemoryAuditLog, FailingAuditLog
+                          # (compilés en cfg(test), ou exclus nommément de la couverture : sinon code mesuré, à 100 %)
 crates/lf-adapter-piste/
 ├── src/
 │   ├── lib.rs            # pub use PisteCorpus, PisteConfig, PisteEndpoints
@@ -257,10 +267,11 @@ crates/lf-adapter-piste/
 │   ├── request/          # search.rs (corps /search), consult.rs
 │   ├── dto/              # de.rs (null_default, opt_nonempty, opt_raw_date, opt_string_or_number) + un module par endpoint
 │   ├── map/              # DTO → domaine (dates, sentinelles, TOC, contrat de citation)
-│   ├── mojibake.rs       # application tout-ou-rien au corps (fonction pure de lf-domain::text::encoding) + compteur
+│   ├── mojibake.rs       # application tout-ou-rien au corps (fonction pure de lf-domain::text::encoding) + compteur.
+│                     # INCOHÉRENCE à trancher en tête de M2 (00 §11.1) : 04-adapter-piste.md:36 et :128 nomment ce module `encoding.rs` (`decode_body`), 02 le nomme `mojibake.rs` ; rien dans 00 ne tranche
 │   └── error.rs          # classification HTTP/OAuth → CorpusError
-├── examples/record_fixture.rs   # appelé par `cargo xtask record-fixture` (identifiants requis)
-└── tests/                # wiremock_*.rs, parity_golden.rs, live_smoke.rs (#[ignore])
+├── examples/record_fixture.rs   # appelé par `cargo xtask record-fixture` (identifiants requis ; M2)
+└── tests/                # live.rs (#[ignore]) et compléments seulement. Mapping DTO, classement HTTP → CorpusError, retry, scénarios wiremock : `#[cfg(test)] mod tests` du crate (mesurés par `make cov`, qui passe `--lib`, 06 §1.4) ; la glue HTTP irréductible est exclue nommément (`--ignore-filename-regex`, M2)
 crates/lf-adapter-cache/src/      # lib.rs, corpus.rs (CachedCorpus), key.rs (CacheKey, Op), policy.rs (TTL, capacité),
                                   # expiry.rs (impl moka::Expiry), weight.rs (trait Weigh)
 crates/lf-adapter-audit/src/      # lib.rs, log.rs (JsonlAuditLog), line.rs (sérialisation ordonnée), hash.rs (SHA-256),
@@ -280,7 +291,7 @@ crates/lf-adapter-mcp/
 │   ├── resources.rs, prompts.rs, completions.rs   # M7
 │   ├── stdio.rs          # serve_stdio
 │   └── http.rs           # M8, feature "http"
-└── tests/                # inprocess.rs (duplex), descriptor_lock.rs, instructions.rs, snapshots/
+└── tests/                # compléments : inprocess.rs (duplex), descriptor_lock.rs, instructions.rs, snapshots/ ; décodage, rendu et erreurs : `mod tests` du crate
 crates/lf-app/
 ├── src/
 │   ├── main.rs           # runtime, sous-commandes, codes de sortie
@@ -291,29 +302,32 @@ crates/lf-app/
 │   ├── logging.rs        # tracing-subscriber sur stderr
 │   ├── shutdown.rs       # signaux → CancellationToken
 │   └── check.rs          # sous-commande check-config
-└── tests/                # cli.rs, e2e_stdio.rs (JSON-RPC brut, deux ères), stdout_only_jsonrpc.rs
-xtask/src/                # main.rs, check_deps.rs (+ rules.rs), lock_descriptors.rs, record_fixture.rs, instructions_size.rs
+└── tests/                # e2e du binaire seulement : cli.rs, e2e_stdio.rs (JSON-RPC brut, deux ères), stdout_only_jsonrpc.rs
+xtask/src/                # livré : main.rs, lib.rs, arch.rs (check-arch : liste blanche, échoue fermé) ; à venir : record_fixture.rs (M2), lock_descriptors.rs, instructions_size.rs (M4)
 ```
 
 ### 2.2 Rôle des fichiers racine
 
 | Fichier | Contenu attendu | Source ou décision |
 |---|---|---|
-| `Cargo.toml` | `[workspace]` virtuel avec `resolver = "3"` **explicite** : un workspace virtuel reste au résolveur 1 sinon. `members` en liste explicite. `[workspace.package]` : `version`, `edition = "2024"`, `rust-version = "1.91"`, `license`, `repository`. `[workspace.dependencies]` (§3.0), `[workspace.lints]` (§3.0.3), `[profile.release]`. | 00-decisions §2 ; recherche 04 §4.3 |
-| `rust-toolchain.toml` | `channel = "1.99.0"`, `components = ["rustfmt", "clippy"]`, `profile = "minimal"`. La date de sortie de 1.99.0 est **NON VÉRIFIÉE** [v:date-rust-1-99] ; seul le tag `1.99.0` est attesté (recherche 04 §5.2). | 00-decisions §2 |
-| `rustfmt.toml` | `style_edition = "2024"`, `max_width = 100`. Uniquement des options stables : rmcp utilise des options nightly, qu'on ne reprend pas. | recherche 04 §5.2 |
-| `clippy.toml` | `allow-unwrap-in-tests = true`, `allow-expect-in-tests = true`. `disallowed-methods` : `chrono::Utc::now`, `chrono::Local::now`, `std::time::SystemTime::now` (passer par le port `Clock`) ; `std::env::var`, `std::env::var_os`, `std::env::vars` (lecture réservée à `lf-app::config`) ; `std::process::exit` (sortie gérée par `main`). Chaque usage légitime porte un `#[expect(clippy::disallowed_methods, reason = "…")]` local. La correspondance des chemins ré-exportés de chrono (`chrono::Utc` = `chrono::offset::Utc`) est **NON VÉRIFIÉE** [v:clippy-disallowed-chrono]. | D-19, D-42 |
-| `deny.toml` | Voir §4.3. `[graph] all-features = true`. Advisories : vulnérabilités et yanked refusés. Licences : liste blanche compatible Apache-2.0, ce qui exclut de fait l'AGPL. Bans : `wrappers` pour les crates confinés, `openssl-sys` et `native-tls` refusés. Sources : crates.io seulement. | 00-decisions §10, §12 |
+| `Cargo.toml` | `[workspace]` virtuel avec `resolver = "3"` **explicite** : un workspace virtuel reste au résolveur 1 sinon. `members` en liste explicite. `[workspace.package]` : `version`, `edition = "2024"`, `rust-version = "1.88"` (MSRV, 00 §2), `license`, `repository`. Livré : `version = "0.0.0"` et `publish = false` jusqu'à M5 (décision crates.io reportée, 00 §12). `[workspace.dependencies]` (§3.0), `[workspace.lints]` (§3.0.3), `[profile.release]`. | 00-decisions §2 ; recherche 04 §4.3 |
+| `rust-toolchain.toml` | `channel = "1.99.0"`, `components = ["clippy", "rustfmt", "llvm-tools-preview"]`, `profile = "minimal"`. `llvm-tools-preview` est indispensable à `make cov`. **Tâche de tête de M2 (00 §11.1)** : le livré est `channel = "stable"` (rust-toolchain.toml:1-3) ; il faut aussi aligner les 5 étapes `dtolnay/rust-toolchain@stable` (ci.yml, weekly.yml). Raison : la prochaine stable peut casser `clippy::pedantic` sous `-D warnings` ou changer le comptage des régions de couverture sans changement de code. La date de sortie de 1.99.0 est **NON VÉRIFIÉE** [v:date-rust-1-99] ; seul le tag `1.99.0` est attesté (recherche 04 §5.2). | 00-decisions §2 |
+| `rustfmt.toml` | Livré : `max_width = 100`, `use_small_heuristics = "Max"` (`style_edition` est déduit de l'édition 2024) ; `newline_style = "Unix"` s'ajoute avec la matrice Windows (M2). Uniquement des options stables : rmcp utilise des options nightly, qu'on ne reprend pas. | recherche 04 §5.2 |
+| `clippy.toml` | Livré : `msrv = "1.88.0"`, `allow-unwrap-in-tests = true`, `allow-expect-in-tests = true`. `disallowed-methods`, à ajouter au jalon qui introduit la dépendance (reqwest en M2 ; horloge et environnement en M3-M4) : `chrono::Utc::now`, `chrono::Local::now`, `std::time::SystemTime::now` (passer par le port `Clock`) ; `std::env::var`, `std::env::var_os`, `std::env::vars` (lecture réservée à `lf-app::config`) ; `std::process::exit` (sortie gérée par `main`). Chaque usage légitime porte un `#[expect(clippy::disallowed_methods, reason = "…")]` local. La correspondance des chemins ré-exportés de chrono (`chrono::Utc` = `chrono::offset::Utc`) est **NON VÉRIFIÉE** [v:clippy-disallowed-chrono]. | D-19, D-42 |
+| `deny.toml` | Voir §4.3. `[graph] all-features = true`. Advisories : `yanked = "deny"`, `unmaintained` à sa valeur par défaut (`"all"`, plus strict que `"workspace"`). Licences : liste blanche compatible Apache-2.0, ce qui exclut de fait l'AGPL, élargie en M2 d'après `cargo deny list` (livré : MIT, Apache-2.0, Unicode-3.0). Bans : `wrappers` au jalon où chaque crate confiné entre dans le graphe ; `openssl`, `openssl-sys`, `native-tls` et `backoff` refusés. Sources : crates.io seulement. | 00-decisions §10, §12 |
 | `.cargo/config.toml` | `[alias] xtask = "run --package xtask --quiet --"`. L'éventuel CRT statique Windows est tranché dans [08-distribution.md](08-distribution.md). | 00-decisions §2 |
-| `.config/nextest.toml` | Profil `ci` : `fail-fast = false`, `slow-timeout`. Profil `live` : uniquement les tests `#[ignore]`, `test-threads = 1` pour ménager le quota PISTE. | 00-decisions §10 |
+| `.config/nextest.toml` | M2, avec `--profile ci` dans la CI. Profil `ci` : `fail-fast = false`, `slow-timeout`. Profil `live` : uniquement les tests `#[ignore]`, `test-threads = 1` pour ménager le quota PISTE. | 00-decisions §10 |
 | `dist-workspace.toml` | Configuration de cargo-dist 0.33.0. Le livre accepte `dist-workspace.toml` ou `[workspace.metadata.dist]` (book `reference/config.md:8-11`). Le fichier réellement produit par `dist init` pour un workspace Rust est **NON VÉRIFIÉ** [v:cargo-dist-emplacement-config]. | 00-decisions §12 |
 | `server.json` | Registre MCP : `LF_PISTE_CLIENT_ID` et `LF_PISTE_CLIENT_SECRET` en `environmentVariables` (`isSecret: true`). | 00-decisions §12 |
 | `LICENSE`, `NOTICE` | Apache-2.0. `NOTICE` crédite la référence Python et les fixtures reprises, et mentionne la source des données « Légifrance / DILA » sous Licence Ouverte 2.0. | 00-decisions §12 ; recherche 01 §13 |
 | `CHANGELOG.md` | Absent de la référence alors que sa CONSTITUTION l'exige (D-43). Une entrée par version, avec les divergences volontaires de parité. | D-43 |
+| `Makefile`, `.cargo/mutants.toml` | Livrés (M0). `make ci` est la preuve de complétion ; les nouvelles portes du plan (`xtask lock-descriptors`, `instructions-size`, contrôle des fixtures) s'ajoutent au Makefile et la CI appelle les cibles make. | 00 §10 ; ADR-0002 |
 | `CONTRIBUTING.md` | Procédures du §12 ; règles du §4 ; `cargo xtask lock-descriptors` après toute modification d'outil ; montée de rmcp (§12.3). | 00-decisions §11 (M0) |
 | `SECURITY.md` | Canal privé de signalement ; secrets PISTE (CGU : clés « strictement réservées », Q4) ; aucune capture contenant un jeton. | 00-decisions §12 |
 | `.gitattributes` | `tests/fixtures/** -text` : une conversion CRLF sous Windows casserait le `sha256_raw` des sidecars (D-35). | D-35 |
 | `.github/dependabot.yml` | Mises à jour `cargo` et `github-actions` ; `ignore: rmcp, rmcp-macros`, car leur montée est manuelle et testée. | 00-decisions §6 |
+
+Hygiène du dépôt à poser tout de suite (00 §11.1) : `.gitignore` (`.env`, `.env.*`, `*.snap.new`), `SECURITY.md` adapté, `CHANGELOG.md` avec `[Unreleased]`, `dependabot.yml`, actions épinglées par SHA, `--locked` partout. `.gitattributes`, `nextest.toml` et le modèle de PR : début de M2.
 
 `[profile.release]` recommandé : `lto = "thin"`, `codegen-units = 1`, `panic = "unwind"` (la valeur par défaut, conservée volontairement). Avec `abort`, une panique dans une tâche d'outil tuerait tout le serveur ; avec `unwind`, tokio la contient dans la tâche (`JoinError`). Le profil `dist` hérite de `release` (08).
 
@@ -339,18 +353,18 @@ Versions relues dans l'index sparse crates.io le 2026-10-15 (recherche 04 §4.1,
 | `tokio` | `1.53.3` | 1.71 | 2026-10-13 ⚠ | plusieurs (ci-contre) | `default-features = false` au workspace (la valeur par défaut de tokio est déjà vide). Features par membre : lf-application `time`, `macros` ; lf-adapter-piste `time`, `sync` ; lf-adapter-audit `sync` (canal et accusé ; le fil d'écriture est un `std::thread`) ; lf-adapter-mcp `macros` (rmcp ajoute `io-std` via `transport-io`) ; lf-app `rt-multi-thread`, `macros`, `signal`, `sync`, `time` ; tests : `test-util`, `io-util`. |
 | `tokio-util` | `0.7.20` | 1.85 | 2026-10-09 | lf-adapter-mcp, lf-app | `CancellationToken`, que rmcp ne ré-exporte pas (recherche 04 §4.1). |
 | `futures` | `0.3.34` | 1.71 | 2026-08-11 | lf-application | `default-features = false`, `["std", "async-await"]` : `join_all` et `buffer_unordered` (M6, M7). |
-| `reqwest` | `0.13.5` | 1.85 | 2026-09-08 | lf-adapter-piste | `default-features = false`, `["json", "form", "http2", "rustls"]`. `form` est indispensable au POST OAuth et n'est plus activée par défaut en 0.13 ; `rustls-tls` s'appelle désormais `rustls` (recherche 04 §4.2). Variante `ring` : `rustls-no-provider` + `rustls` 0.23.46 (`ring`, `std`, `tls12`, `logging`) + `install_default()` au démarrage, faute de quoi reqwest panique. Le choix final est un spike M0 : **NON VÉRIFIÉ** [v:tls-aws-lc-cross]. |
+| `reqwest` | `0.13.5` | 1.85 | 2026-09-08 | lf-adapter-piste | `default-features = false`, `["json", "form", "http2", "rustls"]`. `form` est indispensable au POST OAuth et n'est plus activée par défaut en 0.13 ; `rustls-tls` s'appelle désormais `rustls` (recherche 04 §4.2). Variante `ring` : `rustls-no-provider` + `rustls` 0.23.46 (`ring`, `std`, `tls12`, `logging`) + `install_default()` au démarrage, faute de quoi reqwest panique. Le choix final est un spike (tâche de tête de M2) : **NON VÉRIFIÉ** [v:tls-aws-lc-cross]. |
 | `secrecy` | `0.10.3` | 1.60 | 2024-10-09 | lf-adapter-piste, lf-app | `SecretString` ; `Debug` affiche `[REDACTED]`. Feature `serde` inutile : la configuration vient de l'environnement. |
 | `backon` | `1.6.0` | 1.85 | 2025-10-18 | lf-adapter-piste | `default-features = false`, `["std", "tokio-sleep"]`. |
 | `governor` | `0.10.4` | — | 2025-12-16 | lf-adapter-piste | `default-features = false`, `["std", "jitter", "quanta"]`. `dashmap` ne sert qu'aux limiteurs à clés, inutiles ici. `until_ready` exige `std` (`Cargo.toml` et `state/direct/future.rs:11-30` du tag `v0.10.4`, vérifié). |
 | `moka` | `0.12.16` | 1.71.1 | 2026-08-09 | lf-adapter-cache | `["future"]`. La valeur par défaut est vide. |
-| `chrono` | `0.4.45` | 1.62 | 2026-06-04 | lf-domain, lf-application, adapters | `default-features = false`, `["std"]` au workspace ; **lf-app seul** ajoute `clock`. Déjà présent dans le graphe via rmcp (`now`, `serde`) : l'unification des features rend `Utc::now` compilable partout, d'où `clippy.toml` et le job de pureté (§4.4). |
+| `chrono` | `0.4.45` | 1.62 | 2026-06-04 | lf-application, adapters (**pas lf-domain** : le domaine a `CivilDate`, ADR-0011 amendé) | `default-features = false`, `["std"]` au workspace ; **lf-app seul** ajoute `clock`. Déjà présent dans le graphe via rmcp (`now`, `serde`) : l'unification des features rend `Utc::now` compilable partout, d'où `clippy.toml` et le job de pureté (§4.4). |
 | `chrono-tz` | `0.10.4` | 1.65 | 2025-07-11 | lf-app (`SystemClock`), lf-adapter-piste (minuit Europe/Paris pour `DATE_VERSION`) | Base IANA embarquée à la compilation. |
-| `unicode-normalization` | `0.1.25` | 1.36 | 2025-10-30 | lf-domain | |
-| `winnow` | `1.0.4` | 1.65 | 2026-07-13 | lf-domain | API 1.0 : les tutoriels 0.6/0.7 ne s'appliquent pas tels quels. |
-| `aho-corasick` | `1.1.5` | 1.60 | 2026-08-03 | lf-domain | |
-| `regex` | `1.13.1` | 1.65 | 2026-07-15 | lf-domain (M6) | compilées une fois (`std::sync::LazyLock`). |
-| `similar` | `3.2.0` | 1.85 | 2026-08-17 | lf-application (M7) | `fr_diff_article`. Ne figure pas dans la liste des dépendances de lf-domain fixée par la décision. |
+| `unicode-normalization` | `0.1.25` | 1.36 | 2025-10-30 | lf-domain, **à partir de M6** (NFC) par ADR ; M5 seulement si un retrait maison des marques combinantes ne suffit pas | |
+| `winnow` | `1.0.4` | 1.65 | 2026-07-13 | lf-domain, à partir de M6, par ADR | API 1.0 : les tutoriels 0.6/0.7 ne s'appliquent pas tels quels. |
+| `aho-corasick` | `1.1.5` | 1.60 | 2026-08-03 | lf-domain, à partir de M6, par ADR | |
+| `regex` | `1.13.1` | 1.65 | 2026-07-15 | lf-domain, à partir de M6, par ADR | compilées une fois (`std::sync::LazyLock`). |
+| `similar` | `3.2.0` | 1.85 | 2026-08-17 | lf-application (M7) | `fr_diff_article`. N'entre pas dans lf-domain. |
 | `sha2` / `hex` | `0.11.1` / `0.4.3` | 1.88 / — | 2026-10-12 ⚠ / 2021-03-03 | lf-adapter-audit, xtask | API `digest 0.11` **NON VÉRIFIÉE** [v:api-sha2-0-11] ; 0.11.0 (2026-03-25, MSRV 1.85) en repli. |
 | `fs4` | `1.1.0` | 1.75 | 2026-04-28 | lf-adapter-audit | verrou consultatif inter-processus (proposition, §3.5). |
 | `tracing` | `0.1.44` | 1.65 | 2025-12-18 | tous sauf lf-domain | |
@@ -363,12 +377,12 @@ Versions relues dans l'index sparse crates.io le 2026-10-15 (recherche 04 §4.1,
 | `tantivy`, `quick-xml`, `tar`, `flate2` (M9) | `0.26.2`, `0.42.0`, `0.4.46`, `1.1.10` | 1.86, 1.86, 1.63, 1.67 | 2026 | lf-adapter-dila | |
 | dev : `wiremock`, `insta`, `proptest`, `tempfile`, `assert_cmd`, `predicates`, `jsonschema` | `0.6.5`, `1.49.0`, `1.12.0` ⚠, `3.27.0`, `2.2.2`, `3.1.4`, `0.58.6` | —, 1.66, 1.88, 1.63, 1.85, 1.74, 1.85 | | selon les crates | `insta` : `["json", "redactions"]`. `jsonschema` : **`default-features = false`**, car ses features par défaut (`resolve-http`, `resolve-file`, `tls-aws-lc-rs`, `idna`) tirent `reqwest` (index, version 0.58.6, vérifié), ce qui violerait R6 et le ban `cargo-deny` du §4.3. |
 
-**MSRV 1.91** (00-decisions §2) : elle couvre rmcp (1.88), proptest 1.12 (1.88), sha2 0.11.1 (1.88), cargo-nextest 0.9.148 (1.91, installé en binaire) et uuid. uuid ≥ 1.27 exige 1.89 (1.27.0 et 1.28.0 déclarent `rust_version = 1.89.0` dans l'index). rmcp tire `uuid ^1` via `server`, et ce piège est sans objet avec une MSRV à 1.91 : aucune dépendance directe à `uuid` n'est nécessaire (recherche 04 §4.1 le signalait pour une MSRV 1.88).
+**MSRV 1.88** (00-decisions §2, 09 §3.11.3 ; Cargo.toml:9, clippy.toml:1, job MSRV de ci.yml) : c'est le vrai plancher imposé par rmcp 3.5.1 (1.88), proptest 1.12 (1.88) et sha2 0.11.1 (1.88). cargo-nextest 0.9.148 demande 1.91 mais s'installe **en binaire** : il ne contraint pas la MSRV. uuid ≥ 1.27 exige 1.89 (1.27.0 et 1.28.0 déclarent `rust_version = 1.89.0` dans l'index) et rmcp tire `uuid ^1` via `server` ; avec `resolver = "3"` (Cargo.toml:2), la résolution tient compte de la MSRV et devrait retenir un uuid compatible 1.88 (**à confirmer** par `cargo +1.88 check` au premier ajout de rmcp, M4). Si le job MSRV casse à l'arrivée de rmcp, la MSRV est réévaluée par un ADR (1.89 ou 1.91), pas avant. La **toolchain**, elle, est épinglée sur 1.99.0 (§2.2) : MSRV et toolchain sont deux choses distinctes.
 
 #### 3.0.2 `Cargo.toml` racine (extrait)
 
 ```toml
-# Cargo.toml — non compilé, à valider en M0
+# Cargo.toml — non compilé, à valider au jalon qui l'implémente
 [workspace]
 resolver = "3"                       # obligatoire : un workspace virtuel reste au résolveur 1 sinon
 members = [
@@ -379,14 +393,15 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.0.0"                      # livré ; 0.1.0 en M5
 edition = "2024"
-rust-version = "1.91"
+publish = false                      # livré ; crates.io tranché en M5 (00 §12)
+rust-version = "1.88"
 license = "Apache-2.0"
-repository = "https://github.com/muchiny/mcp-ligitfrance"   # dépend de Q1
+repository = "https://github.com/muchiny/mcp-legifrance"    # Q1 décidée (livré : Cargo.toml:11)
 
 [workspace.dependencies]
-# internes : `version` présent pour permettre une publication crates.io si 08 la retient
+# internes : `version` à ajouter si la publication crates.io est retenue en M5 (livré : aucune entrée lf-* pour l'instant)
 lf-domain        = { path = "crates/lf-domain",        version = "=0.1.0" }
 lf-application   = { path = "crates/lf-application",   version = "=0.1.0" }
 lf-adapter-piste = { path = "crates/lf-adapter-piste", version = "=0.1.0" }
@@ -398,7 +413,7 @@ rmcp        = { version = "=3.5.1", features = ["transport-io"] }
 rmcp-macros = "=3.5.1"
 schemars    = "1.2.3"
 # default-features = false déclaré ICI quand c'est voulu : au niveau d'un membre,
-# l'héritage n'est respecté qu'à partir de Rust 1.99 (édition 2024), alors que la MSRV est 1.91
+# l'héritage n'est respecté qu'à partir de Rust 1.99 (édition 2024), alors que la MSRV est 1.88
 tokio   = { version = "1.53.3", default-features = false }
 chrono  = { version = "0.4.45", default-features = false, features = ["std"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "form", "http2", "rustls"] }
@@ -418,30 +433,31 @@ Chaque membre écrit `version.workspace = true`, `edition.workspace = true`, `ru
 
 #### 3.0.3 Lints de workspace
 
-Ils reprennent la recherche 04 §5.4, avec `unsafe_code = "forbid"` (décision) :
+Base **livrée** (Cargo.toml:20-31), enrichie aux jalons où chaque lint devient utile (00 §11.1) :
 
 ```toml
 [workspace.lints.rust]
 unsafe_code = "forbid"
-rust_2018_idioms = { level = "warn", priority = -1 }
-unused_qualifications = "warn"            # exige schemars >= 1.2.3
-missing_debug_implementations = "warn"
+missing_docs = "warn"                     # livré
+unreachable_pub = "warn"                  # livré
 
 [workspace.lints.clippy]
-all = { level = "warn", priority = -1 }
-pedantic = { level = "warn", priority = -1 }
-module_name_repetitions = "allow"
-missing_errors_doc = "allow"
-must_use_candidate = "allow"
-print_stdout = "deny"                     # stdout = canal JSON-RPC
-dbg_macro = "deny"
-unwrap_used = "deny"
+pedantic = { level = "warn", priority = -1 }   # livré ; missing_errors_doc reste actif ; inclut large_futures
+must_use_candidate = "allow"                   # livré
+unwrap_used = "warn"                           # livré (bloquant via -D warnings, Makefile:24)
 expect_used = "warn"
+dbg_macro = "warn"
 todo = "warn"
-await_holding_lock = "deny"               # aucun verrou std tenu à travers un .await
+panic = "warn"                                 # tâche de tête de M2 (00 §11.1) : trois lints anti-panique du domaine
+unreachable = "warn"
+unimplemented = "warn"
+# M4 : print_stdout, print_stderr, exit (stdout = canal JSON-RPC), avec #[expect(…, reason)] dans xtask/src/main.rs:20 et :35
+# après correction de rank.rs:38 : allow_attributes_without_reason
 ```
 
-Deux points sont à mesurer au premier `cargo clippy` du spike M0, tous deux **NON VÉRIFIÉS** [v:rmcp-macros-unsafe-forbid] :
+`await_holding_lock` (groupe `suspicious`) et `large_futures` (`pedantic`) sont **déjà actifs** : il n'y a rien à ajouter pour l'async de M2-M3. Les lints indexing_slicing, string_slice et arithmetic_side_effects ne sont pas retenus (09 §3.11.3, 2026-10-16) : l'absence de panique du domaine est prouvée par proptest, fuzz et mutation. Sont retirés par rapport à l'esquisse initiale : `clippy::all`, l'`allow` de `module_name_repetitions` (lint passé en `restriction`), la section `[workspace.lints.rustdoc]` (déjà couverte par `make doc`, `RUSTDOCFLAGS="-D warnings"`) et `allow(missing_docs)` pour xtask (déjà documenté).
+
+Deux points sont à mesurer au premier `cargo clippy` du spike rmcp (**avant la conception des ports de M3**, car `ToolCall` en dépend), tous deux **NON VÉRIFIÉS** [v:rmcp-macros-unsafe-forbid] :
 - la compatibilité du code généré par `#[tool_router]` et `#[tool]` avec `forbid(unsafe_code)` : un `#[allow(unsafe_code)]` émis par une macro est une erreur dure sous `forbid`, auquel cas on repasse à `deny` ;
 - le bruit de `clippy::pedantic` sur ce même code, à traiter par des `#[allow]` ciblés.
 
@@ -449,20 +465,20 @@ Deux points sont à mesurer au premier `cargo clippy` du spike M0, tous deux **N
 
 ### 3.1 `lf-domain`
 
-- **Responsabilité** : le cœur pur ([00-decisions §4](00-decisions.md#4-domaine-lf-domain)). Il valide les identifiants et les fonds, porte les entités et le contrat de citation v2 (ADR-0009), les URLs Légifrance, les dates civiles et sentinelles (ADR-0011), le traitement de texte (HTML → paragraphes, nettoyage, passages, BM25, fenêtre, résumé) et, en M6, le parseur de citations. Le détail est dans [03-domaine.md](03-domaine.md).
-- **Modules publics** (disposition de [03-domaine.md](03-domaine.md) §1.5, qui fait foi) : `id`, `fond`, `status`, `date`, `contract`, `search`, `entity`, `text` (`from_html`, `clean`, `window`, `passages`, `rank`, `summary`, `encoding`), `citation` (M6), `error`.
+- **Responsabilité** : le cœur pur ([00-decisions §4](00-decisions.md#4-domaine-lf-domain)). Il valide les identifiants et les fonds, porte les entités et le contrat de citation v2 (ADR-0009), les URLs Légifrance, les dates civiles (`CivilDate`, livré) et sentinelles (ADR-0011), le traitement de texte (HTML → paragraphes, nettoyage, passages, BM25, fenêtre, résumé) et, en M6, le parseur de citations. Le détail est dans [03-domaine.md](03-domaine.md).
+- **Modules publics** (disposition de [03-domaine.md](03-domaine.md) §1.5, qui fait foi) : `id`, `fond`, `status`, `date`, `contract`, `search`, `entity`, `text` (`from_html`, `clean`, `window`, `passages`, `rank`, `summary`, `encoding`), `citation` (M6), `error`. Livrés en M1 : `clean`, `fold`, `window`, `passages`, `rank` ; `encoding` (réparation du mojibake) est un **reliquat de M1, tâche de tête de M2** ; `from_html` et `LongText` : M2 ; `summary` : M5. Le contrat de citation est livré en v1 sous `citation.rs` : la v2 (module `contract`) est une tâche de tête de M2, qui libère le nom `citation` pour le parseur M6.
 - **Types exportés** :
   - identifiants : `LegiTextId`, `LegiArtiId`, `JorfTextId`, `KaliTextId`, `KaliArtiId`, `JuriTextId`, `ConsTextId`, `CetaTextId`, `CnilTextId`, `AccoTextId`, `VersionedId`, `ArticleId`, `DecisionId`, `Ecli` ;
-  - recherche et environnement : `Fond`, `PaginationMode`, `PisteEnvironment`, `SearchQuery`, `MatchMode`, `QueryText`, `PageSize`, `DateRange`, `VersionDate`, `SearchHit`, `SearchPage` ;
-  - entités et texte : `Act`, `TocNode`, `ArticleText`, `Decision`, `Deliberation`, `Convention`, `CompanyAgreement`, `Coverage` (+ fonction pure `coverage(env, credentials_configured)`), `LongText`, `Window`, `Segment` (noms de 03) ;
+  - recherche et environnement : `Fond`, `PaginationMode`, `PisteEnvironment`, `SearchQuery`, `MatchMode`, `QueryText`, `PageSize`, `DateRange`, `CivilDate` (livré), `VersionDate` (borné, M2), `SearchHit`, `SearchPage` ;
+  - entités et texte : `Act`, `TocEntry` (livré, renommé `TocArticle` en tête de M2) puis `TocNode`, `ArticleText`, `Decision`, `Deliberation`, `Convention`, `CompanyAgreement`, `Coverage` (+ fonction pure `coverage(env, credentials_configured)`), `LongText`, `Window`, `Segment` (noms de 03) ;
   - erreurs : `DomainError`.
   - Les types de sortie sont `Clone`, `Send` et `Sync`. Une recommandation pour 03 : `LongText` partage ses paragraphes par `Arc<str>`, pour que le clone servi par le cache (§7.2) reste bon marché.
-- **Dépendances (liste blanche normative)** : `thiserror` 2.0.21, `chrono` 0.4.45 (`std`, sans `clock`), `unicode-normalization` 0.1.25, `winnow` 1.0.4, `aho-corasick` 1.1.5, `regex` 1.13.1 (M6). Rien d'autre, ni `tracing`, ni `serde`. Dev : `proptest` 1.12.0, `insta`.
+- **Dépendances (liste blanche normative, `DOMAIN_ALLOWED`)** : `thiserror` 2.0.21 **seul** (xtask/src/arch.rs, liste blanche qui échoue fermé ; crates/lf-domain/Cargo.toml). Les dates sont portées par `CivilDate` (crates/lf-domain/src/date.rs), sans `chrono`. La liste ne s'élargit que par un ADR, au jalon qui en a besoin : `winnow`, `aho-corasick` et `regex` en M6 (parseur de citations) ; `unicode-normalization` en M6 (NFC), en M5 seulement si un retrait maison des marques combinantes ne suffit pas. Rien d'autre, ni `tracing`, ni `serde`, ni `chrono`. Dev : `proptest` 1.12.0 (livré), `insta`.
 - **Features Cargo** : aucune.
 - **Pièges** :
   1. La décision ne prévoit **aucun crate HTML** dans le domaine. `text::from_html` (reconstitution des paragraphes depuis `texteHtml`, D-26) est donc écrit à la main : tokeniseur de balises de bloc (`<p>`, `<br/>`, `<div>`, `<li>`), décodage des entités (`&nbsp;`, `&amp;`, `&#NNN;`), et tests sur les fixtures CETAT (85 `<br/>`) et CNIL (`<p>`) (recherche 02 D-26).
-  2. L'unification des features rend `chrono::Utc::now` disponible dans le workspace complet, parce que rmcp active `now`. La pureté se vérifie donc par `cargo check -p lf-domain` seul, qui résout les features de ce seul graphe (§4.4), et par `clippy.toml`.
-  3. `FromStr` est strict (préfixe de 8 lettres + 12 chiffres). Le suffixe `_JJ-MM-AAAA` (LEGITEXT) est séparé dans `VersionedId` (décision §4 ; E-16, E-17, E-36).
+  2. Le domaine n'a pas de `chrono` : la pureté (pas d'horloge, pas d'I/O) est garantie par construction et par `check-arch` (liste blanche, §4), pas par une inspection des features. `CivilDate` couvre la validation calendaire, les epochs négatifs (`div_euclid`) et la prose française, avec 100 % de couverture et 0 mutant survivant ; un test du vecteur 1804-03-21 (-5231606400000) est à ajouter (tâche de tête de M2). `chrono` (`std`) sert hors du domaine (`lf-application`, adapters) ; la feature `clock` ne sert que dans `lf-app::clock` (date du jour à Paris) ; `chrono-tz` sert dans `lf-app::clock` et `lf-adapter-piste` (« minuit Paris » de `singleDate`), ADR-0011.
+  3. Livré : `Id<K>(String)` et `IdKind`, `Id::parse` et `FromStr` **tolérants** (espaces, casse) ; le suffixe est coupé au premier `_` et jeté. **Tâche de tête de M2 (00 §11.1)** : `parse_versioned` conserve le suffixe `_JJ-MM-AAAA` s'il est une vraie date (sert de date par défaut à `fr_get_act` et de `version_start` aux résultats de recherche) ; un suffixe mal formé est refusé (`BadSuffix`) ; un suffixe bien formé sur un autre préfixe que LEGITEXT est toléré puis retiré (documenté). Voir `VersionedId` (décision §4 ; E-16, E-17, E-36) et 00 §11.1.
   4. Pas de `Rc` ni de `RefCell` : les entités traversent des tâches tokio.
 
 ### 3.2 `lf-application`
@@ -494,10 +510,10 @@ Deux points sont à mesurer au premier `cargo clippy` du spike M0, tous deux **N
   - un seul `reqwest::Client`, avec des timeouts de 10 s à la connexion et de `LF_HTTP_TIMEOUT_S` (40 s) par requête ;
   - les retries `backon` (3 tentatives au plus, sur 429/500/502/503/504 et sur les erreurs réseau), avec jitter, respect de `Retry-After` et plafond fixé par `LF_TOOL_DEADLINE_S` ;
   - le limiteur `governor` du processus ;
-  - des DTO serde minimaux, le mapping DTO → domaine et la réparation du mojibake ;
+  - des DTO serde minimaux, le mapping DTO → domaine et l'application de la réparation du mojibake (la fonction pure `lf_domain::text::encoding::repair_latin1_mojibake` est un reliquat de M1, tâche de tête de M2) ;
   - la construction des requêtes `/search`.
   - Le détail est dans [04-adapter-piste.md](04-adapter-piste.md).
-- **Modules publics** : `PisteCorpus`, `PisteConfig`, `PisteEndpoints` (URLs sandbox et production de la décision §8), `RateQuota`. Les modules `oauth`, `http`, `retry`, `limiter`, `request`, `dto`, `map`, `mojibake` et `error` restent privés.
+- **Modules publics** : `PisteCorpus`, `PisteConfig`, `PisteEndpoints` (URLs sandbox et production de la décision §8), `RateQuota`. Les modules `oauth`, `http`, `retry`, `limiter`, `request`, `dto`, `map`, `mojibake` (nom à trancher : `encoding` en 04, voir §2.1) et `error` restent privés.
 - **Types exportés** :
   - `PisteCorpus::new(config) -> Self`. Il ne fait aucune E/S ; le client HTTP est construit au premier appel. Le coût de construction (racines TLS via `rustls-platform-verifier`) est **NON VÉRIFIÉ** [v:cout-init-reqwest].
   - `PisteCorpus::check_credentials(&self) -> Result<(), CorpusError>`, méthode inhérente hors port, utilisée par `check-config --online`.
@@ -553,7 +569,7 @@ Deux points sont à mesurer au premier `cargo clippy` du spike M0, tous deux **N
 - **API publique**, indépendante du SDK car `lf-app` ne dépend pas de rmcp (§4) :
 
 ```rust
-// crates/lf-adapter-mcp/src/lib.rs — non compilé, à valider en M0
+// crates/lf-adapter-mcp/src/lib.rs — non compilé, à valider au jalon qui l'implémente
 pub struct ServerIdentity { pub name: &'static str, pub version: &'static str }
 
 pub async fn serve_stdio<C: LegalCorpus, A: AuditLog, K: Clock>(
@@ -575,7 +591,7 @@ pub fn registered_tool_names() -> Vec<&'static str>;   // pour les tests de coh�
   - `LegifranceServer<C, A, K> { service: Arc<LegalService<…>>, info: Arc<ServerConfig>, tool_router: ToolRouter<Self>, prompt_router (M7) }` avec un `Clone` manuel, car `derive` exigerait `C: Clone` (recherche 04 §3). `get_info()` renvoie un `ServerConfig` précalculé et cloné : rmcp l'appelle souvent, il doit rester bon marché (recherche 04 §2.2).
   - Le routeur est un **champ** utilisé par `#[tool_handler(router = self.tool_router)]` ; sans cela, il serait reconstruit à chaque requête (recherche 04 §2.4).
   - Chaque outil : `async fn fr_x(&self, args: JsonObject, ct: CancellationToken, ctx: RequestContext<RoleServer>) -> Result<Json<XView>, ToolFailure>`, avec `#[tool(name = "fr_x", description = text::FR_X, input_schema = params::schema::<XParams>(), annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = true))]`. Les annotations sont des littéraux, donc répétées sur chaque outil (recherche 04 §2.8).
-  - Les arguments sont reçus **bruts** (`JsonObject`) et décodés par l'adapter pour une raison précise. Avec l'extracteur `Parameters<T>`, un échec de désérialisation devient un résultat in-band `failed to deserialize parameters: …`, mais il est produit par le routeur, **avant** notre code (`handler/server/router/tool.rs:144-156`, vérifié) : il ne serait ni audité, ni préfixé `[invalid_arg]` (E-29, D-02). L'extracteur `JsonObject` renvoie les arguments tels quels (`handler/server/tool.rs:252-258`, vérifié). L'attribut `input_schema` explicite remplace alors le schéma déduit (`rmcp-macros/src/tool.rs:194-216`, vérifié), et `rmcp::handler::server::common::schema_for_input::<P>()` est public (`common.rs:77`, vérifié). Que l'ensemble compile avec la détection d'`outputSchema` sur `Result<Json<T>, ToolFailure>` écrit littéralement est **NON VÉRIFIÉ** [v:rmcp-jsonobject-input-schema]. Repli si le spike M0 échoue : `Parameters<P>` avec des champs tous `Option<…>`, ce qui rend la désérialisation quasi infaillible et laisse la validation au cas d'usage.
+  - Les arguments sont reçus **bruts** (`JsonObject`) et décodés par l'adapter pour une raison précise. Avec l'extracteur `Parameters<T>`, un échec de désérialisation devient un résultat in-band `failed to deserialize parameters: …`, mais il est produit par le routeur, **avant** notre code (`handler/server/router/tool.rs:144-156`, vérifié) : il ne serait ni audité, ni préfixé `[invalid_arg]` (E-29, D-02). L'extracteur `JsonObject` renvoie les arguments tels quels (`handler/server/tool.rs:252-258`, vérifié). L'attribut `input_schema` explicite remplace alors le schéma déduit (`rmcp-macros/src/tool.rs:194-216`, vérifié), et `rmcp::handler::server::common::schema_for_input::<P>()` est public (`common.rs:77`, vérifié). Que l'ensemble compile avec la détection d'`outputSchema` sur `Result<Json<T>, ToolFailure>` écrit littéralement est **NON VÉRIFIÉ** [v:rmcp-jsonobject-input-schema]. Repli si le spike rmcp (avant la conception des ports de M3) échoue : `Parameters<P>` avec des champs tous `Option<…>`, ce qui rend la désérialisation quasi infaillible et laisse la validation au cas d'usage.
   - `list_tools` et `discover` sont écrits à la main. `#[tool_handler]` génère sinon `ttl_ms: 0` (recherche 04 §2.4), alors que Q8 propose `ttlMs = 3 600 000` et `cacheScope = public`. Les indications ne sont posées que pour les pairs ≥ 2026-07-28 (`ctx.protocol_version()`), comme dans le squelette de la recherche 09 §8 ; savoir si rmcp les retire de lui-même pour les pairs legacy est **NON VÉRIFIÉ** [v:rmcp-ttl-legacy].
   - `supported_protocol_versions()` renvoie le tableau statique `[2026-07-28, 2025-11-25, 2025-06-18]` (décision §6).
   - `subscriptions/listen` : par défaut, rmcp répond `-32601` (`handler/server.rs:147-154`, vérifié), alors que la recherche 08 §7.6 juge l'accusé minimal obligatoire. La proposition, à acter dans l'annexe D : `accepted_subscription_filter` renvoie un filtre vide, et le `listen` par défaut attend l'annulation (`handler/server.rs:454-480`).
@@ -609,16 +625,16 @@ pub fn registered_tool_names() -> Vec<&'static str>;   // pour les tests de coh�
 
 ### 3.8 `xtask`
 
-- **Responsabilité** : l'outillage du dépôt ([00-decisions §2](00-decisions.md#2-workspace-cargo)). xtask ne dépend d'aucun crate `lf-*`. Il pilote donc le binaire ou les exemples **en boîte noire**.
+- **Responsabilité** : l'outillage du dépôt ([00-decisions §2](00-decisions.md#2-workspace-cargo)). Seule `check-arch` est livrée (M0, plan 1) ; les autres commandes arrivent aux jalons indiqués. xtask ne dépend d'aucun crate `lf-*`. Il pilote donc le binaire ou les exemples **en boîte noire**.
 
 | Commande | Fonctionnement | Accès réseau |
 |---|---|---|
-| `cargo xtask check-deps` | §4.2 (via `cargo metadata`) | non |
-| `cargo xtask lock-descriptors [--check]` | Compile puis lance `mcp-legifrance serve`, envoie `initialize` (2025-11-25) puis `tools/list` sur stdin et normalise la réponse : clés triées ; seuls `name`, `title`, `description`, `inputSchema`, `outputSchema` et `annotations` sont gardés, sans méta propre au SDK (D-37). Il écrit `tests/tools.lock.json`, ou le compare avec `--check`. Aucun appel PISTE n'est fait. | non |
-| `cargo xtask instructions-size` | Même principe avec `server/discover` : vérifie que `instructions` fait ≤ 3 500 caractères Unicode et affiche la taille totale des descripteurs (budget D-33). | non |
-| `cargo xtask record-fixture <endpoint> <requête.json>` | Lance `cargo run -p lf-adapter-piste --example record_fixture` avec les identifiants de l'environnement. Il écrit la réponse **brute** (octets) et `<cas>.meta.toml` (`endpoint`, `request`, `captured_at`, `env`, `sha256_raw`) (D-35). Il refuse d'écrire si la réponse contient l'en-tête ou le jeton. | oui (identifiants requis) |
+| `cargo xtask check-arch` (`make arch`) | §4.2 (via `cargo metadata`). Livré : xtask/src/arch.rs, `forbidden` + `DOMAIN_ALLOWED`, échec fermé. | non |
+| `cargo xtask lock-descriptors [--check]` (M4) | Compile puis lance `mcp-legifrance serve`, envoie `initialize` (2025-11-25) puis `tools/list` sur stdin et normalise la réponse : clés triées ; seuls `name`, `title`, `description`, `inputSchema`, `outputSchema` et `annotations` sont gardés, sans méta propre au SDK (D-37). Il écrit `tests/tools.lock.json`, ou le compare avec `--check`. Aucun appel PISTE n'est fait. | non |
+| `cargo xtask instructions-size` (M4) | Même principe avec `server/discover` : vérifie que `instructions` fait ≤ 3 500 caractères Unicode et affiche la taille totale des descripteurs (budget D-33). | non |
+| `cargo xtask record-fixture <endpoint> <requête.json>` (M2) | Lance `cargo run -p lf-adapter-piste --example record_fixture` avec les identifiants de l'environnement. Il écrit la réponse **brute** (octets) et `<cas>.meta.toml` (`endpoint`, `request`, `captured_at`, `env`, `sha256_raw`) (D-35). Il refuse d'écrire si la réponse contient l'en-tête ou le jeton. | oui (identifiants requis) |
 
-- **Dépendances** : `cargo_metadata` 0.23.1, `anyhow`, `serde_json`, `toml` 0.9.8, `sha2`, `hex`. `publish = false`.
+- **Dépendances** : livré : `serde_json` seul (xtask/Cargo.toml) ; `cargo metadata` est appelé en sous-processus (xtask/src/main.rs:9-10). Cible : `cargo_metadata` 0.23.1 (M2, R2 et fermeture transitive), puis `anyhow`, `toml` 0.9.8, `sha2`, `hex` aux jalons qui les utilisent. `publish = false`.
 
 ### 3.9 `lf-adapter-dila` (M9)
 
@@ -632,11 +648,11 @@ pub fn registered_tool_names() -> Vec<&'static str>;   // pour les tests de coh�
 
 ### 4.1 Règles
 
-Les règles R1 à R5 reprennent la décision ; R6 et R7, ainsi que les listes blanches, sont des propositions de ce document.
+Les règles R1 à R5 reprennent la décision ; R6 à R8, ainsi que les listes blanches, sont des propositions de ce document ; R9 est retenue par 00 §2 (extension de M2). **Livré (M0, plan 1)** : `check-arch` applique R1 (liste blanche `thiserror`, échec fermé), un `lf-application` sans adapter, R3 en partie ; les autres règles sont des extensions ajoutées au jalon où elles servent (échéancier en §4.2).
 
 | # | Règle | Origine |
 |---|---|---|
-| R1 | `lf-domain` ne dépend d'aucun `lf-*`, ni de `tokio`, `reqwest`, `serde_json` ou `rmcp`. Sa liste blanche externe est : `thiserror`, `chrono` (sans `clock` ni `now`), `unicode-normalization`, `winnow`, `aho-corasick`, `regex`. | 00-decisions §2 |
+| R1 | `lf-domain` ne dépend d'aucun `lf-*`. Sa liste blanche externe, qui **échoue fermé**, est `thiserror` seul (`DOMAIN_ALLOWED`, xtask/src/arch.rs:25-26). Elle s'élargit par ADR au jalon qui en a besoin : `winnow`, `aho-corasick`, `regex` et `unicode-normalization` en M6 (ADR-0011 amendé). | 00-decisions §2 ; ADR-0016 |
 | R2 | `lf-application` ne dépend d'aucun adapter, ni de `rmcp` ou `reqwest`. Sa liste blanche externe proposée : `thiserror`, `chrono` (`std`), `tokio` (`time`, `macros` seulement), `futures`, `tracing`, `similar`. | 00-decisions §2 ; proposition |
 | R3 | Aucun `lf-adapter-*` ne dépend d'un autre `lf-adapter-*`, ni de `lf-app`. `lf-adapter-audit` dépend de `lf-application` seul et accède aux types du domaine par ses ré-exports. | 00-decisions §2 |
 | R4 | Seul `lf-app` dépend de tous les `lf-*` ; aucun crate ne dépend de `lf-app`, qui n'a pas de cible `lib`. | 00-decisions §2 |
@@ -644,11 +660,21 @@ Les règles R1 à R5 reprennent la décision ; R6 et R7, ainsi que les listes bl
 | R6 | **Crates confinés**, une seule porte d'entrée : `rmcp`, `rmcp-macros`, `schemars`, `axum` → lf-adapter-mcp ; `reqwest`, `backon`, `governor` → lf-adapter-piste ; `moka` → lf-adapter-cache ; `sha2`, `fs4` → lf-adapter-audit (et xtask) ; `tantivy`, `quick-xml`, `tar`, `flate2` → lf-adapter-dila ; `clap`, `tracing-subscriber`, `dirs` → lf-app ; `anyhow` → lf-app, xtask ; `secrecy` → lf-adapter-piste, lf-app. `rmcp` ne doit jamais être renommé. | proposition (recherche 04 §5.3, recherche 09 §7a) |
 | R7 | Aucun membre ne dépend directement de `async-trait` (ADR-0012) ; seule la feature HTTP de rmcp le tire en M8. | ADR-0012 |
 | R8 | Dev-dependencies : `lf-domain` et `lf-application` ne prennent aucun adapter, même en dev. Les adapters peuvent prendre `lf-application` avec `test-support`. | proposition |
+| R9 | Doublon interdit des crates critiques (`tokio`, `rustls`, `reqwest`, `hyper`, `http`, `serde`, `schemars`, `rmcp`, `chrono`) dans le graphe résolu. Ajoutée en M2 (§4.2). | 06-qualite §9.3 |
 
-### 4.2 `cargo xtask check-deps` : algorithme
+### 4.2 `cargo xtask check-arch` : algorithme cible et échéancier
+
+**Livré (M0, plan 1)** : `check_arch` (xtask/src/main.rs:7) lance `cargo metadata --format-version 1 --no-deps`, `workspace_packages` extrait les dépendances normales (`kind` nul) des membres et échoue fermé (aucun membre, nom ou `dependencies` absent, `lf-domain` absent), `violations` applique `forbidden`. L'algorithme ci-dessous est la cible ; il s'étend par jalon :
+
+| Jalon | Extension de `check-arch` |
+|---|---|
+| Tête de M2 (tâche 0, 00 §11.1) | un membre inconnu devient une violation (aujourd'hui `_ => false`, arch.rs:37) |
+| M2, à la création de `lf-application` | R2 (crates d'I/O interdits), fermeture transitive et R9 (doublons) : `cargo metadata --format-version 1 --all-features --locked`, sans `--no-deps` |
+| M3 | features `tokio` bornées |
+| M4 | épinglage de `rmcp` |
 
 ```text
-1. meta ← `cargo metadata --format-version 1 --all-features --locked` (crate cargo_metadata, MetadataCommand).
+1. meta ← `cargo metadata --format-version 1 --all-features --locked` (cible : crate cargo_metadata, MetadataCommand ; livré : le JSON de `cargo metadata` est parsé via serde_json, sans ce crate).
    --all-features garantit le pire cas : les features `http` (M8) et `dila` (M9) sont incluses.
 2. membres ← meta.workspace_members, indexés par nom de paquet.
 3. Arêtes directes : pour chaque membre M et chaque dépendance déclarée d ∈ M.dependencies :
@@ -660,7 +686,7 @@ Les règles R1 à R5 reprennent la décision ; R6 et R7, ainsi que les listes bl
         si RÈGLES[M].liste_blanche existe : exiger cible ∈ liste_blanche   (R1, R2)
         exiger que cible ne soit confinée à un autre membre, sauf xtask    (R6)
         si RÈGLES[M].features_max[cible] existe : exiger d.features ⊆ features_max
-            (ex. lf-application : tokio ⊆ {time, macros} ; lf-domain : chrono ∌ clock, now)
+            (ex. lf-application : tokio ⊆ {time, macros})
         si cible = "rmcp" : exiger d.rename = None                         (R6)
         si cible = "async-trait" : violation                              (R7)
 4. Fermeture transitive (production seulement) : depuis meta.resolve.nodes, parcourir les arêtes dont
@@ -671,32 +697,38 @@ Les règles R1 à R5 reprennent la décision ; R6 et R7, ainsi que les listes bl
    et déclare [lints] workspace = true ; seul lf-app déclare un [[bin]] (hors xtask) ; personne ne dépend de lf-app.
 6. Épinglage : les paquets résolus rmcp et rmcp-macros valent exactement 3.5.1, et l'exigence déclarée
    dans [workspace.dependencies] commence par « = ».
-7. Sortie : une ligne par violation « check-deps: <membre> -> <dépendance> [<kind>] : <règle> (<explication>) » ;
+7. Sortie : une ligne par violation « check-arch: <membre> -> <dépendance> [<kind>] : <règle> (<explication>) » ;
    code 0 si aucune violation, 1 sinon ; `--format json` pour annoter la PR.
 ```
 
-Les règles sont **des données** (`xtask/src/rules.rs`, une table `&[CrateRule]`). Le moteur est une fonction pure `check(&Metadata, &[CrateRule]) -> Vec<Violation>`, testée sur des métadonnées JSON synthétiques, avec au moins une violation par règle R1 à R8. Ajouter un crate, par exemple `lf-adapter-dila` en M9, oblige à ajouter sa ligne : un membre inconnu de la table est lui-même une violation.
+Les règles sont **des données**, dans xtask/src/arch.rs (livré : `forbidden` et `DOMAIN_ALLOWED` ; la cible est une table `&[CrateRule]`). Le moteur est une fonction pure (livré : `violations(&[Package]) -> Vec<String>`), testée sur des métadonnées JSON synthétiques sous les portes 100 % / 0 survivant, avec au moins une violation par règle R1 à R9. Ajouter un crate, par exemple `lf-adapter-dila` en M9, oblige à ajouter sa ligne : un membre inconnu de la table est lui-même une violation.
 
 ### 4.3 Seconde ligne : `cargo deny check bans`
 
 La syntaxe `wrappers` de cargo-deny 0.20.2 autorise des crates précis à dépendre **directement** d'un crate interdit, et refuse toute autre dépendance (`docs/src/checks/bans/cfg.md:90-96`, vérifié) :
 
 ```toml
-# deny.toml (extrait) — à valider en M0
+# deny.toml (extrait) — à valider au jalon qui l'implémente
 [graph]
 all-features = true
 
 [bans]
-multiple-versions = "warn"
+multiple-versions = "warn"                # "deny" à partir de M5
 wildcards = "deny"
 allow-wildcard-paths = true          # dépendances `path` des crates internes
 deny = [
   { crate = "openssl-sys", reason = "TLS = rustls uniquement" },
   { crate = "native-tls",  reason = "TLS = rustls uniquement" },
+  { crate = "openssl",     reason = "TLS = rustls uniquement" },
+  { crate = "backoff",     reason = "retries = backon" },
+  # wrappers : ajoutés au jalon où le crate confiné entre dans le graphe (reqwest M2, moka M3, rmcp M4)
   { crate = "rmcp",    wrappers = ["lf-adapter-mcp"],   reason = "SDK MCP confiné (ADR-0003)" },
   { crate = "reqwest", wrappers = ["lf-adapter-piste"], reason = "HTTP sortant confiné" },
   { crate = "moka",    wrappers = ["lf-adapter-cache"], reason = "cache confiné (ADR-0007)" },
 ]
+
+[advisories]
+yanked = "deny"                      # unmaintained : valeur par défaut ("all"), à ne pas relâcher
 
 [sources]
 unknown-registry = "deny"
@@ -708,8 +740,8 @@ unknown-git = "deny"
 ### 4.4 Contrôles de pureté en CI
 
 Ce sont des jobs de `ci.yml`, dont le détail est dans [06-qualite.md](06-qualite.md) :
-- `cargo check -p lf-domain` et `cargo check -p lf-application`, **seuls** : les features sont résolues pour ce graphe uniquement, ce qui vérifie que `chrono` n'y a pas `clock`/`now` et que tokio n'apporte que `time`/`macros`.
-- `cargo xtask check-deps`, puis `cargo deny check`.
+- `cargo check -p lf-application`, **seul** (à partir de M2) : les features sont résolues pour ce graphe uniquement, ce qui vérifie que `chrono` n'y a pas `clock`/`now` et que tokio n'apporte que `time`/`macros`. Pour `lf-domain`, la pureté est garantie par la liste blanche de `check-arch` (thiserror seul).
+- `make arch` (`cargo xtask check-arch`), puis `make deny` (`cargo deny check`), appelés par `make ci`.
 - `cargo tree -p lf-domain -e normal --prefix none` est archivé en artefact, pour visualiser les écarts dans une PR.
 
 ---
@@ -721,7 +753,7 @@ Les signatures suivent [00-decisions §3](00-decisions.md#3-ports-lf-application
 ### 5.1 `LegalCorpus` et `CorpusError`
 
 ```rust
-// crates/lf-application/src/ports/corpus.rs — non compilé, à valider en M0
+// crates/lf-application/src/ports/corpus.rs — non compilé, à valider au jalon qui l'implémente
 use std::time::Duration;
 use lf_domain::{
     Act, AccoTextId, ArticleId, ArticleText, CnilTextId, CompanyAgreement, Convention, Decision,
@@ -792,12 +824,13 @@ pub enum CorpusError {
 Types d'entrée et de sortie du port, tous définis dans `lf-domain` (détail dans [03-domaine.md](03-domaine.md)) :
 
 ```rust
-// crates/lf-domain/src/search.rs et date.rs — non compilé, à valider en M0
+// crates/lf-domain/src/search.rs et date.rs — non compilé, à valider au jalon qui l'implémente
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum MatchMode { #[default] Any, All, Exact }   // UN_DES_MOTS (défaut, Q10), TOUS_LES_MOTS_DANS_UN_CHAMP, EXACTE
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct VersionDate(chrono::NaiveDate);        // au jour près : stabilise la clé de cache (D-01)
+pub struct VersionDate(CivilDate);                // au jour près : stabilise la clé de cache (D-01). Livré : `pub type VersionDate = CivilDate` (date.rs:39), sans Hash ;
+                                                   // newtype borné 1500-01-01..=2221-12-31 (NON VÉRIFIÉ) en M2, Hash sur CivilDate/Id<K>/AnyId/ArticleId/DecisionId/Ecli/Fond : tâche de tête de M2 (00 §11.1), usage par les clés moka en M3
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SearchQuery {                           // forme de 03 §4.1 ; Eq + Hash : clé de cache (§7.2)
@@ -812,7 +845,7 @@ pub struct SearchQuery {                           // forme de 03 §4.1 ; Eq + H
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SearchPage {
+pub struct SearchPage {                            // livré (M1) : fond, query, total, hits ; page, page_size, has_more, pagination : M5
     pub total: u64,
     pub page: u32,
     pub page_size: u32,
@@ -825,7 +858,7 @@ pub struct SearchPage {
 ### 5.2 `AuditLog`
 
 ```rust
-// crates/lf-application/src/ports/audit.rs — non compilé, à valider en M0
+// crates/lf-application/src/ports/audit.rs — non compilé, à valider au jalon qui l'implémente
 pub use lf_domain::PisteEnvironment;
 
 pub trait AuditLog: Send + Sync + 'static {
@@ -860,12 +893,12 @@ pub enum AuditErrorKind { Io, DiskFull, PermissionDenied, Encode, WriterGone }
 ### 5.3 `Clock`
 
 ```rust
-// crates/lf-application/src/ports/clock.rs — non compilé, à valider en M0
+// crates/lf-application/src/ports/clock.rs — non compilé, à valider au jalon qui l'implémente
 /// Synchrone : aucune E/S. Implémentations : lf-app::clock::SystemClock (chrono-tz), testing::FixedClock.
 pub trait Clock: Send + Sync + 'static {
     fn now_utc(&self) -> chrono::DateTime<chrono::Utc>;
     /// Date civile Europe/Paris : le défaut de `date` et de `version_date` (D-19, E-05).
-    fn today_paris(&self) -> chrono::NaiveDate;
+    fn today_paris(&self) -> CivilDate;            // lf_domain::CivilDate (pas de chrono dans le domaine, ADR-0011 amendé)
 }
 ```
 
@@ -876,7 +909,7 @@ pub trait Clock: Send + Sync + 'static {
 La décision écarte un port entrant sous forme de trait. L'adapter MCP appelle directement les méthodes de `LegalService<C, A, K>` (§6.2). Le seul contrat d'entrée est le type `ToolCall<I>` :
 
 ```rust
-// crates/lf-application/src/input.rs — non compilé, à valider en M0
+// crates/lf-application/src/input.rs — non compilé, à valider au jalon qui l'implémente
 /// Un appel d'outil tel que reçu : l'adapter entrant a tenté le décodage, mais c'est l'application
 /// qui audite le résultat. Une erreur de décodage devient donc un invalid_arg audité (E-29, D-02).
 pub struct ToolCall<I> {
@@ -931,7 +964,7 @@ Les resources, prompts et completions (M7) utilisent `ResourceUseCase` et `Compl
 ### 6.3 Façade `LegalService<C, A, K>`
 
 ```rust
-// crates/lf-application/src/service.rs — non compilé, à valider en M0
+// crates/lf-application/src/service.rs — non compilé, à valider au jalon qui l'implémente
 pub struct LegalService<C: LegalCorpus, A: AuditLog, K: Clock> {
     corpus: C,
     audited: Audited<A>,
@@ -981,7 +1014,7 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
 **Algorithme** :
 
 ```rust
-// crates/lf-application/src/audited.rs — non compilé, à valider en M0
+// crates/lf-application/src/audited.rs — non compilé, à valider au jalon qui l'implémente
 pub async fn run<O, W, X>(&self, meta: CallMeta, cancel: X, work: W) -> Result<O, AppError>
 where O: AuditMetric, W: Future<Output = Result<O, AppError>> + Send, X: Future<Output = ()> + Send
 {
@@ -1105,7 +1138,7 @@ Lecture **unique** au démarrage depuis un `EnvSource`. En production, c'est l'e
 ### 8.4 Câblage générique
 
 ```rust
-// crates/lf-app/src/wiring.rs et main.rs — non compilé, à valider en M0
+// crates/lf-app/src/wiring.rs et main.rs — non compilé, à valider au jalon qui l'implémente
 pub type Corpus  = CachedCorpus<PisteCorpus>;
 pub type Service = LegalService<Corpus, JsonlAuditLog, SystemClock>;
 
@@ -1145,14 +1178,14 @@ async fn serve(cfg: AppConfig) -> ExitCode {
 }
 ```
 
-`SystemClock` vit dans `lf-app::clock` (décision §2) : `now_utc()` = `chrono::Utc::now()` (seul usage autorisé, avec `#[expect]`), `today_paris()` = `now_utc().with_timezone(&chrono_tz::Europe::Paris).date_naive()`.
+`SystemClock` vit dans `lf-app::clock` (décision §2) : `now_utc()` = `chrono::Utc::now()` (seul usage autorisé, avec `#[expect]`), `today_paris()` = `now_utc().with_timezone(&chrono_tz::Europe::Paris).date_naive()` converti en `CivilDate` par `CivilDate::new(year, month, day)` (la conversion chrono vers `CivilDate` reste dans `lf-app::clock` ; horloge Paris via `chrono-tz` hors du domaine, M3).
 
 ### 8.5 `AnyCorpus` (M9)
 
 La sélection d'adapter se fait à l'exécution, par un enum de dispatch dans `lf-app` (le seul crate qui voit les deux adapters). Il n'y a ni `Box<dyn>` ni boxing de futur (ADR-0004, ADR-0012) :
 
 ```rust
-// crates/lf-app/src/wiring.rs (M9) — non compilé, à valider en M0
+// crates/lf-app/src/wiring.rs (M9) — non compilé, à valider au jalon qui l'implémente
 pub enum AnyCorpus {
     Piste(CachedCorpus<PisteCorpus>),   // le cache ne sert qu'à PISTE
     Dila(DilaCorpus),                   // index local : pas de cache
@@ -1322,11 +1355,11 @@ Le test e2e `stdout_contains_only_jsonrpc` (D-46) vérifie que chaque ligne de s
 - [ ] **Instructions** : mentionner l'outil si nécessaire, puis lancer le test de dérive et `cargo xtask instructions-size`.
 - [ ] `cargo xtask lock-descriptors`, puis commit de `tests/tools.lock.json` et des snapshots `insta`.
 - [ ] Tests : succès, chaque code d'erreur, une ligne d'audit par issue, budget de taille ([06-qualite.md](06-qualite.md)).
-- [ ] Mettre à jour `CHANGELOG.md` et la table des outils de [07-feuille-de-route.md](07-feuille-de-route.md).
+- [ ] Mettre à jour `CHANGELOG.md` et la table des outils du plan en cours (`docs/superpowers/plans/`).
 
 ### 12.2 Ajouter un adapter de corpus (DILA, M9)
 
-- [ ] Créer `crates/lf-adapter-dila` (dépendances : `lf-application`, `lf-domain`), avec sa ligne dans `xtask/src/rules.rs` (un membre inconnu fait échouer `check-deps`) et sa licence dans `deny.toml` (tantivy).
+- [ ] Créer `crates/lf-adapter-dila` (dépendances : `lf-application`, `lf-domain`), avec sa ligne dans `xtask/src/arch.rs` (un membre inconnu fait échouer `check-arch`) et sa licence dans `deny.toml` (tantivy).
 - [ ] Implémenter **toutes** les méthodes de `LegalCorpus`. Une opération indisponible hors ligne renvoie une erreur explicite et documentée dans `fr_coverage`.
 - [ ] Exécuter la même batterie de contrats que pour PISTE : mêmes entrées, mêmes formes de sortie (contrat de citation v2, sentinelles, TOC ordonnée) sur un petit dump fixture.
 - [ ] Ajouter la variante `AnyCorpus::Dila` et la sélection dans `lf-app` (variable à nommer en M9), et changer l'alias `Service`.
@@ -1336,8 +1369,8 @@ Le test e2e `stdout_contains_only_jsonrpc` (D-46) vérifie que chaque ligne de s
 
 Seul `lf-adapter-mcp` connaît rmcp. Son API publique (`serve_stdio`, `serve_http`, `ServerIdentity`, `registered_tool_names`) n'expose aucun type du SDK. Le domaine, l'application et les autres adapters ne bougent donc pas.
 
-- [ ] **Montée de rmcp** (manuelle, décision §6) : lire le CHANGELOG, en particulier les changements de `LATEST`, de `KNOWN_VERSIONS` et de forme des `*Response` (recherche 09 §3.2) ; modifier les deux `=` dans `[workspace.dependencies]` ; lancer `cargo xtask lock-descriptors --check`, les snapshots, les tests JSON-RPC bruts des deux ères (`tests/jsonrpc/`) et `check-deps`.
-- [ ] **Changement de SDK** (repli de la recherche 09 §7b : `pmcp`, MSRV 1.91 compatible) : réécrire `server.rs`, `tools.rs`, `stdio.rs` et `failure.rs`. On garde `params.rs` et `views.rs` (serde + schemars) ainsi que `text.rs`. Les **oracles boîte noire**, eux, ne dépendent pas du SDK : `tests/tools.lock.json` (produit par xtask via stdio), les scénarios `tests/jsonrpc/`, et les tests e2e de `lf-app`. Ils doivent passer sans modification ; toute différence de schéma apparaît dans le verrou.
+- [ ] **Montée de rmcp** (manuelle, décision §6) : lire le CHANGELOG, en particulier les changements de `LATEST`, de `KNOWN_VERSIONS` et de forme des `*Response` (recherche 09 §3.2) ; modifier les deux `=` dans `[workspace.dependencies]` ; lancer `cargo xtask lock-descriptors --check`, les snapshots, les tests JSON-RPC bruts des deux ères (`tests/jsonrpc/`) et `check-arch`.
+- [ ] **Changement de SDK** (repli de la recherche 09 §7b : `pmcp` (MSRV 1.91 : le repli imposerait de relever la MSRV par un ADR, C5)) : réécrire `server.rs`, `tools.rs`, `stdio.rs` et `failure.rs`. On garde `params.rs` et `views.rs` (serde + schemars) ainsi que `text.rs`. Les **oracles boîte noire**, eux, ne dépendent pas du SDK : `tests/tools.lock.json` (produit par xtask via stdio), les scénarios `tests/jsonrpc/`, et les tests e2e de `lf-app`. Ils doivent passer sans modification ; toute différence de schéma apparaît dans le verrou.
 
 ### 12.4 Ajouter une resource, un prompt ou une completion (M7)
 
@@ -1349,8 +1382,8 @@ Le gabarit va dans `resources.rs`, avec analyse stricte de l'URI (recherche 08 �
 
 | Décision | Alternatives écartées | Pourquoi | ADR |
 |---|---|---|---|
-| Réécriture en Rust | Corriger la référence Python | Les défauts sont structurels et répartis partout (D-02, D-06, D-07, D-38) ; un binaire unique facilite la distribution et la signature. | ADR-0001 ([index](../adr/README.md)) |
-| Hexagonal en workspace multi-crates (7 crates + xtask) | Un seul crate à modules ; un crate `lf-ports` séparé ; un crate par port | Les frontières sont vérifiées par Cargo et `check-deps`, pas seulement par la revue. Les ports restent dans l'application, où vivent leurs consommateurs. `SystemClock` vit dans un module de `lf-app` : un crate pour 20 lignes serait superflu. | ADR-0002 |
+| Réécriture en Rust | Corriger la référence Python | Les défauts sont structurels et répartis partout (D-02, D-06, D-07, D-38) ; un binaire unique facilite la distribution et la signature. | ADR-0015 ([index](../adr/README.md)) |
+| Hexagonal en workspace multi-crates (7 crates + xtask) | Un seul crate à modules ; un crate `lf-ports` séparé ; un crate par port | Les frontières sont vérifiées par Cargo et `check-arch` (liste blanche qui échoue fermé), pas seulement par la revue. Les ports restent dans l'application, où vivent leurs consommateurs. `SystemClock` vit dans un module de `lf-app` : un crate pour 20 lignes serait superflu. | ADR-0016 (remplace ADR-0001 livré) |
 | MCP 2026-07-28 dual-era avec rmcp `=3.5.1` | `rmcp ~3.5.1` (recherche 09 §7a) ; `pmcp` ; `turbomcp` 4 alpha ; notre propre couche protocolaire (2 500 à 4 000 lignes estimées, recherche 09 §7b) | rmcp est le SDK officiel, Tier 1, et sert les deux ères. Il est épinglé exactement parce que `LATEST` a changé dans une mineure (3.5.0) et que rmcp-macros est déclaré en caret. | ADR-0003 |
 | rmcp confiné à `lf-adapter-mcp`, `lf-app` sans rmcp | `lf-app` qui appelle `serve(stdio())` (squelette de la recherche 09 §8) ; `lf-adapter-mcp` qui dépend de `lf-app` (inversion, même squelette) | Un changement de SDK ne touche qu'un crate ; la composition root reste indépendante du SDK. | ADR-0003 |
 | PISTE d'abord, DILA ensuite derrière le même port, `enum AnyCorpus` | `Box<dyn LegalCorpus>` ; deux binaires | Dispatch statique, exhaustivité vérifiée par le `match`, pas de boxing. | ADR-0004, ADR-0012 |
@@ -1362,10 +1395,10 @@ Le gabarit va dans `resources.rs`, avec analyse stricte de l'URI (recherche 08 �
 | Annulation explicite (`cancel` passé à la façade) | Garde `Drop` qui lancerait une tâche d'audit ; ignorer l'annulation | Écriture d'audit attendue et déterministe, testable ; pas de tokio `rt` dans l'application. | ADR-0008 |
 | Contrat de citation v2 | `eli_uri == source_url` (référence) ; ELI fabriqué | D-27, D-30. | ADR-0009 |
 | Erreurs métier in-band, texte `[code] message`, 6 codes | Objet d'erreur dans `structuredContent` avec `retryable`/`hint` (recherche 02 D-08) ; erreurs JSON-RPC | Parité (E-01), lisibles par le modèle, compatibles avec les deux ères. | ADR-0010 |
-| `chrono` + `chrono-tz`, dates civiles, sentinelles | `jiff` ; `time` | chrono est déjà dans le graphe via rmcp (recherche 04 §4.3) ; une seule bibliothèque de dates. | ADR-0011 |
+| `CivilDate` dans le domaine ; `chrono` + `chrono-tz` hors du domaine ; sentinelles | `chrono::NaiveDate` dans lf-domain ; `jiff` ; `time` | `CivilDate` (livré) couvre le besoin du domaine sans dépendance, à 100 % de couverture et 0 mutant survivant. chrono est déjà dans le graphe via rmcp, pour `lf-application`, `lf-app::clock` et l'adapter PISTE. | ADR-0011 (amendé, 2026-10-16) |
 | Ports RPITIT `+ Send` et génériques | `#[async_trait]` + `Arc<dyn>` ; `trait-variant` ; `dynosaur` | Même modèle que rmcp, zéro allocation, `Send` prouvé à la compilation (recherche 04 §5.1). | ADR-0012 |
-| `tokio::time` dans `lf-application` | Délai global dans l'adapter MCP (l'abandon perdrait l'audit) ; méthode `sleep` dans `Clock` (modifierait le port normatif) | Le délai s'applique à l'intérieur d'`Audited`, la durée est mesurable en temps suspendu, et seules les features `time` et `macros` sont admises (vérifié par `check-deps`). | ADR-0012 |
-| Vérification des dépendances par `cargo xtask check-deps` + `cargo-deny` | Revue humaine seule ; outils tiers d'architecture | Règles comme données, messages lisibles, aucune dépendance supplémentaire de CI. | ADR-0002 |
+| `tokio::time` dans `lf-application` | Délai global dans l'adapter MCP (l'abandon perdrait l'audit) ; méthode `sleep` dans `Clock` (modifierait le port normatif) | Le délai s'applique à l'intérieur d'`Audited`, la durée est mesurable en temps suspendu, et seules les features `time` et `macros` sont admises (vérifié par `check-arch`). | ADR-0012 |
+| Vérification des dépendances par `cargo xtask check-arch` + `cargo-deny` | Revue humaine seule ; outils tiers d'architecture | Règles comme données, messages lisibles, aucune dépendance supplémentaire de CI. | ADR-0016 |
 | Distribution cargo-dist + MCPB + OCI + signature | Paquet PyPI ; Docker seul | Voir [08-distribution.md](08-distribution.md). | ADR-0013 |
 | Recherche : mode par défaut `any`, pagination | `all` par défaut (recherche 02 D-32) | Parité par défaut ; décision utilisateur (Q10). | ADR-0014 |
 
@@ -1377,7 +1410,7 @@ Dans chaque cas, ce document applique [00-decisions.md](00-decisions.md). Les re
 |---|---|---|---|---|
 | 1 | recherche 09 §7a | `rmcp = "~3.5.1"` | `=3.5.1` pour rmcp **et** rmcp-macros (épinglage nécessaire, car rmcp déclare rmcp-macros en caret) | conserver la décision |
 | 2 | recherche 09 §8 | Le squelette fait dépendre `lf-adapter-mcp` de `lf-app` | `lf-adapter-mcp` → `lf-application` et `lf-domain` ; `lf-app` sans rmcp | conserver |
-| 3 | recherche 04 §5.2 | MSRV 1.88 et `uuid = "1.26"` | MSRV 1.91 ; l'épinglage d'uuid devient inutile | conserver |
+| 3 | recherche 04 §5.2 | MSRV 1.88 et `uuid = "1.26"` | **MSRV 1.88 conservée** (00 §2, 2026-10-16) : nextest s'installe en binaire, le resolver 3 choisit un uuid compatible ; épinglage d'uuid inutile tant que le job MSRV reste vert (réévaluation en M4) | conserver |
 | 4 | recherche 02 D-08 | Erreur en `structuredContent` (`code`, `retryable`, `hint`) ; codes `timeout` et `invalid_response` | texte seul `[code] message`, six codes ; `Timeout`, `Decode` et `Deadline` → `upstream_error` | conserver (ADR-0010) |
 | 5 | recherche 02 D-18 | `LF_PISTE_ENV` obligatoire, sans défaut | défaut `sandbox`, affiché dans `fr_coverage` et rappelé au démarrage | conserver |
 | 6 | recherche 02 D-17 | Empreinte HMAC salée, `request_id`, état du cache dans l'audit | SHA-256 canonique non salé, champs de la décision §7 | Le risque de réversibilité sur entrées courtes est réel. Réévaluer après v0.1 via ADR-0008 ; `request_id` et le cache restent dans `tracing`. |
@@ -1386,8 +1419,8 @@ Dans chaque cas, ce document applique [00-decisions.md](00-decisions.md). Les re
 | 9 | recherche 02 D-26, recherche 04 §4.1 | `scraper` ou `html2text` pour `texteHtml` | aucun crate HTML dans lf-domain (liste fermée de la décision) : conversion maison | conserver ; prévoir des tests sur toutes les fixtures HTML |
 | 10 | spécification 2025-11-25 ; rmcp (`resource_not_found` → `-32002` en legacy, `-32602` en moderne) | « ressource inconnue → `-32602` » (décision §6) | `invalid_params` (`-32602`) dans les deux ères | Utiliser `ErrorData::resource_not_found` laisserait rmcp produire le bon code pour chaque ère ; à trancher dans l'annexe D. |
 | 11 | recherche 08 §7.6, §14.1 | `subscriptions/listen` : accusé minimal obligatoire en moderne ; la décision n'en parle pas ; rmcp répond `-32601` par défaut | proposition : `accepted_subscription_filter` → filtre vide (M4) | à acter dans l'annexe D |
-| 12 | recherche 03 §8 (exigence du brief : crates âgés d'au moins 2 semaines) | rmcp 3.5.1 (2026-10-05), schemars 1.2.3, tokio 1.53.3, serde_json 1.0.154, sha2 0.11.1, proptest 1.12.0, rustls 0.23.46, aws-lc-rs 1.18.2 ont moins de 14 jours au 2026-10-15 | versions exactes de la décision et de la recherche 04 | Revérifier l'âge à l'ouverture de M0 ; à défaut, prendre le correctif précédent (hors rmcp, imposé). |
-| 13 | recherche 01 E-29 | « échec de `Parameters<T>` → erreur JSON-RPC » | Le code de rmcp 3.5.1 donne un résultat in-band **non audité**. Ici : `JsonObject` + décodage audité (`invalid_arg`). | conserver ; le spike M0 valide ([v:rmcp-jsonobject-input-schema]) |
+| 12 | recherche 03 §8 (exigence du brief : crates âgés d'au moins 2 semaines) | rmcp 3.5.1 (2026-10-05), schemars 1.2.3, tokio 1.53.3, serde_json 1.0.154, sha2 0.11.1, proptest 1.12.0, rustls 0.23.46, aws-lc-rs 1.18.2 ont moins de 14 jours au 2026-10-15 | versions exactes de la décision et de la recherche 04 | Revérifier l'âge à l'ouverture du jalon qui introduit la dépendance ; à défaut, prendre le correctif précédent (hors rmcp, imposé). |
+| 13 | recherche 01 E-29 | « échec de `Parameters<T>` → erreur JSON-RPC » | Le code de rmcp 3.5.1 donne un résultat in-band **non audité**. Ici : `JsonObject` + décodage audité (`invalid_arg`). | conserver ; le spike rmcp (avant la conception des ports de M3) valide ([v:rmcp-jsonobject-input-schema]) |
 
 ---
 

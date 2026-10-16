@@ -1,12 +1,12 @@
 # Annexe B — Citations juridiques : parseur (M6), `fr_verify_citations`, `fr_resolve` et `fr_get_related` (M7)
 
-> **Statut** : plan, sans implémentation. [00-decisions.md](../00-decisions.md) est normatif et l'emporte en cas de doute.
+> **Statut** : M0-M1 livrés (plan 1), le reste est un plan. [00-decisions.md](../00-decisions.md) est normatif et l'emporte en cas de doute ; pour M0-M1 le code livré fait foi (écarts : 00 §11.1). Les types de date, d'ECLI et de texte sont ceux du domaine livré (`CivilDate`, `ecli::Ecli`) ; `text::fold` livré reste `pub(crate)` et la vue clé du parseur utilise `fold_char` (M6, §3.2) ; les dépendances du parseur entrent dans `lf-domain` par ADR au jalon M6 (00 §2).
 > **Jalons** : M6 (v0.2.0) : parseur `lf-domain::citation`, corpus, `fr_verify_citations`, `fr_resolve`. M7 (v0.3.0) : `fr_get_related`, complétion des noms de codes, gabarit `legifrance://code/{code}/article/{num}`.
 > **Lecteurs** : développeurs de `lf-domain::citation`, des cas d'usage M6/M7 de `lf-application`, des méthodes `find_article`/`find_by_number` de `lf-adapter-piste`, et des vues de `lf-adapter-mcp`.
 > **Données** : [donnees/codes-table.md](donnees/codes-table.md) (77 codes), [donnees/citations-corpus-positifs.jsonl](donnees/citations-corpus-positifs.jsonl) (170 cas), [donnees/citations-corpus-negatifs.jsonl](donnees/citations-corpus-negatifs.jsonl) (42 cas).
-> Les extraits Rust sont **non compilés, à valider en M0**. Les points non vérifiés sont marqués **NON VÉRIFIÉ** avec une étiquette `[v:…]` ; le registre `V-xx` les reprend dans [09-risques-et-questions.md](../09-risques-et-questions.md).
+> Les extraits Rust sont **non compilés, à valider au jalon qui l'implémente**. Les points non vérifiés sont marqués **NON VÉRIFIÉ** avec une étiquette `[v:…]` ; le registre `V-xx` les reprend dans [09-risques-et-questions.md](../09-risques-et-questions.md).
 
-Documents liés : [03-domaine.md](../03-domaine.md) §8 (architecture et types du parseur, en résumé), [02-architecture.md](../02-architecture.md) §5.1 (port `LegalCorpus`) et §6.2 (cas d'usage), [04-adapter-piste.md](../04-adapter-piste.md) §6.9, §7.1 à §7.3 et §12.3 (requêtes, endpoints, table des codes), [05-outils-mcp.md](../05-outils-mcp.md) §5.9 à §5.11 (schémas des trois outils), [06-qualite.md](../06-qualite.md) (stratégie de test), [07-feuille-de-route.md](../07-feuille-de-route.md) (tâches), [C-api-legifrance.md](C-api-legifrance.md) (API), [A-parite.md](A-parite.md) (divergences volontaires). ADR concernés (index : [../../adr/README.md](../../adr/README.md)) : ADR-0004 (PISTE d'abord, DILA ensuite derrière le même port), ADR-0006 (sortie compacte), ADR-0007 (cache au niveau du port), ADR-0009 (contrat de citation v2), ADR-0010 (erreurs `[code]`), ADR-0011 (dates), ADR-0012 (ports RPITIT). Rapport source principal : [recherche 07](../../recherche/07-citations.md).
+Documents liés : [03-domaine.md](../03-domaine.md) §8 (architecture et types du parseur, en résumé), [02-architecture.md](../02-architecture.md) §5.1 (port `LegalCorpus`) et §6.2 (cas d'usage), [04-adapter-piste.md](../04-adapter-piste.md) §6.9, §7.1 à §7.3 et §12.3 (requêtes, endpoints, table des codes), [05-outils-mcp.md](../05-outils-mcp.md) §5.9 à §5.11 (schémas des trois outils), [06-qualite.md](../06-qualite.md) (stratégie de test), les plans exécutables de `docs/superpowers/plans/` (tâches, forme « plan N, tâche M »), [C-api-legifrance.md](C-api-legifrance.md) (API), [A-parite.md](A-parite.md) (divergences volontaires). ADR concernés (index : [../../adr/README.md](../../adr/README.md)) : ADR-0004 (PISTE d'abord, DILA ensuite derrière le même port), ADR-0006 (sortie compacte), ADR-0007 (cache au niveau du port), ADR-0009 (contrat de citation v2), ADR-0010 (erreurs `[code]`), ADR-0011 (dates), ADR-0012 (ports RPITIT). Rapport source principal : [recherche 07](../../recherche/07-citations.md).
 
 ---
 
@@ -61,7 +61,7 @@ Documents liés : [03-domaine.md](../03-domaine.md) §8 (architecture et types d
 | Crate | Module | Contenu | Jalon |
 |---|---|---|---|
 | `lf-domain` | `citation::{normalize, scan, grammar::*, post, dict::{codes, courts}, types, format, quote}` | reconnaissance, spans, normalisation, drapeaux, anaphores intra-document, forme canonique, détection d'un extrait cité adjacent | M6 |
-| `lf-domain` | `text::encoding::repair_latin1_mojibake`, `text::fold`, `contract::{Ecli, Eli, Nor, Idcc}`, `date::format_fr` | réutilisés tels quels (03 §1.5) | M1 |
+| `lf-domain` | `ecli::Ecli` (racine du crate, livré), `CivilDate::to_french` (livré) ; `text::encoding::repair_latin1_mojibake` et `contract::{Eli, Nor, Idcc}` (module `contract` = ex-`citation` du contrat v2, C2) | réutilisés tels quels (03 §1.5) ; `text::encoding` et `Eli` (contrat v2) : tâches de tête de M2 (00 §11.1) ; `Nor`, `Idcc` : M2, avec `Act` et `Convention` (`text::fold` n'est pas réutilisé : `fold_char` le remplace pour la vue clé, M6). Le parseur met l'ECLI cité en majuscules avant `Ecli::parse` ; la grammaire ECLI livrée, plus tolérante, est gardée et réalignée en M6 seulement si le parseur la réutilise pour les ECLI cités | M1 (livré), M2 |
 | `lf-application` | `citation::{verify, resolve, related, policy, notes}` ; `VerifyCitationsUseCase`, `ResolveUseCase`, `RelatedUseCase` | choix des appels de port, comparaison des champs, statuts, preuve d'absence, budget | M6 (M7 pour `related`) |
 | `lf-application` | `ports::LegalCorpus::{find_article, find_by_number}` | ajouts M6 au port unique (00 §3, 02 §5.1) | M6 |
 | `lf-application` | `ports::LegalCorpus::{related_links, list_codes}` | ajouts M7 | M7 |
@@ -70,7 +70,7 @@ Documents liés : [03-domaine.md](../03-domaine.md) §8 (architecture et types d
 | `lf-adapter-cache` | `CachedCorpus` | `Op::FindArticle` (24 h), `Op::FindByNumber` (1 h), `Op::Codes` (7 j) ; aucune mise en cache d'erreur ni de réponse vide (00 §9) | M6, M7 |
 | `lf-adapter-mcp` | vues de sortie | `VerifyView`, `ResolveView`, `RelatedView` ; `kind` en `snake_case` ; `span` en caractères ; rendu anglais des notes | M6, M7 |
 
-Le parseur ne dépend que des crates de 00 §2 pour `lf-domain` : `winnow`, `aho-corasick`, `regex`, `unicode-normalization`, `chrono` sans `clock`, `thiserror`. Pas de `serde` dans le domaine (03 §1.1) ; `serde_json` seulement en `[dev-dependencies]` pour charger le corpus.
+`lf-domain` livré n'admet que `thiserror` (liste blanche de `xtask/src/arch.rs`, `DOMAIN_ALLOWED`, qui échoue fermé ; 00 §2). Le parseur élargit cette liste **par un ADR au jalon M6** : `winnow`, `aho-corasick`, `regex`, et `unicode-normalization` pour la normalisation NFC (en M5 seulement si un retrait maison des marques combinantes ne suffit pas). Pas de `chrono` dans le domaine : les dates sont des `CivilDate`. Pas de `serde` dans le domaine (03 §1.1) ; `serde_json` seulement en `[dev-dependencies]` pour charger le corpus.
 
 ### 1.3 Flux d'un appel `fr_verify_citations`
 
@@ -228,7 +228,7 @@ Le `n o` séparé et les pluriels `n°s`, `nos` ne sont pas réécrits : la gram
 
 ### 3.3 Vue « clé » repliée 1:1 (étape 4)
 
-- **Définition.** `fold_char(c) -> char` (une fonction, un seul caractère en sortie) : ASCII → minuscule ; lettres latines accentuées des blocs Latin-1 Supplement et Latin Extended-A → lettre de base minuscule (table explicite : `é è ê ë É` → `e`, `ç` → `c`, `ÿ` → `y`…) ; `œ` et `æ` restent `œ` et `æ` (minuscules) ; tout autre caractère : `c.to_lowercase()` s'il donne un seul caractère, sinon `c`. La fonction est partagée avec `text::fold` (03 §1.5) pour que la recherche d'un extrait cité et le dictionnaire comparent pareil.
+- **Définition.** `fold_char(c) -> char` (une fonction, un seul caractère en sortie) : ASCII → minuscule ; lettres latines accentuées des blocs Latin-1 Supplement et Latin Extended-A → lettre de base minuscule (table explicite : `é è ê ë É` → `e`, `ç` → `c`, `ÿ` → `y`…) ; `œ` et `æ` restent `œ` et `æ` (minuscules) ; tout autre caractère : `c.to_lowercase()` s'il donne un seul caractère, sinon `c`. Cette fonction 1:1 est **distincte de `text::fold`** livré (qui développe `œ` en `oe` pour le BM25) : `fold_char` est ajoutée en M6, et le dictionnaire comme la recherche d'un extrait cité l'utilisent pareil (00 §11.1).
 - **1:1 en caractères, pas en octets.** `é` (2 octets) devient `e` (1 octet). `key_index` garde, pour chaque caractère, l'offset en octets dans `text` et dans `key` (`u32`), ce qui convertit un offset de la clé en offset normalisé par recherche dichotomique. Invariant testé : `key.chars().count() == text.chars().count()` (00 §4).
 - **Ligatures.** La recherche 07 propose `œ` → `oe` dans la vue clé (§3.2) tout en exigeant une clé de même longueur (§3.3) : c'est contradictoire. La règle 1:1 de 00 §4 l'emporte : `œ` reste un caractère. Les dictionnaires sont repliés par la même fonction ; si une graphie `oe` doit être reconnue, elle est ajoutée comme alias. Aucun titre de code du tableau ne contient `œ`.
 - **Usages.** (a) Motifs `aho-corasick` des dictionnaires (titres et abréviations de codes, juridictions, mots-clés), compilés sur des motifs repliés et appliqués à `key`. (b) Mots-clés des grammaires : le combinateur `kw("conseil d'etat")` compare `fold_char(c)` caractère par caractère sur le texte normalisé, ce qui équivaut à lire la clé à la même position. `winnow::ascii::Caseless` n'est qu'ASCII (recherche 07 §3.3) : il n'est pas utilisé pour les mots accentués.
@@ -237,7 +237,7 @@ Le `n o` séparé et les pluriels `n°s`, `nos` ne sont pas réécrits : la gram
 ### 3.4 `OffsetMap`
 
 ```rust
-// crates/lf-domain/src/citation/normalize.rs — non compilé, à valider en M0
+// crates/lf-domain/src/citation/normalize.rs — non compilé, à valider au jalon qui l'implémente
 pub(crate) struct Normalized {
     pub text: String,          // texte normalisé (étapes 0 à 3)
     pub key: String,           // vue clé (étape 4), même nombre de char que `text`
@@ -324,7 +324,7 @@ LATIN_ADV    = "bis" | "ter" | "quater" | "quinquies" | "sexies" | "septies" | "
 - Mois et abréviations : `janv., févr., avr., juill., sept., oct., nov., déc.` ; `mars`, `mai`, `juin`, `août` non abrégés ; `juil.` rencontré (recherche 07 §4.1, sources WEB OQLF). Mois sans accents (`fevrier`) acceptés via la vue clé (référence citations.py:283-286).
 - `LATIN_ADV` : forme validée sur tout LEGI par legi.py (`legi/articles.py:13-16`, CC0), y compris les formes fautives présentes dans LEGI (`quinquedecies`, `sexties`).
 - Calendrier républicain (`legi/fr_calendar.py`) : la date est reconnue, conservée brute, sans conversion en v0.2 (03 §8.6), avec le drapeau `date_republicaine`.
-- Validation de `DATE` : `NaiveDate::from_ymd_opt` (00 §4). Échec → `date = None` et drapeau `date_invalide` (N09, N37). Année hors [1789, aujourd'hui + 1] → drapeau `annee_improbable` (sauf date républicaine) ; « aujourd'hui » vient de `ParseOptions.today`, fourni par l'application (le domaine n'a pas d'horloge, 03 §1.6).
+- Validation de `DATE` : `CivilDate::new` (livré, date.rs:60 ; 00 §4). Échec → `date = None` et drapeau `date_invalide` (N09, N37). Année hors [1789, aujourd'hui + 1] → drapeau `annee_improbable` (sauf date républicaine) ; « aujourd'hui » vient de `ParseOptions.today`, fourni par l'application (le domaine n'a pas d'horloge, 03 §1.6).
 
 ### 4.2 Articles de codes
 
@@ -847,14 +847,14 @@ Un sigle (tout en majuscules) se compare **en respectant la casse** et avec fron
 - **Chargement paresseux** au premier besoin du résolveur (premier `find_article` ou première complétion en M7), **jamais au démarrage du serveur** : 00 §6 impose un démarrage sans appel réseau, OAuth paresseux compris.
 - **Cache 7 jours** (00 §9, catégorie « listes »), rafraîchissement mono-vol ; en cas d'échec du rafraîchissement, l'ancienne table reste servie jusqu'à 7 jours de plus, sinon `Upstream` (04 §12.3).
 - **Pagination** par 100 jusqu'à `totalResultNumber` (au plus 10 pages), **sans** filtre `states` : les codes abrogés restent dans la table avec leur `etat`, pour résoudre des citations anciennes (04 §7.3 et question 8 de 04 §16). Présence réelle des codes abrogés et valeurs d'`etat` : **NON VÉRIFIÉ** [v:list-code-etats]. Unicité des titres, nombre d'entrées par page : **NON VÉRIFIÉ** [v:list-code-forme]. Forme réelle de la réponse : **NON VÉRIFIÉ** [v:endpoints-m6-reponses].
-- **Appariement** `CodeKey` ↔ entrée : égalité du titre replié (`text::fold`, même fonction que la vue clé) avec `titre`. Plusieurs entrées pour un même titre replié → préférer `etat = VIGUEUR`, puis la `dateDebut` la plus récente. `CodeRef::Unknown(titre)` suit la même règle. Aucune entrée → statut `unresolvable` avec la note « code introuvable dans la liste des codes » ; jamais `not_found` (l'article n'a pas été cherché).
+- **Appariement** `CodeKey` ↔ entrée : égalité du titre replié par `fold_char` (la fonction de la vue clé) avec `titre`. Plusieurs entrées pour un même titre replié → préférer `etat = VIGUEUR`, puis la `dateDebut` la plus récente. `CodeRef::Unknown(titre)` suit la même règle. Aucune entrée → statut `unresolvable` avec la note « code introuvable dans la liste des codes » ; jamais `not_found` (l'article n'a pas été cherché).
 - **Valeurs de facette** : seul un titre lu dans `/list/code` peut être envoyé dans une facette `NOM_CODE` ou `TEXT_NOM_CODE`, jamais un texte libre (recherche 05 §2.2) ; en v0.2, la stratégie de 04 §7.2 n'utilise pas ce filtre, réputé source de 500 par deux clients tiers (**NON VÉRIFIÉ** [v:nom-code-filtre]).
 - **M7** : `list_codes()` (00 §3) expose la même liste aux complétions (noms de codes en vigueur, ≤ 100 valeurs) et au gabarit de resource `legifrance://code/{code}/article/{num}` (05 §8), qui réutilise `CodeKey` et `ArticleNum::parse`.
 
 ### 5.5 Représentation Rust et synchronisation avec `codes-table.md`
 
 ```rust
-// crates/lf-domain/src/citation/dict/codes.rs — non compilé, à valider en M0
+// crates/lf-domain/src/citation/dict/codes.rs — non compilé, à valider au jalon qui l'implémente
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum CodeKey { CodeCivil, CodeDeCommerce, CodeDuTravail, /* … 77 variantes … */ CodeDeLaFamilleEtDeLAideSociale }
 pub enum CodeRefKey { Known(CodeKey), Other }                        // Other : CodeRef::Unknown(String)
@@ -880,7 +880,7 @@ impl CodeKey { pub fn title(self) -> &'static str; pub fn entry(self) -> &'stati
 ### 6.1 API du module `citation`
 
 ```rust
-// crates/lf-domain/src/citation/mod.rs — non compilé, à valider en M0
+// crates/lf-domain/src/citation/mod.rs — non compilé, à valider au jalon qui l'implémente
 pub fn parse(input: &str) -> Vec<Spanned<CitationRef>>;                    // 00 §4 ; = parse_with(input, &ParseOptions::default())
 pub fn parse_with(input: &str, opts: &ParseOptions) -> Vec<Spanned<CitationRef>>;
 pub fn adjacent_quote(input: &str, span: Span) -> Option<Span>;              // extrait cité qui jouxte une citation (§7.9)
@@ -890,7 +890,7 @@ pub struct ParseOptions {
     pub strip_html: bool,                   // 03 §8.1 ; défaut false ; true pour citationJp et liens (M7)
     pub default_text: Option<TextContext>,  // 03 §8.1 ; contexte implicite (P009, N41)
     pub max_citations: usize,               // 03 §8.1 ; garde-fou de sortie, défaut 1 000 (voir ci-dessous)
-    pub today: Option<NaiveDate>,           // ajout : drapeaux annee_future et annee_improbable ; fourni par l'application
+    pub today: Option<CivilDate>,           // ajout : drapeaux annee_future et annee_improbable ; fourni par l'application
 }
 pub struct TextContext { pub code: Option<CodeKey>, pub text: Option<TextCite> }
 ```
@@ -902,7 +902,7 @@ pub struct TextContext { pub code: Option<CodeKey>, pub text: Option<TextCite> }
 ### 6.2 `Span`, `Spanned`, confiance, ambiguïtés, drapeaux
 
 ```rust
-// crates/lf-domain/src/citation/types.rs — non compilé, à valider en M0
+// crates/lf-domain/src/citation/types.rs — non compilé, à valider au jalon qui l'implémente
 /// Offsets en OCTETS dans le texte d'ORIGINE, intervalle semi-ouvert, frontières UTF-8 garanties.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Span { pub start: usize, pub end: usize }
@@ -944,13 +944,13 @@ Les valeurs de `code()` sont **exactement** celles du corpus (§4.19) : elles se
 Les noms de variantes reprennent les valeurs `kind` du corpus (03 §8.6), ce qui rend le corpus chargeable tel quel.
 
 ```rust
-// non compilé, à valider en M0
+// non compilé, à valider au jalon qui l'implémente
 pub enum CitationRef {
     CodeArticle { code: CodeRef, article: ArticleRef, version: Option<VersionQualifier>, code_via: Option<CodeVia> },
-    TextArticle { text: Option<TextCite>, article: ArticleRef, at_date: Option<NaiveDate> },
+    TextArticle { text: Option<TextCite>, article: ArticleRef, at_date: Option<CivilDate> },
     Text(TextCite),
     Decision(DecisionCite),
-    Ecli(Ecli),                         // contract::Ecli, ECLI:FR seulement (03 §5.2)
+    Ecli(Ecli),                         // ecli::Ecli (racine du crate), ECLI:FR seulement (03 §5.2) ; ECLI cité mis en majuscules avant Ecli::parse
     CnilDeliberation(CnilCite),
     Convention(ConventionCite),
     Jorf(JorfCite),
@@ -980,12 +980,12 @@ impl ArticleNum {
 impl FromStr for ArticleNum { /* même grammaire que art_num ; sert au gabarit legifrance://code/{code}/article/{num} (M7) */ }
 pub enum Subdivision { Paragraphe(String), Alinea(u16), DernierAlinea, Item(u16), Lettre(char), Phrase(u16), DernierePhrase, Section(u16) }
 pub enum VersionQualifier {
-    Ancien, Nouveau, RedactionApplicableAuLitige, RedactionApplicableDateDesFaits, RedactionEnVigueur(Option<NaiveDate>),
-    RedactionIssueDe(Box<TextCite>), RedactionAnterieureA(Box<TextCite>), EnVigueurAu(NaiveDate),
+    Ancien, Nouveau, RedactionApplicableAuLitige, RedactionApplicableDateDesFaits, RedactionEnVigueur(Option<CivilDate>),
+    RedactionIssueDe(Box<TextCite>), RedactionAnterieureA(Box<TextCite>), EnVigueurAu(CivilDate),
 }
 
 pub struct TextCite {
-    pub nature: TextNature, pub number: Option<TextNumber>, pub date: Option<NaiveDate>, pub date_raw: Option<String>,
+    pub nature: TextNature, pub number: Option<TextNumber>, pub date: Option<CivilDate>, pub date_raw: Option<String>,
     pub title_hint: Option<String>, pub anaphora: Option<TextAnaphora>, pub appellation: Option<String>, pub emitter: Option<String>,
 }
 pub struct TextNumber { pub year: Option<u16>, pub seq: u32, pub extra: Option<u32>, pub raw: String }   // "93-1419" -> 1993/1419
@@ -995,7 +995,7 @@ pub enum TextNature { Loi, LoiOrganique, LoiConstitutionnelle, LoiDeFinances, Lo
 pub enum TextAnaphora { Susvisee, Precitee, MentionneeCiDessus }
 
 pub struct DecisionCite {
-    pub court: Option<Court>, pub court_via: Option<CourtVia>, pub date: Option<NaiveDate>, pub numbers: Vec<CaseNumber>,
+    pub court: Option<Court>, pub court_via: Option<CourtVia>, pub date: Option<CivilDate>, pub numbers: Vec<CaseNumber>,
     pub kind: Option<DecisionKind>, pub publication: Option<Publication>, pub solution: Option<String>,
     pub parties: Option<String>, pub subject: Option<String>, pub arret_num: Option<u32>,
     pub formation_code: Option<String>, pub publication_codes: Vec<char>,
@@ -1017,17 +1017,17 @@ pub struct Publication { pub bulletin: Option<BulletinRef>, pub lebon: Option<Le
 pub enum BulletinRef { Publie, Inedit, Reference(String) }      // « Publié au bulletin » ; « Bull. civ. I, n° 270 »
 pub enum LebonRef { Publie, Tables, Inedit, Page(String) }
 
-pub struct CnilCite { pub series: Option<String>, pub year: u16, pub seq: u16, pub date: Option<NaiveDate>, pub formation_restreinte: bool }
+pub struct CnilCite { pub series: Option<String>, pub year: u16, pub seq: u16, pub date: Option<CivilDate>, pub formation_restreinte: bool }
 pub struct ConventionCite { pub kind: Option<ConventionKind>, pub idcc: Option<Idcc>, pub brochure: Option<u16>,
-                            pub avenant: Option<u32>, pub title_hint: Option<String>, pub date: Option<NaiveDate> }
-pub struct JorfCite { pub number: Option<u16>, pub date: Option<NaiveDate>, pub texte: Option<u32>, pub page: Option<u32> }
-pub struct LegifranceIdRef { pub prefix: IdPrefix, pub digits: u64, pub version_start: Option<NaiveDate>, pub url_kind: Option<String> }
+                            pub avenant: Option<u32>, pub title_hint: Option<String>, pub date: Option<CivilDate> }
+pub struct JorfCite { pub number: Option<u16>, pub date: Option<CivilDate>, pub texte: Option<u32>, pub page: Option<u32> }
+pub struct LegifranceIdRef { pub prefix: IdPrefix, pub digits: u64, pub version_start: Option<CivilDate>, pub url_kind: Option<String> }
 impl LegifranceIdRef { pub fn to_document_id(&self) -> Option<DocumentId>; }    // 03 §2 ; None pour JORFARTI, LEGISCTA…
 pub struct UnsupportedCite { pub family: UnsupportedFamily, pub key: Option<String> }   // key : "85/374/CEE", "C-740/22"…
 pub enum UnsupportedFamily { Ue, Cjue, Cedh, Doctrine, Recueil, EcliEtranger }    // codes : UE, CJUE, CEDH, doctrine, recueil, ecli_etranger
 ```
 
-Précisions par rapport au résumé de 03 §8.6 (compatibles avec 00) : `DecisionCite.court` est une `Option` (N21, N28, P114) ; `ArticleNum.special` gagne `SansNumero` (P085) ; les dates citées sont des `NaiveDate`, `None` si invalides (00 §4, 03 §8.6), et une date républicaine est gardée dans `date_raw`.
+Précisions par rapport au résumé de 03 §8.6 (compatibles avec 00) : `DecisionCite.court` est une `Option` (N21, N28, P114) ; `ArticleNum.special` gagne `SansNumero` (P085) ; les dates citées sont des `CivilDate`, `None` si invalides (00 §4, 03 §8.6), et une date républicaine est gardée dans `date_raw`.
 
 ### 6.4 Numéros typés
 
@@ -1047,7 +1047,7 @@ Tous implémentent `FromStr` (erreurs `thiserror`) et `Display` ; ils servent au
 ### 6.5 Résolvabilité et forme canonique
 
 ```rust
-// non compilé, à valider en M0
+// non compilé, à valider au jalon qui l'implémente
 pub enum Resolvability { Resolvable, Unresolvable(UnresolvableWhy) }
 pub enum UnresolvableWhy { HorsPerimetre(UnsupportedFamily), AnaphoreNonResolue, SigleSansContexte(Sigle),
                            SansCode, PublicationSeule, Impossible(Flag) }
@@ -1056,7 +1056,7 @@ impl Spanned<CitationRef> { pub fn effective_resolvability(&self) -> Resolvabili
 pub mod format { pub fn canonical(c: &CitationRef) -> Option<String>; }                         // « Code civil, art. 9 »
 ```
 
-- `canonical` réutilise `contract::rules` et `date::format_fr` (03 §5.4) : « Code civil, art. 9 » ; « Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025 » ; « CNIL, délibération n° SAN-2026-002 du 8 janvier 2026 » ; « Loi n° 2016-1321 du 7 octobre 2016 » ; « Cass. 1re civ., 4 juin 2025, n° 24-13.470 » ; « CE, 29 mai 2026, n° 506507 ». C'est la valeur `interpreted_as` de `fr_resolve` (05 §5.10). Une citation sans forme sûre (ambiguïté bloquante) renvoie `None`.
+- `canonical` réutilise `contract::rules` (contrat v2, tâche de tête de M2) et `CivilDate::to_french` (03 §5.4) : « Code civil, art. 9 » ; « Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025 » ; « CNIL, délibération n° SAN-2026-002 du 8 janvier 2026 » ; « Loi n° 2016-1321 du 7 octobre 2016 » ; « Cass. 1re civ., 4 juin 2025, n° 24-13.470 » ; « CE, 29 mai 2026, n° 506507 ». C'est la valeur `interpreted_as` de `fr_resolve` (05 §5.10). Une citation sans forme sûre (ambiguïté bloquante) renvoie `None`.
 - Propriété : `parse(canonical(c))` redonne `c` aux champs non canoniques près (§8.8).
 
 ### 6.6 Types de l'application : `NumberQuery`, résolution, statuts
@@ -1064,7 +1064,7 @@ pub mod format { pub fn canonical(c: &CitationRef) -> Option<String>; }         
 **Ajouts M6 au port** (signatures de 02 §5.1 inchangées ; variantes définies ici à la demande de 02 et 04) :
 
 ```rust
-// crates/lf-application/src/ports/corpus.rs — non compilé, à valider en M0
+// crates/lf-application/src/ports/corpus.rs — non compilé, à valider au jalon qui l'implémente
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum NumberKind {
     Article,       // NUM_ARTICLE  (fond Code ou Loda)
@@ -1091,7 +1091,7 @@ Couples autorisés : (`Code`|`Loda`, `Article`), (`Loda`, `Text`), (`Juri`, `Cas
 **Résolution et statuts** (application, M6) :
 
 ```rust
-// crates/lf-application/src/citation/mod.rs — non compilé, à valider en M0
+// crates/lf-application/src/citation/mod.rs — non compilé, à valider au jalon qui l'implémente
 pub enum CheckStatus { Verified, NotFound, Ambiguous, Unresolvable, Invalid }      // 00 §7
 pub struct ResolvedRecord { pub id: DocumentId, pub citation: CitationText, pub source_url: SourceUrl, pub ecli: Option<Ecli> }
 pub enum QuoteCheck { Match, QuoteMismatch }
@@ -1295,7 +1295,7 @@ Tri : confiance décroissante, puis égalité de date avec la date citée, puis 
 ### 7.9 Vérification de l'extrait cité
 
 - **Détection** (domaine, `adjacent_quote`) : un extrait entre `« … »` ou `"…"` (après repli, `“ ”` restent des guillemets) qui commence au plus 3 caractères après la fin du span (séparateurs admis : espaces, `:`, `,`), ou qui finit au plus 3 caractères avant son début (« … », dispose l'article 9) ; longueur 10 à 2 000 caractères ; guillemets appariés. Exemple (05 §5.9) : `Selon l'article 9 du code civil, « Chacun a droit au respect de sa vie privée »`.
-- **Comparaison** (application) : extrait et texte officiel passés par `text::fold` (03 §7) ; `Match` si l'extrait replié est contenu dans le texte replié, ou si la similarité dépasse un seuil **NON VÉRIFIÉ** [v:seuil-quote-mismatch] ; sinon `QuoteMismatch`.
+- **Comparaison** (application) : extrait et texte officiel repliés par `fold_char` (03 §7, exposée par le domaine en M6 ; `text::fold` reste `pub(crate)`) ; `Match` si l'extrait replié est contenu dans le texte replié, ou si la similarité dépasse un seuil **NON VÉRIFIÉ** [v:seuil-quote-mismatch] ; sinon `QuoteMismatch`.
 - **Portée** : articles de codes et de textes (texte de l'article consulté), décisions (texte de la décision consultée). Pas de champ d'entrée dédié : le contrôle a lieu dès qu'un extrait jouxte une citation vérifiée (interprétation de « en option » de 00 §7, 05 §13.1 n° 10).
 - Effet : champ `quote`, statut inchangé ; une note « quoted text not found in the official text » accompagne `QuoteMismatch`. C'est le principal garde-fou contre le piège des renumérotations (N25 : l'article 1382 du code civil existe, mais son contenu a changé ; connaissance générale **NON VÉRIFIÉ** [v:corpus-cas-de-memoire]).
 
@@ -1351,7 +1351,7 @@ Chaque outil est enveloppé par `Audited` (00 §3) : succès, `invalid_arg`, err
 
 ### 8.1 Fichiers et effectifs
 
-Fichiers de référence : [donnees/citations-corpus-positifs.jsonl](donnees/citations-corpus-positifs.jsonl) et [donnees/citations-corpus-negatifs.jsonl](donnees/citations-corpus-negatifs.jsonl), issus de la recherche 07 §8. Ils sont **copiés** en M6 dans `crates/lf-domain/tests/data/citations/` (crate autonome, publiable) ; un pas de CI compare octet pour octet la copie et l'annexe (`cmp`), pour qu'il n'existe qu'un contenu.
+Fichiers de référence : [donnees/citations-corpus-positifs.jsonl](donnees/citations-corpus-positifs.jsonl) et [donnees/citations-corpus-negatifs.jsonl](donnees/citations-corpus-negatifs.jsonl), issus de la recherche 07 §8. Ils sont **copiés** en M6 dans `crates/lf-domain/tests/data/citations/` (données seules, lues par `include_str!` depuis un test unitaire ; crate autonome, publiable) ; la cible `make surface` (`cmp`), appelée par le job `surface` de la CI (06 §7.1), compare octet pour octet la copie et l'annexe, pour qu'il n'existe qu'un contenu.
 
 Contrôle refait le 2026-10-15 sur les fichiers de l'annexe (script Python lancé en `-I`, en lecture seule) : 214 attentes, toutes les sous-chaînes `match` retrouvées dans leur `in`, en respectant l'ordre des énumérations ; 0 erreur. Le même contrôle devient un test Rust (§8.5).
 
@@ -1438,17 +1438,17 @@ Le fichier n'est pas modifié ; le harnais applique une table de surcharges **ex
 |---|---|---|---|
 | P159 `ECLI:EU:C:2024:216` | `{"kind": "Ecli", "country": "EU", …, "resolvable": false}` | `{"kind": "Unsupported", "family": "ecli_etranger", "match": "ECLI:EU:C:2024:216"}` | 00 §4 : `Ecli` n'accepte que `ECLI:FR:…` ; 03 §8.6 classe un ECLI étranger en `Unsupported` |
 
-Les autres écarts entre la recherche 07 et 00 n'affectent pas le corpus : les dates sont comparées en ISO (indifférent à `NaiveDate` contre `LegalDate`), et une date invalide attendue `null` correspond à `None` + `date_invalide` (N09, N37). Toute nouvelle surcharge exige une ligne dans cette table.
+Les autres écarts entre la recherche 07 et 00 n'affectent pas le corpus : les dates sont comparées en ISO (indifférent à `CivilDate` contre `LegalDate`), et une date invalide attendue `null` correspond à `None` + `date_invalide` (N09, N37). Toute nouvelle surcharge exige une ligne dans cette table.
 
 ### 8.5 Harnais table-driven Rust
 
 ```rust
-// crates/lf-domain/tests/citations_corpus.rs — non compilé, à valider en M0
+// crates/lf-domain/src/citation/corpus_tests.rs (`#[cfg(test)]`, test unitaire du crate, pas de `tests/`) — non compilé, à valider au jalon qui l'implémente
 use lf_domain::citation::{parse_with, ParseOptions, TextContext};
 use serde_json::Value;
 
-const POS: &str = include_str!("data/citations/citations-corpus-positifs.jsonl");
-const NEG: &str = include_str!("data/citations/citations-corpus-negatifs.jsonl");
+const POS: &str = include_str!("../../tests/data/citations/citations-corpus-positifs.jsonl");
+const NEG: &str = include_str!("../../tests/data/citations/citations-corpus-negatifs.jsonl");
 
 #[derive(serde::Deserialize)]
 struct Case {
@@ -1469,7 +1469,7 @@ fn options_for(case: &Case) -> ParseOptions {
     ParseOptions {
         repair_mojibake: has("requires", "repair_mojibake"),
         default_text: has("code_via", "contexte_document").then(TextContext::default),
-        today: chrono::NaiveDate::from_ymd_opt(2026, 10, 15),
+        today: CivilDate::new(2026, 10, 15),
         ..ParseOptions::default()
     }
 }
@@ -1492,7 +1492,7 @@ fn corpus_citations() {
 
 - Tous les échecs sont rapportés d'un coup (pas d'arrêt au premier), avec l'`id` et la provenance.
 - Un test séparé par famille (`cargo nextest run citations_corpus::code_article`…) peut être obtenu en filtrant sur le bloc d'identifiants : utile pendant le développement de M6, famille par famille.
-- `serde`, `serde_json` et `chrono` sont des dépendances de test ou déjà autorisées ; aucune n'entre dans les dépendances normales du domaine (`cargo xtask check-deps`, 00 §2).
+- `serde` et `serde_json` sont des `[dev-dependencies]`, que `check-arch` ne compte pas ; aucune n'entre dans les dépendances normales du domaine (`make arch`, `xtask/src/arch.rs`, 00 §2). Le corpus et le golden de niveau 1 sont des tests unitaires `#[cfg(test)]` du crate (`include_str!`), donc comptés par la porte `--lib` à 100 % (00 §10).
 
 ### 8.6 Tests de l'application (faux corpus)
 
@@ -1539,7 +1539,7 @@ La recherche 07 §10 n° 18 désigne des cas construits de mémoire : **P065 à 
 
 - Un nouveau cas prend un identifiant libre dans le bloc de sa famille (`P049`, `P079`, `P087`…), sinon `P201` et suivants ; un identifiant n'est jamais réutilisé ni renuméroté.
 - Chaque cas porte une provenance (`src`) ; un cas `FX` cite le fichier et le champ ; un cas issu d'une fixture recapturée (`cargo xtask record-fixture`, 00 §2) cite la nouvelle fixture.
-- Toute modification passe par l'annexe ([donnees/](donnees/)) puis la copie de test, vérifiée par le pas `cmp` de la CI.
+- Toute modification passe par l'annexe ([donnees/](donnees/)) puis la copie de test, vérifiée par `make surface` (`cmp`), cible appelée par le job `surface` de la CI (06 §7.1).
 - Un défaut trouvé en production (faux positif, faux négatif) devient d'abord un cas du corpus, puis une correction de grammaire.
 
 ---
@@ -1548,7 +1548,7 @@ La recherche 07 §10 n° 18 désigne des cas construits de mémoire : **P065 à 
 
 **M6 — Citations (v0.2.0)**
 
-- [ ] `lf-domain::citation` : `parse`, `parse_with`, `adjacent_quote`, `format::canonical`, `resolvability()` ; aucune dépendance hors 00 §2 (`cargo xtask check-deps` vert).
+- [ ] `lf-domain::citation` : `parse`, `parse_with`, `adjacent_quote`, `format::canonical`, `resolvability()` ; aucune dépendance hors 00 §2 et hors l'ADR M6 (`make arch` vert).
 - [ ] Normalisation : table de repli du §3.2 complète, vue clé 1:1, `OffsetMap` ; invariants du §3.5 en proptest.
 - [ ] Grammaires des 12 familles et du puits (§4.2 à §4.14), énumérations, anaphores, qualificatifs de version (§4.15), arbitrage du §4.16.
 - [ ] Dictionnaire de 77 codes synchronisé avec [donnees/codes-table.md](donnees/codes-table.md) ; sigles ambigus testés (§5.3).
@@ -1642,7 +1642,7 @@ Elles sont reportées dans [09-risques-et-questions.md](../09-risques-et-questio
 ## 11. Sources
 
 **Plan**
-- [00-decisions.md](../00-decisions.md) (normatif) : §1 (variables `LF_*`), §2 (crates, dépendances de `lf-domain`, `xtask`), §3 (port `LegalCorpus`, ajouts M6 et M7, `Audited`), §4 (parseur, `Ecli` FR, dates `NaiveDate`, contrat v2), §5 (erreurs), §6 (démarrage sans réseau), §7 (outils `fr_verify_citations`, `fr_resolve`, `fr_get_related`, métriques d'audit), §8 (endpoints M6 et M7, mojibake), §9 (cache), §10 (qualité), §11 (jalons), §13 (Q3).
+- [00-decisions.md](../00-decisions.md) (normatif) : §1 (variables `LF_*`), §2 (crates, dépendances de `lf-domain`, `xtask`), §3 (port `LegalCorpus`, ajouts M6 et M7, `Audited`), §4 (parseur, `Ecli` FR, dates `CivilDate`, contrat v2), §5 (erreurs), §6 (démarrage sans réseau), §7 (outils `fr_verify_citations`, `fr_resolve`, `fr_get_related`, métriques d'audit), §8 (endpoints M6 et M7, mojibake), §9 (cache), §10 (qualité), §11 (jalons), §13 (Q3).
 - [02-architecture.md](../02-architecture.md) : §5.1 (signatures de `find_article`, `find_by_number`, `list_codes`), §6.2 (cas d'usage, `buffer_unordered(4)`, budget de 80 %), §7.2 (clés et TTL du cache).
 - [03-domaine.md](../03-domaine.md) : §1.1, §1.3, §1.5, §1.6 (pureté, lints, modules), §2 (identifiants), §4.1 à §4.4 (`SearchQuery`, `Act`, `TocNode`, `ArticleText`, `Decision`), §5.1 à §5.4 (contrat v2, ECLI, ELI, règles de citation), §7 (texte, `fold`), §8 (parseur : architecture, `ParseOptions`, types, découpage, limites).
 - [04-adapter-piste.md](../04-adapter-piste.md) : §6.5 (facettes de date), §6.9 (recherches exactes), §7.1 à §7.3 (endpoints et stratégies M6, M7), §10 (mojibake), §11 (introuvable), §12.3 (`CodeTable`), §13.5 (tests live), §16 (questions).
