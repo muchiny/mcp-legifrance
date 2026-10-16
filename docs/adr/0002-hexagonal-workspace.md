@@ -79,7 +79,7 @@
 
 ### À surveiller
 
-- Le comportement de `forbid(unsafe_code)` et de clippy pedantic sur le code généré par les macros rmcp : **NON VÉRIFIÉ** [v:rmcp-macros-unsafe-forbid], à mesurer au spike M0.
+- Le comportement de `forbid(unsafe_code)` et de clippy pedantic sur le code généré par les macros rmcp : **NON VÉRIFIÉ** [V-15 · rmcp-macros-unsafe-forbid], à mesurer au spike M0.
 - **Tranché par 00 §2 révision 2** (l'ancienne « interprétation à confirmer ») : la colonne « Dépend de » de 00 §2 liste désormais la liste fermée des crates externes de `lf-application`, dont `tokio` `rt` pour `task_local!` (`Deadline`). Reste à confirmer au spike M0 que `task_local!` n'exige que `rt` (00 §11 ; 02 §13.1 n° 7, ADR-0012).
 
 ### Tests qui la gardent

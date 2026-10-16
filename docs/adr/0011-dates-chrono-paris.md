@@ -10,7 +10,7 @@
 
 - **« Aujourd'hui » est calculé en UTC** (`time.gmtime()`, `server.py:125-126` ; D-19, E-05). Entre 00:00 et 01:00 (hiver), ou 02:00 (été), heure de Paris, `fr_get_act` renvoie la version d'hier.
 - **`ms_to_date` est fragile** (D-20, E-35) :
-  - sous Windows, toute date antérieure à 1970 devient `None` (CPython passe par `gmtime_s`). Exemple : `-5231606400000`, soit 1804-03-21 (Code civil, `consult_article.json`). Conclusion jugée très probable, non testée sur Windows : **NON VÉRIFIÉ** [v:ref-windows-dates-pre-1970] ;
+  - sous Windows, toute date antérieure à 1970 devient `None` (CPython passe par `gmtime_s`). Exemple : `-5231606400000`, soit 1804-03-21 (Code civil, `consult_article.json`). Conclusion jugée très probable, non testée sur Windows : **NON VÉRIFIÉ** [V-191 · ref-windows-dates-pre-1970] ;
   - `True` donne `1970-01-01`.
 - **La sentinelle `2999-01-01` est exposée comme une vraie date** (D-20, E-11) : le modèle peut écrire « en vigueur jusqu'au 1er janvier 2999 ». Elle apparaît 22 fois dans les fixtures, sous trois formes : epoch ms, `AAAA-MM-JJ` et ISO (recherche 03 §11.2).
   - L'OpenAPI documente la règle « `null` si date ≥ 2222-01-01 » pour les champs `…Computed` (recherche 03 §11.2).
@@ -66,11 +66,11 @@
 
 ### À surveiller
 
-- **NON VÉRIFIÉ** [v:singledate-midi-paris] : un texte qui entre en vigueur le jour J est-il retenu avec `singleDate` à midi Paris (10 h ou 11 h UTC du jour J) ? Comparaison avec minuit UTC, minuit Paris et la veille, bloquante en M2 (V-76).
-- **NON VÉRIFIÉ** [v:convention-horaire-timestamps] : les horodatages de date sont-ils tous à minuit UTC ?
-- **NON VÉRIFIÉ** [v:sentinelle-2222-debut] : sens de `2222-02-22` en date de début, côté API.
-- **NON VÉRIFIÉ** [v:version-date-bornes] : bornes de `VersionDate` et réaction de l'API aux dates extrêmes.
-- **NON VÉRIFIÉ** [v:chrono-tz-iana] : version de la base IANA embarquée par `chrono-tz` 0.10.4.
+- **NON VÉRIFIÉ** [V-76 · singledate-midi-paris] : un texte qui entre en vigueur le jour J est-il retenu avec `singleDate` à midi Paris (10 h ou 11 h UTC du jour J) ? Comparaison avec minuit UTC, minuit Paris et la veille, bloquante en M2 (V-76).
+- **NON VÉRIFIÉ** [V-100 · convention-horaire-timestamps] : les horodatages de date sont-ils tous à minuit UTC ?
+- **NON VÉRIFIÉ** [V-101 · sentinelle-2222-debut] : sens de `2222-02-22` en date de début, côté API.
+- **NON VÉRIFIÉ** [V-89 · version-date-bornes] : bornes de `VersionDate` et réaction de l'API aux dates extrêmes.
+- **NON VÉRIFIÉ** [V-17 · chrono-tz-iana] : version de la base IANA embarquée par `chrono-tz` 0.10.4.
 
 ### Tests qui la gardent
 

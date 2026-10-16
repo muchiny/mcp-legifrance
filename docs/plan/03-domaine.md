@@ -121,7 +121,7 @@ crates/lf-domain/src/
 
 ### 2.1 Préfixes documentaires et format
 
-Format vérifié sur les 16 fixtures : **préfixe de 8 lettres majuscules ASCII + exactement 12 chiffres ASCII**, soit 20 caractères (recherche 01 §4.1, recherche 03 §11.3). Un scan de ce document sur les fixtures donne 100 % des occurrences sur 12 chiffres : LEGITEXT 11, LEGIARTI 68, JORFTEXT 6, KALITEXT 6, KALIARTI 7, JURITEXT 5, CONSTEXT 8, CETATEXT 7, CNILTEXT 6, ACCOTEXT 6. Hors fixtures, la généralité du format est **NON VÉRIFIÉ** [v:id-format-hors-fixtures].
+Format vérifié sur les 16 fixtures : **préfixe de 8 lettres majuscules ASCII + exactement 12 chiffres ASCII**, soit 20 caractères (recherche 01 §4.1, recherche 03 §11.3). Un scan de ce document sur les fixtures donne 100 % des occurrences sur 12 chiffres : LEGITEXT 11, LEGIARTI 68, JORFTEXT 6, KALITEXT 6, KALIARTI 7, JURITEXT 5, CONSTEXT 8, CETATEXT 7, CNILTEXT 6, ACCOTEXT 6. Hors fixtures, la généralité du format est **NON VÉRIFIÉ** [V-103 · id-format-hors-fixtures].
 
 | Préfixe | Newtype | Contenu | Exemple réel (fixture) | Consultation (v0.1) | Kind d'URL (§5.5) |
 |---|---|---|---|---|---|
@@ -188,7 +188,7 @@ impl FromStr for VersionedId { /* "LEGITEXT…" ou "LEGITEXT…_JJ-MM-AAAA" (dat
 ```
 
 - **Entrée utilisateur** : le suffixe n'est accepté que sur `LEGITEXT` (00 §4). Ailleurs, il produit `IdError::SuffixNotAllowed`.
-- **Données amont** : le suffixe n'a été observé que sur `LEGITEXT`. Pour résister à une évolution de l'API, le mapping de l'adapter retire un suffixe trouvé sur un autre préfixe connu (D-28), le signale par un diagnostic (`debug!` + compteur côté adapter, 00 §4) et ne le conserve pas. La présence de suffixes sur d'autres préfixes est **NON VÉRIFIÉ** [v:suffixe-version-autres-prefixes].
+- **Données amont** : le suffixe n'a été observé que sur `LEGITEXT`. Pour résister à une évolution de l'API, le mapping de l'adapter retire un suffixe trouvé sur un autre préfixe connu (D-28), le signale par un diagnostic (`debug!` + compteur côté adapter, 00 §4) et ne le conserve pas. La présence de suffixes sur d'autres préfixes est **NON VÉRIFIÉ** [V-104 · suffixe-version-autres-prefixes].
 - `version_start` alimente `SearchHit.version_start` et `Act.version_start`. Pour `Act`, c'est le suffixe, sinon `dateDebutVersion`.
 - `fr_get_act` sans `date` : la date demandée est le `version_start` du suffixe de `text_id` s'il y en a un, sinon aujourd'hui à Paris (00 §7). Le choix est fait par le cas d'usage, qui construit la `VersionDate`.
 
@@ -241,7 +241,7 @@ Le domaine fournit des erreurs **structurées** (`IdError` + `field` + valeur tr
 
 Table d'aide (préfixe ⇒ outil), propriété du module `messages` de `lf-application` : LEGITEXT → `fr_get_act` ; LEGIARTI/KALIARTI → `fr_get_text` ; JURITEXT/CONSTEXT/CETATEXT → `fr_get_decision` ; CNILTEXT → `fr_get_deliberation` ; KALITEXT → `fr_get_convention` ; ACCOTEXT → `fr_get_company_agreement`. Un test de dérive vérifie que chaque outil cité existe (00 §6).
 
-**Limite connue (D-47)** : `LegiTextId` ne distingue pas un texte LODA d'un code, car le préfixe est le même (00 §3 : `get_act(&LegiTextId, …)`). La protection contre une réponse énorme vient de la pagination de la TOC (`toc_limit`, §4.2). Quand l'API renvoie `nature = CODE`, la réponse peut porter un avertissement (voir 05). Le comportement de `/consult/lawDecree` sur un code est **NON VÉRIFIÉ** [v:lawdecree-sur-code].
+**Limite connue (D-47)** : `LegiTextId` ne distingue pas un texte LODA d'un code, car le préfixe est le même (00 §3 : `get_act(&LegiTextId, …)`). La protection contre une réponse énorme vient de la pagination de la TOC (`toc_limit`, §4.2). Quand l'API renvoie `nature = CODE`, la réponse peut porter un avertissement (voir 05). Le comportement de `/consult/lawDecree` sur un code est **NON VÉRIFIÉ** [V-96 · lawdecree-sur-code].
 
 ---
 
@@ -278,7 +278,7 @@ impl Fond {
 
 Sources : référence server.py:91-100 et citations.py:110-182, via la recherche 01 §3.1 et §4.6 ; fond API `JORF` (recherche 03 §3.2). Les facettes de date propres à chaque fond (pour `date_from`/`date_to`) sont des noms d'API : elles relèvent de [04-adapter-piste.md](04-adapter-piste.md), pas du domaine ; le domaine sait seulement si le fond en a une (`has_date_filter`). Jusqu'à la décision de M7, `fond` a 8 valeurs (00 §4).
 
-`PaginationMode { Defaut, Article }` : valeur opaque de `typePagination`, reçue dans `SearchPage.pagination` et **jamais exposée** au modèle (00 §7). `CODE_DATE` répond `ARTICLE` à une requête `DEFAUT` (search_code.json, recherche 03 §3.2). La valeur envoyée à la page suivante est choisie par l'adapter, pas par le domaine ni par l'application, qui sont sans état : `PaginationMemo` par requête normalisée sans `page` (TTL 1 h, 1 024 entrées), sinon `ARTICLE` pour CODE en page > 1 et `DEFAUT` ailleurs (00 §7, 04 §6.6). L'effet réel en page 2 est **NON VÉRIFIÉ** [v:typepagination-page2]. `SearchQuery` ne porte donc pas ce mode, et la clé de cache n'en dépend pas (§4.1).
+`PaginationMode { Defaut, Article }` : valeur opaque de `typePagination`, reçue dans `SearchPage.pagination` et **jamais exposée** au modèle (00 §7). `CODE_DATE` répond `ARTICLE` à une requête `DEFAUT` (search_code.json, recherche 03 §3.2). La valeur envoyée à la page suivante est choisie par l'adapter, pas par le domaine ni par l'application, qui sont sans état : `PaginationMemo` par requête normalisée sans `page` (TTL 1 h, 1 024 entrées), sinon `ARTICLE` pour CODE en page > 1 et `DEFAUT` ailleurs (00 §7, 04 §6.6). L'effet réel en page 2 est **NON VÉRIFIÉ** [V-82 · typepagination-page2]. `SearchQuery` ne porte donc pas ce mode, et la clé de cache n'en dépend pas (§4.1).
 
 ### 3.2 Lecture du paramètre `fond`
 
@@ -301,7 +301,7 @@ pub fn status_of(etat: Option<&str>, juris_state: Option<&str>) -> Option<LegalS
 ```
 
 - Règle unique pour LODA et KALI : `etat` s'il n'est pas vide, sinon `jurisState`. Sur consult_loda.json, la sortie devient donc `VIGUEUR` au lieu de `null`. C'est une divergence volontaire (§5.6).
-- Liste fermée de 17 codes : `ABROGE`, `ABROGE_DIFF`, `ANNULE`, `DENONCE`, `DISJOINT`, `INITIALE`, `MODIFIE`, `MODIFIE_MORT_NE`, `PERIME`, `REMPLACE`, `SANS_ETAT`, `SUBSTITUE`, `TRANSFERE`, `VIGUEUR`, `VIGUEUR_DIFF`, `VIGUEUR_ETEN`, `VIGUEUR_NON_ETEN` (facette `ARTICLE_LEGAL_STATUS` de search_loda.json ; Swagger 2.4.2 `CodeListRequest.states` ; annexe C §3.7). `DENONCE` est courant en KALI (479 textes dans la facette `LEGAL_STATUS` de search_kali.json). `Other(String)` couvre une évolution de l'API : aucun code inconnu n'est perdu. Restent à confirmer la casse et les variantes de `jurisState` (`Vigueur` sur consult_loda.json), dont les valeurs possibles hors des fixtures sont **NON VÉRIFIÉ** [v:etats-juridiques-liste].
+- Liste fermée de 17 codes : `ABROGE`, `ABROGE_DIFF`, `ANNULE`, `DENONCE`, `DISJOINT`, `INITIALE`, `MODIFIE`, `MODIFIE_MORT_NE`, `PERIME`, `REMPLACE`, `SANS_ETAT`, `SUBSTITUE`, `TRANSFERE`, `VIGUEUR`, `VIGUEUR_DIFF`, `VIGUEUR_ETEN`, `VIGUEUR_NON_ETEN` (facette `ARTICLE_LEGAL_STATUS` de search_loda.json ; Swagger 2.4.2 `CodeListRequest.states` ; annexe C §3.7). `DENONCE` est courant en KALI (479 textes dans la facette `LEGAL_STATUS` de search_kali.json). `Other(String)` couvre une évolution de l'API : aucun code inconnu n'est perdu. Restent à confirmer la casse et les variantes de `jurisState` (`Vigueur` sur consult_loda.json), dont les valeurs possibles hors des fixtures sont **NON VÉRIFIÉ** [V-113 · etats-juridiques-liste].
 
 ---
 
@@ -335,8 +335,8 @@ impl SearchQuery { pub fn new(/* champs ci-dessus */) -> Result<SearchQuery, Dom
 ```
 
 - `SearchQuery` est `Eq + Hash`. Sa forme normalisée sert de clé au cache (00 §9). Parce que `version_date` est au jour près, deux recherches LODA identiques le même jour donnent la même clé. Cela corrige D-01 et E-06 : la référence mettait `singleDate=now_ms` dans la clé. Elle ne porte pas la `typePagination`, choisie par l'adapter (§3.1).
-- La borne de 500 caractères sur `query` est une proposition (D-32). La limite réelle côté API est **NON VÉRIFIÉ** [v:longueur-max-query].
-- `SearchQuery::new`, appelé par le cas d'usage, applique sans réseau les rejets de 00 §7, rendus en `invalid_arg` (messages de 05 §7.3) : `version_date` sur un fond qui n'est ni LODA ni CODE (`Fond::needs_version_date`) ; `date_from`/`date_to` sur un fond sans facette de date, soit CODE (`Fond::has_date_filter`) ; `date_from` > `date_to` (§6.1) ; `page × page_size > REACHABLE_RESULTS`, en arithmétique `checked`. La fenêtre de 10 000 résultats est supposée : **NON VÉRIFIÉ** [v:pagination-profonde]. L'adapter n'en garde qu'une copie défensive (00 §5).
+- La borne de 500 caractères sur `query` est une proposition (D-32). La limite réelle côté API est **NON VÉRIFIÉ** [V-81 · longueur-max-query].
+- `SearchQuery::new`, appelé par le cas d'usage, applique sans réseau les rejets de 00 §7, rendus en `invalid_arg` (messages de 05 §7.3) : `version_date` sur un fond qui n'est ni LODA ni CODE (`Fond::needs_version_date`) ; `date_from`/`date_to` sur un fond sans facette de date, soit CODE (`Fond::has_date_filter`) ; `date_from` > `date_to` (§6.1) ; `page × page_size > REACHABLE_RESULTS`, en arithmétique `checked`. La fenêtre de 10 000 résultats est supposée : **NON VÉRIFIÉ** [V-83 · pagination-profonde]. L'adapter n'en garde qu'une copie défensive (00 §5).
 
 **M6** : `NumberQuery`, `NumberKind` et `NumberValue` (recherche par numéro, `find_by_number`) vivent aussi dans `search.rs` (§4.11).
 
@@ -349,12 +349,12 @@ impl SearchQuery { pub fn new(/* champs ci-dessus */) -> Result<SearchQuery, Dom
 | `version_start` | `Option<NaiveDate>` | suffixe de `titles[0].id` | §2.4 | suffixe jeté par la référence |
 | `cid` | `Option<DocumentId>` | `titles[0].cid` | LODA : `JORFTEXT` ; ailleurs souvent égal à `id`, donc omis au rendu | — |
 | `title` | `Option<String>` | `titles[0].title` | `clean` : `<mark>` retiré, blancs repliés, trim (espace final des titres KALI, search_kali.json) | — |
-| `date` | `Option<NaiveDate>` | `date` → `datePublication` → `dateSignature` (ISO `+0000`) | premier présent hors sentinelle. Absent pour JURI, CONSTIT et CETAT, qui n'ont pas de date en recherche (recherche 03 §4.2). Sémantique exacte par fond **NON VÉRIFIÉ** [v:date-hit-semantique] | D-21 (dates jetées) |
+| `date` | `Option<NaiveDate>` | `date` → `datePublication` → `dateSignature` (ISO `+0000`) | premier présent hors sentinelle. Absent pour JURI, CONSTIT et CETAT, qui n'ont pas de date en recherche (recherche 03 §4.2). Sémantique exacte par fond **NON VÉRIFIÉ** [V-87 · date-hit-semantique] | D-21 (dates jetées) |
 | `nature` | `Option<String>` | `nature` | brut nettoyé (`arret`, `qpc`, `LOI`…) ; casse non homogène (recherche 03 §11.7) | — |
 | `etat` | `Option<LegalStatus>` | `etat` | §3.3 | — |
 | `solution` | `Option<String>` | `solution` (JURI, CONSTIT) | non rendu en v0.1 (05) | — |
 | `snippet` | `Option<Snippet>` | `text`, sinon `sections[].extracts[0].values[0]` | `clean` (`<mark>`, `<br/>`, `\t`, `\n`) ; conserve les `[...]` de l'API ; ≤ 280 caractères (§7.3) | D-33 (extraits jetés hors CODE) |
-| `articles` | `Vec<HitArticle>` | `sections[].extracts[]` avec `id` | CODE : `{article_id: Legi, num, snippet ≤ 280}` (parité référence citations.py:150-165) ; KALI : `{article_id: Kali, num: None, snippet}`, car le `num` des extraits KALI est malformé (`"8.4 de la convention)"`, search_kali.json). Fiabilité **NON VÉRIFIÉ** [v:kali-extraits-num] | E-26 (extraits KALI ignorés) |
+| `articles` | `Vec<HitArticle>` | `sections[].extracts[]` avec `id` | CODE : `{article_id: Legi, num, snippet ≤ 280}` (parité référence citations.py:150-165) ; KALI : `{article_id: Kali, num: None, snippet}`, car le `num` des extraits KALI est malformé (`"8.4 de la convention)"`, search_kali.json). Fiabilité **NON VÉRIFIÉ** [V-88 · kali-extraits-num] | E-26 (extraits KALI ignorés) |
 | `company`, `idcc` | `Option<String>`, `Option<Idcc>` | `raisonSociale` (ACCO), `idcc` (ACCO, KALI) | `company` sert à la citation ACCO ; `idcc` arrive sous forme de chaîne (`"275"`, search_acco.json) ou de nombre (désérialiseur tolérant dans 04), `null` sur le hit KALI de search_kali.json. `idcc` est porté dès v0.1 et rendu en v0.2 (`idcc?` des hits KALI et ACCO, classe « ajout », 00 §7) | E-14 |
 | `contract` | `CitationContract` | — | §5.4 ; `ecli` et `eli` toujours `None` en recherche (aucun ECLI dans `/search`, recherche 03 §4.2) | D-30 |
 
@@ -425,8 +425,8 @@ Règles de `Toc::build`, dans l'ordre :
 2. **Ordre des frères** :
    - si **tous** les frères (sections et articles d'un même parent) portent `intOrdre`, tri stable par `intOrdre`. Exemple : consult_kali.json, section `1074003967`, article `1073741823` ;
    - sinon, ordre des tableaux de l'API, les articles avant les sous-sections. C'est l'ordre de la référence à l'intérieur d'une section ; l'OpenAPI décrit ces listes comme « ordonnées » (recherche 03 §6). La règle s'applique aussi à la racine : les `articles` de premier niveau passent avant les sections. Écart avec la référence KALI, qui mettait les sections d'abord, mais sans effet sur les fixtures où `articles` de premier niveau est vide.
-   - La présence d'`intOrdre` dans les réponses `lawDecree` réelles est **NON VÉRIFIÉ** [v:intordre-lawdecree] (fixture élaguée, D-25). L'ordre réel sans `intOrdre` quand articles et sections coexistent est **NON VÉRIFIÉ** [v:toc-ordre-sans-intordre].
-3. **Dédoublonnage** : sur `ArticleId` sur tout l'arbre, la première occurrence en préordre est conservée ; idem pour les sections par `SectionId`. Les doublons ont été démontrés sur une entrée synthétique (D-25) ; leur fréquence réelle est **NON VÉRIFIÉ** [v:toc-doublons-reels].
+   - La présence d'`intOrdre` dans les réponses `lawDecree` réelles est **NON VÉRIFIÉ** [V-97 · intordre-lawdecree] (fixture élaguée, D-25). L'ordre réel sans `intOrdre` quand articles et sections coexistent est **NON VÉRIFIÉ** [V-98 · toc-ordre-sans-intordre].
+3. **Dédoublonnage** : sur `ArticleId` sur tout l'arbre, la première occurrence en préordre est conservée ; idem pour les sections par `SectionId`. Les doublons ont été démontrés sur une entrée synthétique (D-25) ; leur fréquence réelle est **NON VÉRIFIÉ** [V-99 · toc-doublons-reels].
 4. **Texte en ligne** : si `content_html` est présent (attesté pour `/consult/kaliText`, recherche 03 §9), `inline_text = Some(text::from_html(..))`. En v0.1, il n'est pas rendu par défaut (05), mais il est disponible sans appel supplémentaire (D-25, `kali_inline_content_is_available_without_extra_call`).
 
 `Toc::page` aplatit en préordre et renvoie au plus `limit` entrées à partir de `offset`. `next_offset = offset + entries.len()` s'il reste des entrées. `offset ≥ len()` (hors TOC vide à `offset = 0`) donne `DomainError::TocOffsetPastEnd`. **Seules les entrées rendues sont aplaties** : une section sans titre n'est pas une entrée (05 §5.0.4), mais ses enfants sont aplatis à leur profondeur d'origine. `Toc::len`, `Toc::page`, donc `toc_total`, `toc_offset`, `next_toc_offset` et la métrique d'audit, comptent ainsi le même ensemble d'entrées. Sur consult_loda.json : 26 sections + 62 articles = **88 entrées**, contre 62 dans la référence (P-033), soit une page avec `toc_limit` par défaut (100). La métrique d'audit compte les entrées renvoyées (00 §7).
@@ -439,11 +439,11 @@ Règles de `Toc::build`, dans l'ordre :
 | `num` | `Option<String>` | `num` | `"9"` |
 | `etat` | `Option<LegalStatus>` | `etat` | `VIGUEUR` |
 | `code_title` | `Option<String>` | `textTitles[nature=="CODE"].titre`, sinon `textTitles[0].titre` | parité (référence citations.py:236-245) : `Code civil` |
-| `parent` | `Option<ParentText { id: DocumentId, nature: ParentNature }>` | même entrée de `textTitles` : `cid`, `nature` | `ParentNature::{Code, Text, Kali, Unknown}` décide de l'URL (§5.5). La valeur de `textTitles[].nature` pour un article de loi (fixture d'article de code seulement) est **NON VÉRIFIÉ** [v:texttitles-nature-loi], bloquant pour v0.1.0 (00 §4) |
+| `parent` | `Option<ParentText { id: DocumentId, nature: ParentNature }>` | même entrée de `textTitles` : `cid`, `nature` | `ParentNature::{Code, Text, Kali, Unknown}` décide de l'URL (§5.5). La valeur de `textTitles[].nature` pour un article de loi (fixture d'article de code seulement) est **NON VÉRIFIÉ** [V-142 · texttitles-nature-loi], bloquant pour v0.1.0 (00 §4) |
 | `path` | `Vec<String>` | `context.titresTM[].titre` | chemin complet `["Livre Ier : Des personnes", "Titre Ier : Des droits civils"]` (consult_article.json). Piège de renommage `titresTM` (04) |
 | `full_sections_titre` | `Option<String>` | `fullSectionsTitre` | conservé pour la parité, mais incomplet (`Livre Ier : Des personnes`, recherche 03 §7) ; `path` est préféré au rendu |
 | `date_debut`, `date_fin` | `Option<NaiveDate>` | `dateDebut`, `dateFin` (ms) | `1970-07-19` et `None` (sentinelle) |
-| `text` | `LongText` | `texteHtml`, sinon `texte` | §7.4. `texteHtml` est absent de la fixture, donc l'article 9 tient en un seul paragraphe alors qu'il en compte deux (D-26). Présence en direct **NON VÉRIFIÉ** [v:texte-html-getarticle-juri] |
+| `text` | `LongText` | `texteHtml`, sinon `texte` | §7.4. `texteHtml` est absent de la fixture, donc l'article 9 tient en un seul paragraphe alors qu'il en compte deux (D-26). Présence en direct **NON VÉRIFIÉ** [V-90 · texte-html-getarticle-juri] |
 | `nota` | `Option<LongText>` | `notaHtml`, sinon `nota` (`""` ⇒ `None`) | — |
 | `previous_version` | `Option<ArticleId>` | `versionPrecedente` | M7 (`fr_diff_article`) |
 | `contract` | `CitationContract` | — | « Code civil, art. 9 » ; URL selon `parent.nature` (§5.4, §5.5) |
@@ -460,7 +460,7 @@ Les deux dates sont des champs de sens différent quand elles sont omises (00 §
 | `juridiction` | `Option<String>` | `juridiction` | `Cour de cassation`, `Conseil constitutionnel`, `Conseil d'État` |
 | `formation` | `Option<String>` | `formation` | brut : code (`CHAMBRE_CIVILE_1`) en JURI, texte (`2ème - 7ème chambres réunies`) en CETAT (recherche 03 §11.7) |
 | `solution` | `Option<String>` | `solution` | `Cassation`, `Conformité`, `None` (CETAT) |
-| `numero_affaire` | `Vec<String>` | `numeroAffaire[]`, sinon `[num]` pour **CETAT** | JURI `["24-13.470"]` ; CETAT `["506507"]`, contre `[]` dans la référence. Que `num` CETAT soit toujours le numéro de requête est **NON VÉRIFIÉ** [v:cetat-num-requete] |
+| `numero_affaire` | `Vec<String>` | `numeroAffaire[]`, sinon `[num]` pour **CETAT** | JURI `["24-13.470"]` ; CETAT `["506507"]`, contre `[]` dans la référence. Que `num` CETAT soit toujours le numéro de requête est **NON VÉRIFIÉ** [V-112 · cetat-num-requete] |
 | `num` | `Option<String>` | `num` | numéro interne (JURI `12500399`), numéro de décision (CONSTIT `2025-1173`), de requête (CETAT) |
 | `date` | `Option<NaiveDate>` | `dateTexteComputed`, sinon `dateTexte` | `2025-06-04`, `2025-11-07`, `2026-05-29` |
 | `nature` | `Option<String>` | `nature` | `ARRET`, `QPC`, `Texte` |
@@ -479,7 +479,7 @@ Les deux dates sont des champs de sens différent quand elles sont omises (00 §
 | CETAT (consult_juri_cetat.json) | **analyse rédigée**, préfixée d'un code de classement (`01-03-02-02 `, `44 `, `68-01-002 `) et **répétée 3 fois** (736 caractères chacune, identiques une fois le code retiré) | **titrage** en capitales préfixé (`CETAT01-03-02-02 ACTES LÉGISLATIFS…`) | — | `analyses ← resumePrincipal` ; `titrages ← abstrats` |
 | CONSTIT, CNIL | `sommaire` vide ou absent | — | — | vide |
 
-`OfficialSummary::new` nettoie chaque entrée (`clean` ; `<br/>` ⇒ séparateur), retire les codes de classement de tête (`^\d{2}(-\d{2,3})*\s+` et `^CETAT\d{2}(-\d{2,3})*\s+`, scanners manuels en M1) et dédoublonne sur la vue repliée. Les 3 analyses CETAT n'en font plus qu'**une**. Comme le mapping s'appuie sur une fixture par fond, il est **NON VÉRIFIÉ** [v:sommaire-semantique-par-fond].
+`OfficialSummary::new` nettoie chaque entrée (`clean` ; `<br/>` ⇒ séparateur), retire les codes de classement de tête (`^\d{2}(-\d{2,3})*\s+` et `^CETAT\d{2}(-\d{2,3})*\s+`, scanners manuels en M1) et dédoublonne sur la vue repliée. Les 3 analyses CETAT n'en font plus qu'**une**. Comme le mapping s'appuie sur une fixture par fond, il est **NON VÉRIFIÉ** [V-109 · sommaire-semantique-par-fond].
 
 ### 4.5 Délibération CNIL : `Deliberation`
 
@@ -512,7 +512,7 @@ Les deux dates sont des champs de sens différent quand elles sont omises (00 §
 | `toc` | `Toc` | `sections[]`, `articles[]` | §4.2 ; articles `KALIARTI` (vers `fr_get_text`) ; `inline_text` depuis `content` |
 | `contract` | `CitationContract` | — | citation = titre (parité) ; URL `kali` |
 
-`Idcc(u32)` : de 1 à 4 chiffres significatifs. `Display` sans zéros de tête : `"275"`, `"2121"`. La lecture accepte `"0000000000002121"` (`numero`). La borne supérieure est **NON VÉRIFIÉ** (recherche 07 §4.12) [v:idcc-bornes].
+`Idcc(u32)` : de 1 à 4 chiffres significatifs. `Display` sans zéros de tête : `"275"`, `"2121"`. La lecture accepte `"0000000000002121"` (`numero`). La borne supérieure est **NON VÉRIFIÉ** (recherche 07 §4.12) [V-132 · idcc-bornes].
 
 ### 4.7 Accord d'entreprise : `CompanyAgreement`
 
@@ -587,8 +587,8 @@ pub enum RelatedNature { Loda, Jorf, Code, Kali, JorfCont, Other(String) }      
 ```
 
 - `NumberQuery::new(fond, kind, value, at: VersionDate)` renvoie `DomainError::NumberKindNotApplicable` (§9) pour un couple (fond, kind) non autorisé. `at` devient `version_date` pour les couples (CODE | LODA, `Article` | `Text`), envoyés avec `DATE_VERSION` (00 §8), et il est ignoré ailleurs, ce qui garde une clé de cache stable ; `with_within` ajoute la période. Les variantes de `NumberKind` (dont `Ecli` et `Eli`), la valeur `NumberValue` (1 à 128 caractères `[A-Za-z0-9.*/:_ -]`) et la liste des couples autorisés sont celles de l'annexe B §6.6.
-- `CodeListing` ne reprend pas le nom `CodeEntry`, déjà pris par l'entrée statique du dictionnaire des codes (`citation::dict::codes`, champs `&'static`, annexe B). Une entrée sans `id` `LEGITEXT` valide ou sans titre est écartée et comptée. La forme réelle de `/list/code` est **NON VÉRIFIÉ** [v:list-code-forme].
-- `RelatedLink.target` vient de `id` (sinon `cidText`), validé en `DocumentId` ; un identifiant sans type consultable (`JORFCONT`, `JORFARTI`, §2.2) donne `None` : le lien garde son titre (`name`, nettoyé), sa nature et sa date (`dateVigeur`, sentinelles du §6.2), sans `source_url`. Correspondance `nature` → `kind`, borne de 100 liens et suite éventuelle : 05 §5.11. Forme et taille réelles de la réponse **NON VÉRIFIÉ** [v:related-links-forme].
+- `CodeListing` ne reprend pas le nom `CodeEntry`, déjà pris par l'entrée statique du dictionnaire des codes (`citation::dict::codes`, champs `&'static`, annexe B). Une entrée sans `id` `LEGITEXT` valide ou sans titre est écartée et comptée. La forme réelle de `/list/code` est **NON VÉRIFIÉ** [V-123 · list-code-forme].
+- `RelatedLink.target` vient de `id` (sinon `cidText`), validé en `DocumentId` ; un identifiant sans type consultable (`JORFCONT`, `JORFARTI`, §2.2) donne `None` : le lien garde son titre (`name`, nettoyé), sa nature et sa date (`dateVigeur`, sentinelles du §6.2), sans `source_url`. Correspondance `nature` → `kind`, borne de 100 liens et suite éventuelle : 05 §5.11. Forme et taille réelles de la réponse **NON VÉRIFIÉ** [V-136 · related-links-forme].
 
 ---
 
@@ -618,7 +618,7 @@ pub trait Citable { fn contract(&self) -> &CitationContract; }
 
 ### 5.2 Politique ECLI
 
-- `Ecli` est un newtype validé (00 §4 : `ECLI:FR:…`). Grammaire : `ECLI:FR:{code juridiction}:{année}:{ordinal}`. Le code fait 1 à 7 caractères `[A-Z0-9]` et commence par une lettre, l'année a 4 chiffres, l'ordinal 1 à 25 caractères `[A-Z0-9.]`. Source : recherche 07 §4.10, structure européenne connue par des sources **WEB**, d'où **NON VÉRIFIÉ** [v:ecli-structure-generale].
+- `Ecli` est un newtype validé (00 §4 : `ECLI:FR:…`). Grammaire : `ECLI:FR:{code juridiction}:{année}:{ordinal}`. Le code fait 1 à 7 caractères `[A-Z0-9]` et commence par une lettre, l'année a 4 chiffres, l'ordinal 1 à 25 caractères `[A-Z0-9.]`. Source : recherche 07 §4.10, structure européenne connue par des sources **WEB**, d'où **NON VÉRIFIÉ** [V-146 · ecli-structure-generale].
 - **Jamais fabriqué** : aucune fonction ne dérive un ECLI d'une juridiction, d'une date ou d'un numéro. La recherche 07 §2.3 documente des règles de dérivation (`C1` + n° d'arrêt, `requête.AAAAMMJJ`) : elles servent seulement **au contrôle** d'un ECLI cité (`fr_verify_citations`, M6), jamais à la production d'un champ `ecli`.
 - Mapping : `ecli` trimé, `""` ⇒ `None` ; chaîne invalide ⇒ `None` + diagnostic `invalid_native_ecli`. Pas de correction.
 - Souvent `null` pour les CAA et TA (référence DISCOVERY.md:80-82, via la recherche 07 §4.8). C'est une lacune de couverture déclarée.
@@ -627,7 +627,7 @@ pub trait Citable { fn contract(&self) -> &CitationContract; }
 ### 5.3 Politique ELI
 
 - `Eli` est un newtype : chemin `/eli/…`, ou URL absolue `https://www.legifrance.gouv.fr/eli/…` normalisée en URL absolue.
-- Renseigné **uniquement** si l'API renvoie `eli` ou `idEli` non nul. Aujourd'hui, ces champs valent `null` (consult_loda.json `eli: null` ; consult_article.json `idEli: null` ; référence DISCOVERY.md:34-40 via la recherche 07 §4.13). C'est **NON VÉRIFIÉ** en production [v:eli-natif-null].
+- Renseigné **uniquement** si l'API renvoie `eli` ou `idEli` non nul. Aujourd'hui, ces champs valent `null` (consult_loda.json `eli: null` ; consult_article.json `idEli: null` ; référence DISCOVERY.md:34-40 via la recherche 07 §4.13). C'est **NON VÉRIFIÉ** en production [V-102 · eli-natif-null].
 - Jamais construit à partir du NOR ou de la date, même si la forme `/eli/loi/AAAA/M/J/NOR/jo/texte` est connue (recherche 07 §4.13). Le test P-039 (« aucune URL ne contient `/eli/` ») reste vrai.
 - La note ELI (constante `contract::ELI_NOTE`, en anglais) est déclarée **une fois**, dans les instructions serveur et dans `fr_coverage`, au lieu d'être répétée dans chaque réponse (D-30, D-33).
 
@@ -653,11 +653,11 @@ Fonctions pures de `contract::rules`. Les exemples sont réels : fixtures, aprè
 
 Précisions :
 
-- `NATURE` du Conseil constitutionnel : `nature` en majuscules (`QPC`, `DC`). Le libellé des natures rares (contentieux électoral…) est **NON VÉRIFIÉ** [v:natures-constit]. Si `nature` est vide, il est omis, comme dans la référence.
+- `NATURE` du Conseil constitutionnel : `nature` en majuscules (`QPC`, `DC`). Le libellé des natures rares (contentieux électoral…) est **NON VÉRIFIÉ** [V-114 · natures-constit]. Si `nature` est vide, il est omis, comme dans la référence.
 - Le **suffixe « - {objet entre crochets} »** de la référence (premier crochet, regex fragile, D-27) n'est pas reproduit, puisque le format normatif de 00 §4 n'en a pas (confirmé par défaut, Q12). L'objet reste lisible dans `title`, le titre officiel verbatim.
 - Les formats complémentaires (article de texte non codifié, KALI, hits CONSTIT et CNIL, objet du Conseil constitutionnel) sont adoptés par défaut (Q12, 00 §4 et §13) et figés avant la génération des golden de M1, sans attendre de réponse de l'utilisateur (00 §13) ; une autre réponse ne change que `contract::rules`, ce tableau, la ligne 26 du §5.6 et les golden.
 - Le retrait de l'appel de note final ne touche que la citation d'un **article** : la citation du texte lui-même (`Act`, hit `loda`) reste le titre officiel complet, « (1) » compris (parité).
-- La variante « décision » pour la CNIL est une extension cohérente avec 00. Le libellé exact des décisions CNIL est **NON VÉRIFIÉ** [v:cnil-nature-decision-format].
+- La variante « décision » pour la CNIL est une extension cohérente avec 00. Le libellé exact des décisions CNIL est **NON VÉRIFIÉ** [V-115 · cnil-nature-decision-format].
 - Signe numéro : `n°` suivi d'une espace normale U+0020, comme dans les exemples de 00 §4. Le parseur (M6) accepte toutes les variantes (recherche 07 §6).
 - Aucune donnée officielle n'est réécrite dans les champs autres que `citation` : `num`, `title` et `formation` restent verbatim après `clean`. Les ordinaux non typographiques des données (`2ème`) ne sont **pas** corrigés dans les titres.
 
@@ -667,21 +667,21 @@ Précisions :
 
 | Kind (`UrlKind`) | Pattern | Utilisé pour | Statut de vérification |
 |---|---|---|---|
-| `loda` | `/loda/id/{LEGITEXT}` | `Act` et hit LODA (identifiant LEGI, pas le `cid` JORF) | utilisé par la référence (citations.py:76-102) et par ses tests ; ouverture dans un navigateur **NON VÉRIFIÉ** [v:url-patterns-navigateur] |
-| `code` | `/codes/texte_lc/{LEGITEXT}` | hit CODE ; `Act` dont `nature = CODE` | idem [v:url-patterns-navigateur] |
-| `code_article` | `/codes/article_lc/{LEGIARTI}` | article dont le parent est un code ; **repli** si la nature du parent est inconnue | idem [v:url-patterns-navigateur] |
-| `loda_article` (**nouveau**) | `/loda/article_lc/{LEGIARTI}` | article d'un texte non codifié (D-29) | WEB : URL indexées, ex. https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000006716311 (recherche 02 D-29) ; caractère canonique **NON VÉRIFIÉ** [v:url-loda-article-lc]. Résolution de `/codes/article_lc/` pour un article de loi : **NON VÉRIFIÉ** [v:url-codes-article-lc-loi] |
-| `juri` | `/juri/id/{JURITEXT}` | `DecisionId::Juri` | référence ; [v:url-patterns-navigateur] |
+| `loda` | `/loda/id/{LEGITEXT}` | `Act` et hit LODA (identifiant LEGI, pas le `cid` JORF) | utilisé par la référence (citations.py:76-102) et par ses tests ; ouverture dans un navigateur **NON VÉRIFIÉ** [V-139 · url-patterns-navigateur] |
+| `code` | `/codes/texte_lc/{LEGITEXT}` | hit CODE ; `Act` dont `nature = CODE` | idem [V-139 · url-patterns-navigateur] |
+| `code_article` | `/codes/article_lc/{LEGIARTI}` | article dont le parent est un code ; **repli** si la nature du parent est inconnue | idem [V-139 · url-patterns-navigateur] |
+| `loda_article` (**nouveau**) | `/loda/article_lc/{LEGIARTI}` | article d'un texte non codifié (D-29) | WEB : URL indexées, ex. https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000006716311 (recherche 02 D-29) ; caractère canonique **NON VÉRIFIÉ** [V-140 · url-loda-article-lc]. Résolution de `/codes/article_lc/` pour un article de loi : **NON VÉRIFIÉ** [V-141 · url-codes-article-lc-loi] |
+| `juri` | `/juri/id/{JURITEXT}` | `DecisionId::Juri` | référence ; [V-139 · url-patterns-navigateur] |
 | `constit` | `/cons/id/{CONSTEXT}` | `DecisionId::Constit` | vérifié par l'auteur de la référence par recherche web (DISCOVERY.md:83-88, via la recherche 01 §4.5) ; test test_parse.py:106 |
-| `cetat` | `/ceta/id/{CETATEXT}` | `DecisionId::Cetat` | idem (DISCOVERY.md) ; pylegifrance affirme que `/juri/id/` fonctionne aussi. Forme canonique **NON VÉRIFIÉ** [v:url-ceta-vs-juri] |
+| `cetat` | `/ceta/id/{CETATEXT}` | `DecisionId::Cetat` | idem (DISCOVERY.md) ; pylegifrance affirme que `/juri/id/` fonctionne aussi. Forme canonique **NON VÉRIFIÉ** [V-143 · url-ceta-vs-juri] |
 | `jorf` | `/jorf/id/{JORFTEXT}` | M7 (fond `Jorf` si la surface JORF est retenue, 00 §4 ; `cid` LODA) | **VÉRIFIÉ par une donnée de l'API** : `lienJo = "https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000052541898"` (consult_juri_constit.json) |
-| `cnil` | `/cnil/id/{CNILTEXT}` | `Deliberation`, hit CNIL | référence ; test test_parse.py:189 ; [v:url-patterns-navigateur] |
-| `kali` | `/conv_coll/id/{KALITEXT}` | `Convention`, hit KALI | référence ; [v:url-patterns-navigateur] |
-| `kali_article` | `/conv_coll/id/{KALIARTI}` | article KALI | référence (test test_parse.py:226) ; aucune occurrence trouvée sur le web : **NON VÉRIFIÉ** [v:url-kaliarti] |
-| `acco` | `/acco/id/{ACCOTEXT}` | `CompanyAgreement`, hit ACCO | référence ; [v:url-patterns-navigateur] |
-| versions datées (M7) | `/codes/article_lc/{LEGIARTI}/{AAAA-MM-JJ}`, `/loda/article_lc/{LEGIARTI}/{AAAA-MM-JJ}` | `fr_diff_article` | WEB : https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000006258433/2011-08-31 (recherche 02 D-29) ; **NON VÉRIFIÉ** pour les textes [v:url-version-datee] |
+| `cnil` | `/cnil/id/{CNILTEXT}` | `Deliberation`, hit CNIL | référence ; test test_parse.py:189 ; [V-139 · url-patterns-navigateur] |
+| `kali` | `/conv_coll/id/{KALITEXT}` | `Convention`, hit KALI | référence ; [V-139 · url-patterns-navigateur] |
+| `kali_article` | `/conv_coll/id/{KALIARTI}` | article KALI | référence (test test_parse.py:226) ; aucune occurrence trouvée sur le web : **NON VÉRIFIÉ** [V-144 · url-kaliarti] |
+| `acco` | `/acco/id/{ACCOTEXT}` | `CompanyAgreement`, hit ACCO | référence ; [V-139 · url-patterns-navigateur] |
+| versions datées (M7) | `/codes/article_lc/{LEGIARTI}/{AAAA-MM-JJ}`, `/loda/article_lc/{LEGIARTI}/{AAAA-MM-JJ}` | `fr_diff_article` | WEB : https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000006258433/2011-08-31 (recherche 02 D-29) ; **NON VÉRIFIÉ** pour les textes [V-145 · url-version-datee] |
 
-Choix du kind d'un `LEGIARTI` (00 §4) : `ParentNature::Code` ⇒ `code_article` ; `ParentNature::Text` (LOI, DECRET, ORDONNANCE, ARRETE…) ⇒ `loda_article` ; `Unknown` ⇒ `code_article` (repli de parité). En v0.1, `source_url` est **non datée** (stable). Divergence volontaire E-19/D-29 (scénario smoke 3 transposé). Bloquant pour v0.1.0 : V-140 (forme canonique de `/loda/article_lc/`, [v:url-loda-article-lc]) et V-142 (`textTitles[].nature`, [v:texttitles-nature-loi]) ; voir aussi V-141 ([v:url-codes-article-lc-loi]). Une recette d'acceptation dans un navigateur est prévue avant v0.1.0 pour tous les motifs servis en v0.1, marqués [v:url-patterns-navigateur], y compris `cetat` ([v:url-ceta-vs-juri]) et `kali_article` ([v:url-kaliarti]) ; le statut bloquant de chaque vérification est tenu par le registre de 09 (V-139 à V-145).
+Choix du kind d'un `LEGIARTI` (00 §4) : `ParentNature::Code` ⇒ `code_article` ; `ParentNature::Text` (LOI, DECRET, ORDONNANCE, ARRETE…) ⇒ `loda_article` ; `Unknown` ⇒ `code_article` (repli de parité). En v0.1, `source_url` est **non datée** (stable). Divergence volontaire E-19/D-29 (scénario smoke 3 transposé). Bloquant pour v0.1.0 : V-140 (forme canonique de `/loda/article_lc/`, [V-140 · url-loda-article-lc]) et V-142 (`textTitles[].nature`, [V-142 · texttitles-nature-loi]) ; voir aussi V-141 ([V-141 · url-codes-article-lc-loi]). Une recette d'acceptation dans un navigateur est prévue avant v0.1.0 pour tous les motifs servis en v0.1, marqués [V-139 · url-patterns-navigateur], y compris `cetat` ([V-143 · url-ceta-vs-juri]) et `kali_article` ([V-144 · url-kaliarti]) ; le statut bloquant de chaque vérification est tenu par le registre de 09 (V-139 à V-145).
 
 ### 5.6 Divergences volontaires par rapport à la référence
 
@@ -728,7 +728,7 @@ Ces divergences doivent apparaître dans la liste des écarts des tests golden (
 | `VersionDate(NaiveDate)` | date de version demandée (`fr_get_act.date`, `fr_search.version_date`), argument des ports (`get_act(&LegiTextId, VersionDate)`) | `VersionDate::parse(&str)` : format strict `AAAA-MM-JJ` (10 caractères ASCII), date calendaire valide, plage 1500-01-01..=2221-12-31 ; sinon `DomainError::InvalidDate` (corrige D-22 : « 07/10/2016 » ou « 2016-13-45 » n'atteignent plus l'API). Ou `VersionDate::from(today)` fourni par l'application |
 | `DateRange { from, to }` (deux `NaiveDate`, période fermée) | `date_from`/`date_to` de `fr_search` (et `NumberQuery.within`, M6) | `DateRange::new(from: Option<VersionDate>, to: Option<VersionDate>) -> Result<Option<DateRange>, DomainError>` : chaque borne est lue comme une `VersionDate` (même format et même plage) ; aucune borne ⇒ `None` ; une seule borne ⇒ l'autre prend l'extrémité de la plage (`1500-01-01` ou `2221-12-31`), de sorte que l'adapter envoie toujours une période fermée et que la clé de cache est unique ; `from > to` ⇒ `DomainError::InvertedDateRange` |
 
-Choix des bornes de `VersionDate` : la borne basse doit couvrir les textes anciens consolidés. L'ordonnance de Villers-Cotterêts de 1539 figurerait dans LEGI, ce qui est un souvenir non sourcé, donc **NON VÉRIFIÉ** [v:version-date-bornes]. Toute date future est admise jusqu'à la veille de la zone sentinelle, à cause des entrées en vigueur différées. Le comportement de l'API pour des dates extrêmes, en `DATE_VERSION` comme en bornes de période complétées par `DateRange::new`, est **NON VÉRIFIÉ** [v:version-date-bornes].
+Choix des bornes de `VersionDate` : la borne basse doit couvrir les textes anciens consolidés. L'ordonnance de Villers-Cotterêts de 1539 figurerait dans LEGI, ce qui est un souvenir non sourcé, donc **NON VÉRIFIÉ** [V-89 · version-date-bornes]. Toute date future est admise jusqu'à la veille de la zone sentinelle, à cause des entrées en vigueur différées. Le comportement de l'API pour des dates extrêmes, en `DATE_VERSION` comme en bornes de période complétées par `DateRange::new`, est **NON VÉRIFIÉ** [V-89 · version-date-bornes].
 
 ### 6.2 Sentinelles
 
@@ -742,7 +742,7 @@ pub fn open_ended(d: Option<NaiveDate>) -> Option<NaiveDate>;
 - Règle (00 §4) : toute date ≥ 2222-01-01 devient `None`, donc un champ omis en sortie. C'est la règle de l'OpenAPI pour les champs `…Computed`, `null` si la date est ≥ 2222-01-01 (recherche 03 §8.1, §11.2). Elle couvre `2999-01-01`, observée 22 fois dans les fixtures (11 en ms, 6 en `AAAA-MM-JJ`, 5 en ISO), et `2222-02-22`. Un champ `…Computed` à `null` donne aussi `None` : l'adapter le lit en priorité.
 - Sens selon le champ, fixé par 00 §4 et repris dans les descriptions d'outils (05), car il **n'est pas toujours** « sans date de fin » :
   - date de fin (`date_fin`, `version_end`) : `None` = **en vigueur sans date de fin** ;
-  - date de début (`date_debut`, `version_start`) : `None` = **date d'entrée en vigueur non déterminée**. Selon les dumps DILA, `2222-02-22` signifie « entrée en vigueur différée à une date non déterminée » (recherche 05 §6.3) ; l'état juridique (`VIGUEUR_DIFF`) porte l'information. **NON VÉRIFIÉ** côté API [v:sentinelle-2222-debut] ;
+  - date de début (`date_debut`, `version_start`) : `None` = **date d'entrée en vigueur non déterminée**. Selon les dumps DILA, `2222-02-22` signifie « entrée en vigueur différée à une date non déterminée » (recherche 05 §6.3) ; l'état juridique (`VIGUEUR_DIFF`) porte l'information. **NON VÉRIFIÉ** côté API [V-101 · sentinelle-2222-debut] ;
   - date de publication ou du texte (`date_publication`, `date_parution`, `date` d'une décision ou d'une délibération, `date_texte`) : `None` = **inconnue**.
 - On n'affiche jamais « 2999 ». Le modèle ne peut plus écrire « en vigueur jusqu'au 1er janvier 2999 » (D-20).
 
@@ -756,14 +756,14 @@ pub fn from_epoch_ms(ms: i64) -> Option<NaiveDate> { DateTime::from_timestamp_mi
 
 - `chrono` utilise `div_euclid`/`rem_euclid` (recherche 02 D-20 ; chrono `src/datetime/mod.rs:838-842` @ 6adaa52). Le résultat est identique sous Windows, contrairement au `fromtimestamp` de CPython (E-35).
 - Vecteurs de test : `-5231606400000` ⇒ `1804-03-21` (Code civil, `textTitles[].dateDebut`, consult_article.json) ; `17193600000` ⇒ `1970-07-19` ; `1762473600000` ⇒ `2025-11-07` ; `32472144000000` ⇒ `2999-01-01`, puis `open_ended` ⇒ `None`.
-- Fuseau : les 27 horodatages non sentinelles des fixtures sont des multiples de 86 400 000 (minuit UTC, recherche 02 D-20). La date civile UTC est donc la bonne. Un horodatage qui n'est pas à minuit UTC donne un diagnostic côté adapter. La convention générale est **NON VÉRIFIÉ** [v:convention-horaire-timestamps].
+- Fuseau : les 27 horodatages non sentinelles des fixtures sont des multiples de 86 400 000 (minuit UTC, recherche 02 D-20). La date civile UTC est donc la bonne. Un horodatage qui n'est pas à minuit UTC donne un diagnostic côté adapter. La convention générale est **NON VÉRIFIÉ** [V-100 · convention-horaire-timestamps].
 - Les **formats d'entrée** (entier, chaîne de chiffres, ISO `…+0000` réduit à sa partie date, `AAAA-MM-JJ`) et le rejet des booléens et flottants non entiers sont du ressort de l'adapter (00 §4, recherche 03 §12.2 `opt_raw_date`). L'adapter appelle ensuite `from_epoch_ms` et `open_ended`.
 
 ### 6.4 « Aujourd'hui » = date civile Europe/Paris
 
 - Le domaine ne calcule jamais « aujourd'hui ». `lf-application` obtient `Clock::today_paris() -> NaiveDate` (00 §3) et en fait le défaut de `VersionDate`. Cela corrige D-19 et E-05 : la référence utilisait la date UTC.
 - Vecteurs de test pour `SystemClock` (dans `lf-app`, pas dans le domaine) : `2026-07-14T22:30Z` ⇒ `2026-07-15` ; `2026-01-14T23:30Z` ⇒ `2026-01-15` ; changements d'heure du 2026-03-29 et du 2026-10-25 (recherche 02 D-19).
-- `DATE_VERSION.singleDate` = **midi** Europe/Paris du jour `version_date`, exprimé en ms (00 §8). Calcul fait par l'adapter (`chrono-tz`, 00 §2), jamais par le domaine. Midi est stable sur la journée et reste correct que PISTE compare l'instant à des bornes stockées à minuit UTC ou le tronque en date UTC ou Paris ; la clé de cache repose sur `VersionDate`, pas sur l'instant. Vecteurs (00 §8, base IANA) : `2026-10-15` ⇒ `1792058400000` (10:00Z, heure d'été) ; `2026-01-15` ⇒ `1768474800000` (11:00Z, heure d'hiver) ; `2026-03-29` ⇒ `1774778400000` (10:00Z, jour du passage à l'heure d'été) ; `2026-10-25` ⇒ `1792926000000` (11:00Z, jour du retour à l'heure d'hiver). La sémantique réelle de `singleDate` est **NON VÉRIFIÉ** [v:singledate-midi-paris] (V-76, bloquante en M2).
+- `DATE_VERSION.singleDate` = **midi** Europe/Paris du jour `version_date`, exprimé en ms (00 §8). Calcul fait par l'adapter (`chrono-tz`, 00 §2), jamais par le domaine. Midi est stable sur la journée et reste correct que PISTE compare l'instant à des bornes stockées à minuit UTC ou le tronque en date UTC ou Paris ; la clé de cache repose sur `VersionDate`, pas sur l'instant. Vecteurs (00 §8, base IANA) : `2026-10-15` ⇒ `1792058400000` (10:00Z, heure d'été) ; `2026-01-15` ⇒ `1768474800000` (11:00Z, heure d'hiver) ; `2026-03-29` ⇒ `1774778400000` (10:00Z, jour du passage à l'heure d'été) ; `2026-10-25` ⇒ `1792926000000` (11:00Z, jour du retour à l'heure d'hiver). La sémantique réelle de `singleDate` est **NON VÉRIFIÉ** [V-76 · singledate-midi-paris] (V-76, bloquante en M2).
 
 ### 6.5 Dates en prose française
 
@@ -796,7 +796,7 @@ flowchart LR
 ```
 
 - **La réparation du mojibake vient AVANT toute normalisation des NBSP** (00 §4, §8). La séquence mojibake de `à` est `Ã` suivi de U+00A0. Normaliser U+00A0 avant la réparation casse 10 champs des fixtures (recherche 03 §11.1 ; contrôle versionné [annexes/donnees/scripts/dto_repair_check.py](annexes/donnees/scripts/dto_repair_check.py), SHA-256 `ef5c1c80c82a063a407ba9134d3afc3e5526bc659e5650810b38a3096d9d0530`, Python 3.13 en `python3 -I`, 00 §10). Le domaine suppose donc que ses entrées sont déjà réparées. `text::encoding::repair_latin1_mojibake(&str) -> Cow<str>` est une fonction pure du domaine (esquisse dans la recherche 03 §11.1). L'adapter l'applique au corps entier. Le parseur peut l'appliquer, en option, à une entrée utilisateur (§8.2).
-- Règle de réparation, rappelée pour les tests : la réparation s'applique s'il n'y a aucun caractère au-delà de U+00FF **et** au moins un motif `[U+00C2–U+00F4][U+0080–U+00BF]` ou un caractère C1. On encode alors en latin-1 et on décode en UTF-8 strict. Le résultat n'est accepté que s'il ne reste aucun motif. La fonction est idempotente et donne l'identité sur les 10 fixtures saines (recherche 03 §11.1). L'origine du mojibake (capture ou API) est **NON VÉRIFIÉ** [v:mojibake-origine].
+- Règle de réparation, rappelée pour les tests : la réparation s'applique s'il n'y a aucun caractère au-delà de U+00FF **et** au moins un motif `[U+00C2–U+00F4][U+0080–U+00BF]` ou un caractère C1. On encode alors en latin-1 et on décode en UTF-8 strict. Le résultat n'est accepté que s'il ne reste aucun motif. La fonction est idempotente et donne l'identité sur les 10 fixtures saines (recherche 03 §11.1). L'origine du mojibake (capture ou API) est **NON VÉRIFIÉ** [V-72 · mojibake-origine].
 
 ### 7.2 `text::from_html` : HTML vers paragraphes
 
@@ -813,7 +813,7 @@ Balises et constructions observées dans les fixtures (scan de ce document, coh�
 | `<a href="/affichCodeArticle.do?…idArticle=LEGIARTI…" title="…">` | consult_kali.json `content` | 1 (**non refermée**, fixture tronquée) | balise retirée, texte conservé ; balise non refermée en fin d'entrée : supprimée jusqu'à la fin. Extraction des `idArticle=` pour les liens : M7 |
 | `<mark>`, `</mark>` | titres et extraits de `/search` (jamais dans les consultations) | nombreuses | retirées, contenu conservé (relève surtout de `clean`) |
 | indentation `\n` + espaces + `\t` | consult_juri_cetat.json | — | blancs repliés à l'intérieur d'un paragraphe |
-| entités HTML (`&amp;`, `&nbsp;`, `&#8217;`…) | **aucune** dans les 16 fixtures (scan) ; `&apos;` vu dans des données tierces (recherche 07 §6) | 0 | décodées par précaution, voir ci-dessous. Présence dans les données Légifrance **NON VÉRIFIÉ** [v:entites-html-legifrance] |
+| entités HTML (`&amp;`, `&nbsp;`, `&#8217;`…) | **aucune** dans les 16 fixtures (scan) ; `&apos;` vu dans des données tierces (recherche 07 §6) | 0 | décodées par précaution, voir ci-dessous. Présence dans les données Légifrance **NON VÉRIFIÉ** [V-94 · entites-html-legifrance] |
 
 Algorithme :
 
@@ -823,7 +823,7 @@ Algorithme :
    - *cellule* (`td`, `th`) : une espace ;
    - *supprimé avec contenu* : tout nom commençant par `RECH_`, plus `script` et `style`. Si la fermante manque, seule la balise est retirée, pour ne jamais perdre de texte ;
    - *en ligne* (tout le reste : `mark`, `a`, `span`, `font`, `b`, `i`, `u`, `em`, `strong`, `sup`, `sub`…) : balise retirée sans espace ajoutée, de sorte que `1<sup>er</sup>` donne `1er`.
-   - Les autres structures (tableaux d'annexes, listes) dans le HTML des codes et lois sont **NON VÉRIFIÉ** [v:balises-html-autres].
+   - Les autres structures (tableaux d'annexes, listes) dans le HTML des codes et lois sont **NON VÉRIFIÉ** [V-93 · balises-html-autres].
 3. **Entités**, décodées après le retrait des balises pour qu'un `&lt;` décodé ne crée pas de balise : `&amp; &lt; &gt; &quot; &apos; &nbsp;`, numériques `&#NNN;` et `&#xHH;` (scalaires valides seulement, sinon laissés tels quels), et une table fermée d'environ 100 entités latin-1 et typographiques (`&eacute;`, `&laquo;`, `&raquo;`, `&rsquo;`, `&ndash;`, `&mdash;`, `&hellip;`, `&oelig;`, `&deg;`, `&sect;`…). Une entité inconnue reste verbatim.
 4. **Paragraphes** : chaque segment entre deux coupures passe par la normalisation de `clean` (§7.3). Les segments vides sont supprimés. Les séparateurs visuels (`--------------` en CETAT) sont **conservés** dans le texte intégral et ignorés par le résumé (§7.9).
 5. Si l'entrée ne contient aucune balise de bloc, le résultat est un seul paragraphe.
@@ -857,7 +857,7 @@ Non modifiés : apostrophes typographiques U+2019 (117 dans le texte CONSTIT, re
 `LongText::best_of(html: Option<&str>, plain: Option<&str>) -> LongText` :
 
 1. `html` présent et non vide ⇒ `from_html(html)`.
-2. **Garde-fou** : si le texte issu du HTML fait moins de 90 % de la longueur repliée de `plain`, `plain` est préféré, car le HTML est alors probablement incomplet. Les fixtures en sont loin : 99,8 % pour CONSTIT et CETAT, puisque seul manque l'ECLI final. Le seuil est **NON VÉRIFIÉ** sur d'autres données [v:texthtml-vs-texte-complet].
+2. **Garde-fou** : si le texte issu du HTML fait moins de 90 % de la longueur repliée de `plain`, `plain` est préféré, car le HTML est alors probablement incomplet. Les fixtures en sont loin : 99,8 % pour CONSTIT et CETAT, puisque seul manque l'ECLI final. Le seuil est **NON VÉRIFIÉ** sur d'autres données [V-92 · texthtml-vs-texte-complet].
 3. Sinon `from_plain(plain)` : coupure sur les suites de `\n` (après normalisation de `\r\n`), puis `clean` par paragraphe. Le `texte` de l'API n'a **aucun** saut de ligne dans les fixtures (D-26). Le texte forme alors un seul paragraphe, que la fenêtre découpe en fin de phrase.
 4. Aucun des deux ⇒ `LongText` vide (`char_len = 0`).
 
@@ -886,7 +886,7 @@ impl LongText {
 Invariants :
 
 - `canonical == paragraphs.join("\n\n")` ; aucun paragraphe vide ni bordé de blancs ; aucun `\n` à l'intérieur d'un paragraphe.
-- `char_len` tient en `u32`. Au-delà de 16 000 000 caractères, la construction échoue (`DomainError::TextTooLarge`, mappée en `Decode`). La taille maximale réelle des textes est **NON VÉRIFIÉ** [v:taille-max-textes].
+- `char_len` tient en `u32`. Au-delà de 16 000 000 caractères, la construction échoue (`DomainError::TextTooLarge`, mappée en `Decode`). La taille maximale réelle des textes est **NON VÉRIFIÉ** [V-75 · taille-max-textes].
 - `text_length` (00 §7) = `char_len` du texte canonique, séparateurs compris. Exemple : CONSTIT = 14 236 + 2 × 48 = **14 332** caractères.
 - Le `LongText` est construit **une fois**, dans le mapping. Le cache au niveau du port (ADR-0007) stocke l'entité qui le contient. Fenêtres, passages et résumés sont recalculés à chaque appel, pour un coût linéaire.
 - Le texte et la table des paragraphes sont partagés par `Arc` (`std::sync::Arc`, pas de dépendance) : le clone d'une entité servie par le cache (02 §7.2 : l'appelant reçoit `T::clone(&arc)`) ne copie pas le texte, qui peut atteindre la borne de 16 000 000 caractères. Le type reste `Send + Sync`.
@@ -1000,7 +1000,7 @@ Ordre de préférence (00 §4) :
 2. **Dispositif**, uniquement pour `ConsTextId` et `CetaTextId`. Repérage sur la vue repliée du paragraphe (§7.8, NBSP déjà normalisé) :
    - **Conseil constitutionnel** : de l'en-tête « LE CONSEIL CONSTITUTIONNEL DÉCIDE : », exclu, jusqu'au paragraphe commençant par « Jugé par », exclu. Fixture : 2 paragraphes, **551** caractères (« Article 1er. - Le renvoi opéré … », « Article 2. - Cette décision sera publiée … »).
    - **Conseil d'État** : du paragraphe « D E C I D E : » (ou « DECIDE : »), exclu, jusqu'au paragraphe commençant par « Délibéré », exclu. Les paragraphes formés uniquement de `-`, `_`, `=`, `*` ou d'espaces sont ignorés. Fixture : 3 paragraphes, **411** caractères (« Article 1er : Le pourvoi … est rejeté. »…).
-   - Ces marqueurs ont été validés sur **une** décision chacun (recherche 03 §12.9 et prototype de ce document). Variantes anciennes ou propres aux CAA et TA : **NON VÉRIFIÉ** [v:dispositif-constit-variantes] [v:dispositif-cetat-variantes]. Si l'en-tête est introuvable, ou si le dispositif est vide, on passe à l'étape 3.
+   - Ces marqueurs ont été validés sur **une** décision chacun (recherche 03 §12.9 et prototype de ce document). Variantes anciennes ou propres aux CAA et TA : **NON VÉRIFIÉ** [V-110 · dispositif-constit-variantes] [V-111 · dispositif-cetat-variantes]. Si l'en-tête est introuvable, ou si le dispositif est vide, on passe à l'étape 3.
 3. **Repli** (`Lead`) : premiers paragraphes jusqu'à au moins 600 caractères. Concerne CNIL, les décisions JURI sans sommaire, et les décisions CONSTIT ou CETAT sans dispositif repérable.
 
 Pas d'heuristique « PAR CES MOTIFS » pour la Cour de cassation en v0.1 (00 §4) : elle n'a été essayée sur aucun texte JURI complet (fixture tronquée à 600 caractères).
@@ -1017,7 +1017,7 @@ Dans tous les cas, `text` est limité à `min(budget, 1 200)` caractères, coup�
 | consult_cnil.json (tronquée) | 4 042 / 3 551 | 606 | 606 | 1 258 | 1 099 (texte entier) | 1 010 | 991 | 3 |
 | consult_article.json | 3 198 / 2 612 | 336 | absent | 949 | 686 (article entier) | 610 | 610 | 1 |
 
-Unité : caractères de JSON compact, sauf la colonne « octets ». La colonne « Appel par défaut » reprend la table de [05-outils-mcp.md](05-outils-mcp.md) §6.5, **seule référence** pour les budgets bloquants de M5 (06 §12.2) ; les valeurs d'un prototype antérieur de ce document (1 154, 1 658, 646, 426, 610) sont obsolètes. Les deux colonnes `full` viennent du prototype de la recherche 03 §13, antérieur au format de sortie de 05 (05 §6.5 donne une page `full` d'environ 4 350 caractères pour CONSTIT). `texte` est la longueur brute du champ ; sa forme repliée (`fold_ws`) fait 14 314 caractères pour CONSTIT. Le texte figure deux fois dans la réponse brute : 90 % du JSON pour CONSTIT, 81 % pour CETAT (recherche 03 §8.3). Les volumes réels (grandes décisions, longues TOC) sont **NON VÉRIFIÉ** [v:taille-max-textes] et seront mesurés sur des fixtures recapturées (`cargo xtask record-fixture`, 06).
+Unité : caractères de JSON compact, sauf la colonne « octets ». La colonne « Appel par défaut » reprend la table de [05-outils-mcp.md](05-outils-mcp.md) §6.5, **seule référence** pour les budgets bloquants de M5 (06 §12.2) ; les valeurs d'un prototype antérieur de ce document (1 154, 1 658, 646, 426, 610) sont obsolètes. Les deux colonnes `full` viennent du prototype de la recherche 03 §13, antérieur au format de sortie de 05 (05 §6.5 donne une page `full` d'environ 4 350 caractères pour CONSTIT). `texte` est la longueur brute du champ ; sa forme repliée (`fold_ws`) fait 14 314 caractères pour CONSTIT. Le texte figure deux fois dans la réponse brute : 90 % du JSON pour CONSTIT, 81 % pour CETAT (recherche 03 §8.3). Les volumes réels (grandes décisions, longues TOC) sont **NON VÉRIFIÉ** [V-75 · taille-max-textes] et seront mesurés sur des fixtures recapturées (`cargo xtask record-fixture`, 06).
 
 ---
 
@@ -1124,7 +1124,7 @@ impl ArticleNum { pub fn num_key(&self) -> String; pub fn key_variants(&self) ->
 ```
 
 - Les dates citées sont des `NaiveDate`, conformément à 00 §4 : pas de `LegalDate` maison (écart avec la recherche 07 §9.3). Une date invalide (31 février) donne `None` avec le drapeau `DateInvalide`. Une date du calendrier républicain est reconnue, conservée brute et marquée par un drapeau, sans conversion en v0.2.
-- `num_key` produit la forme interrogeable par `NUM_ARTICLE`, sans point ni espace (`L36-11`, recherche 07 §4.2). La forme exacte attendue par l'API pour `R*`, `1er` et les suffixes latins est **NON VÉRIFIÉ** [v:num-article-forme-api]. `key_variants` fournit donc les candidats (`1er` → `["1er", "1"]`).
+- `num_key` produit la forme interrogeable par `NUM_ARTICLE`, sans point ni espace (`L36-11`, recherche 07 §4.2). La forme exacte attendue par l'API pour `R*`, `1er` et les suffixes latins est **NON VÉRIFIÉ** [V-119 · num-article-forme-api]. `key_variants` fournit donc les candidats (`1er` → `["1er", "1"]`).
 - `CodeKey` est une enum fermée (77 entrées, `codes-table.md`) plus `Other(String)`. Elle porte le titre officiel attendu par la facette `NOM_CODE` et les abréviations. La correspondance `CodeKey → LEGITEXT` n'est **pas** dans le domaine : elle vient de `/list/code`, mis en cache par l'adapter (recherche 07 §5.1). Les `LEGITEXT` de `codes-table.md` sont des données tierces, réservées aux tests d'intégration.
 - Rendu MCP de `span` (00 §7) : `{start, end}` en **points de code Unicode** du texte reçu, intervalle semi-ouvert, même unité que `offset`/`max_chars`, accompagné de `raw` (extrait d'origine). Le domaine travaille en octets ; `Span::to_chars(input) -> Span` fait la conversion, linéaire, et reste correcte pour toute frontière UTF-8 garantie par le parseur. La recherche 07 §9.4 proposait des octets plus des caractères, ce qui aurait fait deux unités.
 - `DecisionCite.court` est une `Option<Court>` (décision citée sans juridiction explicite, cas N21, N28, P114 de l'annexe B) et `ArticleNum.special` admet `SansNumero` (P085) ; le détail des sous-types est dans l'annexe B, qui emploie les mêmes noms.
@@ -1136,7 +1136,7 @@ impl ArticleNum { pub fn num_key(&self) -> String; pub fn key_variants(&self) ->
 | reconnaissance, spans, normalisation, `OffsetMap` | `VerifyCitationsUseCase`, `ResolveUseCase` |
 | contrôles **syntaxiques** et drapeaux : date valide, chambre existante (pas de « 4e civ. »), structure de l'ECLI, ordinal CE égal à la date citée, année du numéro égale à l'année de la date (recherche 07 §7.4, colonne « hors ligne ») | contrôles **en ligne** : existence, état à la date, ECLI natif égal à l'ECLI cité ; champ `quote` (`match` ou `quote_mismatch`) calculé automatiquement quand un extrait entre guillemets jouxte la citation et que le texte officiel a été lu (00 §7) |
 | anaphores intra-document (pile de contexte) | choix des appels de port : `find_article(&CodeRef, &ArticleNum, VersionDate)`, `find_by_number(...)`, `get_*` (00 §3) |
-| `CitationRef::resolvability()` → `Resolvable` ou `Unresolvable(reason)` : hors périmètre (UE, CEDH, doctrine, ECLI étranger), anaphore sans antécédent, sigle ambigu sans contexte | statut final : `verified`, `not_found`, `ambiguous`, `unresolvable`, `invalid` (00 §7) ; en environnement sandbox, un introuvable est rendu `unresolvable` avec la note « sandbox data differ from production », jamais `not_found` (00 §7 ; ampleur de l'écart des données sandbox **NON VÉRIFIÉ** [v:sandbox-prod-donnees]) ; spans convertis en points de code (§8.6) |
+| `CitationRef::resolvability()` → `Resolvable` ou `Unresolvable(reason)` : hors périmètre (UE, CEDH, doctrine, ECLI étranger), anaphore sans antécédent, sigle ambigu sans contexte | statut final : `verified`, `not_found`, `ambiguous`, `unresolvable`, `invalid` (00 §7) ; en environnement sandbox, un introuvable est rendu `unresolvable` avec la note « sandbox data differ from production », jamais `not_found` (00 §7 ; ampleur de l'écart des données sandbox **NON VÉRIFIÉ** [V-61 · sandbox-prod-donnees]) ; spans convertis en points de code (§8.6) |
 | forme canonique d'une citation reconnue (`format`), qui réutilise `contract::rules` et `date::format_fr` (« Code civil, art. 9 ») | candidats et `confidence` de `fr_resolve` |
 | `text::fold`, la vue repliée partagée, pour comparer un extrait cité | comparaison de l'extrait avec le texte consulté (BM25 ou similarité) |
 
@@ -1240,48 +1240,48 @@ pub enum DateError { Format, Calendar, OutOfRange }
 
 | Étiquette | Vérification à faire |
 |---|---|
-| [v:id-format-hors-fixtures] | Le format 8 lettres + 12 chiffres vaut pour tous les identifiants servis par l'API, pas seulement pour les fixtures. |
-| [v:suffixe-version-autres-prefixes] | Le suffixe `_JJ-MM-AAAA` n'apparaît que sur des `LEGITEXT`. |
-| [v:lawdecree-sur-code] | Comportement et taille de `/consult/lawDecree` avec le `LEGITEXT` d'un code. |
-| [v:etats-juridiques-liste] | Casse et variantes de `jurisState` hors fixtures ; les 17 codes d'`etat` sont connus (facette `ARTICLE_LEGAL_STATUS`, Swagger `CodeListRequest.states`). |
-| [v:date-hit-semantique] | Sens du champ `date` des hits selon le fond (entrée en vigueur, date du code…). |
-| [v:kali-extraits-num] | Fiabilité du `num` des extraits KALI en recherche. |
-| [v:longueur-max-query] | Longueur maximale de `query` acceptée par `/search`. |
-| [v:intordre-lawdecree] | Présence d'`intOrdre` dans les réponses `/consult/lawDecree` réelles. |
-| [v:toc-ordre-sans-intordre] | Ordre réel articles/sections quand `intOrdre` est absent et que les deux coexistent. |
-| [v:toc-doublons-reels] | Fréquence réelle des articles en double dans une TOC. |
-| [v:texte-html-getarticle-juri] | Présence de `texteHtml` sur `/consult/getArticle` et sur `/consult/juri` pour JURI. |
-| [v:sommaire-semantique-par-fond] | Sens de `resumePrincipal` et `abstrats` : titrage ou analyse selon JURI et CETAT. |
-| [v:cetat-num-requete] | Le `num` CETAT est toujours le numéro de requête. |
-| [v:idcc-bornes] | Borne supérieure et format de l'IDCC. |
-| [v:ecli-structure-generale] | Règles générales de l'ECLI (longueurs, alphabet). |
-| [v:eli-natif-null] | `eli` et `idEli` restent `null` en production. |
-| [v:natures-constit] | Valeurs de `nature` du Conseil constitutionnel hors QPC et DC. |
-| [v:cnil-nature-decision-format] | Forme de citation des décisions CNIL qui ne sont pas des délibérations. |
-| [v:url-patterns-navigateur] | Chaque pattern d'URL du §5.5 ouvre la bonne page dans un navigateur. |
-| [v:url-loda-article-lc] | `/loda/article_lc/` est la forme canonique pour un article de texte non codifié. |
-| [v:url-codes-article-lc-loi] | `/codes/article_lc/` résout ou non un article de loi. |
-| [v:url-ceta-vs-juri] | Forme canonique pour `CETATEXT` : `/ceta/id/` ou `/juri/id/`. |
-| [v:url-kaliarti] | `/conv_coll/id/KALIARTI…` ouvre l'article. |
-| [v:url-version-datee] | URL datées des articles et des textes (M7). |
-| [v:version-date-bornes] | Réponse de l'API pour des dates de version extrêmes (avant 1789, très lointaines). |
-| [v:sentinelle-2222-debut] | Sens de `2222-02-22` dans les dates de début de l'API et lien avec `VIGUEUR_DIFF`. |
-| [v:convention-horaire-timestamps] | Tous les horodatages de date sont à minuit UTC. |
-| [v:mojibake-origine] | Le mojibake vient de la capture ou de l'API (appel en direct sur les identifiants des 6 fixtures). |
-| [v:entites-html-legifrance] | Entités HTML présentes dans `texteHtml` et `content`. |
-| [v:balises-html-autres] | Autres balises (tableaux, listes) dans le HTML des codes et lois. |
-| [v:texthtml-vs-texte-complet] | Le seuil de 90 % qui fait préférer `texte` à `texteHtml` est pertinent. |
-| [v:taille-max-textes] | Tailles maximales réelles des textes et des TOC. |
-| [v:dispositif-constit-variantes] | Marqueurs du dispositif du Conseil constitutionnel sur d'autres décisions et époques. |
-| [v:dispositif-cetat-variantes] | Marqueurs du dispositif du CE, des CAA et des TA sur d'autres décisions. |
-| [v:num-article-forme-api] | Forme attendue par `NUM_ARTICLE` pour `R*`, `1er`, suffixes latins et lettres. |
-| [v:typepagination-page2] | Effet réel de la `typePagination` envoyée en page 2 (mémo de l'adapter, repli `ARTICLE` pour CODE). |
-| [v:pagination-profonde] | Fenêtre de 10 000 résultats atteignables (`REACHABLE_RESULTS`, `has_more`). |
-| [v:texttitles-nature-loi] | Valeur de `textTitles[].nature` pour un article de loi (choix de `loda_article`). |
-| [v:singledate-midi-paris] | Sémantique de `DATE_VERSION.singleDate` côté PISTE ; le plan envoie midi Europe/Paris (00 §8). |
-| [v:sandbox-prod-donnees] | Écart des données entre sandbox et production (règle `unresolvable` en sandbox). |
-| [v:list-code-forme] | Forme réelle des entrées de `/list/code` (`CodeListing`). |
-| [v:related-links-forme] | Forme et taille de `relatedLinksArticle` (`RelatedLinks`). |
+| [V-103 · id-format-hors-fixtures] | Le format 8 lettres + 12 chiffres vaut pour tous les identifiants servis par l'API, pas seulement pour les fixtures. |
+| [V-104 · suffixe-version-autres-prefixes] | Le suffixe `_JJ-MM-AAAA` n'apparaît que sur des `LEGITEXT`. |
+| [V-96 · lawdecree-sur-code] | Comportement et taille de `/consult/lawDecree` avec le `LEGITEXT` d'un code. |
+| [V-113 · etats-juridiques-liste] | Casse et variantes de `jurisState` hors fixtures ; les 17 codes d'`etat` sont connus (facette `ARTICLE_LEGAL_STATUS`, Swagger `CodeListRequest.states`). |
+| [V-87 · date-hit-semantique] | Sens du champ `date` des hits selon le fond (entrée en vigueur, date du code…). |
+| [V-88 · kali-extraits-num] | Fiabilité du `num` des extraits KALI en recherche. |
+| [V-81 · longueur-max-query] | Longueur maximale de `query` acceptée par `/search`. |
+| [V-97 · intordre-lawdecree] | Présence d'`intOrdre` dans les réponses `/consult/lawDecree` réelles. |
+| [V-98 · toc-ordre-sans-intordre] | Ordre réel articles/sections quand `intOrdre` est absent et que les deux coexistent. |
+| [V-99 · toc-doublons-reels] | Fréquence réelle des articles en double dans une TOC. |
+| [V-90 · texte-html-getarticle-juri] | Présence de `texteHtml` sur `/consult/getArticle` et sur `/consult/juri` pour JURI. |
+| [V-109 · sommaire-semantique-par-fond] | Sens de `resumePrincipal` et `abstrats` : titrage ou analyse selon JURI et CETAT. |
+| [V-112 · cetat-num-requete] | Le `num` CETAT est toujours le numéro de requête. |
+| [V-132 · idcc-bornes] | Borne supérieure et format de l'IDCC. |
+| [V-146 · ecli-structure-generale] | Règles générales de l'ECLI (longueurs, alphabet). |
+| [V-102 · eli-natif-null] | `eli` et `idEli` restent `null` en production. |
+| [V-114 · natures-constit] | Valeurs de `nature` du Conseil constitutionnel hors QPC et DC. |
+| [V-115 · cnil-nature-decision-format] | Forme de citation des décisions CNIL qui ne sont pas des délibérations. |
+| [V-139 · url-patterns-navigateur] | Chaque pattern d'URL du §5.5 ouvre la bonne page dans un navigateur. |
+| [V-140 · url-loda-article-lc] | `/loda/article_lc/` est la forme canonique pour un article de texte non codifié. |
+| [V-141 · url-codes-article-lc-loi] | `/codes/article_lc/` résout ou non un article de loi. |
+| [V-143 · url-ceta-vs-juri] | Forme canonique pour `CETATEXT` : `/ceta/id/` ou `/juri/id/`. |
+| [V-144 · url-kaliarti] | `/conv_coll/id/KALIARTI…` ouvre l'article. |
+| [V-145 · url-version-datee] | URL datées des articles et des textes (M7). |
+| [V-89 · version-date-bornes] | Réponse de l'API pour des dates de version extrêmes (avant 1789, très lointaines). |
+| [V-101 · sentinelle-2222-debut] | Sens de `2222-02-22` dans les dates de début de l'API et lien avec `VIGUEUR_DIFF`. |
+| [V-100 · convention-horaire-timestamps] | Tous les horodatages de date sont à minuit UTC. |
+| [V-72 · mojibake-origine] | Le mojibake vient de la capture ou de l'API (appel en direct sur les identifiants des 6 fixtures). |
+| [V-94 · entites-html-legifrance] | Entités HTML présentes dans `texteHtml` et `content`. |
+| [V-93 · balises-html-autres] | Autres balises (tableaux, listes) dans le HTML des codes et lois. |
+| [V-92 · texthtml-vs-texte-complet] | Le seuil de 90 % qui fait préférer `texte` à `texteHtml` est pertinent. |
+| [V-75 · taille-max-textes] | Tailles maximales réelles des textes et des TOC. |
+| [V-110 · dispositif-constit-variantes] | Marqueurs du dispositif du Conseil constitutionnel sur d'autres décisions et époques. |
+| [V-111 · dispositif-cetat-variantes] | Marqueurs du dispositif du CE, des CAA et des TA sur d'autres décisions. |
+| [V-119 · num-article-forme-api] | Forme attendue par `NUM_ARTICLE` pour `R*`, `1er`, suffixes latins et lettres. |
+| [V-82 · typepagination-page2] | Effet réel de la `typePagination` envoyée en page 2 (mémo de l'adapter, repli `ARTICLE` pour CODE). |
+| [V-83 · pagination-profonde] | Fenêtre de 10 000 résultats atteignables (`REACHABLE_RESULTS`, `has_more`). |
+| [V-142 · texttitles-nature-loi] | Valeur de `textTitles[].nature` pour un article de loi (choix de `loda_article`). |
+| [V-76 · singledate-midi-paris] | Sémantique de `DATE_VERSION.singleDate` côté PISTE ; le plan envoie midi Europe/Paris (00 §8). |
+| [V-61 · sandbox-prod-donnees] | Écart des données entre sandbox et production (règle `unresolvable` en sandbox). |
+| [V-123 · list-code-forme] | Forme réelle des entrées de `/list/code` (`CodeListing`). |
+| [V-136 · related-links-forme] | Forme et taille de `relatedLinksArticle` (`RelatedLinks`). |
 
 ---
 

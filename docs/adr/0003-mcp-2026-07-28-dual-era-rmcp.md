@@ -18,7 +18,7 @@
 - **Les clients sont dans des ères différentes** (annexe D §10.1) :
   - Claude Code ≥ 2.1.292 négocie 2026-07-28 par défaut en stdio, après une sonde `server/discover` ;
   - VS Code (`main` du 2026-10-15) n'envoie que `initialize` 2025-11-25 ;
-  - Cursor et Claude Desktop : **NON VÉRIFIÉ** [v:cursor-ere-et-contenu], [v:desktop-structured-content].
+  - Cursor et Claude Desktop : **NON VÉRIFIÉ** [V-52 · cursor-ere-et-contenu], [V-51 · desktop-structured-content].
 
   Un client legacy face à un serveur modern-only échoue (spécification `docs/specification/2026-07-28/basic/versioning.mdx:164-172`, recherche 09 §1).
 - **rmcp 3.5.1** (2026-10-05) sert les deux ères dans un même binaire, en stdio comme en HTTP. Le SDK Rust est Tier 1 depuis le 2026-08-21 (recherche 09 §0, §3). Deux précautions s'imposent :
@@ -83,13 +83,13 @@
 ### À surveiller
 
 - Points **NON VÉRIFIÉS**, levés en M0 et M4 :
-  - [v:rmcp-methode-inattendue] : aucun message inattendu ne fait quitter le processus ; la lecture du code (annexe D §4.2) le prévoit pour les requêtes, seules les notifications prématurées imposent le filtre ; transcriptions en processus au spike M0, puis sur le binaire en M4 (V-30) ;
-  - [v:rmcp-transport-enveloppe] : `PreLifecycleFilter` autour d'`AsyncRwTransport::new_server(…)` est accepté par `serve_with_ct` (V-29, bloquante M0) ;
-  - [v:rmcp-enveloppe-version-legacy] : requête moderne portant une version legacy (V-34, M4) ; détermine le repli de la décision 5 ;
-  - [v:rmcp-listen-cloture] : EOF avec un `subscriptions/listen` ouvert, sortie en moins d'une seconde (V-35, M4) ;
-  - [v:rmcp-meta-serverinfo-resultats] : `serverInfo` dans le `_meta` des résultats modernes (V-32) ;
-  - [v:rmcp-bugs-statut] : statut des issues #1337, #1347, #1348.
-- **M8** : [v:rmcp-http-entete-absent] (V-39, requête sans `MCP-Protocol-Version`) et [v:rmcp-http-get-405] (V-40, GET et DELETE sans event store), levées par la suite de conformité HTTP.
+  - [V-30 · rmcp-methode-inattendue] : aucun message inattendu ne fait quitter le processus ; la lecture du code (annexe D §4.2) le prévoit pour les requêtes, seules les notifications prématurées imposent le filtre ; transcriptions en processus au spike M0, puis sur le binaire en M4 (V-30) ;
+  - [V-29 · rmcp-transport-enveloppe] : `PreLifecycleFilter` autour d'`AsyncRwTransport::new_server(…)` est accepté par `serve_with_ct` (V-29, bloquante M0) ;
+  - [V-34 · rmcp-enveloppe-version-legacy] : requête moderne portant une version legacy (V-34, M4) ; détermine le repli de la décision 5 ;
+  - [V-35 · rmcp-listen-cloture] : EOF avec un `subscriptions/listen` ouvert, sortie en moins d'une seconde (V-35, M4) ;
+  - [V-32 · rmcp-meta-serverinfo-resultats] : `serverInfo` dans le `_meta` des résultats modernes (V-32) ;
+  - [V-38 · rmcp-bugs-statut] : statut des issues #1337, #1347, #1348.
+- **M8** : [V-39 · rmcp-http-entete-absent] (V-39, requête sans `MCP-Protocol-Version`) et [V-40 · rmcp-http-get-405] (V-40, GET et DELETE sans event store), levées par la suite de conformité HTTP.
 - Si le spike M0 invalide `PreLifecycleFilter`, la parade de remplacement passe par un nouvel ADR (règle de l'index, §2).
 
 ### Tests qui la gardent

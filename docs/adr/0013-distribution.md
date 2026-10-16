@@ -80,16 +80,16 @@
 ### À surveiller
 
 - Points **NON VÉRIFIÉS** :
-  - [v:sac-signature-suffit] : un binaire signé est-il accepté par Smart App Control, et un binaire non signé bloqué ;
-  - [v:tls-fournisseur-cross] : aws-lc et ring sur les 7 cibles ;
-  - [v:mcpb-multi-architecture] : bundle unique avec lanceur ;
-  - [v:registre-mcp-cargo] : `registryType: cargo` accepté en production (réexamen à v1.0.0, Q13) ;
-  - [v:cargo-publish-workspace] : publication ordonnée des sept crates (réexamen à v1.0.0, Q13) ;
-  - [v:marque-legifrance] : statut de la marque « Légifrance », avant toute publication immuable (Q1) ;
-  - [v:macos-notarisation-binaire-nu] : notarisation d'un exécutable nu ;
-  - [v:cargo-dist-macos-sign] : signature macOS expérimentale de dist ;
-  - [v:azure-artifact-signing-eligibilite] : conditions d'éligibilité ;
-  - [v:binaire-taille-memoire] : taille des binaires et du MCPB (V-18, mesurée au spike M0).
+  - [V-173 · sac-signature-suffit] : un binaire signé est-il accepté par Smart App Control, et un binaire non signé bloqué ;
+  - [V-02 · tls-fournisseur-cross] : aws-lc et ring sur les 7 cibles ;
+  - [V-197 · mcpb-multi-architecture] : bundle unique avec lanceur ;
+  - [V-172 · registre-mcp-cargo] : `registryType: cargo` accepté en production (réexamen à v1.0.0, Q13) ;
+  - [V-207 · cargo-publish-workspace] : publication ordonnée des sept crates (réexamen à v1.0.0, Q13) ;
+  - [V-215 · marque-legifrance] : statut de la marque « Légifrance », avant toute publication immuable (Q1) ;
+  - [V-195 · macos-notarisation-binaire-nu] : notarisation d'un exécutable nu ;
+  - [V-194 · cargo-dist-macos-sign] : signature macOS expérimentale de dist ;
+  - [V-193 · azure-artifact-signing-eligibilite] : conditions d'éligibilité ;
+  - [V-18 · binaire-taille-memoire] : taille des binaires et du MCPB (V-18, mesurée au spike M0).
 
 ### Tests qui la gardent
 
@@ -108,7 +108,7 @@
 | MCPB par architecture, seuls ou en complément hors registre | `server.json` et MCPB n'ont pas de champ architecture : un client ne saurait pas lequel installer (00 §12, V-197, 08 §4.1). |
 | Publier les sept crates sur crates.io dès v0.1 (`registryType: cargo`) | Engagement semver public sur des API internes, limites de création de crates ; `cargo install --git` suffit en v0.x (00 §12, Q13 ; réexamen à v1.0.0). |
 | Garder le paquet `lf-app` (règle du préfixe sans exception) | Archives, installeurs et commande `cargo install` porteraient un nom autre que celui du produit (08 §12.1 n° 1). |
-| Binaire universel macOS (`lipo`) | Alternative possible, mais la conservation des signatures est **NON VÉRIFIÉE** [v:lipo-signatures]. |
+| Binaire universel macOS (`lipo`) | Alternative possible, mais la conservation des signatures est **NON VÉRIFIÉE** [V-198 · lipo-signatures]. |
 | MSI, Homebrew, winget, deb ou rpm dès v0.1 | Hors périmètre v0.1. Possibles plus tard (08 §1.3, §12.2). |
 | Programme de mise à jour intégré | Appel réseau non sollicité ([ADR-0005](0005-pas-de-configuration-distante.md)). |
 

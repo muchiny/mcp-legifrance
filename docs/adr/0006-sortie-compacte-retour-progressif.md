@@ -71,13 +71,13 @@
 ### À surveiller
 
 - Points **NON VÉRIFIÉS** sur les clients, dont dépend toute cette décision :
-  - [v:cc-structured-content-succes] : Claude Code transmet-il toujours le `structuredContent` sur un succès ? À re-tester à chaque version ;
-  - [v:desktop-structured-content] : forme transmise par Claude Desktop et claude.ai ;
-  - [v:cursor-ere-et-contenu] : ère et forme transmise par Cursor ;
-  - [v:cc-output-schema-contexte] : Claude Code transmet-il l'`outputSchema` au modèle ?
+  - [V-46 · cc-structured-content-succes] : Claude Code transmet-il toujours le `structuredContent` sur un succès ? À re-tester à chaque version ;
+  - [V-51 · desktop-structured-content] : forme transmise par Claude Desktop et claude.ai ;
+  - [V-52 · cursor-ere-et-contenu] : ère et forme transmise par Cursor ;
+  - [V-47 · cc-output-schema-contexte] : Claude Code transmet-il l'`outputSchema` au modèle ?
 - Si un client majeur transmet le **texte** et non le `structuredContent`, cet ADR est à revoir (09).
-- Ratio tokens par caractère en français juridique : **NON VÉRIFIÉ** [v:tokens-par-caractere]. Tailles réelles des textes et des TOC : **NON VÉRIFIÉ** [v:taille-max-textes], à mesurer en M5 sur des fixtures recapturées.
-- Effet de `openWorldHint: true` dans VS Code (confirmation des résultats après exécution) : **NON VÉRIFIÉ** [v:vscode-openworld-confirm] (V-53), mesuré avant v0.1.0 pour Q11.
+- Ratio tokens par caractère en français juridique : **NON VÉRIFIÉ** [V-58 · tokens-par-caractere]. Tailles réelles des textes et des TOC : **NON VÉRIFIÉ** [V-75 · taille-max-textes], à mesurer en M5 sur des fixtures recapturées.
+- Effet de `openWorldHint: true` dans VS Code (confirmation des résultats après exécution) : **NON VÉRIFIÉ** [V-53 · vscode-openworld-confirm] (V-53), mesuré avant v0.1.0 pour Q11.
 
 ### Tests qui la gardent
 

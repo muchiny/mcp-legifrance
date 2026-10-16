@@ -71,7 +71,7 @@
 
 ### À surveiller
 
-- **NON VÉRIFIÉ** [v:squelette-compile-m0] : le squelette (traits, décorateurs, `LegalService` dans un `ServerHandler` rmcp) compile, et ses futurs sont `Send`, au spike M0.
+- **NON VÉRIFIÉ** [V-01 · squelette-compile-m0] : le squelette (traits, décorateurs, `LegalService` dans un `ServerHandler` rmcp) compile, et ses futurs sont `Send`, au spike M0.
 - Si un vrai `dyn` devient nécessaire (registre d'extensions), on reprend le motif de rmcp : un trait statique, plus un trait objet-sûr à futurs boxés avec une implémentation générique (`service.rs:334-336`, recherche 04 §5.1, point 5). Cela passe par un nouvel ADR.
 - Le nombre de paramètres génériques : au-delà de trois, regrouper les ports dans un trait « bundle » à types associés (recherche 04 §5.1, point 7).
 - `Deadline` n'est visible que dans la tâche qui exécute le cas d'usage : un `tokio::spawn` ajouté plus tard perdrait l'échéance sans erreur de compilation. Le test `deadline_is_published_to_the_port` et la revue (02 §7.1) le gardent.

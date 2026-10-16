@@ -214,7 +214,7 @@ Autres identifiants locaux : `S1…S17` (scénarios d'erreur, annexe A §2.2), `
 
 **Marquage des points non vérifiés.**
 
-- Un fait non vérifié est écrit **NON VÉRIFIÉ**, suivi d'une étiquette `[v:…]` (par exemple `[v:quota-piste-prod]`). L'index de [09 §2.19](09-risques-et-questions.md#219-index-des-étiquettes) rattache chaque étiquette du plan, des ADR et du registre, alias compris, à l'une des 215 vérifications (son décompte fait foi) ; 09 cite directement les `V-xx`. Un document qui emploie un alias le remplace par l'étiquette de référence (09 §2.1 et §2.19).
+- Un fait non vérifié est écrit **NON VÉRIFIÉ** [V-xx · etiquette] (par exemple [V-62 · quota-piste-prod]) : l'identifiant renvoie au registre de 09, l'étiquette garde la traçabilité. L'index de [09 §2.19](09-risques-et-questions.md#219-index-des-étiquettes) rattache chaque étiquette du plan, des ADR et du registre, alias compris, à l'une des 215 vérifications (son décompte fait foi) ; 09 cite directement les `V-xx`. Un document qui emploie un alias le remplace par l'étiquette de référence (09 §2.1 et §2.19).
 - Les listes « points NON VÉRIFIÉS » de chaque document sont des index locaux. En cas d'écart (jalon, caractère bloquant, formulation), le registre de 09 fait foi.
 - Statuts d'une vérification : `ouvert`, `levé`, `partiel`, `contourné`, `caduc`. Une levée produit une ligne du [journal des levées](09-risques-et-questions.md#220-journal-des-levées) avec sa preuve, et le marqueur est retiré des documents concernés.
 - Une nouvelle incertitude reçoit l'identifiant suivant. Une étiquette qui recouvre une vérification existante en devient un alias (09 §0.1).

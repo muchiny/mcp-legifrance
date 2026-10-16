@@ -55,10 +55,10 @@
 
 ### À surveiller
 
-- **NON VÉRIFIÉ** [v:moka-horloge-tests] : moka n'utilise pas l'horloge tokio, si bien que tester les TTL sans attente réelle n'est pas acquis. À défaut, on teste directement la fonction `Expiry` (02 §3.4).
-- **NON VÉRIFIÉ** [v:singledate-midi-paris] : avec `singleDate` à midi Europe/Paris (00 §8 révision 2 ; minuit dans la première version du plan), un texte qui entre en vigueur le jour J est-il retenu le jour J ? Vérification bloquante en M2 (V-76). La clé stable sur la journée n'en dépend pas : elle repose sur `VersionDate`.
-- Une page > 1 mise en cache a pu être obtenue avec la valeur de repli de `typePagination` plutôt qu'avec la valeur mémorisée ; pour CODE, seul cas observé, les deux coïncident. **NON VÉRIFIÉ** [v:typepagination-page2] (V-82, M5).
-- La taille réelle des réponses, pour calibrer la capacité : **NON VÉRIFIÉ** [v:taille-max-textes].
+- **NON VÉRIFIÉ** [V-08 · moka-horloge-tests] : moka n'utilise pas l'horloge tokio, si bien que tester les TTL sans attente réelle n'est pas acquis. À défaut, on teste directement la fonction `Expiry` (02 §3.4).
+- **NON VÉRIFIÉ** [V-76 · singledate-midi-paris] : avec `singleDate` à midi Europe/Paris (00 §8 révision 2 ; minuit dans la première version du plan), un texte qui entre en vigueur le jour J est-il retenu le jour J ? Vérification bloquante en M2 (V-76). La clé stable sur la journée n'en dépend pas : elle repose sur `VersionDate`.
+- Une page > 1 mise en cache a pu être obtenue avec la valeur de repli de `typePagination` plutôt qu'avec la valeur mémorisée ; pour CODE, seul cas observé, les deux coïncident. **NON VÉRIFIÉ** [V-82 · typepagination-page2] (V-82, M5).
+- La taille réelle des réponses, pour calibrer la capacité : **NON VÉRIFIÉ** [V-75 · taille-max-textes].
 
 ### Tests qui la gardent
 

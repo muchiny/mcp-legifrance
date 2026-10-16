@@ -12,12 +12,12 @@
 - **Contraintes de PISTE** :
   - les applications sandbox et production sont **distinctes** ;
   - la sandbox n'a aucun engagement de service ; la production vise 95 % par jour, sans niveau garanti (recherche 05 §3.2) ;
-  - les quotas ne sont pas publics : **NON VÉRIFIÉ** [v:quota-piste-prod] ;
-  - les données de la sandbox « ne sont pas identiques à celles de Production » : ampleur **NON VÉRIFIÉE** [v:sandbox-prod-donnees].
+  - les quotas ne sont pas publics : **NON VÉRIFIÉ** [V-62 · quota-piste-prod] ;
+  - les données de la sandbox « ne sont pas identiques à celles de Production » : ampleur **NON VÉRIFIÉE** [V-61 · sandbox-prod-donnees].
 - **CGU** : clés « strictement réservées à votre application », données sous Licence Ouverte 2.0, aucune clause qui limite le cache local (recherche 05 §4.1, §4.2).
 - **Dumps DILA** (recherche 05 §6) :
   - archives `Freemium_<fond>_global_*.tar.gz`, puis incréments quotidiens à appliquer dans l'ordre strict, avec listes de suppression, sous `https://echanges.dila.gouv.fr/OPENDATA/<FOND>/` ;
-  - le dernier global LEGI date du 2025-07-13 ; le rythme des globaux est **NON VÉRIFIÉ** [v:dila-rythme-globaux] ;
+  - le dernier global LEGI date du 2025-07-13 ; le rythme des globaux est **NON VÉRIFIÉ** [V-186 · dila-rythme-globaux] ;
   - volumes observés chez un tiers : `legi.db` 3,8 Go, `jade.db` 14 Go, judiciaire environ 21 Go (recherche 05 §6.5) ;
   - la base LEGI diffusée peut différer de Légifrance (recherche 05 §6.3) ;
   - tantivy 0.26.2 fournit un stemmer et des mots vides français (recherche 05 §6.7).
@@ -71,11 +71,11 @@
 ### À surveiller
 
 - Points **NON VÉRIFIÉS** sur les dumps :
-  - [v:dila-structure-archives] : arborescence et balises d'une archive réelle ;
-  - [v:dila-volumetrie-archives] : volumes compressés ;
-  - [v:dila-licence-par-fonds] : licence exacte de chaque fonds.
-- Sur PISTE : [v:oauth-production-live], les URL de production n'ont jamais été appelées (V-59, recette de v0.1.0 prévue par Q3).
-- Champ fiable de date de mise à jour par document : **NON VÉRIFIÉ** [v:date-maj-par-document] (V-108) ; forme exacte de l'attribution attendue : **NON VÉRIFIÉ** [v:attribution-licence-ouverte] (V-177).
+  - [V-187 · dila-structure-archives] : arborescence et balises d'une archive réelle ;
+  - [V-185 · dila-volumetrie-archives] : volumes compressés ;
+  - [V-189 · dila-licence-par-fonds] : licence exacte de chaque fonds.
+- Sur PISTE : [V-59 · oauth-production-live], les URL de production n'ont jamais été appelées (V-59, recette de v0.1.0 prévue par Q3).
+- Champ fiable de date de mise à jour par document : **NON VÉRIFIÉ** [V-108 · date-maj-par-document] (V-108) ; forme exacte de l'attribution attendue : **NON VÉRIFIÉ** [V-177 · attribution-licence-ouverte] (V-177).
 - Q6 : ouverture réseau vers `echanges.dila.gouv.fr` avant M9.
 
 ### Tests qui la gardent

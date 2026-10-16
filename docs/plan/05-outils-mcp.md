@@ -59,11 +59,11 @@
 
 | Client | Succès (`structuredContent` + texte) | Erreur (`isError: true`) | Source |
 |---|---|---|---|
-| Claude Code | `structuredContent` remplace les blocs `content` ; le texte n'est pas transmis | seuls les blocs texte et `resource_link` sont transmis ; `structuredContent` est ignoré | commentaire d'un mainteneur du 2026-08-15 (v2.1.233), reproduit en 2.1.260 ; ticket ouvert (recherche 06 §3.3, https://github.com/anthropics/claude-code/issues/86032). À re-tester à chaque version : **NON VÉRIFIÉ** [v:cc-structured-content-succes] |
+| Claude Code | `structuredContent` remplace les blocs `content` ; le texte n'est pas transmis | seuls les blocs texte et `resource_link` sont transmis ; `structuredContent` est ignoré | commentaire d'un mainteneur du 2026-08-15 (v2.1.233), reproduit en 2.1.260 ; ticket ouvert (recherche 06 §3.3, https://github.com/anthropics/claude-code/issues/86032). À re-tester à chaque version : **NON VÉRIFIÉ** [V-46 · cc-structured-content-succes] |
 | VS Code (`main` du 2026-10-15) | `JSON.stringify(structuredContent)` envoyé au modèle à la place des blocs texte ; les `resource_link` restent transmis | même chemin de code | `mcpLanguageModelToolContribution.ts:328-337`, `:389-392` (recherche 06 §3.3) |
 | VS Code | `outputSchema` non transmis au modèle | — | `…ToolContribution.ts:144-160` (recherche 06 §3.3) |
-| Claude Code | transmission de l'`outputSchema` au modèle : **NON VÉRIFIÉ** [v:cc-output-schema-contexte] | — | recherche 06 §3.3 point 6 |
-| Claude Desktop, claude.ai | **NON VÉRIFIÉ** [v:desktop-structured-content] | **NON VÉRIFIÉ** [v:desktop-structured-content] | recherche 06 §11 |
+| Claude Code | transmission de l'`outputSchema` au modèle : **NON VÉRIFIÉ** [V-47 · cc-output-schema-contexte] | — | recherche 06 §3.3 point 6 |
+| Claude Desktop, claude.ai | **NON VÉRIFIÉ** [V-51 · desktop-structured-content] | **NON VÉRIFIÉ** [V-51 · desktop-structured-content] | recherche 06 §11 |
 
 Conséquences, appliquées à tous les outils :
 
@@ -87,7 +87,7 @@ Source : documentation « Connect Claude Code to tools via MCP », lue le 2026-1
 | Nom complet `mcp__<serveur>__<outil>` | 128 caractères | `fr_get_company_agreement` (24 caractères) laisse 97 caractères au nom du serveur |
 | Schéma d'entrée | pas de `anyOf`/`oneOf`/`allOf` à la racine ; propriétés de premier niveau sur 1 à 64 caractères `[A-Za-z0-9_.-]` ; schéma valide 2020-12, sinon l'outil est exclu | §2.5, vérifié par le verrou (§9.4) |
 | Arguments de prompt | « Claude Code splits the arguments on whitespace » | `verifier_citations` et `etat_du_droit` sans argument ; `analyser_decision` n'a qu'un argument d'un seul jeton (00 §7, §8.5) |
-| Tool search | seuls les noms d'outils et les `instructions` sont chargés au démarrage ; les descriptions le sont à la demande | les mots-clés de recherche figurent dans la première phrase des instructions et de chaque description. Seuil de déclenchement : **NON VÉRIFIÉ** [v:cc-tool-search-seuil] |
+| Tool search | seuls les noms d'outils et les `instructions` sont chargés au démarrage ; les descriptions le sont à la demande | les mots-clés de recherche figurent dans la première phrase des instructions et de chaque description. Seuil de déclenchement : **NON VÉRIFIÉ** [V-48 · cc-tool-search-seuil] |
 
 ### 1.4 Règles de conception retenues
 
@@ -99,7 +99,7 @@ Source : documentation « Connect Claude Code to tools via MCP », lue le 2026-1
 6. **Un paramètre superflu mais inoffensif est ignoré ; une combinaison qui changerait le sens est refusée.** `passages` sans `focus` est ignoré ; `offset > 0` avec `detail="summary"` explicite est refusé (`[invalid_arg]`), car le modèle attendrait une suite de texte.
 7. **Aucun état serveur exposé entre deux appels.** Toute continuation passe par un entier rejouable. Le `PaginationMemo` de l'adapter PISTE (00 §7) garde la `typePagination` reçue pour la page suivante, mais n'est qu'un cache : sans lui (redémarrage, autre processus), la page est servie avec la valeur de repli, sans erreur (§5.1).
 8. **Les identifiants rendus sont ceux que d'autres outils consomment** (`article_id` d'une TOC pour `fr_get_text`, `id` d'un hit pour `fr_get_*`). Les autres (`cid` JORF, `LEGISCTA`, `KALICONT`) ne sont pas rendus en v0.1.
-9. **Les dates sont des chaînes ISO `AAAA-MM-JJ`.** Toute date ≥ 2222-01-01 (sentinelles observées `2999-01-01` et `2222-02-22`, règle des champs `…Computed` de l'OpenAPI) et tout `…Computed` nul sont omis (00 §4). Le sens d'une absence dépend du champ et figure dans les descriptions des outils concernés : date de fin (`date_fin`, `date_fin_version`) → « en vigueur sans date de fin » ; date de début (`date_debut`, `date_debut_version`) → « date d'entrée en vigueur non déterminée », l'`etat` `VIGUEUR_DIFF` portant l'information (**NON VÉRIFIÉ** [v:sentinelle-2222-debut], V-101) ; date de publication ou du texte (`date_parution`, `date_publication`, `date`) → « inconnue ».
+9. **Les dates sont des chaînes ISO `AAAA-MM-JJ`.** Toute date ≥ 2222-01-01 (sentinelles observées `2999-01-01` et `2222-02-22`, règle des champs `…Computed` de l'OpenAPI) et tout `…Computed` nul sont omis (00 §4). Le sens d'une absence dépend du champ et figure dans les descriptions des outils concernés : date de fin (`date_fin`, `date_fin_version`) → « en vigueur sans date de fin » ; date de début (`date_debut`, `date_debut_version`) → « date d'entrée en vigueur non déterminée », l'`etat` `VIGUEUR_DIFF` portant l'information (**NON VÉRIFIÉ** [V-101 · sentinelle-2222-debut], V-101) ; date de publication ou du texte (`date_parution`, `date_publication`, `date`) → « inconnue ».
 10. **Textes officiels verbatim.** Seuls `clean` (balises `<mark>`, blancs, NBSP) et la réparation du mojibake s'appliquent (03 §7.1) ; aucune reformulation.
 11. **Messages en anglais**, comme les descriptions, les `title` et les instructions ; seuls les noms et textes des prompts sont en français (00 §6, adopté par défaut, Q14 ; 02 §9.3).
 12. **Aucune directive visant d'autres serveurs ou outils** dans les descriptions (prévention du « tool poisoning », recherche 06 §6).
@@ -114,9 +114,9 @@ Source : documentation « Connect Claude Code to tools via MCP », lue le 2026-1
 - **Dual-era** (00 §6) : une requête qui porte `_meta["io.modelcontextprotocol/protocolVersion"]` est servie sans état, en ère moderne ; une requête `initialize` ouvre la sémantique legacy pour le processus stdio (recherche 08 §4.6). rmcp 3.5.1 fait ce routage lui-même (`service/server.rs:573-690`, recherche 09 §3.3). Le détail du routage, des formes de résultat par ère et des codes `-32022`/`-32021`/`-32020` est dans [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md).
 - **Pourquoi dual-era** : VS Code n'envoie que `initialize` en 2025-11-25 (`modelContextProtocol.ts:43`, recherche 08 §1 point 6) ; Claude Code sonde `server/discover` sur stdio par défaut depuis la 2.1.292 (`CHANGELOG.md:652`) ; un client legacy face à un serveur modern-only échoue (`versioning.mdx:159-172`).
 - **`supported_protocol_versions()` explicite** : `[2026-07-28, 2025-11-25, 2025-06-18]` (00 §6). Par défaut, rmcp annonce tout `KNOWN_VERSIONS`, et `LATEST` a changé dans une mineure (3.5.0) : on ne s'y fie pas (recherche 09 §3.2). 2025-03-26 est exclue, car elle n'a ni `structuredContent` ni `title` (Q7, recherche 08 §15.1).
-- **`supportedVersions` de `server/discover`** : les trois versions servies (00 §6), passées explicitement à `DiscoverResult::from_server_info` (§3.2), comme dans l'exemple de l'erreur `-32022` de la spécification (recherche 08 §13 point 7). Le SDK TypeScript n'annonce que `2026-07-28` ; la spécification ne tranche pas. D'après la lecture du code de rmcp 3.5.1 (annexe D §4.4), une requête à enveloppe moderne portant une version legacy est acceptée et servie sans `resultType` ni indices de cache (**NON VÉRIFIÉ** [v:rmcp-enveloppe-version-legacy], V-34). Si V-34 le confirme en M4, repli décidé par 00 §6 : `[2026-07-28]` seul dans `discover`, sans toucher `supported_protocol_versions()`, et `-32022` (`data.supported = ["2026-07-28"]`) répondu par `PreLifecycleFilter` à toute requête non-`initialize` dont le `_meta` déclare une version antérieure ; sinon, écart consigné dans l'annexe D. `serverInfo` dans le `_meta` des autres résultats modernes : posé si rmcp le permet (**NON VÉRIFIÉ** [v:rmcp-meta-serverinfo-resultats], V-32), sinon écart accepté et documenté.
-- **Démarrage** : aucune E/S réseau avant le premier appel d'outil. `server/discover` et `initialize` sont servis depuis un `ServerConfig` précalculé (§3.2). Depuis la 2.1.292, Claude Code négocie 2026-07-28 par défaut en stdio, avec une sonde `server/discover` (`CHANGELOG.md:652`) qui tournerait dans un processus frère éphémère, comme dans le SDK TypeScript (**NON VÉRIFIÉ** [v:cc-sonde-delai], V-49, recherche 08 §5.1). La note de la 2.1.238 (« Fixed stdio MCP servers receiving a `server/discover` request before `initialize` », `CHANGELOG.md:3400`) montre le coût d'une sonde qui forcerait le démarrage du backend à chaque ouverture de session. Le délai de la sonde, mesuré par le même essai, est **NON VÉRIFIÉ** [v:cc-sonde-delai] (« 3 s » selon un tiers).
-- **Ne jamais quitter sur un message inattendu** (00 §6). D'après la lecture du code (annexe D §4.2), aucune requête, prématurée ou inconnue, ne fait quitter rmcp 3.5.1 ; en revanche, une notification ou une réponse reçue avant l'ouverture d'une ère arrête le service (`service/server.rs:681-685`). `PreLifecycleFilter` enveloppe donc le transport stdio dès le spike M0 et écarte (`debug!`) ces messages (**NON VÉRIFIÉ** [v:rmcp-transport-enveloppe], V-29) ; il sera retiré quand rmcp le corrigera. Un EOF avant toute ère (processus de sonde) termine le processus avec le code 0 (§3.2). Écarts acceptés et testés : `ping` avant toute ère → `{}` ; `initialize` à paramètres legacy complets portant aussi un `_meta` moderne → poignée de main legacy ; ligne non JSON ignorée (§7.5 ; confirmation à l'exécution : **NON VÉRIFIÉ** [v:rmcp-methode-inattendue], V-30, §11).
+- **`supportedVersions` de `server/discover`** : les trois versions servies (00 §6), passées explicitement à `DiscoverResult::from_server_info` (§3.2), comme dans l'exemple de l'erreur `-32022` de la spécification (recherche 08 §13 point 7). Le SDK TypeScript n'annonce que `2026-07-28` ; la spécification ne tranche pas. D'après la lecture du code de rmcp 3.5.1 (annexe D §4.4), une requête à enveloppe moderne portant une version legacy est acceptée et servie sans `resultType` ni indices de cache (**NON VÉRIFIÉ** [V-34 · rmcp-enveloppe-version-legacy], V-34). Si V-34 le confirme en M4, repli décidé par 00 §6 : `[2026-07-28]` seul dans `discover`, sans toucher `supported_protocol_versions()`, et `-32022` (`data.supported = ["2026-07-28"]`) répondu par `PreLifecycleFilter` à toute requête non-`initialize` dont le `_meta` déclare une version antérieure ; sinon, écart consigné dans l'annexe D. `serverInfo` dans le `_meta` des autres résultats modernes : posé si rmcp le permet (**NON VÉRIFIÉ** [V-32 · rmcp-meta-serverinfo-resultats], V-32), sinon écart accepté et documenté.
+- **Démarrage** : aucune E/S réseau avant le premier appel d'outil. `server/discover` et `initialize` sont servis depuis un `ServerConfig` précalculé (§3.2). Depuis la 2.1.292, Claude Code négocie 2026-07-28 par défaut en stdio, avec une sonde `server/discover` (`CHANGELOG.md:652`) qui tournerait dans un processus frère éphémère, comme dans le SDK TypeScript (**NON VÉRIFIÉ** [V-49 · cc-sonde-delai], V-49, recherche 08 §5.1). La note de la 2.1.238 (« Fixed stdio MCP servers receiving a `server/discover` request before `initialize` », `CHANGELOG.md:3400`) montre le coût d'une sonde qui forcerait le démarrage du backend à chaque ouverture de session. Le délai de la sonde, mesuré par le même essai, est **NON VÉRIFIÉ** [V-49 · cc-sonde-delai] (« 3 s » selon un tiers).
+- **Ne jamais quitter sur un message inattendu** (00 §6). D'après la lecture du code (annexe D §4.2), aucune requête, prématurée ou inconnue, ne fait quitter rmcp 3.5.1 ; en revanche, une notification ou une réponse reçue avant l'ouverture d'une ère arrête le service (`service/server.rs:681-685`). `PreLifecycleFilter` enveloppe donc le transport stdio dès le spike M0 et écarte (`debug!`) ces messages (**NON VÉRIFIÉ** [V-29 · rmcp-transport-enveloppe], V-29) ; il sera retiré quand rmcp le corrigera. Un EOF avant toute ère (processus de sonde) termine le processus avec le code 0 (§3.2). Écarts acceptés et testés : `ping` avant toute ère → `{}` ; `initialize` à paramètres legacy complets portant aussi un `_meta` moderne → poignée de main legacy ; ligne non JSON ignorée (§7.5 ; confirmation à l'exécution : **NON VÉRIFIÉ** [V-30 · rmcp-methode-inattendue], V-30, §11).
 
 ### 2.2 `ServerConfig` et capacités par jalon
 
@@ -130,7 +130,7 @@ Source : documentation « Connect Claude Code to tools via MCP », lue le 2026-1
 - Jamais de `listChanged` (listes statiques pour un binaire donné), ni de `subscribe`, ni de `logging`, ni d'`extensions`, ni d'`experimental` (recherche 08 §4.4).
 - `serverInfo` : `Implementation::new("mcp-legifrance", <version du crate>)` avec `title` « Légifrance (PISTE) » et `websiteUrl` du dépôt (nom actuel, gardé jusqu'au renommage éventuel du dépôt : Q1, 00 §0). Jamais `Implementation::from_build_env()`, qui renvoie l'identité de rmcp (`model.rs:1556-1565`, recherche 04 §2.3). La version vient de `lf-app` par `ServerIdentity` (02 §3.6).
 - `instructions` : texte du §4, identique dans `DiscoverResult` et `InitializeResult`.
-- `subscriptions/listen` (00 §6) : en ère moderne, accusé minimal (`accepted_subscription_filter` → filtre vide ; premier message `notifications: {}`), puis aucune notification jusqu'à l'annulation ; en ère legacy, `-32601` (ni `resources/subscribe` ni `listChanged`). Critère M4 : un EOF de stdin avec un `listen` ouvert termine le processus (code 0) en moins d'une seconde (**NON VÉRIFIÉ** [v:rmcp-listen-cloture], V-35 ; §11). Aucun effet sur les outils.
+- `subscriptions/listen` (00 §6) : en ère moderne, accusé minimal (`accepted_subscription_filter` → filtre vide ; premier message `notifications: {}`), puis aucune notification jusqu'à l'annulation ; en ère legacy, `-32601` (ni `resources/subscribe` ni `listChanged`). Critère M4 : un EOF de stdin avec un `listen` ouvert termine le processus (code 0) en moins d'une seconde (**NON VÉRIFIÉ** [V-35 · rmcp-listen-cloture], V-35 ; §11). Aucun effet sur les outils.
 
 ### 2.3 Indications de cache `ttlMs` et `cacheScope`
 
@@ -144,7 +144,7 @@ En ère moderne, les résultats « cachables » DOIVENT porter `ttlMs` et `cache
 | `resources/read` | 3 600 000 | `public` | M7 | Q8 ; données publiques identiques pour tous ; mises à jour de Légifrance quotidiennes (recherche 08 §17 question 4) |
 | `tools/call`, `prompts/get`, `completion/complete` | — | — | — | non cachables (`schema.ts:1634-1640`, recherche 06 §4.4) |
 
-Mise en œuvre : rmcp remplit `ttl_ms: 0` et `cache_scope: Public` dans le `list_tools` généré par `#[tool_handler]`, et `0`/`Private` pour toute indication manquante (`tool_handler.rs:71-81`, `model.rs:4830-4854`, recherche 09 §3.5). On écrit donc `list_tools` et `discover` à la main (§3.2), comme `list_prompts` en M7, et l'on pose les valeurs seulement si `ctx.protocol_version() >= 2026-07-28`. La lecture du code (annexe D §3.4) tranche les deux questions qui restaient ouvertes : pour un pair legacy, rmcp ne retire que `resultType` (`model.rs:4788-4801`), d'où la pose conditionnelle ; `DiscoverResult` et `ListToolsResult` ont bien `with_ttl_ms` et `with_cache_scope`. Confirmation à l'exécution par les tests (b) et (f) de M4 (§11) : **NON VÉRIFIÉ** [v:rmcp-ttl-legacy] (V-33).
+Mise en œuvre : rmcp remplit `ttl_ms: 0` et `cache_scope: Public` dans le `list_tools` généré par `#[tool_handler]`, et `0`/`Private` pour toute indication manquante (`tool_handler.rs:71-81`, `model.rs:4830-4854`, recherche 09 §3.5). On écrit donc `list_tools` et `discover` à la main (§3.2), comme `list_prompts` en M7, et l'on pose les valeurs seulement si `ctx.protocol_version() >= 2026-07-28`. La lecture du code (annexe D §3.4) tranche les deux questions qui restaient ouvertes : pour un pair legacy, rmcp ne retire que `resultType` (`model.rs:4788-4801`), d'où la pose conditionnelle ; `DiscoverResult` et `ListToolsResult` ont bien `with_ttl_ms` et `with_cache_scope`. Confirmation à l'exécution par les tests (b) et (f) de M4 (§11) : **NON VÉRIFIÉ** [V-33 · rmcp-ttl-legacy] (V-33).
 
 ### 2.4 Ce que nous n'implémentons pas, et pourquoi
 
@@ -175,7 +175,7 @@ Mise en œuvre : rmcp remplit `ttl_ms: 0` et `cache_scope: Public` dans le `list
 | Entrée fermée | `additionalProperties: false` sur chaque `inputSchema`, y compris sans paramètre (`{"type":"object","properties":{},"additionalProperties":false}`) | `tools.mdx:294-296` ; parité du verrou de la référence | `#[serde(deny_unknown_fields)]` sur chaque struct de paramètres |
 | Sortie ouverte | pas d'`additionalProperties: false` en sortie : ajouter un champ optionnel reste un changement de classe « ajout » (§9.5) | recherche 06 §8.4 | revue |
 | Racine des paramètres | une `struct` nommée, jamais un enum, un tuple ou un primitif : sinon `panic!` à la construction du routeur | `rmcp-macros/src/tool.rs:200-208` (recherche 09 §5 point 7) | test `tool_router_builds_and_roots_are_objects` |
-| Valeurs fermées | `enum` JSON pour `fond`, `match`, `detail`, et pour les éléments de `fonds` | D-31 | attributs schemars : **NON VÉRIFIÉ** [v:schemars-enum-chaine] |
+| Valeurs fermées | `enum` JSON pour `fond`, `match`, `detail`, et pour les éléments de `fonds` | D-31 | attributs schemars : **NON VÉRIFIÉ** [V-11 · schemars-enum-chaine] |
 | Dates | `{"type": "string", "format": "date"}` et rappel `YYYY-MM-DD` dans la description ; pas de `pattern` (le serveur valide, et chaque `pattern` coûte environ 45 octets) | §6.6 | — |
 | Identifiants | pas de `pattern` : le serveur accepte `legitext…` en minuscules et des blancs de bord (03 §2.6), qu'un `pattern` ferait refuser par un client validant | 03 §2.6 | — |
 
@@ -289,7 +289,7 @@ fn server_config(id: &ServerIdentity) -> ServerConfig {
         .with_protocol_version(ProtocolVersion::V_2025_11_25)   // repli explicite d'initialize, indépendant de LATEST (C-12)
         .with_server_info(Implementation::new(id.name, id.version)        // jamais from_build_env()
             .with_title("Légifrance (PISTE)")
-            .with_website_url("https://github.com/muchiny/mcp-ligitfrance")) // dépôt : Q1
+            .with_website_url("https://github.com/muchiny/mcp-legifrance")) // dépôt : Q1
         .with_instructions(text::INSTRUCTIONS)
 }
 
@@ -342,7 +342,7 @@ pub async fn serve_stdio<C: LegalCorpus, A: AuditLog, K: Clock>(
 }
 ```
 
-API rmcp à confirmer au spike M0 : la combinaison `JsonObject` + `input_schema` + `output_schema` explicite + `Result<Json<T>, ToolFailure>` est **NON VÉRIFIÉE** [v:rmcp-jsonobject-input-schema] ; `ListToolsResult::with_all_items`, `with_ttl_ms` et `with_cache_scope` existent d'après la lecture du code (macro `paginated_result!`, `model.rs:1782-1806`, annexe D §3.4), compilation à confirmer : **NON VÉRIFIÉ** [v:rmcp-ttl-legacy] (V-33) ; l'enveloppe `PreLifecycleFilter` acceptée par `serve_with_ct` : **NON VÉRIFIÉ** [v:rmcp-transport-enveloppe].
+API rmcp à confirmer au spike M0 : la combinaison `JsonObject` + `input_schema` + `output_schema` explicite + `Result<Json<T>, ToolFailure>` est **NON VÉRIFIÉE** [V-28 · rmcp-jsonobject-input-schema] ; `ListToolsResult::with_all_items`, `with_ttl_ms` et `with_cache_scope` existent d'après la lecture du code (macro `paginated_result!`, `model.rs:1782-1806`, annexe D §3.4), compilation à confirmer : **NON VÉRIFIÉ** [V-33 · rmcp-ttl-legacy] (V-33) ; l'enveloppe `PreLifecycleFilter` acceptée par `serve_with_ct` : **NON VÉRIFIÉ** [V-29 · rmcp-transport-enveloppe].
 
 ### 3.3 Décodage des arguments : `JsonObject` plutôt que `Parameters<T>`
 
@@ -400,7 +400,7 @@ Règles de décodage :
 - Les entiers sont lus en `i64` tolérant : nombre JSON entier, flottant à partie fractionnaire nulle, chaîne décimale. Les bornes sont vérifiées par le cas d'usage, qui produit le message de parité (`page_size=0 out of range (1..100).`, P-011).
 - `null` vaut « absent » pour tout paramètre optionnel (des clients envoient `null`, recherche 01 §3.2 : `date` était `anyOf [string, null]`).
 - Le message d'un échec de décodage reprend le chemin et l'erreur serde : `page_size: invalid type: sequence, expected an integer` ; `unknown field 'foo', expected one of 'text_id', 'date', 'toc_offset', 'toc_limit'`.
-- Le schéma produit doit annoncer `type: "string"` (et non `["string","null"]`) pour ces `Option<String>`. Les attributs exacts (`with`, `extend`, `required`) sont **NON VÉRIFIÉS** [v:schemars-enum-chaine] ; le verrou fige le résultat (§9).
+- Le schéma produit doit annoncer `type: "string"` (et non `["string","null"]`) pour ces `Option<String>`. Les attributs exacts (`with`, `extend`, `required`) sont **NON VÉRIFIÉS** [V-11 · schemars-enum-chaine] ; le verrou fige le résultat (§9).
 - Comparaison avec le verrou de la référence (parité P-003, annexe A) : `anyOf [T, null]` équivaut à `T` non requis, `null` étant accepté à l'exécution comme absent (règle ci-dessus) ; `default: null` équivaut à l'absence de défaut. C'est le cas de `fr_get_act.date`.
 
 ### 3.4 Vues de sortie
@@ -409,8 +409,8 @@ Règles de décodage :
 - Champs omis : règle 1 du §1.4 (`#[serde(default, skip_serializing_if = …)]` sur tout champ non-`Option` omissible).
 - `views.rs` sérialise la vue et en mesure la taille exacte, en caractères de JSON compact : c'est la garde du plafond dur du §6.4.
 - Les descriptions de champs de sortie sont **courtes**, et seulement là où le nom ne suffit pas (`next_offset`, `title`, `etat` de TOC) : l'`outputSchema` coûte des octets de descripteur et VS Code ne le transmet pas au modèle (§1.2).
-- Sous-structures : schemars produit des `$defs` locaux. Ils sont admis en sortie (§2.5) ; `#[schemars(inline)]` est préféré pour les petits types si la mesure du §6.6 le justifie. Le comportement des clients face à ces `$defs` est **NON VÉRIFIÉ** [v:schemars-sortie-defs].
-- Champs `eli` présents dans les vues de législation (`fr_get_act`, `fr_get_text`) mais toujours omis tant que l'API renvoie `null` ([v:eli-natif-null], 03 §5.3). Leur présence dans le schéma permet au test de dérive de valider la mention de `eli` dans les instructions (§4.3).
+- Sous-structures : schemars produit des `$defs` locaux. Ils sont admis en sortie (§2.5) ; `#[schemars(inline)]` est préféré pour les petits types si la mesure du §6.6 le justifie. Le comportement des clients face à ces `$defs` est **NON VÉRIFIÉ** [V-12 · schemars-sortie-defs].
+- Champs `eli` présents dans les vues de législation (`fr_get_act`, `fr_get_text`) mais toujours omis tant que l'API renvoie `null` ([V-102 · eli-natif-null], 03 §5.3). Leur présence dans le schéma permet au test de dérive de valider la mention de `eli` dans les instructions (§4.3).
 
 ### 3.5 Annulation, délai, concurrence
 
@@ -542,7 +542,7 @@ Comptage : `len()` Python sur le texte exact, sans saut de ligne final, refait l
 | `fr_diff_article` | v0.3 | Compare article versions | `DiffArticleUseCase` | nombre de hunks | `Versions` 24 h, `Article` 24 h |
 | `fr_search_all` | v0.3 | Search several fonds | `SearchAllUseCase` | nombre total de hits | `Search` 1 h par fond |
 
-- Annotations identiques sur les 13 outils : `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true` (00 §6, parité P-002 ; contenu externe traité comme non fiable). `openWorldHint: true` est adopté par défaut (Q11) et réexaminé avant v0.1.0 au vu de V-53 (confirmation des résultats dans VS Code, **NON VÉRIFIÉ** [v:vscode-openworld-confirm]) ; tout changement passe par le verrou des descripteurs et le CHANGELOG (§9.5). `title` est renseigné deux fois avec la même valeur, car VS Code lit `annotations.title` en premier et la spécification `title` en premier (recherche 06 §3.2). `title` est en anglais, comme les descriptions (00 §6, adopté par défaut, Q14).
+- Annotations identiques sur les 13 outils : `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true` (00 §6, parité P-002 ; contenu externe traité comme non fiable). `openWorldHint: true` est adopté par défaut (Q11) et réexaminé avant v0.1.0 au vu de V-53 (confirmation des résultats dans VS Code, **NON VÉRIFIÉ** [V-53 · vscode-openworld-confirm]) ; tout changement passe par le verrou des descripteurs et le CHANGELOG (§9.5). `title` est renseigné deux fois avec la même valeur, car VS Code lit `annotations.title` en premier et la spécification `title` en premier (recherche 06 §3.2). `title` est en anglais, comme les descriptions (00 §6, adopté par défaut, Q14).
 - En erreur, la métrique vaut 0 (00 §7). « Caractères renvoyés » = somme des caractères de `text`, `summary` et des `passages[].text` de la réponse, hors métadonnées ; c'est aussi la métrique d'une lecture de resource (M7, §8.2).
 - Le cache n'enregistre ni les erreurs ni les réponses vides (00 §9) ; un succès servi depuis le cache est audité comme les autres (02 §7.2).
 - Erreurs communes à tous les outils qui appellent PISTE : `config_error`, `rate_limited`, `upstream_error`, `audit_error` (§7.2). `fr_coverage` ne peut renvoyer que `invalid_arg` (argument inconnu) et `audit_error`.
@@ -602,18 +602,18 @@ Keyword search in one Légifrance fond (default LODA): laws and decrees (LODA), 
 
 | Nom | Type JSON | Requis | Défaut | Contraintes | Description (anglais) |
 |---|---|---|---|---|---|
-| `query` | string | oui | — | `trim` ; 1 à 500 caractères ; caractères de contrôle retirés (D-32) ; borne API **NON VÉRIFIÉE** [v:longueur-max-query] | `Free-text query, e.g. "republique numerique".` |
+| `query` | string | oui | — | `trim` ; 1 à 500 caractères ; caractères de contrôle retirés (D-32) ; borne API **NON VÉRIFIÉE** [V-81 · longueur-max-query] | `Free-text query, e.g. "republique numerique".` |
 | `fond` | string, `enum` des 8 fonds | non | `"LODA"` | `trim`, insensible à la casse (P-010) | `Fond to search (case-insensitive).` |
-| `match` | string, `enum ["any","all","exact"]` | non | `"any"` (adopté par défaut, Q10 : parité jusqu'à V-79 en M2 ; passage à `all` si V-79 confirme la sémantique « tous les mots dans un champ quelconque » et un rappel acceptable sur les 9 scénarios de la référence ; décision consignée avant le verrou des descripteurs de M4) | `any` → `UN_DES_MOTS`, `all` → `TOUS_LES_MOTS_DANS_UN_CHAMP`, `exact` → `EXACTE` (00 §8) ; sens de `all` avec `typeChamp = ALL` **NON VÉRIFIÉ** [v:mode-all-semantique] | `"any": any word (default); "all": all words; "exact": exact phrase.` (le défaut cité suit Q10) |
-| `page` | integer | non | 1 | ≥ 1 ; `page × page_size ≤ 10 000` (limite de fenêtre Elasticsearch supposée, recherche 05 et [04-adapter-piste.md](04-adapter-piste.md) §6.7 : **NON VÉRIFIÉ** [v:pagination-profonde]) | `Page number, from 1.` |
+| `match` | string, `enum ["any","all","exact"]` | non | `"any"` (adopté par défaut, Q10 : parité jusqu'à V-79 en M2 ; passage à `all` si V-79 confirme la sémantique « tous les mots dans un champ quelconque » et un rappel acceptable sur les 9 scénarios de la référence ; décision consignée avant le verrou des descripteurs de M4) | `any` → `UN_DES_MOTS`, `all` → `TOUS_LES_MOTS_DANS_UN_CHAMP`, `exact` → `EXACTE` (00 §8) ; sens de `all` avec `typeChamp = ALL` **NON VÉRIFIÉ** [V-79 · mode-all-semantique] | `"any": any word (default); "all": all words; "exact": exact phrase.` (le défaut cité suit Q10) |
+| `page` | integer | non | 1 | ≥ 1 ; `page × page_size ≤ 10 000` (limite de fenêtre Elasticsearch supposée, recherche 05 et [04-adapter-piste.md](04-adapter-piste.md) §6.7 : **NON VÉRIFIÉ** [V-83 · pagination-profonde]) | `Page number, from 1.` |
 | `page_size` | integer | non | 10 | 1 à 100 (P-011) | `Hits per page (1..100).` |
 | `date_from` | string, `format: date` | non | — | `AAAA-MM-JJ` valide ; ≤ `date_to` ; le fond doit avoir une facette de date (`Fond::has_date_filter`, 03 §3.1) ; seule, une borne est admise : `DateRange::new` complète l'autre par l'extrémité de la plage de `VersionDate` (`1500-01-01` ou `2221-12-31`), et l'adapter envoie toujours une période fermée (03 §6.1, 04 §6.5) | `Earliest date YYYY-MM-DD (fond date filter).` |
 | `date_to` | string, `format: date` | non | — | idem | `Latest date YYYY-MM-DD.` |
 | `version_date` | string, `format: date` | non | aujourd'hui (Europe/Paris) pour LODA et CODE | refusé pour les autres fonds ; au jour près, d'où une clé de cache stable (00 §7, D-01) | `LODA and CODE only: version in force on this date, YYYY-MM-DD (default today, Paris).` |
 
-- `date_from`/`date_to` sont traduits par l'adapter PISTE vers la facette de date du fond ([04-adapter-piste.md](04-adapter-piste.md) §6.5 : `DATE_SIGNATURE` pour LODA, KALI et ACCO ; `DATE_DECISION` pour JURI, CONSTIT et CETAT ; `DATE_DELIB` pour CNIL ; noms tirés de la documentation officielle). **CODE n'a pas de facette de date** : seule `DATE_VERSION` existe, réservée à `version_date`. Une plage de dates sur CODE renvoie donc `[invalid_arg]` dès le cas d'usage, sans réseau (00 §7, règles de `fr_search`), plutôt qu'un filtre ignoré en silence ; l'adapter n'en garde qu'une copie défensive (00 §5). L'effet réel des filtres est **NON VÉRIFIÉ** [v:filtres-dates-effet].
-- Rejets `invalid_arg` dans le cas d'usage, sans réseau (00 §7) : `version_date` hors LODA/CODE ; `date_from`/`date_to` sur un fond sans facette de date (CODE) ; `date_from` > `date_to` ; `page × page_size` > 10 000 (fenêtre supposée, **NON VÉRIFIÉ** [v:pagination-profonde], V-83).
-- `typePagination` : jamais exposé au modèle, ni en entrée ni en sortie (00 §7). L'adapter mémorise la valeur reçue par requête normalisée sans `page` (`PaginationMemo`, TTL 1 h, 1 024 entrées) et la renvoie à PISTE pour la page suivante ; sans mémo (redémarrage, autre processus), il envoie `ARTICLE` pour CODE en page > 1 et `DEFAUT` sinon ([04-adapter-piste.md](04-adapter-piste.md) §6.6). L'effet réel en page 2 est **NON VÉRIFIÉ** [v:typepagination-page2] (V-82) ; si le mémo ne suffit pas, un paramètre opaque `pagination` sera ajouté (classe « ajout », §9.5).
+- `date_from`/`date_to` sont traduits par l'adapter PISTE vers la facette de date du fond ([04-adapter-piste.md](04-adapter-piste.md) §6.5 : `DATE_SIGNATURE` pour LODA, KALI et ACCO ; `DATE_DECISION` pour JURI, CONSTIT et CETAT ; `DATE_DELIB` pour CNIL ; noms tirés de la documentation officielle). **CODE n'a pas de facette de date** : seule `DATE_VERSION` existe, réservée à `version_date`. Une plage de dates sur CODE renvoie donc `[invalid_arg]` dès le cas d'usage, sans réseau (00 §7, règles de `fr_search`), plutôt qu'un filtre ignoré en silence ; l'adapter n'en garde qu'une copie défensive (00 §5). L'effet réel des filtres est **NON VÉRIFIÉ** [V-78 · filtres-dates-effet].
+- Rejets `invalid_arg` dans le cas d'usage, sans réseau (00 §7) : `version_date` hors LODA/CODE ; `date_from`/`date_to` sur un fond sans facette de date (CODE) ; `date_from` > `date_to` ; `page × page_size` > 10 000 (fenêtre supposée, **NON VÉRIFIÉ** [V-83 · pagination-profonde], V-83).
+- `typePagination` : jamais exposé au modèle, ni en entrée ni en sortie (00 §7). L'adapter mémorise la valeur reçue par requête normalisée sans `page` (`PaginationMemo`, TTL 1 h, 1 024 entrées) et la renvoie à PISTE pour la page suivante ; sans mémo (redémarrage, autre processus), il envoie `ARTICLE` pour CODE en page > 1 et `DEFAUT` sinon ([04-adapter-piste.md](04-adapter-piste.md) §6.6). L'effet réel en page 2 est **NON VÉRIFIÉ** [V-82 · typepagination-page2] (V-82) ; si le mémo ne suffit pas, un paramètre opaque `pagination` sera ajouté (classe « ajout », §9.5).
 
 **Sortie** (`SearchView`) :
 
@@ -700,7 +700,7 @@ Read a consolidated law, decree or code by its LEGITEXT id (from fr_search on LO
 | Nom | Type JSON | Requis | Défaut | Contraintes | Description (anglais) |
 |---|---|---|---|---|---|
 | `text_id` | string | oui | — | `LEGITEXT` + 12 chiffres après `trim` et majuscules (03 §2.6) ; le suffixe `_JJ-MM-AAAA` est accepté (sur `LEGITEXT` seulement, 00 §4) | `A LEGITEXT... id (from fr_search on LODA or CODE).` |
-| `date` | string, `format: date` | non | date du suffixe de `text_id` s'il y en a un, sinon aujourd'hui (Europe/Paris) (00 §7) | date valide (D-22) ; bornes extrêmes **NON VÉRIFIÉES** [v:version-date-bornes] | `Version date YYYY-MM-DD (default: the version named by a suffixed text_id, else today in Paris).` |
+| `date` | string, `format: date` | non | date du suffixe de `text_id` s'il y en a un, sinon aujourd'hui (Europe/Paris) (00 §7) | date valide (D-22) ; bornes extrêmes **NON VÉRIFIÉES** [V-89 · version-date-bornes] | `Version date YYYY-MM-DD (default: the version named by a suffixed text_id, else today in Paris).` |
 | `toc_offset` | integer | non | 0 | ≥ 0 ; < `toc_total` si `toc_total > 0` | `First table-of-contents entry (pass next_toc_offset).` |
 | `toc_limit` | integer | non | 100 | 1 à 500 | `Maximum table-of-contents entries (1..500).` |
 
@@ -708,7 +708,7 @@ Le suffixe comme date par défaut est décidé par 00 §7 (AM-43) et répond à 
 
 **Sortie** (`ActView`) : `text_id`, `title?` (§5.0.4), `nature?`, `etat?` (`etat`, sinon `jurisState`, E-10), `nor?`, `date_parution?` (absente : inconnue), `num_parution?`, `jo_reference?` (`jorfText`), `aliases?` (`appellations`, utiles pour reconnaître « loi Lemaire »), `date_debut_version?` (absente : entrée en vigueur non déterminée), `date_fin_version?` (absente : sans date de fin), ces dates étant omises au-delà du seuil des sentinelles (§1.4 règle 9), `date` (version servie), `eli?` (natif seulement), `citation`, `source_url`, `toc` (toujours), `toc_total`, `next_toc_offset?`, `note?`.
 
-- `note` quand `nature = CODE` : `This is a whole code: its table of contents can be very long. Page it with toc_offset/toc_limit, or find an article with fr_search fond=CODE.` (D-47 ; comportement de `/consult/lawDecree` sur un code **NON VÉRIFIÉ** [v:lawdecree-sur-code], V-96, bloquante en M2 : si `lawDecree` dépasse 4 Mio ou 10 s sur un code, l'adapter lit la TOC par `/consult/legi/tableMatieres`, 00 §8, sans changement du contrat de sortie).
+- `note` quand `nature = CODE` : `This is a whole code: its table of contents can be very long. Page it with toc_offset/toc_limit, or find an article with fr_search fond=CODE.` (D-47 ; comportement de `/consult/lawDecree` sur un code **NON VÉRIFIÉ** [V-96 · lawdecree-sur-code], V-96, bloquante en M2 : si `lawDecree` dépasse 4 Mio ou 10 s sur un code, l'adapter lit la TOC par `/consult/legi/tableMatieres`, 00 §8, sans changement du contrat de sortie).
 - Noms `date_parution`, `num_parution`, `date_debut_version`, `date_fin_version` repris de la référence (même sens) ; `version_start`/`version_end` restent des noms du domaine.
 
 **Exemple** (`{"text_id": "LEGITEXT000033205014", "toc_limit": 8}` ; fixture consult_loda.json réparée ; 1 002 caractères ; avec le `toc_limit` par défaut, les 88 entrées tiennent en une page de 6 035 caractères, contre 4 847 pour la référence qui ne rendait que 62 articles sans titres de sections) :
@@ -780,7 +780,7 @@ Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIA
 }
 ```
 
-`date_fin` est absent car la donnée vaut la sentinelle `2999-01-01` (03 §5.6 #6) : l'article est en vigueur sans date de fin. Sur cette fixture, l'article forme un seul paragraphe faute de `texteHtml` (D-26) ; sa présence en direct est **NON VÉRIFIÉE** [v:texte-html-getarticle-juri].
+`date_fin` est absent car la donnée vaut la sentinelle `2999-01-01` (03 §5.6 #6) : l'article est en vigueur sans date de fin. Sur cette fixture, l'article forme un seul paragraphe faute de `texteHtml` (D-26) ; sa présence en direct est **NON VÉRIFIÉE** [V-90 · texte-html-getarticle-juri].
 
 **Erreurs** : `invalid_arg` (identifiant, paramètres de lecture, `offset` au-delà de la fin, `focus` sans mot utile) ; `not_found` `No article found for {article_id}.` (P-013) ; erreurs communes.
 
@@ -800,7 +800,7 @@ Read a court decision by id: JURITEXT (Cour de cassation, courts of appeal), CON
 
 **Sortie** (`DecisionView`) : `decision_id`, `ecli?` (natif, validé, jamais fabriqué), `juridiction?`, `formation?` (brut : code en JURI, texte en CETAT), `solution?`, `numero_affaire?` (omis si vide ; `[num]` pour CETAT, 03 §4.4), `date?`, `nature?`, `title?` (§5.0.4), `citation`, `source_url`, puis les champs de lecture.
 
-Résumé (00 §4, 03 §7.9) : sommaire officiel (`analyses`, sinon `titrages` ; `OfficialSummary` mappé par fond dans l'adapter : JURI `abstrats` → analyses, CETAT `resumePrincipal` → analyses) → `official` ; sinon dispositif pour CONSTIT et CETAT → `dispositif` ; sinon début du texte (au moins 600 caractères) → `lead`. Pas d'heuristique « PAR CES MOTIFS » pour la Cour de cassation en v0.1 (00 §4). Variantes de dispositif **NON VÉRIFIÉES** [v:dispositif-constit-variantes] [v:dispositif-cetat-variantes] ; sens des champs du sommaire par fond **NON VÉRIFIÉ** [v:sommaire-semantique-par-fond].
+Résumé (00 §4, 03 §7.9) : sommaire officiel (`analyses`, sinon `titrages` ; `OfficialSummary` mappé par fond dans l'adapter : JURI `abstrats` → analyses, CETAT `resumePrincipal` → analyses) → `official` ; sinon dispositif pour CONSTIT et CETAT → `dispositif` ; sinon début du texte (au moins 600 caractères) → `lead`. Pas d'heuristique « PAR CES MOTIFS » pour la Cour de cassation en v0.1 (00 §4). Variantes de dispositif **NON VÉRIFIÉES** [V-110 · dispositif-constit-variantes] [V-111 · dispositif-cetat-variantes] ; sens des champs du sommaire par fond **NON VÉRIFIÉ** [V-109 · sommaire-semantique-par-fond].
 
 **Exemple 1 — résumé par défaut** (`{"decision_id": "CONSTEXT000052555275"}` ; fixture consult_juri_constit.json ; 1 147 caractères contre 15 140 pour la référence) :
 
@@ -974,7 +974,7 @@ Describe what this server covers, how it is sourced and what it does NOT cover. 
 | `configuration` | objet `{credentials_configured, audit_mode, problems?}` | `problems` : liste de phrases sans valeur secrète (variable, problème), tirées du `ConfigurationState` de `lf-application` (03 §4.8) |
 | `source` | string | constante de `lf-adapter-mcp` : `Légifrance (DILA), through the official PISTE API.` (03 §4.8) |
 | `attribution` | string | constante : `Source : Légifrance / DILA — Licence Ouverte 2.0` (mention exacte, 00 §12, adoptée par défaut, Q15) |
-| `consulted_on` | string, `format: date` | date de consultation : date du jour Europe/Paris (`Clock::today_paris()`, 00 §12, Q15). Un champ `last_update?` par document ne sera ajouté (classe « ajout ») qu'une fois un champ fiable de l'API identifié (**NON VÉRIFIÉ** [v:date-maj-par-document], V-108) |
+| `consulted_on` | string, `format: date` | date de consultation : date du jour Europe/Paris (`Clock::today_paris()`, 00 §12, Q15). Un champ `last_update?` par document ne sera ajouté (classe « ajout ») qu'une fois un champ fiable de l'API identifié (**NON VÉRIFIÉ** [V-108 · date-maj-par-document], V-108) |
 | `as_of_note` | string | constante de `lf-adapter-mcp` : texte de la référence (recherche 01 annexe A.5) |
 | `eli_note` | string | note ELI unique (00 §4, 03 §5.3) |
 | `general_tools` | array of string | outils transverses (`fr_search`, `fr_coverage` ; + `fr_resolve`, `fr_verify_citations` en v0.2 ; + `fr_search_all` en v0.3) |
@@ -991,8 +991,8 @@ Catalogue des lacunes (rédaction définitive demandée par 03 §4.8) :
 | FR-004 | CETAT | Many CAA and TA decisions have no ECLI, and tribunal decisions are only partly published. | Cite citation and source_url; never invent an ECLI. | toujours |
 | FR-005 | JURI | Only a selection of courts of appeal and almost no first-instance decisions are on Légifrance; Judilibre is not integrated. | Search Judilibre (Cour de cassation open data) for other judicial decisions. | toujours |
 | FR-006 | JURI | Published decisions are pseudonymised (JURI) and CNIL texts redacted: party names are replaced. | Do not try to re-identify parties. | toujours (D-45) |
-| FR-007 | — | The Journal officiel (JORF) fond is not searchable yet. | Search LODA: consolidated texts carry their JO reference. | tant que le fond JORF n'est pas servi ; la surface JORF est tranchée à l'ouverture de M7 (00 §4, §8 ; **NON VÉRIFIÉ** [v:endpoints-m7-reponses], V-135) |
-| FR-008 | — | Search pages hold at most 100 hits and results beyond 10,000 are not reachable. | Narrow the query (match=all or exact, date_from/date_to). | toujours ([v:pagination-profonde]) |
+| FR-007 | — | The Journal officiel (JORF) fond is not searchable yet. | Search LODA: consolidated texts carry their JO reference. | tant que le fond JORF n'est pas servi ; la surface JORF est tranchée à l'ouverture de M7 (00 §4, §8 ; **NON VÉRIFIÉ** [V-135 · endpoints-m7-reponses], V-135) |
+| FR-008 | — | Search pages hold at most 100 hits and results beyond 10,000 are not reachable. | Narrow the query (match=all or exact, date_from/date_to). | toujours ([V-83 · pagination-profonde]) |
 | FR-009 | — | Not covered: EU law, CJEU and ECHR case law, doctrine, circulars, parliamentary documents. | Use EUR-Lex, HUDOC or the relevant official source. | toujours (recherche 07 §7.3) |
 | FR-101 | — | Running on the PISTE sandbox: data may differ from production and availability is not guaranteed. | Set LF_PISTE_ENV=production with production credentials. | si `sandbox` (D-18) |
 | FR-102 | — | PISTE credentials are not configured: every tool except fr_coverage fails with config_error. | Set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET. | si identifiants absents |
@@ -1062,9 +1062,9 @@ Statuts (00 §7, 03 §8.7) :
 - `ambiguous` : plusieurs candidats, ou sigle ambigu sans contexte (`CP`, `CE`) ; `note` invite à `fr_resolve`.
 - `unresolvable` : hors périmètre (droit de l'UE, CEDH, doctrine), anaphore sans antécédent, ou vérification impossible (budget de temps de 80 % du délai épuisé, erreur amont sur cette citation) ; `note` donne le motif.
 - `invalid` : syntaxe impossible (chambre inexistante, ECLI mal formé, année du numéro ≠ année de la date, N07) **ou** contradiction avec l'enregistrement officiel (ECLI à un jour près, N14) ; `resolved` donne alors l'enregistrement réel.
-- **Sandbox** (00 §7) : quand `LF_PISTE_ENV=sandbox`, une citation bien formée sans enregistrement est rendue `unresolvable` avec la note `sandbox data differ from production`, jamais `not_found` : un faux négatif y est possible (données sandbox différentes de la production, **NON VÉRIFIÉ** [v:sandbox-prod-donnees], V-61). `not_found` est réservé à la production.
+- **Sandbox** (00 §7) : quand `LF_PISTE_ENV=sandbox`, une citation bien formée sans enregistrement est rendue `unresolvable` avec la note `sandbox data differ from production`, jamais `not_found` : un faux négatif y est possible (données sandbox différentes de la production, **NON VÉRIFIÉ** [V-61 · sandbox-prod-donnees], V-61). `not_found` est réservé à la production.
 
-Comparaison de l'extrait : vue repliée (`text::fold`) et similarité ; seuil **NON VÉRIFIÉ** [v:seuil-quote-mismatch]. Pas de paramètre dédié : le contrôle est automatique quand un extrait jouxte la citation (00 §7).
+Comparaison de l'extrait : vue repliée (`text::fold`) et similarité ; seuil **NON VÉRIFIÉ** [V-162 · seuil-quote-mismatch]. Pas de paramètre dédié : le contrôle est automatique quand un extrait jouxte la citation (00 §7).
 
 **Exemple** (illustratif ; environnement production ; identifiants des fixtures, résolution en direct non testée ; le titre « Code civil » de la note vient de `CodeKey`) :
 
@@ -1113,10 +1113,10 @@ Turn one free-text legal citation into Légifrance ids, e.g. "article 1240 du co
 
 Chemins de résolution (00 §3, §8 ; détail : annexe B, 04 §7) :
 
-- article de code : table des codes `list_codes()` (M6, chargée paresseusement au premier besoin, jamais au démarrage, TTL 7 j), puis `find_article` : `/consult/getArticleWithIdAndNum` pour la version en vigueur ; pour une autre `date`, `/search` en `EXACTE` sur `NUM_ARTICLE` + `DATE_VERSION`, hits filtrés par `cid`, jamais `NOM_CODE` (**NON VÉRIFIÉ** [v:nom-code-filtre], V-121) ;
+- article de code : table des codes `list_codes()` (M6, chargée paresseusement au premier besoin, jamais au démarrage, TTL 7 j), puis `find_article` : `/consult/getArticleWithIdAndNum` pour la version en vigueur ; pour une autre `date`, `/search` en `EXACTE` sur `NUM_ARTICLE` + `DATE_VERSION`, hits filtrés par `cid`, jamais `NOM_CODE` (**NON VÉRIFIÉ** [V-121 · nom-code-filtre], V-121) ;
 - numéros (loi, décret, affaire, décision, délibération, IDCC) : `/search` en `EXACTE` sur `NUM`, `NUM_AFFAIRE`, `NUM_DEC`, `NUM_DELIB` ou `IDCC` ;
-- ECLI : `/search` filtré par la facette `ECLI` en JURI et CETAT (**NON VÉRIFIÉ** [v:ecli-filtre-juri-cetat], V-128) ; un ECLI d'un autre pays n'est pas résolu : `candidates: []` et `note` (famille `ForeignEcli`, code `ecli_etranger`, 00 §4) ;
-- ELI cité par l'utilisateur, jamais fabriqué : `/consult/getArticleWithIdEliOrAlias` et `/consult/eliAndAliasRedirectionTexte` (**NON VÉRIFIÉ** [v:eli-redirection-endpoints], V-133).
+- ECLI : `/search` filtré par la facette `ECLI` en JURI et CETAT (**NON VÉRIFIÉ** [V-128 · ecli-filtre-juri-cetat], V-128) ; un ECLI d'un autre pays n'est pas résolu : `candidates: []` et `note` (famille `ForeignEcli`, code `ecli_etranger`, 00 §4) ;
+- ELI cité par l'utilisateur, jamais fabriqué : `/consult/getArticleWithIdEliOrAlias` et `/consult/eliAndAliasRedirectionTexte` (**NON VÉRIFIÉ** [V-133 · eli-redirection-endpoints], V-133).
 
 - Rien de trouvé : succès avec `candidates: []` et `note` (`unsupported: EU directive, not on Légifrance` ; `no record matches`). Pas de `not_found` : un résultat vide n'est pas une erreur, comme pour `fr_search`.
 - Plusieurs citations dans l'entrée : la première est résolue, `note` signale les autres et renvoie à `fr_verify_citations`.
@@ -1141,7 +1141,7 @@ Chemins de résolution (00 §3, §8 ; détail : annexe B, 04 §7) :
 List the legal links of an article (LEGIARTI) or a decision (JURITEXT, CONSTEXT, CETATEXT): texts it cites, texts citing it, and case law it refers to. Article links come from Légifrance with their ids; decision links are parsed from the decision's references and may lack an id (pass them to fr_resolve). Each link has a `relation`, a `citation` and, when known, an `id` and `source_url`. At most 100 links are returned: `truncated` is true when there are more, and there is no next page.
 ```
 
-**Entrée** : `id` (string, requis ; `A LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... decision id.`). `KALIARTI` est refusé en v0.3 : la prise en charge par `/consult/relatedLinksArticle` est **NON VÉRIFIÉE** [v:related-links-forme].
+**Entrée** : `id` (string, requis ; `A LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... decision id.`). `KALIARTI` est refusé en v0.3 : la prise en charge par `/consult/relatedLinksArticle` est **NON VÉRIFIÉE** [V-136 · related-links-forme].
 
 **Sortie** (`RelatedView`) : `id`, `citation`, `source_url`, `total` (nombre de liens avant troncature), `links` (toujours, ≤ 100), `truncated?`. Pas de suite : au-delà de 100 liens, ou si le plafond du §6.4 l'impose, la liste est tronquée avec `truncated: true` (00 §7), sans paramètre de continuation. Chaque lien : `relation` (`cites`, `cited_by` pour un article, d'après `liensCite`/`liensCitePar` ; `cites_case_law`, `applies_text` pour une décision, d'après `citationJp` et `liens`), `kind` (valeurs de `fr_verify_citations`), `citation` (forme canonique, ou titre de l'API nettoyé), `id?`, `source_url?`. Les liens d'une décision sont analysés par le parseur M6 ; les fragments sans ancre (« 1 du code civil. », cas N01) ne sont pas émis ; les doublons sont fusionnés.
 
@@ -1153,7 +1153,7 @@ Liens d'un article (`RelatedLinks` de 03 §4.11, d'après `LiensRelatifsDTO.natu
 | `CODE` ou `LODA` | `LEGITEXT` | `text` |
 | `LODA` | `LEGIARTI` | `text_article` |
 | `KALI` | `KALIARTI` ou `KALITEXT` | `convention` |
-| `JORF`, `JORFCONT` | `JORFTEXT`, `JORFCONT`, `JORFARTI` ou aucune | `jorf` (sens de `JORFCONT` **NON VÉRIFIÉ** [v:jorfcont-semantique], V-138) |
+| `JORF`, `JORFCONT` | `JORFTEXT`, `JORFCONT`, `JORFARTI` ou aucune | `jorf` (sens de `JORFCONT` **NON VÉRIFIÉ** [V-138 · jorfcont-semantique], V-138) |
 | autre | — | `unsupported` |
 
 **Exemple** (`{"id": "JURITEXT000051743650"}` ; analyse de `citationJp` et `liens` de consult_juri.json ; illustratif) :
@@ -1168,7 +1168,7 @@ Liens d'un article (`RelatedLinks` de 03 §4.11, d'après `LiensRelatifsDTO.natu
   {"relation":"applies_text","kind":"unsupported","citation":"Article 10 de la directive 85/374/CEE du Conseil, du 25 juillet 1985"}]}
 ```
 
-**Erreurs** : `invalid_arg` ; `not_found` (identifiant inexistant, message de l'outil de lecture correspondant) ; erreurs communes. **Audit, cache** : nombre de liens ; `Related` 24 h, `Decision` 24 h. Forme réelle de `relatedLinksArticle` **NON VÉRIFIÉE** [v:related-links-forme].
+**Erreurs** : `invalid_arg` ; `not_found` (identifiant inexistant, message de l'outil de lecture correspondant) ; erreurs communes. **Audit, cache** : nombre de liens ; `Related` 24 h, `Decision` 24 h. Forme réelle de `relatedLinksArticle` **NON VÉRIFIÉE** [V-136 · related-links-forme].
 
 ### 5.12 `fr_diff_article` (v0.3, M7)
 
@@ -1200,7 +1200,7 @@ Compare the versions of a code or law article (LEGIARTI) in force on `date_a` an
  "hunks":[{"at":120,"context":"… est puni de","removed":"un an","added":"deux ans"}]}
 ```
 
-**Erreurs** : `invalid_arg` ; `not_found` `No version of {article_id} is in force on {date}.` (date antérieure à la première version) ; erreurs communes. **Audit, cache** : nombre de hunks ; `Versions` 24 h, `Article` 24 h. Endpoints `getArticleByCid` et `canonicalArticleVersion` **NON VÉRIFIÉS** [v:diff-versions-endpoints].
+**Erreurs** : `invalid_arg` ; `not_found` `No version of {article_id} is in force on {date}.` (date antérieure à la première version) ; erreurs communes. **Audit, cache** : nombre de hunks ; `Versions` 24 h, `Article` 24 h. Endpoints `getArticleByCid` et `canonicalArticleVersion` **NON VÉRIFIÉS** [V-137 · diff-versions-endpoints].
 
 ### 5.13 `fr_search_all` (v0.3, M7)
 
@@ -1234,7 +1234,7 @@ Search several Légifrance fonds at once (default LODA, CODE, JURI, CETAT, CONST
 
 **Erreurs** : `invalid_arg` (paramètres) ; si **tous** les fonds échouent avec le même code (cas typique : `config_error`), l'appel échoue avec ce code ; sinon erreurs par groupe. `audit_error` fait échouer l'appel.
 
-**Audit, cache, limites** : métrique = somme des hits. Requêtes parallèles (`join_all`), régulées par le limiteur ([v:quota-piste-prod]) ; annulation propagée à toutes les sous-requêtes ; notifications de progression optionnelles si `progressToken` (§2.4), jamais émises après l'annulation (`ct.is_cancelled()` testé avant chaque notification, §3.5). Taille ≤ 8 × 10 hits ≈ 44 000 caractères avec extraits : le plafond du §6.4 retire les extraits en partant de la fin, avec `note`.
+**Audit, cache, limites** : métrique = somme des hits. Requêtes parallèles (`join_all`), régulées par le limiteur ([V-62 · quota-piste-prod]) ; annulation propagée à toutes les sous-requêtes ; notifications de progression optionnelles si `progressToken` (§2.4), jamais émises après l'annulation (`ct.is_cancelled()` testé avant chaque notification, §3.5). Taille ≤ 8 × 10 hits ≈ 44 000 caractères avec extraits : le plafond du §6.4 retire les extraits en partant de la fin, avec `note`.
 
 ---
 
@@ -1258,7 +1258,7 @@ Search several Légifrance fonds at once (default LODA, CODE, JURI, CETAT, CONST
 | `fr_get_text` | début (`lead`) | un article de `min(max_chars, 1 200)` caractères au plus est rendu entier dans `text` |
 | tous | si `text_length ≤ min(max_chars, 1 200)` : `text` entier, sans `next_offset`, plus `summary` seulement s'il existe un sommaire officiel (00 §7) | ex. JURI tronqué de la fixture (§6.5) |
 
-Le plafond de 1 200 caractères est fixé par 00 §4 (et §7) ; les mesures de M5 sur des fixtures recapturées ([v:taille-max-textes]) ne servent qu'à un éventuel amendement.
+Le plafond de 1 200 caractères est fixé par 00 §4 (et §7) ; les mesures de M5 sur des fixtures recapturées ([V-75 · taille-max-textes]) ne servent qu'à un éventuel amendement.
 
 ### 6.3 Passages (`focus`)
 
@@ -1278,7 +1278,7 @@ Ordre de dégradation (00 §7, complété pour les cas qu'il ne couvre pas) :
 3. `fr_verify_citations`, `fr_get_related` : tronquer la liste et poser `truncated: true` ;
 4. lectures longues (`fr_get_text`, `fr_get_decision`, `fr_get_deliberation`) : la fenêtre effective est raccourcie à la coupure G1 qui fait tenir la réponse sous le plafond (`max_chars` 40 000, `nota` ≤ 1 200, `path`, `title` ≤ 1 000 et échappements JSON peuvent ensemble le dépasser) ; `next_offset` reste exact.
 
-Le test `every_tool_response_under_hard_cap` couvre les combinaisons extrêmes sur données synthétiques, dont 100 hits à citations de 1 000 caractères et une fenêtre de 40 000 caractères riche en sauts de ligne et en guillemets. La conversion « 4 caractères par token » de D-33 est **NON VÉRIFIÉE** pour du français juridique [v:tokens-par-caractere] ; 45 000 caractères peuvent donc dépasser l'avertissement de 10 000 tokens : ces combinaisons ne sont atteintes que sur demande explicite du modèle.
+Le test `every_tool_response_under_hard_cap` couvre les combinaisons extrêmes sur données synthétiques, dont 100 hits à citations de 1 000 caractères et une fenêtre de 40 000 caractères riche en sauts de ligne et en guillemets. La conversion « 4 caractères par token » de D-33 est **NON VÉRIFIÉE** pour du français juridique [V-58 · tokens-par-caractere] ; 45 000 caractères peuvent donc dépasser l'avertissement de 10 000 tokens : ces combinaisons ne sont atteintes que sur demande explicite du modèle.
 
 ### 6.5 Tailles mesurées : référence et cible
 
@@ -1290,7 +1290,7 @@ Caractères de JSON compact du `structuredContent`. Référence : `tool_output` 
 | `fr_search` CODE, 1 hit (search_code.json) | 1 141 | 408 | — | `title` = citation, omis |
 | `fr_search` CETAT, 3 hits (search_cetat.json) | 1 949 | 1 501 | — | extraits ≤ 280 ajoutés |
 | `fr_search` JURI / CONSTIT / CNIL / KALI / ACCO | 1 645 / 2 518 / 1 883 / 1 761 / 1 491 | 1 099 / 1 853 / 1 108 / 1 031 / 821 | — | prototype de la recherche 03 §13.2 (champs voisins) |
-| `fr_get_act` (consult_loda.json, élaguée) | 4 847 (62 articles) | 6 035 (88 entrées, une page) | 1 002 avec `toc_limit=8` | sections ajoutées (D-25) ; TOC réelle de taille **NON VÉRIFIÉE** [v:taille-max-textes] |
+| `fr_get_act` (consult_loda.json, élaguée) | 4 847 (62 articles) | 6 035 (88 entrées, une page) | 1 002 avec `toc_limit=8` | sections ajoutées (D-25) ; TOC réelle de taille **NON VÉRIFIÉE** [V-75 · taille-max-textes] |
 | `fr_get_text` (consult_article.json) | 949 | 686 | — | article entier |
 | `fr_get_decision` CONSTIT | 15 140 | **1 147** (dispositif) | `focus` 1 716 ; page `full` ≈ 4 350 | ÷ 13 |
 | `fr_get_decision` CETAT | 15 191 | **1 171** (sommaire officiel) | page `full` ≈ 4 240 (recherche 03) | ÷ 13 |
@@ -1315,7 +1315,7 @@ Révision 2 : descriptions recomptées exactement (sens des dates absentes, déf
 
 Lecture :
 
-- Le coût en **contexte** dépend du client. Si l'`outputSchema` n'est pas transmis au modèle (VS Code vérifié, Claude Code [v:cc-output-schema-contexte]), la v0.1 coûte environ 11,8 Ko + 2,9 Ko, contre 5,5 Ko + 4,5 Ko pour la référence : les descriptions de 3 à 6 phrases imposées par 00 §6 et les schémas bornés coûtent environ 4,7 Ko de plus, au bénéfice de la sélection d'outil et des appels corrects (recherche 06 §7.1). Si l'`outputSchema` est transmis, v0.1 et référence sont à égalité (≈ 22 Ko).
+- Le coût en **contexte** dépend du client. Si l'`outputSchema` n'est pas transmis au modèle (VS Code vérifié, Claude Code [V-47 · cc-output-schema-contexte]), la v0.1 coûte environ 11,8 Ko + 2,9 Ko, contre 5,5 Ko + 4,5 Ko pour la référence : les descriptions de 3 à 6 phrases imposées par 00 §6 et les schémas bornés coûtent environ 4,7 Ko de plus, au bénéfice de la sélection d'outil et des appels corrects (recherche 06 §7.1). Si l'`outputSchema` est transmis, v0.1 et référence sont à égalité (≈ 22 Ko).
 - Avec la recherche d'outils de Claude Code, seuls les noms et les instructions sont chargés d'emblée (§1.3) : le coût fixe tombe à environ 3 Ko.
 
 Leviers de réduction, par ordre d'efficacité, à appliquer si la mesure de M4 dépasse le budget :
@@ -1358,7 +1358,7 @@ Correspondance complète cause → `CorpusError` → `AppError` → code : 02 §
 | `InvalidArgument` (décodage) | `invalid_arg` | `{chemin}: {erreur serde}` | `[invalid_arg] page_size: invalid type: sequence, expected an integer` | corriger l'argument |
 | `InvalidArgument` (domaine) | `invalid_arg` | message de parité + phrase d'aide (03 §2.7, §7.3) | `[invalid_arg] text_id='JURITEXT000051743650' must be a Legifrance LEGITEXT... identifier. JURITEXT... identifies a court decision: use fr_get_decision.` | changer d'outil ou d'argument |
 | `NotFound` | `not_found` | message de parité par outil + aide (§7.4) | `[not_found] No article found for LEGIARTI000006419999. Check the id, or find the article with fr_get_act or fr_search.` | chercher autrement |
-| `RateLimited` | `rate_limited` | `PISTE quota reached; retry in {n} s.` (ou `retry in a few seconds` sans `Retry-After`, [v:retry-after-piste]) | `[rate_limited] PISTE quota reached; retry in 12 s.` | attendre puis réessayer |
+| `RateLimited` | `rate_limited` | `PISTE quota reached; retry in {n} s.` (ou `retry in a few seconds` sans `Retry-After`, [V-63 · retry-after-piste]) | `[rate_limited] PISTE quota reached; retry in 12 s.` | attendre puis réessayer |
 | `Upstream` (HTTP 5xx, réseau, `Timeout`) | `upstream_error` | cause : `Legifrance/PISTE HTTP {status} ({raison})` (HTTP 5xx ; préfixe de parité P-014, sans URL, D-40), `could not reach Legifrance/PISTE ({kind})` (réseau, `status: None` ; `{kind}` : catégorie fixe sans hôte ni URL, comme `connection failed` ou `TLS error`) ou `Legifrance/PISTE did not answer within {n} s` (`Timeout`, `LF_HTTP_TIMEOUT_S`) ; puis `; retry once, then report it.` pour un échec réessayable (502, 503, 504, réseau, timeout : `retryable: true`, 00 §8), sinon `; report it.` (500 après deux tentatives, ou tout autre échec `retryable: false`, 04 §3.5) | `[upstream_error] Legifrance/PISTE HTTP 503 (service unavailable); retry once, then report it.` ; `[upstream_error] Legifrance/PISTE HTTP 500 (internal server error); report it.` | réessayer une fois si le message l'y invite, sinon signaler |
 | `Upstream` (`CorpusError::InvalidRequest` : HTTP 400 sans marqueur « introuvable », ou garde défensive de l'adapter) | `upstream_error` | `Legifrance rejected the request (HTTP 400): {détail PISTE nettoyé, ≤ 200 caractères}` (parité S10 ; `warn!` « bug probable » ; 00 §5) | `[upstream_error] Legifrance rejected the request (HTTP 400): …` | reformuler la requête, sinon signaler |
 | `Upstream` (`Decode`) | `upstream_error` | `unexpected response from Legifrance; report it.` (E-21 ; `Decode` n'est pas réessayable, donc sans invitation à réessayer, 00 §8) | `[upstream_error] unexpected response from Legifrance; report it.` | signaler |
@@ -1373,7 +1373,7 @@ Correspondance complète cause → `CorpusError` → `AppError` → code : 02 §
 | `Config` (configuration invalide, mode dégradé, 00 §1) | `config_error` | `LF_PISTE_ENV='prod' is invalid: expected sandbox or production.` ; `EnvMismatch` : `LF_PISTE_BASE_URL points to the PISTE production host but LF_PISTE_ENV is sandbox: set LF_PISTE_ENV=production, or fix the URL.` (aucune déduction implicite de l'environnement) | — | prévenir l'utilisateur |
 | `Audit` | `audit_error` | `audit log unavailable; the call was not recorded and its result is withheld (see server logs).` + `Original error: [code].` s'il y en avait une | — | prévenir l'utilisateur |
 
-Le 403 PISTE est classé `config_error` par décision (00 §5) ; son sens reste à confirmer (02 §9.2 ligne 12 : **NON VÉRIFIÉ** [v:forme-403-piste], V-65), comme la forme d'un 404 PISTE ([v:forme-404-piste], V-66). `Timeout`, `Decode`, délai global et annulation sont tous `upstream_error` (ou sans réponse pour l'annulation), la cause exacte (`UpstreamCause`) n'allant que dans les journaux et l'audit (00 §5).
+Le 403 PISTE est classé `config_error` par décision (00 §5) ; son sens reste à confirmer (02 §9.2 ligne 12 : **NON VÉRIFIÉ** [V-65 · forme-403-piste], V-65), comme la forme d'un 404 PISTE ([V-66 · forme-404-piste], V-66). `Timeout`, `Decode`, délai global et annulation sont tous `upstream_error` (ou sans réponse pour l'annulation), la cause exacte (`UpstreamCause`) n'allant que dans les journaux et l'audit (00 §5).
 
 ### 7.3 Messages `invalid_arg` par paramètre
 
@@ -1455,7 +1455,7 @@ Dans tous les cas : aucune sortie du processus ; aucune ligne d'audit quand rien
 | `legifrance://code/{code}/article/{num}` | template | `code_article` / Code article by number | `text/markdown` | comme `article` | `find_article` (M6), date du jour à Paris |
 
 - Gabarits RFC 6570 de niveau 1 seulement (`{var}`) ; correspondance inverse écrite à la main avec une grammaire stricte (préfixe d'identifiant, `[A-Za-z0-9-]` pour `code`, `[A-Za-z0-9 .*-]` décodé pour `num`) : toute URI est validée (MUST, `resources.mdx:430`, recherche 06 §4.2).
-- `{code}` : **slug** du titre officiel d'un code (`code-civil`, `code-du-travail`, `code-general-des-impots`), calculé par repli ASCII, minuscules et tirets depuis `/list/code` (mis en cache 7 jours, 00 §9). L'unicité des slugs sur la liste réelle est **NON VÉRIFIÉE** [v:list-code-forme].
+- `{code}` : **slug** du titre officiel d'un code (`code-civil`, `code-du-travail`, `code-general-des-impots`), calculé par repli ASCII, minuscules et tirets depuis `/list/code` (mis en cache 7 jours, 00 §9). L'unicité des slugs sur la liste réelle est **NON VÉRIFIÉE** [V-123 · list-code-forme].
 - Lecture d'une resource = lecture complète **bornée** : texte jusqu'à 40 000 caractères ; au-delà, dernière ligne `Text truncated at 40,000 characters: use {tool} with detail="full" and offset=40000.`, où `{tool}` est l'outil de lecture de la famille (`fr_get_text` pour `article` et `code_article`, `fr_get_decision` pour `decision`) ; pour `act`, au-delà de 500 entrées : `Table of contents truncated at 500 entries: use fr_get_act with toc_offset=500.`
 - Audit (00 §7) : chaque `resources/read` est audité avec `tool: resource:<nom du gabarit>` (`resource:article`, `resource:decision`, `resource:act`, `resource:code_article`, `resource:coverage`) et la métrique « caractères renvoyés ». Les prompts et les completions ne sont pas audités (aucun cas d'usage d'outil exécuté).
 
@@ -1483,13 +1483,13 @@ Chacun a droit au respect de sa vie privée. Les juges peuvent, sans préjudice 
 | `ref/resource` (autres templates) | `article_id`, `decision_id`, `text_id`, `num` | aucune (identifiants non énumérables) | — | liste vide |
 | `ref/prompt` (tout prompt) | — | aucune : seule la variable `code` est complétée (00 §7) ; pas de completion sur `fond`, qu'aucun argument de prompt ni variable de gabarit ne porte | — | liste vide |
 
-Débit limité (MUST, `completion.mdx:207-214`) : seau à jetons du processus, 10 complétions par seconde (00 §7) ; au-delà, liste vide. Erreur amont ou cache vide : liste vide et `warn!`, jamais d'erreur JSON-RPC (02 §9.2 ligne 27). Les completions ne sont pas auditées (02 §6.2). La prise en charge des templates et completions par les clients est **NON VÉRIFIÉE** [v:clients-templates-completions].
+Débit limité (MUST, `completion.mdx:207-214`) : seau à jetons du processus, 10 complétions par seconde (00 §7) ; au-delà, liste vide. Erreur amont ou cache vide : liste vide et `warn!`, jamais d'erreur JSON-RPC (02 §9.2 ligne 27). Les completions ne sont pas auditées (02 §6.2). La prise en charge des templates et completions par les clients est **NON VÉRIFIÉE** [V-54 · clients-templates-completions].
 
 ### 8.5 Prompts
 
 Noms et arguments de 00 §7 (`analyser_decision(decision_id)`, `verifier_citations`, `etat_du_droit`). Les noms et les textes sont en **français** (00 §6, adopté par défaut, Q14) : ce sont des messages insérés au nom de l'utilisateur francophone. Arguments : chaînes uniquement (`Record<string,string>`, recherche 09 §5 point 4). Les définitions passent par `#[prompt_router]`/`#[prompt]` avec `Parameters<T>`, les erreurs de prompt étant des erreurs de protocole (`-32602`, 00 §5) ; `get_prompt` et `list_prompts` sont écrits à la main sur le champ `self.prompt_router`, **sans** `#[prompt_handler]`, qui remplacerait ces méthodes, poserait `ttlMs: 0` aux pairs modernes et reconstruirait le routeur à chaque appel (§3.6) ; `list_prompts` porte les indications de cache de Q8 pour les pairs modernes (§2.3).
 
-Claude Code découpe les arguments de prompt sur les blancs (§1.3) : un texte ou une question de plusieurs mots ne passe pas en un seul argument. `verifier_citations` et `etat_du_droit` n'ont donc **aucun argument** (00 §7) : leur message demande à l'utilisateur de fournir le texte ou la question au tour suivant. Un argument optionnel ne sera ajouté (classe « ajout ») que si V-50 montre que le reste de la ligne est transmis intact (**NON VÉRIFIÉ** [v:cc-prompt-args-espaces]). `analyser_decision` garde son argument, d'un seul jeton.
+Claude Code découpe les arguments de prompt sur les blancs (§1.3) : un texte ou une question de plusieurs mots ne passe pas en un seul argument. `verifier_citations` et `etat_du_droit` n'ont donc **aucun argument** (00 §7) : leur message demande à l'utilisateur de fournir le texte ou la question au tour suivant. Un argument optionnel ne sera ajouté (classe « ajout ») que si V-50 montre que le reste de la ligne est transmis intact (**NON VÉRIFIÉ** [V-50 · cc-prompt-args-espaces]). `analyser_decision` garde son argument, d'un seul jeton.
 
 **`analyser_decision`** — argument `decision_id` (requis ; validé comme `fr_get_decision`). Description : « Analyser une décision de justice (Cour de cassation, Conseil d'État, Conseil constitutionnel) à partir de son identifiant Légifrance. »
 
@@ -1602,8 +1602,8 @@ Classement d'une différence entre deux verrous (recherche 06 §8.4) :
 Détails, en-têtes et statuts : [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md) ; conditions d'usage : Q4.
 
 - Feature `http` de `lf-adapter-mcp` (`rmcp/transport-streamable-http-server`, axum) ; sous-commande `serve-http` de `lf-app` (02 §8.1).
-- **Sans session** : POST seul ; GET et DELETE → 405 (gestionnaire de sessions sans event store, **NON VÉRIFIÉ** [v:rmcp-http-get-405], V-40) ; aucun `Mcp-Session-Id` émis ; pas de reprise SSE (`with_legacy_session_mode(false)`, `with_json_response(true)`, recherche 04 §2.15). Les clients legacy sont servis par `initialize` sans session (recherche 08 §15.2). La fabrique sans état, appelée à chaque requête, clone un prototype `LegifranceServer` dont le routeur est construit une fois (00 §6).
-- Sécurité de l'endpoint (00 §6) : écoute sur `127.0.0.1` par défaut, `allowed_hosts` (loopback par défaut dans rmcp) ; validation d'`Origin` **à notre charge** (`with_allowed_origins(liste)` + `enforce_origin_validation()`, car rmcp ne valide rien avec la liste vide par défaut), `Origin` invalide → 403 ; en-têtes `MCP-Protocol-Version` (forme), `Mcp-Method` et `Mcp-Name` validés par rmcp ; tout POST autre qu'`initialize` sans `MCP-Protocol-Version` → 400 + `-32020` par une couche axum, car rmcp supposerait 2025-03-26, non servie (**NON VÉRIFIÉ** [v:rmcp-http-entete-absent], V-39). rmcp compare l'en-tête à `KNOWN_VERSIONS`, pas à `supported_protocol_versions()` (`transport/streamable_http_server/tower.rs:293-326`) : une version connue mais non servie (`2025-03-26`, `2024-11-05`) doit être rejetée par la même couche (annexe D §5.2). Débit des invocations limité dans la couche axum, au-delà 429 + `Retry-After` (C-34 ; valeurs figées en M8, sans nouvelle variable d'environnement, 00 §6). Corps ≤ 256 Kio ; **pas de `x-mcp-header`** (#1348).
+- **Sans session** : POST seul ; GET et DELETE → 405 (gestionnaire de sessions sans event store, **NON VÉRIFIÉ** [V-40 · rmcp-http-get-405], V-40) ; aucun `Mcp-Session-Id` émis ; pas de reprise SSE (`with_legacy_session_mode(false)`, `with_json_response(true)`, recherche 04 §2.15). Les clients legacy sont servis par `initialize` sans session (recherche 08 §15.2). La fabrique sans état, appelée à chaque requête, clone un prototype `LegifranceServer` dont le routeur est construit une fois (00 §6).
+- Sécurité de l'endpoint (00 §6) : écoute sur `127.0.0.1` par défaut, `allowed_hosts` (loopback par défaut dans rmcp) ; validation d'`Origin` **à notre charge** (`with_allowed_origins(liste)` + `enforce_origin_validation()`, car rmcp ne valide rien avec la liste vide par défaut), `Origin` invalide → 403 ; en-têtes `MCP-Protocol-Version` (forme), `Mcp-Method` et `Mcp-Name` validés par rmcp ; tout POST autre qu'`initialize` sans `MCP-Protocol-Version` → 400 + `-32020` par une couche axum, car rmcp supposerait 2025-03-26, non servie (**NON VÉRIFIÉ** [V-39 · rmcp-http-entete-absent], V-39). rmcp compare l'en-tête à `KNOWN_VERSIONS`, pas à `supported_protocol_versions()` (`transport/streamable_http_server/tower.rs:293-326`) : une version connue mais non servie (`2025-03-26`, `2024-11-05`) doit être rejetée par la même couche (annexe D §5.2). Débit des invocations limité dans la couche axum, au-delà 429 + `Retry-After` (C-34 ; valeurs figées en M8, sans nouvelle variable d'environnement, 00 §6). Corps ≤ 256 Kio ; **pas de `x-mcp-header`** (#1348).
 - Deux profils (00 §6) : **local**, jeton statique lu dans `LF_MCP_HTTP_TOKEN` (nom proposé, figé en M8, 00 §1) ; **distant**, resource server OAuth (PRM RFC 9728, audience RFC 8707, 401/403 `insufficient_scope`), **jamais** de transmission du jeton du client MCP vers PISTE (`security-considerations.mdx:116-126`). `cacheScope` passe à `private` si les listes dépendent des scopes (recherche 08 §10).
 - Les outils, schémas, messages et budgets de ce document sont **identiques** en HTTP ; le verrou est produit sur stdio et un test vérifie l'égalité des descripteurs servis en HTTP.
 - La suite officielle `@modelcontextprotocol/conformance` s'exécute sur ce transport (00 §10).
@@ -1612,10 +1612,10 @@ Détails, en-têtes et statuts : [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-202
 
 | Client | Ère utilisée | Ce que voit le modèle | Prompts, resources, completions | Statut |
 |---|---|---|---|---|
-| Claude Code ≥ 2.1.292 | moderne : sonde `server/discover` en stdio ; repli `MCP_PROTOCOL_NEGOTIATION=legacy` | succès : `structuredContent` ; erreur : texte seul | prompts en commandes slash, arguments coupés sur les blancs ; resources mentionnables par `@` ; templates **NON VÉRIFIÉS** [v:clients-templates-completions] | ère : **vérifié** (`CHANGELOG.md:652`, recherche 08 §12.2) ; contenu transmis : commentaire d'un mainteneur, [v:cc-structured-content-succes] |
-| VS Code (Copilot, `main` du 2026-10-15) | legacy : `initialize` 2025-11-25 | `JSON.stringify(structuredContent)` | **NON VÉRIFIÉ** [v:clients-templates-completions] | ère et contenu : **vérifiés** par lecture du code (recherche 08 §12.2, recherche 06 §3.3). Effet de `openWorldHint: true` (confirmation des résultats) : UI **NON VÉRIFIÉE** [v:vscode-openworld-confirm] (V-53, réexamen de Q11 avant v0.1.0) |
-| Claude Desktop | **NON VÉRIFIÉE** [v:desktop-structured-content] | **NON VÉRIFIÉ** [v:desktop-structured-content] | installation en un clic via MCPB (08) ; prise en charge des prompts et resources **NON VÉRIFIÉE** [v:clients-templates-completions] | **NON VÉRIFIÉ** [v:desktop-structured-content] |
-| Cursor | probablement `initialize` seul (rapport de forum non lu) : **NON VÉRIFIÉ** [v:cursor-ere-et-contenu] | **NON VÉRIFIÉ** [v:cursor-ere-et-contenu] | **NON VÉRIFIÉ** [v:clients-templates-completions] | **NON VÉRIFIÉ** [v:cursor-ere-et-contenu] |
+| Claude Code ≥ 2.1.292 | moderne : sonde `server/discover` en stdio ; repli `MCP_PROTOCOL_NEGOTIATION=legacy` | succès : `structuredContent` ; erreur : texte seul | prompts en commandes slash, arguments coupés sur les blancs ; resources mentionnables par `@` ; templates **NON VÉRIFIÉS** [V-54 · clients-templates-completions] | ère : **vérifié** (`CHANGELOG.md:652`, recherche 08 §12.2) ; contenu transmis : commentaire d'un mainteneur, [V-46 · cc-structured-content-succes] |
+| VS Code (Copilot, `main` du 2026-10-15) | legacy : `initialize` 2025-11-25 | `JSON.stringify(structuredContent)` | **NON VÉRIFIÉ** [V-54 · clients-templates-completions] | ère et contenu : **vérifiés** par lecture du code (recherche 08 §12.2, recherche 06 §3.3). Effet de `openWorldHint: true` (confirmation des résultats) : UI **NON VÉRIFIÉE** [V-53 · vscode-openworld-confirm] (V-53, réexamen de Q11 avant v0.1.0) |
+| Claude Desktop | **NON VÉRIFIÉE** [V-51 · desktop-structured-content] | **NON VÉRIFIÉ** [V-51 · desktop-structured-content] | installation en un clic via MCPB (08) ; prise en charge des prompts et resources **NON VÉRIFIÉE** [V-54 · clients-templates-completions] | **NON VÉRIFIÉ** [V-51 · desktop-structured-content] |
+| Cursor | probablement `initialize` seul (rapport de forum non lu) : **NON VÉRIFIÉ** [V-52 · cursor-ere-et-contenu] | **NON VÉRIFIÉ** [V-52 · cursor-ere-et-contenu] | **NON VÉRIFIÉ** [V-54 · clients-templates-completions] | **NON VÉRIFIÉ** [V-52 · cursor-ere-et-contenu] |
 | MCP Inspector | `legacy` (défaut), `auto`, `modern` | affiche les deux formes | oui | vérifié (documentation de la spécification, recherche 08 §12.2) ; outil de test manuel |
 
 Le dual-era rend le serveur utilisable par tous ces clients : un client legacy fonctionne face à un serveur dual-era (`versioning.mdx:159-172`).
@@ -1629,10 +1629,10 @@ Le dual-era rend le serveur utilisable par tous ces clients : un client legacy f
 - [ ] `tool_router()` se construit sans panique ; les 8 descripteurs ont des racines objet en entrée et en sortie, sans combinateur racine (`tool_router_builds_and_roots_are_objects`).
 - [ ] Noms, titres, annotations et descriptions conformes au §5 ; descriptions de 3 à 6 phrases ; P-001, P-002.
 - [ ] `get_info` : `Implementation::new("mcp-legifrance", version du crate)`, capacités `{tools: {}}`, instructions du §4 ; `supported_protocol_versions()` = `[2026-07-28, 2025-11-25, 2025-06-18]` ; repli d'`initialize` explicite en 2025-11-25 (`with_protocol_version`, annexe D C-12).
-- [ ] JSON-RPC brut sur le binaire stdio, deux ères (recherche 09 §8 ; transcriptions : 06 §6.1) : (a) `initialize` 2025-11-25 → `notifications/initialized` → `tools/list` sans `resultType` ni `ttlMs` ; (b) `server/discover` moderne : les trois `supportedVersions`, `ttlMs = 3 600 000`, `cacheScope = public` ([v:rmcp-ttl-legacy]) ; (c) `tools/call` moderne : `resultType: "complete"` ; (d) `_meta` sans `clientCapabilities` → `-32602` ; (e) même scénario en 2025-06-18 ; (f) `tools/list` legacy sans indications de cache ([v:rmcp-ttl-legacy]) ; (g) EOF juste après `server/discover` → code 0 en moins d'une seconde (C-09) ; (h) notification reçue avant toute ère écartée, processus vivant (`PreLifecycleFilter`, [v:rmcp-transport-enveloppe]) ; (i) ligne non JSON ignorée sans réponse, `ping` avant toute ère → `{}` (§7.5) ; (j) `subscriptions/listen` moderne : accusé minimal, et EOF avec un `listen` ouvert → code 0 en moins d'une seconde ([v:rmcp-listen-cloture]) ; legacy → `-32601` ; (k) enveloppe moderne portant une version legacy (V-34) : résultat consigné, repli de 00 §6 appliqué s'il est servi sans `resultType` ([v:rmcp-enveloppe-version-legacy]).
+- [ ] JSON-RPC brut sur le binaire stdio, deux ères (recherche 09 §8 ; transcriptions : 06 §6.1) : (a) `initialize` 2025-11-25 → `notifications/initialized` → `tools/list` sans `resultType` ni `ttlMs` ; (b) `server/discover` moderne : les trois `supportedVersions`, `ttlMs = 3 600 000`, `cacheScope = public` ([V-33 · rmcp-ttl-legacy]) ; (c) `tools/call` moderne : `resultType: "complete"` ; (d) `_meta` sans `clientCapabilities` → `-32602` ; (e) même scénario en 2025-06-18 ; (f) `tools/list` legacy sans indications de cache ([V-33 · rmcp-ttl-legacy]) ; (g) EOF juste après `server/discover` → code 0 en moins d'une seconde (C-09) ; (h) notification reçue avant toute ère écartée, processus vivant (`PreLifecycleFilter`, [V-29 · rmcp-transport-enveloppe]) ; (i) ligne non JSON ignorée sans réponse, `ping` avant toute ère → `{}` (§7.5) ; (j) `subscriptions/listen` moderne : accusé minimal, et EOF avec un `listen` ouvert → code 0 en moins d'une seconde ([V-35 · rmcp-listen-cloture]) ; legacy → `-32601` ; (k) enveloppe moderne portant une version legacy (V-34) : résultat consigné, repli de 00 §6 appliqué s'il est servi sans `resultType` ([V-34 · rmcp-enveloppe-version-legacy]).
 - [ ] `tools/call` réussi : `structuredContent` objet conforme à l'`outputSchema` (validation `jsonschema`) **et** `content[0].text` = sérialisation JSON de ce même objet ; conformité vérifiée aussi sur des vues dont toutes les listes omissibles sont vides (§1.4 règle 1) ; aucun `$schema` dans les schémas (§2.5).
 - [ ] `tools/call` en erreur : `isError: true`, un seul bloc texte commençant par `[code] `, aucun `structuredContent` ; un cas par code applicable à l'outil (matrice §5.0.1 : par exemple, ni `not_found` pour `fr_search`, ni `config_error` pour `fr_coverage`).
-- [ ] Argument mal typé ou inconnu → `[invalid_arg]` **audité** ([v:rmcp-jsonobject-input-schema]) ; outil inconnu → `-32602` sans ligne d'audit ; méthode inconnue → `-32601` sans sortie du processus ([v:rmcp-methode-inattendue]).
+- [ ] Argument mal typé ou inconnu → `[invalid_arg]` **audité** ([V-28 · rmcp-jsonobject-input-schema]) ; outil inconnu → `-32602` sans ligne d'audit ; méthode inconnue → `-32601` sans sortie du processus ([V-30 · rmcp-methode-inattendue]).
 - [ ] Q10 tranchée au vu de V-79 et Q14 confirmée ou remplacée **avant** le premier verrou des descripteurs (00 §11, §13) ; sans réponse de l'utilisateur sur Q14, la proposition par défaut est verrouillée telle quelle (00 §13).
 - [ ] Démarrage et réponse à `server/discover` sans aucune connexion réseau (test avec un proxy qui échoue sur toute connexion).
 - [ ] stdout ne contient que du JSON-RPC ; aucun secret dans stderr, les messages ou l'audit.
@@ -1671,56 +1671,56 @@ Registre de référence : 09 §2 (identifiants V-xx, entre parenthèses ci-desso
 
 | Étiquette | Vérification à faire |
 |---|---|
-| [v:rmcp-jsonobject-input-schema] | (02) `JsonObject` + `input_schema` + `output_schema` explicite + `Result<Json<T>, ToolFailure>` compilent ensemble et produisent l'`outputSchema` attendu (V-28, spike M0). |
-| [v:rmcp-ttl-legacy] | (02) `ListToolsResult::with_all_items`, `with_ttl_ms`, `with_cache_scope` et `DiscoverResult::from_server_info(versions, config)` : présents d'après la lecture du code (annexe D §3.2, §3.4), compilation au spike M0 ; rmcp ne retire que `resultType` pour un pair legacy (lecture, annexe D §3.4), d'où la pose conditionnelle ; confirmé par les tests (b) et (f) de M4 (V-33, qui regroupe les étiquettes fusionnées de 09 §2.1). |
-| [v:rmcp-methode-inattendue] | (02) Aucun message inattendu ne fait quitter le processus : requêtes tranchées par lecture (annexe D §4.2), notifications prématurées écartées par `PreLifecycleFilter` ; confirmé par les transcriptions de M4 (V-30). |
-| [v:rmcp-transport-enveloppe] | `PreLifecycleFilter` (enveloppe `Transport<RoleServer>`) compile et est accepté par `serve_with_ct` (V-29, spike M0). |
-| [v:rmcp-enveloppe-version-legacy] | Réponse de rmcp à une requête à enveloppe moderne portant 2025-11-25 ou 2025-06-18, et repli de 00 §6 si elle est servie sans `resultType` (V-34, M4). |
-| [v:rmcp-meta-serverinfo-resultats] | Moyen de poser `serverInfo` dans le `_meta` des résultats modernes autres que `discover` (V-32). |
-| [v:rmcp-listen-cloture] | Messages émis à l'arrêt avec un `subscriptions/listen` ouvert ; EOF → code 0 en moins d'une seconde (V-35). |
-| [v:rmcp-http-entete-absent] | (M8) POST non-`initialize` sans `MCP-Protocol-Version`, ou avec une version connue non servie : rejet par notre couche axum (V-39). |
-| [v:rmcp-http-get-405] | (M8) GET et DELETE → 405 en mode sans session (V-40). |
-| [v:schemars-enum-chaine] | (02) Attributs schemars (`with`, `extend`, `required`, `range`) qui produisent les schémas d'entrée voulus pour des `Option<String>`/`Option<i64>`. |
-| [v:schemars-sortie-defs] | Forme des `$defs` produits pour les sorties et acceptation par les clients. |
-| [v:cc-structured-content-succes] | Claude Code transmet `structuredContent` sur un succès et le texte seul sur une erreur (version courante). |
-| [v:cc-output-schema-contexte] | Claude Code transmet ou non l'`outputSchema` au modèle. |
-| [v:cc-tool-search-seuil] | Seuil à partir duquel Claude Code diffère le chargement des descriptions (tool search). |
-| [v:cc-sonde-delai] | Délai de la sonde `server/discover` de Claude Code, et sonde lancée dans un processus frère éphémère ou dans le processus de session : même essai (V-49). |
-| [v:cc-prompt-args-espaces] | Effet du découpage des arguments de prompt sur les blancs (arguments perdus, concaténés ?). |
-| [v:desktop-structured-content] | Ère et forme transmise au modèle par Claude Desktop et claude.ai. |
-| [v:cursor-ere-et-contenu] | Cursor : `initialize` seul ? forme transmise au modèle ? |
-| [v:vscode-openworld-confirm] | Interface de VS Code pour `openWorldHint: true` (confirmation des résultats). |
-| [v:clients-templates-completions] | Prise en charge des resource templates et des completions par Claude Code et VS Code. |
-| [v:tokens-par-caractere] | Ratio caractères/tokens réel sur du français juridique (D-33 suppose 4). |
-| [v:pagination-profonde] | (04) Limite de pagination profonde de `/search` (10 000 résultats ?). |
-| [v:filtres-dates-effet] | (04) Effet réel des filtres `date_from`/`date_to` (le total diminue-t-il ? borne `end` inclusive ?). |
-| [v:typepagination-page2] | (04) Effet de `DEFAUT` contre `ARTICLE` en page 2 (CODE) et cohérence de `has_more`. |
-| [v:mode-all-semantique] | (04) Sens de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp = ALL`, préalable au choix de Q10 avant le verrou de M4 (V-79). |
-| [v:sentinelle-2222-debut] | (03) `2222-02-22` en date de début = entrée en vigueur différée non déterminée, portée par `etat = VIGUEUR_DIFF` (V-101). |
-| [v:sandbox-prod-donnees] | (04) Écarts entre les données sandbox et production, qui justifient `unresolvable` au lieu de `not_found` en sandbox (V-61). |
-| [v:nom-code-filtre] | (04) Filtre `NOM_CODE` de `/search` (500 signalés) ; `find_article` daté s'en passe (V-121). |
-| [v:ecli-filtre-juri-cetat] | (04) Facette `ECLI` de `/search` en JURI et CETAT pour résoudre un ECLI (V-128). |
-| [v:eli-redirection-endpoints] | (04) `/consult/getArticleWithIdEliOrAlias` et `/consult/eliAndAliasRedirectionTexte` pour les ELI cités (V-133). |
-| [v:endpoints-m7-reponses] | (04) Endpoints de M7, dont la consultation d'un `JORFTEXT` (`/consult/jorf`) qui conditionne la surface JORF (V-135). |
-| [v:jorfcont-semantique] | (04) Sens de la nature `JORFCONT` des liens de `relatedLinksArticle` (V-138). |
-| [v:date-maj-par-document] | (C) Champ fiable de date de mise à jour par document, préalable à un `last_update?` (V-108). |
-| [v:longueur-max-query] | (03) Longueur maximale de `query` acceptée par `/search`. |
-| [v:version-date-bornes] | (03) Réponse de l'API pour des dates de version extrêmes. |
-| [v:lawdecree-sur-code] | (03) `/consult/lawDecree` sur le `LEGITEXT` d'un code : taille et forme. |
-| [v:texte-html-getarticle-juri] | (03) Présence de `texteHtml` sur `/consult/getArticle` et `/consult/juri` (JURI). |
-| [v:taille-max-textes] | (03) Tailles réelles des textes et des TOC, pour calibrer les budgets. |
-| [v:dispositif-constit-variantes] | (03) Marqueurs du dispositif du Conseil constitutionnel sur d'autres décisions. |
-| [v:dispositif-cetat-variantes] | (03) Marqueurs du dispositif du CE, des CAA et des TA. |
-| [v:sommaire-semantique-par-fond] | (03) Sens de `resumePrincipal` et `abstrats` selon le fond. |
-| [v:eli-natif-null] | (03) `eli`/`idEli` restent `null` en production. |
-| [v:seuil-quote-mismatch] | Seuil de similarité qui distingue `match` de `quote_mismatch`. |
-| [v:related-links-forme] | Forme de `/consult/relatedLinksArticle` et prise en charge des `KALIARTI`. |
-| [v:diff-versions-endpoints] | `/consult/getArticleByCid` et `/search/canonicalArticleVersion` pour retrouver la version en vigueur à une date. |
-| [v:list-code-forme] | Titres de `/list/code` : unicité des slugs, nombre de codes ≤ 100 par page. |
-| [v:quota-piste-prod] | (02) Quotas réels PISTE, pour le parallélisme de `fr_search_all` et `fr_verify_citations`. |
-| [v:retry-after-piste] | (02) Présence de `Retry-After` sur un 429 PISTE (délai cité dans `[rate_limited]`). |
-| [v:forme-403-piste] | (02) Sens d'un 403 PISTE (classé `config_error`). |
-| [v:forme-404-piste] | (02) Forme d'un 404 PISTE (ressource ou routage). |
+| [V-28 · rmcp-jsonobject-input-schema] | (02) `JsonObject` + `input_schema` + `output_schema` explicite + `Result<Json<T>, ToolFailure>` compilent ensemble et produisent l'`outputSchema` attendu (V-28, spike M0). |
+| [V-33 · rmcp-ttl-legacy] | (02) `ListToolsResult::with_all_items`, `with_ttl_ms`, `with_cache_scope` et `DiscoverResult::from_server_info(versions, config)` : présents d'après la lecture du code (annexe D §3.2, §3.4), compilation au spike M0 ; rmcp ne retire que `resultType` pour un pair legacy (lecture, annexe D §3.4), d'où la pose conditionnelle ; confirmé par les tests (b) et (f) de M4 (V-33, qui regroupe les étiquettes fusionnées de 09 §2.1). |
+| [V-30 · rmcp-methode-inattendue] | (02) Aucun message inattendu ne fait quitter le processus : requêtes tranchées par lecture (annexe D §4.2), notifications prématurées écartées par `PreLifecycleFilter` ; confirmé par les transcriptions de M4 (V-30). |
+| [V-29 · rmcp-transport-enveloppe] | `PreLifecycleFilter` (enveloppe `Transport<RoleServer>`) compile et est accepté par `serve_with_ct` (V-29, spike M0). |
+| [V-34 · rmcp-enveloppe-version-legacy] | Réponse de rmcp à une requête à enveloppe moderne portant 2025-11-25 ou 2025-06-18, et repli de 00 §6 si elle est servie sans `resultType` (V-34, M4). |
+| [V-32 · rmcp-meta-serverinfo-resultats] | Moyen de poser `serverInfo` dans le `_meta` des résultats modernes autres que `discover` (V-32). |
+| [V-35 · rmcp-listen-cloture] | Messages émis à l'arrêt avec un `subscriptions/listen` ouvert ; EOF → code 0 en moins d'une seconde (V-35). |
+| [V-39 · rmcp-http-entete-absent] | (M8) POST non-`initialize` sans `MCP-Protocol-Version`, ou avec une version connue non servie : rejet par notre couche axum (V-39). |
+| [V-40 · rmcp-http-get-405] | (M8) GET et DELETE → 405 en mode sans session (V-40). |
+| [V-11 · schemars-enum-chaine] | (02) Attributs schemars (`with`, `extend`, `required`, `range`) qui produisent les schémas d'entrée voulus pour des `Option<String>`/`Option<i64>`. |
+| [V-12 · schemars-sortie-defs] | Forme des `$defs` produits pour les sorties et acceptation par les clients. |
+| [V-46 · cc-structured-content-succes] | Claude Code transmet `structuredContent` sur un succès et le texte seul sur une erreur (version courante). |
+| [V-47 · cc-output-schema-contexte] | Claude Code transmet ou non l'`outputSchema` au modèle. |
+| [V-48 · cc-tool-search-seuil] | Seuil à partir duquel Claude Code diffère le chargement des descriptions (tool search). |
+| [V-49 · cc-sonde-delai] | Délai de la sonde `server/discover` de Claude Code, et sonde lancée dans un processus frère éphémère ou dans le processus de session : même essai (V-49). |
+| [V-50 · cc-prompt-args-espaces] | Effet du découpage des arguments de prompt sur les blancs (arguments perdus, concaténés ?). |
+| [V-51 · desktop-structured-content] | Ère et forme transmise au modèle par Claude Desktop et claude.ai. |
+| [V-52 · cursor-ere-et-contenu] | Cursor : `initialize` seul ? forme transmise au modèle ? |
+| [V-53 · vscode-openworld-confirm] | Interface de VS Code pour `openWorldHint: true` (confirmation des résultats). |
+| [V-54 · clients-templates-completions] | Prise en charge des resource templates et des completions par Claude Code et VS Code. |
+| [V-58 · tokens-par-caractere] | Ratio caractères/tokens réel sur du français juridique (D-33 suppose 4). |
+| [V-83 · pagination-profonde] | (04) Limite de pagination profonde de `/search` (10 000 résultats ?). |
+| [V-78 · filtres-dates-effet] | (04) Effet réel des filtres `date_from`/`date_to` (le total diminue-t-il ? borne `end` inclusive ?). |
+| [V-82 · typepagination-page2] | (04) Effet de `DEFAUT` contre `ARTICLE` en page 2 (CODE) et cohérence de `has_more`. |
+| [V-79 · mode-all-semantique] | (04) Sens de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp = ALL`, préalable au choix de Q10 avant le verrou de M4 (V-79). |
+| [V-101 · sentinelle-2222-debut] | (03) `2222-02-22` en date de début = entrée en vigueur différée non déterminée, portée par `etat = VIGUEUR_DIFF` (V-101). |
+| [V-61 · sandbox-prod-donnees] | (04) Écarts entre les données sandbox et production, qui justifient `unresolvable` au lieu de `not_found` en sandbox (V-61). |
+| [V-121 · nom-code-filtre] | (04) Filtre `NOM_CODE` de `/search` (500 signalés) ; `find_article` daté s'en passe (V-121). |
+| [V-128 · ecli-filtre-juri-cetat] | (04) Facette `ECLI` de `/search` en JURI et CETAT pour résoudre un ECLI (V-128). |
+| [V-133 · eli-redirection-endpoints] | (04) `/consult/getArticleWithIdEliOrAlias` et `/consult/eliAndAliasRedirectionTexte` pour les ELI cités (V-133). |
+| [V-135 · endpoints-m7-reponses] | (04) Endpoints de M7, dont la consultation d'un `JORFTEXT` (`/consult/jorf`) qui conditionne la surface JORF (V-135). |
+| [V-138 · jorfcont-semantique] | (04) Sens de la nature `JORFCONT` des liens de `relatedLinksArticle` (V-138). |
+| [V-108 · date-maj-par-document] | (C) Champ fiable de date de mise à jour par document, préalable à un `last_update?` (V-108). |
+| [V-81 · longueur-max-query] | (03) Longueur maximale de `query` acceptée par `/search`. |
+| [V-89 · version-date-bornes] | (03) Réponse de l'API pour des dates de version extrêmes. |
+| [V-96 · lawdecree-sur-code] | (03) `/consult/lawDecree` sur le `LEGITEXT` d'un code : taille et forme. |
+| [V-90 · texte-html-getarticle-juri] | (03) Présence de `texteHtml` sur `/consult/getArticle` et `/consult/juri` (JURI). |
+| [V-75 · taille-max-textes] | (03) Tailles réelles des textes et des TOC, pour calibrer les budgets. |
+| [V-110 · dispositif-constit-variantes] | (03) Marqueurs du dispositif du Conseil constitutionnel sur d'autres décisions. |
+| [V-111 · dispositif-cetat-variantes] | (03) Marqueurs du dispositif du CE, des CAA et des TA. |
+| [V-109 · sommaire-semantique-par-fond] | (03) Sens de `resumePrincipal` et `abstrats` selon le fond. |
+| [V-102 · eli-natif-null] | (03) `eli`/`idEli` restent `null` en production. |
+| [V-162 · seuil-quote-mismatch] | Seuil de similarité qui distingue `match` de `quote_mismatch`. |
+| [V-136 · related-links-forme] | Forme de `/consult/relatedLinksArticle` et prise en charge des `KALIARTI`. |
+| [V-137 · diff-versions-endpoints] | `/consult/getArticleByCid` et `/search/canonicalArticleVersion` pour retrouver la version en vigueur à une date. |
+| [V-123 · list-code-forme] | Titres de `/list/code` : unicité des slugs, nombre de codes ≤ 100 par page. |
+| [V-62 · quota-piste-prod] | (02) Quotas réels PISTE, pour le parallélisme de `fr_search_all` et `fr_verify_citations`. |
+| [V-63 · retry-after-piste] | (02) Présence de `Retry-After` sur un 429 PISTE (délai cité dans `[rate_limited]`). |
+| [V-65 · forme-403-piste] | (02) Sens d'un 403 PISTE (classé `config_error`). |
+| [V-66 · forme-404-piste] | (02) Forme d'un 404 PISTE (ressource ou routage). |
 
 ---
 
@@ -1734,11 +1734,11 @@ Révision 2 : les lignes 1 à 4 et 7 à 14 sont tranchées par 00 révision 2 (a
 |---|---|---|---|---|
 | 1 | Brief de rédaction de ce document ; 02 §3.6 et §13 | Le brief cite `Parameters<T>` ; 02 retient `JsonObject` + `input_schema` pour auditer et préfixer les erreurs de décodage | `JsonObject` (§3.3) ; `Parameters<T>` en repli et pour les prompts | tranché : 00 §5 (AM-08), repli par ADR si le spike M0 échoue (V-28) |
 | 2 | 00 §7 (completions sur `fond`) ; 00 §7 (prompts sans argument `fond`, templates sans `{fond}`) | La completion de `fond` n'a aucun argument à servir en M7 | aucune completion sur `fond` ; seule la variable `code` est complétée (§8.4) | tranché : 00 §7 (AM-22) |
-| 3 | 00 §7 (prompts `verifier_citations(texte)`, `etat_du_droit(question)`) ; recherche 06 §4.4 (Claude Code découpe les arguments sur les blancs) | Un texte ou une question de plusieurs mots ne passe pas en un argument dans Claude Code | prompts sans argument ; le message demande le texte ou la question au tour suivant (§8.5) | tranché : 00 §7 (AM-23) ; argument optionnel seulement si [v:cc-prompt-args-espaces] le permet |
-| 4 | 00 §6 (`openWorldHint: true`) ; billet officiel du 2026-03-16 (`openWorldHint: false` pour un domaine fermé) ; VS Code (confirmation des résultats si `true`) | coût d'une étape d'approbation dans VS Code | `true` (parité P-002) | adopté par défaut (AM-14, Q11) ; réexamen avant v0.1.0 au vu de [v:vscode-openworld-confirm] |
+| 3 | 00 §7 (prompts `verifier_citations(texte)`, `etat_du_droit(question)`) ; recherche 06 §4.4 (Claude Code découpe les arguments sur les blancs) | Un texte ou une question de plusieurs mots ne passe pas en un argument dans Claude Code | prompts sans argument ; le message demande le texte ou la question au tour suivant (§8.5) | tranché : 00 §7 (AM-23) ; argument optionnel seulement si [V-50 · cc-prompt-args-espaces] le permet |
+| 4 | 00 §6 (`openWorldHint: true`) ; billet officiel du 2026-03-16 (`openWorldHint: false` pour un domaine fermé) ; VS Code (confirmation des résultats si `true`) | coût d'une étape d'approbation dans VS Code | `true` (parité P-002) | adopté par défaut (AM-14, Q11) ; réexamen avant v0.1.0 au vu de [V-53 · vscode-openworld-confirm] |
 | 5 | recherche 02 D-08 (erreur dans `structuredContent` avec `retryable`, `hint`) ; recherche 06 §3.3 | forme des erreurs | texte seul (00 §5, ADR-0010) | conserver (Claude Code ignore `structuredContent` en erreur) |
 | 6 | recherche 06 §7.3 d (`max_chars` vers 8 000, champ `hint` dans chaque réponse) | défauts du retour progressif | 4 000 (00 §7) ; pas de `hint` répété : la continuation est dans les descriptions et les instructions ; `note` seulement en cas exceptionnel | conserver ; mesurer en M5 |
-| 7 | 00 §7 initial (« `typePagination` renvoyé tel que reçu ») ; outils sans état ; 04 §6.6 (« `fr_search` la renvoie telle quelle ») | aucun moyen pour le modèle de rendre la valeur au tour suivant sans paramètre ni handle | ni paramètre ni champ de sortie ; `PaginationMemo` dans l'adapter, repli `ARTICLE` pour CODE (§5.1) | tranché : 00 §7 (AM-04) ; paramètre opaque `pagination` (classe « ajout ») si [v:typepagination-page2] montre que le mémo ne suffit pas |
+| 7 | 00 §7 initial (« `typePagination` renvoyé tel que reçu ») ; outils sans état ; 04 §6.6 (« `fr_search` la renvoie telle quelle ») | aucun moyen pour le modèle de rendre la valeur au tour suivant sans paramètre ni handle | ni paramètre ni champ de sortie ; `PaginationMemo` dans l'adapter, repli `ARTICLE` pour CODE (§5.1) | tranché : 00 §7 (AM-04) ; paramètre opaque `pagination` (classe « ajout ») si [V-82 · typepagination-page2] montre que le mémo ne suffit pas |
 | 8 | 00 §7 initial (`date_from`/`date_to` « mappés sur la facette de date du fond quand elle existe ») | comportement si la facette n'existe pas (seul CODE, 04 §6.5) | `[invalid_arg]` explicite dès le cas d'usage | tranché : 00 §7, règles de `fr_search` (AM-04) |
 | 9 | 00 §7 initial (champs des hits) ; référence (hits ACCO avec `idcc`, `raison_sociale`) ; 03 §4.1 (`total_articles` CODE, D-09) | perte d'`idcc` en recherche ACCO et du total d'articles CODE | `idcc?` (KALI, ACCO) et `total_articles?` (CODE) en v0.2 ; `nor?` dans `fr_get_convention` dès v0.1 ; la société reste dans la citation | tranché : 00 §7 (AM-37) |
 | 10 | 00 §7 initial (`quote_mismatch` « en option ») | paramètre ou contrôle automatique ? | contrôle automatique quand un extrait entre guillemets jouxte la citation ; champ `quote` | tranché : 00 §7 (AM-20) |

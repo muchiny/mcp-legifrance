@@ -9,7 +9,7 @@
 ## Contexte
 
 - **Le contrat n'était pas garanti.** La CONSTITUTION de la référence exige un contrat de citation sur chaque réponse (`CONSTITUTION.md:37-46`). Pourtant tous ses champs sont optionnels (`models.py:51-53`…), et le JSON Schema publié le déclare (`source_url: anyOf[string, null]`, `tests/tools.lock.json`). Un hit LODA sans `id` sort avec `source_url = None` (D-30).
-- **`eli_uri` est trompeur.** Il vaut toujours `source_url` (`citations.py:170-171`) : ce n'est pas un ELI. Les notes `eli_note` et `dataset_note` (171 + 335 caractères) sont répétées dans chaque réponse (D-30, D-33). Aujourd'hui, l'API renvoie `eli`/`idEli` à `null` (fixtures `consult_loda.json`, `consult_article.json`) ; c'est **NON VÉRIFIÉ** en production [v:eli-natif-null].
+- **`eli_uri` est trompeur.** Il vaut toujours `source_url` (`citations.py:170-171`) : ce n'est pas un ELI. Les notes `eli_note` et `dataset_note` (171 + 335 caractères) sont répétées dans chaque réponse (D-30, D-33). Aujourd'hui, l'API renvoie `eli`/`idEli` à `null` (fixtures `consult_loda.json`, `consult_article.json`) ; c'est **NON VÉRIFIÉ** en production [V-102 · eli-natif-null].
 - **La typographie est fautive** (D-27, E-12) :
   - « Cons. const., decision n° … » et « CNIL, deliberation n° … », sans accents (`citations.py:309`, `:378`), figés par `test_parse.py:116` et `:198` ;
   - mois `fevrier`, `aout`, `decembre`, et « 1 » au lieu de « 1er » (`citations.py:283-295`) ;
@@ -69,8 +69,8 @@
 
 ### À surveiller
 
-- URL jamais ouvertes dans un navigateur : **NON VÉRIFIÉ** [v:url-patterns-navigateur] ; `/loda/article_lc/` canonique [v:url-loda-article-lc] (V-140, bloquante pour v0.1.0) ; valeur de `textTitles[].nature` pour un article de loi [v:texttitles-nature-loi] (V-142, bloquante pour v0.1.0) ; `/codes/article_lc/` pour un article de loi, assertion de la référence [v:url-codes-article-lc-loi] (V-141) ; `/ceta/id/` ou `/juri/id/` [v:url-ceta-vs-juri]. Une recette est prévue avant v0.1.0.
-- Libellés des natures rares du Conseil constitutionnel : **NON VÉRIFIÉ** [v:natures-constit]. Format des décisions CNIL : **NON VÉRIFIÉ** [v:cnil-nature-decision-format].
+- URL jamais ouvertes dans un navigateur : **NON VÉRIFIÉ** [V-139 · url-patterns-navigateur] ; `/loda/article_lc/` canonique [V-140 · url-loda-article-lc] (V-140, bloquante pour v0.1.0) ; valeur de `textTitles[].nature` pour un article de loi [V-142 · texttitles-nature-loi] (V-142, bloquante pour v0.1.0) ; `/codes/article_lc/` pour un article de loi, assertion de la référence [V-141 · url-codes-article-lc-loi] (V-141) ; `/ceta/id/` ou `/juri/id/` [V-143 · url-ceta-vs-juri]. Une recette est prévue avant v0.1.0.
+- Libellés des natures rares du Conseil constitutionnel : **NON VÉRIFIÉ** [V-114 · natures-constit]. Format des décisions CNIL : **NON VÉRIFIÉ** [V-115 · cnil-nature-decision-format].
 - Les formes complémentaires de la décision 5 sont adoptées par défaut (Q12, 09 §3.12) : la réponse de l'utilisateur est attendue en M1, avant la génération des golden. Une réponse contraire produit un nouvel ADR (index, §2). Les hits CONSTIT et CNIL sont réexaminés en v0.2 avec le parseur de M6.
 
 ### Tests qui la gardent

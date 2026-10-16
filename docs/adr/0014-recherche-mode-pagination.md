@@ -16,7 +16,7 @@
   - les totaux de 122 147 (JURI « responsabilite », `search_juri.json`) et de 51 531 (CETAT, `search_cetat.json`) sont inaccessibles au-delà des 100 premiers résultats.
 - **Ce que permet l'API** (Swagger 2.4.2, `CritereDTO.typeRecherche`) : `UN_DES_MOTS`, `EXACTE`, `TOUS_LES_MOTS_DANS_UN_CHAMP`, `AUCUN_DES_MOTS` et `AUCUNE_CORRESPONDANCE_A_CETTE_EXPRESSION` (04 §6.4). `pageSize` vaut au plus 100 et `pageNumber` commence à 1 (recherche 05 §2.4).
 - **Points non vérifiés de l'API** :
-  - aucune limite de profondeur n'est documentée ; Elasticsearch a une fenêtre de 10 000 résultats par défaut : **NON VÉRIFIÉ** [v:pagination-profonde] ;
+  - aucune limite de profondeur n'est documentée ; Elasticsearch a une fenêtre de 10 000 résultats par défaut : **NON VÉRIFIÉ** [V-83 · pagination-profonde] ;
   - il faut renvoyer la `typePagination` reçue (« passer la valeur reçue dans la réponse précédente », `RechercheSpecifiqueDTO`) ; `CODE_DATE` répond `ARTICLE` à une requête `DEFAUT` (`search_code.json`, 04 §6.6).
 - **Les outils sont sans état** : aucun handle ; les curseurs sont des entiers rejouables (recherche 06 §3.6, 05 §1.4 règle 7).
 - **Désaccord entre sources.** La recherche 02 (D-32) recommande `tous_les_mots` par défaut, plus précis. 00 §7 adopte `any` par défaut, pour la parité ; la décision revient à l'utilisateur (Q10, 00 §13).
@@ -51,7 +51,7 @@
 ## Critère pour trancher Q10
 
 - **Proposition adoptée par défaut** (00 §13, AM-41) : `any` (parité) jusqu'à V-79 (M2) ; passage à `all` si V-79 confirme la sémantique « tous les mots dans un champ quelconque » et un rappel acceptable sur les 9 scénarios de la référence.
-- **Calendrier** (09 §3.10) : décision du propriétaire, sur les mesures du mainteneur, consignée **avant le verrou des descripteurs de M4**, puisque la description de `fr_search` annonce le défaut. D'ici là, on garde `any`, tant que [v:mode-all-semantique] n'est pas levée.
+- **Calendrier** (09 §3.10) : décision du propriétaire, sur les mesures du mainteneur, consignée **avant le verrou des descripteurs de M4**, puisque la description de `fr_search` annonce le défaut. D'ici là, on garde `any`, tant que [V-79 · mode-all-semantique] n'est pas levée.
 - **Mesures** :
   - V-79 (M2) : totaux par mode relevés en sandbox par `live_match_modes_totals`, et rappel de `all` sur les 9 scénarios de la référence (`live_reference_scenario_1` à `_9`, 06 §5) ;
   - en complément, jeu d'évaluation de requêtes juridiques réalistes, sur tous les fonds (recherche 06 §7.3 i). On compare `any` et `all` sur la pertinence des 10 premiers hits (jugée par relecture) et sur le nombre d'appels nécessaires au modèle.
@@ -75,11 +75,11 @@
 
 ### À surveiller
 
-- **NON VÉRIFIÉ** [v:mode-all-semantique] : sens exact de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp=ALL` (V-79, M2 ; base de Q10).
-- **NON VÉRIFIÉ** [v:typepagination-page2] : effet de `DEFAUT` ou `ARTICLE` en page 2, et cohérence de `has_more` (V-82, M5).
-- **NON VÉRIFIÉ** [v:pagination-profonde] : limite de profondeur (V-83, M5).
-- **NON VÉRIFIÉ** [v:longueur-max-query] : longueur maximale acceptée par l'API.
-- **NON VÉRIFIÉ** [v:filtres-dates-effet] : effet réel des filtres de date.
+- **NON VÉRIFIÉ** [V-79 · mode-all-semantique] : sens exact de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp=ALL` (V-79, M2 ; base de Q10).
+- **NON VÉRIFIÉ** [V-82 · typepagination-page2] : effet de `DEFAUT` ou `ARTICLE` en page 2, et cohérence de `has_more` (V-82, M5).
+- **NON VÉRIFIÉ** [V-83 · pagination-profonde] : limite de profondeur (V-83, M5).
+- **NON VÉRIFIÉ** [V-81 · longueur-max-query] : longueur maximale acceptée par l'API.
+- **NON VÉRIFIÉ** [V-78 · filtres-dates-effet] : effet réel des filtres de date.
 
 ### Tests qui la gardent
 

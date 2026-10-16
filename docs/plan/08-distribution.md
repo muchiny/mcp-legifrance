@@ -10,7 +10,7 @@
 > - « La référence Python » désigne `matematicsolutions/fr-eli-mcp@d3b5b13` (v0.5.3, Apache-2.0).
 > - Tous les extraits (TOML, YAML, JSON, Dockerfile, shell) sont des **esquisses non exécutées, à valider en M0** ; les extraits Rust éventuels sont **non compilés, à valider en M0**.
 > - Un point non vérifié est marqué **NON VÉRIFIÉ** suivi d'une étiquette `[v:…]`, reprise au §11 puis dans le registre V-xx de [09-risques-et-questions.md](09-risques-et-questions.md).
-> - Les URL du dépôt sont écrites avec son nom actuel, `muchiny/mcp-ligitfrance` (00 §0, §13). La proposition adoptée par défaut de Q1 le renomme en `mcp-legifrance` : avant le premier commit de M0 si l'utilisateur a répondu ; sans réponse à l'ouverture de M0, M0 démarre sous le nom actuel avec les propositions par défaut de Q1…Q15, et le renommage se fait ensuite, redirection GitHub vérifiée (T-M0-02) ; en tout cas avant toute publication immuable (00 §12-§13). Toutes ces URL sont alors remplacées en bloc. La commande `cargo install --git` reprend la forme de 00 §12, `https://github.com/<dépôt>`, où `<dépôt>` est le nom du dépôt à la date de la release (déjà renommé à v0.1.0 si Q1 confirme le renommage).
+> - Les URL du dépôt emploient son nom actuel, `muchiny/mcp-legifrance` : l'ancien `muchiny/mcp-ligitfrance` a été renommé par son propriétaire le 2026-10-16 (GitHub répond « This repository moved » au push) (00 §0, §13). La commande `cargo install --git` reprend la forme de 00 §12, `https://github.com/<dépôt>`, où `<dépôt>` est le nom du dépôt à la date de la release (déjà renommé à v0.1.0 si Q1 confirme le renommage).
 > - Les vérifications faites spécialement pour ce document (lecture le 2026-10-15 des sources de `axodotdev/cargo-dist` v0.33.0, `modelcontextprotocol/registry` `11b7b0e`, `modelcontextprotocol/mcpb` `70fe3b3`, `microsoft/vscode` `3f98d21`, `anthropics/claude-code` `94506ff`, index sparse crates.io) sont listées dans la section [Sources](#sources).
 
 ---
@@ -76,7 +76,7 @@ Runners par défaut de cargo-dist 0.33.0, lus dans `cargo-dist/src/backend/ci/gi
 
 Conséquences :
 - Les binaires Linux gnu exigent la glibc du runner `ubuntu-22.04` (2.35). Les distributions plus anciennes passent par les binaires musl statiques, que les installeurs choisissent automatiquement (`platform.rs:154-162`).
-- Windows ARM64 n'est pas une cible : ces machines exécutent le binaire x86_64 par émulation, **NON VÉRIFIÉ** [v:windows-arm64-emulation]. Ajouter `aarch64-pc-windows-msvc` imposerait `cargo-xwin` et l'absence de signature (la signature dist ne couvre que x86_64, `reference/config.md:367`).
+- Windows ARM64 n'est pas une cible : ces machines exécutent le binaire x86_64 par émulation, **NON VÉRIFIÉ** [V-192 · windows-arm64-emulation]. Ajouter `aarch64-pc-windows-msvc` imposerait `cargo-xwin` et l'absence de signature (la signature dist ne couvre que x86_64, `reference/config.md:367`).
 - Le **CRT statique Windows**, laissé en suspens par 02 §2.2, est tranché ainsi : le défaut de cargo-dist (`+crt-static`) s'applique aux binaires publiés. Aucun `rustflags` n'est ajouté dans `.cargo/config.toml`, qui sert au développement, et `cargo install --git` ignore de toute façon la configuration du dépôt (« the local configuration discovery is ignored », `cargo help install`, section « Configuration Discovery », cargo 1.97.0). Un utilisateur de `cargo install --git` sous Windows obtient donc un CRT dynamique, sans conséquence pour un développeur Rust qui a déjà l'environnement MSVC.
 
 ### 1.3 Ce qui n'est pas distribué
@@ -99,7 +99,7 @@ La recherche 06 §6 demande de documenter la liste exhaustive des hôtes contact
 | Composant | Hôtes | Quand |
 |---|---|---|
 | Binaire `mcp-legifrance`, `LF_PISTE_ENV=sandbox` (défaut) | `sandbox-oauth.piste.gouv.fr`, `sandbox-api.piste.gouv.fr` | au premier appel d'outil, jamais au démarrage (00 §6) |
-| Binaire, `LF_PISTE_ENV=production` | `oauth.piste.gouv.fr`, `api.piste.gouv.fr` ; ces URL n'ont jamais été appelées par le projet, **NON VÉRIFIÉ** [v:oauth-production-live] | idem |
+| Binaire, `LF_PISTE_ENV=production` | `oauth.piste.gouv.fr`, `api.piste.gouv.fr` ; ces URL n'ont jamais été appelées par le projet, **NON VÉRIFIÉ** [V-59 · oauth-production-live] | idem |
 | Binaire avec surcharges `LF_PISTE_OAUTH_URL` / `LF_PISTE_BASE_URL` | l'hôte fourni : `https` obligatoire (`http` admis vers 127.0.0.1, ::1 et localhost seulement) ; hors des quatre hôtes officiels, avertissement `CustomHost` au démarrage, dans `check-config` et en lacune de `fr_coverage` ; un hôte officiel de l'autre environnement est le problème `EnvMismatch` (00 §1, 02 §8.2) | idem |
 | Binaire, M9 (`dila`) | aucun : le binaire lit les dumps dans un répertoire local (proposition par défaut de 02 §3.9 ; `reqwest` est confiné à `lf-adapter-piste`, règle R6 et ban `wrappers` de `deny.toml`) | — |
 | Script de téléchargement des dumps (M9, hors binaire, 02 §3.9) | `echanges.dila.gouv.fr` | lancé explicitement par l'utilisateur |
@@ -107,7 +107,7 @@ La recherche 06 §6 demande de documenter la liste exhaustive des hôtes contact
 | `cargo install --git` | `github.com` (clone du dépôt au tag), `index.crates.io`, `static.crates.io` (dépendances) | à l'installation |
 | Image OCI | `ghcr.io` | au `docker pull` |
 
-Aucune télémétrie, aucune vérification de version en ligne. Derrière un proxy d'entreprise, le binaire utilise le proxy système de reqwest (feature `system-proxy`, 00 §8) ; la prise en compte de `HTTPS_PROXY` reste **NON VÉRIFIÉE** [v:reqwest-proxy-env] (04 §4.2). Les installeurs shell et PowerShell de dist respectent `HTTPS_PROXY` (CHANGELOG dist, section « PowerShell installer now supports proxies »).
+Aucune télémétrie, aucune vérification de version en ligne. Derrière un proxy d'entreprise, le binaire utilise le proxy système de reqwest (feature `system-proxy`, 00 §8) ; la prise en compte de `HTTPS_PROXY` reste **NON VÉRIFIÉE** [V-03 · reqwest-proxy-env] (04 §4.2). Les installeurs shell et PowerShell de dist respectent `HTTPS_PROXY` (CHANGELOG dist, section « PowerShell installer now supports proxies »).
 
 ### 1.5 Contenu commun des artefacts
 
@@ -129,7 +129,7 @@ Les installeurs shell et PowerShell ne copient que le binaire (« Will throw out
 ### 2.1 Outil, version et fichiers
 
 - **Version** : `cargo-dist-version = "0.33.0"`, la dernière publiée sur GitHub (2026-09-10). crates.io n'a que 0.32.0 (recherche 04 §4.1). Le workflow généré télécharge dist depuis GitHub ; aucun `cargo install cargo-dist` n'est nécessaire. Le binaire s'appelle `dist`.
-- **Emplacement de la configuration** : pour un workspace Rust initialisé pour la première fois, `dist init` écrit **`dist-workspace.toml`** avec `[workspace] members = ["cargo:."]` et une section `[dist]` (`cargo-dist/src/init.rs:79-92`, `:284-333`, lus). Cela lève l'incertitude notée par 02 §2.2 ([v:cargo-dist-emplacement-config]), à confirmer au premier `dist init` du M0.
+- **Emplacement de la configuration** : pour un workspace Rust initialisé pour la première fois, `dist init` écrit **`dist-workspace.toml`** avec `[workspace] members = ["cargo:."]` et une section `[dist]` (`cargo-dist/src/init.rs:79-92`, `:284-333`, lus). Cela lève l'incertitude notée par 02 §2.2 ([V-169 · cargo-dist-emplacement-config]), à confirmer au premier `dist init` du M0.
 - **Profil** : `dist init` ajoute `[profile.dist]` avec `inherits = "release"` (`init.rs:398-416`). Il hérite donc de `lto = "thin"`, `codegen-units = 1` et `panic = "unwind"` (02 §2.2). dist compile toujours avec `--profile=dist` (book `artifacts/archives.md`).
 - **`release.yml` généré** : il ne doit jamais être édité à la main (02 §2) ; dist le considère comme une erreur s'il est modifié (book `ci/customizing.md`, « Hand-editing release.yml »). Nos ajouts passent par des **jobs personnalisés**, qui sont des workflows réutilisables (§7.4).
 - **Toolchain** : dist ne fixe pas de toolchain (`rust-toolchain-version` est déprécié, `reference/config.md:694-713`). `rust-toolchain.toml` (1.99.0, 00 §2) s'applique donc aux builds de release.
@@ -189,7 +189,7 @@ post-announce-jobs = ["./publish-mcp-registry"]
 "publish-oci" = { contents = "read", packages = "write", id-token = "write", attestations = "write" }
 "publish-mcp-registry" = { contents = "read", id-token = "write" }
 
-# Épinglage par SHA des actions utilisées par le workflow généré (D-44) ; SHA relevés en M0 [v:actions-versions-sha]
+# Épinglage par SHA des actions utilisées par le workflow généré (D-44) ; SHA relevés en M0 [V-26 · actions-versions-sha]
 [dist.github-action-commits]
 "actions/checkout" = "<sha de v6>"
 "actions/upload-artifact" = "<sha de v7>"
@@ -215,8 +215,8 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
 license = "Apache-2.0"
-repository = "https://github.com/muchiny/mcp-ligitfrance"   # Q1
-homepage = "https://github.com/muchiny/mcp-ligitfrance"
+repository = "https://github.com/muchiny/mcp-legifrance"   # Q1
+homepage = "https://github.com/muchiny/mcp-legifrance"
 readme = "README.md"                    # relatif à la racine du workspace (doc Cargo, workspaces.md)
 keywords = ["mcp", "legifrance", "law", "france", "legal"]
 categories = ["command-line-utilities"]
@@ -236,17 +236,17 @@ La décision (00 §8, §11 M0) laisse le fournisseur crypto de rustls au spike M
 | Contexte de compilation | Option A (aws-lc) | Option B (ring) | À mesurer au spike |
 |---|---|---|---|
 | Runners dist Linux gnu (x86_64, aarch64), compilation native | `aws-lc-sys` exige une chaîne C (`cc`, parfois `cmake`, voire `bindgen`) (recherche 04 §4.1) | compilateur C pour les parties C et assembleur de ring | durée, taille, réussite |
-| Runners dist Linux **musl** (`musl-tools`, `+crt-static`, `link-self-contained`) | `aws-lc-sys` compilé avec `musl-gcc` : **NON VÉRIFIÉ** [v:tls-fournisseur-cross] | idem, plus simple selon la recherche 04 §4.2 | réussite sur les deux architectures |
+| Runners dist Linux **musl** (`musl-tools`, `+crt-static`, `link-self-contained`) | `aws-lc-sys` compilé avec `musl-gcc` : **NON VÉRIFIÉ** [V-02 · tls-fournisseur-cross] | idem, plus simple selon la recherche 04 §4.2 | réussite sur les deux architectures |
 | macOS (x86_64 et aarch64), natif | Xcode CLT présents sur les runners | idem | — |
 | Windows msvc `+crt-static` | besoin éventuel de NASM ou de cmake, cohérence avec le CRT statique | idem | réussite, taille |
 | Étape « source » du Dockerfile (§5.2) | paquets à ajouter à l'image de build | idem | idem |
 | **`cargo install --git` chez l'utilisateur** | la chaîne C et éventuellement cmake doivent exister sur **sa** machine | dépendances natives plus légères | friction d'installation sous Windows et macOS |
 
-Toutes ces exigences sont **NON VÉRIFIÉES** [v:tls-fournisseur-cross] (étiquette de référence de V-02, reprise de 04 §4.1 ; 09 §2.1 y rattache l'étiquette que 02 §3.0.1 employait pour le même point, voir §12.1). **Recommandation** : si le spike montre qu'aws-lc impose cmake ou NASM sur les postes utilisateurs, retenir ring (option B), qui rend le canal `cargo install --git` plus fiable. Sinon, garder le défaut (option A). Le résultat est consigné dans ADR-0013 et dans le risque TLS de [09-risques-et-questions.md](09-risques-et-questions.md).
+Toutes ces exigences sont **NON VÉRIFIÉES** [V-02 · tls-fournisseur-cross] (étiquette de référence de V-02, reprise de 04 §4.1 ; 09 §2.1 y rattache l'étiquette que 02 §3.0.1 employait pour le même point, voir §12.1). **Recommandation** : si le spike montre qu'aws-lc impose cmake ou NASM sur les postes utilisateurs, retenir ring (option B), qui rend le canal `cargo install --git` plus fiable. Sinon, garder le défaut (option A). Le résultat est consigné dans ADR-0013 et dans le risque TLS de [09-risques-et-questions.md](09-risques-et-questions.md).
 
 Racines de certificats : `rustls-platform-verifier` délègue au vérificateur du système sous macOS et Windows, et lit le magasin CA du système sous Linux (04 §4.1). Les proxys d'entreprise qui interceptent TLS fonctionnent donc si leur racine est installée dans le système. L'image OCI doit embarquer un magasin CA (§5).
 
-La taille des binaires selon la cible et le fournisseur, ainsi que celle du bundle MCPB qui en contient cinq, est **NON VÉRIFIÉE** [v:binaire-taille-memoire] ; elle est mesurée au spike.
+La taille des binaires selon la cible et le fournisseur, ainsi que celle du bundle MCPB qui en contient cinq, est **NON VÉRIFIÉE** [V-18 · binaire-taille-memoire] ; elle est mesurée au spike.
 
 ### 2.5 Artefacts produits et installeurs
 
@@ -267,12 +267,12 @@ Paquet et binaire portent le même nom (`[[bin]] name = "mcp-legifrance"`, 02 §
 
 ```sh
 # Linux, macOS — esquisse
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/muchiny/mcp-ligitfrance/releases/download/v0.1.0/mcp-legifrance-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/muchiny/mcp-legifrance/releases/download/v0.1.0/mcp-legifrance-installer.sh | sh
 ```
 
 ```powershell
 # Windows — esquisse
-powershell -c "irm https://github.com/muchiny/mcp-ligitfrance/releases/download/v0.1.0/mcp-legifrance-installer.ps1 | iex"
+powershell -c "irm https://github.com/muchiny/mcp-legifrance/releases/download/v0.1.0/mcp-legifrance-installer.ps1 | iex"
 ```
 
 - **Répertoire d'installation proposé : `~/.mcp-legifrance/bin`** au lieu du défaut `CARGO_HOME` (`~/.cargo/bin`, `reference/config.md:865-908`). Le public juriste n'a pas de toolchain Rust, et un `~/.cargo/bin` créé pour l'occasion serait trompeur. Le chemin cascade `["$VAR/bin", "~/…"]` impliquerait une nouvelle variable d'environnement, absente de 00 §1 : on s'en abstient.
@@ -311,12 +311,12 @@ powershell -c "irm https://github.com/muchiny/mcp-ligitfrance/releases/download/
 | Mécanisme | Déclencheur | Sans signature | Avec signature Authenticode reconnue |
 |---|---|---|---|
 | SmartScreen | fichier marqué « Mark of the Web » (téléchargé par un navigateur) | avertissement « Windows a protégé votre ordinateur » ; l'installeur PowerShell ne le déclenche pas (book `signing/windows.md`) | plus d'avertissement (selon la réputation du certificat) |
-| Smart App Control | **tout** exécutable lancé, quelle que soit son origine (constat de la référence) | blocage | exécution autorisée si la signature est valide et de confiance : **NON VÉRIFIÉ** [v:sac-signature-suffit] |
+| Smart App Control | **tout** exécutable lancé, quelle que soit son origine (constat de la référence) | blocage | exécution autorisée si la signature est valide et de confiance : **NON VÉRIFIÉ** [V-173 · sac-signature-suffit] |
 
 **Mise en œuvre (si Q5 = certificat disponible).** Proposition adoptée par défaut (00 §12-§13, Q5) : Azure Artifact Signing si le projet y est éligible, sinon SSL.com eSigner, seuls fournisseurs pris en charge par cargo-dist.
 - cargo-dist signe les `.exe`, `.msi` et `.ps1` (`cargo-dist/src/sign/mod.rs`, fonction `sign`) au moyen de **SSL.com eSigner** (`ssldotcom-windows-sign = "prod"`) ou d'**Azure Artifact Signing** (`[dist.azure-windows-sign]`, ajouté en 0.33.0 selon le CHANGELOG ; `reference/config.md` indique « since 0.32.0 »). Les deux sont exclusifs.
 - Depuis juillet 2023, les certificats de signature de code ne s'émettent plus que sur HSM, d'où le recours à des services de signature en nuage (book `signing/windows.md`). Un certificat personnel sur clé USB n'est **pas** utilisable par dist en CI.
-- Azure Artifact Signing s'authentifie par OIDC (`azure/login`) et exécute les jobs de build dans l'environnement GitHub `release`, avec un sujet fédéré `repo:OWNER/REPO:environment:release` (`reference/config.md:403-413`). Les conditions d'éligibilité (pays, personne morale ou physique) et le coût sont **NON VÉRIFIÉS** [v:azure-artifact-signing-eligibilite]. SSL.com exige un certificat « EV Code Signing » et un secret TOTP (book `signing/windows.md`).
+- Azure Artifact Signing s'authentifie par OIDC (`azure/login`) et exécute les jobs de build dans l'environnement GitHub `release`, avec un sujet fédéré `repo:OWNER/REPO:environment:release` (`reference/config.md:403-413`). Les conditions d'éligibilité (pays, personne morale ou physique) et le coût sont **NON VÉRIFIÉS** [V-193 · azure-artifact-signing-eligibilite]. SSL.com exige un certificat « EV Code Signing » et un secret TOTP (book `signing/windows.md`).
 - La signature ne couvre que x86_64 (`reference/config.md:367`), ce qui suffit ici (§1.2).
 - Le binaire signé est celui qui finit dans l'archive `.zip`, dans le MCPB (§4) et derrière l'installeur PowerShell, lui-même signé par un job dist dédié (`release.yml.j2`, job `sign-artifacts`).
 
@@ -324,21 +324,21 @@ powershell -c "irm https://github.com/muchiny/mcp-ligitfrance/releases/download/
 
 **Si Q5 = pas de certificat** :
 - Les binaires Windows sont publiés non signés. Le README et les notes de release le disent en tête.
-- Chemins de repli pour les postes où Smart App Control est actif, à documenter : **image OCI** via Docker Desktop (le client lance `docker.exe`, signé par son éditeur) et **WSL** (binaire Linux). Leur fonctionnement sous Smart App Control est inclus dans [v:sac-signature-suffit].
+- Chemins de repli pour les postes où Smart App Control est actif, à documenter : **image OCI** via Docker Desktop (le client lance `docker.exe`, signé par son éditeur) et **WSL** (binaire Linux). Leur fonctionnement sous Smart App Control est inclus dans [V-173 · sac-signature-suffit].
 - `cargo install --git` produit dans tous les cas un binaire **non signé** compilé localement, donc bloqué par Smart App Control. Le README le signale : ce canal vise les développeurs, qui ont rarement Smart App Control actif.
 - Jamais de conseil de désactivation de Smart App Control.
 
 ### 3.3 macOS : signature et notarisation
 
-- **Signature par dist** : `macos-sign = true`, option expérimentale, acceptée au niveau du workspace seulement (`cargo-dist/src/config/v0.rs:771`, `init.rs:1428`). Sur un hôte darwin, dist importe le certificat dans un trousseau éphémère et appelle `/usr/bin/codesign --sign "$CODESIGN_IDENTITY" [--options "$CODESIGN_OPTIONS"]` sur chaque exécutable (`cargo-dist/src/sign/macos.rs:1-21`, `:167-215`). Les variables lues sont `CODESIGN_IDENTITY`, `CODESIGN_CERTIFICATE` (PKCS#12 en base64), `CODESIGN_CERTIFICATE_PASSWORD` et `CODESIGN_OPTIONS` (CHANGELOG dist, « macOS code signing now supports the --options flag »). On pose **`CODESIGN_OPTIONS=runtime`**, car le runtime renforcé est exigé par la notarisation. La transmission de ces variables aux jobs de build par le workflow généré, et le comportement exact de cette option expérimentale, sont **NON VÉRIFIÉS** [v:cargo-dist-macos-sign].
+- **Signature par dist** : `macos-sign = true`, option expérimentale, acceptée au niveau du workspace seulement (`cargo-dist/src/config/v0.rs:771`, `init.rs:1428`). Sur un hôte darwin, dist importe le certificat dans un trousseau éphémère et appelle `/usr/bin/codesign --sign "$CODESIGN_IDENTITY" [--options "$CODESIGN_OPTIONS"]` sur chaque exécutable (`cargo-dist/src/sign/macos.rs:1-21`, `:167-215`). Les variables lues sont `CODESIGN_IDENTITY`, `CODESIGN_CERTIFICATE` (PKCS#12 en base64), `CODESIGN_CERTIFICATE_PASSWORD` et `CODESIGN_OPTIONS` (CHANGELOG dist, « macOS code signing now supports the --options flag »). On pose **`CODESIGN_OPTIONS=runtime`**, car le runtime renforcé est exigé par la notarisation. La transmission de ces variables aux jobs de build par le workflow généré, et le comportement exact de cette option expérimentale, sont **NON VÉRIFIÉS** [V-194 · cargo-dist-macos-sign].
 - **Notarisation** : dist ne la fait pas (« In the future, this module will also support notarization », `sign/macos.rs:21` ; book `supplychain-security/index.md:12`, « 🔜 macOS Codesigning »). Le job `build-mcpb` (§4.5) a donc une étape macOS qui :
   1. récupère les deux binaires darwin signés dans les artefacts du build ;
   2. vérifie la signature (`codesign --verify --strict --verbose=2`, `codesign -d --entitlements -`) ;
   3. les zippe et les soumet (`xcrun notarytool submit … --key … --key-id … --issuer … --wait`) ;
   4. échoue si le statut n'est pas `Accepted`.
 
-  Un exécutable nu ne peut pas recevoir d'agrafe (`stapler` ne vise que les `.app`, `.pkg` et `.dmg`) : Gatekeeper vérifie le ticket en ligne au premier lancement d'un fichier en quarantaine. Ce comportement, hors ligne compris, est **NON VÉRIFIÉ** [v:macos-notarisation-binaire-nu].
-- **Quand Gatekeeper intervient** : sur un fichier portant l'attribut de quarantaine (téléchargement par navigateur). `curl` ne le pose pas, l'installeur shell n'est donc pas concerné. Pour le binaire extrait d'un MCPB par Claude Desktop, c'est **NON VÉRIFIÉ** [v:mcpb-quarantaine-macos].
+  Un exécutable nu ne peut pas recevoir d'agrafe (`stapler` ne vise que les `.app`, `.pkg` et `.dmg`) : Gatekeeper vérifie le ticket en ligne au premier lancement d'un fichier en quarantaine. Ce comportement, hors ligne compris, est **NON VÉRIFIÉ** [V-195 · macos-notarisation-binaire-nu].
+- **Quand Gatekeeper intervient** : sur un fichier portant l'attribut de quarantaine (téléchargement par navigateur). `curl` ne le pose pas, l'installeur shell n'est donc pas concerné. Pour le binaire extrait d'un MCPB par Claude Desktop, c'est **NON VÉRIFIÉ** [V-174 · mcpb-quarantaine-macos].
 - **Compte Apple** : la proposition adoptée par défaut de Q5 prévoit un compte Apple Developer, pour `codesign` et la notarisation (00 §12-§13).
 - **Sans compte Apple (Q5)** : binaires non signés. Le README recommande l'installeur shell ou `cargo install --git`. Il mentionne le message de Gatekeeper pour les téléchargements par navigateur, sans recommander de désactiver Gatekeeper ; seule la procédure documentée par Apple pour autoriser un logiciel précis est décrite.
 
@@ -355,11 +355,11 @@ powershell -c "irm https://github.com/muchiny/mcp-ligitfrance/releases/download/
 - Conditions : dépôt public, ou dépôt privé d'une organisation GitHub Enterprise ; les attestations d'un dépôt public sont inscrites dans le journal public Rekor de Sigstore (book `supplychain-security/attestations/github.md`).
 - Vérification par l'utilisateur, documentée dans le README :
   ```sh
-  gh attestation verify mcp-legifrance-x86_64-unknown-linux-musl.tar.xz --repo muchiny/mcp-ligitfrance
-  gh attestation verify mcp-legifrance-0.1.0.mcpb --repo muchiny/mcp-ligitfrance
-  gh attestation verify oci://ghcr.io/muchiny/mcp-legifrance:0.1.0 --repo muchiny/mcp-ligitfrance
+  gh attestation verify mcp-legifrance-x86_64-unknown-linux-musl.tar.xz --repo muchiny/mcp-legifrance
+  gh attestation verify mcp-legifrance-0.1.0.mcpb --repo muchiny/mcp-legifrance
+  gh attestation verify oci://ghcr.io/muchiny/mcp-legifrance:0.1.0 --repo muchiny/mcp-legifrance
   ```
-- Niveau SLSA atteint (prédicat de provenance SLSA v1 ; niveau de build 2 ou 3 selon l'usage de workflows réutilisables) et entrées exactes d'`actions/attest@v4` pour une image OCI : **NON VÉRIFIÉ** [v:sbom-provenance-outils] (V-171 ; le choix des outils est fait, §3.5-§3.6). Le plan ne revendique aucun niveau SLSA tant que ce point n'est pas vérifié.
+- Niveau SLSA atteint (prédicat de provenance SLSA v1 ; niveau de build 2 ou 3 selon l'usage de workflows réutilisables) et entrées exactes d'`actions/attest@v4` pour une image OCI : **NON VÉRIFIÉ** [V-171 · sbom-provenance-outils] (V-171 ; le choix des outils est fait, §3.5-§3.6). Le plan ne revendique aucun niveau SLSA tant que ce point n'est pas vérifié.
 
 ### 3.6 SBOM et dépendances embarquées
 
@@ -374,7 +374,7 @@ La référence téléchargeait `mcp-publisher` en `latest` par `curl | tar` sans
 | Mesure | Mise en œuvre |
 |---|---|
 | Actions épinglées par SHA | `github-action-commits` pour le workflow généré ; SHA en dur dans nos workflows réutilisables ; mises à jour par Dependabot (`github-actions`, 02 §2) |
-| Outils téléchargés à version fixe et vérifiés | `mcp-publisher` en **v1.8.1** (dernier tag au 2026-10-15, `git ls-remote`) téléchargé depuis la release du tag et vérifié contre le fichier de sommes publié par goreleaser (signé par cosign, `registry/.goreleaser.yaml`). Nom exact de ce fichier : **NON VÉRIFIÉ** [v:mcp-publisher-checksums] |
+| Outils téléchargés à version fixe et vérifiés | `mcp-publisher` en **v1.8.1** (dernier tag au 2026-10-15, `git ls-remote`) téléchargé depuis la release du tag et vérifié contre le fichier de sommes publié par goreleaser (signé par cosign, `registry/.goreleaser.yaml`). Nom exact de ce fichier : **NON VÉRIFIÉ** [V-206 · mcp-publisher-checksums] |
 | Pas de jeton longue durée | OIDC pour le registre MCP, l'attestation, GHCR (`GITHUB_TOKEN`) et Azure ; aucun jeton crates.io en v0.x, faute de publication (Q13) ; à v1.0.0, OIDC si possible (§6.4) |
 | Environnement protégé | environnement GitHub `release`, limité aux tags `v*` et éventuellement soumis à un relecteur (recommandation du registre : `docs/modelcontextprotocol-io/github-actions.mdx`, « Securing your registry token in CI ») |
 | Pas de `pull_request_target` | aucun workflow de publication ne s'exécute sur du code de PR (même source) |
@@ -409,7 +409,7 @@ Faits vérifiés dans `modelcontextprotocol/mcpb@70fe3b3` :
 - **(A)** un **bundle unique multi-plateforme** par version, `mcp-legifrance-<version>.mcpb`, seul référencé par `server.json`. Il contient les cinq binaires utiles et un **lanceur POSIX** pour macOS et Linux, qui choisit le binaire selon `uname -m` (§4.3) ; Windows passe par l'override `win32` ; `fileSha256` dans `server.json` (§3.4).
 - **Pas de bundle par plateforme ou par architecture**, pas même hors registre, tant que MCPB n'a pas de sélecteur d'architecture (00 §12, V-197). L'ancienne option (B) de ce document, des bundles par architecture téléchargeables à la main, est donc écartée.
 
-L'acceptation de (A) par les clients (lanceur script pour `server.type = "binary"`, override `win32` avec `.exe` explicite) est **NON VÉRIFIÉE** [v:mcpb-multi-architecture]. Il existe une alternative pour macOS, à décider avec Q5 et non retenue par défaut : un binaire universel (`lipo -create` des deux binaires signés), puis vérification et notarisation. Elle évite le lanceur sous macOS (Linux le garde), mais la conservation des signatures après `lipo` est **NON VÉRIFIÉE** [v:lipo-signatures], et une nouvelle signature exigerait le certificat dans le job `build-mcpb`.
+L'acceptation de (A) par les clients (lanceur script pour `server.type = "binary"`, override `win32` avec `.exe` explicite) est **NON VÉRIFIÉE** [V-197 · mcpb-multi-architecture]. Il existe une alternative pour macOS, à décider avec Q5 et non retenue par défaut : un binaire universel (`lipo -create` des deux binaires signés), puis vérification et notarisation. Elle évite le lanceur sous macOS (Linux le garde), mais la conservation des signatures après `lipo` est **NON VÉRIFIÉE** [V-198 · lipo-signatures], et une nouvelle signature exigerait le certificat dans le job `build-mcpb`.
 
 ### 4.2 Arborescence
 
@@ -441,14 +441,14 @@ mcp-legifrance-0.1.0.mcpb          # ZIP (mcpb pack), construit sous Linux
   "description": "Unofficial MCP server for French law via the Légifrance API (PISTE): search, read and cite texts.",
   "long_description": "Search and read French legislation, codes and case law from Légifrance through the official PISTE API, with stable citations and source URLs. Requires your own free PISTE application credentials. Not affiliated with or endorsed by DILA.",
   "author": { "name": "<mainteneur, à compléter>", "url": "https://github.com/muchiny" },
-  "repository": { "type": "git", "url": "https://github.com/muchiny/mcp-ligitfrance.git" },
-  "homepage": "https://github.com/muchiny/mcp-ligitfrance",
-  "support": "https://github.com/muchiny/mcp-ligitfrance/issues",
+  "repository": { "type": "git", "url": "https://github.com/muchiny/mcp-legifrance.git" },
+  "homepage": "https://github.com/muchiny/mcp-legifrance",
+  "support": "https://github.com/muchiny/mcp-legifrance/issues",
   "icon": "icon.png",
   "license": "Apache-2.0",
   "keywords": ["legifrance", "law", "france", "legal", "jurisprudence"],
   "privacy_policies": [
-    "https://github.com/muchiny/mcp-ligitfrance/blob/main/PRIVACY.md",
+    "https://github.com/muchiny/mcp-legifrance/blob/main/PRIVACY.md",
     "<URL de la politique de données personnelles DILA/PISTE>"
   ],
   "compatibility": { "platforms": ["darwin", "win32", "linux"] },
@@ -491,15 +491,15 @@ mcp-legifrance-0.1.0.mcpb          # ZIP (mcpb pack), construit sous Linux
 ```
 
 Règles :
-- **`manifest_version = "0.3"`** : la version annoncée comme courante (`MANIFEST.md:3`). La 0.4 n'ajoute que le type `uv` (`src/schemas/0.4.ts:1`), inutile ici. Son acceptation par les versions courantes de Claude Desktop et Claude Code est **NON VÉRIFIÉE** [v:mcpb-version-manifeste].
+- **`manifest_version = "0.3"`** : la version annoncée comme courante (`MANIFEST.md:3`). La 0.4 n'ajoute que le type `uv` (`src/schemas/0.4.ts:1`), inutile ici. Son acceptation par les versions courantes de Claude Desktop et Claude Code est **NON VÉRIFIÉE** [V-199 · mcpb-version-manifeste].
 - **Variables autorisées** dans `mcp_config` : `${__dirname}`, `${pathSeparator}`, `${/}`, `${user_config.*}` (`src/node/validate.ts`, motif `VALID_VARIABLE_PATTERN`).
 - **Secrets** : `sensitive: true` sur les deux identifiants (« mask input and store securely », `MANIFEST.md:572`). Les variables sont transmises par `env`, recommandé pour les données sensibles (`MANIFEST.md:581`), et jamais par `args`, lisibles dans `ps`.
 - **Ni les réglages avancés de 00 §1** (`LF_PISTE_RPS`, `LF_PISTE_BURST`, `LF_PISTE_CONCURRENCY`, `LF_PISTE_MOJIBAKE_REPAIR`) **dans `user_config` ou `env`** : 00 §1 et §12 les excluent du manifeste MCPB ; ils sont documentés dans le README et affichés par `check-config` (§8.1).
-- **Pas de `LF_AUDIT_DIR` ni de `LF_AUDIT_MODE` dans `user_config`** : la valeur transmise pour une option facultative non renseignée (chaîne vide ou littéral `${user_config.x}`) est **NON VÉRIFIÉE** [v:mcpb-user-config-vide]. Une chaîne vide est traitée comme absente (02 §8.2) ; un littéral non substitué serait en revanche pris pour un chemin invalide, et en mode `strict` ce serait `audit_error`. Les défauts de 02 §8.2 s'appliquent donc. `piste_env` a un `default` explicite pour la même raison.
+- **Pas de `LF_AUDIT_DIR` ni de `LF_AUDIT_MODE` dans `user_config`** : la valeur transmise pour une option facultative non renseignée (chaîne vide ou littéral `${user_config.x}`) est **NON VÉRIFIÉE** [V-200 · mcpb-user-config-vide]. Une chaîne vide est traitée comme absente (02 §8.2) ; un littéral non substitué serait en revanche pris pour un chemin invalide, et en mode `strict` ce serait `audit_error`. Les défauts de 02 §8.2 s'appliquent donc. `piste_env` a un `default` explicite pour la même raison.
 - **`user_config` ne connaît pas d'`enum`** (`src/schemas/0.3.ts:65-77`) : une valeur de `piste_env` invalide produit le mode dégradé de 02 §8.2 (`[config_error]` sur les outils PISTE, diagnostic dans `fr_coverage`).
 - **`tools`** : générés depuis `tests/tools.lock.json` (nom et description de chaque outil), comme le demandent 05 §9.4 et la recherche 06 §8.1. Le schéma 0.3 n'accepte que `name` et `description` (`src/schemas/0.3.ts:53-56`).
 - **`prompts`** : absents jusqu'à v0.3.0, puis `prompts_generated: true` sans liste statique. Le champ `text` obligatoire d'un prompt MCPB est un gabarit côté client (`src/schemas/0.3.ts:58-63`), alors que nos prompts (00 §7) sont rendus par le serveur ; les déclarer exposerait à une validation par l'hôte contre une déclaration inexacte (`MANIFEST.md:737`).
-- **`privacy_policies`** : obligatoire quand l'extension contacte un service externe qui traite des données utilisateur (`MANIFEST.md:254`), ce qui est notre cas puisque les requêtes partent vers PISTE (recherche 06 §9.2). L'URL de la politique DILA/PISTE à citer est **NON VÉRIFIÉE** [v:url-politique-confidentialite-dila].
+- **`privacy_policies`** : obligatoire quand l'extension contacte un service externe qui traite des données utilisateur (`MANIFEST.md:254`), ce qui est notre cas puisque les requêtes partent vers PISTE (recherche 06 §9.2). L'URL de la politique DILA/PISTE à citer est **NON VÉRIFIÉE** [V-213 · url-politique-confidentialite-dila].
 - **`_meta`** : aucun.
 
 Lanceur `server/launcher` (aucune écriture sur stdout, conformément au transport stdio) :
@@ -532,7 +532,7 @@ C'est le workflow réutilisable `.github/workflows/build-mcpb.yml`, déclaré da
 | Job | Runner | Étapes |
 |---|---|---|
 | `verify-windows` | `windows-2022` | 1. télécharger l'artefact de workflow de la cible msvc (`actions/download-artifact`, motif `artifacts-*`) ; 2. extraire ; 3. `Get-AuthenticodeSignature` = `Valid` (si Q5) ; 4. test fumée JSON-RPC (ci-dessous) ; 5. téléverser le `.exe` vérifié en artefact interne |
-| `notarize-macos` | `macos-14` | 1. télécharger les deux archives darwin ; 2. `codesign --verify --strict` (si Q5) ; 3. notarisation `notarytool … --wait` (si Q5) ; 4. test fumée de l'arm64 en natif et du x86_64 sous Rosetta, **NON VÉRIFIÉ** [v:rosetta-runner-ci] sur le runner ; 5. téléverser |
+| `notarize-macos` | `macos-14` | 1. télécharger les deux archives darwin ; 2. `codesign --verify --strict` (si Q5) ; 3. notarisation `notarytool … --wait` (si Q5) ; 4. test fumée de l'arm64 en natif et du x86_64 sous Rosetta, **NON VÉRIFIÉ** [V-196 · rosetta-runner-ci] sur le runner ; 5. téléverser |
 | `assemble` | `ubuntu-22.04` | 1. télécharger les deux musl et les sorties des deux jobs précédents ; 2. test fumée du musl x86_64 ; 3. copier l'arborescence du §4.2 et poser `chmod +x` ; 4. `npx --yes @anthropic-ai/mcpb@<version épinglée> validate` puis `pack` (paquet npm `@anthropic-ai/mcpb`, 2.1.2 au commit lu) ; 5. éventuellement `mcpb sign` (§4.6) ; 6. `sha256sum` → `.mcpb.sha256` ; 7. produire le **`server.json` final** (§6.2) en remplaçant le `fileSha256` provisoire ; 8. `mcp-publisher validate server.json` ; 9. téléverser le tout comme artefact de workflow **`artifacts-mcpb`** |
 
 Les artefacts intermédiaires échangés entre ces trois jobs ne doivent **jamais** porter le préfixe `artifacts-` : ils seraient sinon publiés dans la release (ci-dessous). On les nomme par exemple `mcpb-tmp-windows` et `mcpb-tmp-macos`.
@@ -551,14 +551,14 @@ La sonde moderne `server/discover`, dont la forme exacte est donnée dans l'[ann
 
 ### 4.6 Signature du bundle
 
-`mcpb sign` signe le ZIP avec un certificat X.509 PEM portant l'usage « Code Signing » et sa clé privée (`mcpb/CLI.md`, « Certificate Requirements »). Ni un certificat Authenticode hébergé sur HSM (Azure, SSL.com), ni un Developer ID Apple stocké en trousseau ne fournissent une clé privée PEM exportable. Le bundle n'est donc **pas signé** par défaut : son intégrité repose sur `fileSha256` et sur l'attestation GitHub, et les binaires qu'il contient sont signés individuellement (Q5). L'effet de l'absence de signature (avertissement ?) dans Claude Desktop est **NON VÉRIFIÉ** [v:mcpb-signature-client].
+`mcpb sign` signe le ZIP avec un certificat X.509 PEM portant l'usage « Code Signing » et sa clé privée (`mcpb/CLI.md`, « Certificate Requirements »). Ni un certificat Authenticode hébergé sur HSM (Azure, SSL.com), ni un Developer ID Apple stocké en trousseau ne fournissent une clé privée PEM exportable. Le bundle n'est donc **pas signé** par défaut : son intégrité repose sur `fileSha256` et sur l'attestation GitHub, et les binaires qu'il contient sont signés individuellement (Q5). L'effet de l'absence de signature (avertissement ?) dans Claude Desktop est **NON VÉRIFIÉ** [V-201 · mcpb-signature-client].
 
 ### 4.7 Points d'attention
 
-- Le nom du fichier et l'URL contiennent « mcp », comme l'exige le registre (`registry/internal/validators/registries/mcpb.go:52-55`) : le fichier s'appelle `mcp-legifrance-*`, et le dépôt `mcp-ligitfrance` le contient aussi.
-- Taille : cinq binaires, à mesurer au spike [v:binaire-taille-memoire]. Si le bundle devient trop lourd, le binaire universel macOS (§4.1, à décider avec Q5) supprime une copie ; des bundles par architecture restent exclus (00 §12).
+- Le nom du fichier et l'URL contiennent « mcp », comme l'exige le registre (`registry/internal/validators/registries/mcpb.go:52-55`) : le fichier s'appelle `mcp-legifrance-*`, et le dépôt `mcp-legifrance` le contient aussi.
+- Taille : cinq binaires, à mesurer au spike [V-18 · binaire-taille-memoire]. Si le bundle devient trop lourd, le binaire universel macOS (§4.1, à décider avec Q5) supprime une copie ; des bundles par architecture restent exclus (00 §12).
 - Claude Code accepte aussi des bundles `.mcpb` embarqués dans un plugin, configurables à l'installation (`claude plugin install --config <server>.<key>=<value>`, CHANGELOG Claude Code `:1199`, `:1246`). C'est un canal possible plus tard, non retenu en v0.1 (§12.2).
-- Claude Desktop n'est pas distribué officiellement pour Linux : **NON VÉRIFIÉ** [v:desktop-linux]. Le bundle garde pourtant la partie Linux, utile aux autres clients MCPB comme les plugins de Claude Code.
+- Claude Desktop n'est pas distribué officiellement pour Linux : **NON VÉRIFIÉ** [V-202 · desktop-linux]. Le bundle garde pourtant la partie Linux, utile aux autres clients MCPB comme les plugins de Claude Code.
 
 ---
 
@@ -566,10 +566,10 @@ La sonde moderne `server/discover`, dont la forme exacte est donnée dans l'[ann
 
 ### 5.1 Principes
 
-- **Base** : `gcr.io/distroless/static-debian12:nonroot`, épinglée par digest. Elle ne contient ni shell ni gestionnaire de paquets : un magasin CA, des fichiers `passwd`/`group` avec l'utilisateur `nonroot` (uid/gid 65532) et `tzdata`. Le tag courant, le digest et ce contenu sont **NON VÉRIFIÉS** [v:images-oci-base]. Le binaire est **musl statique**, et `chrono-tz` embarque sa base IANA (02 §3.0.1) : aucune bibliothèque n'est requise.
+- **Base** : `gcr.io/distroless/static-debian12:nonroot`, épinglée par digest. Elle ne contient ni shell ni gestionnaire de paquets : un magasin CA, des fichiers `passwd`/`group` avec l'utilisateur `nonroot` (uid/gid 65532) et `tzdata`. Le tag courant, le digest et ce contenu sont **NON VÉRIFIÉS** [V-203 · images-oci-base]. Le binaire est **musl statique**, et `chrono-tz` embarque sa base IANA (02 §3.0.1) : aucune bibliothèque n'est requise.
 - **Utilisateur non root** : `USER 65532:65532`, numérique, ce qui permet les contrôles `runAsNonRoot`. La référence s'exécutait en root (D-44 ; référence `Dockerfile:1-5`).
 - **Label du registre** : `LABEL io.modelcontextprotocol.server.name="io.github.muchiny/mcp-legifrance"`. Le registre lit ce label dans la **configuration de l'image** (`configFile.Config.Labels`), en accès anonyme : l'image doit donc être **publique** (`registry/internal/validators/registries/oci.go:96`, `:128-140`).
-- **Racines TLS** : `rustls-platform-verifier` lit sous Linux le magasin CA du système (04 §4.1). Qu'il le trouve dans l'image distroless avec un binaire musl statique est **NON VÉRIFIÉ** [v:oci-racines-tls] ; un test d'intégration en conteneur fait une poignée de main TLS vers un serveur local de test.
+- **Racines TLS** : `rustls-platform-verifier` lit sous Linux le magasin CA du système (04 §4.1). Qu'il le trouve dans l'image distroless avec un binaire musl statique est **NON VÉRIFIÉ** [V-204 · oci-racines-tls] ; un test d'intégration en conteneur fait une poignée de main TLS vers un serveur local de test.
 - **Le binaire publié est celui de la release** : en CI, l'image copie les binaires musl déjà construits, signés au sens des sommes et attestés par dist. Une étape « source » sert aux builds locaux et aux annuaires tiers qui construisent depuis le Dockerfile, comme la référence le faisait pour Glama (`Dockerfile:1-2`).
 
 ### 5.2 Dockerfile proposé (`packaging/oci/Dockerfile`)
@@ -577,7 +577,7 @@ La sonde moderne `server/discover`, dont la forme exacte est donnée dans l'[ann
 ```dockerfile
 # syntax=docker/dockerfile:1
 # packaging/oci/Dockerfile — esquisse non exécutée, à valider en M0.
-# Contexte de build : racine du dépôt. Images épinglées par digest [v:images-oci-base].
+# Contexte de build : racine du dépôt. Images épinglées par digest [V-203 · images-oci-base].
 ARG RUST_IMAGE=docker.io/library/rust:1.99.0-slim-bookworm@sha256:<digest>
 ARG RUNTIME_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:<digest>
 ARG BIN_STAGE=bin-source          # CI : --build-arg BIN_STAGE=bin-prebuilt
@@ -587,7 +587,7 @@ FROM ${RUST_IMAGE} AS bin-source
 RUN apt-get update \
  && apt-get install -y --no-install-recommends musl-tools \
  && rm -rf /var/lib/apt/lists/*
-# + paquets exigés par le fournisseur TLS retenu au spike M0 (cmake, clang…) [v:tls-fournisseur-cross]
+# + paquets exigés par le fournisseur TLS retenu au spike M0 (cmake, clang…) [V-02 · tls-fournisseur-cross]
 WORKDIR /src
 COPY . .
 RUN set -eu; \
@@ -612,7 +612,7 @@ LABEL io.modelcontextprotocol.server.name="io.github.muchiny/mcp-legifrance" \
       org.opencontainers.image.description="Unofficial MCP server for French law (Légifrance API via PISTE)" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
-      org.opencontainers.image.source="https://github.com/muchiny/mcp-ligitfrance" \
+      org.opencontainers.image.source="https://github.com/muchiny/mcp-legifrance" \
       org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=bin --chmod=0755 /mcp-legifrance /usr/local/bin/mcp-legifrance
 COPY LICENSE NOTICE THIRD_PARTY_LICENSES.md /usr/share/doc/mcp-legifrance/
@@ -625,7 +625,7 @@ CMD ["serve"]
 ```
 
 Notes :
-- Le dépôt contient `packaging/oci/data/audit/.keep` pour que `/data/audit` existe et appartienne à `nonroot`. `LF_AUDIT_DIR` est fixé parce que le défaut `dirs::data_dir()` dépend de `HOME`, dont la valeur dans l'image n'est pas vérifiée [v:chemin-donnees-plateforme].
+- Le dépôt contient `packaging/oci/data/audit/.keep` pour que `/data/audit` existe et appartienne à `nonroot`. `LF_AUDIT_DIR` est fixé parce que le défaut `dirs::data_dir()` dépend de `HOME`, dont la valeur dans l'image n'est pas vérifiée [V-167 · chemin-donnees-plateforme].
 - Aucune variable `LF_PISTE_*` dans l'image. L'environnement par défaut reste `sandbox` (00 §1), et les identifiants arrivent par `-e` à l'exécution.
 - Pas de `HEALTHCHECK` (transport stdio) ni d'instruction `VOLUME` : un volume anonyme serait recréé à chaque `docker run --rm`.
 - Le binaire est le PID 1. Il gère SIGTERM/SIGINT et l'EOF de stdin (02 §8.8) : `--init` n'est pas nécessaire.
@@ -639,10 +639,10 @@ Le workflow réutilisable `publish-oci`, déclaré dans `publish-jobs`, s'exécu
 2. Extraction vers `packaging/oci/prebuilt/{amd64,arm64}/mcp-legifrance`.
 3. `docker buildx build --platform linux/amd64,linux/arm64 --build-arg BIN_STAGE=bin-prebuilt --build-arg VERSION=… --build-arg REVISION=… -f packaging/oci/Dockerfile -t ghcr.io/muchiny/mcp-legifrance:<X.Y.Z> -t …:<X.Y> --push .`. Aucune étape `RUN` dans le chemin « prebuilt » : l'émulation QEMU est inutile.
 4. Contrôles après publication, par lecture anonyme du manifeste : label `io.modelcontextprotocol.server.name` présent sur **chaque** plateforme, utilisateur 65532, taille. Test fumée `docker run -i --rm` avec la requête du §4.5.
-5. Attestation de provenance de l'image, avec l'attestation stockée dans le registre [v:sbom-provenance-outils]. Signature cosign sans clé en option.
+5. Attestation de provenance de l'image, avec l'attestation stockée dans le registre [V-171 · sbom-provenance-outils]. Signature cosign sans clé en option.
 6. Le tag `latest` n'est posé que pour une version stable. Un tag de version n'est **jamais** republié.
 
-**Visibilité** : un paquet GHCR nouvellement créé peut être privé par défaut. Il faut le rendre public une fois, à la main, avant la première publication au registre MCP, car la validation se fait en anonyme (`oci.go:96`, `:117-118`). Ce comportement par défaut est **NON VÉRIFIÉ** [v:ghcr-visibilite].
+**Visibilité** : un paquet GHCR nouvellement créé peut être privé par défaut. Il faut le rendre public une fois, à la main, avant la première publication au registre MCP, car la validation se fait en anonyme (`oci.go:96`, `:117-118`). Ce comportement par défaut est **NON VÉRIFIÉ** [V-205 · ghcr-visibilite].
 
 ### 5.4 Utilisation
 
@@ -668,7 +668,7 @@ docker run -i --rm \
 
 - **Nom** : `io.github.muchiny/mcp-legifrance` (00 §12). Il dépend de Q1 pour le propriétaire GitHub, pas pour le dépôt : l'authentification GitHub accorde `io.github.<utilisateur>/*`, quel que soit le dépôt (`registry/docs/modelcontextprotocol-io/authentication.mdx:12-18`, `:50-54`). Format : DNS inversé, un seul `/`, motif `^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$` (recherche 06 §9.1).
 - **Renommage du dépôt (Q1)** : la proposition adoptée par défaut le fait avant le premier commit de M0 si l'utilisateur a répondu, sinon après le démarrage de M0 sous le nom actuel, redirection GitHub vérifiée (00 §13, T-M0-02) ; en tout cas, **avant la première publication**. Les versions publiées sont immuables et leurs URL MCPB pointeraient sinon vers l'ancien nom. GitHub redirige, et le validateur MCPB accepte une redirection 3xx avec `Location` au premier saut (`mcpb.go:84-91`), mais les clients ne suivent pas forcément cette redirection : mieux vaut ne pas en dépendre.
-- **`repository.id`** : l'identifiant GitHub du dépôt, stable lors d'un renommage. Il sert à détecter la « résurrection » d'un dépôt supprimé puis recréé (`server.schema.json`, `Repository.id` ; `gh api repos/muchiny/mcp-ligitfrance --jq .id`).
+- **`repository.id`** : l'identifiant GitHub du dépôt, stable lors d'un renommage. Il sert à détecter la « résurrection » d'un dépôt supprimé puis recréé (`server.schema.json`, `Repository.id` ; `gh api repos/muchiny/mcp-legifrance --jq .id`).
 
 ### 6.2 `server.json` proposé
 
@@ -681,16 +681,16 @@ Le fichier est versionné à la racine (02 §2). Le `fileSha256` provisoire (64 
   "title": "Légifrance (unofficial)",
   "description": "Unofficial MCP server for French law via the Légifrance API (PISTE): search, read and cite texts.",
   "version": "0.1.0",
-  "websiteUrl": "https://github.com/muchiny/mcp-ligitfrance#readme",
+  "websiteUrl": "https://github.com/muchiny/mcp-legifrance#readme",
   "repository": {
-    "url": "https://github.com/muchiny/mcp-ligitfrance",
+    "url": "https://github.com/muchiny/mcp-legifrance",
     "source": "github",
-    "id": "<gh api repos/muchiny/mcp-ligitfrance --jq .id>"
+    "id": "<gh api repos/muchiny/mcp-legifrance --jq .id>"
   },
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/muchiny/mcp-ligitfrance/releases/download/v0.1.0/mcp-legifrance-0.1.0.mcpb",
+      "identifier": "https://github.com/muchiny/mcp-legifrance/releases/download/v0.1.0/mcp-legifrance-0.1.0.mcpb",
       "version": "0.1.0",
       "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "transport": { "type": "stdio" },
@@ -722,7 +722,7 @@ Justification champ par champ :
 | `version` | égale à `[workspace.package] version`, au verrou, au manifeste MCPB et à `serverInfo.version` | unique et **immuable** une fois publiée (`versioning.mdx:32`) ; égalité exigée par la recherche 06 §8.3 et 05 §9.4 ; corrige D-37 et E-09 |
 | `packages[mcpb]` | URL d'asset `…/releases/download/<tag>/<fichier>`, `fileSha256`, **pas** de `registryBaseUrl` | `mcpb.go:20-55` (HTTPS, hôte `github.com`, chemin de release, « mcp » dans l'URL, asset accessible par HEAD), `:122-129` |
 | `packages[oci]` | tag de version dans `identifier`, **pas** de champ `version`, ni `registryBaseUrl`, ni `fileSha256` | `oci.go:56-73` (un champ `version` est rejeté) ; VS Code ajoute `:version` à l'identifiant si `version` est présent (`mcpManagementService.ts:147-153`), cohérent avec l'interdiction |
-| `packages[cargo]` | **absent en v0.x** (00 §12, Q13). S'il est ajouté au réexamen de v1.0.0 : `identifier` = nom du crate (`mcp-legifrance`), `version` obligatoire, **pas** de `fileSha256`, `registryBaseUrl` = `https://crates.io` | `cargo.go:61-87` ; pas de `runtimeHint` (`package-types.mdx`, section Cargo) ; acceptation en production : **NON VÉRIFIÉE** [v:registre-mcp-cargo] |
+| `packages[cargo]` | **absent en v0.x** (00 §12, Q13). S'il est ajouté au réexamen de v1.0.0 : `identifier` = nom du crate (`mcp-legifrance`), `version` obligatoire, **pas** de `fileSha256`, `registryBaseUrl` = `https://crates.io` | `cargo.go:61-87` ; pas de `runtimeHint` (`package-types.mdx`, section Cargo) ; acceptation en production : **NON VÉRIFIÉE** [V-172 · registre-mcp-cargo] |
 | `environmentVariables` | les deux identifiants `isRequired` + `isSecret` ; `LF_PISTE_ENV` avec `choices` et `default` | 00 §12 ; définition `Input` de `server.schema.json` (`isSecret`, `choices`, `default`) ; absent de la référence (recherche 06 §9.2) |
 | variables non déclarées | `LF_AUDIT_*`, `LF_LOG`, délais, surcharges d'URL, réglages avancés (`LF_PISTE_RPS`, `LF_PISTE_BURST`, `LF_PISTE_CONCURRENCY`, `LF_PISTE_MOJIBAKE_REPAIR`), compatibilité `FR_ELI_*` | documentées dans le README et affichées par `check-config` ; les déclarer imposerait aux clients des invites inutiles. Les quatre réglages avancés sont inscrits dans 00 §1 (révision 2, AM-05), qui les exclut expressément de `server.json` et du manifeste MCPB (00 §12) |
 | `remotes` | absent | pas de service hébergé ; un mode distant dépend de Q4 (M8) |
@@ -743,7 +743,7 @@ Justification champ par champ :
 **v0.x : `cargo install --git` (00 §12, adopté par défaut, Q13).** Le README documente :
 
 ```sh
-# <dépôt> : muchiny/mcp-ligitfrance aujourd'hui, nom renommé une fois Q1 tranchée (00 §12-§13)
+# <dépôt> : muchiny/mcp-legifrance (renommé le 2026-10-16, 00 §0)
 cargo install --git https://github.com/<dépôt> --tag vX.Y.Z --locked mcp-legifrance
 ```
 
@@ -769,11 +769,11 @@ Le test `readme_mentions_only_supported_env_vars` (D-42, 06) s'applique, lui, d�
 
 **Publication des crates (réexamen à v1.0.0).** crates.io n'accepte pas de dépendance `path` seule, hors dev-dependencies (doc Cargo `specifying-dependencies.md`, « Multiple locations »). Un `cargo install mcp-legifrance` depuis crates.io exigerait donc de publier **les sept crates** `lf-domain`, `lf-application`, `lf-adapter-piste`, `lf-adapter-cache`, `lf-adapter-audit`, `lf-adapter-mcp` et `mcp-legifrance`. 02 §3.0.2 garde pour cela `version = "=X.Y.Z"` sur les dépendances internes, qui suit la version du workspace à chaque release (§7.3). Faits et conditions :
 - Ces noms (`lf-app` compris) sont **absents** de l'index sparse crates.io au 2026-10-15 (réponse 404 pour chaque chemin, contrôle fait avec `rmcp` et `serde` qui répondent 200). Ils peuvent être pris d'ici une éventuelle publication ; leur disponibilité est revérifiée en M0 et au réexamen (Q1, Q13).
-- Ordre topologique : `cargo publish --workspace`, qui gère l'ordre des dépendances internes avec la toolchain épinglée, est **NON VÉRIFIÉ** [v:cargo-publish-workspace]. À défaut, une boucle ordonnée de `cargo publish -p`.
-- Limites de débit de crates.io pour la création de nouveaux crates (sept d'un coup) : **NON VÉRIFIÉ** [v:crates-io-limites-publication]. Le job réessaierait avec attente, ou la première version publiée le serait à la main.
-- Authentification : publication de confiance (OIDC GitHub) si crates.io la propose, sinon jeton `CARGO_REGISTRY_TOKEN` restreint à la publication et stocké dans l'environnement `release` : **NON VÉRIFIÉ** [v:crates-io-trusted-publishing].
+- Ordre topologique : `cargo publish --workspace`, qui gère l'ordre des dépendances internes avec la toolchain épinglée, est **NON VÉRIFIÉ** [V-207 · cargo-publish-workspace]. À défaut, une boucle ordonnée de `cargo publish -p`.
+- Limites de débit de crates.io pour la création de nouveaux crates (sept d'un coup) : **NON VÉRIFIÉ** [V-208 · crates-io-limites-publication]. Le job réessaierait avec attente, ou la première version publiée le serait à la main.
+- Authentification : publication de confiance (OIDC GitHub) si crates.io la propose, sinon jeton `CARGO_REGISTRY_TOKEN` restreint à la publication et stocké dans l'environnement `release` : **NON VÉRIFIÉ** [V-209 · crates-io-trusted-publishing].
 - Les crates bibliothèques ne promettraient aucune stabilité d'API (`description` explicite, §2.3). Seul le binaire et sa surface MCP suivent la politique SemVer du §7.1. C'est le coût que le réexamen doit peser : des API internes deviendraient, de fait, des engagements semver publics (00 §14, AM-33).
-- L'acceptation en production d'un paquet `registryType: "cargo"` par le registre MCP, et sa lecture du jeton dans le README rendu, sont **NON VÉRIFIÉES** [v:registre-mcp-cargo].
+- L'acceptation en production d'un paquet `registryType: "cargo"` par le registre MCP, et sa lecture du jeton dans le README rendu, sont **NON VÉRIFIÉES** [V-172 · registre-mcp-cargo].
 - Si la publication est retenue, elle ajoute le job `publish-crates` (§2.2, §7.4), le secret ou l'OIDC crates.io (§7.7), l'entrée `cargo` de `server.json` (§6.2) et le jeton du README ; d'ici là, le README ne documente que `cargo install --git`.
 
 ### 6.5 Publication (job `publish-mcp-registry`)
@@ -801,7 +801,7 @@ Le workflow réutilisable est déclaré dans `post-announce-jobs` : il s'exécut
 | Client | Types de paquets installables depuis le registre | Source |
 |---|---|---|
 | VS Code (galerie MCP) | `npm`, `pypi`, `oci`, `nuget`, serveurs distants ; **ni `mcpb` ni `cargo`** | `vscode/src/vs/platform/mcp/common/mcpGalleryService.ts:79-95`, `mcpManagementService.ts:135-193` (lus) |
-| Claude Desktop | `.mcpb` (installation en un clic) | recherche 06 §9.2 ; installation depuis le registre **NON VÉRIFIÉE** [v:desktop-structured-content] |
+| Claude Desktop | `.mcpb` (installation en un clic) | recherche 06 §9.2 ; installation depuis le registre **NON VÉRIFIÉE** [V-51 · desktop-structured-content] |
 | Autres agrégateurs | selon leur implémentation | — |
 
 Le paquet `oci` est donc la seule voie d'installation par la galerie de VS Code. VS Code transforme chaque `environmentVariables` en invite (secrète si `isSecret`) et en argument `-e NOM` (`mcpManagementService.ts:121-131`).
@@ -835,7 +835,7 @@ La politique de version ne dépend pas des jalons : M5 → v0.1.0, M6 → v0.2.0
   - **`Tool surface`** : chaque changement de descripteurs, d'instructions ou de prompts, même un simple correctif, puisque les clients qui épinglent les définitions redemandent alors une approbation (05 §9.5) ;
   - **`Parity`** : divergences volontaires avec la référence ([annexes/A-parite.md](annexes/A-parite.md)) ;
   - **`Migration`**, pour v0.1.0 : la note de migration d'[annexes/A-parite.md](annexes/A-parite.md) §6 (variables `FR_ELI_*` → `LF_*`, nouveau binaire, nouveau nom de registre, plus de cache disque), également reprise dans le README.
-- dist construit le titre et le corps de la release GitHub à partir du CHANGELOG (`reference/config.md:1259-1279`). Le format exact de titre de section qu'il reconnaît est **NON VÉRIFIÉ** [v:cargo-dist-changelog-format] ; à confirmer au premier `dist plan` d'un tag de test.
+- dist construit le titre et le corps de la release GitHub à partir du CHANGELOG (`reference/config.md:1259-1279`). Le format exact de titre de section qu'il reconnaît est **NON VÉRIFIÉ** [V-210 · cargo-dist-changelog-format] ; à confirmer au premier `dist plan` d'un tag de test.
 
 ### 7.3 Préparer une release
 
@@ -936,7 +936,7 @@ jobs:
         run: ./.github/scripts/install-mcp-publisher.sh 1.8.1 && mcp-publisher validate server.json
       - name: Canal cargo install --git (Q13) — mêmes sources et même Cargo.lock que le tag
         run: cargo install --path crates/lf-app --locked --root "$RUNNER_TEMP/cargo-install"
-      # v1.0.0, si la publication crates.io est retenue : cargo publish --workspace --dry-run --locked [v:cargo-publish-workspace]
+      # v1.0.0, si la publication crates.io est retenue : cargo publish --workspace --dry-run --locked [V-207 · cargo-publish-workspace]
 ```
 
 Ces vérifications reprennent la CI de [06-qualite.md](06-qualite.md) sur le commit tagué. Le job `release-plan` de 06 §7.1 exécute `dist plan` sur les PR qui touchent la distribution ; `release-gates` en est le pendant au moment du tag. Elles ajoutent les contrôles propres à la release : tag, versions (dont les exigences internes, par `check-deps`), `--compare`, CHANGELOG, variables du README, licences tierces, `server.json`, installation par `cargo install --locked`. `cargo install --path` lit la configuration locale du dépôt, contrairement à `--git` (`cargo help install`, « Configuration Discovery ») ; c'est sans effet ici, `.cargo/config.toml` ne posant aucun `rustflags` (§1.2).
@@ -951,7 +951,7 @@ Ces vérifications reprennent la CI de [06-qualite.md](06-qualite.md) sur le com
 | `publish-mcp-registry` | release et image publiques | `workflow_dispatch` (§6.5) |
 | défaut découvert après publication | tout est public et immuable | version corrective ; `status deprecated` au registre ; README mis à jour pour `cargo install --git` (nouveau tag) ; note au CHANGELOG |
 
-L'ajout d'assets à une release déjà publiée peut être interdit si l'option de releases immuables de GitHub est activée : **NON VÉRIFIÉ** [v:github-releases-immuables]. C'est pourquoi le MCPB et le `server.json` final sont produits **avant** `host` (§4.5) et jamais ajoutés après coup.
+L'ajout d'assets à une release déjà publiée peut être interdit si l'option de releases immuables de GitHub est activée : **NON VÉRIFIÉ** [V-211 · github-releases-immuables]. C'est pourquoi le MCPB et le `server.json` final sont produits **avant** `host` (§4.5) et jamais ajoutés après coup.
 
 ### 7.7 Secrets et environnements
 
@@ -985,12 +985,12 @@ L'environnement `release` n'accepte que les tags `v*`, avec relecteur obligatoir
 | Mécanisme | Stockage du secret | Recommandation |
 |---|---|---|
 | MCPB `user_config` `sensitive` | stockage sécurisé du client (`MANIFEST.md:572`) | **préféré** (Claude Desktop) |
-| VS Code `inputs` `promptString` + `password: true` | demandé à l'utilisateur et conservé par VS Code (stockage exact **NON VÉRIFIÉ** [v:syntaxe-config-clients]) | **préféré** (VS Code) |
+| VS Code `inputs` `promptString` + `password: true` | demandé à l'utilisateur et conservé par VS Code (stockage exact **NON VÉRIFIÉ** [V-212 · syntaxe-config-clients]) | **préféré** (VS Code) |
 | `${VAR}` dans `.mcp.json` (Claude Code) | variable d'environnement du shell, alimentée par un gestionnaire de secrets | recommandé (Claude Code) |
 | bloc `env` en clair dans un fichier de configuration | **en clair sur disque** | à éviter ; sinon permissions restreintes sur le fichier, jamais versionné |
 | argument de ligne de commande | visible dans `ps` | **interdit** (02 §8.1) |
 
-La syntaxe exacte des options de ligne de commande des clients et l'emplacement de leurs fichiers, quand ils ne sont pas cités ci-dessous depuis le code ou le changelog lus, sont **NON VÉRIFIÉS** [v:syntaxe-config-clients].
+La syntaxe exacte des options de ligne de commande des clients et l'emplacement de leurs fichiers, quand ils ne sont pas cités ci-dessous depuis le code ou le changelog lus, sont **NON VÉRIFIÉS** [V-212 · syntaxe-config-clients].
 
 ### 8.2 Claude Code
 
@@ -1016,7 +1016,7 @@ Fichier de projet `.mcp.json`, avec des valeurs prises dans l'environnement. Cla
 En ligne de commande, `claude mcp add <nom> -- <commande>` (forme attestée, CHANGELOG `:205`) ou `claude mcp add-json <nom> '<json>'` (CHANGELOG `:9043`) :
 
 ```sh
-# Esquisse ; options --transport/--scope/--env : [v:syntaxe-config-clients]
+# Esquisse ; options --transport/--scope/--env : [V-212 · syntaxe-config-clients]
 claude mcp add --transport stdio --scope user legifrance -- "$HOME/.mcp-legifrance/bin/mcp-legifrance" serve
 claude mcp add-json legifrance '{"type":"stdio","command":"/home/alice/.mcp-legifrance/bin/mcp-legifrance","args":["serve"],"env":{"LF_PISTE_CLIENT_ID":"${LF_PISTE_CLIENT_ID}","LF_PISTE_CLIENT_SECRET":"${LF_PISTE_CLIENT_SECRET}"}}'
 ```
@@ -1024,12 +1024,12 @@ claude mcp add-json legifrance '{"type":"stdio","command":"/home/alice/.mcp-legi
 - Vérification : `claude mcp list`, puis `/mcp` en session.
 - Claude Code sonde `server/discover` (ère 2026-07-28). En cas de problème, `MCP_PROTOCOL_NEGOTIATION=legacy` force l'ancienne ère (05 §10.2).
 - Les serveurs déjà configurés dans Claude Desktop s'importent par `claude mcp add-from-claude-desktop` (CHANGELOG `:9042`).
-- Le délai de démarrage (`MCP_TIMEOUT`) n'est pas un enjeu : le serveur répond sans réseau (00 §6). Pour les délais d'appel d'outil, voir 05 et [v:delai-clients-mcp].
+- Le délai de démarrage (`MCP_TIMEOUT`) n'est pas un enjeu : le serveur répond sans réseau (00 §6). Pour les délais d'appel d'outil, voir 05 et [V-55 · delai-clients-mcp].
 
 ### 8.3 Claude Desktop
 
-- **MCPB, voie recommandée** : double-cliquer sur `mcp-legifrance-<version>.mcpb` ou le glisser dans les réglages d'extensions. Claude Desktop demande les trois `user_config` (§4.3). Ce que Claude Desktop transmet au modèle reste **NON VÉRIFIÉ** [v:desktop-structured-content] (05 §10.2).
-- **Configuration manuelle** (`claude_desktop_config.json` ; emplacement habituel `~/Library/Application Support/Claude/` sous macOS et `%APPDATA%\Claude\` sous Windows, **NON VÉRIFIÉ** [v:syntaxe-config-clients]) :
+- **MCPB, voie recommandée** : double-cliquer sur `mcp-legifrance-<version>.mcpb` ou le glisser dans les réglages d'extensions. Claude Desktop demande les trois `user_config` (§4.3). Ce que Claude Desktop transmet au modèle reste **NON VÉRIFIÉ** [V-51 · desktop-structured-content] (05 §10.2).
+- **Configuration manuelle** (`claude_desktop_config.json` ; emplacement habituel `~/Library/Application Support/Claude/` sous macOS et `%APPDATA%\Claude\` sous Windows, **NON VÉRIFIÉ** [V-212 · syntaxe-config-clients]) :
 
 ```json
 {
@@ -1074,13 +1074,13 @@ Faits lus dans le code de VS Code (`main`, 2026-10-15) : `.vscode/mcp.json` acce
 }
 ```
 
-- Alternative : `"envFile": "${workspaceFolder}/.env.legifrance"`, fichier ignoré par git. Le champ `envFile` est attesté par le code ; la variable `${workspaceFolder}` dans ce fichier est **NON VÉRIFIÉE** [v:syntaxe-config-clients].
-- VS Code ne parle que l'ère legacy (`initialize` 2025-11-25), ce que le serveur dual-era sert (00 §6). `readOnlyHint: true` évite la confirmation avant exécution, et `openWorldHint: true` déclenche une confirmation des résultats dont l'interface est **NON VÉRIFIÉE** [v:vscode-openworld-confirm] (05 §10.2). `true` est la valeur adoptée par défaut (parité P-002, contenu externe traité comme non fiable ; 00 §6, Q11) ; elle est réexaminée avant v0.1.0 au vu de V-53, et tout changement passe par le verrou des descripteurs et le CHANGELOG (section `Tool surface`, §7.2). La section VS Code du README décrit cette étape de confirmation une fois V-53 mesurée.
+- Alternative : `"envFile": "${workspaceFolder}/.env.legifrance"`, fichier ignoré par git. Le champ `envFile` est attesté par le code ; la variable `${workspaceFolder}` dans ce fichier est **NON VÉRIFIÉE** [V-212 · syntaxe-config-clients].
+- VS Code ne parle que l'ère legacy (`initialize` 2025-11-25), ce que le serveur dual-era sert (00 §6). `readOnlyHint: true` évite la confirmation avant exécution, et `openWorldHint: true` déclenche une confirmation des résultats dont l'interface est **NON VÉRIFIÉE** [V-53 · vscode-openworld-confirm] (05 §10.2). `true` est la valeur adoptée par défaut (parité P-002, contenu externe traité comme non fiable ; 00 §6, Q11) ; elle est réexaminée avant v0.1.0 au vu de V-53, et tout changement passe par le verrou des descripteurs et le CHANGELOG (section `Tool surface`, §7.2). La section VS Code du README décrit cette étape de confirmation une fois V-53 mesurée.
 - Installation depuis la galerie MCP : seul le paquet `oci` est installable (§6.7). VS Code génère alors `docker run -i --rm -e LF_PISTE_CLIENT_ID … ghcr.io/muchiny/mcp-legifrance:<version>`.
 
 ### 8.5 Cursor
 
-Fichier `~/.cursor/mcp.json` (global) ou `.cursor/mcp.json` (projet), au format `mcpServers` avec `command`, `args` et `env`. Format et interpolation **NON VÉRIFIÉS** [v:syntaxe-config-clients] ; ère et contenu transmis **NON VÉRIFIÉS** [v:cursor-ere-et-contenu] (05 §10.2).
+Fichier `~/.cursor/mcp.json` (global) ou `.cursor/mcp.json` (projet), au format `mcpServers` avec `command`, `args` et `env`. Format et interpolation **NON VÉRIFIÉS** [V-212 · syntaxe-config-clients] ; ère et contenu transmis **NON VÉRIFIÉS** [V-52 · cursor-ere-et-contenu] (05 §10.2).
 
 ```json
 { "mcpServers": { "legifrance": { "command": "/home/alice/.mcp-legifrance/bin/mcp-legifrance", "args": ["serve"],
@@ -1112,15 +1112,15 @@ Le client pose les variables sur le processus `docker`, qui les transmet par `-e
 - Après l'installeur, **redémarrer** le client (PATH mis à jour dans `HKCU:\Environment`), ou utiliser le chemin absolu.
 - **Smart App Control** : sans signature, le binaire est bloqué (§3.2) ; utiliser la variante Docker ou WSL, et ne jamais désactiver Smart App Control.
 - `setx LF_PISTE_CLIENT_SECRET …` écrit le secret en clair dans le registre utilisateur et dans l'historique PowerShell : préférer les invites VS Code ou le MCPB.
-- Les répertoires de données par défaut sous Windows (`LF_AUDIT_DIR` = `dirs::data_dir()`, typiquement `%APPDATA%`) sont **NON VÉRIFIÉS** [v:chemin-donnees-plateforme]. `check-config` affiche le chemin effectif.
-- L'arrêt sous Windows (fermeture de stdin, événements console) est **NON VÉRIFIÉ** [v:arret-windows] (02 §8.8).
+- Les répertoires de données par défaut sous Windows (`LF_AUDIT_DIR` = `dirs::data_dir()`, typiquement `%APPDATA%`) sont **NON VÉRIFIÉS** [V-167 · chemin-donnees-plateforme]. `check-config` affiche le chemin effectif.
+- L'arrêt sous Windows (fermeture de stdin, événements console) est **NON VÉRIFIÉ** [V-168 · arret-windows] (02 §8.8).
 
 ### 8.8 Passage en production
 
 1. Créer une application PISTE **de production** et y souscrire l'API Légifrance : les identifiants sandbox ne sont pas valables en production (recherche 05 §3.2).
 2. `LF_PISTE_ENV=production` et les nouveaux identifiants.
 3. `mcp-legifrance check-config --online`.
-4. `fr_coverage` affiche `production`. Les URL de production restent **NON VÉRIFIÉES** [v:oauth-production-live] tant qu'une sonde de production n'a pas tourné. Selon la politique adoptée par défaut (00 §10, Q3), ces sondes en lecture seule sont lancées à la main par le mainteneur avant chaque étiquette (≤ 1 requête/s, §7.3), jamais en CI.
+4. `fr_coverage` affiche `production`. Les URL de production restent **NON VÉRIFIÉES** [V-59 · oauth-production-live] tant qu'une sonde de production n'a pas tourné. Selon la politique adoptée par défaut (00 §10, Q3), ces sondes en lecture seule sont lancées à la main par le mainteneur avant chaque étiquette (≤ 1 requête/s, §7.3), jamais en CI.
 
 ---
 
@@ -1136,7 +1136,7 @@ Le client pose les variables sur le processus `docker`, qui les transmet par `-e
 
 ### 9.2 Fichier `NOTICE` proposé
 
-Le `LICENSE` de la référence ne porte aucune ligne de copyright (gabarit de l'annexe non rempli), et la référence n'a pas de `NOTICE`. Ses auteurs déclarés sont « Matematic Solutions » et « Wieslaw Mazur » (`pyproject.toml:12-15` ; auteur du commit `d3b5b13`). Le titulaire exact des droits est **NON VÉRIFIÉ** [v:titulaire-droits-reference].
+Le `LICENSE` de la référence ne porte aucune ligne de copyright (gabarit de l'annexe non rempli), et la référence n'a pas de `NOTICE`. Ses auteurs déclarés sont « Matematic Solutions » et « Wieslaw Mazur » (`pyproject.toml:12-15` ; auteur du commit `d3b5b13`). Le titulaire exact des droits est **NON VÉRIFIÉ** [V-214 · titulaire-droits-reference].
 
 ```text
 mcp-legifrance
@@ -1176,7 +1176,7 @@ Règles associées :
 
 ### 9.3 Licences tierces
 
-- `cargo deny check licenses` refuse toute licence hors liste blanche. La liste fait foi dans [06-qualite.md](06-qualite.md) §9.1-§9.2 : licences permissives (`Apache-2.0`, `Apache-2.0 WITH LLVM-exception`, `MIT`, `BSD-2-Clause`, `BSD-3-Clause`, `ISC`, `Zlib`, `BSL-1.0`, `CC0-1.0`, `Unicode-3.0`, `Unicode-DFS-2016`), plus des **exceptions nominatives** pour `MPL-2.0` (`option-ext`), `OpenSSL` (`aws-lc-sys`, si aws-lc est retenu) et `CDLA-Permissive-2.0` (racines de certificats). Les licences réelles du graphe sont **NON VÉRIFIÉES** [v:licences-graphe-m0] (étiquette de 06) et dépendent du fournisseur TLS ([v:tls-fournisseur-cross]). Toute licence GPL, LGPL ou AGPL est refusée.
+- `cargo deny check licenses` refuse toute licence hors liste blanche. La liste fait foi dans [06-qualite.md](06-qualite.md) §9.1-§9.2 : licences permissives (`Apache-2.0`, `Apache-2.0 WITH LLVM-exception`, `MIT`, `BSD-2-Clause`, `BSD-3-Clause`, `ISC`, `Zlib`, `BSL-1.0`, `CC0-1.0`, `Unicode-3.0`, `Unicode-DFS-2016`), plus des **exceptions nominatives** pour `MPL-2.0` (`option-ext`), `OpenSSL` (`aws-lc-sys`, si aws-lc est retenu) et `CDLA-Permissive-2.0` (racines de certificats). Les licences réelles du graphe sont **NON VÉRIFIÉES** [V-25 · licences-graphe-m0] (étiquette de 06) et dépendent du fournisseur TLS ([V-02 · tls-fournisseur-cross]). Toute licence GPL, LGPL ou AGPL est refusée.
 - **`THIRD_PARTY_LICENSES.md`** est généré par `cargo about` (dernière version 0.9.2, 2026-08-18, MSRV 1.88, index crates.io), à partir de `about.toml` (même liste blanche) et `about.hbs`. Il est versionné, et `release-gates` vérifie qu'il est à jour (§7.5). Les licences MIT et BSD exigent de reproduire leur notice avec les copies du logiciel ; la pratique courante l'applique aussi aux binaires liés statiquement, ce que fait ce fichier.
 
 ### 9.4 Politique AGPL : les idées seulement
@@ -1195,15 +1195,15 @@ Projets concernés (recherche 05 §0) : **juridix** (`Ktulu-Analog/juridix`, cli
   - `fr_coverage` et les instructions serveur portent « Source : Légifrance / DILA — Licence Ouverte 2.0 » et la date de consultation (date du jour, Europe/Paris). 05 en fixe la forme : champs `attribution` et `consulted_on` de `fr_coverage` (05 §5.8) ; les instructions, texte statique verrouillé, portent la mention et renvoient à `consulted_on` (05 §4.1, §4.3 règle 5 ; interprétation signalée par 05 §13.1, point 14, à confirmer avec Q15) ;
   - le README et `NOTICE` rappellent la source, la licence et la règle de la date (§9.2) ;
   - `source_url` sur chaque entité citable (00 §4) ;
-  - un champ `last_update?` par document n'est ajouté (classe « ajout ») que lorsqu'un champ fiable de l'API est identifié : `modifDate`, `dateMaj`, `lastUpdate` ou `refInjection` restent **NON VÉRIFIÉS** [v:date-maj-par-document] (V-108 ; D-45). Qu'une mention globale suffise à la Licence Ouverte, sans mention dans chaque réponse, est **NON VÉRIFIÉ** [v:attribution-licence-ouverte] (V-177).
+  - un champ `last_update?` par document n'est ajouté (classe « ajout ») que lorsqu'un champ fiable de l'API est identifié : `modifDate`, `dateMaj`, `lastUpdate` ou `refInjection` restent **NON VÉRIFIÉS** [V-108 · date-maj-par-document] (V-108 ; D-45). Qu'une mention globale suffise à la Licence Ouverte, sans mention dans chaque réponse, est **NON VÉRIFIÉ** [V-177 · attribution-licence-ouverte] (V-177).
 - **Opposabilité** : « seul[s] les PDF signés publiés au Journal officiel de la République Française sont opposables » (CGU l.289-316, recherche 05 §4.2). La mention figure dans le README, le `NOTICE` et la description longue du MCPB. Sa place dans les instructions du serveur, limitées à 3 500 caractères, relève de 05.
 - **Pseudonymisation** : les décisions judiciaires sont diffusées pseudonymisées et les délibérations CNIL occultées (D-45). Le README le signale.
-- **M9 (dumps DILA)** : l'index local construit à partir des dumps n'est pas redistribué en v1.0.0. S'il l'était un jour, il serait soumis à la même attribution. La licence exacte de chaque fonds est **NON VÉRIFIÉE** [v:dila-licence-par-fonds], et les obligations liées à `dereferenced` et `inap` **NON VÉRIFIÉES** [v:dereferenced-inap-obligation].
+- **M9 (dumps DILA)** : l'index local construit à partir des dumps n'est pas redistribué en v1.0.0. S'il l'était un jour, il serait soumis à la même attribution. La licence exacte de chaque fonds est **NON VÉRIFIÉE** [V-189 · dila-licence-par-fonds], et les obligations liées à `dereferenced` et `inap` **NON VÉRIFIÉES** [V-180 · dereferenced-inap-obligation].
 
 ### 9.6 Nom et image : « Légifrance »
 
 - « Légifrance » désigne le service public de diffusion du droit de la DILA. Le produit s'appelle `mcp-legifrance` (00 §1). Pour respecter la Licence Ouverte (pas d'aval suggéré) et éviter toute confusion : les titres affichés portent « (unofficial) » (`server.json.title`, `display_name` du MCPB) ; la description commence par « Unofficial » ; le README affiche la mention de non-affiliation en tête ; **aucun logo** Légifrance, Marianne ou charte de l'État (l'icône est propre au projet).
-- Le statut de marque éventuel de « Légifrance » et les conditions d'usage du nom sont **NON VÉRIFIÉS** [v:marque-legifrance], à traiter avec Q1, tranchée avant toute publication immuable (registre MCP, MCPB, crates.io, GHCR ; 00 §12-§13).
+- Le statut de marque éventuel de « Légifrance » et les conditions d'usage du nom sont **NON VÉRIFIÉS** [V-215 · marque-legifrance], à traiter avec Q1, tranchée avant toute publication immuable (registre MCP, MCPB, crates.io, GHCR ; 00 §12-§13).
 - **Homonymie** : le projet AGPL de Ktulu-Analog s'appelle déjà `mcp-legifrance` (recherche 05 §0). Les namespaces du registre (`io.github.muchiny/…`) et de GHCR évitent tout conflit technique, mais pas la confusion pour les utilisateurs : point ajouté à Q1 (§12.2).
 
 ### 9.7 CGU PISTE : clés et partage
@@ -1216,10 +1216,10 @@ Faits : les CGU API Légifrance v1.0 du 15/12/2022, l.171-183 et l.274-285, pré
 | Chaque utilisateur apporte **ses** identifiants | `environmentVariables` `isRequired` + `isSecret` ; `user_config` `sensitive` ; README « créer votre application PISTE » |
 | Identifiants du projet (tests live) | application sandbox dédiée, secrets d'environnement, jamais en release (§7.7) ; identifiants de production jamais en CI, sondes de production lancées à la main par le mainteneur (00 §10, Q3) |
 | Partage d'un serveur HTTP avec les clés de l'opérateur | **conditionné à Q4** : le profil distant de M8 n'est ni distribué ni documenté tant que Q4 n'est pas tranchée ; l'image OCI vise un usage **local** ; pas de `remotes[]` dans `server.json` |
-| Quotas par application | un utilisateur = son application, donc ses quotas ; les valeurs réelles restent **NON VÉRIFIÉES** [v:quota-piste-prod] |
+| Quotas par application | un utilisateur = son application, donc ses quotas ; les valeurs réelles restent **NON VÉRIFIÉES** [V-62 · quota-piste-prod] |
 | Compromission | procédure dans `SECURITY.md` (02 §2) : réinitialisation sur PISTE et signalement à la DILA et à l'AIFE |
 
-Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFIÉ** [v:cgu-piste-generales] (annexe C §1.7).
+Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFIÉ** [V-175 · cgu-piste-generales] (annexe C §1.7).
 
 ### 9.8 Données personnelles et `PRIVACY.md`
 
@@ -1237,7 +1237,7 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 **M0 — Fondations**
 
 - [ ] `dist init` exécuté ; `dist-workspace.toml` (§2.2) et `[profile.dist]` versionnés ; `dist plan` vert en PR.
-- [ ] Spike TLS : options A et B construites par dist pour les 7 cibles (`pr-run-mode = "upload"` temporaire) ; tailles mesurées ; choix consigné dans ADR-0013 ([v:tls-fournisseur-cross], [v:binaire-taille-memoire]).
+- [ ] Spike TLS : options A et B construites par dist pour les 7 cibles (`pr-run-mode = "upload"` temporaire) ; tailles mesurées ; choix consigné dans ADR-0013 ([V-02 · tls-fournisseur-cross], [V-18 · binaire-taille-memoire]).
 - [ ] `LICENSE`, `NOTICE` (§9.2), `PRIVACY.md`, `SECURITY.md`, `about.toml`, liste blanche cargo-deny (§9.3).
 - [ ] Q1 (nom du produit, du dépôt et du paquet) et Q2 (licence) : réponse de l'utilisateur consignée avant le premier commit de M0 (00 §13) ou, sans réponse à l'ouverture de M0, démarrage sous le nom actuel du dépôt avec les propositions adoptées par défaut ; renommage éventuel du dépôt ensuite, redirection GitHub vérifiée (T-M0-02), en tout cas avant toute publication immuable ; disponibilité des noms crates.io revérifiée (Q1, Q13).
 - [ ] `dist-workspace.toml` sans aucune ligne de signature active tant que Q5 n'est pas tranchée (§2.2) ; Q5 n'est pas un critère de sortie de M0 (échéance : avant v0.1.0, 00 §13).
@@ -1254,8 +1254,8 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 - [ ] Q5 (signature, notarisation, MCPB), Q13 (canal Cargo) et Q15 (attribution) ont une réponse de l'utilisateur, qui confirme ou remplace la proposition adoptée par défaut (00 §13, échéances avant v0.1.0) ; Q3 a sa réponse pour la production ; la réponse à Q11 (`openWorldHint`, 05) est reportée dans la documentation de VS Code (§8.4).
 - [ ] Release GitHub : 7 archives, `sha256.sum`, installeurs sh et ps1, archive source, `dist-manifest.json`, MCPB, `server.json` final ; attestations vérifiables par `gh attestation verify`.
 - [ ] Signatures selon Q5 (§3.8) : `Get-AuthenticodeSignature` = `Valid`, notarisation `Accepted` ; sinon avertissement en tête du README et des notes.
-- [ ] MCPB installé et utilisé dans Claude Desktop sous macOS et Windows ([v:mcpb-multi-architecture], [v:desktop-structured-content]).
-- [ ] Image `ghcr.io/muchiny/mcp-legifrance:0.1.0` multi-architecture, publique, non root, label présent sur chaque plateforme, test fumée en conteneur ([v:oci-racines-tls]).
+- [ ] MCPB installé et utilisé dans Claude Desktop sous macOS et Windows ([V-197 · mcpb-multi-architecture], [V-51 · desktop-structured-content]).
+- [ ] Image `ghcr.io/muchiny/mcp-legifrance:0.1.0` multi-architecture, publique, non root, label présent sur chaque plateforme, test fumée en conteneur ([V-204 · oci-racines-tls]).
 - [ ] `cargo install --git https://github.com/<dépôt> --tag v0.1.0 --locked mcp-legifrance` (nom du dépôt après Q1, 00 §12) fonctionne sur les trois OS (§6.4) ; aucun crate publié sur crates.io, aucune entrée `cargo` dans `server.json` (00 §12, Q13).
 - [ ] `server.json` publié au registre (paquets `mcpb` et `oci`) ; `mcp-publisher` sans erreur ; serveur visible sous son nom.
 - [ ] README : installation par canal (dont `cargo install --git`), configuration des clients (§8, testée au moins dans Claude Code et VS Code), variables (dont les réglages avancés et les avertissements « ignored » de 00 §1, §8.1), hôtes contactés, note de migration ([annexes/A-parite.md](annexes/A-parite.md) §6), attribution « Source : Légifrance / DILA — Licence Ouverte 2.0 » et règle de la date de consultation (§9.5, Q15), mentions de non-affiliation (§9.6) ; CHANGELOG `0.1.0`.
@@ -1270,8 +1270,8 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 
 **v1.0.0 (M9)**
 
-- [ ] Fonctionnalité `dila` dans les binaires publiés ; taille remesurée ; mode de téléchargement des dumps tel que tranché par 02 §3.9 reporté au §1.4 (par défaut, script hors binaire vers `echanges.dila.gouv.fr`, le binaire ne lisant qu'un répertoire local) ; volume d'index documenté pour l'image ; attribution Licence Ouverte des dumps ([v:dila-licence-par-fonds]).
-- [ ] Réexamen du canal Cargo (00 §12, Q13) : publication des crates sur crates.io ou maintien de `cargo install --git` ; si publication, job `publish-crates`, entrée `cargo` et jeton `mcp-name:` (§6.4), après [v:cargo-publish-workspace], [v:crates-io-limites-publication], [v:crates-io-trusted-publishing] et [v:registre-mcp-cargo].
+- [ ] Fonctionnalité `dila` dans les binaires publiés ; taille remesurée ; mode de téléchargement des dumps tel que tranché par 02 §3.9 reporté au §1.4 (par défaut, script hors binaire vers `echanges.dila.gouv.fr`, le binaire ne lisant qu'un répertoire local) ; volume d'index documenté pour l'image ; attribution Licence Ouverte des dumps ([V-189 · dila-licence-par-fonds]).
+- [ ] Réexamen du canal Cargo (00 §12, Q13) : publication des crates sur crates.io ou maintien de `cargo install --git` ; si publication, job `publish-crates`, entrée `cargo` et jeton `mcp-name:` (§6.4), après [V-207 · cargo-publish-workspace], [V-208 · crates-io-limites-publication], [V-209 · crates-io-trusted-publishing] et [V-172 · registre-mcp-cargo].
 
 ---
 
@@ -1279,53 +1279,53 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 
 | Étiquette | Vérification à faire |
 |---|---|
-| [v:tls-fournisseur-cross] | (reprise de 04) Exigences de compilation d'`aws-lc-sys` (cmake, NASM, clang) et de `ring` sur chaque runner dist, en musl, en msvc `+crt-static`, dans l'image de build Docker et chez un utilisateur de `cargo install` ; installation de `ring` avec reqwest 0.13. |
-| [v:binaire-taille-memoire] | (reprise de 06, V-18) Taille du binaire par cible et par fournisseur TLS ; taille du bundle MCPB à cinq binaires (spike M0). La mémoire résidente, mesurée en M5, relève de 06. |
-| [v:windows-arm64-emulation] | Le binaire x86_64 msvc fonctionne sous Windows 11 ARM64 par émulation, y compris lancé par un client MCP. |
-| [v:sac-signature-suffit] | Smart App Control laisse passer un `.exe` signé (Azure Artifact Signing, SSL.com) sans réputation préalable ; il bloque un binaire compilé localement ; Docker Desktop et WSL restent utilisables comme repli. |
-| [v:azure-artifact-signing-eligibilite] | Éligibilité (pays, personne physique ou morale), validation d'identité et coût d'Azure Artifact Signing ; coût d'un certificat EV SSL.com eSigner. |
-| [v:cargo-dist-macos-sign] | Fonctionnement de `macos-sign` (expérimental) dans dist 0.33.0 : transmission des variables `CODESIGN_*` aux jobs de build, prise en compte de `CODESIGN_OPTIONS=runtime`. |
-| [v:macos-notarisation-binaire-nu] | Notarisation d'un exécutable nu soumis en zip par `notarytool` ; impossibilité d'agrafer ; comportement de Gatekeeper en ligne et hors ligne au premier lancement. |
-| [v:rosetta-runner-ci] | Le runner GitHub `macos-14` (arm64) peut exécuter le binaire `x86_64-apple-darwin` sous Rosetta pour le test fumée ; sinon, test sur `macos-15-intel`. |
-| [v:mcpb-quarantaine-macos] | Les binaires extraits d'un MCPB par Claude Desktop portent-ils l'attribut de quarantaine (et déclenchent-ils Gatekeeper) ? |
-| [v:mcpb-multi-architecture] | Un bundle multi-plateforme avec lanceur POSIX (`entry_point` sans extension) et override `win32` vers un `.exe` explicite est accepté et lancé par Claude Desktop et par les plugins de Claude Code ; pas de double suffixe `.exe`. |
-| [v:lipo-signatures] | Un binaire universel produit par `lipo -create` à partir de deux binaires signés reste valide (`codesign --verify --strict`) et notarisable sans nouvelle signature. |
-| [v:mcpb-version-manifeste] | `manifest_version` 0.3 accepté par les versions courantes de Claude Desktop et de Claude Code. |
-| [v:mcpb-user-config-vide] | Valeur transmise dans `env` pour un `user_config` facultatif non renseigné (chaîne vide, absence, ou littéral `${user_config.x}`). |
-| [v:mcpb-signature-client] | Effet, dans Claude Desktop, d'un bundle non signé par `mcpb sign` (avertissement, blocage, rien). |
-| [v:desktop-linux] | Disponibilité de Claude Desktop sous Linux, donc utilité de la partie Linux du MCPB pour ce client. |
-| [v:url-politique-confidentialite-dila] | URL officielle de la politique de données personnelles DILA ou PISTE à citer dans `privacy_policies`. |
-| [v:images-oci-base] | Existence, tag et digest de `rust:1.99.0-slim-bookworm` et de `gcr.io/distroless/static-debian12:nonroot` ; contenu de distroless static (magasin CA, utilisateur 65532, `tzdata`, `HOME`). |
-| [v:oci-racines-tls] | `rustls-platform-verifier` trouve le magasin CA de l'image distroless avec un binaire musl statique (poignée de main TLS en conteneur). |
-| [v:ghcr-visibilite] | Visibilité par défaut d'un paquet GHCR créé par un workflow, et procédure pour le rendre public. |
-| [v:sbom-provenance-outils] | (reprise de 06, V-171 ; choix des outils fait aux §3.5-§3.6) Niveau SLSA et prédicat produits par `actions/attest@v4` ; entrées exactes pour attester une image OCI et stocker l'attestation dans GHCR. |
-| [v:mcp-publisher-checksums] | Nom du fichier de sommes (et des signatures cosign) des releases de `mcp-publisher` v1.8.1 ; politique de compatibilité d'audience OIDC. |
-| [v:cargo-publish-workspace] | (réexamen du canal Cargo à v1.0.0, Q13) `cargo publish --workspace` (et `--dry-run`) avec la toolchain 1.99 : ordre des dépendances internes `path` + `version`. |
-| [v:crates-io-limites-publication] | (réexamen à v1.0.0, Q13) Limites de débit de crates.io pour la création de sept nouveaux crates d'un coup. |
-| [v:crates-io-trusted-publishing] | (réexamen à v1.0.0, Q13) Publication de confiance (OIDC GitHub) sur crates.io : disponibilité, configuration, action officielle. |
-| [v:registre-mcp-cargo] | (reprise de 09, V-172 ; réexamen à v1.0.0, Q13) Acceptation en production d'un paquet `registryType: "cargo"` par le registre MCP et lecture du jeton `mcp-name:` dans le README rendu par crates.io. |
-| [v:cargo-dist-changelog-format] | Format de section du CHANGELOG reconnu par dist pour le titre et le corps de la release. |
-| [v:github-releases-immuables] | Effet de l'option de releases immuables de GitHub sur l'ajout d'assets après publication et sur `gh release create … artifacts/*`. |
-| [v:syntaxe-config-clients] | Options de `claude mcp add` (`--transport`, `--scope`, `--env`) ; emplacement de `claude_desktop_config.json` ; format de `~/.cursor/mcp.json` et interpolation ; stockage des `inputs` mot de passe dans VS Code. |
-| [v:licences-graphe-m0] | (reprise de 06) Licences réelles du graphe, dont `aws-lc-sys`, `aws-lc-rs`, `ring` et les racines de certificats, pour cargo-deny et `THIRD_PARTY_LICENSES.md`. |
-| [v:actions-versions-sha] | (reprise de 06) SHA des actions à épingler, y compris celles du workflow généré par dist (`actions/checkout@v6`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`, `actions/attest@v4`, `swatinem/rust-cache@v2`, `azure/login@v2`). |
-| [v:titulaire-droits-reference] | Titulaire exact du droit d'auteur de la référence Python (le `LICENSE` ne porte pas de ligne Copyright). |
-| [v:marque-legifrance] | Statut de marque de « Légifrance » et conditions d'usage du nom dans un nom de produit non officiel. |
-| [v:cargo-dist-emplacement-config] | (reprise de 02) Vérifié par lecture de `init.rs:284-333` (nouveau workspace → `dist-workspace.toml`) ; à confirmer au premier `dist init`. |
-| [v:reqwest-proxy-env] | (reprise de 04) Prise en compte de `HTTPS_PROXY` et `NO_PROXY` par le binaire. |
-| [v:oauth-production-live] | (reprise d'A-parite) URL OAuth et API de production. |
-| [v:chemin-donnees-plateforme] | (reprise de 02) Chemins de `dirs::data_dir()` par OS, et dans l'image OCI. |
-| [v:arret-windows] | (reprise de 02) Arrêt sous Windows. |
-| [v:desktop-structured-content] | (reprise de 05) Ère et contenu transmis par Claude Desktop ; installation depuis le registre. |
-| [v:cursor-ere-et-contenu] | (reprise de 05) Cursor. |
-| [v:vscode-openworld-confirm] | (reprise de 05) Confirmation des résultats dans VS Code avec `openWorldHint: true` ; mesure qui conditionne le réexamen de Q11 avant v0.1.0. |
-| [v:delai-clients-mcp] | (reprise) Délais d'appel d'outil des clients. |
-| [v:date-maj-par-document] | (reprise de l'annexe C) Champ fiable de « date de dernière mise à jour » (`modifDate`, `dateMaj`, `lastUpdate`, `refInjection`) qui permettrait d'ajouter `last_update?` par document (Q15). |
-| [v:attribution-licence-ouverte] | (reprise de 09, V-177) Une mention globale (`fr_coverage`, instructions, README, `NOTICE`) suffit-elle à l'attribution exigée par la Licence Ouverte 2.0, ou faut-il une mention dans chaque réponse ? |
-| [v:cgu-piste-generales] | (reprise de l'annexe C) CGU générales du portail PISTE. |
-| [v:quota-piste-prod] | (reprise) Quotas PISTE réels. |
-| [v:dila-licence-par-fonds] | (reprise de l'annexe C) Licence de chaque fonds DILA (M9). |
-| [v:dereferenced-inap-obligation] | (reprise de l'annexe C) Obligations attachées à `dereferenced` et `inap`. |
+| [V-02 · tls-fournisseur-cross] | (reprise de 04) Exigences de compilation d'`aws-lc-sys` (cmake, NASM, clang) et de `ring` sur chaque runner dist, en musl, en msvc `+crt-static`, dans l'image de build Docker et chez un utilisateur de `cargo install` ; installation de `ring` avec reqwest 0.13. |
+| [V-18 · binaire-taille-memoire] | (reprise de 06, V-18) Taille du binaire par cible et par fournisseur TLS ; taille du bundle MCPB à cinq binaires (spike M0). La mémoire résidente, mesurée en M5, relève de 06. |
+| [V-192 · windows-arm64-emulation] | Le binaire x86_64 msvc fonctionne sous Windows 11 ARM64 par émulation, y compris lancé par un client MCP. |
+| [V-173 · sac-signature-suffit] | Smart App Control laisse passer un `.exe` signé (Azure Artifact Signing, SSL.com) sans réputation préalable ; il bloque un binaire compilé localement ; Docker Desktop et WSL restent utilisables comme repli. |
+| [V-193 · azure-artifact-signing-eligibilite] | Éligibilité (pays, personne physique ou morale), validation d'identité et coût d'Azure Artifact Signing ; coût d'un certificat EV SSL.com eSigner. |
+| [V-194 · cargo-dist-macos-sign] | Fonctionnement de `macos-sign` (expérimental) dans dist 0.33.0 : transmission des variables `CODESIGN_*` aux jobs de build, prise en compte de `CODESIGN_OPTIONS=runtime`. |
+| [V-195 · macos-notarisation-binaire-nu] | Notarisation d'un exécutable nu soumis en zip par `notarytool` ; impossibilité d'agrafer ; comportement de Gatekeeper en ligne et hors ligne au premier lancement. |
+| [V-196 · rosetta-runner-ci] | Le runner GitHub `macos-14` (arm64) peut exécuter le binaire `x86_64-apple-darwin` sous Rosetta pour le test fumée ; sinon, test sur `macos-15-intel`. |
+| [V-174 · mcpb-quarantaine-macos] | Les binaires extraits d'un MCPB par Claude Desktop portent-ils l'attribut de quarantaine (et déclenchent-ils Gatekeeper) ? |
+| [V-197 · mcpb-multi-architecture] | Un bundle multi-plateforme avec lanceur POSIX (`entry_point` sans extension) et override `win32` vers un `.exe` explicite est accepté et lancé par Claude Desktop et par les plugins de Claude Code ; pas de double suffixe `.exe`. |
+| [V-198 · lipo-signatures] | Un binaire universel produit par `lipo -create` à partir de deux binaires signés reste valide (`codesign --verify --strict`) et notarisable sans nouvelle signature. |
+| [V-199 · mcpb-version-manifeste] | `manifest_version` 0.3 accepté par les versions courantes de Claude Desktop et de Claude Code. |
+| [V-200 · mcpb-user-config-vide] | Valeur transmise dans `env` pour un `user_config` facultatif non renseigné (chaîne vide, absence, ou littéral `${user_config.x}`). |
+| [V-201 · mcpb-signature-client] | Effet, dans Claude Desktop, d'un bundle non signé par `mcpb sign` (avertissement, blocage, rien). |
+| [V-202 · desktop-linux] | Disponibilité de Claude Desktop sous Linux, donc utilité de la partie Linux du MCPB pour ce client. |
+| [V-213 · url-politique-confidentialite-dila] | URL officielle de la politique de données personnelles DILA ou PISTE à citer dans `privacy_policies`. |
+| [V-203 · images-oci-base] | Existence, tag et digest de `rust:1.99.0-slim-bookworm` et de `gcr.io/distroless/static-debian12:nonroot` ; contenu de distroless static (magasin CA, utilisateur 65532, `tzdata`, `HOME`). |
+| [V-204 · oci-racines-tls] | `rustls-platform-verifier` trouve le magasin CA de l'image distroless avec un binaire musl statique (poignée de main TLS en conteneur). |
+| [V-205 · ghcr-visibilite] | Visibilité par défaut d'un paquet GHCR créé par un workflow, et procédure pour le rendre public. |
+| [V-171 · sbom-provenance-outils] | (reprise de 06, V-171 ; choix des outils fait aux §3.5-§3.6) Niveau SLSA et prédicat produits par `actions/attest@v4` ; entrées exactes pour attester une image OCI et stocker l'attestation dans GHCR. |
+| [V-206 · mcp-publisher-checksums] | Nom du fichier de sommes (et des signatures cosign) des releases de `mcp-publisher` v1.8.1 ; politique de compatibilité d'audience OIDC. |
+| [V-207 · cargo-publish-workspace] | (réexamen du canal Cargo à v1.0.0, Q13) `cargo publish --workspace` (et `--dry-run`) avec la toolchain 1.99 : ordre des dépendances internes `path` + `version`. |
+| [V-208 · crates-io-limites-publication] | (réexamen à v1.0.0, Q13) Limites de débit de crates.io pour la création de sept nouveaux crates d'un coup. |
+| [V-209 · crates-io-trusted-publishing] | (réexamen à v1.0.0, Q13) Publication de confiance (OIDC GitHub) sur crates.io : disponibilité, configuration, action officielle. |
+| [V-172 · registre-mcp-cargo] | (reprise de 09, V-172 ; réexamen à v1.0.0, Q13) Acceptation en production d'un paquet `registryType: "cargo"` par le registre MCP et lecture du jeton `mcp-name:` dans le README rendu par crates.io. |
+| [V-210 · cargo-dist-changelog-format] | Format de section du CHANGELOG reconnu par dist pour le titre et le corps de la release. |
+| [V-211 · github-releases-immuables] | Effet de l'option de releases immuables de GitHub sur l'ajout d'assets après publication et sur `gh release create … artifacts/*`. |
+| [V-212 · syntaxe-config-clients] | Options de `claude mcp add` (`--transport`, `--scope`, `--env`) ; emplacement de `claude_desktop_config.json` ; format de `~/.cursor/mcp.json` et interpolation ; stockage des `inputs` mot de passe dans VS Code. |
+| [V-25 · licences-graphe-m0] | (reprise de 06) Licences réelles du graphe, dont `aws-lc-sys`, `aws-lc-rs`, `ring` et les racines de certificats, pour cargo-deny et `THIRD_PARTY_LICENSES.md`. |
+| [V-26 · actions-versions-sha] | (reprise de 06) SHA des actions à épingler, y compris celles du workflow généré par dist (`actions/checkout@v6`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`, `actions/attest@v4`, `swatinem/rust-cache@v2`, `azure/login@v2`). |
+| [V-214 · titulaire-droits-reference] | Titulaire exact du droit d'auteur de la référence Python (le `LICENSE` ne porte pas de ligne Copyright). |
+| [V-215 · marque-legifrance] | Statut de marque de « Légifrance » et conditions d'usage du nom dans un nom de produit non officiel. |
+| [V-169 · cargo-dist-emplacement-config] | (reprise de 02) Vérifié par lecture de `init.rs:284-333` (nouveau workspace → `dist-workspace.toml`) ; à confirmer au premier `dist init`. |
+| [V-03 · reqwest-proxy-env] | (reprise de 04) Prise en compte de `HTTPS_PROXY` et `NO_PROXY` par le binaire. |
+| [V-59 · oauth-production-live] | (reprise d'A-parite) URL OAuth et API de production. |
+| [V-167 · chemin-donnees-plateforme] | (reprise de 02) Chemins de `dirs::data_dir()` par OS, et dans l'image OCI. |
+| [V-168 · arret-windows] | (reprise de 02) Arrêt sous Windows. |
+| [V-51 · desktop-structured-content] | (reprise de 05) Ère et contenu transmis par Claude Desktop ; installation depuis le registre. |
+| [V-52 · cursor-ere-et-contenu] | (reprise de 05) Cursor. |
+| [V-53 · vscode-openworld-confirm] | (reprise de 05) Confirmation des résultats dans VS Code avec `openWorldHint: true` ; mesure qui conditionne le réexamen de Q11 avant v0.1.0. |
+| [V-55 · delai-clients-mcp] | (reprise) Délais d'appel d'outil des clients. |
+| [V-108 · date-maj-par-document] | (reprise de l'annexe C) Champ fiable de « date de dernière mise à jour » (`modifDate`, `dateMaj`, `lastUpdate`, `refInjection`) qui permettrait d'ajouter `last_update?` par document (Q15). |
+| [V-177 · attribution-licence-ouverte] | (reprise de 09, V-177) Une mention globale (`fr_coverage`, instructions, README, `NOTICE`) suffit-elle à l'attribution exigée par la Licence Ouverte 2.0, ou faut-il une mention dans chaque réponse ? |
+| [V-175 · cgu-piste-generales] | (reprise de l'annexe C) CGU générales du portail PISTE. |
+| [V-62 · quota-piste-prod] | (reprise) Quotas PISTE réels. |
+| [V-189 · dila-licence-par-fonds] | (reprise de l'annexe C) Licence de chaque fonds DILA (M9). |
+| [V-180 · dereferenced-inap-obligation] | (reprise de l'annexe C) Obligations attachées à `dereferenced` et `inap`. |
 
 ---
 
@@ -1339,38 +1339,38 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 | 2 | 00 §12, version initiale (`cargo install` possible, `registryType` `cargo`) ; doc Cargo (pas de dépendance `path` seule sur crates.io) | le canal crates.io imposerait de publier les **sept** crates, avec obligations de nommage, de débit et de stabilité d'API (§6.4) | `cargo install --git … --tag vX.Y.Z --locked mcp-legifrance`, sans crates.io ni entrée `cargo` (§6.4) | **résolu par 00 révision 2** (§12, AM-33, adopté par défaut, Q13) ; réexamen à v1.0.0 |
 | 3 | 00 §12, version initiale (notarisation macOS) ; cargo-dist 0.33.0 (`sign/macos.rs:21`, book `supplychain-security/index.md:12`) | dist signe (option expérimentale) mais ne notarise pas | notarisation par un job personnalisé (§3.3) | **entériné par 00 révision 2** (§12 : `codesign` puis job `notarytool` dédié, AM-34) ; suivre les évolutions de dist |
 | 4 | 00 §12, version initiale (Authenticode) ; cargo-dist (`reference/config.md:353-414`) | dist ne signe qu'avec SSL.com ou Azure Artifact Signing, sur HSM en nuage ; un autre fournisseur imposerait une signature hors de dist | Azure Artifact Signing si éligible, sinon SSL.com eSigner (§3.2) | **entériné par 00 révision 2** (§12-§13, AM-34, adopté par défaut, Q5) |
-| 5 | recherche 06 §9.2 (points d'attention) et §11 point 9 (architecture dans un bundle MCPB) ; MCPB (`platform_overrides` par plateforme seulement) | aucun sélecteur d'architecture dans MCPB ni dans `server.json` | un bundle unique multi-plateforme par version, avec lanceur POSIX et override `win32` (§4.1) [v:mcpb-multi-architecture] ; pas de bundle par architecture | **entériné par 00 révision 2** (§12, AM-34, adopté par défaut, Q5 ; V-197) ; binaire universel macOS en alternative (Q5). La version précédente de cette ligne attribuait à tort à 00 §12 une mention « binaire par architecture » qu'il ne contient pas : la question venait de la recherche 06, pas de 00 |
-| 6 | 02 §3.0.1 (étiquette propre, devenue alias) ; 04 §4.1 ([v:tls-fournisseur-cross]) | deux étiquettes pour la même vérification | [v:tls-fournisseur-cross] | **résolu par 09** (§2.1 : fusion sous V-02, [v:tls-fournisseur-cross] étant l'étiquette de référence ; les documents qui emploient l'alias le remplacent, T-M0-12) |
-| 7 | 02 §2.2 ([v:cargo-dist-emplacement-config] NON VÉRIFIÉ) | `init.rs:284-333` montre qu'un nouveau workspace Rust reçoit `dist-workspace.toml` | `dist-workspace.toml` | marquer le point « vérifié par lecture du code », à confirmer au premier `dist init` |
+| 5 | recherche 06 §9.2 (points d'attention) et §11 point 9 (architecture dans un bundle MCPB) ; MCPB (`platform_overrides` par plateforme seulement) | aucun sélecteur d'architecture dans MCPB ni dans `server.json` | un bundle unique multi-plateforme par version, avec lanceur POSIX et override `win32` (§4.1) [V-197 · mcpb-multi-architecture] ; pas de bundle par architecture | **entériné par 00 révision 2** (§12, AM-34, adopté par défaut, Q5 ; V-197) ; binaire universel macOS en alternative (Q5). La version précédente de cette ligne attribuait à tort à 00 §12 une mention « binaire par architecture » qu'il ne contient pas : la question venait de la recherche 06, pas de 00 |
+| 6 | 02 §3.0.1 (étiquette propre, devenue alias) ; 04 §4.1 ([V-02 · tls-fournisseur-cross]) | deux étiquettes pour la même vérification | [V-02 · tls-fournisseur-cross] | **résolu par 09** (§2.1 : fusion sous V-02, [V-02 · tls-fournisseur-cross] étant l'étiquette de référence ; les documents qui emploient l'alias le remplacent, T-M0-12) |
+| 7 | 02 §2.2 ([V-169 · cargo-dist-emplacement-config] NON VÉRIFIÉ) | `init.rs:284-333` montre qu'un nouveau workspace Rust reçoit `dist-workspace.toml` | `dist-workspace.toml` | marquer le point « vérifié par lecture du code », à confirmer au premier `dist init` |
 | 8 | 05 §9.4 (« liste d'outils de `server.json` éventuelle ») ; schéma `server.json` | aucun champ pour une liste d'outils ; `_meta` limité à `publisher-provided` | pas de liste d'outils dans `server.json` | corriger la phrase de 05 |
 | 9 | 00 §2, version initiale (quatre commandes xtask) ; 05 §9.4 et recherche 06 §8.3 (manifeste MCPB généré depuis le verrou, versions égales) | où placer la génération et le contrôle des fichiers de distribution | extension de `cargo xtask lock-descriptors` (manifeste MCPB, version de `server.json`), sans nouvelle commande | **entériné par 00 révision 2** (§2, ligne `xtask`, AM-31) ; 02 §3.8 à aligner |
 | 10 | recherche 06 §9.3 (MCPB principal) ; code de VS Code (galerie : ni `mcpb` ni `cargo`) | pour la galerie de VS Code, seul `oci` est installable | trois paquets déclarés, l'image OCI est indispensable | conserver le canal OCI dès v0.1.0 |
 | 11 | référence (`README.md:147-150`, `CONSTITUTION.md:54-55` : distribution par le canal « PATRON / appliance », gouverné, et non en téléchargement libre) | stratégie de distribution opposée | distribution publique, rendue possible par l'absence de clé embarquée | divergence assumée vis-à-vis de la référence (pas de 00) |
 | 12 | A-parite §6.2 (variables proposées par 04 §2.2 : `LF_PISTE_RPS`…) ; 00 §1, version initiale | variables absentes de la liste normative | non déclarées dans `server.json` ni dans le manifeste MCPB ; documentées dans le README et affichées par `check-config` (§8.1) | **résolu par 00 révision 2** (§1, AM-05 : quatre réglages avancés inscrits, avec bornes, défauts et avertissement « ignored » des variables héritées) |
-| 13 | recherche 06 §9.2 (manifeste MCPB « 0.3 annoncée, schémas jusqu'à 0.4 ») | version de manifeste | 0.3 (la 0.4 n'ajoute que `uv`) | conserver, sous [v:mcpb-version-manifeste] |
+| 13 | recherche 06 §9.2 (manifeste MCPB « 0.3 annoncée, schémas jusqu'à 0.4 ») | version de manifeste | 0.3 (la 0.4 n'ajoute que `uv`) | conserver, sous [V-199 · mcpb-version-manifeste] |
 | 14 | cargo-dist (CHANGELOG : Azure Artifact Signing en 0.33.0 ; `reference/config.md` : « since 0.32.0 ») | version d'introduction | sans effet, dist 0.33.0 est épinglé | — |
-| 15 | 06 §7.1 ([v:cargo-dist-pr-run-mode] NON VÉRIFIÉ) | `pr-run-mode = "plan"` est documenté, et c'est la valeur par défaut, dans le livre de dist 0.33.0 (`reference/config.md:1420-1437`) | `pr-run-mode = "plan"` | marquer le point « vérifié par lecture de la documentation » |
-| 16 | 06 §9.4 ([v:sbom-provenance-outils] : outils à choisir dans 08) | outils retenus, tous documentés par dist 0.33.0 : `cargo-auditable`, `cargo-cyclonedx`, `github-attestations` (`reference/config.md:715-742`, `:1139-1191`) | §3.5, §3.6 | **entériné par 09** (V-171, statut `partiel` : choix des outils fait, seul le niveau SLSA reste ouvert sous [v:sbom-provenance-outils] ; l'étiquette que 08 employait pour le niveau SLSA en est devenue un alias, 09 §2.1) |
+| 15 | 06 §7.1 ([V-170 · cargo-dist-pr-run-mode] NON VÉRIFIÉ) | `pr-run-mode = "plan"` est documenté, et c'est la valeur par défaut, dans le livre de dist 0.33.0 (`reference/config.md:1420-1437`) | `pr-run-mode = "plan"` | marquer le point « vérifié par lecture de la documentation » |
+| 16 | 06 §9.4 ([V-171 · sbom-provenance-outils] : outils à choisir dans 08) | outils retenus, tous documentés par dist 0.33.0 : `cargo-auditable`, `cargo-cyclonedx`, `github-attestations` (`reference/config.md:715-742`, `:1139-1191`) | §3.5, §3.6 | **entériné par 09** (V-171, statut `partiel` : choix des outils fait, seul le niveau SLSA reste ouvert sous [V-171 · sbom-provenance-outils] ; l'étiquette que 08 employait pour le niveau SLSA en est devenue un alias, 09 §2.1) |
 | 17 | 00 §12 et Q13 (`cargo install --git https://github.com/<dépôt> --tag vX.Y.Z --locked`, sans nom de paquet) ; `cargo help install` (cargo 1.97.0) | le dépôt contient plusieurs paquets (`mcp-legifrance`, `xtask`, crates `lf-*`) : l'argument de paquet est requis | `… --locked mcp-legifrance` (§6.4) | compléter la formule de 00 §12 et de Q13 |
 | 18 | version initiale du §1.4 (téléchargement des dumps par le binaire en M9) ; 02 §3.9, R6 et ban `wrappers` de `deny.toml` (02 §4.3) | le binaire ne peut pas contacter `echanges.dila.gouv.fr` : `reqwest` est confiné à `lf-adapter-piste`, et un adapter ne dépend pas d'un autre (R3) | §1.4 aligné sur la proposition par défaut de 02 §3.9 (script hors binaire, répertoire local) | décision de M9 à inscrire au registre de 09 (02 §3.9) |
 | 19 | 02 §3.0.2 (exigences internes `version = "=X.Y.Z"`) ; version initiale de la liste du §7.3 | la liste ne mettait à jour que `[workspace.package] version` : dès la version suivante, la résolution échoue (essai avec cargo 1.97.0) | case ajoutée au §7.3 ; égalité contrôlée par `check-deps` (02 §3.0.2, §4.2 étape 5) | inscrire la règle dans 06, propriétaire des règles de `check-deps` (00 §0) |
 | 20 | version initiale du §10 (Q5 exigée en M0) ; 00 §13 et 09 §3.5 (Q5 avant v0.1.0) | échéance de Q5 contradictoire | Q5 retirée des critères de M0 et ajoutée à ceux de v0.1.0 ; aucune signature active dans `dist-workspace.toml` d'ici là (§2.2) | — |
-| 21 | §10 M0 (spike TLS : tailles mesurées, [v:binaire-taille-memoire]) ; version initiale de 09 V-18 (jalon M5) | même mesure placée à deux jalons | mesure de taille au spike M0 conservée | **résolu par 09** (V-18 : jalon « M0 (taille des binaires, spike TLS), M5 (mémoire résidente) », inscrite à la ligne M0 de 09 §2.18) |
+| 21 | §10 M0 (spike TLS : tailles mesurées, [V-18 · binaire-taille-memoire]) ; version initiale de 09 V-18 (jalon M5) | même mesure placée à deux jalons | mesure de taille au spike M0 conservée | **résolu par 09** (V-18 : jalon « M0 (taille des binaires, spike TLS), M5 (mémoire résidente) », inscrite à la ligne M0 de 09 §2.18) |
 
 ### 12.2 Questions ouvertes
 
 Les questions 1 à 4 et 10 sont désormais des questions de 00 §13, dont la proposition adoptée par défaut est appliquée dans ce document jusqu'à la réponse de l'utilisateur ; les questions 5 à 9 restent propres à la distribution.
 
-1. **Q1 (00 §13)** : proposition adoptée par défaut : produit, binaire et paquet Cargo `mcp-legifrance` (répertoire `crates/lf-app`, §12.1 point 1) ; dépôt renommé en `mcp-legifrance` avant le premier commit de M0 si l'utilisateur a répondu, sinon après le démarrage de M0 sous le nom actuel (redirection GitHub vérifiée, T-M0-02), et en tout cas avant la première publication (URL MCPB immuables). À trancher avant toute publication immuable, au vu de l'homonymie avec le projet AGPL `Ktulu-Analog/mcp-legifrance` et du statut du nom « Légifrance » ([v:marque-legifrance]).
-2. **Q5 (00 §13)** : proposition adoptée par défaut : Azure Artifact Signing si éligible, sinon SSL.com eSigner ([v:azure-artifact-signing-eligibilite]) ; compte Apple Developer pour `codesign` et `notarytool` ; sans certificat, binaires non signés avec avertissement et repli OCI/WSL. Échéance : avant v0.1.0.
+1. **Q1 (00 §13)** : proposition adoptée par défaut : produit, binaire et paquet Cargo `mcp-legifrance` (répertoire `crates/lf-app`, §12.1 point 1) ; dépôt renommé en `mcp-legifrance` avant le premier commit de M0 si l'utilisateur a répondu, sinon après le démarrage de M0 sous le nom actuel (redirection GitHub vérifiée, T-M0-02), et en tout cas avant la première publication (URL MCPB immuables). À trancher avant toute publication immuable, au vu de l'homonymie avec le projet AGPL `Ktulu-Analog/mcp-legifrance` et du statut du nom « Légifrance » ([V-215 · marque-legifrance]).
+2. **Q5 (00 §13)** : proposition adoptée par défaut : Azure Artifact Signing si éligible, sinon SSL.com eSigner ([V-193 · azure-artifact-signing-eligibilite]) ; compte Apple Developer pour `codesign` et `notarytool` ; sans certificat, binaires non signés avec avertissement et repli OCI/WSL. Échéance : avant v0.1.0.
 3. **Q13 (00 §13)** : proposition adoptée par défaut : `cargo install --git … --tag vX.Y.Z --locked mcp-legifrance` en v0.x, sans crates.io ni entrée `cargo` au registre ; réexamen à v1.0.0 (publier les sept crates, réserver les noms tôt ou non).
-4. **MCPB (volet de Q5)** : proposition adoptée par défaut : bundle unique avec lanceur POSIX et override `win32` ; pas de bundles par architecture (00 §12, V-197). Restent ouverts : binaire universel macOS au lieu du lanceur sous macOS ([v:lipo-signatures]) ; signature du bundle par `mcpb sign`, et avec quel certificat (§4.6).
+4. **MCPB (volet de Q5)** : proposition adoptée par défaut : bundle unique avec lanceur POSIX et override `win32` ; pas de bundles par architecture (00 §12, V-197). Restent ouverts : binaire universel macOS au lieu du lanceur sous macOS ([V-198 · lipo-signatures]) ; signature du bundle par `mcpb sign`, et avec quel certificat (§4.6).
 5. **Registres OCI** : `ghcr.io` seul (proposé), ou aussi Docker Hub ?
 6. **Répertoire d'installation** des installeurs : `~/.mcp-legifrance/bin` (proposé) ou le défaut `~/.cargo/bin` ?
 7. **Canaux supplémentaires** après v0.1 : MSI, Homebrew, winget, plugin Claude Code embarquant le MCPB (CHANGELOG Claude Code `:1199`), annuaires tiers (Glama) ?
 8. **Préversions** : jamais au registre MCP (proposé) ; publier les `-rc` sur GHCR (et sur crates.io si le réexamen de v1.0.0 retient ce canal) ?
-9. **Titulaire du copyright** dans `NOTICE` et `LICENSE` (nom du mainteneur ou « les contributeurs de mcp-legifrance ») ([v:titulaire-droits-reference]).
-10. **Q15 (00 §13)** : proposition adoptée par défaut : « Source : Légifrance / DILA — Licence Ouverte 2.0 » et date de consultation dans `fr_coverage` et les instructions serveur, rappel dans le README ; `last_update?` par document seulement après V-108 ([v:date-maj-par-document]) ; suffisance d'une mention globale : [v:attribution-licence-ouverte].
+9. **Titulaire du copyright** dans `NOTICE` et `LICENSE` (nom du mainteneur ou « les contributeurs de mcp-legifrance ») ([V-214 · titulaire-droits-reference]).
+10. **Q15 (00 §13)** : proposition adoptée par défaut : « Source : Légifrance / DILA — Licence Ouverte 2.0 » et date de consultation dans `fr_coverage` et les instructions serveur, rappel dans le README ; `last_update?` par document seulement après V-108 ([V-108 · date-maj-par-document]) ; suffisance d'une mention globale : [V-177 · attribution-licence-ouverte].
 
 ---
 

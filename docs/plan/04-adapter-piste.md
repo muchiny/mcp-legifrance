@@ -194,7 +194,7 @@ flowchart TD
 | Engagement de service | **aucun** : tests de performance, réindexation, indisponibilité « sans information préalable » | objectif de 95 % par jour, engagement de moyens, aucun niveau minimal garanti | CGU API Légifrance 2022, `cgu-legifrance-api.md:187-202` (recherche 05 §3.2) |
 | Quotas | consultables dans PISTE (« Applications » → « Actions » → « Consulter les quotas ») | idem ; modifiables par la DILA avec information par courriel | `cgu-legifrance-api.md:212-231` (recherche 05 §3.3) |
 
-Les URLs de production sont documentées (Swagger) mais n'ont jamais été appelées par nous ni par la référence, qui n'avait qu'une application sandbox : **NON VÉRIFIÉ** [v:oauth-production-live]. L'ampleur de l'écart de données entre sandbox et production est **NON VÉRIFIÉ** [v:sandbox-prod-donnees]. Les valeurs numériques des quotas ne sont pas publiques : **NON VÉRIFIÉ** [v:quota-piste-prod].
+Les URLs de production sont documentées (Swagger) mais n'ont jamais été appelées par nous ni par la référence, qui n'avait qu'une application sandbox : **NON VÉRIFIÉ** [V-59 · oauth-production-live]. L'ampleur de l'écart de données entre sandbox et production est **NON VÉRIFIÉ** [V-61 · sandbox-prod-donnees]. Les valeurs numériques des quotas ne sont pas publiques : **NON VÉRIFIÉ** [V-62 · quota-piste-prod].
 
 Conséquences pour l'adapter :
 
@@ -309,7 +309,7 @@ Règles :
 - `access_token` absent ou vide ⇒ `CorpusError::Config` (`PISTE OAuth returned no access_token.`, parité S7). Une réponse 200 sans jeton indique un endpoint qui n'est pas celui de PISTE.
 - `token_type` différent de `Bearer` (sans tenir compte de la casse) : `warn`, jeton utilisé quand même.
 - `expires_in` absent, `null`, non numérique ou nul ⇒ **3 600 s**. La référence plantait sur `null` (recherche 02 D-10). La valeur est bornée à [1 s, 86 400 s].
-- Formes réelles des erreurs de l'endpoint token, statut et corps : **NON VÉRIFIÉ** [v:oauth-reponses].
+- Formes réelles des erreurs de l'endpoint token, statut et corps : **NON VÉRIFIÉ** [V-60 · oauth-reponses].
 
 ### 3.3 Gestionnaire de jeton
 
@@ -352,7 +352,7 @@ Algorithme par appel du port, corrige D-12 et E-20 :
 3. Second 401 dans le même appel : `CorpusError::Auth { detail }`, sans autre requête (`detail` pour les journaux : `API returned 401 twice on {gabarit d'endpoint} ({env})`). Le modèle reçoit le gabarit `Config` des identifiants refusés de 05 §7.2 (02 §9.2 ligne 11), qui renvoie à `LF_PISTE_CLIENT_ID`, `LF_PISTE_CLIENT_SECRET` et `LF_PISTE_ENV`.
 4. La suite `401, 503, 200` produit exactement **deux** requêtes token et trois requêtes API (la référence en demandait trois, recherche 02 D-12).
 
-Un rapport tiers dit que PISTE renverrait parfois `401 invalid_client` pendant de courtes fenêtres de limitation : **NON VÉRIFIÉ** [v:401-sous-throttling]. Si c'est vrai, l'étape 3 produirait un `config_error` à tort. Le smoke test live (§13.5) cherche ce cas. La règle « un seul renouvellement » est maintenue (00 §8).
+Un rapport tiers dit que PISTE renverrait parfois `401 invalid_client` pendant de courtes fenêtres de limitation : **NON VÉRIFIÉ** [V-64 · 401-sous-throttling]. Si c'est vrai, l'étape 3 produirait un `config_error` à tort. Le smoke test live (§13.5) cherche ce cas. La règle « un seul renouvellement » est maintenue (00 §8).
 
 ### 3.5 Classification des erreurs de l'endpoint token
 
@@ -370,7 +370,7 @@ Une erreur de l'endpoint token est un problème de configuration, jamais `NotFou
 | 500 | réessai (2 tentatives au plus), puis `Upstream { status: 500, retryable: false }` | oui, une fois | gabarit `upstream_error`, sans invitation à réessayer |
 | erreur DNS ou TLS (certificat refusé) | `Upstream { status: None, retryable: false }` | réseau : oui ; TLS : non | gabarit `upstream_error` ; `detail` : `could not reach PISTE OAuth ({kind})` |
 
-Le champ `error` d'`OAuthErrorDto` est repris dans le `detail` s'il est court (≤ 64 caractères ASCII), sinon omis. `error_description` n'est jamais recopié : il pourrait contenir un fragment de la requête. Le statut exact renvoyé pour `invalid_client` (400 ou 401 : la RFC 6749 §5.2 admet les deux ; la référence ne relève que la valeur `invalid_client`, SOURCES.md:12) est **NON VÉRIFIÉ** [v:oauth-reponses] : les deux statuts suivent la même ligne.
+Le champ `error` d'`OAuthErrorDto` est repris dans le `detail` s'il est court (≤ 64 caractères ASCII), sinon omis. `error_description` n'est jamais recopié : il pourrait contenir un fragment de la requête. Le statut exact renvoyé pour `invalid_client` (400 ou 401 : la RFC 6749 §5.2 admet les deux ; la référence ne relève que la valeur `invalid_client`, SOURCES.md:12) est **NON VÉRIFIÉ** [V-60 · oauth-reponses] : les deux statuts suivent la même ligne.
 
 ### 3.6 Secrets
 
@@ -400,7 +400,7 @@ Constats sur reqwest 0.13.5 (recherche 04 §4.2, `RQ:Cargo.toml:39-80`, `RQ:CHAN
 | A (défaut si le spike n'aboutit pas) | `reqwest/rustls` (aws-lc) | `aws-lc-sys` demande une chaîne C (`cc`, `cmake`, parfois NASM ou clang selon la cible) | compilation croisée des 7 cibles cargo-dist (Linux x86_64/aarch64 gnu+musl, macOS x86_64/aarch64, Windows x86_64 msvc), durée, taille |
 | B | `reqwest/rustls-no-provider` + `rustls/ring` ; `PisteCorpus::new` appelle `rustls::crypto::ring::default_provider().install_default()` et ignore l'erreur « déjà installé » | moins d'outillage natif | mêmes mesures ; poignée de main TLS 1.2 et 1.3 vers un serveur rustls local, et vers `sandbox-api.piste.gouv.fr` si le réseau le permet (Q6) |
 
-Les exigences exactes d'`aws-lc-sys` par cible et l'API d'installation de `ring` avec reqwest 0.13 sont **NON VÉRIFIÉ** [v:tls-fournisseur-cross] (recherche 04 §6 points 5 et 6). Le résultat est consigné dans ADR-0013 et dans le risque TLS de [09-risques-et-questions.md](09-risques-et-questions.md). Le fournisseur est installé **par l'adapter**, seul crate à dépendre de reqwest : `lf-app` n'a pas à dépendre de rustls.
+Les exigences exactes d'`aws-lc-sys` par cible et l'API d'installation de `ring` avec reqwest 0.13 sont **NON VÉRIFIÉ** [V-02 · tls-fournisseur-cross] (recherche 04 §6 points 5 et 6). Le résultat est consigné dans ADR-0013 et dans le risque TLS de [09-risques-et-questions.md](09-risques-et-questions.md). Le fournisseur est installé **par l'adapter**, seul crate à dépendre de reqwest : `lf-app` n'a pas à dépendre de rustls.
 
 ### 4.2 Construction du client
 
@@ -410,13 +410,13 @@ Un seul `reqwest::Client`, construit une fois au premier appel (`OnceCell`, mono
 |---|---|---|
 | `connect_timeout` | 10 s | 00 §8 ; parité P-025 (référence client.py:30) |
 | `timeout` (total par tentative, connexion et corps compris) | `LF_HTTP_TIMEOUT_S` (40 s), réduit tentative par tentative à `min(40 s, reste du délai global)` via `RequestBuilder::timeout` | reqwest : « applied from when the request starts connecting until the response body has finished » (`RQ:src/async_impl/client.rs:1444-1453`, `request.rs:289-299`) |
-| `user_agent` | `mcp-legifrance/<version> (+https://github.com/muchiny/mcp-ligitfrance)`, chaîne fournie par `lf-app` avec `env!("CARGO_PKG_VERSION")` du binaire | 00 §8 ; corrige D-43 et E-08. L'URL garde le nom actuel du dépôt jusqu'à son renommage éventuel, fait après le démarrage de M0 si l'utilisateur n'a pas répondu (Q1, 00 §13), puis est remplacée en bloc |
+| `user_agent` | `mcp-legifrance/<version> (+https://github.com/muchiny/mcp-legifrance)`, chaîne fournie par `lf-app` avec `env!("CARGO_PKG_VERSION")` du binaire | 00 §8 ; corrige D-43 et E-08. Le dépôt porte ce nom depuis son renommage du 2026-10-16 (Q1, 00 §0) |
 | en-tête par défaut | `Accept: application/json` | exemple officiel (`exemples…md:155-163`) ; `Content-Type: application/json` est posé par `.json()` |
 | `redirect` | `redirect::Policy::none()` | un 3xx devient `Upstream { status, retryable: false }`. Parité : la référence ne suivait pas les redirections (recherche 01 §6.3). Un `POST` authentifié n'a aucune raison d'être redirigé. reqwest suit 10 redirections par défaut (`RQ:src/redirect.rs:160-165`) |
 | `https_only` | `true`, sauf `ConfigWarning::InsecureLoopback` (tests) | `RQ:src/async_impl/client.rs:2262` |
-| `gzip` | activé (feature `gzip`) : envoie `Accept-Encoding: gzip`, décompression transparente | réponses JSON très compressibles ; prise en charge par PISTE **NON VÉRIFIÉ** [v:piste-gzip]. La borne de taille s'applique aux octets **décompressés** (§4.3) |
+| `gzip` | activé (feature `gzip`) : envoie `Accept-Encoding: gzip`, décompression transparente | réponses JSON très compressibles ; prise en charge par PISTE **NON VÉRIFIÉ** [V-70 · piste-gzip]. La borne de taille s'applique aux octets **décompressés** (§4.3) |
 | `retry` | défaut de reqwest conservé : seuls les NACK de protocole sûrs sont rejoués (`RQ:src/async_impl/client.rs:1405-1414`, `src/retry.rs:9-16`). Toute la politique applicative est dans `backon` (§5.2) | évite deux couches de réessai concurrentes |
-| proxy | défaut conservé (proxy système, feature `system-proxy` : réglages Windows et macOS, `RQ:src/lib.rs:216`) | réseaux d'entreprise ; prise en compte de `HTTPS_PROXY` et `NO_PROXY` selon les features retenues : **NON VÉRIFIÉ** [v:reqwest-proxy-env], à tester au spike M0 |
+| proxy | défaut conservé (proxy système, feature `system-proxy` : réglages Windows et macOS, `RQ:src/lib.rs:216`) | réseaux d'entreprise ; prise en compte de `HTTPS_PROXY` et `NO_PROXY` selon les features retenues : **NON VÉRIFIÉ** [V-03 · reqwest-proxy-env], à tester au spike M0 |
 | `pool_idle_timeout` | défaut (90 s) | une connexion fermée par la passerelle PISTE produit une erreur réseau, rejouée par la politique §5.2 |
 | `danger_accept_invalid_certs` | **jamais** | §14.2 |
 
@@ -428,7 +428,7 @@ Corrige D-41 et D-11.
 2. Sinon, lecture par `Response::chunk()` (`RQ:src/async_impl/response.rs:310`) dans un `Vec<u8>`, avec contrôle du cumul à chaque morceau. Les morceaux sont décompressés, si bien qu'une bombe gzip est arrêtée à 16 Mio.
 3. Dépassement : `CorpusError::Decode { detail }`, avec un `detail` de la forme `response too large (> 16 MiB) on /consult/acco`. Pas de réessai.
 
-Choix de 16 Mio : la plus grosse fixture fait 42 Ko (search_kali.json, recherche 03 §2), mais une réponse `/consult/lawDecree` sur un gros texte ou `/consult/acco` avec son champ `data` (`.docx` en base64, jamais désérialisé mais tout de même lu) peut être bien plus volumineuse. Tailles réelles **NON VÉRIFIÉ** [v:taille-max-textes] ; présence et taille de `data` et `attachment` sur `/consult/acco` **NON VÉRIFIÉ** [v:acco-data-attachment]. La borne est une constante (00 §8), réexaminée en M5 sur les fixtures recapturées (V-75) ; toute modification amende 00 §8. La mesure de `lawDecree` sur un code (V-96) a lieu dès M2, car elle décide de l'usage de `tableMatieres` en v0.1 (§7.3).
+Choix de 16 Mio : la plus grosse fixture fait 42 Ko (search_kali.json, recherche 03 §2), mais une réponse `/consult/lawDecree` sur un gros texte ou `/consult/acco` avec son champ `data` (`.docx` en base64, jamais désérialisé mais tout de même lu) peut être bien plus volumineuse. Tailles réelles **NON VÉRIFIÉ** [V-75 · taille-max-textes] ; présence et taille de `data` et `attachment` sur `/consult/acco` **NON VÉRIFIÉ** [V-106 · acco-data-attachment]. La borne est une constante (00 §8), réexaminée en M5 sur les fixtures recapturées (V-75) ; toute modification amende 00 §8. La mesure de `lawDecree` sur un code (V-96) a lieu dès M2, car elle décide de l'usage de `tableMatieres` en v0.1 (§7.3).
 
 ### 4.4 Décodage
 
@@ -454,12 +454,12 @@ Une **tentative** produit une issue. La boucle de réessai (§5.2) décide de la
 | 400 sur une consultation avec le marqueur « introuvable » | non | `NotFound` | §11 |
 | 400, autres cas | non | `InvalidRequest { status: Some(400), detail }` (message PISTE nettoyé, ≤ 200 caractères) et `warn!` « bug probable » ; rendu `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` (00 §5, parité S10) | 00 §5 ; 02 §9.2 ligne 15 |
 | 401 (API) | renouvellement unique (§3.4), hors budget | second 401 : `Auth` | 00 §8 |
-| 403 | non | `Auth`, rendu `config_error` avec le message « check that the PISTE application is subscribed to the Legifrance API » (00 §5) | recherche 05 §3.4 (constaté sur Judilibre avec un jeton Légifrance ; sens exact d'un 403 de l'API Légifrance **NON VÉRIFIÉ** [v:forme-403-piste], V-65) |
+| 403 | non | `Auth`, rendu `config_error` avec le message « check that the PISTE application is subscribed to the Legifrance API » (00 §5) | recherche 05 §3.4 (constaté sur Judilibre avec un jeton Légifrance ; sens exact d'un 403 de l'API Légifrance **NON VÉRIFIÉ** [V-65 · forme-403-piste], V-65) |
 | 404 | non | `NotFound` ou `Config` selon §11.2 | D-10 |
 | 405 | non | `Config` | — |
 | autre 4xx | non | `Upstream { status, retryable: false }` | — |
 | 429 | **oui**, avec `Retry-After` | `RateLimited { retry_after }` | 00 §8 |
-| 500 | **oui**, 2 tentatives au plus (1 réessai) | `Upstream { status: 500, retryable: false }` : un 500 répété est présumé déterministe (facette ou champ refusé) ; retour à 3 tentatives si V-69 montre des 500 transitoires fréquents | 00 §8 ; 02 §9.2 ligne 17 ; [v:500-requete-invalide] |
+| 500 | **oui**, 2 tentatives au plus (1 réessai) | `Upstream { status: 500, retryable: false }` : un 500 répété est présumé déterministe (facette ou champ refusé) ; retour à 3 tentatives si V-69 montre des 500 transitoires fréquents | 00 §8 ; 02 §9.2 ligne 17 ; [V-69 · 500-requete-invalide] |
 | 502, 503, 504 | **oui**, 3 tentatives au plus, `Retry-After` respecté s'il est présent | `Upstream { status, retryable: true }` | 00 §8 |
 | autre 5xx | non | `Upstream { status, retryable: false }` | — |
 | erreur réseau (connexion, réinitialisation, corps interrompu) | **oui** | `Upstream { status: None, retryable: true }` | 00 §8 |
@@ -470,7 +470,7 @@ Une **tentative** produit une issue. La boucle de réessai (§5.2) décide de la
 
 `Upstream.status` est un `Option<u16>` (`None` pour une erreur réseau). Le `detail` de chaque `CorpusError` est en anglais, court, sans URL complète ni secret, par exemple `HTTP 503 on /consult/juri after 3 attempts` ; il sert aux journaux (stderr). Le message vu par le modèle (et inscrit dans le champ `error` de l'audit) est le gabarit de 05 §7.2 (avec, pour `upstream_error`, le préfixe de parité `Legifrance/PISTE HTTP {status}` de P-014), rédigé par `lf-application::messages` à partir de la variante et de ses champs (02 §9.3). `retryable` ne sert qu'au message : seul un échec `retryable: true` (429, 502, 503, 504, réseau, timeout) invite à réessayer (00 §8). `Timeout`, `Decode`, le délai global et l'annulation sont rendus `upstream_error`, la cause étant détaillée dans les journaux et l'audit (`UpstreamCause`, 00 §5). Les erreurs reqwest passent par `Error::without_url()` (`RQ:src/error.rs:91`) avant tout affichage, et seul le chemin du gabarit d'endpoint est cité. Les noms et champs exacts des variantes sont fixés dans [02-architecture.md](02-architecture.md) §5.1.
 
-Selon des clients tiers, une facette inconnue, un champ JSON inconnu ou `fond=ALL` avec filtres provoquent un **500** plutôt qu'un 400 : **NON VÉRIFIÉ** [v:500-requete-invalide] (recherche 05 §2.2). L'adapter n'envoie que des champs et facettes issus de tables vérifiées (§6), ce qui limite ce risque. C'est la raison du budget réduit sur 500 (00 §8, AM-03) : un 500 déterministe coûterait 3 requêtes de quota par appel, puis autant à chaque relance du modèle s'il était invité à réessayer.
+Selon des clients tiers, une facette inconnue, un champ JSON inconnu ou `fond=ALL` avec filtres provoquent un **500** plutôt qu'un 400 : **NON VÉRIFIÉ** [V-69 · 500-requete-invalide] (recherche 05 §2.2). L'adapter n'envoie que des champs et facettes issus de tables vérifiées (§6), ce qui limite ce risque. C'est la raison du budget réduit sur 500 (00 §8, AM-03) : un 500 déterministe coûterait 3 requêtes de quota par appel, puis autant à chaque relance du modèle s'il était invité à réessayer.
 
 ### 5.2 Politique de réessai
 
@@ -480,12 +480,12 @@ Selon des clients tiers, une facette inconnue, un champ JSON inconnu ou `fond=AL
 | Tentatives sur 500 | 2 au plus : 1 + 1 réessai, puis `Upstream { status: 500, retryable: false }`. Dans un même appel, la boucle s'arrête après 3 tentatives au total, ou dès la deuxième réponse 500 | 00 §8 (AM-03) ; un 500 répété est présumé déterministe (V-69) |
 | Attente avant la 2e tentative | 500 ms + gigue uniforme dans [0, 500 ms) | P-024 exige au moins 0,5 s puis au moins 1 s ; la gigue s'ajoute et ne retranche rien |
 | Attente avant la 3e tentative | 1 s + gigue dans [0, 1 s) | idem |
-| `Retry-After` (429, 503) | en secondes entières ; ou en date HTTP (IMF-fixdate, parsée par `chrono`), convertie en délai par différence avec l'en-tête `Date` de la **même** réponse, sans horloge murale (l'adapter n'a que `MonoClock` ; `Utc::now` est interdit hors de `lf-app::clock`, 02 §2.2) ; date HTTP sans `Date` exploitable, ou différence négative : en-tête ignoré (attente = backoff) ; attente = `max(backoff, Retry-After)`, plafonnée à 30 s | corrige D-12 ; RFC 9110 §10.2.3 (deux formes) et §6.6.1 (`Date` obligatoire dans les réponses 4xx d'un serveur d'origine doté d'une horloge, facultatif en 5xx) ; présence et format réels de `Retry-After` (et de `Date`) chez PISTE **NON VÉRIFIÉ** [v:retry-after-piste] |
+| `Retry-After` (429, 503) | en secondes entières ; ou en date HTTP (IMF-fixdate, parsée par `chrono`), convertie en délai par différence avec l'en-tête `Date` de la **même** réponse, sans horloge murale (l'adapter n'a que `MonoClock` ; `Utc::now` est interdit hors de `lf-app::clock`, 02 §2.2) ; date HTTP sans `Date` exploitable, ou différence négative : en-tête ignoré (attente = backoff) ; attente = `max(backoff, Retry-After)`, plafonnée à 30 s | corrige D-12 ; RFC 9110 §10.2.3 (deux formes) et §6.6.1 (`Date` obligatoire dans les réponses 4xx d'un serveur d'origine doté d'une horloge, facultatif en 5xx) ; présence et format réels de `Retry-After` (et de `Date`) chez PISTE **NON VÉRIFIÉ** [V-63 · retry-after-piste] |
 | Attente prévue supérieure au reste du délai global | pas d'attente : échec immédiat, `RateLimited { retry_after }` (429) ou dernière erreur (5xx) | une réponse rapide et actionnable plutôt qu'un dépassement certain (00 §3) |
 | Budget 401 | 1 renouvellement par appel du port, séparé du budget transitoire | §3.4 |
 | Erreurs mises en cache | jamais | parité (recherche 01 §6.4) ; c'est au cache de ne pas les stocker (§12.2) |
 
-Mise en œuvre avec `backon` 1.6.0 (`default = std, std-blocking-sleep, tokio-sleep, gloo-timers-sleep`, index crates.io ; seule `std` est activée, §1.4) : un `ExponentialBuilder` (délai minimal 500 ms, facteur 2, 2 réessais, gigue), un prédicat `when` qui ne retient que les issues transitoires et applique le budget propre au 500, un ajustement du délai par `Retry-After`, et un « sleeper » qui délègue au `Sleeper` du crate, pour les tests. Les noms exacts de l'API backon 1.6 (`when`, `adjust`, `sleep`, `notify`) et la sémantique de sa gigue sont **NON VÉRIFIÉ** [v:backon-api]. Si `adjust` n'existe pas ou si la gigue de backon peut réduire le délai, on écrit un itérateur `Backoff` maison (backon accepte tout `Iterator<Item = Duration>`), sans changer la politique ci-dessus.
+Mise en œuvre avec `backon` 1.6.0 (`default = std, std-blocking-sleep, tokio-sleep, gloo-timers-sleep`, index crates.io ; seule `std` est activée, §1.4) : un `ExponentialBuilder` (délai minimal 500 ms, facteur 2, 2 réessais, gigue), un prédicat `when` qui ne retient que les issues transitoires et applique le budget propre au 500, un ajustement du délai par `Retry-After`, et un « sleeper » qui délègue au `Sleeper` du crate, pour les tests. Les noms exacts de l'API backon 1.6 (`when`, `adjust`, `sleep`, `notify`) et la sémantique de sa gigue sont **NON VÉRIFIÉ** [V-06 · backon-api]. Si `adjust` n'existe pas ou si la gigue de backon peut réduire le délai, on écrit un itérateur `Backoff` maison (backon accepte tout `Iterator<Item = Duration>`), sans changer la politique ci-dessus.
 
 ```rust
 // retry.rs — esquisse non compilée, à valider en M0 (la logique compte, pas l'API backon exacte)
@@ -525,14 +525,14 @@ Décision (00 §3, AM-07) ; les signatures du port n'ont pas de paramètre de d�
 - Chaque tentative reçoit `RequestBuilder::timeout(min(request_timeout, reste))`. Chaque attente (`Sleeper`, sémaphore, limiteur, verrou du jeton) est bornée par `reste`.
 - L'adapter ne programme aucune tentative ni attente qui dépasserait l'échéance : il rend tout de suite une erreur explicite (`RateLimited { retry_after }`, `Timeout` ou dernière erreur), ce qui permet au modèle de recevoir une erreur précise plutôt que la coupure de la garde dure.
 - Pire cas d'un appel du port : `≤ tool_deadline + ε`, où ε est le temps d'observer l'annulation (quelques millisecondes).
-- Délais imposés par les clients MCP (Claude Code, VS Code) à un appel d'outil : **NON VÉRIFIÉ** [v:delai-clients-mcp]. Si l'un coupe avant 60 s, le défaut doit baisser.
+- Délais imposés par les clients MCP (Claude Code, VS Code) à un appel d'outil : **NON VÉRIFIÉ** [V-55 · delai-clients-mcp]. Si l'un coupe avant 60 s, le défaut doit baisser.
 
 ### 5.4 Limitation de débit
 
-- Un `governor::RateLimiter` **direct** (non indexé), global au processus, **5 requêtes/s, rafale 10** par défaut (00 §8), configurable par `LF_PISTE_RPS` et `LF_PISTE_BURST` (00 §1, §2.2). Les quotas PISTE valent pour toute l'application consommatrice et sont donc partagés par tous les utilisateurs d'un éventuel serveur HTTP (recherche 05 §3.3, §4.3, Q4). Valeurs réelles **NON VÉRIFIÉ** [v:quota-piste-prod] : l'utilisateur les lit dans la console PISTE et ajuste `LF_PISTE_RPS`/`LF_PISTE_BURST`.
+- Un `governor::RateLimiter` **direct** (non indexé), global au processus, **5 requêtes/s, rafale 10** par défaut (00 §8), configurable par `LF_PISTE_RPS` et `LF_PISTE_BURST` (00 §1, §2.2). Les quotas PISTE valent pour toute l'application consommatrice et sont donc partagés par tous les utilisateurs d'un éventuel serveur HTTP (recherche 05 §3.3, §4.3, Q4). Valeurs réelles **NON VÉRIFIÉ** [V-62 · quota-piste-prod] : l'utilisateur les lit dans la console PISTE et ajuste `LF_PISTE_RPS`/`LF_PISTE_BURST`.
 - Le limiteur est consulté **avant chaque tentative**, réessais compris. Il ne l'est pas pour la requête token (§3.3).
 - **Piège vérifié** : `RateLimiter::until_ready` attend avec `futures_timer::Delay` (governor 0.10.4, `src/state/direct/future.rs:11`, `:45-56`), pas avec `tokio::time`. Il échappe donc à toute horloge de test et ne se borne pas proprement par le délai global. L'adapter **n'utilise pas** `until_ready`. Il boucle sur `check()` (`src/state/direct.rs:73`) : en cas de refus, `wait = not_until.wait_time_from(clock.now())` ; si `wait` dépasse le reste du délai, échec immédiat `RateLimited { retry_after: Some(wait) }` ; sinon `Sleeper::sleep(wait)`.
-- Horloge du limiteur : une implémentation de `governor::clock::Clock` dont l'`Instant` est un `Duration` écoulé depuis une origine `MonoClock`. C'est la seule horloge du limiteur, en production comme en test (02 §3.3, piège 3 : ni `FakeRelativeClock`, ni constructeur `with_clock`, ni horloge tokio gelée). `Duration` implémente déjà `Reference` et `Add<Nanos>` (`src/clock.rs:61-117`). En test, `ManualClock` rend le limiteur déterministe. Les features `quanta`, `jitter` et `dashmap` sont inutiles (seule `std` est activée, §1.4). Les noms de constructeurs (`Quota::per_second`, `allow_burst`, `RateLimiter::direct_with_clock`) sont à confirmer à la compilation : **NON VÉRIFIÉ** [v:governor-api].
+- Horloge du limiteur : une implémentation de `governor::clock::Clock` dont l'`Instant` est un `Duration` écoulé depuis une origine `MonoClock`. C'est la seule horloge du limiteur, en production comme en test (02 §3.3, piège 3 : ni `FakeRelativeClock`, ni constructeur `with_clock`, ni horloge tokio gelée). `Duration` implémente déjà `Reference` et `Add<Nanos>` (`src/clock.rs:61-117`). En test, `ManualClock` rend le limiteur déterministe. Les features `quanta`, `jitter` et `dashmap` sont inutiles (seule `std` est activée, §1.4). Les noms de constructeurs (`Quota::per_second`, `allow_burst`, `RateLimiter::direct_with_clock`) sont à confirmer à la compilation : **NON VÉRIFIÉ** [V-07 · governor-api].
 
 ### 5.5 Concurrence et `fr_search_all`
 
@@ -635,16 +635,16 @@ Vecteurs de test (00 §8 ; calculés avec la base IANA, `zoneinfo` de Python 3.1
 | 2026-10-25 (retour à l'heure d'hiver à 3 h) | `1792926000000` | 2026-10-25T11:00Z |
 | 1804-03-21 (avant 1911 : temps moyen de Paris, UTC+0:09:21) | `-5231563761000` | 1804-03-21T11:50:39Z |
 
-Les changements d'heure à Paris ont lieu à 2 h et à 3 h : midi n'est jamais ambigu ni inexistant. Le repli ne sert qu'à rendre la fonction totale. La version de la base IANA embarquée par `chrono-tz` 0.10.4 est **NON VÉRIFIÉ** [v:chrono-tz-iana] (V-17) : le test `paris_noon_vectors` la contrôle pour l'adapter dès M2.
+Les changements d'heure à Paris ont lieu à 2 h et à 3 h : midi n'est jamais ambigu ni inexistant. Le repli ne sert qu'à rendre la fonction totale. La version de la base IANA embarquée par `chrono-tz` 0.10.4 est **NON VÉRIFIÉ** [V-17 · chrono-tz-iana] (V-17) : le test `paris_noon_vectors` la contrôle pour l'adapter dès M2.
 
-**Vérification (bloquante en M2).** La sémantique réelle de `singleDate` chez PISTE est **NON VÉRIFIÉ** [v:singledate-midi-paris] (V-76, R-17). Vérification live (§13.5) : chercher un texte dont une version commence à une date D connue, avec `version_date = D`, et comparer avec des instants à minuit UTC, à minuit Paris et à la veille. Le suffixe `_JJ-MM-AAAA` de `titles[0].id`, qui est la date de début de la version (03 §2.4), dit quelle version l'API a retenue. Midi reste appliqué jusqu'au résultat ; s'il se révélait faux, toute autre règle amende 00 §8.
+**Vérification (bloquante en M2).** La sémantique réelle de `singleDate` chez PISTE est **NON VÉRIFIÉ** [V-76 · singledate-midi-paris] (V-76, R-17). Vérification live (§13.5) : chercher un texte dont une version commence à une date D connue, avec `version_date = D`, et comparer avec des instants à minuit UTC, à minuit Paris et à la veille. Le suffixe `_JJ-MM-AAAA` de `titles[0].id`, qui est la date de début de la version (03 §2.4), dit quelle version l'API a retenue. Midi reste appliqué jusqu'au résultat ; s'il se révélait faux, toute autre règle amende 00 §8.
 
 ### 6.4 `match` → `typeRecherche`
 
 | `match` (00 §7) | `typeRecherche` | Remarque |
 |---|---|---|
 | `any` (défaut adopté jusqu'à V-79, puis `all` si V-79 le confirme, décision consignée avant le verrou des descripteurs de M4 : Q10) | `UN_DES_MOTS` | parité (server.py:144) ; « un des mots » = OU logique, d'où beaucoup de bruit (1 786 résultats LODA pour « republique numerique », recherche 02 D-32) |
-| `all` | `TOUS_LES_MOTS_DANS_UN_CHAMP` | sémantique exacte avec `typeChamp=ALL` (tous les mots dans un **même** champ, ou dans l'un quelconque des champs ?) : **NON VÉRIFIÉ** [v:mode-all-semantique] |
+| `all` | `TOUS_LES_MOTS_DANS_UN_CHAMP` | sémantique exacte avec `typeChamp=ALL` (tous les mots dans un **même** champ, ou dans l'un quelconque des champs ?) : **NON VÉRIFIÉ** [V-79 · mode-all-semantique] |
 | `exact` | `EXACTE` | l'expression exacte (exemples officiels, `exemples…md:837-843`) |
 
 Valeurs de l'enum vérifiées dans le Swagger 2.4.2 (`CritereDTO.typeRecherche`). `AUCUN_DES_MOTS` et `AUCUNE_CORRESPONDANCE_A_CETTE_EXPRESSION` ne sont pas exposés.
@@ -670,7 +670,7 @@ Règles :
 - La facette retenue représente « la date du document » pour un juriste : signature d'un acte, date d'une décision ou d'une délibération. La table vit dans l'adapter (`request/search.rs`, `fn date_facet(Fond) -> Option<&'static str>`), car ce sont des noms d'API (03 §3.1) ; le domaine sait seulement si le fond en a une : `date_facet(f).is_some()` vaut `f.has_date_filter()` pour chaque fond (03 §3.1), ce que contrôle `date_facet_table_matches_doc` (§6.10).
 - `Code` avec une plage de dates : rejeté en `invalid_arg` par le cas d'usage, sans réseau (00 §7 ; `SearchQuery::new`, 03 §4.1 ; message de 05 §7.3). L'adapter n'en garde qu'une copie défensive (00 §5) : `date_facet(Fond::Code)` vaut `None`, et une `SearchQuery` qui porterait quand même une plage sur CODE donne `CorpusError::InvalidRequest { status: None, detail }` sans appel réseau, avec un `warn!` « bug probable » ; aucun statut HTTP n'est fabriqué (02 §5.1).
 - Borne absente : `DateRange` est toujours une période fermée (03 §6.1). `DateRange::new` complète une borne absente par l'extrémité de la plage de `VersionDate` (`1500-01-01` ou `2221-12-31`) ; l'adapter envoie donc toujours les deux champs, tels que le domaine les fournit, sans valeur de remplissage propre, et la clé de cache reste unique. Tous les exemples officiels fournissent les deux bornes.
-- Noms de facettes : vérifiés dans la documentation officielle. **Effet réel** en direct (le total diminue-t-il ?), caractère inclusif de `end`, comportement d'une borne lointaine, et combinaison avec `DATE_VERSION` : **NON VÉRIFIÉ** [v:filtres-dates-effet]. Un exemple officiel combine déjà `DATE_SIGNATURE` et `DATE_VERSION` sur `LODA_DATE` (`exemples…md:535-553`).
+- Noms de facettes : vérifiés dans la documentation officielle. **Effet réel** en direct (le total diminue-t-il ?), caractère inclusif de `end`, comportement d'une borne lointaine, et combinaison avec `DATE_VERSION` : **NON VÉRIFIÉ** [V-78 · filtres-dates-effet]. Un exemple officiel combine déjà `DATE_SIGNATURE` et `DATE_VERSION` sur `LODA_DATE` (`exemples…md:535-553`).
 
 ### 6.6 Pagination et `typePagination`
 
@@ -682,20 +682,20 @@ Règles :
   2. si `page > 1`, la valeur du mémo ;
   3. si `page > 1`, `fond = Code` et aucun mémo (redémarrage, autre processus) : `ARTICLE`, valeur observée pour ce fond ;
   4. sinon `DEFAUT`.
-- Effet réel de `DEFAUT` contre `ARTICLE` en page 2 sur CODE, et cohérence de `has_more` (calculé sur `totalResultNumber`, 03 §4.1) quand la pagination porte sur les articles : **NON VÉRIFIÉ** [v:typepagination-page2]. À vérifier en M5 (§13.5). Si le mémo ne suffit pas, un paramètre opaque `pagination` de `fr_search` est ajouté (classe « ajout », 00 §7).
+- Effet réel de `DEFAUT` contre `ARTICLE` en page 2 sur CODE, et cohérence de `has_more` (calculé sur `totalResultNumber`, 03 §4.1) quand la pagination porte sur les articles : **NON VÉRIFIÉ** [V-82 · typepagination-page2]. À vérifier en M5 (§13.5). Si le mémo ne suffit pas, un paramètre opaque `pagination` de `fr_search` est ajouté (classe « ajout », 00 §7).
 - Valeur reçue inconnue (ni `DEFAUT` ni `ARTICLE`) : traitée comme `Defaut`, avec `warn`.
 
 ### 6.7 `pageSize` et pagination profonde
 
 - `pageSize` ∈ 1..=100, garanti par `PageSize` (03 §1.4) ; maximum documenté à 100 (Swagger ; exemple officiel `pageSize: 100`, `exemples…md:1027`). `pageNumber` commence à 1 (exemples officiels ; référence server.py:150).
-- Aucune limite de profondeur n'est documentée pour `/search`. Le moteur est vraisemblablement Elasticsearch, dont la fenêtre par défaut est de 10 000 résultats (recherche 05 §2.4) : **NON VÉRIFIÉ** [v:pagination-profonde] (V-83).
+- Aucune limite de profondeur n'est documentée pour `/search`. Le moteur est vraisemblablement Elasticsearch, dont la fenêtre par défaut est de 10 000 résultats (recherche 05 §2.4) : **NON VÉRIFIÉ** [V-83 · pagination-profonde] (V-83).
 - **Règle (00 §7, AM-04)** : `page × page_size > 10 000` est rejeté en `invalid_arg` par le cas d'usage, sans réseau (`SearchQuery::new`, constante `REACHABLE_RESULTS` de 03 §4.1, arithmétique `checked` ; message de 05 §7.3), au lieu de risquer un 500 opaque. L'adapter n'en garde qu'une copie défensive : `InvalidRequest { status: None, detail }` sans appel réseau, avec un `warn!` « bug probable » (00 §5). Le sondage live de M5 (`live_deep_pagination_limit`, V-83) confirme la fenêtre ou fait ajuster `REACHABLE_RESULTS`.
 
 ### 6.8 Assainissement de la requête
 
-- La normalisation est faite **une fois**, par le domaine (`QueryText`, 03 §4.1) : `trim`, repli des blancs, retrait des caractères de contrôle, 1 à 500 caractères (borne du domaine, 03 §4.1, qui corrige D-32 ; limite réelle de l'API **NON VÉRIFIÉ** [v:longueur-max-query]).
+- La normalisation est faite **une fois**, par le domaine (`QueryText`, 03 §4.1) : `trim`, repli des blancs, retrait des caractères de contrôle, 1 à 500 caractères (borne du domaine, 03 §4.1, qui corrige D-32 ; limite réelle de l'API **NON VÉRIFIÉ** [V-81 · longueur-max-query]).
 - L'adapter ne réécrit **pas** la requête. Il n'échappe rien, car la sérialisation JSON suffit à empêcher toute injection structurelle (recherche 02 D-32). Il ne retire ni guillemets ni opérateurs.
-- La syntaxe interne du moteur dans `valeur` (guillemets, jokers, `*` seul qui signifie « tout » d'après un exemple officiel JURI, `exemples…md:1045-1119`) est **NON VÉRIFIÉ** [v:syntaxe-moteur-valeur]. Une requête `*` est transmise telle quelle ; le résultat est borné par la pagination.
+- La syntaxe interne du moteur dans `valeur` (guillemets, jokers, `*` seul qui signifie « tout » d'après un exemple officiel JURI, `exemples…md:1045-1119`) est **NON VÉRIFIÉ** [V-80 · syntaxe-moteur-valeur]. Une requête `*` est transmise telle quelle ; le résultat est borné par la pagination.
 - Le texte de la requête n'est **jamais** journalisé, seule sa longueur l'est (§12.5). C'est cohérent avec l'audit, qui ne garde qu'une empreinte.
 
 ### 6.9 Recherches exactes par numéro (M6)
@@ -713,7 +713,7 @@ Règles :
 
 Les recherches `NUM_ARTICLE` envoient `typePagination: "ARTICLE"`. C'est ce que fait l'exemple officiel « article 57 de la loi du 17 juillet 1978 » (`exemples…md:497-570` : `LODA_DATE`, `NUM_ARTICLE` en `EXACTE`, filtres `DATE_SIGNATURE` sur le jour de la loi et `DATE_VERSION`). Cet exemple sert aussi de modèle pour résoudre « article N de la loi du D » en M6.
 
-Le comportement réel de chaque recherche exacte (casse, tirets typographiques, zéros de tête) est **NON VÉRIFIÉ** [v:recherche-exacte-par-numero]. La forme attendue par `NUM_ARTICLE` (`L5-8` ou `5-8`, `1er`, suffixes latins) est **NON VÉRIFIÉ** [v:num-article-forme-api] (03). Les stratégies complètes de `find_article` et `find_by_number` sont au §7.2.
+Le comportement réel de chaque recherche exacte (casse, tirets typographiques, zéros de tête) est **NON VÉRIFIÉ** [V-120 · recherche-exacte-par-numero]. La forme attendue par `NUM_ARTICLE` (`L5-8` ou `5-8`, `1er`, suffixes latins) est **NON VÉRIFIÉ** [V-119 · num-article-forme-api] (03). Les stratégies complètes de `find_article` et `find_by_number` sont au §7.2.
 
 ### 6.10 Tests de sérialisation
 
@@ -765,8 +765,8 @@ Chemins utilisés par des tiers mais **absents** du Swagger 2.4.2 (`consult/loda
 1. `CodeRef` → `LegiTextId` du code par la table des codes (`/list/code`, §12.3), chargée paresseusement au premier besoin (jamais au démarrage, 00 §6). Aucun identifiant de code n'est codé en dur : [annexes/donnees/codes-table.md](annexes/donnees/codes-table.md) signale même un conflit d'identifiant (Code rural et de la pêche maritime). Elle ne sert qu'au dictionnaire du parseur (03 §8).
 2. Si `VersionDate` est la date du jour : `/consult/getArticleWithIdAndNum {id, num}`. L'adapter n'a pas d'horloge (§1.2) : il ne peut le savoir que si l'application le lui indique (forme à fixer avec la signature de `find_article` en M6, 02 §5.1) ; à défaut, l'étape 3 sert pour toutes les dates. Limites officielles : l'endpoint ne renvoie que la version « en vigueur au moment de la recherche », et « seuls les articles ne comportant pas de version en vigueur différée peuvent être trouvés » (Swagger, description du chemin). Sur `NotFound` ou réponse vide, passer à l'étape 3.
 3. Sinon (autre date, 00 §8) : `/search` `CODE_DATE`, `typeChamp = NUM_ARTICLE`, `EXACTE`, `DATE_VERSION = VersionDate` (midi Paris, §6.3), `typePagination = ARTICLE` (§6.6), `pageSize = 100`, **sans** filtre `NOM_CODE`. Les hits CODE sont des codes porteurs d'extraits d'articles (search_code.json, recherche 03 §4.2). On garde le hit dont `titles[0].cid` est le `LEGITEXT` du code, puis l'extrait dont `num` égale le numéro demandé : il donne le `LEGIARTI`, puis `get_article`.
-4. Pas de `NOM_CODE` : la documentation officielle l'utilise, mais deux clients tiers le disent cause de 500 (recherche 05 §2.2) : **NON VÉRIFIÉ** [v:nom-code-filtre]. Il ne servira d'optimisation qu'après V-121 (00 §8).
-5. Comportement réel de `getArticleWithIdAndNum` (forme de `num`, réponse sans article) : **NON VÉRIFIÉ** [v:idandnum-comportement].
+4. Pas de `NOM_CODE` : la documentation officielle l'utilise, mais deux clients tiers le disent cause de 500 (recherche 05 §2.2) : **NON VÉRIFIÉ** [V-121 · nom-code-filtre]. Il ne servira d'optimisation qu'après V-121 (00 §8).
+5. Comportement réel de `getArticleWithIdAndNum` (forme de `num`, réponse sans article) : **NON VÉRIFIÉ** [V-118 · idandnum-comportement].
 
 **`find_by_number(&NumberQuery)`** — signature fixée par [02-architecture.md](02-architecture.md) §5.1. `NumberQuery`, `NumberKind` et `NumberValue` sont des types de `lf-domain::search` (03 §4.11, 02 §5.1) dont la forme et les couples (fond, kind) autorisés sont fixés par [annexes/B-citations.md](annexes/B-citations.md) §6.6, qui fait foi ; ce document ne les redéfinit pas. L'adapter y lit : le fond, la nature du numéro (`NumberKind` → `typeChamp` du §6.9), la valeur (envoyée telle quelle), la plage `within` (facette du §6.5) et `version_date`, **présente pour les recherches CODE et LODA** (`Article`, `Text` ; `DATE_VERSION`, §6.2) et absente pour les autres couples (annexe B §6.6) : l'adapter n'a pas d'horloge, l'application fournit la date (§1.2).
 
@@ -774,20 +774,20 @@ Chemins utilisés par des tiers mais **absents** du Swagger 2.4.2 (`consult/loda
 - `Nor` : `/consult/getJoWithNor`. Une réponse avec `hasLoda = true` permet de basculer vers la version consolidée. La documentation rappelle que « tous les textes n'ont pas de NOR » (`exemples…md:1209`).
 - `Idcc` sur `Kali` : `/consult/kaliContIdcc` donne le conteneur (`KALICONT…`, `texteBaseId[]` → `KaliTextId`). En repli, `/search` `KALI` `IDCC` `EXACTE`. Sur `Acco` : `/search` `ACCO` `IDCC`.
 - Autres : `/search` du fond, `typeChamp` du §6.9, `EXACTE`, `pageSize = 20`, `within` mappé sur la facette du §6.5 (ex. `DATE_DECISION` pour lever l'ambiguïté d'un numéro de pourvoi, comme pylegifrance, recherche 03 §11.6).
-- **ECLI cité** (JURI, CETAT ; 00 §8) : `/search` du fond, requête `*` (forme de la sonde V-128 ; sens de `*` : §6.8), filtre par la facette `ECLI` à valeur exacte ; l'adapter rend les hits, et le contrôle de l'ECLI natif de la décision consultée relève de la résolution (annexe B). Sans ce filtre, un ECLI de la Cour de cassation ne serait vérifiable que par une recherche plein texte. Effet réel du filtre **NON VÉRIFIÉ** [v:ecli-filtre-juri-cetat] (V-128). Un ECLI d'un autre pays n'atteint pas l'adapter (`ForeignEcli`, 00 §4).
-- **ELI cité** (00 §8) : `/consult/getArticleWithIdEliOrAlias {idEliOrAlias}` pour un ELI d'article, `/consult/eliAndAliasRedirectionTexte {idEliOrAlias}` pour un ELI de texte ; l'ELI reçu de l'utilisateur est transmis tel quel, l'identifiant renvoyé (`LEGIARTI`, `JORFTEXT`…) est validé par le domaine, et aucun ELI n'est jamais fabriqué ni renvoyé s'il n'est pas natif (00 §4). Comportement réel **NON VÉRIFIÉ** [v:eli-redirection-endpoints] (V-133).
+- **ECLI cité** (JURI, CETAT ; 00 §8) : `/search` du fond, requête `*` (forme de la sonde V-128 ; sens de `*` : §6.8), filtre par la facette `ECLI` à valeur exacte ; l'adapter rend les hits, et le contrôle de l'ECLI natif de la décision consultée relève de la résolution (annexe B). Sans ce filtre, un ECLI de la Cour de cassation ne serait vérifiable que par une recherche plein texte. Effet réel du filtre **NON VÉRIFIÉ** [V-128 · ecli-filtre-juri-cetat] (V-128). Un ECLI d'un autre pays n'atteint pas l'adapter (`ForeignEcli`, 00 §4).
+- **ELI cité** (00 §8) : `/consult/getArticleWithIdEliOrAlias {idEliOrAlias}` pour un ELI d'article, `/consult/eliAndAliasRedirectionTexte {idEliOrAlias}` pour un ELI de texte ; l'ELI reçu de l'utilisateur est transmis tel quel, l'identifiant renvoyé (`LEGIARTI`, `JORFTEXT`…) est validé par le domaine, et aucun ELI n'est jamais fabriqué ni renvoyé s'il n'est pas natif (00 §4). Comportement réel **NON VÉRIFIÉ** [V-133 · eli-redirection-endpoints] (V-133).
 - Les requêtes ECLI et ELI passent par `NumberQuery`, avec les variantes `NumberKind::Ecli` (fonds `Juri`, `Cetat`) et `NumberKind::Eli` (fond `Loda` ; valeur = chemin `/eli/…` cité, sans hôte), fixées par l'annexe B §6.6 ; l'adapter n'en dépend que par le `typeChamp`/la facette et l'endpoint ci-dessus. `Nor`, `Eli` et `Idcc` sur `Kali` passent par une consultation et rendent au plus un hit, dont l'identifiant est validé par le domaine (annexe B §6.6).
-- Formes réelles des réponses de `getJoWithNor`, `kaliContIdcc` et `/list/code` (champs effectivement remplis) : **NON VÉRIFIÉ** [v:endpoints-m6-reponses].
+- Formes réelles des réponses de `getJoWithNor`, `kaliContIdcc` et `/list/code` (champs effectivement remplis) : **NON VÉRIFIÉ** [V-122 · endpoints-m6-reponses].
 
 ### 7.3 Stratégies M7
 
 - **`article_versions`** : `/search/canonicalArticleVersion {id}` renvoie `articleVersions[{id, version, numero, etat, dateDebut, dateFin, ordre}]` (Swagger `ArticleVersion`), soit des métadonnées légères. Si la liste est vide ou si l'appel répond 404 : repli sur `/consult/getArticleByCid {cid}` (`listArticle[Article]`, toutes les versions avec leur texte), réduit à des `ArticleVersion`. `fr_diff_article` lit ensuite le texte des deux versions par `get_article`, mis en cache 24 h.
-- **`related_links`** : `/consult/relatedLinksArticle {articleId}` renvoie `liensCite[]` et `liensCitePar[]` de `LiensRelatifsDTO {id, cidText, cidParent, nature ∈ {LODA, JORF, CODE, KALI, JORFCONT}, name, dateVigeur}` (Swagger). `dateVigeur` est une chaîne de chiffres (exemple `1470787200000`), lue par `opt_raw_date`. Le mapping produit `RelatedLinks { cites, cited_by }` de 03 §4.11 : `RelatedLink.target` vient de `id` (sinon `cidText`), validé en `DocumentId` ; un identifiant sans type consultable (`JORFCONT`, `JORFARTI`) donne `None`, le lien gardant son titre, sa nature et sa date. L'adapter rend les listes entières ; la correspondance `nature` → `kind`, la borne de 100 liens et la suite éventuelle relèvent de 05 §5.11. Forme et taille réelles : **NON VÉRIFIÉ** [v:related-links-forme] (V-136).
+- **`related_links`** : `/consult/relatedLinksArticle {articleId}` renvoie `liensCite[]` et `liensCitePar[]` de `LiensRelatifsDTO {id, cidText, cidParent, nature ∈ {LODA, JORF, CODE, KALI, JORFCONT}, name, dateVigeur}` (Swagger). `dateVigeur` est une chaîne de chiffres (exemple `1470787200000`), lue par `opt_raw_date`. Le mapping produit `RelatedLinks { cites, cited_by }` de 03 §4.11 : `RelatedLink.target` vient de `id` (sinon `cidText`), validé en `DocumentId` ; un identifiant sans type consultable (`JORFCONT`, `JORFARTI`) donne `None`, le lien gardant son titre, sa nature et sa date. L'adapter rend les listes entières ; la correspondance `nature` → `kind`, la borne de 100 liens et la suite éventuelle relèvent de 05 §5.11. Forme et taille réelles : **NON VÉRIFIÉ** [V-136 · related-links-forme] (V-136).
 - **`list_codes`** (M6, §7.2) : `/list/code` sans filtre `states`, paginé par 100 jusqu'à `totalResultNumber` (au plus 10 pages), chargé paresseusement au premier besoin, jamais au démarrage. Codes abrogés compris : chaque entrée (`CodeListing`, 03 §4.11) garde son `etat`, et les complétions de M7 filtrent `VIGUEUR`. 76 codes sont en vigueur (facette `FOND`, recherche 03 §5).
-- Formes réelles et tailles des réponses de `tableMatieres`, `canonicalArticleVersion`, `getArticleByCid` et `relatedLinksArticle` : **NON VÉRIFIÉ** [v:endpoints-m7-reponses].
+- Formes réelles et tailles des réponses de `tableMatieres`, `canonicalArticleVersion`, `getArticleByCid` et `relatedLinksArticle` : **NON VÉRIFIÉ** [V-135 · endpoints-m7-reponses].
 - **Surface JORF** (00 §4, §8) : la recherche `fond = JORF`, la valeur `JORF` des enums, et la consultation d'un `JORFTEXT` (`/consult/jorf {textCid}`, avec bascule vers la version consolidée si `hasLoda = true`, ou hits limités à `citation` + `source_url`) sont tranchées ensemble à l'ouverture de M7 (V-135). D'ici là, l'adapter ne sert aucun `JORFTEXT` et `Fond` a 8 valeurs.
 
-**`get_act` sur un code (D-47, v0.1)** : la décision se prend en M2, sur la mesure V-96 (bloquante en M2, 00 §8, §11) de `/consult/lawDecree` appliqué au `LEGITEXT` d'un code (Code civil, Code du travail). Si la réponse dépasse 4 Mio ou 10 s, l'adapter appelle `/consult/legi/tableMatieres {textId, date, nature: "CODE"}` plutôt que `/consult/lawDecree` pour un `LEGITEXT` de code, afin d'obtenir la table des matières sans le contenu des articles ; sinon `lawDecree` reste seul utilisé, et une réponse `nature == "CODE"` porte l'avertissement prévu par 05. Le port ne dit pas si un `LEGITEXT` est un code (même préfixe, limite D-47 de 03 §2.7) : le moyen de le savoir **avant** l'appel (table des codes chargée paresseusement, ce qui avancerait `/list/code` en M2, ou autre critère) est fixé en M2 avec le résultat de V-96 (§16, question 13). Comportement de `lawDecree` sur un code : **NON VÉRIFIÉ** [v:lawdecree-sur-code] (V-96).
+**`get_act` sur un code (D-47, v0.1)** : la décision se prend en M2, sur la mesure V-96 (bloquante en M2, 00 §8, §11) de `/consult/lawDecree` appliqué au `LEGITEXT` d'un code (Code civil, Code du travail). Si la réponse dépasse 4 Mio ou 10 s, l'adapter appelle `/consult/legi/tableMatieres {textId, date, nature: "CODE"}` plutôt que `/consult/lawDecree` pour un `LEGITEXT` de code, afin d'obtenir la table des matières sans le contenu des articles ; sinon `lawDecree` reste seul utilisé, et une réponse `nature == "CODE"` porte l'avertissement prévu par 05. Le port ne dit pas si un `LEGITEXT` est un code (même préfixe, limite D-47 de 03 §2.7) : le moyen de le savoir **avant** l'appel (table des codes chargée paresseusement, ce qui avancerait `/list/code` en M2, ou autre critère) est fixé en M2 avec le résultat de V-96 (§16, question 13). Comportement de `lawDecree` sur un code : **NON VÉRIFIÉ** [V-96 · lawdecree-sur-code] (V-96).
 
 ---
 
@@ -852,7 +852,7 @@ Noms JSON tels que vus dans les fixtures et le Swagger. Sauf mention, tous les c
 | `ContextEntryDto` | `id`, `titre`, `debut`, `fin` (`opt_raw_date`, `AAAA-MM-JJ`) |
 | `TextTitleDto` | `id`, `cid`, `titre`, `nature` |
 
-Présence en direct de `texteHtml` sur `/consult/getArticle` : **NON VÉRIFIÉ** [v:texte-html-getarticle-juri] (03), d'où le repli sur `texte`.
+Présence en direct de `texteHtml` sur `/consult/getArticle` : **NON VÉRIFIÉ** [V-90 · texte-html-getarticle-juri] (03), d'où le repli sur `texte`.
 
 **`/consult/juri` et `/consult/cnil` — `ConsultJuriResponseDto { text: Option<JuriTextDto> }`** (recherche 03 §8, §12.6)
 
@@ -918,7 +918,7 @@ Les personnes (`president`, `avocats`, `rapporteur`, `commissaire`, `avocatGl`) 
 
 - Toute désérialisation de corps passe par `serde_path_to_error::deserialize`. L'erreur devient `CorpusError::Decode { detail }` (variantes fixées par 02 §5.1), avec un `detail` qui assemble l'endpoint, le chemin JSON et la catégorie serde, par exemple `/consult/juri: text.sommaire[0].abstrats: invalid type: integer, expected a string`.
 - Le message ne contient **aucune valeur** du corps. Seuls figurent le chemin JSON et la catégorie serde, car une valeur pourrait contenir des données personnelles ou un texte long.
-- Limite de récursion : serde_json limite par défaut la profondeur d'imbrication (128 niveaux selon sa documentation, **NON VÉRIFIÉ** [v:serde-json-recursion]). Elle n'est pas levée (pas de feature `unbounded_depth`). Le domaine borne de son côté la TOC à 64 niveaux (03 §1.3).
+- Limite de récursion : serde_json limite par défaut la profondeur d'imbrication (128 niveaux selon sa documentation, **NON VÉRIFIÉ** [V-10 · serde-json-recursion]). Elle n'est pas levée (pas de feature `unbounded_depth`). Le domaine borne de son côté la TOC à 64 niveaux (03 §1.3).
 - Corps HTML (page d'erreur d'une passerelle), JSON `null` à la racine, JSON tronqué : `Decode`, sans réessai (corrige D-11 et E-21 : la référence levait une exception sans code).
 
 ---
@@ -935,7 +935,7 @@ Fonctions pures de `map/`, du type `fn(dto, &contexte de requête) -> Result<Ent
 | (b) Identifiant renvoyé ≠ identifiant demandé (après retrait du suffixe) | l'entité garde l'identifiant renvoyé, vérité de l'API ; diagnostic `warn` | — |
 | (c) Identifiants | `FromStr` stricts du domaine ; suffixe `_JJ-MM-AAAA` vers `VersionedId` (03 §2.4) | D-28, D-31, E-16 |
 | (d) Routage | la famille de juridiction, l'URL et la règle de citation viennent du **type** d'identifiant. `origine` n'est qu'un contrôle de cohérence (diagnostic s'il diverge) | D-28, E-18 |
-| (e) Dates | `RawDate::Millis(ms)` → `date::from_epoch_ms` (03 §6.3, epoch négatifs compris, sans dépendance à la plateforme) ; `Text("AAAA-MM-JJ")` → `NaiveDate` ; `Text("AAAA-MM-JJT…+0000")` → partie date ; puis `date::open_ended` (toute date ≥ 2222-01-01 devient `None`) ; les champs `…Computed` sont lus en priorité. Un horodatage qui n'est pas à minuit UTC produit un diagnostic : convention générale **NON VÉRIFIÉ** [v:convention-horaire-timestamps] (03) | D-20, D-21, E-11, E-35 |
+| (e) Dates | `RawDate::Millis(ms)` → `date::from_epoch_ms` (03 §6.3, epoch négatifs compris, sans dépendance à la plateforme) ; `Text("AAAA-MM-JJ")` → `NaiveDate` ; `Text("AAAA-MM-JJT…+0000")` → partie date ; puis `date::open_ended` (toute date ≥ 2222-01-01 devient `None`) ; les champs `…Computed` sont lus en priorité. Un horodatage qui n'est pas à minuit UTC produit un diagnostic : convention générale **NON VÉRIFIÉ** [V-100 · convention-horaire-timestamps] (03) | D-20, D-21, E-11, E-35 |
 | (f) Textes | `LongText::best_of(texteHtml, texte)` (03 §7.4) ; les champs courts passent par `text::clean` | D-26 |
 | (g) Statut | `status_of(etat, jurisState)` | D-21, E-10 |
 | (h) Erreurs du domaine | `DomainError` non utilisateur (`is_input()` faux, 03 §9 : `TocTooDeep`, `TextTooLarge`) ⇒ `Decode` ; `HitKindMismatch` sur un hit de recherche ⇒ hit écarté et compté (règle i) | — |
@@ -948,7 +948,7 @@ Fonctions pures de `map/`, du type `fn(dto, &contexte de requête) -> Result<Ent
 | `SearchPage`, `SearchHit` | `map::search_page(dto, &SearchQuery)` | `results[]`, `totalResultNumber`, `totalArticleResultNumber`, `typePagination` | `kind` = fond demandé ; `id` = `titles[0].id` ; `title` sans `<mark>` ; `date` = `date`, puis `datePublication`, puis `dateSignature` ; `snippet` = `text`, sinon `extracts[0].values[0]` (≤ 280 caractères) ; `articles` CODE et KALI depuis `sections[].extracts[]` ; `company`, `idcc` (ACCO) ; `total_articles` si > 0 ; `has_more = page × page_size < total` | D-09, D-30, D-33, E-26 |
 | `Act` | `map::act(dto, &LegiTextId, VersionDate)` | lawDecree | `version_start` = suffixe ou `dateDebutVersion` ; `version_end` = `dateFinVersion` (≥ 2222-01-01 → `None`, 00 §4) ; `cid: JorfTextId` ; `Toc::build(TocDraft)` depuis `sections`/`articles` (titres de sections, tri `intOrdre`, dédoublonnage ; 03 §4.2) ; `nature == "CODE"` : avertissement prévu par 05 | D-25, D-47, E-10, E-11 |
 | `ArticleText` | `map::article(dto, &ArticleId)` | getArticle | `code_title` = `textTitles[nature=="CODE"].titre`, sinon `textTitles[0].titre` ; `parent` (nature du texte parent → URL `code_article` ou `loda_article`, 03 §5.5) ; `path` = `context.titresTM[].titre` ; `nota` = `notaHtml`, sinon `nota` ; `previous_version` | D-26, D-29 |
-| `Decision` | `map::decision(dto, &DecisionId)` | juri | `ecli` natif validé (`Ecli::from_str`), jamais fabriqué ; `numero_affaire` = `numeroAffaire`, sinon `[num]` pour CETAT ; `date` = `dateTexteComputed`, sinon `dateTexte` ; `OfficialSummary { analyses, titrages }` mappé par fond (00 §4 ; 03 §4.4) : JURI `abstrats` → analyses, `resumePrincipal`/`autreResume` → titrages ; CETAT `resumePrincipal` → analyses, `abstrats` → titrages ; codes de classement retirés et doublons supprimés par le domaine (sémantique par fond **NON VÉRIFIÉ** [v:sommaire-semantique-par-fond], V-109) ; `cited_case_law` = `citationJp` ; `applied_texts` | D-26, D-27, D-28 |
+| `Decision` | `map::decision(dto, &DecisionId)` | juri | `ecli` natif validé (`Ecli::from_str`), jamais fabriqué ; `numero_affaire` = `numeroAffaire`, sinon `[num]` pour CETAT ; `date` = `dateTexteComputed`, sinon `dateTexte` ; `OfficialSummary { analyses, titrages }` mappé par fond (00 §4 ; 03 §4.4) : JURI `abstrats` → analyses, `resumePrincipal`/`autreResume` → titrages ; CETAT `resumePrincipal` → analyses, `abstrats` → titrages ; codes de classement retirés et doublons supprimés par le domaine (sémantique par fond **NON VÉRIFIÉ** [V-109 · sommaire-semantique-par-fond], V-109) ; `cited_case_law` = `citationJp` ; `applied_texts` | D-26, D-27, D-28 |
 | `Deliberation` | `map::deliberation(dto, &CnilTextId)` | cnil | `date`, `date_publication` (`…Computed` d'abord) ; `nature_delib` | D-27 |
 | `Convention` | `map::convention(dto, &KaliTextId)` | kaliText | `idcc` = `conteneurs[0].num` ; `container_title` (saut de ligne final retiré) ; `bulletin` = `originePubli`, sinon `numeroBo` ; TOC avec `inline_text` depuis `content` (pas de N+1 appels) | D-20, D-25 |
 | `CompanyAgreement` | `map::agreement(dto, &AccoTextId)` | acco | métadonnées seules ; `themes` et `unions` limités aux libellés non vides ; **aucun** champ texte (P-036) | E-14 |
@@ -967,7 +967,7 @@ Le domaine renvoie ses anomalies comme valeurs (03 §1.1). L'adapter les journal
 
 ### 10.1 Constat
 
-6 fixtures sur 16 (`search_loda`, `search_code`, `search_juri`, `consult_loda`, `consult_article`, `consult_juri`) contiennent de l'UTF-8 décodé à tort en ISO-8859-1 : 252 séquences de 13 motifs distincts (235 dans 60 valeurs, 17 dans 14 clés de facettes), et aucun caractère accentué correct. Les « 235 séquences sur 60 champs » de la recherche 02 (D-35) correspondent aux seules valeurs ; 252 est le chiffre de référence, unité « séquence », recompté par ce document avec le motif du §10.2 sur les 6 fixtures (`python3 -I`, Python 3.13). Les 10 autres fixtures sont saines (recherche 03 §11.1 ; recherche 02 D-35, §5). La présence de caractères de contrôle C1 (`PREMIÃ\x88RE`) désigne ISO-8859-1 et non Windows-1252. La cause la plus probable est l'outil de capture : le même endpoint `/consult/juri` est sain dans une campagne ultérieure. Origine **NON VÉRIFIÉ** [v:mojibake-origine] (03). Dans les fixtures, le mojibake est en caractères bruts, sans aucune séquence d'échappement `\uXXXX` (contrôle de ce document : 0 occurrence dans les 16 fichiers).
+6 fixtures sur 16 (`search_loda`, `search_code`, `search_juri`, `consult_loda`, `consult_article`, `consult_juri`) contiennent de l'UTF-8 décodé à tort en ISO-8859-1 : 252 séquences de 13 motifs distincts (235 dans 60 valeurs, 17 dans 14 clés de facettes), et aucun caractère accentué correct. Les « 235 séquences sur 60 champs » de la recherche 02 (D-35) correspondent aux seules valeurs ; 252 est le chiffre de référence, unité « séquence », recompté par ce document avec le motif du §10.2 sur les 6 fixtures (`python3 -I`, Python 3.13). Les 10 autres fixtures sont saines (recherche 03 §11.1 ; recherche 02 D-35, §5). La présence de caractères de contrôle C1 (`PREMIÃ\x88RE`) désigne ISO-8859-1 et non Windows-1252. La cause la plus probable est l'outil de capture : le même endpoint `/consult/juri` est sain dans une campagne ultérieure. Origine **NON VÉRIFIÉ** [V-72 · mojibake-origine] (03). Dans les fixtures, le mojibake est en caractères bruts, sans aucune séquence d'échappement `\uXXXX` (contrôle de ce document : 0 occurrence dans les 16 fichiers).
 
 ### 10.2 Algorithme exact
 
@@ -992,7 +992,7 @@ Les caractères structurels JSON sont ASCII et identiques en latin-1 et en UTF-8
 | Tout-ou-rien | une seule décision pour tout le corps | réparation du corps entier égale à la réparation champ par champ sur les 6 fixtures (égalité stricte des JSON) |
 | Risque résiduel | un texte entièrement latin-1 dont tous les caractères non ASCII formeraient par hasard de l'UTF-8 valide | jamais observé ; la détection seule a un faux positif dans une fixture saine (`é` suivi d'une NBSP, « constitutionnalité ; », 2 champs de consult_juri_constit.json), neutralisé par l'étape 3 (caractère > U+00FF dans le corps) et, à défaut, par l'étape 5 (`E9 A0` n'est pas de l'UTF-8 valide) |
 
-Angle mort : si PISTE échappait les caractères non ASCII (`Ã©`), un mojibake éventuel serait invisible au niveau du corps, qui serait alors en ASCII. Forme des chaînes servies par PISTE (caractères bruts ou échappements) : **NON VÉRIFIÉ** [v:json-echappements-unicode]. Le test de contrat `no_mojibake_after_mapping` contrôle chaque chaîne des entités produites, et le smoke test live (§13.5) le contrôle aussi. Si l'angle mort se confirmait, la même fonction pure serait appliquée par champ dans le mapping, ce qui demanderait une révision de 00 §8.
+Angle mort : si PISTE échappait les caractères non ASCII (`Ã©`), un mojibake éventuel serait invisible au niveau du corps, qui serait alors en ASCII. Forme des chaînes servies par PISTE (caractères bruts ou échappements) : **NON VÉRIFIÉ** [V-71 · json-echappements-unicode]. Le test de contrat `no_mojibake_after_mapping` contrôle chaque chaîne des entités produites, et le smoke test live (§13.5) le contrôle aussi. Si l'angle mort se confirmait, la même fonction pure serait appliquée par champ dans le mapping, ce qui demanderait une révision de 00 §8.
 
 ### 10.4 Ordre impératif
 
@@ -1022,10 +1022,10 @@ Smoke test live (§13.5) : requêtes sur `JURITEXT000051743650`, `LEGIARTI000006
 | Endpoint | Comportement connu pour un identifiant bien formé mais inexistant | Statut | Classification |
 |---|---|---|---|
 | `/consult/juri` (JURITEXT) | **HTTP 400**, corps `{"timestamp":…,"error":400,"status":"Bad Request","message":"L'expression à valider est fausse.","errorCode":null,"exceptionDetails":null}` ; pas de 200 vide | sondé en direct par pylegifrance le 2026-04-13 avec `JURITEXT000000000000` et `JURITEXT999999999999` (`pylegifrance/fonds/juri.py:124-135`, forme du corps dans `tests/unit/fonds/test_juri_verification_endpoints.py:115-121`, test unitaire sur réponse simulée) ; tiers, non revérifié par nous | `NotFound` |
-| `/consult/juri` (CETATEXT) | même 400 affirmé par pylegifrance, mais sans sonde live (seulement une docstring de test unitaire, réponse simulée) | **NON VÉRIFIÉ** [v:introuvable-par-endpoint] | règles du §11.2 (le marqueur suffit) |
-| `/consult/juri` (CONSTEXT) | inconnu (pylegifrance n'a sondé en direct que JURITEXT) | **NON VÉRIFIÉ** [v:introuvable-par-endpoint] | règles du §11.2 |
-| `/consult/lawDecree`, `/consult/getArticle`, `/consult/cnil`, `/consult/kaliText`, `/consult/acco` | inconnu : 400 avec le même marqueur, 404, 200 avec une enveloppe `null` ou 500 sont tous plausibles | **NON VÉRIFIÉ** [v:introuvable-par-endpoint] (recherche 01 §16 point 4 ; recherche 03 §15 point 9) | règles du §11.2 |
-| M6 et M7 (`getArticleWithIdAndNum`, `getJoWithNor`, `kaliContIdcc`, `canonicalArticleVersion`, `getArticleByCid`, `relatedLinksArticle`) | inconnu | **NON VÉRIFIÉ** [v:introuvable-par-endpoint] | règles du §11.2 ; pour une **recherche** (`find_*`), « aucun résultat » est un résultat vide, pas une erreur |
+| `/consult/juri` (CETATEXT) | même 400 affirmé par pylegifrance, mais sans sonde live (seulement une docstring de test unitaire, réponse simulée) | **NON VÉRIFIÉ** [V-68 · introuvable-par-endpoint] | règles du §11.2 (le marqueur suffit) |
+| `/consult/juri` (CONSTEXT) | inconnu (pylegifrance n'a sondé en direct que JURITEXT) | **NON VÉRIFIÉ** [V-68 · introuvable-par-endpoint] | règles du §11.2 |
+| `/consult/lawDecree`, `/consult/getArticle`, `/consult/cnil`, `/consult/kaliText`, `/consult/acco` | inconnu : 400 avec le même marqueur, 404, 200 avec une enveloppe `null` ou 500 sont tous plausibles | **NON VÉRIFIÉ** [V-68 · introuvable-par-endpoint] (recherche 01 §16 point 4 ; recherche 03 §15 point 9) | règles du §11.2 |
+| M6 et M7 (`getArticleWithIdAndNum`, `getJoWithNor`, `kaliContIdcc`, `canonicalArticleVersion`, `getArticleByCid`, `relatedLinksArticle`) | inconnu | **NON VÉRIFIÉ** [V-68 · introuvable-par-endpoint] | règles du §11.2 ; pour une **recherche** (`find_*`), « aucun résultat » est un résultat vide, pas une erreur |
 | `/search` | 0 résultat = **succès** (`total = 0`, `hits = []`) | parité S16, E-04 | jamais `NotFound` |
 | endpoint token | — | — | jamais `NotFound` (§3.5) |
 
@@ -1043,7 +1043,7 @@ Arbre appliqué par `classify.rs`, après lecture bornée, décodage et réparat
    - sur `/search` ⇒ `Config`, rendu `Legifrance endpoint not found: check LF_PISTE_BASE_URL.` (05 §7.2, 404 de routage ; 02 §9.2 ligne 14). Il n'y a pas de « ressource » à ne pas trouver : le chemin ou l'URL est faux ;
    - sur une consultation, si l'URL de base est officielle (`PisteEndpoints.official`) et que le corps n'est pas du HTML ⇒ `NotFound`. Le chemin vient de la liste vérifiée du Swagger, donc il existe ;
    - sinon (hôte personnalisé ou page HTML de passerelle) ⇒ `Config`, rendu par le même gabarit `Legifrance endpoint not found: check LF_PISTE_BASE_URL.` (05 §7.2).
-   - La forme réelle d'un 404 PISTE, de routage ou de ressource, est **NON VÉRIFIÉ** [v:forme-404-piste] (recherche 02 D-10 ; V-66, bloquante en M2). Cette règle est provisoire jusqu'au smoke test.
+   - La forme réelle d'un 404 PISTE, de routage ou de ressource, est **NON VÉRIFIÉ** [V-66 · forme-404-piste] (recherche 02 D-10 ; V-66, bloquante en M2). Cette règle est provisoire jusqu'au smoke test.
 5. **500** après 2 tentatives : `Upstream { status: 500, retryable: false }` (§5.1), jamais `NotFound`. « Ne jamais conclure à l'inexistence sans preuve », principe repris d'un client tiers (recherche 05 §1.13).
 
 Un `not_found` signifie donc toujours que l'API a dit que la ressource n'existait pas. Un problème d'URL ou de configuration ne peut jamais faire croire au modèle qu'un texte n'existe pas, ce que la référence permettait (D-10).
@@ -1062,7 +1062,7 @@ pub(crate) struct PisteErrorDto {
 }
 ```
 
-La désérialisation est **facultative** : un corps d'erreur non JSON (HTML, texte vide) est classé par le statut seul. La forme générale des corps d'erreur de l'API (tous statuts confondus) est **NON VÉRIFIÉ** [v:corps-erreur-piste]. La seule forme connue est celle du 400 de `/consult/juri` (pylegifrance).
+La désérialisation est **facultative** : un corps d'erreur non JSON (HTML, texte vide) est classé par le statut seul. La forme générale des corps d'erreur de l'API (tous statuts confondus) est **NON VÉRIFIÉ** [V-67 · corps-erreur-piste]. La seule forme connue est celle du 400 de `/consult/juri` (pylegifrance).
 
 ---
 
@@ -1127,7 +1127,7 @@ Implémentation : `std::sync::Mutex<…>` avec horodatage `MonoClock`, sans dép
 ### 13.1 Infrastructure
 
 - **wiremock** 0.6.5 : un `MockServer` par test. La `PisteConfig` de test pointe `oauth_url` vers `{server}/oauth/token` et `base_url` vers `{server}/dila/legifrance/lf-engine-app` (`ConfigWarning::InsecureLoopback`).
-- **Temps** : on ne gèle **pas** l'horloge `tokio` (`start_paused`) pendant des E/S réelles avec wiremock. L'avance automatique d'une horloge gelée pourrait déclencher à tort le délai de reqwest pendant l'attente d'une socket. Ce comportement est **NON VÉRIFIÉ** [v:wiremock-temps-pause], et la conception l'évite. À la place :
+- **Temps** : on ne gèle **pas** l'horloge `tokio` (`start_paused`) pendant des E/S réelles avec wiremock. L'avance automatique d'une horloge gelée pourrait déclencher à tort le délai de reqwest pendant l'attente d'une socket. Ce comportement est **NON VÉRIFIÉ** [V-19 · wiremock-temps-pause], et la conception l'évite. À la place :
   - `ManualClock: MonoClock` et `RecordingSleeper: Sleeper` (qui avance la `ManualClock` de la durée demandée et la note) rendent déterministes l'expiration du jeton, le backoff, `Retry-After`, le limiteur et le délai global, sans attente réelle ;
   - les tests de délai HTTP utilisent de vraies durées courtes : `request_timeout = 200 ms`, réponse retardée de 1 s par `ResponseTemplate::set_delay`.
 - **Comptages** : `Mock::expect(n)` (vérifié à la fin du test), et un `Respond` personnalisé qui compte les requêtes en vol (`AtomicUsize`) pour le plafond de concurrence.
@@ -1151,7 +1151,7 @@ Les noms suivent la matrice de la recherche 02 §6 quand elle en propose.
 | `api_401_twice_maps_to_auth` | API : 401, 401 | `Auth` ; 2 requêtes token ; pas de 3e requête API | P-023, D-12 |
 | `401_then_503_then_200_requests_exactly_two_tokens` | API : 401, 503, 200 | 2 requêtes token, 3 requêtes API | D-12, E-20 |
 | `invalidate_does_not_drop_fresher_token` | deux tâches, l'une reçoit un 401 avec un vieux jeton | le jeton neuf est gardé | §3.3 |
-| `oauth_invalid_client_401_maps_to_auth_no_retry` | token : 401 `{"error":"invalid_client"}`, puis variante 400 avec le même corps (statut réel inconnu, RFC 6749 §5.2 admet les deux : **NON VÉRIFIÉ** [v:oauth-reponses]) | `Auth` dans les deux cas, 1 seule requête token, `detail` qui cite `invalid_client` et l'environnement | D-10 |
+| `oauth_invalid_client_401_maps_to_auth_no_retry` | token : 401 `{"error":"invalid_client"}`, puis variante 400 avec le même corps (statut réel inconnu, RFC 6749 §5.2 admet les deux : **NON VÉRIFIÉ** [V-60 · oauth-reponses]) | `Auth` dans les deux cas, 1 seule requête token, `detail` qui cite `invalid_client` et l'environnement | D-10 |
 | `oauth_400_maps_to_auth` | token : 400 | `Auth` | D-10 |
 | `oauth_404_maps_to_config_not_not_found` | token : 404 HTML | `Config` | D-10 |
 | `oauth_200_without_access_token_maps_to_config` | token : `{}` | `Config` (`no access_token`) | S7 |
@@ -1285,22 +1285,22 @@ license = "Licence Ouverte 2.0 — source : Légifrance / DILA"
 | Test live | Vérifie | Libellés traités |
 |---|---|---|
 | les 9 scénarios de la référence (recherche 01 §11.7 : LODA, CODE, JURI, CONSTIT, CETAT, CNIL, KALI, ACCO, puis consultation des hits) | parité de bout en bout | P-060 |
-| `live_token_reuse_and_expires_in` | `expires_in`, `scope`, réutilisation | [v:oauth-reponses] |
-| `live_unknown_ids_classification` (M2, bloquant : V-66, V-68) | réponse de chaque endpoint pour `…000000000000` et `…999999999999` (enregistrée par xtask) | [v:introuvable-par-endpoint], [v:forme-404-piste], [v:corps-erreur-piste] |
-| `live_no_mojibake_on_reference_ids` | §10.7 | [v:mojibake-origine], [v:json-echappements-unicode] |
-| `live_singledate_noon_paris_semantics` (M2, bloquant) | §6.3 : suffixe de version du hit pour `version_date = D` avec `singleDate` à midi Paris, comparé à minuit UTC, à minuit Paris et à la veille | [v:singledate-midi-paris] |
-| `live_lawdecree_on_code_size` (M2, bloquant) | §7.3 : taille et durée de `lawDecree` sur le Code civil et le Code du travail, seuils 4 Mio et 10 s | [v:lawdecree-sur-code], [v:taille-max-textes] |
-| `live_type_pagination_page2_code` (M5) | §6.6 | [v:typepagination-page2] |
-| `live_deep_pagination_limit` (M5) | §6.7 : positions 9 901 à 10 000, puis au-delà | [v:pagination-profonde] |
-| `live_date_facets_reduce_total` | pour chaque facette du §6.5, le total diminue ; bornes incluses | [v:filtres-dates-effet] |
-| `live_match_modes_totals` | `any` ≥ `all` ≥ `exact` sur une même requête | [v:mode-all-semantique] |
-| `live_gzip_negotiated` | en-tête `Content-Encoding` | [v:piste-gzip] |
-| `live_texte_html_presence` | `texteHtml` sur `getArticle` et `juri` (JURI) | [v:texte-html-getarticle-juri] |
-| (M6) `live_find_article_today_and_past`, `live_exact_number_searches` | §7.2 | [v:idandnum-comportement], [v:recherche-exacte-par-numero], [v:num-article-forme-api], [v:endpoints-m6-reponses], [v:nom-code-filtre] |
-| (M6) `live_ecli_facet_and_eli_redirects` | §7.2 : facette `ECLI` sur JURI et CETAT ; `getArticleWithIdEliOrAlias`, `eliAndAliasRedirectionTexte` | [v:ecli-filtre-juri-cetat], [v:eli-redirection-endpoints] |
-| (M7) `live_versions_links_toc` | §7.3 (`/suggest` retiré) | [v:endpoints-m7-reponses], [v:related-links-forme] |
+| `live_token_reuse_and_expires_in` | `expires_in`, `scope`, réutilisation | [V-60 · oauth-reponses] |
+| `live_unknown_ids_classification` (M2, bloquant : V-66, V-68) | réponse de chaque endpoint pour `…000000000000` et `…999999999999` (enregistrée par xtask) | [V-68 · introuvable-par-endpoint], [V-66 · forme-404-piste], [V-67 · corps-erreur-piste] |
+| `live_no_mojibake_on_reference_ids` | §10.7 | [V-72 · mojibake-origine], [V-71 · json-echappements-unicode] |
+| `live_singledate_noon_paris_semantics` (M2, bloquant) | §6.3 : suffixe de version du hit pour `version_date = D` avec `singleDate` à midi Paris, comparé à minuit UTC, à minuit Paris et à la veille | [V-76 · singledate-midi-paris] |
+| `live_lawdecree_on_code_size` (M2, bloquant) | §7.3 : taille et durée de `lawDecree` sur le Code civil et le Code du travail, seuils 4 Mio et 10 s | [V-96 · lawdecree-sur-code], [V-75 · taille-max-textes] |
+| `live_type_pagination_page2_code` (M5) | §6.6 | [V-82 · typepagination-page2] |
+| `live_deep_pagination_limit` (M5) | §6.7 : positions 9 901 à 10 000, puis au-delà | [V-83 · pagination-profonde] |
+| `live_date_facets_reduce_total` | pour chaque facette du §6.5, le total diminue ; bornes incluses | [V-78 · filtres-dates-effet] |
+| `live_match_modes_totals` | `any` ≥ `all` ≥ `exact` sur une même requête | [V-79 · mode-all-semantique] |
+| `live_gzip_negotiated` | en-tête `Content-Encoding` | [V-70 · piste-gzip] |
+| `live_texte_html_presence` | `texteHtml` sur `getArticle` et `juri` (JURI) | [V-90 · texte-html-getarticle-juri] |
+| (M6) `live_find_article_today_and_past`, `live_exact_number_searches` | §7.2 | [V-118 · idandnum-comportement], [V-120 · recherche-exacte-par-numero], [V-119 · num-article-forme-api], [V-122 · endpoints-m6-reponses], [V-121 · nom-code-filtre] |
+| (M6) `live_ecli_facet_and_eli_redirects` | §7.2 : facette `ECLI` sur JURI et CETAT ; `getArticleWithIdEliOrAlias`, `eliAndAliasRedirectionTexte` | [V-128 · ecli-filtre-juri-cetat], [V-133 · eli-redirection-endpoints] |
+| (M7) `live_versions_links_toc` | §7.3 (`/suggest` retiré) | [V-135 · endpoints-m7-reponses], [V-136 · related-links-forme] |
 
-Ni 429 ni `Retry-After` ne sont provoqués volontairement : ce serait contraire à l'esprit des CGU. [v:retry-after-piste] et [v:quota-piste-prod] se vérifient par observation fortuite (journal `warn`) et par la console PISTE.
+Ni 429 ni `Retry-After` ne sont provoqués volontairement : ce serait contraire à l'esprit des CGU. [V-63 · retry-after-piste] et [V-62 · quota-piste-prod] se vérifient par observation fortuite (journal `warn`) et par la console PISTE.
 
 ### 13.6 Couverture des défauts
 
@@ -1365,10 +1365,10 @@ Les requêtes de recherche peuvent révéler l'activité d'un juriste : elles ne
 
 **M0 — Fondations (part de ce crate)**
 
-- [ ] Spike TLS : options A et B compilées pour les 7 cibles cargo-dist ; poignée de main TLS testée ; choix consigné dans ADR-0013 et dans 09 ([v:tls-fournisseur-cross]).
-- [ ] Spike proxy : prise en compte de `HTTPS_PROXY` et `NO_PROXY` avec les features retenues ([v:reqwest-proxy-env]).
+- [ ] Spike TLS : options A et B compilées pour les 7 cibles cargo-dist ; poignée de main TLS testée ; choix consigné dans ADR-0013 et dans 09 ([V-02 · tls-fournisseur-cross]).
+- [ ] Spike proxy : prise en compte de `HTTPS_PROXY` et `NO_PROXY` avec les features retenues ([V-03 · reqwest-proxy-env]).
 - [ ] Squelette du crate compilé ; une dépendance du §1.4 n'y est déclarée que lorsqu'un code l'emploie (aucune déclaration d'avance, 00 §2), `cargo machete` vert ; `cargo xtask check-deps` vert (pas de `rmcp`, pas d'autre adapter, pas de dépendance directe à `url`) ; exigences au niveau mineur et `Cargo.lock` verrouillé selon la règle d'âge (§1.4, T-M0-05).
-- [ ] API de `backon` 1.6 et de `governor` 0.10.4 confirmées à la compilation ([v:backon-api], [v:governor-api]) ; `backon` sans `tokio-sleep` si le `Sleeper` du crate suffit.
+- [ ] API de `backon` 1.6 et de `governor` 0.10.4 confirmées à la compilation ([V-06 · backon-api], [V-07 · governor-api]) ; `backon` sans `tokio-sleep` si le `Sleeper` du crate suffit.
 - [ ] Lecture de `lf_application::deadline::Deadline` (`tokio::task_local!`) depuis l'adapter, dans le spike `task_local!` de M0 (00 §11).
 
 **M2 — Adapter PISTE (v0.1)**
@@ -1387,8 +1387,8 @@ Les requêtes de recherche peuvent révéler l'activité d'un juriste : elles ne
 
 **M5 — Économie de contexte**
 
-- [ ] Pagination de la recherche vérifiée en direct : `typePagination` page 2 ([v:typepagination-page2] : le mémo suffit, ou paramètre opaque `pagination` en classe « ajout ») et fenêtre profonde ([v:pagination-profonde] : confirmation ou ajustement de `REACHABLE_RESULTS`, 03 §4.1).
-- [ ] Borne de corps réexaminée sur les fixtures recapturées ([v:taille-max-textes]) ; toute modification amende 00 §8.
+- [ ] Pagination de la recherche vérifiée en direct : `typePagination` page 2 ([V-82 · typepagination-page2] : le mémo suffit, ou paramètre opaque `pagination` en classe « ajout ») et fenêtre profonde ([V-83 · pagination-profonde] : confirmation ou ajustement de `REACHABLE_RESULTS`, 03 §4.1).
+- [ ] Borne de corps réexaminée sur les fixtures recapturées ([V-75 · taille-max-textes]) ; toute modification amende 00 §8.
 
 **M6 — Citations**
 
@@ -1408,7 +1408,7 @@ Elles sont reportées dans [09-risques-et-questions.md](09-risques-et-questions.
 
 1. **`singleDate`** — *tranchée* (00 §8, AM-02) : midi Europe/Paris (§6.3), confirmé par V-76, bloquante en M2.
 2. **Variables de configuration** — *tranchée* (00 §1, AM-05) : `LF_PISTE_RPS`, `LF_PISTE_BURST`, `LF_PISTE_CONCURRENCY`, `LF_PISTE_MOJIBAKE_REPAIR`, avec bornes et défauts, hors `server.json` et MCPB (§2.2).
-3. **500** — *tranchée* (00 §8, AM-03) : 2 tentatives au plus, puis `Upstream { status: 500, retryable: false }` ; retour à 3 tentatives si V-69 ([v:500-requete-invalide]) montre des 500 transitoires fréquents (§5.1, §5.2).
+3. **500** — *tranchée* (00 §8, AM-03) : 2 tentatives au plus, puis `Upstream { status: 500, retryable: false }` ; retour à 3 tentatives si V-69 ([V-69 · 500-requete-invalide]) montre des 500 transitoires fréquents (§5.1, §5.2).
 4. **Temps restant** — *tranchée* (00 §3, AM-07) : `Deadline` en variable locale de tâche posée par `Audited`, lue par l'adapter comme durée restante et convertie dans `MonoClock` (§5.3).
 5. **Rendu de `InvalidRequest`** — *tranchée* (00 §5, AM-28) : toujours `upstream_error` avec le détail PISTE nettoyé, jamais `invalid_arg` ; les contraintes imputables à l'entrée sont validées avant le port (§11.2 règle 3).
 6. **Plafond de pagination profonde** — *tranchée* (00 §7, AM-04) : `page × page_size > 10 000` rejeté en `invalid_arg` par le cas d'usage ; V-83 (M5) confirme la fenêtre (§6.7).
@@ -1431,50 +1431,50 @@ Index local des étiquettes employées ci-dessus ; le registre qui fait foi (num
 
 | Étiquette | Vérification à faire |
 |---|---|
-| [v:quota-piste-prod] | Valeurs des quotas PISTE (sandbox et production), granularité (par application, par méthode), pour calibrer `governor` (V-62). |
-| [v:oauth-production-live] | L'endpoint token et la base API de production répondent comme documenté avec une application de production. |
-| [v:sandbox-prod-donnees] | Ampleur des écarts de données entre sandbox et production. |
-| [v:oauth-reponses] | Statuts et corps réels des erreurs de l'endpoint token (dont le statut, 400 ou 401, de `invalid_client`) ; valeurs de `expires_in` et `token_type`. |
-| [v:401-sous-throttling] | PISTE renvoie-t-il `401 invalid_client` pendant une limitation de débit ? |
-| [v:tls-fournisseur-cross] | Exigences de compilation d'`aws-lc-sys` par cible ; installation du fournisseur `ring` avec reqwest 0.13 `rustls-no-provider`. |
-| [v:reqwest-proxy-env] | Prise en compte de `HTTPS_PROXY` et `NO_PROXY` par reqwest 0.13 avec les features retenues. |
-| [v:piste-gzip] | PISTE compresse-t-il les réponses (`Content-Encoding: gzip`) ? |
-| [v:taille-max-textes] | Tailles maximales réelles des réponses (gros textes, codes, TOC) au regard de la borne de 16 Mio. |
-| [v:acco-data-attachment] | Présence et taille de `data` et `attachment` dans `/consult/acco`. |
-| [v:retry-after-piste] | Présence et format (secondes ou date HTTP) de `Retry-After` sur les 429 et 503 de PISTE, et présence de l'en-tête `Date` qui sert à convertir la forme date (§5.2). |
-| [v:500-requete-invalide] | Une facette ou un champ inconnu provoque-t-il un 500 plutôt qu'un 400 ? |
-| [v:backon-api] | Noms et sémantique de l'API backon 1.6 (`when`, `adjust`, `sleep`, `notify`, gigue). |
-| [v:governor-api] | Constructeurs de `Quota` et `RateLimiter::direct_with_clock` avec une horloge `Duration`, à la compilation. |
-| [v:delai-clients-mcp] | Délais imposés par Claude Code et VS Code à un appel d'outil, à comparer aux 60 s de `LF_TOOL_DEADLINE_S`. |
-| [v:singledate-midi-paris] | Avec `singleDate` à midi Paris (règle de 00 §8), un texte entrant en vigueur le jour J est-il retenu le jour J ? Comparaison avec minuit UTC, minuit Paris et la veille (bloquante en M2, V-76, dont c'est l'étiquette de référence dans 09 §2.19). |
-| [v:chrono-tz-iana] | Version de la base IANA embarquée par `chrono-tz` 0.10.4 ; reproduction des vecteurs du §6.3 (dont 1804-03-21). |
-| [v:mode-all-semantique] | Sens de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp = ALL`. |
-| [v:filtres-dates-effet] | Effet réel des facettes de date du §6.5, bornes incluses, borne lointaine, combinaison avec `DATE_VERSION`. |
-| [v:typepagination-page2] | Effet de `DEFAUT` ou `ARTICLE` en page 2 (CODE) et cohérence de `has_more`. |
-| [v:pagination-profonde] | Fenêtre maximale de résultats accessibles par `/search` (10 000 ?) et réponse au-delà. |
-| [v:syntaxe-moteur-valeur] | Syntaxe interprétée dans `valeur` (guillemets, jokers, `*`). |
-| [v:recherche-exacte-par-numero] | Comportement des recherches `EXACTE` sur `NUM`, `NUM_ARTICLE`, `NUM_AFFAIRE`, `NUM_DEC`, `NUM_DELIB`, `IDCC` (casse, tirets, zéros). |
-| [v:nom-code-filtre] | Le filtre `NOM_CODE` (ou `TEXT_NOM_CODE`) sur `CODE_DATE` provoque-t-il un 500 ? |
-| [v:idandnum-comportement] | Comportement de `/consult/getArticleWithIdAndNum` (forme de `num`, réponse sans article, versions différées). |
-| [v:endpoints-m6-reponses] | Formes réelles des réponses de `getJoWithNor`, `kaliContIdcc` et `/list/code`. |
-| [v:endpoints-m7-reponses] | Formes et tailles réelles des réponses de `tableMatieres`, `canonicalArticleVersion`, `getArticleByCid` et `relatedLinksArticle` (`/suggest` retiré). |
-| [v:ecli-filtre-juri-cetat] | (B, C) Effet du filtre par la facette `ECLI` sur JURI et CETAT avec une valeur exacte (§7.2). |
-| [v:eli-redirection-endpoints] | (B, C) Comportement de `getArticleWithIdEliOrAlias` et `eliAndAliasRedirectionTexte` pour un ELI cité (§7.2). |
-| [v:related-links-forme] | (03) Forme et taille de `relatedLinksArticle` ; prise en charge des `KALIARTI` (§7.3). |
-| [v:sommaire-semantique-par-fond] | (03) Sens de `resumePrincipal` et `abstrats` (titrage ou analyse) en JURI et en CETAT, pour `OfficialSummary` (§9.2). |
-| [v:json-echappements-unicode] | PISTE sert-il les caractères non ASCII bruts ou échappés en `\uXXXX` (angle mort de la réparation au niveau du corps) ? |
-| [v:serde-json-recursion] | Valeur exacte de la limite de récursion par défaut de serde_json. |
-| [v:introuvable-par-endpoint] | Réponse de chaque consultation (CETATEXT et CONSTEXT compris : seul JURITEXT a été sondé en direct, par pylegifrance) à un identifiant bien formé mais inexistant (bloquante en M2, V-68). |
-| [v:forme-404-piste] | Forme d'un 404 PISTE (routage ou ressource), pour la règle du §11.2 (bloquante en M2, V-66). |
-| [v:corps-erreur-piste] | Forme générale des corps d'erreur de l'API (champs `error`, `status`, `message`). |
-| [v:forme-403-piste] | (02) Sens exact d'un 403 de l'API Légifrance (application non abonnée ou autre cause). |
-| [v:wiremock-temps-pause] | Interaction entre une horloge `tokio` gelée et les E/S réelles de wiremock (motive le choix de `ManualClock`). |
-| [v:mojibake-origine] | (03) Le mojibake vient-il de la capture ou de l'API ? |
-| [v:lawdecree-sur-code] | (03) Comportement, taille et durée de `/consult/lawDecree` avec le `LEGITEXT` d'un code ; bloquante en M2 (V-96) : au-delà de 4 Mio ou 10 s, `tableMatieres` dès v0.1 (§7.3). |
-| [v:texte-html-getarticle-juri] | (03) Présence de `texteHtml` sur `/consult/getArticle` et sur `/consult/juri` pour JURI. |
-| [v:convention-horaire-timestamps] | (03) Tous les horodatages de date sont-ils à minuit UTC ? |
-| [v:longueur-max-query] | (03) Longueur maximale de `query` acceptée par `/search`. |
-| [v:num-article-forme-api] | (03) Forme attendue par `NUM_ARTICLE`. |
+| [V-62 · quota-piste-prod] | Valeurs des quotas PISTE (sandbox et production), granularité (par application, par méthode), pour calibrer `governor` (V-62). |
+| [V-59 · oauth-production-live] | L'endpoint token et la base API de production répondent comme documenté avec une application de production. |
+| [V-61 · sandbox-prod-donnees] | Ampleur des écarts de données entre sandbox et production. |
+| [V-60 · oauth-reponses] | Statuts et corps réels des erreurs de l'endpoint token (dont le statut, 400 ou 401, de `invalid_client`) ; valeurs de `expires_in` et `token_type`. |
+| [V-64 · 401-sous-throttling] | PISTE renvoie-t-il `401 invalid_client` pendant une limitation de débit ? |
+| [V-02 · tls-fournisseur-cross] | Exigences de compilation d'`aws-lc-sys` par cible ; installation du fournisseur `ring` avec reqwest 0.13 `rustls-no-provider`. |
+| [V-03 · reqwest-proxy-env] | Prise en compte de `HTTPS_PROXY` et `NO_PROXY` par reqwest 0.13 avec les features retenues. |
+| [V-70 · piste-gzip] | PISTE compresse-t-il les réponses (`Content-Encoding: gzip`) ? |
+| [V-75 · taille-max-textes] | Tailles maximales réelles des réponses (gros textes, codes, TOC) au regard de la borne de 16 Mio. |
+| [V-106 · acco-data-attachment] | Présence et taille de `data` et `attachment` dans `/consult/acco`. |
+| [V-63 · retry-after-piste] | Présence et format (secondes ou date HTTP) de `Retry-After` sur les 429 et 503 de PISTE, et présence de l'en-tête `Date` qui sert à convertir la forme date (§5.2). |
+| [V-69 · 500-requete-invalide] | Une facette ou un champ inconnu provoque-t-il un 500 plutôt qu'un 400 ? |
+| [V-06 · backon-api] | Noms et sémantique de l'API backon 1.6 (`when`, `adjust`, `sleep`, `notify`, gigue). |
+| [V-07 · governor-api] | Constructeurs de `Quota` et `RateLimiter::direct_with_clock` avec une horloge `Duration`, à la compilation. |
+| [V-55 · delai-clients-mcp] | Délais imposés par Claude Code et VS Code à un appel d'outil, à comparer aux 60 s de `LF_TOOL_DEADLINE_S`. |
+| [V-76 · singledate-midi-paris] | Avec `singleDate` à midi Paris (règle de 00 §8), un texte entrant en vigueur le jour J est-il retenu le jour J ? Comparaison avec minuit UTC, minuit Paris et la veille (bloquante en M2, V-76, dont c'est l'étiquette de référence dans 09 §2.19). |
+| [V-17 · chrono-tz-iana] | Version de la base IANA embarquée par `chrono-tz` 0.10.4 ; reproduction des vecteurs du §6.3 (dont 1804-03-21). |
+| [V-79 · mode-all-semantique] | Sens de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp = ALL`. |
+| [V-78 · filtres-dates-effet] | Effet réel des facettes de date du §6.5, bornes incluses, borne lointaine, combinaison avec `DATE_VERSION`. |
+| [V-82 · typepagination-page2] | Effet de `DEFAUT` ou `ARTICLE` en page 2 (CODE) et cohérence de `has_more`. |
+| [V-83 · pagination-profonde] | Fenêtre maximale de résultats accessibles par `/search` (10 000 ?) et réponse au-delà. |
+| [V-80 · syntaxe-moteur-valeur] | Syntaxe interprétée dans `valeur` (guillemets, jokers, `*`). |
+| [V-120 · recherche-exacte-par-numero] | Comportement des recherches `EXACTE` sur `NUM`, `NUM_ARTICLE`, `NUM_AFFAIRE`, `NUM_DEC`, `NUM_DELIB`, `IDCC` (casse, tirets, zéros). |
+| [V-121 · nom-code-filtre] | Le filtre `NOM_CODE` (ou `TEXT_NOM_CODE`) sur `CODE_DATE` provoque-t-il un 500 ? |
+| [V-118 · idandnum-comportement] | Comportement de `/consult/getArticleWithIdAndNum` (forme de `num`, réponse sans article, versions différées). |
+| [V-122 · endpoints-m6-reponses] | Formes réelles des réponses de `getJoWithNor`, `kaliContIdcc` et `/list/code`. |
+| [V-135 · endpoints-m7-reponses] | Formes et tailles réelles des réponses de `tableMatieres`, `canonicalArticleVersion`, `getArticleByCid` et `relatedLinksArticle` (`/suggest` retiré). |
+| [V-128 · ecli-filtre-juri-cetat] | (B, C) Effet du filtre par la facette `ECLI` sur JURI et CETAT avec une valeur exacte (§7.2). |
+| [V-133 · eli-redirection-endpoints] | (B, C) Comportement de `getArticleWithIdEliOrAlias` et `eliAndAliasRedirectionTexte` pour un ELI cité (§7.2). |
+| [V-136 · related-links-forme] | (03) Forme et taille de `relatedLinksArticle` ; prise en charge des `KALIARTI` (§7.3). |
+| [V-109 · sommaire-semantique-par-fond] | (03) Sens de `resumePrincipal` et `abstrats` (titrage ou analyse) en JURI et en CETAT, pour `OfficialSummary` (§9.2). |
+| [V-71 · json-echappements-unicode] | PISTE sert-il les caractères non ASCII bruts ou échappés en `\uXXXX` (angle mort de la réparation au niveau du corps) ? |
+| [V-10 · serde-json-recursion] | Valeur exacte de la limite de récursion par défaut de serde_json. |
+| [V-68 · introuvable-par-endpoint] | Réponse de chaque consultation (CETATEXT et CONSTEXT compris : seul JURITEXT a été sondé en direct, par pylegifrance) à un identifiant bien formé mais inexistant (bloquante en M2, V-68). |
+| [V-66 · forme-404-piste] | Forme d'un 404 PISTE (routage ou ressource), pour la règle du §11.2 (bloquante en M2, V-66). |
+| [V-67 · corps-erreur-piste] | Forme générale des corps d'erreur de l'API (champs `error`, `status`, `message`). |
+| [V-65 · forme-403-piste] | (02) Sens exact d'un 403 de l'API Légifrance (application non abonnée ou autre cause). |
+| [V-19 · wiremock-temps-pause] | Interaction entre une horloge `tokio` gelée et les E/S réelles de wiremock (motive le choix de `ManualClock`). |
+| [V-72 · mojibake-origine] | (03) Le mojibake vient-il de la capture ou de l'API ? |
+| [V-96 · lawdecree-sur-code] | (03) Comportement, taille et durée de `/consult/lawDecree` avec le `LEGITEXT` d'un code ; bloquante en M2 (V-96) : au-delà de 4 Mio ou 10 s, `tableMatieres` dès v0.1 (§7.3). |
+| [V-90 · texte-html-getarticle-juri] | (03) Présence de `texteHtml` sur `/consult/getArticle` et sur `/consult/juri` pour JURI. |
+| [V-100 · convention-horaire-timestamps] | (03) Tous les horodatages de date sont-ils à minuit UTC ? |
+| [V-81 · longueur-max-query] | (03) Longueur maximale de `query` acceptée par `/search`. |
+| [V-119 · num-article-forme-api] | (03) Forme attendue par `NUM_ARTICLE`. |
 
 ---
 

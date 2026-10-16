@@ -50,18 +50,18 @@
 ### Négatives
 
 - **En mode `strict`, un disque plein ou un répertoire inutilisable rend tous les outils indisponibles.** C'est voulu par l'art. 2 de la référence, mais c'est un risque d'exploitation (09, risque « audit strict ») ; `best-effort` existe pour ce cas.
-- Un `sync_data` par appel : le coût selon le système de fichiers est **NON VÉRIFIÉ** [v:cout-sync-data].
+- Un `sync_data` par appel : le coût selon le système de fichiers est **NON VÉRIFIÉ** [V-166 · cout-sync-data].
 - **Empreinte non salée** : elle est réversible par énumération pour des entrées courtes (D-17). C'est le choix de 00 §7 (AM-30), qui ne garantit pas pour autant l'égalité avec les empreintes de la référence (P-041). Le `request_id` et l'état du cache restent dans `tracing`. Un sel ou un HMAC exige un **nouvel ADR**, réexaminé après v0.1.0 (00 §7, 02 §13.1 n° 6).
 - Une ouverture et un `sync_data` par ligne, sous verrou : coût accepté devant un appel PISTE (06 §11.5).
 
 ### À surveiller
 
 - Points **NON VÉRIFIÉS** :
-  - [v:audit-multi-processus] : atomicité multi-processus, surtout sous Windows ;
-  - [v:fs4-verrou-api] : API exacte de `fs4` 1.1 ;
-  - [v:chemin-donnees-plateforme] : chemins par défaut selon l'OS ;
-  - [v:audit-acl-windows] : ACL du répertoire sous Windows ;
-  - [v:rmcp-jsonobject-input-schema] : `JsonObject` et `input_schema` explicite acceptés par rmcp, à valider au spike M0.
+  - [V-164 · audit-multi-processus] : atomicité multi-processus, surtout sous Windows ;
+  - [V-09 · fs4-verrou-api] : API exacte de `fs4` 1.1 ;
+  - [V-167 · chemin-donnees-plateforme] : chemins par défaut selon l'OS ;
+  - [V-165 · audit-acl-windows] : ACL du répertoire sous Windows ;
+  - [V-28 · rmcp-jsonobject-input-schema] : `JsonObject` et `input_schema` explicite acceptés par rmcp, à valider au spike M0.
 - Si le spike invalide `JsonObject`, le repli `Parameters<T>` exige une autre façon d'auditer les erreurs de décodage : il faut un amendement par un nouvel ADR.
 
 ### Tests qui la gardent

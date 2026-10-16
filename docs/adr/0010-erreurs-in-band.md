@@ -74,12 +74,12 @@
 ### À surveiller
 
 - Points **NON VÉRIFIÉS** sur PISTE :
-  - [v:forme-404-piste] : forme d'un 404 PISTE (V-66, bloquante en M2, comme V-68 sur la réponse de chaque consultation à un identifiant inexistant) ;
-  - [v:forme-403-piste] : sens réel d'un 403 ; le rendu `config_error` est décidé par 00 §5 (AM-28), seul le message dépend de la mesure (V-65) ;
-  - [v:retry-after-piste] : présence de `Retry-After` sur un 429 ;
-  - [v:401-sous-throttling] : 401 `invalid_client` renvoyé sous throttling.
-- **NON VÉRIFIÉ** [v:cc-structured-content-succes] : Claude Code transmet-il toujours le texte seul sur une erreur ?
-- **NON VÉRIFIÉ** [v:rmcp-bugs-statut] : statut de l'issue #1347 de rmcp, acceptée telle quelle.
+  - [V-66 · forme-404-piste] : forme d'un 404 PISTE (V-66, bloquante en M2, comme V-68 sur la réponse de chaque consultation à un identifiant inexistant) ;
+  - [V-65 · forme-403-piste] : sens réel d'un 403 ; le rendu `config_error` est décidé par 00 §5 (AM-28), seul le message dépend de la mesure (V-65) ;
+  - [V-63 · retry-after-piste] : présence de `Retry-After` sur un 429 ;
+  - [V-64 · 401-sous-throttling] : 401 `invalid_client` renvoyé sous throttling.
+- **NON VÉRIFIÉ** [V-46 · cc-structured-content-succes] : Claude Code transmet-il toujours le texte seul sur une erreur ?
+- **NON VÉRIFIÉ** [V-38 · rmcp-bugs-statut] : statut de l'issue #1347 de rmcp, acceptée telle quelle.
 
 ### Tests qui la gardent
 

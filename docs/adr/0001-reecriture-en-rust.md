@@ -46,13 +46,13 @@
 
 - **Coût** : réécriture complète, avec un plan de dix jalons. Les compétences Rust et async sont requises pour contribuer.
 - **Écosystème MCP Rust instable** : l'API de rmcp a connu au moins quatre versions incompatibles en 2026 (0.17, 1.0, 2.0, 3.0), et `LATEST` a changé dans une mineure, la 3.5.0 (00 §6, recherche 09 §2). Le risque est contenu par le confinement de rmcp dans un crate (ADR-0002, ADR-0003).
-- **Rien n'a été compilé pendant la recherche**, car `static.crates.io` et `docs.rs` étaient bloqués (recherche README). Tous les extraits sont donc **NON VÉRIFIÉ** [v:squelette-compile-m0] ; ce point est levé par les spikes de M0. Le conteneur de développement doit pouvoir joindre `static.crates.io` et `static.rust-lang.org` dès M0 (Q6, proposition adoptée par défaut ; les lints propres à 1.98 et 1.99 ne sont vus qu'en CI d'ici là).
+- **Rien n'a été compilé pendant la recherche**, car `static.crates.io` et `docs.rs` étaient bloqués (recherche README). Tous les extraits sont donc **NON VÉRIFIÉ** [V-01 · squelette-compile-m0] ; ce point est levé par les spikes de M0. Le conteneur de développement doit pouvoir joindre `static.crates.io` et `static.rust-lang.org` dès M0 (Q6, proposition adoptée par défaut ; les lints propres à 1.98 et 1.99 ne sont vus qu'en CI d'ici là).
 - Le paquet PyPI disparaît. L'utilisateur de la référence doit migrer : variables `LF_*`, chemin d'audit, champs de sortie. La procédure est décrite dans l'annexe A §6.
 
 ### À surveiller
 
-- La date de sortie de Rust 1.99.0 (2026-10-01 d'après la cadence de six semaines), dont dépendent l'épinglage et la règle d'âge minimal des dépendances : **NON VÉRIFIÉ** [v:date-rust-1-99] (V-16).
-- Q1 se tranche avant toute publication immuable (registre MCP, MCPB, crates.io, GHCR), au vu de l'homonymie avec `Ktulu-Analog/mcp-legifrance` (AGPL) et du statut de la marque « Légifrance » : **NON VÉRIFIÉ** [v:marque-legifrance] (V-215).
+- La date de sortie de Rust 1.99.0 (2026-10-01 d'après la cadence de six semaines), dont dépendent l'épinglage et la règle d'âge minimal des dépendances : **NON VÉRIFIÉ** [V-16 · date-rust-1-99] (V-16).
+- Q1 se tranche avant toute publication immuable (registre MCP, MCPB, crates.io, GHCR), au vu de l'homonymie avec `Ktulu-Analog/mcp-legifrance` (AGPL) et du statut de la marque « Légifrance » : **NON VÉRIFIÉ** [V-215 · marque-legifrance] (V-215).
 - La parité est mesurée, pas supposée : on suit `tool_output_matches_golden` et les divergences de l'annexe A §4.
 
 ### Tests qui la gardent
