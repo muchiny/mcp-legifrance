@@ -14,9 +14,10 @@ pub enum ResourceKind {
     Code,
     /// Article `LEGIARTI` : `/codes/article_lc/`.
     ///
-    /// **NON VÉRIFIÉ** pour l'article d'une loi non codifiée (question Q10,
-    /// `citations.py:262`) : à vérifier en M2 en ouvrant l'URL d'un LEGIARTI
-    /// tiré de `consult_loda.json`.
+    /// **NON VÉRIFIÉ** pour l'article d'une loi non codifiée (question Q12 =
+    /// V-141 [v:url-codes-article-lc-loi], D-29/E-19 ; `citations.py:262`) :
+    /// à vérifier en M2 en ouvrant l'URL d'un LEGIARTI tiré de
+    /// `consult_loda.json`.
     CodeArticle,
     /// Décision judiciaire : `/juri/id/`.
     Juri,

@@ -1,7 +1,7 @@
 # Contribuer à mcp-legifrance
 
 Le plan et les décisions communes sont dans `docs/plan/00-decisions.md` ; les
-exigences de qualité (§9) y font foi. Ce fichier dit comment les tenir au quotidien.
+exigences de qualité (§10) y font foi. Ce fichier dit comment les tenir au quotidien.
 
 ## Boucle de travail
 

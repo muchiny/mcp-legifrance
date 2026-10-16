@@ -5,11 +5,11 @@
 //! seul `lf-app` connaît tout. Seules les dépendances normales comptent (pas
 //! `dev` ni `build`).
 //!
-//! La liste blanche de `lf-domain` outille la Global Constraint « dépendance
-//! normale unique `thiserror` », plus stricte que la formulation du §2 (qui
-//! interdit seulement l'I/O et les crates `lf-*`). La porte échoue fermée :
-//! un `cargo metadata` sans membre, sans nom ou sans `dependencies`, ou un
-//! graphe sans `lf-domain`, est une erreur et non un succès à vide.
+//! La liste blanche de `lf-domain` (`thiserror` seul, `DOMAIN_ALLOWED`)
+//! applique 00-decisions.md §2 (décision C3).
+//! La porte échoue fermée : un `cargo metadata` sans membre, sans nom ou
+//! sans `dependencies`, ou un graphe sans `lf-domain`, est une erreur et
+//! non un succès à vide.
 
 use serde_json::Value;
 
