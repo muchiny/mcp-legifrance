@@ -2,7 +2,7 @@
 
 - **Statut** : Accepté
 - **Date** : 2026-10-15
-- **Jalons concernés** : M0 (spike de compilation), M4 (stdio, deux ères), M7 (resources, prompts, completions), M8 (HTTP)
+- **Jalons concernés** : spike rmcp (avant la conception des ports de M3), M4 (stdio, deux ères), M7 (resources, prompts, completions), M8 (HTTP)
 - **Questions liées** : Q7 (versions legacy servies), Q8 (`ttlMs`/`cacheScope`), Q4 (HTTP partagé)
 
 ## Contexte
@@ -41,7 +41,7 @@
    - `transport-streamable-http-server` n'est ajoutée qu'en M8.
    - `request-state`, `elicitation` et `auth` ne sont pas activées.
    - `Cargo.lock` est versionné.
-3. **Confinement** : seul `lf-adapter-mcp` dépend de rmcp ([ADR-0002](0002-hexagonal-workspace.md)).
+3. **Confinement** : seul `lf-adapter-mcp` dépend de rmcp ([ADR-0016](0016-hexagonal-workspace.md)).
 4. **Identité** : `get_info()` renvoie un `ServerConfig` avec `Implementation::new("mcp-legifrance", env!("CARGO_PKG_VERSION"))`, jamais `from_build_env`. Les instructions sont identiques dans `DiscoverResult` et `InitializeResult`. Elles sont en anglais et font au plus 3 500 caractères.
 5. **Règles de 00 §6** :
    - `server/discover` est servi depuis des données statiques ;
@@ -80,7 +80,7 @@
 
 ### À surveiller
 
-- Points **NON VÉRIFIÉS**, levés en M0 et M4 :
+- Points **NON VÉRIFIÉS**, levés par le spike rmcp (avant M3) et en M4 :
   - [v:rmcp-methode-inattendue] : aucun message inattendu ne fait quitter le processus ;
   - [v:rmcp-transport-enveloppe] : l'enveloppe du transport compile ;
   - [v:rmcp-enveloppe-version-legacy] : requête moderne portant une version legacy ;
@@ -90,7 +90,7 @@
 
 ### Tests qui la gardent
 
-- Transcriptions `modern_discover`, `legacy_2025_11_25` et `premature_notification` (spike M0).
+- Transcriptions `modern_discover`, `legacy_2025_11_25` et `premature_notification` (spike rmcp, avant M3).
 - Liste C-01 à C-32 (M4).
 - Test qui vérifie que les descripteurs servis sont identiques dans les deux ères.
 - Test de dérive et de taille des instructions.

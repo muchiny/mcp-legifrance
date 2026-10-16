@@ -2,8 +2,10 @@
 
 - **Statut** : Accepté
 - **Date** : 2026-10-15
-- **Jalons concernés** : M1 (`lf-domain::contract`), M2 (mapping), M4 (schémas de sortie), M6 (vérification des citations)
+- **Jalons concernés** : tâche de tête de M2 (`lf-domain::contract`, 00 §11.1), M2 (mapping), M4 (schémas de sortie), M6 (vérification des citations)
 - **Questions liées** : —
+
+> **Statut d'implémentation (décision C2, 2026-10-16).** Le format v2 est **décidé** et s'applique ; il est implémenté en **tâche de tête de M2** (00 §11.1), avant tout mapper. M1 a livré un `CitationContract` **v1** de parité (`crates/lf-domain/src/citation.rs:16` : `eli_uri`, `human_readable_citation: Option`, `source_url` ; `Citable::citation()` ; suffixe « - objet » via `bracketed`). Le passage à v2 est interne à `lf-domain` (aucun mapper, aucune vue ni golden ne consomme encore le contrat) : struct, `from_url`, `ELI_NOTE`, nouveaux newtypes `CitationText`, `SourceUrl` et `Eli`, les 7 `impl Citable`, `constit_citation` sans paramètre `title`, suppression de `bracketed`, renommage du module `citation` en `contract` (libère `citation` pour le parseur M6) et de `Citable::citation()` en `Citable::contract()`.
 
 ## Contexte
 
@@ -34,12 +36,12 @@
    |---|---|
    | Conseil constitutionnel | « Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025 » ; l'objet entre crochets reste lisible dans `title` |
    | CNIL | « CNIL, délibération n° SAN-2026-002 du 8 janvier 2026 » |
-   | Dates en prose | mois accentués et « 1er » (`format_fr`) |
+   | Dates en prose | mois accentués et « 1er » (`CivilDate::to_french`, livré, `date.rs:115` ; ex-Q9 livrée, devenue Q11 dans 00 §13) |
    | Article de code | « Code civil, art. 9 », **inchangé** |
    | JURI, CETAT | titre nettoyé (parité) |
    | Signe numéro | `n°` suivi d'une espace U+0020 |
 
-6. **URL et règle de citation viennent du préfixe validé** (`DecisionId`, `ArticleId`), jamais de `origine`, qui ne sert qu'au contrôle de cohérence. Un `LEGIARTI` dont le texte parent n'est pas un code reçoit `/loda/article_lc/` ; une nature de parent inconnue retombe sur `/codes/article_lc/` (03 §5.5).
+6. **URL et règle de citation viennent du préfixe validé** (`DecisionId`, `ArticleId`), jamais de `origine`, qui ne sert qu'au contrôle de cohérence. Un `LEGIARTI` dont le texte parent n'est pas un code reçoit `/loda/article_lc/` ; une nature de parent inconnue retombe sur `/codes/article_lc/` (03 §5.5). **Cette règle `/loda/` (E-19) ne s'applique qu'après les vérifications live V-140 et V-142 en M2** ; d'ici là, le livré garde `/codes/article_lc/` comme la référence (Q12, ex-Q10 livrée, V-141 [v:url-codes-article-lc-loi]).
 7. **Les données officielles des autres champs restent verbatim** après `clean` : `num`, `title`, `formation`. Les ordinaux comme « 2ème » ne sont pas corrigés.
 8. Les divergences portent les clés de l'annexe A §4 : `citation_renamed`, `eli_uri_dropped`, `notes_dropped`, `citation_typography`, `citation_never_empty`, `law_article_url`, `decision_routing_by_prefix`.
 
@@ -47,7 +49,7 @@
 
 ### Positives
 
-- Une réponse sans URL ni citation est **impossible à construire** : le type `CitationContract` est non optionnel. Un hit incomplet est écarté et compté (D-30).
+- Une réponse sans URL ni citation est **impossible à construire** : le type `CitationContract` v2 est non optionnel (garanti par `CitationText`, pas par la vue). Un hit incomplet est écarté et compté (D-30).
 - Citations conformes à l'usage français, attendues par des juristes.
 - Aucune information trompeuse : plus de faux ELI, et plus d'URL de décision choisie par un champ libre.
 - Moins de tokens par réponse ([ADR-0006](0006-sortie-compacte-retour-progressif.md)).
@@ -61,16 +63,16 @@
 
 - URL jamais ouvertes dans un navigateur : **NON VÉRIFIÉ** [v:url-patterns-navigateur] ; `/loda/article_lc/` canonique [v:url-loda-article-lc] ; `/ceta/id/` ou `/juri/id/` [v:url-ceta-vs-juri]. Une recette est prévue avant v0.1.0.
 - Libellés des natures rares du Conseil constitutionnel : **NON VÉRIFIÉ** [v:natures-constit]. Format des décisions CNIL : **NON VÉRIFIÉ** [v:cnil-nature-decision-format].
-- Deux formats restent ouverts (09 §3.11.3, d'après 03 §11) :
-  - article d'un texte non codifié : forme courte « Loi n° 2016-1321 du 7 octobre 2016, art. 1 » (proposée) ou titre complet de la référence ;
-  - IDCC dans la citation KALI (« … (IDCC 2121) », proposé).
+- Deux formats, alignés sur 03 §5.4 et 05 :
+  - article d'un texte non codifié : citation avec le **titre complet du parent** jusqu'à V-140 et V-142 ; la forme courte « Loi n° 2016-1321 du 7 octobre 2016, art. 1 » est réexaminée en M2 sur les titres réels ;
+  - citation KALI **sans IDCC** (« … (IDCC 2121) » écarté).
 
-  Les deux se tranchent en M1, avant les golden.
+  Les deux se revoient en M2 sur les titres réels, avant les golden.
 
 ### Tests qui la gardent
 
-- `constit_citation_golden`, `cnil_citation_golden`, `format_fr_twelve_months_and_premier`.
-- `article_citation_rules_table`, `citation_never_empty`, `law_article_url_uses_loda_article_lc`, `decision_url_follows_prefix_not_origine`.
+- `constit_citation_golden`, `cnil_citation_golden`, `format_fr_twelve_months_and_premier` (à rapprocher des tests livrés sur `CivilDate::to_french`).
+- `article_citation_rules_table`, `citation_never_empty`, `law_article_url_uses_loda_article_lc`, `url_depends_on_id_type_not_payload_origine`.
 - `no_view_has_eli_uri`, `ported_no_fabricated_eli`, `ecli_is_never_fabricated` (P-031, P-034, P-035, P-039).
 
 ## Alternatives envisagées

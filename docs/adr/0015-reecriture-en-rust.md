@@ -1,9 +1,11 @@
-# ADR-0001 — Réécriture en Rust
+# ADR-0015 — Réécriture en Rust
+
+> Numéro : ex-ADR 0001 du plan complet, renuméroté 0015 le 2026-10-16 (les ADR 0001 et 0002 livrés avec M0 gardent leur numéro ; un numéro n'est jamais réutilisé).
 
 - **Statut** : Accepté
 - **Date** : 2026-10-15
 - **Jalons concernés** : tous (M0 → M9)
-- **Questions liées** : Q1 (nom), Q2 (licence), Q6 (réseau du conteneur de dev)
+- **Questions liées** : Q1 (nom, décidée le 2026-10-16 : `mcp-legifrance`), Q2 (licence, décidée le 2026-10-16 : Apache-2.0 + NOTICE, titulaire « Loïc Wernert »), Q6 (réseau du conteneur de dev)
 
 ## Contexte
 
@@ -20,19 +22,19 @@
 
 1. Le serveur est **réécrit entièrement en Rust** :
    - produit et binaire `mcp-legifrance`, crates `lf-*` (00 §1, §2) ;
-   - édition 2024, MSRV 1.91, toolchain épinglée sur 1.99.0 (00 §2).
+   - édition 2024, MSRV 1.88 (celle du livré : plancher imposé par rmcp 3.5.1 et proptest 1.12), toolchain épinglée sur 1.99.0 avec `llvm-tools-preview`, pose de l'épinglage en tâche de tête de M2 (00 §2, §11.1). La MSRV 1.91 du plan est abandonnée (décision C5, 2026-10-16) ; elle n'est réévaluée que si le job MSRV casse à l'arrivée de rmcp en M4.
 2. **Parité fonctionnelle en v0.1.0** (M0 à M5) : 8 outils de mêmes noms, paramètres et sens, définis par [annexes/A-parite.md](../plan/annexes/A-parite.md). Les divergences volontaires sont listées par clé dans l'annexe A §4 et justifiées par les ADR 0005 à 0011.
 3. **Aucune ligne Python n'est portée telle quelle.**
    - Sont réutilisés, avec attribution dans `NOTICE` (00 §12) : les fixtures de la référence, ses assertions de test (`ported_*`) et les sorties golden ([parite-golden.json](../plan/annexes/donnees/parite-golden.json)).
    - Aucune ligne n'est reprise des projets AGPL (juridix, mcp-legifrance de Ktulu-Analog) : on n'en garde que les idées.
-4. L'architecture suit [ADR-0002](0002-hexagonal-workspace.md), le protocole [ADR-0003](0003-mcp-2026-07-28-dual-era-rmcp.md) et la distribution [ADR-0013](0013-distribution.md).
+4. L'architecture suit [ADR-0016](0016-hexagonal-workspace.md), le protocole [ADR-0003](0003-mcp-2026-07-28-dual-era-rmcp.md) et la distribution [ADR-0013](0013-distribution.md).
 
 ## Conséquences
 
 ### Positives
 
 - **Le typage élimine des classes entières de défauts** :
-  - newtypes d'identifiants à `FromStr` strict (D-31, E-16) ;
+  - identifiants `Id<K>` à forme vérifiée (8 lettres + 12 chiffres), `FromStr` tolérant sur blancs et casse (00 §4 ; D-31, E-16) ;
   - `enum ErrorCode` fermé : le test Python `test_tool_error_rejects_unknown_code` n'a plus d'objet (recherche 01 §11.3) ;
   - `DecisionId` dont le préfixe fixe la juridiction (D-28).
 - Un seul `reqwest::Client` partagé et aucune E/S bloquante dans tokio, qui corrigent D-06, D-38 et D-05.
@@ -42,8 +44,8 @@
 ### Négatives
 
 - **Coût** : réécriture complète, avec un plan de dix jalons. Les compétences Rust et async sont requises pour contribuer.
-- **Écosystème MCP Rust instable** : rmcp a changé quatre fois de version majeure en 2026 (recherche 09 §2). Le risque est contenu par le confinement de rmcp dans un crate (ADR-0002, ADR-0003).
-- **Rien n'a été compilé pendant la recherche**, car `static.crates.io` et `docs.rs` étaient bloqués (recherche README). Tous les extraits sont donc **NON VÉRIFIÉ** [v:squelette-compile-m0] ; ce point est levé par les spikes de M0. Le conteneur de développement doit pouvoir joindre `static.crates.io` (Q6).
+- **Écosystème MCP Rust instable** : rmcp a changé quatre fois de version majeure en 2026 (recherche 09 §2). Le risque est contenu par le confinement de rmcp dans un crate (ADR-0016, ADR-0003).
+- **Rien n'a été compilé pendant la recherche**, car `static.crates.io` et `docs.rs` étaient bloqués (recherche README). Tous les extraits sont donc **NON VÉRIFIÉ** [v:squelette-compile-m0] ; ce point est levé par les jalons qui implémentent le code (M0 et M1 sont livrés et compilent ; spike rmcp avant M3). Le conteneur de développement doit pouvoir joindre `static.crates.io` (Q6).
 - Le paquet PyPI disparaît. L'utilisateur de la référence doit migrer : variables `LF_*`, chemin d'audit, champs de sortie. La procédure est décrite dans l'annexe A §6.
 
 ### À surveiller

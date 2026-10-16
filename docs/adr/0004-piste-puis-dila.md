@@ -36,7 +36,7 @@
 3. **Choix de l'adapter à l'exécution** dans `lf-app`, seul crate qui voit les deux adapters :
 
    ```rust
-   // non compilé, à valider en M0
+   // non compilé, à valider au jalon qui l'implémente
    pub enum AnyCorpus { Piste(CachedCorpus<PisteCorpus>), Dila(DilaCorpus) }
    impl LegalCorpus for AnyCorpus { /* un match par méthode, sans Box<dyn> */ }
    ```

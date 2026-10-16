@@ -1,9 +1,9 @@
 # ADR-0013 — Distribution : cargo-dist, MCPB, OCI, signature
 
-- **Statut** : **Proposé**. L'acceptation dépend de Q5 (certificats), de Q1 (nom, avant toute publication immuable) et du spike TLS de M0.
+- **Statut** : **Proposé**. L'acceptation dépend de Q5 (certificats), de Q1 (nom, avant toute publication immuable) et du spike TLS (tâche 0 de M2, 00 §11.1). Q1 est décidée le 2026-10-16 (nom `mcp-legifrance`).
 - **Date** : 2026-10-15
-- **Jalons concernés** : M0 (spike TLS, `dist init`), transverse « Distribution » dès v0.1.0, M8 et M9 (features `http` et `dila`)
-- **Questions liées** : Q1, Q2, Q5 (et Q4 pour l'éventuel mode HTTP partagé)
+- **Jalons concernés** : M2 (spike TLS, tâche 0), M4 (`dist init`), transverse « Distribution » dès v0.1.0, M8 et M9 (features `http` et `dila`)
+- **Questions liées** : Q1 (décidée le 2026-10-16), Q2 (décidée le 2026-10-16), Q5 (et Q4 pour l'éventuel mode HTTP partagé)
 
 ## Contexte
 
@@ -48,12 +48,12 @@
    | aucun (défaut de 00 §13) | non signé | non signé, avec avertissement en tête du README et des notes de release |
 
    Ne **jamais** conseiller de désactiver Smart App Control ou Gatekeeper.
-7. **Fournisseur TLS** : il sera consigné ici après le spike M0. Règle de choix : si aws-lc impose cmake ou NASM sur les postes des utilisateurs (`cargo install`) ou fait échouer une cible musl, on retient `ring` ; sinon, on garde le défaut aws-lc.
+7. **Fournisseur TLS** : il sera consigné ici après le spike TLS de M2. Règle de choix : si aws-lc impose cmake ou NASM sur les postes des utilisateurs (`cargo install`) ou fait échouer une cible musl, on retient `ring` ; sinon, on garde le défaut aws-lc.
 8. **Chaîne CI durcie** (corrige D-44) :
    - actions épinglées par SHA ;
    - aucune clé PISTE dans les artefacts ;
    - versions alignées : crate, verrou des descripteurs, `server.json` et manifeste MCPB, vérifiés par `release-gates`.
-9. **Licence** : Apache-2.0, avec un `NOTICE` qui crédite la référence et ses fixtures (Q2). Les données sont sous Licence Ouverte 2.0, avec la mention « Légifrance / DILA ».
+9. **Licence** : Apache-2.0, avec un `NOTICE` qui crédite la référence et ses fixtures (Q2, décidée le 2026-10-16 ; titulaire « Loïc Wernert » dans NOTICE ; la vérification V-214 sur le crédit du titulaire de la référence reste ouverte). Les données sont sous Licence Ouverte 2.0, avec la mention « Légifrance / DILA ».
 
 ## Conséquences
 

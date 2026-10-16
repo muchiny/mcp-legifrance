@@ -2,7 +2,7 @@
 
 - **Statut** : Accepté
 - **Date** : 2026-10-15
-- **Jalons concernés** : M0 (compilation du squelette), M3 (ports, `LegalService`, décorateurs), M9 (`AnyCorpus`)
+- **Jalons concernés** : spike rmcp (compilation du squelette, avant M3), M3 (ports, `LegalService`, décorateurs), M9 (`AnyCorpus`)
 - **Questions liées** : —
 
 ## Contexte
@@ -13,7 +13,7 @@
 - **Les futurs doivent être `Send`.** Les outils `#[tool]` sont boxés en `Pin<Box<dyn Future + Send>>`, et `ServerHandler: Send + Sync + 'static` (`rmcp-macros/src/tool.rs:273-315`, `handler/server.rs:642`).
   - Le futur d'une méthode d'un port générique doit donc être prouvé `Send` à la compilation.
   - Un `async fn` nu dans le trait ne permet pas de l'exiger côté appelant générique. Il faut écrire `+ Send` dans la signature (recherche 04 §5.1, point 2).
-- **Stabilité de la syntaxe.** Les traits à `async fn` et à `impl Trait` en retour sont stables depuis Rust 1.75 (https://blog.rust-lang.org/2023/12/21/async-fn-rpit-in-traits.html) ; la MSRV du projet est 1.91 (00 §2).
+- **Stabilité de la syntaxe.** Les traits à `async fn` et à `impl Trait` en retour sont stables depuis Rust 1.75 (https://blog.rust-lang.org/2023/12/21/async-fn-rpit-in-traits.html) ; la MSRV du projet est 1.88, plancher imposé par rmcp 3.5.1 et proptest 1.12 (00 §2, ADR-0016).
 - **Besoins de composition** :
   - des décorateurs génériques : `CachedCorpus<C>` ([ADR-0007](0007-cache-memoire-port.md)) et `Audited` ([ADR-0008](0008-audit-decorateur-strict.md)) ;
   - un choix d'adapter à l'exécution en M9 ([ADR-0004](0004-piste-puis-dila.md)).
@@ -28,7 +28,7 @@
    - `Clock` est synchrone (`now_utc()`, `today_paris()`).
 
    ```rust
-   // non compilé, à valider en M0
+   // non compilé, à valider au jalon qui l'implémente
    pub trait LegalCorpus: Send + Sync + 'static {
        fn get_decision(&self, id: &DecisionId)
            -> impl Future<Output = Result<Decision, CorpusError>> + Send;
@@ -45,7 +45,7 @@
 3. **Choix à l'exécution** : un `enum AnyCorpus` dans `lf-app` (M9), qui implémente le port par un `match` sur chaque méthode.
 4. **Côté entrant** : pas de trait. Chaque cas d'usage est un `…UseCase` avec `async fn execute(&self, input) -> Result<Output, AppError>`, regroupé dans `LegalService` (00 §3).
 5. **Ni `async_trait` ni `dyn`**, sauf justification dans un **nouvel ADR**. Aucune exception n'est prévue en v0.x.
-6. **Runtime dans l'application.** `lf-application` peut utiliser `tokio` (features `time` et `macros` seulement) et `futures`, pour le délai global et le `select!` d'annulation dans `Audited`. Le contrôle est fait par `check-deps` (02 §13, §13.1 n° 7). Aucune E/S n'y est faite.
+6. **Runtime dans l'application.** `lf-application` peut utiliser `tokio` (features `time` et `macros` seulement) et `futures`, pour le délai global et le `select!` d'annulation dans `Audited`. Le contrôle est fait par `check-arch` (02 §13, §13.1 n° 7), qui borne les features de tokio à partir de M3. Aucune E/S n'y est faite.
 
 ## Conséquences
 
@@ -64,7 +64,7 @@
 
 ### À surveiller
 
-- **NON VÉRIFIÉ** [v:squelette-compile-m0] : le squelette (traits, décorateurs, `LegalService` dans un `ServerHandler` rmcp) compile, et ses futurs sont `Send`, au spike M0.
+- **NON VÉRIFIÉ** [v:squelette-compile-m0] : le squelette (traits, décorateurs, `LegalService` dans un `ServerHandler` rmcp) compile, et ses futurs sont `Send`, au spike rmcp, avant la conception des ports de M3.
 - Si un vrai `dyn` devient nécessaire (registre d'extensions), on reprend le motif de rmcp : un trait statique, plus un trait objet-sûr à futurs boxés avec une implémentation générique (`service.rs:334-336`, recherche 04 §5.1, point 5). Cela passe par un nouvel ADR.
 - Le nombre de paramètres génériques : au-delà de trois, regrouper les ports dans un trait « bundle » à types associés (recherche 04 §5.1, point 7).
 
@@ -72,7 +72,7 @@
 
 - Suite de contrat du port exécutée sur `FakeCorpus` et `PisteCorpus` (06 §14 M3), puis sur `DilaCorpus` en M9.
 - Assertion de compilation `Send` sur les futurs des cas d'usage (proposition : `fn assert_send<T: Send>(_: &T)`).
-- `cargo xtask check-deps` : features de tokio admises dans `lf-application`.
+- `cargo xtask check-arch` (`make arch`) : features de tokio admises dans `lf-application`.
 
 ## Alternatives envisagées
 

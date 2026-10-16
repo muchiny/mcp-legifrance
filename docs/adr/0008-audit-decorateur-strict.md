@@ -58,7 +58,7 @@
   - [v:fs4-verrou-api] : API exacte de `fs4` 1.1 ;
   - [v:chemin-donnees-plateforme] : chemins par défaut selon l'OS ;
   - [v:audit-acl-windows] : ACL du répertoire sous Windows ;
-  - [v:rmcp-jsonobject-input-schema] : `JsonObject` et `input_schema` explicite acceptés par rmcp, à valider au spike M0.
+  - [v:rmcp-jsonobject-input-schema] : `JsonObject` et `input_schema` explicite acceptés par rmcp, à valider au spike rmcp, avant la conception des ports de M3 (00 §11.1).
 - Si le spike invalide `JsonObject`, le repli `Parameters<T>` exige une autre façon d'auditer les erreurs de décodage : il faut un amendement par un nouvel ADR.
 
 ### Tests qui la gardent

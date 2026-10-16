@@ -1,8 +1,10 @@
-# ADR-0002 — Architecture hexagonale en workspace multi-crates
+# ADR-0016 — Architecture hexagonale en workspace multi-crates
 
-- **Statut** : Accepté
+> Numéro : ex-ADR 0002 du plan complet, renuméroté 0016 le 2026-10-16. Remplace [ADR-0001](0001-architecture-hexagonale.md) (livré avec M0).
+
+- **Statut** : Accepté ; remplace ADR-0001
 - **Date** : 2026-10-15
-- **Jalons concernés** : M0 (workspace, `check-deps`), M1 à M4 (remplissage des crates), M9 (`lf-adapter-dila`)
+- **Jalons concernés** : M0 (workspace, `check-arch`, livré), M1 à M4 (remplissage des crates), M9 (`lf-adapter-dila`)
 - **Questions liées** : —
 
 ## Contexte
@@ -19,7 +21,8 @@
 1. **Workspace Cargo virtuel**, édition 2024, avec dans le `Cargo.toml` racine :
    - `resolver = "3"` explicite ;
    - `[workspace.dependencies]` et `[workspace.lints]` (rust et clippy, dont `unsafe_code = "forbid"`) ;
-   - `rust-version = "1.91"` ;
+   - `rust-version = "1.88"` (celle du livré : plancher imposé par rmcp 3.5.1 et proptest 1.12 ; la MSRV 1.91 du plan est abandonnée, décision C5 du 2026-10-16) ;
+   - toolchain épinglée sur 1.99.0 avec `llvm-tools-preview` (`rust-toolchain.toml`), posée en tâche de tête de M2 ;
    - `default-features = false` déclaré **au niveau du workspace** quand c'est voulu (00 §2).
 2. **Crates** (00 §2) :
 
@@ -53,35 +56,36 @@
      appl --> dom
    ```
 
-   - `lf-domain` : aucun crate `lf-*`, ni tokio, reqwest, serde_json ou rmcp.
+   - `lf-domain` : `thiserror` pour seule dépendance normale (liste blanche) ; donc ni crate `lf-*`, ni tokio, reqwest, serde_json, rmcp, ni `chrono` : les dates du domaine sont `CivilDate` ([ADR-0011](0011-dates-chrono-paris.md)).
    - `lf-application` : aucun adapter, ni rmcp, ni reqwest.
    - Aucun adapter ne dépend d'un autre ; seul `lf-app` dépend de tout.
    - `lf-adapter-mcp` ne dépend **pas** de `lf-app` : l'inversion proposée par le squelette de la recherche 09 §8 est écartée. `lf-app` ne voit pas rmcp : il appelle `lf_adapter_mcp::serve_stdio`, dont l'API publique ne contient aucun type du SDK (02 §12.3).
-4. **Contrôle** : `cargo xtask check-deps` lit `cargo metadata` et applique les règles écrites comme des données. `cargo deny check bans` sert de seconde ligne (02 §4.2, §4.3).
+4. **Contrôle** : `cargo xtask check-arch` (`make arch`, `xtask/src/arch.rs`) lit `cargo metadata` et applique les règles. Pour `lf-domain`, c'est une **liste blanche qui échoue fermé** : `DOMAIN_ALLOWED` = `thiserror` seul (`arch.rs:26`), toute autre dépendance normale est une violation, et un `cargo metadata` sans membre, sans nom ou sans `lf-domain` est une erreur et non un succès à vide. Cette liste ne s'élargit que par un ADR, au jalon qui en a besoin (`winnow`, `aho-corasick`, `regex` et `unicode-normalization` en M6, décision C3). `cargo deny check bans` sert de seconde ligne (02 §4.2, §4.3).
+   - Extensions de `check-arch`, ajoutées au jalon où elles servent : membre inconnu = violation (tâche de tête de M2) ; R2, fermeture transitive (`cargo metadata --format-version 1 --all-features --locked`) et R9 (doublons) à la création de `lf-application` (M2) ; features de tokio bornées en M3 ; épinglage de rmcp en M4 (00 §11.1).
 5. **Ports** : les ports vivent dans `lf-application::ports`, à côté de leurs consommateurs. Le style est fixé par [ADR-0012](0012-ports-async-rpitit.md).
 
 ## Conséquences
 
 ### Positives
 
-- Les frontières sont garanties par Cargo et par `check-deps`, pas seulement par la revue (02 §13).
+- Les frontières sont garanties par Cargo et par `check-arch`, pas seulement par la revue (02 §13).
 - **Changer de SDK ne touche que `lf-adapter-mcp`**. Le repli prévu est `pmcp` (02 §12.3, recherche 09 §7b). Les oracles boîte noire (`tests/tools.lock.json`, transcriptions JSON-RPC) ne dépendent pas du SDK.
 - Le domaine se teste sans runtime ni réseau (proptest, golden). Chaque adapter se teste isolément (wiremock, fichiers temporaires).
 
 ### Négatives
 
 - **Plus de surface** : huit manifestes, des alias de types génériques dans `lf-app`, des temps de compilation plus longs (monomorphisation, ADR-0012).
-- **Publication** : le canal `cargo install` impose de publier les sept crates `lf-*` sur crates.io (08 §12.1 n° 2, [ADR-0013](0013-distribution.md)).
+- **Publication** : le canal `cargo install` impose de publier les sept crates `lf-*` sur crates.io (non tranché avant M5, C6 ; repli `cargo install --git`, 08 §6.4 ; 08 §12.1 n° 2, [ADR-0013](0013-distribution.md)).
 - Les DTO MCP (schemars) et les DTO PISTE (serde) dupliquent en partie les entités du domaine : c'est le prix du découplage, assumé.
 
 ### À surveiller
 
-- Le comportement de `forbid(unsafe_code)` et de clippy pedantic sur le code généré par les macros rmcp : **NON VÉRIFIÉ** [v:rmcp-macros-unsafe-forbid], à mesurer au spike M0.
-- **Interprétation à confirmer** : `lf-application` utilise `tokio` (features `time` et `macros` seulement) et `futures` pour le délai global et `select!` dans `Audited`. La colonne « Dépend de » de 00 §2 ne liste que les crates internes. `check-deps` borne ces features (02 §13.1 n° 7, ADR-0012).
+- Le comportement de `forbid(unsafe_code)` et de clippy pedantic sur le code généré par les macros rmcp : **NON VÉRIFIÉ** [v:rmcp-macros-unsafe-forbid], à mesurer au spike rmcp, avant la conception des ports de M3.
+- **Interprétation à confirmer** : `lf-application` utilise `tokio` (features `time` et `macros` seulement) et `futures` pour le délai global et `select!` dans `Audited`. La colonne « Dépend de » de 00 §2 ne liste que les crates internes. `check-arch` borne ces features (à partir de M3) (02 §13.1 n° 7, ADR-0012).
 
 ### Tests qui la gardent
 
-- `cargo xtask check-deps`, avec les tests de son propre moteur (06 §2.8).
+- `cargo xtask check-arch` (`make arch`, dans `make ci`), avec les tests de son propre moteur (`xtask/src/arch.rs`, 06 §2.8).
 - `cargo deny check bans`.
 - Contrôles de pureté (02 §4.4).
 - `every_tool_goes_through_audited` (D-07).
