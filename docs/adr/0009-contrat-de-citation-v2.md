@@ -2,11 +2,11 @@
 
 - **Statut** : Accepté
 - **Date** : 2026-10-15
-- **Jalons concernés** : tâche de tête de M2 (`lf-domain::contract`, 00 §11.1), M2 (mapping), M4 (schémas de sortie), M6 (vérification des citations)
+- **Jalons concernés** : tâche de tête de M2 (`lf-domain::contract`, livrée : plan 2a, tâches 5, 7, 9 et 16), M2 (mapping), M4 (schémas de sortie), M6 (vérification des citations)
 - **Questions liées** : Q12 (formes de citation complémentaires ; proposition adoptée par défaut, à confirmer en M2, avant T-M2-10 (génération des golden)) ; Q16 (typographie des citations, décidée le 2026-10-15) ; Q17 (URL d'un article de loi, à vérifier en M2)
 - Révisé le 2026-10-15 (revue) : formes complémentaires adoptées par défaut (00 §4, AM-19, Q12) ; URL d'un `LEGIARTI` et vérifications bloquantes pour v0.1.0 (00 §4, AM-18).
 
-> **Statut d'implémentation (décision C2, 2026-10-16).** Le format v2 est **décidé** et s'applique ; il est implémenté en **tâche de tête de M2** (00 §11.1), avant tout mapper. M1 a livré un `CitationContract` **v1** de parité (`crates/lf-domain/src/citation.rs:16` : `eli_uri`, `human_readable_citation: Option`, `source_url` ; `Citable::citation()` ; suffixe « - objet » via `bracketed`). Le passage à v2 est interne à `lf-domain` (aucun mapper, aucune vue ni golden ne consomme encore le contrat) : struct, `from_url`, `ELI_NOTE`, nouveaux newtypes `CitationText`, `SourceUrl` et `Eli`, les 7 `impl Citable`, `constit_citation` sans paramètre `title`, suppression de `bracketed`, renommage du module `citation` en `contract` (libère `citation` pour le parseur M6) et de `Citable::citation()` en `Citable::contract()`.
+> **Statut d'implémentation (décision C2, 2026-10-16 ; livré le 2026-10-21, plan 2a).** Le format v2 est **implémenté** dans `lf-domain`, avant tout mapper (00 §11.1, point 1). Le module `citation` est devenu `contract` et `Citable::citation()` est devenu `Citable::contract()` (plan 2a, tâche 5), ce qui libère `citation` pour le parseur M6. Les newtypes `CitationText` (`contract/text.rs` : une ligne, jamais vide, au plus `CITATION_MAX_CHARS` = 1 000 caractères avec `…`), `Eli` (`contract/eli.rs` : ELI natif validé, jamais fabriqué) et `SourceUrl` (`url.rs`, construite par `legifrance_url` seule, ré-exportée par `contract`) sont nés en tâche 7. La struct `CitationContract { citation, source_url, ecli, eli }` (`crates/lf-domain/src/contract/mod.rs:40`), `from_url(source_url, citation, id)` avec le repli `Légifrance {ID}`, le texte d'`ELI_NOTE`, les sept `impl Citable`, `ecli` propagé depuis `Decision.ecli`, `constit_citation` sans paramètre `title` et la suppression de `bracketed` datent de la tâche 9 ; `from_url` est réservé au crate (`pub(crate)`, tâche 16). Le contrat v1 de M1 (`eli_uri`, `human_readable_citation: Option`, suffixe « - objet ») n'existe plus. Aucun mapper, aucune vue ni golden ne consomme encore le contrat : la règle `/loda/` de la décision 6 attend V-140 et V-142, et l'écart d'un hit incomplet (D-30) revient au mapper de M2.
 
 ## Contexte
 
@@ -37,7 +37,7 @@
    |---|---|
    | Conseil constitutionnel | « Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025 » ; l'objet entre crochets reste lisible dans `title` |
    | CNIL | « CNIL, délibération n° SAN-2026-002 du 8 janvier 2026 » |
-   | Dates en prose | mois accentués et « 1er » (`CivilDate::to_french`, livré, `date.rs:115` ; ex-Q9 livrée, devenue Q16 dans 00 §13) |
+   | Dates en prose | mois accentués et « 1er » (`CivilDate::to_french`, livré, `date.rs:287` ; ex-Q9 livrée, devenue Q16 dans 00 §13) |
    | Article de code | « Code civil, art. 9 », **inchangé** |
    | JURI, CETAT | titre nettoyé (parité) |
    | Signe numéro | `n°` suivi d'une espace U+0020 |
@@ -80,6 +80,7 @@
 - `constit_citation_golden`, `cnil_citation_golden`, `format_fr_twelve_months_and_premier` (à rapprocher des tests livrés sur `CivilDate::to_french`).
 - `article_citation_rules_table`, `citation_never_empty`, `law_article_url_uses_loda_article_lc`, `url_depends_on_id_type_not_payload_origine`.
 - `no_view_has_eli_uri`, `ported_no_fabricated_eli`, `ecli_is_never_fabricated` (P-031, P-034, P-035, P-039).
+- Livrés en tête de M2 (plan 2a, tâche 9) : `constit_citation_golden`, `cnil_citation_golden`, `article_citation_rules_table` (`contract/rules.rs`), `citation_never_empty` (`entity/mod.rs`), `ecli_is_never_fabricated` (`entity/decision.rs`) ; `format_fr_twelve_months_and_premier`, `law_article_url_uses_loda_article_lc`, `url_depends_on_id_type_not_payload_origine`, `no_view_has_eli_uri` et `ported_no_fabricated_eli` arrivent avec le mapper (M2) et les vues (M4).
 
 ## Alternatives envisagées
 

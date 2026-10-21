@@ -2,22 +2,12 @@
 //! Même forme côté API (`citations.py:204-228` et `403-436`).
 
 use crate::{
-    citation::{Citable, CitationContract},
+    contract::{Citable, CitationContract},
     date::CivilDate,
-    id::{ArticleId, KaliTextId, LegiTextId},
+    entity::Toc,
+    id::{KaliTextId, LegiTextId},
     url::{ResourceKind, legifrance_url},
 };
-
-/// Entrée de table des matières : un article résoluble par `get_article`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TocEntry {
-    /// Identifiant de l'article.
-    pub article_id: ArticleId,
-    /// Numéro affiché, ex. `L. 1234-5`.
-    pub num: Option<String>,
-    /// État juridique brut, ex. `VIGUEUR`.
-    pub etat: Option<String>,
-}
 
 /// Métadonnées et sommaire communs aux textes consolidés.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -32,16 +22,17 @@ pub struct TextBody {
     pub nature: Option<String>,
     /// État juridique brut.
     pub etat: Option<String>,
-    /// Date de parution au JO.
+    /// Date de parution au JO ; `None` : inconnue.
     pub date_parution: Option<CivilDate>,
     /// Numéro de parution au JO.
     pub num_parution: Option<String>,
-    /// Début de la version consolidée.
+    /// Début de la version consolidée ; `None` : date d'entrée en vigueur non déterminée.
     pub date_debut_version: Option<CivilDate>,
-    /// Fin de la version consolidée (`2999-01-01` = sans fin connue).
+    /// Fin de la version consolidée ; `None` : en vigueur sans date de fin (la sentinelle
+    /// `2999-01-01` de l'API est passée par [`open_ended`](crate::date::open_ended)).
     pub date_fin_version: Option<CivilDate>,
-    /// Articles, dans l'ordre du texte.
-    pub articles: Vec<TocEntry>,
+    /// Table des matières en arbre, sections et articles ([`Toc::build`]).
+    pub toc: Toc,
 }
 
 /// Loi ou décret consolidé (`fr_get_act`).
@@ -63,19 +54,23 @@ pub struct Convention {
 }
 
 impl Citable for Act {
-    fn citation(&self) -> CitationContract {
+    fn contract(&self) -> CitationContract {
+        let id = self.text_id.as_str();
         CitationContract::from_url(
-            legifrance_url(ResourceKind::Loda, self.text_id.as_str()),
-            self.body.title.clone(),
+            legifrance_url(ResourceKind::Loda, id),
+            self.body.title.as_deref(),
+            id,
         )
     }
 }
 
 impl Citable for Convention {
-    fn citation(&self) -> CitationContract {
+    fn contract(&self) -> CitationContract {
+        let id = self.text_id.as_str();
         CitationContract::from_url(
-            legifrance_url(ResourceKind::Kali, self.text_id.as_str()),
-            self.body.title.clone(),
+            legifrance_url(ResourceKind::Kali, id),
+            self.body.title.as_deref(),
+            id,
         )
     }
 }
@@ -93,13 +88,15 @@ mod tests {
     fn act_cites_its_title_and_loda_url() {
         let act = Act {
             text_id: LegiTextId::parse("LEGITEXT000033205014").unwrap(),
-            body: body("LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique"),
+            // L'appel de note « (1) » du titre est gardé (ADR-0009).
+            body: body("LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)"),
         };
+        let c = act.contract();
         assert_eq!(
-            act.citation(),
-            CitationContract::from_url(
-                "https://www.legifrance.gouv.fr/loda/id/LEGITEXT000033205014".into(),
-                Some("LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique".into()),
+            (c.citation.as_str(), c.source_url.as_str()),
+            (
+                "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)",
+                "https://www.legifrance.gouv.fr/loda/id/LEGITEXT000033205014"
             )
         );
     }
@@ -110,11 +107,11 @@ mod tests {
             text_id: KaliTextId::parse("KALITEXT000049878950").unwrap(),
             body: body("Avenant"),
         };
-        let citation = convention.citation();
+        let citation = convention.contract();
         assert_eq!(
-            citation.source_url,
+            citation.source_url.as_str(),
             "https://www.legifrance.gouv.fr/conv_coll/id/KALITEXT000049878950"
         );
-        assert_eq!(citation.human_readable_citation.as_deref(), Some("Avenant"));
+        assert_eq!(citation.citation.as_str(), "Avenant");
     }
 }

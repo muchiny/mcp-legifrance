@@ -8,12 +8,12 @@
 //! `ECLI:FR:CC:2025:2025.1173.QPC`, `ECLI:FR:CCASS:2025:C100399`,
 //! `ECLI:FR:CECHR:2026:506507.20260529`.
 
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 use crate::error::{DomainError, echo};
 
 /// ECLI français validé.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Ecli(String);
 
 fn court_ok(court: &str) -> bool {
@@ -64,11 +64,35 @@ impl fmt::Display for Ecli {
     }
 }
 
+impl FromStr for Ecli {
+    type Err = DomainError;
+
+    /// [`Ecli::parse`] : la casse compte, les blancs autour sont retirés.
+    ///
+    /// ```
+    /// use lf_domain::ecli::Ecli;
+    ///
+    /// let ecli: Ecli = " ECLI:FR:CC:2025:2025.1173.QPC ".parse()?;
+    /// assert_eq!(ecli.as_str(), "ECLI:FR:CC:2025:2025.1173.QPC");
+    /// assert_eq!(
+    ///     "ecli:fr:cc:2025:2025.1173.qpc".parse::<Ecli>().map_err(|e| e.to_string()),
+    ///     Err("invalid ECLI \"ecli:fr:cc:2025:2025.1173.qpc\": \
+    ///          expected ECLI:FR:<court>:<year>:<ordinal>"
+    ///         .to_owned())
+    /// );
+    /// # Ok::<(), lf_domain::DomainError>(())
+    /// ```
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
+    use std::collections::HashSet;
 
     #[test]
     fn accepts_fixture_eclis() {
@@ -119,6 +143,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn from_str_is_parse() {
+        let ecli: Ecli = " ECLI:FR:CC:2025:2025.1173.QPC\n".parse().unwrap();
+        assert_eq!(ecli, Ecli::parse("ECLI:FR:CC:2025:2025.1173.QPC").unwrap());
+        assert_eq!(
+            "ecli:FR:CC:2025:1".parse::<Ecli>(),
+            Err(DomainError::InvalidEcli { input: "ecli:FR:CC:2025:1".into() })
+        );
+    }
+
+    #[test]
+    fn hash_agrees_with_eq() {
+        let read = ["ECLI:FR:CC:2025:1", " ECLI:FR:CC:2025:1\n", "ECLI:FR:CE:2025:1"]
+            .map(|s| Ecli::parse(s).unwrap());
+        let expected = ["ECLI:FR:CC:2025:1", "ECLI:FR:CE:2025:1"].map(|s| Ecli::parse(s).unwrap());
+        assert_eq!(HashSet::from(read), HashSet::from(expected));
+    }
+
     proptest! {
         #[test]
         fn valid_eclis_roundtrip(
@@ -126,6 +168,7 @@ mod tests {
         ) {
             let ecli = Ecli::parse(&s).unwrap();
             prop_assert_eq!(ecli.as_str(), s.as_str());
+            prop_assert_eq!(ecli.to_string().parse::<Ecli>(), Ok(ecli));
         }
 
         #[test]

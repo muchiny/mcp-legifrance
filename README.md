@@ -1,5 +1,7 @@
 # mcp-legifrance
 
+Projet non officiel, sans lien avec la DILA. *Not affiliated with or endorsed by DILA.*
+
 Dépôt : <https://github.com/muchiny/mcp-legifrance>
 
 Serveur MCP en **Rust**, en **architecture hexagonale**, pour interroger le droit français officiel : l'API Légifrance via PISTE, puis les dumps open data de la DILA. Il cible la spécification **MCP 2026-07-28** (« MCP v2 ») et reste compatible avec les clients en 2025-11-25.

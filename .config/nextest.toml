@@ -1,0 +1,21 @@
+# Profils nextest (06 §7.3 ; V-21).
+# - default : `make test` en local et la mutation (cargo-mutants) ;
+# - ci : choisi par NEXTEST_PROFILE=ci sur le seul job `test` de ci.yml, rapport JUnit dans
+#   target/nextest/ci/junit.xml ;
+# - live : tests réels contre PISTE (`#[ignore]`, préfixe `live_`), lancés plus tard par live.yml.
+[profile.default]
+slow-timeout = { period = "30s", terminate-after = 4 }
+
+[profile.ci]
+fail-fast = false
+retries = 0                                  # PT9 : aucun réessai, un test instable est corrigé
+failure-output = "immediate-final"
+slow-timeout = { period = "30s", terminate-after = 4 }
+junit = { path = "junit.xml" }
+
+[profile.live]
+test-threads = 1                             # quota PISTE (02 §2.2)
+retries = 0
+slow-timeout = { period = "60s", terminate-after = 5 }
+default-filter = "test(/^live_/)"
+# M4 (crate lf-app, paquet mcp-legifrance) : [test-groups] stdio-e2e et [[profile.default.overrides]] de 06 §7.3

@@ -2,7 +2,7 @@
 //! `citations.py:444-486`) : le texte n'existe qu'en pièce jointe `.docx`.
 
 use crate::{
-    citation::{Citable, CitationContract, with_company},
+    contract::{Citable, CitationContract, with_company},
     date::CivilDate,
     id::AccoTextId,
     url::{ResourceKind, legifrance_url},
@@ -35,19 +35,21 @@ pub struct CompanyAgreement {
     pub themes: Vec<String>,
     /// Syndicats signataires.
     pub syndicats: Vec<String>,
-    /// Date du texte.
+    /// Date du texte ; `None` : inconnue.
     pub date_texte: Option<CivilDate>,
-    /// Date d'effet.
+    /// Date d'effet, une date de début ; `None` : date d'effet non déterminée.
     pub date_effet: Option<CivilDate>,
-    /// Date de dépôt.
+    /// Date de dépôt ; `None` : inconnue.
     pub date_depot: Option<CivilDate>,
 }
 
 impl Citable for CompanyAgreement {
-    fn citation(&self) -> CitationContract {
+    fn contract(&self) -> CitationContract {
+        let id = self.agreement_id.as_str();
         CitationContract::from_url(
-            legifrance_url(ResourceKind::Acco, self.agreement_id.as_str()),
-            with_company(self.title.as_deref(), self.raison_sociale.as_deref()),
+            legifrance_url(ResourceKind::Acco, id),
+            with_company(self.title.as_deref(), self.raison_sociale.as_deref()).as_deref(),
+            id,
         )
     }
 }
@@ -74,11 +76,12 @@ mod tests {
             date_effet: None,
             date_depot: None,
         };
+        let c = agreement.contract();
         assert_eq!(
-            agreement.citation(),
-            CitationContract::from_url(
-                "https://www.legifrance.gouv.fr/acco/id/ACCOTEXT000051888026".into(),
-                Some("Télétravail (CORSAIR)".into()),
+            (c.citation.as_str(), c.source_url.as_str()),
+            (
+                "Télétravail (CORSAIR)",
+                "https://www.legifrance.gouv.fr/acco/id/ACCOTEXT000051888026"
             )
         );
     }

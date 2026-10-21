@@ -24,3 +24,10 @@ path = "fuzz_targets/text.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "version_date"
+path = "fuzz_targets/version_date.rs"
+test = false
+doc = false
+bench = false

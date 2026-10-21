@@ -1,7 +1,8 @@
 //! Résultats de recherche (`fr_search`, `citations.py:110-182`).
 
 use crate::{
-    citation::{Citable, CitationContract, with_company},
+    contract::{Citable, CitationContract, with_company},
+    date::CivilDate,
     fond::Fond,
     id::{AnyId, ArticleId},
     text::clean,
@@ -30,9 +31,13 @@ impl CodeArticleRef {
     /// rendu homogène avec les titres ; la coupe à [`SNIPPET_MAX_CHARS`] se fait
     /// après normalisation.
     pub fn new(article_id: ArticleId, num: Option<String>, raw_snippet: &str) -> Self {
-        let snippet = clean(raw_snippet).chars().take(SNIPPET_MAX_CHARS).collect();
-        Self { article_id, num, snippet }
+        Self { article_id, num, snippet: cut_snippet(raw_snippet) }
     }
+}
+
+/// Hors de `CodeArticleRef::new`, que cargo-mutants ne mute jamais (`CONTRIBUTING.md`).
+fn cut_snippet(raw: &str) -> String {
+    clean(raw).chars().take(SNIPPET_MAX_CHARS).collect()
 }
 
 /// Un résultat de recherche.
@@ -42,6 +47,11 @@ pub struct SearchHit {
     pub fond: Fond,
     /// Identifiant du texte, suffixe de version retiré.
     pub id: AnyId,
+    /// Date du suffixe `_JJ-MM-AAAA` d'un identifiant `LEGITEXT`, lue par
+    /// `parse_versioned` (03 §4.1) ; `None` sans suffixe, ou pour une sentinelle passée par
+    /// `open_ended` (date d'entrée en vigueur non déterminée) ; rempli par le mapper ;
+    /// ni cité ni rendu dans les hits (`annexes/A-parite.md` §4.6).
+    pub version_start: Option<CivilDate>,
     /// Identifiant chronologique, préféré pour l'URL hors LODA/CODE.
     pub cid: Option<AnyId>,
     /// Titre brut. Le mapper le passe par `text::clean`, car les résultats
@@ -60,7 +70,7 @@ pub struct SearchHit {
 }
 
 impl Citable for SearchHit {
-    fn citation(&self) -> CitationContract {
+    fn contract(&self) -> CitationContract {
         let key = match self.fond {
             Fond::Loda | Fond::Code => &self.id,
             _ => self.cid.as_ref().unwrap_or(&self.id),
@@ -71,7 +81,8 @@ impl Citable for SearchHit {
         };
         CitationContract::from_url(
             legifrance_url(ResourceKind::from(self.fond), key.as_str()),
-            citation,
+            citation.as_deref(),
+            self.id.as_str(),
         )
     }
 }
@@ -92,14 +103,24 @@ pub struct SearchPage {
 impl SearchPage {
     /// `total` absent : on retient le nombre de résultats reçus (`citations.py:179-181`).
     pub fn new(fond: Fond, query: &str, total: Option<u64>, hits: Vec<SearchHit>) -> Self {
-        let total = total.unwrap_or_else(|| u64::try_from(hits.len()).unwrap_or(u64::MAX));
-        Self { fond, query: query.trim().to_owned(), total, hits }
+        Self { fond, query: trimmed_query(query), total: page_total(total, &hits), hits }
     }
+}
+
+/// Hors de `SearchPage::new`, que cargo-mutants ne mute jamais (`CONTRIBUTING.md`).
+fn trimmed_query(query: &str) -> String {
+    query.trim().to_owned()
+}
+
+/// Hors de `SearchPage::new`, que cargo-mutants ne mute jamais (`CONTRIBUTING.md`).
+fn page_total(total: Option<u64>, hits: &[SearchHit]) -> u64 {
+    total.unwrap_or_else(|| u64::try_from(hits.len()).unwrap_or(u64::MAX))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::id::parse_versioned;
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
 
@@ -107,6 +128,7 @@ mod tests {
         SearchHit {
             fond,
             id: AnyId::parse(id).unwrap(),
+            version_start: None,
             cid: cid.map(|c| AnyId::parse(c).unwrap()),
             title: Some("Titre".into()),
             nature: None,
@@ -121,12 +143,12 @@ mod tests {
     fn loda_and_code_use_id() {
         let loda = hit(Fond::Loda, "JORFTEXT000020445850", Some("JORFTEXT000099999999"));
         assert_eq!(
-            loda.citation().source_url,
+            loda.contract().source_url.as_str(),
             "https://www.legifrance.gouv.fr/loda/id/JORFTEXT000020445850"
         );
         let code = hit(Fond::Code, "LEGITEXT000006070721", Some("LEGITEXT000099999999"));
         assert_eq!(
-            code.citation().source_url,
+            code.contract().source_url.as_str(),
             "https://www.legifrance.gouv.fr/codes/texte_lc/LEGITEXT000006070721"
         );
     }
@@ -135,21 +157,32 @@ mod tests {
     fn other_fonds_prefer_cid() {
         let constit = hit(Fond::Constit, "CONSTEXT000043596386", Some("CONSTEXT000011111111"));
         assert_eq!(
-            constit.citation().source_url,
+            constit.contract().source_url.as_str(),
             "https://www.legifrance.gouv.fr/cons/id/CONSTEXT000011111111"
         );
         let juri = hit(Fond::Juri, "JURITEXT000048465611", None);
         assert_eq!(
-            juri.citation().source_url,
+            juri.contract().source_url.as_str(),
             "https://www.legifrance.gouv.fr/juri/id/JURITEXT000048465611"
         );
-        assert_eq!(juri.citation().human_readable_citation.as_deref(), Some("Titre"));
+        assert_eq!(juri.contract().citation.as_str(), "Titre");
+    }
+
+    #[test]
+    fn version_start_is_not_cited() {
+        // search_loda.json : `titles[0].id` porte un suffixe ; le mapper le
+        // lit par `parse_versioned` et le contrat cite la forme nue.
+        let versioned = parse_versioned("LEGITEXT000033696785_28-12-2016").unwrap();
+        let bare = hit(Fond::Loda, versioned.id.as_str(), None);
+        let dated = SearchHit { version_start: versioned.version_start, ..bare.clone() };
+        assert_eq!(dated.version_start, CivilDate::new(2016, 12, 28));
+        assert_eq!(dated.contract(), bare.contract());
     }
 
     #[test]
     fn acco_cites_company() {
         let acco = hit(Fond::Acco, "ACCOTEXT000051888026", None);
-        assert_eq!(acco.citation().human_readable_citation.as_deref(), Some("Titre (CORSAIR)"));
+        assert_eq!(acco.contract().citation.as_str(), "Titre (CORSAIR)");
     }
 
     #[test]

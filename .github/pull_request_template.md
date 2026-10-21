@@ -1,0 +1,11 @@
+- [ ] Jalon et tâche : plan et tâche de `docs/superpowers/plans/` indiqués
+- [ ] Surface MCP modifiée : `cargo xtask lock-descriptors --update` lancé, diff du verrou relu, rubrique « Tool surface » du CHANGELOG
+- [ ] Règles de dépendance : licence, âge ≥ 14 jours, exigence au niveau mineur dans `[workspace.dependencies]`, déclarée seulement dans le crate qui l'emploie, justification, `cargo deny` et `cargo machete` verts
+- [ ] Aucun contenu copié d'un projet AGPL (juridix, mcp-legifrance de Ktulu-Analog) : idées seulement, 08 §9.4
+- [ ] Sécurité : aucun secret, jeton, chemin local ni contenu juridique dans un journal ou un message ; aucun `println!`
+- [ ] Tests : cas nominal, chaque code d'erreur, une ligne d'audit par issue, test de non-régression nommé (06 §3)
+- [ ] Snapshots relus (`cargo insta review`), aucun `.snap.new`
+- [ ] Divergence de parité : clé ajoutée dans `annexes/A-parite.md` §4
+- [ ] Décision de 00 ou d'un ADR modifiée : ADR et `00-decisions.md` dans la même PR
+- [ ] Question Q1…Q17 tranchée : 09 §3, puis 00 §13 et §14 et l'ADR (00 §13)
+- [ ] CHANGELOG mis à jour

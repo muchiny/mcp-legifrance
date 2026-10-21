@@ -32,6 +32,23 @@ pub struct Window<'a> {
 /// Fenêtre d'au plus `max_chars` caractères (au moins 1) à partir de `offset`,
 /// coupée de préférence après une fin de phrase, sinon après un espace, dans la
 /// seconde moitié de la fenêtre.
+///
+/// ```
+/// use lf_domain::text::{Window, window};
+///
+/// let text = "En application de l'article L. 1234-5 du code du travail, \
+///             le salarié a droit à une indemnité.";
+/// // Le point de « L. » ne termine pas la phrase : coupe au dernier espace.
+/// let first = window(text, 0, 40);
+/// assert_eq!(
+///     first,
+///     Window { text: "En application de l'article L. 1234-5 ", next_offset: Some(38) }
+/// );
+/// // La fenêtre suivante reprend à `next_offset` ; les fenêtres partitionnent le texte.
+/// let second = window(text, 38, 100);
+/// assert_eq!(second.next_offset, None);
+/// assert_eq!(format!("{}{}", first.text, second.text), text);
+/// ```
 pub fn window(text: &str, offset: usize, max_chars: usize) -> Window<'_> {
     let rest = &text[byte_at(text, offset)..];
     let hard = byte_at(rest, max_chars.max(1));

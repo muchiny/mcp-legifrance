@@ -1,7 +1,7 @@
 //! Article seul (`fr_get_text`, `citations.py:248-276`).
 
 use crate::{
-    citation::{Citable, CitationContract, article_citation},
+    contract::{Citable, CitationContract, article_citation},
     date::CivilDate,
     id::ArticleId,
     url::{ResourceKind, legifrance_url},
@@ -21,23 +21,25 @@ pub struct ArticleText {
     pub code_title: Option<String>,
     /// Chemin des sections.
     pub full_sections_titre: Option<String>,
-    /// Début de vigueur.
+    /// Début de vigueur ; `None` : début non déterminé.
     pub date_debut: Option<CivilDate>,
-    /// Fin de vigueur.
+    /// Fin de vigueur ; `None` : sans date de fin.
     pub date_fin: Option<CivilDate>,
     /// Texte brut de l'article.
     pub text: Option<String>,
 }
 
 impl Citable for ArticleText {
-    fn citation(&self) -> CitationContract {
+    fn contract(&self) -> CitationContract {
         let kind = match self.article_id {
             ArticleId::Legi(_) => ResourceKind::CodeArticle,
             ArticleId::Kali(_) => ResourceKind::Kali,
         };
+        let id = self.article_id.as_str();
         CitationContract::from_url(
-            legifrance_url(kind, self.article_id.as_str()),
-            article_citation(self.code_title.as_deref(), self.num.as_deref()),
+            legifrance_url(kind, id),
+            article_citation(self.code_title.as_deref(), self.num.as_deref()).as_deref(),
+            id,
         )
     }
 }
@@ -62,12 +64,12 @@ mod tests {
 
     #[test]
     fn legi_article_cites_code_and_number() {
-        let citation = article("LEGIARTI000006419288").citation();
+        let citation = article("LEGIARTI000006419288").contract();
         assert_eq!(
-            citation,
-            CitationContract::from_url(
-                "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288".into(),
-                Some("Code civil, art. 9".into()),
+            (citation.citation.as_str(), citation.source_url.as_str()),
+            (
+                "Code civil, art. 9",
+                "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288"
             )
         );
     }
@@ -75,9 +77,9 @@ mod tests {
     #[test]
     fn kali_article_uses_conv_coll_url() {
         // test_kali_article_url_uses_conv_coll de la référence.
-        let citation = article("KALIARTI000005805295").citation();
+        let citation = article("KALIARTI000005805295").contract();
         assert_eq!(
-            citation.source_url,
+            citation.source_url.as_str(),
             "https://www.legifrance.gouv.fr/conv_coll/id/KALIARTI000005805295"
         );
     }
