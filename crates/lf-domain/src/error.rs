@@ -124,6 +124,29 @@ pub enum DomainError {
         /// Fin demandée.
         to: VersionDate,
     },
+    /// Requête de recherche vide : absente après normalisation (blancs et caractères de contrôle retirés).
+    #[error("query is required")]
+    EmptyQuery,
+    /// Requête de recherche plus longue que [`QUERY_MAX_CHARS`](crate::search::QUERY_MAX_CHARS) caractères.
+    #[error("query is too long ({len} characters, max {max})")]
+    QueryTooLong {
+        /// Longueur de la requête normalisée, en caractères.
+        len: usize,
+        /// Longueur maximale acceptée.
+        max: usize,
+    },
+    /// Valeur numérique hors de ses bornes (bornes incluses), ex. `page_size`.
+    #[error("{field}={value} out of range ({min}..{max})")]
+    OutOfRange {
+        /// Nom du paramètre côté utilisateur.
+        field: &'static str,
+        /// Valeur reçue.
+        value: i64,
+        /// Borne basse acceptée.
+        min: i64,
+        /// Borne haute acceptée.
+        max: i64,
+    },
 }
 
 /// Recopie `input` pour un message d'erreur, tronquée à [`ECHO_MAX_CHARS`] caractères.
@@ -156,7 +179,10 @@ mod tests {
             DomainError::EmptyCoverageGaps
             | DomainError::TocTooDeep { .. }
             | DomainError::TocOffsetPastEnd { .. }
-            | DomainError::InvertedDateRange { .. } => "",
+            | DomainError::InvertedDateRange { .. }
+            | DomainError::EmptyQuery
+            | DomainError::QueryTooLong { .. }
+            | DomainError::OutOfRange { .. } => "",
         }
     }
 
@@ -219,6 +245,15 @@ mod tests {
             DomainError::InvertedDateRange { from, to }.to_string(),
             "date_from=2026-01-01 is after date_to=2025-01-01"
         );
+        assert_eq!(DomainError::EmptyQuery.to_string(), "query is required");
+        assert_eq!(
+            DomainError::QueryTooLong { len: 612, max: 500 }.to_string(),
+            "query is too long (612 characters, max 500)"
+        );
+        assert_eq!(
+            DomainError::OutOfRange { field: "page_size", value: 0, min: 1, max: 100 }.to_string(),
+            "page_size=0 out of range (1..100)"
+        );
     }
 
     #[test]
@@ -263,6 +298,9 @@ mod tests {
             DomainError::TocTooDeep { max: 64 },
             DomainError::TocOffsetPastEnd { offset: 300, total: 88 },
             DomainError::InvertedDateRange { from: VersionDate::MAX, to: VersionDate::MIN },
+            DomainError::EmptyQuery,
+            DomainError::QueryTooLong { len: 501, max: 500 },
+            DomainError::OutOfRange { field: "page_size", value: 0, min: 1, max: 100 },
         ] {
             assert_eq!(echoed(&error), "", "{error}");
         }
