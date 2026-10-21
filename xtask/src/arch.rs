@@ -10,7 +10,10 @@
 //!   contrôle sur ce membre ;
 //! - R1 : `lf-domain` sans dépendance interne, liste blanche externe
 //!   `DOMAIN_ALLOWED` (`thiserror` seul, décision C3) ;
-//! - R2, frontière interne : `lf-application` ne dépend que de `lf-domain` ;
+//! - R2 : `lf-application` ne dépend en interne que de `lf-domain`, et en externe
+//!   de la liste fermée `APPLICATION_ALLOWED` ; les features qu'elle active sur
+//!   `tokio` et `chrono` sont bornées par `APPLICATION_FEATURES` (`default`
+//!   comprise : le workspace déclare `default-features = false`) ;
 //! - R3 : un adapter ne dépend d'aucun autre adapter ni de `mcp-legifrance` ;
 //!   `lf-adapter-audit` dépend de `lf-application` seul ;
 //! - R4 : personne ne dépend de `mcp-legifrance`, qui peut dépendre de tous les
@@ -22,15 +25,20 @@
 //!   `lf-domain` (5a-5d : `cargo metadata` ne montre pas l'héritage de
 //!   `[workspace.package]`, d'où une égalité de valeur ; sans `lf-domain`, pas
 //!   de contrôle) ; toute exigence interne, de tout kind, vaut `=` + version de
-//!   `lf-domain` (5h).
+//!   `lf-domain` (5h) ; chaque manifeste contient `[lints] workspace = true`
+//!   (5e, lu par `inherits_workspace_lints` : `cargo metadata` ne montre pas
+//!   l'héritage des lints).
 //!
-//! Restent pour le plan 2b (avec `cargo_metadata` et `toml`) : liste fermée de
-//! R2, fermeture transitive, R9, `[lints] workspace = true` (5e). Ajouter un
-//! crate au workspace oblige à vérifier ou ajouter sa ligne dans `RULES`.
+//! Ajouter un crate au workspace oblige à vérifier ou ajouter sa ligne dans
+//! `RULES`.
 //!
 //! La porte échoue fermée : un `cargo metadata` sans membre, ou un membre sans
-//! nom, sans `dependencies`, sans `version`, sans `edition` ou sans `targets`,
-//! ou un graphe sans `lf-domain`, est une erreur et non un succès à vide.
+//! nom, sans `dependencies`, sans `version`, sans `edition`, sans `targets` ou
+//! sans `manifest_path`, ou un graphe sans `lf-domain`, est une erreur et non un
+//! succès à vide. Une dépendance sans `features` ni `uses_default_features`
+//! compte comme activant `default` ; un manifeste illisible est une erreur, et
+//! `lints_workspace` vaut `false` (5e en violation) tant que le manifeste n'a
+//! pas été lu.
 
 use serde_json::Value;
 
@@ -53,10 +61,28 @@ pub struct Package {
     pub rust_version: Option<String>,
     /// Licence, si déclarée.
     pub license: Option<String>,
+    /// Features activées de chaque dépendance normale (`nom`, features) ;
+    /// `default` y figure sauf si `uses_default_features` vaut `false`.
+    pub features: Vec<(String, Vec<String>)>,
+    /// Chemin du `Cargo.toml` du membre.
+    pub manifest_path: String,
+    /// Le manifeste contient `[lints] workspace = true` (5e) ; `false` à la
+    /// lecture de `cargo metadata`, fixé ensuite par `inherits_workspace_lints`.
+    pub lints_workspace: bool,
 }
 
 /// Seules dépendances normales externes admises dans `lf-domain`.
 const DOMAIN_ALLOWED: [&str; 1] = ["thiserror"];
+
+/// Dépendances normales externes admises dans `lf-application` : liste fermée
+/// de R2 (00 §2).
+const APPLICATION_ALLOWED: [&str; 6] =
+    ["thiserror", "chrono", "tracing", "futures", "tokio", "similar"];
+
+/// Features admises par dépendance dans `lf-application` (R2) : `rt` pour
+/// `task_local!` seulement ; `chrono` sans `clock` ni `now`.
+const APPLICATION_FEATURES: [(&str, &[&str]); 2] =
+    [("tokio", &["time", "macros", "rt"]), ("chrono", &["std"])];
 
 /// Règle d'un paquet connu du workspace.
 struct CrateRule {
@@ -65,6 +91,8 @@ struct CrateRule {
     internal: &'static [&'static str],
     /// Liste fermée des dépendances externes ; `None` : pas de liste fermée.
     external: Option<&'static [&'static str]>,
+    /// Features admises par dépendance ; une dépendance absente n'est pas bornée.
+    features: &'static [(&'static str, &'static [&'static str])],
     /// Cible `bin` admise.
     bin: bool,
     /// Cible `lib` admise.
@@ -72,6 +100,10 @@ struct CrateRule {
 }
 
 impl CrateRule {
+    fn allowed_features(&self, dep: &str) -> Option<&'static [&'static str]> {
+        self.features.iter().find(|(name, _)| *name == dep).map(|(_, allowed)| *allowed)
+    }
+
     fn forbids(&self, dep: &str) -> bool {
         if is_internal(dep) {
             !self.internal.contains(&dep)
@@ -83,11 +115,17 @@ impl CrateRule {
 
 /// Gabarit : bibliothèque sans dépendance interne ni liste externe fermée.
 const LIBRARY: CrateRule =
-    CrateRule { name: "", internal: &[], external: None, bin: false, lib: true };
+    CrateRule { name: "", internal: &[], external: None, features: &[], bin: false, lib: true };
 
 const RULES: [CrateRule; 8] = [
     CrateRule { name: "lf-domain", external: Some(&DOMAIN_ALLOWED), ..LIBRARY },
-    CrateRule { name: "lf-application", internal: &["lf-domain"], ..LIBRARY },
+    CrateRule {
+        name: "lf-application",
+        internal: &["lf-domain"],
+        external: Some(&APPLICATION_ALLOWED),
+        features: &APPLICATION_FEATURES,
+        ..LIBRARY
+    },
     CrateRule { name: "lf-adapter-piste", internal: &["lf-application", "lf-domain"], ..LIBRARY },
     CrateRule { name: "lf-adapter-cache", internal: &["lf-application", "lf-domain"], ..LIBRARY },
     CrateRule { name: "lf-adapter-audit", internal: &["lf-application"], ..LIBRARY },
@@ -132,11 +170,24 @@ fn member_violations(p: &Package, rule: &CrateRule, domain: Option<&Package>) ->
         .iter()
         .filter(|dep| rule.forbids(dep))
         .map(|dep| format!("{} must not depend on {dep}", p.name));
+    let features = p.features.iter().flat_map(|(dep, enabled)| {
+        let allowed = rule.allowed_features(dep);
+        enabled
+            .iter()
+            .filter(move |feature| allowed.is_some_and(|list| !list.contains(&feature.as_str())))
+            .map(move |feature| format!("{} must not enable {dep} feature {feature}", p.name))
+    });
     let targets = [("bin", rule.bin), ("lib", rule.lib)]
         .into_iter()
         .filter(|(kind, allowed)| !allowed && p.targets.iter().any(|t| t == kind))
         .map(|(kind, _)| format!("{} must not have a {kind} target", p.name));
-    deps.chain(targets).chain(domain.into_iter().flat_map(|d| workspace_violations(p, d))).collect()
+    let lints =
+        (!p.lints_workspace).then(|| format!("{} must declare [lints] workspace = true", p.name));
+    deps.chain(features)
+        .chain(targets)
+        .chain(lints)
+        .chain(domain.into_iter().flat_map(|d| workspace_violations(p, d)))
+        .collect()
 }
 
 /// Égalité avec `[workspace.package]` (5a-5d) et exigences internes `=` (5h).
@@ -168,13 +219,24 @@ fn workspace_violations(p: &Package, domain: &Package) -> Vec<String> {
         .collect()
 }
 
+/// Le manifeste hérite des lints du workspace (`[lints] workspace = true`, 5e),
+/// quelle que soit la forme TOML (table, clé pointée, table en ligne).
+///
+/// # Errors
+///
+/// Échoue si le texte n'est pas du TOML valide.
+pub fn inherits_workspace_lints(manifest: &str) -> Result<bool, String> {
+    let table = manifest.parse::<toml::Table>().map_err(|e| format!("Cargo.toml: {e}"))?;
+    Ok(table.get("lints").and_then(|l| l.get("workspace")) == Some(&toml::Value::Boolean(true)))
+}
+
 /// Extrait les membres du workspace de la sortie de `cargo metadata --format-version 1`.
 ///
 /// # Errors
 ///
 /// Échoue fermé : aucun membre trouvé, ou un membre sans `name` chaîne, sans
-/// tableau `dependencies`, sans `version` ou `edition` chaînes, ou sans tableau
-/// `targets`.
+/// tableau `dependencies`, sans `version` ou `edition` chaînes, sans tableau
+/// `targets`, ou sans `manifest_path` chaîne.
 pub fn workspace_packages(metadata: &Value) -> Result<Vec<Package>, String> {
     let members: Vec<&str> = metadata["workspace_members"]
         .as_array()
@@ -207,6 +269,9 @@ fn read_package(p: &Value) -> Result<Package, String> {
     let targets = p["targets"]
         .as_array()
         .ok_or_else(|| format!("cargo metadata: {name} has no targets array"))?;
+    let manifest_path = p["manifest_path"]
+        .as_str()
+        .ok_or_else(|| format!("cargo metadata: {name} has no manifest_path"))?;
     Ok(Package {
         name: name.to_owned(),
         deps: dependencies
@@ -227,7 +292,30 @@ fn read_package(p: &Value) -> Result<Package, String> {
         edition: edition.to_owned(),
         rust_version: p["rust_version"].as_str().map(str::to_owned),
         license: p["license"].as_str().map(str::to_owned),
+        features: dependencies
+            .iter()
+            .filter(|d| d["kind"].is_null())
+            .filter_map(read_features)
+            .collect(),
+        manifest_path: manifest_path.to_owned(),
+        lints_workspace: false,
     })
+}
+
+/// Features activées d'une dépendance : celles déclarées, plus `default` sauf
+/// `uses_default_features: false` (absent : `default`, échec fermé).
+fn read_features(dependency: &Value) -> Option<(String, Vec<String>)> {
+    let name = dependency["name"].as_str()?;
+    let mut features: Vec<String> = dependency["features"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|f| f.as_str().map(str::to_owned))
+        .collect();
+    if dependency["uses_default_features"].as_bool() != Some(false) {
+        features.push("default".to_owned());
+    }
+    Some((name.to_owned(), features))
 }
 
 #[cfg(test)]
@@ -252,12 +340,21 @@ mod tests {
             edition: "2024".into(),
             rust_version: Some("1.88".into()),
             license: Some("Apache-2.0".into()),
+            features: Vec::new(),
+            manifest_path: format!("/w/{name}/Cargo.toml"),
+            lints_workspace: true,
         }
     }
 
     /// Paquet `mcp-legifrance` (répertoire `crates/lf-app`) : une cible `bin` seule.
     fn app(deps: &[&str]) -> Package {
         Package { targets: strings(&["bin"]), ..pkg("mcp-legifrance", deps) }
+    }
+
+    /// Le même membre, avec ces features activées (`dépendance`, features).
+    fn enabling(package: Package, features: &[(&str, &[&str])]) -> Package {
+        let features = features.iter().map(|(dep, f)| ((*dep).to_owned(), strings(f))).collect();
+        Package { features, ..package }
     }
 
     /// Le même membre, avec ces exigences (`nom`, `req`).
@@ -511,6 +608,21 @@ mod tests {
                 "lf-application must not depend on lf-adapter-piste",
             ),
             (
+                "R2, liste fermée",
+                vec![domain(), pkg("lf-application", &["serde"])],
+                "lf-application must not depend on serde",
+            ),
+            (
+                "R2, features",
+                vec![domain(), enabling(pkg("lf-application", &["tokio"]), &[("tokio", &["net"])])],
+                "lf-application must not enable tokio feature net",
+            ),
+            (
+                "5e",
+                vec![domain(), Package { lints_workspace: false, ..pkg("lf-application", &[]) }],
+                "lf-application must declare [lints] workspace = true",
+            ),
+            (
                 "R3",
                 vec![domain(), pkg("lf-adapter-cache", &["lf-adapter-piste"])],
                 "lf-adapter-cache must not depend on lf-adapter-piste",
@@ -584,6 +696,7 @@ mod tests {
                     "name": "lf-domain",
                     "version": "0.0.0",
                     "edition": "2024",
+                    "manifest_path": "/w/lf-domain/Cargo.toml",
                     "rust_version": "1.88",
                     "license": "Apache-2.0",
                     "targets": [{ "kind": ["lib"] }],
@@ -596,7 +709,11 @@ mod tests {
                 { "id": "registry+https://x#thiserror@2.0.21", "name": "thiserror", "dependencies": [] }
             ]
         });
-        assert_eq!(workspace_packages(&metadata), Ok(vec![pkg("lf-domain", &["thiserror"])]));
+        let expected = Package {
+            lints_workspace: false,
+            ..enabling(pkg("lf-domain", &["thiserror"]), &[("thiserror", &["default"])])
+        };
+        assert_eq!(workspace_packages(&metadata), Ok(vec![expected]));
     }
 
     #[test]
@@ -609,6 +726,7 @@ mod tests {
                 "name": "mcp-legifrance",
                 "version": "0.0.0",
                 "edition": "2024",
+                "manifest_path": "/w/crates/lf-app/Cargo.toml",
                 "rust_version": null,
                 "license": null,
                 "targets": [{ "kind": ["bin"] }, { "kind": ["custom-build"] }],
@@ -623,6 +741,7 @@ mod tests {
                     },
                     {
                         "name": "tokio", "req": "^1.53.2", "kind": null,
+                        "features": ["rt", "time"], "uses_default_features": false,
                         "source": "registry+https://github.com/rust-lang/crates.io-index"
                     },
                     // Entrée sans nom : ignorée, comme par la lecture livrée de `deps`.
@@ -643,6 +762,12 @@ mod tests {
             edition: "2024".into(),
             rust_version: None,
             license: None,
+            features: vec![
+                ("lf-domain".into(), strings(&["default"])),
+                ("tokio".into(), strings(&["rt", "time"])),
+            ],
+            manifest_path: "/w/crates/lf-app/Cargo.toml".into(),
+            lints_workspace: false,
         };
         assert_eq!(workspace_packages(&metadata), Ok(vec![expected]));
     }
@@ -716,5 +841,86 @@ mod tests {
             workspace_packages(&metadata),
             Err("cargo metadata: lf-domain has no targets array".to_owned())
         );
+    }
+
+    #[test]
+    fn fails_closed_on_member_without_manifest_path() {
+        let metadata = json!({
+            "workspace_members": ["a"],
+            "packages": [{ "id": "a", "name": "lf-domain", "dependencies": [],
+                           "version": "0.0.0", "edition": "2024", "targets": [] }]
+        });
+        assert_eq!(
+            workspace_packages(&metadata),
+            Err("cargo metadata: lf-domain has no manifest_path".to_owned())
+        );
+    }
+
+    #[test]
+    fn application_external_list_is_closed() {
+        let allowed =
+            ["lf-domain", "thiserror", "chrono", "tracing", "futures", "tokio", "similar"];
+        let graph = [
+            pkg("lf-domain", &["thiserror"]),
+            pkg("lf-application", &allowed),
+            pkg("lf-adapter-piste", &["lf-application", "serde", "reqwest", "backon"]),
+        ];
+        assert_eq!(violations(&graph), Vec::<String>::new());
+        let forbidden = ["serde", "serde_json", "rmcp", "reqwest", "moka", "governor", "backon"];
+        let graph = [pkg("lf-domain", &["thiserror"]), pkg("lf-application", &forbidden)];
+        let expected: Vec<String> =
+            forbidden.iter().map(|d| format!("lf-application must not depend on {d}")).collect();
+        assert_eq!(violations(&graph), expected);
+    }
+
+    #[test]
+    fn application_features_are_bounded() {
+        let bounded = enabling(
+            pkg("lf-application", &["tokio", "chrono"]),
+            &[("tokio", &["time", "macros", "rt"]), ("chrono", &["std"])],
+        );
+        let unbounded =
+            enabling(pkg("lf-adapter-piste", &["tokio"]), &[("tokio", &["full", "default"])]);
+        assert_eq!(violations(&[pkg("lf-domain", &[]), bounded, unbounded]), Vec::<String>::new());
+        let wide = enabling(
+            pkg("lf-application", &["tokio", "chrono", "thiserror"]),
+            &[
+                ("tokio", &["rt", "rt-multi-thread", "time"]),
+                ("chrono", &["std", "clock", "default"]),
+                ("thiserror", &["default"]),
+            ],
+        );
+        assert_eq!(
+            violations(&[pkg("lf-domain", &[]), wide]),
+            [
+                "lf-application must not enable tokio feature rt-multi-thread",
+                "lf-application must not enable chrono feature clock",
+                "lf-application must not enable chrono feature default",
+            ]
+        );
+    }
+
+    #[test]
+    fn every_member_inherits_workspace_lints() {
+        let graph =
+            [pkg("lf-domain", &[]), Package { lints_workspace: false, ..pkg("xtask", &[]) }];
+        assert_eq!(violations(&graph), ["xtask must declare [lints] workspace = true"]);
+    }
+
+    #[test]
+    fn reads_workspace_lints_in_every_toml_form() {
+        let cases = [
+            ("[package]\nname = \"x\"\n\n[lints]\nworkspace = true\n", Ok(true)),
+            ("lints.workspace = true", Ok(true)),
+            ("lints = { workspace = true }", Ok(true)),
+            ("[lints]\nworkspace = false", Ok(false)),
+            ("[lints]\nworkspace = \"true\"", Ok(false)),
+            ("[lints.clippy]\npedantic = \"warn\"", Ok(false)),
+            ("[package]\nname = \"x\"", Ok(false)),
+        ];
+        for (manifest, expected) in cases {
+            assert_eq!(inherits_workspace_lints(manifest), expected, "{manifest}");
+        }
+        assert!(inherits_workspace_lints("[lints").unwrap_err().starts_with("Cargo.toml: "));
     }
 }

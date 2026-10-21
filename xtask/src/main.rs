@@ -1,8 +1,8 @@
 //! `cargo xtask <tâche>` — voir `.cargo/config.toml`.
 
-use std::{env, process::Command, process::ExitCode};
+use std::{env, fs, process::Command, process::ExitCode};
 
-use xtask::arch::{violations, workspace_packages};
+use xtask::arch::{inherits_workspace_lints, violations, workspace_packages};
 
 fn check_arch() -> Result<(), String> {
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".into());
@@ -15,7 +15,14 @@ fn check_arch() -> Result<(), String> {
     }
     let metadata =
         serde_json::from_slice(&output.stdout).map_err(|e| format!("cargo metadata JSON: {e}"))?;
-    let found = violations(&workspace_packages(&metadata)?);
+    let mut packages = workspace_packages(&metadata)?;
+    for package in &mut packages {
+        let manifest = fs::read_to_string(&package.manifest_path)
+            .map_err(|e| format!("{}: {e}", package.manifest_path))?;
+        package.lints_workspace = inherits_workspace_lints(&manifest)
+            .map_err(|e| format!("{}: {e}", package.manifest_path))?;
+    }
+    let found = violations(&packages);
     if found.is_empty() {
         println!("check-arch: ok");
         Ok(())
