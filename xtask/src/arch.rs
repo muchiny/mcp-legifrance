@@ -13,7 +13,9 @@
 //! - R2 : `lf-application` ne dépend en interne que de `lf-domain`, et en externe
 //!   de la liste fermée `APPLICATION_ALLOWED` ; les features qu'elle active sur
 //!   `tokio` et `chrono` sont bornées par `APPLICATION_FEATURES` (`default`
-//!   comprise : le workspace déclare `default-features = false`) ;
+//!   comprise : le workspace déclare `default-features = false`), lues dans
+//!   les déclarations de dépendance et dans la table `[features]` du membre
+//!   (`dep/feat`, `dep?/feat`) ;
 //! - R3 : un adapter ne dépend d'aucun autre adapter ni de `mcp-legifrance` ;
 //!   `lf-adapter-audit` dépend de `lf-application` seul ;
 //! - R4 : personne ne dépend de `mcp-legifrance`, qui peut dépendre de tous les
@@ -62,7 +64,8 @@ pub struct Package {
     /// Licence, si déclarée.
     pub license: Option<String>,
     /// Features activées de chaque dépendance normale (`nom`, features) ;
-    /// `default` y figure sauf si `uses_default_features` vaut `false`.
+    /// `default` y figure sauf si `uses_default_features` vaut `false` ; celles
+    /// activées par la table `[features]` du membre (`dep/feat`) s'y ajoutent.
     pub features: Vec<(String, Vec<String>)>,
     /// Chemin du `Cargo.toml` du membre.
     pub manifest_path: String,
@@ -292,14 +295,49 @@ fn read_package(p: &Value) -> Result<Package, String> {
         edition: edition.to_owned(),
         rust_version: p["rust_version"].as_str().map(str::to_owned),
         license: p["license"].as_str().map(str::to_owned),
-        features: dependencies
-            .iter()
-            .filter(|d| d["kind"].is_null())
-            .filter_map(read_features)
-            .collect(),
+        features: read_all_features(p, dependencies),
         manifest_path: manifest_path.to_owned(),
         lints_workspace: false,
     })
+}
+
+/// Features activées de chaque dépendance normale : celles de ses déclarations
+/// (`read_features`), puis celles que la table `[features]` du membre active
+/// par `dep/feat` ou `dep?/feat`.
+fn read_all_features(p: &Value, dependencies: &[Value]) -> Vec<(String, Vec<String>)> {
+    let normal: Vec<&Value> = dependencies.iter().filter(|d| d["kind"].is_null()).collect();
+    let mut features: Vec<(String, Vec<String>)> =
+        normal.iter().copied().filter_map(read_features).collect();
+    let table = p["features"].as_object().into_iter().flat_map(|t| t.values());
+    let enabled = table.filter_map(Value::as_array).flatten().filter_map(Value::as_str);
+    for (key, feature) in enabled.filter_map(|entry| entry.split_once('/')) {
+        let key = key.strip_suffix('?').unwrap_or(key);
+        enable(&mut features, dependency_name(&normal, key), feature);
+    }
+    features
+}
+
+/// Nom du paquet d'une dépendance normale désignée par sa clé de manifeste :
+/// `rename` si elle est renommée, sinon la clé elle-même.
+fn dependency_name<'a>(normal: &[&'a Value], key: &'a str) -> &'a str {
+    normal
+        .iter()
+        .find(|d| d["rename"].as_str() == Some(key))
+        .and_then(|d| d["name"].as_str())
+        .unwrap_or(key)
+}
+
+/// Ajoute `feature` aux features activées de `dep`, sans doublon ; une
+/// dépendance sans entrée en reçoit une.
+fn enable(features: &mut Vec<(String, Vec<String>)>, dep: &str, feature: &str) {
+    let position = features.iter().position(|(name, _)| name == dep).unwrap_or_else(|| {
+        features.push((dep.to_owned(), Vec::new()));
+        features.len() - 1
+    });
+    let enabled = &mut features[position].1;
+    if !enabled.iter().any(|f| f == feature) {
+        enabled.push(feature.to_owned());
+    }
 }
 
 /// Features activées d'une dépendance : celles déclarées, plus `default` sauf
@@ -773,6 +811,49 @@ mod tests {
     }
 
     #[test]
+    fn reads_features_enabled_through_the_member_features_table() {
+        let id = "path+file:///w/crates/lf-application#0.0.0";
+        let metadata = json!({
+            "workspace_members": [id],
+            "packages": [{
+                "id": id,
+                "name": "lf-application",
+                "version": "0.0.0",
+                "edition": "2024",
+                "manifest_path": "/w/crates/lf-application/Cargo.toml",
+                "targets": [{ "kind": ["lib"] }],
+                "dependencies": [
+                    {
+                        "name": "tokio", "kind": null,
+                        "features": ["rt"], "uses_default_features": false
+                    },
+                    { "name": "chrono", "kind": null, "uses_default_features": false },
+                    {
+                        "name": "serde_json", "rename": "json", "kind": null,
+                        "uses_default_features": false
+                    },
+                    { "name": "mockall", "kind": "dev", "uses_default_features": false }
+                ],
+                "features": {
+                    "x": ["tokio/rt-multi-thread", "chrono?/clock", "dep:foo", "other"],
+                    "y": ["json/preserve_order", "tokio/rt-multi-thread", "chrono/clock"],
+                    "z": ["unknown/derive"]
+                }
+            }]
+        });
+        let packages = workspace_packages(&metadata).unwrap();
+        assert_eq!(
+            packages[0].features,
+            vec![
+                ("tokio".to_owned(), strings(&["rt", "rt-multi-thread"])),
+                ("chrono".to_owned(), strings(&["clock"])),
+                ("serde_json".to_owned(), strings(&["preserve_order"])),
+                ("unknown".to_owned(), strings(&["derive"])),
+            ]
+        );
+    }
+
+    #[test]
     fn fails_closed_without_members() {
         let error = Err("cargo metadata: no workspace member found".to_owned());
         assert_eq!(workspace_packages(&json!({})), error);
@@ -897,6 +978,38 @@ mod tests {
                 "lf-application must not enable chrono feature clock",
                 "lf-application must not enable chrono feature default",
             ]
+        );
+    }
+
+    #[test]
+    fn application_features_enabled_through_its_own_table_are_bounded() {
+        let metadata = json!({
+            "workspace_members": ["a", "b"],
+            "packages": [
+                {
+                    "id": "a", "name": "lf-domain", "version": "0.0.0", "edition": "2024",
+                    "manifest_path": "/w/lf-domain/Cargo.toml", "targets": [],
+                    "dependencies": []
+                },
+                {
+                    "id": "b", "name": "lf-application", "version": "0.0.0", "edition": "2024",
+                    "manifest_path": "/w/lf-application/Cargo.toml", "targets": [],
+                    "dependencies": [
+                        { "name": "tokio", "kind": null, "features": ["rt"],
+                          "uses_default_features": false }
+                    ],
+                    "features": { "sneaky": ["tokio/rt-multi-thread"] }
+                }
+            ]
+        });
+        let graph: Vec<Package> = workspace_packages(&metadata)
+            .unwrap()
+            .into_iter()
+            .map(|p| Package { lints_workspace: true, ..p })
+            .collect();
+        assert_eq!(
+            violations(&graph),
+            ["lf-application must not enable tokio feature rt-multi-thread"]
         );
     }
 

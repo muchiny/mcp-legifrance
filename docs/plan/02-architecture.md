@@ -675,7 +675,7 @@ pub fn registered_tool_names() -> Vec<&'static str>;   // pour les tests de coh�
 | `cargo xtask instructions-size` (M4) | Même principe avec `server/discover` : vérifie que `instructions` fait ≤ 3 500 caractères Unicode et affiche la taille totale des descripteurs (budget D-33). | non |
 | `cargo xtask record-fixture` (M2) | Syntaxe de 04 §13.4 : `--endpoint … --body '…' --name … [--env sandbox\|production] [--allow-error] [--redact <pointeur JSON>] [--force]`, ou `--plan <plan.toml>` pour un lot (≤ 1 requête/s). Lance `cargo run -p lf-adapter-piste --example record_fixture --features record` avec les identifiants de l'environnement ; sandbox par défaut, `--env production` seulement par choix explicite du mainteneur (Q3). L'exemple écrit la réponse **brute** (octets) dans `crates/lf-adapter-piste/tests/fixtures/recorded/<endpoint>/<name>.json` et son sidecar `<name>.meta.toml`, dont il calcule `sha256_raw` et `mojibake_detected` (champs : 04 §13.4 ; D-35). En-têtes et jeton ne sont jamais écrits. | oui (identifiants requis) |
 
-- **Dépendances** : livré : `serde_json` et `toml` 1.1 (xtask/Cargo.toml) ; `cargo metadata` est appelé en sous-processus (xtask/src/main.rs:9-10) et lu en JSON, le crate `cargo_metadata` n'étant pas retenu. Cible : `anyhow`, `sha2`, `hex`, `jsonschema` (`default-features = false`, contrôles du verrou, 05 §9.2) aux jalons qui les utilisent. `publish = false`.
+- **Dépendances** : livré : `serde_json` et `toml` 1.1 (xtask/Cargo.toml) ; `cargo metadata` est appelé en sous-processus (xtask/src/main.rs:13-14) et lu en JSON, le crate `cargo_metadata` n'étant pas retenu. Cible : `anyhow`, `sha2`, `hex`, `jsonschema` (`default-features = false`, contrôles du verrou, 05 §9.2) aux jalons qui les utilisent. `publish = false`.
 
 ### 3.9 `lf-adapter-dila` (M9)
 
@@ -726,7 +726,8 @@ Les règles R1 à R5, ainsi que la liste fermée de R2, reprennent la décision 
      sinon (externe, normal/build) :
         si RÈGLES[M].liste_blanche existe : exiger cible ∈ liste_blanche   (R1, R2)
         exiger que cible ne soit confinée à un autre membre, sauf xtask    (R6)
-        si RÈGLES[M].features_max[cible] existe : exiger d.features ⊆ features_max
+        si RÈGLES[M].features_max[cible] existe : exiger d.features ⊆ features_max, features lues dans la déclaration et dans la
+            table [features] du membre (dep/feat, dep?/feat)
             (ex. lf-application : tokio ⊆ {time, macros, rt} ; chrono ∌ clock, now)
         si cible = "rmcp" : exiger d.rename = None                         (R6)
         si cible = "async-trait" : violation                              (R7)
@@ -784,7 +785,7 @@ unknown-git = "deny"
 ### 4.4 Contrôles de pureté en CI
 
 Ce sont des jobs de `ci.yml`, dont le détail est dans [06-qualite.md](06-qualite.md) :
-- `cargo check -p lf-application`, **seul** (`make purity`, livré au plan 2b) : les features sont résolues pour ce graphe uniquement, ce qui vérifie que `chrono` n'y a pas `clock`/`now` et que tokio n'apporte que `time`, `macros` et `rt`. Pour `lf-domain`, la pureté est garantie par la liste blanche de `check-arch` (thiserror seul).
+- `cargo check -p lf-application`, **seul** (`make purity`, livré au plan 2b) : les features sont résolues pour ce graphe uniquement, ce qui prouve que le crate compile avec son propre jeu de features, sans que celles qu'un autre membre active n'y suppléent. Les bornes de features (`chrono` sans `clock` ni `now`, tokio limité à `time`, `macros` et `rt`) sont contrôlées par `check-arch` (R2), qui lit les features dans les déclarations de dépendance et dans la table `[features]` du membre (`dep/feat`, `dep?/feat`). Pour `lf-domain`, la pureté est garantie par la liste blanche de `check-arch` (thiserror seul).
 - `make arch` (`cargo xtask check-arch`), puis `make deny` (`cargo deny check`), appelés par `make ci`.
 - `cargo tree -p lf-domain -e normal --prefix none` est archivé en artefact, pour visualiser les écarts dans une PR.
 
@@ -1314,7 +1315,7 @@ Le runtime est multi-thread (`new_multi_thread().enable_all()`), parce que rmcp 
 ### 9.1 Types par couche
 
 ```text
-lf-domain        DomainError       InvalidId, InvalidFond, InvalidDate, EmptyQuery, OutOfRange, TooLong, … (03)
+lf-domain        DomainError       InvalidId, InvalidFond, InvalidDate, EmptyQuery, OutOfRange, QueryTooLong, … (03)
 lf-application   InputError        décodage des arguments impossible (type, forme)
                  CorpusError       NotFound, InvalidRequest, Upstream{status, retryable}, Timeout,
                                    RateLimited{retry_after}, Auth, Config, Decode            (port, §5.1)
