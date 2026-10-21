@@ -12,6 +12,8 @@
 //!
 //! Modules :
 //! - `config` : configuration de l'adapter (`PisteConfig`) et validation des URL surchargées.
+//! - `deadline` : échéance d'un appel (`CallDeadline`), durée restante lue dans `Deadline`
+//!   puis posée sur l'horloge monotone de l'adapter.
 //! - `time` : horloge monotone (`MonoClock`) et attente (`Sleeper`), pour des tests
 //!   déterministes sans geler l'horloge `tokio`.
 
@@ -21,6 +23,7 @@
 )]
 
 mod config;
+mod deadline;
 mod time;
 
 pub use config::{

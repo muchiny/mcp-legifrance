@@ -9,6 +9,8 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Deadline : délai global publié par Audited (variable locale de tâche), lu comme durée restante
+lf-application.workspace = true
 lf-domain.workspace = true
 # Url (ré-export de `url`) pour valider les URL de configuration ; aucun appel réseau à ce stade
 reqwest.workspace = true
@@ -19,7 +21,8 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt"] }
+# test-util : #[tokio::test(start_paused = true)] pour lire Deadline sans attendre (deadline.rs seulement)
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [lints]
 workspace = true

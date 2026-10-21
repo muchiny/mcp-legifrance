@@ -447,6 +447,7 @@ dependencies = [
 name = "lf-adapter-piste"
 version = "0.0.0"
 dependencies = [
+ "lf-application",
  "lf-domain",
  "reqwest",
  "secrecy",
