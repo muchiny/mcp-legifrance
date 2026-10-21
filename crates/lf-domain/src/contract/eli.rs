@@ -23,6 +23,20 @@ pub struct Eli(String);
 
 impl Eli {
     /// Valide `input` (chemin ou URL absolue) ; `None` si ce n'est pas un ELI.
+    ///
+    /// ```
+    /// use lf_domain::contract::Eli;
+    ///
+    /// let eli = Eli::parse(" /eli/decret/2021/7/13/PRMD2117108D/jo/article_1 ");
+    /// assert_eq!(
+    ///     eli.as_ref().map(Eli::as_str),
+    ///     Some("https://www.legifrance.gouv.fr/eli/decret/2021/7/13/PRMD2117108D/jo/article_1")
+    /// );
+    /// // La forme absolue se relit à l'identique.
+    /// assert_eq!(eli.as_ref().and_then(|eli| Eli::parse(eli.as_str())), eli);
+    /// assert_eq!(Eli::parse("http://www.legifrance.gouv.fr/eli/jo/2019/1/25/0021"), None);
+    /// assert_eq!(Eli::parse("/eli/jo/2019/1/25/0021?page=2"), None);
+    /// ```
     pub fn parse(input: &str) -> Option<Self> {
         let trimmed = input.trim();
         let path = trimmed.strip_prefix(WEB_BASE).unwrap_or(trimmed);

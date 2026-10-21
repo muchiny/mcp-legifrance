@@ -33,6 +33,21 @@ pub struct CitationText {
 
 impl CitationText {
     /// Normalise `raw` ; `None` s'il ne reste aucun caractère visible.
+    ///
+    /// ```
+    /// use lf_domain::contract::CitationText;
+    ///
+    /// let citation = CitationText::new("  Code civil,\n\tarticle 1240\u{7} ");
+    /// assert_eq!(citation.as_ref().map(CitationText::as_str), Some("Code civil, article 1240"));
+    /// assert_eq!(CitationText::new(" \n\t "), None);
+    /// // 1 199 caractères : 995 gardés, coupés en fin de mot, puis `…`.
+    /// let long = CitationText::new(&"mot ".repeat(300));
+    /// assert_eq!(
+    ///     long.as_ref().map(|c| (c.as_str().chars().count(), c.is_truncated())),
+    ///     Some((996, true))
+    /// );
+    /// assert_eq!(long.as_ref().map(|c| c.as_str().ends_with(" mot…")), Some(true));
+    /// ```
     pub fn new(raw: &str) -> Option<Self> {
         let folded = fold_blanks(raw);
         if folded.is_empty() {

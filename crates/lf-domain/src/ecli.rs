@@ -67,6 +67,21 @@ impl fmt::Display for Ecli {
 impl FromStr for Ecli {
     type Err = DomainError;
 
+    /// [`Ecli::parse`] : la casse compte, les blancs autour sont retirés.
+    ///
+    /// ```
+    /// use lf_domain::ecli::Ecli;
+    ///
+    /// let ecli: Ecli = " ECLI:FR:CC:2025:2025.1173.QPC ".parse()?;
+    /// assert_eq!(ecli.as_str(), "ECLI:FR:CC:2025:2025.1173.QPC");
+    /// assert_eq!(
+    ///     "ecli:fr:cc:2025:2025.1173.qpc".parse::<Ecli>().map_err(|e| e.to_string()),
+    ///     Err("invalid ECLI \"ecli:fr:cc:2025:2025.1173.qpc\": \
+    ///          expected ECLI:FR:<court>:<year>:<ordinal>"
+    ///         .to_owned())
+    /// );
+    /// # Ok::<(), lf_domain::DomainError>(())
+    /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s)
     }

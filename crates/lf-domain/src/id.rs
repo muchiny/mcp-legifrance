@@ -184,6 +184,22 @@ pub struct VersionedId {
 ///
 /// [`DomainError::InvalidId`] si l'entrée n'est pas un `LEGITEXT` ;
 /// [`DomainError::BadSuffix`] si le suffixe est mal formé.
+///
+/// ```
+/// use lf_domain::{date::CivilDate, id::parse_versioned};
+///
+/// let versioned = parse_versioned("LEGITEXT000033205014_08-09-2023")?;
+/// assert_eq!(versioned.id.as_str(), "LEGITEXT000033205014");
+/// assert_eq!(versioned.version_start, CivilDate::new(2023, 9, 8));
+/// assert_eq!(parse_versioned("LEGITEXT000033205014")?.version_start, None);
+/// assert_eq!(
+///     parse_versioned("LEGITEXT000033205014_31-02-2023").map_err(|e| e.to_string()),
+///     Err("invalid version suffix in \"LEGITEXT000033205014_31-02-2023\": \
+///          expected _DD-MM-YYYY with a real date, e.g. _08-09-2023"
+///         .to_owned())
+/// );
+/// # Ok::<(), lf_domain::DomainError>(())
+/// ```
 pub fn parse_versioned(input: &str) -> Result<VersionedId, DomainError> {
     Id::<LegiText>::parse_with_version(input)
         .map(|(id, version_start)| VersionedId { id, version_start })
@@ -234,6 +250,23 @@ impl<K> fmt::Display for Id<K> {
 impl<K: IdKind> FromStr for Id<K> {
     type Err = DomainError;
 
+    /// [`Id::parse`] : espaces et casse tolérés, suffixe bien formé retiré.
+    ///
+    /// ```
+    /// use lf_domain::id::LegiTextId;
+    ///
+    /// let id: LegiTextId = " legitext000006070721 ".parse()?;
+    /// assert_eq!(id.as_str(), "LEGITEXT000006070721");
+    /// let id: LegiTextId = "LEGITEXT000033205014_08-09-2023".parse()?;
+    /// assert_eq!(id.as_str(), "LEGITEXT000033205014");
+    /// assert_eq!(
+    ///     "JORFTEXT000020445850".parse::<LegiTextId>().map_err(|e| e.to_string()),
+    ///     Err("invalid Legifrance identifier \"JORFTEXT000020445850\": \
+    ///          expected LEGITEXT followed by 12 digits"
+    ///         .to_owned())
+    /// );
+    /// # Ok::<(), lf_domain::DomainError>(())
+    /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s)
     }
@@ -364,6 +397,21 @@ impl fmt::Display for AnyId {
 impl FromStr for AnyId {
     type Err = DomainError;
 
+    /// [`AnyId::parse`] : tout préfixe de 8 lettres.
+    ///
+    /// ```
+    /// use lf_domain::id::AnyId;
+    ///
+    /// let id: AnyId = "kalitext000005635221_01-01-2020".parse()?;
+    /// assert_eq!(id.to_string(), "KALITEXT000005635221");
+    /// assert_eq!(
+    ///     "LEGITEXT0001".parse::<AnyId>().map_err(|e| e.to_string()),
+    ///     Err("invalid Legifrance identifier \"LEGITEXT0001\": \
+    ///          expected 8 letters followed by 12 digits"
+    ///         .to_owned())
+    /// );
+    /// # Ok::<(), lf_domain::DomainError>(())
+    /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s)
     }
@@ -411,6 +459,16 @@ impl fmt::Display for ArticleId {
 impl FromStr for ArticleId {
     type Err = DomainError;
 
+    /// [`ArticleId::parse`] : la variante suit le préfixe.
+    ///
+    /// ```
+    /// use lf_domain::id::{ArticleId, KaliArtiId};
+    ///
+    /// let id: ArticleId = "kaliarti000005805295".parse()?;
+    /// assert_eq!(id, ArticleId::Kali("KALIARTI000005805295".parse::<KaliArtiId>()?));
+    /// assert_eq!(id.to_string(), "KALIARTI000005805295");
+    /// # Ok::<(), lf_domain::DomainError>(())
+    /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s)
     }
@@ -464,6 +522,23 @@ impl fmt::Display for SectionId {
 impl FromStr for SectionId {
     type Err = DomainError;
 
+    /// [`SectionId::parse`] : `LEGISCTA` ou `KALISCTA`.
+    ///
+    /// ```
+    /// use lf_domain::id::SectionId;
+    ///
+    /// let section: SectionId = " legiscta000033205040 ".parse()?;
+    /// assert_eq!(section.as_str(), "LEGISCTA000033205040");
+    /// let section: SectionId = "KALISCTA000049886029".parse()?;
+    /// assert_eq!(section.to_string(), "KALISCTA000049886029");
+    /// assert_eq!(
+    ///     "LEGIARTI000006419288".parse::<SectionId>().map_err(|e| e.to_string()),
+    ///     Err("invalid Legifrance identifier \"LEGIARTI000006419288\": \
+    ///          expected LEGISCTA or KALISCTA followed by 12 digits"
+    ///         .to_owned())
+    /// );
+    /// # Ok::<(), lf_domain::DomainError>(())
+    /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s)
     }
@@ -518,6 +593,21 @@ impl fmt::Display for DecisionId {
 impl FromStr for DecisionId {
     type Err = DomainError;
 
+    /// [`DecisionId::parse`] : la variante suit le préfixe.
+    ///
+    /// ```
+    /// use lf_domain::id::{ConsTextId, DecisionId};
+    ///
+    /// let id: DecisionId = "CONSTEXT000037434572".parse()?;
+    /// assert_eq!(id, DecisionId::Constit("CONSTEXT000037434572".parse::<ConsTextId>()?));
+    /// assert_eq!(
+    ///     "LEGIARTI000006419288".parse::<DecisionId>().map_err(|e| e.to_string()),
+    ///     Err("invalid Legifrance identifier \"LEGIARTI000006419288\": \
+    ///          expected JURITEXT, CONSTEXT or CETATEXT followed by 12 digits"
+    ///         .to_owned())
+    /// );
+    /// # Ok::<(), lf_domain::DomainError>(())
+    /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s)
     }

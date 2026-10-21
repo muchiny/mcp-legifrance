@@ -80,6 +80,21 @@ impl VersionDate {
     ///
     /// [`DomainError::InvalidDate`] si la forme, la date ou la plage est invalide (espaces
     /// compris : aucun rognage).
+    ///
+    /// ```
+    /// use lf_domain::date::VersionDate;
+    ///
+    /// let date = VersionDate::parse("2016-10-07")?;
+    /// assert_eq!(date.to_string(), "2016-10-07");
+    /// // Autre format, date impossible, espaces, zone sentinelle : refusés.
+    /// for bad in ["07/10/2016", "2016-13-45", " 2016-10-07", "2999-01-01"] {
+    ///     assert_eq!(
+    ///         VersionDate::parse(bad).map_err(|e| e.to_string()),
+    ///         Err(format!("invalid date {bad:?}: expected YYYY-MM-DD"))
+    ///     );
+    /// }
+    /// # Ok::<(), lf_domain::DomainError>(())
+    /// ```
     pub fn parse(input: &str) -> Result<Self, DomainError> {
         CivilDate::parse_iso(input.as_bytes())
             .and_then(Self::within)
@@ -244,6 +259,16 @@ impl CivilDate {
     /// Divergence assumée : `1er` pour le premier du mois et mois accentués
     /// (décision Q16, `docs/plan/00-decisions.md` §4 et ADR-0009) ; la référence écrit
     /// `1 janvier` (`_fr_date`, `citations.py:289-295`).
+    ///
+    /// ```
+    /// use lf_domain::date::CivilDate;
+    ///
+    /// let date: CivilDate = "2026-01-01".parse()?;
+    /// assert_eq!(date.to_french(), "1er janvier 2026");
+    /// let date: CivilDate = "2025-11-07".parse()?;
+    /// assert_eq!(date.to_french(), "7 novembre 2025");
+    /// # Ok::<(), lf_domain::DomainError>(())
+    /// ```
     pub fn to_french(self) -> String {
         let month = FR_MONTHS[usize::from(self.month - 1)];
         if self.day == 1 {
