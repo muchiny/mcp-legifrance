@@ -11,6 +11,7 @@ pub mod entity;
 pub mod error;
 pub mod fond;
 pub mod id;
+pub mod search;
 pub mod text;
 pub mod url;
 

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/lf-domain", "xtask"]
+members = ["crates/lf-domain", "crates/lf-application", "xtask"]
 exclude = ["fuzz"]
 
 [workspace.package]
@@ -12,10 +12,16 @@ repository = "https://github.com/muchiny/mcp-legifrance"
 publish = false
 
 [workspace.dependencies]
+# internes : exigence « = » + version de [workspace.package] (check-arch, étape 5h)
+lf-domain = { path = "crates/lf-domain", version = "=0.0.0" }
+# externes : exigence au niveau mineur, correctif choisi par le verrou (règle d'âge, 02 §3.0.1) ;
+# default-features = false déclaré ici : au niveau d'un membre, l'héritage ne le respecte qu'à partir de 1.99
 thiserror = "2.0.21"
 serde_json = "1.0"
 proptest = "1.12.0"
 pretty_assertions = "1.4.1"
+tokio = { version = "1.53", default-features = false }
+toml = { version = "1.1", default-features = false, features = ["std", "parse", "serde"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

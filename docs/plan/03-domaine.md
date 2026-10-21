@@ -1,7 +1,7 @@
 # 03 — Domaine (`lf-domain`) : types, règles et algorithmes purs
 
 > **Statut** : M0-M1 livrés (plan 1), le reste est un plan. Ce document applique [00-decisions.md](00-decisions.md), qui est normatif et l'emporte en cas de doute. Pour M0-M1, le code livré (`crates/lf-domain/`) et le plan 1 font foi : leurs écarts avec ce document sont listés en [00 §11.1](00-decisions.md) (« Écarts et reports »), et chaque section dit ce qui est **[livré]** et ce qui reste à venir.
-> **Jalons** : M1 **livré** (plan 1 : identifiants, `Fond`, dates `CivilDate`, entités de base, `clean`, `window`, `passages`, `rank`), tâches de tête de M2 (00 §11.1), M2 à M4 (types restants : `TocNode`, `LongText`, `SearchQuery`, `LegalStatus`…), M5 (réglages de l'économie de contexte : fenêtre en caractères, passages, résumé), M6 (parseur de citations ; types `NumberQuery` et `CodeListing` des ports), M7 (types de navigation : versions, liens ; fond `Jorf` si la surface JORF est retenue à l'ouverture de M7, 00 §4).
+> **Jalons** : M1 **livré** (plan 1 : identifiants, `Fond`, dates `CivilDate`, entités de base, `clean`, `window`, `passages`, `rank`), tâches de tête de M2 (00 §11.1), M2 à M4 (types restants : `TocNode`, `LongText`, `LegalStatus`…), M5 (réglages de l'économie de contexte : fenêtre en caractères, passages, résumé), M6 (parseur de citations ; types `NumberQuery` et `CodeListing` des ports), M7 (types de navigation : versions, liens ; fond `Jorf` si la surface JORF est retenue à l'ouverture de M7, 00 §4).
 > **Lecteurs** : développeurs de `lf-domain` et des crates qui en consomment les types (`lf-application`, `lf-adapter-piste`, `lf-adapter-cache`, `lf-adapter-mcp`).
 > Les extraits Rust sont **non compilés, à valider au jalon qui les implémente** ; ce qui est livré renvoie au code (`fichier:ligne`). Les points non vérifiés sont marqués **NON VÉRIFIÉ** avec une étiquette `[V-xx · étiquette]`. Le registre `V-xx` les reprend dans [09-risques-et-questions.md](09-risques-et-questions.md).
 
@@ -35,7 +35,7 @@ Tâches de tête de M2 qui touchent ce document (liste complète et points diff�
 - **Contrat de citation v2** (ADR-0009) [M2 tête] : chaque entité citable portera un `CitationContract { citation, source_url, ecli, eli }` dans un module `contract`. `citation` n'est jamais vide et `source_url` est toujours présente. `ecli` et `eli` ne sont renseignés que s'ils viennent de l'API, sans jamais être fabriqués. **Livré aujourd'hui : le contrat v1** (`eli_uri`, `human_readable_citation`, `source_url`, `crates/lf-domain/src/citation.rs:15-23`), remplacé en tête de M2. La typographie est déjà corrigée [livré] (« décision », « délibération », mois accentués, « 1er »). Corrige D-27 et D-30.
 - **Dates** [livré] : `CivilDate` maison (`date.rs:32`), sans `chrono` dans le domaine (C3, ADR-0011 amendé). Les epoch ms négatifs sont convertis par un calcul calendaire pur (`from_unix_millis`, `date.rs:91`). Toute date ≥ 2222-01-01 (sentinelles `2999-01-01`, `2222-02-22`) devient `None` par `open_ended` [M2 tête], de même qu'un champ `…Computed` nul ; le sens de ce `None` est documenté par champ : fin, début ou publication (00 §4, §6.2). Le domaine ne connaît pas « aujourd'hui » : l'application le lui passe (`Clock::today_paris() -> CivilDate`).
 - **Texte** : `text::clean` [livré] convertit le HTML en texte (`clean.rs:15`, renvoie `String`). `text::window` [livré] découpe une fenêtre `offset`/`max_chars` en caractères Unicode (`window.rs:35`) ; `text::passages` et `text::rank` [livrés] assurent la recherche BM25 maison (`passages.rs:15`, `rank.rs:39`), avec un repli des accents dans `text/fold.rs`. À venir : `text::encoding::repair_latin1_mojibake` [M2 tête], `text::from_html` et `LongText` (49, 43 et 3 paragraphes sur les fixtures CONSTIT, CETAT et CNIL) [M2], `text::summary` (sommaire officiel, dispositif ou début du texte), mots vides, repli NFD et découpe en paragraphes [M5].
-- **Entités** : livrées [livré] : `SearchHit`, `SearchPage`, `CodeArticleRef`, `Act`, `Convention` (avec `TextBody` et `TocEntry`, renommé `TocArticle` en tête de M2), `ArticleText`, `Decision`, `Deliberation`, `CompanyAgreement`, `Coverage`. À venir : `TocNode`/`Toc` (titres de sections, tri `intOrdre`, dédoublonnage, profondeur) [M2 tête], `LongText`, `LegalStatus`, `OfficialSummary`, `SearchQuery` [M2].
+- **Entités** : livrées [livré] : `SearchHit`, `SearchPage`, `CodeArticleRef`, `Act`, `Convention` (avec `TextBody` et `TocEntry`, renommé `TocArticle` en tête de M2), `ArticleText`, `Decision`, `Deliberation`, `CompanyAgreement`, `Coverage`. À venir : `TocNode`/`Toc` (titres de sections, tri `intOrdre`, dédoublonnage, profondeur) [M2 tête], `LongText`, `LegalStatus`, `OfficialSummary` [M2]. Livrés au plan 2b [livré] : `SearchQuery` et ses objets de valeur `QueryText`, `PageSize`, `MatchMode` (§4.1).
 - **Parseur de citations (M6)** : `citation::parse(&str) -> Vec<Spanned<CitationRef>>`, égal à `parse_with(&str, &ParseOptions::default())`. Un ECLI d'un autre pays que FR donne `Unsupported { family: ForeignEcli }`. Il enchaîne normalisation avec table d'offsets, vue « clé » repliée 1:1, ancres aho-corasick, grammaires winnow 1.0 par famille et désambiguïsation. La résolution vers des identifiants relève de l'application. Le nom de module `citation` est libéré par le renommage du contrat v1 en `contract` [M2 tête].
 
 ---
@@ -346,27 +346,31 @@ pub fn status_of(etat: Option<&str>, juris_state: Option<&str>) -> Option<LegalS
 
 ### 4.1 Recherche : `SearchQuery`, `SearchHit`, `SearchPage`
 
-**État** : [livré] `SearchHit` (`entity/search.rs:40`, champs `fond`, `id: AnyId`, `cid: Option<AnyId>`, `title`, `nature`, `etat`, `idcc`, `raison_sociale`, `articles: Vec<CodeArticleRef>`), `CodeArticleRef` (`search.rs:16`, extrait coupé à `SNIPPET_MAX_CHARS` = 280) et `SearchPage` (`search.rs:81`, champs `fond`, `query: String` simplement trimée, `total`, `hits`). **Tout le reste du présent §4.1 est à venir** : `SearchQuery`, `QueryText`, `PageSize`, `MatchMode`, `PaginationMode` (M2), `SearchHit::new` avec `DocumentId`, contrôle du préfixe et compteur `dropped`, `Snippet` avec « … », `date`, `version_start` (M2 ; URL construite depuis l'id typé, P-032), puis `page`, `page_size`, `has_more`, `total_articles` (M5). Les tests de table de `SearchHit`, `SearchPage` et `CodeArticleRef` (URL par fond, `cid` Cnil/Kali/Cetat/Acco, `total` `Some(0)`, requête blanche) viennent du mapper en M2 (M1-D18).
+**État** : [livré] `SearchHit` (`entity/search.rs:40`, champs `fond`, `id: AnyId`, `cid: Option<AnyId>`, `title`, `nature`, `etat`, `idcc`, `raison_sociale`, `articles: Vec<CodeArticleRef>`), `CodeArticleRef` (`search.rs:16`, extrait coupé à `SNIPPET_MAX_CHARS` = 280) et `SearchPage` (`search.rs:81`, champs `fond`, `query: String` simplement trimée, `total`, `hits`). [livré, plan 2b] `QueryText`, `PageSize`, `MatchMode`, `SearchQuery`, la fonction `has_more` et la constante `REACHABLE_RESULTS` (`lf_domain::search`, `crates/lf-domain/src/search.rs`) ; les champs de `SearchQuery` sont privés, avec un accesseur par champ, et les écarts avec ce paragraphe sont listés en 00 §11.1. **Le reste du présent §4.1 est à venir** : `PaginationMode` (M2, avec le `PaginationMemo`, plan 2c), `SearchHit::new` avec `DocumentId`, contrôle du préfixe et compteur `dropped`, `Snippet` avec « … », `date`, `version_start` (M2 ; URL construite depuis l'id typé, P-032), puis `page`, `page_size`, `has_more`, `total_articles` (M5). Les tests de table de `SearchHit`, `SearchPage` et `CodeArticleRef` (URL par fond, `cid` Cnil/Kali/Cetat/Acco, `total` `Some(0)`, requête blanche) viennent du mapper en M2 (M1-D18).
 
 ```rust
-// non compilé, à valider au jalon qui l'implémente
+// livré (plan 2b, `crates/lf-domain/src/search.rs`) : champs privés, un accesseur par champ
 pub struct SearchQuery {
-    pub fond: Fond,
-    pub text: QueryText,                 // trim + blancs repliés ; 1..=500 caractères (D-32) ; contrôles retirés
-    pub page: NonZeroU32,                // défaut 1
-    pub page_size: PageSize,             // 1..=100, défaut 10
-    pub mode: MatchMode,                 // Any (UN_DES_MOTS) | All | Exact ; défaut Any jusqu'à V-79, puis All si confirmé,
-                                         // avant le verrou de M4 (Q10)
-    pub date_range: Option<DateRange>,   // date_from <= date_to ; seulement si fond.has_date_filter()
-    pub version_date: Option<VersionDate>, // Some pour Loda|Code (défaut today_paris fourni par l'application)
+    fond: Fond,
+    text: QueryText,                 // trim + blancs repliés ; 1..=500 caractères (D-32) ; contrôles retirés
+    page: NonZeroU32,                // défaut 1
+    page_size: PageSize,             // 1..=100, défaut 10
+    mode: MatchMode,                 // Any (UN_DES_MOTS) | All | Exact ; défaut Any jusqu'à V-79, puis All si confirmé,
+                                     // avant le verrou de M4 (Q10)
+    date_range: Option<DateRange>,   // date_from <= date_to ; seulement si fond.has_date_filter()
+    version_date: Option<VersionDate>, // Some pour Loda|Code (défaut today_paris fourni par l'application)
 }
 pub const REACHABLE_RESULTS: u64 = 10_000;   // fenêtre de résultats atteignables (00 §7, V-83)
-impl SearchQuery { pub fn new(/* champs ci-dessus */) -> Result<SearchQuery, DomainError>; }
+impl SearchQuery {
+    pub fn new(fond, text, page, page_size, mode, date_range, version_date) -> Result<SearchQuery, DomainError>;
+    pub fn fond(&self) -> Fond; // et text(), page(), page_size(), mode(), date_range(), version_date()
+}
+pub fn has_more(page: NonZeroU32, page_size: PageSize, total: u64) -> bool; // fonction libre
 ```
 
 - `SearchQuery` est `Eq + Hash`. Sa forme normalisée sert de clé au cache (00 §9). Parce que `version_date` est au jour près, deux recherches LODA identiques le même jour donnent la même clé. Cela corrige D-01 et E-06 : la référence mettait `singleDate=now_ms` dans la clé. Elle ne porte pas la `typePagination`, choisie par l'adapter (§3.1).
 - La borne de 500 caractères sur `query` est une proposition (D-32). La limite réelle côté API est **NON VÉRIFIÉ** [V-81 · longueur-max-query].
-- `SearchQuery::new`, appelé par le cas d'usage, applique sans réseau les rejets de 00 §7, rendus en `invalid_arg` (messages de 05 §7.3) : `version_date` sur un fond qui n'est ni LODA ni CODE (`Fond::needs_version_date`) ; `date_from`/`date_to` sur un fond sans facette de date, soit CODE (`Fond::has_date_filter`) ; `date_from` > `date_to` (§6.1) ; `page × page_size > REACHABLE_RESULTS`, en arithmétique `checked`. La fenêtre de 10 000 résultats est supposée : **NON VÉRIFIÉ** [V-83 · pagination-profonde]. L'adapter n'en garde qu'une copie défensive (00 §5).
+- `SearchQuery::new`, appelé par le cas d'usage, applique sans réseau les rejets de 00 §7, rendus en `invalid_arg` (messages de 05 §7.3) : `version_date` sur un fond qui n'est ni LODA ni CODE (`Fond::needs_version_date`) ; `date_from`/`date_to` sur un fond sans facette de date, soit CODE (`Fond::has_date_filter`) ; `date_from` > `date_to`, déjà refusé à la construction de `DateRange` (§6.1) ; `page × page_size > REACHABLE_RESULTS`, en arithmétique `checked`. La fenêtre de 10 000 résultats est supposée : **NON VÉRIFIÉ** [V-83 · pagination-profonde]. L'adapter n'en garde qu'une copie défensive (00 §5).
 
 **M6** : `NumberQuery`, `NumberKind` et `NumberValue` (recherche par numéro, `find_by_number`) vivent aussi dans `search.rs` (§4.11).
 

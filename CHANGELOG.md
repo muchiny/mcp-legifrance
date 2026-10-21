@@ -30,6 +30,9 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - Workflows `deny-nightly.yml` et `workflow-lint.yml` (zizmor, actionlint), `dependabot.yml`.
 - `make min-age` et son auto-test.
 - Profils nextest, matrice Linux, macOS et Windows du job `test`, `.gitattributes`.
+- `lf_domain::search` : `QueryText`, `PageSize`, `MatchMode`, `SearchQuery`, `has_more`, `REACHABLE_RESULTS` ; `Fond::needs_version_date`, `Fond::has_date_filter` ; erreurs `EmptyQuery`, `QueryTooLong`, `OutOfRange`, `VersionDateNotApplicable`, `DateFilterNotApplicable`, `PageBeyondReach`.
+- Crate `lf-application` : port `LegalCorpus`, `CorpusError`, `Deadline`.
+- `make purity` (`cargo check -p lf-application`).
 
 ### Changed
 
@@ -42,6 +45,7 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - `TocEntry` renommé `TocArticle` ; `TextBody.articles` remplacé par `TextBody.toc`.
 - `CitationContract::from_url` réservé au crate.
 - `--locked` sur toute commande cargo.
+- `check-arch` : liste fermée et features de `lf-application` (R2), `[lints] workspace = true` (5e), fermeture transitive, doublons critiques (R9) ; graphe résolu complet.
 
 ### Removed
 

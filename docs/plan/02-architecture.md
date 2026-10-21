@@ -393,7 +393,7 @@ Versions relues dans l'index sparse crates.io le 2026-10-15 (recherche 04 §4.1,
 | `clap` | `4.6.7` | 1.85 | 2026-09-14 | lf-app | `derive`. Pas de feature `env` : la lecture de l'environnement est centralisée dans `config.rs`. |
 | `dirs` | `6.0.0` | — | 2025-01-12 | lf-app | `data_dir()` donne le défaut de `LF_AUDIT_DIR`. 7.0.0 existe (2026-09-05, nouvelle majeure non évaluée). |
 | `anyhow` | `1.0.104` | 1.68 | 2026-07-18 | lf-app, xtask | jamais dans un crate bibliothèque. |
-| `cargo_metadata` / `toml` | `0.23.1` / `0.9.8` | 1.86 / 1.76 | 2025-11-12 / 2025-10-09 | xtask | |
+| `toml` | `1.1` (verrou `1.1.6+spec-1.1.0`) | 1.85 | 2026-09-10 | xtask (lecture de `[lints] workspace = true`, 5e) | Exigence `"1.1"`, `default-features = false`, features `std`, `parse`, `serde` : remplace 0.9.8. `cargo_metadata` n'est pas retenu : `cargo metadata` est lu en JSON par `serde_json`. |
 | `jsonschema` | `0.58.6` | 1.85 | 2026-10-06 ⚠ (éligible le 2026-10-20) | xtask (validité 2020-12 des schémas dans `lock-descriptors`, 05 §9.2) ; dev des adapters | **`default-features = false`** (voir la ligne dev ci-dessous). |
 | `axum` (M8) | `0.8.9` | 1.80 | 2026-04-14 | lf-adapter-mcp (feature `http`) | utilisé par les exemples rmcp. |
 | `tantivy`, `quick-xml`, `tar`, `flate2` (M9) | `0.26.2`, `0.42.0`, `0.4.46`, `1.1.10` | 1.86, 1.86, 1.63, 1.67 | 2026 | lf-adapter-dila | |
@@ -423,7 +423,7 @@ license = "Apache-2.0"
 repository = "https://github.com/muchiny/mcp-legifrance"    # Q1 décidée le 2026-10-16 (livré : Cargo.toml:11)
 
 [workspace.dependencies]
-# internes : pas de publication crates.io en v0.x (00 §12, Q13 ; crates.io tranché en M5, `publish = false` d'ici là). Livré : aucune entrée lf-* pour l'instant.
+# internes : pas de publication crates.io en v0.x (00 §12, Q13 ; crates.io tranché en M5, `publish = false` d'ici là). Livré : `lf-domain` (plan 2b).
 # `version` reste déclaré et suit `[workspace.package] version` à chaque release (08 §7.3) ; check-arch contrôlera l'égalité (étape 5 de §4.2, programmée en tête de M2)
 lf-domain        = { path = "crates/lf-domain",        version = "=0.1.0" }
 lf-application   = { path = "crates/lf-application",   version = "=0.1.0" }
@@ -675,7 +675,7 @@ pub fn registered_tool_names() -> Vec<&'static str>;   // pour les tests de coh�
 | `cargo xtask instructions-size` (M4) | Même principe avec `server/discover` : vérifie que `instructions` fait ≤ 3 500 caractères Unicode et affiche la taille totale des descripteurs (budget D-33). | non |
 | `cargo xtask record-fixture` (M2) | Syntaxe de 04 §13.4 : `--endpoint … --body '…' --name … [--env sandbox\|production] [--allow-error] [--redact <pointeur JSON>] [--force]`, ou `--plan <plan.toml>` pour un lot (≤ 1 requête/s). Lance `cargo run -p lf-adapter-piste --example record_fixture --features record` avec les identifiants de l'environnement ; sandbox par défaut, `--env production` seulement par choix explicite du mainteneur (Q3). L'exemple écrit la réponse **brute** (octets) dans `crates/lf-adapter-piste/tests/fixtures/recorded/<endpoint>/<name>.json` et son sidecar `<name>.meta.toml`, dont il calcule `sha256_raw` et `mojibake_detected` (champs : 04 §13.4 ; D-35). En-têtes et jeton ne sont jamais écrits. | oui (identifiants requis) |
 
-- **Dépendances** : livré : `serde_json` seul (xtask/Cargo.toml) ; `cargo metadata` est appelé en sous-processus (xtask/src/main.rs:9-10). Cible : `cargo_metadata` 0.23.1 (M2, R2 et fermeture transitive), puis `anyhow`, `toml` 0.9.8, `sha2`, `hex`, `jsonschema` (`default-features = false`, contrôles du verrou, 05 §9.2) aux jalons qui les utilisent. `publish = false`.
+- **Dépendances** : livré : `serde_json` et `toml` 1.1 (xtask/Cargo.toml) ; `cargo metadata` est appelé en sous-processus (xtask/src/main.rs:13-14) et lu en JSON, le crate `cargo_metadata` n'étant pas retenu. Cible : `anyhow`, `sha2`, `hex`, `jsonschema` (`default-features = false`, contrôles du verrou, 05 §9.2) aux jalons qui les utilisent. `publish = false`.
 
 ### 3.9 `lf-adapter-dila` (M9)
 
@@ -690,19 +690,19 @@ pub fn registered_tool_names() -> Vec<&'static str>;   // pour les tests de coh�
 
 ### 4.1 Règles
 
-Les règles R1 à R5, ainsi que la liste fermée de R2, reprennent la décision ; R6 à R8 sont des règles d'architecture de ce document ; R9 est fixée par [06-qualite.md](06-qualite.md) §9.3, propriétaire des règles de `check-arch` (00 §0), et retenue par 00 §2 (extension de M2). Dans les règles, `lf-app` désigne le paquet `mcp-legifrance` (§3.7). **Livré (M0, plan 1)** : `check-arch` applique R1 (liste blanche `thiserror`, échec fermé), un `lf-application` sans adapter, R3 en partie ; les autres règles sont des extensions ajoutées au jalon où elles servent (échéancier en §4.2).
+Les règles R1 à R5, ainsi que la liste fermée de R2, reprennent la décision ; R6 à R8 sont des règles d'architecture de ce document ; R9 est fixée par [06-qualite.md](06-qualite.md) §9.3, propriétaire des règles de `check-arch` (00 §0), et retenue par 00 §2 (extension de M2, livrée au plan 2b). Dans les règles, `lf-app` désigne le paquet `mcp-legifrance` (§3.7). **Livré (M0, plan 1)** : `check-arch` applique R1 (liste blanche `thiserror`, échec fermé), un `lf-application` sans adapter, R3 en partie ; la tête de M2 (plan 2a) ajoute le membre inconnu, R3, R4, R5, R7 et l'étape 5 ; le plan 2b ajoute R2 fermée, 5e, la fermeture transitive et R9 ; les autres règles sont des extensions ajoutées au jalon où elles servent (échéancier en §4.2).
 
 | # | Règle | Origine |
 |---|---|---|
 | R1 | `lf-domain` ne dépend d'aucun `lf-*`. Sa liste blanche externe, qui **échoue fermé**, est `thiserror` seul (`DOMAIN_ALLOWED`, xtask/src/arch.rs:25-26). Elle s'élargit par ADR au jalon qui en a besoin : `winnow`, `aho-corasick`, `regex` et `unicode-normalization` en M6 (ADR-0011 amendé). | 00-decisions §2 ; ADR-0016 |
-| R2 | `lf-application` ne dépend d'aucun adapter. Sa liste fermée externe : `thiserror`, `chrono` (`std`), `tracing`, `futures` (`std`, `async-await`), `tokio` (`time`, `macros`, `rt` — `rt` pour `task_local!` seulement), `similar` (M7). Interdits : `serde`, `serde_json`, `rmcp`, `reqwest`, `moka`, `governor`, `backon`, `async-trait`. Ajoutée à `check-arch` en M2, à la création de `lf-application`. | 00-decisions §2 |
+| R2 | `lf-application` ne dépend d'aucun adapter. Sa liste fermée externe : `thiserror`, `chrono` (`std`), `tracing`, `futures` (`std`, `async-await`), `tokio` (`time`, `macros`, `rt` — `rt` pour `task_local!` seulement), `similar` (M7). Interdits : `serde`, `serde_json`, `rmcp`, `reqwest`, `moka`, `governor`, `backon`, `async-trait`. Livrée dans `check-arch` au plan 2b, à la création de `lf-application`, avec les bornes de features de `tokio` et de `chrono`. | 00-decisions §2 |
 | R3 | Aucun `lf-adapter-*` ne dépend d'un autre `lf-adapter-*`, ni de `lf-app`. `lf-adapter-audit` dépend de `lf-application` seul et accède aux types du domaine par ses ré-exports. | 00-decisions §2 |
 | R4 | Seul `lf-app` dépend de tous les `lf-*` ; aucun crate ne dépend de `lf-app`, qui n'a pas de cible `lib`. | 00-decisions §2 |
 | R5 | `xtask` ne dépend d'aucun `lf-*`, et réciproquement. | 00-decisions §2 |
 | R6 | **Crates confinés**, une seule porte d'entrée : `rmcp`, `rmcp-macros`, `schemars`, `axum` → lf-adapter-mcp ; `reqwest`, `rustls` (option `ring`), `backon`, `governor` → lf-adapter-piste ; `moka` → lf-adapter-cache ; `sha2`, `fs4` → lf-adapter-audit (et xtask) ; `tantivy`, `quick-xml`, `tar`, `flate2` → lf-adapter-dila ; `clap`, `tracing-subscriber`, `dirs` → lf-app ; `anyhow` → lf-app, xtask ; `secrecy` → lf-adapter-piste, lf-app ; `chrono-tz` → lf-app (`clock`), lf-adapter-piste (midi Europe/Paris de `DATE_VERSION`), jamais lf-domain ni lf-application (00 §2). `rmcp` ne doit jamais être renommé. | 02 (recherche 04 §5.3, recherche 09 §7a) ; 00 §2 pour `chrono-tz` |
 | R7 | Aucun membre ne dépend directement de `async-trait` (ADR-0012) ; seule la feature HTTP de rmcp le tire en M8. | ADR-0012 |
 | R8 | Dev-dependencies : `lf-domain` et `lf-application` ne prennent aucun adapter, même en dev. Les adapters peuvent prendre `lf-application` avec `test-support`. | proposition |
-| R9 | Aucune double version des crates critiques dans le graphe résolu : `tokio`, `rustls`, `reqwest`, `hyper`, `http`, `serde`, `schemars`, `rmcp`, `chrono`. Ajoutée en M2 (§4.2). | 00 §0 ; 06 §9.3 (fait foi) |
+| R9 | Aucune double version des crates critiques dans le graphe résolu : `tokio`, `rustls`, `reqwest`, `hyper`, `http`, `serde`, `schemars`, `rmcp`, `chrono`. Livrée au plan 2b (§4.2). | 00 §0 ; 06 §9.3 (fait foi) |
 
 ### 4.2 `cargo xtask check-arch` : algorithme cible et échéancier
 
@@ -710,13 +710,12 @@ Les règles R1 à R5, ainsi que la liste fermée de R2, reprennent la décision 
 
 | Jalon | Extension de `check-arch` |
 |---|---|
-| Tête de M2 (tâche 0, 00 §11.1) | un membre inconnu devient une violation (aujourd'hui `_ => false`, arch.rs:37) ; R4, R5 et les contrôles de manifeste de l'étape 5 (dont l'égalité des versions internes) y sont programmés, non livrés à ce jour (proposition, à inscrire par 06 avec les autres règles) |
-| M2, à la création de `lf-application` | R2 (crates d'I/O interdits), fermeture transitive et R9 (doublons) : `cargo metadata --format-version 1 --all-features --locked`, sans `--no-deps` |
-| M3 | features `tokio` bornées |
+| Tête de M2 (plan 2a, tâche 4) | livrés : membre inconnu, R3, R4, R5, R7 et étape 5 sauf 5e |
+| M2, à la création de `lf-application` (plan 2b, tâches 5 et 6) | livrés : R2 fermée (crates d'I/O interdits, bornes de features de `tokio` et de `chrono`, avancées de M3 à ce plan), 5e, fermeture transitive (étape 4) et R9 (étape 7) : `cargo metadata --format-version 1 --all-features --locked`, sans `--no-deps` |
 | M4 | épinglage de `rmcp` |
 
 ```text
-1. meta ← `cargo metadata --format-version 1 --all-features --locked` (cible : crate cargo_metadata, MetadataCommand ; livré : le JSON de `cargo metadata` est parsé via serde_json, sans ce crate).
+1. meta ← `cargo metadata --format-version 1 --all-features --locked` (le JSON de `cargo metadata` est parsé via serde_json ; le crate cargo_metadata n'est pas retenu).
    --all-features garantit le pire cas : les features `http` (M8) et `dila` (M9) sont incluses.
 2. membres ← meta.workspace_members, indexés par nom de paquet.
 3. Arêtes directes : pour chaque membre M et chaque dépendance déclarée d ∈ M.dependencies :
@@ -727,7 +726,8 @@ Les règles R1 à R5, ainsi que la liste fermée de R2, reprennent la décision 
      sinon (externe, normal/build) :
         si RÈGLES[M].liste_blanche existe : exiger cible ∈ liste_blanche   (R1, R2)
         exiger que cible ne soit confinée à un autre membre, sauf xtask    (R6)
-        si RÈGLES[M].features_max[cible] existe : exiger d.features ⊆ features_max
+        si RÈGLES[M].features_max[cible] existe : exiger d.features ⊆ features_max, features lues dans la déclaration et dans la
+            table [features] du membre (dep/feat, dep?/feat)
             (ex. lf-application : tokio ⊆ {time, macros, rt} ; chrono ∌ clock, now)
         si cible = "rmcp" : exiger d.rename = None                         (R6)
         si cible = "async-trait" : violation                              (R7)
@@ -785,7 +785,7 @@ unknown-git = "deny"
 ### 4.4 Contrôles de pureté en CI
 
 Ce sont des jobs de `ci.yml`, dont le détail est dans [06-qualite.md](06-qualite.md) :
-- `cargo check -p lf-application`, **seul** (à partir de M2) : les features sont résolues pour ce graphe uniquement, ce qui vérifie que `chrono` n'y a pas `clock`/`now` et que tokio n'apporte que `time`, `macros` et `rt`. Pour `lf-domain`, la pureté est garantie par la liste blanche de `check-arch` (thiserror seul).
+- `cargo check -p lf-application`, **seul** (`make purity`, livré au plan 2b) : les features sont résolues pour ce graphe uniquement, ce qui prouve que le crate compile avec son propre jeu de features, sans que celles qu'un autre membre active n'y suppléent. Les bornes de features (`chrono` sans `clock` ni `now`, tokio limité à `time`, `macros` et `rt`) sont contrôlées par `check-arch` (R2), qui lit les features dans les déclarations de dépendance et dans la table `[features]` du membre (`dep/feat`, `dep?/feat`). Pour `lf-domain`, la pureté est garantie par la liste blanche de `check-arch` (thiserror seul).
 - `make arch` (`cargo xtask check-arch`), puis `make deny` (`cargo deny check`), appelés par `make ci`.
 - `cargo tree -p lf-domain -e normal --prefix none` est archivé en artefact, pour visualiser les écarts dans une PR.
 
@@ -1315,7 +1315,7 @@ Le runtime est multi-thread (`new_multi_thread().enable_all()`), parce que rmcp 
 ### 9.1 Types par couche
 
 ```text
-lf-domain        DomainError       InvalidId, InvalidFond, InvalidDate, EmptyQuery, OutOfRange, TooLong, … (03)
+lf-domain        DomainError       InvalidId, InvalidFond, InvalidDate, EmptyQuery, OutOfRange, QueryTooLong, … (03)
 lf-application   InputError        décodage des arguments impossible (type, forme)
                  CorpusError       NotFound, InvalidRequest, Upstream{status, retryable}, Timeout,
                                    RateLimited{retry_after}, Auth, Config, Decode            (port, §5.1)

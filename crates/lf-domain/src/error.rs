@@ -19,7 +19,7 @@
 
 use thiserror::Error;
 
-use crate::date::VersionDate;
+use crate::{date::VersionDate, fond::Fond};
 
 /// Longueur maximale, en caractères, d'une entrée recopiée dans un message d'erreur.
 pub const ECHO_MAX_CHARS: usize = 64;
@@ -124,6 +124,52 @@ pub enum DomainError {
         /// Fin demandée.
         to: VersionDate,
     },
+    /// Requête de recherche vide : absente après normalisation (blancs et caractères de contrôle retirés).
+    #[error("query is required")]
+    EmptyQuery,
+    /// Requête de recherche plus longue que [`QUERY_MAX_CHARS`](crate::search::QUERY_MAX_CHARS) caractères.
+    #[error("query is too long ({len} characters, max {max})")]
+    QueryTooLong {
+        /// Longueur de la requête normalisée, en caractères.
+        len: usize,
+        /// Longueur maximale acceptée.
+        max: usize,
+    },
+    /// Valeur numérique hors de ses bornes (bornes incluses), ex. `page_size`.
+    #[error("{field}={value} out of range ({min}..{max})")]
+    OutOfRange {
+        /// Nom du paramètre côté utilisateur.
+        field: &'static str,
+        /// Valeur reçue.
+        value: i64,
+        /// Borne basse acceptée.
+        min: i64,
+        /// Borne haute acceptée.
+        max: i64,
+    },
+    /// `version_date` fournie pour un fond qui n'est ni `LODA` ni `CODE`.
+    #[error("version_date only applies to fond LODA or CODE, not {fond}")]
+    VersionDateNotApplicable {
+        /// Fond demandé.
+        fond: Fond,
+    },
+    /// `date_from` ou `date_to` fournie pour un fond sans filtre de période (`CODE`).
+    #[error("date_from/date_to are not supported for fond={fond}")]
+    DateFilterNotApplicable {
+        /// Fond demandé.
+        fond: Fond,
+    },
+    /// Page hors de la fenêtre de résultats atteignables
+    /// ([`REACHABLE_RESULTS`](crate::search::REACHABLE_RESULTS)).
+    #[error("page={page} with page_size={page_size} goes beyond the {max} reachable results")]
+    PageBeyondReach {
+        /// Page demandée.
+        page: u32,
+        /// Taille de page demandée.
+        page_size: u32,
+        /// Nombre maximal de résultats atteignables.
+        max: u64,
+    },
 }
 
 /// Recopie `input` pour un message d'erreur, tronquée à [`ECHO_MAX_CHARS`] caractères.
@@ -139,7 +185,6 @@ mod tests {
     use crate::{
         date::{CivilDate, VersionDate},
         ecli::Ecli,
-        fond::Fond,
         id::{AnyId, ArticleId, DecisionId, LegiTextId, SectionId, parse_versioned},
     };
     use pretty_assertions::assert_eq;
@@ -156,7 +201,13 @@ mod tests {
             DomainError::EmptyCoverageGaps
             | DomainError::TocTooDeep { .. }
             | DomainError::TocOffsetPastEnd { .. }
-            | DomainError::InvertedDateRange { .. } => "",
+            | DomainError::InvertedDateRange { .. }
+            | DomainError::EmptyQuery
+            | DomainError::QueryTooLong { .. }
+            | DomainError::OutOfRange { .. }
+            | DomainError::VersionDateNotApplicable { .. }
+            | DomainError::DateFilterNotApplicable { .. }
+            | DomainError::PageBeyondReach { .. } => "",
         }
     }
 
@@ -219,6 +270,27 @@ mod tests {
             DomainError::InvertedDateRange { from, to }.to_string(),
             "date_from=2026-01-01 is after date_to=2025-01-01"
         );
+        assert_eq!(DomainError::EmptyQuery.to_string(), "query is required");
+        assert_eq!(
+            DomainError::QueryTooLong { len: 612, max: 500 }.to_string(),
+            "query is too long (612 characters, max 500)"
+        );
+        assert_eq!(
+            DomainError::OutOfRange { field: "page_size", value: 0, min: 1, max: 100 }.to_string(),
+            "page_size=0 out of range (1..100)"
+        );
+        assert_eq!(
+            DomainError::VersionDateNotApplicable { fond: Fond::Juri }.to_string(),
+            "version_date only applies to fond LODA or CODE, not JURI"
+        );
+        assert_eq!(
+            DomainError::DateFilterNotApplicable { fond: Fond::Code }.to_string(),
+            "date_from/date_to are not supported for fond=CODE"
+        );
+        assert_eq!(
+            DomainError::PageBeyondReach { page: 200, page_size: 100, max: 10_000 }.to_string(),
+            "page=200 with page_size=100 goes beyond the 10000 reachable results"
+        );
     }
 
     #[test]
@@ -263,6 +335,12 @@ mod tests {
             DomainError::TocTooDeep { max: 64 },
             DomainError::TocOffsetPastEnd { offset: 300, total: 88 },
             DomainError::InvertedDateRange { from: VersionDate::MAX, to: VersionDate::MIN },
+            DomainError::EmptyQuery,
+            DomainError::QueryTooLong { len: 501, max: 500 },
+            DomainError::OutOfRange { field: "page_size", value: 0, min: 1, max: 100 },
+            DomainError::VersionDateNotApplicable { fond: Fond::Juri },
+            DomainError::DateFilterNotApplicable { fond: Fond::Code },
+            DomainError::PageBeyondReach { page: 200, page_size: 100, max: 10_000 },
         ] {
             assert_eq!(echoed(&error), "", "{error}");
         }

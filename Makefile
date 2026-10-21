@@ -24,7 +24,7 @@ ACTIONLINT ?= actionlint
 MIN_AGE_BASE ?= origin/main
 MIN_AGE_DAYS ?= 14
 
-.PHONY: fmt fmt-check lint test doc arch deny min-age min-age-selftest machete cov mem-check mutants mutants-diff workflow-lint ci
+.PHONY: fmt fmt-check lint test doc arch purity deny min-age min-age-selftest machete cov mem-check mutants mutants-diff workflow-lint ci
 
 fmt:
 	cargo fmt --all
@@ -44,6 +44,12 @@ doc:
 
 arch:
 	cargo xtask check-arch
+
+# Pureté de lf-application (02 §4.4) : compilé seul, ses features sont résolues pour son
+# seul graphe (tokio time/macros/rt, chrono sans clock) ; une feature qu'un autre membre
+# active ne masque plus un manque.
+purity:
+	cargo check -p lf-application --locked
 
 deny:
 	cargo deny --locked check
@@ -87,4 +93,4 @@ workflow-lint:
 	$(ZIZMOR) .github/
 	$(ACTIONLINT)
 
-ci: fmt-check lint test doc arch deny min-age-selftest machete cov
+ci: fmt-check lint test doc arch purity deny min-age-selftest machete cov
