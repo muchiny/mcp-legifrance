@@ -18,15 +18,18 @@ exigences de qualité (§10) y font foi. Ce fichier dit comment les tenir au quo
 |---|---|---|
 | Format | `make fmt-check` | aucun écart |
 | Lint | `make lint` | zéro avertissement (`clippy::pedantic` inclus) |
-| Tests | `make test` | tous verts |
+| Tests | `make test` | tous verts : nextest (profil `default`, `ci` en CI) puis doc-tests ; en CI, Linux, macOS et Windows |
 | Doc | `make doc` | zéro avertissement |
 | Architecture | `make arch` | liste blanche des dépendances normales (`lf-domain` : `thiserror` seul), frontières application et adapters (§2) ; échoue fermé si `cargo metadata` est incomplet |
 | Dépendances | `make deny`, `make machete` | aucun avis, aucune dépendance inutile |
+| Âge des dépendances | `make min-age` (PR) ; `make min-age-selftest` dans `make ci` | toute version ajoutée ou montée publiée depuis 14 jours au moins |
+| Workflows | `make workflow-lint` | zizmor et actionlint sans alerte, actions épinglées par SHA |
 | Couverture | `make cov` | 100 % lignes, régions, fonctions (`--lib`) |
 | Mutation | `make mutants FILE=…` / CI | 0 mutant `MISSED` |
 
 La CI rejoue tout sur chaque PR et mute le diff de la PR ; le lundi, `weekly.yml`
-mute tout le workspace (4 shards) et lance les cibles de fuzz.
+mute tout le workspace (4 shards) et lance les cibles de fuzz ; chaque nuit,
+`deny-nightly.yml` relance cargo-deny.
 
 ## Écrire des tests qui tiennent 100 % des régions
 
