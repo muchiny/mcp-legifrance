@@ -9,7 +9,8 @@ ignore = []
 
 [licenses]
 version = 2
-allow = ["MIT", "Apache-2.0", "Unicode-3.0"]
+# ISC, BSD-3-Clause, CDLA-Permissive-2.0 : chaîne TLS de reqwest (aws-lc-rs, aws-lc-sys, rustls-webpki, untrusted, subtle, webpki-root-certs), T-M2-03
+allow = ["MIT", "Apache-2.0", "Unicode-3.0", "ISC", "BSD-3-Clause", "CDLA-Permissive-2.0"]
 
 [licenses.private]
 ignore = true

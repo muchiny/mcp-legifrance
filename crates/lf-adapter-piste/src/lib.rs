@@ -16,6 +16,8 @@
 //! - `deadline` : échéance d'un appel (`CallDeadline`), durée restante lue dans `Deadline`
 //!   puis posée sur l'horloge monotone de l'adapter.
 //! - `encoding` : décodage UTF-8 strict du corps, détection et réparation du mojibake latin-1.
+//! - `http` : client HTTP unique (`reqwest`, TLS rustls), tentative d'envoi (`send_once`) et
+//!   lecture bornée du corps ; aucun réessai ni jugement de statut.
 //! - `stats` : compteurs en mémoire (`Stats`) et leur instantané public (`StatsSnapshot`).
 //! - `time` : horloge monotone (`MonoClock`) et attente (`Sleeper`), pour des tests
 //!   déterministes sans geler l'horloge `tokio`.
@@ -28,6 +30,7 @@
 mod config;
 mod deadline;
 mod encoding;
+mod http;
 mod stats;
 mod time;
 

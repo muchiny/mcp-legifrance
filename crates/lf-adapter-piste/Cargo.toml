@@ -12,21 +12,26 @@ publish.workspace = true
 # Deadline : délai global publié par Audited (variable locale de tâche), lu comme durée restante
 lf-application.workspace = true
 lf-domain.workspace = true
-# Url (ré-export de `url`) pour valider les URL de configuration ; aucun appel réseau à ce stade
-reqwest.workspace = true
+# client HTTP unique (http.rs) ; gzip : décompression transparente, bornée après coup (04 §4.2) ;
+# system-proxy : HTTP(S)_PROXY / NO_PROXY ; rustls : TLS, option A, aws-lc (04 §4.1)
+reqwest = { workspace = true, features = ["gzip", "system-proxy", "rustls"] }
 # SecretString : client_secret, Debug rédigé `[REDACTED]`
 secrecy.workspace = true
 thiserror.workspace = true
-# time : `tokio::time::{Instant, sleep}` pour `TokioClock` et `TokioSleeper`
-tokio = { workspace = true, features = ["time"] }
+# time : `tokio::time::{Instant, sleep}` pour `TokioClock` et `TokioSleeper` ; sync : `OnceCell` (http.rs)
+tokio = { workspace = true, features = ["time", "sync"] }
 # warn! quand un corps de réponse est réparé ou gardé tel quel (stats.rs) : métadonnées seulement, jamais le texte
 tracing.workspace = true
 
 [dev-dependencies]
 # test-util : #[tokio::test(start_paused = true)] pour lire Deadline sans attendre (deadline.rs seulement)
-tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "test-util"] }
 # fmt + MakeWriter en mémoire pour capter le warn! de record_decode ; R6 ne confine que les dépendances normales
 tracing-subscriber.workspace = true
+# serveur HTTP simulé des tests de http.rs
+wiremock.workspace = true
+# GzEncoder (backend Rust pur) pour fabriquer des corps gzip dans les tests de http.rs
+flate2.workspace = true
 
 [lints]
 workspace = true
