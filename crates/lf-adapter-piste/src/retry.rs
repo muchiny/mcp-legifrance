@@ -34,7 +34,8 @@ const BASE_WAIT: Duration = Duration::from_millis(500);
 ///
 /// Décision provisoire (la spec dit « plafonnée à 30 s », ambiguë) : au-delà, **refus immédiat,
 /// pas d'écrêtage**. L'erreur classée est rendue telle quelle, donc `RateLimited` porte
-/// l'attente réelle pour un 429. Écrêter ferait réessayer un serveur qui a dit « pas avant
+/// l'attente annoncée pour un 429 (écrêtée à une heure par `classify`, pour la seule valeur
+/// propagée). Écrêter ferait réessayer un serveur qui a dit « pas avant
 /// 2 min » : quota gaspillé et nouvel échec presque certain. Exactement 30 s se dort, 30,001 s
 /// est refusé.
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);

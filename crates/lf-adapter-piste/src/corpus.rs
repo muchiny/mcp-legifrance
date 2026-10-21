@@ -938,9 +938,13 @@ mod tests {
             .mount(&server)
             .await;
         let corpus = PisteCorpus::new(config_for(&server.uri(), Some(credentials(SECRET))));
+        // Préchauffage : client construit et `tok-1` en cache avant la mesure. Sinon l'échéance de
+        // A comprendrait la construction du client (lente sous macOS et Windows) et le premier
+        // jeton, et A pourrait expirer avant d'atteindre l'API.
+        assert_eq!(corpus.check_credentials().await, Ok(()));
         let call_a = {
             let corpus = corpus.clone();
-            Deadline::after(ms(300)).scope(async move {
+            Deadline::after(ms(600)).scope(async move {
                 let started = Instant::now();
                 let result = corpus.post_json(ENDPOINT, BODY).await;
                 (result, started.elapsed())

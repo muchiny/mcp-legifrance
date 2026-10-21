@@ -25,10 +25,20 @@ impl TokenResponseDto {
     ///
     /// Troisième point d'exposition d'un secret du crate (avec le formulaire OAuth et
     /// `bearer_auth`) : `expose_secret()` ne sert ici qu'à tester la longueur, la valeur n'est
-    /// ni copiée ni journalisée.
+    /// ni copiée ni journalisée. [`is_header_safe`] en est un quatrième, de même nature.
     pub(crate) fn usable_token(self) -> Option<SecretString> {
         self.access_token.filter(|token| !token.expose_secret().is_empty())
     }
+}
+
+/// Vrai si le jeton peut figurer dans l'en-tête `Authorization: Bearer …` : uniquement de
+/// l'ASCII visible, l'espace et la tabulation. Un caractère de contrôle (retour ligne
+/// compris) ou un octet hors ASCII ferait échouer `bearer_auth` à chaque envoi, sans requête
+/// partie ; le jeton est alors refusé dès la réponse, avant toute mise en cache.
+///
+/// `expose_secret()` ne sert ici qu'à parcourir les octets : rien n'est copié ni journalisé.
+pub(crate) fn is_header_safe(token: &SecretString) -> bool {
+    token.expose_secret().bytes().all(|byte| byte == b'\t' || (b' '..=b'~').contains(&byte))
 }
 
 /// Corps d'erreur de l'endpoint token (RFC 6749 §5.2).
@@ -93,6 +103,33 @@ mod tests {
             ],
             [Some("tok".to_owned()), None, None, None]
         );
+    }
+
+    #[test]
+    fn header_safe_means_visible_ascii_space_or_tab() {
+        let safe = |text: &str| is_header_safe(&SecretString::from(text));
+        assert_eq!(
+            [
+                safe("tok"),
+                safe("a b\tc~"),
+                safe(""),
+                safe("a\nb"),
+                safe("a\rb"),
+                safe("a\0b"),
+                safe("a\x7fb"),
+                safe("é"),
+            ],
+            [true, true, true, false, false, false, false, false]
+        );
+    }
+
+    #[test]
+    fn header_safe_agrees_with_the_header_value_rules_on_ascii() {
+        for code in 0_u8..=127 {
+            let text = char::from(code).to_string();
+            let accepted = reqwest::header::HeaderValue::from_str(&text).is_ok();
+            assert_eq!(is_header_safe(&SecretString::from(text)), accepted, "{code}");
+        }
     }
 
     #[test]

@@ -21,7 +21,7 @@ use tokio::sync::{Mutex, MutexGuard};
 use crate::classify::{Outcome, classify};
 use crate::config::{PisteConfig, PisteCredentials};
 use crate::deadline::CallDeadline;
-use crate::dto::oauth::{OAuthErrorDto, TokenResponseDto};
+use crate::dto::oauth::{OAuthErrorDto, TokenResponseDto, is_header_safe};
 use crate::http::{Attempt, Payload, RawResponse, SharedClient, TransportError, send_once};
 use crate::retry::{RetryContext, SystemJitter, run};
 use crate::time::{MonoClock, Sleeper, race};
@@ -36,8 +36,16 @@ const MARGIN_DIVISOR: u32 = 2;
 const DEFAULT_EXPIRES_IN_SECS: u64 = 3_600;
 /// Durée de vie maximale retenue.
 const MAX_EXPIRES_IN_SECS: u64 = 86_400;
-/// Longueur maximale (en octets) d'un code d'erreur repris dans un `detail`.
-const MAX_ERROR_CODE_LEN: usize = 64;
+/// Les seuls codes d'erreur repris dans un `detail` : ceux de la RFC 6749 §5.2. Toute autre
+/// valeur (un secret, un identifiant, un jeton, un UUID renvoyés par une passerelle) est omise.
+const RFC_6749_ERROR_CODES: [&str; 6] = [
+    "invalid_request",
+    "invalid_client",
+    "invalid_grant",
+    "unauthorized_client",
+    "unsupported_grant_type",
+    "invalid_scope",
+];
 
 /// Jeton prêté à un appelant, avec le numéro de génération à rendre à `invalidate`.
 #[derive(Debug, Clone)]
@@ -286,13 +294,14 @@ fn status_error(response: &RawResponse, env: PisteEnvironment, url: &Url) -> Opt
     }
 }
 
-/// Refus des identifiants, avec le code `error` du corps s'il est court et lisible.
+/// Refus des identifiants, avec le code `error` du corps s'il est l'un des six codes de la
+/// RFC 6749 §5.2.
 /// `error_description` n'est jamais recopié : il pourrait citer la requête.
 fn rejection(response: &RawResponse, env: PisteEnvironment) -> CorpusError {
     let code = serde_json::from_slice::<OAuthErrorDto>(&response.body)
         .ok()
         .and_then(|dto| dto.error)
-        .filter(|code| is_short_code(code));
+        .filter(|code| is_rfc_6749_code(code));
     let quoted = code.map(|code| format!(", error {code}")).unwrap_or_default();
     CorpusError::Auth {
         detail: format!(
@@ -302,12 +311,11 @@ fn rejection(response: &RawResponse, env: PisteEnvironment) -> CorpusError {
     }
 }
 
-/// Vrai pour un code d'erreur citable : non vide, au plus 64 octets, tous en ASCII visible
-/// (ni espace ni contrôle : un journal ne doit pas pouvoir recevoir de fausses lignes).
-fn is_short_code(code: &str) -> bool {
-    !code.is_empty()
-        && code.len() <= MAX_ERROR_CODE_LEN
-        && code.bytes().all(|byte| byte.is_ascii_graphic())
+/// Vrai pour un code d'erreur citable : l'un des six codes de la RFC 6749 §5.2, comparaison
+/// exacte. Une liste fermée et non un filtre de caractères : un secret au format UUID ou
+/// hexadécimal passerait n'importe quel filtre de forme.
+fn is_rfc_6749_code(code: &str) -> bool {
+    RFC_6749_ERROR_CODES.contains(&code)
 }
 
 /// `scheme://hôte[:port]/chemin` : l'adresse sans identifiants, requête ni fragment.
@@ -336,6 +344,11 @@ fn grant_from(response: &RawResponse, url: &Url) -> Outcome<Grant> {
             detail: "PISTE OAuth returned no access_token".to_owned(),
         });
     };
+    if !is_header_safe(&value) {
+        return Outcome::Fatal(CorpusError::Config {
+            detail: "PISTE OAuth returned an unusable access_token".to_owned(),
+        });
+    }
     if not_bearer {
         tracing::warn!("PISTE OAuth token_type is not Bearer, using the token anyway");
     }
@@ -947,7 +960,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_short_ascii_error_code_is_quoted() {
+    fn only_the_six_rfc_6749_error_codes_are_quoted() {
         let url = Url::parse("http://127.0.0.1:9/oauth/token").unwrap();
         let reject = |body: &str| {
             let response = RawResponse {
@@ -959,19 +972,37 @@ mod tests {
             status_error(&response, SANDBOX, &url)
         };
         let coded = |code: &str| json!({ "error": code }).to_string();
-        let long_enough = "a".repeat(64);
+        let short_but_unknown = "a".repeat(64);
         let too_long = "a".repeat(65);
-        let cases = [
-            (coded(&long_enough), Some(long_enough.as_str())),
+        let mut cases = vec![
+            (coded(&short_but_unknown), None),
             (coded(&too_long), None),
+            (coded(CLIENT_SECRET), None),
+            (coded(CLIENT_ID), None),
+            (coded("123e4567-e89b-12d3-a456-426614174000"), None),
+            (coded("tok-visible-if-leaked"), None),
             (coded(""), None),
             (coded("é"), None),
             (coded("two words"), None),
             (coded("tab\there"), None),
+            (coded("Invalid_Client"), None),
+            (coded("invalid_client "), None),
+            (coded("invalid_clients"), None),
+            (coded("invalid"), None),
             ("{}".to_owned(), None),
             ("<html>".to_owned(), None),
             ("[]".to_owned(), None),
         ];
+        for code in [
+            "invalid_request",
+            "invalid_client",
+            "invalid_grant",
+            "unauthorized_client",
+            "unsupported_grant_type",
+            "invalid_scope",
+        ] {
+            cases.push((coded(code), Some(code)));
+        }
         for (text, code) in cases {
             assert_eq!(reject(&text), Some(rejected(401, code)), "{text}");
         }
@@ -1048,6 +1079,37 @@ mod tests {
             (error, count),
             (CorpusError::Config { detail: "PISTE OAuth returned no access_token".to_owned() }, 1)
         );
+    }
+
+    #[tokio::test]
+    async fn an_access_token_that_is_not_a_header_value_is_unusable_and_never_cached() {
+        let unusable = CorpusError::Config {
+            detail: "PISTE OAuth returned an unusable access_token".to_owned(),
+        };
+        for token in
+            ["a\nb", "a\r\nX-Injected: 1", "a\u{0}b", "tok\u{7f}", "tök", "tok\u{e9}n", "日本"]
+        {
+            let body = json!({ "access_token": token, "expires_in": 3600 }).to_string();
+            // Le serveur reste vivant pendant tout le tour : il sert aussi la seconde demande.
+            let server = MockServer::start().await;
+            reply_always(&server, json_reply(200, &body)).await;
+            let fixture = Fixture::on(&server);
+            let error = fixture.token().await.unwrap_err();
+            assert_eq!((&error, requests(&server).await), (&unusable, 1), "{token:?}");
+            assert!(!format!("{error} {error:?}").contains(token), "{token:?}");
+            assert!(fixture.manager.state.lock().await.cached.is_none(), "{token:?}");
+            // Jamais mis en cache : la demande suivante interroge de nouveau l'endpoint.
+            assert_eq!(fixture.token().await.unwrap_err(), unusable, "{token:?}");
+            assert_eq!(requests(&server).await, 2, "{token:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_access_token_with_spaces_and_punctuation_is_still_usable() {
+        let server = MockServer::start().await;
+        reply_always(&server, ok("a b\tc=.~+/-_", &json!(3600))).await;
+        let fixture = Fixture::on(&server);
+        assert_eq!(fixture.token().await.unwrap().value.expose_secret(), "a b\tc=.~+/-_");
     }
 
     #[tokio::test]
@@ -1380,7 +1442,12 @@ mod tests {
         let leak = format!("{secret} {token}");
         let described = json!({ "error": "invalid_client", "error_description": leak }).to_string();
         let text = |status: u16| ResponseTemplate::new(status).set_body_string(leak.clone());
+        let as_error = |value: &str| json!({ "error": value }).to_string();
         let replies = vec![
+            json_reply(401, &as_error(&secret)),
+            json_reply(400, &as_error(&token)),
+            json_reply(403, &as_error(CLIENT_ID)),
+            json_reply(401, &as_error("123e4567-e89b-12d3-a456-426614174000")),
             json_reply(401, &described),
             json_reply(400, &described),
             text(403),
@@ -1412,7 +1479,8 @@ mod tests {
         for text in &shown {
             assert!(!text.contains(&secret), "{text}");
             assert!(!text.contains(&token), "{text}");
+            assert!(!text.contains(CLIENT_ID), "{text}");
         }
-        assert_eq!(shown.len(), 15);
+        assert_eq!(shown.len(), 19);
     }
 }

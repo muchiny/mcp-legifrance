@@ -13,6 +13,15 @@ use reqwest::Client;
 use crate::http::{Attempt, RawResponse, TransportError, send_once};
 use crate::retry::parse_retry_after;
 
+/// Plus longue attente propagée dans [`CorpusError::RateLimited`].
+///
+/// Un `Retry-After` hostile (`u64::MAX` secondes, ou une date en l'an 9999) ne doit pas
+/// atteindre l'appelant tel quel : un `Instant::now() + d` y paniquerait, et le modèle lirait
+/// « réessayez dans 584 milliards d'années ». Seule la valeur rangée dans l'erreur est
+/// écrêtée ; la décision d'attendre ou de refuser (`retry::run`, au plus 30 s) garde la valeur
+/// annoncée.
+const MAX_REPORTED_RETRY_AFTER: Duration = Duration::from_secs(3_600);
+
 /// Budget de réessais que consomme un échec passager.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Budget {
@@ -72,7 +81,9 @@ fn classify_status(response: RawResponse, endpoint: &str) -> Outcome<RawResponse
         429 => {
             let retry_after = retry_after();
             Outcome::Transient {
-                error: CorpusError::RateLimited { retry_after },
+                error: CorpusError::RateLimited {
+                    retry_after: retry_after.map(|wait| wait.min(MAX_REPORTED_RETRY_AFTER)),
+                },
                 retry_after,
                 budget: Budget::Standard,
             }
@@ -260,6 +271,27 @@ mod tests {
             classify(Ok(with_headers(429, Some("7"), None)), ENDPOINT),
             transient(CorpusError::RateLimited { retry_after: Some(secs(7)) }, Some(secs(7)))
         );
+    }
+
+    #[test]
+    fn the_retry_after_kept_in_the_429_error_is_capped_at_one_hour() {
+        // (secondes annoncées, secondes rangées dans l'erreur)
+        for (announced, kept) in [
+            ("18446744073709551615", 3_600),
+            ("99999999999999999999", 3_600),
+            ("120", 120),
+            ("3600", 3_600),
+            ("3601", 3_600),
+        ] {
+            let raw = Some(Duration::from_secs(announced.parse().unwrap_or(u64::MAX)));
+            assert_eq!(
+                classify(Ok(with_headers(429, Some(announced), None)), ENDPOINT),
+                // La boucle de réessai garde la valeur annoncée pour décider d'attendre ou de
+                // refuser ; seule la valeur propagée à l'appelant est écrêtée.
+                transient(CorpusError::RateLimited { retry_after: Some(secs(kept)) }, raw),
+                "{announced}"
+            );
+        }
     }
 
     #[test]

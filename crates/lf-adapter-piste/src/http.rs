@@ -11,6 +11,7 @@
 //! redirection, ne réessaie rien de lui-même et n'accepte jamais un certificat invalide.
 
 use std::error::Error;
+use std::fmt;
 use std::time::Duration;
 
 use lf_application::ports::CorpusError;
@@ -32,7 +33,10 @@ use crate::config::{PisteConfig, PisteEndpoints};
 const TLS_WORDS: [&str; 5] = ["tls", "certificate", "handshake", "alert", "corrupt message"];
 
 /// Corps d'une requête déjà prêt à envoyer.
-#[derive(Debug, Clone, Copy)]
+///
+/// `Debug` rédigé à la main : il n'affiche ni valeurs de formulaire (`client_secret`) ni octets
+/// de JSON, seulement les noms de champs ou la longueur.
+#[derive(Clone, Copy)]
 pub(crate) enum Payload<'a> {
     /// JSON déjà sérialisé (la sérialisation des requêtes se teste à part, 04 §6.10).
     Json(&'a [u8]),
@@ -41,7 +45,10 @@ pub(crate) enum Payload<'a> {
 }
 
 /// Une tentative d'envoi : tout ce que `send_once` doit savoir.
-#[derive(Debug, Clone, Copy)]
+///
+/// `Debug` rédigé à la main : ni URL complète, ni valeur de formulaire, ni jeton ; le gabarit
+/// d'endpoint, la forme du corps, la présence d'un jeton et les bornes seulement.
+#[derive(Clone, Copy)]
 pub(crate) struct Attempt<'a> {
     /// URL complète de la requête (jamais écrite dans un message d'erreur).
     pub url: &'a Url,
@@ -58,7 +65,10 @@ pub(crate) struct Attempt<'a> {
 }
 
 /// Réponse brute : statut, deux en-têtes utiles et corps, sans interprétation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Debug` rédigé à la main : le corps (qui porte `access_token` pour la réponse OAuth)
+/// n'est jamais affiché, seulement sa longueur.
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct RawResponse {
     /// Code de statut HTTP.
     pub status: u16,
@@ -68,6 +78,41 @@ pub(crate) struct RawResponse {
     pub date: Option<String>,
     /// Corps, déjà décompressé, d'au plus `Attempt::max_body_bytes` octets.
     pub body: Vec<u8>,
+}
+
+impl fmt::Debug for Payload<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Json(bytes) => f.debug_struct("Json").field("bytes", &bytes.len()).finish(),
+            Self::Form(pairs) => f
+                .debug_struct("Form")
+                .field("fields", &pairs.iter().map(|(name, _)| *name).collect::<Vec<_>>())
+                .finish(),
+        }
+    }
+}
+
+impl fmt::Debug for Attempt<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Attempt")
+            .field("endpoint", &self.endpoint)
+            .field("payload", &self.payload)
+            .field("bearer", &self.bearer.is_some())
+            .field("timeout", &self.timeout)
+            .field("max_body_bytes", &self.max_body_bytes)
+            .finish()
+    }
+}
+
+impl fmt::Debug for RawResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RawResponse")
+            .field("status", &self.status)
+            .field("retry_after", &self.retry_after)
+            .field("date", &self.date)
+            .field("body_len", &self.body.len())
+            .finish()
+    }
 }
 
 /// Échec d'une tentative, avant tout jugement de la couche de réessai.
@@ -1035,6 +1080,106 @@ mod tests {
         let elapsed = started.elapsed();
         assert!(error.is_timeout(), "{error}");
         assert!(elapsed < Duration::from_millis(900), "{elapsed:?}");
+    }
+
+    /// Serveur brut qui répond vite les en-têtes (`chunked`), puis un octet toutes les 50 ms
+    /// pendant `drip` : une lecture du corps au goutte-à-goutte.
+    async fn slow_body_server(drip: Duration) -> String {
+        raw_server(move |mut stream| async move {
+            let head = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n";
+            let _ = stream.write_all(head).await;
+            let started = Instant::now();
+            while started.elapsed() < drip {
+                let _ = stream.write_all(b"1\r\nx\r\n").await;
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            let _ = stream.write_all(b"0\r\n\r\n").await;
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn a_slow_body_is_bounded_by_the_attempt_timeout() {
+        // Les en-têtes arrivent tout de suite ; seul le corps goutte : la borne doit couvrir
+        // la lecture du corps, pas seulement l'attente des en-têtes (04 §5.3).
+        let uri = slow_body_server(Duration::from_secs(3)).await;
+        let client = client_for_uri(&uri);
+        let url = url_of(&uri, ENDPOINT);
+        let mut request = attempt(&url, Payload::Json(b"{}"));
+        request.timeout = Duration::from_millis(200);
+        let started = Instant::now();
+        let failure = send_once(&client, &request).await.unwrap_err();
+        let elapsed = started.elapsed();
+        assert_eq!(failure, TransportError::Timeout);
+        assert!(elapsed < Duration::from_millis(900), "{elapsed:?}");
+    }
+
+    #[tokio::test]
+    async fn a_slow_body_that_finishes_within_the_attempt_timeout_is_read() {
+        let uri = slow_body_server(Duration::from_millis(150)).await;
+        let client = client_for_uri(&uri);
+        let url = url_of(&uri, ENDPOINT);
+        let request = attempt(&url, Payload::Json(b"{}"));
+        let response = send_once(&client, &request).await.unwrap();
+        assert!(response.body.len() >= 2 && response.body.iter().all(|byte| *byte == b'x'));
+    }
+
+    #[tokio::test]
+    async fn a_longer_attempt_timeout_wins_over_a_shorter_client_timeout() {
+        let server = MockServer::start().await;
+        mount_post(&server, ResponseTemplate::new(200).set_delay(Duration::from_millis(500))).await;
+        let (mut config, endpoints) = config_for(&server.uri());
+        config.request_timeout = Duration::from_millis(100);
+        let client = build_client(&config, &endpoints).unwrap();
+        let url = url_of(&server.uri(), ENDPOINT);
+        let mut request = attempt(&url, Payload::Json(b"{}"));
+        request.timeout = Duration::from_secs(5);
+        let response = send_once(&client, &request).await.unwrap();
+        assert_eq!(response.status, 200);
+    }
+
+    // ---------- Debug sans secret
+
+    #[test]
+    fn debug_of_the_request_types_shows_no_value() {
+        let url =
+            Url::parse("https://user:pw@api.example/dila/secret-path?key=url-secret").unwrap();
+        let token = SecretString::from("tok-visible-if-leaked");
+        let form = [("client_id", "id-visible"), ("client_secret", "secret-visible")];
+        let mut request = attempt(&url, Payload::Form(&form));
+        request.bearer = Some(&token);
+        let json = Payload::Json(br#"{"q":"json-visible"}"#);
+        assert_eq!(format!("{json:?}"), "Json { bytes: 20 }");
+        assert_eq!(
+            format!("{:?}", request.payload),
+            r#"Form { fields: ["client_id", "client_secret"] }"#
+        );
+        assert_eq!(
+            format!("{request:?}"),
+            "Attempt { endpoint: \"/consult/juri\", payload: Form { fields: [\"client_id\", \"client_secret\"] }, bearer: true, timeout: 5s, max_body_bytes: 16777216 }"
+        );
+        request.bearer = None;
+        assert!(format!("{request:?}").contains("bearer: false"));
+    }
+
+    #[test]
+    fn debug_of_a_raw_response_shows_no_body() {
+        let response = RawResponse {
+            status: 200,
+            retry_after: Some("30".to_owned()),
+            date: None,
+            body: br#"{"access_token":"tok-visible-if-leaked"}"#.to_vec(),
+        };
+        assert_eq!(
+            format!("{response:?}"),
+            r#"RawResponse { status: 200, retry_after: Some("30"), date: None, body_len: 40 }"#
+        );
+        let outcome = crate::classify::Outcome::Success(response);
+        let shown = format!("{outcome:?}");
+        assert!(
+            shown.starts_with("Success(RawResponse {") && !shown.contains("tok-visible"),
+            "{shown}"
+        );
     }
 
     #[tokio::test]

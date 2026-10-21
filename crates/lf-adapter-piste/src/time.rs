@@ -25,7 +25,12 @@ pub trait MonoClock: Send + Sync + 'static {
 
 /// Attente asynchrone : seule porte d'entrée des attentes de l'adapter.
 pub trait Sleeper: Send + Sync + 'static {
-    /// Attend `duration`, sans effet tant que le futur n'est pas attendu.
+    /// Attend `duration`.
+    ///
+    /// Le futur rendu ne dort que lorsqu'il est attendu, mais l'implémentation peut fixer son
+    /// échéance dès l'appel : celle de [`TokioSleeper`] (`tokio::time::sleep`) part de l'appel de
+    /// `sleep`, pas de la première interrogation, et exige un runtime tokio à ce moment-là. Ne
+    /// pas créer un futur d'attente longtemps avant de l'attendre.
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send;
 }
 

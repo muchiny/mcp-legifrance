@@ -16,10 +16,12 @@ name: TLS spike
 # Réserves à lever au premier run :
 # - `ubuntu-24.04-arm` n'est gratuit que pour un dépôt public (sinon 4 jobs attendent ou échouent) ;
 # - `macos-15-intel` est un label supposé valide (`macos-15` est arm64) ;
-# - les images des runners préinstallent `cmake` (toutes) et vraisemblablement NASM (Windows) :
+# - `cmake` (toutes les images) et NASM (Windows) sont vraisemblablement préinstallés :
 #   un succès ne prouve donc pas qu'un poste vierge compile. Le second tableau du résumé
 #   montre les outils présents ; au besoin, variante qui retire `cmake`/`nasm` du `PATH` ou
 #   `AWS_LC_SYS_PREBUILT_NASM=1` côté Windows.
+# - sous Windows, `cc` est absent par construction (le compilateur est MSVC `cl`) : lire le
+#   tableau « outils présents » en conséquence (un `cc` « absent » n'y dit rien de l'outillage).
 # - pas de cache (`Swatinem/rust-cache`) : les durées de compilation sont à froid.
 
 on:
@@ -70,7 +72,7 @@ jobs:
       # compilation est une donnée.
       - name: musl-tools
         if: ${{ endsWith(matrix.target.triple, '-musl') }}
-        run: sudo apt-get install -y musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
       - name: mesure (compilation à froid, exécution, résultat)
         env:
           TARGET: ${{ matrix.target.triple }}

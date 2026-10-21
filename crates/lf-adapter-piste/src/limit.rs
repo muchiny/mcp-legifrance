@@ -113,7 +113,8 @@ impl<K: MonoClock + Clone, S: Sleeper> RateGate<K, S> {
     /// - [`CorpusError::Timeout`] si le délai est déjà écoulé, ou si aucun permis ne se libère
     ///   avant l'échéance.
     /// - [`CorpusError::RateLimited`] avec `retry_after: Some(attente)` si le prochain crédit
-    ///   tombe après l'échéance (rien n'est attendu), ou si `MAX_CHECKS` est atteint.
+    ///   tombe après l'échéance (l'attente qui dépasserait l'échéance n'est pas dormie ; des
+    ///   attentes plus courtes, prises avant, ont pu l'être), ou si `MAX_CHECKS` est atteint.
     pub(crate) async fn acquire(&self, deadline: &CallDeadline) -> Result<Permit, CorpusError> {
         if deadline.is_expired(&self.clock) {
             return Err(CorpusError::Timeout);
