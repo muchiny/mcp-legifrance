@@ -3,6 +3,7 @@
 /fuzz/corpus
 /fuzz/artifacts
 /fuzz/coverage
+/spikes/tls-provider/target
 mutants.out*/
 .env
 .env.*

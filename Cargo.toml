@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/lf-domain", "crates/lf-application", "crates/lf-adapter-piste", "xtask"]
-exclude = ["fuzz"]
+exclude = ["fuzz", "spikes/tls-provider"]
 
 [workspace.package]
 version = "0.0.0"
