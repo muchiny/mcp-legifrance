@@ -4,6 +4,8 @@
 //! voudrait dire « personne n'a vérifié », pas « aucune lacune » (`coverage.py:1-8`).
 //! Les données déclarées (qui nomment les outils MCP) vivent dans l'adapter MCP.
 
+use std::fmt;
+
 use crate::{date::CivilDate, error::DomainError};
 
 /// État de la source.
@@ -45,6 +47,36 @@ pub struct CoverageGap {
     pub missing: String,
     /// Où aller à la place.
     pub fallback: String,
+}
+
+/// Environnement de l'API PISTE interrogée.
+///
+/// Seul type d'environnement du workspace : il n'existe pas de double (R3), de sorte que
+/// l'adapter PISTE, le cache et l'audit l'emploient sans dépendre les uns des autres.
+/// La lecture de `LF_PISTE_ENV` n'appartient pas au domaine : elle se fait dans `lf-app`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PisteEnvironment {
+    /// Bac à sable de PISTE.
+    Sandbox,
+    /// Production de PISTE.
+    Production,
+}
+
+impl PisteEnvironment {
+    /// Nom de l'environnement, valeur de `LF_PISTE_ENV`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Sandbox => "sandbox",
+            Self::Production => "production",
+        }
+    }
+}
+
+impl fmt::Display for PisteEnvironment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
 }
 
 /// Couverture du connecteur.
@@ -101,8 +133,42 @@ impl Coverage {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn environment_names_are_the_env_values() {
+        assert_eq!(PisteEnvironment::Sandbox.name(), "sandbox");
+        assert_eq!(PisteEnvironment::Production.name(), "production");
+    }
+
+    #[test]
+    fn environment_displays_its_name() {
+        assert_eq!(PisteEnvironment::Sandbox.to_string(), "sandbox");
+        assert_eq!(PisteEnvironment::Production.to_string(), "production");
+    }
+
+    #[test]
+    fn environment_hashes_by_value() {
+        // trois valeurs dont un doublon : l'égalité et l'empreinte vont par valeur
+        let set: HashSet<PisteEnvironment> =
+            [PisteEnvironment::Sandbox, PisteEnvironment::Production, PisteEnvironment::Sandbox]
+                .into_iter()
+                .collect();
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(&PisteEnvironment::Sandbox));
+        assert!(set.contains(&PisteEnvironment::Production));
+        assert_ne!(PisteEnvironment::Sandbox, PisteEnvironment::Production);
+    }
+
+    #[test]
+    fn environment_is_copy() {
+        let a = PisteEnvironment::Production;
+        let b = a; // `a` reste employable : le test cesse de compiler si `Copy` disparaît
+        assert_eq!(a, b);
+    }
 
     fn gap() -> CoverageGap {
         CoverageGap {
