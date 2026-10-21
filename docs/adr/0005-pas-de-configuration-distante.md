@@ -61,7 +61,7 @@
 
 ### À surveiller
 
-- La prise en compte de `HTTPS_PROXY` par reqwest derrière un proxy d'entreprise : **NON VÉRIFIÉ** [V-03 · reqwest-proxy-env].
+- La prise en compte de `HTTPS_PROXY` par reqwest derrière un proxy d'entreprise : honorée (V-03 levé au plan 2c, 04 §4.2) ; la boucle locale n'est contournée qu'avec `NO_PROXY`.
 - Les URL de production n'ont jamais été appelées : **NON VÉRIFIÉ** [V-59 · oauth-production-live].
 - Toute demande future (diagnostic à distance, métriques) exige un **nouvel ADR**, avec un opt-in explicite.
 

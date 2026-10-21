@@ -33,6 +33,11 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - `lf_domain::search` : `QueryText`, `PageSize`, `MatchMode`, `SearchQuery`, `has_more`, `REACHABLE_RESULTS` ; `Fond::needs_version_date`, `Fond::has_date_filter` ; erreurs `EmptyQuery`, `QueryTooLong`, `OutOfRange`, `VersionDateNotApplicable`, `DateFilterNotApplicable`, `PageBeyondReach`.
 - Crate `lf-application` : port `LegalCorpus`, `CorpusError`, `Deadline`.
 - `make purity` (`cargo check -p lf-application`).
+- `lf_domain::coverage::PisteEnvironment`, seul type d'environnement du workspace.
+- Crate `lf-adapter-piste` : configuration validée, client HTTP unique à corps borné (16 Mio après décompression), jeton OAuth 2.0 `client_credentials` mono-vol, classification, réessais par boucle maison (3 tentatives, 2 sur 500, `Retry-After` ; ADR-0017), limiteur de débit et de concurrence, `CallDeadline`, UTF-8 strict et mojibake (`StatsSnapshot`), `PisteCorpus` (appel API, mode dégradé, `check_credentials`).
+- `check-arch` : R6 (crates confinés) et R8 (dev-dependencies).
+- `spikes/tls-provider` et `tls-spike.yml` (matrice TLS à déclencher à la main).
+- `make audit-fuzz` (`cargo-audit` sur `fuzz/Cargo.lock`).
 
 ### Changed
 
@@ -46,6 +51,8 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - `CitationContract::from_url` réservé au crate.
 - `--locked` sur toute commande cargo.
 - `check-arch` : liste fermée et features de `lf-application` (R2), `[lints] workspace = true` (5e), fermeture transitive, doublons critiques (R9) ; graphe résolu complet.
+- `deny.toml` : 7 licences (liste exacte du graphe), exception `NCSA` de `libfuzzer-sys`, wrappers `reqwest` et `governor`.
+- `make deny` et les jobs `deny` couvrent aussi `fuzz/`.
 
 ### Removed
 
@@ -61,6 +68,8 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - Actions GitHub épinglées par SHA, `yanked = "deny"`, bans `openssl`, `openssl-sys`, `native-tls` et `backoff`, cargo-deny chaque nuit.
 - Règle d'âge de 14 jours des dépendances.
 - Politique de signalement `SECURITY.md`.
+- TLS rustls avec aws-lc, à titre provisoire (ADR-0013).
+- `rustls` 0.23.46, `rustls-webpki` 0.103.16 et `webpki-root-certs` 1.0.10 (RUSTSEC-2026-0346 à -0349, -0382, -0383) par l'exception `security-fix` de la règle d'âge, sans `ignore` dans `deny.toml`.
 
 ### Parity
 

@@ -52,7 +52,7 @@ flowchart LR
     end
     DOM[("lf-domain (pur)<br/>IDs · Fond · entités · citations<br/>URLs · dates · texte")]
     CACHE["lf-adapter-cache<br/>CachedCorpus‹C› (moka)"]
-    PISTE["lf-adapter-piste<br/>PisteCorpus : OAuth · reqwest<br/>backon · governor · DTO · mojibake"]
+    PISTE["lf-adapter-piste<br/>PisteCorpus : OAuth · reqwest<br/>governor · DTO · mojibake"]
     AUDIT["lf-adapter-audit<br/>JsonlAuditLog"]
     CLK["lf-app::clock<br/>SystemClock (UTC + Europe/Paris)"]
     DILA["lf-adapter-dila (M9)<br/>DilaCorpus : dumps + tantivy"]
@@ -173,12 +173,13 @@ mcp-legifrance/                      # ex-mcp-ligitfrance, renommé par son prop
 ├── rust-toolchain.toml              # toolchain épinglée 1.99.0 + clippy, rustfmt, llvm-tools-preview (livré : `stable` flottant, à épingler en tête de M2)
 ├── rustfmt.toml                     # livré : max_width = 100, use_small_heuristics = "Max" (newline_style = "Unix" avec la matrice Windows, M2)
 ├── clippy.toml                      # livré : msrv = "1.88.0", allow-unwrap/expect-in-tests ; disallowed-methods ajoutées au jalon de la dépendance (reqwest M2 ; horloge, env, exit M3-M4)
-├── deny.toml                        # cargo-deny : advisories, licenses, bans (wrappers), sources
+├── deny.toml                        # cargo-deny : advisories, licenses (7, liste exacte), bans (wrappers), sources ; `make deny` couvre aussi fuzz/
 ├── dist-workspace.toml              # configuration cargo-dist 0.33 (ou [workspace.metadata.dist]) — 08-distribution
 ├── server.json                      # manifeste du registre MCP (io.github.muchiny/mcp-legifrance, Q1) — 08
 ├── .cargo/config.toml               # alias `cargo xtask`
 ├── .cargo/mutants.toml              # livré : cargo-mutants (profil `mutants`, exclusions prouvées) — 00 §10
-├── fuzz/                            # livré : cibles cargo-fuzz (ids, text), hors workspace, balayage hebdomadaire
+├── fuzz/                            # livré : cibles cargo-fuzz (ids, text), hors workspace, balayage hebdomadaire ; sous `cargo deny` et `cargo audit` (plan 2c)
+├── spikes/tls-provider/             # livré (plan 2c) : banc TLS hors workspace (aws-lc ou ring), binaire `tls-probe`
 ├── .config/nextest.toml             # profils nextest : default, ci, live
 ├── .gitattributes                   # **/tests/fixtures/** -text, tests/jsonrpc/** -text, **/snapshots/** -text (aucune conversion CRLF : sha256 des fixtures stable)
 ├── .gitignore                       # target/, .env, .env.*, *.snap.new, captures locales non versionnées (hygiène : .env et *.snap.new à ajouter tout de suite, 00 §11.1)
@@ -194,6 +195,7 @@ mcp-legifrance/                      # ex-mcp-ligitfrance, renommé par son prop
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml                   # cibles make : fmt-check, lint, test, doc, arch (check-arch), deny, machete, cov (100 %), mutants du diff de PR ; MSRV 1.88 ; matrice Linux/macOS/Windows à partir de M2
+│   │   ├── tls-spike.yml            # livré (plan 2c) : matrice TLS manuelle (7 cibles × aws-lc/ring), `workflow_dispatch` seul
 │   │   ├── weekly.yml               # livré : mutation complète en 4 shards + fuzz hebdomadaire (00 §10)
 │   │   ├── release.yml              # généré par `dist init` (ne pas éditer à la main) — 08
 │   │   ├── release-gates.yml, build-mcpb.yml, publish-oci.yml, publish-mcp-registry.yml …
@@ -225,7 +227,7 @@ mcp-legifrance/                      # ex-mcp-ligitfrance, renommé par son prop
 └── docs/
     ├── plan/                        # ce plan (README.md : index ; 00…09, annexes/) ; annexes/donnees/ : golden de parité et scripts
     │                                # versionnés scripts/golden.py, check_golden.py, dto_repair_check.py (00 §10)
-    ├── adr/                         # README.md + 0001…0016 (0001 et 0002 livrés avec M0 ; 0015 et 0016 = ex-0001/0002 du plan)
+    ├── adr/                         # README.md + 0001…0017 (0001 et 0002 livrés avec M0 ; 0015 et 0016 = ex-0001/0002 du plan ; 0017 : plan 2c)
     ├── superpowers/plans/           # plans exécutables (plan 1 = M0 + M1, livré) ; ils déclinent 07-feuille-de-route.md
     └── recherche/                   # rapports bruts 01…09
 ```
@@ -277,12 +279,13 @@ crates/lf-adapter-piste/          # disposition détaillée : 04 §1.5 (fait foi
 │                     # encoding.rs (UTF-8 strict puis réparation du mojibake par lf_domain::text::encoding, fonction pure
 │                     # reliquat de M1 à livrer en tête de M2, 00 §11.1 ; le nom `encoding.rs` est celui de 04 §1.5, qui fait foi :
 │                     # l'ancien nom `mojibake.rs` de ce document est abandonné),
-│                     # classify.rs (statut + corps → CorpusError), retry.rs (backon, Retry-After),
+│                     # classify.rs (statut + corps → CorpusError), retry.rs (boucle maison, Retry-After),
 │                     # deadline.rs (lecture de lf_application::deadline::Deadline), limit.rs (sémaphore + governor),
-│                     # time.rs (MonoClock, Sleeper), request/, dto/, map/, memo.rs (PaginationMemo ; CodeTable en M6),
-│                     # corpus.rs (impl LegalCorpus)
+│                     # stats.rs (compteurs), time.rs (MonoClock, Sleeper, race), request/, dto/ (mod.rs, de.rs, oauth.rs livrés ; DTO métier au plan 2d),
+│                     # map/, memo.rs (PaginationMemo ; CodeTable en M6),
+│                     # corpus.rs (`PisteCorpus`, `post_json` ; `impl LegalCorpus` au plan 2d)
 ├── examples/record_fixture.rs   # feature `record`, lancé par `cargo xtask record-fixture` (M2 ; identifiants requis, 04 §13.4)
-└── tests/            # fixtures/{reference,recorded,synthetic}/, live.rs (#[ignore]), golden et compléments : 04 §13, 06 §1.4. Mapping DTO, classement HTTP → CorpusError, retry, scénarios wiremock : `#[cfg(test)] mod tests` du crate (mesurés par `make cov`, qui passe `--lib`, 06 §1.4) ; la glue HTTP irréductible est exclue nommément (`--ignore-filename-regex`, M2)
+└── tests/            # fixtures/{reference,recorded,synthetic}/, live.rs (#[ignore]), golden et compléments : 04 §13, 06 §1.4. Mapping DTO, classement HTTP → CorpusError, retry, scénarios wiremock : `#[cfg(test)] mod tests` du crate (mesurés par `make cov`, qui passe `--lib`, 06 §1.4) ; aucune exclusion de couverture n'a été nécessaire (plan 2c)
 crates/lf-adapter-cache/src/      # lib.rs, corpus.rs (CachedCorpus), key.rs (CacheKey, Op), policy.rs (TTL, capacité),
                                   # expiry.rs (impl moka::Expiry), weight.rs (trait Weigh)
 crates/lf-adapter-audit/src/      # lib.rs, log.rs (JsonlAuditLog), line.rs (sérialisation ordonnée), hash.rs (SHA-256),
@@ -329,7 +332,7 @@ xtask/src/                # livré : main.rs, lib.rs, arch.rs (check-arch : list
 | `rust-toolchain.toml` | `channel = "1.99.0"`, `components = ["clippy", "rustfmt", "llvm-tools-preview"]`, `profile = "minimal"`. `llvm-tools-preview` est indispensable à `make cov`. **Tâche de tête de M2 (00 §11.1, décision C5)** : le livré est `channel = "stable"` (rust-toolchain.toml:1-3) ; il faut aussi aligner les 5 étapes `dtolnay/rust-toolchain@stable` (ci.yml, weekly.yml). Raison : la prochaine stable peut casser `clippy::pedantic` sous `-D warnings` ou changer le comptage des régions de couverture sans changement de code. La date de sortie de 1.99.0 est **NON VÉRIFIÉE** [V-16 · date-rust-1-99] ; seul le tag `1.99.0` est attesté (recherche 04 §5.2). | 00-decisions §2 |
 | `rustfmt.toml` | Livré : `max_width = 100`, `use_small_heuristics = "Max"` (`style_edition` est déduit de l'édition 2024) ; `newline_style = "Unix"` s'ajoute avec la matrice Windows (M2). Uniquement des options stables : rmcp utilise des options nightly, qu'on ne reprend pas. | recherche 04 §5.2 |
 | `clippy.toml` | Livré : `msrv = "1.88.0"`, `allow-unwrap-in-tests = true`, `allow-expect-in-tests = true`. `disallowed-methods`, à ajouter au jalon qui introduit la dépendance (reqwest en M2 ; horloge et environnement en M3-M4) : `chrono::Utc::now`, `chrono::Local::now`, `std::time::SystemTime::now` (passer par le port `Clock`) ; `std::env::var`, `std::env::var_os`, `std::env::vars` (lecture réservée à `lf-app::config`) ; `std::process::exit` (sortie gérée par `main`). Chaque usage légitime porte un `#[expect(clippy::disallowed_methods, reason = "…")]` local. La correspondance des chemins ré-exportés de chrono (`chrono::Utc` = `chrono::offset::Utc`) est **NON VÉRIFIÉE** [V-13 · clippy-disallowed-chrono]. | D-19, D-42 |
-| `deny.toml` | Voir §4.3. `[graph] all-features = true`. Advisories : `yanked = "deny"`, `unmaintained` à sa valeur par défaut (`"all"`, plus strict que `"workspace"`). Licences : liste blanche compatible Apache-2.0, ce qui exclut de fait l'AGPL, élargie en M2 d'après `cargo deny list` (livré : MIT, Apache-2.0, Unicode-3.0). Bans : `wrappers` au jalon où chaque crate confiné entre dans le graphe ; `openssl`, `openssl-sys`, `native-tls` et `backoff` refusés. Sources : crates.io seulement. | 00-decisions §10, §12 |
+| `deny.toml` | Voir §4.3. `[graph] all-features = true`. Advisories : `yanked = "deny"`, `unmaintained` à sa valeur par défaut (`"all"`, plus strict que `"workspace"`). Licences : liste blanche compatible Apache-2.0, ce qui exclut de fait l'AGPL, livrée au plan 2c : 7 licences (liste exacte du graphe), exception `NCSA` de `libfuzzer-sys`, `ignore = []`. Bans : `wrappers` au jalon où chaque crate confiné entre dans le graphe ; `openssl`, `openssl-sys`, `native-tls` et `backoff` refusés ; wrappers `reqwest` et `governor` livrés. Sources : crates.io seulement. `make deny` couvre aussi `fuzz/`. | 00-decisions §10, §12 |
 | `.cargo/config.toml` | `[alias] xtask = "run --package xtask --quiet --"`. L'éventuel CRT statique Windows est tranché dans [08-distribution.md](08-distribution.md). | 00-decisions §2 |
 | `.config/nextest.toml` | M2, avec `--profile ci` dans la CI. Profil `ci` : `fail-fast = false`, `slow-timeout`. Profil `live` : uniquement les tests `#[ignore]`, `test-threads = 1` pour ménager le quota PISTE. | 00-decisions §10 |
 | `dist-workspace.toml` | Configuration de cargo-dist 0.33.0. Le livre accepte `dist-workspace.toml` ou `[workspace.metadata.dist]` (book `reference/config.md:8-11`). Le fichier réellement produit par `dist init` pour un workspace Rust est **NON VÉRIFIÉ** [V-169 · cargo-dist-emplacement-config] (08 §2.1 l'a lu dans le code d'`init.rs` ; confirmation au premier `dist init`, M4). Archives et installeurs portent le nom du paquet `mcp-legifrance` (§3.7). | 00-decisions §12 |
@@ -366,20 +369,19 @@ Versions relues dans l'index sparse crates.io le 2026-10-15 (recherche 04 §4.1,
 | `rmcp` | `=3.5.1` | 1.88 | 2026-10-05 ⚠ (éligible le 2026-10-19) | lf-adapter-mcp (dev : idem avec `client`) | features par défaut (`base64`, `macros`, `server` ; `server` active `schemars`) + `transport-io` ; `transport-streamable-http-server` en M8 seulement. Ni `request-state`, ni `elicitation`, ni `auth` (recherche 09 §7a). Épinglé exactement, comme rmcp-macros : ce sont les deux seuls crates dans ce cas (00 §6). Il reste soumis à la règle d'âge : verrou au jalon qui l'introduit, pas avant le 2026-10-19 (00 §2). |
 | `rmcp-macros` | `=3.5.1` | 1.88 | 2026-10-05 ⚠ (éligible le 2026-10-19) | lf-adapter-mcp | rmcp 3.5.1 déclare `rmcp-macros = { version = "3.5.1" }`, une exigence **caret** (`Cargo.toml` racine du tag `rmcp-v3.5.1`, ligne 9, vérifié). Sans épinglage direct, un `cargo update` pourrait associer rmcp 3.5.1 à un rmcp-macros plus récent. Le crate est déclaré mais pas utilisé directement : `[package.metadata.cargo-machete] ignored = ["rmcp-macros"]`. C'est la seule exception à la règle des squelettes (une dépendance n'est déclarée que lorsqu'un code l'emploie, 00 §2 ; §3.0.2). |
 | `schemars` | `1.2.3` | 1.74 | 2026-10-12 ⚠ (éligible le 2026-10-26) | lf-adapter-mcp | 1.x imposé par rmcp (`schemars ^1.0`, feature `chrono04`). Dépendance directe nécessaire, car le derive émet des chemins `schemars::…`. Exigence `"1.2"`. Le lint `unused_qualifications` exige ≥ 1.2.3 (recherche 04 §2.16) : il reste désactivé tant que le verrou retient une version antérieure, 1.2.2 avant le 2026-10-26 (00 §2, R-22). |
-| `serde` | `1.0.229` | 1.56 | 2026-07-18 | adapters, lf-app | `derive`. Interdit dans lf-domain et lf-application (00 §2, §4). |
+| `serde` | `1.0.229` | 1.56 | 2026-07-18 | adapters, lf-app | `["derive"]` (adapter PISTE : DTO d'OAuth). Interdit dans lf-domain et lf-application (00 §2, §4). |
 | `serde_json` | `1.0.154` | 1.71 | 2026-10-11 ⚠ (éligible le 2026-10-25) | adapters, lf-app, xtask | Interdit dans lf-domain et dans lf-application (liste fermée de 00 §2, §4). |
 | `serde_path_to_error` | `0.1.20` | 1.61 | 2025-09-15 | lf-adapter-piste, lf-adapter-mcp | chemin JSON fautif dans `Decode` et `InputError` (recherche 03 §8). |
 | `thiserror` | `2.0.21` | 1.77 | 2026-09-23 | tous les crates bibliothèques | |
-| `tokio` | `1.53.3` | 1.71 | 2026-10-13 ⚠ (éligible le 2026-10-27) | plusieurs (ci-contre) | `default-features = false` au workspace (la valeur par défaut de tokio est déjà vide). Features par membre : lf-application `time`, `macros`, `rt` (`rt` pour `tokio::task_local!` seulement, `Deadline`, 00 §2-§3) ; lf-adapter-piste `time`, `sync` ; lf-adapter-audit `sync` (canal et accusé ; le fil d'écriture est un `std::thread`) ; lf-adapter-mcp `macros`, `io-std` (`tokio::io::stdin()`/`stdout()` de l'`AsyncRwTransport` enveloppé, §3.6 ; rmcp l'active aussi via `transport-io`, `crates/rmcp/Cargo.toml:176` du tag `rmcp-v3.5.1`, vérifié) ; lf-app `rt-multi-thread`, `macros`, `signal`, `sync`, `time` ; tests : `test-util`, `io-util`. |
+| `tokio` | `1.53.3` | 1.71 | 2026-10-13 ⚠ (éligible le 2026-10-27) | plusieurs (ci-contre) | `default-features = false` au workspace (la valeur par défaut de tokio est déjà vide). Features par membre : lf-application `time`, `macros`, `rt` (`rt` pour `tokio::task_local!` seulement, `Deadline`, 00 §2-§3) ; lf-adapter-piste `time`, `sync` (dev : `macros`, `rt`, `rt-multi-thread`, `test-util`) ; lf-adapter-audit `sync` (canal et accusé ; le fil d'écriture est un `std::thread`) ; lf-adapter-mcp `macros`, `io-std` (`tokio::io::stdin()`/`stdout()` de l'`AsyncRwTransport` enveloppé, §3.6 ; rmcp l'active aussi via `transport-io`, `crates/rmcp/Cargo.toml:176` du tag `rmcp-v3.5.1`, vérifié) ; lf-app `rt-multi-thread`, `macros`, `signal`, `sync`, `time` ; tests : `test-util`, `io-util`. |
 | `tokio-util` | `0.7.20` | 1.85 | 2026-10-09 ⚠ (éligible le 2026-10-23) | lf-adapter-mcp, lf-app | `CancellationToken`, que rmcp ne ré-exporte pas (recherche 04 §4.1). |
 | `futures` | `0.3.34` | 1.71 | 2026-08-11 | lf-application | `default-features = false`, `["std", "async-await"]` : `join_all` et `buffer_unordered` (M6, M7). |
-| `reqwest` | `0.13.5` | 1.85 | 2026-09-08 | lf-adapter-piste | Liste de 04 §1.4 (00 §8). Workspace : `default-features = false`, `["json", "form"]` ; lf-adapter-piste ajoute `gzip`, `system-proxy` et la feature TLS retenue au spike de tête de M2 (`rustls`, ou `rustls-no-provider`). Ni `charset` (décodage UTF-8 strict depuis les octets, avant la réparation du mojibake), ni `http2`. `form` est indispensable au POST OAuth et n'est plus activée par défaut en 0.13 ; `rustls-tls` s'appelle désormais `rustls` ; `default-features = false` retire aussi `system-proxy`, d'où sa déclaration explicite (recherche 04 §4.1, §4.2). Variante `ring` : `rustls-no-provider` + `rustls` 0.23.46 (ligne suivante) + `install_default()` au démarrage, faute de quoi reqwest panique. Le choix final est un spike de tête de M2 (00 §11.1) : **NON VÉRIFIÉ** [V-02 · tls-fournisseur-cross] (R-09, V-02). `reqwest::Url` (ré-export de `url` 2.5.8) sert à la validation de la configuration : pas de dépendance directe à `url`. |
-| `rustls` (option `ring`) | `0.23.46` | 1.71 | 2026-10-14 ⚠ (éligible le 2026-10-28) | lf-adapter-piste | Seulement si `rustls-no-provider` est retenu : `default-features = false`, `["ring", "std", "tls12", "logging"]` (04 §1.4 ; recherche 04 §4.1). |
+| `reqwest` | `0.13.5` | 1.85 | 2026-09-08 | lf-adapter-piste | Liste de 04 §1.4 (00 §8). Workspace : `default-features = false`, `["json", "form"]` ; lf-adapter-piste ajoute `gzip`, `system-proxy` et `rustls` (option A, aws-lc, **provisoire** : plan 2c, ADR-0013 §7). Ni `charset` (décodage UTF-8 strict depuis les octets, avant la réparation du mojibake), ni `http2`. `form` est indispensable au POST OAuth et n'est plus activée par défaut en 0.13 ; `rustls-tls` s'appelle désormais `rustls` ; `default-features = false` retire aussi `system-proxy`, d'où sa déclaration explicite (recherche 04 §4.1, §4.2). Variante `ring` : `rustls-no-provider` + `rustls` 0.23.46 (ligne suivante) + `install_default()` dans `finish_client`, faute de quoi reqwest panique dans `Client::build()` (jamais une erreur `Config`). Choix A provisoire (plan 2c) ; V-02 **partiel** (09 §2.20 ; R-09). `reqwest::Url` (ré-export de `url` 2.5.8) sert à la validation de la configuration : pas de dépendance directe à `url`. |
+| `rustls` (option `ring`) | `0.23.46` | 1.71 | 2026-10-14 ⚠ (éligible le 2026-10-28) | lf-adapter-piste | Seulement si `rustls-no-provider` est retenu : `default-features = false`, `["ring", "std", "tls12", "logging"]` (04 §1.4 ; recherche 04 §4.1). Verrouillé en 0.23.46 par le plan 2c (exception `security-fix`, 00 §2), comme dépendance transitive de `reqwest` ; direct seulement sous B. |
 | `secrecy` | `0.10.3` | 1.60 | 2024-10-09 | lf-adapter-piste, lf-app | `SecretString` ; `Debug` affiche `[REDACTED]`. lf-adapter-piste active la feature `serde` : le jeton OAuth est désérialisé directement en `SecretString` (04 §3.2, 00 §8). |
-| `backon` | `1.6.0` | 1.85 | 2025-10-18 | lf-adapter-piste | Workspace : `default-features = false`, `["std"]` ; lf-adapter-piste n'active que `std` ; `tokio-sleep` seulement si le spike de tête de M2 montre que backon l'exige (04 §1.4, propriétaire des features), inutile si toutes les attentes passent par le `Sleeper` du crate (04 §5.2). L'API exacte de backon 1.6 est **NON VÉRIFIÉ** [V-06 · backon-api] ; le choix se fait au spike de tête de M2. |
-| `governor` | `0.10.4` | — | 2025-12-16 | lf-adapter-piste | `default-features = false`, `["std"]` seule (00 §8 ; 04 §1.4) : horloge injectée bâtie sur `MonoClock`, consultée par `check()` ; ni `quanta`, ni `jitter`, ni `dashmap` (limiteurs à clés, inutiles ici). `until_ready` n'est pas utilisé : ses attentes passent par `futures_timer` et échappent au délai global (`state/direct/future.rs:11-30` du tag `v0.10.4`, vérifié ; §3.3). |
+| `governor` | `0.10.4` | — | 2025-12-16 | lf-adapter-piste | `default-features = false`, `["std"]` seule (00 §8 ; 04 §1.4) : horloge injectée bâtie sur `MonoClock`, consultée par `check()` ; ni `quanta`, ni `jitter`, ni `dashmap` (limiteurs à clés, inutiles ici). La feature `std` tire aussi `futures-timer`, `futures-util`, `futures-sink` et `parking_lot`, jamais sollicités ; `Quota::per_second(rps).allow_burst(burst)` ; `Duration` sert d'instant ; V-07 levée (plan 2c, 09 §2.20). `until_ready` n'est pas utilisé : ses attentes passent par `futures_timer` et échappent au délai global (`state/direct/future.rs:11-30` du tag `v0.10.4`, vérifié ; §3.3). |
 | `moka` | `0.12.16` | 1.71.1 | 2026-08-09 | lf-adapter-cache | `["future"]`. La valeur par défaut est vide. |
-| `chrono` | `0.4.45` | 1.62 | 2026-06-04 | lf-application, adapters (**pas lf-domain** : le domaine a `CivilDate`, ADR-0011 amendé) | `default-features = false`, `["std"]` au workspace ; **lf-app seul** ajoute `clock`. Déjà présent dans le graphe via rmcp (`now`, `serde`) : l'unification des features rend `Utc::now` compilable partout, d'où `clippy.toml` et le job de pureté (§4.4). |
+| `chrono` | `0.4.45` | 1.62 | 2026-06-04 | lf-application, adapters (**pas lf-domain** : le domaine a `CivilDate`, ADR-0011 amendé) | `default-features = false`, `["std"]` au workspace ; **lf-app seul** ajoute `clock` ; lf-adapter-piste : `std` seul, pour `parse_from_rfc2822` (`Retry-After`, 04 §5.2). Déjà présent dans le graphe via rmcp (`now`, `serde`) : l'unification des features rend `Utc::now` compilable partout, d'où `clippy.toml` et le job de pureté (§4.4). |
 | `chrono-tz` | `0.10.4` | 1.65 | 2025-07-11 | lf-app (`SystemClock`), lf-adapter-piste (midi Europe/Paris de `DATE_VERSION`, 00 §8) | Base IANA embarquée à la compilation. |
 | `unicode-normalization` | `0.1.25` | 1.36 | 2025-10-30 | lf-domain, **à partir de M6** (NFC) par ADR ; M5 seulement si un retrait maison des marques combinantes ne suffit pas | |
 | `winnow` | `1.0.4` | 1.65 | 2026-07-13 | lf-domain, à partir de M6, par ADR | API 1.0 : les tutoriels 0.6/0.7 ne s'appliquent pas tels quels. |
@@ -388,16 +390,18 @@ Versions relues dans l'index sparse crates.io le 2026-10-15 (recherche 04 §4.1,
 | `similar` | `3.2.0` | 1.85 | 2026-08-17 | lf-application (M7) | `fr_diff_article`. N'entre pas dans lf-domain (liste blanche `thiserror` seul, élargie par ADR). |
 | `sha2` / `hex` | `0.11.1` / `0.4.3` | 1.88 / — | 2026-10-12 ⚠ (éligible le 2026-10-26) / 2021-03-03 | lf-adapter-audit, xtask | API `digest 0.11` **NON VÉRIFIÉE** [V-05 · api-sha2-0-11] ; 0.11.0 (2026-03-25, MSRV 1.85), retenue par un verrou fait avant le 2026-10-26. |
 | `fs4` | `1.1.0` | 1.75 | 2026-04-28 | lf-adapter-audit | verrou consultatif inter-processus sur `.mcp-legifrance.lock`, pris pour chaque ligne (00 §2, §7 ; §3.5). |
-| `tracing` | `0.1.44` | 1.65 | 2025-12-18 | tous sauf lf-domain | |
-| `tracing-subscriber` | `0.3.23` | 1.65 | 2026-03-13 | lf-app | `default-features = false`, `["std", "fmt", "env-filter", "smallvec", "tracing-log"]` (sans `ansi`). `env-filter` ne fait pas partie des features par défaut. |
+| `tracing` | `0.1.44` | 1.65 | 2025-12-18 | tous sauf lf-domain | `["std"]`, sans `attributes` (adapter PISTE : `warn!` du mojibake). |
+| `tracing-subscriber` | `0.3.23` | 1.65 | 2026-03-13 | lf-app ; dev de lf-adapter-piste | `default-features = false`, `["std", "fmt", "env-filter", "smallvec", "tracing-log"]` (sans `ansi`). `env-filter` ne fait pas partie des features par défaut. Dev de l'adapter PISTE : `["std", "fmt"]` seulement (captation du `warn!`). |
 | `clap` | `4.6.7` | 1.85 | 2026-09-14 | lf-app | `derive`. Pas de feature `env` : la lecture de l'environnement est centralisée dans `config.rs`. |
 | `dirs` | `6.0.0` | — | 2025-01-12 | lf-app | `data_dir()` donne le défaut de `LF_AUDIT_DIR`. 7.0.0 existe (2026-09-05, nouvelle majeure non évaluée). |
 | `anyhow` | `1.0.104` | 1.68 | 2026-07-18 | lf-app, xtask | jamais dans un crate bibliothèque. |
 | `toml` | `1.1` (verrou `1.1.6+spec-1.1.0`) | 1.85 | 2026-09-10 | xtask (lecture de `[lints] workspace = true`, 5e) | Exigence `"1.1"`, `default-features = false`, features `std`, `parse`, `serde` : remplace 0.9.8. `cargo_metadata` n'est pas retenu : `cargo metadata` est lu en JSON par `serde_json`. |
 | `jsonschema` | `0.58.6` | 1.85 | 2026-10-06 ⚠ (éligible le 2026-10-20) | xtask (validité 2020-12 des schémas dans `lock-descriptors`, 05 §9.2) ; dev des adapters | **`default-features = false`** (voir la ligne dev ci-dessous). |
 | `axum` (M8) | `0.8.9` | 1.80 | 2026-04-14 | lf-adapter-mcp (feature `http`) | utilisé par les exemples rmcp. |
-| `tantivy`, `quick-xml`, `tar`, `flate2` (M9) | `0.26.2`, `0.42.0`, `0.4.46`, `1.1.10` | 1.86, 1.86, 1.63, 1.67 | 2026 | lf-adapter-dila | |
+| `tantivy`, `quick-xml`, `tar`, `flate2` (M9) | `0.26.2`, `0.42.0`, `0.4.46`, `1.1.10` | 1.86, 1.86, 1.63, 1.67 | 2026 | lf-adapter-dila ; dev de lf-adapter-piste (flate2) | Dev de l'adapter PISTE (livré, plan 2c) : `flate2` 1.1.10 (`rust_backend`, corps gzip des tests) ; R6 le confine à `lf-adapter-dila` pour les dépendances normales et de build seulement. |
 | dev : `wiremock`, `insta`, `proptest`, `tempfile`, `assert_cmd`, `predicates`, `jsonschema` | `0.6.5`, `1.49.0` ⚠, `1.12.0` ⚠, `3.27.0`, `2.2.2`, `3.1.4`, `0.58.6` ⚠ | —, 1.66, 1.88, 1.63, 1.85, 1.74, 1.85 | `insta` 2026-10-03 (éligible le 2026-10-17) ; `proptest` 2026-10-10 (éligible le 2026-10-24) ; `jsonschema` : ligne ci-dessus | selon les crates | `insta` : `["json", "redactions"]`. `proptest` : `1.12.0` est déjà verrouillé par M0 (écart accepté, R-22, dépendance de test) ; exigence `"1.12"`. `jsonschema` : **`default-features = false`**, car ses features par défaut (`resolve-http`, `resolve-file`, `tls-aws-lc-rs`, `idna`) tirent `reqwest` (index, version 0.58.6, vérifié), ce qui violerait R6 et le ban `cargo-deny` du §4.3. |
+
+`backon` 1.6.0 n'est pas retenu (spike V-06, plan 2c ; ADR-0017) : gigue injectable seulement par `with_jitter_seed`, `Sleeper` `'static` ; la boucle maison (~25 lignes) n'ajoute aucune dépendance. Livré au plan 2c pour l'adapter PISTE : `reqwest`, `secrecy`, `governor`, `chrono`, `tokio`, `tracing`, `serde`, `serde_json`, `thiserror` ; dev `wiremock` 0.6.5, `flate2` 1.1.10, `tracing-subscriber`. Les autres lignes (`serde_path_to_error`, `chrono-tz`, `insta`, `proptest`) entrent au plan 2d.
 
 **MSRV 1.88** (00-decisions §2, 09 §3.16.4 ; Cargo.toml:9, clippy.toml:1, job MSRV de ci.yml) : c'est le vrai plancher imposé par rmcp 3.5.1 (1.88), proptest 1.12 (1.88) et sha2 0.11.1 (1.88). cargo-nextest 0.9.148 demande 1.91 mais s'installe **en binaire** : il ne contraint pas la MSRV. uuid ≥ 1.27 exige 1.89 (1.27.0 et 1.28.0 déclarent `rust_version = 1.89.0` dans l'index) et rmcp tire `uuid ^1` via `server` ; avec `resolver = "3"` (Cargo.toml:2), la résolution tient compte de la MSRV et devrait retenir un uuid compatible 1.88 (**à confirmer** par `cargo +1.88 check` au premier ajout de rmcp, M4). Si le job MSRV casse à l'arrivée de rmcp, la MSRV est réévaluée par un ADR (1.89 ou 1.91), pas avant. La **toolchain**, elle, est épinglée sur 1.99.0 (§2.2) : MSRV et toolchain sont deux choses distinctes.
 
@@ -413,6 +417,7 @@ members = [
   "crates/lf-app", "xtask",
   # "crates/lf-adapter-dila",        # M9
 ]
+exclude = ["fuzz", "spikes/tls-provider"]    # livré (plan 2c) : bancs hors workspace, verrous propres
 
 [workspace.package]
 version = "0.0.0"                      # livré ; 0.1.0 en M5
@@ -423,7 +428,7 @@ license = "Apache-2.0"
 repository = "https://github.com/muchiny/mcp-legifrance"    # Q1 décidée le 2026-10-16 (livré : Cargo.toml:11)
 
 [workspace.dependencies]
-# internes : pas de publication crates.io en v0.x (00 §12, Q13 ; crates.io tranché en M5, `publish = false` d'ici là). Livré : `lf-domain` (plan 2b).
+# internes : pas de publication crates.io en v0.x (00 §12, Q13 ; crates.io tranché en M5, `publish = false` d'ici là). Livré : `lf-domain` (plan 1), `lf-application` (plan 2b), `lf-adapter-piste` (plan 2c, tâche 2).
 # `version` reste déclaré et suit `[workspace.package] version` à chaque release (08 §7.3) ; check-arch contrôlera l'égalité (étape 5 de §4.2, programmée en tête de M2)
 lf-domain        = { path = "crates/lf-domain",        version = "=0.1.0" }
 lf-application   = { path = "crates/lf-application",   version = "=0.1.0" }
@@ -444,7 +449,10 @@ chrono  = { version = "0.4", default-features = false, features = ["std"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "form"] }   # + gzip, system-proxy, TLS : membre
 rustls  = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] } # option ring seulement
 governor = { version = "0.10", default-features = false, features = ["std"] }
-backon  = { version = "1.6", default-features = false, features = ["std"] }               # tokio-sleep seulement si le spike de tête de M2 l'exige (04 §1.4)
+serde   = { version = "1.0", default-features = false, features = ["derive"] }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+wiremock = "0.6.5"                                                                        # dev
+flate2  = { version = "1", default-features = false, features = ["rust_backend"] }        # dev de l'adapter PISTE ; dila (M9) en dépendance normale
 secrecy = "0.10"                                                                          # + serde : lf-adapter-piste
 moka    = { version = "0.12", features = ["future"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "fmt", "env-filter", "smallvec", "tracing-log"] }
@@ -520,7 +528,7 @@ Deux points sont à mesurer au premier `cargo clippy` du spike rmcp (**avant la 
   - appels : `ToolCall<I>`, `CanonicalInput`, `InputError`, puis une entrée et une sortie par outil (`SearchInput`/`SearchOutput`, …), `AuditMetric` ;
   - façade et décorateur : `LegalService`, `ServiceSettings`, `ConfigurationState`, `Audited`, `AuditMode`, `CallMeta`, `Deadline`, `ResponseBudget`, `ReadingRequest` ;
   - noms et erreurs : `ToolName`, `AppError`, `ErrorCode`, `UpstreamCause`.
-  - Ré-exports : `pub use lf_domain::PisteEnvironment` (et les types de domaine cités par les ports). Grâce à eux, `lf-adapter-audit` n'a pas besoin de dépendre directement de `lf-domain` (décision §2).
+  - Ré-exports : `pub use lf_domain::coverage::PisteEnvironment` (non livré : premier consommateur hors adapter, plan 2d) (et les types de domaine cités par les ports). Grâce à eux, `lf-adapter-audit` n'a pas besoin de dépendre directement de `lf-domain` (décision §2).
 - **Dépendances (liste fermée, 00 §2, vérifiée par `cargo xtask check-arch`)** :
   - `lf-domain`, `thiserror`, `chrono` (`std`) et `tracing` ;
   - `tokio` avec **seulement** `time`, `macros` et `rt` : `tokio::time::timeout` (délai global), `tokio::time::Instant` (durée mesurable en temps suspendu dans les tests D-03) et `tokio::task_local!` pour `Deadline`. `rt` n'est admis que pour `task_local!` : l'application ne lance aucune tâche et ne construit aucun runtime (§13). `task_local!` ne demande que la feature `rt` : son module est déclaré dans le bloc `cfg_rt!` de `tokio/src/task/mod.rs:277-331` (`mod task_local`, ligne 307, tag `tokio-1.53.3`, vérifié), et `task_local.rs` n'importe que `std` et `pin_project_lite`. `cargo check -p lf-application` seul le confirme à la compilation en M2, à la création de `lf-application` (§4.4) ;
@@ -540,24 +548,24 @@ Deux points sont à mesurer au premier `cargo clippy` du spike rmcp (**avant la 
 - **Responsabilité** : `PisteCorpus: LegalCorpus` ([00-decisions §8](00-decisions.md#8-adapter-piste-lf-adapter-piste)). Il couvre :
   - l'OAuth2 `client_credentials` paresseux, mono-vol, renouvelé 60 s avant expiration ;
   - un seul `reqwest::Client`, avec des timeouts de 10 s à la connexion et de `LF_HTTP_TIMEOUT_S` (40 s) par requête ;
-  - les retries `backon` : 3 tentatives au plus sur 429, 502, 503, 504 et les erreurs réseau ; 2 au plus sur 500, puis `Upstream { status: 500, retryable: false }` (un 500 répété est présumé déterministe, V-69) ; gigue, respect de `Retry-After` (≤ 30 s), plafond fixé par `LF_TOOL_DEADLINE_S` (00 §8). `Retry-After` est lu en secondes, ou en date HTTP convertie en délai par différence avec l'en-tête `Date` de la même réponse, sans horloge murale ; une date HTTP sans `Date` exploitable est ignorée et l'attente revient au backoff (04 §5.2). La présence de ces deux en-têtes chez PISTE est **NON VÉRIFIÉE** [V-63 · retry-after-piste] ;
+  - la boucle de réessai maison (`retry.rs`, ADR-0017) : 3 tentatives au plus sur 429, 502, 503, 504 et les erreurs réseau ; 2 au plus sur 500, puis `Upstream { status: 500, retryable: false }` (un 500 répété est présumé déterministe, V-69) ; gigue, `Retry-After` (> 30 s : échec immédiat, pas d'attente), plafond fixé par `LF_TOOL_DEADLINE_S` (00 §8). `Retry-After` est lu en secondes, ou en date HTTP convertie en délai par différence avec l'en-tête `Date` de la même réponse, sans horloge murale ; une date HTTP sans `Date` exploitable est ignorée et l'attente revient au backoff (04 §5.2). La présence de ces deux en-têtes chez PISTE est **NON VÉRIFIÉE** [V-63 · retry-after-piste] ;
   - le respect du délai global : lecture de `lf_application::deadline::Deadline` (durée restante, convertie dans l'horloge monotone de l'adapter à l'entrée de la méthode du port) ; aucune tentative ni attente programmée au-delà (00 §3) ;
   - le limiteur `governor` du processus, consulté par `check()` avant chaque tentative (jamais `until_ready`), et un sémaphore de `LF_PISTE_CONCURRENCY` requêtes en vol ;
   - des DTO serde minimaux, le mapping DTO → domaine et l'application au corps de la réparation du mojibake (fonction pure `lf_domain::text::encoding::repair_latin1_mojibake`, reliquat de M1 : tâche de tête de M2 ; interrupteur `LF_PISTE_MOJIBAKE_REPAIR`) ;
   - la construction des requêtes `/search`, avec le `PaginationMemo` (`typePagination`, 00 §7), et la table des codes (M6).
   - Le détail est dans [04-adapter-piste.md](04-adapter-piste.md), qui fait foi pour les internes du crate et ses fixtures (00 §0).
-- **Modules** : disposition de 04 §1.5 (fait foi), reprise au §2.1. Seuls `PisteCorpus` et les types de configuration sont publics ; `auth`, `http`, `encoding`, `classify`, `retry`, `deadline`, `limit`, `time`, `request`, `dto`, `map` et `memo` restent privés.
+- **Modules** : disposition de 04 §1.5 (fait foi), reprise au §2.1. Seuls `PisteCorpus`, les types de configuration et `StatsSnapshot` sont publics (ré-exports de `lib.rs`) ; `auth`, `config`, `corpus`, `http`, `encoding`, `stats`, `classify`, `retry`, `deadline`, `limit`, `time`, `request`, `dto`, `map` et `memo` restent des modules privés.
 - **Types exportés** (liste et méthodes : 04 §1.3 et §1.5) :
-  - `PisteCorpus<K: MonoClock = TokioClock, S: Sleeper = TokioSleeper>`, générique sur ses horloges internes pour les tests ; `PisteConfig`, `PisteEndpoints` (URLs sandbox et production de la décision §8), `RateQuota`, `StatsSnapshot`. L'environnement est le `lf_domain::PisteEnvironment` (`PisteConfig.env`, `PisteCorpus::environment()`), jamais un type propre à l'adapter : `lf-adapter-cache` et `lf-application` l'utilisent sans dépendre de l'adapter (R3).
-  - `PisteCorpus::new(config) -> Self`. Il ne fait aucune E/S ; le client HTTP est construit au premier appel. Le coût de construction (racines TLS via `rustls-platform-verifier`) est **NON VÉRIFIÉ** [V-04 · cout-init-reqwest].
+  - `PisteCorpus<K: MonoClock + Clone = TokioClock, S: Sleeper + Clone = TokioSleeper>`, générique sur ses horloges internes pour les tests (livré, plan 2c : `K` et `S` sont `Clone`) ; `PisteConfig`, `PisteEndpoints` (URLs sandbox et production de la décision §8), `PisteCredentials`, `RateQuota`, `ConfigWarning`, `ConfigProblem` et `StatsSnapshot { mojibake_repairs, mojibake_unrepaired }` (`#[non_exhaustive]`). Les traits de temps `MonoClock` et `Sleeper` (avec `TokioClock` et `TokioSleeper`) sont `pub` dans le module privé `time` : ils paraissent dans la signature publique sans être nommables hors du crate (écart de forme du plan 2c). L'environnement est le `lf_domain::coverage::PisteEnvironment` (`PisteConfig.env`, `PisteCorpus::environment()`), jamais un type propre à l'adapter : `lf-adapter-cache` et `lf-application` l'utilisent sans dépendre de l'adapter (R3).
+  - `PisteCorpus::new(config) -> Self`. Il ne fait aucune E/S ; le client HTTP est construit au premier appel. Le coût de construction (racines TLS via `rustls-platform-verifier`) est d'environ 38 ms en profil dev (4 à 5 ms en release), payé une fois par processus (V-04 levé, plan 2c, 09 §2.20).
   - `PisteCorpus::check_credentials(&self) -> Result<(), CorpusError>`, méthode inhérente hors port, utilisée par `check-config --online`.
-  - `PisteCorpus::mojibake_repairs(&self) -> u64` et `stats()`, compteurs en mémoire, jamais exportés (ADR-0005).
-- **Dépendances** (liste et features : 04 §1.4 ; versions et déclarations de workspace : §3.0) : `lf-application`, `lf-domain`, `reqwest` (+ `gzip`, `system-proxy`, TLS), `rustls` (option `ring` seulement), `tokio` (`time`, `sync`), `serde`, `serde_json`, `serde_path_to_error`, `secrecy` (`serde`), `backon`, `governor` (`std`), `chrono`, `chrono-tz`, `thiserror`, `tracing`. Pas de dépendance directe à `url` : `reqwest::Url`. Dev : `wiremock`, `insta`, `proptest`, `tokio` (`macros`, `rt-multi-thread`).
+  - `PisteCorpus::mojibake_repairs(&self) -> u64` et `stats()`, compteurs en mémoire, jamais exportés (ADR-0005) ; `has_credentials()` et `config_problem()`, accesseurs du mode dégradé (04 §2.4).
+- **Dépendances** (liste et features : 04 §1.4 ; versions et déclarations de workspace : §3.0) : `lf-application`, `lf-domain`, `reqwest` (+ `gzip`, `system-proxy`, `rustls`), `tokio` (`time`, `sync`), `serde`, `serde_json`, `secrecy` (`serde`), `governor` (`std`), `chrono` (`std`), `thiserror`, `tracing` (`std`) ; `rustls` en dépendance directe sous l'option B seulement ; `serde_path_to_error`, `chrono-tz`, `insta` et `proptest` arrivent au plan 2d ; `backon` n'est pas une dépendance (ADR-0017). Pas de dépendance directe à `url` : `reqwest::Url`. Dev livrés : `wiremock`, `flate2`, `tracing-subscriber`, `tokio` (`macros`, `rt`, `rt-multi-thread`, `test-util`).
 - **Features Cargo** : `record`, qui expose une API brute (statut, en-têtes utiles, octets) sous `#[cfg(feature = "record")]`, utilisée seulement par `examples/record_fixture.rs` et jamais activée dans le binaire (04 §13.4 ; 06 §1.4). Les tests live sont `#[ignore]` (décision §10).
 - **Pièges** :
-  1. reqwest 0.13 : `rustls-tls` est renommée `rustls` ; `form` et `query` ne sont plus activées par défaut ; `rustls-no-provider` sans fournisseur installé panique au premier client (recherche 04 §4.2).
+  1. reqwest 0.13 : `rustls-tls` est renommée `rustls` ; `form` et `query` ne sont plus activées par défaut ; `rustls-no-provider` sans fournisseur installé panique dans `Client::build()` (recherche 04 §4.2 ; mesuré, plan 2c).
   2. `rustls-platform-verifier` exige un magasin de certificats CA système dans l'image OCI ([08-distribution.md](08-distribution.md)).
-  3. Les attentes de `governor::until_ready` passent par `futures_timer::Delay` et non par les timers tokio (`state/direct/future.rs:11` du tag `v0.10.4`, vérifié) : elles échapperaient au délai global et aux horloges de test. L'adapter **n'utilise pas** `until_ready` : il boucle sur `check()` avec une horloge `governor` bâtie sur `MonoClock` ; si l'attente prévue dépasse le reste du délai, il rend tout de suite `RateLimited { retry_after }` (00 §8 ; 04 §5.4). Les tests du limiteur, du jeton et du backoff utilisent `ManualClock` et `RecordingSleeper` (04 §1.5, §13.1), sans `FakeRelativeClock`, sans constructeur `with_clock` et sans geler l'horloge tokio.
+  3. Les attentes de `governor::until_ready` passent par `futures_timer::Delay` et non par les timers tokio (`state/direct/future.rs:11` du tag `v0.10.4`, vérifié) : elles échapperaient au délai global et aux horloges de test. L'adapter **n'utilise pas** `until_ready` : il boucle sur `check()` avec une horloge `governor` bâtie sur `MonoClock` ; si l'attente prévue dépasse le reste du délai, il rend tout de suite `RateLimited { retry_after }` (00 §8 ; 04 §5.4). Les tests du limiteur, du jeton et du backoff utilisent `ManualClock` et `RecordingSleeper` (04 §1.5, §13.1), sans `FakeRelativeClock`, sans constructeur `with_clock` et sans geler l'horloge tokio. L'attente du sémaphore et du jeton est une course `time::race` contre `Sleeper::sleep(reste)`, pas `tokio::time::timeout` ; `RecordingSleeper` est prêt tout de suite : un test de contention réelle exige `TokioClock`/`TokioSleeper`.
   4. `tokio::time::pause()` avance automatiquement l'horloge quand le runtime est inactif. Combiné à de vraies sockets (wiremock), il peut déclencher à tort les timeouts reqwest. Les tests de l'adapter ne l'utilisent donc pas ; il reste réservé aux tests sans réseau de `lf-application`.
   5. Corps de réponse lus en flux, bornés à **16 Mio après décompression** → `Decode` au-delà (00 §8 ; D-41 ; 04 §4.3, testé à 17 Mio). La taille réelle maximale des réponses est **NON VÉRIFIÉE** [V-75 · taille-max-textes].
   6. Jamais d'en-tête `Authorization`, de corps de réponse ni de corps OAuth dans un log (§11).
@@ -690,7 +698,7 @@ pub fn registered_tool_names() -> Vec<&'static str>;   // pour les tests de coh�
 
 ### 4.1 Règles
 
-Les règles R1 à R5, ainsi que la liste fermée de R2, reprennent la décision ; R6 à R8 sont des règles d'architecture de ce document ; R9 est fixée par [06-qualite.md](06-qualite.md) §9.3, propriétaire des règles de `check-arch` (00 §0), et retenue par 00 §2 (extension de M2, livrée au plan 2b). Dans les règles, `lf-app` désigne le paquet `mcp-legifrance` (§3.7). **Livré (M0, plan 1)** : `check-arch` applique R1 (liste blanche `thiserror`, échec fermé), un `lf-application` sans adapter, R3 en partie ; la tête de M2 (plan 2a) ajoute le membre inconnu, R3, R4, R5, R7 et l'étape 5 ; le plan 2b ajoute R2 fermée, 5e, la fermeture transitive et R9 ; les autres règles sont des extensions ajoutées au jalon où elles servent (échéancier en §4.2).
+Les règles R1 à R5, ainsi que la liste fermée de R2, reprennent la décision ; R6 à R8 sont des règles d'architecture de ce document ; R9 est fixée par [06-qualite.md](06-qualite.md) §9.3, propriétaire des règles de `check-arch` (00 §0), et retenue par 00 §2 (extension de M2, livrée au plan 2b). Dans les règles, `lf-app` désigne le paquet `mcp-legifrance` (§3.7). **Livré (M0, plan 1)** : `check-arch` applique R1 (liste blanche `thiserror`, échec fermé), un `lf-application` sans adapter, R3 en partie ; la tête de M2 (plan 2a) ajoute le membre inconnu, R3, R4, R5, R7 et l'étape 5 ; le plan 2b ajoute R2 fermée, 5e, la fermeture transitive et R9 ; le plan 2c ajoute R6 et R8 ; les autres règles sont des extensions ajoutées au jalon où elles servent (échéancier en §4.2).
 
 | # | Règle | Origine |
 |---|---|---|
@@ -699,9 +707,9 @@ Les règles R1 à R5, ainsi que la liste fermée de R2, reprennent la décision 
 | R3 | Aucun `lf-adapter-*` ne dépend d'un autre `lf-adapter-*`, ni de `lf-app`. `lf-adapter-audit` dépend de `lf-application` seul et accède aux types du domaine par ses ré-exports. | 00-decisions §2 |
 | R4 | Seul `lf-app` dépend de tous les `lf-*` ; aucun crate ne dépend de `lf-app`, qui n'a pas de cible `lib`. | 00-decisions §2 |
 | R5 | `xtask` ne dépend d'aucun `lf-*`, et réciproquement. | 00-decisions §2 |
-| R6 | **Crates confinés**, une seule porte d'entrée : `rmcp`, `rmcp-macros`, `schemars`, `axum` → lf-adapter-mcp ; `reqwest`, `rustls` (option `ring`), `backon`, `governor` → lf-adapter-piste ; `moka` → lf-adapter-cache ; `sha2`, `fs4` → lf-adapter-audit (et xtask) ; `tantivy`, `quick-xml`, `tar`, `flate2` → lf-adapter-dila ; `clap`, `tracing-subscriber`, `dirs` → lf-app ; `anyhow` → lf-app, xtask ; `secrecy` → lf-adapter-piste, lf-app ; `chrono-tz` → lf-app (`clock`), lf-adapter-piste (midi Europe/Paris de `DATE_VERSION`), jamais lf-domain ni lf-application (00 §2). `rmcp` ne doit jamais être renommé. | 02 (recherche 04 §5.3, recherche 09 §7a) ; 00 §2 pour `chrono-tz` |
+| R6 | **Crates confinés**, une seule porte d'entrée : `rmcp`, `rmcp-macros`, `schemars`, `axum` → lf-adapter-mcp ; `reqwest`, `rustls` (option `ring`), `backon` (porte inerte : l'adapter ne l'emploie pas), `governor` → lf-adapter-piste ; `moka` → lf-adapter-cache ; `sha2`, `fs4` → lf-adapter-audit (et xtask) ; `tantivy`, `quick-xml`, `tar`, `flate2` → lf-adapter-dila ; `clap`, `tracing-subscriber`, `dirs` → lf-app ; `anyhow` → lf-app, xtask ; `secrecy` → lf-adapter-piste, lf-app ; `chrono-tz` → lf-app (`clock`), lf-adapter-piste (midi Europe/Paris de `DATE_VERSION`), jamais lf-domain ni lf-application (00 §2). `rmcp` ne doit jamais être renommé. **Livrée au plan 2c** : 21 crates confinés (`CONFINED`, `xtask/src/arch.rs`) ; R6 vise les dépendances normales et de build, pas les dev (`flate2` en dev de l'adapter PISTE passe) ; le code livré ne lit que les normales (écart : `[build-dependencies]` non lues) ; `backon` reste dans la table (porte inerte). | 02 (recherche 04 §5.3, recherche 09 §7a) ; 00 §2 pour `chrono-tz` |
 | R7 | Aucun membre ne dépend directement de `async-trait` (ADR-0012) ; seule la feature HTTP de rmcp le tire en M8. | ADR-0012 |
-| R8 | Dev-dependencies : `lf-domain` et `lf-application` ne prennent aucun adapter, même en dev. Les adapters peuvent prendre `lf-application` avec `test-support`. | proposition |
+| R8 | Dev-dependencies : `lf-domain` et `lf-application` ne prennent aucun adapter, même en dev. Les adapters peuvent prendre `lf-application` avec `test-support`. **Livrée au plan 2c** : booléen `dev_adapters` (faux pour `lf-domain` et `lf-application`) ; un adapter peut prendre `lf-application` en dev. | proposition |
 | R9 | Aucune double version des crates critiques dans le graphe résolu : `tokio`, `rustls`, `reqwest`, `hyper`, `http`, `serde`, `schemars`, `rmcp`, `chrono`. Livrée au plan 2b (§4.2). | 00 §0 ; 06 §9.3 (fait foi) |
 
 ### 4.2 `cargo xtask check-arch` : algorithme cible et échéancier
@@ -712,6 +720,7 @@ Les règles R1 à R5, ainsi que la liste fermée de R2, reprennent la décision 
 |---|---|
 | Tête de M2 (plan 2a, tâche 4) | livrés : membre inconnu, R3, R4, R5, R7 et étape 5 sauf 5e |
 | M2, à la création de `lf-application` (plan 2b, tâches 5 et 6) | livrés : R2 fermée (crates d'I/O interdits, bornes de features de `tokio` et de `chrono`, avancées de M3 à ce plan), 5e, fermeture transitive (étape 4) et R9 (étape 7) : `cargo metadata --format-version 1 --all-features --locked`, sans `--no-deps` |
+| M2, avec `lf-adapter-piste` (plan 2c, tâche 3) | livrés : R6, R8 |
 | M4 | épinglage de `rmcp` |
 
 ```text
@@ -722,7 +731,8 @@ Les règles R1 à R5, ainsi que la liste fermée de R2, reprennent la décision 
      kind ← d.kind (normal, build ou dev) ; cible ← d.name (et d.rename)
      si cible ∈ membres :
         normal/build : exiger cible ∈ RÈGLES[M].internes            (R1-R5)
-        dev          : exiger cible ∈ RÈGLES[M].internes_dev         (R8)
+                       (livré : dépendances `build` non lues, écart assumé)
+        dev          : si RÈGLES[M].dev_adapters est faux, aucun adapter (R8)
      sinon (externe, normal/build) :
         si RÈGLES[M].liste_blanche existe : exiger cible ∈ liste_blanche   (R1, R2)
         exiger que cible ne soit confinée à un autre membre, sauf xtask    (R6)
@@ -746,11 +756,11 @@ Les règles R1 à R5, ainsi que la liste fermée de R2, reprennent la décision 
    code 0 si aucune violation, 1 sinon ; `--format json` pour annoter la PR.
 ```
 
-Les règles sont **des données**, dans xtask/src/arch.rs (livré : `forbidden` et `DOMAIN_ALLOWED` ; la cible est une table `&[CrateRule]`). Le moteur est une fonction pure (livré : `violations(&[Package]) -> Vec<String>`), testée sur des métadonnées JSON synthétiques sous les portes 100 % / 0 survivant, avec au moins une violation par règle R1 à R9. Ajouter un crate, par exemple `lf-adapter-dila` en M9, oblige à ajouter sa ligne : un membre inconnu de la table est lui-même une violation.
+Les règles sont **des données**, dans xtask/src/arch.rs (livré : `forbidden` et `DOMAIN_ALLOWED` ; la cible est une table `&[CrateRule]`). Le moteur est une fonction pure (livré : `violations(&[Package]) -> Vec<String>`), testée sur des métadonnées JSON synthétiques sous les portes 100 % / 0 survivant, avec au moins une violation par règle R1 à R9. Messages livrés (plan 2c) : `{membre} must not depend on {dep} (confined to {portes})` (R6), `{membre} must not rename rmcp`, `{membre} must not depend on {dep} even in dev-dependencies` (R8). Ajouter un crate, par exemple `lf-adapter-dila` en M9, oblige à ajouter sa ligne : un membre inconnu de la table est lui-même une violation.
 
 ### 4.3 Seconde ligne : `cargo deny check bans`
 
-La syntaxe `wrappers` de cargo-deny 0.20.2 autorise des crates précis à dépendre **directement** d'un crate interdit, et refuse toute autre dépendance (`docs/src/checks/bans/cfg.md:90-96`, vérifié) :
+La syntaxe `wrappers` de cargo-deny 0.20.2 (éprouvée en 0.19.6 en local : V-24 partiel) autorise des crates précis à dépendre **directement** d'un crate interdit, et refuse toute autre dépendance (`docs/src/checks/bans/cfg.md:90-96`, vérifié) :
 
 ```toml
 # deny.toml (extrait) — à valider au jalon qui l'implémente
@@ -765,10 +775,11 @@ deny = [
   { crate = "openssl-sys", reason = "TLS = rustls uniquement" },
   { crate = "native-tls",  reason = "TLS = rustls uniquement" },
   { crate = "openssl",     reason = "TLS = rustls uniquement" },
-  { crate = "backoff",     reason = "retries = backon" },
-  # wrappers : ajoutés au jalon où le crate confiné entre dans le graphe (reqwest M2, moka M3, rmcp M4)
+  { crate = "backoff",     reason = "non maintenu ; réessais maison (ADR-0017)" },
+  # wrappers : ajoutés au jalon où le crate confiné entre dans le graphe (reqwest et governor : livrés au plan 2c ; moka M3, rmcp M4)
   { crate = "rmcp",    wrappers = ["lf-adapter-mcp"],   reason = "SDK MCP confiné (ADR-0003)" },
   { crate = "reqwest", wrappers = ["lf-adapter-piste"], reason = "HTTP sortant confiné" },
+  { crate = "governor", wrappers = ["lf-adapter-piste"], reason = "limiteur de débit confiné" },
   { crate = "moka",    wrappers = ["lf-adapter-cache"], reason = "cache confiné (ADR-0007)" },
 ]
 
@@ -780,13 +791,13 @@ unknown-registry = "deny"
 unknown-git = "deny"
 ```
 
-`[graph] all-features = true` inclut les dev-dependencies : un dev-dep qui tire `reqwest` (cas de `jsonschema` avec ses features par défaut) fait échouer le ban, d'où `default-features = false` (§3.0.1). Pour la même raison, les tests HTTP de M8 n'utilisent pas `reqwest` : `tower::ServiceExt::oneshot` en processus et un client HTTP/1.1 minimal sur `TcpStream` (00 §0 ; 06 §15.1 n° 6). Le `deny.toml` complet est celui de 06 §9.1. wiremock 0.6.5 ne dépend ni de reqwest ni d'async-trait (index, vérifié). cargo-deny couvre aussi les licences : la liste blanche compatible Apache-2.0 exclut l'AGPL (`juridix`, `mcp-legifrance` de Ktulu-Analog : idées seulement, décision §12). Les avis de sécurité sont traités dans [06-qualite.md](06-qualite.md).
+`[graph] all-features = true` inclut les dev-dependencies : un dev-dep qui tire `reqwest` (cas de `jsonschema` avec ses features par défaut) fait échouer le ban, d'où `default-features = false` (§3.0.1). Pour la même raison, les tests HTTP de M8 n'utilisent pas `reqwest` : `tower::ServiceExt::oneshot` en processus et un client HTTP/1.1 minimal sur `TcpStream` (00 §0 ; 06 §15.1 n° 6). Le `deny.toml` complet est celui de 06 §9.1. `wrappers` ne regarde que le parent **direct** : `rustls` (parents tiers) reste à R6 ; contrôle négatif fait au plan 2c (tâche 13, Step 7 : `reqwest` ou `governor` ajouté à `lf-application`, normal ou dev ⇒ `bans FAILED`, `cargo deny --offline` sans `--locked`). wiremock 0.6.5 ne dépend ni de reqwest ni d'async-trait (index, vérifié). cargo-deny couvre aussi les licences : la liste blanche compatible Apache-2.0 exclut l'AGPL (`juridix`, `mcp-legifrance` de Ktulu-Analog : idées seulement, décision §12). Les avis de sécurité sont traités dans [06-qualite.md](06-qualite.md).
 
 ### 4.4 Contrôles de pureté en CI
 
 Ce sont des jobs de `ci.yml`, dont le détail est dans [06-qualite.md](06-qualite.md) :
 - `cargo check -p lf-application`, **seul** (`make purity`, livré au plan 2b) : les features sont résolues pour ce graphe uniquement, ce qui prouve que le crate compile avec son propre jeu de features, sans que celles qu'un autre membre active n'y suppléent. Les bornes de features (`chrono` sans `clock` ni `now`, tokio limité à `time`, `macros` et `rt`) sont contrôlées par `check-arch` (R2), qui lit les features dans les déclarations de dépendance et dans la table `[features]` du membre (`dep/feat`, `dep?/feat`). Pour `lf-domain`, la pureté est garantie par la liste blanche de `check-arch` (thiserror seul).
-- `make arch` (`cargo xtask check-arch`), puis `make deny` (`cargo deny check`), appelés par `make ci`.
+- `make arch` (`cargo xtask check-arch`), puis `make deny` (`cargo deny check` sur le workspace, puis sur `fuzz/`), appelés par `make ci`.
 - `cargo tree -p lf-domain -e normal --prefix none` est archivé en artefact, pour visualiser les écarts dans une PR.
 
 ---
@@ -930,7 +941,7 @@ pub struct SearchPage {                            // livré (M1) : fond, query,
 
 ```rust
 // crates/lf-application/src/ports/audit.rs — non compilé, à valider au jalon qui l'implémente
-pub use lf_domain::PisteEnvironment;
+pub use lf_domain::coverage::PisteEnvironment;      // non livré : premier consommateur hors adapter, plan 2d
 
 pub trait AuditLog: Send + Sync + 'static {
     /// Écrit une ligne et ne rend la main qu'une fois l'écriture terminée (accusé, D-16).
@@ -1129,7 +1140,7 @@ where O: AuditMetric, W: Future<Output = Result<O, AppError>> + Send, X: Future<
 | échec d'écriture, mode `strict` | — (aucune ligne) | — | — | — | `Err(Audit)` → `[audit_error]`, en citant le code d'origine s'il y en avait un (D-02) |
 | échec d'écriture, mode `best-effort` | — | — | — | — | résultat d'origine, `warn!` et compteur |
 
-L'annulation est **explicite** : l'adapter passe `ct.cancelled()` en paramètre. On évite ainsi un garde `Drop` qui ne pourrait pas attendre (`await`) l'écriture d'audit. `select!` en mode `biased` fait gagner l'annulation en cas de simultanéité. Abandonner `work` abandonne en cascade la requête reqwest en vol, l'attente du limiteur et les pauses de backon.
+L'annulation est **explicite** : l'adapter passe `ct.cancelled()` en paramètre. On évite ainsi un garde `Drop` qui ne pourrait pas attendre (`await`) l'écriture d'audit. `select!` en mode `biased` fait gagner l'annulation en cas de simultanéité. Abandonner `work` abandonne en cascade la requête reqwest en vol, l'attente du limiteur et les pauses de la boucle de réessai.
 
 **Délai global** (00 §3). `tokio::time::timeout(LF_TOOL_DEADLINE_S)` est la seule garde dure. `Deadline::scope` publie l'échéance dans `lf_application::deadline::Deadline`, variable locale de tâche (`tokio::task_local!`, feature `rt` seule, §3.2). `Deadline::scope` et `Deadline::current_or` sont publics : les tests des adapters ouvrent eux-mêmes une portée (`deadline_from_task_local_is_used`, 04 §13.2), sans passer par `Audited`. Les adapters la lisent par `Deadline::current_or(défaut)` comme une **durée restante** (`Duration`), qu'ils convertissent dans leur propre horloge monotone à l'entrée de la méthode du port, ce qui garde cohérentes leurs horloges de test (`ManualClock`, 04 §13.1). Ils ne programment aucune tentative ni attente qui dépasserait l'échéance et rendent tout de suite une erreur explicite (`RateLimited { retry_after }`, `Timeout` ou dernière erreur). Les cas d'usage n'utilisent pas `tokio::spawn` (sinon, propagation explicite) ; ceux à appels multiples cessent d'en lancer à 80 % du délai et rendent un résultat partiel motivé. Dépassement → `upstream_error` (`UpstreamCause::Deadline`).
 
@@ -1227,7 +1238,7 @@ pub type Corpus  = CachedCorpus<PisteCorpus>;
 pub type Service = LegalService<Corpus, JsonlAuditLog, SystemClock>;
 
 // AppConfig { piste: PisteConfig, audit: AuditSettings { mode: AuditMode, log: AuditConfig }, tool_deadline, … }
-// PisteConfig.env est un lf_domain::PisteEnvironment (aucun type d'environnement propre à l'adapter, §3.3)
+// PisteConfig.env est un lf_domain::coverage::PisteEnvironment (aucun type d'environnement propre à l'adapter, §3.3)
 pub fn build(cfg: &AppConfig) -> Service {
     let piste  = PisteCorpus::new(cfg.piste.clone());                 // aucune E/S : client et jeton paresseux
     let corpus = CachedCorpus::new(piste, CachePolicy::default(), cfg.piste.env);
@@ -1382,7 +1393,7 @@ Cette table est la source unique de la correspondance cause → `CorpusError` �
 | Runtime | tokio multi-thread, une tâche par requête (rmcp) | `service.rs:1322-1328`, `:1593` (vérifié) |
 | Bornes des ports | `Send + Sync + 'static` ; futurs `+ Send` | `ServerHandler: Sized + Send + Sync + 'static` ; outils boxés `Send` (recherche 04 §2.2, §2.4) |
 | Partage | `Arc<LegalService<…>>` cloné dans le serveur MCP ; en M8, la fabrique HTTP sans état, appelée à chaque requête, clone un prototype `LegifranceServer` dont le routeur est construit une fois | recherche 04 §2.15 ; 00 §6 |
-| Annulation | `CancellationToken` de rmcp (extracteur, recherche 04 §2.5) ; `ct.cancelled()` est passé à la façade ; `select!` biaisé dans `Audited`, qui abandonne `work` (et donc la requête reqwest en vol, les pauses backon, l'attente du limiteur) ; ligne d'audit écrite ; réponse jetée par rmcp (`service.rs:1645-1652`, `:1503-1505`, vérifié) | décision §6 ; recherche 08 §5.1 (« MUST NOT send any further messages ») |
+| Annulation | `CancellationToken` de rmcp (extracteur, recherche 04 §2.5) ; `ct.cancelled()` est passé à la façade ; `select!` biaisé dans `Audited`, qui abandonne `work` (et donc la requête reqwest en vol, les pauses de la boucle de réessai, l'attente du limiteur) ; ligne d'audit écrite ; réponse jetée par rmcp (`service.rs:1645-1652`, `:1503-1505`, vérifié) | décision §6 ; recherche 08 §5.1 (« MUST NOT send any further messages ») |
 | Délai global | `tokio::time::timeout(LF_TOOL_DEADLINE_S)` dans `Audited`, autour du décodage et du cas d'usage : seule garde dure. L'échéance est publiée dans `Deadline` (`tokio::task_local!`, §7.1) ; l'adapter PISTE la lit comme une durée restante, convertie dans sa propre horloge monotone à l'entrée de la méthode du port, et ne programme aucune tentative ni attente qui la dépasserait : on obtient une erreur explicite plutôt qu'une coupure. Les cas d'usage à appels multiples (M6, M7) cessent d'en lancer à 80 % du délai et rendent un résultat partiel motivé. | décision §3, §8 ; D-14 |
 | Limiteur partagé | Un seul `governor::RateLimiter` direct (non indexé) dans `PisteCorpus`, sous `Arc`, consulté par `check()` avant **chaque** tentative HTTP vers l'API, retries compris ; jamais `until_ready`, dont les attentes échappent au délai global (§3.3). Si l'attente prévue dépasse le reste du délai : `RateLimited { retry_after }` immédiat. Sémaphore de `LF_PISTE_CONCURRENCY` (4) requêtes en vol. Les jetons OAuth n'y passent pas : ils sont mono-vol. Quota par défaut prudent, `LF_PISTE_RPS` = 5 req/s, `LF_PISTE_BURST` = 10 (00 §1, §8). Les valeurs réelles sont **NON VÉRIFIÉES** [V-62 · quota-piste-prod] (V-62). | décision §8 ; D-13 ; recherche 05 §3.3 ; 04 §5.4 |
 | Fan-out | `fr_search_all` : `join_all` sur 8 fonds au plus ; `fr_verify_citations` : `buffer_unordered(4)`. Le débit réel est régulé par le limiteur. | décision §7 |

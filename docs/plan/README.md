@@ -129,7 +129,7 @@ Tous les profils commencent par ce README, puis par [00-decisions.md](00-decisio
 
 | Document | Contenu | Quand le lire |
 |---|---|---|
-| [docs/adr/](../adr/README.md) | 16 ADR (`ADR-0001…ADR-0016`) : pourquoi chaque décision, options écartées, tests qui la gardent ; ADR-0001 (remplacé par ADR-0016) et ADR-0002 (portes qualité) sont livrés avec M0 ; index, cycle de vie, modèle | avant de modifier une décision : tout changement de 00 exige un ADR (06 §13.2) |
+| [docs/adr/](../adr/README.md) | 17 ADR (`ADR-0001…ADR-0017`, le dernier au plan 2c) : pourquoi chaque décision, options écartées, tests qui la gardent ; ADR-0001 (remplacé par ADR-0016) et ADR-0002 (portes qualité) sont livrés avec M0 ; index, cycle de vie, modèle | avant de modifier une décision : tout changement de 00 exige un ADR (06 §13.2) |
 | [docs/recherche/](../recherche/README.md) | 9 rapports bruts du 2026-10-15 (parité, défauts, DTO, rmcp, PISTE et DILA, spécification MCP, citations, MCP 2026-07-28, rmcp en 2026), avec preuves `chemin:ligne` et URL | pour remonter à la source d'un fait ou lever un `V-xx` |
 
 ## 4. Décisions clés
@@ -213,7 +213,7 @@ Chaque question encore ouverte porte une proposition **adoptée par défaut**, a
 | `C1…C7` | décisions du propriétaire du 2026-10-16 (référence, citation v2, dépendances et dates, TOC et suffixe, MSRV et toolchain, nom et licence, conventions) | 00 §14.1 (réponses datées : 09 §3.16.4) | liste close |
 | `M1-D1…M1-D24` | points différés de la revue de clôture de M1 | 09 §3.19 | liste close |
 | `AM-01…AM-43` | amendements de la revue, intégrés à la révision 2 | 00 §14 | journal de 00 |
-| `ADR-0001…ADR-0016` | décisions d'architecture (0001 et 0002 livrés avec M0 ; 0015 et 0016 = ex-0001 et ex-0002 du plan) | [docs/adr/](../adr/README.md) | prochain numéro libre : 0017 ; numéro jamais réutilisé |
+| `ADR-0001…ADR-0017` | décisions d'architecture (0001 et 0002 livrés avec M0 ; 0015 et 0016 = ex-0001 et ex-0002 du plan ; 0017 = plan 2c) | [docs/adr/](../adr/README.md) | prochain numéro libre : 0018 ; numéro jamais réutilisé |
 | `C-01…C-34`, `C-40…C-60` | exigences de conformité MCP (stdio, HTTP) | annexe D §8 ; tests : 06 §6 | annexe D |
 
 Autres identifiants locaux : `S1…S17` (scénarios d'erreur, annexe A §2.2), `FR-001…FR-009` (lacunes de `fr_coverage`, 05 §5.8), `MEN-01…MEN-23` (modèle de menaces, 06 §10.2), `P001…P200` et `N01…N42` (cas du corpus de citations, annexe B §8).
