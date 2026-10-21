@@ -8,12 +8,15 @@
 //! l'authentification, le client HTTP et la résilience. Renvoyé au plan 2d : les requêtes
 //! `/search`, les DTO métier, le mapping et `impl LegalCorpus for PisteCorpus`.
 //!
-//! Les modules sont privés et rien n'est exporté tant que `PisteCorpus` n'existe pas.
+//! Les modules sont privés ; seuls la configuration et `StatsSnapshot` sont exportés tant
+//! que `PisteCorpus` n'existe pas.
 //!
 //! Modules :
 //! - `config` : configuration de l'adapter (`PisteConfig`) et validation des URL surchargées.
 //! - `deadline` : échéance d'un appel (`CallDeadline`), durée restante lue dans `Deadline`
 //!   puis posée sur l'horloge monotone de l'adapter.
+//! - `encoding` : décodage UTF-8 strict du corps, détection et réparation du mojibake latin-1.
+//! - `stats` : compteurs en mémoire (`Stats`) et leur instantané public (`StatsSnapshot`).
 //! - `time` : horloge monotone (`MonoClock`) et attente (`Sleeper`), pour des tests
 //!   déterministes sans geler l'horloge `tokio`.
 
@@ -24,8 +27,11 @@
 
 mod config;
 mod deadline;
+mod encoding;
+mod stats;
 mod time;
 
 pub use config::{
     ConfigProblem, ConfigWarning, PisteConfig, PisteCredentials, PisteEndpoints, RateQuota,
 };
+pub use stats::StatsSnapshot;
