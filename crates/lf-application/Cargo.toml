@@ -11,9 +11,12 @@ publish.workspace = true
 [dependencies]
 lf-domain.workspace = true
 thiserror.workspace = true
+# rt : pour task_local! seulement (Deadline) ; time : Instant (R2)
+tokio = { workspace = true, features = ["rt", "time"] }
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [lints]
 workspace = true

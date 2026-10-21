@@ -7,4 +7,5 @@
 //!
 //! Dépendances : liste fermée de 02 §3.2 (R2), vérifiée par `cargo xtask check-arch`.
 
+pub mod deadline;
 pub mod ports;

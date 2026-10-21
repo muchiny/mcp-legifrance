@@ -21,7 +21,7 @@ env:
 # SHA du jour de l'épinglage. L'entrée `toolchain:` suit `rust-toolchain.toml`.
 jobs:
   check:
-    name: fmt, clippy, doc, arch, machete
+    name: fmt, clippy, doc, arch, purity, machete
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,7 +35,7 @@ jobs:
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-machete@0.9.2
-      - run: make fmt-check lint doc arch machete
+      - run: make fmt-check lint doc arch purity machete
 
   # Matrice de 3 OS (00 §10, 06 §7.1) ; couverture et mutation restent sous Linux. Aucun réseau
   # pendant les tests (PT1) : `cargo fetch --locked`, puis les tests hors ligne (CARGO_NET_OFFLINE)
