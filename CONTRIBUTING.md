@@ -59,3 +59,42 @@ tours (`text/passages.rs`).
 `/tmp` est un tmpfs en RAM. Ne lancer `cargo mutants` que par `make mutants`
 (`TMPDIR=/var/tmp`, `-j 1`, un fichier, contrôle mémoire préalable). Jamais
 `cargo test -j 4` ni plus.
+
+## Licences
+
+Le projet est sous licence Apache-2.0. La licence entrante est la licence
+sortante (section 5 de la licence) : toute contribution est publiée sous
+Apache-2.0, sans CLA (`docs/plan/08-distribution.md` §9.1).
+
+## Projets AGPL : idées seulement
+
+Deux projets sont sous AGPL : juridix (`Ktulu-Analog/juridix`) et le
+mcp-legifrance de Ktulu-Analog. Cinq règles (08 §9.4) :
+
+1. Aucune copie de code, de test, de fixture, de dictionnaire ni de donnée,
+   même traduite.
+2. Les idées et les comportements documentés sont permis.
+3. Les faits recoupés (`LEGITEXT`, abréviations de codes) sont vérifiés sur une
+   source non AGPL avant d'entrer dans le code.
+4. La case du modèle de PR le rappelle, et `cargo deny` refuse les dépendances
+   AGPL.
+5. Les projets MIT (`pylegifrance`, `droit-francais-mcp`, `justicelibre`)
+   peuvent être repris, avec leur notice.
+
+## Dépendances
+
+- Âge minimal de 14 jours (`pubtime` de l'index sparse de crates.io), contrôlé
+  par `make min-age` dans le job `deny`.
+- Exception : le libellé `security-fix`, justifié dans la PR. Poser un libellé
+  ne relance pas la CI : relancer le job `deny` à la main.
+- Exigence au niveau mineur dans `[workspace.dependencies]` ; version fixée par
+  `cargo update -p <crate> --precise <version>`.
+- Dépendance déclarée seulement dans le crate qui l'emploie, licence dans la
+  liste blanche de `deny.toml`, `make deny` et `make machete` verts.
+
+## Toolchain
+
+Rust 1.99.0 est épinglée, avec `clippy`, `rustfmt` et `llvm-tools-preview`
+(requis par `make cov`). Une PR par montée de version, qui aligne les étapes
+`dtolnay/rust-toolchain`. MSRV 1.88 (`rust-version`, `msrv` de `clippy.toml`),
+vérifiée par le job `msrv` (`cargo +1.88 check`).

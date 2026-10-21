@@ -4,3 +4,6 @@
 /fuzz/artifacts
 /fuzz/coverage
 mutants.out*/
+.env
+.env.*
+*.snap.new
