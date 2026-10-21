@@ -2,12 +2,16 @@
 
 use std::{env, fs, process::Command, process::ExitCode};
 
-use xtask::arch::{inherits_workspace_lints, violations, workspace_packages};
+use xtask::{
+    arch::{inherits_workspace_lints, violations, workspace_packages},
+    graph::{graph_violations, resolved_graph},
+};
 
 fn check_arch() -> Result<(), String> {
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    // Graphe résolu complet : `--all-features` pour le pire cas, `--locked` pour le verrou.
     let output = Command::new(cargo)
-        .args(["metadata", "--format-version", "1", "--no-deps"])
+        .args(["metadata", "--format-version", "1", "--all-features", "--locked"])
         .output()
         .map_err(|e| format!("cargo metadata: {e}"))?;
     if !output.status.success() {
@@ -22,7 +26,8 @@ fn check_arch() -> Result<(), String> {
         package.lints_workspace = inherits_workspace_lints(&manifest)
             .map_err(|e| format!("{}: {e}", package.manifest_path))?;
     }
-    let found = violations(&packages);
+    let mut found = violations(&packages);
+    found.extend(graph_violations(&resolved_graph(&metadata)?));
     if found.is_empty() {
         println!("check-arch: ok");
         Ok(())
