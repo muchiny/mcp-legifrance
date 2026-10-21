@@ -29,6 +29,9 @@ unwrap_used = "warn"
 expect_used = "warn"
 dbg_macro = "warn"
 todo = "warn"
+panic = "warn"
+unreachable = "warn"
+unimplemented = "warn"
 
 # Profil dédié à cargo-mutants (`profile = "mutants"` dans .cargo/mutants.toml) :
 # pas d'infos de debug, build plus rapide par mutant.
