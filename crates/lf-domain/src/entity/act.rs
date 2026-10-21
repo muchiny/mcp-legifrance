@@ -4,20 +4,10 @@
 use crate::{
     contract::{Citable, CitationContract},
     date::CivilDate,
-    id::{ArticleId, KaliTextId, LegiTextId},
+    entity::Toc,
+    id::{KaliTextId, LegiTextId},
     url::{ResourceKind, legifrance_url},
 };
-
-/// Entrée de table des matières : un article résoluble par `get_article`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TocArticle {
-    /// Identifiant de l'article.
-    pub article_id: ArticleId,
-    /// Numéro affiché, ex. `L. 1234-5`.
-    pub num: Option<String>,
-    /// État juridique brut, ex. `VIGUEUR`.
-    pub etat: Option<String>,
-}
 
 /// Métadonnées et sommaire communs aux textes consolidés.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -40,8 +30,8 @@ pub struct TextBody {
     pub date_debut_version: Option<CivilDate>,
     /// Fin de la version consolidée (`2999-01-01` = sans fin connue).
     pub date_fin_version: Option<CivilDate>,
-    /// Articles, dans l'ordre du texte.
-    pub articles: Vec<TocArticle>,
+    /// Table des matières en arbre, sections et articles ([`Toc::build`]).
+    pub toc: Toc,
 }
 
 /// Loi ou décret consolidé (`fr_get_act`).

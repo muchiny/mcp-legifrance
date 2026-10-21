@@ -1,6 +1,6 @@
 //! Entités renvoyées par le corpus. Les entités consultables et chaque
 //! `SearchHit` implémentent [`Citable`](crate::contract::Citable) ;
-//! `TocArticle` et `TextBody` non.
+//! `TextBody` et la table des matières ([`Toc`], ses nœuds et ses brouillons) non.
 //!
 //! La citation suit la règle de la famille (03 §5.4), puis le repli
 //! `Légifrance {ID}` sur l'identifiant propre de l'entité (`id` pour un hit,
@@ -19,13 +19,18 @@ mod article;
 mod decision;
 mod deliberation;
 mod search;
+mod toc;
 
-pub use act::{Act, Convention, TextBody, TocArticle};
+pub use act::{Act, Convention, TextBody};
 pub use agreement::{ATTACHMENT_NOTE, CompanyAgreement};
 pub use article::ArticleText;
 pub use decision::Decision;
 pub use deliberation::Deliberation;
 pub use search::{CodeArticleRef, SNIPPET_MAX_CHARS, SearchHit, SearchPage};
+pub use toc::{
+    ArticleDraft, SectionDraft, TOC_MAX_DEPTH, Toc, TocArticle, TocDraft, TocEntry, TocEntryRef,
+    TocNode, TocPage, TocSection,
+};
 
 #[cfg(test)]
 mod tests {

@@ -184,6 +184,19 @@ impl IdKind for AccoText {
     const PREFIX: &'static str = "ACCOTEXT";
 }
 
+/// Section de table des matières consolidée : `LEGISCTA`.
+pub enum LegiScta {}
+impl sealed::Sealed for LegiScta {}
+impl IdKind for LegiScta {
+    const PREFIX: &'static str = "LEGISCTA";
+}
+/// Section de table des matières de convention collective : `KALISCTA`.
+pub enum KaliScta {}
+impl sealed::Sealed for KaliScta {}
+impl IdKind for KaliScta {
+    const PREFIX: &'static str = "KALISCTA";
+}
+
 /// Identifiant `LEGITEXT…`.
 pub type LegiTextId = Id<LegiText>;
 /// Identifiant `LEGIARTI…`.
@@ -262,6 +275,57 @@ impl ArticleId {
 }
 
 impl FromStr for ArticleId {
+    type Err = DomainError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+/// Section de table des matières (`LEGISCTA…` ou `KALISCTA…`). Employée seulement par la table
+/// des matières (03 §2.2), jamais rendue en sortie.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SectionId(SectionInner);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SectionInner {
+    Legi(Id<LegiScta>),
+    Kali(Id<KaliScta>),
+}
+
+impl SectionId {
+    /// Valide `input` contre les deux préfixes acceptés.
+    ///
+    /// # Errors
+    ///
+    /// [`DomainError::InvalidId`] si aucun préfixe ne convient.
+    pub fn parse(input: &str) -> Result<Self, DomainError> {
+        Id::<LegiScta>::parse(input)
+            .map(SectionInner::Legi)
+            .or_else(|_| Id::<KaliScta>::parse(input).map(SectionInner::Kali))
+            .map(Self)
+            .map_err(|_| DomainError::InvalidId {
+                input: echo(input),
+                expected: "LEGISCTA or KALISCTA",
+            })
+    }
+
+    /// Forme normalisée.
+    pub fn as_str(&self) -> &str {
+        match &self.0 {
+            SectionInner::Legi(id) => id.as_str(),
+            SectionInner::Kali(id) => id.as_str(),
+        }
+    }
+}
+
+impl fmt::Display for SectionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for SectionId {
     type Err = DomainError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -500,7 +564,31 @@ mod tests {
         );
     }
 
-    /// Chaque famille accepte son préfixe et refuse celui des neuf autres.
+    #[test]
+    fn section_id_accepts_legi_and_kali_sections() {
+        // consult_loda.json et consult_kali.json.
+        let legi = SectionId::parse("LEGISCTA000033205040").unwrap();
+        let kali: SectionId = " kalisCTA000049886029\n".parse().unwrap();
+        assert_eq!(legi.as_str(), "LEGISCTA000033205040");
+        assert_eq!(kali.as_str(), "KALISCTA000049886029");
+        assert_eq!(legi.to_string(), "LEGISCTA000033205040");
+        assert_eq!(kali.to_string(), "KALISCTA000049886029");
+        assert_eq!(legi.clone(), legi);
+        assert_ne!(legi, kali);
+    }
+
+    #[test]
+    fn section_id_rejects_other_prefixes() {
+        for bad in ["LEGIARTI000033205126", "KALITEXT000005661030", "LEGISCTA00003320504", ""] {
+            assert_eq!(
+                SectionId::parse(bad).unwrap_err(),
+                DomainError::InvalidId { input: bad.into(), expected: "LEGISCTA or KALISCTA" },
+                "{bad:?}"
+            );
+        }
+    }
+
+    /// Chaque famille accepte son préfixe et refuse celui des onze autres.
     macro_rules! each_kind_rejects_every_other_prefix {
         ($($kind:ty),+ $(,)?) => {{
             let prefixes = [$(<$kind>::PREFIX),+];
@@ -519,7 +607,7 @@ mod tests {
     fn each_kind_rejects_every_other_prefix() {
         each_kind_rejects_every_other_prefix!(
             LegiText, LegiArti, JorfText, KaliText, KaliArti, JuriText, ConsText, CetaText,
-            CnilText, AccoText,
+            CnilText, AccoText, LegiScta, KaliScta,
         );
     }
 
@@ -536,11 +624,22 @@ mod tests {
         }
 
         #[test]
+        fn section_id_roundtrips(
+            prefix in "(LEGISCTA|KALISCTA|legiscta|kalisCTA)",
+            digits in "[0-9]{12}",
+        ) {
+            let id = SectionId::parse(&format!(" {prefix}{digits} ")).unwrap();
+            prop_assert_eq!(id.as_str(), format!("{}{digits}", prefix.to_ascii_uppercase()));
+            prop_assert_eq!(SectionId::parse(id.as_str()).unwrap(), id);
+        }
+
+        #[test]
         fn parse_never_panics(s in "\\PC*") {
             let _ = LegiTextId::parse(&s);
             let _ = AnyId::parse(&s);
             let _ = ArticleId::parse(&s);
             let _ = DecisionId::parse(&s);
+            let _ = SectionId::parse(&s);
         }
 
         #[test]

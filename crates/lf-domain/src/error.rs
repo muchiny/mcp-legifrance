@@ -84,6 +84,20 @@ pub enum DomainError {
     /// Déclaration de couverture sans lacune connue.
     #[error("coverage must declare at least one known gap")]
     EmptyCoverageGaps,
+    /// Table des matières amont plus profonde que [`TOC_MAX_DEPTH`](crate::entity::TOC_MAX_DEPTH) niveaux (données incohérentes, pas une erreur de l'utilisateur).
+    #[error("table of contents deeper than {max} levels")]
+    TocTooDeep {
+        /// Profondeur maximale acceptée.
+        max: u16,
+    },
+    /// `toc_offset` au-delà de la dernière entrée de la table des matières.
+    #[error("toc_offset={offset} is past the end (toc_total={total})")]
+    TocOffsetPastEnd {
+        /// Décalage demandé.
+        offset: u32,
+        /// Nombre total d'entrées.
+        total: u32,
+    },
 }
 
 /// Recopie `input` pour un message d'erreur, tronquée à [`ECHO_MAX_CHARS`] caractères.
@@ -100,7 +114,7 @@ mod tests {
         date::CivilDate,
         ecli::Ecli,
         fond::Fond,
-        id::{AnyId, ArticleId, DecisionId, LegiTextId},
+        id::{AnyId, ArticleId, DecisionId, LegiTextId, SectionId},
     };
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
@@ -112,7 +126,9 @@ mod tests {
             | DomainError::InvalidDate { input }
             | DomainError::InvalidEcli { input }
             | DomainError::UnknownFond { input } => input,
-            DomainError::EmptyCoverageGaps => "",
+            DomainError::EmptyCoverageGaps
+            | DomainError::TocTooDeep { .. }
+            | DomainError::TocOffsetPastEnd { .. } => "",
         }
     }
 
@@ -156,6 +172,14 @@ mod tests {
             DomainError::EmptyCoverageGaps.to_string(),
             "coverage must declare at least one known gap"
         );
+        assert_eq!(
+            DomainError::TocTooDeep { max: 64 }.to_string(),
+            "table of contents deeper than 64 levels"
+        );
+        assert_eq!(
+            DomainError::TocOffsetPastEnd { offset: 300, total: 88 }.to_string(),
+            "toc_offset=300 is past the end (toc_total=88)"
+        );
     }
 
     #[test]
@@ -166,6 +190,7 @@ mod tests {
             AnyId::parse(&long).unwrap_err(),
             ArticleId::parse(&long).unwrap_err(),
             DecisionId::parse(&long).unwrap_err(),
+            SectionId::parse(&long).unwrap_err(),
             CivilDate::parse(&long).unwrap_err(),
             Ecli::parse(&long).unwrap_err(),
             Fond::parse(&long).unwrap_err(),
@@ -178,7 +203,13 @@ mod tests {
 
     #[test]
     fn variants_without_input_echo_nothing() {
-        assert_eq!(echoed(&DomainError::EmptyCoverageGaps), "");
+        for error in [
+            DomainError::EmptyCoverageGaps,
+            DomainError::TocTooDeep { max: 64 },
+            DomainError::TocOffsetPastEnd { offset: 300, total: 88 },
+        ] {
+            assert_eq!(echoed(&error), "", "{error}");
+        }
     }
 
     #[test]
