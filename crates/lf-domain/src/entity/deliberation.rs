@@ -1,7 +1,7 @@
 //! Délibération CNIL (`fr_get_deliberation`, `citations.py:363-395`).
 
 use crate::{
-    citation::{Citable, CitationContract, cnil_citation},
+    contract::{Citable, CitationContract, cnil_citation},
     date::CivilDate,
     id::CnilTextId,
     url::{ResourceKind, legifrance_url},
@@ -33,7 +33,7 @@ pub struct Deliberation {
 }
 
 impl Citable for Deliberation {
-    fn citation(&self) -> CitationContract {
+    fn contract(&self) -> CitationContract {
         CitationContract::from_url(
             legifrance_url(ResourceKind::Cnil, self.deliberation_id.as_str()),
             cnil_citation(self.num.as_deref(), self.date_texte).or_else(|| self.title.clone()),
@@ -63,7 +63,7 @@ mod tests {
 
     #[test]
     fn cites_with_cnil_convention() {
-        let c = deliberation(Some("SAN-2026-002")).citation();
+        let c = deliberation(Some("SAN-2026-002")).contract();
         assert_eq!(c.source_url, "https://www.legifrance.gouv.fr/cnil/id/CNILTEXT000053352643");
         assert_eq!(
             c.human_readable_citation.as_deref(),
@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn falls_back_to_title() {
-        let c = deliberation(None).citation();
+        let c = deliberation(None).contract();
         assert_eq!(
             c.human_readable_citation.as_deref(),
             Some("Délibération SAN-2026-002 du 8 janvier 2026")

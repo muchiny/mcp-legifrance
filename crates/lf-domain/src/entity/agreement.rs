@@ -2,7 +2,7 @@
 //! `citations.py:444-486`) : le texte n'existe qu'en pièce jointe `.docx`.
 
 use crate::{
-    citation::{Citable, CitationContract, with_company},
+    contract::{Citable, CitationContract, with_company},
     date::CivilDate,
     id::AccoTextId,
     url::{ResourceKind, legifrance_url},
@@ -44,7 +44,7 @@ pub struct CompanyAgreement {
 }
 
 impl Citable for CompanyAgreement {
-    fn citation(&self) -> CitationContract {
+    fn contract(&self) -> CitationContract {
         CitationContract::from_url(
             legifrance_url(ResourceKind::Acco, self.agreement_id.as_str()),
             with_company(self.title.as_deref(), self.raison_sociale.as_deref()),
@@ -75,7 +75,7 @@ mod tests {
             date_depot: None,
         };
         assert_eq!(
-            agreement.citation(),
+            agreement.contract(),
             CitationContract::from_url(
                 "https://www.legifrance.gouv.fr/acco/id/ACCOTEXT000051888026".into(),
                 Some("Télétravail (CORSAIR)".into()),

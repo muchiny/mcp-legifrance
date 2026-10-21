@@ -5,7 +5,7 @@
 //! `consult_juri_constit.json` et `consult_juri_cetat.json`).
 
 use crate::{
-    citation::{Citable, CitationContract, constit_citation},
+    contract::{Citable, CitationContract, constit_citation},
     date::CivilDate,
     ecli::Ecli,
     id::DecisionId,
@@ -40,7 +40,7 @@ pub struct Decision {
 }
 
 impl Citable for Decision {
-    fn citation(&self) -> CitationContract {
+    fn contract(&self) -> CitationContract {
         let (kind, citation) = match self.decision_id {
             DecisionId::Juri(_) => (ResourceKind::Juri, self.title.clone()),
             DecisionId::Cetat(_) => (ResourceKind::Cetat, self.title.clone()),
@@ -82,21 +82,21 @@ mod tests {
 
     #[test]
     fn juri_cites_title() {
-        let c = decision("JURITEXT000048465611").citation();
+        let c = decision("JURITEXT000048465611").contract();
         assert_eq!(c.source_url, "https://www.legifrance.gouv.fr/juri/id/JURITEXT000048465611");
         assert_eq!(c.human_readable_citation.as_deref(), Some("Titre Légifrance [Objet]"));
     }
 
     #[test]
     fn cetat_cites_title() {
-        let c = decision("CETATEXT000051655317").citation();
+        let c = decision("CETATEXT000051655317").contract();
         assert_eq!(c.source_url, "https://www.legifrance.gouv.fr/ceta/id/CETATEXT000051655317");
         assert_eq!(c.human_readable_citation.as_deref(), Some("Titre Légifrance [Objet]"));
     }
 
     #[test]
     fn constit_uses_french_convention() {
-        let c = decision("CONSTEXT000037434572").citation();
+        let c = decision("CONSTEXT000037434572").contract();
         assert_eq!(c.source_url, "https://www.legifrance.gouv.fr/cons/id/CONSTEXT000037434572");
         assert_eq!(
             c.human_readable_citation.as_deref(),
@@ -109,7 +109,7 @@ mod tests {
         let mut d = decision("CONSTEXT000037434572");
         d.num = None;
         assert_eq!(
-            d.citation().human_readable_citation.as_deref(),
+            d.contract().human_readable_citation.as_deref(),
             Some("Titre Légifrance [Objet]")
         );
     }

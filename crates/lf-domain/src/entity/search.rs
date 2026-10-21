@@ -1,7 +1,7 @@
 //! Résultats de recherche (`fr_search`, `citations.py:110-182`).
 
 use crate::{
-    citation::{Citable, CitationContract, with_company},
+    contract::{Citable, CitationContract, with_company},
     fond::Fond,
     id::{AnyId, ArticleId},
     text::clean,
@@ -60,7 +60,7 @@ pub struct SearchHit {
 }
 
 impl Citable for SearchHit {
-    fn citation(&self) -> CitationContract {
+    fn contract(&self) -> CitationContract {
         let key = match self.fond {
             Fond::Loda | Fond::Code => &self.id,
             _ => self.cid.as_ref().unwrap_or(&self.id),
@@ -121,12 +121,12 @@ mod tests {
     fn loda_and_code_use_id() {
         let loda = hit(Fond::Loda, "JORFTEXT000020445850", Some("JORFTEXT000099999999"));
         assert_eq!(
-            loda.citation().source_url,
+            loda.contract().source_url,
             "https://www.legifrance.gouv.fr/loda/id/JORFTEXT000020445850"
         );
         let code = hit(Fond::Code, "LEGITEXT000006070721", Some("LEGITEXT000099999999"));
         assert_eq!(
-            code.citation().source_url,
+            code.contract().source_url,
             "https://www.legifrance.gouv.fr/codes/texte_lc/LEGITEXT000006070721"
         );
     }
@@ -135,21 +135,21 @@ mod tests {
     fn other_fonds_prefer_cid() {
         let constit = hit(Fond::Constit, "CONSTEXT000043596386", Some("CONSTEXT000011111111"));
         assert_eq!(
-            constit.citation().source_url,
+            constit.contract().source_url,
             "https://www.legifrance.gouv.fr/cons/id/CONSTEXT000011111111"
         );
         let juri = hit(Fond::Juri, "JURITEXT000048465611", None);
         assert_eq!(
-            juri.citation().source_url,
+            juri.contract().source_url,
             "https://www.legifrance.gouv.fr/juri/id/JURITEXT000048465611"
         );
-        assert_eq!(juri.citation().human_readable_citation.as_deref(), Some("Titre"));
+        assert_eq!(juri.contract().human_readable_citation.as_deref(), Some("Titre"));
     }
 
     #[test]
     fn acco_cites_company() {
         let acco = hit(Fond::Acco, "ACCOTEXT000051888026", None);
-        assert_eq!(acco.citation().human_readable_citation.as_deref(), Some("Titre (CORSAIR)"));
+        assert_eq!(acco.contract().human_readable_citation.as_deref(), Some("Titre (CORSAIR)"));
     }
 
     #[test]

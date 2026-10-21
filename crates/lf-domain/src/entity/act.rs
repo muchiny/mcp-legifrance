@@ -2,7 +2,7 @@
 //! Même forme côté API (`citations.py:204-228` et `403-436`).
 
 use crate::{
-    citation::{Citable, CitationContract},
+    contract::{Citable, CitationContract},
     date::CivilDate,
     id::{ArticleId, KaliTextId, LegiTextId},
     url::{ResourceKind, legifrance_url},
@@ -63,7 +63,7 @@ pub struct Convention {
 }
 
 impl Citable for Act {
-    fn citation(&self) -> CitationContract {
+    fn contract(&self) -> CitationContract {
         CitationContract::from_url(
             legifrance_url(ResourceKind::Loda, self.text_id.as_str()),
             self.body.title.clone(),
@@ -72,7 +72,7 @@ impl Citable for Act {
 }
 
 impl Citable for Convention {
-    fn citation(&self) -> CitationContract {
+    fn contract(&self) -> CitationContract {
         CitationContract::from_url(
             legifrance_url(ResourceKind::Kali, self.text_id.as_str()),
             self.body.title.clone(),
@@ -96,7 +96,7 @@ mod tests {
             body: body("LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique"),
         };
         assert_eq!(
-            act.citation(),
+            act.contract(),
             CitationContract::from_url(
                 "https://www.legifrance.gouv.fr/loda/id/LEGITEXT000033205014".into(),
                 Some("LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique".into()),
@@ -110,7 +110,7 @@ mod tests {
             text_id: KaliTextId::parse("KALITEXT000049878950").unwrap(),
             body: body("Avenant"),
         };
-        let citation = convention.citation();
+        let citation = convention.contract();
         assert_eq!(
             citation.source_url,
             "https://www.legifrance.gouv.fr/conv_coll/id/KALITEXT000049878950"

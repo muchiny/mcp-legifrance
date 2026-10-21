@@ -1,39 +1,6 @@
-//! Contrat de citation et conventions de citation françaises.
-//!
-//! CONSTITUTION art. 4 de la référence : toute entité citable porte `eli_uri`,
-//! `human_readable_citation` et `source_url`. PISTE renvoie un ELI nul pour la
-//! législation : `eli_uri` porte donc l'URL Légifrance stable, jamais un ELI
-//! fabriqué (`citations.py:8-23`).
+//! Règles de citation françaises : fonctions pures, une par convention.
 
 use crate::date::CivilDate;
-
-/// Note jointe aux résultats de législation (`models.py:14-17`).
-pub const ELI_NOTE: &str = "Legifrance lf-engine-app returns the ELI field null for legislation; \
-'eli_uri' is the stable CID-keyed legifrance.gouv.fr resource URL, not a synthesized /eli/ identifier.";
-
-/// Contrat de citation porté par toute entité citable.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CitationContract {
-    /// URL Légifrance stable (pas d'ELI fabriqué).
-    pub eli_uri: String,
-    /// Citation selon l'usage français, absente si la source ne la permet pas.
-    pub human_readable_citation: Option<String>,
-    /// Page legifrance.gouv.fr de la ressource.
-    pub source_url: String,
-}
-
-impl CitationContract {
-    /// `eli_uri` et `source_url` reçoivent tous deux `url`.
-    pub fn from_url(url: String, human_readable_citation: Option<String>) -> Self {
-        Self { eli_uri: url.clone(), human_readable_citation, source_url: url }
-    }
-}
-
-/// Entité qui sait produire son contrat de citation.
-pub trait Citable {
-    /// Contrat de citation de l'entité.
-    fn citation(&self) -> CitationContract;
-}
 
 /// Parité avec la vérité Python des chaînes : `""` vaut absent
 /// (`citations.py:256-261`, `303-317`, `377-378`, `458`).
@@ -109,14 +76,6 @@ mod tests {
 
     fn nov_7() -> Option<CivilDate> {
         CivilDate::new(2025, 11, 7)
-    }
-
-    #[test]
-    fn contract_uses_url_twice() {
-        let c = CitationContract::from_url("https://u".into(), Some("Cit".into()));
-        assert_eq!(c.eli_uri, "https://u");
-        assert_eq!(c.source_url, "https://u");
-        assert_eq!(c.human_readable_citation.as_deref(), Some("Cit"));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Article seul (`fr_get_text`, `citations.py:248-276`).
 
 use crate::{
-    citation::{Citable, CitationContract, article_citation},
+    contract::{Citable, CitationContract, article_citation},
     date::CivilDate,
     id::ArticleId,
     url::{ResourceKind, legifrance_url},
@@ -30,7 +30,7 @@ pub struct ArticleText {
 }
 
 impl Citable for ArticleText {
-    fn citation(&self) -> CitationContract {
+    fn contract(&self) -> CitationContract {
         let kind = match self.article_id {
             ArticleId::Legi(_) => ResourceKind::CodeArticle,
             ArticleId::Kali(_) => ResourceKind::Kali,
@@ -62,7 +62,7 @@ mod tests {
 
     #[test]
     fn legi_article_cites_code_and_number() {
-        let citation = article("LEGIARTI000006419288").citation();
+        let citation = article("LEGIARTI000006419288").contract();
         assert_eq!(
             citation,
             CitationContract::from_url(
@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn kali_article_uses_conv_coll_url() {
         // test_kali_article_url_uses_conv_coll de la référence.
-        let citation = article("KALIARTI000005805295").citation();
+        let citation = article("KALIARTI000005805295").contract();
         assert_eq!(
             citation.source_url,
             "https://www.legifrance.gouv.fr/conv_coll/id/KALIARTI000005805295"

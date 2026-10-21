@@ -1,5 +1,5 @@
 //! Entités renvoyées par le corpus. Les entités consultables et chaque
-//! `SearchHit` implémentent [`Citable`](crate::citation::Citable) ;
+//! `SearchHit` implémentent [`Citable`](crate::contract::Citable) ;
 //! `TocEntry` et `TextBody` non.
 //!
 //! Les champs publics en français (`etat`, `juridiction`, `raison_sociale`…)
