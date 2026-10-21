@@ -19,8 +19,12 @@ MEM_CHECK := free -m | awk 'NR==2 { if ($$7 >= 8*1024) print "OK: -j 1 safe"; el
 # En local, par exemple : make workflow-lint ZIZMOR="uvx --from zizmor==1.30.1 zizmor"
 ZIZMOR ?= zizmor
 ACTIONLINT ?= actionlint
+# Règle d'âge des dépendances (00 §2, 06 §9.4) : base de comparaison de Cargo.lock et âge
+# minimal en jours. SECURITY_FIX=true (libellé `security-fix` de la PR) vient de l'environnement.
+MIN_AGE_BASE ?= origin/main
+MIN_AGE_DAYS ?= 14
 
-.PHONY: fmt fmt-check lint test doc arch deny machete cov mem-check mutants mutants-diff workflow-lint ci
+.PHONY: fmt fmt-check lint test doc arch deny min-age min-age-selftest machete cov mem-check mutants mutants-diff workflow-lint ci
 
 fmt:
 	cargo fmt --all
@@ -43,6 +47,16 @@ arch:
 
 deny:
 	cargo deny --locked check
+
+# Âge minimal des paquets du registre ajoutés ou montés dans Cargo.lock depuis $(MIN_AGE_BASE)
+# (réseau : index sparse de crates.io). Étape `min-age` du job deny de la CI, sur PR seulement.
+min-age:
+	MIN_AGE_BASE="$(MIN_AGE_BASE)" MIN_AGE_DAYS="$(MIN_AGE_DAYS)" .github/scripts/check-min-age.sh
+
+# Auto-test du contrôle d'âge, hors réseau (verrous et index factices) : shellcheck, puis les cas.
+min-age-selftest:
+	shellcheck .github/scripts/check-min-age.sh .github/scripts/tests/min-age/run.sh
+	.github/scripts/tests/min-age/run.sh
 
 machete:
 	cargo machete
@@ -73,4 +87,4 @@ workflow-lint:
 	$(ZIZMOR) .github/
 	$(ACTIONLINT)
 
-ci: fmt-check lint test doc arch deny machete cov
+ci: fmt-check lint test doc arch deny min-age-selftest machete cov

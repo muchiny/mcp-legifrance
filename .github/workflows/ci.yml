@@ -73,7 +73,9 @@ jobs:
 
   deny:
     name: cargo-deny
-    runs-on: ubuntu-latest
+    # Image fixée (06 §7.2) : la règle d'âge emploie bash, git, curl, jq, GNU date et shellcheck.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,6 +87,14 @@ jobs:
         with:
           command: check
           arguments: --all-features
+      # Auto-test du script, hors réseau (shellcheck, verrous et index factices), à chaque run.
+      - run: make min-age-selftest
+      - name: âge minimal des dépendances (00 §2 ; §9.4)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}                  # jamais interpolé directement dans le script (zizmor)
+          SECURITY_FIX: ${{ contains(github.event.pull_request.labels.*.name, 'security-fix') }}
+        run: make min-age MIN_AGE_BASE="origin/$BASE_REF" MIN_AGE_DAYS=14   # cible du Makefile (00 §10), qui appelle .github/scripts/check-min-age.sh
 
   msrv:
     name: MSRV 1.88
