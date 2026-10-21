@@ -22,13 +22,14 @@ pub struct TextBody {
     pub nature: Option<String>,
     /// État juridique brut.
     pub etat: Option<String>,
-    /// Date de parution au JO.
+    /// Date de parution au JO ; `None` : inconnue.
     pub date_parution: Option<CivilDate>,
     /// Numéro de parution au JO.
     pub num_parution: Option<String>,
-    /// Début de la version consolidée.
+    /// Début de la version consolidée ; `None` : date d'entrée en vigueur non déterminée.
     pub date_debut_version: Option<CivilDate>,
-    /// Fin de la version consolidée (`2999-01-01` = sans fin connue).
+    /// Fin de la version consolidée ; `None` : en vigueur sans date de fin (la sentinelle
+    /// `2999-01-01` de l'API est passée par [`open_ended`](crate::date::open_ended)).
     pub date_fin_version: Option<CivilDate>,
     /// Table des matières en arbre, sections et articles ([`Toc::build`]).
     pub toc: Toc,

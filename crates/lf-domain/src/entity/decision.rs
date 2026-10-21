@@ -29,7 +29,7 @@ pub struct Decision {
     pub solution: Option<String>,
     /// Numéros d'affaire, ex. `24-13.470`.
     pub numero_affaire: Vec<String>,
-    /// Date de la décision.
+    /// Date de la décision ; `None` : inconnue.
     pub date_texte: Option<CivilDate>,
     /// Nature (Conseil constitutionnel : `QPC`, `DC`…).
     pub nature: Option<String>,

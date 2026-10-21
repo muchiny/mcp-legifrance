@@ -20,9 +20,9 @@ pub struct Deliberation {
     pub nature_delib: Option<String>,
     /// État juridique brut.
     pub etat: Option<String>,
-    /// Date de la délibération.
+    /// Date de la délibération ; `None` : inconnue.
     pub date_texte: Option<CivilDate>,
-    /// Date de publication.
+    /// Date de publication ; `None` : inconnue.
     pub date_publication: Option<CivilDate>,
     /// Titre court.
     pub title: Option<String>,

@@ -12,6 +12,11 @@
 //! reprennent les clés JSON de sortie de la référence (`citations.py:213-227`,
 //! `264-275`, `341-354`, `381-394`, `465-485`) : §0, noms de champs JSON tels
 //! quels, parité de migration.
+//!
+//! Dates : chaque champ de date est une [`CivilDate`](crate::date::CivilDate) optionnelle que le
+//! mapper passe par [`open_ended`](crate::date::open_ended) ; le sens de `None` est écrit sur
+//! chaque champ (03 §6.2) : date de fin, en vigueur sans date de fin ; date de début, date
+//! d'entrée en vigueur non déterminée ; date de publication ou du texte, inconnue.
 
 mod act;
 mod agreement;

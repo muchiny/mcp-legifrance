@@ -21,9 +21,9 @@ pub struct ArticleText {
     pub code_title: Option<String>,
     /// Chemin des sections.
     pub full_sections_titre: Option<String>,
-    /// Début de vigueur.
+    /// Début de vigueur ; `None` : début non déterminé.
     pub date_debut: Option<CivilDate>,
-    /// Fin de vigueur.
+    /// Fin de vigueur ; `None` : sans date de fin.
     pub date_fin: Option<CivilDate>,
     /// Texte brut de l'article.
     pub text: Option<String>,

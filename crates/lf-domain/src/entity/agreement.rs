@@ -35,11 +35,11 @@ pub struct CompanyAgreement {
     pub themes: Vec<String>,
     /// Syndicats signataires.
     pub syndicats: Vec<String>,
-    /// Date du texte.
+    /// Date du texte ; `None` : inconnue.
     pub date_texte: Option<CivilDate>,
-    /// Date d'effet.
+    /// Date d'effet, une date de début ; `None` : date d'effet non déterminée.
     pub date_effet: Option<CivilDate>,
-    /// Date de dépôt.
+    /// Date de dépôt ; `None` : inconnue.
     pub date_depot: Option<CivilDate>,
 }
 

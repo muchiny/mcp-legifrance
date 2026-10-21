@@ -44,7 +44,8 @@ pub struct SearchHit {
     /// Identifiant du texte, suffixe de version retiré.
     pub id: AnyId,
     /// Date du suffixe `_JJ-MM-AAAA` d'un identifiant `LEGITEXT`, lue par
-    /// `parse_versioned` (03 §4.1) ; `None` sans suffixe ; rempli par le mapper ;
+    /// `parse_versioned` (03 §4.1) ; `None` sans suffixe, ou pour une sentinelle passée par
+    /// `open_ended` (date d'entrée en vigueur non déterminée) ; rempli par le mapper ;
     /// ni cité ni rendu dans les hits (`annexes/A-parite.md` §4.6).
     pub version_start: Option<CivilDate>,
     /// Identifiant chronologique, préféré pour l'URL hors LODA/CODE.

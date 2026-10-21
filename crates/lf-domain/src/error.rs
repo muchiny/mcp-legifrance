@@ -19,6 +19,8 @@
 
 use thiserror::Error;
 
+use crate::date::VersionDate;
+
 /// Longueur maximale, en caractères, d'une entrée recopiée dans un message d'erreur.
 pub const ECHO_MAX_CHARS: usize = 64;
 
@@ -40,7 +42,7 @@ pub enum DomainError {
         /// Préfixe(s) accepté(s), ex. `LEGITEXT`.
         expected: &'static str,
     },
-    /// Date absente ou malformée.
+    /// Date absente ou malformée ; pour une [`VersionDate`], aussi une date hors de sa plage.
     ///
     /// Ne se construit pas hors du crate :
     ///
@@ -114,6 +116,14 @@ pub enum DomainError {
         /// Nombre total d'entrées.
         total: u32,
     },
+    /// Période inversée : `date_from` postérieure à `date_to` ([`DateRange::new`](crate::date::DateRange::new)).
+    #[error("date_from={from} is after date_to={to}")]
+    InvertedDateRange {
+        /// Début demandé.
+        from: VersionDate,
+        /// Fin demandée.
+        to: VersionDate,
+    },
 }
 
 /// Recopie `input` pour un message d'erreur, tronquée à [`ECHO_MAX_CHARS`] caractères.
@@ -127,7 +137,7 @@ pub(crate) fn echo(input: &str) -> String {
 mod tests {
     use super::*;
     use crate::{
-        date::CivilDate,
+        date::{CivilDate, VersionDate},
         ecli::Ecli,
         fond::Fond,
         id::{AnyId, ArticleId, DecisionId, LegiTextId, SectionId, parse_versioned},
@@ -145,7 +155,8 @@ mod tests {
             | DomainError::BadSuffix { input } => input,
             DomainError::EmptyCoverageGaps
             | DomainError::TocTooDeep { .. }
-            | DomainError::TocOffsetPastEnd { .. } => "",
+            | DomainError::TocOffsetPastEnd { .. }
+            | DomainError::InvertedDateRange { .. } => "",
         }
     }
 
@@ -202,6 +213,12 @@ mod tests {
             DomainError::TocOffsetPastEnd { offset: 300, total: 88 }.to_string(),
             "toc_offset=300 is past the end (toc_total=88)"
         );
+        let from = VersionDate::parse("2026-01-01").unwrap();
+        let to = VersionDate::parse("2025-01-01").unwrap();
+        assert_eq!(
+            DomainError::InvertedDateRange { from, to }.to_string(),
+            "date_from=2026-01-01 is after date_to=2025-01-01"
+        );
     }
 
     #[test]
@@ -245,6 +262,7 @@ mod tests {
             DomainError::EmptyCoverageGaps,
             DomainError::TocTooDeep { max: 64 },
             DomainError::TocOffsetPastEnd { offset: 300, total: 88 },
+            DomainError::InvertedDateRange { from: VersionDate::MAX, to: VersionDate::MIN },
         ] {
             assert_eq!(echoed(&error), "", "{error}");
         }
