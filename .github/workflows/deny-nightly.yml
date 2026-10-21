@@ -10,6 +10,7 @@ permissions:
 
 # Actions épinglées par SHA, version en commentaire : voir ci.yml.
 jobs:
+  # Deux graphes sous le même deny.toml (M1-D16) : voir le job deny de ci.yml.
   deny:
     name: cargo-deny (nuit)
     runs-on: ubuntu-24.04
@@ -22,3 +23,14 @@ jobs:
         with:
           command: check
           arguments: --all-features
+          command-arguments: -A license-exception-not-encountered
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1 (cargo-deny 0.20.2)
+        with:
+          manifest-path: fuzz/Cargo.toml
+          command: check
+          arguments: --all-features
+          command-arguments: -A license-not-encountered -A unused-wrapper
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-audit@0.22.1
+      - run: make audit-fuzz

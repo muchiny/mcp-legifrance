@@ -24,7 +24,7 @@ ACTIONLINT ?= actionlint
 MIN_AGE_BASE ?= origin/main
 MIN_AGE_DAYS ?= 14
 
-.PHONY: fmt fmt-check lint test doc arch purity deny min-age min-age-selftest machete cov mem-check mutants mutants-diff workflow-lint ci
+.PHONY: fmt fmt-check lint test doc arch purity deny audit-fuzz min-age min-age-selftest machete cov mem-check mutants mutants-diff workflow-lint ci
 
 fmt:
 	cargo fmt --all
@@ -51,8 +51,18 @@ arch:
 purity:
 	cargo check -p lf-application --locked
 
+# Deux graphes sous un seul deny.toml (M1-D16) : le workspace, puis fuzz/ (hors workspace, son propre
+# Cargo.lock). Chaque run signalerait des avertissements propres à l'autre graphe : `-A` les masque
+# (licence ou wrapper non rencontrés, exception NCSA non employée), sans configuration par graphe.
 deny:
-	cargo deny --locked check
+	cargo deny --locked check -A license-exception-not-encountered
+	cargo deny --locked --manifest-path fuzz/Cargo.toml check -A license-not-encountered -A unused-wrapper
+
+# Avis RustSec sur fuzz/Cargo.lock (M1-D16), hors `make ci` : réseau (base d'avis). Le binaire
+# `cargo-audit audit` et non `cargo audit` : la sous-commande passe par rustup et téléchargerait la
+# chaîne épinglée par rust-toolchain.toml. Hors ligne : ajouter `--no-fetch`.
+audit-fuzz:
+	cargo-audit audit --deny warnings --file fuzz/Cargo.lock
 
 # Âge minimal des paquets du registre ajoutés ou montés dans Cargo.lock depuis $(MIN_AGE_BASE)
 # (réseau : index sparse de crates.io). Étape `min-age` du job deny de la CI, sur PR seulement.
