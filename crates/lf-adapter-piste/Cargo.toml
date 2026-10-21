@@ -17,6 +17,8 @@ lf-domain.workspace = true
 reqwest = { workspace = true, features = ["gzip", "system-proxy", "rustls"] }
 # Limiteur de débit (limit.rs) : GCRA direct, horloge injectée ; feature std seule
 governor.workspace = true
+# Date HTTP de Retry-After et de Date (retry.rs) : analyse seule, aucune horloge murale
+chrono.workspace = true
 # SecretString : client_secret, Debug rédigé `[REDACTED]`
 secrecy.workspace = true
 thiserror.workspace = true

@@ -12,6 +12,8 @@
 //! que `PisteCorpus` n'existe pas.
 //!
 //! Modules :
+//! - `classify` : classification d'une tentative d'envoi (`Outcome`, `Budget`) d'après le statut
+//!   HTTP et `Retry-After`, sans jamais lire le corps.
 //! - `config` : configuration de l'adapter (`PisteConfig`) et validation des URL surchargées.
 //! - `deadline` : échéance d'un appel (`CallDeadline`), durée restante lue dans `Deadline`
 //!   puis posée sur l'horloge monotone de l'adapter.
@@ -20,6 +22,8 @@
 //!   lecture bornée du corps ; aucun réessai ni jugement de statut.
 //! - `limit` : barrière de charge sortante (`RateGate`), sémaphore de concurrence puis limiteur
 //!   de débit `governor` sur l'horloge de l'adapter ; toutes les attentes bornées par le délai.
+//! - `retry` : politique de réessai (`run`) : trois requêtes au plus, délai exponentiel avec gigue,
+//!   `Retry-After`, bornée par le délai global ; boucle maison, sans `backon`.
 //! - `stats` : compteurs en mémoire (`Stats`) et leur instantané public (`StatsSnapshot`).
 //! - `time` : horloge monotone (`MonoClock`), attente (`Sleeper`) et course `race`, pour des
 //!   tests déterministes sans geler l'horloge `tokio`.
@@ -29,11 +33,13 @@
     expect(dead_code, reason = "modules internes consommés par PisteCorpus au plan 2d")
 )]
 
+mod classify;
 mod config;
 mod deadline;
 mod encoding;
 mod http;
 mod limit;
+mod retry;
 mod stats;
 mod time;
 
