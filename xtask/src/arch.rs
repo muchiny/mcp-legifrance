@@ -1,10 +1,11 @@
-//! Règles de dépendance de l'architecture hexagonale (02 §4.1, R1 à R7, et
+//! Règles de dépendance de l'architecture hexagonale (02 §4.1, R1 à R8, et
 //! étape 5 de 02 §4.2).
 //!
 //! Règles en données : une `CrateRule` par paquet connu (`RULES`), moteur pur.
 //! Dans les règles, `lf-app` s'écrit `mcp-legifrance` (02 §3.7). Est interne un
 //! nom en `lf-*`, `mcp-legifrance` ou `xtask`. Seules les dépendances normales
-//! comptent pour R1 à R7. Contrôles :
+//! comptent pour R1 à R7 : les dépendances `build` et `dev` n'en déclenchent
+//! aucune, R8 lisant les `dev` à part. Contrôles :
 //!
 //! - membre inconnu : absent de la table, une seule violation, aucun autre
 //!   contrôle sur ce membre ;
@@ -21,7 +22,17 @@
 //! - R4 : personne ne dépend de `mcp-legifrance`, qui peut dépendre de tous les
 //!   `lf-*` (permission, pas obligation) et n'a pas de cible `lib` ;
 //! - R5 : `xtask` ne dépend d'aucun crate interne, et réciproquement ;
+//! - R6 : un crate de `CONFINED` (`rmcp`, `reqwest`, `moka`, `sha2`, `clap`...)
+//!   n'est déclaré en dépendance normale que par ses portes, message `{membre}
+//!   must not depend on {dep} (confined to {portes})` (portes séparées par
+//!   `", "`), en plus de R2 pour `lf-application` (règles distinctes, pas de
+//!   dédoublonnage) ; `NEVER_RENAMED` (`rmcp`) interdit en outre tout
+//!   renommage dans le manifeste, `{membre} must not rename rmcp` ;
 //! - R7 : aucun membre ne dépend directement de `async-trait` (ADR-0012) ;
+//! - R8 : en dépendance de développement, `lf-domain` et `lf-application`
+//!   (`dev_adapters` à `false`) ne prennent aucun adapter ni `mcp-legifrance`,
+//!   message `{membre} must not depend on {dep} even in dev-dependencies` ;
+//!   les autres membres (`dev_adapters` à `true`) n'ont pas cette limite ;
 //! - étape 5 : seuls `mcp-legifrance` et `xtask` ont une cible `bin` (5f) ;
 //!   `version`, `edition`, `rust-version` et `license` égalent ceux de
 //!   `lf-domain` (5a-5d : `cargo metadata` ne montre pas l'héritage de
@@ -51,6 +62,12 @@ pub struct Package {
     pub name: String,
     /// Noms des dépendances normales.
     pub deps: Vec<String>,
+    /// Noms des dépendances de développement (`kind` `dev`), lus à part : seule
+    /// R8 les regarde.
+    pub dev_deps: Vec<String>,
+    /// Noms de paquet (pas l'alias) des dépendances normales renommées dans le
+    /// manifeste (`rename` non nul).
+    pub renamed: Vec<String>,
     /// Exigences de version (`nom`, `req`), tous kinds confondus.
     pub requirements: Vec<(String, String)>,
     /// Kinds des cibles (`lib`, `bin`, `custom-build`, ...).
@@ -87,6 +104,45 @@ const APPLICATION_ALLOWED: [&str; 6] =
 const APPLICATION_FEATURES: [(&str, &[&str]); 2] =
     [("tokio", &["time", "macros", "rt"]), ("chrono", &["std"])];
 
+/// Crates confinés (R6) : chacun avec les seuls membres autorisés à le déclarer
+/// en dépendance normale (leurs « portes »). `backon` reste ici même si
+/// `lf-adapter-piste` ne l'emploie pas : la table décrit la porte, pas l'usage.
+/// `chrono-tz` n'est ouvert ni à `lf-domain` ni à `lf-application` (00 §2).
+/// Les portes `lf-adapter-dila` sont inertes tant que ce membre est absent de
+/// `RULES`. Dans la table, `lf-app` s'écrit `mcp-legifrance`.
+const CONFINED: [(&str, &[&str]); 21] = [
+    ("rmcp", &["lf-adapter-mcp"]),
+    ("rmcp-macros", &["lf-adapter-mcp"]),
+    ("schemars", &["lf-adapter-mcp"]),
+    ("axum", &["lf-adapter-mcp"]),
+    ("reqwest", &["lf-adapter-piste"]),
+    ("rustls", &["lf-adapter-piste"]),
+    ("backon", &["lf-adapter-piste"]),
+    ("governor", &["lf-adapter-piste"]),
+    ("moka", &["lf-adapter-cache"]),
+    ("sha2", &["lf-adapter-audit", "xtask"]),
+    ("fs4", &["lf-adapter-audit", "xtask"]),
+    ("tantivy", &["lf-adapter-dila"]),
+    ("quick-xml", &["lf-adapter-dila"]),
+    ("tar", &["lf-adapter-dila"]),
+    ("flate2", &["lf-adapter-dila"]),
+    ("clap", &["mcp-legifrance"]),
+    ("tracing-subscriber", &["mcp-legifrance"]),
+    ("dirs", &["mcp-legifrance"]),
+    ("anyhow", &["mcp-legifrance", "xtask"]),
+    ("secrecy", &["lf-adapter-piste", "mcp-legifrance"]),
+    ("chrono-tz", &["mcp-legifrance", "lf-adapter-piste"]),
+];
+
+/// Crates que le manifeste ne renomme jamais (R6) : un alias contournerait les
+/// contrôles par nom de `rmcp`.
+const NEVER_RENAMED: [&str; 1] = ["rmcp"];
+
+/// Portes d'un crate confiné, `None` s'il ne l'est pas.
+fn doors(dep: &str) -> Option<&'static [&'static str]> {
+    CONFINED.iter().find(|(name, _)| *name == dep).map(|(_, doors)| *doors)
+}
+
 /// Règle d'un paquet connu du workspace.
 struct CrateRule {
     name: &'static str,
@@ -100,6 +156,9 @@ struct CrateRule {
     bin: bool,
     /// Cible `lib` admise.
     lib: bool,
+    /// R8 : les dépendances de développement peuvent être un adapter ou
+    /// `mcp-legifrance` ; `false` pour `lf-domain` et `lf-application`.
+    dev_adapters: bool,
 }
 
 impl CrateRule {
@@ -114,19 +173,38 @@ impl CrateRule {
             dep == "async-trait" || self.external.is_some_and(|allowed| !allowed.contains(&dep))
         }
     }
+
+    /// R8 : `dep`, en dépendance de développement, est un adapter ou
+    /// `mcp-legifrance` que ce crate n'a pas le droit de prendre.
+    fn forbids_in_dev(&self, dep: &str) -> bool {
+        !self.dev_adapters && (dep.starts_with("lf-adapter-") || dep == "mcp-legifrance")
+    }
 }
 
 /// Gabarit : bibliothèque sans dépendance interne ni liste externe fermée.
-const LIBRARY: CrateRule =
-    CrateRule { name: "", internal: &[], external: None, features: &[], bin: false, lib: true };
+const LIBRARY: CrateRule = CrateRule {
+    name: "",
+    internal: &[],
+    external: None,
+    features: &[],
+    bin: false,
+    lib: true,
+    dev_adapters: true,
+};
 
 const RULES: [CrateRule; 8] = [
-    CrateRule { name: "lf-domain", external: Some(&DOMAIN_ALLOWED), ..LIBRARY },
+    CrateRule {
+        name: "lf-domain",
+        external: Some(&DOMAIN_ALLOWED),
+        dev_adapters: false,
+        ..LIBRARY
+    },
     CrateRule {
         name: "lf-application",
         internal: &["lf-domain"],
         external: Some(&APPLICATION_ALLOWED),
         features: &APPLICATION_FEATURES,
+        dev_adapters: false,
         ..LIBRARY
     },
     CrateRule { name: "lf-adapter-piste", internal: &["lf-application", "lf-domain"], ..LIBRARY },
@@ -173,6 +251,20 @@ fn member_violations(p: &Package, rule: &CrateRule, domain: Option<&Package>) ->
         .iter()
         .filter(|dep| rule.forbids(dep))
         .map(|dep| format!("{} must not depend on {dep}", p.name));
+    let confined = p.deps.iter().filter_map(|dep| {
+        let members = doors(dep).filter(|members| !members.contains(&p.name.as_str()))?;
+        Some(format!("{} must not depend on {dep} (confined to {})", p.name, members.join(", ")))
+    });
+    let renamed = p
+        .renamed
+        .iter()
+        .filter(|name| NEVER_RENAMED.contains(&name.as_str()))
+        .map(|name| format!("{} must not rename {name}", p.name));
+    let dev = p
+        .dev_deps
+        .iter()
+        .filter(|dep| rule.forbids_in_dev(dep))
+        .map(|dep| format!("{} must not depend on {dep} even in dev-dependencies", p.name));
     let features = p.features.iter().flat_map(|(dep, enabled)| {
         let allowed = rule.allowed_features(dep);
         enabled
@@ -186,7 +278,10 @@ fn member_violations(p: &Package, rule: &CrateRule, domain: Option<&Package>) ->
         .map(|(kind, _)| format!("{} must not have a {kind} target", p.name));
     let lints =
         (!p.lints_workspace).then(|| format!("{} must declare [lints] workspace = true", p.name));
-    deps.chain(features)
+    deps.chain(confined)
+        .chain(renamed)
+        .chain(dev)
+        .chain(features)
         .chain(targets)
         .chain(lints)
         .chain(domain.into_iter().flat_map(|d| workspace_violations(p, d)))
@@ -277,11 +372,9 @@ fn read_package(p: &Value) -> Result<Package, String> {
         .ok_or_else(|| format!("cargo metadata: {name} has no manifest_path"))?;
     Ok(Package {
         name: name.to_owned(),
-        deps: dependencies
-            .iter()
-            .filter(|d| d["kind"].is_null())
-            .filter_map(|d| d["name"].as_str().map(str::to_owned))
-            .collect(),
+        deps: dependency_names(dependencies, |d| d["kind"].is_null()),
+        dev_deps: dependency_names(dependencies, |d| d["kind"].as_str() == Some("dev")),
+        renamed: dependency_names(dependencies, |d| d["kind"].is_null() && !d["rename"].is_null()),
         requirements: dependencies
             .iter()
             .filter_map(|d| Some((d["name"].as_str()?.to_owned(), d["req"].as_str()?.to_owned())))
@@ -299,6 +392,16 @@ fn read_package(p: &Value) -> Result<Package, String> {
         manifest_path: manifest_path.to_owned(),
         lints_workspace: false,
     })
+}
+
+/// Noms de paquet des dépendances retenues par `keep` ; une entrée sans `name`
+/// chaîne est ignorée.
+fn dependency_names(dependencies: &[Value], keep: impl Fn(&Value) -> bool) -> Vec<String> {
+    dependencies
+        .iter()
+        .filter(|d| keep(d))
+        .filter_map(|d| d["name"].as_str().map(str::to_owned))
+        .collect()
 }
 
 /// Features activées de chaque dépendance normale : celles de ses déclarations
@@ -372,6 +475,8 @@ mod tests {
         Package {
             name: name.into(),
             deps: strings(deps),
+            dev_deps: Vec::new(),
+            renamed: Vec::new(),
             requirements: Vec::new(),
             targets: strings(&["lib"]),
             version: "0.0.0".into(),
@@ -393,6 +498,16 @@ mod tests {
     fn enabling(package: Package, features: &[(&str, &[&str])]) -> Package {
         let features = features.iter().map(|(dep, f)| ((*dep).to_owned(), strings(f))).collect();
         Package { features, ..package }
+    }
+
+    /// Le même membre, avec ces dépendances de développement.
+    fn developing(package: Package, dev_deps: &[&str]) -> Package {
+        Package { dev_deps: strings(dev_deps), ..package }
+    }
+
+    /// Le même membre, avec ces dépendances normales renommées (noms de paquet).
+    fn renaming(package: Package, renamed: &[&str]) -> Package {
+        Package { renamed: strings(renamed), ..package }
     }
 
     /// Le même membre, avec ces exigences (`nom`, `req`).
@@ -749,7 +864,10 @@ mod tests {
         });
         let expected = Package {
             lints_workspace: false,
-            ..enabling(pkg("lf-domain", &["thiserror"]), &[("thiserror", &["default"])])
+            ..developing(
+                enabling(pkg("lf-domain", &["thiserror"]), &[("thiserror", &["default"])]),
+                &["proptest"],
+            )
         };
         assert_eq!(workspace_packages(&metadata), Ok(vec![expected]));
     }
@@ -778,7 +896,7 @@ mod tests {
                         "source": null, "path": "/w/crates/lf-application"
                     },
                     {
-                        "name": "tokio", "req": "^1.53.2", "kind": null,
+                        "name": "tokio", "req": "^1.53.2", "kind": null, "rename": "tk",
                         "features": ["rt", "time"], "uses_default_features": false,
                         "source": "registry+https://github.com/rust-lang/crates.io-index"
                     },
@@ -790,6 +908,8 @@ mod tests {
         let expected = Package {
             name: "mcp-legifrance".into(),
             deps: strings(&["lf-domain", "tokio"]),
+            dev_deps: strings(&["lf-application"]),
+            renamed: strings(&["tokio"]),
             requirements: vec![
                 ("lf-domain".into(), "=0.0.0".into()),
                 ("lf-application".into(), "*".into()),
@@ -808,6 +928,36 @@ mod tests {
             lints_workspace: false,
         };
         assert_eq!(workspace_packages(&metadata), Ok(vec![expected]));
+    }
+
+    #[test]
+    fn reads_dev_dependencies_separately() {
+        let id = "path+file:///w/crates/lf-adapter-mcp#0.0.0";
+        let metadata = json!({
+            "workspace_members": [id],
+            "packages": [{
+                "id": id,
+                "name": "lf-adapter-mcp",
+                "version": "0.0.0",
+                "edition": "2024",
+                "manifest_path": "/w/crates/lf-adapter-mcp/Cargo.toml",
+                "targets": [{ "kind": ["lib"] }],
+                "dependencies": [
+                    { "name": "rmcp", "kind": null, "rename": null },
+                    { "name": "schemars", "kind": null, "rename": "sch" },
+                    { "name": "serde", "kind": null },
+                    { "name": "rmcp-macros", "kind": "build", "rename": "m" },
+                    { "name": "wiremock", "kind": "dev", "rename": "wm" },
+                    { "name": "lf-application", "kind": "dev" },
+                    // Entrée sans nom : ignorée, comme pour `deps`.
+                    { "kind": "dev" }
+                ]
+            }]
+        });
+        let packages = workspace_packages(&metadata).unwrap();
+        assert_eq!(packages[0].deps, strings(&["rmcp", "schemars", "serde"]));
+        assert_eq!(packages[0].dev_deps, strings(&["wiremock", "lf-application"]));
+        assert_eq!(packages[0].renamed, strings(&["schemars"]));
     }
 
     #[test]
@@ -949,9 +1099,155 @@ mod tests {
         assert_eq!(violations(&graph), Vec::<String>::new());
         let forbidden = ["serde", "serde_json", "rmcp", "reqwest", "moka", "governor", "backon"];
         let graph = [pkg("lf-domain", &["thiserror"]), pkg("lf-application", &forbidden)];
-        let expected: Vec<String> =
-            forbidden.iter().map(|d| format!("lf-application must not depend on {d}")).collect();
+        // R2 (liste fermée) d'abord, puis R6 pour les crates aussi confinés.
+        let confined = [
+            ("rmcp", "lf-adapter-mcp"),
+            ("reqwest", "lf-adapter-piste"),
+            ("moka", "lf-adapter-cache"),
+            ("governor", "lf-adapter-piste"),
+            ("backon", "lf-adapter-piste"),
+        ];
+        let expected: Vec<String> = forbidden
+            .iter()
+            .map(|d| format!("lf-application must not depend on {d}"))
+            .chain(confined.iter().map(|(d, door)| {
+                format!("lf-application must not depend on {d} (confined to {door})")
+            }))
+            .collect();
         assert_eq!(violations(&graph), expected);
+    }
+
+    /// Crates confinés et leurs portes, recopiés à la main : les `const` ne sont
+    /// pas mutées, cette copie protège le contenu de `CONFINED`.
+    const DOORS: [(&str, &[&str]); 21] = [
+        ("rmcp", &["lf-adapter-mcp"]),
+        ("rmcp-macros", &["lf-adapter-mcp"]),
+        ("schemars", &["lf-adapter-mcp"]),
+        ("axum", &["lf-adapter-mcp"]),
+        ("reqwest", &["lf-adapter-piste"]),
+        ("rustls", &["lf-adapter-piste"]),
+        ("backon", &["lf-adapter-piste"]),
+        ("governor", &["lf-adapter-piste"]),
+        ("moka", &["lf-adapter-cache"]),
+        ("sha2", &["lf-adapter-audit", "xtask"]),
+        ("fs4", &["lf-adapter-audit", "xtask"]),
+        ("tantivy", &["lf-adapter-dila"]),
+        ("quick-xml", &["lf-adapter-dila"]),
+        ("tar", &["lf-adapter-dila"]),
+        ("flate2", &["lf-adapter-dila"]),
+        ("clap", &["mcp-legifrance"]),
+        ("tracing-subscriber", &["mcp-legifrance"]),
+        ("dirs", &["mcp-legifrance"]),
+        ("anyhow", &["mcp-legifrance", "xtask"]),
+        ("secrecy", &["lf-adapter-piste", "mcp-legifrance"]),
+        ("chrono-tz", &["mcp-legifrance", "lf-adapter-piste"]),
+    ];
+
+    /// Membres connus de `RULES`.
+    const MEMBERS: [&str; 8] = [
+        "lf-domain",
+        "lf-application",
+        "lf-adapter-piste",
+        "lf-adapter-cache",
+        "lf-adapter-audit",
+        "lf-adapter-mcp",
+        "mcp-legifrance",
+        "xtask",
+    ];
+
+    /// Les seules violations de R6 d'un graphe.
+    fn confinement_violations(graph: &[Package]) -> Vec<String> {
+        violations(graph).into_iter().filter(|v| v.contains("(confined to ")).collect()
+    }
+
+    #[test]
+    fn confined_crates_have_one_door() {
+        for (dep, doors) in DOORS {
+            for member in MEMBERS {
+                let graph = [pkg("lf-domain", &[]), pkg(member, &[dep])];
+                let expected: Vec<String> = if doors.contains(&member) {
+                    Vec::new()
+                } else {
+                    vec![format!(
+                        "{member} must not depend on {dep} (confined to {})",
+                        doors.join(", ")
+                    )]
+                };
+                assert_eq!(confinement_violations(&graph), expected, "{member} -> {dep}");
+            }
+        }
+    }
+
+    #[test]
+    fn confinement_ignores_development_dependencies() {
+        let graph = [
+            pkg("lf-domain", &[]),
+            developing(pkg("lf-application", &[]), &["reqwest", "rmcp", "moka"]),
+            developing(pkg("lf-adapter-cache", &[]), &["sha2", "anyhow"]),
+        ];
+        assert_eq!(violations(&graph), Vec::<String>::new());
+    }
+
+    #[test]
+    fn rmcp_must_not_be_renamed() {
+        let mcp = || pkg("lf-adapter-mcp", &["lf-application", "rmcp", "schemars"]);
+        let graph = |mcp| [pkg("lf-domain", &[]), mcp];
+        assert_eq!(violations(&graph(mcp())), Vec::<String>::new());
+        assert_eq!(violations(&graph(renaming(mcp(), &["schemars"]))), Vec::<String>::new());
+        assert_eq!(
+            violations(&graph(renaming(mcp(), &["rmcp", "schemars"]))),
+            ["lf-adapter-mcp must not rename rmcp"]
+        );
+    }
+
+    #[test]
+    fn dev_dependencies_of_pure_crates_take_no_adapter() {
+        let graph = [
+            developing(
+                pkg("lf-domain", &[]),
+                &["proptest", "lf-adapter-piste", "mcp-legifrance", "lf-adapter-dila"],
+            ),
+            developing(
+                pkg("lf-application", &["lf-domain"]),
+                &["lf-domain", "tokio", "lf-adapter-mcp", "lf-adapter-cache"],
+            ),
+        ];
+        assert_eq!(
+            violations(&graph),
+            [
+                "lf-domain must not depend on lf-adapter-piste even in dev-dependencies",
+                "lf-domain must not depend on mcp-legifrance even in dev-dependencies",
+                "lf-domain must not depend on lf-adapter-dila even in dev-dependencies",
+                "lf-application must not depend on lf-adapter-mcp even in dev-dependencies",
+                "lf-application must not depend on lf-adapter-cache even in dev-dependencies",
+            ]
+        );
+    }
+
+    #[test]
+    fn adapters_may_take_application_in_dev() {
+        let graph = [
+            pkg("lf-domain", &[]),
+            developing(
+                pkg("lf-adapter-piste", &[]),
+                &["lf-application", "lf-domain", "tokio", "wiremock"],
+            ),
+            developing(pkg("lf-adapter-mcp", &[]), &["lf-application"]),
+        ];
+        assert_eq!(violations(&graph), Vec::<String>::new());
+    }
+
+    #[test]
+    fn dev_dependencies_do_not_trigger_other_rules() {
+        let dev = ["serde_json", "tokio", "reqwest", "async-trait", "lf-domain", "xtask"];
+        let graph = [
+            developing(pkg("lf-domain", &[]), &dev[..4]),
+            developing(pkg("lf-application", &["lf-domain"]), &dev[..4]),
+            developing(pkg("xtask", &[]), &dev),
+            developing(app(&[]), &dev),
+            developing(pkg("lf-adapter-cache", &[]), &["lf-adapter-piste"]),
+        ];
+        assert_eq!(violations(&graph), Vec::<String>::new());
     }
 
     #[test]
