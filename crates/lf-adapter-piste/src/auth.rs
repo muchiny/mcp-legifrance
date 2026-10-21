@@ -811,11 +811,30 @@ mod tests {
     #[tokio::test]
     async fn cancel_during_refresh_releases_lock() {
         let server = MockServer::start().await;
-        reply(&server, ok("slow", &json!(3600)).set_delay(secs(5)), 1).await;
+        // Le bouchon lent signale l'arrivée de la requête : on coupe le renouvellement à ce
+        // moment-là, et non après un délai fixe. Un délai englobant la construction du client
+        // (premier chargement des racines, lent sous charge) pouvait expirer avant l'envoi,
+        // laissant le bouchon lent à la requête suivante. Le renouvellement lent dure 5 s : s'il
+        // finissait avant le signal, la branche du jeton l'emporterait et l'assertion échouerait
+        // au lieu de pendre.
+        let arrived = Arc::new(tokio::sync::Notify::new());
+        let signal = Arc::clone(&arrived);
+        let slow = ok("slow", &json!(3600)).set_delay(secs(5));
+        Mock::given(method("POST"))
+            .and(path("/oauth/token"))
+            .respond_with(move |_: &wiremock::Request| {
+                signal.notify_one();
+                slow.clone()
+            })
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&server)
+            .await;
         reply(&server, ok("fast", &json!(3600)), 1).await;
         let fixture = Fixture::on(&server);
-        let outcome = tokio::time::timeout(ms(150), fixture.token()).await;
-        assert!(outcome.is_err(), "the slow refresh must be cut by the timeout");
+        let mut cut = pin!(arrived.notified());
+        let outcome = race(fixture.token(), cut.as_mut()).await;
+        assert!(outcome.is_none(), "the slow refresh must be cut once its request has arrived");
         let intact = {
             let state = fixture.manager.state.try_lock().unwrap();
             (state.cached.is_none(), state.issued)
