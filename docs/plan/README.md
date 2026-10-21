@@ -104,7 +104,7 @@ Tous les profils commencent par ce README, puis par [00-decisions.md](00-decisio
 | [05-outils-mcp.md](05-outils-mcp.md) | `lf-adapter-mcp` : protocole, mise en œuvre rmcp, instructions, schémas des 13 outils, rendu et budgets, erreurs, resources et prompts, verrou des descripteurs | M4 à M7 |
 | [06-qualite.md](06-qualite.md) | stratégie de test, catalogue de non-régression, fixtures, tests live, conformité MCP, CI, lints, cargo-deny, sécurité, spécification de l'audit, budgets, processus (revue, ADR, CHANGELOG, « terminé ») | à chaque PR (le §10 de 00 est prioritaire) |
 | [07-feuille-de-route.md](07-feuille-de-route.md) | découpage de chaque jalon en tâches `T-Mx-yy` ; M0 et M1 livrés (statut de chaque tâche), tête de M2 | pour planifier ou prendre une tâche |
-| [08-distribution.md](08-distribution.md) | cargo-dist, signature, MCPB, OCI, registre MCP, processus de release, configuration des clients, licence et conformité | spike TLS (tête de M2), M4 (`dist init`), puis avant chaque release |
+| [08-distribution.md](08-distribution.md) | cargo-dist, signature, MCPB, OCI, registre MCP, processus de release, configuration des clients, licence et conformité | spike TLS (banc et workflow livrés au plan 2c, matrice à déclencher, option A provisoire), M4 (`dist init`), puis avant chaque release |
 | [09-risques-et-questions.md](09-risques-et-questions.md) | registres des risques `R-xx` et des vérifications `V-xx` (synthèse par jalon, index des étiquettes, journal des levées), questions Q1 à Q17, arbitrages secondaires, registre des points différés `M1-D1…M1-D24`, hypothèses, critères par jalon | à l'ouverture et à la clôture de chaque jalon |
 
 ### 3.2 Annexes
@@ -150,7 +150,7 @@ Tous les profils commencent par ce README, puis par [00-decisions.md](00-decisio
 | Erreurs métier in-band `[code] message actionnable` (6 codes) ; erreurs de protocole en JSON-RPC | [ADR-0010](../adr/0010-erreurs-in-band.md) | 02 §9, 05 §7 |
 | Dates civiles `CivilDate` dans le domaine (C3), `chrono` et `chrono-tz` hors du domaine, « aujourd'hui » à Paris, sentinelles ≥ 2222-01-01 omises, `singleDate` à midi Europe/Paris | [ADR-0011](../adr/0011-dates-chrono-paris.md) | 03 §6, 04 §6.3 |
 | Ports en async natif (RPITIT), dispatch statique, `AnyCorpus` en M9 | [ADR-0012](../adr/0012-ports-async-rpitit.md) | 02 §5, §10 |
-| Distribution : cargo-dist, MCPB, OCI, registre MCP, signature (**proposé** : Q5, Q13, spike TLS) | [ADR-0013](../adr/0013-distribution.md) | [08](08-distribution.md) |
+| Distribution : cargo-dist, MCPB, OCI, registre MCP, signature (**proposé** : Q5, Q13 ; spike TLS : banc et workflow livrés, matrice à déclencher, A provisoire) | [ADR-0013](../adr/0013-distribution.md) | [08](08-distribution.md) |
 | Recherche : `match = any` par défaut jusqu'à V-79, `typePagination` interne (**proposé** : Q10, mesures de M5) | [ADR-0014](../adr/0014-recherche-mode-pagination.md) | 05 §5.1, 04 §6 |
 
 ## 5. Jalons et versions

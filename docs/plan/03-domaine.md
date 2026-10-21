@@ -46,7 +46,7 @@ Tâches de tête de M2 qui touchent ce document (liste complète et points diff�
 
 | Dépendance (00 §2) | Usage dans le domaine | Jalon / état |
 |---|---|---|
-| `thiserror` | `DomainError` | [livré] : **seule dépendance normale**, liste blanche `DOMAIN_ALLOWED` qui échoue fermé (`xtask/src/arch.rs:26`) |
+| `thiserror` | `DomainError` | [livré] : **seule dépendance normale**, liste blanche `DOMAIN_ALLOWED` qui échoue fermé (`xtask/src/arch.rs`) |
 | pas de `chrono` | dates civiles : `CivilDate` maison (`date.rs:32`) pour la validation calendaire, les epoch négatifs (`div_euclid`, `date.rs:91`) et la prose française (`date.rs:115`). `chrono` (`std`) sert **hors du domaine** (`lf-application`, adapters) ; la feature `clock` ne sert que dans `lf-app::clock` (date du jour à Paris) ; `chrono-tz` sert dans `lf-app::clock` et `lf-adapter-piste` (midi Europe/Paris de `singleDate`, AM-02), qui convertissent depuis et vers `CivilDate` (ADR-0011). Aucune lecture d'horloge n'est donc possible dans le domaine, par construction | [livré] (C3 ; amende ADR-0011) |
 | `unicode-normalization` | NFC (vue clé du parseur) ; NFD puis retrait des marques combinantes pour la vue repliée, seulement si le retrait maison ne suffit pas | M6 (NFC) ; M5 au plus tôt. Livré : repli français maison, `text/fold.rs:9` (NFD non replié, M1-D5) |
 | `winnow` 1.0, `aho-corasick`, `regex` | parseur de citations uniquement | M6, chacun par un **ADR qui élargit la liste blanche** |
@@ -55,7 +55,7 @@ La colonne « Jalon / état » indique quand la dépendance entre dans `crates/l
 
 Règles complémentaires (contrôlées par `cargo xtask check-arch`, alias `make arch`, et la revue). La liste blanche s'élargit par ADR au jalon qui a besoin de la dépendance, jamais d'avance :
 
-- **Pas de `serde`, `serde_json`, `schemars`.** Les entités sont des structs Rust. La sérialisation (noms JSON, `skip_serializing_if`, schémas) est faite par des **vues de sortie** dans `lf-adapter-mcp` (ADR-0006). Les DTO amont restent dans `lf-adapter-piste` (recherche 03 §12.1 point 7). `serde_json` est permis en `[dev-dependencies]` pour charger les fixtures et le corpus de citations dans les tests (recherche 07 §8.2). `check-arch` ne compte que les dépendances normales (pas `dev` ni `build`, `xtask/src/arch.rs:5-6`), et un membre inconnu devient une violation [M2 tête].
+- **Pas de `serde`, `serde_json`, `schemars`.** Les entités sont des structs Rust. La sérialisation (noms JSON, `skip_serializing_if`, schémas) est faite par des **vues de sortie** dans `lf-adapter-mcp` (ADR-0006). Les DTO amont restent dans `lf-adapter-piste` (recherche 03 §12.1 point 7). `serde_json` est permis en `[dev-dependencies]` pour charger les fixtures et le corpus de citations dans les tests (recherche 07 §8.2). `check-arch` ne compte que les dépendances normales (pas `dev` ni `build`, `xtask/src/arch.rs`, en-tête), et un membre inconnu devient une violation [M2 tête].
 - **Pas de crate HTML** (`scraper`, `html2text`, proposés par la recherche 02 D-26) : ils sont absents de la liste normative. `text::clean` [livré] et `text::from_html` [M2] sont des scanners tolérants écrits à la main (§7.2).
 - **Pas de `regex` avant M6** : les scanners livrés (balises dans `clean`, fins de phrase dans `window`) sont de petits automates sur `char_indices()`. `regex` n'arrive qu'avec le parseur (M6).
 - **Pas de `tracing`** : une anomalie de données (hit écarté, ECLI invalide, texte HTML douteux) est renvoyée **comme valeur** (compteur, `Diagnostic`). L'appelant la journalise : adapter ou application.

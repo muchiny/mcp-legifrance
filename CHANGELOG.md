@@ -53,6 +53,8 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - `check-arch` : liste fermée et features de `lf-application` (R2), `[lints] workspace = true` (5e), fermeture transitive, doublons critiques (R9) ; graphe résolu complet.
 - `deny.toml` : 7 licences (liste exacte du graphe), exception `NCSA` de `libfuzzer-sys`, wrappers `reqwest` et `governor`.
 - `make deny` et les jobs `deny` couvrent aussi `fuzz/`.
+- Adapter PISTE : un `Retry-After` supérieur à 30 s n'est pas attendu (échec immédiat) et la valeur rangée dans `RateLimited { retry_after }` est écrêtée à 1 h ; un hôte officiel écrit avec un point final (`api.piste.gouv.fr.`) est reconnu comme officiel (`EnvMismatch`, absence d'avertissement `CustomHost`).
+- Workflow `tls-spike.yml` : `apt-get update` avant l'installation de `musl-tools`.
 
 ### Removed
 
@@ -68,6 +70,7 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - Actions GitHub épinglées par SHA, `yanked = "deny"`, bans `openssl`, `openssl-sys`, `native-tls` et `backoff`, cargo-deny chaque nuit.
 - Règle d'âge de 14 jours des dépendances.
 - Politique de signalement `SECURITY.md`.
+- Adapter PISTE : le champ `error` d'un refus OAuth n'est cité dans le `detail` que s'il est l'un des six codes de la RFC 6749 §5.2 (liste blanche, plus aucun secret, `client_id` ni jeton renvoyé par une passerelle) ; `Debug` de `Payload`, `Attempt` et `RawResponse` écrit à la main, sans valeur de formulaire, corps, jeton ni URL ; un `access_token` qui n'est pas une valeur d'en-tête valide est refusé et jamais mis en cache ; `Retry-After` hostile écrêté à 1 h dans l'erreur ; test du corps lu au goutte-à-goutte, borné par le délai de la tentative.
 - TLS rustls avec aws-lc, à titre provisoire (ADR-0013).
 - `rustls` 0.23.46, `rustls-webpki` 0.103.16 et `webpki-root-certs` 1.0.10 (RUSTSEC-2026-0346 à -0349, -0382, -0383) par l'exception `security-fix` de la règle d'âge, sans `ignore` dans `deny.toml`.
 
