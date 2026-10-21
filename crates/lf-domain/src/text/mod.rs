@@ -1,6 +1,7 @@
-//! Utilitaires texte purs : nettoyage HTML, fenêtres, passages, classement BM25.
+//! Utilitaires texte purs : nettoyage HTML, réparation du mojibake, fenêtres, passages, classement BM25.
 
 mod clean;
+pub mod encoding;
 mod fold;
 mod passages;
 mod rank;
