@@ -1,6 +1,6 @@
 //! Entités renvoyées par le corpus. Les entités consultables et chaque
 //! `SearchHit` implémentent [`Citable`](crate::contract::Citable) ;
-//! `TocEntry` et `TextBody` non.
+//! `TocArticle` et `TextBody` non.
 //!
 //! La citation suit la règle de la famille (03 §5.4), puis le repli
 //! `Légifrance {ID}` sur l'identifiant propre de l'entité (`id` pour un hit,
@@ -20,7 +20,7 @@ mod decision;
 mod deliberation;
 mod search;
 
-pub use act::{Act, Convention, TextBody, TocEntry};
+pub use act::{Act, Convention, TextBody, TocArticle};
 pub use agreement::{ATTACHMENT_NOTE, CompanyAgreement};
 pub use article::ArticleText;
 pub use decision::Decision;

@@ -10,7 +10,7 @@ use crate::{
 
 /// Entrée de table des matières : un article résoluble par `get_article`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TocEntry {
+pub struct TocArticle {
     /// Identifiant de l'article.
     pub article_id: ArticleId,
     /// Numéro affiché, ex. `L. 1234-5`.
@@ -41,7 +41,7 @@ pub struct TextBody {
     /// Fin de la version consolidée (`2999-01-01` = sans fin connue).
     pub date_fin_version: Option<CivilDate>,
     /// Articles, dans l'ordre du texte.
-    pub articles: Vec<TocEntry>,
+    pub articles: Vec<TocArticle>,
 }
 
 /// Loi ou décret consolidé (`fr_get_act`).
