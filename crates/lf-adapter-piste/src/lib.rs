@@ -12,11 +12,15 @@
 //! que `PisteCorpus` n'existe pas.
 //!
 //! Modules :
+//! - `auth` : jeton d'accès OAuth 2.0 `client_credentials` (`TokenManager`) : un seul jeton en
+//!   mémoire, renouvelé avant son expiration par une seule requête à la fois, avec réessais.
 //! - `classify` : classification d'une tentative d'envoi (`Outcome`, `Budget`) d'après le statut
 //!   HTTP et `Retry-After`, sans jamais lire le corps.
 //! - `config` : configuration de l'adapter (`PisteConfig`) et validation des URL surchargées.
 //! - `deadline` : échéance d'un appel (`CallDeadline`), durée restante lue dans `Deadline`
 //!   puis posée sur l'horloge monotone de l'adapter.
+//! - `dto` : structures de désérialisation des réponses de PISTE (réponse et erreur de l'endpoint
+//!   token), avec des lecteurs serde tolérants.
 //! - `encoding` : décodage UTF-8 strict du corps, détection et réparation du mojibake latin-1.
 //! - `http` : client HTTP unique (`reqwest`, TLS rustls), tentative d'envoi (`send_once`) et
 //!   lecture bornée du corps ; aucun réessai ni jugement de statut.
@@ -33,9 +37,11 @@
     expect(dead_code, reason = "modules internes consommés par PisteCorpus au plan 2d")
 )]
 
+mod auth;
 mod classify;
 mod config;
 mod deadline;
+mod dto;
 mod encoding;
 mod http;
 mod limit;

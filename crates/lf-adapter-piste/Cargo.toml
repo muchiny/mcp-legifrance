@@ -19,8 +19,12 @@ reqwest = { workspace = true, features = ["gzip", "system-proxy", "rustls"] }
 governor.workspace = true
 # Date HTTP de Retry-After et de Date (retry.rs) : analyse seule, aucune horloge murale
 chrono.workspace = true
-# SecretString : client_secret, Debug rédigé `[REDACTED]`
-secrecy.workspace = true
+# SecretString : client_secret et jeton, Debug rédigé `[REDACTED]` ; serde : le jeton se désérialise directement en SecretString
+secrecy = { workspace = true, features = ["serde"] }
+# DTO de la réponse du point d'accès OAuth (dto/) : dérivation de Deserialize
+serde.workspace = true
+# lecture du corps JSON de la réponse OAuth (auth.rs, dto/)
+serde_json.workspace = true
 thiserror.workspace = true
 # time : `tokio::time::{Instant, sleep}` pour `TokioClock` et `TokioSleeper` ; sync : `OnceCell` (http.rs)
 tokio = { workspace = true, features = ["time", "sync"] }
