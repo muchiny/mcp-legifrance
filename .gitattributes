@@ -1,0 +1,6 @@
+# Aucune conversion de fin de ligne (CRLF sous Windows) : elle casserait le `sha256_raw` des
+# sidecars de fixtures (D-35, 02 §2.2). Un motif qui contient un `/` est ancré à la racine,
+# d'où le préfixe `**/` pour les fixtures de chaque crate (crates/<crate>/tests/fixtures/).
+**/tests/fixtures/** -text
+tests/jsonrpc/** -text
+**/snapshots/** -text
