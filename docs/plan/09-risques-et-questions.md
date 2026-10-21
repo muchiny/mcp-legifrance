@@ -868,7 +868,7 @@ Une vérification apparaît sous chaque jalon que cite sa colonne « Jalon ». E
 | V-140, V-141 | M2 (procédure §3.18, Q17) | avant la recette v0.1.0 ; V-142 est déjà en M2 |
 | V-17 | M2 (vecteurs), puis M3 | vecteurs de 00 §8 et de 04 §6.3 en M2 ; horloge Paris via `chrono-tz` hors du domaine (`SystemClock`, C3) en M3 |
 | V-20, V-191, V-139 | ouvertes | non consignées au journal ; V-139 pour la recette v0.1.0 |
-| V-16 | partielle | `rustc 1.99.0` installée ; épinglage livré (plan 2a, tâche 1) |
+| V-16 | levée (2026-10-21) | `rustc 1.99.0` épinglée ; date de publication relevée (plan 2a, tâche 1 ; journal §2.20) |
 | V-169, V-170 | M4 | `dist init` |
 | V-214, V-215 | avant publication | titulaire de la référence et marque ; Q1 et Q2 sont décidées (§3.1, §3.2) |
 
@@ -1439,7 +1439,7 @@ Ces points ont été différés par la revue de clôture de M1 (plan 1). Ils ne 
 | M1-D | Point (emplacement) | Décision de report | Jalon | Statut |
 |---|---|---|---|---|
 | M1-D1 | `passages()` en O(n²/max) : chaque `window()` rebalaye depuis l'octet 0 (`passages.rs:20`) | différé par décision de la revue de clôture M1 : la taille de passage sera fixée côté serveur ; le curseur d'octets (`window_from` privé, partagé par `window` et `passages`) se pose avec le câblage offset/`max_chars` | M5 | ouvert |
-| M1-D2 | Fuzz hebdomadaire : `-timeout`, `-max_len`, `-rss_limit_mb`, corpus persistant, assertions d'écho et d'aller-retour dans `fuzz_targets/ids.rs` et `text.rs`, `rust-cache` du job (`weekly.yml:58`) | avec la correction de `passages` : poser `-timeout=10` et `-max_len=65536` avant ferait passer le job au rouge sur un défaut connu (M1-D1) ; l'écho des 7 parseurs est déjà couvert en test unitaire | M5 | ouvert |
+| M1-D2 | Fuzz hebdomadaire : `-timeout`, `-max_len`, `-rss_limit_mb`, corpus persistant, assertions d'écho et d'aller-retour dans `fuzz_targets/ids.rs` et `text.rs`, `rust-cache` du job (`weekly.yml:58`) | avec la correction de `passages` : poser `-timeout=10` et `-max_len=65536` avant ferait passer le job au rouge sur un défaut connu (M1-D1) ; l'écho des 7 parseurs est déjà couvert en test unitaire ; la tâche 16 (plan 2a) a étendu les cibles `ids` et `text` et créé `version_date` sans `-timeout` ni `-max_len` : reste ouvert | M5 | ouvert |
 | M1-D3 | Borne du nombre de termes distincts de `focus` (`rank.rs:48`) | la borne appartient au cas d'usage qui reçoit `focus` ; le coût de `rank` est déjà linéaire | M5 | ouvert |
 | M1-D4 | Jetons numériques d'un seul chiffre jetés par la tokenisation (« article 9 », `fold.rs:28`) | change la sémantique du classement et l'invariant du proptest de `fold` ; à régler avec les tests de `focus` sur des requêtes réelles | M5 | ouvert |
 | M1-D5 | Accents décomposés (NFD) non repliés (`fold.rs:5`) | PISTE renvoie du NFC ; normalisation NFC de la requête `focus` à l'entrée ; limite documentée dans `fold.rs:6-7` | M5 | ouvert |
