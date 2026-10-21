@@ -1,0 +1,19 @@
+[package]
+name = "lf-adapter-piste"
+description = "Adapter PISTE du MCP Légifrance : client HTTP de l'API Légifrance, seule implémentation du port LegalCorpus jusqu'en M9."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# time : `tokio::time::{Instant, sleep}` pour `TokioClock` et `TokioSleeper`
+tokio = { workspace = true, features = ["time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

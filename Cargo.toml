@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/lf-domain", "crates/lf-application", "xtask"]
+members = ["crates/lf-domain", "crates/lf-application", "crates/lf-adapter-piste", "xtask"]
 exclude = ["fuzz"]
 
 [workspace.package]
@@ -14,6 +14,7 @@ publish = false
 [workspace.dependencies]
 # internes : exigence « = » + version de [workspace.package] (check-arch, étape 5h)
 lf-domain = { path = "crates/lf-domain", version = "=0.0.0" }
+lf-application = { path = "crates/lf-application", version = "=0.0.0" }
 # externes : exigence au niveau mineur, correctif choisi par le verrou (règle d'âge, 02 §3.0.1) ;
 # default-features = false déclaré ici : au niveau d'un membre, l'héritage ne le respecte qu'à partir de 1.99
 thiserror = "2.0.21"
