@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/lf-domain", "xtask"]
+members = ["crates/lf-domain", "crates/lf-application", "xtask"]
 exclude = ["fuzz"]
 
 [workspace.package]
@@ -12,6 +12,9 @@ repository = "https://github.com/muchiny/mcp-legifrance"
 publish = false
 
 [workspace.dependencies]
+# internes : exigence « = » + version de [workspace.package] (check-arch, étape 5h)
+lf-domain = { path = "crates/lf-domain", version = "=0.0.0" }
+# externes
 thiserror = "2.0.21"
 serde_json = "1.0"
 proptest = "1.12.0"

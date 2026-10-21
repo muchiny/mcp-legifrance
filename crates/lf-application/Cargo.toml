@@ -1,0 +1,19 @@
+[package]
+name = "lf-application"
+description = "Couche application du MCP Légifrance : ports, cas d'usage, échéance des appels."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+lf-domain.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true
