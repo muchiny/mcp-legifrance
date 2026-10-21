@@ -6,36 +6,111 @@
 //! est retiré à la normalisation (`citations.py:55-63`). Contrairement à la
 //! référence, le retrait vaut pour tous les préfixes (elle oublie `CONSTEXT`,
 //! `citations.py:34-44`).
+//!
+//! # Suffixe de version
+//!
+//! Un suffixe est bien formé s'il compte exactement dix octets `JJ-MM-AAAA`
+//! (chiffres ASCII) formant une vraie date, années 1 à 9999. Tout autre
+//! suffixe (`_` seul, `_foo`, `_31-02-2023`, `_2023-09-08`…) est refusé par
+//! [`DomainError::BadSuffix`], quels que soient le préfixe et l'analyseur ; la
+//! référence jetait tout suffixe sans contrôle (`citations.py:55-63`).
+//! [`parse_versioned`] lit un `LEGITEXT` et garde la date du suffixe (date de
+//! version par défaut de `fr_get_act`, `version_start` des résultats de
+//! recherche) ; les autres analyseurs ([`Id::parse`] et `FromStr`,
+//! [`AnyId::parse`], [`ArticleId::parse`], [`DecisionId::parse`],
+//! [`SectionId::parse`]) tolèrent un suffixe bien formé puis le retirent, sur
+//! tout préfixe, `LEGITEXT` compris. Signaler un suffixe amont hors `LEGITEXT`
+//! (diagnostic, compteur) revient au mapper : le domaine ne journalise pas.
+//!
+//! Ordre des contrôles : forme de la tête, puis préfixe attendu, puis suffixe.
+//! Lu comme `LEGITEXT`, `JORFTEXT000020445850_foo` donne donc `InvalidId` (la
+//! famille d'abord, message le plus utile) et `LEGITEXT000033205014_foo`
+//! donne `BadSuffix`. Tous les analyseurs tolèrent les espaces autour et la
+//! casse.
 
 use std::{fmt, marker::PhantomData, str::FromStr};
 
-use crate::error::{DomainError, echo};
+use crate::{
+    date::CivilDate,
+    error::{DomainError, echo},
+};
 
 /// Nombre de lettres du préfixe.
 pub const PREFIX_LEN: usize = 8;
 /// Nombre de chiffres après le préfixe.
 pub const ID_DIGITS: usize = 12;
 
-/// Normalise une entrée : espaces retirés, suffixe `_…` retiré, majuscules ASCII.
-/// Renvoie `None` si le reste n'a pas la forme `[A-Z]{8}[0-9]{12}`.
+/// Normalise une entrée : espaces retirés, majuscules ASCII. Renvoie la tête
+/// normalisée et le suffixe brut après le premier `_`, ou `None` si la tête n'a
+/// pas la forme `[A-Z]{8}[0-9]{12}`.
 ///
-/// La découpe se fait au premier `_` : tout ce qui suit est ignoré
-/// (`citations.py:55-63`). Divergences assumées :
+/// La découpe se fait au premier `_`. Divergences assumées :
 /// - `CONSTEXT` est accepté, la référence l'oublie (`citations.py:34-44`) ;
 /// - la référence ne découpe au premier `_` que si la tête porte un préfixe
 ///   connu (`citations.py:59-62`), ici la découpe vaut pour tout préfixe de
 ///   8 lettres ;
+/// - le suffixe est contrôlé (`version_suffix`), la référence le jette
+///   (`citations.py:55-63`) ;
 /// - `trim` et mise en majuscules ASCII, par tolérance envers les
 ///   identifiants tapés par un humain ou un modèle (la référence ne le fait pas).
-fn normalize(input: &str) -> Option<String> {
+fn normalize(input: &str) -> Option<(String, Option<&str>)> {
     let trimmed = input.trim();
-    let head = trimmed.split_once('_').map_or(trimmed, |(head, _)| head);
+    let (head, suffix) = match trimmed.split_once('_') {
+        Some((head, suffix)) => (head, Some(suffix)),
+        None => (trimmed, None),
+    };
     let upper = head.to_ascii_uppercase();
     let (prefix, digits) = upper.split_at_checked(PREFIX_LEN)?;
     let well_formed = prefix.bytes().all(|b| b.is_ascii_uppercase())
         && digits.len() == ID_DIGITS
         && digits.bytes().all(|b| b.is_ascii_digit());
-    well_formed.then_some(upper)
+    well_formed.then_some((upper, suffix))
+}
+
+/// Date d'un suffixe `JJ-MM-AAAA` (sans le `_`), `None` si la forme ou la date
+/// est invalide.
+fn version_suffix(suffix: &str) -> Option<CivilDate> {
+    let &[d1, d2, b'-', m1, m2, b'-', y1, y2, y3, y4] = suffix.as_bytes() else {
+        return None;
+    };
+    CivilDate::parse_iso(&[y1, y2, y3, y4, b'-', m1, m2, b'-', d1, d2])
+}
+
+/// Lit `input` : tête, puis préfixe (`accepts`), puis suffixe. Tête malformée ou
+/// préfixe refusé : `InvalidId` ; suffixe mal formé : `BadSuffix`.
+fn read(
+    input: &str,
+    accepts: impl Fn(&str) -> bool,
+    expected: &'static str,
+) -> Result<(String, Option<CivilDate>), DomainError> {
+    let (raw, suffix) = normalize(input)
+        .filter(|(raw, _)| accepts(raw))
+        .ok_or_else(|| DomainError::InvalidId { input: echo(input), expected })?;
+    match suffix.map(version_suffix) {
+        None => Ok((raw, None)),
+        Some(Some(date)) => Ok((raw, Some(date))),
+        Some(None) => Err(DomainError::BadSuffix { input: echo(input) }),
+    }
+}
+
+/// Analyseur d'une famille d'identifiants.
+type Parser<T> = fn(&str) -> Result<T, DomainError>;
+
+/// Essaie chaque famille dans l'ordre. Seul `InvalidId` fait passer à la
+/// suivante, donc `BadSuffix` n'est jamais masqué ; aucune ne convient :
+/// `InvalidId { expected }`.
+fn parse_one_of<T>(
+    input: &str,
+    expected: &'static str,
+    parsers: &[Parser<T>],
+) -> Result<T, DomainError> {
+    for parser in parsers {
+        match parser(input) {
+            Err(DomainError::InvalidId { .. }) => {}
+            other => return other,
+        }
+    }
+    Err(DomainError::InvalidId { input: echo(input), expected })
 }
 
 /// Famille d'identifiants : fixe le préfixe attendu.
@@ -69,17 +144,44 @@ pub struct Id<K> {
 }
 
 impl<K: IdKind> Id<K> {
-    /// Valide et normalise `input`.
+    /// Valide et normalise `input` ; un suffixe de version bien formé est retiré.
     ///
     /// # Errors
     ///
-    /// [`DomainError::InvalidId`] si la forme ou le préfixe ne convient pas.
+    /// [`DomainError::InvalidId`] si la forme ou le préfixe ne convient pas ;
+    /// [`DomainError::BadSuffix`] si le suffixe de version est mal formé.
     pub fn parse(input: &str) -> Result<Self, DomainError> {
-        normalize(input)
-            .filter(|raw| raw.starts_with(K::PREFIX))
-            .map(|raw| Self { raw, kind: PhantomData })
-            .ok_or_else(|| DomainError::InvalidId { input: echo(input), expected: K::PREFIX })
+        Self::parse_with_version(input).map(|(id, _)| id)
     }
+
+    /// Comme [`Id::parse`], en gardant la date du suffixe de version.
+    fn parse_with_version(input: &str) -> Result<(Self, Option<CivilDate>), DomainError> {
+        read(input, |raw| raw.starts_with(K::PREFIX), K::PREFIX)
+            .map(|(raw, date)| (Self { raw, kind: PhantomData }, date))
+    }
+}
+
+/// Identifiant `LEGITEXT` et date de son suffixe de version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionedId {
+    /// Identifiant, suffixe retiré.
+    pub id: LegiTextId,
+    /// Date du suffixe `_JJ-MM-AAAA`, `None` sans suffixe.
+    pub version_start: Option<CivilDate>,
+}
+
+/// Lit un `LEGITEXT` et garde la date de son suffixe de version.
+///
+/// Toute vraie date est gardée (années 1 à 9999) : la plage de `VersionDate`
+/// s'applique au cas d'usage, pas ici.
+///
+/// # Errors
+///
+/// [`DomainError::InvalidId`] si l'entrée n'est pas un `LEGITEXT` ;
+/// [`DomainError::BadSuffix`] si le suffixe est mal formé.
+pub fn parse_versioned(input: &str) -> Result<VersionedId, DomainError> {
+    Id::<LegiText>::parse_with_version(input)
+        .map(|(id, version_start)| VersionedId { id, version_start })
 }
 
 impl<K> Id<K> {
@@ -223,15 +325,14 @@ pub type AccoTextId = Id<AccoText>;
 pub struct AnyId(String);
 
 impl AnyId {
-    /// Valide et normalise `input`.
+    /// Valide et normalise `input` ; un suffixe de version bien formé est retiré.
     ///
     /// # Errors
     ///
-    /// [`DomainError::InvalidId`] si la forme ou le préfixe ne convient pas.
+    /// [`DomainError::InvalidId`] si la forme ne convient pas ;
+    /// [`DomainError::BadSuffix`] si le suffixe de version est mal formé.
     pub fn parse(input: &str) -> Result<Self, DomainError> {
-        normalize(input)
-            .map(Self)
-            .ok_or_else(|| DomainError::InvalidId { input: echo(input), expected: "8 letters" })
+        read(input, |_| true, "8 letters").map(|(raw, _)| Self(raw))
     }
 
     /// Forme normalisée.
@@ -254,15 +355,14 @@ impl ArticleId {
     ///
     /// # Errors
     ///
-    /// [`DomainError::InvalidId`] si aucun préfixe ne convient.
+    /// [`DomainError::InvalidId`] si aucun préfixe ne convient ;
+    /// [`DomainError::BadSuffix`] si le suffixe de version est mal formé.
     pub fn parse(input: &str) -> Result<Self, DomainError> {
-        LegiArtiId::parse(input)
-            .map(Self::Legi)
-            .or_else(|_| KaliArtiId::parse(input).map(Self::Kali))
-            .map_err(|_| DomainError::InvalidId {
-                input: echo(input),
-                expected: "LEGIARTI or KALIARTI",
-            })
+        parse_one_of(
+            input,
+            "LEGIARTI or KALIARTI",
+            &[|s| LegiArtiId::parse(s).map(Self::Legi), |s| KaliArtiId::parse(s).map(Self::Kali)],
+        )
     }
 
     /// Forme normalisée.
@@ -298,16 +398,18 @@ impl SectionId {
     ///
     /// # Errors
     ///
-    /// [`DomainError::InvalidId`] si aucun préfixe ne convient.
+    /// [`DomainError::InvalidId`] si aucun préfixe ne convient ;
+    /// [`DomainError::BadSuffix`] si le suffixe de version est mal formé.
     pub fn parse(input: &str) -> Result<Self, DomainError> {
-        Id::<LegiScta>::parse(input)
-            .map(SectionInner::Legi)
-            .or_else(|_| Id::<KaliScta>::parse(input).map(SectionInner::Kali))
-            .map(Self)
-            .map_err(|_| DomainError::InvalidId {
-                input: echo(input),
-                expected: "LEGISCTA or KALISCTA",
-            })
+        parse_one_of(
+            input,
+            "LEGISCTA or KALISCTA",
+            &[
+                |s| Id::<LegiScta>::parse(s).map(SectionInner::Legi),
+                |s| Id::<KaliScta>::parse(s).map(SectionInner::Kali),
+            ],
+        )
+        .map(Self)
     }
 
     /// Forme normalisée.
@@ -349,16 +451,18 @@ impl DecisionId {
     ///
     /// # Errors
     ///
-    /// [`DomainError::InvalidId`] si aucun préfixe ne convient.
+    /// [`DomainError::InvalidId`] si aucun préfixe ne convient ;
+    /// [`DomainError::BadSuffix`] si le suffixe de version est mal formé.
     pub fn parse(input: &str) -> Result<Self, DomainError> {
-        JuriTextId::parse(input)
-            .map(Self::Juri)
-            .or_else(|_| ConsTextId::parse(input).map(Self::Constit))
-            .or_else(|_| CetaTextId::parse(input).map(Self::Cetat))
-            .map_err(|_| DomainError::InvalidId {
-                input: echo(input),
-                expected: "JURITEXT, CONSTEXT or CETATEXT",
-            })
+        parse_one_of(
+            input,
+            "JURITEXT, CONSTEXT or CETATEXT",
+            &[
+                |s| JuriTextId::parse(s).map(Self::Juri),
+                |s| ConsTextId::parse(s).map(Self::Constit),
+                |s| CetaTextId::parse(s).map(Self::Cetat),
+            ],
+        )
     }
 
     /// Forme normalisée.
@@ -432,16 +536,39 @@ mod tests {
 
     #[test]
     fn strips_version_suffix() {
-        let id = LegiTextId::parse("LEGITEXT000033205014_08-09-2023").unwrap();
-        assert_eq!(id.as_str(), "LEGITEXT000033205014");
-        // Tout suffixe après le premier « _ » est ignoré (citations.py:55-63).
-        let any = LegiTextId::parse("LEGITEXT000006070721_foo").unwrap();
-        assert_eq!(any.as_str(), "LEGITEXT000006070721");
-        // Suffixe vide : « _ » seul est accepté.
-        assert_eq!(
-            LegiTextId::parse("LEGITEXT000006070721_").unwrap().as_str(),
-            "LEGITEXT000006070721"
-        );
+        // Vecteurs réels (03 §2.4) : consult_loda.json, search_loda.json,
+        // search_code.json ; puis un 29 février d'année bissextile.
+        for (input, raw) in [
+            ("LEGITEXT000033205014_08-09-2023", "LEGITEXT000033205014"),
+            ("LEGITEXT000033696785_28-12-2016", "LEGITEXT000033696785"),
+            ("LEGITEXT000006070721_09-04-2026", "LEGITEXT000006070721"),
+            ("LEGITEXT000006070721_29-02-2024", "LEGITEXT000006070721"),
+        ] {
+            assert_eq!(LegiTextId::parse(input).unwrap().as_str(), raw, "{input}");
+        }
+        // Tout autre suffixe est refusé (décision C4) ; la référence le jetait
+        // sans contrôle (citations.py:55-63).
+        for suffix in [
+            "_",
+            "_foo",
+            "_31-02-2023",
+            "_29-02-2023",
+            "_01-13-2023",
+            "_00-01-2023",
+            "_01-01-0000",
+            "_2023-09-08",
+            "_8-09-2023",
+            "_08-09-23",
+            "_08/09/2023",
+            "_08-09-2023_x",
+        ] {
+            let input = format!("LEGITEXT000006070721{suffix}");
+            assert_eq!(
+                LegiTextId::parse(&input).unwrap_err(),
+                DomainError::BadSuffix { input: input.clone() },
+                "{input}"
+            );
+        }
     }
 
     #[test]
@@ -451,9 +578,122 @@ mod tests {
     }
 
     #[test]
-    fn tolerates_whitespace_and_lowercase() {
-        let id = LegiTextId::parse("  legitext000006070721\n").unwrap();
-        assert_eq!(id.as_str(), "LEGITEXT000006070721");
+    fn versioned_id_splits_suffix() {
+        // A-parite:210 (test_strip_date_suffix_and_marks).
+        assert_eq!(
+            parse_versioned("LEGITEXT000033205014_08-09-2023").unwrap(),
+            VersionedId {
+                id: LegiTextId::parse("LEGITEXT000033205014").unwrap(),
+                version_start: CivilDate::new(2023, 9, 8),
+            }
+        );
+        // Sans suffixe : pas de date ; espaces et casse tolérés.
+        assert_eq!(
+            parse_versioned(" legitext000006070721\n").unwrap(),
+            VersionedId {
+                id: LegiTextId::parse("LEGITEXT000006070721").unwrap(),
+                version_start: None,
+            }
+        );
+        // Toute vraie date est gardée, même hors de la plage de `VersionDate`.
+        for (suffix, (y, m, d)) in [
+            ("_01-01-0001", (1, 1, 1)),
+            ("_01-01-2999", (2999, 1, 1)),
+            ("_31-12-9999", (9999, 12, 31)),
+        ] {
+            let versioned = parse_versioned(&format!("LEGITEXT000006070721{suffix}")).unwrap();
+            assert_eq!(versioned.version_start, CivilDate::new(y, m, d), "{suffix}");
+        }
+        // Une décision se lit par `Id::parse` ; `parse_versioned` exige LEGITEXT.
+        assert_eq!(
+            JuriTextId::parse("JURITEXT000051743650").unwrap().as_str(),
+            "JURITEXT000051743650"
+        );
+        assert_eq!(
+            parse_versioned("JURITEXT000051743650").unwrap_err(),
+            DomainError::InvalidId { input: "JURITEXT000051743650".into(), expected: "LEGITEXT" }
+        );
+        assert_eq!(
+            parse_versioned("LEGITEXT000033205014_31-02-2023").unwrap_err(),
+            DomainError::BadSuffix { input: "LEGITEXT000033205014_31-02-2023".into() }
+        );
+    }
+
+    #[test]
+    fn suffix_kept_on_legitext_stripped_elsewhere() {
+        // LEGITEXT : `parse_versioned` garde la date, `Id::parse` la retire.
+        let input = "LEGITEXT000033205014_08-09-2023";
+        assert_eq!(parse_versioned(input).unwrap().version_start, CivilDate::new(2023, 9, 8));
+        assert_eq!(LegiTextId::parse(input).unwrap().as_str(), "LEGITEXT000033205014");
+        // Ailleurs, chaque analyseur tolère puis retire un suffixe bien formé,
+        // et rend `BadSuffix` pour un suffixe mal formé, quelle que soit la
+        // famille essayée (première, deuxième ou troisième) : jamais masqué en
+        // `InvalidId`.
+        let parsers: [(&str, Parser<String>); 9] = [
+            ("CONSTEXT000037434572", |s| ConsTextId::parse(s).map(|id| id.as_str().to_owned())),
+            ("JORFTEXT000020445850", |s| AnyId::parse(s).map(|id| id.as_str().to_owned())),
+            ("LEGIARTI000006419288", |s| ArticleId::parse(s).map(|id| id.as_str().to_owned())),
+            ("KALIARTI000005805295", |s| ArticleId::parse(s).map(|id| id.as_str().to_owned())),
+            ("JURITEXT000048465611", |s| DecisionId::parse(s).map(|id| id.as_str().to_owned())),
+            ("CONSTEXT000037434572", |s| DecisionId::parse(s).map(|id| id.as_str().to_owned())),
+            ("CETATEXT000051655317", |s| DecisionId::parse(s).map(|id| id.as_str().to_owned())),
+            ("LEGISCTA000033205040", |s| SectionId::parse(s).map(|id| id.as_str().to_owned())),
+            ("KALISCTA000049886029", |s| SectionId::parse(s).map(|id| id.as_str().to_owned())),
+        ];
+        for (raw, parse) in parsers {
+            assert_eq!(parse(&format!("{raw}_01-01-2020")), Ok(raw.to_owned()), "{raw}");
+            let input = format!("{raw}_31-02-2023");
+            assert_eq!(
+                parse(&input),
+                Err(DomainError::BadSuffix { input: input.clone() }),
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn checks_head_then_prefix_then_suffix() {
+        // La famille d'abord : un suffixe mal formé derrière une tête invalide
+        // ou un préfixe refusé donne `InvalidId`, le message le plus utile.
+        for input in ["JORFTEXT000020445850_foo", "LEGITEXT0001_08-09-2023", "LEGITEXT0001_foo"] {
+            let expected = DomainError::InvalidId { input: input.into(), expected: "LEGITEXT" };
+            assert_eq!(LegiTextId::parse(input).unwrap_err(), expected, "{input}");
+            assert_eq!(parse_versioned(input).unwrap_err(), expected, "{input}");
+        }
+        assert_eq!(
+            AnyId::parse("LEGI_08-09-2023").unwrap_err(),
+            DomainError::InvalidId { input: "LEGI_08-09-2023".into(), expected: "8 letters" }
+        );
+        assert_eq!(
+            ArticleId::parse("LEGITEXT000006070721_foo").unwrap_err(),
+            DomainError::InvalidId {
+                input: "LEGITEXT000006070721_foo".into(),
+                expected: "LEGIARTI or KALIARTI",
+            }
+        );
+        assert_eq!(
+            DecisionId::parse("CNILTEXT000053352643_foo").unwrap_err(),
+            DomainError::InvalidId {
+                input: "CNILTEXT000053352643_foo".into(),
+                expected: "JURITEXT, CONSTEXT or CETATEXT",
+            }
+        );
+        assert_eq!(
+            SectionId::parse("LEGIARTI000033205126_foo").unwrap_err(),
+            DomainError::InvalidId {
+                input: "LEGIARTI000033205126_foo".into(),
+                expected: "LEGISCTA or KALISCTA",
+            }
+        );
+    }
+
+    #[test]
+    fn id_parse_is_tolerant_on_whitespace_and_case() {
+        for input in ["  legitext000006070721\n", "\tLegiText000006070721_09-04-2026 "] {
+            assert_eq!(LegiTextId::parse(input).unwrap().as_str(), "LEGITEXT000006070721");
+            let id: LegiTextId = input.parse().unwrap();
+            assert_eq!(id.as_str(), "LEGITEXT000006070721", "{input:?}");
+        }
     }
 
     #[test]
@@ -640,14 +880,41 @@ mod tests {
             let _ = ArticleId::parse(&s);
             let _ = DecisionId::parse(&s);
             let _ = SectionId::parse(&s);
+            let _ = parse_versioned(&s);
         }
 
+        /// Suffixes tirés de vraies dates seulement (jour 1 à 28, tout mois,
+        /// années 1 à 9999), ou pas de suffixe.
         #[test]
-        fn valid_shape_roundtrips(digits in "[0-9]{12}", suffix in "(_[0-9]{2}-[0-9]{2}-[0-9]{4})?") {
+        fn valid_shape_roundtrips(
+            digits in "[0-9]{12}",
+            date in prop::option::of((1u16..=9999, 1u8..=12, 1u8..=28)),
+        ) {
             let raw = format!("LEGITEXT{digits}");
-            let id = LegiTextId::parse(&format!("{raw}{suffix}")).unwrap();
+            let suffix = date.map_or(String::new(), |(y, m, d)| format!("_{d:02}-{m:02}-{y:04}"));
+            let input = format!("{raw}{suffix}");
+            let id = LegiTextId::parse(&input).unwrap();
             prop_assert_eq!(id.as_str(), raw.as_str());
-            prop_assert_eq!(LegiTextId::parse(id.as_str()).unwrap(), id);
+            prop_assert_eq!(LegiTextId::parse(id.as_str()).unwrap(), id.clone());
+            let version_start = date.map(|(y, m, d)| CivilDate::new(y, m, d).unwrap());
+            prop_assert_eq!(parse_versioned(&input).unwrap(), VersionedId { id, version_start });
+        }
+
+        /// Forme `JJ-MM-AAAA` correcte, mais date impossible (jour 0 ou trop
+        /// grand pour le mois, mois 0 ou 13, année 0) : `BadSuffix`. Le filtre
+        /// écarte environ 4 tirages sur 5 : il est posé sur la stratégie (rejets
+        /// locaux, plafond 65 536) et non par `prop_assume!` (rejets globaux,
+        /// plafond 1 024, dépassé par intermittence).
+        #[test]
+        fn impossible_suffix_date_is_bad_suffix(
+            digits in "[0-9]{12}",
+            (d, m, y) in (0u8..=32, 0u8..=13, 0u16..=9999)
+                .prop_filter("date impossible", |&(d, m, y)| CivilDate::new(y, m, d).is_none()),
+        ) {
+            let input = format!("LEGITEXT{digits}_{d:02}-{m:02}-{y:04}");
+            let expected = DomainError::BadSuffix { input: input.clone() };
+            prop_assert_eq!(LegiTextId::parse(&input).unwrap_err(), expected.clone());
+            prop_assert_eq!(parse_versioned(&input).unwrap_err(), expected);
         }
     }
 }

@@ -2,6 +2,7 @@
 
 use crate::{
     contract::{Citable, CitationContract, with_company},
+    date::CivilDate,
     fond::Fond,
     id::{AnyId, ArticleId},
     text::clean,
@@ -42,6 +43,10 @@ pub struct SearchHit {
     pub fond: Fond,
     /// Identifiant du texte, suffixe de version retiré.
     pub id: AnyId,
+    /// Date du suffixe `_JJ-MM-AAAA` d'un identifiant `LEGITEXT`, lue par
+    /// `parse_versioned` (03 §4.1) ; `None` sans suffixe ; rempli par le mapper ;
+    /// ni cité ni rendu dans les hits (`annexes/A-parite.md` §4.6).
+    pub version_start: Option<CivilDate>,
     /// Identifiant chronologique, préféré pour l'URL hors LODA/CODE.
     pub cid: Option<AnyId>,
     /// Titre brut. Le mapper le passe par `text::clean`, car les résultats
@@ -101,6 +106,7 @@ impl SearchPage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::id::parse_versioned;
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
 
@@ -108,6 +114,7 @@ mod tests {
         SearchHit {
             fond,
             id: AnyId::parse(id).unwrap(),
+            version_start: None,
             cid: cid.map(|c| AnyId::parse(c).unwrap()),
             title: Some("Titre".into()),
             nature: None,
@@ -145,6 +152,17 @@ mod tests {
             "https://www.legifrance.gouv.fr/juri/id/JURITEXT000048465611"
         );
         assert_eq!(juri.contract().citation.as_str(), "Titre");
+    }
+
+    #[test]
+    fn version_start_is_not_cited() {
+        // search_loda.json : `titles[0].id` porte un suffixe ; le mapper le
+        // lit par `parse_versioned` et le contrat cite la forme nue.
+        let versioned = parse_versioned("LEGITEXT000033696785_28-12-2016").unwrap();
+        let bare = hit(Fond::Loda, versioned.id.as_str(), None);
+        let dated = SearchHit { version_start: versioned.version_start, ..bare.clone() };
+        assert_eq!(dated.version_start, CivilDate::new(2016, 12, 28));
+        assert_eq!(dated.contract(), bare.contract());
     }
 
     #[test]

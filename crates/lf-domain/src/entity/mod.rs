@@ -75,6 +75,7 @@ mod tests {
         SearchHit {
             fond,
             id: AnyId::parse(id).unwrap(),
+            version_start: None,
             cid: cid.map(|c| AnyId::parse(c).unwrap()),
             title: title.map(Into::into),
             nature: None,

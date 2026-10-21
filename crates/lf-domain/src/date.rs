@@ -74,7 +74,9 @@ impl CivilDate {
             .ok_or_else(|| DomainError::InvalidDate { input: echo(input) })
     }
 
-    fn parse_iso(bytes: &[u8]) -> Option<Self> {
+    /// Lit exactement `AAAA-MM-JJ`, sans rognage. Sert aussi au suffixe de version
+    /// des identifiants (`JJ-MM-AAAA` réordonné, `id.rs`).
+    pub(crate) fn parse_iso(bytes: &[u8]) -> Option<Self> {
         let &[y1, y2, y3, y4, b'-', m1, m2, b'-', d1, d2] = bytes else {
             return None;
         };

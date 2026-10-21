@@ -81,6 +81,22 @@ pub enum DomainError {
         /// Entrée reçue, tronquée.
         input: String,
     },
+    /// Suffixe de version mal formé (`_foo`, `_` seul, `_31-02-2023`) : il doit
+    /// s'écrire `_JJ-MM-AAAA` et désigner une vraie date (décision C4).
+    ///
+    /// Ne se construit pas hors du crate :
+    ///
+    /// ```compile_fail
+    /// let _ = lf_domain::DomainError::BadSuffix { input: "x".repeat(99) };
+    /// ```
+    #[error(
+        "invalid version suffix in {input:?}: expected _DD-MM-YYYY with a real date, e.g. _08-09-2023"
+    )]
+    #[non_exhaustive]
+    BadSuffix {
+        /// Identifiant reçu en entier, suffixe compris, tronqué.
+        input: String,
+    },
     /// Déclaration de couverture sans lacune connue.
     #[error("coverage must declare at least one known gap")]
     EmptyCoverageGaps,
@@ -114,7 +130,7 @@ mod tests {
         date::CivilDate,
         ecli::Ecli,
         fond::Fond,
-        id::{AnyId, ArticleId, DecisionId, LegiTextId, SectionId},
+        id::{AnyId, ArticleId, DecisionId, LegiTextId, SectionId, parse_versioned},
     };
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
@@ -125,7 +141,8 @@ mod tests {
             DomainError::InvalidId { input, .. }
             | DomainError::InvalidDate { input }
             | DomainError::InvalidEcli { input }
-            | DomainError::UnknownFond { input } => input,
+            | DomainError::UnknownFond { input }
+            | DomainError::BadSuffix { input } => input,
             DomainError::EmptyCoverageGaps
             | DomainError::TocTooDeep { .. }
             | DomainError::TocOffsetPastEnd { .. } => "",
@@ -169,6 +186,11 @@ mod tests {
             "unknown fond \"x\": expected one of LODA, CODE, JURI, CONSTIT, CETAT, CNIL, KALI, ACCO"
         );
         assert_eq!(
+            DomainError::BadSuffix { input: "LEGITEXT000033205014_31-02-2023".into() }.to_string(),
+            "invalid version suffix in \"LEGITEXT000033205014_31-02-2023\": \
+             expected _DD-MM-YYYY with a real date, e.g. _08-09-2023"
+        );
+        assert_eq!(
             DomainError::EmptyCoverageGaps.to_string(),
             "coverage must declare at least one known gap"
         );
@@ -191,6 +213,7 @@ mod tests {
             ArticleId::parse(&long).unwrap_err(),
             DecisionId::parse(&long).unwrap_err(),
             SectionId::parse(&long).unwrap_err(),
+            parse_versioned(&long).unwrap_err(),
             CivilDate::parse(&long).unwrap_err(),
             Ecli::parse(&long).unwrap_err(),
             Fond::parse(&long).unwrap_err(),
@@ -198,6 +221,21 @@ mod tests {
         for error in &errors {
             assert_eq!(echoed(error), echo(&long));
             assert!(error.to_string().chars().count() < 250, "message too long: {error}");
+        }
+    }
+
+    #[test]
+    fn bad_suffix_echoes_the_whole_input_truncated() {
+        // L'écho porte l'identifiant entier (03 §2.7), tronqué comme ailleurs.
+        let long = format!("LEGITEXT000006070721_{}", "x".repeat(100));
+        let errors = [
+            LegiTextId::parse(&long).unwrap_err(),
+            AnyId::parse(&long).unwrap_err(),
+            parse_versioned(&long).unwrap_err(),
+        ];
+        for error in &errors {
+            assert_eq!(*error, DomainError::BadSuffix { input: echo(&long) });
+            assert_eq!(echoed(error), format!("LEGITEXT000006070721_{}…", "x".repeat(43)));
         }
     }
 
@@ -218,6 +256,7 @@ mod tests {
         let messages = [
             DomainError::InvalidId { input: raw.into(), expected: "LEGITEXT" }.to_string(),
             DomainError::InvalidDate { input: raw.into() }.to_string(),
+            DomainError::BadSuffix { input: raw.into() }.to_string(),
         ];
         for message in &messages {
             assert!(message.contains(r"a\nb\0\u{1b}"), "not escaped: {message}");
