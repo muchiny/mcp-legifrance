@@ -15,6 +15,8 @@ lf-domain.workspace = true
 # client HTTP unique (http.rs) ; gzip : décompression transparente, bornée après coup (04 §4.2) ;
 # system-proxy : HTTP(S)_PROXY / NO_PROXY ; rustls : TLS, option A, aws-lc (04 §4.1)
 reqwest = { workspace = true, features = ["gzip", "system-proxy", "rustls"] }
+# Limiteur de débit (limit.rs) : GCRA direct, horloge injectée ; feature std seule
+governor.workspace = true
 # SecretString : client_secret, Debug rédigé `[REDACTED]`
 secrecy.workspace = true
 thiserror.workspace = true
