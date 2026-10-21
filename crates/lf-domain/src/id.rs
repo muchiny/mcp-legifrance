@@ -39,9 +39,27 @@ fn normalize(input: &str) -> Option<String> {
 }
 
 /// Famille d'identifiants : fixe le préfixe attendu.
-pub trait IdKind {
+///
+/// Trait scellé (M1-D12, `docs/plan/09-risques-et-questions.md` §3.19) : seules les familles de
+/// ce module l'implémentent ; un crate aval ne peut pas en ajouter :
+///
+/// ```compile_fail
+/// enum FakeText {}
+///
+/// impl lf_domain::id::IdKind for FakeText {
+///     const PREFIX: &'static str = "FAKETEXT";
+/// }
+/// ```
+pub trait IdKind: sealed::Sealed {
     /// Préfixe de 8 lettres majuscules, ex. `LEGITEXT`.
     const PREFIX: &'static str;
+}
+
+/// Sceau d'`IdKind` : le module est privé, donc `Sealed` ne peut être ni nommé ni implémenté hors
+/// du crate.
+mod sealed {
+    /// Supertrait d'`IdKind`, implémenté par chaque famille de ce crate.
+    pub trait Sealed {}
 }
 
 /// Identifiant Légifrance validé de la famille `K`.
@@ -107,51 +125,61 @@ impl<K: IdKind> FromStr for Id<K> {
 
 /// Texte consolidé (loi, décret, code) : `LEGITEXT`.
 pub enum LegiText {}
+impl sealed::Sealed for LegiText {}
 impl IdKind for LegiText {
     const PREFIX: &'static str = "LEGITEXT";
 }
 /// Article consolidé : `LEGIARTI`.
 pub enum LegiArti {}
+impl sealed::Sealed for LegiArti {}
 impl IdKind for LegiArti {
     const PREFIX: &'static str = "LEGIARTI";
 }
 /// Texte du Journal officiel : `JORFTEXT`.
 pub enum JorfText {}
+impl sealed::Sealed for JorfText {}
 impl IdKind for JorfText {
     const PREFIX: &'static str = "JORFTEXT";
 }
 /// Convention collective : `KALITEXT`.
 pub enum KaliText {}
+impl sealed::Sealed for KaliText {}
 impl IdKind for KaliText {
     const PREFIX: &'static str = "KALITEXT";
 }
 /// Article de convention collective : `KALIARTI`.
 pub enum KaliArti {}
+impl sealed::Sealed for KaliArti {}
 impl IdKind for KaliArti {
     const PREFIX: &'static str = "KALIARTI";
 }
 /// Décision judiciaire : `JURITEXT`.
 pub enum JuriText {}
+impl sealed::Sealed for JuriText {}
 impl IdKind for JuriText {
     const PREFIX: &'static str = "JURITEXT";
 }
 /// Décision du Conseil constitutionnel : `CONSTEXT`.
 pub enum ConsText {}
+impl sealed::Sealed for ConsText {}
 impl IdKind for ConsText {
     const PREFIX: &'static str = "CONSTEXT";
 }
 /// Décision administrative : `CETATEXT`.
 pub enum CetaText {}
+impl sealed::Sealed for CetaText {}
 impl IdKind for CetaText {
     const PREFIX: &'static str = "CETATEXT";
 }
 /// Délibération CNIL : `CNILTEXT`.
 pub enum CnilText {}
+impl sealed::Sealed for CnilText {}
 impl IdKind for CnilText {
     const PREFIX: &'static str = "CNILTEXT";
 }
 /// Accord d'entreprise : `ACCOTEXT`.
 pub enum AccoText {}
+impl sealed::Sealed for AccoText {}
 impl IdKind for AccoText {
     const PREFIX: &'static str = "ACCOTEXT";
 }

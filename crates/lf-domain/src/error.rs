@@ -1,4 +1,21 @@
 //! Erreurs du domaine.
+//!
+//! # Variantes fermées, enum ouverte au filtrage
+//!
+//! Chaque variante qui recopie une entrée (`input`) porte `#[non_exhaustive]` : hors du crate
+//! elle ne se construit pas, seuls les analyseurs du crate la produisent, via `echo`, d'où la
+//! garantie qu'`input` ne dépasse jamais [`ECHO_MAX_CHARS`] caractères (plus `…`). Toute nouvelle
+//! variante porteuse d'`input` reçoit le même attribut. L'enum elle-même n'est pas
+//! `#[non_exhaustive]` : l'attribut d'enum n'empêcherait pas la construction et imposerait un
+//! bras `_` aux `match` en aval, alors qu'un `match` exhaustif en aval (rendu des messages,
+//! conversion vers l'erreur applicative) est une protection voulue. En aval, le motif d'une
+//! variante fermée s'écrit avec `..`. Choix réexaminé à la publication sur crates.io (M5).
+//! `echo` est `pub(crate)` ; [`ECHO_MAX_CHARS`] reste publique (le rendu M4 tronquera à la même
+//! longueur).
+//!
+//! ```compile_fail
+//! let _ = lf_domain::error::echo("LEGITEXT000006070721");
+//! ```
 
 use thiserror::Error;
 
@@ -9,7 +26,14 @@ pub const ECHO_MAX_CHARS: usize = 64;
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DomainError {
     /// Identifiant Légifrance absent ou malformé.
+    ///
+    /// Ne se construit pas hors du crate :
+    ///
+    /// ```compile_fail
+    /// let _ = lf_domain::DomainError::InvalidId { input: "x".repeat(99), expected: "LEGITEXT" };
+    /// ```
     #[error("invalid Legifrance identifier {input:?}: expected {expected} followed by 12 digits")]
+    #[non_exhaustive]
     InvalidId {
         /// Entrée reçue, tronquée à [`ECHO_MAX_CHARS`] caractères.
         input: String,
@@ -17,21 +41,42 @@ pub enum DomainError {
         expected: &'static str,
     },
     /// Date absente ou malformée.
+    ///
+    /// Ne se construit pas hors du crate :
+    ///
+    /// ```compile_fail
+    /// let _ = lf_domain::DomainError::InvalidDate { input: "x".repeat(99) };
+    /// ```
     #[error("invalid date {input:?}: expected YYYY-MM-DD")]
+    #[non_exhaustive]
     InvalidDate {
         /// Entrée reçue, tronquée.
         input: String,
     },
     /// ECLI malformé.
+    ///
+    /// Ne se construit pas hors du crate :
+    ///
+    /// ```compile_fail
+    /// let _ = lf_domain::DomainError::InvalidEcli { input: "x".repeat(99) };
+    /// ```
     #[error("invalid ECLI {input:?}: expected ECLI:FR:<court>:<year>:<ordinal>")]
+    #[non_exhaustive]
     InvalidEcli {
         /// Entrée reçue, tronquée.
         input: String,
     },
     /// Fond inconnu.
+    ///
+    /// Ne se construit pas hors du crate :
+    ///
+    /// ```compile_fail
+    /// let _ = lf_domain::DomainError::UnknownFond { input: "x".repeat(99) };
+    /// ```
     #[error(
         "unknown fond {input:?}: expected one of LODA, CODE, JURI, CONSTIT, CETAT, CNIL, KALI, ACCO"
     )]
+    #[non_exhaustive]
     UnknownFond {
         /// Entrée reçue, tronquée.
         input: String,
@@ -42,7 +87,7 @@ pub enum DomainError {
 }
 
 /// Recopie `input` pour un message d'erreur, tronquée à [`ECHO_MAX_CHARS`] caractères.
-pub fn echo(input: &str) -> String {
+pub(crate) fn echo(input: &str) -> String {
     let mut chars = input.chars();
     let head: String = chars.by_ref().take(ECHO_MAX_CHARS).collect();
     if chars.next().is_some() { head + "…" } else { head }
