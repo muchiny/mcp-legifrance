@@ -70,8 +70,9 @@ impl Citable for SearchHit {
             _ => self.title.clone(),
         };
         CitationContract::from_url(
-            legifrance_url(ResourceKind::from(self.fond), key.as_str()).to_string(),
-            citation,
+            legifrance_url(ResourceKind::from(self.fond), key.as_str()),
+            citation.as_deref(),
+            self.id.as_str(),
         )
     }
 }
@@ -121,12 +122,12 @@ mod tests {
     fn loda_and_code_use_id() {
         let loda = hit(Fond::Loda, "JORFTEXT000020445850", Some("JORFTEXT000099999999"));
         assert_eq!(
-            loda.contract().source_url,
+            loda.contract().source_url.as_str(),
             "https://www.legifrance.gouv.fr/loda/id/JORFTEXT000020445850"
         );
         let code = hit(Fond::Code, "LEGITEXT000006070721", Some("LEGITEXT000099999999"));
         assert_eq!(
-            code.contract().source_url,
+            code.contract().source_url.as_str(),
             "https://www.legifrance.gouv.fr/codes/texte_lc/LEGITEXT000006070721"
         );
     }
@@ -135,21 +136,21 @@ mod tests {
     fn other_fonds_prefer_cid() {
         let constit = hit(Fond::Constit, "CONSTEXT000043596386", Some("CONSTEXT000011111111"));
         assert_eq!(
-            constit.contract().source_url,
+            constit.contract().source_url.as_str(),
             "https://www.legifrance.gouv.fr/cons/id/CONSTEXT000011111111"
         );
         let juri = hit(Fond::Juri, "JURITEXT000048465611", None);
         assert_eq!(
-            juri.contract().source_url,
+            juri.contract().source_url.as_str(),
             "https://www.legifrance.gouv.fr/juri/id/JURITEXT000048465611"
         );
-        assert_eq!(juri.contract().human_readable_citation.as_deref(), Some("Titre"));
+        assert_eq!(juri.contract().citation.as_str(), "Titre");
     }
 
     #[test]
     fn acco_cites_company() {
         let acco = hit(Fond::Acco, "ACCOTEXT000051888026", None);
-        assert_eq!(acco.contract().human_readable_citation.as_deref(), Some("Titre (CORSAIR)"));
+        assert_eq!(acco.contract().citation.as_str(), "Titre (CORSAIR)");
     }
 
     #[test]

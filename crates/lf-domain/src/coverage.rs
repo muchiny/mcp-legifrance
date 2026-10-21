@@ -105,7 +105,7 @@ mod tests {
             id: "FR-001".into(),
             family: "Legislation (LODA, codes)".into(),
             missing: "native ELI".into(),
-            fallback: "use eli_uri".into(),
+            fallback: "Cite source_url; never build an /eli/ path.".into(),
         }
     }
 

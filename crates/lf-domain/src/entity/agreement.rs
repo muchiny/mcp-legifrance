@@ -45,9 +45,11 @@ pub struct CompanyAgreement {
 
 impl Citable for CompanyAgreement {
     fn contract(&self) -> CitationContract {
+        let id = self.agreement_id.as_str();
         CitationContract::from_url(
-            legifrance_url(ResourceKind::Acco, self.agreement_id.as_str()).to_string(),
-            with_company(self.title.as_deref(), self.raison_sociale.as_deref()),
+            legifrance_url(ResourceKind::Acco, id),
+            with_company(self.title.as_deref(), self.raison_sociale.as_deref()).as_deref(),
+            id,
         )
     }
 }
@@ -74,11 +76,12 @@ mod tests {
             date_effet: None,
             date_depot: None,
         };
+        let c = agreement.contract();
         assert_eq!(
-            agreement.contract(),
-            CitationContract::from_url(
-                "https://www.legifrance.gouv.fr/acco/id/ACCOTEXT000051888026".into(),
-                Some("Télétravail (CORSAIR)".into()),
+            (c.citation.as_str(), c.source_url.as_str()),
+            (
+                "Télétravail (CORSAIR)",
+                "https://www.legifrance.gouv.fr/acco/id/ACCOTEXT000051888026"
             )
         );
     }

@@ -34,10 +34,10 @@ pub struct Deliberation {
 
 impl Citable for Deliberation {
     fn contract(&self) -> CitationContract {
-        CitationContract::from_url(
-            legifrance_url(ResourceKind::Cnil, self.deliberation_id.as_str()).to_string(),
-            cnil_citation(self.num.as_deref(), self.date_texte).or_else(|| self.title.clone()),
-        )
+        let id = self.deliberation_id.as_str();
+        let citation =
+            cnil_citation(self.num.as_deref(), self.date_texte).or_else(|| self.title.clone());
+        CitationContract::from_url(legifrance_url(ResourceKind::Cnil, id), citation.as_deref(), id)
     }
 }
 
@@ -64,19 +64,18 @@ mod tests {
     #[test]
     fn cites_with_cnil_convention() {
         let c = deliberation(Some("SAN-2026-002")).contract();
-        assert_eq!(c.source_url, "https://www.legifrance.gouv.fr/cnil/id/CNILTEXT000053352643");
         assert_eq!(
-            c.human_readable_citation.as_deref(),
-            Some("CNIL, délibération n° SAN-2026-002 du 8 janvier 2026")
+            (c.citation.as_str(), c.source_url.as_str()),
+            (
+                "CNIL, délibération n° SAN-2026-002 du 8 janvier 2026",
+                "https://www.legifrance.gouv.fr/cnil/id/CNILTEXT000053352643"
+            )
         );
     }
 
     #[test]
     fn falls_back_to_title() {
         let c = deliberation(None).contract();
-        assert_eq!(
-            c.human_readable_citation.as_deref(),
-            Some("Délibération SAN-2026-002 du 8 janvier 2026")
-        );
+        assert_eq!(c.citation.as_str(), "Délibération SAN-2026-002 du 8 janvier 2026");
     }
 }

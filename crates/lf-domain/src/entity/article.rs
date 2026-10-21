@@ -35,9 +35,11 @@ impl Citable for ArticleText {
             ArticleId::Legi(_) => ResourceKind::CodeArticle,
             ArticleId::Kali(_) => ResourceKind::Kali,
         };
+        let id = self.article_id.as_str();
         CitationContract::from_url(
-            legifrance_url(kind, self.article_id.as_str()).to_string(),
-            article_citation(self.code_title.as_deref(), self.num.as_deref()),
+            legifrance_url(kind, id),
+            article_citation(self.code_title.as_deref(), self.num.as_deref()).as_deref(),
+            id,
         )
     }
 }
@@ -64,10 +66,10 @@ mod tests {
     fn legi_article_cites_code_and_number() {
         let citation = article("LEGIARTI000006419288").contract();
         assert_eq!(
-            citation,
-            CitationContract::from_url(
-                "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288".into(),
-                Some("Code civil, art. 9".into()),
+            (citation.citation.as_str(), citation.source_url.as_str()),
+            (
+                "Code civil, art. 9",
+                "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288"
             )
         );
     }
@@ -77,7 +79,7 @@ mod tests {
         // test_kali_article_url_uses_conv_coll de la référence.
         let citation = article("KALIARTI000005805295").contract();
         assert_eq!(
-            citation.source_url,
+            citation.source_url.as_str(),
             "https://www.legifrance.gouv.fr/conv_coll/id/KALIARTI000005805295"
         );
     }

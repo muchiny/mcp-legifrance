@@ -45,10 +45,6 @@ impl CitationText {
     }
 
     /// Repli `Légifrance {id}` ; `id` est un identifiant validé (`[A-Z0-9]`).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "repli de CitationContract v2 (T-M2-24, point 1)")
-    )]
     pub(crate) fn fallback(id: &str) -> Self {
         Self { text: format!("Légifrance {id}"), truncated: false }
     }

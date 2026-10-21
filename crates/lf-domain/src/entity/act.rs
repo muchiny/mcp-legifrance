@@ -64,18 +64,22 @@ pub struct Convention {
 
 impl Citable for Act {
     fn contract(&self) -> CitationContract {
+        let id = self.text_id.as_str();
         CitationContract::from_url(
-            legifrance_url(ResourceKind::Loda, self.text_id.as_str()).to_string(),
-            self.body.title.clone(),
+            legifrance_url(ResourceKind::Loda, id),
+            self.body.title.as_deref(),
+            id,
         )
     }
 }
 
 impl Citable for Convention {
     fn contract(&self) -> CitationContract {
+        let id = self.text_id.as_str();
         CitationContract::from_url(
-            legifrance_url(ResourceKind::Kali, self.text_id.as_str()).to_string(),
-            self.body.title.clone(),
+            legifrance_url(ResourceKind::Kali, id),
+            self.body.title.as_deref(),
+            id,
         )
     }
 }
@@ -93,13 +97,15 @@ mod tests {
     fn act_cites_its_title_and_loda_url() {
         let act = Act {
             text_id: LegiTextId::parse("LEGITEXT000033205014").unwrap(),
-            body: body("LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique"),
+            // L'appel de note « (1) » du titre est gardé (ADR-0009).
+            body: body("LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)"),
         };
+        let c = act.contract();
         assert_eq!(
-            act.contract(),
-            CitationContract::from_url(
-                "https://www.legifrance.gouv.fr/loda/id/LEGITEXT000033205014".into(),
-                Some("LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique".into()),
+            (c.citation.as_str(), c.source_url.as_str()),
+            (
+                "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)",
+                "https://www.legifrance.gouv.fr/loda/id/LEGITEXT000033205014"
             )
         );
     }
@@ -112,9 +118,9 @@ mod tests {
         };
         let citation = convention.contract();
         assert_eq!(
-            citation.source_url,
+            citation.source_url.as_str(),
             "https://www.legifrance.gouv.fr/conv_coll/id/KALITEXT000049878950"
         );
-        assert_eq!(citation.human_readable_citation.as_deref(), Some("Avenant"));
+        assert_eq!(citation.citation.as_str(), "Avenant");
     }
 }
