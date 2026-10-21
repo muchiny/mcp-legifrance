@@ -70,7 +70,7 @@ impl Citable for SearchHit {
             _ => self.title.clone(),
         };
         CitationContract::from_url(
-            legifrance_url(ResourceKind::from(self.fond), key.as_str()),
+            legifrance_url(ResourceKind::from(self.fond), key.as_str()).to_string(),
             citation,
         )
     }

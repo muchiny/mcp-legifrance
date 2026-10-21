@@ -46,7 +46,7 @@ pub struct CompanyAgreement {
 impl Citable for CompanyAgreement {
     fn contract(&self) -> CitationContract {
         CitationContract::from_url(
-            legifrance_url(ResourceKind::Acco, self.agreement_id.as_str()),
+            legifrance_url(ResourceKind::Acco, self.agreement_id.as_str()).to_string(),
             with_company(self.title.as_deref(), self.raison_sociale.as_deref()),
         )
     }

@@ -35,7 +35,7 @@ pub struct Deliberation {
 impl Citable for Deliberation {
     fn contract(&self) -> CitationContract {
         CitationContract::from_url(
-            legifrance_url(ResourceKind::Cnil, self.deliberation_id.as_str()),
+            legifrance_url(ResourceKind::Cnil, self.deliberation_id.as_str()).to_string(),
             cnil_citation(self.num.as_deref(), self.date_texte).or_else(|| self.title.clone()),
         )
     }

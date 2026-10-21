@@ -65,7 +65,7 @@ pub struct Convention {
 impl Citable for Act {
     fn contract(&self) -> CitationContract {
         CitationContract::from_url(
-            legifrance_url(ResourceKind::Loda, self.text_id.as_str()),
+            legifrance_url(ResourceKind::Loda, self.text_id.as_str()).to_string(),
             self.body.title.clone(),
         )
     }
@@ -74,7 +74,7 @@ impl Citable for Act {
 impl Citable for Convention {
     fn contract(&self) -> CitationContract {
         CitationContract::from_url(
-            legifrance_url(ResourceKind::Kali, self.text_id.as_str()),
+            legifrance_url(ResourceKind::Kali, self.text_id.as_str()).to_string(),
             self.body.title.clone(),
         )
     }

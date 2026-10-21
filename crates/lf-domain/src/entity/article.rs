@@ -36,7 +36,7 @@ impl Citable for ArticleText {
             ArticleId::Kali(_) => ResourceKind::Kali,
         };
         CitationContract::from_url(
-            legifrance_url(kind, self.article_id.as_str()),
+            legifrance_url(kind, self.article_id.as_str()).to_string(),
             article_citation(self.code_title.as_deref(), self.num.as_deref()),
         )
     }

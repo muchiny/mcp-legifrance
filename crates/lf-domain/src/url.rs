@@ -1,5 +1,7 @@
 //! URL stables de legifrance.gouv.fr (`citations.py:76-102`).
 
+use std::fmt;
+
 use crate::fond::Fond;
 
 /// Racine du site public.
@@ -67,14 +69,34 @@ impl From<Fond> for ResourceKind {
     }
 }
 
+/// URL publique d'une ressource legifrance.gouv.fr (`source_url` du contrat v2,
+/// ADR-0009). Seule `legifrance_url` (réservée au crate) la construit, depuis un
+/// identifiant typé : jamais vide, toujours sous [`WEB_BASE`], sans échappement
+/// nécessaire (`[A-Z0-9]`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SourceUrl(String);
+
+impl SourceUrl {
+    /// L'URL.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for SourceUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// URL publique d'une ressource ; `id` est un identifiant déjà validé.
 ///
 /// Divergence avec `citations.py:76-102`, où la référence renvoie `None` pour
 /// un id vide ou un `kind` inconnu : ici la fonction est totale, parce que
 /// `kind` est un enum et que l'id vient toujours d'un identifiant typé déjà
 /// validé (d'où la visibilité `pub(crate)`).
-pub(crate) fn legifrance_url(kind: ResourceKind, id: &str) -> String {
-    format!("{WEB_BASE}/{}/{id}", kind.path())
+pub(crate) fn legifrance_url(kind: ResourceKind, id: &str) -> SourceUrl {
+    SourceUrl(format!("{WEB_BASE}/{}/{id}", kind.path()))
 }
 
 #[cfg(test)]
@@ -98,8 +120,14 @@ mod tests {
             (ResourceKind::Acco, "https://www.legifrance.gouv.fr/acco/id/X"),
         ];
         for (kind, url) in cases {
-            assert_eq!(legifrance_url(kind, id), url);
+            assert_eq!(legifrance_url(kind, id).as_str(), url);
         }
+    }
+
+    #[test]
+    fn source_url_displays_its_text() {
+        let url: SourceUrl = legifrance_url(ResourceKind::Cnil, "CNILTEXT000053352643");
+        assert_eq!(url.to_string(), "https://www.legifrance.gouv.fr/cnil/id/CNILTEXT000053352643");
     }
 
     #[test]

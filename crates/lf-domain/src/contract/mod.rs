@@ -8,10 +8,20 @@
 //! Le module s'appelle `contract`, pas `citation` : ce nom revient au parseur
 //! de citations (M6, ADR-0009). Les règles de format vivent dans `rules`,
 //! ré-exportées ici.
+//!
+//! Newtypes du contrat v2 (ADR-0009, décision C2) : [`CitationText`] (citation
+//! sur une ligne, jamais vide, bornée), [`SourceUrl`] (page Légifrance
+//! construite depuis un identifiant typé) et [`Eli`] (ELI natif validé, jamais
+//! fabriqué).
 
+mod eli;
 mod rules;
+mod text;
 
+pub use crate::url::SourceUrl;
+pub use eli::{ELI_MAX_CHARS, Eli};
 pub use rules::{article_citation, cnil_citation, constit_citation, with_company};
+pub use text::{CITATION_MAX_CHARS, CitationText};
 
 /// Note jointe aux résultats de législation (`models.py:14-17`).
 pub const ELI_NOTE: &str = "Legifrance lf-engine-app returns the ELI field null for legislation; \

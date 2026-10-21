@@ -55,7 +55,10 @@ impl Citable for Decision {
                 .or_else(|| self.title.clone()),
             ),
         };
-        CitationContract::from_url(legifrance_url(kind, self.decision_id.as_str()), citation)
+        CitationContract::from_url(
+            legifrance_url(kind, self.decision_id.as_str()).to_string(),
+            citation,
+        )
     }
 }
 
