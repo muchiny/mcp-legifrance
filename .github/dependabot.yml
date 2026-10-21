@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    # Règle d'âge de 00 §2 ; zizmor (dependabot-cooldown) exige au moins 7 jours.
+    cooldown:
+      default-days: 14
+    # rmcp est épinglé exactement (00 §6) ; montée selon l'annexe D §9.4.
+    ignore:
+      - dependency-name: rmcp
+      - dependency-name: rmcp-macros
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14

@@ -3,16 +3,24 @@
 # WSL (~/.claude/rules/wsl-safety.md) : parallélisme cargo par défaut ; cargo-mutants
 # toujours `-j 1`, un fichier à la fois, scratch dans /var/tmp (/tmp est un tmpfs en RAM).
 # La mutation de tout le workspace d'un coup tourne en CI (weekly.yml), jamais ici.
+#
+# `--locked` partout (06 §9.4) : une commande échoue si `Cargo.lock` n'est pas à jour,
+# au lieu de le réécrire. `--all-features` sur lint, test et doc (sans effet tant
+# qu'aucune feature n'existe ; 06 §7.1).
 
-COV_FLAGS := --workspace --lib --summary-only \
+COV_FLAGS := --workspace --lib --locked --summary-only \
 	--fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
 MUTANTS_SAFE := TMPDIR=/var/tmp NEXTEST_TEST_THREADS=2 cargo mutants -j 1
 BASE ?= origin/main
 # Contrôle mémoire (>= 8 Gio disponibles), expansé directement dans les recettes
 # pour que `make -n` reste un vrai dry run (aucun $(MAKE) récursif).
 MEM_CHECK := free -m | awk 'NR==2 { if ($$7 >= 8*1024) print "OK: -j 1 safe"; else { print "BLOCK: not enough RAM, wait"; exit 1 } }'
+# Analyse des workflows : zizmor 1.30.1 et actionlint 1.7.12 (versions de workflow-lint.yml).
+# En local, par exemple : make workflow-lint ZIZMOR="uvx --from zizmor==1.30.1 zizmor"
+ZIZMOR ?= zizmor
+ACTIONLINT ?= actionlint
 
-.PHONY: fmt fmt-check lint test doc arch deny machete cov mem-check mutants mutants-diff ci
+.PHONY: fmt fmt-check lint test doc arch deny machete cov mem-check mutants mutants-diff workflow-lint ci
 
 fmt:
 	cargo fmt --all
@@ -21,20 +29,20 @@ fmt-check:
 	cargo fmt --all -- --check
 
 lint:
-	cargo clippy --workspace --all-targets -- -D warnings
+	cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 test:
-	cargo nextest run --workspace
-	cargo test --workspace --doc
+	cargo nextest run --workspace --all-features --locked
+	cargo test --workspace --doc --all-features --locked
 
 doc:
-	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --locked
 
 arch:
 	cargo xtask check-arch
 
 deny:
-	cargo deny check
+	cargo deny --locked check
 
 machete:
 	cargo machete
@@ -58,5 +66,11 @@ mutants-diff: mem-check
 	for f in $$files; do \
 		if [ -f "$$f" ]; then $(MEM_CHECK) || exit 1; $(MUTANTS_SAFE) --file "$$f"; fi; \
 	done
+
+# Workflows GitHub (zizmor puis actionlint) : hors `make ci`, lancé par workflow-lint.yml
+# quand `.github/` change (06 §7.1).
+workflow-lint:
+	$(ZIZMOR) .github/
+	$(ACTIONLINT)
 
 ci: fmt-check lint test doc arch deny machete cov

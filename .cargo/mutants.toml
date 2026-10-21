@@ -3,6 +3,8 @@
 # prouvé équivalent, avec le raisonnement. Le code `#[cfg(test)]` n'est jamais muté.
 test_tool = "nextest"
 profile = "mutants"
+# `--locked` sur chaque appel de cargo (local, diff de PR, balayage hebdomadaire ; 06 §9.4).
+additional_cargo_args = ["--locked"]
 exclude_globs = [
     "xtask/src/main.rs", # glue d'I/O (cargo metadata, stdout) ; la logique est dans arch.rs
     "fuzz/**", # cibles cargo-fuzz hors workspace (Cargo.toml exclude) : pas du code livré ; filet si le dossier y entrait

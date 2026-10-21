@@ -11,6 +11,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+# Actions épinglées par SHA, version en commentaire : voir ci.yml.
 jobs:
   mutants:
     name: mutants (shard ${{ matrix.shard }}/4)
@@ -21,18 +22,21 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.0
+          components: clippy, rustfmt, llvm-tools-preview
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: mutants-full
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
-          tool: cargo-nextest,cargo-mutants
+          tool: cargo-nextest@0.9.148,cargo-mutants@27.1.0
       - run: cargo mutants --shard ${{ matrix.shard }}/4 -j 2 --timeout 60
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: mutants-shard-${{ matrix.shard }}
@@ -45,17 +49,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [ids, text]
+        target: [ids, text, version_date]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: taiki-e/install-action@v2
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
-          tool: cargo-fuzz
+          toolchain: nightly
+      # cargo-fuzz n'a pas de manifeste dans install-action : repli sur cargo-binstall.
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-fuzz@0.13.1
       - run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=300
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: fuzz-${{ matrix.target }}

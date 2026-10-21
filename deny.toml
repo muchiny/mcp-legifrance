@@ -4,6 +4,7 @@ all-features = true
 
 [advisories]
 version = 2
+yanked = "deny"
 ignore = []
 
 [licenses]
@@ -17,6 +18,12 @@ ignore = true
 multiple-versions = "warn"
 wildcards = "deny"
 allow-wildcard-paths = true
+deny = [
+  { crate = "openssl", reason = "TLS = rustls uniquement (00 §8)" },
+  { crate = "openssl-sys", reason = "TLS = rustls uniquement" },
+  { crate = "native-tls", reason = "TLS = rustls uniquement" },
+  { crate = "backoff", reason = "non maintenu ; backon retenu (recherche 04 §4.1)" },
+]
 
 [sources]
 unknown-registry = "deny"
