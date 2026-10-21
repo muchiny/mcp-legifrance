@@ -68,10 +68,14 @@ impl Coverage {
         families: Vec<CoverageFamily>,
         known_gaps: Vec<CoverageGap>,
     ) -> Result<Self, DomainError> {
-        if known_gaps.is_empty() {
-            return Err(DomainError::EmptyCoverageGaps);
-        }
-        Ok(Self { status, as_of_note, families, known_gaps })
+        Self { status, as_of_note, families, known_gaps }.checked()
+    }
+
+    /// La déclaration, si elle nomme au moins une lacune. Le contrôle vit ici et non dans
+    /// `new`, que cargo-mutants ne mute jamais (`CONTRIBUTING.md`).
+    fn checked(self) -> Result<Self, DomainError> {
+        let has_gaps = !self.known_gaps.is_empty();
+        has_gaps.then_some(self).ok_or(DomainError::EmptyCoverageGaps)
     }
 
     /// État de la source.

@@ -158,7 +158,16 @@ impl DateRange {
         from: Option<VersionDate>,
         to: Option<VersionDate>,
     ) -> Result<Option<Self>, DomainError> {
-        if from.or(to).is_none() {
+        Self::spanning(from, to)
+    }
+
+    /// Corps de [`DateRange::new`] : la décision vit ici, car cargo-mutants ne mute jamais
+    /// une fonction nommée `new` (`CONTRIBUTING.md`).
+    fn spanning(
+        from: Option<VersionDate>,
+        to: Option<VersionDate>,
+    ) -> Result<Option<Self>, DomainError> {
+        if from.is_none() && to.is_none() {
             return Ok(None);
         }
         Self::closed(from.unwrap_or(VersionDate::MIN), to.unwrap_or(VersionDate::MAX)).map(Some)
@@ -203,6 +212,12 @@ fn digit(b: u8) -> Option<u8> {
 impl CivilDate {
     /// Construit une date si elle existe dans le calendrier.
     pub fn new(year: u16, month: u8, day: u8) -> Option<Self> {
+        Self::checked(year, month, day)
+    }
+
+    /// Corps de [`CivilDate::new`] : la validation vit ici, car cargo-mutants ne mute jamais
+    /// une fonction nommée `new` (`CONTRIBUTING.md`).
+    fn checked(year: u16, month: u8, day: u8) -> Option<Self> {
         let valid = (1..=9999).contains(&year)
             && (1..=12).contains(&month)
             && (1..=days_in_month(year, month)).contains(&day);

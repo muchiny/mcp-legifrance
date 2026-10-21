@@ -51,7 +51,11 @@ pub struct CitationContract {
 impl CitationContract {
     /// Contrat sans ECLI ni ELI : `citation` nettoyée, ou le repli
     /// `Légifrance {id}` si elle est absente ou sans caractère visible.
-    pub fn from_url(source_url: SourceUrl, citation: Option<&str>, id: &str) -> Self {
+    ///
+    /// Réservé au crate : seules les entités du domaine construisent leur contrat, avec un
+    /// identifiant validé. Public, il laisserait un appelant passer un `id` libre (vide,
+    /// multiligne) au repli et contourner les invariants de [`CitationText`].
+    pub(crate) fn from_url(source_url: SourceUrl, citation: Option<&str>, id: &str) -> Self {
         let citation =
             citation.and_then(CitationText::new).unwrap_or_else(|| CitationText::fallback(id));
         Self { citation, source_url, ecli: None, eli: None }

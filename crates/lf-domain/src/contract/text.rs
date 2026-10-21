@@ -48,14 +48,18 @@ impl CitationText {
     /// );
     /// assert_eq!(long.as_ref().map(|c| c.as_str().ends_with(" mot…")), Some(true));
     /// ```
+    ///
+    /// La logique vit dans `normalized`, `fold_blanks` et `cut_at_word` : cargo-mutants ne
+    /// mute pas les fonctions nommées `new` (`CONTRIBUTING.md`).
     pub fn new(raw: &str) -> Option<Self> {
-        let folded = fold_blanks(raw);
-        if folded.is_empty() {
-            return None;
-        }
-        Some(match cut_at_word(&folded) {
-            Some(text) => Self { text, truncated: true },
-            None => Self { text: folded, truncated: false },
+        Self::normalized(raw)
+    }
+
+    fn normalized(raw: &str) -> Option<Self> {
+        let text = fold_blanks(raw);
+        (!text.is_empty()).then(|| match cut_at_word(&text) {
+            Some(cut) => Self { text: cut, truncated: true },
+            None => Self { text, truncated: false },
         })
     }
 

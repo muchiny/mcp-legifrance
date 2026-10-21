@@ -54,6 +54,22 @@ peut ne pas terminer. Toute boucle doit garantir sa progression, même mutée :
 consommer au moins un élément par tour (`text/clean.rs`) ou borner le nombre de
 tours (`text/passages.rs`).
 
+cargo-mutants ne mute jamais une fonction nommée `new` ni un `impl Default`
+(wiki de cargo-mutants, page « Mutations », section « General exclusions » :
+« Functions called `new`, and implementations of `Default` are skipped » ;
+<https://github.com/sourcefrog/cargo-mutants/wiki/Mutations>). Une décision
+écrite dans leur corps échappe donc à la mutation. Règle : une fonction `new`
+et un `impl Default` écrit à la main ne prennent aucune décision (ni `if`, ni
+`match`, ni opérateur booléen, de comparaison ou arithmétique, ni appel à une
+méthode qui décide à leur place, comme `filter`, `is_none` ou `unwrap_or_else`).
+Ils assemblent leurs arguments dans la struct et confient tout calcul à une
+fonction privée nommée autrement, mutée normalement (`CivilDate::checked`,
+`Coverage::checked`, `cut_snippet`…). Préférer une forme qui donne des mutants
+viables : un retour `Self` sans `Default` ne produit qu'un mutant non
+compilable, une décision écrite avec un opérateur (`!`, `&&`, `>`) en produit
+de vrais. Contrôle : `cargo mutants --list --file <chemin>` liste les mutants
+de la fonction privée.
+
 ## Sur WSL
 
 `/tmp` est un tmpfs en RAM. Ne lancer `cargo mutants` que par `make mutants`

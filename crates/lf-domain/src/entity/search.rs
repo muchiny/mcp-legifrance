@@ -31,9 +31,13 @@ impl CodeArticleRef {
     /// rendu homogène avec les titres ; la coupe à [`SNIPPET_MAX_CHARS`] se fait
     /// après normalisation.
     pub fn new(article_id: ArticleId, num: Option<String>, raw_snippet: &str) -> Self {
-        let snippet = clean(raw_snippet).chars().take(SNIPPET_MAX_CHARS).collect();
-        Self { article_id, num, snippet }
+        Self { article_id, num, snippet: cut_snippet(raw_snippet) }
     }
+}
+
+/// Hors de `CodeArticleRef::new`, que cargo-mutants ne mute jamais (`CONTRIBUTING.md`).
+fn cut_snippet(raw: &str) -> String {
+    clean(raw).chars().take(SNIPPET_MAX_CHARS).collect()
 }
 
 /// Un résultat de recherche.
@@ -99,9 +103,18 @@ pub struct SearchPage {
 impl SearchPage {
     /// `total` absent : on retient le nombre de résultats reçus (`citations.py:179-181`).
     pub fn new(fond: Fond, query: &str, total: Option<u64>, hits: Vec<SearchHit>) -> Self {
-        let total = total.unwrap_or_else(|| u64::try_from(hits.len()).unwrap_or(u64::MAX));
-        Self { fond, query: query.trim().to_owned(), total, hits }
+        Self { fond, query: trimmed_query(query), total: page_total(total, &hits), hits }
     }
+}
+
+/// Hors de `SearchPage::new`, que cargo-mutants ne mute jamais (`CONTRIBUTING.md`).
+fn trimmed_query(query: &str) -> String {
+    query.trim().to_owned()
+}
+
+/// Hors de `SearchPage::new`, que cargo-mutants ne mute jamais (`CONTRIBUTING.md`).
+fn page_total(total: Option<u64>, hits: &[SearchHit]) -> u64 {
+    total.unwrap_or_else(|| u64::try_from(hits.len()).unwrap_or(u64::MAX))
 }
 
 #[cfg(test)]
