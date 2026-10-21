@@ -28,7 +28,12 @@
 //! donne `BadSuffix`. Tous les analyseurs tolèrent les espaces autour et la
 //! casse.
 
-use std::{fmt, marker::PhantomData, str::FromStr};
+use std::{
+    fmt,
+    hash::{Hash, Hasher},
+    marker::PhantomData,
+    str::FromStr,
+};
 
 use crate::{
     date::CivilDate,
@@ -162,7 +167,7 @@ impl<K: IdKind> Id<K> {
 }
 
 /// Identifiant `LEGITEXT` et date de son suffixe de version.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VersionedId {
     /// Identifiant, suffixe retiré.
     pub id: LegiTextId,
@@ -204,6 +209,15 @@ impl<K> PartialEq for Id<K> {
 }
 
 impl<K> Eq for Id<K> {}
+
+/// Hache la forme normalisée seule, comme [`PartialEq`] la compare : deux identifiants égaux
+/// ont la même empreinte, celle de leur `&str`. Impl manuelle, comme `Clone` et `PartialEq` :
+/// `derive(Hash)` exigerait `K: Hash`, que les familles (enums vides) n'implémentent pas.
+impl<K> Hash for Id<K> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.raw.hash(state);
+    }
+}
 
 impl<K> fmt::Debug for Id<K> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -321,7 +335,7 @@ pub type CnilTextId = Id<CnilText>;
 pub type AccoTextId = Id<AccoText>;
 
 /// Identifiant de forme valide, quel que soit son préfixe (résultats de recherche).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AnyId(String);
 
 impl AnyId {
@@ -341,8 +355,22 @@ impl AnyId {
     }
 }
 
+impl fmt::Display for AnyId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for AnyId {
+    type Err = DomainError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
 /// Article consultable par `/consult/getArticle` (`server.py:284`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ArticleId {
     /// Article consolidé `LEGIARTI…`.
     Legi(LegiArtiId),
@@ -374,6 +402,12 @@ impl ArticleId {
     }
 }
 
+impl fmt::Display for ArticleId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 impl FromStr for ArticleId {
     type Err = DomainError;
 
@@ -384,10 +418,10 @@ impl FromStr for ArticleId {
 
 /// Section de table des matières (`LEGISCTA…` ou `KALISCTA…`). Employée seulement par la table
 /// des matières (03 §2.2), jamais rendue en sortie.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SectionId(SectionInner);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum SectionInner {
     Legi(Id<LegiScta>),
     Kali(Id<KaliScta>),
@@ -436,7 +470,7 @@ impl FromStr for SectionId {
 }
 
 /// Décision consultable par `/consult/juri` (`server.py:103`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DecisionId {
     /// Cour de cassation, cours d'appel : `JURITEXT…`.
     Juri(JuriTextId),
@@ -475,6 +509,12 @@ impl DecisionId {
     }
 }
 
+impl fmt::Display for DecisionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 impl FromStr for DecisionId {
     type Err = DomainError;
 
@@ -488,6 +528,43 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
+    use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
+
+    /// Empreinte déterministe (clés fixes, sans graine aléatoire).
+    fn hash_of<T: Hash + ?Sized>(value: &T) -> u64 {
+        BuildHasherDefault::<DefaultHasher>::default().hash_one(value)
+    }
+
+    /// `a` et `b` désignent le même identifiant : valeurs égales, donc
+    /// empreintes égales (contrat de `Hash`).
+    fn assert_same_hash<T: Hash + PartialEq + fmt::Debug>(parse: Parser<T>, a: &str, b: &str) {
+        let (a, b) = (parse(a).unwrap(), parse(b).unwrap());
+        assert_eq!(a, b);
+        assert_eq!(hash_of(&a), hash_of(&b), "{a:?}");
+    }
+
+    #[test]
+    fn hash_agrees_with_eq() {
+        // `Id<K>` hache la forme normalisée seule, comme `PartialEq` la compare :
+        // même empreinte que la chaîne (un corps vidé ne hacherait rien).
+        let id = LegiTextId::parse("LEGITEXT000006070721").unwrap();
+        assert_eq!(hash_of(&id), hash_of(id.as_str()));
+        // Égalité ⇒ même empreinte, quelle que soit la forme lue.
+        assert_same_hash(LegiTextId::parse, " legitext000006070721\n", "LEGITEXT000006070721");
+        assert_same_hash(AnyId::parse, "jorftext000020445850_01-01-2020", "JORFTEXT000020445850");
+        assert_same_hash(ArticleId::parse, " legiarti000006419288", "LEGIARTI000006419288");
+        assert_same_hash(ArticleId::parse, " kaliarti000005805295", "KALIARTI000005805295");
+        assert_same_hash(DecisionId::parse, "juritext000048465611 ", "JURITEXT000048465611");
+        assert_same_hash(DecisionId::parse, "constext000037434572 ", "CONSTEXT000037434572");
+        assert_same_hash(DecisionId::parse, "cetatext000051655317 ", "CETATEXT000051655317");
+        assert_same_hash(SectionId::parse, "legiscta000033205040", "LEGISCTA000033205040");
+        assert_same_hash(SectionId::parse, "kaliscta000049886029", "KALISCTA000049886029");
+        assert_same_hash(
+            parse_versioned,
+            " legitext000033205014_08-09-2023",
+            "LEGITEXT000033205014_08-09-2023",
+        );
+    }
 
     #[test]
     fn parses_fixture_ids() {
@@ -772,6 +849,10 @@ mod tests {
         assert_eq!(kali, ArticleId::Kali(KaliArtiId::parse("KALIARTI000005805295").unwrap()));
         assert_eq!(legi.as_str(), "LEGIARTI000006419288");
         assert_eq!(kali.as_str(), "KALIARTI000005805295");
+        assert_eq!(legi.to_string(), "LEGIARTI000006419288");
+        assert_eq!(kali.to_string(), "KALIARTI000005805295");
+        assert_eq!(legi.to_string().parse::<ArticleId>().unwrap(), legi);
+        assert_eq!(kali.to_string().parse::<ArticleId>().unwrap(), kali);
         assert_eq!(
             ArticleId::parse("LEGITEXT000006070721").unwrap_err(),
             DomainError::InvalidId {
@@ -795,6 +876,12 @@ mod tests {
         assert_eq!(juri.as_str(), "JURITEXT000048465611");
         assert_eq!(constit.as_str(), "CONSTEXT000037434572");
         assert_eq!(cetat.as_str(), "CETATEXT000051655317");
+        assert_eq!(juri.to_string(), "JURITEXT000048465611");
+        assert_eq!(constit.to_string(), "CONSTEXT000037434572");
+        assert_eq!(cetat.to_string(), "CETATEXT000051655317");
+        assert_eq!(juri.to_string().parse::<DecisionId>().unwrap(), juri);
+        assert_eq!(constit.to_string().parse::<DecisionId>().unwrap(), constit);
+        assert_eq!(cetat.to_string().parse::<DecisionId>().unwrap(), cetat);
         assert_eq!(
             DecisionId::parse("CNILTEXT000053352643").unwrap_err(),
             DomainError::InvalidId {
@@ -858,8 +945,10 @@ mod tests {
             digits in "[0-9]{12}",
             pad in "[ \\t]{0,3}",
         ) {
-            let id = AnyId::parse(&format!("{pad}{prefix}{digits}{pad}")).unwrap();
+            let id: AnyId = format!("{pad}{prefix}{digits}{pad}").parse().unwrap();
             prop_assert_eq!(id.as_str(), format!("{}{digits}", prefix.to_ascii_uppercase()));
+            prop_assert_eq!(id.to_string(), id.as_str());
+            prop_assert_eq!(id.to_string().parse::<AnyId>(), Ok(id.clone()));
             prop_assert_eq!(AnyId::parse(id.as_str()).unwrap(), id);
         }
 

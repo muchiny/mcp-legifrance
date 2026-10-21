@@ -40,7 +40,7 @@ const FR_MONTHS: [&str; 12] = [
 const MILLIS_PER_DAY: i64 = 86_400_000;
 
 /// Date civile validée, années 1 à 9999.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CivilDate {
     year: u16,
     month: u8,
@@ -64,7 +64,7 @@ pub fn open_ended(date: Option<CivilDate>) -> Option<CivilDate> {
 ///
 /// Invariant : `MIN` ≤ date ≤ `MAX`, donc jamais dans la zone sentinelle. Bornes provisoires
 /// (03 §6.1, NON VÉRIFIÉ [V-89 · version-date-bornes]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VersionDate(CivilDate);
 
 impl VersionDate {
@@ -125,7 +125,7 @@ impl FromStr for VersionDate {
 }
 
 /// Période fermée de deux [`VersionDate`] (invariant : `start() <= end()`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DateRange {
     from: VersionDate,
     to: VersionDate,
@@ -291,9 +291,24 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
+    use std::collections::HashSet;
 
     fn d(y: u16, m: u8, day: u8) -> CivilDate {
         CivilDate::new(y, m, day).unwrap()
+    }
+
+    #[test]
+    fn hash_agrees_with_eq() {
+        // Clés de cache (M3) : deux lectures d'une même date, une seule clé.
+        let civil = [d(2016, 10, 8), " 2016-10-08 ".parse().unwrap(), d(2016, 10, 9)];
+        assert_eq!(HashSet::from(civil), HashSet::from([d(2016, 10, 8), d(2016, 10, 9)]));
+        let day = VersionDate::parse("2016-10-08").unwrap();
+        let versions = [day, VersionDate::try_from(d(2016, 10, 8)).unwrap(), VersionDate::MAX];
+        assert_eq!(HashSet::from(versions), HashSet::from([day, VersionDate::MAX]));
+        let since = DateRange::new(Some(day), None).unwrap().unwrap();
+        let closed = DateRange::new(Some(day), Some(VersionDate::MAX)).unwrap().unwrap();
+        let until = DateRange::new(None, Some(day)).unwrap().unwrap();
+        assert_eq!(HashSet::from([since, closed, until]), HashSet::from([since, until]));
     }
 
     /// Inverse indépendant (`days_from_civil`, même source) servant d'oracle.

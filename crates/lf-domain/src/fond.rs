@@ -5,7 +5,7 @@ use std::{fmt, str::FromStr};
 use crate::error::{DomainError, echo};
 
 /// Fond exposé à l'utilisateur.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Fond {
     /// Lois et décrets.
     Loda,
@@ -95,6 +95,13 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn hash_agrees_with_eq() {
+        let read = ["loda", " LODA ", "CODE"].map(|s| Fond::parse(s).unwrap());
+        assert_eq!(HashSet::from(read), HashSet::from([Fond::Loda, Fond::Code]));
+    }
 
     #[test]
     fn names_match_reference() {
