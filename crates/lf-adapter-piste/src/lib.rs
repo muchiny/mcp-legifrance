@@ -11,6 +11,7 @@
 //! Les modules sont privés et rien n'est exporté tant que `PisteCorpus` n'existe pas.
 //!
 //! Modules :
+//! - `config` : configuration de l'adapter (`PisteConfig`) et validation des URL surchargées.
 //! - `time` : horloge monotone (`MonoClock`) et attente (`Sleeper`), pour des tests
 //!   déterministes sans geler l'horloge `tokio`.
 
@@ -19,4 +20,9 @@
     expect(dead_code, reason = "modules internes consommés par PisteCorpus au plan 2d")
 )]
 
+mod config;
 mod time;
+
+pub use config::{
+    ConfigProblem, ConfigWarning, PisteConfig, PisteCredentials, PisteEndpoints, RateQuota,
+};

@@ -9,6 +9,12 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+lf-domain.workspace = true
+# Url (ré-export de `url`) pour valider les URL de configuration ; aucun appel réseau à ce stade
+reqwest.workspace = true
+# SecretString : client_secret, Debug rédigé `[REDACTED]`
+secrecy.workspace = true
+thiserror.workspace = true
 # time : `tokio::time::{Instant, sleep}` pour `TokioClock` et `TokioSleeper`
 tokio = { workspace = true, features = ["time"] }
 
