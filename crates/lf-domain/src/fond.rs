@@ -61,6 +61,16 @@ impl Fond {
         }
     }
 
+    /// Vrai si le fond se consulte à une date de version (`version_date`) : `LODA` et `CODE`.
+    pub const fn needs_version_date(self) -> bool {
+        matches!(self, Self::Loda | Self::Code)
+    }
+
+    /// Vrai si le fond accepte un filtre de période (`date_from`, `date_to`) : tous sauf `CODE`.
+    pub const fn has_date_filter(self) -> bool {
+        !matches!(self, Self::Code)
+    }
+
     /// Lit un nom de fond, sans tenir compte de la casse ni des espaces
     /// (parité avec `(fond or "").strip().upper()`, `server.py:191`).
     ///
@@ -115,6 +125,27 @@ mod tests {
         assert_eq!(
             api,
             ["LODA_DATE", "CODE_DATE", "JURI", "CONSTIT", "CETAT", "CNIL", "KALI", "ACCO"]
+        );
+    }
+
+    #[test]
+    fn version_date_and_date_filter_by_fond() {
+        let table: Vec<_> = Fond::ALL
+            .iter()
+            .map(|f| (f.name(), f.needs_version_date(), f.has_date_filter()))
+            .collect();
+        assert_eq!(
+            table,
+            [
+                ("LODA", true, true),
+                ("CODE", true, false),
+                ("JURI", false, true),
+                ("CONSTIT", false, true),
+                ("CETAT", false, true),
+                ("CNIL", false, true),
+                ("KALI", false, true),
+                ("ACCO", false, true),
+            ]
         );
     }
 

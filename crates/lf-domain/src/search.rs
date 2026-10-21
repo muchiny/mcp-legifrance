@@ -4,7 +4,13 @@
 //! Validés sans réseau : une valeur construite est déjà conforme, l'adapter n'a plus qu'à la
 //! traduire.
 
-use crate::error::DomainError;
+use std::num::NonZeroU32;
+
+use crate::{
+    date::{DateRange, VersionDate},
+    error::DomainError,
+    fond::Fond,
+};
 
 /// Longueur maximale, en caractères, d'une requête normalisée.
 ///
@@ -130,15 +136,175 @@ pub enum MatchMode {
     Exact,
 }
 
+/// Nombre de résultats au-delà duquel l'API ne livre plus rien : fenêtre supposée,
+/// `[V-83 · pagination-profonde]`.
+///
+/// Une page est atteignable si `page * page_size <= REACHABLE_RESULTS`.
+pub const REACHABLE_RESULTS: u64 = 10_000;
+
+/// Requête de recherche validée de `fr_search` (03 §4.1, 02 §5.1).
+///
+/// Les champs sont privés : les invariants de [`new`](Self::new) tiennent pour toute valeur
+/// construite (même choix que [`DateRange`]) :
+///
+/// - `version_date` n'est admise que pour un fond qui la consomme (`LODA`, `CODE`) ;
+/// - `date_range` n'est admise que pour un fond à filtre de période (tous sauf `CODE`) ;
+/// - la page demandée reste dans la fenêtre de [`REACHABLE_RESULTS`] résultats.
+///
+/// `Eq + Hash` : la valeur sert de clé de cache (00 §9). Elle ne porte pas de
+/// `typePagination`, que l'adapter choisit seul (04 §6.6).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SearchQuery {
+    fond: Fond,
+    text: QueryText,
+    page: NonZeroU32,
+    page_size: PageSize,
+    mode: MatchMode,
+    date_range: Option<DateRange>,
+    version_date: Option<VersionDate>,
+}
+
+impl SearchQuery {
+    /// Assemble une requête et vérifie ses invariants.
+    ///
+    /// Une période inversée est déjà refusée à la construction de [`DateRange`].
+    ///
+    /// # Errors
+    ///
+    /// Dans cet ordre : [`DomainError::VersionDateNotApplicable`],
+    /// [`DomainError::DateFilterNotApplicable`], [`DomainError::PageBeyondReach`].
+    pub fn new(
+        fond: Fond,
+        text: QueryText,
+        page: NonZeroU32,
+        page_size: PageSize,
+        mode: MatchMode,
+        date_range: Option<DateRange>,
+        version_date: Option<VersionDate>,
+    ) -> Result<Self, DomainError> {
+        Self { fond, text, page, page_size, mode, date_range, version_date }.checked()
+    }
+
+    /// Fond interrogé.
+    pub fn fond(&self) -> Fond {
+        self.fond
+    }
+
+    /// Texte normalisé de la requête.
+    pub fn text(&self) -> &QueryText {
+        &self.text
+    }
+
+    /// Numéro de page, à partir de 1.
+    pub fn page(&self) -> NonZeroU32 {
+        self.page
+    }
+
+    /// Nombre de résultats par page.
+    pub fn page_size(&self) -> PageSize {
+        self.page_size
+    }
+
+    /// Mode de correspondance des mots.
+    pub fn mode(&self) -> MatchMode {
+        self.mode
+    }
+
+    /// Période demandée, le cas échéant.
+    pub fn date_range(&self) -> Option<DateRange> {
+        self.date_range
+    }
+
+    /// Date de version demandée, le cas échéant.
+    pub fn version_date(&self) -> Option<VersionDate> {
+        self.version_date
+    }
+
+    fn checked(self) -> Result<Self, DomainError> {
+        let fond = self.fond;
+        if self.version_date.is_some() && !fond.needs_version_date() {
+            return Err(DomainError::VersionDateNotApplicable { fond });
+        }
+        if self.date_range.is_some() && !fond.has_date_filter() {
+            return Err(DomainError::DateFilterNotApplicable { fond });
+        }
+        if !within_reach(u64::from(self.page.get()), u64::from(self.page_size.get())) {
+            return Err(DomainError::PageBeyondReach {
+                page: self.page.get(),
+                page_size: self.page_size.get(),
+                max: REACHABLE_RESULTS,
+            });
+        }
+        Ok(self)
+    }
+}
+
+/// Vrai s'il existe une page suivante atteignable après `page`, sur `total` résultats.
+///
+/// La page suivante doit contenir au moins un résultat (`page * page_size < total`) et rester
+/// dans la fenêtre de [`REACHABLE_RESULTS`] résultats `[V-83 · pagination-profonde]`.
+///
+/// ```
+/// use std::num::NonZeroU32;
+/// use lf_domain::search::{PageSize, has_more};
+///
+/// let page = |n| NonZeroU32::new(n).unwrap();
+/// assert!(has_more(page(1), PageSize::DEFAULT, 11));
+/// assert!(!has_more(page(333), PageSize::new(30).unwrap(), 50_000));
+/// ```
+pub fn has_more(page: NonZeroU32, page_size: PageSize, total: u64) -> bool {
+    let (page, size) = (u64::from(page.get()), u64::from(page_size.get()));
+    page * size < total && within_reach(page + 1, size)
+}
+
+/// Fenêtre unique partagée par le rejet d'une page et par [`has_more`].
+fn within_reach(page: u64, page_size: u64) -> bool {
+    page * page_size <= REACHABLE_RESULTS
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::DomainError;
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
+    use std::collections::HashSet;
 
     fn text(s: &str) -> QueryText {
         QueryText::parse(s).unwrap()
+    }
+
+    fn page(n: u32) -> NonZeroU32 {
+        NonZeroU32::new(n).unwrap()
+    }
+
+    fn size(n: u32) -> PageSize {
+        PageSize::new(n).unwrap()
+    }
+
+    fn date(s: &str) -> VersionDate {
+        VersionDate::parse(s).unwrap()
+    }
+
+    fn range() -> Option<DateRange> {
+        DateRange::new(Some(date("2020-01-01")), None).unwrap()
+    }
+
+    fn query(
+        fond: Fond,
+        page_n: u32,
+        size_n: u32,
+        date_range: Option<DateRange>,
+        version_date: Option<VersionDate>,
+    ) -> Result<SearchQuery, DomainError> {
+        SearchQuery::new(
+            fond,
+            text("bail"),
+            page(page_n),
+            size(size_n),
+            MatchMode::default(),
+            date_range,
+            version_date,
+        )
     }
 
     #[test]
@@ -189,7 +355,106 @@ mod tests {
         assert_eq!(MatchMode::default(), MatchMode::Any);
     }
 
+    #[test]
+    fn version_date_outside_loda_code_is_rejected() {
+        let v = Some(date("2024-01-01"));
+        for fond in Fond::ALL {
+            let got = query(fond, 1, 10, None, v);
+            if fond.needs_version_date() {
+                assert_eq!(got.map(|q| q.version_date()), Ok(v), "{fond}");
+            } else {
+                assert_eq!(got, Err(DomainError::VersionDateNotApplicable { fond }), "{fond}");
+            }
+        }
+    }
+
+    #[test]
+    fn date_range_on_code_is_rejected() {
+        for fond in Fond::ALL {
+            let got = query(fond, 1, 10, range(), None);
+            if fond == Fond::Code {
+                assert_eq!(got, Err(DomainError::DateFilterNotApplicable { fond }));
+            } else {
+                assert_eq!(got.map(|q| q.date_range()), Ok(range()), "{fond}");
+            }
+        }
+    }
+
+    #[test]
+    fn version_date_is_checked_before_date_range() {
+        assert_eq!(
+            query(Fond::Juri, 1, 10, range(), Some(date("2024-01-01"))),
+            Err(DomainError::VersionDateNotApplicable { fond: Fond::Juri })
+        );
+    }
+
+    #[test]
+    fn page_beyond_reachable_window_is_rejected() {
+        assert_eq!(query(Fond::Juri, 100, 100, None, None).map(|q| q.page()), Ok(page(100)));
+        assert_eq!(
+            query(Fond::Juri, 101, 100, None, None),
+            Err(DomainError::PageBeyondReach { page: 101, page_size: 100, max: 10_000 })
+        );
+        assert_eq!(
+            query(Fond::Juri, u32::MAX, 100, None, None),
+            Err(DomainError::PageBeyondReach { page: u32::MAX, page_size: 100, max: 10_000 })
+        );
+    }
+
+    #[test]
+    fn accessors_return_the_validated_fields() {
+        let q = SearchQuery::new(
+            Fond::Loda,
+            text(" bail "),
+            page(3),
+            size(25),
+            MatchMode::Exact,
+            range(),
+            Some(date("2024-01-01")),
+        )
+        .unwrap();
+        assert_eq!(
+            (q.fond(), q.text().as_str(), q.page(), q.page_size(), q.mode()),
+            (Fond::Loda, "bail", page(3), size(25), MatchMode::Exact)
+        );
+        assert_eq!((q.date_range(), q.version_date()), (range(), Some(date("2024-01-01"))));
+    }
+
+    #[test]
+    fn normalized_queries_share_a_cache_key() {
+        let a = query(Fond::Juri, 1, 10, None, None).unwrap();
+        let b = SearchQuery::new(
+            Fond::Juri,
+            text("  bail\t"),
+            page(1),
+            PageSize::default(),
+            MatchMode::Any,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(HashSet::from([a.clone(), b]).len(), 1);
+        assert_ne!(a, query(Fond::Juri, 2, 10, None, None).unwrap());
+    }
+
+    #[test]
+    fn has_more_false_at_reachable_window_end() {
+        assert!(has_more(page(1), size(10), 11));
+        assert!(!has_more(page(1), size(10), 10));
+        assert!(has_more(page(99), size(100), 20_000));
+        assert!(!has_more(page(100), size(100), 20_000));
+        assert!(has_more(page(332), size(30), 50_000));
+        assert!(!has_more(page(333), size(30), 50_000));
+        assert!(!has_more(page(u32::MAX), size(100), u64::MAX));
+    }
+
     proptest! {
+        #[test]
+        fn accepted_pages_stay_within_reach(p in 1u32..=10_000, n in 1u32..=100) {
+            let reachable = u64::from(p) * u64::from(n) <= REACHABLE_RESULTS;
+            prop_assert_eq!(query(Fond::Juri, p, n, None, None).is_ok(), reachable);
+        }
+
         #[test]
         fn parse_never_panics_and_output_is_normal(s in "\\PC*|[\\x00-\\x20a ]*") {
             if let Ok(q) = QueryText::parse(&s) {
