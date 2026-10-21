@@ -4,6 +4,10 @@
 //! tests du jeton, du backoff, de `Retry-After`, du débit et du délai restant, sans geler
 //! l'horloge `tokio` (l'avance automatique d'une horloge gelée peut déclencher à tort les
 //! délais de `reqwest`).
+//!
+//! Visibilité : `MonoClock`, `Sleeper`, `TokioClock` et `TokioSleeper` sont `pub` dans ce module
+//! privé parce que la signature publique de `PisteCorpus<K, S>` les nomme ; innommables hors du
+//! crate, donc scellés. Leurs constructeurs et les doublures de test restent `pub(crate)`.
 
 use std::future::{Future, poll_fn};
 use std::pin::{Pin, pin};
@@ -14,20 +18,20 @@ use std::time::Duration;
 ///
 /// Deux horloges ne se comparent pas entre elles. C'est l'« instant » que consomme le
 /// limiteur de débit.
-pub(crate) trait MonoClock: Send + Sync + 'static {
+pub trait MonoClock: Send + Sync + 'static {
     /// Temps monotone écoulé depuis l'origine de cette horloge.
     fn now(&self) -> Duration;
 }
 
 /// Attente asynchrone : seule porte d'entrée des attentes de l'adapter.
-pub(crate) trait Sleeper: Send + Sync + 'static {
+pub trait Sleeper: Send + Sync + 'static {
     /// Attend `duration`, sans effet tant que le futur n'est pas attendu.
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send;
 }
 
 /// Horloge de production, fondée sur `tokio::time::Instant`.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct TokioClock {
+pub struct TokioClock {
     origin: tokio::time::Instant,
 }
 
@@ -46,7 +50,7 @@ impl MonoClock for TokioClock {
 
 /// Attente de production, fondée sur `tokio::time::sleep`.
 #[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct TokioSleeper;
+pub struct TokioSleeper;
 
 impl Sleeper for TokioSleeper {
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send {

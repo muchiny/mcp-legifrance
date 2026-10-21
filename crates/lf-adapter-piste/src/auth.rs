@@ -145,12 +145,27 @@ impl<K: MonoClock, S: Sleeper> TokenManager<K, S> {
     }
 
     /// Oublie le jeton de la génération `generation`, et seulement lui : un jeton plus récent
-    /// obtenu entre-temps par un autre appelant est gardé. Le verrou est attendu sans borne.
-    pub(crate) async fn invalidate(&self, generation: u64) {
-        let mut state = self.state.lock().await;
+    /// obtenu entre-temps par un autre appelant est gardé.
+    ///
+    /// Le verrou est attendu comme dans [`Self::token`], au plus jusqu'à l'échéance de l'appelant
+    /// (04 §5.3) : sans cette borne, l'attente serait la durée de tous les renouvellements en
+    /// file, chacun borné par l'échéance de son seul appelant. Rien n'est modifié si l'attente
+    /// est écourtée.
+    ///
+    /// # Errors
+    ///
+    /// [`CorpusError::Timeout`] si le verrou n'est pas pris avant `deadline` ; le jeton refusé
+    /// reste alors en mémoire.
+    pub(crate) async fn invalidate(
+        &self,
+        generation: u64,
+        deadline: &CallDeadline,
+    ) -> Result<(), CorpusError> {
+        let mut state = self.lock(deadline).await?;
         if state.cached.as_ref().is_some_and(|cached| cached.generation == generation) {
             state.cached = None;
         }
+        Ok(())
     }
 
     /// Prend le verrou, au plus jusqu'à l'échéance. Le verrou est interrogé en premier : un
@@ -730,7 +745,7 @@ mod tests {
         reply(&server, ok("new", &json!(3600)), 1).await;
         let fixture = Fixture::on(&server);
         let old = fixture.lease_at(Duration::ZERO).await;
-        fixture.manager.invalidate(1).await;
+        fixture.manager.invalidate(1, &fixture.deadline()).await.unwrap();
         let new = fixture.lease_at(Duration::ZERO).await;
         assert_eq!(
             (old, new, requests(&server).await),
@@ -745,10 +760,10 @@ mod tests {
         reply(&server, ok("new", &json!(3600)), 1).await;
         let fixture = Fixture::on(&server);
         fixture.lease_at(Duration::ZERO).await;
-        fixture.manager.invalidate(1).await;
+        fixture.manager.invalidate(1, &fixture.deadline()).await.unwrap();
         let new = fixture.lease_at(Duration::ZERO).await;
-        fixture.manager.invalidate(1).await;
-        fixture.manager.invalidate(new.1 + 1).await;
+        fixture.manager.invalidate(1, &fixture.deadline()).await.unwrap();
+        fixture.manager.invalidate(new.1 + 1, &fixture.deadline()).await.unwrap();
         let kept = fixture.lease_at(Duration::ZERO).await;
         assert_eq!(
             (new, kept, requests(&server).await),
@@ -761,8 +776,8 @@ mod tests {
         let server = MockServer::start().await;
         reply(&server, ok("tok", &json!(3600)), 1).await;
         let fixture = Fixture::on(&server);
-        fixture.manager.invalidate(0).await;
-        fixture.manager.invalidate(1).await;
+        fixture.manager.invalidate(0, &fixture.deadline()).await.unwrap();
+        fixture.manager.invalidate(1, &fixture.deadline()).await.unwrap();
         let issued_before = fixture.manager.state.try_lock().unwrap().issued;
         let lease = fixture.lease_at(Duration::ZERO).await;
         assert_eq!((issued_before, lease), (0, ("tok".to_owned(), 1)));
@@ -803,6 +818,25 @@ mod tests {
         let error = fixture.token().await.unwrap_err();
         drop(guard);
         assert_eq!((error, fixture.sleeper.waits()), (CorpusError::Timeout, vec![secs(60)]));
+    }
+
+    #[tokio::test]
+    async fn invalidate_wait_is_bounded_by_the_deadline() {
+        let server = MockServer::start().await;
+        reply(&server, ok("tok", &json!(3600)), 1).await;
+        let fixture = Fixture::on(&server);
+        let first = fixture.lease_at(Duration::ZERO).await;
+        let guard = fixture.manager.state.lock().await;
+        let short = CallDeadline::start(&fixture.clock, ms(200));
+        let outcome = fixture.manager.invalidate(first.1, &short).await;
+        drop(guard);
+        let waits = fixture.sleeper.waits();
+        // l'état est intact : le jeton refusé est resté en mémoire, sans nouvelle requête
+        let kept = fixture.lease_at(Duration::ZERO).await;
+        assert_eq!(
+            (outcome, waits, kept, requests(&server).await),
+            (Err(CorpusError::Timeout), vec![ms(200)], ("tok".to_owned(), 1), 1)
+        );
     }
 
     #[tokio::test]

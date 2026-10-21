@@ -178,6 +178,12 @@ impl SharedClient {
         Self { cell: OnceCell::new() }
     }
 
+    /// Vrai une fois le client construit (les tests de `PisteCorpus` : `new` ne construit rien).
+    #[cfg(test)]
+    pub(crate) fn is_built(&self) -> bool {
+        self.cell.initialized()
+    }
+
     /// Rend le client, en le construisant avec `build` si besoin. Un échec n'est pas
     /// mémorisé : l'appel suivant reconstruit.
     ///

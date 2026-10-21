@@ -4,12 +4,13 @@
 //! HTTP à l'API Légifrance via PISTE (OAuth 2.0 `client_credentials`), avec limiteur de
 //! débit et réessais, et traduit les réponses en types du domaine.
 //!
-//! Livré au plan 2c : le squelette, les traits de temps, la configuration,
-//! l'authentification, le client HTTP et la résilience. Renvoyé au plan 2d : les requêtes
-//! `/search`, les DTO métier, le mapping et `impl LegalCorpus for PisteCorpus`.
+//! Livré au plan 2c : le squelette, les traits de temps, la configuration, l'authentification,
+//! le client HTTP, la résilience et `PisteCorpus` (assemblage, mode dégradé, appel de l'API de
+//! bout en bout). Renvoyé aux plans suivants : les requêtes `/search`, les DTO métier, le mapping
+//! et `impl LegalCorpus for PisteCorpus`.
 //!
-//! Les modules sont privés ; seuls la configuration et `StatsSnapshot` sont exportés tant
-//! que `PisteCorpus` n'existe pas.
+//! Les modules sont privés : sont publics `PisteCorpus`, les types de configuration et
+//! `StatsSnapshot`.
 //!
 //! Modules :
 //! - `auth` : jeton d'accès OAuth 2.0 `client_credentials` (`TokenManager`) : un seul jeton en
@@ -17,6 +18,8 @@
 //! - `classify` : classification d'une tentative d'envoi (`Outcome`, `Budget`) d'après le statut
 //!   HTTP et `Retry-After`, sans jamais lire le corps.
 //! - `config` : configuration de l'adapter (`PisteConfig`) et validation des URL surchargées.
+//! - `corpus` : `PisteCorpus`, l'assemblage de l'adapter : mode dégradé sans E/S, puis pour chaque
+//!   tentative limiteur, jeton, envoi borné, classification et réessai, enfin décodage du corps.
 //! - `deadline` : échéance d'un appel (`CallDeadline`), durée restante lue dans `Deadline`
 //!   puis posée sur l'horloge monotone de l'adapter.
 //! - `dto` : structures de désérialisation des réponses de PISTE (réponse et erreur de l'endpoint
@@ -34,12 +37,16 @@
 
 #![cfg_attr(
     not(test),
-    expect(dead_code, reason = "modules internes consommés par PisteCorpus au plan 2d")
+    expect(
+        dead_code,
+        reason = "PisteCorpus::post_json et ce que lui seul emploie : consommés par impl LegalCorpus au plan 2d"
+    )
 )]
 
 mod auth;
 mod classify;
 mod config;
+mod corpus;
 mod deadline;
 mod dto;
 mod encoding;
@@ -52,4 +59,5 @@ mod time;
 pub use config::{
     ConfigProblem, ConfigWarning, PisteConfig, PisteCredentials, PisteEndpoints, RateQuota,
 };
+pub use corpus::PisteCorpus;
 pub use stats::StatsSnapshot;

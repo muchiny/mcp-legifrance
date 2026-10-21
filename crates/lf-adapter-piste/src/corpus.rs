@@ -1,0 +1,1262 @@
+//! `PisteCorpus` : assemblage de l'adapter et appel de l'API Légifrance de bout en bout
+//! (04 §1.3, §2.4, §3.4, §5, T-M2-02 à T-M2-04).
+//!
+//! Un appel suit toujours le même chemin : vérification de la configuration (mode dégradé,
+//! sans la moindre E/S), puis, à chaque tentative, client HTTP, barrière de charge, jeton,
+//! envoi borné et classification ; la boucle de réessai rejoue la tentative, et seul le corps
+//! d'une réponse 2xx est décodé. Rien n'est lu dans l'environnement et rien n'est ouvert à la
+//! construction : `PisteCorpus::new` ne décide de rien.
+//!
+//! Ni la tentative (`Attempt`), ni un corps de requête ou de réponse, ni le secret, ni le jeton
+//! ne sont jamais journalisés ni recopiés dans une erreur.
+
+use std::fmt;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+
+use lf_application::ports::CorpusError;
+use lf_domain::coverage::PisteEnvironment;
+use reqwest::Url;
+
+use crate::auth::TokenManager;
+use crate::classify::{Outcome, try_send};
+use crate::config::{ConfigProblem, PisteConfig, PisteEndpoints};
+use crate::deadline::CallDeadline;
+use crate::encoding::decode_body;
+use crate::http::{Attempt, Payload, RawResponse, SharedClient};
+use crate::limit::RateGate;
+use crate::retry::{RetryContext, SystemJitter, run};
+use crate::stats::{Stats, StatsSnapshot};
+use crate::time::{MonoClock, Sleeper, TokioClock, TokioSleeper};
+
+/// Message de parité avec la référence quand les identifiants manquent (04 §2.4).
+const CREDENTIALS_MISSING: &str = "PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET (from your piste.gouv.fr application, section OAuth Credentials)";
+
+/// Adapter PISTE : client de l'API Légifrance.
+pub struct PisteCorpus<K: MonoClock + Clone = TokioClock, S: Sleeper + Clone = TokioSleeper> {
+    inner: Arc<Inner<K, S>>,
+}
+
+struct Inner<K: MonoClock + Clone, S: Sleeper> {
+    config: Arc<PisteConfig>,
+    client: Arc<SharedClient>,
+    tokens: TokenManager<K, S>,
+    gate: RateGate<K, S>,
+    stats: Stats,
+    clock: K,
+    sleeper: S,
+}
+
+/// Ce qui ne change pas d'une tentative à l'autre d'un même appel.
+struct Call<'a> {
+    url: Url,
+    endpoint: &'a str,
+    body: &'a [u8],
+    deadline: CallDeadline,
+    refreshed: AtomicBool,
+}
+
+impl<K: MonoClock + Clone, S: Sleeper + Clone> Clone for PisteCorpus<K, S> {
+    fn clone(&self) -> Self {
+        Self { inner: Arc::clone(&self.inner) }
+    }
+}
+
+impl<K: MonoClock + Clone, S: Sleeper + Clone> fmt::Debug for PisteCorpus<K, S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PisteCorpus").field("env", &self.environment()).finish_non_exhaustive()
+    }
+}
+
+impl PisteCorpus {
+    /// Assemble l'adapter avec l'horloge et l'attente de production ; aucune E/S.
+    #[must_use]
+    pub fn new(config: PisteConfig) -> Self {
+        Self::with_parts(config, TokioClock::new(), TokioSleeper)
+    }
+}
+
+impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
+    /// Assemble l'adapter avec une horloge et une attente données (tests).
+    pub(crate) fn with_parts(config: PisteConfig, clock: K, sleeper: S) -> Self {
+        let config = Arc::new(config);
+        let client = Arc::new(SharedClient::new());
+        let tokens = TokenManager::new(
+            Arc::clone(&client),
+            Arc::clone(&config),
+            clock.clone(),
+            sleeper.clone(),
+        );
+        let gate =
+            RateGate::new(clock.clone(), sleeper.clone(), config.rate, config.max_concurrency);
+        Self {
+            inner: Arc::new(Inner {
+                config,
+                client,
+                tokens,
+                gate,
+                stats: Stats::default(),
+                clock,
+                sleeper,
+            }),
+        }
+    }
+
+    /// Environnement PISTE configuré.
+    #[must_use]
+    pub fn environment(&self) -> PisteEnvironment {
+        self.inner.config.env
+    }
+
+    /// Problème d'adresses qui met l'adapter en mode dégradé, s'il y en a un.
+    #[must_use]
+    pub fn config_problem(&self) -> Option<&ConfigProblem> {
+        self.inner.config.endpoints.as_ref().err()
+    }
+
+    /// Vrai si des identifiants OAuth sont configurés.
+    #[must_use]
+    pub fn has_credentials(&self) -> bool {
+        self.inner.config.credentials.is_some()
+    }
+
+    /// Nombre de corps dont le mojibake a été réparé.
+    #[must_use]
+    pub fn mojibake_repairs(&self) -> u64 {
+        self.inner.stats.snapshot().mojibake_repairs
+    }
+
+    /// Instantané des compteurs.
+    #[must_use]
+    pub fn stats(&self) -> StatsSnapshot {
+        self.inner.stats.snapshot()
+    }
+
+    /// Vérifie les identifiants en obtenant un jeton, sans appeler l'API.
+    ///
+    /// Ni barrière de charge ni requête d'API : une seule requête de jeton, ou aucune si un jeton
+    /// valable est déjà en mémoire. Le délai est celui de l'appel en cours (ou `tool_deadline`).
+    ///
+    /// # Errors
+    ///
+    /// [`CorpusError::Config`] en mode dégradé (adresses refusées ou identifiants absents, sans
+    /// aucune E/S) ; [`CorpusError::Auth`] si PISTE refuse les identifiants ; sinon l'erreur du
+    /// gestionnaire de jeton.
+    pub async fn check_credentials(&self) -> Result<(), CorpusError> {
+        let inner = &*self.inner;
+        ready(&inner.config)?;
+        let deadline = CallDeadline::from_task_local(&inner.clock, inner.config.tool_deadline);
+        inner.tokens.token(&deadline).await.map(|_lease| ())
+    }
+
+    /// Envoie `body` en POST sur `endpoint` (gabarit de chemin, `/consult/juri`) et rend le
+    /// texte de la réponse 2xx, décodé en UTF-8 et réparé du mojibake si la configuration le
+    /// demande. Consommé par `impl LegalCorpus` au plan 2d.
+    ///
+    /// # Errors
+    ///
+    /// [`CorpusError::Config`] en mode dégradé, sans E/S ; [`CorpusError::InvalidRequest`] si
+    /// `endpoint` ne commence pas par `/` ; sinon l'erreur classée de la dernière tentative
+    /// (`Timeout`, `RateLimited`, `Auth`, `Upstream`, `Decode`).
+    pub(crate) async fn post_json(
+        &self,
+        endpoint: &str,
+        body: &[u8],
+    ) -> Result<String, CorpusError> {
+        let inner = &*self.inner;
+        let endpoints = ready(&inner.config)?;
+        let call = Call {
+            url: api_url(&endpoints.base_url, endpoint)?,
+            endpoint,
+            body,
+            deadline: CallDeadline::from_task_local(&inner.clock, inner.config.tool_deadline),
+            refreshed: AtomicBool::new(false),
+        };
+        let ctx = RetryContext {
+            clock: &inner.clock,
+            sleeper: &inner.sleeper,
+            deadline: &call.deadline,
+            jitter: &SystemJitter,
+        };
+        // Seul le corps d'une 2xx est lu ici : un corps d'erreur n'est jamais décodé (T-M2-08).
+        let response = run(&ctx, || self.attempt(&call)).await?;
+        let decoded = decode_body(&response.body, endpoint, inner.config.repair_mojibake)?;
+        inner.stats.record_decode(endpoint, &decoded);
+        Ok(decoded.text)
+    }
+
+    /// Une tentative de `run` : un envoi, et, sur un premier 401, un second envoi immédiat avec
+    /// un jeton neuf (04 §3.4).
+    ///
+    /// Le renvoi sort du budget de `run` : ni attente, ni l'une des trois requêtes transitoires.
+    /// `refreshed` vit autant que l'appel, donc un 401 après un échec passager est bien le
+    /// second. Un `Unauthorized` qui reste devient l'erreur finale `Auth`.
+    async fn attempt(&self, call: &Call<'_>) -> Outcome<RawResponse> {
+        let mut sent = self.send(call).await;
+        if matches!(sent, Ok(Outcome::Unauthorized(_))) && !call.refreshed.swap(true, Relaxed) {
+            sent = self.send(call).await;
+        }
+        match sent {
+            Ok(Outcome::Unauthorized(_)) => {
+                Outcome::Fatal(auth_twice(call.endpoint, self.inner.config.env))
+            }
+            Ok(outcome) => outcome,
+            Err(error) => Outcome::Fatal(error),
+        }
+    }
+
+    /// Un envoi : client, barrière de charge, jeton, requête bornée, classification.
+    ///
+    /// Le client vient **avant** la barrière : un échec de construction est une erreur de
+    /// configuration, sans attendre le limiteur (après le jeton, il serait inatteignable). Le
+    /// délai de la requête est recalculé ici, à chaque envoi, sur le reste de l'échéance. Une
+    /// erreur de barrière ou de jeton sort en `Err`, donc `Fatal` : déjà « au plus vite » ou déjà
+    /// réessayée en interne. Le permis de concurrence reste tenu jusqu'après la lecture du corps.
+    ///
+    /// Sur un 401 (le premier comme le second : un jeton refusé ne doit pas servir à l'appel
+    /// suivant), le jeton refusé est oublié par `invalidate`, dont l'attente du verrou est bornée
+    /// par l'échéance de l'appel comme celle de `token` (04 §5.3). Si elle est écourtée
+    /// (`Timeout`), `send` n'échoue pas pour autant et ignore ce résultat : l'échéance est alors
+    /// atteinte, et `gate.acquire` rendra `Timeout` en tête de la tentative suivante.
+    async fn send(&self, call: &Call<'_>) -> Result<Outcome<RawResponse>, CorpusError> {
+        let inner = &*self.inner;
+        let client = inner.client.get(&inner.config).await?;
+        let permit = inner.gate.acquire(&call.deadline).await?;
+        let lease = inner.tokens.token(&call.deadline).await?;
+        let attempt = Attempt {
+            url: &call.url,
+            endpoint: call.endpoint,
+            payload: Payload::Json(call.body),
+            bearer: Some(&lease.value),
+            timeout: call.deadline.cap(&inner.clock, inner.config.request_timeout),
+            max_body_bytes: inner.config.max_body_bytes,
+        };
+        let outcome = try_send(client, &attempt).await;
+        drop(permit);
+        if matches!(outcome, Outcome::Unauthorized(_)) {
+            let _ = inner.tokens.invalidate(lease.generation, &call.deadline).await;
+        }
+        Ok(outcome)
+    }
+}
+
+/// Adresses de l'adapter si l'appel peut partir : mode dégradé sinon (04 §2.4).
+///
+/// Problème d'adresses d'abord, identifiants absents ensuite ; aucune E/S.
+fn ready(config: &PisteConfig) -> Result<&PisteEndpoints, CorpusError> {
+    let endpoints = config
+        .endpoints
+        .as_ref()
+        .map_err(|problem| CorpusError::Config { detail: problem.to_string() })?;
+    if config.credentials.is_none() {
+        return Err(CorpusError::Config { detail: CREDENTIALS_MISSING.to_owned() });
+    }
+    Ok(endpoints)
+}
+
+/// URL d'un endpoint : le gabarit se **concatène** au chemin de la base (`Url::join`
+/// remplacerait son dernier segment). Le `/` final de la base, présent pour la racine, est
+/// retiré pour ne jamais produire `//`.
+fn api_url(base: &Url, endpoint: &str) -> Result<Url, CorpusError> {
+    if !endpoint.starts_with('/') {
+        return Err(CorpusError::InvalidRequest {
+            status: None,
+            detail: "endpoint template must start with a slash".to_owned(),
+        });
+    }
+    let mut url = base.clone();
+    url.set_path(&format!("{}{endpoint}", base.path().trim_end_matches('/')));
+    Ok(url)
+}
+
+/// Erreur finale d'un 401 qui se répète après le renouvellement du jeton.
+fn auth_twice(endpoint: &str, env: PisteEnvironment) -> CorpusError {
+    CorpusError::Auth { detail: format!("API returned 401 twice on {endpoint} ({env})") }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::num::NonZeroU32;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    use lf_application::deadline::Deadline;
+    use secrecy::SecretString;
+    use tokio::task::JoinSet;
+    use tracing_subscriber::fmt::MakeWriter;
+    use wiremock::matchers::{body_bytes, header, method, path};
+    use wiremock::{Mock, MockServer, Request, ResponseTemplate};
+
+    use super::*;
+    use crate::config::{PisteCredentials, RateQuota};
+    use crate::time::{ManualClock, RecordingSleeper};
+
+    const SECRET: &str = "my-client-secret";
+    const ENDPOINT: &str = "/consult/juri";
+    const API_BASE: &str = "/dila/legifrance/lf-engine-app";
+    const API_PATH: &str = "/dila/legifrance/lf-engine-app/consult/juri";
+    const TOKEN_PATH: &str = "/oauth/token";
+    const BODY: &[u8] = br#"{"textId":"JURITEXT000000000001"}"#;
+    const MISSING: &str = "PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET (from your piste.gouv.fr application, section OAuth Credentials)";
+    const SANDBOX: PisteEnvironment = PisteEnvironment::Sandbox;
+
+    type TestCorpus = PisteCorpus<ManualClock, RecordingSleeper>;
+
+    const fn secs(n: u64) -> Duration {
+        Duration::from_secs(n)
+    }
+
+    const fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
+
+    fn rate(per_second: u32, burst: u32) -> RateQuota {
+        RateQuota {
+            per_second: NonZeroU32::new(per_second).unwrap(),
+            burst: NonZeroU32::new(burst).unwrap(),
+        }
+    }
+
+    fn credentials(secret: &str) -> PisteCredentials {
+        PisteCredentials {
+            client_id: "my-client-id".to_owned(),
+            client_secret: SecretString::from(secret.to_owned()),
+        }
+    }
+
+    fn config_for(uri: &str, credentials: Option<PisteCredentials>) -> PisteConfig {
+        let (endpoints, _) = PisteEndpoints::with_overrides(
+            SANDBOX,
+            Some(&format!("{uri}{TOKEN_PATH}")),
+            Some(&format!("{uri}{API_BASE}")),
+        )
+        .unwrap();
+        PisteConfig::new(SANDBOX, Ok(endpoints), credentials, "lf-test/0".to_owned())
+    }
+
+    fn json_reply(status: u16, body: &str) -> ResponseTemplate {
+        ResponseTemplate::new(status).set_body_raw(body, "application/json")
+    }
+
+    /// Corps JSON dont le texte est du mojibake synthétique (octets UTF-8 relus en latin-1).
+    fn mojibake_json(texte: &str) -> String {
+        let mojibake: String = texte.bytes().map(char::from).collect();
+        format!(r#"{{"texte":"{mojibake}"}}"#)
+    }
+
+    fn token_reply(token: &str) -> ResponseTemplate {
+        json_reply(
+            200,
+            &format!(r#"{{"access_token":"{token}","token_type":"Bearer","expires_in":3600}}"#),
+        )
+    }
+
+    /// Le jeton `token`, servi `times` fois exactement.
+    async fn token_mock(server: &MockServer, token: &str, times: u64) {
+        Mock::given(method("POST"))
+            .and(path(TOKEN_PATH))
+            .respond_with(token_reply(token))
+            .up_to_n_times(times)
+            .expect(times)
+            .mount(server)
+            .await;
+    }
+
+    /// Le point d'accès du jeton répond `template` à volonté.
+    async fn token_always(server: &MockServer, template: ResponseTemplate) {
+        Mock::given(method("POST"))
+            .and(path(TOKEN_PATH))
+            .respond_with(template)
+            .mount(server)
+            .await;
+    }
+
+    /// L'API répond `template` `times` fois exactement, dans l'ordre de montage.
+    async fn api_mock(server: &MockServer, template: ResponseTemplate, times: u64) {
+        Mock::given(method("POST"))
+            .and(path(API_PATH))
+            .respond_with(template)
+            .up_to_n_times(times)
+            .expect(times)
+            .mount(server)
+            .await;
+    }
+
+    /// L'API répond `template` une fois, à la seule requête qui porte le jeton `token`.
+    async fn api_mock_for(server: &MockServer, token: &str, template: ResponseTemplate) {
+        Mock::given(method("POST"))
+            .and(path(API_PATH))
+            .and(header("authorization", format!("Bearer {token}").as_str()))
+            .respond_with(template)
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(server)
+            .await;
+    }
+
+    async fn api_always(server: &MockServer, template: ResponseTemplate) {
+        Mock::given(method("POST")).and(path(API_PATH)).respond_with(template).mount(server).await;
+    }
+
+    /// `route` ne doit jamais être appelée (wiremock le vérifie à la chute du serveur).
+    async fn never(server: &MockServer, route: &str) {
+        Mock::given(method("POST"))
+            .and(path(route))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(server)
+            .await;
+    }
+
+    async fn requests_to(server: &MockServer, route: &str) -> usize {
+        let requests = server.received_requests().await.unwrap();
+        requests.iter().filter(|request| request.url.path() == route).count()
+    }
+
+    /// Serveur simulé, horloge et attente manuelles, adapter sous test.
+    struct Rig {
+        server: MockServer,
+        clock: ManualClock,
+        sleeper: RecordingSleeper,
+        corpus: TestCorpus,
+        config: PisteConfig,
+    }
+
+    impl Rig {
+        async fn new() -> Self {
+            Self::tuned(|_| {}).await
+        }
+
+        /// Configuration ordinaire, ajustée par `tune` avant la construction.
+        async fn tuned(tune: impl FnOnce(&mut PisteConfig)) -> Self {
+            let server = MockServer::start().await;
+            let mut config = config_for(&server.uri(), Some(credentials(SECRET)));
+            tune(&mut config);
+            let clock = ManualClock::new();
+            let sleeper = RecordingSleeper::new(clock.clone());
+            let corpus = TestCorpus::with_parts(config.clone(), clock.clone(), sleeper.clone());
+            Self { server, clock, sleeper, corpus, config }
+        }
+
+        async fn call(&self) -> Result<String, CorpusError> {
+            self.corpus.post_json(ENDPOINT, BODY).await
+        }
+
+        async fn tokens(&self) -> usize {
+            requests_to(&self.server, TOKEN_PATH).await
+        }
+
+        async fn apis(&self) -> usize {
+            requests_to(&self.server, API_PATH).await
+        }
+
+        async fn all_requests(&self) -> usize {
+            self.server.received_requests().await.unwrap().len()
+        }
+
+        /// Tout ce qu'un journal ou un message pourrait montrer de cette erreur.
+        fn describe(&self, error: &CorpusError) -> [String; 4] {
+            [
+                format!("{error}"),
+                format!("{error:?}"),
+                format!("{:?}", self.corpus),
+                format!("{:?}", self.config),
+            ]
+        }
+    }
+
+    /// Mode dégradé : ni attente, ni temps écoulé, ni requête, ni client construit.
+    async fn assert_untouched(rig: &Rig) {
+        assert_eq!(
+            (
+                rig.sleeper.waits(),
+                rig.clock.now(),
+                rig.all_requests().await,
+                rig.corpus.inner.client.is_built()
+            ),
+            (Vec::new(), Duration::ZERO, 0, false)
+        );
+    }
+
+    /// Journal `tracing` capté en mémoire.
+    #[derive(Clone, Default)]
+    struct Capture {
+        bytes: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Capture {
+        fn text(&self) -> String {
+            io::Write::flush(&mut self.clone()).unwrap();
+            String::from_utf8(self.bytes.lock().unwrap().clone()).unwrap()
+        }
+    }
+
+    impl io::Write for Capture {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.bytes.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl MakeWriter<'_> for Capture {
+        type Writer = Capture;
+
+        fn make_writer(&self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    /// Abonné local au thread courant (le runtime des tests est mono-fil).
+    fn capture_at(level: tracing::Level) -> (Capture, tracing::subscriber::DefaultGuard) {
+        let capture = Capture::default();
+        let subscriber =
+            tracing_subscriber::fmt().with_writer(capture.clone()).with_max_level(level).finish();
+        (capture, tracing::subscriber::set_default(subscriber))
+    }
+
+    // ---- 401 : un seul renouvellement par appel (04 §3.4) --------------------------------
+
+    #[tokio::test]
+    async fn api_401_refreshes_once_then_succeeds() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        token_mock(&rig.server, "tok-2", 1).await;
+        api_mock_for(&rig.server, "tok-1", ResponseTemplate::new(401)).await;
+        api_mock_for(&rig.server, "tok-2", json_reply(200, r#"{"ok":true}"#)).await;
+        assert_eq!(rig.call().await, Ok(r#"{"ok":true}"#.to_owned()));
+        assert_eq!((rig.tokens().await, rig.apis().await), (2, 2));
+        assert_eq!(rig.sleeper.waits(), Vec::<Duration>::new());
+    }
+
+    #[tokio::test]
+    async fn api_401_twice_maps_to_auth() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        token_mock(&rig.server, "tok-2", 1).await;
+        api_mock(&rig.server, ResponseTemplate::new(401), 2).await;
+        assert_eq!(
+            rig.call().await,
+            Err(CorpusError::Auth {
+                detail: "API returned 401 twice on /consult/juri (sandbox)".to_owned()
+            })
+        );
+        assert_eq!((rig.tokens().await, rig.apis().await), (2, 2));
+        assert_eq!(rig.sleeper.waits(), Vec::<Duration>::new());
+    }
+
+    #[tokio::test]
+    async fn a_second_401_after_a_transient_failure_is_still_the_second() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        token_mock(&rig.server, "tok-2", 1).await;
+        api_mock(&rig.server, ResponseTemplate::new(401), 1).await;
+        api_mock(&rig.server, ResponseTemplate::new(503), 1).await;
+        api_mock(&rig.server, ResponseTemplate::new(401), 1).await;
+        assert_eq!(
+            rig.call().await,
+            Err(CorpusError::Auth {
+                detail: "API returned 401 twice on /consult/juri (sandbox)".to_owned()
+            })
+        );
+        assert_eq!((rig.tokens().await, rig.apis().await), (2, 3));
+    }
+
+    #[tokio::test]
+    async fn the_401_budget_is_per_call() {
+        let rig = Rig::new().await;
+        for token in ["tok-1", "tok-2", "tok-3"] {
+            token_mock(&rig.server, token, 1).await;
+        }
+        for status in [401, 200, 401, 200] {
+            api_mock(&rig.server, json_reply(status, "{}"), 1).await;
+        }
+        assert_eq!(rig.call().await, Ok("{}".to_owned()));
+        assert_eq!(rig.call().await, Ok("{}".to_owned()));
+        assert_eq!((rig.tokens().await, rig.apis().await), (3, 4));
+    }
+
+    #[tokio::test]
+    async fn status_401_then_503_then_200_requests_exactly_two_tokens() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        token_mock(&rig.server, "tok-2", 1).await;
+        api_mock(&rig.server, ResponseTemplate::new(401), 1).await;
+        api_mock(&rig.server, ResponseTemplate::new(503), 1).await;
+        api_mock(&rig.server, json_reply(200, "{}"), 1).await;
+        assert_eq!(rig.call().await, Ok("{}".to_owned()));
+        assert_eq!((rig.tokens().await, rig.apis().await), (2, 3));
+        let waits = rig.sleeper.waits();
+        assert_eq!(waits.len(), 1);
+        assert!((ms(500)..secs(1)).contains(&waits[0]), "{waits:?}");
+    }
+
+    // ---- Concurrence et débit ------------------------------------------------------------
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_calls_share_one_token_refresh() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(TOKEN_PATH))
+            .respond_with(token_reply("shared").set_delay(ms(100)))
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&server)
+            .await;
+        api_always(&server, json_reply(200, "{}")).await;
+        let corpus = PisteCorpus::new(config_for(&server.uri(), Some(credentials(SECRET))));
+        let mut tasks = JoinSet::new();
+        for _ in 0..10 {
+            let corpus = corpus.clone();
+            tasks.spawn(async move { corpus.post_json(ENDPOINT, BODY).await });
+        }
+        let results = tasks.join_all().await;
+        assert_eq!(results, vec![Ok("{}".to_owned()); 10]);
+        assert_eq!(
+            (requests_to(&server, TOKEN_PATH).await, requests_to(&server, API_PATH).await),
+            (1, 10)
+        );
+    }
+
+    /// Plus grand nombre d'arrivées dans une fenêtre de `window` qui s'ouvre sur l'une d'elles.
+    fn peak_in_flight(arrivals: &[Instant], window: Duration) -> usize {
+        arrivals
+            .iter()
+            .map(|first| {
+                arrivals
+                    .iter()
+                    .filter(|at| at.checked_duration_since(*first).is_some_and(|gap| gap < window))
+                    .count()
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrency_cap_is_respected() {
+        let server = MockServer::start().await;
+        token_mock(&server, "tok-1", 1).await;
+        // Un `Respond` rend la main avant le délai de la réponse : on ne peut pas y compter les
+        // requêtes « en vol », seulement noter les arrivées.
+        let arrivals = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&arrivals);
+        Mock::given(method("POST"))
+            .and(path(API_PATH))
+            .respond_with(move |_: &Request| {
+                seen.lock().unwrap().push(Instant::now());
+                json_reply(200, "{}").set_delay(ms(200))
+            })
+            .mount(&server)
+            .await;
+        let mut config = config_for(&server.uri(), Some(credentials(SECRET)));
+        config.rate = rate(1_000, 1_000);
+        let corpus = PisteCorpus::new(config);
+        let mut tasks = JoinSet::new();
+        for _ in 0..10 {
+            let corpus = corpus.clone();
+            tasks.spawn(async move { corpus.post_json(ENDPOINT, BODY).await });
+        }
+        assert_eq!(tasks.join_all().await, vec![Ok("{}".to_owned()); 10]);
+        let arrivals = arrivals.lock().unwrap().clone();
+        assert_eq!(arrivals.len(), 10);
+        // Par vagues de 4 espacées de 200 ms : aucune fenêtre de 100 ms n'en contient plus (sans
+        // plafond, les dix arrivent ensemble).
+        let peak = peak_in_flight(&arrivals, ms(100));
+        assert!((2..=4).contains(&peak), "{peak}");
+    }
+
+    #[tokio::test]
+    async fn rate_limiter_spaces_api_calls() {
+        let rig = Rig::tuned(|config| config.rate = rate(2, 1)).await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_always(&rig.server, json_reply(200, "{}")).await;
+        for _ in 0..5 {
+            assert_eq!(rig.call().await, Ok("{}".to_owned()));
+        }
+        assert_eq!(rig.sleeper.waits(), vec![ms(500); 4]);
+        assert_eq!(rig.clock.now(), ms(2_000));
+    }
+
+    #[tokio::test]
+    async fn every_attempt_goes_through_the_rate_limiter() {
+        let rig = Rig::tuned(|config| config.rate = rate(1, 1)).await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_mock(&rig.server, ResponseTemplate::new(503), 1).await;
+        api_mock(&rig.server, json_reply(200, "{}"), 1).await;
+        assert_eq!(rig.call().await, Ok("{}".to_owned()));
+        let waits = rig.sleeper.waits();
+        assert_eq!(waits.len(), 2);
+        assert!((ms(500)..secs(1)).contains(&waits[0]), "{waits:?}");
+        assert_eq!(waits[0] + waits[1], secs(1));
+    }
+
+    #[tokio::test]
+    async fn rate_limit_wait_beyond_deadline_fails_fast() {
+        let rig = Rig::tuned(|config| {
+            config.rate = rate(1, 1);
+            config.tool_deadline = ms(500);
+        })
+        .await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_always(&rig.server, json_reply(200, "{}")).await;
+        assert_eq!(rig.call().await, Ok("{}".to_owned()));
+        assert_eq!(rig.call().await, Err(CorpusError::RateLimited { retry_after: Some(secs(1)) }));
+        assert_eq!(rig.sleeper.waits(), Vec::<Duration>::new());
+        assert_eq!(rig.apis().await, 1);
+    }
+
+    // ---- Mode dégradé (04 §2.4) ----------------------------------------------------------
+
+    #[tokio::test]
+    async fn missing_credentials_makes_no_network_call() {
+        let rig = Rig::tuned(|config| config.credentials = None).await;
+        never(&rig.server, TOKEN_PATH).await;
+        never(&rig.server, API_PATH).await;
+        assert_eq!(rig.call().await, Err(CorpusError::Config { detail: MISSING.to_owned() }));
+        assert_untouched(&rig).await;
+        assert!(!rig.corpus.has_credentials());
+        assert_eq!(rig.corpus.config_problem(), None);
+    }
+
+    #[tokio::test]
+    async fn config_problem_starts_in_degraded_mode() {
+        let problem = ConfigProblem::EnvMismatch {
+            setting: "base URL",
+            host: "api.piste.gouv.fr".to_owned(),
+            env: PisteEnvironment::Sandbox,
+            host_env: PisteEnvironment::Production,
+        };
+        let rig = Rig::tuned(|config| config.endpoints = Err(problem.clone())).await;
+        never(&rig.server, TOKEN_PATH).await;
+        never(&rig.server, API_PATH).await;
+        assert_eq!(rig.call().await, Err(CorpusError::Config { detail: problem.to_string() }));
+        assert_untouched(&rig).await;
+        assert_eq!(rig.corpus.config_problem(), Some(&problem));
+        assert!(rig.corpus.has_credentials());
+    }
+
+    #[tokio::test]
+    async fn a_healthy_configuration_reports_no_problem() {
+        let rig = Rig::new().await;
+        assert_eq!(
+            (rig.corpus.config_problem(), rig.corpus.has_credentials(), rig.corpus.environment()),
+            (None, true, SANDBOX)
+        );
+    }
+
+    #[tokio::test]
+    async fn debug_of_corpus_shows_the_environment_only() {
+        let rig = Rig::new().await;
+        assert_eq!(format!("{:?}", rig.corpus), "PisteCorpus { env: Sandbox, .. }");
+    }
+
+    #[tokio::test]
+    async fn endpoint_template_must_start_with_a_slash() {
+        let rig = Rig::new().await;
+        assert_eq!(
+            rig.corpus.post_json("consult/juri", BODY).await,
+            Err(CorpusError::InvalidRequest {
+                status: None,
+                detail: "endpoint template must start with a slash".to_owned()
+            })
+        );
+        assert_untouched(&rig).await;
+    }
+
+    #[tokio::test]
+    async fn an_unbuildable_client_is_a_config_error_without_io() {
+        let rig = Rig::tuned(|config| config.user_agent = "bad\nagent".to_owned()).await;
+        assert_eq!(
+            rig.call().await,
+            Err(CorpusError::Config {
+                detail:
+                    "could not build the HTTP client: builder error: failed to parse header value"
+                        .to_owned()
+            })
+        );
+        assert_untouched(&rig).await;
+    }
+
+    // ---- check_credentials ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn check_credentials_makes_exactly_one_token_request() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        never(&rig.server, API_PATH).await;
+        assert_eq!(rig.corpus.check_credentials().await, Ok(()));
+        assert_eq!((rig.tokens().await, rig.apis().await), (1, 0));
+        assert_eq!(rig.corpus.check_credentials().await, Ok(()));
+        assert_eq!((rig.tokens().await, rig.apis().await), (1, 0));
+    }
+
+    fn rejected() -> CorpusError {
+        CorpusError::Auth {
+            detail:
+                "OAuth token request rejected: HTTP 401, error invalid_client, environment sandbox"
+                    .to_owned(),
+        }
+    }
+
+    #[tokio::test]
+    async fn check_credentials_reports_rejected_credentials() {
+        let rig = Rig::new().await;
+        token_always(&rig.server, json_reply(401, r#"{"error":"invalid_client"}"#)).await;
+        assert_eq!(rig.corpus.check_credentials().await, Err(rejected()));
+        assert_eq!(rig.tokens().await, 1);
+    }
+
+    #[tokio::test]
+    async fn check_credentials_in_degraded_mode_is_config() {
+        let problem = ConfigProblem::InsecureScheme { setting: "OAuth URL" };
+        let rig = Rig::tuned(|config| config.credentials = None).await;
+        never(&rig.server, TOKEN_PATH).await;
+        assert_eq!(
+            rig.corpus.check_credentials().await,
+            Err(CorpusError::Config { detail: MISSING.to_owned() })
+        );
+        assert_untouched(&rig).await;
+        let rig = Rig::tuned(|config| config.endpoints = Err(problem.clone())).await;
+        never(&rig.server, TOKEN_PATH).await;
+        assert_eq!(
+            rig.corpus.check_credentials().await,
+            Err(CorpusError::Config { detail: problem.to_string() })
+        );
+        assert_untouched(&rig).await;
+    }
+
+    #[tokio::test]
+    async fn a_token_failure_is_final_and_reaches_no_api() {
+        let rig = Rig::new().await;
+        token_always(&rig.server, json_reply(401, r#"{"error":"invalid_client"}"#)).await;
+        never(&rig.server, API_PATH).await;
+        assert_eq!(rig.call().await, Err(rejected()));
+        assert_eq!((rig.tokens().await, rig.apis().await), (1, 0));
+    }
+
+    // ---- Échéances -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn deadline_from_task_local_is_used() {
+        let rig = Rig::new().await;
+        // Origine arbitraire : seule la durée restante de l'échéance compte.
+        rig.clock.advance(secs(1_000_000));
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_always(&rig.server, ResponseTemplate::new(503)).await;
+        let result = Deadline::after(ms(400)).scope(rig.call()).await;
+        assert_eq!(
+            result,
+            Err(CorpusError::Upstream {
+                status: Some(503),
+                retryable: true,
+                detail: "HTTP 503 on /consult/juri".to_owned()
+            })
+        );
+        assert_eq!(rig.sleeper.waits(), Vec::<Duration>::new());
+        assert_eq!(rig.clock.now(), secs(1_000_000));
+    }
+
+    #[tokio::test]
+    async fn no_deadline_published_uses_tool_deadline() {
+        let rig = Rig::tuned(|config| config.tool_deadline = ms(400)).await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_always(&rig.server, ResponseTemplate::new(503)).await;
+        assert_eq!(
+            rig.call().await,
+            Err(CorpusError::Upstream {
+                status: Some(503),
+                retryable: true,
+                detail: "HTTP 503 on /consult/juri".to_owned()
+            })
+        );
+        assert_eq!(rig.sleeper.waits(), Vec::<Duration>::new());
+        assert_eq!(rig.clock.now(), Duration::ZERO);
+    }
+
+    #[tokio::test]
+    async fn tool_deadline_caps_retries() {
+        // Le backoff vaut au moins 500 ms et la gigue est aléatoire : seulement des invariants.
+        let rig = Rig::tuned(|config| config.tool_deadline = secs(1)).await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_always(&rig.server, ResponseTemplate::new(503)).await;
+        rig.call().await.unwrap_err();
+        let (apis, now) = (rig.apis().await, rig.clock.now());
+        assert!((1..=2).contains(&apis), "{apis}");
+        assert!(now <= secs(1), "{now:?}");
+        // Témoin sans borne serrée : les trois requêtes ont lieu.
+        let witness = Rig::new().await;
+        token_mock(&witness.server, "tok-1", 1).await;
+        api_always(&witness.server, ResponseTemplate::new(503)).await;
+        witness.call().await.unwrap_err();
+        assert_eq!(witness.apis().await, 3);
+    }
+
+    #[tokio::test]
+    async fn each_attempt_gets_the_time_left_not_the_time_at_the_start() {
+        // Après le premier backoff (500 ms à 1 s), il reste moins de 700 ms sur 1,2 s : la
+        // seconde tentative, dont la réponse tarde 900 ms, doit expirer. Avec un délai calculé
+        // une seule fois (1,2 s), elle aboutirait.
+        let rig = Rig::tuned(|config| {
+            config.tool_deadline = ms(1_200);
+            config.request_timeout = secs(10);
+        })
+        .await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_mock(&rig.server, ResponseTemplate::new(503), 1).await;
+        api_mock(&rig.server, json_reply(200, "{}").set_delay(ms(900)), 1).await;
+        assert_eq!(rig.call().await, Err(CorpusError::Timeout));
+        assert_eq!(rig.apis().await, 2);
+    }
+
+    #[tokio::test]
+    async fn a_401_does_not_wait_for_another_call_beyond_its_own_deadline() {
+        let server = MockServer::start().await;
+        // Premier jeton immédiat, second retardé de 2 s : le renouvellement de B tient le verrou.
+        token_mock(&server, "tok-1", 1).await;
+        Mock::given(method("POST"))
+            .and(path(TOKEN_PATH))
+            .respond_with(token_reply("tok-2").set_delay(secs(2)))
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&server)
+            .await;
+        // Requête 0 (A) : 401 après 150 ms ; requête 1 (B) : 401 aussitôt ; ensuite : 200.
+        let arrived = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&arrived);
+        Mock::given(method("POST"))
+            .and(path(API_PATH))
+            .respond_with(move |_: &Request| match counter.fetch_add(1, Ordering::SeqCst) {
+                0 => json_reply(401, "{}").set_delay(ms(150)),
+                1 => ResponseTemplate::new(401),
+                _ => json_reply(200, "{}"),
+            })
+            .mount(&server)
+            .await;
+        let corpus = PisteCorpus::new(config_for(&server.uri(), Some(credentials(SECRET))));
+        let call_a = {
+            let corpus = corpus.clone();
+            Deadline::after(ms(300)).scope(async move {
+                let started = Instant::now();
+                let result = corpus.post_json(ENDPOINT, BODY).await;
+                (result, started.elapsed())
+            })
+        };
+        let task_a = tokio::spawn(call_a);
+        // Borné : si l'appel de A échoue avant d'atteindre l'API, le test échoue au lieu de pendre.
+        let wait_for_a = async {
+            while arrived.load(Ordering::SeqCst) < 1 {
+                tokio::time::sleep(ms(5)).await;
+            }
+        };
+        tokio::time::timeout(secs(5), wait_for_a).await.unwrap();
+        // B reçoit son 401 avant A, invalide le jeton puis en demande un neuf (2 s) sous le verrou.
+        let task_b = {
+            let corpus = corpus.clone();
+            tokio::spawn(async move { corpus.post_json(ENDPOINT, BODY).await })
+        };
+        let (result_a, elapsed_a) = task_a.await.unwrap();
+        // L'invalidation de A attend ce verrou, mais pas au-delà de l'échéance de A.
+        assert_eq!(result_a, Err(CorpusError::Timeout));
+        assert!(elapsed_a < ms(1_500), "{elapsed_a:?}");
+        assert_eq!(task_b.await.unwrap(), Ok("{}".to_owned()));
+    }
+
+    // ---- Client et requête ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn piste_client_is_built_once_across_calls() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_always(&rig.server, json_reply(200, "{}")).await;
+        let client = &rig.corpus.inner.client;
+        assert!(!client.is_built());
+        rig.call().await.unwrap();
+        let first = std::ptr::from_ref(client.get(&rig.config).await.unwrap());
+        rig.call().await.unwrap();
+        rig.call().await.unwrap();
+        let last = std::ptr::from_ref(client.get(&rig.config).await.unwrap());
+        assert_eq!((client.is_built(), first), (true, last));
+    }
+
+    #[tokio::test]
+    async fn api_request_carries_bearer_accept_and_user_agent() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        Mock::given(method("POST"))
+            .and(path(API_PATH))
+            .and(header("authorization", "Bearer tok-1"))
+            .and(header("accept", "application/json"))
+            .and(header("content-type", "application/json"))
+            .and(header("user-agent", "lf-test/0"))
+            .and(body_bytes(BODY))
+            .respond_with(json_reply(200, "{}"))
+            .expect(1)
+            .mount(&rig.server)
+            .await;
+        assert_eq!(rig.call().await, Ok("{}".to_owned()));
+        assert_eq!(rig.apis().await, 1);
+    }
+
+    #[test]
+    fn api_url_joins_the_template_to_the_base_without_double_slash() {
+        let joined = |base: &str, endpoint: &str| {
+            api_url(&Url::parse(base).unwrap(), endpoint).unwrap().to_string()
+        };
+        assert_eq!(
+            [
+                joined("https://api.example.org/dila/legifrance/lf-engine-app", "/consult/juri"),
+                joined("https://api.example.org/dila/legifrance/lf-engine-app/", "/consult/juri"),
+                joined("https://api.example.org/", "/consult/juri"),
+                joined("https://api.example.org", "/consult/juri"),
+                joined("http://127.0.0.1:8080/base", "/a/b/c"),
+            ],
+            [
+                "https://api.example.org/dila/legifrance/lf-engine-app/consult/juri",
+                "https://api.example.org/dila/legifrance/lf-engine-app/consult/juri",
+                "https://api.example.org/consult/juri",
+                "https://api.example.org/consult/juri",
+                "http://127.0.0.1:8080/base/a/b/c",
+            ]
+        );
+    }
+
+    // ---- Corps ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn mojibake_body_is_repaired_and_counted() {
+        let (capture, _guard) = capture_at(tracing::Level::TRACE);
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        let body = mojibake_json("PREMIÈRE CHAMBRE CIVILE");
+        api_always(&rig.server, ResponseTemplate::new(200).set_body_string(body)).await;
+        assert_eq!(rig.call().await, Ok(r#"{"texte":"PREMIÈRE CHAMBRE CIVILE"}"#.to_owned()));
+        assert_eq!(rig.corpus.mojibake_repairs(), 1);
+        assert_eq!(
+            rig.corpus.stats(),
+            StatsSnapshot { mojibake_repairs: 1, mojibake_unrepaired: 0 }
+        );
+        let log = capture.text();
+        assert!(log.contains("WARN"), "{log}");
+        assert!(log.contains(r#"endpoint="/consult/juri""#), "{log}");
+        assert!(!log.contains("CHAMBRE"), "{log}");
+    }
+
+    #[tokio::test]
+    async fn mojibake_repair_can_be_switched_off() {
+        let rig = Rig::tuned(|config| config.repair_mojibake = false).await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        let body = mojibake_json("PREMIÈRE CHAMBRE CIVILE");
+        api_always(&rig.server, ResponseTemplate::new(200).set_body_string(body.clone())).await;
+        assert_eq!(rig.call().await, Ok(body));
+        assert_eq!(
+            rig.corpus.stats(),
+            StatsSnapshot { mojibake_repairs: 0, mojibake_unrepaired: 1 }
+        );
+    }
+
+    #[tokio::test]
+    async fn clean_body_is_untouched() {
+        let (capture, _guard) = capture_at(tracing::Level::TRACE);
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        let body = r#"{"texte":"PREMIÈRE CHAMBRE CIVILE"}"#;
+        api_always(&rig.server, ResponseTemplate::new(200).set_body_string(body)).await;
+        assert_eq!(rig.call().await, Ok(body.to_owned()));
+        assert_eq!(rig.corpus.stats(), StatsSnapshot::default());
+        let log = capture.text();
+        assert!(!log.contains("WARN"), "{log}");
+    }
+
+    #[tokio::test]
+    async fn oversized_body_is_rejected() {
+        let rig = Rig::tuned(|config| config.max_body_bytes = 1_000).await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_always(&rig.server, ResponseTemplate::new(200).set_body_string("a".repeat(2_000)))
+            .await;
+        assert_eq!(
+            rig.call().await,
+            Err(CorpusError::Decode {
+                detail: "response too large (> 1000 bytes) on /consult/juri".to_owned()
+            })
+        );
+        assert_eq!(rig.apis().await, 1);
+        assert_eq!(rig.sleeper.waits(), Vec::<Duration>::new());
+    }
+
+    #[tokio::test]
+    async fn invalid_utf8_body_maps_to_decode() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_always(&rig.server, ResponseTemplate::new(200).set_body_bytes(vec![b'{', 0xff, b'}']))
+            .await;
+        assert_eq!(
+            rig.call().await,
+            Err(CorpusError::Decode {
+                detail: "invalid UTF-8 at byte 1 on /consult/juri".to_owned()
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn clones_share_one_state() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        let body = mojibake_json("PREMIÈRE CHAMBRE CIVILE");
+        api_always(&rig.server, ResponseTemplate::new(200).set_body_string(body)).await;
+        let twin = rig.corpus.clone();
+        twin.post_json(ENDPOINT, BODY).await.unwrap();
+        rig.call().await.unwrap();
+        assert_eq!(
+            (rig.tokens().await, rig.corpus.mojibake_repairs(), twin.mojibake_repairs()),
+            (1, 2, 2)
+        );
+    }
+
+    // ---- Aucun secret --------------------------------------------------------------------
+
+    /// Préfixe et nanosecondes d'horloge murale en hexadécimal : imprévisible, sans dépendance.
+    fn random_word(prefix: &str) -> String {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        format!("{prefix}-{nanos:x}")
+    }
+
+    /// Les trois valeurs que le serveur recopie dans ses corps d'erreur.
+    struct Leak {
+        secret: String,
+        token: String,
+        marker: String,
+    }
+
+    impl Leak {
+        fn new() -> Self {
+            Self {
+                secret: random_word("s3cr3t"),
+                token: random_word("t0k3n"),
+                marker: random_word("b0dy"),
+            }
+        }
+
+        fn body(&self) -> String {
+            let Self { secret, token, marker } = self;
+            format!("{secret} {token} {marker} Authorization: Bearer {token}")
+        }
+
+        fn reply(&self, status: u16) -> ResponseTemplate {
+            ResponseTemplate::new(status).set_body_string(self.body())
+        }
+
+        async fn rig(&self, tune: impl FnOnce(&mut PisteConfig)) -> Rig {
+            Rig::tuned(|config| {
+                config.credentials = Some(credentials(&self.secret));
+                tune(config);
+            })
+            .await
+        }
+    }
+
+    #[tokio::test]
+    async fn error_messages_never_contain_secret_or_token() {
+        let (capture, _guard) = capture_at(tracing::Level::TRACE);
+        let leak = Leak::new();
+        let mut shown: Vec<String> = Vec::new();
+
+        // L'API répond en erreur, corps recopiant les secrets.
+        for status in [400, 403, 404, 418, 429, 500, 503] {
+            let rig = leak.rig(|_| {}).await;
+            token_mock(&rig.server, &leak.token, 1).await;
+            api_always(&rig.server, leak.reply(status)).await;
+            shown.extend(rig.describe(&rig.call().await.unwrap_err()));
+        }
+        // 401 deux fois.
+        let rig = leak.rig(|_| {}).await;
+        token_mock(&rig.server, &leak.token, 2).await;
+        api_mock(&rig.server, leak.reply(401), 2).await;
+        shown.extend(rig.describe(&rig.call().await.unwrap_err()));
+        // Le point d'accès du jeton répond en erreur, par `post_json` et par `check_credentials`.
+        for status in [400, 401, 403, 404, 200] {
+            let rig = leak.rig(|_| {}).await;
+            token_always(&rig.server, leak.reply(status)).await;
+            shown.extend(rig.describe(&rig.call().await.unwrap_err()));
+            let rig = leak.rig(|_| {}).await;
+            token_always(&rig.server, leak.reply(status)).await;
+            shown.extend(rig.describe(&rig.corpus.check_credentials().await.unwrap_err()));
+        }
+        // Corps trop gros, UTF-8 invalide.
+        let rig = leak.rig(|config| config.max_body_bytes = 1_000).await;
+        token_mock(&rig.server, &leak.token, 1).await;
+        let huge = ResponseTemplate::new(200).set_body_string(leak.body().repeat(40));
+        api_always(&rig.server, huge).await;
+        shown.extend(rig.describe(&rig.call().await.unwrap_err()));
+        let rig = leak.rig(|_| {}).await;
+        token_mock(&rig.server, &leak.token, 1).await;
+        let invalid = [leak.body().into_bytes(), vec![0xff]].concat();
+        api_always(&rig.server, ResponseTemplate::new(200).set_body_bytes(invalid)).await;
+        shown.extend(rig.describe(&rig.call().await.unwrap_err()));
+        // Port fermé.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let dead_uri = format!("http://127.0.0.1:{}", closed.local_addr().unwrap().port());
+        drop(closed);
+        let rig = leak
+            .rig(|config| *config = config_for(&dead_uri, Some(credentials(&leak.secret))))
+            .await;
+        shown.extend(rig.describe(&rig.call().await.unwrap_err()));
+        // Mode dégradé, deux fois.
+        let rig = leak.rig(|config| config.credentials = None).await;
+        shown.extend(rig.describe(&rig.call().await.unwrap_err()));
+        let problem = ConfigProblem::InsecureScheme { setting: "base URL" };
+        let rig = leak.rig(|config| config.endpoints = Err(problem.clone())).await;
+        shown.extend(rig.describe(&rig.call().await.unwrap_err()));
+        // Débit local épuisé.
+        let rig = leak
+            .rig(|config| {
+                config.rate = rate(1, 1);
+                config.tool_deadline = ms(500);
+            })
+            .await;
+        token_mock(&rig.server, &leak.token, 1).await;
+        api_always(&rig.server, json_reply(200, "{}")).await;
+        rig.call().await.unwrap();
+        shown.extend(rig.describe(&rig.call().await.unwrap_err()));
+        // Un succès réparé : seul le journal est à contrôler.
+        let rig = leak.rig(|_| {}).await;
+        token_mock(&rig.server, &leak.token, 1).await;
+        let repaired = mojibake_json(&format!("{} PREMIÈRE", leak.marker));
+        api_always(&rig.server, ResponseTemplate::new(200).set_body_string(repaired)).await;
+        rig.call().await.unwrap();
+        shown.push(format!("{:?}", rig.corpus));
+        shown.push(capture.text());
+
+        let count = shown.len();
+        assert!(count > 20, "{count}");
+        let haystack = shown.join("\n").to_lowercase();
+        for forbidden in [&leak.secret, &leak.token, &leak.marker] {
+            assert!(!haystack.contains(&forbidden.to_lowercase()), "{forbidden}");
+        }
+        assert!(!haystack.contains("authorization"));
+    }
+
+    // ---- Compilation ---------------------------------------------------------------------
+
+    fn assert_send_sync_static<T: Send + Sync + 'static>() {}
+
+    fn assert_send<T: Send>(_: T) {}
+
+    #[test]
+    fn piste_corpus_is_send_sync_static() {
+        assert_send_sync_static::<PisteCorpus>();
+        assert_send_sync_static::<TestCorpus>();
+        let production = PisteCorpus::new(config_for("http://127.0.0.1:9", None));
+        assert_send(production.post_json(ENDPOINT, BODY));
+        assert_send(production.check_credentials());
+        let clock = ManualClock::new();
+        let sleeper = RecordingSleeper::new(clock.clone());
+        let manual = TestCorpus::with_parts(config_for("http://127.0.0.1:9", None), clock, sleeper);
+        assert_send(manual.post_json(ENDPOINT, BODY));
+        assert_send(manual.check_credentials());
+    }
+}
