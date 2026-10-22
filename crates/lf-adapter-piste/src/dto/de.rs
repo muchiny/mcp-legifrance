@@ -1,6 +1,11 @@
 //! Lecteurs serde tolérants (04 §8.2).
 
-use serde::{Deserialize, Deserializer, de::IgnoredAny};
+use std::fmt;
+
+use serde::{
+    Deserialize, Deserializer,
+    de::{Error, IgnoredAny, MapAccess, SeqAccess, Visitor},
+};
 
 /// Lit une valeur ou `null` et rend la valeur par défaut du type pour `null`.
 ///
@@ -50,31 +55,101 @@ pub(crate) enum RawDate {
     Text(String),
 }
 
-/// Date JSON : nombre, chaîne ou autre chose, sans échouer sur un JSON bien formé de profondeur
-/// ordinaire.
+/// Résultat d'un lecteur tolérant : la valeur lue, ou « ignorée » (type ou valeur non retenus).
 ///
-/// Un `untagged` met la valeur en mémoire tampon avant d'essayer les variantes : la limite de 128
-/// niveaux d'imbrication de `serde_json` s'applique encore, et un sous-arbre plus profond est une
-/// erreur de décodage.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum DateInput {
-    /// Entier signé qui tient dans un `i64`.
-    Integer(i64),
-    /// Flottant, ou entier trop grand pour un `i64`.
-    Float(f64),
-    /// Texte.
-    Text(String),
-    /// Toute autre valeur (booléen, objet, tableau, `null`) : ignorée.
-    Other(IgnoredAny),
+/// Un enum et non un `Option` : « ignorée » n'est pas une valeur par défaut, et chaque méthode
+/// de visiteur nomme ainsi explicitement ce qu'elle rend.
+enum Reading<T> {
+    /// Valeur lue.
+    Kept(T),
+    /// Valeur d'un type ou d'une forme que le lecteur n'en retient pas.
+    Ignored,
+}
+
+impl<T> Reading<T> {
+    /// `Some` de la valeur lue, `None` pour une valeur ignorée.
+    fn into_option(self) -> Option<T> {
+        match self {
+            Self::Kept(value) => Some(value),
+            Self::Ignored => None,
+        }
+    }
+}
+
+impl<T> From<Option<T>> for Reading<T> {
+    fn from(value: Option<T>) -> Self {
+        value.map_or(Self::Ignored, Self::Kept)
+    }
+}
+
+/// Lecteur de date : accepte n'importe quelle valeur JSON et rend `None` pour ce qui n'est pas une
+/// date.
+///
+/// Écrit à la main plutôt qu'avec un enum `untagged`, qui met toute la valeur en mémoire tampon
+/// avant d'essayer les variantes (mesuré : seize fois la taille du corps pour un tableau géant).
+/// Un tableau ou un objet est consommé élément par élément, sans rien garder (`ignore_seq`,
+/// `ignore_map`).
+struct DateVisitor;
+
+impl<'de> Visitor<'de> for DateVisitor {
+    type Value = Reading<RawDate>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a date as a number, a string or any other JSON value")
+    }
+
+    fn visit_i64<E: Error>(self, value: i64) -> Result<Self::Value, E> {
+        Ok(Reading::Kept(RawDate::Millis(value)))
+    }
+
+    /// Un entier au-delà d'un `i64` n'est pas une date.
+    fn visit_u64<E: Error>(self, value: u64) -> Result<Self::Value, E> {
+        Ok(i64::try_from(value).ok().map(RawDate::Millis).into())
+    }
+
+    fn visit_f64<E: Error>(self, value: f64) -> Result<Self::Value, E> {
+        Ok(whole_float_to_millis(value).map(RawDate::Millis).into())
+    }
+
+    fn visit_str<E: Error>(self, value: &str) -> Result<Self::Value, E> {
+        Ok(text_to_date(value).into())
+    }
+
+    fn visit_bool<E: Error>(self, _value: bool) -> Result<Self::Value, E> {
+        Ok(Reading::Ignored)
+    }
+
+    fn visit_unit<E: Error>(self) -> Result<Self::Value, E> {
+        Ok(Reading::Ignored)
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> Result<Self::Value, A::Error> {
+        ignore_seq(seq)
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+        ignore_map(map)
+    }
+}
+
+/// Consomme un tableau sans rien en garder et rend `None`.
+fn ignore_seq<'de, A: SeqAccess<'de>, T>(seq: A) -> Result<Reading<T>, A::Error> {
+    IgnoredAny.visit_seq(seq)?;
+    Ok(Reading::Ignored)
+}
+
+/// Consomme un objet sans rien en garder et rend `None`.
+fn ignore_map<'de, A: MapAccess<'de>, T>(map: A) -> Result<Reading<T>, A::Error> {
+    IgnoredAny.visit_map(map)?;
+    Ok(Reading::Ignored)
 }
 
 /// Lit une date facultative : millisecondes (nombre ou chaîne de chiffres) ou texte.
 ///
 /// Un booléen, un objet, un tableau, une chaîne blanche, un flottant fractionnaire et un nombre
 /// hors d'un `i64` donnent `None`. Aucune de ces tolérances n'est comptée ici : le décompte
-/// éventuel appartient au mapping. Seuls un JSON mal formé et une imbrication de plus de 128
-/// niveaux sont une erreur.
+/// éventuel appartient au mapping. Seul un JSON mal formé est une erreur : un tableau ou un objet
+/// est parcouru par `IgnoredAny`, que `serde_json` lit sans récursion, donc à toute profondeur.
 ///
 /// # Errors
 ///
@@ -82,12 +157,7 @@ enum DateInput {
 pub(crate) fn opt_raw_date<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<RawDate>, D::Error> {
-    Ok(match DateInput::deserialize(deserializer)? {
-        DateInput::Integer(millis) => Some(RawDate::Millis(millis)),
-        DateInput::Float(value) => whole_float_to_millis(value).map(RawDate::Millis),
-        DateInput::Text(text) => text_to_date(text),
-        DateInput::Other(_) => None,
-    })
+    deserializer.deserialize_any(DateVisitor).map(Reading::into_option)
 }
 
 /// Millisecondes d'un flottant qui est un entier exact et tient dans un `i64`.
@@ -99,34 +169,67 @@ fn whole_float_to_millis(value: f64) -> Option<i64> {
 
 /// Texte de date : blanc donne `None`, une suite de chiffres ASCII donne des millisecondes
 /// (`None` si elle déborde un `i64`), le reste est gardé tel quel.
-fn text_to_date(text: String) -> Option<RawDate> {
-    if is_blank(&text) {
+fn text_to_date(text: &str) -> Option<RawDate> {
+    if is_blank(text) {
         None
     } else if text.bytes().all(|byte| byte.is_ascii_digit()) {
         text.parse().ok().map(RawDate::Millis)
     } else {
-        Some(RawDate::Text(text))
+        Some(RawDate::Text(text.to_owned()))
     }
 }
 
-/// Code JSON : chaîne, nombre ou autre chose.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum CodeInput {
-    /// Texte.
-    Text(String),
-    /// Nombre JSON.
-    Number(serde_json::Number),
-    /// Toute autre valeur : ignorée.
-    Other(IgnoredAny),
+/// Lecteur de code : accepte n'importe quelle valeur JSON et rend `None` pour ce qui n'est ni un
+/// texte non blanc ni un entier. Même principe que [`DateVisitor`] : aucune mémoire tampon.
+struct CodeVisitor;
+
+impl<'de> Visitor<'de> for CodeVisitor {
+    type Value = Reading<String>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a code as a string, a number or any other JSON value")
+    }
+
+    fn visit_i64<E: Error>(self, value: i64) -> Result<Self::Value, E> {
+        Ok(Reading::Kept(value.to_string()))
+    }
+
+    fn visit_u64<E: Error>(self, value: u64) -> Result<Self::Value, E> {
+        Ok(Reading::Kept(value.to_string()))
+    }
+
+    /// Un flottant n'est pas un code.
+    fn visit_f64<E: Error>(self, _value: f64) -> Result<Self::Value, E> {
+        Ok(Reading::Ignored)
+    }
+
+    fn visit_str<E: Error>(self, value: &str) -> Result<Self::Value, E> {
+        Ok((!is_blank(value)).then(|| value.to_owned()).into())
+    }
+
+    fn visit_bool<E: Error>(self, _value: bool) -> Result<Self::Value, E> {
+        Ok(Reading::Ignored)
+    }
+
+    fn visit_unit<E: Error>(self) -> Result<Self::Value, E> {
+        Ok(Reading::Ignored)
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> Result<Self::Value, A::Error> {
+        ignore_seq(seq)
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+        ignore_map(map)
+    }
 }
 
 /// Lit un code (IDCC…) donné en chaîne ou en entier, rendu en chaîne.
 ///
 /// Une chaîne non blanche est gardée telle quelle (zéros initiaux compris) ; un entier, signé ou
 /// non, est écrit en décimal. Une chaîne blanche, un flottant, un booléen, un tableau, un objet
-/// et `null` donnent `None`. Seuls un JSON mal formé et une imbrication de plus de 128 niveaux sont
-/// une erreur.
+/// et `null` donnent `None`. Seul un JSON mal formé est une erreur : un tableau ou un objet est
+/// parcouru par `IgnoredAny`, que `serde_json` lit sans récursion, donc à toute profondeur.
 ///
 /// # Errors
 ///
@@ -134,36 +237,70 @@ enum CodeInput {
 pub(crate) fn opt_string_or_number<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<String>, D::Error> {
-    Ok(match CodeInput::deserialize(deserializer)? {
-        CodeInput::Text(text) if !is_blank(&text) => Some(text),
-        CodeInput::Number(number) if !number.is_f64() => Some(number.to_string()),
-        CodeInput::Text(_) | CodeInput::Number(_) | CodeInput::Other(_) => None,
-    })
+    deserializer.deserialize_any(CodeVisitor).map(Reading::into_option)
 }
 
-/// Valeur JSON lue sans échouer sur un JSON bien formé de profondeur ordinaire.
+/// Entier d'une chaîne qui n'est faite que de chiffres ASCII, `None` sinon ou s'il déborde un `u64`.
 ///
-/// Même réserve que `DateInput` : un `untagged` met la valeur en mémoire tampon, et la limite de
-/// 128 niveaux d'imbrication de `serde_json` s'applique encore.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Lenient {
-    /// Entier non négatif qui tient dans un `u64`.
-    Number(u64),
-    /// Texte, à lire comme un nombre s'il n'est fait que de chiffres.
-    Text(String),
-    /// Toute autre valeur (négatif, flottant, booléen, tableau, objet, `null`, trop grand) :
-    /// ignorée.
-    Other(IgnoredAny),
+/// Seuls les chiffres ASCII comptent, ce qui écarte un signe, un espace ou une notation
+/// scientifique (`u64::from_str` accepte un `+` initial, d'où le test des octets avant).
+fn text_to_u64(text: &str) -> Option<u64> {
+    if text.bytes().all(|byte| byte.is_ascii_digit()) { text.parse().ok() } else { None }
+}
+
+/// Lecteur d'entier positif : accepte n'importe quelle valeur JSON et rend `None` pour ce qui
+/// n'est ni un `u64` ni une chaîne de chiffres. Même principe que [`DateVisitor`] : aucune
+/// mémoire tampon.
+struct LenientVisitor;
+
+impl<'de> Visitor<'de> for LenientVisitor {
+    type Value = Reading<u64>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an unsigned integer, a string of digits or any other JSON value")
+    }
+
+    /// Un entier négatif n'est pas lu.
+    fn visit_i64<E: Error>(self, value: i64) -> Result<Self::Value, E> {
+        Ok(u64::try_from(value).ok().into())
+    }
+
+    fn visit_u64<E: Error>(self, value: u64) -> Result<Self::Value, E> {
+        Ok(Reading::Kept(value))
+    }
+
+    /// Un flottant n'est pas lu, même entier.
+    fn visit_f64<E: Error>(self, _value: f64) -> Result<Self::Value, E> {
+        Ok(Reading::Ignored)
+    }
+
+    fn visit_str<E: Error>(self, value: &str) -> Result<Self::Value, E> {
+        Ok(text_to_u64(value).into())
+    }
+
+    fn visit_bool<E: Error>(self, _value: bool) -> Result<Self::Value, E> {
+        Ok(Reading::Ignored)
+    }
+
+    fn visit_unit<E: Error>(self) -> Result<Self::Value, E> {
+        Ok(Reading::Ignored)
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> Result<Self::Value, A::Error> {
+        ignore_seq(seq)
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+        ignore_map(map)
+    }
 }
 
 /// Lit un entier positif donné en nombre ou en chaîne de chiffres ; tout le reste donne `None`.
 ///
-/// Un champ absent, `null`, négatif, flottant, hors d'un `u64` ou d'un autre type ne fait
-/// pas échouer le document : seuls un JSON mal formé et une imbrication de plus de 128 niveaux
-/// sont une erreur. Pour une chaîne, seuls
-/// les chiffres ASCII comptent, ce qui écarte un signe, un espace ou une notation
-/// scientifique (`u64::from_str` accepte un `+` initial, d'où le test des octets avant).
+/// Un champ absent, `null`, négatif, flottant, hors d'un `u64` ou d'un autre type ne fait pas
+/// échouer le document : seul un JSON mal formé est une erreur (un tableau ou un objet est
+/// parcouru par `IgnoredAny`, que `serde_json` lit sans récursion, donc à toute profondeur).
+/// Pour une chaîne, seuls les chiffres ASCII comptent.
 ///
 /// # Errors
 ///
@@ -171,17 +308,15 @@ enum Lenient {
 pub(crate) fn opt_u64_lenient<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<u64>, D::Error> {
-    Ok(match Lenient::deserialize(deserializer)? {
-        Lenient::Number(number) => Some(number),
-        Lenient::Text(text) if text.bytes().all(|byte| byte.is_ascii_digit()) => text.parse().ok(),
-        Lenient::Text(_) | Lenient::Other(_) => None,
-    })
+    deserializer.deserialize_any(LenientVisitor).map(Reading::into_option)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dto::decode::decode;
     use serde::Deserialize;
+    use serde::de::value::{self, BytesDeserializer};
 
     #[derive(Debug, Deserialize)]
     struct Holder {
@@ -473,6 +608,116 @@ mod tests {
                 serde_json::from_str::<Coded>(r#"{"code":[1,}"#).is_err(),
             ],
             [true, true]
+        );
+    }
+
+    #[test]
+    fn a_broken_object_is_still_an_error_for_the_three_readers() {
+        assert_eq!(
+            [
+                serde_json::from_str::<Dated>(r#"{"date":{"a":}}"#).is_err(),
+                serde_json::from_str::<Coded>(r#"{"code":{"a":}}"#).is_err(),
+                serde_json::from_str::<Holder>(r#"{"value":{"a":}}"#).is_err(),
+                serde_json::from_str::<Holder>(r#"{"value":{"a":1"#).is_err(),
+            ],
+            [true; 4]
+        );
+    }
+
+    /// `[1,1,…,1]` de `count` éléments.
+    fn big_array(count: usize) -> String {
+        format!("[{}]", vec!["1"; count].join(","))
+    }
+
+    /// `{"k0":1,"k1":1,…}` de `count` clés.
+    fn big_object(count: usize) -> String {
+        let entries: Vec<String> = (0..count).map(|index| format!(r#""k{index}":1"#)).collect();
+        format!("{{{}}}", entries.join(","))
+    }
+
+    #[test]
+    fn a_huge_array_or_object_is_ignored_by_the_three_readers() {
+        let array = big_array(100_000);
+        let object = big_object(100_000);
+        // Plusieurs centaines de Kio chacun : le contenu est consommé sans être gardé.
+        assert!(array.len() > 150_000 && object.len() > 800_000);
+        assert_eq!(
+            (
+                [array.as_str(), object.as_str()].map(date),
+                [array.as_str(), object.as_str()].map(code),
+                [array.as_str(), object.as_str()].map(read),
+            ),
+            ([None, None], [None, None], [None, None])
+        );
+    }
+
+    /// `levels` tableaux imbriqués : `[[[…]]]`.
+    fn nested_arrays(levels: usize) -> String {
+        format!("{}{}", "[".repeat(levels), "]".repeat(levels))
+    }
+
+    /// `levels` objets imbriqués : `{"a":{"a":…{}…}}`.
+    fn nested_objects(levels: usize) -> String {
+        format!("{}{{}}{}", r#"{"a":"#.repeat(levels), "}".repeat(levels))
+    }
+
+    #[test]
+    fn nesting_of_any_depth_is_ignored_by_the_three_readers() {
+        // Le tableau ou l'objet n'est lu que par `IgnoredAny`, que `serde_json` parcourt sans
+        // récursion ni limite de profondeur : 63 niveaux comme 5 000 donnent `None`. (Avec
+        // `untagged`, la mise en mémoire tampon échouait dès 127 tableaux imbriqués.)
+        for levels in [63, 127, 128, 200, 5_000] {
+            for raw in [nested_arrays(levels), nested_objects(levels)] {
+                assert_eq!(
+                    (date(&raw), code(&raw), read(&raw)),
+                    (None, None, None),
+                    "{levels} niveaux"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn deep_nesting_is_ignored_through_decode_too() {
+        let body = |field: &str| format!(r#"{{"{field}":{}}}"#, nested_arrays(200));
+        let dated = decode::<Dated>(&body("date"), "/e").map(|dated| dated.date);
+        let coded = decode::<Coded>(&body("code"), "/e").map(|coded| coded.code);
+        let lenient = decode::<Holder>(&body("value"), "/e").map(|holder| holder.value);
+        assert_eq!((dated, coded, lenient), (Ok(None), Ok(None), Ok(None)));
+    }
+
+    #[test]
+    fn the_boundary_values_keep_their_outputs() {
+        let raws = [r#""""#, r#""  ""#, "-1", "1.5", "1.0", "true", "false", "null"];
+        assert_eq!(
+            (raws.map(date), raws.map(code), raws.map(read)),
+            (
+                [None, None, Some(millis(-1)), None, Some(millis(1)), None, None, None],
+                [None, None, Some("-1".to_owned()), None, None, None, None, None],
+                [None; 8]
+            )
+        );
+    }
+
+    #[test]
+    fn an_unexpected_kind_is_refused_with_a_fixed_message_that_names_no_value() {
+        let secret = b"sekret-42";
+        let errors = [
+            opt_raw_date(BytesDeserializer::<value::Error>::new(secret)).unwrap_err().to_string(),
+            opt_string_or_number(BytesDeserializer::<value::Error>::new(secret))
+                .unwrap_err()
+                .to_string(),
+            opt_u64_lenient(BytesDeserializer::<value::Error>::new(secret))
+                .unwrap_err()
+                .to_string(),
+        ];
+        assert_eq!(
+            errors,
+            [
+                "invalid type: byte array, expected a date as a number, a string or any other JSON value",
+                "invalid type: byte array, expected a code as a string, a number or any other JSON value",
+                "invalid type: byte array, expected an unsigned integer, a string of digits or any other JSON value",
+            ]
         );
     }
 }
