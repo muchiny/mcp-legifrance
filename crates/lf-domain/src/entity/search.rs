@@ -3,7 +3,7 @@
 use crate::{
     contract::{Citable, CitationContract, with_company},
     date::CivilDate,
-    fond::Fond,
+    fond::{Fond, PaginationMode},
     id::{AnyId, ArticleId},
     text::clean,
     url::{ResourceKind, legifrance_url},
@@ -98,12 +98,26 @@ pub struct SearchPage {
     pub total: u64,
     /// Résultats de la page.
     pub hits: Vec<SearchHit>,
+    /// `typePagination` reçu : alimente le `PaginationMemo` et les journaux, jamais rendu au modèle.
+    pub pagination: PaginationMode,
 }
 
 impl SearchPage {
     /// `total` absent : on retient le nombre de résultats reçus (`citations.py:179-181`).
-    pub fn new(fond: Fond, query: &str, total: Option<u64>, hits: Vec<SearchHit>) -> Self {
-        Self { fond, query: trimmed_query(query), total: page_total(total, &hits), hits }
+    pub fn new(
+        fond: Fond,
+        query: &str,
+        total: Option<u64>,
+        hits: Vec<SearchHit>,
+        pagination: PaginationMode,
+    ) -> Self {
+        Self {
+            fond,
+            query: trimmed_query(query),
+            total: page_total(total, &hits),
+            hits,
+            pagination,
+        }
     }
 }
 
@@ -201,9 +215,23 @@ mod tests {
     #[test]
     fn page_total_defaults_to_hit_count() {
         let hits = vec![hit(Fond::Juri, "JURITEXT000048465611", None)];
-        let page = SearchPage::new(Fond::Juri, "  responsabilité ", None, hits.clone());
+        let page = SearchPage::new(
+            Fond::Juri,
+            "  responsabilité ",
+            None,
+            hits.clone(),
+            PaginationMode::Defaut,
+        );
         assert_eq!((page.total, page.query.as_str()), (1, "responsabilité"));
-        assert_eq!(SearchPage::new(Fond::Juri, "q", Some(1817), hits).total, 1817);
+        let page = SearchPage::new(Fond::Juri, "q", Some(1817), hits, PaginationMode::Defaut);
+        assert_eq!(page.total, 1817);
+    }
+
+    #[test]
+    fn page_keeps_received_pagination_mode() {
+        for mode in [PaginationMode::Defaut, PaginationMode::Article] {
+            assert_eq!(SearchPage::new(Fond::Code, "q", Some(0), vec![], mode).pagination, mode);
+        }
     }
 
     proptest! {

@@ -86,6 +86,42 @@ impl Fond {
     }
 }
 
+/// Mode de pagination de l'API de recherche : valeur opaque de `typePagination` (04 §6.6).
+///
+/// Jamais exposé au modèle (00 §7). Le fond `CODE_DATE` répond `ARTICLE` à une requête
+/// `DEFAUT` : le mode reçu peut donc différer du mode demandé, et c'est lui que l'on retient.
+/// Placé à côté de [`Fond`] parce que c'est un nom d'API de la même famille.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum PaginationMode {
+    /// Pagination par texte (`DEFAUT`).
+    #[default]
+    Defaut,
+    /// Pagination par article (`ARTICLE`).
+    Article,
+}
+
+impl PaginationMode {
+    /// Nom côté API PISTE, ex. `DEFAUT`.
+    pub const fn api_name(self) -> &'static str {
+        match self {
+            Self::Defaut => "DEFAUT",
+            Self::Article => "ARTICLE",
+        }
+    }
+
+    /// Lit la valeur `typePagination` d'une réponse, sans tenir compte de la casse ASCII
+    /// ni des espaces autour ; `None` si elle est vide ou inconnue.
+    ///
+    /// Le domaine ne journalise pas : l'adapter journalise puis retombe sur
+    /// [`PaginationMode::default`].
+    pub fn from_api(raw: &str) -> Option<Self> {
+        let key = raw.trim();
+        [Self::Defaut, Self::Article]
+            .into_iter()
+            .find(|mode| mode.api_name().eq_ignore_ascii_case(key))
+    }
+}
+
 impl fmt::Display for Fond {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())
@@ -169,6 +205,45 @@ mod tests {
     #[test]
     fn display_is_user_name() {
         assert_eq!(Fond::Constit.to_string(), "CONSTIT");
+    }
+
+    #[test]
+    fn pagination_api_names_match_swagger() {
+        assert_eq!(PaginationMode::Defaut.api_name(), "DEFAUT");
+        assert_eq!(PaginationMode::Article.api_name(), "ARTICLE");
+    }
+
+    #[test]
+    fn pagination_from_api_reads_both_values() {
+        assert_eq!(PaginationMode::from_api("DEFAUT"), Some(PaginationMode::Defaut));
+        assert_eq!(PaginationMode::from_api("ARTICLE"), Some(PaginationMode::Article));
+    }
+
+    #[test]
+    fn pagination_from_api_ignores_case_and_surrounding_spaces() {
+        assert_eq!(PaginationMode::from_api("article"), Some(PaginationMode::Article));
+        assert_eq!(PaginationMode::from_api(" Defaut\t"), Some(PaginationMode::Defaut));
+    }
+
+    #[test]
+    fn pagination_from_api_flags_unknown_and_empty() {
+        for raw in ["", "  ", "PAGE", "DEFAUT_X", "ARTICLES", "DÉFAUT"] {
+            assert_eq!(PaginationMode::from_api(raw), None, "{raw:?}");
+        }
+    }
+
+    #[test]
+    fn pagination_defaults_to_defaut() {
+        assert_eq!(PaginationMode::default(), PaginationMode::Defaut);
+    }
+
+    #[test]
+    fn pagination_hash_agrees_with_eq() {
+        let read = ["defaut", "DEFAUT", "article"].map(|s| PaginationMode::from_api(s).unwrap());
+        assert_eq!(
+            HashSet::from(read),
+            HashSet::from([PaginationMode::Defaut, PaginationMode::Article])
+        );
     }
 
     proptest! {

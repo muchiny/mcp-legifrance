@@ -293,7 +293,7 @@ Les tâches gardent leur identifiant et reçoivent un statut. Bilan : 1 livrée 
   Où : `date.rs` · Spéc. : 00 §4 ; 03 §6 ; ADR-0011 · Taille : M
 
 
-- [ ] T-M1-04 — **Requête de recherche.** *Reportée en M2 (00 §11.1) : chaque objet de valeur entre au jalon qui le consomme (`SearchQuery`, `QueryText`, `PageSize`, `MatchMode`, `PaginationMode`). Livrée (plan 2b, tâches 1 et 2), sauf `PaginationMode` (plan 2d, avec le `PaginationMemo`).* `SearchQuery::new` et ses rejets sans réseau (`version_date` hors LODA/CODE, dates sur CODE, `date_from` > `date_to`, `page × page_size` > 10 000), `QueryText` (≤ 500 caractères, nettoyage, D-32), `MatchMode` (défaut `any`, Q10), `PageSize`, `REACHABLE_RESULTS`, `has_more` borné.\
+- [ ] T-M1-04 — **Requête de recherche.** *Reportée en M2 (00 §11.1) : chaque objet de valeur entre au jalon qui le consomme (`SearchQuery`, `QueryText`, `PageSize`, `MatchMode`, `PaginationMode`). Livrée (plan 2b, tâches 1 et 2), `PaginationMode` livré au plan 2d (`fond.rs`, champ `SearchPage.pagination`), le `PaginationMemo` restant à faire.* `SearchQuery::new` et ses rejets sans réseau (`version_date` hors LODA/CODE, dates sur CODE, `date_from` > `date_to`, `page × page_size` > 10 000), `QueryText` (≤ 500 caractères, nettoyage, D-32), `MatchMode` (défaut `any`, Q10), `PageSize`, `REACHABLE_RESULTS`, `has_more` borné.\
   Où : `search.rs` · Livrable : types bornés · Vérification : tests de 06 §2.1 ; partie domaine de D-32 · Spéc. : 00 §7 ; 03 §4.1 ; ADR-0014 · Taille : M · Après : T-M1-02, T-M1-03
 
 
