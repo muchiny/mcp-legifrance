@@ -5,4 +5,6 @@
 //! PISTE n'est pas garanti.
 
 pub(crate) mod de;
+pub(crate) mod decode;
+pub(crate) mod error;
 pub(crate) mod oauth;

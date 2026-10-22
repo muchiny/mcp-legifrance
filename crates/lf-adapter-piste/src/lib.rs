@@ -24,7 +24,8 @@
 //! - `deadline` : échéance d'un appel (`CallDeadline`), durée restante lue dans `Deadline`
 //!   puis posée sur l'horloge monotone de l'adapter.
 //! - `dto` : structures de désérialisation des réponses de PISTE (réponse et erreur de l'endpoint
-//!   token), avec des lecteurs serde tolérants.
+//!   token), avec des lecteurs serde tolérants (`null_default`, `opt_raw_date`…) et `decode`, qui
+//!   lit un corps JSON avec le chemin de l'erreur et sans aucune valeur du corps.
 //! - `encoding` : décodage UTF-8 strict du corps, détection et réparation du mojibake latin-1.
 //! - `http` : client HTTP unique (`reqwest`, TLS rustls), tentative d'envoi (`send_once`) et
 //!   lecture bornée du corps ; aucun réessai ni jugement de statut.
@@ -42,7 +43,7 @@
     not(test),
     expect(
         dead_code,
-        reason = "PisteCorpus::post_json et ce que lui seul emploie : consommés par impl LegalCorpus au plan 2e"
+        reason = "PisteCorpus::post_json, dto::decode::decode, PisteErrorDto et ce que seuls ils emploient : consommés par impl LegalCorpus au plan 2e"
     )
 )]
 

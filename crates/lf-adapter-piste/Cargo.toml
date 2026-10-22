@@ -25,6 +25,8 @@ secrecy = { workspace = true, features = ["serde"] }
 serde.workspace = true
 # lecture du corps JSON de la réponse OAuth (auth.rs, dto/)
 serde_json.workspace = true
+# chemin JSON des erreurs de décodage des corps (dto/decode.rs, 04 §8.5)
+serde_path_to_error.workspace = true
 thiserror.workspace = true
 # time : `tokio::time::{Instant, sleep}` pour `TokioClock` et `TokioSleeper` ; sync : `OnceCell` (http.rs)
 tokio = { workspace = true, features = ["time", "sync"] }
