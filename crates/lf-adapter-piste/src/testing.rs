@@ -1,10 +1,14 @@
 //! Aides communes aux tests de l'adapter (compilées sous `cfg(test)` seulement).
 //!
 //! `ClosedPort` : une adresse locale qui refuse la connexion de façon déterministe.
+//! `Capture` et `capture_at` : le journal `tracing` capté en mémoire.
 
+use std::io;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 use tokio::net::TcpSocket;
+use tracing_subscriber::fmt::MakeWriter;
 
 /// Adresse de boucle locale dont le port est réservé mais jamais écouté : toute connexion y est
 /// refusée (`ECONNREFUSED` sous Linux) et aucun autre processus ne peut prendre le port.
@@ -36,6 +40,48 @@ impl ClosedPort {
     pub(crate) fn uri(&self) -> String {
         format!("http://{}", self.addr)
     }
+}
+
+/// Journal `tracing` capté en mémoire.
+#[derive(Clone, Default)]
+pub(crate) struct Capture {
+    bytes: Arc<Mutex<Vec<u8>>>,
+}
+
+impl Capture {
+    /// Tout ce qui a été journalisé jusqu'ici.
+    pub(crate) fn text(&self) -> String {
+        io::Write::flush(&mut self.clone()).unwrap();
+        String::from_utf8(self.bytes.lock().unwrap().clone()).unwrap()
+    }
+}
+
+impl io::Write for Capture {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.bytes.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl MakeWriter<'_> for Capture {
+    type Writer = Capture;
+
+    fn make_writer(&self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+/// Abonné local au thread courant (le runtime des tests est mono-fil), à garder en vie pendant
+/// tout l'appel testé.
+pub(crate) fn capture_at(level: tracing::Level) -> (Capture, tracing::subscriber::DefaultGuard) {
+    let capture = Capture::default();
+    let subscriber =
+        tracing_subscriber::fmt().with_writer(capture.clone()).with_max_level(level).finish();
+    (capture, tracing::subscriber::set_default(subscriber))
 }
 
 #[cfg(test)]

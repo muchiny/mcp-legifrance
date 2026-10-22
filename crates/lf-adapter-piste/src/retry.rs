@@ -201,7 +201,7 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
-    use crate::classify::try_send;
+    use crate::classify::{EndpointKind, ErrorContext, try_send};
     use crate::config::{PisteConfig, PisteEndpoints};
     use crate::http::{Attempt, Payload, RawResponse, build_client};
     use crate::testing::ClosedPort;
@@ -209,6 +209,14 @@ mod tests {
 
     const DATE: &str = "Sun, 06 Nov 1994 08:49:37 GMT";
     const ENDPOINT: &str = "/consult/juri";
+    const CONSULT: ErrorContext<'static> = ErrorContext {
+        kind: EndpointKind::Consult,
+        official_host: false,
+        repair_mojibake: true,
+        secrets: &[],
+    };
+
+    const OFFICIAL_CONSULT: ErrorContext<'static> = ErrorContext { official_host: true, ..CONSULT };
 
     const fn ms(n: u64) -> Duration {
         Duration::from_millis(n)
@@ -639,8 +647,13 @@ mod tests {
         }
     }
 
-    /// Seul point d'appel de `run` des tests de bout en bout.
+    /// Une consultation sur un hôte non officiel.
     async fn call(rig: &Rig) -> Result<RawResponse, CorpusError> {
+        call_with(rig, &CONSULT).await
+    }
+
+    /// Seul point d'appel de `run` des tests de bout en bout.
+    async fn call_with(rig: &Rig, context: &ErrorContext<'_>) -> Result<RawResponse, CorpusError> {
         let ctx = RetryContext {
             clock: &rig.clock,
             sleeper: &rig.sleeper,
@@ -655,7 +668,7 @@ mod tests {
             timeout: rig.deadline.cap(&rig.clock, rig.request_timeout),
             max_body_bytes: 16 * 1024 * 1024,
         };
-        run(&ctx, || async { try_send(&rig.client, &attempt).await }).await
+        run(&ctx, || async { try_send(&rig.client, &attempt, context).await }).await
     }
 
     /// `times` réponses `template` à `POST /consult/juri`, exactement.
@@ -683,8 +696,10 @@ mod tests {
         server.received_requests().await.unwrap().len()
     }
 
+    /// Réponse de `code` au corps `{}` : un 2xx sans corps est « introuvable » sur une
+    /// consultation, ce que ces tests de réessai ne visent pas.
     fn status(code: u16) -> ResponseTemplate {
-        ResponseTemplate::new(code)
+        ResponseTemplate::new(code).set_body_string("{}")
     }
 
     fn upstream_error(code: u16, retryable: bool) -> CorpusError {
@@ -783,7 +798,7 @@ mod tests {
         let uri = raw_sequence_server(vec![
             "HTTP/1.1 429 Too Many Requests\r\nRetry-After: Sun, 06 Nov 1994 08:49:40 GMT\r\n\
              Content-Length: 0\r\nConnection: close\r\n\r\n",
-            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
         ]);
         let rig = Rig::new(&uri);
         assert_eq!(call(&rig).await.unwrap().status, 200);
@@ -883,6 +898,56 @@ mod tests {
             call(&rig).await,
             Err(CorpusError::Config { detail: "HTTP 404 on /consult/juri".to_owned() })
         );
+    }
+
+    #[tokio::test]
+    async fn the_404_on_consult_official_host_is_not_found() {
+        let server = MockServer::start().await;
+        reply(&server, status(404).set_body_string(r#"{"status":404,"error":"Not Found"}"#), 1)
+            .await;
+        let rig = Rig::new(&server.uri());
+        assert_eq!(
+            call_with(&rig, &OFFICIAL_CONSULT).await,
+            Err(CorpusError::NotFound { what: "/consult/juri".to_owned() })
+        );
+        assert_eq!((requests(&server).await, rig.sleeper.waits()), (1, vec![]));
+    }
+
+    #[tokio::test]
+    async fn the_404_html_is_config() {
+        let server = MockServer::start().await;
+        let page = ResponseTemplate::new(404).set_body_raw("<html>404</html>", "text/html");
+        reply(&server, page, 1).await;
+        let rig = Rig::new(&server.uri());
+        assert_eq!(
+            call_with(&rig, &OFFICIAL_CONSULT).await,
+            Err(CorpusError::Config { detail: "HTTP 404 on /consult/juri".to_owned() })
+        );
+    }
+
+    #[tokio::test]
+    async fn the_404_on_search_is_config_not_not_found() {
+        let server = MockServer::start().await;
+        reply(&server, status(404), 1).await;
+        let rig = Rig::new(&server.uri());
+        let search = ErrorContext { kind: EndpointKind::Search, ..OFFICIAL_CONSULT };
+        assert_eq!(
+            call_with(&rig, &search).await,
+            Err(CorpusError::Config { detail: "HTTP 404 on /consult/juri".to_owned() })
+        );
+    }
+
+    #[tokio::test]
+    async fn the_400_with_a_message_is_not_retried_and_carries_it() {
+        let server = MockServer::start().await;
+        reply(&server, status(400).set_body_string(r#"{"error":400,"message":"Bad\nfacet"}"#), 1)
+            .await;
+        let rig = Rig::new(&server.uri());
+        assert_eq!(
+            call(&rig).await,
+            Err(CorpusError::InvalidRequest { status: Some(400), detail: "Bad facet".to_owned() })
+        );
+        assert_eq!((requests(&server).await, rig.sleeper.waits()), (1, vec![]));
     }
 
     #[tokio::test]

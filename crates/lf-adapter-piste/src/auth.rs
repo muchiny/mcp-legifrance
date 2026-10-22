@@ -18,7 +18,7 @@ use reqwest::Url;
 use secrecy::{ExposeSecret, SecretString};
 use tokio::sync::{Mutex, MutexGuard};
 
-use crate::classify::{Outcome, classify};
+use crate::classify::{ErrorContext, Outcome, classify};
 use crate::config::{PisteConfig, PisteCredentials};
 use crate::deadline::CallDeadline;
 use crate::dto::oauth::{OAuthErrorDto, TokenResponseDto, is_header_safe};
@@ -261,7 +261,7 @@ fn token_outcome(
     {
         return Outcome::Fatal(error);
     }
-    from_classified(classify(result, TOKEN_ENDPOINT), url)
+    from_classified(classify(result, TOKEN_ENDPOINT, &ErrorContext::TOKEN), url)
 }
 
 /// Reprend une issue classée : seul un succès se lit, un 401 n'a pas de sens ici (il est

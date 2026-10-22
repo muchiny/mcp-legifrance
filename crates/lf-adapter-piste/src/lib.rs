@@ -15,8 +15,9 @@
 //! Modules :
 //! - `auth` : jeton d'accès OAuth 2.0 `client_credentials` (`TokenManager`) : un seul jeton en
 //!   mémoire, renouvelé avant son expiration par une seule requête à la fois, avec réessais.
-//! - `classify` : classification d'une tentative d'envoi (`Outcome`, `Budget`) d'après le statut
-//!   HTTP et `Retry-After`, sans jamais lire le corps.
+//! - `classify` : classification d'une tentative d'envoi (`Outcome`, `Budget`, `EndpointKind`,
+//!   `ErrorContext`) d'après le statut HTTP et `Retry-After` ; le corps n'est lu que pour un 400,
+//!   un 404 de consultation et un 2xx vide (« introuvable », 04 §11).
 //! - `config` : configuration de l'adapter (`PisteConfig`, champs privés, réglages avancés
 //!   validés `PisteTuning`) et validation des URL surchargées.
 //! - `corpus` : `PisteCorpus`, l'assemblage de l'adapter : mode dégradé sans E/S, puis pour chaque
@@ -24,9 +25,11 @@
 //! - `deadline` : échéance d'un appel (`CallDeadline`), durée restante lue dans `Deadline`
 //!   puis posée sur l'horloge monotone de l'adapter.
 //! - `dto` : structures de désérialisation des réponses de PISTE (réponse et erreur de l'endpoint
-//!   token), avec des lecteurs serde tolérants (`null_default`, `opt_raw_date`…) et `decode`, qui
+//!   token, `PisteErrorDto` pour le corps d'erreur de l'API), avec des lecteurs serde tolérants (`null_default`, `opt_raw_date`…) et `decode`, qui
 //!   lit un corps JSON avec le chemin de l'erreur et sans aucune valeur du corps.
 //! - `encoding` : décodage UTF-8 strict du corps, détection et réparation du mojibake latin-1.
+//! - `error_body` : message d'un corps d'erreur PISTE (UTF-8, mojibake, JSON facultatif), détail
+//!   nettoyé, privé des secrets puis borné, marqueur « introuvable », détection d'une page HTML.
 //! - `http` : client HTTP unique (`reqwest`, TLS rustls), tentative d'envoi (`send_once`) et
 //!   lecture bornée du corps ; aucun réessai ni jugement de statut.
 //! - `limit` : barrière de charge sortante (`RateGate`), sémaphore de concurrence puis limiteur
@@ -54,6 +57,7 @@ mod corpus;
 mod deadline;
 mod dto;
 mod encoding;
+mod error_body;
 mod http;
 mod limit;
 mod retry;
