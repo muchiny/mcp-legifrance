@@ -1,11 +1,12 @@
 //! Classification d'une tentative d'envoi : succès, jeton refusé, échec passager ou définitif.
 //!
 //! Le statut HTTP, `Retry-After` et `Date` classent la réponse. Le corps n'est lu que dans trois
-//! cas, et seulement pour trancher « introuvable » (04 §11) : le message d'un 400 (détail de
-//! l'erreur, marqueur d'un identifiant inconnu sur une consultation), un 404 de consultation
-//! (une page HTML n'est pas une preuve d'absence) et un 2xx vide ; tout autre corps reste
-//! intact, et `post_json` décode celui des 2xx. Le choix de réessayer, d'attendre ou de renoncer
-//! appartient à `retry::run` ; ce module ne dort pas et ne lit aucune horloge.
+//! cas (04 §11) : le message d'un 400 de consultation (marqueur d'un identifiant inconnu, qui
+//! tranche « introuvable », et détail de l'erreur sinon), un 404 de consultation (une page HTML
+//! n'est pas une preuve d'absence) et un 2xx vide ; le corps d'un 400 de recherche ou du jeton
+//! n'est jamais lu, et tout autre corps reste intact (`post_json` décode celui des 2xx). Le choix
+//! de réessayer, d'attendre ou de renoncer appartient à `retry::run` ; ce module ne dort pas et
+//! ne lit aucune horloge.
 
 use std::time::Duration;
 
@@ -116,7 +117,7 @@ pub(crate) fn classify(
 }
 
 /// Classe une réponse HTTP d'après son statut ; `Retry-After` n'est lu que pour 429, 502, 503 et
-/// 504. Le corps n'est lu que pour un 2xx (vide ?), un 400 et un 404.
+/// 504. Le corps n'est lu que pour un 2xx (vide ?), un 400 de consultation et un 404.
 fn classify_status(
     response: RawResponse,
     endpoint: &str,
@@ -194,38 +195,38 @@ fn classify_success(
     }
 }
 
-/// Erreur d'un 400 : `NotFound` si le message désigne un identifiant inconnu (consultation
-/// seulement), sinon `InvalidRequest` dont le détail est le message PISTE nettoyé, privé des
-/// secrets et borné, ou le gabarit `HTTP 400 on {endpoint}` si le corps n'en livre aucun.
+/// Erreur d'un 400 : pour une consultation, `NotFound` si le message désigne un identifiant
+/// inconnu, sinon `InvalidRequest` dont le détail est le message PISTE nettoyé, privé des
+/// secrets et borné, ou le gabarit `HTTP 400 on {endpoint}` si le corps n'en livre aucun. Pour
+/// une recherche, le détail est **toujours** ce gabarit.
 ///
-/// Le `detail` est le message seul : 05 §7.2 le recopie tel quel après « Legifrance rejected the
-/// request (HTTP 400): ». Un 400 est un bug probable (`warn`), sauf l'identifiant inconnu, qui
-/// est un cas normal. Le corps n'est jamais journalisé ; le `warn` d'une recherche ne cite pas
-/// non plus le message PISTE (il peut recopier le texte de la requête, 04 §12.5), seulement sa
-/// longueur. Le corps du jeton n'est jamais lu.
+/// Le message d'un 400 de recherche peut citer le texte de la requête (04 §12.4, §12.5), et le
+/// `detail` va aux journaux et à l'audit de l'application : il n'est donc ni lu ni recopié. Le
+/// `detail` d'une consultation est le message seul : 05 §7.2 le recopie tel quel après
+/// « Legifrance rejected the request (HTTP 400): ». Un 400 est un bug probable (`warn`), sauf
+/// l'identifiant inconnu, qui est un cas normal. Le corps n'est jamais journalisé tel quel ; le
+/// `warn` d'une recherche ne porte ni message ni détail. Le corps du jeton n'est jamais lu.
 fn bad_request(response: &RawResponse, endpoint: &str, context: &ErrorContext<'_>) -> CorpusError {
-    let generic = format!("HTTP 400 on {endpoint}");
     let message = match context.kind {
-        EndpointKind::Token => None,
-        EndpointKind::Search | EndpointKind::Consult => {
+        EndpointKind::Consult => {
             error_body::message(&response.body, endpoint, context.repair_mojibake)
         }
+        EndpointKind::Search | EndpointKind::Token => None,
     };
     // Le marqueur se cherche dans le texte brut complet, avant nettoyage, retrait et coupure.
-    if context.kind == EndpointKind::Consult
-        && message.as_deref().is_some_and(error_body::is_not_found_marker)
-    {
+    if message.as_deref().is_some_and(error_body::is_not_found_marker) {
         return CorpusError::NotFound { what: endpoint.to_owned() };
     }
-    let cleaned = message.map(|raw| error_body::clean_detail(&raw, context.secrets));
-    let detail = cleaned.filter(|text| !text.is_empty()).unwrap_or(generic);
+    let detail = message
+        .map(|raw| error_body::clean_detail(&raw, context.secrets))
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| format!("HTTP 400 on {endpoint}"));
     if context.kind == EndpointKind::Search {
         // 04 §12.5 : le texte de la requête n'est journalisé à aucun niveau, et le message PISTE
-        // d'un 400 de recherche peut le citer ; seule sa longueur l'est.
+        // d'un 400 de recherche peut le citer ; le journal n'en porte rien.
         tracing::warn!(
             endpoint,
             status = 400,
-            detail_len = detail.chars().count(),
             "PISTE rejected a search request as invalid (HTTP 400): probable bug"
         );
     } else {
@@ -397,6 +398,30 @@ mod tests {
     }
 
     #[test]
+    fn the_400_marker_survives_any_shape_of_error_code() {
+        for code in ["1234", r#""E42""#, "null", r#"{"code":1}"#, r#"["E42"]"#, "true", "1.5"] {
+            let body =
+                format!(r#"{{"error":400,"message":"{MARKER_MESSAGE}","errorCode":{code}}}"#);
+            assert_eq!(
+                classify(Ok(with_body(400, &body)), ENDPOINT, &CONSULT),
+                fatal(not_found()),
+                "{code}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_400_marker_is_searched_in_the_whole_raw_message() {
+        // Le marqueur est au-delà des 200 caractères que garde le détail : il se cherche dans le
+        // texte brut complet, avant la coupure.
+        let message = format!("{} {MARKER_MESSAGE}", "x".repeat(250));
+        assert_eq!(
+            classify(Ok(piste_error(400, &message)), ENDPOINT, &CONSULT),
+            fatal(not_found())
+        );
+    }
+
+    #[test]
     fn the_400_marker_ignores_case_and_accent() {
         for message in [
             "L'EXPRESSION À VALIDER EST FAUSSE.",
@@ -438,20 +463,40 @@ mod tests {
     }
 
     #[test]
-    fn the_400_marker_on_search_is_only_a_rejected_request() {
+    fn the_400_marker_on_search_is_only_a_rejected_request_with_a_generic_detail() {
         assert_eq!(
             classify(Ok(piste_error(400, MARKER_MESSAGE)), SEARCH_ENDPOINT, &SEARCH),
-            fatal(invalid(MARKER_MESSAGE))
+            fatal(invalid("HTTP 400 on /search"))
         );
     }
 
     #[test]
-    fn another_400_message_becomes_the_detail() {
-        for context in [CONSULT, SEARCH] {
-            assert_eq!(
-                classify(Ok(piste_error(400, "Unknown facet DATE_X")), ENDPOINT, &context),
-                fatal(invalid("Unknown facet DATE_X"))
-            );
+    fn another_400_message_becomes_the_detail_of_a_consultation() {
+        assert_eq!(
+            classify(Ok(piste_error(400, "Unknown facet DATE_X")), ENDPOINT, &CONSULT),
+            fatal(invalid("Unknown facet DATE_X"))
+        );
+    }
+
+    #[test]
+    fn the_pista_message_of_a_search_400_never_reaches_the_detail() {
+        // Le message d'un 400 de recherche peut citer le texte de la requête (04 §12.5) : le
+        // détail, que le port destine aux journaux et à l'audit, ne le recopie jamais.
+        let secret_context = ErrorContext { secrets: &["tok-0123456789"], ..SEARCH };
+        for message in [
+            "Unknown value texte-secret-42 in query",
+            "Unknown facet DATE_X",
+            "Bearer tok-0123456789 refused",
+            "x",
+            MARKER_MESSAGE,
+        ] {
+            for context in [SEARCH, secret_context] {
+                assert_eq!(
+                    classify(Ok(piste_error(400, message)), SEARCH_ENDPOINT, &context),
+                    fatal(invalid("HTTP 400 on /search")),
+                    "{message}"
+                );
+            }
         }
     }
 
@@ -495,7 +540,7 @@ mod tests {
 
     #[test]
     fn the_400_detail_never_carries_a_known_secret() {
-        let context = ErrorContext { secrets: &["tok-0123456789", "client-secret-xyz"], ..SEARCH };
+        let context = ErrorContext { secrets: &["tok-0123456789", "client-secret-xyz"], ..CONSULT };
         let detail_of = |message: &str| classify(Ok(piste_error(400, message)), ENDPOINT, &context);
         assert_eq!(
             detail_of("Bad Bearer tok-0123456789 / client-secret-xyz in tok-0123456789"),
@@ -547,15 +592,14 @@ mod tests {
                 SEARCH_ENDPOINT,
                 &SEARCH
             ),
-            fatal(invalid("Unknown value texte-secret-42 in query"))
+            fatal(invalid("HTTP 400 on /search"))
         );
         let log = capture.text();
-        for expected in
-            ["WARN", "probable bug", r#"endpoint="/search""#, "status=400", "detail_len=38"]
-        {
+        for expected in ["WARN", "probable bug", r#"endpoint="/search""#, "status=400"] {
             assert!(log.contains(expected), "{expected} missing from {log:?}");
         }
         assert!(!log.contains("texte-secret-42"), "{log:?}");
+        assert!(!log.contains("detail"), "{log:?}");
     }
 
     #[test]
@@ -571,7 +615,13 @@ mod tests {
 
     #[test]
     fn a_404_html_page_is_config_even_on_the_official_host() {
-        for body in ["<!DOCTYPE html><html>404</html>", "\n  <html>", r#"<?xml version="1.0"?>"#] {
+        for body in [
+            "<!DOCTYPE html><html>404</html>",
+            "\n  <html>",
+            r#"<?xml version="1.0"?>"#,
+            "\u{feff}<html>",
+            "\u{feff}  \r\n<!DOCTYPE html>",
+        ] {
             assert_eq!(
                 classify(Ok(with_body(404, body)), ENDPOINT, &OFFICIAL),
                 fatal(CorpusError::Config { detail: detail(404) }),

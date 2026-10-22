@@ -98,7 +98,8 @@ pub struct SearchPage {
     pub total: u64,
     /// Résultats de la page.
     pub hits: Vec<SearchHit>,
-    /// `typePagination` reçu : alimente le `PaginationMemo` et les journaux, jamais rendu au modèle.
+    /// `typePagination` reçu : alimente le `PaginationMemo` et les journaux, jamais rendu au
+    /// modèle.
     pub pagination: PaginationMode,
 }
 

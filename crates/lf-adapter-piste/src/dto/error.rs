@@ -23,8 +23,8 @@ pub(crate) struct PisteErrorDto {
     /// Message libre de PISTE.
     #[serde(default)]
     pub message: Option<String>,
-    /// Code d'erreur applicatif.
-    #[serde(default)]
+    /// Code d'erreur applicatif (chaîne ou nombre, rendu en chaîne ; tout autre type donne `None`).
+    #[serde(default, deserialize_with = "de::opt_string_or_number")]
     pub error_code: Option<String>,
 }
 
@@ -74,6 +74,30 @@ mod tests {
             statuses.map(|raw| read(&format!(r#"{{"status":{raw}}}"#)).status),
             [Some(json!("Bad Request")), Some(json!(400)), Some(json!({"code": 400})), None]
         );
+    }
+
+    #[test]
+    fn error_code_is_lenient_and_never_costs_the_message() {
+        // (écriture de `errorCode`, valeur lue)
+        let codes = [
+            (r#""E42""#, Some("E42")),
+            ("1234", Some("1234")),
+            ("-7", Some("-7")),
+            ("1.5", None),
+            ("null", None),
+            (r#""  ""#, None),
+            (r#"{"code":1}"#, None),
+            (r#"["E42"]"#, None),
+            ("true", None),
+        ];
+        for (raw, expected) in codes {
+            let dto = read(&format!(r#"{{"message":"kept","errorCode":{raw}}}"#));
+            assert_eq!(
+                (dto.message.as_deref(), dto.error_code.as_deref()),
+                (Some("kept"), expected),
+                "{raw}"
+            );
+        }
     }
 
     #[test]

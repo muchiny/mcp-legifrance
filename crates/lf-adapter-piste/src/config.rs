@@ -522,6 +522,9 @@ impl PisteConfig {
 
     /// Remplace les réglages avancés, le reste de la configuration est conservé.
     ///
+    /// La configuration est **consommée même en cas d'erreur** : l'appelant qui veut un repli la
+    /// clone avant l'appel (`PisteConfig` est `Clone`).
+    ///
     /// # Errors
     ///
     /// [`TuningError::Zero`] pour le premier réglage nul, dans l'ordre : délai de connexion,

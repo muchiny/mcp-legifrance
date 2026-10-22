@@ -170,9 +170,14 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     ///
     /// # Errors
     ///
-    /// [`CorpusError::Config`] en mode dégradé, sans E/S ; [`CorpusError::InvalidRequest`] si
-    /// `endpoint` ne commence pas par `/` ; sinon l'erreur classée de la dernière tentative
-    /// (`Timeout`, `RateLimited`, `Auth`, `Upstream`, `Decode`).
+    /// [`CorpusError::Config`] en mode dégradé, sans E/S, et pour un 404 qui ne prouve pas
+    /// l'absence (recherche, hôte non officiel, page HTML) ou un 405 ;
+    /// [`CorpusError::InvalidRequest`] si `endpoint` ne commence pas par `/` ou pour un 400
+    /// (détail du message PISTE nettoyé pour une consultation, générique pour une recherche) ;
+    /// [`CorpusError::NotFound`] pour une consultation dont le 400 porte le marqueur d'un
+    /// identifiant inconnu, dont le 404 vient de l'hôte officiel hors page HTML, ou dont le 2xx
+    /// est vide ; sinon l'erreur classée de la dernière tentative (`Timeout`, `RateLimited`,
+    /// `Auth`, `Upstream`, `Decode`, dont le 2xx vide d'une recherche).
     pub(crate) async fn post_json(
         &self,
         kind: EndpointKind,
@@ -253,17 +258,15 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
             max_body_bytes: inner.config.tuning().max_body_bytes,
         };
         // Cinquième point d'exposition du jeton et du secret client (04 §3.6) : leurs valeurs ne
-        // servent qu'à être retirées du message d'un corps d'erreur, sans copie conservée.
-        let secrets: Vec<&str> = [
-            Some(lease.value.expose_secret()),
+        // servent qu'à être retirées du message d'un corps d'erreur, sans copie conservée. Un
+        // secret vide (identifiants absents) est ignoré par `redact`.
+        let secrets = [
+            lease.value.expose_secret(),
             inner
                 .config
                 .credentials()
-                .map(|credentials| credentials.client_secret().expose_secret()),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
+                .map_or("", |credentials| credentials.client_secret().expose_secret()),
+        ];
         let context = ErrorContext {
             kind: call.kind,
             official_host: call.official_host,
@@ -1276,7 +1279,6 @@ mod tests {
     // ---- Corps d'erreur et « introuvable » (T-M2-08, 04 §11) ------------------------------
 
     const MARKER_BODY: &str = r#"{"timestamp":1,"error":400,"status":"Bad Request","message":"L'expression à valider est fausse.","errorCode":null,"exceptionDetails":null}"#;
-    const MARKER_MESSAGE: &str = "L'expression à valider est fausse.";
 
     /// L'API répond `template` une fois exactement, à `{API_BASE}{endpoint}`.
     async fn api_mock_at(server: &MockServer, endpoint: &str, template: ResponseTemplate) {
@@ -1333,7 +1335,7 @@ mod tests {
     async fn the_400_marker_means_not_found_only_on_a_consultation() {
         let (_rig, result) =
             call_once(EndpointKind::Search, "/search", json_reply(400, MARKER_BODY)).await;
-        assert_eq!(result, Err(invalid_request(MARKER_MESSAGE)));
+        assert_eq!(result, Err(invalid_request("HTTP 400 on /search")));
     }
 
     #[tokio::test]
@@ -1347,7 +1349,7 @@ mod tests {
                 Err(CorpusError::NotFound { what: ENDPOINT.to_owned() }),
                 "repair {repair}"
             );
-            // Un corps d'erreur réparé n'est pas compté : `classify` est pur et n'a pas de compteur.
+            // Un corps d'erreur réparé n'est pas compté : `classify` est pur, sans compteur.
             assert_eq!(rig.corpus.stats(), StatsSnapshot::default(), "repair {repair}");
         }
     }

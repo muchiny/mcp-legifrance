@@ -50,7 +50,12 @@ pub(crate) enum RawDate {
     Text(String),
 }
 
-/// Date JSON : nombre, chaîne ou autre chose, sans jamais échouer sur un JSON bien formé.
+/// Date JSON : nombre, chaîne ou autre chose, sans échouer sur un JSON bien formé de profondeur
+/// ordinaire.
+///
+/// Un `untagged` met la valeur en mémoire tampon avant d'essayer les variantes : la limite de 128
+/// niveaux d'imbrication de `serde_json` s'applique encore, et un sous-arbre plus profond est une
+/// erreur de décodage.
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum DateInput {
@@ -68,7 +73,8 @@ enum DateInput {
 ///
 /// Un booléen, un objet, un tableau, une chaîne blanche, un flottant fractionnaire et un nombre
 /// hors d'un `i64` donnent `None`. Aucune de ces tolérances n'est comptée ici : le décompte
-/// éventuel appartient au mapping. Seul un JSON mal formé est une erreur.
+/// éventuel appartient au mapping. Seuls un JSON mal formé et une imbrication de plus de 128
+/// niveaux sont une erreur.
 ///
 /// # Errors
 ///
@@ -119,7 +125,8 @@ enum CodeInput {
 ///
 /// Une chaîne non blanche est gardée telle quelle (zéros initiaux compris) ; un entier, signé ou
 /// non, est écrit en décimal. Une chaîne blanche, un flottant, un booléen, un tableau, un objet
-/// et `null` donnent `None`. Seul un JSON mal formé est une erreur.
+/// et `null` donnent `None`. Seuls un JSON mal formé et une imbrication de plus de 128 niveaux sont
+/// une erreur.
 ///
 /// # Errors
 ///
@@ -134,7 +141,10 @@ pub(crate) fn opt_string_or_number<'de, D: Deserializer<'de>>(
     })
 }
 
-/// Valeur JSON lue sans jamais échouer sur un JSON bien formé.
+/// Valeur JSON lue sans échouer sur un JSON bien formé de profondeur ordinaire.
+///
+/// Même réserve que `DateInput` : un `untagged` met la valeur en mémoire tampon, et la limite de
+/// 128 niveaux d'imbrication de `serde_json` s'applique encore.
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum Lenient {
@@ -143,14 +153,15 @@ enum Lenient {
     /// Texte, à lire comme un nombre s'il n'est fait que de chiffres.
     Text(String),
     /// Toute autre valeur (négatif, flottant, booléen, tableau, objet, `null`, trop grand) :
-    /// ignorée, ce qui rend la fonction totale.
+    /// ignorée.
     Other(IgnoredAny),
 }
 
 /// Lit un entier positif donné en nombre ou en chaîne de chiffres ; tout le reste donne `None`.
 ///
 /// Un champ absent, `null`, négatif, flottant, hors d'un `u64` ou d'un autre type ne fait
-/// jamais échouer le document : seul un JSON mal formé est une erreur. Pour une chaîne, seuls
+/// pas échouer le document : seuls un JSON mal formé et une imbrication de plus de 128 niveaux
+/// sont une erreur. Pour une chaîne, seuls
 /// les chiffres ASCII comptent, ce qui écarte un signe, un espace ou une notation
 /// scientifique (`u64::from_str` accepte un `+` initial, d'où le test des octets avant).
 ///

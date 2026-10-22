@@ -89,8 +89,16 @@ fn push_name(rendered: &mut String, name: &str) {
 ///
 /// `serde_path_to_error` ne distingue pas un champ du DTO d'une clé lue dans le corps : toute clé
 /// qui pourrait être du texte libre est masquée. Une clé de forme identifiant venue du corps
-/// passe quand même : les DTO ne déclarent donc ni table indexée par du texte du corps ni
-/// `deny_unknown_fields` (04 §8.1).
+/// passe quand même, par trois voies :
+/// - une table indexée par du texte du corps ;
+/// - `deny_unknown_fields` (le nom du champ refusé) ;
+/// - la clé d'un champ **non déclaré** par le DTO, ou d'un champ `serde_json::Value`, dont la
+///   valeur est mal formée (`{"sk_live_ABC":[1,}` donne le chemin `sk_live_ABC`).
+///
+/// Les DTO ne déclarent donc ni table indexée par du texte du corps ni `deny_unknown_fields`
+/// (04 §8.1), et la troisième voie est une limite assumée : une clé de forme identifiant n'est pas
+/// un secret. Le chemin n'est sûr qu'avec la règle des lecteurs écrits à la main : aucune erreur
+/// serde personnalisée ne cite la valeur lue (04 §8.5).
 fn safe_key(key: &str) -> &str {
     let plain = !key.is_empty()
         && key.len() <= MAX_KEY_LEN
@@ -218,6 +226,18 @@ mod tests {
     }
 
     #[derive(Debug, PartialEq, Deserialize)]
+    enum Open {
+        Alpha,
+        #[serde(other)]
+        Unknown,
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct HasOpen {
+        kind: Open,
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
     enum Shape {
         Circle(u8),
     }
@@ -248,7 +268,9 @@ mod tests {
         decode::<T>(text, ENDPOINT).unwrap_err()
     }
 
-    fn decode_error(detail: &str) -> CorpusError {
+    /// L'erreur `Decode` attendue, bâtie à la main : elle ne doit pas passer par la fonction de
+    /// production `decode_error`.
+    fn expected_decode(detail: &str) -> CorpusError {
         CorpusError::Decode { detail: detail.to_owned() }
     }
 
@@ -275,7 +297,7 @@ mod tests {
     fn invalid_json_maps_to_decode_with_path() {
         assert_eq!(
             failure::<Envelope>(r#"{"text":{"numeroAffaire":12}}"#),
-            decode_error(
+            expected_decode(
                 "/consult/juri: text.numeroAffaire: invalid type: integer, expected a sequence"
             )
         );
@@ -285,7 +307,7 @@ mod tests {
     fn the_path_carries_list_indexes() {
         assert_eq!(
             failure::<Envelope>(r#"{"text":{"sommaire":[{"abstrats":"ok"},{"abstrats":7}]}}"#),
-            decode_error(
+            expected_decode(
                 "/consult/juri: text.sommaire[1].abstrats: invalid type: integer, expected a string"
             )
         );
@@ -299,7 +321,7 @@ mod tests {
         );
         assert_eq!(
             failure::<HasShape>(r#"{"shape":{"Circle":"x"}}"#),
-            decode_error("/consult/juri: shape.Circle: invalid type: string, expected u8")
+            expected_decode("/consult/juri: shape.Circle: invalid type: string, expected u8")
         );
     }
 
@@ -307,11 +329,11 @@ mod tests {
     fn a_path_below_a_root_array_has_no_leading_dot() {
         assert_eq!(
             failure::<Vec<Probe>>(r#"[{"a":"x"}]"#),
-            decode_error("/consult/juri: [0].a: invalid type: string, expected u8")
+            expected_decode("/consult/juri: [0].a: invalid type: string, expected u8")
         );
         assert_eq!(
             failure::<Vec<Probe>>("[1]"),
-            decode_error("/consult/juri: [0]: invalid type: integer, expected struct Probe")
+            expected_decode("/consult/juri: [0]: invalid type: integer, expected struct Probe")
         );
     }
 
@@ -319,7 +341,7 @@ mod tests {
     fn html_body_maps_to_decode() {
         assert_eq!(
             failure::<Envelope>("<html><body>502 Bad Gateway</body></html>"),
-            decode_error("/consult/juri: .: expected value at line 1 column 1")
+            expected_decode("/consult/juri: .: expected value at line 1 column 1")
         );
     }
 
@@ -327,7 +349,7 @@ mod tests {
     fn json_null_body_maps_to_decode() {
         assert_eq!(
             failure::<Envelope>("null"),
-            decode_error("/consult/juri: .: invalid type: null, expected struct Envelope")
+            expected_decode("/consult/juri: .: invalid type: null, expected struct Envelope")
         );
     }
 
@@ -335,11 +357,13 @@ mod tests {
     fn empty_and_truncated_bodies_map_to_decode() {
         assert_eq!(
             failure::<Envelope>(""),
-            decode_error("/consult/juri: .: EOF while parsing a value at line 1 column 0")
+            expected_decode("/consult/juri: .: EOF while parsing a value at line 1 column 0")
         );
         assert_eq!(
             failure::<Envelope>(r#"{"text":{"numeroAf"#),
-            decode_error("/consult/juri: text.?: EOF while parsing a string at line 1 column 18")
+            expected_decode(
+                "/consult/juri: text.?: EOF while parsing a string at line 1 column 18"
+            )
         );
     }
 
@@ -347,7 +371,7 @@ mod tests {
     fn text_after_the_document_maps_to_decode() {
         assert_eq!(
             failure::<Envelope>(r#"{"text":null} {"text":null}"#),
-            decode_error("/consult/juri: .: trailing characters at line 1 column 15")
+            expected_decode("/consult/juri: .: trailing characters at line 1 column 15")
         );
     }
 
@@ -355,7 +379,9 @@ mod tests {
     fn a_syntax_error_inside_the_document_keeps_its_path() {
         assert_eq!(
             failure::<Envelope>(r#"{"text":{"numeroAffaire":["a",]}}"#),
-            decode_error("/consult/juri: text.numeroAffaire: trailing comma at line 1 column 31")
+            expected_decode(
+                "/consult/juri: text.numeroAffaire: trailing comma at line 1 column 31"
+            )
         );
     }
 
@@ -375,7 +401,16 @@ mod tests {
     fn nesting_just_under_the_limit_is_decoded() {
         let section = decode::<Section>(&nested_sections(63), ENDPOINT).unwrap();
         assert_eq!(section.sections.len(), 1);
-        assert!(decode::<Section>(&nested_sections(64), ENDPOINT).is_err());
+        // 64 niveaux de sections font 129 niveaux de profondeur : un de plus que la limite.
+        let debug = format!("{:?}", failure::<Section>(&nested_sections(64)));
+        assert_eq!(
+            (
+                debug.starts_with(r#"Decode { detail: "/consult/juri: sections[0].sections[0]."#),
+                debug.contains(": recursion limit exceeded at line 1 column"),
+            ),
+            (true, true),
+            "{debug}"
+        );
     }
 
     #[test]
@@ -404,7 +439,7 @@ mod tests {
             (failure::<Probe>(r#"{"a":1,"a":2}"#), ".: duplicate field `a`"),
         ];
         for (error, expected) in cases {
-            assert_eq!(error, decode_error(&format!("{ENDPOINT}: {expected}")));
+            assert_eq!(error, expected_decode(&format!("{ENDPOINT}: {expected}")));
         }
     }
 
@@ -415,7 +450,8 @@ mod tests {
             format!(r#"{{"a":"{SECRET}, expected u8"}}"#),
             format!(r#"{{"a":"`{SECRET}\" at line 1 column 1"}}"#),
             format!(r#"{{"c":["{SECRET}",1]}}"#),
-            format!(r#"{{"b":{{"{SECRET}":1}}}}"#),
+            // Clé d'un champ non déclaré, suivie d'une valeur mal formée : le chemin la masque.
+            format!(r#"{{"{SECRET}":[1,}}"#),
             format!(r#"{{"{SECRET}":1}}"#),
             format!(r#"{{"kind":"{SECRET}"}}"#),
             format!("{{}} {SECRET}"),
@@ -438,6 +474,33 @@ mod tests {
     }
 
     #[test]
+    fn the_key_of_an_undeclared_field_with_a_malformed_value_is_masked_unless_it_looks_plain() {
+        // Le chemin vient du désérialiseur : la clé d'un champ que le DTO ne déclare pas entre
+        // dans le chemin quand la valeur qui la suit est mal formée. `safe_key` la masque, sauf si
+        // elle a la forme d'un identifiant (limite documentée sur `safe_key`).
+        assert_eq!(
+            failure::<Probe>(&format!(r#"{{"{SECRET}":[1,}}"#)),
+            expected_decode("/consult/juri: ?: expected value at line 1 column 20")
+        );
+        assert_eq!(
+            failure::<Probe>(r#"{"sk_live_ABC":[1,}"#),
+            expected_decode("/consult/juri: sk_live_ABC: expected value at line 1 column 19")
+        );
+    }
+
+    #[test]
+    fn a_variant_name_taken_from_the_body_is_masked_in_the_path() {
+        assert_eq!(
+            failure::<HasOpen>(r#"{"kind":{"é":5}}"#),
+            expected_decode("/consult/juri: kind.?: invalid type: integer, expected unit")
+        );
+        assert_eq!(
+            failure::<HasOpen>(r#"{"kind":{"Zeta":5}}"#),
+            expected_decode("/consult/juri: kind.Zeta: invalid type: integer, expected unit")
+        );
+    }
+
+    #[test]
     fn keys_that_do_not_look_like_identifiers_are_masked_in_the_path() {
         let long = "k".repeat(64);
         let too_long = "k".repeat(65);
@@ -446,7 +509,7 @@ mod tests {
         for (key, shown) in keys.into_iter().zip(shown) {
             assert_eq!(
                 failure::<Strict>(&format!(r#"{{"{key}":1}}"#)),
-                decode_error(&format!("{ENDPOINT}: {shown}: unknown field"))
+                expected_decode(&format!("{ENDPOINT}: {shown}: unknown field"))
             );
         }
     }
@@ -455,7 +518,7 @@ mod tests {
     fn a_value_that_looks_like_a_message_cannot_forge_the_detail() {
         assert_eq!(
             failure::<Probe>(r#"{"a":"x, expected y\", expected z"}"#),
-            decode_error("/consult/juri: a: invalid type: string, expected u8")
+            expected_decode("/consult/juri: a: invalid type: string, expected u8")
         );
     }
 
