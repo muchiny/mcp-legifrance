@@ -1,0 +1,32 @@
+[package]
+name = "lf-adapter-piste"
+description = "Adapter PISTE du MCP Légifrance : client HTTP de l'API Légifrance, seule implémentation du port LegalCorpus jusqu'en M9."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Deadline : délai global publié par Audited (variable locale de tâche), lu comme durée restante
+lf-application.workspace = true
+lf-domain.workspace = true
+# Url (ré-export de `url`) pour valider les URL de configuration ; aucun appel réseau à ce stade
+reqwest.workspace = true
+# SecretString : client_secret, Debug rédigé `[REDACTED]`
+secrecy.workspace = true
+thiserror.workspace = true
+# time : `tokio::time::{Instant, sleep}` pour `TokioClock` et `TokioSleeper`
+tokio = { workspace = true, features = ["time"] }
+# warn! quand un corps de réponse est réparé ou gardé tel quel (stats.rs) : métadonnées seulement, jamais le texte
+tracing.workspace = true
+
+[dev-dependencies]
+# test-util : #[tokio::test(start_paused = true)] pour lire Deadline sans attendre (deadline.rs seulement)
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
+# fmt + MakeWriter en mémoire pour capter le warn! de record_decode ; R6 ne confine que les dépendances normales
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true
