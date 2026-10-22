@@ -4,7 +4,9 @@
 //! tolérants (champs facultatifs, nombres lus aussi en chaîne) parce que le format réel de
 //! PISTE n'est pas garanti.
 
+pub(crate) mod consult_text;
 pub(crate) mod de;
 pub(crate) mod decode;
 pub(crate) mod error;
 pub(crate) mod oauth;
+pub(crate) mod search;

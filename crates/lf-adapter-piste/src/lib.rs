@@ -27,9 +27,10 @@
 //! - `deadline` : échéance d'un appel (`CallDeadline`), durée restante lue dans `Deadline`
 //!   puis posée sur l'horloge monotone de l'adapter.
 //! - `dto` : structures de désérialisation des réponses de PISTE (réponse et erreur de l'endpoint
-//!   token, `PisteErrorDto` pour le corps d'erreur de l'API), avec des lecteurs serde tolérants
-//!   (`null_default`, `opt_raw_date`…) et `decode`, qui lit un corps JSON avec le chemin de
-//!   l'erreur et sans aucune valeur du corps.
+//!   token, `PisteErrorDto` pour le corps d'erreur de l'API, réponses de `/search` et de
+//!   `/consult/lawDecree|kaliText`), avec des lecteurs serde tolérants (`null_default`,
+//!   `opt_raw_date`…) et `decode`, qui lit un corps JSON avec le chemin de l'erreur et sans aucune
+//!   valeur du corps.
 //! - `encoding` : décodage UTF-8 strict du corps, détection et réparation du mojibake latin-1.
 //! - `error_body` : message d'un corps d'erreur PISTE (UTF-8, mojibake, JSON facultatif), détail
 //!   nettoyé, privé des secrets puis borné, marqueur « introuvable », détection d'une page HTML.
@@ -51,10 +52,10 @@
         dead_code,
         reason = "PisteCorpus::post_json et ce que lui seul emploie (try_send, RateGate::acquire, \
                   TokenManager::invalidate, Payload::Json, Stats::record_decode, les champs de \
-                  TokenLease et d'état de PisteCorpus), les lecteurs serde de dto::de qu'aucun DTO \
-                  n'emploie encore (null_default, opt_nonempty, opt_raw_date et RawDate) et les \
-                  champs non lus de PisteErrorDto et d'OAuthErrorDto : consommés par les DTO de la \
-                  PR 2 du plan 2d et par impl LegalCorpus au plan 2e"
+                  TokenLease et d'état de PisteCorpus), dto::decode::decode, PisteErrorDto, \
+                  OAuthErrorDto, les DTO de /search et de /consult/lawDecree|kaliText et ce que \
+                  seuls ils emploient (lecteurs serde de dto::de, champs non lus) : consommés par \
+                  impl LegalCorpus au plan 2e"
     )
 )]
 
