@@ -19,6 +19,8 @@ reqwest = { workspace = true, features = ["gzip", "system-proxy", "rustls"] }
 governor.workspace = true
 # Date HTTP de Retry-After et de Date (retry.rs) : analyse seule, aucune horloge murale
 chrono.workspace = true
+# midi Europe/Paris de `version_date` pour le filtre DATE_VERSION (request/search.rs, 04 §6.3) ; base IANA embarquée
+chrono-tz.workspace = true
 # SecretString : client_secret et jeton, Debug rédigé `[REDACTED]` ; serde : le jeton se désérialise directement en SecretString
 secrecy = { workspace = true, features = ["serde"] }
 # DTO de la réponse du point d'accès OAuth (dto/) : dérivation de Deserialize

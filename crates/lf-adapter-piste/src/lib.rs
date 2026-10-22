@@ -8,8 +8,8 @@
 //! le client HTTP, la résilience et `PisteCorpus` (assemblage, mode dégradé, appel de l'API de
 //! bout en bout). Livré au plan 2d (première moitié) : la configuration à champs privés et les
 //! réglages validés, le décodage des corps JSON sans valeur du corps, le corps d'erreur de PISTE
-//! et la classification « introuvable ». Renvoyé aux plans suivants : les requêtes `/search`, les
-//! DTO métier, le mapping et `impl LegalCorpus for PisteCorpus`.
+//! et la classification « introuvable ». Renvoyé aux plans suivants : les requêtes de consultation,
+//! les DTO métier, le mapping et `impl LegalCorpus for PisteCorpus`.
 //!
 //! Les modules sont privés : sont publics `PisteCorpus`, les types de configuration et
 //! `StatsSnapshot`.
@@ -38,6 +38,8 @@
 //!   lecture bornée du corps ; aucun réessai ni jugement de statut.
 //! - `limit` : barrière de charge sortante (`RateGate`), sémaphore de concurrence puis limiteur
 //!   de débit `governor` sur l'horloge de l'adapter ; toutes les attentes bornées par le délai.
+//! - `request` : corps des requêtes envoyées à PISTE ; `request::search` construit celui de
+//!   `/search` (`search_body`) et calcule le midi Europe/Paris du filtre `DATE_VERSION` (04 §6).
 //! - `retry` : politique de réessai (`run`) : trois requêtes au plus, délai exponentiel avec gigue,
 //!   `Retry-After`, bornée par le délai global ; boucle maison, sans `backon`.
 //! - `stats` : compteurs en mémoire (`Stats`) et leur instantané public (`StatsSnapshot`).
@@ -53,9 +55,10 @@
         reason = "PisteCorpus::post_json et ce que lui seul emploie (try_send, RateGate::acquire, \
                   TokenManager::invalidate, Payload::Json, Stats::record_decode, les champs de \
                   TokenLease et d'état de PisteCorpus), dto::decode::decode, PisteErrorDto, \
-                  OAuthErrorDto, les DTO de /search et de /consult (lawDecree, kaliText, \
-                  getArticle, juri, cnil, acco) et ce que seuls ils emploient (lecteurs serde de \
-                  dto::de, champs non lus) : consommés par impl LegalCorpus au plan 2e"
+                  request::search::search_body, OAuthErrorDto, les DTO de /search et de \
+                  /consult (lawDecree, kaliText, getArticle, juri, cnil, acco) et ce que seuls \
+                  ils emploient (lecteurs serde de dto::de, champs non lus) : consommés par \
+                  impl LegalCorpus au plan 2e"
     )
 )]
 
@@ -69,6 +72,7 @@ mod encoding;
 mod error_body;
 mod http;
 mod limit;
+mod request;
 mod retry;
 mod stats;
 #[cfg(test)]
