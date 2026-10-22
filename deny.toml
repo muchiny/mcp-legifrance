@@ -9,7 +9,26 @@ ignore = []
 
 [licenses]
 version = 2
-allow = ["MIT", "Apache-2.0", "Unicode-3.0"]
+include-dev = true
+# Liste exacte du graphe complet (dev comprise, toutes plateformes) : chaque licence est requise par
+# au moins un paquet sans alternative admise (M1-D17 ; retirer une licence fait échouer
+# `cargo deny check licenses`). Ni OpenSSL (absente des expressions d'aws-lc-sys et de ring), ni
+# MPL-2.0, ni LGPL (r-efi : alternative MIT).
+allow = [
+  "MIT",                 # tokio, hyper, governor, bytes, ... (37 paquets sans autre licence admise)
+  "Apache-2.0",          # nonzero_ext, sync_wrapper (seules), ryu et dunce (alternative), aws-lc-sys
+  "Unicode-3.0",         # icu_*, yoke, zerovec, ... (19 paquets) ; unicode-ident
+  "ISC",                 # aws-lc-rs, aws-lc-sys, rustls-webpki, untrusted (chaîne TLS de reqwest, T-M2-03)
+  "BSD-3-Clause",        # aws-lc-sys, subtle (chaîne TLS de reqwest)
+  "CDLA-Permissive-2.0", # webpki-root-certs (racines de certificats, chaîne TLS de reqwest)
+  "Zlib",                # foldhash 0.2.0 (licence seule), tiré par hashbrown 0.16.1 <- governor (T-M2-04)
+]
+exceptions = [
+  # Fuzzing seulement (fuzz/Cargo.lock, hors workspace, jamais livré) : « (MIT OR Apache-2.0) AND NCSA ».
+  # NCSA est permissive mais n'est requise par aucun autre paquet : exception nominative plutôt que
+  # licence globale, pour que tout nouveau paquet sous NCSA soit vu.
+  { crate = "libfuzzer-sys", allow = ["NCSA"] },
+]
 
 [licenses.private]
 ignore = true
@@ -22,7 +41,12 @@ deny = [
   { crate = "openssl", reason = "TLS = rustls uniquement (00 §8)" },
   { crate = "openssl-sys", reason = "TLS = rustls uniquement" },
   { crate = "native-tls", reason = "TLS = rustls uniquement" },
-  { crate = "backoff", reason = "non maintenu ; backon retenu (recherche 04 §4.1)" },
+  { crate = "backoff", reason = "non maintenu ; réessais maison (ADR-0017)" },
+  # wrappers : seuls les crates déjà dans le graphe ; rmcp (M4) et moka (M3) viennent à leur jalon.
+  # Seconde ligne derrière R6 de `cargo xtask check-arch` (02 §4.3) : un autre membre qui déclare
+  # reqwest, ou un dev-dependency qui le tire (graph all-features), rend `check bans` rouge.
+  { crate = "reqwest", wrappers = ["lf-adapter-piste"], reason = "HTTP sortant confiné à l'adapter PISTE (R6)" },
+  { crate = "governor", wrappers = ["lf-adapter-piste"], reason = "limiteur de débit confiné à l'adapter PISTE (R6)" },
 ]
 
 [sources]

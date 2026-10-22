@@ -158,7 +158,7 @@ checksum = "sha256"                      # .sha256 par archive + sha256.sum unif
 include = ["NOTICE", "THIRD_PARTY_LICENSES.md"]
 cargo-auditable = true                   # dépendances embarquées dans le binaire (cargo audit bin)
 cargo-cyclonedx = true                   # SBOM CycloneDX (bom.xml) dans les archives
-pr-run-mode = "plan"                     # « upload » temporairement pendant les spikes TLS (tâche 0 de M2)
+pr-run-mode = "plan"                     # « upload » temporairement pendant les spikes TLS (tâche 0 de M2 ; fait autrement au plan 2c : workflow `tls-spike.yml`, `cargo build --target`)
 fail-fast = false
 
 # Provenance : attestations sur TOUS les fichiers de la release, y compris le MCPB et server.json (§3.5)
@@ -231,22 +231,22 @@ lto = "thin"
 
 ### 2.4 TLS : aws-lc ou ring selon les cibles
 
-La décision (00 §8, §11.1) laisse le fournisseur crypto de rustls au spike TLS, tâche 0 de M2. 04 §4.1 décrit les options A (`reqwest/rustls`, aws-lc, défaut) et B (`rustls-no-provider` + `ring`, installé par `PisteCorpus::new`). La distribution ajoute ses propres contraintes :
+La décision (00 §8, §11.1) retient provisoirement l'option A (plan 2c) ; la matrice est à déclencher (`.github/workflows/tls-spike.yml`, manuel, par le propriétaire). 04 §4.1 décrit les options A (`reqwest/rustls`, aws-lc, retenue) et B (`rustls-no-provider` + `ring`, installé par `build_client`, dans `finish_client` : ADR-0013 §7). La distribution ajoute ses propres contraintes :
 
-| Contexte de compilation | Option A (aws-lc) | Option B (ring) | À mesurer au spike |
+| Contexte de compilation | Option A (aws-lc) | Option B (ring) | À mesurer (mesuré en gras) |
 |---|---|---|---|
-| Runners dist Linux gnu (x86_64, aarch64), compilation native | `aws-lc-sys` exige une chaîne C (`cc`, parfois `cmake`, voire `bindgen`) (recherche 04 §4.1) | compilateur C pour les parties C et assembleur de ring | durée, taille, réussite |
-| Runners dist Linux **musl** (`musl-tools`, `+crt-static`, `link-self-contained`) | `aws-lc-sys` compilé avec `musl-gcc` : **NON VÉRIFIÉ** [V-02 · tls-fournisseur-cross] | idem, plus simple selon la recherche 04 §4.2 | réussite sur les deux architectures |
-| macOS (x86_64 et aarch64), natif | Xcode CLT présents sur les runners | idem | — |
-| Windows msvc `+crt-static` | besoin éventuel de NASM ou de cmake, cohérence avec le CRT statique | idem | réussite, taille |
+| Runners dist Linux gnu (x86_64, aarch64), compilation native | `aws-lc-sys` exige une chaîne C (`cc`, parfois `cmake`, voire `bindgen`) (recherche 04 §4.1) | compilateur C pour les parties C et assembleur de ring | durée, taille, réussite. **Mesuré (plan 2c, x86_64 gnu, `gcc` 15.3.1, ni `cmake` ni NASM installés)** : A compile avec `cc` seul (`aws-lc-sys` construit avec le builder `CC`), 22,6 s et 5,4 Mio strippés ; B 13,0 s et 3,5 Mio strippés |
+| Runners dist Linux **musl** (`musl-tools`, `+crt-static`, `link-self-contained`) | `aws-lc-sys` compilé avec `musl-gcc` : **non mesuré avec `musl-gcc`** (`CC_<cible>=musl-gcc`, posé par `tls-spike.yml`) ; **mesuré** : sans compilateur C musl, A et B échouent à l'identique (`failed to find tool "x86_64-linux-musl-gcc"`) | idem, plus simple selon la recherche 04 §4.2 | réussite sur les deux architectures |
+| macOS (x86_64 et aarch64), natif | Xcode CLT présents sur les runners ; **non mesuré** (`tls-spike.yml`) | idem | — |
+| Windows msvc `+crt-static` | besoin éventuel de NASM ou de cmake, cohérence avec le CRT statique ; **non mesuré** | idem | réussite, taille |
 | Étape « source » du Dockerfile (§5.2) | paquets à ajouter à l'image de build | idem | idem |
 | **`cargo install --git` chez l'utilisateur** | la chaîne C et éventuellement cmake doivent exister sur **sa** machine | dépendances natives plus légères | friction d'installation sous Windows et macOS |
 
-Toutes ces exigences sont **NON VÉRIFIÉES** [V-02 · tls-fournisseur-cross] (étiquette de référence de V-02, reprise de 04 §4.1 ; 09 §2.1 y rattache l'étiquette que 02 §3.0.1 employait pour le même point, voir §12.1). **Recommandation** : si le spike montre qu'aws-lc impose cmake ou NASM sur les postes utilisateurs, retenir ring (option B), qui rend le canal `cargo install --git` plus fiable. Sinon, garder le défaut (option A). Le résultat est consigné dans ADR-0013 et dans le risque TLS de [09-risques-et-questions.md](09-risques-et-questions.md).
+Résultat **provisoire** ([V-02 · tls-fournisseur-cross] partiel, 09 §2.20) : A reste le défaut tant que le workflow ne montre ni `cmake`/NASM exigé chez l'utilisateur ni échec musl propre à aws-lc (ADR-0013 §7). Biais : `cmake` et NASM (sous Windows) sont vraisemblablement préinstallés sur les images GitHub : un succès ne prouve pas qu'un poste vierge compile. Bascule A→B : ADR-0013 §7. Si le workflow montre qu'aws-lc impose cmake ou NASM sur les postes utilisateurs, retenir ring (option B), qui rend le canal `cargo install --git` plus fiable. Le résultat final sera consigné dans ADR-0013 et dans le risque TLS de [09-risques-et-questions.md](09-risques-et-questions.md).
 
 Racines de certificats : `rustls-platform-verifier` délègue au vérificateur du système sous macOS et Windows, et lit le magasin CA du système sous Linux (04 §4.1). Les proxys d'entreprise qui interceptent TLS fonctionnent donc si leur racine est installée dans le système. L'image OCI doit embarquer un magasin CA (§5).
 
-La taille des binaires selon la cible et le fournisseur, ainsi que celle du bundle MCPB qui en contient cinq, est **NON VÉRIFIÉE** [V-18 · binaire-taille-memoire] ; elle est mesurée au spike.
+La taille des binaires selon la cible et le fournisseur, ainsi que celle du bundle MCPB qui en contient cinq, est **NON VÉRIFIÉE** [V-18 · binaire-taille-memoire] : mesures locales ci-dessus (x86_64 gnu) ; reste la matrice (`tls-spike.yml`).
 
 ### 2.5 Artefacts produits et installeurs
 
@@ -283,7 +283,7 @@ powershell -c "irm https://github.com/muchiny/mcp-legifrance/releases/download/v
 
 - `dist plan` : ce que la CI construira, sans rien compiler ; exécuté sur chaque PR (`pr-run-mode = "plan"`, `reference/config.md:1420-1437`).
 - `dist build` : artefacts de la plateforme locale.
-- Spikes TLS (tâche 0 de M2, 00 §11.1) : une PR dédiée passe temporairement en `pr-run-mode = "upload"` pour construire les 7 cibles avec chacune des deux options TLS, et avec la signature en mode test si un compte existe (`ssldotcom-windows-sign = "test"` ou profil Azure « Public Trust Test », book `supplychain-security/signing/windows.md`).
+- Spikes TLS (tâche 0 de M2, 00 §11.1 ; fait autrement au plan 2c, sans `dist` : workflow manuel `tls-spike.yml` par `cargo build --target`, matrice à déclencher) : une PR dédiée passerait temporairement en `pr-run-mode = "upload"` pour construire les 7 cibles avec chacune des deux options TLS, et avec la signature en mode test si un compte existe (`ssldotcom-windows-sign = "test"` ou profil Azure « Public Trust Test », book `supplychain-security/signing/windows.md`).
 
 ---
 
@@ -587,7 +587,7 @@ FROM ${RUST_IMAGE} AS bin-source
 RUN apt-get update \
  && apt-get install -y --no-install-recommends musl-tools \
  && rm -rf /var/lib/apt/lists/*
-# + paquets exigés par le fournisseur TLS retenu au spike TLS, tâche 0 de M2 (cmake, clang…) [V-02 · tls-fournisseur-cross]
+# option A : `gcc`/`cc` suffit sur glibc x86_64 ; musl non mesuré (plan 2c) ; paquets de plus (cmake, clang…) si la matrice l'exige [V-02 · tls-fournisseur-cross]
 WORKDIR /src
 COPY . .
 RUN set -eu; \
@@ -1179,8 +1179,8 @@ Règles associées :
 
 ### 9.3 Licences tierces
 
-- `cargo deny check licenses` refuse toute licence hors liste blanche. La liste fait foi dans [06-qualite.md](06-qualite.md) §9.1-§9.2 : licences permissives (`Apache-2.0`, `Apache-2.0 WITH LLVM-exception`, `MIT`, `BSD-2-Clause`, `BSD-3-Clause`, `ISC`, `Zlib`, `BSL-1.0`, `CC0-1.0`, `Unicode-3.0`, `Unicode-DFS-2016`), plus des **exceptions nominatives** pour `MPL-2.0` (`option-ext`), `OpenSSL` (`aws-lc-sys`, si aws-lc est retenu) et `CDLA-Permissive-2.0` (racines de certificats). Les licences réelles du graphe sont **NON VÉRIFIÉES** [V-25 · licences-graphe-m0] (étiquette de 06) et dépendent du fournisseur TLS ([V-02 · tls-fournisseur-cross]). Toute licence GPL, LGPL ou AGPL est refusée.
-- **`THIRD_PARTY_LICENSES.md`** est généré par `cargo about` (dernière version 0.9.2, 2026-08-18, MSRV 1.88, index crates.io), à partir de `about.toml` (même liste blanche) et `about.hbs`. Il est versionné, et `release-gates` vérifie qu'il est à jour (§7.5). Les licences MIT et BSD exigent de reproduire leur notice avec les copies du logiciel ; la pratique courante l'applique aussi aux binaires liés statiquement, ce que fait ce fichier.
+- `cargo deny check licenses` refuse toute licence hors liste blanche. La liste fait foi dans [06-qualite.md](06-qualite.md) §9.1-§9.2 : les 7 licences de 06 §9.1 (`MIT`, `Apache-2.0`, `Unicode-3.0`, `ISC`, `BSD-3-Clause`, `CDLA-Permissive-2.0`, `Zlib`) ; `NCSA` par exception (`libfuzzer-sys`, graphe de `fuzz/`) ; ni `OpenSSL` ni `MPL-2.0` (V-25 levée, 09 §2.20). Toute licence GPL, LGPL ou AGPL est refusée.
+- **`THIRD_PARTY_LICENSES.md`** est généré par `cargo about` (dernière version 0.9.2, 2026-08-18, MSRV 1.88, index crates.io), à partir de `about.toml` (même liste blanche) et `about.hbs`. Il est versionné, et `release-gates` vérifie qu'il est à jour (§7.5). Non installé à ce jour : `about.toml` et `THIRD_PARTY_LICENSES.md` relèvent de T-MD ; relire le `LICENSE` de `ring` (il cite du code OpenSSL/BoringSSL absent de son expression SPDX) si l'option B est retenue. Les licences MIT et BSD exigent de reproduire leur notice avec les copies du logiciel ; la pratique courante l'applique aussi aux binaires liés statiquement, ce que fait ce fichier.
 
 ### 9.4 Politique AGPL : les idées seulement
 
@@ -1240,8 +1240,8 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 **M0 — Fondations** (livré, plan 1 ; reports en 00 §11.1)
 
 - [ ] `dist init` : **M4** (00 §11.1) ; puis `dist-workspace.toml` (§2.2) et `[profile.dist]` versionnés, `dist plan` vert en PR.
-- [ ] Spike TLS : options A et B construites par `cargo build --target` en CI pour les 7 cibles (matrice `dist` complète au `dist init` de M4, T-MD-01 ; comme 07 T-M0-16) ; tailles mesurées ; choix consigné dans ADR-0013 ([V-02 · tls-fournisseur-cross], [V-18 · binaire-taille-memoire]) : **tâche 0 de M2**.
-- [x] `LICENSE`, `NOTICE` (§9.2) livrés. [ ] `PRIVACY.md`, `SECURITY.md` (hygiène, tout de suite), `about.toml`, liste blanche cargo-deny (§9.3 ; licences élargies en M2, M1-D17).
+- [ ] *Livré en partie (plan 2c)* — Spike TLS : banc et workflow `tls-spike.yml`, mesures x86_64 gnu, A provisoire ; **reste** : options A et B construites par `cargo build --target` en CI pour les 7 cibles (matrice `dist` complète au `dist init` de M4, T-MD-01 ; comme 07 T-M0-16) ; tailles mesurées ; choix consigné dans ADR-0013 ([V-02 · tls-fournisseur-cross], [V-18 · binaire-taille-memoire]) : **tâche 0 de M2**.
+- [x] `LICENSE`, `NOTICE` (§9.2) livrés. [ ] `PRIVACY.md`, `SECURITY.md` (hygiène, tout de suite), `about.toml` (T-MD). [x] Liste blanche cargo-deny (§9.3 ; licences exactes, plan 2c, M1-D17).
 - [x] Q1 (nom `mcp-legifrance`, dépôt renommé) et Q2 (Apache-2.0, titulaire « Loïc Wernert ») tranchées le 2026-10-16. [ ] Disponibilité des noms crates.io revérifiée avant M5 (Q13, C6).
 - [ ] `dist-workspace.toml` sans aucune ligne de signature active tant que Q5 n'est pas tranchée (§2.2) ; Q5 n'est pas un critère de sortie de M0 (échéance : avant v0.1.0, 00 §13).
 - [ ] SHA des actions relevés (`github-action-commits`, M1-D15, en retard) ; version et somme de `mcp-publisher` épinglées.
@@ -1282,8 +1282,8 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 
 | Étiquette | Vérification à faire |
 |---|---|
-| [V-02 · tls-fournisseur-cross] | (reprise de 04) Exigences de compilation d'`aws-lc-sys` (cmake, NASM, clang) et de `ring` sur chaque runner dist, en musl, en msvc `+crt-static`, dans l'image de build Docker et chez un utilisateur de `cargo install` ; installation de `ring` avec reqwest 0.13. |
-| [V-18 · binaire-taille-memoire] | (reprise de 06, V-18) Taille du binaire par cible et par fournisseur TLS ; taille du bundle MCPB à cinq binaires (spike TLS, tâche 0 de M2). La mémoire résidente, mesurée en M5, relève de 06. |
+| [V-02 · tls-fournisseur-cross] | **Partiel** (plan 2c, 09 §2.20) : A provisoire, matrice à déclencher ; (reprise de 04) Exigences de compilation d'`aws-lc-sys` (cmake, NASM, clang) et de `ring` sur chaque runner dist, en musl, en msvc `+crt-static`, dans l'image de build Docker et chez un utilisateur de `cargo install` ; installation de `ring` avec reqwest 0.13. |
+| [V-18 · binaire-taille-memoire] | (reprise de 06, V-18) Taille du binaire par cible et par fournisseur TLS ; taille du bundle MCPB à cinq binaires (spike TLS, tâche 0 de M2 : partiel au plan 2c). La mémoire résidente, mesurée en M5, relève de 06. |
 | [V-192 · windows-arm64-emulation] | Le binaire x86_64 msvc fonctionne sous Windows 11 ARM64 par émulation, y compris lancé par un client MCP. |
 | [V-173 · sac-signature-suffit] | Smart App Control laisse passer un `.exe` signé (Azure Artifact Signing, SSL.com) sans réputation préalable ; il bloque un binaire compilé localement ; Docker Desktop et WSL restent utilisables comme repli. |
 | [V-193 · azure-artifact-signing-eligibilite] | Éligibilité (pays, personne physique ou morale), validation d'identité et coût d'Azure Artifact Signing ; coût d'un certificat EV SSL.com eSigner. |
@@ -1310,7 +1310,7 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 | [V-210 · cargo-dist-changelog-format] | Format de section du CHANGELOG reconnu par dist pour le titre et le corps de la release. |
 | [V-211 · github-releases-immuables] | Effet de l'option de releases immuables de GitHub sur l'ajout d'assets après publication et sur `gh release create … artifacts/*`. |
 | [V-212 · syntaxe-config-clients] | Options de `claude mcp add` (`--transport`, `--scope`, `--env`) ; emplacement de `claude_desktop_config.json` ; format de `~/.cursor/mcp.json` et interpolation ; stockage des `inputs` mot de passe dans VS Code. |
-| [V-25 · licences-graphe-m0] | (reprise de 06) Licences réelles du graphe, dont `aws-lc-sys`, `aws-lc-rs`, `ring` et les racines de certificats, pour cargo-deny et `THIRD_PARTY_LICENSES.md`. |
+| [V-25 · licences-graphe-m0] | **Levée** (plan 2c, 09 §2.20) ; (reprise de 06) Licences réelles du graphe, dont `aws-lc-sys`, `aws-lc-rs`, `ring` et les racines de certificats, pour cargo-deny et `THIRD_PARTY_LICENSES.md`. |
 | [V-26 · actions-versions-sha] | (reprise de 06) SHA des actions à épingler, y compris celles du workflow généré par dist (`actions/checkout@v6`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`, `actions/attest@v4`, `swatinem/rust-cache@v2`, `azure/login@v2`). |
 | [V-214 · titulaire-droits-reference] | Titulaire exact du droit d'auteur de la référence Python (le `LICENSE` ne porte pas de ligne Copyright). |
 | [V-215 · marque-legifrance] | Statut de marque de « Légifrance » et conditions d'usage du nom dans un nom de produit non officiel. |
@@ -1358,7 +1358,7 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 | 18 | version initiale du §1.4 (téléchargement des dumps par le binaire en M9) ; 02 §3.9, R6 et ban `wrappers` de `deny.toml` (02 §4.3) | le binaire ne peut pas contacter `echanges.dila.gouv.fr` : `reqwest` est confiné à `lf-adapter-piste`, et un adapter ne dépend pas d'un autre (R3) | §1.4 aligné sur la proposition par défaut de 02 §3.9 (script hors binaire, répertoire local) | décision de M9 à inscrire au registre de 09 (02 §3.9) |
 | 19 | 02 §3.0.2 (exigences internes `version = "=X.Y.Z"`) ; version initiale de la liste du §7.3 | la liste ne mettait à jour que `[workspace.package] version` : dès la version suivante, la résolution échoue (essai avec cargo 1.97.0) | case ajoutée au §7.3 ; égalité que `check-arch` contrôlera (02 §3.0.2 ; étape 5 de §4.2, programmée en tête de M2) | inscrire la règle dans 06, propriétaire des règles de `check-arch` (00 §0) |
 | 20 | version initiale du §10 (Q5 exigée en M0) ; 00 §13 et 09 §3.5 (Q5 avant v0.1.0) | échéance de Q5 contradictoire | Q5 retirée des critères de M0 et ajoutée à ceux de v0.1.0 ; aucune signature active dans `dist-workspace.toml` d'ici là (§2.2) | — |
-| 21 | §10 M0 (spike TLS : tailles mesurées, [V-18 · binaire-taille-memoire]) ; version initiale de 09 V-18 (jalon M5) | même mesure placée à deux jalons | mesure de taille au spike TLS (tâche 0 de M2) conservée | **résolu par 09** (V-18 : jalon « M0 (taille des binaires, spike TLS), M5 (mémoire résidente) », inscrite à la ligne M0 de 09 §2.18) |
+| 21 | §10 M0 (spike TLS : tailles mesurées, [V-18 · binaire-taille-memoire]) ; version initiale de 09 V-18 (jalon M5) | même mesure placée à deux jalons | mesure de taille au spike TLS (tâche 0 de M2 ; partielle au plan 2c) conservée | **résolu par 09** (V-18 : jalon « M0 (taille des binaires, spike TLS), M5 (mémoire résidente) », inscrite à la ligne M0 de 09 §2.18) |
 
 ### 12.2 Questions ouvertes
 

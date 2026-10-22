@@ -1,0 +1,255 @@
+name: TLS spike
+
+# Spike TLS (T-M2-27, T-M0-16 ; V-02, V-18, R-09) : compile la sonde `spikes/tls-provider`
+# avec chacun des deux fournisseurs TLS de rustls sur les 7 cibles livrées, l'exécute et
+# consigne le résultat de chaque couple (cible, option) dans le résumé du run.
+#   Option A : aws-lc (`reqwest/rustls`), celle de l'adapter, retenue à titre provisoire.
+#   Option B : ring (`reqwest/rustls-no-provider` + installation du fournisseur).
+# Règle de choix (ADR-0013 §7) : si aws-lc impose `cmake` ou NASM sur les postes des
+# utilisateurs, ou fait échouer une cible musl, ring (option B) ; sinon aws-lc.
+#
+# Déclenchement à la main seulement (Actions > TLS spike > Run workflow), après la fusion de la
+# PR du spike. Aucun secret. Le verdict vit dans le tableau du job `summary` et dans les
+# fichiers `result-<cible>-<option>.tsv`, pas dans le statut des jobs : une compilation en
+# échec est une donnée (l'étape de mesure sort toujours en 0).
+#
+# Réserves à lever au premier run :
+# - `ubuntu-24.04-arm` n'est gratuit que pour un dépôt public (sinon 4 jobs attendent ou échouent) ;
+# - `macos-15-intel` est un label supposé valide (`macos-15` est arm64) ;
+# - `cmake` (toutes les images) et NASM (Windows) sont vraisemblablement préinstallés :
+#   un succès ne prouve donc pas qu'un poste vierge compile. Le second tableau du résumé
+#   montre les outils présents ; au besoin, variante qui retire `cmake`/`nasm` du `PATH` ou
+#   `AWS_LC_SYS_PREBUILT_NASM=1` côté Windows.
+# - sous Windows, `cc` est absent par construction (le compilateur est MSVC `cl`) : lire le
+#   tableau « outils présents » en conséquence (un `cc` « absent » n'y dit rien de l'outillage).
+# - pas de cache (`Swatinem/rust-cache`) : les durées de compilation sont à froid.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Actions épinglées par SHA complet, version en commentaire : voir ci.yml.
+jobs:
+  probe:
+    name: ${{ matrix.target.name }} / ${{ matrix.option }}
+    strategy:
+      fail-fast: false
+      matrix:
+        option: [aws-lc, ring]
+        target:
+          - { name: linux-x86_64-gnu, os: ubuntu-24.04, triple: x86_64-unknown-linux-gnu, exe: "", rustflags: "" }
+          - { name: linux-aarch64-gnu, os: ubuntu-24.04-arm, triple: aarch64-unknown-linux-gnu, exe: "", rustflags: "" }
+          - { name: linux-x86_64-musl, os: ubuntu-24.04, triple: x86_64-unknown-linux-musl, exe: "", rustflags: "" }
+          - { name: linux-aarch64-musl, os: ubuntu-24.04-arm, triple: aarch64-unknown-linux-musl, exe: "", rustflags: "" }
+          - { name: macos-aarch64, os: macos-15, triple: aarch64-apple-darwin, exe: "", rustflags: "" }
+          - { name: macos-x86_64, os: macos-15-intel, triple: x86_64-apple-darwin, exe: "", rustflags: "" }
+          - { name: windows-x86_64-msvc, os: windows-2022, triple: x86_64-pc-windows-msvc, exe: ".exe", rustflags: "-C target-feature=+crt-static" }
+    runs-on: ${{ matrix.target.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Vide hors Windows : cargo ignore une valeur vide.
+      RUSTFLAGS: ${{ matrix.target.rustflags }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.0
+      - name: cible Rust
+        env:
+          TARGET: ${{ matrix.target.triple }}
+        run: rustup target add "$TARGET"
+      # Seul paquet installé, commun aux deux options. Ni cmake ni nasm : un échec de
+      # compilation est une donnée.
+      - name: musl-tools
+        if: ${{ endsWith(matrix.target.triple, '-musl') }}
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: mesure (compilation à froid, exécution, résultat)
+        env:
+          TARGET: ${{ matrix.target.triple }}
+          OPTION: ${{ matrix.option }}
+          NAME: ${{ matrix.target.name }}
+          EXE: ${{ matrix.target.exe }}
+        run: |
+          # Aucune interpolation dans ce script : tout passe par l'environnement (zizmor).
+          # Portable bash 3.2 / BSD (macOS) : durée par $SECONDS, taille par wc, pas de ${v,,}.
+          # Chaque pipeline dont le grep peut ne rien trouver finit par `|| true` (pipefail).
+          set -u
+
+          # cc 1.6.0 ne cherche que `aarch64-linux-musl-gcc` pour aarch64 musl, sans repli sur
+          # `musl-gcc` (contrairement à x86_64) : l'échec dirait quelque chose de l'outillage,
+          # rien du fournisseur TLS.
+          case "$TARGET" in
+            *-musl) export "CC_${TARGET//-/_}=musl-gcc" ;;
+          esac
+
+          # Première ligne de la version d'un outil, ou `absent`.
+          tool_version() { # commande option
+            local first
+            if command -v "$1" >/dev/null 2>&1; then
+              first=$("$1" "$2" 2>&1 | head -n 1 | tr -d '\r' || true)
+              echo "${first:-présent}"
+            else
+              echo absent
+            fi
+          }
+          tools="cmake: $(tool_version cmake --version) ; nasm: $(tool_version nasm -v) ; cc: $(tool_version cc --version)"
+
+          # Couleurs coupées pour ce seul appel : les motifs de grep ci-dessous lisent le journal.
+          start=$SECONDS
+          if CARGO_TERM_COLOR=never cargo build --release --locked \
+            --manifest-path spikes/tls-provider/Cargo.toml --target "$TARGET" \
+            --no-default-features --features "$OPTION" 2>&1 | tee build.log; then
+            build=ok
+          else
+            build=ko
+          fi
+          seconds=$((SECONDS - start))
+
+          # Constructeur d'aws-lc-sys : `Building with: CC` (ou CMake, NASM), seulement sous aws-lc.
+          # Cargo n'affiche pas les avertissements des scripts de build d'une dépendance du
+          # registre quand la compilation réussit : build.log, puis le fichier `output` du script.
+          builder=
+          if [ "$OPTION" = aws-lc ]; then
+            builder=$(grep -h -o 'Building with: .*' build.log \
+              "spikes/tls-provider/target/$TARGET/release/build"/aws-lc-sys-*/output 2>/dev/null |
+              head -n 1 | sed 's/^Building with: //' | tr -d '\r' || true)
+          fi
+          builder=${builder:--}
+
+          bytes=-
+          run=skip
+          status=-
+          detail=-
+          if [ "$build" = ok ]; then
+            bin="spikes/tls-provider/target/$TARGET/release/tls-probe$EXE"
+            bytes=$(wc -c <"$bin" | tr -d ' ')
+            # Tous les runners sont natifs : le binaire, musl statique compris, s'exécute.
+            if "$bin" >run.log 2>&1; then run=ok; else run=ko; fi
+            cat run.log
+            status=$(sed -n 's/^attempt=auto status=\([0-9][0-9]*\).*/\1/p' run.log | head -n 1 | tr -d '\r' || true)
+            status=${status:--}
+            if [ "$run" = ok ]; then
+              detail=$(grep -h '^highest_accepted=' run.log | head -n 1 | tr -d '\r' || true)
+            else
+              detail=$(grep -h -E '^attempt=auto error=|^error' run.log | head -n 1 | tr -d '\r' | cut -c1-240 || true)
+            fi
+          else
+            # Cause : d'abord les lignes qui nomment l'outil manquant, ensuite les erreurs de
+            # cargo ; sans les `cargo:rerun-if-env-changed=AWS_LC_SYS_PREBUILT_NASM…` des scripts
+            # de build, qui citent NASM à tort.
+            detail=$({
+              grep -v 'rerun-if' build.log |
+                grep -E 'error occurred in cc-rs|Missing dependency|CMake Error|NASM'
+              grep -E '^error: ' build.log
+            } | tr -d '\r' | sed 's/^[[:space:]]*//' | awk '!seen[$0]++' | head -n 3 | tr '\n' ' ' | cut -c1-240 || true)
+          fi
+          detail=$(printf '%s' "${detail:--}" | tr '\t\n\r' '   ')
+          tools=$(printf '%s' "$tools" | tr '\t\n\r' '   ')
+
+          # Dix champs : cible, option, build, secondes, octets, run, statut HTTP, builder,
+          # outils, détail. Aucun champ vide (la lecture par `read` fusionnerait les tabulations).
+          printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$NAME" "$OPTION" "$build" "$seconds" "$bytes" "$run" "$status" "$builder" "$tools" "$detail" \
+            >"result-$NAME-$OPTION.tsv"
+          cat "result-$NAME-$OPTION.tsv"
+
+          {
+            echo "### $NAME / $OPTION"
+            echo
+            echo "- compilation : $build en $seconds s"
+            echo "- binaire : $bytes octets"
+            echo "- exécution : $run, statut HTTP $status"
+            echo "- builder d'aws-lc-sys : $builder"
+            echo "- outils : $tools"
+            echo "- détail : $detail"
+          } >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+          # Le verdict vit dans le fichier TSV, pas dans le statut du job.
+          exit 0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: result-${{ matrix.target.name }}-${{ matrix.option }}
+          path: result-${{ matrix.target.name }}-${{ matrix.option }}.tsv
+          if-no-files-found: error
+
+  summary:
+    name: tableau cible x option
+    needs: probe
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # SHA de v8.0.2 (`git ls-remote --tags https://github.com/actions/download-artifact`).
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: result-*
+          merge-multiple: true
+          path: results
+      - name: tableau
+        run: |
+          set -u
+          # Les 7 cibles, dans l'ordre de la matrice de `probe`.
+          targets="linux-x86_64-gnu linux-aarch64-gnu linux-x86_64-musl linux-aarch64-musl macos-aarch64 macos-x86_64 windows-x86_64-msvc"
+
+          # Cellule d'un couple (cible, option), lue dans son fichier TSV.
+          cell() { # cible option
+            local file="results/result-$1-$2.tsv"
+            local build seconds bytes run status builder detail mio
+            if [ ! -s "$file" ]; then
+              echo "pas de résultat"
+              return
+            fi
+            IFS=$'\t' read -r _ _ build seconds bytes run status builder _ detail <"$file"
+            detail=$(printf '%s' "$detail" | tr '|' '/')
+            if [ "$build" != ok ]; then
+              echo "**compilation KO** ($seconds s) $detail"
+              return
+            fi
+            mio=$(awk -v n="$bytes" 'BEGIN { printf "%.1f", n / 1048576 }' | tr '.' ',')
+            if [ "$run" != ok ]; then
+              echo "**exécution KO** (compilation $seconds s, $mio Mio) $detail"
+              return
+            fi
+            echo "compilation $seconds s, $mio Mio, builder $builder, HTTP $status, $detail"
+          }
+
+          # Outils d'une cible : champ 9 du premier fichier trouvé (les deux options coïncident).
+          tools_of() { # cible
+            local file tools
+            for file in "results/result-$1-aws-lc.tsv" "results/result-$1-ring.tsv"; do
+              if [ -s "$file" ]; then
+                IFS=$'\t' read -r _ _ _ _ _ _ _ _ tools _ <"$file"
+                printf '%s' "$tools" | tr '|' '/'
+                return
+              fi
+            done
+            echo "pas de résultat"
+          }
+
+          {
+            echo "## Spike TLS : cible x option"
+            echo
+            echo "| cible | A : aws-lc | B : ring |"
+            echo "| --- | --- | --- |"
+            for name in $targets; do
+              echo "| $name | $(cell "$name" aws-lc) | $(cell "$name" ring) |"
+            done
+            echo
+            echo "## Outils présents sur les runners"
+            echo
+            echo "| cible | outils |"
+            echo "| --- | --- |"
+            for name in $targets; do
+              echo "| $name | $(tools_of "$name") |"
+            done
+          } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"

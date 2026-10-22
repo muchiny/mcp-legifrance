@@ -1,0 +1,37 @@
+[package]
+name = "tls-spike"
+description = "Banc du spike TLS (T-M2-27) : mesure aws-lc (option A) contre ring (option B), hors workspace."
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+publish = false
+
+# Hors workspace (exclu par le Cargo.toml racine, comme fuzz/) : son verrou est le sien,
+# aligné à la main sur celui de la racine (aucune version que la racine n'a pas).
+[[bin]]
+name = "tls-probe"
+path = "src/main.rs"
+
+[features]
+# Les deux options sont exclusives (compile_error! dans main.rs) : ni --all-features ni
+# --no-default-features seul ne se compilent.
+default = ["aws-lc"]
+# Option A : fournisseur aws-lc, celui de l'adapter (reqwest/rustls)
+aws-lc = ["reqwest/rustls"]
+# Option B : fournisseur ring, à installer avant le premier client (rustls-no-provider)
+ring = ["reqwest/rustls-no-provider", "dep:rustls"]
+
+[dependencies]
+reqwest = { version = "0.13", default-features = false, features = ["gzip", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"], optional = true }
+tokio = { version = "1.53", default-features = false, features = ["rt", "macros"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"

@@ -1,8 +1,8 @@
 # 04 — Adapter PISTE (`lf-adapter-piste`) : OAuth, HTTP, résilience, requêtes, DTO, mapping
 
-> **Statut** : M0-M1 livrés (plan 1), le reste est un plan. Ce document applique [00-decisions.md](00-decisions.md) (révision 2), qui est normatif et l'emporte en cas de doute.
+> **Statut** : M0-M1 livrés (plan 1), tête de M2 (plans 2a, 2b), adapter jusqu'à `PisteCorpus` (plan 2c) ; le reste est un plan. Ce document applique [00-decisions.md](00-decisions.md) (révision 2), qui est normatif et l'emporte en cas de doute.
 > **Document propriétaire** (00 §0) : ce document fait foi pour les internes de `lf-adapter-piste` (modules, configuration, classification « introuvable », stratégies par endpoint) et pour ses fixtures (disposition, sidecars, `cargo xtask record-fixture`). Il renvoie sans recopier le détail à [02-architecture.md](02-architecture.md) (dépendances, règles d'architecture, correspondance des erreurs, spans), à [05-outils-mcp.md](05-outils-mcp.md) (gabarits des messages vus par le modèle), à [06-qualite.md](06-qualite.md) (chemins des fichiers de test, CI, lints) et à [09-risques-et-questions.md](09-risques-et-questions.md) (registres R-xx et V-xx).
-> **Jalons** : tâche 0 de M2 (spikes TLS, proxy, `backon`, `governor` ; 00 §11.1), **M2** (tout le socle v0.1 : OAuth, client, réessais, débit, délai, DTO, mapping, mojibake, tests wiremock et fixtures, smoke tests live ; V-66, V-68, V-76 et V-96 bloquantes, 00 §11, 09 §2.18), M5 (pagination de la recherche vérifiée en direct), M6 (endpoints de résolution), M7 (endpoints de navigation).
+> **Jalons** : tâche 0 de M2 (spikes TLS, proxy, `backon`, `governor` ; 00 §11.1 : faits au plan 2c, TLS provisoire), **M2** (tout le socle v0.1 : OAuth, client, réessais, débit, délai, DTO, mapping, mojibake, tests wiremock et fixtures, smoke tests live ; V-66, V-68, V-76 et V-96 bloquantes, 00 §11, 09 §2.18), M5 (pagination de la recherche vérifiée en direct), M6 (endpoints de résolution), M7 (endpoints de navigation).
 > **Lecteurs** : développeurs de `lf-adapter-piste`, et de `lf-app` (composition, configuration) et `lf-adapter-cache` (clés, TTL).
 > Les extraits Rust sont **non compilés, à valider au jalon qui les implémente**. Le domaine livré (`lf-domain`, M1) fait foi pour ses types : dates en `CivilDate` (`crates/lf-domain/src/date.rs`), identifiants `Id<K>(String)` ; ce qui manque encore au domaine est une tâche de tête de M2 (00 §11.1). Les points non vérifiés sont marqués **NON VÉRIFIÉ** avec une étiquette `[v:…]`. Le registre `V-xx` les reprend dans [09-risques-et-questions.md](09-risques-et-questions.md).
 
@@ -15,8 +15,8 @@ Documents liés : [02-architecture.md](02-architecture.md) (ports, erreurs, déc
 - `lf-adapter-piste` fournit `PisteCorpus: LegalCorpus`, la seule implémentation du port sortant jusqu'à M9. Il traduit chaque appel du port en requêtes `POST` JSON vers l'API Légifrance 2.4.2 derrière PISTE, puis convertit la réponse en entités de `lf-domain`. Il ne connaît ni MCP, ni l'audit, ni le cache.
 - **Environnements** : `LF_PISTE_ENV=sandbox|production` (défaut `sandbox`) fixe ensemble l'URL OAuth et la base de l'API. Les surcharges `LF_PISTE_OAUTH_URL` et `LF_PISTE_BASE_URL` sont validées (https, pas d'identifiants dans l'URL, cohérence d'environnement). Aucune URL ne vient d'ailleurs (ADR-0005, corrige D-04).
 - **OAuth2 client_credentials** : jeton en mémoire (`SecretString`), renouvelé 60 s avant expiration, rafraîchissement mono-vol. Sur l'API, un 401 déclenche **un seul** renouvellement, puis `CorpusError::Auth`. Une erreur de l'endpoint token n'est jamais `NotFound` (corrige D-10, D-12, E-20).
-- **HTTP** : un `reqwest::Client` 0.13 unique (rustls, fournisseur crypto tranché par le spike TLS (tâche 0 de M2)), connexion 10 s, requête 40 s, aucune redirection suivie, corps plafonné à 16 Mio, User-Agent versionné (corrige D-06, D-41, D-43).
-- **Résilience** : `backon` (3 tentatives au plus sur 429/502/503/504 et erreurs réseau, 2 au plus sur 500 puis `retryable: false` ; backoff exponentiel avec gigue, `Retry-After`), respect du délai global par outil `LF_TOOL_DEADLINE_S` (60 s), lu dans `Deadline` (variable locale de tâche posée par `Audited`, 00 §3), `governor` (5 req/s, rafale 10, `LF_PISTE_RPS`/`LF_PISTE_BURST`) consulté par `check()` sur une horloge bâtie sur `MonoClock` (jamais `until_ready`), sémaphore de 4 requêtes en vol (`LF_PISTE_CONCURRENCY`) (corrige D-12, D-13, D-14).
+- **HTTP** : un `reqwest::Client` 0.13 unique (rustls, option A (aws-lc) provisoire, ADR-0013 §7), connexion 10 s, requête 40 s, aucune redirection suivie, corps plafonné à 16 Mio, User-Agent versionné (corrige D-06, D-41, D-43).
+- **Résilience** : boucle maison (`retry::run`, ADR-0017 ; 3 tentatives au plus sur 429/502/503/504 et erreurs réseau, 2 au plus sur 500 puis `retryable: false` ; backoff exponentiel avec gigue, `Retry-After`), respect du délai global par outil `LF_TOOL_DEADLINE_S` (60 s), lu dans `Deadline` (variable locale de tâche posée par `Audited`, 00 §3), `governor` (5 req/s, rafale 10, `LF_PISTE_RPS`/`LF_PISTE_BURST`) consulté par `check()` sur une horloge bâtie sur `MonoClock` (jamais `until_ready`), sémaphore de 4 requêtes en vol (`LF_PISTE_CONCURRENCY`) (corrige D-12, D-13, D-14).
 - **Requêtes `/search`** : payload de la référence, `typeRecherche` choisi par `match`, `DATE_VERSION` à **midi** Europe/Paris (stable sur la journée, corrige D-01 ; confirmé par V-76 en M2), facettes de date par fond tirées de la documentation officielle, `typePagination` mémorisé par l'adapter (`PaginationMemo`) et renvoyé à PISTE, jamais exposé au modèle (00 §7).
 - **DTO** serde minimaux et tolérants, un module par endpoint, `serde_path_to_error` pour des `Decode` lisibles. **Mapping** en fonctions pures vers les entités de 03.
 - **Mojibake** : réparation tout-ou-rien au niveau du corps, avant serde et avant toute normalisation des NBSP, active par défaut (`LF_PISTE_MOJIBAKE_REPAIR=off` la désactive), comptée et journalisée en `warn`.
@@ -76,47 +76,52 @@ Les traits sont en async natif (RPITIT + `Send`, ADR-0012). L'implémentation ut
 
 ```rust
 // lf-adapter-piste/src/lib.rs — non compilé, à valider au jalon qui l'implémente
-#[derive(Clone)]
-pub struct PisteCorpus<K: MonoClock = TokioClock, S: Sleeper = TokioSleeper> { inner: Arc<Inner<K, S>> }
+// [livré, plan 2c, tâche 11] Clone écrit à la main (Arc::clone) ; K et S doivent être Clone
+pub struct PisteCorpus<K: MonoClock + Clone = TokioClock, S: Sleeper + Clone = TokioSleeper> { inner: Arc<Inner<K, S>> }
 
 impl PisteCorpus {
     /// Aucune E/S (02 §3.3). Le client reqwest est construit au premier appel (OnceCell, mono-vol) ;
     /// un échec de construction (fournisseur TLS, racines) devient CorpusError::Config à l'appel.
     pub fn new(cfg: PisteConfig) -> Self;
 }
-impl<K: MonoClock, S: Sleeper> PisteCorpus<K, S> {
-    pub fn environment(&self) -> PisteEnvironment;                 // lf_domain::PisteEnvironment : cache (namespace), fr_coverage
-    pub fn config_problem(&self) -> Option<&ConfigProblem>;        // identifiants absents, URL invalide…
+impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
+    pub fn environment(&self) -> PisteEnvironment;                 // lf_domain::coverage::PisteEnvironment : cache (namespace), fr_coverage
+    pub fn config_problem(&self) -> Option<&ConfigProblem>;        // URL invalide ou incohérente (EnvMismatch…) ; None si les adresses sont valides
+    pub fn has_credentials(&self) -> bool;                         // identifiants configurés ? (mode dégradé, §2.4)
     pub fn mojibake_repairs(&self) -> u64;                         // compteur (02 §3.3)
     pub fn stats(&self) -> StatsSnapshot;                          // tous les compteurs en mémoire, jamais exportés (ADR-0005)
     pub async fn check_credentials(&self) -> Result<(), CorpusError>; // `check-config --online` (02 §3.3, 08)
 }
-impl<K: MonoClock, S: Sleeper> LegalCorpus for PisteCorpus<K, S> { /* async fn … */ }
+impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S> { /* async fn … : plan 2d */ }
 ```
 
-`MonoClock` (temps monotone) et `Sleeper` (attente) sont deux traits **internes** au crate, pas des ports. Ils existent pour rendre déterministes les tests de jeton, de backoff, de `Retry-After`, de débit et de délai restant sans geler l'horloge `tokio` (§13.1). En production : `TokioClock` (`tokio::time::Instant`) et `TokioSleeper` (`tokio::time::sleep`). L'environnement est le `lf_domain::PisteEnvironment` (03 §4.8), seul type d'environnement du workspace : l'adapter n'en définit pas d'autre, car `lf-adapter-cache` et `lf-application` l'emploient sans dépendre de lui (R3, 02 §3.3).
+`MonoClock` (temps monotone) et `Sleeper` (attente) sont deux traits **internes** au crate, pas des ports. Ils existent pour rendre déterministes les tests de jeton, de backoff, de `Retry-After`, de débit et de délai restant sans geler l'horloge `tokio` (§13.1). En production : `TokioClock` (`tokio::time::Instant`) et `TokioSleeper` (`tokio::time::sleep`). L'environnement est le `lf_domain::coverage::PisteEnvironment` (03 §4.8), seul type d'environnement du workspace : l'adapter n'en définit pas d'autre, car `lf-adapter-cache` et `lf-application` l'emploient sans dépendre de lui (R3, 02 §3.3).
+
+**Livré (plan 2c, tâche 11)** : `PisteCorpus` jusqu'à `post_json` (appel API complet : mode dégradé sans E/S, puis, à chaque tentative, client, `RateGate`, jeton, envoi borné, classification ; réessai ; décodage du corps des 2xx), `check_credentials`, `environment`, `config_problem`, `has_credentials`, `mojibake_repairs`, `stats` ; **pas** d'`impl LegalCorpus` (plan 2d, qui retire l'attribut `expect(dead_code)` unique de `lib.rs`). Visibilité : `MonoClock`, `Sleeper`, `TokioClock` et `TokioSleeper` sont `pub` dans le module **privé** `time` (la signature de `PisteCorpus<K, S>` les nomme : `private_bounds` l'impose) ; ils ne sont pas nommables hors du crate, `PisteCorpus::new` fixe les types de production ; `TokioClock::new`, `with_parts` et les doublures de test (`ManualClock`, `RecordingSleeper`) restent `pub(crate)`. `K` et `S` sont `Clone` : la barrière de charge et le gestionnaire de jeton en gardent chacun un exemplaire.
 
 ### 1.4 Dépendances
 
-Versions de référence relevées dans l'index crates.io le 2026-10-15 (recherche 04 §4.1), **pas des planchers** (00 §2, AM-26) : `[workspace.dependencies]` écrit l'exigence au niveau mineur (`reqwest = "0.13"`, `tokio = "1.53"`, `serde_json = "1.0"`, `rustls = "0.23"`…, 02 §3.0.1). Le `Cargo.lock` livré avec M0 (plan 1) fait foi pour les dépendances déjà verrouillées ; chaque dépendance ajoutée en M2 retient la plus haute version publiée depuis au moins 14 jours à la date de sa PR (pubtime de l'index sparse, contrôlé par script), fixée par `cargo update -p <crate> --precise <version>` ; si aucune version de la série mineure n'est assez ancienne, l'exigence descend d'une version mineure et c'est elle qui est écrite (00 §2 ; règle et versions de référence : 02 §3.0.1 ; verrou de M0-M1 livré, proptest 1.12.0, R-22). La table décrit la cible : une dépendance n'est déclarée dans le manifeste du crate que lorsqu'un code l'emploie, sans déclaration d'avance dans le squelette, pour que `cargo machete` reste vert (00 §2). Les features sont celles de ce crate. Elles se déclarent `default-features = false` au niveau du workspace quand c'est voulu (piège d'héritage, 00 §2) ; les déclarations de workspace et le confinement des crates sont fixés par 02 §3.0 et §4.1 (document propriétaire, 00 §0). Au workspace, reqwest ne porte que `json` et `form` ; ce crate ajoute `gzip`, `system-proxy` et la feature TLS retenue au spike, puisque les features sont additives et qu'un membre ne peut pas en retirer.
+Versions de référence relevées dans l'index crates.io le 2026-10-15 (recherche 04 §4.1), **pas des planchers** (00 §2, AM-26) : `[workspace.dependencies]` écrit l'exigence au niveau mineur (`reqwest = "0.13"`, `tokio = "1.53"`, `serde_json = "1.0"`, `rustls = "0.23"`…, 02 §3.0.1). Le `Cargo.lock` livré avec M0 (plan 1) fait foi pour les dépendances déjà verrouillées ; chaque dépendance ajoutée en M2 retient la plus haute version publiée depuis au moins 14 jours à la date de sa PR (pubtime de l'index sparse, contrôlé par script), fixée par `cargo update -p <crate> --precise <version>` ; si aucune version de la série mineure n'est assez ancienne, l'exigence descend d'une version mineure et c'est elle qui est écrite (00 §2 ; règle et versions de référence : 02 §3.0.1 ; verrou de M0-M1 livré, proptest 1.12.0, R-22). La table décrit la cible : une dépendance n'est déclarée dans le manifeste du crate que lorsqu'un code l'emploie, sans déclaration d'avance dans le squelette, pour que `cargo machete` reste vert (00 §2). Les features sont celles de ce crate. Elles se déclarent `default-features = false` au niveau du workspace quand c'est voulu (piège d'héritage, 00 §2) ; les déclarations de workspace et le confinement des crates sont fixés par 02 §3.0 et §4.1 (document propriétaire, 00 §0). Au workspace, reqwest ne porte que `json` et `form` ; ce crate ajoute `gzip`, `system-proxy` et `rustls` (option A, provisoire), puisque les features sont additives et qu'un membre ne peut pas en retirer.
 
 | Crate | Version de référence | Features | Usage |
 |---|---|---|---|
-| `reqwest` | 0.13.5 | `json`, `form`, `rustls` **ou** `rustls-no-provider` (spike TLS (tâche 0 de M2)), `gzip`, `system-proxy` | client HTTP (§4) |
-| `rustls` | 0.23.46 | seulement si `rustls-no-provider` : `ring`, `std`, `tls12`, `logging` | fournisseur crypto (§4.1) |
-| `tokio` | 1.53.3 | `time`, `sync` | délais, sémaphore, verrou du jeton |
+| `reqwest` | 0.13.5 | `json`, `form` (workspace) ; `gzip`, `system-proxy`, `rustls` (membre, option A provisoire) ; `rustls-no-provider` sous B | client HTTP (§4) |
+| `rustls` | 0.23.46 | direct seulement sous B (`rustls-no-provider`) : `ring`, `std`, `tls12`, `logging` ; verrouillé 0.23.46 comme transitif (F1, exception `security-fix`, 00 §2) | fournisseur crypto (§4.1) |
+| `tokio` | 1.53.3 | `time`, `sync` (dev : `macros`, `rt`, `rt-multi-thread`, `test-util`) | délais, sémaphore, verrou du jeton |
 | `serde`, `serde_json` | 1.0.229, 1.0.154 | `derive` | DTO |
-| `serde_path_to_error` | 0.1.20 | — | chemin JSON des erreurs `Decode` (§8.5) |
+| `serde_path_to_error` | 0.1.20 | — | chemin JSON des erreurs `Decode` (§8.5) ; plan 2d |
 | `secrecy` | 0.10.3 | `serde` | `client_secret` et jeton (§3.6) |
-| `backon` | 1.6.0 | `std` ; `tokio-sleep` seulement si le spike de la tâche 0 de M2 montre que backon l'exige : toutes les attentes passent par le `Sleeper` du crate (§5.2) | réessais (§5.2) |
-| `governor` | 0.10.4 | `std` (sans `quanta`, `jitter` ni `dashmap`) | limitation de débit (§5.4) |
-| `chrono`, `chrono-tz` | 0.4.45, 0.10.4 | `std` | midi Europe/Paris pour `singleDate` (§6.3) et date HTTP de `Retry-After` ; `chrono-tz` n'est admis que dans `lf-app` (`clock`) et dans ce crate (00 §2) ; **hors du domaine** : `lf-domain` reste limité à `thiserror` (liste blanche de `xtask/src/arch.rs`, `DOMAIN_ALLOWED`) et porte ses dates en `CivilDate` (00 §2, C3) |
-| `tracing` | 0.1.44 | — | journaux sur stderr (§12.5) |
+| `governor` | 0.10.4 | `std` seule (sans `quanta`, `jitter` ni `dashmap`) ; elle tire `futures-timer`, `futures-util`, `futures-sink` et `parking_lot`, jamais sollicités (pas de `until_ready`) | limitation de débit (§5.4) |
+| `chrono`, `chrono-tz` | 0.4.45, 0.10.4 | `std` seul (livré : `parse_from_rfc2822`, date HTTP de `Retry-After`) ; `chrono-tz` : plan 2d | midi Europe/Paris pour `singleDate` (§6.3) et date HTTP de `Retry-After` ; `chrono-tz` n'est admis que dans `lf-app` (`clock`) et dans ce crate (00 §2) ; **hors du domaine** : `lf-domain` reste limité à `thiserror` (liste blanche de `xtask/src/arch.rs`, `DOMAIN_ALLOWED`) et porte ses dates en `CivilDate` (00 §2, C3) |
+| `tracing` | 0.1.44 | `["std"]`, sans `attributes` | journaux sur stderr (§12.5) |
 | `thiserror` | 2.0.21 | — | erreurs internes |
 | `reqwest::Url` (ré-export de `url` 2.5.8) | — | — | validation de la configuration ; **pas** de dépendance directe à `url` (02 §3.3) |
-| dev : `wiremock`, `insta`, `proptest`, `tokio` (`macros`, `rt-multi-thread`) | 0.6.5, 1.49.0, 1.12.0 | `insta` : `json`, `redactions` | tests (§13) |
+| dev livrés (plan 2c) : `wiremock`, `flate2`, `tracing-subscriber`, `tokio` (`macros`, `rt`, `rt-multi-thread`, `test-util`) | 0.6.5, 1.1.10, 0.3.23 | `flate2` : `rust_backend` (R6 le confine à `lf-adapter-dila` pour les dépendances normales et de build seulement) ; `tracing-subscriber` : `std`, `fmt` | tests (§13) |
+| dev du plan 2d : `insta`, `proptest` | 1.49.0, 1.12.0 | `insta` : `json`, `redactions` | tests (§13) |
 
-`charset` (décodage selon l'en-tête `Content-Type`) est **exclu** : le corps est toujours décodé en UTF-8 strict à partir des octets (§4.4). `http2` n'est pas activé (00 §8) : HTTP/1.1 avec réutilisation des connexions suffit à 4 requêtes en vol.
+`charset` (décodage selon l'en-tête `Content-Type`) est **exclu** : le corps est toujours décodé en UTF-8 strict à partir des octets (§4.4). `http2` n'est pas activé (00 §8) : HTTP/1.1 avec réutilisation des connexions suffit à 4 requêtes en vol ; non activé, HTTP/1.1, à confirmer au sondage live.
+
+`backon` 1.6.0 n'est **pas** une dépendance : essayé au spike V-06 (plan 2c), écarté (§5.2, ADR-0017). Verrou à la fin du plan 2c : 248 paquets (`Cargo.lock`), dont trois sous l'exception `security-fix` (`rustls` 0.23.46, `rustls-webpki` 0.103.16, `webpki-root-certs` 1.0.10 ; 00 §2, 06 §13.1). `aws-lc-rs` 1.18.1 et `aws-lc-sys` 0.45.0 (option A) ont été redescendus à la plus haute version éligible.
 
 Feature Cargo du crate : `record`, qui expose une API brute (statut, en-têtes utiles, octets) sous `#[cfg(feature = "record")]`, utilisée seulement par `examples/record_fixture.rs` (§13.4) et jamais activée dans le binaire.
 
@@ -124,25 +129,26 @@ Feature Cargo du crate : `record`, qui expose une API brute (statut, en-têtes u
 
 ```text
 crates/lf-adapter-piste/src/
-  lib.rs          PisteCorpus, ré-exports (PisteConfig, PisteEndpoints, RateQuota, StatsSnapshot)
+  lib.rs          PisteCorpus, ré-exports (PisteConfig, PisteEndpoints, PisteCredentials, RateQuota, ConfigWarning, ConfigProblem, StatsSnapshot)
   config.rs       PisteEndpoints, PisteCredentials, PisteConfig, RateQuota, ConfigWarning, ConfigProblem,
-                  validation (§2) ; l'environnement est lf_domain::PisteEnvironment
+                  validation (§2) ; l'environnement est lf_domain::coverage::PisteEnvironment
   auth.rs         TokenManager, TokenLease, DTO de l'endpoint token (§3)
   http.rs         construction du client, envoi d'une tentative, lecture bornée du corps (§4)
   encoding.rs     decode_body : UTF-8 strict puis réparation du mojibake (§4.4, §10)
-  classify.rs     statut + corps → issue d'une tentative (§5.1, §11)
-  retry.rs        politique de réessai backon, Retry-After (§5.2)
+  classify.rs     statut (corps jamais lu) → issue d'une tentative : Outcome, Budget, try_send (§5.1)
+  retry.rs        boucle de réessai maison (run, backoff, Jitter), Retry-After (§5.2 ; ADR-0017)
   deadline.rs     CallDeadline : lecture de lf_application::deadline::Deadline (durée restante),
                   convertie en échéance MonoClock à l'entrée de la méthode du port (§5.3)
   limit.rs        RateGate : sémaphore + governor (check(), horloge bâtie sur MonoClock) (§5.4, §5.5)
-  time.rs         MonoClock, Sleeper, TokioClock, TokioSleeper (+ ManualClock, RecordingSleeper en cfg(test))
+  time.rs         MonoClock, Sleeper, TokioClock, TokioSleeper, race (+ ManualClock, RecordingSleeper en cfg(test))
+  stats.rs        Stats, StatsSnapshot : compteurs du mojibake (§10.5)
   request/        search.rs (SearchRequestDto), consult.rs (corps des consultations), number.rs (M6)
-  dto/            de.rs (helpers), search.rs, text.rs, article.rs, juri.rs, acco.rs, error.rs, oauth.rs,
-                  jorf.rs, kalicont.rs, codes.rs (M6), versions.rs, links.rs (M7)
+  dto/            mod.rs, de.rs (helpers : opt_u64_lenient) et oauth.rs livrés (plan 2c) ; search.rs, text.rs, article.rs,
+                  juri.rs, acco.rs, error.rs, jorf.rs, kalicont.rs, codes.rs (M6), versions.rs, links.rs (M7) : plan 2d et suivants
   map/            dates.rs, search.rs, act.rs, article.rs, decision.rs, deliberation.rs, convention.rs,
                   agreement.rs (+ M6/M7)
   memo.rs         PaginationMemo (M2), CodeTable (M6) (§12.3)
-  corpus.rs       impl LegalCorpus for PisteCorpus
+  corpus.rs       PisteCorpus, post_json (appel API de bout en bout) ; impl LegalCorpus au plan 2d
   raw.rs          API brute, seulement sous #[cfg(feature = "record")] (§13.4)
 crates/lf-adapter-piste/examples/
   record_fixture.rs   (feature record) lancé par cargo xtask record-fixture (§13.4)
@@ -153,7 +159,7 @@ crates/lf-adapter-piste/tests/
   live.rs   smoke tests live, `#[ignore]` (§13.5)
 ```
 
-Les tests unitaires et wiremock vivent **dans le crate**, en `#[cfg(test)] mod tests` du fichier testé (async pour wiremock), conformément à l'ADR-0002 et à 00 §10 (la liste de 06 §1.4 fait foi pour les chemins) : jeton (`auth.rs`), résilience (`retry.rs`, `limit.rs`, `deadline.rs`), corps (`http.rs`, `encoding.rs`), payloads (`request/search.rs`), mapping et contrats sur fixtures (`map/*.rs`, via `include_bytes!`) et scénarios d'endpoints (`corpus.rs`). `tests/` est réservé à `live.rs`, aux tests e2e du binaire et aux compléments, car `make cov` mesure `--lib` : un code exercé seulement par `tests/*.rs` compterait comme non couvert. La glue HTTP irréductible est exclue **nommément** ; prévoir en M2 un `--ignore-filename-regex` dans `COV_FLAGS` du `Makefile`, en même temps que les `exclude_globs` justifiés de `.cargo/mutants.toml`. Les noms de fichiers de test cités plus bas (`oauth.rs`, `resilience.rs`…) désignent désormais ces modules `tests`.
+Les tests unitaires et wiremock vivent **dans le crate**, en `#[cfg(test)] mod tests` du fichier testé (async pour wiremock), conformément à l'ADR-0002 et à 00 §10 (la liste de 06 §1.4 fait foi pour les chemins) : jeton (`auth.rs`), résilience (`retry.rs`, `limit.rs`, `deadline.rs`), corps (`http.rs`, `encoding.rs`), payloads (`request/search.rs`), mapping et contrats sur fixtures (`map/*.rs`, via `include_bytes!`) et scénarios d'endpoints (`corpus.rs`). `tests/` est réservé à `live.rs`, aux tests e2e du binaire et aux compléments, car `make cov` mesure `--lib` : un code exercé seulement par `tests/*.rs` compterait comme non couvert. Aucune exclusion n'a été nécessaire (plan 2c) : `make cov` à 100 % sans `--ignore-filename-regex`, glue HTTP incluse (wiremock), et aucune exclusion de mutation pour l'adapter (les seuls `exclude_globs` de `.cargo/mutants.toml`, `xtask/src/main.rs` et `fuzz/**`, sont antérieurs) ; à revoir si la glue de `lf-app` en demande une (M4). Les noms de fichiers de test cités plus bas (`oauth.rs`, `resilience.rs`…) désignent désormais ces modules `tests`.
 
 Les fixtures sont protégées de toute conversion de fin de ligne (`**/tests/fixtures/** -text` dans `.gitattributes`, 06 §1.2, principe PT5), condition de stabilité de `sha256_raw` sous Windows (D-35).
 
@@ -165,7 +171,7 @@ flowchart TD
   D --> C{"configuration utilisable ?"}
   C -- non --> EC["CorpusError::Config, sans aucune E/S"]
   C -- oui --> B["corps JSON minimal (request/)"]
-  B --> L["boucle de réessai backon : 3 tentatives au plus (2 sur un 500)"]
+  B --> L["boucle de réessai (retry::run) : 3 tentatives au plus (2 sur un 500)"]
   L --> G["RateGate : sémaphore (4) puis governor check() (5/s, rafale 10)"]
   G --> T["TokenManager::token() mono-vol"]
   T --> H["POST reqwest, timeout = min(40 s, reste du délai)"]
@@ -209,7 +215,7 @@ Liste fermée de 00 §1 ; formats, priorités et messages détaillés : 02 §8.2
 
 | Variable (00 §1) | Défaut | Champ de `PisteConfig` | Remarques |
 |---|---|---|---|
-| `LF_PISTE_ENV` | `sandbox` | `env` (`lf_domain::PisteEnvironment`) | `sandbox` ou `production`, insensible à la casse ; toute autre valeur est un problème de configuration (mode dégradé, §2.4) |
+| `LF_PISTE_ENV` | `sandbox` | `env` (`lf_domain::coverage::PisteEnvironment`) | `sandbox` ou `production`, insensible à la casse ; toute autre valeur est un problème de configuration (mode dégradé, §2.4) |
 | `LF_PISTE_CLIENT_ID` | — | `credentials.client_id` | `trim()` ; vide = absent (parité référence client.py:51-52) |
 | `LF_PISTE_CLIENT_SECRET` | — | `credentials.client_secret` | idem, enveloppé immédiatement dans `SecretString` |
 | `LF_PISTE_OAUTH_URL` | URL officielle de `env` | `endpoints.oauth_url` | surcharge explicite, validée (§2.3) |
@@ -222,22 +228,26 @@ Liste fermée de 00 §1 ; formats, priorités et messages détaillés : 02 §8.2
 | `LF_PISTE_CONCURRENCY` | `4` (1..=16) | `max_concurrency` | requêtes API en vol (§5.5) ; réglage avancé |
 | `LF_PISTE_MOJIBAKE_REPAIR` | `on` (`on`\|`off`) | `repair_mojibake` | réparation du mojibake (§10) ; réglage avancé |
 
-Toute valeur invalide d'une variable numérique ou de `LF_PISTE_MOJIBAKE_REPAIR` est remplacée par le défaut, avec un `warn!` et une ligne de `check-config` (00 §1). Les quatre réglages avancés ne sont déclarés ni dans `server.json` ni dans le manifeste MCPB : README et `check-config` seulement (08). Les variables héritées `FR_ELI_CACHE_DIR`, `FR_ELI_RUNTIME_URL`, `FR_ELI_ENV`, `PISTE_CLIENT_ID` et `PISTE_CLIENT_SECRET` ne sont jamais lues ; si elles sont définies, `lf-app` émet un avertissement « ignored » au démarrage et dans `check-config`.
+Toute valeur invalide d'une variable numérique ou de `LF_PISTE_MOJIBAKE_REPAIR` est remplacée par le défaut, avec un `warn!` et une ligne de `check-config` (00 §1). Au plan 2c, `PisteConfig::new` pose les défauts nommés ; la lecture bornée des quatre réglages avancés et leur `warn!` appartiennent à `lf-app` (M4, T-M2-01 en partie). Les quatre réglages avancés ne sont déclarés ni dans `server.json` ni dans le manifeste MCPB : README et `check-config` seulement (08). Les variables héritées `FR_ELI_CACHE_DIR`, `FR_ELI_RUNTIME_URL`, `FR_ELI_ENV`, `PISTE_CLIENT_ID` et `PISTE_CLIENT_SECRET` ne sont jamais lues ; si elles sont définies, `lf-app` émet un avertissement « ignored » au démarrage et dans `check-config`.
 
 Le connecteur ne lit aucune configuration distante, ne télécharge aucun manifeste et n'émet aucune télémétrie (ADR-0005, corrige D-04 et D-05). La configuration est lue **une fois** au démarrage (corrige E-24 : la référence relisait l'environnement à chaque appel).
 
 ### 2.3 `PisteConfig` et validation
 
 ```rust
-// lf-adapter-piste/src/config.rs — non compilé, à valider au jalon qui l'implémente
-use lf_domain::PisteEnvironment;   // seul type d'environnement du workspace (03 §4.8) ; Url = reqwest::Url
+// lf-adapter-piste/src/config.rs — [livré, plan 2c, tâche 4]
+use lf_domain::coverage::PisteEnvironment;   // seul type d'environnement du workspace (03 §4.8) ; Url = reqwest::Url
 
-pub struct PisteEndpoints { pub oauth_url: Url, pub base_url: Url, pub official: bool }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PisteEndpoints { pub oauth_url: Url, pub base_url: Url /* jamais de « / » final */, pub official: bool }
 
+#[derive(Debug, Clone)]
 pub struct PisteCredentials { pub client_id: String, pub client_secret: SecretString }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RateQuota { pub per_second: NonZeroU32, pub burst: NonZeroU32 }   // nom exporté fixé par 02 §3.3
 
+#[derive(Debug, Clone)]   // derive : le secret est rédigé par SecretString (« [REDACTED] »)
 pub struct PisteConfig {
     pub env: PisteEnvironment,
     pub endpoints: Result<PisteEndpoints, ConfigProblem>, // un problème n'empêche pas le démarrage
@@ -251,28 +261,44 @@ pub struct PisteConfig {
     pub max_body_bytes: u64,                              // 16 Mio (00 §8)
     pub repair_mojibake: bool,                            // LF_PISTE_MOJIBAKE_REPAIR : true
 }
+impl PisteConfig {
+    /// Assemble avec les défauts nommés (CONNECT_TIMEOUT, REQUEST_TIMEOUT, TOOL_DEADLINE, RATE_PER_SECOND,
+    /// RATE_BURST, MAX_CONCURRENCY, MAX_BODY_BYTES, repair_mojibake = true) ; ne décide de rien.
+    pub fn new(env: PisteEnvironment, endpoints: Result<PisteEndpoints, ConfigProblem>,
+               credentials: Option<PisteCredentials>, user_agent: String) -> Self;
+}
 impl PisteEndpoints {
     pub fn official(env: PisteEnvironment) -> Self;
     pub fn with_overrides(env: PisteEnvironment, oauth: Option<&str>, base: Option<&str>)
-        -> Result<(Self, Vec<ConfigWarning>), ConfigProblem>;
+        -> Result<(Self, Vec<ConfigWarning>), ConfigProblem>;   // premier problème : jeton puis base
 }
-impl fmt::Debug for PisteConfig { /* client_secret affiché "[REDACTED]" par secrecy */ }
+pub enum ConfigWarning {   // chaque variante porte `setting` (libellé de rôle : « OAuth URL » ou « base URL »)
+    InsecureLoopback { setting },                 // « {setting} uses plain http on a loopback host »
+    CustomHost { setting, host: String },         // « {setting} points to a non-official host {host} »
+}
+pub enum ConfigProblem {
+    InvalidUrl { setting, reason: String },       // « invalid {setting}: {reason} » (raison de l'analyseur d'URL)
+    InsecureScheme { setting },                   // « {setting} must use https (http is only accepted for loopback hosts) »
+    ForbiddenPart { setting, part },              // « {setting} must not contain {part} » : credentials | query | fragment
+    EnvMismatch { setting, host, env, host_env }, // « … host {host} belongs to the {host_env} environment but the environment is {env}: set LF_PISTE_ENV={host_env} or fix the URL »
+    UnexpectedApiPath { setting, host },          // « {setting} path on official host {host} must be /dila/legifrance/lf-engine-app »
+}
 ```
 
-Règles de `with_overrides` (00 §1, AM-27), toutes testées (§13.2), communes à `LF_PISTE_OAUTH_URL`/`LF_PISTE_BASE_URL` et à leurs équivalents `FR_ELI_*` :
+Règles de `with_overrides` (00 §1, AM-27), toutes testées (§13.2), communes à `LF_PISTE_OAUTH_URL`/`LF_PISTE_BASE_URL` et à leurs équivalents `FR_ELI_*`. Ordre des contrôles : analyse, schéma, parties interdites, environnement, `/` finaux (base seulement), chemin de l'API. **Aucun message ne recopie un morceau de l'entrée** : une URL surchargée peut porter des identifiants (`user:pw@hote` se lit comme un schéma `user` pour `Url::parse`) ; seuls figurent l'hôte officiel, l'hôte d'une surcharge dans `CustomHost` et la raison fixe de l'analyseur d'URL.
 
-1. L'URL se parse avec `Url::parse`. Le schéma doit être `https`. Exception : `http` est accepté si l'hôte est une boucle locale (`127.0.0.1`, `::1`, `localhost`), avec `ConfigWarning::InsecureLoopback`. Cette exception sert aux tests wiremock et aux passerelles locales.
-2. Ni `userinfo`, ni requête (`?…`), ni fragment : sinon `ConfigProblem`. Une URL ne contient jamais de secret, ce qui corrige le risque de fuite par les messages d'erreur (D-40).
-3. Hôte hors de la liste des quatre hôtes officiels (`sandbox-oauth.piste.gouv.fr`, `oauth.piste.gouv.fr` pour le jeton ; `sandbox-api.piste.gouv.fr`, `api.piste.gouv.fr` pour l'API) : accepté, car la surcharge est un choix explicite et local de l'utilisateur, mais `ConfigWarning::CustomHost` est affiché au démarrage, par `check-config` et dans `fr_coverage` (rendu dans 05). `official = false`.
+1. L'URL se parse avec `Url::parse`. Le schéma doit être `https`. Exception : `http` est accepté si l'hôte est une boucle locale (`127.0.0.1`, `[::1]`, `localhost`), avec `ConfigWarning::InsecureLoopback`. Cette exception sert aux tests wiremock et aux passerelles locales.
+2. Ni identifiants (`userinfo`), ni requête (`?…`), ni fragment : sinon `ConfigProblem::ForbiddenPart` (une seule variante, dont `part` vaut `credentials`, `query` ou `fragment`). Une URL ne contient jamais de secret, ce qui corrige le risque de fuite par les messages d'erreur (D-40).
+3. Hôte hors de la liste des quatre hôtes officiels (`sandbox-oauth.piste.gouv.fr`, `oauth.piste.gouv.fr` pour le jeton ; `sandbox-api.piste.gouv.fr`, `api.piste.gouv.fr` pour l'API) : accepté, car la surcharge est un choix explicite et local de l'utilisateur, mais `ConfigWarning::CustomHost` est affiché au démarrage, par `check-config` et dans `fr_coverage` (rendu dans 05). `official` vaut vrai quand les **deux** URL sont sur des hôtes officiels (une surcharge absente compte comme officielle). Une URL `http` de boucle locale donne **deux** avertissements (`InsecureLoopback` puis `CustomHost`) : les tests wiremock obtiennent donc `official == false` ; `lf-app` (M4) les présente.
 4. Tout hôte officiel doit désigner l'environnement de `LF_PISTE_ENV`, explicite ou par défaut (`sandbox`) ; si les deux hôtes sont officiels, ils désignent donc le **même** environnement. Sinon `ConfigProblem::EnvMismatch`, dont le message demande de poser `LF_PISTE_ENV=production` (ou de corriger l'URL) : aucune déduction implicite de l'environnement à partir de l'hôte. Cela empêche d'envoyer des identifiants sandbox à la production, ou l'inverse, et de fausser l'espace de noms du cache et `fr_coverage`. Piège visé : un utilisateur de la référence qui pointait `FR_ELI_*_URL` vers la production sans définir `LF_PISTE_ENV`.
-5. Sur un hôte API officiel, le chemin doit être exactement `/dila/legifrance/lf-engine-app`.
+5. Sur un hôte API officiel, le chemin doit être exactement `/dila/legifrance/lf-engine-app` (`UnexpectedApiPath`). Les `/` finaux ne sont retirés que de l'URL de **base**, avec `Url::set_path` ; `base_url` n'a donc jamais de `/` final et un endpoint s'y **concatène** (`format!("{base}{endpoint}")`, `endpoint` commençant par `/`), jamais par `Url::join`, qui remplacerait le dernier segment du chemin.
 
 L'URL de base ne change plus après le démarrage. Aucune URL renvoyée par l'API (`lienJo`, `urlCC`, `attachementUrl`, `href` des contenus KALI) n'est jamais appelée (§14.3).
 
 ### 2.4 Démarrage sans réseau ; identifiants absents
 
 - `PisteCorpus::new` ne fait **aucun** appel réseau. Le jeton est demandé paresseusement, au premier appel d'outil (00 §6).
-- Identifiants absents, `ConfigProblem` (dont `EnvMismatch`) ou `LF_PISTE_ENV` invalide : le serveur démarre quand même, en **mode dégradé** (00 §1) : `lf-app` journalise le problème en `error!`, chaque méthode du port renvoie immédiatement `CorpusError::Config`, sans E/S ni attente (corrige D-39), et chaque outil PISTE répond `[config_error] …`. `fr_coverage` et `check-config` décrivent le problème ; l'avertissement `CustomHost` apparaît aussi comme lacune dans `fr_coverage` (00 §7 ; rendu dans 05). Pour les identifiants absents, le message garde celui de la référence avec les nouveaux noms de variables (P-014, E-34) : `PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET (from your piste.gouv.fr application, section OAuth Credentials).` (gabarit de 05 §7.2).
+- Identifiants absents, `ConfigProblem` (dont `EnvMismatch`) ou `LF_PISTE_ENV` invalide : le serveur démarre quand même, en **mode dégradé** (00 §1) : `lf-app` journalise le problème en `error!`, chaque méthode du port renvoie immédiatement `CorpusError::Config`, sans E/S ni attente (corrige D-39), et chaque outil PISTE répond `[config_error] …`. `fr_coverage` et `check-config` décrivent le problème ; l'avertissement `CustomHost` apparaît aussi comme lacune dans `fr_coverage` (00 §7 ; rendu dans 05). Pour les identifiants absents, le message garde celui de la référence avec les nouveaux noms de variables (P-014, E-34), **sans point final** (convention des messages d'erreur, `CREDENTIALS_MISSING`) : `PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET (from your piste.gouv.fr application, section OAuth Credentials)` (gabarit de 05 §7.2). Le problème d'adresses est examiné avant les identifiants (`ready`). `TokenManager` garde en défense le message court `PISTE credentials missing` (inatteignable par `post_json` et `check_credentials`, qui filtrent avant). `PisteCorpus::has_credentials()` et `config_problem()` alimentent `check-config` et `fr_coverage`.
 - `check-config` (sous-commande de `lf-app`, 02 §8.1, 08) affiche l'environnement, les URLs effectives, les avertissements et les problèmes, sans le secret. L'option explicite `--online` appelle `check_credentials()` (02 §3.3) : une seule requête token, aucun appel à l'API.
 
 ---
@@ -307,40 +333,41 @@ pub(crate) struct OAuthErrorDto { #[serde(default)] pub error: Option<String>, #
 
 Règles :
 
-- `access_token` absent ou vide ⇒ `CorpusError::Config` (`PISTE OAuth returned no access_token.`, parité S7). Une réponse 200 sans jeton indique un endpoint qui n'est pas celui de PISTE.
+- `access_token` absent ou vide ⇒ `CorpusError::Config` (`PISTE OAuth returned no access_token`, sans point final, parité S7). Une réponse 200 sans jeton indique un endpoint qui n'est pas celui de PISTE.
 - `token_type` différent de `Bearer` (sans tenir compte de la casse) : `warn`, jeton utilisé quand même.
-- `expires_in` absent, `null`, non numérique ou nul ⇒ **3 600 s**. La référence plantait sur `null` (recherche 02 D-10). La valeur est bornée à [1 s, 86 400 s].
+- `expires_in` absent, `null`, nul, flottant, négatif ou non numérique ⇒ **3 600 s** (une chaîne de chiffres, `"3600"`, est lue comme le nombre : `opt_u64_lenient`). La référence plantait sur `null` (recherche 02 D-10). La valeur est bornée à [1 s, 86 400 s] (`0 ⇒ défaut`, puis plafond à 86 400 s).
 - Formes réelles des erreurs de l'endpoint token, statut et corps : **NON VÉRIFIÉ** [V-60 · oauth-reponses].
 
 ### 3.3 Gestionnaire de jeton
 
 ```rust
-// auth.rs — non compilé, à valider au jalon qui l'implémente
-pub(crate) struct TokenManager<K: MonoClock> {
-    http: reqwest::Client,                       // le client partagé (§4.2)
-    oauth_url: Url,
-    creds: PisteCredentials,
-    state: tokio::sync::Mutex<Option<CachedToken>>,
-    next_generation: AtomicU64,
+// auth.rs — [livré, plan 2c, tâche 10]
+pub(crate) struct TokenManager<K, S> {     // K: MonoClock, S: Sleeper
+    client: Arc<SharedClient>,             // le client partagé (§4.2), construit au premier besoin
+    config: Arc<PisteConfig>,
     clock: K,
+    sleeper: S,                            // seule porte d'entrée des attentes
+    state: tokio::sync::Mutex<State>,      // State { cached: Option<CachedToken>, issued: u64 }
 }
 struct CachedToken { value: SecretString, refresh_at: Duration /* horloge MonoClock */, generation: u64 }
-pub(crate) struct TokenLease { pub value: SecretString, pub generation: u64 }
+pub(crate) struct TokenLease { pub value: SecretString, pub generation: u64 }   // Debug rédigé
 
-impl<K: MonoClock> TokenManager<K> {
+impl<K: MonoClock, S: Sleeper> TokenManager<K, S> {
     /// Mono-vol : le verrou est tenu pendant le rafraîchissement ; les appelants concurrents
-    /// attendent puis lisent le jeton neuf. L'attente du verrou est bornée par `deadline`
-    /// (CallDeadline : échéance MonoClock dérivée de lf_application::deadline::Deadline, §5.3).
-    pub async fn token(&self, deadline: &CallDeadline) -> Result<TokenLease, CorpusError>;
-    /// N'invalide que si le jeton courant est celui qui a reçu le 401.
-    pub async fn invalidate(&self, generation: u64);
+    /// attendent puis lisent le jeton neuf. L'attente du verrou est une course `time::race` contre
+    /// `Sleeper::sleep(reste)` (CallDeadline, §5.3), pas `tokio::time::timeout` : `Timeout` si
+    /// l'échéance tombe d'abord. L'état n'est écrit qu'après un succès.
+    pub(crate) async fn token(&self, deadline: &CallDeadline) -> Result<TokenLease, CorpusError>;
+    /// N'invalide que si le jeton courant est celui de `generation` ; le verrou est attendu comme dans
+    /// `token`, au plus jusqu'à l'échéance de l'appelant (`Timeout`, état intact, jeton refusé conservé).
+    pub(crate) async fn invalidate(&self, generation: u64, deadline: &CallDeadline) -> Result<(), CorpusError>;
 }
 ```
 
 - **État** : au plus un jeton en mémoire, jamais écrit sur disque ni journalisé (P-026 ; référence client.py:10-13). Il n'est pas non plus dans `lf-adapter-cache`.
 - **Renouvellement anticipé** : `refresh_at = obtenu_à + expires_in − marge`, avec `marge = min(60 s, expires_in / 2)`. `obtenu_à` est lu **avant** l'envoi de la requête, comme la référence (client.py:74, 93), ce qui reste prudent. La marge de 60 s est celle de la référence et de deux clients tiers (recherche 05 §3.1). Le plafond `expires_in / 2` évite un jeton déjà périmé si `expires_in ≤ 60`.
 - **Mono-vol** : un `tokio::sync::Mutex` couvre la lecture et le rafraîchissement (même principe que l'`anyio.Lock` de la référence, client.py:70-73). Dix appels simultanés au démarrage produisent **une** requête token (P-022, test `concurrent_calls_share_one_token_refresh`).
-- **Générations** : chaque jeton obtenu reçoit un numéro croissant. `invalidate(g)` ne vide l'état que si le jeton courant porte `g`. Une tâche qui reçoit un 401 avec un vieux jeton n'efface donc pas le jeton neuf obtenu entre-temps par une autre.
+- **Générations** : chaque jeton obtenu reçoit un numéro croissant, à partir de 1. `invalidate(g, …)` ne vide l'état que si le jeton courant porte `g` (`invalidate_does_not_drop_fresher_token`). Une tâche qui reçoit un 401 avec un vieux jeton n'efface donc pas le jeton neuf obtenu entre-temps par une autre.
 - **Annulation** : si le futur appelant est abandonné (délai global, annulation MCP), la requête token en cours est abandonnée et le verrou est relâché sans modifier l'état. L'appelant suivant rafraîchit. L'acquisition du verrou de `tokio` est sûre vis-à-vis de l'annulation (test `cancel_during_refresh_releases_lock`).
 - La requête token passe par la même politique de réessai que l'API (§5.2 : 429, 502, 503, 504 et réseau jusqu'à 3 tentatives, 500 jusqu'à 2), dans le même délai global. Elle ne passe pas par `governor`, car les quotas visent l'API Légifrance et le jeton n'est demandé qu'environ une fois par heure.
 
@@ -349,7 +376,7 @@ impl<K: MonoClock> TokenManager<K> {
 Algorithme par appel du port, corrige D-12 et E-20 :
 
 1. La tentative envoie la requête avec le jeton de génération `g`.
-2. Réponse 401 et aucun renouvellement encore fait pour cet appel : `invalidate(g)`, `token()` (mono-vol), puis **renvoi immédiat**, sans backoff. Ce renvoi ne consomme pas l'une des 3 tentatives transitoires.
+2. Réponse 401 et aucun renouvellement encore fait pour cet appel : `invalidate(g, &deadline)`, `token()` (mono-vol), puis **renvoi immédiat**, sans backoff. Ce renvoi ne consomme pas l'une des 3 tentatives transitoires : le renouvellement est greffé dans la fermeture de tentative de `retry::run` (`PisteCorpus::attempt`), hors du budget de la boucle. `invalidate` a lieu à **chaque** 401, le premier comme le second (un jeton refusé ne doit pas servir à l'appel suivant) ; son attente du verrou est bornée par l'échéance de l'appel et son résultat est ignoré (`Timeout` : l'échéance est atteinte, la tentative suivante rendra `Timeout` en tête, `gate.acquire`). Un `Unauthorized` qui atteint `run` est définitif.
 3. Second 401 dans le même appel : `CorpusError::Auth { detail }`, sans autre requête (`detail` pour les journaux : `API returned 401 twice on {gabarit d'endpoint} ({env})`). Le modèle reçoit le gabarit `Config` des identifiants refusés de 05 §7.2 (02 §9.2 ligne 11), qui renvoie à `LF_PISTE_CLIENT_ID`, `LF_PISTE_CLIENT_SECRET` et `LF_PISTE_ENV`.
 4. La suite `401, 503, 200` produit exactement **deux** requêtes token et trois requêtes API (la référence en demandait trois, recherche 02 D-12).
 
@@ -362,23 +389,25 @@ Une erreur de l'endpoint token est un problème de configuration, jamais `NotFou
 | Réponse de l'endpoint token | `CorpusError` | Réessai | Message vu par le modèle (rappel de 02 §9.2 ; 05 §7.2 fait foi) |
 |---|---|---|---|
 | 200, jeton présent | — | — | — |
-| 200 sans `access_token`, ou JSON illisible | `Config` | non | `PISTE OAuth returned no access_token.` (S7) |
-| 400 ou 401 (`invalid_client`, `invalid_grant`, `unauthorized_client`…) | `Auth` | non | `PISTE rejected the credentials (HTTP {status}): check LF_PISTE_CLIENT_ID, LF_PISTE_CLIENT_SECRET and LF_PISTE_ENV.` ; `detail` (journaux) : `{error}` et l'environnement, pour signaler un mélange sandbox/production |
+| 200 sans `access_token` (ou vide), ou JSON illisible | `Config` | non | `PISTE OAuth returned no access_token.` (S7) ; `detail` (journaux) : `PISTE OAuth returned no access_token` (sans point final) ou `PISTE OAuth response is not valid JSON at {scheme://hôte/chemin}` |
+| 200 avec un `access_token` qui n'est pas une valeur d'en-tête HTTP valide (caractère de contrôle, retour ligne, octet hors ASCII) | `Config` | non | même gabarit que la ligne précédente ; `detail` : `PISTE OAuth returned an unusable access_token`, sans le jeton ; jamais mis en cache (sinon `bearer_auth` échouerait à chaque envoi, classé réseau, sans requête partie) |
+| 400 ou 401 (`invalid_client`, `invalid_grant`, `unauthorized_client`…) | `Auth` | non | `PISTE rejected the credentials (HTTP {status}): check LF_PISTE_CLIENT_ID, LF_PISTE_CLIENT_SECRET and LF_PISTE_ENV.` ; `detail` (journaux) : `OAuth token request rejected: HTTP {status}[, error {code}], environment {env}`, pour signaler un mélange sandbox/production |
 | 403 | `Auth` | non | même gabarit que la ligne précédente |
-| 404, 405, page HTML | `Config` | non | `PISTE OAuth endpoint not found: check LF_PISTE_OAUTH_URL.` (02 §9.2 ligne 8) ; `detail` : `scheme://host/path` sans requête |
+| 404, 405 ; 200 en page HTML | `Config` | non | `PISTE OAuth endpoint not found: check LF_PISTE_OAUTH_URL.` (02 §9.2 ligne 8) ; `detail` : `PISTE OAuth endpoint answered HTTP {status} at {scheme://hôte/chemin}` (404, 405), sans identifiants, requête ni fragment ; une page HTML en 200 est un JSON illisible (ligne précédente) |
 | 429 | réessai, puis `RateLimited` | oui (§5.2) | gabarit `rate_limited` |
 | 502, 503, 504, erreur réseau | réessai (3 tentatives au plus), puis `Upstream` ou `Timeout` | oui | gabarit `upstream_error` |
 | 500 | réessai (2 tentatives au plus), puis `Upstream { status: 500, retryable: false }` | oui, une fois | gabarit `upstream_error`, sans invitation à réessayer |
-| erreur DNS ou TLS (certificat refusé) | `Upstream { status: None, retryable: false }` | réseau : oui ; TLS : non | gabarit `upstream_error` ; `detail` : `could not reach PISTE OAuth ({kind})` |
+| erreur DNS ou réseau ; TLS (certificat refusé) | réseau : `Upstream { status: None, retryable: true }` ; TLS : `Upstream { status: None, retryable: false }` | réseau : oui ; TLS : non | gabarit `upstream_error` ; `detail` : `network error (connect) on PISTE OAuth` ; `TLS handshake failed on PISTE OAuth` (le `could not reach PISTE OAuth ({kind})` de la spec n'est jamais produit) ; pour les statuts transitoires : `HTTP {status} on PISTE OAuth` |
 
-Le champ `error` d'`OAuthErrorDto` est repris dans le `detail` s'il est court (≤ 64 caractères ASCII), sinon omis. `error_description` n'est jamais recopié : il pourrait contenir un fragment de la requête. Le statut exact renvoyé pour `invalid_client` (400 ou 401 : la RFC 6749 §5.2 admet les deux ; la référence ne relève que la valeur `invalid_client`, SOURCES.md:12) est **NON VÉRIFIÉ** [V-60 · oauth-reponses] : les deux statuts suivent la même ligne.
+Sur l'endpoint token, 400, 401 et 403 sont `Auth` et jamais `NotFound` (sur l'API, un 400 est `InvalidRequest`). Le champ `error` d'`OAuthErrorDto` est repris dans le `detail` **seulement s'il vaut l'un des six codes de la RFC 6749 §5.2** (`invalid_request`, `invalid_client`, `invalid_grant`, `unauthorized_client`, `unsupported_grant_type`, `invalid_scope`), par comparaison exacte ; toute autre valeur est omise, quelle que soit sa forme. Une liste blanche et non un filtre de forme (court, ASCII visible) : une passerelle ou un proxy qui renvoie la requête dans `error` ferait passer un `client_secret`, un `client_id` ou un jeton au format UUID ou hexadécimal, et le `detail` va dans des journaux persistants. `error_description` n'est jamais recopié : il pourrait contenir un fragment de la requête. Le statut exact renvoyé pour `invalid_client` (400 ou 401 : la RFC 6749 §5.2 admet les deux ; la référence ne relève que la valeur `invalid_client`, SOURCES.md:12) est **NON VÉRIFIÉ** [V-60 · oauth-reponses] : les deux statuts suivent la même ligne.
 
 ### 3.6 Secrets
 
 - `client_secret` et `access_token` sont des `SecretString` (secrecy 0.10.3 : `Debug` affiche `[REDACTED]`, zéroïsation à la libération ; recherche 04 §4.1).
-- `expose_secret()` n'est appelé qu'à deux endroits, revus et testés : la construction du formulaire OAuth et l'en-tête `Authorization`.
+- `expose_secret()` n'est appelé qu'à **quatre** endroits, revus et testés : la construction du formulaire OAuth (`auth.rs`), l'en-tête `Authorization` (`bearer_auth`, `http.rs`), `TokenResponseDto::usable_token` (test de longueur du jeton reçu, aucune copie) et `is_header_safe` (parcours des octets du jeton reçu, aucune copie).
 - L'en-tête est posé avec `RequestBuilder::bearer_auth`, qui le marque **sensible** (`header_sensitive(…, true)`, reqwest `src/async_impl/request.rs:273-279`). `http` ne l'affiche donc pas en `Debug`. La chaîne temporaire `Bearer …` construite par reqwest n'est pas zéroïsée : risque accepté, documenté.
 - Aucun corps de requête OAuth n'est journalisé, à aucun niveau. `connection_verbose(false)` (défaut) est gardé.
+- `Payload`, `Attempt` et `RawResponse` (`http.rs`) ont un `Debug` écrit à la main, par défense en profondeur (un `#[tracing::instrument]` ou un `{:?}` futur ne doit pas faire sortir le secret) : noms des champs de formulaire ou longueur du JSON, gabarit d'endpoint, présence d'un jeton, statut et longueur du corps, jamais une valeur, un corps, un jeton ni l'URL complète.
 - Un test injecte un secret et un jeton aléatoires, collecte tous les journaux `tracing`, tous les `Display` et `Debug` des erreurs, et vérifie qu'ils n'y figurent pas (`error_messages_never_contain_secret_or_token`, corrige D-40).
 
 ---
@@ -392,32 +421,41 @@ Constats sur reqwest 0.13.5 (recherche 04 §4.2, `RQ:Cargo.toml:39-80`, `RQ:CHAN
 - `rustls` est le backend TLS par défaut. Le fournisseur crypto par défaut est **aws-lc** (`rustls = ["__rustls-aws-lc-rs", "dep:rustls-platform-verifier", "__rustls"]`). `rustls-no-provider` laisse le choix du fournisseur.
 - `form` et `query` ne sont plus activées par défaut. `form` est indispensable pour l'OAuth (§3.1).
 - Les racines de certificats viennent de `rustls-platform-verifier`, c'est-à-dire du magasin du système. Sous Unix hors Apple, il faut donc un magasin CA dans l'image OCI (08).
-- Avec `rustls-no-provider`, reqwest panique au premier client construit si aucun fournisseur n'est installé (`RQ:src/async_impl/client.rs:2498-2510`).
+- Proxy et boucle locale : voir §4.2 (sans `NO_PROXY`, le formulaire OAuth et l'en-tête `Authorization` d'une URL `http` de boucle locale partent vers le proxy système).
+- Avec `rustls-no-provider`, reqwest panique au premier client construit (`Client::build()`) si aucun fournisseur n'est installé (`RQ:src/async_impl/client.rs:2498-2510` ; mesuré au plan 2c).
 
-**Spikes TLS et proxy** (tâche 0 de M2, 00 §11.1), à trancher avant d'écrire le client :
+**Spikes TLS et proxy** (tâche 0 de M2, 00 §11.1 ; **faits au plan 2c**, tâches 7 et 12). Résultat **provisoire** : option A (`reqwest/rustls`, aws-lc) retenue (ADR-0013 §7) ; la matrice des 7 cibles n'est **pas mesurée** : elle est à déclencher par le propriétaire (`.github/workflows/tls-spike.yml`, manuel, 7 cibles × 2 options = 14 jobs plus `summary` ; `cmake` et NASM sont vraisemblablement préinstallés sur les images GitHub : un succès ne prouve pas qu'un poste vierge compile). Mesures locales, `x86_64-unknown-linux-gnu`, release, banc `spikes/tls-provider` (binaire `tls-probe`), `gcc` 15.3.1, `cmake` et `nasm` absents :
 
-| Option | Features | Coût | À mesurer |
-|---|---|---|---|
-| A (défaut si le spike n'aboutit pas) | `reqwest/rustls` (aws-lc) | `aws-lc-sys` demande une chaîne C (`cc`, `cmake`, parfois NASM ou clang selon la cible) | compilation croisée des 7 cibles cargo-dist (Linux x86_64/aarch64 gnu+musl, macOS x86_64/aarch64, Windows x86_64 msvc), durée, taille |
-| B | `reqwest/rustls-no-provider` + `rustls/ring` ; `PisteCorpus::new` appelle `rustls::crypto::ring::default_provider().install_default()` et ignore l'erreur « déjà installé » | moins d'outillage natif | mêmes mesures ; poignée de main TLS 1.2 et 1.3 vers un serveur rustls local, et vers `sandbox-api.piste.gouv.fr` si le réseau le permet (Q6) |
+| | A : aws-lc (retenue, provisoire) | B : `ring` |
+|---|---|---|
+| Features | `reqwest/rustls` | `reqwest/rustls-no-provider` + `rustls/ring` ; `install_default()` dans `finish_client` (**pas** dans `PisteCorpus::new`, ADR-0013 §7) |
+| Compilation à froid | 22,6 s | 13,0 s |
+| Pic mémoire (`time -v`, « Ko » = Kio) | 553 040 Kio (≈ 540 Mio) | 544 880 Kio (≈ 532 Mio) |
+| Binaire brut / `strip` | 7 083 520 o / 5 689 832 o (5,4 Mio) | 4 918 544 o / 3 621 960 o (3,5 Mio) |
+| Paquets (`-e normal,build`, hôte / `--target=all`) | 101 / 143 | 96 / 146 |
+| `aws-lc-sys` 0.45.0 | `Building with: CC` (ni `cmake` ni `nasm` appelés) | sans objet (`ring` 0.17.14) |
+| HTTP sans jeton vers `https://sandbox-api.piste.gouv.fr/`, TLS 1.2 / 1.3 / sans borne | 404 / 404 / 404, `highest_accepted=tls1.3` | idem |
+| musl local, sans paquet système | échec : `failed to find tool "x86_64-linux-musl-gcc"` | échec identique (pas un défaut propre à aws-lc) |
 
-Les exigences exactes d'`aws-lc-sys` par cible et l'API d'installation de `ring` avec reqwest 0.13 sont **NON VÉRIFIÉ** [V-02 · tls-fournisseur-cross] (recherche 04 §6 points 5 et 6). Le résultat est consigné dans ADR-0013 et dans le risque TLS de [09-risques-et-questions.md](09-risques-et-questions.md). Le fournisseur est installé **par l'adapter**, seul crate à dépendre de reqwest : `lf-app` n'a pas à dépendre de rustls.
+Certificats refusés (sonde et adapter) : un certificat expiré, un auto-signé et une borne TLS 1.3 contre un serveur TLS 1.2 seul sont classés `tls`. **Non mesurés** : macOS, Windows msvc (NASM), aarch64, musl avec `musl-gcc` (`CC_<cible>=musl-gcc`, posé par le workflow). Sans fournisseur installé (`rustls-no-provider`), reqwest 0.13.5 **panique** dans `Client::build()` (`No rustls crypto provider is configured…`) : la panique traverse tout `Result`, elle n'est **jamais** une `CorpusError::Config`. V-02 est **partiel** (09 §2.20) ; V-18 aussi (tailles et RSS locales seulement).
+
+V-02 reste ouverte jusqu'au résultat de la matrice, consigné ensuite dans ADR-0013 §7 (règle de choix : `cmake` ou NASM exigé chez l'utilisateur, ou échec musl propre à aws-lc, ⇒ `ring`) et dans le risque TLS de [09-risques-et-questions.md](09-risques-et-questions.md). Le fournisseur est installé **par l'adapter**, seul crate à dépendre de reqwest : `lf-app` n'a pas à dépendre de rustls.
 
 ### 4.2 Construction du client
 
-Un seul `reqwest::Client`, construit une fois au premier appel (`OnceCell`, mono-vol ; `PisteCorpus::new` ne fait aucune E/S, 02 §3.3) et partagé par `TokenManager` et les appels API (pool de connexions par hôte). Un échec de construction (fournisseur TLS, racines) devient `CorpusError::Config`. Cela corrige D-06 et E-22 : la référence recréait un client par appel d'outil.
+Un seul `reqwest::Client`, construit une fois au premier appel (`OnceCell`, mono-vol ; `PisteCorpus::new` ne fait aucune E/S, 02 §3.3) et partagé par `TokenManager` et les appels API (pool de connexions par hôte). Un échec de construction (fournisseur TLS, racines) devient `CorpusError::Config`. Cela corrige D-06 et E-22 : la référence recréait un client par appel d'outil. **V-04 partiel** (plan 2c, mesure ad hoc sous Linux en profil dev seulement ; les 10 exécutions par OS sur les trois OS de la CI restent à faire) : `build_client` coûte environ 38 ms en profil dev (4 à 5 ms en release), identique aux 1er, 2e et 3e appels, avec ou sans `https_only` : les racines du magasin système sont rechargées à chaque construction, d'où l'instance unique (`SharedClient`, `OnceCell`). Un échec de construction n'est pas mémorisé : l'appel suivant reconstruit.
 
 | Réglage | Valeur | Source / raison |
 |---|---|---|
 | `connect_timeout` | 10 s | 00 §8 ; parité P-025 (référence client.py:30) |
-| `timeout` (total par tentative, connexion et corps compris) | `LF_HTTP_TIMEOUT_S` (40 s), réduit tentative par tentative à `min(40 s, reste du délai global)` via `RequestBuilder::timeout` | reqwest : « applied from when the request starts connecting until the response body has finished » (`RQ:src/async_impl/client.rs:1444-1453`, `request.rs:289-299`) |
+| `timeout` (total par tentative, connexion et corps compris) | `LF_HTTP_TIMEOUT_S` (40 s), réduit tentative par tentative à `min(40 s, reste du délai global)` via `RequestBuilder::timeout`, qui **remplace** celui du client : le délai effectif est `Attempt::timeout` (celui du client n'est qu'un filet) | reqwest : « applied from when the request starts connecting until the response body has finished » (`RQ:src/async_impl/client.rs:1444-1453`, `request.rs:289-299`) |
 | `user_agent` | `mcp-legifrance/<version> (+https://github.com/muchiny/mcp-legifrance)`, chaîne fournie par `lf-app` avec `env!("CARGO_PKG_VERSION")` du binaire | 00 §8 ; corrige D-43 et E-08. Le dépôt porte ce nom depuis son renommage décidé le 2026-10-16 (Q1, 00 §0, C6) ; l'URL du dépôt GitHub suit le renommage |
 | en-tête par défaut | `Accept: application/json` | exemple officiel (`exemples…md:155-163`) ; `Content-Type: application/json` est posé par `.json()` |
 | `redirect` | `redirect::Policy::none()` | un 3xx devient `Upstream { status, retryable: false }`. Parité : la référence ne suivait pas les redirections (recherche 01 §6.3). Un `POST` authentifié n'a aucune raison d'être redirigé. reqwest suit 10 redirections par défaut (`RQ:src/redirect.rs:160-165`) |
-| `https_only` | `true`, sauf `ConfigWarning::InsecureLoopback` (tests) | `RQ:src/async_impl/client.rs:2262` |
-| `gzip` | activé (feature `gzip`) : envoie `Accept-Encoding: gzip`, décompression transparente | réponses JSON très compressibles ; prise en charge par PISTE **NON VÉRIFIÉ** [V-70 · piste-gzip]. La borne de taille s'applique aux octets **décompressés** (§4.3) |
-| `retry` | défaut de reqwest conservé : seuls les NACK de protocole sûrs sont rejoués (`RQ:src/async_impl/client.rs:1405-1414`, `src/retry.rs:9-16`). Toute la politique applicative est dans `backon` (§5.2) | évite deux couches de réessai concurrentes |
-| proxy | défaut conservé (proxy système, feature `system-proxy` : réglages Windows et macOS, `RQ:src/lib.rs:216`) | réseaux d'entreprise ; prise en compte de `HTTPS_PROXY` et `NO_PROXY` selon les features retenues : **NON VÉRIFIÉ** [V-03 · reqwest-proxy-env], à tester au spike TLS (tâche 0 de M2) |
+| `https_only` | `true`, levé dès qu'**une** des deux URL est en `http` (boucle locale seulement, tests) | `RQ:src/async_impl/client.rs:2262` |
+| `gzip` | activé (feature `gzip`) : envoie `Accept-Encoding: gzip`, décompression transparente | réponses JSON très compressibles ; côté client prouvé (plan 2c : négociation, décompression, borne après décompression, gzip corrompu en `Network`) ; prise en charge par PISTE **NON VÉRIFIÉ** [V-70 · piste-gzip] (09 §2.20, partiel). La borne de taille s'applique aux octets **décompressés** (§4.3) |
+| `retry` | défaut de reqwest conservé : seuls les NACK de protocole sûrs sont rejoués (`RQ:src/async_impl/client.rs:1405-1414`, `src/retry.rs:9-16`). Toute la politique applicative est dans `retry::run` (§5.2) | évite deux couches de réessai concurrentes |
+| proxy | défaut conservé (proxy système, feature `system-proxy` : réglages Windows et macOS, `RQ:src/lib.rs:216`) | réseaux d'entreprise ; **V-03 levé** (plan 2c, tests en sous-processus : variables lues une fois par processus) : `HTTP_PROXY` honoré (requête en forme absolue, `Host` de la cible), `HTTPS_PROXY` honoré (`CONNECT hôte:443`), `NO_PROXY=127.0.0.1,localhost` contourne ; **sans `NO_PROXY`, la boucle locale n'est pas contournée** : la CI pose `NO_PROXY=127.0.0.1,localhost,::1`, tout poste derrière un proxy aussi. **Conséquence sur les identifiants** : avec `HTTP_PROXY`/`HTTPS_PROXY` posés et sans `NO_PROXY` couvrant la boucle locale, une URL `http://127.0.0.1:…` (bouchon local ou `mitmproxy` derrière `LF_PISTE_OAUTH_URL`) envoie le formulaire OAuth (`client_secret`) puis l'en-tête `Authorization` au proxy, en clair ; en HTTPS le proxy ne voit que `CONNECT hôte:443`. Aucun changement de comportement (les tests de proxy en dépendent) : `ConfigWarning::InsecureLoopback` le rappelle, et la doc de `lf-app` (M4) devra le répéter. Non testés : variantes minuscules, `ALL_PROXY`, authentification de proxy, réglages système Windows et macOS |
 | `pool_idle_timeout` | défaut (90 s) | une connexion fermée par la passerelle PISTE produit une erreur réseau, rejouée par la politique §5.2 |
 | `danger_accept_invalid_certs` | **jamais** | §14.2 |
 
@@ -427,18 +465,18 @@ Corrige D-41 et D-11.
 
 1. Si `Response::content_length()` est connu et dépasse `max_body_bytes` (16 Mio), refus immédiat.
 2. Sinon, lecture par `Response::chunk()` (`RQ:src/async_impl/response.rs:310`) dans un `Vec<u8>`, avec contrôle du cumul à chaque morceau. Les morceaux sont décompressés, si bien qu'une bombe gzip est arrêtée à 16 Mio.
-3. Dépassement : `CorpusError::Decode { detail }`, avec un `detail` de la forme `response too large (> 16 MiB) on /consult/acco`. Pas de réessai.
+3. Dépassement : `CorpusError::Decode { detail }`, avec un `detail` de la forme `response too large (> 16 MiB) on /consult/acco` (`format_limit` : `N MiB` si la borne est un multiple de 1 Mio, sinon `N bytes`). Pas de réessai.
 
 Choix de 16 Mio : la plus grosse fixture fait 42 Ko (search_kali.json, recherche 03 §2), mais une réponse `/consult/lawDecree` sur un gros texte ou `/consult/acco` avec son champ `data` (`.docx` en base64, jamais désérialisé mais tout de même lu) peut être bien plus volumineuse. Tailles réelles **NON VÉRIFIÉ** [V-75 · taille-max-textes] ; présence et taille de `data` et `attachment` sur `/consult/acco` **NON VÉRIFIÉ** [V-106 · acco-data-attachment]. La borne est une constante (00 §8), réexaminée en M5 sur les fixtures recapturées (V-75) ; toute modification amende 00 §8. La mesure de `lawDecree` sur un code (V-96) a lieu dès M2, car elle décide de l'usage de `tableMatieres` en v0.1 (§7.3).
 
 ### 4.4 Décodage
 
-1. `std::str::from_utf8(&bytes)` **strict**. Échec : `CorpusError::Decode { detail }` (`invalid UTF-8 at byte N on /consult/juri`). JSON impose UTF-8 et l'en-tête `charset` n'est pas pris en compte (feature `charset` exclue, §1.4).
+1. `std::str::from_utf8(&bytes)` **strict**. Échec : `CorpusError::Decode { detail }` (`invalid UTF-8 at byte {N} on {endpoint}`, par exemple `invalid UTF-8 at byte 12 on /consult/juri` ; seule la position de l'octet fautif est citée). JSON impose UTF-8 et l'en-tête `charset` n'est pas pris en compte (feature `charset` exclue, §1.4).
 2. Réparation du mojibake sur le texte entier si `repair_mojibake` (§10).
 3. `serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_str(&text))` vers le DTO de l'endpoint (§8.5).
 4. Mapping vers l'entité du domaine (§9).
 
-Le corps des **réponses d'erreur** suit les étapes 1 et 2, puis une désérialisation optionnelle en `PisteErrorDto` (§11.3), pour que le marqueur « introuvable » soit reconnu même dans un corps en mojibake.
+Le corps des **réponses d'erreur** suit les étapes 1 et 2, puis une désérialisation optionnelle en `PisteErrorDto` (§11.3), pour que le marqueur « introuvable » soit reconnu même dans un corps en mojibake. **Au plan 2c, seul le corps des 2xx est décodé** (`post_json`) ; décodage et réparation des corps d'erreur (§11.3) : plan 2d, T-M2-08.
 
 ---
 
@@ -452,16 +490,17 @@ Une **tentative** produit une issue. La boucle de réessai (§5.2) décide de la
 |---|---|---|---|
 | 2xx avec corps | — | DTO, puis entité ; corps vide : `NotFound` sur une consultation, `Decode` sur `/search` | Swagger : 200 et 201 déclarés pour chaque opération (recherche 05 §1.1) |
 | 3xx | non | `Upstream { status, retryable: false }` | §4.2 |
-| 400 sur une consultation avec le marqueur « introuvable » | non | `NotFound` | §11 |
-| 400, autres cas | non | `InvalidRequest { status: Some(400), detail }` (message PISTE nettoyé, ≤ 200 caractères) et `warn!` « bug probable » ; rendu `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` (00 §5, parité S10) | 00 §5 ; 02 §9.2 ligne 15 |
+| 400 sur une consultation avec le marqueur « introuvable » | non | `NotFound` (**plan 2d**, T-M2-08 : le corps d'erreur n'est pas lu au plan 2c) | §11 |
+| 400, autres cas | non | **livré (plan 2c)** : `InvalidRequest { status: Some(400), detail: "HTTP 400 on {endpoint}" }` générique, **corps jamais lu** ; **cible (plan 2d, T-M2-08)** : `detail` = message PISTE nettoyé, ≤ 200 caractères, et `warn!` « bug probable » ; rendu `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` (00 §5, parité S10) | 00 §5 ; 02 §9.2 ligne 15 |
 | 401 (API) | renouvellement unique (§3.4), hors budget | second 401 : `Auth` | 00 §8 |
 | 403 | non | `Auth`, rendu `config_error` avec le message « check that the PISTE application is subscribed to the Legifrance API » (00 §5) | recherche 05 §3.4 (constaté sur Judilibre avec un jeton Légifrance ; sens exact d'un 403 de l'API Légifrance **NON VÉRIFIÉ** [V-65 · forme-403-piste], V-65) |
-| 404 | non | `NotFound` ou `Config` selon §11.2 | D-10 |
+| 404 | non | `Config` (**provisoire**, plan 2c : jamais `NotFound` tant que T-M2-08 n'a pas raffiné) ; `NotFound` ou `Config` selon §11.2 au plan 2d | D-10 |
 | 405 | non | `Config` | — |
+| échec TLS (poignée de main, certificat refusé) | non | `Upstream { status: None, retryable: false }` (`TLS handshake failed on {endpoint}`) | §14.2 |
 | autre 4xx | non | `Upstream { status, retryable: false }` | — |
 | 429 | **oui**, avec `Retry-After` | `RateLimited { retry_after }` | 00 §8 |
-| 500 | **oui**, 2 tentatives au plus (1 réessai) | `Upstream { status: 500, retryable: false }` : un 500 répété est présumé déterministe (facette ou champ refusé) ; retour à 3 tentatives si V-69 montre des 500 transitoires fréquents | 00 §8 ; 02 §9.2 ligne 17 ; [V-69 · 500-requete-invalide] |
-| 502, 503, 504 | **oui**, 3 tentatives au plus, `Retry-After` respecté s'il est présent | `Upstream { status, retryable: true }` | 00 §8 |
+| 500 | **oui**, 2 tentatives au plus (1 réessai) | `Upstream { status: 500, retryable: false }` (erreur déjà non réessayable : seul le budget de 2 requêtes reste à appliquer) : un 500 répété est présumé déterministe (facette ou champ refusé) ; retour à 3 tentatives si V-69 montre des 500 transitoires fréquents | 00 §8 ; 02 §9.2 ligne 17 ; [V-69 · 500-requete-invalide] |
+| 502, 503, 504 | **oui**, 3 tentatives au plus, `Retry-After` respecté s'il est présent (lu sur 429, 502, 503 et 504 seulement) | `Upstream { status, retryable: true }` | 00 §8 |
 | autre 5xx | non | `Upstream { status, retryable: false }` | — |
 | erreur réseau (connexion, réinitialisation, corps interrompu) | **oui** | `Upstream { status: None, retryable: true }` | 00 §8 |
 | délai de tentative dépassé (`reqwest::Error::is_timeout`) | **oui** | `Timeout` | — |
@@ -469,7 +508,7 @@ Une **tentative** produit une issue. La boucle de réessai (§5.2) décide de la
 | corps illisible (UTF-8, JSON, trop gros) | non | `Decode` | §4.3, §8.5 |
 | incohérence de domaine (`DomainError` non utilisateur, ex. `TocTooDeep`, variante ajoutée en M2 avec la TOC en arbre) | non | `Decode` | 03 §9 |
 
-`Upstream.status` est un `Option<u16>` (`None` pour une erreur réseau). Le `detail` de chaque `CorpusError` est en anglais, court, sans URL complète ni secret, par exemple `HTTP 503 on /consult/juri after 3 attempts` ; il sert aux journaux (stderr). Le message vu par le modèle (et inscrit dans le champ `error` de l'audit) est le gabarit de 05 §7.2 (avec, pour `upstream_error`, le préfixe de parité `Legifrance/PISTE HTTP {status}` de P-014), rédigé par `lf-application::messages` à partir de la variante et de ses champs (02 §9.3). `retryable` ne sert qu'au message : seul un échec `retryable: true` (429, 502, 503, 504, réseau, timeout) invite à réessayer (00 §8). `Timeout`, `Decode`, le délai global et l'annulation sont rendus `upstream_error`, la cause étant détaillée dans les journaux et l'audit (`UpstreamCause`, 00 §5). Les erreurs reqwest passent par `Error::without_url()` (`RQ:src/error.rs:91`) avant tout affichage, et seul le chemin du gabarit d'endpoint est cité. Les noms et champs exacts des variantes sont fixés dans [02-architecture.md](02-architecture.md) §5.1.
+`Upstream.status` est un `Option<u16>` (`None` pour une erreur réseau). Le `detail` de chaque `CorpusError` est en anglais, court, sans URL complète ni secret, par exemple `HTTP 503 on /consult/juri` (livré, plan 2c : sans « after 3 attempts », non produit) ; il sert aux journaux (stderr). Le message vu par le modèle (et inscrit dans le champ `error` de l'audit) est le gabarit de 05 §7.2 (avec, pour `upstream_error`, le préfixe de parité `Legifrance/PISTE HTTP {status}` de P-014), rédigé par `lf-application::messages` à partir de la variante et de ses champs (02 §9.3). `retryable` ne sert qu'au message : seul un échec `retryable: true` (429, 502, 503, 504, réseau, timeout) invite à réessayer (00 §8). `Timeout`, `Decode`, le délai global et l'annulation sont rendus `upstream_error`, la cause étant détaillée dans les journaux et l'audit (`UpstreamCause`, 00 §5). Les erreurs reqwest passent par `Error::without_url()` (`RQ:src/error.rs:91`) avant tout affichage, et seul le chemin du gabarit d'endpoint est cité. Les noms et champs exacts des variantes sont fixés dans [02-architecture.md](02-architecture.md) §5.1.
 
 Selon des clients tiers, une facette inconnue, un champ JSON inconnu ou `fond=ALL` avec filtres provoquent un **500** plutôt qu'un 400 : **NON VÉRIFIÉ** [V-69 · 500-requete-invalide] (recherche 05 §2.2). L'adapter n'envoie que des champs et facettes issus de tables vérifiées (§6), ce qui limite ce risque. C'est la raison du budget réduit sur 500 (00 §8, AM-03) : un 500 déterministe coûterait 3 requêtes de quota par appel, puis autant à chaque relance du modèle s'il était invité à réessayer.
 
@@ -481,37 +520,39 @@ Selon des clients tiers, une facette inconnue, un champ JSON inconnu ou `fond=AL
 | Tentatives sur 500 | 2 au plus : 1 + 1 réessai, puis `Upstream { status: 500, retryable: false }`. Dans un même appel, la boucle s'arrête après 3 tentatives au total, ou dès la deuxième réponse 500 | 00 §8 (AM-03) ; un 500 répété est présumé déterministe (V-69) |
 | Attente avant la 2e tentative | 500 ms + gigue uniforme dans [0, 500 ms) | P-024 exige au moins 0,5 s puis au moins 1 s ; la gigue s'ajoute et ne retranche rien |
 | Attente avant la 3e tentative | 1 s + gigue dans [0, 1 s) | idem |
-| `Retry-After` (429, 503) | en secondes entières ; ou en date HTTP (IMF-fixdate, parsée par `chrono`), convertie en délai par différence avec l'en-tête `Date` de la **même** réponse, sans horloge murale (l'adapter n'a que `MonoClock` ; `Utc::now` est interdit hors de `lf-app::clock`, 02 §2.2) ; date HTTP sans `Date` exploitable, ou différence négative : en-tête ignoré (attente = backoff) ; attente = `max(backoff, Retry-After)`, plafonnée à 30 s | corrige D-12 ; RFC 9110 §10.2.3 (deux formes) et §6.6.1 (`Date` obligatoire dans les réponses 4xx d'un serveur d'origine doté d'une horloge, facultatif en 5xx) ; présence et format réels de `Retry-After` (et de `Date`) chez PISTE **NON VÉRIFIÉ** [V-63 · retry-after-piste] |
+| `Retry-After` (429, 502, 503, 504) | en secondes entières (un entier qui déborde un `u64` sature au lieu d'être ignoré) ; ou en date HTTP (IMF-fixdate, parsée par `chrono`), convertie en délai par différence avec l'en-tête `Date` de la **même** réponse, sans horloge murale (l'adapter n'a que `MonoClock` ; `Utc::now` est interdit hors de `lf-app::clock`, 02 §2.2) ; date HTTP sans `Date` exploitable, ou différence négative : en-tête ignoré (attente = backoff) ; attente = `max(backoff, Retry-After)` ; **`Retry-After` > 30 s : pas d'attente**, échec immédiat avec l'erreur classée (`RateLimited { retry_after: Some(valeur) }` pour un 429), sans écrêtage de la décision (écrêter à 30 s ferait réessayer un serveur qui a dit « pas avant 2 min ») ; exactement 30 s est attendu ; seule la valeur **rangée** dans `RateLimited { retry_after }` est écrêtée à **1 h** (`MAX_REPORTED_RETRY_AFTER`, `classify.rs`), pour qu'un `Retry-After` hostile (`u64::MAX` secondes, date de l'an 9999) ne fasse pas paniquer un `Instant::now() + d` de l'appelant ; `chrono` vérifie le jour de semaine d'une date HTTP | corrige D-12 ; RFC 9110 §10.2.3 (deux formes) et §6.6.1 (`Date` obligatoire dans les réponses 4xx d'un serveur d'origine doté d'une horloge, facultatif en 5xx) ; présence et format réels de `Retry-After` (et de `Date`) chez PISTE **NON VÉRIFIÉ** [V-63 · retry-after-piste] |
 | Attente prévue supérieure au reste du délai global | pas d'attente : échec immédiat, `RateLimited { retry_after }` (429) ou dernière erreur (5xx) | une réponse rapide et actionnable plutôt qu'un dépassement certain (00 §3) |
 | Budget 401 | 1 renouvellement par appel du port, séparé du budget transitoire | §3.4 |
 | Erreurs mises en cache | jamais | parité (recherche 01 §6.4) ; c'est au cache de ne pas les stocker (§12.2) |
 
-Mise en œuvre avec `backon` 1.6.0 (`default = std, std-blocking-sleep, tokio-sleep, gloo-timers-sleep`, index crates.io ; seule `std` est activée, §1.4) : un `ExponentialBuilder` (délai minimal 500 ms, facteur 2, 2 réessais, gigue), un prédicat `when` qui ne retient que les issues transitoires et applique le budget propre au 500, un ajustement du délai par `Retry-After`, et un « sleeper » qui délègue au `Sleeper` du crate, pour les tests. Les noms exacts de l'API backon 1.6 (`when`, `adjust`, `sleep`, `notify`) et la sémantique de sa gigue sont **NON VÉRIFIÉ** [V-06 · backon-api]. Si `adjust` n'existe pas ou si la gigue de backon peut réduire le délai, on écrit un itérateur `Backoff` maison (backon accepte tout `Iterator<Item = Duration>`), sans changer la politique ci-dessus.
+Mise en œuvre : **boucle maison** `retry::run` (~25 lignes), pas `backon` (**ADR-0017**). Spike V-06 (plan 2c, tâche 9, Step 3, lu dans le source de `backon` 1.6.0 : **API confirmée, adoption refusée**) : `ExponentialBuilder`, `Retry::when`, `adjust`, `notify` et `sleep` existent et la gigue s'**ajoute** (`délai + délai × f32 ∈ [0, 1)`), donc la politique de 00 §8 tiendrait avec `backon` ; mais (a) la gigue n'est injectable que par `with_jitter_seed(u64)` (bornes non testables de façon déterministe), (b) son `Sleeper` est `'static` (il faudrait un `Arc` du `Sleeper` du crate), (c) le budget propre au 500 passerait par un `when` à effet de bord lié à l'ordre d'appel interne, (d) l'erreur devrait être le `E` d'un `Result` (donc `Outcome` deviendrait un `Result<_, Transient>`) et le 401 comme le permis de débit restent de toute façon dans la fermeture de tentative, (e) c'est une dépendance de plus à âge-vérifier. Nuance : `backon` contient de l'`unsafe` (projection de pin de `Retry::poll`, `get_unchecked_mut` et `Pin::new_unchecked`) ; son aléa vient de `fastrand` 2.5.0, qui est `#![forbid(unsafe_code)]` et n'en a pas. Le ban `backoff` (non maintenu) reste dans `deny.toml`.
+
+Livré (plan 2c, tâches 9 et 11) :
+
+- `Outcome<T>` (`classify.rs`) : `Success`, `Unauthorized(erreur finale Auth)`, `Transient { error, retry_after, budget }`, `Fatal` ; `Budget::{Standard, Reduced}` (le 500 consomme le budget réduit) ; `try_send` = un envoi puis sa classification.
+- `run(&ctx, || attempt)` avec `RetryContext { clock, sleeper, deadline, jitter }` : au plus 3 tours (borne dure, même mutée) ; `Success` rend la valeur, `Unauthorized` et `Fatal` leur erreur sans réessai, `Transient` dort `wait_before_retry` puis recommence, sauf si le budget est épuisé (3 requêtes, ou un deuxième 500) ou si l'attente est refusée.
+- `backoff(retry, jitter)` : 500 ms puis 1 s, plus une gigue dans `[0, base)` qui s'ajoute ; `Jitter` est un trait (`SystemJitter` : `RandomState::new().build_hasher().finish()` passé à `scale`, calcul entier sur 128 bits, strictement inférieur à la borne), ce qui rend les bornes testables.
+- `wait_before_retry` : attente = `max(backoff, Retry-After)` ; `None` (on renonce : refus d'attendre, pas de plafonnement à 30 s) si `Retry-After` > 30 s ou si l'attente ne tient pas dans le reste du délai (l'égalité tient, `CallDeadline::fits`) ; la décision lit la valeur annoncée, pas la valeur écrêtée à 1 h de l'erreur.
+- `parse_retry_after(retry_after, date)` : secondes entières, ou date HTTP lue contre l'en-tête `Date` de la même réponse (`chrono::DateTime::parse_from_rfc2822`) ; date passée, illisible, sans `Date` ou au jour de semaine discordant : `None` ; date égale : `Some(0)`.
 
 ```rust
-// retry.rs — esquisse non compilée, à valider au jalon qui l'implémente (la logique compte, pas l'API backon exacte)
-async fn call<D: DeserializeOwned>(&self, ep: Endpoint, body: &impl Serialize) -> Result<D, CorpusError> {
-    // durée restante publiée par Audited (lf_application::deadline::Deadline), convertie dans MonoClock (§5.3)
-    let deadline = CallDeadline::start(&self.clock, Deadline::current_or(self.cfg.tool_deadline));
-    let mut refreshed = false;
-    let mut plan = BackoffPlan::new(&deadline);                 // 500 ms, 1 s (+ gigue) ; 2 réessais, 1 seul après un 500
-    loop {
-        let permit = self.gate.acquire(&deadline).await?;      // sémaphore + governor (§5.4)
-        let lease = self.tokens.token(&deadline).await?;       // mono-vol (§3.3)
-        let outcome = self.attempt(ep, body, &lease, &deadline).await; // §5.1
-        drop(permit);
-        match outcome {
-            Outcome::Ok(bytes) => return decode_and_parse::<D>(ep, bytes, &self.cfg),
-            Outcome::Unauthorized if !refreshed => { refreshed = true; self.tokens.invalidate(lease.generation).await; continue; }
-            Outcome::Unauthorized => return Err(CorpusError::auth_twice(ep)),
-            Outcome::Transient { err, retry_after } => match plan.next(&err, retry_after) { // budget 500 compris
-                Some(wait) => self.sleeper.sleep(wait).await,   // attente comprise dans le délai global
-                None => return Err(err.finalize(retry_after)),  // budget épuisé ou attente > reste du délai
-            },
-            Outcome::Fatal(err) => return Err(err),
+// retry.rs — [livré, plan 2c], cœur de la boucle
+for number in 1..=MAX_ATTEMPTS {                       // MAX_ATTEMPTS = 3 : borne dure
+    match attempt().await {
+        Outcome::Success(value) => return Ok(value),
+        Outcome::Unauthorized(error) | Outcome::Fatal(error) => return Err(error),
+        Outcome::Transient { error, retry_after, budget } => {
+            last = error;
+            if budget == Budget::Reduced { reduced_seen += 1; }
+            if out_of_attempts(number, reduced_seen) { break; }          // 3 faites, ou un 2e 500
+            let Some(wait) = wait_before_retry(ctx, number, retry_after) else { break };
+            ctx.sleeper.sleep(wait).await;                               // attente comprise dans le délai global
         }
     }
 }
+Err(last)
+// corps de l'appel (corpus.rs) : let response = run(&ctx, || self.attempt(&call)).await?;
+// attempt = send (client, RateGate::acquire, TokenManager::token, try_send) + renvoi unique après un 401 (§3.4)
 ```
 
 ### 5.3 Délai global par outil
@@ -523,7 +564,8 @@ Décision (00 §3, AM-07) ; les signatures du port n'ont pas de paramètre de d�
 - **Garde dure** : `Audited` (`lf-application`) exécute chaque cas d'usage sous `tokio::time::timeout(LF_TOOL_DEADLINE_S)`, seule garde dure, et publie l'échéance dans `lf_application::deadline::Deadline`, variable locale de tâche (`tokio::task_local!` ; feature `rt` de tokio admise dans `lf-application` pour cet usage seulement, 00 §2, 02 §3.2). Un dépassement est rendu `upstream_error` (`UpstreamCause::Deadline`) par `Audited`.
 - **Lecture par l'adapter** : à l'entrée de chaque méthode du port, l'adapter lit `Deadline::current_or(tool_deadline)` comme une **durée restante** (`Duration`) et la convertit aussitôt en échéance dans sa propre horloge monotone : `CallDeadline { at: clock.now() + reste }` (module `deadline.rs`). Aucun instant absolu ne passe d'une horloge à l'autre : les horloges de test de l'adapter (`ManualClock`, §13.1) restent cohérentes. Sans `Deadline` publié (tests, appel direct), le reste vaut `tool_deadline`.
 - Les sous-futurs d'un même cas d'usage (`fr_search_all`, `fr_verify_citations`) sont interrogés dans la même tâche (`join_all`, `buffer_unordered`). Ils voient donc la même échéance. Une tâche lancée par `tokio::spawn` ne la verrait pas : les cas d'usage n'en lancent pas (sinon, propagation explicite du `Deadline`). Les cas d'usage à appels multiples cessent d'en lancer à 80 % du délai et rendent un résultat partiel motivé (00 §3) ; ce n'est pas le rôle de l'adapter.
-- Chaque tentative reçoit `RequestBuilder::timeout(min(request_timeout, reste))`. Chaque attente (`Sleeper`, sémaphore, limiteur, verrou du jeton) est bornée par `reste`.
+- `CallDeadline` (livré, plan 2c, tâche 5 ; non générique, durées saturées) : `start`, `from_task_local`, `remaining`, `is_expired`, `cap` (`min(délai de tentative, reste)`), `fits` (l'égalité tient). `tokio::spawn` ne voit pas le `Deadline` (testé : `spawned_task_does_not_see_the_deadline`).
+- Chaque tentative reçoit `RequestBuilder::timeout(min(request_timeout, reste))`, recalculé **à chaque envoi** (`each_attempt_gets_the_time_left_not_the_time_at_the_start`). Chaque attente (`Sleeper`, sémaphore, limiteur, verrou du jeton) est bornée par `reste` : l'attente du sémaphore et du jeton est une course `time::race` contre `Sleeper::sleep(reste)`, pas `tokio::time::timeout`.
 - L'adapter ne programme aucune tentative ni attente qui dépasserait l'échéance : il rend tout de suite une erreur explicite (`RateLimited { retry_after }`, `Timeout` ou dernière erreur), ce qui permet au modèle de recevoir une erreur précise plutôt que la coupure de la garde dure.
 - Pire cas d'un appel du port : `≤ tool_deadline + ε`, où ε est le temps d'observer l'annulation (quelques millisecondes).
 - Délais imposés par les clients MCP (Claude Code, VS Code) à un appel d'outil : **NON VÉRIFIÉ** [V-55 · delai-clients-mcp]. Si l'un coupe avant 60 s, le défaut doit baisser.
@@ -533,7 +575,8 @@ Décision (00 §3, AM-07) ; les signatures du port n'ont pas de paramètre de d�
 - Un `governor::RateLimiter` **direct** (non indexé), global au processus, **5 requêtes/s, rafale 10** par défaut (00 §8), configurable par `LF_PISTE_RPS` et `LF_PISTE_BURST` (00 §1, §2.2). Les quotas PISTE valent pour toute l'application consommatrice et sont donc partagés par tous les utilisateurs d'un éventuel serveur HTTP (recherche 05 §3.3, §4.3, Q4). Valeurs réelles **NON VÉRIFIÉ** [V-62 · quota-piste-prod] : l'utilisateur les lit dans la console PISTE et ajuste `LF_PISTE_RPS`/`LF_PISTE_BURST`.
 - Le limiteur est consulté **avant chaque tentative**, réessais compris. Il ne l'est pas pour la requête token (§3.3).
 - **Piège vérifié** : `RateLimiter::until_ready` attend avec `futures_timer::Delay` (governor 0.10.4, `src/state/direct/future.rs:11`, `:45-56`), pas avec `tokio::time`. Il échappe donc à toute horloge de test et ne se borne pas proprement par le délai global. L'adapter **n'utilise pas** `until_ready`. Il boucle sur `check()` (`src/state/direct.rs:73`) : en cas de refus, `wait = not_until.wait_time_from(clock.now())` ; si `wait` dépasse le reste du délai, échec immédiat `RateLimited { retry_after: Some(wait) }` ; sinon `Sleeper::sleep(wait)`.
-- Horloge du limiteur : une implémentation de `governor::clock::Clock` dont l'`Instant` est un `Duration` écoulé depuis une origine `MonoClock`. C'est la seule horloge du limiteur, en production comme en test (02 §3.3, piège 3 : ni `FakeRelativeClock`, ni constructeur `with_clock`, ni horloge tokio gelée). `Duration` implémente déjà `Reference` et `Add<Nanos>` (`src/clock.rs:61-117`). En test, `ManualClock` rend le limiteur déterministe. Les features `quanta`, `jitter` et `dashmap` sont inutiles (seule `std` est activée, §1.4). Les noms de constructeurs (`Quota::per_second`, `allow_burst`, `RateLimiter::direct_with_clock`) sont à confirmer à la compilation : **NON VÉRIFIÉ** [V-07 · governor-api].
+- Horloge du limiteur : une implémentation de `governor::clock::Clock` dont l'`Instant` est un `Duration` écoulé depuis une origine `MonoClock`. C'est la seule horloge du limiteur, en production comme en test (02 §3.3, piège 3 : ni `FakeRelativeClock`, ni constructeur `with_clock`, ni horloge tokio gelée). `Duration` implémente déjà `Reference` et `Add<Nanos>` (`src/clock.rs:61-117`). En test, `ManualClock` rend le limiteur déterministe. Les features `quanta`, `jitter` et `dashmap` sont inutiles (seule `std` est activée, §1.4). **V-07 levée** (plan 2c, tâche 8, lu dans le source de `governor` 0.10.4) : `Quota::per_second(NonZeroU32)` (constante) fixe le rythme **et** la rafale, `Quota::per_second(rps).allow_burst(burst)` donne `rps` req/s avec une rafale de `burst` (`Quota::new` est déprécié, non employé) ; `RateLimiter::direct_with_clock(quota, clock)` existe avec la seule feature `std` ; `check(&self)` rend `Result<(), NotUntil<C::Instant>>` et `NotUntil::wait_time_from(from)` la durée (nulle si l'instant est passé) ; une horloge n'écrit que `type Instant = Duration; fn now(&self) -> Duration`. Écart : la feature `std` tire `futures-timer`, `futures-util`, `futures-sink` et `parking_lot` (verrouillés, compilés, jamais sollicités).
+- **Livré** (`limit.rs`, `RateGate`) : `acquire(&CallDeadline)` rend un `Permit` (conservé jusqu'après la lecture du corps) ; `Timeout` d'emblée si le délai est écoulé ; le permis du sémaphore s'attend par `time::race` contre `Sleeper::sleep(reste)` ; puis `take_credit` boucle sur `check()` (au plus `MAX_CHECKS = 64` tours, garde-fou de progression qui rend `RateLimited { retry_after: Some(dernière attente) }` s'il est atteint) et rend `RateLimited { retry_after: Some(attente) }` sans rien attendre si le prochain crédit tombe après l'échéance. Le limiteur ne lit que la `MonoClock` de l'adapter (`MonoLimiterClock`).
 
 ### 5.5 Concurrence et `fr_search_all`
 
@@ -549,7 +592,7 @@ Décision (00 §3, AM-07) ; les signatures du port n'ont pas de paramètre de d�
 | attente du limiteur | reste du délai ; échec immédiat si l'attente prévue la dépasse |
 | jeton (au plus ~1 fois par heure) | 1 requête, ≤ `min(40 s, reste)`, réessais compris dans le délai |
 | tentative API | ≤ `min(40 s, reste)` |
-| backoff | ≈ 0,5–1 s puis 1–2 s, ou `Retry-After` ≤ 30 s, toujours ≤ reste |
+| backoff | ≈ 0,5–1 s puis 1–2 s, ou `Retry-After` s'il est ≤ 30 s (sinon refus d'attendre), toujours ≤ reste |
 | **total** | **≤ `LF_TOOL_DEADLINE_S` (60 s) + ε** |
 
 ---
@@ -963,7 +1006,7 @@ Les tests de contrat (§13.3) figent ces mappings par snapshots `insta` sur les 
 
 ### 9.3 Diagnostics
 
-Le domaine renvoie ses anomalies comme valeurs (03 §1.1). L'adapter les journalise (`debug` pour un hit écarté, `warn` pour un identifiant incohérent, un mojibake réparé ou un horodatage hors minuit) et les compte dans `StatsSnapshot` (`dropped_hits`, `mojibake_repaired`, `id_mismatch`, `non_midnight_timestamps`, `retries`, `rate_limited_waits`). Ces compteurs sont lisibles par `lf-app` (`check-config`) et éventuellement par `fr_coverage` (décision dans 05). Ils ne quittent jamais la machine (ADR-0005).
+Le domaine renvoie ses anomalies comme valeurs (03 §1.1). L'adapter les journalise (`debug` pour un hit écarté, `warn` pour un identifiant incohérent, un mojibake réparé ou un horodatage hors minuit) et les compte dans `StatsSnapshot` (livré au plan 2c : `mojibake_repairs` et `mojibake_unrepaired` ; cible, plan 2d et suivants : `dropped_hits`, `id_mismatch`, `non_midnight_timestamps`, `retries`, `rate_limited_waits`). Ces compteurs sont lisibles par `lf-app` (`check-config`) et éventuellement par `fr_coverage` (décision dans 05). Ils ne quittent jamais la machine (ADR-0005).
 
 ---
 
@@ -975,7 +1018,7 @@ Le domaine renvoie ses anomalies comme valeurs (03 §1.1). L'adapter les journal
 
 ### 10.2 Algorithme exact
 
-Appliqué au **texte entier du corps** (réponses 2xx et corps d'erreur), après le décodage UTF-8 strict et avant serde (§4.4). La fonction pure est `lf_domain::text::encoding::repair_latin1_mojibake(&str) -> Cow<str>` (module non livré : tâche de tête de M2, 00 §11.1, reliquat de M1 ; 03 §1.5, §7.1) ; l'esquisse est dans la recherche 03 §11.1.
+Appliqué au **texte entier du corps** (réponses 2xx et corps d'erreur : au plan 2c, seul le corps des 2xx est décodé ; décodage et réparation des corps d'erreur (§11.3) : plan 2d, T-M2-08), après le décodage UTF-8 strict et avant serde (§4.4). La fonction pure est `lf_domain::text::encoding::repair_latin1_mojibake(&str) -> Cow<str>` (module du domaine livré à la tête de M2, plan 2a ; 03 §1.5, §7.1) ; l'esquisse est dans la recherche 03 §11.1.
 
 1. **Détection** `has_latin1_mojibake(s)` : vrai si `s` contient un caractère C1 (U+0080 à U+009F), **ou** une paire adjacente `(p, c)` avec `p` ∈ [U+00C2, U+00F4] et `c` ∈ [U+0080, U+00BF].
 2. Si la détection est fausse : identité (`Cow::Borrowed`).
@@ -1004,8 +1047,9 @@ La réparation se fait **avant toute normalisation des NBSP** (00 §8 ; 03 §7.1
 
 ### 10.5 Métrique et journalisation
 
-- Réparation appliquée : compteur `mojibake_repaired` (+1 par corps) et `tracing::warn!(endpoint = ep.template(), bytes = len, "latin1 mojibake repaired in PISTE response")`. Le corps et l'identifiant demandé ne sont pas journalisés.
-- Détection positive mais réparation refusée (étapes 3, 5 ou 6) : compteur `mojibake_unrepaired` et `warn`. Le corps est gardé tel quel. Ce cas signale des données réellement ambiguës, à recapturer.
+- **Livré (plan 2c, tâche 6)** : `Stats` compte en mémoire (`AtomicU64`) et `StatsSnapshot { mojibake_repairs, mojibake_unrepaired }` (`#[non_exhaustive]`) l'expose par `PisteCorpus::stats()` ; `PisteCorpus::mojibake_repairs()` lit le premier. `decode_body` rend `DecodedBody { text, detected, repaired }` (invariant : `repaired` ⇒ `detected`).
+- Réparation appliquée : compteur `mojibake_repairs` (+1 par corps) et `tracing::warn!(endpoint, bytes = len, "latin1 mojibake repaired in PISTE response")` (`endpoint` est le gabarit de chemin, `bytes` la taille du texte rendu). Le corps et l'identifiant demandé ne sont pas journalisés.
+- Détection positive mais réparation refusée (étapes 3, 5 ou 6) **ou coupée** par `LF_PISTE_MOJIBAKE_REPAIR=off` : un seul compteur `mojibake_unrepaired` couvre les deux causes, avec un `warn!` ("latin1 mojibake detected but left as is in PISTE response"). Le corps est gardé tel quel. Cas testés : `Ã©` + `€` (réparation refusée, caractère hors latin-1) et `é` + NBSP (faux positif détecté, gardé). Ce cas signale des données réellement ambiguës, à recapturer.
 - `LF_PISTE_MOJIBAKE_REPAIR=off` (00 §1, défaut `on`) désactive la réparation mais **pas** la détection ni ses journaux. La réparation n'est jamais appliquée par défaut au texte soumis par l'utilisateur (`fr_verify_citations`, 00 §8) : elle ne concerne que les corps de réponse PISTE.
 - La recherche 02 §5 recommandait de détecter sans jamais « réparer silencieusement » un texte officiel. 00 §8 tranche pour une réparation active par défaut. Le compromis retenu : réparer, compter, journaliser en `warn`, et permettre la désactivation.
 
@@ -1133,9 +1177,12 @@ Implémentation : `std::sync::Mutex<…>` avec horodatage `MonoClock`, sans dép
 - **wiremock** 0.6.5 : un `MockServer` par test, dans un `#[cfg(test)] mod tests` async du crate (pas dans `tests/`, 00 §10). La `PisteConfig` de test pointe `oauth_url` vers `{server}/oauth/token` et `base_url` vers `{server}/dila/legifrance/lf-engine-app` (`ConfigWarning::InsecureLoopback`).
 - **Temps** : on ne gèle **pas** l'horloge `tokio` (`start_paused`) pendant des E/S réelles avec wiremock. L'avance automatique d'une horloge gelée pourrait déclencher à tort le délai de reqwest pendant l'attente d'une socket. Ce comportement est **NON VÉRIFIÉ** [V-19 · wiremock-temps-pause], et la conception l'évite. À la place :
   - `ManualClock: MonoClock` et `RecordingSleeper: Sleeper` (qui avance la `ManualClock` de la durée demandée et la note) rendent déterministes l'expiration du jeton, le backoff, `Retry-After`, le limiteur et le délai global, sans attente réelle ;
-  - les tests de délai HTTP utilisent de vraies durées courtes : `request_timeout = 200 ms`, réponse retardée de 1 s par `ResponseTemplate::set_delay`.
+  - les tests de délai HTTP utilisent de vraies durées courtes : `request_timeout = 200 ms`, réponse retardée de 1 s par `ResponseTemplate::set_delay` ;
+  - **V-19 contournée** (plan 2c) : `start_paused` n'est employé que dans `deadline_from_task_local_is_used`, sans E/S ; l'interaction avec wiremock reste non mesurée ;
+  - un test de contention réelle (`concurrent_calls_share_one_token_refresh`, `concurrency_cap_is_respected`) exige `TokioClock` et `TokioSleeper` (`PisteCorpus::new`) : `RecordingSleeper` rend la main tout de suite.
+- **Convention de nommage** : un nom de test Rust ne commence pas par un chiffre ; un nom qui commencerait par un statut prend le préfixe `the_` (`retry.rs`) ou `status_` (`corpus.rs`). Les noms de 13.2 ci-dessous sont les noms livrés.
 - **Comptages** : `Mock::expect(n)` (vérifié à la fin du test), et un `Respond` personnalisé qui compte les requêtes en vol (`AtomicUsize`) pour le plafond de concurrence.
-- **Journaux** : un `tracing` subscriber de test capture la sortie, pour les tests de non-fuite de secrets.
+- **Journaux** : un `tracing` subscriber de test capture la sortie, pour les tests de non-fuite de secrets. Livré : un `Capture` (`MakeWriter` en mémoire) copié dans `stats.rs`, `auth.rs` et `corpus.rs` (à factoriser au plan 2d).
 - **Fixtures** : `include_bytes!` des fichiers bruts, servis tels quels (`set_body_raw(bytes, "application/json")`), pour que la réparation du mojibake soit éprouvée sur les octets réels.
 
 ### 13.2 Scénarios wiremock
@@ -1153,7 +1200,7 @@ Les noms suivent la matrice de la recherche 02 §6 quand elle en propose.
 | `concurrent_calls_share_one_token_refresh` | token retardé de 100 ms ; 10 appels simultanés | 1 requête token, 10 succès | D-12, P-022 |
 | `api_401_refreshes_once_then_succeeds` | API : 401 puis 200 | 2 requêtes token, 2 requêtes API, succès | P-023 |
 | `api_401_twice_maps_to_auth` | API : 401, 401 | `Auth` ; 2 requêtes token ; pas de 3e requête API | P-023, D-12 |
-| `401_then_503_then_200_requests_exactly_two_tokens` | API : 401, 503, 200 | 2 requêtes token, 3 requêtes API | D-12, E-20 |
+| `status_401_then_503_then_200_requests_exactly_two_tokens` | API : 401, 503, 200 | 2 requêtes token, 3 requêtes API | D-12, E-20 |
 | `invalidate_does_not_drop_fresher_token` | deux tâches, l'une reçoit un 401 avec un vieux jeton | le jeton neuf est gardé | §3.3 |
 | `oauth_invalid_client_401_maps_to_auth_no_retry` | token : 401 `{"error":"invalid_client"}`, puis variante 400 avec le même corps (statut réel inconnu, RFC 6749 §5.2 admet les deux : **NON VÉRIFIÉ** [V-60 · oauth-reponses]) | `Auth` dans les deux cas, 1 seule requête token, `detail` qui cite `invalid_client` et l'environnement | D-10 |
 | `oauth_400_maps_to_auth` | token : 400 | `Auth` | D-10 |
@@ -1167,19 +1214,19 @@ Les noms suivent la matrice de la recherche 02 §6 quand elle en propose.
 
 | Test | Mise en place | Attendu | Couvre |
 |---|---|---|---|
-| `429_retry_after_is_honoured` | 429 `Retry-After: 2`, puis 200 | attente notée ≥ 2 s ; succès | D-12 |
-| `429_retry_after_http_date_is_honoured` | `Date: <D>` et `Retry-After: <D + 3 s>` (IMF-fixdate) | attente notée ≈ 3 s (différence des deux en-têtes, sans horloge murale) | D-12, §5.2 |
-| `429_retry_after_http_date_without_date_header_uses_backoff` | `Retry-After: <date HTTP>` sans `Date` | en-tête ignoré : attente = backoff | §5.2 |
-| `429_retry_after_beyond_deadline_fails_fast` | `Retry-After: 120`, délai 60 s | `RateLimited { retry_after: 120 s }`, aucune attente | §5.2 |
-| `429_three_times_maps_to_rate_limited` | 429 ×3 | `RateLimited` ; exactement 3 requêtes | 00 §8 |
-| `500_then_200_succeeds_after_backoff` | 500, 200 | succès ; attente notée dans [0,5 s ; 1 s) | P-024 |
-| `500_twice_maps_to_upstream_not_retryable` | 500 ×2 (un 3e mock `expect(0)`) | `Upstream { 500, retryable: false }` ; exactement 2 requêtes | 00 §8 (AM-03) |
-| `503_then_500_then_500_stops_at_second_500` | 503, 500, 500 | `Upstream { 500, retryable: false }` ; 3 requêtes, dont 2 sur 500 | §5.2 |
-| `503_three_times_maps_to_upstream_retryable` | 503 ×3 | `Upstream { 503, retryable: true }` ; attentes [0,5 ; 1) puis [1 ; 2) s | P-024 |
-| `400_is_not_retried` | 400 sans marqueur | `InvalidRequest { status: Some(400) }`, `detail` nettoyé ≤ 200 caractères ; `expect(1)` | §5.1 |
-| `403_maps_to_auth` | 403 | `Auth`, sans réessai | §5.1, 00 §5 |
-| `404_on_search_is_config_not_not_found` | `/search` → 404 | `Config` | D-10 |
-| `404_on_consult_official_host_is_not_found` / `404_html_is_config` | — | `NotFound` / `Config` | §11.2 |
+| `the_429_retry_after_is_honoured` | 429 `Retry-After: 2`, puis 200 | attente notée ≥ 2 s ; succès | D-12 |
+| `the_429_retry_after_http_date_is_honoured` | `Date: <D>` et `Retry-After: <D + 3 s>` (IMF-fixdate) | attente notée ≈ 3 s (différence des deux en-têtes, sans horloge murale) | D-12, §5.2 |
+| `the_429_retry_after_http_date_without_date_header_uses_the_backoff` | `Retry-After: <date HTTP>` sans `Date` | en-tête ignoré : attente = backoff | §5.2 |
+| `the_429_retry_after_beyond_the_deadline_fails_fast` | `Retry-After: 120`, délai 60 s | `RateLimited { retry_after: 120 s }`, aucune attente | §5.2 |
+| `the_429_three_times_maps_to_rate_limited` | 429 ×3 | `RateLimited` ; exactement 3 requêtes | 00 §8 |
+| `the_500_then_200_succeeds_after_backoff` | 500, 200 | succès ; attente notée dans [0,5 s ; 1 s) | P-024 |
+| `the_500_twice_maps_to_upstream_not_retryable` | 500 ×2 (un 3e mock `expect(0)`) | `Upstream { 500, retryable: false }` ; exactement 2 requêtes | 00 §8 (AM-03) |
+| `the_503_then_500_then_500_stops_at_the_second_500` | 503, 500, 500 | `Upstream { 500, retryable: false }` ; 3 requêtes, dont 2 sur 500 | §5.2 |
+| `the_503_three_times_maps_to_upstream_retryable` | 503 ×3 | `Upstream { 503, retryable: true }` ; attentes [0,5 ; 1) puis [1 ; 2) s | P-024 |
+| `the_400_is_not_retried` | 400 sans marqueur | `InvalidRequest { status: Some(400) }`, `detail` générique `HTTP 400 on {endpoint}` (le `detail` nettoyé ≤ 200 caractères est du plan 2d, T-M2-08) ; `expect(1)` | §5.1 |
+| `the_403_maps_to_auth` | 403 | `Auth`, sans réessai | §5.1, 00 §5 |
+| `404_on_search_is_config_not_not_found` (plan 2d, préfixe `the_` ; livré : `the_404_is_config_not_not_found`) | `/search` → 404 | `Config` | D-10 |
+| `404_on_consult_official_host_is_not_found` / `404_html_is_config` (plan 2d, préfixe `the_`, T-M2-08) | — | `NotFound` / `Config` | §11.2 |
 | `redirect_is_not_followed` | 302 `Location` vers un 2e mock | `Upstream { 302 }` ; 2e mock `expect(0)` | §4.2 |
 | `network_error_is_retried` | port local fermé | 3 tentatives, puis `Upstream { status: None, retryable: true }` | 00 §8 |
 | `request_timeout_maps_to_timeout` | réponse retardée de 1 s, `request_timeout = 200 ms` | `Timeout` après 3 tentatives (ou à l'échéance) | §5.1 |
@@ -1191,22 +1238,22 @@ Les noms suivent la matrice de la recherche 02 §6 quand elle en propose.
 | `concurrency_cap_is_respected` | réponses retardées ; 10 appels | au plus 4 requêtes en vol | D-13 |
 | `search_all_respects_concurrency_cap` (avec `lf-application`, M7) | 5 fonds | au plus 4 en vol, résultats complets | D-13 |
 
-**Corps**
+**Corps** (livrés au plan 2c : `oversized_body_is_rejected` à `clean_body_is_untouched` ; les cinq scénarios marqués « plan 2d » attendent les DTO métier, T-M2-06, et la classification, T-M2-08)
 
 | Test | Mise en place | Attendu | Couvre |
 |---|---|---|---|
-| `invalid_json_maps_to_decode_with_path` | `{"text":{"numeroAffaire":12}}` | `Decode`, dont le `detail` contient `text.numeroAffaire` et aucune valeur du corps | §8.5 |
-| `html_body_maps_to_decode` | 200 `text/html` | `Decode` | D-11 |
-| `json_null_body_maps_to_decode` | corps `null` | `Decode` | D-11 |
-| `empty_2xx_body_on_consult_is_not_found` | 200 vide | `NotFound` | §11.2 |
+| `invalid_json_maps_to_decode_with_path` (plan 2d) | `{"text":{"numeroAffaire":12}}` | `Decode`, dont le `detail` contient `text.numeroAffaire` et aucune valeur du corps | §8.5 |
+| `html_body_maps_to_decode` (plan 2d) | 200 `text/html` | `Decode` | D-11 |
+| `json_null_body_maps_to_decode` (plan 2d) | corps `null` | `Decode` | D-11 |
+| `empty_2xx_body_on_consult_is_not_found` (plan 2d) | 200 vide | `NotFound` | §11.2 |
 | `oversized_body_is_rejected` | `Content-Length` = 17 Mio ; variante découpée en morceaux sans `Content-Length` | `Decode` (« too large »), sans réessai | D-41 |
 | `gzip_body_is_limited_after_decompression` | corps gzip qui se décompresse au-delà de 16 Mio | `Decode` (« too large ») | §4.3 |
 | `invalid_utf8_body_maps_to_decode` | octets `C3 28` | `Decode` (« invalid UTF-8 ») | §4.4 |
 | `mojibake_body_is_repaired_and_counted` | consult_juri.json brut | `PREMIÈRE CHAMBRE CIVILE` dans le texte ; compteur 1 ; un `warn` | §10 |
 | `clean_body_is_untouched` | consult_juri_constit.json | compteur 0 ; entité identique au golden | §10 |
-| `error_body_marker_survives_mojibake` | 400 dont le message est en mojibake | `NotFound` | §11.2 |
+| `error_body_marker_survives_mojibake` (plan 2d) | 400 dont le message est en mojibake | `NotFound` | §11.2 |
 
-**Endpoints** (un test par fixture ; le corps de la requête est vérifié par `body_json` sur un `serde_json::Value` attendu)
+**Endpoints** (plan 2d ; un test par fixture ; le corps de la requête est vérifié par `body_json` sur un `serde_json::Value` attendu)
 
 | Test | Fixture | Requête vérifiée | Couvre |
 |---|---|---|---|
@@ -1316,7 +1363,7 @@ Ni 429 ni `Retry-After` ne sont provoqués volontairement : ce serait contraire 
 | D-09, D-32 | `search_page_2_sends_page_number_2`, `type_recherche_follows_match` |
 | D-10 | `oauth_*_maps_to_*`, `404_on_search_is_config_not_not_found` |
 | D-11, D-23, D-24 | tests de corps, `dto_parses_every_fixture`, fuzz |
-| D-12, E-20 | `api_401_*`, `401_then_503_then_200_*`, `429_*`, `500_twice_maps_to_upstream_not_retryable`, `concurrent_calls_share_one_token_refresh` |
+| D-12, E-20 | `api_401_*`, `status_401_then_503_then_200_*`, `the_429_*`, `the_500_twice_maps_to_upstream_not_retryable`, `concurrent_calls_share_one_token_refresh` |
 | D-13 | `rate_limiter_spaces_requests`, `concurrency_cap_is_respected` |
 | D-14 | `tool_deadline_caps_retries`, `deadline_from_task_local_is_used` |
 | D-20, D-21, D-25, D-26, D-28, D-30 | tests de contrat et snapshots |
@@ -1337,7 +1384,7 @@ Ni 429 ni `Retry-After` ne sont provoqués volontairement : ce serait contraire 
 
 ### 14.2 TLS
 
-- rustls uniquement, avec le fournisseur choisi au spike TLS (tâche 0 de M2) (§4.1) et la vérification par `rustls-platform-verifier` (magasin du système) ; TLS 1.2 minimum (défaut de rustls) ; `https_only`.
+- rustls uniquement, avec le fournisseur retenu provisoirement (option A, aws-lc ; §4.1, ADR-0013 §7) et la vérification par `rustls-platform-verifier` (magasin du système) ; TLS 1.2 minimum (défaut de rustls) ; `https_only`.
 - Jamais `danger_accept_invalid_certs` ni vérificateur personnalisé. Un proxy d'entreprise qui intercepte TLS fonctionne si sa racine est installée dans le magasin du système. Une image OCI doit embarquer les certificats CA (08).
 
 ### 14.3 Aucune URL pilotée à distance
@@ -1355,7 +1402,7 @@ Ni 429 ni `Retry-After` ne sont provoqués volontairement : ce serait contraire 
 | Profondeur de TOC | 64 | domaine (03 §1.3) |
 | Requête de recherche | 500 caractères | domaine (`QueryText`) |
 | Message d'erreur PISTE recopié | 200 caractères | §11.2 |
-| `Retry-After` honoré | 30 s, et toujours ≤ reste du délai | §5.2 |
+| `Retry-After` attendu | au plus 30 s (au-delà : refus d'attendre, échec immédiat), et toujours ≤ reste du délai | §5.2 |
 | Mémos | 1 024 et ~150 entrées | §12.3 |
 | Requêtes en vol | 4 | §5.5 |
 
@@ -1367,25 +1414,25 @@ Les requêtes de recherche peuvent révéler l'activité d'un juriste : elles ne
 
 ## 15. Livrables et critères d'acceptation par jalon
 
-**Tâche 0 de M2 — Spikes (part de ce crate ; ex-M0, 00 §11.1)**
+**Tâche 0 de M2 — Spikes (part de ce crate ; ex-M0, 00 §11.1) — faits au plan 2c**
 
-- [ ] Spike TLS : options A et B compilées pour les 7 cibles cargo-dist ; poignée de main TLS testée ; choix consigné dans ADR-0013 et dans 09 ([V-02 · tls-fournisseur-cross]).
-- [ ] Spike proxy : prise en compte de `HTTPS_PROXY` et `NO_PROXY` avec les features retenues ([V-03 · reqwest-proxy-env]).
-- [ ] Squelette du crate compilé ; une dépendance du §1.4 n'y est déclarée que lorsqu'un code l'emploie (aucune déclaration d'avance, 00 §2), `cargo machete` vert ; `make arch` (`cargo xtask check-arch`, `xtask/src/arch.rs`) vert (pas de `rmcp`, pas d'autre adapter, pas de dépendance directe à `url`) ; la règle R2 et la fermeture transitive arrivent en M2 avec `lf-application` ; dépendances ajoutées selon la règle d'âge de 14 jours à la date de leur PR (§1.4, 00 §2, AM-26).
-- [ ] API de `backon` 1.6 et de `governor` 0.10.4 confirmées à la compilation ([V-06 · backon-api], [V-07 · governor-api]) ; `backon` sans `tokio-sleep` si le `Sleeper` du crate suffit.
-- [ ] Lecture de `lf_application::deadline::Deadline` (`tokio::task_local!`) depuis l'adapter, vérifiée par le spike `task_local!` du jalon qui crée `lf-application` (00 §11.1).
+- [ ] *Livré en partie (plan 2c)* — Spike TLS : options A et B compilées en `x86_64-unknown-linux-gnu`, poignée de main TLS 1.2 et 1.3 testée, choix A **provisoire** consigné dans ADR-0013 §7 et dans 09 (V-02 partiel) ; **reste** : la matrice des 7 cibles, à déclencher par le propriétaire (`tls-spike.yml`).
+- [x] Spike proxy (plan 2c) : `HTTP_PROXY`, `HTTPS_PROXY` et `NO_PROXY` honorés avec les features retenues (V-03 levé).
+- [x] Squelette du crate compilé ; une dépendance du §1.4 n'y est déclarée que lorsqu'un code l'emploie (aucune déclaration d'avance, 00 §2), `cargo machete` vert ; `make arch` (`cargo xtask check-arch`, `xtask/src/arch.rs`) vert (pas de `rmcp`, pas d'autre adapter, pas de dépendance directe à `url`) ; la règle R2 et la fermeture transitive sont livrées avec `lf-application` (plan 2b) et R6, R8 avec ce crate (plan 2c) ; dépendances ajoutées selon la règle d'âge de 14 jours à la date de leur PR (§1.4, 00 §2, AM-26), sauf l'exception `security-fix` de trois paquets TLS.
+- [x] API de `backon` 1.6 (essayé, **écarté**, ADR-0017) et de `governor` 0.10.4 (confirmée) vérifiées ([V-06 · backon-api], [V-07 · governor-api] levées) ; `backon` n'est pas une dépendance.
+- [x] Lecture de `lf_application::deadline::Deadline` (`tokio::task_local!`) depuis l'adapter (`CallDeadline`, plan 2c, tâche 5).
 
 **M2 — Adapter PISTE (v0.1)**
 
-- [ ] `PisteConfig` et validation du §2.3 (`CustomHost`, `EnvMismatch` sans déduction) ; variables du §2.2 avec bornes et défauts ; démarrage sans réseau ; mode dégradé : identifiants absents ou configuration invalide ⇒ `Config` sans E/S.
-- [ ] `TokenManager` mono-vol, renouvellement anticipé, générations, annulation sûre ; classification du §3.5.
-- [ ] Client unique du §4.2 ; lecture bornée ; décodage strict ; réparation du mojibake (§10) avec compteur et `warn`, interrupteur `LF_PISTE_MOJIBAKE_REPAIR`.
-- [ ] Politique de réessai du §5.2 (2 tentatives sur 500, `Retry-After` en secondes ou en date HTTP rapportée à `Date`), respect du délai global du §5.3 (`Deadline` converti en `CallDeadline`), `RateGate` du §5.4 et §5.5.
+- [ ] *Livré en partie (plan 2c, tâches 4 et 11)* — `PisteConfig` et validation du §2.3 (`CustomHost`, `EnvMismatch` sans déduction) ; démarrage sans réseau ; mode dégradé : identifiants absents ou configuration invalide ⇒ `Config` sans E/S. **Reste** (`lf-app`, M4) : variables du §2.2 avec bornes et défauts (réglages avancés et leur `warn!`).
+- [x] *Livré (plan 2c, tâches 10 et 11)* — `TokenManager` mono-vol, renouvellement anticipé, générations, annulation sûre ; classification du §3.5.
+- [ ] *Livré en partie (plan 2c, tâches 6, 7 et 11)* — Client unique du §4.2 ; lecture bornée ; décodage strict ; réparation du mojibake (§10) avec compteur et `warn`, interrupteur `repair_mojibake` (la lecture de `LF_PISTE_MOJIBAKE_REPAIR` est à `lf-app`, M4). **Reste** : les cinq scénarios « Corps » du §13.2 (DTO métier T-M2-06, classification T-M2-08) et le décodage des corps d'erreur (plan 2d).
+- [ ] *Livré en partie (plan 2c, tâches 5, 8, 9 et 11)* — Politique de réessai du §5.2 (boucle maison, 2 tentatives sur 500, `Retry-After` en secondes ou en date HTTP rapportée à `Date`), respect du délai global du §5.3 (`Deadline` converti en `CallDeadline`), `RateGate` du §5.4 et §5.5. **Reste** (plan 2d, T-M2-08) : `detail` nettoyé du 400 ; (M7) `search_all_respects_concurrency_cap`.
 - [ ] Les 7 endpoints v0.1 du §7.1 ; payload `/search` du §6 (`singleDate` à midi Paris, facettes de date, `typePagination` et `PaginationMemo`, gardes défensives `InvalidRequest { status: None }`).
 - [ ] V-66 et V-68 (`live_unknown_ids_classification`), V-76 (`live_singledate_noon_paris_semantics`) et V-96 (`live_lawdecree_on_code_size`), **bloquantes** (00 §11, 09 §2.18) : résultats consignés dans 09 ; décision sur `tableMatieres` en v0.1 (§7.3) et sur le moyen de reconnaître un code (§16, question 13).
 - [ ] DTO du §8.3 (v0.1) ; mapping du §9 vers les entités de 03.
 - [ ] Classification « introuvable » du §11 rendue définitive par les résultats de `live_unknown_ids_classification` (V-66, V-68).
-- [ ] Tous les tests des §13.2 et §13.3 verts sous Linux, macOS et Windows (la matrice démarre en M2), sans réseau ; `make cov` à 100 % (glue HTTP irréductible exclue nommément).
+- [ ] Tous les tests des §13.2 et §13.3 verts sous Linux, macOS et Windows (la matrice démarre en M2), sans réseau ; `make cov` à 100 % (aucune exclusion nécessaire au plan 2c).
 - [ ] `cargo xtask record-fixture` opérationnel ; plan de lot exécuté en sandbox (Q3) ; résultats reportés dans le registre V-xx.
 - [ ] Smoke tests live du §13.5 (partie v0.1) exécutés au moins une fois en sandbox ; résultats consignés dans 09. En production, sondes manuelles en lecture seule seulement (Q3).
 
@@ -1440,15 +1487,15 @@ Index local des étiquettes employées ci-dessus ; le registre qui fait foi (num
 | [V-61 · sandbox-prod-donnees] | Ampleur des écarts de données entre sandbox et production. |
 | [V-60 · oauth-reponses] | Statuts et corps réels des erreurs de l'endpoint token (dont le statut, 400 ou 401, de `invalid_client`) ; valeurs de `expires_in` et `token_type`. |
 | [V-64 · 401-sous-throttling] | PISTE renvoie-t-il `401 invalid_client` pendant une limitation de débit ? |
-| [V-02 · tls-fournisseur-cross] | Exigences de compilation d'`aws-lc-sys` par cible ; installation du fournisseur `ring` avec reqwest 0.13 `rustls-no-provider`. |
-| [V-03 · reqwest-proxy-env] | Prise en compte de `HTTPS_PROXY` et `NO_PROXY` par reqwest 0.13 avec les features retenues. |
+| [V-02 · tls-fournisseur-cross] | **Partiel** (plan 2c, 09 §2.20) : A compile avec `cc` seul et négocie TLS 1.2/1.3 sur x86_64 gnu ; reste la matrice des 7 cibles (`tls-spike.yml`, à déclencher par le propriétaire). |
+| [V-03 · reqwest-proxy-env] | **Levé** (plan 2c, §4.2) : `HTTP_PROXY`, `HTTPS_PROXY` et `NO_PROXY` honorés ; la boucle locale n'est contournée qu'avec `NO_PROXY`. |
 | [V-70 · piste-gzip] | PISTE compresse-t-il les réponses (`Content-Encoding: gzip`) ? |
 | [V-75 · taille-max-textes] | Tailles maximales réelles des réponses (gros textes, codes, TOC) au regard de la borne de 16 Mio. |
 | [V-106 · acco-data-attachment] | Présence et taille de `data` et `attachment` dans `/consult/acco`. |
 | [V-63 · retry-after-piste] | Présence et format (secondes ou date HTTP) de `Retry-After` sur les 429 et 503 de PISTE, et présence de l'en-tête `Date` qui sert à convertir la forme date (§5.2). |
 | [V-69 · 500-requete-invalide] | Une facette ou un champ inconnu provoque-t-il un 500 plutôt qu'un 400 ? |
-| [V-06 · backon-api] | Noms et sémantique de l'API backon 1.6 (`when`, `adjust`, `sleep`, `notify`, gigue). |
-| [V-07 · governor-api] | Constructeurs de `Quota` et `RateLimiter::direct_with_clock` avec une horloge `Duration`, à la compilation. |
+| [V-06 · backon-api] | **Levé, adoption refusée** (plan 2c, §5.2, ADR-0017) : API confirmée, `backon` écarté au profit d'une boucle maison. |
+| [V-07 · governor-api] | **Levée** (plan 2c, §5.4) : `Quota::per_second(rps).allow_burst(burst)`, `RateLimiter::direct_with_clock` avec une horloge `Duration`. |
 | [V-55 · delai-clients-mcp] | Délais imposés par Claude Code et VS Code à un appel d'outil, à comparer aux 60 s de `LF_TOOL_DEADLINE_S`. |
 | [V-76 · singledate-midi-paris] | Avec `singleDate` à midi Paris (règle de 00 §8), un texte entrant en vigueur le jour J est-il retenu le jour J ? Comparaison avec minuit UTC, minuit Paris et la veille (bloquante en M2, V-76, dont c'est l'étiquette de référence dans 09 §2.19). |
 | [V-17 · chrono-tz-iana] | Version de la base IANA embarquée par `chrono-tz` 0.10.4 ; reproduction des vecteurs du §6.3 (dont 1804-03-21). |
@@ -1514,6 +1561,6 @@ Index local des étiquettes employées ci-dessus ; le registre qui fait foi (num
 - reqwest 0.13.5 (https://github.com/seanmonstar/reqwest) : `Cargo.toml:39-80` (features), `src/lib.rs:205-217`, `src/async_impl/client.rs:1392-1478` (redirections, réessais, proxy, délais), `:2262` (`https_only`), `src/async_impl/request.rs:273-299` (`bearer_auth` sensible, délai par requête), `src/async_impl/response.rs:90, 290-351` (`content_length`, `chunk`), `src/error.rs:91-201` (`without_url`, `is_timeout`), `src/redirect.rs:155-165, 239`, `src/retry.rs:1-104`.
 - governor 0.10.4 (https://github.com/boinkor-net/governor, commit 9f3a79d) : `src/state/direct.rs:43-58, 73`, `src/state/direct/future.rs:11, 30-56` (`until_ready` sur `futures_timer::Delay`), `src/clock.rs:55-117` (traits `Clock`, `Reference`, implémentation pour `Duration`).
 - pylegifrance (https://github.com/rdassignies/pylegifrance, d8e0e59) : `pylegifrance/fonds/juri.py:116-135, 760-840` (marqueur « L'expression à valider est fausse » ; sonde live du 2026-04-13 sur des `JURITEXT` seulement), `tests/unit/fonds/test_juri_verification_endpoints.py:104-121` (forme du corps 400, réponse simulée) ; `tests/integration/fonds/juri/test_verification_endpoints.py:57-59` (sonde `JURITEXT000000000000` et `JURITEXT999999999999`). Lecture rapportée par la revue du plan ; non relue dans cette révision (dépôt hors d'atteinte du réseau du conteneur).
-- Index crates.io (copies `index04/*.jsonl`, 2026-10-15) : backon 1.6.0 (features), governor 0.10.4, secrecy 0.10.3, serde_path_to_error 0.1.20, reqwest 0.13.5, rustls 0.23.46, wiremock 0.6.5.
+- Index crates.io (copies `index04/*.jsonl`, 2026-10-15) : backon 1.6.0 (features ; essayé, écarté, ADR-0017), governor 0.10.4, secrecy 0.10.3, serde_path_to_error 0.1.20, reqwest 0.13.5, rustls 0.23.46, wiremock 0.6.5.
 
 **Calculs de ce document** : vecteurs de midi Europe/Paris en epoch ms (Python 3.13 `zoneinfo`, base IANA ; identiques à ceux de 00 §8) ; recherche de séquences `\uXXXX` dans les 16 fixtures ; décompte des séquences de mojibake par valeur et par clé (§10.1 : 252 = 235 + 17) et du faux positif de détection de consult_juri_constit.json (§10.3), avec le motif de `dto_repair_check.py` ; extraction des chemins et définitions du Swagger 2.4.2 par script (`python3 -I`).

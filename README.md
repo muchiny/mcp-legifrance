@@ -13,7 +13,7 @@ Serveur MCP en **Rust**, en **architecture hexagonale**, pour interroger le droi
 - **[docs/plan/README.md](docs/plan/README.md)** : point d'entrée du plan (résumé, ordre de lecture selon votre rôle, carte des documents).
 - **[docs/plan/00-decisions.md](docs/plan/00-decisions.md)** : décisions normatives (crates, ports, outils, protocole, jalons, questions Q1 à Q17).
 - **[docs/plan/07-feuille-de-route.md](docs/plan/07-feuille-de-route.md)** : jalons M0 à M9 (M0 et M1 livrés), tâches à cocher et critères d'acceptation.
-- **[docs/adr/](docs/adr/README.md)** : décisions d'architecture (ADR-0001 à ADR-0016).
+- **[docs/adr/](docs/adr/README.md)** : décisions d'architecture (ADR-0001 à ADR-0017).
 - **[docs/recherche/](docs/recherche/README.md)** : notes de recherche sourcées qui ont servi à écrire le plan.
 
 ## En bref

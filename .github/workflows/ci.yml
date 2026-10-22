@@ -115,11 +115,23 @@ jobs:
           # La règle d'âge compare Cargo.lock à celui de la base (06 §7.2).
           fetch-depth: 0
           persist-credentials: false
-      # Le même contrôle tourne chaque nuit (deny-nightly.yml).
+      # Deux graphes sous le même deny.toml (M1-D16) : le workspace, puis fuzz/ (son propre Cargo.lock),
+      # puis cargo-audit sur fuzz/. Le même contrôle tourne chaque nuit (deny-nightly.yml).
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1 (cargo-deny 0.20.2)
         with:
           command: check
           arguments: --all-features
+          command-arguments: -A license-exception-not-encountered
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1 (cargo-deny 0.20.2)
+        with:
+          manifest-path: fuzz/Cargo.toml
+          command: check
+          arguments: --all-features
+          command-arguments: -A license-not-encountered -A unused-wrapper
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-audit@0.22.1
+      - run: make audit-fuzz
       # Auto-test du script, hors réseau (shellcheck, verrous et index factices), à chaque run.
       - run: make min-age-selftest
       - name: âge minimal des dépendances (00 §2 ; §9.4)

@@ -20,8 +20,8 @@ exigences de qualité (§10) y font foi. Ce fichier dit comment les tenir au quo
 | Lint | `make lint` | zéro avertissement (`clippy::pedantic` inclus) |
 | Tests | `make test` | tous verts : nextest (profil `default`, `ci` en CI) puis doc-tests ; en CI, Linux, macOS et Windows |
 | Doc | `make doc` | zéro avertissement |
-| Architecture | `make arch` | liste blanche des dépendances normales (`lf-domain` : `thiserror` seul), frontières application et adapters (§2) ; échoue fermé si `cargo metadata` est incomplet |
-| Dépendances | `make deny`, `make machete` | aucun avis, aucune dépendance inutile |
+| Architecture | `make arch` | liste blanche des dépendances normales (`lf-domain` : `thiserror` seul), frontières application et adapters (§2), R6, R8 ; échoue fermé si `cargo metadata` est incomplet |
+| Dépendances | `make deny`, `make machete` | aucun avis, aucune dépendance inutile ; `make deny` couvre le workspace et `fuzz/` ; `make audit-fuzz` (réseau, hors `make ci`) |
 | Âge des dépendances | `make min-age` (PR) ; `make min-age-selftest` dans `make ci` | toute version ajoutée ou montée publiée depuis 14 jours au moins |
 | Workflows | `make workflow-lint` | zizmor et actionlint sans alerte, actions épinglées par SHA |
 | Couverture | `make cov` | 100 % lignes, régions, fonctions (`--lib`) |
@@ -41,6 +41,15 @@ jamais exécutée :
 - `assert!(matches!(x, Variant(_)))` : le bras `_ => false` n'est jamais pris.
   Comparer la valeur entière avec `assert_eq!`.
 - `let … else { panic!() }` : comparer la valeur entière avec `assert_eq!`.
+
+Deux autres pièges, vus sur l'adapter PISTE :
+
+- tester le code générique avec un seul couple (horloge, sleeper) :
+  `cargo-llvm-cov` résume une fonction générique par son instance la plus
+  couverte, pas par l'union des instances ;
+- derrière un proxy, un test réseau local exige
+  `NO_PROXY=127.0.0.1,localhost,::1` (la CI le pose, avec `HTTPS_PROXY` et
+  `HTTP_PROXY` factices).
 
 ## Mutants survivants
 
@@ -105,7 +114,17 @@ mcp-legifrance de Ktulu-Analog. Cinq règles (08 §9.4) :
 - Âge minimal de 14 jours (`pubtime` de l'index sparse de crates.io), contrôlé
   par `make min-age` dans le job `deny`.
 - Exception : le libellé `security-fix`, justifié dans la PR. Poser un libellé
-  ne relance pas la CI : relancer le job `deny` à la main.
+  ne relance pas la CI : relancer le job `deny` à la main. Avis RUSTSEC dont la
+  version corrigée a moins de 14 jours : `cargo update -p <crate> --precise
+  <version>`, libellé `security-fix`, avis, paquets et dates d'éligibilité dans
+  la description, relance manuelle du job `deny`, `make min-age
+  SECURITY_FIX=true` en local ; jamais d'`ignore` dans `deny.toml`
+  (`docs/plan/06-qualite.md` §13.1).
+- Après un ajout : `cargo fetch`, `make min-age`, puis `cargo update -p
+  <transitif> --precise <version éligible>` pour chaque paquet signalé (index
+  `https://index.crates.io/…`, champ `pubtime`, versions retirées ignorées),
+  `make min-age` à nouveau ; une exigence `1.53` laisse cargo prendre `1.54` :
+  toujours `--precise`.
 - Exigence au niveau mineur dans `[workspace.dependencies]` ; version fixée par
   `cargo update -p <crate> --precise <version>`.
 - Dépendance déclarée seulement dans le crate qui l'emploie, licence dans la

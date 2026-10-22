@@ -84,7 +84,7 @@
 ### Tests qui la gardent
 
 - `error_results_are_text_with_code_prefix`, `error_text_snapshot_per_code`, `invalid_arg_is_not_logged_as_error`.
-- `oauth_404_maps_to_config_not_not_found`, `404_on_search_is_config_not_not_found`, `corpus_error_maps_to_app_error_table`, `400_is_not_retried`, `500_twice_maps_to_upstream_not_retryable`.
+- `oauth_404_maps_to_config_not_not_found`, `404_on_search_is_config_not_not_found`, `corpus_error_maps_to_app_error_table`, `the_400_is_not_retried`, `the_500_twice_maps_to_upstream_not_retryable`.
 - `page_beyond_reachable_window_is_invalid_arg_without_network`, `code_date_range_is_invalid_arg` (contraintes de l'entrée rejetées avant le port, 06 §2.2).
 - `error_messages_never_contain_secret_or_userinfo`, et test de dérive des instructions (06 §3.1, D-08, D-10, D-40).
 

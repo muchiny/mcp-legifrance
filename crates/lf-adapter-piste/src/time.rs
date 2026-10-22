@@ -4,28 +4,39 @@
 //! tests du jeton, du backoff, de `Retry-After`, du débit et du délai restant, sans geler
 //! l'horloge `tokio` (l'avance automatique d'une horloge gelée peut déclencher à tort les
 //! délais de `reqwest`).
+//!
+//! Visibilité : `MonoClock`, `Sleeper`, `TokioClock` et `TokioSleeper` sont `pub` dans ce module
+//! privé parce que la signature publique de `PisteCorpus<K, S>` les nomme ; innommables hors du
+//! crate, donc scellés. Leurs constructeurs et les doublures de test restent `pub(crate)`.
 
-use std::future::Future;
+use std::future::{Future, poll_fn};
+use std::pin::{Pin, pin};
+use std::task::Poll;
 use std::time::Duration;
 
 /// Horloge monotone : temps écoulé depuis une origine propre à chaque horloge.
 ///
 /// Deux horloges ne se comparent pas entre elles. C'est l'« instant » que consomme le
 /// limiteur de débit.
-pub(crate) trait MonoClock: Send + Sync + 'static {
+pub trait MonoClock: Send + Sync + 'static {
     /// Temps monotone écoulé depuis l'origine de cette horloge.
     fn now(&self) -> Duration;
 }
 
 /// Attente asynchrone : seule porte d'entrée des attentes de l'adapter.
-pub(crate) trait Sleeper: Send + Sync + 'static {
-    /// Attend `duration`, sans effet tant que le futur n'est pas attendu.
+pub trait Sleeper: Send + Sync + 'static {
+    /// Attend `duration`.
+    ///
+    /// Le futur rendu ne dort que lorsqu'il est attendu, mais l'implémentation peut fixer son
+    /// échéance dès l'appel : celle de [`TokioSleeper`] (`tokio::time::sleep`) part de l'appel de
+    /// `sleep`, pas de la première interrogation, et exige un runtime tokio à ce moment-là. Ne
+    /// pas créer un futur d'attente longtemps avant de l'attendre.
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send;
 }
 
 /// Horloge de production, fondée sur `tokio::time::Instant`.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct TokioClock {
+pub struct TokioClock {
     origin: tokio::time::Instant,
 }
 
@@ -44,12 +55,32 @@ impl MonoClock for TokioClock {
 
 /// Attente de production, fondée sur `tokio::time::sleep`.
 #[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct TokioSleeper;
+pub struct TokioSleeper;
 
 impl Sleeper for TokioSleeper {
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send {
         tokio::time::sleep(duration)
     }
+}
+
+/// Course entre un travail et une attente : `Some(résultat)` si le travail finit le premier,
+/// `None` si l'attente finit avant lui.
+///
+/// Le travail est interrogé **d'abord** : quand les deux sont prêts en même temps, le résultat
+/// du travail l'emporte. Écrite sans `select!` (donc sans la feature `macros` de tokio) et sans
+/// `tokio::time::timeout`, pour que l'attente passe par le [`Sleeper`] injecté, déterministe en
+/// test. L'attente arrive en objet-trait (sans allocation) : un seul code de comparaison sert
+/// tous les `Sleeper`.
+pub(crate) async fn race<T>(
+    work: impl Future<Output = T>,
+    mut timeout: Pin<&mut (dyn Future<Output = ()> + Send)>,
+) -> Option<T> {
+    let mut work = pin!(work);
+    poll_fn(|cx| match work.as_mut().poll(cx) {
+        Poll::Ready(value) => Poll::Ready(Some(value)),
+        Poll::Pending => timeout.as_mut().poll(cx).map(|()| None),
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -182,5 +213,39 @@ mod tests {
         TokioSleeper.sleep(Duration::from_millis(20)).await;
         let elapsed = started.elapsed();
         assert!(elapsed >= Duration::from_millis(20), "{elapsed:?}");
+    }
+
+    #[tokio::test]
+    async fn race_returns_the_work_when_it_is_ready() {
+        let outcome = race(std::future::ready(7_u8), pin!(std::future::ready(()))).await;
+        assert_eq!(outcome, Some(7));
+    }
+
+    #[tokio::test]
+    async fn race_polls_the_work_before_the_timeout() {
+        let outcome = race(std::future::ready("work"), pin!(std::future::ready(()))).await;
+        assert_eq!(outcome, Some("work"));
+    }
+
+    #[tokio::test]
+    async fn race_gives_up_when_the_timeout_ends_first() {
+        let outcome = race(std::future::pending::<u8>(), pin!(std::future::ready(()))).await;
+        assert_eq!(outcome, None);
+    }
+
+    #[tokio::test]
+    async fn race_waits_for_pending_work_while_the_timeout_is_pending_too() {
+        let mut polls = 0_u8;
+        let work = poll_fn(|cx| {
+            polls += 1;
+            if polls == 1 {
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            } else {
+                Poll::Ready(polls)
+            }
+        });
+        let outcome = race(work, pin!(std::future::pending::<()>())).await;
+        assert_eq!(outcome, Some(2));
     }
 }

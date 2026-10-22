@@ -33,6 +33,11 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - `lf_domain::search` : `QueryText`, `PageSize`, `MatchMode`, `SearchQuery`, `has_more`, `REACHABLE_RESULTS` ; `Fond::needs_version_date`, `Fond::has_date_filter` ; erreurs `EmptyQuery`, `QueryTooLong`, `OutOfRange`, `VersionDateNotApplicable`, `DateFilterNotApplicable`, `PageBeyondReach`.
 - Crate `lf-application` : port `LegalCorpus`, `CorpusError`, `Deadline`.
 - `make purity` (`cargo check -p lf-application`).
+- `lf_domain::coverage::PisteEnvironment`, seul type d'environnement du workspace.
+- Crate `lf-adapter-piste` : configuration validée, client HTTP unique à corps borné (16 Mio après décompression), jeton OAuth 2.0 `client_credentials` mono-vol, classification, réessais par boucle maison (3 tentatives, 2 sur 500, `Retry-After` ; ADR-0017), limiteur de débit et de concurrence, `CallDeadline`, UTF-8 strict et mojibake (`StatsSnapshot`), `PisteCorpus` (appel API, mode dégradé, `check_credentials`).
+- `check-arch` : R6 (crates confinés) et R8 (dev-dependencies).
+- `spikes/tls-provider` et `tls-spike.yml` (matrice TLS à déclencher à la main).
+- `make audit-fuzz` (`cargo-audit` sur `fuzz/Cargo.lock`).
 
 ### Changed
 
@@ -46,6 +51,10 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - `CitationContract::from_url` réservé au crate.
 - `--locked` sur toute commande cargo.
 - `check-arch` : liste fermée et features de `lf-application` (R2), `[lints] workspace = true` (5e), fermeture transitive, doublons critiques (R9) ; graphe résolu complet.
+- `deny.toml` : 7 licences (liste exacte du graphe), exception `NCSA` de `libfuzzer-sys`, wrappers `reqwest` et `governor`.
+- `make deny` et les jobs `deny` couvrent aussi `fuzz/`.
+- Adapter PISTE : un `Retry-After` supérieur à 30 s n'est pas attendu (échec immédiat) et la valeur rangée dans `RateLimited { retry_after }` est écrêtée à 1 h ; un hôte officiel écrit avec un point final (`api.piste.gouv.fr.`) est reconnu comme officiel (`EnvMismatch`, absence d'avertissement `CustomHost`).
+- Workflow `tls-spike.yml` : `apt-get update` avant l'installation de `musl-tools`.
 
 ### Removed
 
@@ -61,6 +70,9 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - Actions GitHub épinglées par SHA, `yanked = "deny"`, bans `openssl`, `openssl-sys`, `native-tls` et `backoff`, cargo-deny chaque nuit.
 - Règle d'âge de 14 jours des dépendances.
 - Politique de signalement `SECURITY.md`.
+- Adapter PISTE : le champ `error` d'un refus OAuth n'est cité dans le `detail` que s'il est l'un des six codes de la RFC 6749 §5.2 (liste blanche, plus aucun secret, `client_id` ni jeton renvoyé par une passerelle) ; `Debug` de `Payload`, `Attempt` et `RawResponse` écrit à la main, sans valeur de formulaire, corps, jeton ni URL ; un `access_token` qui n'est pas une valeur d'en-tête valide est refusé et jamais mis en cache ; `Retry-After` hostile écrêté à 1 h dans l'erreur ; test du corps lu au goutte-à-goutte, borné par le délai de la tentative.
+- TLS rustls avec aws-lc, à titre provisoire (ADR-0013).
+- `rustls` 0.23.46, `rustls-webpki` 0.103.16 et `webpki-root-certs` 1.0.10 (RUSTSEC-2026-0346 à -0349, -0382, -0383) par l'exception `security-fix` de la règle d'âge, sans `ignore` dans `deny.toml`.
 
 ### Parity
 

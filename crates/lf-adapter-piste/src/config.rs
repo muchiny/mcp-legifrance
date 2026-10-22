@@ -89,6 +89,10 @@ impl Role {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ConfigWarning {
     /// URL en `http` clair, tolérée parce que l'hôte est une boucle locale.
+    ///
+    /// Avec `HTTP_PROXY`/`HTTPS_PROXY` posés et sans `NO_PROXY` couvrant la boucle locale, le
+    /// formulaire OAuth et l'en-tête `Authorization` partent vers le proxy, en clair : la
+    /// boucle locale n'est pas contournée d'office (04 §4.2).
     #[error("{setting} uses plain http on a loopback host")]
     InsecureLoopback {
         /// Libellé de l'URL concernée.
@@ -229,7 +233,12 @@ fn check_url(env: PisteEnvironment, role: Role, raw: &str) -> Result<Checked, Co
         .map_err(|error| ConfigProblem::InvalidUrl { setting, reason: error.to_string() })?;
     let loopback = check_scheme(setting, &url)?;
     check_parts(setting, &url)?;
-    let host = url.host_str().unwrap_or_default().to_owned();
+    // Un nom de domaine absolu (`api.piste.gouv.fr.`) désigne le même hôte : UN point final
+    // est retiré avant la comparaison, pour que `EnvMismatch` et `official` se comportent
+    // comme sans lui (le garde-fou ne se contourne pas par une faute de saisie). Le port
+    // reste ignoré. L'URL elle-même n'est pas réécrite.
+    let host = url.host_str().unwrap_or_default();
+    let host = host.strip_suffix('.').unwrap_or(host).to_owned();
     let official = OFFICIAL_HOSTS.iter().find(|official| official.host == host);
     check_env(setting, env, &host, official)?;
     if matches!(role, Role::Base) {
@@ -602,6 +611,72 @@ mod tests {
                 env: PRODUCTION,
                 host_env: SANDBOX,
             }
+        );
+    }
+
+    #[test]
+    fn a_trailing_dot_on_the_host_is_the_same_official_host() {
+        // Un nom de domaine absolu (`api.piste.gouv.fr.`) désigne le même hôte que sans le point.
+        let dotted = |url: &str| url.replacen(".gouv.fr/", ".gouv.fr./", 1);
+        for (env, oauth, base) in
+            [(SANDBOX, SANDBOX_OAUTH, SANDBOX_API), (PRODUCTION, PRODUCTION_OAUTH, PRODUCTION_API)]
+        {
+            let (endpoints, warnings) =
+                PisteEndpoints::with_overrides(env, Some(&dotted(oauth)), Some(&dotted(base)))
+                    .unwrap();
+            assert!(endpoints.official, "{env:?}");
+            assert_eq!(warnings, Vec::new(), "{env:?}");
+        }
+        // L'environnement reste contrôlé : un hôte de production en sandbox est refusé, avec
+        // ou sans point final.
+        for (raw, base) in [(dotted(PRODUCTION_API), true), (dotted(PRODUCTION_OAUTH), false)] {
+            let problem =
+                if base { base_problem(SANDBOX, &raw) } else { oauth_problem(SANDBOX, &raw) };
+            assert_eq!(
+                problem,
+                ConfigProblem::EnvMismatch {
+                    setting: if base { "base URL" } else { "OAuth URL" },
+                    host: if base { "api.piste.gouv.fr" } else { "oauth.piste.gouv.fr" }.to_owned(),
+                    env: SANDBOX,
+                    host_env: PRODUCTION,
+                },
+                "{raw}"
+            );
+        }
+        assert_eq!(
+            base_problem(PRODUCTION, &dotted(SANDBOX_API)),
+            ConfigProblem::EnvMismatch {
+                setting: "base URL",
+                host: "sandbox-api.piste.gouv.fr".to_owned(),
+                env: PRODUCTION,
+                host_env: SANDBOX,
+            }
+        );
+        // Le chemin de l'API reste imposé sur l'hôte officiel écrit avec un point final.
+        assert_eq!(
+            base_problem(SANDBOX, "https://sandbox-api.piste.gouv.fr./autre"),
+            ConfigProblem::UnexpectedApiPath {
+                setting: "base URL",
+                host: "sandbox-api.piste.gouv.fr".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn only_one_trailing_dot_is_removed_from_the_host() {
+        let (endpoints, warnings) = PisteEndpoints::with_overrides(
+            SANDBOX,
+            None,
+            Some("https://sandbox-api.piste.gouv.fr../dila/legifrance/lf-engine-app"),
+        )
+        .unwrap();
+        assert!(!endpoints.official);
+        assert_eq!(
+            warnings,
+            vec![ConfigWarning::CustomHost {
+                setting: "base URL",
+                host: "sandbox-api.piste.gouv.fr.".to_owned()
+            }]
         );
     }
 
