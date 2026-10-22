@@ -56,7 +56,7 @@ type DirectLimiter<K> =
 /// Quota `governor` : `per_second` requêtes par seconde (regarnissage toutes les
 /// `1 / per_second` s), rafale `burst`.
 fn quota_of(quota: RateQuota) -> Quota {
-    Quota::per_second(quota.per_second).allow_burst(quota.burst)
+    Quota::per_second(quota.per_second()).allow_burst(quota.burst())
 }
 
 /// Prend un permis du sémaphore, ou renonce quand `timeout` finit le premier.
@@ -165,10 +165,7 @@ mod tests {
     }
 
     fn quota(per_second: u32, burst: u32) -> RateQuota {
-        RateQuota {
-            per_second: NonZeroU32::new(per_second).unwrap(),
-            burst: NonZeroU32::new(burst).unwrap(),
-        }
+        RateQuota::new(NonZeroU32::new(per_second).unwrap(), NonZeroU32::new(burst).unwrap())
     }
 
     fn permits(n: u16) -> NonZeroU16 {

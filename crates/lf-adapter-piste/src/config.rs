@@ -162,12 +162,12 @@ pub enum ConfigProblem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PisteEndpoints {
     /// URL du jeton OAuth.
-    pub oauth_url: Url,
+    oauth_url: Url,
     /// URL de base de l'API, sans `/` final : un endpoint s'y concatène, il ne s'y joint pas.
-    pub base_url: Url,
+    base_url: Url,
     /// Vrai quand les deux URL sont sur des hôtes officiels (une surcharge absente compte
     /// comme officielle).
-    pub official: bool,
+    official: bool,
 }
 
 impl PisteEndpoints {
@@ -200,6 +200,25 @@ impl PisteEndpoints {
         let mut warnings = oauth.warnings;
         warnings.extend(base.warnings);
         Ok((Self { oauth_url: oauth.url, base_url: base.url, official }, warnings))
+    }
+
+    /// URL du jeton OAuth.
+    #[must_use]
+    pub fn oauth_url(&self) -> &Url {
+        &self.oauth_url
+    }
+
+    /// URL de base de l'API, sans `/` final : un endpoint s'y concatène, il ne s'y joint pas.
+    #[must_use]
+    pub fn base_url(&self) -> &Url {
+        &self.base_url
+    }
+
+    /// Vrai quand les deux URL sont sur des hôtes officiels (une surcharge absente compte
+    /// comme officielle).
+    #[must_use]
+    pub fn is_official(&self) -> bool {
+        self.official
     }
 }
 
@@ -342,32 +361,80 @@ fn official_url(env: PisteEnvironment, role: Role) -> Url {
 #[derive(Debug, Clone)]
 pub struct PisteCredentials {
     /// Identifiant du client (non secret).
-    pub client_id: String,
+    client_id: String,
     /// Secret du client ; son `Debug` est rédigé (`[REDACTED]`).
-    pub client_secret: SecretString,
+    client_secret: SecretString,
+}
+
+impl PisteCredentials {
+    /// Assemble les identifiants ; ne décide de rien : `lf-app` retire les blancs et écarte
+    /// les valeurs vides avant d'appeler.
+    #[must_use]
+    pub fn new(client_id: String, client_secret: SecretString) -> Self {
+        Self { client_id, client_secret }
+    }
+
+    /// Identifiant du client (non secret).
+    #[must_use]
+    pub fn client_id(&self) -> &str {
+        &self.client_id
+    }
+
+    /// Secret du client ; son `Debug` est rédigé (`[REDACTED]`).
+    #[must_use]
+    pub fn client_secret(&self) -> &SecretString {
+        &self.client_secret
+    }
 }
 
 /// Quota de débit vers PISTE.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RateQuota {
     /// Débit soutenu, en requêtes par seconde.
-    pub per_second: NonZeroU32,
+    per_second: NonZeroU32,
     /// Rafale admise.
-    pub burst: NonZeroU32,
+    burst: NonZeroU32,
 }
 
-/// Configuration complète de l'adapter PISTE.
-#[derive(Debug, Clone)]
-pub struct PisteConfig {
-    /// Environnement PISTE configuré.
-    pub env: PisteEnvironment,
-    /// Adresses, ou le problème qui les a fait refuser (mode dégradé).
-    pub endpoints: Result<PisteEndpoints, ConfigProblem>,
-    /// Identifiants OAuth, absents tant qu'ils ne sont pas configurés.
-    pub credentials: Option<PisteCredentials>,
-    /// En-tête `User-Agent` des requêtes.
-    pub user_agent: String,
-    /// Délai de connexion.
+impl RateQuota {
+    /// Assemble le quota ; les deux valeurs sont non nulles par leur type. Aucun ordre n'est
+    /// imposé entre elles : `governor` accepte tout couple non nul.
+    #[must_use]
+    pub fn new(per_second: NonZeroU32, burst: NonZeroU32) -> Self {
+        Self { per_second, burst }
+    }
+
+    /// Débit soutenu, en requêtes par seconde.
+    #[must_use]
+    pub fn per_second(&self) -> NonZeroU32 {
+        self.per_second
+    }
+
+    /// Rafale admise.
+    #[must_use]
+    pub fn burst(&self) -> NonZeroU32 {
+        self.burst
+    }
+}
+
+/// Réglages avancés de l'adapter : délais, débit, concurrence, taille de corps.
+///
+/// L'adapter ne refuse que les états absurdes (voir [`PisteConfig::with_tuning`]) : un délai
+/// nul fait échouer toute requête, une borne de corps nulle refuse toute réponse. Le débit et
+/// la concurrence sont non nuls par leur type. Ne sont **volontairement pas imposés** :
+/// - les bornes hautes (`LF_HTTP_TIMEOUT_S` 1..=300, `LF_TOOL_DEADLINE_S` 1..=600,
+///   `LF_PISTE_RPS` et `LF_PISTE_BURST` 1..=100, `LF_PISTE_CONCURRENCY` 1..=16) : politique
+///   d'utilisateur, que `lf-app` applique avant d'appeler (04 §2.2) ;
+/// - un ordre entre les délais : `CallDeadline::cap` plafonne déjà chaque tentative ;
+/// - `burst >= per_second` : `governor` accepte tout couple non nul ;
+/// - `repair_mojibake` : booléen libre ;
+/// - la validité du `User-Agent` comme en-tête, vérifiée à la construction du client.
+///
+/// Les champs sont publics : la validation a lieu à l'entrée de la configuration, et
+/// [`PisteConfig::tuning`] ne rend qu'une référence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PisteTuning {
+    /// Délai de connexion TCP et TLS.
     pub connect_timeout: Duration,
     /// Délai d'une requête HTTP complète.
     pub request_timeout: Duration,
@@ -383,20 +450,10 @@ pub struct PisteConfig {
     pub repair_mojibake: bool,
 }
 
-impl PisteConfig {
-    /// Assemble la configuration avec les valeurs par défaut de 04 §2.2 ; ne décide de rien.
-    #[must_use]
-    pub fn new(
-        env: PisteEnvironment,
-        endpoints: Result<PisteEndpoints, ConfigProblem>,
-        credentials: Option<PisteCredentials>,
-        user_agent: String,
-    ) -> Self {
+impl Default for PisteTuning {
+    /// Valeurs par défaut de 04 §2.2 ; ne décide de rien.
+    fn default() -> Self {
         Self {
-            env,
-            endpoints,
-            credentials,
-            user_agent,
             connect_timeout: CONNECT_TIMEOUT,
             request_timeout: REQUEST_TIMEOUT,
             tool_deadline: TOOL_DEADLINE,
@@ -408,9 +465,111 @@ impl PisteConfig {
     }
 }
 
+/// Réglage refusé par [`PisteConfig::with_tuning`].
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum TuningError {
+    /// Réglage nul alors qu'une valeur strictement positive est exigée.
+    #[error("{setting} must not be zero")]
+    Zero {
+        /// Libellé du réglage : `connect timeout`, `request timeout`, `tool deadline` ou
+        /// `max body bytes`.
+        setting: &'static str,
+    },
+}
+
+/// Contrôle les réglages dans l'ordre connexion, requête, appel, corps ; nomme le premier nul.
+fn check_tuning(tuning: &PisteTuning) -> Result<(), TuningError> {
+    let setting = if tuning.connect_timeout.is_zero() {
+        "connect timeout"
+    } else if tuning.request_timeout.is_zero() {
+        "request timeout"
+    } else if tuning.tool_deadline.is_zero() {
+        "tool deadline"
+    } else if tuning.max_body_bytes == 0 {
+        "max body bytes"
+    } else {
+        return Ok(());
+    };
+    Err(TuningError::Zero { setting })
+}
+
+/// Configuration complète de l'adapter PISTE.
+#[derive(Debug, Clone)]
+pub struct PisteConfig {
+    /// Environnement PISTE configuré.
+    env: PisteEnvironment,
+    /// Adresses, ou le problème qui les a fait refuser (mode dégradé).
+    endpoints: Result<PisteEndpoints, ConfigProblem>,
+    /// Identifiants OAuth, absents tant qu'ils ne sont pas configurés.
+    credentials: Option<PisteCredentials>,
+    /// En-tête `User-Agent` des requêtes.
+    user_agent: String,
+    /// Réglages avancés, validés par [`PisteConfig::with_tuning`].
+    tuning: PisteTuning,
+}
+
+impl PisteConfig {
+    /// Assemble la configuration avec les réglages par défaut de 04 §2.2 ; ne décide de rien.
+    #[must_use]
+    pub fn new(
+        env: PisteEnvironment,
+        endpoints: Result<PisteEndpoints, ConfigProblem>,
+        credentials: Option<PisteCredentials>,
+        user_agent: String,
+    ) -> Self {
+        Self { env, endpoints, credentials, user_agent, tuning: PisteTuning::default() }
+    }
+
+    /// Remplace les réglages avancés, le reste de la configuration est conservé.
+    ///
+    /// # Errors
+    ///
+    /// [`TuningError::Zero`] pour le premier réglage nul, dans l'ordre : délai de connexion,
+    /// délai de requête, délai d'appel, taille maximale du corps.
+    pub fn with_tuning(self, tuning: PisteTuning) -> Result<Self, TuningError> {
+        check_tuning(&tuning)?;
+        Ok(Self { tuning, ..self })
+    }
+
+    /// Environnement PISTE configuré.
+    #[must_use]
+    pub fn env(&self) -> PisteEnvironment {
+        self.env
+    }
+
+    /// Adresses, ou le problème qui les a fait refuser (mode dégradé).
+    ///
+    /// # Errors
+    ///
+    /// Le [`ConfigProblem`] retenu à la construction, quand les URL surchargées ont été
+    /// refusées.
+    pub fn endpoints(&self) -> Result<&PisteEndpoints, &ConfigProblem> {
+        self.endpoints.as_ref()
+    }
+
+    /// Identifiants OAuth, absents tant qu'ils ne sont pas configurés.
+    #[must_use]
+    pub fn credentials(&self) -> Option<&PisteCredentials> {
+        self.credentials.as_ref()
+    }
+
+    /// En-tête `User-Agent` des requêtes.
+    #[must_use]
+    pub fn user_agent(&self) -> &str {
+        &self.user_agent
+    }
+
+    /// Réglages avancés.
+    #[must_use]
+    pub fn tuning(&self) -> &PisteTuning {
+        &self.tuning
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use secrecy::ExposeSecret;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     const SANDBOX: PisteEnvironment = PisteEnvironment::Sandbox;
@@ -432,13 +591,13 @@ mod tests {
     #[test]
     fn official_endpoints_match_spec() {
         let sandbox = PisteEndpoints::official(SANDBOX);
-        assert_eq!(sandbox.oauth_url.as_str(), SANDBOX_OAUTH);
-        assert_eq!(sandbox.base_url.as_str(), SANDBOX_API);
-        assert!(sandbox.official);
+        assert_eq!(sandbox.oauth_url().as_str(), SANDBOX_OAUTH);
+        assert_eq!(sandbox.base_url().as_str(), SANDBOX_API);
+        assert!(sandbox.is_official());
         let production = PisteEndpoints::official(PRODUCTION);
-        assert_eq!(production.oauth_url.as_str(), PRODUCTION_OAUTH);
-        assert_eq!(production.base_url.as_str(), PRODUCTION_API);
-        assert!(production.official);
+        assert_eq!(production.oauth_url().as_str(), PRODUCTION_OAUTH);
+        assert_eq!(production.base_url().as_str(), PRODUCTION_API);
+        assert!(production.is_official());
 
         for (env, oauth, base) in
             [(SANDBOX, SANDBOX_OAUTH, SANDBOX_API), (PRODUCTION, PRODUCTION_OAUTH, PRODUCTION_API)]
@@ -472,8 +631,8 @@ mod tests {
             let url = format!("http://{host}/api");
             let (endpoints, warnings) =
                 PisteEndpoints::with_overrides(SANDBOX, Some(&url), Some(&url)).unwrap();
-            assert!(!endpoints.official);
-            let host = endpoints.base_url.host_str().unwrap().to_owned();
+            assert!(!endpoints.is_official());
+            let host = endpoints.base_url().host_str().unwrap().to_owned();
             assert_eq!(
                 warnings,
                 vec![
@@ -531,7 +690,7 @@ mod tests {
             Some("https://proxy.example.org/dila/x"),
         )
         .unwrap();
-        assert!(!endpoints.official);
+        assert!(!endpoints.is_official());
         assert_eq!(
             warnings,
             vec![
@@ -552,8 +711,8 @@ mod tests {
             Some("https://proxy.example.org/dila/x"),
         )
         .unwrap();
-        assert!(!endpoints.official);
-        assert_eq!(endpoints.oauth_url.as_str(), PRODUCTION_OAUTH);
+        assert!(!endpoints.is_official());
+        assert_eq!(endpoints.oauth_url().as_str(), PRODUCTION_OAUTH);
         assert_eq!(
             warnings,
             vec![ConfigWarning::CustomHost {
@@ -565,8 +724,8 @@ mod tests {
         let (endpoints, warnings) =
             PisteEndpoints::with_overrides(SANDBOX, Some("https://auth.example.org/token"), None)
                 .unwrap();
-        assert!(!endpoints.official);
-        assert_eq!(endpoints.base_url.as_str(), SANDBOX_API);
+        assert!(!endpoints.is_official());
+        assert_eq!(endpoints.base_url().as_str(), SANDBOX_API);
         assert_eq!(
             warnings,
             vec![ConfigWarning::CustomHost {
@@ -624,7 +783,7 @@ mod tests {
             let (endpoints, warnings) =
                 PisteEndpoints::with_overrides(env, Some(&dotted(oauth)), Some(&dotted(base)))
                     .unwrap();
-            assert!(endpoints.official, "{env:?}");
+            assert!(endpoints.is_official(), "{env:?}");
             assert_eq!(warnings, Vec::new(), "{env:?}");
         }
         // L'environnement reste contrôlé : un hôte de production en sandbox est refusé, avec
@@ -670,7 +829,7 @@ mod tests {
             Some("https://sandbox-api.piste.gouv.fr../dila/legifrance/lf-engine-app"),
         )
         .unwrap();
-        assert!(!endpoints.official);
+        assert!(!endpoints.is_official());
         assert_eq!(
             warnings,
             vec![ConfigWarning::CustomHost {
@@ -763,11 +922,11 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(endpoints.oauth_url.path(), "/autre/chemin");
+        assert_eq!(endpoints.oauth_url().path(), "/autre/chemin");
         let (endpoints, _) =
             PisteEndpoints::with_overrides(SANDBOX, None, Some("https://proxy.example.org/"))
                 .unwrap();
-        assert_eq!(endpoints.base_url.path(), "/");
+        assert_eq!(endpoints.base_url().path(), "/");
     }
 
     #[test]
@@ -776,32 +935,30 @@ mod tests {
             let base = format!("{SANDBOX_API}{suffix}");
             let (endpoints, warnings) =
                 PisteEndpoints::with_overrides(SANDBOX, None, Some(&base)).unwrap();
-            assert_eq!(endpoints.base_url.as_str(), SANDBOX_API);
-            assert!(endpoints.official);
+            assert_eq!(endpoints.base_url().as_str(), SANDBOX_API);
+            assert!(endpoints.is_official());
             assert_eq!(warnings, Vec::new());
         }
 
         let (endpoints, _) =
             PisteEndpoints::with_overrides(SANDBOX, None, Some("https://example.org/prefix//"))
                 .unwrap();
-        assert_eq!(endpoints.base_url.path(), "/prefix");
+        assert_eq!(endpoints.base_url().path(), "/prefix");
         let (endpoints, _) =
             PisteEndpoints::with_overrides(SANDBOX, None, Some("https://example.org")).unwrap();
-        assert_eq!(endpoints.base_url.path(), "/");
+        assert_eq!(endpoints.base_url().path(), "/");
 
         let (endpoints, _) =
             PisteEndpoints::with_overrides(SANDBOX, Some("https://example.org/token/"), None)
                 .unwrap();
-        assert_eq!(endpoints.oauth_url.path(), "/token/");
+        assert_eq!(endpoints.oauth_url().path(), "/token/");
     }
 
     fn secret_credentials() -> (PisteCredentials, String) {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let secret = format!("s3cr3t-{nanos:x}");
-        let credentials = PisteCredentials {
-            client_id: "client-1".to_owned(),
-            client_secret: SecretString::from(secret.clone()),
-        };
+        let credentials =
+            PisteCredentials::new("client-1".to_owned(), SecretString::from(secret.clone()));
         (credentials, secret)
     }
 
@@ -827,27 +984,121 @@ mod tests {
     fn config_defaults_match_spec() {
         let endpoints = PisteEndpoints::official(PRODUCTION);
         let config = PisteConfig::new(PRODUCTION, Ok(endpoints.clone()), None, "lf/0".to_owned());
-        assert_eq!(config.env, PRODUCTION);
-        assert_eq!(config.endpoints, Ok(endpoints));
-        assert!(config.credentials.is_none());
-        assert_eq!(config.user_agent, "lf/0");
-        assert_eq!(config.connect_timeout, Duration::from_secs(10));
-        assert_eq!(config.request_timeout, Duration::from_secs(40));
-        assert_eq!(config.tool_deadline, Duration::from_secs(60));
-        assert_eq!(
-            config.rate,
-            RateQuota {
-                per_second: NonZeroU32::new(5).unwrap(),
-                burst: NonZeroU32::new(10).unwrap()
-            }
-        );
-        assert_eq!(config.max_concurrency, NonZeroU16::new(4).unwrap());
-        assert_eq!(config.max_body_bytes, 16 * 1024 * 1024);
-        assert!(config.repair_mojibake);
+        assert_eq!(config.env(), PRODUCTION);
+        assert_eq!(config.endpoints(), Ok(&endpoints));
+        assert!(config.credentials().is_none());
+        assert_eq!(config.user_agent(), "lf/0");
+        assert_eq!(config.tuning(), &PisteTuning::default());
 
         let problem = ConfigProblem::ForbiddenPart { setting: "base URL", part: "query" };
         let degraded = PisteConfig::new(SANDBOX, Err(problem.clone()), None, "lf/0".to_owned());
-        assert_eq!(degraded.endpoints, Err(problem));
+        assert_eq!(degraded.endpoints(), Err(&problem));
+    }
+
+    fn other_tuning() -> PisteTuning {
+        PisteTuning {
+            connect_timeout: Duration::from_secs(1),
+            request_timeout: Duration::from_secs(2),
+            tool_deadline: Duration::from_secs(3),
+            rate: RateQuota::new(NonZeroU32::new(7).unwrap(), NonZeroU32::new(8).unwrap()),
+            max_concurrency: NonZeroU16::new(9).unwrap(),
+            max_body_bytes: 10,
+            repair_mojibake: false,
+        }
+    }
+
+    #[test]
+    fn tuning_defaults_match_spec() {
+        let tuning = PisteTuning::default();
+        assert_eq!(tuning.connect_timeout, Duration::from_secs(10));
+        assert_eq!(tuning.request_timeout, Duration::from_secs(40));
+        assert_eq!(tuning.tool_deadline, Duration::from_secs(60));
+        assert_eq!(
+            tuning.rate,
+            RateQuota::new(NonZeroU32::new(5).unwrap(), NonZeroU32::new(10).unwrap())
+        );
+        assert_eq!(tuning.max_concurrency, NonZeroU16::new(4).unwrap());
+        assert_eq!(tuning.max_body_bytes, 16 * 1024 * 1024);
+        assert!(tuning.repair_mojibake);
+    }
+
+    #[test]
+    fn with_tuning_replaces_the_settings_and_keeps_the_rest() {
+        let (credentials, _) = secret_credentials();
+        let endpoints = PisteEndpoints::official(PRODUCTION);
+        let config = PisteConfig::new(
+            PRODUCTION,
+            Ok(endpoints.clone()),
+            Some(credentials),
+            "lf/0".to_owned(),
+        )
+        .with_tuning(other_tuning())
+        .unwrap();
+        assert_eq!(config.tuning(), &other_tuning());
+        assert_eq!(config.env(), PRODUCTION);
+        assert_eq!(config.endpoints(), Ok(&endpoints));
+        assert_eq!(config.credentials().map(PisteCredentials::client_id), Some("client-1"));
+        assert_eq!(config.user_agent(), "lf/0");
+    }
+
+    #[test]
+    fn with_tuning_refuses_zero_and_names_the_setting() {
+        let zero = Duration::ZERO;
+        let base = PisteTuning::default();
+        let cases = [
+            (PisteTuning { connect_timeout: zero, ..base }, "connect timeout"),
+            (PisteTuning { request_timeout: zero, ..base }, "request timeout"),
+            (PisteTuning { tool_deadline: zero, ..base }, "tool deadline"),
+            (PisteTuning { max_body_bytes: 0, ..base }, "max body bytes"),
+            (
+                PisteTuning { connect_timeout: zero, request_timeout: zero, ..base },
+                "connect timeout",
+            ),
+            (PisteTuning { request_timeout: zero, tool_deadline: zero, ..base }, "request timeout"),
+            (PisteTuning { tool_deadline: zero, max_body_bytes: 0, ..base }, "tool deadline"),
+        ];
+        for (tuning, setting) in cases {
+            let config = PisteConfig::new(
+                SANDBOX,
+                Ok(PisteEndpoints::official(SANDBOX)),
+                None,
+                "lf/0".to_owned(),
+            );
+            let error = config.with_tuning(tuning).unwrap_err();
+            assert_eq!(error, TuningError::Zero { setting });
+            assert_eq!(error.to_string(), format!("{setting} must not be zero"));
+        }
+    }
+
+    #[test]
+    fn with_tuning_accepts_the_smallest_non_zero_values() {
+        let nano = Duration::from_nanos(1);
+        let tuning = PisteTuning {
+            connect_timeout: nano,
+            request_timeout: nano,
+            tool_deadline: nano,
+            max_body_bytes: 1,
+            ..PisteTuning::default()
+        };
+        let config = PisteConfig::new(
+            SANDBOX,
+            Ok(PisteEndpoints::official(SANDBOX)),
+            None,
+            "lf/0".to_owned(),
+        )
+        .with_tuning(tuning)
+        .unwrap();
+        assert_eq!(config.tuning(), &tuning);
+    }
+
+    #[test]
+    fn accessors_return_the_constructor_arguments() {
+        let (credentials, secret) = secret_credentials();
+        assert_eq!(credentials.client_id(), "client-1");
+        assert_eq!(credentials.client_secret().expose_secret(), secret);
+        let rate = RateQuota::new(NonZeroU32::new(3).unwrap(), NonZeroU32::new(4).unwrap());
+        assert_eq!(rate.per_second(), NonZeroU32::new(3).unwrap());
+        assert_eq!(rate.burst(), NonZeroU32::new(4).unwrap());
     }
 
     #[test]

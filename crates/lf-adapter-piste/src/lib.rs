@@ -17,7 +17,8 @@
 //!   mémoire, renouvelé avant son expiration par une seule requête à la fois, avec réessais.
 //! - `classify` : classification d'une tentative d'envoi (`Outcome`, `Budget`) d'après le statut
 //!   HTTP et `Retry-After`, sans jamais lire le corps.
-//! - `config` : configuration de l'adapter (`PisteConfig`) et validation des URL surchargées.
+//! - `config` : configuration de l'adapter (`PisteConfig`, champs privés, réglages avancés
+//!   validés `PisteTuning`) et validation des URL surchargées.
 //! - `corpus` : `PisteCorpus`, l'assemblage de l'adapter : mode dégradé sans E/S, puis pour chaque
 //!   tentative limiteur, jeton, envoi borné, classification et réessai, enfin décodage du corps.
 //! - `deadline` : échéance d'un appel (`CallDeadline`), durée restante lue dans `Deadline`
@@ -39,7 +40,7 @@
     not(test),
     expect(
         dead_code,
-        reason = "PisteCorpus::post_json et ce que lui seul emploie : consommés par impl LegalCorpus au plan 2d"
+        reason = "PisteCorpus::post_json et ce que lui seul emploie : consommés par impl LegalCorpus au plan 2e"
     )
 )]
 
@@ -57,7 +58,8 @@ mod stats;
 mod time;
 
 pub use config::{
-    ConfigProblem, ConfigWarning, PisteConfig, PisteCredentials, PisteEndpoints, RateQuota,
+    ConfigProblem, ConfigWarning, PisteConfig, PisteCredentials, PisteEndpoints, PisteTuning,
+    RateQuota, TuningError,
 };
 pub use corpus::PisteCorpus;
 pub use stats::StatsSnapshot;

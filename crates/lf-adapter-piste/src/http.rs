@@ -166,10 +166,10 @@ pub(crate) fn build_client(
     defaults.insert(ACCEPT, HeaderValue::from_static("application/json"));
     finish_client(
         Client::builder()
-            .connect_timeout(config.connect_timeout)
+            .connect_timeout(config.tuning().connect_timeout)
             // Simple filet : le délai effectif est toujours `Attempt::timeout`.
-            .timeout(config.request_timeout)
-            .user_agent(config.user_agent.as_str())
+            .timeout(config.tuning().request_timeout)
+            .user_agent(config.user_agent())
             .default_headers(defaults)
             .gzip(true)
             .redirect(redirect::Policy::none())
@@ -180,7 +180,7 @@ pub(crate) fn build_client(
 /// Vrai si l'une des deux URL est en `http` (la configuration ne l'admet que sur la
 /// boucle locale).
 fn allows_plain_http(endpoints: &PisteEndpoints) -> bool {
-    endpoints.oauth_url.scheme() == "http" || endpoints.base_url.scheme() == "http"
+    endpoints.oauth_url().scheme() == "http" || endpoints.base_url().scheme() == "http"
 }
 
 /// Termine la construction ; l'échec devient une erreur de configuration sans URL.
@@ -255,7 +255,7 @@ impl SharedClient {
 
 /// Client de `config`, ou l'erreur de configuration qui a mis le serveur en mode dégradé.
 fn client_for(config: &PisteConfig) -> Result<Client, CorpusError> {
-    match &config.endpoints {
+    match config.endpoints() {
         Ok(endpoints) => build_client(config, endpoints),
         Err(problem) => Err(CorpusError::Config { detail: problem.to_string() }),
     }
@@ -411,6 +411,7 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
+    use crate::config::PisteTuning;
 
     const ENDPOINT: &str = "/consult/juri";
     const DEFAULT_LIMIT: u64 = 16 * 1024 * 1024;
@@ -439,6 +440,11 @@ mod tests {
 
     /// Configuration dont les deux URL pointent vers `uri` (boucle locale, en `http`).
     fn config_for(uri: &str) -> (PisteConfig, PisteEndpoints) {
+        config_with_agent(uri, user_agent())
+    }
+
+    /// Comme `config_for`, avec un `User-Agent` explicite.
+    fn config_with_agent(uri: &str, user_agent: String) -> (PisteConfig, PisteEndpoints) {
         let (endpoints, _) = PisteEndpoints::with_overrides(
             PisteEnvironment::Sandbox,
             Some(&format!("{uri}/oauth/token")),
@@ -446,8 +452,14 @@ mod tests {
         )
         .unwrap();
         let config =
-            PisteConfig::new(PisteEnvironment::Sandbox, Ok(endpoints.clone()), None, user_agent());
+            PisteConfig::new(PisteEnvironment::Sandbox, Ok(endpoints.clone()), None, user_agent);
         (config, endpoints)
+    }
+
+    /// `config` avec un autre délai de requête, le reste des réglages inchangé.
+    fn with_request_timeout(config: PisteConfig, request_timeout: Duration) -> PisteConfig {
+        let tuning = PisteTuning { request_timeout, ..*config.tuning() };
+        config.with_tuning(tuning).unwrap()
     }
 
     fn client_for_uri(uri: &str) -> Client {
@@ -653,8 +665,8 @@ mod tests {
             Some("http://example.com/api"),
         )
         .unwrap_err();
-        let (mut config, _) = config_for("http://127.0.0.1:1");
-        config.endpoints = Err(problem.clone());
+        let config =
+            PisteConfig::new(PisteEnvironment::Sandbox, Err(problem.clone()), None, user_agent());
         let shared = SharedClient::new();
         let failure = shared.get(&config).await.unwrap_err();
         assert_eq!(failure, CorpusError::Config { detail: problem.to_string() });
@@ -663,8 +675,7 @@ mod tests {
 
     #[test]
     fn invalid_user_agent_is_a_config_error_without_secret() {
-        let (mut config, endpoints) = config_for("http://127.0.0.1:1");
-        config.user_agent = "bad\nagent".to_owned();
+        let (config, endpoints) = config_with_agent("http://127.0.0.1:1", "bad\nagent".to_owned());
         assert_eq!(
             build_client(&config, &endpoints).unwrap_err(),
             CorpusError::Config {
@@ -1037,12 +1048,12 @@ mod tests {
         // Durée réelle, pas d'horloge tokio gelée (04 §13.1).
         let server = MockServer::start().await;
         mount_post(&server, ResponseTemplate::new(200).set_delay(Duration::from_secs(1))).await;
-        let (mut config, endpoints) = config_for(&server.uri());
-        config.request_timeout = Duration::from_millis(200);
+        let (config, endpoints) = config_for(&server.uri());
+        let config = with_request_timeout(config, Duration::from_millis(200));
         let client = build_client(&config, &endpoints).unwrap();
         let url = url_of(&server.uri(), ENDPOINT);
         let mut request = attempt(&url, Payload::Json(b"{}"));
-        request.timeout = config.request_timeout;
+        request.timeout = config.tuning().request_timeout;
         let started = Instant::now();
         let failure = send_once(&client, &request).await.unwrap_err();
         let elapsed = started.elapsed();
@@ -1055,8 +1066,8 @@ mod tests {
     async fn attempt_timeout_overrides_the_client_timeout() {
         let server = MockServer::start().await;
         mount_post(&server, ResponseTemplate::new(200).set_delay(Duration::from_secs(1))).await;
-        let (mut config, endpoints) = config_for(&server.uri());
-        config.request_timeout = Duration::from_secs(5);
+        let (config, endpoints) = config_for(&server.uri());
+        let config = with_request_timeout(config, Duration::from_secs(5));
         let client = build_client(&config, &endpoints).unwrap();
         let url = url_of(&server.uri(), ENDPOINT);
         let mut request = attempt(&url, Payload::Json(b"{}"));
@@ -1072,8 +1083,8 @@ mod tests {
     async fn client_level_timeout_is_the_configured_request_timeout() {
         let server = MockServer::start().await;
         mount_post(&server, ResponseTemplate::new(200).set_delay(Duration::from_secs(1))).await;
-        let (mut config, endpoints) = config_for(&server.uri());
-        config.request_timeout = Duration::from_millis(200);
+        let (config, endpoints) = config_for(&server.uri());
+        let config = with_request_timeout(config, Duration::from_millis(200));
         let client = build_client(&config, &endpoints).unwrap();
         let started = Instant::now();
         let error = client.post(url_of(&server.uri(), ENDPOINT)).send().await.unwrap_err();
@@ -1128,8 +1139,8 @@ mod tests {
     async fn a_longer_attempt_timeout_wins_over_a_shorter_client_timeout() {
         let server = MockServer::start().await;
         mount_post(&server, ResponseTemplate::new(200).set_delay(Duration::from_millis(500))).await;
-        let (mut config, endpoints) = config_for(&server.uri());
-        config.request_timeout = Duration::from_millis(100);
+        let (config, endpoints) = config_for(&server.uri());
+        let config = with_request_timeout(config, Duration::from_millis(100));
         let client = build_client(&config, &endpoints).unwrap();
         let url = url_of(&server.uri(), ENDPOINT);
         let mut request = attempt(&url, Payload::Json(b"{}"));

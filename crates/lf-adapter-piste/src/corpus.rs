@@ -87,8 +87,12 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
             clock.clone(),
             sleeper.clone(),
         );
-        let gate =
-            RateGate::new(clock.clone(), sleeper.clone(), config.rate, config.max_concurrency);
+        let gate = RateGate::new(
+            clock.clone(),
+            sleeper.clone(),
+            config.tuning().rate,
+            config.tuning().max_concurrency,
+        );
         Self {
             inner: Arc::new(Inner {
                 config,
@@ -105,19 +109,19 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     /// Environnement PISTE configuré.
     #[must_use]
     pub fn environment(&self) -> PisteEnvironment {
-        self.inner.config.env
+        self.inner.config.env()
     }
 
     /// Problème d'adresses qui met l'adapter en mode dégradé, s'il y en a un.
     #[must_use]
     pub fn config_problem(&self) -> Option<&ConfigProblem> {
-        self.inner.config.endpoints.as_ref().err()
+        self.inner.config.endpoints().err()
     }
 
     /// Vrai si des identifiants OAuth sont configurés.
     #[must_use]
     pub fn has_credentials(&self) -> bool {
-        self.inner.config.credentials.is_some()
+        self.inner.config.credentials().is_some()
     }
 
     /// Nombre de corps dont le mojibake a été réparé.
@@ -145,7 +149,8 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     pub async fn check_credentials(&self) -> Result<(), CorpusError> {
         let inner = &*self.inner;
         ready(&inner.config)?;
-        let deadline = CallDeadline::from_task_local(&inner.clock, inner.config.tool_deadline);
+        let deadline =
+            CallDeadline::from_task_local(&inner.clock, inner.config.tuning().tool_deadline);
         inner.tokens.token(&deadline).await.map(|_lease| ())
     }
 
@@ -166,10 +171,13 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
         let inner = &*self.inner;
         let endpoints = ready(&inner.config)?;
         let call = Call {
-            url: api_url(&endpoints.base_url, endpoint)?,
+            url: api_url(endpoints.base_url(), endpoint)?,
             endpoint,
             body,
-            deadline: CallDeadline::from_task_local(&inner.clock, inner.config.tool_deadline),
+            deadline: CallDeadline::from_task_local(
+                &inner.clock,
+                inner.config.tuning().tool_deadline,
+            ),
             refreshed: AtomicBool::new(false),
         };
         let ctx = RetryContext {
@@ -180,7 +188,7 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
         };
         // Seul le corps d'une 2xx est lu ici : un corps d'erreur n'est jamais décodé (T-M2-08).
         let response = run(&ctx, || self.attempt(&call)).await?;
-        let decoded = decode_body(&response.body, endpoint, inner.config.repair_mojibake)?;
+        let decoded = decode_body(&response.body, endpoint, inner.config.tuning().repair_mojibake)?;
         inner.stats.record_decode(endpoint, &decoded);
         Ok(decoded.text)
     }
@@ -198,7 +206,7 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
         }
         match sent {
             Ok(Outcome::Unauthorized(_)) => {
-                Outcome::Fatal(auth_twice(call.endpoint, self.inner.config.env))
+                Outcome::Fatal(auth_twice(call.endpoint, self.inner.config.env()))
             }
             Ok(outcome) => outcome,
             Err(error) => Outcome::Fatal(error),
@@ -228,8 +236,8 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
             endpoint: call.endpoint,
             payload: Payload::Json(call.body),
             bearer: Some(&lease.value),
-            timeout: call.deadline.cap(&inner.clock, inner.config.request_timeout),
-            max_body_bytes: inner.config.max_body_bytes,
+            timeout: call.deadline.cap(&inner.clock, inner.config.tuning().request_timeout),
+            max_body_bytes: inner.config.tuning().max_body_bytes,
         };
         let outcome = try_send(client, &attempt).await;
         drop(permit);
@@ -245,10 +253,9 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
 /// Problème d'adresses d'abord, identifiants absents ensuite ; aucune E/S.
 fn ready(config: &PisteConfig) -> Result<&PisteEndpoints, CorpusError> {
     let endpoints = config
-        .endpoints
-        .as_ref()
+        .endpoints()
         .map_err(|problem| CorpusError::Config { detail: problem.to_string() })?;
-    if config.credentials.is_none() {
+    if config.credentials().is_none() {
         return Err(CorpusError::Config { detail: CREDENTIALS_MISSING.to_owned() });
     }
     Ok(endpoints)
@@ -290,7 +297,7 @@ mod tests {
     use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
     use super::*;
-    use crate::config::{PisteCredentials, RateQuota};
+    use crate::config::{PisteCredentials, PisteTuning, RateQuota};
     use crate::time::{ManualClock, RecordingSleeper};
 
     const SECRET: &str = "my-client-secret";
@@ -313,27 +320,55 @@ mod tests {
     }
 
     fn rate(per_second: u32, burst: u32) -> RateQuota {
-        RateQuota {
-            per_second: NonZeroU32::new(per_second).unwrap(),
-            burst: NonZeroU32::new(burst).unwrap(),
-        }
+        RateQuota::new(NonZeroU32::new(per_second).unwrap(), NonZeroU32::new(burst).unwrap())
     }
 
     fn credentials(secret: &str) -> PisteCredentials {
-        PisteCredentials {
-            client_id: "my-client-id".to_owned(),
-            client_secret: SecretString::from(secret.to_owned()),
-        }
+        PisteCredentials::new("my-client-id".to_owned(), SecretString::from(secret.to_owned()))
     }
 
-    fn config_for(uri: &str, credentials: Option<PisteCredentials>) -> PisteConfig {
+    fn endpoints_for(uri: &str) -> PisteEndpoints {
         let (endpoints, _) = PisteEndpoints::with_overrides(
             SANDBOX,
             Some(&format!("{uri}{TOKEN_PATH}")),
             Some(&format!("{uri}{API_BASE}")),
         )
         .unwrap();
-        PisteConfig::new(SANDBOX, Ok(endpoints), credentials, "lf-test/0".to_owned())
+        endpoints
+    }
+
+    fn config_for(uri: &str, credentials: Option<PisteCredentials>) -> PisteConfig {
+        PisteConfig::new(SANDBOX, Ok(endpoints_for(uri)), credentials, "lf-test/0".to_owned())
+    }
+
+    /// Ce qu'un test peut ajuster avant la construction de la configuration : les champs de
+    /// `PisteConfig` sont privés, la configuration se reconstruit donc d'un bloc.
+    struct Setup {
+        uri: String,
+        credentials: Option<PisteCredentials>,
+        problem: Option<ConfigProblem>,
+        user_agent: String,
+        tuning: PisteTuning,
+    }
+
+    impl Setup {
+        /// Configuration ordinaire vers `uri` : identifiants `SECRET`, réglages par défaut.
+        fn new(uri: String) -> Self {
+            Self {
+                uri,
+                credentials: Some(credentials(SECRET)),
+                problem: None,
+                user_agent: "lf-test/0".to_owned(),
+                tuning: PisteTuning::default(),
+            }
+        }
+
+        fn build(self) -> PisteConfig {
+            let endpoints = self.problem.map_or_else(|| Ok(endpoints_for(&self.uri)), Err);
+            PisteConfig::new(SANDBOX, endpoints, self.credentials, self.user_agent)
+                .with_tuning(self.tuning)
+                .unwrap()
+        }
     }
 
     fn json_reply(status: u16, body: &str) -> ResponseTemplate {
@@ -430,10 +465,11 @@ mod tests {
         }
 
         /// Configuration ordinaire, ajustée par `tune` avant la construction.
-        async fn tuned(tune: impl FnOnce(&mut PisteConfig)) -> Self {
+        async fn tuned(tune: impl FnOnce(&mut Setup)) -> Self {
             let server = MockServer::start().await;
-            let mut config = config_for(&server.uri(), Some(credentials(SECRET)));
-            tune(&mut config);
+            let mut setup = Setup::new(server.uri());
+            tune(&mut setup);
+            let config = setup.build();
             let clock = ManualClock::new();
             let sleeper = RecordingSleeper::new(clock.clone());
             let corpus = TestCorpus::with_parts(config.clone(), clock.clone(), sleeper.clone());
@@ -653,9 +689,9 @@ mod tests {
             })
             .mount(&server)
             .await;
-        let mut config = config_for(&server.uri(), Some(credentials(SECRET)));
-        config.rate = rate(1_000, 1_000);
-        let corpus = PisteCorpus::new(config);
+        let mut setup = Setup::new(server.uri());
+        setup.tuning.rate = rate(1_000, 1_000);
+        let corpus = PisteCorpus::new(setup.build());
         let mut tasks = JoinSet::new();
         for _ in 0..10 {
             let corpus = corpus.clone();
@@ -672,7 +708,7 @@ mod tests {
 
     #[tokio::test]
     async fn rate_limiter_spaces_api_calls() {
-        let rig = Rig::tuned(|config| config.rate = rate(2, 1)).await;
+        let rig = Rig::tuned(|setup| setup.tuning.rate = rate(2, 1)).await;
         token_mock(&rig.server, "tok-1", 1).await;
         api_always(&rig.server, json_reply(200, "{}")).await;
         for _ in 0..5 {
@@ -684,7 +720,7 @@ mod tests {
 
     #[tokio::test]
     async fn every_attempt_goes_through_the_rate_limiter() {
-        let rig = Rig::tuned(|config| config.rate = rate(1, 1)).await;
+        let rig = Rig::tuned(|setup| setup.tuning.rate = rate(1, 1)).await;
         token_mock(&rig.server, "tok-1", 1).await;
         api_mock(&rig.server, ResponseTemplate::new(503), 1).await;
         api_mock(&rig.server, json_reply(200, "{}"), 1).await;
@@ -697,9 +733,9 @@ mod tests {
 
     #[tokio::test]
     async fn rate_limit_wait_beyond_deadline_fails_fast() {
-        let rig = Rig::tuned(|config| {
-            config.rate = rate(1, 1);
-            config.tool_deadline = ms(500);
+        let rig = Rig::tuned(|setup| {
+            setup.tuning.rate = rate(1, 1);
+            setup.tuning.tool_deadline = ms(500);
         })
         .await;
         token_mock(&rig.server, "tok-1", 1).await;
@@ -714,7 +750,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_credentials_makes_no_network_call() {
-        let rig = Rig::tuned(|config| config.credentials = None).await;
+        let rig = Rig::tuned(|setup| setup.credentials = None).await;
         never(&rig.server, TOKEN_PATH).await;
         never(&rig.server, API_PATH).await;
         assert_eq!(rig.call().await, Err(CorpusError::Config { detail: MISSING.to_owned() }));
@@ -731,7 +767,7 @@ mod tests {
             env: PisteEnvironment::Sandbox,
             host_env: PisteEnvironment::Production,
         };
-        let rig = Rig::tuned(|config| config.endpoints = Err(problem.clone())).await;
+        let rig = Rig::tuned(|setup| setup.problem = Some(problem.clone())).await;
         never(&rig.server, TOKEN_PATH).await;
         never(&rig.server, API_PATH).await;
         assert_eq!(rig.call().await, Err(CorpusError::Config { detail: problem.to_string() }));
@@ -770,7 +806,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_unbuildable_client_is_a_config_error_without_io() {
-        let rig = Rig::tuned(|config| config.user_agent = "bad\nagent".to_owned()).await;
+        let rig = Rig::tuned(|setup| setup.user_agent = "bad\nagent".to_owned()).await;
         assert_eq!(
             rig.call().await,
             Err(CorpusError::Config {
@@ -814,14 +850,14 @@ mod tests {
     #[tokio::test]
     async fn check_credentials_in_degraded_mode_is_config() {
         let problem = ConfigProblem::InsecureScheme { setting: "OAuth URL" };
-        let rig = Rig::tuned(|config| config.credentials = None).await;
+        let rig = Rig::tuned(|setup| setup.credentials = None).await;
         never(&rig.server, TOKEN_PATH).await;
         assert_eq!(
             rig.corpus.check_credentials().await,
             Err(CorpusError::Config { detail: MISSING.to_owned() })
         );
         assert_untouched(&rig).await;
-        let rig = Rig::tuned(|config| config.endpoints = Err(problem.clone())).await;
+        let rig = Rig::tuned(|setup| setup.problem = Some(problem.clone())).await;
         never(&rig.server, TOKEN_PATH).await;
         assert_eq!(
             rig.corpus.check_credentials().await,
@@ -863,7 +899,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_deadline_published_uses_tool_deadline() {
-        let rig = Rig::tuned(|config| config.tool_deadline = ms(400)).await;
+        let rig = Rig::tuned(|setup| setup.tuning.tool_deadline = ms(400)).await;
         token_mock(&rig.server, "tok-1", 1).await;
         api_always(&rig.server, ResponseTemplate::new(503)).await;
         assert_eq!(
@@ -881,7 +917,7 @@ mod tests {
     #[tokio::test]
     async fn tool_deadline_caps_retries() {
         // Le backoff vaut au moins 500 ms et la gigue est aléatoire : seulement des invariants.
-        let rig = Rig::tuned(|config| config.tool_deadline = secs(1)).await;
+        let rig = Rig::tuned(|setup| setup.tuning.tool_deadline = secs(1)).await;
         token_mock(&rig.server, "tok-1", 1).await;
         api_always(&rig.server, ResponseTemplate::new(503)).await;
         rig.call().await.unwrap_err();
@@ -901,9 +937,9 @@ mod tests {
         // Après le premier backoff (500 ms à 1 s), il reste moins de 700 ms sur 1,2 s : la
         // seconde tentative, dont la réponse tarde 900 ms, doit expirer. Avec un délai calculé
         // une seule fois (1,2 s), elle aboutirait.
-        let rig = Rig::tuned(|config| {
-            config.tool_deadline = ms(1_200);
-            config.request_timeout = secs(10);
+        let rig = Rig::tuned(|setup| {
+            setup.tuning.tool_deadline = ms(1_200);
+            setup.tuning.request_timeout = secs(10);
         })
         .await;
         token_mock(&rig.server, "tok-1", 1).await;
@@ -1052,7 +1088,7 @@ mod tests {
 
     #[tokio::test]
     async fn mojibake_repair_can_be_switched_off() {
-        let rig = Rig::tuned(|config| config.repair_mojibake = false).await;
+        let rig = Rig::tuned(|setup| setup.tuning.repair_mojibake = false).await;
         token_mock(&rig.server, "tok-1", 1).await;
         let body = mojibake_json("PREMIÈRE CHAMBRE CIVILE");
         api_always(&rig.server, ResponseTemplate::new(200).set_body_string(body.clone())).await;
@@ -1078,7 +1114,7 @@ mod tests {
 
     #[tokio::test]
     async fn oversized_body_is_rejected() {
-        let rig = Rig::tuned(|config| config.max_body_bytes = 1_000).await;
+        let rig = Rig::tuned(|setup| setup.tuning.max_body_bytes = 1_000).await;
         token_mock(&rig.server, "tok-1", 1).await;
         api_always(&rig.server, ResponseTemplate::new(200).set_body_string("a".repeat(2_000)))
             .await;
@@ -1154,10 +1190,10 @@ mod tests {
             ResponseTemplate::new(status).set_body_string(self.body())
         }
 
-        async fn rig(&self, tune: impl FnOnce(&mut PisteConfig)) -> Rig {
-            Rig::tuned(|config| {
-                config.credentials = Some(credentials(&self.secret));
-                tune(config);
+        async fn rig(&self, tune: impl FnOnce(&mut Setup)) -> Rig {
+            Rig::tuned(|setup| {
+                setup.credentials = Some(credentials(&self.secret));
+                tune(setup);
             })
             .await
         }
@@ -1191,7 +1227,7 @@ mod tests {
             shown.extend(rig.describe(&rig.corpus.check_credentials().await.unwrap_err()));
         }
         // Corps trop gros, UTF-8 invalide.
-        let rig = leak.rig(|config| config.max_body_bytes = 1_000).await;
+        let rig = leak.rig(|setup| setup.tuning.max_body_bytes = 1_000).await;
         token_mock(&rig.server, &leak.token, 1).await;
         let huge = ResponseTemplate::new(200).set_body_string(leak.body().repeat(40));
         api_always(&rig.server, huge).await;
@@ -1205,21 +1241,19 @@ mod tests {
         let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let dead_uri = format!("http://127.0.0.1:{}", closed.local_addr().unwrap().port());
         drop(closed);
-        let rig = leak
-            .rig(|config| *config = config_for(&dead_uri, Some(credentials(&leak.secret))))
-            .await;
+        let rig = leak.rig(|setup| setup.uri.clone_from(&dead_uri)).await;
         shown.extend(rig.describe(&rig.call().await.unwrap_err()));
         // Mode dégradé, deux fois.
-        let rig = leak.rig(|config| config.credentials = None).await;
+        let rig = leak.rig(|setup| setup.credentials = None).await;
         shown.extend(rig.describe(&rig.call().await.unwrap_err()));
         let problem = ConfigProblem::InsecureScheme { setting: "base URL" };
-        let rig = leak.rig(|config| config.endpoints = Err(problem.clone())).await;
+        let rig = leak.rig(|setup| setup.problem = Some(problem.clone())).await;
         shown.extend(rig.describe(&rig.call().await.unwrap_err()));
         // Débit local épuisé.
         let rig = leak
-            .rig(|config| {
-                config.rate = rate(1, 1);
-                config.tool_deadline = ms(500);
+            .rig(|setup| {
+                setup.tuning.rate = rate(1, 1);
+                setup.tuning.tool_deadline = ms(500);
             })
             .await;
         token_mock(&rig.server, &leak.token, 1).await;
