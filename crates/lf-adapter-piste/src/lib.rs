@@ -38,6 +38,9 @@
 //!   lecture bornée du corps ; aucun réessai ni jugement de statut.
 //! - `limit` : barrière de charge sortante (`RateGate`), sémaphore de concurrence puis limiteur
 //!   de débit `governor` sur l'horloge de l'adapter ; toutes les attentes bornées par le délai.
+//! - `memo` : mémo de `typePagination` (`PaginationMemo`) : dernière valeur reçue par requête sans
+//!   page, 1 h, 1 024 entrées ; décision pure `choose_mode` et lecture tolérante `received_mode`
+//!   (04 §6.6, §12.3).
 //! - `request` : corps des requêtes envoyées à PISTE ; `request::search` construit celui de
 //!   `/search` (`search_body`) et calcule le midi Europe/Paris du filtre `DATE_VERSION` (04 §6).
 //! - `retry` : politique de réessai (`run`) : trois requêtes au plus, délai exponentiel avec gigue,
@@ -55,10 +58,10 @@
         reason = "PisteCorpus::post_json et ce que lui seul emploie (try_send, RateGate::acquire, \
                   TokenManager::invalidate, Payload::Json, Stats::record_decode, les champs de \
                   TokenLease et d'état de PisteCorpus), dto::decode::decode, PisteErrorDto, \
-                  request::search::search_body, OAuthErrorDto, les DTO de /search et de \
-                  /consult (lawDecree, kaliText, getArticle, juri, cnil, acco) et ce que seuls \
-                  ils emploient (lecteurs serde de dto::de, champs non lus) : consommés par \
-                  impl LegalCorpus au plan 2e"
+                  request::search::search_body, memo::PaginationMemo, OAuthErrorDto, les DTO de \
+                  /search et de /consult (lawDecree, kaliText, getArticle, juri, cnil, acco) et \
+                  ce que seuls ils emploient (lecteurs serde de dto::de, champs non lus) : \
+                  consommés par impl LegalCorpus au plan 2e"
     )
 )]
 
@@ -72,6 +75,7 @@ mod encoding;
 mod error_body;
 mod http;
 mod limit;
+mod memo;
 mod request;
 mod retry;
 mod stats;
