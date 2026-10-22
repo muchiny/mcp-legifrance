@@ -298,6 +298,7 @@ mod tests {
 
     use super::*;
     use crate::config::{PisteCredentials, PisteTuning, RateQuota};
+    use crate::testing::ClosedPort;
     use crate::time::{ManualClock, RecordingSleeper};
 
     const SECRET: &str = "my-client-secret";
@@ -1238,9 +1239,8 @@ mod tests {
         api_always(&rig.server, ResponseTemplate::new(200).set_body_bytes(invalid)).await;
         shown.extend(rig.describe(&rig.call().await.unwrap_err()));
         // Port fermé.
-        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let dead_uri = format!("http://127.0.0.1:{}", closed.local_addr().unwrap().port());
-        drop(closed);
+        let closed = ClosedPort::new();
+        let dead_uri = closed.uri();
         let rig = leak.rig(|setup| setup.uri.clone_from(&dead_uri)).await;
         shown.extend(rig.describe(&rig.call().await.unwrap_err()));
         // Mode dégradé, deux fois.

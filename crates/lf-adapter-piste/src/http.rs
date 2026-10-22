@@ -412,6 +412,7 @@ mod tests {
 
     use super::*;
     use crate::config::PisteTuning;
+    use crate::testing::ClosedPort;
 
     const ENDPOINT: &str = "/consult/juri";
     const DEFAULT_LIMIT: u64 = 16 * 1024 * 1024;
@@ -1195,10 +1196,8 @@ mod tests {
 
     #[tokio::test]
     async fn connection_refused_is_a_network_error() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let uri = format!("http://{}", listener.local_addr().unwrap());
-        drop(listener);
-        let failure = fetch(&uri, DEFAULT_LIMIT).await.unwrap_err();
+        let closed = ClosedPort::new();
+        let failure = fetch(&closed.uri(), DEFAULT_LIMIT).await.unwrap_err();
         let detail = "network error (connect) on /consult/juri";
         assert_eq!(failure, network(detail));
         assert_eq!(
@@ -1223,9 +1222,8 @@ mod tests {
 
     #[tokio::test]
     async fn network_error_message_never_contains_the_url() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let uri = format!("http://{}", listener.local_addr().unwrap());
-        drop(listener);
+        let closed = ClosedPort::new();
+        let uri = closed.uri();
         let client = client_for_uri(&uri);
         let url = url_of(&uri, "/secret-route?key=abc123");
         let failure = send_once(&client, &attempt(&url, Payload::Json(b"{}"))).await.unwrap_err();

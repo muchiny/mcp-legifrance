@@ -372,6 +372,7 @@ mod tests {
     use super::*;
     use crate::classify::Budget;
     use crate::config::{PisteConfig, PisteCredentials, PisteEndpoints, PisteTuning};
+    use crate::testing::ClosedPort;
     use crate::time::{ManualClock, RecordingSleeper, TokioClock, TokioSleeper};
 
     const CLIENT_ID: &str = "my-client-id";
@@ -1224,10 +1225,8 @@ mod tests {
 
     #[tokio::test]
     async fn oauth_network_error_maps_to_upstream() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let uri = format!("http://{}", listener.local_addr().unwrap());
-        drop(listener);
-        let fixture = Fixture::with_config(config_for(&uri));
+        let closed = ClosedPort::new();
+        let fixture = Fixture::with_config(config_for(&closed.uri()));
         let error = fixture.token().await.unwrap_err();
         assert_eq!(
             (error, fixture.sleeper.waits().len()),

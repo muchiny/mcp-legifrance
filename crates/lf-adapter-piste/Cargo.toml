@@ -32,8 +32,9 @@ tokio = { workspace = true, features = ["time", "sync"] }
 tracing.workspace = true
 
 [dev-dependencies]
+# net : TcpSocket de ClosedPort (testing.rs), TcpListener des serveurs de test ;
 # test-util : #[tokio::test(start_paused = true)] pour lire Deadline sans attendre (deadline.rs seulement)
-tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "test-util"] }
+tokio = { workspace = true, features = ["macros", "net", "rt", "rt-multi-thread", "test-util"] }
 # fmt + MakeWriter en mémoire pour capter le warn! de record_decode ; R6 ne confine que les dépendances normales
 tracing-subscriber.workspace = true
 # serveur HTTP simulé des tests de http.rs

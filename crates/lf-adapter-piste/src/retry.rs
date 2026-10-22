@@ -204,6 +204,7 @@ mod tests {
     use crate::classify::try_send;
     use crate::config::{PisteConfig, PisteEndpoints};
     use crate::http::{Attempt, Payload, RawResponse, build_client};
+    use crate::testing::ClosedPort;
     use crate::time::{ManualClock, RecordingSleeper};
 
     const DATE: &str = "Sun, 06 Nov 1994 08:49:37 GMT";
@@ -900,10 +901,8 @@ mod tests {
 
     #[tokio::test]
     async fn network_error_is_retried() {
-        let closed = TcpListener::bind("127.0.0.1:0").unwrap();
-        let uri = format!("http://{}", closed.local_addr().unwrap());
-        drop(closed);
-        let rig = Rig::new(&uri);
+        let closed = ClosedPort::new();
+        let rig = Rig::new(&closed.uri());
         assert_eq!(
             call(&rig).await,
             Err(CorpusError::Upstream {

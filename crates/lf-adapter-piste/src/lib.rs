@@ -33,6 +33,8 @@
 //! - `retry` : politique de réessai (`run`) : trois requêtes au plus, délai exponentiel avec gigue,
 //!   `Retry-After`, bornée par le délai global ; boucle maison, sans `backon`.
 //! - `stats` : compteurs en mémoire (`Stats`) et leur instantané public (`StatsSnapshot`).
+//! - `testing` (tests seulement) : aides communes, `ClosedPort` (adresse locale qui refuse la
+//!   connexion de façon déterministe).
 //! - `time` : horloge monotone (`MonoClock`), attente (`Sleeper`) et course `race`, pour des
 //!   tests déterministes sans geler l'horloge `tokio`.
 
@@ -55,6 +57,8 @@ mod http;
 mod limit;
 mod retry;
 mod stats;
+#[cfg(test)]
+mod testing;
 mod time;
 
 pub use config::{
