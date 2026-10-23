@@ -26,6 +26,7 @@ exigences de qualité (§10) y font foi. Ce fichier dit comment les tenir au quo
 | Workflows | `make workflow-lint` | zizmor et actionlint sans alerte, actions épinglées par SHA |
 | Couverture | `make cov` | 100 % lignes, régions, fonctions (`--lib`) |
 | Mutation | `make mutants FILE=…` / CI | 0 mutant `MISSED` |
+| Analyse statique | job `sonar` (CI) ; en local, `make cov` puis `make cov-cobertura` et `make clippy-json` produisent ses deux rapports | informatif, non bloquant |
 
 La CI rejoue tout sur chaque PR et mute le diff de la PR ; le lundi, `weekly.yml`
 mute tout le workspace (4 shards) et lance les cibles de fuzz ; chaque nuit,
