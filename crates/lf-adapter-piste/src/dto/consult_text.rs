@@ -61,7 +61,8 @@ pub(crate) struct ConsultTextDto {
     /// Numéro de parution au Journal officiel, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_string_or_number")]
     pub num_parution: Option<String>,
-    /// Identifiant du texte au Journal officiel (`""` : alors `None`).
+    /// Référence au Journal officiel, ex. `JORF n°0235 du 8 octobre 2016` : un libellé, pas un
+    /// identifiant (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub jorf_text: Option<String>,
     /// Numéro du bulletin officiel d'un texte KALI (`""` : alors `None`).
