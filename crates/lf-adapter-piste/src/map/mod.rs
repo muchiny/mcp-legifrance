@@ -14,6 +14,7 @@ use lf_application::ports::CorpusError;
 use lf_domain::DomainError;
 
 pub(crate) mod act;
+pub(crate) mod agreement;
 pub(crate) mod article;
 pub(crate) mod body;
 pub(crate) mod convention;
