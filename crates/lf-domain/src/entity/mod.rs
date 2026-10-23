@@ -24,6 +24,7 @@ mod article;
 mod decision;
 mod deliberation;
 mod search;
+mod summary;
 mod toc;
 
 pub use act::{Act, Convention, TextBody};
@@ -32,6 +33,7 @@ pub use article::ArticleText;
 pub use decision::Decision;
 pub use deliberation::Deliberation;
 pub use search::{CodeArticleRef, SNIPPET_MAX_CHARS, SearchHit, SearchPage, Snippet};
+pub use summary::OfficialSummary;
 pub use toc::{
     ArticleDraft, SectionDraft, TOC_MAX_DEPTH, Toc, TocArticle, TocDraft, TocEntry, TocEntryRef,
     TocNode, TocPage, TocSection,

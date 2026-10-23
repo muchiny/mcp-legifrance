@@ -2,7 +2,7 @@
 
 mod clean;
 pub mod encoding;
-mod fold;
+pub(crate) mod fold;
 mod html;
 mod long_text;
 mod passages;
