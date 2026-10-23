@@ -1,4 +1,9 @@
 //! Lecteurs serde tolérants (04 §8.2).
+//!
+//! Les listes passent par [`bounded_list`] et [`capped_list`], qui paient chaque élément lu sur le
+//! budget du document (`budget.rs`, 04 §8.5, limite 1) ; [`null_default`] ne sert plus de liste,
+//! seulement deux champs de struct. Les autres lecteurs ne comptent rien : ils lisent une valeur
+//! scalaire ou ignorent sans la construire une valeur de tout autre type.
 
 use std::fmt;
 use std::marker::PhantomData;

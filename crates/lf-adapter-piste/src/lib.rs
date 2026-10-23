@@ -9,8 +9,10 @@
 //! bout en bout). Livré au plan 2d : la configuration à champs privés et les réglages validés, le
 //! décodage des corps JSON sans valeur du corps, le corps d'erreur de PISTE et la classification
 //! « introuvable », les DTO de réponse de `/search` et de `/consult`, le corps de la requête
-//! `/search` avec le midi Europe/Paris et le mémo de `typePagination`. Renvoyé au plan 2e : les
-//! requêtes de consultation, le mapping et `impl LegalCorpus for PisteCorpus`.
+//! `/search` avec le midi Europe/Paris et le mémo de `typePagination`. Livré au plan 2f (budget de
+//! décodage) : le budget de 200 000 éléments par document, les listes de DTO bornées, `results`
+//! plafonné, `typePagination` tolérant et `num` lu en chaîne ou en nombre. Renvoyé : le mapping
+//! (suite du plan 2f), les requêtes de consultation et `impl LegalCorpus for PisteCorpus` (plan 2g).
 //!
 //! Les modules sont privés : sont publics `PisteCorpus`, les types de configuration et
 //! `StatsSnapshot`.
@@ -30,8 +32,9 @@
 //! - `dto` : structures de désérialisation des réponses de PISTE (réponse et erreur de l'endpoint
 //!   token, `PisteErrorDto` pour le corps d'erreur de l'API, réponses de `/search` et de
 //!   `/consult/lawDecree|kaliText|getArticle|juri|cnil|acco`), avec des lecteurs serde tolérants
-//!   (`null_default`, `opt_raw_date`…) et `decode`, qui lit un corps JSON avec le chemin de
-//!   l'erreur et sans aucune valeur du corps.
+//!   (`bounded_list`, `capped_list`, `opt_raw_date`…), `budget` (200 000 éléments de liste par
+//!   document, armé par `decode`) et `decode`, qui lit un corps JSON sous ce budget, avec le
+//!   chemin de l'erreur et sans aucune valeur du corps.
 //! - `encoding` : décodage UTF-8 strict du corps, détection et réparation du mojibake latin-1.
 //! - `error_body` : message d'un corps d'erreur PISTE (UTF-8, mojibake, JSON facultatif), détail
 //!   nettoyé, privé des secrets puis borné, marqueur « introuvable », détection d'une page HTML.
@@ -61,10 +64,10 @@
                   Stats::record_decode, les champs de TokenLease et d'état de PisteCorpus), \
                   request::search::search_body, memo::PaginationMemo, memo::received_mode, les \
                   DTO de /search et de /consult (lawDecree, kaliText, getArticle, juri, cnil, \
-                  acco) et ce que seuls ils emploient (null_default, opt_nonempty, opt_raw_date et \
-                  RawDate de dto::de), les champs non lus de PisteErrorDto (status, error_code) \
-                  et d'OAuthErrorDto (error_description) : consommés par impl LegalCorpus au \
-                  plan 2e"
+                  acco) et ce que seuls ils emploient (bounded_list, capped_list, null_default, \
+                  opt_nonempty, opt_raw_date et RawDate de dto::de, dto::budget), les champs non \
+                  lus de PisteErrorDto (status, error_code) et d'OAuthErrorDto \
+                  (error_description) : consommés par impl LegalCorpus au plan 2g"
     )
 )]
 
