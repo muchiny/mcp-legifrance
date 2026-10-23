@@ -15,8 +15,9 @@
 //! graphies ; un corps qui porterait les deux donnerait `duplicate field`, donc `Decode`.
 //!
 //! Les champs que le mapping n'emploie pas ne sont pas déclarés (`articleVersions`, les listes de
-//! liens réservées à M7, `computedNums`, `activitePro`…) : `serde_json` les saute sans rien
-//! allouer et ils ne peuvent faire échouer aucun décodage.
+//! liens réservées à M7, `computedNums`, `activitePro`…) : `serde_json` les saute sans construire
+//! de valeur (mémoire bornée par la taille du corps) et ils ne peuvent faire échouer aucun
+//! décodage.
 
 use serde::Deserialize;
 
@@ -169,7 +170,9 @@ mod tests {
             "textTitles":[{"id":"LEGITEXT000006070721","cid":"LEGITEXT000006070721",
             "titre":"Code civil","titreLong":"Code civil","nature":"CODE",
             "dateDebut":-5231606400000,"nor":""}],
-            "nota":"","versionPrecedente":"LEGIARTI000050396821","isMultipleVersions":true,
+            "texteHtml":"<p>Chacun a droit.</p>","nota":"Nota de l'article",
+            "notaHtml":"<p>Nota de l'article</p>",
+            "versionPrecedente":"LEGIARTI000050396821","isMultipleVersions":true,
             "comporteLiensSP":false}}"#;
         assert_eq!(
             article(raw),
@@ -179,7 +182,9 @@ mod tests {
                 num: text!("9"),
                 etat: text!("VIGUEUR"),
                 texte: text!("Chacun a droit au respect de sa vie privée."),
-                nota: None,
+                texte_html: text!("<p>Chacun a droit.</p>"),
+                nota: text!("Nota de l'article"),
+                nota_html: text!("<p>Nota de l'article</p>"),
                 version_precedente: text!("LEGIARTI000050396821"),
                 date_debut: Some(RawDate::Millis(17_193_600_000)),
                 date_fin: Some(RawDate::Millis(32_472_144_000_000)),
@@ -206,7 +211,6 @@ mod tests {
                     nature: text!("CODE"),
                 }],
                 is_multiple_versions: Some(true),
-                ..Default::default()
             }
         );
     }

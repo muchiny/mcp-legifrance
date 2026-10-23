@@ -16,8 +16,8 @@
 //! Les personnes (président, avocats, rapporteur, commissaire…) ne sont jamais déclarées : la
 //! loi interdit d'évaluer les pratiques des magistrats à partir de leur identité (recherche 05
 //! §5.1), et ne pas les lire garantit qu'elles ne laissent aucune trace, même de type imprévu.
-//! Les autres champs que le mapping n'emploie pas sont sautés par `serde_json` sans rien
-//! allouer.
+//! Les autres champs que le mapping n'emploie pas sont sautés par `serde_json` sans construire
+//! de valeur (mémoire bornée par la taille du corps).
 
 use serde::Deserialize;
 
@@ -201,11 +201,13 @@ mod tests {
         "texte":"Sur le moyen unique","dateTexte":1748995200000,"dateTexteComputed":1748995200000,
         "datePubli":null,"publicationRecueil":"C","typePublicationBulletin":"T",
         "sommaire":[{"id":"1","abstrats":"Responsabilité","resumePrincipal":"Il résulte de",
-        "autreResume":""}],
+        "autreResume":"Autre résumé"}],
         "citationJp":"Sur l'interprétation du droit interne",
         "liens":[{"cidTexte":"","datePubliTexte":"","dateSignaTexte":"","id":"","natureTexte":"",
         "norTexte":"","num":"","numTexte":"","sens":"source","typeLien":"CITATION",
-        "title":"article"}],
+        "title":"article"},
+        {"cidTexte":"LEGITEXT000006070721","id":"LIEN-2","natureTexte":"CODE","num":"1240",
+        "sens":"cible","typeLien":"APPLICATION","title":"Code civil"}],
         "titrages":["JURINOME1-JURINOME2"],
         "decisionAttaquee":{"formation":"Cour d'appel de Lyon","date":1704844800000},
         "president":"Mme Champalaune","avocats":"SARL Le Prado","signataires":"texte"}}"#;
@@ -260,15 +262,26 @@ mod tests {
                     id: text!("1"),
                     abstrats: text!("Responsabilité"),
                     resume_principal: text!("Il résulte de"),
-                    autre_resume: None,
+                    autre_resume: text!("Autre résumé"),
                 }],
                 citation_jp: text!("Sur l'interprétation du droit interne"),
-                liens: vec![TexteLienDto {
-                    type_lien: text!("CITATION"),
-                    sens: text!("source"),
-                    title: text!("article"),
-                    ..Default::default()
-                }],
+                liens: vec![
+                    TexteLienDto {
+                        type_lien: text!("CITATION"),
+                        sens: text!("source"),
+                        title: text!("article"),
+                        ..Default::default()
+                    },
+                    TexteLienDto {
+                        type_lien: text!("APPLICATION"),
+                        sens: text!("cible"),
+                        title: text!("Code civil"),
+                        cid_texte: text!("LEGITEXT000006070721"),
+                        id: text!("LIEN-2"),
+                        num: text!("1240"),
+                        nature_texte: text!("CODE"),
+                    },
+                ],
                 titrages: vec!["JURINOME1-JURINOME2".to_owned()],
                 decision_attaquee: DecisionAttaqueeDto {
                     formation: text!("Cour d'appel de Lyon"),
@@ -285,7 +298,8 @@ mod tests {
             r#""id":"CONSTEXT000052555275","origine":"CONSTIT","nature":"QPC","num":"2025-1173",
             "ecli":"ECLI:FR:CC:2025:2025.1173.QPC",
             "natureQualifiee":"Dispositions promulguées (QPC)",
-            "titreLoiDef":"","numLoiDef":"","idTexteJo":"JORFTEXT000052541898",
+            "titreLoiDef":"Loi de finances pour 2025","numLoiDef":"","ancienId":"CONSTEXT0001",
+            "idTexteJo":"JORFTEXT000052541898",
             "titreJo":"JORF n°0263 du 8 novembre 2025, texte n° 152",
             "texteHtml":"<p>Le Conseil</p>","dateTexteComputed":1762473600000,"nor":"CSCX2531180S",
             "citationJp":null,"decisionAttaquee":null,"formation":null"#,
@@ -299,7 +313,8 @@ mod tests {
                 num: text!("2025-1173"),
                 ecli: text!("ECLI:FR:CC:2025:2025.1173.QPC"),
                 nature_qualifiee: text!("Dispositions promulguées (QPC)"),
-                titre_loi_def: None,
+                titre_loi_def: text!("Loi de finances pour 2025"),
+                ancien_id: text!("CONSTEXT0001"),
                 id_texte_jo: text!("JORFTEXT000052541898"),
                 titre_jo: text!("JORF n°0263 du 8 novembre 2025, texte n° 152"),
                 texte_html: text!("<p>Le Conseil</p>"),
@@ -351,13 +366,12 @@ mod tests {
         assert_eq!(juri(&raw), JuriTextDto::default());
         let raw = wrapped(r#""sommaire":[{"resumePrincipal":"","abstrats":" ","autreResume":""}]"#);
         assert_eq!(juri(&raw).sommaire, vec![SommaireDto::default()]);
+        // Le premier lien de `JURI_BODY` porte des identifiants vides.
         let liens = juri(JURI_BODY).liens;
+        let first = &liens[0];
         assert_eq!(
-            liens
-                .iter()
-                .map(|lien| (&lien.cid_texte, &lien.id, &lien.num, &lien.nature_texte))
-                .collect::<Vec<_>>(),
-            [(&None, &None, &None, &None)]
+            (&first.cid_texte, &first.id, &first.num, &first.nature_texte),
+            (&None, &None, &None, &None)
         );
     }
 
@@ -438,8 +452,8 @@ mod tests {
     fn kali_and_juri_dto_are_distinct() {
         let kali = r#"{"text":{"id":"KALITEXT1","signataires":{"faitA":"Paris"}}}"#;
         assert_eq!(juri(kali).id, text!("KALITEXT1"));
-        let wrapped_juri = r#"{"id":"JURITEXT1","signataires":"texte"}"#;
-        assert_eq!(decode::<ConsultTextDto>(wrapped_juri, JURI).unwrap().id, text!("JURITEXT1"));
+        let juri_body = r#"{"id":"JURITEXT1","signataires":"texte"}"#;
+        assert_eq!(decode::<ConsultTextDto>(juri_body, JURI).unwrap().id, text!("JURITEXT1"));
 
         let production = |source: &'static str| source.split("#[cfg(test)]").next().unwrap();
         let juri_source = production(include_str!("juri.rs"));

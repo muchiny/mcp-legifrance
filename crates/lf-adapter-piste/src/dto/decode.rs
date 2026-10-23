@@ -33,9 +33,13 @@ const UNRECOGNIZED: &str = "invalid data";
 /// gardent leur texte fixe et leur position.
 ///
 /// Un texte après le document est une erreur (`trailing characters`), comme avec
-/// `serde_json::from_str`. Une imbrication de plus de 128 tableaux et objets est une erreur
-/// (limite de `serde_json`, non levée). Le texte a déjà passé l'UTF-8 strict et la réparation du
-/// mojibake (`encoding`) : cette fonction ne s'en occupe pas.
+/// `serde_json::from_str`. `serde_json` part d'une profondeur restante de 128 et échoue quand
+/// elle atteint 0 : 127 tableaux et objets imbriqués passent, le 128e est une erreur (limite de
+/// `serde_json`, non levée). Elle ne vaut que pour les champs lus par un type : les champs non
+/// déclarés et les lecteurs tolérants de `de` (ignorés par `IgnoredAny`) y échappent, à toute
+/// profondeur. Pour les sections d'une table des matières, le plafond effectif est de 61 à 63
+/// niveaux selon le contenu de la plus profonde (voir `consult_text`). Le texte a déjà passé
+/// l'UTF-8 strict et la réparation du mojibake (`encoding`) : cette fonction ne s'en occupe pas.
 ///
 /// # Errors
 ///
@@ -401,7 +405,7 @@ mod tests {
     fn nesting_just_under_the_limit_is_decoded() {
         let section = decode::<Section>(&nested_sections(63), ENDPOINT).unwrap();
         assert_eq!(section.sections.len(), 1);
-        // 64 niveaux de sections font 129 niveaux de profondeur : un de plus que la limite.
+        // 64 niveaux de sections font 129 niveaux de profondeur : au-delà des 127 qui passent.
         let debug = format!("{:?}", failure::<Section>(&nested_sections(64)));
         assert_eq!(
             (

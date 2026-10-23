@@ -132,13 +132,13 @@ impl<'de> Visitor<'de> for DateVisitor {
     }
 }
 
-/// Consomme un tableau sans rien en garder et rend `None`.
+/// Consomme un tableau sans rien en garder et rend `Reading::Ignored`.
 fn ignore_seq<'de, A: SeqAccess<'de>, T>(seq: A) -> Result<Reading<T>, A::Error> {
     IgnoredAny.visit_seq(seq)?;
     Ok(Reading::Ignored)
 }
 
-/// Consomme un objet sans rien en garder et rend `None`.
+/// Consomme un objet sans rien en garder et rend `Reading::Ignored`.
 fn ignore_map<'de, A: MapAccess<'de>, T>(map: A) -> Result<Reading<T>, A::Error> {
     IgnoredAny.visit_map(map)?;
     Ok(Reading::Ignored)
@@ -149,7 +149,8 @@ fn ignore_map<'de, A: MapAccess<'de>, T>(map: A) -> Result<Reading<T>, A::Error>
 /// Un booléen, un objet, un tableau, une chaîne blanche, un flottant fractionnaire et un nombre
 /// hors d'un `i64` donnent `None`. Aucune de ces tolérances n'est comptée ici : le décompte
 /// éventuel appartient au mapping. Seul un JSON mal formé est une erreur : un tableau ou un objet
-/// est parcouru par `IgnoredAny`, que `serde_json` lit sans récursion, donc à toute profondeur.
+/// est parcouru par `IgnoredAny`, que `serde_json` lit sans récursion, donc à toute profondeur,
+/// sans construire de valeur (mémoire bornée par la taille du corps).
 ///
 /// # Errors
 ///
@@ -229,7 +230,8 @@ impl<'de> Visitor<'de> for CodeVisitor {
 /// Une chaîne non blanche est gardée telle quelle (zéros initiaux compris) ; un entier, signé ou
 /// non, est écrit en décimal. Une chaîne blanche, un flottant, un booléen, un tableau, un objet
 /// et `null` donnent `None`. Seul un JSON mal formé est une erreur : un tableau ou un objet est
-/// parcouru par `IgnoredAny`, que `serde_json` lit sans récursion, donc à toute profondeur.
+/// parcouru par `IgnoredAny`, que `serde_json` lit sans récursion, donc à toute profondeur,
+/// sans construire de valeur (mémoire bornée par la taille du corps).
 ///
 /// # Errors
 ///
@@ -299,7 +301,8 @@ impl<'de> Visitor<'de> for LenientVisitor {
 ///
 /// Un champ absent, `null`, négatif, flottant, hors d'un `u64` ou d'un autre type ne fait pas
 /// échouer le document : seul un JSON mal formé est une erreur (un tableau ou un objet est
-/// parcouru par `IgnoredAny`, que `serde_json` lit sans récursion, donc à toute profondeur).
+/// parcouru par `IgnoredAny`, que `serde_json` lit sans récursion, donc à toute profondeur, sans
+/// construire de valeur : mémoire bornée par la taille du corps).
 /// Pour une chaîne, seuls les chiffres ASCII comptent.
 ///
 /// # Errors

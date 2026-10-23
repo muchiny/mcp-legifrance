@@ -45,7 +45,7 @@
    - 404 de routage (sur `/search`, corps non JSON, mauvaise `LF_PISTE_BASE_URL`) → `config_error` ;
    - 404 reconnu sur `/consult/*`, ou 200 vide → `not_found` ;
    - 429 → `rate_limited` ;
-   - 400 sans marqueur « introuvable » (`CorpusError::InvalidRequest`) → `[upstream_error] Legifrance rejected the request (HTTP 400): {détail PISTE nettoyé, ≤ 200 caractères}`, avec un `warn!` « bug probable » (parité S10) ;
+   - 400 sans marqueur « introuvable » (`CorpusError::InvalidRequest`) → `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}`, où le détail est le message PISTE nettoyé (≤ 200 caractères) pour une consultation et le texte générique `HTTP 400 on /search` pour `/search` (le message de `/search` peut citer la requête), avec un `warn!` « bug probable » (parité S10) ;
    - `Timeout`, `Decode`, 5xx, délai global et annulation → `upstream_error`.
 
    Toute contrainte imputable à l'entrée (dates, fond sans facette de date, pagination profonde, formats) est validée **avant** l'appel du port et rendue `invalid_arg` ; l'adapter n'en garde qu'une copie défensive (`InvalidRequest`), qu'aucun chemin normal n'atteint. La cause détaillée (`UpstreamCause` : `Status`, `Network`, `Timeout`, `Deadline`, `Decode`, `Cancelled`) va dans `tracing` et l'audit, sans créer de code. Les opérations non couvertes hors ligne (DILA) seront classées en M9.

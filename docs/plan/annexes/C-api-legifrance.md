@@ -858,6 +858,8 @@ Consolidation de la recherche 03 §12, alignée sur la liste de champs fixée pa
 
 ### 5.2 Helpers (`dto/de.rs`)
 
+> **Supersédé par 04 §8.2 (livré, plan 2d).** Ce bloc est l'esquisse de la recherche 03 : les helpers `opt_string_or_number` et `opt_u64_lenient` ne passent plus par un `enum` `untagged` (`SN`, `NS`), qui met toute la valeur en mémoire tampon et échoue dès 127 tableaux imbriqués, et `opt_raw_date` ne rend pas `Text(trim)` : ce sont des `Visitor` écrits à la main (`dto/de.rs`), qui gardent la chaîne telle quelle et ignorent un tableau ou un objet à toute profondeur. Le code de référence est celui du dépôt.
+
 ```rust
 // non compilé, à valider au jalon qui l'implémente — d'après la recherche 03 §12.2 et 04 §8.2
 use serde::{de::{self, IgnoredAny}, Deserialize, Deserializer};
@@ -1091,7 +1093,7 @@ Notation abrégée pour la lisibilité : `id, cid: Option<String>` signifie un c
 
 ### 5.7 Mapping et tests
 
-Le mapping DTO → entités (`SearchHit`, `SearchPage`, `Act`, `TocNode` (arbre ; le livré a `TocEntry`, renommé `TocArticle` en tête de M2), `ArticleText`, `Decision`, `Deliberation`, `Convention`, `CompanyAgreement`) est fixé par 04 §9 et 03-domaine §4. Tests propres aux DTO, détaillés dans 04 §13.3 : `dto_parses_every_fixture`, `null_list_is_empty_vec`, `missing_list_is_empty_vec`, `empty_string_is_none`, `raw_date_accepts_ms_numeric_string_ymd_iso`, `sentinel_2999_and_2222_are_none`, `negative_ms_1804`, `bool_is_not_a_date`, `suffix_is_version_date`, `titres_tm_is_renamed`, `multiple_versions_alias`, `idcc_accepts_string_and_number`, `search_request_matches_reference_json`, `facets_are_never_allocated`, `acco_large_data_field_is_skipped`, fuzz « jamais de panique ». Limite de récursion de `serde_json` : 128 tableaux et objets imbriqués, soit 63 niveaux de sections (V-10 levé, plan 2d, 09 §2.20).
+Le mapping DTO → entités (`SearchHit`, `SearchPage`, `Act`, `TocNode` (arbre ; le livré a `TocEntry`, renommé `TocArticle` en tête de M2), `ArticleText`, `Decision`, `Deliberation`, `Convention`, `CompanyAgreement`) est fixé par 04 §9 et 03-domaine §4. Tests propres aux DTO, détaillés dans 04 §13.3 : `dto_parses_every_fixture`, `null_list_is_empty_vec`, `missing_list_is_empty_vec`, `empty_string_is_none`, `raw_date_accepts_ms_numeric_string_ymd_iso`, `sentinel_2999_and_2222_are_none`, `negative_ms_1804`, `bool_is_not_a_date`, `suffix_is_version_date`, `titres_tm_is_renamed`, `multiple_versions_alias`, `idcc_accepts_string_and_number`, `search_request_matches_reference_json`, `facets_are_skipped_without_building_a_value`, `acco_large_data_field_is_skipped`, fuzz « jamais de panique ». Limite de récursion de `serde_json` : 127 tableaux et objets imbriqués passent, soit 61 à 63 niveaux de sections selon le contenu de la plus profonde (V-10 levé, plan 2d, 09 §2.20 ; 04 §8.5).
 
 ---
 
@@ -1338,7 +1340,7 @@ Aucun de ces projets n'est sous AGPL à notre connaissance (la licence du code d
 | [V-101 · sentinelle-2222-debut] | Usage de `2222-02-22` par l'API et lien avec `VIGUEUR_DIFF`. |
 | [V-103 · id-format-hors-fixtures] | Préfixe de 8 lettres + 12 chiffres pour tous les identifiants réels. |
 | [V-104 · suffixe-version-autres-prefixes] | Suffixe `_JJ-MM-AAAA` sur d'autres préfixes que `LEGITEXT`. |
-| [V-10 · serde-json-recursion] | Levé (plan 2d, 09 §2.20) : limite de 128 niveaux de `serde_json`, 63 niveaux de sections. |
+| [V-10 · serde-json-recursion] | Levé (plan 2d, 09 §2.20) : 127 imbrications passent avec `serde_json`, 61 à 63 niveaux de sections. |
 | [V-183 · judilibre-couverture] | Couverture réelle de Judilibre (juridictions administratives ?). |
 | [V-182 · judilibre-auth-keyid] | `KeyId` ou `Bearer` pour Judilibre, selon les endpoints. |
 | [V-181 · cgu-judilibre] | CGU open data de la Cour de cassation (V8) : obligations précises. |

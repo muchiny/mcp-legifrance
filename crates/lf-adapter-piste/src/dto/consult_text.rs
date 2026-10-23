@@ -11,12 +11,18 @@
 //! juridique, et un `{:?}` accidentel ne doit pas compiler.
 //!
 //! Les champs que le mapping n'emploie pas (`signataires`, `eli`, `visas`, `liens` du texte…)
-//! ne sont pas déclarés : `serde_json` les saute sans rien allouer, et `signataires`, objet en
-//! KALI et chaîne en JURI, ne peut faire échouer aucun décodage.
+//! ne sont pas déclarés : `serde_json` les saute sans construire de valeur (mémoire bornée par la
+//! taille du corps), et `signataires`, objet en KALI et chaîne en JURI, ne peut faire échouer
+//! aucun décodage.
 //!
-//! La table des matières est lue récursivement. `serde_json` refuse plus de 128 tableaux et
-//! objets imbriqués, que l'objet racine et chaque niveau de section (un objet et un tableau)
-//! consomment : 63 niveaux de sections passent, 64 donnent `CorpusError::Decode`.
+//! La table des matières est lue récursivement. `serde_json` part d'une profondeur restante de
+//! 128 et échoue quand elle atteint 0 : 127 tableaux et objets imbriqués passent, le 128e donne
+//! `CorpusError::Decode`. L'objet racine et chaque niveau de section (un objet et un tableau)
+//! les consomment, et les articles de la section la plus profonde, puis leurs listes de liens,
+//! en consomment encore : le plafond effectif est de 61 à 63 niveaux de sections selon le contenu
+//! de la plus profonde (63 pour des sections feuilles vides, 62 avec des articles, 61 si ces
+//! articles portent des `lstLien*`). Les champs non déclarés et les lecteurs tolérants (ignorés
+//! par `IgnoredAny`, sans limite de profondeur) y échappent.
 
 use serde::Deserialize;
 
@@ -209,11 +215,12 @@ mod tests {
     fn a_nominal_law_decree_is_read() {
         let raw = r#"{"id":"LEGITEXT000033205014_08-09-2023","cid":"JORFTEXT000033202746",
             "title":"Loi n° 2016-1321 pour une République numérique","nor":"ECFI1524250L",
-            "nature":"LOI","jurisState":"Vigueur","etat":null,"dateDebutVersion":"2023-09-08",
+            "nature":"LOI","jurisState":"Vigueur","etat":"VIGUEUR","dateDebutVersion":"2023-09-08",
             "dateFinVersion":"2999-01-01","dateParution":1475884800000,"numParution":"0235",
             "jorfText":"JORFTEXT000033202746","textAbroge":false,"appellations":["loi Lemaire"],
             "eli":null,"motsCles":[],
-            "sections":[{"id":"LEGISCTA1","title":"Titre Ier","intOrdre":1,
+            "articles":[{"id":"LEGIARTI0","num":"0","etat":"ABROGE"}],
+            "sections":[{"id":"LEGISCTA1","title":"Titre Ier","etat":"MODIFIE","intOrdre":1,
             "articles":[{"id":"LEGIARTI1","num":"1","etat":"VIGUEUR"}]}]}"#;
         assert_eq!(
             read(raw),
@@ -223,7 +230,7 @@ mod tests {
                 title: text!("Loi n° 2016-1321 pour une République numérique"),
                 nor: text!("ECFI1524250L"),
                 nature: text!("LOI"),
-                etat: None,
+                etat: text!("VIGUEUR"),
                 juris_state: text!("Vigueur"),
                 text_abroge: Some(false),
                 date_parution: Some(RawDate::Millis(1_475_884_800_000)),
@@ -232,9 +239,16 @@ mod tests {
                 num_parution: text!("0235"),
                 jorf_text: text!("JORFTEXT000033202746"),
                 appellations: vec!["loi Lemaire".to_owned()],
+                articles: vec![TocArticleDto {
+                    id: text!("LEGIARTI0"),
+                    num: text!("0"),
+                    etat: text!("ABROGE"),
+                    ..Default::default()
+                }],
                 sections: vec![TocSectionDto {
                     id: text!("LEGISCTA1"),
                     title: text!("Titre Ier"),
+                    etat: text!("MODIFIE"),
                     int_ordre: Some(1),
                     articles: vec![TocArticleDto {
                         id: text!("LEGIARTI1"),

@@ -7,8 +7,8 @@
 //! (`opt_string_or_number`).
 //!
 //! `data` (le fichier joint en base64, jusqu'à 1 Mio) et `attachment` ne sont jamais déclarés :
-//! `serde_json` saute une valeur non déclarée sans la construire ni la mettre en mémoire, à toute
-//! profondeur, donc elle n'occupe que le corps déjà lu. Il en va de même de `signataires` et de
+//! `serde_json` saute une valeur non déclarée sans construire de valeur, à toute profondeur
+//! (mémoire bornée par la taille du corps). Il en va de même de `signataires` et de
 //! `adressesPostales`.
 
 use serde::Deserialize;

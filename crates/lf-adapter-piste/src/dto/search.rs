@@ -11,7 +11,7 @@
 //! extraits de décisions et de textes, et un `{:?}` accidentel ne doit pas compiler.
 //!
 //! Les champs que le mapping n'emploie pas ne sont pas déclarés : `serde_json` les saute sans
-//! rien allouer. C'est vrai surtout de `facets`, qui peut peser jusqu'à 88 % d'une réponse
+//! construire de valeur (mémoire bornée par la taille du corps). C'est vrai surtout de `facets`, qui peut peser jusqu'à 88 % d'une réponse
 //! KALI. Aucune table indexée par du texte du corps (`HashMap`) : une clé venue du corps
 //! pourrait entrer dans le chemin d'une erreur.
 
@@ -306,27 +306,35 @@ mod tests {
     fn kali_sections_with_empty_identifiers_become_none() {
         let raw = r#"{"results":[{"sections":[{"id":"","title":"  ","extracts":[
             {"id":"KALIARTI000001","num":"8.4 de la convention)","values":null},
-            {"id":"","num":"","values":["x"]}]}]}]}"#;
+            {"id":"","num":"","values":["x"]}]},
+            {"id":"SEC-1","title":"Titre <mark>un</mark>","extracts":[]}]}]}"#;
         assert_eq!(
             first(raw).sections,
-            vec![SearchSectionDto {
-                id: None,
-                title: None,
-                extracts: vec![
-                    SearchExtractDto {
-                        id: text!("KALIARTI000001"),
-                        num: text!("8.4 de la convention)"),
-                        values: Vec::new(),
-                        search_field_name: None,
-                    },
-                    SearchExtractDto {
-                        id: None,
-                        num: None,
-                        values: vec!["x".to_owned()],
-                        search_field_name: None,
-                    },
-                ],
-            }]
+            vec![
+                SearchSectionDto {
+                    id: None,
+                    title: None,
+                    extracts: vec![
+                        SearchExtractDto {
+                            id: text!("KALIARTI000001"),
+                            num: text!("8.4 de la convention)"),
+                            values: Vec::new(),
+                            search_field_name: None,
+                        },
+                        SearchExtractDto {
+                            id: None,
+                            num: None,
+                            values: vec!["x".to_owned()],
+                            search_field_name: None,
+                        },
+                    ],
+                },
+                SearchSectionDto {
+                    id: text!("SEC-1"),
+                    title: text!("Titre <mark>un</mark>"),
+                    extracts: Vec::new(),
+                }
+            ]
         );
     }
 
@@ -340,8 +348,8 @@ mod tests {
     #[test]
     fn unknown_and_undeclared_fields_are_ignored() {
         let raw = r#"{"unknown":1,"totalResultNumber":3,"moreArticle":true,
-            "results":[{"nature":"LOI","signataires":{"a":"b"},"additionalResult":{"x":[1]},
-            "unknownField":"zzz"}]}"#;
+            "moreArticlesCount":4,"results":[{"nature":"LOI","signataires":{"a":"b"},
+            "additionalResult":{"x":[1]},"unknownField":"zzz"}]}"#;
         assert_eq!(
             read(raw),
             SearchResponseDto {
@@ -353,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn facets_are_never_allocated() {
+    fn facets_are_skipped_without_building_a_value() {
         // (a) 200 niveaux : un `serde_json::Value` échouerait dès 128.
         let deep = format!(
             r#"{{"facets":{}1{},"totalResultNumber":5}}"#,
@@ -383,8 +391,17 @@ mod tests {
 
     #[test]
     fn a_root_that_is_not_an_object_is_a_decode_error() {
-        let failures = ["null", r#""x""#, "<html>"]
-            .map(|raw| decode::<SearchResponseDto>(raw, ENDPOINT).is_err());
-        assert_eq!(failures, [true; 3]);
+        let details = ["null", r#""x""#, "<html>"].map(|raw| {
+            let error = decode::<SearchResponseDto>(raw, ENDPOINT).unwrap_err();
+            format!("{error:?}")
+        });
+        assert_eq!(
+            details,
+            [
+                r#"Decode { detail: "/search: .: invalid type: null, expected struct SearchResponseDto" }"#,
+                r#"Decode { detail: "/search: .: invalid type: string, expected struct SearchResponseDto" }"#,
+                r#"Decode { detail: "/search: .: expected value at line 1 column 1" }"#,
+            ]
+        );
     }
 }

@@ -1,11 +1,14 @@
 //! Corps de la requête `POST /search` (04 §6).
 //!
 //! `search_body` traduit une `SearchQuery` déjà validée par le domaine en octets JSON, prêts
-//! pour `post_json`. Le domaine refuse déjà ce que PISTE ne saurait pas servir (filtre de
-//! période sur CODE, `version_date` hors LODA et CODE, page hors de portée) ; l'adapter n'en
-//! garde qu'une copie défensive (00 §5) : `InvalidRequest { status: None }`, sans appel réseau
-//! et avec un `warn!` (probable bogue). `Params` détache les entrées de la requête pour que
-//! ces gardes se testent : une `SearchQuery` valide ne permet pas de les atteindre.
+//! pour `post_json`. Trois gardes recopient des règles du domaine (filtre de période sur CODE,
+//! `version_date` hors LODA et CODE, page hors de portée) : une `SearchQuery` valide ne les
+//! atteint pas. La quatrième, `version_date` absente sur LODA ou CODE, porte un contrat avec
+//! l'application : le domaine ne l'exige pas (04 §6.2) et c'est `lf-application` qui doit remplir
+//! la date du jour (00 §7) ; tant qu'elle ne le fait pas, une `SearchQuery` valide l'atteint. Toutes
+//! rendent `InvalidRequest { status: None }`, sans appel réseau et avec un `warn!` (probable
+//! bogue, 00 §5). `Params` détache les entrées de la requête pour que les gardes qui recopient le
+//! domaine se testent.
 //!
 //! Le texte de la requête n'est jamais journalisé et aucune struct de ce module n'implémente
 //! `Debug` : un message d'erreur ne cite que des noms de fonds et des nombres.
@@ -122,7 +125,7 @@ enum TypeRecherche {
 }
 
 /// Les entrées du corps, détachées de `SearchQuery` : le domaine ne laisse pas construire une
-/// requête invalide, et les gardes défensives ne se testeraient pas autrement.
+/// requête invalide, et les gardes qui recopient ses règles ne se testeraient pas autrement.
 struct Params<'a> {
     fond: Fond,
     text: &'a str,
@@ -141,8 +144,10 @@ struct Params<'a> {
 ///
 /// # Errors
 ///
-/// `CorpusError::InvalidRequest { status: None, .. }` si une garde défensive refuse la requête
-/// (jamais atteint depuis une `SearchQuery` valide) ; aucun appel réseau n'a alors eu lieu.
+/// `CorpusError::InvalidRequest { status: None, .. }` si une garde défensive refuse la requête ;
+/// aucun appel réseau n'a alors eu lieu. Depuis une `SearchQuery` valide, seule la garde
+/// `version_date` absente sur LODA ou CODE est atteignable (le domaine ne l'exige pas, 04 §6.2) ;
+/// les autres recopient des règles du domaine.
 pub(crate) fn search_body(
     query: &SearchQuery,
     pagination: PaginationMode,
@@ -277,6 +282,7 @@ fn paris_noon_ms(date: VersionDate) -> i64 {
     let days =
         days_from_civil(i64::from(civil.year()), i64::from(civil.month()), i64::from(civil.day()));
     let utc_noon_ms = days * DAY_MS + NOON_MS;
+    // Pas de panique possible : `VersionDate` est borné à 1500..=2221, loin des limites de chrono.
     let utc = DateTime::UNIX_EPOCH.naive_utc() + TimeDelta::milliseconds(utc_noon_ms);
     let offset = Paris.offset_from_utc_datetime(&utc).fix().local_minus_utc();
     utc_noon_ms - i64::from(offset) * 1_000
@@ -533,6 +539,35 @@ mod tests {
                 request_dto(&extra).err(),
                 Some(invalid(&format!("version_date not applicable to fond {}", fond.name())))
             );
+        }
+    }
+
+    /// Contrat avec l'application : le domaine n'exige pas `version_date` sur LODA et CODE
+    /// (04 §6.2), `search_body` est donc le dernier rempart avant le réseau.
+    #[test]
+    fn a_valid_loda_or_code_query_without_version_date_is_refused_without_network() {
+        for fond in [Fond::Loda, Fond::Code] {
+            let (capture, _guard) = capture_at(tracing::Level::WARN);
+            let query = SearchQuery::new(
+                fond,
+                QueryText::parse("texte-secret-42").unwrap(),
+                NonZeroU32::new(1).unwrap(),
+                PageSize::DEFAULT,
+                MatchMode::Any,
+                None,
+                None,
+            )
+            .unwrap();
+            assert_eq!(
+                search_body(&query, PaginationMode::Defaut),
+                Err(invalid(&format!("version_date missing for fond {}", fond.name()))),
+                "{fond:?}"
+            );
+            let log = capture.text();
+            assert!(log.contains("WARN"), "{log}");
+            assert!(log.contains("probable bug"), "{log}");
+            assert!(log.contains("version_date missing"), "{log}");
+            assert!(!log.contains("texte-secret-42"), "{log}");
         }
     }
 

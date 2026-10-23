@@ -130,10 +130,14 @@ const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
 /// Vrai si le premier octet non blanc du corps est `<` : balisage, `<?xml` ou `<!DOCTYPE`.
 ///
 /// Plus large que « contient `<html` » : dans le doute, une page est du balisage et non la
-/// réponse JSON de PISTE. Un BOM UTF-8 en tête est écarté avant le test (une page de passerelle
-/// peut en porter un) ; un second BOM n'est pas du balisage.
+/// réponse JSON de PISTE. Tous les BOM UTF-8 de tête sont écartés avant le test (une page de
+/// passerelle peut en porter un ou plusieurs) ; un BOM seul, ou suivi de JSON, n'est pas du
+/// balisage.
 pub(crate) fn looks_like_html(body: &[u8]) -> bool {
-    let body = body.strip_prefix(UTF8_BOM).unwrap_or(body);
+    let mut body = body;
+    while let Some(rest) = body.strip_prefix(UTF8_BOM) {
+        body = rest;
+    }
     body.trim_ascii_start().first() == Some(&b'<')
 }
 
@@ -410,13 +414,18 @@ mod tests {
 
     #[test]
     fn markup_behind_a_utf8_bom_is_still_html() {
-        for body in
-            ["\u{feff}<html>", "\u{feff}  <html>", "\u{feff}\r\n<!DOCTYPE html>", "\u{feff}<"]
-        {
+        for body in [
+            "\u{feff}<html>",
+            "\u{feff}  <html>",
+            "\u{feff}\r\n<!DOCTYPE html>",
+            "\u{feff}<",
+            "\u{feff}\u{feff}<html>",
+            "\u{feff}\u{feff}\u{feff} <",
+        ] {
             assert!(looks_like_html(body.as_bytes()), "{body:?}");
         }
-        // Un BOM seul, ou suivi de JSON, n'est pas du balisage ; un second BOM non plus.
-        for body in ["\u{feff}", "\u{feff}{}", "\u{feff}\u{feff}<html>"] {
+        // Un ou plusieurs BOM seuls, ou suivis de JSON, ne sont pas du balisage.
+        for body in ["\u{feff}", "\u{feff}\u{feff}", "\u{feff}{}", "\u{feff}\u{feff}{}"] {
             assert!(!looks_like_html(body.as_bytes()), "{body:?}");
         }
     }
