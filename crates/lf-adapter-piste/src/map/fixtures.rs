@@ -2,13 +2,15 @@
 //!
 //! Les fichiers sont lus par `include_str!` et jamais reformatés ni réparés sur disque : les
 //! tests de mapping partent des octets capturés, avec leurs sentinelles, leurs chaînes vides et
-//! leurs formes inattendues. Ce module n'existe que sous `cfg(test)`.
+//! leurs formes inattendues. [`juri_with`] construit en plus une réponse synthétique de
+//! `/consult/juri`, sans passer par le JSON. Ce module n'existe que sous `cfg(test)`.
 
 use lf_domain::fond::Fond;
 use serde::de::DeserializeOwned;
 
 use super::endpoint;
 use crate::dto::decode::decode;
+use crate::dto::juri::{ConsultJuriResponseDto, JuriTextDto};
 use crate::encoding::{DecodedBody, decode_body};
 
 /// Noms des fixtures, triés et sans doublon : `consult_*` puis `search_*`.
@@ -256,6 +258,14 @@ pub(crate) fn decode_as<T: DeserializeOwned>(name: &str) -> T {
     decode(&decoded(fixture, true).text, fixture.endpoint).expect("fixture decodes")
 }
 
+/// Réponse synthétique de `/consult/juri` : `JuriTextDto::default()` modifié par `edit`, sous la
+/// clé `text`.
+pub(crate) fn juri_with(edit: impl FnOnce(&mut JuriTextDto)) -> ConsultJuriResponseDto {
+    let mut text = JuriTextDto::default();
+    edit(&mut text);
+    ConsultJuriResponseDto { text: Some(text) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,7 +273,6 @@ mod tests {
     use crate::dto::article::GetArticleResponseDto;
     use crate::dto::consult_text::{ConsultTextDto, TocSectionDto};
     use crate::dto::de::RawDate;
-    use crate::dto::juri::ConsultJuriResponseDto;
     use crate::dto::search::SearchResponseDto;
 
     #[test]
