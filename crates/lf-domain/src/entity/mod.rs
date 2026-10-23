@@ -29,7 +29,7 @@ mod toc;
 
 pub use act::{Act, Convention, TextBody};
 pub use agreement::{ATTACHMENT_NOTE, CompanyAgreement};
-pub use article::ArticleText;
+pub use article::{ArticleText, ParentNature, ParentText};
 pub use decision::Decision;
 pub use deliberation::Deliberation;
 pub use search::{CodeArticleRef, SNIPPET_MAX_CHARS, SearchHit, SearchPage, Snippet};
@@ -46,6 +46,7 @@ mod tests {
         contract::{Citable, CitationContract},
         fond::Fond,
         id::{AccoTextId, ArticleId, CnilTextId, DecisionId, DocumentId, KaliTextId, LegiTextId},
+        text::LongText,
     };
     use pretty_assertions::assert_eq;
 
@@ -55,10 +56,13 @@ mod tests {
             num: None,
             etat: None,
             code_title: title.map(Into::into),
+            parent: None,
+            path: vec![],
             full_sections_titre: None,
             date_debut: None,
             date_fin: None,
-            text: None,
+            text: LongText::default(),
+            nota: None,
         }
     }
 

@@ -1,6 +1,6 @@
 //! Règles de citation françaises : fonctions pures, une par convention.
 
-use crate::date::CivilDate;
+use crate::{date::CivilDate, entity::ParentNature};
 
 /// Parité avec la vérité Python des chaînes : `""` vaut absent
 /// (`citations.py:256-261`, `303-317`, `377-378`, `458`).
@@ -15,6 +15,43 @@ pub fn article_citation(code_title: Option<&str>, num: Option<&str>) -> Option<S
         (None, Some(num)) => Some(format!("Art. {num}")),
         (code, None) => code.map(str::to_owned),
     }
+}
+
+/// Citation d'un article selon la nature de son texte parent (03 §5.4, décision Q12).
+///
+/// Pour un texte non codifié ([`ParentNature::Text`]), le titre officiel perd son appel de
+/// note final ` (n)` (« LOI n° 2016-1321 … numérique (1) » devient « … numérique ») avant la
+/// règle de [`article_citation`] ; pour les autres natures, c'est exactement
+/// [`article_citation`] (parité : le titre garde son éventuel appel de note).
+pub fn article_citation_for(
+    parent: ParentNature,
+    code_title: Option<&str>,
+    num: Option<&str>,
+) -> Option<String> {
+    let title = match parent {
+        ParentNature::Text => code_title.map(strip_note_call),
+        ParentNature::Code | ParentNature::Kali | ParentNature::Unknown => code_title,
+    };
+    article_citation(title, num)
+}
+
+/// Retire de `title` (bords blancs ôtés) l'appel de note final ` (n)` : une espace, `(`, un ou
+/// plusieurs chiffres ASCII, `)`, en toute fin. Tout autre titre est rendu tel quel : `(bis)`,
+/// un appel suivi de texte, un appel collé au mot (`Texte(1)`), des chiffres non ASCII. Un
+/// titre réduit à l'appel (`(1)`) reste inchangé : le retirer laisserait un titre vide.
+fn strip_note_call(title: &str) -> &str {
+    let title = title.trim();
+    let Some(body) = title.strip_suffix(')') else {
+        return title;
+    };
+    let before_digits = body.trim_end_matches(|c: char| c.is_ascii_digit());
+    if before_digits.len() == body.len() {
+        return title;
+    }
+    before_digits
+        .strip_suffix('(')
+        .and_then(|head| head.strip_suffix(' '))
+        .map_or(title, str::trim_end)
 }
 
 /// `Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025`
@@ -81,6 +118,66 @@ mod tests {
                 expected,
                 "{code_title:?} {num:?}"
             );
+        }
+    }
+
+    #[test]
+    fn law_article_citation_drops_the_note_call() {
+        let title = "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)";
+        assert_eq!(
+            article_citation_for(ParentNature::Text, Some(title), Some("1")).as_deref(),
+            Some("LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique, art. 1")
+        );
+        // Sans numéro ni titre : les replis de `article_citation` s'appliquent au titre nettoyé.
+        assert_eq!(
+            article_citation_for(ParentNature::Text, Some("Texte (1)"), None).as_deref(),
+            Some("Texte")
+        );
+        assert_eq!(
+            article_citation_for(ParentNature::Text, None, Some("1")).as_deref(),
+            Some("Art. 1")
+        );
+    }
+
+    #[test]
+    fn code_article_citation_is_unchanged() {
+        assert_eq!(
+            article_citation_for(ParentNature::Code, Some("Code civil"), Some("9")).as_deref(),
+            Some("Code civil, art. 9")
+        );
+        // Hors texte de loi, l'appel de note reste (parité, aucune nature ne le retire).
+        for nature in [ParentNature::Code, ParentNature::Kali, ParentNature::Unknown] {
+            assert_eq!(
+                article_citation_for(nature, Some("Texte (1)"), Some("2")).as_deref(),
+                Some("Texte (1), art. 2"),
+                "{nature:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn note_call_only_stripped_at_the_end_and_for_digits() {
+        let cases = [
+            ("Texte (12)", "Texte"),
+            ("Texte (1)", "Texte"),
+            ("  Texte  (12)  ", "Texte"),
+            ("Titre (bis)", "Titre (bis)"),
+            ("Texte (1) suite", "Texte (1) suite"),
+            ("Texte(1)", "Texte(1)"),
+            ("Texte ()", "Texte ()"),
+            ("Texte 12)", "Texte 12)"),
+            ("Texte (1", "Texte (1"),
+            ("Texte (1a)", "Texte (1a)"),
+            // Chiffres non ASCII : inchangé.
+            ("Texte (١٢)", "Texte (١٢)"),
+            ("Texte (１２)", "Texte (１２)"),
+            // Titre réduit à l'appel de note : rien à retirer, il resterait un titre vide.
+            ("(1)", "(1)"),
+            (" (1) ", "(1)"),
+            ("", ""),
+        ];
+        for (title, expected) in cases {
+            assert_eq!(strip_note_call(title), expected, "{title:?}");
         }
     }
 
