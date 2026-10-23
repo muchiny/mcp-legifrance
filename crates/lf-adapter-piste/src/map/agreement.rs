@@ -28,8 +28,9 @@ const DATE_EFFET: Field = Field { endpoint: ACCO, path: "acco.dateEffet" };
 /// Date de dépôt.
 const DATE_DEPOT: Field = Field { endpoint: ACCO, path: "acco.dateDepot" };
 
-/// `/consult/acco` ⇒ `CompanyAgreement` (03 §4.7). À lire seulement après un `Ok`, `diags` n'est
-/// pas touché par un `NotFound`.
+/// `/consult/acco` ⇒ `CompanyAgreement` (03 §4.7). Sur `Err(Decode)`, `diags` garde les
+/// anomalies relevées avant l'erreur : `Stats::record_mapping` est appelé sur `Ok` comme sur
+/// `Err` (04 §9.3, D14) ; un `NotFound` ne touche pas `diags`.
 ///
 /// # Errors
 ///
@@ -217,6 +218,14 @@ mod tests {
         let (mapped, diags) = agreement_of(&json, ACCO_ID);
         assert_eq!(mapped.unwrap().agreement_id, acco_id(ACCO_ID));
         assert_eq!(diags, Diagnostics { upstream_suffix_stripped: 1, ..Diagnostics::default() });
+    }
+
+    #[test]
+    fn a_decode_error_keeps_the_anomalies_counted_before_it() {
+        let json = wrapped(r#""id":"ACCOTEXT000051888026","dateDepot":"hier""#);
+        let (mapped, diags) = agreement_of(&json, ACCO_ID);
+        assert_eq!(mapped, Err(decode_error(ACCO, "acco.dateDepot: unreadable date")));
+        assert_eq!(diags, mismatch(1));
     }
 
     #[test]

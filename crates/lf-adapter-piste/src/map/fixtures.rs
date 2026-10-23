@@ -843,4 +843,60 @@ mod tests {
         assert_eq!(missing, CorpusError::NotFound { what: "/consult/acco".into() });
         assert_eq!(diags, Diagnostics::default());
     }
+
+    /// Limite 2 de 04 §8.5 : un tableau est lu comme l'objet de ses premiers champs, dans l'ordre
+    /// de déclaration (les DTO portent `#[serde(default)]`). Le mapping n'en tire donc rien
+    /// qu'un objet ne donnerait pas.
+    #[test]
+    fn an_array_reads_as_the_object_of_its_first_fields() {
+        let id = "LEGITEXT000006070721";
+        let positional: ConsultTextDto =
+            read(&format!(r#"["{id}","{id}","T"]"#), endpoint::LAW_DECREE);
+        let object: ConsultTextDto =
+            read(&format!(r#"{{"id":"{id}","cid":"{id}","title":"T"}}"#), endpoint::LAW_DECREE);
+        assert_eq!(positional, object);
+
+        let positional: GetArticleResponseDto =
+            read(r#"{"article":["LEGIARTI000006419288"]}"#, endpoint::GET_ARTICLE);
+        let object: GetArticleResponseDto =
+            read(r#"{"article":{"id":"LEGIARTI000006419288"}}"#, endpoint::GET_ARTICLE);
+        assert_eq!(positional, object);
+
+        let positional: ConsultJuriResponseDto =
+            read(r#"{"text":["JURITEXT000051743650","JURI"]}"#, endpoint::JURI);
+        let object: ConsultJuriResponseDto =
+            read(r#"{"text":{"id":"JURITEXT000051743650","origine":"JURI"}}"#, endpoint::JURI);
+        assert_eq!(positional, object);
+
+        let positional: ConsultAccoResponseDto =
+            read(r#"{"acco":["ACCOTEXT000053643828"]}"#, endpoint::ACCO);
+        let object: ConsultAccoResponseDto =
+            read(r#"{"acco":{"id":"ACCOTEXT000053643828"}}"#, endpoint::ACCO);
+        assert_eq!(positional, object);
+    }
+
+    /// Limite 2 de 04 §8.5 : un tableau vide est un objet vide, que `require` refuse en
+    /// `NotFound` sans toucher aux compteurs ; un résultat de recherche vide est écarté et compté.
+    #[test]
+    fn an_empty_array_maps_to_not_found_or_a_dropped_hit() {
+        let cases = [
+            (Kind::LawDecree, "[]", "LEGITEXT000006070721", endpoint::LAW_DECREE),
+            (Kind::KaliText, "[]", "KALITEXT000049878950", endpoint::KALI_TEXT),
+            (Kind::GetArticle, r#"{"article":[]}"#, "LEGIARTI000006419288", endpoint::GET_ARTICLE),
+            (Kind::Juri, r#"{"text":[]}"#, "JURITEXT000051743650", endpoint::JURI),
+            (Kind::Cnil, r#"{"text":[]}"#, "CNILTEXT000053352643", endpoint::CNIL),
+            (Kind::Acco, r#"{"acco":[]}"#, "ACCOTEXT000053643828", endpoint::ACCO),
+        ];
+        for (kind, body, requested, what) in cases {
+            let mut diags = Diagnostics::default();
+            let error = map_body(kind, body, requested, &mut diags).unwrap_err();
+            assert_eq!(error, CorpusError::NotFound { what: what.into() }, "{body}");
+            assert_eq!(diags, Diagnostics::default(), "{body}");
+        }
+
+        let mut diags = Diagnostics::default();
+        let page = map_body(Kind::Search(Fond::Juri), r#"{"results":[[]]}"#, "", &mut diags);
+        assert_eq!(page.map(|mapped| mapped.dropped()), Ok(1));
+        assert_eq!(diags, Diagnostics { dropped_hits: 1, ..Diagnostics::default() });
+    }
 }

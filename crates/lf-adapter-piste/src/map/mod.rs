@@ -5,7 +5,10 @@
 //! ensuite à `Stats::record_mapping`, et l'erreur d'un champ refusé ([`Field`], [`not_found`]).
 //!
 //! Le domaine rend ses anomalies comme valeurs (03 §1.1) : le mapper les compte ici, il ne les
-//! journalise pas lui-même. Aucune valeur du corps ne sort d'ici : le `detail` d'un
+//! journalise pas lui-même. Seule exception (D18) : `search::search_page_with_mode` lit
+//! `typePagination` par `memo::received_mode`, dont le `warn!` d'une valeur inconnue ne cite que
+//! sa longueur ; c'est la seule ligne de journal qu'émet un mapper, et l'appelant ne relit pas
+//! `typePagination` (un second `warn!`). Aucune valeur du corps ne sort d'ici : le `detail` d'un
 //! [`CorpusError::Decode`] a la forme `<endpoint>: <chemin>: <catégorie>`, chemin fait de noms
 //! de champs déclarés, catégorie à texte fixe, jamais le `Display` d'une [`DomainError`] (il
 //! recopie jusqu'à 64 caractères de l'entrée).

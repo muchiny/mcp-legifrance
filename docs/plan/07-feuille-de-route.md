@@ -1092,7 +1092,7 @@ La PR de clôture (« close: Mx ») contient :
 |---|---|---|---|---|---|
 | M0 | **terminé** (plan 1, PR #2) ; reliquats reportés (§2.0) | 4 livrées, 4 en partie, 4 remplacées, 8 reportées / 20 (état de la clôture du 2026-10-16) | 1 / 5 : V-25 levée (plan 2c) ; V-01 et V-02 partielles ; V-28 et V-29 reportées (V-03, V-06 et V-07, non bloquantes, levées ; V-18 partielle) | #2 | 2026-10-16 |
 | M1 | **terminé** (plan 1, PR #2) ; reliquats en tête de M2 | 1 livrée, 8 en partie, 2 reportées, 1 remplacée / 12 | — | #2 | 2026-10-16 |
-| M2 | en cours (plans 2a, 2b, 2c, 2d, 2e ; reste T-M2-27 en partie, reliquats de T-M2-01 et -03 (V-04), T-M2-05 (branchement), -06 (fixtures), -08 (enveloppes), T-M2-07 (branchement, plan 2g), -09 et -10 (plan 2g), -11, -12 et sondes (plan 2h) ; T-M2-13 en M4) | 5 / 28 (T-M2-02, -24, -25, -26, -28) | 0 / 4 | — | — |
+| M2 | en cours (plans 2a, 2b, 2c, 2d, 2e, 2f ; reste T-M2-27 en partie, reliquats de T-M2-01 et -03 (V-04), T-M2-05 (branchement), -06 (fixtures), -08 (enveloppes), T-M2-07 (branchement, plan 2g), -09 et -10 (plan 2g), -11, -12 et sondes (plan 2h) ; T-M2-13 en M4) | 5 / 28 (T-M2-02, -24, -25, -26, -28) | 0 / 4 | — | — |
 | M3 | à faire | 0 / 10 | — | — | — |
 | M4 | à faire | 0 / 15 | 0 / 3 | — | — |
 | M5 et v0.1.0 | à faire | 0 / 14 | 0 / 2 (M5) ; 0 / 11 (recette) | — | — |

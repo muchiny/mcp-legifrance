@@ -6,6 +6,10 @@ use libfuzzer_sys::fuzz_target;
 /// Plus long détail possible : 127 niveaux de 64 caractères d'identifiant, un point et un indice.
 const MAX_DETAIL: usize = 16 * 1024;
 
+/// Marqueur d'une valeur hostile du corps : présent dans l'entrée, il ne doit jamais ressortir
+/// dans la catégorie d'un détail (04 §8.5 : aucune valeur du corps dans un message).
+const MARKER: &str = "sekret";
+
 /// Sources de production des DTO de l'adapter PISTE, incluses telles quelles (D7) : ni feature ni
 /// `#[doc(hidden)]` dans l'adapter. Leurs modules `#[cfg(test)]` ne sont pas compilés ici. La cible
 /// ne lit que le résultat de `decode` : les champs des DTO et les lecteurs que seul l'adapter
@@ -40,22 +44,44 @@ fuzz_target!(|data: &[u8]| {
 });
 
 /// Décode `text` en `T` par `decode` (budget armé) : jamais de panique ; une erreur est un
-/// `Decode` dont le détail commence par `<endpoint>: `, n'est fait que d'ASCII imprimable et
-/// tient en [`MAX_DETAIL`] octets ; un second décodage du même texte sur le même fil rend le
-/// même résultat (garde du budget tombée, décodage déterministe).
+/// `Decode` dont le détail a la forme `<endpoint>: <chemin>: <catégorie>`, n'est fait que d'ASCII
+/// imprimable et tient en [`MAX_DETAIL`] octets ; il ne contient jamais `decoding budget not
+/// armed` (une liste lue hors de la fenêtre armée par `decode`), et sa catégorie ne contient
+/// jamais [`MARKER`] quand l'entrée le contient (une valeur du corps recopiée, même en ASCII). Un
+/// second décodage du même texte sur le même fil rend le même résultat (garde du budget tombée,
+/// décodage déterministe).
 fn check<T: serde::de::DeserializeOwned>(text: &str, endpoint: &str) {
     let first = dto::decode::decode::<T>(text, endpoint).map(drop);
     match &first {
         Ok(()) => {}
         Err(CorpusError::Decode { detail }) => {
-            assert!(detail.starts_with(&format!("{endpoint}: ")), "detail prefix: {detail}");
             assert!(
                 detail.bytes().all(|byte| byte.is_ascii_graphic() || byte == b' '),
                 "detail not printable ASCII: {detail:?}"
             );
             assert!(detail.len() <= MAX_DETAIL, "detail too long: {}", detail.len());
+            assert!(!detail.contains(dto::budget::NOT_ARMED), "list read unarmed: {detail}");
+            let category = category_of(detail, endpoint);
+            if text.contains(MARKER) {
+                assert!(!category.contains(MARKER), "body value in the detail: {detail}");
+            }
         }
         Err(other) => panic!("decode failed with a non-Decode error: {other:?}"),
     }
     assert_eq!(first, dto::decode::decode::<T>(text, endpoint).map(drop), "second decode");
+}
+
+/// Catégorie du détail `<endpoint>: <chemin>: <catégorie>`.
+///
+/// Le chemin n'a jamais `": "` : il n'est fait que de noms de champs, de clés
+/// `[A-Za-z0-9_-]{1,64}`, de `?`, de points et d'indices (`decode::render_path`). Il est exclu du
+/// contrôle du marqueur, car une clé du corps de forme identifiant y entre par une limite assumée
+/// (`{"sekret":[1,}` donne le chemin `sekret`, 04 §8.5) ; une valeur, elle, n'y entre jamais.
+fn category_of<'a>(detail: &'a str, endpoint: &str) -> &'a str {
+    detail
+        .strip_prefix(endpoint)
+        .and_then(|rest| rest.strip_prefix(": "))
+        .and_then(|rest| rest.split_once(": "))
+        .map(|(_path, category)| category)
+        .unwrap_or_else(|| panic!("detail is not <endpoint>: <path>: <category>: {detail}"))
 }

@@ -61,7 +61,17 @@ jobs:
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-fuzz@0.13.1
-      - run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=300
+      - if: matrix.target != 'dto_decode'
+        run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=300
+      # dto_decode : corps jusqu'à 64 Kio (le défaut de libFuzzer, 4 096 octets, n'atteint ni le
+      # budget ni les chemins profonds) ; les fixtures de référence servent de graines en second
+      # dossier. libFuzzer n'écrit que dans le premier, le corpus par défaut (créé ici, ignoré par
+      # git), et ne modifie jamais les graines lues ailleurs.
+      - if: matrix.target == 'dto_decode'
+        run: |
+          mkdir -p fuzz/corpus/dto_decode
+          cargo +nightly fuzz run dto_decode fuzz/corpus/dto_decode \
+            crates/lf-adapter-piste/tests/fixtures/reference -- -max_total_time=300 -max_len=65536
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:

@@ -52,6 +52,12 @@ pub(crate) fn search_page(
 /// Page de résultats de `query` et `typePagination` reconnu de la réponse (`None` s'il est
 /// absent ou inconnu).
 ///
+/// Exception documentée à la règle « un mapper ne journalise rien » (04 §9.3, D18) : la lecture
+/// de `typePagination` est déléguée à `memo::received_mode`, qui émet un seul `warn!`
+/// (`unknown typePagination in PISTE response`, avec la seule longueur de la valeur) quand la
+/// valeur est inconnue ; c'est le seul journal d'un mapper. L'appelant reçoit le mode par le
+/// retour et ne relit pas `typePagination`, sinon le `warn!` serait émis deux fois.
+///
 /// # Errors
 ///
 /// [`CorpusError::Decode`] (`/search: results: more results than page size`) si la réponse porte
@@ -260,12 +266,14 @@ mod tests {
     use lf_domain::status::LegalStatus;
     use lf_domain::text::encoding::repair_latin1_mojibake;
     use serde_json::{Value, json};
+    use tracing::Level;
 
     use super::*;
     use crate::dto::de::RawDate;
     use crate::dto::decode::decode;
     use crate::dto::search::SearchSectionDto;
     use crate::map::fixtures::{self, d};
+    use crate::testing::capture_at;
 
     /// Requête de `fond` sur « responsabilité civile », page 1, de taille `page_size`.
     fn query(fond: Fond, page_size: u32) -> SearchQuery {
@@ -690,6 +698,35 @@ mod tests {
                 search_page_with_mode(dto(body), &query(Fond::Code, 10), &mut diags).unwrap();
             assert_eq!((page.pagination, mode), (pagination, received), "{body}");
         }
+    }
+
+    /// D18 : le `warn!` de `received_mode` est la seule ligne qu'émet le mapping d'une page,
+    /// une fois par page, sans la valeur ; une page à mode connu n'émet rien, même avec des
+    /// anomalies comptées.
+    #[test]
+    fn an_unknown_type_pagination_is_the_only_line_a_mapper_logs() {
+        let body = r#"{"typePagination":"SECRET_MODE","results":[
+            {"titles":[{"id":"LEGITEXT000006070721"}]},{}]}"#;
+        let unknown = dto(body);
+        let known = dto(r#"{"typePagination":"ARTICLE","results":[
+            {"titles":[{"id":"LEGITEXT000006070721"}],"origin":"JURI"},{}]}"#);
+        let (capture, _guard) = capture_at(Level::TRACE);
+
+        let mut diags = Diagnostics::default();
+        let (_, mode) = search_page_with_mode(unknown, &query(Fond::Code, 10), &mut diags).unwrap();
+        assert_eq!((mode, diags.dropped_hits), (None, 1));
+        let log = capture.text();
+        assert_eq!(log.lines().count(), 1, "{log}");
+        assert!(log.contains("WARN") && log.contains("unknown typePagination"), "{log}");
+        assert!(log.contains("len=11") && !log.contains("SECRET"), "{log}");
+
+        let mut diags = Diagnostics::default();
+        let (_, mode) = search_page_with_mode(known, &query(Fond::Code, 10), &mut diags).unwrap();
+        assert_eq!(
+            (mode, diags.dropped_hits, diags.origin_mismatch),
+            (Some(PaginationMode::Article), 1, 1)
+        );
+        assert_eq!(capture.text(), log);
     }
 
     #[test]

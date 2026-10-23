@@ -34,8 +34,9 @@ const DATE_TEXTE: Field = Field { endpoint: JURI, path: "text.dateTexte" };
 /// Texte intégral, en HTML (`texteHtml`) ou brut (`texte`).
 const TEXTE: Field = Field { endpoint: JURI, path: "text.texte" };
 
-/// `/consult/juri` ⇒ `Decision` (03 §4.4). `diags` n'est à lire qu'après un `Ok` (le plan 2g
-/// l'applique).
+/// `/consult/juri` ⇒ `Decision` (03 §4.4). Sur `Err(Decode)`, `diags` garde les anomalies
+/// relevées avant l'erreur : `Stats::record_mapping` est appelé sur `Ok` comme sur `Err`
+/// (04 §9.3, D14, branché au plan 2g) ; un `NotFound` ne touche pas `diags`.
 ///
 /// Ordre d'évaluation figé, la première erreur l'emporte : l'identité de l'objet, l'identifiant
 /// renvoyé, la date, puis le texte intégral. L'origine est contrôlée contre l'identifiant
@@ -514,6 +515,17 @@ mod tests {
             });
             assert_eq!(decision_of(dto, JURI_ID).0, Err(decode_error(JURI, detail)), "{detail}");
         }
+    }
+
+    #[test]
+    fn a_decode_error_keeps_the_anomalies_counted_before_it() {
+        let json = r#"{"text":{"id":"CETATEXT000054178503","origine":"JURI","dateTexte":"hier"}}"#;
+        let (mapped, diags) = decision_of(read(json, JURI), JURI_ID);
+        assert_eq!(mapped, Err(decode_error(JURI, "text.dateTexte: unreadable date")));
+        assert_eq!(
+            diags,
+            Diagnostics { id_mismatch: 1, origin_mismatch: 1, ..Diagnostics::default() }
+        );
     }
 
     #[test]

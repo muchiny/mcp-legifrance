@@ -221,7 +221,7 @@ pub fn parse_versioned(input: &str) -> Result<VersionedId, DomainError>; // "LEG
 
 - `Id::parse` et `FromStr` restent **tolérants sur les espaces et la casse**, mais refusent désormais un suffixe mal formé (`BadSuffix`, ci-dessous) ; un suffixe bien formé hors `LEGITEXT` est toléré puis retiré.
 - **Suffixe mal formé** (`_foo`, `_` seul, `_31-02-2023`) : refusé par `DomainError::BadSuffix` (nouvelle variante), par `parse_versioned` **et** par `Id::parse`/`FromStr`. La date du suffixe est lue par `CivilDate::parse` après réordonnancement `JJ-MM-AAAA`.
-- **Suffixe bien formé sur un autre préfixe que `LEGITEXT`** : **toléré puis retiré** (option A, pas A-strict). Cette tolérance est documentée : elle évite un aller-retour inutile au modèle, et la variante `SuffixNotAllowed` du plan initial n'est pas retenue. L'API n'a été observée qu'avec des `LEGITEXT` suffixés ; le mapping de l'adapter retire un suffixe trouvé ailleurs (D-28) et le signale par un diagnostic. La présence de suffixes sur d'autres préfixes est **NON VÉRIFIÉ** [V-104 · suffixe-version-autres-prefixes].
+- **Suffixe bien formé sur un autre préfixe que `LEGITEXT`** : **toléré puis retiré** (option A, pas A-strict). Cette tolérance est documentée : elle évite un aller-retour inutile au modèle, et la variante `SuffixNotAllowed` du plan initial n'est pas retenue. L'API n'a été observée qu'avec des `LEGITEXT` suffixés ; le mapping de l'adapter retire un suffixe trouvé ailleurs (D-28) et le signale par un diagnostic (`upstream_suffix_stripped`, 04 §9.1 c, §9.3), sur l'identifiant principal de la réponse comme sur ses identifiants secondaires (`cid` d'un texte, texte parent d'un article, `cid` et articles d'un hit de recherche ; clôture du plan 2f), et seulement pour un identifiant retenu : un hit écarté, un `cid` omis ou un extrait ignoré ne comptent rien. La présence de suffixes sur d'autres préfixes est **NON VÉRIFIÉ** [V-104 · suffixe-version-autres-prefixes].
 - `version_start` alimente `SearchHit.version_start` [livré : `SearchHit::new(fond, id, version_start)`] et, pour `Act`, `body.date_debut_version` (le champ livré ne s'appelle pas `version_start`) ; pour `Act`, c'est le suffixe, sinon `dateDebutVersion`, choix du mapper (plan 2f). `fr_get_act` sans `date` : la date demandée est le `version_start` du suffixe de `text_id` s'il y en a un, sinon aujourd'hui à Paris (00 §7, question 6 du §11). Le choix est fait par le cas d'usage, qui construit la `VersionDate`.
 - Livré : `Id::parse` refuse `_foo`, `_` seul et `_31-02-2023` par `BadSuffix` ; le test `strips_version_suffix` et le proptest `valid_shape_roundtrips` ont été revus en conséquence (plan 2a).
 
@@ -418,7 +418,7 @@ Les facettes ne sont **pas** dans le domaine en v0.1 (00 §7 : jamais renvoyées
 
 | Champ | Type | Source API (`/consult/lawDecree`) | Règle |
 |---|---|---|---|
-| `text_id` | `LegiTextId` | `id` (suffixe retiré) | `id` absent ⇒ `CorpusError::NotFound` (parité, recherche 03 §12.8 règle a) |
+| `text_id` | `LegiTextId` | `id` (suffixe retiré) | absent ou blanc ⇒ identifiant demandé et `id_mismatch` ; objet sans identité (ni `id`, ni `cid`, ni `title`) ⇒ `CorpusError::NotFound` (parité, recherche 03 §12.8 règle a ; 04 §9.1 a) |
 | `version_start` | `Option<CivilDate>` | suffixe (`parse_versioned`, §2.4), sinon `dateDebutVersion` | `2023-09-08` sur consult_loda.json |
 | `version_end` | `Option<CivilDate>` | `dateFinVersion` (livré : `body.date_fin_version`) | `2999-01-01` ⇒ `None` par `open_ended` dans le mapper (E-11, D-20) |
 | `cid` | `Option<DocumentId>` | `cid` | LODA : `JORFTEXT000033202746` ; code : `LEGITEXT000006070721` ; KALI : `KALITEXT000049878950` (= `id`) |
@@ -479,7 +479,7 @@ Règles de `Toc::build`, dans l'ordre :
 
 | Champ | Type | Source (`/consult/getArticle`) | Règle |
 |---|---|---|---|
-| `article_id` | `ArticleId` | `article.id` | absent ⇒ `NotFound` |
+| `article_id` | `ArticleId` | `article.id` | absent ou blanc ⇒ identifiant demandé et `id_mismatch` ; objet sans identité (ni `id`, ni `cid`) ⇒ `NotFound` |
 | `num` | `Option<String>` | `num` | `"9"` |
 | `etat` | `Option<LegalStatus>` | `etat` | `VIGUEUR` |
 | `code_title` | `Option<String>` | `textTitles[nature=="CODE"].titre`, sinon `textTitles[0].titre` | parité (référence citations.py:236-245) : `Code civil` |
@@ -550,7 +550,7 @@ Les deux dates sont des champs de sens différent quand elles sont omises (00 §
 
 | Champ | Type | Source (`/consult/kaliText`) | Règle |
 |---|---|---|---|
-| `convention_id` | `KaliTextId` | `id` | absent ⇒ `NotFound` |
+| `convention_id` | `KaliTextId` | `id` | absent ou blanc ⇒ identifiant demandé et `id_mismatch` ; objet sans identité (ni `id`, ni `cid`, ni `title`) ⇒ `NotFound` |
 | `title` | `Option<String>` | `title` | `clean` (174 caractères, `Annexe IX - Stipulations spécifiques…`) |
 | `nor` | `Option<Nor>` | `nor` | `ASET2450455M` (majuscules ; la recherche le renvoie en minuscules) |
 | `etat` | `Option<LegalStatus>` | `etat`, sinon `jurisState` | `VIGUEUR_ETEN` (même règle que LODA) |

@@ -35,8 +35,10 @@ const DATE_PUBLI: Field = Field { endpoint: CNIL, path: "text.datePubli" };
 /// Texte intégral, en HTML (`texteHtml`) ou brut (`texte`).
 const TEXTE: Field = Field { endpoint: CNIL, path: "text.texte" };
 
-/// `/consult/cnil` ⇒ `Deliberation` (03 §4.5). Même règle sur `diags` que `decision` : à lire
-/// seulement après un `Ok`.
+/// `/consult/cnil` ⇒ `Deliberation` (03 §4.5). Même règle sur `diags` que `decision` : sur
+/// `Err(Decode)`, `diags` garde les anomalies relevées avant l'erreur, et
+/// `Stats::record_mapping` est appelé sur `Ok` comme sur `Err` (04 §9.3, D14) ; un `NotFound` ne
+/// touche pas `diags`.
 ///
 /// Ordre d'évaluation figé, la première erreur l'emporte : l'identité de l'objet, l'identifiant
 /// renvoyé, la date du texte, la date de publication, puis le texte intégral. L'origine est
@@ -313,6 +315,17 @@ mod tests {
             assert_eq!(mapped.unwrap().deliberation_id, cnil_id(CNIL_ID), "{origine}");
             assert_eq!(diags, Diagnostics { origin_mismatch: expected, ..Diagnostics::default() });
         }
+    }
+
+    #[test]
+    fn a_decode_error_keeps_the_anomalies_counted_before_it() {
+        let json = r#"{"text":{"id":"CNILTEXT000053408671","origine":"JURI","datePubli":"hier"}}"#;
+        let (mapped, diags) = deliberation_of(read(json, CNIL), CNIL_ID);
+        assert_eq!(mapped, Err(decode_error(CNIL, "text.datePubli: unreadable date")));
+        assert_eq!(
+            diags,
+            Diagnostics { id_mismatch: 1, origin_mismatch: 1, ..Diagnostics::default() }
+        );
     }
 
     #[test]
