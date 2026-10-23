@@ -598,13 +598,6 @@ fn is_invisible(c: char) -> bool {
 ///
 /// Le second élément est la somme, sur tous les segments, des caractères invisibles retirés
 /// (y compris ceux des segments qui n'ont rien d'autre et disparaissent).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "premier appelant : `LongText::from_html` (tâche 6 du plan 2e), qui retire cet attribut"
-    )
-)]
 pub(crate) fn paragraphs(html: &str) -> (Vec<String>, u32) {
     let mut paragraphs = Vec::new();
     let mut invisible = 0_u32;
@@ -622,13 +615,6 @@ pub(crate) fn paragraphs(html: &str) -> (Vec<String>, u32) {
 
 /// Termine le segment en cours : il est vidé, et ajouté à `paragraphs` s'il a du texte une fois
 /// nettoyé. Rend le nombre de caractères invisibles retirés.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "appelée par `paragraphs`, sans appelant avant `LongText::from_html`"
-    )
-)]
 fn close_segment(segment: &mut String, paragraphs: &mut Vec<String>) -> u32 {
     let decoded = decode_entities(segment);
     segment.clear();
