@@ -184,6 +184,7 @@ pub(crate) struct ConteneurDto {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dto::budget::{self, MAX_ELEMENTS, remaining};
     use crate::dto::decode::decode;
     use crate::dto::tests::{assert_too_many, repeated};
 
@@ -426,6 +427,76 @@ mod tests {
                 &format!("articles[0].{list}[199999]"),
             );
         }
+    }
+
+    /// Lit `raw` par `serde_json` sous un budget armé à la main : le texte et les éléments payés.
+    fn read_spending(raw: &str) -> (ConsultTextDto, u32) {
+        let guard = budget::arm();
+        let text = serde_json::from_str::<ConsultTextDto>(raw).unwrap();
+        let spent = MAX_ELEMENTS - remaining().unwrap();
+        drop(guard);
+        (text, spent)
+    }
+
+    #[test]
+    fn exactly_200_000_elements_are_decoded() {
+        let raw = format!(r#"{{"articles":{}}}"#, repeated("{}", 200_000));
+        assert_eq!(raw.len(), 600_014);
+        assert_eq!(read(&raw).articles.len(), 200_000);
+    }
+
+    #[test]
+    fn one_element_more_maps_to_decode_with_a_path() {
+        let raw = format!(r#"{{"articles":{}}}"#, repeated("{}", 200_001));
+        assert_eq!(raw.len(), 600_017);
+        // `map(drop)` : un succès de 200 001 articles ne serait pas affiché par `unwrap_err`.
+        let error = decode::<ConsultTextDto>(&raw, LODA).map(drop).unwrap_err();
+        assert_eq!(
+            format!("{error:?}"),
+            r#"Decode { detail: "/consult/lawDecree: articles[200000]: too many elements" }"#
+        );
+    }
+
+    #[test]
+    fn the_budget_spans_the_root_lists() {
+        let raw = format!(
+            r#"{{"articles":{},"sections":{}}}"#,
+            repeated("{}", 100_000),
+            repeated("{}", 100_001)
+        );
+        assert_budgeted(&raw, "sections[100000]");
+    }
+
+    /// Une TOC de la taille d'un code (04 §8.5, limite 1) : 2 000 sections de 9 articles, soit
+    /// 20 000 nœuds ; chaque article porte 3 liens, d'où 74 000 éléments = 37 % du budget.
+    #[test]
+    fn a_code_sized_toc_stays_far_under_the_budget() {
+        let article = r#"{"id":"LEGIARTI000000000001","num":"1","etat":"VIGUEUR","lstLienCitation":[{},{}],"lstLienModification":[{}]}"#;
+        let section = format!(
+            r#"{{"id":"LEGISCTA000000000001","title":"T","sections":[],"articles":{}}}"#,
+            repeated(article, 9)
+        );
+        let body = format!(r#"{{"sections":{}}}"#, repeated(&section, 2_000));
+        assert_eq!(body.len(), 2_118_014);
+        let (text, spent) = read_spending(&body);
+        assert_eq!(spent, 74_000);
+        assert_eq!(text.sections.len(), 2_000);
+        assert_eq!(text.sections[0].articles.len(), 9);
+        assert_eq!(text.sections[1_999].articles[8].lst_lien_citation.len(), 2);
+        assert_eq!(
+            decode::<ConsultTextDto>(&body, LODA).map(|text| text.sections.len()),
+            Ok(2_000)
+        );
+    }
+
+    #[test]
+    fn an_article_with_nine_links_costs_ten_elements() {
+        let article = format!(r#"{{"lstLienCitation":{}}}"#, repeated("{}", 9));
+        let raw = format!(r#"{{"articles":{}}}"#, repeated(&article, 1_000));
+        let (text, spent) = read_spending(&raw);
+        assert_eq!(spent, 10_000);
+        assert_eq!(text.articles.len(), 1_000);
+        assert_eq!(text.articles[999].lst_lien_citation.len(), 9);
     }
 
     #[test]
