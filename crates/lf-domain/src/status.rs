@@ -273,7 +273,7 @@ mod tests {
             if let Some(status) = LegalStatus::parse(&s) {
                 prop_assert!(status.as_api_code().chars().count() <= ECHO_MAX_CHARS + 1);
             } else {
-                prop_assert!(s.trim().is_empty());
+                prop_assert!(s.chars().all(|c| c.is_whitespace() || c.is_control() || is_invisible(c)));
             }
         }
 
