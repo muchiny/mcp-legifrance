@@ -61,6 +61,9 @@
 //!   connexion sur les trois systèmes de la CI).
 //! - `time` : horloge monotone (`MonoClock`), attente (`Sleeper`) et course `race`, pour des
 //!   tests déterministes sans geler l'horloge `tokio`.
+//! - `view` (tests seulement) : projection JSON unique des entités du domaine (`view`, tous les
+//!   champs, sans `..`), chaînes d'une valeur avec leur chemin (`leaf_strings`) et contrôle
+//!   `no_mojibake_after_mapping` (`mojibake_paths`, D-35).
 
 #![cfg_attr(
     not(test),
@@ -99,6 +102,8 @@ mod stats;
 #[cfg(test)]
 mod testing;
 mod time;
+#[cfg(test)]
+mod view;
 
 pub use config::{
     ConfigProblem, ConfigWarning, PisteConfig, PisteCredentials, PisteEndpoints, PisteTuning,
