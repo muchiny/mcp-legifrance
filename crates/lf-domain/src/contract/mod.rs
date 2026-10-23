@@ -18,6 +18,8 @@
 //! fabriqué).
 
 mod eli;
+mod idcc;
+mod nor;
 mod rules;
 mod text;
 
@@ -25,6 +27,8 @@ use crate::ecli::Ecli;
 
 pub use crate::url::SourceUrl;
 pub use eli::{ELI_MAX_CHARS, Eli};
+pub use idcc::Idcc;
+pub use nor::Nor;
 pub use rules::{article_citation, cnil_citation, constit_citation, with_company};
 pub use text::{CITATION_MAX_CHARS, CitationText};
 
