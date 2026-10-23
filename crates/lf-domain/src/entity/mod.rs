@@ -100,6 +100,10 @@ mod tests {
                 Convention {
                     text_id: KaliTextId::parse("KALITEXT000049878950").unwrap(),
                     body: body(),
+                    idcc: None,
+                    container_title: None,
+                    container_id: None,
+                    bulletin: None,
                 }
                 .contract(),
                 "KALITEXT000049878950",
