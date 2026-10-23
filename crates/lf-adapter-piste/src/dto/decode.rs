@@ -5,6 +5,8 @@ use serde::de::DeserializeOwned;
 use serde_json::error::Category;
 use serde_path_to_error::{Path, Segment};
 
+use super::budget;
+
 /// Chemin d'une erreur située à la racine du document.
 const ROOT: &str = ".";
 
@@ -32,6 +34,11 @@ const UNRECOGNIZED: &str = "invalid data";
 /// à un identifiant est masquée par `?` dans le chemin. Les erreurs de syntaxe et de fin de flux
 /// gardent leur texte fixe et leur position.
 ///
+/// Chaque élément de liste lu par un DTO coûte 1 au budget du document ([`budget::MAX_ELEMENTS`],
+/// 200 000) : `decode` l'arme avant la lecture et le désarme en sortant, y compris sur erreur. Le
+/// document qui le dépasse donne un [`CorpusError::Decode`] de catégorie fixe `too many elements`
+/// et de chemin celui de l'élément refusé (`articles[200000]`).
+///
 /// Un texte après le document est une erreur (`trailing characters`), comme avec
 /// `serde_json::from_str`. `serde_json` part d'une profondeur restante de 128 et échoue quand
 /// elle atteint 0 : 127 tableaux et objets imbriqués passent, le 128e est une erreur (limite de
@@ -45,6 +52,7 @@ const UNRECOGNIZED: &str = "invalid data";
 ///
 /// [`CorpusError::Decode`] si le texte n'est pas du JSON valide ou ne correspond pas à `T`.
 pub(crate) fn decode<T: DeserializeOwned>(text: &str, endpoint: &str) -> Result<T, CorpusError> {
+    let _budget = budget::arm();
     let mut deserializer = serde_json::Deserializer::from_str(text);
     let value = serde_path_to_error::deserialize(&mut deserializer)
         .map_err(|error| decode_error(endpoint, &render_path(error.path()), error.inner()))?;
@@ -184,6 +192,7 @@ mod tests {
     use serde::Deserialize;
 
     use super::*;
+    use crate::dto::budget;
 
     const ENDPOINT: &str = "/consult/juri";
     const SECRET: &str = "sekret-42-Ω";
@@ -265,6 +274,17 @@ mod tests {
     struct Section {
         #[serde(default)]
         sections: Vec<Section>,
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct Bounded {
+        #[serde(default, deserialize_with = "crate::dto::de::bounded_list")]
+        items: Vec<u8>,
+    }
+
+    /// `{"items":[1,1,…]}` avec `count` éléments.
+    fn ones(count: usize) -> String {
+        format!(r#"{{"items":[{}]}}"#, ["1"].repeat(count).join(","))
     }
 
     /// L'erreur de décodage de `text` vers `T`.
@@ -591,6 +611,42 @@ mod tests {
         assert_eq!(
             redact(r#"invalid type: string "x at line 9", expected u8 at line 1 column 12"#),
             "invalid type: string, expected u8"
+        );
+    }
+
+    #[test]
+    fn decode_disarms_the_budget_after_success() {
+        decode::<Bounded>(r#"{"items":[1]}"#, ENDPOINT).unwrap();
+        assert_eq!(budget::remaining(), None);
+    }
+
+    #[test]
+    fn decode_disarms_the_budget_after_an_error() {
+        decode::<Bounded>(r#"{"items":["x"]}"#, ENDPOINT).unwrap_err();
+        assert_eq!(budget::remaining(), None);
+    }
+
+    #[test]
+    fn each_decode_gets_a_full_budget() {
+        assert!(decode::<Bounded>(&ones(200_001), ENDPOINT).is_err());
+        let text = ones(150_000);
+        assert_eq!(decode::<Bounded>(&text, ENDPOINT).unwrap().items.len(), 150_000);
+        assert_eq!(decode::<Bounded>(&text, ENDPOINT).unwrap().items.len(), 150_000);
+    }
+
+    #[test]
+    fn too_many_elements_maps_to_decode_with_the_element_path() {
+        assert_eq!(
+            failure::<Bounded>(&ones(200_001)),
+            expected_decode("/consult/juri: items[200000]: too many elements")
+        );
+    }
+
+    #[test]
+    fn a_too_many_elements_detail_is_kept_as_is_by_redact() {
+        assert_eq!(
+            ["too many elements", "too many elements at line 1 column 12"].map(redact),
+            ["too many elements", "too many elements"]
         );
     }
 

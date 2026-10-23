@@ -1,16 +1,21 @@
 //! Lecteurs serde tolérants (04 §8.2).
 
 use std::fmt;
+use std::marker::PhantomData;
 
 use serde::{
     Deserialize, Deserializer,
-    de::{Error, IgnoredAny, MapAccess, SeqAccess, Visitor},
+    de::{DeserializeSeed, Error, IgnoredAny, MapAccess, SeqAccess, Visitor},
 };
+
+use super::budget;
 
 /// Lit une valeur ou `null` et rend la valeur par défaut du type pour `null`.
 ///
 /// À employer avec `#[serde(default)]` : un champ absent et un champ `null` donnent alors la même
-/// valeur par défaut (liste vide…). Une valeur d'un autre type reste une erreur.
+/// valeur par défaut. Ne sert plus de liste : une liste passe par [`bounded_list`], qui paie ses
+/// éléments sur le budget du document. Reste pour les champs de struct. Une valeur d'un autre
+/// type reste une erreur.
 ///
 /// # Errors
 ///
@@ -21,6 +26,91 @@ where
     T: Default + Deserialize<'de>,
 {
     Option::<T>::deserialize(deserializer).map(Option::unwrap_or_default)
+}
+
+/// Lit une liste, `null` ou absente donnant `Vec::new()` ; chaque élément lu coûte 1 au budget du
+/// document (04 §8.5, limite 1 (a)).
+///
+/// À employer avec `#[serde(default)]`. Hors de `decode`, qui arme le budget, toute liste non vide
+/// est refusée (`decoding budget not armed`). Une valeur qui n'est ni `null` ni un tableau garde
+/// l'erreur de type de `serde` (`expected a sequence`).
+///
+/// # Errors
+///
+/// L'erreur du désérialiseur si la valeur n'est pas un tableau, si un élément est mal formé, ou
+/// (`too many elements`) si le budget du document est épuisé.
+pub(crate) fn bounded_list<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<Vec<T>, D::Error> {
+    capped_list(deserializer, usize::MAX)
+}
+
+/// Comme [`bounded_list`], avec au plus `cap` éléments : le suivant donne `too many elements`.
+///
+/// Un élément refusé par le plafond ne coûte rien au budget du document.
+///
+/// # Errors
+///
+/// Celles de [`bounded_list`], et `too many elements` au `cap + 1`-ième élément.
+pub(crate) fn capped_list<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+    cap: usize,
+) -> Result<Vec<T>, D::Error> {
+    deserializer.deserialize_option(ListVisitor { cap, marker: PhantomData })
+}
+
+/// Lecteur de liste : `null` donne une liste vide, un tableau est lu élément par élément.
+struct ListVisitor<T> {
+    /// Nombre maximal d'éléments admis dans la liste.
+    cap: usize,
+    marker: PhantomData<fn() -> T>,
+}
+
+impl<'de, T: Deserialize<'de>> Visitor<'de> for ListVisitor<T> {
+    type Value = Vec<T>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a sequence")
+    }
+
+    fn visit_none<E: Error>(self) -> Result<Self::Value, E> {
+        Ok(Vec::new())
+    }
+
+    fn visit_some<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_seq(self)
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+        let mut items = Vec::new();
+        while let Some(item) = seq
+            .next_element_seed(Element { under_cap: items.len() < self.cap, marker: PhantomData })?
+        {
+            items.push(item);
+        }
+        Ok(items)
+    }
+}
+
+/// Un élément de liste : admis (plafond et budget) avant d'être lu.
+struct Element<T> {
+    /// Vrai tant que la liste n'a pas atteint son plafond.
+    under_cap: bool,
+    marker: PhantomData<fn() -> T>,
+}
+
+impl<'de, T: Deserialize<'de>> DeserializeSeed<'de> for Element<T> {
+    type Value = T;
+
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<T, D::Error> {
+        admit(self.under_cap)?;
+        T::deserialize(deserializer)
+    }
+}
+
+/// Admet un élément : refusé au-delà du plafond, sinon payé sur le budget du document.
+fn admit<E: Error>(under_cap: bool) -> Result<(), E> {
+    if under_cap { budget::charge() } else { Err(E::custom(budget::TOO_MANY)) }
 }
 
 /// Lit une chaîne facultative ; une chaîne vide ou blanche (blancs Unicode) donne `None`.
@@ -317,7 +407,9 @@ pub(crate) fn opt_u64_lenient<'de, D: Deserializer<'de>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dto::budget;
     use crate::dto::decode::decode;
+    use lf_application::ports::CorpusError;
     use serde::Deserialize;
     use serde::de::value::{self, BytesDeserializer};
 
@@ -392,6 +484,127 @@ mod tests {
     struct Listed {
         #[serde(default, deserialize_with = "null_default")]
         items: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct Lists {
+        #[serde(default, deserialize_with = "bounded_list")]
+        a: Vec<String>,
+        #[serde(default, deserialize_with = "bounded_list")]
+        b: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct Capped {
+        #[serde(default, deserialize_with = "two_at_most")]
+        items: Vec<u8>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CappedAtHundred {
+        #[serde(default, deserialize_with = "hundred_at_most")]
+        items: Vec<String>,
+    }
+
+    fn two_at_most<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        capped_list(d, 2)
+    }
+
+    fn hundred_at_most<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+        capped_list(d, 100)
+    }
+
+    /// Erreur `Decode` attendue, bâtie à la main.
+    fn decode_failure(detail: &str) -> CorpusError {
+        CorpusError::Decode { detail: detail.to_owned() }
+    }
+
+    /// Tableau JSON de `count` chaînes `"x"`.
+    fn strings(count: usize) -> String {
+        format!("[{}]", [r#""x""#].repeat(count).join(","))
+    }
+
+    #[test]
+    fn a_bounded_list_reads_null_absent_and_empty_as_empty() {
+        for raw in [r#"{"a":null}"#, "{}", r#"{"a":[]}"#] {
+            let lists = decode::<Lists>(raw, "/e").unwrap();
+            assert_eq!((lists.a, lists.b), (Vec::<String>::new(), Vec::<String>::new()), "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_bounded_list_keeps_the_elements_in_order() {
+        let lists = decode::<Lists>(r#"{"a":["x","y","z"]}"#, "/e").unwrap();
+        assert_eq!(lists.a, ["x", "y", "z"]);
+    }
+
+    #[test]
+    fn a_bounded_list_of_the_wrong_type_keeps_the_sequence_message() {
+        let cases = [
+            (r#"{"a":"secret-text-42"}"#, "string"),
+            (r#"{"a":{}}"#, "map"),
+            (r#"{"a":7}"#, "integer"),
+        ];
+        for (raw, kind) in cases {
+            assert_eq!(
+                decode::<Lists>(raw, "/e").unwrap_err(),
+                decode_failure(&format!("/e: a: invalid type: {kind}, expected a sequence")),
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bounded_list_element_error_keeps_its_path() {
+        assert_eq!(
+            decode::<Lists>(r#"{"a":["ok",5]}"#, "/e").unwrap_err(),
+            decode_failure("/e: a[1]: invalid type: integer, expected a string")
+        );
+    }
+
+    #[test]
+    fn the_budget_is_global_across_lists() {
+        let refused = format!(r#"{{"a":{},"b":{}}}"#, strings(100_000), strings(100_001));
+        assert_eq!(
+            decode::<Lists>(&refused, "/e").unwrap_err(),
+            decode_failure("/e: b[100000]: too many elements")
+        );
+        let accepted = format!(r#"{{"a":{},"b":{}}}"#, strings(100_000), strings(100_000));
+        let lists = decode::<Lists>(&accepted, "/e").unwrap();
+        assert_eq!((lists.a.len(), lists.b.len()), (100_000, 100_000));
+    }
+
+    #[test]
+    fn a_capped_list_accepts_exactly_the_cap() {
+        assert_eq!(decode::<Capped>(r#"{"items":[1,2]}"#, "/e").unwrap().items, [1, 2]);
+        assert_eq!(
+            decode::<Capped>(r#"{"items":[1,2,3]}"#, "/e").unwrap_err(),
+            decode_failure("/e: items[2]: too many elements")
+        );
+    }
+
+    #[test]
+    fn a_capped_list_refusal_does_not_spend_budget() {
+        let _armed = budget::arm();
+        assert!(serde_json::from_str::<Capped>(r#"{"items":[1,2,3]}"#).is_err());
+        assert_eq!(budget::remaining(), Some(budget::MAX_ELEMENTS - 2));
+    }
+
+    #[test]
+    fn a_list_read_outside_decode_is_refused() {
+        let error = serde_json::from_str::<Lists>(r#"{"a":["x"]}"#).unwrap_err();
+        assert!(error.to_string().starts_with("decoding budget not armed"), "{error}");
+    }
+
+    #[test]
+    fn a_refusal_never_carries_a_value() {
+        let accepted = format!(r#"{{"items":[{}]}}"#, [r#""sekret-42-Ω""#].repeat(100).join(","));
+        assert_eq!(decode::<CappedAtHundred>(&accepted, "/e").unwrap().items.len(), 100);
+        let raw = format!(r#"{{"items":[{}]}}"#, [r#""sekret-42-Ω""#].repeat(101).join(","));
+        let error = decode::<CappedAtHundred>(&raw, "/e").unwrap_err();
+        assert_eq!(error, decode_failure("/e: items[100]: too many elements"));
+        assert!(!format!("{error:?}").contains("sekret"));
+        assert!(!error.to_string().contains("sekret"));
     }
 
     #[derive(Deserialize)]
