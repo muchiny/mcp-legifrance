@@ -8,3 +8,7 @@ mutants.out*/
 .env
 .env.*
 *.snap.new
+# Rapports produits pour SonarQube Cloud (make cov-cobertura, make clippy-json)
+/cobertura.xml
+/clippy-report.json
+/.scannerwork
