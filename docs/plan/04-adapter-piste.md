@@ -995,7 +995,7 @@ Les personnes (`president`, `avocats`, `rapporteur`, `commissaire`, `avocatGl`) 
 | `num` et `numParution` : chaînes dans toutes les fixtures (78 chaînes, 34 `null`, 0 entier), entier possible (D-24) ; `conteneurs[].num` d'une convention est son IDCC | tous les endpoints | `opt_string_or_number` | `num_accepts_int_and_string` |
 | `typePagination` renvoyé différent de l'envoyé | search CODE | `PaginationMemo`, valeur rendue à PISTE en page suivante, jamais au modèle (§6.6) | `type_pagination_is_echoed_on_next_page` |
 | suffixe `_JJ-MM-AAAA` sur `titles[].id` et `id` de lawDecree | search LODA/CODE, lawDecree | `parse_versioned` / `VersionedId` du domaine (03 §2.4 ; tâche de tête de M2, C4 : le suffixe est validé comme une vraie date et conservé, un suffixe mal formé est refusé, un suffixe bien formé hors `LEGITEXT` est toléré puis retiré) | `suffix_is_version_date` |
-| `cid` LODA = `JORFTEXT` ≠ `id` | search, lawDecree | `Option<JorfTextId>` | — |
+| `cid` LODA = `JORFTEXT` ≠ `id` ; `cid` d'un code = `LEGITEXT` ; `cid` KALI = `KALITEXT` = `id` | search, lawDecree, kaliText | `Option<DocumentId>` (la famille suit le texte, `TextBody.cid`) | — |
 | `etat` LODA `null` mais `jurisState` = `Vigueur` | lawDecree | `status_of(etat, jurisState)` (03 §3.3, E-10) | `loda_status_falls_back_to_juris_state` |
 | `liens[]` JURI : identifiants `""`, titres fragmentés | juri | `opt_nonempty` ; titres passés au parseur (M7) | `empty_string_is_none` |
 | `facets` absent (CODE) ou énorme (KALI) | search | non déclaré | `facets_are_skipped_without_building_a_value` (comportemental : `facets` imbriqué sur 200 niveaux ou de 30 000 éléments passe) |
