@@ -4,7 +4,7 @@
 //! travail du mapper (plan 2f) : [`OfficialSummary::new`] reçoit déjà les deux listes et ne
 //! fait que les normaliser.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt};
 
 use crate::text::{clean, fold::fold};
 
@@ -14,12 +14,25 @@ use crate::text::{clean, fold::fold};
 /// seule ligne, code de classement de tête retiré, entrées vides écartées, doublons
 /// supprimés. Le sens de `analyses` et `titrages` dépend du fond (03 §4.4) ; une liste
 /// vide signifie que l'API n'en fournit pas.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+///
+/// `Debug` n'écrit jamais les entrées (texte du corps d'une décision), seulement leur nombre.
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct OfficialSummary {
     /// Analyses rédigées (phrases), sans code de classement, dédoublonnées.
     pub analyses: Vec<String>,
     /// Titrages en mots-clés, sans code de classement, dédoublonnés.
     pub titrages: Vec<String>,
+}
+
+impl fmt::Debug for OfficialSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "OfficialSummary {{ analyses: {}, titrages: {} }}",
+            self.analyses.len(),
+            self.titrages.len()
+        )
+    }
 }
 
 impl OfficialSummary {
@@ -106,6 +119,20 @@ mod tests {
 
     fn norm(entries: &[&str]) -> Vec<String> {
         normalize_entries(entries.iter().copied())
+    }
+
+    #[test]
+    fn debug_never_prints_the_entries() {
+        let summary = OfficialSummary::new(
+            ["Texte confidentiel de l'analyse", "Seconde analyse secrète"],
+            ["TITRAGE SECRET"],
+        );
+        assert_eq!(format!("{summary:?}"), "OfficialSummary { analyses: 2, titrages: 1 }");
+        assert_eq!(format!("{summary:#?}"), "OfficialSummary { analyses: 2, titrages: 1 }");
+        assert_eq!(
+            format!("{:?}", OfficialSummary::default()),
+            "OfficialSummary { analyses: 0, titrages: 0 }"
+        );
     }
 
     #[test]

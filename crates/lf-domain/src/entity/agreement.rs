@@ -2,7 +2,7 @@
 //! `citations.py:444-486`) : le texte n'existe qu'en pièce jointe `.docx`.
 
 use crate::{
-    contract::{Citable, CitationContract, with_company},
+    contract::{Citable, CitationContract, Idcc, with_company},
     date::CivilDate,
     id::AccoTextId,
     url::{ResourceKind, legifrance_url},
@@ -25,8 +25,8 @@ pub struct CompanyAgreement {
     pub raison_sociale: Option<String>,
     /// SIRET.
     pub siret: Option<String>,
-    /// Convention collective de rattachement (IDCC).
-    pub idcc: Option<String>,
+    /// Convention collective de rattachement ; `None` : absent ou illisible.
+    pub idcc: Option<Idcc>,
     /// Code APE.
     pub code_ape: Option<String>,
     /// Secteur.
@@ -59,15 +59,14 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    #[test]
-    fn cites_title_and_company() {
-        let agreement = CompanyAgreement {
+    fn agreement(idcc: Option<Idcc>) -> CompanyAgreement {
+        CompanyAgreement {
             agreement_id: AccoTextId::parse("ACCOTEXT000051888026").unwrap(),
             nature: None,
             title: Some("Télétravail".into()),
             raison_sociale: Some("CORSAIR".into()),
             siret: Some("32862158600143".into()),
-            idcc: Some("275".into()),
+            idcc,
             code_ape: None,
             secteur: None,
             themes: vec![],
@@ -75,14 +74,35 @@ mod tests {
             date_texte: None,
             date_effet: None,
             date_depot: None,
-        };
-        let c = agreement.contract();
+        }
+    }
+
+    #[test]
+    fn cites_title_and_company() {
+        let c = agreement(Idcc::parse("275")).contract();
         assert_eq!(
             (c.citation.as_str(), c.source_url.as_str()),
             (
                 "Télétravail (CORSAIR)",
                 "https://www.legifrance.gouv.fr/acco/id/ACCOTEXT000051888026"
             )
+        );
+    }
+
+    #[test]
+    fn agreement_idcc_is_typed() {
+        // L'IDCC brut de l'API est zéro-complété sur seize chiffres ; il est typé, sans zéros
+        // de tête, et absent quand il est illisible. La citation n'en dépend pas.
+        let padded = agreement(Idcc::parse("0000000000000275"));
+        let unreadable = agreement(Idcc::parse("0000"));
+        assert_eq!(
+            (
+                padded.idcc.map(Idcc::get),
+                padded.idcc.map(|i| i.to_string()),
+                unreadable.idcc,
+                padded.contract().citation == unreadable.contract().citation,
+            ),
+            (Some(275), Some("275".to_owned()), None, true)
         );
     }
 }

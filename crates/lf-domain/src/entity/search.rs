@@ -1,5 +1,7 @@
 //! Résultats de recherche (`fr_search`, `citations.py:110-182`).
 
+use std::fmt;
+
 use crate::{
     contract::{Citable, CitationContract, Idcc, cut_at_word, with_company},
     date::CivilDate,
@@ -28,8 +30,16 @@ pub const SNIPPET_MAX_CHARS: usize = 280;
 /// assert_eq!(snippet.as_ref().map(Snippet::as_str), Some("[...] droit au respect [...]"));
 /// assert_eq!(Snippet::new("<mark> </mark>"), None);
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Debug` n'écrit jamais l'extrait (texte du corps), seulement sa longueur en caractères.
+#[derive(Clone, PartialEq, Eq)]
 pub struct Snippet(String);
+
+impl fmt::Debug for Snippet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Snippet({} chars)", self.0.chars().count())
+    }
+}
 
 impl Snippet {
     /// Nettoie `raw` puis le coupe ; `None` s'il ne reste rien.
@@ -418,6 +428,23 @@ mod tests {
         for raw in ["", "   ", "<mark></mark>", "<mark> </mark>\n"] {
             assert_eq!(snippet_text(raw), None, "{raw:?}");
             assert_eq!(Snippet::new(raw), None, "{raw:?}");
+        }
+    }
+
+    #[test]
+    fn debug_never_prints_the_snippet() {
+        let snippet = Snippet::new("droit au <mark>respect</mark> é").unwrap();
+        assert_eq!(format!("{snippet:?}"), "Snippet(18 chars)");
+        let mut found = hit(Fond::Juri, "JURITEXT000048465611", None);
+        found.snippet = Some(snippet.clone());
+        let reference = CodeArticleRef::new(
+            ArticleId::parse("LEGIARTI000006419288").unwrap(),
+            None,
+            "droit au respect é",
+        );
+        for debug in [format!("{found:?}"), format!("{reference:?}"), format!("{found:#?}")] {
+            assert!(!debug.contains("respect"), "{debug}");
+            assert!(debug.contains("Snippet(") && debug.contains("chars)"), "{debug}");
         }
     }
 

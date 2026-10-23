@@ -45,6 +45,10 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - Adapter PISTE : `request::search::search_body` (payload, facettes, `DATE_VERSION` à midi Europe/Paris, gardes) et `PaginationMemo`.
 - Adapter PISTE : classification « introuvable » : un 400 de consultation au marqueur « introuvable », un 404 de consultation sur les deux adresses officielles (corps non HTML) et un 2xx vide d'une consultation donnent `NotFound` (un 2xx vide de `/search` donne `Decode`) ; message PISTE nettoyé d'un 400 de consultation, jeton et secret client retirés ; corps d'erreur plafonné à 64 Kio.
 - Dépendances `serde_path_to_error` 0.1.20 et `chrono-tz` 0.10.4 (binaire +1,86 Mo).
+- Domaine (plan 2e) : `LegalStatus` et `status_of`, `Nor`, `Idcc`, `DocumentId`, `Fond::hit_prefix`, erreurs `HitKindMismatch` et `TextTooLarge`.
+- Domaine (plan 2e) : lexer HTML partagé (`text/html.rs`), `clean_with_report`, `clean_field`, `CleanReport`, `LongText` (`from_html`, `from_plain`, `best_of`, faillibles), cible de fuzz `from_html`.
+- Domaine (plan 2e) : `Snippet`, `SearchHit::new`, `SearchPage.total_articles` et `dropped`, `OfficialSummary`, `ParentText` et `ParentNature`, `article_citation_for` (appel de note final retiré pour un texte non codifié, Q12 par défaut).
+- Domaine (plan 2e) : `Decision.official_summary` ; `Act` et `Convention` complets (statut, NOR, texte en ligne ; IDCC, conteneur, bulletin) ; les 16 fixtures de la référence et leur golden installés dans `lf-adapter-piste/tests/fixtures/reference/`.
 
 ### Changed
 
@@ -64,6 +68,7 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - Workflow `tls-spike.yml` : `apt-get update` avant l'installation de `musl-tools`.
 - Adapter PISTE : champs de `PisteEndpoints`, `PisteCredentials`, `RateQuota` et `PisteConfig` privés (accesseurs).
 - Adapter PISTE : le `detail` d'un 400 de consultation porte le message PISTE nettoyé ; celui d'un 400 de `/search` reste générique (`HTTP 400 on /search`).
+- Domaine (plan 2e) : `text`, `etat`, `idcc` et `nor` des entités typés (`LongText`, `LegalStatus`, `Idcc`, `Nor`) à la place de chaînes ; `CodeArticleRef.snippet` est un `Option<Snippet>` ; `clean` délègue à `clean_with_report`.
 
 ### Removed
 

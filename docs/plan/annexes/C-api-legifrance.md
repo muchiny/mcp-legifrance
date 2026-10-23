@@ -809,7 +809,7 @@ Règles (00 §4 ; 03-domaine §6 ; 04 §9.1) :
 
 - Tous les entiers non sentinelles sont des multiples exacts de 86 400 000 (minuit UTC) ; une seule chaîne ISO n'est pas à minuit (heure de requête KALI). La date civile UTC est donc la bonne lecture. Convention générale **NON VÉRIFIÉ** [V-100 · convention-horaire-timestamps]. C'est aussi la raison de la règle de midi Europe/Paris pour `singleDate` en entrée (00 §8, §3.6).
 - Toute date ≥ 2222-01-01 devient `None`, donc un champ omis en sortie dont le sens est documenté par champ (00 §4, AM-01) : règle des champs `…Computed` du Swagger, qui couvre `2999-01-01` (fin ouverte) et `2222-02-22`. Cette seconde valeur signifie, dans les dumps DILA, « entrée en vigueur différée à une date non déterminée » (§7.8) ; son emploi par l'API est **NON VÉRIFIÉ** [V-101 · sentinelle-2222-debut].
-- Epoch négatifs : conversion calendaire pure : le mapping appelle `CivilDate::from_unix_millis` (domaine, `div_euclid`, date.rs:91 ; la recherche 03 §11.2 avait relevé le même comportement dans `chrono`, historique), indépendante de la plateforme (corrige D-20, E-35).
+- Epoch négatifs : conversion calendaire pure : le mapping appelle `CivilDate::from_unix_millis` (domaine, `div_euclid`, date.rs ; la recherche 03 §11.2 avait relevé le même comportement dans `chrono`, historique), indépendante de la plateforme (corrige D-20, E-35).
 - Un booléen n'est jamais une date (la référence acceptait `true`, D-20).
 
 ### 4.10 Identifiants

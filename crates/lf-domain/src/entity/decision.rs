@@ -8,7 +8,9 @@ use crate::{
     contract::{Citable, CitationContract, constit_citation},
     date::CivilDate,
     ecli::Ecli,
+    entity::OfficialSummary,
     id::DecisionId,
+    text::LongText,
     url::{ResourceKind, legifrance_url},
 };
 
@@ -35,8 +37,10 @@ pub struct Decision {
     pub nature: Option<String>,
     /// Titre Légifrance.
     pub title: Option<String>,
-    /// Texte intégral.
-    pub text: Option<String>,
+    /// Texte intégral, nettoyé (vide : l'API n'en fournit pas).
+    pub text: LongText,
+    /// Sommaire officiel (analyses et titrages, 03 §4.4) ; vide : l'API n'en fournit pas.
+    pub official_summary: OfficialSummary,
 }
 
 impl Citable for Decision {
@@ -77,7 +81,8 @@ mod tests {
             date_texte: CivilDate::new(2025, 11, 7),
             nature: Some("QPC".into()),
             title: Some("Titre Légifrance [Objet]".into()),
-            text: None,
+            text: LongText::default(),
+            official_summary: OfficialSummary::default(),
         }
     }
 
@@ -147,6 +152,71 @@ mod tests {
             d.ecli = Some(Ecli::parse(ecli).unwrap());
             let c = d.contract();
             assert_eq!((c.ecli.as_ref().map(Ecli::as_str), c.eli), (Some(ecli), None), "{id}");
+        }
+    }
+
+    #[test]
+    fn url_depends_on_id_type_not_payload_origine() {
+        // Le préfixe de l'identifiant décide de l'URL (`JURITEXT` ⇒ `juri`, `CONSTEXT` ⇒
+        // `cons`, `CETATEXT` ⇒ `ceta`) ; ni `juridiction`, ni `nature`, ni `formation`,
+        // reflets de l'`origine` de la charge utile, n'y changent rien.
+        let urls = [
+            "https://www.legifrance.gouv.fr/juri/id/JURITEXT000048465611",
+            "https://www.legifrance.gouv.fr/cons/id/CONSTEXT000052555275",
+            "https://www.legifrance.gouv.fr/ceta/id/CETATEXT000051655317",
+        ];
+        for origine in ["JURI", "CONSTIT", "CETAT"] {
+            for (id, url) in IDS.into_iter().zip(urls) {
+                let mut d = decision(id);
+                d.juridiction = Some(origine.into());
+                d.nature = Some(origine.into());
+                d.formation = Some(origine.into());
+                assert_eq!(d.contract().source_url.as_str(), url, "{id} {origine}");
+            }
+        }
+    }
+
+    #[test]
+    fn decision_carries_official_summary_and_long_text() {
+        let mut d = decision(IDS[2]);
+        d.text = LongText::from_html("<p>Vu la requête</p><p>Considérant ce qui suit</p>").unwrap();
+        d.official_summary = OfficialSummary::new(
+            ["01-03-02-02 Il résulte de l'article 34 que la loi fixe les règles."],
+            ["Domaine de la loi"],
+        );
+        assert_eq!(
+            (
+                d.text.as_str(),
+                d.text.paragraphs().count(),
+                d.official_summary.analyses.as_slice(),
+                d.official_summary.titrages.as_slice(),
+            ),
+            (
+                "Vu la requête\n\nConsidérant ce qui suit",
+                2,
+                ["Il résulte de l'article 34 que la loi fixe les règles.".to_owned()].as_slice(),
+                ["Domaine de la loi".to_owned()].as_slice(),
+            )
+        );
+        // Sans texte ni sommaire (valeurs par défaut) : vides, jamais d'erreur.
+        let empty = decision(IDS[0]);
+        assert_eq!(
+            (empty.text.is_empty(), empty.official_summary),
+            (true, OfficialSummary::default())
+        );
+    }
+
+    #[test]
+    fn debug_of_a_full_decision_prints_no_body_text() {
+        let mut d = decision(IDS[2]);
+        d.text = LongText::from_html("<p>Vu la requête confidentielle</p>").unwrap();
+        d.official_summary =
+            OfficialSummary::new(["Analyse secrète du Conseil"], ["TITRAGE SECRET"]);
+        for debug in [format!("{d:?}"), format!("{d:#?}")] {
+            for fragment in ["confidentielle", "secrète", "SECRET"] {
+                assert!(!debug.contains(fragment), "{fragment} dans {debug}");
+            }
+            assert!(debug.contains("LongText(") && debug.contains("analyses: 1"), "{debug}");
         }
     }
 

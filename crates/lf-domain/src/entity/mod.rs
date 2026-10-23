@@ -78,7 +78,8 @@ mod tests {
             date_texte: None,
             nature: None,
             title: title.map(Into::into),
-            text: None,
+            text: LongText::default(),
+            official_summary: OfficialSummary::default(),
         }
     }
 
@@ -128,7 +129,7 @@ mod tests {
                     date_publication: None,
                     title: title.map(Into::into),
                     title_long: None,
-                    text: None,
+                    text: LongText::default(),
                 }
                 .contract(),
                 "CNILTEXT000053352643",
