@@ -586,6 +586,60 @@ fn is_invisible(c: char) -> bool {
         )
 }
 
+/// Découpe `html` en paragraphes (03 §7.2, étape 4) et compte les caractères invisibles
+/// retirés.
+///
+/// Un paragraphe est le texte compris entre deux coupures de bloc ([`Event::Break`], de
+/// n'importe quelle sorte : `<BR></BR>` coupe deux fois, ce qui est sans effet puisque les
+/// segments vides sont supprimés). Une cellule ([`Event::Cell`]) vaut une espace. Chaque
+/// segment passe par [`decode_entities`], puis [`strip_invisible`], puis tous ses blancs (sauts
+/// de ligne compris) sont repliés en une espace et ses bords rognés. Un segment vide est
+/// supprimé : sans balise de bloc le résultat est un seul paragraphe, sans texte il est vide.
+///
+/// Le second élément est la somme, sur tous les segments, des caractères invisibles retirés
+/// (y compris ceux des segments qui n'ont rien d'autre et disparaissent).
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "premier appelant : `LongText::from_html` (tâche 6 du plan 2e), qui retire cet attribut"
+    )
+)]
+pub(crate) fn paragraphs(html: &str) -> (Vec<String>, u32) {
+    let mut paragraphs = Vec::new();
+    let mut invisible = 0_u32;
+    let mut segment = String::new();
+    scan(html, |event| match event {
+        Event::Text(text) => segment.push_str(text),
+        Event::Cell => segment.push(' '),
+        Event::Break(_) => {
+            invisible = invisible.saturating_add(close_segment(&mut segment, &mut paragraphs));
+        }
+    });
+    invisible = invisible.saturating_add(close_segment(&mut segment, &mut paragraphs));
+    (paragraphs, invisible)
+}
+
+/// Termine le segment en cours : il est vidé, et ajouté à `paragraphs` s'il a du texte une fois
+/// nettoyé. Rend le nombre de caractères invisibles retirés.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "appelée par `paragraphs`, sans appelant avant `LongText::from_html`"
+    )
+)]
+fn close_segment(segment: &mut String, paragraphs: &mut Vec<String>) -> u32 {
+    let decoded = decode_entities(segment);
+    segment.clear();
+    let (visible, removed) = strip_invisible(&decoded);
+    let paragraph = visible.split_whitespace().collect::<Vec<_>>().join(" ");
+    if !paragraph.is_empty() {
+        paragraphs.push(paragraph);
+    }
+    removed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1062,6 +1116,217 @@ mod tests {
         #[test]
         fn input_without_markup_is_one_text(text in "[^<]{1,80}") {
             prop_assert_eq!(events(&text), vec![Text(&text)]);
+        }
+    }
+
+    // ---- paragraphs (03 §7.2, étape 4) ----
+
+    /// Paragraphes seuls, sans le compteur d'invisibles.
+    fn texts(html: &str) -> Vec<String> {
+        paragraphs(html).0
+    }
+
+    /// Suite de blancs repliée en une espace, bords rognés.
+    fn fold_ws(s: &str) -> String {
+        s.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    /// Champ texte d'une fixture, par son chemin dans le JSON. Une fixture connue en mojibake
+    /// (`known_issues` de son `.meta.toml`) est réparée par l'appelant, sur le texte entier,
+    /// avant d'arriver ici (03 §7.1) : aucune des fixtures de ce module n'en a.
+    fn text_field(fixture_json: &str, path: &[&str]) -> String {
+        let mut value: serde_json::Value = serde_json::from_str(fixture_json).unwrap();
+        for key in path {
+            value = value[key].take();
+        }
+        value.as_str().unwrap().to_owned()
+    }
+
+    const CONSTIT: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/reference/consult_juri_constit.json"
+    );
+    const CETAT: &str =
+        include_str!("../../../lf-adapter-piste/tests/fixtures/reference/consult_juri_cetat.json");
+    const CNIL: &str =
+        include_str!("../../../lf-adapter-piste/tests/fixtures/reference/consult_cnil.json");
+
+    /// `texteHtml` d'une fixture.
+    fn text_html(fixture_json: &str) -> String {
+        text_field(fixture_json, &["text", "texteHtml"])
+    }
+
+    /// Somme des longueurs en caractères des paragraphes.
+    fn chars_sum(paragraphs: &[String]) -> usize {
+        paragraphs.iter().map(|p| p.chars().count()).sum()
+    }
+
+    #[test]
+    fn from_html_block_tags_split_paragraphs() {
+        assert_eq!(texts("<p>a</p><p>b</p>"), ["a", "b"]);
+        assert_eq!(texts("a<br/>b"), ["a", "b"]);
+        assert_eq!(texts("a<BR>b"), ["a", "b"]);
+        assert_eq!(texts("<div>a</div><li>b<h1>c"), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn from_html_closing_br_is_a_block_too() {
+        // `<BR></BR>` coupe deux fois : sans effet, le segment vide entre les deux est supprimé.
+        assert_eq!(texts("a<BR></BR>b"), ["a", "b"]);
+        assert_eq!(texts("a</br>b"), ["a", "b"]);
+    }
+
+    #[test]
+    fn from_html_table_cell_is_a_space() {
+        assert_eq!(texts("<tr><td>a</td><td>b</td></tr>"), ["a b"]);
+        assert_eq!(texts("a<th>b"), ["a b"]);
+    }
+
+    #[test]
+    fn from_html_inline_tags_vanish_without_space() {
+        assert_eq!(texts("1<sup>er</sup> <mark>mai</mark>"), ["1er mai"]);
+    }
+
+    #[test]
+    fn from_html_drops_rech_and_script_with_content() {
+        assert_eq!(
+            texts("a<RECH_ECLI>ECLI:FR:X</RECH_ECLI><p>b<script>x()</script>c"),
+            ["a", "bc"]
+        );
+    }
+
+    #[test]
+    fn from_html_unclosed_tag_at_end() {
+        assert_eq!(texts("a<p>b <a href=\"x"), ["a", "b"]);
+        assert_eq!(texts("a<p>b <i"), ["a", "b <i"]);
+        assert_eq!(texts("a<p>b<"), ["a", "b<"]);
+    }
+
+    #[test]
+    fn from_html_literal_less_than() {
+        assert_eq!(texts("a < b"), ["a < b"]);
+    }
+
+    #[test]
+    fn from_html_decodes_entities_after_tags() {
+        assert_eq!(texts("A &amp; B <p>&lt;b&gt; &eacute;t&#233;"), ["A & B", "<b> été"]);
+    }
+
+    #[test]
+    fn from_html_invalid_numeric_entity_kept() {
+        assert_eq!(
+            texts("a &#xZZ; &#1114112; &#; &unknown;"),
+            ["a &#xZZ; &#1114112; &#; &unknown;"]
+        );
+    }
+
+    #[test]
+    fn from_html_no_block_tag_gives_one_paragraph() {
+        assert_eq!(texts("un seul <b>bloc</b> de texte"), ["un seul bloc de texte"]);
+    }
+
+    #[test]
+    fn from_html_empty_paragraphs_are_dropped() {
+        assert_eq!(texts("<br/><br/>"), Vec::<String>::new());
+        assert_eq!(texts(" <p> \n\t </p>&nbsp;<p>&#32;</p>"), Vec::<String>::new());
+        assert_eq!(texts("<p>a</p><p></p><p>b</p>"), ["a", "b"]);
+    }
+
+    #[test]
+    fn from_html_empty_input_gives_no_paragraph() {
+        assert_eq!(paragraphs(""), (Vec::new(), 0));
+        assert_eq!(paragraphs("<p></p><script>x</script>"), (Vec::new(), 0));
+    }
+
+    #[test]
+    fn from_html_folds_inner_newlines() {
+        assert_eq!(texts("a\n   b"), ["a b"]);
+        assert_eq!(texts("  a\r\n\t b\u{a0}c&#10;d  <p>\n e \n"), ["a b c d", "e"]);
+    }
+
+    #[test]
+    fn from_html_counts_invisible_chars_over_all_paragraphs() {
+        // Brut ; brut puis décodé d'une entité ; VT (devient une espace, compté) : 1 + 2 + 1 + 2.
+        let html = "a\u{200b}b<p>\u{202e}c&#173;d<p>e\u{b}f<p>\u{200b}\u{200b}";
+        assert_eq!(paragraphs(html), (vec!["ab".to_owned(), "cd".into(), "e f".into()], 6));
+    }
+
+    #[test]
+    fn from_html_without_invisible_chars_counts_zero() {
+        assert_eq!(paragraphs("a<p>b"), (vec!["a".to_owned(), "b".into()], 0));
+    }
+
+    #[test]
+    fn constit_fixture_yields_49_paragraphs() {
+        assert_eq!(texts(&text_html(CONSTIT)).len(), 49);
+    }
+
+    #[test]
+    fn cetat_fixture_yields_multiple_paragraphs() {
+        assert_eq!(texts(&text_html(CETAT)).len(), 43);
+    }
+
+    #[test]
+    fn cnil_fixture_yields_3_paragraphs() {
+        assert_eq!(texts(&text_html(CNIL)).len(), 3);
+    }
+
+    #[test]
+    fn constit_paragraph_chars_sum_to_14236() {
+        assert_eq!(chars_sum(&texts(&text_html(CONSTIT))), 14236);
+    }
+
+    #[test]
+    fn cetat_paragraph_chars_sum_to_14524() {
+        assert_eq!(chars_sum(&texts(&text_html(CETAT))), 14524);
+    }
+
+    #[test]
+    fn cnil_paragraph_chars_sum_to_589() {
+        assert_eq!(chars_sum(&texts(&text_html(CNIL))), 589);
+    }
+
+    #[test]
+    fn fixtures_paragraphs_are_clean() {
+        for fixture in [CONSTIT, CETAT, CNIL] {
+            let (paragraphs, invisible) = paragraphs(&text_html(fixture));
+            assert_eq!(invisible, 0);
+            for paragraph in &paragraphs {
+                assert_ne!(paragraph, "");
+                assert_eq!(fold_ws(paragraph), *paragraph);
+            }
+        }
+    }
+
+    #[test]
+    fn constit_text_is_html_plus_trailing_ecli() {
+        // 03 §10 : `texte` est le HTML sans balises, suivi de l'ECLI que `RECH_ECLI` supprime.
+        let text = text_field(CONSTIT, &["text", "texte"]);
+        let ecli = text_field(CONSTIT, &["text", "ecli"]);
+        let joined = texts(&text_html(CONSTIT)).join(" ");
+        assert_eq!(fold_ws(&text), format!("{} {ecli}", fold_ws(&joined)));
+    }
+
+    proptest! {
+        #[test]
+        fn from_html_never_panics_and_preserves_text(
+            parts in proptest::collection::vec(
+                prop_oneof!["<", ">", "/", "\"", "=", " ", "\n", "!--", "-->", "&", "#", "x", ";",
+                    "br", "p", "td", "script", "RECH_E", "é", "\u{a0}", "\u{200b}", "&shy;",
+                    any::<char>().prop_map(String::from)],
+                0..40,
+            ),
+            plain in "[a-zA-Z0-9éè .,;:\n\t]{0,80}",
+        ) {
+            let (paragraphs, _) = paragraphs(&parts.concat());
+            for paragraph in &paragraphs {
+                prop_assert_ne!(paragraph, "");
+                prop_assert_eq!(&fold_ws(paragraph), paragraph);
+            }
+            // Sans `<` ni `&`, le texte est conservé, blancs repliés.
+            let (paragraphs, invisible) = super::paragraphs(&plain);
+            prop_assert_eq!(invisible, 0);
+            prop_assert_eq!(paragraphs.join(" "), fold_ws(&plain));
+            prop_assert_eq!(paragraphs.len(), usize::from(!fold_ws(&plain).is_empty()));
         }
     }
 }
