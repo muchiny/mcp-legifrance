@@ -1,12 +1,15 @@
-//! Compteurs en mémoire de l'adapter (04 §10.5, ADR-0005) : jamais exportés, seulement lus
+//! Compteurs en mémoire de l'adapter (04 §9.3, §10.5, ADR-0005) : jamais exportés, seulement lus
 //! par `PisteCorpus::stats()` sous forme d'instantané.
 //!
 //! Un seul compteur `mojibake_unrepaired` couvre les deux causes d'un corps gardé tel quel
-//! (réparation coupée, réparation refusée par le domaine).
+//! (réparation coupée, réparation refusée par le domaine). Les neuf compteurs de mapping
+//! reçoivent les [`Diagnostics`] d'un mapping par `record_mapping`, qui journalise une ligne par
+//! compteur non nul : l'endpoint et le nombre, jamais un identifiant ni une valeur du corps.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::encoding::DecodedBody;
+use crate::map::Diagnostics;
 
 /// Instantané des compteurs de l'adapter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -16,6 +19,24 @@ pub struct StatsSnapshot {
     pub mojibake_repairs: u64,
     /// Corps de réponse où le mojibake a été détecté mais gardé tel quel.
     pub mojibake_unrepaired: u64,
+    /// Résultats de recherche écartés : identifiant invalide ou d'un autre fond.
+    pub dropped_hits: u64,
+    /// Réponses dont l'identifiant renvoyé manque ou diffère de celui demandé.
+    pub id_mismatch: u64,
+    /// Horodatages qui ne tombent pas à minuit UTC, lus comme jours civils UTC.
+    pub non_midnight_timestamps: u64,
+    /// Suffixes de version retirés d'identifiants autres que `LEGITEXT`.
+    pub upstream_suffix_stripped: u64,
+    /// Champs d'origine en désaccord avec la famille de l'identifiant.
+    pub origin_mismatch: u64,
+    /// ECLI natifs refusés et omis.
+    pub invalid_native_ecli: u64,
+    /// NOR refusés et omis.
+    pub invalid_nor: u64,
+    /// Entrées de table des matières écartées : identifiant invalide ou en double.
+    pub toc_dropped: u64,
+    /// Caractères invisibles ou bidirectionnels retirés des textes.
+    pub invisible_chars_removed: u64,
 }
 
 /// Compteurs partagés de l'adapter.
@@ -23,6 +44,15 @@ pub struct StatsSnapshot {
 pub(crate) struct Stats {
     mojibake_repairs: AtomicU64,
     mojibake_unrepaired: AtomicU64,
+    dropped_hits: AtomicU64,
+    id_mismatch: AtomicU64,
+    non_midnight_timestamps: AtomicU64,
+    upstream_suffix_stripped: AtomicU64,
+    origin_mismatch: AtomicU64,
+    invalid_native_ecli: AtomicU64,
+    invalid_nor: AtomicU64,
+    toc_dropped: AtomicU64,
+    invisible_chars_removed: AtomicU64,
 }
 
 impl Stats {
@@ -48,12 +78,108 @@ impl Stats {
         }
     }
 
+    /// Ajoute les diagnostics d'un mapping de `endpoint` à leurs compteurs, puis journalise une
+    /// ligne par compteur non nul (`log_mapping`).
+    pub(crate) fn record_mapping(&self, endpoint: &str, diags: &Diagnostics) {
+        add(&self.dropped_hits, diags.dropped_hits);
+        add(&self.id_mismatch, diags.id_mismatch);
+        add(&self.non_midnight_timestamps, diags.non_midnight_timestamps);
+        add(&self.upstream_suffix_stripped, diags.upstream_suffix_stripped);
+        add(&self.origin_mismatch, diags.origin_mismatch);
+        add(&self.invalid_native_ecli, diags.invalid_native_ecli);
+        add(&self.invalid_nor, diags.invalid_nor);
+        add(&self.toc_dropped, diags.toc_dropped);
+        add(&self.invisible_chars_removed, diags.invisible_chars_removed);
+        log_mapping(endpoint, diags);
+    }
+
     /// Instantané des compteurs.
     pub(crate) fn snapshot(&self) -> StatsSnapshot {
         StatsSnapshot {
             mojibake_repairs: self.mojibake_repairs.load(Ordering::Relaxed),
             mojibake_unrepaired: self.mojibake_unrepaired.load(Ordering::Relaxed),
+            dropped_hits: self.dropped_hits.load(Ordering::Relaxed),
+            id_mismatch: self.id_mismatch.load(Ordering::Relaxed),
+            non_midnight_timestamps: self.non_midnight_timestamps.load(Ordering::Relaxed),
+            upstream_suffix_stripped: self.upstream_suffix_stripped.load(Ordering::Relaxed),
+            origin_mismatch: self.origin_mismatch.load(Ordering::Relaxed),
+            invalid_native_ecli: self.invalid_native_ecli.load(Ordering::Relaxed),
+            invalid_nor: self.invalid_nor.load(Ordering::Relaxed),
+            toc_dropped: self.toc_dropped.load(Ordering::Relaxed),
+            invisible_chars_removed: self.invisible_chars_removed.load(Ordering::Relaxed),
         }
+    }
+}
+
+/// Ajoute `n` au compteur.
+fn add(counter: &AtomicU64, n: u32) {
+    counter.fetch_add(u64::from(n), Ordering::Relaxed);
+}
+
+/// Journalise une ligne par compteur non nul d'un mapping de `endpoint` : `warn` pour un
+/// identifiant incohérent, un horodatage hors minuit ou une origine en désaccord, `debug` sinon.
+///
+/// Chaque ligne ne porte que le gabarit de chemin et le nombre, jamais un identifiant ni une
+/// valeur du corps.
+fn log_mapping(endpoint: &str, diags: &Diagnostics) {
+    if diags.dropped_hits > 0 {
+        tracing::debug!(
+            endpoint,
+            count = diags.dropped_hits,
+            "search hits dropped: invalid identifier or identifier of another fond"
+        );
+    }
+    if diags.id_mismatch > 0 {
+        tracing::warn!(
+            endpoint,
+            count = diags.id_mismatch,
+            "returned identifier is missing or differs from the requested one"
+        );
+    }
+    if diags.non_midnight_timestamps > 0 {
+        tracing::warn!(
+            endpoint,
+            count = diags.non_midnight_timestamps,
+            "timestamps not at midnight UTC were read as UTC calendar days"
+        );
+    }
+    if diags.upstream_suffix_stripped > 0 {
+        tracing::debug!(
+            endpoint,
+            count = diags.upstream_suffix_stripped,
+            "version suffix stripped from identifiers other than LEGITEXT"
+        );
+    }
+    if diags.origin_mismatch > 0 {
+        tracing::warn!(
+            endpoint,
+            count = diags.origin_mismatch,
+            "origin field disagrees with the identifier family"
+        );
+    }
+    if diags.invalid_native_ecli > 0 {
+        tracing::debug!(
+            endpoint,
+            count = diags.invalid_native_ecli,
+            "native ECLI rejected and left out"
+        );
+    }
+    if diags.invalid_nor > 0 {
+        tracing::debug!(endpoint, count = diags.invalid_nor, "NOR rejected and left out");
+    }
+    if diags.toc_dropped > 0 {
+        tracing::debug!(
+            endpoint,
+            count = diags.toc_dropped,
+            "table of contents entries dropped: invalid or duplicate identifier"
+        );
+    }
+    if diags.invisible_chars_removed > 0 {
+        tracing::debug!(
+            endpoint,
+            count = diags.invisible_chars_removed,
+            "invisible or bidirectional characters removed from text"
+        );
     }
 }
 
@@ -121,11 +247,55 @@ mod tests {
         (snapshot.mojibake_repairs, snapshot.mojibake_unrepaired)
     }
 
+    /// Diagnostics aux neuf compteurs non nuls et distincts.
+    fn primes() -> Diagnostics {
+        Diagnostics {
+            dropped_hits: 2,
+            id_mismatch: 3,
+            non_midnight_timestamps: 5,
+            upstream_suffix_stripped: 7,
+            origin_mismatch: 11,
+            invalid_native_ecli: 13,
+            invalid_nor: 17,
+            toc_dropped: 19,
+            invisible_chars_removed: 23,
+        }
+    }
+
+    /// Instantané attendu après `times` appels de `record_mapping` avec [`primes`].
+    fn primes_times(times: u64) -> StatsSnapshot {
+        StatsSnapshot {
+            mojibake_repairs: 0,
+            mojibake_unrepaired: 0,
+            dropped_hits: 2 * times,
+            id_mismatch: 3 * times,
+            non_midnight_timestamps: 5 * times,
+            upstream_suffix_stripped: 7 * times,
+            origin_mismatch: 11 * times,
+            invalid_native_ecli: 13 * times,
+            invalid_nor: 17 * times,
+            toc_dropped: 19 * times,
+            invisible_chars_removed: 23 * times,
+        }
+    }
+
     #[test]
     fn new_stats_start_at_zero() {
         assert_eq!(
             Stats::default().snapshot(),
-            StatsSnapshot { mojibake_repairs: 0, mojibake_unrepaired: 0 }
+            StatsSnapshot {
+                mojibake_repairs: 0,
+                mojibake_unrepaired: 0,
+                dropped_hits: 0,
+                id_mismatch: 0,
+                non_midnight_timestamps: 0,
+                upstream_suffix_stripped: 0,
+                origin_mismatch: 0,
+                invalid_native_ecli: 0,
+                invalid_nor: 0,
+                toc_dropped: 0,
+                invisible_chars_removed: 0,
+            }
         );
     }
 
@@ -216,5 +386,91 @@ mod tests {
         });
         assert_eq!(counters(&stats), (1, 2));
         assert_eq!(capture.text().matches("WARN").count(), 3);
+    }
+
+    #[test]
+    fn record_mapping_adds_every_counter_to_its_own_field() {
+        let stats = Stats::default();
+        stats.record_mapping("/consult/juri", &primes());
+        assert_eq!(stats.snapshot(), primes_times(1));
+        stats.record_mapping("/consult/juri", &primes());
+        assert_eq!(stats.snapshot(), primes_times(2));
+    }
+
+    #[test]
+    fn record_mapping_logs_each_diagnostic_at_its_level() {
+        let zero = Diagnostics::default();
+        let cases = [
+            (
+                Diagnostics { dropped_hits: 42, ..zero },
+                "DEBUG",
+                "search hits dropped: invalid identifier or identifier of another fond",
+            ),
+            (
+                Diagnostics { id_mismatch: 42, ..zero },
+                "WARN",
+                "returned identifier is missing or differs from the requested one",
+            ),
+            (
+                Diagnostics { non_midnight_timestamps: 42, ..zero },
+                "WARN",
+                "timestamps not at midnight UTC were read as UTC calendar days",
+            ),
+            (
+                Diagnostics { upstream_suffix_stripped: 42, ..zero },
+                "DEBUG",
+                "version suffix stripped from identifiers other than LEGITEXT",
+            ),
+            (
+                Diagnostics { origin_mismatch: 42, ..zero },
+                "WARN",
+                "origin field disagrees with the identifier family",
+            ),
+            (
+                Diagnostics { invalid_native_ecli: 42, ..zero },
+                "DEBUG",
+                "native ECLI rejected and left out",
+            ),
+            (Diagnostics { invalid_nor: 42, ..zero }, "DEBUG", "NOR rejected and left out"),
+            (
+                Diagnostics { toc_dropped: 42, ..zero },
+                "DEBUG",
+                "table of contents entries dropped: invalid or duplicate identifier",
+            ),
+            (
+                Diagnostics { invisible_chars_removed: 42, ..zero },
+                "DEBUG",
+                "invisible or bidirectional characters removed from text",
+            ),
+        ];
+        for (diags, level, message) in cases {
+            let stats = Stats::default();
+            let log = capturing(|| stats.record_mapping("/consult/juri", &diags)).text();
+            assert_eq!(log.lines().count(), 1, "{log}");
+            assert!(log.contains(level), "{level}: {log}");
+            assert!(log.contains(message), "{message}: {log}");
+            assert!(log.contains("count=42"), "{log}");
+            assert!(log.contains(r#"endpoint="/consult/juri""#), "{log}");
+        }
+    }
+
+    #[test]
+    fn record_mapping_is_silent_without_diagnostics() {
+        let stats = Stats::default();
+        let capture = capturing(|| stats.record_mapping("/consult/juri", &Diagnostics::default()));
+        assert_eq!(capture.text(), "");
+        assert_eq!(stats.snapshot(), StatsSnapshot::default());
+    }
+
+    #[test]
+    fn mapping_log_carries_no_identifier_or_body_text() {
+        let stats = Stats::default();
+        let log = capturing(|| stats.record_mapping("/consult/juri", &primes())).text();
+        assert_eq!(log.lines().count(), 9, "{log}");
+        assert_eq!(log.matches('"').count(), 18, "{log}");
+        // Le message fixe de `upstream_suffix_stripped` nomme la famille `LEGITEXT` : c'est la
+        // seule occurrence admise, tout identifiant `LEGITEXT` journalisé en ajouterait une.
+        assert_eq!(log.matches("LEGITEXT").count(), 1, "{log}");
+        assert!(!log.contains("JURITEXT"), "{log}");
     }
 }
