@@ -76,6 +76,17 @@ pub(crate) fn value(name: &str) -> serde_json::Value {
     serde_json::from_str(text(name)).expect("fixture is JSON")
 }
 
+/// Golden de parité (`parite-golden.json`) lu comme valeur JSON : la sortie des outils de la
+/// référence pour les seize fixtures.
+///
+/// # Panics
+///
+/// Si le fichier n'est pas du JSON.
+pub(crate) fn golden() -> serde_json::Value {
+    serde_json::from_str(include_str!("../../tests/fixtures/reference/parite-golden.json"))
+        .expect("golden is JSON")
+}
+
 /// Genre de réponse d'une fixture : ce que le mapper et le DTO attendent d'elle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kind {

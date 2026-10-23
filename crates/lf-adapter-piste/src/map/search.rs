@@ -212,16 +212,20 @@ fn hit_cid(raw: Option<&str>) -> Option<DocumentId> {
 mod tests {
     use std::num::NonZeroU32;
 
+    use lf_domain::contract::Citable;
     use lf_domain::date::CivilDate;
     use lf_domain::entity::{CodeArticleRef, Snippet};
+    use lf_domain::fond::PaginationMode;
     use lf_domain::search::{MatchMode, PageSize, QueryText};
     use lf_domain::status::LegalStatus;
+    use lf_domain::text::encoding::repair_latin1_mojibake;
     use serde_json::{Value, json};
 
     use super::*;
     use crate::dto::de::RawDate;
     use crate::dto::decode::decode;
     use crate::dto::search::SearchSectionDto;
+    use crate::map::fixtures;
 
     /// Requête de `fond` sur « responsabilité civile », page 1, de taille `page_size`.
     fn query(fond: Fond, page_size: u32) -> SearchQuery {
@@ -854,5 +858,370 @@ mod tests {
             flat(&hit.articles),
             [("LEGIARTI000006419288".to_owned(), some!("3"), some!("x"))]
         );
+    }
+    /// Page de la fixture `name` pour `fond` (taille de page 10) et les compteurs relevés.
+    fn fixture(fond: Fond, name: &str) -> (SearchPage, Diagnostics) {
+        let mut diags = Diagnostics::default();
+        let page = search_page(
+            fixtures::decode_as::<SearchResponseDto>(name),
+            &query(fond, 10),
+            &mut diags,
+        )
+        .unwrap();
+        (page, diags)
+    }
+
+    /// Page de la fixture `name` après les contrôles communs : rien d'écarté, aucun compteur,
+    /// chaque résultat du fond demandé et sans suffixe de version.
+    fn checked(fond: Fond, name: &str, hits: usize) -> SearchPage {
+        let (page, diags) = fixture(fond, name);
+        assert_eq!(page.dropped, 0, "{name}");
+        assert_eq!(diags, Diagnostics::default(), "{name}");
+        assert_eq!(page.fond, fond, "{name}");
+        assert_eq!(page.hits.len(), hits, "{name}");
+        for hit in &page.hits {
+            assert_eq!(hit.fond, fond, "{name}");
+            assert_eq!(hit.id.as_str().find('_'), None, "{name}");
+        }
+        page
+    }
+
+    /// Identifiant de document `raw`.
+    fn doc_id(raw: &str) -> DocumentId {
+        DocumentId::parse(raw).unwrap()
+    }
+
+    /// Identifiant d'article `raw`.
+    fn art_id(raw: &str) -> ArticleId {
+        ArticleId::parse(raw).unwrap()
+    }
+
+    /// Texte de l'extrait du résultat.
+    fn snippet_str(hit: &SearchHit) -> &str {
+        hit.snippet.as_ref().unwrap().as_str()
+    }
+
+    /// Nombre de caractères de l'extrait du résultat.
+    fn snippet_len(hit: &SearchHit) -> usize {
+        snippet_str(hit).chars().count()
+    }
+
+    #[test]
+    fn search_loda_fixture_maps() {
+        let page = checked(Fond::Loda, "search_loda", 2);
+        assert_eq!(page.total, 1786);
+        assert_eq!(page.total_articles, None);
+        assert_eq!(page.pagination, PaginationMode::Defaut);
+        let first = &page.hits[0];
+        assert_eq!(first.id, doc_id("LEGITEXT000033205014"));
+        assert_eq!(first.version_start, Some(day(2023, 9, 8)));
+        assert_eq!(first.cid, Some(doc_id("JORFTEXT000033202746")));
+        assert_eq!(
+            first.title.as_deref(),
+            Some("LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)")
+        );
+        assert_eq!(first.date, Some(day(2016, 10, 9)));
+        assert_eq!(first.nature.as_deref(), Some("LOI"));
+        assert_eq!(first.etat, Some(LegalStatus::Vigueur));
+        assert_eq!((&first.snippet, &first.idcc, &first.raison_sociale), (&None, &None, &None));
+        assert_eq!(first.articles, []);
+        let second = &page.hits[1];
+        assert_eq!(second.id, doc_id("LEGITEXT000033696785"));
+        assert_eq!(second.version_start, Some(day(2016, 12, 28)));
+        assert_eq!(second.cid, Some(doc_id("JORFTEXT000033691882")));
+        let title = second.title.as_deref().unwrap();
+        assert_eq!(title.chars().count(), 293);
+        assert!(title.starts_with(
+            "Décret n° 2016-1849 du 23 décembre 2016 relatif à la carte mobilité inclusion"
+        ));
+        assert!(title.ends_with("relative à l'Imprimerie nationale"));
+        assert_eq!(second.date, Some(day(2016, 12, 28)));
+        assert_eq!(second.nature.as_deref(), Some("DECRET"));
+    }
+
+    #[test]
+    fn search_code_fixture_maps() {
+        let page = checked(Fond::Code, "search_code", 1);
+        assert_eq!(page.total, 1);
+        assert_eq!(page.total_articles, Some(1));
+        assert_eq!(page.pagination, PaginationMode::Article);
+        let snippet = Snippet::new(
+            "[...]Chacun a droit au respect de sa vie privée. Les juges peuvent, sans préjudice de la réparation [...]",
+        );
+        assert!(snippet.is_some());
+        assert_eq!(
+            page.hits[0],
+            SearchHit {
+                fond: Fond::Code,
+                id: doc_id("LEGITEXT000006070721"),
+                version_start: Some(day(2026, 4, 9)),
+                cid: Some(doc_id("LEGITEXT000006070721")),
+                title: some!("Code civil"),
+                date: Some(day(1804, 3, 21)),
+                nature: some!("code"),
+                etat: Some(LegalStatus::Vigueur),
+                snippet: snippet.clone(),
+                idcc: None,
+                raison_sociale: None,
+                articles: vec![CodeArticleRef::new(
+                    art_id("LEGIARTI000006419288"),
+                    some!("9"),
+                    snippet_text(snippet.as_ref()).as_str(),
+                )],
+            }
+        );
+    }
+
+    /// Texte de `snippet`.
+    fn snippet_text(snippet: Option<&Snippet>) -> String {
+        snippet.unwrap().as_str().to_owned()
+    }
+
+    #[test]
+    fn search_juri_fixture_maps() {
+        let page = checked(Fond::Juri, "search_juri", 2);
+        assert_eq!(page.total, 122_147);
+        let titles = [
+            "Cour de cassation, civile, Chambre civile 1, 4 juin 2025, 24-13.470, Publié au bulletin",
+            "Cour de cassation, civile, Chambre commerciale, 22 novembre 2023, 22-17.843, Publié au bulletin",
+        ];
+        let ids = ["JURITEXT000051743650", "JURITEXT000048465611"];
+        for ((hit, id), title) in page.hits.iter().zip(ids).zip(titles) {
+            assert_eq!(hit.id, doc_id(id));
+            assert_eq!(hit.cid, Some(doc_id(id)));
+            assert_eq!(hit.title.as_deref(), Some(title));
+            assert_eq!(hit.nature.as_deref(), Some("arret"));
+            assert_eq!((hit.etat.as_ref(), hit.date), (None, None));
+        }
+        let first = snippet_str(&page.hits[0]);
+        assert_eq!(snippet_len(&page.hits[0]), 277);
+        assert!(first.starts_with("[...] Les consorts [E] font grief à l'arrêt"));
+        assert!(first.ends_with("es, les actions en responsab"));
+        assert!(!first.contains('…'));
+        let second = snippet_str(&page.hits[1]);
+        assert_eq!(snippet_len(&page.hits[1]), 275);
+        assert!(second.ends_with("du code des…"));
+    }
+
+    #[test]
+    fn search_constit_fixture_maps() {
+        let page = checked(Fond::Constit, "search_constit", 3);
+        assert_eq!(page.total, 1817);
+        let natures = ["dc", "dc", "qpc"];
+        let titles = [
+            "Décision 2021-817 DC - 20 mai 2021 - Loi pour une sécurité globale préservant les libertés - Non conformité partielle - réserve",
+            "Décision 2018-769 DC - 04 septembre 2018 - Loi pour la liberté de choisir son avenir professionnel - Non conformité partielle",
+            "Décision 2025-1173 QPC - 07 novembre 2025 - M. Amine G. [Absence de publicité des débats devant le juge des libertés et de la détention statuant sur la détention provisoire du prévenu] - Conformité",
+        ];
+        let lengths = [277, 278, 277];
+        let ends = ["du code de…", "légalement conclues…", "aucun autre…"];
+        for (index, hit) in page.hits.iter().enumerate() {
+            assert_eq!(hit.nature.as_deref(), Some(natures[index]), "{index}");
+            assert_eq!(hit.title.as_deref(), Some(titles[index]), "{index}");
+            assert_eq!(snippet_len(hit), lengths[index], "{index}");
+            assert!(snippet_str(hit).ends_with(ends[index]), "{index}");
+        }
+        assert!(!titles[2].contains('\u{a0}'));
+    }
+
+    #[test]
+    fn search_cetat_fixture_maps() {
+        let page = checked(Fond::Cetat, "search_cetat", 3);
+        assert_eq!(page.total, 51_531);
+        let ids = ["CETATEXT000054242861", "CETATEXT000051655317", "CETATEXT000054178503"];
+        let titles = [
+            "CAA de MARSEILLE, 4ème chambre, 09/06/2026, 24MA02429",
+            "CAA de NANCY, 3ème chambre, 22/05/2025, 22NC02259",
+            "Conseil d'État, 2ème - 7ème chambres réunies, 29/05/2026, 506507",
+        ];
+        let lengths = [239, 275, 277];
+        for (index, hit) in page.hits.iter().enumerate() {
+            assert_eq!(hit.id, doc_id(ids[index]), "{index}");
+            assert_eq!(hit.nature.as_deref(), Some("texte"), "{index}");
+            assert_eq!(hit.title.as_deref(), Some(titles[index]), "{index}");
+            assert_eq!(snippet_len(hit), lengths[index], "{index}");
+        }
+        assert!(snippet_str(&page.hits[0]).ends_with("l'urbanisme \". 10. [...]"));
+        assert!(!snippet_str(&page.hits[0]).contains('…'));
+    }
+
+    #[test]
+    fn search_cnil_fixture_maps() {
+        let page = checked(Fond::Cnil, "search_cnil", 2);
+        assert_eq!(page.total, 1134);
+        let ids = ["CNILTEXT000053352643", "CNILTEXT000053408671"];
+        let dates = [day(2026, 1, 14), day(2026, 1, 29)];
+        let lengths = [155, 249];
+        let ends = ["de la sanction 202. [...]", "de la sanction 145. [...]"];
+        // Le tiret demi-cadratin du numéro de la seconde délibération est gardé.
+        assert!(page.hits[1].title.as_deref().unwrap().contains("SAN\u{2013}2026-003"));
+        assert!(page.hits[0].title.as_deref().unwrap().contains("SAN-2026-002"));
+        for (index, hit) in page.hits.iter().enumerate() {
+            assert_eq!(hit.id, doc_id(ids[index]), "{index}");
+            assert_eq!(hit.nature.as_deref(), Some("deliberation"), "{index}");
+            assert_eq!(hit.etat, Some(LegalStatus::Vigueur), "{index}");
+            assert_eq!(hit.date, Some(dates[index]), "{index}");
+            assert_eq!(snippet_len(hit), lengths[index], "{index}");
+            assert!(snippet_str(hit).ends_with(ends[index]), "{index}");
+        }
+    }
+
+    #[test]
+    fn search_kali_fixture_maps() {
+        let page = checked(Fond::Kali, "search_kali", 2);
+        assert_eq!(page.total, 27_337);
+        let first = &page.hits[0];
+        assert_eq!(first.id, doc_id("KALITEXT000005661929"));
+        assert_eq!(first.nature.as_deref(), Some("lettre d'adhesion"));
+        assert_eq!(first.etat, Some(LegalStatus::Vigueur));
+        assert_eq!(first.date, None);
+        assert_eq!(snippet_len(first), 275);
+        assert!(snippet_str(first).ends_with("ensemble de ses…"));
+        assert_eq!(
+            first.articles,
+            [CodeArticleRef::new(art_id("KALIARTI000005807044"), None, snippet_str(first))]
+        );
+        let second = &page.hits[1];
+        assert_eq!(second.id, doc_id("KALITEXT000005661030"));
+        assert_eq!(second.nature.as_deref(), Some("avenant"));
+        assert_eq!(second.etat, Some(LegalStatus::Abroge));
+        assert_eq!(second.date, None);
+        assert_eq!(
+            snippet_str(second),
+            "[...] Le présent avenant est codifié sous l'article 8.4 de la convention collective de la manutention portuaire. [...]"
+        );
+        let articles: Vec<(&str, Option<&String>, usize)> = second
+            .articles
+            .iter()
+            .map(|article| {
+                (
+                    article.article_id.as_str(),
+                    article.num.as_ref(),
+                    snippet_text(article.snippet.as_ref()).chars().count(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            articles,
+            [
+                ("KALIARTI000005805295", None, 118),
+                ("KALIARTI000005805297", None, 218),
+                ("KALIARTI000005805296", None, 213),
+            ]
+        );
+    }
+
+    #[test]
+    fn search_acco_fixture_maps() {
+        let page = checked(Fond::Acco, "search_acco", 2);
+        assert_eq!(page.total, 54_491);
+        let ids = ["ACCOTEXT000053643828", "ACCOTEXT000051888026"];
+        let titles = ["Accord d'entreprise relatif au télétravail", "Accord Télétravail Hopium"];
+        let companies = ["CORSAIR (Télétravail)", "HOPIUM (Télétravail)"];
+        let idccs = [275, 1486];
+        let dates = [day(2025, 12, 19), day(2025, 2, 7)];
+        let lengths = [215, 212];
+        let newlines = [5, 4];
+        let starts = [
+            "[...]définitions liées au télétravail 4\n3.1. Définition du Télétravail 4",
+            "[...]ACCORD TELETRAVAIL HOPIUM\nPRÉAMBULE 3",
+        ];
+        for (index, hit) in page.hits.iter().enumerate() {
+            assert_eq!(hit.id, doc_id(ids[index]), "{index}");
+            assert_eq!(hit.title.as_deref(), Some(titles[index]), "{index}");
+            assert_eq!(hit.idcc.map(|idcc| idcc.to_string()), Some(idccs[index].to_string()));
+            assert_eq!(hit.raison_sociale.as_deref(), Some(companies[index]), "{index}");
+            assert_eq!(hit.date, Some(dates[index]), "{index}");
+            assert_eq!((hit.nature.as_ref(), hit.etat.as_ref()), (None, None), "{index}");
+            assert_eq!(snippet_len(hit), lengths[index], "{index}");
+            assert_eq!(snippet_str(hit).matches('\n').count(), newlines[index], "{index}");
+            assert!(snippet_str(hit).starts_with(starts[index]), "{index}");
+        }
+    }
+
+    /// Les huit pages de fixtures, avec le nom de leur fixture.
+    fn all_pages() -> Vec<(&'static str, SearchPage)> {
+        [
+            (Fond::Acco, "search_acco"),
+            (Fond::Cetat, "search_cetat"),
+            (Fond::Cnil, "search_cnil"),
+            (Fond::Code, "search_code"),
+            (Fond::Constit, "search_constit"),
+            (Fond::Juri, "search_juri"),
+            (Fond::Kali, "search_kali"),
+            (Fond::Loda, "search_loda"),
+        ]
+        .map(|(fond, name)| (name, fixture(fond, name).0))
+        .into()
+    }
+
+    #[test]
+    fn search_fixtures_keep_every_hit_and_drop_none() {
+        let pages = all_pages();
+        let hits: usize = pages.iter().map(|(_, page)| page.hits.len()).sum();
+        assert_eq!(hits, 17);
+        for (name, page) in &pages {
+            assert_eq!(page.dropped, 0, "{name}");
+            for hit in &page.hits {
+                for text in [hit.title.as_deref(), hit.snippet.as_ref().map(Snippet::as_str)]
+                    .into_iter()
+                    .flatten()
+                {
+                    assert!(!text.contains('<') && !text.contains('\u{a0}'), "{name}");
+                }
+            }
+        }
+    }
+
+    /// Blancs repliés en un espace, bords retirés.
+    fn folded(text: &str) -> String {
+        text.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    #[test]
+    fn search_fixtures_match_the_golden_on_shared_fields() {
+        let golden = fixtures::golden();
+        for (name, page) in all_pages() {
+            let expected = &golden["tool_output"][format!("{name}.json")];
+            assert_eq!(Some(page.total), expected["total"].as_u64(), "{name}");
+            let expected_hits = expected["hits"].as_array().unwrap();
+            assert_eq!(page.hits.len(), expected_hits.len(), "{name}");
+            for (hit, golden_hit) in page.hits.iter().zip(expected_hits) {
+                let id = hit.id.as_str();
+                assert_eq!(Some(id), golden_hit["id"].as_str(), "{name}");
+                assert_eq!(hit.cid.as_ref().map(DocumentId::as_str), golden_hit["cid"].as_str());
+                assert_eq!(hit.nature.as_deref(), golden_hit["nature"].as_str(), "{id}");
+                assert_eq!(
+                    hit.etat.as_ref().map(LegalStatus::as_api_code),
+                    golden_hit["etat"].as_str(),
+                    "{id}"
+                );
+                assert_eq!(
+                    hit.idcc.map(|idcc| idcc.to_string()).as_deref(),
+                    golden_hit["idcc"].as_str(),
+                    "{id}"
+                );
+                assert_eq!(
+                    hit.raison_sociale.as_deref(),
+                    golden_hit["raison_sociale"].as_str(),
+                    "{id}"
+                );
+                assert_eq!(
+                    Some(hit.contract().source_url.as_str()),
+                    golden_hit["source_url"].as_str(),
+                    "{id}"
+                );
+                let golden_title = repair_latin1_mojibake(golden_hit["title"].as_str().unwrap());
+                assert_eq!(folded(hit.title.as_deref().unwrap()), folded(&golden_title), "{id}");
+                let golden_articles = golden_hit["articles"].as_array().unwrap().len();
+                if page.fond == Fond::Kali {
+                    assert_eq!(golden_articles, 0, "{id}");
+                    let expected = if id == "KALITEXT000005661929" { 1 } else { 3 };
+                    assert_eq!(hit.articles.len(), expected, "{id}");
+                } else {
+                    assert_eq!(hit.articles.len(), golden_articles, "{id}");
+                }
+            }
+        }
     }
 }
