@@ -918,11 +918,11 @@ pub struct SearchQuery {                           // Eq + Hash : clé de cache 
                                                    // toujours fermée, clé de cache unique
     pub version_date: Option<VersionDate>,         // Some pour Loda et Code seulement (DATE_VERSION)
     // … autres champs éventuels : 03 §4.1. La typePagination envoyée à PISTE est choisie par l'adapter
-    //   (PaginationMemo, 00 §7 ; 04 §6.6) : un éventuel champ `pagination` de 03 reste à Defaut côté application.
+    //   (PaginationMemo, 00 §7 ; 04 §6.6) : `SearchQuery` ne porte aucun champ `typePagination`.
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SearchPage {                            // livré (M1) : fond, query, total, hits ; page, page_size, has_more, pagination : M5
+pub struct SearchPage {                            // livré : fond, query, total, hits, pagination (plan 2d) ; page, page_size, has_more : M5
     pub total: u64,
     pub total_articles: Option<u64>,               // CODE ; porté dès v0.1, rendu en v0.2 (00 §7)
     pub page: std::num::NonZeroU32,

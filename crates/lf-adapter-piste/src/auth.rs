@@ -18,7 +18,7 @@ use reqwest::Url;
 use secrecy::{ExposeSecret, SecretString};
 use tokio::sync::{Mutex, MutexGuard};
 
-use crate::classify::{Outcome, classify};
+use crate::classify::{ErrorContext, Outcome, classify};
 use crate::config::{PisteConfig, PisteCredentials};
 use crate::deadline::CallDeadline;
 use crate::dto::oauth::{OAuthErrorDto, TokenResponseDto, is_header_safe};
@@ -197,8 +197,8 @@ impl<K: MonoClock, S: Sleeper> TokenManager<K, S> {
         // Seul `expose_secret()` du formulaire OAuth.
         let form = [
             ("grant_type", "client_credentials"),
-            ("client_id", credentials.client_id.as_str()),
-            ("client_secret", credentials.client_secret.expose_secret()),
+            ("client_id", credentials.client_id()),
+            ("client_secret", credentials.client_secret().expose_secret()),
             ("scope", "openid"),
         ];
         let ctx = RetryContext {
@@ -213,10 +213,10 @@ impl<K: MonoClock, S: Sleeper> TokenManager<K, S> {
                 endpoint: TOKEN_ENDPOINT,
                 payload: Payload::Form(&form),
                 bearer: None,
-                timeout: deadline.cap(&self.clock, self.config.request_timeout),
-                max_body_bytes: self.config.max_body_bytes,
+                timeout: deadline.cap(&self.clock, self.config.tuning().request_timeout),
+                max_body_bytes: self.config.tuning().max_body_bytes,
             };
-            token_outcome(send_once(client, &attempt).await, self.config.env, url)
+            token_outcome(send_once(client, &attempt).await, self.config.env(), url)
         })
         .await?;
         Ok((grant, obtained_at))
@@ -226,14 +226,12 @@ impl<K: MonoClock, S: Sleeper> TokenManager<K, S> {
 /// Adresse du jeton et identifiants, ou l'erreur de configuration (mode dégradé, 04 §2.4).
 fn request_parts(config: &PisteConfig) -> Result<(&Url, &PisteCredentials), CorpusError> {
     let endpoints = config
-        .endpoints
-        .as_ref()
+        .endpoints()
         .map_err(|problem| CorpusError::Config { detail: problem.to_string() })?;
     let credentials = config
-        .credentials
-        .as_ref()
+        .credentials()
         .ok_or_else(|| CorpusError::Config { detail: "PISTE credentials missing".to_owned() })?;
-    Ok((&endpoints.oauth_url, credentials))
+    Ok((endpoints.oauth_url(), credentials))
 }
 
 /// Durée de vie retenue d'après `expires_in` : absent ou nul donne 3 600 s, au plus 86 400 s.
@@ -263,7 +261,7 @@ fn token_outcome(
     {
         return Outcome::Fatal(error);
     }
-    from_classified(classify(result, TOKEN_ENDPOINT), url)
+    from_classified(classify(result, TOKEN_ENDPOINT, &ErrorContext::TOKEN), url)
 }
 
 /// Reprend une issue classée : seul un succès se lit, un 401 n'a pas de sens ici (il est
@@ -373,7 +371,8 @@ mod tests {
 
     use super::*;
     use crate::classify::Budget;
-    use crate::config::{PisteConfig, PisteCredentials, PisteEndpoints};
+    use crate::config::{PisteConfig, PisteCredentials, PisteEndpoints, PisteTuning};
+    use crate::testing::ClosedPort;
     use crate::time::{ManualClock, RecordingSleeper, TokioClock, TokioSleeper};
 
     const CLIENT_ID: &str = "my-client-id";
@@ -398,10 +397,7 @@ mod tests {
     }
 
     fn credentials(secret: &str) -> PisteCredentials {
-        PisteCredentials {
-            client_id: CLIENT_ID.to_owned(),
-            client_secret: SecretString::from(secret.to_owned()),
-        }
+        PisteCredentials::new(CLIENT_ID.to_owned(), SecretString::from(secret.to_owned()))
     }
 
     fn config_with(
@@ -409,9 +405,19 @@ mod tests {
         oauth_url: &str,
         credentials: Option<PisteCredentials>,
     ) -> PisteConfig {
+        config_with_agent(env, oauth_url, credentials, "lf-test/0".to_owned())
+    }
+
+    /// Comme `config_with`, avec un `User-Agent` explicite.
+    fn config_with_agent(
+        env: PisteEnvironment,
+        oauth_url: &str,
+        credentials: Option<PisteCredentials>,
+        user_agent: String,
+    ) -> PisteConfig {
         let (endpoints, _) =
             PisteEndpoints::with_overrides(env, Some(oauth_url), Some(UNUSED_API)).unwrap();
-        PisteConfig::new(env, Ok(endpoints), credentials, "lf-test/0".to_owned())
+        PisteConfig::new(env, Ok(endpoints), credentials, user_agent)
     }
 
     fn config_with_secret(uri: &str, secret: &str) -> PisteConfig {
@@ -433,7 +439,7 @@ mod tests {
     impl Fixture {
         fn with_config(config: PisteConfig) -> Self {
             let oauth_url =
-                config.endpoints.as_ref().map(|e| e.oauth_url.to_string()).unwrap_or_default();
+                config.endpoints().map(|e| e.oauth_url().to_string()).unwrap_or_default();
             let clock = ManualClock::new();
             let sleeper = RecordingSleeper::new(clock.clone());
             let manager = TokenManager::new(
@@ -1219,10 +1225,8 @@ mod tests {
 
     #[tokio::test]
     async fn oauth_network_error_maps_to_upstream() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let uri = format!("http://{}", listener.local_addr().unwrap());
-        drop(listener);
-        let fixture = Fixture::with_config(config_for(&uri));
+        let closed = ClosedPort::new();
+        let fixture = Fixture::with_config(config_for(&closed.uri()));
         let error = fixture.token().await.unwrap_err();
         assert_eq!(
             (error, fixture.sleeper.waits().len()),
@@ -1241,8 +1245,9 @@ mod tests {
     async fn oauth_timeout_maps_to_timeout_after_three_attempts() {
         let server = MockServer::start().await;
         reply_always(&server, ok("tok", &json!(3600)).set_delay(secs(1))).await;
-        let mut config = config_for(&server.uri());
-        config.request_timeout = ms(100);
+        let config = config_for(&server.uri())
+            .with_tuning(PisteTuning { request_timeout: ms(100), ..PisteTuning::default() })
+            .unwrap();
         let error = Fixture::with_config(config).token().await.unwrap_err();
         assert_eq!((error, requests(&server).await), (CorpusError::Timeout, 3));
     }
@@ -1335,8 +1340,12 @@ mod tests {
     #[tokio::test]
     async fn a_client_that_cannot_be_built_is_a_config_error_without_io() {
         let server = MockServer::start().await;
-        let mut config = config_for(&server.uri());
-        config.user_agent = "bad\nagent".to_owned();
+        let config = config_with_agent(
+            SANDBOX,
+            &format!("{}/oauth/token", server.uri()),
+            Some(credentials(CLIENT_SECRET)),
+            "bad\nagent".to_owned(),
+        );
         let error = Fixture::with_config(config).token().await.unwrap_err();
         assert_eq!(
             (error, requests(&server).await),
@@ -1352,8 +1361,7 @@ mod tests {
     #[tokio::test]
     async fn missing_credentials_are_a_config_error_without_io() {
         let server = MockServer::start().await;
-        let mut config = config_for(&server.uri());
-        config.credentials = None;
+        let config = config_with(SANDBOX, &format!("{}/oauth/token", server.uri()), None);
         let error = Fixture::with_config(config).token().await.unwrap_err();
         assert_eq!(
             (error, requests(&server).await),

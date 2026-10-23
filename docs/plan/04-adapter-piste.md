@@ -135,7 +135,7 @@ crates/lf-adapter-piste/src/
   auth.rs         TokenManager, TokenLease, DTO de l'endpoint token (§3)
   http.rs         construction du client, envoi d'une tentative, lecture bornée du corps (§4)
   encoding.rs     decode_body : UTF-8 strict puis réparation du mojibake (§4.4, §10)
-  classify.rs     statut (corps jamais lu) → issue d'une tentative : Outcome, Budget, try_send (§5.1)
+  classify.rs     statut, plus le corps d'un 400 de consultation, d'un 404 de consultation et d'un 2xx vide → issue d'une tentative : Outcome, Budget, EndpointKind, ErrorContext, try_send (§5.1, §11.2)
   retry.rs        boucle de réessai maison (run, backoff, Jitter), Retry-After (§5.2 ; ADR-0017)
   deadline.rs     CallDeadline : lecture de lf_application::deadline::Deadline (durée restante),
                   convertie en échéance MonoClock à l'entrée de la méthode du port (§5.3)
@@ -235,24 +235,29 @@ Le connecteur ne lit aucune configuration distante, ne télécharge aucun manife
 ### 2.3 `PisteConfig` et validation
 
 ```rust
-// lf-adapter-piste/src/config.rs — [livré, plan 2c, tâche 4]
+// lf-adapter-piste/src/config.rs — [livré, plans 2c (tâche 4) et 2d (tâche 2)]
 use lf_domain::coverage::PisteEnvironment;   // seul type d'environnement du workspace (03 §4.8) ; Url = reqwest::Url
 
+// PisteEndpoints, PisteCredentials, RateQuota et PisteConfig ont des champs PRIVÉS : seuls les accesseurs
+// ci-dessous les lisent. Un appelant (lf-app) ne peut donc plus fabriquer `official: true` avec une URL
+// personnalisée, ce qui ferait d'un 404 d'hôte hostile un `NotFound` (§11.2, règle 4).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PisteEndpoints { pub oauth_url: Url, pub base_url: Url /* jamais de « / » final */, pub official: bool }
+pub struct PisteEndpoints { /* oauth_url: Url, base_url: Url (jamais de « / » final), official: bool */ }
+impl PisteEndpoints { pub fn oauth_url(&self) -> &Url; pub fn base_url(&self) -> &Url; pub fn is_official(&self) -> bool; }
 
 #[derive(Debug, Clone)]
-pub struct PisteCredentials { pub client_id: String, pub client_secret: SecretString }
+pub struct PisteCredentials { /* client_id: String, client_secret: SecretString */ }
+impl PisteCredentials { pub fn new(client_id: String, client_secret: SecretString) -> Self;
+                        pub fn client_id(&self) -> &str; pub fn client_secret(&self) -> &SecretString; }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RateQuota { pub per_second: NonZeroU32, pub burst: NonZeroU32 }   // nom exporté fixé par 02 §3.3
+pub struct RateQuota { /* per_second: NonZeroU32, burst: NonZeroU32 */ }   // nom exporté fixé par 02 §3.3
+impl RateQuota { pub fn new(per_second: NonZeroU32, burst: NonZeroU32) -> Self;
+                 pub fn per_second(&self) -> NonZeroU32; pub fn burst(&self) -> NonZeroU32; }
 
-#[derive(Debug, Clone)]   // derive : le secret est rédigé par SecretString (« [REDACTED] »)
-pub struct PisteConfig {
-    pub env: PisteEnvironment,
-    pub endpoints: Result<PisteEndpoints, ConfigProblem>, // un problème n'empêche pas le démarrage
-    pub credentials: Option<PisteCredentials>,            // None ⇒ CorpusError::Config sans E/S (D-39)
-    pub user_agent: String,                               // construit par lf-app (§4.2)
+/// Réglages avancés : champs publics, validés à l'entrée par `PisteConfig::with_tuning`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PisteTuning {
     pub connect_timeout: Duration,                        // 10 s
     pub request_timeout: Duration,                        // LF_HTTP_TIMEOUT_S, 40 s
     pub tool_deadline: Duration,                          // LF_TOOL_DEADLINE_S, 60 s
@@ -260,12 +265,28 @@ pub struct PisteConfig {
     pub max_concurrency: NonZeroU16,                      // LF_PISTE_CONCURRENCY : 4
     pub max_body_bytes: u64,                              // 16 Mio (00 §8)
     pub repair_mojibake: bool,                            // LF_PISTE_MOJIBAKE_REPAIR : true
-}
+}                                                         // Default : les valeurs ci-dessus
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum TuningError { #[error("{setting} must not be zero")] Zero { setting: &'static str } }
+// `setting` ∈ `connect timeout`, `request timeout`, `tool deadline`, `max body bytes`, contrôlés dans cet ordre
+
+#[derive(Debug, Clone)]   // derive : le secret est rédigé par SecretString (« [REDACTED] »)
+pub struct PisteConfig { /* env, endpoints: Result<PisteEndpoints, ConfigProblem>, credentials: Option<PisteCredentials>,
+                            user_agent: String, tuning: PisteTuning */ }
 impl PisteConfig {
-    /// Assemble avec les défauts nommés (CONNECT_TIMEOUT, REQUEST_TIMEOUT, TOOL_DEADLINE, RATE_PER_SECOND,
+    /// Assemble avec `PisteTuning::default()` (CONNECT_TIMEOUT, REQUEST_TIMEOUT, TOOL_DEADLINE, RATE_PER_SECOND,
     /// RATE_BURST, MAX_CONCURRENCY, MAX_BODY_BYTES, repair_mojibake = true) ; ne décide de rien.
     pub fn new(env: PisteEnvironment, endpoints: Result<PisteEndpoints, ConfigProblem>,
                credentials: Option<PisteCredentials>, user_agent: String) -> Self;
+    /// Seul point de validation des réglages avancés (`rate.*` et `max_concurrency` sont déjà `NonZero*`).
+    /// Consomme la configuration même en cas d'erreur : l'appelant qui veut un repli la clone avant (`Clone`).
+    pub fn with_tuning(self, tuning: PisteTuning) -> Result<Self, TuningError>;
+    pub fn env(&self) -> PisteEnvironment;
+    pub fn endpoints(&self) -> Result<&PisteEndpoints, &ConfigProblem>;
+    pub fn credentials(&self) -> Option<&PisteCredentials>;   // None ⇒ CorpusError::Config sans E/S (D-39)
+    pub fn user_agent(&self) -> &str;                          // construit par lf-app (§4.2)
+    pub fn tuning(&self) -> &PisteTuning;
 }
 impl PisteEndpoints {
     pub fn official(env: PisteEnvironment) -> Self;
@@ -292,6 +313,8 @@ Règles de `with_overrides` (00 §1, AM-27), toutes testées (§13.2), communes 
 3. Hôte hors de la liste des quatre hôtes officiels (`sandbox-oauth.piste.gouv.fr`, `oauth.piste.gouv.fr` pour le jeton ; `sandbox-api.piste.gouv.fr`, `api.piste.gouv.fr` pour l'API) : accepté, car la surcharge est un choix explicite et local de l'utilisateur, mais `ConfigWarning::CustomHost` est affiché au démarrage, par `check-config` et dans `fr_coverage` (rendu dans 05). `official` vaut vrai quand les **deux** URL sont sur des hôtes officiels (une surcharge absente compte comme officielle). Une URL `http` de boucle locale donne **deux** avertissements (`InsecureLoopback` puis `CustomHost`) : les tests wiremock obtiennent donc `official == false` ; `lf-app` (M4) les présente.
 4. Tout hôte officiel doit désigner l'environnement de `LF_PISTE_ENV`, explicite ou par défaut (`sandbox`) ; si les deux hôtes sont officiels, ils désignent donc le **même** environnement. Sinon `ConfigProblem::EnvMismatch`, dont le message demande de poser `LF_PISTE_ENV=production` (ou de corriger l'URL) : aucune déduction implicite de l'environnement à partir de l'hôte. Cela empêche d'envoyer des identifiants sandbox à la production, ou l'inverse, et de fausser l'espace de noms du cache et `fr_coverage`. Piège visé : un utilisateur de la référence qui pointait `FR_ELI_*_URL` vers la production sans définir `LF_PISTE_ENV`.
 5. Sur un hôte API officiel, le chemin doit être exactement `/dila/legifrance/lf-engine-app` (`UnexpectedApiPath`). Les `/` finaux ne sont retirés que de l'URL de **base**, avec `Url::set_path` ; `base_url` n'a donc jamais de `/` final et un endpoint s'y **concatène** (`format!("{base}{endpoint}")`, `endpoint` commençant par `/`), jamais par `Url::join`, qui remplacerait le dernier segment du chemin.
+
+Le `User-Agent` invalide reste détecté à la construction du client (`CorpusError::Config`), pas à `with_tuning` ; le `Debug` de `PisteConfig` reste rédigé.
 
 L'URL de base ne change plus après le démarrage. Aucune URL renvoyée par l'API (`lienJo`, `urlCC`, `attachementUrl`, `href` des contenus KALI) n'est jamais appelée (§14.3).
 
@@ -404,7 +427,7 @@ Sur l'endpoint token, 400, 401 et 403 sont `Auth` et jamais `NotFound` (sur l'AP
 ### 3.6 Secrets
 
 - `client_secret` et `access_token` sont des `SecretString` (secrecy 0.10.3 : `Debug` affiche `[REDACTED]`, zéroïsation à la libération ; recherche 04 §4.1).
-- `expose_secret()` n'est appelé qu'à **quatre** endroits, revus et testés : la construction du formulaire OAuth (`auth.rs`), l'en-tête `Authorization` (`bearer_auth`, `http.rs`), `TokenResponseDto::usable_token` (test de longueur du jeton reçu, aucune copie) et `is_header_safe` (parcours des octets du jeton reçu, aucune copie).
+- `expose_secret()` n'est appelé qu'à **cinq** endroits, revus et testés : la construction du formulaire OAuth (`auth.rs`), l'en-tête `Authorization` (`bearer_auth`, `http.rs`), `TokenResponseDto::usable_token` (test de longueur du jeton reçu, aucune copie), `is_header_safe` (parcours des octets du jeton reçu, aucune copie) et `PisteCorpus::send` (`corpus.rs`, plan 2d) : le jeton et le secret client sont passés à `ErrorContext.secrets` pour être **retirés** d'un message d'erreur PISTE, sans copie conservée (test `a_400_message_repeating_the_token_or_the_secret_never_reaches_the_detail`).
 - L'en-tête est posé avec `RequestBuilder::bearer_auth`, qui le marque **sensible** (`header_sensitive(…, true)`, reqwest `src/async_impl/request.rs:273-279`). `http` ne l'affiche donc pas en `Debug`. La chaîne temporaire `Bearer …` construite par reqwest n'est pas zéroïsée : risque accepté, documenté.
 - Aucun corps de requête OAuth n'est journalisé, à aucun niveau. `connection_verbose(false)` (défaut) est gardé.
 - `Payload`, `Attempt` et `RawResponse` (`http.rs`) ont un `Debug` écrit à la main, par défense en profondeur (un `#[tracing::instrument]` ou un `{:?}` futur ne doit pas faire sortir le secret) : noms des champs de formulaire ou longueur du JSON, gabarit d'endpoint, présence d'un jeton, statut et longueur du corps, jamais une valeur, un corps, un jeton ni l'URL complète.
@@ -488,13 +511,13 @@ Une **tentative** produit une issue. La boucle de réessai (§5.2) décide de la
 
 | Issue d'une tentative | Réessai (≤ 3 tentatives ; ≤ 2 sur un 500) | Résultat final | Source |
 |---|---|---|---|
-| 2xx avec corps | — | DTO, puis entité ; corps vide : `NotFound` sur une consultation, `Decode` sur `/search` | Swagger : 200 et 201 déclarés pour chaque opération (recherche 05 §1.1) |
+| 2xx avec corps | — | DTO, puis entité ; corps vide : `NotFound` sur une consultation (quelle que soit l'adresse, sans réessai), `Decode` sur `/search` (livré, plan 2d ; une enveloppe `null` comme `{"text":null}` est jugée par le mapping, plan 2e) | Swagger : 200 et 201 déclarés pour chaque opération (recherche 05 §1.1) |
 | 3xx | non | `Upstream { status, retryable: false }` | §4.2 |
-| 400 sur une consultation avec le marqueur « introuvable » | non | `NotFound` (**plan 2d**, T-M2-08 : le corps d'erreur n'est pas lu au plan 2c) | §11 |
-| 400, autres cas | non | **livré (plan 2c)** : `InvalidRequest { status: Some(400), detail: "HTTP 400 on {endpoint}" }` générique, **corps jamais lu** ; **cible (plan 2d, T-M2-08)** : `detail` = message PISTE nettoyé, ≤ 200 caractères, et `warn!` « bug probable » ; rendu `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` (00 §5, parité S10) | 00 §5 ; 02 §9.2 ligne 15 |
+| 400 sur une consultation avec le marqueur « introuvable » | non | `NotFound` (**livré, plan 2d**) | §11 |
+| 400, autres cas | non | **livré (plan 2d)** : `InvalidRequest { status: Some(400), detail }` ; sur une **consultation**, `detail` = message PISTE nettoyé (§11.2), repli `HTTP 400 on {endpoint}` si le corps ne livre rien d'utilisable, et `warn!` « bug probable » avec le détail nettoyé ; sur `/search` (et sur l'endpoint token), `detail` = **toujours** `HTTP 400 on {endpoint}` : le corps n'est pas lu, le message PISTE peut citer le texte de la requête (§12.4, §12.5), et le `warn!` ne porte que l'endpoint et le statut ; rendu `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` (00 §5, parité S10) | 00 §5 ; 02 §9.2 ligne 15 |
 | 401 (API) | renouvellement unique (§3.4), hors budget | second 401 : `Auth` | 00 §8 |
 | 403 | non | `Auth`, rendu `config_error` avec le message « check that the PISTE application is subscribed to the Legifrance API » (00 §5) | recherche 05 §3.4 (constaté sur Judilibre avec un jeton Légifrance ; sens exact d'un 403 de l'API Légifrance **NON VÉRIFIÉ** [V-65 · forme-403-piste], V-65) |
-| 404 | non | `Config` (**provisoire**, plan 2c : jamais `NotFound` tant que T-M2-08 n'a pas raffiné) ; `NotFound` ou `Config` selon §11.2 au plan 2d | D-10 |
+| 404 | non | `NotFound` ou `Config` selon §11.2 (**livré, plan 2d**, règle provisoire jusqu'à V-66) | D-10 |
 | 405 | non | `Config` | — |
 | échec TLS (poignée de main, certificat refusé) | non | `Upstream { status: None, retryable: false }` (`TLS handshake failed on {endpoint}`) | §14.2 |
 | autre 4xx | non | `Upstream { status, retryable: false }` | — |
@@ -508,7 +531,7 @@ Une **tentative** produit une issue. La boucle de réessai (§5.2) décide de la
 | corps illisible (UTF-8, JSON, trop gros) | non | `Decode` | §4.3, §8.5 |
 | incohérence de domaine (`DomainError` non utilisateur, ex. `TocTooDeep`, variante ajoutée en M2 avec la TOC en arbre) | non | `Decode` | 03 §9 |
 
-`Upstream.status` est un `Option<u16>` (`None` pour une erreur réseau). Le `detail` de chaque `CorpusError` est en anglais, court, sans URL complète ni secret, par exemple `HTTP 503 on /consult/juri` (livré, plan 2c : sans « after 3 attempts », non produit) ; il sert aux journaux (stderr). Le message vu par le modèle (et inscrit dans le champ `error` de l'audit) est le gabarit de 05 §7.2 (avec, pour `upstream_error`, le préfixe de parité `Legifrance/PISTE HTTP {status}` de P-014), rédigé par `lf-application::messages` à partir de la variante et de ses champs (02 §9.3). `retryable` ne sert qu'au message : seul un échec `retryable: true` (429, 502, 503, 504, réseau, timeout) invite à réessayer (00 §8). `Timeout`, `Decode`, le délai global et l'annulation sont rendus `upstream_error`, la cause étant détaillée dans les journaux et l'audit (`UpstreamCause`, 00 §5). Les erreurs reqwest passent par `Error::without_url()` (`RQ:src/error.rs:91`) avant tout affichage, et seul le chemin du gabarit d'endpoint est cité. Les noms et champs exacts des variantes sont fixés dans [02-architecture.md](02-architecture.md) §5.1.
+`Upstream.status` est un `Option<u16>` (`None` pour une erreur réseau). Le `detail` de chaque `CorpusError` est en anglais, court, sans URL complète ni secret, par exemple `HTTP 503 on /consult/juri` (livré, plan 2c : sans « after 3 attempts », non produit) ; il sert aux journaux (stderr). Le message vu par le modèle (et inscrit dans le champ `error` de l'audit) est le gabarit de 05 §7.2 (avec, pour `upstream_error`, le préfixe de parité `Legifrance/PISTE HTTP {status}` de P-014), rédigé par `lf-application::messages` à partir de la variante et de ses champs (02 §9.3). `retryable` ne sert qu'au message : seul un échec `retryable: true` (429, 502, 503, 504, réseau, timeout) invite à réessayer (00 §8). `Timeout`, `Decode`, le délai global et l'annulation sont rendus `upstream_error`, la cause étant détaillée dans les journaux et l'audit (`UpstreamCause`, 00 §5). Les erreurs reqwest passent par `Error::without_url()` (`RQ:src/error.rs:91`) avant tout affichage, et seul le chemin du gabarit d'endpoint est cité. `NotFound { what }` porte le **gabarit d'endpoint** (`/consult/juri`), non l'identifiant demandé (l'impl du port peut le remplacer, plan 2e). Les noms et champs exacts des variantes sont fixés dans [02-architecture.md](02-architecture.md) §5.1.
 
 Selon des clients tiers, une facette inconnue, un champ JSON inconnu ou `fond=ALL` avec filtres provoquent un **500** plutôt qu'un 400 : **NON VÉRIFIÉ** [V-69 · 500-requete-invalide] (recherche 05 §2.2). L'adapter n'envoie que des champs et facettes issus de tables vérifiées (§6), ce qui limite ce risque. C'est la raison du budget réduit sur 500 (00 §8, AM-03) : un 500 déterministe coûterait 3 requêtes de quota par appel, puis autant à chaque relance du modèle s'il était invité à réessayer.
 
@@ -961,9 +984,11 @@ Les personnes (`president`, `avocats`, `rapporteur`, `commissaire`, `avocatGl`) 
 
 ### 8.5 `serde_path_to_error` et `CorpusError::Decode`
 
-- Toute désérialisation de corps passe par `serde_path_to_error::deserialize`. L'erreur devient `CorpusError::Decode { detail }` (variantes fixées par 02 §5.1), avec un `detail` qui assemble l'endpoint, le chemin JSON et la catégorie serde, par exemple `/consult/juri: text.sommaire[0].abstrats: invalid type: integer, expected a string`.
-- Le message ne contient **aucune valeur** du corps. Seuls figurent le chemin JSON et la catégorie serde, car une valeur pourrait contenir des données personnelles ou un texte long.
-- Limite de récursion : serde_json limite par défaut la profondeur d'imbrication (128 niveaux selon sa documentation, **NON VÉRIFIÉ** [V-10 · serde-json-recursion]). Elle n'est pas levée (pas de feature `unbounded_depth`). Le domaine borne de son côté la TOC à 64 niveaux (03 §1.3).
+- Toute désérialisation de corps passe par `decode<T: DeserializeOwned>(text, endpoint) -> Result<T, CorpusError>` (`dto/decode.rs`, livré au plan 2d) : `serde_path_to_error::deserialize`, puis `Deserializer::end()` (un texte après le document donne `Decode`, `trailing characters`). L'erreur devient `CorpusError::Decode { detail }` (variantes fixées par 02 §5.1).
+- `detail` = `<endpoint>: <chemin>: <catégorie>`, par exemple `/consult/juri: text.numeroAffaire: invalid type: integer, expected a sequence`. Chemin : `.` à la racine, `a.b[0].c`, `?` pour une clé ou un nom de variante qui n'est pas `[A-Za-z0-9_-]{1,64}`.
+- Le message ne contient **aucune valeur** du corps, car une valeur pourrait contenir des données personnelles ou un texte long. Seuls figurent le chemin JSON masqué et la catégorie serde. **Expurgation** : `serde` écrit la valeur (``invalid type: integer `12` ``, ``unknown field `x` ``) ; `redact` garde le *genre* (`integer`, `string`, `floating point`, `boolean`, `map`, `sequence`) et l'attendu (après la **dernière** occurrence de `, expected `), retire le nom d'un `unknown field`/`unknown variant`, garde `missing field`, `duplicate field` et `invalid length`, remplace tout autre message à guillemet par `invalid data` ; la position ` at line L column C` est retirée des erreurs de données, gardée pour la syntaxe et l'EOF (textes fixes).
+- **Limite du masquage** : une clé de forme identifiant qui vient du corps entre dans le chemin lorsqu'elle désigne un **champ non déclaré** par le DTO, ou un champ `serde_json::Value`, dont la valeur est mal formée (`{"sk_live_ABC":[1,}` donne le chemin `sk_live_ABC`) ; une clé d'une autre forme y est masquée. Une clé de forme identifiant n'est pas un secret, d'où la limite assumée ; les DTO ne déclarent ni table indexée par du texte du corps ni `deny_unknown_fields` (§8.1). Le chemin n'est sûr qu'à une condition de conception : **aucune erreur serde personnalisée ne cite la valeur lue** (un lecteur écrit à la main n'appelle jamais `de::Error::custom` avec un fragment du corps).
+- Limite de récursion : **levé** (V-10, plan 2d). `serde_json` 1.0.154 plafonne à **128** niveaux (`remaining_depth: 128`, un niveau par tableau et par objet). Un DTO récursif accepte **63 niveaux de `sections`** (2 niveaux de profondeur chacun, plus l'objet racine) et échoue à 64 (`recursion limit exceeded`, catégorie `Syntax`, `detail` borné) : la TOC à 64 niveaux de 03 §1.3 est donc refusée dès le décodage (`Decode`), le plafond effectif côté adapter est 63. Cette limite n'est pas levée (pas de feature `unbounded_depth`). **Piège** : un champ non déclaré est sauté par `IgnoredAny` sans limite de profondeur ; le test doit viser un DTO qui *construit* l'imbrication (`nesting_just_under_the_limit_is_decoded` : 63 niveaux décodés, 64 en `Decode` ; `nesting_beyond_the_serde_json_limit_maps_to_decode` : 200 niveaux). Les lecteurs `untagged` de `dto/de.rs` mettent la valeur en mémoire tampon, et la même limite s'y applique.
 - Corps HTML (page d'erreur d'une passerelle), JSON `null` à la racine, JSON tronqué : `Decode`, sans réessai (corrige D-11 et E-21 : la référence levait une exception sans code).
 
 ---
@@ -1083,32 +1108,38 @@ Le smoke test live `live_unknown_ids_classification` (§13.5) enregistre la rép
 
 Arbre appliqué par `classify.rs`, après lecture bornée, décodage et réparation du corps. Cette classification « introuvable » fait foi (00 §0) : 02 §9.2 (lignes 13, 13 bis et 14) la reprend, et les messages vus par le modèle sont ceux de 05 §7.2.
 
-1. **2xx** : DTO de l'endpoint. Enveloppe absente ou vide ⇒ `NotFound` (§9.1 a). Pour `/search`, jamais `NotFound`.
-2. **400** sur une consultation, et `PisteErrorDto.message` contient `valider est fausse` (comparaison insensible à la casse, sur le texte réparé ; la forme `a valider` sans accent est aussi acceptée) ⇒ `NotFound`. Le marqueur ne s'applique qu'aux consultations dont l'identifiant a été validé par le domaine, comme le fait pylegifrance (`juri.py:829-838`) : un 400 ne peut alors pas venir d'un identifiant malformé.
-3. **400**, autres cas ⇒ `InvalidRequest { status: Some(400), detail }` (message PISTE nettoyé, ≤ 200 caractères, sans caractère de contrôle), journalisé en `warn` comme bug probable, rendu `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` (00 §5, parité S10). Jamais `invalid_arg` : toute contrainte imputable à l'entrée (dates, fond sans facette, pagination profonde, formats, longueur de `query`) est validée avant l'appel du port, et une heuristique sur un corps d'erreur de forme inconnue (V-67) produirait des `invalid_arg` trompeurs ; le détail nettoyé permet quand même au modèle de reformuler.
+1. **2xx** : corps vide (aucun octet non blanc) ⇒ `NotFound` sur une consultation, **sans réessai et quelle que soit l'adresse** (un 2xx dit que la route a répondu, ce qu'un 404 ne dit pas ; l'asymétrie avec la règle 4 est assumée : un serveur personnalisé qui répond 200 vide à tout POST donne `NotFound`) ; `Decode` (`empty response body on /search`) sur `/search` ; endpoint token inchangé. Autre corps : DTO ; une enveloppe `null` (`{"text":null}`, `{}`) est jugée par le mapping (§9.1 a, plan 2e). Pour `/search`, jamais `NotFound`.
+2. **400** sur une consultation, et `PisteErrorDto.message` contient `valider est fausse` (comparaison insensible à la casse, sur le texte réparé, **avant** nettoyage, retrait des secrets et coupure : le marqueur est cherché dans le texte brut complet ; `valider est fausse` couvre déjà « à valider est fausse » et « a valider est fausse » : le fragment `a valider` seul n'est **pas** retenu, parce qu'il classerait en `NotFound` tout 400 de consultation qui le contient pour une autre raison, contre la règle 5) ⇒ `NotFound` (écart volontaire à la lettre de la spec ; test `a_400_mentioning_a_valider_alone_is_not_not_found`). Le marqueur ne s'applique qu'aux consultations dont l'identifiant a été validé par le domaine, comme le fait pylegifrance (`juri.py:829-838`) : un 400 ne peut alors pas venir d'un identifiant malformé. Un `errorCode` de type inattendu (nombre, objet, tableau) ne fait pas perdre le message (§11.3).
+3. **400**, autres cas ⇒ `InvalidRequest { status: Some(400), detail }`, journalisé en `warn` comme bug probable, rendu `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` (00 §5, parité S10). Jamais `invalid_arg` : toute contrainte imputable à l'entrée (dates, fond sans facette, pagination profonde, formats, longueur de `query`) est validée avant l'appel du port, et une heuristique sur un corps d'erreur de forme inconnue (V-67) produirait des `invalid_arg` trompeurs.
+   - **Consultation** : `detail` = le **message PISTE seul** (sans endpoint ni « HTTP 400 », car 05 §7.2 le recopie tel quel) : corps ≤ 64 Kio (au-delà, non décodé), UTF-8 strict, mojibake réparé si `repair_mojibake`, lu par `decode::<PisteErrorDto>`, puis, dans cet ordre : points de code « ignorables par défaut » d'Unicode (propriété `Default_Ignorable_Code_Point` : U+00AD, U+034F, U+061C, U+115F-1160, U+17B4-17B5, U+180B-180F, U+200B-200F, U+202A-202E, U+2060-206F, U+3164, U+FE00-FE0F, U+FEFF, U+FFA0, U+FFF0-FFF8, U+1BCA0-1BCA3, U+1D173-1D17A, U+E0000-E0FFF ; sélecteurs de variante et étiquettes ASCII compris) supprimés, caractères de contrôle remplacés par une espace, espaces repliées, **secrets exacts (jeton porteur, secret client) remplacés par `[redacted]`**, du plus long au plus court (après le nettoyage : un jeton coupé par un caractère invisible est retiré aussi), coupure à 200 `char` ; rien d'utilisable (corps vide, HTML, `message` absent ou non chaîne, tout nettoyé) ⇒ `HTTP 400 on {endpoint}`. Le `warn` cite ce détail nettoyé (identifiant public, §12.5).
+   - **`/search`** : `detail` = **toujours** `HTTP 400 on {endpoint}` (décision R6 du plan 2d). Le corps n'est pas lu : le message de PISTE peut recopier le texte de la requête de recherche (donnée personnelle possible, interdit de journal par §12.5), et le `detail` va aux journaux de l'application et au champ `error` de l'audit (§12.4). Le `warn` ne porte que l'endpoint et le statut. Le modèle perd l'explication de PISTE sur un 400 de recherche (un 400 y est déjà un bug probable) ; le rétablir est une branche de `bad_request` à rouvrir au plan 2e, quand `lf-application::messages` existera.
+   - **Endpoint token** : corps jamais lu (400 ⇒ `Auth`, §3.5).
+   - Limites : le retrait ne vise que les occurrences **exactes après nettoyage** (une valeur encodée, tronquée ou coupée par un caractère de contrôle n'est pas reconnue ; un secret qui contient lui-même une espace ou un caractère de contrôle n'est plus retrouvé, le texte étant replié avant l'expurgation ; le `client_id` n'est pas retiré) ; le détail d'une consultation reste du texte libre d'un tiers (données personnelles, injection de texte destiné au modèle : `lf-application::messages` doit le présenter comme une citation) ; coupure sur le `char`, non sur le graphème.
 4. **404** :
    - sur l'endpoint token ⇒ `Config`, rendu `PISTE OAuth endpoint not found: check LF_PISTE_OAUTH_URL.` (05 §7.2 ; 02 §9.2 ligne 8 ; §3.5) ;
    - sur `/search` ⇒ `Config`, rendu `Legifrance endpoint not found: check LF_PISTE_BASE_URL.` (05 §7.2, 404 de routage ; 02 §9.2 ligne 14). Il n'y a pas de « ressource » à ne pas trouver : le chemin ou l'URL est faux ;
-   - sur une consultation, si l'URL de base est officielle (`PisteEndpoints.official`) et que le corps n'est pas du HTML ⇒ `NotFound`. Le chemin vient de la liste vérifiée du Swagger, donc il existe ;
+   - sur une consultation, si les deux adresses (jeton et base) sont officielles (`PisteEndpoints::is_official()`, plus strict que la seule URL de base) et que le corps n'est pas du HTML ⇒ `NotFound`. Le chemin vient de la liste vérifiée du Swagger, donc il existe. *HTML* = premier octet non blanc `<` (balisage, `<?xml`, `<!DOCTYPE`), après un éventuel BOM UTF-8 ; plus large que `<html` pour préférer `Config` dans le doute ;
    - sinon (hôte personnalisé ou page HTML de passerelle) ⇒ `Config`, rendu par le même gabarit `Legifrance endpoint not found: check LF_PISTE_BASE_URL.` (05 §7.2).
-   - La forme réelle d'un 404 PISTE, de routage ou de ressource, est **NON VÉRIFIÉ** [V-66 · forme-404-piste] (recherche 02 D-10 ; V-66, bloquante en M2). Cette règle est provisoire jusqu'au smoke test.
+   - La forme réelle d'un 404 PISTE, de routage ou de ressource, est **NON VÉRIFIÉ** [V-66 · forme-404-piste] (recherche 02 D-10 ; V-66, bloquante en M2). **Livrée** (plan 2d) mais restant une hypothèse : `official_host: true` ne s'obtient pas en test réseau local (seul `false` passe par `post_json` ; `true` est prouvé par `classify` et `retry`), donc `live_unknown_ids_classification` (V-66, V-68) reste le seul vrai contrôle. Marqueur : `valider est fausse` seul, à resserrer encore (frontière de mot) si V-68 montre des faux positifs.
 5. **500** après 2 tentatives : `Upstream { status: 500, retryable: false }` (§5.1), jamais `NotFound`. « Ne jamais conclure à l'inexistence sans preuve », principe repris d'un client tiers (recherche 05 §1.13).
 
-Un `not_found` signifie donc toujours que l'API a dit que la ressource n'existait pas. Un problème d'URL ou de configuration ne peut jamais faire croire au modèle qu'un texte n'existe pas, ce que la référence permettait (D-10).
+Un `not_found` signifie donc toujours que l'API a dit que la ressource n'existait pas. Un problème d'URL ou de configuration ne peut jamais faire croire au modèle qu'un texte n'existe pas, ce que la référence permettait (D-10), à une exception assumée : le 2xx vide d'une consultation (règle 1) ne tient pas compte de l'hôte.
 
 ### 11.3 Corps d'erreur PISTE
 
 ```rust
-// dto/error.rs — non compilé, à valider au jalon qui l'implémente
+// dto/error.rs — [livré, plan 2d, tâche 4]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PisteErrorDto {
     #[serde(default, deserialize_with = "de::opt_u64_lenient")] pub error: Option<u64>,   // 400
     #[serde(default)] pub status: Option<serde_json::Value>,   // "Bad Request" (chaîne) ; forme variable tolérée
     #[serde(default)] pub message: Option<String>,
-    #[serde(default)] pub error_code: Option<String>,
+    #[serde(default, deserialize_with = "de::opt_string_or_number")] pub error_code: Option<String>,   // chaîne ou nombre
 }
 ```
+
+Livré (plan 2d) : `error_code` est tolérant (chaîne ou nombre, rendu en chaîne ; objet, tableau, booléen, flottant : `None`), car un champ jamais lu ne doit pas faire perdre le `message` ni le marqueur « introuvable » (V-67) ; `Debug` écrit à la main (`PisteErrorDto { error: Some(400), .. }` : ni `message`, ni `status`, ni `errorCode`). `OAuthErrorDto` (plan 2c) dérive encore `Debug` avec `error_description` : à reconsidérer si ce DTO est journalisé.
 
 La désérialisation est **facultative** : un corps d'erreur non JSON (HTML, texte vide) est classé par le statut seul. La forme générale des corps d'erreur de l'API (tous statuts confondus) est **NON VÉRIFIÉ** [V-67 · corps-erreur-piste]. La seule forme connue est celle du 400 de `/consult/juri` (pylegifrance).
 
@@ -1158,13 +1189,13 @@ Implémentation : `std::sync::Mutex<…>` avec horodatage `MonoClock`, sans dép
 ### 12.4 Audit : rien ici
 
 - L'adapter n'écrit aucune ligne d'audit et ne mesure pas `duration_ms`. Le décorateur `Audited` de `lf-application` enveloppe **chaque** exécution d'outil, succès comme erreurs, avec une durée réelle (00 §3, corrige D-02 et D-03).
-- Exigence sur l'adapter : le `detail` et le `Display` de `CorpusError`, journalisés sur stderr, ne contiennent ni secret, ni jeton, ni URL avec paramètres, ni valeur du corps (§5.1, §8.5). Le champ `error` de l'audit (≤ 500 caractères, 00 §7) reçoit le message final porté par `AppError`, rédigé par `lf-application::messages` (02 §3.2, §9.3), qui n'y recopie que des données de même nature (statut, détail PISTE nettoyé ≤ 200 caractères).
+- Exigence sur l'adapter : le `detail` et le `Display` de `CorpusError`, journalisés sur stderr, ne contiennent ni secret, ni jeton, ni URL avec paramètres, ni valeur du corps, hormis le message d'erreur PISTE d'un 400 de **consultation**, nettoyé, borné à 200 caractères et privé du jeton et du secret client, qui est le `detail` de `InvalidRequest` (§5.1, §8.5, §11.2) ; le `detail` d'un 400 de `/search` est générique (`HTTP 400 on /search`). Le champ `error` de l'audit (≤ 500 caractères, 00 §7) reçoit le message final porté par `AppError`, rédigé par `lf-application::messages` (02 §3.2, §9.3), qui n'y recopie que des données de même nature (statut, détail PISTE nettoyé ≤ 200 caractères).
 - Le code d'erreur de l'audit (`error_code`) découle de la variante de `CorpusError` via `AppError` (02 §9.2).
 
 ### 12.5 Journalisation (`tracing`, stderr uniquement)
 
 - Noms et champs des spans : 02 §11.1, qui fait foi. Un span `piste_request` par **tentative** : `endpoint` (chemin seul, ex. `/consult/juri`), `fond`, `attempt`, `http_status`, `elapsed_ms`, `retry_in_ms`, `token_refreshed`, `body_bytes`, `mojibake_repaired` ; niveau `debug`, et `warn` quand les réessais sont épuisés. Un span `oauth_token` par requête token : `outcome`, `expires_in_s` (`debug` en succès, `warn` en échec). Corrige D-46.
-- **Jamais** journalisés, à aucun niveau : corps de requête et de réponse, texte de la requête de recherche (seule sa longueur l'est), jeton, secret, `client_id`, en-têtes.
+- **Jamais** journalisés, à aucun niveau : corps de requête et de réponse, texte de la requête de recherche (seule sa longueur l'est), jeton, secret, `client_id`, en-têtes. Le `warn!` d'un 400 de `/search` ne cite donc pas le message PISTE, qui peut recopier le texte de la requête, et le `detail` de l'erreur ne le porte pas non plus : endpoint et statut seulement ; celui d'une consultation cite le détail nettoyé (identifiant public, 3e puce).
 - Les identifiants de documents (publics) peuvent apparaître au niveau `debug`.
 - Les journaux `debug`/`trace` de reqwest et hyper ne contiennent pas les corps. Le filtre par défaut (`LF_LOG`, défini dans `lf-app`) reste au niveau `info` pour ces crates.
 
@@ -1378,7 +1409,7 @@ Ni 429 ni `Retry-After` ne sont provoqués volontairement : ce serait contraire 
 
 ### 14.1 Secrets
 
-- `client_secret` et jeton en `SecretString`, exposés à deux endroits seulement (§3.6) ; en-tête `Authorization` marqué sensible ; `Debug` de `PisteConfig` expurgé ; jamais écrits sur disque, ni dans le cache, ni dans l'audit, ni dans les fixtures, ni dans les journaux (P-026).
+- `client_secret` et jeton en `SecretString`, exposés à cinq endroits (§3.6) ; en-tête `Authorization` marqué sensible ; `Debug` de `PisteConfig` expurgé ; jamais écrits sur disque, ni dans le cache, ni dans l'audit, ni dans les fixtures, ni dans les journaux (P-026).
 - Mode HTTP partagé (M8, Q4) : le jeton et le secret ne sont jamais renvoyés à un client MCP ; aucune transmission de jeton entrant vers PISTE (00 §6).
 - Une compromission (« surconsommation », « publication des identifiants ») impose de réinitialiser les identifiants sur PISTE (CGU 2022, recherche 05 §4.1). La documentation utilisateur (08) le rappelle.
 

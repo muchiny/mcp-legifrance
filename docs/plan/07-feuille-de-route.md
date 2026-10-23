@@ -285,7 +285,7 @@ Les tâches gardent leur identifiant et reçoivent un statut. Bilan : 1 livrée 
   Où : `crates/lf-domain/src/id.rs`, `error.rs` · Vérification : proptests de `id.rs` ; `parse_versioned` en T-M2-24 · Spéc. : 00 §4 ; 03 §2 · Taille : M
 
 
-- [ ] T-M1-02 — **Fonds et statuts.** *Livrée en partie (plan 1, tâche 5).* Livré : `Fond` (8 variantes ; `name()`, `api_name()`, `parse`, `ALL`). Reportés : `PaginationMode` et `LegalStatus` avec `status_of` (M2) ; `Hash`, `hit_prefix`, `needs_version_date` (M2-M3) ; `Jorf` réservé à M7.\
+- [ ] T-M1-02 — **Fonds et statuts.** *Livrée en partie (plan 1, tâche 5).* Livré : `Fond` (8 variantes ; `name()`, `api_name()`, `parse`, `ALL`) ; `PaginationMode` (`fond.rs`, plan 2d). Reportés : `LegalStatus` avec `status_of` (M2) ; `Hash`, `hit_prefix`, `needs_version_date` (M2-M3) ; `Jorf` réservé à M7.\
   Où : `fond.rs` · Spéc. : 03 §3 · Taille : S
 
 
@@ -293,7 +293,7 @@ Les tâches gardent leur identifiant et reçoivent un statut. Bilan : 1 livrée 
   Où : `date.rs` · Spéc. : 00 §4 ; 03 §6 ; ADR-0011 · Taille : M
 
 
-- [ ] T-M1-04 — **Requête de recherche.** *Reportée en M2 (00 §11.1) : chaque objet de valeur entre au jalon qui le consomme (`SearchQuery`, `QueryText`, `PageSize`, `MatchMode`, `PaginationMode`). Livrée (plan 2b, tâches 1 et 2), sauf `PaginationMode` (plan 2d, avec le `PaginationMemo`).* `SearchQuery::new` et ses rejets sans réseau (`version_date` hors LODA/CODE, dates sur CODE, `date_from` > `date_to`, `page × page_size` > 10 000), `QueryText` (≤ 500 caractères, nettoyage, D-32), `MatchMode` (défaut `any`, Q10), `PageSize`, `REACHABLE_RESULTS`, `has_more` borné.\
+- [ ] T-M1-04 — **Requête de recherche.** *Reportée en M2 (00 §11.1) : chaque objet de valeur entre au jalon qui le consomme (`SearchQuery`, `QueryText`, `PageSize`, `MatchMode`, `PaginationMode`). Livrée (plan 2b, tâches 1 et 2), `PaginationMode` livré au plan 2d (`fond.rs`, champ `SearchPage.pagination`), le `PaginationMemo` restant à faire.* `SearchQuery::new` et ses rejets sans réseau (`version_date` hors LODA/CODE, dates sur CODE, `date_from` > `date_to`, `page × page_size` > 10 000), `QueryText` (≤ 500 caractères, nettoyage, D-32), `MatchMode` (défaut `any`, Q10), `PageSize`, `REACHABLE_RESULTS`, `has_more` borné.\
   Où : `search.rs` · Livrable : types bornés · Vérification : tests de 06 §2.1 ; partie domaine de D-32 · Spéc. : 00 §7 ; 03 §4.1 ; ADR-0014 · Taille : M · Après : T-M1-02, T-M1-03
 
 
@@ -1018,7 +1018,7 @@ Une vague regroupe des tâches qui peuvent se mener en même temps ; une vague n
 | Vague | Condition d'entrée | Tâches menées en parallèle |
 |---|---|---|
 | 0 | maintenant (M0 et M1 livrés) | tête de M2 : T-M2-24 (domaine), T-M2-25 (toolchain, lints), T-M2-26 (hygiène du dépôt) ; T-M0-01 (démarches à délai : Q3, Q5, V-214, V-215), T-M0-20, T-M1-06 (Q12), T-M1-11 (première liste d'URL) |
-| 1 | T-M2-24 et T-M2-25 faites | T-M2-27 (spikes TLS, proxy, `backon`, `governor`, licences ; en partie, plan 2c), T-M2-28 (outillage, `check-arch` ; livrée, sous réserve du premier run de la CI sur les trois OS), T-M2-01, -03, -04 (en partie) et T-M2-02 (livrée) ; reliquats de M1 pour le mapping (T-M1-04 livrée sauf `PaginationMode`, plan 2d, T-M1-05, T-M1-08) ; création de `lf-application` avec `LegalCorpus`, `CorpusError` et `Deadline` (T-M3-01, T-M0-15 ; livrée, plan 2b) |
+| 1 | T-M2-24 et T-M2-25 faites | T-M2-27 (spikes TLS, proxy, `backon`, `governor`, licences ; en partie, plan 2c), T-M2-28 (outillage, `check-arch` ; livrée, sous réserve du premier run de la CI sur les trois OS), T-M2-01, -03, -04 (en partie) et T-M2-02 (livrée) ; reliquats de M1 pour le mapping (T-M1-04 livrée, dont `PaginationMode` (plan 2d), T-M1-05, T-M1-08) ; création de `lf-application` avec `LegalCorpus`, `CorpusError` et `Deadline` (T-M3-01, T-M0-15 ; livrée, plan 2b) |
 | 2 | vague 1 faite | M2 hors ligne (T-M2-01 à T-M2-13) ; M3 (T-M3-02 à T-M3-04, T-M3-06 à T-M3-08, T-M3-10) ; spike rmcp (T-M0-13 → T-M0-14 → T-M0-18) avant la conception de `ToolCall` ; dès Q3 sandbox, sondes T-M2-14 à T-M2-22 (séquentielles : un seul exécutant, quota) |
 | 3 | spike rmcp fait | début de M4 sur `FakeCorpus` (T-M4-01 à T-M4-06, T-M4-09, T-M4-15) ; M2 et M3 se poursuivent |
 | 4 | M2 et M3 acceptés | T-M3-05 ; T-M4-07 → T-M4-08, T-M4-12, T-M4-13 ; T-M4-10 → T-M4-11 ; T-M4-14 ; T-MD-04 |

@@ -1,15 +1,19 @@
 //! Classification d'une tentative d'envoi : succès, jeton refusé, échec passager ou définitif.
 //!
-//! Classification de transport seulement : le corps n'est jamais lu. Seuls le statut HTTP,
-//! `Retry-After` et `Date` comptent ; seul `post_json` décode le corps des 2xx, et un corps
-//! d'erreur n'est jamais lu au plan 2c (T-M2-08). Le choix de réessayer, d'attendre ou de
-//! renoncer appartient à `retry::run` ; ce module ne dort pas et ne lit aucune horloge.
+//! Le statut HTTP, `Retry-After` et `Date` classent la réponse. Le corps n'est lu que dans trois
+//! cas (04 §11) : le message d'un 400 de consultation (marqueur d'un identifiant inconnu, qui
+//! tranche « introuvable », et détail de l'erreur sinon), un 404 de consultation (une page HTML
+//! n'est pas une preuve d'absence) et un 2xx vide ; le corps d'un 400 de recherche ou du jeton
+//! n'est jamais lu, et tout autre corps reste intact (`post_json` décode celui des 2xx). Le choix
+//! de réessayer, d'attendre ou de renoncer appartient à `retry::run` ; ce module ne dort pas et
+//! ne lit aucune horloge.
 
 use std::time::Duration;
 
 use lf_application::ports::CorpusError;
 use reqwest::Client;
 
+use crate::error_body;
 use crate::http::{Attempt, RawResponse, TransportError, send_once};
 use crate::retry::parse_retry_after;
 
@@ -53,6 +57,50 @@ pub(crate) enum Outcome<T> {
     Fatal(CorpusError),
 }
 
+/// Ce que l'appelant interroge : il décide si une réponse peut signifier « introuvable ».
+///
+/// Le genre est passé par l'appelant et non déduit du gabarit d'endpoint : aucune comparaison de
+/// chaîne ne peut mal classer un chemin nouveau.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EndpointKind {
+    /// Recherche (`/search`) : zéro résultat est un succès, jamais [`CorpusError::NotFound`].
+    Search,
+    /// Consultation d'un texte, d'un article ou d'une version : seule à pouvoir être
+    /// [`CorpusError::NotFound`].
+    Consult,
+    /// Endpoint du jeton : jamais [`CorpusError::NotFound`], son corps d'erreur est traité par
+    /// `auth.rs`.
+    Token,
+}
+
+/// Contexte d'une classification : genre d'endpoint, hôte, réglage du mojibake et secrets à ne
+/// jamais laisser dans un détail d'erreur.
+///
+/// Pas de `Debug` : `secrets` porte le jeton d'accès et le secret client, que ni un journal ni un
+/// message ne doivent montrer. Ces valeurs ne servent qu'à être **retirées** d'un message du corps.
+#[derive(Clone, Copy)]
+pub(crate) struct ErrorContext<'a> {
+    /// Ce que l'appelant interroge.
+    pub kind: EndpointKind,
+    /// Les deux adresses de l'adapter sont officielles : un 404 de consultation prouve alors
+    /// l'absence.
+    pub official_host: bool,
+    /// Réparer le mojibake du message d'erreur lu dans le corps.
+    pub repair_mojibake: bool,
+    /// Valeurs exactes à retirer du détail d'un 400 (jeton d'accès, secret client).
+    pub secrets: &'a [&'a str],
+}
+
+impl ErrorContext<'static> {
+    /// Contexte de l'endpoint du jeton : aucun corps d'erreur n'est lu par `classify`.
+    pub(crate) const TOKEN: Self = Self {
+        kind: EndpointKind::Token,
+        official_host: false,
+        repair_mojibake: false,
+        secrets: &[],
+    };
+}
+
 /// Classe le résultat d'une tentative d'envoi.
 ///
 /// `endpoint` est le gabarit de chemin (`/consult/juri`), seule trace de la route dans les
@@ -60,22 +108,27 @@ pub(crate) enum Outcome<T> {
 pub(crate) fn classify(
     result: Result<RawResponse, TransportError>,
     endpoint: &str,
+    context: &ErrorContext<'_>,
 ) -> Outcome<RawResponse> {
     match result {
-        Ok(response) => classify_status(response, endpoint),
+        Ok(response) => classify_status(response, endpoint, context),
         Err(error) => classify_transport(error),
     }
 }
 
-/// Classe une réponse HTTP d'après son seul statut ; `Retry-After` n'est lu que pour 429, 502,
-/// 503 et 504.
-fn classify_status(response: RawResponse, endpoint: &str) -> Outcome<RawResponse> {
+/// Classe une réponse HTTP d'après son statut ; `Retry-After` n'est lu que pour 429, 502, 503 et
+/// 504. Le corps n'est lu que pour un 2xx (vide ?), un 400 de consultation et un 404.
+fn classify_status(
+    response: RawResponse,
+    endpoint: &str,
+    context: &ErrorContext<'_>,
+) -> Outcome<RawResponse> {
     let status = response.status;
     let detail = || format!("HTTP {status} on {endpoint}");
     let retry_after =
         || parse_retry_after(response.retry_after.as_deref(), response.date.as_deref());
     match status {
-        200..=299 => Outcome::Success(response),
+        200..=299 => classify_success(response, endpoint, context.kind),
         401 => Outcome::Unauthorized(CorpusError::Auth { detail: detail() }),
         403 => Outcome::Fatal(CorpusError::Auth { detail: detail() }),
         429 => {
@@ -107,11 +160,11 @@ fn classify_status(response: RawResponse, endpoint: &str) -> Outcome<RawResponse
             retry_after: retry_after(),
             budget: Budget::Standard,
         },
-        400 => {
-            Outcome::Fatal(CorpusError::InvalidRequest { status: Some(status), detail: detail() })
+        400 => Outcome::Fatal(bad_request(&response, endpoint, context)),
+        // Le 404 d'une consultation ne prouve l'absence que d'un hôte officiel et hors page HTML.
+        404 if proves_absence(&response, context) => {
+            Outcome::Fatal(CorpusError::NotFound { what: endpoint.to_owned() })
         }
-        // Choix provisoire : jamais `NotFound` ici, la distinction d'une consultation
-        // introuvable est T-M2-08 (04 §11.2).
         404 | 405 => Outcome::Fatal(CorpusError::Config { detail: detail() }),
         _ => Outcome::Fatal(CorpusError::Upstream {
             status: Some(status),
@@ -119,6 +172,80 @@ fn classify_status(response: RawResponse, endpoint: &str) -> Outcome<RawResponse
             detail: detail(),
         }),
     }
+}
+
+/// Classe un 2xx : un corps vide est « introuvable » sur une consultation (sans réessai), une
+/// erreur de décodage sur une recherche, et reste un succès pour le jeton, que `auth.rs` lit.
+///
+/// Tout corps non vide, même `null` ou `{}`, est laissé au décodeur : une enveloppe vide se juge
+/// avec les DTO métier (04 §9.1 a).
+fn classify_success(
+    response: RawResponse,
+    endpoint: &str,
+    kind: EndpointKind,
+) -> Outcome<RawResponse> {
+    match (kind, response.body.trim_ascii().is_empty()) {
+        (EndpointKind::Consult, true) => {
+            Outcome::Fatal(CorpusError::NotFound { what: endpoint.to_owned() })
+        }
+        (EndpointKind::Search, true) => Outcome::Fatal(CorpusError::Decode {
+            detail: format!("empty response body on {endpoint}"),
+        }),
+        _ => Outcome::Success(response),
+    }
+}
+
+/// Erreur d'un 400 : pour une consultation, `NotFound` si le message désigne un identifiant
+/// inconnu, sinon `InvalidRequest` dont le détail est le message PISTE nettoyé, privé des
+/// secrets et borné, ou le gabarit `HTTP 400 on {endpoint}` si le corps n'en livre aucun. Pour
+/// une recherche, le détail est **toujours** ce gabarit.
+///
+/// Le message d'un 400 de recherche peut citer le texte de la requête (04 §12.4, §12.5), et le
+/// `detail` va aux journaux et à l'audit de l'application : il n'est donc ni lu ni recopié. Le
+/// `detail` d'une consultation est le message seul : 05 §7.2 le recopie tel quel après
+/// « Legifrance rejected the request (HTTP 400): ». Un 400 est un bug probable (`warn`), sauf
+/// l'identifiant inconnu, qui est un cas normal. Le corps n'est jamais journalisé tel quel ; le
+/// `warn` d'une recherche ne porte ni message ni détail. Le corps du jeton n'est jamais lu.
+fn bad_request(response: &RawResponse, endpoint: &str, context: &ErrorContext<'_>) -> CorpusError {
+    let message = match context.kind {
+        EndpointKind::Consult => {
+            error_body::message(&response.body, endpoint, context.repair_mojibake)
+        }
+        EndpointKind::Search | EndpointKind::Token => None,
+    };
+    // Le marqueur se cherche dans le texte brut complet, avant nettoyage, retrait et coupure.
+    if message.as_deref().is_some_and(error_body::is_not_found_marker) {
+        return CorpusError::NotFound { what: endpoint.to_owned() };
+    }
+    let detail = message
+        .map(|raw| error_body::clean_detail(&raw, context.secrets))
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| format!("HTTP 400 on {endpoint}"));
+    if context.kind == EndpointKind::Search {
+        // 04 §12.5 : le texte de la requête n'est journalisé à aucun niveau, et le message PISTE
+        // d'un 400 de recherche peut le citer ; le journal n'en porte rien.
+        tracing::warn!(
+            endpoint,
+            status = 400,
+            "PISTE rejected a search request as invalid (HTTP 400): probable bug"
+        );
+    } else {
+        tracing::warn!(
+            endpoint,
+            %detail,
+            "PISTE rejected a request as invalid (HTTP 400): probable bug"
+        );
+    }
+    CorpusError::InvalidRequest { status: Some(400), detail }
+}
+
+/// Un 404 prouve l'absence d'une ressource seulement pour une consultation, sur l'hôte officiel
+/// et avec un corps qui n'est pas une page HTML (passerelle, proxy) : sinon c'est une erreur de
+/// configuration.
+fn proves_absence(response: &RawResponse, context: &ErrorContext<'_>) -> bool {
+    context.kind == EndpointKind::Consult
+        && context.official_host
+        && !error_body::looks_like_html(&response.body)
 }
 
 /// Classe un échec de transport : délai et réseau sont passagers, TLS et corps trop gros non.
@@ -134,16 +261,32 @@ fn classify_transport(error: TransportError) -> Outcome<RawResponse> {
 }
 
 /// Une tentative d'envoi puis sa classification.
-pub(crate) async fn try_send(client: &Client, attempt: &Attempt<'_>) -> Outcome<RawResponse> {
-    classify(send_once(client, attempt).await, attempt.endpoint)
+pub(crate) async fn try_send(
+    client: &Client,
+    attempt: &Attempt<'_>,
+    context: &ErrorContext<'_>,
+) -> Outcome<RawResponse> {
+    classify(send_once(client, attempt).await, attempt.endpoint, context)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::capture_at;
 
     const ENDPOINT: &str = "/consult/juri";
     const DATE: &str = "Sun, 06 Nov 1994 08:49:37 GMT";
+    const CONSULT: ErrorContext<'static> = ErrorContext {
+        kind: EndpointKind::Consult,
+        official_host: false,
+        repair_mojibake: true,
+        secrets: &[],
+    };
+
+    const SEARCH_ENDPOINT: &str = "/search";
+    const OFFICIAL: ErrorContext<'static> = ErrorContext { official_host: true, ..CONSULT };
+    const SEARCH: ErrorContext<'static> = ErrorContext { kind: EndpointKind::Search, ..OFFICIAL };
+    const MARKER_MESSAGE: &str = "L'expression à valider est fausse.";
 
     fn secs(n: u64) -> Duration {
         Duration::from_secs(n)
@@ -151,6 +294,39 @@ mod tests {
 
     fn response(status: u16) -> RawResponse {
         RawResponse { status, retry_after: None, date: None, body: b"{}".to_vec() }
+    }
+
+    fn with_body(status: u16, body: &str) -> RawResponse {
+        RawResponse { body: body.as_bytes().to_vec(), ..response(status) }
+    }
+
+    /// Réponse d'erreur de PISTE, avec la forme du 400 de référence.
+    fn piste_error(status: u16, message: &str) -> RawResponse {
+        let body = serde_json::json!({
+            "timestamp": 1,
+            "error": status,
+            "status": "Bad Request",
+            "message": message,
+            "errorCode": null,
+        });
+        with_body(status, &body.to_string())
+    }
+
+    /// Le texte lu comme du latin-1 : le mojibake que PISTE a déjà servi.
+    fn mojibake(text: &str) -> String {
+        text.bytes().map(char::from).collect()
+    }
+
+    fn fatal(error: CorpusError) -> Outcome<RawResponse> {
+        Outcome::Fatal(error)
+    }
+
+    fn not_found() -> CorpusError {
+        CorpusError::NotFound { what: ENDPOINT.to_owned() }
+    }
+
+    fn invalid(detail: &str) -> CorpusError {
+        CorpusError::InvalidRequest { status: Some(400), detail: detail.to_owned() }
     }
 
     fn with_headers(status: u16, retry_after: Option<&str>, date: Option<&str>) -> RawResponse {
@@ -162,7 +338,7 @@ mod tests {
     }
 
     fn classified(status: u16) -> Outcome<RawResponse> {
-        classify(Ok(response(status)), ENDPOINT)
+        classify(Ok(response(status)), ENDPOINT, &CONSULT)
     }
 
     fn detail(status: u16) -> String {
@@ -199,27 +375,352 @@ mod tests {
     }
 
     #[test]
-    fn status_400_is_invalid_request_with_a_generic_detail() {
+    fn status_400_without_a_usable_message_keeps_the_generic_detail() {
+        for body in ["{}", "", "<html>Bad Request</html>", "plain", r#"{"message":null}"#, "null"] {
+            for context in [CONSULT, SEARCH] {
+                assert_eq!(
+                    classify(Ok(with_body(400, body)), ENDPOINT, &context),
+                    fatal(invalid("HTTP 400 on /consult/juri")),
+                    "{body:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_400_marker_on_a_consultation_is_not_found_on_any_host() {
+        for context in [CONSULT, OFFICIAL] {
+            assert_eq!(
+                classify(Ok(piste_error(400, MARKER_MESSAGE)), ENDPOINT, &context),
+                fatal(not_found())
+            );
+        }
+    }
+
+    #[test]
+    fn the_400_marker_survives_any_shape_of_error_code() {
+        for code in ["1234", r#""E42""#, "null", r#"{"code":1}"#, r#"["E42"]"#, "true", "1.5"] {
+            let body =
+                format!(r#"{{"error":400,"message":"{MARKER_MESSAGE}","errorCode":{code}}}"#);
+            assert_eq!(
+                classify(Ok(with_body(400, &body)), ENDPOINT, &CONSULT),
+                fatal(not_found()),
+                "{code}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_400_marker_is_searched_in_the_whole_raw_message() {
+        // Le marqueur est au-delà des 200 caractères que garde le détail : il se cherche dans le
+        // texte brut complet, avant la coupure.
+        let message = format!("{} {MARKER_MESSAGE}", "x".repeat(250));
         assert_eq!(
-            classified(400),
-            Outcome::Fatal(CorpusError::InvalidRequest {
-                status: Some(400),
-                detail: "HTTP 400 on /consult/juri".to_owned(),
-            })
+            classify(Ok(piste_error(400, &message)), ENDPOINT, &CONSULT),
+            fatal(not_found())
         );
     }
 
     #[test]
-    fn the_body_of_a_400_is_never_read() {
-        let mut secret = response(400);
-        secret.body = br#"{"message":"secret-ish"}"#.to_vec();
+    fn the_400_marker_ignores_case_and_accent() {
+        for message in [
+            "L'EXPRESSION À VALIDER EST FAUSSE.",
+            "expression a valider est fausse",
+            "VALIDER EST FAUSSE",
+        ] {
+            assert_eq!(
+                classify(Ok(piste_error(400, message)), ENDPOINT, &CONSULT),
+                fatal(not_found()),
+                "{message}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_400_mentioning_a_valider_alone_is_not_not_found() {
+        for context in [CONSULT, OFFICIAL] {
+            for message in ["il faut a valider ceci", "À valider", "a valider"] {
+                assert_eq!(
+                    classify(Ok(piste_error(400, message)), ENDPOINT, &context),
+                    fatal(invalid(message)),
+                    "{message}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_400_marker_survives_mojibake_with_or_without_repair() {
+        let garbled = mojibake(MARKER_MESSAGE);
+        for repair_mojibake in [true, false] {
+            let context = ErrorContext { repair_mojibake, ..CONSULT };
+            assert_eq!(
+                classify(Ok(piste_error(400, &garbled)), ENDPOINT, &context),
+                fatal(not_found()),
+                "repair {repair_mojibake}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_400_marker_on_search_is_only_a_rejected_request_with_a_generic_detail() {
         assert_eq!(
-            classify(Ok(secret), ENDPOINT),
-            Outcome::Fatal(CorpusError::InvalidRequest {
-                status: Some(400),
-                detail: "HTTP 400 on /consult/juri".to_owned(),
-            })
+            classify(Ok(piste_error(400, MARKER_MESSAGE)), SEARCH_ENDPOINT, &SEARCH),
+            fatal(invalid("HTTP 400 on /search"))
         );
+    }
+
+    #[test]
+    fn another_400_message_becomes_the_detail_of_a_consultation() {
+        assert_eq!(
+            classify(Ok(piste_error(400, "Unknown facet DATE_X")), ENDPOINT, &CONSULT),
+            fatal(invalid("Unknown facet DATE_X"))
+        );
+    }
+
+    #[test]
+    fn the_pista_message_of_a_search_400_never_reaches_the_detail() {
+        // Le message d'un 400 de recherche peut citer le texte de la requête (04 §12.5) : le
+        // détail, que le port destine aux journaux et à l'audit, ne le recopie jamais.
+        let secret_context = ErrorContext { secrets: &["tok-0123456789"], ..SEARCH };
+        for message in [
+            "Unknown value texte-secret-42 in query",
+            "Unknown facet DATE_X",
+            "Bearer tok-0123456789 refused",
+            "x",
+            MARKER_MESSAGE,
+        ] {
+            for context in [SEARCH, secret_context] {
+                assert_eq!(
+                    classify(Ok(piste_error(400, message)), SEARCH_ENDPOINT, &context),
+                    fatal(invalid("HTTP 400 on /search")),
+                    "{message}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_400_detail_is_repaired_cleaned_and_bounded() {
+        let garbled = mojibake("Facette inconnue : é");
+        assert_eq!(
+            classify(Ok(piste_error(400, &garbled)), ENDPOINT, &CONSULT),
+            fatal(invalid("Facette inconnue : é"))
+        );
+        let unrepaired = ErrorContext { repair_mojibake: false, ..CONSULT };
+        assert_eq!(
+            classify(Ok(piste_error(400, &garbled)), ENDPOINT, &unrepaired),
+            fatal(invalid(&garbled))
+        );
+        assert_eq!(
+            classify(Ok(piste_error(400, "line1\nline2\u{1b}[31m\u{202e}x")), ENDPOINT, &CONSULT),
+            fatal(invalid("line1 line2 [31mx"))
+        );
+        assert_eq!(
+            classify(Ok(piste_error(400, &"x".repeat(5_000))), ENDPOINT, &CONSULT),
+            fatal(invalid(&"x".repeat(200)))
+        );
+    }
+
+    #[test]
+    fn a_400_message_with_nothing_visible_falls_back_to_the_generic_detail() {
+        assert_eq!(
+            classify(Ok(piste_error(400, " \n\u{200b}\u{1} ")), ENDPOINT, &CONSULT),
+            fatal(invalid("HTTP 400 on /consult/juri"))
+        );
+    }
+
+    #[test]
+    fn the_token_endpoint_400_does_not_read_the_body() {
+        assert_eq!(
+            classify(Ok(piste_error(400, MARKER_MESSAGE)), "/oauth/token", &ErrorContext::TOKEN),
+            fatal(invalid("HTTP 400 on /oauth/token"))
+        );
+    }
+
+    #[test]
+    fn the_400_detail_never_carries_a_known_secret() {
+        let context = ErrorContext { secrets: &["tok-0123456789", "client-secret-xyz"], ..CONSULT };
+        let detail_of = |message: &str| classify(Ok(piste_error(400, message)), ENDPOINT, &context);
+        assert_eq!(
+            detail_of("Bad Bearer tok-0123456789 / client-secret-xyz in tok-0123456789"),
+            fatal(invalid("Bad Bearer [redacted] / [redacted] in [redacted]"))
+        );
+        // Le secret est retiré avant la coupure à 200 caractères, jamais à cheval sur elle.
+        assert_eq!(
+            detail_of(&format!("{}tok-0123456789", "y".repeat(195))),
+            fatal(invalid(&format!("{}[reda", "y".repeat(195))))
+        );
+        // Un jeton coupé par un caractère invisible : l'expurgation suit le nettoyage.
+        assert_eq!(detail_of("Bearer tok-01\u{200B}23456789"), fatal(invalid("Bearer [redacted]")));
+    }
+
+    #[test]
+    fn a_rejected_400_is_logged_as_a_probable_bug_without_the_raw_body() {
+        let (capture, _guard) = capture_at(tracing::Level::TRACE);
+        let body = r#"{"message":"Facet\u0007 refused","extra":"raw-body-field"}"#;
+        assert_eq!(
+            classify(Ok(with_body(400, body)), ENDPOINT, &CONSULT),
+            fatal(invalid("Facet refused"))
+        );
+        let log = capture.text();
+        for expected in
+            ["WARN", "probable bug", r#"endpoint="/consult/juri""#, "detail=Facet refused"]
+        {
+            assert!(log.contains(expected), "{expected} missing from {log:?}");
+        }
+        assert!(!log.contains("raw-body-field"), "{log:?}");
+        assert!(!log.contains('\u{7}'), "{log:?}");
+    }
+
+    #[test]
+    fn an_unknown_identifier_is_not_a_probable_bug() {
+        let (capture, _guard) = capture_at(tracing::Level::TRACE);
+        assert_eq!(
+            classify(Ok(piste_error(400, MARKER_MESSAGE)), ENDPOINT, &CONSULT),
+            fatal(not_found())
+        );
+        assert_eq!(capture.text(), "");
+    }
+
+    #[test]
+    fn a_rejected_search_400_is_logged_without_the_pista_message() {
+        let (capture, _guard) = capture_at(tracing::Level::TRACE);
+        assert_eq!(
+            classify(
+                Ok(piste_error(400, "Unknown value texte-secret-42 in query")),
+                SEARCH_ENDPOINT,
+                &SEARCH
+            ),
+            fatal(invalid("HTTP 400 on /search"))
+        );
+        let log = capture.text();
+        for expected in ["WARN", "probable bug", r#"endpoint="/search""#, "status=400"] {
+            assert!(log.contains(expected), "{expected} missing from {log:?}");
+        }
+        assert!(!log.contains("texte-secret-42"), "{log:?}");
+        assert!(!log.contains("detail"), "{log:?}");
+    }
+
+    #[test]
+    fn a_404_on_a_consultation_of_the_official_host_with_a_non_html_body_is_not_found() {
+        for body in [r#"{"status":404,"error":"Not Found"}"#, "", "Not Found", "{}"] {
+            assert_eq!(
+                classify(Ok(with_body(404, body)), ENDPOINT, &OFFICIAL),
+                fatal(not_found()),
+                "{body:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_404_html_page_is_config_even_on_the_official_host() {
+        for body in [
+            "<!DOCTYPE html><html>404</html>",
+            "\n  <html>",
+            r#"<?xml version="1.0"?>"#,
+            "\u{feff}<html>",
+            "\u{feff}  \r\n<!DOCTYPE html>",
+        ] {
+            assert_eq!(
+                classify(Ok(with_body(404, body)), ENDPOINT, &OFFICIAL),
+                fatal(CorpusError::Config { detail: detail(404) }),
+                "{body:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_404_on_a_custom_host_is_config_whatever_the_body() {
+        for body in ["", "{}", r#"{"status":404}"#, "<html></html>"] {
+            assert_eq!(
+                classify(Ok(with_body(404, body)), ENDPOINT, &CONSULT),
+                fatal(CorpusError::Config { detail: detail(404) }),
+                "{body:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_404_on_search_or_on_the_token_endpoint_is_config_even_on_the_official_host() {
+        let token = ErrorContext { official_host: true, ..ErrorContext::TOKEN };
+        for (endpoint, context) in [(SEARCH_ENDPOINT, SEARCH), ("/oauth/token", token)] {
+            assert_eq!(
+                classify(Ok(with_body(404, "{}")), endpoint, &context),
+                fatal(CorpusError::Config { detail: format!("HTTP 404 on {endpoint}") }),
+                "{endpoint}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_other_statuses_are_never_not_found_even_with_the_marker() {
+        let classified =
+            |status| classify(Ok(piste_error(status, MARKER_MESSAGE)), ENDPOINT, &OFFICIAL);
+        assert_eq!(
+            classified(401),
+            Outcome::Unauthorized(CorpusError::Auth { detail: detail(401) })
+        );
+        assert_eq!(classified(403), fatal(CorpusError::Auth { detail: detail(403) }));
+        assert_eq!(classified(405), fatal(CorpusError::Config { detail: detail(405) }));
+        for status in [410, 422] {
+            assert_eq!(classified(status), fatal(upstream(status, false)), "{status}");
+        }
+        // Le 500 n'est jamais « introuvable » (règle 5).
+        assert_eq!(
+            classified(500),
+            Outcome::Transient {
+                error: upstream(500, false),
+                retry_after: None,
+                budget: Budget::Reduced,
+            }
+        );
+        assert_eq!(classified(502), transient(upstream(502, true), None));
+    }
+
+    #[test]
+    fn an_empty_2xx_body_on_a_consultation_is_not_found() {
+        for status in [200, 201, 204] {
+            for body in ["", "  \r\n\t"] {
+                assert_eq!(
+                    classify(Ok(with_body(status, body)), ENDPOINT, &CONSULT),
+                    fatal(not_found()),
+                    "{status} {body:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_empty_2xx_body_on_search_is_a_decode_error() {
+        for status in [200, 204] {
+            assert_eq!(
+                classify(Ok(with_body(status, "")), SEARCH_ENDPOINT, &SEARCH),
+                fatal(CorpusError::Decode { detail: "empty response body on /search".to_owned() }),
+                "{status}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_2xx_body_on_the_token_endpoint_is_left_to_the_token_reader() {
+        assert_eq!(
+            classify(Ok(with_body(200, "")), "/oauth/token", &ErrorContext::TOKEN),
+            Outcome::Success(with_body(200, ""))
+        );
+    }
+
+    #[test]
+    fn a_2xx_with_any_body_is_left_to_the_decoder() {
+        for body in ["null", "{}", r#"{"text":null}"#, "x", "<html>"] {
+            for context in [CONSULT, SEARCH] {
+                assert_eq!(
+                    classify(Ok(with_body(200, body)), ENDPOINT, &context),
+                    Outcome::Success(with_body(200, body)),
+                    "{body:?}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -268,7 +769,7 @@ mod tests {
     #[test]
     fn status_429_carries_the_retry_after_in_both_places() {
         assert_eq!(
-            classify(Ok(with_headers(429, Some("7"), None)), ENDPOINT),
+            classify(Ok(with_headers(429, Some("7"), None)), ENDPOINT, &CONSULT),
             transient(CorpusError::RateLimited { retry_after: Some(secs(7)) }, Some(secs(7)))
         );
     }
@@ -285,7 +786,7 @@ mod tests {
         ] {
             let raw = Some(Duration::from_secs(announced.parse().unwrap_or(u64::MAX)));
             assert_eq!(
-                classify(Ok(with_headers(429, Some(announced), None)), ENDPOINT),
+                classify(Ok(with_headers(429, Some(announced), None)), ENDPOINT, &CONSULT),
                 // La boucle de réessai garde la valeur annoncée pour décider d'attendre ou de
                 // refuser ; seule la valeur propagée à l'appelant est écrêtée.
                 transient(CorpusError::RateLimited { retry_after: Some(secs(kept)) }, raw),
@@ -309,7 +810,7 @@ mod tests {
     #[test]
     fn retry_after_is_not_read_on_a_500() {
         assert_eq!(
-            classify(Ok(with_headers(500, Some("7"), None)), ENDPOINT),
+            classify(Ok(with_headers(500, Some("7"), None)), ENDPOINT, &CONSULT),
             Outcome::Transient {
                 error: upstream(500, false),
                 retry_after: None,
@@ -329,7 +830,7 @@ mod tests {
     fn statuses_502_503_504_honour_retry_after() {
         for status in [502, 503, 504] {
             assert_eq!(
-                classify(Ok(with_headers(status, Some("12"), None)), ENDPOINT),
+                classify(Ok(with_headers(status, Some("12"), None)), ENDPOINT, &CONSULT),
                 transient(upstream(status, true), Some(secs(12)))
             );
         }
@@ -339,7 +840,7 @@ mod tests {
     fn retry_after_given_as_an_http_date_uses_the_date_header_of_the_same_response() {
         let reply = with_headers(429, Some("Sun, 06 Nov 1994 08:49:40 GMT"), Some(DATE));
         assert_eq!(
-            classify(Ok(reply), ENDPOINT),
+            classify(Ok(reply), ENDPOINT, &CONSULT),
             transient(CorpusError::RateLimited { retry_after: Some(secs(3)) }, Some(secs(3)))
         );
     }
@@ -347,7 +848,7 @@ mod tests {
     #[test]
     fn unusable_retry_after_is_ignored() {
         assert_eq!(
-            classify(Ok(with_headers(503, Some("soon"), Some(DATE))), ENDPOINT),
+            classify(Ok(with_headers(503, Some("soon"), Some(DATE))), ENDPOINT, &CONSULT),
             transient(upstream(503, true), None)
         );
     }
@@ -384,7 +885,7 @@ mod tests {
     #[test]
     fn transport_timeout_is_transient_timeout() {
         assert_eq!(
-            classify(Err(TransportError::Timeout), ENDPOINT),
+            classify(Err(TransportError::Timeout), ENDPOINT, &CONSULT),
             transient(CorpusError::Timeout, None)
         );
     }
@@ -393,7 +894,7 @@ mod tests {
     fn network_error_is_transient_and_retryable() {
         let detail = "network error (connect) on /consult/juri".to_owned();
         assert_eq!(
-            classify(Err(TransportError::Network { detail: detail.clone() }), ENDPOINT),
+            classify(Err(TransportError::Network { detail: detail.clone() }), ENDPOINT, &CONSULT),
             transient(CorpusError::Upstream { status: None, retryable: true, detail }, None)
         );
     }
@@ -402,7 +903,7 @@ mod tests {
     fn tls_failure_is_final() {
         let detail = "TLS handshake failed on /consult/juri".to_owned();
         assert_eq!(
-            classify(Err(TransportError::Tls { detail: detail.clone() }), ENDPOINT),
+            classify(Err(TransportError::Tls { detail: detail.clone() }), ENDPOINT, &CONSULT),
             Outcome::Fatal(CorpusError::Upstream { status: None, retryable: false, detail })
         );
     }
@@ -411,7 +912,7 @@ mod tests {
     fn oversized_body_is_a_final_decode_error() {
         let detail = "response too large (> 16 MiB) on /consult/juri".to_owned();
         assert_eq!(
-            classify(Err(TransportError::TooLarge { detail: detail.clone() }), ENDPOINT),
+            classify(Err(TransportError::TooLarge { detail: detail.clone() }), ENDPOINT, &CONSULT),
             Outcome::Fatal(CorpusError::Decode { detail })
         );
     }
