@@ -74,16 +74,16 @@ pub(crate) struct ConsultTextDto {
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub type_texte: Option<String>,
     /// Noms d'usage du texte.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub appellations: Vec<String>,
     /// Sections de premier niveau de la table des matières.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub sections: Vec<TocSectionDto>,
     /// Articles rattachés directement à la racine.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub articles: Vec<TocArticleDto>,
     /// Conteneurs (conventions collectives) du texte KALI.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub conteneurs: Vec<ConteneurDto>,
 }
 
@@ -107,10 +107,10 @@ pub(crate) struct TocSectionDto {
     #[serde(deserialize_with = "de::opt_raw_date")]
     pub date_fin: Option<RawDate>,
     /// Sous-sections.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub sections: Vec<TocSectionDto>,
     /// Articles de la section.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub articles: Vec<TocArticleDto>,
 }
 
@@ -136,10 +136,10 @@ pub(crate) struct TocArticleDto {
     #[serde(deserialize_with = "de::opt_raw_date")]
     pub date_fin: Option<RawDate>,
     /// Liens vers les articles qui citent celui-ci ou qu'il cite.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub lst_lien_citation: Vec<LienArticleDto>,
     /// Liens vers les articles qui modifient celui-ci ou qu'il modifie.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub lst_lien_modification: Vec<LienArticleDto>,
 }
 
@@ -185,6 +185,7 @@ pub(crate) struct ConteneurDto {
 mod tests {
     use super::*;
     use crate::dto::decode::decode;
+    use crate::dto::tests::{assert_too_many, repeated};
 
     const LODA: &str = "/consult/lawDecree";
     const KALI: &str = "/consult/kaliText";
@@ -396,6 +397,35 @@ mod tests {
             format!("{error:?}"),
             r#"Decode { detail: "/consult/lawDecree: sections[0].articles[0].intOrdre: invalid type: string, expected i64" }"#
         );
+    }
+
+    /// Décode `raw` en `ConsultTextDto` : l'erreur attendue est celle d'un budget épuisé à `path`.
+    fn assert_budgeted(raw: &str, path: &str) {
+        assert_too_many::<ConsultTextDto>(raw, LODA, path);
+    }
+
+    #[test]
+    fn every_consult_text_list_is_budgeted() {
+        let strings = repeated(r#""x""#, 200_001);
+        let objects = repeated("{}", 200_001);
+        assert_budgeted(&format!(r#"{{"appellations":{strings}}}"#), "appellations[200000]");
+        for list in ["conteneurs", "sections", "articles"] {
+            assert_budgeted(&format!(r#"{{"{list}":{objects}}}"#), &format!("{list}[200000]"));
+        }
+        assert_budgeted(
+            &format!(r#"{{"sections":[{{"sections":{objects}}}]}}"#),
+            "sections[0].sections[199999]",
+        );
+        assert_budgeted(
+            &format!(r#"{{"sections":[{{"articles":{objects}}}]}}"#),
+            "sections[0].articles[199999]",
+        );
+        for list in ["lstLienCitation", "lstLienModification"] {
+            assert_budgeted(
+                &format!(r#"{{"articles":[{{"{list}":{objects}}}]}}"#),
+                &format!("articles[0].{list}[199999]"),
+            );
+        }
     }
 
     #[test]

@@ -72,7 +72,7 @@ pub(crate) struct ArticleDto {
     #[serde(deserialize_with = "de::null_default")]
     pub context: ArticleContextDto,
     /// Titres du texte parent.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub text_titles: Vec<TextTitleDto>,
     /// Vrai si l'article a plusieurs versions (`isMultipleVersions` ou `multipleVersions`).
     #[serde(alias = "multipleVersions")]
@@ -85,10 +85,10 @@ pub(crate) struct ArticleDto {
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct ArticleContextDto {
     /// Sections traversées, de la plus haute à la plus basse (clé `titresTM`).
-    #[serde(rename = "titresTM", deserialize_with = "de::null_default")]
+    #[serde(rename = "titresTM", deserialize_with = "de::bounded_list")]
     pub titres_tm: Vec<ContextEntryDto>,
     /// Texte parent.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub titre_txt: Vec<ContextEntryDto>,
 }
 
@@ -128,6 +128,7 @@ pub(crate) struct TextTitleDto {
 mod tests {
     use super::*;
     use crate::dto::decode::decode;
+    use crate::dto::tests::{assert_too_many, repeated};
 
     const ENDPOINT: &str = "/consult/getArticle";
 
@@ -150,6 +151,19 @@ mod tests {
     /// Message de l'erreur `Decode` rendue pour `raw`.
     fn error_of(raw: &str) -> String {
         format!("{:?}", decode::<GetArticleResponseDto>(raw, ENDPOINT).unwrap_err())
+    }
+
+    #[test]
+    fn every_article_list_is_budgeted() {
+        let objects = repeated("{}", 200_001);
+        for (fields, path) in [
+            (format!(r#""textTitles":{objects}"#), "article.textTitles[200000]"),
+            (format!(r#""context":{{"titresTM":{objects}}}"#), "article.context.titresTM[200000]"),
+            (format!(r#""context":{{"titreTxt":{objects}}}"#), "article.context.titreTxt[200000]"),
+        ] {
+            let raw = format!(r#"{{"article":{{{fields}}}}}"#);
+            assert_too_many::<GetArticleResponseDto>(&raw, ENDPOINT, path);
+        }
     }
 
     #[test]

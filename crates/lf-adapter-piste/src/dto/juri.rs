@@ -91,16 +91,16 @@ pub(crate) struct JuriTextDto {
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub ancien_id: Option<String>,
     /// Numéros de pourvoi ou d'affaire.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub numero_affaire: Vec<String>,
     /// Plan de classement de la décision.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub titrages: Vec<String>,
     /// Résumés officiels.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub sommaire: Vec<SommaireDto>,
     /// Textes appliqués ou cités.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub liens: Vec<TexteLienDto>,
     /// Date du texte, brute.
     #[serde(deserialize_with = "de::opt_raw_date")]
@@ -179,6 +179,7 @@ mod tests {
     use super::*;
     use crate::dto::consult_text::ConsultTextDto;
     use crate::dto::decode::decode;
+    use crate::dto::tests::{assert_too_many, repeated};
 
     const JURI: &str = "/consult/juri";
     const CNIL: &str = "/consult/cnil";
@@ -232,6 +233,24 @@ mod tests {
     /// Enveloppe `text` autour de `fields`, qui sont des champs JSON.
     fn wrapped(fields: &str) -> String {
         format!(r#"{{"text":{{{fields}}}}}"#)
+    }
+
+    #[test]
+    fn every_juri_list_is_budgeted() {
+        let strings = repeated(r#""x""#, 200_001);
+        let objects = repeated("{}", 200_001);
+        for (field, elements) in [
+            ("numeroAffaire", &strings),
+            ("titrages", &strings),
+            ("sommaire", &objects),
+            ("liens", &objects),
+        ] {
+            assert_too_many::<ConsultJuriResponseDto>(
+                &wrapped(&format!(r#""{field}":{elements}"#)),
+                JURI,
+                &format!("text.{field}[200000]"),
+            );
+        }
     }
 
     #[test]

@@ -54,10 +54,10 @@ pub(crate) struct AccordDto {
     #[serde(deserialize_with = "de::opt_string_or_number")]
     pub code_idcc: Option<String>,
     /// Thèmes de l'accord.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub themes: Vec<LibelleDto>,
     /// Syndicats signataires.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub syndicats: Vec<LibelleDto>,
     /// Date du texte, brute.
     #[serde(deserialize_with = "de::opt_raw_date")]
@@ -93,6 +93,7 @@ pub(crate) struct LibelleDto {
 mod tests {
     use super::*;
     use crate::dto::decode::decode;
+    use crate::dto::tests::{assert_too_many, repeated};
 
     const ENDPOINT: &str = "/consult/acco";
 
@@ -124,6 +125,19 @@ mod tests {
     /// Enveloppe `acco` autour de `fields`, qui sont des champs JSON.
     fn wrapped(fields: &str) -> String {
         format!(r#"{{"acco":{{{fields}}}}}"#)
+    }
+
+    #[test]
+    fn every_acco_list_is_budgeted() {
+        let objects = repeated("{}", 200_001);
+        for field in ["themes", "syndicats"] {
+            let raw = format!(r#"{{"acco":{{"{field}":{objects}}}}}"#);
+            assert_too_many::<ConsultAccoResponseDto>(
+                &raw,
+                ENDPOINT,
+                &format!("acco.{field}[200000]"),
+            );
+        }
     }
 
     #[test]
