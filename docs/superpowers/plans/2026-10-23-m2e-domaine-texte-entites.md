@@ -7,7 +7,7 @@
 > | **2e (ce plan)** | compléments du domaine : valeurs, texte structuré, entités complètes, fixtures installées | `lf-domain` (+ données dans `lf-adapter-piste/tests`) |
 > | 2f | budget de décodage R11 et R13, `map/` (T-M2-07), diagnostics et compteurs | `lf-adapter-piste` |
 > | 2g | `request/consult.rs`, `impl LegalCorpus` (T-M2-09), retrait de l'`expect(dead_code)`, contrats sur fixtures, golden, `insta` | `lf-adapter-piste` |
-> | 2h | `record-fixture` (T-M2-11), tests live (T-M2-12), sondes T-M2-14 à T-M2-21 (compte PISTE) ; T-M2-13 passe en M4 | adapter, `xtask` |
+> | 2h | `record-fixture` (T-M2-11), tests live (T-M2-12), sondes T-M2-14 à T-M2-22 (compte PISTE) ; T-M2-13 passe en M4 | adapter, `xtask` |
 >
 > **R11 n'est pas un frein** : rien n'appelle `decode` en production avant le plan 2g, et le plan 2f le pose en première tâche. Les décisions de portée sont dans le tableau « Décisions de cadrage ».
 

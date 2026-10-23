@@ -1,9 +1,9 @@
 //! Lexer HTML partagé : champs courts (`clean`, 03 §7.3) et texte long découpé en
-//! paragraphes (03 §7.2). Écrit à la main, sans crate HTML (00 §2 et §4) : tolérant, en un
-//! seul passage, linéaire, sans récursion ni panique. Aucun texte n'est perdu quand une
-//! fermante manque, à une exception près : un ouvrant qui a vu un `=` (forme d'attribut) et
-//! que rien ne ferme jusqu'à la fin de l'entrée est supprimé jusqu'à la fin (capture tronquée
-//! dans un attribut, `consult_kali.json`).
+//! paragraphes (03 §7.2). Écrit à la main, sans crate HTML (00 §2 et §4) : tolérant, en deux
+//! lectures de l'entrée, linéaire, en mémoire bornée, sans récursion ni panique. Aucun texte
+//! n'est perdu quand une fermante manque, à une exception près : un ouvrant qui a vu un `=`
+//! (forme d'attribut) et que rien ne ferme jusqu'à la fin de l'entrée est supprimé jusqu'à la
+//! fin (capture tronquée dans un attribut, `consult_kali.json`).
 //!
 //! # Lexing (03 §7.2, étape 1)
 //!
@@ -29,9 +29,11 @@
 //!   second `<br>`.
 //! - Cellule : `td`, `th` ([`Event::Cell`]).
 //! - Supprimé avec son contenu : tout nom qui commence par `rech_`, plus `script` et `style`.
-//!   L'ouvrant le plus extérieur prend la première fermante de son nom ; tant qu'elle n'est pas
-//!   lue, les événements sont retenus. Sans fermante jusqu'à la fin, seul l'ouvrant est retiré
-//!   et les événements retenus sont rendus : aucun texte perdu. Un ouvrant auto-fermant
+//!   Un ouvrant n'ouvre une zone supprimée que si une fermante de son nom le suit (passe 1 de
+//!   [`scan`]) ; la première fermante de ce nom la ferme, si bien que l'ouvrant le plus
+//!   extérieur prend la première fermante de son nom. Sans fermante jusqu'à la fin, seul
+//!   l'ouvrant est retiré : aucun texte perdu. Au-delà de 256 noms distincts de fermantes, les
+//!   noms suivants sont traités comme sans fermante (contenu gardé). Un ouvrant auto-fermant
 //!   (`<RECH_X/>`) n'a pas de contenu. Une fermante cachée dans un commentaire ou une valeur
 //!   citée ne compte pas.
 //! - En ligne : tout le reste, retiré sans espace (`1<sup>er</sup>` donne `1er`).
@@ -44,8 +46,9 @@
 //!
 //! # Linéarité
 //!
-//! - La boucle de [`scan`] cherche le prochain `<` par `find`, appelle `lex` et avance d'au
-//!   moins un octet (`len.max(1)`, sans opérateur mutable) : elle termine toujours.
+//! - La boucle de [`lex_all`] cherche le prochain `<` par `find`, appelle `lex` et avance d'au
+//!   moins un octet (`len.max(1)`, sans opérateur mutable) : elle termine toujours. [`scan`]
+//!   l'appelle deux fois (passes 1 et 2).
 //! - `lex` lit vers l'avant, par un itérateur qui ne recule jamais. Balise : tout ce qu'il a
 //!   lu est consommé. Ouvrant littéral : la lecture suivante reprend à l'octet où il s'est
 //!   arrêté (le second `<`), donc deux lectures de `lex` ne se recouvrent pas.
@@ -59,9 +62,11 @@
 //!   lui, donc plus de recherche à faire.
 //! - Commentaire : `find("-->")` réussit (texte consommé) ou échoue ; le premier échec pose
 //!   `no_comment_end` et tout `<!--` suivant est littéral sans nouvelle recherche.
-//! - Supprimés avec contenu : aucune recherche en avant. Chaque événement est retenu au plus
-//!   une fois puis effacé ou rendu une fois ; chaque ouvrant est empilé puis dépilé une fois ;
-//!   la table `outermost` donne l'ouvrant le plus extérieur d'un nom en temps constant.
+//! - Supprimés avec contenu : aucune recherche en avant ni événement retenu. La passe 1 note la
+//!   fin de la dernière fermante de chaque nom (au plus 256 noms) ; la passe 2 y lit en temps
+//!   constant si un ouvrant a une fermante après lui, et rend chaque événement au fil de la
+//!   lecture (audit M-1 : le tampon d'événements de l'ancienne passe unique montait à 25 fois
+//!   la taille de l'entrée).
 //! - [`decode_entities`] lit au plus 12 octets par `&` ; [`strip_invisible`], un passage.
 
 use std::collections::HashMap;
@@ -115,8 +120,20 @@ fn classify(name_lower: &str) -> Class {
     }
 }
 
-/// Lit `html` en un seul passage et rend ses événements à `sink`, dans l'ordre (grammaire et
+/// Plus grand nombre de noms distincts d'éléments supprimés avec leur contenu dont la passe 1 de
+/// [`scan`] retient la dernière fermante. Au-delà, un nom est traité comme sans fermante : son
+/// contenu est gardé (aucun texte perdu), et la mémoire de `scan` reste bornée (audit M-1).
+const MAX_DROP_NAMES: usize = 256;
+
+/// Lit `html` et rend ses événements à `sink`, dans l'ordre, au fil de la lecture (grammaire et
 /// classement : doc du module).
+///
+/// Deux passes du lexer (audit M-1) : la passe 1 note, pour chaque nom supprimé avec son
+/// contenu (`RECH_*`, `script`, `style`), la fin de sa dernière fermante ([`drop_closings`]) ;
+/// la passe 2 rend les événements, avec un seul état : le nom de l'élément en cours de
+/// suppression. Un ouvrant n'ouvre une zone supprimée que si une fermante de son nom le suit ;
+/// la zone se ferme à la première fermante de ce nom, et tout ce qu'elle contient part avec
+/// elle. Un ouvrant sans fermante ne change rien : seule la balise est retirée.
 ///
 /// Cas limites des éléments supprimés avec leur contenu et des ouvrants littéraux :
 ///
@@ -129,12 +146,13 @@ fn classify(name_lower: &str) -> Class {
 /// - Un ouvrant rendu littéral (un `<` avant son `>`) rend tel quel le balisage de ses valeurs
 ///   citées, `RECH_*` compris : `<a t="<RECH_X>y</RECH_X>" <i>z` donne le texte
 ///   `<a t="<RECH_X>y</RECH_X>" ` puis `z`.
+/// - Au-delà de [`MAX_DROP_NAMES`] noms distincts de fermantes, dans l'ordre de la source, les
+///   noms suivants sont traités comme sans fermante : leur contenu est gardé.
 ///
-/// Mémoire : O(n), mais tant qu'un élément supprimé attend sa fermante, chaque événement est
-/// retenu (24 octets, plus le nom de chaque ouvrant en attente). Le relecteur a mesuré un pic
-/// d'environ 12,7 fois la taille de l'entrée sur un `<script>` non fermé suivi de `a<p>`
-/// répétés (un événement tous les 2 octets), contre une fois la taille de l'entrée sans
-/// élément en attente.
+/// Mémoire : aucun événement n'est retenu ; en plus du nom de chaque balise (une à la fois),
+/// `scan` ne garde que la table de la passe 1, d'au plus [`MAX_DROP_NAMES`] noms, et le nom de
+/// l'élément en cours de suppression. Le tampon d'événements précédent montait à 25 fois la
+/// taille de l'entrée (`<script>` suivi de `<` répétés, audit M-1).
 pub(crate) fn scan<'a>(html: &'a str, mut sink: impl FnMut(Event<'a>)) {
     scan_into(html, &mut sink);
 }
@@ -142,29 +160,96 @@ pub(crate) fn scan<'a>(html: &'a str, mut sink: impl FnMut(Event<'a>)) {
 /// Corps de [`scan`], non générique : `cargo-llvm-cov` résume une fonction générique par son
 /// instance la mieux couverte, pas par l'union des instances (CONTRIBUTING.md).
 fn scan_into<'a>(html: &'a str, sink: &mut dyn FnMut(Event<'a>)) {
-    let mut out = Output { sink, pending: Vec::new(), outermost: HashMap::new(), held: Vec::new() };
+    let closings = drop_closings(html);
+    // Nom de l'élément en cours de suppression : tout part jusqu'à sa première fermante.
+    let mut discard: Option<String> = None;
+    lex_all(html, &mut |piece| match piece {
+        Piece::Text(text) => {
+            if discard.is_none() {
+                sink(Event::Text(text));
+            }
+        }
+        Piece::Tag(at, tag) => {
+            if discard.is_some() {
+                if tag.closing && discard.as_deref() == Some(tag.name.as_str()) {
+                    discard = None;
+                }
+                return;
+            }
+            match (classify(&tag.name), tag.closing) {
+                (Class::Drop, false) => {
+                    // Fermante de ce nom après l'ouvrant : `end > at` (une fermante qui le
+                    // précède, même accolée, finit au plus à `at`).
+                    if !tag.self_closing && closings.get(&tag.name).is_some_and(|&end| end > at) {
+                        discard = Some(tag.name);
+                    }
+                }
+                (Class::Drop, true) | (Class::Inline, _) => {}
+                (Class::Break(Block::Br), true) => sink(Event::Break(Block::Other)),
+                (Class::Break(block), _) => sink(Event::Break(block)),
+                (Class::Cell, _) => sink(Event::Cell),
+            }
+        }
+    });
+}
+
+/// Passe 1 de [`scan`] : pour chaque nom supprimé avec son contenu, la position (en octets)
+/// qui suit sa dernière fermante. Au plus [`MAX_DROP_NAMES`] noms, les premiers rencontrés ; la
+/// fermante d'un nom déjà retenu met toujours sa position à jour.
+fn drop_closings(html: &str) -> HashMap<String, usize> {
+    let mut closings: HashMap<String, usize> = HashMap::new();
+    lex_all(html, &mut |piece| {
+        if let Piece::Tag(at, tag) = piece
+            && tag.closing
+            && classify(&tag.name) == Class::Drop
+            && (closings.len() < MAX_DROP_NAMES || closings.contains_key(&tag.name))
+        {
+            closings.insert(tag.name, at + tag.len);
+        }
+    });
+    closings
+}
+
+/// Morceau de la source lu par [`lex_all`].
+enum Piece<'a> {
+    /// Texte non vide, entités non décodées.
+    Text(&'a str),
+    /// Balise reconnue, et position (en octets) de son `<` dans l'entrée.
+    Tag(usize, Tag),
+}
+
+/// Lit `html` par [`lex`] et rend chaque morceau à `visit`, dans l'ordre de la source : le
+/// texte entre les balises, le texte d'un `<` littéral, chaque balise ; un commentaire et un
+/// ouvrant tronqué en fin d'entrée ne rendent rien.
+fn lex_all<'a>(html: &'a str, visit: &mut dyn FnMut(Piece<'a>)) {
     let mut no_comment_end = false;
     let mut rest = html;
     while let Some(lt) = rest.find('<') {
         let (text, tail) = rest.split_at(lt);
-        out.text(text);
+        visit_text(text, visit);
         let len = match lex(tail, &mut no_comment_end) {
             Lexeme::Literal(len) => {
-                out.text(&tail[..len]);
+                visit_text(&tail[..len], visit);
                 len
             }
             Lexeme::Skip(len) => len,
             Lexeme::Tag(tag) => {
                 let len = tag.len;
-                out.tag(tag);
+                visit(Piece::Tag(html.len() - tail.len(), tag));
                 len
             }
         };
         // Au moins un octet consommé par tour, même si `lex` rendait 0 : la boucle termine.
         rest = &tail[len.max(1)..];
     }
-    out.text(rest);
-    out.finish();
+    visit_text(rest, visit);
+}
+
+/// Rend `text` à `visit` s'il n'est pas vide.
+fn visit_text<'a>(text: &'a str, visit: &mut dyn FnMut(Piece<'a>)) {
+    if !text.is_empty() {
+        visit(Piece::Text(text));
+    }
 }
 
 /// Ce que `lex` lit en tête d'un reste qui commence par `<`.
@@ -247,78 +332,6 @@ fn lex(tail: &str, no_comment_end: &mut bool) -> Lexeme {
 /// Octet d'un nom de balise après la première lettre.
 fn is_name_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || matches!(b, b'_' | b':' | b'-')
-}
-
-/// Sortie de [`scan`] : retient les événements tant qu'un élément supprimé avec son contenu
-/// attend sa fermante.
-struct Output<'a, 's> {
-    sink: &'s mut dyn FnMut(Event<'a>),
-    /// Noms des éléments supprimés avec leur contenu, ouverts et pas encore fermés.
-    pending: Vec<String>,
-    /// Par nom de `pending` : position de son entrée la plus extérieure et longueur de `held`
-    /// à son ouverture.
-    outermost: HashMap<String, (usize, usize)>,
-    /// Événements retenus tant que `pending` n'est pas vide.
-    held: Vec<Event<'a>>,
-}
-
-impl<'a> Output<'a, '_> {
-    fn emit(&mut self, event: Event<'a>) {
-        if self.pending.is_empty() {
-            (self.sink)(event);
-        } else {
-            self.held.push(event);
-        }
-    }
-
-    fn text(&mut self, text: &'a str) {
-        if !text.is_empty() {
-            self.emit(Event::Text(text));
-        }
-    }
-
-    fn tag(&mut self, tag: Tag) {
-        match (classify(&tag.name), tag.closing) {
-            (Class::Drop, false) => {
-                if !tag.self_closing {
-                    self.open(tag.name);
-                }
-            }
-            (Class::Drop, true) => self.close(&tag.name),
-            (Class::Break(Block::Br), true) => self.emit(Event::Break(Block::Other)),
-            (Class::Break(block), _) => self.emit(Event::Break(block)),
-            (Class::Cell, _) => self.emit(Event::Cell),
-            (Class::Inline, _) => {}
-        }
-    }
-
-    /// Ouvrant d'un élément supprimé avec son contenu.
-    fn open(&mut self, name: String) {
-        let first = (self.pending.len(), self.held.len());
-        self.outermost.entry(name.clone()).or_insert(first);
-        self.pending.push(name);
-    }
-
-    /// Fermante d'un élément supprimé avec son contenu : l'ouvrant le plus extérieur de ce nom
-    /// est fermé ; son contenu et les ouvrants qu'il contient disparaissent. Sans ouvrant de
-    /// ce nom, la fermante est seulement retirée.
-    fn close(&mut self, name: &str) {
-        if let Some(&(index, held)) = self.outermost.get(name) {
-            self.held.truncate(held);
-            for name in self.pending.drain(index..) {
-                if self.outermost.get(&name).is_some_and(|&(first, _)| first >= index) {
-                    self.outermost.remove(&name);
-                }
-            }
-        }
-    }
-
-    /// Fin de l'entrée : les ouvrants encore en attente n'ont pas de fermante, seul l'ouvrant
-    /// est retiré et les événements retenus sont rendus.
-    fn finish(self) {
-        let Self { sink, held, .. } = self;
-        held.into_iter().for_each(sink);
-    }
 }
 
 /// Décode les entités de `text` (03 §7.2, étape 3) ; une entité inconnue ou invalide reste
@@ -539,10 +552,14 @@ const ENTITIES: &[(&str, char)] = &[
 
 /// Retire de `text` les caractères invisibles et rend leur nombre (03 §7.3, étape 3).
 ///
-/// Jeu retiré : U+00AD, U+061C, U+200B à U+200F, U+2060, U+FEFF, les contrôles C0 et C1 (et
-/// U+007F) sauf `\t`, `\n` et `\r`, les contrôles bidirectionnels U+202A à U+202E et U+2066 à
-/// U+2069, les tags U+E0000 à U+E007F. Un texte officiel français n'en a aucun usage légitime,
-/// et ils peuvent masquer ou réordonner le texte montré (MEN-06).
+/// Jeu retiré : les contrôles C0 et C1 (et U+007F) sauf `\t`, `\n` et `\r`, et tout point de
+/// code `Default_Ignorable_Code_Point` (17 plages) : U+00AD, U+034F, U+061C, U+115F et U+1160,
+/// U+17B4 et U+17B5, U+180B à U+180F, U+200B à U+200F, les contrôles bidirectionnels U+202A à
+/// U+202E et U+2066 à U+2069, U+2060 à U+206F, U+3164, les sélecteurs de variante U+FE00 à
+/// U+FE0F et U+E0100 à U+E01EF, U+FEFF, U+FFA0, U+FFF0 à U+FFF8, U+1BCA0 à U+1BCA3, U+1D173 à
+/// U+1D17A, les tags U+E0000 à U+E0FFF. Un texte officiel français n'en a aucun usage
+/// légitime, et ils peuvent masquer, réordonner ou porter en contrebande le texte montré
+/// (MEN-06).
 ///
 /// Exception : VT (U+000B), FF (U+000C) et NEL (U+0085), contrôles qui sont aussi des blancs,
 /// deviennent une espace au lieu de disparaître, pour ne pas coller les deux mots qu'ils
@@ -569,60 +586,74 @@ fn is_blank_control(c: char) -> bool {
     matches!(c, '\u{b}' | '\u{c}' | '\u{85}')
 }
 
-/// Caractère du jeu de [`strip_invisible`].
-fn is_invisible(c: char) -> bool {
+/// Caractère du jeu de [`strip_invisible`] : contrôle autre que `\t`, `\n` et `\r`, ou point de
+/// code « ignorable par défaut ».
+pub(crate) fn is_invisible(c: char) -> bool {
     let control = c.is_control() && !matches!(c, '\t' | '\n' | '\r');
-    control
-        || matches!(
-            c,
-            '\u{ad}'
-                | '\u{61c}'
-                | '\u{200b}'..='\u{200f}'
-                | '\u{2060}'
-                | '\u{feff}'
-                | '\u{202a}'..='\u{202e}'
-                | '\u{2066}'..='\u{2069}'
-                | '\u{e0000}'..='\u{e007f}'
-        )
+    control || is_default_ignorable(c)
 }
 
-/// Découpe `html` en paragraphes (03 §7.2, étape 4) et compte les caractères invisibles
-/// retirés.
+/// Point de code de la propriété Unicode `Default_Ignorable_Code_Point` (audit L-1) : rendu
+/// invisible, il peut porter une charge que le lecteur ne voit pas (les sélecteurs de variante
+/// U+FE00 à U+FE0F et U+E0100 à U+E01EF codent un octet chacun). Les 17 plages sont recopiées
+/// de `is_invisible` de `crates/lf-adapter-piste/src/error_body.rs` (le domaine ne dépend pas
+/// de l'adapter) : U+00AD, U+061C, U+200B à U+200F (U+200C et U+200D compris), les bidi
+/// U+202A à U+202E et U+2066 à U+2069, U+2060 et U+FEFF y figurent déjà.
+fn is_default_ignorable(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{034F}'
+            | '\u{061C}'
+            | '\u{115F}'..='\u{1160}'
+            | '\u{17B4}'..='\u{17B5}'
+            | '\u{180B}'..='\u{180F}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{206F}'
+            | '\u{3164}'
+            | '\u{FE00}'..='\u{FE0F}'
+            | '\u{FEFF}'
+            | '\u{FFA0}'
+            | '\u{FFF0}'..='\u{FFF8}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0000}'..='\u{E0FFF}'
+    )
+}
+
+/// Découpe `html` en segments de paragraphe (03 §7.2, étape 4) et rend le texte visible de
+/// chacun à `visible`, au fil de la lecture ; rend le nombre de caractères invisibles retirés.
 ///
-/// Un paragraphe est le texte compris entre deux coupures de bloc ([`Event::Break`], de
-/// n'importe quelle sorte : `<BR></BR>` coupe deux fois, ce qui est sans effet puisque les
-/// segments vides sont supprimés). Une cellule ([`Event::Cell`]) vaut une espace. Chaque
-/// segment passe par [`decode_entities`], puis [`strip_invisible`], puis tous ses blancs (sauts
-/// de ligne compris) sont repliés en une espace et ses bords rognés. Un segment vide est
-/// supprimé : sans balise de bloc le résultat est un seul paragraphe, sans texte il est vide.
+/// Un segment est le texte compris entre deux coupures de bloc ([`Event::Break`], de n'importe
+/// quelle sorte : `<BR></BR>` coupe deux fois, ce qui est sans effet puisque l'appelant ignore
+/// les segments blancs). Une cellule ([`Event::Cell`]) vaut une espace. Chaque segment passe
+/// par [`decode_entities`], puis [`strip_invisible`]. Ses blancs ne sont pas repliés ici :
+/// `LongText` les replie directement dans son texte canonique, sans tableau intermédiaire de
+/// paragraphes ni de mots (audit M-2). Sans balise de bloc, il n'y a qu'un segment.
 ///
-/// Le second élément est la somme, sur tous les segments, des caractères invisibles retirés
-/// (y compris ceux des segments qui n'ont rien d'autre et disparaissent).
-pub(crate) fn paragraphs(html: &str) -> (Vec<String>, u32) {
-    let mut paragraphs = Vec::new();
+/// Le nombre rendu est la somme, sur tous les segments, des caractères invisibles retirés (y
+/// compris ceux des segments qui n'ont rien d'autre et disparaissent).
+pub(crate) fn paragraphs(html: &str, visible: &mut dyn FnMut(&str)) -> u32 {
     let mut invisible = 0_u32;
     let mut segment = String::new();
     scan(html, |event| match event {
         Event::Text(text) => segment.push_str(text),
         Event::Cell => segment.push(' '),
         Event::Break(_) => {
-            invisible = invisible.saturating_add(close_segment(&mut segment, &mut paragraphs));
+            invisible = invisible.saturating_add(close_segment(&mut segment, visible));
         }
     });
-    invisible = invisible.saturating_add(close_segment(&mut segment, &mut paragraphs));
-    (paragraphs, invisible)
+    invisible.saturating_add(close_segment(&mut segment, visible))
 }
 
-/// Termine le segment en cours : il est vidé, et ajouté à `paragraphs` s'il a du texte une fois
-/// nettoyé. Rend le nombre de caractères invisibles retirés.
-fn close_segment(segment: &mut String, paragraphs: &mut Vec<String>) -> u32 {
+/// Termine le segment en cours : il est vidé, et son texte décodé, sans invisibles, est rendu à
+/// `visible`. Rend le nombre de caractères invisibles retirés.
+fn close_segment(segment: &mut String, visible: &mut dyn FnMut(&str)) -> u32 {
     let decoded = decode_entities(segment);
     segment.clear();
-    let (visible, removed) = strip_invisible(&decoded);
-    let paragraph = visible.split_whitespace().collect::<Vec<_>>().join(" ");
-    if !paragraph.is_empty() {
-        paragraphs.push(paragraph);
-    }
+    let (text, removed) = strip_invisible(&decoded);
+    visible(&text);
     removed
 }
 
@@ -811,7 +842,7 @@ mod tests {
         assert_eq!(rendered("<RECH_ECLI>texte sans fermante"), "texte sans fermante");
         assert_eq!(rendered("<script>a<br>b"), "a[br]b");
         // Fermante seule, fermante d'un autre nom : rien n'est retiré de plus. Fermante tronquée
-        // sans `=` : son `<` est littéral (règle bornée), le texte retenu est rendu.
+        // sans `=` : son `<` est littéral (règle bornée), le texte est gardé.
         assert_eq!(rendered("a</script>b"), "ab");
         assert_eq!(rendered("<RECH_A>x</RECH_B>y"), "xy");
         assert_eq!(rendered("<RECH_A>x</RECH_A"), "x</RECH_A");
@@ -837,6 +868,55 @@ mod tests {
         assert_eq!(rendered("<RECH_A>x<RECH_A>y</RECH_A>z</RECH_A>w"), "zw");
         assert_eq!(rendered("<script>if (a<b && c=\"</script>\") x</script>y"), "y");
         assert_eq!(rendered("<a t=\"<RECH_X>y</RECH_X>\" <i>z"), "<a t=\"<RECH_X>y</RECH_X>\" z");
+    }
+
+    #[test]
+    fn closing_right_before_an_opener_does_not_close_it() {
+        // La fermante d'un nom, juste avant un ouvrant du même nom, ne le ferme pas : l'ouvrant
+        // reste sans fermante et son contenu est gardé.
+        assert_eq!(rendered("texte</script><script>suite"), "textesuite");
+        assert_eq!(rendered("</RECH_A><RECH_A>x<p>y"), "x[p]y");
+        assert_eq!(rendered("abc</style><style>d</style>e"), "abce");
+    }
+
+    #[test]
+    fn drop_names_are_capped_and_their_content_is_then_kept() {
+        // Passe 1 (audit M-1) : au plus 256 noms de fermantes retenus ; au-delà, un élément est
+        // traité comme sans fermante, son contenu est GARDÉ (jamais perdu).
+        let mut html = String::new();
+        for i in 0..256 {
+            write!(html, "<RECH_{i}>x{i}</RECH_{i}>").unwrap();
+        }
+        html.push_str("<RECH_PLUS>gardé</RECH_PLUS>");
+        // Un nom déjà retenu suit toujours sa dernière fermante, après le plafond.
+        html.push_str("<RECH_0>parti</RECH_0>fin");
+        assert_eq!(rendered(&html), "gardéfin");
+    }
+
+    #[test]
+    fn scan_memory_does_not_grow_with_the_input() {
+        // Audit M-1 : aucun événement n'est retenu ; hors lexer, la seule mémoire de `scan` qui
+        // dépend de l'entrée est la table de la passe 1, plafonnée à MAX_DROP_NAMES noms.
+        let closings = |n: usize| {
+            (0..n).fold(String::new(), |mut html, i| {
+                write!(html, "</rech_{i}>").unwrap();
+                html
+            })
+        };
+        let small = drop_closings(&closings(MAX_DROP_NAMES + 1));
+        let large = drop_closings(&closings(100_000));
+        assert_eq!((small.len(), large.len()), (MAX_DROP_NAMES, MAX_DROP_NAMES));
+        assert_eq!(small.capacity(), large.capacity());
+        // Un nom répété : une seule entrée, la fin de sa dernière fermante.
+        let repeated = format!("a{}", "</SCRIPT>".repeat(10_000));
+        assert_eq!(
+            drop_closings(&repeated),
+            HashMap::from([("script".to_owned(), repeated.len())])
+        );
+        // Sans fermante, la table reste vide quelle que soit la taille de l'entrée.
+        for size in [1, MIB] {
+            assert_eq!(drop_closings(&format!("<script>{}", "<".repeat(size))).capacity(), 0);
+        }
     }
 
     #[test]
@@ -942,12 +1022,8 @@ mod tests {
             '\u{2029}',
             '\u{202f}',
             '\u{205f}',
-            '\u{2061}',
-            '\u{2065}',
-            '\u{206a}',
             '\u{fefe}',
             '\u{dffff}',
-            '\u{e0080}',
             'é',
             '’',
         ];
@@ -959,6 +1035,54 @@ mod tests {
         for c in ['\u{b}', '\u{c}', '\u{85}'] {
             assert_eq!(strip_invisible(&format!("a{c}b")), ("a b".to_owned(), 1), "{c:?}");
         }
+    }
+
+    /// Les 17 plages de la propriété Unicode `Default_Ignorable_Code_Point`, (premier, dernier),
+    /// recopiées de `crates/lf-adapter-piste/src/error_body.rs` (tests de `is_invisible`).
+    const DEFAULT_IGNORABLE: [(char, char); 17] = [
+        ('\u{00AD}', '\u{00AD}'),
+        ('\u{034F}', '\u{034F}'),
+        ('\u{061C}', '\u{061C}'),
+        ('\u{115F}', '\u{1160}'),
+        ('\u{17B4}', '\u{17B5}'),
+        ('\u{180B}', '\u{180F}'),
+        ('\u{200B}', '\u{200F}'),
+        ('\u{202A}', '\u{202E}'),
+        ('\u{2060}', '\u{206F}'),
+        ('\u{3164}', '\u{3164}'),
+        ('\u{FE00}', '\u{FE0F}'),
+        ('\u{FEFF}', '\u{FEFF}'),
+        ('\u{FFA0}', '\u{FFA0}'),
+        ('\u{FFF0}', '\u{FFF8}'),
+        ('\u{1BCA0}', '\u{1BCA3}'),
+        ('\u{1D173}', '\u{1D17A}'),
+        ('\u{E0000}', '\u{E0FFF}'),
+    ];
+
+    /// Caractère de code `code`.
+    fn ch(code: u32) -> char {
+        char::from_u32(code).unwrap()
+    }
+
+    #[test]
+    fn strip_invisible_removes_every_default_ignorable_range() {
+        // Audit L-1 : premier, milieu et dernier point de chaque plage, retirés et comptés une
+        // fois (U+200C et U+200D, déjà du jeu, ne comptent pas double) ; le voisin de chaque
+        // bord est gardé.
+        for (first, last) in DEFAULT_IGNORABLE {
+            let middle = ch(u32::midpoint(u32::from(first), u32::from(last)));
+            for c in [first, middle, last] {
+                assert_eq!(strip_invisible(&format!("a{c}b")), ("ab".to_owned(), 1), "{c:?}");
+            }
+            for c in [ch(u32::from(first) - 1), ch(u32::from(last) + 1)] {
+                assert_eq!(strip_invisible(&format!("a{c}b")), (format!("a{c}b"), 0), "{c:?}");
+            }
+        }
+        // Points relevés par l'audit (sélecteurs de variante, opérateurs invisibles, remplisseurs).
+        for c in ['\u{180e}', '\u{2061}', '\u{2064}', '\u{3164}', '\u{fe0f}', '\u{e0101}'] {
+            assert_eq!(strip_invisible(&format!("a{c}b")), ("ab".to_owned(), 1), "{c:?}");
+        }
+        assert_eq!(strip_invisible("\u{200c}\u{200d}"), (String::new(), 2));
     }
 
     /// Plafond de chaque entrée de 1 Mio. Un passage linéaire prend quelques dizaines de
@@ -1012,8 +1136,10 @@ mod tests {
             write!(distinct, "</RECH_X{i}>").unwrap();
         }
         finishes_within_budget(distinct, scan_all);
-        // Fermantes en attente : 1 Mio d'événements retenus puis relâchés.
+        // Ouvrant supprimable sans fermante, puis des blocs : rien n'est retenu, tout est rendu.
         finishes_within_budget(format!("<script>{}", "a<br>".repeat(MIB / 5)), scan_all);
+        // Zone supprimée qui court jusqu'à une fermante finale.
+        finishes_within_budget(format!("<script>{}</script>", "a<br>".repeat(MIB / 5)), scan_all);
         // Ouvrant sans `=` que rien ne ferme : `<` littéral, le reste relu une fois.
         finishes_within_budget(format!("x <y {}", "z ".repeat(MIB / 2)), scan_all);
     }
@@ -1103,13 +1229,115 @@ mod tests {
         fn input_without_markup_is_one_text(text in "[^<]{1,80}") {
             prop_assert_eq!(events(&text), vec![Text(&text)]);
         }
+
+        /// Les deux passes de `scan` contre un oracle naïf (quadratique) écrit d'après la règle :
+        /// à chaque ouvrant supprimable, chercher en avant la première fermante de son nom.
+        #[test]
+        fn scan_matches_the_forward_search_oracle(parts in proptest::collection::vec(
+            prop_oneof![
+                Just("<script>"), Just("</script>"), Just("<style t='</style>'>"),
+                Just("</style >"), Just("<RECH_A>"), Just("</RECH_A>"), Just("<rech_b x=1>"),
+                Just("</rech_b>"), Just("<RECH_A/>"), Just("</RECH_A/>"), Just("<!--"),
+                Just("-->"), Just("x=\""), Just("\""), Just("'"), Just("="), Just("<"),
+                Just(">"), Just("a"), Just("é"), Just("<p>"), Just("</br>"), Just("<td>"),
+                Just("<b>"), Just("<i "),
+            ],
+            0..64,
+        )) {
+            let html = parts.concat();
+            prop_assert_eq!(events(&html), forward_search(&html));
+        }
+
+        /// Familles hostiles de l'audit M-1 : sortie exacte, sans perte ni rétention.
+        #[test]
+        fn hostile_families_keep_their_exact_output(n in 0_usize..2_000) {
+            // `<script>` suivi de `<` répétés : chaque `<` est un texte d'un octet, rendu.
+            let lts = format!("<script>{}", "<".repeat(n));
+            prop_assert_eq!(events(&lts), vec![Text("<"); n]);
+            // `a<p>` répétés après un ouvrant supprimable sans fermante.
+            prop_assert_eq!(rendered(&format!("<RECH_A>{}", "a<p>".repeat(n))), "a[p]".repeat(n));
+            // Fermante manquante : le texte reste ; présente, il part avec l'élément.
+            let words = "x ".repeat(n);
+            prop_assert_eq!(rendered(&format!("<style>{words}")), words.clone());
+            prop_assert_eq!(rendered(&format!("<style>{words}</style>y")), "y");
+        }
+
+        /// N noms `RECH_` distincts : les MAX_DROP_NAMES premiers partent avec leur contenu, les
+        /// suivants le gardent.
+        #[test]
+        fn drop_names_past_the_cap_keep_their_content(n in 0_usize..600) {
+            let html = (0..n).fold(String::new(), |mut html, i| {
+                write!(html, "<RECH_{i}>x{i}</RECH_{i}>").unwrap();
+                html
+            });
+            let kept = (MAX_DROP_NAMES..n).fold(String::new(), |mut kept, i| {
+                write!(kept, "x{i}").unwrap();
+                kept
+            });
+            prop_assert_eq!(rendered(&html), kept);
+        }
+    }
+
+    /// Oracle de `scan` : les morceaux du lexer, puis, à chaque ouvrant supprimable non
+    /// auto-fermant, recherche en avant de la première fermante de son nom ; trouvée, tout part
+    /// jusqu'à elle, sinon seul l'ouvrant part. Sans plafond de noms (entrées de peu de noms).
+    fn forward_search(html: &str) -> Vec<Event<'_>> {
+        let mut pieces = Vec::new();
+        lex_all(html, &mut |piece| pieces.push(piece));
+        let closes = |piece: &Piece<'_>, name: &str| match piece {
+            Piece::Tag(_, tag) => tag.closing && tag.name == name,
+            Piece::Text(_) => false,
+        };
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < pieces.len() {
+            match &pieces[i] {
+                Piece::Text(text) => out.push(Text(text)),
+                Piece::Tag(_, tag) => match (classify(&tag.name), tag.closing) {
+                    (Class::Drop, false) => {
+                        let close = pieces[i + 1..].iter().position(|p| closes(p, &tag.name));
+                        if let Some(skipped) = close.filter(|_| !tag.self_closing) {
+                            i += skipped + 1;
+                        }
+                    }
+                    (Class::Drop, true) | (Class::Inline, _) => {}
+                    (Class::Break(Br), true) => out.push(Break(Other)),
+                    (Class::Break(block), _) => out.push(Break(block)),
+                    (Class::Cell, _) => out.push(Cell),
+                },
+            }
+            i += 1;
+        }
+        out
     }
 
     // ---- paragraphs (03 §7.2, étape 4) ----
 
+    #[test]
+    fn paragraphs_hands_over_each_visible_segment() {
+        // Segments rendus tels quels (décodés, sans invisibles, blancs non repliés), blancs et
+        // vides compris : le repli et l'écart des segments blancs reviennent à `LongText`.
+        let mut segments = Vec::new();
+        let invisible = paragraphs(" a&amp;\u{200b} b <p><BR></BR>\t", &mut |visible| {
+            segments.push(visible.to_owned());
+        });
+        assert_eq!(segments, [" a& b ", "", "", "\t"]);
+        assert_eq!(invisible, 1);
+    }
+
+    /// Paragraphes de `html` tels que `LongText` les forme (segments visibles, blancs repliés,
+    /// segments blancs écartés), et compteur d'invisibles.
+    fn split(html: &str) -> (Vec<String>, u32) {
+        let mut out = Vec::new();
+        let invisible = paragraphs(html, &mut |visible| {
+            out.extend(Some(fold_ws(visible)).filter(|folded| !folded.is_empty()));
+        });
+        (out, invisible)
+    }
+
     /// Paragraphes seuls, sans le compteur d'invisibles.
     fn texts(html: &str) -> Vec<String> {
-        paragraphs(html).0
+        split(html).0
     }
 
     /// Suite de blancs repliée en une espace, bords rognés.
@@ -1219,8 +1447,8 @@ mod tests {
 
     #[test]
     fn from_html_empty_input_gives_no_paragraph() {
-        assert_eq!(paragraphs(""), (Vec::new(), 0));
-        assert_eq!(paragraphs("<p></p><script>x</script>"), (Vec::new(), 0));
+        assert_eq!(split(""), (Vec::new(), 0));
+        assert_eq!(split("<p></p><script>x</script>"), (Vec::new(), 0));
     }
 
     #[test]
@@ -1233,12 +1461,12 @@ mod tests {
     fn from_html_counts_invisible_chars_over_all_paragraphs() {
         // Brut ; brut puis décodé d'une entité ; VT (devient une espace, compté) : 1 + 2 + 1 + 2.
         let html = "a\u{200b}b<p>\u{202e}c&#173;d<p>e\u{b}f<p>\u{200b}\u{200b}";
-        assert_eq!(paragraphs(html), (vec!["ab".to_owned(), "cd".into(), "e f".into()], 6));
+        assert_eq!(split(html), (vec!["ab".to_owned(), "cd".into(), "e f".into()], 6));
     }
 
     #[test]
     fn from_html_without_invisible_chars_counts_zero() {
-        assert_eq!(paragraphs("a<p>b"), (vec!["a".to_owned(), "b".into()], 0));
+        assert_eq!(split("a<p>b"), (vec!["a".to_owned(), "b".into()], 0));
     }
 
     #[test]
@@ -1274,7 +1502,7 @@ mod tests {
     #[test]
     fn fixtures_paragraphs_are_clean() {
         for fixture in [CONSTIT, CETAT, CNIL] {
-            let (paragraphs, invisible) = paragraphs(&text_html(fixture));
+            let (paragraphs, invisible) = split(&text_html(fixture));
             assert_eq!(invisible, 0);
             for paragraph in &paragraphs {
                 assert_ne!(paragraph, "");
@@ -1303,16 +1531,20 @@ mod tests {
             ),
             plain in "[a-zA-Z0-9éè .,;:\n\t]{0,80}",
         ) {
-            let (paragraphs, _) = paragraphs(&parts.concat());
-            for paragraph in &paragraphs {
+            // Chaque segment rendu est sans invisible ; repliés, les paragraphes sont non vides.
+            let html = parts.concat();
+            let mut segments = Vec::new();
+            paragraphs(&html, &mut |visible| segments.push(visible.to_owned()));
+            prop_assert!(segments.iter().all(|segment| !segment.chars().any(is_invisible)));
+            for paragraph in &split(&html).0 {
                 prop_assert_ne!(paragraph, "");
                 prop_assert_eq!(&fold_ws(paragraph), paragraph);
             }
             // Sans `<` ni `&`, le texte est conservé, blancs repliés.
-            let (paragraphs, invisible) = super::paragraphs(&plain);
+            let (kept, invisible) = split(&plain);
             prop_assert_eq!(invisible, 0);
-            prop_assert_eq!(paragraphs.join(" "), fold_ws(&plain));
-            prop_assert_eq!(paragraphs.len(), usize::from(!fold_ws(&plain).is_empty()));
+            prop_assert_eq!(kept.join(" "), fold_ws(&plain));
+            prop_assert_eq!(kept.len(), usize::from(!fold_ws(&plain).is_empty()));
         }
     }
 }

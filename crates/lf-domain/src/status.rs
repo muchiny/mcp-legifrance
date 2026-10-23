@@ -3,10 +3,10 @@
 //! L'API emploie `etat` (`VIGUEUR`, `ABROGE`) et `jurisState` (`Vigueur` pour LODA,
 //! `VIGUEUR_ETEN` pour KALI), avec une casse variable. La règle est unique pour tous les fonds :
 //! `etat` s'il n'est pas vide, sinon `jurisState` (corrige E-10). La liste est fermée à 17 codes ;
-//! [`LegalStatus::Other`] garde tout code inconnu (évolution de l'API), tronqué à
-//! [`ECHO_MAX_CHARS`](crate::error::ECHO_MAX_CHARS) caractères.
+//! [`LegalStatus::Other`] garde tout code inconnu (évolution de l'API), sans contrôle ni
+//! caractère invisible, tronqué à [`ECHO_MAX_CHARS`](crate::error::ECHO_MAX_CHARS) caractères.
 
-use crate::error::echo;
+use crate::{error::echo, text::is_invisible};
 
 /// Statut juridique : les 17 codes de l'API, plus [`Other`](Self::Other) pour un code inconnu.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -45,14 +45,20 @@ pub enum LegalStatus {
     SansEtat,
     /// `SUBSTITUE`.
     Substitue,
-    /// Code inconnu de la liste, conservé (rogné, tronqué à
+    /// Code inconnu de la liste, conservé (sans contrôle ni invisible, rogné, tronqué à
     /// [`ECHO_MAX_CHARS`](crate::error::ECHO_MAX_CHARS) caractères plus `…`).
+    ///
+    /// À construire par [`LegalStatus::parse`] seulement : la variante est publique (pour le
+    /// filtrage par motif), mais une valeur écrite à la main n'a ni ce nettoyage ni cette borne,
+    /// et `Other("VIGUEUR".into())` n'est pas égal à [`Vigueur`](Self::Vigueur).
     Other(String),
 }
 
 impl LegalStatus {
-    /// Lit un code d'API : `trim`, insensible à la casse. Blanc ⇒ `None` ; code inconnu ⇒
-    /// [`Other`](Self::Other).
+    /// Lit un code d'API : contrôles (`\n`, ESC…) et invisibles (bidi, largeur nulle…, jeu de
+    /// `clean`) retirés, puis `trim`, insensible à la casse. Rien de visible ⇒ `None` ; code
+    /// inconnu ⇒ [`Other`](Self::Other), dont le texte n'a donc jamais de contrôle ni
+    /// d'invisible (audit L-2 : `as_api_code` est rendu tel quel).
     ///
     /// ```
     /// use lf_domain::status::LegalStatus;
@@ -61,7 +67,8 @@ impl LegalStatus {
     /// assert_eq!(LegalStatus::parse("  "), None);
     /// ```
     pub fn parse(raw: &str) -> Option<Self> {
-        let trimmed = raw.trim();
+        let visible = visible_code(raw);
+        let trimmed = visible.trim();
         if trimmed.is_empty() {
             return None;
         }
@@ -95,6 +102,11 @@ impl LegalStatus {
             Self::Other(raw) => raw,
         }
     }
+}
+
+/// `raw` sans ses contrôles (`\t`, `\n` et `\r` compris) ni ses caractères invisibles.
+fn visible_code(raw: &str) -> String {
+    raw.chars().filter(|&c| !(c.is_control() || is_invisible(c))).collect()
 }
 
 /// Table des 17 codes : `upper` est déjà rogné et en majuscules ASCII.
@@ -207,6 +219,28 @@ mod tests {
     }
 
     #[test]
+    fn legal_status_other_drops_controls_and_invisibles() {
+        // Audit L-2 : bidi, largeur nulle, saut de ligne et séquence ANSI ne passent pas par
+        // `as_api_code` ; seul le texte visible reste.
+        let status = LegalStatus::parse("X\u{202E}\u{200B}\nY\u{1b}[31m");
+        assert_eq!(status, Some(LegalStatus::Other("XY[31m".to_owned())));
+        assert_eq!(status.as_ref().map(LegalStatus::as_api_code), Some("XY[31m"));
+        assert_eq!(
+            LegalStatus::parse("EN\tCOURS\r\u{7f}\u{85}"),
+            Some(LegalStatus::Other("ENCOURS".to_owned()))
+        );
+        // Le nettoyage précède la table : un code connu masqué par un invisible est reconnu.
+        assert_eq!(LegalStatus::parse("VIG\u{200b}UEUR"), Some(LegalStatus::Vigueur));
+        assert_eq!(LegalStatus::parse("\u{feff} abroge \u{2066}"), Some(LegalStatus::Abroge));
+        // Rien de visible : comme un blanc.
+        assert_eq!(LegalStatus::parse("\u{200b}\u{202e}\u{1b}"), None);
+        // La troncature compte les caractères gardés.
+        let raw = format!("{}{}", "\u{200b}".repeat(10), "x".repeat(100));
+        let expected = format!("{}…", "x".repeat(ECHO_MAX_CHARS));
+        assert_eq!(LegalStatus::parse(&raw), Some(LegalStatus::Other(expected)));
+    }
+
+    #[test]
     fn legal_status_other_is_truncated() {
         let raw = "x".repeat(100);
         let expected = format!("{}…", "x".repeat(ECHO_MAX_CHARS));
@@ -241,6 +275,27 @@ mod tests {
             } else {
                 prop_assert!(s.trim().is_empty());
             }
+        }
+
+        #[test]
+        fn other_never_keeps_a_control_or_invisible_char(
+            parts in proptest::collection::vec(
+                prop_oneof![
+                    "[A-Z_]{1,4}",
+                    Just("\n".to_owned()),
+                    Just("\u{1b}[31m".to_owned()),
+                    Just("\u{202e}".to_owned()),
+                    Just("\u{200b}".to_owned()),
+                    Just("\u{fe0f}".to_owned()),
+                    any::<char>().prop_map(String::from),
+                ],
+                0..12,
+            ),
+        ) {
+            let raw = parts.concat();
+            let code = LegalStatus::parse(&raw).map(|status| status.as_api_code().to_owned());
+            let code = code.unwrap_or_default();
+            prop_assert!(code.chars().all(|c| !c.is_control() && !is_invisible(c)), "{code:?}");
         }
     }
 }

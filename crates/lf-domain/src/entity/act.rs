@@ -13,7 +13,9 @@ use crate::{
 /// Métadonnées et sommaire communs aux textes consolidés.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TextBody {
-    /// Identifiant chronologique (CID).
+    /// Identifiant chronologique (CID), un [`JorfTextId`] (`JORFTEXT…`). `None` pour une
+    /// convention collective : le `cid` KALI vaut `KALITEXT…`, qui n'est pas un `JorfTextId` ;
+    /// son type pour KALI est à décider au plan 2f.
     pub cid: Option<JorfTextId>,
     /// Numéro NOR ; `None` : absent ou invalide.
     pub nor: Option<Nor>,

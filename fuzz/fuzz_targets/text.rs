@@ -10,14 +10,32 @@ use lf_domain::text::{
 use libfuzzer_sys::fuzz_target;
 
 /// Caractères que `clean` retire (03 §7.3), écrits ici indépendamment du domaine : contrôles
-/// C0 et C1 (et U+007F) sauf `\t`, `\n` et `\r`, format invisible, bidi, tags Unicode.
+/// C0 et C1 (et U+007F) sauf `\t`, `\n` et `\r`, et les 17 plages de la propriété Unicode
+/// `Default_Ignorable_Code_Point` (format invisible, bidi, sélecteurs de variante,
+/// remplisseurs, tags Unicode).
 fn invisible(c: char) -> bool {
     let control = c.is_control() && !matches!(c, '\t' | '\n' | '\r');
-    let format =
-        matches!(c, '\u{ad}' | '\u{61c}' | '\u{200b}'..='\u{200f}' | '\u{2060}' | '\u{feff}');
+    let format = matches!(
+        c,
+        '\u{ad}'
+            | '\u{34f}'
+            | '\u{61c}'
+            | '\u{115f}'..='\u{1160}'
+            | '\u{17b4}'..='\u{17b5}'
+            | '\u{180b}'..='\u{180f}'
+            | '\u{200b}'..='\u{200f}'
+            | '\u{2060}'..='\u{206f}'
+            | '\u{3164}'
+            | '\u{feff}'
+            | '\u{ffa0}'
+            | '\u{fff0}'..='\u{fff8}'
+            | '\u{1bca0}'..='\u{1bca3}'
+            | '\u{1d173}'..='\u{1d17a}'
+    );
     let bidi = matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
-    let tag = matches!(c, '\u{e0000}'..='\u{e007f}');
-    control || format || bidi || tag
+    let variation = matches!(c, '\u{fe00}'..='\u{fe0f}' | '\u{e0100}'..='\u{e01ef}');
+    let tag = matches!(c, '\u{e0000}'..='\u{e0fff}');
+    control || format || bidi || variation || tag
 }
 
 fuzz_target!(|input: (&str, &str, u16, u16)| {

@@ -8,7 +8,7 @@
 
 use std::fmt;
 
-/// Plus grand IDCC accepté (quatre chiffres significatifs).
+/// Nombre maximal de chiffres significatifs d'un IDCC (zéros de tête exclus) : au plus 9999.
 const IDCC_MAX_DIGITS: usize = 4;
 
 /// Identifiant de convention collective, de 1 à 9999.

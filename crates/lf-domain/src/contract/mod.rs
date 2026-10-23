@@ -15,7 +15,9 @@
 //! Newtypes du contrat v2 (ADR-0009, décision C2) : [`CitationText`] (citation
 //! sur une ligne, jamais vide, bornée), [`SourceUrl`] (page Légifrance
 //! construite depuis un identifiant typé) et [`Eli`] (ELI natif validé, jamais
-//! fabriqué).
+//! fabriqué). Deux identifiants de citation s'y ajoutent (plan 2e) : [`Nor`]
+//! (numéro NOR d'un texte, 12 caractères validés) et [`Idcc`] (numéro de
+//! convention collective, de 1 à 9999).
 
 mod eli;
 mod idcc;

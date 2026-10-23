@@ -77,7 +77,7 @@ where
 /// Grammaire reconnue, au début de l'entrée seulement :
 ///
 /// ```text
-/// code  = [ "CETAT" ] DD { "-" DDD? D } blancs reste
+/// code  = [ "CETAT" ] D D { "-" D D D? } blancs reste
 /// ```
 ///
 /// soit un préfixe `CETAT` facultatif, exactement deux chiffres ASCII, puis zéro, un ou

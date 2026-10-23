@@ -201,7 +201,8 @@ pub struct SearchPage {
     /// Nombre total de résultats annoncé par la source (`totalResultNumber`), sinon le nombre
     /// de résultats reçus.
     pub total: u64,
-    /// Nombre total d'articles trouvés (`totalNbResult`, `CODE`) ; absent s'il est nul.
+    /// Nombre total d'articles trouvés (`totalArticleResultNumber`, `CODE`) ; absent s'il est
+    /// nul.
     pub total_articles: Option<u64>,
     /// Résultats de la page.
     pub hits: Vec<SearchHit>,

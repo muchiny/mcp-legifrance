@@ -1,7 +1,8 @@
 //! HTML Légifrance vers texte des champs courts : titres, natures, numéros, extraits,
 //! entrées de sommaire (03 §7.3).
 //!
-//! Balises relevées dans les fixtures de la référence (`tests/fixtures/`) : `<br>`
+//! Balises relevées dans les fixtures de la référence
+//! (`crates/lf-adapter-piste/tests/fixtures/reference/`) : `<br>`
 //! (`search_juri.json`, `search_cetat.json`, `consult_juri.json`, `consult_juri_cetat.json`,
 //! `consult_juri_constit.json`), `<BR>` et `</BR>` (`consult_juri_constit.json`), `<mark>`
 //! (`search_*.json`), `<p>` (`consult_cnil.json`), `<RECH_ECLI>` (`consult_juri_constit.json`,
@@ -37,8 +38,9 @@ pub fn clean(html: &str) -> String {
 ///    `&nbsp;` compte comme du texte, puis devient blanche (`<li>a</li>&nbsp;<li>b</li>`
 ///    donne `a\n\nb`).
 /// 2. Entités décodées, après les balises : `&lt;b&gt;` reste du texte.
-/// 3. Caractères invisibles retirés et comptés (`text::html`) ; VT, FF et NEL deviennent une
-///    espace (comptés aussi).
+/// 3. Caractères invisibles retirés et comptés (`text::html` : contrôles, et tout point de code
+///    `Default_Ignorable_Code_Point`, dont bidi et sélecteurs de variante) ; VT, FF et NEL
+///    deviennent une espace (comptés aussi).
 /// 4. Blancs : espaces internes réduits à un (NBSP comprise), lignes rognées, au plus une
 ///    ligne vide ; les sauts de ligne de la source restent des sauts de ligne.
 ///
@@ -123,22 +125,32 @@ mod tests {
     const ONE: CleanReport = CleanReport { invisible_removed: 1 };
 
     /// Plages retirées, écrites d'après 03 §7.3 indépendamment de `html::strip_invisible` :
-    /// contrôles C0 sauf `\t`, `\n`, `\r` ; U+007F et C1 ; format ; bidi ; tags. Une table
-    /// plutôt qu'un `matches!` : une sortie correcte n'en touche aucune alternative, qui
-    /// resterait une région jamais exécutée.
-    const SPEC_INVISIBLE: [(char, char); 12] = [
+    /// contrôles C0 sauf `\t`, `\n`, `\r` ; U+007F et C1 ; puis les 17 plages de
+    /// `Default_Ignorable_Code_Point` (format, bidi, sélecteurs de variante, remplisseurs, tags).
+    /// Une table plutôt qu'un `matches!` : une sortie correcte n'en touche aucune alternative,
+    /// qui resterait une région jamais exécutée.
+    const SPEC_INVISIBLE: [(char, char); 21] = [
         ('\u{0}', '\u{8}'),
         ('\u{b}', '\u{c}'),
         ('\u{e}', '\u{1f}'),
         ('\u{7f}', '\u{9f}'),
         ('\u{ad}', '\u{ad}'),
+        ('\u{34f}', '\u{34f}'),
         ('\u{61c}', '\u{61c}'),
+        ('\u{115f}', '\u{1160}'),
+        ('\u{17b4}', '\u{17b5}'),
+        ('\u{180b}', '\u{180f}'),
         ('\u{200b}', '\u{200f}'),
         ('\u{202a}', '\u{202e}'),
-        ('\u{2060}', '\u{2060}'),
-        ('\u{2066}', '\u{2069}'),
+        ('\u{2060}', '\u{206f}'),
+        ('\u{3164}', '\u{3164}'),
+        ('\u{fe00}', '\u{fe0f}'),
         ('\u{feff}', '\u{feff}'),
-        ('\u{e0000}', '\u{e007f}'),
+        ('\u{ffa0}', '\u{ffa0}'),
+        ('\u{fff0}', '\u{fff8}'),
+        ('\u{1bca0}', '\u{1bca3}'),
+        ('\u{1d173}', '\u{1d17a}'),
+        ('\u{e0000}', '\u{e0fff}'),
     ];
 
     fn spec_invisible(c: char) -> bool {
@@ -178,6 +190,13 @@ mod tests {
                 "\u{200b}",
                 "\u{202e}",
                 "\u{e0041}",
+                "\u{34f}",
+                "\u{180e}",
+                "\u{2063}",
+                "\u{3164}",
+                "\u{fe0f}",
+                "\u{e0101}",
+                "FE0F",
                 "&shy;",
                 "&lrm;",
                 any::<char>().prop_map(String::from),
@@ -281,12 +300,30 @@ mod tests {
         }
         // Bornes voisines : décodées et gardées.
         for (code, decoded) in
-            [(0x7e_u32, '~'), (0xa0, ' '), (0x61d, '\u{61d}'), (0x2065, '\u{2065}'), (0x202f, ' ')]
+            [(0x7e_u32, '~'), (0xa0, ' '), (0x61d, '\u{61d}'), (0x2070, '\u{2070}'), (0x202f, ' ')]
         {
             assert_eq!(clean(&format!("a&#{code};b")), format!("a{decoded}b"));
         }
         assert_eq!(clean("&#xDFFFF;"), "\u{dffff}");
-        assert_eq!(clean("&#xE0080;"), "\u{e0080}");
+        assert_eq!(clean("&#xE1000;"), "\u{e1000}");
+    }
+
+    #[test]
+    fn clean_removes_default_ignorable_chars() {
+        // Audit L-1 : six sélecteurs de variante après le texte visible portent une charge
+        // invisible (un octet par sélecteur) ; ils sont retirés et comptés, bruts ou décodés.
+        let smuggled: String =
+            "IGNORE".bytes().map(|b| char::from_u32(0xE0100 + u32::from(b)).unwrap()).collect();
+        assert_eq!(
+            clean_with_report(&format!("<p>Article 1x{smuggled}")),
+            ("Article 1x".to_owned(), CleanReport { invisible_removed: 6 })
+        );
+        for code in [
+            0x34f_u32, 0x115f, 0x17b4, 0x180e, 0x2061, 0x2065, 0x206f, 0x3164, 0xfe0f, 0xffa0,
+            0xfff0, 0x1bca0, 0x1d173, 0xe0100, 0xe0fff,
+        ] {
+            assert_eq!(clean_with_report(&format!("a&#x{code:X};b")), ("ab".to_owned(), ONE));
+        }
     }
 
     #[test]
