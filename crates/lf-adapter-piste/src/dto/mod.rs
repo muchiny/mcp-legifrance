@@ -6,6 +6,7 @@
 
 pub(crate) mod acco;
 pub(crate) mod article;
+pub(crate) mod budget;
 pub(crate) mod consult_text;
 pub(crate) mod de;
 pub(crate) mod decode;
