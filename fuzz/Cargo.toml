@@ -7,9 +7,28 @@ edition = "2024"
 [package.metadata]
 cargo-fuzz = true
 
+# Employés par les sources incluses par #[path] (dto_decode), hors du répertoire du paquet :
+# cargo-machete ne les y voit pas.
+[package.metadata.cargo-machete]
+ignored = ["serde_json", "serde_path_to_error"]
+
 [dependencies]
 libfuzzer-sys = "0.4.13"
 lf-domain = { path = "../crates/lf-domain" }
+# dto_decode : CorpusError, erreur de `decode`
+lf-application = { path = "../crates/lf-application" }
+# dto_decode : dépendances des DTO de l'adapter inclus par #[path], comme dans son Cargo.toml ;
+# versions figées sur celles du verrou du workspace
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde_json = "1.0"
+serde_path_to_error = "0.1"
+
+[[bin]]
+name = "dto_decode"
+path = "fuzz_targets/dto_decode.rs"
+test = false
+doc = false
+bench = false
 
 [[bin]]
 name = "from_html"
