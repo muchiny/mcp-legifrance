@@ -6,6 +6,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## Écarts d'exécution (2026-10-23)
+
+> Ce plan a été exécuté avec les écarts suivants. **Les passages du plan qui les contredisent sont périmés au profit de cette note et de `docs/plan/04-adapter-piste.md`** : tâche 5 Step 9 et Écarts 6, 7 et 12 ; tâche 10 §5.1, §11.2, §12.4 et §12.5. Le corps du plan n'est pas réécrit.
+
+- **Tâche 6-pre ajoutée** (R8, R10) : lecteurs serde écrits à la main dans `dto/de.rs`, sans `untagged` ; un tableau ou un objet est ignoré à toute profondeur dans un champ date, code ou tolérant.
+- **R6** : le `detail` d'un 400 de `/search` est générique (`HTTP 400 on /search`) ; le message PISTE nettoyé n'est conservé que pour une consultation.
+- **R7** : un 2xx vide d'une consultation est `NotFound` quel que soit l'hôte (un 404 d'hôte non officiel reste `Config`).
+- **Vague de clôture de la PR 1** : invisibles DICP retirés avant l'expurgation, secrets triés par longueur décroissante, `errorCode` tolérant, BOM UTF-8 avant la détection du HTML (tous les BOM de tête depuis la vague de la PR 2).
+- **R11** : l'amplification mémoire à la désérialisation (audit de la PR 2, M1) est corrigée au plan 2e, avant le branchement du décodage (budget de 200 000 éléments par document) ; ici, documentation seulement (04 §8.5, §14.4, 07 T-M2-09, 09 R-29).
+- **R12** : un `typePagination` absent ou inconnu n'est pas mémorisé (`received_mode` rend un `Option`, `remember` n'écrit que sur `Some`) ; la page 2 de CODE retombe sur `ARTICLE` (04 §6.6 règle 3).
+- **Tâche 3 (`ClosedPort`) corrigée après la première CI** (2026-10-23) : un port lié sans `listen` n'est pas refusé par macOS (macos-15) : la connexion attend son délai et quatre tests échouent. `ClosedPort` relève un port libre puis le ferme, comme avant le plan ; le champ `TcpSocket` et le test `closed_port_cannot_be_taken_by_another_listener` disparaissent, avec la garantie d'exclusivité du port (course théorique conservée, notée dans le commentaire de la structure). Le « repli : adresse non routable » du plan est exclu : il donnerait un `Timeout`, non un refus. Les passages de la tâche 3 sur le socket réservé sont périmés.
+- **Compteurs finaux** (après la correction de `ClosedPort`) : 511 tests dans `lf-adapter-piste`, 790 au workspace (`cargo nextest run --workspace --all-features --locked`) et 22 doctests (15 + 7, mesurés après la correction) ; `make cov` à 100 % (lignes, régions, fonctions).
+
 **Goal :** donner à `lf-adapter-piste` tout ce qui précède `impl LegalCorpus` — le corps JSON de `/search` (midi Europe/Paris, facettes de date, `typePagination` et son mémo), les structures de désérialisation des réponses des sept endpoints v0.1, la classification complète des erreurs (dont « introuvable ») — et refermer les reliquats du plan 2c.
 
 **Architecture :** `lf-domain` gagne `PaginationMode` et `SearchPage.pagination`. Dans `lf-adapter-piste` : `config` rend ses champs privés (les réglages avancés passent par `PisteTuning::with_tuning`) ; `dto/` gagne les lecteurs serde tolérants, `decode` (sans aucune valeur du corps dans ses messages), `PisteErrorDto` et un module par endpoint ; `error_body` + `classify` reçoivent le genre d'endpoint et lisent un corps d'erreur borné ; `request/search.rs` construit le corps de `/search` ; `memo.rs` choisit `typePagination`. Rien de nouveau n'est appelé hors des tests : l'`expect(dead_code)` unique de `lib.rs` couvre tout jusqu'au plan 2e.

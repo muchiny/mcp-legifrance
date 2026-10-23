@@ -281,9 +281,9 @@ crates/lf-adapter-piste/          # disposition détaillée : 04 §1.5 (fait foi
 │                     # l'ancien nom `mojibake.rs` de ce document est abandonné),
 │                     # classify.rs (statut + corps → CorpusError), retry.rs (boucle maison, Retry-After),
 │                     # deadline.rs (lecture de lf_application::deadline::Deadline), limit.rs (sémaphore + governor),
-│                     # stats.rs (compteurs), time.rs (MonoClock, Sleeper, race), request/, dto/ (mod.rs, de.rs, oauth.rs livrés ; DTO métier au plan 2d),
-│                     # map/, memo.rs (PaginationMemo ; CodeTable en M6),
-│                     # corpus.rs (`PisteCorpus`, `post_json` ; `impl LegalCorpus` au plan 2d)
+│                     # stats.rs (compteurs), time.rs (MonoClock, Sleeper, race), request/, dto/ (`de.rs`, `oauth.rs`, `decode.rs`, `error.rs` et les DTO de réponse livrés),
+│                     # error_body.rs, testing.rs (test), map/, memo.rs (PaginationMemo livré ; CodeTable en M6),
+│                     # corpus.rs (`PisteCorpus`, `post_json` ; `impl LegalCorpus` au plan 2e)
 ├── examples/record_fixture.rs   # feature `record`, lancé par `cargo xtask record-fixture` (M2 ; identifiants requis, 04 §13.4)
 └── tests/            # fixtures/{reference,recorded,synthetic}/, live.rs (#[ignore]), golden et compléments : 04 §13, 06 §1.4. Mapping DTO, classement HTTP → CorpusError, retry, scénarios wiremock : `#[cfg(test)] mod tests` du crate (mesurés par `make cov`, qui passe `--lib`, 06 §1.4) ; aucune exclusion de couverture n'a été nécessaire (plan 2c)
 crates/lf-adapter-cache/src/      # lib.rs, corpus.rs (CachedCorpus), key.rs (CacheKey, Op), policy.rs (TTL, capacité),
@@ -401,7 +401,7 @@ Versions relues dans l'index sparse crates.io le 2026-10-15 (recherche 04 §4.1,
 | `tantivy`, `quick-xml`, `tar`, `flate2` (M9) | `0.26.2`, `0.42.0`, `0.4.46`, `1.1.10` | 1.86, 1.86, 1.63, 1.67 | 2026 | lf-adapter-dila ; dev de lf-adapter-piste (flate2) | Dev de l'adapter PISTE (livré, plan 2c) : `flate2` 1.1.10 (`rust_backend`, corps gzip des tests) ; R6 le confine à `lf-adapter-dila` pour les dépendances normales et de build seulement. |
 | dev : `wiremock`, `insta`, `proptest`, `tempfile`, `assert_cmd`, `predicates`, `jsonschema` | `0.6.5`, `1.49.0` ⚠, `1.12.0` ⚠, `3.27.0`, `2.2.2`, `3.1.4`, `0.58.6` ⚠ | —, 1.66, 1.88, 1.63, 1.85, 1.74, 1.85 | `insta` 2026-10-03 (éligible le 2026-10-17) ; `proptest` 2026-10-10 (éligible le 2026-10-24) ; `jsonschema` : ligne ci-dessus | selon les crates | `insta` : `["json", "redactions"]`. `proptest` : `1.12.0` est déjà verrouillé par M0 (écart accepté, R-22, dépendance de test) ; exigence `"1.12"`. `jsonschema` : **`default-features = false`**, car ses features par défaut (`resolve-http`, `resolve-file`, `tls-aws-lc-rs`, `idna`) tirent `reqwest` (index, version 0.58.6, vérifié), ce qui violerait R6 et le ban `cargo-deny` du §4.3. |
 
-`backon` 1.6.0 n'est pas retenu (spike V-06, plan 2c ; ADR-0017) : gigue injectable seulement par `with_jitter_seed`, `Sleeper` `'static` ; la boucle maison (~25 lignes) n'ajoute aucune dépendance. Livré au plan 2c pour l'adapter PISTE : `reqwest`, `secrecy`, `governor`, `chrono`, `tokio`, `tracing`, `serde`, `serde_json`, `thiserror` ; dev `wiremock` 0.6.5, `flate2` 1.1.10, `tracing-subscriber`. Les autres lignes (`serde_path_to_error`, `chrono-tz`, `insta`, `proptest`) entrent au plan 2d.
+`backon` 1.6.0 n'est pas retenu (spike V-06, plan 2c ; ADR-0017) : gigue injectable seulement par `with_jitter_seed`, `Sleeper` `'static` ; la boucle maison (~25 lignes) n'ajoute aucune dépendance. Livré au plan 2c pour l'adapter PISTE : `reqwest`, `secrecy`, `governor`, `chrono`, `tokio`, `tracing`, `serde`, `serde_json`, `thiserror` ; dev `wiremock` 0.6.5, `flate2` 1.1.10, `tracing-subscriber`. `serde_path_to_error` 0.1.20 et `chrono-tz` 0.10.4 (`default-features = false`) sont livrés au plan 2d ; `insta` et `proptest` entrent au plan 2e.
 
 **MSRV 1.88** (00-decisions §2, 09 §3.16.4 ; Cargo.toml:9, clippy.toml:1, job MSRV de ci.yml) : c'est le vrai plancher imposé par rmcp 3.5.1 (1.88), proptest 1.12 (1.88) et sha2 0.11.1 (1.88). cargo-nextest 0.9.148 demande 1.91 mais s'installe **en binaire** : il ne contraint pas la MSRV. uuid ≥ 1.27 exige 1.89 (1.27.0 et 1.28.0 déclarent `rust_version = 1.89.0` dans l'index) et rmcp tire `uuid ^1` via `server` ; avec `resolver = "3"` (Cargo.toml:2), la résolution tient compte de la MSRV et devrait retenir un uuid compatible 1.88 (**à confirmer** par `cargo +1.88 check` au premier ajout de rmcp, M4). Si le job MSRV casse à l'arrivée de rmcp, la MSRV est réévaluée par un ADR (1.89 ou 1.91), pas avant. La **toolchain**, elle, est épinglée sur 1.99.0 (§2.2) : MSRV et toolchain sont deux choses distinctes.
 
@@ -458,6 +458,8 @@ moka    = { version = "0.12", features = ["future"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "fmt", "env-filter", "smallvec", "tracing-log"] }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 serde_json = "1.0"
+serde_path_to_error = "0.1"                                                               # lf-adapter-piste (livré, plan 2d)
+chrono-tz = { version = "0.10", default-features = false }                                # lf-adapter-piste ; ni std redondant, ni serde, case-insensitive, filter-by-regex (livré, plan 2d)
 # … autres lignes du tableau §3.0.1, même règle (ex. `proptest = "1.12"`, déjà verrouillé en 1.12.0 par M0)
 
 [profile.release]
@@ -528,7 +530,7 @@ Deux points sont à mesurer au premier `cargo clippy` du spike rmcp (**avant la 
   - appels : `ToolCall<I>`, `CanonicalInput`, `InputError`, puis une entrée et une sortie par outil (`SearchInput`/`SearchOutput`, …), `AuditMetric` ;
   - façade et décorateur : `LegalService`, `ServiceSettings`, `ConfigurationState`, `Audited`, `AuditMode`, `CallMeta`, `Deadline`, `ResponseBudget`, `ReadingRequest` ;
   - noms et erreurs : `ToolName`, `AppError`, `ErrorCode`, `UpstreamCause`.
-  - Ré-exports : `pub use lf_domain::coverage::PisteEnvironment` (non livré : premier consommateur hors adapter, plan 2d) (et les types de domaine cités par les ports). Grâce à eux, `lf-adapter-audit` n'a pas besoin de dépendre directement de `lf-domain` (décision §2).
+  - Ré-exports : `pub use lf_domain::coverage::PisteEnvironment` (non livré : premier consommateur hors adapter, M3) (et les types de domaine cités par les ports). Grâce à eux, `lf-adapter-audit` n'a pas besoin de dépendre directement de `lf-domain` (décision §2).
 - **Dépendances (liste fermée, 00 §2, vérifiée par `cargo xtask check-arch`)** :
   - `lf-domain`, `thiserror`, `chrono` (`std`) et `tracing` ;
   - `tokio` avec **seulement** `time`, `macros` et `rt` : `tokio::time::timeout` (délai global), `tokio::time::Instant` (durée mesurable en temps suspendu dans les tests D-03) et `tokio::task_local!` pour `Deadline`. `rt` n'est admis que pour `task_local!` : l'application ne lance aucune tâche et ne construit aucun runtime (§13). `task_local!` ne demande que la feature `rt` : son module est déclaré dans le bloc `cfg_rt!` de `tokio/src/task/mod.rs:277-331` (`mod task_local`, ligne 307, tag `tokio-1.53.3`, vérifié), et `task_local.rs` n'importe que `std` et `pin_project_lite`. `cargo check -p lf-application` seul le confirme à la compilation en M2, à la création de `lf-application` (§4.4) ;
@@ -556,11 +558,12 @@ Deux points sont à mesurer au premier `cargo clippy` du spike rmcp (**avant la 
   - Le détail est dans [04-adapter-piste.md](04-adapter-piste.md), qui fait foi pour les internes du crate et ses fixtures (00 §0).
 - **Modules** : disposition de 04 §1.5 (fait foi), reprise au §2.1. Seuls `PisteCorpus`, les types de configuration et `StatsSnapshot` sont publics (ré-exports de `lib.rs`) ; `auth`, `config`, `corpus`, `http`, `encoding`, `stats`, `classify`, `retry`, `deadline`, `limit`, `time`, `request`, `dto`, `map` et `memo` restent des modules privés.
 - **Types exportés** (liste et méthodes : 04 §1.3 et §1.5) :
-  - `PisteCorpus<K: MonoClock + Clone = TokioClock, S: Sleeper + Clone = TokioSleeper>`, générique sur ses horloges internes pour les tests (livré, plan 2c : `K` et `S` sont `Clone`) ; `PisteConfig`, `PisteEndpoints` (URLs sandbox et production de la décision §8), `PisteCredentials`, `RateQuota`, `ConfigWarning`, `ConfigProblem` et `StatsSnapshot { mojibake_repairs, mojibake_unrepaired }` (`#[non_exhaustive]`). Les traits de temps `MonoClock` et `Sleeper` (avec `TokioClock` et `TokioSleeper`) sont `pub` dans le module privé `time` : ils paraissent dans la signature publique sans être nommables hors du crate (écart de forme du plan 2c). L'environnement est le `lf_domain::coverage::PisteEnvironment` (`PisteConfig.env`, `PisteCorpus::environment()`), jamais un type propre à l'adapter : `lf-adapter-cache` et `lf-application` l'utilisent sans dépendre de l'adapter (R3).
+  - `PisteCorpus<K: MonoClock + Clone = TokioClock, S: Sleeper + Clone = TokioSleeper>`, générique sur ses horloges internes pour les tests (livré, plan 2c : `K` et `S` sont `Clone`) ; `PisteConfig`, `PisteEndpoints` (URLs sandbox et production de la décision §8), `PisteCredentials`, `RateQuota`, `PisteTuning`, `TuningError`, `ConfigWarning`, `ConfigProblem` et `StatsSnapshot { mojibake_repairs, mojibake_unrepaired }` (`#[non_exhaustive]`). Les traits de temps `MonoClock` et `Sleeper` (avec `TokioClock` et `TokioSleeper`) sont `pub` dans le module privé `time` : ils paraissent dans la signature publique sans être nommables hors du crate (écart de forme du plan 2c). L'environnement est le `lf_domain::coverage::PisteEnvironment` (`PisteConfig.env`, `PisteCorpus::environment()`), jamais un type propre à l'adapter : `lf-adapter-cache` et `lf-application` l'utilisent sans dépendre de l'adapter (R3).
+  - Configuration à **champs privés** (livré, plan 2d) : `PisteEndpoints`, `PisteCredentials`, `RateQuota` et `PisteConfig` se lisent par accesseurs ; `PisteConfig::with_tuning(self, PisteTuning) -> Result<Self, TuningError>` est le seul point de validation des réglages avancés (04 §2.3).
   - `PisteCorpus::new(config) -> Self`. Il ne fait aucune E/S ; le client HTTP est construit au premier appel. Le coût de construction (racines TLS via `rustls-platform-verifier`) est d'environ 38 ms en profil dev (4 à 5 ms en release), payé une fois par processus (V-04 levé, plan 2c, 09 §2.20).
   - `PisteCorpus::check_credentials(&self) -> Result<(), CorpusError>`, méthode inhérente hors port, utilisée par `check-config --online`.
   - `PisteCorpus::mojibake_repairs(&self) -> u64` et `stats()`, compteurs en mémoire, jamais exportés (ADR-0005) ; `has_credentials()` et `config_problem()`, accesseurs du mode dégradé (04 §2.4).
-- **Dépendances** (liste et features : 04 §1.4 ; versions et déclarations de workspace : §3.0) : `lf-application`, `lf-domain`, `reqwest` (+ `gzip`, `system-proxy`, `rustls`), `tokio` (`time`, `sync`), `serde`, `serde_json`, `secrecy` (`serde`), `governor` (`std`), `chrono` (`std`), `thiserror`, `tracing` (`std`) ; `rustls` en dépendance directe sous l'option B seulement ; `serde_path_to_error`, `chrono-tz`, `insta` et `proptest` arrivent au plan 2d ; `backon` n'est pas une dépendance (ADR-0017). Pas de dépendance directe à `url` : `reqwest::Url`. Dev livrés : `wiremock`, `flate2`, `tracing-subscriber`, `tokio` (`macros`, `rt`, `rt-multi-thread`, `test-util`).
+- **Dépendances** (liste et features : 04 §1.4 ; versions et déclarations de workspace : §3.0) : `lf-application`, `lf-domain`, `reqwest` (+ `gzip`, `system-proxy`, `rustls`), `tokio` (`time`, `sync`), `serde`, `serde_json`, `secrecy` (`serde`), `governor` (`std`), `chrono` (`std`), `thiserror`, `tracing` (`std`) ; `rustls` en dépendance directe sous l'option B seulement ; `serde_path_to_error` 0.1.20 et `chrono-tz` 0.10.4 (`default-features = false`) sont livrés au plan 2d ; `insta` et `proptest` entrent au plan 2e ; `backon` n'est pas une dépendance (ADR-0017). Pas de dépendance directe à `url` : `reqwest::Url`. Dev livrés : `wiremock`, `flate2`, `tracing-subscriber`, `tokio` (`macros`, `rt`, `rt-multi-thread`, `test-util`).
 - **Features Cargo** : `record`, qui expose une API brute (statut, en-têtes utiles, octets) sous `#[cfg(feature = "record")]`, utilisée seulement par `examples/record_fixture.rs` et jamais activée dans le binaire (04 §13.4 ; 06 §1.4). Les tests live sont `#[ignore]` (décision §10).
 - **Pièges** :
   1. reqwest 0.13 : `rustls-tls` est renommée `rustls` ; `form` et `query` ne sont plus activées par défaut ; `rustls-no-provider` sans fournisseur installé panique dans `Client::build()` (recherche 04 §4.2 ; mesuré, plan 2c).
@@ -873,11 +876,16 @@ pub trait LegalCorpus: Send + Sync + 'static {
 pub enum CorpusError {
     #[error("not found: {what}")]
     NotFound { what: String },                         // classification « introuvable » de 04 §11.2 (404 de
-                                                       // consultation, 400 « valider est fausse », 200 sans contenu)
+                                                       // consultation, 400 « valider est fausse », 200 sans contenu) ;
+                                                       // `what` = gabarit d'endpoint (`/consult/juri`), remplaçable par
+                                                       // l'identifiant par l'impl du port
     #[error("request rejected by Legifrance")]
     InvalidRequest { status: Option<u16>, detail: String }, // Some(400) : 400 PISTE sans marqueur « introuvable » ;
-                                                       // None : garde défensive de l'adapter (la validation du cas
-                                                       // d'usage aurait dû rejeter l'entrée, 00 §5) ; non réessayé
+                                                       // `detail` = message PISTE nettoyé (≤ 200 caractères, secrets
+                                                       // retirés) ou `HTTP 400 on {endpoint}` (toujours, pour `/search`) ;
+                                                       // None : garde défensive de l'adapter, aucune requête partie (la
+                                                       // validation du cas d'usage aurait dû rejeter l'entrée, ou, pour
+                                                       // `version_date` absente sur LODA/CODE, la remplir, 00 §5, §7) ; non réessayé
     #[error("upstream error")]
     Upstream { status: Option<u16>, retryable: bool, detail: String }, // None = erreur réseau ; retryable ne sert
                                                        // qu'au message (00 §5) ; 500 après 2 tentatives : false
@@ -890,7 +898,8 @@ pub enum CorpusError {
     #[error("configuration error: {detail}")]
     Config { detail: String },                         // identifiants absents, configuration invalide, OAuth 404, route inconnue
     #[error("undecodable upstream response: {detail}")]
-    Decode { detail: String },                         // JSON invalide, corps trop gros, forme inattendue
+    Decode { detail: String },                         // JSON invalide, corps vide sur `/search`, corps trop gros, forme inattendue ;
+                                                       // `detail` = `<endpoint>: <chemin>: <catégorie>` sans valeur (04 §8.5)
 }
 ```
 
@@ -943,7 +952,7 @@ pub struct SearchPage {                            // livré : fond, query, tota
 
 ```rust
 // crates/lf-application/src/ports/audit.rs — non compilé, à valider au jalon qui l'implémente
-pub use lf_domain::coverage::PisteEnvironment;      // non livré : premier consommateur hors adapter, plan 2d
+pub use lf_domain::coverage::PisteEnvironment;      // non livré : premier consommateur hors adapter, M3
 
 pub trait AuditLog: Send + Sync + 'static {
     /// Écrit une ligne et ne rend la main qu'une fois l'écriture terminée (accusé, D-16).
@@ -1228,7 +1237,7 @@ Les quatre réglages avancés ne sont déclarés ni dans `server.json` ni dans l
 
 - `LF_PISTE_CLIENT_SECRET` est converti en `SecretString` dès sa lecture, qui libère sa mémoire en la remettant à zéro. Le jeton d'accès est lui aussi une `SecretString` dans `lf-adapter-piste` (décision §8).
 - `AppConfig` et `PisteConfig` implémentent `Debug` à la main et masquent le secret. Le test `debug_of_config_redacts_secret` le vérifie (D-40).
-- Le secret ne sort de `SecretString` (`expose_secret`) qu'à un seul endroit, la construction du corps du formulaire OAuth.
+- Le secret ne sort de `SecretString` (`expose_secret`) à cinq endroits, revus et testés (04 §3.6) : le formulaire OAuth, l'en-tête `Authorization`, deux contrôles du jeton reçu et l'expurgation des messages d'erreur PISTE.
 - Les secrets n'apparaissent dans aucun log, aucun message d'erreur, aucune ligne d'audit, et pas dans `check-config`. Le test `error_messages_never_contain_secret_or_userinfo` injecte un secret aléatoire et le recherche dans stderr, dans les messages et dans le journal.
 - L'environnement du processus garde une copie du secret, ce qui est inévitable : `SECURITY.md` le documente.
 
@@ -1362,10 +1371,10 @@ Cette table est la source unique de la correspondance cause → `CorpusError` �
 | 10 | OAuth 429, 5xx ou erreur réseau | | retries, puis `RateLimited`, `Upstream` ou `Timeout` | `RateLimited` ou `Upstream` | `[rate_limited] …` ou `[upstream_error] …` | idem |
 | 11 | API 401 | jeton révoqué | **un seul** renouvellement, puis `CorpusError::Auth` (décision §8, D-12) | `Config` | `[config_error] …` | idem |
 | 12 | API 403 | application non abonnée | `CorpusError::Auth` (décision 00 §5). Le sens d'un 403 PISTE est **NON VÉRIFIÉ** [V-65 · forme-403-piste] (V-65) ; la parité (S10) donnait `upstream_error`. | `Config` | `[config_error] PISTE denied access (HTTP 403): check that the PISTE application is subscribed to the Legifrance API.` | idem |
-| 13 | Ressource absente | 404 sur une consultation, URL de base officielle et corps qui n'est pas du HTML ; ou 2xx sans contenu (`text: null`, enveloppe vide) | `CorpusError::NotFound` | `NotFound` | `[not_found] No JURI decision found for …` (P-013) | `error` / `not_found` |
+| 13 | Ressource absente | 404 sur une consultation, les deux adresses officielles (jeton et base, `PisteEndpoints::is_official`, 04 §11.2 règle 4) et corps qui n'est pas du HTML ; ou 2xx à corps vide, quel que soit l'hôte (adapter, plan 2d) ou à enveloppe `null` (`text: null`, mapping, plan 2e) | `CorpusError::NotFound` | `NotFound` | `[not_found] No JURI decision found for …` (P-013) | `error` / `not_found` |
 | 13 bis | Identifiant inexistant signalé par un 400 | 400 sur une consultation dont `message` contient « valider est fausse » (`/consult/juri`, seul comportement observé) | `CorpusError::NotFound` (04 §11.2 règle 2) | `NotFound` | `[not_found] …` (message de l'outil, P-013) | `error` / `not_found` |
 | 14 | **404 de routage** | 404 sur `/search` ; 404 à corps HTML (passerelle) ; 404 sur un hôte non officiel ; `LF_PISTE_BASE_URL` erronée (un 404 de l'endpoint token relève de la ligne 8) | `CorpusError::Config` | `Config` | `[config_error] Legifrance endpoint not found: check LF_PISTE_BASE_URL.` (D-10). La forme d'un 404 PISTE est **NON VÉRIFIÉE** [V-66 · forme-404-piste]. | `error` / `config_error` |
-| 15 | API 400 | 400 sans le marqueur « introuvable » ; ou garde défensive de l'adapter (contrainte d'entrée que le cas d'usage aurait dû rejeter) | `CorpusError::InvalidRequest` (non réessayé, `warn!` « bug probable ») | `Upstream` | `[upstream_error] Legifrance rejected the request (HTTP 400): {détail PISTE nettoyé, ≤ 200 caractères}` (parité S10 ; 00 §5) | `error` / `upstream_error` |
+| 15 | API 400 | 400 sans le marqueur « introuvable » ; ou garde défensive de l'adapter (contrainte d'entrée que le cas d'usage aurait dû rejeter ou remplir) | `CorpusError::InvalidRequest` (non réessayé, `warn!` « bug probable ») | `Upstream` | `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` : message PISTE nettoyé (≤ 200 caractères, secrets retirés) pour une consultation, `HTTP 400 on /search` pour une recherche (le message PISTE n'est jamais recopié), `HTTP 400 on {endpoint}` si le corps d'une consultation ne livre rien (parité S10 ; 00 §5 ; 04 §11.2). **Sauf** `status: None` (garde locale, aucune requête partie, aucun 400) : `lf-application::messages` (M3) rend un gabarit distinct, sans « HTTP 400 » (07 T-M2-09) | `error` / `upstream_error` |
 | 16 | API 429 | quota | retries respectant `Retry-After`, puis `CorpusError::RateLimited`. La présence de l'en-tête est **NON VÉRIFIÉE** [V-63 · retry-after-piste]. | `RateLimited` | `[rate_limited] PISTE quota reached; retry in N s` | `error` / `rate_limited` |
 | 17 | API 500, 502, 503 ou 504 | | 502, 503, 504 : 3 tentatives au plus, puis `CorpusError::Upstream { retryable: true }` ; 500 : 2 tentatives au plus, puis `Upstream { status: 500, retryable: false }` (un 500 répété est présumé déterministe, V-69 ; 00 §8) | `Upstream` | `[upstream_error] Legifrance/PISTE HTTP 503 (service unavailable); retry once, then report it.` (sans URL, D-40) ; l'invitation à réessayer n'apparaît que si `retryable: true` | `error` / `upstream_error` |
 | 18 | Réseau, timeout HTTP | `LF_HTTP_TIMEOUT_S` | retries, puis `CorpusError::Timeout` ou `Upstream { status: None }` | `Upstream` | `[upstream_error] …` | idem |

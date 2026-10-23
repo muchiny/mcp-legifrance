@@ -1,6 +1,6 @@
 # 04 — Adapter PISTE (`lf-adapter-piste`) : OAuth, HTTP, résilience, requêtes, DTO, mapping
 
-> **Statut** : M0-M1 livrés (plan 1), tête de M2 (plans 2a, 2b), adapter jusqu'à `PisteCorpus` (plan 2c) ; le reste est un plan. Ce document applique [00-decisions.md](00-decisions.md) (révision 2), qui est normatif et l'emporte en cas de doute.
+> **Statut** : M0-M1 livrés (plan 1), tête de M2 (plans 2a, 2b), adapter jusqu'à `PisteCorpus` (plan 2c), requêtes `/search`, DTO, classification « introuvable » et `PaginationMemo` (plan 2d) ; reste : mapping et `impl LegalCorpus` (plan 2e). Ce document applique [00-decisions.md](00-decisions.md) (révision 2), qui est normatif et l'emporte en cas de doute.
 > **Document propriétaire** (00 §0) : ce document fait foi pour les internes de `lf-adapter-piste` (modules, configuration, classification « introuvable », stratégies par endpoint) et pour ses fixtures (disposition, sidecars, `cargo xtask record-fixture`). Il renvoie sans recopier le détail à [02-architecture.md](02-architecture.md) (dépendances, règles d'architecture, correspondance des erreurs, spans), à [05-outils-mcp.md](05-outils-mcp.md) (gabarits des messages vus par le modèle), à [06-qualite.md](06-qualite.md) (chemins des fichiers de test, CI, lints) et à [09-risques-et-questions.md](09-risques-et-questions.md) (registres R-xx et V-xx).
 > **Jalons** : tâche 0 de M2 (spikes TLS, proxy, `backon`, `governor` ; 00 §11.1 : faits au plan 2c, TLS provisoire), **M2** (tout le socle v0.1 : OAuth, client, réessais, débit, délai, DTO, mapping, mojibake, tests wiremock et fixtures, smoke tests live ; V-66, V-68, V-76 et V-96 bloquantes, 00 §11, 09 §2.18), M5 (pagination de la recherche vérifiée en direct), M6 (endpoints de résolution), M7 (endpoints de navigation).
 > **Lecteurs** : développeurs de `lf-adapter-piste`, et de `lf-app` (composition, configuration) et `lf-adapter-cache` (clés, TTL).
@@ -92,12 +92,12 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     pub fn stats(&self) -> StatsSnapshot;                          // tous les compteurs en mémoire, jamais exportés (ADR-0005)
     pub async fn check_credentials(&self) -> Result<(), CorpusError>; // `check-config --online` (02 §3.3, 08)
 }
-impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S> { /* async fn … : plan 2d */ }
+impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S> { /* async fn … : plan 2e */ }
 ```
 
 `MonoClock` (temps monotone) et `Sleeper` (attente) sont deux traits **internes** au crate, pas des ports. Ils existent pour rendre déterministes les tests de jeton, de backoff, de `Retry-After`, de débit et de délai restant sans geler l'horloge `tokio` (§13.1). En production : `TokioClock` (`tokio::time::Instant`) et `TokioSleeper` (`tokio::time::sleep`). L'environnement est le `lf_domain::coverage::PisteEnvironment` (03 §4.8), seul type d'environnement du workspace : l'adapter n'en définit pas d'autre, car `lf-adapter-cache` et `lf-application` l'emploient sans dépendre de lui (R3, 02 §3.3).
 
-**Livré (plan 2c, tâche 11)** : `PisteCorpus` jusqu'à `post_json` (appel API complet : mode dégradé sans E/S, puis, à chaque tentative, client, `RateGate`, jeton, envoi borné, classification ; réessai ; décodage du corps des 2xx), `check_credentials`, `environment`, `config_problem`, `has_credentials`, `mojibake_repairs`, `stats` ; **pas** d'`impl LegalCorpus` (plan 2d, qui retire l'attribut `expect(dead_code)` unique de `lib.rs`). Visibilité : `MonoClock`, `Sleeper`, `TokioClock` et `TokioSleeper` sont `pub` dans le module **privé** `time` (la signature de `PisteCorpus<K, S>` les nomme : `private_bounds` l'impose) ; ils ne sont pas nommables hors du crate, `PisteCorpus::new` fixe les types de production ; `TokioClock::new`, `with_parts` et les doublures de test (`ManualClock`, `RecordingSleeper`) restent `pub(crate)`. `K` et `S` sont `Clone` : la barrière de charge et le gestionnaire de jeton en gardent chacun un exemplaire.
+**Livré (plan 2c, tâche 11)** : `PisteCorpus` jusqu'à `post_json` (appel API complet : mode dégradé sans E/S, puis, à chaque tentative, client, `RateGate`, jeton, envoi borné, classification ; réessai ; décodage du corps des 2xx par `dto::decode::decode` (plan 2d), classification des corps d'erreur), `check_credentials`, `environment`, `config_problem`, `has_credentials`, `mojibake_repairs`, `stats` ; **pas** d'`impl LegalCorpus` (plan 2e, qui retire l'attribut `expect(dead_code)` unique de `lib.rs` ; `post_json` prend un `EndpointKind` : `post_json(kind, endpoint, body: &[u8])`). Visibilité : `MonoClock`, `Sleeper`, `TokioClock` et `TokioSleeper` sont `pub` dans le module **privé** `time` (la signature de `PisteCorpus<K, S>` les nomme : `private_bounds` l'impose) ; ils ne sont pas nommables hors du crate, `PisteCorpus::new` fixe les types de production ; `TokioClock::new`, `with_parts` et les doublures de test (`ManualClock`, `RecordingSleeper`) restent `pub(crate)`. `K` et `S` sont `Clone` : la barrière de charge et le gestionnaire de jeton en gardent chacun un exemplaire.
 
 ### 1.4 Dépendances
 
@@ -109,19 +109,19 @@ Versions de référence relevées dans l'index crates.io le 2026-10-15 (recherch
 | `rustls` | 0.23.46 | direct seulement sous B (`rustls-no-provider`) : `ring`, `std`, `tls12`, `logging` ; verrouillé 0.23.46 comme transitif (F1, exception `security-fix`, 00 §2) | fournisseur crypto (§4.1) |
 | `tokio` | 1.53.3 | `time`, `sync` (dev : `macros`, `rt`, `rt-multi-thread`, `test-util`) | délais, sémaphore, verrou du jeton |
 | `serde`, `serde_json` | 1.0.229, 1.0.154 | `derive` | DTO |
-| `serde_path_to_error` | 0.1.20 | — | chemin JSON des erreurs `Decode` (§8.5) ; plan 2d |
+| `serde_path_to_error` | 0.1.20 | — | chemin JSON des erreurs `Decode` (§8.5) ; livré (plan 2d) |
 | `secrecy` | 0.10.3 | `serde` | `client_secret` et jeton (§3.6) |
 | `governor` | 0.10.4 | `std` seule (sans `quanta`, `jitter` ni `dashmap`) ; elle tire `futures-timer`, `futures-util`, `futures-sink` et `parking_lot`, jamais sollicités (pas de `until_ready`) | limitation de débit (§5.4) |
-| `chrono`, `chrono-tz` | 0.4.45, 0.10.4 | `std` seul (livré : `parse_from_rfc2822`, date HTTP de `Retry-After`) ; `chrono-tz` : plan 2d | midi Europe/Paris pour `singleDate` (§6.3) et date HTTP de `Retry-After` ; `chrono-tz` n'est admis que dans `lf-app` (`clock`) et dans ce crate (00 §2) ; **hors du domaine** : `lf-domain` reste limité à `thiserror` (liste blanche de `xtask/src/arch.rs`, `DOMAIN_ALLOWED`) et porte ses dates en `CivilDate` (00 §2, C3) |
+| `chrono`, `chrono-tz` | 0.4.45, 0.10.4 | `std` seul (livré : `parse_from_rfc2822`, date HTTP de `Retry-After`) ; `chrono-tz` 0.10.4, `default-features = false` (livré, plan 2d : ni `std` redondant, ni `serde`, `case-insensitive`, `filter-by-regex` ; tire `phf` 0.12.1, `phf_shared` 0.12.1, `siphasher` 1.0.4) ; binaire +1,86 Mo | midi Europe/Paris pour `singleDate` (§6.3) et date HTTP de `Retry-After` ; `chrono-tz` n'est admis que dans `lf-app` (`clock`) et dans ce crate (00 §2) ; **hors du domaine** : `lf-domain` reste limité à `thiserror` (liste blanche de `xtask/src/arch.rs`, `DOMAIN_ALLOWED`) et porte ses dates en `CivilDate` (00 §2, C3) |
 | `tracing` | 0.1.44 | `["std"]`, sans `attributes` | journaux sur stderr (§12.5) |
 | `thiserror` | 2.0.21 | — | erreurs internes |
 | `reqwest::Url` (ré-export de `url` 2.5.8) | — | — | validation de la configuration ; **pas** de dépendance directe à `url` (02 §3.3) |
 | dev livrés (plan 2c) : `wiremock`, `flate2`, `tracing-subscriber`, `tokio` (`macros`, `rt`, `rt-multi-thread`, `test-util`) | 0.6.5, 1.1.10, 0.3.23 | `flate2` : `rust_backend` (R6 le confine à `lf-adapter-dila` pour les dépendances normales et de build seulement) ; `tracing-subscriber` : `std`, `fmt` | tests (§13) |
-| dev du plan 2d : `insta`, `proptest` | 1.49.0, 1.12.0 | `insta` : `json`, `redactions` | tests (§13) |
+| dev du plan 2e : `insta`, `proptest` | 1.49.0, 1.12.0 | `insta` : `json`, `redactions` | tests (§13) |
 
 `charset` (décodage selon l'en-tête `Content-Type`) est **exclu** : le corps est toujours décodé en UTF-8 strict à partir des octets (§4.4). `http2` n'est pas activé (00 §8) : HTTP/1.1 avec réutilisation des connexions suffit à 4 requêtes en vol ; non activé, HTTP/1.1, à confirmer au sondage live.
 
-`backon` 1.6.0 n'est **pas** une dépendance : essayé au spike V-06 (plan 2c), écarté (§5.2, ADR-0017). Verrou à la fin du plan 2c : 248 paquets (`Cargo.lock`), dont trois sous l'exception `security-fix` (`rustls` 0.23.46, `rustls-webpki` 0.103.16, `webpki-root-certs` 1.0.10 ; 00 §2, 06 §13.1). `aws-lc-rs` 1.18.1 et `aws-lc-sys` 0.45.0 (option A) ont été redescendus à la plus haute version éligible.
+`backon` 1.6.0 n'est **pas** une dépendance : essayé au spike V-06 (plan 2c), écarté (§5.2, ADR-0017). Verrou à la fin du plan 2c : 248 paquets (`Cargo.lock`), dont trois sous l'exception `security-fix` (`rustls` 0.23.46, `rustls-webpki` 0.103.16, `webpki-root-certs` 1.0.10 ; 00 §2, 06 §13.1). `aws-lc-rs` 1.18.1 et `aws-lc-sys` 0.45.0 (option A) ont été redescendus à la plus haute version éligible. À la fin du plan 2d : 253 paquets (cinq ajoutés : `serde_path_to_error` 0.1.20, `chrono-tz` 0.10.4, `phf` 0.12.1, `phf_shared` 0.12.1, `siphasher` 1.0.4), aucun transitif redescendu, aucun nouvel avis d'âge et aucune exception `security-fix`.
 
 Feature Cargo du crate : `record`, qui expose une API brute (statut, en-têtes utiles, octets) sous `#[cfg(feature = "record")]`, utilisée seulement par `examples/record_fixture.rs` (§13.4) et jamais activée dans le binaire.
 
@@ -129,9 +129,9 @@ Feature Cargo du crate : `record`, qui expose une API brute (statut, en-têtes u
 
 ```text
 crates/lf-adapter-piste/src/
-  lib.rs          PisteCorpus, ré-exports (PisteConfig, PisteEndpoints, PisteCredentials, RateQuota, ConfigWarning, ConfigProblem, StatsSnapshot)
-  config.rs       PisteEndpoints, PisteCredentials, PisteConfig, RateQuota, ConfigWarning, ConfigProblem,
-                  validation (§2) ; l'environnement est lf_domain::coverage::PisteEnvironment
+  lib.rs          PisteCorpus, ré-exports (PisteConfig, PisteEndpoints, PisteCredentials, RateQuota, PisteTuning, TuningError, ConfigWarning, ConfigProblem, StatsSnapshot)
+  config.rs       PisteEndpoints, PisteCredentials, PisteConfig, RateQuota, PisteTuning, TuningError, ConfigWarning,
+                  ConfigProblem (champs privés, accesseurs), validation (§2) ; l'environnement est lf_domain::coverage::PisteEnvironment
   auth.rs         TokenManager, TokenLease, DTO de l'endpoint token (§3)
   http.rs         construction du client, envoi d'une tentative, lecture bornée du corps (§4)
   encoding.rs     decode_body : UTF-8 strict puis réparation du mojibake (§4.4, §10)
@@ -141,14 +141,16 @@ crates/lf-adapter-piste/src/
                   convertie en échéance MonoClock à l'entrée de la méthode du port (§5.3)
   limit.rs        RateGate : sémaphore + governor (check(), horloge bâtie sur MonoClock) (§5.4, §5.5)
   time.rs         MonoClock, Sleeper, TokioClock, TokioSleeper, race (+ ManualClock, RecordingSleeper en cfg(test))
+  error_body.rs   message d'un corps d'erreur : UTF-8, mojibake, PisteErrorDto, secrets retirés, nettoyage, marqueur « introuvable », détection du HTML (§11.2)
   stats.rs        Stats, StatsSnapshot : compteurs du mojibake (§10.5)
-  request/        search.rs (SearchRequestDto), consult.rs (corps des consultations), number.rs (M6)
-  dto/            mod.rs, de.rs (helpers : opt_u64_lenient) et oauth.rs livrés (plan 2c) ; search.rs, text.rs, article.rs,
-                  juri.rs, acco.rs, error.rs, jorf.rs, kalicont.rs, codes.rs (M6), versions.rs, links.rs (M7) : plan 2d et suivants
+  testing.rs      (cfg(test)) ClosedPort, Capture, capture_at (§13.1)
+  request/        search.rs (livré, plan 2d : DTO de requête privés, search_body, date_facet, paris_noon_ms), consult.rs (corps des consultations), number.rs (M6)
+  dto/            mod.rs, de.rs, oauth.rs (plan 2c) ; decode.rs, error.rs, search.rs, consult_text.rs (remplace `text.rs`),
+                  article.rs, juri.rs, acco.rs (plan 2d) ; jorf.rs, kalicont.rs, codes.rs (M6), versions.rs, links.rs (M7)
   map/            dates.rs, search.rs, act.rs, article.rs, decision.rs, deliberation.rs, convention.rs,
                   agreement.rs (+ M6/M7)
-  memo.rs         PaginationMemo (M2), CodeTable (M6) (§12.3)
-  corpus.rs       PisteCorpus, post_json (appel API de bout en bout) ; impl LegalCorpus au plan 2d
+  memo.rs         PaginationMemo, MemoKey, choose_mode, received_mode (livré, plan 2d ; `received_mode` rend `Option<PaginationMode>`) ; CodeTable (M6) (§12.3)
+  corpus.rs       PisteCorpus, post_json (appel API de bout en bout) ; impl LegalCorpus au plan 2e
   raw.rs          API brute, seulement sous #[cfg(feature = "record")] (§13.4)
 crates/lf-adapter-piste/examples/
   record_fixture.rs   (feature record) lancé par cargo xtask record-fixture (§13.4)
@@ -228,7 +230,7 @@ Liste fermée de 00 §1 ; formats, priorités et messages détaillés : 02 §8.2
 | `LF_PISTE_CONCURRENCY` | `4` (1..=16) | `max_concurrency` | requêtes API en vol (§5.5) ; réglage avancé |
 | `LF_PISTE_MOJIBAKE_REPAIR` | `on` (`on`\|`off`) | `repair_mojibake` | réparation du mojibake (§10) ; réglage avancé |
 
-Toute valeur invalide d'une variable numérique ou de `LF_PISTE_MOJIBAKE_REPAIR` est remplacée par le défaut, avec un `warn!` et une ligne de `check-config` (00 §1). Au plan 2c, `PisteConfig::new` pose les défauts nommés ; la lecture bornée des quatre réglages avancés et leur `warn!` appartiennent à `lf-app` (M4, T-M2-01 en partie). Les quatre réglages avancés ne sont déclarés ni dans `server.json` ni dans le manifeste MCPB : README et `check-config` seulement (08). Les variables héritées `FR_ELI_CACHE_DIR`, `FR_ELI_RUNTIME_URL`, `FR_ELI_ENV`, `PISTE_CLIENT_ID` et `PISTE_CLIENT_SECRET` ne sont jamais lues ; si elles sont définies, `lf-app` émet un avertissement « ignored » au démarrage et dans `check-config`.
+Toute valeur invalide d'une variable numérique ou de `LF_PISTE_MOJIBAKE_REPAIR` est remplacée par le défaut, avec un `warn!` et une ligne de `check-config` (00 §1). Au plan 2c, `PisteConfig::new` pose les défauts nommés ; la lecture bornée des quatre réglages avancés et leur `warn!` appartiennent à `lf-app` (M4, T-M2-01 en partie). Depuis le plan 2d, `lf-app` construit un `PisteTuning` en partant de `PisteTuning::default()`, applique ses réglages bornés (1..=100, 1..=300, 1..=16 : politique d'utilisateur, **non** imposée par l'adapter), puis appelle `PisteConfig::with_tuning` ; une `TuningError` (valeur nulle) donne le défaut et un `warn!`. `lf-app` fait aussi le `trim()` et le « vide = absent » des identifiants avant `PisteCredentials::new` (le constructeur ne décide de rien). Les quatre réglages avancés ne sont déclarés ni dans `server.json` ni dans le manifeste MCPB : README et `check-config` seulement (08). Les variables héritées `FR_ELI_CACHE_DIR`, `FR_ELI_RUNTIME_URL`, `FR_ELI_ENV`, `PISTE_CLIENT_ID` et `PISTE_CLIENT_SECRET` ne sont jamais lues ; si elles sont définies, `lf-app` émet un avertissement « ignored » au démarrage et dans `check-config`.
 
 Le connecteur ne lit aucune configuration distante, ne télécharge aucun manifeste et n'émet aucune télémétrie (ADR-0005, corrige D-04 et D-05). La configuration est lue **une fois** au démarrage (corrige E-24 : la référence relisait l'environnement à chaque appel).
 
@@ -496,10 +498,10 @@ Choix de 16 Mio : la plus grosse fixture fait 42 Ko (search_kali.json, recherche
 
 1. `std::str::from_utf8(&bytes)` **strict**. Échec : `CorpusError::Decode { detail }` (`invalid UTF-8 at byte {N} on {endpoint}`, par exemple `invalid UTF-8 at byte 12 on /consult/juri` ; seule la position de l'octet fautif est citée). JSON impose UTF-8 et l'en-tête `charset` n'est pas pris en compte (feature `charset` exclue, §1.4).
 2. Réparation du mojibake sur le texte entier si `repair_mojibake` (§10).
-3. `serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_str(&text))` vers le DTO de l'endpoint (§8.5).
+3. `serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_str(&text))` vers le DTO de l'endpoint, par `dto::decode::decode` (§8.5) ; `decode` appelle aussi `Deserializer::end()` : un texte après le document donne `Decode` (`trailing characters`).
 4. Mapping vers l'entité du domaine (§9).
 
-Le corps des **réponses d'erreur** suit les étapes 1 et 2, puis une désérialisation optionnelle en `PisteErrorDto` (§11.3), pour que le marqueur « introuvable » soit reconnu même dans un corps en mojibake. **Au plan 2c, seul le corps des 2xx est décodé** (`post_json`) ; décodage et réparation des corps d'erreur (§11.3) : plan 2d, T-M2-08.
+Le corps des **réponses d'erreur** suit les étapes 1 et 2 (lus seulement s'ils font ≤ 64 Kio), puis `decode::<PisteErrorDto>` : livré au plan 2d (`error_body.rs`, §11.2), pour que le marqueur « introuvable » soit reconnu même dans un corps en mojibake. `post_json` ne décode ensuite que le corps des 2xx.
 
 ---
 
@@ -514,7 +516,7 @@ Une **tentative** produit une issue. La boucle de réessai (§5.2) décide de la
 | 2xx avec corps | — | DTO, puis entité ; corps vide : `NotFound` sur une consultation (quelle que soit l'adresse, sans réessai), `Decode` sur `/search` (livré, plan 2d ; une enveloppe `null` comme `{"text":null}` est jugée par le mapping, plan 2e) | Swagger : 200 et 201 déclarés pour chaque opération (recherche 05 §1.1) |
 | 3xx | non | `Upstream { status, retryable: false }` | §4.2 |
 | 400 sur une consultation avec le marqueur « introuvable » | non | `NotFound` (**livré, plan 2d**) | §11 |
-| 400, autres cas | non | **livré (plan 2d)** : `InvalidRequest { status: Some(400), detail }` ; sur une **consultation**, `detail` = message PISTE nettoyé (§11.2), repli `HTTP 400 on {endpoint}` si le corps ne livre rien d'utilisable, et `warn!` « bug probable » avec le détail nettoyé ; sur `/search` (et sur l'endpoint token), `detail` = **toujours** `HTTP 400 on {endpoint}` : le corps n'est pas lu, le message PISTE peut citer le texte de la requête (§12.4, §12.5), et le `warn!` ne porte que l'endpoint et le statut ; rendu `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` (00 §5, parité S10) | 00 §5 ; 02 §9.2 ligne 15 |
+| 400, autres cas | non | **livré (plan 2d)** : `InvalidRequest { status: Some(400), detail }` ; sur une **consultation**, `detail` = message PISTE nettoyé (§11.2), repli `HTTP 400 on {endpoint}` si le corps ne livre rien d'utilisable, et `warn!` « bug probable » avec le détail nettoyé ; sur `/search`, `detail` = **toujours** `HTTP 400 on {endpoint}` : le corps n'est pas lu, le message PISTE peut citer le texte de la requête (§12.4, §12.5), et le `warn!` ne porte que l'endpoint et le statut ; un 400 de l'endpoint token n'est pas `InvalidRequest` mais `Auth` (§3.5), son corps n'est jamais lu ; rendu `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` (00 §5, parité S10) | 00 §5 ; 02 §9.2 ligne 15 |
 | 401 (API) | renouvellement unique (§3.4), hors budget | second 401 : `Auth` | 00 §8 |
 | 403 | non | `Auth`, rendu `config_error` avec le message « check that the PISTE application is subscribed to the Legifrance API » (00 §5) | recherche 05 §3.4 (constaté sur Judilibre avec un jeton Légifrance ; sens exact d'un 403 de l'API Légifrance **NON VÉRIFIÉ** [V-65 · forme-403-piste], V-65) |
 | 404 | non | `NotFound` ou `Config` selon §11.2 (**livré, plan 2d**, règle provisoire jusqu'à V-66) | D-10 |
@@ -667,12 +669,13 @@ Base : le payload de la référence (server.py:133-156, recherche 03 §3.1, rech
 
 Les champs requis du Swagger sont tous présents : `fond` et `recherche` (`SearchRequestDTO`) ; `champs`, `operateur`, `pageNumber`, `pageSize`, `sort` et `typePagination` (`RechercheSpecifiqueDTO`) ; `operateur`, `typeRecherche` et `valeur` (`CritereDTO`).
 
-Les DTO de requête de la recherche 03 §12.3 sont repris (`SearchRequestDto`, `RechercheDto`, `ChampDto`, `CritereDto`, `FiltreDto`, `DatePeriodDto`, enums en `SCREAMING_SNAKE_CASE`), avec `FiltreDto.single_date: Option<i64>` (epoch ms) et `dates: Option<DatePeriodDto { start: String, end: String }>`. Les variantes inutiles en v0.1 (`multi_valeurs`, `proximite`, sous-critères) ne sont pas déclarées.
+Les DTO de requête de la recherche 03 §12.3 sont repris (`SearchRequestDto`, `RechercheDto`, `ChampDto`, `CritereDto`, `FiltreDto`, `DatePeriodDto`, enums en `SCREAMING_SNAKE_CASE`), avec `FiltreDto.single_date: Option<i64>` (epoch ms) et `dates: Option<DatePeriodDto { start: String, end: String }>`. Les variantes inutiles en v0.1 (`multi_valeurs`, `proximite`, sous-critères) ne sont pas déclarées. Livré (plan 2d, tâche 8) : privés à `request/search.rs` et sans `Debug` ; `search_body(&SearchQuery, PaginationMode) -> Result<Vec<u8>, CorpusError>` sérialise en un seul passage (l'ordre des clés est celui des champs) ; les enums ne déclarent que les variantes employées (`Operateur::Et`, `TypeChamp::All`, `Sort::Pertinence`, trois `TypeRecherche`) ; `fond`, `facette` et `typePagination` sont des `&'static str` d'API.
 
 ### 6.2 Fond et `DATE_VERSION`
 
 - `LODA_DATE` et `CODE_DATE` **exigent** un filtre `DATE_VERSION` en `singleDate` (référence DISCOVERY.md:22-25, constat live). L'adapter l'ajoute toujours pour ces deux fonds, à partir de `SearchQuery.version_date`. L'application la renseigne avec `Clock::today_paris()` si l'utilisateur ne l'a pas donnée (00 §7).
 - Pour les autres fonds, `version_date` n'est jamais envoyé : il est rejeté en `invalid_arg` par le cas d'usage, sans réseau (00 §7 ; `SearchQuery::new`, 03 §4.1 ; message de 05 §7.3), donc `SearchQuery.version_date` vaut `None` hors LODA et CODE.
+- **Garde de l'adapter** (plan 2d) : LODA/CODE **sans** `version_date` donne `InvalidRequest { status: None }` (`version_date missing for fond LODA` ou `… fond CODE`) ; `version_date` sur un autre fond, idem (`version_date not applicable to fond JURI`… ; noms de `Fond::name()`), sans réseau. Le domaine n'impose pas la présence sur LODA/CODE, c'est l'application qui la remplit (00 §7). Alternative écartée : omettre le filtre (400/500 opaque).
 - `singleDate` est un **entier epoch ms**, forme validée en direct par la référence (server.py:136). La forme chaîne (`"2025-04-15"`, exemple officiel `exemples…md:815`) n'est pas utilisée.
 
 ### 6.3 `DATE_VERSION` à midi Europe/Paris
@@ -682,18 +685,24 @@ Règle (00 §8, AM-02) : `singleDate` = l'instant de **midi**, heure de Paris, a
 Pourquoi midi : tous les horodatages de date observés dans les réponses sont à minuit **UTC** (recherche 02 D-20, recherche 03 §11.2 ; V-100). PISTE peut comparer l'instant à des bornes stockées à J 00:00Z, le tronquer en date UTC, ou le tronquer en date de Paris. Minuit Paris (22 h ou 23 h UTC la veille) n'est correct que dans le troisième cas : dans les deux autres, la recherche du jour J retiendrait la version **de la veille**, et un texte entrant en vigueur le jour J n'apparaîtrait pas le jour J. Midi Paris (10 h ou 11 h UTC) est correct dans les trois cas, avec 10 à 11 heures de marge de chaque côté ; c'est aussi le régime le plus proche de celui que la référence a validé en direct (`now_ms`, envoyé à des heures de journée).
 
 ```rust
-// request/search.rs — non compilé, à valider au jalon qui l'implémente
-fn paris_noon_ms(d: VersionDate) -> i64 {                          // VersionDate = CivilDate (lf-domain, C3)
+// request/search.rs — [livré, plan 2d, tâche 8] ; code du dépôt (constantes DAY_MS = 86_400_000, NOON_MS = 43_200_000)
+// use chrono::{DateTime, Offset, TimeDelta, TimeZone};   // Offset et TimeZone : offset_from_utc_datetime et fix
+// use chrono_tz::Europe::Paris;
+fn paris_noon_ms(date: VersionDate) -> i64 {                       // VersionDate : newtype borné (lf-domain)
     // Aucune branche d'erreur : jours depuis l'epoch par arithmétique entière (algorithme days_from_civil
     // de Hinnant, total sur i64), puis décalage de Paris lu à midi UTC par une API chrono-tz totale.
-    let utc_noon_ms = days_from_civil(d.year(), d.month(), d.day()) * 86_400_000 + 43_200_000;
-    let utc = NaiveDateTime::UNIX_EPOCH + TimeDelta::milliseconds(utc_noon_ms); // année 1..=9999 (CivilDate) : pas de dépassement
-    let offset_ms = i64::from(chrono_tz::Europe::Paris.offset_from_utc_datetime(&utc).fix().local_minus_utc()) * 1_000;
-    utc_noon_ms - offset_ms                                       // midi local = midi UTC - décalage
+    let civil = date.as_civil();
+    let days =
+        days_from_civil(i64::from(civil.year()), i64::from(civil.month()), i64::from(civil.day()));
+    let utc_noon_ms = days * DAY_MS + NOON_MS;
+    // Pas de panique possible : `VersionDate` est borné à 1500..=2221, loin des limites de chrono.
+    let utc = DateTime::UNIX_EPOCH.naive_utc() + TimeDelta::milliseconds(utc_noon_ms);
+    let offset = Paris.offset_from_utc_datetime(&utc).fix().local_minus_utc();
+    utc_noon_ms - i64::from(offset) * 1_000                        // midi local = midi UTC - décalage
 }
 ```
 
-Vecteurs de test (00 §8 ; calculés avec la base IANA, `zoneinfo` de Python 3.13, et à reproduire avec `chrono-tz`) :
+Vecteurs de test (00 §8 ; calculés avec la base IANA, `zoneinfo` de Python 3.13, et reproduits avec `chrono-tz` 0.10.4 : `paris_noon_vectors`, livré) :
 
 | `version_date` | `singleDate` | UTC |
 |---|---|---|
@@ -703,7 +712,9 @@ Vecteurs de test (00 §8 ; calculés avec la base IANA, `zoneinfo` de Python 3.1
 | 2026-10-25 (retour à l'heure d'hiver à 3 h) | `1792926000000` | 2026-10-25T11:00Z |
 | 1804-03-21 (avant 1911 : temps moyen de Paris, UTC+0:09:21) | `-5231563761000` | 1804-03-21T11:50:39Z |
 
-Les changements d'heure à Paris ont lieu à 2 h et à 3 h : midi n'est jamais ambigu ni inexistant, donc le décalage lu à midi UTC est celui de midi local. La fonction est totale sans branche de repli (`NaiveDate::from_ymd_opt`, `LocalResult` et leurs cas morts sont évités) : elle respecte les 100 % de régions de 00 §10 sans test artificiel ; `days_from_civil` est couverte par les vecteurs ci-dessous. La version de la base IANA embarquée par `chrono-tz` 0.10.4 est **NON VÉRIFIÉ** [V-17 · chrono-tz-iana] (V-17) : le test `paris_noon_vectors` la contrôle pour l'adapter dès M2.
+Depuis 1976, les changements d'heure à Paris ont lieu à 2 h et à 3 h ; avant, il y a eu des bascules à 0 h 01 (1911) et à 23 h (1940-1945) : aucune ne touche midi, donc midi n'est jamais ambigu ni inexistant et le décalage lu à midi UTC est celui de midi local. Vérifié exhaustivement sur les **263 705 jours** de `VersionDate` (1500-01-01 à 2221-12-31, audit de sécurité de la PR 2, I5) : `days_from_civil` égale le décompte de `chrono`, l'heure locale de Paris du résultat vaut 12:00:00 le même jour, et le résultat égale `Paris.from_local_datetime(J 12:00).single()` (0 écart). La fonction est totale sans branche de repli (`NaiveDate::from_ymd_opt`, `LocalResult` et leurs cas morts sont évités) : elle respecte les 100 % de régions de 00 §10 sans test artificiel ; `days_from_civil` est couverte par les vecteurs ci-dessous. La version de la base IANA embarquée par `chrono-tz` 0.10.4 : **levé** (plan 2d, 09 §2.20). `chrono_tz::IANA_TZDB_VERSION == "2025b"` pour 0.10.4, épinglée par `iana_database_version_is_pinned` (une montée de `chrono-tz` casse le test et force à relire les vecteurs). **Limite** : les règles de Paris ne sont tabulées que jusqu'en 2099 ; dès 2100, `chrono-tz` 0.10.4 rend l'heure d'hiver toute l'année (`2100-07-01` donne `4118122800000` au lieu de `4118119200000`), soit midi à ±1 h, très en deçà de la marge de 10 h ci-dessus (`paris_noon_keeps_summer_time_until_2099`, `paris_noon_uses_standard_time_from_2100`) ; `VersionDate` va jusqu'en 2221. Coût mesuré (crate d'essai hors dépôt, `chrono` seul contre `chrono` plus `Europe::Paris`) : +1,86 Mo de binaire release, sans strip ni LTO (454 592 puis 2 313 544 octets ; toute la base IANA est liée dès qu'un `Tz` est utilisé), et de +2,3 à +2,5 s de compilation à froid.
+
+**Deux vecteurs, deux fonctions.** `-5231563761000` est le `singleDate` de `paris_noon_ms(1804-03-21)` (midi à Paris, temps moyen UTC+0:09:21) ; `-5231606400000` est le minuit UTC de la même date, vecteur de `CivilDate::from_unix_millis` (`negative_ms_1804`, domaine) et valeur de `dateDebut` dans `consult_article.json`. Ne pas les confondre ; ni l'un ni l'autre n'est à corriger ailleurs.
 
 **Vérification (bloquante en M2).** La sémantique réelle de `singleDate` chez PISTE est **NON VÉRIFIÉ** [V-76 · singledate-midi-paris] (V-76, R-17). Vérification live (§13.5) : chercher un texte dont une version commence à une date D connue, avec `version_date = D`, et comparer avec des instants à minuit UTC, à minuit Paris et à la veille. Le suffixe `_JJ-MM-AAAA` de `titles[0].id`, qui est la date de début de la version (03 §2.4), dit quelle version l'API a retenue. Midi reste appliqué jusqu'au résultat ; s'il se révélait faux, toute autre règle amende 00 §8.
 
@@ -715,7 +726,7 @@ Les changements d'heure à Paris ont lieu à 2 h et à 3 h : midi n'est jamais a
 | `all` | `TOUS_LES_MOTS_DANS_UN_CHAMP` | sémantique exacte avec `typeChamp=ALL` (tous les mots dans un **même** champ, ou dans l'un quelconque des champs ?) : **NON VÉRIFIÉ** [V-79 · mode-all-semantique] |
 | `exact` | `EXACTE` | l'expression exacte (exemples officiels, `exemples…md:837-843`) |
 
-Valeurs de l'enum vérifiées dans le Swagger 2.4.2 (`CritereDTO.typeRecherche`). `AUCUN_DES_MOTS` et `AUCUNE_CORRESPONDANCE_A_CETTE_EXPRESSION` ne sont pas exposés.
+Valeurs de l'enum vérifiées dans le Swagger 2.4.2 (`CritereDTO.typeRecherche`). `AUCUN_DES_MOTS` et `AUCUNE_CORRESPONDANCE_A_CETTE_EXPRESSION` ne sont pas exposés (ni déclarés dans l'enum de l'adapter, qui n'a que trois variantes).
 
 ### 6.5 Filtres de date par fond
 
@@ -737,21 +748,24 @@ Règles :
 
 - La facette retenue représente « la date du document » pour un juriste : signature d'un acte, date d'une décision ou d'une délibération. La table vit dans l'adapter (`request/search.rs`, `fn date_facet(Fond) -> Option<&'static str>`), car ce sont des noms d'API (03 §3.1) ; le domaine sait seulement si le fond en a une : `date_facet(f).is_some()` vaut `f.has_date_filter()` pour chaque fond (03 §3.1), ce que contrôle `date_facet_table_matches_doc` (§6.10).
 - `Code` avec une plage de dates : rejeté en `invalid_arg` par le cas d'usage, sans réseau (00 §7 ; `SearchQuery::new`, 03 §4.1 ; message de 05 §7.3). L'adapter n'en garde qu'une copie défensive (00 §5) : `date_facet(Fond::Code)` vaut `None`, et une `SearchQuery` qui porterait quand même une plage sur CODE donne `CorpusError::InvalidRequest { status: None, detail }` sans appel réseau, avec un `warn!` « bug probable » ; aucun statut HTTP n'est fabriqué (02 §5.1).
-- Borne absente : `DateRange` est toujours une période fermée (03 §6.1). `DateRange::new` complète une borne absente par l'extrémité de la plage de `VersionDate` (`1500-01-01` ou `2221-12-31`) ; l'adapter envoie donc toujours les deux champs, tels que le domaine les fournit, sans valeur de remplissage propre, et la clé de cache reste unique. Tous les exemples officiels fournissent les deux bornes. **Tâche de tête de M2** (00 §11.1) : `DateRange` avec `InvertedDateRange` et `VersionDate` en newtype borné 1500-01-01..=2221-12-31 (bornes **NON VÉRIFIÉ**) ; le livré n'a aujourd'hui que `VersionDate = CivilDate`, alias non borné.
+- Borne absente : `DateRange` est toujours une période fermée (03 §6.1). `DateRange::new` complète une borne absente par l'extrémité de la plage de `VersionDate` (`1500-01-01` ou `2221-12-31`) ; l'adapter envoie donc toujours les deux champs, tels que le domaine les fournit, sans valeur de remplissage propre, et la clé de cache reste unique. Tous les exemples officiels fournissent les deux bornes. **Livré** (tâche de tête de M2) : `DateRange` avec `InvertedDateRange` et `VersionDate` en newtype borné 1500-01-01..=2221-12-31 (bornes **NON VÉRIFIÉ**).
 - Noms de facettes : vérifiés dans la documentation officielle. **Effet réel** en direct (le total diminue-t-il ?), caractère inclusif de `end`, comportement d'une borne lointaine, et combinaison avec `DATE_VERSION` : **NON VÉRIFIÉ** [V-78 · filtres-dates-effet]. Un exemple officiel combine déjà `DATE_SIGNATURE` et `DATE_VERSION` sur `LODA_DATE` (`exemples…md:535-553`).
 
 ### 6.6 Pagination et `typePagination`
 
 - `typePagination` : `DEFAUT` ou `ARTICLE` (Swagger). « Lors de la navigation dans plusieurs pages, il est nécessaire de passer la valeur reçue dans la réponse précédente » (`RechercheSpecifiqueDTO.typePagination`, recherche 03 §3.2). Observé : `CODE_DATE` répond `ARTICLE` à une requête `DEFAUT` (search_code.json : `typePagination: "ARTICLE"`, `totalArticleResultNumber: 1`).
 - La valeur reçue est lue dans `SearchPage.pagination` (`PaginationMode`, 03 §3.1, §4.1), qui alimente le mémo et les journaux. `fr_search` ne la rend **jamais** au modèle et n'a aucun paramètre pour la recevoir (00 §7, AM-04) : `typePagination` n'est pas exposé.
-- **Règle (00 §7)** : `fr_search` est sans état, l'application aussi ; `SearchQuery` ne porte pas de mode de pagination (03 §4.1). L'adapter tient donc un `PaginationMemo` (§12.3) dont la clé est la requête normalisée **sans** `page` (`fond`, `mode`, `text`, `version_date`, `date_range`, `page_size`). Il conserve la dernière `typePagination` reçue (TTL 1 h, comme le cache de recherche ; 1 024 entrées au plus).
+- **Règle (00 §7)** : `fr_search` est sans état, l'application aussi ; `SearchQuery` ne porte pas de mode de pagination (03 §4.1). L'adapter tient donc un `PaginationMemo` (§12.3) dont la clé est la requête normalisée **sans** `page` (`fond`, `mode`, `text`, `version_date`, `date_range`, `page_size`). Il conserve la dernière `typePagination` reçue (TTL 1 h, comme le cache de recherche ; 1 024 entrées au plus). Livré (plan 2d) : clé = `MemoKey` (texte normalisé, sans `Debug`) ; la page ≤ 1 ne lit jamais le mémo pour décider.
 - Valeur envoyée, dans l'ordre :
   1. `ARTICLE` pour les recherches `NUM_ARTICLE` construites par l'adapter lui-même (`find_article`, `find_by_number`, §6.9) ;
   2. si `page > 1`, la valeur du mémo ;
   3. si `page > 1`, `fond = Code` et aucun mémo (redémarrage, autre processus) : `ARTICLE`, valeur observée pour ce fond ;
   4. sinon `DEFAUT`.
+
+  Livré (plan 2d) : la règle 1 est appliquée **par l'appelant**, qui passe `PaginationMode::Article` à `search_body` sans passer par le mémo ; les règles 2 à 4 sont `memo::choose_mode`.
 - Effet réel de `DEFAUT` contre `ARTICLE` en page 2 sur CODE, et cohérence de `has_more` (calculé sur `totalResultNumber`, 03 §4.1) quand la pagination porte sur les articles : **NON VÉRIFIÉ** [V-82 · typepagination-page2]. À vérifier en M5 (§13.5). Si le mémo ne suffit pas, un paramètre opaque `pagination` de `fr_search` est ajouté (classe « ajout », 00 §7).
-- Valeur reçue inconnue (ni `DEFAUT` ni `ARTICLE`) : traitée comme `Defaut`, avec `warn`.
+- Valeur reçue inconnue (ni `DEFAUT` ni `ARTICLE`) : traitée comme `Defaut` dans `SearchPage.pagination`, avec un `warn!` qui ne cite que la longueur de la valeur ; une valeur **absente** vaut `Defaut` dans `SearchPage.pagination` sans `warn!` (décision du propriétaire). **Mais le mémo n'enregistre ni l'une ni l'autre** (R12, livré) : une absence n'est pas une valeur « reçue », et mémoriser `Defaut` annulerait le repli `ARTICLE` de la règle 3 pour CODE. `memo::received_mode` rend donc un `Option<PaginationMode>` (`None` si absent ou inconnu, avec le `warn!` pour l'inconnu) ; `PaginationMemo::remember` n'écrit que sur `Some` et laisse en l'état une entrée déjà présente ; `SearchPage.pagination` reçoit `received_mode(..).unwrap_or_default()`. `typePagination` est une `String` stricte dans le DTO (§8.5, limite 5, R13).
+- Le mémo est **global au processus** : en mode HTTP multi-client (M8), la page 1 d'un client fixerait le mode de la page 2 d'un autre pour une requête identique (canal très faible, observable seulement si PISTE répond un mode différent du repli) ; la clé ou le mémo devra être cloisonné par client en M8 (09). Une entrée expirée n'est retirée qu'à sa lecture ou par éviction : jusqu'à 1 024 textes de requête restent en mémoire au-delà d'une heure (borné à environ 2 Mio).
 
 ### 6.7 `pageSize` et pagination profonde
 
@@ -786,7 +800,8 @@ Le comportement réel de chaque recherche exacte (casse, tirets typographiques, 
 ### 6.10 Tests de sérialisation
 
 - `search_request_matches_reference_json` : pour chacun des 8 fonds, avec `match=any`, `page=1` et `page_size=10`, le corps est égal, comme `serde_json::Value`, au payload de la référence (recherche 01 §3.1). Seule exception : la valeur de `singleDate`, qui est midi Paris (divergence volontaire listée dans [annexes/A-parite.md](annexes/A-parite.md), P-020).
-- `type_recherche_follows_match` (3 cas) ; `filtres_order_is_deterministic` ; `date_facet_table_matches_doc` (table du §6.5, cohérente avec `Fond::has_date_filter`) ; `code_date_range_is_defensive_invalid_request_without_network` (garde défensive : `InvalidRequest { status: None }`, wiremock `expect(0)` ; le rejet `invalid_arg` lui-même est testé dans `lf-application`, 06 §2.2) ; `paris_noon_vectors` (table du §6.3) ; `enum_serialization_screaming_snake_case` (`AucuneCorrespondanceACetteExpression` donne `AUCUNE_CORRESPONDANCE_A_CETTE_EXPRESSION`, recherche 03 §12.3).
+- `type_recherche_follows_match` (3 cas) ; `filtres_order_is_deterministic` ; `date_facet_table_matches_doc` (table du §6.5, cohérente avec `Fond::has_date_filter`) ; `code_date_range_is_defensive_invalid_request_without_network` (garde défensive : `InvalidRequest { status: None }` ; livré en test unitaire de `search_body`, aucun `PisteCorpus` dans le module ; la version wiremock `expect(0)` est du plan 2e ; le rejet `invalid_arg` lui-même est testé dans `lf-application`, 06 §2.2) ; `paris_noon_vectors` (table du §6.3) ; `enum_serialization_screaming_snake_case` (`TousLesMotsDansUnChamp` donne `TOUS_LES_MOTS_DANS_UN_CHAMP`, `UnDesMots` donne `UN_DES_MOTS` ; `AUCUNE_CORRESPONDANCE_A_CETTE_EXPRESSION` n'est pas déclarée en v0.1, §6.4).
+- Noms livrés en plus (plan 2d, tâches 8 et 9) : `search_request_with_date_range_uses_the_fond_facet`, `search_body_reads_every_field_of_the_query`, `query_text_is_sent_verbatim`, `pagination_mode_is_sent_as_given`, `version_date_is_required_for_loda_and_code_only`, `deep_pagination_is_defensive_invalid_request_without_network`, `encode_failure_is_reported_without_serde_detail`, `a_refused_request_is_logged_as_a_probable_bug_without_the_query_text`, `paris_noon_covers_calendar_edges_and_historic_offsets`, `iana_database_version_is_pinned`. Mémo (`memo.rs`) : `code_page_two_without_memo_sends_article`, `loda_page_two_without_memo_sends_defaut`, `entry_expires_exactly_at_one_hour`, `the_1025th_entry_evicts_the_oldest_one`, `queries_that_differ_only_by_page_share_the_key`, `unknown_received_mode_is_ignored_with_a_warning_that_omits_the_value`, `received_mode_reads_known_values_and_nothing_when_absent`, `a_code_response_without_type_pagination_leaves_no_memo`, `an_unknown_type_pagination_leaves_no_memo`, `a_known_type_pagination_is_memoized`, `a_response_without_type_pagination_keeps_the_last_value_received`, `mode_for_falls_back_to_the_default_rule_after_expiry` ; `a_valid_loda_or_code_query_without_version_date_is_refused_without_network` (`request/search.rs`).
 
 ---
 
@@ -867,29 +882,34 @@ Repris de la recherche 03 §12.1 et figés ici :
 
 1. **Un module par endpoint** ; aucune struct partagée entre endpoints pour des champs homonymes de types différents. `signataires` est un objet dans `/consult/kaliText` et une chaîne dans `TexteSimple` (recherche 03 §9) ; il n'est d'ailleurs pas déclaré du tout.
 2. **Tolérance** : jamais `#[serde(deny_unknown_fields)]`. Serde ignore les champs inconnus par défaut. On ne déclare **que** les champs utilisés.
-3. **Tout est optionnel** : `Option<T>` et `#[serde(default)]` partout. Tout champ à désérialiseur personnalisé porte `#[serde(default)]`, sinon son absence est une erreur `missing field` (serde_derive, recherche 03 §12.1 point 3). Toute liste passe par `null_default`, car `Vec<T>` refuse `null` (des listes `null` existent : `textTitles[].appellations`).
+3. **Tout est optionnel** : `Option<T>` partout ; **convention livrée** (plan 2d) : un seul attribut de conteneur `#[serde(rename_all = "camelCase", default)]` et `#[derive(Default)]` (les champs à `deserialize_with` absents prennent la valeur du `Default` du conteneur, vérifié) ; toute nouvelle struct DTO dérive donc `Default`. Sans cela, l'absence d'un champ à désérialiseur personnalisé serait une erreur `missing field` (serde_derive, recherche 03 §12.1 point 3). Toute liste passe par `null_default`, car `Vec<T>` refuse `null` (des listes `null` existent : `textTitles[].appellations`). **Exceptions** : `TokenResponseDto` et `OAuthErrorDto` (plan 2c, endpoint token) et `PisteErrorDto` (§11.3) portent `#[serde(default)]` champ par champ et ne dérivent pas `Default`.
 4. **Dates brutes** (`RawDate`) dans le DTO, converties en `CivilDate` du domaine dans le mapping (§9.1) ; `chrono` ne sert dans l'adapter qu'à `singleDate` (§6.3) et à `Retry-After`.
 5. **Chaînes vides** : `""` devient `None` par `opt_nonempty` pour les champs où `""` signifie « absent ». Le contenu des chaînes non vides n'est jamais retouché (pas de `trim` du texte juridique dans le DTO).
-6. **Rien de volumineux inutile** : `facets` de `/search` (jusqu'à 88 % de la réponse KALI, recherche 03 §5) et `data` d'ACCO (base64) ne sont **pas déclarés**. Serde les parcourt sans les allouer. En v0.1, les facettes ne sont jamais renvoyées (00 §7) : la proposition `Option<Box<RawValue>>` de la recherche 03 est inutile.
-7. Les DTO sont `pub(crate)`. Le domaine ne voit jamais un type serde.
+6. **Rien de volumineux inutile** : `facets` de `/search` (jusqu'à 88 % de la réponse KALI, recherche 03 §5) et `data` d'ACCO (base64) ne sont **pas déclarés**. Serde les saute sans construire de valeur (mémoire bornée par la taille du corps, §8.5). En v0.1, les facettes ne sont jamais renvoyées (00 §7) : la proposition `Option<Box<RawValue>>` de la recherche 03 est inutile.
+7. Les DTO sont `pub(crate)` et **sans `Debug` hors tests** (`#[cfg_attr(test, derive(Debug, PartialEq))]`) : un `{:?}` accidentel d'un DTO ne compile pas ; un type qui en contient (`PisteCorpus`…) implémente `Debug` à la main. Le domaine ne voit jamais un type serde. **Exceptions assumées** : `PisteErrorDto` a un `Debug` écrit à la main (seul `error` est écrit, §11.3), `OAuthErrorDto` et `TokenResponseDto` dérivent `Debug` (plan 2c ; le jeton est un `SecretString` rédigé, `error_description` n'est jamais recopiée), et `RawDate` dérive `Debug` en permanence (§8.2) : un type qui les contient ne se journalise pas en `{:?}`.
+8. Aucune table indexée par du texte du corps (`HashMap`/`BTreeMap`) et aucun `deny_unknown_fields` : une clé du corps pourrait apparaître dans le chemin d'une erreur (§8.5).
 
 ### 8.2 Helpers (`dto/de.rs`)
 
-Signatures (code complet proposé dans la recherche 03 §12.2, à reprendre tel quel en M2) :
+Signatures (livrées au plan 2d, `dto/de.rs` ; des `Visitor` écrits à la main, sans `#[serde(untagged)]`, lisent une valeur JSON de n'importe quel type et ignorent un tableau ou un objet à toute profondeur, §8.5) :
 
 | Helper | Signature | Comportement |
 |---|---|---|
 | `null_default` | `fn<'de, D, T: Default + Deserialize<'de>>(D) -> Result<T, D::Error>` | `null` ou absent → `T::default()` (listes, maps) |
-| `opt_nonempty` | `fn<'de, D>(D) -> Result<Option<String>, D::Error>` | `null`, absent, `""` ou blanc → `None` ; sinon la chaîne **telle quelle** |
-| `opt_raw_date` | `fn<'de, D>(D) -> Result<Option<RawDate>, D::Error>`, `enum RawDate { Millis(i64), Text(String) }` | entier ms (négatifs compris) ; chaîne de chiffres → `Millis` ; autre chaîne non vide → `Text` ; flottant entier → `Millis` ; `bool`, objet, flottant fractionnaire → `None` (toléré, compté dans un diagnostic) |
-| `opt_string_or_number` | `fn<'de, D>(D) -> Result<Option<String>, D::Error>` | chaîne non vide ou entier → `Some(String)` (`idcc`, `codeIdcc`, `sizeAttachment`) |
+| `opt_nonempty` | `fn<'de, D>(D) -> Result<Option<String>, D::Error>` | `null`, absent, `""` ou blanc → `None` ; sinon la chaîne **telle quelle** ; une valeur non chaîne (`12`, `true`) reste une **erreur** de type avec chemin |
+| `opt_raw_date` | `fn<'de, D>(D) -> Result<Option<RawDate>, D::Error>`, `enum RawDate { Millis(i64), Text(String) }` | entier ms (négatifs compris) ; chaîne de chiffres → `Millis` ; autre chaîne non vide → `Text` ; flottant entier → `Millis` (via `format!("{v:.0}").parse::<i64>()`, pas `as i64`) ; chaîne blanche → `None` ; chaîne de chiffres débordant `i64` → `None` ; `u64` > `i64::MAX` → `None` ; `"-5231606400000"` (négatif en chaîne) → `Text` ; `"20240315"` → `Millis(20240315)` (1970), comme le veut la spec ; `bool`, tableau, objet, flottant fractionnaire → `None` (toléré) : le helper ne compte rien (aucun accès à un compteur), le comptage éventuel est du mapping (plan 2e) ; `RawDate` dérive `Debug` hors tests (un `Text` peut porter du texte du corps : ne pas journaliser un DTO ni un `?raw`, voir 09 §2.20) |
+| `opt_string_or_number` | `fn<'de, D>(D) -> Result<Option<String>, D::Error>` | chaîne non vide ou entier → `Some(String)` (`idcc`, `codeIdcc`, `sizeAttachment`) ; chaîne blanche ou flottant → `None` ; `"0044"` rendu tel quel |
 | `opt_u64_lenient` (ajout) | `fn<'de, D>(D) -> Result<Option<u64>, D::Error>` | nombre ou chaîne de chiffres → `Some` ; sinon `None` (`expires_in`, totaux) |
 
-`RawDate::Text` accepte `AAAA-MM-JJ` et l'ISO `AAAA-MM-JJTHH:MM:SS.sss+0000`, dont seule la partie date est gardée (§9.1).
+`RawDate::Text` accepte `AAAA-MM-JJ` et l'ISO `AAAA-MM-JJTHH:MM:SS.sss+0000`, dont seule la partie date est gardée (§9.1). La conversion de `RawDate` en `CivilDate` reste du mapping (plan 2e).
 
 ### 8.3 Champs minimaux par endpoint
 
-Noms JSON tels que vus dans les fixtures et le Swagger. Sauf mention, tous les champs sont `Option<…>` avec `#[serde(default)]`. Les structures détaillées sont celles de la recherche 03 §12.3 à §12.7 ; ce tableau en fixe la liste.
+Noms JSON tels que vus dans les fixtures et le Swagger. Sauf mention, tous les champs sont `Option<…>` avec `#[serde(default)]`. Les structures détaillées sont celles de la recherche 03 §12.3 à §12.7 ; ce tableau en fixe la liste. **Livrés au plan 2d** : `SearchResponseDto` et ses structs (`dto/search.rs`), `ConsultTextDto` (`dto/consult_text.rs`, qui remplace `text.rs`), `GetArticleResponseDto` (`article.rs`), `ConsultJuriResponseDto` (`juri.rs`), `ConsultAccoResponseDto` (`acco.rs`) ; M6 et M7 restent à faire.
+
+**Marque `opt_nonempty` par champ** (le tableau de la recherche 03 §12.5 à §12.7 fait foi, la liste suivie d'une seule marque était ambiguë) : `ArticleDto` : `nota`, `notaHtml`, `versionPrecedente` ; `JuriTextDto` : `num`, `ecli`, `citationJp`, `publicationRecueil`, `typePublicationBulletin`, `titreLoiDef`, `idTexteJo`, `titreJo`, `ancienId` ; `SommaireDto` : `resumePrincipal`, `abstrats`, `autreResume` ; `TexteLienDto` : `cidTexte`, `id`, `num`, `natureTexte` ; `AccordDto` : `siret`, `codeApe`, `numero` ; `SearchSectionDto` : `id`, `title` ; `SearchExtractDto` : `id`, `num` ; `ConsultTextDto` : `numParution`, `jorfText`, `numeroBo`, `originePubli`, `typeTexte` ; `LienArticleDto` : `textCid`, `articleId`, `articleNum` ; `ConteneurDto` : `num`. Dans `ArticleDto`, `JuriTextDto` (hors la liste ci-dessus) et `AccordDto`, `id`, `texte`, `texteHtml`, `secteur`… restent des `Option<String>` simples (`texte` et `texteHtml` vides restent `Some("")` : seul le mapping juge leur vide).
+
+**Types livrés différents du tableau ci-dessous** : `textAbroge`, `isMultipleVersions`, `conformeVersionIntegrale` : `Option<bool>` ; `intOrdre` : `Option<i64>` (un `intOrdre` en chaîne ferait échouer tout le document, §8.5) ; `decisionAttaquee` (`DecisionAttaqueeDto`) et `context` (`ArticleContextDto`) : struct par défaut avec `null_default` (la fixture a `decisionAttaquee: null`), donc « absent » et « vide » se confondent (le mapping teste `formation`/`date`) ; `fileSize` : `Option<String>`. `dateTexteComputed` et `datePubliComputed` sont déclarés (lus en priorité par le mapping) ; `originePubli` déclaré ; `moreArticlesCount` **non déclaré**. `ConsultTextDto` sert `lawDecree` **et** `kaliText` (racine = texte, pas d'enveloppe) ; `ConsultJuriResponseDto` sert `juri` et `cnil`.
 
 **`/search` — `SearchResponseDto`** (recherche 03 §4, §12.3)
 
@@ -905,9 +925,9 @@ Noms JSON tels que vus dans les fixtures et le Swagger. Sauf mention, tous les c
 
 | Struct | Champs |
 |---|---|
-| `ConsultTextDto` | `id`, `cid`, `title`, `nor`, `nature`, `etat`, `jurisState`, `textAbroge: bool`, `dateParution`, `dateDebutVersion`, `dateFinVersion` (`opt_raw_date`), `numParution`, `jorfText` (`opt_nonempty`), `appellations: Vec<String>`, `sections: Vec<TocSectionDto>`, `articles: Vec<TocArticleDto>` ; KALI : `conteneurs: Vec<ConteneurDto>`, `numeroBo`, `originePubli`, `typeTexte` (`opt_nonempty`) |
-| `TocSectionDto` (récursif) | `id`, `title`, `intOrdre: i64`, `etat`, `dateDebut`, `dateFin` (`opt_raw_date` : `AAAA-MM-JJ` en KALI), `sections`, `articles` |
-| `TocArticleDto` | `id`, `num`, `etat`, `intOrdre: i64`, `content` (HTML, attesté en KALI), `dateDebut`, `dateFin` (ms en KALI), `lstLienCitation`, `lstLienModification: Vec<LienArticleDto>` |
+| `ConsultTextDto` | `id`, `cid`, `title`, `nor`, `nature`, `etat`, `jurisState`, `textAbroge`, `dateParution`, `dateDebutVersion`, `dateFinVersion` (`opt_raw_date`), `numParution`, `jorfText` (`opt_nonempty`), `appellations: Vec<String>`, `sections: Vec<TocSectionDto>`, `articles: Vec<TocArticleDto>` ; KALI : `conteneurs: Vec<ConteneurDto>`, `numeroBo`, `originePubli`, `typeTexte` (`opt_nonempty`) |
+| `TocSectionDto` (récursif) | `id`, `title`, `intOrdre`, `etat`, `dateDebut`, `dateFin` (`opt_raw_date` : `AAAA-MM-JJ` en KALI), `sections`, `articles` |
+| `TocArticleDto` | `id`, `num`, `etat`, `intOrdre`, `content` (HTML, attesté en KALI), `dateDebut`, `dateFin` (ms en KALI), `lstLienCitation`, `lstLienModification: Vec<LienArticleDto>` |
 | `LienArticleDto` | `linkType`, `linkOrientation`, `textCid`, `textTitle`, `articleId`, `articleNum`, `natureText` |
 | `ConteneurDto` | `cid` (`KALICONT…`), `num` (IDCC, `opt_nonempty`), `titre` |
 
@@ -915,7 +935,7 @@ Noms JSON tels que vus dans les fixtures et le Swagger. Sauf mention, tous les c
 
 | Struct | Champs |
 |---|---|
-| `ArticleDto` | `id`, `cid`, `num`, `etat`, `texte`, `texteHtml`, `nota`, `notaHtml` (`opt_nonempty`), `dateDebut`, `dateFin` (`opt_raw_date`), `fullSectionsTitre`, `sectionParentTitre`, `context: ArticleContextDto`, `textTitles: Vec<TextTitleDto>`, `versionPrecedente` (`opt_nonempty`), `isMultipleVersions: bool` (**alias** `multipleVersions`) ; M7 : `articleVersions: Vec<ArticleVersionDto>` |
+| `ArticleDto` | `id`, `cid`, `num`, `etat`, `texte`, `texteHtml`, `nota`, `notaHtml` (`opt_nonempty`), `dateDebut`, `dateFin` (`opt_raw_date`), `fullSectionsTitre`, `sectionParentTitre`, `context: ArticleContextDto`, `textTitles: Vec<TextTitleDto>`, `versionPrecedente` (`opt_nonempty`), `isMultipleVersions` (**alias** `multipleVersions`) ; M7 : `articleVersions: Vec<ArticleVersionDto>` |
 | `ArticleContextDto` | `titresTM: Vec<ContextEntryDto>` (**`rename = "titresTM"`**), `titreTxt: Vec<ContextEntryDto>` |
 | `ContextEntryDto` | `id`, `titre`, `debut`, `fin` (`opt_raw_date`, `AAAA-MM-JJ`) |
 | `TextTitleDto` | `id`, `cid`, `titre`, `nature` |
@@ -935,7 +955,7 @@ Les personnes (`president`, `avocats`, `rapporteur`, `commissaire`, `avocatGl`) 
 
 **`/consult/acco` — `ConsultAccoResponseDto { acco: Option<AccordDto> }`** (recherche 03 §10, §12.7)
 
-`AccordDto` : `id`, `nature`, `titreTexte`, `raisonSociale`, `siret`, `codeIdcc` (`opt_string_or_number`), `codeApe`, `secteur`, `themes: Vec<LibelleDto>`, `syndicats: Vec<LibelleDto>`, `numero`, `dateTexte`, `dateEffet`, `dateDepot`, `dateDiffusion`, `dateFin` (`opt_raw_date`), `conformeVersionIntegrale: bool`, `fileSize: String` ; `LibelleDto { code, libelle }`. **`data` jamais déclaré.**
+`AccordDto` : `id`, `nature`, `titreTexte`, `raisonSociale`, `siret`, `codeIdcc` (`opt_string_or_number`), `codeApe`, `secteur`, `themes: Vec<LibelleDto>`, `syndicats: Vec<LibelleDto>`, `numero`, `dateTexte`, `dateEffet`, `dateDepot`, `dateDiffusion`, `dateFin` (`opt_raw_date`), `conformeVersionIntegrale`, `fileSize` ; `LibelleDto { code, libelle }`. **`data` jamais déclaré.**
 
 **Erreurs et OAuth** : `PisteErrorDto` (§11.3), `TokenResponseDto` et `OAuthErrorDto` (§3.2).
 
@@ -965,22 +985,23 @@ Les personnes (`president`, `avocats`, `rapporteur`, `commissaire`, `avocatGl`) 
 | Piège | Où | Parade | Test |
 |---|---|---|---|
 | `titresTM` : `rename_all = "camelCase"` produirait `titresTm` | `article.context` | `#[serde(rename = "titresTM")]` explicite | `titres_tm_is_renamed` |
-| `signataires` : objet en KALI, chaîne dans `TexteSimple` | kaliText / juri | non déclaré ; jamais de DTO commun | `kali_and_juri_dto_are_distinct` |
+| `signataires` : objet en KALI, chaîne dans `TexteSimple` | kaliText / juri | non déclaré ; jamais de DTO commun | `kali_and_juri_dto_are_distinct` (comportement : un corps KALI lu comme JURI et inversement passe ; garde de source : `juri.rs` n'importe pas `consult_text::` et inversement, aucun des deux ne déclare `signataires:`) |
 | `idcc`, `codeIdcc`, `sizeAttachment` : chaînes numériques, nombres possibles (la référence typait `str \| int`) | search ACCO, acco | `opt_string_or_number` (E-14, D-24) | `idcc_accepts_string_and_number` |
 | casse de `nature` : `arret`, `qpc`, `code` en recherche ; `ARRET`, `QPC`, `Texte`, `Délibération` en consultation | partout | valeur brute conservée ; comparaisons insensibles à la casse dans le mapping | `nature_case_is_preserved` |
 | NOR en minuscules en recherche (`cscl2115694s`) | search | `Nor` du domaine en majuscules (03 §4.2) | — |
-| `isMultipleVersions` (fixture) contre `multipleVersions` (Swagger, KALI) | getArticle | `alias` | `multiple_versions_alias` |
+| `isMultipleVersions` (fixture) contre `multipleVersions` (Swagger, KALI) | getArticle | `alias` ; les deux graphies ensemble donnent `Decode` (`duplicate field`) ; PISTE n'en envoie qu'une (une réponse réelle qui les porterait toutes deux exigerait un champ par graphie) | `multiple_versions_alias`, `both_spellings_of_the_multiple_versions_flag_are_a_decode_error` |
 | `typePagination` renvoyé différent de l'envoyé | search CODE | `PaginationMemo`, valeur rendue à PISTE en page suivante, jamais au modèle (§6.6) | `type_pagination_is_echoed_on_next_page` |
 | suffixe `_JJ-MM-AAAA` sur `titles[].id` et `id` de lawDecree | search LODA/CODE, lawDecree | `parse_versioned` / `VersionedId` du domaine (03 §2.4 ; tâche de tête de M2, C4 : le suffixe est validé comme une vraie date et conservé, un suffixe mal formé est refusé, un suffixe bien formé hors `LEGITEXT` est toléré puis retiré) | `suffix_is_version_date` |
 | `cid` LODA = `JORFTEXT` ≠ `id` | search, lawDecree | `Option<JorfTextId>` | — |
 | `etat` LODA `null` mais `jurisState` = `Vigueur` | lawDecree | `status_of(etat, jurisState)` (03 §3.3, E-10) | `loda_status_falls_back_to_juris_state` |
 | `liens[]` JURI : identifiants `""`, titres fragmentés | juri | `opt_nonempty` ; titres passés au parseur (M7) | `empty_string_is_none` |
-| `facets` absent (CODE) ou énorme (KALI) | search | non déclaré | `facets_are_never_allocated` |
+| `facets` absent (CODE) ou énorme (KALI) | search | non déclaré | `facets_are_skipped_without_building_a_value` (comportemental : `facets` imbriqué sur 200 niveaux ou de 30 000 éléments passe) |
 | dates sous 3 encodages, parfois mêlés dans une même réponse (KALI : sections en `AAAA-MM-JJ`, articles en ms) | partout | `opt_raw_date` | `raw_date_accepts_ms_numeric_string_ymd_iso` |
 | `bool` jamais une date (la référence acceptait `true` → 1970-01-01) | partout | `visit_bool` → `None` | `bool_is_not_a_date` |
 | `num` des extraits KALI malformé (`"8.4 de la convention)"`) | search KALI | `num = None` pour KALI (03 §4.1) | — |
-| enveloppe `null` (`{"text": null}`, `{"article": null}`) | consultations | `NotFound` (§11) | `consult_empty_envelope_maps_to_not_found` |
+| enveloppe `null` (`{"text": null}`, `{"article": null}`) | consultations | les DTO rendent le DTO à `None` ; le `NotFound` est décidé par le mapping (plan 2e, `consult_empty_envelope_maps_to_not_found`) ; `null` seul à la racine donne `Decode` (§11) | `consult_empty_envelope_maps_to_not_found` (plan 2e) |
 | `lstLienCitation` décrit « Toujours vide » par le Swagger mais rempli en KALI | kaliText | déclaré, lu | — |
+| **Tableau JSON lu comme struct** | racine d'une réponse | serde dérive `visit_seq` : `[]` donne le DTO par défaut et `[{…}]` serait lu comme le premier champ ; `null`, chaîne, nombre, HTML donnent `Decode`. Inoffensif (PISTE renvoie des objets), non refusé en v0.1 (il faudrait un `Deserializer` strict) | assertion de `a_root_that_is_not_an_object_is_a_decode_error` |
 
 ### 8.5 `serde_path_to_error` et `CorpusError::Decode`
 
@@ -988,7 +1009,13 @@ Les personnes (`president`, `avocats`, `rapporteur`, `commissaire`, `avocatGl`) 
 - `detail` = `<endpoint>: <chemin>: <catégorie>`, par exemple `/consult/juri: text.numeroAffaire: invalid type: integer, expected a sequence`. Chemin : `.` à la racine, `a.b[0].c`, `?` pour une clé ou un nom de variante qui n'est pas `[A-Za-z0-9_-]{1,64}`.
 - Le message ne contient **aucune valeur** du corps, car une valeur pourrait contenir des données personnelles ou un texte long. Seuls figurent le chemin JSON masqué et la catégorie serde. **Expurgation** : `serde` écrit la valeur (``invalid type: integer `12` ``, ``unknown field `x` ``) ; `redact` garde le *genre* (`integer`, `string`, `floating point`, `boolean`, `map`, `sequence`) et l'attendu (après la **dernière** occurrence de `, expected `), retire le nom d'un `unknown field`/`unknown variant`, garde `missing field`, `duplicate field` et `invalid length`, remplace tout autre message à guillemet par `invalid data` ; la position ` at line L column C` est retirée des erreurs de données, gardée pour la syntaxe et l'EOF (textes fixes).
 - **Limite du masquage** : une clé de forme identifiant qui vient du corps entre dans le chemin lorsqu'elle désigne un **champ non déclaré** par le DTO, ou un champ `serde_json::Value`, dont la valeur est mal formée (`{"sk_live_ABC":[1,}` donne le chemin `sk_live_ABC`) ; une clé d'une autre forme y est masquée. Une clé de forme identifiant n'est pas un secret, d'où la limite assumée ; les DTO ne déclarent ni table indexée par du texte du corps ni `deny_unknown_fields` (§8.1). Le chemin n'est sûr qu'à une condition de conception : **aucune erreur serde personnalisée ne cite la valeur lue** (un lecteur écrit à la main n'appelle jamais `de::Error::custom` avec un fragment du corps).
-- Limite de récursion : **levé** (V-10, plan 2d). `serde_json` 1.0.154 plafonne à **128** niveaux (`remaining_depth: 128`, un niveau par tableau et par objet). Un DTO récursif accepte **63 niveaux de `sections`** (2 niveaux de profondeur chacun, plus l'objet racine) et échoue à 64 (`recursion limit exceeded`, catégorie `Syntax`, `detail` borné) : la TOC à 64 niveaux de 03 §1.3 est donc refusée dès le décodage (`Decode`), le plafond effectif côté adapter est 63. Cette limite n'est pas levée (pas de feature `unbounded_depth`). **Piège** : un champ non déclaré est sauté par `IgnoredAny` sans limite de profondeur ; le test doit viser un DTO qui *construit* l'imbrication (`nesting_just_under_the_limit_is_decoded` : 63 niveaux décodés, 64 en `Decode` ; `nesting_beyond_the_serde_json_limit_maps_to_decode` : 200 niveaux). Les lecteurs `untagged` de `dto/de.rs` mettent la valeur en mémoire tampon, et la même limite s'y applique.
+- Limite de récursion : **levé** (V-10, plan 2d). `serde_json` 1.0.154 part de `remaining_depth: 128` (un niveau par tableau et par objet) et échoue quand le compteur atteint 0 : **127 imbrications passent, la 128e échoue** (`recursion limit exceeded`, catégorie `Syntax`, `detail` borné). Pour la TOC, N niveaux de `sections` imbriqués ont une profondeur de 2N+1 (l'objet racine, puis un tableau et un objet par niveau) ; si la section la plus profonde porte des articles, 2N+3 ; si ces articles portent des `lstLien*`, 2N+5. Le **plafond effectif** est donc de **63** niveaux de sections feuilles, **62** avec des articles et **61** avec des liens : la TOC à 64 niveaux de 03 §1.3 est refusée dès le décodage (`Decode`), sans effet pratique (les TOC réelles sont bien moins profondes). Tests : `a_toc_of_63_levels_is_decoded` (63 niveaux décodés) et `a_toc_of_64_levels_or_more_maps_to_decode` (64 et 200 niveaux, `dto/consult_text.rs`) ; sur un DTO de test de `decode.rs`, `nesting_just_under_the_limit_is_decoded` (63 niveaux décodés, 64 en `Decode`) et `nesting_beyond_the_serde_json_limit_maps_to_decode` (200 niveaux). Cette limite n'est pas relevée (pas de feature `unbounded_depth`). **Exemption** : un champ non déclaré est sauté par `IgnoredAny` sans limite de profondeur ; le test doit viser un DTO qui *construit* l'imbrication. Les lecteurs de `dto/de.rs` n'emploient plus `#[serde(untagged)]` (tâche 6-pre) : des `Visitor` écrits à la main ignorent un tableau ou un objet à toute profondeur (pile constante, mémoire bornée par la taille du corps), donc la limite de 128 niveaux ne s'y applique pas ; elle ne vaut que pour les champs *typés* imbriqués (TOC).
+- **Limites consignées** (plan 2d, à juger au plan 2e) :
+  1. *Amplification mémoire d'un tableau de petits objets* (audit de sécurité de la PR 2, constat M1, **Medium**, latent : rien n'est branché avant le plan 2e). `{"results":[{},{},…]}` coûte 3 octets par élément dans le corps pour 408 octets décodés (`SearchResultDto`), sans aucun tas. Mesure de l'audit (sonde en release, allocateur compteur) : ×136 résident et ×204 réservé pour `/search` (le `Vec` croît par doublement), ×69 et ×61 pour les `articles` et `sections` de `lawDecree`, ×13 au moins pour des chaînes d'un octet ; une réponse réelle reste vers ×1 à ×3. Un corps de 16 Mio (`max_body_bytes`) donne 5,6 millions d'éléments, **2,1 Gio résidents, 3,2 Gio réservés et 1,8 s de décodage synchrone** que `tool_deadline` n'interrompt pas. **Le permis de concurrence ne borne pas le décodage** : il est rendu après la lecture du corps et avant le décodage (§5.5), si bien que la concurrence de `lf-app` (M4) ne limite rien (la prémisse « avec la concurrence de `lf-app` » de la première rédaction était fausse) ; 4 appels parallèles font environ 8,5 Gio résidents, 8 appels environ 17 Gio (la VM WSL de 24 Go est tuée par le noyau), et un conteneur de 2 Gio meurt d'une seule réponse. Scénario : un hôte en amont qui répond 200 avec un tel corps (URL de base surchargée acceptée avec `ConfigWarning::CustomHost`, proxy qui intercepte TLS, incident chez PISTE). **Correction décidée (R11), à faire au plan 2e *avant le branchement du décodage des DTO*** (critère d'acceptation de T-M2-09, 07) : (a) un **budget global de 200 000 éléments par document**, compteur armé par `decode` (synchrone, aucun `await` ne le traverse) et remis par une garde, qui échoue en `Decode` avec un texte fixe (`too many elements`, le chemin dit où), chaque liste passant par un lecteur borné à la place de `null_default` (un plafond par tableau ne suffit pas : l'imbrication multiplie) ; (b) `results` ≤ 100 (`PageSize` maximal) à la lecture, puis ≤ `page_size` au mapping ; (c) à étudier, en complément : un plafond de corps par endpoint (4 Mio pour `/search`, `getArticle`, `juri` et `cnil` ; 16 Mio pour `lawDecree`, `kaliText` et `acco`), qui ne suffit pas seul (4 Mio × 136 = 544 Mio sur `/search`). Effet attendu : au pire environ 42 Mo résidents par réponse, décodage arrêté après environ 65 ms ; une TOC de code (15 000 à 20 000 nœuds, plus les liens) reste sous le budget, à confirmer avec V-75 et V-96. Tests prévus : `{"results":[{}×101]}` et un corps de 200 001 `{}` donnent `Decode` avec un chemin, et un compteur d'allocations dans un binaire de test dédié vérifie le pic.
+  2. *Tableau lu comme struct* : un tableau JSON est lu positionnellement comme une struct (`[]` donne un DTO vide, `["a","b"]` remplit les premiers champs), voir le piège du §8.4 ; accepté, à juger au mapping.
+  3. *Type d'un champ numérique ou booléen* : un `intOrdre` ou un `textAbroge` de mauvais type fait échouer tout le document (ces champs sont lus par le dérivé serde, sans lecteur tolérant) ; écart connu, signalé par un `Decode` avec chemin.
+  4. *Deux graphies du drapeau de versions* : `isMultipleVersions` ET `multipleVersions` dans un même corps donnent `duplicate field`, donc un article illisible ; alternative, si PISTE en envoyait deux : un champ par graphie, au mapping.
+  5. *`typePagination` est une `String` stricte* (`dto/search.rs`) : une valeur non chaîne (nombre, objet, booléen) fait échouer toute la page en `Decode`, alors que §6.6 prévoit un repli pour une valeur inattendue (R13). Décision au mapping (plan 2e) : soit `de::opt_string_or_number` (un nombre devient une chaîne, donc une valeur inconnue sans mémo ; un objet ou un booléen devient `None`), soit consigner l'écart.
 - Corps HTML (page d'erreur d'une passerelle), JSON `null` à la racine, JSON tronqué : `Decode`, sans réessai (corrige D-11 et E-21 : la référence levait une exception sans code).
 
 ---
@@ -1031,7 +1058,7 @@ Les tests de contrat (§13.3) figent ces mappings par snapshots `insta` sur les 
 
 ### 9.3 Diagnostics
 
-Le domaine renvoie ses anomalies comme valeurs (03 §1.1). L'adapter les journalise (`debug` pour un hit écarté, `warn` pour un identifiant incohérent, un mojibake réparé ou un horodatage hors minuit) et les compte dans `StatsSnapshot` (livré au plan 2c : `mojibake_repairs` et `mojibake_unrepaired` ; cible, plan 2d et suivants : `dropped_hits`, `id_mismatch`, `non_midnight_timestamps`, `retries`, `rate_limited_waits`). Ces compteurs sont lisibles par `lf-app` (`check-config`) et éventuellement par `fr_coverage` (décision dans 05). Ils ne quittent jamais la machine (ADR-0005).
+Le domaine renvoie ses anomalies comme valeurs (03 §1.1). L'adapter les journalise (`debug` pour un hit écarté, `warn` pour un identifiant incohérent, un mojibake réparé ou un horodatage hors minuit) et les compte dans `StatsSnapshot` (livré au plan 2c : `mojibake_repairs` et `mojibake_unrepaired` ; cible, plan 2e et suivants : `dropped_hits`, `id_mismatch`, `non_midnight_timestamps`, `retries`, `rate_limited_waits`). Ces compteurs sont lisibles par `lf-app` (`check-config`) et éventuellement par `fr_coverage` (décision dans 05). Ils ne quittent jamais la machine (ADR-0005).
 
 ---
 
@@ -1043,7 +1070,7 @@ Le domaine renvoie ses anomalies comme valeurs (03 §1.1). L'adapter les journal
 
 ### 10.2 Algorithme exact
 
-Appliqué au **texte entier du corps** (réponses 2xx et corps d'erreur : au plan 2c, seul le corps des 2xx est décodé ; décodage et réparation des corps d'erreur (§11.3) : plan 2d, T-M2-08), après le décodage UTF-8 strict et avant serde (§4.4). La fonction pure est `lf_domain::text::encoding::repair_latin1_mojibake(&str) -> Cow<str>` (module du domaine livré à la tête de M2, plan 2a ; 03 §1.5, §7.1) ; l'esquisse est dans la recherche 03 §11.1.
+Appliqué au **texte entier du corps** (2xx et corps d'erreur, livré au plan 2d : le mojibake d'un corps d'erreur n'est **pas** compté dans `StatsSnapshot`, `classify` étant pur), après le décodage UTF-8 strict et avant serde (§4.4). La fonction pure est `lf_domain::text::encoding::repair_latin1_mojibake(&str) -> Cow<str>` (module du domaine livré à la tête de M2, plan 2a ; 03 §1.5, §7.1) ; l'esquisse est dans la recherche 03 §11.1.
 
 1. **Détection** `has_latin1_mojibake(s)` : vrai si `s` contient un caractère C1 (U+0080 à U+009F), **ou** une paire adjacente `(p, c)` avec `p` ∈ [U+00C2, U+00F4] et `c` ∈ [U+0080, U+00BF].
 2. Si la détection est fausse : identité (`Cow::Borrowed`).
@@ -1109,8 +1136,8 @@ Le smoke test live `live_unknown_ids_classification` (§13.5) enregistre la rép
 Arbre appliqué par `classify.rs`, après lecture bornée, décodage et réparation du corps. Cette classification « introuvable » fait foi (00 §0) : 02 §9.2 (lignes 13, 13 bis et 14) la reprend, et les messages vus par le modèle sont ceux de 05 §7.2.
 
 1. **2xx** : corps vide (aucun octet non blanc) ⇒ `NotFound` sur une consultation, **sans réessai et quelle que soit l'adresse** (un 2xx dit que la route a répondu, ce qu'un 404 ne dit pas ; l'asymétrie avec la règle 4 est assumée : un serveur personnalisé qui répond 200 vide à tout POST donne `NotFound`) ; `Decode` (`empty response body on /search`) sur `/search` ; endpoint token inchangé. Autre corps : DTO ; une enveloppe `null` (`{"text":null}`, `{}`) est jugée par le mapping (§9.1 a, plan 2e). Pour `/search`, jamais `NotFound`.
-2. **400** sur une consultation, et `PisteErrorDto.message` contient `valider est fausse` (comparaison insensible à la casse, sur le texte réparé, **avant** nettoyage, retrait des secrets et coupure : le marqueur est cherché dans le texte brut complet ; `valider est fausse` couvre déjà « à valider est fausse » et « a valider est fausse » : le fragment `a valider` seul n'est **pas** retenu, parce qu'il classerait en `NotFound` tout 400 de consultation qui le contient pour une autre raison, contre la règle 5) ⇒ `NotFound` (écart volontaire à la lettre de la spec ; test `a_400_mentioning_a_valider_alone_is_not_not_found`). Le marqueur ne s'applique qu'aux consultations dont l'identifiant a été validé par le domaine, comme le fait pylegifrance (`juri.py:829-838`) : un 400 ne peut alors pas venir d'un identifiant malformé. Un `errorCode` de type inattendu (nombre, objet, tableau) ne fait pas perdre le message (§11.3).
-3. **400**, autres cas ⇒ `InvalidRequest { status: Some(400), detail }`, journalisé en `warn` comme bug probable, rendu `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` (00 §5, parité S10). Jamais `invalid_arg` : toute contrainte imputable à l'entrée (dates, fond sans facette, pagination profonde, formats, longueur de `query`) est validée avant l'appel du port, et une heuristique sur un corps d'erreur de forme inconnue (V-67) produirait des `invalid_arg` trompeurs.
+2. **400** sur une consultation, et `PisteErrorDto.message` contient `valider est fausse` (comparaison insensible à la casse, sur le texte réparé, **avant** nettoyage, retrait des secrets et coupure : le marqueur est cherché dans le texte brut complet ; `valider est fausse` couvre déjà « à valider est fausse » et « a valider est fausse » : le fragment `a valider` seul n'est **pas** retenu, parce qu'il classerait en `NotFound` tout 400 de consultation qui le contient pour une autre raison, contre la règle 5) ⇒ `NotFound`, **quel que soit l'hôte** (comme le 2xx vide de la règle 1 : le 400 est une réponse de l'API, non une page de passerelle ; décision R7) ; écart volontaire à la lettre de la spec, test `a_400_mentioning_a_valider_alone_is_not_not_found`. Le marqueur ne s'applique qu'aux consultations dont l'identifiant a été validé par le domaine, comme le fait pylegifrance (`juri.py:829-838`) : un 400 ne peut alors pas venir d'un identifiant malformé. Un `errorCode` de type inattendu (nombre, objet, tableau) ne fait pas perdre le message (§11.3).
+3. **400**, autres cas ⇒ `InvalidRequest { status: Some(400), detail }`, journalisé en `warn` comme bug probable (avec le détail nettoyé pour une consultation, **sans** le message PISTE pour `/search` : statut et endpoint seulement, §12.5), rendu `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` (00 §5, parité S10). Jamais `invalid_arg` : toute contrainte imputable à l'entrée (dates, fond sans facette, pagination profonde, formats, longueur de `query`) est validée avant l'appel du port, et une heuristique sur un corps d'erreur de forme inconnue (V-67) produirait des `invalid_arg` trompeurs.
    - **Consultation** : `detail` = le **message PISTE seul** (sans endpoint ni « HTTP 400 », car 05 §7.2 le recopie tel quel) : corps ≤ 64 Kio (au-delà, non décodé), UTF-8 strict, mojibake réparé si `repair_mojibake`, lu par `decode::<PisteErrorDto>`, puis, dans cet ordre : points de code « ignorables par défaut » d'Unicode (propriété `Default_Ignorable_Code_Point` : U+00AD, U+034F, U+061C, U+115F-1160, U+17B4-17B5, U+180B-180F, U+200B-200F, U+202A-202E, U+2060-206F, U+3164, U+FE00-FE0F, U+FEFF, U+FFA0, U+FFF0-FFF8, U+1BCA0-1BCA3, U+1D173-1D17A, U+E0000-E0FFF ; sélecteurs de variante et étiquettes ASCII compris) supprimés, caractères de contrôle remplacés par une espace, espaces repliées, **secrets exacts (jeton porteur, secret client) remplacés par `[redacted]`**, du plus long au plus court (après le nettoyage : un jeton coupé par un caractère invisible est retiré aussi), coupure à 200 `char` ; rien d'utilisable (corps vide, HTML, `message` absent ou non chaîne, tout nettoyé) ⇒ `HTTP 400 on {endpoint}`. Le `warn` cite ce détail nettoyé (identifiant public, §12.5).
    - **`/search`** : `detail` = **toujours** `HTTP 400 on {endpoint}` (décision R6 du plan 2d). Le corps n'est pas lu : le message de PISTE peut recopier le texte de la requête de recherche (donnée personnelle possible, interdit de journal par §12.5), et le `detail` va aux journaux de l'application et au champ `error` de l'audit (§12.4). Le `warn` ne porte que l'endpoint et le statut. Le modèle perd l'explication de PISTE sur un 400 de recherche (un 400 y est déjà un bug probable) ; le rétablir est une branche de `bad_request` à rouvrir au plan 2e, quand `lf-application::messages` existera.
    - **Endpoint token** : corps jamais lu (400 ⇒ `Auth`, §3.5).
@@ -1118,12 +1145,12 @@ Arbre appliqué par `classify.rs`, après lecture bornée, décodage et réparat
 4. **404** :
    - sur l'endpoint token ⇒ `Config`, rendu `PISTE OAuth endpoint not found: check LF_PISTE_OAUTH_URL.` (05 §7.2 ; 02 §9.2 ligne 8 ; §3.5) ;
    - sur `/search` ⇒ `Config`, rendu `Legifrance endpoint not found: check LF_PISTE_BASE_URL.` (05 §7.2, 404 de routage ; 02 §9.2 ligne 14). Il n'y a pas de « ressource » à ne pas trouver : le chemin ou l'URL est faux ;
-   - sur une consultation, si les deux adresses (jeton et base) sont officielles (`PisteEndpoints::is_official()`, plus strict que la seule URL de base) et que le corps n'est pas du HTML ⇒ `NotFound`. Le chemin vient de la liste vérifiée du Swagger, donc il existe. *HTML* = premier octet non blanc `<` (balisage, `<?xml`, `<!DOCTYPE`), après un éventuel BOM UTF-8 ; plus large que `<html` pour préférer `Config` dans le doute ;
+   - sur une consultation, si les deux adresses (jeton et base) sont officielles (`PisteEndpoints::is_official()`, plus strict que la seule URL de base) et que le corps n'est pas du HTML ⇒ `NotFound`. Le chemin vient de la liste vérifiée du Swagger, donc il existe. *HTML* = premier octet non blanc `<` (balisage, `<?xml`, `<!DOCTYPE`), après tous les BOM UTF-8 de tête (un BOM seul, ou suivi de JSON, n'est pas du balisage) ; plus large que `<html` pour préférer `Config` dans le doute ;
    - sinon (hôte personnalisé ou page HTML de passerelle) ⇒ `Config`, rendu par le même gabarit `Legifrance endpoint not found: check LF_PISTE_BASE_URL.` (05 §7.2).
    - La forme réelle d'un 404 PISTE, de routage ou de ressource, est **NON VÉRIFIÉ** [V-66 · forme-404-piste] (recherche 02 D-10 ; V-66, bloquante en M2). **Livrée** (plan 2d) mais restant une hypothèse : `official_host: true` ne s'obtient pas en test réseau local (seul `false` passe par `post_json` ; `true` est prouvé par `classify` et `retry`), donc `live_unknown_ids_classification` (V-66, V-68) reste le seul vrai contrôle. Marqueur : `valider est fausse` seul, à resserrer encore (frontière de mot) si V-68 montre des faux positifs.
 5. **500** après 2 tentatives : `Upstream { status: 500, retryable: false }` (§5.1), jamais `NotFound`. « Ne jamais conclure à l'inexistence sans preuve », principe repris d'un client tiers (recherche 05 §1.13).
 
-Un `not_found` signifie donc toujours que l'API a dit que la ressource n'existait pas. Un problème d'URL ou de configuration ne peut jamais faire croire au modèle qu'un texte n'existe pas, ce que la référence permettait (D-10), à une exception assumée : le 2xx vide d'une consultation (règle 1) ne tient pas compte de l'hôte.
+Un `not_found` signifie donc toujours que l'API a dit que la ressource n'existait pas. Un problème d'URL ou de configuration ne peut jamais faire croire au modèle qu'un texte n'existe pas, ce que la référence permettait (D-10), à deux exceptions assumées, qui ne tiennent pas compte de l'hôte : le 2xx vide d'une consultation (règle 1) et son 400 à marqueur « valider est fausse » (règle 2) ; en revanche un 404 d'hôte non officiel est `Config` (règle 4, décision R7).
 
 ### 11.3 Corps d'erreur PISTE
 
@@ -1181,10 +1208,10 @@ Deux structures en mémoire, petites, bornées, propres à l'API PISTE, donc dan
 
 | Mémo | Contenu | Borne | TTL | Jalon |
 |---|---|---|---|---|
-| `PaginationMemo` | clé de recherche sans `page` → dernière `typePagination` reçue | 1 024 entrées, éviction de la plus ancienne | 1 h | M2 |
+| `PaginationMemo` | clé de recherche sans `page` → dernière `typePagination` reçue | 1 024 entrées, éviction de la plus ancienne **écriture** (rang `seq` ; une réécriture rajeunit l'entrée et redémarre son TTL ; TTL strict `< 1 h` ; livré, plan 2d) | 1 h | M2 |
 | `CodeTable` | titre de code normalisé → `LegiTextId`, `etat` (codes abrogés compris) | ~150 entrées | 7 j, rafraîchissement mono-vol ; en cas d'échec, l'ancienne table est gardée jusqu'à 7 j de plus, sinon `Upstream` | M6 |
 
-Implémentation : `std::sync::Mutex<…>` avec horodatage `MonoClock`, sans dépendance supplémentaire. Le mémo n'est jamais tenu pendant un `await`. La `CodeTable` est chargée paresseusement au premier besoin, jamais au démarrage (00 §6) ; c'est la seule table des codes du processus : elle sert `find_article`, `list_codes` et les completions de M7 (00 §3).
+Implémentation : `std::sync::Mutex<…>` avec horodatage `MonoClock`, sans dépendance supplémentaire. Le mémo n'est jamais tenu pendant un `await` ; verrou empoisonné repris (`PoisonError::into_inner`) ; `MemoKey`, `State` et `PaginationMemo` sans `Debug`. **Intégration** (plan 2e) : champ `memo: PaginationMemo<K>` dans `Inner` ; `mode_for` avant `search_body`, `remember(query, received_mode(dto.type_pagination.as_deref()))` après le décodage (le mémo n'enregistre rien si la valeur est absente ou inconnue, §6.6), jamais de garde à travers un `await`. La `CodeTable` est chargée paresseusement au premier besoin, jamais au démarrage (00 §6) ; c'est la seule table des codes du processus : elle sert `find_article`, `list_codes` et les completions de M7 (00 §3).
 
 ### 12.4 Audit : rien ici
 
@@ -1213,7 +1240,7 @@ Implémentation : `std::sync::Mutex<…>` avec horodatage `MonoClock`, sans dép
   - un test de contention réelle (`concurrent_calls_share_one_token_refresh`, `concurrency_cap_is_respected`) exige `TokioClock` et `TokioSleeper` (`PisteCorpus::new`) : `RecordingSleeper` rend la main tout de suite.
 - **Convention de nommage** : un nom de test Rust ne commence pas par un chiffre ; un nom qui commencerait par un statut prend le préfixe `the_` (`retry.rs`) ou `status_` (`corpus.rs`). Les noms de 13.2 ci-dessous sont les noms livrés.
 - **Comptages** : `Mock::expect(n)` (vérifié à la fin du test), et un `Respond` personnalisé qui compte les requêtes en vol (`AtomicUsize`) pour le plafond de concurrence.
-- **Journaux** : un `tracing` subscriber de test capture la sortie, pour les tests de non-fuite de secrets. Livré : un `Capture` (`MakeWriter` en mémoire) copié dans `stats.rs`, `auth.rs` et `corpus.rs` (à factoriser au plan 2d).
+- **Journaux** : un `tracing` subscriber de test capture la sortie, pour les tests de non-fuite de secrets. Livré (plan 2d) : `testing.rs` (`#[cfg(test)]`) porte `Capture` (`MakeWriter` en mémoire) et `capture_at(level)` (`auth.rs` et `stats.rs` gardent leur propre copie de `Capture`, à unifier) ; `ClosedPort` (`TcpSocket` lié, jamais en écoute, gardé vivant : le port reste réservé, `ECONNREFUSED` sous Linux ; macOS et Windows non vérifiés) remplace les cinq « lier puis fermer » (`http.rs` ×2, `auth.rs`, `retry.rs`, `corpus.rs`). Un `const fn` d'aide de test compte comme fonction non couverte ; `assert!(matches!(…))` laisse une région non couverte.
 - **Fixtures** : `include_bytes!` des fichiers bruts, servis tels quels (`set_body_raw(bytes, "application/json")`), pour que la réparation du mojibake soit éprouvée sur les octets réels.
 
 ### 13.2 Scénarios wiremock
@@ -1254,10 +1281,10 @@ Les noms suivent la matrice de la recherche 02 §6 quand elle en propose.
 | `the_500_twice_maps_to_upstream_not_retryable` | 500 ×2 (un 3e mock `expect(0)`) | `Upstream { 500, retryable: false }` ; exactement 2 requêtes | 00 §8 (AM-03) |
 | `the_503_then_500_then_500_stops_at_the_second_500` | 503, 500, 500 | `Upstream { 500, retryable: false }` ; 3 requêtes, dont 2 sur 500 | §5.2 |
 | `the_503_three_times_maps_to_upstream_retryable` | 503 ×3 | `Upstream { 503, retryable: true }` ; attentes [0,5 ; 1) puis [1 ; 2) s | P-024 |
-| `the_400_is_not_retried` | 400 sans marqueur | `InvalidRequest { status: Some(400) }`, `detail` générique `HTTP 400 on {endpoint}` (le `detail` nettoyé ≤ 200 caractères est du plan 2d, T-M2-08) ; `expect(1)` | §5.1 |
+| `the_400_is_not_retried` | 400 sans marqueur | `InvalidRequest { status: Some(400) }`, `detail` générique `HTTP 400 on {endpoint}` quand le corps ne livre rien ; avec message : `the_400_with_a_message_is_not_retried_and_carries_it` ; `expect(1)` | §5.1 |
 | `the_403_maps_to_auth` | 403 | `Auth`, sans réessai | §5.1, 00 §5 |
-| `404_on_search_is_config_not_not_found` (plan 2d, préfixe `the_` ; livré : `the_404_is_config_not_not_found`) | `/search` → 404 | `Config` | D-10 |
-| `404_on_consult_official_host_is_not_found` / `404_html_is_config` (plan 2d, préfixe `the_`, T-M2-08) | — | `NotFound` / `Config` | §11.2 |
+| `the_404_is_config_not_not_found` (consultation sur un hôte personnalisé), `the_404_on_search_is_config_not_not_found` | 404 | `Config` | D-10 |
+| `the_404_on_consult_official_host_is_not_found` / `the_404_html_is_config` | — | `NotFound` / `Config` | §11.2 |
 | `redirect_is_not_followed` | 302 `Location` vers un 2e mock | `Upstream { 302 }` ; 2e mock `expect(0)` | §4.2 |
 | `network_error_is_retried` | port local fermé | 3 tentatives, puis `Upstream { status: None, retryable: true }` | 00 §8 |
 | `request_timeout_maps_to_timeout` | réponse retardée de 1 s, `request_timeout = 200 ms` | `Timeout` après 3 tentatives (ou à l'échéance) | §5.1 |
@@ -1269,22 +1296,22 @@ Les noms suivent la matrice de la recherche 02 §6 quand elle en propose.
 | `concurrency_cap_is_respected` | réponses retardées ; 10 appels | au plus 4 requêtes en vol | D-13 |
 | `search_all_respects_concurrency_cap` (avec `lf-application`, M7) | 5 fonds | au plus 4 en vol, résultats complets | D-13 |
 
-**Corps** (livrés au plan 2c : `oversized_body_is_rejected` à `clean_body_is_untouched` ; les cinq scénarios marqués « plan 2d » attendent les DTO métier, T-M2-06, et la classification, T-M2-08)
+**Corps** (livrés au plan 2c : `oversized_body_is_rejected` à `clean_body_is_untouched` ; les cinq scénarios `invalid_json_maps_to_decode_with_path` à `error_body_marker_survives_mojibake` sont livrés au plan 2d)
 
 | Test | Mise en place | Attendu | Couvre |
 |---|---|---|---|
-| `invalid_json_maps_to_decode_with_path` (plan 2d) | `{"text":{"numeroAffaire":12}}` | `Decode`, dont le `detail` contient `text.numeroAffaire` et aucune valeur du corps | §8.5 |
-| `html_body_maps_to_decode` (plan 2d) | 200 `text/html` | `Decode` | D-11 |
-| `json_null_body_maps_to_decode` (plan 2d) | corps `null` | `Decode` | D-11 |
-| `empty_2xx_body_on_consult_is_not_found` (plan 2d) | 200 vide | `NotFound` | §11.2 |
+| `invalid_json_maps_to_decode_with_path` | `{"text":{"numeroAffaire":12}}` | `Decode`, dont le `detail` contient `text.numeroAffaire` et aucune valeur du corps | §8.5 |
+| `html_body_maps_to_decode` | 200 `text/html` | `Decode` | D-11 |
+| `json_null_body_maps_to_decode` (niveau `dto::decode`) | corps `null` | `Decode` | D-11 |
+| `an_empty_2xx_body_on_a_consultation_is_not_found` (niveau `classify`) et `empty_2xx_body_on_consult_is_not_found` (niveau `corpus`) | 200 vide | `NotFound` | §11.2 |
 | `oversized_body_is_rejected` | `Content-Length` = 17 Mio ; variante découpée en morceaux sans `Content-Length` | `Decode` (« too large »), sans réessai | D-41 |
 | `gzip_body_is_limited_after_decompression` | corps gzip qui se décompresse au-delà de 16 Mio | `Decode` (« too large ») | §4.3 |
 | `invalid_utf8_body_maps_to_decode` | octets `C3 28` | `Decode` (« invalid UTF-8 ») | §4.4 |
 | `mojibake_body_is_repaired_and_counted` | consult_juri.json brut | `PREMIÈRE CHAMBRE CIVILE` dans le texte ; compteur 1 ; un `warn` | §10 |
 | `clean_body_is_untouched` | consult_juri_constit.json | compteur 0 ; entité identique au golden | §10 |
-| `error_body_marker_survives_mojibake` (plan 2d) | 400 dont le message est en mojibake | `NotFound` | §11.2 |
+| `error_body_marker_survives_mojibake` (niveau `corpus`) | 400 dont le message est en mojibake | `NotFound` | §11.2 |
 
-**Endpoints** (plan 2d ; un test par fixture ; le corps de la requête est vérifié par `body_json` sur un `serde_json::Value` attendu)
+**Endpoints** (plan 2e ; un test par fixture ; le corps de la requête est vérifié par `body_json` sur un `serde_json::Value` attendu)
 
 | Test | Fixture | Requête vérifiée | Couvre |
 |---|---|---|---|
@@ -1295,7 +1322,7 @@ Les noms suivent la matrice de la recherche 02 §6 quand elle en propose.
 | `consult_cnil_fixture_maps` | consult_cnil.json | `{"textId"}` | P-035 |
 | `consult_kali_text_fixture_maps` | consult_kali.json | `{"id"}` | P-033 |
 | `consult_acco_fixture_maps` ; `acco_large_data_field_is_skipped` | consult_acco.json ; variante synthétique avec un `data` de 5 Mio | `{"id"}` ; aucune chaîne de 5 Mio allouée dans le DTO | P-036 |
-| `unknown_juri_id_400_maps_to_not_found` | corps 400 de pylegifrance | — | §11 |
+| `unknown_juri_id_400_maps_to_not_found` (livré, `corpus.rs`) | corps 400 de pylegifrance | — | §11 |
 | `consult_empty_envelope_maps_to_not_found` (×6) | `{"text":null}`, `{"article":null}`, `{"acco":null}`, `{}` | — | §9.1 a |
 | `search_page_2_sends_page_number_2` | — | `pageNumber: 2` | D-09 |
 | `type_pagination_is_echoed_on_next_page` | page 1 répond `ARTICLE` | la page 2 envoie `ARTICLE` | §6.6 |
@@ -1305,7 +1332,7 @@ Les noms suivent la matrice de la recherche 02 §6 quand elle en propose.
 
 **Sécurité et configuration**
 
-`config_rejects_http_scheme_except_loopback` ; `config_rejects_userinfo_query_fragment` ; `config_warns_on_custom_host` ; `config_rejects_env_mismatch` (hôte OAuth sandbox avec base production) ; `config_env_mismatch_on_production_host_with_default_env` (hôtes de production, `LF_PISTE_ENV` absent : `EnvMismatch`, message qui demande `LF_PISTE_ENV=production`, aucune déduction) ; `config_problem_starts_in_degraded_mode` (`Config` immédiat, `expect(0)`) ; `fr_eli_variables_are_read_with_deprecation_warning`, `legacy_unread_variables_warn_ignored` et `invalid_advanced_setting_falls_back_to_default_with_warn` (`LF_PISTE_RPS=0`, `LF_PISTE_MOJIBAKE_REPAIR=maybe` ; tous trois dans `lf-app`) ; `debug_of_config_redacts_secret` ; `bearer_header_is_sensitive` ; `error_messages_never_contain_secret_or_token` (secret et jeton aléatoires, contrôle des journaux capturés, des `Display` et des `Debug`) (D-40).
+`config_rejects_http_scheme_except_loopback` ; `config_rejects_userinfo_query_fragment` ; `config_warns_on_custom_host` ; `config_rejects_env_mismatch` (hôte OAuth sandbox avec base production) ; `config_env_mismatch_on_production_host_with_default_env` (hôtes de production, `LF_PISTE_ENV` absent : `EnvMismatch`, message qui demande `LF_PISTE_ENV=production`, aucune déduction) ; `config_problem_starts_in_degraded_mode` (`Config` immédiat, `expect(0)`) ; `fr_eli_variables_are_read_with_deprecation_warning`, `legacy_unread_variables_warn_ignored` et `invalid_advanced_setting_falls_back_to_default_with_warn` (`LF_PISTE_RPS=0`, `LF_PISTE_MOJIBAKE_REPAIR=maybe` ; tous trois dans `lf-app`) ; `debug_of_config_redacts_secret` ; `bearer_header_is_sensitive` ; `error_messages_never_contain_secret_or_token` (secret et jeton aléatoires, contrôle des journaux capturés, des `Display` et des `Debug`) (D-40). Livrés au plan 2d : `a_400_message_repeating_the_token_or_the_secret_never_reaches_the_detail`, `a_token_split_by_a_zero_width_space_is_still_redacted` (ROUGE si l'on expurge avant de nettoyer) et `a_rejected_search_400_is_logged_without_the_pista_message`.
 
 ### 13.3 Contrats sur les fixtures de la référence
 
@@ -1429,13 +1456,14 @@ Ni 429 ni `Retry-After` ne sont provoqués volontairement : ce serait contraire 
 | Limite | Valeur | Où |
 |---|---|---|
 | Corps de réponse (décompressé) | 16 Mio | §4.3 |
-| Profondeur JSON | défaut de serde_json | §8.5 |
-| Profondeur de TOC | 64 | domaine (03 §1.3) |
+| Profondeur JSON | 127 imbrications (défaut de serde_json) ; les champs non déclarés et les lecteurs tolérants y échappent | §8.5 |
+| Profondeur de TOC | 64 au domaine (03 §1.3) ; 63 côté adapter (61 à 63 selon le contenu de la section la plus profonde) | §8.5 |
+| Éléments par document | non borné : voir §8.5 (budget de 200 000 prévu au plan 2e, R11) | §8.5 |
 | Requête de recherche | 500 caractères | domaine (`QueryText`) |
-| Message d'erreur PISTE recopié | 200 caractères | §11.2 |
+| Message d'erreur PISTE recopié | 200 caractères, pour une consultation seulement (le détail d'un 400 de `/search` est générique) | §11.2 |
 | `Retry-After` attendu | au plus 30 s (au-delà : refus d'attendre, échec immédiat), et toujours ≤ reste du délai | §5.2 |
 | Mémos | 1 024 et ~150 entrées | §12.3 |
-| Requêtes en vol | 4 | §5.5 |
+| Requêtes en vol | 4 (ne borne pas le décodage ni la mémoire décodée : le permis est rendu avant) | §5.5, §8.5 |
 
 ### 14.5 Données personnelles et journaux
 
@@ -1457,12 +1485,12 @@ Les requêtes de recherche peuvent révéler l'activité d'un juriste : elles ne
 
 - [ ] *Livré en partie (plan 2c, tâches 4 et 11)* — `PisteConfig` et validation du §2.3 (`CustomHost`, `EnvMismatch` sans déduction) ; démarrage sans réseau ; mode dégradé : identifiants absents ou configuration invalide ⇒ `Config` sans E/S. **Reste** (`lf-app`, M4) : variables du §2.2 avec bornes et défauts (réglages avancés et leur `warn!`).
 - [x] *Livré (plan 2c, tâches 10 et 11)* — `TokenManager` mono-vol, renouvellement anticipé, générations, annulation sûre ; classification du §3.5.
-- [ ] *Livré en partie (plan 2c, tâches 6, 7 et 11)* — Client unique du §4.2 ; lecture bornée ; décodage strict ; réparation du mojibake (§10) avec compteur et `warn`, interrupteur `repair_mojibake` (la lecture de `LF_PISTE_MOJIBAKE_REPAIR` est à `lf-app`, M4). **Reste** : les cinq scénarios « Corps » du §13.2 (DTO métier T-M2-06, classification T-M2-08) et le décodage des corps d'erreur (plan 2d).
-- [ ] *Livré en partie (plan 2c, tâches 5, 8, 9 et 11)* — Politique de réessai du §5.2 (boucle maison, 2 tentatives sur 500, `Retry-After` en secondes ou en date HTTP rapportée à `Date`), respect du délai global du §5.3 (`Deadline` converti en `CallDeadline`), `RateGate` du §5.4 et §5.5. **Reste** (plan 2d, T-M2-08) : `detail` nettoyé du 400 ; (M7) `search_all_respects_concurrency_cap`.
-- [ ] Les 7 endpoints v0.1 du §7.1 ; payload `/search` du §6 (`singleDate` à midi Paris, facettes de date, `typePagination` et `PaginationMemo`, gardes défensives `InvalidRequest { status: None }`).
+- [ ] *Livré (plans 2c et 2d)* — Client unique du §4.2 ; lecture bornée ; décodage strict ; réparation du mojibake (§10) avec compteur et `warn`, interrupteur `repair_mojibake` (la lecture de `LF_PISTE_MOJIBAKE_REPAIR` est à `lf-app`, M4) ; `decode` avec chemin JSON, scénarios « Corps » du §13.2 et décodage des corps d'erreur (plan 2d). **Reste** : V-04 (10 exécutions par OS en CI).
+- [ ] *Livré en partie (plan 2c, tâches 5, 8, 9 et 11)* — Politique de réessai du §5.2 (boucle maison, 2 tentatives sur 500, `Retry-After` en secondes ou en date HTTP rapportée à `Date`), respect du délai global du §5.3 (`Deadline` converti en `CallDeadline`), `RateGate` du §5.4 et §5.5. Le `detail` nettoyé du 400 est livré (plan 2d). **Reste** (M7) : `search_all_respects_concurrency_cap`.
+- [ ] Les 7 endpoints v0.1 du §7.1 ; payload `/search` du §6 (`singleDate` à midi Paris, facettes de date, `typePagination` et `PaginationMemo`, gardes défensives `InvalidRequest { status: None }`) : *livré en partie (plan 2d)* — payload `/search` du §6, `PaginationMemo`, gardes ; **reste** : branchement dans `PisteCorpus::search`, test wiremock `expect(0)` (plan 2e).
 - [ ] V-66 et V-68 (`live_unknown_ids_classification`), V-76 (`live_singledate_noon_paris_semantics`) et V-96 (`live_lawdecree_on_code_size`), **bloquantes** (00 §11, 09 §2.18) : résultats consignés dans 09 ; décision sur `tableMatieres` en v0.1 (§7.3) et sur le moyen de reconnaître un code (§16, question 13).
-- [ ] DTO du §8.3 (v0.1) ; mapping du §9 vers les entités de 03.
-- [ ] Classification « introuvable » du §11 rendue définitive par les résultats de `live_unknown_ids_classification` (V-66, V-68).
+- [ ] DTO du §8.3 (v0.1) : livrés (plan 2d) ; mapping du §9 vers les entités de 03 : plan 2e.
+- [ ] Classification « introuvable » du §11 : *livrée (plan 2d)* ; rendue définitive par les résultats de `live_unknown_ids_classification` (V-66, V-68).
 - [ ] Tous les tests des §13.2 et §13.3 verts sous Linux, macOS et Windows (la matrice démarre en M2), sans réseau ; `make cov` à 100 % (aucune exclusion nécessaire au plan 2c).
 - [ ] `cargo xtask record-fixture` opérationnel ; plan de lot exécuté en sandbox (Q3) ; résultats reportés dans le registre V-xx.
 - [ ] Smoke tests live du §13.5 (partie v0.1) exécutés au moins une fois en sandbox ; résultats consignés dans 09. En production, sondes manuelles en lecture seule seulement (Q3).
@@ -1492,7 +1520,7 @@ Elles sont reportées dans [09-risques-et-questions.md](09-risques-et-questions.
 2. **Variables de configuration** — *tranchée* (00 §1, AM-05) : `LF_PISTE_RPS`, `LF_PISTE_BURST`, `LF_PISTE_CONCURRENCY`, `LF_PISTE_MOJIBAKE_REPAIR`, avec bornes et défauts, hors `server.json` et MCPB (§2.2).
 3. **500** — *tranchée* (00 §8, AM-03) : 2 tentatives au plus, puis `Upstream { status: 500, retryable: false }` ; retour à 3 tentatives si V-69 ([V-69 · 500-requete-invalide]) montre des 500 transitoires fréquents (§5.1, §5.2).
 4. **Temps restant** — *tranchée* (00 §3, AM-07) : `Deadline` en variable locale de tâche posée par `Audited`, lue par l'adapter comme durée restante et convertie dans `MonoClock` (§5.3).
-5. **Rendu de `InvalidRequest`** — *tranchée* (00 §5, AM-28) : toujours `upstream_error` avec le détail PISTE nettoyé, jamais `invalid_arg` ; les contraintes imputables à l'entrée sont validées avant le port (§11.2 règle 3).
+5. **Rendu de `InvalidRequest`** — *tranchée* (00 §5, AM-28) : toujours `upstream_error` (détail PISTE nettoyé pour une consultation, générique pour `/search`), jamais `invalid_arg` ; les contraintes imputables à l'entrée sont validées avant le port (§11.2 règle 3).
 6. **Plafond de pagination profonde** — *tranchée* (00 §7, AM-04) : `page × page_size > 10 000` rejeté en `invalid_arg` par le cas d'usage ; V-83 (M5) confirme la fenêtre (§6.7).
 7. **`/suggest`, ECLI, JORF** — *tranchée* (00 §8, AM-29) : `/suggest` retiré ; facette `ECLI` (JURI, CETAT) et ELI cités en M6 (§7.2) ; consultation d'un `JORFTEXT` tranchée à l'ouverture de M7 (question 12).
 8. **`list_codes`** — *tranchée* (00 §3) : codes abrogés compris, avec leur `etat` ; méthode du port dès M6, chargée paresseusement.
@@ -1529,7 +1557,7 @@ Index local des étiquettes employées ci-dessus ; le registre qui fait foi (num
 | [V-07 · governor-api] | **Levée** (plan 2c, §5.4) : `Quota::per_second(rps).allow_burst(burst)`, `RateLimiter::direct_with_clock` avec une horloge `Duration`. |
 | [V-55 · delai-clients-mcp] | Délais imposés par Claude Code et VS Code à un appel d'outil, à comparer aux 60 s de `LF_TOOL_DEADLINE_S`. |
 | [V-76 · singledate-midi-paris] | Avec `singleDate` à midi Paris (règle de 00 §8), un texte entrant en vigueur le jour J est-il retenu le jour J ? Comparaison avec minuit UTC, minuit Paris et la veille (bloquante en M2, V-76, dont c'est l'étiquette de référence dans 09 §2.19). |
-| [V-17 · chrono-tz-iana] | Version de la base IANA embarquée par `chrono-tz` 0.10.4 ; reproduction des vecteurs du §6.3 (dont 1804-03-21). |
+| [V-17 · chrono-tz-iana] | **Levé** (plan 2d, 09 §2.20) : base IANA 2025b embarquée par `chrono-tz` 0.10.4, vecteurs du §6.3 reproduits (dont 1804-03-21) ; le test de date civile de `SystemClock` (M3) reste à faire. |
 | [V-79 · mode-all-semantique] | Sens de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp = ALL`. |
 | [V-78 · filtres-dates-effet] | Effet réel des facettes de date du §6.5, bornes incluses, borne lointaine, combinaison avec `DATE_VERSION`. |
 | [V-82 · typepagination-page2] | Effet de `DEFAUT` ou `ARTICLE` en page 2 (CODE) et cohérence de `has_more`. |
@@ -1545,10 +1573,10 @@ Index local des étiquettes employées ci-dessus ; le registre qui fait foi (num
 | [V-136 · related-links-forme] | (03) Forme et taille de `relatedLinksArticle` ; prise en charge des `KALIARTI` (§7.3). |
 | [V-109 · sommaire-semantique-par-fond] | (03) Sens de `resumePrincipal` et `abstrats` (titrage ou analyse) en JURI et en CETAT, pour `OfficialSummary` (§9.2). |
 | [V-71 · json-echappements-unicode] | PISTE sert-il les caractères non ASCII bruts ou échappés en `\uXXXX` (angle mort de la réparation au niveau du corps) ? |
-| [V-10 · serde-json-recursion] | Valeur exacte de la limite de récursion par défaut de serde_json. |
-| [V-68 · introuvable-par-endpoint] | Réponse de chaque consultation (CETATEXT et CONSTEXT compris : seul JURITEXT a été sondé en direct, par pylegifrance) à un identifiant bien formé mais inexistant (bloquante en M2, V-68). |
-| [V-66 · forme-404-piste] | Forme d'un 404 PISTE (routage ou ressource), pour la règle du §11.2 (bloquante en M2, V-66). |
-| [V-67 · corps-erreur-piste] | Forme générale des corps d'erreur de l'API (champs `error`, `status`, `message`). |
+| [V-10 · serde-json-recursion] | **Levé** (plan 2d, 09 §2.20) : 127 imbrications passent avec `serde_json` 1.0.154, soit 61 à 63 niveaux de sections (§8.5). |
+| [V-68 · introuvable-par-endpoint] | Réponse de chaque consultation (CETATEXT et CONSTEXT compris : seul JURITEXT a été sondé en direct, par pylegifrance) à un identifiant bien formé mais inexistant (bloquante en M2, V-68) ; hypothèse codée au plan 2d (§11.2), reste **NON VÉRIFIÉ** jusqu'à `live_unknown_ids_classification`. |
+| [V-66 · forme-404-piste] | Forme d'un 404 PISTE (routage ou ressource), pour la règle du §11.2 (bloquante en M2, V-66) ; hypothèse codée au plan 2d (§11.2), reste **NON VÉRIFIÉ** jusqu'à `live_unknown_ids_classification`. |
+| [V-67 · corps-erreur-piste] | Forme générale des corps d'erreur de l'API (champs `error`, `status`, `message`) ; hypothèse codée au plan 2d (§11.2), reste **NON VÉRIFIÉ** jusqu'à `live_unknown_ids_classification`. |
 | [V-65 · forme-403-piste] | (02) Sens exact d'un 403 de l'API Légifrance (application non abonnée ou autre cause). |
 | [V-19 · wiremock-temps-pause] | Interaction entre une horloge `tokio` gelée et les E/S réelles de wiremock (motive le choix de `ManualClock`). |
 | [V-72 · mojibake-origine] | (03) Le mojibake vient-il de la capture ou de l'API ? |

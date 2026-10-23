@@ -15,7 +15,7 @@ include-dev = true
 # `cargo deny check licenses`). Ni OpenSSL (absente des expressions d'aws-lc-sys et de ring), ni
 # MPL-2.0, ni LGPL (r-efi : alternative MIT).
 allow = [
-  "MIT",                 # tokio, hyper, governor, bytes, ... (37 paquets sans autre licence admise)
+  "MIT",                 # tokio, hyper, governor, bytes, ... (34 paquets sans autre licence admise, dont phf et phf_shared ; `cargo deny list`)
   "Apache-2.0",          # nonzero_ext, sync_wrapper (seules), ryu et dunce (alternative), aws-lc-sys
   "Unicode-3.0",         # icu_*, yoke, zerovec, ... (19 paquets) ; unicode-ident
   "ISC",                 # aws-lc-rs, aws-lc-sys, rustls-webpki, untrusted (chaîne TLS de reqwest, T-M2-03)

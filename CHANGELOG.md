@@ -38,6 +38,13 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - `check-arch` : R6 (crates confinés) et R8 (dev-dependencies).
 - `spikes/tls-provider` et `tls-spike.yml` (matrice TLS à déclencher à la main).
 - `make audit-fuzz` (`cargo-audit` sur `fuzz/Cargo.lock`).
+- `lf_domain::fond::PaginationMode` et `SearchPage.pagination`.
+- Adapter PISTE : `PisteTuning`, `TuningError` et `PisteConfig::with_tuning`.
+- Adapter PISTE : lecteurs serde tolérants sans tampon, `dto::decode::decode` (chemin JSON, expurgation, 127 imbrications au plus, soit 61 à 63 niveaux de sections) et `PisteErrorDto`.
+- Adapter PISTE : DTO de `/search`, `lawDecree`, `kaliText`, `getArticle`, `juri`, `cnil` et `acco`.
+- Adapter PISTE : `request::search::search_body` (payload, facettes, `DATE_VERSION` à midi Europe/Paris, gardes) et `PaginationMemo`.
+- Adapter PISTE : classification « introuvable » : un 400 de consultation au marqueur « introuvable », un 404 de consultation sur les deux adresses officielles (corps non HTML) et un 2xx vide d'une consultation donnent `NotFound` (un 2xx vide de `/search` donne `Decode`) ; message PISTE nettoyé d'un 400 de consultation, jeton et secret client retirés ; corps d'erreur plafonné à 64 Kio.
+- Dépendances `serde_path_to_error` 0.1.20 et `chrono-tz` 0.10.4 (binaire +1,86 Mo).
 
 ### Changed
 
@@ -55,6 +62,8 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - `make deny` et les jobs `deny` couvrent aussi `fuzz/`.
 - Adapter PISTE : un `Retry-After` supérieur à 30 s n'est pas attendu (échec immédiat) et la valeur rangée dans `RateLimited { retry_after }` est écrêtée à 1 h ; un hôte officiel écrit avec un point final (`api.piste.gouv.fr.`) est reconnu comme officiel (`EnvMismatch`, absence d'avertissement `CustomHost`).
 - Workflow `tls-spike.yml` : `apt-get update` avant l'installation de `musl-tools`.
+- Adapter PISTE : champs de `PisteEndpoints`, `PisteCredentials`, `RateQuota` et `PisteConfig` privés (accesseurs).
+- Adapter PISTE : le `detail` d'un 400 de consultation porte le message PISTE nettoyé ; celui d'un 400 de `/search` reste générique (`HTTP 400 on /search`).
 
 ### Removed
 
@@ -64,6 +73,7 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 - Un suffixe de version impossible (`_31-02-2023`, `_foo`) est refusé au lieu d'être retiré en silence.
 - Les dates sentinelles (2999-01-01, 2222-02-22) se lisent comme « sans fin ».
+- Tests de l'adapter PISTE : port « fermé » rendu déterministe (`ClosedPort`).
 
 ### Security
 

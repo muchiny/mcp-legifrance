@@ -73,7 +73,7 @@
 - **NON VÉRIFIÉ** [V-100 · convention-horaire-timestamps] : les horodatages de date sont-ils tous à minuit UTC ?
 - **NON VÉRIFIÉ** [V-101 · sentinelle-2222-debut] : sens de `2222-02-22` en date de début, côté API.
 - **NON VÉRIFIÉ** [V-89 · version-date-bornes] : bornes de `VersionDate` et réaction de l'API aux dates extrêmes.
-- **NON VÉRIFIÉ** [V-17 · chrono-tz-iana] : version de la base IANA embarquée par `chrono-tz` 0.10.4.
+- Levé (plan 2d, 09 §2.20) [V-17 · chrono-tz-iana] : version de la base IANA embarquée par `chrono-tz` 0.10.4.
 
 ### Tests qui la gardent
 

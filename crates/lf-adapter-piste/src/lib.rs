@@ -6,10 +6,11 @@
 //!
 //! Livré au plan 2c : le squelette, les traits de temps, la configuration, l'authentification,
 //! le client HTTP, la résilience et `PisteCorpus` (assemblage, mode dégradé, appel de l'API de
-//! bout en bout). Livré au plan 2d (première moitié) : la configuration à champs privés et les
-//! réglages validés, le décodage des corps JSON sans valeur du corps, le corps d'erreur de PISTE
-//! et la classification « introuvable ». Renvoyé aux plans suivants : les requêtes `/search`, les
-//! DTO métier, le mapping et `impl LegalCorpus for PisteCorpus`.
+//! bout en bout). Livré au plan 2d : la configuration à champs privés et les réglages validés, le
+//! décodage des corps JSON sans valeur du corps, le corps d'erreur de PISTE et la classification
+//! « introuvable », les DTO de réponse de `/search` et de `/consult`, le corps de la requête
+//! `/search` avec le midi Europe/Paris et le mémo de `typePagination`. Renvoyé au plan 2e : les
+//! requêtes de consultation, le mapping et `impl LegalCorpus for PisteCorpus`.
 //!
 //! Les modules sont privés : sont publics `PisteCorpus`, les types de configuration et
 //! `StatsSnapshot`.
@@ -18,8 +19,8 @@
 //! - `auth` : jeton d'accès OAuth 2.0 `client_credentials` (`TokenManager`) : un seul jeton en
 //!   mémoire, renouvelé avant son expiration par une seule requête à la fois, avec réessais.
 //! - `classify` : classification d'une tentative d'envoi (`Outcome`, `Budget`, `EndpointKind`,
-//!   `ErrorContext`) d'après le statut HTTP et `Retry-After` ; le corps n'est lu que pour un 400,
-//!   un 404 de consultation et un 2xx vide (« introuvable », 04 §11).
+//!   `ErrorContext`) d'après le statut HTTP et `Retry-After` ; le corps n'est lu que pour un 400
+//!   de consultation, un 404 de consultation et un 2xx vide (« introuvable », 04 §11).
 //! - `config` : configuration de l'adapter (`PisteConfig`, champs privés, réglages avancés
 //!   validés `PisteTuning`) et validation des URL surchargées.
 //! - `corpus` : `PisteCorpus`, l'assemblage de l'adapter : mode dégradé sans E/S, puis pour chaque
@@ -27,7 +28,8 @@
 //! - `deadline` : échéance d'un appel (`CallDeadline`), durée restante lue dans `Deadline`
 //!   puis posée sur l'horloge monotone de l'adapter.
 //! - `dto` : structures de désérialisation des réponses de PISTE (réponse et erreur de l'endpoint
-//!   token, `PisteErrorDto` pour le corps d'erreur de l'API), avec des lecteurs serde tolérants
+//!   token, `PisteErrorDto` pour le corps d'erreur de l'API, réponses de `/search` et de
+//!   `/consult/lawDecree|kaliText|getArticle|juri|cnil|acco`), avec des lecteurs serde tolérants
 //!   (`null_default`, `opt_raw_date`…) et `decode`, qui lit un corps JSON avec le chemin de
 //!   l'erreur et sans aucune valeur du corps.
 //! - `encoding` : décodage UTF-8 strict du corps, détection et réparation du mojibake latin-1.
@@ -37,6 +39,11 @@
 //!   lecture bornée du corps ; aucun réessai ni jugement de statut.
 //! - `limit` : barrière de charge sortante (`RateGate`), sémaphore de concurrence puis limiteur
 //!   de débit `governor` sur l'horloge de l'adapter ; toutes les attentes bornées par le délai.
+//! - `memo` : mémo de `typePagination` (`PaginationMemo`) : dernière valeur reçue par requête sans
+//!   page, 1 h, 1 024 entrées ; décision pure `choose_mode` et lecture tolérante `received_mode`
+//!   (04 §6.6, §12.3).
+//! - `request` : corps des requêtes envoyées à PISTE ; `request::search` construit celui de
+//!   `/search` (`search_body`) et calcule le midi Europe/Paris du filtre `DATE_VERSION` (04 §6).
 //! - `retry` : politique de réessai (`run`) : trois requêtes au plus, délai exponentiel avec gigue,
 //!   `Retry-After`, bornée par le délai global ; boucle maison, sans `backon`.
 //! - `stats` : compteurs en mémoire (`Stats`) et leur instantané public (`StatsSnapshot`).
@@ -49,12 +56,15 @@
     not(test),
     expect(
         dead_code,
-        reason = "PisteCorpus::post_json et ce que lui seul emploie (try_send, RateGate::acquire, \
-                  TokenManager::invalidate, Payload::Json, Stats::record_decode, les champs de \
-                  TokenLease et d'état de PisteCorpus), les lecteurs serde de dto::de qu'aucun DTO \
-                  n'emploie encore (null_default, opt_nonempty, opt_raw_date et RawDate) et les \
-                  champs non lus de PisteErrorDto et d'OAuthErrorDto : consommés par les DTO de la \
-                  PR 2 du plan 2d et par impl LegalCorpus au plan 2e"
+        reason = "PisteCorpus::post_json et ce que lui seul emploie (try_send, \
+                  RateGate::acquire, TokenManager::invalidate, Payload::Json, \
+                  Stats::record_decode, les champs de TokenLease et d'état de PisteCorpus), \
+                  request::search::search_body, memo::PaginationMemo, memo::received_mode, les \
+                  DTO de /search et de /consult (lawDecree, kaliText, getArticle, juri, cnil, \
+                  acco) et ce que seuls ils emploient (null_default, opt_nonempty, opt_raw_date et \
+                  RawDate de dto::de), les champs non lus de PisteErrorDto (status, error_code) \
+                  et d'OAuthErrorDto (error_description) : consommés par impl LegalCorpus au \
+                  plan 2e"
     )
 )]
 
@@ -68,6 +78,8 @@ mod encoding;
 mod error_body;
 mod http;
 mod limit;
+mod memo;
+mod request;
 mod retry;
 mod stats;
 #[cfg(test)]
