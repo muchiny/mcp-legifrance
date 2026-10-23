@@ -15,6 +15,7 @@ use lf_domain::DomainError;
 
 pub(crate) mod act;
 pub(crate) mod body;
+pub(crate) mod convention;
 pub(crate) mod dates;
 #[cfg(test)]
 pub(crate) mod fixtures;
