@@ -18,6 +18,7 @@ pub(crate) mod article;
 pub(crate) mod body;
 pub(crate) mod convention;
 pub(crate) mod dates;
+pub(crate) mod decision;
 #[cfg(test)]
 pub(crate) mod fixtures;
 pub(crate) mod rules;
