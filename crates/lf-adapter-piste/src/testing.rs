@@ -1,34 +1,32 @@
 //! Aides communes aux tests de l'adapter (compilées sous `cfg(test)` seulement).
 //!
-//! `ClosedPort` : une adresse locale qui refuse la connexion de façon déterministe.
+//! `ClosedPort` : une adresse locale qui refuse la connexion, sur les trois systèmes de la CI.
 //! `Capture` et `capture_at` : le journal `tracing` capté en mémoire.
 
 use std::io;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpListener};
 use std::sync::{Arc, Mutex};
 
-use tokio::net::TcpSocket;
 use tracing_subscriber::fmt::MakeWriter;
 
-/// Adresse de boucle locale dont le port est réservé mais jamais écouté : toute connexion y est
-/// refusée (`ECONNREFUSED` sous Linux) et aucun autre processus ne peut prendre le port.
+/// Adresse de boucle locale où personne n'écoute : toute connexion y est refusée
+/// (`ECONNREFUSED`) sur Linux, macOS et Windows.
 ///
-/// À garder en vie pendant tout l'appel testé : la fermer libérerait le port et rouvrirait la
-/// course que cette aide supprime.
+/// Le port est obtenu en liant `127.0.0.1:0` puis en fermant le socket. Réserver le port en le
+/// gardant lié sans `listen` supprimerait la course avec un autre processus, mais macOS n'y
+/// répond pas par un refus : la connexion attend alors son délai (CI macos-15, plan 2d). Reste une
+/// course théorique, un autre processus devant lier exactement ce port entre la fermeture et la
+/// connexion, et les noyaux évitent de réattribuer aussitôt un port éphémère.
 pub(crate) struct ClosedPort {
-    /// Retenu pour sa seule durée de vie : sa fermeture libérerait le port.
-    _socket: TcpSocket,
     addr: SocketAddr,
 }
 
 impl ClosedPort {
-    /// Réserve un port libre de la boucle locale, sans jamais appeler `listen`. Synchrone : le
-    /// socket n'est enregistré auprès du runtime qu'au `connect` ou au `listen`.
+    /// Relève un port libre de la boucle locale puis le libère.
     pub(crate) fn new() -> Self {
-        let socket = TcpSocket::new_v4().unwrap();
-        socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
-        let addr = socket.local_addr().unwrap();
-        Self { _socket: socket, addr }
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        Self { addr }
     }
 
     /// Adresse du port fermé.
@@ -88,7 +86,7 @@ pub(crate) fn capture_at(level: tracing::Level) -> (Capture, tracing::subscriber
 mod tests {
     use std::io::ErrorKind;
 
-    use tokio::net::{TcpListener, TcpStream};
+    use tokio::net::TcpStream;
 
     use super::ClosedPort;
 
@@ -97,13 +95,6 @@ mod tests {
         let closed = ClosedPort::new();
         let error = TcpStream::connect(closed.addr()).await.unwrap_err();
         assert_eq!(error.kind(), ErrorKind::ConnectionRefused);
-    }
-
-    #[tokio::test]
-    async fn closed_port_cannot_be_taken_by_another_listener() {
-        let closed = ClosedPort::new();
-        let error = TcpListener::bind(closed.addr()).await.unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::AddrInUse);
     }
 
     #[test]
