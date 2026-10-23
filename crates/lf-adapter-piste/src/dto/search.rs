@@ -45,7 +45,9 @@ pub(crate) struct SearchResponseDto {
     /// Nombre total d'articles trouvés, lu comme le nombre de résultats.
     #[serde(deserialize_with = "de::opt_u64_lenient")]
     pub total_article_result_number: Option<u64>,
-    /// Mode de pagination appliqué par PISTE (`DEFAUT`, `ARTICLE`).
+    /// Mode de pagination appliqué par PISTE : `DEFAUT` ou `ARTICLE` ; nombre lu comme chaîne ;
+    /// tout autre type ignoré (R13).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub type_pagination: Option<String>,
 }
 
@@ -409,6 +411,56 @@ mod tests {
             read(r#"{"totalArticleResultNumber":"1"}"#).total_article_result_number,
             Some(1)
         );
+    }
+
+    #[test]
+    fn type_pagination_accepts_a_string_a_number_and_ignores_the_rest() {
+        let read_raw = |raw: &str| read(&format!(r#"{{"typePagination":{raw}}}"#)).type_pagination;
+        let raws = [
+            r#""ARTICLE""#,
+            r#""DEFAUT""#,
+            "3",
+            "-1",
+            "1.5",
+            "true",
+            r#"{"a":1}"#,
+            "[1,2]",
+            "null",
+            r#""""#,
+            r#""  ""#,
+        ];
+        assert_eq!(
+            raws.map(read_raw),
+            [
+                text!("ARTICLE"),
+                text!("DEFAUT"),
+                text!("3"),
+                text!("-1"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None
+            ]
+        );
+        assert_eq!(read("{}").type_pagination, None);
+    }
+
+    #[test]
+    fn type_pagination_skips_a_deep_value_without_building_it() {
+        // 200 niveaux : un `serde_json::Value` échouerait dès 128.
+        let deep = format!(r#"{{"typePagination":{}1{}}}"#, "[".repeat(200), "]".repeat(200));
+        assert_eq!(read(&deep).type_pagination, None);
+    }
+
+    #[test]
+    fn a_page_with_a_non_string_type_pagination_is_still_read() {
+        let page = read(r#"{"typePagination":{"x":1},"totalResultNumber":5,"results":[{}]}"#);
+        assert_eq!(page.total_result_number, Some(5));
+        assert_eq!(page.results.len(), 1);
+        assert_eq!(page.type_pagination, None);
     }
 
     #[test]
