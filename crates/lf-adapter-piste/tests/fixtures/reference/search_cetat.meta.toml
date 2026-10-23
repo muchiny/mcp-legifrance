@@ -1,0 +1,7 @@
+source = "matematicsolutions/fr-eli-mcp@d3b5b13"
+endpoint = "/search"
+fond = "CETAT"
+sha256_raw = "c11e0bc77f64ec7f45a71eebaa18d2fa8563fa0b22984f556d86c070b61af26e"
+known_issues = []
+env = "sandbox"
+captured_at = "inconnu"

@@ -1,0 +1,7 @@
+source = "matematicsolutions/fr-eli-mcp@d3b5b13"
+endpoint = "/consult/juri"
+fond = "JURI"
+sha256_raw = "144dd3399ef0e3db3265f2f10f896b000ec3a862147bacbe7bd99b85cf74d70e"
+known_issues = ["mojibake"]
+env = "sandbox"
+captured_at = "inconnu"

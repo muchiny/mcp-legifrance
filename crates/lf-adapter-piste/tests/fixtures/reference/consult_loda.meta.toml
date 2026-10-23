@@ -1,0 +1,7 @@
+source = "matematicsolutions/fr-eli-mcp@d3b5b13"
+endpoint = "/consult/lawDecree"
+fond = "LODA"
+sha256_raw = "d1265d1a3fe0ab3500ad65c9e52ab8591f5028eb783e4733c24872120a0e4f1a"
+known_issues = ["mojibake"]
+env = "sandbox"
+captured_at = "inconnu"

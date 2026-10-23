@@ -6,3 +6,9 @@ fr-eli-mcp (https://github.com/matematicsolutions/fr-eli-mcp, commit d3b5b13),
 Copyright Matematic Solutions et Wieslaw Mazur, distribué sous licence
 Apache-2.0. Les emplacements d'origine sont cités en commentaire dans le code
 (`citations.py:<ligne>`, `server.py:<ligne>`, `coverage.py:<ligne>`).
+
+Les 16 fixtures de `crates/lf-adapter-piste/tests/fixtures/reference/` sont
+copiées sans modification depuis le dossier `tests/fixtures/` de fr-eli-mcp
+(https://github.com/matematicsolutions/fr-eli-mcp, commit d3b5b13), distribué
+sous licence Apache-2.0. Titulaire des droits : à établir (V-214). Leurs
+données proviennent de Légifrance (Licence Ouverte 2.0).

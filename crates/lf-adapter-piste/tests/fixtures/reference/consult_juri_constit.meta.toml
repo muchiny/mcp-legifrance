@@ -1,0 +1,7 @@
+source = "matematicsolutions/fr-eli-mcp@d3b5b13"
+endpoint = "/consult/juri"
+fond = "CONSTIT"
+sha256_raw = "c5d821d93638b93faa55902ff0b6db90f6a1c55e62d7a99929d8596c56166eec"
+known_issues = []
+env = "sandbox"
+captured_at = "inconnu"

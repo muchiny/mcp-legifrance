@@ -930,6 +930,7 @@ version = "0.0.0"
 dependencies = [
  "pretty_assertions",
  "proptest",
+ "serde_json",
  "thiserror",
 ]
 

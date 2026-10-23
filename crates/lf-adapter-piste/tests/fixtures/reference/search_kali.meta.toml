@@ -1,0 +1,7 @@
+source = "matematicsolutions/fr-eli-mcp@d3b5b13"
+endpoint = "/search"
+fond = "KALI"
+sha256_raw = "b6798f57d7008501b62e5e49ed9a3b9301f44e3527b696b945952cd9221beea4"
+known_issues = []
+env = "sandbox"
+captured_at = "inconnu"
