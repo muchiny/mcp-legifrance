@@ -13,6 +13,7 @@
 use lf_application::ports::CorpusError;
 use lf_domain::DomainError;
 
+pub(crate) mod body;
 pub(crate) mod dates;
 #[cfg(test)]
 pub(crate) mod fixtures;
