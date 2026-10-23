@@ -132,7 +132,10 @@ where
 /// Lit un identifiant : casse, blancs et suffixe `_JJ-MM-AAAA` bien formé sont tolérés, le suffixe
 /// est retiré. Un suffixe retiré d'un identifiant autre que `LEGITEXT` est compté (06 D-28).
 ///
-/// Partagé avec la recherche.
+/// Règle (c) de tout identifiant lu, principal ou secondaire (`cid`, texte parent d'un article).
+/// Un identifiant que le mapper peut encore écarter après sa lecture (résultat de recherche,
+/// `cid` ou article d'un résultat) est lu par le domaine, puis compté par [`note_suffix`] une fois
+/// retenu.
 ///
 /// # Errors
 ///
@@ -143,10 +146,17 @@ where
     T: FromStr<Err = DomainError> + Display,
 {
     let id: T = raw.parse()?;
-    if suffix_dropped(raw, &id.to_string()) {
+    note_suffix(raw, &id.to_string(), diags);
+    Ok(id)
+}
+
+/// Compte le suffixe retiré de `raw`, hors `LEGITEXT` : `normalized` est l'identifiant lu.
+///
+/// Seconde moitié de [`parse_counted`], pour un identifiant compté seulement s'il est retenu.
+pub(crate) fn note_suffix(raw: &str, normalized: &str, diags: &mut Diagnostics) {
+    if suffix_dropped(raw, normalized) {
         diags.note_suffix_stripped();
     }
-    Ok(id)
 }
 
 /// Vrai si `raw` portait un suffixe retiré, hors `LEGITEXT` : `normalized` est l'identifiant lu.
@@ -182,7 +192,6 @@ fn expected_origin(id: &str) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use lf_domain::date::CivilDate;
     use lf_domain::id::{
         AccoTextId, ArticleId, CnilTextId, DecisionId, DocumentId, KaliTextId, LegiTextId,
     };
@@ -190,16 +199,10 @@ mod tests {
     use super::*;
     use crate::dto::acco::ConsultAccoResponseDto;
     use crate::dto::article::GetArticleResponseDto;
-    use crate::dto::decode::decode;
     use crate::dto::juri::ConsultJuriResponseDto;
     use crate::dto::search::SearchResponseDto;
     use crate::map::endpoint;
-    use crate::map::fixtures::{self, NAMES, decode_as};
-
-    /// `json` lu dans `T` comme le fait la production.
-    fn read<T: serde::de::DeserializeOwned>(json: &str, endpoint: &str) -> T {
-        decode(json, endpoint).expect("test body decodes")
-    }
+    use crate::map::fixtures::{self, NAMES, d, decode_as, read};
 
     /// `NotFound` de `endpoint`.
     fn missing(endpoint: &str) -> CorpusError {
@@ -399,11 +402,6 @@ mod tests {
 
     /// Champ `id` de la consultation d'un texte.
     const ID: Field = Field { endpoint: endpoint::LAW_DECREE, path: "id" };
-
-    /// Date civile valide.
-    fn d(year: u16, month: u8, day: u8) -> CivilDate {
-        CivilDate::new(year, month, day).unwrap()
-    }
 
     /// `resolve_id` en [`ID`], avec les diagnostics qu'il laisse.
     fn resolve<T>(requested: &T, returned: Option<&str>) -> (Result<T, CorpusError>, Diagnostics)
@@ -626,6 +624,16 @@ mod tests {
         assert!(suffix_dropped("ACCOTEXT000053643828_01-01-2020", "ACCOTEXT000053643828"));
         assert!(!suffix_dropped("LEGITEXT000033205014_08-09-2023", "LEGITEXT000033205014"));
         assert!(!suffix_dropped("ACCOTEXT000053643828", "ACCOTEXT000053643828"));
+    }
+
+    #[test]
+    fn note_suffix_counts_only_a_stripped_suffix_outside_legitext() {
+        let mut diags = Diagnostics::default();
+        note_suffix("ACCOTEXT000053643828", "ACCOTEXT000053643828", &mut diags);
+        note_suffix("LEGITEXT000033205014_08-09-2023", "LEGITEXT000033205014", &mut diags);
+        assert_eq!(diags, Diagnostics::default());
+        note_suffix("ACCOTEXT000053643828_01-01-2020", "ACCOTEXT000053643828", &mut diags);
+        assert_eq!(diags, one_stripped());
     }
 
     #[test]

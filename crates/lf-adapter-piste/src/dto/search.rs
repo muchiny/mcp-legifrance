@@ -10,10 +10,13 @@
 //! champ. Elles ne dérivent `Debug` et `PartialEq` que pour les tests : elles portent des
 //! extraits de décisions et de textes, et un `{:?}` accidentel ne doit pas compiler.
 //!
-//! Les champs que le mapping n'emploie pas ne sont pas déclarés : `serde_json` les saute sans
-//! construire de valeur (mémoire bornée par la taille du corps). C'est vrai surtout de `facets`, qui peut peser jusqu'à 88 % d'une réponse
-//! KALI. Aucune table indexée par du texte du corps (`HashMap`) : une clé venue du corps
-//! pourrait entrer dans le chemin d'une erreur.
+//! Une partie des champs que le mapping n'emploie pas n'est pas déclarée : `serde_json` les saute
+//! sans construire de valeur (mémoire bornée par la taille du corps). C'est vrai surtout de
+//! `facets`, qui peut peser jusqu'à 88 % d'une réponse KALI. D'autres restent déclarés sans être
+//! lus : `solution`, `nor`, `num`, `themes`, `appellations` et `resumePrincipal` d'un résultat,
+//! `id` et `title` d'une section, `searchFieldName` d'un extrait ; leur retrait est renvoyé au plan
+//! 2g, et `num` est lu par un lecteur tolérant (D-24). Aucune table indexée par du texte du corps
+//! (`HashMap`) : une clé venue du corps pourrait entrer dans le chemin d'une erreur.
 
 use lf_application::ports::CorpusError;
 use lf_domain::search::PageSize;

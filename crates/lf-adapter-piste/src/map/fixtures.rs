@@ -6,11 +6,16 @@
 //! `/consult/juri`, sans passer par le JSON. [`map_body`] et [`map_fixture`] mènent un corps
 //! jusqu'à l'entité du domaine ([`Mapped`]) par le décodage et le mapper de production. Ce module
 //! n'existe que sous `cfg(test)`.
+//!
+//! Il porte aussi les aides communes aux tests des mappers : [`read`] (un corps de test lu comme
+//! le fait la production), [`decode_error`] (l'erreur `Decode` attendue), [`d`] (une date civile)
+//! et la macro `text!` (`Some(valeur.to_owned())`), importée par `use crate::map::fixtures::text`.
 
 use std::num::NonZeroU32;
 
 use lf_application::ports::CorpusError;
 use lf_domain::contract::{Citable, CitationContract};
+use lf_domain::date::CivilDate;
 use lf_domain::entity::{
     Act, ArticleText, CompanyAgreement, Convention, Decision, Deliberation, SearchPage,
 };
@@ -274,6 +279,41 @@ pub(crate) fn decoded(fixture: &Fixture, repair: bool) -> DecodedBody {
 pub(crate) fn decode_as<T: DeserializeOwned>(name: &str) -> T {
     let fixture = fixture(name);
     decode(&decoded(fixture, true).text, fixture.endpoint).expect("fixture decodes")
+}
+
+/// `Some(valeur.to_owned())` : une macro et non une fonction, que `clippy::unnecessary_wraps`
+/// refuserait. Exportée sous le nom `text` ; un autre nom ici, car la fonction [`text`] occupe déjà
+/// ce nom dans l'espace des valeurs du module.
+macro_rules! some_owned {
+    ($value:expr) => {
+        Some($value.to_owned())
+    };
+}
+
+pub(crate) use some_owned as text;
+
+/// Corps de test `json` lu dans `T` comme le fait la production : `decode` à l'endpoint
+/// `endpoint`.
+///
+/// # Panics
+///
+/// Si le corps ne se lit pas dans `T` : un corps de test mal écrit.
+pub(crate) fn read<T: DeserializeOwned>(json: &str, endpoint: &str) -> T {
+    decode(json, endpoint).expect("test body decodes")
+}
+
+/// [`CorpusError::Decode`] attendu, de détail `<endpoint>: <rest>`.
+pub(crate) fn decode_error(endpoint: &str, rest: &str) -> CorpusError {
+    CorpusError::Decode { detail: format!("{endpoint}: {rest}") }
+}
+
+/// Date civile `year`-`month`-`day`.
+///
+/// # Panics
+///
+/// Si la date n'existe pas : une faute de frappe d'un test.
+pub(crate) fn d(year: u16, month: u8, day: u8) -> CivilDate {
+    CivilDate::new(year, month, day).expect("valid civil date")
 }
 
 /// Réponse synthétique de `/consult/juri` : `JuriTextDto::default()` modifié par `edit`, sous la

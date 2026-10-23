@@ -112,7 +112,10 @@ mod tests {
     use super::*;
     use crate::{
         dto::{de, decode::decode, juri::ConsultJuriResponseDto},
-        map::{endpoint, fixtures},
+        map::{
+            endpoint,
+            fixtures::{self, d},
+        },
     };
 
     /// Champ type des tests.
@@ -121,11 +124,6 @@ mod tests {
     const COMPUTED: Field = Field { endpoint: endpoint::JURI, path: "text.dateTexteComputed" };
     /// Détail attendu d'une date illisible en [`AT`].
     const AT_DETAIL: &str = "/consult/juri: text.dateTexte: unreadable date";
-
-    /// Date civile valide.
-    fn d(year: u16, month: u8, day: u8) -> CivilDate {
-        CivilDate::new(year, month, day).unwrap()
-    }
 
     fn millis(value: i64) -> RawDate {
         RawDate::Millis(value)

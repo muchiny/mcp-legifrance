@@ -14,10 +14,13 @@
 //! `multipleVersions` dans le Swagger et en KALI : un `alias` sur un seul champ lit les deux
 //! graphies ; un corps qui porterait les deux donnerait `duplicate field`, donc `Decode`.
 //!
-//! Les champs que le mapping n'emploie pas ne sont pas déclarés (`articleVersions`, les listes de
-//! liens réservées à M7, `computedNums`, `activitePro`…) : `serde_json` les saute sans construire
-//! de valeur (mémoire bornée par la taille du corps) et ils ne peuvent faire échouer aucun
-//! décodage.
+//! Une partie des champs que le mapping n'emploie pas n'est pas déclarée (`articleVersions`, les
+//! listes de liens réservées à M7, `computedNums`, `activitePro`…) : `serde_json` les saute sans
+//! construire de valeur (mémoire bornée par la taille du corps) et ils ne peuvent faire échouer
+//! aucun décodage. D'autres restent déclarés sans être lus (`versionPrecedente`,
+//! `sectionParentTitre`, `isMultipleVersions`, `context.titreTxt`, et `id`, `debut`, `fin` d'une
+//! entrée de contexte) : un type inattendu sur l'un d'eux reste une erreur de décodage, et leur
+//! retrait est renvoyé au plan 2g.
 
 use serde::Deserialize;
 

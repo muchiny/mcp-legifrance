@@ -152,7 +152,7 @@ mod tests {
     use crate::dto::de::RawDate;
     use crate::dto::decode::decode;
     use crate::dto::juri::{ConsultJuriResponseDto, DecisionAttaqueeDto, JuriTextDto};
-    use crate::map::fixtures::{self, decode_as, juri_with};
+    use crate::map::fixtures::{self, decode_as, decode_error, juri_with, read};
 
     /// Identifiant demandé de la fixture `consult_juri`.
     const JURI_ID: &str = "JURITEXT000051743650";
@@ -166,11 +166,6 @@ mod tests {
     /// Identifiant de décision valide.
     fn decision_id(raw: &str) -> DecisionId {
         DecisionId::parse(raw).unwrap()
-    }
-
-    /// `json` lu comme le fait la production.
-    fn read(json: &str) -> ConsultJuriResponseDto {
-        decode(json, JURI).unwrap()
     }
 
     /// `decision` de `dto` demandée en `requested`, et les diagnostics qu'elle laisse.
@@ -203,11 +198,6 @@ mod tests {
             text.id = Some(JURI_ID.to_owned());
             edit(text);
         })
-    }
-
-    /// `CorpusError::Decode` de détail `/consult/juri: <rest>`.
-    fn decode_error(rest: &str) -> CorpusError {
-        CorpusError::Decode { detail: format!("/consult/juri: {rest}") }
     }
 
     /// Nombre de caractères de `text`.
@@ -428,7 +418,7 @@ mod tests {
         ] {
             let mut diags = before;
             assert_eq!(
-                decision(read(json), &decision_id(JURI_ID), &mut diags),
+                decision(read(json, JURI), &decision_id(JURI_ID), &mut diags),
                 Err(CorpusError::NotFound { what: "/consult/juri".into() }),
                 "{json}"
             );
@@ -438,7 +428,7 @@ mod tests {
 
     #[test]
     fn decision_returned_id_wins_and_drives_the_fond() {
-        let (mapped, diags) = decision_of(read(r#"{"text":{"titre":"T"}}"#), JURI_ID);
+        let (mapped, diags) = decision_of(read(r#"{"text":{"titre":"T"}}"#, JURI), JURI_ID);
         let mapped = mapped.unwrap();
         assert_eq!(mapped.decision_id, decision_id(JURI_ID));
         assert_eq!(mapped.title.as_deref(), Some("T"));
@@ -446,13 +436,28 @@ mod tests {
 
         let json = r#"{"text":{"id":"CETATEXT000054178503","origine":"CETAT","sommaire":[
             {"resumePrincipal":"01-02 Analyse un."},{"abstrats":"CETAT01-02 TITRAGE UN."}]}}"#;
-        let (mapped, diags) = decision_of(read(json), JURI_ID);
+        let (mapped, diags) = decision_of(read(json, JURI), JURI_ID);
         let mapped = mapped.unwrap();
         assert_eq!(mapped.decision_id, decision_id(CETAT_ID));
         assert_eq!(mapped.decision_id.fond(), Fond::Cetat);
         assert_eq!((diags.id_mismatch, diags.origin_mismatch), (1, 0));
         assert_eq!(diags, Diagnostics { id_mismatch: 1, ..Diagnostics::default() });
         assert_eq!(mapped.official_summary, summary(&["Analyse un."], &["TITRAGE UN."]));
+    }
+
+    #[test]
+    fn decision_suffixed_or_foreign_id_follows_the_shared_rules() {
+        let (mapped, diags) = decision_of(
+            read(r#"{"text":{"id":"JURITEXT000051743650_01-01-2020"}}"#, JURI),
+            JURI_ID,
+        );
+        assert_eq!(mapped.unwrap().decision_id, decision_id(JURI_ID));
+        assert_eq!(diags, Diagnostics { upstream_suffix_stripped: 1, ..Diagnostics::default() });
+
+        let (mapped, diags) =
+            decision_of(read(r#"{"text":{"id":"CNILTEXT000053352643"}}"#, JURI), JURI_ID);
+        assert_eq!(mapped, Err(decode_error(JURI, "text.id: invalid identifier")));
+        assert_eq!(diags, Diagnostics::default());
     }
 
     #[test]
@@ -507,7 +512,7 @@ mod tests {
                 text.date_texte_computed = computed.cloned();
                 text.date_texte = plain.cloned();
             });
-            assert_eq!(decision_of(dto, JURI_ID).0, Err(decode_error(detail)), "{detail}");
+            assert_eq!(decision_of(dto, JURI_ID).0, Err(decode_error(JURI, detail)), "{detail}");
         }
     }
 
@@ -564,18 +569,18 @@ mod tests {
             ),
         ];
         for (json, detail) in cases {
-            let error = decision_of(read(json), JURI_ID).0.unwrap_err();
-            assert_eq!(error, decode_error(detail), "{detail}");
+            let error = decision_of(read(json, JURI), JURI_ID).0.unwrap_err();
+            assert_eq!(error, decode_error(JURI, detail), "{detail}");
             assert!(!format!("{error:?} {error}").contains("TOPSECRET"), "{detail}");
         }
     }
 
     #[test]
     fn decision_errors_follow_the_field_order() {
-        let id_then_date = read(r#"{"text":{"id":"JURITEXT-X","dateTexte":"hier"}}"#);
+        let id_then_date = read(r#"{"text":{"id":"JURITEXT-X","dateTexte":"hier"}}"#, JURI);
         assert_eq!(
             decision_of(id_then_date, JURI_ID).0,
-            Err(decode_error("text.id: invalid identifier"))
+            Err(decode_error(JURI, "text.id: invalid identifier"))
         );
 
         let size = usize::try_from(LongText::MAX_CHARS).unwrap() + 1;
@@ -588,7 +593,7 @@ mod tests {
                 text.texte = Some("a".repeat(size));
                 text.date_texte = date;
             });
-            assert_eq!(decision_of(huge, JURI_ID).0, Err(decode_error(detail)), "{detail}");
+            assert_eq!(decision_of(huge, JURI_ID).0, Err(decode_error(JURI, detail)), "{detail}");
         }
     }
 

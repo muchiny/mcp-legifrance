@@ -16,6 +16,7 @@ use lf_domain::status::status_of;
 use lf_domain::text::clean_field;
 
 use super::dates::civil;
+use super::rules::parse_counted;
 use super::{Diagnostics, Field, toc};
 use crate::dto::consult_text::ConsultTextDto;
 
@@ -42,7 +43,7 @@ pub(super) fn text_body(
     diags: &mut Diagnostics,
 ) -> Result<TextBody, CorpusError> {
     let field = |path| Field { endpoint, path };
-    let cid = cid_of(dto.cid.as_deref(), endpoint)?;
+    let cid = cid_of(dto.cid.as_deref(), endpoint, diags)?;
     let date_parution = civil(dto.date_parution.as_ref(), field("dateParution"), diags)?;
     let version_start = civil(dto.date_debut_version.as_ref(), field("dateDebutVersion"), diags)?;
     let date_fin_version = civil(dto.date_fin_version.as_ref(), field("dateFinVersion"), diags)?;
@@ -70,6 +71,9 @@ pub(super) fn non_blank(raw: Option<&str>) -> Option<&str> {
 
 /// Identifiant chronologique (`cid`) de `raw`, `None` s'il est absent ou blanc.
 ///
+/// Lu par `parse_counted` (règle c) : un suffixe de version retiré d'un `cid` autre que
+/// `LEGITEXT` est compté dans `diags` (`upstream_suffix_stripped`).
+///
 /// # Errors
 ///
 /// [`CorpusError::Decode`] (`<endpoint>: cid: invalid identifier`) si le `cid` présent n'est pas
@@ -77,10 +81,12 @@ pub(super) fn non_blank(raw: Option<&str>) -> Option<&str> {
 pub(super) fn cid_of(
     raw: Option<&str>,
     endpoint: &'static str,
+    diags: &mut Diagnostics,
 ) -> Result<Option<DocumentId>, CorpusError> {
     non_blank(raw)
         .map(|cid| {
-            DocumentId::parse(cid).map_err(|error| Field { endpoint, path: "cid" }.domain(&error))
+            parse_counted::<DocumentId>(cid, diags)
+                .map_err(|error| Field { endpoint, path: "cid" }.domain(&error))
         })
         .transpose()
 }
@@ -103,7 +109,6 @@ pub(super) fn aliases_of(appellations: &[String]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use lf_domain::date::CivilDate;
     use lf_domain::entity::{TocArticle, TocNode, TocSection};
     use lf_domain::id::{ArticleId, DocumentId, SectionId};
     use lf_domain::status::LegalStatus;
@@ -112,19 +117,7 @@ mod tests {
     use crate::dto::consult_text::{ConsultTextDto, TocArticleDto, TocSectionDto};
     use crate::dto::de::RawDate;
     use crate::map::endpoint;
-
-    /// `Some(valeur.to_owned())` : une macro et non une fonction, que `clippy::unnecessary_wraps`
-    /// refuserait.
-    macro_rules! text {
-        ($value:expr) => {
-            Some($value.to_owned())
-        };
-    }
-
-    /// Date civile valide.
-    fn d(year: u16, month: u8, day: u8) -> CivilDate {
-        CivilDate::new(year, month, day).unwrap()
-    }
+    use crate::map::fixtures::{d, text};
 
     /// Date brute écrite en texte.
     fn date(value: &str) -> RawDate {
@@ -385,26 +378,69 @@ mod tests {
 
     #[test]
     fn cid_accepts_every_text_family_and_rejects_the_rest() {
+        let mut diags = Diagnostics::default();
         for raw in ["JORFTEXT000033202746", "LEGITEXT000006070721", "KALITEXT000049878950"] {
-            let cid = cid_of(Some(raw), endpoint::LAW_DECREE).unwrap().unwrap();
+            let cid = cid_of(Some(raw), endpoint::LAW_DECREE, &mut diags).unwrap().unwrap();
             assert_eq!(cid, DocumentId::parse(raw).unwrap());
             assert_eq!(cid.as_str(), raw);
         }
 
-        assert_eq!(cid_of(None, endpoint::LAW_DECREE), Ok(None));
-        assert_eq!(cid_of(Some(" "), endpoint::LAW_DECREE), Ok(None));
+        assert_eq!(cid_of(None, endpoint::LAW_DECREE, &mut diags), Ok(None));
+        assert_eq!(cid_of(Some(" "), endpoint::LAW_DECREE, &mut diags), Ok(None));
 
         assert_eq!(
-            cid_of(Some("FOOTEXT000000000001"), endpoint::LAW_DECREE),
+            cid_of(Some("FOOTEXT000000000001"), endpoint::LAW_DECREE, &mut diags),
             Err(CorpusError::Decode {
                 detail: "/consult/lawDecree: cid: invalid identifier".into()
             })
         );
+        assert_eq!(diags, Diagnostics::default());
+
+        let cid = cid_of(Some("JORFTEXT000033202746_08-10-2016"), endpoint::KALI_TEXT, &mut diags);
+        assert_eq!(cid, Ok(DocumentId::parse("JORFTEXT000033202746").ok()));
+        assert_eq!(diags, Diagnostics { upstream_suffix_stripped: 1, ..Diagnostics::default() });
+    }
+
+    #[test]
+    fn a_suffixed_cid_is_stripped_and_counted_outside_legitext() {
+        let cases = [
+            ("JORFTEXT000033202746_08-10-2016", "JORFTEXT000033202746", 1),
+            ("KALITEXT000049878950_08-09-2023", "KALITEXT000049878950", 1),
+            ("LEGITEXT000006070721_09-04-2026", "LEGITEXT000006070721", 0),
+            ("JORFTEXT000033202746", "JORFTEXT000033202746", 0),
+        ];
+        for (raw, kept, stripped) in cases {
+            let (body, diags) =
+                body_of(ConsultTextDto { cid: text!(raw), ..ConsultTextDto::default() });
+            assert_eq!(body.unwrap().cid.as_ref().map(DocumentId::as_str), Some(kept), "{raw}");
+            assert_eq!(
+                diags,
+                Diagnostics { upstream_suffix_stripped: stripped, ..Diagnostics::default() },
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_malformed_cid_suffix_is_refused_and_not_counted() {
+        let (body, diags) = body_of(ConsultTextDto {
+            cid: text!("JORFTEXT000033202746_31-02-2016"),
+            ..ConsultTextDto::default()
+        });
+        assert_eq!(
+            body,
+            Err(CorpusError::Decode {
+                detail: "/consult/lawDecree: cid: invalid identifier".into()
+            })
+        );
+        assert_eq!(diags, Diagnostics::default());
     }
 
     #[test]
     fn decode_details_never_contain_the_value() {
-        let error = cid_of(Some("SECRET-VALUE-42"), endpoint::KALI_TEXT).unwrap_err();
+        let error =
+            cid_of(Some("SECRET-VALUE-42"), endpoint::KALI_TEXT, &mut Diagnostics::default())
+                .unwrap_err();
         let shown = format!("{error:?} {error}");
         assert!(!shown.contains("SECRET"), "{shown}");
     }

@@ -6,7 +6,8 @@
 //! `PartialEq` sous `cfg(test)` seulement (elles portent du texte de décision), dates brutes
 //! (`RawDate`), texte et casse gardés tels quels (`ARRET`, `QPC`, `Texte`, `Délibération`).
 //! `decisionAttaquee`, souvent `null`, est lue comme une struct vide : « absent » et « vide » se
-//! confondent, le mapping teste `formation` et `date`.
+//! confondent. Le mapping ne la lit pas (D30, renvoyée à M7) ; un test vérifie seulement qu'elle ne
+//! change pas la décision (`attacked_decision_does_not_change_the_decision`, `map/decision.rs`).
 //!
 //! Ce module ne partage aucun type avec `consult_text` : le même nom de champ y a des types
 //! différents selon l'endpoint (les signataires sont un objet en KALI et une chaîne en JURI).

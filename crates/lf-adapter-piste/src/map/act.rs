@@ -46,21 +46,12 @@ pub(crate) fn act(
 #[cfg(test)]
 mod tests {
     use lf_domain::contract::{Citable, Nor};
-    use lf_domain::date::CivilDate;
     use lf_domain::id::DocumentId;
     use lf_domain::status::LegalStatus;
 
     use super::*;
     use crate::dto::de::RawDate;
-    use crate::map::fixtures::decode_as;
-
-    /// `Some(valeur.to_owned())` : une macro et non une fonction, que `clippy::unnecessary_wraps`
-    /// refuserait.
-    macro_rules! text {
-        ($value:expr) => {
-            Some($value.to_owned())
-        };
-    }
+    use crate::map::fixtures::{d, decode_as, text};
 
     /// Identifiant demandé dans la plupart des tests.
     const REQUESTED: &str = "LEGITEXT000033205014";
@@ -68,11 +59,6 @@ mod tests {
     /// Identifiant `LEGITEXT` valide.
     fn legi(raw: &str) -> LegiTextId {
         LegiTextId::parse(raw).unwrap()
-    }
-
-    /// Date civile valide.
-    fn d(year: u16, month: u8, day: u8) -> CivilDate {
-        CivilDate::new(year, month, day).unwrap()
     }
 
     /// Date brute écrite en texte.

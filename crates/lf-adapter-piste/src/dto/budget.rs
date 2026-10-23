@@ -2,14 +2,18 @@
 //!
 //! Un corps de 16 Mio peut se dérouler en des millions d'éléments de listes : chaque élément
 //! lu par un DTO à listes se paie sur un compteur du thread, armé par `decode` avant la lecture
-//! et remis à zéro par une garde à sa chute, même sur erreur ou panique. `decode` est
-//! synchrone : aucun `await` ne sépare l'armement de la chute de la garde, donc aucune autre
-//! tâche ne peut lire ce compteur entre-temps sur le même thread.
+//! et rendu à son état précédent par une garde à sa chute, même sur erreur ou panique. `decode`
+//! est synchrone : aucun `await` ne sépare l'armement de la chute de la garde, donc aucune autre
+//! tâche ne peut lire ce compteur entre-temps sur le même thread. La garde n'est pas `Send` : une
+//! tâche qui la tiendrait à travers un `await` ne pourrait pas être lancée sur un runtime
+//! multi-thread, donc ne changerait pas de thread en la gardant.
 //!
 //! Hors armement (`serde_json::from_str` direct sur un DTO à listes), toute charge est
-//! refusée : le budget ne peut pas être oublié sans qu'un test ou une lecture échoue.
+//! refusée : un DTO dont les listes passent par `bounded_list` ne peut pas être lu sans budget
+//! (le test `every_dto_list_is_bounded` de `dto/mod.rs` vérifie que toutes y passent).
 
 use std::cell::Cell;
+use std::marker::PhantomData;
 
 /// Nombre maximal d'éléments de liste lus dans un document.
 pub(crate) const MAX_ELEMENTS: u32 = 200_000;
@@ -25,23 +29,42 @@ thread_local! {
     static REMAINING: Cell<Option<u32>> = const { Cell::new(None) };
 }
 
-/// Garde du budget : le désarme quand elle tombe, y compris pendant une panique.
-#[must_use = "le budget est désarmé dès que la garde tombe"]
-pub(crate) struct Armed(());
+/// Garde du budget : rend au thread son état d'armement précédent quand elle tombe, y compris
+/// pendant une panique.
+///
+/// Ni `Send` ni `Sync` (`PhantomData<*const ()>`) : elle reste sur le thread dont elle arme le
+/// compteur.
+#[must_use = "le budget est rendu à son état précédent dès que la garde tombe"]
+pub(crate) struct Armed {
+    /// État du compteur avant cet armement : `None` si le thread n'était pas armé.
+    previous: Option<u32>,
+    /// Retire `Send` et `Sync` à la garde.
+    _not_send: PhantomData<*const ()>,
+}
 
 impl Drop for Armed {
+    /// Désarmé avant : désarmé de nouveau. Armé avant : armé avec le reste courant, qui garde les
+    /// éléments payés sous cette garde (aucun remboursement) ; si une garde extérieure est déjà
+    /// tombée et a désarmé le thread, il le reste.
     fn drop(&mut self) {
-        REMAINING.set(None);
+        REMAINING.set(self.previous.and(REMAINING.get()));
     }
 }
 
-/// Arme le budget du thread avec [`MAX_ELEMENTS`] éléments et rend la garde qui le désarme.
+/// Arme le budget du thread et rend la garde qui rétablit son état précédent.
 ///
-/// Non réentrant : un second appel avant la chute de la première garde repart de zéro, et la
-/// chute de l'une ou l'autre garde désarme le budget. `decode` ne s'imbrique jamais.
+/// Un premier armement accorde [`MAX_ELEMENTS`] éléments ; un armement imbriqué garde le reste
+/// courant ([`armed_budget`]) : il ne remonte jamais le budget du document en cours.
 pub(crate) fn arm() -> Armed {
-    REMAINING.set(Some(MAX_ELEMENTS));
-    Armed(())
+    let previous = REMAINING.get();
+    REMAINING.set(Some(armed_budget(previous)));
+    Armed { previous, _not_send: PhantomData }
+}
+
+/// Éléments accordés par un armement : [`MAX_ELEMENTS`] sur un thread désarmé, sinon le reste
+/// courant, jamais plus de [`MAX_ELEMENTS`].
+fn armed_budget(previous: Option<u32>) -> u32 {
+    previous.map_or(MAX_ELEMENTS, |left| left.min(MAX_ELEMENTS))
 }
 
 /// Raison d'un refus de charge.
@@ -183,6 +206,79 @@ mod tests {
         }
         let _armed = arm();
         assert_eq!(remaining(), Some(MAX_ELEMENTS));
+    }
+
+    #[test]
+    fn nested_arming_never_raises_the_budget() {
+        let outer = arm();
+        for _ in 0..5 {
+            charge_one().unwrap();
+        }
+        let inner = arm();
+        assert_eq!(remaining(), Some(MAX_ELEMENTS - 5));
+        charge_one().unwrap();
+        assert_eq!(remaining(), Some(MAX_ELEMENTS - 6));
+        drop(inner);
+        // La garde externe reste armée, sans remboursement de l'élément payé sous l'interne.
+        assert_eq!(remaining(), Some(MAX_ELEMENTS - 6));
+        drop(outer);
+        assert_eq!(remaining(), None);
+    }
+
+    #[test]
+    fn an_exhausted_budget_stays_exhausted_under_a_nested_guard() {
+        let _outer = arm();
+        REMAINING.set(Some(0));
+        let _inner = arm();
+        assert_eq!(remaining(), Some(0));
+        assert_eq!(charge_one().unwrap_err().to_string(), "too many elements");
+    }
+
+    #[test]
+    fn dropping_the_inner_guard_restores_the_outer_state() {
+        let outer = arm();
+        drop(arm());
+        assert_eq!(remaining(), Some(MAX_ELEMENTS));
+        charge_one().unwrap();
+        assert_eq!(remaining(), Some(MAX_ELEMENTS - 1));
+        drop(outer);
+        assert_eq!(remaining(), None);
+        assert_eq!(charge_one().unwrap_err().to_string(), "decoding budget not armed");
+    }
+
+    #[test]
+    fn armed_budget_never_exceeds_the_previous_one() {
+        assert_eq!(armed_budget(None), MAX_ELEMENTS);
+        assert_eq!(armed_budget(Some(7)), 7);
+        assert_eq!(armed_budget(Some(0)), 0);
+        assert_eq!(armed_budget(Some(u32::MAX)), MAX_ELEMENTS);
+    }
+
+    /// `<T as NotSend<_>>::check` est ambigu dès que `T: Send` : les deux impls conviennent, et le
+    /// compilateur refuse l'appel (technique de `static_assertions::assert_not_impl_any!`, sans la
+    /// crate).
+    trait NotSend<Marker> {
+        fn check() {}
+    }
+
+    impl<T: ?Sized> NotSend<()> for T {}
+
+    impl<T: ?Sized + Send> NotSend<u8> for T {}
+
+    #[test]
+    fn the_guard_is_not_send() {
+        // Ne compile plus si `Armed` devient `Send`.
+        <Armed as NotSend<_>>::check();
+    }
+
+    #[test]
+    fn guards_dropped_out_of_order_leave_the_budget_disarmed() {
+        let outer = arm();
+        let inner = arm();
+        drop(outer);
+        assert_eq!(remaining(), None);
+        drop(inner);
+        assert_eq!(remaining(), None);
     }
 
     #[test]

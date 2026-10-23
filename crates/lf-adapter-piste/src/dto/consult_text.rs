@@ -10,10 +10,14 @@
 //! champ. Elles ne dérivent `Debug` et `PartialEq` que pour les tests : elles portent du texte
 //! juridique, et un `{:?}` accidentel ne doit pas compiler.
 //!
-//! Les champs que le mapping n'emploie pas (`signataires`, `eli`, `visas`, `liens` du texte…)
-//! ne sont pas déclarés : `serde_json` les saute sans construire de valeur (mémoire bornée par la
-//! taille du corps), et `signataires`, objet en KALI et chaîne en JURI, ne peut faire échouer
-//! aucun décodage.
+//! Une partie des champs que le mapping n'emploie pas (`signataires`, `eli`, `visas`, `liens` du
+//! texte…) n'est pas déclarée : `serde_json` les saute sans construire de valeur (mémoire bornée
+//! par la taille du corps), et `signataires`, objet en KALI et chaîne en JURI, ne peut faire
+//! échouer aucun décodage. D'autres restent déclarés sans être lus : `textAbroge` et `typeTexte`
+//! du texte, `dateDebut` et `dateFin` des sections et des articles, les listes `lstLienCitation` et
+//! `lstLienModification` des articles et tous les champs de leurs liens. Leur retrait est renvoyé
+//! au plan 2g ; d'ici là, `articleNum` est lu par un lecteur tolérant (D-24), et un type inattendu
+//! sur un autre champ non lu reste une erreur de décodage.
 //!
 //! La table des matières est lue récursivement. `serde_json` part d'une profondeur restante de
 //! 128 et échoue quand elle atteint 0 : 127 tableaux et objets imbriqués passent, le 128e donne
@@ -164,8 +168,9 @@ pub(crate) struct LienArticleDto {
     /// Identifiant de l'article lié (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub article_id: Option<String>,
-    /// Numéro de l'article lié (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
+    /// Numéro de l'article lié, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`) ;
+    /// jamais lu par le mapping, tolérant pour ne pas faire perdre le texte (D-24).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub article_num: Option<String>,
 }
 
@@ -364,6 +369,7 @@ mod tests {
         assert_number_reading::<ConsultTextDto>("numParution", KALI, |dto| &dto.num_parution);
         assert_number_reading::<TocArticleDto>("num", LODA, |dto| &dto.num);
         assert_number_reading::<ConteneurDto>("num", LODA, |dto| &dto.num);
+        assert_number_reading::<LienArticleDto>("articleNum", LODA, |dto| &dto.article_num);
         let conteneur = decode::<ConteneurDto>(r#"{"num":2121}"#, KALI).unwrap();
         assert_eq!(conteneur.num, text!("2121"));
     }

@@ -7,7 +7,8 @@
 //! et compté (`upstream_suffix_stripped`) ; il ne donne pas de début de version. Le reste est le
 //! [`TextBody`] commun, complété par le seul premier conteneur : IDCC, titre et identifiant du
 //! conteneur, puis le bulletin officiel (`originePubli`, à défaut `numeroBo`). Un IDCC illisible
-//! est omis sans diagnostic.
+//! et un identifiant de conteneur qui n'a pas la forme `KALICONT` suivi de 12 chiffres sont omis
+//! sans diagnostic.
 //!
 //! [`TextBody`]: lf_domain::entity::TextBody
 
@@ -16,10 +17,10 @@ use std::mem;
 use lf_application::ports::CorpusError;
 use lf_domain::contract::Idcc;
 use lf_domain::entity::Convention;
-use lf_domain::id::KaliTextId;
+use lf_domain::id::{ID_DIGITS, KaliTextId, PREFIX_LEN};
 use lf_domain::text::clean_field;
 
-use super::body::{non_blank, text_body};
+use super::body::text_body;
 use super::endpoint::KALI_TEXT;
 use super::rules::{require, resolve_id};
 use super::{Diagnostics, Field};
@@ -64,9 +65,27 @@ fn bulletin_of(origine: Option<&str>, numero_bo: Option<&str>) -> Option<String>
     clean_field(origine).or_else(|| clean_field(numero_bo))
 }
 
-/// Identifiant du conteneur, rogné ; `None` s'il est absent ou blanc.
+/// Préfixe des identifiants de conteneur KALI.
+const CONTAINER_PREFIX: &str = "KALICONT";
+
+/// Identifiant du conteneur : `KALICONT` suivi de 12 chiffres ASCII, après `trim` et majuscules
+/// ASCII comme les identifiants du domaine ; `None` s'il est absent ou d'une autre forme
+/// (invisible, caractère de contrôle, saut de ligne, suffixe, longueur), sans diagnostic.
+///
+/// Le domaine n'a pas de type `KALICONT` (03 §187, typage renvoyé à M6) : seul le texte
+/// validé, de 20 caractères ASCII, est gardé.
 fn container_id_of(cid: Option<&str>) -> Option<String> {
-    non_blank(cid).map(str::to_owned)
+    let trimmed = cid?.trim();
+    is_container_id(trimmed).then(|| trimmed.to_ascii_uppercase())
+}
+
+/// Vrai si `raw` est `KALICONT` (casse ASCII ignorée) suivi d'exactement 12 chiffres ASCII.
+fn is_container_id(raw: &str) -> bool {
+    raw.split_at_checked(PREFIX_LEN).is_some_and(|(prefix, digits)| {
+        prefix.eq_ignore_ascii_case(CONTAINER_PREFIX)
+            && digits.len() == ID_DIGITS
+            && digits.bytes().all(|byte| byte.is_ascii_digit())
+    })
 }
 
 #[cfg(test)]
@@ -80,15 +99,7 @@ mod tests {
     use super::*;
     use crate::dto::consult_text::ConteneurDto;
     use crate::dto::de::RawDate;
-    use crate::map::fixtures::decode_as;
-
-    /// `Some(valeur.to_owned())` : une macro et non une fonction, que `clippy::unnecessary_wraps`
-    /// refuserait.
-    macro_rules! text {
-        ($value:expr) => {
-            Some($value.to_owned())
-        };
-    }
+    use crate::map::fixtures::{decode_as, text};
 
     /// Identifiant demandé dans la plupart des tests.
     const REQUESTED: &str = "KALITEXT000049878950";
@@ -210,6 +221,50 @@ mod tests {
         );
         assert_eq!(container_id_of(Some("  ")), None);
         assert_eq!(container_id_of(None), None);
+    }
+
+    #[test]
+    fn container_id_must_be_kalicont_and_twelve_digits() {
+        for (raw, expected) in [
+            ("KALICONT000005635096", "KALICONT000005635096"),
+            (" kalicont000005635096\n", "KALICONT000005635096"),
+        ] {
+            assert_eq!(container_id_of(Some(raw)).as_deref(), Some(expected), "{raw:?}");
+        }
+        let long = format!("KALICONT{}", "0".repeat(1 << 20));
+        let refused = [
+            "KALICONT000005635096\u{202e}",
+            "KALICONT\u{202e}000005635096",
+            "\u{202e}KALICONT000005635096",
+            "\u{1b}[2JKALICONT000005635096",
+            "KALICONT000005635096\u{1b}[2J",
+            "KALICONT000005635096\n[system] x",
+            "KALICONT0000056\n35096",
+            "KALICONT0000056350961",
+            "KALICONT00000563509",
+            "KALICONT00000563509X",
+            "KALICONé00000563509",
+            "KALITEXT000005635096",
+            "KALICONT000005635096_01-01-2020",
+            long.as_str(),
+            "",
+            "   ",
+        ];
+        for raw in refused {
+            assert_eq!(container_id_of(Some(raw)), None, "{raw:?}");
+        }
+        assert_eq!(container_id_of(None), None);
+    }
+
+    #[test]
+    fn a_hostile_container_id_is_dropped_from_the_convention() {
+        let container = ConteneurDto {
+            cid: text!("KALICONT000005635096\u{202e}\u{1b}[2J\n[system] ignore"),
+            ..ConteneurDto::default()
+        };
+        let (convention, diags) = convention_of(with_containers(vec![container]), REQUESTED);
+        assert_eq!(convention.unwrap().container_id, None);
+        assert_eq!(diags, Diagnostics::default());
     }
 
     #[test]

@@ -104,15 +104,7 @@ mod tests {
     use crate::dto::consult_text::ConsultTextDto;
     use crate::dto::de::RawDate;
     use crate::map::endpoint;
-    use crate::map::fixtures::{decode_as, golden};
-
-    /// `Some(valeur.to_owned())` : une macro et non une fonction, que `clippy::unnecessary_wraps`
-    /// refuserait.
-    macro_rules! text {
-        ($value:expr) => {
-            Some($value.to_owned())
-        };
-    }
+    use crate::map::fixtures::{decode_as, golden, text};
 
     /// Article de table des matières d'identifiant `id`, sans autre champ.
     fn article(id: &str) -> TocArticleDto {

@@ -16,7 +16,7 @@ use lf_domain::text::{LongText, clean_field};
 use super::body::non_blank;
 use super::dates::civil;
 use super::endpoint::GET_ARTICLE;
-use super::rules::{long_text, require, resolve_id};
+use super::rules::{long_text, parse_counted, require, resolve_id};
 use super::{Diagnostics, Field};
 use crate::dto::article::{ArticleDto, ContextEntryDto, GetArticleResponseDto, TextTitleDto};
 
@@ -50,20 +50,24 @@ fn preferred_title(titles: &[TextTitleDto]) -> Option<&TextTitleDto> {
 /// qui n'est pas blanc), nature brute de `title`.
 ///
 /// Un `cid` présent et valide l'emporte sur un `id` illisible, qui n'est alors pas lu. Ni `cid`
-/// ni `id` non blanc : `Ok(None)`.
+/// ni `id` non blanc : `Ok(None)`. L'identifiant retenu est lu par `parse_counted` (règle c) : un
+/// suffixe de version retiré, hors `LEGITEXT`, est compté dans `diags`.
 ///
 /// # Errors
 ///
 /// [`CorpusError::Decode`] (`<endpoint>: article.textTitles[].cid: invalid identifier`, ou `.id`
 /// si seul `id` est présent) si l'identifiant retenu n'est pas lisible.
-fn parent_text(title: &TextTitleDto) -> Result<Option<ParentText>, CorpusError> {
+fn parent_text(
+    title: &TextTitleDto,
+    diags: &mut Diagnostics,
+) -> Result<Option<ParentText>, CorpusError> {
     let candidates = [(PARENT_CID, title.cid.as_deref()), (PARENT_ID, title.id.as_deref())];
     let Some((field, raw)) =
         candidates.into_iter().find_map(|(field, raw)| non_blank(raw).map(|raw| (field, raw)))
     else {
         return Ok(None);
     };
-    let id = DocumentId::parse(raw).map_err(|error| field.domain(&error))?;
+    let id = parse_counted::<DocumentId>(raw, diags).map_err(|error| field.domain(&error))?;
     Ok(Some(ParentText::new(id, title.nature.as_deref())))
 }
 
@@ -124,7 +128,7 @@ pub(crate) fn article(
     } = require(dto.article, GET_ARTICLE)?;
     let article_id = resolve_id(requested, id.as_deref(), ID, diags)?;
     let chosen = preferred_title(&text_titles);
-    let parent = chosen.map(parent_text).transpose()?.flatten();
+    let parent = chosen.map(|title| parent_text(title, diags)).transpose()?.flatten();
     let date_debut = civil(date_debut.as_ref(), DATE_DEBUT, diags)?;
     let date_fin = civil(date_fin.as_ref(), DATE_FIN, diags)?;
     let text = long_text(texte_html.as_deref(), texte.as_deref(), TEXTE, diags)?;
@@ -147,22 +151,13 @@ pub(crate) fn article(
 #[cfg(test)]
 mod tests {
     use lf_domain::contract::Citable;
-    use lf_domain::date::CivilDate;
     use lf_domain::entity::ParentNature;
     use lf_domain::status::LegalStatus;
 
     use super::*;
     use crate::dto::article::GetArticleResponseDto;
     use crate::dto::decode::decode;
-    use crate::map::fixtures::decode_as;
-
-    /// `Some(valeur.to_owned())` : une macro et non une fonction, que `clippy::unnecessary_wraps`
-    /// refuserait.
-    macro_rules! text {
-        ($value:expr) => {
-            Some($value.to_owned())
-        };
-    }
+    use crate::map::fixtures::{d, decode_as, text};
 
     /// Titre de texte de `titre`, `nature` et sans identifiant.
     fn titled(titre: &str, nature: Option<&str>) -> TextTitleDto {
@@ -193,8 +188,8 @@ mod tests {
         DocumentId::parse("LEGITEXT000006070721").unwrap()
     }
 
-    /// Erreur de décodage d'un champ de l'article.
-    fn decode_error(path: &str) -> CorpusError {
+    /// Erreur de décodage d'un identifiant illisible au champ `path` de l'article.
+    fn invalid_id(path: &str) -> CorpusError {
         CorpusError::Decode { detail: format!("/consult/getArticle: {path}: invalid identifier") }
     }
 
@@ -247,25 +242,29 @@ mod tests {
             (ided(None, None, Some("CODE")), None),
             (ided(Some(" "), Some(""), None), None),
         ];
+        let mut diags = Diagnostics::default();
         for (title, expected) in cases {
-            assert_eq!(parent_text(&title), Ok(expected));
+            assert_eq!(parent_text(&title, &mut diags), Ok(expected));
         }
+        assert_eq!(diags, Diagnostics::default());
     }
 
     #[test]
     fn parent_text_rejects_an_unreadable_identifier() {
+        let mut diags = Diagnostics::default();
         assert_eq!(
-            parent_text(&ided(Some("FOO"), None, None)),
-            Err(decode_error("article.textTitles[].cid"))
+            parent_text(&ided(Some("FOO"), None, None), &mut diags),
+            Err(invalid_id("article.textTitles[].cid"))
         );
         assert_eq!(
-            parent_text(&ided(Some("FOO"), Some("LEGITEXT000006070721"), None)),
-            Err(decode_error("article.textTitles[].cid"))
+            parent_text(&ided(Some("FOO"), Some("LEGITEXT000006070721"), None), &mut diags),
+            Err(invalid_id("article.textTitles[].cid"))
         );
         assert_eq!(
-            parent_text(&ided(None, Some("FOO"), None)),
-            Err(decode_error("article.textTitles[].id"))
+            parent_text(&ided(None, Some("FOO"), None), &mut diags),
+            Err(invalid_id("article.textTitles[].id"))
         );
+        assert_eq!(diags, Diagnostics::default());
     }
 
     #[test]
@@ -338,11 +337,6 @@ mod tests {
     /// Identifiant d'article demandé.
     fn art(raw: &str) -> ArticleId {
         ArticleId::parse(raw).unwrap()
-    }
-
-    /// Date civile valide.
-    fn d(year: u16, month: u8, day: u8) -> CivilDate {
-        CivilDate::new(year, month, day).unwrap()
     }
 
     /// Erreur de décodage de détail `detail`.
@@ -519,6 +513,39 @@ mod tests {
         let article = run(&without_id, ART_9).0.unwrap();
         assert_eq!(article.parent, None);
         assert_eq!(article.code_title.as_deref(), Some("Code civil"));
+    }
+
+    #[test]
+    fn a_suffixed_parent_id_is_stripped_and_counted_outside_legitext() {
+        let cases = [
+            (
+                r#"{"nature":"LOI","cid":"JORFTEXT000033202746_08-10-2016"}"#,
+                "JORFTEXT000033202746",
+                1,
+            ),
+            (
+                r#"{"nature":"LOI","id":"JORFTEXT000033202746_08-10-2016"}"#,
+                "JORFTEXT000033202746",
+                1,
+            ),
+            (
+                r#"{"nature":"CODE","cid":"LEGITEXT000006070721_09-04-2026"}"#,
+                "LEGITEXT000006070721",
+                0,
+            ),
+            (r#"{"nature":"CODE","cid":"LEGITEXT000006070721"}"#, "LEGITEXT000006070721", 0),
+        ];
+        for (title, parent, stripped) in cases {
+            let json = with_fields(&format!(r#""textTitles":[{title}]"#));
+            let (mapped, diags) = run(&json, ART_9);
+            let parent_id = mapped.unwrap().parent.map(|parent| parent.id);
+            assert_eq!(parent_id.as_ref().map(DocumentId::as_str), Some(parent), "{title}");
+            assert_eq!(
+                diags,
+                Diagnostics { upstream_suffix_stripped: stripped, ..Diagnostics::default() },
+                "{title}"
+            );
+        }
     }
 
     #[test]

@@ -76,8 +76,7 @@ mod tests {
     use lf_domain::date::CivilDate;
 
     use super::*;
-    use crate::dto::decode::decode;
-    use crate::map::fixtures::decode_as;
+    use crate::map::fixtures::{decode_as, decode_error, read};
 
     /// Identifiant demandé de la fixture `consult_acco`.
     const ACCO_ID: &str = "ACCOTEXT000053643828";
@@ -85,11 +84,6 @@ mod tests {
     /// Identifiant d'accord valide.
     fn acco_id(raw: &str) -> AccoTextId {
         AccoTextId::parse(raw).unwrap()
-    }
-
-    /// `json` lu comme le fait la production.
-    fn read(json: &str) -> ConsultAccoResponseDto {
-        decode(json, ACCO).unwrap()
     }
 
     /// Réponse dont l'objet `acco` porte `fields` (champs JSON, sans accolades).
@@ -109,7 +103,7 @@ mod tests {
         requested: &str,
     ) -> (Result<CompanyAgreement, CorpusError>, Diagnostics) {
         let mut diags = Diagnostics::default();
-        let mapped = agreement(read(json), &acco_id(requested), &mut diags);
+        let mapped = agreement(read(json, ACCO), &acco_id(requested), &mut diags);
         (mapped, diags)
     }
 
@@ -117,11 +111,6 @@ mod tests {
     fn agreement_with(fields: &str) -> (CompanyAgreement, Diagnostics) {
         let (mapped, diags) = agreement_of(&with_id(fields), ACCO_ID);
         (mapped.unwrap(), diags)
-    }
-
-    /// `CorpusError::Decode` de détail `/consult/acco: <rest>`.
-    fn decode_error(rest: &str) -> CorpusError {
-        CorpusError::Decode { detail: format!("/consult/acco: {rest}") }
     }
 
     /// `CorpusError::NotFound` de l'endpoint.
@@ -182,7 +171,7 @@ mod tests {
         for json in cases {
             let mut diags = before;
             assert_eq!(
-                agreement(read(json), &acco_id(ACCO_ID), &mut diags),
+                agreement(read(json, ACCO), &acco_id(ACCO_ID), &mut diags),
                 Err(not_found()),
                 "{json}"
             );
@@ -223,6 +212,11 @@ mod tests {
         let (mapped, diags) = agreement_of(&json, ACCO_ID);
         assert_eq!(mapped.unwrap().agreement_id, acco_id(ACCO_ID));
         assert_eq!(diags, Diagnostics::default());
+
+        let json = wrapped(r#""id":"ACCOTEXT000053643828_01-01-2020""#);
+        let (mapped, diags) = agreement_of(&json, ACCO_ID);
+        assert_eq!(mapped.unwrap().agreement_id, acco_id(ACCO_ID));
+        assert_eq!(diags, Diagnostics { upstream_suffix_stripped: 1, ..Diagnostics::default() });
     }
 
     #[test]
@@ -230,7 +224,7 @@ mod tests {
         for id in ["JURITEXT000051743650", "SECRET-ID-42", "ACCOTEXT1"] {
             let (mapped, diags) = agreement_of(&wrapped(&format!(r#""id":"{id}""#)), ACCO_ID);
             let error = mapped.unwrap_err();
-            assert_eq!(error, decode_error("acco.id: invalid identifier"), "{id}");
+            assert_eq!(error, decode_error(ACCO, "acco.id: invalid identifier"), "{id}");
             assert!(!format!("{error:?} {error}").contains("SECRET"), "{id}");
             assert_eq!(diags.id_mismatch, 0, "{id}");
         }
@@ -324,7 +318,11 @@ mod tests {
         for field in ["dateTexte", "dateEffet", "dateDepot"] {
             let json = with_id(&format!(r#""{field}":"SECRET-DATE-42""#));
             let error = agreement_of(&json, ACCO_ID).0.unwrap_err();
-            assert_eq!(error, decode_error(&format!("acco.{field}: unreadable date")), "{field}");
+            assert_eq!(
+                error,
+                decode_error(ACCO, &format!("acco.{field}: unreadable date")),
+                "{field}"
+            );
             assert!(!format!("{error:?} {error}").contains("SECRET"), "{field}");
         }
     }
@@ -334,7 +332,7 @@ mod tests {
         let (plain, _) = agreement_with(r#""titreTexte":"Accord X","dateTexte":1766102400000"#);
         let (filled, diags) = agreement_with(
             r#""titreTexte":"Accord X","dateTexte":1766102400000,
-            "dateFin":"SECRET-DATE-42","dateDiffusion":"SECRET-DATE-42","fileSize":"[1]",
+            "dateFin":"SECRET-DATE-42","dateDiffusion":"SECRET-DATE-42","fileSize":[1],
             "numero":"T1","conformeVersionIntegrale":true,"signataires":["91"]"#,
         );
         assert_eq!(filled, plain);

@@ -92,9 +92,8 @@ mod tests {
 
     use super::*;
     use crate::dto::de::RawDate;
-    use crate::dto::decode::decode;
     use crate::dto::juri::{JuriTextDto, SommaireDto};
-    use crate::map::fixtures::{decode_as, juri_with};
+    use crate::map::fixtures::{decode_as, decode_error, juri_with, read};
 
     /// Identifiant demandé de la fixture `consult_cnil`.
     const CNIL_ID: &str = "CNILTEXT000053352643";
@@ -102,11 +101,6 @@ mod tests {
     /// Identifiant de délibération valide.
     fn cnil_id(raw: &str) -> CnilTextId {
         CnilTextId::parse(raw).unwrap()
-    }
-
-    /// `json` lu comme le fait la production.
-    fn read(json: &str) -> ConsultJuriResponseDto {
-        decode(json, CNIL).unwrap()
     }
 
     /// `deliberation` de `dto` demandée en `requested`, et les diagnostics qu'elle laisse.
@@ -152,11 +146,6 @@ mod tests {
     /// Date lisible.
     fn good() -> RawDate {
         RawDate::Millis(1_762_473_600_000)
-    }
-
-    /// `CorpusError::Decode` de détail `/consult/cnil: <rest>`.
-    fn decode_error(rest: &str) -> CorpusError {
-        CorpusError::Decode { detail: format!("/consult/cnil: {rest}") }
     }
 
     #[test]
@@ -271,7 +260,7 @@ mod tests {
         ];
         for (edit, detail) in cases {
             let error = deliberation_of(cnil_text(edit), CNIL_ID).0.unwrap_err();
-            assert_eq!(error, decode_error(detail), "{detail}");
+            assert_eq!(error, decode_error(CNIL, detail), "{detail}");
             assert!(!format!("{error:?} {error}").contains("TOPSECRET"), "{detail}");
         }
     }
@@ -283,7 +272,7 @@ mod tests {
         for json in ["{}", r#"{"text":null}"#, r#"{"text":{}}"#] {
             let mut diags = before;
             assert_eq!(
-                deliberation(read(json), &cnil_id(CNIL_ID), &mut diags),
+                deliberation(read(json, CNIL), &cnil_id(CNIL_ID), &mut diags),
                 Err(CorpusError::NotFound { what: "/consult/cnil".into() }),
                 "{json}"
             );
@@ -300,7 +289,7 @@ mod tests {
         assert_eq!(mapped.unwrap().deliberation_id, cnil_id("CNILTEXT000053408671"));
         assert_eq!(diags, Diagnostics { id_mismatch: 1, ..Diagnostics::default() });
 
-        let (mapped, diags) = deliberation_of(read(r#"{"text":{"titre":"T"}}"#), CNIL_ID);
+        let (mapped, diags) = deliberation_of(read(r#"{"text":{"titre":"T"}}"#, CNIL), CNIL_ID);
         assert_eq!(mapped.unwrap().deliberation_id, cnil_id(CNIL_ID));
         assert_eq!(diags, Diagnostics { id_mismatch: 1, ..Diagnostics::default() });
 
@@ -308,8 +297,15 @@ mod tests {
             juri_with(|text| text.id = Some("JURITEXT000051743650".into())),
             CNIL_ID,
         );
-        assert_eq!(mapped, Err(decode_error("text.id: invalid identifier")));
+        assert_eq!(mapped, Err(decode_error(CNIL, "text.id: invalid identifier")));
         assert_eq!(diags, Diagnostics::default());
+
+        let (mapped, diags) = deliberation_of(
+            juri_with(|text| text.id = Some("CNILTEXT000053352643_08-01-2026".into())),
+            CNIL_ID,
+        );
+        assert_eq!(mapped.unwrap().deliberation_id, cnil_id(CNIL_ID));
+        assert_eq!(diags, Diagnostics { upstream_suffix_stripped: 1, ..Diagnostics::default() });
 
         for (origine, expected) in [("JURI", 1), ("cnil", 0)] {
             let dto = cnil_text(|text| text.origine = Some(origine.to_owned()));
@@ -359,7 +355,7 @@ mod tests {
         let huge = cnil_text(|text| text.texte = Some("a".repeat(size)));
         assert_eq!(
             deliberation_of(huge, CNIL_ID).0,
-            Err(decode_error("text.texte: text too large"))
+            Err(decode_error(CNIL, "text.texte: text too large"))
         );
     }
 

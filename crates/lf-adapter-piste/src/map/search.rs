@@ -2,10 +2,12 @@
 //!
 //! Chaque résultat est lu par son premier titre. Un résultat dont l'identifiant est absent,
 //! invalide ou d'un autre fond que celui interrogé est écarté et compté (`dropped_hits`) : il
-//! n'est lu ni plus loin ni propagé en erreur. Le suffixe de version `_JJ-MM-AAAA` d'un
-//! `LEGITEXT` donne `version_start` ; celui d'un autre identifiant est retiré et compté. L'origine
-//! (`origin`) est contrôlée sans jamais écarter un résultat. Les textes courts passent par
-//! `clean_field`, qui retire balises `<mark>` et caractères invisibles sans les compter (D17).
+//! n'est lu ni plus loin ni propagé en erreur, et son suffixe n'est pas compté. Le suffixe de
+//! version `_JJ-MM-AAAA` d'un `LEGITEXT` donne `version_start` ; celui d'un autre identifiant
+//! retenu (résultat, `cid`, article d'un extrait) est retiré et compté. Hors `LODA` et `CODE`, le
+//! `cid` fait l'URL de la citation : un `cid` d'une autre famille que le résultat est omis.
+//! L'origine (`origin`) est contrôlée sans jamais écarter un résultat. Les textes courts passent
+//! par `clean_field`, qui retire balises `<mark>` et caractères invisibles sans les compter (D17).
 //!
 //! La date, l'extrait et les articles d'un résultat ne sont lus qu'après son rejet éventuel.
 //! La date est la première non nulle et hors sentinelle de `date`, `datePublication` puis
@@ -27,7 +29,7 @@ use lf_domain::status::status_of;
 use lf_domain::text::clean_field;
 
 use super::dates::first_civil;
-use super::rules::{check_origin, parse_counted, suffix_start};
+use super::rules::{check_origin, note_suffix, suffix_start};
 use super::{Diagnostics, Field, endpoint};
 use crate::dto::search::{SearchExtractDto, SearchResponseDto, SearchResultDto, SearchSectionDto};
 use crate::memo::received_mode;
@@ -105,7 +107,7 @@ fn map_hit(
         return Ok(None);
     };
     check_origin(result.origin.as_deref(), hit.id.as_str(), diags);
-    hit.cid = hit_cid(title.and_then(|title| title.cid.as_deref()));
+    hit.cid = hit_cid(fond, &hit.id, title.and_then(|title| title.cid.as_deref()), diags);
     hit.title = clean_field(title.and_then(|title| title.title.as_deref()));
     hit.nature = clean_field(result.nature.as_deref());
     hit.etat = status_of(result.etat.as_deref(), None);
@@ -113,7 +115,7 @@ fn map_hit(
     hit.raison_sociale = clean_field(result.raison_sociale.as_deref());
     hit.date = hit_date(result, diags)?;
     hit.snippet = hit_snippet(result);
-    hit.articles = hit_articles(fond, &result.sections);
+    hit.articles = hit_articles(fond, &result.sections, diags);
     Ok(Some(hit))
 }
 
@@ -164,12 +166,16 @@ fn extract_snippet(sections: &[SearchSectionDto]) -> Option<Snippet> {
 }
 
 /// Articles trouvés dans les `sections`, dans l'ordre : seuls ceux du bon couple fond et famille
-/// d'identifiant sont gardés.
-fn hit_articles(fond: Fond, sections: &[SearchSectionDto]) -> Vec<CodeArticleRef> {
+/// d'identifiant sont gardés, et le suffixe retiré de chaque article gardé est compté dans `diags`.
+fn hit_articles(
+    fond: Fond,
+    sections: &[SearchSectionDto],
+    diags: &mut Diagnostics,
+) -> Vec<CodeArticleRef> {
     sections
         .iter()
         .flat_map(|section| &section.extracts)
-        .filter_map(|extract| article_ref(fond, extract))
+        .filter_map(|extract| article_ref(fond, extract, diags))
         .collect()
 }
 
@@ -177,35 +183,69 @@ fn hit_articles(fond: Fond, sections: &[SearchSectionDto]) -> Vec<CodeArticleRef
 ///
 /// Un `CODE` ne garde que les `LEGIARTI` et leur numéro nettoyé ; un `KALI` que les `KALIARTI`,
 /// sans numéro (texte libre non fiable). Tout autre fond n'a pas d'articles. L'extrait de
-/// l'article est son premier passage, à défaut vide.
-fn article_ref(fond: Fond, extract: &SearchExtractDto) -> Option<CodeArticleRef> {
-    let article_id = ArticleId::parse(extract.id.as_deref()?).ok()?;
+/// l'article est son premier passage, à défaut vide. Le suffixe de version retiré de
+/// l'identifiant n'est compté (`note_suffix`) que pour un article gardé.
+fn article_ref(
+    fond: Fond,
+    extract: &SearchExtractDto,
+    diags: &mut Diagnostics,
+) -> Option<CodeArticleRef> {
+    let raw_id = extract.id.as_deref()?;
+    let article_id = ArticleId::parse(raw_id).ok()?;
     let num = match (fond, &article_id) {
         (Fond::Code, ArticleId::Legi(_)) => clean_field(extract.num.as_deref()),
         (Fond::Kali, ArticleId::Kali(_)) => None,
         _ => return None,
     };
+    note_suffix(raw_id, article_id.as_str(), diags);
     let raw = extract.values.first().map_or("", String::as_str);
     Some(CodeArticleRef::new(article_id, num, raw))
 }
 
 /// Résultat vide de `fond` pour l'identifiant brut `raw_id`, ou `None` s'il est écarté.
 ///
-/// L'identifiant est lu par `parse_counted` (casse, blancs et suffixe tolérés, suffixe retiré
-/// compté) puis rapproché du fond par `SearchHit::new` ; la date du suffixe d'un `LEGITEXT` devient
-/// `version_start`. Toute erreur du domaine devient `None` : sa valeur n'est ni gardée ni
-/// journalisée.
+/// L'identifiant est lu par le domaine (casse, blancs et suffixe tolérés) puis rapproché du fond
+/// par `SearchHit::new` ; la date du suffixe d'un `LEGITEXT` devient `version_start`. Le suffixe
+/// retiré n'est compté (`note_suffix`) que pour un résultat retenu : celui d'un résultat écarté
+/// désigne un identifiant jamais employé. Toute erreur du domaine devient `None` : sa valeur
+/// n'est ni gardée ni journalisée.
 fn start_hit(fond: Fond, raw_id: Option<&str>, diags: &mut Diagnostics) -> Option<SearchHit> {
     let raw = raw_id?;
-    let id = parse_counted::<DocumentId>(raw, diags).ok()?;
-    SearchHit::new(fond, id, suffix_start(raw)).ok()
+    let id = DocumentId::parse(raw).ok()?;
+    let hit = SearchHit::new(fond, id, suffix_start(raw)).ok()?;
+    note_suffix(raw, hit.id.as_str(), diags);
+    Some(hit)
 }
 
-/// Identifiant chronologique d'un résultat, sans contrôle de préfixe.
+/// Identifiant chronologique d'un résultat retenu de `fond` et d'identifiant `id`.
 ///
-/// Un `cid` illisible laisse le résultat sans `cid` : il ne l'écarte pas.
-fn hit_cid(raw: Option<&str>) -> Option<DocumentId> {
-    DocumentId::parse(raw?).ok()
+/// Un `cid` illisible laisse le résultat sans `cid` : il ne l'écarte pas. Là où le contrat de
+/// citation fait du `cid` la clé de l'URL ([`cid_keys_the_url`]), un `cid` d'une autre famille
+/// que `id` est omis : il désignerait une autre route (écart à D19, plan 2f). Le suffixe retiré
+/// d'un `cid` gardé est compté dans `diags`.
+fn hit_cid(
+    fond: Fond,
+    id: &DocumentId,
+    raw: Option<&str>,
+    diags: &mut Diagnostics,
+) -> Option<DocumentId> {
+    let raw = raw?;
+    let cid = DocumentId::parse(raw).ok().filter(|cid| cid_fits(fond, id, cid))?;
+    note_suffix(raw, cid.as_str(), diags);
+    Some(cid)
+}
+
+/// Vrai si le contrat de citation d'un résultat de `fond` prend son `cid` comme clé de l'URL : tous
+/// les fonds sauf `LODA` et `CODE`, dont l'URL suit l'identifiant du résultat
+/// (`SearchHit::contract`).
+fn cid_keys_the_url(fond: Fond) -> bool {
+    !matches!(fond, Fond::Loda | Fond::Code)
+}
+
+/// Vrai si `cid` peut rester le `cid` d'un résultat de `fond` d'identifiant `id` : toujours si
+/// l'URL ne le lit pas, sinon seulement s'il est de la famille de `id`.
+fn cid_fits(fond: Fond, id: &DocumentId, cid: &DocumentId) -> bool {
+    !cid_keys_the_url(fond) || cid.prefix() == id.prefix()
 }
 
 #[cfg(test)]
@@ -225,7 +265,7 @@ mod tests {
     use crate::dto::de::RawDate;
     use crate::dto::decode::decode;
     use crate::dto::search::SearchSectionDto;
-    use crate::map::fixtures;
+    use crate::map::fixtures::{self, d};
 
     /// Requête de `fond` sur « responsabilité civile », page 1, de taille `page_size`.
     fn query(fond: Fond, page_size: u32) -> SearchQuery {
@@ -273,10 +313,6 @@ mod tests {
             result[key] = value.clone();
         }
         result
-    }
-
-    fn day(year: u16, month: u8, day: u8) -> CivilDate {
-        CivilDate::new(year, month, day).unwrap()
     }
 
     #[test]
@@ -341,6 +377,80 @@ mod tests {
         let (page, diags) = page_of(Fond::Juri, json);
         assert_eq!((page.hits.len(), page.dropped), (0, 1));
         assert_eq!(diags, Diagnostics { dropped_hits: 1, ..Diagnostics::default() });
+
+        // Le suffixe d'un résultat écarté n'est pas compté : l'identifiant n'est jamais employé.
+        let json = r#"{"results":[{"titles":[{"id":"CNILTEXT000053352643_08-01-2026"}]}]}"#;
+        let (page, diags) = page_of(Fond::Juri, json);
+        assert_eq!((page.hits.len(), page.dropped), (0, 1));
+        assert_eq!(diags, Diagnostics { dropped_hits: 1, ..Diagnostics::default() });
+    }
+
+    /// Page JURI d'un seul résultat `JURITEXT000051743650` de `cid` donné.
+    fn juri_with_cid(cid: &str) -> (SearchPage, Diagnostics) {
+        let json = json!({ "results": [{
+            "titles": [{ "id": "JURITEXT000051743650", "cid": cid }]
+        }] });
+        page_of(Fond::Juri, &json.to_string())
+    }
+
+    #[test]
+    fn a_cid_of_another_family_is_dropped_where_it_keys_the_url() {
+        let (page, diags) = juri_with_cid("JORFTEXT000033202746");
+        assert_eq!(page.hits[0].cid, None);
+        assert_eq!(
+            page.hits[0].contract().source_url.as_str(),
+            "https://www.legifrance.gouv.fr/juri/id/JURITEXT000051743650"
+        );
+        assert_eq!(diags, Diagnostics::default());
+
+        // Écarté, son suffixe n'est pas compté ; retenu, il l'est.
+        let (page, diags) = juri_with_cid("JORFTEXT000033202746_08-10-2016");
+        assert_eq!((page.hits[0].cid.as_ref(), diags), (None, Diagnostics::default()));
+        let (page, diags) = juri_with_cid("juritext000051743650_01-01-2020");
+        assert_eq!(page.hits[0].cid, Some(doc_id("JURITEXT000051743650")));
+        assert_eq!(diags, Diagnostics { upstream_suffix_stripped: 1, ..Diagnostics::default() });
+
+        // LODA et CODE gardent leur cid : leur URL suit l'identifiant du résultat.
+        for (fond, id, cid) in [
+            (Fond::Loda, "LEGITEXT000033205014", "JORFTEXT000033202746_08-10-2016"),
+            (Fond::Code, "LEGITEXT000006070721", "LEGITEXT000006070721"),
+        ] {
+            let json = json!({ "results": [{ "titles": [{ "id": id, "cid": cid }] }] });
+            let (page, diags) = page_of(fond, &json.to_string());
+            assert_eq!(page.hits[0].cid, DocumentId::parse(cid).ok(), "{fond:?}");
+            let stripped = u32::from(cid.contains('_'));
+            assert_eq!(diags.upstream_suffix_stripped, stripped, "{fond:?}");
+        }
+    }
+
+    #[test]
+    fn a_kept_article_suffix_is_counted_and_a_dropped_one_is_not() {
+        let json = json!({ "results": [{
+            "titles": [{ "id": "LEGITEXT000006070721" }],
+            "sections": [{ "extracts": [
+                { "id": "LEGIARTI000006419290_01-01-2020" },
+                { "id": "KALIARTI000005805295_01-01-2020" },
+                { "id": "LEGIARTI000006419288" },
+            ] }],
+        }] });
+        let (page, diags) = page_of(Fond::Code, &json.to_string());
+        let ids: Vec<&str> =
+            page.hits[0].articles.iter().map(|article| article.article_id.as_str()).collect();
+        assert_eq!(ids, ["LEGIARTI000006419290", "LEGIARTI000006419288"]);
+        assert_eq!(diags, Diagnostics { upstream_suffix_stripped: 1, ..Diagnostics::default() });
+
+        let json = json!({ "results": [{
+            "titles": [{ "id": "KALITEXT000005661929" }],
+            "sections": [{ "extracts": [
+                { "id": "LEGIARTI000006419290_01-01-2020" },
+                { "id": "KALIARTI000005805295_01-01-2020" },
+            ] }],
+        }] });
+        let (page, diags) = page_of(Fond::Kali, &json.to_string());
+        let ids: Vec<&str> =
+            page.hits[0].articles.iter().map(|article| article.article_id.as_str()).collect();
+        assert_eq!(ids, ["KALIARTI000005805295"]);
+        assert_eq!(diags, Diagnostics { upstream_suffix_stripped: 1, ..Diagnostics::default() });
     }
 
     #[test]
@@ -390,7 +500,7 @@ mod tests {
         for fond in [Fond::Code, Fond::Loda] {
             let hit = start_hit(fond, Some("LEGITEXT000033205014_08-09-2023"), &mut diags).unwrap();
             assert_eq!(hit.id.as_str(), "LEGITEXT000033205014");
-            assert_eq!(hit.version_start, Some(day(2023, 9, 8)));
+            assert_eq!(hit.version_start, Some(d(2023, 9, 8)));
             assert_eq!(start_hit(fond, Some("LEGITEXT000033205014_31-02-2023"), &mut diags), None);
         }
         assert_eq!(diags, Diagnostics::default());
@@ -413,25 +523,52 @@ mod tests {
         assert_eq!(diags, Diagnostics::default());
     }
 
+    /// `hit_cid` d'un résultat LODA `LEGITEXT000006070721`, avec ses diagnostics.
+    fn loda_cid(raw: Option<&str>) -> (Option<String>, Diagnostics) {
+        let mut diags = Diagnostics::default();
+        let id = doc_id("LEGITEXT000006070721");
+        let cid = hit_cid(Fond::Loda, &id, raw, &mut diags);
+        (cid.map(|cid| cid.as_str().to_owned()), diags)
+    }
+
     #[test]
-    fn hit_cid_is_parsed_without_a_prefix_check() {
-        assert_eq!(
-            hit_cid(Some("JORFTEXT000033202746")).map(|id| id.as_str().to_owned()),
-            Some("JORFTEXT000033202746".to_owned())
-        );
-        assert_eq!(
-            hit_cid(Some("  legitext000006070721 ")).map(|id| id.as_str().to_owned()),
-            Some("LEGITEXT000006070721".to_owned())
-        );
+    fn hit_cid_is_parsed_and_checked_only_where_it_keys_the_url() {
+        let kept = |cid: &str| (Some(cid.to_owned()), Diagnostics::default());
+        assert_eq!(loda_cid(Some("JORFTEXT000033202746")), kept("JORFTEXT000033202746"));
+        assert_eq!(loda_cid(Some("  legitext000006070721 ")), kept("LEGITEXT000006070721"));
         for raw in [Some("xx"), Some(""), None] {
-            assert_eq!(hit_cid(raw), None, "{raw:?}");
+            assert_eq!(loda_cid(raw), (None, Diagnostics::default()), "{raw:?}");
         }
         let hit = loda_hit(&json!({ "titles": [{ "id": "LEGITEXT000006070721", "cid": "xx" }] }));
         assert_eq!(hit.cid, None);
         let hit = loda_hit(&json!({
             "titles": [{ "id": "LEGITEXT000006070721", "cid": "JORFTEXT000033202746" }]
         }));
-        assert_eq!(hit.cid, hit_cid(Some("JORFTEXT000033202746")));
+        assert_eq!(hit.cid, Some(doc_id("JORFTEXT000033202746")));
+
+        let mut diags = Diagnostics::default();
+        let juri = doc_id("JURITEXT000051743650");
+        assert_eq!(hit_cid(Fond::Juri, &juri, Some("JORFTEXT000033202746"), &mut diags), None);
+        assert_eq!(
+            hit_cid(Fond::Juri, &juri, Some("JURITEXT000051743650"), &mut diags),
+            Some(juri.clone())
+        );
+        assert_eq!(diags, Diagnostics::default());
+    }
+
+    #[test]
+    fn the_cid_rule_follows_the_citation_contract() {
+        for fond in Fond::ALL {
+            let id = doc_id(&format!("{}000012345678", fond.hit_prefix()));
+            let cid = format!("{}000087654321", fond.hit_prefix());
+            let mut hit = SearchHit::new(fond, id.clone(), None).unwrap();
+            hit.cid = Some(doc_id(&cid));
+            let url_uses_cid = hit.contract().source_url.as_str().ends_with(&cid);
+            assert_eq!(cid_keys_the_url(fond), url_uses_cid, "{fond:?}");
+            let foreign = doc_id("JORFTEXT000033202746");
+            assert_eq!(cid_fits(fond, &id, &foreign), !url_uses_cid, "{fond:?}");
+            assert!(cid_fits(fond, &id, &doc_id(&cid)), "{fond:?}");
+        }
     }
 
     #[test]
@@ -611,10 +748,10 @@ mod tests {
     #[test]
     fn hit_date_takes_the_first_date_out_of_the_sentinel_zone() {
         let cases = [
-            (dated(at!("2016-10-09"), at!("2016-10-08"), None), Some(day(2016, 10, 9))),
-            (dated(None, at!("2026-01-14"), None), Some(day(2026, 1, 14))),
-            (dated(None, None, at!("2025-12-19")), Some(day(2025, 12, 19))),
-            (dated(at!("2999-01-01"), at!("2016-10-08"), None), Some(day(2016, 10, 8))),
+            (dated(at!("2016-10-09"), at!("2016-10-08"), None), Some(d(2016, 10, 9))),
+            (dated(None, at!("2026-01-14"), None), Some(d(2026, 1, 14))),
+            (dated(None, None, at!("2025-12-19")), Some(d(2025, 12, 19))),
+            (dated(at!("2999-01-01"), at!("2016-10-08"), None), Some(d(2016, 10, 8))),
             (dated(None, at!("2999-01-01"), None), None),
             (
                 dated(
@@ -622,9 +759,9 @@ mod tests {
                     None,
                     Some(RawDate::Millis(1_475_884_800_000)),
                 ),
-                Some(day(2016, 10, 8)),
+                Some(d(2016, 10, 8)),
             ),
-            (dated(Some(RawDate::Millis(-5_231_606_400_000)), None, None), Some(day(1804, 3, 21))),
+            (dated(Some(RawDate::Millis(-5_231_606_400_000)), None, None), Some(d(1804, 3, 21))),
             (dated(None, None, None), None),
         ];
         for (result, expected) in cases {
@@ -666,7 +803,7 @@ mod tests {
     #[test]
     fn later_dates_are_not_read_once_one_is_found() {
         let result = dated(at!("2016-10-09"), None, Some(RawDate::Text("hier".into())));
-        assert_eq!(date_of(&result), Ok(Some(day(2016, 10, 9))));
+        assert_eq!(date_of(&result), Ok(Some(d(2016, 10, 9))));
     }
 
     #[test]
@@ -682,7 +819,7 @@ mod tests {
             Err(CorpusError::Decode { detail: "/search: results[].date: unreadable date".into() })
         );
         let (page, _) = page_of(Fond::Juri, &hit("2024-03-15"));
-        assert_eq!(page.hits[0].date, Some(day(2024, 3, 15)));
+        assert_eq!(page.hits[0].date, Some(d(2024, 3, 15)));
     }
 
     /// Résultat de `json`, lu comme la production.
@@ -789,7 +926,9 @@ mod tests {
                 { "id": "LEGIARTI000006419290_01-01-2020", "num": "4", "values": ["<mark> </mark>"] },
             ] },
         ]));
-        let articles = hit_articles(Fond::Code, &sections);
+        let mut diags = Diagnostics::default();
+        let articles = hit_articles(Fond::Code, &sections, &mut diags);
+        assert_eq!(diags, Diagnostics { upstream_suffix_stripped: 1, ..Diagnostics::default() });
         assert_eq!(
             flat(&articles),
             [
@@ -816,7 +955,7 @@ mod tests {
             { "id": "KALIARTI000005805297", "num": "", "values": [] },
         ] }]));
         assert_eq!(
-            flat(&hit_articles(Fond::Kali, &sections)),
+            flat(&hit_articles(Fond::Kali, &sections, &mut Diagnostics::default())),
             [
                 ("KALIARTI000005805295".to_owned(), None, some!("v1")),
                 ("KALIARTI000005805297".to_owned(), None, None),
@@ -831,13 +970,13 @@ mod tests {
             { "id": "KALIARTI000005805295", "num": "2", "values": ["b"] },
         ] }]));
         for fond in [Fond::Juri, Fond::Constit, Fond::Cetat, Fond::Cnil, Fond::Acco, Fond::Loda] {
-            assert_eq!(hit_articles(fond, &both), [], "{fond:?}");
+            assert_eq!(hit_articles(fond, &both, &mut Diagnostics::default()), [], "{fond:?}");
         }
         let kali_only = sections_of(&json!([{ "extracts": [{ "id": "KALIARTI000005805295" }] }]));
-        assert_eq!(hit_articles(Fond::Code, &kali_only), []);
+        assert_eq!(hit_articles(Fond::Code, &kali_only, &mut Diagnostics::default()), []);
         let legi_only = sections_of(&json!([{ "extracts": [{ "id": "LEGIARTI000006419288" }] }]));
-        assert_eq!(hit_articles(Fond::Kali, &legi_only), []);
-        assert_eq!(hit_articles(Fond::Code, &[]), []);
+        assert_eq!(hit_articles(Fond::Kali, &legi_only, &mut Diagnostics::default()), []);
+        assert_eq!(hit_articles(Fond::Code, &[], &mut Diagnostics::default()), []);
     }
 
     #[test]
@@ -852,7 +991,7 @@ mod tests {
         .to_string();
         let (page, _) = page_of(Fond::Code, &json);
         let hit = &page.hits[0];
-        assert_eq!(hit.date, Some(day(2016, 10, 9)));
+        assert_eq!(hit.date, Some(d(2016, 10, 9)));
         assert_eq!(text_of(hit.snippet.clone()).as_deref(), Some("x"));
         assert_eq!(
             flat(&hit.articles),
@@ -914,20 +1053,20 @@ mod tests {
         assert_eq!(page.pagination, PaginationMode::Defaut);
         let first = &page.hits[0];
         assert_eq!(first.id, doc_id("LEGITEXT000033205014"));
-        assert_eq!(first.version_start, Some(day(2023, 9, 8)));
+        assert_eq!(first.version_start, Some(d(2023, 9, 8)));
         assert_eq!(first.cid, Some(doc_id("JORFTEXT000033202746")));
         assert_eq!(
             first.title.as_deref(),
             Some("LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)")
         );
-        assert_eq!(first.date, Some(day(2016, 10, 9)));
+        assert_eq!(first.date, Some(d(2016, 10, 9)));
         assert_eq!(first.nature.as_deref(), Some("LOI"));
         assert_eq!(first.etat, Some(LegalStatus::Vigueur));
         assert_eq!((&first.snippet, &first.idcc, &first.raison_sociale), (&None, &None, &None));
         assert_eq!(first.articles, []);
         let second = &page.hits[1];
         assert_eq!(second.id, doc_id("LEGITEXT000033696785"));
-        assert_eq!(second.version_start, Some(day(2016, 12, 28)));
+        assert_eq!(second.version_start, Some(d(2016, 12, 28)));
         assert_eq!(second.cid, Some(doc_id("JORFTEXT000033691882")));
         let title = second.title.as_deref().unwrap();
         assert_eq!(title.chars().count(), 293);
@@ -935,7 +1074,7 @@ mod tests {
             "Décret n° 2016-1849 du 23 décembre 2016 relatif à la carte mobilité inclusion"
         ));
         assert!(title.ends_with("relative à l'Imprimerie nationale"));
-        assert_eq!(second.date, Some(day(2016, 12, 28)));
+        assert_eq!(second.date, Some(d(2016, 12, 28)));
         assert_eq!(second.nature.as_deref(), Some("DECRET"));
     }
 
@@ -954,10 +1093,10 @@ mod tests {
             SearchHit {
                 fond: Fond::Code,
                 id: doc_id("LEGITEXT000006070721"),
-                version_start: Some(day(2026, 4, 9)),
+                version_start: Some(d(2026, 4, 9)),
                 cid: Some(doc_id("LEGITEXT000006070721")),
                 title: some!("Code civil"),
-                date: Some(day(1804, 3, 21)),
+                date: Some(d(1804, 3, 21)),
                 nature: some!("code"),
                 etat: Some(LegalStatus::Vigueur),
                 snippet: snippet.clone(),
@@ -1050,7 +1189,7 @@ mod tests {
         let page = checked(Fond::Cnil, "search_cnil", 2);
         assert_eq!(page.total, 1134);
         let ids = ["CNILTEXT000053352643", "CNILTEXT000053408671"];
-        let dates = [day(2026, 1, 14), day(2026, 1, 29)];
+        let dates = [d(2026, 1, 14), d(2026, 1, 29)];
         let lengths = [155, 249];
         let ends = ["de la sanction 202. [...]", "de la sanction 145. [...]"];
         // Le tiret demi-cadratin du numéro de la seconde délibération est gardé.
@@ -1119,7 +1258,7 @@ mod tests {
         let titles = ["Accord d'entreprise relatif au télétravail", "Accord Télétravail Hopium"];
         let companies = ["CORSAIR (Télétravail)", "HOPIUM (Télétravail)"];
         let idccs = [275, 1486];
-        let dates = [day(2025, 12, 19), day(2025, 2, 7)];
+        let dates = [d(2025, 12, 19), d(2025, 2, 7)];
         let lengths = [215, 212];
         let newlines = [5, 4];
         let starts = [
