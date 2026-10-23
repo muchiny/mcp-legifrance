@@ -71,6 +71,20 @@ impl Fond {
         !matches!(self, Self::Code)
     }
 
+    /// Préfixe des identifiants de résultats de recherche de ce fond, ex. `LEGITEXT` pour `LODA`
+    /// et `CODE`.
+    pub const fn hit_prefix(self) -> &'static str {
+        match self {
+            Self::Loda | Self::Code => "LEGITEXT",
+            Self::Juri => "JURITEXT",
+            Self::Constit => "CONSTEXT",
+            Self::Cetat => "CETATEXT",
+            Self::Cnil => "CNILTEXT",
+            Self::Kali => "KALITEXT",
+            Self::Acco => "ACCOTEXT",
+        }
+    }
+
     /// Lit un nom de fond, sans tenir compte de la casse ni des espaces
     /// (parité avec `(fond or "").strip().upper()`, `server.py:191`).
     ///
@@ -181,6 +195,24 @@ mod tests {
                 ("CNIL", false, true),
                 ("KALI", false, true),
                 ("ACCO", false, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn hit_prefix_per_fond() {
+        let table: Vec<_> = Fond::ALL.iter().map(|f| (f.name(), f.hit_prefix())).collect();
+        assert_eq!(
+            table,
+            [
+                ("LODA", "LEGITEXT"),
+                ("CODE", "LEGITEXT"),
+                ("JURI", "JURITEXT"),
+                ("CONSTIT", "CONSTEXT"),
+                ("CETAT", "CETATEXT"),
+                ("CNIL", "CNILTEXT"),
+                ("KALI", "KALITEXT"),
+                ("ACCO", "ACCOTEXT"),
             ]
         );
     }

@@ -613,6 +613,149 @@ impl FromStr for DecisionId {
     }
 }
 
+/// Préfixes des dix familles de documents, dans l'ordre de [`DocumentId`].
+const DOCUMENT_PREFIXES: [&str; 10] = [
+    LegiText::PREFIX,
+    LegiArti::PREFIX,
+    JorfText::PREFIX,
+    KaliText::PREFIX,
+    KaliArti::PREFIX,
+    JuriText::PREFIX,
+    ConsText::PREFIX,
+    CetaText::PREFIX,
+    CnilText::PREFIX,
+    AccoText::PREFIX,
+];
+
+/// Préfixe de document connu en tête d'une entrée **déjà normalisée** (espaces retirés,
+/// majuscules ASCII), `None` si l'entrée est trop courte, coupe un caractère multi-octet ou
+/// porte un autre préfixe.
+fn prefix_of(normalized: &str) -> Option<&'static str> {
+    let head = normalized.get(..PREFIX_LEN)?;
+    DOCUMENT_PREFIXES.into_iter().find(|prefix| *prefix == head)
+}
+
+/// Identifiant d'un document de l'un des dix préfixes de résultats de recherche
+/// (03 §2.5) : texte, article ou décision. Les sections de table des matières
+/// (`LEGISCTA`, `KALISCTA`) n'en font pas partie.
+///
+/// ```
+/// use lf_domain::id::DocumentId;
+///
+/// let id: DocumentId = " legitext000033205014_08-09-2023 ".parse()?;
+/// assert_eq!(id.as_str(), "LEGITEXT000033205014");
+/// assert_eq!(id.prefix(), "LEGITEXT");
+/// assert_eq!(
+///     DocumentId::parse("FOOTEXT000000000001").map_err(|e| e.to_string()),
+///     Err("invalid Legifrance identifier \"FOOTEXT000000000001\": expected LEGITEXT, \
+///          LEGIARTI, JORFTEXT, KALITEXT, KALIARTI, JURITEXT, CONSTEXT, CETATEXT, CNILTEXT \
+///          or ACCOTEXT followed by 12 digits"
+///         .to_owned())
+/// );
+/// # Ok::<(), lf_domain::DomainError>(())
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DocumentId {
+    /// Texte consolidé `LEGITEXT…`.
+    LegiText(LegiTextId),
+    /// Article consolidé `LEGIARTI…`.
+    LegiArti(LegiArtiId),
+    /// Texte du Journal officiel `JORFTEXT…`.
+    JorfText(JorfTextId),
+    /// Convention collective `KALITEXT…`.
+    KaliText(KaliTextId),
+    /// Article de convention collective `KALIARTI…`.
+    KaliArti(KaliArtiId),
+    /// Décision judiciaire `JURITEXT…`.
+    JuriText(JuriTextId),
+    /// Décision du Conseil constitutionnel `CONSTEXT…`.
+    ConsText(ConsTextId),
+    /// Décision administrative `CETATEXT…`.
+    CetaText(CetaTextId),
+    /// Délibération CNIL `CNILTEXT…`.
+    CnilText(CnilTextId),
+    /// Accord d'entreprise `ACCOTEXT…`.
+    AccoText(AccoTextId),
+}
+
+impl DocumentId {
+    /// Valide `input` contre les dix préfixes : la variante suit les huit premières lettres
+    /// (espaces et casse tolérés), puis l'alias correspondant valide le reste, suffixe de
+    /// version compris.
+    ///
+    /// # Errors
+    ///
+    /// [`DomainError::InvalidId`] si le préfixe est inconnu ou la tête malformée ;
+    /// [`DomainError::BadSuffix`] si le suffixe de version est mal formé.
+    pub fn parse(input: &str) -> Result<Self, DomainError> {
+        let normalized = input.trim().to_ascii_uppercase();
+        match prefix_of(&normalized) {
+            Some(LegiText::PREFIX) => LegiTextId::parse(input).map(Self::LegiText),
+            Some(LegiArti::PREFIX) => LegiArtiId::parse(input).map(Self::LegiArti),
+            Some(JorfText::PREFIX) => JorfTextId::parse(input).map(Self::JorfText),
+            Some(KaliText::PREFIX) => KaliTextId::parse(input).map(Self::KaliText),
+            Some(KaliArti::PREFIX) => KaliArtiId::parse(input).map(Self::KaliArti),
+            Some(JuriText::PREFIX) => JuriTextId::parse(input).map(Self::JuriText),
+            Some(ConsText::PREFIX) => ConsTextId::parse(input).map(Self::ConsText),
+            Some(CetaText::PREFIX) => CetaTextId::parse(input).map(Self::CetaText),
+            Some(CnilText::PREFIX) => CnilTextId::parse(input).map(Self::CnilText),
+            Some(AccoText::PREFIX) => AccoTextId::parse(input).map(Self::AccoText),
+            Some(_) | None => Err(DomainError::InvalidId {
+                input: echo(input),
+                expected: "LEGITEXT, LEGIARTI, JORFTEXT, KALITEXT, KALIARTI, JURITEXT, \
+                           CONSTEXT, CETATEXT, CNILTEXT or ACCOTEXT",
+            }),
+        }
+    }
+
+    /// Forme normalisée.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::LegiText(id) => id.as_str(),
+            Self::LegiArti(id) => id.as_str(),
+            Self::JorfText(id) => id.as_str(),
+            Self::KaliText(id) => id.as_str(),
+            Self::KaliArti(id) => id.as_str(),
+            Self::JuriText(id) => id.as_str(),
+            Self::ConsText(id) => id.as_str(),
+            Self::CetaText(id) => id.as_str(),
+            Self::CnilText(id) => id.as_str(),
+            Self::AccoText(id) => id.as_str(),
+        }
+    }
+
+    /// Préfixe de la famille, ex. `LEGITEXT`.
+    pub fn prefix(&self) -> &'static str {
+        match self {
+            Self::LegiText(_) => LegiText::PREFIX,
+            Self::LegiArti(_) => LegiArti::PREFIX,
+            Self::JorfText(_) => JorfText::PREFIX,
+            Self::KaliText(_) => KaliText::PREFIX,
+            Self::KaliArti(_) => KaliArti::PREFIX,
+            Self::JuriText(_) => JuriText::PREFIX,
+            Self::ConsText(_) => ConsText::PREFIX,
+            Self::CetaText(_) => CetaText::PREFIX,
+            Self::CnilText(_) => CnilText::PREFIX,
+            Self::AccoText(_) => AccoText::PREFIX,
+        }
+    }
+}
+
+impl fmt::Display for DocumentId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for DocumentId {
+    type Err = DomainError;
+
+    /// [`DocumentId::parse`] : la variante suit le préfixe.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1005,6 +1148,130 @@ mod tests {
         }
     }
 
+    #[test]
+    fn document_id_dispatches_on_prefix() {
+        let table = [
+            (
+                DocumentId::LegiText(LegiTextId::parse("LEGITEXT000006070721").unwrap()),
+                "LEGITEXT000006070721",
+                "LEGITEXT",
+            ),
+            (
+                DocumentId::LegiArti(LegiArtiId::parse("LEGIARTI000006419288").unwrap()),
+                "LEGIARTI000006419288",
+                "LEGIARTI",
+            ),
+            (
+                DocumentId::JorfText(JorfTextId::parse("JORFTEXT000020445850").unwrap()),
+                "JORFTEXT000020445850",
+                "JORFTEXT",
+            ),
+            (
+                DocumentId::KaliText(KaliTextId::parse("KALITEXT000005661030").unwrap()),
+                "KALITEXT000005661030",
+                "KALITEXT",
+            ),
+            (
+                DocumentId::KaliArti(KaliArtiId::parse("KALIARTI000005805295").unwrap()),
+                "KALIARTI000005805295",
+                "KALIARTI",
+            ),
+            (
+                DocumentId::JuriText(JuriTextId::parse("JURITEXT000048465611").unwrap()),
+                "JURITEXT000048465611",
+                "JURITEXT",
+            ),
+            (
+                DocumentId::ConsText(ConsTextId::parse("CONSTEXT000037434572").unwrap()),
+                "CONSTEXT000037434572",
+                "CONSTEXT",
+            ),
+            (
+                DocumentId::CetaText(CetaTextId::parse("CETATEXT000051655317").unwrap()),
+                "CETATEXT000051655317",
+                "CETATEXT",
+            ),
+            (
+                DocumentId::CnilText(CnilTextId::parse("CNILTEXT000053352643").unwrap()),
+                "CNILTEXT000053352643",
+                "CNILTEXT",
+            ),
+            (
+                DocumentId::AccoText(AccoTextId::parse("ACCOTEXT000051888026").unwrap()),
+                "ACCOTEXT000051888026",
+                "ACCOTEXT",
+            ),
+        ];
+        for (expected, raw, prefix) in table {
+            // Forme exacte, puis casse et blancs tolérés.
+            for input in [raw.to_owned(), format!(" \t{}\n", raw.to_lowercase())] {
+                let parsed = DocumentId::parse(&input).unwrap();
+                assert_eq!(parsed, expected, "{input:?}");
+                assert_eq!(parsed.as_str(), raw);
+                assert_eq!(parsed.prefix(), prefix);
+                assert_eq!(parsed.to_string(), raw);
+                assert_eq!(input.parse::<DocumentId>().unwrap(), expected);
+            }
+            assert_eq!(hash_of(&expected), hash_of(&DocumentId::parse(raw).unwrap()));
+        }
+    }
+
+    #[test]
+    fn document_id_strips_a_wellformed_version_suffix() {
+        let id = DocumentId::parse("legitext000033205014_08-09-2023").unwrap();
+        assert_eq!(id.as_str(), "LEGITEXT000033205014");
+        assert_eq!(id, DocumentId::LegiText(LegiTextId::parse("LEGITEXT000033205014").unwrap()));
+        let id = DocumentId::parse("CONSTEXT000037434572_01-01-2020").unwrap();
+        assert_eq!(id.as_str(), "CONSTEXT000037434572");
+    }
+
+    #[test]
+    fn document_id_rejects_unknown_prefix_and_bad_suffix() {
+        let expected = "LEGITEXT, LEGIARTI, JORFTEXT, KALITEXT, KALIARTI, JURITEXT, CONSTEXT, \
+                        CETATEXT, CNILTEXT or ACCOTEXT";
+        for bad in [
+            "FOOTEXT000000000001",
+            // Préfixe de section : connu des tables des matières, pas un document.
+            "LEGISCTA000033205040",
+            "LEGITEX",
+            "LEGITEX€000006070721",
+            "",
+            "   ",
+        ] {
+            assert_eq!(
+                DocumentId::parse(bad).unwrap_err(),
+                DomainError::InvalidId { input: bad.into(), expected },
+                "{bad:?}"
+            );
+        }
+        let input = "LEGITEXT000033205014_foo";
+        assert_eq!(
+            DocumentId::parse(input).unwrap_err(),
+            DomainError::BadSuffix { input: input.into() }
+        );
+        // Préfixe reconnu, tête malformée : l'alias répond.
+        assert_eq!(
+            DocumentId::parse("JURITEXT0001").unwrap_err(),
+            DomainError::InvalidId { input: "JURITEXT0001".into(), expected: "JURITEXT" }
+        );
+    }
+
+    #[test]
+    fn prefix_of_reads_the_first_eight_letters() {
+        for prefix in [
+            "LEGITEXT", "LEGIARTI", "JORFTEXT", "KALITEXT", "KALIARTI", "JURITEXT", "CONSTEXT",
+            "CETATEXT", "CNILTEXT", "ACCOTEXT",
+        ] {
+            assert_eq!(prefix_of(&format!("{prefix}000006070721")), Some(prefix));
+            assert_eq!(prefix_of(prefix), Some(prefix));
+        }
+        for other in ["", "LEGITEX", "FOOTEXT000000000001", "LEGISCTA000033205040", "LEGITEX€1"] {
+            assert_eq!(prefix_of(other), None, "{other:?}");
+        }
+        // Entrée déjà normalisée : une minuscule n'est pas reconnue ici.
+        assert_eq!(prefix_of("legitext000006070721"), None);
+    }
+
     /// Chaque famille accepte son préfixe et refuse celui des onze autres.
     macro_rules! each_kind_rejects_every_other_prefix {
         ($($kind:ty),+ $(,)?) => {{
@@ -1029,6 +1296,25 @@ mod tests {
     }
 
     proptest! {
+        #[test]
+        fn document_id_roundtrips_through_display(
+            prefix in proptest::sample::select(vec![
+                "LEGITEXT", "LEGIARTI", "JORFTEXT", "KALITEXT", "KALIARTI", "JURITEXT",
+                "CONSTEXT", "CETATEXT", "CNILTEXT", "ACCOTEXT",
+            ]),
+            digits in "[0-9]{12}",
+            lower in any::<bool>(),
+            pad in "[ \\t]{0,3}",
+        ) {
+            let raw = format!("{prefix}{digits}");
+            let typed = if lower { raw.to_lowercase() } else { raw.clone() };
+            let id = DocumentId::parse(&format!("{pad}{typed}{pad}")).unwrap();
+            prop_assert_eq!(id.as_str(), raw.as_str());
+            prop_assert_eq!(id.prefix(), prefix);
+            prop_assert_eq!(id.to_string(), raw.as_str());
+            prop_assert_eq!(id.to_string().parse::<DocumentId>(), Ok(id));
+        }
+
         #[test]
         fn any_id_roundtrips(
             prefix in "[a-zA-Z]{8}",
@@ -1058,6 +1344,7 @@ mod tests {
             let _ = AnyId::parse(&s);
             let _ = ArticleId::parse(&s);
             let _ = DecisionId::parse(&s);
+            let _ = DocumentId::parse(&s);
             let _ = SectionId::parse(&s);
             let _ = parse_versioned(&s);
         }
