@@ -24,7 +24,7 @@ ACTIONLINT ?= actionlint
 MIN_AGE_BASE ?= origin/main
 MIN_AGE_DAYS ?= 14
 
-.PHONY: fmt fmt-check lint test doc arch purity deny audit-fuzz min-age min-age-selftest machete cov mem-check mutants mutants-diff workflow-lint ci
+.PHONY: fmt fmt-check lint test doc arch purity deny audit-fuzz min-age min-age-selftest machete cov cov-cobertura clippy-json mem-check mutants mutants-diff workflow-lint ci
 
 fmt:
 	cargo fmt --all
@@ -80,6 +80,16 @@ machete:
 # Couverture des tests unitaires (--lib) : 100 % lignes, régions et fonctions.
 cov:
 	cargo llvm-cov $(COV_FLAGS)
+
+# Rapport Cobertura de SonarQube Cloud (sonar-project.properties), relu depuis les profils que
+# `make cov` vient d'écrire : sans recompilation, et sans seuil (le seuil est celui de `cov`).
+cov-cobertura:
+	cargo llvm-cov report --cobertura --output-path cobertura.xml
+
+# Rapport Clippy JSON de SonarQube Cloud, hors `make ci`. Même périmètre que `lint`, mais sans
+# `-D warnings` : le rapport liste tous les avertissements au lieu de s'arrêter au premier.
+clippy-json:
+	cargo clippy --workspace --all-targets --all-features --locked --message-format=json > clippy-report.json
 
 # Contrôle mémoire obligatoire avant cargo-mutants : au moins 8 Gio disponibles.
 mem-check:

@@ -48,7 +48,7 @@
 //!   `Retry-After`, bornée par le délai global ; boucle maison, sans `backon`.
 //! - `stats` : compteurs en mémoire (`Stats`) et leur instantané public (`StatsSnapshot`).
 //! - `testing` (tests seulement) : aides communes, `ClosedPort` (adresse locale qui refuse la
-//!   connexion de façon déterministe).
+//!   connexion sur les trois systèmes de la CI).
 //! - `time` : horloge monotone (`MonoClock`), attente (`Sleeper`) et course `race`, pour des
 //!   tests déterministes sans geler l'horloge `tokio`.
 
