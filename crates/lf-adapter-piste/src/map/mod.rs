@@ -19,6 +19,7 @@ pub(crate) mod dates;
 pub(crate) mod fixtures;
 pub(crate) mod rules;
 pub(crate) mod search;
+pub(crate) mod toc;
 
 /// Gabarits de chemin des endpoints, passés à `classify` et à `post_json` : ni URL ni paramètre.
 pub(crate) mod endpoint {
