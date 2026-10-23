@@ -13,6 +13,10 @@
 use lf_application::ports::CorpusError;
 use lf_domain::DomainError;
 
+pub(crate) mod dates;
+#[cfg(test)]
+pub(crate) mod fixtures;
+
 /// Gabarits de chemin des endpoints, passés à `classify` et à `post_json` : ni URL ni paramètre.
 pub(crate) mod endpoint {
     /// Recherche.

@@ -45,7 +45,9 @@
 //! - `map` : mapping des DTO vers le domaine (04 §9) ; socle commun livré : gabarits de chemin
 //!   des endpoints (`endpoint`), anomalies d'un mapping comptées (`Diagnostics`, versées à
 //!   `Stats::record_mapping`) et erreur d'un champ refusé (`Field`, `not_found`), sans valeur du
-//!   corps.
+//!   corps ; `map::dates` lit les dates brutes en jours civils UTC (sentinelles de l'API écartées,
+//!   horodatages hors minuit comptés) ; `map::fixtures` (tests seulement) sert les seize réponses
+//!   brutes de référence.
 //! - `memo` : mémo de `typePagination` (`PaginationMemo`) : dernière valeur reçue par requête sans
 //!   page, 1 h, 1 024 entrées ; décision pure `choose_mode` et lecture tolérante `received_mode`
 //!   (04 §6.6, §12.3).
