@@ -269,7 +269,9 @@ mod tests {
 
     proptest! {
         #[test]
-        fn parse_never_panics_and_keeps_other_bounded(s in "\\PC{0,200}") {
+        fn parse_never_panics_and_keeps_other_bounded(
+            s in prop_oneof!["\\PC{0,200}", "[ \t\n\u{200b}\u{202e}\u{feff}]{0,8}"],
+        ) {
             if let Some(status) = LegalStatus::parse(&s) {
                 prop_assert!(status.as_api_code().chars().count() <= ECHO_MAX_CHARS + 1);
             } else {
