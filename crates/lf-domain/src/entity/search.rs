@@ -1,16 +1,62 @@
 //! Résultats de recherche (`fr_search`, `citations.py:110-182`).
 
 use crate::{
-    contract::{Citable, CitationContract, with_company},
+    contract::{Citable, CitationContract, Idcc, cut_at_word, with_company},
     date::CivilDate,
+    error::{DomainError, echo},
     fond::{Fond, PaginationMode},
-    id::{AnyId, ArticleId},
+    id::{ArticleId, DocumentId},
+    status::LegalStatus,
     text::clean,
     url::{ResourceKind, legifrance_url},
 };
 
-/// Longueur maximale d'un extrait d'article, en caractères (`citations.py:162`).
+/// Longueur maximale d'un extrait, `…` compris, en caractères (`citations.py:162`).
 pub const SNIPPET_MAX_CHARS: usize = 280;
+
+/// Extrait de texte d'un résultat de recherche : nettoyé, non vide, d'au plus
+/// [`SNIPPET_MAX_CHARS`] caractères (03 §7.3).
+///
+/// Les balises `<mark>` sont retirées et les entités décodées par [`clean`] ; au-delà de la
+/// borne, le texte est coupé en fin de mot comme une citation (`…` compris dans la borne). Les
+/// `[...]` que l'API insère pour marquer les coupes sont conservés.
+///
+/// ```
+/// use lf_domain::entity::Snippet;
+///
+/// let snippet = Snippet::new("[...] droit au <mark>respect</mark> [...]");
+/// assert_eq!(snippet.as_ref().map(Snippet::as_str), Some("[...] droit au respect [...]"));
+/// assert_eq!(Snippet::new("<mark> </mark>"), None);
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Snippet(String);
+
+impl Snippet {
+    /// Nettoie `raw` puis le coupe ; `None` s'il ne reste rien.
+    ///
+    /// Divergence assumée : l'extrait passe par [`clean`] (balises, entités, espaces) au lieu de
+    /// `strip_marks` (`citations.py:48-52`, `157`), pour un rendu homogène avec les titres ; la
+    /// coupe se fait après normalisation, en fin de mot et avec `…` (la référence coupait
+    /// sans le marquer). La logique vit dans `snippet_text` : cargo-mutants ne mute pas
+    /// les fonctions nommées `new` (`CONTRIBUTING.md`).
+    pub fn new(raw: &str) -> Option<Self> {
+        snippet_text(raw).map(Self)
+    }
+
+    /// Le texte.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Texte de l'extrait : nettoyé, `None` si vide, coupé à [`SNIPPET_MAX_CHARS`].
+fn snippet_text(raw: &str) -> Option<String> {
+    let text = clean(raw);
+    if text.is_empty() {
+        return None;
+    }
+    Some(cut_at_word(&text, SNIPPET_MAX_CHARS).unwrap_or(text))
+}
 
 /// Article trouvé dans un résultat de recherche sur les codes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,54 +65,102 @@ pub struct CodeArticleRef {
     pub article_id: ArticleId,
     /// Numéro affiché.
     pub num: Option<String>,
-    /// Extrait nettoyé, au plus [`SNIPPET_MAX_CHARS`] caractères.
-    pub snippet: String,
+    /// Extrait de l'article, absent s'il est vide après nettoyage.
+    pub snippet: Option<Snippet>,
 }
 
 impl CodeArticleRef {
-    /// Nettoie l'extrait brut puis le coupe.
-    ///
-    /// Divergence assumée : l'extrait passe par [`clean`] (balises, entités,
-    /// espaces) au lieu de `strip_marks` (`citations.py:48-52`, `157`), pour un
-    /// rendu homogène avec les titres ; la coupe à [`SNIPPET_MAX_CHARS`] se fait
-    /// après normalisation.
+    /// Nettoie l'extrait brut puis le coupe : voir [`Snippet::new`].
     pub fn new(article_id: ArticleId, num: Option<String>, raw_snippet: &str) -> Self {
-        Self { article_id, num, snippet: cut_snippet(raw_snippet) }
+        Self { article_id, num, snippet: Snippet::new(raw_snippet) }
     }
 }
 
-/// Hors de `CodeArticleRef::new`, que cargo-mutants ne mute jamais (`CONTRIBUTING.md`).
-fn cut_snippet(raw: &str) -> String {
-    clean(raw).chars().take(SNIPPET_MAX_CHARS).collect()
-}
-
 /// Un résultat de recherche.
+///
+/// [`SearchHit::new`] contrôle le couple fond et identifiant ; le mapper remplit ensuite les
+/// champs publics, tous vides à la construction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchHit {
     /// Fond interrogé.
     pub fond: Fond,
     /// Identifiant du texte, suffixe de version retiré.
-    pub id: AnyId,
+    pub id: DocumentId,
     /// Date du suffixe `_JJ-MM-AAAA` d'un identifiant `LEGITEXT`, lue par
     /// `parse_versioned` (03 §4.1) ; `None` sans suffixe, ou pour une sentinelle passée par
     /// `open_ended` (date d'entrée en vigueur non déterminée) ; rempli par le mapper ;
     /// ni cité ni rendu dans les hits (`annexes/A-parite.md` §4.6).
     pub version_start: Option<CivilDate>,
     /// Identifiant chronologique, préféré pour l'URL hors LODA/CODE.
-    pub cid: Option<AnyId>,
+    pub cid: Option<DocumentId>,
     /// Titre brut. Le mapper le passe par `text::clean`, car les résultats
     /// contiennent des balises `<mark>`, y compris entre crochets.
     pub title: Option<String>,
+    /// Date du texte, quand la source la donne.
+    pub date: Option<CivilDate>,
     /// Nature.
     pub nature: Option<String>,
-    /// État juridique brut.
-    pub etat: Option<String>,
+    /// État juridique, déjà résolu par `status_of` (`etat`, sinon `jurisState`).
+    pub etat: Option<LegalStatus>,
+    /// Extrait du texte trouvé.
+    pub snippet: Option<Snippet>,
     /// IDCC (KALI, ACCO).
-    pub idcc: Option<String>,
+    pub idcc: Option<Idcc>,
     /// Raison sociale (ACCO).
     pub raison_sociale: Option<String>,
     /// Articles trouvés (CODE).
     pub articles: Vec<CodeArticleRef>,
+}
+
+impl SearchHit {
+    /// Résultat vide pour `fond` et `id`, dont tous les autres champs sont à compléter.
+    ///
+    /// # Errors
+    ///
+    /// [`DomainError::HitKindMismatch`] si le préfixe de `id` n'est pas celui des résultats
+    /// de `fond` (`Fond::hit_prefix`).
+    ///
+    /// ```
+    /// use lf_domain::{entity::SearchHit, fond::Fond, id::DocumentId};
+    ///
+    /// let id = DocumentId::parse("JURITEXT000048465611")?;
+    /// assert!(SearchHit::new(Fond::Juri, id.clone(), None).is_ok());
+    /// assert_eq!(
+    ///     SearchHit::new(Fond::Loda, id, None).map_err(|e| e.to_string()),
+    ///     Err("hit identifier \"JURITEXT000048465611\" does not belong to fond LODA".to_owned())
+    /// );
+    /// # Ok::<(), lf_domain::DomainError>(())
+    /// ```
+    pub fn new(
+        fond: Fond,
+        id: DocumentId,
+        version_start: Option<CivilDate>,
+    ) -> Result<Self, DomainError> {
+        check_prefix(fond, &id)?;
+        Ok(Self {
+            fond,
+            id,
+            version_start,
+            cid: None,
+            title: None,
+            date: None,
+            nature: None,
+            etat: None,
+            snippet: None,
+            idcc: None,
+            raison_sociale: None,
+            articles: Vec::new(),
+        })
+    }
+}
+
+/// Hors de `SearchHit::new`, que cargo-mutants ne mute jamais (`CONTRIBUTING.md`).
+fn check_prefix(fond: Fond, id: &DocumentId) -> Result<(), DomainError> {
+    if id.prefix() == fond.hit_prefix() {
+        Ok(())
+    } else {
+        Err(DomainError::HitKindMismatch { id: echo(id.as_str()), fond })
+    }
 }
 
 impl Citable for SearchHit {
@@ -94,29 +188,40 @@ pub struct SearchPage {
     pub fond: Fond,
     /// Requête, espaces retirés.
     pub query: String,
-    /// Nombre total de résultats annoncé par la source.
+    /// Nombre total de résultats annoncé par la source (`totalResultNumber`), sinon le nombre
+    /// de résultats reçus.
     pub total: u64,
+    /// Nombre total d'articles trouvés (`totalNbResult`, `CODE`) ; absent s'il est nul.
+    pub total_articles: Option<u64>,
     /// Résultats de la page.
     pub hits: Vec<SearchHit>,
+    /// Résultats reçus mais écartés (identifiant invalide pour le fond), comptés pour les
+    /// journaux.
+    pub dropped: u32,
     /// `typePagination` reçu : alimente le `PaginationMemo` et les journaux, jamais rendu au
     /// modèle.
     pub pagination: PaginationMode,
 }
 
 impl SearchPage {
-    /// `total` absent : on retient le nombre de résultats reçus (`citations.py:179-181`).
+    /// `total` absent : on retient le nombre de résultats reçus (`citations.py:179-181`) ;
+    /// `total_articles` nul : absent.
     pub fn new(
         fond: Fond,
         query: &str,
         total: Option<u64>,
+        total_articles: Option<u64>,
         hits: Vec<SearchHit>,
+        dropped: u32,
         pagination: PaginationMode,
     ) -> Self {
         Self {
             fond,
             query: trimmed_query(query),
             total: page_total(total, &hits),
+            total_articles: positive_total(total_articles),
             hits,
+            dropped,
             pagination,
         }
     }
@@ -132,6 +237,11 @@ fn page_total(total: Option<u64>, hits: &[SearchHit]) -> u64 {
     total.unwrap_or_else(|| u64::try_from(hits.len()).unwrap_or(u64::MAX))
 }
 
+/// Hors de `SearchPage::new`, que cargo-mutants ne mute jamais (`CONTRIBUTING.md`).
+fn positive_total(n: Option<u64>) -> Option<u64> {
+    n.filter(|&n| n > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,27 +249,30 @@ mod tests {
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
 
+    fn doc(id: &str) -> DocumentId {
+        DocumentId::parse(id).unwrap()
+    }
+
     fn hit(fond: Fond, id: &str, cid: Option<&str>) -> SearchHit {
         SearchHit {
-            fond,
-            id: AnyId::parse(id).unwrap(),
-            version_start: None,
-            cid: cid.map(|c| AnyId::parse(c).unwrap()),
             title: Some("Titre".into()),
-            nature: None,
-            etat: None,
-            idcc: None,
             raison_sociale: Some("CORSAIR".into()),
-            articles: vec![],
+            cid: cid.map(doc),
+            ..SearchHit::new(fond, doc(id), None).unwrap()
         }
+    }
+
+    /// Identifiant valide au préfixe des résultats de `fond`.
+    fn id_for(fond: Fond) -> DocumentId {
+        doc(&format!("{}000012345678", fond.hit_prefix()))
     }
 
     #[test]
     fn loda_and_code_use_id() {
-        let loda = hit(Fond::Loda, "JORFTEXT000020445850", Some("JORFTEXT000099999999"));
+        let loda = hit(Fond::Loda, "LEGITEXT000020445850", Some("LEGITEXT000099999999"));
         assert_eq!(
             loda.contract().source_url.as_str(),
-            "https://www.legifrance.gouv.fr/loda/id/JORFTEXT000020445850"
+            "https://www.legifrance.gouv.fr/loda/id/LEGITEXT000020445850"
         );
         let code = hit(Fond::Code, "LEGITEXT000006070721", Some("LEGITEXT000099999999"));
         assert_eq!(
@@ -201,47 +314,186 @@ mod tests {
     }
 
     #[test]
-    fn snippet_is_cleaned_and_cut() {
+    fn search_hit_new_accepts_the_right_prefix_per_fond() {
+        for fond in Fond::ALL {
+            let id = id_for(fond);
+            let built = SearchHit::new(fond, id.clone(), None);
+            assert_eq!(
+                built,
+                Ok(SearchHit {
+                    fond,
+                    id,
+                    version_start: None,
+                    cid: None,
+                    title: None,
+                    date: None,
+                    nature: None,
+                    etat: None,
+                    snippet: None,
+                    idcc: None,
+                    raison_sociale: None,
+                    articles: vec![],
+                }),
+                "{fond}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_hit_is_rejected_with_kind_mismatch() {
+        let cases = [
+            (Fond::Juri, "CNILTEXT000053352643"),
+            (Fond::Loda, "LEGIARTI000006419288"),
+            (Fond::Code, "JORFTEXT000020445850"),
+            (Fond::Kali, "ACCOTEXT000051888026"),
+        ];
+        for (fond, id) in cases {
+            assert_eq!(
+                SearchHit::new(fond, doc(id), None),
+                Err(DomainError::HitKindMismatch { id: id.to_owned(), fond }),
+                "{fond}"
+            );
+            assert_eq!(
+                check_prefix(fond, &doc(id)),
+                Err(DomainError::HitKindMismatch { id: id.to_owned(), fond })
+            );
+        }
+    }
+
+    #[test]
+    fn check_prefix_accepts_each_fond_own_prefix_only() {
+        for fond in Fond::ALL {
+            for other in Fond::ALL {
+                let expected = fond.hit_prefix() == other.hit_prefix();
+                assert_eq!(check_prefix(fond, &id_for(other)).is_ok(), expected, "{fond} {other}");
+            }
+        }
+    }
+
+    #[test]
+    fn search_hit_new_keeps_version_start() {
+        let start = CivilDate::new(2016, 12, 28);
+        let id = doc("LEGITEXT000033696785");
+        assert_eq!(SearchHit::new(Fond::Loda, id.clone(), start).unwrap().version_start, start);
+        assert_eq!(SearchHit::new(Fond::Loda, id, None).unwrap().version_start, None);
+    }
+
+    #[test]
+    fn snippet_is_truncated_to_280_chars() {
+        // 320 caractères : 279 gardés, coupés à la dernière espace (indice 275), puis `…`.
+        let long = "mot ".repeat(80);
+        let expected = format!("{}mot…", "mot ".repeat(68));
+        assert_eq!(snippet_text(&long), Some(expected.clone()));
+        assert_eq!(expected.chars().count(), 276);
+        // 280 pile : inchangé, sans `…`.
+        let exact = format!("{}mots", "mot ".repeat(69));
+        assert_eq!(exact.chars().count(), SNIPPET_MAX_CHARS);
+        assert_eq!(snippet_text(&exact), Some(exact.clone()));
+        // 281 : coupé.
+        let over = format!("{exact}s");
+        assert_eq!(snippet_text(&over), Some(format!("{}mot…", "mot ".repeat(68))));
+    }
+
+    #[test]
+    fn snippet_cuts_hard_without_a_space_in_the_window() {
+        let long = "é".repeat(300);
+        let expected = format!("{}…", "é".repeat(SNIPPET_MAX_CHARS - 1));
+        assert_eq!(snippet_text(&long), Some(expected));
+    }
+
+    #[test]
+    fn snippet_keeps_api_ellipsis_brackets() {
+        assert_eq!(
+            snippet_text("[...] texte <mark>juridique</mark> [...]"),
+            Some("[...] texte juridique [...]".to_owned())
+        );
+    }
+
+    #[test]
+    fn snippet_strips_marks_and_blank_is_none() {
+        assert_eq!(
+            snippet_text("  Chacun a droit au <mark>respect</mark>&nbsp;de sa vie\n "),
+            Some("Chacun a droit au respect de sa vie".to_owned())
+        );
+        for raw in ["", "   ", "<mark></mark>", "<mark> </mark>\n"] {
+            assert_eq!(snippet_text(raw), None, "{raw:?}");
+            assert_eq!(Snippet::new(raw), None, "{raw:?}");
+        }
+    }
+
+    #[test]
+    fn snippet_exposes_its_text() {
+        assert_eq!(Snippet::new("<mark>a</mark>b").as_ref().map(Snippet::as_str), Some("ab"));
+    }
+
+    #[test]
+    fn code_article_ref_cleans_and_cuts_the_snippet() {
         let id = ArticleId::parse("LEGIARTI000006419288").unwrap();
         let r = CodeArticleRef::new(
             id.clone(),
             Some("9".into()),
             "Chacun a droit au <mark>respect</mark>",
         );
-        assert_eq!(r.snippet, "Chacun a droit au respect");
+        assert_eq!(r.snippet.as_ref().map(Snippet::as_str), Some("Chacun a droit au respect"));
         let long = "é".repeat(SNIPPET_MAX_CHARS + 10);
-        assert_eq!(CodeArticleRef::new(id, None, &long).snippet.chars().count(), SNIPPET_MAX_CHARS);
+        let cut = CodeArticleRef::new(id.clone(), None, &long).snippet;
+        assert_eq!(
+            cut.as_ref().map(Snippet::as_str),
+            Some(format!("{}…", "é".repeat(SNIPPET_MAX_CHARS - 1)).as_str())
+        );
+        assert_eq!(CodeArticleRef::new(id, None, "<mark></mark>").snippet, None);
+    }
+
+    fn page(total: Option<u64>, total_articles: Option<u64>, dropped: u32) -> SearchPage {
+        let hits = vec![hit(Fond::Juri, "JURITEXT000048465611", None)];
+        SearchPage::new(
+            Fond::Juri,
+            "  responsabilité ",
+            total,
+            total_articles,
+            hits,
+            dropped,
+            PaginationMode::Defaut,
+        )
     }
 
     #[test]
     fn page_total_defaults_to_hit_count() {
-        let hits = vec![hit(Fond::Juri, "JURITEXT000048465611", None)];
-        let page = SearchPage::new(
-            Fond::Juri,
-            "  responsabilité ",
-            None,
-            hits.clone(),
-            PaginationMode::Defaut,
-        );
-        assert_eq!((page.total, page.query.as_str()), (1, "responsabilité"));
-        let page = SearchPage::new(Fond::Juri, "q", Some(1817), hits, PaginationMode::Defaut);
-        assert_eq!(page.total, 1817);
+        let defaulted = page(None, None, 0);
+        assert_eq!((defaulted.total, defaulted.query.as_str()), (1, "responsabilité"));
+        assert_eq!(page(Some(1817), None, 0).total, 1817);
+    }
+
+    #[test]
+    fn search_page_total_articles_keeps_only_positive() {
+        assert_eq!(page(None, Some(0), 0).total_articles, None);
+        assert_eq!(page(None, Some(3), 0).total_articles, Some(3));
+        assert_eq!(page(None, None, 0).total_articles, None);
+        assert_eq!(positive_total(Some(1)), Some(1));
+        assert_eq!(positive_total(Some(0)), None);
+        assert_eq!(positive_total(Some(u64::MAX)), Some(u64::MAX));
+        assert_eq!(positive_total(None), None);
+    }
+
+    #[test]
+    fn search_page_carries_dropped() {
+        assert_eq!(page(None, None, 0).dropped, 0);
+        assert_eq!(page(None, None, 7).dropped, 7);
     }
 
     #[test]
     fn page_keeps_received_pagination_mode() {
         for mode in [PaginationMode::Defaut, PaginationMode::Article] {
-            assert_eq!(SearchPage::new(Fond::Code, "q", Some(0), vec![], mode).pagination, mode);
+            let page = SearchPage::new(Fond::Code, "q", Some(0), None, vec![], 0, mode);
+            assert_eq!(page.pagination, mode);
         }
     }
 
     proptest! {
         #[test]
         fn snippet_never_exceeds_cap(s in "\\PC{0,600}") {
-            let id = ArticleId::parse("LEGIARTI000006419288").unwrap();
-            prop_assert!(
-                CodeArticleRef::new(id, None, &s).snippet.chars().count() <= SNIPPET_MAX_CHARS
-            );
+            let chars = snippet_text(&s).map_or(0, |t| t.chars().count());
+            prop_assert!(chars <= SNIPPET_MAX_CHARS);
         }
     }
 }

@@ -30,6 +30,7 @@ pub use eli::{ELI_MAX_CHARS, Eli};
 pub use idcc::Idcc;
 pub use nor::Nor;
 pub use rules::{article_citation, cnil_citation, constit_citation, with_company};
+pub(crate) use text::cut_at_word;
 pub use text::{CITATION_MAX_CHARS, CitationText};
 
 /// Note ELI, déclarée une fois dans les instructions du serveur et dans

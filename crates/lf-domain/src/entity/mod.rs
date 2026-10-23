@@ -31,7 +31,7 @@ pub use agreement::{ATTACHMENT_NOTE, CompanyAgreement};
 pub use article::ArticleText;
 pub use decision::Decision;
 pub use deliberation::Deliberation;
-pub use search::{CodeArticleRef, SNIPPET_MAX_CHARS, SearchHit, SearchPage};
+pub use search::{CodeArticleRef, SNIPPET_MAX_CHARS, SearchHit, SearchPage, Snippet};
 pub use toc::{
     ArticleDraft, SectionDraft, TOC_MAX_DEPTH, Toc, TocArticle, TocDraft, TocEntry, TocEntryRef,
     TocNode, TocPage, TocSection,
@@ -43,7 +43,7 @@ mod tests {
     use crate::{
         contract::{Citable, CitationContract},
         fond::Fond,
-        id::{AccoTextId, AnyId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId},
+        id::{AccoTextId, ArticleId, CnilTextId, DecisionId, DocumentId, KaliTextId, LegiTextId},
     };
     use pretty_assertions::assert_eq;
 
@@ -78,16 +78,9 @@ mod tests {
 
     fn hit(fond: Fond, id: &str, cid: Option<&str>, title: Option<&str>) -> SearchHit {
         SearchHit {
-            fond,
-            id: AnyId::parse(id).unwrap(),
-            version_start: None,
-            cid: cid.map(|c| AnyId::parse(c).unwrap()),
+            cid: cid.map(|c| DocumentId::parse(c).unwrap()),
             title: title.map(Into::into),
-            nature: None,
-            etat: None,
-            idcc: None,
-            raison_sociale: None,
-            articles: vec![],
+            ..SearchHit::new(fond, DocumentId::parse(id).unwrap(), None).unwrap()
         }
     }
 
