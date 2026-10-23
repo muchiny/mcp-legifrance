@@ -110,7 +110,8 @@ pub(crate) struct SearchResultDto {
     pub date_signature: Option<RawDate>,
     /// Numéro d'identification national (NOR).
     pub nor: Option<String>,
-    /// Numéro de la décision (par exemple `23-12.345`).
+    /// Numéro de la décision (par exemple `23-12.345`), en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub num: Option<String>,
     /// Identifiant de convention collective, en chaîne ou en nombre, rendu en chaîne.
     #[serde(deserialize_with = "de::opt_string_or_number")]
@@ -168,8 +169,8 @@ pub(crate) struct SearchExtractDto {
     /// Identifiant de l'article (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub id: Option<String>,
-    /// Numéro de l'article : en KALI, du texte libre non fiable, non validé ici.
-    #[serde(deserialize_with = "de::opt_nonempty")]
+    /// Numéro de l'article, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`) : en KALI, du texte libre non fiable, non validé ici.
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub num: Option<String>,
     /// Passages trouvés, avec leurs surlignages.
     #[serde(deserialize_with = "de::bounded_list")]
@@ -391,6 +392,13 @@ mod tests {
         assert!(!fits(11, 10));
         assert!(fits(0, 1));
         assert!(!fits(usize::MAX, u32::MAX));
+    }
+
+    #[test]
+    fn num_accepts_int_and_string() {
+        use crate::dto::tests::assert_number_reading;
+        assert_number_reading::<SearchResultDto>("num", ENDPOINT, |dto| &dto.num);
+        assert_number_reading::<SearchExtractDto>("num", ENDPOINT, |dto| &dto.num);
     }
 
     #[test]

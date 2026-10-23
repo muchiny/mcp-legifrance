@@ -58,8 +58,8 @@ pub(crate) struct ConsultTextDto {
     /// Date de fin de la version, brute (`2999-01-01` : sans fin).
     #[serde(deserialize_with = "de::opt_raw_date")]
     pub date_fin_version: Option<RawDate>,
-    /// Numéro de parution au Journal officiel (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
+    /// Numéro de parution au Journal officiel, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub num_parution: Option<String>,
     /// Identifiant du texte au Journal officiel (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
@@ -121,7 +121,8 @@ pub(crate) struct TocSectionDto {
 pub(crate) struct TocArticleDto {
     /// Identifiant de l'article.
     pub id: Option<String>,
-    /// Numéro de l'article.
+    /// Numéro de l'article, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub num: Option<String>,
     /// État juridique de l'article.
     pub etat: Option<String>,
@@ -174,8 +175,8 @@ pub(crate) struct LienArticleDto {
 pub(crate) struct ConteneurDto {
     /// Identifiant chronologique du conteneur.
     pub cid: Option<String>,
-    /// Numéro du conteneur (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
+    /// Numéro du conteneur, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub num: Option<String>,
     /// Titre du conteneur, avec son retour à la ligne final.
     pub titre: Option<String>,
@@ -354,6 +355,16 @@ mod tests {
         let link = r#"{"textCid":"","articleId":" ","articleNum":""}"#;
         assert_eq!(decode::<LienArticleDto>(link, LODA).unwrap(), LienArticleDto::default());
         assert_eq!(decode::<ConteneurDto>(r#"{"num":""}"#, LODA).unwrap(), ConteneurDto::default());
+    }
+
+    #[test]
+    fn num_accepts_int_and_string() {
+        use crate::dto::tests::assert_number_reading;
+        assert_number_reading::<ConsultTextDto>("numParution", KALI, |dto| &dto.num_parution);
+        assert_number_reading::<TocArticleDto>("num", LODA, |dto| &dto.num);
+        assert_number_reading::<ConteneurDto>("num", LODA, |dto| &dto.num);
+        let conteneur = decode::<ConteneurDto>(r#"{"num":2121}"#, KALI).unwrap();
+        assert_eq!(conteneur.num, text!("2121"));
     }
 
     #[test]

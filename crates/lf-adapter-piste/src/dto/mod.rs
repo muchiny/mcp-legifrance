@@ -34,6 +34,29 @@ mod tests {
         assert_eq!(decode::<T>(raw, endpoint).err(), Some(expected), "{path}");
     }
 
+    /// Vérifie qu'un numéro (D-24) se lit en chaîne ou en nombre, rendu en chaîne : `field` est la
+    /// clé JSON du champ et `get` le champ du DTO. Chaîne blanche, `null`, absent, flottant,
+    /// booléen, tableau et objet donnent `None`.
+    pub(crate) fn assert_number_reading<T: DeserializeOwned>(
+        field: &str,
+        endpoint: &str,
+        get: fn(&T) -> &Option<String>,
+    ) {
+        let read = |raw: &str| {
+            let dto = decode::<T>(&format!(r#"{{"{field}":{raw}}}"#), endpoint).unwrap();
+            get(&dto).clone()
+        };
+        let text = |value: &str| Some(value.to_owned());
+        assert_eq!(read("12500399"), text("12500399"), "entier");
+        assert_eq!(read(r#""12500399""#), text("12500399"), "chaîne");
+        assert_eq!(read(r#""0045""#), text("0045"), "zéros initiaux");
+        for raw in [r#""""#, r#""  ""#, "null", "2.5", "true", "[1]", r#"{"a":1}"#] {
+            assert_eq!(read(raw), None, "{raw}");
+        }
+        let absent = decode::<T>("{}", endpoint).unwrap();
+        assert_eq!(get(&absent), &None, "absent");
+    }
+
     /// Code de production d'un fichier de DTO : tout ce qui précède son module de test.
     fn production(source: &'static str) -> &'static str {
         source.split("#[cfg(test)]").next().unwrap()

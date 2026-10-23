@@ -63,8 +63,8 @@ pub(crate) struct JuriTextDto {
     pub nature_delib: Option<String>,
     /// État juridique (délibérations de la CNIL).
     pub etat: Option<String>,
-    /// Numéro de la décision (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
+    /// Numéro de la décision, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub num: Option<String>,
     /// Identifiant européen de jurisprudence (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
@@ -154,8 +154,8 @@ pub(crate) struct TexteLienDto {
     /// Identifiant du lien (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub id: Option<String>,
-    /// Numéro du texte lié (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
+    /// Numéro du texte lié, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub num: Option<String>,
     /// Nature du texte lié (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
@@ -373,6 +373,23 @@ mod tests {
         let natures = ["ARRET", "QPC", "Texte", "Délibération", "arret"];
         let read_nature = |nature: &str| juri(&wrapped(&format!(r#""nature":"{nature}""#))).nature;
         assert_eq!(natures.map(read_nature), natures.map(|nature| text!(nature)));
+    }
+
+    #[test]
+    fn num_accepts_int_and_string() {
+        use crate::dto::tests::assert_number_reading;
+        assert_number_reading::<JuriTextDto>("num", JURI, |dto| &dto.num);
+        assert_number_reading::<TexteLienDto>("num", JURI, |dto| &dto.num);
+    }
+
+    #[test]
+    fn numero_affaire_scalar_is_a_decode_error() {
+        let error = decode::<JuriTextDto>(r#"{"numeroAffaire":12}"#, "/consult/juri").unwrap_err();
+        let debug = format!("{error:?}");
+        assert!(
+            debug.starts_with(r#"Decode { detail: "/consult/juri: numeroAffaire: "#),
+            "{debug}"
+        );
     }
 
     #[test]

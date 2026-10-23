@@ -41,7 +41,8 @@ pub(crate) struct ArticleDto {
     pub id: Option<String>,
     /// Identifiant chronologique de l'article.
     pub cid: Option<String>,
-    /// Numéro de l'article.
+    /// Numéro de l'article, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub num: Option<String>,
     /// État juridique (`VIGUEUR`, `ABROGE`…).
     pub etat: Option<String>,
@@ -151,6 +152,11 @@ mod tests {
     /// Message de l'erreur `Decode` rendue pour `raw`.
     fn error_of(raw: &str) -> String {
         format!("{:?}", decode::<GetArticleResponseDto>(raw, ENDPOINT).unwrap_err())
+    }
+
+    #[test]
+    fn num_accepts_int_and_string() {
+        crate::dto::tests::assert_number_reading::<ArticleDto>("num", ENDPOINT, |dto| &dto.num);
     }
 
     #[test]
