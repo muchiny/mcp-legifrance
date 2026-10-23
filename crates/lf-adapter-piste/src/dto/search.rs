@@ -15,9 +15,21 @@
 //! KALI. Aucune table indexée par du texte du corps (`HashMap`) : une clé venue du corps
 //! pourrait entrer dans le chemin d'une erreur.
 
-use serde::Deserialize;
+use lf_application::ports::CorpusError;
+use lf_domain::search::PageSize;
+use serde::{Deserialize, Deserializer};
 
 use super::de::{self, RawDate};
+
+/// Nombre maximal de résultats d'une page : `PageSize::MAX` (04 §8.5, limite 1 (b)).
+pub(crate) const MAX_RESULTS: usize = 100;
+
+/// Lit `results` : au plus [`MAX_RESULTS`] éléments, le suivant donnant `too many elements`.
+fn bounded_results<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<SearchResultDto>, D::Error> {
+    de::capped_list(deserializer, MAX_RESULTS)
+}
 
 /// Réponse de `/search`.
 #[derive(Deserialize, Default)]
@@ -25,7 +37,7 @@ use super::de::{self, RawDate};
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct SearchResponseDto {
     /// Résultats de la page (`null` ou absent : aucun).
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "bounded_results")]
     pub results: Vec<SearchResultDto>,
     /// Nombre total de résultats, en nombre ou en chaîne de chiffres (sinon `None`).
     #[serde(deserialize_with = "de::opt_u64_lenient")]
@@ -37,13 +49,43 @@ pub(crate) struct SearchResponseDto {
     pub type_pagination: Option<String>,
 }
 
+impl SearchResponseDto {
+    /// Vérifie que la page ne porte pas plus de résultats que `page_size`.
+    ///
+    /// À appeler avant toute autre lecture de la réponse : PISTE peut renvoyer plus de résultats
+    /// que demandé, et le domaine borne une page à `page_size` résultats.
+    ///
+    /// # Errors
+    ///
+    /// [`CorpusError::Decode`] (`<endpoint>: results: more results than page size`) si la page
+    /// porte plus de `page_size` résultats.
+    pub(crate) fn ensure_fits(
+        &self,
+        endpoint: &str,
+        page_size: PageSize,
+    ) -> Result<(), CorpusError> {
+        if fits(self.results.len(), page_size.get()) {
+            Ok(())
+        } else {
+            Err(CorpusError::Decode {
+                detail: format!("{endpoint}: results: more results than page size"),
+            })
+        }
+    }
+}
+
+/// Vrai si `results` résultats tiennent dans une page de `page_size` (borne comprise).
+fn fits(results: usize, page_size: u32) -> bool {
+    u32::try_from(results).is_ok_and(|count| count <= page_size)
+}
+
 /// Un résultat de `/search` : texte, décision ou convention.
 #[derive(Deserialize, Default)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct SearchResultDto {
     /// Titres du résultat, un par version ou par texte.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub titles: Vec<SearchTitleDto>,
     /// Extrait de texte, avec ses surlignages `<mark>` et son retour à la ligne final.
     pub text: Option<String>,
@@ -74,16 +116,16 @@ pub(crate) struct SearchResultDto {
     /// Raison sociale d'une partie à une convention.
     pub raison_sociale: Option<String>,
     /// Thèmes d'une décision.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub themes: Vec<String>,
     /// Noms d'usage d'un texte (`loi Lemaire`).
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub appellations: Vec<String>,
     /// Résumé principal d'une décision, en HTML.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub resume_principal: Vec<String>,
     /// Sections trouvées, avec leurs extraits.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub sections: Vec<SearchSectionDto>,
 }
 
@@ -112,7 +154,7 @@ pub(crate) struct SearchSectionDto {
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub title: Option<String>,
     /// Extraits trouvés dans la section.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub extracts: Vec<SearchExtractDto>,
 }
 
@@ -128,7 +170,7 @@ pub(crate) struct SearchExtractDto {
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub num: Option<String>,
     /// Passages trouvés, avec leurs surlignages.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub values: Vec<String>,
     /// Nom du champ où le passage a été trouvé (`Résumé principal`…).
     pub search_field_name: Option<String>,
@@ -138,6 +180,8 @@ pub(crate) struct SearchExtractDto {
 mod tests {
     use super::*;
     use crate::dto::decode::decode;
+    use lf_application::ports::CorpusError;
+    use lf_domain::search::PageSize;
 
     const ENDPOINT: &str = "/search";
 
@@ -245,6 +289,106 @@ mod tests {
         let counts =
             [r#"{"results":null}"#, "{}", r#"{"results":[]}"#].map(|raw| read(raw).results.len());
         assert_eq!(counts, [0, 0, 0]);
+    }
+
+    fn empty_results(count: usize) -> String {
+        format!(r#"{{"results":[{}]}}"#, vec!["{}"; count].join(","))
+    }
+
+    fn expected_decode(detail: &str) -> CorpusError {
+        CorpusError::Decode { detail: detail.to_owned() }
+    }
+
+    fn page_size(value: u32) -> PageSize {
+        PageSize::new(value).unwrap()
+    }
+
+    #[test]
+    fn max_results_equals_the_domain_page_size_maximum() {
+        assert_eq!(u32::try_from(MAX_RESULTS), Ok(PageSize::MAX));
+    }
+
+    #[test]
+    fn a_page_of_100_results_is_read() {
+        assert_eq!(read(&empty_results(100)).results.len(), 100);
+    }
+
+    #[test]
+    fn a_page_of_101_results_maps_to_decode_with_a_path() {
+        let raw = empty_results(101);
+        assert_eq!(raw.len(), 316);
+        assert_eq!(
+            decode::<SearchResponseDto>(&raw, ENDPOINT).unwrap_err(),
+            expected_decode("/search: results[100]: too many elements")
+        );
+    }
+
+    #[test]
+    fn a_secret_in_a_refused_page_never_reaches_the_detail() {
+        let raw =
+            format!(r#"{{"results":[{}]}}"#, vec![r#"{"nature":"sekret-42-Ω"}"#; 101].join(","));
+        let error = decode::<SearchResponseDto>(&raw, ENDPOINT).unwrap_err();
+        assert!(!format!("{error:?}").contains("sekret"));
+        assert!(!error.to_string().contains("sekret"));
+    }
+
+    #[test]
+    fn the_search_lists_share_the_document_budget() {
+        let document = |count: usize| {
+            format!(
+                r#"{{"results":[{{"sections":[{{"extracts":[{{"values":[{}]}}]}}]}}]}}"#,
+                vec![r#""""#; count].join(",")
+            )
+        };
+        let fitting = read(&document(199_997));
+        assert_eq!(fitting.results[0].sections[0].extracts[0].values.len(), 199_997);
+        assert_eq!(
+            decode::<SearchResponseDto>(&document(199_998), ENDPOINT).unwrap_err(),
+            expected_decode(
+                "/search: results[0].sections[0].extracts[0].values[199997]: too many elements"
+            )
+        );
+    }
+
+    #[test]
+    fn every_search_list_is_paid_on_the_budget() {
+        fn not_armed<T: serde::de::DeserializeOwned>(raw: &str) -> bool {
+            serde_json::from_str::<T>(raw)
+                .err()
+                .is_some_and(|error| error.to_string().starts_with("decoding budget not armed"))
+        }
+        let refused = [
+            not_armed::<SearchResponseDto>(r#"{"results":[{}]}"#),
+            not_armed::<SearchResultDto>(r#"{"titles":[{}]}"#),
+            not_armed::<SearchResultDto>(r#"{"themes":[""]}"#),
+            not_armed::<SearchResultDto>(r#"{"appellations":[""]}"#),
+            not_armed::<SearchResultDto>(r#"{"resumePrincipal":[""]}"#),
+            not_armed::<SearchResultDto>(r#"{"sections":[{}]}"#),
+            not_armed::<SearchSectionDto>(r#"{"extracts":[{}]}"#),
+            not_armed::<SearchExtractDto>(r#"{"values":[""]}"#),
+        ];
+        assert_eq!(refused, [true; 8]);
+    }
+
+    #[test]
+    fn ensure_fits_table() {
+        let accepted = [(0, 1), (1, 1), (10, 10), (100, 100)].map(|(count, size)| {
+            read(&empty_results(count)).ensure_fits(ENDPOINT, page_size(size))
+        });
+        assert_eq!(accepted, [Ok(()), Ok(()), Ok(()), Ok(())]);
+        let refused = [(2, 1), (11, 10)].map(|(count, size)| {
+            read(&empty_results(count)).ensure_fits(ENDPOINT, page_size(size))
+        });
+        let expected = Err(expected_decode("/search: results: more results than page size"));
+        assert_eq!(refused, [expected.clone(), expected]);
+    }
+
+    #[test]
+    fn fits_is_inclusive_at_the_page_size() {
+        assert!(fits(10, 10));
+        assert!(!fits(11, 10));
+        assert!(fits(0, 1));
+        assert!(!fits(usize::MAX, u32::MAX));
     }
 
     #[test]
