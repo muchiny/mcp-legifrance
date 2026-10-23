@@ -1,7 +1,7 @@
 # 03 — Domaine (`lf-domain`) : types, règles et algorithmes purs
 
 > **Statut** : M0-M1 livrés (plan 1) ; tête de M2 (plan 2a) et domaine de M2 (plan 2e : valeurs, texte structuré, entités complètes) livrés ; le reste est un plan. Ce document applique [00-decisions.md](00-decisions.md), qui est normatif et l'emporte en cas de doute. Pour le domaine livré, le code (`crates/lf-domain/`) et les plans font foi : leurs écarts avec ce document sont listés en [00 §11.1](00-decisions.md) (« Écarts et reports » et « Faits au plan 2e »), et chaque section dit ce qui est **[livré]** et ce qui reste à venir.
-> **Jalons** : M1 **livré** (plan 1 : identifiants, `Fond`, dates `CivilDate`, entités de base, `clean`, `window`, `passages`, `rank`), tête de M2 (plan 2a) et domaine de M2 (plan 2e) **livrés** (contrat v2, TOC en arbre, `LegalStatus`, `Nor`, `Idcc`, `DocumentId`, `LongText`, entités complètes ; le mapping est au plan 2f, 00 §11.1), M4 (types restants des vues), M5 (réglages de l'économie de contexte : fenêtre en caractères, passages, résumé), M6 (parseur de citations ; types `NumberQuery` et `CodeListing` des ports), M7 (types de navigation : versions, liens ; fond `Jorf` si la surface JORF est retenue à l'ouverture de M7, 00 §4).
+> **Jalons** : M1 **livré** (plan 1 : identifiants, `Fond`, dates `CivilDate`, entités de base, `clean`, `window`, `passages`, `rank`), tête de M2 (plan 2a) et domaine de M2 (plan 2e) **livrés** (contrat v2, TOC en arbre, `LegalStatus`, `Nor`, `Idcc`, `DocumentId`, `LongText`, entités complètes ; le mapping pur est livré au plan 2f, 00 §14 « Faits au plan 2f » ; son branchement est au plan 2g), M4 (types restants des vues), M5 (réglages de l'économie de contexte : fenêtre en caractères, passages, résumé), M6 (parseur de citations ; types `NumberQuery` et `CodeListing` des ports), M7 (types de navigation : versions, liens ; fond `Jorf` si la surface JORF est retenue à l'ouverture de M7, 00 §4).
 > **Lecteurs** : développeurs de `lf-domain` et des crates qui en consomment les types (`lf-application`, `lf-adapter-piste`, `lf-adapter-cache`, `lf-adapter-mcp`).
 > Les extraits Rust sont **non compilés, à valider au jalon qui les implémente** ; ce qui est livré renvoie au code (`fichier:ligne` : les numéros de ligne ont pu bouger depuis la rédaction, le nom du symbole fait foi). Les points non vérifiés sont marqués **NON VÉRIFIÉ** avec une étiquette `[V-xx · étiquette]`. Le registre `V-xx` les reprend dans [09-risques-et-questions.md](09-risques-et-questions.md).
 
@@ -91,7 +91,7 @@ Toute valeur externe est convertie **une seule fois**, à la frontière, en un t
 | La famille d'un `SearchHit` correspond à son `id` (ex. `Fond::Cetat` ⇒ `CETATEXT`) | `SearchHit::new` renvoie `Err` sinon : le hit est écarté et compté (§4.1) [livré, plan 2e] |
 | Toute entité citable a une `citation` non vide et une `source_url` Légifrance | `CitationContract` sans `Option` sur ces deux champs (§5.1) [livré, plan 2a] |
 | Un ECLI ou un ELI n'est jamais fabriqué | `Ecli` [livré, `ecli.rs:17`] et `Eli` [livrés] n'ont pas de constructeur à partir d'autres champs : seulement `parse` sur une chaîne venue de l'API ou du texte cité (§5.2, §5.3) |
-| Pas de date « 2999 » | `open_ended` appliquée par les mappers de l'adapter, champ par champ (les entités livrées sont des structs à champs publics, sans constructeur ; §6.2) [`open_ended` livrée, plan 2a ; appliquée par le mapper, plan 2f] |
+| Pas de date « 2999 » | `open_ended` appliquée par les mappers de l'adapter, champ par champ (les entités livrées sont des structs à champs publics, sans constructeur ; §6.2) [`open_ended` livrée, plan 2a ; appliquée par le mapper, livré au plan 2f] |
 | Bornes des paramètres (00 §7) | `PageSize` 1..=100 [livré, plan 2b], `TocLimit` 1..=500, `MaxChars` 500..=40 000, `PassageCount` 1..=10 [M5] |
 | Fenêtre de texte reconstructible et toujours en progression | `text::window` (§7.6) [livré : les fenêtres partitionnent le texte, `window.rs:19`] ; garanties G1 à G7 complètes en M5 |
 | La liste des lacunes de couverture n'est jamais vide | `Coverage::new` faillible, `DomainError::EmptyCoverageGaps` [livré, `coverage.rs:65`] (§4.8) |
@@ -227,14 +227,14 @@ pub fn parse_versioned(input: &str) -> Result<VersionedId, DomainError>; // "LEG
 
 ### 2.5 Enums dérivées du préfixe
 
-[livré] `ArticleId { Legi(LegiArtiId), Kali(KaliArtiId) }` (`id.rs:204`) et `DecisionId { Juri(JuriTextId), Constit(ConsTextId), Cetat(CetaTextId) }` (`id.rs:246`), avec `parse`, `FromStr` et `as_str`. `DocumentId` (les dix préfixes, hits) est livré au plan 2e ; `DecisionId::fond()` n'est pas livrée (aucun consommateur avant le mapper).
+[livré] `ArticleId { Legi(LegiArtiId), Kali(KaliArtiId) }` (`id.rs:204`) et `DecisionId { Juri(JuriTextId), Constit(ConsTextId), Cetat(CetaTextId) }` (`id.rs:246`), avec `parse`, `FromStr` et `as_str`. `DocumentId` (les dix préfixes, hits) est livré au plan 2e ; `DecisionId::fond()` est livrée au plan 2f (`pub const fn`, D28) : le mapper des décisions en tire le fond de l'identifiant renvoyé.
 
 ```rust
-// livré (plan 2e, `id.rs`) ; `DecisionId::fond()` : non livrée
+// livré (plan 2e, `id.rs`) ; `DecisionId::fond()` : livrée au plan 2f
 pub enum DocumentId { LegiText(LegiTextId), LegiArti(LegiArtiId), JorfText(JorfTextId), KaliText(KaliTextId),
                       KaliArti(KaliArtiId), JuriText(JuriTextId), ConsText(ConsTextId), CetaText(CetaTextId),
                       CnilText(CnilTextId), AccoText(AccoTextId) }               // [livré] hits ; fr_get_related (M7), fr_resolve (M6) ; `DocumentId::prefix() -> &'static str`
-impl DecisionId { pub fn fond(&self) -> Fond { /* Juri | Constit | Cetat */ } }   // non livrée : à ajouter avec son premier consommateur
+impl DecisionId { pub const fn fond(&self) -> Fond { /* Juri | Constit | Cetat */ } }   // [livré, plan 2f] consommateur : `map::decision`
 ```
 
 - Les parsers d'enum répartissent selon le préfixe. Le livré rejette les autres préfixes par `DomainError::InvalidId { input, expected }` (`expected` = `"JURITEXT, CONSTEXT or CETATEXT"` par exemple) ; la famille retrouvée (`WrongFamily`) est reconstituée par `lf-adapter-mcp` avec `AnyId::parse` (§2.7), pas par une variante du domaine.
@@ -502,7 +502,7 @@ Les deux dates sont des champs de sens différent quand elles sont omises (00 §
 
 | Champ | Type | Source (`/consult/juri`) | Règle |
 |---|---|---|---|
-| `decision_id` | `DecisionId` | `text.id` | absent ⇒ `NotFound` ; le préfixe décide de l'URL et de la règle de citation (§2.5) |
+| `decision_id` | `DecisionId` | `text.id` | absent ou blanc ⇒ identifiant demandé et `id_mismatch` ; objet sans identité (ni `id`, ni `titre`, ni `titreLong`) ⇒ `NotFound` ; le préfixe de l'identifiant renvoyé décide de l'URL, de la règle de citation (§2.5) et de la répartition du sommaire |
 | `juridiction` | `Option<String>` | `juridiction` | `Cour de cassation`, `Conseil constitutionnel`, `Conseil d'État` |
 | `formation` | `Option<String>` | `formation` | brut : code (`CHAMBRE_CIVILE_1`) en JURI, texte (`2ème - 7ème chambres réunies`) en CETAT (recherche 03 §11.7) |
 | `solution` | `Option<String>` | `solution` | `Cassation`, `Conformité`, `None` (CETAT) |
@@ -521,11 +521,11 @@ Les deux dates sont des champs de sens différent quand elles sont omises (00 §
 
 | Fond | `resumePrincipal` | `abstrats` | `autreResume` | Mapping (adapter, décidé par 00 §4) |
 |---|---|---|---|---|
-| JURI (consult_juri.json) | **titrage** en mots-clés : `Cassation civil - RESPONSABILITE DU FAIT DES PRODUITS DEFECTUEUX - Producteur - …` (193 caractères) | **sommaire rédigé** : `L'action en responsabilité dirigée contre le fabricant d'un produit…` (854 caractères) | titrage étendu (978 caractères) | `analyses ← abstrats` ; `titrages ← resumePrincipal, autreResume` |
-| CETAT (consult_juri_cetat.json) | **analyse rédigée**, préfixée d'un code de classement (`01-03-02-02 `, `44 `, `68-01-002 `) et **répétée 3 fois** (736 caractères chacune, identiques une fois le code retiré) | **titrage** en capitales préfixé (`CETAT01-03-02-02 ACTES LÉGISLATIFS…`) | — | `analyses ← resumePrincipal` ; `titrages ← abstrats` |
+| JURI (consult_juri.json) | **titrage** en mots-clés : `Cassation civil - RESPONSABILITE DU FAIT DES PRODUITS DEFECTUEUX - Producteur - …` (189 caractères bruts après réparation du mojibake, 179 nettoyés) | **sommaire rédigé** : `L'action en responsabilité dirigée contre le fabricant d'un produit…` (829 caractères) | titrage étendu (958 caractères, 915 nettoyés) | `analyses ← abstrats` ; `titrages ← resumePrincipal, autreResume` |
+| CETAT (consult_juri_cetat.json) | **analyse rédigée**, préfixée d'un code de classement (`01-03-02-02 `, `44 `, `68-01-002 `) et **répétée 3 fois** (736 caractères chacune, identiques une fois le code retiré) | **titrage** en capitales préfixé (`CETAT01-03-02-02 ACTES LÉGISLATIFS…`), en 3 entrées de 468, 344 et 457 caractères | — | `analyses ← resumePrincipal` ; `titrages ← abstrats` |
 | CONSTIT, CNIL | `sommaire` vide ou absent | — | — | vide |
 
-`OfficialSummary::new(analyses, titrages)` [livré, plan 2e, `entity/summary.rs`] nettoie chaque entrée (`clean` ; `<br/>` et tout saut de ligne ⇒ une espace), retire le code de classement de tête (`^\d{2}(-\d{2,3})*\s+` et `^CETAT\d{2}(-\d{2,3})*\s+`, scanner manuel) et dédoublonne sur la vue repliée, sans croiser `analyses` et `titrages`. **Écart à la spec** : le code de classement n'est retiré que si le reste commence par une majuscule (`15 jours après la décision` garde son `15`) ; un code seul, sans reste, est conservé. La répartition par fond (quel champ de l'API va dans `analyses` ou `titrages`) est le travail du mapper (plan 2f) : `new` reçoit déjà les deux listes. Les 3 analyses CETAT n'en font plus qu'**une**. Comme le mapping s'appuie sur une fixture par fond, il est **NON VÉRIFIÉ** [V-109 · sommaire-semantique-par-fond].
+`OfficialSummary::new(analyses, titrages)` [livré, plan 2e, `entity/summary.rs`] nettoie chaque entrée (`clean` ; `<br/>` et tout saut de ligne ⇒ une espace), retire le code de classement de tête (`^\d{2}(-\d{2,3})*\s+` et `^CETAT\d{2}(-\d{2,3})*\s+`, scanner manuel) et dédoublonne sur la vue repliée, sans croiser `analyses` et `titrages`. **Écart à la spec** : le code de classement n'est retiré que si le reste commence par une majuscule (`15 jours après la décision` garde son `15`) ; un code seul, sans reste, est conservé. La répartition par fond (quel champ de l'API va dans `analyses` ou `titrages`) est le travail du mapper, **livré au plan 2f** (`map::decision`, D29) : `new` reçoit déjà les deux listes. Règles de D29 : JURI, `abstrats` donne les analyses, `resumePrincipal` puis `autreResume` donnent les titrages ; CETAT, `resumePrincipal` donne les analyses, `abstrats` puis `autreResume` donnent les titrages (`autreResume` CETAT n'est pas attesté par les fixtures) ; CONSTIT et CNIL ignorent le sommaire ; les `titrages` de premier niveau de la réponse (identifiants de nomenclature) ne sont jamais lus. La fixture CETAT porte 6 entrées de `sommaire` : 3 `resumePrincipal` (les 3 analyses, qui n'en font plus qu'**une**) et 3 `abstrats`. Comme le mapping s'appuie sur une fixture par fond, il est **NON VÉRIFIÉ** [V-109 · sommaire-semantique-par-fond].
 
 ### 4.5 Délibération CNIL : `Deliberation`
 
@@ -533,7 +533,7 @@ Les deux dates sont des champs de sens différent quand elles sont omises (00 §
 
 | Champ | Type | Source (`/consult/cnil`) | Règle |
 |---|---|---|---|
-| `deliberation_id` | `CnilTextId` | `text.id` | absent ⇒ `NotFound` |
+| `deliberation_id` | `CnilTextId` | `text.id` | absent ou blanc ⇒ identifiant demandé et `id_mismatch` ; objet sans identité (ni `id`, ni `titre`, ni `titreLong`) ⇒ `NotFound` |
 | `num` | `Option<String>` | `num` | `SAN-2026-002` (verbatim ; les tirets typographiques sont gérés par le parseur, pas réécrits) |
 | `nature` | `Option<String>` | `nature` | `Délibération` (ou `Décision`, facette `TYPE`, recherche 03 §5) |
 | `nature_delib` | `Option<String>` | `natureDelib` | `Sanction` |
@@ -913,7 +913,7 @@ Mesures sur les fixtures (prototype de ce document, cohérent avec la recherche 
 - `<br>` donne un saut de ligne, `<p>` et `</p>` une ligne vide, tout autre bloc (`li`, `div`, `h1`…, `</br>`) termine la ligne en cours si elle a du texte, `td` et `th` donnent une espace, une balise en ligne disparaît sans espace ; `RECH_*`, `script` et `style` partent avec leur contenu. **La propriété « `clean` garde ses sauts de ligne »** (`<br>` ⇒ `\n`, `<p>` ⇒ ligne vide, autres blocs ⇒ `\n`, `td`/`th` ⇒ espace) remplace le repli de tout en une espace de la cible ci-dessous (00 §4 et les tests livrés décrivent ce comportement).
 - Un **commentaire non fermé** reste littéral (le `<!--` est du texte). Une **balise non fermée en fin d'entrée** n'est supprimée jusqu'à la fin **que si elle a vu un `=`** ; sinon son `<` est littéral (écart à 03 §7.2 étape 1, plan 2e, Ruling 4 : jamais de perte silencieuse de la fin d'un texte).
 - Entités décodées après les balises ; les **références numériques `&#128;` à `&#159;` sont remappées vers Windows-1252** (`&#146;` ⇒ `’`) et les cinq codes non attribués sont retirés comme contrôles C1 ; `&#0;` reste littéral.
-- Caractères invisibles retirés **et comptés**, y compris ceux qui viennent d'une entité numérique : les contrôles C0 et C1 (et U+007F) sauf `\t`, `\n` et `\r`, et tout point de code `Default_Ignorable_Code_Point` d'Unicode, en 17 plages (vague de fin du plan 2e, audit de sécurité L-1 ; liste recopiée de l'adapter, `error_body.rs`) : U+00AD, U+034F, U+061C (marque de lettre arabe), U+115F–U+1160, U+17B4–U+17B5, U+180B–U+180F, U+200B–U+200F (dont U+200E et U+200F, marques de sens d'écriture), U+202A–U+202E, U+2060–U+206F (dont les isolats bidi U+2066–U+2069), U+3164, U+FE00–U+FE0F (sélecteurs de variante), U+FEFF, U+FFA0, U+FFF0–U+FFF8, U+1BCA0–U+1BCA3, U+1D173–U+1D17A, U+E0000–U+E0FFF (tags et sélecteurs de variante U+E0100–U+E01EF) ; **VT, FF et NEL deviennent une espace** (comptés aussi). U+FFF9–U+FFFB (ancres d'annotation, `Cf` sans être `Default_Ignorable`) restent. Le compte n'est rendu que par `clean_with_report` et `LongText::invisible_removed()` : `clean_field`, `Snippet`, `OfficialSummary` et `Toc::build` le perdent ; alignement à décider au plan 2f (04 §9.3).
+- Caractères invisibles retirés **et comptés**, y compris ceux qui viennent d'une entité numérique : les contrôles C0 et C1 (et U+007F) sauf `\t`, `\n` et `\r`, et tout point de code `Default_Ignorable_Code_Point` d'Unicode, en 17 plages (vague de fin du plan 2e, audit de sécurité L-1 ; liste recopiée de l'adapter, `error_body.rs`) : U+00AD, U+034F, U+061C (marque de lettre arabe), U+115F–U+1160, U+17B4–U+17B5, U+180B–U+180F, U+200B–U+200F (dont U+200E et U+200F, marques de sens d'écriture), U+202A–U+202E, U+2060–U+206F (dont les isolats bidi U+2066–U+2069), U+3164, U+FE00–U+FE0F (sélecteurs de variante), U+FEFF, U+FFA0, U+FFF0–U+FFF8, U+1BCA0–U+1BCA3, U+1D173–U+1D17A, U+E0000–U+E0FFF (tags et sélecteurs de variante U+E0100–U+E01EF) ; **VT, FF et NEL deviennent une espace** (comptés aussi). U+FFF9–U+FFFB (ancres d'annotation, `Cf` sans être `Default_Ignorable`) restent. Le compte n'est rendu que par `clean_with_report` et `LongText::invisible_removed()` : `clean_field`, `Snippet`, `OfficialSummary` et les titres de `Toc::build` le perdent (les textes en ligne de la table des matières sont des `LongText`, qui le portent). **Décidé au plan 2f** (D17) : seuls les textes longs sont comptés dans `invisible_chars_removed` (04 §9.3), les champs courts, extraits et sommaires les retirent sans les compter, et la recherche n'en compte aucun.
 - Blancs : espaces internes réduits à un (NBSP comprise), lignes rognées, au plus une ligne vide.
 
 La propriété « `clean` idempotent » est **retirée** : elle est fausse avec ce lexer (`<<b>b>`, `&amp;lt;`, M1-D8) ; elle ne vaut que pour les entrées sans `<` ni `&`. Reste reporté : invariant de sortie complet des vues en M4 (M1-D7).
@@ -922,7 +922,7 @@ La propriété « `clean` idempotent » est **retirée** : elle est fausse avec 
 
 1. Retirer les balises (même scanner que §7.2). Une balise de bloc devient une espace, une balise en ligne disparaît. `<mark>` et `</mark>` sont retirées quelle que soit la casse, ce qui généralise `strip_marks` (référence citations.py:48-52, P-030).
 2. Décoder les entités (§7.2 étape 3).
-3. Supprimer les caractères invisibles : U+00AD (césure molle, retirée par legi.py selon la recherche 05 §6.3), U+200B, U+200C, U+200D, U+2060, U+FEFF, les caractères de contrôle C0 et C1 autres que `\t`, `\n` et `\r`, et les **contrôles bidirectionnels** U+202A–U+202E et U+2066–U+2069 (00 §4). [livré, plan 2e] Le jeu livré est plus large : U+061C, U+200E et U+200F (marques de sens d'écriture), et tout point de code `Default_Ignorable_Code_Point` (sélecteurs de variante, remplisseurs, tags ; liste complète ci-dessus). Un texte officiel français n'en a aucun usage légitime, et ils peuvent masquer ou réordonner le texte montré au modèle ou à l'utilisateur (attaques « Trojan Source », menace MEN-06 de 06). Leur nombre est rendu comme valeur (diagnostic, §1.1), et l'adapter l'ajoute à un compteur journalisé.
+3. Supprimer les caractères invisibles : U+00AD (césure molle, retirée par legi.py selon la recherche 05 §6.3), U+200B, U+200C, U+200D, U+2060, U+FEFF, les caractères de contrôle C0 et C1 autres que `\t`, `\n` et `\r`, et les **contrôles bidirectionnels** U+202A–U+202E et U+2066–U+2069 (00 §4). [livré, plan 2e] Le jeu livré est plus large : U+061C, U+200E et U+200F (marques de sens d'écriture), et tout point de code `Default_Ignorable_Code_Point` (sélecteurs de variante, remplisseurs, tags ; liste complète ci-dessus). Un texte officiel français n'en a aucun usage légitime, et ils peuvent masquer ou réordonner le texte montré au modèle ou à l'utilisateur (attaques « Trojan Source », menace MEN-06 de 06). Leur nombre est rendu comme valeur (diagnostic, §1.1), et l'adapter l'ajoute au compteur `invisible_chars_removed` pour les **textes longs seulement** (plan 2f, D17 ; 04 §9.3) : les champs courts, extraits et sommaires les retirent sans les compter.
 4. **Replier les blancs** : toute suite de caractères `White_Space` (espace, `\t`, `\n`, `\r`, **U+00A0 NBSP**, U+202F, U+2007, U+2000–U+200A…) devient **une** espace U+0020. Le NBSP est donc normalisé (00 §4). Cela n'est sûr que parce que la réparation du mojibake a eu lieu avant (§7.1).
 5. `trim`. Une chaîne vide donne `None`.
 
@@ -963,7 +963,7 @@ impl LongText {
     pub fn best_of(html: Option<&str>, plain: Option<&str>) -> Result<LongText, DomainError>;
     pub fn as_str(&self) -> &str;
     pub fn char_len(&self) -> u32;                     // = text_length exposé
-    pub fn invisible_removed(&self) -> u32;            // diagnostic, journalisé par l'adapter
+    pub fn invisible_removed(&self) -> u32;            // diagnostic, compté par l'adapter (textes longs, 04 §9.3)
     pub fn paragraphs(&self) -> impl Iterator<Item = (u32 /* char_start */, &str)>;
     pub fn is_empty(&self) -> bool;
     pub fn heap_bytes(&self) -> usize;                 // texte + table des paragraphes : poids pour le `weigher` (02 §9)
@@ -1096,7 +1096,7 @@ pub fn summary(text: &LongText, official: &OfficialSummary, rule: DispositifRule
 
 Ordre de préférence (00 §4) :
 
-1. **Sommaire officiel** : `official.analyses`, sinon `official.titrages` (§4.4), joints par `"\n\n"`. Exemples : JURI, l'abstrat de 854 caractères ; CETAT, l'analyse dédoublonnée de 736 caractères.
+1. **Sommaire officiel** : `official.analyses`, sinon `official.titrages` (§4.4), joints par `"\n\n"`. Exemples : JURI, l'abstrat de 829 caractères ; CETAT, l'analyse dédoublonnée de 736 caractères.
 2. **Dispositif**, uniquement pour `ConsTextId` et `CetaTextId`. Repérage sur la vue repliée du paragraphe (§7.8, NBSP déjà normalisé) :
    - **Conseil constitutionnel** : de l'en-tête « LE CONSEIL CONSTITUTIONNEL DÉCIDE : », exclu, jusqu'au paragraphe commençant par « Jugé par », exclu. Fixture : 2 paragraphes, **551** caractères (« Article 1er. - Le renvoi opéré … », « Article 2. - Cette décision sera publiée … »).
    - **Conseil d'État** : du paragraphe « D E C I D E : » (ou « DECIDE : »), exclu, jusqu'au paragraphe commençant par « Délibéré », exclu. Les paragraphes formés uniquement de `-`, `_`, `=`, `*` ou d'espaces sont ignorés. Fixture : 3 paragraphes, **411** caractères (« Article 1er : Le pourvoi … est rejeté. »…).
