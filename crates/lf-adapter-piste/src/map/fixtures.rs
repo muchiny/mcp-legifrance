@@ -3,12 +3,30 @@
 //! Les fichiers sont lus par `include_str!` et jamais reformatés ni réparés sur disque : les
 //! tests de mapping partent des octets capturés, avec leurs sentinelles, leurs chaînes vides et
 //! leurs formes inattendues. [`juri_with`] construit en plus une réponse synthétique de
-//! `/consult/juri`, sans passer par le JSON. Ce module n'existe que sous `cfg(test)`.
+//! `/consult/juri`, sans passer par le JSON. [`map_body`] et [`map_fixture`] mènent un corps
+//! jusqu'à l'entité du domaine ([`Mapped`]) par le décodage et le mapper de production. Ce module
+//! n'existe que sous `cfg(test)`.
 
+use std::num::NonZeroU32;
+
+use lf_application::ports::CorpusError;
+use lf_domain::contract::{Citable, CitationContract};
+use lf_domain::entity::{
+    Act, ArticleText, CompanyAgreement, Convention, Decision, Deliberation, SearchPage,
+};
 use lf_domain::fond::Fond;
+use lf_domain::id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId};
+use lf_domain::search::{MatchMode, PageSize, QueryText, SearchQuery};
 use serde::de::DeserializeOwned;
 
-use super::endpoint;
+use super::act::act;
+use super::agreement::agreement;
+use super::article::article;
+use super::convention::convention;
+use super::decision::decision;
+use super::deliberation::deliberation;
+use super::search::search_page;
+use super::{Diagnostics, endpoint};
 use crate::dto::decode::decode;
 use crate::dto::juri::{ConsultJuriResponseDto, JuriTextDto};
 use crate::encoding::{DecodedBody, decode_body};
@@ -266,8 +284,141 @@ pub(crate) fn juri_with(edit: impl FnOnce(&mut JuriTextDto)) -> ConsultJuriRespo
     ConsultJuriResponseDto { text: Some(text) }
 }
 
+/// Entité produite par [`map_body`] : une variante par mapper.
+#[derive(Debug)]
+pub(crate) enum Mapped {
+    /// Page de résultats de `/search`.
+    Search(SearchPage),
+    /// Loi ou décret de `/consult/lawDecree`.
+    Act(Act),
+    /// Convention collective de `/consult/kaliText`.
+    Convention(Convention),
+    /// Article de `/consult/getArticle`.
+    Article(ArticleText),
+    /// Décision de `/consult/juri`.
+    Decision(Decision),
+    /// Délibération de `/consult/cnil`.
+    Deliberation(Deliberation),
+    /// Accord d'entreprise de `/consult/acco`.
+    Agreement(CompanyAgreement),
+}
+
+impl Mapped {
+    /// Contrats de citation de l'entité : un par résultat d'une page de recherche, sinon un seul.
+    pub(crate) fn contracts(&self) -> Vec<CitationContract> {
+        match self {
+            Self::Search(page) => page.hits.iter().map(Citable::contract).collect(),
+            Self::Act(act) => vec![act.contract()],
+            Self::Convention(convention) => vec![convention.contract()],
+            Self::Article(article) => vec![article.contract()],
+            Self::Decision(decision) => vec![decision.contract()],
+            Self::Deliberation(deliberation) => vec![deliberation.contract()],
+            Self::Agreement(agreement) => vec![agreement.contract()],
+        }
+    }
+
+    /// Éléments reçus puis écartés par le mapping : résultats d'une page de recherche, entrées
+    /// de la table des matières d'un texte ; zéro pour les autres entités, qui n'en écartent pas.
+    pub(crate) fn dropped(&self) -> u32 {
+        match self {
+            Self::Search(page) => page.dropped,
+            Self::Act(act) => act.body.toc.dropped(),
+            Self::Convention(convention) => convention.body.toc.dropped(),
+            Self::Article(_) | Self::Decision(_) | Self::Deliberation(_) | Self::Agreement(_) => 0,
+        }
+    }
+}
+
+/// Corps `text` d'une réponse de genre `kind`, lu comme le fait la production : `decode` à
+/// l'endpoint du genre, puis le mapper, qui compte ses anomalies dans `diags`.
+///
+/// Une recherche est mappée pour la requête « golden » du fond, page 1, taille et mode par
+/// défaut ; une consultation pour `requested`, lu dans le type d'identifiant du mapper (ignoré
+/// pour une recherche).
+///
+/// # Errors
+///
+/// L'erreur de `decode` (corps illisible ou d'une autre forme), puis celle du mapper.
+///
+/// # Panics
+///
+/// Si `requested` n'est pas un identifiant du type attendu : une faute de frappe d'un test.
+pub(crate) fn map_body(
+    kind: Kind,
+    text: &str,
+    requested: &str,
+    diags: &mut Diagnostics,
+) -> Result<Mapped, CorpusError> {
+    match kind {
+        Kind::Search(fond) => decode(text, endpoint::SEARCH)
+            .and_then(|dto| search_page(dto, &golden_query(fond), diags))
+            .map(Mapped::Search),
+        Kind::LawDecree => decode(text, endpoint::LAW_DECREE)
+            .and_then(|dto| act(dto, &LegiTextId::parse(requested).expect("LEGITEXT"), diags))
+            .map(Mapped::Act),
+        Kind::KaliText => decode(text, endpoint::KALI_TEXT)
+            .and_then(|dto| {
+                convention(dto, &KaliTextId::parse(requested).expect("KALITEXT"), diags)
+            })
+            .map(Mapped::Convention),
+        Kind::GetArticle => decode(text, endpoint::GET_ARTICLE)
+            .and_then(|dto| article(dto, &ArticleId::parse(requested).expect("article id"), diags))
+            .map(Mapped::Article),
+        Kind::Juri => decode(text, endpoint::JURI)
+            .and_then(|dto| {
+                decision(dto, &DecisionId::parse(requested).expect("decision id"), diags)
+            })
+            .map(Mapped::Decision),
+        Kind::Cnil => decode(text, endpoint::CNIL)
+            .and_then(|dto| {
+                deliberation(dto, &CnilTextId::parse(requested).expect("CNILTEXT"), diags)
+            })
+            .map(Mapped::Deliberation),
+        Kind::Acco => decode(text, endpoint::ACCO)
+            .and_then(|dto| agreement(dto, &AccoTextId::parse(requested).expect("ACCOTEXT"), diags))
+            .map(Mapped::Agreement),
+    }
+}
+
+/// Requête « golden » de `fond` : page 1, taille et mode par défaut, sans filtre.
+///
+/// # Panics
+///
+/// Jamais : la requête est valide pour tout fond (pas de `From<DomainError>` vers
+/// `CorpusError`, d'où l'`expect`).
+fn golden_query(fond: Fond) -> SearchQuery {
+    QueryText::parse("golden")
+        .and_then(|text| {
+            SearchQuery::new(
+                fond,
+                text,
+                NonZeroU32::MIN,
+                PageSize::default(),
+                MatchMode::default(),
+                None,
+                None,
+            )
+        })
+        .expect("golden query")
+}
+
+/// Fixture `fixture` mappée comme le fait la production : [`map_body`] sur
+/// `decoded(fixture, true)`, pour l'identifiant demandé à la capture.
+///
+/// # Errors
+///
+/// Voir [`map_body`].
+pub(crate) fn map_fixture(
+    fixture: &Fixture,
+    diags: &mut Diagnostics,
+) -> Result<Mapped, CorpusError> {
+    map_body(fixture.kind, &decoded(fixture, true).text, fixture.requested, diags)
+}
+
 #[cfg(test)]
 mod tests {
+    use lf_domain::ecli::Ecli;
+
     use super::*;
     use crate::dto::acco::ConsultAccoResponseDto;
     use crate::dto::article::GetArticleResponseDto;
@@ -497,5 +648,159 @@ mod tests {
         let loda = text("consult_loda");
         assert!(loda.starts_with('{'));
         assert!(loda.contains("\"LEGITEXT000033205014_08-09-2023\""));
+    }
+
+    /// Racine des URL de legifrance.gouv.fr.
+    const LEGIFRANCE: &str = "https://www.legifrance.gouv.fr/";
+
+    /// Contrats attendus de chaque entrée du golden : clé, nombre de contrats, chemin sous
+    /// [`LEGIFRANCE`] par lequel commence chaque URL et ECLI natif de chaque contrat.
+    const GOLDEN_CONTRACTS: [(&str, usize, &str, Option<&str>); 17] = [
+        ("search_loda.json", 2, "loda/id/", None),
+        ("search_code.json", 1, "codes/texte_lc/", None),
+        ("search_juri.json", 2, "juri/id/", None),
+        ("search_constit.json", 3, "cons/id/", None),
+        ("search_cetat.json", 3, "ceta/id/", None),
+        ("search_cnil.json", 2, "cnil/id/", None),
+        ("search_kali.json", 2, "conv_coll/id/", None),
+        ("search_acco.json", 2, "acco/id/", None),
+        ("consult_loda.json", 1, "loda/id/LEGITEXT000033205014", None),
+        ("consult_article.json", 1, "codes/article_lc/LEGIARTI000006419288", None),
+        (
+            "consult_juri.json",
+            1,
+            "juri/id/JURITEXT000051743650",
+            Some("ECLI:FR:CCASS:2025:C100399"),
+        ),
+        (
+            "consult_juri_constit.json",
+            1,
+            "cons/id/CONSTEXT000052555275",
+            Some("ECLI:FR:CC:2025:2025.1173.QPC"),
+        ),
+        (
+            "consult_juri_cetat.json",
+            1,
+            "ceta/id/CETATEXT000054178503",
+            Some("ECLI:FR:CECHR:2026:506507.20260529"),
+        ),
+        ("consult_cnil.json", 1, "cnil/id/CNILTEXT000053352643", None),
+        ("consult_kali.json", 1, "conv_coll/id/KALITEXT000049878950", None),
+        ("consult_acco.json", 1, "acco/id/ACCOTEXT000053643828", None),
+        (
+            "consult_article.json[id=KALIARTI000049886059]",
+            1,
+            "codes/article_lc/LEGIARTI000006419288",
+            None,
+        ),
+    ];
+
+    /// Clé du golden ⇒ nom de la fixture et identifiant demandé par la variante :
+    /// `consult_article.json[id=KALIARTI000049886059]` ⇒
+    /// `("consult_article", Some("KALIARTI000049886059"))`, `search_code.json` ⇒
+    /// `("search_code", None)`.
+    fn golden_key(key: &str) -> (&str, Option<&str>) {
+        let (file, variant) = key
+            .strip_suffix(']')
+            .and_then(|rest| rest.split_once("[id="))
+            .map_or((key, None), |(file, id)| (file, Some(id)));
+        (file.strip_suffix(".json").expect("golden key ends with .json"), variant)
+    }
+
+    /// D-30 (`citation_never_empty`, `ported_no_fabricated_eli`) : chaque entrée du golden se
+    /// mappe et chacun de ses contrats a une citation, une URL du bon chemin, l'ECLI natif
+    /// attendu et jamais d'ELI.
+    #[test]
+    fn every_normalized_fixture_has_contract() {
+        let golden = golden();
+        let normalizer = golden["normalizer"].as_object().expect("normalizer is an object");
+        let mut keys: Vec<&str> = normalizer.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        let mut expected: Vec<&str> = GOLDEN_CONTRACTS.iter().map(|(key, ..)| *key).collect();
+        expected.sort_unstable();
+        assert_eq!(keys.len(), 17);
+        assert_eq!(keys, expected);
+
+        let mut covered = Vec::new();
+        let mut total = 0;
+        for (key, count, path, ecli) in GOLDEN_CONTRACTS {
+            let (name, variant) = golden_key(key);
+            let fixture = fixture(name);
+            covered.push(name);
+            let requested = variant.unwrap_or(fixture.requested);
+            let mut diags = Diagnostics::default();
+            let mapped =
+                map_body(fixture.kind, &decoded(fixture, true).text, requested, &mut diags)
+                    .expect(key);
+            assert_eq!(mapped.dropped(), 0, "{key}");
+            let contracts = mapped.contracts();
+            assert_eq!(contracts.len(), count, "{key}");
+            let prefix = format!("{LEGIFRANCE}{path}");
+            for contract in &contracts {
+                let url = contract.source_url.as_str();
+                assert!(!contract.citation.as_str().trim().is_empty(), "{key}");
+                assert!(url.starts_with(&prefix), "{key}: {url}");
+                assert!(contract.eli.is_none(), "{key}");
+                assert_eq!(contract.ecli.as_ref().map(Ecli::as_str), ecli, "{key}");
+            }
+            if let Mapped::Search(page) = &mapped {
+                assert_eq!(page.hits.len(), count, "{key}");
+                for (hit, contract) in page.hits.iter().zip(&contracts) {
+                    assert!(contract.source_url.as_str().ends_with(hit.id.as_str()), "{key}");
+                }
+            }
+            total += contracts.len();
+        }
+        assert_eq!(total, 26);
+        covered.sort_unstable();
+        assert_eq!(covered.iter().filter(|name| **name == "consult_article").count(), 2);
+        covered.dedup();
+        assert_eq!(covered, NAMES);
+    }
+
+    #[test]
+    fn fixtures_map_without_diagnostics() {
+        for fixture in &ALL {
+            let mut diags = Diagnostics::default();
+            let mapped = map_fixture(fixture, &mut diags).expect(fixture.name);
+            assert_eq!(diags, Diagnostics::default(), "{}", fixture.name);
+            assert!(!mapped.contracts().is_empty(), "{}", fixture.name);
+        }
+    }
+
+    #[test]
+    fn kaliarti_variant_keeps_the_returned_id() {
+        let text = decoded(fixture("consult_article"), true).text;
+        let mut diags = Diagnostics::default();
+        let variant = map_body(Kind::GetArticle, &text, "KALIARTI000049886059", &mut diags)
+            .expect("variant maps");
+        assert_eq!(diags, Diagnostics { id_mismatch: 1, ..Diagnostics::default() });
+        let contracts = variant.contracts();
+        assert_eq!(contracts.len(), 1);
+        assert_eq!(
+            contracts[0].source_url.as_str(),
+            "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288"
+        );
+        let nominal = map_fixture(fixture("consult_article"), &mut Diagnostics::default())
+            .expect("nominal maps");
+        assert_eq!(format!("{variant:?}"), format!("{nominal:?}"));
+    }
+
+    #[test]
+    fn map_body_rejects_a_body_of_the_wrong_shape() {
+        let mut diags = Diagnostics::default();
+        let shape = map_body(Kind::Acco, "null", "ACCOTEXT000053643828", &mut diags).unwrap_err();
+        assert_eq!(
+            shape,
+            CorpusError::Decode {
+                detail:
+                    "/consult/acco: .: invalid type: null, expected struct ConsultAccoResponseDto"
+                        .into()
+            }
+        );
+        let missing = map_body(Kind::Acco, r#"{"acco":null}"#, "ACCOTEXT000053643828", &mut diags)
+            .unwrap_err();
+        assert_eq!(missing, CorpusError::NotFound { what: "/consult/acco".into() });
+        assert_eq!(diags, Diagnostics::default());
     }
 }
