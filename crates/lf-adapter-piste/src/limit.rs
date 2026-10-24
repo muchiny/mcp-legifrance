@@ -2,8 +2,8 @@
 //!
 //! [`RateGate`] impose deux bornes avant chaque tentative d'envoi. D'abord un sémaphore plafonne
 //! les requêtes simultanées ; le permis est rendu à la chute du [`Permit`], que l'appelant garde
-//! jusqu'après la lecture du corps. Ensuite un limiteur `governor` (GCRA direct) espace les
-//! débuts de tentative selon le quota.
+//! jusqu'après le décodage et le mapping du corps d'un succès (`corpus`, 04 §5.5). Ensuite un
+//! limiteur `governor` (GCRA direct) espace les débuts de tentative selon le quota.
 //!
 //! Toutes les attentes sont bornées par le reste du délai de l'appel et passent par le
 //! [`Sleeper`] injecté : **jamais** `RateLimiter::until_ready`, dont l'attente passe par
@@ -103,7 +103,8 @@ impl<K: MonoClock + Clone, S: Sleeper> RateGate<K, S> {
     }
 
     /// Obtient la permission de lancer une tentative : un permis de concurrence, puis un
-    /// crédit de débit. Le permis est gardé par l'appelant jusqu'après la lecture du corps.
+    /// crédit de débit. Le permis est gardé par l'appelant jusqu'après le décodage et le mapping
+    /// du corps d'un succès (`corpus`, 04 §5.5).
     ///
     /// Le limiteur n'est consulté qu'après le permis, avant chaque tentative (réessais
     /// compris), et jamais pour la requête de jeton (affaire de l'appelant).
@@ -123,6 +124,12 @@ impl<K: MonoClock + Clone, S: Sleeper> RateGate<K, S> {
         let inner = self.take_slot(deadline).await?;
         self.take_credit(deadline).await?;
         Ok(Permit { _inner: inner })
+    }
+
+    /// Permis de concurrence libres à cet instant (tests du permis tenu par `corpus`).
+    #[cfg(test)]
+    pub(crate) fn available(&self) -> usize {
+        self.semaphore.available_permits()
     }
 
     /// Attend un permis du sémaphore, au plus le reste du délai.

@@ -5,8 +5,9 @@
 //! sans la moindre E/S), puis, à chaque tentative, client HTTP, barrière de charge, jeton,
 //! envoi borné et classification ; la boucle de réessai rejoue la tentative, et seul le corps
 //! d'une réponse 2xx est décodé (celui d'un 400 ou d'un 404 est lu par `classify`, borné et
-//! expurgé). Rien n'est lu dans l'environnement et rien n'est ouvert à la construction :
-//! `PisteCorpus::new` ne décide de rien.
+//! expurgé). Le permis de concurrence de la tentative réussie n'est rendu qu'après le décodage et
+//! la lecture de ce corps (00 §11.1). Rien n'est lu dans l'environnement et rien n'est ouvert à
+//! la construction : `PisteCorpus::new` ne décide de rien.
 //!
 //! Ni la tentative (`Attempt`), ni un corps de requête ou de réponse, ni le secret, ni le jeton
 //! ne sont jamais journalisés ni recopiés dans une erreur. Seule exception : le message d'erreur
@@ -28,7 +29,7 @@ use crate::config::{ConfigProblem, PisteConfig, PisteEndpoints};
 use crate::deadline::CallDeadline;
 use crate::encoding::decode_body;
 use crate::http::{Attempt, Payload, RawResponse, SharedClient};
-use crate::limit::RateGate;
+use crate::limit::{Permit, RateGate};
 use crate::retry::{RetryContext, SystemJitter, run};
 use crate::stats::{Stats, StatsSnapshot};
 use crate::time::{MonoClock, Sleeper, TokioClock, TokioSleeper};
@@ -62,6 +63,14 @@ struct Call<'a> {
     body: &'a [u8],
     deadline: CallDeadline,
     refreshed: AtomicBool,
+}
+
+/// Réponse d'une tentative réussie et le permis de concurrence qui l'a laissée partir : il la
+/// suit jusqu'à `post_json`, qui ne le rend qu'après le décodage et la lecture du corps
+/// (00 §11.1, 04 §5.5).
+struct Reply {
+    response: RawResponse,
+    permit: Permit,
 }
 
 impl<K: MonoClock + Clone, S: Sleeper + Clone> Clone for PisteCorpus<K, S> {
@@ -162,11 +171,18 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
         inner.tokens.token(&deadline).await.map(|_lease| ())
     }
 
-    /// Envoie `body` en POST sur `endpoint` (gabarit de chemin, `/consult/juri`) et rend le
-    /// texte de la réponse 2xx, décodé en UTF-8 et réparé du mojibake si la configuration le
-    /// demande. Consommé par `impl LegalCorpus` au plan 2e.
+    /// Envoie `body` en POST sur `endpoint` (gabarit de chemin, `/consult/juri`), décode le texte
+    /// de la réponse 2xx (UTF-8, mojibake réparé si la configuration le demande) et rend ce que
+    /// `read` en tire. Consommé par `impl LegalCorpus` au plan 2g.
     ///
     /// `kind` dit ce qu'on interroge : il décide si une réponse peut signifier « introuvable ».
+    ///
+    /// `read` s'exécute **sous le permis de concurrence** de la tentative réussie, rendu
+    /// seulement après lui : la borne de mémoire de 04 §8.5 (`max_concurrency` corps à la fois)
+    /// couvre aussi le décodage et le mapping (00 §11.1). `read` est synchrone : le budget de
+    /// décodage, état du fil, ne traverse aucun `await`. Il reçoit le texte décodé, le corps brut
+    /// déjà rendu ; le texte n'est jamais rendu à l'appelant, qui ne peut donc pas le lire hors
+    /// permis.
     ///
     /// # Errors
     ///
@@ -177,13 +193,15 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     /// [`CorpusError::NotFound`] pour une consultation dont le 400 porte le marqueur d'un
     /// identifiant inconnu, dont le 404 vient de l'hôte officiel hors page HTML, ou dont le 2xx
     /// est vide ; sinon l'erreur classée de la dernière tentative (`Timeout`, `RateLimited`,
-    /// `Auth`, `Upstream`, `Decode`, dont le 2xx vide d'une recherche).
-    pub(crate) async fn post_json(
+    /// `Auth`, `Upstream`, `Decode`, dont le 2xx vide d'une recherche) ; enfin l'erreur de
+    /// `read`.
+    pub(crate) async fn post_json<T>(
         &self,
         kind: EndpointKind,
         endpoint: &str,
         body: &[u8],
-    ) -> Result<String, CorpusError> {
+        read: impl FnOnce(&str) -> Result<T, CorpusError>,
+    ) -> Result<T, CorpusError> {
         let inner = &*self.inner;
         let endpoints = ready(&inner.config)?;
         let call = Call {
@@ -205,10 +223,16 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
             jitter: &SystemJitter,
         };
         // Seul le corps d'une 2xx est décodé ici ; `classify` a déjà lu ceux d'un 400 et d'un 404.
-        let response = run(&ctx, || self.attempt(&call)).await?;
-        let decoded = decode_body(&response.body, endpoint, inner.config.tuning().repair_mojibake)?;
+        let Reply { response, permit } = run(&ctx, || self.attempt(&call)).await?;
+        let decoded = decode_body(&response.body, endpoint, inner.config.tuning().repair_mojibake);
+        // Le corps brut tombe avant la lecture : un seul exemplaire du corps vit pendant `read`.
+        drop(response);
+        let decoded = decoded?;
         inner.stats.record_decode(endpoint, &decoded);
-        Ok(decoded.text)
+        let value = read(&decoded.text);
+        // Le permis ne tombe qu'ici, après la lecture : jamais avant (Review Focus 1 du plan 2g).
+        drop(permit);
+        value
     }
 
     /// Une tentative de `run` : un envoi, et, sur un premier 401, un second envoi immédiat avec
@@ -217,7 +241,7 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     /// Le renvoi sort du budget de `run` : ni attente, ni l'une des trois requêtes transitoires.
     /// `refreshed` vit autant que l'appel, donc un 401 après un échec passager est bien le
     /// second. Un `Unauthorized` qui reste devient l'erreur finale `Auth`.
-    async fn attempt(&self, call: &Call<'_>) -> Outcome<RawResponse> {
+    async fn attempt(&self, call: &Call<'_>) -> Outcome<Reply> {
         let mut sent = self.send(call).await;
         if matches!(sent, Ok(Outcome::Unauthorized(_))) && !call.refreshed.swap(true, Relaxed) {
             sent = self.send(call).await;
@@ -237,14 +261,19 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     /// configuration, sans attendre le limiteur (après le jeton, il serait inatteignable). Le
     /// délai de la requête est recalculé ici, à chaque envoi, sur le reste de l'échéance. Une
     /// erreur de barrière ou de jeton sort en `Err`, donc `Fatal` : déjà « au plus vite » ou déjà
-    /// réessayée en interne. Le permis de concurrence reste tenu jusqu'après la lecture du corps.
+    /// réessayée en interne.
+    ///
+    /// Le permis de concurrence suit la réponse d'un succès dans [`Reply`], jusqu'après la
+    /// lecture du corps par `post_json` ; celui de toute autre issue tombe dès la classification,
+    /// avec la fermeture de [`Outcome::map`], **avant** l'oubli du jeton refusé : un 401 n'occupe
+    /// pas une place de concurrence pendant l'attente du verrou du jeton.
     ///
     /// Sur un 401 (le premier comme le second : un jeton refusé ne doit pas servir à l'appel
     /// suivant), le jeton refusé est oublié par `invalidate`, dont l'attente du verrou est bornée
     /// par l'échéance de l'appel comme celle de `token` (04 §5.3). Si elle est écourtée
     /// (`Timeout`), `send` n'échoue pas pour autant et ignore ce résultat : l'échéance est alors
     /// atteinte, et `gate.acquire` rendra `Timeout` en tête de la tentative suivante.
-    async fn send(&self, call: &Call<'_>) -> Result<Outcome<RawResponse>, CorpusError> {
+    async fn send(&self, call: &Call<'_>) -> Result<Outcome<Reply>, CorpusError> {
         let inner = &*self.inner;
         let client = inner.client.get(&inner.config).await?;
         let permit = inner.gate.acquire(&call.deadline).await?;
@@ -273,8 +302,8 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
             repair_mojibake: inner.config.tuning().repair_mojibake,
             secrets: &secrets,
         };
-        let outcome = try_send(client, &attempt, &context).await;
-        drop(permit);
+        let outcome =
+            try_send(client, &attempt, &context).await.map(|response| Reply { response, permit });
         if matches!(outcome, Outcome::Unauthorized(_)) {
             let _ = inner.tokens.invalidate(lease.generation, &call.deadline).await;
         }
@@ -317,7 +346,7 @@ fn auth_twice(endpoint: &str, env: PisteEnvironment) -> CorpusError {
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroU32;
+    use std::num::{NonZeroU16, NonZeroU32};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -483,6 +512,12 @@ mod tests {
         requests.iter().filter(|request| request.url.path() == route).count()
     }
 
+    /// Lecteur de `post_json` qui rend le texte décodé tel quel.
+    #[expect(clippy::unnecessary_wraps, reason = "signature imposée par post_json")]
+    fn owned(text: &str) -> Result<String, CorpusError> {
+        Ok(text.to_owned())
+    }
+
     /// Serveur simulé, horloge et attente manuelles, adapter sous test.
     struct Rig {
         server: MockServer,
@@ -510,7 +545,7 @@ mod tests {
         }
 
         async fn call(&self) -> Result<String, CorpusError> {
-            self.corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY).await
+            self.corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY, owned).await
         }
 
         async fn tokens(&self) -> usize {
@@ -642,9 +677,9 @@ mod tests {
         let mut tasks = JoinSet::new();
         for _ in 0..10 {
             let corpus = corpus.clone();
-            tasks.spawn(
-                async move { corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY).await },
-            );
+            tasks.spawn(async move {
+                corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY, owned).await
+            });
         }
         let results = tasks.join_all().await;
         assert_eq!(results, vec![Ok("{}".to_owned()); 10]);
@@ -690,9 +725,9 @@ mod tests {
         let mut tasks = JoinSet::new();
         for _ in 0..10 {
             let corpus = corpus.clone();
-            tasks.spawn(
-                async move { corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY).await },
-            );
+            tasks.spawn(async move {
+                corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY, owned).await
+            });
         }
         assert_eq!(tasks.join_all().await, vec![Ok("{}".to_owned()); 10]);
         let arrivals = arrivals.lock().unwrap().clone();
@@ -741,6 +776,96 @@ mod tests {
         assert_eq!(rig.call().await, Err(CorpusError::RateLimited { retry_after: Some(secs(1)) }));
         assert_eq!(rig.sleeper.waits(), Vec::<Duration>::new());
         assert_eq!(rig.apis().await, 1);
+    }
+
+    // ---- Permis de concurrence tenu pendant la lecture du corps (00 §11.1, 04 §5.5) -------
+
+    #[tokio::test]
+    async fn the_concurrency_permit_is_held_while_the_body_is_read() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_mock(&rig.server, json_reply(200, "{}"), 1).await;
+        let gate = &rig.corpus.inner.gate;
+        let free = gate.available();
+        let read = rig
+            .corpus
+            .post_json(EndpointKind::Consult, ENDPOINT, BODY, |text| {
+                Ok((text.len(), gate.available()))
+            })
+            .await;
+        assert_eq!(read, Ok((2, free - 1)));
+        assert_eq!(gate.available(), free);
+    }
+
+    #[tokio::test]
+    async fn a_failed_attempt_gives_its_permit_back_before_the_retry() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_mock(&rig.server, ResponseTemplate::new(503), 1).await;
+        api_mock(&rig.server, json_reply(200, "{}"), 1).await;
+        let gate = &rig.corpus.inner.gate;
+        let free = gate.available();
+        let read = rig
+            .corpus
+            .post_json(EndpointKind::Consult, ENDPOINT, BODY, |_| Ok(gate.available()))
+            .await;
+        assert_eq!(read, Ok(free - 1));
+        assert_eq!(rig.apis().await, 2);
+    }
+
+    #[tokio::test]
+    async fn the_permit_is_given_back_when_the_reader_fails() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_mock(&rig.server, json_reply(200, "{}"), 1).await;
+        let gate = &rig.corpus.inner.gate;
+        let free = gate.available();
+        let refused = CorpusError::Decode { detail: "/consult/juri: .: invalid data".to_owned() };
+        let read = rig
+            .corpus
+            .post_json(EndpointKind::Consult, ENDPOINT, BODY, |_| Err::<(), _>(refused.clone()))
+            .await;
+        assert_eq!(read, Err(refused));
+        assert_eq!(gate.available(), free);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_call_waits_while_another_reads_its_body() {
+        let server = MockServer::start().await;
+        token_mock(&server, "tok-1", 1).await;
+        api_always(&server, json_reply(200, "{}")).await;
+        let mut setup = Setup::new(server.uri());
+        setup.tuning.max_concurrency = NonZeroU16::MIN;
+        let corpus = PisteCorpus::new(setup.build());
+        let (reading, started) = tokio::sync::oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let first = {
+            let corpus = corpus.clone();
+            tokio::spawn(async move {
+                let read = move |text: &str| {
+                    reading.send(()).unwrap();
+                    // `block_in_place` cède le cœur du fil : un `recv()` nu garderait la tâche de
+                    // connexion dans l'emplacement LIFO du fil bloqué, et le second appel
+                    // attendrait même avec un permis rendu trop tôt (E2 du plan 2g).
+                    tokio::task::block_in_place(|| released.recv()).unwrap();
+                    owned(text)
+                };
+                corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY, read).await
+            })
+        };
+        started.await.unwrap();
+        let second = {
+            let corpus = corpus.clone();
+            tokio::spawn(async move {
+                corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY, owned).await
+            })
+        };
+        tokio::time::sleep(ms(300)).await;
+        assert_eq!(requests_to(&server, API_PATH).await, 1);
+        release.send(()).unwrap();
+        assert_eq!(first.await.unwrap(), Ok("{}".to_owned()));
+        assert_eq!(second.await.unwrap(), Ok("{}".to_owned()));
+        assert_eq!(requests_to(&server, API_PATH).await, 2);
     }
 
     // ---- Mode dégradé (04 §2.4) ----------------------------------------------------------
@@ -792,7 +917,7 @@ mod tests {
     async fn endpoint_template_must_start_with_a_slash() {
         let rig = Rig::new().await;
         assert_eq!(
-            rig.corpus.post_json(EndpointKind::Consult, "consult/juri", BODY).await,
+            rig.corpus.post_json(EndpointKind::Consult, "consult/juri", BODY, owned).await,
             Err(CorpusError::InvalidRequest {
                 status: None,
                 detail: "endpoint template must start with a slash".to_owned()
@@ -979,7 +1104,7 @@ mod tests {
             let corpus = corpus.clone();
             Deadline::after(ms(600)).scope(async move {
                 let started = Instant::now();
-                let result = corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY).await;
+                let result = corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY, owned).await;
                 (result, started.elapsed())
             })
         };
@@ -994,9 +1119,9 @@ mod tests {
         // B reçoit son 401 avant A, invalide le jeton puis en demande un neuf (2 s) sous le verrou.
         let task_b = {
             let corpus = corpus.clone();
-            tokio::spawn(
-                async move { corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY).await },
-            )
+            tokio::spawn(async move {
+                corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY, owned).await
+            })
         };
         let (result_a, elapsed_a) = task_a.await.unwrap();
         // L'invalidation de A attend ce verrou, mais pas au-delà de l'échéance de A.
@@ -1148,7 +1273,7 @@ mod tests {
         let body = mojibake_json("PREMIÈRE CHAMBRE CIVILE");
         api_always(&rig.server, ResponseTemplate::new(200).set_body_string(body)).await;
         let twin = rig.corpus.clone();
-        twin.post_json(EndpointKind::Consult, ENDPOINT, BODY).await.unwrap();
+        twin.post_json(EndpointKind::Consult, ENDPOINT, BODY, owned).await.unwrap();
         rig.call().await.unwrap();
         assert_eq!(
             (rig.tokens().await, rig.corpus.mojibake_repairs(), twin.mojibake_repairs()),
@@ -1301,7 +1426,7 @@ mod tests {
     ) -> Result<String, CorpusError> {
         token_mock(&rig.server, "tok-1", 1).await;
         api_mock_at(&rig.server, endpoint, template).await;
-        rig.corpus.post_json(kind, endpoint, BODY).await
+        rig.corpus.post_json(kind, endpoint, BODY, owned).await
     }
 
     async fn call_once(
@@ -1384,7 +1509,8 @@ mod tests {
         let message = format!("rejected Bearer {} for {} !", leak.token, leak.secret);
         let body = serde_json::json!({ "error": 400, "message": message }).to_string();
         api_mock_at(&rig.server, ENDPOINT, json_reply(400, &body)).await;
-        let error = rig.corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY).await.unwrap_err();
+        let error =
+            rig.corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY, owned).await.unwrap_err();
         assert_eq!(error, invalid_request("rejected Bearer [redacted] for [redacted] !"));
         let mut shown = rig.describe(&error).to_vec();
         shown.push(capture.text());
@@ -1443,12 +1569,12 @@ mod tests {
         assert_send_sync_static::<PisteCorpus>();
         assert_send_sync_static::<TestCorpus>();
         let production = PisteCorpus::new(config_for("http://127.0.0.1:9", None));
-        assert_send(production.post_json(EndpointKind::Consult, ENDPOINT, BODY));
+        assert_send(production.post_json(EndpointKind::Consult, ENDPOINT, BODY, owned));
         assert_send(production.check_credentials());
         let clock = ManualClock::new();
         let sleeper = RecordingSleeper::new(clock.clone());
         let manual = TestCorpus::with_parts(config_for("http://127.0.0.1:9", None), clock, sleeper);
-        assert_send(manual.post_json(EndpointKind::Consult, ENDPOINT, BODY));
+        assert_send(manual.post_json(EndpointKind::Consult, ENDPOINT, BODY, owned));
         assert_send(manual.check_credentials());
     }
 }

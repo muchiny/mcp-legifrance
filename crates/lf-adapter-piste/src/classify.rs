@@ -57,6 +57,21 @@ pub(crate) enum Outcome<T> {
     Fatal(CorpusError),
 }
 
+impl<T> Outcome<T> {
+    /// La même issue, où la valeur d'un succès passe par `f` ; toute autre issue est recopiée et
+    /// `f` tombe sans être appelée (avec ce qu'elle a capturé).
+    pub(crate) fn map<U>(self, f: impl FnOnce(T) -> U) -> Outcome<U> {
+        match self {
+            Self::Success(value) => Outcome::Success(f(value)),
+            Self::Unauthorized(error) => Outcome::Unauthorized(error),
+            Self::Transient { error, retry_after, budget } => {
+                Outcome::Transient { error, retry_after, budget }
+            }
+            Self::Fatal(error) => Outcome::Fatal(error),
+        }
+    }
+}
+
 /// Ce que l'appelant interroge : il décide si une réponse peut signifier « introuvable ».
 ///
 /// Le genre est passé par l'appelant et non déduit du gabarit d'endpoint : aucune comparaison de
@@ -271,6 +286,8 @@ pub(crate) async fn try_send(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::testing::capture_at;
 
@@ -915,5 +932,53 @@ mod tests {
             classify(Err(TransportError::TooLarge { detail: detail.clone() }), ENDPOINT, &CONSULT),
             Outcome::Fatal(CorpusError::Decode { detail })
         );
+    }
+
+    // ---- Outcome::map --------------------------------------------------------------------
+
+    fn plus_one(n: u8) -> u8 {
+        n + 1
+    }
+
+    /// Fermeture qui garde `held` : elle tombe avec lui si `map` ne l'appelle pas.
+    fn holding(held: Arc<()>) -> impl FnOnce(u8) -> (u8, Arc<()>) {
+        move |n| (n, held)
+    }
+
+    #[test]
+    fn map_transforms_a_success_and_copies_every_other_outcome() {
+        assert_eq!(Outcome::Success(20).map(plus_one), Outcome::Success(21));
+        assert_eq!(
+            Outcome::Unauthorized(CorpusError::Timeout).map(plus_one),
+            Outcome::Unauthorized(CorpusError::Timeout)
+        );
+        assert_eq!(
+            Outcome::Transient {
+                error: CorpusError::Timeout,
+                retry_after: Some(secs(2)),
+                budget: Budget::Reduced
+            }
+            .map(plus_one),
+            Outcome::Transient {
+                error: CorpusError::Timeout,
+                retry_after: Some(secs(2)),
+                budget: Budget::Reduced
+            }
+        );
+        assert_eq!(
+            Outcome::Fatal(CorpusError::Timeout).map(plus_one),
+            Outcome::Fatal(CorpusError::Timeout)
+        );
+    }
+
+    #[test]
+    fn map_drops_its_closure_unused_outside_a_success() {
+        let held = Arc::new(());
+        let failed = Outcome::Fatal(CorpusError::Timeout).map(holding(Arc::clone(&held)));
+        assert_eq!(Arc::strong_count(&held), 1);
+        assert_eq!(failed, Outcome::Fatal(CorpusError::Timeout));
+        let kept = Outcome::Success(7).map(holding(Arc::clone(&held)));
+        assert_eq!(Arc::strong_count(&held), 2);
+        assert_eq!(kept, Outcome::Success((7, held)));
     }
 }
