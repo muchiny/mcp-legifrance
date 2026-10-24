@@ -45,6 +45,8 @@ tracing-subscriber.workspace = true
 wiremock.workspace = true
 # GzEncoder (backend Rust pur) pour fabriquer des corps gzip dans les tests de http.rs
 flate2.workspace = true
+# lecture des sidecars `.meta.toml` (integrity.rs) ; déjà au verrou par xtask
+toml.workspace = true
 
 [lints]
 workspace = true

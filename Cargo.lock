@@ -909,6 +909,7 @@ dependencies = [
  "serde_path_to_error",
  "thiserror",
  "tokio",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "wiremock",

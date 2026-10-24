@@ -46,6 +46,9 @@
 //!   nettoyé, privé des secrets puis borné, marqueur « introuvable », détection d'une page HTML.
 //! - `http` : client HTTP unique (`reqwest`, TLS rustls), tentative d'envoi (`send_once`) et
 //!   lecture bornée du corps ; aucun réessai ni jugement de statut.
+//! - `integrity` (tests seulement) : intégrité des fixtures de référence (D-35) : SHA-256 maison
+//!   (FIPS 180-4) contre les `sha256_raw` des sidecars `.meta.toml`, clés et valeurs des sidecars,
+//!   contenu du répertoire, absence de chaîne de forme jeton (JWT, base64 long).
 //! - `limit` : barrière de charge sortante (`RateGate`), sémaphore de concurrence puis limiteur
 //!   de débit `governor` sur l'horloge de l'adapter ; toutes les attentes bornées par le délai.
 //! - `map` : mapping des DTO vers le domaine (04 §9), fonctions pures sans valeur du corps dans
@@ -88,6 +91,8 @@ mod dto;
 mod encoding;
 mod error_body;
 mod http;
+#[cfg(test)]
+mod integrity;
 mod limit;
 mod map;
 mod memo;
