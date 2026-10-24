@@ -237,7 +237,7 @@ mod tests {
     }
 
     /// Balaye le code de production de `source` (fichier `file`) : chaque conteneur doit être un
-    /// champ de struct payé sur le budget, un champ admis ou faire partie d'un lecteur borné.
+    /// champ de struct payé sur le budget ou faire partie d'un lecteur borné.
     fn scan(file: &str, source: &str) -> Scan {
         let code = production(source);
         let shape = masked(&code, true);
@@ -392,6 +392,7 @@ mod tests {
                     .find(|next| next.trim_start().starts_with("pub "))
                     .unwrap();
                 assert!(!field.contains("Vec<"), "liste en null_default : {field}");
+                assert!(field.trim_start().starts_with("pub context:"), "champ : {field}");
             }
         }
         assert_eq!(uses, 1);

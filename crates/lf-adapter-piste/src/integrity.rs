@@ -1,4 +1,4 @@
-//! Intégrité des fixtures de référence (04 §13.3 ; 06 §4.4 point 5, §4.6 ; D-35 ; D9 ; E5).
+//! Intégrité des fixtures de référence (04 §13.3 ; 06 §4.4 point 5, §4.6 ; D-35).
 //!
 //! Ce module ne contient que des tests et leurs aides. Il garde les seize réponses brutes de
 //! `tests/fixtures/reference` et le golden de parité : chaque fichier a son sidecar `.meta.toml`

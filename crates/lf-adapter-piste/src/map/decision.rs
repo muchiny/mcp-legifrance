@@ -36,7 +36,7 @@ const TEXTE: Field = Field { endpoint: JURI, path: "text.texte" };
 
 /// `/consult/juri` ⇒ `Decision` (03 §4.4). Sur `Err(Decode)`, `diags` garde les anomalies
 /// relevées avant l'erreur : `Stats::record_mapping` est appelé sur `Ok` comme sur `Err`
-/// (04 §9.3, D14, branché au plan 2g) ; un `NotFound` ne touche pas `diags`.
+/// (04 §9.3), appelé par `PisteCorpus::fetch` ; un `NotFound` ne touche pas `diags`.
 ///
 /// Ordre d'évaluation figé, la première erreur l'emporte : l'identité de l'objet, l'identifiant
 /// renvoyé, la date, puis le texte intégral. L'origine est contrôlée contre l'identifiant

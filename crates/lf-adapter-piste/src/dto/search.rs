@@ -498,8 +498,7 @@ mod tests {
 
     #[test]
     fn null_lists_inside_a_result_are_empty() {
-        let raw = r#"{"results":[{"titles":null,"themes":null,"appellations":null,
-            "resumePrincipal":null,"sections":null}]}"#;
+        let raw = r#"{"results":[{"titles":null,"sections":null}]}"#;
         assert_eq!(first(raw), SearchResultDto::default());
     }
 

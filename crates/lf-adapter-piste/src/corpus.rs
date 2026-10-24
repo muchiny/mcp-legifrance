@@ -38,6 +38,8 @@ use crate::retry::{RetryContext, SystemJitter, run};
 use crate::stats::{Stats, StatsSnapshot};
 use crate::time::{MonoClock, Sleeper, TokioClock, TokioSleeper};
 
+mod port;
+
 /// Message de parité avec la référence quand les identifiants manquent (04 §2.4).
 const CREDENTIALS_MISSING: &str = "PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET (from your piste.gouv.fr application, section OAuth Credentials)";
 
@@ -180,7 +182,7 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
 
     /// Envoie `body` en POST sur `endpoint` (gabarit de chemin, `/consult/juri`), décode le texte
     /// de la réponse 2xx (UTF-8, mojibake réparé si la configuration le demande) et rend ce que
-    /// `read` en tire. Consommé par `impl LegalCorpus` au plan 2g.
+    /// `read` en tire.
     ///
     /// `kind` dit ce qu'on interroge : il décide si une réponse peut signifier « introuvable ».
     ///
@@ -188,8 +190,8 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     /// seulement après lui : la borne de mémoire de 04 §8.5 (`max_concurrency` corps à la fois)
     /// couvre aussi le décodage et le mapping (00 §11.1). `read` est synchrone : le budget de
     /// décodage, état du fil, ne traverse aucun `await`. Il reçoit le texte décodé, le corps brut
-    /// déjà rendu ; le texte n'est jamais rendu à l'appelant, qui ne peut donc pas le lire hors
-    /// permis.
+    /// déjà rendu ; le texte n'est jamais rendu à l'appelant : l'API empêche d'emprunter le texte
+    /// hors permis, pas de le recopier dans `T`, ce qu'aucun lecteur de production ne fait.
     ///
     /// # Errors
     ///
@@ -202,7 +204,7 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     /// est vide ; sinon l'erreur classée de la dernière tentative (`Timeout`, `RateLimited`,
     /// `Auth`, `Upstream`, `Decode`, dont le 2xx vide d'une recherche) ; enfin l'erreur de
     /// `read`.
-    pub(crate) async fn post_json<T>(
+    async fn post_json<T>(
         &self,
         kind: EndpointKind,
         endpoint: &str,
@@ -237,7 +239,10 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
         let decoded = decoded?;
         inner.stats.record_decode(endpoint, &decoded);
         let value = read(&decoded.text);
-        // Le permis ne tombe qu'ici, après la lecture : jamais avant (Review Focus 1 du plan 2g).
+        // Le texte décodé tombe avant le permis : `max_concurrency` corps au plus vivent à la
+        // fois, texte compris. Le permis ne tombe qu'après la lecture, jamais avant : le
+        // décodage et le mapping bornent la mémoire comme la lecture du corps (04 §8.5).
+        drop(decoded);
         drop(permit);
         value
     }
@@ -257,7 +262,7 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     ///
     /// Celles de [`Self::post_json`] ; [`CorpusError::Decode`] si le corps ne correspond pas à
     /// `D` ; enfin l'erreur de `map`.
-    pub(crate) async fn fetch<D: DeserializeOwned, T>(
+    async fn fetch<D: DeserializeOwned, T>(
         &self,
         kind: EndpointKind,
         endpoint: &str,
@@ -377,8 +382,6 @@ fn api_url(base: &Url, endpoint: &str) -> Result<Url, CorpusError> {
     url.set_path(&format!("{}{endpoint}", base.path().trim_end_matches('/')));
     Ok(url)
 }
-
-mod port;
 
 /// Erreur finale d'un 401 qui se répète après le renouvellement du jeton.
 fn auth_twice(endpoint: &str, env: PisteEnvironment) -> CorpusError {
@@ -887,7 +890,7 @@ mod tests {
                     reading.send(()).unwrap();
                     // `block_in_place` cède le cœur du fil : un `recv()` nu garderait la tâche de
                     // connexion dans l'emplacement LIFO du fil bloqué, et le second appel
-                    // attendrait même avec un permis rendu trop tôt (E2 du plan 2g).
+                    // attendrait même avec un permis rendu trop tôt.
                     tokio::task::block_in_place(|| released.recv()).unwrap();
                     owned(text)
                 };

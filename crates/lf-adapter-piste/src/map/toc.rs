@@ -49,10 +49,10 @@ fn draft(sections: Vec<TocSectionDto>, articles: Vec<TocArticleDto>) -> TocDraft
     }
 }
 
-/// Section brute, sous-sections et articles compris ; `dateDebut` et `dateFin` ne sont pas lus.
-/// La récursion suit le DTO, dont `serde_json` borne la profondeur (61 à 63 niveaux).
+/// Section brute, sous-sections et articles compris ; les DTO ne déclarent ni dates ni liens.
+/// La récursion suit le DTO, dont `serde_json` borne la profondeur (62 ou 63 niveaux).
 fn section_draft(dto: TocSectionDto) -> SectionDraft {
-    let TocSectionDto { id, title, etat, int_ordre, sections, articles, .. } = dto;
+    let TocSectionDto { id, title, etat, int_ordre, sections, articles } = dto;
     SectionDraft {
         id,
         title,
@@ -63,9 +63,9 @@ fn section_draft(dto: TocSectionDto) -> SectionDraft {
     }
 }
 
-/// Article brut : `content` devient `content_html`, déplacé ; dates et liens ne sont pas lus.
+/// Article brut : `content` devient `content_html`, déplacé ; le DTO ne déclare ni dates ni liens.
 fn article_draft(dto: TocArticleDto) -> ArticleDraft {
-    let TocArticleDto { id, num, etat, content, int_ordre, .. } = dto;
+    let TocArticleDto { id, num, etat, content, int_ordre } = dto;
     ArticleDraft { id, num, int_ordre, etat, content_html: content }
 }
 
@@ -116,7 +116,7 @@ mod tests {
     }
 
     /// `levels` sections imbriquées, titrées `S1` à `S<levels>`, sans article. Construites à la
-    /// main : `serde_json` plafonne le JSON à 61-63 niveaux de sections (`dto/consult_text.rs`).
+    /// main : `serde_json` plafonne le JSON à 62 ou 63 niveaux de sections (`dto/consult_text.rs`).
     fn chain(levels: usize) -> Vec<TocSectionDto> {
         let mut sections = Vec::new();
         for level in (1..=levels).rev() {

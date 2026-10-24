@@ -1,6 +1,8 @@
-//! Harnais du golden de parité (annexe A §4, §5.1 à §5.4 ; 06 §2.3 `parity_golden` ; D12, D13) :
-//! les divergences volontaires déclarées en données, les valeurs explicites (surcharges) et leur
-//! cohérence avec l'annexe A de parité. Ce module n'existe que sous `cfg(test)`.
+//! Harnais du golden de parité (annexe A §4, §5.1 à §5.4 ; 06 §2.3 `parity_golden`) :
+//! les divergences volontaires déclarées en données et les valeurs explicites (surcharges). Seule
+//! la liste des dix-neuf clés de divergence est rapprochée de l'annexe A par machine
+//! (`golden_divergences_match_annex_a`) ; le texte de l'annexe, lui, ne l'est pas. Ce module
+//! n'existe que sous `cfg(test)`.
 //!
 //! Le golden (`tests/fixtures/reference/parite-golden.json`) décrit la **référence** Python sur ses
 //! seize fixtures ; il est copié sans modification depuis `docs/plan/annexes/donnees/`, et la copie
@@ -86,7 +88,7 @@ impl GoldenDivergence {
     ];
 
     /// Les huit divergences qui ne changent que la sortie d'outil : le niveau 1 (entités) ne
-    /// peut pas les exercer, le niveau 2 les couvre (M5, D12).
+    /// peut pas les exercer, le niveau 2 les couvre (M5).
     pub(crate) const TOOL_OUTPUT_ONLY: [Self; 8] = [
         Self::NotesDropped,
         Self::NullsOmitted,
@@ -401,15 +403,21 @@ impl Level1<'_> {
             Rule::Date(field) => (self.dated(&golden), rust[field].clone()),
             Rule::LongText => self.long_text(&golden, rust),
             Rule::Toc => {
-                self.exercised.insert(GoldenDivergence::TocTree);
-                (self.toc_golden(&golden), toc_projection(&rust["toc"]))
+                let expected = self.toc_golden(&golden);
+                if expected != golden {
+                    self.exercised.insert(GoldenDivergence::TocTree);
+                }
+                (expected, toc_projection(&rust["toc"]))
             }
             Rule::Articles => {
                 (self.articles_golden(&golden), articles_projection(&rust["articles"]))
             }
             Rule::Citation => {
-                self.exercised.insert(GoldenDivergence::CitationRenamed);
-                (self.cleaned(&golden), rust["contract"]["citation"].clone())
+                let expected = self.cleaned(&golden);
+                if expected != golden {
+                    self.exercised.insert(GoldenDivergence::CitationRenamed);
+                }
+                (expected, rust["contract"]["citation"].clone())
             }
             Rule::SourceUrl => (golden, rust["contract"]["source_url"].clone()),
             Rule::Ecli => (golden, rust["contract"]["ecli"].clone()),
@@ -432,7 +440,6 @@ impl Level1<'_> {
     /// Texte long : `fold_ws` des deux côtés ; l'ECLI final retiré du golden quand la fixture a
     /// un `<RECH_ECLI>` ; préfixe commun jusqu'au premier ` [...]` pour un golden tronqué.
     fn long_text(&mut self, golden: &Value, rust: &Value) -> (Value, Value) {
-        self.exercised.insert(GoldenDivergence::LongTextStructured);
         let rust_text = fold_ws(rust["text"]["text"].as_str().unwrap_or_default());
         let mut expected = fold_ws(&self.repaired(golden.as_str().unwrap_or_default()));
         if self.rech_ecli {
@@ -450,7 +457,11 @@ impl Level1<'_> {
         let length = cut[0].min(cut[1]);
         let expected: String = expected.chars().take(length).collect();
         let actual: String = rust_text.chars().take(length).collect();
-        (Value::String(expected), Value::String(actual))
+        let (expected, actual) = (Value::String(expected), Value::String(actual));
+        if expected != *golden {
+            self.exercised.insert(GoldenDivergence::LongTextStructured);
+        }
+        (expected, actual)
     }
 
     /// Articles du golden d'un texte : `[article_id, clean(num), etat]`.
@@ -706,7 +717,7 @@ mod tests {
     #[test]
     fn every_golden_divergence_is_exercised() {
         // Niveau 1 : les onze divergences qu'une entité porte ; les huit autres sont celles de la
-        // sortie d'outil, exercées au niveau 2 (M5, D12).
+        // sortie d'outil, exercées au niveau 2 (M5).
         let (exercised, _) = level1();
         let tool: BTreeSet<_> = GoldenDivergence::TOOL_OUTPUT_ONLY.into_iter().collect();
         assert_eq!(exercised.intersection(&tool).count(), 0);
