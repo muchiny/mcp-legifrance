@@ -14,10 +14,13 @@
 //! `multipleVersions` dans le Swagger et en KALI : un `alias` sur un seul champ lit les deux
 //! graphies ; un corps qui porterait les deux donnerait `duplicate field`, donc `Decode`.
 //!
-//! Les champs que le mapping n'emploie pas ne sont pas déclarés (`articleVersions`, les listes de
-//! liens réservées à M7, `computedNums`, `activitePro`…) : `serde_json` les saute sans construire
-//! de valeur (mémoire bornée par la taille du corps) et ils ne peuvent faire échouer aucun
-//! décodage.
+//! Une partie des champs que le mapping n'emploie pas n'est pas déclarée (`articleVersions`, les
+//! listes de liens réservées à M7, `computedNums`, `activitePro`…) : `serde_json` les saute sans
+//! construire de valeur (mémoire bornée par la taille du corps) et ils ne peuvent faire échouer
+//! aucun décodage. D'autres restent déclarés sans être lus (`versionPrecedente`,
+//! `sectionParentTitre`, `isMultipleVersions`, `context.titreTxt`, et `id`, `debut`, `fin` d'une
+//! entrée de contexte) : un type inattendu sur l'un d'eux reste une erreur de décodage, et leur
+//! retrait est renvoyé au plan 2g.
 
 use serde::Deserialize;
 
@@ -41,7 +44,8 @@ pub(crate) struct ArticleDto {
     pub id: Option<String>,
     /// Identifiant chronologique de l'article.
     pub cid: Option<String>,
-    /// Numéro de l'article.
+    /// Numéro de l'article, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub num: Option<String>,
     /// État juridique (`VIGUEUR`, `ABROGE`…).
     pub etat: Option<String>,
@@ -72,7 +76,7 @@ pub(crate) struct ArticleDto {
     #[serde(deserialize_with = "de::null_default")]
     pub context: ArticleContextDto,
     /// Titres du texte parent.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub text_titles: Vec<TextTitleDto>,
     /// Vrai si l'article a plusieurs versions (`isMultipleVersions` ou `multipleVersions`).
     #[serde(alias = "multipleVersions")]
@@ -85,10 +89,10 @@ pub(crate) struct ArticleDto {
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct ArticleContextDto {
     /// Sections traversées, de la plus haute à la plus basse (clé `titresTM`).
-    #[serde(rename = "titresTM", deserialize_with = "de::null_default")]
+    #[serde(rename = "titresTM", deserialize_with = "de::bounded_list")]
     pub titres_tm: Vec<ContextEntryDto>,
     /// Texte parent.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub titre_txt: Vec<ContextEntryDto>,
 }
 
@@ -128,6 +132,7 @@ pub(crate) struct TextTitleDto {
 mod tests {
     use super::*;
     use crate::dto::decode::decode;
+    use crate::dto::tests::{assert_too_many, repeated};
 
     const ENDPOINT: &str = "/consult/getArticle";
 
@@ -150,6 +155,24 @@ mod tests {
     /// Message de l'erreur `Decode` rendue pour `raw`.
     fn error_of(raw: &str) -> String {
         format!("{:?}", decode::<GetArticleResponseDto>(raw, ENDPOINT).unwrap_err())
+    }
+
+    #[test]
+    fn num_accepts_int_and_string() {
+        crate::dto::tests::assert_number_reading::<ArticleDto>("num", ENDPOINT, |dto| &dto.num);
+    }
+
+    #[test]
+    fn every_article_list_is_budgeted() {
+        let objects = repeated("{}", 200_001);
+        for (fields, path) in [
+            (format!(r#""textTitles":{objects}"#), "article.textTitles[200000]"),
+            (format!(r#""context":{{"titresTM":{objects}}}"#), "article.context.titresTM[200000]"),
+            (format!(r#""context":{{"titreTxt":{objects}}}"#), "article.context.titreTxt[200000]"),
+        ] {
+            let raw = format!(r#"{{"article":{{{fields}}}}}"#);
+            assert_too_many::<GetArticleResponseDto>(&raw, ENDPOINT, path);
+        }
     }
 
     #[test]

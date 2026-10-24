@@ -321,6 +321,22 @@ mod tests {
         assert!(capture.text().contains("unknown typePagination"));
     }
 
+    /// R13 : `typePagination` numérique est lu comme chaîne (`"3"`), puis refusé comme mode
+    /// inconnu, sans mémo et sans citer la valeur.
+    #[test]
+    fn a_numeric_type_pagination_is_unknown_without_a_memo() {
+        let (capture, _guard) = capture_at(Level::WARN);
+        let (memo, _clock) = memo();
+        let mode = received_mode(Some("3"));
+        assert_eq!(mode, None);
+        memo.remember(&query(Fond::Loda, "bail", 1), mode);
+        assert_eq!(memo.len(), 0);
+        let log = capture.text();
+        assert!(log.contains("unknown typePagination"), "{log}");
+        assert!(log.contains("len=1"), "{log}");
+        assert!(!log.contains("\"3\""), "{log}");
+    }
+
     #[test]
     fn a_known_type_pagination_is_memoized() {
         let (memo, _clock) = memo();

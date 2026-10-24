@@ -1296,7 +1296,7 @@ Caractères de JSON compact du `structuredContent`. Référence : `tool_output` 
 | `fr_get_text` (consult_article.json) | 949 | 686 | — | article entier |
 | `fr_get_decision` CONSTIT | 15 140 | **1 147** (dispositif) | `focus` 1 716 ; page `full` ≈ 4 350 | ÷ 13 |
 | `fr_get_decision` CETAT | 15 191 | **1 171** (sommaire officiel) | page `full` ≈ 4 240 (recherche 03) | ÷ 13 |
-| `fr_get_decision` JURI (texte tronqué à 600) | 1 225 | 1 881 | — | plus long que la référence : texte entier (577) **et** sommaire officiel (854) ; sur un arrêt réel, seul le sommaire serait rendu |
+| `fr_get_decision` JURI (texte tronqué à 600) | 1 225 | 1 881 | — | plus long que la référence : texte entier (577) **et** sommaire officiel (829) ; sur un arrêt réel, seul le sommaire serait rendu |
 | `fr_get_deliberation` (consult_cnil.json, tronquée) | 1 258 | 1 099 | — | texte entier (593) |
 | `fr_get_convention` (consult_kali.json) | 1 127 | 710 | — | `nor` ajouté (00 §7) ; 689 sans lui |
 | `fr_get_company_agreement` (consult_acco.json) | 804 | 664 | — | — |

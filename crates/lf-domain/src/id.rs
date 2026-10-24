@@ -38,6 +38,7 @@ use std::{
 use crate::{
     date::CivilDate,
     error::{DomainError, echo},
+    fond::Fond,
 };
 
 /// Nombre de lettres du préfixe.
@@ -582,6 +583,22 @@ impl DecisionId {
             Self::Cetat(id) => id.as_str(),
         }
     }
+
+    /// Fond d'où vient la décision, selon la variante.
+    ///
+    /// ```
+    /// use lf_domain::{fond::Fond, id::DecisionId};
+    ///
+    /// assert_eq!(DecisionId::parse("CETATEXT000051655317")?.fond(), Fond::Cetat);
+    /// # Ok::<(), lf_domain::DomainError>(())
+    /// ```
+    pub const fn fond(&self) -> Fond {
+        match self {
+            Self::Juri(_) => Fond::Juri,
+            Self::Constit(_) => Fond::Constit,
+            Self::Cetat(_) => Fond::Cetat,
+        }
+    }
 }
 
 impl fmt::Display for DecisionId {
@@ -1093,6 +1110,15 @@ mod tests {
                 expected: "LEGIARTI or KALIARTI",
             }
         );
+    }
+
+    #[test]
+    fn decision_id_fond_follows_the_variant() {
+        let fond = |s: &str| DecisionId::parse(s).unwrap().fond();
+        assert_eq!(fond("JURITEXT000048465611"), Fond::Juri);
+        assert_eq!(fond("CONSTEXT000037434572"), Fond::Constit);
+        assert_eq!(fond("CETATEXT000051655317"), Fond::Cetat);
+        assert_eq!(fond("juritext000048465611 "), Fond::Juri);
     }
 
     #[test]

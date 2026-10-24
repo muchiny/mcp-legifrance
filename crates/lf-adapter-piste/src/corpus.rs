@@ -1077,7 +1077,7 @@ mod tests {
         assert_eq!(rig.corpus.mojibake_repairs(), 1);
         assert_eq!(
             rig.corpus.stats(),
-            StatsSnapshot { mojibake_repairs: 1, mojibake_unrepaired: 0 }
+            StatsSnapshot { mojibake_repairs: 1, ..StatsSnapshot::default() }
         );
         let log = capture.text();
         assert!(log.contains("WARN"), "{log}");
@@ -1094,7 +1094,7 @@ mod tests {
         assert_eq!(rig.call().await, Ok(body));
         assert_eq!(
             rig.corpus.stats(),
-            StatsSnapshot { mojibake_repairs: 0, mojibake_unrepaired: 1 }
+            StatsSnapshot { mojibake_unrepaired: 1, ..StatsSnapshot::default() }
         );
     }
 

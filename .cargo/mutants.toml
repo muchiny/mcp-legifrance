@@ -9,4 +9,10 @@ exclude_globs = [
     "xtask/src/main.rs", # glue d'I/O (cargo metadata, stdout) ; la logique est dans arch.rs
     "fuzz/**", # cibles cargo-fuzz hors workspace (Cargo.toml exclude) : pas du code livré ; filet si le dossier y entrait
 ]
-exclude_re = []
+exclude_re = [
+    # dto/de.rs, `ListVisitor::visit_none` : son corps est `Ok(Vec::new())` et `Self::Value` vaut
+    # `Vec<T>`. Le mutant `Ok(Default::default())` appelle `<Vec<T> as Default>::default()`, que
+    # la bibliothèque standard définit comme `Vec::new()` : même valeur, même capacité nulle, aucune
+    # allocation. Aucun test ne peut les distinguer (mutant équivalent, plan 2f, Task 33).
+    'ListVisitor<T>>::visit_none -> .* with Ok\(Default::default\(\)\)$',
+]

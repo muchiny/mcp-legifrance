@@ -5,7 +5,7 @@ use crate::{
     contract::{Citable, CitationContract, Idcc, Nor},
     date::CivilDate,
     entity::Toc,
-    id::{JorfTextId, KaliTextId, LegiTextId},
+    id::{DocumentId, KaliTextId, LegiTextId},
     status::LegalStatus,
     url::{ResourceKind, legifrance_url},
 };
@@ -13,10 +13,10 @@ use crate::{
 /// Métadonnées et sommaire communs aux textes consolidés.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TextBody {
-    /// Identifiant chronologique (CID), un [`JorfTextId`] (`JORFTEXT…`). `None` pour une
-    /// convention collective : le `cid` KALI vaut `KALITEXT…`, qui n'est pas un `JorfTextId` ;
-    /// son type pour KALI est à décider au plan 2f.
-    pub cid: Option<JorfTextId>,
+    /// Identifiant chronologique (CID), un [`DocumentId`] dont la famille suit le texte :
+    /// `JORFTEXT…` pour une loi ou un décret, `LEGITEXT…` pour un code, `KALITEXT…` (égal à
+    /// l'`id`) pour une convention collective.
+    pub cid: Option<DocumentId>,
     /// Numéro NOR ; `None` : absent ou invalide.
     pub nor: Option<Nor>,
     /// Titre officiel.
@@ -174,18 +174,32 @@ mod tests {
     #[test]
     fn text_body_carries_typed_fields() {
         let body = TextBody {
-            cid: Some(JorfTextId::parse("JORFTEXT000033202746").unwrap()),
+            cid: Some(DocumentId::parse("JORFTEXT000033202746").unwrap()),
             nor: Nor::parse("aset2450455m"),
             etat: LegalStatus::parse("VIGUEUR"),
             jo_reference: Some("JORF n°0235 du 8 octobre 2016".into()),
             aliases: vec!["loi Lemaire".into()],
             ..TextBody::default()
         };
-        assert_eq!(body.cid.as_ref().map(JorfTextId::as_str), Some("JORFTEXT000033202746"));
+        assert_eq!(body.cid.as_ref().map(DocumentId::as_str), Some("JORFTEXT000033202746"));
+        assert_eq!(body.cid.as_ref().map(DocumentId::prefix), Some("JORFTEXT"));
         assert_eq!(body.nor.as_ref().map(Nor::as_str), Some("ASET2450455M"));
         assert_eq!(body.etat, Some(LegalStatus::Vigueur));
         assert_eq!(body.aliases, ["loi Lemaire"]);
         assert_eq!(body.jo_reference.as_deref(), Some("JORF n°0235 du 8 octobre 2016"));
+    }
+
+    #[test]
+    fn text_body_cid_holds_every_text_family() {
+        for (raw, prefix) in [
+            ("LEGITEXT000006070721", "LEGITEXT"),
+            ("JORFTEXT000033202746", "JORFTEXT"),
+            ("KALITEXT000049878950", "KALITEXT"),
+        ] {
+            let body = TextBody { cid: DocumentId::parse(raw).ok(), ..TextBody::default() };
+            assert_eq!(body.cid.as_ref().map(DocumentId::as_str), Some(raw));
+            assert_eq!(body.cid.as_ref().map(DocumentId::prefix), Some(prefix));
+        }
     }
 
     #[test]

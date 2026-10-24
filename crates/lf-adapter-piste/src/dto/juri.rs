@@ -6,7 +6,8 @@
 //! `PartialEq` sous `cfg(test)` seulement (elles portent du texte de décision), dates brutes
 //! (`RawDate`), texte et casse gardés tels quels (`ARRET`, `QPC`, `Texte`, `Délibération`).
 //! `decisionAttaquee`, souvent `null`, est lue comme une struct vide : « absent » et « vide » se
-//! confondent, le mapping teste `formation` et `date`.
+//! confondent. Le mapping ne la lit pas (D30, renvoyée à M7) ; un test vérifie seulement qu'elle ne
+//! change pas la décision (`attacked_decision_does_not_change_the_decision`, `map/decision.rs`).
 //!
 //! Ce module ne partage aucun type avec `consult_text` : le même nom de champ y a des types
 //! différents selon l'endpoint (les signataires sont un objet en KALI et une chaîne en JURI).
@@ -63,8 +64,8 @@ pub(crate) struct JuriTextDto {
     pub nature_delib: Option<String>,
     /// État juridique (délibérations de la CNIL).
     pub etat: Option<String>,
-    /// Numéro de la décision (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
+    /// Numéro de la décision, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub num: Option<String>,
     /// Identifiant européen de jurisprudence (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
@@ -91,16 +92,16 @@ pub(crate) struct JuriTextDto {
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub ancien_id: Option<String>,
     /// Numéros de pourvoi ou d'affaire.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub numero_affaire: Vec<String>,
     /// Plan de classement de la décision.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub titrages: Vec<String>,
     /// Résumés officiels.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub sommaire: Vec<SommaireDto>,
     /// Textes appliqués ou cités.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub liens: Vec<TexteLienDto>,
     /// Date du texte, brute.
     #[serde(deserialize_with = "de::opt_raw_date")]
@@ -154,8 +155,8 @@ pub(crate) struct TexteLienDto {
     /// Identifiant du lien (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub id: Option<String>,
-    /// Numéro du texte lié (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
+    /// Numéro du texte lié, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub num: Option<String>,
     /// Nature du texte lié (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
@@ -179,6 +180,7 @@ mod tests {
     use super::*;
     use crate::dto::consult_text::ConsultTextDto;
     use crate::dto::decode::decode;
+    use crate::dto::tests::{assert_too_many, repeated};
 
     const JURI: &str = "/consult/juri";
     const CNIL: &str = "/consult/cnil";
@@ -232,6 +234,24 @@ mod tests {
     /// Enveloppe `text` autour de `fields`, qui sont des champs JSON.
     fn wrapped(fields: &str) -> String {
         format!(r#"{{"text":{{{fields}}}}}"#)
+    }
+
+    #[test]
+    fn every_juri_list_is_budgeted() {
+        let strings = repeated(r#""x""#, 200_001);
+        let objects = repeated("{}", 200_001);
+        for (field, elements) in [
+            ("numeroAffaire", &strings),
+            ("titrages", &strings),
+            ("sommaire", &objects),
+            ("liens", &objects),
+        ] {
+            assert_too_many::<ConsultJuriResponseDto>(
+                &wrapped(&format!(r#""{field}":{elements}"#)),
+                JURI,
+                &format!("text.{field}[200000]"),
+            );
+        }
     }
 
     #[test]
@@ -354,6 +374,23 @@ mod tests {
         let natures = ["ARRET", "QPC", "Texte", "Délibération", "arret"];
         let read_nature = |nature: &str| juri(&wrapped(&format!(r#""nature":"{nature}""#))).nature;
         assert_eq!(natures.map(read_nature), natures.map(|nature| text!(nature)));
+    }
+
+    #[test]
+    fn num_accepts_int_and_string() {
+        use crate::dto::tests::assert_number_reading;
+        assert_number_reading::<JuriTextDto>("num", JURI, |dto| &dto.num);
+        assert_number_reading::<TexteLienDto>("num", JURI, |dto| &dto.num);
+    }
+
+    #[test]
+    fn numero_affaire_scalar_is_a_decode_error() {
+        let error = decode::<JuriTextDto>(r#"{"numeroAffaire":12}"#, "/consult/juri").unwrap_err();
+        let debug = format!("{error:?}");
+        assert!(
+            debug.starts_with(r#"Decode { detail: "/consult/juri: numeroAffaire: "#),
+            "{debug}"
+        );
     }
 
     #[test]

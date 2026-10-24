@@ -4,7 +4,10 @@
 //! déclarée. Les structs suivent la convention de `consult_text` : `Default` dérivé,
 //! `#[serde(default)]` au niveau du conteneur, `Debug` et `PartialEq` sous `cfg(test)`
 //! seulement, dates brutes (`RawDate`). Le code IDCC est lu en chaîne ou en nombre
-//! (`opt_string_or_number`).
+//! (`opt_string_or_number`), comme `fileSize` et `numero`, déclarés mais jamais lus par le
+//! mapping : un type inattendu sur l'un d'eux ne doit pas faire perdre l'accord (D-24). Le retrait
+//! des champs non lus (ceux-là, `dateDiffusion`, `dateFin`, `conformeVersionIntegrale`) est
+//! renvoyé au plan 2g.
 //!
 //! `data` (le fichier joint en base64, jusqu'à 1 Mio) et `attachment` ne sont jamais déclarés :
 //! `serde_json` saute une valeur non déclarée sans construire de valeur, à toute profondeur
@@ -39,7 +42,10 @@ pub(crate) struct AccordDto {
     pub raison_sociale: Option<String>,
     /// Secteur d'activité (`""` reste `Some("")`).
     pub secteur: Option<String>,
-    /// Taille du fichier joint, avec son unité (`624,3 Ko`).
+    /// Taille du fichier joint, avec son unité (`624,3 Ko`), en chaîne ou en nombre, rendue en
+    /// chaîne (`""` : alors `None`) ; jamais lue par le mapping, tolérante pour ne pas faire perdre
+    /// l'accord (D-24).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub file_size: Option<String>,
     /// Numéro SIRET (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
@@ -47,17 +53,18 @@ pub(crate) struct AccordDto {
     /// Code APE (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub code_ape: Option<String>,
-    /// Numéro de dépôt (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
+    /// Numéro de dépôt, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`) ; jamais lu
+    /// par le mapping, tolérant pour ne pas faire perdre l'accord (D-24).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
     pub numero: Option<String>,
     /// Code IDCC, lu en chaîne ou en nombre et rendu en chaîne.
     #[serde(deserialize_with = "de::opt_string_or_number")]
     pub code_idcc: Option<String>,
     /// Thèmes de l'accord.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub themes: Vec<LibelleDto>,
     /// Syndicats signataires.
-    #[serde(deserialize_with = "de::null_default")]
+    #[serde(deserialize_with = "de::bounded_list")]
     pub syndicats: Vec<LibelleDto>,
     /// Date du texte, brute.
     #[serde(deserialize_with = "de::opt_raw_date")]
@@ -93,6 +100,7 @@ pub(crate) struct LibelleDto {
 mod tests {
     use super::*;
     use crate::dto::decode::decode;
+    use crate::dto::tests::{assert_too_many, repeated};
 
     const ENDPOINT: &str = "/consult/acco";
 
@@ -124,6 +132,19 @@ mod tests {
     /// Enveloppe `acco` autour de `fields`, qui sont des champs JSON.
     fn wrapped(fields: &str) -> String {
         format!(r#"{{"acco":{{{fields}}}}}"#)
+    }
+
+    #[test]
+    fn every_acco_list_is_budgeted() {
+        let objects = repeated("{}", 200_001);
+        for field in ["themes", "syndicats"] {
+            let raw = format!(r#"{{"acco":{{"{field}":{objects}}}}}"#);
+            assert_too_many::<ConsultAccoResponseDto>(
+                &raw,
+                ENDPOINT,
+                &format!("acco.{field}[200000]"),
+            );
+        }
     }
 
     #[test]
@@ -174,6 +195,22 @@ mod tests {
         assert_eq!(
             raws.map(read_idcc),
             [text!("275"), text!("275"), text!("0275"), None, None, None, None]
+        );
+    }
+
+    #[test]
+    fn unread_file_size_and_numero_accept_any_json_value() {
+        use crate::dto::tests::assert_number_reading;
+        assert_number_reading::<AccordDto>("fileSize", ENDPOINT, |dto| &dto.file_size);
+        assert_number_reading::<AccordDto>("numero", ENDPOINT, |dto| &dto.numero);
+        let raw = wrapped(r#""fileSize":624,"numero":[1],"titreTexte":"Accord""#);
+        assert_eq!(
+            accord(&raw),
+            AccordDto {
+                titre_texte: text!("Accord"),
+                file_size: text!("624"),
+                ..Default::default()
+            }
         );
     }
 
