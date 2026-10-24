@@ -35,7 +35,7 @@ const UNRECOGNIZED: &str = "invalid data";
 /// gardent leur texte fixe et leur position.
 ///
 /// Chaque élément de liste lu par un DTO coûte 1 au budget du document ([`budget::MAX_ELEMENTS`],
-/// 200 000) : `decode` l'arme avant la lecture et le désarme en sortant, y compris sur erreur. Le
+/// 200 000) : `decode` l'arme avant la lecture et rend l'état précédent en sortant, y compris sur erreur. Le
 /// document qui le dépasse donne un [`CorpusError::Decode`] de catégorie fixe `too many elements`
 /// et de chemin celui de l'élément refusé (`articles[200000]`).
 ///
@@ -643,7 +643,7 @@ mod tests {
     }
 
     #[test]
-    fn a_too_many_elements_detail_is_kept_as_is_by_redact() {
+    fn redact_keeps_the_too_many_elements_category_and_drops_the_position() {
         assert_eq!(
             ["too many elements", "too many elements at line 1 column 12"].map(redact),
             ["too many elements", "too many elements"]

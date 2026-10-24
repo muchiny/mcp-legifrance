@@ -63,9 +63,10 @@ jobs:
           tool: cargo-fuzz@0.13.1
       - if: matrix.target != 'dto_decode'
         run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=300
-      # dto_decode : corps jusqu'à 64 Kio (le défaut de libFuzzer, 4 096 octets, n'atteint ni le
-      # budget ni les chemins profonds) ; les fixtures de référence servent de graines en second
-      # dossier. libFuzzer n'écrit que dans le premier, le corpus par défaut (créé ici, ignoré par
+      # dto_decode : corps jusqu'à 64 Kio (le défaut de libFuzzer, 4 096 octets, n'atteint ni les
+      # chemins profonds ni le plafond de 100 results ; le budget de 200 000 éléments, lui, exige au
+      # moins 3 octets par élément, soit environ 600 Kio, et n'est donc pas atteint ici) ; les
+      # fixtures de référence servent de graines en second dossier. libFuzzer n'écrit que dans le premier, le corpus par défaut (créé ici, ignoré par
       # git), et ne modifie jamais les graines lues ailleurs.
       - if: matrix.target == 'dto_decode'
         run: |

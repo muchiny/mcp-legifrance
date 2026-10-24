@@ -32,8 +32,8 @@ thread_local! {
 /// Garde du budget : rend au thread son état d'armement précédent quand elle tombe, y compris
 /// pendant une panique.
 ///
-/// Ni `Send` ni `Sync` (`PhantomData<*const ()>`) : elle reste sur le thread dont elle arme le
-/// compteur.
+/// Pas `Send` (`PhantomData<*const ()>`, figé par `the_guard_is_not_send`) : elle reste sur le
+/// thread dont elle arme le compteur.
 #[must_use = "le budget est rendu à son état précédent dès que la garde tombe"]
 pub(crate) struct Armed {
     /// État du compteur avant cet armement : `None` si le thread n'était pas armé.
