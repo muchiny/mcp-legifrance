@@ -23,8 +23,9 @@ ACTIONLINT ?= actionlint
 # minimal en jours. SECURITY_FIX=true (libellé `security-fix` de la PR) vient de l'environnement.
 MIN_AGE_BASE ?= origin/main
 MIN_AGE_DAYS ?= 14
-# Golden de parité (06 §3.2) : répertoire du golden reproduit et données du plan.
-SURFACE_DIR ?= /var/tmp/mcp-legifrance-surface
+# Golden de parité (06 §3.2) : répertoire du golden reproduit (sous target/, ignoré par git ;
+# la CI pose le sien dans RUNNER_TEMP) et données du plan.
+SURFACE_DIR ?= target/surface
 DONNEES := docs/plan/annexes/donnees
 
 .PHONY: fmt fmt-check lint test doc arch purity deny audit-fuzz min-age min-age-selftest machete cov cov-cobertura clippy-json mem-check mutants mutants-diff workflow-lint surface ci
