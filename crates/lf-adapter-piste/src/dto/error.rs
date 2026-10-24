@@ -6,26 +6,22 @@ use serde::Deserialize;
 
 use super::de;
 
-/// Corps JSON d'une réponse d'erreur de PISTE (400, 404, 500…). Tous les champs sont
-/// facultatifs et les champs inconnus (`path`, `timestamp`…) sont ignorés.
+/// Corps JSON d'une réponse d'erreur de PISTE (400, 404, 500…). Les deux champs sont
+/// facultatifs ; seuls `error` et `message` sont déclarés : les autres (`status` et `errorCode`
+/// depuis le plan 2g, `path`, `timestamp`…) sont sautés sans construire de valeur, et aucun type
+/// inattendu ne peut faire perdre le message ni le marqueur « introuvable » (V-67).
 ///
 /// La lecture reste facultative : le classificateur ignore toute erreur de décodage. Le `Debug`
-/// est écrit à la main : `message` et `status` viennent du corps et peuvent citer la requête.
+/// est écrit à la main : `message` vient du corps et peut citer la requête.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PisteErrorDto {
     /// Code numérique de l'erreur (en nombre ou en chaîne de chiffres ; sinon `None`).
     #[serde(default, deserialize_with = "de::opt_u64_lenient")]
     pub error: Option<u64>,
-    /// Statut, de forme libre (texte, nombre, objet).
-    #[serde(default)]
-    pub status: Option<serde_json::Value>,
     /// Message libre de PISTE.
     #[serde(default)]
     pub message: Option<String>,
-    /// Code d'erreur applicatif (chaîne ou nombre, rendu en chaîne ; tout autre type donne `None`).
-    #[serde(default, deserialize_with = "de::opt_string_or_number")]
-    pub error_code: Option<String>,
 }
 
 impl fmt::Debug for PisteErrorDto {
@@ -37,8 +33,6 @@ impl fmt::Debug for PisteErrorDto {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
 
     fn read(raw: &str) -> PisteErrorDto {
@@ -50,53 +44,30 @@ mod tests {
         let dto = read(
             r#"{"error":400,"status":"Bad Request","message":"Bad value","errorCode":"E42","path":"/consult/juri"}"#,
         );
-        assert_eq!(
-            (dto.error, dto.status, dto.message.as_deref(), dto.error_code.as_deref()),
-            (Some(400), Some(json!("Bad Request")), Some("Bad value"), Some("E42"))
-        );
+        assert_eq!((dto.error, dto.message.as_deref()), (Some(400), Some("Bad value")));
     }
 
     #[test]
     fn every_field_is_optional() {
         let dto = read("{}");
-        assert_eq!((dto.error, dto.status, dto.message, dto.error_code), (None, None, None, None));
+        assert_eq!((dto.error, dto.message), (None, None));
     }
 
     #[test]
-    fn error_is_lenient_and_status_keeps_any_shape() {
+    fn error_is_lenient() {
         let errors = [r#""404""#, "404", r#""Not Found""#, "null", "{}", "-1"];
         assert_eq!(
             errors.map(|raw| read(&format!(r#"{{"error":{raw}}}"#)).error),
             [Some(404), Some(404), None, None, None, None]
         );
-        let statuses = [r#""Bad Request""#, "400", r#"{"code":400}"#, "null"];
-        assert_eq!(
-            statuses.map(|raw| read(&format!(r#"{{"status":{raw}}}"#)).status),
-            [Some(json!("Bad Request")), Some(json!(400)), Some(json!({"code": 400})), None]
-        );
     }
 
     #[test]
-    fn error_code_is_lenient_and_never_costs_the_message() {
-        // (écriture de `errorCode`, valeur lue)
-        let codes = [
-            (r#""E42""#, Some("E42")),
-            ("1234", Some("1234")),
-            ("-7", Some("-7")),
-            ("1.5", None),
-            ("null", None),
-            (r#""  ""#, None),
-            (r#"{"code":1}"#, None),
-            (r#"["E42"]"#, None),
-            ("true", None),
-        ];
-        for (raw, expected) in codes {
-            let dto = read(&format!(r#"{{"message":"kept","errorCode":{raw}}}"#));
-            assert_eq!(
-                (dto.message.as_deref(), dto.error_code.as_deref()),
-                (Some("kept"), expected),
-                "{raw}"
-            );
+    fn status_and_error_code_of_any_shape_never_cost_the_message() {
+        // `status` et `errorCode` ne sont plus déclarés (plan 2g) : sautés sans valeur construite.
+        for raw in [r#""E42""#, "1234", "1.5", "null", r#"{"code":1}"#, r#"["E42"]"#, "true"] {
+            let dto = read(&format!(r#"{{"message":"kept","errorCode":{raw},"status":{raw}}}"#));
+            assert_eq!(dto.message.as_deref(), Some("kept"), "{raw}");
         }
     }
 

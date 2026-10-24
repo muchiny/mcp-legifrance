@@ -5,9 +5,6 @@
 //! `consult_text` : `Default` dérivé, `#[serde(default)]` au niveau du conteneur, `Debug` et
 //! `PartialEq` sous `cfg(test)` seulement (elles portent du texte de décision), dates brutes
 //! (`RawDate`), texte et casse gardés tels quels (`ARRET`, `QPC`, `Texte`, `Délibération`).
-//! `decisionAttaquee`, souvent `null`, est lue comme une struct vide : « absent » et « vide » se
-//! confondent. Le mapping ne la lit pas (D30, renvoyée à M7) ; un test vérifie seulement qu'elle ne
-//! change pas la décision (`attacked_decision_does_not_change_the_decision`, `map/decision.rs`).
 //!
 //! Ce module ne partage aucun type avec `consult_text` : le même nom de champ y a des types
 //! différents selon l'endpoint (les signataires sont un objet en KALI et une chaîne en JURI).
@@ -17,8 +14,13 @@
 //! Les personnes (président, avocats, rapporteur, commissaire…) ne sont jamais déclarées : la
 //! loi interdit d'évaluer les pratiques des magistrats à partir de leur identité (recherche 05
 //! §5.1), et ne pas les lire garantit qu'elles ne laissent aucune trace, même de type imprévu.
-//! Les autres champs que le mapping n'emploie pas sont sautés par `serde_json` sans construire
-//! de valeur (mémoire bornée par la taille du corps).
+//!
+//! Seuls les champs que le mapping lit sont déclarés (04 §8.1) ; depuis le plan 2g,
+//! `natureQualifiee`, `citationJp`, `publicationRecueil`, `typePublicationBulletin`,
+//! `titreLoiDef`, `idTexteJo`, `titreJo`, `ancienId`, `titrages`, `liens`, `decisionAttaquee`
+//! (D30, renvoyée à M7 ; `the_attacked_decision_is_never_read`, `map/decision.rs`) et l'`id` d'un
+//! sommaire sont sautés par `serde_json` sans construire de valeur (mémoire bornée par la taille
+//! du corps) et ne peuvent faire échouer aucun décodage.
 
 use serde::Deserialize;
 
@@ -58,8 +60,6 @@ pub(crate) struct JuriTextDto {
     pub texte: Option<String>,
     /// Texte en HTML, gardé tel quel.
     pub texte_html: Option<String>,
-    /// Nature qualifiée d'une décision du Conseil constitutionnel.
-    pub nature_qualifiee: Option<String>,
     /// Nature d'une délibération de la CNIL (`Sanction`…).
     pub nature_delib: Option<String>,
     /// État juridique (délibérations de la CNIL).
@@ -70,39 +70,12 @@ pub(crate) struct JuriTextDto {
     /// Identifiant européen de jurisprudence (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub ecli: Option<String>,
-    /// Jurisprudence citée, en prose (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub citation_jp: Option<String>,
-    /// Niveau de publication au recueil (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub publication_recueil: Option<String>,
-    /// Niveau de publication au bulletin (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub type_publication_bulletin: Option<String>,
-    /// Titre de la loi déférée (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub titre_loi_def: Option<String>,
-    /// Identifiant du texte au Journal officiel (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub id_texte_jo: Option<String>,
-    /// Référence au Journal officiel (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub titre_jo: Option<String>,
-    /// Ancien identifiant de la décision (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub ancien_id: Option<String>,
     /// Numéros de pourvoi ou d'affaire.
     #[serde(deserialize_with = "de::bounded_list")]
     pub numero_affaire: Vec<String>,
-    /// Plan de classement de la décision.
-    #[serde(deserialize_with = "de::bounded_list")]
-    pub titrages: Vec<String>,
     /// Résumés officiels.
     #[serde(deserialize_with = "de::bounded_list")]
     pub sommaire: Vec<SommaireDto>,
-    /// Textes appliqués ou cités.
-    #[serde(deserialize_with = "de::bounded_list")]
-    pub liens: Vec<TexteLienDto>,
     /// Date du texte, brute.
     #[serde(deserialize_with = "de::opt_raw_date")]
     pub date_texte: Option<RawDate>,
@@ -115,9 +88,6 @@ pub(crate) struct JuriTextDto {
     /// Date de publication si elle est valide, brute.
     #[serde(deserialize_with = "de::opt_raw_date")]
     pub date_publi_computed: Option<RawDate>,
-    /// Décision attaquée (`null` : valeur vide).
-    #[serde(deserialize_with = "de::null_default")]
-    pub decision_attaquee: DecisionAttaqueeDto,
 }
 
 /// Résumé officiel d'une décision.
@@ -125,8 +95,6 @@ pub(crate) struct JuriTextDto {
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct SommaireDto {
-    /// Identifiant du résumé.
-    pub id: Option<String>,
     /// Résumé principal (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub resume_principal: Option<String>,
@@ -136,43 +104,6 @@ pub(crate) struct SommaireDto {
     /// Autre résumé (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub autre_resume: Option<String>,
-}
-
-/// Lien d'une décision vers un texte appliqué.
-#[derive(Deserialize, Default)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[serde(rename_all = "camelCase", default)]
-pub(crate) struct TexteLienDto {
-    /// Type du lien (`CITATION`…).
-    pub type_lien: Option<String>,
-    /// Sens du lien (`source`, `cible`).
-    pub sens: Option<String>,
-    /// Titre du texte lié.
-    pub title: Option<String>,
-    /// Identifiant chronologique du texte lié (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub cid_texte: Option<String>,
-    /// Identifiant du lien (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub id: Option<String>,
-    /// Numéro du texte lié, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_string_or_number")]
-    pub num: Option<String>,
-    /// Nature du texte lié (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub nature_texte: Option<String>,
-}
-
-/// Décision attaquée par une décision de justice.
-#[derive(Deserialize, Default)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[serde(rename_all = "camelCase", default)]
-pub(crate) struct DecisionAttaqueeDto {
-    /// Formation ou juridiction de la décision attaquée.
-    pub formation: Option<String>,
-    /// Date de la décision attaquée, brute.
-    #[serde(deserialize_with = "de::opt_raw_date")]
-    pub date: Option<RawDate>,
 }
 
 #[cfg(test)]
@@ -240,12 +171,7 @@ mod tests {
     fn every_juri_list_is_budgeted() {
         let strings = repeated(r#""x""#, 200_001);
         let objects = repeated("{}", 200_001);
-        for (field, elements) in [
-            ("numeroAffaire", &strings),
-            ("titrages", &strings),
-            ("sommaire", &objects),
-            ("liens", &objects),
-        ] {
+        for (field, elements) in [("numeroAffaire", &strings), ("sommaire", &objects)] {
             assert_too_many::<ConsultJuriResponseDto>(
                 &wrapped(&format!(r#""{field}":{elements}"#)),
                 JURI,
@@ -276,37 +202,11 @@ mod tests {
                 date_texte: Some(RawDate::Millis(1_748_995_200_000)),
                 date_texte_computed: Some(RawDate::Millis(1_748_995_200_000)),
                 date_publi: None,
-                publication_recueil: text!("C"),
-                type_publication_bulletin: text!("T"),
                 sommaire: vec![SommaireDto {
-                    id: text!("1"),
                     abstrats: text!("Responsabilité"),
                     resume_principal: text!("Il résulte de"),
                     autre_resume: text!("Autre résumé"),
                 }],
-                citation_jp: text!("Sur l'interprétation du droit interne"),
-                liens: vec![
-                    TexteLienDto {
-                        type_lien: text!("CITATION"),
-                        sens: text!("source"),
-                        title: text!("article"),
-                        ..Default::default()
-                    },
-                    TexteLienDto {
-                        type_lien: text!("APPLICATION"),
-                        sens: text!("cible"),
-                        title: text!("Code civil"),
-                        cid_texte: text!("LEGITEXT000006070721"),
-                        id: text!("LIEN-2"),
-                        num: text!("1240"),
-                        nature_texte: text!("CODE"),
-                    },
-                ],
-                titrages: vec!["JURINOME1-JURINOME2".to_owned()],
-                decision_attaquee: DecisionAttaqueeDto {
-                    formation: text!("Cour d'appel de Lyon"),
-                    date: Some(RawDate::Millis(1_704_844_800_000)),
-                },
                 ..Default::default()
             }
         );
@@ -332,14 +232,8 @@ mod tests {
                 nature: text!("QPC"),
                 num: text!("2025-1173"),
                 ecli: text!("ECLI:FR:CC:2025:2025.1173.QPC"),
-                nature_qualifiee: text!("Dispositions promulguées (QPC)"),
-                titre_loi_def: text!("Loi de finances pour 2025"),
-                ancien_id: text!("CONSTEXT0001"),
-                id_texte_jo: text!("JORFTEXT000052541898"),
-                titre_jo: text!("JORF n°0263 du 8 novembre 2025, texte n° 152"),
                 texte_html: text!("<p>Le Conseil</p>"),
                 date_texte_computed: Some(RawDate::Millis(1_762_473_600_000)),
-                decision_attaquee: DecisionAttaqueeDto::default(),
                 ..Default::default()
             }
         );
@@ -380,7 +274,6 @@ mod tests {
     fn num_accepts_int_and_string() {
         use crate::dto::tests::assert_number_reading;
         assert_number_reading::<JuriTextDto>("num", JURI, |dto| &dto.num);
-        assert_number_reading::<TexteLienDto>("num", JURI, |dto| &dto.num);
     }
 
     #[test]
@@ -395,31 +288,17 @@ mod tests {
 
     #[test]
     fn empty_string_is_none() {
-        let raw = wrapped(
-            r#""num":"","ecli":" ","citationJp":"","publicationRecueil":"",
-            "typePublicationBulletin":"  ","titreLoiDef":"","idTexteJo":"","titreJo":"",
-            "ancienId":"""#,
-        );
+        let raw = wrapped(r#""num":"","ecli":" ""#);
         assert_eq!(juri(&raw), JuriTextDto::default());
         let raw = wrapped(r#""sommaire":[{"resumePrincipal":"","abstrats":" ","autreResume":""}]"#);
         assert_eq!(juri(&raw).sommaire, vec![SommaireDto::default()]);
-        // Le premier lien de `JURI_BODY` porte des identifiants vides.
-        let liens = juri(JURI_BODY).liens;
-        let first = &liens[0];
-        assert_eq!(
-            (&first.cid_texte, &first.id, &first.num, &first.nature_texte),
-            (&None, &None, &None, &None)
-        );
     }
 
     #[test]
     fn null_envelope_or_null_lists_give_empty_dtos() {
         let raws = [r#"{"text":null}"#, "{}", r#"{"dereferenced":false}"#];
         assert_eq!(raws.map(|raw| read(raw).text), [None, None, None]);
-        let raw = wrapped(
-            r#""numeroAffaire":null,"sommaire":null,"liens":null,"titrages":null,
-            "decisionAttaquee":null"#,
-        );
+        let raw = wrapped(r#""numeroAffaire":null,"sommaire":null"#);
         assert_eq!(juri(&raw), JuriTextDto::default());
     }
 
@@ -427,8 +306,7 @@ mod tests {
     fn dates_in_every_encoding_are_kept_raw() {
         let raw = wrapped(
             r#""dateTexte":"1748995200000","dateTexteComputed":"2025-06-04","datePubli":true,
-            "datePubliComputed":-5231606400000,
-            "decisionAttaquee":{"date":"2024-01-10T00:00:00.000+0000"}"#,
+            "datePubliComputed":-5231606400000"#,
         );
         assert_eq!(
             juri(&raw),
@@ -437,10 +315,6 @@ mod tests {
                 date_texte_computed: Some(RawDate::Text("2025-06-04".to_owned())),
                 date_publi: None,
                 date_publi_computed: Some(RawDate::Millis(-5_231_606_400_000)),
-                decision_attaquee: DecisionAttaqueeDto {
-                    formation: None,
-                    date: Some(RawDate::Text("2024-01-10T00:00:00.000+0000".to_owned())),
-                },
                 ..Default::default()
             }
         );

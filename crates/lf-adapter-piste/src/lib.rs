@@ -13,9 +13,10 @@
 //! de décodage (200 000 éléments par document, listes de DTO bornées, `results` plafonné,
 //! `typePagination` tolérant, `num` lu en chaîne ou en nombre), puis le mapping des DTO vers le
 //! domaine (`map::{rules, dates, search, body, toc, act, convention, article, decision,
-//! deliberation, agreement}`) et ses compteurs (`Stats::record_mapping`). Renvoyé au plan 2g : les
-//! requêtes de consultation et `impl LegalCorpus for PisteCorpus`, qui branche le décodage et le
-//! mapping.
+//! deliberation, agreement}`) et ses compteurs (`Stats::record_mapping`). Livré au plan 2g : les
+//! corps des consultations (`request::consult`) et `impl LegalCorpus for PisteCorpus`
+//! (`corpus::port`), qui branche le décodage et le mapping sous le permis de concurrence ; les DTO
+//! ne déclarent plus que les champs que le mapping lit.
 //!
 //! Les modules sont privés : sont publics `PisteCorpus`, les types de configuration et
 //! `StatsSnapshot`.
@@ -29,7 +30,9 @@
 //! - `config` : configuration de l'adapter (`PisteConfig`, champs privés, réglages avancés
 //!   validés `PisteTuning`) et validation des URL surchargées.
 //! - `corpus` : `PisteCorpus`, l'assemblage de l'adapter : mode dégradé sans E/S, puis pour chaque
-//!   tentative limiteur, jeton, envoi borné, classification et réessai, enfin décodage du corps.
+//!   tentative limiteur, jeton, envoi borné, classification et réessai, enfin décodage du corps,
+//!   sa lecture en DTO sous budget et son mapping, sous le permis de concurrence (`fetch`) ;
+//!   `corpus::port` implémente les sept opérations de `LegalCorpus`.
 //! - `deadline` : échéance d'un appel (`CallDeadline`), durée restante lue dans `Deadline`
 //!   puis posée sur l'horloge monotone de l'adapter.
 //! - `dto` : structures de désérialisation des réponses de PISTE (réponse et erreur de l'endpoint
@@ -61,7 +64,9 @@
 //!   page, 1 h, 1 024 entrées ; décision pure `choose_mode` et lecture tolérante `received_mode`
 //!   (04 §6.6, §12.3).
 //! - `request` : corps des requêtes envoyées à PISTE ; `request::search` construit celui de
-//!   `/search` (`search_body`) et calcule le midi Europe/Paris du filtre `DATE_VERSION` (04 §6).
+//!   `/search` (`search_body`) et calcule le midi Europe/Paris du filtre `DATE_VERSION` (04 §6) ;
+//!   `request::consult` construit ceux des six consultations (`Consultation`, identifiant dans le
+//!   corps, jamais dans le chemin).
 //! - `retry` : politique de réessai (`run`) : trois requêtes au plus, délai exponentiel avec gigue,
 //!   `Retry-After`, bornée par le délai global ; boucle maison, sans `backon`.
 //! - `stats` : compteurs en mémoire (`Stats` : mojibake et neuf diagnostics de mapping, ces
@@ -73,32 +78,6 @@
 //! - `view` (tests seulement) : projection JSON unique des entités du domaine (`view`, tous les
 //!   champs, sans `..`), chaînes d'une valeur avec leur chemin (`leaf_strings`) et contrôle
 //!   `no_mojibake_after_mapping` (`mojibake_paths`, D-35).
-
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "recoupé par cargo clippy -p lf-adapter-piste --lib -- --force-warn dead_code : \
-                  PisteCorpus::fetch, post_json et ce que seuls ils emploient (Call, Reply, attempt, send, \
-                  api_url, auth_twice et les champs client, gate et sleeper de l'état de \
-                  PisteCorpus ; classify::try_send ; RateGate::acquire avec take_slot, \
-                  take_credit, race_permit, Permit, MAX_CHECKS et les champs de RateGate ; \
-                  TokenManager::invalidate et les champs de TokenLease ; Payload::Json ; \
-                  Stats::record_decode), request::search::search_body et ce que lui seul \
-                  emploie, request::consult (Consultation, endpoint, body), memo (tout le \
-                  module : PaginationMemo, choose_mode, received_mode et leurs aides), les DTO de /search et de /consult (lawDecree, kaliText, \
-                  getArticle, juri, cnil, acco) et ce que seuls ils emploient (dans dto::de, \
-                  bounded_list, capped_list, null_default, opt_nonempty, opt_raw_date, RawDate et \
-                  leurs aides ListVisitor, Element, admit, DateVisitor, whole_float_to_millis et \
-                  text_to_date ; dans dto::budget, charge, spend, Refusal, TOO_MANY et NOT_ARMED, \
-                  arm et Armed servant déjà decode ; dans dto::search, bounded_results, \
-                  MAX_RESULTS, ensure_fits et fits), les champs non lus de PisteErrorDto (status, \
-                  error_code) et d'OAuthErrorDto (error_description) : consommés par impl \
-                  LegalCorpus au plan 2g ; map (tous ses modules) et Stats::record_mapping, avec \
-                  add et log_mapping de stats, que seul record_mapping emploie : consommés par \
-                  impl LegalCorpus au plan 2g, qui branche le mapping"
-    )
-)]
 
 mod auth;
 mod classify;

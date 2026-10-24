@@ -102,10 +102,6 @@ mod tests {
         ("search.rs", "fn bounded_results<"),
     ];
 
-    /// Champs hors budget admis : fichier et déclaration. `PisteErrorDto.status` n'est lu que dans
-    /// un corps d'erreur borné à `MAX_ERROR_BODY_BYTES` (64 Kio, `error_body.rs`).
-    const UNBUDGETED: [(&str, &str); 1] = [("error.rs", "pub status: Option<serde_json::Value>")];
-
     /// Code de production d'un fichier : tout ce qui précède son module de test. Rien ne le suit
     /// (`clippy::items_after_test_module`, refusé par `make lint`). Les fins de ligne CRLF d'une
     /// extraction Windows sont ramenées à LF : sans cela le module de test n'est pas trouvé.
@@ -234,8 +230,6 @@ mod tests {
     struct Scan {
         /// Champs à conteneur payés sur le budget.
         bounded: usize,
-        /// Champs à conteneur admis hors budget ([`UNBUDGETED`]).
-        exempted: usize,
         /// Lecteurs bornés exclus du balayage ([`READERS`]).
         readers: usize,
         /// Conteneurs hors budget : déclaration du champ, ou jeton hors de tout champ.
@@ -264,8 +258,6 @@ mod tests {
             }
             if BOUNDED.iter().any(|attribute| attributes[field.clone()].contains(attribute)) {
                 scan.bounded += 1;
-            } else if UNBUDGETED.contains(&(file, declared.as_str())) {
-                scan.exempted += 1;
             } else {
                 scan.unbounded.push(declared);
             }
@@ -308,10 +300,9 @@ mod tests {
             let scan = scan(file, source);
             assert_eq!(scan.unbounded, Vec::<String>::new(), "{file}");
             total.bounded += scan.bounded;
-            total.exempted += scan.exempted;
             total.readers += scan.readers;
         }
-        assert_eq!(total, Scan { bounded: 25, exempted: 1, readers: 4, unbounded: Vec::new() });
+        assert_eq!(total, Scan { bounded: 17, readers: 4, unbounded: Vec::new() });
     }
 
     #[test]
@@ -349,7 +340,6 @@ mod tests {
             scan("synthetic.rs", source),
             Scan {
                 bounded: 1,
-                exempted: 0,
                 readers: 0,
                 unbounded: [
                     "pub(crate) a: Vec<u8>",
@@ -386,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn null_default_serves_only_the_two_struct_fields() {
+    fn null_default_serves_only_the_article_context() {
         let mut uses = 0;
         for (_, source) in SOURCES {
             let code = production(source);
@@ -404,6 +394,6 @@ mod tests {
                 assert!(!field.contains("Vec<"), "liste en null_default : {field}");
             }
         }
-        assert_eq!(uses, 2);
+        assert_eq!(uses, 1);
     }
 }

@@ -34,13 +34,15 @@ use super::{Diagnostics, Field, endpoint};
 use crate::dto::search::{SearchExtractDto, SearchResponseDto, SearchResultDto, SearchSectionDto};
 use crate::memo::received_mode;
 
-/// Page de résultats de `query`, sans le mode de pagination reçu.
+/// Page de résultats de `query`, sans le mode de pagination reçu (tests seulement : la production
+/// passe par [`search_page_with_mode`]).
 ///
 /// Équivaut à [`search_page_with_mode`] dont on ignore le mode.
 ///
 /// # Errors
 ///
 /// Voir [`search_page_with_mode`].
+#[cfg(test)]
 pub(crate) fn search_page(
     dto: SearchResponseDto,
     query: &SearchQuery,

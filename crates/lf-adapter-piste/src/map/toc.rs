@@ -102,7 +102,6 @@ mod tests {
 
     use super::*;
     use crate::dto::consult_text::ConsultTextDto;
-    use crate::dto::de::RawDate;
     use crate::map::endpoint;
     use crate::map::fixtures::{decode_as, golden, text};
 
@@ -188,8 +187,6 @@ mod tests {
             title: text!(" Titre Ier "),
             etat: text!("MODIFIE"),
             int_ordre: Some(3),
-            date_debut: Some(RawDate::Text("2016-10-09".to_owned())),
-            date_fin: Some(RawDate::Millis(32_472_144_000_000)),
             sections: vec![TocSectionDto {
                 id: text!("LEGISCTA000033205015"),
                 ..TocSectionDto::default()
@@ -224,9 +221,6 @@ mod tests {
             etat: text!("VIGUEUR_ETEN"),
             content: text!("<p>x</p>"),
             int_ordre: Some(1_073_741_823),
-            date_debut: Some(RawDate::Millis(1_214_784_000_000)),
-            date_fin: Some(RawDate::Text("2999-01-01".to_owned())),
-            ..TocArticleDto::default()
         };
         let expected = ArticleDraft {
             id: text!("KALIARTI000049886059"),

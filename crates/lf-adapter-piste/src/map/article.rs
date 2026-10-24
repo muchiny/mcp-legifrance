@@ -195,7 +195,7 @@ mod tests {
 
     /// Entrée de contexte de titre `titre`.
     fn entry(titre: Option<&str>) -> ContextEntryDto {
-        ContextEntryDto { titre: titre.map(str::to_owned), ..ContextEntryDto::default() }
+        ContextEntryDto { titre: titre.map(str::to_owned) }
     }
 
     #[test]

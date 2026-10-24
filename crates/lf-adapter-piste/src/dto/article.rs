@@ -4,23 +4,19 @@
 //! est déclarée ; `executionTime` et `dereferenced` sont sautés. Les structs suivent la
 //! convention de `consult_text` : `Default` dérivé, `#[serde(default)]` au niveau du conteneur,
 //! `Debug` et `PartialEq` sous `cfg(test)` seulement (elles portent du texte juridique), dates
-//! brutes (`RawDate`) et texte gardé tel quel. Seuls `nota`, `notaHtml`, `versionPrecedente` et
-//! les identifiants de contexte vides deviennent `None` ; `texte` et `texteHtml` vides restent
-//! `Some("")` : seul le mapping juge leur vide.
+//! brutes (`RawDate`) et texte gardé tel quel. Seuls `nota` et `notaHtml` vides deviennent
+//! `None` ; `texte` et `texteHtml` vides restent `Some("")` : seul le mapping juge leur vide.
 //!
-//! Deux pièges de nommage. `context.titresTM` porte deux majuscules : `rename_all = "camelCase"`
+//! Piège de nommage : `context.titresTM` porte deux majuscules ; `rename_all = "camelCase"`
 //! produirait `titresTm` et le champ resterait vide en silence, d'où un `rename` explicite.
-//! L'indicateur de versions multiples s'écrit `isMultipleVersions` dans la réponse observée et
-//! `multipleVersions` dans le Swagger et en KALI : un `alias` sur un seul champ lit les deux
-//! graphies ; un corps qui porterait les deux donnerait `duplicate field`, donc `Decode`.
 //!
-//! Une partie des champs que le mapping n'emploie pas n'est pas déclarée (`articleVersions`, les
-//! listes de liens réservées à M7, `computedNums`, `activitePro`…) : `serde_json` les saute sans
-//! construire de valeur (mémoire bornée par la taille du corps) et ils ne peuvent faire échouer
-//! aucun décodage. D'autres restent déclarés sans être lus (`versionPrecedente`,
-//! `sectionParentTitre`, `isMultipleVersions`, `context.titreTxt`, et `id`, `debut`, `fin` d'une
-//! entrée de contexte) : un type inattendu sur l'un d'eux reste une erreur de décodage, et leur
-//! retrait est renvoyé au plan 2g.
+//! Seuls les champs que le mapping lit sont déclarés (04 §8.1) : `articleVersions`, les listes de
+//! liens réservées à M7, `computedNums`, `activitePro`… ne l'ont jamais été ; depuis le plan 2g,
+//! `versionPrecedente`, `sectionParentTitre`, `isMultipleVersions` (et sa graphie
+//! `multipleVersions`, du Swagger et de KALI), `context.titreTxt` et l'`id`, le `debut` et la `fin`
+//! d'une entrée de `titresTM` sont sautés par `serde_json` sans construire de valeur (mémoire
+//! bornée par la taille du corps) et ne peuvent faire échouer aucun décodage : les deux graphies
+//! ensemble ne donnent plus `duplicate field`.
 
 use serde::Deserialize;
 
@@ -59,9 +55,6 @@ pub(crate) struct ArticleDto {
     /// Nota de l'article en HTML (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub nota_html: Option<String>,
-    /// Identifiant de la version précédente (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub version_precedente: Option<String>,
     /// Début de vigueur, brut.
     #[serde(deserialize_with = "de::opt_raw_date")]
     pub date_debut: Option<RawDate>,
@@ -70,17 +63,12 @@ pub(crate) struct ArticleDto {
     pub date_fin: Option<RawDate>,
     /// Titres des sections traversées, tels que PISTE les écrit (incomplets).
     pub full_sections_titre: Option<String>,
-    /// Titre de la section parente.
-    pub section_parent_titre: Option<String>,
     /// Chemin de l'article dans le texte (`null` : contexte vide).
     #[serde(deserialize_with = "de::null_default")]
     pub context: ArticleContextDto,
     /// Titres du texte parent.
     #[serde(deserialize_with = "de::bounded_list")]
     pub text_titles: Vec<TextTitleDto>,
-    /// Vrai si l'article a plusieurs versions (`isMultipleVersions` ou `multipleVersions`).
-    #[serde(alias = "multipleVersions")]
-    pub is_multiple_versions: Option<bool>,
 }
 
 /// Chemin d'un article dans son texte.
@@ -91,26 +79,15 @@ pub(crate) struct ArticleContextDto {
     /// Sections traversées, de la plus haute à la plus basse (clé `titresTM`).
     #[serde(rename = "titresTM", deserialize_with = "de::bounded_list")]
     pub titres_tm: Vec<ContextEntryDto>,
-    /// Texte parent.
-    #[serde(deserialize_with = "de::bounded_list")]
-    pub titre_txt: Vec<ContextEntryDto>,
 }
 
-/// Section ou texte du contexte d'un article.
+/// Section traversée par un article (entrée de `titresTM`).
 #[derive(Deserialize, Default)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct ContextEntryDto {
-    /// Identifiant de la section ou du texte.
-    pub id: Option<String>,
-    /// Titre de la section ou du texte.
+    /// Titre de la section.
     pub titre: Option<String>,
-    /// Début de vigueur, brut.
-    #[serde(deserialize_with = "de::opt_raw_date")]
-    pub debut: Option<RawDate>,
-    /// Fin de vigueur, brute.
-    #[serde(deserialize_with = "de::opt_raw_date")]
-    pub fin: Option<RawDate>,
 }
 
 /// Titre du texte parent d'un article.
@@ -168,7 +145,6 @@ mod tests {
         for (fields, path) in [
             (format!(r#""textTitles":{objects}"#), "article.textTitles[200000]"),
             (format!(r#""context":{{"titresTM":{objects}}}"#), "article.context.titresTM[200000]"),
-            (format!(r#""context":{{"titreTxt":{objects}}}"#), "article.context.titreTxt[200000]"),
         ] {
             let raw = format!(r#"{{"article":{{{fields}}}}}"#);
             assert_too_many::<GetArticleResponseDto>(&raw, ENDPOINT, path);
@@ -208,24 +184,11 @@ mod tests {
                 texte_html: text!("<p>Chacun a droit.</p>"),
                 nota: text!("Nota de l'article"),
                 nota_html: text!("<p>Nota de l'article</p>"),
-                version_precedente: text!("LEGIARTI000050396821"),
                 date_debut: Some(RawDate::Millis(17_193_600_000)),
                 date_fin: Some(RawDate::Millis(32_472_144_000_000)),
                 full_sections_titre: text!("Livre Ier : Des personnes"),
-                section_parent_titre: text!("Titre Ier : Des droits civils"),
                 context: ArticleContextDto {
-                    titres_tm: vec![ContextEntryDto {
-                        id: text!("LEGISCTA1"),
-                        titre: text!("Livre Ier : Des personnes"),
-                        debut: Some(RawDate::Text("1804-03-21".to_owned())),
-                        fin: Some(RawDate::Text("2999-01-01".to_owned())),
-                    }],
-                    titre_txt: vec![ContextEntryDto {
-                        id: text!("LEGITEXT000006070721"),
-                        titre: text!("Code civil"),
-                        debut: Some(RawDate::Text("1804-03-21".to_owned())),
-                        fin: Some(RawDate::Text("2999-01-01".to_owned())),
-                    }],
+                    titres_tm: vec![ContextEntryDto { titre: text!("Livre Ier : Des personnes") }],
                 },
                 text_titles: vec![TextTitleDto {
                     id: text!("LEGITEXT000006070721"),
@@ -233,7 +196,6 @@ mod tests {
                     titre: text!("Code civil"),
                     nature: text!("CODE"),
                 }],
-                is_multiple_versions: Some(true),
             }
         );
     }
@@ -242,48 +204,35 @@ mod tests {
     fn titres_tm_is_renamed() {
         let raw = r#"{"article":{"context":{"titresTM":[{"id":"LEGISCTA1","titre":"Livre Ier"}],
             "titresTm":[{"id":"mauvaise clé"}],"titreTxt":[{"id":"LEGITEXT1"}]}}}"#;
-        let context = article(raw).context;
         assert_eq!(
-            context.titres_tm,
-            vec![ContextEntryDto {
-                id: text!("LEGISCTA1"),
-                titre: text!("Livre Ier"),
+            article(raw).context.titres_tm,
+            vec![ContextEntryDto { titre: text!("Livre Ier") }]
+        );
+    }
+
+    #[test]
+    fn fields_the_mapping_never_reads_are_not_declared() {
+        // Les deux graphies du drapeau de versions ensemble ne font plus `duplicate field`, et
+        // aucun type inattendu sur un champ non lu ne fait perdre l'article (plan 2g).
+        let raw = r#"{"article":{"id":"LEGIARTI1","isMultipleVersions":true,
+            "multipleVersions":"oui","versionPrecedente":[1],"sectionParentTitre":{"a":1},
+            "context":{"titresTM":[{"id":7,"debut":true,"fin":[],"titre":"Livre Ier"}],
+            "titreTxt":"x"}}}"#;
+        assert_eq!(
+            article(raw),
+            ArticleDto {
+                id: text!("LEGIARTI1"),
+                context: ArticleContextDto {
+                    titres_tm: vec![ContextEntryDto { titre: text!("Livre Ier") }],
+                },
                 ..Default::default()
-            }]
-        );
-        assert_eq!(
-            context.titre_txt,
-            vec![ContextEntryDto { id: text!("LEGITEXT1"), ..Default::default() }]
-        );
-    }
-
-    #[test]
-    fn multiple_versions_alias() {
-        let raws = [
-            r#"{"article":{"isMultipleVersions":true}}"#,
-            r#"{"article":{"multipleVersions":false}}"#,
-            r#"{"article":{"multipleVersions":null}}"#,
-            r#"{"article":{}}"#,
-        ];
-        assert_eq!(
-            raws.map(|raw| article(raw).is_multiple_versions),
-            [Some(true), Some(false), None, None]
-        );
-    }
-
-    #[test]
-    fn both_spellings_of_the_multiple_versions_flag_are_a_decode_error() {
-        assert_eq!(
-            error_of(r#"{"article":{"isMultipleVersions":true,"multipleVersions":true}}"#),
-            "Decode { detail: \"/consult/getArticle: article: duplicate field \
-             `isMultipleVersions`\" }"
+            }
         );
     }
 
     #[test]
     fn empty_string_is_none() {
-        let raw = r#"{"article":{"nota":"","notaHtml":"   ","versionPrecedente":"",
-            "texte":"","texteHtml":""}}"#;
+        let raw = r#"{"article":{"nota":"","notaHtml":"   ","texte":"","texteHtml":""}}"#;
         assert_eq!(
             article(raw),
             ArticleDto { texte: text!(""), texte_html: text!(""), ..Default::default() }
@@ -296,28 +245,19 @@ mod tests {
         assert_eq!(raws.map(|raw| read(raw).article), [None, None, None]);
         let raws = [
             r#"{"article":{"context":null,"textTitles":null}}"#,
-            r#"{"article":{"context":{"titresTM":null,"titreTxt":null}}}"#,
+            r#"{"article":{"context":{"titresTM":null}}}"#,
         ];
         assert_eq!(raws.map(article), [ArticleDto::default(), ArticleDto::default()]);
     }
 
     #[test]
     fn dates_in_every_encoding_are_kept_raw() {
-        let raw = r#"{"article":{"dateDebut":"1475884800000","dateFin":"2999-01-01",
-            "context":{"titresTM":[{"debut":-5231606400000,"fin":true}]}}}"#;
+        let raw = r#"{"article":{"dateDebut":"1475884800000","dateFin":"2999-01-01"}}"#;
         assert_eq!(
             article(raw),
             ArticleDto {
                 date_debut: Some(RawDate::Millis(1_475_884_800_000)),
                 date_fin: Some(RawDate::Text("2999-01-01".to_owned())),
-                context: ArticleContextDto {
-                    titres_tm: vec![ContextEntryDto {
-                        debut: Some(RawDate::Millis(-5_231_606_400_000)),
-                        fin: None,
-                        ..Default::default()
-                    }],
-                    ..Default::default()
-                },
                 ..Default::default()
             }
         );

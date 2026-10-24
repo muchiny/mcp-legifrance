@@ -335,7 +335,6 @@ mod tests {
             text.ecli = Some("ECLI:FR:CC:2025:2025.1173.QPC".to_owned());
             text.numero_affaire = vec!["24-13.470".to_owned()];
             text.sommaire = vec![SommaireDto {
-                id: None,
                 abstrats: Some("A".to_owned()),
                 resume_principal: Some("R".to_owned()),
                 autre_resume: Some("X".to_owned()),
