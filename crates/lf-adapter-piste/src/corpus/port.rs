@@ -92,6 +92,7 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S>
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU32;
+    use std::time::Duration;
 
     use lf_application::ports::{CorpusError, LegalCorpus};
     use lf_domain::date::{DateRange, VersionDate};
@@ -99,7 +100,7 @@ mod tests {
     use lf_domain::id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId};
     use lf_domain::search::{MatchMode, PageSize, QueryText, SearchQuery};
     use serde_json::{Value, json};
-    use wiremock::matchers::{body_json, method, path, path_regex};
+    use wiremock::matchers::{body_json, header, method, path, path_regex};
     use wiremock::{Mock, ResponseTemplate};
 
     use crate::corpus::tests::{API_BASE, Rig, TOKEN_PATH, never, requests_to, token_mock};
@@ -724,5 +725,234 @@ mod tests {
         for rendered in [error.to_string(), format!("{error:?}"), capture.text()] {
             assert!(!rendered.contains("sekret"), "{rendered}");
         }
+    }
+
+    // ---- erreurs par le port (04 §5.1, §4.3, §8.5, §9.3, §11.2) ------------------------------
+
+    /// Les six consultations, dans l'ordre lawDecree, getArticle, juri, cnil, kaliText, acco,
+    /// sur les identifiants des fixtures ; seule l'issue compte.
+    async fn each_consultation(rig: &Rig) -> [Result<(), CorpusError>; 6] {
+        let corpus = &rig.corpus;
+        let law = LegiTextId::parse(fixture("consult_loda").requested).unwrap();
+        let article = ArticleId::parse(fixture("consult_article").requested).unwrap();
+        let decision = DecisionId::parse(fixture("consult_juri").requested).unwrap();
+        let deliberation = CnilTextId::parse(fixture("consult_cnil").requested).unwrap();
+        let convention = KaliTextId::parse(fixture("consult_kali").requested).unwrap();
+        let agreement = AccoTextId::parse(fixture("consult_acco").requested).unwrap();
+        [
+            corpus.get_act(&law, version_date()).await.map(drop),
+            corpus.get_article(&article).await.map(drop),
+            corpus.get_decision(&decision).await.map(drop),
+            corpus.get_deliberation(&deliberation).await.map(drop),
+            corpus.get_convention(&convention).await.map(drop),
+            corpus.get_company_agreement(&agreement).await.map(drop),
+        ]
+    }
+
+    /// `NotFound` du gabarit d'endpoint `endpoint`.
+    fn not_found(endpoint: &str) -> Result<(), CorpusError> {
+        Err(CorpusError::NotFound { what: endpoint.to_owned() })
+    }
+
+    /// Les six `NotFound` attendus, dans l'ordre de `each_consultation`.
+    fn six_not_found() -> [Result<(), CorpusError>; 6] {
+        [
+            endpoint::LAW_DECREE,
+            endpoint::GET_ARTICLE,
+            endpoint::JURI,
+            endpoint::CNIL,
+            endpoint::KALI_TEXT,
+            endpoint::ACCO,
+        ]
+        .map(not_found)
+    }
+
+    /// `endpoint` répond `body` (200) à volonté, sans toucher au jeton.
+    async fn route_replies(rig: &Rig, endpoint: &str, body: &str) {
+        Mock::given(method("POST"))
+            .and(path(format!("{API_BASE}{endpoint}")))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_raw(body.to_owned(), "application/json"),
+            )
+            .mount(&rig.server)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn consult_empty_envelope_maps_to_not_found() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        for (route, body) in [
+            (endpoint::LAW_DECREE, "{}"),
+            (endpoint::GET_ARTICLE, r#"{"article":null}"#),
+            (endpoint::JURI, r#"{"text":null}"#),
+            (endpoint::CNIL, r#"{"text":null}"#),
+            (endpoint::KALI_TEXT, "{}"),
+            (endpoint::ACCO, r#"{"acco":null}"#),
+        ] {
+            route_replies(&rig, route, body).await;
+        }
+        assert_eq!(each_consultation(&rig).await, six_not_found());
+        // Un `NotFound` ne compte rien (04 §9.3).
+        assert_eq!(rig.corpus.stats(), StatsSnapshot::default());
+    }
+
+    #[tokio::test]
+    async fn unknown_ids_400_map_to_not_found_on_every_consultation() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        let refused = ResponseTemplate::new(400).set_body_raw(
+            r#"{"error":400,"status":"Bad Request","message":"L'expression à valider est fausse.","errorCode":null}"#,
+            "application/json",
+        );
+        Mock::given(method("POST"))
+            .and(path_regex(format!("^{API_BASE}/consult/")))
+            .respond_with(refused)
+            .mount(&rig.server)
+            .await;
+        assert_eq!(each_consultation(&rig).await, six_not_found());
+    }
+
+    #[tokio::test]
+    async fn the_400_without_marker_is_an_invalid_request_with_a_generic_detail_on_search() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        let refused = ResponseTemplate::new(400)
+            .set_body_raw(r#"{"message":"Champ golden invalide"}"#, "application/json");
+        Mock::given(method("POST"))
+            .and(path_regex(format!("^{API_BASE}/")))
+            .respond_with(refused)
+            .mount(&rig.server)
+            .await;
+        let id = DecisionId::parse(fixture("consult_juri").requested).unwrap();
+        assert_eq!(
+            rig.corpus.get_decision(&id).await.map(drop),
+            Err(CorpusError::InvalidRequest {
+                status: Some(400),
+                detail: "Champ golden invalide".to_owned(),
+            })
+        );
+        assert_eq!(
+            rig.corpus.search(&golden(Fond::Juri)).await.map(drop),
+            Err(CorpusError::InvalidRequest {
+                status: Some(400),
+                detail: "HTTP 400 on /search".to_owned(),
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn api_401_refreshes_once_then_maps() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        token_mock(&rig.server, "tok-2", 1).await;
+        let route = format!("{API_BASE}{}", endpoint::JURI);
+        Mock::given(method("POST"))
+            .and(path(route.clone()))
+            .and(header("authorization", "Bearer tok-1"))
+            .respond_with(ResponseTemplate::new(401))
+            .expect(1)
+            .mount(&rig.server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(route))
+            .and(header("authorization", "Bearer tok-2"))
+            .respond_with(fixture_reply("consult_juri"))
+            .expect(1)
+            .mount(&rig.server)
+            .await;
+        let requested = fixture("consult_juri").requested;
+        let id = DecisionId::parse(requested).unwrap();
+        let decision = rig.corpus.get_decision(&id).await.unwrap();
+        assert_eq!(view(&Mapped::Decision(decision)), expected("consult_juri", requested));
+    }
+
+    #[tokio::test]
+    async fn the_429_and_the_503_are_retried_then_classified() {
+        for (template, error) in [
+            (
+                ResponseTemplate::new(429).insert_header("retry-after", "1"),
+                CorpusError::RateLimited { retry_after: Some(Duration::from_secs(1)) },
+            ),
+            (
+                ResponseTemplate::new(503),
+                CorpusError::Upstream {
+                    status: Some(503),
+                    retryable: true,
+                    detail: "HTTP 503 on /consult/acco".to_owned(),
+                },
+            ),
+        ] {
+            let rig = Rig::new().await;
+            token_mock(&rig.server, "tok-1", 1).await;
+            Mock::given(method("POST"))
+                .and(path(format!("{API_BASE}{}", endpoint::ACCO)))
+                .respond_with(template)
+                .expect(3)
+                .mount(&rig.server)
+                .await;
+            let id = AccoTextId::parse(fixture("consult_acco").requested).unwrap();
+            assert_eq!(rig.corpus.get_company_agreement(&id).await.map(drop), Err(error));
+            assert_eq!(rig.sleeper.waits().len(), 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_body_of_more_than_16_mib_maps_to_decode() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        let body = vec![b' '; 16 * 1024 * 1024 + 1];
+        Mock::given(method("POST"))
+            .and(path(format!("{API_BASE}{}", endpoint::ACCO)))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+            .expect(1)
+            .mount(&rig.server)
+            .await;
+        let id = AccoTextId::parse(fixture("consult_acco").requested).unwrap();
+        assert_eq!(
+            rig.corpus.get_company_agreement(&id).await.map(drop),
+            Err(CorpusError::Decode {
+                detail: "response too large (> 16 MiB) on /consult/acco".to_owned(),
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_body_beyond_the_element_budget_maps_to_decode_with_its_path() {
+        let rig = Rig::new().await;
+        let articles = vec!["{}"; 200_001].join(",");
+        reply_on(&rig, endpoint::LAW_DECREE, format!(r#"{{"articles":[{articles}]}}"#)).await;
+        let id = LegiTextId::parse(fixture("consult_loda").requested).unwrap();
+        assert_eq!(
+            rig.corpus.get_act(&id, version_date()).await.map(drop),
+            Err(CorpusError::Decode {
+                detail: "/consult/lawDecree: articles[200000]: too many elements".to_owned(),
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_mapping_error_keeps_the_diagnostics_counted_before_it() {
+        // Le premier résultat est écarté et compté ; le second, gardé, a une date illisible :
+        // la page entière est un `Decode`, mais le compte du premier est versé.
+        let rig = Rig::new().await;
+        let page = json!({
+            "totalResultNumber": 2,
+            "results": [
+                {"titles": [{"id": "not-an-id"}]},
+                {"titles": [{"id": "JURITEXT000051743650", "title": "t"}], "date": "sekret"},
+            ],
+        });
+        reply_on(&rig, endpoint::SEARCH, page.to_string()).await;
+        assert_eq!(
+            rig.corpus.search(&golden(Fond::Juri)).await.map(drop),
+            Err(CorpusError::Decode {
+                detail: "/search: results[].date: unreadable date".to_owned()
+            })
+        );
+        assert_eq!(
+            rig.corpus.stats(),
+            StatsSnapshot { dropped_hits: 1, ..StatsSnapshot::default() }
+        );
     }
 }
