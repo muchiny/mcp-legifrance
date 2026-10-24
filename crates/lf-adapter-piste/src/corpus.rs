@@ -22,14 +22,17 @@ use lf_application::ports::CorpusError;
 use lf_domain::coverage::PisteEnvironment;
 use reqwest::Url;
 use secrecy::ExposeSecret;
+use serde::de::DeserializeOwned;
 
 use crate::auth::TokenManager;
 use crate::classify::{EndpointKind, ErrorContext, Outcome, try_send};
 use crate::config::{ConfigProblem, PisteConfig, PisteEndpoints};
 use crate::deadline::CallDeadline;
+use crate::dto::decode::decode;
 use crate::encoding::decode_body;
 use crate::http::{Attempt, Payload, RawResponse, SharedClient};
 use crate::limit::{Permit, RateGate};
+use crate::map::Diagnostics;
 use crate::retry::{RetryContext, SystemJitter, run};
 use crate::stats::{Stats, StatsSnapshot};
 use crate::time::{MonoClock, Sleeper, TokioClock, TokioSleeper};
@@ -233,6 +236,38 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
         // Le permis ne tombe qu'ici, après la lecture : jamais avant (Review Focus 1 du plan 2g).
         drop(permit);
         value
+    }
+
+    /// Envoie `body` en POST sur `endpoint`, lit la réponse 2xx dans le DTO `D` puis la fait
+    /// traverser `map`, qui rend le résultat du port (04 §8.5, §9.3).
+    ///
+    /// Le décodage (`decode`, qui arme le budget d'éléments et nomme `endpoint` et le chemin de
+    /// l'erreur dans le `detail`) et le mapping s'exécutent tous deux dans le lecteur de
+    /// `post_json`, donc **sous le permis de concurrence** (00 §11.1). `map` reçoit des
+    /// diagnostics vides à chaque appel ; ils sont versés aux compteurs (`record_mapping`) une
+    /// fois par appel, sur `Ok` comme sur `Err` du mapping : un résultat écarté avant l'échec
+    /// compte quand même. Un `NotFound`, une erreur de transport ou un corps illisible n'ont
+    /// rien à compter et n'y touchent pas.
+    ///
+    /// # Errors
+    ///
+    /// Celles de [`Self::post_json`] ; [`CorpusError::Decode`] si le corps ne correspond pas à
+    /// `D` ; enfin l'erreur de `map`.
+    pub(crate) async fn fetch<D: DeserializeOwned, T>(
+        &self,
+        kind: EndpointKind,
+        endpoint: &str,
+        body: &[u8],
+        map: impl FnOnce(D, &mut Diagnostics) -> Result<T, CorpusError>,
+    ) -> Result<T, CorpusError> {
+        let stats = &self.inner.stats;
+        self.post_json(kind, endpoint, body, |text| {
+            let mut diags = Diagnostics::default();
+            let mapped = decode(text, endpoint).and_then(|dto| map(dto, &mut diags));
+            stats.record_mapping(endpoint, &diags);
+            mapped
+        })
+        .await
     }
 
     /// Une tentative de `run` : un envoi, et, sur un premier 401, un second envoi immédiat avec
@@ -866,6 +901,77 @@ mod tests {
         assert_eq!(first.await.unwrap(), Ok("{}".to_owned()));
         assert_eq!(second.await.unwrap(), Ok("{}".to_owned()));
         assert_eq!(requests_to(&server, API_PATH).await, 2);
+    }
+
+    // ---- fetch : décodage sous budget, mapping et diagnostics (04 §8.5, §9.3) --------------
+
+    /// DTO de test : sa liste exige le budget que seul `decode` arme.
+    #[derive(serde::Deserialize)]
+    struct Items {
+        #[serde(default, deserialize_with = "crate::dto::de::bounded_list")]
+        items: Vec<u8>,
+    }
+
+    /// Mapper de test : note un `id_mismatch` et rend le nombre d'éléments.
+    #[expect(clippy::unnecessary_wraps, reason = "signature imposée par fetch")]
+    fn count(Items { items }: Items, diags: &mut Diagnostics) -> Result<usize, CorpusError> {
+        diags.note_id_mismatch();
+        Ok(items.len())
+    }
+
+    /// Mapper de test qui note un résultat écarté puis échoue.
+    fn refuse(_items: Items, diags: &mut Diagnostics) -> Result<usize, CorpusError> {
+        diags.note_dropped_hit();
+        Err(CorpusError::Decode {
+            detail: "/consult/juri: text.dateTexte: unreadable date".to_owned(),
+        })
+    }
+
+    async fn fetch_with<T>(
+        rig: &Rig,
+        body: &str,
+        map: impl FnOnce(Items, &mut Diagnostics) -> Result<T, CorpusError>,
+    ) -> Result<T, CorpusError> {
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_mock(&rig.server, json_reply(200, body), 1).await;
+        rig.corpus.fetch(EndpointKind::Consult, ENDPOINT, BODY, map).await
+    }
+
+    #[tokio::test]
+    async fn fetch_maps_the_decoded_body_and_records_its_diagnostics() {
+        let rig = Rig::new().await;
+        assert_eq!(fetch_with(&rig, r#"{"items":[1,2,3]}"#, count).await, Ok(3));
+        assert_eq!(
+            rig.corpus.stats(),
+            StatsSnapshot { id_mismatch: 1, ..StatsSnapshot::default() }
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_records_the_diagnostics_of_a_mapping_that_fails() {
+        let rig = Rig::new().await;
+        assert_eq!(
+            fetch_with(&rig, r#"{"items":[]}"#, refuse).await,
+            Err(CorpusError::Decode {
+                detail: "/consult/juri: text.dateTexte: unreadable date".to_owned()
+            })
+        );
+        assert_eq!(
+            rig.corpus.stats(),
+            StatsSnapshot { dropped_hits: 1, ..StatsSnapshot::default() }
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_decodes_with_the_endpoint_and_the_path_in_the_detail() {
+        let rig = Rig::new().await;
+        assert_eq!(
+            fetch_with(&rig, r#"{"items":[1,"sekret"]}"#, count).await,
+            Err(CorpusError::Decode {
+                detail: "/consult/juri: items[1]: invalid type: string, expected u8".to_owned()
+            })
+        );
+        assert_eq!(rig.corpus.stats(), StatsSnapshot::default());
     }
 
     // ---- Mode dégradé (04 §2.4) ----------------------------------------------------------

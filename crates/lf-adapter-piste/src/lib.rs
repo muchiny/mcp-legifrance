@@ -79,7 +79,7 @@
     expect(
         dead_code,
         reason = "recoupé par cargo clippy -p lf-adapter-piste --lib -- --force-warn dead_code : \
-                  PisteCorpus::post_json et ce que lui seul emploie (Call, attempt, send, \
+                  PisteCorpus::fetch, post_json et ce que seuls ils emploient (Call, Reply, attempt, send, \
                   api_url, auth_twice et les champs client, gate et sleeper de l'état de \
                   PisteCorpus ; classify::try_send ; RateGate::acquire avec take_slot, \
                   take_credit, race_permit, Permit, MAX_CHECKS et les champs de RateGate ; \
