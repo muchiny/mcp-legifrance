@@ -44,6 +44,9 @@
 //! - `encoding` : décodage UTF-8 strict du corps, détection et réparation du mojibake latin-1.
 //! - `error_body` : message d'un corps d'erreur PISTE (UTF-8, mojibake, JSON facultatif), détail
 //!   nettoyé, privé des secrets puis borné, marqueur « introuvable », détection d'une page HTML.
+//! - `golden` (tests seulement) : harnais du golden de parité (annexe A §4, §5) : les dix-neuf
+//!   divergences volontaires (`GoldenDivergence`), les six valeurs explicites (`OVERRIDES`,
+//!   `overridden`), leur cohérence avec l'annexe A et la copie du golden comparée à l'octet.
 //! - `http` : client HTTP unique (`reqwest`, TLS rustls), tentative d'envoi (`send_once`) et
 //!   lecture bornée du corps ; aucun réessai ni jugement de statut.
 //! - `integrity` (tests seulement) : intégrité des fixtures de référence (D-35) : SHA-256 maison
@@ -90,6 +93,8 @@ mod deadline;
 mod dto;
 mod encoding;
 mod error_body;
+#[cfg(test)]
+mod golden;
 mod http;
 #[cfg(test)]
 mod integrity;

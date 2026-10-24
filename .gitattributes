@@ -4,3 +4,6 @@
 **/tests/fixtures/** -text
 tests/jsonrpc/** -text
 **/snapshots/** -text
+# Données du plan citées par empreinte (00 §10) : la copie du golden dans le crate est comparée à
+# l'octet (golden_copy_matches_plan_data), sans conversion de fin de ligne.
+docs/plan/annexes/donnees/** -text
