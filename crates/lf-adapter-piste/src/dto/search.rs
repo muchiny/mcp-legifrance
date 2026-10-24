@@ -10,13 +10,13 @@
 //! champ. Elles ne dérivent `Debug` et `PartialEq` que pour les tests : elles portent des
 //! extraits de décisions et de textes, et un `{:?}` accidentel ne doit pas compiler.
 //!
-//! Une partie des champs que le mapping n'emploie pas n'est pas déclarée : `serde_json` les saute
-//! sans construire de valeur (mémoire bornée par la taille du corps). C'est vrai surtout de
-//! `facets`, qui peut peser jusqu'à 88 % d'une réponse KALI. D'autres restent déclarés sans être
-//! lus : `solution`, `nor`, `num`, `themes`, `appellations` et `resumePrincipal` d'un résultat,
-//! `id` et `title` d'une section, `searchFieldName` d'un extrait ; leur retrait est renvoyé au plan
-//! 2g, et `num` est lu par un lecteur tolérant (D-24). Aucune table indexée par du texte du corps
-//! (`HashMap`) : une clé venue du corps pourrait entrer dans le chemin d'une erreur.
+//! Seuls les champs que le mapping lit sont déclarés (04 §8.1) : `facets`, qui peut peser jusqu'à
+//! 88 % d'une réponse KALI, ne l'a jamais été ; depuis le plan 2g, `solution`, `nor`, `num`,
+//! `themes`, `appellations` et `resumePrincipal` d'un résultat, `id` et `title` d'une section et
+//! `searchFieldName` d'un extrait sont sautés par `serde_json` sans construire de valeur (mémoire
+//! bornée par la taille du corps) et ne peuvent faire échouer aucun décodage. Aucune table indexée
+//! par du texte du corps (`HashMap`) : une clé venue du corps pourrait entrer dans le chemin d'une
+//! erreur.
 
 use lf_application::ports::CorpusError;
 use lf_domain::search::PageSize;
@@ -100,8 +100,6 @@ pub(crate) struct SearchResultDto {
     pub origin: Option<String>,
     /// État juridique (`VIGUEUR`, `ABROGE`…).
     pub etat: Option<String>,
-    /// Solution d'une décision de justice.
-    pub solution: Option<String>,
     /// Date principale, brute.
     #[serde(deserialize_with = "de::opt_raw_date")]
     pub date: Option<RawDate>,
@@ -111,25 +109,11 @@ pub(crate) struct SearchResultDto {
     /// Date de signature, brute.
     #[serde(deserialize_with = "de::opt_raw_date")]
     pub date_signature: Option<RawDate>,
-    /// Numéro d'identification national (NOR).
-    pub nor: Option<String>,
-    /// Numéro de la décision (par exemple `23-12.345`), en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_string_or_number")]
-    pub num: Option<String>,
     /// Identifiant de convention collective, en chaîne ou en nombre, rendu en chaîne.
     #[serde(deserialize_with = "de::opt_string_or_number")]
     pub idcc: Option<String>,
     /// Raison sociale d'une partie à une convention.
     pub raison_sociale: Option<String>,
-    /// Thèmes d'une décision.
-    #[serde(deserialize_with = "de::bounded_list")]
-    pub themes: Vec<String>,
-    /// Noms d'usage d'un texte (`loi Lemaire`).
-    #[serde(deserialize_with = "de::bounded_list")]
-    pub appellations: Vec<String>,
-    /// Résumé principal d'une décision, en HTML.
-    #[serde(deserialize_with = "de::bounded_list")]
-    pub resume_principal: Vec<String>,
     /// Sections trouvées, avec leurs extraits.
     #[serde(deserialize_with = "de::bounded_list")]
     pub sections: Vec<SearchSectionDto>,
@@ -153,12 +137,6 @@ pub(crate) struct SearchTitleDto {
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct SearchSectionDto {
-    /// Identifiant de la section (`""` ou `null` en KALI : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub id: Option<String>,
-    /// Titre de la section (`""` ou blanc : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub title: Option<String>,
     /// Extraits trouvés dans la section.
     #[serde(deserialize_with = "de::bounded_list")]
     pub extracts: Vec<SearchExtractDto>,
@@ -178,8 +156,6 @@ pub(crate) struct SearchExtractDto {
     /// Passages trouvés, avec leurs surlignages.
     #[serde(deserialize_with = "de::bounded_list")]
     pub values: Vec<String>,
-    /// Nom du champ où le passage a été trouvé (`Résumé principal`…).
-    pub search_field_name: Option<String>,
 }
 
 #[cfg(test)]
@@ -237,8 +213,6 @@ mod tests {
                     etat: text!("VIGUEUR"),
                     date: Some(RawDate::Text("2016-10-09T00:00:00.000+0000".to_owned())),
                     date_publication: Some(RawDate::Millis(1_475_884_800_000)),
-                    nor: text!("ECFI1524250L"),
-                    appellations: vec!["loi Lemaire".to_owned(), "loi numérique".to_owned()],
                     ..Default::default()
                 }],
                 total_result_number: Some(1786),
@@ -249,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn a_juri_result_keeps_its_snippet_solution_and_summary() {
+    fn a_juri_result_keeps_its_snippet_and_skips_what_the_mapping_never_reads() {
         let raw = r#"{"results":[{"titles":[{"id":"JURITEXT000001","cid":"JURITEXT000001",
             "title":"Cour de cassation, 1 janvier 2020, 23-12.345"}],
             "text":"une <mark>faute</mark> grave\n","nature":"arret","origin":"JURI",
@@ -269,20 +243,13 @@ mod tests {
                 text: text!("une <mark>faute</mark> grave\n"),
                 nature: text!("arret"),
                 origin: text!("JURI"),
-                solution: text!("Rejet"),
-                num: text!("23-12.345"),
-                themes: vec!["Travail".to_owned(), "Licenciement".to_owned()],
                 raison_sociale: text!("ACME"),
-                resume_principal: vec!["Un résumé.<br/>".to_owned()],
                 date_signature: Some(RawDate::Millis(1_475_884_800_000)),
                 sections: vec![SearchSectionDto {
-                    id: None,
-                    title: None,
                     extracts: vec![SearchExtractDto {
                         id: None,
                         num: None,
                         values: vec!["a".to_owned(), "b".to_owned()],
-                        search_field_name: text!("Résumé principal"),
                     }],
                 }],
                 ..Default::default()
@@ -366,14 +333,11 @@ mod tests {
         let refused = [
             not_armed::<SearchResponseDto>(r#"{"results":[{}]}"#),
             not_armed::<SearchResultDto>(r#"{"titles":[{}]}"#),
-            not_armed::<SearchResultDto>(r#"{"themes":[""]}"#),
-            not_armed::<SearchResultDto>(r#"{"appellations":[""]}"#),
-            not_armed::<SearchResultDto>(r#"{"resumePrincipal":[""]}"#),
             not_armed::<SearchResultDto>(r#"{"sections":[{}]}"#),
             not_armed::<SearchSectionDto>(r#"{"extracts":[{}]}"#),
             not_armed::<SearchExtractDto>(r#"{"values":[""]}"#),
         ];
-        assert_eq!(refused, [true; 8]);
+        assert_eq!(refused, [true; 5]);
     }
 
     #[test]
@@ -400,7 +364,6 @@ mod tests {
     #[test]
     fn num_accepts_int_and_string() {
         use crate::dto::tests::assert_number_reading;
-        assert_number_reading::<SearchResultDto>("num", ENDPOINT, |dto| &dto.num);
         assert_number_reading::<SearchExtractDto>("num", ENDPOINT, |dto| &dto.num);
     }
 
@@ -519,36 +482,23 @@ mod tests {
             first(raw).sections,
             vec![
                 SearchSectionDto {
-                    id: None,
-                    title: None,
                     extracts: vec![
                         SearchExtractDto {
                             id: text!("KALIARTI000001"),
                             num: text!("8.4 de la convention)"),
                             values: Vec::new(),
-                            search_field_name: None,
                         },
-                        SearchExtractDto {
-                            id: None,
-                            num: None,
-                            values: vec!["x".to_owned()],
-                            search_field_name: None,
-                        },
+                        SearchExtractDto { id: None, num: None, values: vec!["x".to_owned()] },
                     ],
                 },
-                SearchSectionDto {
-                    id: text!("SEC-1"),
-                    title: text!("Titre <mark>un</mark>"),
-                    extracts: Vec::new(),
-                }
+                SearchSectionDto { extracts: Vec::new() }
             ]
         );
     }
 
     #[test]
     fn null_lists_inside_a_result_are_empty() {
-        let raw = r#"{"results":[{"titles":null,"themes":null,"appellations":null,
-            "resumePrincipal":null,"sections":null}]}"#;
+        let raw = r#"{"results":[{"titles":null,"sections":null}]}"#;
         assert_eq!(first(raw), SearchResultDto::default());
     }
 
@@ -586,13 +536,13 @@ mod tests {
     #[test]
     fn a_wrong_type_is_a_decode_error_with_a_json_path_and_no_value() {
         let error = decode::<SearchResponseDto>(
-            r#"{"results":[{"titles":[{"id":"ok"}]},{"themes":"secret-text-42"}]}"#,
+            r#"{"results":[{"titles":[{"id":"ok"}]},{"titles":"secret-text-42"}]}"#,
             ENDPOINT,
         )
         .unwrap_err();
         assert_eq!(
             format!("{error:?}"),
-            r#"Decode { detail: "/search: results[1].themes: invalid type: string, expected a sequence" }"#
+            r#"Decode { detail: "/search: results[1].titles: invalid type: string, expected a sequence" }"#
         );
     }
 

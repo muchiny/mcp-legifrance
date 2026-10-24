@@ -40,7 +40,7 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - `make audit-fuzz` (`cargo-audit` sur `fuzz/Cargo.lock`).
 - `lf_domain::fond::PaginationMode` et `SearchPage.pagination`.
 - Adapter PISTE : `PisteTuning`, `TuningError` et `PisteConfig::with_tuning`.
-- Adapter PISTE : lecteurs serde tolérants sans tampon, `dto::decode::decode` (chemin JSON, expurgation, 127 imbrications au plus, soit 61 à 63 niveaux de sections) et `PisteErrorDto`.
+- Adapter PISTE : lecteurs serde tolérants sans tampon, `dto::decode::decode` (chemin JSON, expurgation, 127 imbrications au plus, soit 62 ou 63 niveaux de sections) et `PisteErrorDto`.
 - Adapter PISTE : DTO de `/search`, `lawDecree`, `kaliText`, `getArticle`, `juri`, `cnil` et `acco`.
 - Adapter PISTE : `request::search::search_body` (payload, facettes, `DATE_VERSION` à midi Europe/Paris, gardes) et `PaginationMemo`.
 - Adapter PISTE : classification « introuvable » : un 400 de consultation au marqueur « introuvable », un 404 de consultation sur les deux adresses officielles (corps non HTML) et un 2xx vide d'une consultation donnent `NotFound` (un 2xx vide de `/search` donne `Decode`) ; message PISTE nettoyé d'un 400 de consultation, jeton et secret client retirés ; corps d'erreur plafonné à 64 Kio.

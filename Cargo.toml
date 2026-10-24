@@ -27,6 +27,8 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "fmt"] }
 proptest = "1.12.0"
 pretty_assertions = "1.4.1"
+# tests de snapshot (view.rs) : sans `colors` ni `redactions`, la feature `json` est choisie par le membre
+insta = { version = "1.49", default-features = false }
 tokio = { version = "1.53", default-features = false }
 wiremock = "0.6.5"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }

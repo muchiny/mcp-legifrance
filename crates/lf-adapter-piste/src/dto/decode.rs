@@ -44,7 +44,7 @@ const UNRECOGNIZED: &str = "invalid data";
 /// elle atteint 0 : 127 tableaux et objets imbriqués passent, le 128e est une erreur (limite de
 /// `serde_json`, non levée). Elle ne vaut que pour les champs lus par un type : les champs non
 /// déclarés et les lecteurs tolérants de `de` (ignorés par `IgnoredAny`) y échappent, à toute
-/// profondeur. Pour les sections d'une table des matières, le plafond effectif est de 61 à 63
+/// profondeur. Pour les sections d'une table des matières, le plafond effectif est de 62 ou 63
 /// niveaux selon le contenu de la plus profonde (voir `consult_text`). Le texte a déjà passé
 /// l'UTF-8 strict et la réparation du mojibake (`encoding`) : cette fonction ne s'en occupe pas.
 ///

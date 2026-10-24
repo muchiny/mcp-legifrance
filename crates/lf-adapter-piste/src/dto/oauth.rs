@@ -43,15 +43,14 @@ pub(crate) fn is_header_safe(token: &SecretString) -> bool {
 
 /// Corps d'erreur de l'endpoint token (RFC 6749 §5.2).
 ///
-/// Accepte aussi un tableau JSON `[]` (forme séquence de `serde`, sans champ requis).
+/// Seul `error` est déclaré : depuis le plan 2g, `error_description`, texte libre qui pourrait
+/// citer la requête et que rien ne lit, est sauté sans construire de valeur. Accepte aussi un
+/// tableau JSON `[]` (forme séquence de `serde`, sans champ requis).
 #[derive(Debug, Deserialize)]
 pub(crate) struct OAuthErrorDto {
     /// Code d'erreur (`invalid_client`…).
     #[serde(default)]
     pub error: Option<String>,
-    /// Description libre : jamais recopiée dans un message, elle pourrait citer la requête.
-    #[serde(default)]
-    pub error_description: Option<String>,
 }
 
 #[cfg(test)]
@@ -148,10 +147,7 @@ mod tests {
             serde_json::from_str(r#"{"error":"invalid_client","error_description":"bad"}"#)
                 .unwrap();
         let empty: OAuthErrorDto = serde_json::from_str("{}").unwrap();
-        assert_eq!(
-            (full.error, full.error_description, empty.error, empty.error_description),
-            (Some("invalid_client".to_owned()), Some("bad".to_owned()), None, None)
-        );
+        assert_eq!((full.error, empty.error), (Some("invalid_client".to_owned()), None));
     }
 
     #[test]

@@ -4,10 +4,12 @@
 //! déclarée. Les structs suivent la convention de `consult_text` : `Default` dérivé,
 //! `#[serde(default)]` au niveau du conteneur, `Debug` et `PartialEq` sous `cfg(test)`
 //! seulement, dates brutes (`RawDate`). Le code IDCC est lu en chaîne ou en nombre
-//! (`opt_string_or_number`), comme `fileSize` et `numero`, déclarés mais jamais lus par le
-//! mapping : un type inattendu sur l'un d'eux ne doit pas faire perdre l'accord (D-24). Le retrait
-//! des champs non lus (ceux-là, `dateDiffusion`, `dateFin`, `conformeVersionIntegrale`) est
-//! renvoyé au plan 2g.
+//! (`opt_string_or_number`, D-24).
+//!
+//! Seuls les champs que le mapping lit sont déclarés (04 §8.1) ; depuis le plan 2g, `fileSize`,
+//! `numero`, `dateDiffusion`, `dateFin`, `conformeVersionIntegrale` et le `code` d'un thème ou
+//! d'un syndicat sont sautés par `serde_json` sans construire de valeur et ne peuvent faire échouer
+//! aucun décodage.
 //!
 //! `data` (le fichier joint en base64, jusqu'à 1 Mio) et `attachment` ne sont jamais déclarés :
 //! `serde_json` saute une valeur non déclarée sans construire de valeur, à toute profondeur
@@ -42,21 +44,12 @@ pub(crate) struct AccordDto {
     pub raison_sociale: Option<String>,
     /// Secteur d'activité (`""` reste `Some("")`).
     pub secteur: Option<String>,
-    /// Taille du fichier joint, avec son unité (`624,3 Ko`), en chaîne ou en nombre, rendue en
-    /// chaîne (`""` : alors `None`) ; jamais lue par le mapping, tolérante pour ne pas faire perdre
-    /// l'accord (D-24).
-    #[serde(deserialize_with = "de::opt_string_or_number")]
-    pub file_size: Option<String>,
     /// Numéro SIRET (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub siret: Option<String>,
     /// Code APE (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub code_ape: Option<String>,
-    /// Numéro de dépôt, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`) ; jamais lu
-    /// par le mapping, tolérant pour ne pas faire perdre l'accord (D-24).
-    #[serde(deserialize_with = "de::opt_string_or_number")]
-    pub numero: Option<String>,
     /// Code IDCC, lu en chaîne ou en nombre et rendu en chaîne.
     #[serde(deserialize_with = "de::opt_string_or_number")]
     pub code_idcc: Option<String>,
@@ -75,23 +68,13 @@ pub(crate) struct AccordDto {
     /// Date de dépôt, brute.
     #[serde(deserialize_with = "de::opt_raw_date")]
     pub date_depot: Option<RawDate>,
-    /// Date de diffusion, brute.
-    #[serde(deserialize_with = "de::opt_raw_date")]
-    pub date_diffusion: Option<RawDate>,
-    /// Date de fin, brute (`2999-01-01` : sans fin).
-    #[serde(deserialize_with = "de::opt_raw_date")]
-    pub date_fin: Option<RawDate>,
-    /// Vrai si le fichier joint est conforme à la version intégrale.
-    pub conforme_version_integrale: Option<bool>,
 }
 
-/// Code et libellé (thème ou syndicat).
+/// Libellé d'un thème ou d'un syndicat.
 #[derive(Deserialize, Default)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct LibelleDto {
-    /// Code.
-    pub code: Option<String>,
     /// Libellé.
     pub libelle: Option<String>,
 }
@@ -120,8 +103,8 @@ mod tests {
         read(raw).acco.unwrap()
     }
 
-    fn label(code: &str, libelle: &str) -> LibelleDto {
-        LibelleDto { code: text!(code), libelle: text!(libelle) }
+    fn label(libelle: &str) -> LibelleDto {
+        LibelleDto { libelle: text!(libelle) }
     }
 
     /// Message de l'erreur `Decode` rendue pour `raw`.
@@ -171,19 +154,14 @@ mod tests {
                 titre_texte: text!("Accord relatif au télétravail"),
                 raison_sociale: text!("CORSAIR (Télétravail)"),
                 secteur: text!("Transport aérien"),
-                file_size: text!("624,3 Ko"),
                 siret: text!("32862158600143"),
                 code_ape: text!("5110Z"),
-                numero: text!("T09426064936"),
                 code_idcc: text!("275"),
-                themes: vec![label("141", "Télétravail")],
-                syndicats: vec![label("CFTC", "CFTC"), label("AUT", "Autre")],
+                themes: vec![label("Télétravail")],
+                syndicats: vec![label("CFTC"), label("Autre")],
                 date_texte: Some(RawDate::Millis(1_766_102_400_000)),
                 date_effet: Some(RawDate::Millis(1_766_188_800_000)),
                 date_depot: Some(RawDate::Millis(1_772_150_400_000)),
-                date_diffusion: Some(RawDate::Millis(1_773_100_800_000)),
-                date_fin: Some(RawDate::Millis(32_472_144_000_000)),
-                conforme_version_integrale: Some(true),
             }
         );
     }
@@ -199,16 +177,19 @@ mod tests {
     }
 
     #[test]
-    fn unread_file_size_and_numero_accept_any_json_value() {
-        use crate::dto::tests::assert_number_reading;
-        assert_number_reading::<AccordDto>("fileSize", ENDPOINT, |dto| &dto.file_size);
-        assert_number_reading::<AccordDto>("numero", ENDPOINT, |dto| &dto.numero);
-        let raw = wrapped(r#""fileSize":624,"numero":[1],"titreTexte":"Accord""#);
+    fn fields_the_mapping_never_reads_are_not_declared() {
+        // `fileSize`, `numero`, `conformeVersionIntegrale`, `dateFin`, `dateDiffusion` et le `code`
+        // d'un libellé ne sont plus déclarés (plan 2g) : aucun type ne peut faire perdre l'accord.
+        let raw = wrapped(
+            r#""fileSize":[1],"numero":{"a":1},"conformeVersionIntegrale":"oui","dateFin":true,
+            "dateDiffusion":[2],"themes":[{"code":{"x":1},"libelle":"Télétravail"}],
+            "titreTexte":"Accord""#,
+        );
         assert_eq!(
             accord(&raw),
             AccordDto {
                 titre_texte: text!("Accord"),
-                file_size: text!("624"),
+                themes: vec![label("Télétravail")],
                 ..Default::default()
             }
         );
@@ -252,7 +233,6 @@ mod tests {
             accord(&raw),
             AccordDto {
                 date_depot: Some(RawDate::Millis(-5_231_606_400_000)),
-                date_diffusion: None,
                 date_effet: Some(RawDate::Text("2025-12-20".to_owned())),
                 ..Default::default()
             }

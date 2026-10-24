@@ -1,0 +1,52 @@
+---
+source: crates/lf-adapter-piste/src/view.rs
+expression: view(&mapped)
+---
+{
+  "dropped": 0,
+  "fond": "CNIL",
+  "hits": [
+    {
+      "articles": [],
+      "cid": "CNILTEXT000053352643",
+      "contract": {
+        "citation": "Délibération de la formation restreinte n° SAN-2026-002 du 8 janvier 2026 prononçant une sanction pécuniaire à l'encontre de la société FREE",
+        "ecli": null,
+        "source_url": "https://www.legifrance.gouv.fr/cnil/id/CNILTEXT000053352643"
+      },
+      "date": "2026-01-14",
+      "etat": "VIGUEUR",
+      "fond": "CNIL",
+      "id": "CNILTEXT000053352643",
+      "idcc": null,
+      "nature": "deliberation",
+      "raison_sociale": null,
+      "snippet": "[...] 1989), exige que les obligations et sanctions en cas de manquement aient été définis à l’avance. 42. [...] Sur la publicité de la sanction 202. [...]",
+      "title": "Délibération de la formation restreinte n° SAN-2026-002 du 8 janvier 2026 prononçant une sanction pécuniaire à l'encontre de la société FREE",
+      "version_start": null
+    },
+    {
+      "articles": [],
+      "cid": "CNILTEXT000053408671",
+      "contract": {
+        "citation": "Délibération de la formation restreinte n° SAN–2026-003 du 22 janvier 2026 prononçant une sanction pécuniaire à l'encontre de l’opérateur FRANCE TRAVAIL",
+        "ecli": null,
+        "source_url": "https://www.legifrance.gouv.fr/cnil/id/CNILTEXT000053408671"
+      },
+      "date": "2026-01-29",
+      "etat": "VIGUEUR",
+      "fond": "CNIL",
+      "id": "CNILTEXT000053408671",
+      "idcc": null,
+      "nature": "deliberation",
+      "raison_sociale": null,
+      "snippet": "[...] Le rapporteur considère qu’il est possible pour la formation restreinte de prononcer une sanction pécuniaire à l’encontre de FRANCE TRAVAIL, en sa qualité d’opérateur indépendant de l'État. 110. [...] Sur la publicité de la sanction 145. [...]",
+      "title": "Délibération de la formation restreinte n° SAN–2026-003 du 22 janvier 2026 prononçant une sanction pécuniaire à l'encontre de l’opérateur FRANCE TRAVAIL",
+      "version_start": null
+    }
+  ],
+  "pagination": "DEFAUT",
+  "query": "golden",
+  "total": 1134,
+  "total_articles": null
+}

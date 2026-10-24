@@ -1,0 +1,52 @@
+---
+source: crates/lf-adapter-piste/src/view.rs
+expression: view(&mapped)
+---
+{
+  "dropped": 0,
+  "fond": "ACCO",
+  "hits": [
+    {
+      "articles": [],
+      "cid": "ACCOTEXT000053643828",
+      "contract": {
+        "citation": "Accord d'entreprise relatif au télétravail (CORSAIR (Télétravail))",
+        "ecli": null,
+        "source_url": "https://www.legifrance.gouv.fr/acco/id/ACCOTEXT000053643828"
+      },
+      "date": "2025-12-19",
+      "etat": null,
+      "fond": "ACCO",
+      "id": "ACCOTEXT000053643828",
+      "idcc": "275",
+      "nature": null,
+      "raison_sociale": "CORSAIR (Télétravail)",
+      "snippet": "[...]définitions liées au télétravail 4\n3.1. Définition du Télétravail 4\n3.2. Définition du Télétravailleur 5\n4. Organisation du télétravail 5\n4.1. Nombre de jours forfaitaires de télétravail 5\n4.2. Utilisation[...]",
+      "title": "Accord d'entreprise relatif au télétravail",
+      "version_start": null
+    },
+    {
+      "articles": [],
+      "cid": "ACCOTEXT000051888026",
+      "contract": {
+        "citation": "Accord Télétravail Hopium (HOPIUM (Télétravail))",
+        "ecli": null,
+        "source_url": "https://www.legifrance.gouv.fr/acco/id/ACCOTEXT000051888026"
+      },
+      "date": "2025-02-07",
+      "etat": null,
+      "fond": "ACCO",
+      "id": "ACCOTEXT000051888026",
+      "idcc": "1486",
+      "nature": null,
+      "raison_sociale": "HOPIUM (Télétravail)",
+      "snippet": "[...]ACCORD TELETRAVAIL HOPIUM\nPRÉAMBULE 3\nARTICLE 1 - DÉFINITIONS ET PRINCIPES RELATIFS AUX TRAVAIL HYBRIDE ET AU TÉLÉTRAVAIL 4\n1.1. Définition du télétravail 4\n1.2. Définition du « travailleur hybride » ou[...]",
+      "title": "Accord Télétravail Hopium",
+      "version_start": null
+    }
+  ],
+  "pagination": "DEFAUT",
+  "query": "golden",
+  "total": 54491,
+  "total_articles": null
+}

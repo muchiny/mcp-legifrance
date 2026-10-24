@@ -23,8 +23,12 @@ ACTIONLINT ?= actionlint
 # minimal en jours. SECURITY_FIX=true (libellé `security-fix` de la PR) vient de l'environnement.
 MIN_AGE_BASE ?= origin/main
 MIN_AGE_DAYS ?= 14
+# Golden de parité (06 §3.2) : répertoire du golden reproduit (sous target/, ignoré par git ;
+# la CI pose le sien dans RUNNER_TEMP) et données du plan.
+SURFACE_DIR ?= target/surface
+DONNEES := docs/plan/annexes/donnees
 
-.PHONY: fmt fmt-check lint test doc arch purity deny audit-fuzz min-age min-age-selftest machete cov cov-cobertura clippy-json mem-check mutants mutants-diff workflow-lint ci
+.PHONY: fmt fmt-check lint test doc arch purity deny audit-fuzz min-age min-age-selftest machete cov cov-cobertura clippy-json mem-check mutants mutants-diff workflow-lint surface ci
 
 fmt:
 	cargo fmt --all
@@ -113,4 +117,14 @@ workflow-lint:
 	$(ZIZMOR) .github/
 	$(ACTIONLINT)
 
-ci: fmt-check lint test doc arch purity deny min-age-selftest machete cov
+# Golden de parité : reproduit par son script versionné depuis les fixtures copiées dans le crate,
+# comparé à l'octet au fichier du plan (et la copie du crate aussi), puis contrôlé par
+# `check_golden.py`. Python 3.13 en `python3 -I` (00 §10).
+surface:
+	mkdir -p "$(SURFACE_DIR)"
+	python3 -I $(DONNEES)/scripts/golden.py crates/lf-adapter-piste/tests/fixtures/reference "$(SURFACE_DIR)/parite-golden.json"
+	cmp "$(SURFACE_DIR)/parite-golden.json" $(DONNEES)/parite-golden.json
+	cmp crates/lf-adapter-piste/tests/fixtures/reference/parite-golden.json $(DONNEES)/parite-golden.json
+	python3 -I $(DONNEES)/scripts/check_golden.py $(DONNEES)/parite-golden.json
+
+ci: fmt-check lint test doc arch purity deny min-age-selftest machete cov surface

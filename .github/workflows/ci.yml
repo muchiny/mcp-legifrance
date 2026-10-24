@@ -112,6 +112,23 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # Golden de parité (06 §3.2) : reproduit par golden.py depuis les fixtures du crate, comparé à
+  # l'octet au fichier du plan, puis contrôlé par check_golden.py. Aucune expansion de contexte
+  # GitHub dans le script : $RUNNER_TEMP est une variable du shell.
+  surface:
+    name: golden de parité
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # v7.0.0 (2026-07-20) : la v7.1.0, du 2026-10-22, n'a pas 14 jours.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: make surface SURFACE_DIR="$RUNNER_TEMP/surface"
+
   deny:
     name: cargo-deny
     # Image fixée (06 §7.2) : la règle d'âge emploie bash, git, curl, jq, GNU date et shellcheck.

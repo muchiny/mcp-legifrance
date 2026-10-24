@@ -36,7 +36,7 @@ const TEXTE: Field = Field { endpoint: JURI, path: "text.texte" };
 
 /// `/consult/juri` ⇒ `Decision` (03 §4.4). Sur `Err(Decode)`, `diags` garde les anomalies
 /// relevées avant l'erreur : `Stats::record_mapping` est appelé sur `Ok` comme sur `Err`
-/// (04 §9.3, D14, branché au plan 2g) ; un `NotFound` ne touche pas `diags`.
+/// (04 §9.3), appelé par `PisteCorpus::fetch` ; un `NotFound` ne touche pas `diags`.
 ///
 /// Ordre d'évaluation figé, la première erreur l'emporte : l'identité de l'objet, l'identifiant
 /// renvoyé, la date, puis le texte intégral. L'origine est contrôlée contre l'identifiant
@@ -152,7 +152,7 @@ mod tests {
     use super::*;
     use crate::dto::de::RawDate;
     use crate::dto::decode::decode;
-    use crate::dto::juri::{ConsultJuriResponseDto, DecisionAttaqueeDto, JuriTextDto};
+    use crate::dto::juri::{ConsultJuriResponseDto, JuriTextDto};
     use crate::map::fixtures::{self, decode_as, decode_error, juri_with, read};
 
     /// Identifiant demandé de la fixture `consult_juri`.
@@ -562,13 +562,16 @@ mod tests {
     }
 
     #[test]
-    fn attacked_decision_does_not_change_the_decision() {
-        let captured = decode_as::<ConsultJuriResponseDto>("consult_juri").text.unwrap();
-        assert_ne!(captured.decision_attaquee, DecisionAttaqueeDto::default());
-        let without = edited("consult_juri", |text| {
-            text.decision_attaquee = DecisionAttaqueeDto::default();
-        });
-        assert_eq!(without, fixture_decision("consult_juri"));
+    fn the_attacked_decision_is_never_read() {
+        // `decisionAttaquee` n'est plus déclarée (plan 2g, D30 renvoyée à M7) : de toute forme,
+        // elle ne change pas la décision.
+        let fixture = fixtures::fixture("consult_juri");
+        let mut body: serde_json::Value =
+            serde_json::from_str(&fixtures::decoded(fixture, true).text).unwrap();
+        body["text"]["decisionAttaquee"] = serde_json::json!([1, {"formation": true}]);
+        let dto = read::<ConsultJuriResponseDto>(&body.to_string(), JURI);
+        let (decision, diags) = decision_of(dto, fixture.requested);
+        assert_eq!((decision.unwrap(), diags), fixture_decision("consult_juri"));
     }
 
     #[test]
@@ -612,7 +615,6 @@ mod tests {
     /// Entrée de sommaire de `abstrats`, `resumePrincipal` et `autreResume`.
     fn entry(abstrats: Option<&str>, principal: Option<&str>, autre: Option<&str>) -> SommaireDto {
         SommaireDto {
-            id: None,
             abstrats: abstrats.map(str::to_owned),
             resume_principal: principal.map(str::to_owned),
             autre_resume: autre.map(str::to_owned),
@@ -755,7 +757,6 @@ mod tests {
     fn summary_ignores_the_nomenclature_ids() {
         let json = r#"{"titrages": ["JURINOME000007644451-JURINOME000007645358"], "sommaire": []}"#;
         let dto: JuriTextDto = decode(json, "/consult/juri").unwrap();
-        assert_eq!(dto.titrages, owned(&["JURINOME000007644451-JURINOME000007645358"]));
         for fond in [Fond::Juri, Fond::Cetat] {
             assert_eq!(summary_of(fond, &dto.sommaire), OfficialSummary::default(), "{fond:?}");
         }

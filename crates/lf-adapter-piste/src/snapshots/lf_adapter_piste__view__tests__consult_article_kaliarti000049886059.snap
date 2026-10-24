@@ -1,0 +1,38 @@
+---
+source: crates/lf-adapter-piste/src/view.rs
+expression: view(&mapped)
+---
+{
+  "article_id": "LEGIARTI000006419288",
+  "code_title": "Code civil",
+  "contract": {
+    "citation": "Code civil, art. 9",
+    "ecli": null,
+    "source_url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288"
+  },
+  "date_debut": "1970-07-19",
+  "date_fin": null,
+  "etat": "VIGUEUR",
+  "full_sections_titre": "Livre Ier : Des personnes",
+  "nota": null,
+  "num": "9",
+  "parent": {
+    "id": "LEGITEXT000006070721",
+    "nature": "code"
+  },
+  "path": [
+    "Livre Ier : Des personnes",
+    "Titre Ier : Des droits civils"
+  ],
+  "text": {
+    "char_len": 322,
+    "invisible_removed": 0,
+    "paragraphs": [
+      [
+        0,
+        322
+      ]
+    ],
+    "text": "Chacun a droit au respect de sa vie privée. Les juges peuvent, sans préjudice de la réparation du dommage subi, prescrire toutes mesures, telles que séquestre, saisie et autres, propres à empêcher ou faire cesser une atteinte à l'intimité de la vie privée : ces mesures peuvent, s'il y a urgence, être ordonnées en référé."
+  }
+}

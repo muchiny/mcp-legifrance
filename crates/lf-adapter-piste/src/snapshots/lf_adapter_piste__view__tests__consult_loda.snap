@@ -1,0 +1,760 @@
+---
+source: crates/lf-adapter-piste/src/view.rs
+expression: view(&mapped)
+---
+{
+  "aliases": [
+    "loi Lemaire",
+    "loi numérique",
+    "loi Lemaire [2016]"
+  ],
+  "cid": "JORFTEXT000033202746",
+  "contract": {
+    "citation": "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)",
+    "ecli": null,
+    "source_url": "https://www.legifrance.gouv.fr/loda/id/LEGITEXT000033205014"
+  },
+  "date_debut_version": "2023-09-08",
+  "date_fin_version": null,
+  "date_parution": "2016-10-08",
+  "etat": "VIGUEUR",
+  "jo_reference": "JORF n°0235 du 8 octobre 2016",
+  "nature": "LOI",
+  "nor": "ECFI1524250L",
+  "num_parution": "0235",
+  "text_id": "LEGITEXT000033205014",
+  "title": "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)",
+  "toc": [
+    {
+      "section": {
+        "children": [
+          {
+            "section": {
+              "children": [
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205126",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "1"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205128",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "2"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205130",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "3"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205132",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "4"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205062",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "5"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205022",
+                    "title": "Section 1 : Ouverture de l'accès aux données publiques"
+                  }
+                },
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205150",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "17"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205152",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "18"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205154",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "19"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205070",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "20"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205156",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "21"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205023",
+                    "title": "Section 2 : Données d'intérêt général"
+                  }
+                },
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205164",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "25"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205094",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "26"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205166",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "27"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205168",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "28"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205170",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "29"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205024",
+                    "title": "Section 3 : Gouvernance"
+                  }
+                }
+              ],
+              "etat": null,
+              "id": "LEGISCTA000033205015",
+              "title": "Chapitre Ier : Economie de la donnée"
+            }
+          },
+          {
+            "section": {
+              "children": [
+                {
+                  "article": {
+                    "article_id": "LEGIARTI000033205102",
+                    "etat": "VIGUEUR",
+                    "inline_text": null,
+                    "num": "30"
+                  }
+                },
+                {
+                  "article": {
+                    "article_id": "LEGIARTI000033205104",
+                    "etat": "VIGUEUR",
+                    "inline_text": null,
+                    "num": "31"
+                  }
+                },
+                {
+                  "article": {
+                    "article_id": "LEGIARTI000033205106",
+                    "etat": "VIGUEUR",
+                    "inline_text": null,
+                    "num": "32"
+                  }
+                },
+                {
+                  "article": {
+                    "article_id": "LEGIARTI000033205108",
+                    "etat": "VIGUEUR",
+                    "inline_text": null,
+                    "num": "33"
+                  }
+                },
+                {
+                  "article": {
+                    "article_id": "LEGIARTI000033205110",
+                    "etat": "VIGUEUR",
+                    "inline_text": null,
+                    "num": "34"
+                  }
+                }
+              ],
+              "etat": null,
+              "id": "LEGISCTA000033205016",
+              "title": "Chapitre II : Economie du savoir"
+            }
+          }
+        ],
+        "etat": null,
+        "id": "LEGISCTA000033205040",
+        "title": "Titre Ier : LA CIRCULATION DES DONNÉES ET DU SAVOIR"
+      }
+    },
+    {
+      "section": {
+        "children": [
+          {
+            "section": {
+              "children": [
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205172",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "40"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205072",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "41"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205176",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "43"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205178",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "44"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205180",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "45"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205025",
+                    "title": "Section 1 : Neutralité de l'internet"
+                  }
+                },
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000037090483",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "48"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205026",
+                    "title": "Section 2 : Portabilité et récupération des données"
+                  }
+                },
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205188",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "49"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205190",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "50"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205192",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "51"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205194",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "52"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205196",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "53"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205027",
+                    "title": "Section 3 : Loyauté des plateformes et information des consommateurs"
+                  }
+                }
+              ],
+              "etat": null,
+              "id": "LEGISCTA000033205017",
+              "title": "Chapitre Ier : Environnement ouvert"
+            }
+          },
+          {
+            "section": {
+              "children": [
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205074",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "54"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205076",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "55"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205198",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "56"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205078",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "57"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205200",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "58"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205028",
+                    "title": "Section 1 : Protection des données à caractère personnel"
+                  }
+                },
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205218",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "68"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205029",
+                    "title": "Section 2 : Confidentialité des correspondances électroniques privées"
+                  }
+                }
+              ],
+              "etat": null,
+              "id": "LEGISCTA000033205018",
+              "title": "Chapitre II : Protection de la vie privée en ligne"
+            }
+          }
+        ],
+        "etat": null,
+        "id": "LEGISCTA000033205041",
+        "title": "Titre II : LA PROTECTION DES DROITS DANS LA SOCIÉTÉ NUMÉRIQUE"
+      }
+    },
+    {
+      "section": {
+        "children": [
+          {
+            "section": {
+              "children": [
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205220",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "69"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205082",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "70"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205222",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "71"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205030",
+                    "title": "Section 1 : Compétences et organisation"
+                  }
+                },
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205084",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "72"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205224",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "73"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205226",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "74"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205228",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "75"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205230",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "76"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205031",
+                    "title": "Section 2 : Couverture numérique"
+                  }
+                }
+              ],
+              "etat": null,
+              "id": "LEGISCTA000033205019",
+              "title": "Chapitre Ier : Numérique et territoires"
+            }
+          },
+          {
+            "section": {
+              "children": [
+                {
+                  "article": {
+                    "article_id": "LEGIARTI000033205118",
+                    "etat": "VIGUEUR",
+                    "inline_text": null,
+                    "num": "86"
+                  }
+                },
+                {
+                  "article": {
+                    "article_id": "LEGIARTI000033205120",
+                    "etat": "VIGUEUR",
+                    "inline_text": null,
+                    "num": "87"
+                  }
+                },
+                {
+                  "article": {
+                    "article_id": "LEGIARTI000033205122",
+                    "etat": "VIGUEUR",
+                    "inline_text": null,
+                    "num": "88"
+                  }
+                },
+                {
+                  "article": {
+                    "article_id": "LEGIARTI000033205058",
+                    "etat": "VIGUEUR",
+                    "inline_text": null,
+                    "num": "89"
+                  }
+                },
+                {
+                  "article": {
+                    "article_id": "LEGIARTI000033205092",
+                    "etat": "VIGUEUR",
+                    "inline_text": null,
+                    "num": "90"
+                  }
+                },
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205240",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "93"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205032",
+                    "title": "Section 1 : Recommandé électronique"
+                  }
+                },
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205242",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "94"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205033",
+                    "title": "Section 2 : Fourniture de services de paiement dans le cadre de l'exclusion de demande d'agrément applicable à certains instruments de paiement"
+                  }
+                },
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205244",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "95"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205090",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "96"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205246",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "97"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205248",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "98"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205250",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "99"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205034",
+                    "title": "Section 3 : Régulation des jeux en ligne"
+                  }
+                }
+              ],
+              "etat": null,
+              "id": "LEGISCTA000033205020",
+              "title": "Chapitre II : Facilitation des usages"
+            }
+          },
+          {
+            "section": {
+              "children": [
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000048050251",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "105"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205037",
+                    "title": "Section 1 : Accès des personnes handicapées aux services téléphoniques"
+                  }
+                },
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205262",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "106"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205264",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "107"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205038",
+                    "title": "Section 2 : Accès des personnes handicapées aux sites internet publics"
+                  }
+                },
+                {
+                  "section": {
+                    "children": [
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205266",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "108"
+                        }
+                      },
+                      {
+                        "article": {
+                          "article_id": "LEGIARTI000033205268",
+                          "etat": "VIGUEUR",
+                          "inline_text": null,
+                          "num": "109"
+                        }
+                      }
+                    ],
+                    "etat": null,
+                    "id": "LEGISCTA000033205039",
+                    "title": "Section 3 : Maintien de la connexion à internet"
+                  }
+                }
+              ],
+              "etat": null,
+              "id": "LEGISCTA000033205021",
+              "title": "Chapitre III : Accès des publics fragiles au numérique"
+            }
+          }
+        ],
+        "etat": null,
+        "id": "LEGISCTA000033205042",
+        "title": "Titre III : L'ACCÈS AU NUMÉRIQUE"
+      }
+    }
+  ],
+  "toc_dropped": 0
+}

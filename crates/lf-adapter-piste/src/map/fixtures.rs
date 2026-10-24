@@ -636,7 +636,6 @@ mod tests {
         assert_eq!(article.text_titles.len(), 1);
         assert_eq!(article.text_titles[0].nature.as_deref(), Some("CODE"));
         assert_eq!(article.context.titres_tm.len(), 2);
-        assert_eq!(article.context.titre_txt.len(), 1);
         assert_eq!(article.texte_html, None);
     }
 
@@ -646,13 +645,11 @@ mod tests {
         assert_eq!(juri.num.as_deref(), Some("12500399"));
         assert_eq!(juri.numero_affaire, ["24-13.470"]);
         assert_eq!(juri.sommaire.len(), 1);
-        assert_eq!(juri.liens.len(), 2);
         assert_eq!(juri.ecli.as_deref(), Some("ECLI:FR:CCASS:2025:C100399"));
 
         let cetat = decode_as::<ConsultJuriResponseDto>("consult_juri_cetat").text.expect("text");
         assert_eq!(cetat.num.as_deref(), Some("506507"));
         assert_eq!(cetat.sommaire.len(), 6);
-        assert_eq!(cetat.liens.len(), 0);
 
         let constit =
             decode_as::<ConsultJuriResponseDto>("consult_juri_constit").text.expect("text");
@@ -662,7 +659,6 @@ mod tests {
         let cnil = decode_as::<ConsultJuriResponseDto>("consult_cnil").text.expect("text");
         assert_eq!(cnil.num.as_deref(), Some("SAN-2026-002"));
         assert_eq!(cnil.sommaire.len(), 0);
-        assert_eq!(cnil.liens.len(), 0);
     }
 
     /// Valeurs affirmées sur ce groupe de fixtures.
@@ -671,7 +667,7 @@ mod tests {
         assert_eq!(acco.code_idcc.as_deref(), Some("275"));
         assert_eq!(acco.themes.len(), 1);
         assert_eq!(acco.syndicats.len(), 3);
-        assert_eq!(acco.date_fin, Some(RawDate::Millis(32_472_144_000_000)));
+        assert_eq!(acco.date_depot, Some(RawDate::Millis(1_772_150_400_000)));
     }
 
     #[test]

@@ -521,4 +521,25 @@ mod tests {
         assert_eq!(projected["date_effet"], "2025-12-20");
         assert_eq!(projected["themes"], json!(["Télétravail"]));
     }
+
+    /// 04 §13.3, P-038 : la projection `view` de chacune des seize fixtures, puis de la variante
+    /// `KALIARTI` de l'article, est épinglée par un snapshot `insta` (fichiers sous `snapshots/`).
+    /// Un snapshot neuf ou différent fait échouer le test ; hors CI, `insta` écrit un `.snap.new`
+    /// à relire (`INSTA_UPDATE=auto` vaut `no` quand `CI` est posé).
+    #[test]
+    fn mapping_snapshots() {
+        for fixture in &ALL {
+            let mapped = map_fixture(fixture, &mut Diagnostics::default()).expect(fixture.name);
+            insta::assert_json_snapshot!(fixture.name, view(&mapped));
+        }
+        let text = decoded(fixture("consult_article"), true).text;
+        let mapped =
+            map_body(Kind::GetArticle, &text, "KALIARTI000049886059", &mut Diagnostics::default())
+                .expect("variant maps");
+        // Ce snapshot est identique octet pour octet à `consult_article.snap` : la vue ne dépend
+        // pas de l'identifiant demandé (`id_mismatch` est un compteur, pas un champ de l'entité).
+        // Il n'épingle que l'absence d'effet d'un `KALIARTI` demandé pour un `LEGIARTI` rendu.
+        // Aucun crochet dans un nom de fichier : le nom de la variante est écrit en clair.
+        insta::assert_json_snapshot!("consult_article_kaliarti000049886059", view(&mapped));
+    }
 }

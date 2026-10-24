@@ -26,6 +26,8 @@ pub(crate) mod decision;
 pub(crate) mod deliberation;
 #[cfg(test)]
 pub(crate) mod fixtures;
+#[cfg(test)]
+mod mutations;
 pub(crate) mod rules;
 pub(crate) mod search;
 pub(crate) mod toc;

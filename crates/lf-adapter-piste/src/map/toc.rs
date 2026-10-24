@@ -49,10 +49,10 @@ fn draft(sections: Vec<TocSectionDto>, articles: Vec<TocArticleDto>) -> TocDraft
     }
 }
 
-/// Section brute, sous-sections et articles compris ; `dateDebut` et `dateFin` ne sont pas lus.
-/// La récursion suit le DTO, dont `serde_json` borne la profondeur (61 à 63 niveaux).
+/// Section brute, sous-sections et articles compris ; les DTO ne déclarent ni dates ni liens.
+/// La récursion suit le DTO, dont `serde_json` borne la profondeur (62 ou 63 niveaux).
 fn section_draft(dto: TocSectionDto) -> SectionDraft {
-    let TocSectionDto { id, title, etat, int_ordre, sections, articles, .. } = dto;
+    let TocSectionDto { id, title, etat, int_ordre, sections, articles } = dto;
     SectionDraft {
         id,
         title,
@@ -63,9 +63,9 @@ fn section_draft(dto: TocSectionDto) -> SectionDraft {
     }
 }
 
-/// Article brut : `content` devient `content_html`, déplacé ; dates et liens ne sont pas lus.
+/// Article brut : `content` devient `content_html`, déplacé ; le DTO ne déclare ni dates ni liens.
 fn article_draft(dto: TocArticleDto) -> ArticleDraft {
-    let TocArticleDto { id, num, etat, content, int_ordre, .. } = dto;
+    let TocArticleDto { id, num, etat, content, int_ordre } = dto;
     ArticleDraft { id, num, int_ordre, etat, content_html: content }
 }
 
@@ -102,7 +102,6 @@ mod tests {
 
     use super::*;
     use crate::dto::consult_text::ConsultTextDto;
-    use crate::dto::de::RawDate;
     use crate::map::endpoint;
     use crate::map::fixtures::{decode_as, golden, text};
 
@@ -117,7 +116,7 @@ mod tests {
     }
 
     /// `levels` sections imbriquées, titrées `S1` à `S<levels>`, sans article. Construites à la
-    /// main : `serde_json` plafonne le JSON à 61-63 niveaux de sections (`dto/consult_text.rs`).
+    /// main : `serde_json` plafonne le JSON à 62 ou 63 niveaux de sections (`dto/consult_text.rs`).
     fn chain(levels: usize) -> Vec<TocSectionDto> {
         let mut sections = Vec::new();
         for level in (1..=levels).rev() {
@@ -188,8 +187,6 @@ mod tests {
             title: text!(" Titre Ier "),
             etat: text!("MODIFIE"),
             int_ordre: Some(3),
-            date_debut: Some(RawDate::Text("2016-10-09".to_owned())),
-            date_fin: Some(RawDate::Millis(32_472_144_000_000)),
             sections: vec![TocSectionDto {
                 id: text!("LEGISCTA000033205015"),
                 ..TocSectionDto::default()
@@ -224,9 +221,6 @@ mod tests {
             etat: text!("VIGUEUR_ETEN"),
             content: text!("<p>x</p>"),
             int_ordre: Some(1_073_741_823),
-            date_debut: Some(RawDate::Millis(1_214_784_000_000)),
-            date_fin: Some(RawDate::Text("2999-01-01".to_owned())),
-            ..TocArticleDto::default()
         };
         let expected = ArticleDraft {
             id: text!("KALIARTI000049886059"),

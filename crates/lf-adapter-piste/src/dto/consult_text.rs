@@ -10,23 +10,21 @@
 //! champ. Elles ne dérivent `Debug` et `PartialEq` que pour les tests : elles portent du texte
 //! juridique, et un `{:?}` accidentel ne doit pas compiler.
 //!
-//! Une partie des champs que le mapping n'emploie pas (`signataires`, `eli`, `visas`, `liens` du
-//! texte…) n'est pas déclarée : `serde_json` les saute sans construire de valeur (mémoire bornée
-//! par la taille du corps), et `signataires`, objet en KALI et chaîne en JURI, ne peut faire
-//! échouer aucun décodage. D'autres restent déclarés sans être lus : `textAbroge` et `typeTexte`
-//! du texte, `dateDebut` et `dateFin` des sections et des articles, les listes `lstLienCitation` et
-//! `lstLienModification` des articles et tous les champs de leurs liens. Leur retrait est renvoyé
-//! au plan 2g ; d'ici là, `articleNum` est lu par un lecteur tolérant (D-24), et un type inattendu
-//! sur un autre champ non lu reste une erreur de décodage.
+//! Seuls les champs que le mapping lit sont déclarés (04 §8.1) : `signataires` (objet en KALI,
+//! chaîne en JURI), `eli`, `visas`, les `liens` du texte… ne l'ont jamais été ; depuis le plan 2g,
+//! `textAbroge` et `typeTexte` du texte, `dateDebut` et `dateFin` des sections et des articles et
+//! les listes `lstLienCitation` et `lstLienModification` des articles sont sautés par `serde_json`
+//! sans construire de valeur (mémoire bornée par la taille du corps) et ne peuvent faire échouer
+//! aucun décodage.
 //!
 //! La table des matières est lue récursivement. `serde_json` part d'une profondeur restante de
 //! 128 et échoue quand elle atteint 0 : 127 tableaux et objets imbriqués passent, le 128e donne
 //! `CorpusError::Decode`. L'objet racine et chaque niveau de section (un objet et un tableau)
-//! les consomment, et les articles de la section la plus profonde, puis leurs listes de liens,
-//! en consomment encore : le plafond effectif est de 61 à 63 niveaux de sections selon le contenu
-//! de la plus profonde (63 pour des sections feuilles vides, 62 avec des articles, 61 si ces
-//! articles portent des `lstLien*`). Les champs non déclarés et les lecteurs tolérants (ignorés
-//! par `IgnoredAny`, sans limite de profondeur) y échappent.
+//! les consomment, et les articles de la section la plus profonde en consomment encore : le
+//! plafond effectif est de 62 ou 63 niveaux de sections selon le contenu de la plus profonde (63
+//! pour des sections feuilles vides, 62 avec des articles). Les champs non déclarés, dont les
+//! `lstLien*` des articles depuis le plan 2g, et les lecteurs tolérants (ignorés par
+//! `IgnoredAny`, sans limite de profondeur) y échappent.
 
 use serde::Deserialize;
 
@@ -51,8 +49,6 @@ pub(crate) struct ConsultTextDto {
     pub etat: Option<String>,
     /// État juridique de la version (`Vigueur`, `Abrogé`…).
     pub juris_state: Option<String>,
-    /// Vrai si le texte est abrogé.
-    pub text_abroge: Option<bool>,
     /// Date de parution, brute.
     #[serde(deserialize_with = "de::opt_raw_date")]
     pub date_parution: Option<RawDate>,
@@ -75,9 +71,6 @@ pub(crate) struct ConsultTextDto {
     /// Origine de la publication d'un texte KALI (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub origine_publi: Option<String>,
-    /// Type d'un texte KALI (`TEXTE_ATTACHE`…, `""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub type_texte: Option<String>,
     /// Noms d'usage du texte.
     #[serde(deserialize_with = "de::bounded_list")]
     pub appellations: Vec<String>,
@@ -105,12 +98,6 @@ pub(crate) struct TocSectionDto {
     pub etat: Option<String>,
     /// Rang de la section dans son parent.
     pub int_ordre: Option<i64>,
-    /// Date de début de la section, brute.
-    #[serde(deserialize_with = "de::opt_raw_date")]
-    pub date_debut: Option<RawDate>,
-    /// Date de fin de la section, brute.
-    #[serde(deserialize_with = "de::opt_raw_date")]
-    pub date_fin: Option<RawDate>,
     /// Sous-sections.
     #[serde(deserialize_with = "de::bounded_list")]
     pub sections: Vec<TocSectionDto>,
@@ -135,43 +122,6 @@ pub(crate) struct TocArticleDto {
     pub content: Option<String>,
     /// Rang de l'article dans son parent.
     pub int_ordre: Option<i64>,
-    /// Date de début de l'article, brute.
-    #[serde(deserialize_with = "de::opt_raw_date")]
-    pub date_debut: Option<RawDate>,
-    /// Date de fin de l'article, brute.
-    #[serde(deserialize_with = "de::opt_raw_date")]
-    pub date_fin: Option<RawDate>,
-    /// Liens vers les articles qui citent celui-ci ou qu'il cite.
-    #[serde(deserialize_with = "de::bounded_list")]
-    pub lst_lien_citation: Vec<LienArticleDto>,
-    /// Liens vers les articles qui modifient celui-ci ou qu'il modifie.
-    #[serde(deserialize_with = "de::bounded_list")]
-    pub lst_lien_modification: Vec<LienArticleDto>,
-}
-
-/// Lien d'un article vers un autre article.
-#[derive(Deserialize, Default)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[serde(rename_all = "camelCase", default)]
-pub(crate) struct LienArticleDto {
-    /// Type du lien (`CITATION`, `EXTENSION`…).
-    pub link_type: Option<String>,
-    /// Orientation du lien (`cible`, `source`).
-    pub link_orientation: Option<String>,
-    /// Titre du texte lié.
-    pub text_title: Option<String>,
-    /// Nature du texte lié.
-    pub nature_text: Option<String>,
-    /// Identifiant chronologique du texte lié (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub text_cid: Option<String>,
-    /// Identifiant de l'article lié (`""` : alors `None`).
-    #[serde(deserialize_with = "de::opt_nonempty")]
-    pub article_id: Option<String>,
-    /// Numéro de l'article lié, en chaîne ou en nombre, rendu en chaîne (`""` : alors `None`) ;
-    /// jamais lu par le mapping, tolérant pour ne pas faire perdre le texte (D-24).
-    #[serde(deserialize_with = "de::opt_string_or_number")]
-    pub article_num: Option<String>,
 }
 
 /// Conteneur d'un texte KALI : la convention collective qui le porte.
@@ -241,7 +191,6 @@ mod tests {
                 nature: text!("LOI"),
                 etat: text!("VIGUEUR"),
                 juris_state: text!("Vigueur"),
-                text_abroge: Some(false),
                 date_parution: Some(RawDate::Millis(1_475_884_800_000)),
                 date_debut_version: Some(RawDate::Text("2023-09-08".to_owned())),
                 date_fin_version: Some(RawDate::Text("2999-01-01".to_owned())),
@@ -295,7 +244,6 @@ mod tests {
                 date_parution: Some(RawDate::Millis(32_472_144_000_000)),
                 numero_bo: text!("2024-20"),
                 origine_publi: text!("BO n°2024-20"),
-                type_texte: text!("TEXTE_ATTACHE"),
                 conteneurs: vec![ConteneurDto {
                     cid: text!("KALICONT000005635096"),
                     num: text!("2121"),
@@ -305,34 +253,12 @@ mod tests {
                     id: text!("KALISCTA1"),
                     title: text!("Titre I"),
                     int_ordre: Some(1_074_003_967),
-                    date_debut: Some(RawDate::Text("2008-06-30".to_owned())),
-                    date_fin: Some(RawDate::Text("2999-01-01".to_owned())),
                     articles: vec![TocArticleDto {
                         id: text!("KALIARTI1"),
                         num: text!("1"),
                         etat: text!("VIGUEUR"),
                         content: text!("<p>Le texte</p>"),
                         int_ordre: Some(1_073_741_823),
-                        date_debut: Some(RawDate::Millis(1_214_784_000_000)),
-                        date_fin: Some(RawDate::Millis(32_472_144_000_000)),
-                        lst_lien_citation: vec![LienArticleDto {
-                            link_type: text!("CITATION"),
-                            link_orientation: text!("source"),
-                            text_title: text!("Code du travail"),
-                            nature_text: None,
-                            text_cid: text!("LEGITEXT1"),
-                            article_id: text!("LEGIARTI2"),
-                            article_num: text!("L1242-2"),
-                        }],
-                        lst_lien_modification: vec![LienArticleDto {
-                            link_type: text!("EXTENSION"),
-                            link_orientation: text!("cible"),
-                            text_title: text!("Arrêté du 1er janvier"),
-                            nature_text: text!("ARRETE"),
-                            text_cid: text!("JORFTEXT1"),
-                            article_id: text!("JORFARTI1"),
-                            article_num: text!("1"),
-                        }],
                     }],
                     ..Default::default()
                 }],
@@ -356,10 +282,6 @@ mod tests {
             "typeTexte":"","appellations":null,"sections":null,"articles":null,
             "conteneurs":null}"#;
         assert_eq!(read(raw), ConsultTextDto::default());
-        let article = r#"{"lstLienCitation":null,"lstLienModification":null}"#;
-        assert_eq!(decode::<TocArticleDto>(article, LODA).unwrap(), TocArticleDto::default());
-        let link = r#"{"textCid":"","articleId":" ","articleNum":""}"#;
-        assert_eq!(decode::<LienArticleDto>(link, LODA).unwrap(), LienArticleDto::default());
         assert_eq!(decode::<ConteneurDto>(r#"{"num":""}"#, LODA).unwrap(), ConteneurDto::default());
     }
 
@@ -369,7 +291,6 @@ mod tests {
         assert_number_reading::<ConsultTextDto>("numParution", KALI, |dto| &dto.num_parution);
         assert_number_reading::<TocArticleDto>("num", LODA, |dto| &dto.num);
         assert_number_reading::<ConteneurDto>("num", LODA, |dto| &dto.num);
-        assert_number_reading::<LienArticleDto>("articleNum", LODA, |dto| &dto.article_num);
         let conteneur = decode::<ConteneurDto>(r#"{"num":2121}"#, KALI).unwrap();
         assert_eq!(conteneur.num, text!("2121"));
     }
@@ -439,12 +360,6 @@ mod tests {
             &format!(r#"{{"sections":[{{"articles":{objects}}}]}}"#),
             "sections[0].articles[199999]",
         );
-        for list in ["lstLienCitation", "lstLienModification"] {
-            assert_budgeted(
-                &format!(r#"{{"articles":[{{"{list}":{objects}}}]}}"#),
-                &format!("articles[0].{list}[199999]"),
-            );
-        }
     }
 
     /// Lit `raw` par `serde_json` sous un budget armé à la main : le texte et les éléments payés.
@@ -486,7 +401,8 @@ mod tests {
     }
 
     /// Une TOC de la taille d'un code (04 §8.5, limite 1) : 2 000 sections de 9 articles, soit
-    /// 20 000 nœuds ; chaque article porte 3 liens, d'où 74 000 éléments = 37 % du budget.
+    /// 20 000 nœuds = 20 000 éléments, 10 % du budget ; les 3 liens de chaque article, non
+    /// déclarés depuis le plan 2g, ne coûtent rien.
     #[test]
     fn a_code_sized_toc_stays_far_under_the_budget() {
         let article = r#"{"id":"LEGIARTI000000000001","num":"1","etat":"VIGUEUR","lstLienCitation":[{},{}],"lstLienModification":[{}]}"#;
@@ -497,10 +413,10 @@ mod tests {
         let body = format!(r#"{{"sections":{}}}"#, repeated(&section, 2_000));
         assert_eq!(body.len(), 2_118_014);
         let (text, spent) = read_spending(&body);
-        assert_eq!(spent, 74_000);
+        assert_eq!(spent, 20_000);
         assert_eq!(text.sections.len(), 2_000);
         assert_eq!(text.sections[0].articles.len(), 9);
-        assert_eq!(text.sections[1_999].articles[8].lst_lien_citation.len(), 2);
+        assert_eq!(text.sections[1_999].articles[8].num, text!("1"));
         assert_eq!(
             decode::<ConsultTextDto>(&body, LODA).map(|text| text.sections.len()),
             Ok(2_000)
@@ -508,13 +424,13 @@ mod tests {
     }
 
     #[test]
-    fn an_article_with_nine_links_costs_ten_elements() {
-        let article = format!(r#"{{"lstLienCitation":{}}}"#, repeated("{}", 9));
+    fn the_links_of_an_article_are_skipped_without_cost() {
+        let article = format!(r#"{{"num":"1","lstLienCitation":{}}}"#, repeated("{}", 9));
         let raw = format!(r#"{{"articles":{}}}"#, repeated(&article, 1_000));
         let (text, spent) = read_spending(&raw);
-        assert_eq!(spent, 10_000);
+        assert_eq!(spent, 1_000);
         assert_eq!(text.articles.len(), 1_000);
-        assert_eq!(text.articles[999].lst_lien_citation.len(), 9);
+        assert_eq!(text.articles[999].num, text!("1"));
     }
 
     #[test]

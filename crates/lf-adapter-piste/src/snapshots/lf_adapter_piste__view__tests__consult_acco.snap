@@ -1,0 +1,30 @@
+---
+source: crates/lf-adapter-piste/src/view.rs
+expression: view(&mapped)
+---
+{
+  "agreement_id": "ACCOTEXT000053643828",
+  "code_ape": "5110Z",
+  "contract": {
+    "citation": "Accord d'entreprise relatif au télétravail (CORSAIR (Télétravail))",
+    "ecli": null,
+    "source_url": "https://www.legifrance.gouv.fr/acco/id/ACCOTEXT000053643828"
+  },
+  "date_depot": "2026-02-27",
+  "date_effet": "2025-12-20",
+  "date_texte": "2025-12-19",
+  "idcc": "275",
+  "nature": "ACCORD",
+  "raison_sociale": "CORSAIR (Télétravail)",
+  "secteur": "Transports aériens de passagers",
+  "siret": "32862158600143",
+  "syndicats": [
+    "CFTC",
+    "CFE-CGC",
+    "Autre"
+  ],
+  "themes": [
+    "Télétravail"
+  ],
+  "title": "Accord d'entreprise relatif au télétravail"
+}
