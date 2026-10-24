@@ -1,6 +1,7 @@
 //! Corps des requêtes envoyées à PISTE.
 //!
-//! `search` construit celui de `/search` ; les corps de consultation (`consult`) et de
-//! recherche par numéro (`number`) viennent avec leurs méthodes du port.
+//! `search` construit celui de `/search` ; `consult` ceux des six consultations de la v0.1 ;
+//! `number` (recherche par numéro) vient en M6.
 
+pub(crate) mod consult;
 pub(crate) mod search;

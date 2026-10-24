@@ -85,8 +85,8 @@
                   take_credit, race_permit, Permit, MAX_CHECKS et les champs de RateGate ; \
                   TokenManager::invalidate et les champs de TokenLease ; Payload::Json ; \
                   Stats::record_decode), request::search::search_body et ce que lui seul \
-                  emploie, memo (tout le module : PaginationMemo, choose_mode, received_mode et \
-                  leurs aides), les DTO de /search et de /consult (lawDecree, kaliText, \
+                  emploie, request::consult (Consultation, endpoint, body), memo (tout le \
+                  module : PaginationMemo, choose_mode, received_mode et leurs aides), les DTO de /search et de /consult (lawDecree, kaliText, \
                   getArticle, juri, cnil, acco) et ce que seuls ils emploient (dans dto::de, \
                   bounded_list, capped_list, null_default, opt_nonempty, opt_raw_date, RawDate et \
                   leurs aides ListVisitor, Element, admit, DateVisitor, whole_float_to_millis et \
