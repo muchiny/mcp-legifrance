@@ -1,0 +1,57 @@
+---
+source: crates/lf-adapter-piste/src/view.rs
+expression: view(&mapped)
+---
+{
+  "aliases": [],
+  "bulletin": "BO n°2024-20",
+  "cid": "KALITEXT000049878950",
+  "container_id": "KALICONT000005635096",
+  "container_title": "Convention collective nationale de l'édition du 14 janvier 2000",
+  "contract": {
+    "citation": "Annexe IX - Stipulations spécifiques applicables aux techniciens du spectacle et aux artistes interprètes, engagés pour la production de phonogrammes et vidéogrammes musicaux",
+    "ecli": null,
+    "source_url": "https://www.legifrance.gouv.fr/conv_coll/id/KALITEXT000049878950"
+  },
+  "date_debut_version": null,
+  "date_fin_version": null,
+  "date_parution": null,
+  "etat": "VIGUEUR_ETEN",
+  "idcc": "2121",
+  "jo_reference": null,
+  "nature": null,
+  "nor": "ASET2450455M",
+  "num_parution": null,
+  "text_id": "KALITEXT000049878950",
+  "title": "Annexe IX - Stipulations spécifiques applicables aux techniciens du spectacle et aux artistes interprètes, engagés pour la production de phonogrammes et vidéogrammes musicaux",
+  "toc": [
+    {
+      "section": {
+        "children": [
+          {
+            "article": {
+              "article_id": "KALIARTI000049886059",
+              "etat": "VIGUEUR_ETEN",
+              "inline_text": {
+                "char_len": 249,
+                "invisible_removed": 0,
+                "paragraphs": [
+                  [
+                    0,
+                    249
+                  ]
+                ],
+                "text": "Les parties conviennent de préciser au niveau de la branche les conditions d'un recours légitime et maîtrisé par les entreprises entrant dans le champ d'application de la présente convention au contrat à durée déterminée d'usage en application de l'"
+              },
+              "num": "19 (des dispositions communes de la convention collective nationale de l'édition phonographique)"
+            }
+          }
+        ],
+        "etat": "VIGUEUR_ETEN",
+        "id": "KALISCTA000049886029",
+        "title": "Chapitre 1er : Recours au CDD d'usage"
+      }
+    }
+  ],
+  "toc_dropped": 0
+}

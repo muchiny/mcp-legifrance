@@ -1,0 +1,228 @@
+---
+source: crates/lf-adapter-piste/src/view.rs
+expression: view(&mapped)
+---
+{
+  "contract": {
+    "citation": "Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025",
+    "ecli": "ECLI:FR:CC:2025:2025.1173.QPC",
+    "source_url": "https://www.legifrance.gouv.fr/cons/id/CONSTEXT000052555275"
+  },
+  "date_texte": "2025-11-07",
+  "decision_id": "CONSTEXT000052555275",
+  "ecli": "ECLI:FR:CC:2025:2025.1173.QPC",
+  "formation": null,
+  "juridiction": "Conseil constitutionnel",
+  "nature": "QPC",
+  "num": "2025-1173",
+  "numero_affaire": [],
+  "official_summary": {
+    "analyses": [],
+    "titrages": []
+  },
+  "solution": "Conformité",
+  "text": {
+    "char_len": 14332,
+    "invisible_removed": 0,
+    "paragraphs": [
+      [
+        0,
+        639
+      ],
+      [
+        641,
+        27
+      ],
+      [
+        670,
+        19
+      ],
+      [
+        691,
+        99
+      ],
+      [
+        792,
+        31
+      ],
+      [
+        825,
+        95
+      ],
+      [
+        922,
+        114
+      ],
+      [
+        1038,
+        146
+      ],
+      [
+        1186,
+        28
+      ],
+      [
+        1216,
+        107
+      ],
+      [
+        1325,
+        121
+      ],
+      [
+        1448,
+        85
+      ],
+      [
+        1535,
+        53
+      ],
+      [
+        1590,
+        174
+      ],
+      [
+        1766,
+        38
+      ],
+      [
+        1806,
+        56
+      ],
+      [
+        1864,
+        470
+      ],
+      [
+        2336,
+        567
+      ],
+      [
+        2905,
+        784
+      ],
+      [
+        3691,
+        782
+      ],
+      [
+        4475,
+        613
+      ],
+      [
+        5090,
+        398
+      ],
+      [
+        5490,
+        263
+      ],
+      [
+        5755,
+        629
+      ],
+      [
+        6386,
+        406
+      ],
+      [
+        6794,
+        220
+      ],
+      [
+        7016,
+        546
+      ],
+      [
+        7564,
+        600
+      ],
+      [
+        8166,
+        275
+      ],
+      [
+        8443,
+        22
+      ],
+      [
+        8467,
+        384
+      ],
+      [
+        8853,
+        364
+      ],
+      [
+        9219,
+        15
+      ],
+      [
+        9236,
+        425
+      ],
+      [
+        9663,
+        502
+      ],
+      [
+        10167,
+        318
+      ],
+      [
+        10487,
+        236
+      ],
+      [
+        10725,
+        281
+      ],
+      [
+        11008,
+        124
+      ],
+      [
+        11134,
+        606
+      ],
+      [
+        11742,
+        458
+      ],
+      [
+        12202,
+        893
+      ],
+      [
+        13097,
+        148
+      ],
+      [
+        13247,
+        180
+      ],
+      [
+        13429,
+        35
+      ],
+      [
+        13466,
+        359
+      ],
+      [
+        13827,
+        190
+      ],
+      [
+        14019,
+        279
+      ],
+      [
+        14300,
+        32
+      ]
+    ],
+    "text": "LE CONSEIL CONSTITUTIONNEL A ÉTÉ SAISI le 8 août 2025 par la Cour de cassation (chambre criminelle, arrêt n° 1133 du 6 août 2025), dans les conditions prévues à l’article 61-1 de la Constitution, d’une question prioritaire de constitutionnalité. Cette question a été posée pour M. Amine G. par Me Pierre de Combles de Nayves, avocat au barreau de Paris. Elle a été enregistrée au secrétariat général du Conseil constitutionnel sous le n° 2025-1173 QPC. Elle est relative à la conformité aux droits et libertés que la Constitution garantit du premier alinéa de l’article 396 du code de procédure pénale et de l’article 397-1-1 du même code.\n\nAu vu des textes suivants :\n\n- la Constitution ;\n\n- l’ordonnance n° 58-1067 du 7 novembre 1958 portant loi organique sur le Conseil constitutionnel ;\n\n- le code de procédure pénale ;\n\n- la loi n° 2019-222 du 23 mars 2019 de programmation 2018-2022 et de réforme pour la justice ;\n\n- la loi n° 2023-1059 du 20 novembre 2023 d’orientation et de programmation du ministère de la justice 2023-2027 ;\n\n- le règlement du 4 février 2010 sur la procédure suivie devant le Conseil constitutionnel pour les questions prioritaires de constitutionnalité ;\n\nAu vu des pièces suivantes :\n\n- les observations présentées pour le requérant par Me de Combles de Nayves, enregistrées le 11 août 2025 ;\n\n- les observations en intervention présentées pour M. Enzo A. par Me de Combles de Nayves, enregistrées le 22 août 2025 ;\n\n- les observations présentées par le Premier ministre, enregistrées le 28 août 2025 ;\n\n- les autres pièces produites et jointes au dossier ;\n\nAprès avoir entendu Me de Combles de Nayves, pour le requérant et M. A., et M. Thibault Cayssials, désigné par le Premier ministre, à l’audience publique du 14 octobre 2025 ;\n\nEt après avoir entendu le rapporteur ;\n\nLE CONSEIL CONSTITUTIONNEL S’EST FONDÉ SUR CE QUI SUIT :\n\n1. La question prioritaire de constitutionnalité doit être considérée comme portant sur les dispositions applicables au litige à l’occasion duquel elle a été posée. Dès lors, le Conseil constitutionnel est saisi du premier alinéa de l’article 396 du code de procédure pénale dans sa rédaction résultant de la loi du 20 novembre 2023 mentionnée ci-dessus, ainsi que de l’article 397-1-1 du même code dans sa rédaction issue de la loi du 23 mars 2019 mentionnée ci-dessus.\n\n2. Le premier alinéa de l’article 396 du code de procédure pénale dans sa rédaction résultant de la loi du 20 novembre 2023, prévoit, s’agissant du prévenu poursuivi selon la procédure de comparution immédiate :« Dans le cas prévu par l’article précédent, si la réunion du tribunal est impossible le jour même et si les éléments de l’espèce lui paraissent exiger une mesure de détention provisoire, le procureur de la République peut traduire le prévenu devant le juge des libertés et de la détention, statuant en chambre du conseil avec l’assistance d’un greffier ».\n\n3. L’article 397-1-1 du même code, dans sa rédaction issue de la loi du 23 mars 2019, relatif à la procédure de comparution à délai différé, prévoit :« Dans les cas prévus à l’article 395, s’il existe contre la personne des charges suffisantes pour la faire comparaître devant le tribunal correctionnel, mais que l’affaire n’est pas en état d’être jugée selon la procédure de comparution immédiate parce que n’ont pas encore été obtenus les résultats de réquisitions, d’examens techniques ou médicaux déjà sollicités, le procureur de la République peut, si le prévenu est assisté par un avocat choisi par lui ou désigné par le bâtonnier, le poursuivre devant le tribunal correctionnel selon la procédure de comparution à délai différé conformément aux dispositions du présent article.\n\n« Conformément aux dispositions de l’article 396, le prévenu est présenté devant le juge des libertés et de la détention, qui statue sur les réquisitions du ministère public aux fins de contrôle judiciaire, d’assignation à résidence avec surveillance électronique ou de détention provisoire, après avoir recueilli les observations éventuelles du prévenu ou de son avocat. Les réquisitions du procureur précisent les raisons justifiant le recours à la présente procédure, en indiquant s’il y a lieu les actes en cours dont les résultats sont attendus. La détention provisoire ne peut être ordonnée que si la peine d’emprisonnement encourue est égale ou supérieure à trois ans. L’ordonnance rendue est susceptible d’appel dans un délai de dix jours devant la chambre de l’instruction.\n\n« L’ordonnance prescrivant le contrôle judiciaire, l’assignation à résidence avec surveillance électronique ou la détention provisoire, rendue dans les conditions et selon les modalités prévues à l’article 396, énonce les faits retenus et saisit le tribunal ; elle est notifiée verbalement au prévenu et mentionnée au procès-verbal dont copie lui est remise sur-le-champ. Le prévenu doit comparaître devant le tribunal au plus tard dans un délai de deux mois, à défaut de quoi il est mis fin d’office au contrôle judiciaire, à l’assignation à résidence avec surveillance électronique ou à la détention provisoire.\n\n« Si le prévenu placé sous contrôle judiciaire ou sous assignation à résidence avec surveillance électronique se soustrait aux obligations qui lui sont imposées, les dispositions du deuxième alinéa de l’article 141-2 et de l’article 141-4 sont applicables ; les attributions confiées au juge d’instruction par les mêmes articles 141-2 et 141-4 sont alors exercées par le procureur de la République.\n\n« Les procès-verbaux ou autres pièces résultant des réquisitions, examens techniques ou médicaux mentionnés au premier alinéa du présent article sont versés au dossier de la procédure dès leur accomplissement et mis à la disposition des parties ou de leur avocat.\n\n« Jusqu’à l’audience de jugement, le prévenu ou son avocat peuvent demander au président du tribunal la réalisation de tout acte qu’ils estiment nécessaire à la manifestation de la vérité, conformément aux dispositions de l’article 388-5, dont les deuxième à dernier alinéas sont applicables. Si le prévenu est détenu, la demande peut être faite au moyen d’une déclaration auprès du chef de l’établissement pénitentiaire. Cette déclaration est constatée et datée par le chef de l’établissement pénitentiaire, qui la signe, ainsi que le demandeur. Si celui-ci ne peut signer, il en est fait mention par le chef de l’établissement.\n\n« Pour la mise en œuvre de la procédure de comparution à délai différée, la présentation de la personne devant le procureur de la République prévue à l’article 393 ainsi que sa présentation devant le juge des libertés et de la détention prévue au deuxième alinéa du présent article peuvent intervenir dans un lieu autre que le tribunal si l’état de santé de cette personne ne permet pas de l’y transporter.\n\n« Lorsqu’il est fait application des dispositions du présent article, la victime en est avisée par tout moyen. Elle peut alors se constituer partie civile et déposer des demandes d’actes conformément à l’article 388-5 ».\n\n4. Le requérant reproche à ces dispositions de ne pas prévoir d’audience publique lorsque le juge des libertés et de la détention statue sur les réquisitions du ministère public aux fins de détention provisoire d’une personne poursuivie selon la procédure de comparution à délai différé. La présentation du prévenu devant ce juge ayant, selon lui, les caractéristiques d’une audience pénale pouvant conduire à une privation de liberté, il en résulterait une méconnaissance du principe constitutionnel de publicité des débats devant le juge pénal.\n\n5. Par ailleurs, le requérant soutient que ces dispositions institueraient une différence de traitement injustifiée entre, d’une part, les prévenus poursuivis selon la procédure de comparution à délai différé et, d’autre part, les personnes mises en examen dans le cadre d’une information judiciaire ainsi que d’autres personnes placées en détention provisoire dans l’attente de leur jugement, dès lors que, dans ces derniers cas, la juridiction compétente statue en principe sur la détention provisoire de l’intéressé en audience publique. Il en résulterait une méconnaissance du principe d’égalité.\n\n6. Par conséquent, la question prioritaire de constitutionnalité porte sur le renvoi opéré par la première phrase du troisième alinéa de l’article 397-1-1 du code de procédure pénale aux mots « en chambre du conseil » figurant au premier alinéa de l’article 396 du même code.\n\n- Sur l’intervention :\n\n7. Selon le deuxième alinéa de l’article 6 du règlement intérieur du 4 février 2010 mentionné ci-dessus, seules les personnes justifiant d’un « intérêt spécial » sont admises à présenter une intervention. Elles sont fondées à intervenir dans la procédure de la question prioritaire de constitutionnalité dans la seule mesure où leur intervention porte sur les dispositions contestées.\n\n8. M. A. conteste l’absence de publicité des débats devant le juge des libertés et de la détention non pas dans le cadre de la procédure de comparution à délai différé, mais dans celui de la procédure de comparution immédiate. Par conséquent, son intervention, qui ne porte pas sur les dispositions contestées telles que définies au paragraphe 6, n’est pas admise.\n\n- Sur le fond :\n\n9. En premier lieu, il résulte de la combinaison des articles 6, 8, 9 et 16 de la Déclaration des droits de l’homme et du citoyen de 1789 que le jugement d’une affaire pénale doit faire l’objet d’une audience publique, sauf circonstances particulières nécessitant, pour un motif d’intérêt général, le huis clos. Cette exigence ne s’applique en principe que devant la juridiction compétente pour statuer sur l’action publique.\n\n10. L’article 397-1-1 du code de procédure pénale prévoit que, s’il existe contre la personne des charges suffisantes pour la faire comparaître devant le tribunal correctionnel, mais que l’affaire n’est pas en état d’être jugée selon la procédure de comparution immédiate parce que n’ont pas encore été obtenus les résultats de certains actes d’enquête déjà sollicités, le procureur de la République peut la poursuivre devant le tribunal correctionnel selon la procédure de comparution à délai différé.\n\n11. Dans l’attente de sa comparution devant le tribunal correctionnel, le prévenu peut être présenté devant le juge des libertés et de la détention, qui statue sur les réquisitions du ministère public aux fins de contrôle judiciaire, d’assignation à résidence avec surveillance électronique ou de détention provisoire.\n\n12. En application du renvoi opéré par les dispositions contestées à l’article 396 du code de procédure pénale, ce juge statue en chambre du conseil au cours d’une audience durant laquelle les débats ont lieu hors la présence du public.\n\n13. Lors de l’audience intervenant avant la comparution du prévenu devant le tribunal correctionnel, le juge des libertés et de la détention, qui est seulement saisi de réquisitions du ministère public en vue du prononcé d’une mesure de sûreté, ne statue pas sur l’action publique.\n\n14. Dès lors, le grief tiré de la méconnaissance du principe de publicité des débats du procès pénal ne peut qu’être écarté.\n\n15. En second lieu, selon l’article 6 de la Déclaration de 1789, la loi est « la même pour tous, soit qu’elle protège, soit qu’elle punisse ». Son article 16 dispose : « Toute société dans laquelle la garantie des droits n’est pas assurée, ni la séparation des pouvoirs déterminée, n’a point de Constitution ». Si le législateur peut prévoir des règles de procédure différentes selon les faits, les situations et les personnes auxquelles elles s’appliquent, c’est à la condition que ces différences ne procèdent pas de distinctions injustifiées et que soient assurées aux justiciables des garanties égales.\n\n16. D’une part, eu égard à la nature des faits qui lui sont reprochés et des conditions dans lesquelles il peut être poursuivi selon cette procédure, un prévenu faisant l’objet d’une comparution à délai différé se trouve dans une situation différente de celle d’une personne qui est mise en examen puis placée en détention dans le cadre d’une information judiciaire. Ainsi, le législateur n’a pas instauré de discriminations injustifiées entre ces personnes.\n\n17. D’autre part, le prévenu qui est poursuivi selon la procédure de comparution à délai différé doit être assisté par un avocat choisi par lui ou désigné par le bâtonnier. La décision du juge des libertés et de la détention sur les réquisitions du ministère public en vue notamment du placement en détention provisoire du prévenu intervient à l’issue d’un débat contradictoire, au cours duquel sont recueillies les observations éventuelles de ce dernier ainsi que celles de son avocat. Le prévenu dispose en outre de la possibilité de faire appel de cette décision devant la chambre de l’instruction, dont l’audience, en matière de détention provisoire, est en principe publique. Sont ainsi assurées à la personne poursuivie selon la procédure de comparution à délai différé des garanties équivalentes à celles assurées à la personne mise en examen dans le cadre d’une information judiciaire.\n\n18. Il résulte de ce qui précède que les griefs tirés de la méconnaissance des principes d’égalité devant la loi et la justice doivent être écartés.\n\n19. Par conséquent, les dispositions contestées, qui ne méconnaissent aucun autre droit ou liberté que la Constitution garantit, doivent être déclarées conformes à la Constitution.\n\nLE CONSEIL CONSTITUTIONNEL DÉCIDE :\n\nArticle 1er. - Le renvoi opéré par la première phrase du troisième alinéa de l’article 397-1-1 du code de procédure pénale, dans sa rédaction résultant de la loi du 23 mars 2019 de programmation 2018-2022 et de réforme pour la justice, aux mots « en chambre du conseil » figurant au premier alinéa de l’article 396 du même code est conforme à la Constitution.\n\nArticle 2. - Cette décision sera publiée au Journal officiel de la République française et notifiée dans les conditions prévues à l’article 23-11 de l’ordonnance du 7 novembre 1958 susvisée.\n\nJugé par le Conseil constitutionnel dans sa séance du 6 novembre 2025, où siégeaient : M. Richard FERRAND, Président, M. Philippe BAS, Mme Jacqueline GOURAULT, M. Alain JUPPÉ, Mme Véronique MALBEC, MM. Jacques MÉZARD, François PILLET, François SÉNERS et Mme Laurence VICHNIEVSKY.\n\nRendu public le 7 novembre 2025."
+  },
+  "title": "Décision 2025-1173 QPC - 07 novembre 2025 - M. Amine G. [Absence de publicité des débats devant le juge des libertés et de la détention statuant sur la détention provisoire du prévenu] - Conformité"
+}

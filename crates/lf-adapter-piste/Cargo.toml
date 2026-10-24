@@ -47,6 +47,8 @@ wiremock.workspace = true
 flate2.workspace = true
 # lecture des sidecars `.meta.toml` (integrity.rs) ; déjà au verrou par xtask
 toml.workspace = true
+# snapshots de la projection `view` (view.rs, 04 §13.3) ; json : assert_json_snapshot!
+insta = { workspace = true, features = ["json"] }
 
 [lints]
 workspace = true

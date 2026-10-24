@@ -1,0 +1,43 @@
+---
+source: crates/lf-adapter-piste/src/view.rs
+expression: view(&mapped)
+---
+{
+  "contract": {
+    "citation": "Cour de cassation, civile, Chambre civile 1, 4 juin 2025, 24-13.470, Publié au bulletin",
+    "ecli": "ECLI:FR:CCASS:2025:C100399",
+    "source_url": "https://www.legifrance.gouv.fr/juri/id/JURITEXT000051743650"
+  },
+  "date_texte": "2025-06-04",
+  "decision_id": "JURITEXT000051743650",
+  "ecli": "ECLI:FR:CCASS:2025:C100399",
+  "formation": "CHAMBRE_CIVILE_1",
+  "juridiction": "Cour de cassation",
+  "nature": "ARRET",
+  "num": "12500399",
+  "numero_affaire": [
+    "24-13.470"
+  ],
+  "official_summary": {
+    "analyses": [
+      "L'action en responsabilité dirigée contre le fabricant d'un produit dont le caractère défectueux est invoqué et qui a été mis en circulation après l'expiration du délai de transposition de la directive 85/374/CEE du Conseil, du 25 juillet 1985, relative au rapprochement des dispositions législatives, réglementaires et administratives des Etats membres en matière de responsabilité du fait des produits défectueux, mais avant la date d'entrée en vigueur de la loi n° 98-389 du 19 mai 1998 transposant cette directive, se prescrit selon les dispositions du droit interne telles qu'interprétées à la lumière de l'article 10 de la directive, soit, en cas de dommage corporel, par dix ans à compter du jour où le demandeur a eu ou aurait dû avoir connaissance de la consolidation du dommage, du défaut et de l'identité du producteur"
+    ],
+    "titrages": [
+      "Cassation civil - RESPONSABILITE DU FAIT DES PRODUITS DEFECTUEUX - Producteur - Responsabilité - Action en responsabilité extracontractuelle - Prescription - Délai - Détermination",
+      "Cassation civil - RESPONSABILITE DU FAIT DES PRODUITS DEFECTUEUX - Producteur - Responsabilité - Action en responsabilité extracontractuelle - Prescription - Délai - Point de départ - Détermination - Portée PRESCRIPTION CIVILE - Prescription décennale - Article 2270-1 du code civil - Domaine d'application - Responsabilité du fait des produits défectueux - Produit défectueux mis en circulation après l'expiration du délai de transposition de la directive 85/374/CEE du 25 juillet 1985 et avant la date d'entrée en vigueur de la loi de transposition UNION EUROPEENNE - Responsabilité du fait des produits défectueux - Directive 85/374/CEE du Conseil du 25 juillet 1985 - Domaine d'application - Détermination - Portée RESPONSABILITE DU FAIT DES PRODUITS DEFECTUEUX - Producteur - Responsabilité - Action contre le producteur - Délai de prescription - Portée de la Directive 85/374/CEE du Conseil du 25 juillet 1985"
+    ]
+  },
+  "solution": "Cassation",
+  "text": {
+    "char_len": 577,
+    "invisible_removed": 0,
+    "paragraphs": [
+      [
+        0,
+        577
+      ]
+    ],
+    "text": "LA COUR DE CASSATION, PREMIÈRE CHAMBRE CIVILE, a rendu l'arrêt suivant : CIV. 1 CC COUR DE CASSATION ______________________ Arrêt du 4 juin 2025 Cassation Mme CHAMPALAUNE, président Arrêt n° 399 F Pourvoi n° N 24-13.470 R É P U B L I Q U E F R A N Ç A I S E _________________________ AU NOM DU PEUPLE FRANÇAIS _________________________ ARRÊT DE LA COUR DE CASSATION, PREMIÈRE CHAMBRE CIVILE, DU 4 JUIN 2025 1°/ Mme [M] [E], épouse [I], domiciliée [Adresse 5], 2°/ Mme [Z] [E], épouse [V], domiciliée [Adresse 1], 3°/ Mme [F] [E], épouse [H], domiciliée [Adresse 7], 4°/ Mme [P]"
+  },
+  "title": "Cour de cassation, civile, Chambre civile 1, 4 juin 2025, 24-13.470, Publié au bulletin"
+}

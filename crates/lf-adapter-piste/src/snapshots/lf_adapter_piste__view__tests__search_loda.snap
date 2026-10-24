@@ -1,0 +1,52 @@
+---
+source: crates/lf-adapter-piste/src/view.rs
+expression: view(&mapped)
+---
+{
+  "dropped": 0,
+  "fond": "LODA",
+  "hits": [
+    {
+      "articles": [],
+      "cid": "JORFTEXT000033202746",
+      "contract": {
+        "citation": "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)",
+        "ecli": null,
+        "source_url": "https://www.legifrance.gouv.fr/loda/id/LEGITEXT000033205014"
+      },
+      "date": "2016-10-09",
+      "etat": "VIGUEUR",
+      "fond": "LODA",
+      "id": "LEGITEXT000033205014",
+      "idcc": null,
+      "nature": "LOI",
+      "raison_sociale": null,
+      "snippet": null,
+      "title": "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)",
+      "version_start": "2023-09-08"
+    },
+    {
+      "articles": [],
+      "cid": "JORFTEXT000033691882",
+      "contract": {
+        "citation": "Décret n° 2016-1849 du 23 décembre 2016 relatif à la carte mobilité inclusion pris en application de l'article 107 de la loi n° 2016-1321 du 7 octobre 2016 pour une République numérique et en application de l'article 2 de la loi n° 93-1419 du 31 décembre 1993 relative à l'Imprimerie nationale",
+        "ecli": null,
+        "source_url": "https://www.legifrance.gouv.fr/loda/id/LEGITEXT000033696785"
+      },
+      "date": "2016-12-28",
+      "etat": "VIGUEUR",
+      "fond": "LODA",
+      "id": "LEGITEXT000033696785",
+      "idcc": null,
+      "nature": "DECRET",
+      "raison_sociale": null,
+      "snippet": null,
+      "title": "Décret n° 2016-1849 du 23 décembre 2016 relatif à la carte mobilité inclusion pris en application de l'article 107 de la loi n° 2016-1321 du 7 octobre 2016 pour une République numérique et en application de l'article 2 de la loi n° 93-1419 du 31 décembre 1993 relative à l'Imprimerie nationale",
+      "version_start": "2016-12-28"
+    }
+  ],
+  "pagination": "DEFAUT",
+  "query": "golden",
+  "total": 1786,
+  "total_articles": null
+}
