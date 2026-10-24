@@ -3,8 +3,12 @@
 //! Ce module ne contient que des tests et leurs aides. Il garde les seize réponses brutes de
 //! `tests/fixtures/reference` et le golden de parité : chaque fichier a son sidecar `.meta.toml`
 //! (source, endpoint, fond, `sha256_raw`, anomalies connues, environnement, date de capture), le
-//! SHA-256 des octets correspond à celui du sidecar, le répertoire ne contient rien d'autre, et
-//! aucune fixture ne porte de chaîne qui ressemble à un jeton (D-35).
+//! SHA-256 des octets des fixtures correspond à celui du sidecar (celui de la copie du golden est
+//! contrôlé par `golden`), le répertoire ne contient rien d'autre, et ni les fixtures, ni les
+//! dix-sept snapshots `insta`, ni le golden ne portent de chaîne qui ressemble à un secret
+//! (D-35) : mot d'authentification (`bearer`, `access_token`…, quelle que soit la casse), UUID,
+//! suite hexadécimale de 32 caractères ou plus, JWT, suite base64 de 40 caractères ou plus (deux
+//! exemptions déclarées, `BASE64_LOOKALIKES`).
 //!
 //! [`sha256`] est écrit ici (FIPS 180-4) pour ne tirer aucune dépendance : il n'existe que pour
 //! ces contrôles. Le module n'existe que sous `cfg(test)`.
@@ -224,8 +228,10 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
+    use serde_json::json;
+
     use super::*;
-    use crate::map::fixtures::{decoded, value};
+    use crate::map::fixtures::{decoded, golden, text, value};
 
     #[test]
     fn sha256_matches_the_fips_180_vectors() {
@@ -361,38 +367,96 @@ mod tests {
         })
     }
 
-    /// `text`, privé de ses `=` finaux, fait plus de 40 caractères de l'alphabet base64 standard
-    /// (`A-Za-z0-9+/`). L'alphabet des URL (`-` et `_`) n'est pas testé : les identifiants
-    /// techniques de l'API (`index_DATA_NEXT_ACCORD_ACCOTEXT…`) en sont faits.
-    fn looks_like_base64(text: &str) -> bool {
-        let body = text.trim_end_matches('=');
-        body.len() > 40 && body.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/')
+    /// Mots dont la présence, quelle que soit la casse, dans une clé ou une valeur trahit un
+    /// secret d'authentification (en minuscules).
+    const SECRET_WORDS: [&str; 6] =
+        ["bearer", "authorization", "accesstoken", "access_token", "clientsecret", "client_secret"];
+
+    /// Longueur minimale d'une suite hexadécimale prise pour un secret (un condensat de 128 bits).
+    const HEX_RUN: usize = 32;
+
+    /// Longueur minimale d'une suite de l'alphabet base64 standard (`A-Za-z0-9+/`) prise pour un
+    /// secret. L'alphabet des URL (`-` et `_`) n'est pas testé : les identifiants techniques de
+    /// l'API (`index_DATA_NEXT_ACCORD_ACCOTEXT…`) en sont faits.
+    const BASE64_RUN: usize = 40;
+
+    /// Premier mot de [`SECRET_WORDS`] que contient `text`, sans tenir compte de la casse.
+    fn secret_word(text: &str) -> Option<&'static str> {
+        let lower = text.to_ascii_lowercase();
+        SECRET_WORDS.into_iter().find(|word| lower.contains(word))
+    }
+
+    /// `text` contient un UUID (`8-4-4-4-12` chiffres hexadécimaux, majuscules ou minuscules).
+    fn has_uuid(text: &str) -> bool {
+        text.as_bytes().windows(36).any(|window| {
+            window.iter().enumerate().all(|(index, byte)| {
+                if matches!(index, 8 | 13 | 18 | 23) {
+                    *byte == b'-'
+                } else {
+                    byte.is_ascii_hexdigit()
+                }
+            })
+        })
+    }
+
+    /// `text` contient une suite d'au moins [`HEX_RUN`] chiffres hexadécimaux.
+    fn has_hex_run(text: &str) -> bool {
+        text.split(|c: char| !c.is_ascii_hexdigit()).any(|run| run.len() >= HEX_RUN)
+    }
+
+    /// `text` contient, en sous-chaîne, une suite d'au moins [`BASE64_RUN`] caractères de
+    /// l'alphabet base64 standard (le `=` final n'en fait pas partie).
+    fn has_base64_run(text: &str) -> bool {
+        text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '+' || c == '/'))
+            .any(|run| run.len() >= BASE64_RUN)
     }
 
     /// Valeurs JSON déclarées sûres bien qu'elles aient la forme d'un base64 : fixture et pointeur
-    /// JSON. Un chemin d'article de convention (`/KALISCTA…/KALIARTI…`) est fait de lettres et de
-    /// chiffres sur 44 caractères.
-    const BASE64_LOOKALIKES: [(&str, &str); 1] = [("consult_kali", "/sections/0/articles/0/path")];
+    /// JSON. L'adresse de l'accord (`texte/acco/ACCO/TEXT/00/00/53/…/ACCOTEXT…`) et un chemin
+    /// d'article de convention (`/KALISCTA…/KALIARTI…`) sont faits de lettres, de chiffres et de
+    /// `/` sur plus de 40 caractères.
+    const BASE64_LOOKALIKES: [(&str, &str); 2] =
+        [("consult_acco", "/acco/url"), ("consult_kali", "/sections/0/articles/0/path")];
+
+    /// Ce qui, dans le document `name` (texte brut `raw` et sa lecture JSON `json`), ressemble à un
+    /// secret : un mot de [`SECRET_WORDS`], un UUID, une suite hexadécimale, un JWT ou une suite
+    /// base64, sauf la valeur de `json` déclarée sûre dans `exempt` (comparée par adresse). Le texte
+    /// brut couvre les clés comme les valeurs ; la lecture JSON, les valeurs une fois décodées.
+    fn leaks(name: &str, raw: &str, json: &Value, exempt: &[&str]) -> Vec<String> {
+        let mut found = Vec::new();
+        if let Some(word) = secret_word(raw) {
+            found.push(format!("{name}: secret word {word:?}"));
+        }
+        if has_uuid(raw) {
+            found.push(format!("{name}: UUID"));
+        }
+        if has_hex_run(raw) {
+            found.push(format!("{name}: hexadecimal run"));
+        }
+        for (path, text) in leaf_strings(json) {
+            if secret_word(text).is_some() {
+                found.push(format!("{name}: secret word at {path}"));
+            }
+            if looks_like_jwt(text) {
+                found.push(format!("{name}: JWT-like string at {path}"));
+            }
+            let declared_safe = exempt.iter().any(|safe| std::ptr::eq(*safe, text));
+            if has_base64_run(text) && !declared_safe {
+                found.push(format!("{name}: base64-like string at {path}"));
+            }
+        }
+        found
+    }
+
+    /// Lecture JSON du contenu d'un snapshot `insta` : ce qui suit l'en-tête entre deux `---`.
+    fn snapshot_json(raw: &str) -> Value {
+        let body = raw.splitn(3, "---\n").nth(2).expect("snapshot has a header");
+        serde_json::from_str(body).expect("snapshot body is JSON")
+    }
 
     #[test]
     fn fixtures_contain_no_token_like_strings() {
-        assert!(looks_like_jwt("x eyJhbGciOi.eyJzdWIiOi.c2ln"));
-        assert!(!looks_like_jwt("eyJ seul"));
-        assert!(!looks_like_jwt("eyJa.b"));
-        assert!(!looks_like_jwt("eyJa..c"));
-        assert!(looks_like_base64(&"QUJD".repeat(11)));
-        assert!(looks_like_base64(&format!("{}==", "QUJD".repeat(11))));
-        assert!(!looks_like_base64("/KALISCTA000049886029/KALIARTI000049886059."));
-        assert!(!looks_like_base64(&"QUJD".repeat(10)));
-
         for fixture in &ALL {
-            for forbidden in ["Bearer ", "access_token", "client_secret"] {
-                assert!(
-                    !fixture.bytes().windows(forbidden.len()).any(|w| w == forbidden.as_bytes()),
-                    "{} contains {forbidden:?}",
-                    fixture.name
-                );
-            }
             let json = value(fixture.name);
             let declared: Vec<&str> = BASE64_LOOKALIKES
                 .iter()
@@ -405,16 +469,98 @@ mod tests {
                 .filter_map(Value::as_str)
                 .collect();
             assert_eq!(exempt.len(), declared.len(), "declared pointers of {} exist", fixture.name);
-            assert!(exempt.iter().all(|text| looks_like_base64(text)), "stale exemption");
-            for (path, text) in leaf_strings(&json) {
-                assert!(!looks_like_jwt(text), "{}: JWT-like string at {path}", fixture.name);
-                let declared_safe = exempt.iter().any(|safe| std::ptr::eq(*safe, text));
-                assert!(
-                    declared_safe || !looks_like_base64(text),
-                    "{}: base64-like string at {path}",
-                    fixture.name
-                );
+            assert!(exempt.iter().all(|text| has_base64_run(text)), "stale exemption");
+            assert_eq!(
+                leaks(fixture.name, text(fixture.name), &json, &exempt),
+                Vec::<String>::new()
+            );
+        }
+    }
+
+    #[test]
+    fn snapshots_and_the_golden_contain_no_token_like_strings() {
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/snapshots");
+        let mut checked = 0;
+        for entry in fs::read_dir(directory).expect("snapshot directory is readable") {
+            let path = entry.expect("entry is readable").path();
+            if path.extension().is_some_and(|extension| extension == "snap") {
+                let raw =
+                    fs::read_to_string(&path).expect("snapshot is UTF-8").replace("\r\n", "\n");
+                let name = path.file_name().expect("file name").to_string_lossy().into_owned();
+                assert_eq!(leaks(&name, &raw, &snapshot_json(&raw), &[]), Vec::<String>::new());
+                checked += 1;
             }
         }
+        assert_eq!(checked, 17);
+        let raw = include_str!("../tests/fixtures/reference/parite-golden.json");
+        assert_eq!(leaks("parite-golden", raw, &golden(), &[]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_secret_detectors_flag_their_witnesses() {
+        // JWT.
+        assert!(looks_like_jwt("x eyJhbGciOi.eyJzdWIiOi.c2ln"));
+        assert!(!looks_like_jwt("eyJ seul"));
+        assert!(!looks_like_jwt("eyJa.b"));
+        assert!(!looks_like_jwt("eyJa..c"));
+        // Mots d'authentification, quelle que soit la casse.
+        for (text, word) in [
+            ("Authorization: x", "authorization"),
+            ("un BEARER", "bearer"),
+            ("{\"accessToken\":1}", "accesstoken"),
+            ("Access_Token", "access_token"),
+            ("ClientSecret", "clientsecret"),
+            ("client_SECRET", "client_secret"),
+        ] {
+            assert_eq!(secret_word(text), Some(word), "{text}");
+        }
+        assert_eq!(secret_word("autorisation du porteur"), None);
+        // UUID.
+        assert!(has_uuid("id 123E4567-e89b-12d3-A456-426614174000 fin"));
+        assert!(!has_uuid("id 123e4567-e89b-12d3-a456-42661417400"));
+        assert!(!has_uuid("id 123e4567-e89b-12d3-a456-42661417400g"));
+        assert!(!has_uuid("123e4567e89b12d3a456426614174000"));
+        // Suite hexadécimale.
+        assert!(has_hex_run(&format!("a {}", "0123456789abcdefABCDEF".repeat(2))));
+        assert!(has_hex_run(&"f".repeat(64)));
+        assert!(!has_hex_run(&"f".repeat(31)));
+        assert!(!has_hex_run(&format!("{}g{}", "f".repeat(20), "f".repeat(20))));
+        // Suite base64 en sous-chaîne.
+        assert!(has_base64_run(&"QUJD".repeat(10)));
+        assert!(has_base64_run(&format!("jeton {}==", "QUJD".repeat(11))));
+        assert!(has_base64_run("/KALISCTA000049886029/KALIARTI000049886059."));
+        assert!(!has_base64_run(&"QUJD".repeat(9)));
+        assert!(!has_base64_run(&format!("{}-{}", "QUJD".repeat(5), "QUJD".repeat(5))));
+    }
+
+    #[test]
+    fn leaks_reports_each_kind_and_honours_the_exemption() {
+        let clean = json!({"title": "Code du travail", "id": "KALIARTI000049886059"});
+        assert_eq!(leaks("clean", &clean.to_string(), &clean, &[]), Vec::<String>::new());
+        let base64 = "QUJD".repeat(11);
+        let json = json!({
+            "Authorization": "x",
+            "uuid": "123e4567-e89b-12d3-a456-426614174000",
+            "digest": "f".repeat(32),
+            "jwt": "eyJhbGciOi.eyJzdWIiOi.c2ln",
+            "value": "un Bearer",
+            "lookalike": base64,
+        });
+        let found = leaks("doc", &json.to_string(), &json, &[]);
+        assert_eq!(
+            found,
+            [
+                "doc: secret word \"bearer\"",
+                "doc: UUID",
+                "doc: hexadecimal run",
+                "doc: JWT-like string at jwt",
+                "doc: base64-like string at lookalike",
+                "doc: secret word at value",
+            ]
+        );
+        let safe = json["lookalike"].as_str().unwrap();
+        let found = leaks("doc", &json.to_string(), &json, &[safe]);
+        assert_eq!(found.len(), 5);
+        assert!(!found.iter().any(|line| line.contains("base64")));
     }
 }

@@ -873,6 +873,27 @@ mod tests {
         assert_eq!(gate.available(), free);
     }
 
+    #[tokio::test]
+    async fn the_permit_is_given_back_when_the_reader_panics() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        api_mock(&rig.server, json_reply(200, "{}"), 1).await;
+        let free = rig.corpus.inner.gate.available();
+        let corpus = rig.corpus.clone();
+        let task = tokio::spawn(async move {
+            corpus
+                .post_json(EndpointKind::Consult, ENDPOINT, BODY, |_| {
+                    Ok("not a number".parse::<u8>().expect("reader exploded"))
+                })
+                .await
+        });
+        let failure = task.await.unwrap_err();
+        assert!(failure.is_panic());
+        let message = failure.into_panic().downcast::<String>().unwrap();
+        assert!(message.starts_with("reader exploded:"), "{message}");
+        assert_eq!(rig.corpus.inner.gate.available(), free);
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_call_waits_while_another_reads_its_body() {
         let server = MockServer::start().await;
@@ -1242,6 +1263,69 @@ mod tests {
         // L'invalidation de A attend ce verrou, mais pas au-delà de l'échéance de A.
         assert_eq!(result_a, Err(CorpusError::Timeout));
         assert!(elapsed_a < ms(1_500), "{elapsed_a:?}");
+        assert_eq!(task_b.await.unwrap(), Ok("{}".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn a_401_gives_its_permit_back_before_waiting_for_the_token_lock() {
+        let server = MockServer::start().await;
+        // Premier jeton immédiat, second retardé de 2 s : le renouvellement de B tient le verrou.
+        token_mock(&server, "tok-1", 1).await;
+        Mock::given(method("POST"))
+            .and(path(TOKEN_PATH))
+            .respond_with(token_reply("tok-2").set_delay(secs(2)))
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&server)
+            .await;
+        // Requête 0 (A) : 401 après 150 ms ; requête 1 (B) : 401 aussitôt ; ensuite : 200.
+        let arrived = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&arrived);
+        Mock::given(method("POST"))
+            .and(path(API_PATH))
+            .respond_with(move |_: &Request| match counter.fetch_add(1, Ordering::SeqCst) {
+                0 => json_reply(401, "{}").set_delay(ms(150)),
+                1 => ResponseTemplate::new(401),
+                _ => json_reply(200, "{}"),
+            })
+            .mount(&server)
+            .await;
+        let mut setup = Setup::new(server.uri());
+        setup.tuning.max_concurrency = NonZeroU16::new(2).unwrap();
+        let corpus = PisteCorpus::new(setup.build());
+        // Préchauffage : client construit et `tok-1` en cache avant la mesure.
+        assert_eq!(corpus.check_credentials().await, Ok(()));
+        let gate = &corpus.inner.gate;
+        let total = gate.available();
+        assert_eq!(total, 2);
+        let task_a = {
+            let corpus = corpus.clone();
+            tokio::spawn(Deadline::after(ms(1_000)).scope(async move {
+                corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY, owned).await
+            }))
+        };
+        let seen = &*arrived;
+        let wait_for = |count: usize| async move {
+            while seen.load(Ordering::SeqCst) < count {
+                tokio::time::sleep(ms(5)).await;
+            }
+        };
+        tokio::time::timeout(secs(5), wait_for(1)).await.unwrap();
+        // B reçoit son 401 avant A, invalide le jeton puis en demande un neuf (2 s) sous le
+        // verrou, avec le permis de son second envoi.
+        let task_b = {
+            let corpus = corpus.clone();
+            tokio::spawn(async move {
+                corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY, owned).await
+            })
+        };
+        tokio::time::timeout(secs(5), wait_for(2)).await.unwrap();
+        // Le 401 de A tombe à 150 ms et son invalidation attend le verrou de B jusqu'à 1 s : à
+        // 500 ms, A attend encore, et seul le permis de B est tenu.
+        tokio::time::sleep(ms(500)).await;
+        assert!(!task_a.is_finished());
+        assert_eq!(gate.available(), total - 1);
+        assert_eq!(task_a.await.unwrap(), Err(CorpusError::Timeout));
         assert_eq!(task_b.await.unwrap(), Ok("{}".to_owned()));
     }
 

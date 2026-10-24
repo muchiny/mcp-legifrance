@@ -438,6 +438,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_search_that_fails_to_map_remembers_no_type_pagination() {
+        let rig = Rig::new().await;
+        // Le mode ARTICLE est reçu, mais la date du résultat est illisible : le mapping échoue.
+        search_replies(
+            &rig,
+            r#"{"results":[{"titles":[{"id":"JURITEXT000000000001","title":"t"}],"date":"hier"}],
+                "totalResultNumber":1,"typePagination":"ARTICLE"}"#,
+        )
+        .await;
+        for page in [1, 2] {
+            let outcome = rig
+                .corpus
+                .search(&golden_page(Fond::Juri, page, None))
+                .await
+                .map(|page| page.hits.len());
+            assert_eq!(
+                outcome,
+                Err(CorpusError::Decode {
+                    detail: "/search: results[].date: unreadable date".to_owned()
+                }),
+                "page {page}"
+            );
+        }
+        // Sans mémo, la page 2 d'un fond de jurisprudence repart de DEFAUT.
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("DEFAUT")]);
+    }
+
+    #[tokio::test]
     async fn date_range_maps_to_fond_facet() {
         let range = DateRange::new(
             Some(VersionDate::parse("2016-01-01").unwrap()),

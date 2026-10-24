@@ -536,7 +536,10 @@ mod tests {
         let mapped =
             map_body(Kind::GetArticle, &text, "KALIARTI000049886059", &mut Diagnostics::default())
                 .expect("variant maps");
-        // aucun crochet dans un nom de fichier : le nom de la variante est écrit en clair
+        // Ce snapshot est identique octet pour octet à `consult_article.snap` : la vue ne dépend
+        // pas de l'identifiant demandé (`id_mismatch` est un compteur, pas un champ de l'entité).
+        // Il n'épingle que l'absence d'effet d'un `KALIARTI` demandé pour un `LEGIARTI` rendu.
+        // Aucun crochet dans un nom de fichier : le nom de la variante est écrit en clair.
         insta::assert_json_snapshot!("consult_article_kaliarti000049886059", view(&mapped));
     }
 }
