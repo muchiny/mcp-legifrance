@@ -6,7 +6,16 @@
 //! seize fixtures ; il est copié sans modification depuis `docs/plan/annexes/donnees/`, et la copie
 //! est comparée à l'octet au fichier du plan (`golden_copy_matches_plan_data`, jamais ignoré).
 
-use serde_json::Value;
+use std::collections::BTreeSet;
+
+use lf_domain::text::clean_field;
+use lf_domain::text::encoding::repair_latin1_mojibake;
+use serde_json::{Value, json};
+
+use crate::integrity::{known_issues, sidecar};
+use crate::map::Diagnostics;
+use crate::map::fixtures::{Fixture, Kind, decoded, fixture, golden, map_body};
+use crate::view::view;
 
 /// Une variante par clé du §4 de l'annexe A dont la colonne « Golden » vaut « oui », dans l'ordre
 /// de l'annexe. Le test `golden_divergences_match_annex_a` garde l'égalité des deux ensembles.
@@ -185,15 +194,412 @@ pub(crate) fn overridden(entry: &str, pointer: &str) -> Option<(Value, GoldenDiv
         .map(|over| (serde_json::from_str(over.expected).expect("override is JSON"), over.because))
 }
 
+/// Règle de comparaison d'une clé du golden au niveau 1 (annexe A §5.4), avec la clé de la
+/// projection `view` de l'entité Rust.
+#[derive(Debug, Clone, Copy)]
+enum Rule {
+    /// Égalité stricte.
+    Eq(&'static str),
+    /// `clean_field(repair(golden))` égale la valeur Rust.
+    Clean(&'static str),
+    /// Date `AAAA-MM-JJ` ; une date ≥ 2222-01-01 exige l'absence côté Rust.
+    Date(&'static str),
+    /// Texte long : blancs repliés des deux côtés, ECLI final retiré du golden s'il le faut.
+    LongText,
+    /// Table des matières : `article_id` des articles aplatis, dans l'ordre ; `num` et `etat`.
+    Toc,
+    /// Articles cités par un résultat de recherche CODE ou KALI.
+    Articles,
+    /// `human_readable_citation` ⇒ `contract.citation`.
+    Citation,
+    /// `source_url` ⇒ `contract.source_url`.
+    SourceUrl,
+    /// `ecli` ⇒ `contract.ecli`.
+    Ecli,
+    /// `kind` (genre d'URL de la référence) ⇒ nom du fond en minuscules.
+    Kind,
+    /// Clé sans équivalent dans l'entité.
+    Dropped,
+}
+
+/// Clés d'un résultat de recherche.
+const HIT: [(&str, Rule); 12] = [
+    ("kind", Rule::Kind),
+    ("id", Rule::Eq("id")),
+    ("cid", Rule::Eq("cid")),
+    ("title", Rule::Clean("title")),
+    ("nature", Rule::Clean("nature")),
+    ("etat", Rule::Eq("etat")),
+    ("idcc", Rule::Eq("idcc")),
+    ("raison_sociale", Rule::Clean("raison_sociale")),
+    ("articles", Rule::Articles),
+    ("human_readable_citation", Rule::Citation),
+    ("source_url", Rule::SourceUrl),
+    ("eli_uri", Rule::Dropped),
+];
+
+/// Clés d'un texte consolidé (`Act`) ou d'une convention collective.
+const TEXT: [(&str, Rule); 14] = [
+    ("text_id", Rule::Eq("text_id")),
+    ("cid", Rule::Eq("cid")),
+    ("nor", Rule::Eq("nor")),
+    ("title", Rule::Clean("title")),
+    ("nature", Rule::Clean("nature")),
+    ("etat", Rule::Eq("etat")),
+    ("date_parution", Rule::Date("date_parution")),
+    ("num_parution", Rule::Eq("num_parution")),
+    ("date_debut_version", Rule::Date("date_debut_version")),
+    ("date_fin_version", Rule::Date("date_fin_version")),
+    ("articles", Rule::Toc),
+    ("human_readable_citation", Rule::Citation),
+    ("source_url", Rule::SourceUrl),
+    ("eli_uri", Rule::Dropped),
+];
+
+/// Clés d'un article.
+const ARTICLE: [(&str, Rule); 11] = [
+    ("article_id", Rule::Eq("article_id")),
+    ("num", Rule::Clean("num")),
+    ("etat", Rule::Eq("etat")),
+    ("code_title", Rule::Clean("code_title")),
+    ("full_sections_titre", Rule::Clean("full_sections_titre")),
+    ("date_debut", Rule::Date("date_debut")),
+    ("date_fin", Rule::Date("date_fin")),
+    ("text", Rule::LongText),
+    ("human_readable_citation", Rule::Citation),
+    ("source_url", Rule::SourceUrl),
+    ("eli_uri", Rule::Dropped),
+];
+
+/// Clés d'une décision.
+const DECISION: [(&str, Rule); 13] = [
+    ("decision_id", Rule::Eq("decision_id")),
+    ("ecli", Rule::Ecli),
+    ("juridiction", Rule::Clean("juridiction")),
+    ("formation", Rule::Clean("formation")),
+    ("solution", Rule::Clean("solution")),
+    ("nature", Rule::Clean("nature")),
+    ("title", Rule::Clean("title")),
+    ("numero_affaire", Rule::Eq("numero_affaire")),
+    ("date_texte", Rule::Date("date_texte")),
+    ("text", Rule::LongText),
+    ("human_readable_citation", Rule::Citation),
+    ("source_url", Rule::SourceUrl),
+    ("eli_uri", Rule::Dropped),
+];
+
+/// Clés d'une délibération.
+const DELIBERATION: [(&str, Rule); 13] = [
+    ("deliberation_id", Rule::Eq("deliberation_id")),
+    ("num", Rule::Clean("num")),
+    ("nature", Rule::Clean("nature")),
+    ("nature_delib", Rule::Clean("nature_delib")),
+    ("title", Rule::Clean("title")),
+    ("title_long", Rule::Clean("title_long")),
+    ("etat", Rule::Eq("etat")),
+    ("date_texte", Rule::Date("date_texte")),
+    ("date_publication", Rule::Date("date_publication")),
+    ("text", Rule::LongText),
+    ("human_readable_citation", Rule::Citation),
+    ("source_url", Rule::SourceUrl),
+    ("eli_uri", Rule::Dropped),
+];
+
+/// Clés d'un accord d'entreprise ; `attachment_note` est un texte de l'outil (05), pas de
+/// l'entité.
+const AGREEMENT: [(&str, Rule); 17] = [
+    ("agreement_id", Rule::Eq("agreement_id")),
+    ("nature", Rule::Clean("nature")),
+    ("title", Rule::Clean("title")),
+    ("raison_sociale", Rule::Clean("raison_sociale")),
+    ("siret", Rule::Eq("siret")),
+    ("idcc", Rule::Eq("idcc")),
+    ("code_ape", Rule::Eq("code_ape")),
+    ("secteur", Rule::Clean("secteur")),
+    ("themes", Rule::Eq("themes")),
+    ("syndicats", Rule::Eq("syndicats")),
+    ("date_texte", Rule::Date("date_texte")),
+    ("date_effet", Rule::Date("date_effet")),
+    ("date_depot", Rule::Date("date_depot")),
+    ("attachment_note", Rule::Dropped),
+    ("human_readable_citation", Rule::Citation),
+    ("source_url", Rule::SourceUrl),
+    ("eli_uri", Rule::Dropped),
+];
+
+/// Comparaison d'une entrée du golden à l'entité Rust correspondante : divergences exercées et
+/// écarts constatés.
+struct Level1<'a> {
+    /// Clé de l'entrée dans `normalizer`.
+    entry: &'a str,
+    /// Le sidecar de la fixture déclare du mojibake : le golden est réparé avant comparaison.
+    mojibake: bool,
+    /// Le `texteHtml` de la fixture porte `<RECH_ECLI>` : l'ECLI final du golden est retiré.
+    rech_ecli: bool,
+    /// Divergences qu'une comparaison a effectivement appliquées.
+    exercised: BTreeSet<GoldenDivergence>,
+    /// Écarts constatés, un par clé.
+    mismatches: Vec<String>,
+}
+
+impl Level1<'_> {
+    /// Valeur `value` du golden au pointeur `pointer`, remplacée par sa valeur explicite s'il y en a une.
+    fn golden_at(&mut self, pointer: &str, value: &Value) -> Value {
+        match overridden(self.entry, pointer) {
+            Some((expected, because)) => {
+                self.exercised.insert(because);
+                expected
+            }
+            None => value.clone(),
+        }
+    }
+
+    fn mismatch(&mut self, pointer: &str, golden: &Value, rust: &Value) {
+        self.mismatches.push(format!("{} {pointer}: golden {golden} != rust {rust}", self.entry));
+    }
+
+    /// Texte du golden réparé du mojibake si la fixture en porte (transformation 1).
+    fn repaired(&mut self, text: &str) -> String {
+        if !self.mojibake {
+            return text.to_owned();
+        }
+        let repaired = repair_latin1_mojibake(text);
+        if repaired != text {
+            self.exercised.insert(GoldenDivergence::MojibakeRepaired);
+        }
+        repaired.into_owned()
+    }
+
+    /// `clean_field(repair(golden))` (transformation 2).
+    fn cleaned(&mut self, golden: &Value) -> Value {
+        let Some(text) = golden.as_str() else { return golden.clone() };
+        let repaired = self.repaired(text);
+        let cleaned = clean_field(Some(&repaired));
+        if cleaned.as_deref() != Some(repaired.as_str()) {
+            self.exercised.insert(GoldenDivergence::ShortTextCleaned);
+        }
+        cleaned.map_or(Value::Null, Value::String)
+    }
+
+    /// Date du golden, `null` pour une sentinelle (transformation 4).
+    fn dated(&mut self, golden: &Value) -> Value {
+        match golden.as_str() {
+            Some(date) if date >= "2222-01-01" => {
+                self.exercised.insert(GoldenDivergence::SentinelDatesNone);
+                Value::Null
+            }
+            _ => golden.clone(),
+        }
+    }
+
+    /// Compare la clé au pointeur `pointer` de l'entrée selon `rule`.
+    fn compare(&mut self, pointer: &str, rule: Rule, golden: &Value, rust: &Value) {
+        let golden = self.golden_at(pointer, golden);
+        let (expected, actual) = match rule {
+            Rule::Eq(field) => (golden, rust[field].clone()),
+            Rule::Clean(field) => (self.cleaned(&golden), rust[field].clone()),
+            Rule::Date(field) => (self.dated(&golden), rust[field].clone()),
+            Rule::LongText => self.long_text(&golden, rust),
+            Rule::Toc => {
+                self.exercised.insert(GoldenDivergence::TocTree);
+                (self.toc_golden(&golden), toc_projection(&rust["toc"]))
+            }
+            Rule::Articles => {
+                (self.articles_golden(&golden), articles_projection(&rust["articles"]))
+            }
+            Rule::Citation => {
+                self.exercised.insert(GoldenDivergence::CitationRenamed);
+                (self.cleaned(&golden), rust["contract"]["citation"].clone())
+            }
+            Rule::SourceUrl => (golden, rust["contract"]["source_url"].clone()),
+            Rule::Ecli => (golden, rust["contract"]["ecli"].clone()),
+            Rule::Kind => {
+                let fond = rust["fond"].as_str().map(str::to_lowercase);
+                (golden, fond.map_or(Value::Null, Value::String))
+            }
+            Rule::Dropped => {
+                if pointer.ends_with("/eli_uri") {
+                    self.exercised.insert(GoldenDivergence::EliUriDropped);
+                }
+                return;
+            }
+        };
+        if expected != actual {
+            self.mismatch(pointer, &expected, &actual);
+        }
+    }
+
+    /// Texte long : `fold_ws` des deux côtés ; l'ECLI final retiré du golden quand la fixture a
+    /// un `<RECH_ECLI>` ; préfixe commun jusqu'au premier ` [...]` pour un golden tronqué.
+    fn long_text(&mut self, golden: &Value, rust: &Value) -> (Value, Value) {
+        self.exercised.insert(GoldenDivergence::LongTextStructured);
+        let rust_text = fold_ws(rust["text"]["text"].as_str().unwrap_or_default());
+        let mut expected = fold_ws(&self.repaired(golden.as_str().unwrap_or_default()));
+        if self.rech_ecli {
+            let ecli = rust["contract"]["ecli"].as_str().expect("native ECLI");
+            expected = expected
+                .strip_suffix(&format!(" {ecli}"))
+                .expect("golden ends with the ECLI")
+                .to_owned();
+        }
+        // Fixture tronquée (CNIL : `texte` et `texteHtml` coupés à deux endroits, marqués
+        // ` [...]`) : seul le préfixe commun, jusqu'à la première marque d'un des deux côtés, est
+        // comparé (annexe A §5.4, `long_text_structured`).
+        let cut = [&expected, &rust_text]
+            .map(|text| text.find(" [...]").map_or(usize::MAX, |at| text[..at].chars().count()));
+        let length = cut[0].min(cut[1]);
+        let expected: String = expected.chars().take(length).collect();
+        let actual: String = rust_text.chars().take(length).collect();
+        (Value::String(expected), Value::String(actual))
+    }
+
+    /// Articles du golden d'un texte : `[article_id, clean(num), etat]`.
+    fn toc_golden(&mut self, golden: &Value) -> Value {
+        let articles = golden.as_array().map(Vec::as_slice).unwrap_or_default();
+        Value::Array(
+            articles
+                .iter()
+                .map(|article| {
+                    json!([article["article_id"], self.cleaned(&article["num"]), article["etat"]])
+                })
+                .collect(),
+        )
+    }
+
+    /// Articles du golden d'un résultat : `[article_id, clean(num), clean(snippet)]`.
+    fn articles_golden(&mut self, golden: &Value) -> Value {
+        let articles = golden.as_array().map(Vec::as_slice).unwrap_or_default();
+        Value::Array(
+            articles
+                .iter()
+                .map(|article| {
+                    json!([
+                        article["article_id"],
+                        self.cleaned(&article["num"]),
+                        self.cleaned(&article["snippet"])
+                    ])
+                })
+                .collect(),
+        )
+    }
+
+    /// Compare l'entrée `expected` à la projection `rust` de l'entité de genre `kind`.
+    fn entity(&mut self, kind: Kind, expected: &Value, rust: &Value) {
+        match kind {
+            Kind::Search(_) => {
+                self.compare("/total", Rule::Eq("total"), &expected["total"], rust);
+                let hits = expected["hits"].as_array().map(Vec::as_slice).unwrap_or_default();
+                let actual = rust["hits"].as_array().map(Vec::as_slice).unwrap_or_default();
+                if hits.len() != actual.len() {
+                    self.mismatch("/hits", &Value::from(hits.len()), &Value::from(actual.len()));
+                }
+                for (index, (hit, rust_hit)) in hits.iter().zip(actual).enumerate() {
+                    self.object(&format!("/hits/{index}"), &HIT, hit, rust_hit);
+                }
+            }
+            Kind::LawDecree | Kind::KaliText => self.object("", &TEXT, expected, rust),
+            Kind::GetArticle => self.object("", &ARTICLE, expected, rust),
+            Kind::Juri => self.object("", &DECISION, expected, rust),
+            Kind::Cnil => self.object("", &DELIBERATION, expected, rust),
+            Kind::Acco => self.object("", &AGREEMENT, expected, rust),
+        }
+    }
+
+    /// Compare l'objet `golden` à `rust`, clé par clé, selon `table` ; une clé du golden absente de
+    /// la table est un écart (aucune clé n'est ignorée en silence).
+    fn object(&mut self, prefix: &str, table: &[(&str, Rule)], golden: &Value, rust: &Value) {
+        for (key, value) in golden.as_object().expect("golden entry is an object") {
+            let pointer = format!("{prefix}/{key}");
+            match table.iter().find(|(known, _)| known == key) {
+                Some((_, rule)) => self.compare(&pointer, *rule, value, rust),
+                None => self
+                    .mismatches
+                    .push(format!("{} {pointer}: unclassified golden key", self.entry)),
+            }
+        }
+    }
+}
+
+/// Toute suite de blancs Unicode (NBSP compris) remplacée par une espace, bords rognés.
+fn fold_ws(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Articles de la TOC de la projection Rust, aplatis en préordre : `[article_id, num, etat]`.
+fn toc_projection(toc: &Value) -> Value {
+    fn walk(nodes: &Value, out: &mut Vec<Value>) {
+        for node in nodes.as_array().map(Vec::as_slice).unwrap_or_default() {
+            if let Some(article) = node.get("article") {
+                out.push(json!([article["article_id"], article["num"], article["etat"]]));
+            }
+            if let Some(section) = node.get("section") {
+                walk(&section["children"], out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(toc, &mut out);
+    Value::Array(out)
+}
+
+/// Articles d'un résultat de la projection Rust : `[article_id, num, snippet]`.
+fn articles_projection(articles: &Value) -> Value {
+    let articles = articles.as_array().map(Vec::as_slice).unwrap_or_default();
+    Value::Array(
+        articles
+            .iter()
+            .map(|article| json!([article["article_id"], article["num"], article["snippet"]]))
+            .collect(),
+    )
+}
+
+/// Fixture et identifiant demandé d'une clé du golden (`consult_article.json[id=X]` ⇒ `X`).
+fn entry_fixture(entry: &str) -> (&'static Fixture, &str) {
+    let (file, requested) = match entry.split_once("[id=") {
+        Some((file, rest)) => (file, rest.strip_suffix(']').expect("closing bracket")),
+        None => (entry, ""),
+    };
+    let fixture = fixture(file.strip_suffix(".json").expect("json entry"));
+    (fixture, if requested.is_empty() { fixture.requested } else { requested })
+}
+
+/// Compare chacune des dix-sept entrées du golden à l'entité que produit le chemin de
+/// production ; rend les divergences exercées et les écarts.
+fn level1() -> (BTreeSet<GoldenDivergence>, Vec<String>) {
+    let golden = golden();
+    let mut exercised = BTreeSet::new();
+    let mut mismatches = Vec::new();
+    for (entry, expected) in golden["normalizer"].as_object().expect("normalizer") {
+        let (fixture, requested) = entry_fixture(entry);
+        let body = decoded(fixture, true).text;
+        let mapped = map_body(fixture.kind, &body, requested, &mut Diagnostics::default())
+            .expect("fixture maps");
+        let rust = view(&mapped);
+        let mut level = Level1 {
+            entry,
+            mojibake: known_issues(&sidecar(fixture.name)).contains(&"mojibake"),
+            rech_ecli: body.contains("<RECH_ECLI>"),
+            exercised: BTreeSet::new(),
+            mismatches: Vec::new(),
+        };
+        level.entity(fixture.kind, expected, &rust);
+        exercised.extend(level.exercised);
+        mismatches.extend(level.mismatches);
+    }
+    (exercised, mismatches)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
 
     use serde_json::{Value, json};
 
-    use super::{GoldenDivergence, OVERRIDES, overridden};
+    use lf_domain::fond::Fond;
+
+    use super::{GoldenDivergence, Level1, OVERRIDES, level1, overridden};
     use crate::integrity::{hex, sha256, sidecar, text_at};
-    use crate::map::fixtures::golden;
+    use crate::map::fixtures::{Kind, golden};
 
     /// Copie du golden dans le crate, à l'octet.
     const COPY: &[u8] = include_bytes!("../tests/fixtures/reference/parite-golden.json");
@@ -289,5 +695,47 @@ mod tests {
     fn golden_copy_matches_plan_data() {
         assert_eq!(COPY.len(), 118_107);
         assert!(COPY == PLAN, "the crate copy of the golden differs from the plan data");
+    }
+
+    #[test]
+    fn mapping_matches_golden() {
+        let (_, mismatches) = level1();
+        assert_eq!(mismatches, Vec::<String>::new());
+    }
+
+    #[test]
+    fn every_golden_divergence_is_exercised() {
+        // Niveau 1 : les onze divergences qu'une entité porte ; les huit autres sont celles de la
+        // sortie d'outil, exercées au niveau 2 (M5, D12).
+        let (exercised, _) = level1();
+        let tool: BTreeSet<_> = GoldenDivergence::TOOL_OUTPUT_ONLY.into_iter().collect();
+        assert_eq!(exercised.intersection(&tool).count(), 0);
+        let all: BTreeSet<_> = GoldenDivergence::ALL.into_iter().collect();
+        assert_eq!(exercised.union(&tool).copied().collect::<BTreeSet<_>>(), all);
+        assert_eq!(exercised.len(), 11);
+    }
+
+    #[test]
+    fn the_harness_reports_mismatches_and_unknown_keys() {
+        // Témoin négatif : sans lui, un comparateur toujours vrai passerait inaperçu.
+        let mut level = Level1 {
+            entry: "synthetic.json",
+            mojibake: false,
+            rech_ecli: false,
+            exercised: BTreeSet::new(),
+            mismatches: Vec::new(),
+        };
+        let golden = json!({"total": 2, "hits": [{"id": "A", "secret_key": 1}, {"id": "B"}]});
+        let rust = json!({"total": 3, "hits": [{"id": "Z"}]});
+        level.entity(Kind::Search(Fond::Juri), &golden, &rust);
+        assert_eq!(
+            level.mismatches,
+            [
+                "synthetic.json /total: golden 2 != rust 3",
+                "synthetic.json /hits: golden 2 != rust 1",
+                "synthetic.json /hits/0/id: golden \"A\" != rust \"Z\"",
+                "synthetic.json /hits/0/secret_key: unclassified golden key",
+            ]
+        );
     }
 }
