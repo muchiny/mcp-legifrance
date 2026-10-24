@@ -107,9 +107,14 @@ mod tests {
     const UNBUDGETED: [(&str, &str); 1] = [("error.rs", "pub status: Option<serde_json::Value>")];
 
     /// Code de production d'un fichier : tout ce qui précède son module de test. Rien ne le suit
-    /// (`clippy::items_after_test_module`, refusé par `make lint`).
-    fn production(source: &str) -> &str {
-        source.split_once("\n#[cfg(test)]\nmod tests {").map_or(source, |(code, _)| code)
+    /// (`clippy::items_after_test_module`, refusé par `make lint`). Les fins de ligne CRLF d'une
+    /// extraction Windows sont ramenées à LF : sans cela le module de test n'est pas trouvé.
+    fn production(source: &str) -> String {
+        let source = source.replace("\r\n", "\n");
+        match source.split_once("\n#[cfg(test)]\nmod tests {") {
+            Some((code, _)) => code.to_owned(),
+            None => source,
+        }
     }
 
     /// Octets de `rest` jusqu'au `close` non échappé compris ; s'il manque, tout `rest` suivi d'un
@@ -241,8 +246,8 @@ mod tests {
     /// champ de struct payé sur le budget, un champ admis ou faire partie d'un lecteur borné.
     fn scan(file: &str, source: &str) -> Scan {
         let code = production(source);
-        let shape = masked(code, true);
-        let attributes = masked(code, false);
+        let shape = masked(&code, true);
+        let attributes = masked(&code, false);
         let mut scan = Scan::default();
         let mut covered: Vec<Range<usize>> = Vec::new();
         for (_, header) in READERS.iter().filter(|(name, _)| *name == file) {
@@ -286,6 +291,14 @@ mod tests {
         on_disk.sort();
         let listed: Vec<&str> = SOURCES.iter().map(|(name, _)| *name).collect();
         assert_eq!(on_disk, listed);
+    }
+
+    #[test]
+    fn production_cuts_the_test_module_under_crlf_line_endings() {
+        let lf = "fn a() {}\n#[cfg(test)]\nmod tests {\n    fn t() {}\n}\n";
+        assert_eq!(production(lf), "fn a() {}");
+        assert_eq!(production(&lf.replace('\n', "\r\n")), "fn a() {}");
+        assert_eq!(production("fn a() {}\r\n"), "fn a() {}\n");
     }
 
     #[test]
@@ -376,7 +389,8 @@ mod tests {
     fn null_default_serves_only_the_two_struct_fields() {
         let mut uses = 0;
         for (_, source) in SOURCES {
-            let lines: Vec<&str> = production(source).lines().collect();
+            let code = production(source);
+            let lines: Vec<&str> = code.lines().collect();
             for (index, line) in lines.iter().enumerate() {
                 if !line.contains(r#"deserialize_with = "de::null_default""#) {
                     continue;
