@@ -93,8 +93,8 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S>
 mod tests {
     use std::num::NonZeroU32;
 
-    use lf_application::ports::LegalCorpus;
-    use lf_domain::date::VersionDate;
+    use lf_application::ports::{CorpusError, LegalCorpus};
+    use lf_domain::date::{DateRange, VersionDate};
     use lf_domain::fond::{Fond, PaginationMode};
     use lf_domain::id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId};
     use lf_domain::search::{MatchMode, PageSize, QueryText, SearchQuery};
@@ -102,7 +102,7 @@ mod tests {
     use wiremock::matchers::{body_json, method, path};
     use wiremock::{Mock, ResponseTemplate};
 
-    use crate::corpus::tests::{API_BASE, Rig, token_mock};
+    use crate::corpus::tests::{API_BASE, Rig, TOKEN_PATH, never, token_mock};
     use crate::map::Diagnostics;
     use crate::map::endpoint;
     use crate::map::fixtures::{Mapped, decoded, fixture, map_body};
@@ -327,5 +327,204 @@ mod tests {
         let agreement = rig.corpus.get_company_agreement(&id).await.unwrap();
         assert_eq!(view(&Mapped::Agreement(agreement)), expected(name, requested));
         assert_eq!(rig.corpus.stats(), stats_after(name, 0));
+    }
+
+    // ---- /search par le port : pagination, mémo (R12, R13), facettes, gardes, page pleine ------
+
+    /// Page vide, sans `typePagination`.
+    const EMPTY_PAGE: &str = r#"{"results":[],"totalResultNumber":0}"#;
+
+    /// Requête « golden » du fond, à la page `page` et avec la plage `range`.
+    fn golden_page(fond: Fond, page: u32, range: Option<DateRange>) -> SearchQuery {
+        let version = matches!(fond, Fond::Loda | Fond::Code).then(version_date);
+        SearchQuery::new(
+            fond,
+            QueryText::parse("golden").unwrap(),
+            NonZeroU32::new(page).unwrap(),
+            PageSize::default(),
+            MatchMode::default(),
+            range,
+            version,
+        )
+        .unwrap()
+    }
+
+    /// Le jeton une fois ; `/search` répond `body` (200) à volonté.
+    async fn search_replies(rig: &Rig, body: &str) {
+        token_mock(&rig.server, "tok-1", 1).await;
+        Mock::given(method("POST"))
+            .and(path(format!("{API_BASE}{}", endpoint::SEARCH)))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_raw(body.to_owned(), "application/json"),
+            )
+            .mount(&rig.server)
+            .await;
+    }
+
+    /// Corps de chaque requête `/search` reçue, dans l'ordre.
+    async fn search_bodies(rig: &Rig) -> Vec<Value> {
+        let route = format!("{API_BASE}{}", endpoint::SEARCH);
+        let requests = rig.server.received_requests().await.unwrap();
+        requests
+            .iter()
+            .filter(|request| request.url.path() == route)
+            .map(|request| serde_json::from_slice(&request.body).unwrap())
+            .collect()
+    }
+
+    /// `recherche.typePagination` de chaque requête `/search`, dans l'ordre.
+    async fn sent_modes(rig: &Rig) -> Vec<Value> {
+        search_bodies(rig)
+            .await
+            .iter()
+            .map(|body| body["recherche"]["typePagination"].clone())
+            .collect()
+    }
+
+    /// `count` résultats `JURITEXT{n:012}` titrés `t`, `totalResultNumber = count`.
+    fn juri_results(count: usize) -> String {
+        let results: Vec<Value> = (1..=count)
+            .map(|n| json!({"titles": [{"id": format!("JURITEXT{n:012}"), "title": "t"}]}))
+            .collect();
+        json!({"results": results, "totalResultNumber": count}).to_string()
+    }
+
+    #[tokio::test]
+    async fn search_page_2_sends_page_number_2() {
+        let rig = Rig::new().await;
+        search_replies(&rig, EMPTY_PAGE).await;
+        rig.corpus.search(&golden_page(Fond::Loda, 2, None)).await.unwrap();
+        let sent = sent_body(&rig, endpoint::SEARCH).await;
+        assert_eq!(
+            (&sent["recherche"]["pageNumber"], &sent["recherche"]["typePagination"]),
+            (&json!(2), &json!("DEFAUT"))
+        );
+    }
+
+    #[tokio::test]
+    async fn type_pagination_is_echoed_on_next_page() {
+        let rig = Rig::new().await;
+        search_replies(&rig, r#"{"results":[],"totalResultNumber":0,"typePagination":"ARTICLE"}"#)
+            .await;
+        for page in [1, 2] {
+            rig.corpus.search(&golden_page(Fond::Juri, page, None)).await.unwrap();
+        }
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("ARTICLE")]);
+    }
+
+    #[tokio::test]
+    async fn code_page_2_without_memo_sends_article() {
+        let rig = Rig::new().await;
+        search_replies(&rig, EMPTY_PAGE).await;
+        rig.corpus.search(&golden_page(Fond::Code, 2, None)).await.unwrap();
+        assert_eq!(sent_modes(&rig).await, [json!("ARTICLE")]);
+    }
+
+    #[tokio::test]
+    async fn a_code_page_without_a_known_type_pagination_leaves_no_memo() {
+        for body in [
+            r#"{"results":[],"totalResultNumber":0,"typePagination":"PAR_PAGE"}"#,
+            r#"{"results":[],"totalResultNumber":0,"typePagination":7}"#,
+        ] {
+            let rig = Rig::new().await;
+            search_replies(&rig, body).await;
+            let first = rig.corpus.search(&golden_page(Fond::Code, 1, None)).await.unwrap();
+            rig.corpus.search(&golden_page(Fond::Code, 2, None)).await.unwrap();
+            assert_eq!(first.pagination, PaginationMode::Defaut, "{body}");
+            assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("ARTICLE")], "{body}");
+        }
+    }
+
+    #[tokio::test]
+    async fn date_range_maps_to_fond_facet() {
+        let range = DateRange::new(
+            Some(VersionDate::parse("2016-01-01").unwrap()),
+            Some(VersionDate::parse("2016-12-31").unwrap()),
+        )
+        .unwrap();
+        for (fond, facet) in [
+            (Fond::Loda, "DATE_SIGNATURE"),
+            (Fond::Juri, "DATE_DECISION"),
+            (Fond::Constit, "DATE_DECISION"),
+            (Fond::Cetat, "DATE_DECISION"),
+            (Fond::Cnil, "DATE_DELIB"),
+            (Fond::Kali, "DATE_SIGNATURE"),
+            (Fond::Acco, "DATE_SIGNATURE"),
+        ] {
+            let rig = Rig::new().await;
+            search_replies(&rig, EMPTY_PAGE).await;
+            rig.corpus.search(&golden_page(fond, 1, range)).await.unwrap();
+            let sent = sent_body(&rig, endpoint::SEARCH).await;
+            assert_eq!(
+                sent["recherche"]["filtres"].as_array().unwrap().last(),
+                Some(
+                    &json!({"facette": facet, "dates": {"start": "2016-01-01", "end": "2016-12-31"}})
+                ),
+                "{fond:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_loda_or_code_query_without_version_date_never_reaches_the_network() {
+        let rig = Rig::new().await;
+        never(&rig.server, TOKEN_PATH).await;
+        never(&rig.server, &format!("{API_BASE}{}", endpoint::SEARCH)).await;
+        for fond in [Fond::Loda, Fond::Code] {
+            let query = SearchQuery::new(
+                fond,
+                QueryText::parse("golden").unwrap(),
+                NonZeroU32::MIN,
+                PageSize::default(),
+                MatchMode::default(),
+                None,
+                None,
+            )
+            .unwrap();
+            assert_eq!(
+                rig.corpus.search(&query).await,
+                Err(CorpusError::InvalidRequest {
+                    status: None,
+                    detail: format!("version_date missing for fond {}", fond.name()),
+                })
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_full_page_of_100_results_passes_and_more_is_refused() {
+        for (page_size, count, expected) in [
+            (100, 100, Ok(100)),
+            (
+                100,
+                101,
+                Err(CorpusError::Decode {
+                    detail: "/search: results[100]: too many elements".to_owned(),
+                }),
+            ),
+            (
+                10,
+                11,
+                Err(CorpusError::Decode {
+                    detail: "/search: results: more results than page size".to_owned(),
+                }),
+            ),
+        ] {
+            let rig = Rig::new().await;
+            search_replies(&rig, &juri_results(count)).await;
+            let query = SearchQuery::new(
+                Fond::Juri,
+                QueryText::parse("golden").unwrap(),
+                NonZeroU32::MIN,
+                PageSize::new(page_size).unwrap(),
+                MatchMode::default(),
+                None,
+                None,
+            )
+            .unwrap();
+            let outcome = rig.corpus.search(&query).await.map(|page| page.hits.len());
+            assert_eq!(outcome, expected, "{page_size} / {count}");
+            assert_eq!(rig.corpus.stats(), StatsSnapshot::default(), "{page_size} / {count}");
+        }
     }
 }
