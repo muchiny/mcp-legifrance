@@ -33,6 +33,7 @@ use crate::encoding::decode_body;
 use crate::http::{Attempt, Payload, RawResponse, SharedClient};
 use crate::limit::{Permit, RateGate};
 use crate::map::Diagnostics;
+use crate::memo::PaginationMemo;
 use crate::retry::{RetryContext, SystemJitter, run};
 use crate::stats::{Stats, StatsSnapshot};
 use crate::time::{MonoClock, Sleeper, TokioClock, TokioSleeper};
@@ -51,6 +52,8 @@ struct Inner<K: MonoClock + Clone, S: Sleeper> {
     tokens: TokenManager<K, S>,
     gate: RateGate<K, S>,
     stats: Stats,
+    /// `typePagination` reçu par requête sans page (04 §6.6, §12.3), lu et écrit par `search`.
+    memo: PaginationMemo<K>,
     clock: K,
     sleeper: S,
 }
@@ -120,6 +123,7 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
                 tokens,
                 gate,
                 stats: Stats::default(),
+                memo: PaginationMemo::new(clock.clone()),
                 clock,
                 sleeper,
             }),
@@ -374,6 +378,8 @@ fn api_url(base: &Url, endpoint: &str) -> Result<Url, CorpusError> {
     Ok(url)
 }
 
+mod port;
+
 /// Erreur finale d'un 401 qui se répète après le renouvellement du jeton.
 fn auth_twice(endpoint: &str, env: PisteEnvironment) -> CorpusError {
     CorpusError::Auth { detail: format!("API returned 401 twice on {endpoint} ({env})") }
@@ -397,26 +403,26 @@ mod tests {
     use crate::testing::{ClosedPort, capture_at};
     use crate::time::{ManualClock, RecordingSleeper};
 
-    const SECRET: &str = "my-client-secret";
+    pub(super) const SECRET: &str = "my-client-secret";
     const ENDPOINT: &str = "/consult/juri";
-    const API_BASE: &str = "/dila/legifrance/lf-engine-app";
+    pub(super) const API_BASE: &str = "/dila/legifrance/lf-engine-app";
     const API_PATH: &str = "/dila/legifrance/lf-engine-app/consult/juri";
-    const TOKEN_PATH: &str = "/oauth/token";
+    pub(super) const TOKEN_PATH: &str = "/oauth/token";
     const BODY: &[u8] = br#"{"textId":"JURITEXT000000000001"}"#;
     const MISSING: &str = "PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET (from your piste.gouv.fr application, section OAuth Credentials)";
     const SANDBOX: PisteEnvironment = PisteEnvironment::Sandbox;
 
     type TestCorpus = PisteCorpus<ManualClock, RecordingSleeper>;
 
-    const fn secs(n: u64) -> Duration {
+    pub(super) const fn secs(n: u64) -> Duration {
         Duration::from_secs(n)
     }
 
-    const fn ms(n: u64) -> Duration {
+    pub(super) const fn ms(n: u64) -> Duration {
         Duration::from_millis(n)
     }
 
-    fn rate(per_second: u32, burst: u32) -> RateQuota {
+    pub(super) fn rate(per_second: u32, burst: u32) -> RateQuota {
         RateQuota::new(NonZeroU32::new(per_second).unwrap(), NonZeroU32::new(burst).unwrap())
     }
 
@@ -440,12 +446,12 @@ mod tests {
 
     /// Ce qu'un test peut ajuster avant la construction de la configuration : les champs de
     /// `PisteConfig` sont privés, la configuration se reconstruit donc d'un bloc.
-    struct Setup {
+    pub(super) struct Setup {
         uri: String,
-        credentials: Option<PisteCredentials>,
+        pub(super) credentials: Option<PisteCredentials>,
         problem: Option<ConfigProblem>,
         user_agent: String,
-        tuning: PisteTuning,
+        pub(super) tuning: PisteTuning,
     }
 
     impl Setup {
@@ -468,7 +474,7 @@ mod tests {
         }
     }
 
-    fn json_reply(status: u16, body: &str) -> ResponseTemplate {
+    pub(super) fn json_reply(status: u16, body: &str) -> ResponseTemplate {
         ResponseTemplate::new(status).set_body_raw(body, "application/json")
     }
 
@@ -486,7 +492,7 @@ mod tests {
     }
 
     /// Le jeton `token`, servi `times` fois exactement.
-    async fn token_mock(server: &MockServer, token: &str, times: u64) {
+    pub(super) async fn token_mock(server: &MockServer, token: &str, times: u64) {
         Mock::given(method("POST"))
             .and(path(TOKEN_PATH))
             .respond_with(token_reply(token))
@@ -533,7 +539,7 @@ mod tests {
     }
 
     /// `route` ne doit jamais être appelée (wiremock le vérifie à la chute du serveur).
-    async fn never(server: &MockServer, route: &str) {
+    pub(super) async fn never(server: &MockServer, route: &str) {
         Mock::given(method("POST"))
             .and(path(route))
             .respond_with(ResponseTemplate::new(500))
@@ -542,7 +548,7 @@ mod tests {
             .await;
     }
 
-    async fn requests_to(server: &MockServer, route: &str) -> usize {
+    pub(super) async fn requests_to(server: &MockServer, route: &str) -> usize {
         let requests = server.received_requests().await.unwrap();
         requests.iter().filter(|request| request.url.path() == route).count()
     }
@@ -554,21 +560,21 @@ mod tests {
     }
 
     /// Serveur simulé, horloge et attente manuelles, adapter sous test.
-    struct Rig {
-        server: MockServer,
+    pub(super) struct Rig {
+        pub(super) server: MockServer,
         clock: ManualClock,
-        sleeper: RecordingSleeper,
-        corpus: TestCorpus,
+        pub(super) sleeper: RecordingSleeper,
+        pub(super) corpus: TestCorpus,
         config: PisteConfig,
     }
 
     impl Rig {
-        async fn new() -> Self {
+        pub(super) async fn new() -> Self {
             Self::tuned(|_| {}).await
         }
 
         /// Configuration ordinaire, ajustée par `tune` avant la construction.
-        async fn tuned(tune: impl FnOnce(&mut Setup)) -> Self {
+        pub(super) async fn tuned(tune: impl FnOnce(&mut Setup)) -> Self {
             let server = MockServer::start().await;
             let mut setup = Setup::new(server.uri());
             tune(&mut setup);
