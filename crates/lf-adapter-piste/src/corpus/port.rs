@@ -99,15 +99,16 @@ mod tests {
     use lf_domain::id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId};
     use lf_domain::search::{MatchMode, PageSize, QueryText, SearchQuery};
     use serde_json::{Value, json};
-    use wiremock::matchers::{body_json, method, path};
+    use wiremock::matchers::{body_json, method, path, path_regex};
     use wiremock::{Mock, ResponseTemplate};
 
-    use crate::corpus::tests::{API_BASE, Rig, TOKEN_PATH, never, token_mock};
+    use crate::corpus::tests::{API_BASE, Rig, TOKEN_PATH, never, requests_to, token_mock};
     use crate::map::Diagnostics;
     use crate::map::endpoint;
-    use crate::map::fixtures::{Mapped, decoded, fixture, map_body};
+    use crate::map::fixtures::{Mapped, decoded, fixture, map_body, text as fixture_text};
     use crate::request::search::search_body;
     use crate::stats::StatsSnapshot;
+    use crate::testing::capture_at;
     use crate::view::view;
 
     /// Midi Europe/Paris du 15 octobre 2026, en millisecondes (UTC+2 : 10 h UTC).
@@ -525,6 +526,203 @@ mod tests {
             let outcome = rig.corpus.search(&query).await.map(|page| page.hits.len());
             assert_eq!(outcome, expected, "{page_size} / {count}");
             assert_eq!(rig.corpus.stats(), StatsSnapshot::default(), "{page_size} / {count}");
+        }
+    }
+
+    // ---- sécurité par le port : identifiants dans le corps, aucune URL suivie, aucun N+1 ------
+
+    /// Le jeton une fois ; toute route de l'API répond `{}` (200) à volonté.
+    async fn every_endpoint_replies_empty(rig: &Rig) {
+        token_mock(&rig.server, "tok-1", 1).await;
+        Mock::given(method("POST"))
+            .and(path_regex(format!("^{API_BASE}/")))
+            .respond_with(ResponseTemplate::new(200).set_body_raw("{}", "application/json"))
+            .mount(&rig.server)
+            .await;
+    }
+
+    /// La fixture `name` lue en `Value`, puis chaque `"objet/clé"` de `edits` posé à `value` par
+    /// insertion dans l'objet parent (la clé est créée si elle manque), rendue en texte.
+    fn edited(name: &str, edits: &[&str], value: &Value) -> String {
+        let mut document: Value = serde_json::from_str(fixture_text(name)).unwrap();
+        for edit in edits {
+            let (parent, key) = edit.rsplit_once('/').unwrap();
+            document
+                .pointer_mut(parent)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .insert(key.to_owned(), value.clone());
+        }
+        document.to_string()
+    }
+
+    /// Le jeton une fois ; `endpoint` répond `body` (200) à volonté.
+    async fn reply_on(rig: &Rig, endpoint: &str, body: String) {
+        token_mock(&rig.server, "tok-1", 1).await;
+        Mock::given(method("POST"))
+            .and(path(format!("{API_BASE}{endpoint}")))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+            .mount(&rig.server)
+            .await;
+    }
+
+    /// Chemin, query et corps de chaque requête reçue hors jeton, dans l'ordre.
+    async fn api_requests(rig: &Rig) -> Vec<(String, Option<String>, Value)> {
+        let requests = rig.server.received_requests().await.unwrap();
+        requests
+            .iter()
+            .filter(|request| request.url.path() != TOKEN_PATH)
+            .map(|request| {
+                (
+                    request.url.path().to_owned(),
+                    request.url.query().map(str::to_owned),
+                    serde_json::from_slice(&request.body).unwrap(),
+                )
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn ids_go_in_body_never_in_path() {
+        let rig = Rig::new().await;
+        every_endpoint_replies_empty(&rig).await;
+        let hostile = "../../oauth/token?grant_type=x#frag";
+        let query = SearchQuery::new(
+            Fond::Juri,
+            QueryText::parse(hostile).unwrap(),
+            NonZeroU32::MIN,
+            PageSize::default(),
+            MatchMode::default(),
+            None,
+            None,
+        )
+        .unwrap();
+        let _ignored = rig.corpus.search(&query).await;
+        let law = LegiTextId::parse(" legitext000033205014_01-01-2020 ").unwrap();
+        let _ignored = rig.corpus.get_act(&law, version_date()).await;
+        let article = ArticleId::parse(" kaliarti000049886059 ").unwrap();
+        let _ignored = rig.corpus.get_article(&article).await;
+        let decision = DecisionId::parse("constext000052555275").unwrap();
+        let _ignored = rig.corpus.get_decision(&decision).await;
+        let deliberation = CnilTextId::parse("CNILTEXT000053352643 ").unwrap();
+        let _ignored = rig.corpus.get_deliberation(&deliberation).await;
+        let convention = KaliTextId::parse(" KALITEXT000049878950").unwrap();
+        let _ignored = rig.corpus.get_convention(&convention).await;
+        let agreement = AccoTextId::parse("accotext000053643828").unwrap();
+        let _ignored = rig.corpus.get_company_agreement(&agreement).await;
+
+        let sent = api_requests(&rig).await;
+        let (search, consultations) = sent.split_first().unwrap();
+        assert_eq!(search.0, format!("{API_BASE}{}", endpoint::SEARCH));
+        assert_eq!(search.1, None);
+        assert_eq!(search.2["recherche"]["champs"][0]["criteres"][0]["valeur"], hostile);
+        let expected_consultations = [
+            (endpoint::LAW_DECREE, json!({"textId": "LEGITEXT000033205014", "date": "2026-10-15"})),
+            (endpoint::GET_ARTICLE, json!({"id": "KALIARTI000049886059"})),
+            (endpoint::JURI, json!({"textId": "CONSTEXT000052555275"})),
+            (endpoint::CNIL, json!({"textId": "CNILTEXT000053352643"})),
+            (endpoint::KALI_TEXT, json!({"id": "KALITEXT000049878950"})),
+            (endpoint::ACCO, json!({"id": "ACCOTEXT000053643828"})),
+        ]
+        .map(|(template, body)| (format!("{API_BASE}{template}"), None, body));
+        assert_eq!(consultations, expected_consultations);
+        assert_eq!(sent.len(), 7);
+    }
+
+    #[tokio::test]
+    async fn urls_in_responses_are_never_fetched() {
+        let rig = Rig::new().await;
+        let trap = format!("{}/trap", rig.server.uri());
+        Mock::given(method("POST"))
+            .and(path_regex("^/trap"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&rig.server)
+            .await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        let link = Value::String(trap.clone());
+        for (route, name, edits) in [
+            (endpoint::JURI, "consult_juri_constit", &["/text/lienJo", "/text/urlCC"][..]),
+            (endpoint::CNIL, "consult_cnil", &["/text/lienJo", "/text/urlCC"][..]),
+            (endpoint::ACCO, "consult_acco", &["/acco/url", "/acco/attachementUrl"][..]),
+        ] {
+            let body = edited(name, edits, &link);
+            Mock::given(method("POST"))
+                .and(path(format!("{API_BASE}{route}")))
+                .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+                .mount(&rig.server)
+                .await;
+        }
+        let original = fixture_text("consult_kali");
+        let kali = original.replace("/affichCodeArticle.do", &format!("{trap}/kali"));
+        assert_ne!(kali, original);
+        Mock::given(method("POST"))
+            .and(path(format!("{API_BASE}{}", endpoint::KALI_TEXT)))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(kali, "application/json"))
+            .mount(&rig.server)
+            .await;
+
+        let decision = DecisionId::parse(fixture("consult_juri_constit").requested).unwrap();
+        rig.corpus.get_decision(&decision).await.unwrap();
+        let deliberation = CnilTextId::parse(fixture("consult_cnil").requested).unwrap();
+        rig.corpus.get_deliberation(&deliberation).await.unwrap();
+        let agreement = AccoTextId::parse(fixture("consult_acco").requested).unwrap();
+        rig.corpus.get_company_agreement(&agreement).await.unwrap();
+        let convention = KaliTextId::parse(fixture("consult_kali").requested).unwrap();
+        rig.corpus.get_convention(&convention).await.unwrap();
+        assert_eq!(requests_to(&rig.server, "/trap").await, 0);
+        assert_eq!(requests_to(&rig.server, "/trap/kali").await, 0);
+    }
+
+    #[tokio::test]
+    async fn kali_inline_content_is_available_without_extra_call() {
+        let name = "consult_kali";
+        let requested = fixture(name).requested;
+        let rig = Rig::new().await;
+        serve(&rig, endpoint::KALI_TEXT, json!({"id": requested}), name).await;
+        never(&rig.server, &format!("{API_BASE}{}", endpoint::GET_ARTICLE)).await;
+        let id = KaliTextId::parse(requested).unwrap();
+        let convention = rig.corpus.get_convention(&id).await.unwrap();
+        let projection = view(&Mapped::Convention(convention));
+        let article = &projection["toc"][0]["section"]["children"][0]["article"];
+        assert_eq!(article["article_id"], "KALIARTI000049886059");
+        let inline = article["inline_text"]["text"].as_str().unwrap();
+        assert!(inline.starts_with("Les parties conviennent de préciser"), "{inline}");
+    }
+
+    #[tokio::test]
+    async fn acco_large_data_field_is_skipped() {
+        let name = "consult_acco";
+        let requested = fixture(name).requested;
+        let rig = Rig::new().await;
+        let big = Value::String("QUJD".repeat(5 * 1024 * 1024 / 4));
+        let body = edited(name, &["/acco/data"], &big);
+        drop(big);
+        reply_on(&rig, endpoint::ACCO, body).await;
+        let id = AccoTextId::parse(requested).unwrap();
+        let agreement = rig.corpus.get_company_agreement(&id).await.unwrap();
+        assert_eq!(view(&Mapped::Agreement(agreement)), expected(name, requested));
+    }
+
+    #[tokio::test]
+    async fn a_port_error_never_carries_a_body_value() {
+        let rig = Rig::new().await;
+        let body = r#"{"text":{"titre":"t","numeroAffaire":"sekret-42-Ω"}}"#;
+        reply_on(&rig, endpoint::JURI, body.to_owned()).await;
+        let (capture, _guard) = capture_at(tracing::Level::TRACE);
+        let id = DecisionId::parse("JURITEXT000007024230").unwrap();
+        let error = rig.corpus.get_decision(&id).await.unwrap_err();
+        assert_eq!(
+            error,
+            CorpusError::Decode {
+                detail:
+                    "/consult/juri: text.numeroAffaire: invalid type: string, expected a sequence"
+                        .to_owned(),
+            }
+        );
+        for rendered in [error.to_string(), format!("{error:?}"), capture.text()] {
+            assert!(!rendered.contains("sekret"), "{rendered}");
         }
     }
 }
