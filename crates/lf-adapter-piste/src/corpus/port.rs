@@ -448,11 +448,7 @@ mod tests {
         )
         .await;
         for page in [1, 2] {
-            let outcome = rig
-                .corpus
-                .search(&golden_page(Fond::Juri, page, None))
-                .await
-                .map(|page| page.hits.len());
+            let outcome = rig.corpus.search(&golden_page(Fond::Juri, page, None)).await.map(drop);
             assert_eq!(
                 outcome,
                 Err(CorpusError::Decode {

@@ -30,7 +30,7 @@ const DATE_DEPOT: Field = Field { endpoint: ACCO, path: "acco.dateDepot" };
 
 /// `/consult/acco` ⇒ `CompanyAgreement` (03 §4.7). Sur `Err(Decode)`, `diags` garde les
 /// anomalies relevées avant l'erreur : `Stats::record_mapping` est appelé sur `Ok` comme sur
-/// `Err` (04 §9.3, D14) ; un `NotFound` ne touche pas `diags`.
+/// `Err` (04 §9.3) ; un `NotFound` ne touche pas `diags`.
 ///
 /// # Errors
 ///

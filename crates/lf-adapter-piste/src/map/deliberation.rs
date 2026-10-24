@@ -37,7 +37,7 @@ const TEXTE: Field = Field { endpoint: CNIL, path: "text.texte" };
 
 /// `/consult/cnil` ⇒ `Deliberation` (03 §4.5). Même règle sur `diags` que `decision` : sur
 /// `Err(Decode)`, `diags` garde les anomalies relevées avant l'erreur, et
-/// `Stats::record_mapping` est appelé sur `Ok` comme sur `Err` (04 §9.3, D14) ; un `NotFound` ne
+/// `Stats::record_mapping` est appelé sur `Ok` comme sur `Err` (04 §9.3) ; un `NotFound` ne
 /// touche pas `diags`.
 ///
 /// Ordre d'évaluation figé, la première erreur l'emporte : l'identité de l'objet, l'identifiant

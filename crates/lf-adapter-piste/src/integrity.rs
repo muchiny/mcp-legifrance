@@ -483,13 +483,12 @@ mod tests {
         let mut checked = 0;
         for entry in fs::read_dir(directory).expect("snapshot directory is readable") {
             let path = entry.expect("entry is readable").path();
-            if path.extension().is_some_and(|extension| extension == "snap") {
-                let raw =
-                    fs::read_to_string(&path).expect("snapshot is UTF-8").replace("\r\n", "\n");
-                let name = path.file_name().expect("file name").to_string_lossy().into_owned();
-                assert_eq!(leaks(&name, &raw, &snapshot_json(&raw), &[]), Vec::<String>::new());
-                checked += 1;
-            }
+            // Un `.snap.new` laissé par un essai local échoue ici, au lieu d'échapper au scan.
+            assert_eq!(path.extension().and_then(|extension| extension.to_str()), Some("snap"));
+            let raw = fs::read_to_string(&path).expect("snapshot is UTF-8").replace("\r\n", "\n");
+            let name = path.file_name().expect("file name").to_string_lossy().into_owned();
+            assert_eq!(leaks(&name, &raw, &snapshot_json(&raw), &[]), Vec::<String>::new());
+            checked += 1;
         }
         assert_eq!(checked, 17);
         let raw = include_str!("../tests/fixtures/reference/parite-golden.json");
@@ -557,6 +556,12 @@ mod tests {
                 "doc: base64-like string at lookalike",
                 "doc: secret word at value",
             ]
+        );
+        // Un mot sensible dans une clé seulement (valeur anodine) est aussi rapporté.
+        let key_only = json!({"Authorization": "x"});
+        assert_eq!(
+            leaks("key", &key_only.to_string(), &key_only, &[]),
+            ["key: secret word \"authorization\""]
         );
         let safe = json["lookalike"].as_str().unwrap();
         let found = leaks("doc", &json.to_string(), &json, &[safe]);

@@ -395,6 +395,13 @@ impl Level1<'_> {
     }
 
     /// Compare la clé au pointeur `pointer` de l'entrée selon `rule`.
+    /// Compte `divergence` comme exercée seulement si l'attendu diffère réellement du golden brut.
+    fn exercise_if(&mut self, differs: bool, divergence: GoldenDivergence) {
+        if differs {
+            self.exercised.insert(divergence);
+        }
+    }
+
     fn compare(&mut self, pointer: &str, rule: Rule, golden: &Value, rust: &Value) {
         let golden = self.golden_at(pointer, golden);
         let (expected, actual) = match rule {
@@ -404,9 +411,7 @@ impl Level1<'_> {
             Rule::LongText => self.long_text(&golden, rust),
             Rule::Toc => {
                 let expected = self.toc_golden(&golden);
-                if expected != golden {
-                    self.exercised.insert(GoldenDivergence::TocTree);
-                }
+                self.exercise_if(expected != golden, GoldenDivergence::TocTree);
                 (expected, toc_projection(&rust["toc"]))
             }
             Rule::Articles => {
@@ -414,9 +419,7 @@ impl Level1<'_> {
             }
             Rule::Citation => {
                 let expected = self.cleaned(&golden);
-                if expected != golden {
-                    self.exercised.insert(GoldenDivergence::CitationRenamed);
-                }
+                self.exercise_if(expected != golden, GoldenDivergence::CitationRenamed);
                 (expected, rust["contract"]["citation"].clone())
             }
             Rule::SourceUrl => (golden, rust["contract"]["source_url"].clone()),
@@ -458,9 +461,7 @@ impl Level1<'_> {
         let expected: String = expected.chars().take(length).collect();
         let actual: String = rust_text.chars().take(length).collect();
         let (expected, actual) = (Value::String(expected), Value::String(actual));
-        if expected != *golden {
-            self.exercised.insert(GoldenDivergence::LongTextStructured);
-        }
+        self.exercise_if(expected != *golden, GoldenDivergence::LongTextStructured);
         (expected, actual)
     }
 

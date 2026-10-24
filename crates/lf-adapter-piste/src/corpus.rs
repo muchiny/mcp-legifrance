@@ -1278,13 +1278,13 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-        // Requête 0 (A) : 401 après 150 ms ; requête 1 (B) : 401 aussitôt ; ensuite : 200.
+        // Requête 0 (A) : 401 après 400 ms ; requête 1 (B) : 401 aussitôt ; ensuite : 200.
         let arrived = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&arrived);
         Mock::given(method("POST"))
             .and(path(API_PATH))
             .respond_with(move |_: &Request| match counter.fetch_add(1, Ordering::SeqCst) {
-                0 => json_reply(401, "{}").set_delay(ms(150)),
+                0 => json_reply(401, "{}").set_delay(ms(400)),
                 1 => ResponseTemplate::new(401),
                 _ => json_reply(200, "{}"),
             })
@@ -1300,7 +1300,7 @@ mod tests {
         assert_eq!(total, 2);
         let task_a = {
             let corpus = corpus.clone();
-            tokio::spawn(Deadline::after(ms(1_000)).scope(async move {
+            tokio::spawn(Deadline::after(ms(1_500)).scope(async move {
                 corpus.post_json(EndpointKind::Consult, ENDPOINT, BODY, owned).await
             }))
         };
@@ -1320,9 +1320,9 @@ mod tests {
             })
         };
         tokio::time::timeout(secs(5), wait_for(2)).await.unwrap();
-        // Le 401 de A tombe à 150 ms et son invalidation attend le verrou de B jusqu'à 1 s : à
-        // 500 ms, A attend encore, et seul le permis de B est tenu.
-        tokio::time::sleep(ms(500)).await;
+        // Le 401 de A tombe à 400 ms et son invalidation attend le verrou de B jusqu'à 1,5 s : à
+        // 800 ms, A attend encore, et seul le permis de B est tenu.
+        tokio::time::sleep(ms(800)).await;
         assert!(!task_a.is_finished());
         assert_eq!(gate.available(), total - 1);
         assert_eq!(task_a.await.unwrap(), Err(CorpusError::Timeout));
