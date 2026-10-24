@@ -170,6 +170,31 @@ pub enum DomainError {
         /// Nombre maximal de résultats atteignables.
         max: u64,
     },
+    /// Identifiant de résultat de recherche d'une autre famille que celle du fond interrogé
+    /// (par exemple un `JURITEXT` dans un résultat `LODA`).
+    ///
+    /// Ne se construit pas hors du crate :
+    ///
+    /// ```compile_fail
+    /// let _ = lf_domain::DomainError::HitKindMismatch {
+    ///     id: "x".repeat(99),
+    ///     fond: lf_domain::fond::Fond::Loda,
+    /// };
+    /// ```
+    #[error("hit identifier {id:?} does not belong to fond {fond}")]
+    #[non_exhaustive]
+    HitKindMismatch {
+        /// Identifiant reçu, tronqué à [`ECHO_MAX_CHARS`] caractères.
+        id: String,
+        /// Fond interrogé.
+        fond: Fond,
+    },
+    /// Texte de plus de 16 000 000 de caractères (garde du texte long).
+    #[error("text of {chars} characters exceeds the 16000000 limit")]
+    TextTooLarge {
+        /// Longueur du texte reçu, en caractères.
+        chars: u64,
+    },
 }
 
 /// Recopie `input` pour un message d'erreur, tronquée à [`ECHO_MAX_CHARS`] caractères.
@@ -185,7 +210,7 @@ mod tests {
     use crate::{
         date::{CivilDate, VersionDate},
         ecli::Ecli,
-        id::{AnyId, ArticleId, DecisionId, LegiTextId, SectionId, parse_versioned},
+        id::{AnyId, ArticleId, DecisionId, DocumentId, LegiTextId, SectionId, parse_versioned},
     };
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
@@ -197,7 +222,8 @@ mod tests {
             | DomainError::InvalidDate { input }
             | DomainError::InvalidEcli { input }
             | DomainError::UnknownFond { input }
-            | DomainError::BadSuffix { input } => input,
+            | DomainError::BadSuffix { input }
+            | DomainError::HitKindMismatch { id: input, .. } => input,
             DomainError::EmptyCoverageGaps
             | DomainError::TocTooDeep { .. }
             | DomainError::TocOffsetPastEnd { .. }
@@ -207,7 +233,8 @@ mod tests {
             | DomainError::OutOfRange { .. }
             | DomainError::VersionDateNotApplicable { .. }
             | DomainError::DateFilterNotApplicable { .. }
-            | DomainError::PageBeyondReach { .. } => "",
+            | DomainError::PageBeyondReach { .. }
+            | DomainError::TextTooLarge { .. } => "",
         }
     }
 
@@ -294,6 +321,31 @@ mod tests {
     }
 
     #[test]
+    fn hit_kind_mismatch_echoes_a_truncated_id() {
+        let long = "J".repeat(10_000);
+        let error = DomainError::HitKindMismatch { id: echo(&long), fond: Fond::Juri };
+        assert_eq!(echoed(&error), echo(&long));
+        assert_eq!(
+            error.to_string(),
+            format!("hit identifier \"{}…\" does not belong to fond JURI", "J".repeat(64))
+        );
+        let short =
+            DomainError::HitKindMismatch { id: "LEGITEXT000006070721".into(), fond: Fond::Kali };
+        assert_eq!(
+            short.to_string(),
+            "hit identifier \"LEGITEXT000006070721\" does not belong to fond KALI"
+        );
+    }
+
+    #[test]
+    fn text_too_large_message_names_the_limit() {
+        assert_eq!(
+            DomainError::TextTooLarge { chars: 16_000_001 }.to_string(),
+            "text of 16000001 characters exceeds the 16000000 limit"
+        );
+    }
+
+    #[test]
     fn every_parser_echoes_a_truncated_input() {
         let long = "A".repeat(10_000);
         let errors = [
@@ -301,6 +353,7 @@ mod tests {
             AnyId::parse(&long).unwrap_err(),
             ArticleId::parse(&long).unwrap_err(),
             DecisionId::parse(&long).unwrap_err(),
+            DocumentId::parse(&long).unwrap_err(),
             SectionId::parse(&long).unwrap_err(),
             parse_versioned(&long).unwrap_err(),
             CivilDate::parse(&long).unwrap_err(),
@@ -341,6 +394,7 @@ mod tests {
             DomainError::VersionDateNotApplicable { fond: Fond::Juri },
             DomainError::DateFilterNotApplicable { fond: Fond::Code },
             DomainError::PageBeyondReach { page: 200, page_size: 100, max: 10_000 },
+            DomainError::TextTooLarge { chars: 16_000_001 },
         ] {
             assert_eq!(echoed(&error), "", "{error}");
         }

@@ -1,0 +1,6 @@
+source = "matematicsolutions/fr-eli-mcp@d3b5b13"
+endpoint = "/consult/getArticle"
+sha256_raw = "80897c89fec43c8b6c6214839e8e29c0892ccaf052bf9c87449e384ac3dccb3e"
+known_issues = ["mojibake"]
+env = "sandbox"
+captured_at = "inconnu"

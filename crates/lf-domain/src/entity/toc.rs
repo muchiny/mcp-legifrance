@@ -6,7 +6,7 @@
 //! 1. filtrage : un article sans identifiant valide est écarté ; une section
 //!    dont l'identifiant manque ou est invalide (`id: None`, A10) est gardée
 //!    si elle a un titre ou des enfants, évalués après leur propre filtrage
-//!    (A12). `title` et `num` passent par [`clean`], seul nettoyage de ces
+//!    (A12). `title` et `num` passent par [`clean_field`], seul nettoyage de ces
 //!    champs (ruling C5) ; vides après nettoyage, ils valent `None` (A13) ;
 //! 2. ordre des frères : tri stable par `intOrdre` si tous les frères gardés
 //!    le portent (A6) ; sinon l'ordre de l'API, articles avant sous-sections
@@ -21,14 +21,17 @@
 //! [`Toc::page`] aplatit en préordre : une section sans titre n'est pas une
 //! entrée, mais ses enfants gardent leur profondeur (05 §5.0.4) ; [`Toc::len`],
 //! `total` et `next_offset` comptent donc le même ensemble d'entrées. Le texte
-//! en ligne des articles KALI et `LegalStatus` arrivent en M2 hors tête (A11).
+//! en ligne des articles KALI est un [`LongText`] (`content_html` ; absent, blanc ou vide
+//! après conversion : `None`), construit seulement pour l'article retenu par le
+//! dédoublonnage (règle 3) ; `etat` passe par [`LegalStatus::parse`].
 
-use std::{collections::HashSet, num::NonZeroU32};
+use std::{collections::HashSet, fmt, num::NonZeroU32};
 
 use crate::{
     error::DomainError,
     id::{ArticleId, SectionId},
-    text::clean,
+    status::LegalStatus,
+    text::{LongText, clean_field},
 };
 
 /// Profondeur maximale d'une table des matières (03 §1.3, MEN-10).
@@ -61,7 +64,10 @@ pub struct SectionDraft {
 }
 
 /// Article brut d'un [`TocDraft`].
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+///
+/// `Debug` n'écrit jamais `content_html` (HTML du corps, plusieurs Mio possibles), seulement sa
+/// longueur en octets (`content_html: 25 bytes`).
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct ArticleDraft {
     /// Identifiant brut, ex. `LEGIARTI000033205126`.
     pub id: Option<String>,
@@ -71,6 +77,32 @@ pub struct ArticleDraft {
     pub int_ordre: Option<i64>,
     /// État juridique brut, ex. `VIGUEUR`.
     pub etat: Option<String>,
+    /// Contenu HTML en ligne (`content`, attesté pour KALI) ; `None` : absent.
+    pub content_html: Option<String>,
+}
+
+impl fmt::Debug for ArticleDraft {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ArticleDraft")
+            .field("id", &self.id)
+            .field("num", &self.num)
+            .field("int_ordre", &self.int_ordre)
+            .field("etat", &self.etat)
+            .field("content_html", &HtmlLen(self.content_html.as_deref().map(str::len)))
+            .finish()
+    }
+}
+
+/// Longueur d'un HTML pour `Debug` : `None`, ou `<n> bytes`.
+struct HtmlLen(Option<usize>);
+
+impl fmt::Debug for HtmlLen {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Some(bytes) => write!(f, "{bytes} bytes"),
+            None => f.write_str("None"),
+        }
+    }
 }
 
 /// Nœud de la table des matières.
@@ -89,8 +121,8 @@ pub struct TocSection {
     pub id: Option<SectionId>,
     /// Titre nettoyé ; `None` : la section n'est pas une entrée de [`Toc::page`].
     pub title: Option<String>,
-    /// État juridique brut, non rendu (05 §5.0.4).
-    pub etat: Option<String>,
+    /// État juridique, non rendu (05 §5.0.4).
+    pub etat: Option<LegalStatus>,
     /// Enfants, dans l'ordre de la table.
     pub children: Vec<TocNode>,
 }
@@ -102,8 +134,10 @@ pub struct TocArticle {
     pub article_id: ArticleId,
     /// Numéro affiché, ex. `L. 1234-5`.
     pub num: Option<String>,
-    /// État juridique brut, ex. `VIGUEUR`.
-    pub etat: Option<String>,
+    /// État juridique, ex. `Vigueur`.
+    pub etat: Option<LegalStatus>,
+    /// Texte en ligne, disponible sans appel supplémentaire ; `None` : contenu absent ou vide.
+    pub inline_text: Option<LongText>,
 }
 
 /// Table des matières validée : arbre ordonné, dédoublonné, d'au plus
@@ -152,11 +186,13 @@ impl Toc {
     /// # Errors
     ///
     /// [`DomainError::TocTooDeep`] si un nœud du brouillon dépasse
-    /// [`TOC_MAX_DEPTH`] niveaux.
+    /// [`TOC_MAX_DEPTH`] niveaux ; [`DomainError::TextTooLarge`] si le texte en ligne d'un
+    /// article retenu (identifiant valide, première occurrence) dépasse
+    /// [`LongText::MAX_CHARS`] : celui d'un article écarté n'est jamais construit.
     pub fn build(draft: TocDraft) -> Result<Self, DomainError> {
         let total = weigh(&draft.sections, &draft.articles, TOC_MAX_DEPTH)?;
         let mut builder = Builder::default();
-        let roots = builder.children(draft.sections, draft.articles);
+        let roots = builder.children(draft.sections, draft.articles)?;
         Ok(Self { roots, dropped: to_u32(total - builder.kept) })
     }
 
@@ -232,9 +268,10 @@ struct Builder {
     kept: usize,
 }
 
-/// Frère en attente de tri : article validé ou section encore brute.
+/// Frère en attente de tri : article validé, dont le texte en ligne n'est construit que s'il est
+/// retenu par le dédoublonnage (son `content_html` attend à côté), ou section encore brute.
 enum Sibling {
-    Article(TocArticle),
+    Article(TocArticle, Option<String>),
     Section(SectionDraft),
 }
 
@@ -244,53 +281,84 @@ impl Builder {
         &mut self,
         sections: Vec<SectionDraft>,
         articles: Vec<ArticleDraft>,
-    ) -> Vec<TocNode> {
+    ) -> Result<Vec<TocNode>, DomainError> {
         // Règle 1 ; ordre de départ du tri stable : articles, puis sections (A7).
-        let mut siblings: Vec<(Option<i64>, Sibling)> = articles
-            .into_iter()
-            .filter_map(|draft| {
-                let article_id = ArticleId::parse(draft.id.as_deref()?).ok()?;
-                let num = cleaned(draft.num.as_deref());
-                let article = TocArticle { article_id, num, etat: draft.etat };
-                Some((draft.int_ordre, Sibling::Article(article)))
-            })
-            .chain(sections.into_iter().map(|draft| (draft.int_ordre, Sibling::Section(draft))))
-            .collect();
+        let mut siblings: Vec<(Option<i64>, Sibling)> = Vec::new();
+        for draft in articles {
+            let int_ordre = draft.int_ordre;
+            if let Some((article, content_html)) = article_of(draft) {
+                siblings.push((int_ordre, Sibling::Article(article, content_html)));
+            }
+        }
+        siblings
+            .extend(sections.into_iter().map(|draft| (draft.int_ordre, Sibling::Section(draft))));
         // Règle 2.
         if siblings.iter().all(|(int_ordre, _)| int_ordre.is_some()) {
             siblings.sort_by_key(|(int_ordre, _)| *int_ordre);
         }
         // Règle 3 : chaque frère est placé avant ses descendants (préordre).
-        siblings
-            .into_iter()
-            .filter_map(|(_, sibling)| match sibling {
-                Sibling::Article(article) => self.article(article),
-                Sibling::Section(draft) => self.section(draft),
-            })
-            .collect()
+        let mut nodes = Vec::new();
+        for (_, sibling) in siblings {
+            let node = match sibling {
+                Sibling::Article(article, content_html) => {
+                    self.article(article, content_html.as_deref())?
+                }
+                Sibling::Section(draft) => self.section(draft)?,
+            };
+            nodes.extend(node);
+        }
+        Ok(nodes)
     }
 
-    fn article(&mut self, article: TocArticle) -> Option<TocNode> {
-        let fresh = self.articles.insert(article.article_id.as_str().to_owned());
-        self.kept += usize::from(fresh);
-        fresh.then_some(TocNode::Article(article))
+    /// Article placé s'il n'est pas un doublon ; son texte en ligne n'est construit qu'alors
+    /// (03 §4.2 : dédoublonnage, puis texte en ligne de l'article retenu).
+    fn article(
+        &mut self,
+        mut article: TocArticle,
+        content_html: Option<&str>,
+    ) -> Result<Option<TocNode>, DomainError> {
+        if !self.articles.insert(article.article_id.as_str().to_owned()) {
+            return Ok(None);
+        }
+        self.kept += 1;
+        article.inline_text = inline_text(content_html)?;
+        Ok(Some(TocNode::Article(article)))
     }
 
-    fn section(&mut self, draft: SectionDraft) -> Option<TocNode> {
+    fn section(&mut self, draft: SectionDraft) -> Result<Option<TocNode>, DomainError> {
         let id = draft.id.as_deref().and_then(|raw| SectionId::parse(raw).ok());
         if id.as_ref().is_some_and(|id| !self.sections.insert(id.as_str().to_owned())) {
-            return None;
+            return Ok(None);
         }
-        let children = self.children(draft.sections, draft.articles);
-        let title = cleaned(draft.title.as_deref());
+        let children = self.children(draft.sections, draft.articles)?;
+        let title = clean_field(draft.title.as_deref());
+        let etat = draft.etat.as_deref().and_then(LegalStatus::parse);
         let kept = id.is_some() || title.is_some() || !children.is_empty();
-        kept.then_some(TocNode::Section(TocSection { id, title, etat: draft.etat, children }))
+        Ok(kept.then_some(TocNode::Section(TocSection { id, title, etat, children })))
     }
 }
 
-/// Champ court nettoyé ; vide après nettoyage : `None` (A13).
-fn cleaned(raw: Option<&str>) -> Option<String> {
-    raw.map(clean).filter(|text| !text.is_empty())
+/// Article validé du brouillon (règle 1), sans texte en ligne, et son `content_html` ; `None`
+/// si son identifiant manque ou est invalide.
+fn article_of(draft: ArticleDraft) -> Option<(TocArticle, Option<String>)> {
+    let article_id = draft.id.as_deref().and_then(|raw| ArticleId::parse(raw).ok())?;
+    let article = TocArticle {
+        article_id,
+        num: clean_field(draft.num.as_deref()),
+        etat: draft.etat.as_deref().and_then(LegalStatus::parse),
+        inline_text: None,
+    };
+    Some((article, draft.content_html))
+}
+
+/// Texte en ligne d'un article : `None` si le contenu est absent, blanc ou vide après
+/// conversion.
+fn inline_text(content_html: Option<&str>) -> Result<Option<LongText>, DomainError> {
+    let Some(html) = content_html.filter(|html| !html.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let text = LongText::from_html(html)?;
+    Ok((!text.is_empty()).then_some(text))
 }
 
 /// Aplatit `nodes` en préordre : chaque article est une entrée, chaque section
@@ -386,6 +454,7 @@ mod tests {
             article_id: ArticleId::parse(id).unwrap(),
             num: num.map(str::to_owned),
             etat: None,
+            inline_text: None,
         })
     }
 
@@ -525,7 +594,7 @@ mod tests {
     fn titles_and_nums_are_cleaned() {
         // consult_kali.json : l'espace final du titre disparaît (règle 1) ; un
         // titre ou un numéro vide après nettoyage devient None (A13) ; etat
-        // reste brut.
+        // est converti en statut.
         let kali = SectionDraft {
             id: Some("KALISCTA000049886029".into()),
             title: Some("Chapitre 1er : Recours au CDD d'usage ".into()),
@@ -537,6 +606,7 @@ mod tests {
                 num: Some(" 19  (des dispositions <b>communes</b>) ".into()),
                 int_ordre: Some(1_073_741_823),
                 etat: Some("VIGUEUR".into()),
+                content_html: None,
             }],
         };
         let blank = SectionDraft {
@@ -555,11 +625,12 @@ mod tests {
                 TocNode::Section(TocSection {
                     id: Some(SectionId::parse("KALISCTA000049886029").unwrap()),
                     title: Some("Chapitre 1er : Recours au CDD d'usage".into()),
-                    etat: Some("VIGUEUR".into()),
+                    etat: Some(LegalStatus::Vigueur),
                     children: vec![TocNode::Article(TocArticle {
                         article_id: ArticleId::parse("KALIARTI000049886059").unwrap(),
                         num: Some("19 (des dispositions communes)".into()),
-                        etat: Some("VIGUEUR".into()),
+                        etat: Some(LegalStatus::Vigueur),
+                        inline_text: None,
                     })],
                 }),
                 node_section(
@@ -569,6 +640,151 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    /// Brouillon d'un article portant `content_html`, sous une section titrée.
+    fn with_content(content: Option<&str>) -> TocDraft {
+        let article = ArticleDraft {
+            content_html: content.map(str::to_owned),
+            ..article("KALIARTI000049886059", "19")
+        };
+        roots(vec![section("KALISCTA000049886029", "Chapitre 1er", vec![], vec![article])])
+    }
+
+    /// Texte en ligne du seul article d'une table.
+    fn inline(toc: &Toc) -> Option<LongText> {
+        let page = toc.page(0, NonZeroU32::MAX).unwrap();
+        let articles: Vec<_> = page
+            .entries
+            .iter()
+            .filter_map(|entry| match entry.node {
+                TocEntryRef::Article(article) => Some(article),
+                TocEntryRef::Section { .. } => None,
+            })
+            .collect();
+        assert_eq!(articles.len(), 1);
+        articles.first().and_then(|article| article.inline_text.clone())
+    }
+
+    #[test]
+    fn toc_article_keeps_inline_text_from_content_html() {
+        // kali_inline_content_is_available_without_extra_call, côté domaine.
+        let toc = Toc::build(with_content(Some("<p>Art. 1</p><p>Alinéa</p>"))).unwrap();
+        let text = inline(&toc).unwrap();
+        let paragraphs: Vec<_> = text.paragraphs().collect();
+        assert_eq!(paragraphs, [(0, "Art. 1"), (8, "Alinéa")]);
+        assert_eq!(text.as_str(), "Art. 1\n\nAlinéa");
+    }
+
+    #[test]
+    fn toc_article_without_content_has_no_inline_text() {
+        let toc = Toc::build(with_content(None)).unwrap();
+        assert_eq!(inline(&toc), None);
+    }
+
+    #[test]
+    fn toc_blank_content_gives_no_inline_text() {
+        // Absent, blanc, ou vide après nettoyage : aucun texte en ligne.
+        for content in ["", "  \n\t ", "<p> </p>", "<br>"] {
+            let toc = Toc::build(with_content(Some(content))).unwrap();
+            assert_eq!(inline(&toc), None, "{content:?}");
+        }
+    }
+
+    #[test]
+    fn toc_status_is_parsed() {
+        let status = |raw: Option<&str>, expected: Option<LegalStatus>| {
+            let draft = TocDraft {
+                sections: vec![SectionDraft {
+                    etat: raw.map(str::to_owned),
+                    articles: vec![ArticleDraft {
+                        etat: raw.map(str::to_owned),
+                        ..article("LEGIARTI000000000001", "1")
+                    }],
+                    ..section("LEGISCTA000000000001", "S1", vec![], vec![])
+                }],
+                articles: vec![],
+            };
+            let want = TocNode::Section(TocSection {
+                id: Some(SectionId::parse("LEGISCTA000000000001").unwrap()),
+                title: Some("S1".into()),
+                etat: expected.clone(),
+                children: vec![TocNode::Article(TocArticle {
+                    article_id: ArticleId::parse("LEGIARTI000000000001").unwrap(),
+                    num: Some("1".into()),
+                    etat: expected,
+                    inline_text: None,
+                })],
+            });
+            assert_eq!(Toc::build(draft).unwrap().roots(), [want], "{raw:?}");
+        };
+        status(Some("VIGUEUR"), Some(LegalStatus::Vigueur));
+        status(Some(""), None);
+        status(None, None);
+        status(Some("INCONNU"), Some(LegalStatus::Other("INCONNU".into())));
+    }
+
+    #[test]
+    fn toc_propagates_text_too_large() {
+        let huge = format!("<p>{}</p>", "a".repeat(16_000_001));
+        assert_eq!(
+            Toc::build(with_content(Some(&huge))),
+            Err(DomainError::TextTooLarge { chars: 16_000_001 })
+        );
+        // Un article écarté (identifiant invalide) ne construit pas son texte.
+        let dropped = TocDraft {
+            sections: vec![],
+            articles: vec![ArticleDraft { content_html: Some(huge), ..article("nope", "1") }],
+        };
+        assert_eq!(Toc::build(dropped).unwrap().dropped(), 1);
+    }
+
+    #[test]
+    fn article_draft_debug_never_prints_the_html() {
+        // Audit L-4 : le HTML brut (plusieurs Mio possibles) ne fuit pas dans un `{:?}` ; seule
+        // sa longueur en octets est écrite.
+        let draft = ArticleDraft {
+            content_html: Some("<p>Texte confidentiel</p>".into()),
+            ..article("KALIARTI000049886059", "19")
+        };
+        assert_eq!(
+            format!("{draft:?}"),
+            "ArticleDraft { id: Some(\"KALIARTI000049886059\"), num: Some(\"19\"), \
+             int_ordre: None, etat: None, content_html: 25 bytes }"
+        );
+        assert_eq!(
+            format!("{:?}", ArticleDraft::default()),
+            "ArticleDraft { id: None, num: None, int_ordre: None, etat: None, content_html: None }"
+        );
+        let toc = TocDraft { sections: vec![], articles: vec![draft] };
+        for debug in [format!("{toc:?}"), format!("{toc:#?}")] {
+            assert!(!debug.contains("confidentiel"), "{debug}");
+            assert!(debug.contains("content_html: 25 bytes"), "{debug}");
+        }
+    }
+
+    #[test]
+    fn duplicate_article_does_not_build_its_inline_text() {
+        // Audit L-3 : le texte en ligne n'est construit que pour l'article retenu par le
+        // dédoublonnage (première occurrence) ; un doublon écarté ne peut pas faire échouer la
+        // table par `TextTooLarge`.
+        let first = ArticleDraft {
+            content_html: Some("<p>Premier texte</p>".into()),
+            ..article("KALIARTI000049886059", "19")
+        };
+        let huge = format!("<p>{}</p>", "a".repeat(16_000_001));
+        let second =
+            ArticleDraft { content_html: Some(huge), ..article("KALIARTI000049886059", "19 bis") };
+        let draft = roots(vec![section(
+            "KALISCTA000049886029",
+            "Chapitre 1er",
+            vec![],
+            vec![first, second],
+        )]);
+        let toc = Toc::build(draft).unwrap();
+        assert_eq!(shown(&toc), ["1 § Chapitre 1er", "2 KALIARTI000049886059 19"]);
+        assert_eq!(toc.dropped(), 1);
+        assert_eq!(inline(&toc).as_ref().map(LongText::as_str), Some("Premier texte"));
     }
 
     #[test]
@@ -843,6 +1059,7 @@ mod tests {
                 num: None,
                 int_ordre,
                 etat: None,
+                content_html: None,
             })
     }
 

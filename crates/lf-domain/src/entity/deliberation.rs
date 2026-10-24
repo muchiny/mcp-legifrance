@@ -4,6 +4,8 @@ use crate::{
     contract::{Citable, CitationContract, cnil_citation},
     date::CivilDate,
     id::CnilTextId,
+    status::LegalStatus,
+    text::LongText,
     url::{ResourceKind, legifrance_url},
 };
 
@@ -18,8 +20,8 @@ pub struct Deliberation {
     pub nature: Option<String>,
     /// Nature de délibération.
     pub nature_delib: Option<String>,
-    /// État juridique brut.
-    pub etat: Option<String>,
+    /// État juridique ; `None` : absent ou non reconnu.
+    pub etat: Option<LegalStatus>,
     /// Date de la délibération ; `None` : inconnue.
     pub date_texte: Option<CivilDate>,
     /// Date de publication ; `None` : inconnue.
@@ -28,8 +30,8 @@ pub struct Deliberation {
     pub title: Option<String>,
     /// Titre long.
     pub title_long: Option<String>,
-    /// Texte intégral.
-    pub text: Option<String>,
+    /// Texte intégral, nettoyé (vide : l'API n'en fournit pas).
+    pub text: LongText,
 }
 
 impl Citable for Deliberation {
@@ -57,7 +59,7 @@ mod tests {
             date_publication: None,
             title: Some("Délibération SAN-2026-002 du 8 janvier 2026".into()),
             title_long: None,
-            text: None,
+            text: LongText::default(),
         }
     }
 
@@ -77,5 +79,29 @@ mod tests {
     fn falls_back_to_title() {
         let c = deliberation(None).contract();
         assert_eq!(c.citation.as_str(), "Délibération SAN-2026-002 du 8 janvier 2026");
+    }
+
+    #[test]
+    fn deliberation_status_and_text_types() {
+        let mut d = deliberation(Some("SAN-2026-002"));
+        d.etat = LegalStatus::parse("VIGUEUR");
+        d.text =
+            LongText::from_html("<p>La formation restreinte</p><p>Après en avoir délibéré</p>")
+                .unwrap();
+        assert_eq!(
+            (
+                d.etat.as_ref().map(LegalStatus::as_api_code),
+                d.text.as_str(),
+                d.text.paragraphs().count(),
+            ),
+            (Some("VIGUEUR"), "La formation restreinte\n\nAprès en avoir délibéré", 2)
+        );
+        // Valeurs par défaut : état inconnu et texte vide, la citation ne change pas.
+        let empty = deliberation(Some("SAN-2026-002"));
+        assert_eq!((empty.etat, empty.text.is_empty()), (None, true));
+        assert_eq!(
+            d.contract().citation.as_str(),
+            "CNIL, délibération n° SAN-2026-002 du 8 janvier 2026"
+        );
     }
 }

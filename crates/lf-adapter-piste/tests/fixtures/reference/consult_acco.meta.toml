@@ -1,0 +1,7 @@
+source = "matematicsolutions/fr-eli-mcp@d3b5b13"
+endpoint = "/consult/acco"
+fond = "ACCO"
+sha256_raw = "acc7dad6c836bc43d77975a569012271b79234a9cc8f260ef3087b7a3728e474"
+known_issues = []
+env = "sandbox"
+captured_at = "inconnu"

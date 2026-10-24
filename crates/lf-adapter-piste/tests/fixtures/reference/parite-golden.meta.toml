@@ -1,0 +1,4 @@
+source = "docs/plan/annexes/donnees/parite-golden.json"
+sha256 = "1eb0b426d8fc74dbc47aa9308cc64b88dc4e7c9bcbed14ed34b869a84cff9f56"
+reference = "matematicsolutions/fr-eli-mcp@d3b5b13"
+license = "Apache-2.0 (référence) ; données Légifrance, Licence Ouverte 2.0"

@@ -1,7 +1,8 @@
 //! `CitationText` : citation lisible, sur une ligne et bornée (ADR-0009, décision C2).
 //!
 //! Règle nouvelle, absente de la référence, où `human_readable_citation` pouvait
-//! être `null` ou multiligne ; la coupe est reprise du `Snippet` (03 §7.3).
+//! être `null` ou multiligne ; la coupe est partagée avec le `Snippet` (03 §7.3), par
+//! `cut_at_word`, dont la borne est un paramètre.
 //! Invariants garantis par [`CitationText::new`] (03 §1.4) :
 //!
 //! - jamais vide ;
@@ -57,7 +58,7 @@ impl CitationText {
 
     fn normalized(raw: &str) -> Option<Self> {
         let text = fold_blanks(raw);
-        (!text.is_empty()).then(|| match cut_at_word(&text) {
+        (!text.is_empty()).then(|| match cut_at_word(&text, CITATION_MAX_CHARS) {
             Some(cut) => Self { text: cut, truncated: true },
             None => Self { text, truncated: false },
         })
@@ -103,9 +104,13 @@ fn fold_blanks(raw: &str) -> String {
     out
 }
 
-/// Texte coupé à la borne avec `…`, ou `None` s'il tient déjà.
-fn cut_at_word(text: &str) -> Option<String> {
-    let mut rest = text.char_indices().skip(CITATION_MAX_CHARS - 1);
+/// Texte coupé à `max_chars` caractères (`…` compris) en fin de mot, ou `None` s'il tient déjà.
+///
+/// Les `max_chars - 1` premiers caractères sont gardés, coupés à la dernière espace de leurs
+/// [`CUT_WINDOW_CHARS`] derniers, sinon coupe franche, puis `…` est ajouté. `max_chars` vaut au
+/// moins 1 : les appelants passent une constante.
+pub(crate) fn cut_at_word(text: &str, max_chars: usize) -> Option<String> {
+    let mut rest = text.char_indices().skip(max_chars - 1);
     let (head_end, _) = rest.next()?;
     rest.next()?;
     let head = &text[..head_end];
@@ -199,6 +204,20 @@ mod tests {
         let raw = format!("{} {} {}", run('a', 970), run('b', 10), run('c', 100));
         let expected = format!("{} {}…", run('a', 970), run('b', 10));
         assert_eq!(parts(&raw), Some((expected, true)));
+    }
+
+    #[test]
+    fn cut_at_word_respects_the_bound_it_is_given() {
+        // Borne 10 : 9 caractères gardés, coupés à la dernière espace, `…` compris dans 10.
+        assert_eq!(cut_at_word("aaaa bbbb cccc", 10), Some("aaaa…".to_owned()));
+        assert_eq!(cut_at_word("aaaaaaaaaaaa", 10), Some(format!("{}…", run('a', 9))));
+        assert_eq!(cut_at_word(&run('a', 10), 10), None);
+        assert_eq!(cut_at_word(&run('a', 11), 10), Some(format!("{}…", run('a', 9))));
+        // Borne 280 : 279 caractères gardés.
+        assert_eq!(cut_at_word(&run('é', 280), 280), None);
+        assert_eq!(cut_at_word(&run('é', 281), 280), Some(format!("{}…", run('é', 279))));
+        // Borne 1 : plus rien de gardé que `…`.
+        assert_eq!(cut_at_word("ab", 1), Some("…".to_owned()));
     }
 
     #[test]

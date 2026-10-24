@@ -12,6 +12,13 @@ libfuzzer-sys = "0.4.13"
 lf-domain = { path = "../crates/lf-domain" }
 
 [[bin]]
+name = "from_html"
+path = "fuzz_targets/from_html.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "ids"
 path = "fuzz_targets/ids.rs"
 test = false

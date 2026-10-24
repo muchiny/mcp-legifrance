@@ -1,120 +1,93 @@
-//! HTML Légifrance vers texte brut.
+//! HTML Légifrance vers texte des champs courts : titres, natures, numéros, extraits,
+//! entrées de sommaire (03 §7.3).
 //!
-//! Règle nouvelle, absente de la référence (qui ne retire que `<mark>`,
-//! citations.py:45-52). Balises relevées dans les fixtures de la référence
-//! (`tests/fixtures/`) : `<br>` (`search_juri.json`, `search_cetat.json`,
-//! `consult_juri.json`, `consult_juri_cetat.json`, `consult_juri_constit.json`),
-//! `<BR>` (`consult_juri_constit.json`), `<mark>` (`search_*.json`), `<p>`
-//! (`consult_cnil.json`), `<RECH>` (`consult_juri_constit.json`,
-//! `consult_juri_cetat.json`), `<a …>` (`consult_kali.json`). Aucune entité HTML
-//! (`&amp;`, `&#`, `&nbsp;`) dans aucune fixture ; les entités XML de base et
-//! numériques sont tout de même décodées (texte HTML).
+//! Balises relevées dans les fixtures de la référence
+//! (`crates/lf-adapter-piste/tests/fixtures/reference/`) : `<br>`
+//! (`search_juri.json`, `search_cetat.json`, `consult_juri.json`, `consult_juri_cetat.json`,
+//! `consult_juri_constit.json`), `<BR>` et `</BR>` (`consult_juri_constit.json`), `<mark>`
+//! (`search_*.json`), `<p>` (`consult_cnil.json`), `<RECH_ECLI>` (`consult_juri_constit.json`,
+//! `consult_juri_cetat.json`), `<a …>` (`consult_kali.json`). Aucune entité HTML (`&amp;`,
+//! `&#`, `&nbsp;`) dans aucune fixture ; elles sont tout de même décodées (V-94).
+//!
+//! Étapes, dans l'ordre, sur un texte déjà réparé du mojibake (03 §7.1) : balises par le lexer
+//! partagé (`text::html`), entités, caractères invisibles (retirés et comptés), blancs.
 
-/// Nettoie un fragment HTML : balises retirées, `<br>` → saut de ligne,
-/// `<p>` → paragraphe, entités décodées, espaces normalisés.
+use super::html::{self, Block, Event};
+
+/// Diagnostic d'un nettoyage, pour le compteur journalisé de l'adapter (03 §7.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CleanReport {
+    /// Caractères invisibles, de contrôle, bidirectionnels ou tags Unicode retirés, qu'ils
+    /// soient bruts ou décodés d'une entité numérique.
+    pub invisible_removed: u32,
+}
+
+/// Nettoie un fragment HTML : voir [`clean_with_report`], dont c'est le texte.
 pub fn clean(html: &str) -> String {
-    let mut out = String::with_capacity(html.len());
-    let mut rest = html;
-    while let Some(pos) = rest.find(['<', '&']) {
-        out.push_str(&rest[..pos]);
-        let tail = &rest[pos..];
-        let consumed = if tail.starts_with('<') {
-            tag(tail).map(|(name, closing, len)| {
-                out.push_str(tag_text(&name, closing));
-                len
-            })
-        } else {
-            entity(tail).map(|(ch, len)| {
-                out.push(ch);
-                len
-            })
-        };
-        let len = consumed.unwrap_or_else(|| {
-            out.push_str(&tail[..1]);
-            1
-        });
-        // Au moins un octet consommé par tour : la boucle termine toujours.
-        rest = &tail[len.max(1)..];
-    }
-    out.push_str(rest);
-    normalize_whitespace(&out)
+    clean_with_report(html).0
 }
 
-/// Balise en tête de `tail`.
+/// Nettoie un fragment HTML et compte les caractères invisibles retirés.
 ///
-/// Limites connues, figées par `known_tag_limits` : une seule passe, donc
-/// `clean` n'est pas idempotent (`<<b>b>` donne `<b>`) ; un `>` dans un
-/// attribut cité coupe la balise (`<a title="a>b">` s'arrête au `>` de
-/// l'attribut) ; les commentaires `<!-- … -->` restent littéraux (un nom de
-/// balise commence par une lettre). Les blocs (`li`, `div`, `td`…) sont
-/// effacés sans séparateur (hors périmètre).
+/// 1. Balises retirées (`text::html`, 03 §7.2) : `<br>` donne un saut de ligne, `<p>` et
+///    `</p>` un paragraphe (ligne vide), un autre bloc (`li`, `div`, `h1`…, `</br>`) termine
+///    la ligne en cours si elle a du texte, une cellule (`td`, `th`) donne une espace, une
+///    balise en ligne (`mark`, `a`, `sup`…) disparaît sans espace ; `RECH_*`, `script` et
+///    `style` partent avec leur contenu ; commentaires retirés. Le saut « souple » d'un bloc
+///    juge la ligne sur le texte **avant** décodage des entités : une ligne qui ne porte que
+///    `&nbsp;` compte comme du texte, puis devient blanche (`<li>a</li>&nbsp;<li>b</li>`
+///    donne `a\n\nb`).
+/// 2. Entités décodées, après les balises : `&lt;b&gt;` reste du texte.
+/// 3. Caractères invisibles retirés et comptés (`text::html` : contrôles, et tout point de code
+///    `Default_Ignorable_Code_Point`, dont bidi et sélecteurs de variante) ; VT, FF et NEL
+///    deviennent une espace (comptés aussi).
+/// 4. Blancs : espaces internes réduits à un (NBSP comprise), lignes rognées, au plus une
+///    ligne vide ; les sauts de ligne de la source restent des sauts de ligne.
 ///
-/// Résultat : (nom en minuscules, fermante, longueur avec `>`).
-fn tag(tail: &str) -> Option<(String, bool, usize)> {
-    // Premier `<` ou `>` après l'ouvrant : un `<` d'abord, et l'ouvrant est littéral.
-    // Un seul balayage, donc linéaire même sur « <<<<… ».
-    let end = 1 + tail[1..].find(['<', '>'])?;
-    if !tail[end..].starts_with('>') {
-        return None;
-    }
-    let inner = &tail[1..end];
-    let (closing, body) = inner.strip_prefix('/').map_or((false, inner), |b| (true, b));
-    let name: String = body
-        .chars()
-        .take_while(char::is_ascii_alphanumeric)
-        .map(|c| c.to_ascii_lowercase())
-        .collect();
-    let starts_with_letter = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic());
-    starts_with_letter.then_some((name, closing, end + 1))
+/// Non idempotent : une entrée qui contient `<` ou `&` peut donner une sortie qui en contient
+/// encore (`<<b>b>` donne `<b>`, `&amp;lt;` donne `&lt;`).
+pub fn clean_with_report(html: &str) -> (String, CleanReport) {
+    let mut raw = String::with_capacity(html.len());
+    // La ligne en cours de `raw` a-t-elle un caractère non blanc ?
+    let mut line_has_text = false;
+    html::scan(html, |event| match event {
+        Event::Text(text) => {
+            raw.push_str(text);
+            line_has_text = match text.rsplit_once('\n') {
+                Some((_, last_line)) => has_text(last_line),
+                None => line_has_text || has_text(text),
+            };
+        }
+        Event::Break(Block::Br) => {
+            raw.push('\n');
+            line_has_text = false;
+        }
+        Event::Break(Block::P) => {
+            raw.push_str("\n\n");
+            line_has_text = false;
+        }
+        Event::Break(Block::Other) => {
+            if line_has_text {
+                raw.push('\n');
+                line_has_text = false;
+            }
+        }
+        Event::Cell => raw.push(' '),
+    });
+    let decoded = html::decode_entities(&raw);
+    let (visible, invisible_removed) = html::strip_invisible(&decoded);
+    (normalize_whitespace(&visible), CleanReport { invisible_removed })
 }
 
-/// Texte de remplacement d'une balise reconnue : `<br>` donne un saut de ligne,
-/// `<p>` et `</p>` un paragraphe, toute autre balise (ouvrante ou fermante,
-/// `</br>` compris) est effacée sans séparateur.
-fn tag_text(name: &str, closing: bool) -> &'static str {
-    match (name, closing) {
-        ("br", false) => "\n",
-        ("p", _) => "\n\n",
-        _ => "",
-    }
+/// Champ court nettoyé ; absent, ou vide après nettoyage : `None` (le mapping ne produit
+/// jamais `Some("")`, 03 §4.0).
+pub fn clean_field(raw: Option<&str>) -> Option<String> {
+    raw.map(clean).filter(|text| !text.is_empty())
 }
 
-/// Entité en tête de `tail` : (caractère, longueur avec `;`).
-fn entity(tail: &str) -> Option<(char, usize)> {
-    // Fenêtre bornée en octets : `;` est ASCII, donc `end` est une frontière de caractère.
-    let end = tail.bytes().take(12).position(|b| b == b';')?;
-    let name = &tail[1..end];
-    let ch = match name {
-        "amp" => '&',
-        "lt" => '<',
-        "gt" => '>',
-        "quot" => '"',
-        "apos" => '\'',
-        "nbsp" => ' ',
-        _ => numeric(name)?,
-    };
-    Some((ch, end + 1))
-}
-
-/// Entité numérique `#…` (décimale) ou `#x…` (hexadécimale), sans signe.
-///
-/// Refuse les contrôles (hors tabulation, saut de ligne, retour chariot), les
-/// contrôles bidi et les tags Unicode : le texte décodé est destiné à un
-/// modèle, et une entité ne doit pas y fabriquer ce que la source n'a pas.
-fn numeric(name: &str) -> Option<char> {
-    let code = if let Some(hex) = name.strip_prefix("#x").or_else(|| name.strip_prefix("#X")) {
-        let digits = hex.bytes().all(|b| b.is_ascii_hexdigit()).then_some(hex)?;
-        u32::from_str_radix(digits, 16).ok()?
-    } else {
-        let digits = name.strip_prefix('#')?;
-        let digits = digits.bytes().all(|b| b.is_ascii_digit()).then_some(digits)?;
-        digits.parse().ok()?
-    };
-    let c = char::from_u32(code)?;
-    let control = c.is_control() && !matches!(c, '\t' | '\n' | '\r');
-    let bidi = matches!(c, '\u{61c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
-    let tag = matches!(c, '\u{e0000}'..='\u{e007f}');
-    (!control && !bidi && !tag).then_some(c)
+/// `s` a un caractère non blanc.
+fn has_text(s: &str) -> bool {
+    s.chars().any(|c| !c.is_whitespace())
 }
 
 /// Espaces internes réduits à un, lignes rognées, au plus une ligne vide.
@@ -144,8 +117,95 @@ fn normalize_whitespace(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::text::encoding::repair_latin1_mojibake;
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
+
+    /// Un seul caractère retiré.
+    const ONE: CleanReport = CleanReport { invisible_removed: 1 };
+
+    /// Plages retirées, écrites d'après 03 §7.3 indépendamment de `html::strip_invisible` :
+    /// contrôles C0 sauf `\t`, `\n`, `\r` ; U+007F et C1 ; puis les 17 plages de
+    /// `Default_Ignorable_Code_Point` (format, bidi, sélecteurs de variante, remplisseurs, tags).
+    /// Une table plutôt qu'un `matches!` : une sortie correcte n'en touche aucune alternative,
+    /// qui resterait une région jamais exécutée.
+    const SPEC_INVISIBLE: [(char, char); 21] = [
+        ('\u{0}', '\u{8}'),
+        ('\u{b}', '\u{c}'),
+        ('\u{e}', '\u{1f}'),
+        ('\u{7f}', '\u{9f}'),
+        ('\u{ad}', '\u{ad}'),
+        ('\u{34f}', '\u{34f}'),
+        ('\u{61c}', '\u{61c}'),
+        ('\u{115f}', '\u{1160}'),
+        ('\u{17b4}', '\u{17b5}'),
+        ('\u{180b}', '\u{180f}'),
+        ('\u{200b}', '\u{200f}'),
+        ('\u{202a}', '\u{202e}'),
+        ('\u{2060}', '\u{206f}'),
+        ('\u{3164}', '\u{3164}'),
+        ('\u{fe00}', '\u{fe0f}'),
+        ('\u{feff}', '\u{feff}'),
+        ('\u{ffa0}', '\u{ffa0}'),
+        ('\u{fff0}', '\u{fff8}'),
+        ('\u{1bca0}', '\u{1bca3}'),
+        ('\u{1d173}', '\u{1d17a}'),
+        ('\u{e0000}', '\u{e0fff}'),
+    ];
+
+    fn spec_invisible(c: char) -> bool {
+        SPEC_INVISIBLE.iter().any(|&(first, last)| (first..=last).contains(&c))
+    }
+
+    /// Fragments HTML hostiles : balises, guillemets, commentaires, entités, invisibles.
+    fn hostile() -> impl Strategy<Value = String> {
+        proptest::collection::vec(
+            prop_oneof![
+                "<",
+                ">",
+                "/",
+                "\"",
+                "'",
+                "=",
+                " ",
+                "\n",
+                "!--",
+                "-->",
+                "&",
+                "#",
+                "x",
+                ";",
+                "173",
+                "202E",
+                "E0041",
+                "br",
+                "p",
+                "li",
+                "td",
+                "script",
+                "RECH_E",
+                "a",
+                "é",
+                "\u{a0}",
+                "\u{200b}",
+                "\u{202e}",
+                "\u{e0041}",
+                "\u{34f}",
+                "\u{180e}",
+                "\u{2063}",
+                "\u{3164}",
+                "\u{fe0f}",
+                "\u{e0101}",
+                "FE0F",
+                "&shy;",
+                "&lrm;",
+                any::<char>().prop_map(String::from),
+                (0x80_u8..=0x9f).prop_map(|b| char::from(b).to_string()),
+            ],
+            0..40,
+        )
+        .prop_map(|parts| parts.concat())
+    }
 
     #[test]
     fn strips_search_marks() {
@@ -153,6 +213,12 @@ mod tests {
             clean("Loi pour une sécurité globale préservant les <mark>libertés</mark>  - réserve"),
             "Loi pour une sécurité globale préservant les libertés - réserve"
         );
+    }
+
+    #[test]
+    fn clean_strips_mark_tags() {
+        assert_eq!(clean("<mark>x</mark>"), "x");
+        assert_eq!(clean("a <MARK>libertés</MARK> b"), "a libertés b");
     }
 
     #[test]
@@ -185,6 +251,10 @@ mod tests {
     fn decodes_entities() {
         assert_eq!(clean("A &amp; B &lt;C&gt; &quot;d&quot; l&apos;e"), "A & B <C> \"d\" l'e");
         assert_eq!(clean("art.&nbsp;9 &#233;t&#xE9; &#XE9;"), "art. 9 été é");
+        assert_eq!(
+            clean("&laquo;&nbsp;Code&nbsp;&raquo; l&rsquo;art. &ndash; &oelig;"),
+            "« Code » l’art. – œ"
+        );
     }
 
     #[test]
@@ -202,38 +272,58 @@ mod tests {
     }
 
     #[test]
-    fn keeps_control_and_signed_numeric_refs_literal() {
-        // Une assertion par classe : contrôle C0, ESC en hexadécimal, contrôle bidi
-        // (RLO), tag Unicode, puis signes `+` acceptés à tort par `parse`.
+    fn signed_numeric_refs_stay_literal_and_controls_are_removed() {
+        // NUL et signes `+` (acceptés à tort par `parse`) : verbatim.
         assert_eq!(clean("a&#0;b"), "a&#0;b");
-        assert_eq!(clean("a&#x1b;b"), "a&#x1b;b");
-        assert_eq!(clean("a&#8238;b"), "a&#8238;b");
-        assert_eq!(clean("a&#xE0041;b"), "a&#xE0041;b");
         assert_eq!(clean("a&#+65;b"), "a&#+65;b");
         assert_eq!(clean("a&#x+41;b"), "a&#x+41;b");
-        // Exceptions : tabulation, saut de ligne et retour chariot sont décodés.
+        // Contrôle C0 (ESC), bidi (RLO), tag Unicode : décodés, puis retirés et comptés.
+        assert_eq!(clean_with_report("a&#x1b;b"), ("ab".to_owned(), ONE));
+        assert_eq!(clean_with_report("a&#8238;b"), ("ab".to_owned(), ONE));
+        assert_eq!(clean_with_report("a&#xE0041;b"), ("ab".to_owned(), ONE));
+        // Tabulation, saut de ligne et retour chariot : décodés et gardés.
         assert_eq!(clean("a&#10;b"), "a\nb");
         assert_eq!(clean("a&#9;b&#13;c"), "a b c");
     }
 
     #[test]
-    fn keeps_every_bidi_and_c1_control_ref_literal() {
-        for code in [0x7f_u32, 0x85, 0x9f, 0x61c, 0x200e, 0x200f, 0x202a, 0x202e, 0x2066, 0x2069] {
-            let reference = format!("&#{code};");
-            assert_eq!(clean(&reference), reference);
+    fn every_bidi_and_c1_control_ref_is_removed_and_counted() {
+        // C1 : seuls les cinq codes que Windows-1252 n'attribue pas restent des contrôles.
+        for code in
+            [0x7f_u32, 0x81, 0x8d, 0x8f, 0x90, 0x9d, 0x61c, 0x200e, 0x200f, 0x202a, 0x202e, 0x2066]
+        {
+            assert_eq!(clean_with_report(&format!("a&#{code};b")), ("ab".to_owned(), ONE));
         }
+        assert_eq!(clean_with_report("a&#x2069;b"), ("ab".to_owned(), ONE));
         for code in [0xE0000_u32, 0xE007F] {
-            let reference = format!("&#x{code:X};");
-            assert_eq!(clean(&reference), reference);
+            assert_eq!(clean_with_report(&format!("a&#x{code:X};b")), ("ab".to_owned(), ONE));
         }
-        // Bornes voisines : décodées.
+        // Bornes voisines : décodées et gardées.
         for (code, decoded) in
-            [(0x7e_u32, '~'), (0xa0, ' '), (0x61d, '\u{61d}'), (0x2065, '\u{2065}'), (0x202f, ' ')]
+            [(0x7e_u32, '~'), (0xa0, ' '), (0x61d, '\u{61d}'), (0x2070, '\u{2070}'), (0x202f, ' ')]
         {
             assert_eq!(clean(&format!("a&#{code};b")), format!("a{decoded}b"));
         }
         assert_eq!(clean("&#xDFFFF;"), "\u{dffff}");
-        assert_eq!(clean("&#xE0080;"), "\u{e0080}");
+        assert_eq!(clean("&#xE1000;"), "\u{e1000}");
+    }
+
+    #[test]
+    fn clean_removes_default_ignorable_chars() {
+        // Audit L-1 : six sélecteurs de variante après le texte visible portent une charge
+        // invisible (un octet par sélecteur) ; ils sont retirés et comptés, bruts ou décodés.
+        let smuggled: String =
+            "IGNORE".bytes().map(|b| char::from_u32(0xE0100 + u32::from(b)).unwrap()).collect();
+        assert_eq!(
+            clean_with_report(&format!("<p>Article 1x{smuggled}")),
+            ("Article 1x".to_owned(), CleanReport { invisible_removed: 6 })
+        );
+        for code in [
+            0x34f_u32, 0x115f, 0x17b4, 0x180e, 0x2061, 0x2065, 0x206f, 0x3164, 0xfe0f, 0xffa0,
+            0xfff0, 0x1bca0, 0x1d173, 0xe0100, 0xe0fff,
+        ] {
+            assert_eq!(clean_with_report(&format!("a&#x{code:X};b")), ("ab".to_owned(), ONE));
+        }
     }
 
     #[test]
@@ -246,10 +336,14 @@ mod tests {
     fn known_tag_limits() {
         // Une seule passe : la sortie peut contenir une balise (non idempotent).
         assert_eq!(clean("<<b>b>"), "<b>");
-        // Un `>` dans un attribut cité coupe la balise.
-        assert_eq!(clean("<a title=\"a>b\">t</a>"), "b\">t");
-        // Les commentaires restent littéraux.
-        assert_eq!(clean("a<!-- c -->b"), "a<!-- c -->b");
+        // Les guillemets d'un ouvrant littéral (un `<` avant le `>`) restent du texte.
+        assert_eq!(clean("<a t=\"<b>\" <i>x"), "<a t=\"<b>\" x");
+        // Entités décodées après le retrait des balises : une entité coupée par une balise en
+        // ligne est recollée (`&am` puis `p;`), sans pouvoir créer de balise.
+        assert_eq!(clean("&am<b></b>p;lt;b&gt;"), "&lt;b>");
+        // Le saut souple d'un bloc juge le texte avant décodage : `&nbsp;` seul fait une ligne,
+        // devenue blanche après décodage, donc une ligne vide.
+        assert_eq!(clean("<li>a</li>&nbsp;<li>b</li>"), "a\n\nb");
     }
 
     #[test]
@@ -258,6 +352,137 @@ mod tests {
         assert_eq!(clean("\u{a0}a\u{202f}:"), "a :");
         assert_eq!(clean(""), "");
         assert_eq!(clean("<br><p>"), "");
+    }
+
+    #[test]
+    fn clean_folds_whitespace_after_repair() {
+        // Réparer d'abord (03 §7.1) : la NBSP rendue par la réparation, mêlée d'espaces et
+        // de tabulations, devient une seule espace.
+        let repaired = repair_latin1_mojibake("a\u{c2}\u{a0} \t\u{c2}\u{a0}b");
+        assert_eq!(repaired, "a\u{a0} \t\u{a0}b");
+        assert_eq!(clean(&repaired), "a b");
+    }
+
+    #[test]
+    fn clean_removes_invisible_and_control_chars() {
+        assert_eq!(
+            clean_with_report("a\u{ad}b\u{200b}c\u{feff}d\u{7}e"),
+            ("abcde".to_owned(), CleanReport { invisible_removed: 4 })
+        );
+        assert_eq!(clean_with_report("abc"), ("abc".to_owned(), CleanReport::default()));
+    }
+
+    #[test]
+    fn clean_removes_bidi_controls() {
+        assert_eq!(clean_with_report("abc\u{202e}def"), ("abcdef".to_owned(), ONE));
+        for c in
+            ['\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}', '\u{2066}', '\u{2067}', '\u{2069}']
+        {
+            assert_eq!(clean_with_report(&format!("a{c}b")), ("ab".to_owned(), ONE), "{c:?}");
+        }
+    }
+
+    #[test]
+    fn clean_drops_rech_and_script_with_content() {
+        assert_eq!(clean("a<RECH_ECLI>ECLI:FR:CC:2025:2025.1173.QPC</RECH_ECLI>b"), "ab");
+        assert_eq!(clean("<script>x</script>y"), "y");
+        assert_eq!(clean("<style>p { color: red }</style>y"), "y");
+        assert_eq!(clean("<RECH_ECLI>texte sans fermante"), "texte sans fermante");
+    }
+
+    #[test]
+    fn clean_removes_comments() {
+        assert_eq!(clean("a<!-- b -->c"), "ac");
+        assert_eq!(clean("a<!-- b"), "a<!-- b");
+    }
+
+    #[test]
+    fn clean_keeps_gt_inside_quoted_attributes() {
+        assert_eq!(clean("<a title=\"a>b\">x</a>"), "x");
+        assert_eq!(clean("<a title='a>b'>x</a>"), "x");
+    }
+
+    #[test]
+    fn clean_unclosed_tag_at_end_is_removed() {
+        assert_eq!(clean("abc <a href=\"x"), "abc");
+    }
+
+    #[test]
+    fn clean_literal_less_than_is_text() {
+        assert_eq!(clean("a < b"), "a < b");
+        // Ouvrant sans `=` que rien ne ferme : littéral, la fin du texte n'est pas perdue.
+        assert_eq!(
+            clean("si x <y alors la peine est doublée"),
+            "si x <y alors la peine est doublée"
+        );
+    }
+
+    #[test]
+    fn clean_numeric_c1_references_follow_windows_1252() {
+        assert_eq!(clean("l&#146;art &#150; s&#156;ur v&#156;u"), "l’art – sœur vœu");
+        assert_eq!(clean("&#x92;&#128;"), "’€");
+        // Code non attribué : contrôle C1, retiré et compté.
+        assert_eq!(clean_with_report("a&#129;b"), ("ab".to_owned(), ONE));
+    }
+
+    #[test]
+    fn clean_blank_controls_become_a_space() {
+        // VT, FF, NEL : une espace (les mots restent séparés), comptée comme invisible.
+        assert_eq!(clean_with_report("a\u{c}b"), ("a b".to_owned(), ONE));
+        assert_eq!(
+            clean_with_report("a\u{b}b\u{85}c"),
+            ("a b c".to_owned(), CleanReport { invisible_removed: 2 })
+        );
+    }
+
+    #[test]
+    fn clean_block_tags_separate_lines() {
+        assert_eq!(clean("<li>a</li><li>b</li>"), "a\nb");
+        assert_eq!(clean("<h1>T</h1>texte<div>x</div>"), "T\ntexte\nx");
+        // Un bloc ne termine que la ligne qui a du texte : ni les blancs entre deux blocs,
+        // ni un bloc après un saut de ligne n'ajoutent de ligne vide.
+        assert_eq!(clean("<ul><li>a</li>\t <li>b</li></ul>"), "a\nb");
+        assert_eq!(clean("<li>a<i> </i></li><li>b</li>"), "a\nb");
+        assert_eq!(clean("<li>a\n</li><li>b</li>"), "a\nb");
+        assert_eq!(clean("a<br></div>b"), "a\nb");
+        assert_eq!(clean("a</p><div>b"), "a\n\nb");
+    }
+
+    #[test]
+    fn clean_cells_become_a_space() {
+        assert_eq!(clean("<td>a</td><td>b</td>"), "a b");
+        assert_eq!(clean("<tr><th>a</th><th>b</th></tr><tr><td>c</td></tr>"), "a b\nc");
+    }
+
+    #[test]
+    fn clean_numeric_entity_invisible_is_removed_and_counted() {
+        assert_eq!(
+            clean_with_report("a&#173;b&#x202E;c"),
+            ("abc".to_owned(), CleanReport { invisible_removed: 2 })
+        );
+        assert_eq!(
+            clean_with_report("&shy;x&lrm;"),
+            ("x".to_owned(), CleanReport { invisible_removed: 2 })
+        );
+    }
+
+    #[test]
+    fn clean_invalid_numeric_entity_is_kept() {
+        assert_eq!(clean("&#x110000; &#0; &#xD800;"), "&#x110000; &#0; &#xD800;");
+    }
+
+    #[test]
+    fn clean_field_blank_is_none() {
+        assert_eq!(clean_field(None), None);
+        assert_eq!(clean_field(Some("")), None);
+        assert_eq!(clean_field(Some(" <br> \u{200b}<!-- x -->")), None);
+        assert_eq!(clean_field(Some(" <b>Titre</b> ")), Some("Titre".to_owned()));
+    }
+
+    #[test]
+    fn inline_tags_do_not_add_space() {
+        assert_eq!(clean("1<sup>er</sup> janvier"), "1er janvier");
+        assert_eq!(clean("<span>a</span><font color=red>b</font><em>c</em>"), "abc");
     }
 
     proptest! {
@@ -290,6 +515,24 @@ mod tests {
         fn plain_text_is_unchanged(words in proptest::collection::vec("[a-zA-Zéèà0-9.,;:]{1,8}", 1..20)) {
             let text = words.join(" ");
             prop_assert_eq!(clean(&text), text);
+        }
+
+        #[test]
+        fn clean_never_panics(html in hostile()) {
+            let (out, report) = clean_with_report(&html);
+            prop_assert_eq!(clean(&html), out.clone());
+            prop_assert_eq!(out.trim(), out.as_str());
+            prop_assert!(!out.contains("\n\n\n"));
+            // Chaque caractère retiré vient d'un caractère de la source ou d'une entité.
+            let chars = html.chars().count();
+            prop_assert!(usize::try_from(report.invisible_removed).is_ok_and(|n| n <= chars));
+        }
+
+        #[test]
+        fn clean_output_has_no_invisible_chars(html in hostile()) {
+            // `\t` et `\r` sont repliés : seul `\n` reste parmi les contrôles.
+            let out = clean(&html);
+            prop_assert!(out.chars().all(|c| !spec_invisible(c) && c != '\t' && c != '\r'));
         }
     }
 }

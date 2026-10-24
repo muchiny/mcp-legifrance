@@ -15,9 +15,13 @@
 //! Newtypes du contrat v2 (ADR-0009, décision C2) : [`CitationText`] (citation
 //! sur une ligne, jamais vide, bornée), [`SourceUrl`] (page Légifrance
 //! construite depuis un identifiant typé) et [`Eli`] (ELI natif validé, jamais
-//! fabriqué).
+//! fabriqué). Deux identifiants de citation s'y ajoutent (plan 2e) : [`Nor`]
+//! (numéro NOR d'un texte, 12 caractères validés) et [`Idcc`] (numéro de
+//! convention collective, de 1 à 9999).
 
 mod eli;
+mod idcc;
+mod nor;
 mod rules;
 mod text;
 
@@ -25,7 +29,12 @@ use crate::ecli::Ecli;
 
 pub use crate::url::SourceUrl;
 pub use eli::{ELI_MAX_CHARS, Eli};
-pub use rules::{article_citation, cnil_citation, constit_citation, with_company};
+pub use idcc::Idcc;
+pub use nor::Nor;
+pub use rules::{
+    article_citation, article_citation_for, cnil_citation, constit_citation, with_company,
+};
+pub(crate) use text::cut_at_word;
 pub use text::{CITATION_MAX_CHARS, CitationText};
 
 /// Note ELI, déclarée une fois dans les instructions du serveur et dans

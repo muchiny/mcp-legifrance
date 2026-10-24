@@ -1,0 +1,7 @@
+source = "matematicsolutions/fr-eli-mcp@d3b5b13"
+endpoint = "/consult/juri"
+fond = "CETAT"
+sha256_raw = "e13c6874f62cd6ec364c0b9dc84c92fccf87f33d0d5794cfab727c02a8ed343c"
+known_issues = []
+env = "sandbox"
+captured_at = "inconnu"

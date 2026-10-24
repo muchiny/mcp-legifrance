@@ -24,14 +24,16 @@ mod article;
 mod decision;
 mod deliberation;
 mod search;
+mod summary;
 mod toc;
 
 pub use act::{Act, Convention, TextBody};
 pub use agreement::{ATTACHMENT_NOTE, CompanyAgreement};
-pub use article::ArticleText;
+pub use article::{ArticleText, ParentNature, ParentText};
 pub use decision::Decision;
 pub use deliberation::Deliberation;
-pub use search::{CodeArticleRef, SNIPPET_MAX_CHARS, SearchHit, SearchPage};
+pub use search::{CodeArticleRef, SNIPPET_MAX_CHARS, SearchHit, SearchPage, Snippet};
+pub use summary::OfficialSummary;
 pub use toc::{
     ArticleDraft, SectionDraft, TOC_MAX_DEPTH, Toc, TocArticle, TocDraft, TocEntry, TocEntryRef,
     TocNode, TocPage, TocSection,
@@ -43,7 +45,8 @@ mod tests {
     use crate::{
         contract::{Citable, CitationContract},
         fond::Fond,
-        id::{AccoTextId, AnyId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId},
+        id::{AccoTextId, ArticleId, CnilTextId, DecisionId, DocumentId, KaliTextId, LegiTextId},
+        text::LongText,
     };
     use pretty_assertions::assert_eq;
 
@@ -53,10 +56,13 @@ mod tests {
             num: None,
             etat: None,
             code_title: title.map(Into::into),
+            parent: None,
+            path: vec![],
             full_sections_titre: None,
             date_debut: None,
             date_fin: None,
-            text: None,
+            text: LongText::default(),
+            nota: None,
         }
     }
 
@@ -72,22 +78,16 @@ mod tests {
             date_texte: None,
             nature: None,
             title: title.map(Into::into),
-            text: None,
+            text: LongText::default(),
+            official_summary: OfficialSummary::default(),
         }
     }
 
     fn hit(fond: Fond, id: &str, cid: Option<&str>, title: Option<&str>) -> SearchHit {
         SearchHit {
-            fond,
-            id: AnyId::parse(id).unwrap(),
-            version_start: None,
-            cid: cid.map(|c| AnyId::parse(c).unwrap()),
+            cid: cid.map(|c| DocumentId::parse(c).unwrap()),
             title: title.map(Into::into),
-            nature: None,
-            etat: None,
-            idcc: None,
-            raison_sociale: None,
-            articles: vec![],
+            ..SearchHit::new(fond, DocumentId::parse(id).unwrap(), None).unwrap()
         }
     }
 
@@ -105,6 +105,10 @@ mod tests {
                 Convention {
                     text_id: KaliTextId::parse("KALITEXT000049878950").unwrap(),
                     body: body(),
+                    idcc: None,
+                    container_title: None,
+                    container_id: None,
+                    bulletin: None,
                 }
                 .contract(),
                 "KALITEXT000049878950",
@@ -125,7 +129,7 @@ mod tests {
                     date_publication: None,
                     title: title.map(Into::into),
                     title_long: None,
-                    text: None,
+                    text: LongText::default(),
                 }
                 .contract(),
                 "CNILTEXT000053352643",
