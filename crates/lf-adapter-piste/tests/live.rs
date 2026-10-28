@@ -306,8 +306,8 @@ mod live {
         /// sous la borne de corps de 16 Mio ; le Code du travail rend 31,4 Mio en 6 à 9 s, au-delà.
         /// Décision (option (b)) : `get_act` d'un texte trop gros rend une erreur claire qui oriente
         /// vers `get_article` et la recherche. Le Code civil passe donc la lecture brute (statut
-        /// 200, au plus 16 Mio et 10 s) ; le Code du travail, lu par le port, rend l'erreur
-        /// « trop volumineux » de `get_act`.
+        /// 200, au plus 16 Mio et 10 s) puis `get_act` (budget de décodage) ; le Code du travail,
+        /// lu par le port, rend l'erreur « trop volumineux » de `get_act`.
         #[tokio::test]
         #[ignore = "live: needs LF_PISTE_CLIENT_ID/SECRET"]
         async fn live_lawdecree_on_code_size() {
@@ -321,16 +321,28 @@ mod live {
             // `exchange` rend tout statut sans erreur : un refus (400, 401, 403, 500) a un petit
             // corps et répond vite, il passerait les seuils sans rien prouver de V-96.
             assert_eq!(reply.status, 200, "{civil}: HTTP status of /consult/lawDecree");
+            assert!(
+                reply.body.len() as u64 <= default_body(),
+                "{civil}: {} bytes exceed the body limit of {} bytes",
+                reply.body.len(),
+                default_body()
+            );
+            assert!(
+                reply.elapsed <= Duration::from_secs(10),
+                "{civil}: {} ms exceed 10 s",
+                reply.elapsed.as_millis()
+            );
+            // Le Code civil (6,2 Mio) passe aussi le budget de décodage et le mapping du port
+            // (attendu `Ok` : jamais lancé hors sandbox, le contrôleur le confirme).
+            let civil_id = LegiTextId::parse(civil).unwrap();
+            let version = VersionDate::parse(VERSION).unwrap();
             assert_eq!(
-                (
-                    reply.body.len() as u64 <= default_body(),
-                    reply.elapsed <= Duration::from_secs(10)
-                ),
-                (true, true)
+                corpus.get_act(&civil_id, version).await.map(drop),
+                Ok(()),
+                "{civil}: get_act of a 6.2 MiB code"
             );
             // Le Code du travail dépasse la borne : l'erreur du port est explicite et stable.
             let labor = LegiTextId::parse("LEGITEXT000006072050").unwrap();
-            let version = VersionDate::parse(VERSION).unwrap();
             let limit = default_body() >> 20;
             assert_eq!(
                 corpus.get_act(&labor, version).await.map(drop),
