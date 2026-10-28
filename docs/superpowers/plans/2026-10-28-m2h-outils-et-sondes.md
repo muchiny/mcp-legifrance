@@ -108,7 +108,7 @@
 | `src/integrity.rs` | fixtures enregistrées, exemption par clé | 6 |
 | `tests/live.rs`, `.github/workflows/live.yml` (créés), `.config/nextest.toml` | suite live | 7 |
 | `Makefile`, `.cargo/mutants.toml` | D2 | 1 |
-| `tests/fixtures/recorded/**` (créé, PR 2) | 106 enregistrements et sidecars | 10 |
+| `tests/fixtures/recorded/**` (créé, PR 2) | environ 104 enregistrements et sidecars (essai : 104) | 10 |
 | `src/classify.rs`, `src/error_body.rs`, `src/memo.rs`, `lf-domain/src/search.rs` | tâches conditionnelles C1 à C5 | 12, 15, 17, 18 |
 
 ## Découpage en PR
@@ -303,10 +303,11 @@ V-178 ; D11.
 - Create: `crates/lf-adapter-piste/tests/fixtures/recorded/**` ; `$WT/.superpowers/sdd/2026-10-28-m2h-outils-et-sondes/secret_count.py` (git-ignoré)
 - Modify: `crates/lf-adapter-piste/src/integrity.rs` (`RECORDED`)
 
-- [ ] **Step 1 : lot.** `set -a; . ~/.config/mcp-legifrance/piste.env; set +a; LF_PISTE_ENV=sandbox cargo xtask record-fixture --plan crates/lf-adapter-piste/tests/fixtures/plan.toml --env sandbox > /var/tmp/m2h-run.log` (un seul processus : un seul jeton). Attendu : environ 100 lignes `written`, durée < 3 min, aucune ligne `error:`.
-- [ ] **Step 2 : suite live.** Même chargement, `cargo nextest run -p lf-adapter-piste --test live --all-features --locked --profile live --run-ignored only --no-fail-fast --no-capture`. Attendu à l'essai : 7 verts, `live_unknown_ids_classification` rouge (ACCO, C1), `live_lawdecree_on_code_size` rouge (C2).
+- [ ] **Step 1 : lot.** En tête, sans identifiants : `cargo build --locked -p xtask && cargo build --locked -p lf-adapter-piste --example record_fixture --features record` (la compilation ne voit jamais `piste.env`). Puis `set -a; . ~/.config/mcp-legifrance/piste.env; set +a; LF_PISTE_ENV=sandbox cargo xtask record-fixture --plan crates/lf-adapter-piste/tests/fixtures/plan.toml --env sandbox > /var/tmp/m2h-run.log` (un seul processus : un seul jeton). Attendu : environ 100 lignes `written`, durée < 3 min, aucune ligne `error:`.
+- [ ] **Step 2 : suite live.** En tête, sans identifiants : `cargo nextest run -p lf-adapter-piste --test live --all-features --locked --profile live --no-run`. Puis, même chargement, `cargo nextest run -p lf-adapter-piste --test live --all-features --locked --profile live --run-ignored only --no-fail-fast --no-capture`. Attendu à l'essai : 7 verts, `live_unknown_ids_classification` rouge (ACCO, C1), `live_lawdecree_on_code_size` rouge (C2).
 - [ ] **Step 3 : comptage par valeur.** `secret_count.py` lit `LF_PISTE_CLIENT_ID` et `LF_PISTE_CLIENT_SECRET` dans l'environnement (chargé dans le même appel), compte sans les imprimer leurs occurrences et celles de `Bearer ` et `access_token` dans `tests/fixtures/recorded` et les journaux, n'affiche que des noms et des nombres, sort en 1 si un total est non nul. Attendu : 0 partout (essai : 232 fichiers, 0).
-- [ ] **Step 4 : sélection.** Retirer du répertoire les enregistrements de plus de 1 Mio (essai : les deux codes) après en avoir noté taille et durée au ledger ; relire **chaque** fichier restant (V-178 : données pseudonymisées de JURI, occultées de la CNIL, aucun nom de personne physique en clair hors décisions publiques ; `acco.data` caviardé). `RECORDED` = nombre de `.json` restants (essai : 106) ; `cargo nextest run -p lf-adapter-piste --lib -j 2 integrity` vert.
+- [ ] **Step 4 : sélection.** Retirer du répertoire les enregistrements de plus de 1 Mio (essai : les deux codes) après en avoir noté taille et durée au ledger ; retirer aussi les réponses non JSON (403 HTML de la passerelle, E8, famille `longueur/`) : le test d'intégrité les refuse (`not JSON`, échec fermé) ; leurs octets et en-têtes vont au ledger, C4 recopie le corps dans son test ; retirer aussi le `.meta.toml` d'un enregistrement retiré (sinon sidecar orphelin) ; relire **chaque** fichier restant (V-178 : données pseudonymisées de JURI, occultées de la CNIL, aucun nom de personne physique en clair hors décisions publiques ; `acco.data` caviardé). `RECORDED` = nombre de `.json` restants (essai : 104) ; `cargo nextest run -p lf-adapter-piste --lib -j 2 integrity` vert.
+- [ ] **Step 4 bis : contrôle des caviardages.** Avant la première fixture commitée, consigner au ledger le contrôle : chaque pointeur de `redactions` d'un sidecar se lit `<redacted: …>` dans le fichier correspondant.
 - [ ] **Step 5 : commit** `test(adapter): fixtures enregistrées en sandbox (lot du plan 2h), intégrité épinglée`.
 
 ### Task 11 : T-M2-14, « introuvable » (V-66, V-67, V-68)
