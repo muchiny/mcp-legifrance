@@ -6,7 +6,8 @@
 //! [`ports::AuditLog`] et [`ports::Clock`], l'entrée d'outil [`input::ToolCall`], les noms
 //! d'outils [`tools::ToolName`], les codes d'erreur [`error::ErrorCode`], les causes amont
 //! [`error::UpstreamCause`] et l'erreur d'application [`error::AppError`] ; le module
-//! [`messages`] rédige les textes d'erreur vus par le modèle ; le module `testing` (feature
+//! [`messages`] rédige les textes d'erreur vus par le modèle, et [`failure::port_failure`]
+//! journalise l'échec du port avant de lui déléguer le message ; le module `testing` (feature
 //! `test-support`) fournit les doublures `FakeCorpus`, `FixedClock`, `MemoryAuditLog` et
 //! `FailingAuditLog` ; le décorateur [`audited::Audited`] enveloppe chaque exécution d'outil
 //! (délai global, annulation, ligne d'audit). Les cas d'usage viennent au plan 3b.

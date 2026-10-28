@@ -536,7 +536,12 @@ mod tests {
         duration_ms: (u64, u64),
         /// Métrique de la sortie, ou code de l'erreur rendue.
         returned: Result<u64, Option<ErrorCode>>,
+        /// Cause amont de l'erreur rendue.
         cause: Option<UpstreamCause>,
+        /// Cause nommée par le span `tool_call` quand elle diffère de `cause` : en mode strict
+        /// avec un journal en échec, l'issue de `work` garde sa cause dans le span, l'erreur
+        /// rendue (`audit_error`) n'en a pas. `None` : la même que `cause`.
+        span_cause: Option<UpstreamCause>,
         /// Message de l'erreur rendue.
         message: Option<String>,
         port_calls: usize,
@@ -558,6 +563,7 @@ mod tests {
             duration_ms: (0, 0),
             returned: Ok(0),
             cause: None,
+            span_cause: None,
             message: None,
             port_calls: 1,
             write_failures: 0,
@@ -574,8 +580,9 @@ mod tests {
         case(name, Input::Decision(Ok(DECISION_ID)), answer, delay_ms)
     }
 
-    /// Les 15 issues de 06 §2.2, dans l'ordre (la ligne 4 a deux variantes de `what`), puis les
-    /// deux croisements de l'annulation (ligne 11) avec un journal en échec (lignes 13 et 15).
+    /// Les 15 issues de 06 §2.2, dans l'ordre (la ligne 4 a deux variantes de `what`, la ligne 14
+    /// une seconde variante sur erreur amont), puis les deux croisements de l'annulation (ligne
+    /// 11) avec un journal en échec (lignes 13 et 15).
     fn outcomes() -> Vec<Case> {
         let mut cases = entry_outcomes();
         cases.extend(port_outcomes());
@@ -717,6 +724,8 @@ mod tests {
     fn audit_outcomes() -> Vec<Case> {
         let withheld = |original| messages::audit(&write_error(), original).message().to_owned();
         let not_found = CorpusError::NotFound { what: "HTTP 404".to_owned() };
+        let unavailable =
+            CorpusError::Upstream { status: Some(503), retryable: true, detail: "HTTP 503".into() };
         vec![
             Case {
                 failing_log: true,
@@ -729,6 +738,13 @@ mod tests {
                 returned: Err(Some(ErrorCode::AuditError)),
                 message: Some(withheld(Some(ErrorCode::NotFound))),
                 ..get_decision_case("14 strict, original error", Err(not_found), None)
+            },
+            Case {
+                failing_log: true,
+                returned: Err(Some(ErrorCode::AuditError)),
+                span_cause: Some(UpstreamCause::Status(503)),
+                message: Some(withheld(Some(ErrorCode::UpstreamError))),
+                ..get_decision_case("14 strict, original upstream 503", Err(unavailable), None)
             },
             Case {
                 mode: AuditMode::BestEffort,
@@ -764,7 +780,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn audit_written_for_every_outcome() {
         let cases = outcomes();
-        assert_eq!(cases.len(), 18, "15 issues (la 4 en deux variantes) et 2 croisements");
+        assert_eq!(cases.len(), 19, "15 issues (la 4 et la 14 en deux variantes), 2 croisements");
         for case in cases {
             let name = case.name;
             let corpus =
@@ -812,10 +828,11 @@ mod tests {
                 "{name}"
             );
             assert_eq!(got.as_ref().err().and_then(AppError::cause), case.cause, "{name}");
-            // Le span `tool_call` nomme la cause amont (variante, sans `detail`), s'il y en a une.
+            // Le span `tool_call` nomme la cause amont de l'issue de `work` (variante, sans
+            // `detail`), s'il y en a une, même quand l'erreur rendue est `audit_error`.
             assert_eq!(
                 capture.span("tool_call").get("cause").cloned(),
-                case.cause.map(|cause| format!("{cause:?}")),
+                case.span_cause.or(case.cause).map(|cause| format!("{cause:?}")),
                 "{name}"
             );
             assert_eq!(

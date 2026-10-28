@@ -234,11 +234,14 @@ impl fmt::Display for RejectedEnv {
             Shown::Quoted(value) => {
                 write!(f, "LF_PISTE_ENV='{value}' is invalid: expected sandbox or production.")
             }
-            Shown::Hidden { chars } => write!(
-                f,
-                "LF_PISTE_ENV is invalid (value not shown, {chars} characters): expected sandbox \
-                 or production."
-            ),
+            Shown::Hidden { chars } => {
+                let unit = if *chars == 1 { "character" } else { "characters" };
+                write!(
+                    f,
+                    "LF_PISTE_ENV is invalid (value not shown, {chars} {unit}): expected sandbox \
+                     or production."
+                )
+            }
         }
     }
 }
@@ -1258,7 +1261,32 @@ mod tests {
         );
     }
 
-    /// Texte d'une valeur de `LF_PISTE_ENV` non citée, de `chars` caractères (M-1).
+    #[test]
+    fn a_hidden_env_value_counts_its_characters_in_correct_english() {
+        // Singulier pour un seul caractère, pluriel sinon, zéro compris (« 0 characters »).
+        for (value, expected) in [
+            (
+                "1",
+                "LF_PISTE_ENV is invalid (value not shown, 1 character): expected sandbox or \
+                 production.",
+            ),
+            (
+                "",
+                "LF_PISTE_ENV is invalid (value not shown, 0 characters): expected sandbox or \
+                 production.",
+            ),
+            (
+                "-1",
+                "LF_PISTE_ENV is invalid (value not shown, 2 characters): expected sandbox or \
+                 production.",
+            ),
+        ] {
+            assert_eq!(ConfigProblem::invalid_env(value).to_string(), expected, "{value:?}");
+        }
+    }
+
+    /// Texte d'une valeur de `LF_PISTE_ENV` non citée, de `chars` caractères (plusieurs, ou
+    /// aucun ; M-1).
     fn hidden_env(chars: usize) -> String {
         format!(
             "LF_PISTE_ENV is invalid (value not shown, {chars} characters): expected sandbox or \

@@ -1,9 +1,11 @@
 //! Échec du port, vu par l'opérateur puis par le modèle (I-1 de la revue finale du plan 3a).
 //!
 //! [`port_failure`] est le point d'entrée unique des cas d'usage (plan 3b) pour une
-//! [`CorpusError`] : il journalise le `detail` que le modèle ne lit jamais, puis délègue la
-//! rédaction du message à [`messages::corpus_error`], qui reste pur. Le module n'est pas pur
-//! (il émet un événement `tracing`), d'où sa place hors de `messages`.
+//! [`CorpusError`] : il journalise le `detail` de l'erreur (le modèle n'en lit que deux,
+//! coupés : celui d'`InvalidRequest` et celui d'un `Config { kind: Settings }`, 05 §7.2 ; tous
+//! les autres ne vont qu'au journal), puis délègue la rédaction du message à
+//! [`messages::corpus_error`], qui reste pur. Le module n'est pas pur (il émet un événement
+//! `tracing`), d'où sa place hors de `messages`.
 
 use crate::{error::AppError, messages, ports::CorpusError, tools::ToolName};
 

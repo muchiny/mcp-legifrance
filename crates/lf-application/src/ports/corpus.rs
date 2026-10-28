@@ -121,7 +121,10 @@ pub enum CorpusError {
     /// Ressource introuvable (classification de 04 §11.2).
     #[error("not found: {what}")]
     NotFound {
-        /// Ce qui manque, ex. l'identifiant.
+        /// Gabarit de l'endpoint qui n'a rien rendu (`/consult/juri`), jamais l'identifiant
+        /// demandé : `failure::port_failure` le journalise, et un identifiant est la valeur d'un
+        /// argument (02 §11.3). Le message `not_found` du modèle cite l'identifiant validé que
+        /// lui passe le cas d'usage, pas ce champ.
         what: String,
     },
     /// Requête refusée : `Some(400)` pour un 400 PISTE sans marqueur « introuvable » ;
@@ -273,10 +276,7 @@ mod tests {
     #[test]
     fn messages_carry_no_secret_and_name_the_failure() {
         let cases = [
-            (
-                CorpusError::NotFound { what: "JURITEXT000037999394".into() },
-                "not found: JURITEXT000037999394",
-            ),
+            (CorpusError::NotFound { what: "/consult/juri".into() }, "not found: /consult/juri"),
             (
                 CorpusError::InvalidRequest { status: Some(400), detail: "x".into() },
                 "request rejected by Legifrance",
