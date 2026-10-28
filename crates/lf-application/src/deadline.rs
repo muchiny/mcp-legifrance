@@ -29,8 +29,10 @@ pub struct Deadline(Instant);
 
 impl Deadline {
     /// Échéance située à `budget` d'ici. `LF_TOOL_DEADLINE_S` vaut au plus 600 s (borne de
-    /// `lf-app`), mais un budget démesuré ne panique pas : l'échéance sature à un instant
-    /// lointain, comme la garde de `tokio::time::timeout` qui l'accompagne (I-1).
+    /// `lf-app`), mais un budget démesuré ne panique pas : si `maintenant + budget` déborde
+    /// (`Duration::MAX` partout ; le seuil dépend de la plateforme, l'`Instant` de Windows allant
+    /// plus loin que celui de Linux), l'échéance sature à un instant lointain, comme la garde de
+    /// `tokio::time::timeout` qui l'accompagne (I-1).
     #[must_use]
     pub fn after(budget: Duration) -> Self {
         let now = Instant::now();
@@ -111,13 +113,21 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn an_oversized_budget_saturates_instead_of_panicking() {
-        // `Instant + Duration::MAX` déborderait : l'échéance retombe sur un instant lointain
-        // (environ 30 ans), comme la garde de `tokio::time::timeout`.
+        // `Instant + Duration::MAX` déborde sur toutes les plateformes : l'échéance retombe sur un
+        // instant lointain (environ 30 ans), comme la garde de `tokio::time::timeout`.
         let far = Duration::from_secs(86_400 * 365 * 30);
-        for budget in [Duration::MAX, Duration::from_secs(u64::MAX / 2)] {
-            let deadline = Deadline::after(budget);
-            assert_eq!(deadline.remaining(), far, "{budget:?}");
-            assert_eq!(deadline.scope(async { Deadline::current_or(DEFAULT) }).await, far);
+        let deadline = Deadline::after(Duration::MAX);
+        assert_eq!(deadline.remaining(), far);
+        assert_eq!(deadline.scope(async { Deadline::current_or(DEFAULT) }).await, far);
+        // `u64::MAX / 2` secondes déborde là où l'`Instant` tient des secondes signées sur 64 bits
+        // (Linux, macOS), pas sous Windows, où il tient une `Duration` : l'ajout y réussit. Seule
+        // la propriété commune est vérifiée : aucune panique, et le temps restant, lu directement
+        // ou par le `scope`, vaut le repli lointain ou le budget lui-même.
+        let budget = Duration::from_secs(u64::MAX / 2);
+        let deadline = Deadline::after(budget);
+        let published = deadline.scope(async { Deadline::current_or(DEFAULT) }).await;
+        for remaining in [deadline.remaining(), published] {
+            assert!([far, budget].contains(&remaining), "{remaining:?}");
         }
         // Un budget ordinaire n'est pas touché, même au-delà de la borne de 600 s de `lf-app`.
         assert_eq!(Deadline::after(secs(3_600)).remaining(), secs(3_600));
