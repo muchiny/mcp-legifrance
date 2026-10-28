@@ -77,7 +77,7 @@ Ces constats ont été faits pour ce document depuis le conteneur de développem
 | [R-03](#r-03--quotas-piste-inconnus) | Quotas PISTE inconnus | 3 | 2 | 6 | M2, M6, M7, M8 | V-62, V-63, V-64, Q4 |
 | [R-04](#r-04--écarts-et-disponibilité-sandbox--production) | Écarts et disponibilité sandbox / production | 3 | 2 | 6 | M2, v0.1.0 | V-59, V-61, Q3 |
 | [R-05](#r-05--origine-du-mojibake) | Origine du mojibake | 1 | 2 | 2 | M2 | V-71, V-72, V-73 |
-| [R-06](#r-06--comportement--introuvable--de-lapi) | Comportement « introuvable » de l'API | 3 | 3 | **9** | M2, M6 | V-66, V-67, V-68, V-134 |
+| [R-06](#r-06--comportement--introuvable--de-lapi) | Comportement « introuvable » de l'API | 2 | 3 | 6 | M2, M6 | V-66, V-67, V-68, V-134 |
 | [R-07](#r-07--cgu-piste-et-mode-http-partagé) | CGU PISTE et mode HTTP partagé | 2 | 4 | 8 | M8 | V-175, V-176, Q4 |
 | [R-08](#r-08--smart-app-control-gatekeeper-et-signature) | Smart App Control, Gatekeeper et signature | 3 | 3 | **9** | Distribution (v0.1.0) | V-173, V-174, Q5 |
 | [R-09](#r-09--tls-aws-lc-en-compilation-croisée) | TLS aws-lc en compilation croisée | 2 | 2 | 4 | M2 (tête), Distribution | V-02, V-25 |
@@ -100,7 +100,7 @@ Ces constats ont été faits pour ce document depuis le conteneur de développem
 | [R-26](#r-26--contamination-de-licence) | Contamination de licence | 1 | 3 | 3 | M0, M6 | Q2, V-25, V-177 |
 | [R-27](#r-27--évolution-de-la-spécification-mcp) | Évolution de la spécification MCP | 2 | 2 | 4 | après v0.3.0 | Q7 |
 | [R-28](#r-28--format-strict-des-identifiants) | Format strict des identifiants | 1 | 3 | 3 | M2 | V-103, V-104 |
-| [R-29](#r-29--réponses-volumineuses-et-mémoire) | Réponses volumineuses et mémoire | 2 | 2 | 4 | M2, M5, M7 | V-75, V-96, V-18 |
+| [R-29](#r-29--réponses-volumineuses-et-mémoire) | Réponses volumineuses et mémoire | 3 | 2 | 6 | M2, M5, M7 | V-75, V-96, V-18 |
 | [R-30](#r-30--nom-du-produit--marque--légifrance--et-homonymie) | Nom du produit : marque « Légifrance » et homonymie | 2 | 2 | 4 | Distribution | V-215 (Q1 décidée) |
 
 ```mermaid
@@ -113,7 +113,7 @@ quadrantChart
     quadrant-3 Surveiller
     quadrant-4 Mesure planifiée
     R-13: [0.5, 0.66]
-    R-06: [0.85, 0.7]
+    R-06: [0.56, 0.74]
     R-08: [0.8, 0.72]
     R-16: [0.88, 0.68]
     R-07: [0.5, 0.92]
@@ -132,10 +132,11 @@ quadrantChart
     R-26: [0.2, 0.66]
     R-28: [0.18, 0.7]
     R-05: [0.18, 0.4]
+    R-29: [0.84, 0.36]
     R-20: [0.22, 0.38]
 ```
 
-Les positions reprennent les notes du tableau, légèrement décalées pour rester lisibles. R-13 est réduit depuis le 2026-10-16 (fiche R-13). Les risques notés 2 × 2 (R-09, R-11, R-12, R-21, R-22, R-25, R-27, R-29, R-30) sont omis du graphique.
+Les positions reprennent les notes du tableau, légèrement décalées pour rester lisibles. R-13 est réduit depuis le 2026-10-16 (fiche R-13). R-06 (3 × 3 à 2 × 3) et R-29 (2 × 2 à 3 × 2) ont été réévalués le 2026-10-28 (T-M2-23, fiches R-06 et R-29). Les risques notés 2 × 2 (R-09, R-11, R-12, R-21, R-22, R-25, R-27, R-30) sont omis du graphique.
 
 ### 1.2 Fiches
 
@@ -165,6 +166,7 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 - **Probabilité : 3.** Valeurs inconnues ; un client tiers rapporte des 401 transitoires sous limitation (V-64).
 - **Impact : 2.** En stdio : `[rate_limited]` et des réponses partielles ; en M8, un utilisateur peut épuiser le quota des autres (impact 3 dans ce profil).
 - **Réduction.** Limiteur `governor` global au processus, consulté par `check()` avant chaque tentative et jamais par `until_ready` (5 req/s, rafale 10 par défaut, `LF_PISTE_RPS`, `LF_PISTE_BURST`) et concurrence plafonnée à 4 (`LF_PISTE_CONCURRENCY` ; 00 §1, §8 ; 04 §5.4-§5.5) ; 2 tentatives au plus sur un 500 présumé déterministe (00 §8) ; cache mémoire et coalescence des requêtes identiques (00 §9) ; `Retry-After` attendu jusqu'à 30 s dans le délai global, refus d'attendre au-delà (échec immédiat, valeur propagée écrêtée à 1 h ; 04 §5.2) ; aucun test de charge ; bornes `max_citations` et `per_fond` (00 §7) ; en M8, équité par session à concevoir (recherche 05 §4.3 point 3).
+- **Réévaluation du 2026-10-28 (T-M2-23, sandbox) : P 3 × I 2 = 6, inchangé.** Les valeurs des quotas ne se lisent pas dans les réponses (V-62 reste ouverte : seul le propriétaire du compte les lit dans la console PISTE). La campagne n'a jamais approché de limite : aucun 429 et aucun 401 dans les 104 réponses du lot ni dans les 9 tests live (V-63 et V-64 restent en observation continue ; la forme de `Retry-After` n'est pas observée). L'absence de 429 ne prouve pas un quota large : la campagne était courte (suite live de 63 s) et sous le limiteur de 5 req/s.
 - **Signal d'alerte.** Lignes d'audit `error_code = rate_limited` ; `warn` 429 ou 503 dans `live.yml` ; courriel de la DILA sur un changement de quota ; série de `401 invalid_client` avec des jetons récents.
 - **Jalons.** M2 (calibrage d'après la console), M6, M7, M8.
 - **Liens.** V-62, V-63, V-64 ; Q4 ; D-13.
@@ -175,6 +177,7 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 - **Probabilité : 3.** L'écart est documenté par la DILA ; seule son ampleur est inconnue.
 - **Impact : 2.** Fixtures et tests live peu représentatifs ; production non testée au moment de la livraison ; tests live rouges sans changement de code.
 - **Réduction.** `LF_PISTE_ENV` (défaut `sandbox`) affiché dans `fr_coverage`, rappelé au démarrage et écrit dans chaque ligne d'audit (00 §1, §7) ; lacune FR-101 ; contrôle `EnvMismatch` des URL, sans déduction implicite de l'environnement (00 §1, 04 §2.3) ; cache cloisonné par environnement (00 §9) ; environnement noté dans les métadonnées des fixtures (`env = production` pour les fixtures de données publiques enregistrées en production, 00 §10, 04 §13.4) ; `live_oauth_production_endpoints` avant v0.1.0, lancé à la main par le mainteneur (Q3, 06 §5.2) ; en sandbox, `fr_verify_citations` rend `unresolvable` plutôt que `not_found` (00 §7) ; tests live jamais bloquants pour une PR (06 §5.1).
+- **Réévaluation du 2026-10-28 (T-M2-23, sandbox) : P 3 × I 2 = 6, inchangé.** Les 100 réponses enregistrées en sandbox couvrent les 8 fonds de la v0.1 (la version du Swagger servi n'est pas observée, V-74 reste ouverte), mais la production n'a jamais été sondée (V-59, V-61 non faites, Q3 : sondes manuelles avant v0.1.0) : l'ampleur de l'écart de données reste inconnue. La sandbox a montré deux comportements propres à elle ou à la passerelle (403 JSON pour une route inconnue, deux 503 du moteur de recherche hors fenêtre) qui ont été traités par C1 à C5, pas par un changement de modèle.
 - **Signal d'alerte.** Test live vert en sandbox mais divergent en production ; `invalid_client` ; plusieurs exécutions de `live.yml` rouges d'affilée.
 - **Jalons.** M2, recette v0.1.0.
 - **Liens.** V-59, V-60, V-61 ; Q3 ; D-18.
@@ -185,6 +188,7 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 - **Probabilité : 1.** Indices concordants en faveur de la capture.
 - **Impact : 2.** Texte officiel restitué avec des caractères altérés ; la réparation sur des données saines est l'identité (04 §10.3).
 - **Réduction.** Réparation active par défaut, comptée, journalisée en `warn` et désactivable par `LF_PISTE_MOJIBAKE_REPAIR=off` (00 §1, §8 ; 04 §10.5) ; jamais appliquée par défaut au texte de l'utilisateur (00 §8) ; proptest d'identité sur toute chaîne saine ; `live_no_mojibake_on_reference_ids` en M2 ; fixtures remplacées par des captures saines si l'API est hors de cause (D-35).
+- **Réévaluation du 2026-10-28 (T-M2-23, sandbox) : P 1 × I 2 = 2, inchangé ; hypothèse confirmée.** Les six requêtes sur les identifiants des fixtures corrompues reviennent en UTF-8 propre (V-72, `live_no_mojibake_on_reference_ids` vert) ; aucun motif CP1252 (V-73) ni échappement `\uXXXX` (V-71) dans les 100 réponses enregistrées. L'origine est la capture de la référence, non PISTE. Le détecteur s'est déclenché 6 fois sur le lot, toujours à tort (espace insécable après `é` ou `à`, contrôles C1 hérités du texte officiel). La production n'est pas essayée ; la réparation reste active par défaut (elle est l'identité sur des données saines). Les 6 fixtures corrompues de la référence sont à remplacer par des captures saines (D-35).
 - **Signal d'alerte.** Compteur `mojibake_repairs` ou `mojibake_unrepaired` supérieur à 0 en live ; signalement de caractères altérés.
 - **Jalons.** M2.
 - **Liens.** V-71, V-72, V-73 ; D-35.
@@ -195,6 +199,7 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 - **Probabilité : 3.** Comportement inconnu sur la plupart des endpoints.
 - **Impact : 3.** Un `not_found` à tort fait conclure au modèle qu'un texte n'existe pas ; un `upstream_error` à tort masque une citation inventée. C'est le cœur de la promesse anti-hallucination (M6).
 - **Réduction.** Classification provisoire de 04 §11.2 : jamais `NotFound` sur `/search` ni sur l'endpoint token (une erreur OAuth donne `config_error`, 00 §5) ; un 404 n'est `NotFound` que sur une consultation officielle à corps non HTML ; un 500 n'est jamais `NotFound`, et n'est tenté que deux fois (00 §8) ; un 400 sans marqueur « introuvable » donne `upstream_error` (détail PISTE nettoyé pour une consultation, générique `HTTP 400 on /search` pour `/search`, R6 ; 00 §5). Sonde `live_unknown_ids_classification` en M2, puis mêmes sondes en M6 et M7. Les instructions rappellent que l'absence ici n'est pas l'absence dans le droit ; `fr_verify_citations` rend `unresolvable` tant que la couverture d'une famille n'est pas prouvée (annexe B §7.2).
+- **Réévaluation du 2026-10-28 (T-M2-23, sandbox) : P 3 → 2, I 3, score 9 → 6.** La table « introuvable » de 04 §11 est définitive pour les endpoints de la v0.1 (V-66, V-67, V-68 levées) : aucun 404 n'existe en sandbox (identifiant inexistant : 400 « valider est fausse », 200 `null` ou enveloppe vide ; route inconnue : 403 JSON de la passerelle) ; la sandbox a pourtant pris l'hypothèse en défaut sur `/consult/acco` (400 « Le nombre de résultat retourné par le moteur de recherche n'est pas égal à 1 », corrigé par C1) et un 403 HTML de la passerelle n'est pas un défaut d'accès (C4). La probabilité baisse sans disparaître : M6, M7, `KALIARTI` sur `getArticle` et la production ne sont pas sondés, et le même 400 « valider est fausse » répond aussi à un texte existant daté hors de ses versions (V-89).
 - **Signal d'alerte.** `not_found` sur un identifiant issu d'un `fr_search` ; hausse des `upstream_error` en 400 ou 404.
 - **Jalons.** M2 (règle définitive), M6.
 - **Liens.** V-66, V-67, V-68, V-69, V-134 ; D-10.
@@ -275,6 +280,7 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 - **Probabilité : 2.**
 - **Impact : 3.** Plus aucune vérification live ; risque de suspension en cas de fuite.
 - **Réduction.** Q3, adoptée par défaut (00 §10, §13, AM-40) : sandbox par défaut ; en production, seulement des sondes en lecture seule lancées à la main par le mainteneur avant chaque étiquette (au plus 1 requête/s) et des fixtures de données publiques marquées `env = production` ; jamais d'identifiants de production en CI ; applications sandbox et production distinctes ; secrets sandbox dans l'environnement GitHub protégé `piste-sandbox`, jamais exposés aux PR venant d'un fork (06 §7.5) ; aucune valeur d'identifiant dans un fichier, un journal ou une fixture (04 §13.4) ; procédure de rotation et de compromission écrite dans `SECURITY.md` (06 §10.3) ; la CI ordinaire n'a besoin d'aucun identifiant.
+- **Réévaluation du 2026-10-28 (T-M2-23) : P 2 × I 3 = 6, inchangé.** La campagne a tourné sur le compte sandbox du propriétaire sans qu'aucun identifiant n'entre dans un fichier, un journal ou une fixture (comptage par valeur : 0 dans les fixtures, les documents et les journaux). Chaque utilisateur du serveur utilise ses propres identifiants (variables d'environnement, jamais d'identifiants partagés) ; `live.yml` ne teste rien sans les secrets de l'environnement `piste-sandbox`, qui ne sont pas créés à ce jour : il reste vert sans rien vérifier.
 - **Signal d'alerte.** `live.yml` en `invalid_client` ; abonnement expiré ; changement de mainteneur.
 - **Jalons.** M2, puis en continu.
 - **Liens.** Q3 ; V-60.
@@ -305,6 +311,7 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 - **Probabilité : 1.** La règle de midi couvre les trois lectures plausibles ; **confirmée en sandbox le 2026-10-28** (V-76 levée : midi Paris rend la version de D, minuit Paris la précédente, §2.20) ; la production n'est pas essayée.
 - **Impact : 3.** Le jour d'une entrée en vigueur, la recherche rendrait l'ancienne version : réponse juridiquement fausse sur l'état du droit.
 - **Réduction.** Midi Europe/Paris (00 §8) ; sonde `live_singledate_noon_paris_semantics` en M2 (V-76, comparée à minuit UTC, à minuit Paris et à la veille, 04 §13.5) ; vecteurs de test de 00 §8 et de 04 §6.3 ; la clé de cache repose sur `VersionDate`, pas sur l'instant envoyé (00 §7, §9).
+- **Réévaluation du 2026-10-28 (T-M2-23, sandbox) : P 1 × I 3 = 3, inchangé ; V-76 n'est plus bloquante.** `live_singledate_noon_paris_semantics` est vert : midi Paris retient la version qui commence le jour D, minuit Paris celle d'avant, ce qui confirme la règle de 00 §8 et explique le choix. La production n'est pas essayée.
 - **Signal d'alerte.** Sonde rouge ; écart entre `fr_search` et la page Légifrance un jour de changement de version.
 - **Jalons.** M2.
 - **Liens.** V-76, V-100, V-77, V-17.
@@ -431,6 +438,7 @@ Les positions reprennent les notes du tableau, légèrement décalées pour rest
 - **Réduction.** Lecture du corps en flux, bornée à 16 Mio après décompression (00 §8) ; `/consult/legi/tableMatieres` pour `get_act` sur un code dès v0.1 si V-96, bloquante en M2, montre que `lawDecree` sur un code dépasse 4 Mio ou 10 s (00 §8) ; pagination de la TOC (`toc_offset`/`toc_limit`) ; plafond dur de 45 000 caractères par réponse (00 §7) ; cache pondéré en octets ; mesures V-75 et V-18.
 - **Amplification à la désérialisation (audit de sécurité de la PR 2, M1, gravité Medium, latente : rien n'est branché avant le plan 2g).** Un corps de 16 Mio de `{"results":[{},{},…]}` donne 2,1 Gio résidents, 3,2 Gio réservés et 1,8 s de décodage synchrone (×136 résident, ×204 réservé) ; le permis de concurrence est rendu avant le décodage et ne le borne pas (4 appels ≈ 8,5 Gio, 8 appels ≈ 17 Gio : la VM WSL de 24 Go est tuée). Source : un hôte en amont hostile ou défaillant (`CustomHost`, proxy interceptant TLS). Réduction décidée (R11) : budget global de 200 000 éléments par document, compteur armé par `decode` ; `results` ≤ 100 puis ≤ `page_size` au mapping ; plafond de corps par endpoint à étudier. **Critère d'acceptation de 07 T-M2-09 : à faire avant le branchement du décodage des DTO** (04 §8.5, limite 1).
 - **Amplification du lexer HTML et de `LongText` (audit de sécurité du plan 2e, M-1 et M-2, gravité Medium, latentes : aucun mapper ne les appelle avant les plans 2f et 2g). Corrigées par la vague de fin du plan 2e.** M-1 : le tampon d'événements du lexer montait à 25 fois l'entrée (`<script>` suivi de `<` répétés, 400 Mio pour 16 Mio) ; le lexer lit désormais l'entrée deux fois (table des dernières fermantes, au plus 256 noms) et ne retient aucun événement : 64 Mio (×4,0) pour `clean` sur la même entrée. M-2 : la structure des paragraphes (`Vec<String>`, mots collectés, table non bornée) montait à ×22,7 (`from_html` sur `a<p>` × 16 Mio) et ×46,5 (`from_plain` sur `a\n` × 10 Mio) en mémoire résidente ; `LongText` se construit désormais en flux, abandonne le texte dès le dépassement de 16 000 000 caractères, borne la table à `MAX_PARAGRAPHS` = 100 000 (la suite rejoint le dernier paragraphe, sans perte) et expose `heap_bytes()` pour le `weigher` du cache : ×1,1 et ×2,1 en mémoire résidente, rétention ×0,58 et ×1,12 (sonde hors arbre, release, rapport de la vague de fin). Reste à la charge de l'appelant : le temps de calcul synchrone (0,5 à 0,7 s pour 16 Mio hostiles, à budgéter ou à exécuter dans `spawn_blocking`, comme le décodage des DTO).
+- **Réévaluation du 2026-10-28 (T-M2-23, sandbox) : P 2 → 3, I 2, score 4 → 6.** Le risque s'est réalisé : `/consult/lawDecree` du Code du travail pèse 31,4 Mio (9,2 s au test live) et sa table des matières `/consult/legi/tableMatieres` 18,4 Mio, tous deux au-dessus de la borne de 16 Mio ; le Code civil passe (6,2 Mio et 2,7 Mio). La réduction « `tableMatieres` pour `get_act` sur un code dès v0.1 » ne tient donc pas (V-96, décision C2 option (b)) : `get_act` d'un texte trop gros rend une erreur claire qui oriente vers `get_article` ou la recherche (plan 2h, tâche C2) ; l'impact reste 2 parce que l'échec est net et borné, sans consommation de mémoire. Reste à décider en M3 le typage de cette erreur (`CorpusError::TooLarge`) et, en M5, la borne ou la pagination de la table des matières (V-75, partielle). Les autres tailles mesurées sont modestes (accord d'entreprise 0,9 Mio, convention KALI 0,8 Mio, recherche à 100 résultats 0,5 Mio).
 - **Signal d'alerte.** `Decode` de taille ; mémoire résidente au-delà des cibles de 06 §12.1 ; un décodage qui dépasse 100 ms.
 - **Jalons.** M2, M5, M7.
 - **Liens.** V-75, V-96, V-18 ; D-41, D-47 ; audit de sécurité de la PR 2 (M1) ; audit de sécurité du plan 2e (M-1, M-2).
@@ -1639,10 +1647,10 @@ Le plan avance sur ces hypothèses tant que les vérifications ou les questions 
 
 **M2 — Adapter PISTE**
 
-- [ ] Q3 (sandbox) a une réponse ; les campagnes de M2 du §2.18 ont tourné au moins une fois en sandbox, et le registre de 06 §5.4 est rempli.
-- [ ] V-66, V-68, V-76 et V-96 sont levées (bloquantes) ; la table « introuvable » de 04 §11 est définitive, la règle `singleDate` (midi Europe/Paris) confirmée et le choix `lawDecree` ou `tableMatieres` pour les codes arrêté (00 §8).
-- [ ] V-17 est traitée (vecteurs de 00 §8 et de 04 §6.3 : *vecteurs faits, plan 2d*) ; V-69 et V-79 ont tourné (réessais sur 500, base de Q10).
-- [ ] R-03, R-04, R-05, R-06, R-14, R-17 et R-29 sont réévalués à la lumière des résultats.
+- [x] Q3 (sandbox) a une réponse ; les campagnes de M2 du §2.18 ont tourné au moins une fois en sandbox, et le registre de 06 §5.4 est rempli. *Fait le 2026-10-28 (plan 2h, PR 2) : 104 sondes, 100 fixtures enregistrées, 9 tests live verts ; la production reste à sonder avant v0.1.0 (Q3).*
+- [x] V-66, V-68, V-76 et V-96 sont levées (bloquantes) ; la table « introuvable » de 04 §11 est définitive, la règle `singleDate` (midi Europe/Paris) confirmée et le choix `lawDecree` ou `tableMatieres` pour les codes arrêté (00 §8). *Fait le 2026-10-28 : V-68 pour les endpoints de la v0.1 (M6 et M7 à sonder), `lawDecree` gardé et `get_act` refuse un texte trop gros (C2, option (b)).*
+- [x] V-17 est traitée (vecteurs de 00 §8 et de 04 §6.3 : *vecteurs faits, plan 2d*) ; V-69 et V-79 ont tourné (réessais sur 500, base de Q10). *V-69 levée (2 tentatives sur 500 confirmées) ; V-79 partielle (ordre `any` ≥ `all` ≥ `exact` confirmé, sémantique de `all` à finir pour T-M4-10).*
+- [x] R-03, R-04, R-05, R-06, R-14, R-17 et R-29 sont réévalués à la lumière des résultats. *Fait le 2026-10-28 (T-M2-23) : R-06 passe de 9 à 6 et R-29 de 4 à 6 ; les cinq autres sont inchangés (fiches de §1.2).*
 - [ ] Tâches de tête de M2 (00 §11.1) faites par les plans 2a et 2c sauf la matrice TLS (V-02 partielle) : contrat de citation v2 (C2), TOC en arbre et `TocArticle` (C4), `parse_versioned` (C4), toolchain 1.99.0 épinglée (C5), lints `panic`, `unreachable` et `unimplemented` (C7), `text::encoding` (réparation du mojibake), test du vecteur 1804-03-21 (C3) ; spikes proxy, `backon` (écarté), `governor` et licences (V-03, V-06, V-07, V-25 levées).
 - [x] `PisteEnvironment`, l'adapter jusqu'à `PisteCorpus`, `check-arch` R6 et R8, licences exactes et `fuzz/` sous cargo-deny (M1-D16, M1-D17) : livrés par le plan 2c.
 - [x] `SearchQuery` et ses types, `lf-application` (`LegalCorpus`, `CorpusError`, `Deadline`) et les extensions de `check-arch` (R2 fermée, 5e, fermeture transitive, R9) : livrés par le plan 2b (M1-D10).
