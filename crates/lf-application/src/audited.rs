@@ -340,13 +340,12 @@ mod tests {
         input::{InputError, ToolCall},
         messages::clip,
         ports::{AuditError, AuditErrorKind, AuthOrigin, ConfigKind, CorpusError, LegalCorpus},
-        testing::{FailingAuditLog, FakeCorpus, MemoryAuditLog, NO_DEADLINE},
+        testing::{FailingAuditLog, FakeCorpus, MemoryAuditLog, NO_DEADLINE, fixtures::query},
     };
     use lf_domain::{
         entity::{Decision, OfficialSummary, SearchPage},
         fond::{Fond, PaginationMode},
         id::DecisionId,
-        search::{MatchMode, PageSize, QueryText, SearchQuery},
         text::LongText,
     };
     use pretty_assertions::assert_eq;
@@ -354,7 +353,6 @@ mod tests {
         collections::BTreeMap,
         future::{pending, ready},
         hint::black_box,
-        num::NonZeroU32,
         pin::pin,
         sync::Arc,
     };
@@ -432,19 +430,6 @@ mod tests {
     /// Caractères renvoyés par `fr_get_decision` pour [`decision`] (métrique de 00 §7).
     fn decision_chars() -> u64 {
         u64::from(decision().text.char_len())
-    }
-
-    fn query() -> SearchQuery {
-        SearchQuery::new(
-            Fond::Juri,
-            QueryText::parse("bail").unwrap(),
-            NonZeroU32::MIN,
-            PageSize::default(),
-            MatchMode::default(),
-            None,
-            None,
-        )
-        .unwrap()
     }
 
     fn empty_page() -> SearchPage {
@@ -911,14 +896,14 @@ mod tests {
             sleep(secs(3)).await;
             let first = corpus.get_decision(&id).await;
             let second = corpus.get_decision(&id).await;
-            assert!(first.is_ok() && second.is_ok());
+            assert_eq!((first, second), (Ok(decision()), Ok(decision())));
             Ok(Out(2))
         };
         assert_eq!(audited.run(meta(), pending(), work).await, Ok(Out(2)));
         // 60 s moins 3 s, puis moins 3 + 2 s : la durée restante, y compris au second appel.
         assert_eq!(corpus.seen_deadlines(), vec![secs(57), secs(55)]);
         // Hors de `run`, aucune échéance n'est publiée : l'adapter retombe sur son défaut.
-        assert!(corpus.get_decision(&id).await.is_ok());
+        assert_eq!(corpus.get_decision(&id).await, Ok(decision()));
         assert_eq!(corpus.seen_deadlines()[2], NO_DEADLINE);
         assert_eq!(Deadline::current(), None);
     }
@@ -996,8 +981,13 @@ mod tests {
         let error = got.unwrap_err();
         assert_eq!(error, messages::audit(&write_error(), None));
         assert_eq!(error.code(), Some(ErrorCode::AuditError));
-        // Le `detail` de l'échec (chemin, texte du journal) n'atteint jamais le modèle.
-        assert!(!error.message().contains("FailingAuditLog"), "{error:?}");
+        // Le texte entier : le `detail` de l'échec (chemin, texte du journal, ici
+        // « FailingAuditLog: simulated DiskFull failure ») n'atteint jamais le modèle.
+        assert_eq!(
+            error.message(),
+            "audit log unavailable; the call was not recorded and its result is withheld (see \
+             server logs)."
+        );
         assert_eq!(audited.write_failures(), 0);
     }
 
@@ -1162,7 +1152,10 @@ mod tests {
         let (capture, _guard) = Capture::install();
         let audited = memory(AuditMode::Strict, DEADLINE);
         let work = ready(Err::<Out, _>(AppError::invalid_argument("page_size: invalid type")));
-        assert!(audited.run(meta(), pending(), work).await.is_err());
+        assert_eq!(
+            audited.run(meta(), pending(), work).await,
+            Err(AppError::invalid_argument("page_size: invalid type"))
+        );
         assert_eq!(capture.levels(), vec![Level::INFO]);
     }
 

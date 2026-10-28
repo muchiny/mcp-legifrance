@@ -198,17 +198,9 @@ pub enum CorpusError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lf_domain::{
-        fond::Fond,
-        search::{MatchMode, PageSize, QueryText},
-    };
+    use crate::testing::fixtures::{poll_once, query};
     use pretty_assertions::assert_eq;
-    use std::{
-        future::ready,
-        num::NonZeroU32,
-        pin::pin,
-        task::{Context, Poll, Waker},
-    };
+    use std::{future::ready, task::Poll};
 
     /// Faux corpus minimal : chaque méthode échoue en nommant la méthode appelée. Il prouve
     /// que le port s'implémente par des `async fn` dont les futurs sont `Send`.
@@ -245,25 +237,9 @@ mod tests {
         }
     }
 
-    /// Exige un futur `Send` et le sonde une fois : le faux corpus n'attend rien, il est donc
-    /// prêt au premier `poll`.
-    fn poll_once<F: Future + Send>(future: F) -> Poll<F::Output> {
-        pin!(future).poll(&mut Context::from_waker(Waker::noop()))
-    }
-
     async fn every_method<C: LegalCorpus>(corpus: &C) -> Vec<CorpusError> {
-        let query = SearchQuery::new(
-            Fond::Juri,
-            QueryText::parse("bail").unwrap(),
-            NonZeroU32::MIN,
-            PageSize::default(),
-            MatchMode::default(),
-            None,
-            None,
-        )
-        .unwrap();
         vec![
-            corpus.search(&query).await.unwrap_err(),
+            corpus.search(&query()).await.unwrap_err(),
             corpus
                 .get_act(&"LEGITEXT000006070721".parse().unwrap(), VersionDate::MIN)
                 .await

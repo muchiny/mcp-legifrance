@@ -1,10 +1,10 @@
 //! Doublures de test des ports de `lf-application` (06 §2.2), derrière la feature `test-support`.
 //!
-//! [`FakeCorpus`] rejoue des réponses programmées, [`FixedClock`] fige l'heure, [`MemoryAuditLog`]
-//! garde les lignes écrites et [`FailingAuditLog`] échoue toujours. Les doublures servent aux
-//! tests de ce crate (`cfg(test)`) et, par la feature, aux dev-dependencies des autres membres :
-//! `cargo xtask check-arch` (R9) interdit de l'activer en dépendance normale, aucun binaire ne les
-//! embarque.
+//! [`FakeCorpus`] rejoue des réponses programmées et note chaque appel avec ses arguments
+//! ([`PortRequest`]), [`FixedClock`] fige l'heure, [`MemoryAuditLog`] garde les lignes écrites et
+//! [`FailingAuditLog`] échoue toujours. Les doublures servent aux tests de ce crate (`cfg(test)`)
+//! et, par la feature, aux dev-dependencies des autres membres : `cargo xtask check-arch` (R10)
+//! interdit de l'activer en dépendance normale, aucun binaire ne les embarque.
 //!
 //! Les verrous sont des `std::sync::Mutex`, jamais tenus à travers un `.await` : une section
 //! critique est courte et synchrone. Un verrou empoisonné (un test qui a paniqué) se reprend tel
@@ -62,11 +62,51 @@ impl Drop for InFlight<'_> {
     }
 }
 
+/// Un appel reçu par [`FakeCorpus`] : la méthode du port et une copie de ses arguments (I-3 de la
+/// revue finale). Un test de cas d'usage vérifie ainsi ce qui est demandé au port (identifiant
+/// validé, date de version, requête de recherche), pas seulement combien de fois.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PortRequest {
+    /// `search(query)`.
+    Search(SearchQuery),
+    /// `get_act(id, date)`.
+    GetAct(LegiTextId, VersionDate),
+    /// `get_article(id)`.
+    GetArticle(ArticleId),
+    /// `get_decision(id)`.
+    GetDecision(DecisionId),
+    /// `get_deliberation(id)`.
+    GetDeliberation(CnilTextId),
+    /// `get_convention(id)`.
+    GetConvention(KaliTextId),
+    /// `get_company_agreement(id)`.
+    GetCompanyAgreement(AccoTextId),
+}
+
+impl PortRequest {
+    /// Nom de la méthode du port appelée (`"search"`, `"get_act"`, ...), celui de
+    /// [`FakeCorpus::calls_of`].
+    #[must_use]
+    pub const fn method(&self) -> &'static str {
+        match self {
+            Self::Search(_) => "search",
+            Self::GetAct(..) => "get_act",
+            Self::GetArticle(_) => "get_article",
+            Self::GetDecision(_) => "get_decision",
+            Self::GetDeliberation(_) => "get_deliberation",
+            Self::GetConvention(_) => "get_convention",
+            Self::GetCompanyAgreement(_) => "get_company_agreement",
+        }
+    }
+}
+
 /// Faux corpus : une file de réponses par méthode du port, rejouées dans l'ordre.
 ///
 /// Une file vide rend `Config { kind: Settings, .. }` qui nomme la méthode : un test qui oublie de
-/// programmer une réponse échoue avec un message lisible plutôt que de bloquer. Le délai
-/// optionnel utilise `tokio::time::sleep`, donc le temps virtuel des tests `start_paused`.
+/// programmer une réponse échoue avec un message lisible plutôt que de bloquer, et l'appel est
+/// compté par [`FakeCorpus::unserved`]. Chaque appel est noté avec ses arguments
+/// ([`FakeCorpus::seen_requests`]). Le délai optionnel utilise `tokio::time::sleep`, donc le
+/// temps virtuel des tests `start_paused`.
 #[derive(Default)]
 pub struct FakeCorpus {
     search: Responses<SearchPage>,
@@ -77,8 +117,10 @@ pub struct FakeCorpus {
     get_convention: Responses<Convention>,
     get_company_agreement: Responses<CompanyAgreement>,
     delay: Option<Duration>,
-    /// Nom de chaque méthode appelée, dans l'ordre des appels.
-    calls: Mutex<Vec<&'static str>>,
+    /// Chaque appel reçu, méthode et arguments, dans l'ordre des appels.
+    requests: Mutex<Vec<PortRequest>>,
+    /// Appels qui ont trouvé la file de leur méthode vide.
+    unserved: AtomicUsize,
     /// Durée restante de l'échéance publiée, relevée à chaque appel.
     deadlines: Mutex<Vec<Duration>>,
     in_flight: AtomicUsize,
@@ -137,13 +179,26 @@ impl FakeCorpus {
     /// Nombre total d'appels reçus, toutes méthodes confondues.
     #[must_use]
     pub fn calls(&self) -> usize {
-        lock(&self.calls).len()
+        lock(&self.requests).len()
     }
 
     /// Nombre d'appels reçus par la méthode `method` (nom du port : `"search"`, `"get_act"`, ...).
     #[must_use]
     pub fn calls_of(&self, method: &str) -> usize {
-        lock(&self.calls).iter().filter(|called| **called == method).count()
+        lock(&self.requests).iter().filter(|request| request.method() == method).count()
+    }
+
+    /// Chaque appel reçu, avec une copie de ses arguments, dans l'ordre des appels ; un appel
+    /// abandonné pendant le délai y figure (il est noté à l'entrée).
+    #[must_use]
+    pub fn seen_requests(&self) -> Vec<PortRequest> {
+        lock(&self.requests).clone()
+    }
+
+    /// Nombre d'appels qui ont trouvé vide la file de leur méthode (réponse non programmée).
+    #[must_use]
+    pub fn unserved(&self) -> usize {
+        self.unserved.load(Ordering::SeqCst)
     }
 
     /// Plus grand nombre d'appels simultanément en vol depuis la création.
@@ -159,23 +214,27 @@ impl FakeCorpus {
         lock(&self.deadlines).clone()
     }
 
-    /// Cœur commun des sept méthodes : à l'entrée (premier sondage du futur), note l'appel et
-    /// l'échéance, tient un emplacement en vol et RETIRE la réponse de la file ; puis dort le délai
-    /// et rend la réponse déjà retirée. Les réponses suivent ainsi l'ordre des appels, même sous
-    /// `join!` avec un délai. Un appel abandonné pendant le délai (annulation, `timeout`)
-    /// consomme donc sa réponse.
+    /// Cœur commun des sept méthodes : à l'entrée (premier sondage du futur), note l'appel, ses
+    /// arguments et l'échéance, tient un emplacement en vol et RETIRE la réponse de la file
+    /// (ou compte l'appel comme non servi) ; puis dort le délai et rend la réponse déjà retirée.
+    /// Les réponses suivent ainsi l'ordre des appels, même sous `join!` avec un délai. Un appel
+    /// abandonné pendant le délai (annulation, `timeout`) consomme donc sa réponse.
     async fn serve<T>(
         &self,
-        method: &'static str,
+        request: PortRequest,
         responses: &Responses<T>,
     ) -> Result<T, CorpusError> {
-        lock(&self.calls).push(method);
+        let method = request.method();
+        lock(&self.requests).push(request);
         lock(&self.deadlines).push(Deadline::current_or(NO_DEADLINE));
         let now_in_flight = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         let _slot = InFlight(&self.in_flight);
         self.max_in_flight.fetch_max(now_in_flight, Ordering::SeqCst);
         // Le verrou est pris et rendu dans la même instruction : jamais tenu à travers un `await`.
         let next = lock(responses).pop_front();
+        if next.is_none() {
+            self.unserved.fetch_add(1, Ordering::SeqCst);
+        }
         if let Some(delay) = self.delay {
             tokio::time::sleep(delay).await;
         }
@@ -189,32 +248,36 @@ impl FakeCorpus {
 }
 
 impl LegalCorpus for FakeCorpus {
-    async fn search(&self, _: &SearchQuery) -> Result<SearchPage, CorpusError> {
-        self.serve("search", &self.search).await
+    async fn search(&self, query: &SearchQuery) -> Result<SearchPage, CorpusError> {
+        self.serve(PortRequest::Search(query.clone()), &self.search).await
     }
 
-    async fn get_act(&self, _: &LegiTextId, _: VersionDate) -> Result<Act, CorpusError> {
-        self.serve("get_act", &self.get_act).await
+    async fn get_act(&self, id: &LegiTextId, date: VersionDate) -> Result<Act, CorpusError> {
+        self.serve(PortRequest::GetAct(id.clone(), date), &self.get_act).await
     }
 
-    async fn get_article(&self, _: &ArticleId) -> Result<ArticleText, CorpusError> {
-        self.serve("get_article", &self.get_article).await
+    async fn get_article(&self, id: &ArticleId) -> Result<ArticleText, CorpusError> {
+        self.serve(PortRequest::GetArticle(id.clone()), &self.get_article).await
     }
 
-    async fn get_decision(&self, _: &DecisionId) -> Result<Decision, CorpusError> {
-        self.serve("get_decision", &self.get_decision).await
+    async fn get_decision(&self, id: &DecisionId) -> Result<Decision, CorpusError> {
+        self.serve(PortRequest::GetDecision(id.clone()), &self.get_decision).await
     }
 
-    async fn get_deliberation(&self, _: &CnilTextId) -> Result<Deliberation, CorpusError> {
-        self.serve("get_deliberation", &self.get_deliberation).await
+    async fn get_deliberation(&self, id: &CnilTextId) -> Result<Deliberation, CorpusError> {
+        self.serve(PortRequest::GetDeliberation(id.clone()), &self.get_deliberation).await
     }
 
-    async fn get_convention(&self, _: &KaliTextId) -> Result<Convention, CorpusError> {
-        self.serve("get_convention", &self.get_convention).await
+    async fn get_convention(&self, id: &KaliTextId) -> Result<Convention, CorpusError> {
+        self.serve(PortRequest::GetConvention(id.clone()), &self.get_convention).await
     }
 
-    async fn get_company_agreement(&self, _: &AccoTextId) -> Result<CompanyAgreement, CorpusError> {
-        self.serve("get_company_agreement", &self.get_company_agreement).await
+    async fn get_company_agreement(
+        &self,
+        id: &AccoTextId,
+    ) -> Result<CompanyAgreement, CorpusError> {
+        let request = PortRequest::GetCompanyAgreement(id.clone());
+        self.serve(request, &self.get_company_agreement).await
     }
 }
 
@@ -348,9 +411,47 @@ impl AuditLog for FailingAuditLog {
     }
 }
 
+/// Fabriques partagées par les tests du crate (`cfg(test)` seulement : hors de la feature
+/// `test-support`, elles ne font pas partie des doublures exportées). Une seule copie de la
+/// requête de recherche et de `poll_once` pour `audited`, `testing` et les ports (m-9).
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use std::{
+        future::Future,
+        num::NonZeroU32,
+        pin::pin,
+        task::{Context, Poll, Waker},
+    };
+
+    use lf_domain::{
+        fond::Fond,
+        search::{MatchMode, PageSize, QueryText, SearchQuery},
+    };
+
+    /// Requête valide : `bail` sur le fond JURI, première page, réglages par défaut.
+    pub(crate) fn query() -> SearchQuery {
+        SearchQuery::new(
+            Fond::Juri,
+            QueryText::parse("bail").unwrap(),
+            NonZeroU32::MIN,
+            PageSize::default(),
+            MatchMode::default(),
+            None,
+            None,
+        )
+        .unwrap()
+    }
+
+    /// Exige un futur `Send` et le sonde une fois, sans réveil : un port factice qui n'attend
+    /// rien est prêt au premier sondage.
+    pub(crate) fn poll_once<F: Future + Send>(future: F) -> Poll<F::Output> {
+        pin!(future).poll(&mut Context::from_waker(Waker::noop()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{fixtures::query, *};
     use crate::{
         input::CanonicalInput,
         ports::{AuditStatus, PisteEnvironment},
@@ -364,19 +465,6 @@ mod tests {
     use pretty_assertions::assert_eq;
     use std::{num::NonZeroU32, pin::pin, task::Context};
     use tokio::time::Instant;
-
-    fn query() -> SearchQuery {
-        SearchQuery::new(
-            Fond::Juri,
-            QueryText::parse("bail").unwrap(),
-            NonZeroU32::MIN,
-            PageSize::default(),
-            MatchMode::default(),
-            None,
-            None,
-        )
-        .unwrap()
-    }
 
     fn page(total: u64) -> SearchPage {
         SearchPage::new(Fond::Juri, "bail", Some(total), None, vec![], 0, PaginationMode::Defaut)
@@ -403,6 +491,94 @@ mod tests {
             env: PisteEnvironment::Sandbox,
             server_version: "0.0.0",
         }
+    }
+
+    #[tokio::test]
+    async fn fake_corpus_records_the_arguments_of_every_call() {
+        let corpus = FakeCorpus::new();
+        let cnil = SearchQuery::new(
+            Fond::Cnil,
+            QueryText::parse("données de santé").unwrap(),
+            NonZeroU32::new(2).unwrap(),
+            PageSize::default(),
+            MatchMode::default(),
+            None,
+            None,
+        )
+        .unwrap();
+        let act: LegiTextId = "LEGITEXT000006070721".parse().unwrap();
+        let date = VersionDate::parse("2024-01-01").unwrap();
+        let decision: DecisionId = "JURITEXT000037999394".parse().unwrap();
+        let deliberation: CnilTextId = "CNILTEXT000053352643".parse().unwrap();
+        let convention: KaliTextId = "KALITEXT000005652329".parse().unwrap();
+        let agreement: AccoTextId = "ACCOTEXT000037731479".parse().unwrap();
+        assert_eq!(corpus.seen_requests(), Vec::<PortRequest>::new());
+
+        // Réponses non programmées : seuls les arguments reçus importent ici.
+        let _ = corpus.search(&query()).await;
+        let _ = corpus.get_act(&act, date).await;
+        let _ = corpus.get_article(&article_id()).await;
+        let _ = corpus.get_decision(&decision).await;
+        let _ = corpus.get_deliberation(&deliberation).await;
+        let _ = corpus.get_convention(&convention).await;
+        let _ = corpus.get_company_agreement(&agreement).await;
+        let _ = corpus.search(&cnil).await;
+        let _ = corpus.get_act(&act, VersionDate::MIN).await;
+
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![
+                PortRequest::Search(query()),
+                PortRequest::GetAct(act.clone(), date),
+                PortRequest::GetArticle(article_id()),
+                PortRequest::GetDecision(decision),
+                PortRequest::GetDeliberation(deliberation),
+                PortRequest::GetConvention(convention),
+                PortRequest::GetCompanyAgreement(agreement),
+                PortRequest::Search(cnil),
+                PortRequest::GetAct(act, VersionDate::MIN),
+            ]
+        );
+        // Chaque requête porte le nom de sa méthode, celui que comptent `calls_of` et `calls`.
+        let methods: Vec<&str> = corpus.seen_requests().iter().map(PortRequest::method).collect();
+        assert_eq!(
+            methods,
+            [
+                "search",
+                "get_act",
+                "get_article",
+                "get_decision",
+                "get_deliberation",
+                "get_convention",
+                "get_company_agreement",
+                "search",
+                "get_act",
+            ]
+        );
+        assert_eq!((corpus.calls(), corpus.calls_of("get_act")), (9, 2));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fake_corpus_records_an_abandoned_request_at_entry() {
+        let corpus = FakeCorpus::new().with_delay(Duration::from_secs(60));
+        corpus.push_get_article(Err(timeout()));
+        let abandoned =
+            tokio::time::timeout(Duration::from_secs(1), corpus.get_article(&article_id())).await;
+        assert!(abandoned.is_err());
+        assert_eq!(corpus.seen_requests(), vec![PortRequest::GetArticle(article_id())]);
+    }
+
+    #[tokio::test]
+    async fn fake_corpus_counts_calls_that_found_an_empty_queue() {
+        let corpus = FakeCorpus::new();
+        assert_eq!(corpus.unserved(), 0);
+        corpus.push_search(Ok(page(1)));
+        assert_eq!(corpus.search(&query()).await, Ok(page(1)));
+        assert_eq!(corpus.unserved(), 0);
+        // La file de `search` est vide, celle de `get_article` ne l'a jamais remplie.
+        let _ = corpus.search(&query()).await;
+        let _ = corpus.get_article(&article_id()).await;
+        assert_eq!((corpus.calls(), corpus.unserved()), (3, 2));
     }
 
     #[tokio::test]
@@ -536,7 +712,13 @@ mod tests {
         let (query, id) = (query(), article_id());
         let (first, second, third) =
             tokio::join!(corpus.search(&query), corpus.get_article(&id), corpus.get_article(&id),);
-        assert!(first.is_err() && second.is_err() && third.is_err());
+        let unprogrammed = |method: &str| CorpusError::Config {
+            kind: ConfigKind::Settings,
+            detail: format!("FakeCorpus: no response programmed for {method}"),
+        };
+        assert_eq!(first, Err(unprogrammed("search")));
+        let article = Err(unprogrammed("get_article"));
+        assert_eq!((second, third), (article.clone(), article));
         assert_eq!(corpus.max_concurrency(), 3);
         // Les appels suivants, un par un, ne relèvent pas le maximum et ne le font pas baisser.
         let _ = corpus.search(&query).await;

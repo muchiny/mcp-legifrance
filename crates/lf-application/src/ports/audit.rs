@@ -91,13 +91,11 @@ pub enum AuditErrorKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{error::ErrorCode, input::CanonicalInput, tools::ToolName};
-    use pretty_assertions::assert_eq;
-    use std::{
-        future::{Future, ready},
-        pin::pin,
-        task::{Context, Poll, Waker},
+    use crate::{
+        error::ErrorCode, input::CanonicalInput, testing::fixtures::poll_once, tools::ToolName,
     };
+    use pretty_assertions::assert_eq;
+    use std::{future::ready, task::Poll};
 
     #[test]
     fn audit_error_display_names_the_kind_only() {
@@ -121,11 +119,6 @@ mod tests {
             })
             .await
         }
-    }
-
-    /// Exige un futur `Send` et le sonde une fois : le faux journal n'attend rien.
-    fn poll_once<F: Future + Send>(future: F) -> Poll<F::Output> {
-        pin!(future).poll(&mut Context::from_waker(Waker::noop()))
     }
 
     fn record(status: AuditStatus) -> AuditRecord {

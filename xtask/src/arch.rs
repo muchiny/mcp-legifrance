@@ -37,7 +37,11 @@
 //!   normale ou par sa table `[features]`, une feature de `DEV_ONLY_FEATURES`
 //!   (`lf-application/test-support`), message `{membre} must not enable {dep}
 //!   feature {feature} (dev-dependencies only)` ; en `[dev-dependencies]` elle
-//!   reste permise (`cargo metadata` classe ces dépendances à part) ;
+//!   reste permise (`cargo metadata` classe ces dépendances à part) ; chez le
+//!   propriétaire, aucune autre feature (`default`, `full`...) ne la liste,
+//!   message `{propriétaire} feature {nom} must not enable {feature}
+//!   (dev-dependencies only)` (F-6 : sinon les features par défaut
+//!   l'activeraient chez tout membre qui le prend) ;
 //! - étape 5 : seuls `mcp-legifrance` et `xtask` ont une cible `bin` (5f) ;
 //!   `version`, `edition`, `rust-version` et `license` égalent ceux de
 //!   `lf-domain` (5a-5d : `cargo metadata` ne montre pas l'héritage de
@@ -89,6 +93,9 @@ pub struct Package {
     /// `default` y figure sauf si `uses_default_features` vaut `false` ; celles
     /// activées par la table `[features]` du membre (`dep/feat`) s'y ajoutent.
     pub features: Vec<(String, Vec<String>)>,
+    /// Table `[features]` du membre lui-même (`feature`, entrées), telle que la donne
+    /// `cargo metadata` : R10 y cherche une feature qui active `test-support`.
+    pub own_features: Vec<(String, Vec<String>)>,
     /// Chemin du `Cargo.toml` du membre.
     pub manifest_path: String,
     /// Le manifeste contient `[lints] workspace = true` (5e) ; `false` à la
@@ -292,6 +299,23 @@ fn member_violations(p: &Package, rule: &CrateRule, domain: Option<&Package>) ->
                 )
             })
     });
+    // Chez le propriétaire, aucune autre feature ne liste la feature réservée : `default` qui la
+    // listerait l'activerait chez tout membre qui prend le crate avec ses features par défaut.
+    let dev_only_in_owner = DEV_ONLY_FEATURES
+        .iter()
+        .filter(|(owner, _)| p.name == *owner)
+        .flat_map(|(owner, feature)| {
+            p.own_features
+                .iter()
+                .filter(move |(name, entries)| {
+                    name != feature && entries.iter().any(|entry| entry == feature)
+                })
+                .map(move |(name, _)| {
+                    format!(
+                        "{owner} feature {name} must not enable {feature} (dev-dependencies only)"
+                    )
+                })
+        });
     let targets = [("bin", rule.bin), ("lib", rule.lib)]
         .into_iter()
         .filter(|(kind, allowed)| !allowed && p.targets.iter().any(|t| t == kind))
@@ -303,6 +327,7 @@ fn member_violations(p: &Package, rule: &CrateRule, domain: Option<&Package>) ->
         .chain(dev)
         .chain(features)
         .chain(dev_only)
+        .chain(dev_only_in_owner)
         .chain(targets)
         .chain(lints)
         .chain(domain.into_iter().flat_map(|d| workspace_violations(p, d)))
@@ -410,6 +435,7 @@ fn read_package(p: &Value) -> Result<Package, String> {
         rust_version: p["rust_version"].as_str().map(str::to_owned),
         license: p["license"].as_str().map(str::to_owned),
         features: read_all_features(p, dependencies),
+        own_features: read_feature_table(p),
         manifest_path: manifest_path.to_owned(),
         lints_workspace: false,
     })
@@ -439,6 +465,20 @@ fn read_all_features(p: &Value, dependencies: &[Value]) -> Vec<(String, Vec<Stri
         enable(&mut features, dependency_name(&normal, key), feature);
     }
     features
+}
+
+/// Table `[features]` du membre : chaque feature et ses entrées chaînes, dans l'ordre de
+/// `cargo metadata` (clés triées) ; vide sans table.
+fn read_feature_table(p: &Value) -> Vec<(String, Vec<String>)> {
+    p["features"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(name, entries)| {
+            let entries = entries.as_array().into_iter().flatten().filter_map(Value::as_str);
+            (name.clone(), entries.map(str::to_owned).collect())
+        })
+        .collect()
 }
 
 /// Nom du paquet d'une dépendance normale désignée par sa clé de manifeste :
@@ -505,6 +545,7 @@ mod tests {
             rust_version: Some("1.88".into()),
             license: Some("Apache-2.0".into()),
             features: Vec::new(),
+            own_features: Vec::new(),
             manifest_path: format!("/w/{name}/Cargo.toml"),
             lints_workspace: true,
         }
@@ -519,6 +560,13 @@ mod tests {
     fn enabling(package: Package, features: &[(&str, &[&str])]) -> Package {
         let features = features.iter().map(|(dep, f)| ((*dep).to_owned(), strings(f))).collect();
         Package { features, ..package }
+    }
+
+    /// Le même membre, avec cette table `[features]` à lui (`feature`, entrées).
+    fn declaring(package: Package, table: &[(&str, &[&str])]) -> Package {
+        let own_features =
+            table.iter().map(|(name, entries)| ((*name).to_owned(), strings(entries))).collect();
+        Package { own_features, ..package }
     }
 
     /// Le même membre, avec ces dépendances de développement.
@@ -811,6 +859,18 @@ mod tests {
                  (dev-dependencies only)",
             ),
             (
+                "R10, table du propriétaire",
+                vec![
+                    domain(),
+                    declaring(
+                        pkg("lf-application", &[]),
+                        &[("test-support", &[]), ("default", &["test-support"])],
+                    ),
+                ],
+                "lf-application feature default must not enable test-support \
+                 (dev-dependencies only)",
+            ),
+            (
                 "5e",
                 vec![domain(), Package { lints_workspace: false, ..pkg("lf-application", &[]) }],
                 "lf-application must declare [lints] workspace = true",
@@ -970,6 +1030,7 @@ mod tests {
                 ("lf-domain".into(), strings(&["default"])),
                 ("tokio".into(), strings(&["rt", "time"])),
             ],
+            own_features: Vec::new(),
             manifest_path: "/w/crates/lf-app/Cargo.toml".into(),
             lints_workspace: false,
         };
@@ -1407,6 +1468,71 @@ mod tests {
               "uses_default_features": false }
         ]);
         assert_eq!(adapter_taking_application(&both, &json!({})), Vec::<String>::new());
+    }
+
+    #[test]
+    fn no_other_feature_of_the_owner_may_list_test_support() {
+        // `default = ["test-support"]` l'activerait chez tout membre qui prend `lf-application`
+        // avec ses features par défaut (déclaration du workspace sans `default-features`), sans
+        // que la déclaration du membre ne la nomme : R10 la refuse dans la table du propriétaire,
+        // comme toute feature qui la liste (`full`), même en compagnie (F-6).
+        let metadata = json!({
+            "workspace_members": ["a", "b", "c"],
+            "packages": [
+                {
+                    "id": "a", "name": "lf-domain", "version": "0.0.0", "edition": "2024",
+                    "manifest_path": "/w/lf-domain/Cargo.toml", "targets": [],
+                    "dependencies": []
+                },
+                {
+                    "id": "b", "name": "lf-application", "version": "0.0.0", "edition": "2024",
+                    "manifest_path": "/w/lf-application/Cargo.toml", "targets": [],
+                    "dependencies": [],
+                    "features": {
+                        "test-support": [],
+                        "default": ["test-support"],
+                        "full": ["other", "test-support"],
+                        "other": ["dep:foo"],
+                        "near": ["test-supports", "lf-application/x"]
+                    }
+                },
+                {
+                    "id": "c", "name": "lf-adapter-piste", "version": "0.0.0", "edition": "2024",
+                    "manifest_path": "/w/lf-adapter-piste/Cargo.toml", "targets": [],
+                    "dependencies": [{ "name": "lf-application", "kind": null }],
+                    "features": { "default": ["test-support"] }
+                }
+            ]
+        });
+        let graph: Vec<Package> = workspace_packages(&metadata)
+            .unwrap()
+            .into_iter()
+            .map(|p| Package { lints_workspace: true, ..p })
+            .collect();
+        // La table `[features]` est lue telle quelle, dans l'ordre de `cargo metadata`.
+        assert_eq!(
+            graph[1].own_features,
+            vec![
+                ("default".to_owned(), strings(&["test-support"])),
+                ("full".to_owned(), strings(&["other", "test-support"])),
+                ("near".to_owned(), strings(&["test-supports", "lf-application/x"])),
+                ("other".to_owned(), strings(&["dep:foo"])),
+                ("test-support".to_owned(), Vec::new()),
+            ]
+        );
+        // Seul le propriétaire est visé : une feature `test-support` d'un autre membre n'est
+        // pas celle de `lf-application`.
+        assert_eq!(
+            violations(&graph),
+            [
+                "lf-application feature default must not enable test-support \
+                 (dev-dependencies only)",
+                "lf-application feature full must not enable test-support (dev-dependencies only)",
+            ]
+        );
+        // Le workspace livré : `test-support = []` seule, aucune violation.
+        let clean = declaring(pkg("lf-application", &[]), &[("test-support", &[])]);
+        assert_eq!(violations(&[pkg("lf-domain", &[]), clean]), Vec::<String>::new());
     }
 
     #[test]
