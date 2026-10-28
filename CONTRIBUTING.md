@@ -89,6 +89,38 @@ de la fonction privée.
 (`TMPDIR=/var/tmp`, `-j 1`, un fichier, contrôle mémoire préalable). Jamais
 `cargo test -j 4` ni plus.
 
+## Identifiants PISTE (développement local)
+
+Les sondes live et les tests contre l'API Légifrance ont besoin d'un compte PISTE.
+Sandbox par défaut ; l'application de production est distincte et n'est jamais
+utilisée en CI (`docs/plan/00-decisions.md` §10, Q3).
+
+1. Créer un compte sur `piste.gouv.fr`, puis une application **sandbox**.
+2. Souscrire cette application à l'API **Légifrance** (DILA), et à elle seule.
+   Sans cette souscription, le jeton s'obtient mais tout appel à l'API répond 403.
+3. Relever, dans la section « Identifiants Oauth » de l'application (pas « API
+   Keys »), le Client ID et le secret.
+4. Les ranger hors du dépôt, lisibles par leur propriétaire seul :
+
+   ```sh
+   mkdir -p ~/.config/mcp-legifrance && chmod 700 ~/.config/mcp-legifrance
+   # puis créer ~/.config/mcp-legifrance/piste.env avec ces trois lignes :
+   #   LF_PISTE_ENV=sandbox
+   #   LF_PISTE_CLIENT_ID=<Client ID>
+   #   LF_PISTE_CLIENT_SECRET=<secret>
+   chmod 600 ~/.config/mcp-legifrance/piste.env
+   ```
+
+5. Les charger dans le terminal qui lance la sonde ou le serveur :
+   `set -a; . ~/.config/mcp-legifrance/piste.env; set +a`.
+6. Vérifier le jeton avec la recette de `docs/plan/09-risques-et-questions.md`
+   §2.2 : la réponse doit être un 200 avec `token_type` `Bearer`.
+
+Le secret reste dans l'environnement du processus : jamais dans une ligne de
+commande, un fichier du dépôt, un journal, une fixture, une issue ou une
+conversation avec un assistant. `.env` et `.env.*` sont dans `.gitignore`, mais
+un fichier hors du dépôt évite l'accident.
+
 ## Licences
 
 Le projet est sous licence Apache-2.0. La licence entrante est la licence

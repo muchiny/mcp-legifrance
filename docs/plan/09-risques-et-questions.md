@@ -521,10 +521,10 @@ Le corps de `S{…}` est exactement celui de 04 §6.1. Les fonds sont écrits so
 **Exécution.**
 
 1. **À partir de M2** : `cargo xtask record-fixture --endpoint <chemin> --body '<corps>' --name <nom> [--env sandbox|production] [--allow-error]`, qui lance `cargo run -p lf-adapter-piste --example record_fixture --features record` (00 §2) ; la CLI, le sidecar et l'arborescence de 04 §13.4 font foi (04 est le document propriétaire, 00 §0). L'outil garde les octets bruts et un fichier `.meta.toml` (environnement, statut, `Content-Type`, `Content-Encoding`, empreintes, détection du mojibake). Les sondes récurrentes sont des tests `live_*` (04 §13.5, 06 §5.3), lancés par `LF_PISTE_ENV=sandbox cargo test -p lf-adapter-piste --test live -- --ignored --test-threads=1` ou par le workflow `live.yml` (06 §7.5).
-2. **Avant M2** (aucun outil Rust encore), recette shell provisoire, non exécutée et à valider en M2. Elle ne place ni le secret ni le jeton dans la ligne de commande d'un processus :
+2. **Avant M2** (aucun outil Rust encore), recette shell provisoire, exécutée à la main en sandbox le 2026-10-28 (constats ci-dessous, §2.20) ; elle reste à valider par l'outil Rust de M2. Elle ne place ni le secret ni le jeton dans la ligne de commande d'un processus :
 
 ```sh
-# Non exécuté, à valider en M2. Prérequis : curl, jq ; LF_PISTE_CLIENT_ID et LF_PISTE_CLIENT_SECRET exportés.
+# Exécuté à la main en sandbox le 2026-10-28. Prérequis : curl, jq ; LF_PISTE_CLIENT_ID et LF_PISTE_CLIENT_SECRET exportés.
 OAUTH=https://sandbox-oauth.piste.gouv.fr/api/oauth/token
 BASE=https://sandbox-api.piste.gouv.fr/dila/legifrance/lf-engine-app
 TOKEN=$(printf 'grant_type=client_credentials&scope=openid&client_id=%s&client_secret=%s' \
@@ -539,6 +539,14 @@ probe() {  # probe <chemin> <corps JSON> <nom> : octets bruts dans <nom>.body, e
 }
 probe /consult/juri '{"textId":"JURITEXT000000000000"}' juri-inconnu
 ```
+
+**Constats de la première exécution en sandbox (2026-10-28, essai manuel, aucune fixture enregistrée).**
+
+- Jeton : `POST /api/oauth/token` répond 200 avec `token_type: Bearer`, `expires_in: 3600` et `scope: openid resource.READ`.
+- Application non souscrite à l'API Légifrance : le jeton s'obtient mais tout appel à l'API répond 403 (corps vide ou écho de la requête). Après souscription de l'application à l'API Légifrance (sandbox), les appels passent.
+- `POST /consult/juri` avec un `textId` de forme valide mais inexistant (`JURITEXT000000000000`) répond 400 (`L'expression à valider est fausse.`), pas 404 : l'API valide la forme de l'identifiant avant de le chercher. Un 404 de ressource reste à observer avec un identifiant bien formé.
+- `GET /search/ping` répond 500 (`Une exception non gérée est survenue`) : chemin ou méthode à ne pas supposer.
+- `POST /search` (fond `CODE_DATE`, mot « contrat », 2 résultats par page) répond 200 avec plusieurs milliers de résultats.
 
 **Règles.** Sandbox par défaut. Production (Q3, adoptée par défaut, 00 §10) : sondes en lecture seule seulement, lancées à la main par le mainteneur avant chaque étiquette, au plus 1 requête/s ; fixtures admises pour des données publiques, marquées `env = production` ; jamais d'identifiants de production en CI. En sandbox, au plus un appel toutes les 200 ms. Aucun 429 provoqué volontairement (04 §13.5). Aucun en-tête, jeton ni secret dans un fichier enregistré. Les fichiers enregistrés sont relus avant tout commit (V-178). Chaque exécution donne une ligne dans 06 §5.4 ; chaque levée, une ligne au §2.20.
 
@@ -1000,6 +1008,9 @@ Une ligne par vérification levée, partielle, contournée ou caduque. La preuve
 | 2026-10-22 | V-70 | partiel | côté client prouvé : `Accept-Encoding: gzip` négocié, décompression, borne de 16 Mio après décompression, gzip corrompu en `Network` ; la compression côté PISTE reste non vérifiée | commit `c13fecc` (plan 2c, tâche 7), tests `gzip_is_negotiated`, `gzip_body_is_limited_after_decompression`, `corrupt_gzip_body_is_a_network_error` | local | 04 §4.2 |
 | 2026-10-23 | V-10 | levé | `serde_json` 1.0.154 part de `remaining_depth: 128` (un par tableau et par objet) : 127 imbrications passent, la 128e échoue ; un DTO récursif décode 63 niveaux de `sections` feuilles (62 avec des articles, 61 avec des liens) et refuse 64 (`Decode`, catégorie `Syntax`) ; un champ non déclaré n'est pas borné, et les lecteurs de `dto/de.rs` (`Visitor` écrits à la main) ignorent un tableau ou un objet à toute profondeur | commits `ad9b421` (plan 2d, tâche 4) et `517d724` (tâche 6), tests `nesting_beyond_the_serde_json_limit_maps_to_decode`, `nesting_just_under_the_limit_is_decoded`, `a_toc_of_63_levels_is_decoded`, `a_toc_of_64_levels_or_more_maps_to_decode` | local | 04 §8.5, 07 T-M2-06 |
 | 2026-10-23 | V-17 | levé (partie adapter) | `chrono-tz` 0.10.4 embarque la base IANA 2025b (`IANA_TZDB_VERSION`) ; les cinq vecteurs de 04 §6.3 sont exacts (dont 1804-03-21 = `-5231563761000`, UTC+0:09:21) ; règles tabulées jusqu'en 2099 seulement (2100 : heure d'hiver toute l'année, midi à ±1 h) ; le test de date civile de `SystemClock` (06 §2.7) reste à faire en M3 | commit `cf6a409` (plan 2d, tâche 8), tests `paris_noon_vectors`, `iana_database_version_is_pinned`, `paris_noon_uses_standard_time_from_2100` | local | 04 §6.3, 07 T-M2-05, ADR-0011 |
+| 2026-10-28 | V-60 | partiel | l'endpoint token sandbox répond 200 : `token_type` `Bearer`, `expires_in` 3600, `scope` `openid resource.READ` ; les erreurs de l'endpoint token ne sont pas essayées | essai manuel de la recette de §2.2, aucune fixture | local, sandbox | — |
+| 2026-10-28 | V-65 | partiel | sans souscription à l'API Légifrance, un jeton valide donne 403 sur tous les appels ; après souscription, 200 sur `/search` ; la cause exacte d'un 403 en production n'est pas essayée | essai manuel de la recette de §2.2, aucune fixture | local, sandbox | CONTRIBUTING (identifiants PISTE) |
+| 2026-10-28 | V-66 | partiel | un `textId` bien formé mais inexistant donne 400 (validation de forme), pas 404 ; le 404 de ressource reste à observer | essai manuel de la recette de §2.2, aucune fixture | local, sandbox | — |
 
 **Inventaire des licences du graphe (V-25, plan 2c).** Généré le 2026-10-22 par `cargo deny --locked --all-features list` (cargo-deny 0.19.6), toutes plateformes, option A : 185 paquets (les paquets seulement dev-dependencies et les entrées de `Cargo.lock` non activées, `ring`, `zlib-rs`, `quinn*`…, n'en font pas partie ; `Cargo.lock` compte 248 entrées). Deux bases différentes, à ne pas mélanger : « Présents » vient de `cargo deny list` (dev-dependencies seules exclues) ; « Imposée par » compte les rejets observés en retirant la licence de `allow`, avec `include-dev = true` (dev-dependencies comprises, comme `deny.toml`).
 
