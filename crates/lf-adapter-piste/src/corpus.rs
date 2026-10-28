@@ -18,7 +18,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 
-use lf_application::ports::CorpusError;
+use lf_application::ports::{AuthOrigin, ConfigKind, CorpusError};
 use lf_domain::coverage::PisteEnvironment;
 use reqwest::Url;
 use secrecy::ExposeSecret;
@@ -207,8 +207,8 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     /// [`CorpusError::NotFound`] pour une consultation dont le 400 porte le marqueur d'un
     /// identifiant inconnu, dont le 404 vient de l'hôte officiel hors page HTML, ou dont le 2xx
     /// est vide ; sinon l'erreur classée de la dernière tentative (`Timeout`, `RateLimited`,
-    /// `Auth` (401 ou 403 non HTML), `Upstream`, `Decode`, dont le 2xx vide d'une recherche) ; enfin l'erreur de
-    /// `read`.
+    /// `Auth` (401 ou 403 non HTML), `Upstream`, `TooLarge` (corps au-delà de la borne), `Decode`,
+    /// dont le 2xx vide d'une recherche) ; enfin l'erreur de `read`.
     async fn post_json<T>(
         &self,
         kind: EndpointKind,
@@ -369,11 +369,15 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
 ///
 /// Problème d'adresses d'abord, identifiants absents ensuite ; aucune E/S.
 fn ready(config: &PisteConfig) -> Result<&PisteEndpoints, CorpusError> {
-    let endpoints = config
-        .endpoints()
-        .map_err(|problem| CorpusError::Config { detail: problem.to_string() })?;
+    let endpoints = config.endpoints().map_err(|problem| CorpusError::Config {
+        kind: ConfigKind::Settings,
+        detail: problem.to_string(),
+    })?;
     if config.credentials().is_none() {
-        return Err(CorpusError::Config { detail: CREDENTIALS_MISSING.to_owned() });
+        return Err(CorpusError::Config {
+            kind: ConfigKind::CredentialsMissing,
+            detail: CREDENTIALS_MISSING.to_owned(),
+        });
     }
     Ok(endpoints)
 }
@@ -414,9 +418,14 @@ fn without_secrets(error: CorpusError, lease: &TokenLease, config: &PisteConfig)
     }
 }
 
-/// Erreur finale d'un 401 qui se répète après le renouvellement du jeton.
+/// Erreur finale d'un 401 qui se répète après le renouvellement du jeton : un refus de l'API, au
+/// statut reçu (le second 401).
 fn auth_twice(endpoint: &str, env: PisteEnvironment) -> CorpusError {
-    CorpusError::Auth { detail: format!("API returned 401 twice on {endpoint} ({env})") }
+    CorpusError::Auth {
+        origin: AuthOrigin::Api,
+        status: Some(401),
+        detail: format!("API returned 401 twice on {endpoint} ({env})"),
+    }
 }
 
 #[cfg(test)]
@@ -445,6 +454,25 @@ mod tests {
     const BODY: &[u8] = br#"{"textId":"JURITEXT000000000001"}"#;
     const MISSING: &str = "PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET (from your piste.gouv.fr application, section OAuth Credentials)";
     const SANDBOX: PisteEnvironment = PisteEnvironment::Sandbox;
+
+    /// Erreur finale d'un second 401 de l'API sur `ENDPOINT`.
+    fn api_401_twice() -> CorpusError {
+        CorpusError::Auth {
+            origin: AuthOrigin::Api,
+            status: Some(401),
+            detail: "API returned 401 twice on /consult/juri (sandbox)".to_owned(),
+        }
+    }
+
+    /// Identifiants absents : message de parité, sans E/S.
+    fn missing() -> CorpusError {
+        CorpusError::Config { kind: ConfigKind::CredentialsMissing, detail: MISSING.to_owned() }
+    }
+
+    /// Valeur réglée refusée (mode dégradé) ou client non constructible.
+    fn settings(detail: String) -> CorpusError {
+        CorpusError::Config { kind: ConfigKind::Settings, detail }
+    }
 
     type TestCorpus = PisteCorpus<ManualClock, RecordingSleeper>;
 
@@ -674,17 +702,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_401_twice_maps_to_auth() {
+    async fn second_401_is_auth_api_with_status_401() {
         let rig = Rig::new().await;
         token_mock(&rig.server, "tok-1", 1).await;
         token_mock(&rig.server, "tok-2", 1).await;
         api_mock(&rig.server, ResponseTemplate::new(401), 2).await;
-        assert_eq!(
-            rig.call().await,
-            Err(CorpusError::Auth {
-                detail: "API returned 401 twice on /consult/juri (sandbox)".to_owned()
-            })
-        );
+        assert_eq!(rig.call().await, Err(api_401_twice()));
         assert_eq!((rig.tokens().await, rig.apis().await), (2, 2));
         assert_eq!(rig.sleeper.waits(), Vec::<Duration>::new());
     }
@@ -697,12 +720,7 @@ mod tests {
         api_mock(&rig.server, ResponseTemplate::new(401), 1).await;
         api_mock(&rig.server, ResponseTemplate::new(503), 1).await;
         api_mock(&rig.server, ResponseTemplate::new(401), 1).await;
-        assert_eq!(
-            rig.call().await,
-            Err(CorpusError::Auth {
-                detail: "API returned 401 twice on /consult/juri (sandbox)".to_owned()
-            })
-        );
+        assert_eq!(rig.call().await, Err(api_401_twice()));
         assert_eq!((rig.tokens().await, rig.apis().await), (2, 3));
     }
 
@@ -1081,11 +1099,12 @@ mod tests {
     // ---- Mode dégradé (04 §2.4) ----------------------------------------------------------
 
     #[tokio::test]
-    async fn missing_credentials_makes_no_network_call() {
+    async fn missing_credentials_is_config_credentials_missing() {
+        // Sans le moindre appel réseau (mode dégradé, 04 §2.4).
         let rig = Rig::tuned(|setup| setup.credentials = None).await;
         never(&rig.server, TOKEN_PATH).await;
         never(&rig.server, API_PATH).await;
-        assert_eq!(rig.call().await, Err(CorpusError::Config { detail: MISSING.to_owned() }));
+        assert_eq!(rig.call().await, Err(missing()));
         assert_untouched(&rig).await;
         assert!(!rig.corpus.has_credentials());
         assert_eq!(rig.corpus.config_problem(), None);
@@ -1094,7 +1113,7 @@ mod tests {
     #[tokio::test]
     async fn config_problem_starts_in_degraded_mode() {
         let problem = ConfigProblem::EnvMismatch {
-            setting: "base URL",
+            variable: "LF_PISTE_BASE_URL",
             host: "api.piste.gouv.fr".to_owned(),
             env: PisteEnvironment::Sandbox,
             host_env: PisteEnvironment::Production,
@@ -1102,7 +1121,7 @@ mod tests {
         let rig = Rig::tuned(|setup| setup.problem = Some(problem.clone())).await;
         never(&rig.server, TOKEN_PATH).await;
         never(&rig.server, API_PATH).await;
-        assert_eq!(rig.call().await, Err(CorpusError::Config { detail: problem.to_string() }));
+        assert_eq!(rig.call().await, Err(settings(problem.to_string())));
         assert_untouched(&rig).await;
         assert_eq!(rig.corpus.config_problem(), Some(&problem));
         assert!(rig.corpus.has_credentials());
@@ -1141,11 +1160,10 @@ mod tests {
         let rig = Rig::tuned(|setup| setup.user_agent = "bad\nagent".to_owned()).await;
         assert_eq!(
             rig.call().await,
-            Err(CorpusError::Config {
-                detail:
-                    "could not build the HTTP client: builder error: failed to parse header value"
-                        .to_owned()
-            })
+            Err(settings(
+                "could not build the HTTP client: builder error: failed to parse header value"
+                    .to_owned()
+            ))
         );
         assert_untouched(&rig).await;
     }
@@ -1165,6 +1183,8 @@ mod tests {
 
     fn rejected() -> CorpusError {
         CorpusError::Auth {
+            origin: AuthOrigin::Token,
+            status: Some(401),
             detail:
                 "OAuth token request rejected: HTTP 401, error invalid_client, environment sandbox"
                     .to_owned(),
@@ -1184,17 +1204,11 @@ mod tests {
         let problem = ConfigProblem::InsecureScheme { setting: "OAuth URL" };
         let rig = Rig::tuned(|setup| setup.credentials = None).await;
         never(&rig.server, TOKEN_PATH).await;
-        assert_eq!(
-            rig.corpus.check_credentials().await,
-            Err(CorpusError::Config { detail: MISSING.to_owned() })
-        );
+        assert_eq!(rig.corpus.check_credentials().await, Err(missing()));
         assert_untouched(&rig).await;
         let rig = Rig::tuned(|setup| setup.problem = Some(problem.clone())).await;
         never(&rig.server, TOKEN_PATH).await;
-        assert_eq!(
-            rig.corpus.check_credentials().await,
-            Err(CorpusError::Config { detail: problem.to_string() })
-        );
+        assert_eq!(rig.corpus.check_credentials().await, Err(settings(problem.to_string())));
         assert_untouched(&rig).await;
     }
 
@@ -1517,7 +1531,7 @@ mod tests {
             .await;
         assert_eq!(
             rig.call().await,
-            Err(CorpusError::Decode {
+            Err(CorpusError::TooLarge {
                 detail: "response too large (> 1000 bytes) on /consult/juri".to_owned()
             })
         );
@@ -1794,14 +1808,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_404_on_a_custom_host_is_config_for_every_kind() {
+    async fn api_404_routing_is_config_api_endpoint() {
+        // 404 sur un hôte personnalisé, pour une consultation comme pour une recherche : un
+        // problème d'adresse (`LF_PISTE_BASE_URL`), jamais « introuvable » (04 §11.2 règle 4).
         for (kind, endpoint) in
             [(EndpointKind::Consult, ENDPOINT), (EndpointKind::Search, "/search")]
         {
             let (rig, result) = call_once(kind, endpoint, ResponseTemplate::new(404)).await;
             assert_eq!(
                 result,
-                Err(CorpusError::Config { detail: format!("HTTP 404 on {endpoint}") }),
+                Err(CorpusError::Config {
+                    kind: ConfigKind::ApiEndpoint,
+                    detail: format!("HTTP 404 on {endpoint}")
+                }),
                 "{endpoint}"
             );
             let route = format!("{API_BASE}{endpoint}");

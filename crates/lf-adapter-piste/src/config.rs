@@ -6,9 +6,15 @@
 //! construire une [`PisteConfig`] : il reste dans `endpoints` et met le serveur en mode
 //! dégradé (04 §2.4, D-39).
 //!
-//! Aucun message d'erreur ne recopie un morceau de l'entrée (une URL surchargée peut
-//! porter des identifiants) : seuls l'hôte officiel, l'hôte d'une surcharge dans
-//! [`ConfigWarning::CustomHost`] et la raison fixe de l'analyseur d'URL y figurent.
+//! Aucun message d'erreur ne recopie un morceau d'une URL (une URL surchargée peut porter des
+//! identifiants) : seuls l'hôte officiel, l'hôte d'une surcharge dans
+//! [`ConfigWarning::CustomHost`] et la raison fixe de l'analyseur d'URL y figurent. Seule valeur
+//! citée : celle de `LF_PISTE_ENV` refusée ([`ConfigProblem::InvalidEnv`], texte de 05 §7.2),
+//! bornée et échappée.
+//!
+//! Le `Display` d'un [`ConfigProblem`] devient le `detail` de `CorpusError::Config` de nature
+//! `Settings`, que `lf-application::messages` rend tel quel au modèle : les textes que 05 §7.2
+//! fixe (`InvalidEnv`, `EnvMismatch`) y sont repris au caractère près, point final compris.
 
 use std::num::{NonZeroU16, NonZeroU32};
 use std::time::Duration;
@@ -43,6 +49,8 @@ const RATE_BURST: NonZeroU32 = NonZeroU32::new(10).unwrap();
 const MAX_CONCURRENCY: NonZeroU16 = NonZeroU16::new(4).unwrap();
 /// Taille maximale d'un corps de réponse (00 §8).
 const MAX_BODY_BYTES: u64 = 16 * 1024 * 1024;
+/// Caractères d'une valeur citée dans un message, au plus (03 §2.7 : même borne que le domaine).
+const SHOWN_MAX_CHARS: usize = 64;
 
 /// Hôte officiel de PISTE.
 struct OfficialHost {
@@ -83,6 +91,15 @@ impl Role {
             Self::Base => "base URL",
         }
     }
+
+    /// Variable d'environnement de l'URL, que nomme le message d'[`ConfigProblem::EnvMismatch`]
+    /// (05 §7.2 : il demande de corriger `LF_PISTE_ENV` ou cette URL).
+    fn variable(self) -> &'static str {
+        match self {
+            Self::Oauth => "LF_PISTE_OAUTH_URL",
+            Self::Base => "LF_PISTE_BASE_URL",
+        }
+    }
 }
 
 /// Avertissement sur une URL surchargée acceptée.
@@ -108,9 +125,16 @@ pub enum ConfigWarning {
     },
 }
 
-/// URL surchargée refusée : le serveur passe en mode dégradé.
+/// Réglage refusé (valeur de `LF_PISTE_ENV`, URL surchargée) : le serveur passe en mode dégradé.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ConfigProblem {
+    /// Valeur de `LF_PISTE_ENV` qui n'est ni `sandbox` ni `production` (04 §2.2), construite par
+    /// `lf-app`, seul à lire l'environnement. Texte de 05 §7.2.
+    #[error("LF_PISTE_ENV='{}' is invalid: expected sandbox or production.", shown(.value))]
+    InvalidEnv {
+        /// Valeur lue, citée bornée et échappée.
+        value: String,
+    },
     /// Texte qui n'est pas une URL.
     #[error("invalid {setting}: {reason}")]
     InvalidUrl {
@@ -133,14 +157,16 @@ pub enum ConfigProblem {
         /// Partie refusée : `credentials`, `query` ou `fragment`.
         part: &'static str,
     },
-    /// Hôte officiel d'un autre environnement que celui configuré.
+    /// Hôte officiel d'un autre environnement que celui configuré. Texte de 05 §7.2 : la
+    /// variable à corriger, sans l'hôte, et aucune déduction implicite de l'environnement.
     #[error(
-        "{setting} host {host} belongs to the {host_env} environment but the environment is \
-         {env}: set LF_PISTE_ENV={host_env} or fix the URL"
+        "{variable} points to the PISTE {host_env} host but LF_PISTE_ENV is {env}: \
+         set LF_PISTE_ENV={host_env}, or fix the URL."
     )]
     EnvMismatch {
-        /// Libellé de l'URL concernée.
-        setting: &'static str,
+        /// Variable d'environnement de l'URL concernée : `LF_PISTE_OAUTH_URL` ou
+        /// `LF_PISTE_BASE_URL`.
+        variable: &'static str,
         /// Hôte officiel de l'URL.
         host: String,
         /// Environnement configuré.
@@ -156,6 +182,13 @@ pub enum ConfigProblem {
         /// Hôte API officiel de l'URL.
         host: String,
     },
+}
+
+/// Valeur citée dans un message, comme le `repr()` le plus courant (E-27) : au plus
+/// [`SHOWN_MAX_CHARS`] caractères, contrôles, apostrophes et barres obliques inverses échappés.
+/// Une valeur hostile ne casse ni la citation ni la ligne de journal, et reste bornée.
+fn shown(value: &str) -> String {
+    value.chars().take(SHOWN_MAX_CHARS).flat_map(char::escape_debug).collect()
 }
 
 /// Adresses de l'adapter : jeton OAuth et base de l'API.
@@ -259,7 +292,7 @@ fn check_url(env: PisteEnvironment, role: Role, raw: &str) -> Result<Checked, Co
     let host = url.host_str().unwrap_or_default();
     let host = host.strip_suffix('.').unwrap_or(host).to_owned();
     let official = OFFICIAL_HOSTS.iter().find(|official| official.host == host);
-    check_env(setting, env, &host, official)?;
+    check_env(role, env, &host, official)?;
     if matches!(role, Role::Base) {
         trim_trailing_slashes(&mut url);
     }
@@ -301,14 +334,14 @@ fn check_parts(setting: &'static str, url: &Url) -> Result<(), ConfigProblem> {
 /// Refuse un hôte officiel d'un autre environnement que `env` ; l'hôte ne sert jamais à
 /// déduire l'environnement.
 fn check_env(
-    setting: &'static str,
+    role: Role,
     env: PisteEnvironment,
     host: &str,
     official: Option<&OfficialHost>,
 ) -> Result<(), ConfigProblem> {
     match official {
         Some(official) if official.env != env => Err(ConfigProblem::EnvMismatch {
-            setting,
+            variable: role.variable(),
             host: host.to_owned(),
             env,
             host_env: official.env,
@@ -743,7 +776,7 @@ mod tests {
         assert_eq!(
             PisteEndpoints::with_overrides(SANDBOX, Some(SANDBOX_OAUTH), Some(PRODUCTION_API)),
             Err(ConfigProblem::EnvMismatch {
-                setting: "base URL",
+                variable: "LF_PISTE_BASE_URL",
                 host: "api.piste.gouv.fr".to_owned(),
                 env: SANDBOX,
                 host_env: PRODUCTION,
@@ -756,7 +789,7 @@ mod tests {
         assert_eq!(
             problem,
             ConfigProblem::EnvMismatch {
-                setting: "OAuth URL",
+                variable: "LF_PISTE_OAUTH_URL",
                 host: "sandbox-oauth.piste.gouv.fr".to_owned(),
                 env: PRODUCTION,
                 host_env: SANDBOX,
@@ -768,7 +801,7 @@ mod tests {
         assert_eq!(
             base_problem(PRODUCTION, "https://sandbox-api.piste.gouv.fr/autre"),
             ConfigProblem::EnvMismatch {
-                setting: "base URL",
+                variable: "LF_PISTE_BASE_URL",
                 host: "sandbox-api.piste.gouv.fr".to_owned(),
                 env: PRODUCTION,
                 host_env: SANDBOX,
@@ -797,7 +830,7 @@ mod tests {
             assert_eq!(
                 problem,
                 ConfigProblem::EnvMismatch {
-                    setting: if base { "base URL" } else { "OAuth URL" },
+                    variable: if base { "LF_PISTE_BASE_URL" } else { "LF_PISTE_OAUTH_URL" },
                     host: if base { "api.piste.gouv.fr" } else { "oauth.piste.gouv.fr" }.to_owned(),
                     env: SANDBOX,
                     host_env: PRODUCTION,
@@ -808,7 +841,7 @@ mod tests {
         assert_eq!(
             base_problem(PRODUCTION, &dotted(SANDBOX_API)),
             ConfigProblem::EnvMismatch {
-                setting: "base URL",
+                variable: "LF_PISTE_BASE_URL",
                 host: "sandbox-api.piste.gouv.fr".to_owned(),
                 env: PRODUCTION,
                 host_env: SANDBOX,
@@ -845,26 +878,32 @@ mod tests {
     #[test]
     fn config_env_mismatch_on_production_host_with_default_env() {
         let cases = [
-            (Some(PRODUCTION_OAUTH), Some(PRODUCTION_API), "OAuth URL", "oauth.piste.gouv.fr"),
-            (Some(PRODUCTION_OAUTH), None, "OAuth URL", "oauth.piste.gouv.fr"),
-            (None, Some(PRODUCTION_API), "base URL", "api.piste.gouv.fr"),
+            (
+                Some(PRODUCTION_OAUTH),
+                Some(PRODUCTION_API),
+                "LF_PISTE_OAUTH_URL",
+                "oauth.piste.gouv.fr",
+            ),
+            (Some(PRODUCTION_OAUTH), None, "LF_PISTE_OAUTH_URL", "oauth.piste.gouv.fr"),
+            (None, Some(PRODUCTION_API), "LF_PISTE_BASE_URL", "api.piste.gouv.fr"),
         ];
-        for (oauth, base, setting, host) in cases {
+        for (oauth, base, variable, host) in cases {
             let problem = PisteEndpoints::with_overrides(SANDBOX, oauth, base).unwrap_err();
             assert_eq!(
                 problem,
                 ConfigProblem::EnvMismatch {
-                    setting,
+                    variable,
                     host: host.to_owned(),
                     env: SANDBOX,
                     host_env: PRODUCTION,
                 }
             );
+            // Texte de 05 §7.2, rendu tel quel au modèle : la variable, jamais l'hôte ni l'URL.
             assert_eq!(
                 problem.to_string(),
                 format!(
-                    "{setting} host {host} belongs to the production environment but the \
-                     environment is sandbox: set LF_PISTE_ENV=production or fix the URL"
+                    "{variable} points to the PISTE production host but LF_PISTE_ENV is sandbox: \
+                     set LF_PISTE_ENV=production, or fix the URL."
                 )
             );
             assert_eq!(
@@ -1143,6 +1182,40 @@ mod tests {
         assert_eq!(
             ConfigProblem::ForbiddenPart { setting: "base URL", part: "query" }.to_string(),
             "base URL must not contain query"
+        );
+    }
+
+    /// Le `Display` d'un `ConfigProblem` est le `detail` de `CorpusError::Config { kind: Settings }`,
+    /// que `lf-application::messages` rend tel quel au modèle : les deux textes de 05 §7.2, au
+    /// caractère près, point final compris.
+    #[test]
+    fn env_invalid_and_env_mismatch_display_match_05_7_2() {
+        assert_eq!(
+            ConfigProblem::InvalidEnv { value: "prod".to_owned() }.to_string(),
+            "LF_PISTE_ENV='prod' is invalid: expected sandbox or production."
+        );
+        assert_eq!(
+            base_problem(SANDBOX, PRODUCTION_API).to_string(),
+            "LF_PISTE_BASE_URL points to the PISTE production host but LF_PISTE_ENV is sandbox: \
+             set LF_PISTE_ENV=production, or fix the URL."
+        );
+        assert_eq!(
+            oauth_problem(PRODUCTION, SANDBOX_OAUTH).to_string(),
+            "LF_PISTE_OAUTH_URL points to the PISTE sandbox host but LF_PISTE_ENV is production: \
+             set LF_PISTE_ENV=sandbox, or fix the URL."
+        );
+    }
+
+    #[test]
+    fn an_invalid_env_value_is_quoted_escaped_and_clipped() {
+        // Ni retour à la ligne (journal), ni apostrophe nue (citation), ni valeur sans fin.
+        let value = format!("x'\n{}", "y".repeat(100));
+        assert_eq!(
+            ConfigProblem::InvalidEnv { value }.to_string(),
+            format!(
+                "LF_PISTE_ENV='x\\'\\n{}' is invalid: expected sandbox or production.",
+                "y".repeat(61)
+            )
         );
     }
 }

@@ -200,6 +200,8 @@ mod tests {
     use wiremock::matchers::{any, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    use lf_application::ports::{AuthOrigin, ConfigKind};
+
     use super::*;
     use crate::classify::{EndpointKind, ErrorContext, try_send};
     use crate::config::{PisteConfig, PisteEndpoints};
@@ -496,7 +498,11 @@ mod tests {
 
     #[tokio::test]
     async fn an_unauthorized_reaching_the_loop_is_final() {
-        let auth = CorpusError::Auth { detail: "HTTP 401 on /consult/juri".to_owned() };
+        let auth = CorpusError::Auth {
+            origin: AuthOrigin::Api,
+            status: Some(401),
+            detail: "HTTP 401 on /consult/juri".to_owned(),
+        };
         let run = drive_plain(vec![Outcome::Unauthorized(auth.clone())]).await;
         assert_eq!((run.result, run.calls, run.waits), (Err(auth), 1, vec![]));
     }
@@ -873,7 +879,11 @@ mod tests {
         let rig = Rig::new(&server.uri());
         assert_eq!(
             call(&rig).await,
-            Err(CorpusError::Auth { detail: "HTTP 403 on /consult/juri".to_owned() })
+            Err(CorpusError::Auth {
+                origin: AuthOrigin::Api,
+                status: Some(403),
+                detail: "HTTP 403 on /consult/juri".to_owned()
+            })
         );
     }
 
@@ -884,7 +894,11 @@ mod tests {
         let rig = Rig::new(&server.uri());
         assert_eq!(
             call(&rig).await,
-            Err(CorpusError::Auth { detail: "HTTP 401 on /consult/juri".to_owned() })
+            Err(CorpusError::Auth {
+                origin: AuthOrigin::Api,
+                status: Some(401),
+                detail: "HTTP 401 on /consult/juri".to_owned()
+            })
         );
         assert_eq!(requests(&server).await, 1);
     }
@@ -896,7 +910,10 @@ mod tests {
         let rig = Rig::new(&server.uri());
         assert_eq!(
             call(&rig).await,
-            Err(CorpusError::Config { detail: "HTTP 404 on /consult/juri".to_owned() })
+            Err(CorpusError::Config {
+                kind: ConfigKind::ApiEndpoint,
+                detail: "HTTP 404 on /consult/juri".to_owned()
+            })
         );
     }
 
@@ -921,7 +938,10 @@ mod tests {
         let rig = Rig::new(&server.uri());
         assert_eq!(
             call_with(&rig, &OFFICIAL_CONSULT).await,
-            Err(CorpusError::Config { detail: "HTTP 404 on /consult/juri".to_owned() })
+            Err(CorpusError::Config {
+                kind: ConfigKind::ApiEndpoint,
+                detail: "HTTP 404 on /consult/juri".to_owned()
+            })
         );
     }
 
@@ -933,7 +953,10 @@ mod tests {
         let search = ErrorContext { kind: EndpointKind::Search, ..OFFICIAL_CONSULT };
         assert_eq!(
             call_with(&rig, &search).await,
-            Err(CorpusError::Config { detail: "HTTP 404 on /consult/juri".to_owned() })
+            Err(CorpusError::Config {
+                kind: ConfigKind::ApiEndpoint,
+                detail: "HTTP 404 on /consult/juri".to_owned()
+            })
         );
     }
 
