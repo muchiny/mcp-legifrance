@@ -11,12 +11,27 @@ publish.workspace = true
 [dependencies]
 lf-domain.workspace = true
 thiserror.workspace = true
-# rt : pour task_local! seulement (Deadline) ; time : Instant (R2)
-tokio = { workspace = true, features = ["rt", "time"] }
+chrono.workspace = true
+tracing.workspace = true
+# rt : pour task_local! seulement (Deadline) ; time : Instant et timeout (R2) ; macros : select!
+tokio = { workspace = true, features = ["rt", "time", "macros"] }
+
+[features]
+# Doublures de test (FakeCorpus, FakeAuditLog, FixedClock, ...) à partir de la tâche 3 du plan 3a.
+# Jamais activée en dépendance normale : `cargo xtask check-arch` (R9) ne l'admet que dans les
+# `[dev-dependencies]` des autres membres.
+test-support = []
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+tracing-subscriber.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
+
+# `tracing` et `tracing-subscriber` (dev) n'ont pas encore d'utilisateur : `Audited` (plan 3a,
+# tâche 4) émet les événements `tracing` et ses tests les capturent. À retirer si une tâche
+# ultérieure rend l'exception inutile.
+[package.metadata.cargo-machete]
+ignored = ["tracing", "tracing-subscriber"]
 
 [lints]
 workspace = true

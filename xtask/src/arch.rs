@@ -13,7 +13,7 @@
 //!   `DOMAIN_ALLOWED` (`thiserror` seul, décision C3) ;
 //! - R2 : `lf-application` ne dépend en interne que de `lf-domain`, et en externe
 //!   de la liste fermée `APPLICATION_ALLOWED` ; les features qu'elle active sur
-//!   `tokio` et `chrono` sont bornées par `APPLICATION_FEATURES` (`default`
+//!   `tokio`, `chrono` et `tracing` sont bornées par `APPLICATION_FEATURES` (`default`
 //!   comprise : le workspace déclare `default-features = false`), lues dans
 //!   les déclarations de dépendance et dans la table `[features]` du membre
 //!   (`dep/feat`, `dep?/feat`) ;
@@ -33,6 +33,11 @@
 //!   (`dev_adapters` à `false`) ne prennent aucun adapter ni `mcp-legifrance`,
 //!   message `{membre} must not depend on {dep} even in dev-dependencies` ;
 //!   les autres membres (`dev_adapters` à `true`) n'ont pas cette limite ;
+//! - R9 : aucun membre n'active, en dépendance
+//!   normale ou par sa table `[features]`, une feature de `DEV_ONLY_FEATURES`
+//!   (`lf-application/test-support`), message `{membre} must not enable {dep}
+//!   feature {feature} (dev-dependencies only)` ; en `[dev-dependencies]` elle
+//!   reste permise (`cargo metadata` classe ces dépendances à part) ;
 //! - étape 5 : seuls `mcp-legifrance` et `xtask` ont une cible `bin` (5f) ;
 //!   `version`, `edition`, `rust-version` et `license` égalent ceux de
 //!   `lf-domain` (5a-5d : `cargo metadata` ne montre pas l'héritage de
@@ -101,8 +106,12 @@ const APPLICATION_ALLOWED: [&str; 6] =
 
 /// Features admises par dépendance dans `lf-application` (R2) : `rt` pour
 /// `task_local!` seulement ; `chrono` sans `clock` ni `now`.
-const APPLICATION_FEATURES: [(&str, &[&str]); 2] =
-    [("tokio", &["time", "macros", "rt"]), ("chrono", &["std"])];
+const APPLICATION_FEATURES: [(&str, &[&str]); 3] =
+    [("tokio", &["time", "macros", "rt"]), ("chrono", &["std"]), ("tracing", &["std"])];
+
+/// Feature réservée aux dépendances de développement (R9) : `(crate, feature)`. Les
+/// doublures de `lf-application` (`test-support`) ne doivent jamais entrer dans un binaire.
+const DEV_ONLY_FEATURES: [(&str, &str); 1] = [("lf-application", "test-support")];
 
 /// Crates confinés (R6) : chacun avec les seuls membres autorisés à le déclarer
 /// en dépendance normale (leurs « portes »). `backon` reste ici même si
@@ -272,6 +281,17 @@ fn member_violations(p: &Package, rule: &CrateRule, domain: Option<&Package>) ->
             .filter(move |feature| allowed.is_some_and(|list| !list.contains(&feature.as_str())))
             .map(move |feature| format!("{} must not enable {dep} feature {feature}", p.name))
     });
+    let dev_only = DEV_ONLY_FEATURES.iter().flat_map(|(owner, feature)| {
+        p.features
+            .iter()
+            .filter(move |(dep, enabled)| dep == owner && enabled.iter().any(|f| f == feature))
+            .map(move |_| {
+                format!(
+                    "{} must not enable {owner} feature {feature} (dev-dependencies only)",
+                    p.name
+                )
+            })
+    });
     let targets = [("bin", rule.bin), ("lib", rule.lib)]
         .into_iter()
         .filter(|(kind, allowed)| !allowed && p.targets.iter().any(|t| t == kind))
@@ -282,6 +302,7 @@ fn member_violations(p: &Package, rule: &CrateRule, domain: Option<&Package>) ->
         .chain(renamed)
         .chain(dev)
         .chain(features)
+        .chain(dev_only)
         .chain(targets)
         .chain(lints)
         .chain(domain.into_iter().flat_map(|d| workspace_violations(p, d)))
@@ -771,6 +792,18 @@ mod tests {
                 "lf-application must not enable tokio feature net",
             ),
             (
+                "R9",
+                vec![
+                    domain(),
+                    enabling(
+                        pkg("lf-adapter-mcp", &["lf-application"]),
+                        &[("lf-application", &["test-support"])],
+                    ),
+                ],
+                "lf-adapter-mcp must not enable lf-application feature test-support \
+                 (dev-dependencies only)",
+            ),
+            (
                 "5e",
                 vec![domain(), Package { lints_workspace: false, ..pkg("lf-application", &[]) }],
                 "lf-application must declare [lints] workspace = true",
@@ -1253,17 +1286,18 @@ mod tests {
     #[test]
     fn application_features_are_bounded() {
         let bounded = enabling(
-            pkg("lf-application", &["tokio", "chrono"]),
-            &[("tokio", &["time", "macros", "rt"]), ("chrono", &["std"])],
+            pkg("lf-application", &["tokio", "chrono", "tracing"]),
+            &[("tokio", &["time", "macros", "rt"]), ("chrono", &["std"]), ("tracing", &["std"])],
         );
         let unbounded =
             enabling(pkg("lf-adapter-piste", &["tokio"]), &[("tokio", &["full", "default"])]);
         assert_eq!(violations(&[pkg("lf-domain", &[]), bounded, unbounded]), Vec::<String>::new());
         let wide = enabling(
-            pkg("lf-application", &["tokio", "chrono", "thiserror"]),
+            pkg("lf-application", &["tokio", "chrono", "tracing", "thiserror"]),
             &[
                 ("tokio", &["rt", "rt-multi-thread", "time"]),
                 ("chrono", &["std", "clock", "default"]),
+                ("tracing", &["std", "attributes"]),
                 ("thiserror", &["default"]),
             ],
         );
@@ -1273,6 +1307,7 @@ mod tests {
                 "lf-application must not enable tokio feature rt-multi-thread",
                 "lf-application must not enable chrono feature clock",
                 "lf-application must not enable chrono feature default",
+                "lf-application must not enable tracing feature attributes",
             ]
         );
     }
@@ -1307,6 +1342,58 @@ mod tests {
             violations(&graph),
             ["lf-application must not enable tokio feature rt-multi-thread"]
         );
+    }
+
+    /// Manifeste de fixture à deux membres : `lf-adapter-mcp` prend `lf-application`
+    /// avec les `dependencies` données et les `features` de sa propre table.
+    fn adapter_taking_application(dependencies: &Value, features: &Value) -> Vec<String> {
+        let metadata = json!({
+            "workspace_members": ["a", "b"],
+            "packages": [
+                {
+                    "id": "a", "name": "lf-domain", "version": "0.0.0", "edition": "2024",
+                    "manifest_path": "/w/lf-domain/Cargo.toml", "targets": [],
+                    "dependencies": []
+                },
+                {
+                    "id": "b", "name": "lf-adapter-mcp", "version": "0.0.0", "edition": "2024",
+                    "manifest_path": "/w/lf-adapter-mcp/Cargo.toml", "targets": [],
+                    "dependencies": dependencies,
+                    "features": features
+                }
+            ]
+        });
+        let graph: Vec<Package> = workspace_packages(&metadata)
+            .unwrap()
+            .into_iter()
+            .map(|p| Package { lints_workspace: true, ..p })
+            .collect();
+        violations(&graph)
+    }
+
+    #[test]
+    fn test_support_is_only_for_dev_dependencies() {
+        let forbidden = ["lf-adapter-mcp must not enable lf-application feature test-support \
+              (dev-dependencies only)"];
+        // Activée sur la déclaration normale.
+        let normal = json!([
+            { "name": "lf-application", "kind": null, "features": ["test-support"],
+              "uses_default_features": false }
+        ]);
+        assert_eq!(adapter_taking_application(&normal, &json!({})), forbidden);
+        // Activée par la table `[features]` du membre (`dep/feat`).
+        let plain = json!([
+            { "name": "lf-application", "kind": null, "uses_default_features": false }
+        ]);
+        let table = json!({ "sneaky": ["lf-application/test-support"] });
+        assert_eq!(adapter_taking_application(&plain, &table), forbidden);
+        // Permise en dépendance de développement, y compris à côté d'une normale sans feature.
+        let both = json!([
+            { "name": "lf-application", "kind": null, "uses_default_features": false },
+            { "name": "lf-application", "kind": "dev", "features": ["test-support"],
+              "uses_default_features": false }
+        ]);
+        assert_eq!(adapter_taking_application(&both, &json!({})), Vec::<String>::new());
     }
 
     #[test]

@@ -932,10 +932,13 @@ dependencies = [
 name = "lf-application"
 version = "0.0.0"
 dependencies = [
+ "chrono",
  "lf-domain",
  "pretty_assertions",
  "thiserror",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
