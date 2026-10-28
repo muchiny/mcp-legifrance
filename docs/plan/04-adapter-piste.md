@@ -785,7 +785,7 @@ Règles :
 
 ### 6.8 Assainissement de la requête
 
-- La normalisation est faite **une fois**, par le domaine (`QueryText`, 03 §4.1) : `trim`, repli des blancs, retrait des caractères de contrôle, 1 à 500 caractères (borne du domaine, 03 §4.1, qui corrige D-32). **Limite réelle de l'API mesurée en sandbox le 2026-10-28** [V-81 · longueur-max-query] (09 §2.20) : 450 caractères passent, 499 donnent un 500 (même corps que V-69), donc la limite est entre 451 et 498 ; la borne de 500 est trop haute, ce que corrige la tâche C3 du plan 2h (Task 17). Un mot unique de 100 caractères donne un 403 HTML de la passerelle (page Apache de 199 octets, `text/html; charset=iso-8859-1`), que la tâche C4 distingue d'un refus d'accès à l'API (`classify`).
+- La normalisation est faite **une fois**, par le domaine (`QueryText`, 03 §4.1) : `trim`, repli des blancs, retrait des caractères de contrôle, 1 à 450 caractères (borne du domaine, 03 §4.1, qui corrige D-32). **Limite réelle de l'API mesurée en sandbox le 2026-10-28** [V-81 · longueur-max-query] (09 §2.20) : 450 caractères passent, 499 donnent un 500 (même corps que V-69), donc la limite est entre 451 et 498 ; la borne de 500 était trop haute : la tâche C3 du plan 2h (Task 17) la ramène à 450, borne conservatrice (l'intervalle 451-498 n'est pas sondé). Un mot unique de 100 caractères donne un 403 HTML de la passerelle (page Apache de 199 octets, `text/html; charset=iso-8859-1`), que la tâche C4 distingue d'un refus d'accès à l'API (`classify`).
 - L'adapter ne réécrit **pas** la requête. Il n'échappe rien, car la sérialisation JSON suffit à empêcher toute injection structurelle (recherche 02 D-32). Il ne retire ni guillemets ni opérateurs.
 - La syntaxe interne du moteur dans `valeur` (guillemets, jokers, `*` seul qui signifie « tout » d'après un exemple officiel JURI, `exemples…md:1045-1119`) est vérifiée en sandbox le 2026-10-28 pour les formes essayées [V-80 · syntaxe-moteur-valeur] (09 §2.20) : `*` seul rend tout le fonds (606 350 pour JURI), des guillemets valent `EXACTE` (86 213 pour « contrat de travail »), le joker de fin est actif (`contra*` 357 711), `ET` et `OU` ne sont pas des opérateurs (605 339 pour « contrat ET travail », plus que « contrat » seul) ; `AND` et `-mot` ne sont pas essayés. Une requête `*` est transmise telle quelle ; le résultat est borné par la pagination.
 - Le texte de la requête n'est **jamais** journalisé, seule sa longueur l'est (§12.5). C'est cohérent avec l'audit, qui ne garde qu'une empreinte.
@@ -1509,7 +1509,7 @@ Ni 429 ni `Retry-After` ne sont provoqués volontairement : ce serait contraire 
 | Profondeur JSON | 127 imbrications (défaut de serde_json) ; les champs non déclarés et les lecteurs tolérants y échappent | §8.5 |
 | Profondeur de TOC | 64 au domaine (03 §1.3) ; 63 côté adapter (62 ou 63 selon le contenu de la section la plus profonde) | §8.5 |
 | Éléments par document | 200 000 (`dto/budget.rs`, plan 2f, R11) ; `results` ≤ 100 résultats à la lecture, puis ≤ `page_size` au mapping | §8.5 |
-| Requête de recherche | 500 caractères | domaine (`QueryText`) |
+| Requête de recherche | 450 caractères | domaine (`QueryText`) |
 | Message d'erreur PISTE recopié | 200 caractères, pour une consultation seulement (le détail d'un 400 de `/search` est générique) | §11.2 |
 | `Retry-After` attendu | au plus 30 s (au-delà : refus d'attendre, échec immédiat), et toujours ≤ reste du délai | §5.2 |
 | Mémos | 1 024 et ~150 entrées | §12.3 |

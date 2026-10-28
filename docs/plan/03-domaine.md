@@ -357,7 +357,7 @@ pub fn status_of(etat: Option<&str>, juris_state: Option<&str>) -> Option<LegalS
 // livré (plan 2b, `crates/lf-domain/src/search.rs`) : champs privés, un accesseur par champ
 pub struct SearchQuery {
     fond: Fond,
-    text: QueryText,                 // trim + blancs repliés ; 1..=500 caractères (D-32) ; contrôles retirés
+    text: QueryText,                 // trim + blancs repliés ; 1..=450 caractères (D-32, V-81) ; contrôles retirés
     page: NonZeroU32,                // défaut 1
     page_size: PageSize,             // 1..=100, défaut 10
     mode: MatchMode,                 // Any (UN_DES_MOTS) | All | Exact ; défaut Any jusqu'à V-79, puis All si confirmé,
@@ -374,7 +374,7 @@ pub fn has_more(page: NonZeroU32, page_size: PageSize, total: u64) -> bool; // f
 ```
 
 - `SearchQuery` est `Eq + Hash`. Sa forme normalisée sert de clé au cache (00 §9). Parce que `version_date` est au jour près, deux recherches LODA identiques le même jour donnent la même clé. Cela corrige D-01 et E-06 : la référence mettait `singleDate=now_ms` dans la clé. Elle ne porte pas la `typePagination`, choisie par l'adapter (§3.1).
-- La borne de 500 caractères sur `query` est une proposition (D-32). La limite réelle côté API, mesurée en sandbox le 2026-10-28 [V-81 · longueur-max-query] (09 §2.20), est inférieure : 450 caractères sont acceptés, 499 donnent un 500, soit une limite entre 451 et 498 ; la tâche C3 du plan 2h (Task 17) aligne la borne du domaine.
+- La borne de `query` est de **450 caractères** (`QUERY_MAX_CHARS`), la proposition initiale de 500 (D-32) étant trop haute. Mesurée en sandbox le 2026-10-28 [V-81 · longueur-max-query] (09 §2.20) : 450 caractères sont acceptés, 499 donnent un 500, soit une limite réelle entre 451 et 498 ; l'intervalle n'a pas été sondé, 450 est donc la borne conservatrice (accepté à 450, refusé à 451), révisable par une sonde ultérieure (plan 2h, Task 17, C3).
 - `SearchQuery::new`, appelé par le cas d'usage, applique sans réseau les rejets de 00 §7, rendus en `invalid_arg` (messages de 05 §7.3) : `version_date` sur un fond qui n'est ni LODA ni CODE (`Fond::needs_version_date`) ; `date_from`/`date_to` sur un fond sans facette de date, soit CODE (`Fond::has_date_filter`) ; `date_from` > `date_to`, déjà refusé à la construction de `DateRange` (§6.1) ; `page × page_size > REACHABLE_RESULTS`, en arithmétique `checked`. La fenêtre de 10 000 résultats est supposée : **NON VÉRIFIÉ** [V-83 · pagination-profonde]. L'adapter n'en garde qu'une copie défensive (00 §5).
 
 **M6** : `NumberQuery`, `NumberKind` et `NumberValue` (recherche par numéro, `find_by_number`) vivent aussi dans `search.rs` (§4.11).

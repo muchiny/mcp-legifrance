@@ -604,7 +604,7 @@ Keyword search in one Légifrance fond (default LODA): laws and decrees (LODA), 
 
 | Nom | Type JSON | Requis | Défaut | Contraintes | Description (anglais) |
 |---|---|---|---|---|---|
-| `query` | string | oui | — | `trim` ; 1 à 500 caractères ; caractères de contrôle retirés (D-32) ; limite réelle de l'API entre 451 et 498 caractères, mesurée en sandbox le 2026-10-28 [V-81 · longueur-max-query] : la borne de 500 est ramenée par la tâche C3 du plan 2h (Task 17) | `Free-text query, e.g. "republique numerique".` |
+| `query` | string | oui | — | `trim` ; 1 à 450 caractères ; caractères de contrôle retirés (D-32) ; limite réelle de l'API entre 451 et 498 caractères, mesurée en sandbox le 2026-10-28 [V-81 · longueur-max-query] : la borne du domaine est ramenée à 450 (plan 2h, Task 17, C3) | `Free-text query, e.g. "republique numerique".` |
 | `fond` | string, `enum` des 8 fonds | non | `"LODA"` | `trim`, insensible à la casse (P-010) | `Fond to search (case-insensitive).` |
 | `match` | string, `enum ["any","all","exact"]` | non | `"any"` (adopté par défaut, Q10 : parité jusqu'à V-79 en M2 ; passage à `all` si V-79 confirme la sémantique « tous les mots dans un champ quelconque » et un rappel acceptable sur les 9 scénarios de la référence ; décision consignée avant le verrou des descripteurs de M4) | `any` → `UN_DES_MOTS`, `all` → `TOUS_LES_MOTS_DANS_UN_CHAMP`, `exact` → `EXACTE` (00 §8) ; sens de `all` avec `typeChamp = ALL` **NON VÉRIFIÉ** [V-79 · mode-all-semantique] | `"any": any word (default); "all": all words; "exact": exact phrase.` (le défaut cité suit Q10) |
 | `page` | integer | non | 1 | ≥ 1 ; `page × page_size ≤ 10 000` (limite de fenêtre Elasticsearch supposée, recherche 05 et [04-adapter-piste.md](04-adapter-piste.md) §6.7 : **NON VÉRIFIÉ** [V-83 · pagination-profonde]) | `Page number, from 1.` |
@@ -1385,7 +1385,7 @@ Les messages de parité gardent la première phrase de la référence (`server.p
 |---|---|---|
 | `fond` | inconnu | `fond='XYZ' must be one of ['ACCO', 'CETAT', 'CNIL', 'CODE', 'CONSTIT', 'JURI', 'KALI', 'LODA'].` (parité ; liste triée ; `JORF` ajouté si la surface JORF est retenue à l'ouverture de M7, 00 §4) |
 | `query` | vide | `query is required.` (parité) |
-| `query` | trop long | `query is too long (612 characters, max 500); shorten it or use match="all".` |
+| `query` | trop long | `query is too long (612 characters, max 450); shorten it or use match="all".` |
 | `page_size` | hors bornes | `page_size=0 out of range (1..100).` (parité) |
 | `page` | < 1 ou trop profond | `page=0 out of range (1..).` ; `page=200 with page_size=100 goes beyond the 10000 reachable results; narrow the query with match or date_from/date_to.` |
 | `match`, `detail` | inconnu | `match='or' must be one of ['all', 'any', 'exact'].` ; `detail='long' must be one of ['full', 'summary'].` |

@@ -919,7 +919,7 @@ pub struct VersionDate(CivilDate);                // au jour près : stabilise l
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SearchQuery {                           // Eq + Hash : clé de cache (§7.2) ; construit par SearchQuery::new
     pub fond: Fond,
-    pub text: QueryText,                           // trim, 1..=500 caractères, sans caractères de contrôle (D-32)
+    pub text: QueryText,                           // trim, 1..=450 caractères, sans caractères de contrôle (D-32, V-81)
     pub page: std::num::NonZeroU32,                // défaut 1 ; page × page_size ≤ REACHABLE_RESULTS = 10 000 (V-83)
     pub page_size: PageSize,                       // 1..=100, défaut 10
     pub mode: MatchMode,

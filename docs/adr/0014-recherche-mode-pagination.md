@@ -45,7 +45,7 @@
    - sans mémo (redémarrage, autre processus) : `ARTICLE` pour CODE en page > 1, `DEFAUT` sinon (04 §6.6) ;
    - si les mesures de M5 montrent que le mémo ne suffit pas (V-82), on ajoutera un paramètre opaque `pagination`, classé comme « ajout » (05 §13.1 n° 7).
 5. **Une recherche vide est un succès** `{"total":0,"page":1,"has_more":false,"hits":[]}`, jamais `not_found` (parité E-04).
-6. **Requête normalisée par le domaine** (`QueryText`) : trim, blancs repliés, caractères de contrôle retirés, 1 à 500 caractères (D-32).
+6. **Requête normalisée par le domaine** (`QueryText`) : trim, blancs repliés, caractères de contrôle retirés, 1 à 450 caractères (D-32 ; borne ramenée de 500 à 450 par V-81).
 7. **Le défaut et la manière d'obtenir la suite** figurent dans la description de `fr_search` et dans les instructions. Ils ne sont pas répétés dans chaque réponse ([ADR-0006](0006-sortie-compacte-retour-progressif.md)).
 
 ## Critère pour trancher Q10
