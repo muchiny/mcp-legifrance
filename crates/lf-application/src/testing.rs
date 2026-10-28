@@ -656,7 +656,7 @@ mod tests {
         assert!(write.as_mut().poll(&mut cx).is_ready());
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn gated_audit_log_wakes_a_waiting_task() {
         let log = std::sync::Arc::new(MemoryAuditLog::with_gate());
         let writer = {
@@ -668,7 +668,9 @@ mod tests {
         // L'écrivain est bien parqué derrière la porte, pas simplement pas encore ordonnancé.
         assert_eq!(parked(&log), 1);
         log.open_gate();
-        writer.await.unwrap().unwrap();
+        // Bornée (temps virtuel) : sans réveil à l'ouverture, l'écrivain resterait parqué pour
+        // toujours et le test pendrait au lieu d'échouer.
+        tokio::time::timeout(Duration::from_secs(60), writer).await.unwrap().unwrap().unwrap();
         assert_eq!(log.records().len(), 1);
     }
 
