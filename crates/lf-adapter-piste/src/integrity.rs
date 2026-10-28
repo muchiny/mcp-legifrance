@@ -316,11 +316,8 @@ mod tests {
             // Sous une clé exemptée, le détecteur ne regarde que chaque segment séparé par `/` :
             // un chemin ou une adresse (suite de segments courts) passe, un jeton glissé dans un
             // segment (`?sig=…`) reste signalé (L4).
-            let base64 = if by_key {
-                text.split('/').any(has_base64_run)
-            } else {
-                has_base64_run(text)
-            };
+            let base64 =
+                if by_key { text.split('/').any(has_base64_run) } else { has_base64_run(text) };
             if base64 {
                 found.push(format!("{name}: base64-like string at {path}"));
             }
