@@ -17,7 +17,7 @@ tracing.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
 [features]
-# Doublures de test (FakeCorpus, FakeAuditLog, FixedClock, ...) à partir de la tâche 3 du plan 3a.
+# Doublures de test du module `testing` (FakeCorpus, FixedClock, MemoryAuditLog, FailingAuditLog).
 # Jamais activée en dépendance normale : `cargo xtask check-arch` (R9) ne l'admet que dans les
 # `[dev-dependencies]` des autres membres.
 test-support = []

@@ -6,8 +6,9 @@
 //! [`ports::AuditLog`] et [`ports::Clock`], l'entrée d'outil [`input::ToolCall`], les noms
 //! d'outils [`tools::ToolName`], les codes d'erreur [`error::ErrorCode`], les causes amont
 //! [`error::UpstreamCause`] et l'erreur d'application [`error::AppError`] ; le module
-//! [`messages`] rédige les textes d'erreur vus par le modèle. Les cas d'usage, `Audited` et les
-//! doublures de test (feature `test-support`) suivent dans les tâches suivantes du plan.
+//! [`messages`] rédige les textes d'erreur vus par le modèle ; le module `testing` (feature
+//! `test-support`) fournit les doublures `FakeCorpus`, `FixedClock`, `MemoryAuditLog` et
+//! `FailingAuditLog`. Les cas d'usage et `Audited` suivent dans les tâches suivantes du plan.
 //!
 //! Dépendances : liste fermée de 02 §3.2 (R2), vérifiée par `cargo xtask check-arch`.
 
@@ -17,3 +18,6 @@ pub mod input;
 pub mod messages;
 pub mod ports;
 pub mod tools;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing;
