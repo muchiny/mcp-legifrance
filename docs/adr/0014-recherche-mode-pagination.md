@@ -75,10 +75,10 @@
 
 ### À surveiller
 
-- **NON VÉRIFIÉ** [V-79 · mode-all-semantique] : sens exact de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp=ALL` (V-79, M2 ; base de Q10).
+- **Partiel** [V-79 · mode-all-semantique] : en sandbox (2026-10-28), `any` ≥ `all` ≥ `exact` (JURI 606 333, 119 868, 86 213 ; LODA 125 908, 4 633, 554) ; sens exact de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp=ALL` et rappel sur les 9 scénarios non mesurés (09 §2.20 ; base de Q10, T-M4-10).
 - **NON VÉRIFIÉ** [V-82 · typepagination-page2] : effet de `DEFAUT` ou `ARTICLE` en page 2, et cohérence de `has_more` (V-82, M5).
 - **NON VÉRIFIÉ** [V-83 · pagination-profonde] : limite de profondeur (V-83, M5).
-- **NON VÉRIFIÉ** [V-81 · longueur-max-query] : longueur maximale acceptée par l'API.
+- **Vérifié en sandbox le 2026-10-28** [V-81 · longueur-max-query] : l'API accepte 450 caractères et refuse 499 (500), soit une limite entre 451 et 498 (09 §2.20).
 - **Vérifié en sandbox le 2026-10-28** [V-78 · filtres-dates-effet] : les sept facettes réduisent le total et leurs bornes sont incluses ; borne lointaine non essayée (09 §2.20).
 
 ### Tests qui la gardent
