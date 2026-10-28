@@ -115,7 +115,7 @@ pub struct Args {
 ///
 /// [`RecordError::Usage`] : argument inconnu ou sans valeur, argument à valeur unique répété
 /// (`--redact` seul peut se répéter), `--only` sans `--plan`, `--plan` mêlé à une option de
-/// sonde seule, `--env` hors `sandbox` / `production`.
+/// sonde seule, `--env` hors `sandbox` / `production`, `--plan` avec `--env production`.
 pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, RecordError> {
     // Options qu'une sonde seule porte ; `--plan` ne s'y mêle pas.
     const PROBE_FLAGS: [&str; 5] = ["--endpoint", "--body", "--name", "--allow-error", "--redact"];
@@ -143,7 +143,12 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, Record
             "--env" => env = Some(value()?),
             "--force" => force = true,
             "--out" => out = Some(PathBuf::from(value()?)),
-            _ => return Err(usage(format!("unknown argument {flag:?}\n{USAGE}"))),
+            _ => {
+                // Un argument inconnu peut porter une valeur (`--jeton=…`) : on n'en montre que
+                // le nom, jamais ce qui suit « = ».
+                let name = flag.split_once('=').map_or(flag.as_str(), |(name, _)| name);
+                return Err(usage(format!("unknown argument {name:?}\n{USAGE}")));
+            }
         }
     }
     let mode = if let Some(path) = plan {
@@ -161,6 +166,10 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, Record
         "production" => PisteEnvironment::Production,
         other => return Err(usage(format!("--env must be sandbox or production, not {other:?}"))),
     };
+    // Un lot est un balayage : il ne se joue jamais en production (Q3) ; une sonde seule le peut.
+    if env == PisteEnvironment::Production && matches!(mode, Mode::Plan { .. }) {
+        return Err(usage("--plan runs against the sandbox only".to_owned()));
+    }
     Ok(Args { mode, env, force, out })
 }
 
@@ -228,6 +237,15 @@ pub enum RecordError {
     /// Réponse hors 2xx sans `allow_error`.
     #[error("HTTP {0} not recorded without --allow-error")]
     Status(u16),
+    /// Statut 401 ou 429 : jeton refusé ou quota atteint, jamais une réponse de données.
+    #[error("HTTP {0} is an authentication or rate-limit reply: never recorded")]
+    Unrecordable(u16),
+    /// Le fichier ou le sidecar visé est un lien symbolique : on n'écrit pas à travers.
+    #[error("{0} is a symbolic link: refusing to write through it")]
+    Symlink(PathBuf),
+    /// Le dossier visé sort de la racine d'écriture (un composant est un lien symbolique).
+    #[error("{0} resolves outside the output directory")]
+    Outside(PathBuf),
     /// La réponse recopie un identifiant ou le jeton : rien n'est écrit.
     #[error("the response echoes a credential: nothing written")]
     Echo,
@@ -269,6 +287,33 @@ pub struct Written {
     pub bytes_file: usize,
     /// Pointeurs caviardés.
     pub redactions: Vec<String>,
+}
+
+/// Issue d'une sonde jouée, telle que la synthèse du lot la compte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// Réponse reçue et fichier écrit.
+    Recorded,
+    /// Erreur d'échange, ou refus d'écrire ([`write()`]).
+    NotRecorded,
+}
+
+/// Nombre de sondes qui n'ont pas été enregistrées.
+#[must_use]
+pub fn failures(outcomes: &[Outcome]) -> usize {
+    outcomes.iter().filter(|outcome| **outcome == Outcome::NotRecorded).count()
+}
+
+/// Code de sortie de `record_fixture` (04 §13.4) : 0 si toutes les sondes sont enregistrées,
+/// 1 si au moins une ne l'est pas (`Ok(n)` avec `n > 0`), 2 si le lot n'a pas commencé (`Err` :
+/// usage, contrôle de sonde, plan illisible, identifiants absents).
+#[must_use]
+pub fn exit_code(result: &Result<usize, String>) -> u8 {
+    match result {
+        Ok(0) => 0,
+        Ok(_) => 1,
+        Err(_) => 2,
+    }
 }
 
 /// Contrôle un gabarit de chemin : `/`, puis des segments non vides de `[A-Za-z0-9_-]`.
@@ -385,8 +430,9 @@ pub fn rfc3339_utc(unix_secs: i64) -> String {
 ///
 /// # Errors
 ///
-/// [`RecordError::Redact`] si des pointeurs sont demandés sur un corps qui n'est pas du JSON, ou
-/// si la place d'une valeur ne se retrouve pas (clé en double, par exemple).
+/// [`RecordError::Redact`] si des pointeurs sont demandés sur un corps qui n'est pas du JSON, si
+/// la place d'une valeur ne se retrouve pas, ou si une clé en double ferait survivre la valeur
+/// (`duplicate key`).
 pub fn redact(raw: &[u8], pointers: &[String]) -> Result<(Vec<u8>, Vec<String>), RecordError> {
     let mut file = raw.to_vec();
     let mut applied = Vec::new();
@@ -394,10 +440,16 @@ pub fn redact(raw: &[u8], pointers: &[String]) -> Result<(Vec<u8>, Vec<String>),
         let failure = |reason| RecordError::Redact { pointer: pointer.clone(), reason };
         let document: Value =
             serde_json::from_slice(&file).map_err(|_| failure("body is not JSON"))?;
+        let tokens = pointer_tokens(pointer);
         let Some(target) = document.pointer(pointer) else {
+            // Absent pour `serde_json`, présent dans les octets : une clé en double, dont la
+            // dernière occurrence (lue par `serde_json`) masque une première qu'on laisserait en
+            // clair (L1). Absent des deux côtés, il n'y a rien à caviarder.
+            if span(&file, &tokens).is_some() {
+                return Err(failure("duplicate key"));
+            }
             continue;
         };
-        let tokens = pointer_tokens(pointer);
         let place = span(&file, &tokens)
             .filter(|place| {
                 serde_json::from_slice::<Value>(&file[place.clone()]).ok().as_ref() == Some(target)
@@ -410,8 +462,16 @@ pub fn redact(raw: &[u8], pointers: &[String]) -> Result<(Vec<u8>, Vec<String>),
             Value::String(text) => format!("<redacted: {} bytes>", text.len()),
             _ => format!("<redacted: {} bytes>", place.len()),
         };
-        let replacement = Value::String(label).to_string();
-        file.splice(place, replacement.bytes());
+        let expected = Value::String(label);
+        file.splice(place, expected.to_string().bytes());
+        // Relecture : le pointeur doit désormais lire l'étiquette posée. Une clé en double dont
+        // les deux occurrences portent la même valeur passerait le contrôle de `span` ; la
+        // seconde, restée en clair, se voit ici. `.ok()` : un fichier devenu illisible échoue de
+        // même, sans branche à part.
+        let readback = serde_json::from_slice::<Value>(&file).ok();
+        if readback.as_ref().and_then(|document| document.pointer(pointer)) != Some(&expected) {
+            return Err(failure("duplicate key"));
+        }
         applied.push(pointer.clone());
     }
     Ok((file, applied))
@@ -632,12 +692,21 @@ pub fn write(
     if exchange.echoes_credentials {
         return Err(RecordError::Echo);
     }
+    // 401 et 429 : jamais enregistrés, `allow_error` ou non (I1) ; avant le test du statut 2xx.
+    if matches!(exchange.status, 401 | 429) {
+        return Err(RecordError::Unrecordable(exchange.status));
+    }
     if !is_success(exchange.status) && !probe.allow_error {
         return Err(RecordError::Status(exchange.status));
     }
     let (json, meta) = fixture_paths(root, &probe.endpoint, &probe.name);
-    if !force && (json.exists() || meta.exists()) {
+    // `symlink_metadata` : un lien pendant existe (`Path::exists` le suivrait et dirait non).
+    if !force && [&json, &meta].iter().any(|path| fs::symlink_metadata(path).is_ok()) {
         return Err(RecordError::Exists(json));
+    }
+    // Même avec `--force`, jamais à travers un lien symbolique (L2).
+    if let Some(link) = [&json, &meta].into_iter().find(|path| is_symlink(path)) {
+        return Err(RecordError::Symlink(link.clone()));
     }
     let (file, redactions) = redact(&exchange.body, &probe.pointers(exchange.status))?;
     let sidecar = Sidecar {
@@ -657,12 +726,38 @@ pub fn write(
     };
     // `fixture_paths` place toujours le fichier sous `root`.
     let parent = json.parent().unwrap_or(root);
-    fs::create_dir_all(parent)
-        .map_err(|source| RecordError::Io { path: parent.to_path_buf(), source })?;
+    create_parent(root, parent)?;
     fs::write(&json, &file).map_err(|source| RecordError::Io { path: json.clone(), source })?;
     fs::write(&meta, sidecar.render())
         .map_err(|source| RecordError::Io { path: meta.clone(), source })?;
     Ok(Written { json, meta, bytes_file: file.len(), redactions })
+}
+
+/// Vrai si `path` est lui-même un lien symbolique (pendant ou non).
+fn is_symlink(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink())
+}
+
+/// Crée `parent` sous `root` sans jamais sortir de `root` (L2) : la racine est créée, puis le
+/// plus proche ancêtre existant de `parent` doit, une fois les liens résolus, rester sous la
+/// racine résolue. Le contrôle précède la création : rien n'est créé hors de la racine. Un
+/// échec de résolution refuse aussi (échec fermé). Une racine qui est elle-même un lien reste
+/// permise : les deux côtés sont résolus.
+fn create_parent(root: &Path, parent: &Path) -> Result<(), RecordError> {
+    let io = |path: &Path| {
+        let path = path.to_path_buf();
+        move |source| RecordError::Io { path, source }
+    };
+    fs::create_dir_all(root).map_err(io(root))?;
+    let nearest = parent.ancestors().find(|ancestor| ancestor.exists());
+    let inside = fs::canonicalize(root)
+        .ok()
+        .zip(nearest.and_then(|ancestor| fs::canonicalize(ancestor).ok()))
+        .is_some_and(|(root, nearest)| nearest.starts_with(root));
+    if !inside {
+        return Err(RecordError::Outside(parent.to_path_buf()));
+    }
+    fs::create_dir_all(parent).map_err(io(parent))
 }
 
 #[cfg(test)]
@@ -865,6 +960,34 @@ mod tests {
     }
 
     #[test]
+    fn redact_refuses_a_duplicate_key_instead_of_leaving_a_copy() {
+        let at = pointers(&["/acco/data"]);
+        // Le pointeur lit la dernière occurrence ; l'épissure traiterait la première et la
+        // valeur resterait en clair dans l'autre (L1) : échec fermé.
+        for raw in [
+            r#"{"acco":{"data":"X"},"acco":{"data":"X"}}"#,
+            r#"{"acco":{"data":"X"},"acco":{"id":1}}"#,
+        ] {
+            assert_eq!(
+                redact(raw.as_bytes(), &at).unwrap_err().to_string(),
+                "cannot redact /acco/data: duplicate key",
+                "{raw}"
+            );
+        }
+        // Deux valeurs différentes : déjà refusé par le contrôle de place (la première n'est pas
+        // celle que lit le pointeur).
+        assert_eq!(
+            redact(br#"{"acco":{"data":"X"},"acco":{"data":"Y"}}"#, &at).unwrap_err().to_string(),
+            "cannot redact /acco/data: value not found in the raw bytes"
+        );
+        // Sans doublon, rien ne change : le caviardage reste accepté.
+        let (file, applied) =
+            redact(br#"{"acco":{"data":"X"},"autre":{"data":"X"}}"#, &at).unwrap();
+        assert_eq!(file, br#"{"acco":{"data":"<redacted: 1 bytes base64>"},"autre":{"data":"X"}}"#);
+        assert_eq!(applied, ["/acco/data"]);
+    }
+
+    #[test]
     fn redact_refuses_a_value_it_cannot_locate_in_the_bytes() {
         // serde_json garde la dernière clé en double, la recherche dans les octets la première.
         assert_eq!(
@@ -1046,6 +1169,226 @@ mod tests {
                 .unwrap();
         assert_eq!(fs::read(&written.json).unwrap(), b"");
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn write_never_records_authentication_or_rate_limit_replies() {
+        // 401 et 429 ne sont pas des réponses de données (jeton refusé, quota atteint) : même avec
+        // `allow_error`, rien n'est écrit (I1).
+        let root = scratch("never");
+        let allowed = Probe { allow_error: true, ..probe("/consult/juri", "j") };
+        for status in [401, 429] {
+            let error = write(
+                &root,
+                &allowed,
+                &exchange(status, b"{}"),
+                PisteEnvironment::Sandbox,
+                "t",
+                true,
+            )
+            .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!("HTTP {status} is an authentication or rate-limit reply: never recorded")
+            );
+        }
+        assert!(!root.exists());
+        // Les autres refus du serveur restent enregistrables avec `allow_error`.
+        for status in [400, 403, 404, 500, 503] {
+            let name = format!("s{status}");
+            let probe = Probe { allow_error: true, ..probe("/consult/juri", &name) };
+            let written = write(
+                &root,
+                &probe,
+                &exchange(status, b"{}"),
+                PisteEnvironment::Sandbox,
+                "t",
+                false,
+            )
+            .unwrap();
+            assert_eq!(fs::read(&written.json).unwrap(), b"{}", "{status}");
+        }
+        // Sans `allow_error`, 401 est refusé aussi, par le même message.
+        let refused = write(
+            &root,
+            &probe("/consult/juri", "plain"),
+            &exchange(401, b"{}"),
+            PisteEnvironment::Sandbox,
+            "t",
+            false,
+        );
+        assert_eq!(
+            refused.unwrap_err().to_string(),
+            "HTTP 401 is an authentication or rate-limit reply: never recorded"
+        );
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// Dossier extérieur à la racine, vide, pour les tests de liens symboliques.
+    #[cfg(unix)]
+    fn outside(test: &str) -> PathBuf {
+        let dir = scratch(&format!("outside-{test}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_refuses_a_symbolic_link_at_the_file_or_the_sidecar_even_with_force() {
+        use std::os::unix::fs::symlink;
+        let reply = exchange(200, b"{}");
+        let sandbox = PisteEnvironment::Sandbox;
+        // (lien porté par le sidecar ?, cible déjà existante ?, force ?)
+        for (on_meta, existing, force) in
+            [(false, false, true), (false, true, true), (true, false, true), (true, true, true)]
+        {
+            let tag = format!("link-{on_meta}-{existing}-{force}");
+            let (root, away) = (scratch(&tag), outside(&tag));
+            let (json, meta) = fixture_paths(&root, "/consult/juri", "j");
+            fs::create_dir_all(json.parent().unwrap()).unwrap();
+            let target = away.join("target");
+            if existing {
+                fs::write(&target, b"keep").unwrap();
+            }
+            let link = if on_meta { &meta } else { &json };
+            symlink(&target, link).unwrap();
+            let error = write(&root, &probe("/consult/juri", "j"), &reply, sandbox, "t", force)
+                .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!("{} is a symbolic link: refusing to write through it", link.display()),
+                "{tag}"
+            );
+            // Rien n'a été écrit, ni par le lien, ni à côté.
+            assert_eq!(target.exists(), existing, "{tag}");
+            if existing {
+                assert_eq!(fs::read(&target).unwrap(), b"keep", "{tag}");
+            }
+            let other = if on_meta { &json } else { &meta };
+            assert!(!other.exists(), "{tag}");
+            fs::remove_dir_all(&root).unwrap();
+            fs::remove_dir_all(&away).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_counts_a_dangling_link_as_an_existing_file() {
+        use std::os::unix::fs::symlink;
+        // `Path::exists` suit le lien et dirait « absent » : sans `--force`, le lien pendant doit
+        // être vu par `symlink_metadata` et refusé comme un fichier existant. Avec `--force`, le
+        // refus de lien (test précédent) prend le relais.
+        let (root, away) = (scratch("dangling"), outside("dangling"));
+        let (json, meta) = fixture_paths(&root, "/consult/juri", "j");
+        fs::create_dir_all(json.parent().unwrap()).unwrap();
+        symlink(away.join("nowhere"), &meta).unwrap();
+        let error = write(
+            &root,
+            &probe("/consult/juri", "j"),
+            &exchange(200, b"{}"),
+            PisteEnvironment::Sandbox,
+            "t",
+            false,
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("{} exists: use --force to overwrite", json.display())
+        );
+        assert!(!away.join("nowhere").exists());
+        fs::remove_dir_all(&root).unwrap();
+        fs::remove_dir_all(&away).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_refuses_a_directory_that_leads_outside_the_root() {
+        use std::os::unix::fs::symlink;
+        // `<racine>/consult` remplacé par un lien vers l'extérieur : rien n'est créé là-bas.
+        let (root, away) = (scratch("escape"), outside("escape"));
+        fs::create_dir_all(&root).unwrap();
+        symlink(&away, root.join("consult")).unwrap();
+        let error = write(
+            &root,
+            &probe("/consult/juri", "juri/J1"),
+            &exchange(200, b"{}"),
+            PisteEnvironment::Sandbox,
+            "t",
+            true,
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "{} resolves outside the output directory",
+                root.join("consult/juri/juri").display()
+            )
+        );
+        assert_eq!(fs::read_dir(&away).unwrap().count(), 0);
+        fs::remove_dir_all(&root).unwrap();
+        fs::remove_dir_all(&away).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_accepts_a_root_that_is_itself_a_link_to_a_directory() {
+        use std::os::unix::fs::symlink;
+        // Un dossier de sortie donné par un lien reste permis : c'est le choix de l'appelant ;
+        // le refus ne vise que ce qui s'échappe de la racine.
+        let (real, home) = (outside("rootlink"), scratch("rootlink"));
+        symlink(&real, &home).unwrap();
+        let written = write(
+            &home,
+            &probe("/consult/juri", "j"),
+            &exchange(200, b"{}"),
+            PisteEnvironment::Sandbox,
+            "t",
+            false,
+        )
+        .unwrap();
+        assert!(real.join("consult/juri/j.json").is_file());
+        assert_eq!(written.json, home.join("consult/juri/j.json"));
+        fs::remove_file(&home).unwrap();
+        fs::remove_dir_all(&real).unwrap();
+    }
+
+    #[test]
+    fn write_reports_a_root_it_cannot_create() {
+        let root = scratch("rootfile");
+        fs::write(&root, b"file, not a directory").unwrap();
+        let error = write(
+            &root,
+            &probe("/consult/juri", "j"),
+            &exchange(200, b"{}"),
+            PisteEnvironment::Sandbox,
+            "t",
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            error.to_string().starts_with(&format!("cannot write {}", root.display())),
+            "{error}"
+        );
+        fs::remove_file(&root).unwrap();
+    }
+
+    #[test]
+    fn failures_count_the_probes_that_were_not_recorded() {
+        use Outcome::{NotRecorded, Recorded};
+        assert_eq!(failures(&[]), 0);
+        assert_eq!(failures(&[Recorded, Recorded]), 0);
+        assert_eq!(failures(&[Recorded, NotRecorded, Recorded, NotRecorded]), 2);
+        assert_eq!(failures(&[NotRecorded]), 1);
+    }
+
+    #[test]
+    fn the_exit_code_follows_the_documented_contract() {
+        // 04 §13.4 : 0 tout est enregistré, 1 au moins une sonde non écrite, 2 usage, contrôle,
+        // plan illisible ou identifiants absents (le lot n'a pas commencé).
+        assert_eq!(exit_code(&Ok(0)), 0);
+        assert_eq!(exit_code(&Ok(1)), 1);
+        assert_eq!(exit_code(&Ok(40)), 1);
+        assert_eq!(exit_code(&Err("set LF_PISTE_CLIENT_ID".to_owned())), 2);
     }
 
     #[test]
@@ -1286,10 +1629,38 @@ mod tests {
             refused(&["--plan", "p.toml", "--env", "prod"]),
             "--env must be sandbox or production, not \"prod\""
         );
+        // Une sonde seule peut viser la production (choix explicite du mainteneur, Q3).
         assert_eq!(
-            parsed(&["--plan", "p.toml", "--env", "production"]).unwrap().env,
+            parsed(&["--endpoint", "/consult/juri", "--env", "production"]).unwrap().env,
             PisteEnvironment::Production
         );
+    }
+
+    #[test]
+    fn a_plan_never_runs_against_production() {
+        // Le lot entier ne se joue qu'en sandbox (L3) ; `--only` n'y change rien.
+        for args in [
+            &["--plan", "p.toml", "--env", "production"][..],
+            &["--plan", "p.toml", "--only", "inconnu/", "--env", "production"],
+        ] {
+            assert_eq!(refused(args), "--plan runs against the sandbox only");
+        }
+        assert_eq!(
+            parsed(&["--plan", "p.toml", "--env", "sandbox"]).unwrap().env,
+            PisteEnvironment::Sandbox
+        );
+    }
+
+    #[test]
+    fn an_unknown_argument_is_echoed_without_a_possible_value() {
+        // `--jeton=valeur` : seule la partie avant « = » revient à l'écran, dans l'erreur
+        // d'argument inconnu comme dans celle d'argument répété.
+        assert_eq!(refused(&["--jeton=abc"]), format!("unknown argument \"--jeton\"\n{USAGE}"));
+        assert_eq!(
+            refused(&["--jeton=abc", "--jeton=abc"]),
+            format!("unknown argument \"--jeton\"\n{USAGE}")
+        );
+        assert_eq!(refused(&["--force=abc"]), format!("unknown argument \"--force\"\n{USAGE}"));
     }
 
     #[test]

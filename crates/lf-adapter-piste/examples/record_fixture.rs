@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use lf_adapter_piste::record::{self, Args, MAX_VERSIONED_BYTES, Mode, Plan, Probe};
+use lf_adapter_piste::record::{self, Args, MAX_VERSIONED_BYTES, Mode, Outcome, Plan, Probe};
 use lf_adapter_piste::{
     PisteConfig, PisteCorpus, PisteCredentials, PisteEndpoints, PisteTuning, RateQuota,
 };
@@ -60,8 +60,11 @@ fn probes(mode: Mode) -> Result<Vec<Probe>, String> {
         Mode::Plan { path, only } => (path, only),
     };
     let text = fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-    let plan: Plan =
-        toml::from_str(&text).map_err(|error| format!("{}: {error}", path.display()))?;
+    // `message()` et non `{error}` : l'affichage complet de `toml` recopie la ligne source du
+    // plan, qui n'a rien à faire sur un terminal ni dans un journal de CI (L5). La logique de
+    // formatage reste ici : `toml` n'est qu'une dépendance de développement de l'adapter.
+    let plan: Plan = toml::from_str(&text)
+        .map_err(|error| format!("{}: {}", path.display(), error.message()))?;
     record::select(plan.probe, only.as_deref()).map_err(|error| error.to_string())
 }
 
@@ -81,7 +84,7 @@ async fn run(args: Args) -> Result<usize, String> {
     let root = args.out.unwrap_or_else(|| {
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/recorded"))
     });
-    let mut failed = 0;
+    let mut outcomes = Vec::with_capacity(probes.len());
     for probe in &probes {
         let line = match corpus.exchange(&probe.endpoint, probe.body.as_bytes()).await {
             Ok(exchange) => {
@@ -95,40 +98,46 @@ async fn run(args: Args) -> Result<usize, String> {
                 );
                 match record::write(&root, probe, &exchange, env, &now(), force) {
                     Ok(written) if written.bytes_file > MAX_VERSIONED_BYTES => {
+                        outcomes.push(Outcome::Recorded);
                         format!("{head}\twritten (> 1 MiB: version a reduced derivative)")
                     }
-                    Ok(_) => format!("{head}\twritten"),
+                    Ok(_) => {
+                        outcomes.push(Outcome::Recorded);
+                        format!("{head}\twritten")
+                    }
                     Err(error) => {
-                        failed += 1;
+                        outcomes.push(Outcome::NotRecorded);
                         format!("{head}\tNOT WRITTEN: {error}")
                     }
                 }
             }
             Err(error) => {
-                failed += 1;
+                outcomes.push(Outcome::NotRecorded);
                 format!("{}\terror: {error}", probe.name)
             }
         };
         println!("{line}");
     }
-    Ok(failed)
+    Ok(record::failures(&outcomes))
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
-    let result = match record::parse_args(env::args().skip(1)) {
+    // `args_os` : `env::args()` paniquerait sur un argument qui n'est pas de l'UTF-8 (M8) ; la
+    // conversion est explicite et refuse avec le code 2, sans écho de l'argument.
+    let args: Result<Vec<String>, String> = env::args_os()
+        .skip(1)
+        .map(|arg| arg.into_string().map_err(|_| "argument is not valid UTF-8".to_owned()))
+        .collect();
+    let result = match args.and_then(|args| record::parse_args(args).map_err(|e| e.to_string())) {
         Ok(args) => run(args).await,
-        Err(error) => Err(error.to_string()),
+        Err(message) => Err(message),
     };
-    match result {
-        Ok(0) => ExitCode::SUCCESS,
-        Ok(failed) => {
-            eprintln!("{failed} probe(s) not recorded");
-            ExitCode::FAILURE
-        }
-        Err(message) => {
-            eprintln!("{message}");
-            ExitCode::from(2)
-        }
+    // Le code de sortie suit le contrat de 04 §13.4 (`record::exit_code`, mesuré et muté).
+    match &result {
+        Ok(0) => {}
+        Ok(failed) => eprintln!("{failed} probe(s) not recorded"),
+        Err(message) => eprintln!("{message}"),
     }
+    ExitCode::from(record::exit_code(&result))
 }
