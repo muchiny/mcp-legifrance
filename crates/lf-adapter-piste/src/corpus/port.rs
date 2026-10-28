@@ -45,11 +45,17 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
 ///
 /// Un code entier (Code du travail : 31,4 Mio contre une borne de 16 Mio, V-96) ne tient pas
 /// dans `get_act` en v0.1 : la lecture bornée échoue en `Decode`, dont le `detail` reçoit la
-/// consigne. Détection par la conséquence, sans reconnaître les codes à l'avance. Toute autre
-/// erreur, y compris un `Decode` d'une autre cause, passe inchangée.
+/// consigne. Détection par la conséquence, sans reconnaître les codes à l'avance : le `detail`
+/// doit commencer par le libellé « corps trop gros » **et** finir par l'endpoint de la
+/// consultation (` on /consult/lawDecree`), car la lecture du jeton OAuth a la même borne et ne
+/// doit pas recevoir cette consigne. Toute autre erreur, y compris un `Decode` d'une autre cause,
+/// passe inchangée.
 fn act_too_large(error: CorpusError) -> CorpusError {
+    let on_law_decree = format!(" on {}", endpoint::LAW_DECREE);
     match error {
-        CorpusError::Decode { detail } if detail.starts_with(TOO_LARGE_PREFIX) => {
+        CorpusError::Decode { detail }
+            if detail.starts_with(TOO_LARGE_PREFIX) && detail.ends_with(&on_law_decree) =>
+        {
             CorpusError::Decode {
                 detail: format!(
                     "{detail}: this text is too large for get_act; use get_article or search instead"
@@ -646,6 +652,27 @@ mod tests {
         assert_eq!(api_requests(&rig).await.len(), 1);
     }
 
+    #[test]
+    fn a_too_large_token_response_keeps_the_generic_decode_error() {
+        // La borne de corps est la même pour le jeton OAuth : seule la fin `/consult/lawDecree`
+        // du `detail` autorise la consigne `get_article`.
+        let oauth = CorpusError::Decode {
+            detail: "response too large (> 16 MiB) on /oauth/token".to_owned(),
+        };
+        assert_eq!(super::act_too_large(oauth.clone()), oauth);
+        let law = CorpusError::Decode {
+            detail: "response too large (> 16 MiB) on /consult/lawDecree".to_owned(),
+        };
+        assert_eq!(
+            super::act_too_large(law),
+            CorpusError::Decode {
+                detail: "response too large (> 16 MiB) on /consult/lawDecree: this text is too \
+                         large for get_act; use get_article or search instead"
+                    .to_owned()
+            }
+        );
+    }
+
     #[tokio::test]
     async fn an_oversized_body_on_another_consultation_keeps_the_generic_decode_error() {
         let rig = Rig::tuned(|setup| setup.tuning.max_body_bytes = 1_000).await;
@@ -914,6 +941,28 @@ mod tests {
             .mount(&rig.server)
             .await;
         assert_eq!(each_consultation(&rig).await, six_not_found());
+    }
+
+    #[tokio::test]
+    async fn the_recorded_acco_count_400_maps_to_not_found() {
+        // Le 400 réel d'un identifiant ACCO inexistant (V-68), servi tel qu'enregistré : le
+        // message de comptage, et non « valider est fausse », dit « introuvable » sur ACCO.
+        let recorded = include_str!(
+            "../../tests/fixtures/recorded/consult/acco/inconnu/ACCOTEXT000000000000.json"
+        );
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        Mock::given(method("POST"))
+            .and(path(format!("{API_BASE}{}", endpoint::ACCO)))
+            .respond_with(ResponseTemplate::new(400).set_body_raw(recorded, "application/json"))
+            .expect(1)
+            .mount(&rig.server)
+            .await;
+        let id = AccoTextId::parse("ACCOTEXT000000000000").unwrap();
+        assert_eq!(
+            rig.corpus.get_company_agreement(&id).await.map(drop),
+            Err(CorpusError::NotFound { what: "/consult/acco".to_owned() })
+        );
     }
 
     #[tokio::test]

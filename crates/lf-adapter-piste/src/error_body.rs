@@ -10,6 +10,7 @@
 use crate::dto::decode::decode;
 use crate::dto::error::PisteErrorDto;
 use crate::encoding::decode_body;
+use crate::map::endpoint::ACCO;
 
 /// Plus gros corps d'erreur **décodé** (64 Kio exactement compris) : un message d'erreur tient en
 /// quelques centaines d'octets, le plafond général de la réponse (16 Mio) serait démesuré. Au-delà,
@@ -30,18 +31,20 @@ const REDACTED: &str = "[redacted]";
 /// fausse ». Le tableau permet d'en ajouter un sans changer la fonction.
 const NOT_FOUND_MARKERS: [&str; 1] = ["valider est fausse"];
 
-/// Endpoint des accords d'entreprise, seul à répondre au comptage plutôt qu'à la validation.
-const ACCO_ENDPOINT: &str = "/consult/acco";
-
 /// Fragment (en minuscules) du 400 d'un identifiant ACCO inexistant : « Le nombre de résultat
 /// retourné par le moteur de recherche n'est pas égal à 1. » (sandbox, 2026-10-28, V-68).
 ///
 /// Le fragment est sans accent, pour survivre à un mojibake non réparé comme `valider est
 /// fausse`. « Pas égal à 1 » peut dire zéro comme plusieurs ; pour une recherche par identifiant
 /// il ne peut dire que zéro, les identifiants étant uniques. Ce marqueur n'est donc admis que sur
-/// [`ACCO_ENDPOINT`] : ailleurs, un résultat multiple resterait possible et le message ne
-/// prouverait pas l'absence.
+/// `/consult/acco` (`crate::map::endpoint::ACCO`) : ailleurs, un résultat multiple resterait
+/// possible et le message ne prouverait pas l'absence.
 const ACCO_COUNT_MARKER: &str = "moteur de recherche n'est pas";
+
+/// Queue distinctive du même message, cherchée **après** [`ACCO_COUNT_MARKER`] : « égal à 1 »
+/// réduit à `gal` et `1`, sans accent pour survivre à un mojibake non réparé. Elle écarte un
+/// message voisin (« le moteur de recherche n'est pas disponible ») qui ne dit rien de l'absence.
+const ACCO_COUNT_TAIL: [&str; 2] = ["gal", "1"];
 
 /// Texte **brut** du champ `message` d'un corps d'erreur PISTE.
 ///
@@ -77,7 +80,15 @@ pub(crate) fn is_not_found_marker(message: &str) -> bool {
 /// jamais « introuvable » (04 §11.2 règle 2, décision R7).
 pub(crate) fn is_not_found(endpoint: &str, message: &str) -> bool {
     is_not_found_marker(message)
-        || (endpoint == ACCO_ENDPOINT && message.to_lowercase().contains(ACCO_COUNT_MARKER))
+        || (endpoint == ACCO && is_acco_count(message))
+}
+
+/// Vrai si le message brut est le comptage d'ACCO : le marqueur, puis sa queue distinctive.
+fn is_acco_count(message: &str) -> bool {
+    let lowered = message.to_lowercase();
+    lowered
+        .split_once(ACCO_COUNT_MARKER)
+        .is_some_and(|(_, tail)| ACCO_COUNT_TAIL.iter().all(|part| tail.contains(part)))
 }
 
 /// Détail montrable d'un message brut : nettoyer, **puis** retirer les secrets, **puis** couper.
@@ -273,7 +284,6 @@ mod tests {
         }
     }
 
-    const ACCO: &str = "/consult/acco";
     const ACCO_COUNT: &str =
         "Le nombre de résultat retourné par le moteur de recherche n'est pas égal à 1.";
 
@@ -291,6 +301,33 @@ mod tests {
         assert!(is_not_found(ACCO, &mojibake(ACCO_COUNT)));
         for endpoint in [ENDPOINT, "/consult/cnil", "/search", "/consult/acco/", ""] {
             assert!(!is_not_found(endpoint, ACCO_COUNT), "{endpoint}");
+        }
+    }
+
+    #[test]
+    fn the_acco_count_marker_needs_its_distinctive_tail() {
+        // Un message voisin du marqueur mais qui ne dit pas « égal à 1 » n'est pas une absence.
+        for message in [
+            "Le moteur de recherche n'est pas disponible",
+            "Le moteur de recherche n'est pas égal",
+            "Le moteur de recherche n'est pas à 1",
+            "égal à 1, le moteur de recherche n'est pas",
+        ] {
+            assert!(!is_not_found(ACCO, message), "{message}");
+        }
+    }
+
+    #[test]
+    fn the_recorded_acco_messages_are_not_found() {
+        // Les deux 400 enregistrés en sandbox (V-68), lus du fichier committé.
+        for body in [
+            include_str!("../tests/fixtures/recorded/consult/acco/inconnu/ACCOTEXT000000000000.json"),
+            include_str!("../tests/fixtures/recorded/consult/acco/inconnu/ACCOTEXT999999999999.json"),
+        ] {
+            let text = message(body.as_bytes(), ACCO, true).unwrap();
+            assert!(is_not_found(ACCO, &text), "{text}");
+            let broken = message(body.as_bytes(), ACCO, false).unwrap();
+            assert!(is_not_found(ACCO, &broken), "{broken}");
         }
     }
 

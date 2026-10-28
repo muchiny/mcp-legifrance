@@ -502,7 +502,7 @@ mod tests {
         include_str!("../tests/fixtures/recorded/consult/acco/inconnu/ACCOTEXT000000000000.json"),
         include_str!("../tests/fixtures/recorded/consult/acco/inconnu/ACCOTEXT999999999999.json"),
     ];
-    const ACCO_ENDPOINT: &str = "/consult/acco";
+    const ACCO_ENDPOINT: &str = crate::map::endpoint::ACCO;
     const ACCO_COUNT_MESSAGE: &str =
         "Le nombre de résultat retourné par le moteur de recherche n'est pas égal à 1.";
 

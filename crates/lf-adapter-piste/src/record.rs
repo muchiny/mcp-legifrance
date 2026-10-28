@@ -48,7 +48,7 @@ pub const TOOL: &str = concat!("xtask record-fixture ", env!("CARGO_PKG_VERSION"
 pub const LICENSE: &str = "Licence Ouverte 2.0 — source : Légifrance / DILA";
 
 /// Endpoint dont la réponse est caviardée par défaut.
-pub const ACCO_ENDPOINT: &str = "/consult/acco";
+pub const ACCO_ENDPOINT: &str = crate::map::endpoint::ACCO;
 
 /// Pointeur caviardé par défaut sur [`ACCO_ENDPOINT`] : base64 du `.docx` de l'accord.
 pub const ACCO_DATA: &str = "/acco/data";
