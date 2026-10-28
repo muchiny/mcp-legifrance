@@ -8,6 +8,10 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# enregistrement de fixtures (04 §1.4, §13.4), jamais activée par le binaire
+record = []
+
 [dependencies]
 # Deadline : délai global publié par Audited (variable locale de tâche), lu comme durée restante
 lf-application.workspace = true

@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use lf_application::ports::CorpusError;
 use reqwest::header::{
-    ACCEPT, CONTENT_TYPE, DATE, HeaderMap, HeaderName, HeaderValue, RETRY_AFTER,
+    ACCEPT, CONTENT_ENCODING, CONTENT_TYPE, DATE, HeaderMap, HeaderName, HeaderValue, RETRY_AFTER,
 };
 use reqwest::{Client, ClientBuilder, RequestBuilder, Response, Url, redirect};
 use secrecy::{ExposeSecret, SecretString};
@@ -76,6 +76,12 @@ pub(crate) struct RawResponse {
     pub retry_after: Option<String>,
     /// `Date`, s'il est présent et en ASCII.
     pub date: Option<String>,
+    /// `Content-Type`, s'il est présent et en ASCII (lu par l'enregistrement des fixtures, 04 §13.4).
+    pub content_type: Option<String>,
+    /// `Content-Encoding` tel que `reqwest` le laisse, s'il est présent et en ASCII : **absent pour
+    /// une réponse gzip**, dont il retire l'en-tête en la décompressant ; présent pour un autre
+    /// codage, que `reqwest` ne décompresse pas.
+    pub content_encoding: Option<String>,
     /// Corps, déjà décompressé, d'au plus `Attempt::max_body_bytes` octets.
     pub body: Vec<u8>,
 }
@@ -110,6 +116,8 @@ impl fmt::Debug for RawResponse {
             .field("status", &self.status)
             .field("retry_after", &self.retry_after)
             .field("date", &self.date)
+            .field("content_type", &self.content_type)
+            .field("content_encoding", &self.content_encoding)
             .field("body_len", &self.body.len())
             .finish()
     }
@@ -277,8 +285,10 @@ pub(crate) async fn send_once(
     let status = response.status().as_u16();
     let retry_after = header_text(&response, &RETRY_AFTER);
     let date = header_text(&response, &DATE);
+    let content_type = header_text(&response, &CONTENT_TYPE);
+    let content_encoding = header_text(&response, &CONTENT_ENCODING);
     let body = read_body(response, attempt.max_body_bytes, attempt.endpoint).await?;
-    Ok(RawResponse { status, retry_after, date, body })
+    Ok(RawResponse { status, retry_after, date, content_type, content_encoding, body })
 }
 
 /// Requête de `attempt`. `RequestBuilder::timeout` remplace le délai du client, même
@@ -869,7 +879,8 @@ mod tests {
             ResponseTemplate::new(429)
                 .insert_header("Retry-After", "2")
                 .insert_header("Date", "Wed, 21 Oct 2026 07:28:00 GMT")
-                .set_body_string("slow down"),
+                .insert_header("Content-Encoding", "br")
+                .set_body_raw(b"slow down".to_vec(), "text/plain; charset=utf-8"),
         )
         .await;
         assert_eq!(
@@ -878,6 +889,8 @@ mod tests {
                 status: 429,
                 retry_after: Some("2".to_owned()),
                 date: Some("Wed, 21 Oct 2026 07:28:00 GMT".to_owned()),
+                content_type: Some("text/plain; charset=utf-8".to_owned()),
+                content_encoding: Some("br".to_owned()),
                 body: b"slow down".to_vec(),
             }
         );
@@ -885,7 +898,10 @@ mod tests {
         let plain = MockServer::start().await;
         mount_post(&plain, ResponseTemplate::new(200)).await;
         let raw = fetch(&plain.uri(), DEFAULT_LIMIT).await.unwrap();
-        assert_eq!((raw.status, raw.retry_after), (200, None));
+        assert_eq!(
+            (raw.status, raw.retry_after, raw.content_type, raw.content_encoding),
+            (200, None, None, None)
+        );
     }
 
     #[tokio::test]
@@ -893,7 +909,8 @@ mod tests {
         let uri = raw_server(|mut stream| async move {
             stream
                 .write_all(
-                    b"HTTP/1.1 200 OK\r\nRetry-After: \xff\xfe\r\nContent-Length: 2\r\n\r\nok",
+                    b"HTTP/1.1 200 OK\r\nRetry-After: \xff\xfe\r\nContent-Type: \xff\r\n\
+                      Content-Encoding: \xfe\r\nContent-Length: 2\r\n\r\nok",
                 )
                 .await
                 .unwrap();
@@ -901,7 +918,10 @@ mod tests {
         })
         .await;
         let raw = fetch(&uri, DEFAULT_LIMIT).await.unwrap();
-        assert_eq!((raw.status, raw.retry_after, raw.body), (200, None, b"ok".to_vec()));
+        assert_eq!(
+            (raw.status, raw.retry_after, raw.content_type, raw.content_encoding, raw.body),
+            (200, None, None, None, b"ok".to_vec())
+        );
     }
 
     // ---------- Borne du corps
@@ -1180,11 +1200,13 @@ mod tests {
             status: 200,
             retry_after: Some("30".to_owned()),
             date: None,
+            content_type: Some("application/json".to_owned()),
+            content_encoding: None,
             body: br#"{"access_token":"tok-visible-if-leaked"}"#.to_vec(),
         };
         assert_eq!(
             format!("{response:?}"),
-            r#"RawResponse { status: 200, retry_after: Some("30"), date: None, body_len: 40 }"#
+            r#"RawResponse { status: 200, retry_after: Some("30"), date: None, content_type: Some("application/json"), content_encoding: None, body_len: 40 }"#
         );
         let outcome = crate::classify::Outcome::Success(response);
         let shown = format!("{outcome:?}");

@@ -310,7 +310,14 @@ mod tests {
     }
 
     fn response(status: u16) -> RawResponse {
-        RawResponse { status, retry_after: None, date: None, body: b"{}".to_vec() }
+        RawResponse {
+            status,
+            retry_after: None,
+            date: None,
+            content_type: None,
+            content_encoding: None,
+            body: b"{}".to_vec(),
+        }
     }
 
     fn with_body(status: u16, body: &str) -> RawResponse {

@@ -2,11 +2,15 @@
 # Toute exclusion (`exclude_re`) doit être justifiée en commentaire : mutant
 # prouvé équivalent, avec le raisonnement. Le code `#[cfg(test)]` n'est jamais muté.
 test_tool = "nextest"
+# Toutes les features : le code de la feature `record` de lf-adapter-piste (plan 2h) est muté et
+# testé comme le reste (sans cela, cargo-mutants ne compilerait pas ce code).
+all_features = true
 profile = "mutants"
 # `--locked` sur chaque appel de cargo (local, diff de PR, balayage hebdomadaire ; 06 §9.4).
 additional_cargo_args = ["--locked"]
 exclude_globs = [
     "xtask/src/main.rs", # glue d'I/O (cargo metadata, stdout) ; la logique est dans arch.rs
+    "crates/lf-adapter-piste/examples/**", # glue d'E/S de record-fixture ; la logique est dans src/record.rs
     "fuzz/**", # cibles cargo-fuzz hors workspace (Cargo.toml exclude) : pas du code livré ; filet si le dossier y entrait
 ]
 exclude_re = [
