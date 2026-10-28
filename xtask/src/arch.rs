@@ -33,7 +33,7 @@
 //!   (`dev_adapters` à `false`) ne prennent aucun adapter ni `mcp-legifrance`,
 //!   message `{membre} must not depend on {dep} even in dev-dependencies` ;
 //!   les autres membres (`dev_adapters` à `true`) n'ont pas cette limite ;
-//! - R9 : aucun membre n'active, en dépendance
+//! - R10 : aucun membre n'active, en dépendance
 //!   normale ou par sa table `[features]`, une feature de `DEV_ONLY_FEATURES`
 //!   (`lf-application/test-support`), message `{membre} must not enable {dep}
 //!   feature {feature} (dev-dependencies only)` ; en `[dev-dependencies]` elle
@@ -109,7 +109,7 @@ const APPLICATION_ALLOWED: [&str; 6] =
 const APPLICATION_FEATURES: [(&str, &[&str]); 3] =
     [("tokio", &["time", "macros", "rt"]), ("chrono", &["std"]), ("tracing", &["std"])];
 
-/// Feature réservée aux dépendances de développement (R9) : `(crate, feature)`. Les
+/// Feature réservée aux dépendances de développement (R10) : `(crate, feature)`. Les
 /// doublures de `lf-application` (`test-support`) ne doivent jamais entrer dans un binaire.
 const DEV_ONLY_FEATURES: [(&str, &str); 1] = [("lf-application", "test-support")];
 
@@ -799,7 +799,7 @@ mod tests {
                 "lf-application must not enable tokio feature net",
             ),
             (
-                "R9",
+                "R10",
                 vec![
                     domain(),
                     enabling(
