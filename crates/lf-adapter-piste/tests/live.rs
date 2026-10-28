@@ -333,7 +333,7 @@ mod live {
                 reply.elapsed.as_millis()
             );
             // Le Code civil (6,2 Mio) passe aussi le budget de décodage et le mapping du port
-            // (attendu `Ok` : jamais lancé hors sandbox, le contrôleur le confirme).
+            // (constaté en sandbox le 2026-10-28, V-96).
             let civil_id = LegiTextId::parse(civil).unwrap();
             let version = VersionDate::parse(VERSION).unwrap();
             assert_eq!(
