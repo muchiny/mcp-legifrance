@@ -257,23 +257,25 @@ crates/lf-domain/src/             # disposition cible : 03-domaine §1.5 (fait f
     └── citation/         # M6 : parse (winnow 1.0 + aho-corasick), dictionnaires codes et juridictions
 crates/lf-application/src/
     ├── lib.rs
-    ├── ports/            # mod.rs, corpus.rs (LegalCorpus, CorpusError), audit.rs (AuditLog, AuditRecord…), clock.rs
-    ├── input.rs          # ToolCall<I>, CanonicalInput, InputError, entrées par outil (SearchInput…)
-    ├── output.rs         # sorties par outil, AuditMetric
+    ├── ports/            # mod.rs, corpus.rs (LegalCorpus, CorpusError, AuthOrigin, ConfigKind), audit.rs (AuditLog, AuditRecord…),
+    │                     # clock.rs ; livrés (plans 2b et 3a)
+    ├── input.rs          # ToolCall<I>, CanonicalInput, InputError (livrés, plan 3a) ; entrées par outil (SearchInput…, plan 3b)
+    ├── output.rs         # sorties par outil (plan 3b), qui implémentent AuditMetric
     ├── usecase/          # un module par outil : search.rs, get_act.rs, … (v0.1) ; verify_citations.rs, resolve.rs (M6) ;
     │                     # get_related.rs, diff_article.rs, search_all.rs, resource.rs, complete.rs (M7)
     ├── service.rs        # LegalService<C, A, K>, ServiceSettings
-    ├── audited.rs        # Audited<A>, AuditMode, CallMeta
+    ├── audited.rs        # Audited<A>, AuditMode, AuditPolicy, CallMeta, AuditMetric (livré, plan 3a)
     ├── deadline.rs       # Deadline : échéance de l'appel, variable locale de tâche (tokio::task_local!, 00 §3)
     ├── budget.rs         # ResponseBudget, ReadingRequest, politique résumé / fenêtre / passages,
     │                     # estimation conservatrice du plafond de 45 000 caractères et ordre de dégradation (00 §7)
     ├── coverage.rs       # assemble le catalogue statique du domaine (lf_domain coverage, 03 §4.8) + état de configuration (D-34) ;
                           # emplacement du catalogue et forme de Coverage tranchés en M3 avec M1-D20 (le type livré est un type seul, sans catalogue)
-    ├── tools.rs          # ToolName (constantes fr_*), liste ALL (test de dérive)
-    ├── messages.rs       # tous les messages destinés au modèle (parité, aides, not_found, upstream, config, audit ; textes de 05 §7)
-    ├── error.rs          # AppError (porte le message final), ErrorCode, UpstreamCause
-    └── testing.rs        # feature "test-support" : FakeCorpus, FixedClock, MemoryAuditLog, FailingAuditLog
-                          # (compilés en cfg(test), ou exclus nommément de la couverture : sinon code mesuré, à 100 %)
+    ├── tools.rs          # ToolName (constantes fr_*), liste ALL (test de dérive) ; livré, plan 3a
+    ├── messages.rs       # tous les messages destinés au modèle (parité, aides, not_found, upstream, config, audit ; textes de 05 §7) ;
+    │                     # livré, plan 3a
+    ├── error.rs          # AppError (porte le message final), ErrorCode, UpstreamCause ; livré, plan 3a
+    └── testing.rs        # feature "test-support" : FakeCorpus, FixedClock, MemoryAuditLog, FailingAuditLog, NO_DEADLINE
+                          # (livré, plan 3a ; compilé en cfg(test) ou sous la feature, et mesuré : 100 % au plan 3a)
 crates/lf-adapter-piste/          # disposition détaillée : 04 §1.5 (fait foi) ; modules ci-dessous repris de 04
 ├── src/              # lib.rs, config.rs, auth.rs (TokenManager mono-vol), http.rs (client paresseux, corps borné),
 │                     # encoding.rs (UTF-8 strict puis réparation du mojibake par lf_domain::text::encoding, fonction pure
@@ -527,17 +529,18 @@ Deux points sont à mesurer au premier `cargo clippy` du spike rmcp (**avant la 
 - **Responsabilité** : les ports, les cas d'usage (un par outil), la façade `LegalService<C, A, K>`, le décorateur `Audited`, l'échéance `Deadline` (variable locale de tâche) et la politique de budget de réponse, dont l'estimation du plafond de 45 000 caractères ([00-decisions §2, §3, §7](00-decisions.md#3-ports-lf-applicationports)). Ce crate rédige aussi **tous** les messages destinés au modèle (module `messages`, textes de 05 §7.2-§7.4) : `AppError` porte le message final, qu'`Audited` inscrit tel quel dans le champ `error` de l'audit (≤ 500 caractères) et auquel `lf-adapter-mcp` n'ajoute que le préfixe `[code] `. Ce crate ignore MCP, HTTP, JSON et le système de fichiers.
 - **Modules publics** : `ports` (`corpus`, `audit`, `clock`), `input`, `output`, `usecase`, `service`, `audited`, `deadline`, `budget`, `coverage`, `tools`, `messages`, `error`, et `testing` (feature `test-support`).
 - **Types exportés** :
-  - ports : `LegalCorpus`, `CorpusError`, `AuditLog`, `AuditRecord`, `AuditStatus`, `AuditError`, `Clock` (§5) ;
-  - appels : `ToolCall<I>`, `CanonicalInput`, `InputError`, puis une entrée et une sortie par outil (`SearchInput`/`SearchOutput`, …), `AuditMetric` ;
-  - façade et décorateur : `LegalService`, `ServiceSettings`, `ConfigurationState`, `Audited`, `AuditMode`, `CallMeta`, `Deadline`, `ResponseBudget`, `ReadingRequest` ;
+  - ports : `LegalCorpus`, `CorpusError`, `AuthOrigin`, `ConfigKind`, `AuditLog`, `AuditRecord`, `AuditStatus`, `AuditError`, `AuditErrorKind`, `Clock` (§5) ;
+  - appels : `ToolCall<I>`, `CanonicalInput`, `InputError`, puis une entrée et une sortie par outil (`SearchInput`/`SearchOutput`, …) ;
+  - façade et décorateur : `LegalService`, `ServiceSettings`, `ConfigurationState`, `Audited`, `AuditMode`, `AuditPolicy`, `CallMeta`, `AuditMetric` (module `audited`), `Deadline`, `ResponseBudget`, `ReadingRequest` ;
   - noms et erreurs : `ToolName`, `AppError`, `ErrorCode`, `UpstreamCause`.
-  - Ré-exports : `pub use lf_domain::coverage::PisteEnvironment` (non livré : premier consommateur hors adapter, M3) (et les types de domaine cités par les ports). Grâce à eux, `lf-adapter-audit` n'a pas besoin de dépendre directement de `lf-domain` (décision §2).
+  - Ré-exports : `pub use lf_domain::coverage::PisteEnvironment` (livré au plan 3a, dans `ports::audit`, ré-exporté par `ports`) (et les types de domaine cités par les ports). Grâce à eux, `lf-adapter-audit` n'a pas besoin de dépendre directement de `lf-domain` (décision §2).
+  - **Livré (plans 2b et 3a)** : `ports`, `deadline`, `input` (sans les entrées par outil), `tools`, `messages`, `error`, `audited` et `testing`. Restent `output`, `usecase`, `service`, `budget` et `coverage` (plan 3b et suivants).
 - **Dépendances (liste fermée, 00 §2, vérifiée par `cargo xtask check-arch`)** :
   - `lf-domain`, `thiserror`, `chrono` (`std`) et `tracing` ;
   - `tokio` avec **seulement** `time`, `macros` et `rt` : `tokio::time::timeout` (délai global), `tokio::time::Instant` (durée mesurable en temps suspendu dans les tests D-03) et `tokio::task_local!` pour `Deadline`. `rt` n'est admis que pour `task_local!` : l'application ne lance aucune tâche et ne construit aucun runtime (§13). `task_local!` ne demande que la feature `rt` : son module est déclaré dans le bloc `cfg_rt!` de `tokio/src/task/mod.rs:277-331` (`mod task_local`, ligne 307, tag `tokio-1.53.3`, vérifié), et `task_local.rs` n'importe que `std` et `pin_project_lite`. `cargo check -p lf-application` seul le confirme à la compilation en M2, à la création de `lf-application` (§4.4) ;
   - `futures` (`std`, `async-await` : `join_all`, `buffer_unordered`) et `similar` (M7).
   - Sont interdits : tout adapter, `serde`, `serde_json`, `rmcp`, `reqwest`, `moka`, `governor`, `backon` et `async-trait`.
-- **Features Cargo** : `test-support` expose `FakeCorpus` (réponses programmées par méthode, compteur d'appels), `FixedClock`, `MemoryAuditLog` et `FailingAuditLog`. Les autres crates l'activent en dev-dependency.
+- **Features Cargo** : `test-support` expose `FakeCorpus` (réponses programmées par méthode, compteur d'appels), `FixedClock`, `MemoryAuditLog` et `FailingAuditLog`. Les autres crates l'activent en dev-dependency ; depuis le plan 3a, `cargo xtask check-arch` refuse qu'un membre l'active ailleurs (`DEV_ONLY_FEATURES`, §4.1).
 - **Pièges** :
   1. Les ports n'ont **aucune méthode par défaut**. Ainsi, un décorateur ou un faux qui oublierait une méthode ajoutée en M6 ou M7 ne compile pas : il ne peut pas renvoyer silencieusement « non supporté ».
   2. Les futures des ports sont `+ Send` dans la signature du trait. C'est obligatoire : rmcp boxe les futures d'outils en `Pin<Box<dyn Future + Send>>` (recherche 04 §2.4, §5.1).
@@ -702,18 +705,18 @@ pub fn registered_tool_names() -> Vec<&'static str>;   // pour les tests de coh�
 
 ### 4.1 Règles
 
-Les règles R1 à R5, ainsi que la liste fermée de R2, reprennent la décision ; R6 à R8 sont des règles d'architecture de ce document ; R9 est fixée par [06-qualite.md](06-qualite.md) §9.3, propriétaire des règles de `check-arch` (00 §0), et retenue par 00 §2 (extension de M2, livrée au plan 2b). Dans les règles, `lf-app` désigne le paquet `mcp-legifrance` (§3.7). **Livré (M0, plan 1)** : `check-arch` applique R1 (liste blanche `thiserror`, échec fermé), un `lf-application` sans adapter, R3 en partie ; la tête de M2 (plan 2a) ajoute le membre inconnu, R3, R4, R5, R7 et l'étape 5 ; le plan 2b ajoute R2 fermée, 5e, la fermeture transitive et R9 ; le plan 2c ajoute R6 et R8 ; les autres règles sont des extensions ajoutées au jalon où elles servent (échéancier en §4.2).
+Les règles R1 à R5, ainsi que la liste fermée de R2, reprennent la décision ; R6 à R8 sont des règles d'architecture de ce document ; R9 est fixée par [06-qualite.md](06-qualite.md) §9.3, propriétaire des règles de `check-arch` (00 §0), et retenue par 00 §2 (extension de M2, livrée au plan 2b). Dans les règles, `lf-app` désigne le paquet `mcp-legifrance` (§3.7). **Livré (M0, plan 1)** : `check-arch` applique R1 (liste blanche `thiserror`, échec fermé), un `lf-application` sans adapter, R3 en partie ; la tête de M2 (plan 2a) ajoute le membre inconnu, R3, R4, R5, R7 et l'étape 5 ; le plan 2b ajoute R2 fermée, 5e, la fermeture transitive et R9 ; le plan 2c ajoute R6 et R8 ; le plan 3a borne les features de `tracing` (R2) et réserve `test-support` aux dépendances de développement (complément de R8) ; les autres règles sont des extensions ajoutées au jalon où elles servent (échéancier en §4.2).
 
 | # | Règle | Origine |
 |---|---|---|
 | R1 | `lf-domain` ne dépend d'aucun `lf-*`. Sa liste blanche externe, qui **échoue fermé**, est `thiserror` seul (`DOMAIN_ALLOWED`, `xtask/src/arch.rs`). Elle s'élargit par ADR au jalon qui en a besoin : `winnow`, `aho-corasick`, `regex` et `unicode-normalization` en M6 (ADR-0011 amendé). | 00-decisions §2 ; ADR-0016 |
-| R2 | `lf-application` ne dépend d'aucun adapter. Sa liste fermée externe : `thiserror`, `chrono` (`std`), `tracing`, `futures` (`std`, `async-await`), `tokio` (`time`, `macros`, `rt` — `rt` pour `task_local!` seulement), `similar` (M7). Interdits : `serde`, `serde_json`, `rmcp`, `reqwest`, `moka`, `governor`, `backon`, `async-trait`. Livrée dans `check-arch` au plan 2b, à la création de `lf-application`, avec les bornes de features de `tokio` et de `chrono`. | 00-decisions §2 |
+| R2 | `lf-application` ne dépend d'aucun adapter. Sa liste fermée externe : `thiserror`, `chrono` (`std`), `tracing`, `futures` (`std`, `async-await`), `tokio` (`time`, `macros`, `rt` — `rt` pour `task_local!` seulement), `similar` (M7). Interdits : `serde`, `serde_json`, `rmcp`, `reqwest`, `moka`, `governor`, `backon`, `async-trait`. Livrée dans `check-arch` au plan 2b, à la création de `lf-application`, avec les bornes de features de `tokio` et de `chrono` ; le plan 3a borne aussi `tracing` à `std` (`APPLICATION_FEATURES`, trois entrées). | 00-decisions §2 |
 | R3 | Aucun `lf-adapter-*` ne dépend d'un autre `lf-adapter-*`, ni de `lf-app`. `lf-adapter-audit` dépend de `lf-application` seul et accède aux types du domaine par ses ré-exports. | 00-decisions §2 |
 | R4 | Seul `lf-app` dépend de tous les `lf-*` ; aucun crate ne dépend de `lf-app`, qui n'a pas de cible `lib`. | 00-decisions §2 |
 | R5 | `xtask` ne dépend d'aucun `lf-*`, et réciproquement. | 00-decisions §2 |
 | R6 | **Crates confinés**, une seule porte d'entrée : `rmcp`, `rmcp-macros`, `schemars`, `axum` → lf-adapter-mcp ; `reqwest`, `rustls` (option `ring`), `backon` (porte inerte : l'adapter ne l'emploie pas), `governor` → lf-adapter-piste ; `moka` → lf-adapter-cache ; `sha2`, `fs4` → lf-adapter-audit (et xtask) ; `tantivy`, `quick-xml`, `tar`, `flate2` → lf-adapter-dila ; `clap`, `tracing-subscriber`, `dirs` → lf-app ; `anyhow` → lf-app, xtask ; `secrecy` → lf-adapter-piste, lf-app ; `chrono-tz` → lf-app (`clock`), lf-adapter-piste (midi Europe/Paris de `DATE_VERSION`), jamais lf-domain ni lf-application (00 §2). `rmcp` ne doit jamais être renommé. **Livrée au plan 2c** : 21 crates confinés (`CONFINED`, `xtask/src/arch.rs`) ; R6 vise les dépendances normales et de build, pas les dev (`flate2` en dev de l'adapter PISTE passe) ; le code livré ne lit que les normales (écart : `[build-dependencies]` non lues) ; `backon` reste dans la table (porte inerte). | 02 (recherche 04 §5.3, recherche 09 §7a) ; 00 §2 pour `chrono-tz` |
 | R7 | Aucun membre ne dépend directement de `async-trait` (ADR-0012) ; seule la feature HTTP de rmcp le tire en M8. | ADR-0012 |
-| R8 | Dev-dependencies : `lf-domain` et `lf-application` ne prennent aucun adapter, même en dev. Les adapters peuvent prendre `lf-application` avec `test-support`. **Livrée au plan 2c** : booléen `dev_adapters` (faux pour `lf-domain` et `lf-application`) ; un adapter peut prendre `lf-application` en dev. | proposition |
+| R8 | Dev-dependencies : `lf-domain` et `lf-application` ne prennent aucun adapter, même en dev. Les adapters peuvent prendre `lf-application` avec `test-support`. **Livrée au plan 2c** : booléen `dev_adapters` (faux pour `lf-domain` et `lf-application`) ; un adapter peut prendre `lf-application` en dev. **Complément (plan 3a)** : la réciproque est vérifiée, aucun membre n'active `lf-application/test-support` en dépendance normale ni par sa table `[features]` (`DEV_ONLY_FEATURES`, message `{membre} must not enable lf-application feature test-support (dev-dependencies only)`, test `test_support_is_only_for_dev_dependencies`). Les commentaires de `xtask/src/arch.rs` la nomment « R9 », numéro déjà pris ici par la règle des doublons : la numérotation est à réconcilier (06 §9.3). | proposition |
 | R9 | Aucune double version des crates critiques dans le graphe résolu : `tokio`, `rustls`, `reqwest`, `hyper`, `http`, `serde`, `schemars`, `rmcp`, `chrono`. Livrée au plan 2b (§4.2). | 00 §0 ; 06 §9.3 (fait foi) |
 
 **Lacunes connues de `check-arch` (R1 à R8), relevées dans `xtask/src/arch.rs` au plan 2c (certaines figées par un test).** Aucune n'est un échec ouvert à ce jour ; elles se resserrent au jalon où un cas réel apparaît. (1) Les `[build-dependencies]` échappent à R1 à R7 et à R6 : un `reqwest` en build-dependency de `lf-domain` passe `check-arch` ; seul le ban `wrappers` de cargo-deny (graphe complet, `--all-features`) le rattrape en seconde ligne. (2) R5 ne lit que les dépendances normales : `xtask` peut prendre `lf-domain` en dev-dependency, sans violation (test `dev_dependencies_do_not_trigger_other_rules`). (3) R8 ne vise que les adapters et `mcp-legifrance` : un adapter peut prendre un autre adapter en dev-dependency (`lf-adapter-cache` prenant `lf-adapter-piste` en dev passe, test `dev_dependencies_do_not_trigger_other_rules`), et `lf-domain` peut prendre `lf-application` en dev-dependency, hors de toute règle (R1 ne lit que les dépendances normales). (4) R8 est modélisé par un seul booléen par crate (`dev_adapters`) : il ne sait pas exprimer une règle plus fine (par exemple « tel adapter, en dev, seulement `lf-application` »). (5) R6 ne confine que par nom direct de paquet (`CONFINED`) : `hyper`, `ureq`, `tokio-rustls` ou `native-tls` n'y figurent pas (`native-tls` est banni par cargo-deny).
@@ -815,7 +818,8 @@ Les signatures suivent [00-decisions §3](00-decisions.md#3-ports-lf-application
 ### 5.1 `LegalCorpus` et `CorpusError`
 
 ```rust
-// crates/lf-application/src/ports/corpus.rs — non compilé, à valider au jalon qui l'implémente
+// crates/lf-application/src/ports/corpus.rs — méthodes v0.1, CorpusError, AuthOrigin et ConfigKind livrés
+// (plans 2b et 3a ; extrait, chemins d'import simplifiés) ; méthodes M6 et M7 non compilées, à valider au jalon qui les implémente
 use std::time::Duration;
 use lf_domain::{
     Act, AccoTextId, ArticleId, ArticleText, CnilTextId, CompanyAgreement, Convention, Decision,
@@ -895,13 +899,29 @@ pub enum CorpusError {
     #[error("rate limited")]
     RateLimited { retry_after: Option<Duration> },
     #[error("credentials rejected")]
-    Auth { detail: String },                           // OAuth 400/401, 401 API après un renouvellement, 403 API (V-65)
+    Auth { origin: AuthOrigin, status: Option<u16>, detail: String }, // OAuth 400/401/403 (Token), second 401 de
+                                                       // l'API ou 403 API non HTML (Api, V-65) ; `status` = statut reçu
     #[error("configuration error: {detail}")]
-    Config { detail: String },                         // identifiants absents, configuration invalide, OAuth 404, route inconnue
+    Config { kind: ConfigKind, detail: String },       // identifiants absents, configuration invalide, OAuth 404,
+                                                       // route inconnue ; le message du modèle ne lit que `kind`, sauf Settings
     #[error("undecodable upstream response: {detail}")]
-    Decode { detail: String },                         // JSON invalide, corps vide sur `/search`, corps trop gros, forme inattendue ;
+    Decode { detail: String },                         // JSON invalide, corps vide sur `/search`, forme inattendue, corps
+                                                       // de l'endpoint du jeton au-delà de la borne ;
                                                        // `detail` = `<endpoint>: <chemin>: <catégorie>` sans valeur (04 §8.5)
+    #[error("response too large")]
+    TooLarge { detail: String },                       // corps de `/search` ou d'une consultation au-delà de la borne de
+                                                       // 16 Mio (04 §4.3, §7.3), jamais réessayé ; plan 3a
 }
+
+/// Endpoint qui a refusé les identifiants : le message du modèle en dépend (§9.2 lignes 7, 11, 12).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthOrigin { Token, Api }
+
+/// Nature d'une erreur de configuration : chacune a son message (05 §7.2), rédigé sans lire le `detail`,
+/// sauf `Settings`, dont le `detail` est le texte destiné au modèle (Display d'un `ConfigProblem` de 04 §2.3,
+/// ou texte de l'erreur de construction du client HTTP : écart connu, 09 §3.16.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigKind { CredentialsMissing, OAuthResponse, ApiEndpoint, OAuthEndpoint, Settings }
 ```
 
 Types d'entrée et de sortie du port, tous définis dans `lf-domain`. Leurs champs et leurs règles sont fixés par [03-domaine.md](03-domaine.md) §4.1, qui fait foi ; l'extrait ne garde que ce qui compte pour l'architecture (clé de cache, frontières) :
@@ -952,8 +972,8 @@ pub struct SearchPage {                            // livré : fond, query, tota
 ### 5.2 `AuditLog`
 
 ```rust
-// crates/lf-application/src/ports/audit.rs — non compilé, à valider au jalon qui l'implémente
-pub use lf_domain::coverage::PisteEnvironment;      // non livré : premier consommateur hors adapter, M3
+// crates/lf-application/src/ports/audit.rs — livré, plan 3a (extrait ; implémentation JsonlAuditLog : plan 3c)
+pub use lf_domain::coverage::PisteEnvironment;      // livré, plan 3a (ré-exporté par `ports`)
 
 pub trait AuditLog: Send + Sync + 'static {
     /// Écrit une ligne et ne rend la main qu'une fois l'écriture terminée (accusé, D-16).
@@ -981,14 +1001,14 @@ pub enum AuditStatus { Ok, Error }
 #[derive(Debug, thiserror::Error)]
 #[error("audit log unavailable ({kind:?})")]
 pub struct AuditError { pub kind: AuditErrorKind, pub detail: String }   // detail : logs seulement
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuditErrorKind { Io, DiskFull, PermissionDenied, Encode, WriterGone }
 ```
 
 ### 5.3 `Clock`
 
 ```rust
-// crates/lf-application/src/ports/clock.rs — non compilé, à valider au jalon qui l'implémente
+// crates/lf-application/src/ports/clock.rs — livré, plan 3a (SystemClock : plan 3c)
 /// Synchrone : aucune E/S. Implémentations : lf-app::clock::SystemClock (chrono-tz), testing::FixedClock.
 pub trait Clock: Send + Sync + 'static {
     fn now_utc(&self) -> chrono::DateTime<chrono::Utc>;
@@ -1004,9 +1024,10 @@ pub trait Clock: Send + Sync + 'static {
 La décision écarte un port entrant sous forme de trait. L'adapter MCP appelle directement les méthodes de `LegalService<C, A, K>` (§6.2). Le seul contrat d'entrée est le type `ToolCall<I>` :
 
 ```rust
-// crates/lf-application/src/input.rs — non compilé, à valider au jalon qui l'implémente
+// crates/lf-application/src/input.rs — livré, plan 3a (extrait)
 /// Un appel d'outil tel que reçu : l'adapter entrant a tenté le décodage, mais c'est l'application
 /// qui audite le résultat. Une erreur de décodage devient donc un invalid_arg audité (E-29, D-02).
+#[derive(Debug, Clone)]
 pub struct ToolCall<I> {
     pub input: Result<I, InputError>,
     pub canonical: CanonicalInput,
@@ -1110,33 +1131,41 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
 **Algorithme** :
 
 ```rust
-// crates/lf-application/src/audited.rs — non compilé, à valider au jalon qui l'implémente
+// crates/lf-application/src/audited.rs — livré, plan 3a (extrait condensé ; le code fait foi)
 pub async fn run<O, W, X>(&self, meta: CallMeta, cancel: X, work: W) -> Result<O, AppError>
 where O: AuditMetric, W: Future<Output = Result<O, AppError>> + Send, X: Future<Output = ()> + Send
 {
-    let started = tokio::time::Instant::now();                    // horloge monotone, suspendable en test
     let span = tracing::info_span!("tool_call", tool = meta.tool.as_str(),
-        status = tracing::field::Empty, error_code = tracing::field::Empty,
-        duration_ms = tracing::field::Empty, output = tracing::field::Empty);
-    let work = Deadline::scope(started + self.deadline, work);   // échéance publiée (tokio::task_local!, 00 §3)
-    let outcome = async {
-        tokio::select! {
-            biased;
-            () = cancel => Outcome::Cancelled,                    // notifications/cancelled → abandon de `work`
-            r = tokio::time::timeout(self.deadline, work) => Outcome::Done(   // seule garde dure
-                r.unwrap_or_else(|_| Err(AppError::deadline(self.deadline)))),   // délai global (D-14)
-        }
-    }.instrument(span.clone()).await;
+        input_bytes = meta.canonical.as_str().len(),             // longueur en octets, jamais la valeur (§11.3)
+        status = field::Empty, error_code = field::Empty, duration_ms = field::Empty, output = field::Empty);
+    self.audit(span.clone(), meta, cancel, work).instrument(span).await
+}
+
+async fn audit<O, W, X>(&self, span: Span, meta: CallMeta, cancel: X, work: W) -> Result<O, AppError> {
+    let started = tokio::time::Instant::now();                    // horloge monotone, suspendable en test
+    let deadline = self.policy.deadline;                          // LF_TOOL_DEADLINE_S (AuditPolicy)
+    let work = Deadline::after(deadline).scope(work);             // échéance publiée (tokio::task_local!, 00 §3)
+    let outcome = tokio::select! {
+        biased;
+        () = cancel => Outcome::Cancelled,                        // notifications/cancelled → abandon de `work`
+        done = tokio::time::timeout(deadline, work) => Outcome::Done(       // seule garde dure
+            done.unwrap_or_else(|_| Err(messages::deadline(deadline)))),     // délai global (D-14)
+    };
     let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX); // troncature, parité
-    let record = meta.into_record(&outcome, duration_ms, &self.policy);  // métrique, code, message final ≤ 500 car.
-    span.record(/* status, error_code, duration_ms, output */);
-    match (outcome, self.log.record(&record).await) {
-        (Outcome::Done(res), Ok(())) => res,
-        (Outcome::Done(res), Err(e)) => match self.policy.mode {
-            AuditMode::Strict => Err(AppError::audit(e, res.err().map(|x| x.code()))), // résultat écarté
-            AuditMode::BestEffort => { tracing::warn!(kind = ?e.kind, "audit write failed"); res }
-        },
-        (Outcome::Cancelled, _) => Err(AppError::cancelled()),   // rmcp ne renverra pas cette réponse
+    let record = self.record(meta, &outcome, duration_ms);        // métrique, code, message final ≤ 500 car. ;
+                                                                  // annulation : messages::cancelled(), sans code
+    trace_outcome(&span, &record);                                // champs du span, puis événement info! ou warn!
+    let Err(error) = self.log.record(&record).await else { return outcome.into_result() };
+    match (outcome, self.policy.mode) {
+        (Outcome::Done(result), AuditMode::Strict) => {           // résultat écarté
+            tracing::error!(kind = ?error.kind, "audit write failed; result withheld");
+            Err(messages::audit(&error, result.as_ref().err().and_then(AppError::code)))
+        }
+        (outcome, mode) => {                                      // BestEffort, ou annulation (tout mode)
+            tracing::warn!(kind = ?error.kind, "audit write failed");
+            if mode == AuditMode::BestEffort { self.write_failures.fetch_add(1, Ordering::Relaxed); }
+            outcome.into_result()                                 // annulation : rmcp ne renverra pas cette réponse
+        }
     }
 }
 ```
@@ -1149,19 +1178,25 @@ where O: AuditMetric, W: Future<Output = Result<O, AppError>> + Send, X: Future<
 | erreurs amont, quota, configuration | `error` | `upstream_error`, `rate_limited` ou `config_error` | 0 | réelle | `Err(…)` |
 | délai global dépassé | `error` | `upstream_error` | 0 | ≈ `LF_TOOL_DEADLINE_S` | `Err(Upstream{cause: Deadline})` |
 | annulation par le client | `error` | absent ; `error: cancelled by client` (00 §7) | 0 | réelle | sans effet : rmcp jette la réponse d'une requête annulée (`service.rs:1503-1505`, vérifié) |
-| échec d'écriture, mode `strict` | — (aucune ligne) | — | — | — | `Err(Audit)` → `[audit_error]`, en citant le code d'origine s'il y en avait un (D-02) |
-| échec d'écriture, mode `best-effort` | — | — | — | — | résultat d'origine, `warn!` et compteur |
+| échec d'écriture, mode `strict` | — (aucune ligne) | — | — | — | `Err(Audit)` → `[audit_error]`, en citant le code d'origine s'il y en avait un (D-02) ; `error!` |
+| échec d'écriture, mode `best-effort` | — | — | — | — | résultat d'origine, `warn!` et compteur (`write_failures()`) |
+| annulation et échec d'écriture, tout mode | — (aucune ligne) | — | — | — | annulation inchangée (rien à retenir : personne ne lit la réponse) ; `warn!` ; compteur en `best-effort` seulement |
 
 L'annulation est **explicite** : l'adapter passe `ct.cancelled()` en paramètre. On évite ainsi un garde `Drop` qui ne pourrait pas attendre (`await`) l'écriture d'audit. `select!` en mode `biased` fait gagner l'annulation en cas de simultanéité. Abandonner `work` abandonne en cascade la requête reqwest en vol, l'attente du limiteur et les pauses de la boucle de réessai.
 
 **Délai global** (00 §3). `tokio::time::timeout(LF_TOOL_DEADLINE_S)` est la seule garde dure. `Deadline::scope` publie l'échéance dans `lf_application::deadline::Deadline`, variable locale de tâche (`tokio::task_local!`, feature `rt` seule, §3.2). `Deadline::scope` et `Deadline::current_or` sont publics : les tests des adapters ouvrent eux-mêmes une portée (`deadline_from_task_local_is_used`, 04 §13.2), sans passer par `Audited`. Les adapters la lisent par `Deadline::current_or(défaut)` comme une **durée restante** (`Duration`), qu'ils convertissent dans leur propre horloge monotone à l'entrée de la méthode du port, ce qui garde cohérentes leurs horloges de test (`ManualClock`, 04 §13.1). Ils ne programment aucune tentative ni attente qui dépasserait l'échéance et rendent tout de suite une erreur explicite (`RateLimited { retry_after }`, `Timeout` ou dernière erreur). Les cas d'usage n'utilisent pas `tokio::spawn` (sinon, propagation explicite) ; ceux à appels multiples cessent d'en lancer à 80 % du délai et rendent un résultat partiel motivé. Dépassement → `upstream_error` (`UpstreamCause::Deadline`).
 
-**Tests** à écrire, détaillés dans [06-qualite.md](06-qualite.md) :
-- `audit_written_for_every_outcome` : les 15 issues de 06 §2.2 (12 avec une ligne, 3 sans ligne en cas d'échec d'écriture) ;
-- `error_duration_is_nonzero`, avec `tokio::time::pause` et une attente de 200 ms ;
-- `audit_failure_returns_audit_error` et `best_effort_keeps_result` ;
-- `cancelled_call_is_audited` ;
-- `deadline_maps_to_upstream_error_before_deadline_plus_epsilon` (D-14).
+**Tests**, détaillés dans [06-qualite.md](06-qualite.md) ; livrés au plan 3a, dans `audited.rs`, sur `Audited::run` directement (la façade les rejouera au plan 3b) :
+- `audit_written_for_every_outcome` : table de 18 entrées, soit les 15 issues de 06 §2.2 (la ligne 4 en deux variantes, 404 et 200 vide) et les deux croisements de l'annulation avec un échec d'écriture (strict et best-effort) ; 13 entrées avec une ligne, 5 sans ligne (échec d'écriture) ;
+- `error_duration_is_nonzero`, avec `tokio::time::pause` et une attente de 200 ms ; `duration_of_instant_failure_is_zero` ;
+- `audit_failure_returns_audit_error`, `audit_failure_does_not_mask_original_cause`, `best_effort_keeps_result`, `strict_write_failure_logs_an_error_event` ;
+- `cancelled_call_is_audited`, `cancel_wins_over_deadline_at_same_instant`, `cancelled_call_with_failed_write_stays_cancelled` ;
+- `deadline_maps_to_upstream_error_before_deadline_plus_epsilon` et `deadline_is_published_to_the_port` (D-14) ;
+- `audit_write_is_acknowledged_before_tool_returns` (D-16), `audit_metric_is_taken_from_the_output`, `audit_error_field_is_capped_at_500_chars`, `record_carries_env_version_and_timestamp` ;
+- `tool_call_span_carries_outcome_fields`, `tool_call_event_level_follows_the_outcome`, `invalid_arg_is_not_logged_as_error` (D-08), `outcome_fields_stay_off_the_parent_span_when_tool_call_is_filtered` ;
+- `run_future_is_send`, `work_panic_propagates_without_audit_line` (une panique dans `work` traverse `run` sans ligne d'audit : question ouverte pour le plan 3c, 09 §3.16.3).
+
+Restent au plan 3b `audit_metric_per_tool` et `duration_includes_normalization` (la façade construit `work` comme un bloc `async` paresseux, pour que la durée couvre le décodage et la validation).
 
 ### 7.2 `CachedCorpus<C>` : cache du port
 
@@ -1341,16 +1376,18 @@ Le runtime est multi-thread (`new_multi_thread().enable_all()`), parce que rmcp 
 lf-domain        DomainError       InvalidId, InvalidFond, InvalidDate, EmptyQuery, OutOfRange, QueryTooLong, … (03)
 lf-application   InputError        décodage des arguments impossible (type, forme)
                  CorpusError       NotFound, InvalidRequest, Upstream{status, retryable}, Timeout,
-                                   RateLimited{retry_after}, Auth, Config, Decode            (port, §5.1)
+                                   RateLimited{retry_after}, Auth{origin, status}, Config{kind}, Decode,
+                                   TooLarge                                                  (port, §5.1)
                  AuditError        Io, DiskFull, PermissionDenied, Encode, WriterGone       (port, §5.2)
                  AppError          InvalidArgument, NotFound, Upstream{cause}, RateLimited, Config, Audit
                                    (chaque variante porte le message final, rédigé par `messages`, §3.2)
                  ErrorCode         invalid_arg | not_found | upstream_error | rate_limited | config_error | audit_error
+                                   (lf-application : tout ce bloc est livré, plans 2b et 3a)
 lf-adapter-mcp   ToolFailure       AppError → CallToolResult{isError: true, content: "[code] " + message} (ADR-0010)
                  ErrorData (rmcp)  erreurs de protocole JSON-RPC uniquement
 ```
 
-- `UpstreamCause` = `Status(u16)`, `Network`, `Timeout`, `Deadline`, `Decode`, `Cancelled`. Il détaille `AppError::Upstream` pour les logs et l'audit, sans créer de nouveau code MCP.
+- `UpstreamCause` = `Status(u16)`, `Network`, `Timeout`, `Deadline`, `Decode`, `Cancelled`. Il détaille `AppError::Upstream` pour les logs et l'audit, sans créer de nouveau code MCP. `AppError::code()` rend `None` pour la seule cause `Cancelled` (code absent de l'audit, 00 §7). Livrés au plan 3a (`error.rs`).
 - `ErrorCode` est la **source unique** des six codes. Le test de dérive des instructions compare `ErrorCode::ALL` aux codes cités dans `INSTRUCTIONS` (décision §6).
 - Il n'existe pas de `From<DomainError> for CorpusError`. Un adapter qui obtient un `DomainError` en analysant une réponse PISTE choisit donc explicitement `Decode`, ou écarte et compte l'élément (D-30). Il ne produit jamais un `invalid_arg` par erreur.
 
@@ -1364,25 +1401,25 @@ Cette table est la source unique de la correspondance cause → `CorpusError` �
 | 2 | Validation du domaine | `decision_id='X' must start with one of (…)` (P-012), date `2016-13-45` (D-22), `fond` inconnu, texte > 20 000 | `DomainError` (cas d'usage) | `InvalidArgument` | `[invalid_arg] …` (message de parité) | `error` / `invalid_arg` |
 | 3 | Outil inconnu | `tools/call {name:"x"}` | rmcp : `invalid_params("tool not found")` (`router/tool.rs:566-571`, vérifié) | — | JSON-RPC `-32602` | aucune ligne : aucune exécution |
 | 4 | JSON-RPC malformé, batch, `_meta` moderne incomplet | | rmcp | — | `-32700`, `-32600` ou `-32602` ; version non supportée → `-32022` | aucune |
-| 5 | Identifiants absents | `LF_PISTE_CLIENT_ID` non défini | `CorpusError::Config`, sans E/S | `Config` | `[config_error] PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET …` (S6, E-34) | `error` / `config_error` |
-| 6 | Configuration invalide | `LF_PISTE_ENV=prod`, URL `ftp://…` ; hôte officiel de production avec `LF_PISTE_ENV=sandbox` (`EnvMismatch`, 00 §1) | `CorpusError::Config` (mode dégradé, §8.2) | `Config` | `[config_error] LF_PISTE_ENV='prod' is invalid: expected sandbox or production.` ; `EnvMismatch` : `[config_error] LF_PISTE_BASE_URL points to the PISTE production host but LF_PISTE_ENV is sandbox: set LF_PISTE_ENV=production, or fix the URL.` (05 §7.2 ; aucune déduction implicite de l'environnement) | idem |
-| 7 | OAuth 400 ou 401 | `invalid_client` | `CorpusError::Auth` | `Config` | `[config_error] PISTE rejected the credentials (HTTP {status}): check LF_PISTE_CLIENT_ID, LF_PISTE_CLIENT_SECRET and LF_PISTE_ENV.` — la référence répond `upstream_error` (S8) : corrigé (D-10) | idem |
-| 8 | OAuth 404 | mauvaise `LF_PISTE_OAUTH_URL` | `CorpusError::Config` | `Config` | `[config_error] PISTE OAuth endpoint not found: check LF_PISTE_OAUTH_URL.` — **jamais `not_found`** (décision §5) | idem |
-| 9 | OAuth 200 sans `access_token`, ou JSON OAuth illisible | | `CorpusError::Config` | `Config` | `[config_error] PISTE OAuth returned no access_token.` (S7) | idem |
+| 5 | Identifiants absents | `LF_PISTE_CLIENT_ID` non défini | `CorpusError::Config { kind: CredentialsMissing }`, sans E/S | `Config` | `[config_error] PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET …` (S6, E-34) | `error` / `config_error` |
+| 6 | Configuration invalide | `LF_PISTE_ENV=prod`, URL `ftp://…` ; hôte officiel de production avec `LF_PISTE_ENV=sandbox` (`EnvMismatch`, 00 §1) | `CorpusError::Config { kind: Settings }` (mode dégradé, §8.2) ; `detail` = `Display` du `ConfigProblem` de l'adapter (`InvalidEnv`, `EnvMismatch`…, 04 §2.3), seul `detail` recopié, coupé à 500 caractères | `Config` | `[config_error] LF_PISTE_ENV='prod' is invalid: expected sandbox or production.` ; `EnvMismatch` : `[config_error] LF_PISTE_BASE_URL points to the PISTE production host but LF_PISTE_ENV is sandbox: set LF_PISTE_ENV=production, or fix the URL.` (05 §7.2 ; aucune déduction implicite de l'environnement) | idem |
+| 7 | OAuth 400, 401 ou 403 | `invalid_client` | `CorpusError::Auth { origin: Token, status }` | `Config` | `[config_error] PISTE rejected the credentials (HTTP {status}): check LF_PISTE_CLIENT_ID, LF_PISTE_CLIENT_SECRET and LF_PISTE_ENV.` (sans ` (HTTP {status})` si `status` est `None`) — la référence répond `upstream_error` (S8) : corrigé (D-10) | idem |
+| 8 | OAuth 404 | mauvaise `LF_PISTE_OAUTH_URL` | `CorpusError::Config { kind: OAuthEndpoint }` | `Config` | `[config_error] PISTE OAuth endpoint not found: check LF_PISTE_OAUTH_URL.` — **jamais `not_found`** (décision §5) | idem |
+| 9 | OAuth 200 sans `access_token`, ou JSON OAuth illisible | | `CorpusError::Config { kind: OAuthResponse }` | `Config` | `[config_error] PISTE OAuth returned no access_token.` (S7) | idem |
 | 10 | OAuth 429, 5xx ou erreur réseau | | retries, puis `RateLimited`, `Upstream` ou `Timeout` | `RateLimited` ou `Upstream` | `[rate_limited] …` ou `[upstream_error] …` | idem |
-| 11 | API 401 | jeton révoqué | **un seul** renouvellement, puis `CorpusError::Auth` (décision §8, D-12) | `Config` | `[config_error] …` | idem |
-| 12 | API 403 | application non abonnée | `CorpusError::Auth` (décision 00 §5). Le sens d'un 403 PISTE est **NON VÉRIFIÉ** [V-65 · forme-403-piste] (V-65) ; la parité (S10) donnait `upstream_error`. | `Config` | `[config_error] PISTE denied access (HTTP 403): check that the PISTE application is subscribed to the Legifrance API.` | idem |
+| 11 | API 401 | jeton révoqué | **un seul** renouvellement, puis `CorpusError::Auth { origin: Api, status: Some(401) }` (décision §8, D-12) | `Config` | `[config_error] PISTE rejected the credentials (HTTP 401): check LF_PISTE_CLIENT_ID, LF_PISTE_CLIENT_SECRET and LF_PISTE_ENV.` | idem |
+| 12 | API 403 | application non abonnée | `CorpusError::Auth { origin: Api, status: Some(403) }` (décision 00 §5 ; corps non HTML, la page HTML de la passerelle est une `InvalidRequest`, 04 §11.2). Le sens d'un 403 PISTE est **NON VÉRIFIÉ** [V-65 · forme-403-piste] (V-65) ; la parité (S10) donnait `upstream_error`. | `Config` | `[config_error] PISTE denied access (HTTP 403): check that the PISTE application is subscribed to the Legifrance API.` | idem |
 | 13 | Ressource absente | 404 sur une consultation, les deux adresses officielles (jeton et base, `PisteEndpoints::is_official`, 04 §11.2 règle 4) et corps qui n'est pas du HTML ; ou 2xx à corps vide, quel que soit l'hôte (adapter, plan 2d) ou à enveloppe `null` (`text: null`, mapping, plan 2f) | `CorpusError::NotFound` | `NotFound` | `[not_found] No JURI decision found for …` (P-013) | `error` / `not_found` |
 | 13 bis | Identifiant inexistant signalé par un 400 | 400 sur une consultation dont `message` contient « valider est fausse » (`/consult/juri`, seul comportement observé) | `CorpusError::NotFound` (04 §11.2 règle 2) | `NotFound` | `[not_found] …` (message de l'outil, P-013) | `error` / `not_found` |
-| 14 | **404 de routage** | 404 sur `/search` ; 404 à corps HTML (passerelle) ; 404 sur un hôte non officiel ; `LF_PISTE_BASE_URL` erronée (un 404 de l'endpoint token relève de la ligne 8) | `CorpusError::Config` | `Config` | `[config_error] Legifrance endpoint not found: check LF_PISTE_BASE_URL.` (D-10). La forme d'un 404 PISTE est **NON VÉRIFIÉE** [V-66 · forme-404-piste]. | `error` / `config_error` |
-| 15 | API 400 | 400 sans le marqueur « introuvable » ; ou garde défensive de l'adapter (contrainte d'entrée que le cas d'usage aurait dû rejeter ou remplir) | `CorpusError::InvalidRequest` (non réessayé, `warn!` « bug probable ») | `Upstream` | `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` : message PISTE nettoyé (≤ 200 caractères, secrets retirés) pour une consultation, `HTTP 400 on /search` pour une recherche (le message PISTE n'est jamais recopié), `HTTP 400 on {endpoint}` si le corps d'une consultation ne livre rien (parité S10 ; 00 §5 ; 04 §11.2). **Sauf** `status: None` (garde locale, aucune requête partie, aucun 400) : `lf-application::messages` (M3) rend un gabarit distinct, sans « HTTP 400 » (07 T-M2-09) | `error` / `upstream_error` |
+| 14 | **404 de routage** | 404 sur `/search` ; 404 à corps HTML (passerelle) ; 404 sur un hôte non officiel ; `LF_PISTE_BASE_URL` erronée (un 404 de l'endpoint token relève de la ligne 8) | `CorpusError::Config { kind: ApiEndpoint }` | `Config` | `[config_error] Legifrance endpoint not found: check LF_PISTE_BASE_URL.` (D-10). La forme d'un 404 PISTE est **NON VÉRIFIÉE** [V-66 · forme-404-piste]. | `error` / `config_error` |
+| 15 | API 400 | 400 sans le marqueur « introuvable » ; ou garde défensive de l'adapter (contrainte d'entrée que le cas d'usage aurait dû rejeter ou remplir) | `CorpusError::InvalidRequest` (non réessayé, `warn!` « bug probable ») | `Upstream` | `[upstream_error] Legifrance rejected the request (HTTP 400): {détail}` : message PISTE nettoyé (≤ 200 caractères, secrets retirés) pour une consultation, `HTTP 400 on /search` pour une recherche (le message PISTE n'est jamais recopié), `HTTP 400 on {endpoint}` si le corps d'une consultation ne livre rien (parité S10 ; 00 §5 ; 04 §11.2). **Sauf** `status: None` (garde locale, aucune requête partie, aucun 400) : `lf-application::messages` (livré, plan 3a) rend un gabarit distinct, sans « HTTP 400 » : `the request was not sent to Legifrance ({détail}); report it.` (07 T-M2-09) | `error` / `upstream_error` |
 | 16 | API 429 | quota | retries respectant `Retry-After`, puis `CorpusError::RateLimited`. La présence de l'en-tête est **NON VÉRIFIÉE** [V-63 · retry-after-piste]. | `RateLimited` | `[rate_limited] PISTE quota reached; retry in N s` | `error` / `rate_limited` |
 | 17 | API 500, 502, 503 ou 504 | | 502, 503, 504 : 3 tentatives au plus, puis `CorpusError::Upstream { retryable: true }` ; 500 : 2 tentatives au plus, puis `Upstream { status: 500, retryable: false }` (un 500 répété est présumé déterministe, V-69 ; 00 §8) | `Upstream` | `[upstream_error] Legifrance/PISTE HTTP 503 (service unavailable); retry once, then report it.` (sans URL, D-40) ; l'invitation à réessayer n'apparaît que si `retryable: true` | `error` / `upstream_error` |
 | 18 | Réseau, timeout HTTP | `LF_HTTP_TIMEOUT_S` | retries, puis `CorpusError::Timeout` ou `Upstream { status: None }` | `Upstream` | `[upstream_error] …` | idem |
-| 19 | Corps illisible | HTML, `null`, type inattendu, > borne | `CorpusError::Decode` (chemin via `serde_path_to_error`) | `Upstream` | `[upstream_error] unexpected response from Legifrance …` (texte : 05 §7.2 ; E-21, D-11) | idem |
+| 19 | Corps illisible ou trop gros | HTML, `null`, type inattendu ; corps au-delà de la borne de 16 Mio | `CorpusError::Decode` (chemin via `serde_path_to_error`) ; au-delà de la borne : `CorpusError::TooLarge` sur `/search` et `/consult/*` (plan 3a), `Decode` sur l'endpoint du jeton | `Upstream` | `[upstream_error] unexpected response from Legifrance; report it.` (texte : 05 §7.2 ; E-21, D-11) ; `TooLarge` de `fr_get_act` : `[upstream_error] this text is too large for get_act; use get_article or search instead.` (04 §7.3) | idem |
 | 20 | Délai global | `LF_TOOL_DEADLINE_S` dépassé | (`Audited`) | `Upstream { cause: Deadline }` | `[upstream_error] tool deadline of 60 s exceeded; retry, or narrow the request (smaller page_size, fewer fonds).` | idem |
 | 21 | Annulation | `notifications/cancelled` | (`Audited`) | `Upstream { cause: Cancelled }` | aucune réponse émise (rmcp jette la réponse) | `error`, code absent, `error = "cancelled by client"` |
-| 22 | Échec d'écriture du journal, mode strict | disque plein | `AuditError` | `Audit` | `[audit_error] audit log unavailable; the call was not recorded and its result is withheld (see server logs).` suivi de `Original error: [code].` s'il y en avait une — sans chemin (05 §7.2) | aucune ligne possible |
+| 22 | Échec d'écriture du journal, mode strict | disque plein | `AuditError` | `Audit` | `[audit_error] audit log unavailable; the call was not recorded and its result is withheld (see server logs).` suivi de `Original error: [code].` s'il y en avait une — sans chemin (05 §7.2). **Sauf** un appel annulé (ligne 21) : l'annulation reste telle quelle, en strict comme en best-effort (`warn!`, plan 3a) | aucune ligne possible |
 | 23 | Échec d'écriture du journal, mode best-effort | | `AuditError` | — | résultat d'origine | aucune ligne ; `warn!` + compteur |
 | 24 | Resource inconnue (M7) | `legifrance://foo` | `ErrorData::resource_not_found(…, data {uri})` | — | JSON-RPC `-32002` aux pairs legacy (spécification 2025-11-25), `-32602` aux pairs 2026-07-28 (rmcp réécrit le code selon l'ère ; décision 00 §6) ; identifiant invalide dans une URI de gabarit → `-32602` (`invalid_params`) dans les deux ères | aucune |
 | 25 | Resource introuvable (M7) | article absent | `NotFound` → `ErrorData::resource_not_found` + `data.uri` ; jamais `contents: []` (recherche 08 §7.2) | `NotFound` | `-32002` (legacy) ou `-32602` (moderne) | `error` / `not_found` |
@@ -1425,7 +1462,7 @@ Cette table est la source unique de la correspondance cause → `CorpusError` �
 | Span | Créé par | Champs | Niveau |
 |---|---|---|---|
 | `mcp_request` | lf-adapter-mcp, pour chaque `tools/call` et `resources/read`. Le span est créé à la main dans la méthode, puis `.instrument()`, plutôt qu'un `#[instrument]` empilé sur `#[tool]`. | `method`, `tool` ou `uri_template`, `request_id` (`ctx.id`), `protocol_version` (`ctx.protocol_version()`, qui indique l'ère), `client` (`clientInfo.name` s'il est présent ; auto-déclaré, pour l'affichage seulement, recherche 08 §4.1) | `info` |
-| `tool_call` | `Audited` | `tool`, `status`, `error_code`, `duration_ms`, `output` (= `output_count_or_size`), `input_bytes` | `info` (un événement de fin par appel) |
+| `tool_call` | `Audited` (livré, plan 3a) | `tool`, `status`, `error_code`, `duration_ms`, `output` (= `output_count_or_size`), `input_bytes` (longueur en octets de l'entrée canonique, jamais sa valeur) ; tous sauf `tool` et `input_bytes` renseignés après coup | `info` (span) ; un événement de fin par appel, `tool call finished` : `info` pour un succès, `invalid_arg`, `not_found` ou une annulation, `warn` pour `upstream_error`, `rate_limited` ou `config_error` |
 | `corpus` | `CachedCorpus` | `op`, `cache` (`hit`, `miss` ou `bypass`) | `debug` |
 | `piste_request` | lf-adapter-piste, un par **tentative** (nom et champs normatifs ; 04 §12.5 et les tests de 06 s'y alignent) | `endpoint` (chemin seul, ex. `/consult/juri`), `fond`, `attempt`, `http_status`, `elapsed_ms`, `retry_in_ms`, `token_refreshed`, `body_bytes`, `mojibake_repaired` | `debug` ; `warn` quand les retries sont épuisés |
 | `oauth_token` | lf-adapter-piste | `outcome`, `expires_in_s` | `debug` (succès), `warn` (échec) |
@@ -1438,9 +1475,9 @@ Un champ `traceparent` venant de `_meta` (recherche 08 §3.2 m2) peut être cons
 
 | Niveau | Contenu |
 |---|---|
-| `error` | Écriture d'audit impossible en mode strict ; configuration invalide au démarrage ; panique interceptée ; invariant violé. |
-| `warn` | Retries épuisés (5xx, 429) ; mojibake réparé (compteur) ; variable `FR_ELI_*` dépréciée ; variable héritée « ignored » ; hôte hors des quatre hôtes officiels (`CustomHost`) ; réglage avancé invalide remplacé par son défaut ; échec d'audit en mode best-effort ; HTTP 400 amont (bug probable) ; filtre `LF_LOG` invalide. |
-| `info` | Démarrage et arrêt, une ligne par appel d'outil (`tool_call`). |
+| `error` | Écriture d'audit impossible en mode strict, résultat retenu (`audit write failed; result withheld`) ; configuration invalide au démarrage ; panique interceptée ; invariant violé. |
+| `warn` | Retries épuisés (5xx, 429) ; mojibake réparé (compteur) ; variable `FR_ELI_*` dépréciée ; variable héritée « ignored » ; hôte hors des quatre hôtes officiels (`CustomHost`) ; réglage avancé invalide remplacé par son défaut ; échec d'audit en mode best-effort, ou d'un appel annulé dans les deux modes (`audit write failed`) ; fin d'un appel d'outil en `upstream_error`, `rate_limited` ou `config_error` (`tool_call`) ; HTTP 400 amont (bug probable) ; filtre `LF_LOG` invalide. |
+| `info` | Démarrage et arrêt ; fin d'un appel d'outil réussi, en `invalid_arg`, en `not_found` ou annulé (`tool_call` : l'annulation est un choix du client, pas une panne). |
 | `debug` | Chemins d'endpoint, tailles, état du cache, tentatives. **Jamais** de contenu. |
 | `trace` | Rien de plus sensible qu'en `debug`. |
 
