@@ -4,14 +4,16 @@
 //! ```text
 //! record_fixture --endpoint /consult/juri --body '{"textId":"…"}' --name juri/… \
 //!     [--env sandbox|production] [--allow-error] [--redact <pointeur>]… [--force] [--out <dir>]
-//! record_fixture --plan <plan.toml> [--only <préfixe>] [--env …] [--force] [--out <dir>]
+//! record_fixture --plan <plan.toml> [--only <préfixe>] [--force] [--out <dir>] (sandbox seulement)
 //! ```
 //!
 //! Identifiants : `LF_PISTE_CLIENT_ID` et `LF_PISTE_CLIENT_SECRET`, dans l'environnement
 //! seulement, jamais en argument ni à l'écran. Sandbox par défaut ; `--env production` est un
-//! choix explicite du mainteneur (Q3). Une requête par seconde au plus (limiteur de l'adapter,
-//! rafale 1, une requête en vol), borne de corps relevée à 64 Mio pour mesurer les gros textes
-//! (V-75, V-96). Glue d'E/S : la logique vit dans `lf_adapter_piste::record`.
+//! choix explicite du mainteneur (Q3), pour une sonde seule : un lot (`--plan`) est refusé en
+//! production. Une requête par seconde au plus (limiteur de l'adapter, rafale 1, une requête en
+//! vol), borne de corps relevée à 64 Mio pour mesurer les gros textes (V-75, V-96). Les refus
+//! d'écrire (401/429, écho, liens symboliques…) sont ceux de `record::write`. Glue d'E/S : la
+//! logique vit dans `lf_adapter_piste::record`.
 
 use std::env;
 use std::fs;

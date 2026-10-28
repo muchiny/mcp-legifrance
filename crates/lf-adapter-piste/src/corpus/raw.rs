@@ -4,7 +4,8 @@
 //! Même chemin qu'une tentative de `PisteCorpus::send` (mode dégradé sans E/S, client unique,
 //! barrière de charge, jeton OAuth, délai de l'appel, borne de corps), mais le statut et les
 //! octets sont rendus tels quels : un 400, un 404 ou un 500 sont des résultats, pas des erreurs.
-//! Un 401 n'est pas rejoué. Le permis de concurrence tombe dès la lecture du corps.
+//! Un 401 n'est pas rejoué. Le permis de concurrence est gardé jusqu'à la fin de l'échange (corps
+//! lu et comparé aux identifiants).
 //!
 //! Le jeton, le secret client et le `client_id` ne sortent jamais d'ici : seul un booléen dit si
 //! le corps reçu recopie la valeur exacte de l'un d'eux (`Exchange::echoes_credentials`), et

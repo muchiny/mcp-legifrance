@@ -8,7 +8,8 @@
 //! dix-sept snapshots `insta`, ni le golden ne portent de chaîne qui ressemble à un secret
 //! (D-35) : mot d'authentification (`bearer`, `access_token`…, quelle que soit la casse), UUID,
 //! suite hexadécimale de 32 caractères ou plus, JWT, suite base64 de 40 caractères ou plus (sauf
-//! sous les clés `path` et `url`, `BASE64_KEYS`).
+//! sous les clés `path` et `url`, `BASE64_KEYS`, où chaque segment séparé par `/` reste
+//! contrôlé).
 //!
 //! Les fixtures **enregistrées** (`tests/fixtures/recorded/<endpoint>/<nom>.json`, écrites par
 //! `cargo xtask record-fixture`, 04 §13.4) passent les mêmes détecteurs, plus le contrôle de leur
@@ -259,9 +260,10 @@ mod tests {
     /// lettres, de chiffres et de `/` sur plus de 40 caractères ; il y en a des milliers par
     /// fixture enregistrée, trop pour une exemption par pointeur (D10). L'exemption est par la
     /// DERNIÈRE clé de la feuille, jamais par la valeur : la même suite sous toute autre clé, ou
-    /// comme élément d'un tableau, reste signalée. Sous ces clés, le détecteur s'applique encore à
-    /// chaque segment séparé par `/` : seule la longueur cumulée d'un chemin est exemptée. Les autres détecteurs (mots d'authentification,
-    /// UUID, suite hexadécimale, JWT) s'appliquent partout, y compris sous ces clés.
+    /// comme élément d'un tableau, reste signalée. Sous ces clés, le détecteur s'applique encore
+    /// à chaque segment séparé par `/` : seule la longueur cumulée d'un chemin est exemptée. Les
+    /// autres détecteurs (mots d'authentification, UUID, suite hexadécimale, JWT) s'appliquent
+    /// partout, y compris sous ces clés.
     const BASE64_KEYS: [&str; 2] = ["path", "url"];
 
     /// Ajoute à `exempt` les valeurs texte de `value` portées directement par une clé de

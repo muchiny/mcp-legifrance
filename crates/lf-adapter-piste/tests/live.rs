@@ -156,6 +156,10 @@ mod live {
         seen
     }
 
+    /// ROUGE attendu à l'essai contre la vraie sandbox sur ACCOTEXT : elle répond 400 « Le nombre
+    /// de résultat … n'est pas égal à 1. », que le port classe `InvalidRequest` et non `NotFound`.
+    /// Le sort de ce test est celui de la tâche conditionnelle C1 du plan 2h, décidée en PR 2
+    /// d'après l'enregistrement ; d'ici là, cet échec ne doit pas faire croire à une régression.
     #[tokio::test]
     #[ignore = "live: needs LF_PISTE_CLIENT_ID/SECRET"]
     async fn live_unknown_ids_classification() {
@@ -302,7 +306,7 @@ mod live {
         /// ROUGE à l'essai contre la vraie sandbox, par construction : les seuils (4 Mio, 10 s)
         /// sont ceux du plan et ne sont pas assouplis ici. Le sort de ce test est celui de la
         /// tâche conditionnelle C2 du plan 2h, décidée en PR 2 d'après les mesures ; d'ici là, un
-        /// échec de ce seul test (sur la sandbox) est attendu et ne doit pas faire croire à une
+        /// échec de ce test (sur la sandbox) est attendu et ne doit pas faire croire à une
         /// régression. La borne de corps (64 Mio) n'est que le filet qui laisse la mesure aboutir.
         #[tokio::test]
         #[ignore = "live: needs LF_PISTE_CLIENT_ID/SECRET"]

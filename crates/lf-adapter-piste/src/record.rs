@@ -1,9 +1,11 @@
 //! Enregistrement de nouvelles fixtures (feature `record`, 04 §1.4, §13.4 ; 06 §4.4).
 //!
 //! API brute employée par `examples/record_fixture.rs` (`cargo xtask record-fixture`) et par
-//! les tests live, jamais par le binaire : [`PisteCorpus::exchange`](crate::PisteCorpus::exchange) envoie une requête par le vrai client de
-//! l'adapter (User-Agent, OAuth, limiteur, borne de corps) et rend un [`Exchange`] (statut, en-têtes utiles, octets reçus, sans classification,
-//! réessai ni réparation) ; ce module en tire le fichier enregistré et son sidecar `.meta.toml`.
+//! les tests live, jamais par le binaire :
+//! [`PisteCorpus::exchange`](crate::PisteCorpus::exchange) envoie une requête par le vrai
+//! client de l'adapter (User-Agent, OAuth, limiteur, borne de corps) et rend un [`Exchange`]
+//! (statut, en-têtes utiles, octets reçus, sans classification, réessai ni réparation) ; ce
+//! module en tire le fichier enregistré et son sidecar `.meta.toml`.
 //!
 //! Garanties, dans l'ordre de [`write()`] :
 //! - **aucun identifiant ni jeton écrit** : en-têtes et jeton ne sont jamais écrits, et une
@@ -11,8 +13,10 @@
 //!   ([`Exchange::echoes_credentials`], calculé par l'adapter qui les détient) n'est pas écrite
 //!   du tout : c'est l'expurgation **par valeur** (06 §4.4 point 5), en plus du contrôle de forme
 //!   des tests d'intégrité ;
-//! - un statut hors 2xx n'est écrit qu'avec `allow_error` (sondes « introuvable », 04 §11) ;
-//! - un fichier existant n'est remplacé qu'avec `force` ;
+//! - un statut hors 2xx n'est écrit qu'avec `allow_error` (sondes « introuvable », 04 §11), et
+//!   jamais un 401 ni un 429 ;
+//! - un fichier existant n'est remplacé qu'avec `force`, jamais à travers un lien symbolique,
+//!   et rien n'est créé hors de la racine ;
 //! - les octets sont gardés tels quels, sauf les valeurs caviardées par pointeur JSON
 //!   (`/acco/data` par défaut sur `/consult/acco`) : la valeur est remplacée **à sa place dans
 //!   les octets** (aucun reformatage du reste), `sha256_raw` garde l'empreinte d'origine et
@@ -673,9 +677,11 @@ impl Sidecar {
 /// Écrit l'enregistrement de `probe` sous `root` : le fichier (octets reçus, caviardés au
 /// besoin) puis son sidecar.
 ///
-/// Refus, dans l'ordre et sans rien écrire : sonde invalide ([`Probe::check`]), réponse qui
-/// recopie un identifiant, statut hors 2xx sans `allow_error`, fichier existant sans `force`,
-/// caviardage inapplicable.
+/// Refus, dans l'ordre : sonde invalide ([`Probe::check`]), écho d'un identifiant, statut 401
+/// ou 429, statut hors 2xx sans `allow_error`, fichier existant sans `force` (un lien pendant
+/// compte), fichier ou sidecar qui est un lien symbolique, caviardage inapplicable, dossier qui
+/// mène hors de `root`. Aucun fichier n'est écrit avant ces contrôles (la racine peut avoir été
+/// créée).
 ///
 /// # Errors
 ///
