@@ -11,7 +11,7 @@
 
 use std::time::Duration;
 
-use lf_application::ports::CorpusError;
+use lf_application::ports::{AuthOrigin, ConfigKind, CorpusError};
 use reqwest::Client;
 
 use crate::error_body;
@@ -89,6 +89,26 @@ pub(crate) enum EndpointKind {
     Token,
 }
 
+impl EndpointKind {
+    /// Origine d'un refus d'identifiants (401, 403 non HTML) reçu de cet endpoint. `auth.rs`
+    /// traite ces statuts avant `classify` pour le jeton : le type reste juste s'ils l'atteignent.
+    fn auth_origin(self) -> AuthOrigin {
+        match self {
+            Self::Token => AuthOrigin::Token,
+            Self::Search | Self::Consult => AuthOrigin::Api,
+        }
+    }
+
+    /// Nature d'un 404 ou 405 qui ne prouve pas l'absence : adresse du jeton (`LF_PISTE_OAUTH_URL`)
+    /// ou de l'API (`LF_PISTE_BASE_URL`) erronée.
+    fn endpoint_problem(self) -> ConfigKind {
+        match self {
+            Self::Token => ConfigKind::OAuthEndpoint,
+            Self::Search | Self::Consult => ConfigKind::ApiEndpoint,
+        }
+    }
+}
+
 /// Contexte d'une classification : genre d'endpoint, hôte, réglage du mojibake et secrets à ne
 /// jamais laisser dans un détail d'erreur.
 ///
@@ -128,7 +148,7 @@ pub(crate) fn classify(
 ) -> Outcome<RawResponse> {
     match result {
         Ok(response) => classify_status(response, endpoint, context),
-        Err(error) => classify_transport(error),
+        Err(error) => classify_transport(error, context.kind),
     }
 }
 
@@ -146,7 +166,11 @@ fn classify_status(
         || parse_retry_after(response.retry_after.as_deref(), response.date.as_deref());
     match status {
         200..=299 => classify_success(response, endpoint, context.kind),
-        401 => Outcome::Unauthorized(CorpusError::Auth { detail: detail() }),
+        401 => Outcome::Unauthorized(CorpusError::Auth {
+            origin: context.kind.auth_origin(),
+            status: Some(status),
+            detail: detail(),
+        }),
         // Une page HTML est celle de la passerelle (Apache, 199 octets observés sur `/search`
         // avec un mot de 100 caractères ou plus), pas un refus d'accès à l'API. Le seul 403 HTML
         // enregistré est cette page ; le 403 d'une application non souscrite n'a jamais été
@@ -158,7 +182,11 @@ fn classify_status(
                 detail: "request rejected by the PISTE gateway".to_owned(),
             })
         }
-        403 => Outcome::Fatal(CorpusError::Auth { detail: detail() }),
+        403 => Outcome::Fatal(CorpusError::Auth {
+            origin: context.kind.auth_origin(),
+            status: Some(status),
+            detail: detail(),
+        }),
         429 => {
             let retry_after = retry_after();
             Outcome::Transient {
@@ -193,7 +221,10 @@ fn classify_status(
         404 if proves_absence(&response, context) => {
             Outcome::Fatal(CorpusError::NotFound { what: endpoint.to_owned() })
         }
-        404 | 405 => Outcome::Fatal(CorpusError::Config { detail: detail() }),
+        404 | 405 => Outcome::Fatal(CorpusError::Config {
+            kind: context.kind.endpoint_problem(),
+            detail: detail(),
+        }),
         _ => Outcome::Fatal(CorpusError::Upstream {
             status: Some(status),
             retryable: false,
@@ -277,10 +308,17 @@ fn proves_absence(response: &RawResponse, context: &ErrorContext<'_>) -> bool {
 }
 
 /// Classe un échec de transport : délai et réseau sont passagers, TLS et corps trop gros non.
-fn classify_transport(error: TransportError) -> Outcome<RawResponse> {
+///
+/// Le corps trop gros est un [`CorpusError::TooLarge`] pour `/search` et les consultations, mais
+/// un [`CorpusError::Decode`] pour l'endpoint du jeton : un jeton énorme n'est pas « un texte trop
+/// gros pour `get_act` » (plan 3a). Le genre vient de l'appelant, jamais du texte du `detail`.
+fn classify_transport(error: TransportError, kind: EndpointKind) -> Outcome<RawResponse> {
     match error {
         TransportError::Timeout | TransportError::Network { .. } => {
             Outcome::Transient { error: error.into(), retry_after: None, budget: Budget::Standard }
+        }
+        TransportError::TooLarge { detail } if kind == EndpointKind::Token => {
+            Outcome::Fatal(CorpusError::Decode { detail })
         }
         TransportError::Tls { .. } | TransportError::TooLarge { .. } => {
             Outcome::Fatal(error.into())
@@ -384,6 +422,16 @@ mod tests {
 
     fn upstream(status: u16, retryable: bool) -> CorpusError {
         CorpusError::Upstream { status: Some(status), retryable, detail: detail(status) }
+    }
+
+    /// Refus de l'API, au statut reçu.
+    fn api_auth(status: u16) -> CorpusError {
+        CorpusError::Auth { origin: AuthOrigin::Api, status: Some(status), detail: detail(status) }
+    }
+
+    /// 404 ou 405 de routage sur l'API, au détail donné.
+    fn api_endpoint(detail: String) -> CorpusError {
+        CorpusError::Config { kind: ConfigKind::ApiEndpoint, detail }
     }
 
     fn transient(error: CorpusError, retry_after: Option<Duration>) -> Outcome<RawResponse> {
@@ -712,7 +760,7 @@ mod tests {
         ] {
             assert_eq!(
                 classify(Ok(with_body(404, body)), ENDPOINT, &OFFICIAL),
-                fatal(CorpusError::Config { detail: detail(404) }),
+                fatal(api_endpoint(detail(404))),
                 "{body:?}"
             );
         }
@@ -723,7 +771,7 @@ mod tests {
         for body in ["", "{}", r#"{"status":404}"#, "<html></html>"] {
             assert_eq!(
                 classify(Ok(with_body(404, body)), ENDPOINT, &CONSULT),
-                fatal(CorpusError::Config { detail: detail(404) }),
+                fatal(api_endpoint(detail(404))),
                 "{body:?}"
             );
         }
@@ -731,26 +779,49 @@ mod tests {
 
     #[test]
     fn a_404_on_search_or_on_the_token_endpoint_is_config_even_on_the_official_host() {
+        // La nature suit le genre d'endpoint passé par l'appelant, jamais le texte du chemin.
         let token = ErrorContext { official_host: true, ..ErrorContext::TOKEN };
-        for (endpoint, context) in [(SEARCH_ENDPOINT, SEARCH), ("/oauth/token", token)] {
+        for (endpoint, context, kind) in [
+            (SEARCH_ENDPOINT, SEARCH, ConfigKind::ApiEndpoint),
+            ("/oauth/token", token, ConfigKind::OAuthEndpoint),
+        ] {
             assert_eq!(
                 classify(Ok(with_body(404, "{}")), endpoint, &context),
-                fatal(CorpusError::Config { detail: format!("HTTP 404 on {endpoint}") }),
+                fatal(CorpusError::Config { kind, detail: format!("HTTP 404 on {endpoint}") }),
                 "{endpoint}"
             );
         }
     }
 
     #[test]
+    fn a_refusal_in_the_token_context_is_typed_as_coming_from_the_token_endpoint() {
+        // `auth.rs` traite ces statuts avant `classify` ; le type reste juste s'ils l'atteignent.
+        let endpoint = "PISTE OAuth";
+        let token =
+            |status: u16| classify(Ok(with_body(status, "{}")), endpoint, &ErrorContext::TOKEN);
+        let refused = |status: u16| CorpusError::Auth {
+            origin: AuthOrigin::Token,
+            status: Some(status),
+            detail: format!("HTTP {status} on {endpoint}"),
+        };
+        assert_eq!(token(401), Outcome::Unauthorized(refused(401)));
+        assert_eq!(token(403), fatal(refused(403)));
+        assert_eq!(
+            token(405),
+            fatal(CorpusError::Config {
+                kind: ConfigKind::OAuthEndpoint,
+                detail: format!("HTTP 405 on {endpoint}"),
+            })
+        );
+    }
+
+    #[test]
     fn the_other_statuses_are_never_not_found_even_with_the_marker() {
         let classified =
             |status| classify(Ok(piste_error(status, MARKER_MESSAGE)), ENDPOINT, &OFFICIAL);
-        assert_eq!(
-            classified(401),
-            Outcome::Unauthorized(CorpusError::Auth { detail: detail(401) })
-        );
-        assert_eq!(classified(403), fatal(CorpusError::Auth { detail: detail(403) }));
-        assert_eq!(classified(405), fatal(CorpusError::Config { detail: detail(405) }));
+        assert_eq!(classified(401), Outcome::Unauthorized(api_auth(401)));
+        assert_eq!(classified(403), fatal(api_auth(403)));
+        assert_eq!(classified(405), fatal(api_endpoint(detail(405))));
         for status in [410, 422] {
             assert_eq!(classified(status), fatal(upstream(status, false)), "{status}");
         }
@@ -816,6 +887,8 @@ mod tests {
         assert_eq!(
             classified(401),
             Outcome::Unauthorized(CorpusError::Auth {
+                origin: AuthOrigin::Api,
+                status: Some(401),
                 detail: "HTTP 401 on /consult/juri".to_owned()
             })
         );
@@ -825,7 +898,11 @@ mod tests {
     fn status_403_is_a_final_auth_error() {
         assert_eq!(
             classified(403),
-            Outcome::Fatal(CorpusError::Auth { detail: "HTTP 403 on /consult/juri".to_owned() })
+            Outcome::Fatal(CorpusError::Auth {
+                origin: AuthOrigin::Api,
+                status: Some(403),
+                detail: "HTTP 403 on /consult/juri".to_owned()
+            })
         );
     }
 
@@ -872,9 +949,13 @@ mod tests {
     }
 
     #[test]
-    fn a_json_or_empty_403_stays_an_auth_error() {
+    fn api_403_json_is_auth_api_with_status_403() {
         let auth = |endpoint: &str| {
-            Outcome::Fatal(CorpusError::Auth { detail: format!("HTTP 403 on {endpoint}") })
+            Outcome::Fatal(CorpusError::Auth {
+                origin: AuthOrigin::Api,
+                status: Some(403),
+                detail: format!("HTTP 403 on {endpoint}"),
+            })
         };
         // Le 403 d'une route inexistante, enregistré en sandbox (33 octets) : le corps de la
         // requête recopié (04 §11.1) ; puis un corps vide.
@@ -890,10 +971,7 @@ mod tests {
     #[test]
     fn statuses_404_and_405_are_config_never_not_found() {
         for status in [404, 405] {
-            assert_eq!(
-                classified(status),
-                Outcome::Fatal(CorpusError::Config { detail: detail(status) })
-            );
+            assert_eq!(classified(status), Outcome::Fatal(api_endpoint(detail(status))));
         }
     }
 
@@ -1055,11 +1133,22 @@ mod tests {
     }
 
     #[test]
-    fn oversized_body_is_a_final_decode_error() {
-        let detail = "response too large (> 16 MiB) on /consult/juri".to_owned();
+    fn an_oversized_body_is_final_too_large_on_the_api_and_decode_on_the_token() {
+        let too_large = |endpoint: &str| TransportError::TooLarge {
+            detail: format!("response too large (> 16 MiB) on {endpoint}"),
+        };
+        let detail = |endpoint: &str| format!("response too large (> 16 MiB) on {endpoint}");
+        for (endpoint, context) in [(ENDPOINT, CONSULT), (SEARCH_ENDPOINT, SEARCH)] {
+            assert_eq!(
+                classify(Err(too_large(endpoint)), endpoint, &context),
+                Outcome::Fatal(CorpusError::TooLarge { detail: detail(endpoint) }),
+                "{endpoint}"
+            );
+        }
+        // Le corps du jeton au-delà de la borne n'est pas « un texte trop gros » : `Decode`.
         assert_eq!(
-            classify(Err(TransportError::TooLarge { detail: detail.clone() }), ENDPOINT, &CONSULT),
-            Outcome::Fatal(CorpusError::Decode { detail })
+            classify(Err(too_large("PISTE OAuth")), "PISTE OAuth", &ErrorContext::TOKEN),
+            Outcome::Fatal(CorpusError::Decode { detail: detail("PISTE OAuth") })
         );
     }
 

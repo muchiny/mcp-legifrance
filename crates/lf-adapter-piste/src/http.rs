@@ -14,7 +14,7 @@ use std::error::Error;
 use std::fmt;
 use std::time::Duration;
 
-use lf_application::ports::CorpusError;
+use lf_application::ports::{ConfigKind, CorpusError};
 use reqwest::header::{
     ACCEPT, CONTENT_ENCODING, CONTENT_TYPE, DATE, HeaderMap, HeaderName, HeaderValue, RETRY_AFTER,
 };
@@ -138,7 +138,8 @@ pub(crate) enum TransportError {
         /// Libellé fixe et gabarit de chemin.
         detail: String,
     },
-    /// Corps plus gros que la borne.
+    /// Corps plus gros que la borne : [`CorpusError::TooLarge`] pour l'API, mais
+    /// [`CorpusError::Decode`] pour l'endpoint du jeton (`classify`, d'après le genre d'endpoint).
     TooLarge {
         /// Borne et gabarit de chemin.
         detail: String,
@@ -155,7 +156,7 @@ impl From<TransportError> for CorpusError {
             TransportError::Tls { detail } => {
                 Self::Upstream { status: None, retryable: false, detail }
             }
-            TransportError::TooLarge { detail } => Self::Decode { detail },
+            TransportError::TooLarge { detail } => Self::TooLarge { detail },
         }
     }
 }
@@ -194,6 +195,7 @@ fn allows_plain_http(endpoints: &PisteEndpoints) -> bool {
 /// Termine la construction ; l'échec devient une erreur de configuration sans URL.
 fn finish_client(builder: ClientBuilder) -> Result<Client, CorpusError> {
     builder.build().map_err(|error| CorpusError::Config {
+        kind: ConfigKind::Settings,
         detail: format!("could not build the HTTP client: {}", describe(&error.without_url())),
     })
 }
@@ -265,7 +267,9 @@ impl SharedClient {
 fn client_for(config: &PisteConfig) -> Result<Client, CorpusError> {
     match config.endpoints() {
         Ok(endpoints) => build_client(config, endpoints),
-        Err(problem) => Err(CorpusError::Config { detail: problem.to_string() }),
+        Err(problem) => {
+            Err(CorpusError::Config { kind: ConfigKind::Settings, detail: problem.to_string() })
+        }
     }
 }
 
@@ -339,13 +343,11 @@ async fn read_body(
     Ok(body)
 }
 
-/// Début du `detail` d'un corps trop gros : `get_act` le reconnaît pour orienter l'appelant.
-pub(crate) const TOO_LARGE_PREFIX: &str = "response too large";
-
-/// Erreur « corps trop gros », au libellé de la borne configurée.
+/// Erreur « corps trop gros », au libellé de la borne configurée. Le `detail` est un texte de
+/// journal : aucun appelant ne le lit, la variante suffit (`TooLarge`, plan 3a).
 fn too_large(limit: u64, endpoint: &str) -> TransportError {
     TransportError::TooLarge {
-        detail: format!("{TOO_LARGE_PREFIX} (> {}) on {endpoint}", format_limit(limit)),
+        detail: format!("response too large (> {}) on {endpoint}", format_limit(limit)),
     }
 }
 
@@ -601,6 +603,11 @@ mod tests {
         TransportError::Network { detail: detail.to_owned() }
     }
 
+    /// Erreur de configuration d'une valeur réglée (adresses refusées, client non constructible).
+    fn settings(detail: &str) -> CorpusError {
+        CorpusError::Config { kind: ConfigKind::Settings, detail: detail.to_owned() }
+    }
+
     // ---------- Construction et instance unique
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -637,11 +644,8 @@ mod tests {
     async fn failed_build_is_not_cached() {
         let (config, endpoints) = config_for("http://127.0.0.1:1");
         let shared = SharedClient::new();
-        let failure = shared
-            .get_or_build(|| Err(CorpusError::Config { detail: "boom".to_owned() }))
-            .await
-            .unwrap_err();
-        assert_eq!(failure, CorpusError::Config { detail: "boom".to_owned() });
+        let failure = shared.get_or_build(|| Err(settings("boom"))).await.unwrap_err();
+        assert_eq!(failure, settings("boom"));
         let builds = AtomicUsize::new(0);
         shared
             .get_or_build(|| {
@@ -683,7 +687,7 @@ mod tests {
             PisteConfig::new(PisteEnvironment::Sandbox, Err(problem.clone()), None, user_agent());
         let shared = SharedClient::new();
         let failure = shared.get(&config).await.unwrap_err();
-        assert_eq!(failure, CorpusError::Config { detail: problem.to_string() });
+        assert_eq!(failure, settings(&problem.to_string()));
         assert!(shared.cell.get().is_none());
     }
 
@@ -692,11 +696,9 @@ mod tests {
         let (config, endpoints) = config_with_agent("http://127.0.0.1:1", "bad\nagent".to_owned());
         assert_eq!(
             build_client(&config, &endpoints).unwrap_err(),
-            CorpusError::Config {
-                detail:
-                    "could not build the HTTP client: builder error: failed to parse header value"
-                        .to_owned()
-            }
+            settings(
+                "could not build the HTTP client: builder error: failed to parse header value"
+            )
         );
     }
 
@@ -704,10 +706,9 @@ mod tests {
     fn unusable_tls_setup_is_a_config_error() {
         assert_eq!(
             finish_client(Client::builder().use_preconfigured_tls(())).unwrap_err(),
-            CorpusError::Config {
-                detail: "could not build the HTTP client: builder error: Unknown TLS backend passed to `use_preconfigured_tls`"
-                    .to_owned()
-            }
+            settings(
+                "could not build the HTTP client: builder error: Unknown TLS backend passed to `use_preconfigured_tls`"
+            )
         );
     }
 
@@ -936,7 +937,7 @@ mod tests {
         let failure = fetch(&server.uri(), SMALL_LIMIT).await.unwrap_err();
         let detail = "response too large (> 1000 bytes) on /consult/juri";
         assert_eq!(failure, too_large(detail));
-        assert_eq!(CorpusError::from(failure), CorpusError::Decode { detail: detail.to_owned() });
+        assert_eq!(CorpusError::from(failure), CorpusError::TooLarge { detail: detail.to_owned() });
     }
 
     #[tokio::test]
@@ -1404,7 +1405,7 @@ mod tests {
         );
         assert_eq!(
             CorpusError::from(TransportError::TooLarge { detail: detail() }),
-            CorpusError::Decode { detail: detail() }
+            CorpusError::TooLarge { detail: detail() }
         );
     }
 

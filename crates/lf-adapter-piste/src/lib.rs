@@ -123,7 +123,7 @@ mod view;
 
 pub use config::{
     ConfigProblem, ConfigWarning, PisteConfig, PisteCredentials, PisteEndpoints, PisteTuning,
-    RateQuota, TuningError,
+    RateQuota, RejectedEnv, TuningError,
 };
 pub use corpus::PisteCorpus;
 pub use stats::StatsSnapshot;

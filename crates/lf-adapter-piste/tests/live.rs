@@ -341,16 +341,15 @@ mod live {
                 Ok(()),
                 "{civil}: get_act of a 6.2 MiB code"
             );
-            // Le Code du travail dépasse la borne : l'erreur du port est explicite et stable.
+            // Le Code du travail dépasse la borne : l'erreur du port est typée et stable (la
+            // consigne, qui oriente vers `fr_get_text` et `fr_search`, est rédigée par
+            // `lf-application::messages`).
             let labor = LegiTextId::parse("LEGITEXT000006072050").unwrap();
             let limit = default_body() >> 20;
             assert_eq!(
                 corpus.get_act(&labor, version).await.map(drop),
-                Err(CorpusError::Decode {
-                    detail: format!(
-                        "response too large (> {limit} MiB) on /consult/lawDecree: this text is \
-                         too large for get_act; use get_article or search instead"
-                    )
+                Err(CorpusError::TooLarge {
+                    detail: format!("response too large (> {limit} MiB) on /consult/lawDecree")
                 })
             );
         }

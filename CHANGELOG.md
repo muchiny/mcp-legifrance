@@ -49,6 +49,10 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - Domaine (plan 2e) : lexer HTML partagé (`text/html.rs`), `clean_with_report`, `clean_field`, `CleanReport`, `LongText` (`from_html`, `from_plain`, `best_of`, faillibles), cible de fuzz `from_html`.
 - Domaine (plan 2e) : `Snippet`, `SearchHit::new`, `SearchPage.total_articles` et `dropped`, `OfficialSummary`, `ParentText` et `ParentNature`, `article_citation_for` (appel de note final retiré pour un texte non codifié, Q12 par défaut).
 - Domaine (plan 2e) : `Decision.official_summary` ; `Act` et `Convention` complets (statut, NOR, texte en ligne ; IDCC, conteneur, bulletin) ; les 16 fixtures de la référence et leur golden installés dans `lf-adapter-piste/tests/fixtures/reference/`.
+- Application (plan 3a), socle sans cas d'usage : ports `AuditLog` (`AuditRecord`, `AuditStatus`, `AuditError`, `AuditErrorKind`) et `Clock`, ré-export de `PisteEnvironment` ; `ToolCall`, `CanonicalInput`, `InputError` ; `ToolName` (8 outils v0.1) ; `ErrorCode`, `UpstreamCause`, `AppError` ; module `messages`, seule source des textes vus par le modèle (`docs/plan/05-outils-mcp.md` §7.2 à §7.4), qui ne lit le `detail` d'une `CorpusError` que pour `InvalidRequest` et `Config { kind: Settings }` ; décorateur `Audited` (`AuditMode`, `AuditPolicy`, `CallMeta`, `AuditMetric`) : délai global, échéance publiée dans `Deadline`, annulation prioritaire, une ligne d'audit acquittée par issue, modes `Strict` (résultat retenu) et `BestEffort` (compteur d'échecs d'écriture), span `tool_call` ; doublures de la feature `test-support` (`FakeCorpus`, `FixedClock`, `MemoryAuditLog`, `FailingAuditLog`, `NO_DEADLINE`). Dépendances de `lf-application` : `chrono`, `tracing`, feature `macros` de `tokio`.
+- `check-arch` (plan 3a) : la feature `test-support` de `lf-application` n'est admise qu'en dépendance de développement ; `tracing` borné à `std` dans `lf-application`.
+- Application (plan 3a, revue finale) : `failure::port_failure`, point d'entrée des cas d'usage pour une `CorpusError` (événement `corpus call failed` avec la variante, l'outil et le `detail`, jamais l'identifiant demandé ; puis `messages::corpus_error`) ; champ `cause` du span `tool_call` ; `FakeCorpus::seen_requests` (`PortRequest`, arguments de chaque appel) et `FakeCorpus::unserved`.
+- `check-arch` (plan 3a, revue finale) : chez `lf-application`, aucune feature autre que `test-support` (`default`, `full`…) ne peut lister `test-support`.
 
 ### Changed
 
@@ -69,17 +73,20 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - Adapter PISTE : champs de `PisteEndpoints`, `PisteCredentials`, `RateQuota` et `PisteConfig` privés (accesseurs).
 - Adapter PISTE : le `detail` d'un 400 de consultation porte le message PISTE nettoyé ; celui d'un 400 de `/search` reste générique (`HTTP 400 on /search`).
 - Domaine (plan 2e) : `text`, `etat`, `idcc` et `nor` des entités typés (`LongText`, `LegalStatus`, `Idcc`, `Nor`) à la place de chaînes ; `CodeArticleRef.snippet` est un `Option<Snippet>` ; `clean` délègue à `clean_with_report`.
+- `CorpusError` typé (plan 3a) : `Auth { origin: AuthOrigin, status, detail }`, `Config { kind: ConfigKind, detail }` et nouvelle variante `TooLarge` ; l'adapter PISTE rend `TooLarge` pour un corps au-delà de la borne sur `/search` et les consultations (`Decode` sur l'endpoint du jeton), et pose l'origine, le statut et la nature à chaque site.
+- Adapter PISTE (plan 3a) : `ConfigProblem::InvalidEnv { value: RejectedEnv }`, construit par `ConfigProblem::invalid_env` (texte de `docs/plan/05-outils-mcp.md` §7.2 ; la valeur n'est citée que si elle fait 1 à 16 lettres ASCII, sinon le message ne donne que son nombre de caractères et la valeur brute n'est jamais conservée, pas même dans le `Debug`) ; `ConfigProblem::EnvMismatch` porte `variable` (`LF_PISTE_BASE_URL` ou `LF_PISTE_OAUTH_URL`) à la place de `setting`, et son texte devient celui de 05 §7.2.
 
 ### Removed
 
 - Contrat de citation v1 (`eli_uri`, `human_readable_citation`), `bracketed` et suffixe « - objet » des citations du Conseil constitutionnel.
+- Adapter PISTE (plan 3a) : `act_too_large` et `TOO_LARGE_PREFIX` ; plus aucun appariement de texte sur le `detail` d'une erreur.
 
 ### Fixed
 
 - Un suffixe de version impossible (`_31-02-2023`, `_foo`) est refusé au lieu d'être retiré en silence.
 - Les dates sentinelles (2999-01-01, 2222-02-22) se lisent comme « sans fin ».
 - Tests de l'adapter PISTE : port « fermé » rendu déterministe (`ClosedPort`).
-- Adapter PISTE : `get_act` sur un texte dont la réponse dépasse la borne de corps (Code du travail, 31,4 Mio) rend une erreur `Decode` explicite qui oriente vers `get_article` ou la recherche, au lieu de l'erreur opaque de lecture (V-96).
+- Adapter PISTE : `get_act` sur un texte dont la réponse dépasse la borne de corps (Code du travail, 31,4 Mio) rend une erreur explicite qui oriente vers la lecture par article ou la recherche, au lieu de l'erreur opaque de lecture (V-96) ; depuis le plan 3a, l'erreur est `TooLarge` et le texte (`this text is too large for fr_get_act; read its articles with fr_get_text, or find them with fr_search fond=CODE.`, qui ne nomme que des outils exposés) est rédigé par `lf-application::messages`.
 - Adapter PISTE : un 403 à corps HTML (page de la passerelle) n'est plus lu comme une application non souscrite ; il devient `InvalidRequest { status: Some(403), .. }` (V-81). Réserve : le 403 d'une application non souscrite n'a pas été observé (V-65).
 - `QueryText` : longueur maximale ramenée de 500 à 450 caractères, la limite mesurée de PISTE (accepté à 450, erreur 500 à 499 ; V-81) ; limite mesurée en caractères (ASCII et accentués), l'intervalle 451-498 n'est pas sondé et 450 est la borne conservatrice.
 
@@ -90,6 +97,7 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - Politique de signalement `SECURITY.md`.
 - Adapter PISTE : le champ `error` d'un refus OAuth n'est cité dans le `detail` que s'il est l'un des six codes de la RFC 6749 §5.2 (liste blanche, plus aucun secret, `client_id` ni jeton renvoyé par une passerelle) ; `Debug` de `Payload`, `Attempt` et `RawResponse` écrit à la main, sans valeur de formulaire, corps, jeton ni URL ; un `access_token` qui n'est pas une valeur d'en-tête valide est refusé et jamais mis en cache ; `Retry-After` hostile écrêté à 1 h dans l'erreur ; test du corps lu au goutte-à-goutte, borné par le délai de la tentative.
 - TLS rustls avec aws-lc, à titre provisoire (ADR-0013).
+- Application (plan 3a, revue finale) : `Debug` de `CanonicalInput` (longueur en octets seule) et de `ToolCall` écrit à la main, sans argument ; champ `error` de la ligne d'audit neutralisé (contrôles, U+2028, U+2029 et formats bidi remplacés par une espace) ; message de décodage coupé à 500 caractères ; `Deadline::after` sature au lieu de paniquer sur un budget démesuré. Adapter PISTE : la valeur refusée de `LF_PISTE_ENV` n'est plus jamais gardée (citée seulement si elle fait 1 à 16 lettres ASCII, sinon son nombre de caractères).
 - `rustls` 0.23.46, `rustls-webpki` 0.103.16 et `webpki-root-certs` 1.0.10 (RUSTSEC-2026-0346 à -0349, -0382, -0383) par l'exception `security-fix` de la règle d'âge, sans `ignore` dans `deny.toml`.
 
 ### Parity

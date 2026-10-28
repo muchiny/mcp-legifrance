@@ -27,7 +27,7 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     ///
     /// [`CorpusError::Config`] en mode dégradé (sans E/S) ; [`CorpusError::InvalidRequest`] si
     /// `endpoint` ne commence pas par `/` ; l'erreur de la barrière de charge ou du jeton ; une
-    /// erreur de transport (`Timeout`, `Upstream` sans statut, `Decode` pour un corps au-delà de
+    /// erreur de transport (`Timeout`, `Upstream` sans statut, `TooLarge` pour un corps au-delà de
     /// la borne). Un statut HTTP, quel qu'il soit, n'est jamais une erreur.
     pub async fn exchange(&self, endpoint: &str, body: &[u8]) -> Result<Exchange, CorpusError> {
         let inner = &*self.inner;
@@ -84,6 +84,8 @@ mod tests {
 
     use wiremock::matchers::{body_string, header, method, path};
     use wiremock::{Mock, ResponseTemplate};
+
+    use lf_application::ports::ConfigKind;
 
     use super::*;
     use crate::corpus::tests::{
@@ -179,6 +181,7 @@ mod tests {
         assert_eq!(
             rig.corpus.exchange("/consult/juri", BODY).await,
             Err(CorpusError::Config {
+                kind: ConfigKind::Settings,
                 detail:
                     "could not build the HTTP client: builder error: failed to parse header value"
                         .to_owned()
@@ -217,7 +220,7 @@ mod tests {
         api(&rig, json_reply(200, &" ".repeat(101)), 1).await;
         assert_eq!(
             rig.corpus.exchange("/consult/juri", BODY).await,
-            Err(CorpusError::Decode {
+            Err(CorpusError::TooLarge {
                 detail: "response too large (> 100 bytes) on /consult/juri".to_owned()
             })
         );

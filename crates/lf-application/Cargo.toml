@@ -11,11 +11,20 @@ publish.workspace = true
 [dependencies]
 lf-domain.workspace = true
 thiserror.workspace = true
-# rt : pour task_local! seulement (Deadline) ; time : Instant (R2)
-tokio = { workspace = true, features = ["rt", "time"] }
+chrono.workspace = true
+tracing.workspace = true
+# rt : pour task_local! seulement (Deadline) ; time : Instant et timeout (R2) ; macros : select!
+tokio = { workspace = true, features = ["rt", "time", "macros"] }
+
+[features]
+# Doublures de test du module `testing` (FakeCorpus, FixedClock, MemoryAuditLog, FailingAuditLog).
+# Jamais activée en dépendance normale : `cargo xtask check-arch` (R10) ne l'admet que dans les
+# `[dev-dependencies]` des autres membres.
+test-support = []
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+tracing-subscriber.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [lints]

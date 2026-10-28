@@ -21,7 +21,6 @@ use serde::de::DeserializeOwned;
 
 use super::PisteCorpus;
 use crate::classify::EndpointKind;
-use crate::http::TOO_LARGE_PREFIX;
 use crate::map::endpoint;
 use crate::map::search::search_page_with_mode;
 use crate::map::{Diagnostics, act, agreement, article, convention, decision, deliberation};
@@ -41,31 +40,6 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     }
 }
 
-/// Oriente l'appelant quand la réponse de `/consult/lawDecree` dépasse la borne de corps.
-///
-/// Un code entier (Code du travail : 31,4 Mio contre une borne de 16 Mio, V-96) ne tient pas
-/// dans `get_act` en v0.1 : la lecture bornée échoue en `Decode`, dont le `detail` reçoit la
-/// consigne. Détection par la conséquence, sans reconnaître les codes à l'avance : le `detail`
-/// doit commencer par le libellé « corps trop gros » **et** finir par l'endpoint de la
-/// consultation (` on /consult/lawDecree`), car la lecture du jeton OAuth a la même borne et ne
-/// doit pas recevoir cette consigne. Toute autre erreur, y compris un `Decode` d'une autre cause,
-/// passe inchangée.
-fn act_too_large(error: CorpusError) -> CorpusError {
-    let on_law_decree = format!(" on {}", endpoint::LAW_DECREE);
-    match error {
-        CorpusError::Decode { detail }
-            if detail.starts_with(TOO_LARGE_PREFIX) && detail.ends_with(&on_law_decree) =>
-        {
-            CorpusError::Decode {
-                detail: format!(
-                    "{detail}: this text is too large for get_act; use get_article or search instead"
-                ),
-            }
-        }
-        other => other,
-    }
-}
-
 impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S> {
     async fn search(&self, query: &SearchQuery) -> Result<SearchPage, CorpusError> {
         let memo = &self.inner.memo;
@@ -79,10 +53,13 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S>
         Ok(page)
     }
 
+    /// Un code entier (Code du travail : 31,4 Mio contre une borne de 16 Mio, V-96, 04 §7.3) ne
+    /// tient pas dans `get_act` en v0.1 : la lecture bornée rend [`CorpusError::TooLarge`],
+    /// détecté par la conséquence, sans reconnaître les codes à l'avance. La consigne vers
+    /// `get_article` ou la recherche est rédigée par `lf-application::messages`, d'après la
+    /// variante.
     async fn get_act(&self, id: &LegiTextId, date: VersionDate) -> Result<Act, CorpusError> {
-        self.consult(Consultation::LawDecree(id, date), |dto, diags| act::act(dto, id, diags))
-            .await
-            .map_err(act_too_large)
+        self.consult(Consultation::LawDecree(id, date), |dto, diags| act::act(dto, id, diags)).await
     }
 
     async fn get_article(&self, id: &ArticleId) -> Result<ArticleText, CorpusError> {
@@ -637,53 +614,67 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_act_on_a_text_over_the_body_limit_is_a_clear_error() {
+    async fn lawdecree_too_large_is_typed() {
         // Le Code du travail dépasse la borne de corps de 16 Mio (31,4 Mio, V-96, C2) : l'erreur
-        // doit orienter vers `get_article` ou la recherche, sans nouvelle tentative.
-        let rig = Rig::tuned(|setup| setup.tuning.max_body_bytes = 1_000).await;
-        reply_on(&rig, endpoint::LAW_DECREE, "a".repeat(2_000)).await;
+        // est typée, sans nouvelle tentative ; `lf-application::messages` oriente alors vers
+        // `get_article` ou la recherche, d'après la variante et sans lire le `detail`.
+        let rig = Rig::new().await;
+        reply_on(&rig, endpoint::LAW_DECREE, " ".repeat(16 * 1024 * 1024 + 1)).await;
         let law = LegiTextId::parse(fixture("consult_loda").requested).unwrap();
         assert_eq!(
             rig.corpus.get_act(&law, version_date()).await.map(drop),
-            Err(CorpusError::Decode {
-                detail: "response too large (> 1000 bytes) on /consult/lawDecree: this text is \
-                         too large for get_act; use get_article or search instead"
-                    .to_owned()
+            Err(CorpusError::TooLarge {
+                detail: "response too large (> 16 MiB) on /consult/lawDecree".to_owned()
             })
         );
         assert_eq!(api_requests(&rig).await.len(), 1);
     }
 
-    #[test]
-    fn a_too_large_token_response_keeps_the_generic_decode_error() {
-        // La borne de corps est la même pour le jeton OAuth : seule la fin `/consult/lawDecree`
-        // du `detail` autorise la consigne `get_article`.
-        let oauth = CorpusError::Decode {
-            detail: "response too large (> 16 MiB) on /oauth/token".to_owned(),
-        };
-        assert_eq!(super::act_too_large(oauth.clone()), oauth);
-        let law = CorpusError::Decode {
-            detail: "response too large (> 16 MiB) on /consult/lawDecree".to_owned(),
-        };
-        assert_eq!(
-            super::act_too_large(law),
-            CorpusError::Decode {
-                detail: "response too large (> 16 MiB) on /consult/lawDecree: this text is too \
-                         large for get_act; use get_article or search instead"
-                    .to_owned()
-            }
-        );
-    }
-
     #[tokio::test]
-    async fn an_oversized_body_on_another_consultation_keeps_the_generic_decode_error() {
-        let rig = Rig::tuned(|setup| setup.tuning.max_body_bytes = 1_000).await;
+    async fn non_lawdecree_too_large_is_typed_too() {
+        // Même variante pour toute consultation et pour la recherche, à la borne configurée :
+        // seul l'outil appelant décide du message (la consigne `get_article` est celle de
+        // `get_act`).
+        let tuned = || Rig::tuned(|setup| setup.tuning.max_body_bytes = 1_000);
+        let rig = tuned().await;
         reply_on(&rig, endpoint::JURI, "a".repeat(2_000)).await;
         let id = DecisionId::parse(fixture("consult_juri").requested).unwrap();
         assert_eq!(
             rig.corpus.get_decision(&id).await.map(drop),
-            Err(CorpusError::Decode {
+            Err(CorpusError::TooLarge {
                 detail: "response too large (> 1000 bytes) on /consult/juri".to_owned()
+            })
+        );
+        let rig = tuned().await;
+        reply_on(&rig, endpoint::SEARCH, "a".repeat(2_000)).await;
+        assert_eq!(
+            rig.corpus.search(&golden(Fond::Juri)).await.map(drop),
+            Err(CorpusError::TooLarge {
+                detail: "response too large (> 1000 bytes) on /search".to_owned()
+            })
+        );
+        assert_eq!(api_requests(&rig).await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_too_large_token_response_keeps_the_generic_decode_error() {
+        // La borne de corps vaut aussi pour le jeton OAuth : un jeton énorme n'est pas « un texte
+        // trop gros pour `get_act` », il reste un `Decode`, jamais un `TooLarge`, et l'API n'est
+        // pas appelée.
+        let rig = Rig::tuned(|setup| setup.tuning.max_body_bytes = 1_000).await;
+        Mock::given(method("POST"))
+            .and(path(TOKEN_PATH))
+            .respond_with(ResponseTemplate::new(200).set_body_raw("a".repeat(2_000), "text/plain"))
+            .expect(1)
+            .mount(&rig.server)
+            .await;
+        let route = format!("{API_BASE}{}", endpoint::LAW_DECREE);
+        never(&rig.server, &route).await;
+        let law = LegiTextId::parse(fixture("consult_loda").requested).unwrap();
+        assert_eq!(
+            rig.corpus.get_act(&law, version_date()).await.map(drop),
+            Err(CorpusError::Decode {
+                detail: "response too large (> 1000 bytes) on PISTE OAuth".to_owned()
             })
         );
     }
@@ -1052,7 +1043,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_body_of_more_than_16_mib_maps_to_decode() {
+    async fn a_body_of_more_than_16_mib_maps_to_too_large() {
         let rig = Rig::new().await;
         token_mock(&rig.server, "tok-1", 1).await;
         let body = vec![b' '; 16 * 1024 * 1024 + 1];
@@ -1065,7 +1056,7 @@ mod tests {
         let id = AccoTextId::parse(fixture("consult_acco").requested).unwrap();
         assert_eq!(
             rig.corpus.get_company_agreement(&id).await.map(drop),
-            Err(CorpusError::Decode {
+            Err(CorpusError::TooLarge {
                 detail: "response too large (> 16 MiB) on /consult/acco".to_owned(),
             })
         );

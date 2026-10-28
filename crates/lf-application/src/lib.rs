@@ -2,10 +2,28 @@
 //!
 //! Ports, cas d'usage et façade `LegalService` ; le crate ignore MCP, HTTP, JSON et le
 //! système de fichiers. Le plan 2b livre le port sortant [`ports::LegalCorpus`] et ses
-//! erreurs [`ports::CorpusError`] ; les cas d'usage, `Audited`, `AuditLog`, `Clock` et les
-//! doublures de test (`FakeCorpus`, feature `test-support`) arrivent en M3.
+//! erreurs [`ports::CorpusError`] ; le plan 3a pose le socle de M3 : les ports
+//! [`ports::AuditLog`] et [`ports::Clock`], l'entrée d'outil [`input::ToolCall`], les noms
+//! d'outils [`tools::ToolName`], les codes d'erreur [`error::ErrorCode`], les causes amont
+//! [`error::UpstreamCause`] et l'erreur d'application [`error::AppError`] ; le module
+//! [`messages`] rédige les textes d'erreur vus par le modèle, et [`failure::port_failure`]
+//! journalise l'échec du port avant de lui déléguer le message ; le module `testing` (feature
+//! `test-support`) fournit les doublures `FakeCorpus`, `FixedClock`, `MemoryAuditLog` et
+//! `FailingAuditLog` ; le décorateur [`audited::Audited`] enveloppe chaque exécution d'outil
+//! (délai global, annulation, ligne d'audit). Les cas d'usage viennent au plan 3b.
 //!
 //! Dépendances : liste fermée de 02 §3.2 (R2), vérifiée par `cargo xtask check-arch`.
 
+pub mod audited;
 pub mod deadline;
+pub mod error;
+pub mod failure;
+pub mod input;
+pub mod messages;
 pub mod ports;
+pub mod tools;
+
+#[cfg(test)]
+mod capture;
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing;

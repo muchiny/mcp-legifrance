@@ -12,7 +12,7 @@ use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use lf_application::ports::CorpusError;
+use lf_application::ports::{AuthOrigin, ConfigKind, CorpusError};
 use lf_domain::coverage::PisteEnvironment;
 use reqwest::Url;
 use secrecy::{ExposeSecret, SecretString};
@@ -225,12 +225,14 @@ impl<K: MonoClock, S: Sleeper> TokenManager<K, S> {
 
 /// Adresse du jeton et identifiants, ou l'erreur de configuration (mode dégradé, 04 §2.4).
 fn request_parts(config: &PisteConfig) -> Result<(&Url, &PisteCredentials), CorpusError> {
-    let endpoints = config
-        .endpoints()
-        .map_err(|problem| CorpusError::Config { detail: problem.to_string() })?;
-    let credentials = config
-        .credentials()
-        .ok_or_else(|| CorpusError::Config { detail: "PISTE credentials missing".to_owned() })?;
+    let endpoints = config.endpoints().map_err(|problem| CorpusError::Config {
+        kind: ConfigKind::Settings,
+        detail: problem.to_string(),
+    })?;
+    let credentials = config.credentials().ok_or_else(|| CorpusError::Config {
+        kind: ConfigKind::CredentialsMissing,
+        detail: "PISTE credentials missing".to_owned(),
+    })?;
     Ok((endpoints.oauth_url(), credentials))
 }
 
@@ -282,6 +284,7 @@ fn status_error(response: &RawResponse, env: PisteEnvironment, url: &Url) -> Opt
     match response.status {
         400 | 401 | 403 => Some(rejection(response, env)),
         404 | 405 => Some(CorpusError::Config {
+            kind: ConfigKind::OAuthEndpoint,
             detail: format!(
                 "PISTE OAuth endpoint answered HTTP {} at {}",
                 response.status,
@@ -302,6 +305,8 @@ fn rejection(response: &RawResponse, env: PisteEnvironment) -> CorpusError {
         .filter(|code| is_rfc_6749_code(code));
     let quoted = code.map(|code| format!(", error {code}")).unwrap_or_default();
     CorpusError::Auth {
+        origin: AuthOrigin::Token,
+        status: Some(response.status),
         detail: format!(
             "OAuth token request rejected: HTTP {}{quoted}, environment {env}",
             response.status
@@ -331,6 +336,7 @@ fn location(url: &Url) -> String {
 fn grant_from(response: &RawResponse, url: &Url) -> Outcome<Grant> {
     let Ok(dto) = serde_json::from_slice::<TokenResponseDto>(&response.body) else {
         return Outcome::Fatal(CorpusError::Config {
+            kind: ConfigKind::OAuthResponse,
             detail: format!("PISTE OAuth response is not valid JSON at {}", location(url)),
         });
     };
@@ -339,11 +345,13 @@ fn grant_from(response: &RawResponse, url: &Url) -> Outcome<Grant> {
         dto.token_type.as_deref().is_some_and(|kind| !kind.eq_ignore_ascii_case("bearer"));
     let Some(value) = dto.usable_token() else {
         return Outcome::Fatal(CorpusError::Config {
+            kind: ConfigKind::OAuthResponse,
             detail: "PISTE OAuth returned no access_token".to_owned(),
         });
     };
     if !is_header_safe(&value) {
         return Outcome::Fatal(CorpusError::Config {
+            kind: ConfigKind::OAuthResponse,
             detail: "PISTE OAuth returned an unusable access_token".to_owned(),
         });
     }
@@ -722,6 +730,7 @@ mod tests {
                 ("tok".to_owned(), 1),
                 2,
                 CorpusError::Config {
+                    kind: ConfigKind::OAuthEndpoint,
                     detail: format!(
                         "PISTE OAuth endpoint answered HTTP 404 at {}",
                         fixture.oauth_url
@@ -922,9 +931,19 @@ mod tests {
     fn rejected(status: u16, code: Option<&str>) -> CorpusError {
         let quoted = code.map(|code| format!(", error {code}")).unwrap_or_default();
         CorpusError::Auth {
+            origin: AuthOrigin::Token,
+            status: Some(status),
             detail: format!(
                 "OAuth token request rejected: HTTP {status}{quoted}, environment sandbox"
             ),
+        }
+    }
+
+    /// Réponse OAuth 200 sans jeton exploitable.
+    fn no_access_token() -> CorpusError {
+        CorpusError::Config {
+            kind: ConfigKind::OAuthResponse,
+            detail: "PISTE OAuth returned no access_token".to_owned(),
         }
     }
 
@@ -956,25 +975,29 @@ mod tests {
         assert_eq!(
             error,
             CorpusError::Auth {
+                origin: AuthOrigin::Token,
+                status: Some(401),
                 detail: "OAuth token request rejected: HTTP 401, error invalid_client, environment production".to_owned()
             }
         );
     }
 
     #[tokio::test]
-    async fn oauth_400_maps_to_auth() {
+    async fn oauth_400_is_auth_token_with_status_400() {
         let (error, count, _) = failure(json_reply(400, r#"{"error":"invalid_grant"}"#)).await;
         assert_eq!((error, count), (rejected(400, Some("invalid_grant")), 1));
     }
 
     #[tokio::test]
-    async fn oauth_403_maps_to_auth() {
+    async fn oauth_403_is_auth_token_with_status_403() {
         let (error, count, fixture) =
             failure(ResponseTemplate::new(403).set_body_string("denied")).await;
         assert_eq!(
             (error, count, fixture.sleeper.waits()),
             (
                 CorpusError::Auth {
+                    origin: AuthOrigin::Token,
+                    status: Some(403),
                     detail: "OAuth token request rejected: HTTP 403, environment sandbox"
                         .to_owned()
                 },
@@ -1036,13 +1059,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn oauth_404_maps_to_config_not_not_found() {
+    async fn oauth_404_is_config_oauth_endpoint() {
         for status in [404, 405] {
             let (error, count, fixture) = failure(ResponseTemplate::new(status)).await;
             assert_eq!(
                 (error, count),
                 (
                     CorpusError::Config {
+                        kind: ConfigKind::OAuthEndpoint,
                         detail: format!(
                             "PISTE OAuth endpoint answered HTTP {status} at {}",
                             fixture.oauth_url
@@ -1077,6 +1101,7 @@ mod tests {
             (error, count),
             (
                 CorpusError::Config {
+                    kind: ConfigKind::OAuthResponse,
                     detail: format!(
                         "PISTE OAuth response is not valid JSON at {}",
                         fixture.oauth_url
@@ -1088,9 +1113,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn oauth_200_without_access_token_maps_to_config() {
-        let no_token =
-            CorpusError::Config { detail: "PISTE OAuth returned no access_token".to_owned() };
+    async fn oauth_without_access_token_is_config_oauth_response() {
+        let no_token = no_access_token();
         for text in
             ["{}", r#"{"access_token":null}"#, r#"{"token_type":"Bearer","expires_in":3600}"#]
         {
@@ -1102,15 +1126,13 @@ mod tests {
     #[tokio::test]
     async fn oauth_200_empty_access_token_maps_to_config() {
         let (error, count, _) = failure(json_reply(200, r#"{"access_token":""}"#)).await;
-        assert_eq!(
-            (error, count),
-            (CorpusError::Config { detail: "PISTE OAuth returned no access_token".to_owned() }, 1)
-        );
+        assert_eq!((error, count), (no_access_token(), 1));
     }
 
     #[tokio::test]
     async fn an_access_token_that_is_not_a_header_value_is_unusable_and_never_cached() {
         let unusable = CorpusError::Config {
+            kind: ConfigKind::OAuthResponse,
             detail: "PISTE OAuth returned an unusable access_token".to_owned(),
         };
         for token in
@@ -1140,13 +1162,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn oauth_200_unreadable_json_maps_to_config() {
+    async fn oauth_invalid_json_is_config_oauth_response() {
+        // Même nature que le jeton absent : un seul message pour le modèle (« PISTE OAuth returned
+        // no access_token. »), rédigé par `messages` d'après `kind`. L'adresse (sans identifiants,
+        // requête ni fragment) reste dans le `detail`, texte de journal jamais montré au modèle.
         for text in ["not json", "", "[1,2,3]", r#"{"access_token":42}"#] {
             let (error, count, fixture) = failure(json_reply(200, text)).await;
             assert_eq!(
                 (error, count),
                 (
                     CorpusError::Config {
+                        kind: ConfigKind::OAuthResponse,
                         detail: format!(
                             "PISTE OAuth response is not valid JSON at {}",
                             fixture.oauth_url
@@ -1307,7 +1333,11 @@ mod tests {
     #[test]
     fn classified_outcomes_are_kept_except_success() {
         let url = Url::parse("http://127.0.0.1:9/oauth/token").unwrap();
-        let error = CorpusError::Auth { detail: "d".to_owned() };
+        let error = CorpusError::Auth {
+            origin: AuthOrigin::Token,
+            status: Some(401),
+            detail: "d".to_owned(),
+        };
         let transient = Outcome::Transient {
             error: error.clone(),
             retry_after: Some(secs(3)),
@@ -1331,9 +1361,9 @@ mod tests {
         assert_eq!(
             shown,
             [
-                r#"Fatal(Auth { detail: "d" })"#,
-                r#"Fatal(Auth { detail: "d" })"#,
-                r#"Transient { error: Auth { detail: "d" }, retry_after: Some(3s), budget: Reduced }"#,
+                r#"Fatal(Auth { origin: Token, status: Some(401), detail: "d" })"#,
+                r#"Fatal(Auth { origin: Token, status: Some(401), detail: "d" })"#,
+                r#"Transient { error: Auth { origin: Token, status: Some(401), detail: "d" }, retry_after: Some(3s), budget: Reduced }"#,
                 "Success(Grant { value: SecretBox<str>([REDACTED]), lifetime: 900s })",
             ]
         );
@@ -1355,6 +1385,7 @@ mod tests {
             (error, requests(&server).await),
             (
                 CorpusError::Config {
+                    kind: ConfigKind::Settings,
                     detail: "could not build the HTTP client: builder error: failed to parse header value".to_owned()
                 },
                 0
@@ -1363,13 +1394,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn missing_credentials_are_a_config_error_without_io() {
+    async fn missing_credentials_is_config_credentials_missing() {
+        // Site défensif (inatteignable par `post_json` et `check_credentials`, qui filtrent avant) :
+        // même nature que celui de `corpus.rs`, sans E/S.
         let server = MockServer::start().await;
         let config = config_with(SANDBOX, &format!("{}/oauth/token", server.uri()), None);
         let error = Fixture::with_config(config).token().await.unwrap_err();
         assert_eq!(
             (error, requests(&server).await),
-            (CorpusError::Config { detail: "PISTE credentials missing".to_owned() }, 0)
+            (
+                CorpusError::Config {
+                    kind: ConfigKind::CredentialsMissing,
+                    detail: "PISTE credentials missing".to_owned()
+                },
+                0
+            )
         );
     }
 
@@ -1388,7 +1427,10 @@ mod tests {
         let error = fixture.token().await.unwrap_err();
         assert_eq!(
             (error, fixture.sleeper.waits()),
-            (CorpusError::Config { detail: problem.to_string() }, vec![])
+            (
+                CorpusError::Config { kind: ConfigKind::Settings, detail: problem.to_string() },
+                vec![]
+            )
         );
     }
 
@@ -1438,10 +1480,7 @@ mod tests {
         let (capture, _guard) = capture_at(tracing::Level::WARN);
         let (error, _, _) = failure(json_reply(200, r#"{"token_type":"MAC"}"#)).await;
         let logs = capture.text();
-        assert_eq!(
-            error,
-            CorpusError::Config { detail: "PISTE OAuth returned no access_token".to_owned() }
-        );
+        assert_eq!(error, no_access_token());
         assert!(!logs.contains("token_type"), "{logs}");
     }
 
