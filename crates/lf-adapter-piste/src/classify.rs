@@ -1,9 +1,10 @@
 //! Classification d'une tentative d'envoi : succès, jeton refusé, échec passager ou définitif.
 //!
-//! Le statut HTTP, `Retry-After` et `Date` classent la réponse. Le corps n'est lu que dans trois
+//! Le statut HTTP, `Retry-After` et `Date` classent la réponse. Le corps n'est lu que dans quatre
 //! cas (04 §11) : le message d'un 400 de consultation (marqueur d'un identifiant inconnu, qui
 //! tranche « introuvable », et détail de l'erreur sinon), un 404 de consultation (une page HTML
-//! n'est pas une preuve d'absence) et un 2xx vide ; le corps d'un 400 de recherche ou du jeton
+//! n'est pas une preuve d'absence), un 403 (une page HTML est celle de la passerelle, pas un
+//! refus d'accès) et un 2xx vide ; le corps d'un 400 de recherche ou du jeton
 //! n'est jamais lu, et tout autre corps reste intact (`post_json` décode celui des 2xx). Le choix
 //! de réessayer, d'attendre ou de renoncer appartient à `retry::run` ; ce module ne dort pas et
 //! ne lit aucune horloge.
@@ -132,7 +133,8 @@ pub(crate) fn classify(
 }
 
 /// Classe une réponse HTTP d'après son statut ; `Retry-After` n'est lu que pour 429, 502, 503 et
-/// 504. Le corps n'est lu que pour un 2xx (vide ?), un 400 de consultation et un 404.
+/// 504. Le corps n'est lu que pour un 2xx (vide ?), un 400 de consultation, un 403 (page HTML de
+/// la passerelle ou non) et un 404.
 fn classify_status(
     response: RawResponse,
     endpoint: &str,
@@ -145,6 +147,17 @@ fn classify_status(
     match status {
         200..=299 => classify_success(response, endpoint, context.kind),
         401 => Outcome::Unauthorized(CorpusError::Auth { detail: detail() }),
+        // Une page HTML est celle de la passerelle (Apache, 199 octets observés sur `/search`
+        // avec un mot de 100 caractères ou plus), pas un refus d'accès à l'API. Le seul 403 HTML
+        // enregistré est cette page ; le 403 d'une application non souscrite n'a jamais été
+        // enregistré (V-65) : s'il est lui aussi une page HTML, il sera classé `InvalidRequest`.
+        // Un 403 JSON ou vide reste `Auth`.
+        403 if error_body::looks_like_html(&response.body) => {
+            Outcome::Fatal(CorpusError::InvalidRequest {
+                status: Some(403),
+                detail: "request rejected by the PISTE gateway".to_owned(),
+            })
+        }
         403 => Outcome::Fatal(CorpusError::Auth { detail: detail() }),
         429 => {
             let retry_after = retry_after();
@@ -229,7 +242,7 @@ fn bad_request(response: &RawResponse, endpoint: &str, context: &ErrorContext<'_
         EndpointKind::Search | EndpointKind::Token => None,
     };
     // Le marqueur se cherche dans le texte brut complet, avant nettoyage, retrait et coupure.
-    if message.as_deref().is_some_and(error_body::is_not_found_marker) {
+    if message.as_deref().is_some_and(|raw| error_body::is_not_found(endpoint, raw)) {
         return CorpusError::NotFound { what: endpoint.to_owned() };
     }
     let detail = message
@@ -482,6 +495,57 @@ mod tests {
                 classify(Ok(piste_error(400, &garbled)), ENDPOINT, &context),
                 fatal(not_found()),
                 "repair {repair_mojibake}"
+            );
+        }
+    }
+
+    /// Corps enregistré en sandbox le 2026-10-28 (lot `inconnu/`, plan 2h) : 400 d'un identifiant
+    /// ACCO inexistant, d'un message qui n'est pas le marqueur « valider est fausse ».
+    const ACCO_UNKNOWN: [&str; 2] = [
+        include_str!("../tests/fixtures/recorded/consult/acco/inconnu/ACCOTEXT000000000000.json"),
+        include_str!("../tests/fixtures/recorded/consult/acco/inconnu/ACCOTEXT999999999999.json"),
+    ];
+    const ACCO_ENDPOINT: &str = crate::map::endpoint::ACCO;
+    const ACCO_COUNT_MESSAGE: &str =
+        "Le nombre de résultat retourné par le moteur de recherche n'est pas égal à 1.";
+
+    #[test]
+    fn the_acco_count_message_on_a_consultation_is_not_found() {
+        for context in [CONSULT, OFFICIAL] {
+            for body in ACCO_UNKNOWN {
+                assert_eq!(
+                    classify(Ok(with_body(400, body)), ACCO_ENDPOINT, &context),
+                    fatal(CorpusError::NotFound { what: ACCO_ENDPOINT.to_owned() }),
+                    "{body}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_acco_count_message_is_not_found_only_on_the_acco_consultation() {
+        // R7 : le message de comptage ne dit « introuvable » que de `/consult/acco`. Sur une
+        // autre consultation il reste un 400 rejeté (détail = le message), et sur `/search`,
+        // où le corps n'est pas lu, un 400 au détail générique.
+        for body in ACCO_UNKNOWN {
+            assert_eq!(
+                classify(Ok(with_body(400, body)), ENDPOINT, &OFFICIAL),
+                fatal(invalid(ACCO_COUNT_MESSAGE))
+            );
+            assert_eq!(
+                classify(Ok(with_body(400, body)), SEARCH_ENDPOINT, &SEARCH),
+                fatal(invalid("HTTP 400 on /search"))
+            );
+        }
+    }
+
+    #[test]
+    fn another_400_message_on_the_acco_consultation_is_a_rejected_request() {
+        for message in ["Bad Request", "Une erreur est survenue dans le moteur de recherche"] {
+            assert_eq!(
+                classify(Ok(piste_error(400, message)), ACCO_ENDPOINT, &OFFICIAL),
+                fatal(invalid(message)),
+                "{message}"
             );
         }
     }
@@ -763,6 +827,64 @@ mod tests {
             classified(403),
             Outcome::Fatal(CorpusError::Auth { detail: "HTTP 403 on /consult/juri".to_owned() })
         );
+    }
+
+    /// Page 403 de la passerelle Apache de PISTE, recopiée octet pour octet (199 octets) de la
+    /// réponse enregistrée en sandbox le 2026-10-28 (`search/longueur/mot-unique-100`, `/search`
+    /// avec un mot unique de 100 caractères, `Content-Type: text/html; charset=iso-8859-1`) :
+    /// la page standard du serveur, sans donnée sensible.
+    const GATEWAY_403_BODY: &str = "<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\n\
+        <html><head>\n\
+        <title>403 Forbidden</title>\n\
+        </head><body>\n\
+        <h1>Forbidden</h1>\n\
+        <p>You don't have permission to access this resource.</p>\n\
+        </body></html>\n";
+
+    /// 403 JSON d'une route inexistante, lu du fichier enregistré le 2026-10-28.
+    const ROUTE_403_BODY: &str = include_str!(
+        "../tests/fixtures/recorded/consult/inexistant/inconnu/route-inexistante.json"
+    );
+
+    fn gateway_403() -> RawResponse {
+        RawResponse {
+            content_type: Some("text/html; charset=iso-8859-1".to_owned()),
+            ..with_body(403, GATEWAY_403_BODY)
+        }
+    }
+
+    #[test]
+    fn a_gateway_html_403_is_not_an_auth_error() {
+        assert_eq!(GATEWAY_403_BODY.len(), 199);
+        let rejected = CorpusError::InvalidRequest {
+            status: Some(403),
+            detail: "request rejected by the PISTE gateway".to_owned(),
+        };
+        for (endpoint, context) in
+            [(SEARCH_ENDPOINT, &SEARCH), (ENDPOINT, &CONSULT), (ENDPOINT, &OFFICIAL)]
+        {
+            assert_eq!(
+                classify(Ok(gateway_403()), endpoint, context),
+                Outcome::Fatal(rejected.clone()),
+                "{endpoint}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_json_or_empty_403_stays_an_auth_error() {
+        let auth = |endpoint: &str| {
+            Outcome::Fatal(CorpusError::Auth { detail: format!("HTTP 403 on {endpoint}") })
+        };
+        // Le 403 d'une route inexistante, enregistré en sandbox (33 octets) : le corps de la
+        // requête recopié (04 §11.1) ; puis un corps vide.
+        for body in [ROUTE_403_BODY, ""] {
+            let response = RawResponse {
+                content_type: Some("application/json".to_owned()),
+                ..with_body(403, body)
+            };
+            assert_eq!(classify(Ok(response), ENDPOINT, &CONSULT), auth(ENDPOINT), "{body:?}");
+        }
     }
 
     #[test]

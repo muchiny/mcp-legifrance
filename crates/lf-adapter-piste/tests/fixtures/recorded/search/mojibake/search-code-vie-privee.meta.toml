@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"vie privee\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793185200000}],\"pageNumber\":1,\"pageSize\":5,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-10-28T14:43:02Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 888
+bytes_raw = 18297
+sha256_raw = "885ca777c02d64f41cd4b71afaac9c06e0000a6d6cfe7558f2dde2ba133556ee"
+sha256_file = "885ca777c02d64f41cd4b71afaac9c06e0000a6d6cfe7558f2dde2ba133556ee"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

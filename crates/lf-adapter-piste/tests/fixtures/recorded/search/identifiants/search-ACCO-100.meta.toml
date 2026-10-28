@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"ACCO\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"teletravail\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":100,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-10-28T14:43:18Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 1135
+bytes_raw = 169118
+sha256_raw = "e70e519b531bf4f5331c1087a196766869b7c3844a1b42470dd7531889062563"
+sha256_file = "e70e519b531bf4f5331c1087a196766869b7c3844a1b42470dd7531889062563"
+mojibake_detected = true
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

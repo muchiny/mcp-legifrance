@@ -1,0 +1,14 @@
+endpoint = "/consult/kaliText"
+request = "{\"id\":\"KALITEXT000049878950\"}"
+env = "sandbox"
+captured_at = "2026-10-28T14:43:07Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 322
+bytes_raw = 758840
+sha256_raw = "1840f2477434ba70b02de1a4499170f3bf797dbf6b6fce1649b9749e131f37b8"
+sha256_file = "1840f2477434ba70b02de1a4499170f3bf797dbf6b6fce1649b9749e131f37b8"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

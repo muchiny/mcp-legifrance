@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"KALI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"convention collective\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_SIGNATURE\",\"dates\":{\"start\":\"2020-01-01\",\"end\":\"2020-12-31\"}}],\"pageNumber\":1,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-10-28T14:43:58Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 493
+bytes_raw = 35722
+sha256_raw = "166c3ce0030aa1af4723b1e05378844f317ee0f3b8d729a8a2b23291175f18dc"
+sha256_file = "166c3ce0030aa1af4723b1e05378844f317ee0f3b8d729a8a2b23291175f18dc"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

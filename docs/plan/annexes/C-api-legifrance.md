@@ -137,7 +137,7 @@ Le comportement « introuvable » des autres consultations (400, 404, 200 avec e
 
 ### 1.6 Compression et en-têtes
 
-- L'exemple OAuth officiel envoie `Accept-Encoding: gzip,deflate` (l.117). La compression des réponses de l'API est **NON VÉRIFIÉ** [V-70 · piste-gzip] ; l'adapter l'active et borne la taille après décompression (04 §4.3).
+- L'exemple OAuth officiel envoie `Accept-Encoding: gzip,deflate` (l.117). La sandbox ne compresse pas ses réponses : aucun `Content-Encoding` même avec `Accept-Encoding: gzip` (mesure manuelle du 2026-10-28, V-70 levé, constat négatif ; production non sondée) ; l'adapter l'active et borne la taille après décompression (04 §4.3).
 - Aucun en-tête de pagination ni de version n'est documenté. `GET /misc/commitId` renvoie une map de chaînes « Informations déploiement et versionning » (§2.7), non utilisée.
 
 ### 1.7 CGU et licence
@@ -576,9 +576,9 @@ Conséquences : les facettes sont découvrables à l'exécution et très volumin
 2. `NOM_CODE` (CODE_DATE) et `TEXT_NOM_CODE` (CODE_ETAT) : la documentation officielle les utilise avec le titre exact du code ; deux tiers les disent cause de 500 avec du texte libre. **NON VÉRIFIÉ** [V-121 · nom-code-filtre]. Le plan ne les envoie pas : jamais `NOM_CODE` sans V-121 ; `find_article` filtre les hits par `cid` (00 §8 ; 04 §7.2).
 3. Le filtre `CASSATION_TYPE_PUBLICATION_BULLETIN` serait inopérant (commentaire pylegifrance, recherche 03 §3.2) : non utilisé.
 4. `nature` et NOR changent de casse entre recherche et consultation (`arret`/`ARRET`, `cscl2115694s`/`CSCX2531180S`, §4.12).
-5. Aucune date dans les hits JURI, CONSTIT et CETAT : la date n'est que dans le titre en prose (recherche 03 §4.2). Sémantique de `date` par fonds **NON VÉRIFIÉ** [V-87 · date-hit-semantique].
+5. Aucune date dans les hits JURI, CONSTIT et CETAT : la date n'est que dans le titre en prose (recherche 03 §4.2). Sémantique de `date` par fonds mesurée en sandbox le 2026-10-28 [V-87 · date-hit-semantique] (09 §2.20 : elle dépend du fond).
 6. Aucun `ecli` dans les hits de recherche.
-7. `num` des extraits KALI malformé (`"8.4 de la convention)"`) : **NON VÉRIFIÉ** [V-88 · kali-extraits-num] sur d'autres données.
+7. `num` des extraits KALI malformé (`"8.4 de la convention)"`) : **partiel** en sandbox le 2026-10-28 [V-88 · kali-extraits-num] : aucun `num` mal formé sur 193 extraits (09 §2.20).
 8. 0 résultat = succès (`totalResultNumber = 0`), jamais `not_found` (04 §11.1 ; parité E-04).
 
 ### 3.10 Gabarits du plan

@@ -201,12 +201,13 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     ///
     /// [`CorpusError::Config`] en mode dégradé, sans E/S, et pour un 404 qui ne prouve pas
     /// l'absence (recherche, hôte non officiel, page HTML) ou un 405 ;
-    /// [`CorpusError::InvalidRequest`] si `endpoint` ne commence pas par `/` ou pour un 400
-    /// (détail du message PISTE nettoyé pour une consultation, générique pour une recherche) ;
+    /// [`CorpusError::InvalidRequest`] si `endpoint` ne commence pas par `/`, pour un 400
+    /// (détail du message PISTE nettoyé pour une consultation, générique pour une recherche) ou
+    /// pour un 403 dont le corps est la page HTML de la passerelle (`status: Some(403)`) ;
     /// [`CorpusError::NotFound`] pour une consultation dont le 400 porte le marqueur d'un
     /// identifiant inconnu, dont le 404 vient de l'hôte officiel hors page HTML, ou dont le 2xx
     /// est vide ; sinon l'erreur classée de la dernière tentative (`Timeout`, `RateLimited`,
-    /// `Auth`, `Upstream`, `Decode`, dont le 2xx vide d'une recherche) ; enfin l'erreur de
+    /// `Auth` (401 ou 403 non HTML), `Upstream`, `Decode`, dont le 2xx vide d'une recherche) ; enfin l'erreur de
     /// `read`.
     async fn post_json<T>(
         &self,
@@ -235,7 +236,7 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
             deadline: &call.deadline,
             jitter: &SystemJitter,
         };
-        // Seul le corps d'une 2xx est décodé ici ; `classify` a déjà lu ceux d'un 400 et d'un 404.
+        // Seul le corps d'une 2xx est décodé ici ; `classify` a déjà lu ceux d'un 400, d'un 403 et d'un 404.
         let Reply { response, permit, lease } = run(&ctx, || self.attempt(&call)).await?;
         let decoded = decode_body(&response.body, endpoint, inner.config.tuning().repair_mojibake);
         // Le corps brut tombe avant la lecture : un seul exemplaire du corps vit pendant `read`.

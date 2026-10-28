@@ -14,9 +14,11 @@ use crate::{
 
 /// Longueur maximale, en caractères, d'une requête normalisée.
 ///
-/// La borne de 500 est celle du contrat (05 §7.3) ; la limite réelle de l'API reste à
-/// vérifier [V-81 · longueur-max-query].
-pub const QUERY_MAX_CHARS: usize = 500;
+/// Mesurée en sandbox [V-81 · longueur-max-query] : PISTE accepte 450 caractères et rend un 500
+/// à 499 ; la limite réelle est entre 451 et 498 (non sondée). Elle compte des **caractères**, non
+/// des octets : 450 caractères accentués (675 octets) passent aussi. 450 est la borne
+/// conservatrice retenue (05 §7.3).
+pub const QUERY_MAX_CHARS: usize = 450;
 
 /// Texte de recherche normalisé : sans caractère de contrôle, blancs repliés en une espace,
 /// ni vide ni plus long que [`QUERY_MAX_CHARS`] caractères.
@@ -330,7 +332,18 @@ mod tests {
         assert_eq!(text(&at_max).as_str(), at_max);
         assert_eq!(
             QueryText::parse(&"é".repeat(QUERY_MAX_CHARS + 1)),
-            Err(DomainError::QueryTooLong { len: 501, max: 500 })
+            Err(DomainError::QueryTooLong { len: 451, max: 450 })
+        );
+    }
+
+    #[test]
+    fn query_text_accepts_up_to_the_api_limit() {
+        // PISTE accepte 450 caractères et rend un 500 à 499 [V-81] : 450 acceptés, 451 refusés.
+        let accepted = "é".repeat(450);
+        assert_eq!(text(&accepted).as_str(), accepted);
+        assert_eq!(
+            QueryText::parse(&"é".repeat(451)),
+            Err(DomainError::QueryTooLong { len: 451, max: 450 })
         );
     }
 

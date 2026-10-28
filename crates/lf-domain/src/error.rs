@@ -299,8 +299,8 @@ mod tests {
         );
         assert_eq!(DomainError::EmptyQuery.to_string(), "query is required");
         assert_eq!(
-            DomainError::QueryTooLong { len: 612, max: 500 }.to_string(),
-            "query is too long (612 characters, max 500)"
+            DomainError::QueryTooLong { len: 612, max: 450 }.to_string(),
+            "query is too long (612 characters, max 450)"
         );
         assert_eq!(
             DomainError::OutOfRange { field: "page_size", value: 0, min: 1, max: 100 }.to_string(),
@@ -389,7 +389,7 @@ mod tests {
             DomainError::TocOffsetPastEnd { offset: 300, total: 88 },
             DomainError::InvertedDateRange { from: VersionDate::MAX, to: VersionDate::MIN },
             DomainError::EmptyQuery,
-            DomainError::QueryTooLong { len: 501, max: 500 },
+            DomainError::QueryTooLong { len: 451, max: 450 },
             DomainError::OutOfRange { field: "page_size", value: 0, min: 1, max: 100 },
             DomainError::VersionDateNotApplicable { fond: Fond::Juri },
             DomainError::DateFilterNotApplicable { fond: Fond::Code },

@@ -21,6 +21,7 @@ use serde::de::DeserializeOwned;
 
 use super::PisteCorpus;
 use crate::classify::EndpointKind;
+use crate::http::TOO_LARGE_PREFIX;
 use crate::map::endpoint;
 use crate::map::search::search_page_with_mode;
 use crate::map::{Diagnostics, act, agreement, article, convention, decision, deliberation};
@@ -40,6 +41,31 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     }
 }
 
+/// Oriente l'appelant quand la réponse de `/consult/lawDecree` dépasse la borne de corps.
+///
+/// Un code entier (Code du travail : 31,4 Mio contre une borne de 16 Mio, V-96) ne tient pas
+/// dans `get_act` en v0.1 : la lecture bornée échoue en `Decode`, dont le `detail` reçoit la
+/// consigne. Détection par la conséquence, sans reconnaître les codes à l'avance : le `detail`
+/// doit commencer par le libellé « corps trop gros » **et** finir par l'endpoint de la
+/// consultation (` on /consult/lawDecree`), car la lecture du jeton OAuth a la même borne et ne
+/// doit pas recevoir cette consigne. Toute autre erreur, y compris un `Decode` d'une autre cause,
+/// passe inchangée.
+fn act_too_large(error: CorpusError) -> CorpusError {
+    let on_law_decree = format!(" on {}", endpoint::LAW_DECREE);
+    match error {
+        CorpusError::Decode { detail }
+            if detail.starts_with(TOO_LARGE_PREFIX) && detail.ends_with(&on_law_decree) =>
+        {
+            CorpusError::Decode {
+                detail: format!(
+                    "{detail}: this text is too large for get_act; use get_article or search instead"
+                ),
+            }
+        }
+        other => other,
+    }
+}
+
 impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S> {
     async fn search(&self, query: &SearchQuery) -> Result<SearchPage, CorpusError> {
         let memo = &self.inner.memo;
@@ -54,7 +80,9 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S>
     }
 
     async fn get_act(&self, id: &LegiTextId, date: VersionDate) -> Result<Act, CorpusError> {
-        self.consult(Consultation::LawDecree(id, date), |dto, diags| act::act(dto, id, diags)).await
+        self.consult(Consultation::LawDecree(id, date), |dto, diags| act::act(dto, id, diags))
+            .await
+            .map_err(act_too_large)
     }
 
     async fn get_article(&self, id: &ArticleId) -> Result<ArticleText, CorpusError> {
@@ -415,11 +443,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn code_page_2_without_memo_sends_article() {
+    async fn code_page_2_without_memo_sends_defaut() {
         let rig = Rig::new().await;
         search_replies(&rig, EMPTY_PAGE).await;
         rig.corpus.search(&golden_page(Fond::Code, 2, None)).await.unwrap();
-        assert_eq!(sent_modes(&rig).await, [json!("ARTICLE")]);
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT")]);
+    }
+
+    /// Documente V-82 (ce n'est pas le rouge de C5, qui passait déjà avant : le repli sans mémo
+    /// est testé par `code_page_2_without_memo_sends_defaut`) : la page 1 de `CODE_DATE`
+    /// enregistrée en sandbox répond `typePagination` `DEFAUT` ; la page 2 repart donc en
+    /// `DEFAUT`, et non en `ARTICLE` qui rejouerait la page 1.
+    #[tokio::test]
+    async fn code_page_2_follows_the_defaut_answered_by_the_sandbox() {
+        const PAGE_1: &str =
+            include_str!("../../tests/fixtures/recorded/search/pagination/code-page1-defaut.json");
+        let rig = Rig::new().await;
+        search_replies(&rig, PAGE_1).await;
+        let first = rig.corpus.search(&golden_page(Fond::Code, 1, None)).await.unwrap();
+        rig.corpus.search(&golden_page(Fond::Code, 2, None)).await.unwrap();
+        assert_eq!(first.pagination, PaginationMode::Defaut);
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("DEFAUT")]);
     }
 
     #[tokio::test]
@@ -433,7 +477,7 @@ mod tests {
             let first = rig.corpus.search(&golden_page(Fond::Code, 1, None)).await.unwrap();
             rig.corpus.search(&golden_page(Fond::Code, 2, None)).await.unwrap();
             assert_eq!(first.pagination, PaginationMode::Defaut, "{body}");
-            assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("ARTICLE")], "{body}");
+            assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("DEFAUT")], "{body}");
         }
     }
 
@@ -590,6 +634,70 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
             .mount(&rig.server)
             .await;
+    }
+
+    #[tokio::test]
+    async fn get_act_on_a_text_over_the_body_limit_is_a_clear_error() {
+        // Le Code du travail dépasse la borne de corps de 16 Mio (31,4 Mio, V-96, C2) : l'erreur
+        // doit orienter vers `get_article` ou la recherche, sans nouvelle tentative.
+        let rig = Rig::tuned(|setup| setup.tuning.max_body_bytes = 1_000).await;
+        reply_on(&rig, endpoint::LAW_DECREE, "a".repeat(2_000)).await;
+        let law = LegiTextId::parse(fixture("consult_loda").requested).unwrap();
+        assert_eq!(
+            rig.corpus.get_act(&law, version_date()).await.map(drop),
+            Err(CorpusError::Decode {
+                detail: "response too large (> 1000 bytes) on /consult/lawDecree: this text is \
+                         too large for get_act; use get_article or search instead"
+                    .to_owned()
+            })
+        );
+        assert_eq!(api_requests(&rig).await.len(), 1);
+    }
+
+    #[test]
+    fn a_too_large_token_response_keeps_the_generic_decode_error() {
+        // La borne de corps est la même pour le jeton OAuth : seule la fin `/consult/lawDecree`
+        // du `detail` autorise la consigne `get_article`.
+        let oauth = CorpusError::Decode {
+            detail: "response too large (> 16 MiB) on /oauth/token".to_owned(),
+        };
+        assert_eq!(super::act_too_large(oauth.clone()), oauth);
+        let law = CorpusError::Decode {
+            detail: "response too large (> 16 MiB) on /consult/lawDecree".to_owned(),
+        };
+        assert_eq!(
+            super::act_too_large(law),
+            CorpusError::Decode {
+                detail: "response too large (> 16 MiB) on /consult/lawDecree: this text is too \
+                         large for get_act; use get_article or search instead"
+                    .to_owned()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn an_oversized_body_on_another_consultation_keeps_the_generic_decode_error() {
+        let rig = Rig::tuned(|setup| setup.tuning.max_body_bytes = 1_000).await;
+        reply_on(&rig, endpoint::JURI, "a".repeat(2_000)).await;
+        let id = DecisionId::parse(fixture("consult_juri").requested).unwrap();
+        assert_eq!(
+            rig.corpus.get_decision(&id).await.map(drop),
+            Err(CorpusError::Decode {
+                detail: "response too large (> 1000 bytes) on /consult/juri".to_owned()
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn get_act_under_the_body_limit_is_decoded_as_before() {
+        // La fixture `consult_loda` tient sous une borne de 1 Mio : la borne seule ne change rien.
+        let name = "consult_loda";
+        let request = json!({"textId": "LEGITEXT000033205014", "date": "2026-10-15"});
+        let rig = Rig::tuned(|setup| setup.tuning.max_body_bytes = 1 << 20).await;
+        serve(&rig, endpoint::LAW_DECREE, request, name).await;
+        let law = LegiTextId::parse(fixture(name).requested).unwrap();
+        let act = rig.corpus.get_act(&law, version_date()).await.unwrap();
+        assert_eq!(view(&Mapped::Act(act)), expected(name, fixture(name).requested));
     }
 
     /// Chemin, query et corps de chaque requête reçue hors jeton, dans l'ordre.
@@ -835,6 +943,28 @@ mod tests {
             .mount(&rig.server)
             .await;
         assert_eq!(each_consultation(&rig).await, six_not_found());
+    }
+
+    #[tokio::test]
+    async fn the_recorded_acco_count_400_maps_to_not_found() {
+        // Le 400 réel d'un identifiant ACCO inexistant (V-68), servi tel qu'enregistré : le
+        // message de comptage, et non « valider est fausse », dit « introuvable » sur ACCO.
+        let recorded = include_str!(
+            "../../tests/fixtures/recorded/consult/acco/inconnu/ACCOTEXT000000000000.json"
+        );
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        Mock::given(method("POST"))
+            .and(path(format!("{API_BASE}{}", endpoint::ACCO)))
+            .respond_with(ResponseTemplate::new(400).set_body_raw(recorded, "application/json"))
+            .expect(1)
+            .mount(&rig.server)
+            .await;
+        let id = AccoTextId::parse("ACCOTEXT000000000000").unwrap();
+        assert_eq!(
+            rig.corpus.get_company_agreement(&id).await.map(drop),
+            Err(CorpusError::NotFound { what: "/consult/acco".to_owned() })
+        );
     }
 
     #[tokio::test]

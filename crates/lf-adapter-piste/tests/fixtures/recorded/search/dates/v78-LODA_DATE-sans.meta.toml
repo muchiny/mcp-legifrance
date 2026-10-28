@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"LODA_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"republique numerique\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793185200000}],\"pageNumber\":1,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-10-28T14:43:47Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 642
+bytes_raw = 30503
+sha256_raw = "f426b2d8f3f637174c855ae15415a18ef6f0c94d44c9403a5b499ef1e6d2e831"
+sha256_file = "f426b2d8f3f637174c855ae15415a18ef6f0c94d44c9403a5b499ef1e6d2e831"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

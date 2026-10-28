@@ -45,7 +45,7 @@
    - sans mémo (redémarrage, autre processus) : `ARTICLE` pour CODE en page > 1, `DEFAUT` sinon (04 §6.6) ;
    - si les mesures de M5 montrent que le mémo ne suffit pas (V-82), on ajoutera un paramètre opaque `pagination`, classé comme « ajout » (05 §13.1 n° 7).
 5. **Une recherche vide est un succès** `{"total":0,"page":1,"has_more":false,"hits":[]}`, jamais `not_found` (parité E-04).
-6. **Requête normalisée par le domaine** (`QueryText`) : trim, blancs repliés, caractères de contrôle retirés, 1 à 500 caractères (D-32).
+6. **Requête normalisée par le domaine** (`QueryText`) : trim, blancs repliés, caractères de contrôle retirés, 1 à 450 caractères (D-32 ; borne ramenée de 500 à 450 par V-81).
 7. **Le défaut et la manière d'obtenir la suite** figurent dans la description de `fr_search` et dans les instructions. Ils ne sont pas répétés dans chaque réponse ([ADR-0006](0006-sortie-compacte-retour-progressif.md)).
 
 ## Critère pour trancher Q10
@@ -70,20 +70,20 @@
 ### Négatives
 
 - **`any` reste bruyant** (D-32) : le modèle doit penser à `all` ou `exact`. La description le lui dit.
-- Le mémo de `typePagination` est un état caché, propre au processus : il est perdu au redémarrage et n'est pas partagé entre clients. Le repli `ARTICLE` couvre CODE, seul cas observé (`search_code.json`) ; ailleurs, l'écart éventuel entre une page servie avec le mémo et sans lui est mesuré par V-82 (M5).
+- Le mémo de `typePagination` est un état caché, propre au processus : il est perdu au redémarrage et n'est pas partagé entre clients. Le repli sans mémo est `DEFAUT` pour tous les fonds : le repli `ARTICLE` pour CODE, tiré de `search_code.json`, rejouait la page 1 en sandbox (V-82, 2026-10-28, tâche C5 du plan 2h) ; l'écart éventuel entre une page servie avec le mémo et sans lui, ailleurs ou en production, reste mesuré par V-82 (M5).
 - La borne de 10 000 est une hypothèse. Si elle est fausse, elle prive de résultats atteignables ou laisse passer des erreurs.
 
 ### À surveiller
 
-- **NON VÉRIFIÉ** [V-79 · mode-all-semantique] : sens exact de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp=ALL` (V-79, M2 ; base de Q10).
+- **Partiel** [V-79 · mode-all-semantique] : en sandbox (2026-10-28), `any` ≥ `all` ≥ `exact` (JURI 606 333, 119 868, 86 213 ; LODA 125 908, 4 633, 554) ; sens exact de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp=ALL` et rappel sur les 9 scénarios non mesurés (09 §2.20 ; base de Q10, T-M4-10).
 - **NON VÉRIFIÉ** [V-82 · typepagination-page2] : effet de `DEFAUT` ou `ARTICLE` en page 2, et cohérence de `has_more` (V-82, M5).
 - **NON VÉRIFIÉ** [V-83 · pagination-profonde] : limite de profondeur (V-83, M5).
-- **NON VÉRIFIÉ** [V-81 · longueur-max-query] : longueur maximale acceptée par l'API.
-- **NON VÉRIFIÉ** [V-78 · filtres-dates-effet] : effet réel des filtres de date.
+- **Vérifié en sandbox le 2026-10-28** [V-81 · longueur-max-query] : l'API accepte 450 caractères et refuse 499 (500), soit une limite entre 451 et 498 (09 §2.20).
+- **Vérifié en sandbox le 2026-10-28** [V-78 · filtres-dates-effet] : les sept facettes réduisent le total et leurs bornes sont incluses ; borne lointaine non essayée (09 §2.20).
 
 ### Tests qui la gardent
 
-- `search_page_2_sends_page_number_2`, `has_more_computed_from_total`, `has_more_false_at_reachable_window_end`, `type_pagination_is_echoed_on_next_page`, `code_page_2_without_memo_sends_article` (D-09).
+- `search_page_2_sends_page_number_2`, `has_more_computed_from_total`, `has_more_false_at_reachable_window_end`, `type_pagination_is_echoed_on_next_page`, `code_page_2_without_memo_sends_defaut` (D-09 ; `ARTICLE` avant la tâche C5 du plan 2h).
 - `page_beyond_reachable_window_is_invalid_arg_without_network`, `code_date_range_is_invalid_arg`, `version_date_outside_loda_code_is_invalid_arg`, `inverted_date_range_is_invalid_arg` (0 appel au port, 06 §2.2) ; copie défensive de l'adapter : `code_date_range_is_defensive_invalid_request_without_network` (04 §6.10).
 - `type_recherche_follows_match`, `query_too_long_is_invalid_arg`, `query_control_chars_are_stripped` (D-32).
 - Recherche vide rendue comme un succès (E-04) ; tests live de M5 (06 §3.1, §5.3).
@@ -97,7 +97,7 @@
 | Exposer les cinq valeurs de `typeRecherche` | Les modes négatifs (`AUCUN_DES_MOTS`…) n'ont pas d'usage seuls et alourdissent la description. |
 | Curseur ou handle opaque rendu par le serveur | État serveur et vecteur d'attaque. Les entiers suffisent (recherche 06 §3.6). |
 | Rendre `typePagination` en sortie et l'accepter en entrée dès v0.1 | Ajoute un paramètre que le modèle doit recopier sans le comprendre, pour un effet non vérifié (V-82). Gardé en repli selon les mesures (05 §13.1 n° 7). |
-| Règle sans état seule (`ARTICLE` pour CODE, `DEFAUT` sinon), sans mémo | 00 §7 retient le mémo, qui renvoie la valeur reçue comme le demande le Swagger ; la règle sans état en reste le repli. |
+| Règle sans état seule (`DEFAUT`, `ARTICLE` pour CODE avant V-82), sans mémo | 00 §7 retient le mémo, qui renvoie la valeur reçue comme le demande le Swagger ; la règle sans état en reste le repli. |
 | Refus de la pagination profonde dans l'adapter seulement (`InvalidRequest`) | Rendu `upstream_error` « HTTP 400 » sans appel réseau ; une contrainte de l'entrée doit donner `invalid_arg` avant le port (00 §5, AM-28). |
 | `not_found` sur une recherche vide (instructions de la référence) | Contredit le comportement réel de la référence (E-04). Une liste vide n'est pas une erreur. |
 | Pas de borne de profondeur | Risque d'un 500 opaque au-delà de la fenêtre du moteur. |

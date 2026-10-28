@@ -580,7 +580,7 @@ Les recherches ont été menées sans accès authentifié à PISTE (recherche 02
 |---|---|---|---|
 | Sens de `TOUS_LES_MOTS_DANS_UN_CHAMP` avec `typeChamp = ALL` | [V-79 · mode-all-semantique] | D-32 | `match="all"` moins utile qu'attendu ; pèse sur Q10 |
 | Syntaxe interprétée dans `valeur` (guillemets, jokers) | [V-80 · syntaxe-moteur-valeur] | D-32 | assainissement de 04 §6.8 à étendre |
-| Longueur maximale de `query` acceptée par `/search` | [V-81 · longueur-max-query] | D-32 | borne de 500 caractères à ajuster |
+| Longueur maximale de `query` acceptée par `/search` | [V-81 · longueur-max-query] | D-32 | borne de 500 caractères, ramenée à 450 (V-81, plan 2h C3) |
 | Effet de `typePagination` (`DEFAUT`, `ARTICLE`) en page 2, cohérence de `has_more` | [V-82 · typepagination-page2] | D-09 | si le `PaginationMemo` ne suffit pas, paramètre opaque `pagination`, classe « ajout » (00 §7) |
 | Fenêtre maximale de résultats accessibles (10 000 ?) | [V-83 · pagination-profonde] | D-09 | borne `page × page_size` ≤ 10 000 de 00 §7 (rejet `invalid_arg`) à ajuster, lacune FR-008 à reformuler |
 | Effet réel des facettes de date (`date_from`, `date_to`) | [V-78 · filtres-dates-effet] | D-09 | filtres de date à restreindre à certains fonds |

@@ -1,0 +1,14 @@
+endpoint = "/consult/juri"
+request = "{\"textId\":\"CETATEXT999999999999\"}"
+env = "sandbox"
+captured_at = "2026-10-28T14:42:48Z"
+http_status = 400
+content_type = "application/json"
+elapsed_ms = 147
+bytes_raw = 151
+sha256_raw = "12ced59278a9f5d50730dcbfd601fe2e92a55066fe2f7b9557d8e4ad1bd13da0"
+sha256_file = "12ced59278a9f5d50730dcbfd601fe2e92a55066fe2f7b9557d8e4ad1bd13da0"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

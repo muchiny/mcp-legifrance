@@ -1,0 +1,14 @@
+endpoint = "/consult/getArticle"
+request = "{\"id\":\"KALIARTI000049886059\"}"
+env = "sandbox"
+captured_at = "2026-10-28T14:43:09Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 169
+bytes_raw = 14588
+sha256_raw = "683411de22c2cf33437569072603ca207fa1c217d464552f1a9eff563fa68106"
+sha256_file = "683411de22c2cf33437569072603ca207fa1c217d464552f1a9eff563fa68106"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

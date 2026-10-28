@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"CETAT\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"urbanisme\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_DECISION\",\"dates\":{\"start\":\"2020-01-01\",\"end\":\"2020-12-31\"}}],\"pageNumber\":1,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-10-28T14:43:54Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 437
+bytes_raw = 11068
+sha256_raw = "3e0b79c8d6853482268cb609afad5be48aa3c7e1b9c43817580e774e4d874c42"
+sha256_file = "3e0b79c8d6853482268cb609afad5be48aa3c7e1b9c43817580e774e4d874c42"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"
