@@ -5,10 +5,10 @@
 # La mutation de tout le workspace d'un coup tourne en CI (weekly.yml), jamais ici.
 #
 # `--locked` partout (06 §9.4) : une commande échoue si `Cargo.lock` n'est pas à jour,
-# au lieu de le réécrire. `--all-features` sur lint, test et doc (sans effet tant
-# qu'aucune feature n'existe ; 06 §7.1).
+# au lieu de le réécrire. `--all-features` sur lint, test, doc et cov (06 §7.1) : la feature
+# `record` de lf-adapter-piste (enregistrement de fixtures) est ainsi compilée et couverte.
 
-COV_FLAGS := --workspace --lib --locked --summary-only \
+COV_FLAGS := --workspace --lib --all-features --locked --summary-only \
 	--fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
 MUTANTS_SAFE := TMPDIR=/var/tmp NEXTEST_TEST_THREADS=2 cargo mutants -j 1
 BASE ?= origin/main
@@ -81,7 +81,8 @@ min-age-selftest:
 machete:
 	cargo machete
 
-# Couverture des tests unitaires (--lib) : 100 % lignes, régions et fonctions.
+# Couverture des tests unitaires (--lib, --all-features : le code de la feature `record` compte) :
+# 100 % lignes, régions et fonctions.
 cov:
 	cargo llvm-cov $(COV_FLAGS)
 

@@ -992,6 +992,8 @@ mod tests {
                 status: 401,
                 retry_after: None,
                 date: None,
+                content_type: None,
+                content_encoding: None,
                 body: body.as_bytes().to_vec(),
             };
             status_error(&response, SANDBOX, &url)
@@ -1315,6 +1317,8 @@ mod tests {
             status: 200,
             retry_after: None,
             date: None,
+            content_type: None,
+            content_encoding: None,
             body: br#"{"access_token":"tok-secret","expires_in":900}"#.to_vec(),
         };
         let shown = [

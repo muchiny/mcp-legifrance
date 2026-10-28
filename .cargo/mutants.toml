@@ -2,11 +2,15 @@
 # Toute exclusion (`exclude_re`) doit être justifiée en commentaire : mutant
 # prouvé équivalent, avec le raisonnement. Le code `#[cfg(test)]` n'est jamais muté.
 test_tool = "nextest"
+# Toutes les features : le code de la feature `record` de lf-adapter-piste (plan 2h) est muté et
+# testé comme le reste (sans cela, cargo-mutants ne compilerait pas ce code).
+all_features = true
 profile = "mutants"
 # `--locked` sur chaque appel de cargo (local, diff de PR, balayage hebdomadaire ; 06 §9.4).
 additional_cargo_args = ["--locked"]
 exclude_globs = [
     "xtask/src/main.rs", # glue d'I/O (cargo metadata, stdout) ; la logique est dans arch.rs
+    "crates/lf-adapter-piste/examples/**", # glue d'E/S de record-fixture ; la logique est dans src/record.rs
     "fuzz/**", # cibles cargo-fuzz hors workspace (Cargo.toml exclude) : pas du code livré ; filet si le dossier y entrait
 ]
 exclude_re = [
@@ -15,4 +19,13 @@ exclude_re = [
     # la bibliothèque standard définit comme `Vec::new()` : même valeur, même capacité nulle, aucune
     # allocation. Aucun test ne peut les distinguer (mutant équivalent, plan 2f, Task 33).
     'ListVisitor<T>>::visit_none -> .* with Ok\(Default::default\(\)\)$',
+    # sha256.rs, `choose` (Ch de FIPS 180-4) : `(x & y) ^ (!x & z)`. Les deux opérandes n'ont jamais un
+    # bit à 1 en commun (l'un est masqué par `x`, l'autre par `!x`) : `^` et `|` donnent le même
+    # résultat sur toutes les entrées (équivalent, plan 2h, Task 9).
+    'sha256\.rs:\d+:\d+: replace \^ with \| in choose$',
+    # sha256.rs, `majority` (Maj de FIPS 180-4) : `(x & y) ^ (x & z) ^ (y & z)`. Pour un bit donné,
+    # deux termes à 1 exigent trois opérandes à 1, donc le troisième terme aussi : le nombre de
+    # termes à 1 ne vaut que 0, 1 ou 3. Or le xor de 0, 1 ou 3 uns vaut 0, 1 ou 1, comme leur ou.
+    # Les deux `^` donnent donc le même résultat que `|` sur toutes les entrées (équivalent, plan 2h).
+    'sha256\.rs:\d+:\d+: replace \^ with \| in majority$',
 ]

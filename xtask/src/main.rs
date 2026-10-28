@@ -4,7 +4,9 @@ use std::{env, fs, process::Command, process::ExitCode};
 
 use xtask::{
     arch::{inherits_workspace_lints, violations, workspace_packages},
+    args::utf8_args,
     graph::{graph_violations, resolved_graph},
+    record::example_command,
 };
 
 fn check_arch() -> Result<(), String> {
@@ -36,10 +38,36 @@ fn check_arch() -> Result<(), String> {
     }
 }
 
+/// Lance l'exemple `record_fixture` de l'adapter avec `args`, environnement et sorties hérités.
+/// Le code de sortie de l'exemple (0, 1 sonde non écrite, 2 usage ou identifiants absents) est
+/// celui de `cargo xtask`.
+fn record_fixture(args: &[String]) -> ExitCode {
+    let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    match Command::new(cargo).args(example_command(args)).status() {
+        Ok(status) => status
+            .code()
+            .and_then(|code| u8::try_from(code).ok())
+            .map_or(ExitCode::FAILURE, ExitCode::from),
+        Err(e) => {
+            eprintln!("cargo run: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> ExitCode {
-    let result = match env::args().nth(1).as_deref() {
+    // `args_os` : `env::args()` paniquerait sur un argument qui n'est pas de l'UTF-8 (M8).
+    let args = match utf8_args(env::args_os()) {
+        Ok(args) => args,
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::from(2);
+        }
+    };
+    let result = match args.get(1).map(String::as_str) {
+        Some("record-fixture") => return record_fixture(&args[2..]),
         Some("check-arch") => check_arch(),
-        _ => Err("usage: cargo xtask check-arch".into()),
+        _ => Err("usage: cargo xtask check-arch | record-fixture <arguments>".into()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

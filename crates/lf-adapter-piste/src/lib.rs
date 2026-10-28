@@ -19,7 +19,7 @@
 //! ne déclarent plus que les champs que le mapping lit.
 //!
 //! Les modules sont privés : sont publics `PisteCorpus`, les types de configuration et
-//! `StatsSnapshot`.
+//! `StatsSnapshot` (et le module `record`, derrière sa feature).
 //!
 //! Modules :
 //! - `auth` : jeton d'accès OAuth 2.0 `client_credentials` (`TokenManager`) : un seul jeton en
@@ -32,7 +32,8 @@
 //! - `corpus` : `PisteCorpus`, l'assemblage de l'adapter : mode dégradé sans E/S, puis pour chaque
 //!   tentative limiteur, jeton, envoi borné, classification et réessai, enfin décodage du corps,
 //!   sa lecture en DTO sous budget et son mapping, sous le permis de concurrence (`fetch`) ;
-//!   `corpus::port` implémente les sept opérations de `LegalCorpus`.
+//!   `corpus::port` implémente les sept opérations de `LegalCorpus` ; `corpus::raw` (feature
+//!   `record`) : `PisteCorpus::exchange`, échange brut sans classement ni réessai.
 //! - `deadline` : échéance d'un appel (`CallDeadline`), durée restante lue dans `Deadline`
 //!   puis posée sur l'horloge monotone de l'adapter.
 //! - `dto` : structures de désérialisation des réponses de PISTE (réponse et erreur de l'endpoint
@@ -50,10 +51,11 @@
 //!   du golden comparée à l'octet.
 //! - `http` : client HTTP unique (`reqwest`, TLS rustls), tentative d'envoi (`send_once`) et
 //!   lecture bornée du corps ; aucun réessai ni jugement de statut.
-//! - `integrity` (tests seulement) : intégrité des fixtures de référence (D-35) : SHA-256 maison
-//!   (FIPS 180-4) contre les `sha256_raw` des sidecars `.meta.toml`, clés et valeurs des sidecars,
-//!   contenu du répertoire, absence de chaîne de forme secret (mots d'authentification, UUID,
-//!   suite hexadécimale, JWT, base64 long) dans les fixtures, les snapshots et le golden.
+//! - `integrity` (tests seulement) : intégrité des fixtures de référence et des fixtures
+//!   enregistrées (04 §13.4) ; SHA-256 de `sha256` contre les `sha256_raw` des sidecars
+//!   `.meta.toml`, clés et valeurs des sidecars, contenu du répertoire, absence de chaîne de
+//!   forme secret (mots d'authentification, UUID, suite hexadécimale, JWT, base64 long) dans les
+//!   fixtures, les snapshots et le golden (D-35).
 //! - `limit` : barrière de charge sortante (`RateGate`), sémaphore de concurrence puis limiteur
 //!   de débit `governor` sur l'horloge de l'adapter ; toutes les attentes bornées par le délai.
 //! - `map` : mapping des DTO vers le domaine (04 §9), fonctions pures sans valeur du corps dans
@@ -71,12 +73,15 @@
 //! - `memo` : mémo de `typePagination` (`PaginationMemo`) : dernière valeur reçue par requête sans
 //!   page, 1 h, 1 024 entrées ; décision pure `choose_mode` et lecture tolérante `received_mode`
 //!   (04 §6.6, §12.3).
+//! - `record` (feature `record`) : enregistrement de fixtures (sondes, arguments, caviardage en
+//!   place, sidecar, écriture ; 04 §13.4).
 //! - `request` : corps des requêtes envoyées à PISTE ; `request::search` construit celui de
 //!   `/search` (`search_body`) et calcule le midi Europe/Paris du filtre `DATE_VERSION` (04 §6) ;
 //!   `request::consult` construit ceux des six consultations (`Consultation`, identifiant dans le
 //!   corps, jamais dans le chemin).
 //! - `retry` : politique de réessai (`run`) : trois requêtes au plus, délai exponentiel avec gigue,
 //!   `Retry-After`, bornée par le délai global ; boucle maison, sans `backon`.
+//! - `sha256` (tests et feature `record`) : SHA-256 FIPS 180-4 sans dépendance.
 //! - `stats` : compteurs en mémoire (`Stats` : mojibake et neuf diagnostics de mapping, ces
 //!   derniers journalisés par `record_mapping`) et leur instantané public (`StatsSnapshot`).
 //! - `testing` (tests seulement) : aides communes, `ClosedPort` (adresse locale qui refuse la
@@ -103,8 +108,12 @@ mod integrity;
 mod limit;
 mod map;
 mod memo;
+#[cfg(feature = "record")]
+pub mod record;
 mod request;
 mod retry;
+#[cfg(any(test, feature = "record"))]
+mod sha256;
 mod stats;
 #[cfg(test)]
 mod testing;

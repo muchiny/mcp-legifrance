@@ -117,8 +117,8 @@ Versions relues dans l'index crates.io les 2026-10-15 et 2026-10-16 (recherche 0
 | client `rmcp` | `=3.5.1`, feature `client` (dev) | tests MCP en processus | `().serve(client_io)` ; l'ère choisie par défaut par ce client est **NON VÉRIFIÉ** [V-37 · rmcp-client-ere-tests] : les transcriptions brutes (§6.1) couvrent donc les deux ères explicitement. |
 | `tokio` (`test-util`, `io-util`) | 1.53.3 | `start_paused`, `duplex` | — |
 | `cargo-fuzz` | installé en CI (`taiki-e/install-action`) | fuzzing hebdomadaire (`weekly.yml`), non bloquant pour la PR | demande une toolchain nightly ; répertoire `fuzz/` hors du workspace (`exclude`) ; cibles `dto_decode`, `from_html`, `ids`, `text` et `version_date` livrées (`weekly.yml`). |
-| `cargo-llvm-cov` | 0.9.1 | couverture **bloquante** : 100 % des lignes, régions et fonctions, `--workspace --lib` (`make cov`, §7.6) | demande le composant `llvm-tools-preview` dans `rust-toolchain.toml` (livré). |
-| `cargo-mutants` | 27 | mutation **bloquante** : 0 `MISSED`, 0 `TIMEOUT` (`make mutants FILE=…`, diff de PR, balayage hebdomadaire ; §7.6) | `.cargo/mutants.toml` (nextest, profil `mutants`) ; toute exclusion est justifiée en commentaire ; sous WSL, `TMPDIR=/var/tmp`, `-j 1`, un fichier à la fois, contrôle mémoire (§7.6). |
+| `cargo-llvm-cov` | 0.9.1 | couverture **bloquante** : 100 % des lignes, régions et fonctions, `--workspace --lib --all-features` (`make cov`, §7.6) | demande le composant `llvm-tools-preview` dans `rust-toolchain.toml` (livré). |
+| `cargo-mutants` | 27 | mutation **bloquante** : 0 `MISSED`, 0 `TIMEOUT` (`make mutants FILE=…`, diff de PR, balayage hebdomadaire ; §7.6) | `.cargo/mutants.toml` (nextest, profil `mutants`, `all_features = true` depuis le plan 2h : la feature `record` est mutée) ; toute exclusion est justifiée en commentaire ; sous WSL, `TMPDIR=/var/tmp`, `-j 1`, un fichier à la fois, contrôle mémoire (§7.6). |
 | `cargo-deny` | 0.20.2 | §9 | — |
 | `cargo-machete` | 0.9.2 | dépendances inutilisées | vert dès M0 : un crate ne déclare une dépendance que lorsqu'un code l'emploie, et les squelettes n'en déclarent pas d'avance (00 §2) ; seule exception, `rmcp-macros`, déclaré pour son épinglage sans emploi direct : `[package.metadata.cargo-machete] ignored = ["rmcp-macros"]` (02 §3.0.1). |
 | Python | 3.13, lancé en `python3 -I` | scripts versionnés de `docs/plan/annexes/donnees/scripts/` : `golden.py` (production du golden de parité), `check_golden.py` (assertions de `test_parse.py` sur le golden), `dto_repair_check.py` (stratégies de réparation du mojibake sur les fixtures) | outil de données, pas de test Rust ; empreintes SHA-256 des versions qui ont produit les données du plan : 00 §10 ; job `surface` (§7.1). |
@@ -144,12 +144,12 @@ crates/lf-adapter-piste/
   src/**                       mod tests : oauth (auth.rs), resilience (retry.rs, limit.rs, deadline.rs), bodies (http.rs, encoding.rs),
                                endpoints, config, fixtures_contract (map/fixtures.rs, view.rs), ported_test_parse, parity_golden (golden.rs)
   src/time.rs                  ManualClock et RecordingSleeper en cfg(test) (04 §1.5)
-  tests/live.rs                #[ignore], seul fichier d'intégration obligatoire (§5)
-  tests/record_fixture.rs      (feature record, required-features) test de l'écrivain de fixtures de l'exemple, sur wiremock : complément hors couverture
+  src/record.rs, src/corpus/raw.rs, src/sha256.rs   (feature record, plan 2h) écrivain de fixtures, API brute et SHA-256 : mod tests dans le crate, mesurés par make cov (--all-features)
+  tests/live.rs                #[ignore], seul fichier d'intégration obligatoire (§5), enveloppé dans #[cfg(test)] mod live
   tests/fixtures/reference/    16 fixtures de la référence + .meta.toml + parite-golden.json (A §5.3)
-  tests/fixtures/recorded/     captures de cargo xtask record-fixture (04 §13.4)
+  tests/fixtures/recorded/     captures de cargo xtask record-fixture (04 §13.4), contrôlées par src/integrity.rs ; tests/fixtures/plan.toml : lot de sondes
   tests/fixtures/synthetic/    cas construits (null, sentinelles, types mêlés)
-  examples/record_fixture.rs   (feature record) appelé par cargo xtask record-fixture
+  examples/record_fixture.rs   (feature record) colle d'E/S appelée par cargo xtask record-fixture, exclue de la mutation ; la logique est dans src/record.rs
 crates/lf-adapter-cache/src/**       mod tests (cache)
 crates/lf-adapter-audit/src/**       mod tests (format, hash_vectors, rotation, concurrency, permissions, errors)
 crates/lf-adapter-mcp/
@@ -304,7 +304,7 @@ async fn audit_written_for_every_outcome() {
 
 ### 2.3 `lf-adapter-piste`
 
-**Objectif** : prouver le contrat HTTP (OAuth, résilience, corps, endpoints), le mapping vers le domaine et la réparation du mojibake, contre un faux PISTE et sur les octets réels des fixtures. **04 §13 fait foi** pour la liste détaillée des scénarios ; ce paragraphe en fixe l'organisation et les compléments. Les ensembles du tableau sont des `#[cfg(test)] mod tests` (async pour `wiremock`) des modules du crate, comptés par `--lib` ; seul `tests/live.rs` reste dans `tests/`. La colonne « Ensemble » donne le nom du module de tests (sans préfixe `tests/` ni suffixe `.rs`), le module hôte figurant au §1.4. Aucune exclusion n'a été nécessaire (plan 2c : `make cov` à 100 % sans `--ignore-filename-regex`, glue HTTP incluse). Livré au plan 2c : les ensembles `oauth`, `resilience`, `bodies` et `config` vivent dans les modules `auth`, `retry`, `classify`, `limit`, `deadline` et `corpus`, `http`, `encoding` et `stats`, et `config` ; le plan 2d y ajoute les tests de `dto` (helpers, `decode`, DTO de réponse), `error_body`, `request/search.rs`, `memo` et `testing` (512 tests dans le crate, 791 au workspace, mesurés par `cargo nextest run --workspace --all-features --locked` à la fin du plan 2d) ; le plan 2g y ajoute `endpoints` (`corpus/port.rs`), la fin de `fixtures_contract` et `parity_golden` ; `ported_test_parse` (M5) et `record_fixture` (plan 2h) restent à venir. Convention de nommage : un nom qui commencerait par un statut prend le préfixe `the_` (`retry.rs`) ou `status_` (`corpus.rs`), 04 §13.1.
+**Objectif** : prouver le contrat HTTP (OAuth, résilience, corps, endpoints), le mapping vers le domaine et la réparation du mojibake, contre un faux PISTE et sur les octets réels des fixtures. **04 §13 fait foi** pour la liste détaillée des scénarios ; ce paragraphe en fixe l'organisation et les compléments. Les ensembles du tableau sont des `#[cfg(test)] mod tests` (async pour `wiremock`) des modules du crate, comptés par `--lib` ; seul `tests/live.rs` reste dans `tests/`. La colonne « Ensemble » donne le nom du module de tests (sans préfixe `tests/` ni suffixe `.rs`), le module hôte figurant au §1.4. Aucune exclusion n'a été nécessaire (plan 2c : `make cov` à 100 % sans `--ignore-filename-regex`, glue HTTP incluse). Livré au plan 2c : les ensembles `oauth`, `resilience`, `bodies` et `config` vivent dans les modules `auth`, `retry`, `classify`, `limit`, `deadline` et `corpus`, `http`, `encoding` et `stats`, et `config` ; le plan 2d y ajoute les tests de `dto` (helpers, `decode`, DTO de réponse), `error_body`, `request/search.rs`, `memo` et `testing` (512 tests dans le crate, 791 au workspace, mesurés par `cargo nextest run --workspace --all-features --locked` à la fin du plan 2d) ; le plan 2g y ajoute `endpoints` (`corpus/port.rs`), la fin de `fixtures_contract` et `parity_golden` ; `record` (plan 2h, PR 1) est livré (ligne `record` du tableau) ; `ported_test_parse` (M5) reste à venir. Convention de nommage : un nom qui commencerait par un statut prend le préfixe `the_` (`retry.rs`) ou `status_` (`corpus.rs`), 04 §13.1.
 
 | Ensemble (module `#[cfg(test)]` du crate, §1.4 ; `live.rs` seul est un fichier) | Contenu (04 §13.2, §13.3) | Nombre indicatif |
 |---|---|---|
@@ -313,7 +313,7 @@ async fn audit_written_for_every_outcome() {
 | `bodies` | JSON invalide (avec chemin), HTML, `null`, 200 vide, corps trop gros (avec et sans `Content-Length`), bombe gzip, UTF-8 invalide, mojibake réparé et compté, corps sain intact, marqueur d'erreur en mojibake, `repair_toggle_off_keeps_detection` (`LF_PISTE_MOJIBAKE_REPAIR=off` : corps non réparé, détection et `warn` maintenus, 04 §10) | 12 |
 | `endpoints` (`corpus/port.rs`, livré au plan 2g) | un test par fixture et par endpoint (corps envoyé vérifié), pagination, `typePagination` et mémo (R12, R13), facettes de date, gardes sans réseau, sécurité (identifiants dans le corps, aucune URL suivie, aucun appel N+1, `data` ACCO sauté), erreurs par le port (enveloppes vides, 400, 401, 429, 503, 16 Mio, budget, diagnostics sur `Err`) | 34 |
 | `config` | `config_rejects_http_scheme_except_loopback`, `config_rejects_userinfo_query_fragment`, `config_warns_on_custom_host` (hors des quatre hôtes officiels), `config_rejects_env_mismatch`, `config_env_mismatch_on_production_host_with_default_env` (aucune déduction ; message qui demande `LF_PISTE_ENV=production`), `config_problem_starts_in_degraded_mode` (`Config` immédiat, `expect(0)`), `debug_of_config_redacts_secret`, `bearer_header_is_sensitive`, `error_messages_never_contain_secret_or_token` (00 §1, AM-27 ; 04 §13.2) | 9 |
-| `tests/record_fixture.rs` (complément hors couverture) | `record_fixture_writes_raw_bytes_and_meta`, `record_fixture_refuses_overwrite`, `record_fixture_redacts_acco_data`, `record_fixture_never_writes_authorization` : l'exemple `record_fixture` (feature `record`), qui écrit les fichiers et calcule `sha256_raw`, `sha256_file` et `mojibake_detected` (04 §13.4), testé contre wiremock dans un répertoire temporaire | 4 |
+| `record` (`src/record.rs`, `src/corpus/raw.rs` et `src/sha256.rs`, sous la feature `record` ; livré au plan 2h, PR 1) | `write_records_the_bytes_and_the_sidecar_and_refuses_to_overwrite`, `write_refuses_an_echo_an_error_status_and_a_bad_probe_without_writing`, `write_redacts_acco_data_and_keeps_the_raw_digest`, `redact_*` et `the_scanner_stops_on_truncated_or_foreign_input` (caviardage en place, sans reformater), `a_sidecar_renders_toml_that_reads_back`, `parse_args` et `select` (`a_single_probe_is_read_with_its_options`, `an_unknown_argument_or_a_missing_value_is_refused`, `select_refuses_an_empty_selection_before_any_network`…), `the_shipped_plan_parses_and_every_probe_passes_the_check` ; `PisteCorpus::exchange` contre wiremock (`an_error_status_is_returned_raw_without_classification`, `a_body_that_echoes_a_credential_is_flagged`) ; vecteurs FIPS 180-4 de `sha256_matches_the_fips_180_vectors` (04 §13.4) | 40 |
 | `fixtures_contract` (tests dans `src/map/fixtures.rs`, `src/map/mutations.rs`, `src/view.rs` et `src/integrity.rs`, sous `cfg(test)` : ni `tests/fixtures_contract.rs`, que `make cov` ne mesure pas, ni lecture hors `--lib`) | `dto_parses_every_fixture`, `every_normalized_fixture_has_contract` et `no_mojibake_after_mapping` (plan 2f) ; `mapping_snapshots`, `fixtures_have_meta_sidecar`, `fixture_sha256_matches_meta`, `fixtures_contain_no_token_like_strings`, `fixture_mutations_never_panic` (plan 2g) ; helpers de 04 §8.4 | 20 |
 | `ported_test_parse` | les 19 tests de `test_parse.py`, préfixés `ported_` (annexe A §2.3) | 19 |
 | `parity_golden` (`src/golden.rs`, `cfg(test)`, livré au plan 2g) | `mapping_matches_golden` (niveau 1), `golden_divergences_match_annex_a`, `every_golden_divergence_is_exercised` (onze divergences au niveau 1, les huit de la sortie d'outil au niveau 2, M5), `overrides_point_to_existing_golden_values`, `golden_meta_is_expected`, `golden_copy_matches_plan_data`, `the_harness_reports_mismatches_and_unknown_keys` (témoin négatif) (annexe A §5.4) ; le golden lui-même est reproduit par son script versionné dans le job `surface` (§7.1) | 8 |
@@ -470,7 +470,7 @@ Paquet Cargo `mcp-legifrance`, répertoire `crates/lf-app` (00 §2 ; Q1) : les c
 | `descriptor_lock_rejects_empty_baseline` | un verrou vide ou absent n'est jamais accepté comme base (P-007) |
 | `lock_controls_reject_forbidden_shapes` | contrôles du verrou (05 §9.2 point 8) sur des descripteurs synthétiques : clé `$schema`, racine non objet, combinateur racine, `$ref` externe, propriété de premier niveau de plus de 64 caractères, nom d'outil hors grammaire |
 | `lock_generates_mcpb_manifest_and_server_json_version` | `lock-descriptors --update` génère le manifeste MCPB et la version de `server.json` depuis les descripteurs ; `--check` échoue si l'un d'eux diffère (00 §2 ; 08 §4.4) |
-| `record_fixture_forwards_to_example` | `cargo xtask record-fixture` lance `cargo run -p lf-adapter-piste --example record_fixture --features record` avec ses arguments, sans dépendre d'aucun crate `lf-*` (00 §2) ; l'écrivain de fixtures est testé dans `lf-adapter-piste` (`tests/record_fixture.rs`, §2.3) |
+| `record_fixture_forwards_to_example` | `cargo xtask record-fixture` lance `cargo run -p lf-adapter-piste --example record_fixture --features record` avec ses arguments, sans dépendre d'aucun crate `lf-*` (00 §2) ; l'écrivain de fixtures est testé dans `lf-adapter-piste` (`src/record.rs`, §2.3) ; le code de sortie de l'exemple est celui de `cargo xtask` |
 
 ### 2.9 `lf-adapter-dila` (M9)
 
@@ -598,7 +598,7 @@ L'annexe A §2.1 **fait foi** pour chaque point P-xxx (décision, comportement, 
 | Famille | Emplacement | Contenu | Modifiable ? |
 |---|---|---|---|
 | Référence | `crates/lf-adapter-piste/tests/fixtures/reference/` | les 16 JSON de `tests/fixtures/` de la référence, **octet pour octet**, plus un `.meta.toml` par fichier, plus `parite-golden.json` et son `.meta.toml` (annexe A §5.3) | **jamais** |
-| Enregistrées | `crates/lf-adapter-piste/tests/fixtures/recorded/<endpoint>/<nom>.json` | octets bruts reçus de PISTE, produits par `cargo xtask record-fixture`, plus `<nom>.meta.toml` (04 §13.4) | seulement par une nouvelle capture (`--force`) |
+| Enregistrées | `crates/lf-adapter-piste/tests/fixtures/recorded/<endpoint sans / initial>/<nom>.json` | octets bruts reçus de PISTE, produits par `cargo xtask record-fixture`, plus `<nom>.meta.toml` (04 §13.4) | seulement par une nouvelle capture (`--force`) |
 | Dérivées | à côté de la fixture d'origine, `<nom>.reduced.json` | réduction produite par un script versionné (élagage d'une TOC trop longue, par exemple), avec `derived_from` et `sha256_raw` de l'original dans le `.meta.toml` | par le script seulement |
 | Synthétiques | `crates/lf-adapter-piste/tests/fixtures/synthetic/` | cas construits à la main : listes `null`, sentinelles 2222-02-22, entiers en chaîne, corps d'erreur, `data` ACCO de 5 Mio généré à l'exécution | oui, revue en PR |
 | Données du plan | `docs/plan/annexes/donnees/` | golden, corpus de citations, table des codes ; scripts versionnés `scripts/golden.py`, `scripts/check_golden.py`, `scripts/dto_repair_check.py` (Python 3.13, `python3 -I` ; empreintes : 00 §10) | par modification de l'annexe (le golden : par régénération avec `golden.py`, jamais à la main ni par une copie locale du script), puis de la copie (contrôle `cmp`) |
@@ -643,12 +643,12 @@ Procédure (04 §13.4 fait foi pour la commande) :
 
 1. Identifiants dans l'environnement uniquement (`LF_PISTE_CLIENT_ID`, `LF_PISTE_CLIENT_SECRET`), sandbox par défaut. En production (politique adoptée par défaut, Q3 ; 00 §10) : `--env production` n'est lancé qu'à la main par le mainteneur, pour des sondes en lecture seule et des fixtures de données publiques marquées `env = "production"` dans leur sidecar ; jamais en CI, où aucun identifiant de production n'existe (04 §13.4).
 2. `cargo xtask record-fixture --plan …` exécute le lot à 1 requête par seconde au plus.
-3. Les sorties contiennent les **octets bruts**, non reformatés et non réparés, et un `.meta.toml` (`endpoint`, `request`, `env`, `captured_at`, `http_status`, `content_type`, `content_encoding`, `bytes_raw`, `sha256_raw`, `sha256_file`, `mojibake_detected`, `redactions`, `tool`, `license`).
+3. Les sorties contiennent les **octets bruts**, non reformatés et non réparés, et un `.meta.toml` (`endpoint`, `request`, `env`, `captured_at`, `http_status`, `content_type`, `content_encoding`, `elapsed_ms`, `bytes_raw`, `sha256_raw`, `sha256_file`, `mojibake_detected`, `redactions`, `tool`, `license`).
 4. **Caviardage** : aucun en-tête ni jeton n'est jamais écrit. Par défaut, seul `acco.data` (base64 du `.docx`) est remplacé par `"<redacted: N bytes base64>"` ; le fichier devient alors une dérivée, et `sha256_raw` garde l'empreinte d'origine.
-5. **Contrôles avant commit**, automatisés par `fixtures_contain_no_token_like_strings` : aucune chaîne `Bearer `, `access_token`, `client_secret`, aucun JWT (`eyJ…` suivi de deux points), aucune valeur de plus de 40 caractères en base64 hors pointeurs déclarés dans `redactions`.
-6. **Taille** : 1 Mio au plus par fichier versionné. Au-delà, on versionne une dérivée réduite, et l'original reste hors dépôt, décrit par son empreinte.
+5. **Contrôles avant commit**, automatisés par `fixtures_contain_no_token_like_strings` : aucune chaîne `Bearer `, `access_token`, `client_secret`, aucun JWT (`eyJ…` suivi de deux points), aucune suite base64 de 40 caractères ou plus, sauf sous les clés `path` et `url` (chemins de table des matières, adresse d'un accord ; décision D10 du plan 2h), chaque segment séparé par `/` y restant soumis au détecteur base64, et les autres détecteurs restant actifs sous ces clés. Le test d'intégrité des fixtures enregistrées (`src/integrity.rs`) applique ces contrôles à tout fichier du dossier `recorded/` et vérifie son sidecar (04 §13.4).
+6. **Taille** : 1 Mio au plus par fichier versionné. Au-delà, l'original n'est pas versionné (le test d'intégrité des fixtures enregistrées refuse un fichier de plus de 1 Mio) : on versionne une dérivée réduite si une fixture en est nécessaire, décrite par l'empreinte de l'original ; sinon seules les mesures sont consignées (les deux codes de `lawDecree`, décision D11 du plan 2h).
 7. **Données personnelles** : les décisions JURI sont pseudonymisées et les textes CNIL occultés par la DILA (D-45). Aucune donnée personnelle n'est ajoutée ; un nom de personne qui apparaîtrait dans une fixture enregistrée est signalé en revue.
-8. Le lot par défaut recapture les 6 fixtures en mojibake (mêmes identifiants), des versions **complètes** de `consult_juri` (JURI), `consult_cnil` et `lawDecree`, un `getArticle` avec `texteHtml`, les sondes « introuvable » de chaque endpoint, `lawDecree` sur le Code civil et le Code du travail (taille et durée, V-96), une page 2 de recherche CODE et une recherche par facette de date (04 §13.4). Il s'exécute en sandbox ; ses éventuelles entrées de production sont lancées à la main par le mainteneur (point 1).
+8. Le lot par défaut recapture les 6 fixtures en mojibake (mêmes identifiants), des versions **complètes** de `consult_juri` (JURI), `consult_cnil` et `lawDecree`, un `getArticle` avec `texteHtml`, les sondes « introuvable » de chaque endpoint, `lawDecree` sur le Code civil et le Code du travail (taille et durée, V-96), une page 2 de recherche CODE et une recherche par facette de date (04 §13.4). Il ne s'exécute qu'en sandbox (`--plan` est refusé en production) ; une sonde de production se lance seule, à la main (point 1).
 
 ### 4.5 Fixtures tronquées et fixtures complètes
 
@@ -835,7 +835,7 @@ Le protocole de l'annexe D §10.3 s'exécute avant chaque étiquette : Claude Co
 | `workflow-lint` | PR qui touche `.github/` | Linux | zizmor et actionlint, versions épinglées **NON VÉRIFIÉ** [V-27 · outils-lint-workflows] | oui | 1 min |
 | `extended` | nuit | Linux, Windows | nextest avec `PROPTEST_CASES=4096` ; `perf_*` (§12) | non (alerte) | 20 min |
 | `fuzz` | hebdomadaire (`weekly.yml`, lundi) | Linux | `cargo +nightly fuzz run <cible> -- -max_total_time=300` pour `from_html`, `ids`, `text` et `version_date`, et pour `dto_decode` avec le corpus par défaut, les fixtures de référence en graines et `-max_len=65536` (livrés, matrice `target` de `weekly.yml`) ; autres cibles avec leur objet | non (alerte) | 30 min |
-| `coverage` | PR, `main` | Linux | `make cov` = `cargo llvm-cov --workspace --lib --summary-only --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100` (toolchain avec `llvm-tools-preview`) | **oui** (livré) | à mesurer |
+| `coverage` | PR, `main` | Linux | `make cov` = `cargo llvm-cov --workspace --lib --all-features --locked --summary-only --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100` (toolchain avec `llvm-tools-preview`) ; `--all-features` depuis le plan 2h : le code de la feature `record` de `lf-adapter-piste` est mesuré comme le reste (`COV_FLAGS` du `Makefile`) | **oui** (livré) | à mesurer |
 | `sonar` | PR du dépôt, `main` | Linux | job `SonarQube Cloud` (après `coverage`) : `make clippy-json` (rapport Clippy JSON, lints du workspace), récupération de `cobertura.xml` (étape `make cov-cobertura` de `coverage`, relue des profils de `make cov` sans recompilation), puis `SonarSource/sonarqube-scan-action` ; réglages dans `sonar-project.properties` ; sauté pour les PR de Dependabot et de forks (pas de `SONAR_TOKEN`) | non (informatif) : voir §7.6 | à mesurer |
 | `mutants` | PR uniquement | Linux | `cargo mutants --in-diff pr.diff -j 2 --baseline skip --timeout 60` sur le diff de la PR ; `MISSED` (code 2) et `TIMEOUT` (code 3) bloquent | **oui** (livré) | suit la taille du diff ; `timeout-minutes: 60` ; exempt de la cible globale |
 | `weekly` | lundi 03:17 UTC, manuel | Linux | `cargo mutants --shard k/4 -j 2 --timeout 60` sur tout le workspace (4 shards), plus le job `fuzz` | non requis (un mutant survivant ouvre un correctif) | 120 min par shard |
@@ -996,7 +996,7 @@ jobs:
         with: { shared-key: cov, save-if: "${{ github.ref == 'refs/heads/main' }}" }
       - uses: taiki-e/install-action@<sha>
         with: { tool: cargo-llvm-cov }
-      - run: make cov                             # --workspace --lib, 100 % lignes, régions et fonctions
+      - run: make cov                             # --workspace --lib --all-features, 100 % lignes, régions et fonctions
 
   mutants:                                        # livré : diff de la PR, bloquant (MISSED code 2, TIMEOUT code 3)
     if: github.event_name == 'pull_request'
@@ -1036,7 +1036,7 @@ junit = { path = "junit.xml" }
 test-threads = 1                             # quota PISTE (02 §2.2)
 retries = 0
 slow-timeout = { period = "60s", terminate-after = 5 }
-default-filter = "test(/^live_/)"
+default-filter = "test(/(^|::)live_/)"          # nom nextest d'un test d'intégration enveloppé : live::live_x
 
 [test-groups]
 stdio-e2e = { max-threads = 4 }              # les tests qui lancent le binaire
@@ -1055,36 +1055,52 @@ test-group = "stdio-e2e"
 
 ### 7.5 Workflow `live.yml`
 
+*Livré au plan 2h (PR 1) : `.github/workflows/live.yml`, dont voici l'essentiel ; les actions sont épinglées par SHA comme dans `ci.yml`.*
+
 ```yaml
-# .github/workflows/live.yml — esquisse, à valider en M2
+# .github/workflows/live.yml — tests live contre PISTE sandbox (04 §13.5, T-M2-12)
 name: live
 on:
   workflow_dispatch:
-    inputs: { scope: { type: choice, options: [v01, m6, m7, all], default: v01 } }
-  schedule: [{ cron: "41 5 * * 1" }]                  # lundi matin, hors des heures de pointe
-permissions: { contents: read }
-concurrency: { group: live, cancel-in-progress: false }   # un passage à la fois : quota PISTE
+  schedule:
+    - cron: "41 5 * * 1"                             # lundi matin, hors des heures de pointe
+permissions:
+  contents: read
+concurrency:
+  group: live                                        # un passage à la fois : quota PISTE
+  cancel-in-progress: false
 jobs:
-  sandbox:                                                # seul job : aucun identifiant de production en CI (Q3, 00 §10)
-    if: github.repository == 'muchiny/mcp-legifrance'    # jamais sur un fork ; nom du dépôt depuis le 2026-10-16 (Q1 décidée, 00 §0)
+  sandbox:                                           # seul job : aucun identifiant de production en CI (Q3, 00 §10)
+    if: github.repository == 'muchiny/mcp-legifrance'  # jamais sur un fork ; nom du dépôt depuis le 2026-10-16 (Q1 décidée, 00 §0)
     runs-on: ubuntu-24.04
-    environment: piste-sandbox                            # secrets protégés, approbation possible
+    environment: piste-sandbox                       # secrets protégés, approbation possible
     timeout-minutes: 30
     env:
       LF_PISTE_ENV: sandbox
-      LF_PISTE_CLIENT_ID: ${{ secrets.LF_PISTE_CLIENT_ID }}
-      LF_PISTE_CLIENT_SECRET: ${{ secrets.LF_PISTE_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@<sha>
         with: { persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@<sha>
+        with: { toolchain: 1.99.0 }
       - uses: Swatinem/rust-cache@<sha>
       - uses: taiki-e/install-action@<sha>
         with: { tool: "cargo-nextest@0.9.148" }
-      - run: cargo nextest run --workspace --locked --profile live --run-ignored only
-      - if: always()
-        uses: actions/upload-artifact@<sha>
-        with: { name: live-report, path: target/nextest/live/ }
+      # Compilation sans secret : mêmes arguments que l'étape finale (le cache sert), pour qu'aucun
+      # build.rs ni macro procédurale ne tourne avec les identifiants dans l'environnement.
+      - run: >-
+          cargo nextest run -p lf-adapter-piste --test live --all-features --locked
+          --profile live --no-run
+      # --all-features : les tests sur octets bruts (feature `record`) sont du lot. Les secrets ne sont
+      # exposés qu'à cette étape (env:), jamais aux actions tierces ni au texte du script.
+      - env:
+          LF_PISTE_CLIENT_ID: ${{ secrets.LF_PISTE_CLIENT_ID }}
+          LF_PISTE_CLIENT_SECRET: ${{ secrets.LF_PISTE_CLIENT_SECRET }}
+        run: >-
+          cargo nextest run -p lf-adapter-piste --test live --all-features --locked
+          --profile live --run-ignored only --no-fail-fast
 ```
+
+La commande vise le seul crate et le seul test d'intégration `live` (l'esquisse d'origine lançait `--workspace`, sans features, ce qui aurait laissé de côté les tests sur octets bruts) ; une étape de compilation sans secret (`--no-run`, mêmes arguments) précède celle qui porte les secrets, laquelle ne compile donc plus rien ; le workflow n'a ni entrée `scope` ni envoi d'artefact. Un échec de `live_lawdecree_on_code_size` (C2) et de `live_unknown_ids_classification` sur ACCOTEXT (C1) y est attendu tant que ces tâches conditionnelles du plan 2h ne sont pas décidées (04 §13.5).
 
 Le workflow ne s'exécute pas sur `pull_request` : une PR venue d'un fork n'a jamais accès aux secrets. Les journaux ne contiennent aucun secret (§10, ligne MEN-01), puisque GitHub masque les secrets déclarés et que le code ne les journalise jamais. Il n'existe ni job ni environnement `production` : les sondes de production sont lancées à la main par le mainteneur, hors CI (§5.2).
 
@@ -1093,8 +1109,8 @@ Le workflow ne s'exécute pas sur `pull_request` : une PR venue d'un fork n'a ja
 - **Checks requis sur `main`** : `check` (fmt, clippy, doc, arch, machete), `test`, `coverage`, `mutants` (sur PR), `msrv` et `deny` (livrés) ; puis, quand ils existent, `surface`, `workflow-lint`, les trois OS du job `test` (dès M2) et `conformance-http` (à partir de M8). Le réglage de protection de branche n'est pas versionné : il se vérifie sur GitHub.
 - **SonarQube Cloud, informatif** : le job `sonar` n'est pas un check requis. L'exigence qualité de 00 §10 (couverture 100 %, mutation à 0 survivant) reste portée par `coverage` et `mutants` ; Sonar y ajoute l'analyse statique (Rust, shell, workflows), le suivi dans le temps et la porte « code neuf » (Sonar way) sur les PR. Prérequis côté services, non versionnés : projet `muchiny_mcp-legifrance` importé dans l'organisation `muchiny`, analyse automatique **désactivée** (elle ignore Rust et entre en conflit avec l'analyse CI), secret de dépôt `SONAR_TOKEN`. Dépôt privé : l'offre gratuite plafonne l'organisation à 50 000 lignes privées (le code analysé en compte environ 18 000 à l'ajout du job, hors `docs/`). Le job devient requis une fois la porte qualité réglée et vue verte sur `main`.
 - **Fusion par commit de merge** (C7, pratique des PR #1 et #2) : il conserve les commits atomiques utiles à `git bisect`. La protection « historique linéaire » de GitHub n'est de toute façon pas disponible sur un dépôt privé sans offre payante (l'API répond 403) ; la fusion par rebase donnerait un historique linéaire en gardant les commits.
-- **Couverture bloquante à 100 %** (00 §10, ADR-0002) : `cargo llvm-cov --workspace --lib` à 100 % des lignes, des régions et des fonctions, sans repère inférieur ; les seuils ne baissent jamais et tout nouveau crate y entre directement. La glue d'E/S irréductible serait exclue nommément (`--ignore-filename-regex` de `COV_FLAGS`), avec sa justification ; au plan 2c, aucune exclusion n'a été nécessaire. Les formes de test qui laissent une région non exécutée sont interdites (CONTRIBUTING.md).
-- **Mutation bloquante** : 0 `MISSED` et 0 `TIMEOUT`. Un mutant survivant signale un test manquant, qu'on écrit ; seules exceptions, déclarées dans `.cargo/mutants.toml` avec leur preuve en commentaire : un mutant prouvé équivalent (`exclude_re`) et un fichier de glue d'E/S irréductible (`exclude_globs`, par exemple `xtask/src/main.rs`). Toute boucle garantit sa progression, même mutée.
+- **Couverture bloquante à 100 %** (00 §10, ADR-0002) : `cargo llvm-cov --workspace --lib --all-features` à 100 % des lignes, des régions et des fonctions, sans repère inférieur ; les seuils ne baissent jamais et tout nouveau crate y entre directement. La glue d'E/S irréductible serait exclue nommément (`--ignore-filename-regex` de `COV_FLAGS`), avec sa justification ; au plan 2c, aucune exclusion n'a été nécessaire. Les formes de test qui laissent une région non exécutée sont interdites (CONTRIBUTING.md).
+- **Mutation bloquante** : 0 `MISSED` et 0 `TIMEOUT`. Un mutant survivant signale un test manquant, qu'on écrit ; seules exceptions, déclarées dans `.cargo/mutants.toml` avec leur preuve en commentaire : un mutant prouvé équivalent (`exclude_re`) et un fichier de glue d'E/S irréductible (`exclude_globs`, par exemple `xtask/src/main.rs` ou `crates/lf-adapter-piste/examples/**`, la colle de `record-fixture`). Toute boucle garantit sa progression, même mutée.
 - **Mutation en local, sous WSL** : `make mutants FILE=<chemin>` (contrôle mémoire `mem-check` d'au moins 8 Gio disponibles, `TMPDIR=/var/tmp`, `NEXTEST_TEST_THREADS=2`, `-j 1`, un fichier à la fois), ou `make mutants-diff` pour chaque fichier modifié depuis `BASE`. Jamais de mutation du workspace entier sur cette machine.
 - **Mutation en CI** : le diff de chaque PR est muté (job `mutants`, `-j 2 --timeout 60`) ; le lundi, `weekly.yml` mute tout le workspace en 4 shards et lance les cibles de fuzz. Le fuzz est hebdomadaire, non nocturne.
 - **Fin de jalon** : les agents de revue de fin de jalon s'ajoutent à ces portes (00 §10).

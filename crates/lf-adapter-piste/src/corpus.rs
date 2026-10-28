@@ -24,7 +24,7 @@ use reqwest::Url;
 use secrecy::ExposeSecret;
 use serde::de::DeserializeOwned;
 
-use crate::auth::TokenManager;
+use crate::auth::{TokenLease, TokenManager};
 use crate::classify::{EndpointKind, ErrorContext, Outcome, try_send};
 use crate::config::{ConfigProblem, PisteConfig, PisteEndpoints};
 use crate::deadline::CallDeadline;
@@ -39,6 +39,8 @@ use crate::stats::{Stats, StatsSnapshot};
 use crate::time::{MonoClock, Sleeper, TokioClock, TokioSleeper};
 
 mod port;
+#[cfg(feature = "record")]
+mod raw;
 
 /// Message de parité avec la référence quand les identifiants manquent (04 §2.4).
 const CREDENTIALS_MISSING: &str = "PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET (from your piste.gouv.fr application, section OAuth Credentials)";
@@ -73,12 +75,14 @@ struct Call<'a> {
     refreshed: AtomicBool,
 }
 
-/// Réponse d'une tentative réussie et le permis de concurrence qui l'a laissée partir : il la
-/// suit jusqu'à `post_json`, qui ne le rend qu'après le décodage et la lecture du corps
-/// (00 §11.1, 04 §5.5).
+/// Réponse d'une tentative réussie, le permis de concurrence qui l'a laissée partir et le jeton
+/// qui l'a obtenue : ils la suivent jusqu'à `post_json`, qui ne rend le permis qu'après le
+/// décodage et la lecture du corps (00 §11.1, 04 §5.5), et ne garde le jeton que pour le retirer
+/// du détail d'une erreur de lecture (I-5).
 struct Reply {
     response: RawResponse,
     permit: Permit,
+    lease: TokenLease,
 }
 
 impl<K: MonoClock + Clone, S: Sleeper + Clone> Clone for PisteCorpus<K, S> {
@@ -232,13 +236,14 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
             jitter: &SystemJitter,
         };
         // Seul le corps d'une 2xx est décodé ici ; `classify` a déjà lu ceux d'un 400 et d'un 404.
-        let Reply { response, permit } = run(&ctx, || self.attempt(&call)).await?;
+        let Reply { response, permit, lease } = run(&ctx, || self.attempt(&call)).await?;
         let decoded = decode_body(&response.body, endpoint, inner.config.tuning().repair_mojibake);
         // Le corps brut tombe avant la lecture : un seul exemplaire du corps vit pendant `read`.
         drop(response);
         let decoded = decoded?;
         inner.stats.record_decode(endpoint, &decoded);
-        let value = read(&decoded.text);
+        let value =
+            read(&decoded.text).map_err(|error| without_secrets(error, &lease, &inner.config));
         // Le texte décodé tombe avant le permis : `max_concurrency` corps au plus vivent à la
         // fois, texte compris. Le permis ne tombe qu'après la lecture, jamais avant : le
         // décodage et le mapping bornent la mémoire comme la lecture du corps (04 §8.5).
@@ -346,10 +351,14 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
             repair_mojibake: inner.config.tuning().repair_mojibake,
             secrets: &secrets,
         };
-        let outcome =
-            try_send(client, &attempt, &context).await.map(|response| Reply { response, permit });
+        let generation = lease.generation;
+        let outcome = try_send(client, &attempt, &context).await.map(|response| Reply {
+            response,
+            permit,
+            lease,
+        });
         if matches!(outcome, Outcome::Unauthorized(_)) {
-            let _ = inner.tokens.invalidate(lease.generation, &call.deadline).await;
+            let _ = inner.tokens.invalidate(generation, &call.deadline).await;
         }
         Ok(outcome)
     }
@@ -381,6 +390,27 @@ fn api_url(base: &Url, endpoint: &str) -> Result<Url, CorpusError> {
     let mut url = base.clone();
     url.set_path(&format!("{}{endpoint}", base.path().trim_end_matches('/')));
     Ok(url)
+}
+
+/// Retire du détail d'une erreur `Decode` de lecture les valeurs exactes du jeton et du secret
+/// client (I-5, plan 2h ; même règle que le détail d'un 400, 04 §11.2 règle 3).
+///
+/// `decode` ne cite jamais une valeur du corps, mais garde dans le chemin une clé de forme
+/// identifiant (`[A-Za-z0-9_-]{1,64}`, `dto::decode::safe_key`) : une réponse qui recopierait le
+/// jeton ou le secret **en clé** d'un champ non déclaré mal formé le ferait sortir dans le
+/// détail. Le retrait se fait par valeur, après coup ; les autres erreurs passent telles quelles.
+fn without_secrets(error: CorpusError, lease: &TokenLease, config: &PisteConfig) -> CorpusError {
+    match error {
+        CorpusError::Decode { detail } => {
+            let secret = config
+                .credentials()
+                .map_or("", |credentials| credentials.client_secret().expose_secret());
+            CorpusError::Decode {
+                detail: crate::error_body::redact(&detail, &[lease.value.expose_secret(), secret]),
+            }
+        }
+        other => other,
+    }
 }
 
 /// Erreur finale d'un 401 qui se répète après le renouvellement du jeton.
@@ -453,7 +483,7 @@ mod tests {
         uri: String,
         pub(super) credentials: Option<PisteCredentials>,
         problem: Option<ConfigProblem>,
-        user_agent: String,
+        pub(super) user_agent: String,
         pub(super) tuning: PisteTuning,
     }
 
@@ -1002,6 +1032,49 @@ mod tests {
             })
         );
         assert_eq!(rig.corpus.stats(), StatsSnapshot::default());
+    }
+
+    #[tokio::test]
+    async fn a_decode_detail_never_carries_the_token_or_the_secret_as_a_path_key() {
+        // Clé de forme identifiant d'un champ non déclaré et mal formé : gardée dans le chemin
+        // par `decode`, retirée par valeur quand c'est le jeton ou le secret client (I-5).
+        for (key, shown) in
+            [("tok-1", "[redacted]"), (SECRET, "[redacted]"), ("free-key", "free-key")]
+        {
+            let rig = Rig::new().await;
+            let body = format!(r#"{{"items":[1],"{key}":[1,}}"#);
+            assert_eq!(
+                fetch_with(&rig, &body, count).await,
+                Err(CorpusError::Decode {
+                    detail: format!(
+                        "/consult/juri: {shown}: expected value at line 1 column {}",
+                        body.len()
+                    )
+                }),
+                "{key}"
+            );
+        }
+    }
+
+    #[test]
+    fn without_secrets_leaves_other_errors_alone() {
+        let lease = TokenLease { value: SecretString::from("tok-1".to_owned()), generation: 1 };
+        let config = PisteConfig::new(
+            SANDBOX,
+            Ok(endpoints_for("http://127.0.0.1:9")),
+            None,
+            "ua".to_owned(),
+        );
+        let not_found = CorpusError::NotFound { what: "tok-1".to_owned() };
+        assert_eq!(without_secrets(not_found.clone(), &lease, &config), not_found);
+        assert_eq!(
+            without_secrets(
+                CorpusError::Decode { detail: "x: tok-1: y".to_owned() },
+                &lease,
+                &config
+            ),
+            CorpusError::Decode { detail: "x: [redacted]: y".to_owned() }
+        );
     }
 
     // ---- Mode dégradé (04 §2.4) ----------------------------------------------------------

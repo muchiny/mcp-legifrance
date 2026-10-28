@@ -610,8 +610,9 @@ mod tests {
     use lf_domain::fond::Fond;
 
     use super::{GoldenDivergence, Level1, OVERRIDES, level1, overridden};
-    use crate::integrity::{hex, sha256, sidecar, text_at};
+    use crate::integrity::{sidecar, text_at};
     use crate::map::fixtures::{Kind, golden};
+    use crate::sha256::{hex, sha256};
 
     /// Copie du golden dans le crate, à l'octet.
     const COPY: &[u8] = include_bytes!("../tests/fixtures/reference/parite-golden.json");

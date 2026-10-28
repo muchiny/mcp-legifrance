@@ -87,7 +87,7 @@ pub(crate) fn clean_detail(message: &str, secrets: &[&str]) -> String {
 ///
 /// Les secrets sont retirés du plus long au plus court : un secret contenu dans un autre (un
 /// jeton qui est une sous-chaîne du secret client, ou l'inverse) n'en laisse ainsi aucun morceau.
-fn redact(text: &str, secrets: &[&str]) -> String {
+pub(crate) fn redact(text: &str, secrets: &[&str]) -> String {
     let mut secrets: Vec<&str> =
         secrets.iter().copied().filter(|secret| !secret.is_empty()).collect();
     secrets.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
