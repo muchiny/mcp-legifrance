@@ -422,11 +422,14 @@ mod tests {
             found.push(format!("{name}: sha256_file differs"));
         }
         // Sans caviardage, le fichier est la réponse reçue : même condensat, même indicateur.
-        // Une liste de caviardages absente ou illisible compte comme un caviardage.
-        let redacted = meta
-            .get("redactions")
-            .and_then(toml::Value::as_array)
-            .is_none_or(|list| !list.is_empty());
+        // Seule une liste non vide dispense de ce contrôle ; une valeur d'un autre type est
+        // signalée (une clé absente l'est déjà par `missing`) et ne dispense de rien.
+        let redactions = meta.get("redactions");
+        if redactions.is_some_and(|value| !value.is_array()) {
+            found.push(format!("{name}: redactions must be a list"));
+        }
+        let redacted =
+            redactions.and_then(toml::Value::as_array).is_some_and(|list| !list.is_empty());
         let raw = String::from_utf8_lossy(&bytes);
         let mojibake = lf_domain::text::encoding::has_latin1_mojibake(&raw);
         if !redacted
@@ -447,7 +450,13 @@ mod tests {
         if bytes.len() > RECORDED_MAX_BYTES {
             found.push(format!("{name}: larger than 1 MiB"));
         }
-        let json = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+        // Un fichier illisible comme JSON est signalé : sans lui, les détecteurs par feuille (JWT,
+        // mot d'authentification, base64) ne tourneraient pas. Les contrôles du texte brut (mot
+        // d'authentification, UUID, suite hexadécimale) s'appliquent quand même.
+        let json = serde_json::from_slice(&bytes).unwrap_or_else(|_| {
+            found.push(format!("{name}: not JSON"));
+            Value::Null
+        });
         found.extend(leaks(&name, &raw, &json));
         found
     }
@@ -505,6 +514,21 @@ mod tests {
         fs::write(dir.join("ok.meta.toml"), &meta).unwrap();
         assert_eq!(recorded_tree(&root), (vec![], 1));
 
+        // Un fichier tronqué (donc illisible comme JSON) à sidecar sain, et une liste de
+        // caviardages d'un mauvais type dans un fichier dont le condensat brut est faux.
+        let truncated = br#"{"k":"#;
+        fs::write(dir.join("trunc.json"), truncated).unwrap();
+        fs::write(dir.join("trunc.meta.toml"), healthy_meta(&hex(&sha256(truncated)))).unwrap();
+        let typed = br#"{"k":1}"#;
+        fs::write(dir.join("typed.json"), typed).unwrap();
+        fs::write(
+            dir.join("typed.meta.toml"),
+            healthy_meta(&hex(&sha256(typed)))
+                .replace("redactions = []", "redactions = \"all\"")
+                .replace("sha256_raw = \"", "sha256_raw = \"0"),
+        )
+        .unwrap();
+
         // Plus de 1 Mio, une suite hexadécimale de 32 caractères ; sidecar sans `tool`, avec un
         // environnement inconnu, un autre endpoint, une licence altérée et le condensat d'un
         // autre fichier.
@@ -540,9 +564,12 @@ mod tests {
                 "consult/juri/lone.meta.toml: orphan sidecar",
                 "consult/juri/nometa.json: no sidecar",
                 "consult/juri/notes.txt: unexpected file",
+                "consult/juri/trunc.json: not JSON",
+                "consult/juri/typed.json: redactions must be a list",
+                "consult/juri/typed.json: raw digest or mojibake flag differs from the file",
             ]
         );
-        assert_eq!(fixtures, 4);
+        assert_eq!(fixtures, 6);
         fs::remove_dir_all(&root).unwrap();
     }
 
@@ -571,13 +598,19 @@ mod tests {
         )
         .unwrap();
         assert_eq!(recorded_tree(&root), (vec![], 1));
-        // Une liste de caviardages illisible compte comme un caviardage.
+        // Une liste de caviardages d'un mauvais type est signalée et ne dispense d'aucun contrôle.
         fs::write(
             dir.join("m.meta.toml"),
             healthy_meta(&digest).replace("redactions = []", "redactions = 1"),
         )
         .unwrap();
-        assert_eq!(recorded_tree(&root), (vec![], 1));
+        assert_eq!(
+            recorded_tree(&root).0,
+            [
+                "consult/juri/m.json: redactions must be a list",
+                "consult/juri/m.json: raw digest or mojibake flag differs from the file",
+            ]
+        );
         fs::remove_dir_all(&root).unwrap();
     }
 
