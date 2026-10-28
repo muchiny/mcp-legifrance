@@ -215,7 +215,8 @@ impl<A: AuditLog> Audited<A> {
     }
 
     /// Ligne d'audit de l'appel : en succès, la métrique de la sortie ; en erreur, 0, le code
-    /// (absent pour une annulation) et le message final coupé à 500 caractères.
+    /// (absent pour une annulation) et le message final, neutralisé ([`neutralized`]) puis coupé
+    /// à 500 caractères.
     fn record<O: AuditMetric>(
         &self,
         meta: CallMeta,
@@ -223,7 +224,7 @@ impl<A: AuditLog> Audited<A> {
         duration_ms: u64,
     ) -> AuditRecord {
         let failed = |error: &AppError| {
-            let message = messages::clip(error.message(), AUDIT_ERROR_MAX_CHARS);
+            let message = messages::clip(&neutralized(error.message()), AUDIT_ERROR_MAX_CHARS);
             (AuditStatus::Error, 0, error.code(), Some(message))
         };
         let (status, output_count_or_size, error_code, error) = match outcome {
@@ -302,6 +303,23 @@ fn trace_outcome(span: &Span, record: &AuditRecord, cause: Option<UpstreamCause>
             | ErrorCode::AuditError,
         ) => tracing::warn!("tool call finished"),
     }
+}
+
+/// Message d'erreur tel que la ligne d'audit le garde (F-1) : chaque caractère qui casserait une
+/// ligne ou en tromperait le lecteur devient une espace, caractère pour caractère (la longueur en
+/// caractères est conservée, la coupe à 500 vient après). Sont visés les contrôles C0 et C1
+/// (`char::is_control`, dont U+0085), les séparateurs de ligne et de paragraphe U+2028 et
+/// U+2029, et les formats bidi U+202A à U+202E et U+2066 à U+2069. Le message rendu au modèle
+/// n'est pas touché, ni l'entrée canonique (`input`), dont l'adapter calcule le hachage.
+fn neutralized(message: &str) -> String {
+    message.chars().map(|c| if breaks_a_line(c) { ' ' } else { c }).collect()
+}
+
+/// Caractère qu'une ligne d'audit ne garde pas (voir [`neutralized`]).
+fn breaks_a_line(c: char) -> bool {
+    let separator = matches!(c, '\u{2028}' | '\u{2029}');
+    let bidi = matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
+    c.is_control() || separator || bidi
 }
 
 /// Valeur du champ `status`, celle de la ligne d'audit.
@@ -1074,6 +1092,43 @@ mod tests {
         );
         let line = &audited.log.records()[0];
         assert_eq!(line.error, Some("é".repeat(500)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn audit_error_field_neutralizes_line_breaking_and_bidi_characters() {
+        // Contrôles C0 et C1 (dont U+0085), séparateurs de ligne et de paragraphe Unicode, formats
+        // bidi : chacun devient une espace dans la ligne d'audit (une ligne JSONL reste une ligne,
+        // un lecteur humain voit l'ordre réel), longueur conservée en caractères. Le modèle, lui,
+        // reçoit le message intact.
+        let neutralized = [
+            '\0', '\t', '\n', '\r', '\u{1b}', '\u{7f}', '\u{85}', '\u{9f}', '\u{2028}', '\u{2029}',
+            '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}', '\u{202e}', '\u{2066}', '\u{2067}',
+            '\u{2068}', '\u{2069}',
+        ];
+        let audited = memory(AuditMode::Strict, DEADLINE);
+        for c in neutralized {
+            let message = format!("page_size: '{c}x{c}' é");
+            let work = ready(Err::<Out, _>(AppError::invalid_argument(message.clone())));
+            let got = audited.run(meta(), pending(), work).await;
+            assert_eq!(got, Err(AppError::invalid_argument(message)), "{c:?}");
+            let line = audited.log.records().pop().unwrap();
+            assert_eq!(line.error.as_deref(), Some("page_size: ' x ' é"), "{c:?}");
+        }
+        // Les autres caractères, même invisibles ou hors du plan de base, passent tels quels.
+        let kept = "é ✓ \u{200b} \u{a0} 😀 \u{301}";
+        let work = ready(Err::<Out, _>(AppError::invalid_argument(kept)));
+        let _ = audited.run(meta(), pending(), work).await;
+        assert_eq!(audited.log.records().pop().unwrap().error.as_deref(), Some(kept));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn audit_error_field_is_neutralized_then_capped_at_500_chars() {
+        // 600 retours à la ligne : 500 espaces, la coupe compte en caractères après le
+        // remplacement.
+        let audited = memory(AuditMode::Strict, DEADLINE);
+        let work = ready(Err::<Out, _>(AppError::invalid_argument("\u{2028}".repeat(600))));
+        let _ = audited.run(meta(), pending(), work).await;
+        assert_eq!(audited.log.records()[0].error, Some(" ".repeat(500)));
     }
 
     #[tokio::test(start_paused = true)]

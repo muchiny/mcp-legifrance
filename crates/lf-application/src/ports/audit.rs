@@ -43,7 +43,8 @@ pub struct AuditRecord {
     /// `None` si `Ok` ou en cas d'annulation (00 §7).
     pub error_code: Option<ErrorCode>,
     /// Message final de `AppError` sans le préfixe `[code]`, 500 caractères au plus, sans secret ;
-    /// `cancelled by client` pour une annulation.
+    /// `cancelled by client` pour une annulation. Contrôles, U+2028, U+2029 et formats bidi y sont
+    /// remplacés par une espace (F-1) : une ligne du journal reste une ligne.
     pub error: Option<String>,
     /// Environnement PISTE interrogé.
     pub env: PisteEnvironment,
