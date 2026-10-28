@@ -15,8 +15,9 @@ use crate::{
 /// Longueur maximale, en caractères, d'une requête normalisée.
 ///
 /// Mesurée en sandbox [V-81 · longueur-max-query] : PISTE accepte 450 caractères et rend un 500
-/// à 499 ; la limite réelle est entre 451 et 498 (non sondée). 450 est la borne conservatrice
-/// retenue (05 §7.3).
+/// à 499 ; la limite réelle est entre 451 et 498 (non sondée). Elle compte des **caractères**, non
+/// des octets : 450 caractères accentués (675 octets) passent aussi. 450 est la borne
+/// conservatrice retenue (05 §7.3).
 pub const QUERY_MAX_CHARS: usize = 450;
 
 /// Texte de recherche normalisé : sans caractère de contrôle, blancs repliés en une espace,
