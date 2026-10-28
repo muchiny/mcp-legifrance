@@ -4,7 +4,8 @@
 //! système de fichiers. Le plan 2b livre le port sortant [`ports::LegalCorpus`] et ses
 //! erreurs [`ports::CorpusError`] ; le plan 3a pose le socle de M3 : les ports
 //! [`ports::AuditLog`] et [`ports::Clock`], l'entrée d'outil [`input::ToolCall`], les noms
-//! d'outils [`tools::ToolName`] et les codes d'erreur [`error::ErrorCode`]. Les cas d'usage,
+//! d'outils [`tools::ToolName`] et les codes d'erreur [`error::ErrorCode`], les causes amont [`error::UpstreamCause`] et l'erreur
+//! d'application [`error::AppError`]. Les cas d'usage,
 //! `Audited` et les doublures de test (feature `test-support`) suivent dans les tâches
 //! suivantes du plan.
 //!
