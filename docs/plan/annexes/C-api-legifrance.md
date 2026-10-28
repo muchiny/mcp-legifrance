@@ -137,7 +137,7 @@ Le comportement « introuvable » des autres consultations (400, 404, 200 avec e
 
 ### 1.6 Compression et en-têtes
 
-- L'exemple OAuth officiel envoie `Accept-Encoding: gzip,deflate` (l.117). La compression des réponses de l'API est **NON VÉRIFIÉ** [V-70 · piste-gzip] ; l'adapter l'active et borne la taille après décompression (04 §4.3).
+- L'exemple OAuth officiel envoie `Accept-Encoding: gzip,deflate` (l.117). La sandbox ne compresse pas ses réponses : aucun `Content-Encoding` même avec `Accept-Encoding: gzip` (mesure manuelle du 2026-10-28, V-70 levé, constat négatif ; production non sondée) ; l'adapter l'active et borne la taille après décompression (04 §4.3).
 - Aucun en-tête de pagination ni de version n'est documenté. `GET /misc/commitId` renvoie une map de chaînes « Informations déploiement et versionning » (§2.7), non utilisée.
 
 ### 1.7 CGU et licence
