@@ -259,7 +259,8 @@ mod tests {
     /// lettres, de chiffres et de `/` sur plus de 40 caractères ; il y en a des milliers par
     /// fixture enregistrée, trop pour une exemption par pointeur (D10). L'exemption est par la
     /// DERNIÈRE clé de la feuille, jamais par la valeur : la même suite sous toute autre clé, ou
-    /// comme élément d'un tableau, reste signalée. Les autres détecteurs (mots d'authentification,
+    /// comme élément d'un tableau, reste signalée. Sous ces clés, le détecteur s'applique encore à
+    /// chaque segment séparé par `/` : seule la longueur cumulée d'un chemin est exemptée. Les autres détecteurs (mots d'authentification,
     /// UUID, suite hexadécimale, JWT) s'appliquent partout, y compris sous ces clés.
     const BASE64_KEYS: [&str; 2] = ["path", "url"];
 
@@ -312,7 +313,15 @@ mod tests {
                 found.push(format!("{name}: JWT-like string at {path}"));
             }
             let by_key = exempt.iter().any(|safe| std::ptr::eq(*safe, text));
-            if has_base64_run(text) && !by_key {
+            // Sous une clé exemptée, le détecteur ne regarde que chaque segment séparé par `/` :
+            // un chemin ou une adresse (suite de segments courts) passe, un jeton glissé dans un
+            // segment (`?sig=…`) reste signalé (L4).
+            let base64 = if by_key {
+                text.split('/').any(has_base64_run)
+            } else {
+                has_base64_run(text)
+            };
+            if base64 {
                 found.push(format!("{name}: base64-like string at {path}"));
             }
         }
@@ -623,8 +632,11 @@ mod tests {
     #[test]
     fn base64_lookalikes_are_exempt_by_key_only() {
         assert_eq!(BASE64_KEYS, ["path", "url"]);
-        let lookalike = "QUJD".repeat(15);
-        assert_eq!(lookalike.len(), 60);
+        // Forme de chemin : cinq segments de 12 caractères séparés par `/` (64 caractères). La
+        // suite entière est une « suite base64 » (le `/` est dans l'alphabet), aucun segment seul
+        // n'en est une.
+        let lookalike = ["QUJDQUJDQUJD"; 5].join("/");
+        assert_eq!(lookalike.len(), 64);
         // Un `path` et un `url`, à la racine, imbriqués ou dans un tableau d'objets : exemptés.
         let exempt = json!({
             "path": lookalike,
@@ -650,6 +662,15 @@ mod tests {
                 "flagged: base64-like string at texte",
                 "flagged: base64-like string at x.path",
             ]
+        );
+        // Sous une clé exemptée, un segment séparé par `/` qui est lui-même une suite base64 reste
+        // rapporté : un jeton glissé dans un paramètre d'adresse ne passe pas (L4).
+        let token = format!("{}QUJ", "QUJD".repeat(10));
+        assert_eq!(token.len(), 43);
+        let signed = json!({"url": format!("https://x/dl?sig={token}")});
+        assert_eq!(
+            leaks("signed", &signed.to_string(), &signed),
+            ["signed: base64-like string at url"]
         );
         // Un élément de tableau n'a pas de clé : même sous `path`, il est rapporté.
         let listed = json!({"path": [lookalike]});
@@ -713,6 +734,7 @@ mod tests {
         let clean = json!({"title": "Code du travail", "id": "KALIARTI000049886059"});
         assert_eq!(leaks("clean", &clean.to_string(), &clean), Vec::<String>::new());
         let base64 = "QUJD".repeat(11);
+        let path_shaped = ["QUJDQUJDQUJD"; 5].join("/");
         let json = json!({
             "Authorization": "x",
             "uuid": "123e4567-e89b-12d3-a456-426614174000",
@@ -740,7 +762,7 @@ mod tests {
             ["key: secret word \"authorization\""]
         );
         // La même suite sous `path` n'est plus rapportée comme base64 (le reste l'est).
-        let exempt = json!({"path": base64, "Authorization": "x"});
+        let exempt = json!({"path": path_shaped, "Authorization": "x"});
         assert_eq!(
             leaks("doc", &exempt.to_string(), &exempt),
             ["doc: secret word \"authorization\""]
