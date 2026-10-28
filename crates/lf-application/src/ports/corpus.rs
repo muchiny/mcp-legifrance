@@ -77,6 +77,7 @@ pub enum CorpusError {
         what: String,
     },
     /// Requête refusée : `Some(400)` pour un 400 PISTE sans marqueur « introuvable » ;
+    /// `Some(403)` pour une page HTML de la passerelle (pas un refus d'accès à l'API) ;
     /// `None` pour la garde défensive de l'adapter, sans appel réseau. Jamais réessayée.
     #[error("request rejected by Legifrance")]
     InvalidRequest {

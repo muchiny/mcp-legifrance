@@ -79,6 +79,7 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - Un suffixe de version impossible (`_31-02-2023`, `_foo`) est refusé au lieu d'être retiré en silence.
 - Les dates sentinelles (2999-01-01, 2222-02-22) se lisent comme « sans fin ».
 - Tests de l'adapter PISTE : port « fermé » rendu déterministe (`ClosedPort`).
+- Adapter PISTE : un 403 à corps HTML (page de la passerelle) n'est plus lu comme une application non souscrite ; il devient `InvalidRequest { status: Some(403), .. }` (V-81).
 - `QueryText` : longueur maximale ramenée de 500 à 450 caractères, la limite mesurée de PISTE (accepté à 450, erreur 500 à 499 ; V-81).
 
 ### Security

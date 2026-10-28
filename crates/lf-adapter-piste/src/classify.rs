@@ -1,9 +1,10 @@
 //! Classification d'une tentative d'envoi : succès, jeton refusé, échec passager ou définitif.
 //!
-//! Le statut HTTP, `Retry-After` et `Date` classent la réponse. Le corps n'est lu que dans trois
+//! Le statut HTTP, `Retry-After` et `Date` classent la réponse. Le corps n'est lu que dans quatre
 //! cas (04 §11) : le message d'un 400 de consultation (marqueur d'un identifiant inconnu, qui
 //! tranche « introuvable », et détail de l'erreur sinon), un 404 de consultation (une page HTML
-//! n'est pas une preuve d'absence) et un 2xx vide ; le corps d'un 400 de recherche ou du jeton
+//! n'est pas une preuve d'absence), un 403 (une page HTML est celle de la passerelle, pas un
+//! refus d'accès) et un 2xx vide ; le corps d'un 400 de recherche ou du jeton
 //! n'est jamais lu, et tout autre corps reste intact (`post_json` décode celui des 2xx). Le choix
 //! de réessayer, d'attendre ou de renoncer appartient à `retry::run` ; ce module ne dort pas et
 //! ne lit aucune horloge.
@@ -145,6 +146,15 @@ fn classify_status(
     match status {
         200..=299 => classify_success(response, endpoint, context.kind),
         401 => Outcome::Unauthorized(CorpusError::Auth { detail: detail() }),
+        // Une page HTML est celle de la passerelle (Apache, 199 octets observés sur `/search`
+        // avec un mot de 100 caractères ou plus), pas un refus d'accès à l'API : le 403 de l'API
+        // est du JSON ou vide (V-81, 04 §11.2).
+        403 if error_body::looks_like_html(&response.body) => {
+            Outcome::Fatal(CorpusError::InvalidRequest {
+                status: Some(403),
+                detail: "request rejected by the PISTE gateway".to_owned(),
+            })
+        }
         403 => Outcome::Fatal(CorpusError::Auth { detail: detail() }),
         429 => {
             let retry_after = retry_after();
@@ -814,6 +824,58 @@ mod tests {
             classified(403),
             Outcome::Fatal(CorpusError::Auth { detail: "HTTP 403 on /consult/juri".to_owned() })
         );
+    }
+
+    /// Page 403 de la passerelle Apache de PISTE, recopiée octet pour octet (199 octets) de la
+    /// réponse enregistrée en sandbox le 2026-10-28 (`search/longueur/mot-unique-100`, `/search`
+    /// avec un mot unique de 100 caractères, `Content-Type: text/html; charset=iso-8859-1`) :
+    /// la page standard du serveur, sans donnée sensible.
+    const GATEWAY_403_BODY: &str = "<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\n\
+        <html><head>\n\
+        <title>403 Forbidden</title>\n\
+        </head><body>\n\
+        <h1>Forbidden</h1>\n\
+        <p>You don't have permission to access this resource.</p>\n\
+        </body></html>\n";
+
+    fn gateway_403() -> RawResponse {
+        RawResponse {
+            content_type: Some("text/html; charset=iso-8859-1".to_owned()),
+            ..with_body(403, GATEWAY_403_BODY)
+        }
+    }
+
+    #[test]
+    fn a_gateway_html_403_is_not_an_auth_error() {
+        assert_eq!(GATEWAY_403_BODY.len(), 199);
+        let rejected = CorpusError::InvalidRequest {
+            status: Some(403),
+            detail: "request rejected by the PISTE gateway".to_owned(),
+        };
+        for (endpoint, context) in
+            [(SEARCH_ENDPOINT, &SEARCH), (ENDPOINT, &CONSULT), (ENDPOINT, &OFFICIAL)]
+        {
+            assert_eq!(
+                classify(Ok(gateway_403()), endpoint, context),
+                Outcome::Fatal(rejected.clone()),
+                "{endpoint}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_json_or_empty_403_stays_an_auth_error() {
+        let auth = |endpoint: &str| {
+            Outcome::Fatal(CorpusError::Auth { detail: format!("HTTP 403 on {endpoint}") })
+        };
+        // Le 403 d'une route inexistante : le corps de la requête recopié (04 §11.1).
+        for body in [r#"{"textId":"LEGITEXT000006070721"}"#, ""] {
+            let response = RawResponse {
+                content_type: Some("application/json".to_owned()),
+                ..with_body(403, body)
+            };
+            assert_eq!(classify(Ok(response), ENDPOINT, &CONSULT), auth(ENDPOINT), "{body:?}");
+        }
     }
 
     #[test]
