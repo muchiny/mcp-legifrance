@@ -1,0 +1,49 @@
+name: live
+
+# Tests live contre PISTE **sandbox** (04 §13.5, 06 §7.5, T-M2-12) : manuel et hebdomadaire,
+# jamais sur `pull_request` (une PR d'un fork n'a pas les secrets), jamais de production (Q3,
+# 00 §10). Un passage à la fois (quota PISTE) ; un test à la fois (profil nextest `live`).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 5 * * 1" # lundi matin, hors des heures de pointe
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Actions épinglées par SHA, version en commentaire : voir ci.yml.
+jobs:
+  sandbox:
+    name: live (sandbox)
+    if: github.repository == 'muchiny/mcp-legifrance' # jamais sur un fork
+    runs-on: ubuntu-24.04
+    environment: piste-sandbox # secrets protégés, approbation possible
+    timeout-minutes: 30
+    env:
+      LF_PISTE_ENV: sandbox
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-nextest@0.9.148
+      # `--all-features` : les tests sur octets bruts (feature `record`) sont du lot. Les secrets ne
+      # sont exposés qu'à cette étape (env:), jamais aux actions tierces ni au texte du script.
+      - env:
+          LF_PISTE_CLIENT_ID: ${{ secrets.LF_PISTE_CLIENT_ID }}
+          LF_PISTE_CLIENT_SECRET: ${{ secrets.LF_PISTE_CLIENT_SECRET }}
+        run: >-
+          cargo nextest run -p lf-adapter-piste --test live --all-features --locked
+          --profile live --run-ignored only --no-fail-fast
