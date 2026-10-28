@@ -58,7 +58,7 @@
 - **NON VÉRIFIÉ** [V-08 · moka-horloge-tests] : moka n'utilise pas l'horloge tokio, si bien que tester les TTL sans attente réelle n'est pas acquis. À défaut, on teste directement la fonction `Expiry` (02 §3.4).
 - **Vérifié en sandbox le 2026-10-28** [V-76 · singledate-midi-paris] : avec `singleDate` à midi Europe/Paris (00 §8 révision 2 ; minuit dans la première version du plan), un texte qui entre en vigueur le jour J est retenu le jour J, et minuit Paris rend la version précédente (09 §2.20). La clé stable sur la journée n'en dépend pas : elle repose sur `VersionDate`.
 - Une page > 1 mise en cache a pu être obtenue avec la valeur de repli de `typePagination` plutôt qu'avec la valeur mémorisée ; pour CODE, seul cas observé, les deux coïncident. **NON VÉRIFIÉ** [V-82 · typepagination-page2] (V-82, M5).
-- La taille réelle des réponses, pour calibrer la capacité : **NON VÉRIFIÉ** [V-75 · taille-max-textes].
+- La taille réelle des réponses, pour calibrer la capacité : **partiel** [V-75 · taille-max-textes] ; mesurée en sandbox le 2026-10-28 : de 28 839 octets (une décision) à 6 476 648 (Code civil) et 32 921 369 (Code du travail, au-dessus de la borne de 16 Mio) (09 §2.20).
 
 ### Tests qui la gardent
 
