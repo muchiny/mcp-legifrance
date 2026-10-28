@@ -38,7 +38,8 @@ use crate::{
 };
 
 /// Durée relevée par [`FakeCorpus::seen_deadlines`] quand aucune échéance n'est publiée : « sans
-/// limite », pour la distinguer d'une échéance réelle.
+/// limite », pour la distinguer d'une échéance réelle. Sentinelle de comparaison, jamais un
+/// budget : `Deadline::after(NO_DEADLINE)` paniquerait par débordement de l'instant.
 pub const NO_DEADLINE: Duration = Duration::MAX;
 
 /// Prend un verrou sans `unwrap` : un verrou empoisonné rend ses données, déjà cohérentes ici
@@ -157,8 +158,11 @@ impl FakeCorpus {
         lock(&self.deadlines).clone()
     }
 
-    /// Cœur commun des sept méthodes : note l'appel et l'échéance, tient un emplacement en vol
-    /// pendant le délai, puis sert la réponse suivante de la file.
+    /// Cœur commun des sept méthodes : à l'entrée (premier sondage du futur), note l'appel et
+    /// l'échéance, tient un emplacement en vol et RETIRE la réponse de la file ; puis dort le délai
+    /// et rend la réponse déjà retirée. Les réponses suivent ainsi l'ordre des appels, même sous
+    /// `join!` avec un délai. Un appel abandonné pendant le délai (annulation, `timeout`)
+    /// consomme donc sa réponse.
     async fn serve<T>(
         &self,
         method: &'static str,
@@ -169,11 +173,11 @@ impl FakeCorpus {
         let now_in_flight = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         let _slot = InFlight(&self.in_flight);
         self.max_in_flight.fetch_max(now_in_flight, Ordering::SeqCst);
+        // Le verrou est pris et rendu dans la même instruction : jamais tenu à travers un `await`.
+        let next = lock(responses).pop_front();
         if let Some(delay) = self.delay {
             tokio::time::sleep(delay).await;
         }
-        // Le verrou est pris et rendu dans la même instruction : jamais tenu à travers un `await`.
-        let next = lock(responses).pop_front();
         next.unwrap_or_else(|| {
             Err(CorpusError::Config {
                 kind: ConfigKind::Settings,
@@ -301,7 +305,10 @@ impl MemoryAuditLog {
             if state.open {
                 Poll::Ready(())
             } else {
-                state.waiters.push(cx.waker().clone());
+                // Un futur re-sondé avec le même réveil ne s'inscrit qu'une fois.
+                if !state.waiters.iter().any(|waiter| waiter.will_wake(cx.waker())) {
+                    state.waiters.push(cx.waker().clone());
+                }
                 Poll::Pending
             }
         })
@@ -412,23 +419,90 @@ mod tests {
     async fn fake_corpus_serves_each_method_from_its_own_queue() {
         let corpus = FakeCorpus::new();
         let not_found = |what: &str| CorpusError::NotFound { what: what.to_owned() };
-        corpus.push_get_act(Err(not_found("act")));
-        corpus.push_get_article(Err(not_found("article")));
-        corpus.push_get_decision(Err(not_found("decision")));
-        corpus.push_get_deliberation(Err(not_found("deliberation")));
-        corpus.push_get_convention(Err(not_found("convention")));
-        corpus.push_get_company_agreement(Err(not_found("agreement")));
+        let unprogrammed = |method: &str| CorpusError::Config {
+            kind: ConfigKind::Settings,
+            detail: format!("FakeCorpus: no response programmed for {method}"),
+        };
+        corpus.push_search(Err(not_found("search")));
+        corpus.push_get_act(Err(not_found("get_act")));
+        corpus.push_get_article(Err(not_found("get_article")));
+        corpus.push_get_decision(Err(not_found("get_decision")));
+        corpus.push_get_deliberation(Err(not_found("get_deliberation")));
+        corpus.push_get_convention(Err(not_found("get_convention")));
+        corpus.push_get_company_agreement(Err(not_found("get_company_agreement")));
+        let query = query();
         let act = "LEGITEXT000006070721".parse().unwrap();
-        assert_eq!(corpus.get_act(&act, VersionDate::MIN).await, Err(not_found("act")));
-        assert_eq!(corpus.get_article(&article_id()).await, Err(not_found("article")));
+        let article = article_id();
         let decision = "JURITEXT000037999394".parse().unwrap();
-        assert_eq!(corpus.get_decision(&decision).await, Err(not_found("decision")));
         let deliberation = "CNILTEXT000053352643".parse().unwrap();
-        assert_eq!(corpus.get_deliberation(&deliberation).await, Err(not_found("deliberation")));
         let convention = "KALITEXT000005652329".parse().unwrap();
-        assert_eq!(corpus.get_convention(&convention).await, Err(not_found("convention")));
         let agreement = "ACCOTEXT000037731479".parse().unwrap();
-        assert_eq!(corpus.get_company_agreement(&agreement).await, Err(not_found("agreement")));
+
+        // Première série : chaque méthode lit sa propre file ; chacune compte un appel sous son nom.
+        assert_eq!(corpus.search(&query).await, Err(not_found("search")));
+        assert_eq!(corpus.get_act(&act, VersionDate::MIN).await, Err(not_found("get_act")));
+        assert_eq!(corpus.get_article(&article).await, Err(not_found("get_article")));
+        assert_eq!(corpus.get_decision(&decision).await, Err(not_found("get_decision")));
+        assert_eq!(
+            corpus.get_deliberation(&deliberation).await,
+            Err(not_found("get_deliberation"))
+        );
+        assert_eq!(corpus.get_convention(&convention).await, Err(not_found("get_convention")));
+        assert_eq!(
+            corpus.get_company_agreement(&agreement).await,
+            Err(not_found("get_company_agreement"))
+        );
+        let methods = [
+            "search",
+            "get_act",
+            "get_article",
+            "get_decision",
+            "get_deliberation",
+            "get_convention",
+            "get_company_agreement",
+        ];
+        for method in methods {
+            assert_eq!(corpus.calls_of(method), 1, "{method}");
+        }
+
+        // Seconde série : les files sont vides, chaque méthode nomme la sienne.
+        assert_eq!(corpus.search(&query).await, Err(unprogrammed("search")));
+        assert_eq!(corpus.get_act(&act, VersionDate::MIN).await, Err(unprogrammed("get_act")));
+        assert_eq!(corpus.get_article(&article).await, Err(unprogrammed("get_article")));
+        assert_eq!(corpus.get_decision(&decision).await, Err(unprogrammed("get_decision")));
+        assert_eq!(
+            corpus.get_deliberation(&deliberation).await,
+            Err(unprogrammed("get_deliberation"))
+        );
+        assert_eq!(corpus.get_convention(&convention).await, Err(unprogrammed("get_convention")));
+        assert_eq!(
+            corpus.get_company_agreement(&agreement).await,
+            Err(unprogrammed("get_company_agreement"))
+        );
+        for method in methods {
+            assert_eq!(corpus.calls_of(method), 2, "{method}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fake_corpus_hands_out_responses_in_call_order_under_a_delay() {
+        let corpus = FakeCorpus::new().with_delay(Duration::from_millis(50));
+        corpus.push_search(Ok(page(1)));
+        corpus.push_search(Ok(page(2)));
+        let query = query();
+        let (call0, call1) = tokio::join!(corpus.search(&query), corpus.search(&query));
+        assert_eq!((call0, call1), (Ok(page(1)), Ok(page(2))));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fake_corpus_abandoned_call_consumes_its_response() {
+        let corpus = FakeCorpus::new().with_delay(Duration::from_secs(60));
+        corpus.push_search(Ok(page(1)));
+        corpus.push_search(Ok(page(2)));
+        let query = query();
+        let abandoned = tokio::time::timeout(Duration::from_secs(1), corpus.search(&query)).await;
+        assert!(abandoned.is_err());
+        assert_eq!(corpus.search(&query).await, Ok(page(2)));
     }
 
     #[tokio::test]
@@ -549,6 +623,39 @@ mod tests {
         assert_eq!(log.records().len(), 3);
     }
 
+    /// Nombre d'écritures parquées derrière la porte.
+    fn parked(log: &MemoryAuditLog) -> usize {
+        lock(log.gate.as_ref().unwrap()).waiters.len()
+    }
+
+    /// Réveil qui compte ses réveils ; ses clones partagent le même `Arc`, donc `will_wake`.
+    #[derive(Default)]
+    struct CountingWake(AtomicUsize);
+
+    impl std::task::Wake for CountingWake {
+        fn wake(self: std::sync::Arc<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn gated_audit_log_registers_one_waker_per_waiting_task() {
+        let log = MemoryAuditLog::with_gate();
+        let entry = record(ToolName::FR_SEARCH, 1);
+        let counter = std::sync::Arc::new(CountingWake::default());
+        let waker = Waker::from(std::sync::Arc::clone(&counter));
+        let mut write = pin!(log.record(&entry));
+        let mut cx = Context::from_waker(&waker);
+        for _ in 0..3 {
+            assert!(write.as_mut().poll(&mut cx).is_pending());
+        }
+        // Re-sonder avec le même réveil ne l'enregistre pas deux fois : un seul réveil à l'ouverture.
+        assert_eq!(parked(&log), 1);
+        log.open_gate();
+        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
+        assert!(write.as_mut().poll(&mut cx).is_ready());
+    }
+
     #[tokio::test]
     async fn gated_audit_log_wakes_a_waiting_task() {
         let log = std::sync::Arc::new(MemoryAuditLog::with_gate());
@@ -558,6 +665,8 @@ mod tests {
         };
         tokio::task::yield_now().await;
         assert!(log.records().is_empty());
+        // L'écrivain est bien parqué derrière la porte, pas simplement pas encore ordonnancé.
+        assert_eq!(parked(&log), 1);
         log.open_gate();
         writer.await.unwrap().unwrap();
         assert_eq!(log.records().len(), 1);
