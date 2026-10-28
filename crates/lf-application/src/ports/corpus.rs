@@ -95,8 +95,11 @@ pub enum ConfigKind {
     /// 404 ou 405 de l'endpoint du jeton (ligne 8).
     OAuthEndpoint,
     /// Valeur de configuration invalide, mode dégradé (ligne 6) : `LF_PISTE_ENV` invalide, URL
-    /// refusée dont `EnvMismatch`, client HTTP non constructible. Le `detail` est alors le texte
-    /// destiné au modèle (le `Display` de `ConfigProblem` de l'adapter, aligné sur 05 §7.2).
+    /// refusée dont `EnvMismatch`, client HTTP non constructible. Le `detail` est le texte
+    /// destiné au modèle : le `Display` d'un `ConfigProblem` de l'adapter (aligné sur 05 §7.2)
+    /// ou, pour un client HTTP non constructible, la chaîne de l'erreur de construction (écart
+    /// connu : ce texte-là n'est pas rédigé pour le modèle, mais l'adapter ne l'a jamais
+    /// distingué).
     Settings,
 }
 
