@@ -69,10 +69,10 @@
 
 ### À surveiller
 
-- **NON VÉRIFIÉ** [V-76 · singledate-midi-paris] : un texte qui entre en vigueur le jour J est-il retenu avec `singleDate` à midi Paris (10 h ou 11 h UTC du jour J) ? Comparaison avec minuit UTC, minuit Paris et la veille, bloquante en M2 (V-76).
-- **NON VÉRIFIÉ** [V-100 · convention-horaire-timestamps] : les horodatages de date sont-ils tous à minuit UTC ?
-- **NON VÉRIFIÉ** [V-101 · sentinelle-2222-debut] : sens de `2222-02-22` en date de début, côté API.
-- **NON VÉRIFIÉ** [V-89 · version-date-bornes] : bornes de `VersionDate` et réaction de l'API aux dates extrêmes.
+- **Vérifié en sandbox le 2026-10-28** [V-76 · singledate-midi-paris] : un texte qui entre en vigueur le jour J est retenu avec `singleDate` à midi Paris ; midi la veille et minuit Paris rendent la version précédente (09 §2.20).
+- **Vérifié en sandbox le 2026-10-28** [V-100 · convention-horaire-timestamps] : 30 327 des 30 329 entiers de date sont à minuit UTC, les deux autres sont des métadonnées de fichier joint (09 §2.20).
+- **NON VÉRIFIÉ** [V-101 · sentinelle-2222-debut] : sens de `2222-02-22` en date de début, côté API (non observé en sandbox le 2026-10-28 : une seule occurrence, en date de fin).
+- **Vérifié en sandbox le 2026-10-28** [V-89 · version-date-bornes] : l'API accepte 1500-01-01 et 2221-12-31 ; avant la première version d'un texte, `lawDecree` répond le 400 d'« introuvable » (09 §2.20).
 - Levé (plan 2d, 09 §2.20) [V-17 · chrono-tz-iana] : version de la base IANA embarquée par `chrono-tz` 0.10.4.
 
 ### Tests qui la gardent

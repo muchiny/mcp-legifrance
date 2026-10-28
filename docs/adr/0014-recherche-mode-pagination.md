@@ -79,7 +79,7 @@
 - **NON VÉRIFIÉ** [V-82 · typepagination-page2] : effet de `DEFAUT` ou `ARTICLE` en page 2, et cohérence de `has_more` (V-82, M5).
 - **NON VÉRIFIÉ** [V-83 · pagination-profonde] : limite de profondeur (V-83, M5).
 - **NON VÉRIFIÉ** [V-81 · longueur-max-query] : longueur maximale acceptée par l'API.
-- **NON VÉRIFIÉ** [V-78 · filtres-dates-effet] : effet réel des filtres de date.
+- **Vérifié en sandbox le 2026-10-28** [V-78 · filtres-dates-effet] : les sept facettes réduisent le total et leurs bornes sont incluses ; borne lointaine non essayée (09 §2.20).
 
 ### Tests qui la gardent
 

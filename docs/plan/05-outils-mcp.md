@@ -702,7 +702,7 @@ Read a consolidated law, decree or code by its LEGITEXT id (from fr_search on LO
 | Nom | Type JSON | Requis | Défaut | Contraintes | Description (anglais) |
 |---|---|---|---|---|---|
 | `text_id` | string | oui | — | `LEGITEXT` + 12 chiffres après `trim` et majuscules (03 §2.6) ; le suffixe `_JJ-MM-AAAA` est accepté sur `LEGITEXT` seulement (00 §4) s'il est une vraie date (`parse_versioned`, tâche de tête de M2 ; un suffixe mal formé est refusé) | `A LEGITEXT... id (from fr_search on LODA or CODE).` |
-| `date` | string, `format: date` | non | date du suffixe de `text_id` s'il y en a un, sinon aujourd'hui (Europe/Paris) (00 §7) | date valide (D-22) ; bornes extrêmes **NON VÉRIFIÉES** [V-89 · version-date-bornes] | `Version date YYYY-MM-DD (default: the version named by a suffixed text_id, else today in Paris).` |
+| `date` | string, `format: date` | non | date du suffixe de `text_id` s'il y en a un, sinon aujourd'hui (Europe/Paris) (00 §7) | date valide (D-22) ; bornes extrêmes acceptées par l'API en sandbox, mais une date antérieure à la première version du texte donne `not_found` (même 400 que pour un identifiant inexistant : message à prévoir en M3, 04 §7.3) [V-89 · version-date-bornes] | `Version date YYYY-MM-DD (default: the version named by a suffixed text_id, else today in Paris).` |
 | `toc_offset` | integer | non | 0 | ≥ 0 ; < `toc_total` si `toc_total > 0` | `First table-of-contents entry (pass next_toc_offset).` |
 | `toc_limit` | integer | non | 100 | 1 à 500 | `Maximum table-of-contents entries (1..500).` |
 
@@ -744,7 +744,7 @@ Le suffixe comme date par défaut (conservé par `parse_versioned` au lieu d'êt
 }
 ```
 
-**Erreurs** : `invalid_arg` (`text_id` absent, mauvaise famille avec renvoi vers l'outil adéquat, chiffres, suffixe invalide, `date`, `toc_offset` au-delà de la fin, `toc_limit`) ; `not_found` `No LODA text found for {text_id}.` (parité P-013) ; erreurs communes.
+**Erreurs** : `invalid_arg` (`text_id` absent, mauvaise famille avec renvoi vers l'outil adéquat, chiffres, suffixe invalide, `date`, `toc_offset` au-delà de la fin, `toc_limit`) ; `not_found` `No LODA text found for {text_id}.` (parité P-013) ; erreurs communes. **Note (V-89, sandbox, 2026-10-28)** : une `date` antérieure à la première version d'un texte existant donne aussi `not_found`, car PISTE répond alors le même 400 « L'expression à valider est fausse. » que pour un identifiant inexistant (04 §7.3) ; le message ci-dessus est alors trompeur, et un message « aucune version à cette date » est à prévoir en M3 (pas de code dans le plan 2h).
 
 **Audit, cache, limites** : métrique = entrées de TOC renvoyées (88 sur la fixture, contre 62 dans la référence, 03 §4.2). Cache `Act` 24 h par (`LegiTextId`, `VersionDate`). Une TOC de 500 entrées tient d'ordinaire sous le plafond du §6.4 ; sinon la page est raccourcie et `next_toc_offset` posé en conséquence (étape 1 du §6.4).
 
