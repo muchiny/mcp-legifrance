@@ -215,7 +215,7 @@ mcp-legifrance/                      # ex-mcp-ligitfrance, renommé par son prop
 │   ├── lf-adapter-mcp/              # §3.6
 │   ├── lf-app/                      # §3.7 (paquet et binaire mcp-legifrance ; répertoire lf-app, Q1)
 │   └── lf-adapter-dila/             # §3.9 (M9 seulement)
-├── xtask/                           # §3.8 : check-arch (livré), record-fixture (M2), lock-descriptors, instructions-size (M4)
+├── xtask/                           # §3.8 : check-arch (livré), record-fixture (livré, plan 2h), lock-descriptors, instructions-size (M4)
 ├── tests/                           # données de test partagées, pas un crate (chemins : 06 §1.4, qui fait foi)
 │   ├── tools.lock.json              # verrou des descripteurs (cargo xtask lock-descriptors --update, M4 ; 05 §9) — 00-decisions §10
 │   ├── jsonrpc/                     # transcriptions JSON-RPC brutes stdio : legacy (initialize) et modern (discover, _meta)
@@ -283,8 +283,9 @@ crates/lf-adapter-piste/          # disposition détaillée : 04 §1.5 (fait foi
 │                     # deadline.rs (lecture de lf_application::deadline::Deadline), limit.rs (sémaphore + governor),
 │                     # stats.rs (compteurs), time.rs (MonoClock, Sleeper, race), request/, dto/ (`de.rs`, `oauth.rs`, `decode.rs`, `error.rs` et les DTO de réponse livrés),
 │                     # error_body.rs, testing.rs (test), map/, memo.rs (PaginationMemo livré ; CodeTable en M6),
-│                     # corpus.rs (`PisteCorpus`, `post_json`, `fetch`) ; corpus/port.rs (`impl LegalCorpus`, plan 2g)
-├── examples/record_fixture.rs   # feature `record`, lancé par `cargo xtask record-fixture` (M2 ; identifiants requis, 04 §13.4)
+│                     # corpus.rs (`PisteCorpus`, `post_json`, `fetch`) ; corpus/port.rs (`impl LegalCorpus`, plan 2g) ;
+│                     # feature `record` (plan 2h) : corpus/raw.rs (`PisteCorpus::exchange`, API brute), record.rs (écrivain de fixtures), sha256.rs (partagé avec integrity.rs)
+├── examples/record_fixture.rs   # feature `record`, colle d'E/S lancée par `cargo xtask record-fixture` (livré, plan 2h ; identifiants requis ; la logique est dans `src/record.rs`, 04 §13.4)
 └── tests/            # fixtures/{reference,recorded,synthetic}/, live.rs (#[ignore]), golden et compléments : 04 §13, 06 §1.4. Mapping DTO, classement HTTP → CorpusError, retry, scénarios wiremock : `#[cfg(test)] mod tests` du crate (mesurés par `make cov`, qui passe `--lib`, 06 §1.4) ; aucune exclusion de couverture n'a été nécessaire (plan 2c)
 crates/lf-adapter-cache/src/      # lib.rs, corpus.rs (CachedCorpus), key.rs (CacheKey, Op), policy.rs (TTL, capacité),
                                   # expiry.rs (impl moka::Expiry), weight.rs (trait Weigh)
@@ -321,7 +322,7 @@ crates/lf-app/
 │   ├── shutdown.rs       # signaux → CancellationToken
 │   └── check.rs          # sous-commande check-config
 └── tests/                # e2e du binaire seulement : cli.rs, e2e_stdio.rs (JSON-RPC brut, deux ères), stdout_only_jsonrpc.rs, … — liste : 06 §1.4
-xtask/src/                # livré : main.rs, lib.rs, arch.rs (check-arch : liste blanche, échoue fermé) ; à venir : record_fixture.rs (M2), lock_descriptors.rs, instructions_size.rs (M4)
+xtask/src/                # livré : main.rs, lib.rs, arch.rs (check-arch : liste blanche, échoue fermé) ; record.rs (plan 2h : construit la commande de `record-fixture`, `example_command`) ; à venir : lock_descriptors.rs, instructions_size.rs (M4)
 ```
 
 ### 2.2 Rôle des fichiers racine
@@ -564,7 +565,7 @@ Deux points sont à mesurer au premier `cargo clippy` du spike rmcp (**avant la 
   - `PisteCorpus::check_credentials(&self) -> Result<(), CorpusError>`, méthode inhérente hors port, utilisée par `check-config --online`.
   - `PisteCorpus::mojibake_repairs(&self) -> u64` et `stats()`, compteurs en mémoire, jamais exportés (ADR-0005) ; `has_credentials()` et `config_problem()`, accesseurs du mode dégradé (04 §2.4).
 - **Dépendances** (liste et features : 04 §1.4 ; versions et déclarations de workspace : §3.0) : `lf-application`, `lf-domain`, `reqwest` (+ `gzip`, `system-proxy`, `rustls`), `tokio` (`time`, `sync`), `serde`, `serde_json`, `secrecy` (`serde`), `governor` (`std`), `chrono` (`std`), `thiserror`, `tracing` (`std`) ; `rustls` en dépendance directe sous l'option B seulement ; `serde_path_to_error` 0.1.20 et `chrono-tz` 0.10.4 (`default-features = false`) sont livrés au plan 2d ; `insta` (1.49.0, `json` seule) entre au plan 2g, `proptest` non ; `backon` n'est pas une dépendance (ADR-0017). Pas de dépendance directe à `url` : `reqwest::Url`. Dev livrés : `wiremock`, `flate2`, `tracing-subscriber`, `tokio` (`macros`, `rt`, `rt-multi-thread`, `test-util`).
-- **Features Cargo** : `record`, qui expose une API brute (statut, en-têtes utiles, octets) sous `#[cfg(feature = "record")]`, utilisée seulement par `examples/record_fixture.rs` et jamais activée dans le binaire (04 §13.4 ; 06 §1.4). Les tests live sont `#[ignore]` (décision §10).
+- **Features Cargo** : `record`, qui expose une API brute (statut, en-têtes utiles, octets) sous `#[cfg(feature = "record")]`, livrée au plan 2h sans dépendance (`record = []`) : `PisteCorpus::exchange` (`corpus/raw.rs`) et le module `record` (`src/record.rs`, la logique d'enregistrement). Elle n'est employée que par `examples/record_fixture.rs` et par les tests live qui lisent les octets bruts, jamais activée dans le binaire ; `make cov`, `make lint`, `make test`, `make doc` et `cargo-mutants` passent en `--all-features` (04 §13.4 ; 06 §1.4, §7.1). Les tests live sont `#[ignore]` (décision §10).
 - **Pièges** :
   1. reqwest 0.13 : `rustls-tls` est renommée `rustls` ; `form` et `query` ne sont plus activées par défaut ; `rustls-no-provider` sans fournisseur installé panique dans `Client::build()` (recherche 04 §4.2 ; mesuré, plan 2c).
   2. `rustls-platform-verifier` exige un magasin de certificats CA système dans l'image OCI ([08-distribution.md](08-distribution.md)).
@@ -677,14 +678,14 @@ pub fn registered_tool_names() -> Vec<&'static str>;   // pour les tests de coh�
 
 ### 3.8 `xtask`
 
-- **Responsabilité** : l'outillage du dépôt ([00-decisions §2](00-decisions.md#2-workspace-cargo)). xtask ne dépend d'aucun crate `lf-*`. Il pilote donc le binaire ou les exemples **en boîte noire**. Seule `check-arch` est livrée (M0, plan 1) ; les autres commandes arrivent aux jalons indiqués. Les commandes sont celles de 00 §2 : toute nouvelle commande amende ce tableau de 00. 05 §9 fait foi pour le verrou des descripteurs, 04 §13.4 pour `record-fixture`.
+- **Responsabilité** : l'outillage du dépôt ([00-decisions §2](00-decisions.md#2-workspace-cargo)). xtask ne dépend d'aucun crate `lf-*`. Il pilote donc le binaire ou les exemples **en boîte noire**. `check-arch` (M0, plan 1) et `record-fixture` (plan 2h) sont livrées ; les autres commandes arrivent aux jalons indiqués. Les commandes sont celles de 00 §2 : toute nouvelle commande amende ce tableau de 00. 05 §9 fait foi pour le verrou des descripteurs, 04 §13.4 pour `record-fixture`.
 
 | Commande | Fonctionnement | Accès réseau |
 |---|---|---|
 | `cargo xtask check-arch` (`make arch`) | §4.2 (via `cargo metadata`). Livré : xtask/src/arch.rs, `forbidden` + `DOMAIN_ALLOWED`, échec fermé. | non |
 | `cargo xtask lock-descriptors` (M4) | Modes de 05 §9.4 : `--check` (**défaut**, CI) régénère en mémoire et compare au fichier ; `--update` réécrit `tests/tools.lock.json` ; `--compare <ref-git>` (release) classe les différences avec le verrou du tag précédent. Construit puis lance le binaire `mcp-legifrance serve` en stdio, environnement vidé, dans **trois sessions** : `server/discover` moderne, `initialize` 2025-11-25, `initialize` 2025-06-18 ; les descripteurs doivent être identiques dans les deux ères. Périmètre de 05 §9.1 : tous les champs des descripteurs de `tools/list` (dont `_meta`), `prompts/list`, `resources/list` et `resources/templates/list` (M7), `instructions`, `capabilities`, `supportedVersions` (D-37). Génère et contrôle aussi le manifeste MCPB et la version de `server.json` (08 §4.4). Aucun appel PISTE n'est fait. | non |
 | `cargo xtask instructions-size` (M4) | Même principe avec `server/discover` : vérifie que `instructions` fait ≤ 3 500 caractères Unicode et affiche la taille totale des descripteurs (budget D-33). | non |
-| `cargo xtask record-fixture` (M2) | Syntaxe de 04 §13.4 : `--endpoint … --body '…' --name … [--env sandbox\|production] [--allow-error] [--redact <pointeur JSON>] [--force]`, ou `--plan <plan.toml>` pour un lot (≤ 1 requête/s). Lance `cargo run -p lf-adapter-piste --example record_fixture --features record` avec les identifiants de l'environnement ; sandbox par défaut, `--env production` seulement par choix explicite du mainteneur (Q3). L'exemple écrit la réponse **brute** (octets) dans `crates/lf-adapter-piste/tests/fixtures/recorded/<endpoint>/<name>.json` et son sidecar `<name>.meta.toml`, dont il calcule `sha256_raw` et `mojibake_detected` (champs : 04 §13.4 ; D-35). En-têtes et jeton ne sont jamais écrits. | oui (identifiants requis) |
+| `cargo xtask record-fixture` (livré, plan 2h) | Syntaxe de 04 §13.4 : `--endpoint … --body '…' --name … [--env sandbox\|production] [--allow-error] [--redact <pointeur JSON>]... [--force] [--out <dir>]`, ou `--plan <plan.toml> [--only <préfixe>]` pour un lot (≤ 1 requête/s). `xtask/src/record.rs::example_command` (pur, testé) construit la commande, `main.rs` la lance avec les identifiants de l'environnement : `cargo run --quiet --locked --package lf-adapter-piste --example record_fixture --features record -- <arguments>` ; le code de sortie de l'exemple (0, 1 si une sonde n'est pas écrite, 2 pour un usage erroné ou des identifiants absents) est celui de `cargo xtask`. Sandbox par défaut, `--env production` seulement par choix explicite du mainteneur (Q3). La logique vit dans `lf_adapter_piste::record` (`src/record.rs`) ; l'exemple écrit la réponse **brute** (octets) dans `crates/lf-adapter-piste/tests/fixtures/recorded/<endpoint sans / initial>/<name>.json` et son sidecar `<name>.meta.toml`, dont il calcule `sha256_raw` et `mojibake_detected` (champs : 04 §13.4 ; D-35). En-têtes et jeton ne sont jamais écrits, et une réponse qui recopie la valeur du jeton, du secret ou du Client ID n'est pas écrite. | oui (identifiants requis) |
 
 - **Dépendances** : livré : `serde_json` et `toml` 1.1 (xtask/Cargo.toml) ; `cargo metadata` est appelé en sous-processus (xtask/src/main.rs:13-14) et lu en JSON, le crate `cargo_metadata` n'étant pas retenu. Cible : `anyhow`, `sha2`, `hex`, `jsonschema` (`default-features = false`, contrôles du verrou, 05 §9.2) aux jalons qui les utilisent. `publish = false`.
 
