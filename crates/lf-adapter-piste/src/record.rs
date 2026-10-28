@@ -447,7 +447,9 @@ fn string_end(bytes: &[u8], at: usize) -> Option<usize> {
         match bytes.get(index)? {
             b'\\' => index += 2,
             b'"' => return Some(index + 1),
-            _ => index += 1,
+            // Pas de `+=` ici : son mutant `*=` vaut `*= 1`, l'identité, et la boucle ne finirait
+            // jamais (le test ne le verrait que par le délai). `saturating_add` n'a pas de mutant.
+            _ => index = index.saturating_add(1),
         }
     }
 }
@@ -474,7 +476,8 @@ fn value_end(bytes: &[u8], at: usize) -> Option<usize> {
                     }
                     _ => {}
                 }
-                index += 1;
+                // Voir `string_end` : `+= 1` aurait un mutant `*= 1` qui boucle sans fin.
+                index = index.saturating_add(1);
             }
         }
         _ => {
@@ -699,6 +702,13 @@ mod tests {
 
     fn pointers(list: &[&str]) -> Vec<String> {
         list.iter().map(|pointer| (*pointer).to_owned()).collect()
+    }
+
+    #[test]
+    fn the_versioned_size_limit_is_one_mebibyte() {
+        // Seuil de 06 §4.4 point 6 : le mutant `1 >> 20` le ramènerait à zéro sans autre signal
+        // (seul l'exemple `record-fixture` le lit).
+        assert_eq!(MAX_VERSIONED_BYTES, 1_048_576);
     }
 
     #[test]

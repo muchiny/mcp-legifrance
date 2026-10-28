@@ -98,9 +98,10 @@ pub(crate) fn sha256(bytes: &[u8]) -> [u8; 32] {
     }
     let mut last = tail.to_vec();
     last.push(0x80);
-    while last.len() % 64 != 56 {
-        last.push(0);
-    }
+    // Zéros de remplissage : amène la longueur à 56 modulo 64 (`tail` fait moins de 64 octets). Un
+    // calcul plutôt qu'une boucle `while`, dont le mutant `% -> +` ne s'arrête jamais.
+    let zeros = (119 - tail.len()) % 64;
+    last.resize(last.len() + zeros, 0);
     let bit_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX) << 3;
     last.extend_from_slice(&bit_len.to_be_bytes());
     for block in last.as_chunks::<64>().0 {
@@ -111,6 +112,18 @@ pub(crate) fn sha256(bytes: &[u8]) -> [u8; 32] {
         *out = word.to_be_bytes();
     }
     digest
+}
+
+/// `Ch(x, y, z)` de FIPS 180-4 (§4.1.2) : `y` là où `x` vaut 1, `z` ailleurs. Les deux termes
+/// n'ont aucun bit commun (`x` et `!x`) : `^` et `|` y sont équivalents (voir `.cargo/mutants.toml`).
+const fn choose(x: u32, y: u32, z: u32) -> u32 {
+    (x & y) ^ (!x & z)
+}
+
+/// `Maj(x, y, z)` de FIPS 180-4 (§4.1.2) : le bit majoritaire. Bit à bit, `^` et `|` coïncident
+/// (voir `.cargo/mutants.toml`).
+const fn majority(x: u32, y: u32, z: u32) -> u32 {
+    (x & y) ^ (x & z) ^ (y & z)
 }
 
 /// Fonction de compression de FIPS 180-4 (§6.2.2) : mêle un bloc de 64 octets à l'état.
@@ -128,10 +141,10 @@ fn compress(state: &mut [u32; 8], block: &[u8; 64]) {
     let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *state;
     for (k, word) in K.iter().zip(w) {
         let big_s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
-        let ch = (e & f) ^ (!e & g);
+        let ch = choose(e, f, g);
         let t1 = h.wrapping_add(big_s1).wrapping_add(ch).wrapping_add(*k).wrapping_add(word);
         let big_s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
-        let maj = (a & b) ^ (a & c) ^ (b & c);
+        let maj = majority(a, b, c);
         let t2 = big_s0.wrapping_add(maj);
         h = g;
         g = f;
