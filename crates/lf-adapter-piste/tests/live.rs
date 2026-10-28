@@ -308,6 +308,9 @@ mod live {
                 let body = json!({"textId": code, "date": VERSION}).to_string();
                 let reply = corpus.exchange("/consult/lawDecree", body.as_bytes()).await.unwrap();
                 eprintln!("{code}: {} bytes in {} ms", reply.body.len(), reply.elapsed.as_millis());
+                // `exchange` rend tout statut sans erreur : un refus (400, 401, 403, 500) a un petit
+                // corps et répond vite, il passerait les seuils sans rien prouver de V-96.
+                assert_eq!(reply.status, 200, "{code}: HTTP status of /consult/lawDecree");
                 measures.push((
                     code,
                     reply.body.len() <= 4 << 20,
