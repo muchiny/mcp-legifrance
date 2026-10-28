@@ -7,8 +7,15 @@
 //! contrôlé par `golden`), le répertoire ne contient rien d'autre, et ni les fixtures, ni les
 //! dix-sept snapshots `insta`, ni le golden ne portent de chaîne qui ressemble à un secret
 //! (D-35) : mot d'authentification (`bearer`, `access_token`…, quelle que soit la casse), UUID,
-//! suite hexadécimale de 32 caractères ou plus, JWT, suite base64 de 40 caractères ou plus (deux
-//! exemptions déclarées, `BASE64_LOOKALIKES`).
+//! suite hexadécimale de 32 caractères ou plus, JWT, suite base64 de 40 caractères ou plus (sauf
+//! sous les clés `path` et `url`, `BASE64_KEYS`).
+//!
+//! Les fixtures **enregistrées** (`tests/fixtures/recorded/<endpoint>/<nom>.json`, écrites par
+//! `cargo xtask record-fixture`, 04 §13.4) passent les mêmes détecteurs, plus le contrôle de leur
+//! sidecar (clés de 04 §13.4, `sha256_file` recalculé, environnement nommé, chemin sous
+//! l'endpoint, licence, 1 Mio au plus) et la cohérence de `sha256_raw` et de `mojibake_detected`
+//! quand rien n'a été caviardé. Le répertoire est absent tant qu'aucune fixture n'est
+//! enregistrée ; le décompte est épinglé (`RECORDED`).
 //!
 //! Le SHA-256 vient de [`crate::sha256`] (FIPS 180-4, sans dépendance), partagé avec
 //! l'enregistrement des fixtures (feature `record`). Le module n'existe que sous `cfg(test)`.
@@ -78,7 +85,7 @@ pub(crate) fn known_issues(meta: &toml::Table) -> Vec<&str> {
 mod tests {
     use std::collections::BTreeSet;
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use serde_json::json;
 
@@ -246,18 +253,45 @@ mod tests {
             .any(|run| run.len() >= BASE64_RUN)
     }
 
-    /// Valeurs JSON déclarées sûres bien qu'elles aient la forme d'un base64 : fixture et pointeur
-    /// JSON. L'adresse de l'accord (`texte/acco/ACCO/TEXT/00/00/53/…/ACCOTEXT…`) et un chemin
-    /// d'article de convention (`/KALISCTA…/KALIARTI…`) sont faits de lettres, de chiffres et de
-    /// `/` sur plus de 40 caractères.
-    const BASE64_LOOKALIKES: [(&str, &str); 2] =
-        [("consult_acco", "/acco/url"), ("consult_kali", "/sections/0/articles/0/path")];
+    /// Clés dont la valeur texte n'est pas soumise au détecteur base64 : `path` et `url`. Les
+    /// chemins de la table des matières (`/LEGISCTA…/LEGIARTI…`), l'adresse d'un accord
+    /// (`texte/acco/ACCO/TEXT/00/00/53/…/ACCOTEXT…`) et un lien de téléchargement sont faits de
+    /// lettres, de chiffres et de `/` sur plus de 40 caractères ; il y en a des milliers par
+    /// fixture enregistrée, trop pour une exemption par pointeur (D10). L'exemption est par la
+    /// DERNIÈRE clé de la feuille, jamais par la valeur : la même suite sous toute autre clé, ou
+    /// comme élément d'un tableau, reste signalée. Les autres détecteurs (mots d'authentification,
+    /// UUID, suite hexadécimale, JWT) s'appliquent partout, y compris sous ces clés.
+    const BASE64_KEYS: [&str; 2] = ["path", "url"];
+
+    /// Ajoute à `exempt` les valeurs texte de `value` portées directement par une clé de
+    /// [`BASE64_KEYS`] (`key` est la clé de `value` dans son objet, `None` à la racine ou dans un
+    /// tableau). Le parcours se fait sur le JSON lui-même : une clé qui contient un point ou des
+    /// crochets ne peut pas se faire passer pour `path`.
+    fn base64_exempt<'a>(value: &'a Value, key: Option<&str>, exempt: &mut Vec<&'a str>) {
+        match value {
+            Value::String(text) if key.is_some_and(|key| BASE64_KEYS.contains(&key)) => {
+                exempt.push(text);
+            }
+            Value::Array(items) => {
+                for item in items {
+                    base64_exempt(item, None, exempt);
+                }
+            }
+            Value::Object(entries) => {
+                for (key, item) in entries {
+                    base64_exempt(item, Some(key), exempt);
+                }
+            }
+            Value::String(_) | Value::Null | Value::Bool(_) | Value::Number(_) => {}
+        }
+    }
 
     /// Ce qui, dans le document `name` (texte brut `raw` et sa lecture JSON `json`), ressemble à un
     /// secret : un mot de [`SECRET_WORDS`], un UUID, une suite hexadécimale, un JWT ou une suite
-    /// base64, sauf la valeur de `json` déclarée sûre dans `exempt` (comparée par adresse). Le texte
-    /// brut couvre les clés comme les valeurs ; la lecture JSON, les valeurs une fois décodées.
-    fn leaks(name: &str, raw: &str, json: &Value, exempt: &[&str]) -> Vec<String> {
+    /// base64, sauf pour une feuille de `json` portée par une clé de [`BASE64_KEYS`] (comparée par
+    /// adresse : le détecteur base64 seul est levé). Le texte brut couvre les clés comme les
+    /// valeurs ; la lecture JSON, les valeurs une fois décodées.
+    fn leaks(name: &str, raw: &str, json: &Value) -> Vec<String> {
         let mut found = Vec::new();
         if let Some(word) = secret_word(raw) {
             found.push(format!("{name}: secret word {word:?}"));
@@ -268,6 +302,8 @@ mod tests {
         if has_hex_run(raw) {
             found.push(format!("{name}: hexadecimal run"));
         }
+        let mut exempt = Vec::new();
+        base64_exempt(json, None, &mut exempt);
         for (path, text) in leaf_strings(json) {
             if secret_word(text).is_some() {
                 found.push(format!("{name}: secret word at {path}"));
@@ -275,8 +311,8 @@ mod tests {
             if looks_like_jwt(text) {
                 found.push(format!("{name}: JWT-like string at {path}"));
             }
-            let declared_safe = exempt.iter().any(|safe| std::ptr::eq(*safe, text));
-            if has_base64_run(text) && !declared_safe {
+            let by_key = exempt.iter().any(|safe| std::ptr::eq(*safe, text));
+            if has_base64_run(text) && !by_key {
                 found.push(format!("{name}: base64-like string at {path}"));
             }
         }
@@ -293,22 +329,7 @@ mod tests {
     fn fixtures_contain_no_token_like_strings() {
         for fixture in &ALL {
             let json = value(fixture.name);
-            let declared: Vec<&str> = BASE64_LOOKALIKES
-                .iter()
-                .filter(|(name, _)| *name == fixture.name)
-                .map(|(_, pointer)| *pointer)
-                .collect();
-            let exempt: Vec<&str> = declared
-                .iter()
-                .filter_map(|pointer| json.pointer(pointer))
-                .filter_map(Value::as_str)
-                .collect();
-            assert_eq!(exempt.len(), declared.len(), "declared pointers of {} exist", fixture.name);
-            assert!(exempt.iter().all(|text| has_base64_run(text)), "stale exemption");
-            assert_eq!(
-                leaks(fixture.name, text(fixture.name), &json, &exempt),
-                Vec::<String>::new()
-            );
+            assert_eq!(leaks(fixture.name, text(fixture.name), &json), Vec::<String>::new());
         }
     }
 
@@ -322,12 +343,299 @@ mod tests {
             assert_eq!(path.extension().and_then(|extension| extension.to_str()), Some("snap"));
             let raw = fs::read_to_string(&path).expect("snapshot is UTF-8").replace("\r\n", "\n");
             let name = path.file_name().expect("file name").to_string_lossy().into_owned();
-            assert_eq!(leaks(&name, &raw, &snapshot_json(&raw), &[]), Vec::<String>::new());
+            assert_eq!(leaks(&name, &raw, &snapshot_json(&raw)), Vec::<String>::new());
             checked += 1;
         }
         assert_eq!(checked, 17);
         let raw = include_str!("../tests/fixtures/reference/parite-golden.json");
-        assert_eq!(leaks("parite-golden", raw, &golden(), &[]), Vec::<String>::new());
+        assert_eq!(leaks("parite-golden", raw, &golden()), Vec::<String>::new());
+    }
+
+    // ---- Fixtures enregistrées (04 §13.4, plan 2h) ----------------------------------------
+
+    /// Nombre de fixtures enregistrées versionnées (fichiers `.json`, sidecars non comptés).
+    const RECORDED: usize = 0;
+
+    /// Clés obligatoires d'un sidecar enregistré (04 §13.4) ; `content_type` et
+    /// `content_encoding` sont facultatives (absentes si l'en-tête l'était).
+    const RECORDED_KEYS: [&str; 13] = [
+        "endpoint",
+        "request",
+        "env",
+        "captured_at",
+        "http_status",
+        "elapsed_ms",
+        "bytes_raw",
+        "sha256_raw",
+        "sha256_file",
+        "mojibake_detected",
+        "redactions",
+        "tool",
+        "license",
+    ];
+
+    /// Licence du sidecar (`record::LICENSE`, répétée ici : le module d'enregistrement n'existe
+    /// que sous la feature `record`).
+    const RECORDED_LICENSE: &str = "Licence Ouverte 2.0 — source : Légifrance / DILA";
+
+    /// Taille maximale d'une fixture enregistrée : 1 Mio.
+    const RECORDED_MAX_BYTES: usize = 1 << 20;
+
+    /// Fichiers sous `dir`, récursivement, triés ; vide si `dir` n'existe pas.
+    fn files_under(dir: &Path) -> Vec<PathBuf> {
+        let mut files = Vec::new();
+        let mut pending = vec![dir.to_path_buf()];
+        while let Some(next) = pending.pop() {
+            let Ok(entries) = fs::read_dir(&next) else { continue };
+            for entry in entries {
+                let path = entry.expect("entry is readable").path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    files.push(path);
+                }
+            }
+        }
+        files.sort();
+        files
+    }
+
+    /// Problèmes de la fixture enregistrée `json` (chemin sous `root`) et de son sidecar.
+    fn recorded_problems(root: &Path, json: &Path) -> Vec<String> {
+        let name =
+            json.strip_prefix(root).expect("under root").to_string_lossy().replace('\\', "/");
+        let bytes = fs::read(json).expect("fixture is readable");
+        let Ok(meta) = fs::read_to_string(json.with_extension("meta.toml")) else {
+            return vec![format!("{name}: no sidecar")];
+        };
+        let Ok(meta) = toml::from_str::<toml::Table>(&meta.replace("\r\n", "\n")) else {
+            return vec![format!("{name}: sidecar is not TOML")];
+        };
+        let mut found: Vec<String> = RECORDED_KEYS
+            .iter()
+            .filter(|key| !meta.contains_key(**key))
+            .map(|key| format!("{name}: missing {key}"))
+            .collect();
+        let text = |key: &str| text_at(&meta, key).unwrap_or("");
+        let digest = hex(&sha256(&bytes));
+        if text("sha256_file") != digest {
+            found.push(format!("{name}: sha256_file differs"));
+        }
+        // Sans caviardage, le fichier est la réponse reçue : même condensat, même indicateur.
+        // Une liste de caviardages absente ou illisible compte comme un caviardage.
+        let redacted = meta
+            .get("redactions")
+            .and_then(toml::Value::as_array)
+            .is_none_or(|list| !list.is_empty());
+        let raw = String::from_utf8_lossy(&bytes);
+        let mojibake = lf_domain::text::encoding::has_latin1_mojibake(&raw);
+        if !redacted
+            && (text("sha256_raw") != digest
+                || meta.get("mojibake_detected").and_then(toml::Value::as_bool) != Some(mojibake))
+        {
+            found.push(format!("{name}: raw digest or mojibake flag differs from the file"));
+        }
+        if !matches!(text("env"), "sandbox" | "production") {
+            found.push(format!("{name}: env must be sandbox or production"));
+        }
+        if !name.starts_with(&format!("{}/", text("endpoint").trim_start_matches('/'))) {
+            found.push(format!("{name}: endpoint differs from the directory"));
+        }
+        if text("license") != RECORDED_LICENSE {
+            found.push(format!("{name}: license"));
+        }
+        if bytes.len() > RECORDED_MAX_BYTES {
+            found.push(format!("{name}: larger than 1 MiB"));
+        }
+        let json = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+        found.extend(leaks(&name, &raw, &json));
+        found
+    }
+
+    /// Problèmes de l'arbre `root` : fichier hors `.json`/`.meta.toml`, sidecar orphelin, puis
+    /// ceux de chaque fixture ; et le nombre de fixtures.
+    fn recorded_tree(root: &Path) -> (Vec<String>, usize) {
+        let files = files_under(root);
+        let mut found = Vec::new();
+        let mut fixtures = 0;
+        for path in &files {
+            let shown =
+                path.strip_prefix(root).expect("under root").to_string_lossy().replace('\\', "/");
+            if shown.ends_with(".meta.toml") {
+                if !files.contains(&path.with_extension("").with_extension("json")) {
+                    found.push(format!("{shown}: orphan sidecar"));
+                }
+            } else if path.extension().is_some_and(|extension| extension == "json") {
+                fixtures += 1;
+                found.extend(recorded_problems(root, path));
+            } else {
+                found.push(format!("{shown}: unexpected file"));
+            }
+        }
+        (found, fixtures)
+    }
+
+    #[test]
+    fn recorded_fixtures_pass_integrity() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/recorded");
+        assert_eq!(recorded_tree(&root), (Vec::<String>::new(), RECORDED));
+    }
+
+    /// Sidecar sain (les quinze clés de `record::render`, moins les deux facultatives) de la
+    /// fixture dont les octets ont pour condensat `digest`.
+    fn healthy_meta(digest: &str) -> String {
+        format!(
+            "endpoint = \"/consult/juri\"\nrequest = \"{{}}\"\nenv = \"sandbox\"\ncaptured_at = \"x\"\n\
+             http_status = 200\nelapsed_ms = 1\nbytes_raw = 28\nsha256_raw = \"{digest}\"\n\
+             sha256_file = \"{digest}\"\nmojibake_detected = false\nredactions = []\ntool = \"t\"\n\
+             license = \"Licence Ouverte 2.0 — source : Légifrance / DILA\"\n"
+        )
+    }
+
+    #[test]
+    fn recorded_tree_flags_each_problem() {
+        let root = std::env::temp_dir().join(format!("lf-recorded-{}", std::process::id()));
+        // Un reste d'un essai interrompu ne doit pas fausser le décompte.
+        let _ = fs::remove_dir_all(&root);
+        let dir = root.join("consult/juri");
+        fs::create_dir_all(&dir).unwrap();
+        let body = br#"{"id":"JURITEXT000000000001"}"#;
+        let meta = healthy_meta(&hex(&sha256(body)));
+        fs::write(dir.join("ok.json"), body).unwrap();
+        fs::write(dir.join("ok.meta.toml"), &meta).unwrap();
+        assert_eq!(recorded_tree(&root), (vec![], 1));
+
+        // Plus de 1 Mio, une suite hexadécimale de 32 caractères ; sidecar sans `tool`, avec un
+        // environnement inconnu, un autre endpoint, une licence altérée et le condensat d'un
+        // autre fichier.
+        let mut big = br#"{"k":"0123456789abcdef0123456789abcdef"}"#.to_vec();
+        big.resize((1 << 20) + 1, b' ');
+        fs::write(dir.join("bad.json"), &big).unwrap();
+        fs::write(
+            dir.join("bad.meta.toml"),
+            meta.replace("tool = \"t\"\n", "")
+                .replace("sandbox", "prod")
+                .replace("/consult/juri", "/consult/kali")
+                .replace("Ouverte 2.0", "Ouverte 1.0"),
+        )
+        .unwrap();
+        fs::write(dir.join("lone.meta.toml"), "").unwrap();
+        fs::write(dir.join("notes.txt"), "").unwrap();
+        fs::write(dir.join("nometa.json"), "{}").unwrap();
+        fs::write(dir.join("broken.json"), "{}").unwrap();
+        fs::write(dir.join("broken.meta.toml"), "= x").unwrap();
+        let (found, fixtures) = recorded_tree(&root);
+        assert_eq!(
+            found,
+            [
+                "consult/juri/bad.json: missing tool",
+                "consult/juri/bad.json: sha256_file differs",
+                "consult/juri/bad.json: raw digest or mojibake flag differs from the file",
+                "consult/juri/bad.json: env must be sandbox or production",
+                "consult/juri/bad.json: endpoint differs from the directory",
+                "consult/juri/bad.json: license",
+                "consult/juri/bad.json: larger than 1 MiB",
+                "consult/juri/bad.json: hexadecimal run",
+                "consult/juri/broken.json: sidecar is not TOML",
+                "consult/juri/lone.meta.toml: orphan sidecar",
+                "consult/juri/nometa.json: no sidecar",
+                "consult/juri/notes.txt: unexpected file",
+            ]
+        );
+        assert_eq!(fixtures, 4);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn recorded_checks_the_mojibake_flag_only_without_redaction() {
+        let root = std::env::temp_dir().join(format!("lf-recorded-moji-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dir = root.join("consult/juri");
+        fs::create_dir_all(&dir).unwrap();
+        // Un mojibake que le sidecar ne signale pas : rapporté tant que rien n'est caviardé.
+        let body = "{\"t\":\"R\u{c3}\u{a9}publique\"}".as_bytes();
+        let digest = hex(&sha256(body));
+        fs::write(dir.join("m.json"), body).unwrap();
+        fs::write(dir.join("m.meta.toml"), healthy_meta(&digest)).unwrap();
+        assert_eq!(
+            recorded_tree(&root).0,
+            ["consult/juri/m.json: raw digest or mojibake flag differs from the file"]
+        );
+        // Avec un caviardage, le condensat brut et l'indicateur portent sur la réponse d'origine.
+        fs::write(
+            dir.join("m.meta.toml"),
+            healthy_meta(&digest).replace("redactions = []", "redactions = [\"/a\"]").replace(
+                &format!("sha256_raw = \"{digest}\""),
+                &format!("sha256_raw = \"{}\"", "0".repeat(64)),
+            ),
+        )
+        .unwrap();
+        assert_eq!(recorded_tree(&root), (vec![], 1));
+        // Une liste de caviardages illisible compte comme un caviardage.
+        fs::write(
+            dir.join("m.meta.toml"),
+            healthy_meta(&digest).replace("redactions = []", "redactions = 1"),
+        )
+        .unwrap();
+        assert_eq!(recorded_tree(&root), (vec![], 1));
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn an_absent_directory_has_no_files() {
+        let absent = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/absent-directory");
+        assert_eq!(files_under(&absent), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn base64_lookalikes_are_exempt_by_key_only() {
+        assert_eq!(BASE64_KEYS, ["path", "url"]);
+        let lookalike = "QUJD".repeat(15);
+        assert_eq!(lookalike.len(), 60);
+        // Un `path` et un `url`, à la racine, imbriqués ou dans un tableau d'objets : exemptés.
+        let exempt = json!({
+            "path": lookalike,
+            "acco": {"url": lookalike},
+            "articles": [{"path": lookalike}, {"url": lookalike}],
+        });
+        assert_eq!(leaks("exempt", &exempt.to_string(), &exempt), Vec::<String>::new());
+        // La même valeur sous toute autre clé est rapportée, y compris une clé qui ne fait que
+        // contenir ou terminer par le nom exempté, ou une clé à point.
+        let flagged = json!({
+            "texte": lookalike,
+            "paths": lookalike,
+            "my_url": lookalike,
+            "x.path": lookalike,
+            "nested": {"texte": lookalike},
+        });
+        assert_eq!(
+            leaks("flagged", &flagged.to_string(), &flagged),
+            [
+                "flagged: base64-like string at my_url",
+                "flagged: base64-like string at nested.texte",
+                "flagged: base64-like string at paths",
+                "flagged: base64-like string at texte",
+                "flagged: base64-like string at x.path",
+            ]
+        );
+        // Un élément de tableau n'a pas de clé : même sous `path`, il est rapporté.
+        let listed = json!({"path": [lookalike]});
+        assert_eq!(
+            leaks("listed", &listed.to_string(), &listed),
+            ["listed: base64-like string at path[0]"]
+        );
+        // Une valeur exemptée ne désactive que le détecteur base64 : un mot d'authentification, un
+        // JWT ou une suite hexadécimale sous `url` restent rapportés.
+        let others = json!({"url": "Bearer eyJhbGciOi.eyJzdWIiOi.c2ln", "path": "f".repeat(32)});
+        assert_eq!(
+            leaks("others", &others.to_string(), &others),
+            [
+                "others: secret word \"bearer\"",
+                "others: hexadecimal run",
+                "others: secret word at url",
+                "others: JWT-like string at url",
+            ]
+        );
     }
 
     #[test]
@@ -370,7 +678,7 @@ mod tests {
     #[test]
     fn leaks_reports_each_kind_and_honours_the_exemption() {
         let clean = json!({"title": "Code du travail", "id": "KALIARTI000049886059"});
-        assert_eq!(leaks("clean", &clean.to_string(), &clean, &[]), Vec::<String>::new());
+        assert_eq!(leaks("clean", &clean.to_string(), &clean), Vec::<String>::new());
         let base64 = "QUJD".repeat(11);
         let json = json!({
             "Authorization": "x",
@@ -380,7 +688,7 @@ mod tests {
             "value": "un Bearer",
             "lookalike": base64,
         });
-        let found = leaks("doc", &json.to_string(), &json, &[]);
+        let found = leaks("doc", &json.to_string(), &json);
         assert_eq!(
             found,
             [
@@ -395,12 +703,14 @@ mod tests {
         // Un mot sensible dans une clé seulement (valeur anodine) est aussi rapporté.
         let key_only = json!({"Authorization": "x"});
         assert_eq!(
-            leaks("key", &key_only.to_string(), &key_only, &[]),
+            leaks("key", &key_only.to_string(), &key_only),
             ["key: secret word \"authorization\""]
         );
-        let safe = json["lookalike"].as_str().unwrap();
-        let found = leaks("doc", &json.to_string(), &json, &[safe]);
-        assert_eq!(found.len(), 5);
-        assert!(!found.iter().any(|line| line.contains("base64")));
+        // La même suite sous `path` n'est plus rapportée comme base64 (le reste l'est).
+        let exempt = json!({"path": base64, "Authorization": "x"});
+        assert_eq!(
+            leaks("doc", &exempt.to_string(), &exempt),
+            ["doc: secret word \"authorization\""]
+        );
     }
 }
