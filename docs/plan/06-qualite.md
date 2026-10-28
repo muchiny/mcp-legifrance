@@ -717,7 +717,7 @@ L'annexe A §2.1 demande que le résultat de P-060 soit consigné ici. Une ligne
 
 | Date (UTC) | Version / commit | `env` | Tests exécutés | Résultat | Étiquettes levées (V-xx) | Remarques |
 |---|---|---|---|---|---|---|
-| — | — | — | — | — | — | aucune exécution à la date de rédaction (pas d'identifiants PISTE, Q3) |
+| 2026-10-28 | `a3e9c53` (branche `feat/m2h-sondes`, plan 2h, PR 2) | sandbox | lot `inconnu/` de `plan.toml` (23 sondes : 19 consultations, 4 recherches ; `cargo xtask record-fixture --plan`) ; `live_unknown_ids_classification` | 23 enregistrements ; le test live est rouge sur `ACCOTEXT` (400 « Le nombre de résultat … n'est pas égal à 1. » classé `InvalidRequest`) (écart attendu du plan 2h, C1) ; vert après la tâche C1 du plan 2h (à relancer par le contrôleur) | V-66 (levé, sandbox), V-67 (levé, sandbox), V-68 (levé, endpoints v0.1) | aucun 404 observé (400, 200 à enveloppe nulle, 500 ou 403) ; M6, M7 et la production non essayés |
 
 ---
 
