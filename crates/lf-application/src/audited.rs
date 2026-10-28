@@ -1009,7 +1009,9 @@ mod tests {
         assert!(timeout(secs(3_600), call.as_mut()).await.is_err());
         assert!(audited.log.records().is_empty());
         audited.log.open_gate();
-        assert_eq!(call.await, Ok(Out(1)));
+        // Bornée : sans réveil de la porte (mutant `open_gate` vide), l'appel resterait en attente
+        // pour toujours et le test pendrait au lieu d'échouer.
+        assert_eq!(timeout(secs(3_600), call).await, Ok(Ok(Out(1))));
         assert_eq!(audited.log.records().len(), 1);
     }
 
