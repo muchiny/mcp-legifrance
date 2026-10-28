@@ -321,7 +321,7 @@ pub enum ConfigProblem {
                                                   // LF_PISTE_OAUTH_URL ou LF_PISTE_BASE_URL (plan 3a, à la place de `setting`)
     UnexpectedApiPath { setting, host },          // « {setting} path on official host {host} must be /dila/legifrance/lf-engine-app »
 }
-// Le Display d'un ConfigProblem est le texte vu par le modèle : CorpusError::Config { kind: Settings, detail } (§5.1).
+// Le Display d'un ConfigProblem est le texte vu par le modèle : CorpusError::Config { kind: Settings, detail } (02 §5.1).
 ```
 
 Règles de `with_overrides` (00 §1, AM-27), toutes testées (§13.2), communes à `LF_PISTE_OAUTH_URL`/`LF_PISTE_BASE_URL` et à leurs équivalents `FR_ELI_*`. Ordre des contrôles : analyse, schéma, parties interdites, environnement, `/` finaux (base seulement), chemin de l'API. **Aucun message ne recopie un morceau de l'entrée** : une URL surchargée peut porter des identifiants (`user:pw@hote` se lit comme un schéma `user` pour `Url::parse`) ; seuls figurent l'hôte officiel, l'hôte d'une surcharge dans `CustomHost` et la raison fixe de l'analyseur d'URL. Seule exception, hors URL : `InvalidEnv` cite la valeur de `LF_PISTE_ENV` (05 §7.2), bornée à 64 caractères et échappée ; un secret collé là par erreur atteindrait le modèle et le journal (question ouverte, 09 §3.16.3).
@@ -1299,15 +1299,15 @@ Les noms suivent la matrice de la recherche 02 §6 quand elle en propose.
 | `oauth_expires_in_null_uses_default_3600` | `expires_in: null`, puis absent, puis `"3600"` | 3 600 s | D-10 |
 | `concurrent_calls_share_one_token_refresh` | token retardé de 100 ms ; 10 appels simultanés | 1 requête token, 10 succès | D-12, P-022 |
 | `api_401_refreshes_once_then_succeeds` | API : 401 puis 200 | 2 requêtes token, 2 requêtes API, succès | P-023 |
-| `second_401_is_auth_api_with_status_401` (nom du plan 3a ; auparavant `api_401_twice_maps_to_auth`) | API : 401, 401 | `Auth { origin: Api, status: Some(401) }` ; 2 requêtes token ; pas de 3e requête API | P-023, D-12 |
+| `second_401_is_auth_api_with_status_401` (nom du plan 3a ; auparavant api_401_twice_maps_to_auth) | API : 401, 401 | `Auth { origin: Api, status: Some(401) }` ; 2 requêtes token ; pas de 3e requête API | P-023, D-12 |
 | `status_401_then_503_then_200_requests_exactly_two_tokens` | API : 401, 503, 200 | 2 requêtes token, 3 requêtes API | D-12, E-20 |
 | `invalidate_does_not_drop_fresher_token` | deux tâches, l'une reçoit un 401 avec un vieux jeton | le jeton neuf est gardé | §3.3 |
 | `oauth_invalid_client_401_maps_to_auth_no_retry` | token : 401 `{"error":"invalid_client"}`, puis variante 400 avec le même corps (statut réel inconnu, RFC 6749 §5.2 admet les deux : **NON VÉRIFIÉ** [V-60 · oauth-reponses]) | `Auth` dans les deux cas, 1 seule requête token, `detail` qui cite `invalid_client` et l'environnement | D-10 |
-| `oauth_400_is_auth_token_with_status_400`, `oauth_403_is_auth_token_with_status_403` (plan 3a ; auparavant `oauth_400_maps_to_auth`, `oauth_403_maps_to_auth`) | token : 400 ; 403 | `Auth { origin: Token, status }` | D-10 |
-| `oauth_404_is_config_oauth_endpoint` (auparavant `oauth_404_maps_to_config_not_not_found`) | token : 404 HTML | `Config { kind: OAuthEndpoint }` | D-10 |
-| `oauth_without_access_token_is_config_oauth_response`, `oauth_invalid_json_is_config_oauth_response` (auparavant `oauth_200_without_access_token_maps_to_config`, `oauth_200_unreadable_json_maps_to_config`) | token : `{}` ; JSON illisible | `Config { kind: OAuthResponse }` (`no access_token`) | S7 |
+| `oauth_400_is_auth_token_with_status_400`, `oauth_403_is_auth_token_with_status_403` (plan 3a ; auparavant oauth_400_maps_to_auth, oauth_403_maps_to_auth) | token : 400 ; 403 | `Auth { origin: Token, status }` | D-10 |
+| `oauth_404_is_config_oauth_endpoint` (auparavant oauth_404_maps_to_config_not_not_found) | token : 404 HTML | `Config { kind: OAuthEndpoint }` | D-10 |
+| `oauth_without_access_token_is_config_oauth_response`, `oauth_invalid_json_is_config_oauth_response` (auparavant oauth_200_without_access_token_maps_to_config, oauth_200_unreadable_json_maps_to_config) | token : `{}` ; JSON illisible | `Config { kind: OAuthResponse }` (`no access_token`) | S7 |
 | `oauth_503_is_retried` | token : 503, 200 | succès, 2 requêtes token | §3.3 |
-| `missing_credentials_is_config_credentials_missing` (`corpus.rs` et `auth.rs` ; auparavant `missing_credentials_makes_no_network_call` et `missing_credentials_are_a_config_error_without_io`) | `credentials = None` | `Config { kind: CredentialsMissing }` immédiat ; `expect(0)` sur tous les mocks | D-39, P-014 |
+| `missing_credentials_is_config_credentials_missing` (`corpus.rs` et `auth.rs` ; auparavant missing_credentials_makes_no_network_call et missing_credentials_are_a_config_error_without_io) | `credentials = None` | `Config { kind: CredentialsMissing }` immédiat ; `expect(0)` sur tous les mocks | D-39, P-014 |
 | `cancel_during_refresh_releases_lock` | token retardé ; futur abandonné | l'appel suivant obtient un jeton | §3.3 |
 
 **Résilience**
@@ -1325,7 +1325,7 @@ Les noms suivent la matrice de la recherche 02 §6 quand elle en propose.
 | `the_503_three_times_maps_to_upstream_retryable` | 503 ×3 | `Upstream { 503, retryable: true }` ; attentes [0,5 ; 1) puis [1 ; 2) s | P-024 |
 | `the_400_is_not_retried` | 400 sans marqueur | `InvalidRequest { status: Some(400) }`, `detail` générique `HTTP 400 on {endpoint}` quand le corps ne livre rien ; avec message : `the_400_with_a_message_is_not_retried_and_carries_it` ; `expect(1)` | §5.1 |
 | `the_403_maps_to_auth` | 403 | `Auth`, sans réessai | §5.1, 00 §5 |
-| `a_gateway_html_403_is_not_an_auth_error`, `api_403_json_is_auth_api_with_status_403` (`classify.rs` ; auparavant `a_json_or_empty_403_stays_an_auth_error`) ; `a_refusal_in_the_token_context_is_typed_as_coming_from_the_token_endpoint` (plan 3a) | 403 avec la page Apache de la passerelle (corps recopié de `search/longueur/mot-unique-100`) ; 403 JSON ou vide ; refus dans le contexte du jeton | `InvalidRequest { status: Some(403), detail: "request rejected by the PISTE gateway" }` ; `Auth { origin: Api, status: Some(403) }` ; `Auth { origin: Token, … }` | §11.2 règle 5 bis, V-81 |
+| `a_gateway_html_403_is_not_an_auth_error`, `api_403_json_is_auth_api_with_status_403` (`classify.rs` ; auparavant a_json_or_empty_403_stays_an_auth_error) ; `a_refusal_in_the_token_context_is_typed_as_coming_from_the_token_endpoint` (plan 3a) | 403 avec la page Apache de la passerelle (corps recopié de `search/longueur/mot-unique-100`) ; 403 JSON ou vide ; refus dans le contexte du jeton | `InvalidRequest { status: Some(403), detail: "request rejected by the PISTE gateway" }` ; `Auth { origin: Api, status: Some(403) }` ; `Auth { origin: Token, … }` | §11.2 règle 5 bis, V-81 |
 | `the_404_is_config_not_not_found` (consultation sur un hôte personnalisé), `the_404_on_search_is_config_not_not_found` | 404 | `Config` | D-10 |
 | `the_404_on_consult_official_host_is_not_found` / `the_404_html_is_config` | — | `NotFound` / `Config` | §11.2 |
 | `redirect_is_not_followed` | 302 `Location` vers un 2e mock | `Upstream { 302 }` ; 2e mock `expect(0)` | §4.2 |
@@ -1376,7 +1376,7 @@ Les noms suivent la matrice de la recherche 02 §6 quand elle en propose.
 | `a_loda_or_code_query_without_version_date_never_reaches_the_network` | `expect(0)` sur le jeton et `/search` | aucune requête ; `InvalidRequest { status: None }` | §6.2 |
 | `ids_go_in_body_never_in_path`, `urls_in_responses_are_never_fetched` | sept méthodes ; `lienJo`, `urlCC`, `url`, `attachementUrl`, `href` KALI vers `/trap` (`expect(0)`) | chemin exact, sans requête ni fragment ; identifiant normalisé dans le corps | D-31, D-04, §14.3 |
 | `unknown_ids_400_map_to_not_found_on_every_consultation` ; `the_400_without_marker_is_an_invalid_request_with_a_generic_detail_on_search` ; `api_401_refreshes_once_then_maps` ; `the_429_and_the_503_are_retried_then_classified` | — | `NotFound { what: <gabarit> }` ×6 ; `InvalidRequest` (message PISTE sur une consultation, `HTTP 400 on /search`) ; deux jetons ; trois requêtes et deux attentes | §5.1, §11.2 |
-| `a_body_of_more_than_16_mib_maps_to_too_large` (plan 3a ; auparavant `a_body_of_more_than_16_mib_maps_to_decode`) ; `a_body_beyond_the_element_budget_maps_to_decode_with_its_path` ; `a_mapping_error_keeps_the_diagnostics_counted_before_it` ; `a_port_error_never_carries_a_body_value` | 16 Mio + 1 octet ; 200 001 articles ; hit écarté puis date illisible ; `sekret-42-Ω` | `TooLarge` (« too large ») ; `Decode` (`articles[200000]: too many elements`, `results[].date: unreadable date`) ; `dropped_hits` versé sur `Err` ; ni `Display`, ni `Debug`, ni journal ne citent la valeur | §4.3, §8.5, §9.3 |
+| `a_body_of_more_than_16_mib_maps_to_too_large` (plan 3a ; auparavant a_body_of_more_than_16_mib_maps_to_decode) ; `a_body_beyond_the_element_budget_maps_to_decode_with_its_path` ; `a_mapping_error_keeps_the_diagnostics_counted_before_it` ; `a_port_error_never_carries_a_body_value` | 16 Mio + 1 octet ; 200 001 articles ; hit écarté puis date illisible ; `sekret-42-Ω` | `TooLarge` (« too large ») ; `Decode` (`articles[200000]: too many elements`, `results[].date: unreadable date`) ; `dropped_hits` versé sur `Err` ; ni `Display`, ni `Debug`, ni journal ne citent la valeur | §4.3, §8.5, §9.3 |
 | `user_agent_contains_crate_version` ; `accept_json_header` | — | en-têtes ; livrés sous le nom `api_request_carries_bearer_accept_and_user_agent` (`corpus.rs`, plan 2c) | D-43, P-025 |
 
 **Sécurité et configuration**
@@ -1479,9 +1479,9 @@ Ni 429 ni `Retry-After` ne sont provoqués volontairement : ce serait contraire 
 | D-04, D-18, D-39, D-40 | tests de configuration, `missing_credentials_is_config_credentials_missing`, `error_messages_never_contain_secret_or_token` |
 | D-06 | client unique (test de construction : un seul `Client` dans `Inner`) |
 | D-09, D-32 | `search_page_2_sends_page_number_2`, `type_recherche_follows_match` |
-| D-10 | `oauth_*_maps_to_*`, `404_on_search_is_config_not_not_found` |
+| D-10 | `oauth_invalid_client_401_maps_to_auth_no_retry`, `oauth_400_is_auth_token_with_status_400`, `oauth_403_is_auth_token_with_status_403`, `oauth_404_is_config_oauth_endpoint`, `oauth_html_page_maps_to_config`, `oauth_without_access_token_is_config_oauth_response`, `oauth_invalid_json_is_config_oauth_response`, `the_404_on_search_is_config_not_not_found`, `api_404_routing_is_config_api_endpoint` |
 | D-11, D-23, D-24 | tests de corps, `dto_parses_every_fixture`, fuzz |
-| D-12, E-20 | `api_401_*`, `status_401_then_503_then_200_*`, `the_429_*`, `the_500_twice_maps_to_upstream_not_retryable`, `concurrent_calls_share_one_token_refresh` |
+| D-12, E-20 | `api_401_refreshes_once_then_succeeds`, `api_401_refreshes_once_then_maps`, `second_401_is_auth_api_with_status_401`, `status_401_then_503_then_200_*`, `the_429_*`, `the_500_twice_maps_to_upstream_not_retryable`, `concurrent_calls_share_one_token_refresh` |
 | D-13 | `rate_limiter_spaces_requests`, `concurrency_cap_is_respected` |
 | D-14 | `tool_deadline_caps_retries`, `deadline_from_task_local_is_used` |
 | D-20, D-21, D-25, D-26, D-28, D-30 | tests de contrat et snapshots |
