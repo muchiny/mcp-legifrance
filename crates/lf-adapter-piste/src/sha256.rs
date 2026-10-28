@@ -192,6 +192,22 @@ mod tests {
     }
 
     #[test]
+    fn sha256_is_right_at_the_padding_boundaries() {
+        // Longueurs qui encadrent le passage du remplissage d'un à deux blocs : 55 octets tiennent
+        // avec leur fin de message dans un bloc, 56 et 63 en réclament deux, 64 remplit un bloc
+        // entier puis un second de remplissage. Condensats vérifiés avec `sha256sum`.
+        let vectors = [
+            (55, "9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318"),
+            (56, "b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a"),
+            (63, "7d3e74a05d7db15bce4ad9ec0658ea98e3f06eeecf16b4c6fff2da457ddc2f34"),
+            (64, "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb"),
+        ];
+        for (length, expected) in vectors {
+            assert_eq!(hex(&sha256(&vec![b'a'; length])), expected, "{length} bytes");
+        }
+    }
+
+    #[test]
     fn hex_writes_two_lowercase_digits_per_byte() {
         assert_eq!(hex(&[0x00, 0x0f, 0xa5, 0xff]), "000fa5ff");
         assert_eq!(hex(&[]), "");
