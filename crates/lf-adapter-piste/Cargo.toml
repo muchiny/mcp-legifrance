@@ -54,5 +54,10 @@ toml.workspace = true
 # snapshots de la projection `view` (view.rs, 04 §13.3) ; json : assert_json_snapshot!
 insta = { workspace = true, features = ["json"] }
 
+# Enregistrement de fixtures (04 §13.4) : lancé par `cargo xtask record-fixture`, jamais par le binaire
+[[example]]
+name = "record_fixture"
+required-features = ["record"]
+
 [lints]
 workspace = true

@@ -2,3 +2,4 @@
 
 pub mod arch;
 pub mod graph;
+pub mod record;

@@ -1042,6 +1042,24 @@ mod tests {
     }
 
     #[test]
+    fn the_shipped_plan_parses_and_every_probe_passes_the_check() {
+        // Le lot livré est lu tel quel (CRLF toléré) : aucune sonde ne doit être refusée par
+        // `Probe::check` avant le réseau, et les noms doivent rester uniques (un nom = un fichier).
+        let text = include_str!("../tests/fixtures/plan.toml").replace("\r\n", "\n");
+        let plan: Plan = toml::from_str(&text).unwrap();
+        let refused: Vec<&str> = plan
+            .probe
+            .iter()
+            .filter_map(|probe| probe.check().is_err().then_some(probe.name.as_str()))
+            .collect();
+        assert_eq!(refused, Vec::<&str>::new());
+        let names: std::collections::BTreeSet<&str> =
+            plan.probe.iter().map(|probe| probe.name.as_str()).collect();
+        assert_eq!(names.len(), plan.probe.len(), "duplicate probe names");
+        assert_ne!(plan.probe.len(), 0);
+    }
+
+    #[test]
     fn debug_of_an_exchange_shows_no_body() {
         let reply = exchange(200, br#"{"secret":"tok-visible"}"#);
         let shown = format!("{reply:?}");
