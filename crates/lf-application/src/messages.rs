@@ -278,10 +278,6 @@ mod tests {
     /// pour être lu).
     const SENTINEL: &str = "GET https://example.invalid/oauth/token Bearer abc client_secret=x";
 
-    fn corpus(tool: ToolName, subject: &str, error: &CorpusError) -> AppError {
-        corpus_error(tool, subject, error)
-    }
-
     /// Code, cause et message d'une `AppError` : la forme de la table de 02 §9.2.
     fn view(error: &AppError) -> (Option<ErrorCode>, Option<UpstreamCause>, &str) {
         (error.code(), error.cause(), error.message())
@@ -453,12 +449,12 @@ mod tests {
         let tool = ToolName::FR_GET_TEXT;
         let rows = [rows_request(), rows_upstream(), rows_config()].concat();
         for (error, code, cause, message) in rows {
-            let app = corpus(tool, ID, &error);
+            let app = corpus_error(tool, ID, &error);
             assert_eq!(view(&app), (code, cause, message), "{error:?}");
         }
         // TooLarge sur get_act : la consigne propre à C2 (04 §7.3).
         let too_large = CorpusError::TooLarge { detail: SENTINEL.to_owned() };
-        let app = corpus(ToolName::FR_GET_ACT, ID, &too_large);
+        let app = corpus_error(ToolName::FR_GET_ACT, ID, &too_large);
         assert_eq!(
             view(&app),
             (
@@ -490,7 +486,7 @@ mod tests {
             (AuthOrigin::Api, None, rejected("")),
         ];
         for (origin, status, message) in rows {
-            let app = corpus(ToolName::FR_SEARCH, "", &auth(origin, status));
+            let app = corpus_error(ToolName::FR_SEARCH, "", &auth(origin, status));
             assert_eq!(view(&app), (Some(ErrorCode::ConfigError), None, message.as_str()));
         }
     }
@@ -552,7 +548,7 @@ mod tests {
             // fausse ») arrivent en `NotFound` : le `what` varie, le message non.
             for what in [id, "empty response", "valider est fausse"] {
                 let error = CorpusError::NotFound { what: what.to_owned() };
-                let app = corpus(tool, id, &error);
+                let app = corpus_error(tool, id, &error);
                 assert_eq!(view(&app), (Some(ErrorCode::NotFound), None, message), "{tool:?}");
             }
         }
@@ -573,7 +569,7 @@ mod tests {
     fn search_and_coverage_never_receive_not_found_and_fall_back_to_decode() {
         for tool in [ToolName::FR_SEARCH, ToolName::FR_COVERAGE] {
             let error = CorpusError::NotFound { what: "x".to_owned() };
-            let app = corpus(tool, "", &error);
+            let app = corpus_error(tool, "", &error);
             assert_eq!(
                 app,
                 expected_upstream(
@@ -598,7 +594,7 @@ mod tests {
         ];
         for (subject, fond) in rows {
             let error = CorpusError::NotFound { what: String::new() };
-            let app = corpus(ToolName::FR_GET_DECISION, subject, &error);
+            let app = corpus_error(ToolName::FR_GET_DECISION, subject, &error);
             let expected = format!(
                 "No {fond} decision found for {subject}. Check the id, or search with fr_search."
             );
@@ -624,7 +620,7 @@ mod tests {
         let uri = ID;
         // S6 : identifiants absents.
         assert_eq!(
-            corpus(act, uri, &config(ConfigKind::CredentialsMissing)),
+            corpus_error(act, uri, &config(ConfigKind::CredentialsMissing)),
             config_error(
                 "PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET \
                  (from your piste.gouv.fr application, section OAuth Credentials)."
@@ -632,28 +628,28 @@ mod tests {
         );
         // S7 : OAuth 200 sans access_token.
         assert_eq!(
-            corpus(act, uri, &config(ConfigKind::OAuthResponse)),
+            corpus_error(act, uri, &config(ConfigKind::OAuthResponse)),
             config_error("PISTE OAuth returned no access_token.")
         );
         // S8 : OAuth 4xx, puis OAuth 404.
         assert_eq!(
-            corpus(act, uri, &auth(AuthOrigin::Token, Some(401))),
+            corpus_error(act, uri, &auth(AuthOrigin::Token, Some(401))),
             AppError::config(rejected(401))
         );
         assert_eq!(
-            corpus(act, uri, &config(ConfigKind::OAuthEndpoint)),
+            corpus_error(act, uri, &config(ConfigKind::OAuthEndpoint)),
             config_error("PISTE OAuth endpoint not found: check LF_PISTE_OAUTH_URL.")
         );
         // S9 : API 404 de ressource, puis 404 de routage.
         assert_eq!(
-            corpus(act, uri, &CorpusError::NotFound { what: uri.to_owned() }),
+            corpus_error(act, uri, &CorpusError::NotFound { what: uri.to_owned() }),
             AppError::not_found(
                 "No LODA text found for LEGITEXT000006070721. Check the id, or search with \
                  fr_search fond=LODA or CODE."
             )
         );
         assert_eq!(
-            corpus(act, uri, &config(ConfigKind::ApiEndpoint)),
+            corpus_error(act, uri, &config(ConfigKind::ApiEndpoint)),
             config_error("Legifrance endpoint not found: check LF_PISTE_BASE_URL.")
         );
     }
@@ -667,7 +663,7 @@ mod tests {
         let search_400 =
             CorpusError::InvalidRequest { status: Some(400), detail: "HTTP 400 on /search".into() };
         assert_eq!(
-            corpus(ToolName::FR_SEARCH, "", &search_400),
+            corpus_error(ToolName::FR_SEARCH, "", &search_400),
             expected_upstream(
                 Status(400),
                 "Legifrance rejected the request (HTTP 400): HTTP 400 on /search"
@@ -678,14 +674,14 @@ mod tests {
             detail: "HTTP 400 on /consult/lawDecree".into(),
         };
         assert_eq!(
-            corpus(act, uri, &consult_400),
+            corpus_error(act, uri, &consult_400),
             expected_upstream(
                 Status(400),
                 "Legifrance rejected the request (HTTP 400): HTTP 400 on /consult/lawDecree"
             )
         );
         assert_eq!(
-            corpus(act, uri, &auth(AuthOrigin::Api, Some(403))),
+            corpus_error(act, uri, &auth(AuthOrigin::Api, Some(403))),
             config_error(
                 "PISTE denied access (HTTP 403): check that the PISTE application is subscribed \
                  to the Legifrance API."
@@ -693,21 +689,21 @@ mod tests {
         );
         // S11 : 502/503/504 puis 500 puis 429.
         assert_eq!(
-            corpus(act, uri, &upstream(Some(503), true)),
+            corpus_error(act, uri, &upstream(Some(503), true)),
             expected_upstream(
                 Status(503),
                 "Legifrance/PISTE HTTP 503 (service unavailable); retry once, then report it."
             )
         );
         assert_eq!(
-            corpus(act, uri, &upstream(Some(500), false)),
+            corpus_error(act, uri, &upstream(Some(500), false)),
             expected_upstream(
                 Status(500),
                 "Legifrance/PISTE HTTP 500 (internal server error); report it."
             )
         );
         assert_eq!(
-            corpus(
+            corpus_error(
                 act,
                 uri,
                 &CorpusError::RateLimited { retry_after: Some(Duration::from_secs(12)) }
@@ -719,7 +715,7 @@ mod tests {
         );
         // S12 : API 401 deux fois.
         assert_eq!(
-            corpus(act, uri, &auth(AuthOrigin::Api, Some(401))),
+            corpus_error(act, uri, &auth(AuthOrigin::Api, Some(401))),
             AppError::config(rejected(401))
         );
     }
@@ -731,14 +727,14 @@ mod tests {
         let uri = ID;
         // S13 : réseau, délai de requête, délai global.
         assert_eq!(
-            corpus(act, uri, &upstream(None, true)),
+            corpus_error(act, uri, &upstream(None, true)),
             expected_upstream(
                 Network,
                 "could not reach Legifrance/PISTE (connection failed); retry once, then report it."
             )
         );
         assert_eq!(
-            corpus(act, uri, &CorpusError::Timeout),
+            corpus_error(act, uri, &CorpusError::Timeout),
             expected_upstream(
                 UpstreamCause::Timeout,
                 "Legifrance/PISTE did not answer in time; retry once, then report it."
@@ -754,15 +750,17 @@ mod tests {
         );
         // S14 : 200 à corps non JSON.
         assert_eq!(
-            corpus(act, uri, &CorpusError::Decode { detail: "expected value".into() }),
+            corpus_error(act, uri, &CorpusError::Decode { detail: "expected value".into() }),
             expected_upstream(Decode, "unexpected response from Legifrance; report it.")
         );
         // S15 : 200 à charge vide ⇒ première phrase de la référence, puis l'aide.
         let empty = CorpusError::NotFound { what: "empty payload".into() };
         assert_eq!(
-            corpus(act, uri, &empty).message(),
-            "No LODA text found for LEGITEXT000006070721. Check the id, or search with fr_search \
-             fond=LODA or CODE."
+            corpus_error(act, uri, &empty),
+            AppError::not_found(
+                "No LODA text found for LEGITEXT000006070721. Check the id, or search with \
+                 fr_search fond=LODA or CODE."
+            )
         );
         // S17 : audit, sans puis avec code d'origine.
         let failure = AuditError { kind: AuditErrorKind::PermissionDenied, detail: "/x".into() };
@@ -811,7 +809,7 @@ mod tests {
             (CorpusError::InvalidRequest { status: None, detail: String::new() }, false),
         ];
         for (error, retryable) in cases {
-            let app = corpus(ToolName::FR_GET_TEXT, ID, &error);
+            let app = corpus_error(ToolName::FR_GET_TEXT, ID, &error);
             assert_eq!(app.message().contains(hint), retryable, "{error:?}");
         }
     }
@@ -826,7 +824,7 @@ mod tests {
             (418, "Legifrance/PISTE HTTP 418; report it."),
         ];
         for (status, message) in rows {
-            let app = corpus(ToolName::FR_GET_ACT, ID, &upstream(Some(status), false));
+            let app = corpus_error(ToolName::FR_GET_ACT, ID, &upstream(Some(status), false));
             assert_eq!(app.message(), message);
             assert_eq!(app.cause(), Some(UpstreamCause::Status(status)));
         }
@@ -843,7 +841,8 @@ mod tests {
             (None, "PISTE quota reached; retry in a few seconds."),
         ];
         for (retry_after, message) in rows {
-            let app = corpus(ToolName::FR_SEARCH, "", &CorpusError::RateLimited { retry_after });
+            let app =
+                corpus_error(ToolName::FR_SEARCH, "", &CorpusError::RateLimited { retry_after });
             assert_eq!(app, AppError::RateLimited { message: message.to_owned(), retry_after });
         }
     }
@@ -863,6 +862,7 @@ mod tests {
                 errors.push(auth(origin, status));
             }
         }
+        errors.push(CorpusError::NotFound { what: SENTINEL.to_owned() });
         errors.push(CorpusError::TooLarge { detail: SENTINEL.to_owned() });
         errors.push(CorpusError::Decode { detail: SENTINEL.to_owned() });
         for status in [None, Some(500), Some(503)] {
@@ -874,7 +874,7 @@ mod tests {
         // par l'adapter (05 §7.2), recopié, coupé à 200 caractères.
         for tool in ToolName::ALL {
             for error in &errors {
-                let app = corpus(tool, ID, error);
+                let app = corpus_error(tool, ID, error);
                 let message = app.message();
                 for sentinel in sentinels {
                     assert!(
@@ -891,7 +891,7 @@ mod tests {
         let long = "é".repeat(250);
         for status in [Some(400), None] {
             let error = CorpusError::InvalidRequest { status, detail: long.clone() };
-            let app = corpus(ToolName::FR_GET_ACT, ID, &error);
+            let app = corpus_error(ToolName::FR_GET_ACT, ID, &error);
             let kept = "é".repeat(200);
             assert!(app.message().contains(&kept), "{status:?}");
             assert!(!app.message().contains(&"é".repeat(201)), "{status:?}");
@@ -899,7 +899,7 @@ mod tests {
         // Un détail de 200 caractères pile passe entier.
         let exact = "x".repeat(200);
         let error = CorpusError::InvalidRequest { status: Some(400), detail: exact.clone() };
-        let app = corpus(ToolName::FR_GET_ACT, ID, &error);
+        let app = corpus_error(ToolName::FR_GET_ACT, ID, &error);
         assert_eq!(app.message(), format!("Legifrance rejected the request (HTTP 400): {exact}"));
     }
 
@@ -907,11 +907,11 @@ mod tests {
     fn config_settings_detail_is_clipped_to_500_chars() {
         let long = "é".repeat(600);
         let error = CorpusError::Config { kind: ConfigKind::Settings, detail: long };
-        let app = corpus(ToolName::FR_GET_ACT, ID, &error);
+        let app = corpus_error(ToolName::FR_GET_ACT, ID, &error);
         assert_eq!(app, AppError::config("é".repeat(500)));
         let exact = "x".repeat(500);
         let error = CorpusError::Config { kind: ConfigKind::Settings, detail: exact.clone() };
-        assert_eq!(corpus(ToolName::FR_GET_ACT, ID, &error), AppError::config(exact));
+        assert_eq!(corpus_error(ToolName::FR_GET_ACT, ID, &error), AppError::config(exact));
     }
 
     #[test]
