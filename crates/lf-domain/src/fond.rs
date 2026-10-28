@@ -102,8 +102,11 @@ impl Fond {
 
 /// Mode de pagination de l'API de recherche : valeur opaque de `typePagination` (04 §6.6).
 ///
-/// Jamais exposé au modèle (00 §7). Le fond `CODE_DATE` répond `ARTICLE` à une requête
-/// `DEFAUT` : le mode reçu peut donc différer du mode demandé, et c'est lui que l'on retient.
+/// Jamais exposé au modèle (00 §7). Le mode reçu peut différer du mode demandé, et c'est lui que
+/// l'on retient pour les pages suivantes : la fixture de référence montre `CODE_DATE` répondant
+/// `ARTICLE` à une requête `DEFAUT`, alors qu'en sandbox (2026-10-28, V-82) il répond `DEFAUT` à
+/// une page 1 en `DEFAUT`, et qu'une page 2 envoyée en `ARTICLE` y rejoue la page 1. Sans mémo,
+/// une page > 1 repart donc en `DEFAUT` pour tous les fonds (04 §6.6).
 /// Placé à côté de [`Fond`] parce que c'est un nom d'API de la même famille.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum PaginationMode {

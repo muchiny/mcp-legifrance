@@ -450,8 +450,10 @@ mod tests {
         assert_eq!(sent_modes(&rig).await, [json!("DEFAUT")]);
     }
 
-    /// V-82 : la page 1 de `CODE_DATE` enregistrée en sandbox répond `typePagination` `DEFAUT` ;
-    /// la page 2 repart donc en `DEFAUT`, et non en `ARTICLE` qui rejouerait la page 1.
+    /// Documente V-82 (ce n'est pas le rouge de C5, qui passait déjà avant : le repli sans mémo
+    /// est testé par `code_page_2_without_memo_sends_defaut`) : la page 1 de `CODE_DATE`
+    /// enregistrée en sandbox répond `typePagination` `DEFAUT` ; la page 2 repart donc en
+    /// `DEFAUT`, et non en `ARTICLE` qui rejouerait la page 1.
     #[tokio::test]
     async fn code_page_2_follows_the_defaut_answered_by_the_sandbox() {
         const PAGE_1: &str =

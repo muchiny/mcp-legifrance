@@ -106,7 +106,8 @@ pub enum CorpusError {
         /// Attente annoncée par `Retry-After` ou par le limiteur.
         retry_after: Option<Duration>,
     },
-    /// Identifiants refusés (OAuth 400/401, second 401 de l'API, 403 de l'API).
+    /// Identifiants refusés (OAuth 400/401, second 401 de l'API, 403 de l'API dont le corps n'est
+    /// pas une page HTML ; la page HTML de la passerelle est une `InvalidRequest`).
     #[error("credentials rejected")]
     Auth {
         /// Détail pour les journaux.

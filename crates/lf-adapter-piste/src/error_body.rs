@@ -1,10 +1,10 @@
-//! Lecture du corps d'erreur de PISTE (400 et 404) : message, marqueur « introuvable », détail
+//! Lecture du corps d'erreur de PISTE (400, 403 et 404) : message, marqueur « introuvable », détail
 //! montrable et détection d'une page HTML (04 §11.2, §11.3).
 //!
 //! Un détail d'erreur PISTE est du **texte du corps** : long, avec des caractères de contrôle,
 //! et susceptible de recopier la requête, donc un jeton ou des données personnelles. Aucune
 //! fonction de ce module ne journalise. [`message`] rend le texte **brut**, réservé à
-//! [`is_not_found_marker`] et à [`clean_detail`] ; seul [`clean_detail`] produit un texte qu'on
+//! [`is_not_found`] et à [`clean_detail`] ; seul [`clean_detail`] produit un texte qu'on
 //! peut montrer ou journaliser.
 
 use crate::dto::decode::decode;
@@ -53,7 +53,7 @@ const ACCO_COUNT_TAIL: [&str; 2] = ["gal", "1"];
 /// chaîne : la lecture est facultative et le statut seul classe alors la réponse. Le mojibake est
 /// réparé si `repair`.
 ///
-/// Le texte rendu n'est ni nettoyé ni expurgé : il ne sert qu'à [`is_not_found_marker`] et à
+/// Le texte rendu n'est ni nettoyé ni expurgé : il ne sert qu'à [`is_not_found`] et à
 /// [`clean_detail`], et ne se journalise ni ne se montre avant ce dernier. L'erreur de décodage
 /// du DTO est écartée sans être lue : son détail ne vaut rien de plus que `None`.
 pub(crate) fn message(body: &[u8], endpoint: &str, repair: bool) -> Option<String> {
@@ -79,8 +79,7 @@ pub(crate) fn is_not_found_marker(message: &str) -> bool {
 /// L'appelant ne passe un message que pour une consultation ; `/search` n'est jamais lue, donc
 /// jamais « introuvable » (04 §11.2 règle 2, décision R7).
 pub(crate) fn is_not_found(endpoint: &str, message: &str) -> bool {
-    is_not_found_marker(message)
-        || (endpoint == ACCO && is_acco_count(message))
+    is_not_found_marker(message) || (endpoint == ACCO && is_acco_count(message))
 }
 
 /// Vrai si le message brut est le comptage d'ACCO : le marqueur, puis sa queue distinctive.
@@ -321,8 +320,12 @@ mod tests {
     fn the_recorded_acco_messages_are_not_found() {
         // Les deux 400 enregistrés en sandbox (V-68), lus du fichier committé.
         for body in [
-            include_str!("../tests/fixtures/recorded/consult/acco/inconnu/ACCOTEXT000000000000.json"),
-            include_str!("../tests/fixtures/recorded/consult/acco/inconnu/ACCOTEXT999999999999.json"),
+            include_str!(
+                "../tests/fixtures/recorded/consult/acco/inconnu/ACCOTEXT000000000000.json"
+            ),
+            include_str!(
+                "../tests/fixtures/recorded/consult/acco/inconnu/ACCOTEXT999999999999.json"
+            ),
         ] {
             let text = message(body.as_bytes(), ACCO, true).unwrap();
             assert!(is_not_found(ACCO, &text), "{text}");

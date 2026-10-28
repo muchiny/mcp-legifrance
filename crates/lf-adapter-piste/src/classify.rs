@@ -133,7 +133,8 @@ pub(crate) fn classify(
 }
 
 /// Classe une réponse HTTP d'après son statut ; `Retry-After` n'est lu que pour 429, 502, 503 et
-/// 504. Le corps n'est lu que pour un 2xx (vide ?), un 400 de consultation et un 404.
+/// 504. Le corps n'est lu que pour un 2xx (vide ?), un 400 de consultation, un 403 (page HTML de
+/// la passerelle ou non) et un 404.
 fn classify_status(
     response: RawResponse,
     endpoint: &str,
@@ -147,8 +148,10 @@ fn classify_status(
         200..=299 => classify_success(response, endpoint, context.kind),
         401 => Outcome::Unauthorized(CorpusError::Auth { detail: detail() }),
         // Une page HTML est celle de la passerelle (Apache, 199 octets observés sur `/search`
-        // avec un mot de 100 caractères ou plus), pas un refus d'accès à l'API : le 403 de l'API
-        // est du JSON ou vide (V-81, 04 §11.2).
+        // avec un mot de 100 caractères ou plus), pas un refus d'accès à l'API. Le seul 403 HTML
+        // enregistré est cette page ; le 403 d'une application non souscrite n'a jamais été
+        // enregistré (V-65) : s'il est lui aussi une page HTML, il sera classé `InvalidRequest`.
+        // Un 403 JSON ou vide reste `Auth`.
         403 if error_body::looks_like_html(&response.body) => {
             Outcome::Fatal(CorpusError::InvalidRequest {
                 status: Some(403),
@@ -838,6 +841,11 @@ mod tests {
         <p>You don't have permission to access this resource.</p>\n\
         </body></html>\n";
 
+    /// 403 JSON d'une route inexistante, lu du fichier enregistré le 2026-10-28.
+    const ROUTE_403_BODY: &str = include_str!(
+        "../tests/fixtures/recorded/consult/inexistant/inconnu/route-inexistante.json"
+    );
+
     fn gateway_403() -> RawResponse {
         RawResponse {
             content_type: Some("text/html; charset=iso-8859-1".to_owned()),
@@ -868,8 +876,9 @@ mod tests {
         let auth = |endpoint: &str| {
             Outcome::Fatal(CorpusError::Auth { detail: format!("HTTP 403 on {endpoint}") })
         };
-        // Le 403 d'une route inexistante : le corps de la requête recopié (04 §11.1).
-        for body in [r#"{"textId":"LEGITEXT000006070721"}"#, ""] {
+        // Le 403 d'une route inexistante, enregistré en sandbox (33 octets) : le corps de la
+        // requête recopié (04 §11.1) ; puis un corps vide.
+        for body in [ROUTE_403_BODY, ""] {
             let response = RawResponse {
                 content_type: Some("application/json".to_owned()),
                 ..with_body(403, body)

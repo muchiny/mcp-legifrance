@@ -462,12 +462,6 @@ mod tests {
     }
 
     #[test]
-    fn a_code_page_without_memo_falls_back_to_defaut() {
-        let (memo, _clock) = memo();
-        assert_eq!(memo.mode_for(&query(Fond::Code, "bail", 2)), PaginationMode::Defaut);
-    }
-
-    #[test]
     fn loda_page_two_without_memo_sends_defaut() {
         let (memo, _clock) = memo();
         assert_eq!(memo.mode_for(&query(Fond::Loda, "bail", 2)), PaginationMode::Defaut);
