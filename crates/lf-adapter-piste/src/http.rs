@@ -339,10 +339,13 @@ async fn read_body(
     Ok(body)
 }
 
+/// Début du `detail` d'un corps trop gros : `get_act` le reconnaît pour orienter l'appelant.
+pub(crate) const TOO_LARGE_PREFIX: &str = "response too large";
+
 /// Erreur « corps trop gros », au libellé de la borne configurée.
 fn too_large(limit: u64, endpoint: &str) -> TransportError {
     TransportError::TooLarge {
-        detail: format!("response too large (> {}) on {endpoint}", format_limit(limit)),
+        detail: format!("{TOO_LARGE_PREFIX} (> {}) on {endpoint}", format_limit(limit)),
     }
 }
 

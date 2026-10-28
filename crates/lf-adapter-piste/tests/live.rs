@@ -300,37 +300,46 @@ mod live {
             assert_eq!(suffixes, [false, false, true], "{text} version of {start}");
         }
 
-        /// Taille et durée de `/consult/lawDecree` sur deux codes entiers (seuils de 04 §7.3, V-96).
+        /// Taille et durée de `/consult/lawDecree` sur deux codes entiers (04 §7.3, V-96, C2).
         ///
-        /// ROUGE à l'essai contre la vraie sandbox, par construction : les seuils (4 Mio, 10 s)
-        /// sont ceux du plan et ne sont pas assouplis ici. Le sort de ce test est celui de la
-        /// tâche conditionnelle C2 du plan 2h, décidée en PR 2 d'après les mesures ; d'ici là, un
-        /// échec de ce test (sur la sandbox) est attendu et ne doit pas faire croire à une
-        /// régression. La borne de corps (64 Mio) n'est que le filet qui laisse la mesure aboutir.
+        /// Mesuré en sandbox le 2026-10-28 : le Code civil rend 6,2 Mio en 1,2 à 1,8 s (200),
+        /// sous la borne de corps de 16 Mio ; le Code du travail rend 31,4 Mio en 6 à 9 s, au-delà.
+        /// Décision (option (b)) : `get_act` d'un texte trop gros rend une erreur claire qui oriente
+        /// vers `get_article` et la recherche. Le Code civil passe donc la lecture brute (statut
+        /// 200, au plus 16 Mio et 10 s) ; le Code du travail, lu par le port, rend l'erreur
+        /// « trop volumineux » de `get_act`.
         #[tokio::test]
         #[ignore = "live: needs LF_PISTE_CLIENT_ID/SECRET"]
         async fn live_lawdecree_on_code_size() {
-            let Some(corpus) = sandbox("live_lawdecree_on_code_size", 64 << 20).await else {
+            let Some(corpus) = sandbox("live_lawdecree_on_code_size", default_body()).await else {
                 return;
             };
-            let mut measures = Vec::new();
-            for code in ["LEGITEXT000006070721", "LEGITEXT000006072050"] {
-                let body = json!({"textId": code, "date": VERSION}).to_string();
-                let reply = corpus.exchange("/consult/lawDecree", body.as_bytes()).await.unwrap();
-                eprintln!("{code}: {} bytes in {} ms", reply.body.len(), reply.elapsed.as_millis());
-                // `exchange` rend tout statut sans erreur : un refus (400, 401, 403, 500) a un petit
-                // corps et répond vite, il passerait les seuils sans rien prouver de V-96.
-                assert_eq!(reply.status, 200, "{code}: HTTP status of /consult/lawDecree");
-                measures.push((
-                    code,
-                    reply.body.len() <= 4 << 20,
-                    reply.elapsed <= Duration::from_secs(10),
-                ));
-            }
-            // Seuils de 04 §7.3 : 4 Mio et 10 s (V-96).
+            let civil = "LEGITEXT000006070721";
+            let body = json!({"textId": civil, "date": VERSION}).to_string();
+            let reply = corpus.exchange("/consult/lawDecree", body.as_bytes()).await.unwrap();
+            eprintln!("{civil}: {} bytes in {} ms", reply.body.len(), reply.elapsed.as_millis());
+            // `exchange` rend tout statut sans erreur : un refus (400, 401, 403, 500) a un petit
+            // corps et répond vite, il passerait les seuils sans rien prouver de V-96.
+            assert_eq!(reply.status, 200, "{civil}: HTTP status of /consult/lawDecree");
             assert_eq!(
-                measures,
-                [("LEGITEXT000006070721", true, true), ("LEGITEXT000006072050", true, true)]
+                (
+                    reply.body.len() as u64 <= default_body(),
+                    reply.elapsed <= Duration::from_secs(10)
+                ),
+                (true, true)
+            );
+            // Le Code du travail dépasse la borne : l'erreur du port est explicite et stable.
+            let labor = LegiTextId::parse("LEGITEXT000006072050").unwrap();
+            let version = VersionDate::parse(VERSION).unwrap();
+            let limit = default_body() >> 20;
+            assert_eq!(
+                corpus.get_act(&labor, version).await.map(drop),
+                Err(CorpusError::Decode {
+                    detail: format!(
+                        "response too large (> {limit} MiB) on /consult/lawDecree: this text is \
+                         too large for get_act; use get_article or search instead"
+                    )
+                })
             );
         }
 

@@ -21,6 +21,7 @@ use serde::de::DeserializeOwned;
 
 use super::PisteCorpus;
 use crate::classify::EndpointKind;
+use crate::http::TOO_LARGE_PREFIX;
 use crate::map::endpoint;
 use crate::map::search::search_page_with_mode;
 use crate::map::{Diagnostics, act, agreement, article, convention, decision, deliberation};
@@ -40,6 +41,25 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     }
 }
 
+/// Oriente l'appelant quand la réponse de `/consult/lawDecree` dépasse la borne de corps.
+///
+/// Un code entier (Code du travail : 31,4 Mio contre une borne de 16 Mio, V-96) ne tient pas
+/// dans `get_act` en v0.1 : la lecture bornée échoue en `Decode`, dont le `detail` reçoit la
+/// consigne. Détection par la conséquence, sans reconnaître les codes à l'avance. Toute autre
+/// erreur, y compris un `Decode` d'une autre cause, passe inchangée.
+fn act_too_large(error: CorpusError) -> CorpusError {
+    match error {
+        CorpusError::Decode { detail } if detail.starts_with(TOO_LARGE_PREFIX) => {
+            CorpusError::Decode {
+                detail: format!(
+                    "{detail}: this text is too large for get_act; use get_article or search instead"
+                ),
+            }
+        }
+        other => other,
+    }
+}
+
 impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S> {
     async fn search(&self, query: &SearchQuery) -> Result<SearchPage, CorpusError> {
         let memo = &self.inner.memo;
@@ -54,7 +74,9 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S>
     }
 
     async fn get_act(&self, id: &LegiTextId, date: VersionDate) -> Result<Act, CorpusError> {
-        self.consult(Consultation::LawDecree(id, date), |dto, diags| act::act(dto, id, diags)).await
+        self.consult(Consultation::LawDecree(id, date), |dto, diags| act::act(dto, id, diags))
+            .await
+            .map_err(act_too_large)
     }
 
     async fn get_article(&self, id: &ArticleId) -> Result<ArticleText, CorpusError> {
@@ -590,6 +612,49 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
             .mount(&rig.server)
             .await;
+    }
+
+    #[tokio::test]
+    async fn get_act_on_a_text_over_the_body_limit_is_a_clear_error() {
+        // Le Code du travail dépasse la borne de corps de 16 Mio (31,4 Mio, V-96, C2) : l'erreur
+        // doit orienter vers `get_article` ou la recherche, sans nouvelle tentative.
+        let rig = Rig::tuned(|setup| setup.tuning.max_body_bytes = 1_000).await;
+        reply_on(&rig, endpoint::LAW_DECREE, "a".repeat(2_000)).await;
+        let law = LegiTextId::parse(fixture("consult_loda").requested).unwrap();
+        assert_eq!(
+            rig.corpus.get_act(&law, version_date()).await.map(drop),
+            Err(CorpusError::Decode {
+                detail: "response too large (> 1000 bytes) on /consult/lawDecree: this text is \
+                         too large for get_act; use get_article or search instead"
+                    .to_owned()
+            })
+        );
+        assert_eq!(api_requests(&rig).await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_oversized_body_on_another_consultation_keeps_the_generic_decode_error() {
+        let rig = Rig::tuned(|setup| setup.tuning.max_body_bytes = 1_000).await;
+        reply_on(&rig, endpoint::JURI, "a".repeat(2_000)).await;
+        let id = DecisionId::parse(fixture("consult_juri").requested).unwrap();
+        assert_eq!(
+            rig.corpus.get_decision(&id).await.map(drop),
+            Err(CorpusError::Decode {
+                detail: "response too large (> 1000 bytes) on /consult/juri".to_owned()
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn get_act_under_the_body_limit_is_decoded_as_before() {
+        // La fixture `consult_loda` tient sous une borne de 1 Mio : la borne seule ne change rien.
+        let name = "consult_loda";
+        let request = json!({"textId": "LEGITEXT000033205014", "date": "2026-10-15"});
+        let rig = Rig::tuned(|setup| setup.tuning.max_body_bytes = 1 << 20).await;
+        serve(&rig, endpoint::LAW_DECREE, request, name).await;
+        let law = LegiTextId::parse(fixture(name).requested).unwrap();
+        let act = rig.corpus.get_act(&law, version_date()).await.unwrap();
+        assert_eq!(view(&Mapped::Act(act)), expected(name, fixture(name).requested));
     }
 
     /// Chemin, query et corps de chaque requête reçue hors jeton, dans l'ordre.
