@@ -229,7 +229,7 @@ fn bad_request(response: &RawResponse, endpoint: &str, context: &ErrorContext<'_
         EndpointKind::Search | EndpointKind::Token => None,
     };
     // Le marqueur se cherche dans le texte brut complet, avant nettoyage, retrait et coupure.
-    if message.as_deref().is_some_and(error_body::is_not_found_marker) {
+    if message.as_deref().is_some_and(|raw| error_body::is_not_found(endpoint, raw)) {
         return CorpusError::NotFound { what: endpoint.to_owned() };
     }
     let detail = message
@@ -482,6 +482,57 @@ mod tests {
                 classify(Ok(piste_error(400, &garbled)), ENDPOINT, &context),
                 fatal(not_found()),
                 "repair {repair_mojibake}"
+            );
+        }
+    }
+
+    /// Corps enregistré en sandbox le 2026-10-28 (lot `inconnu/`, plan 2h) : 400 d'un identifiant
+    /// ACCO inexistant, d'un message qui n'est pas le marqueur « valider est fausse ».
+    const ACCO_UNKNOWN: [&str; 2] = [
+        include_str!("../tests/fixtures/recorded/consult/acco/inconnu/ACCOTEXT000000000000.json"),
+        include_str!("../tests/fixtures/recorded/consult/acco/inconnu/ACCOTEXT999999999999.json"),
+    ];
+    const ACCO_ENDPOINT: &str = "/consult/acco";
+    const ACCO_COUNT_MESSAGE: &str =
+        "Le nombre de résultat retourné par le moteur de recherche n'est pas égal à 1.";
+
+    #[test]
+    fn the_acco_count_message_on_a_consultation_is_not_found() {
+        for context in [CONSULT, OFFICIAL] {
+            for body in ACCO_UNKNOWN {
+                assert_eq!(
+                    classify(Ok(with_body(400, body)), ACCO_ENDPOINT, &context),
+                    fatal(CorpusError::NotFound { what: ACCO_ENDPOINT.to_owned() }),
+                    "{body}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_acco_count_message_is_not_found_only_on_the_acco_consultation() {
+        // R7 : le message de comptage ne dit « introuvable » que de `/consult/acco`. Sur une
+        // autre consultation il reste un 400 rejeté (détail = le message), et sur `/search`,
+        // où le corps n'est pas lu, un 400 au détail générique.
+        for body in ACCO_UNKNOWN {
+            assert_eq!(
+                classify(Ok(with_body(400, body)), ENDPOINT, &OFFICIAL),
+                fatal(invalid(ACCO_COUNT_MESSAGE))
+            );
+            assert_eq!(
+                classify(Ok(with_body(400, body)), SEARCH_ENDPOINT, &SEARCH),
+                fatal(invalid("HTTP 400 on /search"))
+            );
+        }
+    }
+
+    #[test]
+    fn another_400_message_on_the_acco_consultation_is_a_rejected_request() {
+        for message in ["Bad Request", "Une erreur est survenue dans le moteur de recherche"] {
+            assert_eq!(
+                classify(Ok(piste_error(400, message)), ACCO_ENDPOINT, &OFFICIAL),
+                fatal(invalid(message)),
+                "{message}"
             );
         }
     }

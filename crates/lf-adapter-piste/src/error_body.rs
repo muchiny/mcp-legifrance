@@ -30,6 +30,19 @@ const REDACTED: &str = "[redacted]";
 /// fausse ». Le tableau permet d'en ajouter un sans changer la fonction.
 const NOT_FOUND_MARKERS: [&str; 1] = ["valider est fausse"];
 
+/// Endpoint des accords d'entreprise, seul à répondre au comptage plutôt qu'à la validation.
+const ACCO_ENDPOINT: &str = "/consult/acco";
+
+/// Fragment (en minuscules) du 400 d'un identifiant ACCO inexistant : « Le nombre de résultat
+/// retourné par le moteur de recherche n'est pas égal à 1. » (sandbox, 2026-10-28, V-68).
+///
+/// Le fragment est sans accent, pour survivre à un mojibake non réparé comme `valider est
+/// fausse`. « Pas égal à 1 » peut dire zéro comme plusieurs ; pour une recherche par identifiant
+/// il ne peut dire que zéro, les identifiants étant uniques. Ce marqueur n'est donc admis que sur
+/// [`ACCO_ENDPOINT`] : ailleurs, un résultat multiple resterait possible et le message ne
+/// prouverait pas l'absence.
+const ACCO_COUNT_MARKER: &str = "moteur de recherche n'est pas";
+
 /// Texte **brut** du champ `message` d'un corps d'erreur PISTE.
 ///
 /// Rend `None` pour un corps trop gros pour être décodé (plus de 64 Kio), qui n'est pas de
@@ -54,6 +67,17 @@ pub(crate) fn message(body: &[u8], endpoint: &str, repair: bool) -> Option<Strin
 pub(crate) fn is_not_found_marker(message: &str) -> bool {
     let lowered = message.to_lowercase();
     NOT_FOUND_MARKERS.iter().any(|marker| lowered.contains(marker))
+}
+
+/// Vrai si le message brut d'un 400 de **consultation** désigne un identifiant inconnu : le
+/// marqueur général ([`is_not_found_marker`]) sur tout endpoint, et en plus le message de
+/// comptage d'ACCO sur `/consult/acco` seulement.
+///
+/// L'appelant ne passe un message que pour une consultation ; `/search` n'est jamais lue, donc
+/// jamais « introuvable » (04 §11.2 règle 2, décision R7).
+pub(crate) fn is_not_found(endpoint: &str, message: &str) -> bool {
+    is_not_found_marker(message)
+        || (endpoint == ACCO_ENDPOINT && message.to_lowercase().contains(ACCO_COUNT_MARKER))
 }
 
 /// Détail montrable d'un message brut : nettoyer, **puis** retirer les secrets, **puis** couper.
@@ -246,6 +270,39 @@ mod tests {
             "est fausse",
         ] {
             assert!(!is_not_found_marker(text), "{text}");
+        }
+    }
+
+    const ACCO: &str = "/consult/acco";
+    const ACCO_COUNT: &str =
+        "Le nombre de résultat retourné par le moteur de recherche n'est pas égal à 1.";
+
+    #[test]
+    fn the_general_marker_is_not_found_on_every_consultation() {
+        for endpoint in [ENDPOINT, ACCO, "/consult/cnil"] {
+            assert!(is_not_found(endpoint, "L'expression à valider est fausse."), "{endpoint}");
+        }
+    }
+
+    #[test]
+    fn the_acco_count_message_is_not_found_on_the_acco_endpoint_only() {
+        assert!(is_not_found(ACCO, ACCO_COUNT));
+        assert!(is_not_found(ACCO, &ACCO_COUNT.to_uppercase()));
+        assert!(is_not_found(ACCO, &mojibake(ACCO_COUNT)));
+        for endpoint in [ENDPOINT, "/consult/cnil", "/search", "/consult/acco/", ""] {
+            assert!(!is_not_found(endpoint, ACCO_COUNT), "{endpoint}");
+        }
+    }
+
+    #[test]
+    fn other_messages_are_not_found_nowhere() {
+        for message in [
+            "",
+            "Bad Request",
+            "Une erreur est survenue dans le moteur de recherche",
+            "recherche n'est pas égal à 1",
+        ] {
+            assert!(!is_not_found(ACCO, message), "{message}");
         }
     }
 
