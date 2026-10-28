@@ -1,7 +1,7 @@
 //! Enregistrement de nouvelles fixtures (feature `record`, 04 §1.4, §13.4 ; 06 §4.4).
 //!
 //! API brute employée par `examples/record_fixture.rs` (`cargo xtask record-fixture`) et par
-//! les tests live, jamais par le binaire : `PisteCorpus::exchange` envoie une requête par le vrai client de
+//! les tests live, jamais par le binaire : [`PisteCorpus::exchange`](crate::PisteCorpus::exchange) envoie une requête par le vrai client de
 //! l'adapter (User-Agent, OAuth, limiteur, borne de corps) et rend un [`Exchange`] (statut, en-têtes utiles, octets reçus, sans classification,
 //! réessai ni réparation) ; ce module en tire le fichier enregistré et son sidecar `.meta.toml`.
 //!

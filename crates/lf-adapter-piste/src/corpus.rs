@@ -39,6 +39,8 @@ use crate::stats::{Stats, StatsSnapshot};
 use crate::time::{MonoClock, Sleeper, TokioClock, TokioSleeper};
 
 mod port;
+#[cfg(feature = "record")]
+mod raw;
 
 /// Message de parité avec la référence quand les identifiants manquent (04 §2.4).
 const CREDENTIALS_MISSING: &str = "PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET (from your piste.gouv.fr application, section OAuth Credentials)";
@@ -481,7 +483,7 @@ mod tests {
         uri: String,
         pub(super) credentials: Option<PisteCredentials>,
         problem: Option<ConfigProblem>,
-        user_agent: String,
+        pub(super) user_agent: String,
         pub(super) tuning: PisteTuning,
     }
 
