@@ -27,11 +27,5 @@ pretty_assertions.workspace = true
 tracing-subscriber.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
-# `tracing` et `tracing-subscriber` (dev) n'ont pas encore d'utilisateur : `Audited` (plan 3a,
-# tâche 4) émet les événements `tracing` et ses tests les capturent. À retirer si une tâche
-# ultérieure rend l'exception inutile.
-[package.metadata.cargo-machete]
-ignored = ["tracing", "tracing-subscriber"]
-
 [lints]
 workspace = true

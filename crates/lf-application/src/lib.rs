@@ -8,10 +8,12 @@
 //! [`error::UpstreamCause`] et l'erreur d'application [`error::AppError`] ; le module
 //! [`messages`] rédige les textes d'erreur vus par le modèle ; le module `testing` (feature
 //! `test-support`) fournit les doublures `FakeCorpus`, `FixedClock`, `MemoryAuditLog` et
-//! `FailingAuditLog`. `Audited` suit en tâche 6 du plan 3a ; les cas d'usage viennent au plan 3b.
+//! `FailingAuditLog` ; le décorateur [`audited::Audited`] enveloppe chaque exécution d'outil
+//! (délai global, annulation, ligne d'audit). Les cas d'usage viennent au plan 3b.
 //!
 //! Dépendances : liste fermée de 02 §3.2 (R2), vérifiée par `cargo xtask check-arch`.
 
+pub mod audited;
 pub mod deadline;
 pub mod error;
 pub mod input;
