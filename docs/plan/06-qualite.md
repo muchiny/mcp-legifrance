@@ -1085,6 +1085,11 @@ jobs:
       - uses: Swatinem/rust-cache@<sha>
       - uses: taiki-e/install-action@<sha>
         with: { tool: "cargo-nextest@0.9.148" }
+      # Compilation sans secret : mêmes arguments que l'étape finale (le cache sert), pour qu'aucun
+      # build.rs ni macro procédurale ne tourne avec les identifiants dans l'environnement.
+      - run: >-
+          cargo nextest run -p lf-adapter-piste --test live --all-features --locked
+          --profile live --no-run
       # --all-features : les tests sur octets bruts (feature `record`) sont du lot. Les secrets ne sont
       # exposés qu'à cette étape (env:), jamais aux actions tierces ni au texte du script.
       - env:
@@ -1095,7 +1100,7 @@ jobs:
           --profile live --run-ignored only --no-fail-fast
 ```
 
-La commande vise le seul crate et le seul test d'intégration `live` (l'esquisse d'origine lançait `--workspace`, sans features, ce qui aurait laissé de côté les tests sur octets bruts) ; le workflow n'a ni entrée `scope` ni envoi d'artefact. Un échec de `live_lawdecree_on_code_size` y est attendu tant que la tâche conditionnelle C2 du plan 2h n'est pas décidée (04 §13.5).
+La commande vise le seul crate et le seul test d'intégration `live` (l'esquisse d'origine lançait `--workspace`, sans features, ce qui aurait laissé de côté les tests sur octets bruts) ; une étape de compilation sans secret (`--no-run`, mêmes arguments) précède celle qui porte les secrets, laquelle ne compile donc plus rien ; le workflow n'a ni entrée `scope` ni envoi d'artefact. Un échec de `live_lawdecree_on_code_size` y est attendu tant que la tâche conditionnelle C2 du plan 2h n'est pas décidée (04 §13.5).
 
 Le workflow ne s'exécute pas sur `pull_request` : une PR venue d'un fork n'a jamais accès aux secrets. Les journaux ne contiennent aucun secret (§10, ligne MEN-01), puisque GitHub masque les secrets déclarés et que le code ne les journalise jamais. Il n'existe ni job ni environnement `production` : les sondes de production sont lancées à la main par le mainteneur, hors CI (§5.2).
 

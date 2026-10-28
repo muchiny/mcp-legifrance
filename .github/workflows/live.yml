@@ -39,8 +39,14 @@ jobs:
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-nextest@0.9.148
+      # Compilation SANS secret (L6) : mêmes arguments que l'étape finale, pour que son cache serve et
+      # qu'aucun `build.rs` ni macro procédurale ne tourne avec les identifiants dans l'environnement.
+      - run: >-
+          cargo nextest run -p lf-adapter-piste --test live --all-features --locked
+          --profile live --no-run
       # `--all-features` : les tests sur octets bruts (feature `record`) sont du lot. Les secrets ne
-      # sont exposés qu'à cette étape (env:), jamais aux actions tierces ni au texte du script.
+      # sont exposés qu'à cette étape (env:), jamais aux actions tierces ni au texte du script ;
+      # elle ne recompile rien.
       - env:
           LF_PISTE_CLIENT_ID: ${{ secrets.LF_PISTE_CLIENT_ID }}
           LF_PISTE_CLIENT_SECRET: ${{ secrets.LF_PISTE_CLIENT_SECRET }}
