@@ -757,8 +757,15 @@ mod tests {
         assert_eq!(violations(&orphan), ["lf-domain missing from workspace metadata"]);
     }
 
+    /// Chaque cas (règle, graphe, violation attendue) produit cette seule violation.
+    fn assert_each_rule_is_detected(cases: Vec<(&str, Vec<Package>, &str)>) {
+        for (rule, graph, expected) in cases {
+            assert_eq!(violations(&graph), [expected], "{rule}");
+        }
+    }
+
     #[test]
-    fn check_arch_detects_each_rule() {
+    fn check_arch_detects_each_dependency_rule() {
         let domain = || pkg("lf-domain", &[]);
         let cases: Vec<(&str, Vec<Package>, &str)> = vec![
             (
@@ -833,6 +840,14 @@ mod tests {
                 vec![domain(), pkg("xtask", &["async-trait"])],
                 "xtask must not depend on async-trait",
             ),
+        ];
+        assert_each_rule_is_detected(cases);
+    }
+
+    #[test]
+    fn check_arch_detects_each_workspace_rule() {
+        let domain = || pkg("lf-domain", &[]);
+        let cases: Vec<(&str, Vec<Package>, &str)> = vec![
             (
                 "5a",
                 vec![domain(), Package { edition: "2021".into(), ..pkg("xtask", &[]) }],
@@ -867,9 +882,7 @@ mod tests {
                 "xtask requires lf-domain ^0.0, expected =0.0.0",
             ),
         ];
-        for (rule, graph, expected) in cases {
-            assert_eq!(violations(&graph), [expected], "{rule}");
-        }
+        assert_each_rule_is_detected(cases);
     }
 
     #[test]
