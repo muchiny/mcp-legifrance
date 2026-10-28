@@ -153,4 +153,18 @@ mod tests {
         let copy = original.clone();
         assert_eq!(format!("{copy:?}"), format!("{original:?}"));
     }
+
+    #[test]
+    fn record_debug_never_shows_the_arguments() {
+        // L'adapter d'audit hache `input` ; un `Debug` journalisé n'en montre que la longueur.
+        let sentinel = "sentinel-argument-value";
+        let record = AuditRecord {
+            input: CanonicalInput::new(format!(r#"{{"query":"{sentinel}"}}"#)),
+            ..record(AuditStatus::Ok)
+        };
+        for rendered in [format!("{record:?}"), format!("{record:#?}")] {
+            assert!(!rendered.contains(sentinel), "{rendered}");
+            assert!(rendered.contains("CanonicalInput(<35 bytes>)"), "{rendered}");
+        }
+    }
 }

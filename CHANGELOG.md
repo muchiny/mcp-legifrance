@@ -72,7 +72,7 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - Adapter PISTE : le `detail` d'un 400 de consultation porte le message PISTE nettoyé ; celui d'un 400 de `/search` reste générique (`HTTP 400 on /search`).
 - Domaine (plan 2e) : `text`, `etat`, `idcc` et `nor` des entités typés (`LongText`, `LegalStatus`, `Idcc`, `Nor`) à la place de chaînes ; `CodeArticleRef.snippet` est un `Option<Snippet>` ; `clean` délègue à `clean_with_report`.
 - `CorpusError` typé (plan 3a) : `Auth { origin: AuthOrigin, status, detail }`, `Config { kind: ConfigKind, detail }` et nouvelle variante `TooLarge` ; l'adapter PISTE rend `TooLarge` pour un corps au-delà de la borne sur `/search` et les consultations (`Decode` sur l'endpoint du jeton), et pose l'origine, le statut et la nature à chaque site.
-- Adapter PISTE (plan 3a) : `ConfigProblem::InvalidEnv { value }` (texte de `docs/plan/05-outils-mcp.md` §7.2, valeur bornée et échappée) ; `ConfigProblem::EnvMismatch` porte `variable` (`LF_PISTE_BASE_URL` ou `LF_PISTE_OAUTH_URL`) à la place de `setting`, et son texte devient celui de 05 §7.2.
+- Adapter PISTE (plan 3a) : `ConfigProblem::InvalidEnv { value: RejectedEnv }`, construit par `ConfigProblem::invalid_env` (texte de `docs/plan/05-outils-mcp.md` §7.2 ; la valeur n'est citée que si elle fait 1 à 16 lettres ASCII, sinon le message ne donne que son nombre de caractères et la valeur brute n'est jamais conservée, pas même dans le `Debug`) ; `ConfigProblem::EnvMismatch` porte `variable` (`LF_PISTE_BASE_URL` ou `LF_PISTE_OAUTH_URL`) à la place de `setting`, et son texte devient celui de 05 §7.2.
 
 ### Removed
 
@@ -84,7 +84,7 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - Un suffixe de version impossible (`_31-02-2023`, `_foo`) est refusé au lieu d'être retiré en silence.
 - Les dates sentinelles (2999-01-01, 2222-02-22) se lisent comme « sans fin ».
 - Tests de l'adapter PISTE : port « fermé » rendu déterministe (`ClosedPort`).
-- Adapter PISTE : `get_act` sur un texte dont la réponse dépasse la borne de corps (Code du travail, 31,4 Mio) rend une erreur explicite qui oriente vers `get_article` ou la recherche, au lieu de l'erreur opaque de lecture (V-96) ; depuis le plan 3a, l'erreur est `TooLarge` et le texte (`this text is too large for get_act; use get_article or search instead.`) est rédigé par `lf-application::messages`.
+- Adapter PISTE : `get_act` sur un texte dont la réponse dépasse la borne de corps (Code du travail, 31,4 Mio) rend une erreur explicite qui oriente vers la lecture par article ou la recherche, au lieu de l'erreur opaque de lecture (V-96) ; depuis le plan 3a, l'erreur est `TooLarge` et le texte (`this text is too large for fr_get_act; read its articles with fr_get_text, or find them with fr_search fond=CODE.`, qui ne nomme que des outils exposés) est rédigé par `lf-application::messages`.
 - Adapter PISTE : un 403 à corps HTML (page de la passerelle) n'est plus lu comme une application non souscrite ; il devient `InvalidRequest { status: Some(403), .. }` (V-81). Réserve : le 403 d'une application non souscrite n'a pas été observé (V-65).
 - `QueryText` : longueur maximale ramenée de 500 à 450 caractères, la limite mesurée de PISTE (accepté à 450, erreur 500 à 499 ; V-81) ; limite mesurée en caractères (ASCII et accentués), l'intervalle 451-498 n'est pas sondé et 450 est la borne conservatrice.
 

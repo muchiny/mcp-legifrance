@@ -342,7 +342,8 @@ mod live {
                 "{civil}: get_act of a 6.2 MiB code"
             );
             // Le Code du travail dépasse la borne : l'erreur du port est typée et stable (la
-            // consigne `get_article` est rédigée par `lf-application::messages`).
+            // consigne, qui oriente vers `fr_get_text` et `fr_search`, est rédigée par
+            // `lf-application::messages`).
             let labor = LegiTextId::parse("LEGITEXT000006072050").unwrap();
             let limit = default_body() >> 20;
             assert_eq!(

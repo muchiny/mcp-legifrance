@@ -9,13 +9,15 @@
 //! Aucun message d'erreur ne recopie un morceau d'une URL (une URL surchargée peut porter des
 //! identifiants) : seuls l'hôte officiel, l'hôte d'une surcharge dans
 //! [`ConfigWarning::CustomHost`] et la raison fixe de l'analyseur d'URL y figurent. Seule valeur
-//! citée : celle de `LF_PISTE_ENV` refusée ([`ConfigProblem::InvalidEnv`], texte de 05 §7.2),
-//! bornée et échappée.
+//! citée : celle de `LF_PISTE_ENV` refusée ([`ConfigProblem::InvalidEnv`], texte de 05 §7.2), et
+//! seulement si elle fait 1 à 16 lettres ASCII ; sinon, sa longueur seule
+//! ([`ConfigProblem::invalid_env`]).
 //!
 //! Le `Display` d'un [`ConfigProblem`] devient le `detail` de `CorpusError::Config` de nature
 //! `Settings`, que `lf-application::messages` rend tel quel au modèle : les textes que 05 §7.2
 //! fixe (`InvalidEnv`, `EnvMismatch`) y sont repris au caractère près, point final compris.
 
+use std::fmt;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::time::Duration;
 
@@ -49,8 +51,10 @@ const RATE_BURST: NonZeroU32 = NonZeroU32::new(10).unwrap();
 const MAX_CONCURRENCY: NonZeroU16 = NonZeroU16::new(4).unwrap();
 /// Taille maximale d'un corps de réponse (00 §8).
 const MAX_BODY_BYTES: u64 = 16 * 1024 * 1024;
-/// Caractères d'une valeur citée dans un message, au plus (03 §2.7 : même borne que le domaine).
-const SHOWN_MAX_CHARS: usize = 64;
+/// Longueur, en octets (donc en lettres ASCII), d'une valeur de `LF_PISTE_ENV` refusée que le
+/// message peut encore citer (M-1) : au-delà, ce n'est plus une faute de frappe de `sandbox` ou
+/// de `production`, et la valeur pourrait être un secret collé par erreur.
+const ENV_QUOTED_MAX_LEN: usize = 16;
 
 /// Hôte officiel de PISTE.
 struct OfficialHost {
@@ -129,11 +133,11 @@ pub enum ConfigWarning {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ConfigProblem {
     /// Valeur de `LF_PISTE_ENV` qui n'est ni `sandbox` ni `production` (04 §2.2), construite par
-    /// `lf-app`, seul à lire l'environnement. Texte de 05 §7.2.
-    #[error("LF_PISTE_ENV='{}' is invalid: expected sandbox or production.", shown(.value))]
+    /// `lf-app`, seul à lire l'environnement, par [`ConfigProblem::invalid_env`]. Texte de 05 §7.2.
+    #[error("{value}")]
     InvalidEnv {
-        /// Valeur lue, citée bornée et échappée.
-        value: String,
+        /// Ce qu'un message peut montrer de la valeur lue ; jamais la valeur brute.
+        value: RejectedEnv,
     },
     /// Texte qui n'est pas une URL.
     #[error("invalid {setting}: {reason}")]
@@ -184,11 +188,59 @@ pub enum ConfigProblem {
     },
 }
 
-/// Valeur citée dans un message, comme le `repr()` le plus courant (E-27) : au plus
-/// [`SHOWN_MAX_CHARS`] caractères, contrôles, apostrophes et barres obliques inverses échappés.
-/// Une valeur hostile ne casse ni la citation ni la ligne de journal, et reste bornée.
-fn shown(value: &str) -> String {
-    value.chars().take(SHOWN_MAX_CHARS).flat_map(char::escape_debug).collect()
+impl ConfigProblem {
+    /// `LF_PISTE_ENV` refusée : seule une faute de frappe plausible (1 à 16 lettres ASCII :
+    /// `prod`, `Production`) est gardée pour être citée ; de toute autre valeur, il ne reste que
+    /// le nombre de caractères (M-1, dérogation à la citation de 05 §7.2).
+    ///
+    /// Un secret collé là par erreur (un identifiant de 36 caractères, une ligne de `piste.env`
+    /// entière) n'atteint donc ni le modèle, ni le journal d'audit, ni le `Debug` : la valeur
+    /// brute n'est jamais conservée. Une valeur citée n'a rien à échapper ni à couper.
+    #[must_use]
+    pub fn invalid_env(raw: &str) -> Self {
+        let plausible = !raw.is_empty()
+            && raw.len() <= ENV_QUOTED_MAX_LEN
+            && raw.bytes().all(|byte| byte.is_ascii_alphabetic());
+        let shown = if plausible {
+            Shown::Quoted(raw.to_owned())
+        } else {
+            Shown::Hidden { chars: raw.chars().count() }
+        };
+        Self::InvalidEnv { value: RejectedEnv(shown) }
+    }
+}
+
+/// Valeur refusée de `LF_PISTE_ENV`, réduite à ce qu'un message peut en montrer. Seul
+/// [`ConfigProblem::invalid_env`] la construit (champ privé) ; son `Display` est le texte entier
+/// de [`ConfigProblem::InvalidEnv`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RejectedEnv(Shown);
+
+/// Ce qui reste de la valeur : elle-même (faute de frappe plausible) ou sa longueur.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Shown {
+    /// 1 à 16 lettres ASCII, citées telles quelles.
+    Quoted(String),
+    /// Toute autre valeur : son nombre de caractères (points de code).
+    Hidden {
+        /// Nombre de caractères de la valeur lue.
+        chars: usize,
+    },
+}
+
+impl fmt::Display for RejectedEnv {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.0 {
+            Shown::Quoted(value) => {
+                write!(f, "LF_PISTE_ENV='{value}' is invalid: expected sandbox or production.")
+            }
+            Shown::Hidden { chars } => write!(
+                f,
+                "LF_PISTE_ENV is invalid (value not shown, {chars} characters): expected sandbox \
+                 or production."
+            ),
+        }
+    }
 }
 
 /// Adresses de l'adapter : jeton OAuth et base de l'API.
@@ -1191,7 +1243,7 @@ mod tests {
     #[test]
     fn env_invalid_and_env_mismatch_display_match_05_7_2() {
         assert_eq!(
-            ConfigProblem::InvalidEnv { value: "prod".to_owned() }.to_string(),
+            ConfigProblem::invalid_env("prod").to_string(),
             "LF_PISTE_ENV='prod' is invalid: expected sandbox or production."
         );
         assert_eq!(
@@ -1206,16 +1258,76 @@ mod tests {
         );
     }
 
+    /// Texte d'une valeur de `LF_PISTE_ENV` non citée, de `chars` caractères (M-1).
+    fn hidden_env(chars: usize) -> String {
+        format!(
+            "LF_PISTE_ENV is invalid (value not shown, {chars} characters): expected sandbox or \
+             production."
+        )
+    }
+
     #[test]
-    fn an_invalid_env_value_is_quoted_escaped_and_clipped() {
-        // Ni retour à la ligne (journal), ni apostrophe nue (citation), ni valeur sans fin.
-        let value = format!("x'\n{}", "y".repeat(100));
+    fn an_invalid_env_value_is_quoted_only_when_it_is_a_short_ascii_word() {
+        // Faute de frappe plausible : 1 à 16 lettres ASCII, citées telles quelles.
+        for value in ["prod", "Production", "SANDBOX", "abcdefghijklmnop"] {
+            assert_eq!(
+                ConfigProblem::invalid_env(value).to_string(),
+                format!("LF_PISTE_ENV='{value}' is invalid: expected sandbox or production."),
+                "{value}"
+            );
+        }
+        // Tout le reste n'est compté qu'en caractères (points de code), jamais cité : trop long,
+        // chiffre, tiret, espace, lettre non ASCII, retour à la ligne, valeur vide.
+        let rows = [
+            ("abcdefghijklmnopq", 17),
+            ("prod1", 5),
+            ("pre-prod", 8),
+            (" prod", 5),
+            ("prodé", 5),
+            ("prod\n", 5),
+            ("", 0),
+        ];
+        for (value, chars) in rows {
+            assert_eq!(
+                ConfigProblem::invalid_env(value).to_string(),
+                hidden_env(chars),
+                "{value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_secret_pasted_into_lf_piste_env_is_never_kept() {
+        // Une valeur de la forme d'un identifiant client (UUID, 36 caractères, factice à
+        // l'évidence) et une valeur multi-ligne qui recopie une affectation de secret : ni le
+        // `Display` (modèle, audit) ni le `Debug` (journaux) ne les portent, en tout ou en partie.
+        let uuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        let multiline = "sandbox\nLF_PISTE_CLIENT_SECRET=placeholder";
+        for (value, chars, fragments) in [
+            (uuid, 36, &["aaaa", "bbbb", "eeeeeeeeeeee"][..]),
+            // « sandbox » figure dans le texte fixe (« expected sandbox or production ») : on
+            // cherche la suite de la valeur et le retour à la ligne, brut ou échappé.
+            (multiline, 42, &["CLIENT_SECRET", "placeholder", "\n", "\\n"][..]),
+        ] {
+            let problem = ConfigProblem::invalid_env(value);
+            assert_eq!(problem.to_string(), hidden_env(chars), "{chars}");
+            for rendered in [problem.to_string(), format!("{problem:?}")] {
+                for fragment in fragments {
+                    assert!(!rendered.contains(fragment), "{fragment} in {rendered}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_quoted_env_value_shows_in_debug_and_a_hidden_one_only_by_length() {
         assert_eq!(
-            ConfigProblem::InvalidEnv { value }.to_string(),
-            format!(
-                "LF_PISTE_ENV='x\\'\\n{}' is invalid: expected sandbox or production.",
-                "y".repeat(61)
-            )
+            format!("{:?}", ConfigProblem::invalid_env("prod")),
+            r#"InvalidEnv { value: RejectedEnv(Quoted("prod")) }"#
+        );
+        assert_eq!(
+            format!("{:?}", ConfigProblem::invalid_env("prod1")),
+            "InvalidEnv { value: RejectedEnv(Hidden { chars: 5 }) }"
         );
     }
 }

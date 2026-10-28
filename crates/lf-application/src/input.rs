@@ -5,7 +5,10 @@ use std::{fmt, sync::Arc};
 /// Un appel d'outil tel que reçu : l'adapter entrant a tenté le décodage, mais c'est
 /// l'application qui audite le résultat. Une erreur de décodage devient donc un `invalid_arg`
 /// audité (E-29, D-02).
-#[derive(Debug, Clone)]
+///
+/// Son `Debug` ne montre aucun argument (02 §11.3, F-4) : ni l'entrée décodée, ni le message de
+/// décodage (qui les cite), seulement l'issue du décodage et la longueur du JSON canonique.
+#[derive(Clone)]
 pub struct ToolCall<I> {
     /// L'entrée décodée, ou la raison pour laquelle elle ne l'a pas été.
     pub input: Result<I, InputError>,
@@ -13,10 +16,32 @@ pub struct ToolCall<I> {
     pub canonical: CanonicalInput,
 }
 
+impl<I> fmt::Debug for ToolCall<I> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let input = match self.input {
+            Ok(_) => "Ok(<decoded>)",
+            Err(_) => "Err(<decoding error>)",
+        };
+        f.debug_struct("ToolCall")
+            .field("input", &format_args!("{input}"))
+            .field("canonical", &self.canonical)
+            .finish()
+    }
+}
+
 /// JSON canonique de l'objet `arguments` brut. Le clone ne copie pas le texte : l'appel, la
 /// ligne d'audit et la trace d'un même appel le partagent.
-#[derive(Debug, Clone)]
+///
+/// Son `Debug` n'en donne que la longueur en octets, `CanonicalInput(<N bytes>)` : `CallMeta`,
+/// `AuditRecord` et `ToolCall`, qui le portent, peuvent finir dans un journal (02 §11.3, F-4).
+#[derive(Clone)]
 pub struct CanonicalInput(Arc<str>);
+
+impl fmt::Debug for CanonicalInput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CanonicalInput(<{} bytes>)", self.0.len())
+    }
+}
 
 impl CanonicalInput {
     /// Enveloppe un texte déjà canonique ; la canonicalisation est faite par l'adapter entrant.
@@ -66,6 +91,41 @@ mod tests {
     fn input_error_displays_its_message() {
         let error = InputError { message: "page_size: invalid type".to_owned() };
         assert_eq!(error.to_string(), "page_size: invalid type");
+    }
+
+    /// Argument témoin : il ne doit apparaître dans aucun `Debug` (journaux, F-4).
+    const SENTINEL: &str = "sentinel-argument-value";
+
+    #[test]
+    fn canonical_input_debug_shows_only_its_length_in_bytes() {
+        // 26 octets pour 24 caractères : la longueur est celle du texte JSON, en octets.
+        let input = CanonicalInput::new(r#"{"query":"bail résilié"}"#);
+        assert_eq!(format!("{input:?}"), "CanonicalInput(<26 bytes>)");
+        let input = CanonicalInput::new(format!(r#"{{"query":"{SENTINEL}"}}"#));
+        assert_eq!(format!("{input:?}"), "CanonicalInput(<35 bytes>)");
+        assert_eq!(format!("{:?}", CanonicalInput::new("")), "CanonicalInput(<0 bytes>)");
+    }
+
+    #[test]
+    fn tool_call_debug_never_shows_the_arguments() {
+        let canonical = CanonicalInput::new(format!(r#"{{"query":"{SENTINEL}"}}"#));
+        let decoded: ToolCall<String> =
+            ToolCall { input: Ok(SENTINEL.to_owned()), canonical: canonical.clone() };
+        let rejected: ToolCall<String> = ToolCall {
+            input: Err(InputError { message: format!("query: invalid value '{SENTINEL}'") }),
+            canonical,
+        };
+        assert_eq!(
+            format!("{decoded:?}"),
+            "ToolCall { input: Ok(<decoded>), canonical: CanonicalInput(<35 bytes>) }"
+        );
+        assert_eq!(
+            format!("{rejected:?}"),
+            "ToolCall { input: Err(<decoding error>), canonical: CanonicalInput(<35 bytes>) }"
+        );
+        for rendered in [format!("{decoded:?}"), format!("{rejected:?}"), format!("{decoded:#?}")] {
+            assert!(!rendered.contains(SENTINEL), "{rendered}");
+        }
     }
 
     #[test]

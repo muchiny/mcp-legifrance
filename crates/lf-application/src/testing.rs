@@ -38,8 +38,9 @@ use crate::{
 };
 
 /// Durée relevée par [`FakeCorpus::seen_deadlines`] quand aucune échéance n'est publiée : « sans
-/// limite », pour la distinguer d'une échéance réelle. Sentinelle de comparaison, jamais un
-/// budget : `Deadline::after(NO_DEADLINE)` paniquerait par débordement de l'instant.
+/// limite », pour la distinguer d'une échéance réelle. Sentinelle de comparaison, pas un budget :
+/// `Deadline::after(NO_DEADLINE)` ne panique plus (l'échéance sature à environ 30 ans), mais la
+/// durée restante relevée ensuite vaudrait ce repli, jamais `NO_DEADLINE`.
 pub const NO_DEADLINE: Duration = Duration::MAX;
 
 /// Prend un verrou sans `unwrap` : un verrou empoisonné rend ses données, déjà cohérentes ici

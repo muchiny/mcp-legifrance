@@ -28,8 +28,10 @@ const SETTINGS_DETAIL_MAX: usize = 500;
 const DECODE_MESSAGE: &str = "unexpected response from Legifrance; report it.";
 
 /// Message d'un `TooLarge` sur `fr_get_act` (C2, 04 §7.3) : un code entier, à lire par article.
-const TOO_LARGE_FOR_GET_ACT: &str =
-    "this text is too large for get_act; use get_article or search instead.";
+/// Il ne nomme que des outils exposés (`ToolName::ALL`, I-2) : `fr_get_text` lit un article,
+/// `fr_search` sur le fond `CODE` les trouve.
+const TOO_LARGE_FOR_GET_ACT: &str = "this text is too large for fr_get_act; read its articles \
+                                     with fr_get_text, or find them with fr_search fond=CODE.";
 
 /// Message d'un refus d'identifiants (sans le statut, que `credentials_rejected` ajoute).
 const CREDENTIALS_REJECTED_HINT: &str =
@@ -66,9 +68,11 @@ pub fn deadline(budget: Duration) -> AppError {
     }
 }
 
-/// Appel annulé par le client (ligne 21) : le message ne va qu'à l'audit, rmcp jette la réponse.
+/// Appel annulé par le client (ligne 21) : sans code, le message va à l'audit (le client a
+/// renoncé à la réponse, que rmcp 1.8/2.1 envoie pourtant : à revérifier au spike V-28). Réservé
+/// à `Audited`, seul à observer une annulation (m-4).
 #[must_use]
-pub fn cancelled() -> AppError {
+pub(crate) fn cancelled() -> AppError {
     AppError::Upstream {
         message: "cancelled by client".to_owned(),
         cause: UpstreamCause::Cancelled,
@@ -452,7 +456,8 @@ mod tests {
             let app = corpus_error(tool, ID, &error);
             assert_eq!(view(&app), (code, cause, message), "{error:?}");
         }
-        // TooLarge sur get_act : la consigne propre à C2 (04 §7.3).
+        // TooLarge sur fr_get_act : la consigne propre à C2 (04 §7.3), qui ne nomme que des
+        // outils exposés (I-2).
         let too_large = CorpusError::TooLarge { detail: SENTINEL.to_owned() };
         let app = corpus_error(ToolName::FR_GET_ACT, ID, &too_large);
         assert_eq!(
@@ -460,9 +465,26 @@ mod tests {
             (
                 Some(UpstreamError),
                 Some(UpstreamCause::Decode),
-                "this text is too large for get_act; use get_article or search instead."
+                "this text is too large for fr_get_act; read its articles with fr_get_text, or \
+                 find them with fr_search fond=CODE."
             )
         );
+    }
+
+    #[test]
+    fn too_large_hint_names_only_exposed_tools() {
+        // Tout mot `fr_…` de la consigne est un outil de `ToolName::ALL` : le modèle ne doit
+        // jamais être orienté vers un outil qui n'existe pas.
+        let too_large = CorpusError::TooLarge { detail: String::new() };
+        let app = corpus_error(ToolName::FR_GET_ACT, ID, &too_large);
+        let named: Vec<&str> = app
+            .message()
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .filter(|word| word.starts_with("fr_"))
+            .collect();
+        assert_eq!(named, ["fr_get_act", "fr_get_text", "fr_search"]);
+        let exposed: Vec<&str> = ToolName::ALL.iter().map(|tool| tool.as_str()).collect();
+        assert!(named.iter().all(|word| exposed.contains(word)), "{named:?}");
     }
 
     #[test]
@@ -748,10 +770,18 @@ mod tests {
                  page_size, fewer fonds)."
             )
         );
-        // S14 : 200 à corps non JSON.
+        // S14 : 200 à corps non JSON, puis corps au-delà de la borne sur fr_get_act (C2).
         assert_eq!(
             corpus_error(act, uri, &CorpusError::Decode { detail: "expected value".into() }),
             expected_upstream(Decode, "unexpected response from Legifrance; report it.")
+        );
+        assert_eq!(
+            corpus_error(act, uri, &CorpusError::TooLarge { detail: "> 16 MiB".into() }),
+            expected_upstream(
+                Decode,
+                "this text is too large for fr_get_act; read its articles with fr_get_text, or \
+                 find them with fr_search fond=CODE."
+            )
         );
         // S15 : 200 à charge vide ⇒ première phrase de la référence, puis l'aide.
         let empty = CorpusError::NotFound { what: "empty payload".into() };

@@ -74,8 +74,8 @@ pub enum AuditMode {
 pub struct AuditPolicy {
     /// Sort du résultat quand l'écriture échoue.
     pub mode: AuditMode,
-    /// `LF_TOOL_DEADLINE_S`, garde dure de chaque appel. Au plus 600 s (borne posée par `lf-app`) :
-    /// [`crate::deadline::Deadline::after`] ne déborde pas.
+    /// `LF_TOOL_DEADLINE_S`, garde dure de chaque appel. Au plus 600 s (borne posée par `lf-app`) ;
+    /// une valeur démesurée ne panique pas, l'échéance sature ([`crate::deadline::Deadline::after`]).
     pub deadline: Duration,
     /// Environnement PISTE, recopié dans chaque ligne.
     pub env: PisteEnvironment,
@@ -127,9 +127,9 @@ impl<A: AuditLog> Audited<A> {
     ///
     /// # Panics
     ///
-    /// Si `policy.deadline` est démesurée, bien au-delà de la borne de 600 s posée par `lf-app` :
-    /// [`crate::deadline::Deadline::after`] additionne à un `Instant` et panique par débordement,
-    /// alors que `tokio::time::timeout` sature. Dans la borne documentée, jamais.
+    /// Jamais du fait de `policy.deadline`, même démesurée (au-delà de la borne de 600 s de
+    /// `lf-app`) : [`crate::deadline::Deadline::after`] et `tokio::time::timeout` saturent tous
+    /// deux à un instant lointain. Seule une panique de `work` traverse `run` (ci-dessus).
     pub async fn run<O, W, X>(&self, meta: CallMeta, cancel: X, work: W) -> Result<O, AppError>
     where
         O: AuditMetric,
@@ -846,6 +846,16 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn oversized_deadline_neither_panics_nor_expires() {
+        // Une politique hors de la borne de `lf-app` : la garde et l'échéance publiée saturent
+        // toutes deux (environ 30 ans), l'appel aboutit et son port voit un budget lointain.
+        let audited = memory(AuditMode::Strict, Duration::MAX);
+        let work = async { Ok(Out(u64::from(Deadline::current_or(ms(1)) > secs(86_400 * 365)))) };
+        assert_eq!(audited.run(meta(), pending(), work).await, Ok(Out(1)));
+        assert_eq!(audited.log.records()[0].status, AuditStatus::Ok);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn deadline_is_published_to_the_port() {
         let corpus = FakeCorpus::new().with_delay(secs(2));
         corpus.push_get_decision(Ok(decision()));
@@ -1158,6 +1168,19 @@ mod tests {
     }
 
     // ----- Propriétés de `run` -----
+
+    #[test]
+    fn call_meta_debug_never_shows_the_arguments() {
+        let sentinel = "sentinel-argument-value";
+        let canonical = CanonicalInput::new(format!(r#"{{"query":"{sentinel}"}}"#));
+        let meta = CallMeta::new(ToolName::FR_SEARCH, ts(), canonical);
+        assert_eq!(
+            format!("{meta:?}"),
+            "CallMeta { tool: ToolName(\"fr_search\"), ts: 2026-06-21T00:00:00Z, \
+             canonical: CanonicalInput(<35 bytes>) }"
+        );
+        assert!(!format!("{meta:#?}").contains(sentinel));
+    }
 
     fn assert_send<F: Future + Send>(_: &F) {}
 

@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use thiserror::Error;
 
-use crate::input::InputError;
+use crate::{input::InputError, messages};
 
 /// Code d'erreur d'un appel d'outil : préfixe `[code]` du message vu par le modèle et champ
 /// `error_code` de la ligne d'audit.
@@ -180,10 +180,15 @@ impl AppError {
     }
 }
 
-/// Décodage impossible ⇒ `invalid_arg`, avec le message de décodage tel quel (02 §9.2, ligne 1).
+/// Longueur maximale, en caractères, d'un message de décodage rendu au modèle : la borne du
+/// champ `error` de l'audit (00 §7), car le message cite des arguments venus du client (m-7).
+const INPUT_MESSAGE_MAX_CHARS: usize = 500;
+
+/// Décodage impossible ⇒ `invalid_arg`, avec le message de décodage tel quel (02 §9.2, ligne 1),
+/// coupé à 500 caractères sans scinder un caractère ([`messages::clip`]).
 impl From<InputError> for AppError {
     fn from(error: InputError) -> Self {
-        Self::InvalidArgument { message: error.message }
+        Self::InvalidArgument { message: messages::clip(&error.message, INPUT_MESSAGE_MAX_CHARS) }
     }
 }
 
@@ -290,6 +295,19 @@ mod tests {
         let error = AppError::from(input);
         assert_eq!(error, AppError::invalid_argument("page_size: invalid type"));
         assert_eq!(error.code(), Some(ErrorCode::InvalidArg));
+    }
+
+    #[test]
+    fn input_error_message_is_clipped_to_500_chars() {
+        // Un message de décodage cite les arguments du modèle : il est borné comme tout texte qui
+        // repart vers lui (1 000 caractères de deux octets, coupés sans scinder un caractère).
+        let input = InputError { message: "é".repeat(1_000) };
+        assert_eq!(AppError::from(input), AppError::invalid_argument("é".repeat(500)));
+        // À 500 caractères pile, ou en deçà, le texte passe entier.
+        for message in ["x".repeat(500), "y".repeat(499), String::new()] {
+            let input = InputError { message: message.clone() };
+            assert_eq!(AppError::from(input), AppError::invalid_argument(message));
+        }
     }
 
     #[test]

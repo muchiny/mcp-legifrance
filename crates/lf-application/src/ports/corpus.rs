@@ -175,10 +175,10 @@ pub enum CorpusError {
         detail: String,
     },
     /// Corps d'une réponse de `/search` ou d'une consultation au-delà de la borne de corps
-    /// (04 §4.3), jamais réessayé. Typé pour `get_act` : un texte trop gros (un code entier,
-    /// 04 §7.3) oriente vers `get_article` ou la recherche, sans lire le `detail`. Le corps trop
-    /// gros de l'endpoint du jeton reste un [`CorpusError::Decode`] : un jeton énorme n'est pas
-    /// un texte trop gros pour `get_act`.
+    /// (04 §4.3), jamais réessayé. Typé pour `get_act` : sur `fr_get_act`, un texte trop gros (un
+    /// code entier, 04 §7.3) oriente vers `fr_get_text` ou `fr_search`, sans lire le `detail`.
+    /// Le corps trop gros de l'endpoint du jeton reste un [`CorpusError::Decode`] : un jeton
+    /// énorme n'est pas un texte trop gros pour `get_act`.
     #[error("response too large")]
     TooLarge {
         /// Borne et gabarit d'endpoint, pour les journaux.

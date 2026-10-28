@@ -19,15 +19,23 @@ tokio::task_local! {
     static CURRENT: Deadline;
 }
 
+/// Repli d'une échéance démesurée : environ 30 ans, la valeur de `tokio::time::timeout` quand
+/// `Instant + durée` déborde (`Instant::far_future`, privé à `tokio` 1.53).
+const FAR_FUTURE: Duration = Duration::from_secs(86_400 * 365 * 30);
+
 /// Instant limite d'un appel d'outil, sur l'horloge de `tokio` (suspendue en test).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Deadline(Instant);
 
 impl Deadline {
-    /// Échéance située à `budget` d'ici (au plus 600 s, `LF_TOOL_DEADLINE_S` : pas de débordement).
+    /// Échéance située à `budget` d'ici. `LF_TOOL_DEADLINE_S` vaut au plus 600 s (borne de
+    /// `lf-app`), mais un budget démesuré ne panique pas : l'échéance sature à un instant
+    /// lointain, comme la garde de `tokio::time::timeout` qui l'accompagne (I-1).
     #[must_use]
     pub fn after(budget: Duration) -> Self {
-        Self(Instant::now() + budget)
+        let now = Instant::now();
+        // `now + FAR_FUTURE` ne déborde pas : l'horloge monotone part du démarrage de la machine.
+        Self(now.checked_add(budget).unwrap_or_else(|| now + FAR_FUTURE))
     }
 
     /// Temps restant avant l'échéance, zéro une fois celle-ci passée.
@@ -99,6 +107,20 @@ mod tests {
         let read = || async { Deadline::current_or(DEFAULT) };
         let both = Deadline::after(secs(5)).scope(async { tokio::join!(read(), read()) }).await;
         assert_eq!(both, (secs(5), secs(5)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_oversized_budget_saturates_instead_of_panicking() {
+        // `Instant + Duration::MAX` déborderait : l'échéance retombe sur un instant lointain
+        // (environ 30 ans), comme la garde de `tokio::time::timeout`.
+        let far = Duration::from_secs(86_400 * 365 * 30);
+        for budget in [Duration::MAX, Duration::from_secs(u64::MAX / 2)] {
+            let deadline = Deadline::after(budget);
+            assert_eq!(deadline.remaining(), far, "{budget:?}");
+            assert_eq!(deadline.scope(async { Deadline::current_or(DEFAULT) }).await, far);
+        }
+        // Un budget ordinaire n'est pas touché, même au-delà de la borne de 600 s de `lf-app`.
+        assert_eq!(Deadline::after(secs(3_600)).remaining(), secs(3_600));
     }
 
     #[tokio::test(start_paused = true)]
