@@ -70,7 +70,7 @@
 ### Négatives
 
 - **`any` reste bruyant** (D-32) : le modèle doit penser à `all` ou `exact`. La description le lui dit.
-- Le mémo de `typePagination` est un état caché, propre au processus : il est perdu au redémarrage et n'est pas partagé entre clients. Le repli `ARTICLE` couvre CODE, seul cas observé (`search_code.json`) ; ailleurs, l'écart éventuel entre une page servie avec le mémo et sans lui est mesuré par V-82 (M5).
+- Le mémo de `typePagination` est un état caché, propre au processus : il est perdu au redémarrage et n'est pas partagé entre clients. Le repli sans mémo est `DEFAUT` pour tous les fonds : le repli `ARTICLE` pour CODE, tiré de `search_code.json`, rejouait la page 1 en sandbox (V-82, 2026-10-28, tâche C5 du plan 2h) ; l'écart éventuel entre une page servie avec le mémo et sans lui, ailleurs ou en production, reste mesuré par V-82 (M5).
 - La borne de 10 000 est une hypothèse. Si elle est fausse, elle prive de résultats atteignables ou laisse passer des erreurs.
 
 ### À surveiller
@@ -83,7 +83,7 @@
 
 ### Tests qui la gardent
 
-- `search_page_2_sends_page_number_2`, `has_more_computed_from_total`, `has_more_false_at_reachable_window_end`, `type_pagination_is_echoed_on_next_page`, `code_page_2_without_memo_sends_article` (D-09).
+- `search_page_2_sends_page_number_2`, `has_more_computed_from_total`, `has_more_false_at_reachable_window_end`, `type_pagination_is_echoed_on_next_page`, `code_page_2_without_memo_sends_defaut` (D-09 ; `ARTICLE` avant la tâche C5 du plan 2h).
 - `page_beyond_reachable_window_is_invalid_arg_without_network`, `code_date_range_is_invalid_arg`, `version_date_outside_loda_code_is_invalid_arg`, `inverted_date_range_is_invalid_arg` (0 appel au port, 06 §2.2) ; copie défensive de l'adapter : `code_date_range_is_defensive_invalid_request_without_network` (04 §6.10).
 - `type_recherche_follows_match`, `query_too_long_is_invalid_arg`, `query_control_chars_are_stripped` (D-32).
 - Recherche vide rendue comme un succès (E-04) ; tests live de M5 (06 §3.1, §5.3).
@@ -97,7 +97,7 @@
 | Exposer les cinq valeurs de `typeRecherche` | Les modes négatifs (`AUCUN_DES_MOTS`…) n'ont pas d'usage seuls et alourdissent la description. |
 | Curseur ou handle opaque rendu par le serveur | État serveur et vecteur d'attaque. Les entiers suffisent (recherche 06 §3.6). |
 | Rendre `typePagination` en sortie et l'accepter en entrée dès v0.1 | Ajoute un paramètre que le modèle doit recopier sans le comprendre, pour un effet non vérifié (V-82). Gardé en repli selon les mesures (05 §13.1 n° 7). |
-| Règle sans état seule (`ARTICLE` pour CODE, `DEFAUT` sinon), sans mémo | 00 §7 retient le mémo, qui renvoie la valeur reçue comme le demande le Swagger ; la règle sans état en reste le repli. |
+| Règle sans état seule (`DEFAUT`, `ARTICLE` pour CODE avant V-82), sans mémo | 00 §7 retient le mémo, qui renvoie la valeur reçue comme le demande le Swagger ; la règle sans état en reste le repli. |
 | Refus de la pagination profonde dans l'adapter seulement (`InvalidRequest`) | Rendu `upstream_error` « HTTP 400 » sans appel réseau ; une contrainte de l'entrée doit donner `invalid_arg` avant le port (00 §5, AM-28). |
 | `not_found` sur une recherche vide (instructions de la référence) | Contredit le comportement réel de la référence (E-04). Une liste vide n'est pas une erreur. |
 | Pas de borne de profondeur | Risque d'un 500 opaque au-delà de la fenêtre du moteur. |

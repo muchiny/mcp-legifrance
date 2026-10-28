@@ -1390,7 +1390,7 @@ pub enum DomainError {
 | [V-110 · dispositif-constit-variantes] | Marqueurs du dispositif du Conseil constitutionnel sur d'autres décisions et époques. |
 | [V-111 · dispositif-cetat-variantes] | Marqueurs du dispositif du CE, des CAA et des TA sur d'autres décisions. |
 | [V-119 · num-article-forme-api] | Forme attendue par `NUM_ARTICLE` pour `R*`, `1er`, suffixes latins et lettres. |
-| [V-82 · typepagination-page2] | Effet réel de la `typePagination` envoyée en page 2 (mémo de l'adapter, repli `ARTICLE` pour CODE). |
+| [V-82 · typepagination-page2] | Effet réel de la `typePagination` envoyée en page 2 (mémo de l'adapter, repli `DEFAUT` ; `ARTICLE` pour CODE avant le plan 2h). |
 | [V-83 · pagination-profonde] | Fenêtre de 10 000 résultats atteignables (`REACHABLE_RESULTS`, `has_more`). |
 | [V-142 · texttitles-nature-loi] | Valeur de `textTitles[].nature` pour un article de loi (choix de `loda_article`). |
 | [V-76 · singledate-midi-paris] | Sémantique de `DATE_VERSION.singleDate` côté PISTE ; le plan envoie midi Europe/Paris (00 §8). |

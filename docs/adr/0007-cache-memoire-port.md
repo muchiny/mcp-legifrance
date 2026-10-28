@@ -30,7 +30,7 @@
    - Elle est construite à partir des types du domaine déjà normalisés, **jamais** à partir du JSON envoyé à PISTE.
    - `singleDate` est recalculé par l'adapter à partir de `VersionDate`, qui est au jour près (midi Europe/Paris du jour, 00 §8) : la clé est stable sur la journée de Paris ([ADR-0011](0011-dates-chrono-paris.md)).
    - Le texte de la requête n'est pas replié (ni casse, ni accents) : la clé reflète exactement ce qui part vers PISTE.
-   - La `typePagination` n'entre pas dans la clé : elle est choisie par l'adapter (`PaginationMemo`, même TTL d'une heure, ou repli `ARTICLE` pour CODE en page > 1 ; 00 §7, 04 §12.2).
+   - La `typePagination` n'entre pas dans la clé : elle est choisie par l'adapter (`PaginationMemo`, même TTL d'une heure, ou repli `DEFAUT` en page > 1 (V-82, plan 2h) ; 00 §7, 04 §12.2).
 4. **TTL** : recherche 1 h ; consultations 24 h ; listes (codes) 7 jours (00 §9).
 5. **Non mis en cache** : toutes les erreurs, les réponses vides (recherche sans hit, listes vides) et `fr_coverage`.
 6. **Coalescence** des appels concurrents identiques (`entry(key).or_try_insert_with`).

@@ -437,11 +437,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn code_page_2_without_memo_sends_article() {
+    async fn code_page_2_without_memo_sends_defaut() {
         let rig = Rig::new().await;
         search_replies(&rig, EMPTY_PAGE).await;
         rig.corpus.search(&golden_page(Fond::Code, 2, None)).await.unwrap();
-        assert_eq!(sent_modes(&rig).await, [json!("ARTICLE")]);
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT")]);
+    }
+
+    /// V-82 : la page 1 de `CODE_DATE` enregistrée en sandbox répond `typePagination` `DEFAUT` ;
+    /// la page 2 repart donc en `DEFAUT`, et non en `ARTICLE` qui rejouerait la page 1.
+    #[tokio::test]
+    async fn code_page_2_follows_the_defaut_answered_by_the_sandbox() {
+        const PAGE_1: &str =
+            include_str!("../../tests/fixtures/recorded/search/pagination/code-page1-defaut.json");
+        let rig = Rig::new().await;
+        search_replies(&rig, PAGE_1).await;
+        let first = rig.corpus.search(&golden_page(Fond::Code, 1, None)).await.unwrap();
+        rig.corpus.search(&golden_page(Fond::Code, 2, None)).await.unwrap();
+        assert_eq!(first.pagination, PaginationMode::Defaut);
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("DEFAUT")]);
     }
 
     #[tokio::test]
@@ -455,7 +469,7 @@ mod tests {
             let first = rig.corpus.search(&golden_page(Fond::Code, 1, None)).await.unwrap();
             rig.corpus.search(&golden_page(Fond::Code, 2, None)).await.unwrap();
             assert_eq!(first.pagination, PaginationMode::Defaut, "{body}");
-            assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("ARTICLE")], "{body}");
+            assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("DEFAUT")], "{body}");
         }
     }
 

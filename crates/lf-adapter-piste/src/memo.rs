@@ -1,9 +1,10 @@
 //! Mémo de `typePagination` (04 §6.6, §12.3).
 //!
 //! PISTE choisit le mode de pagination de `/search` (`typePagination`) et peut répondre un mode
-//! différent de celui demandé (le fond `CODE_DATE` répond `ARTICLE` à `DEFAUT`). Pour que les
-//! pages suivantes d'une même requête redemandent le mode que PISTE a réellement employé,
-//! l'adapter retient la **dernière valeur reçue** pour la requête sans sa page.
+//! différent de celui demandé (la fixture de référence montre `CODE_DATE` répondant `ARTICLE` à
+//! `DEFAUT` ; en sandbox, le 2026-10-28, il répond `DEFAUT`, V-82). Pour que les pages suivantes
+//! d'une même requête redemandent le mode que PISTE a réellement employé, l'adapter retient la
+//! **dernière valeur reçue** pour la requête sans sa page.
 //!
 //! La clé (`MemoKey`) réunit le fond, le texte normalisé, le mode de correspondance, la
 //! `version_date`, la plage de dates et la taille de page ; la page en est exclue (04 §6.6,
@@ -149,14 +150,14 @@ impl<K: MonoClock> PaginationMemo<K> {
     /// Mode à envoyer pour `query` (règles 2 à 4 de 04 §6.6).
     pub(crate) fn mode_for(&self, query: &SearchQuery) -> PaginationMode {
         let memoized = self.lookup(&MemoKey::from_query(query));
-        choose_mode(query.page().get(), query.fond(), memoized)
+        choose_mode(query.page().get(), memoized)
     }
 
     /// Retient le mode que PISTE a répondu pour `query` (`received_mode` de la réponse).
     ///
     /// Sans mode reçu (`typePagination` absent ou inconnu), rien n'est écrit : une absence n'est
-    /// pas une valeur reçue, et une page 2 de `CODE` doit retomber sur la règle 3 de 04 §6.6
-    /// (`ARTICLE`) ; une entrée déjà présente reste telle quelle.
+    /// pas une valeur reçue, et une page 2 sans mémo retombe sur `DEFAUT` (règles 3 et 4 de
+    /// 04 §6.6) ; une entrée déjà présente reste telle quelle.
     pub(crate) fn remember(&self, query: &SearchQuery, received: Option<PaginationMode>) {
         if let Some(mode) = received {
             self.record(MemoKey::from_query(query), mode);
@@ -167,21 +168,14 @@ impl<K: MonoClock> PaginationMemo<K> {
 /// Décision pure du mode à envoyer (règles 2 à 4 de 04 §6.6).
 ///
 /// La page 1 part toujours en `DEFAUT`. Une page suivante reprend le mode mémorisé ; sans mémo
-/// (redémarrage, entrée expirée ou évincée), `CODE` repart en `ARTICLE` et les autres fonds en
-/// `DEFAUT`.
-pub(crate) fn choose_mode(
-    page: u32,
-    fond: Fond,
-    memoized: Option<PaginationMode>,
-) -> PaginationMode {
+/// (redémarrage, entrée expirée ou évincée), tous les fonds repartent en `DEFAUT`. Le repli
+/// `ARTICLE` que 04 §6.6 réservait à `CODE` rejouait la page 1 en sandbox (V-82, 2026-10-28) :
+/// `CODE_DATE` répond `DEFAUT` à une page 1 en `DEFAUT`.
+pub(crate) fn choose_mode(page: u32, memoized: Option<PaginationMode>) -> PaginationMode {
     if page <= 1 {
         return PaginationMode::Defaut;
     }
-    memoized.unwrap_or(if fond == Fond::Code {
-        PaginationMode::Article
-    } else {
-        PaginationMode::Defaut
-    })
+    memoized.unwrap_or(PaginationMode::Defaut)
 }
 
 /// Lecture tolérante de `typePagination` dans une réponse : le mode reçu, s'il y en a un.
@@ -248,35 +242,27 @@ mod tests {
 
     #[test]
     fn page_one_is_always_defaut() {
-        for fond in Fond::ALL {
-            for memoized in [None, Some(PaginationMode::Article), Some(PaginationMode::Defaut)] {
-                assert_eq!(choose_mode(1, fond, memoized), PaginationMode::Defaut, "{fond:?}");
-                assert_eq!(choose_mode(0, fond, memoized), PaginationMode::Defaut, "{fond:?}");
-            }
+        for memoized in [None, Some(PaginationMode::Article), Some(PaginationMode::Defaut)] {
+            assert_eq!(choose_mode(1, memoized), PaginationMode::Defaut);
+            assert_eq!(choose_mode(0, memoized), PaginationMode::Defaut);
         }
     }
 
     #[test]
     fn later_pages_follow_the_memo() {
-        for fond in Fond::ALL {
-            assert_eq!(
-                choose_mode(2, fond, Some(PaginationMode::Article)),
-                PaginationMode::Article,
-                "{fond:?}"
-            );
-            assert_eq!(
-                choose_mode(7, fond, Some(PaginationMode::Defaut)),
-                PaginationMode::Defaut,
-                "{fond:?}"
-            );
-        }
+        assert_eq!(choose_mode(2, Some(PaginationMode::Article)), PaginationMode::Article);
+        assert_eq!(choose_mode(7, Some(PaginationMode::Defaut)), PaginationMode::Defaut);
     }
 
+    /// V-82 : en sandbox, la page 2 de `CODE_DATE` envoyée en `ARTICLE` rend les résultats de la
+    /// page 1. Sans mémo, aucun fond ne repart donc en `ARTICLE`.
     #[test]
-    fn code_page_two_without_memo_is_article_and_other_fonds_defaut() {
-        assert_eq!(choose_mode(2, Fond::Code, None), PaginationMode::Article);
-        for fond in Fond::ALL.into_iter().filter(|fond| *fond != Fond::Code) {
-            assert_eq!(choose_mode(2, fond, None), PaginationMode::Defaut, "{fond:?}");
+    fn page_two_without_memo_is_defaut_for_every_fond() {
+        assert_eq!(choose_mode(2, None), PaginationMode::Defaut);
+        assert_eq!(choose_mode(7, None), PaginationMode::Defaut);
+        let (memo, _clock) = memo();
+        for fond in Fond::ALL {
+            assert_eq!(memo.mode_for(&query(fond, "bail", 2)), PaginationMode::Defaut, "{fond:?}");
         }
     }
 
@@ -301,14 +287,14 @@ mod tests {
     }
 
     /// Règle 3 de 04 §6.6 : une page 1 de CODE sans `typePagination` ne laisse aucun mémo, la
-    /// page 2 repart donc en `ARTICLE` et non en `DEFAUT`.
+    /// page 2 repart donc en `DEFAUT` (V-82 : `ARTICLE` y rejouerait la page 1).
     #[test]
     fn a_code_response_without_type_pagination_leaves_no_memo() {
         let (memo, _clock) = memo();
         let first = query(Fond::Code, "bail", 1);
         memo.remember(&first, received_mode(None));
         assert_eq!(memo.len(), 0);
-        assert_eq!(memo.mode_for(&query(Fond::Code, "bail", 2)), PaginationMode::Article);
+        assert_eq!(memo.mode_for(&query(Fond::Code, "bail", 2)), PaginationMode::Defaut);
     }
 
     #[test]
@@ -317,7 +303,7 @@ mod tests {
         let (memo, _clock) = memo();
         memo.remember(&query(Fond::Code, "bail", 1), received_mode(Some("INCONNU")));
         assert_eq!(memo.len(), 0);
-        assert_eq!(memo.mode_for(&query(Fond::Code, "bail", 2)), PaginationMode::Article);
+        assert_eq!(memo.mode_for(&query(Fond::Code, "bail", 2)), PaginationMode::Defaut);
         assert!(capture.text().contains("unknown typePagination"));
     }
 
@@ -357,20 +343,17 @@ mod tests {
         assert_eq!(memo.mode_for(&query(Fond::Loda, "bail", 2)), PaginationMode::Article);
     }
 
-    /// Une entrée expirée est oubliée : `CODE` retombe sur la règle 3 (`ARTICLE`), les autres
-    /// fonds sur `DEFAUT`, même si le mode mémorisé était l'inverse.
+    /// Une entrée expirée est oubliée : tous les fonds, `CODE` compris, retombent sur `DEFAUT`
+    /// (règles 3 et 4), même si le mode mémorisé était `ARTICLE`.
     #[test]
     fn mode_for_falls_back_to_the_default_rule_after_expiry() {
-        for (fond, stored, fallback) in [
-            (Fond::Code, PaginationMode::Defaut, PaginationMode::Article),
-            (Fond::Loda, PaginationMode::Article, PaginationMode::Defaut),
-        ] {
+        for fond in [Fond::Code, Fond::Loda] {
             let (memo, clock) = memo();
-            memo.remember(&query(fond, "bail", 1), Some(stored));
+            memo.remember(&query(fond, "bail", 1), Some(PaginationMode::Article));
             clock.advance(JUST_UNDER_AN_HOUR);
-            assert_eq!(memo.mode_for(&query(fond, "bail", 2)), stored, "{fond:?}");
+            assert_eq!(memo.mode_for(&query(fond, "bail", 2)), PaginationMode::Article, "{fond:?}");
             clock.advance(Duration::from_nanos(1));
-            assert_eq!(memo.mode_for(&query(fond, "bail", 2)), fallback, "{fond:?}");
+            assert_eq!(memo.mode_for(&query(fond, "bail", 2)), PaginationMode::Defaut, "{fond:?}");
             assert_eq!(memo.len(), 0, "{fond:?}");
         }
     }
@@ -479,9 +462,9 @@ mod tests {
     }
 
     #[test]
-    fn code_page_two_without_memo_sends_article() {
+    fn a_code_page_without_memo_falls_back_to_defaut() {
         let (memo, _clock) = memo();
-        assert_eq!(memo.mode_for(&query(Fond::Code, "bail", 2)), PaginationMode::Article);
+        assert_eq!(memo.mode_for(&query(Fond::Code, "bail", 2)), PaginationMode::Defaut);
     }
 
     #[test]
