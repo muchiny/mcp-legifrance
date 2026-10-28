@@ -103,16 +103,11 @@ mod integrity;
 mod limit;
 mod map;
 mod memo;
+#[cfg(feature = "record")]
+pub mod record;
 mod request;
 mod retry;
 #[cfg(any(test, feature = "record"))]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "premier consommateur : `record` (plan 2h, tâche 2), qui retire cet attribut"
-    )
-)]
 mod sha256;
 mod stats;
 #[cfg(test)]
