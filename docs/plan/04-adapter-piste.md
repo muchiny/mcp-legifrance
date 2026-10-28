@@ -502,7 +502,7 @@ Corrige D-41 et D-11.
 2. Sinon, lecture par `Response::chunk()` (`RQ:src/async_impl/response.rs:310`) dans un `Vec<u8>`, avec contrôle du cumul à chaque morceau. Les morceaux sont décompressés, si bien qu'une bombe gzip est arrêtée à 16 Mio.
 3. Dépassement : `CorpusError::Decode { detail }`, avec un `detail` de la forme `response too large (> 16 MiB) on /consult/acco` (`format_limit` : `N MiB` si la borne est un multiple de 1 Mio, sinon `N bytes`). Pas de réessai.
 
-Choix de 16 Mio : la plus grosse fixture fait 42 Ko (search_kali.json, recherche 03 §2), mais une réponse `/consult/lawDecree` sur un gros texte ou `/consult/acco` avec son champ `data` (`.docx` en base64, jamais désérialisé mais tout de même lu) peut être bien plus volumineuse. Tailles réelles : **partiel**, mesurées en sandbox le 2026-10-28 [V-75 · taille-max-textes] (09 §2.20) : `lawDecree` du Code civil 6 476 648 octets (6,2 Mio), du Code du travail 32 921 369 octets (31,4 Mio, au-dessus de la borne), `acco` 890 279 octets, `kaliText` 758 840 octets ; présence et taille de `data` et `attachment` sur `/consult/acco` **NON VÉRIFIÉ** [V-106 · acco-data-attachment]. La borne est une constante (00 §8), réexaminée en M5 sur les fixtures recapturées (V-75) ; toute modification amende 00 §8. La mesure de `lawDecree` sur un code (V-96) a eu lieu en M2 (2026-10-28) : le Code du travail dépasse la borne, `get_act` y échoue en `Decode` jusqu'à la Task 15 du plan 2h (§7.3).
+Choix de 16 Mio : la plus grosse fixture fait 42 Ko (search_kali.json, recherche 03 §2), mais une réponse `/consult/lawDecree` sur un gros texte ou `/consult/acco` avec son champ `data` (`.docx` en base64, jamais désérialisé mais tout de même lu) peut être bien plus volumineuse. Tailles réelles : **partiel**, mesurées en sandbox le 2026-10-28 [V-75 · taille-max-textes] (09 §2.20) : `lawDecree` du Code civil 6 476 648 octets (6,2 Mio), du Code du travail 32 921 369 octets (31,4 Mio, au-dessus de la borne), `acco` 890 279 octets, `kaliText` 758 840 octets ; `data` et `attachment` sur `/consult/acco` : `data` (.docx en base64) fait 852 312 caractères et `attachment` porte le texte extrait (34 192 caractères) et des métadonnées de fichier [V-106 · acco-data-attachment] (09 §2.20, levé). La borne est une constante (00 §8), réexaminée en M5 sur les fixtures recapturées (V-75) ; toute modification amende 00 §8. La mesure de `lawDecree` sur un code (V-96) a eu lieu en M2 (2026-10-28) : le Code du travail dépasse la borne, `get_act` y échoue en `Decode` jusqu'à la Task 15 du plan 2h (§7.3).
 
 ### 4.4 Décodage
 
@@ -953,7 +953,7 @@ Noms JSON tels que vus dans les fixtures et le Swagger. Sauf mention, tous les c
 | `ContextEntryDto` | `titre` |
 | `TextTitleDto` | `id`, `cid`, `titre`, `nature` |
 
-Présence en direct de `texteHtml` sur `/consult/getArticle` : **NON VÉRIFIÉ** [V-90 · texte-html-getarticle-juri] (03), d'où le repli sur `texte`.
+Présence en direct de `texteHtml` sur `/consult/getArticle` : vérifiée en sandbox le 2026-10-28 [V-90 · texte-html-getarticle-juri] (03 ; 09 §2.20, levé), présent sur les trois articles enregistrés ; le repli sur `texte` reste défensif.
 
 **`/consult/juri` et `/consult/cnil` — `ConsultJuriResponseDto { text: Option<JuriTextDto> }`** (recherche 03 §8, §12.6)
 
