@@ -4,6 +4,7 @@ use std::{env, fs, process::Command, process::ExitCode};
 
 use xtask::{
     arch::{inherits_workspace_lints, violations, workspace_packages},
+    args::utf8_args,
     graph::{graph_violations, resolved_graph},
     record::example_command,
 };
@@ -55,7 +56,14 @@ fn record_fixture(args: &[String]) -> ExitCode {
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = env::args().collect();
+    // `args_os` : `env::args()` paniquerait sur un argument qui n'est pas de l'UTF-8 (M8).
+    let args = match utf8_args(env::args_os()) {
+        Ok(args) => args,
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::from(2);
+        }
+    };
     let result = match args.get(1).map(String::as_str) {
         Some("record-fixture") => return record_fixture(&args[2..]),
         Some("check-arch") => check_arch(),
