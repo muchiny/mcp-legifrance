@@ -1,0 +1,14 @@
+endpoint = "/consult/acco"
+request = "{\"id\":\"ACCOTEXT000053643828\"}"
+env = "sandbox"
+captured_at = "2026-10-28T14:43:08Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 439
+bytes_raw = 890279
+sha256_raw = "d9c349f9d86536db0df3107167228c42bd800a3400da0b81a3ee083f7ec515a4"
+sha256_file = "1f3a93cfd18b0ff7466147b4b98b59be0397dca7683c0b5c45a62ec93f91ea85"
+mojibake_detected = true
+redactions = ["/acco/data"]
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

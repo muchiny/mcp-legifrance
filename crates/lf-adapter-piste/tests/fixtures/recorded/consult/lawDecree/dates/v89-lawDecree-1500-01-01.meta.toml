@@ -1,0 +1,14 @@
+endpoint = "/consult/lawDecree"
+request = "{\"textId\":\"LEGITEXT000033205014\",\"date\":\"1500-01-01\"}"
+env = "sandbox"
+captured_at = "2026-10-28T14:43:43Z"
+http_status = 400
+content_type = "application/json"
+elapsed_ms = 128
+bytes_raw = 151
+sha256_raw = "6ca1fbd4133a1af07093fdbaa23a53a0e228b235d16ce81eaec1edfa36e8ef4b"
+sha256_file = "6ca1fbd4133a1af07093fdbaa23a53a0e228b235d16ce81eaec1edfa36e8ef4b"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

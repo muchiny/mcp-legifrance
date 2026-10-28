@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat \",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-10-28T14:44:23Z"
+http_status = 500
+content_type = "application/json"
+elapsed_ms = 135
+bytes_raw = 201
+sha256_raw = "09ec90d96cf6dd6e5fc1dfe0434604411931451ffe5b2b9de63d955028f257bb"
+sha256_file = "09ec90d96cf6dd6e5fc1dfe0434604411931451ffe5b2b9de63d955028f257bb"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

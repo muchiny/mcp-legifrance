@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"CNIL\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"sanction\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_DELIB\",\"dates\":{\"start\":\"2020-01-01\",\"end\":\"2020-12-31\"}}],\"pageNumber\":1,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-10-28T14:43:56Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 376
+bytes_raw = 1766
+sha256_raw = "050bb252bd65d2b702da54c06680c025aa227011da58d91b55232108e1319f33"
+sha256_file = "050bb252bd65d2b702da54c06680c025aa227011da58d91b55232108e1319f33"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

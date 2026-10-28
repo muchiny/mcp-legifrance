@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat co\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-10-28T14:44:47Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 946
+bytes_raw = 7449
+sha256_raw = "f537192b79a3e3e1a91319225ad3dbf91ce26a453f128846592347bf07b35ac4"
+sha256_file = "f537192b79a3e3e1a91319225ad3dbf91ce26a453f128846592347bf07b35ac4"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

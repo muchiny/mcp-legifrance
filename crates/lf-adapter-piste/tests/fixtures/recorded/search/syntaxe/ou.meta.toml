@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"contrat OU bail\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-10-28T14:44:21Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 1621
+bytes_raw = 6714
+sha256_raw = "0fd51b55fcc8e861167c84c2a9b51b281f689a1c6bdfc723b726037fe22a3642"
+sha256_file = "0fd51b55fcc8e861167c84c2a9b51b281f689a1c6bdfc723b726037fe22a3642"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

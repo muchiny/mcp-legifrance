@@ -1,0 +1,14 @@
+endpoint = "/consult/juri"
+request = "{\"textId\":\"PASUNIDENTIFIANT\"}"
+env = "sandbox"
+captured_at = "2026-10-28T14:42:56Z"
+http_status = 400
+content_type = "application/json"
+elapsed_ms = 132
+bytes_raw = 151
+sha256_raw = "7a02c11ddca8f3efe8de142c34ccd6e9b104edf7e0e15b91e4c66479e4eecef1"
+sha256_file = "7a02c11ddca8f3efe8de142c34ccd6e9b104edf7e0e15b91e4c66479e4eecef1"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"
