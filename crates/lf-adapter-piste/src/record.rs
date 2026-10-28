@@ -79,6 +79,104 @@ pub struct Plan {
     pub probe: Vec<Probe>,
 }
 
+/// Aide affichée avec un argument inconnu.
+pub const USAGE: &str = "usage: record_fixture (--endpoint <path> --body <json> --name <name> [--allow-error] [--redact <pointer>]... | --plan <plan.toml> [--only <prefix>]) [--env sandbox|production] [--force] [--out <dir>]";
+
+/// Ce qu'il faut enregistrer : une sonde de la ligne de commande, ou un lot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Mode {
+    /// `--endpoint --body --name [--allow-error] [--redact]…`.
+    Single(Probe),
+    /// `--plan <fichier> [--only <préfixe>]`.
+    Plan {
+        /// Fichier du lot.
+        path: PathBuf,
+        /// Préfixe de nom retenu ; `None` = toutes les sondes.
+        only: Option<String>,
+    },
+}
+
+/// Arguments de `record_fixture`, déjà contrôlés de façon cohérente.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Args {
+    /// Sonde seule ou lot.
+    pub mode: Mode,
+    /// Environnement PISTE (sandbox par défaut).
+    pub env: PisteEnvironment,
+    /// Remplace les fichiers existants.
+    pub force: bool,
+    /// Racine d'écriture ; `None` = le dossier des fixtures enregistrées.
+    pub out: Option<PathBuf>,
+}
+
+/// Lit et contrôle les arguments : aucun accès au système, aucun identifiant.
+///
+/// # Errors
+///
+/// [`RecordError::Usage`] : argument inconnu ou sans valeur, argument à valeur unique répété
+/// (`--redact` seul peut se répéter), `--only` sans `--plan`, `--plan` mêlé à une option de
+/// sonde seule, `--env` hors `sandbox` / `production`.
+pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, RecordError> {
+    // Options qu'une sonde seule porte ; `--plan` ne s'y mêle pas.
+    const PROBE_FLAGS: [&str; 5] = ["--endpoint", "--body", "--name", "--allow-error", "--redact"];
+    let usage = |message: String| RecordError::Usage(message);
+    let mut args = args.into_iter();
+    // Chaque option lue, dans l'ordre : sert à refuser les répétitions et les mélanges.
+    let mut used: Vec<String> = Vec::new();
+    let mut probe = Probe::default();
+    let (mut plan, mut only, mut env, mut out) = (None, None, None, None);
+    let mut force = false;
+    while let Some(flag) = args.next() {
+        if flag != "--redact" && used.contains(&flag) {
+            return Err(usage(format!("{flag} given twice")));
+        }
+        used.push(flag.clone());
+        let mut value = || args.next().ok_or_else(|| usage(format!("{flag} needs a value")));
+        match flag.as_str() {
+            "--endpoint" => probe.endpoint = value()?,
+            "--body" => probe.body = value()?,
+            "--name" => probe.name = value()?,
+            "--redact" => probe.redact.push(value()?),
+            "--allow-error" => probe.allow_error = true,
+            "--plan" => plan = Some(PathBuf::from(value()?)),
+            "--only" => only = Some(value()?),
+            "--env" => env = Some(value()?),
+            "--force" => force = true,
+            "--out" => out = Some(PathBuf::from(value()?)),
+            _ => return Err(usage(format!("unknown argument {flag:?}\n{USAGE}"))),
+        }
+    }
+    let mode = if let Some(path) = plan {
+        if let Some(flag) = used.iter().find(|flag| PROBE_FLAGS.contains(&flag.as_str())) {
+            return Err(usage(format!("{flag} cannot be combined with --plan")));
+        }
+        Mode::Plan { path, only }
+    } else if only.is_some() {
+        return Err(usage("--only needs --plan".to_owned()));
+    } else {
+        Mode::Single(probe)
+    };
+    let env = match env.as_deref().unwrap_or("sandbox") {
+        "sandbox" => PisteEnvironment::Sandbox,
+        "production" => PisteEnvironment::Production,
+        other => return Err(usage(format!("--env must be sandbox or production, not {other:?}"))),
+    };
+    Ok(Args { mode, env, force, out })
+}
+
+/// Retient les sondes dont le nom commence par `only` (`None` = toutes).
+///
+/// # Errors
+///
+/// [`RecordError::NoProbe`] si la sélection est vide (faute de frappe dans le préfixe, plan
+/// vide) : sans cela l'outil exigerait des identifiants pour ne rien enregistrer.
+pub fn select(probes: Vec<Probe>, only: Option<&str>) -> Result<Vec<Probe>, RecordError> {
+    let prefix = only.unwrap_or("");
+    let selected: Vec<Probe> =
+        probes.into_iter().filter(|probe| probe.name.starts_with(prefix)).collect();
+    if selected.is_empty() { Err(RecordError::NoProbe(prefix.to_owned())) } else { Ok(selected) }
+}
+
 /// Échange brut avec l'API : ce que l'adapter a reçu, sans interprétation.
 ///
 /// `Debug` écrit à la main : le corps n'est jamais affiché, seulement sa longueur.
@@ -144,6 +242,12 @@ pub enum RecordError {
         /// Raison, en clair.
         reason: &'static str,
     },
+    /// Arguments de ligne de commande incohérents ou inconnus (code de sortie 2).
+    #[error("{0}")]
+    Usage(String),
+    /// `--only` (ou un plan vide) ne retient aucune sonde : rien à enregistrer.
+    #[error("no probe selected (name prefix {0:?})")]
+    NoProbe(String),
     /// Écriture impossible.
     #[error("cannot write {path}: {source}")]
     Io {
@@ -1057,6 +1161,169 @@ mod tests {
             plan.probe.iter().map(|probe| probe.name.as_str()).collect();
         assert_eq!(names.len(), plan.probe.len(), "duplicate probe names");
         assert_ne!(plan.probe.len(), 0);
+    }
+
+    fn parsed(args: &[&str]) -> Result<Args, String> {
+        parse_args(args.iter().map(|arg| (*arg).to_owned())).map_err(|error| error.to_string())
+    }
+
+    fn refused(args: &[&str]) -> String {
+        parsed(args).unwrap_err()
+    }
+
+    #[test]
+    fn a_single_probe_is_read_with_its_options() {
+        let args = parsed(&[
+            "--endpoint",
+            "/consult/juri",
+            "--body",
+            "{}",
+            "--name",
+            "juri/x",
+            "--allow-error",
+            "--redact",
+            "/a",
+            "--redact",
+            "/b",
+            "--env",
+            "production",
+            "--force",
+            "--out",
+            "o",
+        ])
+        .unwrap();
+        let expected = Probe {
+            endpoint: "/consult/juri".to_owned(),
+            body: "{}".to_owned(),
+            name: "juri/x".to_owned(),
+            allow_error: true,
+            redact: vec!["/a".to_owned(), "/b".to_owned()],
+        };
+        assert_eq!(args.mode, Mode::Single(expected));
+        assert_eq!(args.env, PisteEnvironment::Production);
+        assert!(args.force);
+        assert_eq!(args.out, Some(PathBuf::from("o")));
+    }
+
+    #[test]
+    fn a_plan_is_read_with_its_prefix_and_defaults_to_the_sandbox() {
+        let args = parsed(&["--plan", "p.toml", "--only", "inconnu/"]).unwrap();
+        assert_eq!(
+            args.mode,
+            Mode::Plan { path: PathBuf::from("p.toml"), only: Some("inconnu/".to_owned()) }
+        );
+        assert_eq!(args.env, PisteEnvironment::Sandbox);
+        assert!(!args.force);
+        assert_eq!(args.out, None);
+        let whole = parsed(&["--plan", "p.toml", "--env", "sandbox"]).unwrap();
+        assert_eq!(whole.mode, Mode::Plan { path: PathBuf::from("p.toml"), only: None });
+        assert_eq!(whole.env, PisteEnvironment::Sandbox);
+    }
+
+    #[test]
+    fn an_unknown_argument_or_a_missing_value_is_refused() {
+        assert_eq!(refused(&["--bogus"]), format!("unknown argument \"--bogus\"\n{USAGE}"));
+        for flag in
+            ["--endpoint", "--body", "--name", "--redact", "--plan", "--only", "--env", "--out"]
+        {
+            assert_eq!(refused(&[flag]), format!("{flag} needs a value"));
+        }
+    }
+
+    #[test]
+    fn a_repeated_single_valued_argument_is_refused() {
+        for (args, flag) in [
+            (&["--endpoint", "/a", "--endpoint", "/b"][..], "--endpoint"),
+            (&["--body", "{}", "--body", "{}"], "--body"),
+            (&["--name", "a", "--name", "b"], "--name"),
+            (&["--allow-error", "--allow-error"], "--allow-error"),
+            (&["--plan", "a", "--plan", "b"], "--plan"),
+            (&["--plan", "a", "--only", "x", "--only", "y"], "--only"),
+            (&["--env", "sandbox", "--env", "sandbox"], "--env"),
+            (&["--force", "--force"], "--force"),
+            (&["--out", "a", "--out", "b"], "--out"),
+        ] {
+            assert_eq!(refused(args), format!("{flag} given twice"));
+        }
+        assert!(parsed(&["--redact", "/a", "--redact", "/a"]).is_ok());
+    }
+
+    #[test]
+    fn only_without_a_plan_is_refused() {
+        assert_eq!(
+            refused(&["--endpoint", "/consult/juri", "--only", "inconnu/"]),
+            "--only needs --plan"
+        );
+    }
+
+    #[test]
+    fn a_plan_mixed_with_single_probe_options_is_refused() {
+        for flag in ["--endpoint", "--body", "--name", "--redact"] {
+            assert_eq!(
+                refused(&[flag, "/x", "--plan", "p.toml"]),
+                format!("{flag} cannot be combined with --plan")
+            );
+        }
+        assert_eq!(
+            refused(&["--plan", "p.toml", "--allow-error"]),
+            "--allow-error cannot be combined with --plan"
+        );
+    }
+
+    #[test]
+    fn an_environment_other_than_sandbox_or_production_is_refused() {
+        assert_eq!(
+            refused(&["--plan", "p.toml", "--env", "prod"]),
+            "--env must be sandbox or production, not \"prod\""
+        );
+        assert_eq!(
+            parsed(&["--plan", "p.toml", "--env", "production"]).unwrap().env,
+            PisteEnvironment::Production
+        );
+    }
+
+    #[test]
+    fn select_keeps_the_probes_whose_name_starts_with_the_prefix() {
+        let probes = vec![
+            probe("/consult/juri", "inconnu/A"),
+            probe("/consult/juri", "dates/B"),
+            probe("/consult/juri", "inconnu/C"),
+        ];
+        let names = |selected: Vec<Probe>| -> Vec<String> {
+            selected.into_iter().map(|probe| probe.name).collect()
+        };
+        assert_eq!(
+            names(select(probes.clone(), Some("inconnu/")).unwrap()),
+            ["inconnu/A", "inconnu/C"]
+        );
+        assert_eq!(
+            names(select(probes.clone(), None).unwrap()),
+            ["inconnu/A", "dates/B", "inconnu/C"]
+        );
+        // le préfixe vide retient tout ; le préfixe est un début de nom, pas une sous-chaîne
+        assert_eq!(select(probes.clone(), Some("")).unwrap(), probes);
+        assert_eq!(
+            select(probes, Some("connu/")).unwrap_err().to_string(),
+            "no probe selected (name prefix \"connu/\")"
+        );
+    }
+
+    #[test]
+    fn select_refuses_an_empty_selection_before_any_network() {
+        assert_eq!(
+            select(Vec::new(), None).unwrap_err().to_string(),
+            "no probe selected (name prefix \"\")"
+        );
+        let plan: Plan =
+            toml::from_str(&include_str!("../tests/fixtures/plan.toml").replace("\r\n", "\n"))
+                .unwrap();
+        let typo = select(plan.probe.clone(), Some("inconu/")).unwrap_err();
+        assert_eq!(typo.to_string(), "no probe selected (name prefix \"inconu/\")");
+        let selected = select(plan.probe.clone(), Some("inconnu/")).unwrap();
+        let expected: Vec<Probe> =
+            plan.probe.iter().filter(|probe| probe.name.starts_with("inconnu/")).cloned().collect();
+        assert_eq!(selected, expected);
+        assert_ne!(selected.len(), 0);
     }
 
     #[test]

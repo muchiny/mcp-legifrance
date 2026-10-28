@@ -20,54 +20,12 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use lf_adapter_piste::record::{self, MAX_VERSIONED_BYTES, Plan, Probe};
+use lf_adapter_piste::record::{self, Args, MAX_VERSIONED_BYTES, Mode, Plan, Probe};
 use lf_adapter_piste::{
     PisteConfig, PisteCorpus, PisteCredentials, PisteEndpoints, PisteTuning, RateQuota,
 };
 use lf_domain::coverage::PisteEnvironment;
 use secrecy::SecretString;
-
-const USAGE: &str = "usage: record_fixture (--endpoint <path> --body <json> --name <name> [--allow-error] [--redact <pointer>]... | --plan <plan.toml> [--only <prefix>]) [--env sandbox|production] [--force] [--out <dir>]";
-
-/// Arguments lus.
-#[derive(Default)]
-struct Args {
-    probe: Probe,
-    plan: Option<PathBuf>,
-    only: Option<String>,
-    env: Option<String>,
-    force: bool,
-    out: Option<PathBuf>,
-}
-
-fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
-    let mut parsed = Args::default();
-    while let Some(flag) = args.next() {
-        let mut value = || args.next().ok_or_else(|| format!("{flag} needs a value"));
-        match flag.as_str() {
-            "--endpoint" => parsed.probe.endpoint = value()?,
-            "--body" => parsed.probe.body = value()?,
-            "--name" => parsed.probe.name = value()?,
-            "--redact" => parsed.probe.redact.push(value()?),
-            "--allow-error" => parsed.probe.allow_error = true,
-            "--plan" => parsed.plan = Some(PathBuf::from(value()?)),
-            "--only" => parsed.only = Some(value()?),
-            "--env" => parsed.env = Some(value()?),
-            "--force" => parsed.force = true,
-            "--out" => parsed.out = Some(PathBuf::from(value()?)),
-            _ => return Err(format!("unknown argument {flag:?}\n{USAGE}")),
-        }
-    }
-    Ok(parsed)
-}
-
-fn environment(name: Option<&str>) -> Result<PisteEnvironment, String> {
-    match name.unwrap_or("sandbox") {
-        "sandbox" => Ok(PisteEnvironment::Sandbox),
-        "production" => Ok(PisteEnvironment::Production),
-        other => Err(format!("--env must be sandbox or production, not {other:?}")),
-    }
-}
 
 fn corpus(env: PisteEnvironment) -> Result<PisteCorpus, String> {
     let (Ok(id), Ok(secret)) = (env::var("LF_PISTE_CLIENT_ID"), env::var("LF_PISTE_CLIENT_SECRET"))
@@ -95,15 +53,16 @@ fn corpus(env: PisteEnvironment) -> Result<PisteCorpus, String> {
     Ok(PisteCorpus::new(config))
 }
 
-fn probes(args: &Args) -> Result<Vec<Probe>, String> {
-    let Some(path) = &args.plan else {
-        return Ok(vec![args.probe.clone()]);
+/// Sondes à jouer : la sonde seule, ou la sélection `--only` du plan (jamais vide).
+fn probes(mode: Mode) -> Result<Vec<Probe>, String> {
+    let (path, only) = match mode {
+        Mode::Single(probe) => return Ok(vec![probe]),
+        Mode::Plan { path, only } => (path, only),
     };
-    let text = fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let text = fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
     let plan: Plan =
         toml::from_str(&text).map_err(|error| format!("{}: {error}", path.display()))?;
-    let prefix = args.only.as_deref().unwrap_or("");
-    Ok(plan.probe.into_iter().filter(|probe| probe.name.starts_with(prefix)).collect())
+    record::select(plan.probe, only.as_deref()).map_err(|error| error.to_string())
 }
 
 fn now() -> String {
@@ -112,13 +71,14 @@ fn now() -> String {
 }
 
 async fn run(args: Args) -> Result<usize, String> {
-    let env = environment(args.env.as_deref())?;
-    let probes = probes(&args)?;
+    let (env, force) = (args.env, args.force);
+    // Sélection et contrôles d'abord : ni identifiants ni réseau si le lot est vide ou refusé.
+    let probes = probes(args.mode)?;
     for probe in &probes {
         probe.check().map_err(|error| format!("{}: {error}", probe.name))?;
     }
     let corpus = corpus(env)?;
-    let root = args.out.clone().unwrap_or_else(|| {
+    let root = args.out.unwrap_or_else(|| {
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/recorded"))
     });
     let mut failed = 0;
@@ -133,7 +93,7 @@ async fn run(args: Args) -> Result<usize, String> {
                     exchange.elapsed.as_millis(),
                     record::mojibake_detected(&exchange.body)
                 );
-                match record::write(&root, probe, &exchange, env, &now(), args.force) {
+                match record::write(&root, probe, &exchange, env, &now(), force) {
                     Ok(written) if written.bytes_file > MAX_VERSIONED_BYTES => {
                         format!("{head}\twritten (> 1 MiB: version a reduced derivative)")
                     }
@@ -156,9 +116,9 @@ async fn run(args: Args) -> Result<usize, String> {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
-    let result = match parse(env::args().skip(1)) {
+    let result = match record::parse_args(env::args().skip(1)) {
         Ok(args) => run(args).await,
-        Err(message) => Err(message),
+        Err(error) => Err(error.to_string()),
     };
     match result {
         Ok(0) => ExitCode::SUCCESS,
