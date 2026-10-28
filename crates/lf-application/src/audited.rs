@@ -124,6 +124,12 @@ impl<A: AuditLog> Audited<A> {
     /// - `Upstream { cause: Cancelled }`, sans code, après une annulation : rmcp jette la réponse.
     /// - `audit_error` en mode `Strict` quand la ligne ne peut pas être écrite (hors annulation),
     ///   en citant le code d'origine s'il y en avait un : le résultat est retenu.
+    ///
+    /// # Panics
+    ///
+    /// Si `policy.deadline` est démesurée, bien au-delà de la borne de 600 s posée par `lf-app` :
+    /// [`crate::deadline::Deadline::after`] additionne à un `Instant` et panique par débordement,
+    /// alors que `tokio::time::timeout` sature. Dans la borne documentée, jamais.
     pub async fn run<O, W, X>(&self, meta: CallMeta, cancel: X, work: W) -> Result<O, AppError>
     where
         O: AuditMetric,
@@ -131,7 +137,7 @@ impl<A: AuditLog> Audited<A> {
         X: Future<Output = ()> + Send,
     {
         // Les champs de l'issue sont renseignés après coup (02 §11.1) ; `input_bytes` est une
-        // longueur : la valeur des arguments n'est jamais journalisée (02 §11.3).
+        // longueur en octets : la valeur des arguments n'est jamais journalisée (02 §11.3).
         let span = tracing::info_span!(
             "tool_call",
             tool = meta.tool.as_str(),
@@ -141,12 +147,19 @@ impl<A: AuditLog> Audited<A> {
             duration_ms = field::Empty,
             output = field::Empty,
         );
-        self.audit(meta, cancel, work).instrument(span).await
+        self.audit(span.clone(), meta, cancel, work).instrument(span).await
     }
 
     /// Corps de [`Audited::run`], exécuté dans le span `tool_call` (ses événements, comme ceux de
-    /// `work`, y sont rattachés).
-    async fn audit<O, W, X>(&self, meta: CallMeta, cancel: X, work: W) -> Result<O, AppError>
+    /// `work`, y sont rattachés). Le span est passé explicitement : s'il est filtré par niveau,
+    /// `Span::current()` désignerait le span parent, qui recevrait les champs de l'issue.
+    async fn audit<O, W, X>(
+        &self,
+        span: Span,
+        meta: CallMeta,
+        cancel: X,
+        work: W,
+    ) -> Result<O, AppError>
     where
         O: AuditMetric,
         W: Future<Output = Result<O, AppError>> + Send,
@@ -169,7 +182,7 @@ impl<A: AuditLog> Audited<A> {
         // Durée réelle, en erreur comme en succès (D-03), tronquée à la milliseconde et saturée.
         let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let record = self.record(meta, &outcome, duration_ms);
-        trace_outcome(&record);
+        trace_outcome(&span, &record);
         let Err(error) = self.log.record(&record).await else {
             return outcome.into_result();
         };
@@ -244,11 +257,11 @@ impl<O> Outcome<O> {
     }
 }
 
-/// Renseigne le span `tool_call` d'après la ligne, puis émet l'événement de fin : `info` pour un
-/// succès, une annulation (choix du client) et les erreurs attendues, `warn` pour les autres
-/// (D-08). Le `match` est exhaustif : un code ajouté devra choisir son niveau.
-fn trace_outcome(record: &AuditRecord) {
-    let span = Span::current();
+/// Renseigne `span` (le `tool_call` de l'appel, jamais `Span::current()`) d'après la ligne, puis
+/// émet l'événement de fin : `info` pour un succès, une annulation (choix du client) et les
+/// erreurs attendues, `warn` pour les autres (D-08). Le `match` est exhaustif : un code ajouté
+/// devra choisir son niveau.
+fn trace_outcome(span: &Span, record: &AuditRecord) {
     span.record("status", status_name(record.status));
     if let Some(code) = record.error_code {
         span.record("error_code", code.as_str());
@@ -305,10 +318,10 @@ mod tests {
     };
     use tokio::time::{sleep, timeout};
     use tracing::{
-        Level, Subscriber,
+        Level, Metadata, Subscriber,
         field::{Field, Visit},
         span::{Attributes, Id, Record},
-        subscriber::DefaultGuard,
+        subscriber::{DefaultGuard, Interest},
     };
     use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
@@ -1085,6 +1098,10 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn tool_call_span_carries_outcome_fields() {
+        // `input_bytes` compte des octets (02 §11.1) : 26 octets pour 24 caractères.
+        const ACCENTED: &str = r#"{"query":"bail résilié"}"#;
+        assert_eq!((ACCENTED.len(), ACCENTED.chars().count()), (26, 24));
+        let meta = || CallMeta::new(ToolName::FR_SEARCH, ts(), CanonicalInput::new(ACCENTED));
         let (capture, _guard) = Capture::install();
         let audited = memory(AuditMode::Strict, DEADLINE);
         let work = async {
@@ -1092,12 +1109,11 @@ mod tests {
             Err::<Out, _>(AppError::not_found("No JURI decision found."))
         };
         let _ = audited.run(meta(), pending(), work).await;
-        let input_bytes = CANONICAL.len().to_string();
         assert_eq!(
             capture.span("tool_call"),
             BTreeMap::from([
-                ("tool", "fr_get_decision".to_owned()),
-                ("input_bytes", input_bytes.clone()),
+                ("tool", "fr_search".to_owned()),
+                ("input_bytes", "26".to_owned()),
                 ("status", "error".to_owned()),
                 ("error_code", "not_found".to_owned()),
                 ("duration_ms", "30".to_owned()),
@@ -1109,15 +1125,34 @@ mod tests {
         assert_eq!(
             capture.span("tool_call"),
             BTreeMap::from([
-                ("tool", "fr_get_decision".to_owned()),
-                ("input_bytes", input_bytes),
+                ("tool", "fr_search".to_owned()),
+                ("input_bytes", "26".to_owned()),
                 ("status", "ok".to_owned()),
                 ("duration_ms", "0".to_owned()),
                 ("output", "9".to_owned()),
             ])
         );
         // Les arguments eux-mêmes ne sont jamais journalisés (02 §11.3).
-        assert!(!capture.all_values().iter().any(|v| v.contains(DECISION_ID)));
+        assert!(!capture.all_values().iter().any(|v| v.contains("résilié")));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn outcome_fields_stay_off_the_parent_span_when_tool_call_is_filtered() {
+        // Abonné réglé sur `warn` : `tool_call` (`info`) est filtré, le span parent (`warn`) reste
+        // actif. Les champs de l'issue ne doivent jamais atterrir sur lui.
+        let (capture, _guard) = Capture::install_at(Level::WARN);
+        let parent = tracing::warn_span!(
+            "mcp_request",
+            status = field::Empty,
+            duration_ms = field::Empty,
+            output = field::Empty,
+        );
+        let audited = memory(AuditMode::Strict, DEADLINE);
+        let got = audited.run(meta(), pending(), ready(Ok(Out(1)))).instrument(parent).await;
+        assert_eq!(got, Ok(Out(1)));
+        assert_eq!(capture.span("mcp_request"), BTreeMap::new());
+        // L'événement de fin (`info`) est filtré lui aussi.
+        assert_eq!(capture.levels(), Vec::<Level>::new());
     }
 
     // ----- Propriétés de `run` -----
@@ -1156,6 +1191,8 @@ mod tests {
 
     #[derive(Default)]
     struct Captured {
+        /// Niveau le plus verbeux retenu ; `None` : tout.
+        max_level: Option<Level>,
         events: Vec<(Level, BTreeMap<&'static str, String>)>,
         spans: Vec<(Id, &'static str, BTreeMap<&'static str, String>)>,
     }
@@ -1170,6 +1207,14 @@ mod tests {
             let capture = Self::default();
             let subscriber = tracing_subscriber::registry().with(capture.clone());
             (capture, tracing::subscriber::set_default(subscriber))
+        }
+
+        /// Comme [`Capture::install`], mais n'active que les spans et événements de niveau
+        /// `max_level` ou moins verbeux.
+        fn install_at(max_level: Level) -> (Self, DefaultGuard) {
+            let (capture, guard) = Self::install();
+            capture.0.lock().unwrap().max_level = Some(max_level);
+            (capture, guard)
         }
 
         fn events(&self) -> Vec<Event> {
@@ -1215,6 +1260,17 @@ mod tests {
     }
 
     impl<S: Subscriber> Layer<S> for Capture {
+        /// Toujours « parfois » : le filtre est décidé à chaque appel par `enabled`, et aucun
+        /// intérêt `never` n'est mis en cache pour les autres tests du processus.
+        fn register_callsite(&self, _: &'static Metadata<'static>) -> Interest {
+            Interest::sometimes()
+        }
+
+        fn enabled(&self, metadata: &Metadata<'_>, _: Context<'_, S>) -> bool {
+            let max_level = self.0.lock().unwrap().max_level;
+            max_level.is_none_or(|max| *metadata.level() <= max)
+        }
+
         fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, _: Context<'_, S>) {
             let mut fields = BTreeMap::new();
             attrs.record(&mut Fields(&mut fields));
