@@ -74,8 +74,11 @@ mod live {
         Some(PisteCorpus::new(config))
     }
 
-    /// Borne de corps par défaut de l'adapter (16 Mio, 04 §4.3).
-    const DEFAULT_BODY: u64 = 16 << 20;
+    /// Borne de corps par défaut de l'adapter (16 Mio, 04 §4.3), lue sur `PisteTuning` plutôt que
+    /// recopiée : les tests live suivent la valeur livrée.
+    fn default_body() -> u64 {
+        PisteTuning::default().max_body_bytes
+    }
 
     fn query(fond: Fond, text: &str, mode: MatchMode, range: Option<DateRange>) -> SearchQuery {
         let version =
@@ -107,7 +110,9 @@ mod live {
     #[tokio::test]
     #[ignore = "live: needs LF_PISTE_CLIENT_ID/SECRET"]
     async fn live_reference_scenarios() {
-        let Some(corpus) = sandbox("live_reference_scenarios", DEFAULT_BODY).await else { return };
+        let Some(corpus) = sandbox("live_reference_scenarios", default_body()).await else {
+            return;
+        };
         for (fond, text) in SCENARIOS {
             let page = corpus.search(&query(fond, text, MatchMode::Any, None)).await.unwrap();
             assert!(page.total >= 1 && !page.hits.is_empty(), "{fond:?} {text}");
@@ -154,7 +159,7 @@ mod live {
     #[tokio::test]
     #[ignore = "live: needs LF_PISTE_CLIENT_ID/SECRET"]
     async fn live_unknown_ids_classification() {
-        let Some(corpus) = sandbox("live_unknown_ids_classification", DEFAULT_BODY).await else {
+        let Some(corpus) = sandbox("live_unknown_ids_classification", default_body()).await else {
             return;
         };
         let seen = unknown(&corpus, "000000000000").await;
@@ -166,7 +171,7 @@ mod live {
     #[tokio::test]
     #[ignore = "live: needs LF_PISTE_CLIENT_ID/SECRET"]
     async fn live_date_facets_reduce_total() {
-        let Some(corpus) = sandbox("live_date_facets_reduce_total", DEFAULT_BODY).await else {
+        let Some(corpus) = sandbox("live_date_facets_reduce_total", default_body()).await else {
             return;
         };
         let year = DateRange::new(
@@ -184,13 +189,14 @@ mod live {
     #[tokio::test]
     #[ignore = "live: needs LF_PISTE_CLIENT_ID/SECRET"]
     async fn live_match_modes_totals() {
-        let Some(corpus) = sandbox("live_match_modes_totals", DEFAULT_BODY).await else { return };
+        let Some(corpus) = sandbox("live_match_modes_totals", default_body()).await else { return };
         let mut totals = Vec::new();
         for mode in [MatchMode::Any, MatchMode::All, MatchMode::Exact] {
             let page = corpus.search(&query(Fond::Juri, "contrat de travail", mode, None)).await;
             totals.push(page.unwrap().total);
         }
-        assert!(totals[0] >= totals[1] && totals[1] >= totals[2], "{totals:?}");
+        // `totals[2] >= 1` : sans lui, trois totaux nuls feraient passer le test à vide.
+        assert!(totals[0] >= totals[1] && totals[1] >= totals[2] && totals[2] >= 1, "{totals:?}");
     }
 
     /// Tests sur les octets bruts (`PisteCorpus::exchange`, feature `record`).
@@ -239,7 +245,7 @@ mod live {
         #[tokio::test]
         #[ignore = "live: needs LF_PISTE_CLIENT_ID/SECRET"]
         async fn live_no_mojibake_on_reference_ids() {
-            let Some(corpus) = sandbox("live_no_mojibake_on_reference_ids", DEFAULT_BODY).await
+            let Some(corpus) = sandbox("live_no_mojibake_on_reference_ids", default_body()).await
             else {
                 return;
             };
@@ -262,7 +268,8 @@ mod live {
         #[tokio::test]
         #[ignore = "live: needs LF_PISTE_CLIENT_ID/SECRET"]
         async fn live_singledate_noon_paris_semantics() {
-            let Some(corpus) = sandbox("live_singledate_noon_paris_semantics", DEFAULT_BODY).await
+            let Some(corpus) =
+                sandbox("live_singledate_noon_paris_semantics", default_body()).await
             else {
                 return;
             };
@@ -327,7 +334,7 @@ mod live {
         #[tokio::test]
         #[ignore = "live: needs LF_PISTE_CLIENT_ID/SECRET"]
         async fn live_texte_html_presence() {
-            let Some(corpus) = sandbox("live_texte_html_presence", DEFAULT_BODY).await else {
+            let Some(corpus) = sandbox("live_texte_html_presence", default_body()).await else {
                 return;
             };
             let (_, article, _) =
@@ -342,7 +349,8 @@ mod live {
         #[ignore = "live: needs LF_PISTE_CLIENT_ID/SECRET"]
         async fn live_dates_are_midnight_utc_and_eli_fields_are_null() {
             let Some(corpus) =
-                sandbox("live_dates_are_midnight_utc_and_eli_fields_are_null", DEFAULT_BODY).await
+                sandbox("live_dates_are_midnight_utc_and_eli_fields_are_null", default_body())
+                    .await
             else {
                 return;
             };
