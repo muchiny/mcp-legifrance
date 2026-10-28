@@ -2,7 +2,8 @@
 //!
 //! Chaque fonction est pure. `corpus_error` n'appelle jamais `Display` sur une `CorpusError` :
 //! le message est rédigé à partir des seuls champs typés (variante, statut, `AuthOrigin`,
-//! `ConfigKind`).
+//! `ConfigKind`). Les cas d'usage ne l'appellent pas directement : ils passent par
+//! `failure::port_failure`, qui journalise d'abord le `detail` pour l'opérateur.
 
 use std::time::Duration;
 
@@ -80,8 +81,10 @@ pub(crate) fn cancelled() -> AppError {
 }
 
 /// Échec d'écriture du journal en mode strict (ligne 22). Le paramètre `_error` n'est volontairement
-/// pas lu : son `detail` peut citer un chemin local (00 §5, D-40) et va aux journaux de l'appelant,
-/// jamais au modèle. Le garder dans la signature interdit d'appeler cette fonction sans échec réel.
+/// pas lu : son `detail` peut citer un chemin local (00 §5, D-40) ; l'adapter d'audit le journalise
+/// lui-même (plan 3c, span `audit_write`, 02 §11.1), `Audited` n'en journalise que le genre, et le
+/// modèle ne le voit jamais. Le garder dans la signature interdit d'appeler cette fonction sans
+/// échec réel.
 #[must_use]
 pub fn audit(_error: &AuditError, original: Option<ErrorCode>) -> AppError {
     let mut message = String::from(

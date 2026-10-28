@@ -11,6 +11,15 @@ use crate::{error::ErrorCode, input::CanonicalInput, tools::ToolName};
 /// Port sortant du journal d'audit.
 ///
 /// Aucune méthode par défaut. Le futur est `+ Send` (rmcp boxe les futurs d'outils, 02 §3.2).
+///
+/// Contrat de toute implémentation (F-5 ; `JsonlAuditLog` au plan 3c) :
+///
+/// 1. une ligne remise à l'écrivain est écrite en entier, même si le futur de `record` est
+///    abandonné ensuite (tâche de l'appel annulée) : l'abandon ne perd ni ne tronque une ligne
+///    déjà remise ;
+/// 2. aucune attente sans borne : au-delà d'une borne propre à l'adapter (écrivain figé, verrou
+///    jamais rendu), `record` rend [`AuditErrorKind::WriterGone`] plutôt que de se figer, car
+///    `Audited` attend l'accusé sans délai à lui (D-16).
 pub trait AuditLog: Send + Sync + 'static {
     /// Écrit une ligne et ne rend la main qu'une fois l'écriture terminée (accusé, D-16).
     fn record(&self, record: &AuditRecord) -> impl Future<Output = Result<(), AuditError>> + Send;
@@ -51,14 +60,15 @@ pub enum AuditStatus {
     Error,
 }
 
-/// Échec d'écriture du journal. Le message ne nomme que le genre : `detail` va aux journaux
-/// (il peut citer un chemin), jamais au modèle.
+/// Échec d'écriture du journal. Le message ne nomme que le genre. Le `detail` (il peut citer un
+/// chemin) est journalisé par l'adapter d'audit lui-même (plan 3c, span `audit_write`, 02 §11.1) ;
+/// `Audited` n'en journalise que le genre (`kind`) et le modèle ne le voit jamais.
 #[derive(Debug, Error)]
 #[error("audit log unavailable ({kind:?})")]
 pub struct AuditError {
     /// Genre de l'échec.
     pub kind: AuditErrorKind,
-    /// Détail pour les journaux seulement.
+    /// Détail pour le journal de l'adapter d'audit (span `audit_write`) seulement.
     pub detail: String,
 }
 

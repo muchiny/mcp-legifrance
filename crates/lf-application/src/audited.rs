@@ -25,7 +25,7 @@ use tracing::{Instrument, Span, field};
 
 use crate::{
     deadline::Deadline,
-    error::{AppError, ErrorCode},
+    error::{AppError, ErrorCode, UpstreamCause},
     input::CanonicalInput,
     messages,
     ports::{AuditLog, AuditRecord, AuditStatus, PisteEnvironment},
@@ -117,11 +117,18 @@ impl<A: AuditLog> Audited<A> {
     /// Une panique de `work` traverse `run` sans ligne d'audit : aucune issue de 06 §2.2 ne la
     /// décrit, et la frontière de tâche (une tâche par requête, rmcp) la recueille.
     ///
+    /// Seule l'annulation passée par `cancel` est auditée. Si le futur de `run` est lui-même
+    /// abandonné (tâche annulée sans passer par `cancel`, délai de l'appelant), aucune ligne
+    /// n'est écrite tant que la ligne n'a pas été remise au journal ; une fois remise, le contrat
+    /// du port ([`AuditLog`]) veut qu'elle soit écrite en entier.
+    ///
     /// # Errors
     ///
     /// - L'erreur de `work`, telle quelle.
     /// - `upstream_error` ([`crate::error::UpstreamCause::Deadline`]) au-delà de `policy.deadline`.
-    /// - `Upstream { cause: Cancelled }`, sans code, après une annulation : rmcp jette la réponse.
+    /// - `Upstream { cause: Cancelled }`, sans code, après une annulation : le client a renoncé à
+    ///   la réponse, que rmcp 1.8/2.1 envoie quand même (à revérifier au spike V-28 sur la
+    ///   version cible).
     /// - `audit_error` en mode `Strict` quand la ligne ne peut pas être écrite (hors annulation),
     ///   en citant le code d'origine s'il y en avait un : le résultat est retenu.
     ///
@@ -144,6 +151,7 @@ impl<A: AuditLog> Audited<A> {
             input_bytes = meta.canonical.as_str().len(),
             status = field::Empty,
             error_code = field::Empty,
+            cause = field::Empty,
             duration_ms = field::Empty,
             output = field::Empty,
         );
@@ -182,7 +190,7 @@ impl<A: AuditLog> Audited<A> {
         // Durée réelle, en erreur comme en succès (D-03), tronquée à la milliseconde et saturée.
         let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let record = self.record(meta, &outcome, duration_ms);
-        trace_outcome(&span, &record);
+        trace_outcome(&span, &record, outcome.cause());
         let Err(error) = self.log.record(&record).await else {
             return outcome.into_result();
         };
@@ -193,8 +201,9 @@ impl<A: AuditLog> Audited<A> {
                 let original = result.as_ref().err().and_then(AppError::code);
                 Err(messages::audit(&error, original))
             }
-            // Mode `BestEffort`, ou annulation : personne ne lira la réponse d'un appel annulé, il
-            // n'y a rien à retenir ; une seule tentative d'écriture, dont l'échec est signalé.
+            // Mode `BestEffort`, ou annulation : le client a renoncé à la réponse (rmcp 1.8/2.1
+            // l'envoie pourtant, à revérifier au spike V-28), il n'y a rien à retenir ; une seule
+            // tentative d'écriture, dont l'échec est signalé.
             (outcome, mode) => {
                 tracing::warn!(kind = ?error.kind, "audit write failed");
                 if mode == AuditMode::BestEffort {
@@ -248,6 +257,15 @@ enum Outcome<O> {
 }
 
 impl<O> Outcome<O> {
+    /// Cause amont de l'issue (02 §9.1) : celle de l'erreur `Upstream` rendue, `Cancelled` pour
+    /// une annulation, aucune sinon.
+    fn cause(&self) -> Option<UpstreamCause> {
+        match self {
+            Self::Done(result) => result.as_ref().err().and_then(AppError::cause),
+            Self::Cancelled => Some(UpstreamCause::Cancelled),
+        }
+    }
+
     /// Ce que rend `run` quand l'écriture ne retient pas le résultat.
     fn into_result(self) -> Result<O, AppError> {
         match self {
@@ -257,14 +275,19 @@ impl<O> Outcome<O> {
     }
 }
 
-/// Renseigne `span` (le `tool_call` de l'appel, jamais `Span::current()`) d'après la ligne, puis
-/// émet l'événement de fin : `info` pour un succès, une annulation (choix du client) et les
-/// erreurs attendues, `warn` pour les autres (D-08). Le `match` est exhaustif : un code ajouté
-/// devra choisir son niveau.
-fn trace_outcome(span: &Span, record: &AuditRecord) {
+/// Renseigne `span` (le `tool_call` de l'appel, jamais `Span::current()`) d'après la ligne et la
+/// cause amont, puis émet l'événement de fin : `info` pour un succès, une annulation (choix du
+/// client) et les erreurs attendues, `warn` pour les autres (D-08). Le `match` est exhaustif : un
+/// code ajouté devra choisir son niveau. `cause` est la variante d'`UpstreamCause` (`Debug` :
+/// `Status(503)`, `Deadline`…), jamais un `detail` ; le `detail` du port est journalisé à part,
+/// par `failure::port_failure`.
+fn trace_outcome(span: &Span, record: &AuditRecord, cause: Option<UpstreamCause>) {
     span.record("status", status_name(record.status));
     if let Some(code) = record.error_code {
         span.record("error_code", code.as_str());
+    }
+    if let Some(cause) = cause {
+        span.record("cause", field::debug(cause));
     }
     span.record("duration_ms", record.duration_ms);
     span.record("output", record.output_count_or_size);
@@ -293,7 +316,9 @@ const fn status_name(status: AuditStatus) -> &'static str {
 mod tests {
     use super::*;
     use crate::{
+        capture::Capture,
         error::UpstreamCause,
+        failure::port_failure,
         input::{InputError, ToolCall},
         messages::clip,
         ports::{AuditError, AuditErrorKind, AuthOrigin, ConfigKind, CorpusError, LegalCorpus},
@@ -309,21 +334,14 @@ mod tests {
     use pretty_assertions::assert_eq;
     use std::{
         collections::BTreeMap,
-        fmt,
         future::{pending, ready},
         hint::black_box,
         num::NonZeroU32,
         pin::pin,
-        sync::{Arc, Mutex},
+        sync::Arc,
     };
     use tokio::time::{sleep, timeout};
-    use tracing::{
-        Level, Metadata, Subscriber,
-        field::{Field, Visit},
-        span::{Attributes, Id, Record},
-        subscriber::{DefaultGuard, Interest},
-    };
-    use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+    use tracing::Level;
 
     /// `LF_TOOL_DEADLINE_S` par défaut (00 §1).
     const DEADLINE: Duration = Duration::from_secs(60);
@@ -426,8 +444,9 @@ mod tests {
     }
 
     /// Cas d'usage de test façon `fr_get_decision` (le vrai arrive au plan 3b) : décodage,
-    /// validation par le domaine, appel au port, message de l'outil ; la métrique est le nombre de
-    /// caractères du texte.
+    /// validation par le domaine, appel au port, échec traduit par `port_failure` (sujet :
+    /// l'identifiant validé, jamais la chaîne brute) ; la métrique est le nombre de caractères du
+    /// texte.
     async fn get_decision(corpus: &FakeCorpus, call: ToolCall<String>) -> Result<Out, AppError> {
         let raw = call.input?;
         let id: DecisionId =
@@ -435,7 +454,7 @@ mod tests {
         let decision = corpus
             .get_decision(&id)
             .await
-            .map_err(|error| messages::corpus_error(ToolName::FR_GET_DECISION, &raw, &error))?;
+            .map_err(|error| port_failure(ToolName::FR_GET_DECISION, id.as_str(), &error))?;
         Ok(Out(u64::from(decision.text.char_len())))
     }
 
@@ -759,6 +778,7 @@ mod tests {
             };
             let audited = Audited::new(log, policy(case.mode, case.deadline));
             let cancel = cancel_after(case.cancel);
+            let (capture, _guard) = Capture::install();
             let got = match case.input {
                 Input::Decision(raw) => {
                     audited.run(meta(), cancel, get_decision(&corpus, call(raw))).await
@@ -789,6 +809,12 @@ mod tests {
                 "{name}"
             );
             assert_eq!(got.as_ref().err().and_then(AppError::cause), case.cause, "{name}");
+            // Le span `tool_call` nomme la cause amont (variante, sans `detail`), s'il y en a une.
+            assert_eq!(
+                capture.span("tool_call").get("cause").cloned(),
+                case.cause.map(|cause| format!("{cause:?}")),
+                "{name}"
+            );
             assert_eq!(
                 got.as_ref().err().map(AppError::message),
                 case.message.as_deref(),
@@ -1207,111 +1233,5 @@ mod tests {
         };
         assert!(task.await.is_err_and(|error| error.is_panic()));
         assert!(audited.log.records().is_empty());
-    }
-
-    // ----- Capture des journaux -----
-
-    /// Événement capturé : niveau, message et champ `kind` s'il existe.
-    type Event = (Level, String, Option<String>);
-
-    #[derive(Default)]
-    struct Captured {
-        /// Niveau le plus verbeux retenu ; `None` : tout.
-        max_level: Option<Level>,
-        events: Vec<(Level, BTreeMap<&'static str, String>)>,
-        spans: Vec<(Id, &'static str, BTreeMap<&'static str, String>)>,
-    }
-
-    /// Couche `tracing` qui garde les événements et les champs des spans.
-    #[derive(Clone, Default)]
-    struct Capture(Arc<Mutex<Captured>>);
-
-    impl Capture {
-        /// Installe la capture comme abonné du fil courant (runtime `current_thread` des tests).
-        fn install() -> (Self, DefaultGuard) {
-            let capture = Self::default();
-            let subscriber = tracing_subscriber::registry().with(capture.clone());
-            (capture, tracing::subscriber::set_default(subscriber))
-        }
-
-        /// Comme [`Capture::install`], mais n'active que les spans et événements de niveau
-        /// `max_level` ou moins verbeux.
-        fn install_at(max_level: Level) -> (Self, DefaultGuard) {
-            let (capture, guard) = Self::install();
-            capture.0.lock().unwrap().max_level = Some(max_level);
-            (capture, guard)
-        }
-
-        fn events(&self) -> Vec<Event> {
-            let captured = self.0.lock().unwrap();
-            captured
-                .events
-                .iter()
-                .map(|(level, fields)| {
-                    (*level, fields["message"].clone(), fields.get("kind").cloned())
-                })
-                .collect()
-        }
-
-        fn levels(&self) -> Vec<Level> {
-            self.0.lock().unwrap().events.iter().map(|(level, _)| *level).collect()
-        }
-
-        /// Champs du dernier span nommé `name`.
-        fn span(&self, name: &str) -> BTreeMap<&'static str, String> {
-            let captured = self.0.lock().unwrap();
-            captured.spans.iter().rev().find(|(_, n, _)| *n == name).unwrap().2.clone()
-        }
-
-        /// Toutes les valeurs journalisées, événements et spans confondus.
-        fn all_values(&self) -> Vec<String> {
-            let captured = self.0.lock().unwrap();
-            let events = captured.events.iter().flat_map(|(_, fields)| fields.values());
-            let spans = captured.spans.iter().flat_map(|(_, _, fields)| fields.values());
-            events.chain(spans).cloned().collect()
-        }
-    }
-
-    struct Fields<'a>(&'a mut BTreeMap<&'static str, String>);
-
-    impl Visit for Fields<'_> {
-        fn record_str(&mut self, field: &Field, value: &str) {
-            self.0.insert(field.name(), value.to_owned());
-        }
-
-        fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
-            self.0.insert(field.name(), format!("{value:?}"));
-        }
-    }
-
-    impl<S: Subscriber> Layer<S> for Capture {
-        /// Toujours « parfois » : le filtre est décidé à chaque appel par `enabled`, et aucun
-        /// intérêt `never` n'est mis en cache pour les autres tests du processus.
-        fn register_callsite(&self, _: &'static Metadata<'static>) -> Interest {
-            Interest::sometimes()
-        }
-
-        fn enabled(&self, metadata: &Metadata<'_>, _: Context<'_, S>) -> bool {
-            let max_level = self.0.lock().unwrap().max_level;
-            max_level.is_none_or(|max| *metadata.level() <= max)
-        }
-
-        fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, _: Context<'_, S>) {
-            let mut fields = BTreeMap::new();
-            attrs.record(&mut Fields(&mut fields));
-            self.0.lock().unwrap().spans.push((id.clone(), attrs.metadata().name(), fields));
-        }
-
-        fn on_record(&self, id: &Id, values: &Record<'_>, _: Context<'_, S>) {
-            let mut captured = self.0.lock().unwrap();
-            let span = captured.spans.iter_mut().rev().find(|(known, ..)| known == id).unwrap();
-            values.record(&mut Fields(&mut span.2));
-        }
-
-        fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
-            let mut fields = BTreeMap::new();
-            event.record(&mut Fields(&mut fields));
-            self.0.lock().unwrap().events.push((*event.metadata().level(), fields));
-        }
     }
 }

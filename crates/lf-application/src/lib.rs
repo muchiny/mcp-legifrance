@@ -16,10 +16,13 @@
 pub mod audited;
 pub mod deadline;
 pub mod error;
+pub mod failure;
 pub mod input;
 pub mod messages;
 pub mod ports;
 pub mod tools;
 
+#[cfg(test)]
+mod capture;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;

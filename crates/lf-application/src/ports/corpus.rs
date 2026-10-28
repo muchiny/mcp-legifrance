@@ -95,8 +95,10 @@ pub enum ConfigKind {
     /// 404 ou 405 de l'endpoint du jeton (ligne 8).
     OAuthEndpoint,
     /// Valeur de configuration invalide, mode dégradé (ligne 6) : `LF_PISTE_ENV` invalide, URL
-    /// refusée dont `EnvMismatch`, client HTTP non constructible. Le `detail` est le texte
-    /// destiné au modèle : le `Display` d'un `ConfigProblem` de l'adapter (aligné sur 05 §7.2)
+    /// refusée dont `EnvMismatch`, client HTTP non constructible. Le `detail` est vu par le
+    /// modèle, coupé à 500 caractères par `messages` : l'adapter le rédige pour être lu et en
+    /// répond (aucun secret, aucune valeur brute : `ConfigProblem::invalid_env` ne garde pas la
+    /// valeur de `LF_PISTE_ENV`). C'est le `Display` d'un `ConfigProblem` (aligné sur 05 §7.2)
     /// ou, pour un client HTTP non constructible, la chaîne de l'erreur de construction (écart
     /// connu : ce texte-là n'est pas rédigé pour le modèle, mais l'adapter ne l'a jamais
     /// distingué).
@@ -106,9 +108,14 @@ pub enum ConfigKind {
 /// Erreurs du port.
 ///
 /// `Clone` est requis : moka renvoie `Arc<E>` aux appels coalescés (02 §7.2). Les `detail`
-/// ne contiennent jamais de secret, de jeton ni d'URL avec paramètres ; ils servent aux
-/// journaux, le message vu par le modèle étant rédigé par l'application (02 §9.3) à partir des
-/// seuls champs typés (variante, statut, [`AuthOrigin`], [`ConfigKind`]).
+/// ne contiennent jamais de secret, de jeton ni d'URL avec paramètres. Le message vu par le
+/// modèle est rédigé par l'application (02 §9.3) à partir des seuls champs typés (variante,
+/// statut, [`AuthOrigin`], [`ConfigKind`]), à deux exceptions près : le `detail`
+/// d'[`CorpusError::InvalidRequest`] (coupé à 200 caractères) et celui d'un
+/// [`ConfigKind::Settings`] (coupé à 500) sont recopiés dans ce message ; l'adapter doit donc les
+/// nettoyer et les expurger (jeton et secret client retirés) avant de les rendre. Tous les autres
+/// `detail` ne servent qu'aux journaux d'opérateur : les cas d'usage les y écrivent par
+/// `failure::port_failure`, jamais vers le modèle.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum CorpusError {
     /// Ressource introuvable (classification de 04 §11.2).
@@ -124,7 +131,8 @@ pub enum CorpusError {
     InvalidRequest {
         /// Statut HTTP, s'il y en a un.
         status: Option<u16>,
-        /// Détail pour les journaux.
+        /// Vu par le modèle (coupé à 200 caractères par `messages`) et journalisé : message PISTE
+        /// nettoyé et expurgé par l'adapter (jeton et secret client retirés), ou texte fixe.
         detail: String,
     },
     /// Erreur amont ; `status` vaut `None` pour une erreur réseau. `retryable` ne sert qu'au
@@ -135,7 +143,7 @@ pub enum CorpusError {
         status: Option<u16>,
         /// Vrai si une nouvelle tentative a des chances d'aboutir.
         retryable: bool,
-        /// Détail pour les journaux.
+        /// Détail pour les journaux (`failure::port_failure`), jamais vu par le modèle.
         detail: String,
     },
     /// Délai de requête dépassé après réessais, ou délai restant épuisé.
@@ -156,7 +164,7 @@ pub enum CorpusError {
         origin: AuthOrigin,
         /// Statut HTTP réellement reçu, `None` s'il est inconnu.
         status: Option<u16>,
-        /// Détail pour les journaux.
+        /// Détail pour les journaux (`failure::port_failure`), jamais vu par le modèle.
         detail: String,
     },
     /// Configuration invalide ou absente ; `kind` dit laquelle.
@@ -164,14 +172,15 @@ pub enum CorpusError {
     Config {
         /// Nature de l'erreur, seule lue par le message du modèle (hors `Settings`).
         kind: ConfigKind,
-        /// Détail pour les journaux ; texte du modèle pour [`ConfigKind::Settings`].
+        /// Détail pour les journaux (`failure::port_failure`) ; pour [`ConfigKind::Settings`],
+        /// vu aussi par le modèle (coupé à 500 caractères), donc rédigé et expurgé par l'adapter.
         detail: String,
     },
     /// Réponse illisible (JSON invalide, forme inattendue, corps de l'endpoint du jeton
     /// au-delà de la borne).
     #[error("undecodable upstream response: {detail}")]
     Decode {
-        /// Détail pour les journaux.
+        /// Détail pour les journaux (`failure::port_failure`), jamais vu par le modèle.
         detail: String,
     },
     /// Corps d'une réponse de `/search` ou d'une consultation au-delà de la borne de corps
@@ -181,7 +190,7 @@ pub enum CorpusError {
     /// énorme n'est pas un texte trop gros pour `get_act`.
     #[error("response too large")]
     TooLarge {
-        /// Borne et gabarit d'endpoint, pour les journaux.
+        /// Borne et gabarit d'endpoint, pour les journaux (`failure::port_failure`).
         detail: String,
     },
 }
