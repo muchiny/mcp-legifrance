@@ -171,7 +171,11 @@ impl AppError {
     pub const fn cause(&self) -> Option<UpstreamCause> {
         match self {
             Self::Upstream { cause, .. } => Some(*cause),
-            _ => None,
+            Self::InvalidArgument { .. }
+            | Self::NotFound { .. }
+            | Self::RateLimited { .. }
+            | Self::Config { .. }
+            | Self::Audit { .. } => None,
         }
     }
 }
@@ -250,8 +254,16 @@ mod tests {
         let upstream =
             AppError::Upstream { message: "m".to_owned(), cause: UpstreamCause::Status(500) };
         assert_eq!(upstream.cause(), Some(UpstreamCause::Status(500)));
-        assert_eq!(AppError::not_found("m").cause(), None);
-        assert_eq!(AppError::config("m").cause(), None);
+        let others = [
+            AppError::invalid_argument("m"),
+            AppError::not_found("m"),
+            AppError::RateLimited { message: "m".to_owned(), retry_after: None },
+            AppError::config("m"),
+            AppError::Audit { message: "m".to_owned(), original: None },
+        ];
+        for error in others {
+            assert_eq!(error.cause(), None, "{error:?}");
+        }
     }
 
     #[test]
