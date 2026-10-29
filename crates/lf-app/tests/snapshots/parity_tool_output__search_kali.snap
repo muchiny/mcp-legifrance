@@ -1,0 +1,49 @@
+---
+source: crates/lf-app/tests/parity_tool_output.rs
+expression: search_kali
+---
+{
+  "has_more": true,
+  "hits": [
+    {
+      "articles": [
+        {
+          "article_id": "KALIARTI000005807044",
+          "snippet": "[...] La fédération nationale SAMUP, 21 bis, rue Victor-Massé, 75009 Paris, à la direction départementale du travail et de l'emploi de Paris, service des conventions et accords collectifs 210, quai de Jemmapes [...] collective édition (n° 3103), ainsi qu'à l'ensemble de ses…"
+        }
+      ],
+      "citation": "Adhésion par lettre du 8 septembre 2004 de la fédération nationale SAMUP (FNS) à la convention collective nationale de l'édition et à ses avenants",
+      "etat": "VIGUEUR",
+      "id": "KALITEXT000005661929",
+      "kind": "kali",
+      "nature": "lettre d'adhesion",
+      "snippet": "[...] La fédération nationale SAMUP, 21 bis, rue Victor-Massé, 75009 Paris, à la direction départementale du travail et de l'emploi de Paris, service des conventions et accords collectifs 210, quai de Jemmapes [...] collective édition (n° 3103), ainsi qu'à l'ensemble de ses…",
+      "source_url": "https://www.legifrance.gouv.fr/conv_coll/id/KALITEXT000005661929"
+    },
+    {
+      "articles": [
+        {
+          "article_id": "KALIARTI000005805295",
+          "snippet": "[...] Le présent avenant est codifié sous l'article 8.4 de la convention collective de la manutention portuaire. [...]"
+        },
+        {
+          "article_id": "KALIARTI000005805297",
+          "snippet": "[...] Les dispositions du présent avenant s'appliquent à l'ensemble des salariés définis à l'article 2 de la convention collective nationale de la manutention portuaire, qui, conformément aux dispositions légales [...]"
+        },
+        {
+          "article_id": "KALIARTI000005805296",
+          "snippet": "[...] Les dispositions du présent avenant concernent les entreprises définies par l'article 1er de la convention collective nationale de la manutention portuaire et par les avenants n° 1 du 28 avril 1994, n° [...]"
+        }
+      ],
+      "citation": "Avenant n° 18 du 19 juillet 2002 relatif à la médaille d'honneur du travail",
+      "etat": "ABROGE",
+      "id": "KALITEXT000005661030",
+      "kind": "kali",
+      "nature": "avenant",
+      "snippet": "[...] Le présent avenant est codifié sous l'article 8.4 de la convention collective de la manutention portuaire. [...]",
+      "source_url": "https://www.legifrance.gouv.fr/conv_coll/id/KALITEXT000005661030"
+    }
+  ],
+  "page": 1,
+  "total": 27337
+}

@@ -1,0 +1,20 @@
+---
+source: crates/lf-app/tests/parity_tool_output.rs
+expression: consult_juri_cetat
+---
+{
+  "citation": "Conseil d'État, 2ème - 7ème chambres réunies, 29/05/2026, 506507",
+  "date": "2026-05-29",
+  "decision_id": "CETATEXT000054178503",
+  "ecli": "ECLI:FR:CECHR:2026:506507.20260529",
+  "formation": "2ème - 7ème chambres réunies",
+  "juridiction": "Conseil d'État",
+  "nature": "Texte",
+  "numero_affaire": [
+    "506507"
+  ],
+  "source_url": "https://www.legifrance.gouv.fr/ceta/id/CETATEXT000054178503",
+  "summary": "Projet de plan local d’urbanisme dont la mise en œuvre est susceptible d’avoir des effets notables sur l’environnement d’un autre Etat membre de l’Union européenne (UE). ...Il résulte des articles L. 104-7 et R. 104-26 du code de l’urbanisme, selon lesquelles les documents d’urbanisme mentionnés aux articles L. 104-1 et L. 104-2 du code de l’urbanisme (CUrb), au nombre desquels figurent les plans locaux d’urbanisme, doivent, lorsque leur mise en œuvre est susceptible de produire des effets notables sur l'environnement d’un Etat membre de l’Union européenne, être transmis aux autorités de celui-ci. La consultation des seules communes limitrophes du projet situées dans cet Etat membre ne peut tenir lieu d’une telle consultation.",
+  "summary_source": "official",
+  "text_length": 14608
+}

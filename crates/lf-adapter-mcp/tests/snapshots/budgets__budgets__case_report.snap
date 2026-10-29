@@ -1,0 +1,213 @@
+---
+source: crates/lf-adapter-mcp/tests/budgets.rs
+expression: report
+---
+[
+  {
+    "case": "search_100_hits_with_snippets",
+    "kept": {
+      "hits": 100,
+      "snippets_kept": 0
+    },
+    "outcome": "rendered",
+    "tool": "fr_search",
+    "under_estimation_target": true
+  },
+  {
+    "case": "search_100_hits_with_1000_char_citations",
+    "kept": {
+      "refused": true,
+      "suggested_page_size": 30
+    },
+    "outcome": "refused",
+    "tool": "fr_search",
+    "under_estimation_target": null
+  },
+  {
+    "case": "search_100_hits_with_escape_rich_citations",
+    "kept": {
+      "refused": true,
+      "suggested_page_size": 84
+    },
+    "outcome": "refused",
+    "tool": "fr_search",
+    "under_estimation_target": null
+  },
+  {
+    "case": "search_30_hits_with_non_bmp_citations",
+    "kept": {
+      "hits": 30,
+      "note": false
+    },
+    "outcome": "rendered",
+    "tool": "fr_search",
+    "under_estimation_target": true
+  },
+  {
+    "case": "search_code_100_hits_with_article_lists",
+    "kept": {
+      "article_lists_kept": 1,
+      "hits": 100,
+      "snippets_kept": 0
+    },
+    "outcome": "rendered",
+    "tool": "fr_search",
+    "under_estimation_target": true
+  },
+  {
+    "case": "search_all_8_fonds_x_10_hits",
+    "kept": {
+      "groups": 8,
+      "hits": 80,
+      "snippets_kept": 0
+    },
+    "outcome": "rendered",
+    "tool": "fr_search_all",
+    "under_estimation_target": true
+  },
+  {
+    "case": "search_all_8_fonds_x_10_hits_escape_rich",
+    "kept": {
+      "groups": 8,
+      "hits": 80,
+      "snippets_kept": 0
+    },
+    "outcome": "rendered",
+    "tool": "fr_search_all",
+    "under_estimation_target": true
+  },
+  {
+    "case": "act_500_toc_entries_with_long_titles",
+    "kept": {
+      "toc_entries": 80,
+      "toc_total": 500
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_act",
+    "under_estimation_target": true
+  },
+  {
+    "case": "act_500_toc_entries_with_escape_rich_titles",
+    "kept": {
+      "toc_entries": 77,
+      "toc_total": 500
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_act",
+    "under_estimation_target": false
+  },
+  {
+    "case": "convention_500_toc_entries_with_long_titles",
+    "kept": {
+      "toc_entries": 81,
+      "toc_total": 500
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_convention",
+    "under_estimation_target": true
+  },
+  {
+    "case": "convention_500_toc_entries_with_escape_rich_titles",
+    "kept": {
+      "toc_entries": 76,
+      "toc_total": 500
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_convention",
+    "under_estimation_target": false
+  },
+  {
+    "case": "text_40000_char_escape_rich_window",
+    "kept": {
+      "text_length": 58498,
+      "window_chars": 19998
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_text",
+    "under_estimation_target": true
+  },
+  {
+    "case": "text_40000_char_non_bmp_window",
+    "kept": {
+      "window_chars": 39996
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_text",
+    "under_estimation_target": true
+  },
+  {
+    "case": "text_40000_char_prose_window",
+    "kept": {
+      "window_chars_at_least_half_of_max_chars": true
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_text",
+    "under_estimation_target": true
+  },
+  {
+    "case": "text_focus_escape_rich_passages",
+    "kept": {
+      "passages": 10
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_text",
+    "under_estimation_target": true
+  },
+  {
+    "case": "decision_40000_char_escape_rich_window",
+    "kept": {
+      "text_length": 58498,
+      "window_chars": 19998
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_decision",
+    "under_estimation_target": true
+  },
+  {
+    "case": "decision_with_a_huge_official_summary",
+    "kept": {
+      "summary_chars_at_most_1200": true
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_decision",
+    "under_estimation_target": true
+  },
+  {
+    "case": "deliberation_40000_char_escape_rich_window",
+    "kept": {
+      "text_length": 58498,
+      "window_chars": 19998
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_deliberation",
+    "under_estimation_target": true
+  },
+  {
+    "case": "agreement_with_long_metadata",
+    "kept": {
+      "themes": 20
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_company_agreement",
+    "under_estimation_target": true
+  },
+  {
+    "case": "diff_500_changes_in_escape_rich_versions",
+    "kept": {
+      "hunks": 104,
+      "truncated": true
+    },
+    "outcome": "rendered",
+    "tool": "fr_diff_article",
+    "under_estimation_target": true
+  },
+  {
+    "case": "coverage",
+    "kept": {
+      "fonds_listed": true
+    },
+    "outcome": "rendered",
+    "tool": "fr_coverage",
+    "under_estimation_target": true
+  }
+]

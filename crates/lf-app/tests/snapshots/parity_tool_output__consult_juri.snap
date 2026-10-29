@@ -1,0 +1,22 @@
+---
+source: crates/lf-app/tests/parity_tool_output.rs
+expression: consult_juri
+---
+{
+  "citation": "Cour de cassation, civile, Chambre civile 1, 4 juin 2025, 24-13.470, Publié au bulletin",
+  "date": "2025-06-04",
+  "decision_id": "JURITEXT000051743650",
+  "ecli": "ECLI:FR:CCASS:2025:C100399",
+  "formation": "CHAMBRE_CIVILE_1",
+  "juridiction": "Cour de cassation",
+  "nature": "ARRET",
+  "numero_affaire": [
+    "24-13.470"
+  ],
+  "solution": "Cassation",
+  "source_url": "https://www.legifrance.gouv.fr/juri/id/JURITEXT000051743650",
+  "summary": "L'action en responsabilité dirigée contre le fabricant d'un produit dont le caractère défectueux est invoqué et qui a été mis en circulation après l'expiration du délai de transposition de la directive 85/374/CEE du Conseil, du 25 juillet 1985, relative au rapprochement des dispositions législatives, réglementaires et administratives des Etats membres en matière de responsabilité du fait des produits défectueux, mais avant la date d'entrée en vigueur de la loi n° 98-389 du 19 mai 1998 transposant cette directive, se prescrit selon les dispositions du droit interne telles qu'interprétées à la lumière de l'article 10 de la directive, soit, en cas de dommage corporel, par dix ans à compter du jour où le demandeur a eu ou aurait dû avoir connaissance de la consolidation du dommage, du défaut et de l'identité du producteur",
+  "summary_source": "official",
+  "text": "LA COUR DE CASSATION, PREMIÈRE CHAMBRE CIVILE, a rendu l'arrêt suivant : CIV. 1 CC COUR DE CASSATION ______________________ Arrêt du 4 juin 2025 Cassation Mme CHAMPALAUNE, président Arrêt n° 399 F Pourvoi n° N 24-13.470 R É P U B L I Q U E F R A N Ç A I S E _________________________ AU NOM DU PEUPLE FRANÇAIS _________________________ ARRÊT DE LA COUR DE CASSATION, PREMIÈRE CHAMBRE CIVILE, DU 4 JUIN 2025 1°/ Mme [M] [E], épouse [I], domiciliée [Adresse 5], 2°/ Mme [Z] [E], épouse [V], domiciliée [Adresse 1], 3°/ Mme [F] [E], épouse [H], domiciliée [Adresse 7], 4°/ Mme [P]",
+  "text_length": 577
+}

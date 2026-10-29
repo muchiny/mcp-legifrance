@@ -1,0 +1,26 @@
+---
+source: crates/lf-app/tests/parity_tool_output.rs
+expression: consult_kali
+---
+{
+  "bulletin": "BO n°2024-20",
+  "citation": "Annexe IX - Stipulations spécifiques applicables aux techniciens du spectacle et aux artistes interprètes, engagés pour la production de phonogrammes et vidéogrammes musicaux",
+  "container_title": "Convention collective nationale de l'édition du 14 janvier 2000",
+  "convention_id": "KALITEXT000049878950",
+  "etat": "VIGUEUR_ETEN",
+  "idcc": "2121",
+  "nor": "ASET2450455M",
+  "source_url": "https://www.legifrance.gouv.fr/conv_coll/id/KALITEXT000049878950",
+  "toc": [
+    {
+      "depth": 1,
+      "title": "Chapitre 1er : Recours au CDD d'usage"
+    },
+    {
+      "article_id": "KALIARTI000049886059",
+      "depth": 2,
+      "num": "19 (des dispositions communes de la convention collective nationale de l'édition phonographique)"
+    }
+  ],
+  "toc_total": 2
+}
