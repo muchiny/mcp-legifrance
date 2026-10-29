@@ -1,0 +1,158 @@
+---
+source: crates/lf-adapter-mcp/src/views/get_act.rs
+expression: schema
+---
+{
+  "properties": {
+    "aliases": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "citation": {
+      "type": "string"
+    },
+    "date": {
+      "type": "string"
+    },
+    "date_debut_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "date_fin_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "date_parution": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "eli": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "etat": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "jo_reference": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "nature": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "next_toc_offset": {
+      "description": "Pass as toc_offset to read the next page; absent on the last page.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "nor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "note": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "num_parution": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_url": {
+      "type": "string"
+    },
+    "text_id": {
+      "type": "string"
+    },
+    "title": {
+      "description": "Omitted when citation already contains it.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "toc": {
+      "items": {
+        "properties": {
+          "article_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "depth": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "etat": {
+            "description": "Omitted when equal to the etat of the text.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "num": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "depth"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "toc_total": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "text_id",
+    "date",
+    "citation",
+    "source_url",
+    "toc",
+    "toc_total"
+  ],
+  "type": "object"
+}

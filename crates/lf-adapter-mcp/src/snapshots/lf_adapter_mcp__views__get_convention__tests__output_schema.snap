@@ -1,0 +1,124 @@
+---
+source: crates/lf-adapter-mcp/src/views/get_convention.rs
+expression: schema
+---
+{
+  "properties": {
+    "bulletin": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "citation": {
+      "type": "string"
+    },
+    "container_title": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "convention_id": {
+      "type": "string"
+    },
+    "date_publication": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "etat": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "idcc": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "next_toc_offset": {
+      "description": "Pass as toc_offset to read the next page; absent on the last page.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "nor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_url": {
+      "type": "string"
+    },
+    "title": {
+      "description": "Omitted when citation already contains it.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "toc": {
+      "items": {
+        "properties": {
+          "article_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "depth": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "etat": {
+            "description": "Omitted when equal to the etat of the text.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "num": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "depth"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "toc_total": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "convention_id",
+    "citation",
+    "source_url",
+    "toc",
+    "toc_total"
+  ],
+  "type": "object"
+}
