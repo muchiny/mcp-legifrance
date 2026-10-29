@@ -48,7 +48,7 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
 
 #[cfg(test)]
 mod tests {
-    use std::{future::pending, future::ready, sync::Arc, time::Duration};
+    use std::{future::pending, future::ready, pin::Pin, sync::Arc, time::Duration};
 
     use chrono::{TimeZone, Utc};
     use lf_domain::{
@@ -79,92 +79,26 @@ mod tests {
         }
     }
 
-    /// Corpus partagé : même principe.
-    struct SharedCorpus(Arc<FakeCorpus>);
+    /// Futur d'annulation : un seul type pour tous les tests, donc une seule instanciation de
+    /// `search` (et le corps de l'appel est exécuté dans celle-ci).
+    type Cancel = Pin<Box<dyn Future<Output = ()> + Send>>;
 
-    impl LegalCorpus for SharedCorpus {
-        async fn search(
-            &self,
-            query: &lf_domain::search::SearchQuery,
-        ) -> Result<SearchPage, CorpusError> {
-            self.0.search(query).await
-        }
-        async fn get_act(
-            &self,
-            id: &lf_domain::id::LegiTextId,
-            date: lf_domain::date::VersionDate,
-        ) -> Result<lf_domain::entity::Act, CorpusError> {
-            self.0.get_act(id, date).await
-        }
-        async fn get_article(
-            &self,
-            id: &lf_domain::id::ArticleId,
-        ) -> Result<lf_domain::entity::ArticleText, CorpusError> {
-            self.0.get_article(id).await
-        }
-        async fn get_decision(
-            &self,
-            id: &lf_domain::id::DecisionId,
-        ) -> Result<lf_domain::entity::Decision, CorpusError> {
-            self.0.get_decision(id).await
-        }
-        async fn get_deliberation(
-            &self,
-            id: &lf_domain::id::CnilTextId,
-        ) -> Result<lf_domain::entity::Deliberation, CorpusError> {
-            self.0.get_deliberation(id).await
-        }
-        async fn get_convention(
-            &self,
-            id: &lf_domain::id::KaliTextId,
-        ) -> Result<lf_domain::entity::Convention, CorpusError> {
-            self.0.get_convention(id).await
-        }
-        async fn get_company_agreement(
-            &self,
-            id: &lf_domain::id::AccoTextId,
-        ) -> Result<lf_domain::entity::CompanyAgreement, CorpusError> {
-            self.0.get_company_agreement(id).await
-        }
-        async fn find_article(
-            &self,
-            text: &lf_domain::id::LegiTextId,
-            num: &str,
-            at: crate::ports::ArticleAt,
-        ) -> Result<lf_domain::entity::ArticleText, CorpusError> {
-            self.0.find_article(text, num, at).await
-        }
-        async fn find_by_number(
-            &self,
-            query: &lf_domain::search::NumberQuery,
-        ) -> Result<Vec<SearchHit>, CorpusError> {
-            self.0.find_by_number(query).await
-        }
-        async fn list_codes(&self) -> Result<Vec<lf_domain::entity::CodeListing>, CorpusError> {
-            self.0.list_codes().await
-        }
-        async fn article_versions(
-            &self,
-            id: &lf_domain::id::ArticleId,
-        ) -> Result<Vec<lf_domain::entity::ArticleVersion>, CorpusError> {
-            self.0.article_versions(id).await
-        }
-        async fn related_links(
-            &self,
-            id: &lf_domain::id::ArticleId,
-        ) -> Result<lf_domain::entity::RelatedLinks, CorpusError> {
-            self.0.related_links(id).await
-        }
+    /// Le client n'annule jamais.
+    fn never() -> Cancel {
+        Box::pin(pending())
+    }
+
+    /// Le client a déjà annulé.
+    fn cancelled() -> Cancel {
+        Box::pin(ready(()))
     }
 
     struct Rig {
-        service: LegalService<SharedCorpus, SharedLog, FixedClock>,
-        corpus: Arc<FakeCorpus>,
+        service: LegalService<FakeCorpus, SharedLog, FixedClock>,
         audit: Arc<MemoryAuditLog>,
     }
 
     fn rig() -> Rig {
-        let corpus = Arc::new(FakeCorpus::new());
         let audit = Arc::new(MemoryAuditLog::new());
         let settings = ServiceSettings {
             policy: AuditPolicy {
@@ -178,13 +112,9 @@ mod tests {
         };
         let now = Utc.with_ymd_and_hms(2026, 10, 29, 8, 30, 0).unwrap();
         let clock = FixedClock::new(now, CivilDate::new(2026, 10, 29).unwrap());
-        let service = LegalService::new(
-            SharedCorpus(Arc::clone(&corpus)),
-            SharedLog(Arc::clone(&audit)),
-            clock,
-            settings,
-        );
-        Rig { service, corpus, audit }
+        let service =
+            LegalService::new(FakeCorpus::new(), SharedLog(Arc::clone(&audit)), clock, settings);
+        Rig { service, audit }
     }
 
     fn call(query: Option<&str>) -> ToolCall<SearchInput> {
@@ -205,8 +135,8 @@ mod tests {
     #[tokio::test]
     async fn search_is_audited_under_fr_search_with_the_number_of_hits() {
         let rig = rig();
-        rig.corpus.push_search(Ok(juri_page(3)));
-        let output = rig.service.search(call(Some("bail")), pending()).await.unwrap();
+        rig.service.corpus.push_search(Ok(juri_page(3)));
+        let output = rig.service.search(call(Some("bail")), never()).await.unwrap();
         assert_eq!(output.hits.len(), 3);
         assert_eq!(output.total, 40);
 
@@ -220,7 +150,7 @@ mod tests {
         assert_eq!(record.ts, Utc.with_ymd_and_hms(2026, 10, 29, 8, 30, 0).unwrap());
         assert_eq!((record.error_code, record.error.as_deref()), (None, None));
         assert_eq!(record.server_version, "9.9.9");
-        assert_eq!(rig.corpus.calls_of("search"), 1);
+        assert_eq!(rig.service.corpus.calls_of("search"), 1);
     }
 
     #[tokio::test]
@@ -232,7 +162,7 @@ mod tests {
             }),
             canonical: CanonicalInput::new("{\"query\":42}"),
         };
-        let error = rig.service.search(failed, pending()).await.unwrap_err();
+        let error = rig.service.search(failed, never()).await.unwrap_err();
         assert_eq!(error.code(), Some(ErrorCode::InvalidArg));
         assert_eq!(error.message(), "query: invalid type: integer `42`, expected a string");
 
@@ -242,26 +172,26 @@ mod tests {
         assert_eq!(records[0].error_code, Some(ErrorCode::InvalidArg));
         assert_eq!(records[0].output_count_or_size, 0);
         assert_eq!(records[0].input.as_str(), "{\"query\":42}", "l'empreinte porte sur le brut");
-        assert_eq!(rig.corpus.calls(), 0);
+        assert_eq!(rig.service.corpus.calls(), 0);
     }
 
     #[tokio::test]
     async fn a_local_rejection_is_audited_as_invalid_arg() {
         let rig = rig();
-        let error = rig.service.search(call(None), pending()).await.unwrap_err();
+        let error = rig.service.search(call(None), never()).await.unwrap_err();
         assert_eq!(error.message(), "query is required.");
         let records = rig.audit.records();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].error_code, Some(ErrorCode::InvalidArg));
         assert_eq!(records[0].error.as_deref(), Some("query is required."));
-        assert_eq!(rig.corpus.calls(), 0);
+        assert_eq!(rig.service.corpus.calls(), 0);
     }
 
     #[tokio::test]
     async fn a_port_failure_is_audited_with_its_code() {
         let rig = rig();
-        rig.corpus.push_search(Err(CorpusError::Timeout));
-        let error = rig.service.search(call(Some("bail")), pending()).await.unwrap_err();
+        rig.service.corpus.push_search(Err(CorpusError::Timeout));
+        let error = rig.service.search(call(Some("bail")), never()).await.unwrap_err();
         assert_eq!(error.code(), Some(ErrorCode::UpstreamError));
         let records = rig.audit.records();
         assert_eq!(records.len(), 1);
@@ -272,13 +202,13 @@ mod tests {
     #[tokio::test]
     async fn a_cancelled_call_is_audited_without_a_code() {
         let rig = rig();
-        let error = rig.service.search(call(Some("bail")), ready(())).await.unwrap_err();
+        let error = rig.service.search(call(Some("bail")), cancelled()).await.unwrap_err();
         assert_eq!(error.code(), None);
         assert_eq!(error.cause(), Some(UpstreamCause::Cancelled));
         let records = rig.audit.records();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].status, AuditStatus::Error);
         assert_eq!(records[0].error_code, None);
-        assert_eq!(rig.corpus.calls(), 0, "annulé avant le premier sondage du port");
+        assert_eq!(rig.service.corpus.calls(), 0, "annulé avant le premier sondage du port");
     }
 }
