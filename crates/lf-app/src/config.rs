@@ -709,8 +709,7 @@ impl<E: EnvSource> Collector<'_, E> {
             return CorpusSource::Piste;
         };
         let resolved = match absolute_path(self.env, &raw) {
-            Ok(_) if !cfg!(feature = "dila") => Err(DilaDirProblem::NotCompiled),
-            Ok(dir) => Ok(dir),
+            Ok(dir) => dila_dir_if_compiled(dir, cfg!(feature = "dila")),
             Err(PathProblem::NotAbsolute) => Err(DilaDirProblem::NotAbsolute),
             Err(PathProblem::NoHome) => Err(DilaDirProblem::NoHome),
         };
@@ -859,6 +858,14 @@ fn absolute_path(env: &impl EnvSource, raw: &str) -> Result<PathBuf, PathProblem
         None => PathBuf::from(raw),
     };
     if path.is_absolute() { Ok(path) } else { Err(PathProblem::NotAbsolute) }
+}
+
+/// Le répertoire DILA, à condition que le binaire embarque l'index local (`compiled`).
+///
+/// `compiled` est un paramètre et non un `cfg!` dans une garde : sous la feature, la garde valait
+/// `false` pour tous les tests et sa mutation était indiscernable.
+fn dila_dir_if_compiled(dir: PathBuf, compiled: bool) -> Result<PathBuf, DilaDirProblem> {
+    if compiled { Ok(dir) } else { Err(DilaDirProblem::NotCompiled) }
 }
 
 /// `LF_AUDIT_DIR` posé explicitement : `~/` développé, puis chemin absolu exigé.
@@ -1778,6 +1785,12 @@ mod tests {
         // `~/` en tête développé avec le répertoire personnel.
         let tilde = loaded(&[(DILA_DIR, "~/index")]);
         assert_eq!(tilde.config.source, CorpusSource::Dila(abs("home").join("index")));
+    }
+
+    #[test]
+    fn a_dila_dir_is_kept_only_when_the_binary_embeds_the_local_index() {
+        assert_eq!(dila_dir_if_compiled(abs("index"), true), Ok(abs("index")));
+        assert_eq!(dila_dir_if_compiled(abs("index"), false), Err(DilaDirProblem::NotCompiled));
     }
 
     #[cfg(not(feature = "dila"))]
