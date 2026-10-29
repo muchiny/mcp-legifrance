@@ -311,13 +311,10 @@ mod tests {
         let boundaries =
             chars.windows(3).filter(|w| w[0] == '.' && w[1] == ' ' && w[2].is_uppercase()).count();
         assert!((3..=6).contains(&(boundaries + 1)), "{} phrases", boundaries + 1);
-        // Les outils cités existent : `ToolName::ALL` ne compte que ceux de la v0.1,
-        // `fr_verify_citations` s'y ajoute à l'intégration de M6.
-        let known = [ToolName::FR_VERIFY_CITATIONS];
+        // Les outils cités existent.
         for cited in description.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
             if cited.starts_with("fr_") && !cited.ends_with('_') {
-                let registered =
-                    ToolName::ALL.iter().chain(&known).any(|name| name.as_str() == cited);
+                let registered = ToolName::ALL.iter().any(|name| name.as_str() == cited);
                 assert!(registered, "{cited} n'est pas un outil");
             }
         }

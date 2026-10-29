@@ -469,13 +469,10 @@ mod tests {
         assert_eq!(description.chars().count(), 489, "05 §5.11");
         let sentences = description.split(". ").count();
         assert!((3..=6).contains(&sentences), "{sentences} phrases");
-        // Les outils cités existent : `ToolName::ALL` ne compte que ceux déjà enregistrés, `fr_resolve`
-        // s'y ajoute à l'intégration de M6.
-        let known = [ToolName::FR_RESOLVE];
+        // Les outils cités existent.
         for cited in description.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
             if cited.starts_with("fr_") && !cited.ends_with('_') {
-                let registered =
-                    ToolName::ALL.iter().chain(&known).any(|name| name.as_str() == cited);
+                let registered = ToolName::ALL.iter().any(|name| name.as_str() == cited);
                 assert!(registered, "{cited} n'est pas un outil");
             }
         }

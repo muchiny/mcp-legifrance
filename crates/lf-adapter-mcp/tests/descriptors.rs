@@ -6,11 +6,9 @@
 //! lock-descriptors` rejoue les mêmes sessions sur le binaire et fige le résultat. Les tests ne
 //! lisent pas le verrou, qui ne change qu'à l'intégration d'une vague.
 //!
-//! **Surface.** `SURFACE` dit ce que le serveur annonce (instructions, capacités). Un outil d'un
-//! jalon ultérieur peut déjà être enregistré (V2-07 a posé `fr_diff_article` et `fr_search_all`
-//! alors que la surface vaut v0.1) : l'intégrateur fait avancer `SURFACE` avec les outils
-//! enregistrés. Le test de surface exige donc que tous les outils annoncés soient servis et qu'aucun
-//! outil ne soit hors du catalogue de 05 §5.0.1.
+//! **Surface.** `SURFACE` dit ce que le serveur annonce (instructions, capacités) : la surface
+//! complète (v0.3), qui sert exactement les 13 outils du catalogue de 05 §5.0.1. Le test de surface
+//! est strict : tous les outils annoncés sont servis, et aucun n'est hors du catalogue.
 //!
 //! **Parité (P-003).** Le verrou de la référence Python 0.5.3 (`tools.lock.json`) n'est pas dans le
 //! dépôt : `reference_input_schemas` en reprend, à l'identique, les paramètres de l'annexe A.10 de
@@ -258,9 +256,10 @@ mod descriptors {
         assert!(missing.is_empty(), "{SURFACE:?} annonce des outils non servis : {missing:?}");
         let unknown: Vec<_> = served.difference(&catalogue).collect();
         assert!(unknown.is_empty(), "outils hors du catalogue de 05 §5.0.1 : {unknown:?}");
-        if SURFACE == Surface::V03 {
-            assert_eq!(served, catalogue, "la surface complète sert exactement les 13 outils");
-        }
+        // La surface servie est la complète : exactement les 13 outils, ni plus ni moins.
+        assert_eq!(SURFACE, Surface::V03);
+        assert_eq!(served, catalogue, "la surface complète sert exactement les 13 outils");
+        assert_eq!(catalogue.len(), 13);
 
         // Ordre et contenu stables (05 §9.1) : triés par nom, les mêmes dans les trois ères.
         let legacy = wire_tools(Era::Legacy20251125).await;
@@ -533,18 +532,12 @@ mod descriptors {
         names
     }
 
-    /// Outils que des descriptions déjà servies citent avant que leur tranche ne les enregistre :
-    /// `fr_resolve` (V4-01) est nommé par `fr_verify_citations` et `fr_get_related`. Provisoire :
-    /// V4-01 enregistre l'outil et retire cette liste (comme celle de `xtask`).
-    const CITED_BEFORE_REGISTERED: [&str; 1] = ["fr_resolve"];
-
     /// Les citations de `texts` qui ne désignent aucun outil de `registered` : un nom doit être
     /// enregistré, une famille (`fr_get_*`) doit en couvrir au moins un.
     fn unregistered_citations(texts: &[String], registered: &BTreeSet<String>) -> BTreeSet<String> {
         texts
             .iter()
             .flat_map(|text| cited_names(text))
-            .filter(|cited| !CITED_BEFORE_REGISTERED.contains(&cited.as_str()))
             .filter(|cited| match cited.strip_suffix('*') {
                 Some(prefix) => !registered.iter().any(|name| name.starts_with(prefix)),
                 None => !registered.contains(cited),

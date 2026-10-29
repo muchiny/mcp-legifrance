@@ -587,13 +587,21 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn the_handshake_reports_the_server_and_tools_only() {
+        async fn the_handshake_reports_the_server_and_the_full_surface() {
             let client = connect(server()).await;
             let info = client.peer_info().expect("le serveur s'est présenté");
             assert_eq!(info.server_info.as_ref().unwrap().name, "mcp-legifrance");
             assert_eq!(info.server_info.as_ref().unwrap().version, env!("CARGO_PKG_VERSION"));
+            // Surface complète (v0.3) : outils, resources, prompts et complétions, sans
+            // `listChanged` ni `subscribe` (05 §2.2).
             assert!(info.capabilities.tools.is_some());
-            assert!(info.capabilities.resources.is_none());
+            assert!(info.capabilities.resources.is_some());
+            assert!(info.capabilities.prompts.is_some());
+            assert!(info.capabilities.completions.is_some());
+            assert_eq!(
+                serde_json::to_value(&info.capabilities).unwrap(),
+                json!({"tools": {}, "resources": {}, "prompts": {}, "completions": {}})
+            );
         }
 
         #[tokio::test]
@@ -626,7 +634,11 @@ mod tests {
             let mut modern = Wire::serve(server());
             let discovered = modern_discover(&mut modern).await;
             assert_eq!(initialized["capabilities"], discovered["capabilities"]);
-            assert_eq!(discovered["capabilities"], json!({"tools": {}}), "{discovered}");
+            assert_eq!(
+                discovered["capabilities"],
+                json!({"tools": {}, "resources": {}, "prompts": {}, "completions": {}}),
+                "{discovered}"
+            );
         }
 
         #[tokio::test]
@@ -772,8 +784,8 @@ mod tests {
         const CODE_TEMPLATE: &str = "legifrance://code/{code}/article/{num}";
         const TEXT: &str = "Chacun a droit au respect de sa vie privée.";
 
-        /// Le serveur de la surface v0.3 sur les doubles de `fixture` : `SURFACE` reste v0.1
-        /// jusqu'à la bascule, mais ces tests éprouvent la surface complète.
+        /// Le serveur de la surface v0.3 sur les doubles de `fixture`, nommée explicitement : ces
+        /// tests éprouvent la surface complète, quelle que soit la valeur de `SURFACE`.
         fn v03_server(fixture: &Fixture) -> FixtureServer {
             #[expect(
                 clippy::default_trait_access,

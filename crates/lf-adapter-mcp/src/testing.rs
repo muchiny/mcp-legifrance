@@ -217,8 +217,7 @@ impl Fixture {
         if transcript.needs(Need::SlowUpstream) { Self::slow_upstream() } else { Self::default() }
     }
 
-    /// Un serveur neuf sur les doubles de la fixture (aucun routeur d'outil ne le remplit encore :
-    /// les tranches y ajoutent leurs outils).
+    /// Un serveur neuf sur les doubles de la fixture, de la surface finale ([`SURFACE`](crate::SURFACE)).
     #[must_use]
     pub fn server(&self) -> FixtureServer {
         #[expect(

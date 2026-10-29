@@ -464,7 +464,7 @@ mod tests {
 
     /// Les outils que chaque surface annonce (05 §3).
     fn registered(surface: Surface) -> BTreeSet<&'static str> {
-        let v01 = ToolName::ALL.map(ToolName::as_str);
+        let v01 = ToolName::ALL[..8].iter().map(|tool| tool.as_str());
         let v02 = [ToolName::FR_VERIFY_CITATIONS, ToolName::FR_RESOLVE].map(ToolName::as_str);
         let v03 = [ToolName::FR_GET_RELATED, ToolName::FR_DIFF_ARTICLE, ToolName::FR_SEARCH_ALL]
             .map(ToolName::as_str);
@@ -486,7 +486,7 @@ mod tests {
             let view = sandbox_view(surface);
             assert_eq!(named_tools(&view), registered(surface), "{surface:?}");
         }
-        // Le binaire annonce `SURFACE` : les outils de `ToolName::ALL` en font partie.
+        // Le binaire annonce `SURFACE`, la surface complète : les treize outils de `ToolName::ALL`.
         let announced = named_tools(
             &serde_json::to_value(CoverageView::from(output(
                 PisteEnvironment::Sandbox,

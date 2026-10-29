@@ -484,9 +484,14 @@ mod parity {
 
     /// Champs que la sortie d'un outil ajoute au golden de la référence (annexe A §4.1,
     /// `fields_added` : liste blanche). Tout champ Rust absent du golden transformé doit y figurer.
+    ///
+    /// Le binaire annonce la surface complète (v0.3) : `fr_search` y rend en plus `total_articles`
+    /// et l'`idcc` des conventions, que la surface v0.1 omettait (05 §5.1).
     fn added(tool: &str) -> &'static [&'static str] {
         match tool {
-            "fr_search" => &["page", "has_more", "snippet", "date", "articles"],
+            "fr_search" => {
+                &["page", "has_more", "snippet", "date", "articles", "total_articles", "idcc"]
+            }
             "fr_get_act" => &["date", "jo_reference", "aliases", "toc_total", "next_toc_offset"],
             "fr_get_text" => &[
                 "parent_id",

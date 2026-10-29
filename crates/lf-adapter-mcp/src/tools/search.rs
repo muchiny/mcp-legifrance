@@ -324,10 +324,11 @@ mod tests {
         assert!(description.chars().count() <= 1_000, "{}", description.chars().count());
         let sentences = description.split(". ").count();
         assert!((3..=6).contains(&sentences), "{sentences} phrases");
-        // Seuls des outils de la surface v0.1 sont cités.
+        // Seuls des outils de la surface v0.1 sont cités : les huit premiers de `ToolName::ALL`.
+        let v01 = &ToolName::ALL[..8];
         for cited in description.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
             if cited.starts_with("fr_") && !cited.ends_with('_') {
-                let known = ToolName::ALL.iter().any(|name| name.as_str() == cited);
+                let known = v01.iter().any(|name| name.as_str() == cited);
                 assert!(known, "{cited} n'est pas un outil");
             }
         }

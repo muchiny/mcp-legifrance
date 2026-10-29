@@ -825,14 +825,23 @@ mod tests {
                 assert_eq!(view(&app), (Some(ErrorCode::NotFound), None, message), "{tool:?}");
             }
         }
-        // La table couvre tous les outils qui lisent une ressource ; les deux autres ne
-        // reçoivent jamais `NotFound` (04 §11.2) et ont un test à part.
+        // La table couvre les six outils de lecture de la v0.1. Les sept autres n'y ont pas de
+        // ligne : `fr_search`, `fr_coverage` et `fr_search_all` ne reçoivent jamais `NotFound`
+        // (04 §11.2, test à part), et `fr_verify_citations`, `fr_resolve`, `fr_get_related` et
+        // `fr_diff_article` écrivent leur propre `not_found` dans leur cas d'usage (05 §7.4).
         let covered: Vec<ToolName> = rows.iter().map(|row| row.0).collect();
+        let elsewhere = [
+            ToolName::FR_SEARCH,
+            ToolName::FR_COVERAGE,
+            ToolName::FR_SEARCH_ALL,
+            ToolName::FR_VERIFY_CITATIONS,
+            ToolName::FR_RESOLVE,
+            ToolName::FR_GET_RELATED,
+            ToolName::FR_DIFF_ARTICLE,
+        ];
         for tool in ToolName::ALL {
             assert!(
-                covered.contains(&tool)
-                    || tool == ToolName::FR_SEARCH
-                    || tool == ToolName::FR_COVERAGE,
+                covered.contains(&tool) || elsewhere.contains(&tool),
                 "{tool:?} sans message not_found"
             );
         }

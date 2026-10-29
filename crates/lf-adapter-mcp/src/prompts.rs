@@ -327,25 +327,8 @@ mod tests {
     #[test]
     fn every_tool_quoted_in_a_prompt_exists() {
         // Test de dérive (05 §4.3) : un outil renommé ou retiré casse le prompt qui le cite.
-        // Les treize outils de la surface complète : `ToolName::ALL` ne garde que ceux de v0.1.
-        let catalog: Vec<&str> = [
-            ToolName::FR_SEARCH,
-            ToolName::FR_GET_ACT,
-            ToolName::FR_GET_TEXT,
-            ToolName::FR_GET_DECISION,
-            ToolName::FR_GET_DELIBERATION,
-            ToolName::FR_GET_CONVENTION,
-            ToolName::FR_GET_COMPANY_AGREEMENT,
-            ToolName::FR_COVERAGE,
-            ToolName::FR_VERIFY_CITATIONS,
-            ToolName::FR_RESOLVE,
-            ToolName::FR_GET_RELATED,
-            ToolName::FR_DIFF_ARTICLE,
-            ToolName::FR_SEARCH_ALL,
-        ]
-        .iter()
-        .map(|tool| tool.as_str())
-        .collect();
+        // Les treize outils de la surface complète.
+        let catalog: Vec<&str> = ToolName::ALL.iter().map(|tool| tool.as_str()).collect();
         let mut quoted = 0;
         for text in every_text() {
             for word in text.split('`').skip(1).step_by(2) {

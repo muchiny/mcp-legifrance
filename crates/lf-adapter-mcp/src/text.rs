@@ -20,9 +20,9 @@ pub enum Surface {
     V03,
 }
 
-/// Surface servie par ce binaire. L'intégrateur la fait avancer avec les outils enregistrés
-/// (`ToolName::ALL`) ; la valeur finale est fixée en F1.
-pub const SURFACE: Surface = Surface::V01;
+/// Surface servie par ce binaire : la complète, qui annonce les treize outils de
+/// `ToolName::ALL`, les resources, les prompts et les complétions.
+pub const SURFACE: Surface = Surface::V03;
 
 impl Surface {
     /// Instructions annoncées par cette surface (05 §4.2).
@@ -204,7 +204,7 @@ mod tests {
 
     /// Outils cités, par surface : les 8 de la v0.1, puis M6, puis M7 (05 §4.2).
     fn cited_tools(surface: Surface) -> BTreeSet<&'static str> {
-        let v01 = ToolName::ALL.iter().map(|tool| tool.as_str());
+        let v01 = ToolName::ALL[..8].iter().map(|tool| tool.as_str());
         let m6 = [ToolName::FR_VERIFY_CITATIONS, ToolName::FR_RESOLVE].map(ToolName::as_str);
         let m7 = [ToolName::FR_GET_RELATED, ToolName::FR_DIFF_ARTICLE, ToolName::FR_SEARCH_ALL]
             .map(ToolName::as_str);
@@ -221,8 +221,11 @@ mod tests {
     }
 
     #[test]
-    fn the_surface_starts_at_v01() {
-        assert_eq!(SURFACE, Surface::V01);
+    fn the_surface_is_the_complete_v03() {
+        assert_eq!(SURFACE, Surface::V03);
+        // Les outils que la surface cite sont exactement ceux que le serveur enregistre.
+        let registered: BTreeSet<&str> = ToolName::ALL.iter().map(|tool| tool.as_str()).collect();
+        assert_eq!(cited_tools(SURFACE), registered);
     }
 
     #[test]

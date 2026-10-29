@@ -314,7 +314,7 @@ mod tests {
             total.bounded += scan.bounded;
             total.readers += scan.readers;
         }
-        assert_eq!(total, Scan { bounded: 17, readers: 4, unbounded: Vec::new() });
+        assert_eq!(total, Scan { bounded: 18, readers: 4, unbounded: Vec::new() });
     }
 
     #[test]
