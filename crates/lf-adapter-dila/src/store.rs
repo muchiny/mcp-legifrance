@@ -62,6 +62,18 @@ pub trait DocStore {
     ///
     /// [`StoreError`] si le retrait échoue.
     fn remove_text_dir(&mut self, text_dir: &str) -> Result<u64, StoreError>;
+
+    /// Rend durables les écritures en attente. L'ingestion l'appelle une fois par archive, avant
+    /// que le registre ne la déclare appliquée : un magasin qui groupe ses écritures (l'index
+    /// tantivy) ne perd ainsi jamais une archive que le registre croit appliquée. Sans effet
+    /// pour un magasin qui écrit tout de suite.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError`] si les écritures ne peuvent pas être rendues durables.
+    fn commit(&mut self) -> Result<(), StoreError> {
+        Ok(())
+    }
 }
 
 /// Magasin en mémoire, trié par clé.

@@ -95,6 +95,10 @@ pub fn sync_directory<S: DocStore>(
             store.reset()?;
         }
         let ingested = ingest_archive(file, store, limits)?;
+        // Redondant avec le commit de l'ingestion, sauf pour une archive vide (qui rend la main
+        // avant) : le registre ne déclare jamais appliquée une archive que le magasin n'a pas
+        // rendue durable.
+        store.commit()?;
         if name.kind() == ArchiveKind::Global {
             registry.finish_global();
         } else {
@@ -337,6 +341,42 @@ mod tests {
         assert_eq!(applied(&report), [G1, I1]);
         assert_eq!(store.inner.len(), 2);
         assert_eq!(setup.registry().global().unwrap().1, ArchiveStatus::Applied);
+    }
+
+    #[test]
+    fn an_archive_is_applied_only_once_the_store_has_made_it_durable() {
+        let setup = Setup::new();
+        setup.put(G1, &global(&[(1, "g1")]));
+        let mut store = TestStore::failing("commit");
+        let error = setup.sync(&mut store).unwrap_err();
+        assert_eq!(error.to_string(), "document store failure: commit refused");
+        assert_eq!(
+            setup.registry().global().unwrap().1,
+            ArchiveStatus::Building,
+            "the registry never says applied before the store is durable"
+        );
+
+        store.fail_on = None;
+        let report = setup.sync(&mut store).unwrap();
+        assert_eq!(report.rebuild, Some(RebuildReason::InterruptedGlobal));
+        assert_eq!(store.commits, 2, "one by the ingestion, one by the synchronisation");
+
+        // le commit de l'ingestion passe, celui de la synchronisation est refusé
+        let late = Setup::new();
+        late.put(G1, &global(&[(1, "g1")]));
+        let mut store = TestStore::new();
+        store.refuse_commit_after = Some(1);
+        let error = late.sync(&mut store).unwrap_err();
+        assert_eq!(error.to_string(), "document store failure: commit refused");
+        assert_eq!(late.registry().global().unwrap().1, ArchiveStatus::Building);
+
+        // une archive vide rend la main avant le commit de l'ingestion : celui de la
+        // synchronisation la couvre
+        let empty = Setup::new();
+        empty.put(G1, &[]);
+        let mut store = TestStore::new();
+        empty.sync(&mut store).unwrap();
+        assert_eq!(store.commits, 1);
     }
 
     #[test]

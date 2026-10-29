@@ -14,6 +14,9 @@ use tar::{EntryType, Header};
 
 use crate::{
     error::StoreError,
+    index::Engine,
+    model::Document,
+    path::{DocKind, doc_for_key},
     store::{DocStore, MemoryStore, StoredDoc},
 };
 
@@ -26,6 +29,10 @@ pub(crate) struct TestStore {
     /// Compteur d'octets lus de l'archive, à relever au premier `put`.
     pub(crate) probe: Option<Rc<Cell<usize>>>,
     pub(crate) first_put_at: Option<usize>,
+    /// Nombre d'appels à `commit` (un par archive ingérée).
+    pub(crate) commits: usize,
+    /// Refuse les `commit` une fois ce nombre atteint.
+    pub(crate) refuse_commit_after: Option<usize>,
 }
 
 /// Lecteur de test : compte les octets lus et peut échouer dès la première lecture.
@@ -70,7 +77,14 @@ impl Deref for TestStore {
 
 impl TestStore {
     pub(crate) fn new() -> Self {
-        Self { inner: MemoryStore::new(), fail_on: None, probe: None, first_put_at: None }
+        Self {
+            inner: MemoryStore::new(),
+            fail_on: None,
+            probe: None,
+            first_put_at: None,
+            commits: 0,
+            refuse_commit_after: None,
+        }
     }
 
     pub(crate) fn failing(operation: &'static str) -> Self {
@@ -110,6 +124,15 @@ impl DocStore for TestStore {
         self.check("remove_text_dir")?;
         self.inner.remove_text_dir(text_dir)
     }
+
+    fn commit(&mut self) -> Result<(), StoreError> {
+        self.check("commit")?;
+        if self.refuse_commit_after == Some(self.commits) {
+            return Err(StoreError::new("commit refused"));
+        }
+        self.commits += 1;
+        self.inner.commit()
+    }
 }
 
 /// Chemin d'une fixture, relatif à `tests/fixtures/`.
@@ -120,6 +143,25 @@ pub(crate) fn fixture_path(relative: &str) -> PathBuf {
 /// Contenu d'une fixture.
 pub(crate) fn fixture(relative: &str) -> Vec<u8> {
     std::fs::read(fixture_path(relative)).unwrap()
+}
+
+/// Rejoue `run` en faisant échouer tour à tour chaque accès à l'index, du premier au dernier : une
+/// panne doit toujours remonter en erreur, jamais être avalée. Rend le nombre d'accès (et donc de
+/// pannes) de `run`, qui doit réussir quand aucune panne ne l'atteint.
+pub(crate) fn every_fault<T, E>(engine: &Engine, mut run: impl FnMut() -> Result<T, E>) -> u64 {
+    let mut faults = 0;
+    loop {
+        let access = faults + 1;
+        engine.fail_nth_access(access);
+        let result = run();
+        if engine.fault_pending() {
+            engine.fail_nth_access(0);
+            assert!(result.is_ok(), "the run fails by itself");
+            return faults;
+        }
+        assert!(result.is_err(), "the failure of access {access} was swallowed");
+        faults += 1;
+    }
 }
 
 /// Dossier d'un texte, `sub` valant `code_en_vigueur`, `TNC_non_vigueur`, etc.
@@ -137,6 +179,23 @@ pub(crate) fn text_dir(sub: &str, cid: &str) -> String {
 fn levels(id: &str) -> String {
     let digits = &id[8..18];
     (0..5).map(|i| &digits[2 * i..2 * i + 2]).collect::<Vec<_>>().join("/")
+}
+
+/// Clé de stockage d'un document du texte `cid`, sous `sub` (`code_en_vigueur`, etc.).
+pub(crate) fn doc_key(sub: &str, cid: &str, kind: DocKind, id: &str) -> String {
+    let dir = text_dir(sub, cid);
+    match kind {
+        DocKind::Article => format!("{dir}/article/LEGI/ARTI/{}/{id}", levels(id)),
+        DocKind::Section => format!("{dir}/section_ta/LEGI/SCTA/{}/{id}", levels(id)),
+        DocKind::TextStruct => format!("{dir}/texte/struct/{id}"),
+        DocKind::TextVersion => format!("{dir}/texte/version/{id}"),
+    }
+}
+
+/// Le document rangé sous la clé que lui donne sa place dans le texte `cid`.
+pub(crate) fn stored_doc(sub: &str, cid: &str, document: Document, mtime: u64) -> StoredDoc {
+    let key = doc_key(sub, cid, document.kind(), document.id());
+    StoredDoc { path: doc_for_key(&key).unwrap(), mtime, document }
 }
 
 /// Chemin d'un membre `article/…` (sans préfixe d'incrément).

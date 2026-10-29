@@ -1,11 +1,14 @@
-//! Adapter DILA : ingestion des dumps du fonds LEGI (M9, tâche T-M9-02) et, plus tard, index et
-//! port `DilaCorpus` (T-M9-03).
+//! Adapter DILA : ingestion des dumps du fonds LEGI (M9, tâche T-M9-02), index tantivy et port
+//! [`DilaCorpus`] (T-M9-03).
 //!
 //! Ce crate n'est compilé dans les binaires publiés que derrière la feature `dila` (D9). Il lit
 //! les archives `tar.gz` de la DILA **en flux, sans rien extraire sur le disque**
 //! (`flate2` → `tar` → `quick-xml`, [`ingest`]), tient un registre des archives appliquées
 //! ([`registry`]) et refait le corpus quand un nouveau global arrive ([`sync`]). Les documents
-//! lus ([`model`]) vont dans un [`DocStore`] ; V3-08 en fournira l'implémentation sur l'index.
+//! lus ([`model`]) vont dans un [`DocStore`] : [`IndexStore`] les range dans l'index tantivy
+//! ([`index`]), [`MemoryStore`] en mémoire (tests, petits dumps). [`DilaCorpus`] ([`corpus`])
+//! lit cet index et implémente `LegalCorpus` : les opérations que les dumps LEGI ne couvrent pas
+//! (décisions, CNIL, KALI, ACCO) rendent une erreur de configuration, décision 00 §5.
 //!
 //! # Parcours
 //!
@@ -26,8 +29,12 @@
 //! membre.
 
 pub mod archive;
+mod codec;
+pub mod corpus;
 pub mod error;
+pub mod index;
 pub mod ingest;
+mod map;
 pub mod model;
 pub mod path;
 pub mod registry;
@@ -40,7 +47,9 @@ pub mod xml;
 mod testing;
 
 pub use archive::{ArchiveKind, ArchiveName, ArchiveStamp};
+pub use corpus::DilaCorpus;
 pub use error::{IngestError, StoreError};
+pub use index::{Engine, IndexStore, french_analyzer};
 pub use ingest::{IngestLimits, IngestReport, Rejection, ingest_archive};
 pub use model::Document;
 pub use registry::{ArchiveStatus, Plan, RebuildReason, Registry};

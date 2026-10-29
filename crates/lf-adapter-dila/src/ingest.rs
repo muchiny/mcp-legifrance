@@ -272,7 +272,9 @@ impl<S: DocStore> Run<'_, S> {
 /// Ingère une archive `tar.gz` du fonds LEGI (global ou incrément) dans `store`.
 ///
 /// `reader` est lu une seule fois, dans l'ordre ; rien n'est écrit sur le disque. Une entrée
-/// vide (zéro octet) est une archive vide, tolérée : elle ne change rien.
+/// vide (zéro octet) est une archive vide, tolérée : elle ne change rien. Une fois les
+/// suppressions appliquées, le magasin est validé par [`DocStore::commit`] : c'est ce qui rend
+/// l'archive durable avant que le registre ne la déclare appliquée.
 ///
 /// # Errors
 ///
@@ -309,6 +311,7 @@ pub fn ingest_archive<R: Read, S: DocStore>(
     let mut rest = archive.into_inner().take(MAX_TRAILING_BYTES);
     io::copy(&mut rest, &mut io::sink()).map_err(|source| run.archive_error(source))?;
     run.apply_deletions()?;
+    run.store.commit()?;
     Ok(run.report)
 }
 
@@ -691,6 +694,18 @@ mod tests {
     }
 
     #[test]
+    fn the_store_is_committed_once_after_the_content_and_the_deletions() {
+        let path = article_member("TNC_en_vigueur", CID, ID_A);
+        let archive = global_archive(&[(&path, xml(ID_A, "x").as_bytes())]);
+        let mut store = TestStore::new();
+        ingest(archive, &mut store).unwrap();
+        assert_eq!((store.commits, store.len()), (1, 1));
+        // une archive vide rend la main avant : rien à rendre durable
+        ingest(Vec::new(), &mut store).unwrap();
+        assert_eq!(store.commits, 1);
+    }
+
+    #[test]
     fn anything_that_is_not_gzip_is_an_archive_error() {
         let mut store = TestStore::new();
         let error = ingest(b"definitely not a tarball".to_vec(), &mut store).unwrap_err();
@@ -776,7 +791,7 @@ mod tests {
             &[&dir],
             &[(&path, xml(ID_A, "x").as_bytes())],
         );
-        for op in ["put", "remove_file", "remove_text_dir"] {
+        for op in ["put", "remove_file", "remove_text_dir", "commit"] {
             let mut store = TestStore::failing(op);
             let error = ingest(archive.clone(), &mut store).unwrap_err();
             assert_eq!(error.to_string(), format!("document store failure: {op} refused"));
