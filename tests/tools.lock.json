@@ -1,28 +1,115 @@
 {
   "capabilities": {
+    "completions": {},
+    "prompts": {},
+    "resources": {},
     "tools": {}
   },
   "eras_identical": true,
   "instructions": {
-    "chars": 2879,
-    "sha256": "5a8a687574128a6089a506f8c83e3991adf0b21361e36ba7ba5cdd4b5171b737",
-    "text": "French law from Légifrance through the official PISTE API (read-only): consolidated laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company agreements (ACCO). Use these tools for any question on French legislation, code articles or case law.\n\n## Workflow\n1. Find: `fr_search` searches one fond, paged with `page` and `has_more`.\n2. Read by id prefix: LEGITEXT -> `fr_get_act` (metadata and table of contents); LEGIARTI or KALIARTI -> `fr_get_text`; JURITEXT, CONSTEXT or CETATEXT -> `fr_get_decision`; CNILTEXT -> `fr_get_deliberation`; KALITEXT -> `fr_get_convention`; ACCOTEXT -> `fr_get_company_agreement` (metadata only: the full text is a .docx on Légifrance).\n3. Limits: `fr_coverage` says what this server does not cover and whether it runs on the PISTE sandbox.\n\n## Long texts\n`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. For the text itself pass `detail=\"full\"`; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.\n\n## Hard rules\n- Cite every source with its `citation` and `source_url`; for case law add the `ecli` when present.\n- Never invent an id, an ECLI, an ELI or a citation: take each one from tool output. Many CAA and TA decisions have no ECLI.\n- ELI: the API returns no native ELI for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.\n- Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the data, give this source and the consultation date (`consulted_on` in `fr_coverage`).\n- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim: this server does not decide whether a provision applies to a case.\n- An empty result does not mean the law is silent: call `fr_coverage` and tell the user what is missing.\n\n## Errors\nA failed call returns isError with a text that starts with a code:\n- `[invalid_arg]` an argument is missing or malformed: fix it as the message says.\n- `[not_found]` nothing exists for that id: search again.\n- `[rate_limited]` PISTE quota reached: wait the delay given, then retry.\n- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.\n- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the server configuration.\n- `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user."
+    "chars": 3278,
+    "sha256": "342dcbd746a0d903b97ddc34476772c90f9301ef7b358d37901100269b720f08",
+    "text": "French law from Légifrance through the official PISTE API (read-only): consolidated laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company agreements (ACCO). Use these tools for any question on French legislation, code articles or case law.\n\n## Workflow\n1. Find: `fr_search` searches one fond, paged with `page` and `has_more`; `fr_search_all` returns a few hits from several fonds. `fr_resolve` turns a free-text citation (code article, law number, ECLI, case number) into Legifrance ids.\n2. Read by id prefix: LEGITEXT -> `fr_get_act` (metadata and table of contents); LEGIARTI or KALIARTI -> `fr_get_text`; JURITEXT, CONSTEXT or CETATEXT -> `fr_get_decision`; CNILTEXT -> `fr_get_deliberation`; KALITEXT -> `fr_get_convention`; ACCOTEXT -> `fr_get_company_agreement` (metadata only: the full text is a .docx on Légifrance).\n3. Check and navigate: `fr_verify_citations` checks every citation of a draft against the official record; `fr_get_related` lists what an article or a decision cites or is cited by; `fr_diff_article` compares two versions of an article.\n4. Limits: `fr_coverage` says what this server does not cover and whether it runs on the PISTE sandbox.\n\n## Long texts\n`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. For the text itself pass `detail=\"full\"`; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.\n\n## Hard rules\n- Cite every source with its `citation` and `source_url`; for case law add the `ecli` when present.\n- Never invent an id, an ECLI, an ELI or a citation: take each one from tool output. Many CAA and TA decisions have no ECLI.\n- ELI: the API returns no native ELI for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.\n- Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the data, give this source and the consultation date (`consulted_on` in `fr_coverage`).\n- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim: this server does not decide whether a provision applies to a case.\n- An empty result does not mean the law is silent: call `fr_coverage` and tell the user what is missing.\n\n## Errors\nA failed call returns isError with a text that starts with a code:\n- `[invalid_arg]` an argument is missing or malformed: fix it as the message says.\n- `[not_found]` nothing exists for that id: search again.\n- `[rate_limited]` PISTE quota reached: wait the delay given, then retry.\n- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.\n- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the server configuration.\n- `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user."
   },
   "lock_format": 1,
-  "prompts": {},
+  "prompts": {
+    "analyser_decision": {
+      "descriptor": {
+        "arguments": [
+          {
+            "description": "Identifiant Légifrance de la décision (JURITEXT…, CETATEXT… ou CONSTEXT…).",
+            "name": "decision_id",
+            "required": true
+          }
+        ],
+        "description": "Analyser une décision de justice (Cour de cassation, Conseil d'État, Conseil constitutionnel) à partir de son identifiant Légifrance.",
+        "name": "analyser_decision",
+        "title": "Analyser une décision"
+      },
+      "sha256": "b0fdd3d027bc9dc6ae0732a87a5435085ad11f488bfbdb631a882035bcd9d610"
+    },
+    "etat_du_droit": {
+      "descriptor": {
+        "description": "Établir l'état du droit français en vigueur sur une question, sources officielles à l'appui (la question est demandée au tour suivant).",
+        "name": "etat_du_droit",
+        "title": "État du droit"
+      },
+      "sha256": "35b68fdf2de5c1d93a21b609a21229c4fef3512ec20b43cd6e723a559e2e6d91"
+    },
+    "verifier_citations": {
+      "descriptor": {
+        "description": "Vérifier les citations juridiques d'un texte contre Légifrance (le texte est demandé au tour suivant).",
+        "name": "verifier_citations",
+        "title": "Vérifier des citations"
+      },
+      "sha256": "edc2fd6b41c97c5c3d7e6a8a60af119913be9bf31386640e5d998244032e3769"
+    }
+  },
   "protocol_versions": [
     "2026-07-28",
     "2025-11-25",
     "2025-06-18"
   ],
-  "resource_templates": {},
-  "resources": {},
+  "resource_templates": {
+    "legifrance://act/{text_id}": {
+      "descriptor": {
+        "description": "The metadata and the nested table of contents of one consolidated text, by its LEGITEXT identifier (with an optional _DD-MM-YYYY version suffix), as Markdown. At most 500 entries.",
+        "mimeType": "text/markdown",
+        "name": "act",
+        "title": "Law, decree or code (table of contents)",
+        "uriTemplate": "legifrance://act/{text_id}"
+      },
+      "sha256": "3eeba4ff918fc3f8f52eca76e7e519b4b3898fcc4ea732bf15364cc663b8e72a"
+    },
+    "legifrance://article/{article_id}": {
+      "descriptor": {
+        "description": "The full text of one consolidated article, by its LEGIARTI identifier, as Markdown. At most 40,000 characters; a last line gives the offset to resume with fr_get_text.",
+        "mimeType": "text/markdown",
+        "name": "article",
+        "title": "Article (full text)",
+        "uriTemplate": "legifrance://article/{article_id}"
+      },
+      "sha256": "a0b03144f45ee0db571d7f2d9de9dc31510bfd1770f44e3993f754ddb8915a67"
+    },
+    "legifrance://code/{code}/article/{num}": {
+      "descriptor": {
+        "description": "The full text of one article of a code, by the code slug (code-civil, code-du-travail...) and the article number (L. 1234-5), in force today in Paris, as Markdown. Complete the code variable to list the slugs.",
+        "mimeType": "text/markdown",
+        "name": "code_article",
+        "title": "Code article by number",
+        "uriTemplate": "legifrance://code/{code}/article/{num}"
+      },
+      "sha256": "8ceca80939b037a7b7f013160963ce3e59f98c1efb7b3a728685cc6acced93ef"
+    },
+    "legifrance://decision/{decision_id}": {
+      "descriptor": {
+        "description": "The full text of one court decision, by its JURITEXT, CETATEXT or CONSTEXT identifier, as Markdown, with the official summary. At most 40,000 characters; a last line gives the offset to resume with fr_get_decision.",
+        "mimeType": "text/markdown",
+        "name": "decision",
+        "title": "Court decision (full text)",
+        "uriTemplate": "legifrance://decision/{decision_id}"
+      },
+      "sha256": "1da1df8e43e068e402b1e1884bf3132331ab8bb88383bdb940bc916818cb6a0f"
+    }
+  },
+  "resources": {
+    "legifrance://coverage": {
+      "descriptor": {
+        "description": "What this server covers, how it is sourced and what it does NOT cover, with the PISTE environment and the state of the configuration (the same object as the fr_coverage tool).",
+        "mimeType": "application/json",
+        "name": "coverage",
+        "title": "Coverage and known gaps",
+        "uri": "legifrance://coverage"
+      },
+      "sha256": "a8962d009b532fce81f04ae0076d85a61db68a9b774f90a58318301db2ffbedc"
+    }
+  },
   "server_version": "0.0.0",
   "sizes": {
-    "instructions_chars": 2879,
-    "tools_list_bytes": 30152
+    "instructions_chars": 3278,
+    "tools_list_bytes": 31814
   },
-  "surface_sha256": "21141bc1a7bac70e5f4b92a372d0ead7de8e5bc8faddbb5759cfbda04352fa86",
+  "surface_sha256": "ed694b622d7e3a16eba3d622be8676680fec1c881572a94a61174ef1079bed78",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -1365,6 +1452,91 @@
       },
       "sha256": "4269ba64bdfe356ccea2cf2f9ac6ea6073c7d76a219a2e78a1fa3565bde3418a"
     },
+    "fr_resolve": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Resolve a legal citation"
+        },
+        "description": "Turn one free-text legal citation into Légifrance ids, e.g. \"article 1240 du code civil\", \"loi n° 78-17 du 6 janvier 1978\", \"Cass. civ. 1re, 4 juin 2025, n° 24-13.470\" or an ECLI. Returns `candidates` (id, kind, citation, source_url, confidence high/medium/low), best first; nothing is guessed or fabricated, and an empty list comes with a `note` saying why. Pass `date` (YYYY-MM-DD, default: today in Paris) for the article version in force on that day. Then open a candidate with the fr_get_* tool for its kind; to check all citations of a text at once use fr_verify_citations.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "citation": {
+              "description": "One citation in free text, e.g. \"art. L. 1234-5 du code du travail\" or an ECLI.",
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "date": {
+              "default": null,
+              "description": "Date YYYY-MM-DD for the article version (default: today in Paris).",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          "required": [
+            "citation"
+          ],
+          "type": "object"
+        },
+        "name": "fr_resolve",
+        "outputSchema": {
+          "$defs": {
+            "CandidateView": {
+              "properties": {
+                "citation": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "source_url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "citation",
+                "source_url",
+                "confidence"
+              ],
+              "type": "object"
+            }
+          },
+          "properties": {
+            "candidates": {
+              "items": {
+                "$ref": "#/$defs/CandidateView"
+              },
+              "type": "array"
+            },
+            "interpreted_as": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "candidates"
+          ],
+          "type": "object"
+        },
+        "title": "Resolve a legal citation"
+      },
+      "sha256": "3984806de96bb0dfb5a32b0a7cd36b626f61271516cb1de3a6a1fb3499f20de7"
+    },
     "fr_search": {
       "descriptor": {
         "annotations": {
@@ -1897,5 +2069,5 @@
       "sha256": "320698c773ab02bac6fe3e7f43da1cdd4d70e7b915c5ea5521d18c21b3f5166c"
     }
   },
-  "toolset_sha256": "d101e751515fd9cad7b774f37aa9c58a0070edac105a2a50b44bbc0cc8e7d50b"
+  "toolset_sha256": "2e3ebd6fe2babd60d7ae81ad89d76a2b70c8981c110173d00e313dcb2ea53743"
 }
