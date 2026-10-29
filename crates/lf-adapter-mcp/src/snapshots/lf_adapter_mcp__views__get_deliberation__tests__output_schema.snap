@@ -1,0 +1,94 @@
+---
+source: crates/lf-adapter-mcp/src/views/get_deliberation.rs
+expression: schema
+---
+{
+  "properties": {
+    "citation": {
+      "type": "string"
+    },
+    "date": {
+      "type": "string"
+    },
+    "date_publication": {
+      "type": "string"
+    },
+    "deliberation_id": {
+      "type": "string"
+    },
+    "etat": {
+      "type": "string"
+    },
+    "nature": {
+      "type": "string"
+    },
+    "nature_delib": {
+      "type": "string"
+    },
+    "next_offset": {
+      "description": "Pass as offset to read the next window.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "note": {
+      "type": "string"
+    },
+    "num": {
+      "type": "string"
+    },
+    "passages": {
+      "items": {
+        "properties": {
+          "offset": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "offset",
+          "text"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "source_url": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "summary_source": {
+      "enum": [
+        "official",
+        "dispositif",
+        "lead"
+      ],
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    },
+    "text_length": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "title": {
+      "description": "Omitted when citation already contains it.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "deliberation_id",
+    "citation",
+    "source_url",
+    "text_length"
+  ],
+  "type": "object"
+}
