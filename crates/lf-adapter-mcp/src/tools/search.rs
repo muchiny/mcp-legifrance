@@ -114,9 +114,8 @@ mod tests {
 
     async fn descriptor(fixture: &Fixture) -> Tool {
         let client = fixture.connect().await;
-        let mut tools = client.list_all_tools().await.unwrap();
-        assert_eq!(tools.len(), 1, "seul fr_search est enregistré par cette tranche");
-        tools.remove(0)
+        let tools = client.list_all_tools().await.unwrap();
+        tools.into_iter().find(|tool| tool.name == "fr_search").expect("fr_search est enregistré")
     }
 
     fn text_of(result: &CallToolResult) -> &str {
