@@ -3,7 +3,6 @@
 //! STUB(V0) → V1-09 : seul l'entier JSON est lu pour l'instant. V1-09 ajoute le flottant à
 //! partie fractionnaire nulle (`10.0`), la chaîne décimale (`"10"`) et le dépassement des bornes
 //! d'un `i64`, qui rend une erreur de bornes et jamais une panique.
-#![allow(dead_code, reason = "STUB(V0) → 0W : employé par `ReadingParams` (params/reading.rs)")]
 
 use serde::{Deserialize, Deserializer};
 
