@@ -1,6 +1,6 @@
 //! Sortie de `fr_get_convention` (v0.1) : `GetConventionOutput` et sa métrique d'audit.
 //!
-//! La table des matières est celle de `fr_get_act` ([`TocLine`](super::get_act::TocLine)).
+//! La table des matières est celle de `fr_get_act` ([`TocLine`]).
 
 use lf_domain::entity::Convention;
 

@@ -5,7 +5,7 @@
 //! (conservée par `parse_versioned`), sinon aujourd'hui à Paris (00 §7). La table des matières est
 //! aplatie en préordre (`Toc::page`), puis raccourcie en partant de la fin tant que son estimation
 //! dépasse la cible du budget (05 §6.4, étape 1) : `next_toc_offset` suit la page réellement
-//! rendue. Le découpage de la table est partagé avec `fr_get_convention` ([`TocRequest`]).
+//! rendue. Le découpage de la table est partagé avec `fr_get_convention` (`TocRequest`).
 
 use std::num::NonZeroU32;
 
