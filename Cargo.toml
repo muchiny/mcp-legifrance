@@ -102,6 +102,8 @@ tempfile = "3"
 unsafe_code = "forbid"
 missing_docs = "warn"
 unreachable_pub = "warn"
+# `coverage` est posé par cargo-llvm-cov : les mesures `#[ignore]` de lf-adapter-audit (V-165, V-166) y tournent
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage)"] }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

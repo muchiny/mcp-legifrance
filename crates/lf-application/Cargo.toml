@@ -9,7 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [package.metadata.cargo-machete]
-# STUB(V0) : employées par les cas d'usage de M6 et M7
+# Employées par les cas d'usage de M7 (V2-07) : fr_search_all et fr_diff_article
 ignored = ["futures", "similar"]
 
 [dependencies]
@@ -17,9 +17,9 @@ lf-domain.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
 tracing.workspace = true
-# join_all et buffer_unordered (M6, M7) ; STUB(V0) : ignoré par cargo-machete jusqu'à l'unité qui l'emploie
+# join_all et buffer_unordered (M6, M7) ; ignoré par cargo-machete jusqu'à V2-07
 futures.workspace = true
-# fr_diff_article (M7, D10 : 2.7) ; STUB(V0) : ignoré par cargo-machete jusqu'à l'unité qui l'emploie
+# fr_diff_article (M7, D10 : 2.7) ; ignoré par cargo-machete jusqu'à V2-07
 similar.workspace = true
 # rt : pour task_local! seulement (Deadline) ; time : Instant et timeout (R2) ; macros : select!
 tokio = { workspace = true, features = ["rt", "time", "macros"] }

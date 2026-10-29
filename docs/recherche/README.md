@@ -13,6 +13,7 @@ Rapports bruts qui ont servi à écrire le plan de `docs/plan/`. Le plan en extr
 | [07-citations.md](07-citations.md) | Grammaire des citations juridiques françaises, dictionnaire des codes, stratégie de résolution. Corpus de tests dans [`../plan/annexes/donnees/`](../plan/annexes/donnees/). |
 | [08-mcp-2026-07-28.md](08-mcp-2026-07-28.md) | Révision MCP 2026-07-28 (« MCP v2 ») en détail : changelog, cycle sans session, compatibilité dual-era, check-list. |
 | [09-rmcp-2026.md](09-rmcp-2026.md) | Support de 2026-07-28 par `rmcp` (oui, depuis la 3.x) ; bugs ouverts ; squelette de serveur. |
+| [10-dumps-dila.md](10-dumps-dila.md) | Reconnaissance des dumps LEGI de la DILA (V-185 à V-189) : hôtes, format des archives et des listes de suppression, volumétrie, rythme, licence ; fixtures dans `crates/lf-adapter-dila/tests/fixtures/`. |
 
 ## Avertissements
 

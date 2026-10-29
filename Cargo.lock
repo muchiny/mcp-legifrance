@@ -1519,7 +1519,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
- "thiserror",
  "tokio",
  "tracing",
 ]
@@ -1532,7 +1531,6 @@ dependencies = [
  "lf-domain",
  "moka",
  "pretty_assertions",
- "thiserror",
  "tokio",
  "tracing",
 ]

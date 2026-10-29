@@ -13,12 +13,8 @@ categories.workspace = true
 publish.workspace = true
 
 [package.metadata.cargo-machete]
-# STUB(V0) : employées par les unités de V1 à V4 qui écrivent le binaire
-ignored = [
-  "lf-domain", "lf-application", "lf-adapter-piste", "lf-adapter-cache", "lf-adapter-audit",
-  "lf-adapter-mcp", "lf-adapter-dila", "clap", "tracing", "tracing-subscriber", "anyhow", "dirs", "secrecy", "chrono",
-  "chrono-tz", "tokio", "tokio-util", "wiremock", "serde_json", "tempfile",
-]
+# Employées par la racine de composition (V2-04, `wiring.rs`) et par V4-02 (`dila`)
+ignored = ["anyhow", "lf-adapter-audit", "lf-adapter-cache", "lf-adapter-dila", "lf-adapter-mcp"]
 
 [features]
 # M9 : source locale DILA. Absente des binaires publiés (plan fin-du-projet, M9).

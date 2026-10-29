@@ -32,7 +32,7 @@ MIN_AGE_DAYS ?= 14
 SURFACE_DIR ?= target/surface
 DONNEES := docs/plan/annexes/donnees
 
-.PHONY: fmt fmt-check lint test doc arch purity deny audit-fuzz min-age min-age-selftest machete cov cov-cobertura clippy-json mem-check mutants mutants-diff workflow-lint surface ci
+.PHONY: fmt fmt-check lint test doc arch purity deny audit-fuzz min-age min-age-selftest machete cov cov-cobertura clippy-json mem-check mutants mutants-diff workflow-lint surface instructions ci
 
 fmt:
 	cargo fmt --all
@@ -131,5 +131,11 @@ surface:
 	cmp "$(SURFACE_DIR)/parite-golden.json" $(DONNEES)/parite-golden.json
 	cmp crates/lf-adapter-piste/tests/fixtures/reference/parite-golden.json $(DONNEES)/parite-golden.json
 	python3 -I $(DONNEES)/scripts/check_golden.py $(DONNEES)/parite-golden.json
+	cmp crates/lf-domain/tests/data/citations/codes-table.md $(DONNEES)/codes-table.md
 
-ci: fmt-check lint test doc arch purity deny min-age-selftest machete cov surface
+# Taille des instructions du serveur (05 §4.1) : lance `mcp-legifrance serve` (binaire de V2-04), envoie
+# `server/discover` puis `tools/list` et refuse plus de 3 500 caractères. Rouge tant que `main` est un stub.
+instructions:
+	cargo xtask instructions-size
+
+ci: fmt-check lint test doc arch purity deny min-age-selftest machete cov surface instructions

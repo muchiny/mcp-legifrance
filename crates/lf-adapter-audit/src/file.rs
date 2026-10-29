@@ -494,7 +494,6 @@ fn unusable_setting(detail: &str) -> AuditError {
 }
 
 #[cfg(test)]
-#[allow(unexpected_cfgs, reason = "`coverage` est posé par cargo-llvm-cov (mesures V-165, V-166)")]
 mod tests {
     use super::*;
     use crate::fixtures::{record, record_at};

@@ -1,0 +1,10 @@
+# Configuration d'actionlint (make workflow-lint, workflow-lint.yml).
+#
+# `release.yml` est GÉNÉRÉ par `dist generate` (dist 0.33.0) : ses défauts de gabarit sont écartés ici.
+paths:
+  .github/workflows/release.yml:
+    ignore:
+      - 'shellcheck reported issue in this script: SC2086:.+'
+      - 'shellcheck reported issue in this script: SC2129:.+'
+      # faute du gabarit dist : steps.cargo-cyclonedx.output.paths, sans effet (le fichier est déplacé avant l'upload)
+      - 'property "output" is not defined in object type .+'
