@@ -13,7 +13,7 @@
 //! - **Pas d'absence sans preuve** (§7.2) : `Outcome::Absent` n'est rendu que si la table
 //!   `policy::POLICY` l'autorise pour la famille ; ailleurs, l'absence est
 //!   `Unresolvable`. Dans une source qui ne prouve rien (bac à sable de PISTE, instantané local de
-//!   l'index DILA, voir [`Proof`]), `Outcome::status` la rend `unresolvable` (jamais `not_found`).
+//!   l'index DILA, voir `Proof`), `Outcome::status` la rend `unresolvable` (jamais `not_found`).
 //! - **Hors ligne d'abord** : `offline` tranche sans appel ce que les drapeaux, les ambiguïtés et
 //!   la résolvabilité du parseur permettent de trancher (N02, N20, N32…).
 //!

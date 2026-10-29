@@ -19,8 +19,9 @@ use crate::{
     views::get_text::ArticleView,
 };
 
-/// Description du descripteur, mot pour mot (05 §5.3, 726 caractères).
-const DESCRIPTION: &str = "Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (e.g. \"Code civil, art. 9\"), source_url, status, validity dates and parent code or text. By default (`detail`=\"summary\") a short article comes back whole and a long one is cut after about 1,200 characters; `detail`=\"full\" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).";
+/// Description du descripteur, mot pour mot (05 §5.3 ; 733 caractères depuis que « e.g. » est écrit
+/// « for example », qui ne compte plus pour une fin de phrase dans le contrôle de `xtask`).
+const DESCRIPTION: &str = "Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (for example \"Code civil, art. 9\"), source_url, status, validity dates and parent code or text. By default (`detail`=\"summary\") a short article comes back whole and a long one is cut after about 1,200 characters; `detail`=\"full\" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).";
 
 #[tool_router(router = get_text_router, vis = "pub(crate)")]
 impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
@@ -65,7 +66,7 @@ mod tests {
     use serde_json::{Value, json};
 
     const ID: &str = "LEGIARTI000006419288";
-    const DESCRIPTION: &str = "Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (e.g. \"Code civil, art. 9\"), source_url, status, validity dates and parent code or text. By default (`detail`=\"summary\") a short article comes back whole and a long one is cut after about 1,200 characters; `detail`=\"full\" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).";
+    const DESCRIPTION: &str = "Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (for example \"Code civil, art. 9\"), source_url, status, validity dates and parent code or text. By default (`detail`=\"summary\") a short article comes back whole and a long one is cut after about 1,200 characters; `detail`=\"full\" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).";
     const PRIVACY: &str = "Chacun a droit au respect de sa vie privée. Les juges peuvent, sans préjudice de la réparation du dommage subi, prescrire toutes mesures, telles que séquestre, saisie et autres, propres à empêcher ou faire cesser une atteinte à l'intimité de la vie privée : ces mesures peuvent, s'il y a urgence, être ordonnées en référé.";
 
     fn article(text: &str) -> ArticleText {
@@ -113,7 +114,7 @@ mod tests {
         let tool = tools.iter().find(|tool| tool.name == "fr_get_text").expect("fr_get_text");
         assert_eq!(tool.title.as_deref(), Some("Read an article"));
         assert_eq!(tool.description.as_deref(), Some(DESCRIPTION));
-        assert_eq!(DESCRIPTION.chars().count(), 726);
+        assert_eq!(DESCRIPTION.chars().count(), 733);
         let hints = tool.annotations.as_ref().unwrap();
         assert_eq!(hints.title.as_deref(), Some("Read an article"));
         assert_eq!(

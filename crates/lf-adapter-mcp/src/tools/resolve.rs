@@ -23,9 +23,10 @@ use crate::{
     views::resolve::ResolveView,
 };
 
-/// Description de l'outil (579 caractères, 4 phrases ; 05 §5.10). Elle cite `fr_verify_citations`,
-/// pour le texte entier, et le motif `fr_get_*` des outils de lecture.
-pub(crate) const DESCRIPTION: &str = "Turn one free-text legal citation into Légifrance ids, e.g. \"article 1240 du code civil\", \"loi n° 78-17 du 6 janvier 1978\", \"Cass. civ. 1re, 4 juin 2025, n° 24-13.470\" or an ECLI. Returns `candidates` (id, kind, citation, source_url, confidence high/medium/low), best first; nothing is guessed or fabricated, and an empty list comes with a `note` saying why. Pass `date` (YYYY-MM-DD, default: today in Paris) for the article version in force on that day. Then open a candidate with the fr_get_* tool for its kind; to check all citations of a text at once use fr_verify_citations.";
+/// Description de l'outil (586 caractères, 4 phrases ; 05 §5.10). « for example » et non « e.g. » :
+/// le contrôle de `xtask` compte chaque point suivi d'une espace pour une fin de phrase. Elle cite
+/// `fr_verify_citations`, pour le texte entier, et le motif `fr_get_*` des outils de lecture.
+pub(crate) const DESCRIPTION: &str = "Turn one free-text legal citation into Légifrance ids, for example \"article 1240 du code civil\", \"loi n° 78-17 du 6 janvier 1978\", \"Cass. civ. 1re, 4 juin 2025, n° 24-13.470\" or an ECLI. Returns `candidates` (id, kind, citation, source_url, confidence high/medium/low), best first; nothing is guessed or fabricated, and an empty list comes with a `note` saying why. Pass `date` (YYYY-MM-DD, default: today in Paris) for the article version in force on that day. Then open a candidate with the fr_get_* tool for its kind; to check all citations of a text at once use fr_verify_citations.";
 
 #[tool_router(router = resolve_router, vis = "pub(crate)")]
 impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
@@ -306,7 +307,7 @@ mod tests {
 
         let description = tool.description.as_deref().unwrap();
         assert_eq!(description, DESCRIPTION);
-        assert_eq!(description.chars().count(), 579, "05 §5.10");
+        assert_eq!(description.chars().count(), 586, "05 §5.10");
         // Une phrase finit par un point suivi d'une espace et d'une majuscule (« Cass. civ. » non).
         let chars: Vec<char> = description.chars().collect();
         let boundaries =

@@ -107,9 +107,9 @@
   "server_version": "0.3.0",
   "sizes": {
     "instructions_chars": 3278,
-    "tools_list_bytes": 31814
+    "tools_list_bytes": 31853
   },
-  "surface_sha256": "ed694b622d7e3a16eba3d622be8676680fec1c881572a94a61174ef1079bed78",
+  "surface_sha256": "b8e9a51dc9f77f250a779aff4f17fc4b5207a9b2dd64795aa36c186ed2c457c3",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -1259,6 +1259,9 @@
               },
               "type": "array"
             },
+            "note": {
+              "type": "string"
+            },
             "source_url": {
               "type": "string"
             },
@@ -1282,7 +1285,7 @@
         },
         "title": "Related texts and decisions"
       },
-      "sha256": "9a401a825feed611634daecfd55cc58df88f5fdf63c0c6c608999b8217ad3fc0"
+      "sha256": "103699c65376327dd42f56f1fc895a5ac950d518b755a15003b58599ecb7562f"
     },
     "fr_get_text": {
       "descriptor": {
@@ -1293,7 +1296,7 @@
           "readOnlyHint": true,
           "title": "Read an article"
         },
-        "description": "Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (e.g. \"Code civil, art. 9\"), source_url, status, validity dates and parent code or text. By default (`detail`=\"summary\") a short article comes back whole and a long one is cut after about 1,200 characters; `detail`=\"full\" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).",
+        "description": "Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (for example \"Code civil, art. 9\"), source_url, status, validity dates and parent code or text. By default (`detail`=\"summary\") a short article comes back whole and a long one is cut after about 1,200 characters; `detail`=\"full\" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -1450,7 +1453,7 @@
         },
         "title": "Read an article"
       },
-      "sha256": "4269ba64bdfe356ccea2cf2f9ac6ea6073c7d76a219a2e78a1fa3565bde3418a"
+      "sha256": "b0ab8381b7b1e4590619a272320b8edff1588b8dc75cf7758a0eacc9f7348fbe"
     },
     "fr_resolve": {
       "descriptor": {
@@ -1461,7 +1464,7 @@
           "readOnlyHint": true,
           "title": "Resolve a legal citation"
         },
-        "description": "Turn one free-text legal citation into Légifrance ids, e.g. \"article 1240 du code civil\", \"loi n° 78-17 du 6 janvier 1978\", \"Cass. civ. 1re, 4 juin 2025, n° 24-13.470\" or an ECLI. Returns `candidates` (id, kind, citation, source_url, confidence high/medium/low), best first; nothing is guessed or fabricated, and an empty list comes with a `note` saying why. Pass `date` (YYYY-MM-DD, default: today in Paris) for the article version in force on that day. Then open a candidate with the fr_get_* tool for its kind; to check all citations of a text at once use fr_verify_citations.",
+        "description": "Turn one free-text legal citation into Légifrance ids, for example \"article 1240 du code civil\", \"loi n° 78-17 du 6 janvier 1978\", \"Cass. civ. 1re, 4 juin 2025, n° 24-13.470\" or an ECLI. Returns `candidates` (id, kind, citation, source_url, confidence high/medium/low), best first; nothing is guessed or fabricated, and an empty list comes with a `note` saying why. Pass `date` (YYYY-MM-DD, default: today in Paris) for the article version in force on that day. Then open a candidate with the fr_get_* tool for its kind; to check all citations of a text at once use fr_verify_citations.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -1535,7 +1538,7 @@
         },
         "title": "Resolve a legal citation"
       },
-      "sha256": "3984806de96bb0dfb5a32b0a7cd36b626f61271516cb1de3a6a1fb3499f20de7"
+      "sha256": "fe9cb971be2c3e101a642e673651832c03513f38512415f2eec7f9074624c618"
     },
     "fr_search": {
       "descriptor": {
@@ -2069,5 +2072,5 @@
       "sha256": "320698c773ab02bac6fe3e7f43da1cdd4d70e7b915c5ea5521d18c21b3f5166c"
     }
   },
-  "toolset_sha256": "2e3ebd6fe2babd60d7ae81ad89d76a2b70c8981c110173d00e313dcb2ea53743"
+  "toolset_sha256": "1091a035c2593cae793298d452a59ecc726ae611e5755fb8801bd83e1aaa5f1a"
 }
