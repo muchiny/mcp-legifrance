@@ -40,7 +40,7 @@ use rmcp::{
         DiscoverResult, GetPromptRequestParams, GetPromptResponse, Implementation,
         ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ListToolsResult,
         PaginatedRequestParams, ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse,
-        ServerCapabilities, ServerConfig,
+        ServerCapabilities, ServerConfig, SubscriptionFilter,
     },
     service::RequestContext,
     tool_handler,
@@ -213,6 +213,18 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> ServerHandler for LegifranceServer<C
         Ok(DiscoverResult::from_server_info(SUPPORTED.to_vec(), self.get_info())
             .with_ttl_ms(CACHE_TTL_MS)
             .with_cache_scope(CacheScope::Public))
+    }
+
+    /// `subscriptions/listen` (C-24, 00 §6 AM-10) : l'accusé minimal, un filtre vide dont le
+    /// premier message est `notifications: {}`, puis le silence jusqu'à l'annulation (le `listen`
+    /// par défaut de rmcp). Le serveur n'annonce aucune capacité de notification : rmcp réduit de
+    /// toute façon le filtre aux capacités de `get_info`. Aucun contexte n'est passé ici, et il
+    /// n'en faut pas : rmcp répond `-32601` lui-même aux pairs legacy, avant d'appeler ce filtre.
+    fn accepted_subscription_filter(
+        &self,
+        _requested: &SubscriptionFilter,
+    ) -> Option<SubscriptionFilter> {
+        Some(SubscriptionFilter::new())
     }
 
     /// `tools/list` : les routes, triées par nom ; `ttlMs` et `cacheScope` aux seuls pairs

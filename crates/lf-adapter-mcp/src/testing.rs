@@ -1156,8 +1156,8 @@ mod tests {
 
     // ---- transcriptions : rejeu, écarts et fin de service ---------------------------------------
 
-    /// Serveur minimal sur le chemin de production, pour les cas que `LegifranceServer` ne sert pas
-    /// (encore) ou ne peut pas produire.
+    /// Serveur minimal sur le chemin de production, pour les cas que `LegifranceServer` ne peut pas
+    /// produire (un `server/discover` en échec, un refus de `subscriptions/listen`).
     struct Stub {
         /// `subscriptions/listen` est accepté (annexe D §5.3) ; sinon `-32601`.
         listens: bool,
@@ -1393,6 +1393,7 @@ mod tests {
         modern_discover,
         modern_tools_list,
         modern_tools_call,
+        modern_listen,
         modern_meta_incomplete,
         modern_unsupported_version,
         modern_envelope_legacy_version,
@@ -1412,8 +1413,6 @@ mod tests {
         results_carry_server_info,
     }
 
-    /// Rejouées par `lf-app`, pas encore par le serveur de ce crate (voir `modern_listen`).
-    const AWAITING_THE_SERVER: &[&str] = &["modern_listen"];
     /// Rejouée sur le binaire seulement (T-M4-08).
     const BINARY_ONLY: &[&str] = &["eof_with_open_listen"];
 
@@ -1424,7 +1423,7 @@ mod tests {
             .iter()
             .map(|transcript| transcript.name().to_owned())
             .collect();
-        let mut expected: Vec<&str> = [REPLAYED, AWAITING_THE_SERVER, BINARY_ONLY].concat();
+        let mut expected: Vec<&str> = [REPLAYED, BINARY_ONLY].concat();
         assert_eq!(expected.len(), 22);
         expected.sort_unstable();
         assert_eq!(found, expected);
@@ -1465,19 +1464,7 @@ mod tests {
             .cloned()
             .collect();
         let in_process = Transcript { name: binary_only.name.clone(), steps };
-        replay_in_process(LISTENING, &in_process).await.unwrap();
-    }
-
-    /// Écart connu, à lever dans `server.rs` : `LegifranceServer` n'implémente pas
-    /// `accepted_subscription_filter`, donc rmcp répond `-32601` à `subscriptions/listen` au lieu
-    /// de l'accusé de l'annexe D §5.3. Quand le filtre arrive, ce test échoue : le supprimer et
-    /// ajouter `modern_listen` à `replayed_transcripts!`.
-    #[tokio::test]
-    async fn modern_listen_is_not_served_yet_by_the_legifrance_server() {
-        let transcript = transcript("modern_listen");
-        let error = replay_in_process(Fixture::default().server(), &transcript).await.unwrap_err();
-        assert_eq!(error.line, 3, "{error}");
-        assert!(error.message.contains(r#""code":-32601"#), "{error}");
+        replay_in_process(Fixture::default().server(), &in_process).await.unwrap();
     }
 
     // ---- constats de rmcp 3.5.1 (annexe D §9, 09 V-33 à V-37, V-168) ------------------------------
