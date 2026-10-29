@@ -29,14 +29,15 @@ use lf_domain::{
         TextCite, TextNature, UnresolvableWhy, UnsupportedFamily, VersionQualifier,
         dict::courts::CcType,
     },
-    contract::{Citable, Nor},
+    contract::{Citable, Eli, Nor},
     date::{CivilDate, VersionDate},
     ecli::Ecli,
     entity::{CodeListing, Decision, SearchHit},
     fond::Fond,
     id::{AccoTextId, ArticleId, CnilTextId, DecisionId, DocumentId, KaliTextId, LegiTextId},
-    search::{NumberKind, NumberQuery, NumberValue},
+    search::{NUMBER_VALUE_MAX_CHARS, NumberKind, NumberQuery, NumberValue},
     status::LegalStatus,
+    url::WEB_BASE,
 };
 
 use super::{
@@ -386,7 +387,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             CitationRef::CnilDeliberation(cnil) => self.cnil(cnil).await,
             CitationRef::Convention(convention) => self.convention(convention).await,
             CitationRef::Nor(nor) => self.by_nor(nor).await,
-            CitationRef::Eli(eli) => self.by_index(NumberKind::Eli, eli.as_str(), "ELI").await,
+            CitationRef::Eli(eli) => self.eli(eli).await,
             CitationRef::LegifranceId(id) => self.legifrance_id(id).await,
             CitationRef::TextArticle { text: None, .. }
             | CitationRef::Jorf(_)
@@ -462,7 +463,11 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         when: Option<VersionDate>,
         absence_proven: bool,
     ) -> Resolution {
-        let at = when.map_or(ArticleAt::Today(self.today), ArticleAt::On);
+        // D5 : une date explicite qui vaut le jour de Paris est la version en vigueur.
+        let at = match when {
+            Some(date) if date != self.today => ArticleAt::On(date),
+            _ => ArticleAt::Today(self.today),
+        };
         let variants = num.key_variants();
         for variant in &variants {
             match self.corpus.find_article(text, variant, at).await {
@@ -752,6 +757,17 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             [hit] => verified(ResolvedRecord::of(hit.id.clone(), hit), Confidence::Medium, None),
             many => Resolution::of(candidates_of_hits(many)),
         }
+    }
+
+    /// ELI cité : l'API reçoit le chemin `/eli/...` sans hôte (04 §7.2), jamais l'URL absolue.
+    /// Un chemin plus long que `NUMBER_VALUE_MAX_CHARS` ne tient pas dans une requête par numéro.
+    async fn eli(&self, eli: &Eli) -> Resolution {
+        let absolute = eli.as_str();
+        let path = absolute.strip_prefix(WEB_BASE).unwrap_or(absolute);
+        if path.chars().count() > NUMBER_VALUE_MAX_CHARS {
+            return not_supported("an ELI this long");
+        }
+        self.by_index(NumberKind::Eli, path, "ELI").await
     }
 
     /// Identifiant Légifrance : consultation exacte, selon le préfixe.
@@ -1270,20 +1286,70 @@ mod tests {
     #[tokio::test]
     async fn today_date_uses_article_at_today() {
         let corpus = FakeCorpus::new();
-        corpus.push_find_article(Err(not_found()));
-        corpus.push_find_article(Err(not_found()));
+        for _ in 0..3 {
+            corpus.push_find_article(Err(not_found()));
+        }
         let item = first("article 9 du code civil");
         let on = VersionDate::parse("2018-01-01").unwrap();
         resolve_with(&corpus, &codes(), &item, None).await;
         resolve_with(&corpus, &codes(), &item, Some(on)).await;
+        // D5 : une date explicite égale au jour de Paris est la version en vigueur.
+        resolve_with(&corpus, &codes(), &item, Some(today())).await;
         let civil_code = LegiTextId::parse(CIVIL).unwrap();
         assert_eq!(
             corpus.seen_requests(),
             vec![
                 PortRequest::FindArticle(civil_code.clone(), "9".into(), ArticleAt::Today(today())),
-                PortRequest::FindArticle(civil_code, "9".into(), ArticleAt::On(on)),
+                PortRequest::FindArticle(civil_code.clone(), "9".into(), ArticleAt::On(on)),
+                PortRequest::FindArticle(civil_code, "9".into(), ArticleAt::Today(today())),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn qualifier_date_equal_to_today_uses_article_at_today() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Err(not_found()));
+        let item = first("article 9 du code civil en vigueur au 29 octobre 2026");
+        resolve_with(&corpus, &codes(), &item, None).await;
+        let civil_code = LegiTextId::parse(CIVIL).unwrap();
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![PortRequest::FindArticle(civil_code, "9".into(), ArticleAt::Today(today()))]
+        );
+    }
+
+    #[tokio::test]
+    async fn eli_is_sent_as_a_path_without_host() {
+        const PATH: &str = "/eli/loi/2016/10/7/ECFI1524250L/jo/texte";
+        let eli = standalone(CitationRef::Eli(Eli::parse(PATH).unwrap()));
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Loda, "LEGITEXT000033202746")]));
+        let resolution = resolve_with(&corpus, &codes(), &eli, None).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        let requests = corpus.seen_requests();
+        assert!(
+            matches!(
+                requests.as_slice(),
+                [PortRequest::FindByNumber(query)]
+                    if query.fond == Fond::Loda
+                        && query.kind == NumberKind::Eli
+                        && query.value.as_str() == PATH
+            ),
+            "{requests:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn eli_longer_than_a_number_value_is_not_sent() {
+        let path = format!("/eli/jo/{}", "a".repeat(NUMBER_VALUE_MAX_CHARS));
+        let eli = Eli::parse(&path).expect("an ELI of 134 characters is valid");
+        let corpus = FakeCorpus::new();
+        let resolution =
+            resolve_with(&corpus, &codes(), &standalone(CitationRef::Eli(eli)), None).await;
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable);
+        assert_eq!(note(&resolution), "Not checkable in this version (an ELI this long).");
+        assert_eq!(corpus.seen_requests(), vec![]);
     }
 
     #[tokio::test]
