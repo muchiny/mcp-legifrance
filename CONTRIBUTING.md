@@ -20,9 +20,9 @@ exigences de qualité (§10) y font foi. Ce fichier dit comment les tenir au quo
 | Lint | `make lint` | zéro avertissement (`clippy::pedantic` inclus) |
 | Tests | `make test` | tous verts : nextest (profil `default`, `ci` en CI) puis doc-tests ; en CI, Linux, macOS et Windows |
 | Doc | `make doc` | zéro avertissement |
-| Architecture | `make arch` | liste blanche des dépendances normales (`lf-domain` : `thiserror` seul), frontières application et adapters (§2), R6, R8 ; échoue fermé si `cargo metadata` est incomplet |
+| Architecture | `make arch` | liste blanche des dépendances normales (`lf-domain` : `thiserror`, `aho-corasick`, `regex` et `unicode-normalization`), frontières application et adapters (§2), R6, R8 ; échoue fermé si `cargo metadata` est incomplet |
 | Pureté | `make purity` | `lf-application` compile seul (ses features ne dépendent d'aucun autre membre) |
-| Dépendances | `make deny`, `make machete` | aucun avis, aucune dépendance inutile ; `make deny` couvre le workspace et `fuzz/` ; `make audit-fuzz` (réseau, hors `make ci`) |
+| Dépendances | `make deny`, `make machete` | aucun avis, aucune dépendance inutile, aucun doublon de version hors des `skip` justifiés de `deny.toml` ; `make deny` couvre le workspace et `fuzz/` ; `make audit-fuzz` (réseau, hors `make ci`) |
 | Licences tierces | `cargo about generate about.hbs` (job `release-gates`, à l'étiquette) | `THIRD_PARTY_LICENSES.md` identique à la régénération (voir « Licences tierces ») |
 | Âge des dépendances | `make min-age` (PR) ; `make min-age-selftest` dans `make ci` | toute version ajoutée ou montée publiée depuis 14 jours au moins |
 | Workflows | `make workflow-lint` | zizmor et actionlint sans alerte, actions épinglées par SHA |
@@ -30,6 +30,7 @@ exigences de qualité (§10) y font foi. Ce fichier dit comment les tenir au quo
 | Mutation | `make mutants FILE=…` / CI | 0 mutant `MISSED` |
 | Parité | `make surface` | golden de parité reproduit à l'octet depuis les fixtures, table des codes identique à celle du plan |
 | Instructions du serveur | `make instructions` | 3 500 caractères au plus (05 §4.1), mesurés sur le binaire |
+| Verrou des descripteurs | `make lock` | `tests/tools.lock.json`, manifeste MCPB et `server.json` identiques au binaire ; après un changement de description, de schéma, de version ou de surface : `cargo xtask lock-descriptors --update`, puis relire le diff (les identifiants de `server.json` se changent à la main) |
 | Analyse statique | job `sonar` (CI) ; en local, `make cov` puis `make cov-cobertura` et `make clippy-json` produisent ses deux rapports | informatif, non bloquant |
 
 La CI rejoue tout sur chaque PR et mute le diff de la PR ; le lundi, `weekly.yml`
