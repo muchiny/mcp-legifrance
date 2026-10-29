@@ -1,0 +1,26 @@
+---
+source: crates/lf-adapter-mcp/src/views/get_decision.rs
+expression: to_value(passages)
+---
+{
+  "citation": "Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025",
+  "date": "2025-11-07",
+  "decision_id": "CONSTEXT000052555275",
+  "ecli": "ECLI:FR:CC:2025:2025.1173.QPC",
+  "juridiction": "Conseil constitutionnel",
+  "nature": "QPC",
+  "passages": [
+    {
+      "offset": 11008,
+      "text": "14. Dès lors, le grief tiré de la méconnaissance du principe de publicité des débats du procès pénal ne peut qu’être écarté."
+    },
+    {
+      "offset": 7016,
+      "text": "4. Le requérant reproche à ces dispositions […]"
+    }
+  ],
+  "solution": "Conformité",
+  "source_url": "https://www.legifrance.gouv.fr/cons/id/CONSTEXT000052555275",
+  "text_length": 14332,
+  "title": "Décision 2025-1173 QPC - 07 novembre 2025 - M. Amine G. [Absence de publicité des débats devant le juge des libertés et de la détention statuant sur la détention provisoire du prévenu] - Conformité"
+}
