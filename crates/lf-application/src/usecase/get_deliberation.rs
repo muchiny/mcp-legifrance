@@ -3,7 +3,7 @@
 //! Ordre de validation (05 §5.0.2, §5.5) : l'identifiant (requis, puis `CNILTEXT` + 12 chiffres,
 //! espaces et casse tolérés), puis les paramètres de lecture (`detail`, `offset`, `max_chars`,
 //! `focus`, `passages`), tous avant l'appel au port. Le texte lu est ensuite confié à
-//! [`read`](crate::budget::read), sans sommaire officiel (la CNIL n'en publie pas) ni règle de
+//! [`read`], sans sommaire officiel (la CNIL n'en publie pas) ni règle de
 //! dispositif : le résumé d'une délibération longue est donc toujours son début (`lead`, 05 §6.2).
 //! Un `offset` au-delà de la fin du texte ne se voit qu'une fois le texte lu : il est refusé après
 //! l'appel au port. Les phrases `invalid_arg` viennent du module `messages` ; une panne du corpus
