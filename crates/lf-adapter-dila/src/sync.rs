@@ -460,7 +460,9 @@ mod tests {
         assert_eq!(applied(&report), [G1]);
     }
 
-    #[cfg(unix)]
+    // APFS refuse de créer un fichier dont le nom n'est pas de l'UTF-8 (EILSEQ, « Illegal byte
+    // sequence ») : le cas ne peut pas se construire sous macOS.
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn a_file_name_that_is_not_utf8_is_left_alone() {
         use std::{ffi::OsStr, os::unix::ffi::OsStrExt};

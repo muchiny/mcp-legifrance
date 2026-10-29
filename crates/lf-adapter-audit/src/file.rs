@@ -514,6 +514,21 @@ mod tests {
         JsonlAuditLog::open(dir, JsonlAuditLog::DEFAULT_ROTATE_BYTES).unwrap()
     }
 
+    /// Capteur propre à un test. `tracing` mémorise l'intérêt d'un site d'appel à sa première
+    /// émission, pour tout le processus : un test sans capteur qui l'atteint le premier le fige à
+    /// « personne n'écoute », et un capteur local installé ensuite ne reçoit plus rien. Sous
+    /// `cargo test` (couverture), où tous les tests partagent un processus, cela rend les tests de
+    /// traces aléatoires. Un capteur global qui répond « toujours » règle l'intérêt une fois.
+    fn local_capture() -> (Capture, tracing::subscriber::DefaultGuard) {
+        static INTEREST: std::sync::Once = std::sync::Once::new();
+        INTEREST.call_once(|| {
+            tracing::subscriber::set_global_default(Capture::default()).unwrap();
+        });
+        let capture = Capture::default();
+        let guard = tracing::subscriber::set_default(capture.clone());
+        (capture, guard)
+    }
+
     /// Les lignes d'un fichier, sans le saut de ligne final (qui doit exister).
     fn lines_of(path: &Path) -> Vec<String> {
         let text = fs::read_to_string(path).unwrap();
@@ -932,8 +947,7 @@ mod tests {
     #[test]
     fn existing_broad_permissions_are_kept_and_warned_once() {
         use std::os::unix::fs::PermissionsExt;
-        let capture = Capture::default();
-        let _guard = tracing::subscriber::set_default(capture.clone());
+        let (capture, _guard) = local_capture();
         let dir = tempfile::tempdir().unwrap();
         let active = dir.path().join(ACTIVE_FILE);
         fs::write(&active, "{\"ts\":\"2026-10-15T00:00:00.000+00:00\"}\n").unwrap();
@@ -959,8 +973,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn private_permissions_do_not_warn() {
-        let capture = Capture::default();
-        let _guard = tracing::subscriber::set_default(capture.clone());
+        let (capture, _guard) = local_capture();
         let dir = tempfile::tempdir().unwrap();
         // `tempdir` suit l'umask : on fixe les droits que l'application elle-même poserait.
         fs::set_permissions(dir.path(), std::os::unix::fs::PermissionsExt::from_mode(0o700))
@@ -1058,8 +1071,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_write_emits_the_audit_write_span_and_a_failure_emits_an_error() {
-        let capture = Capture::default();
-        let _guard = tracing::subscriber::set_default(capture.clone());
+        let (capture, _guard) = local_capture();
         let dir = tempfile::tempdir().unwrap();
         let log = JsonlAuditLog::open(dir.path(), 100).unwrap();
         log.record(&record()).await.unwrap();
@@ -1127,7 +1139,7 @@ mod tests {
 
     impl Subscriber for Capture {
         fn register_callsite(&self, _: &'static Metadata<'static>) -> Interest {
-            Interest::sometimes()
+            Interest::always()
         }
 
         fn enabled(&self, _: &Metadata<'_>) -> bool {
