@@ -1,0 +1,221 @@
+name: Publish OCI
+
+# Image OCI multi-architecture (T-MD-05, 08 §5) : distroless, utilisateur non root, label du
+# registre MCP. L'image reprend les binaires musl de la release (voie `bin-prebuilt` du
+# Dockerfile) : ce sont ceux que dist a construits, dont les sommes et l'attestation sont
+# vérifiées ici avant tout usage. Aucune étape RUN dans ce chemin, donc pas d'émulation QEMU.
+#
+# Deux usages :
+# - release : workflow réutilisable, déclaré dans `publish-jobs` de dist-workspace.toml. Il s'exécute
+#   après `host`, quand la release est publique ; dist saute les préversions (`publish-prereleases`
+#   absent) et le job `meta` le vérifie aussi. L'image est éprouvée AVANT d'être poussée
+#   (initialize, poignée de main TLS, audit), puis poussée, attestée, relue en anonyme comme le fait
+#   le registre MCP, et relancée par son digest.
+# - PR : le job `build-check` construit l'image depuis les sources (voie `bin-source`, linux/amd64)
+#   et lui fait passer les mêmes tests : un Dockerfile cassé se voit avant la release, pas pendant.
+#
+# Un tag de version n'est JAMAIS republié (08 §5.3) : si l'étiquette existe, le job saute la
+# construction et la publication et reprend sa vérification (reprise après un échec tardif).
+# Le premier paquet GHCR peut naître privé [V-205] : le rendre public une fois à la main, puis
+# relancer le job.
+#
+# Les entrées passent par `env:`, jamais interpolées dans un script (zizmor).
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        description: "Plan de dist (JSON), fourni par release.yml"
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - "packaging/oci/**"
+      - "packaging/smoke/**"
+      - ".github/workflows/publish-oci.yml"
+
+permissions:
+  contents: read
+
+env:
+  # GHCR exige des minuscules.
+  IMAGE: ghcr.io/muchiny/mcp-legifrance
+
+# Actions épinglées par SHA complet, version en commentaire : voir ci.yml.
+jobs:
+  build-check:
+    name: image depuis les sources (PR)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Construire l'image (voie bin-source, linux/amd64)
+        run: |
+          docker buildx build --file packaging/oci/Dockerfile \
+            --build-arg VERSION=0.0.0-pr --build-arg REVISION="$GITHUB_SHA" \
+            --tag mcp-legifrance:pr --load .
+      - name: Test fumée initialize en conteneur
+        timeout-minutes: 2
+        run: |
+          version="$(grep -m1 -E '^version = "' Cargo.toml | cut -d '"' -f 2)"
+          bash packaging/smoke/initialize.sh "$version" docker run -i --rm mcp-legifrance:pr
+      # Identifiants factices : PISTE les refuse, ce qui prouve que la poignée de main TLS a abouti
+      # avec le magasin CA de l'image (V-204) ; le même appel écrit dans /data/audit (V-167).
+      - name: Poignée de main TLS et journal d'audit en conteneur
+        timeout-minutes: 5
+        run: |
+          bash packaging/smoke/handshake.sh docker run -i --rm \
+            -e LF_PISTE_CLIENT_ID=ci-smoke -e LF_PISTE_CLIENT_SECRET=ci-smoke mcp-legifrance:pr
+
+  meta:
+    name: étiquette et version
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: release
+        env:
+          PLAN: ${{ inputs.plan }}
+        run: packaging/resolve-release.sh >>"$GITHUB_OUTPUT"
+
+  publish:
+    name: publication de l'image
+    needs: meta
+    # Défense en profondeur : dist saute déjà les préversions. Jamais d'image de préversion (08 §6.5).
+    if: ${{ needs.meta.outputs.prerelease != 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # Environnement protégé : limité aux étiquettes `v*` (08 §3.7), pour qu'une branche ne puisse
+    # pas pousser sous ce nom avec le jeton du dépôt.
+    environment: release
+    # Une seule publication à la fois par étiquette (reprise manuelle simultanée de la release).
+    concurrency:
+      group: publish-oci-${{ needs.meta.outputs.tag }}
+      cancel-in-progress: false
+    permissions:
+      contents: read # gh release download, checkout
+      packages: write # pousser l'image sur GHCR avec le jeton du workflow
+      id-token: write # attestation signée par OIDC (Sigstore)
+      attestations: write # stocker l'attestation de provenance de l'image
+    env:
+      TAG: ${{ needs.meta.outputs.tag }}
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Archives musl de la release : somme (sha256.sum de dist) et attestation, signée par le
+      # workflow release.yml de ce dépôt, vérifiées avant d'entrer dans l'image (08 §5.3 étapes 1-2).
+      - name: Binaires musl de la release, vérifiés
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/release" \
+            --pattern 'mcp-legifrance-x86_64-unknown-linux-musl.tar.xz' \
+            --pattern 'mcp-legifrance-aarch64-unknown-linux-musl.tar.xz' \
+            --pattern 'sha256.sum'
+          cd "$RUNNER_TEMP/release"
+          for archive in mcp-legifrance-x86_64-unknown-linux-musl.tar.xz mcp-legifrance-aarch64-unknown-linux-musl.tar.xz; do
+            grep -E "[ *]$archive\$" sha256.sum | sha256sum -c -
+            gh attestation verify "$archive" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"
+          done
+      - name: Poser les binaires dans le contexte de build
+        run: |
+          set -euo pipefail
+          for pair in amd64:x86_64 arm64:aarch64; do
+            arch="${pair%%:*}"
+            triple="${pair##*:}-unknown-linux-musl"
+            mkdir -p "packaging/oci/prebuilt/$arch" "$RUNNER_TEMP/extracted/$arch"
+            tar -xJf "$RUNNER_TEMP/release/mcp-legifrance-$triple.tar.xz" -C "$RUNNER_TEMP/extracted/$arch"
+            bin="$(find "$RUNNER_TEMP/extracted/$arch" -type f -name mcp-legifrance)"
+            test "$(printf '%s\n' "$bin" | wc -l | tr -d ' ')" = 1
+            install -m 0755 "$bin" "packaging/oci/prebuilt/$arch/mcp-legifrance"
+          done
+      # Constructeur `docker-container` : seul le pilote par défaut du runner ne sait pas produire
+      # une image multi-plateforme.
+      - name: Constructeur buildx
+        run: docker buildx create --name lf-builder --driver docker-container --use
+      - name: Connexion à GHCR (jeton du workflow)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      # Avant de pousser : l'image locale (linux/amd64, mêmes couches que celle qui partira) doit
+      # démarrer, négocier TLS et écrire son audit.
+      - name: Image d'essai (linux/amd64)
+        run: |
+          docker buildx build --platform linux/amd64 --file packaging/oci/Dockerfile \
+            --build-arg BIN_STAGE=bin-prebuilt --build-arg VERSION="$VERSION" --build-arg REVISION="$GITHUB_SHA" \
+            --provenance=false --sbom=false --tag mcp-legifrance:smoke --load .
+      - name: Test fumée initialize en conteneur
+        timeout-minutes: 2
+        run: bash packaging/smoke/initialize.sh "$VERSION" docker run -i --rm mcp-legifrance:smoke
+      - name: Poignée de main TLS et journal d'audit en conteneur
+        timeout-minutes: 5
+        run: |
+          bash packaging/smoke/handshake.sh docker run -i --rm \
+            -e LF_PISTE_CLIENT_ID=ci-smoke -e LF_PISTE_CLIENT_SECRET=ci-smoke mcp-legifrance:smoke
+      - name: Publier l'image multi-architecture
+        id: push
+        run: |
+          set -euo pipefail
+          if docker buildx imagetools inspect "$IMAGE:$VERSION" >"$RUNNER_TEMP/existing.txt" 2>/dev/null; then
+            # Un tag de version n'est jamais republié : on reprend la vérification sur l'existant.
+            digest="$(awk '/^Digest:/ { print $2; exit }' "$RUNNER_TEMP/existing.txt")"
+            echo "::notice::$IMAGE:$VERSION existe déjà ($digest) : aucune republication"
+          else
+            tags=(--tag "$IMAGE:$VERSION" --tag "$IMAGE:${VERSION%.*}")
+            # `latest` seulement pour une version stable : le job ne tourne jamais sur une préversion.
+            tags+=(--tag "$IMAGE:latest")
+            # Provenance et SBOM de BuildKit coupés : l'index ne porte que les deux plateformes, et
+            # l'attestation est celle d'actions/attest (08 §3.5).
+            docker buildx build --platform linux/amd64,linux/arm64 --file packaging/oci/Dockerfile \
+              --build-arg BIN_STAGE=bin-prebuilt --build-arg VERSION="$VERSION" --build-arg REVISION="$GITHUB_SHA" \
+              --provenance=false --sbom=false "${tags[@]}" \
+              --metadata-file "$RUNNER_TEMP/build-metadata.json" --push .
+            digest="$(jq -r '."containerimage.digest"' "$RUNNER_TEMP/build-metadata.json")"
+          fi
+          printf '%s' "$digest" | grep -Eqx 'sha256:[a-f0-9]{64}'
+          echo "digest=$digest" >>"$GITHUB_OUTPUT"
+      # Lecture ANONYME, comme le registre MCP : image publique, label du registre et utilisateur
+      # non root sur chaque plateforme (08 §5.3 étape 4 ; V-205 si le paquet est resté privé).
+      - name: Contrôle public de l'image
+        run: packaging/oci/verify-image.sh "$IMAGE:$VERSION"
+      - name: Attestation de provenance de l'image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Fumée de l'image publiée, par son digest
+        timeout-minutes: 5
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          docker pull "$IMAGE@$DIGEST"
+          bash packaging/smoke/initialize.sh "$VERSION" docker run -i --rm "$IMAGE@$DIGEST"
+      # Le digest figure dans la release (08 §3.4) : le job n'a pas `contents: write`, il le
+      # consigne donc dans le résumé du run, que le mainteneur reporte dans les notes si besoin.
+      - name: Digest dans le résumé du run
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          {
+            echo "### Image OCI"
+            echo
+            echo "\`$IMAGE:$VERSION\` : \`$DIGEST\`"
+            echo
+            echo "Vérification : \`gh attestation verify oci://$IMAGE:$VERSION --repo $GITHUB_REPOSITORY\`"
+          } >>"$GITHUB_STEP_SUMMARY"

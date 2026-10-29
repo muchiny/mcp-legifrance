@@ -1,0 +1,26 @@
+#!/bin/sh
+# Lanceur MCPB de mcp-legifrance (08 §4.3) pour macOS et Linux : choisit le binaire natif selon
+# `uname`. Windows ne passe pas par ce script, l'override `win32` du manifeste vise directement
+# le .exe. stdin et stdout restent ceux du client MCP (`exec`) : ce script n'écrit jamais sur
+# stdout, seul le JSON-RPC du serveur s'y trouve.
+set -eu
+
+d=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64)              bin="$d/darwin-aarch64/mcp-legifrance" ;;
+  Darwin-x86_64)             bin="$d/darwin-x86_64/mcp-legifrance" ;;
+  Linux-aarch64|Linux-arm64) bin="$d/linux-aarch64/mcp-legifrance" ;;
+  Linux-x86_64)              bin="$d/linux-x86_64/mcp-legifrance" ;;
+  *)
+    echo "mcp-legifrance: unsupported platform $(uname -s)-$(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+if [ ! -x "$bin" ]; then
+  echo "mcp-legifrance: missing or non-executable binary $bin" >&2
+  exit 1
+fi
+
+exec "$bin" "$@"

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.muchiny/mcp-legifrance",
+  "title": "Légifrance (unofficial)",
+  "description": "Unofficial MCP server for French law via the Légifrance API (PISTE): search, read and cite texts.",
+  "version": "0.1.0",
+  "websiteUrl": "https://github.com/muchiny/mcp-legifrance#readme",
+  "repository": {
+    "url": "https://github.com/muchiny/mcp-legifrance",
+    "source": "github",
+    "id": "1420834686"
+  },
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/muchiny/mcp-legifrance/releases/download/v0.1.0/mcp-legifrance-0.1.0.mcpb",
+      "version": "0.1.0",
+      "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "LF_PISTE_CLIENT_ID",
+          "description": "OAuth client ID of your own Légifrance application on piste.gouv.fr. Never share it.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "LF_PISTE_CLIENT_SECRET",
+          "description": "OAuth client secret of the same PISTE application.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "LF_PISTE_ENV",
+          "description": "PISTE environment; credentials are environment-specific.",
+          "isRequired": false,
+          "default": "sandbox",
+          "choices": ["sandbox", "production"]
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/muchiny/mcp-legifrance:0.1.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "LF_PISTE_CLIENT_ID",
+          "description": "OAuth client ID of your own Légifrance application on piste.gouv.fr. Never share it.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "LF_PISTE_CLIENT_SECRET",
+          "description": "OAuth client secret of the same PISTE application.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "LF_PISTE_ENV",
+          "description": "PISTE environment; credentials are environment-specific.",
+          "isRequired": false,
+          "default": "sandbox",
+          "choices": ["sandbox", "production"]
+        }
+      ]
+    }
+  ]
+}

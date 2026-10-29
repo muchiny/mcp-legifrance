@@ -1,0 +1,70 @@
+{
+  "manifest_version": "0.3",
+  "name": "mcp-legifrance",
+  "display_name": "Légifrance (unofficial)",
+  "version": "0.1.0",
+  "description": "Unofficial MCP server for French law via the Légifrance API (PISTE): search, read and cite texts.",
+  "long_description": "Search and read French legislation, codes and case law from Légifrance through the official PISTE API, with stable citations and source URLs. Requires your own free PISTE application credentials. Not affiliated with or endorsed by DILA.",
+  "author": {
+    "name": "Loïc Wernert",
+    "url": "https://github.com/muchiny"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/muchiny/mcp-legifrance.git"
+  },
+  "homepage": "https://github.com/muchiny/mcp-legifrance",
+  "support": "https://github.com/muchiny/mcp-legifrance/issues",
+  "icon": "icon.png",
+  "license": "Apache-2.0",
+  "keywords": ["legifrance", "law", "france", "legal", "jurisprudence"],
+  "privacy_policies": [
+    "https://github.com/muchiny/mcp-legifrance/blob/main/PRIVACY.md"
+  ],
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"]
+  },
+  "server": {
+    "type": "binary",
+    "entry_point": "server/launcher",
+    "mcp_config": {
+      "command": "${__dirname}/server/launcher",
+      "args": ["serve"],
+      "env": {
+        "LF_PISTE_CLIENT_ID": "${user_config.piste_client_id}",
+        "LF_PISTE_CLIENT_SECRET": "${user_config.piste_client_secret}",
+        "LF_PISTE_ENV": "${user_config.piste_env}"
+      },
+      "platform_overrides": {
+        "win32": {
+          "command": "${__dirname}/server/win32-x86_64/mcp-legifrance.exe"
+        }
+      }
+    }
+  },
+  "user_config": {
+    "piste_client_id": {
+      "type": "string",
+      "title": "PISTE client ID",
+      "description": "Client ID of your own Légifrance application on piste.gouv.fr (never share it).",
+      "required": true,
+      "sensitive": true
+    },
+    "piste_client_secret": {
+      "type": "string",
+      "title": "PISTE client secret",
+      "description": "Client secret of the same PISTE application.",
+      "required": true,
+      "sensitive": true
+    },
+    "piste_env": {
+      "type": "string",
+      "title": "PISTE environment",
+      "description": "sandbox (default) or production. Credentials are specific to each environment.",
+      "required": false,
+      "default": "sandbox"
+    }
+  },
+  "tools": [],
+  "tools_generated": false
+}

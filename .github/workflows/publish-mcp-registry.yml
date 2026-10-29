@@ -1,0 +1,149 @@
+name: Publish MCP registry
+
+# Publication de server.json au registre MCP (T-MD-06, 08 §6.5) : paquets `mcpb` et `oci`, nom
+# `io.github.muchiny/mcp-legifrance`, authentification OIDC de GitHub, aucun jeton stocké. Pas de
+# paquet `cargo` (Q13).
+#
+# Workflow réutilisable, déclaré dans `post-announce-jobs` de dist-workspace.toml : il s'exécute
+# après `announce`, donc après la release publique (MCPB, server.json final) et après la
+# publication de l'image. Les jobs post-annonce n'ont pas le garde-fou des jobs de publication de
+# dist : c'est ce workflow qui saute les préversions, qui ne vont JAMAIS au registre, où elles
+# resteraient à jamais (08 §7.3).
+#
+# Reprise : `workflow_dispatch` avec l'étiquette, à lancer depuis cette étiquette (l'environnement
+# `release` refuse les branches), si l'étape de publication a échoué de façon transitoire. Si
+# l'échec suit une publication réussie, le registre refuse la même version (unicité) et le job le
+# traite comme un succès.
+#
+# Les entrées passent par `env:`, jamais interpolées dans un script (zizmor).
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        description: "Plan de dist (JSON), fourni par release.yml"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Étiquette de la release à publier au registre (vX.Y.Z)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  # mcp-publisher épinglé (08 §3.7, V-206) : la somme est dans install-mcp-publisher.sh. Un
+  # `mcp-publisher` trop ancien échoue avec `invalid audience` : relever la version à chaque
+  # release, et traiter cet échec comme un signal de mise à jour.
+  MCP_PUBLISHER_VERSION: "1.8.1"
+  IMAGE: ghcr.io/muchiny/mcp-legifrance
+
+# Actions épinglées par SHA complet, version en commentaire : voir ci.yml.
+jobs:
+  meta:
+    name: étiquette et version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: release
+        env:
+          PLAN: ${{ inputs.plan }}
+          TAG: ${{ inputs.tag }}
+        run: packaging/resolve-release.sh >>"$GITHUB_OUTPUT"
+
+  publish:
+    name: publication au registre
+    needs: meta
+    # Préversion : arrêt (le job apparaît « skipped »). Une version immuable ne se retire pas.
+    if: ${{ needs.meta.outputs.prerelease != 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Environnement protégé : limité aux étiquettes `v*` (08 §3.7). Avec l'authentification GitHub,
+    # le namespace `io.github.muchiny/*` couvre tous les serveurs du compte : un workflow d'une
+    # branche ne doit pas pouvoir publier sous ce nom (08 §7.7).
+    environment: release
+    # Une seule publication à la fois par étiquette (reprise manuelle simultanée de la release).
+    concurrency:
+      group: publish-mcp-registry-${{ needs.meta.outputs.tag }}
+      cancel-in-progress: false
+    permissions:
+      contents: read # gh release download, checkout
+      id-token: write # jeton OIDC pour `mcp-publisher login github-oidc`
+    env:
+      TAG: ${{ needs.meta.outputs.tag }}
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Les assets viennent de la release, jamais du dépôt : c'est ce que les clients téléchargeront.
+      - name: Assets de la release, vérifiés (somme et attestation)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets \
+            --pattern server.json \
+            --pattern "mcp-legifrance-$VERSION.mcpb" \
+            --pattern "mcp-legifrance-$VERSION.mcpb.sha256"
+          cd assets
+          sha256sum -c "mcp-legifrance-$VERSION.mcpb.sha256"
+          for file in server.json "mcp-legifrance-$VERSION.mcpb" "mcp-legifrance-$VERSION.mcpb.sha256"; do
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"
+          done
+      - name: server.json cohérent avec l'étiquette et avec le MCPB
+        run: |
+          set -euo pipefail
+          packaging/check-server-json.sh assets/server.json "$VERSION"
+          declared="$(jq -r '.packages[] | select(.registryType == "mcpb") | .fileSha256' assets/server.json)"
+          actual="$(sha256sum "assets/mcp-legifrance-$VERSION.mcpb" | cut -d ' ' -f 1)"
+          if [ "$declared" != "$actual" ]; then
+            echo "::error::fileSha256 de server.json ($declared) diffère de la somme du MCPB ($actual)"
+            exit 1
+          fi
+      # Prérequis que le registre vérifiera lui-même (08 §6.3), contrôlés ici sans lui : asset
+      # joignable (HEAD : 200 ou redirection), image publique avec son label sur chaque plateforme.
+      - name: Prérequis du registre (MCPB joignable, image publique)
+        run: |
+          set -euo pipefail
+          url="$(jq -r '.packages[] | select(.registryType == "mcpb") | .identifier' assets/server.json)"
+          code="$(curl --proto '=https' --tlsv1.2 -sS -o /dev/null -I -w '%{http_code}' "$url")"
+          case "$code" in
+            200 | 301 | 302 | 303 | 307 | 308) echo "MCPB joignable : HTTP $code" ;;
+            *)
+              echo "::error::l'asset MCPB répond HTTP $code à un HEAD : la release est-elle publique ?"
+              exit 1
+              ;;
+          esac
+          packaging/oci/verify-image.sh "$IMAGE:$VERSION"
+      - name: Installer mcp-publisher (version et somme épinglées)
+        run: ./.github/scripts/install-mcp-publisher.sh "$MCP_PUBLISHER_VERSION"
+      - name: Valider server.json
+        run: mcp-publisher validate assets/server.json
+      - name: Publier au registre (OIDC)
+        run: |
+          set -euo pipefail
+          mcp-publisher login github-oidc
+          code=0
+          mcp-publisher publish assets/server.json >"$RUNNER_TEMP/publish.log" 2>&1 || code=$?
+          cat "$RUNNER_TEMP/publish.log"
+          if [ "$code" -ne 0 ]; then
+            if grep -qi 'duplicate version' "$RUNNER_TEMP/publish.log"; then
+              # Reprise après une publication déjà réussie : le registre refuse la même version.
+              echo "::notice::la version $VERSION est déjà publiée au registre"
+              exit 0
+            fi
+            exit "$code"
+          fi

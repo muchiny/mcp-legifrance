@@ -1,0 +1,15 @@
+# Contexte de build de packaging/oci/Dockerfile (racine du dépôt) : BuildKit lit ce fichier à côté
+# du Dockerfile. Il écarte ce qui ne sert ni à la compilation ni aux COPY de l'image : sans lui,
+# `COPY . .` enverrait target/ (plusieurs Go) et l'historique git au démon.
+.git
+.github
+.claude
+target
+fuzz
+spikes
+docs
+**/target
+**/*.snap.new
+.env
+.env.*
+# Les binaires de la release (voie bin-prebuilt) restent dans le contexte : packaging/oci/prebuilt/.
