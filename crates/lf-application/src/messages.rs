@@ -72,8 +72,8 @@ pub fn deadline(budget: Duration) -> AppError {
 }
 
 /// Appel annulé par le client (ligne 21) : sans code, le message va à l'audit (le client a
-/// renoncé à la réponse, que rmcp 1.8/2.1 envoie pourtant : à revérifier au spike V-28). Réservé
-/// à `Audited`, seul à observer une annulation (m-4).
+/// renoncé à la réponse, et rmcp 3.5.1 ne l'envoie pas : spike 0A). Réservé à `Audited`, seul à
+/// observer une annulation (m-4).
 #[must_use]
 pub(crate) fn cancelled() -> AppError {
     AppError::Upstream {
