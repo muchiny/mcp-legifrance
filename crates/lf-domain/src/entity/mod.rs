@@ -1,6 +1,8 @@
 //! Entités renvoyées par le corpus. Les entités consultables et chaque
 //! `SearchHit` implémentent [`Citable`](crate::contract::Citable) ;
-//! `TextBody` et la table des matières ([`Toc`], ses nœuds et ses brouillons) non.
+//! `TextBody` et la table des matières ([`Toc`], ses nœuds et ses brouillons) non. Les types des
+//! ports de M6 et de M7 (`CodeListing`, `ArticleVersion`, `RelatedLinks`, 03 §4.11) sont de
+//! simples valeurs : ils n'implémentent pas `Citable`.
 //!
 //! La citation suit la règle de la famille (03 §5.4), puis le repli
 //! `Légifrance {ID}` sur l'identifiant propre de l'entité (`id` pour un hit,
@@ -21,23 +23,29 @@
 mod act;
 mod agreement;
 mod article;
+mod codes;
 mod decision;
 mod deliberation;
+mod related;
 mod search;
 mod summary;
 mod toc;
+mod versions;
 
 pub use act::{Act, Convention, TextBody};
 pub use agreement::{ATTACHMENT_NOTE, CompanyAgreement};
 pub use article::{ArticleText, ParentNature, ParentText};
+pub use codes::CodeListing;
 pub use decision::Decision;
 pub use deliberation::Deliberation;
+pub use related::{RelatedLink, RelatedLinks, RelatedNature};
 pub use search::{CodeArticleRef, SNIPPET_MAX_CHARS, SearchHit, SearchPage, Snippet};
 pub use summary::OfficialSummary;
 pub use toc::{
     ArticleDraft, SectionDraft, TOC_MAX_DEPTH, Toc, TocArticle, TocDraft, TocEntry, TocEntryRef,
     TocNode, TocPage, TocSection,
 };
+pub use versions::ArticleVersion;
 
 #[cfg(test)]
 mod tests {

@@ -27,6 +27,8 @@
 //! - `classify` : classification d'une tentative d'envoi (`Outcome`, `Budget`, `EndpointKind`,
 //!   `ErrorContext`) d'après le statut HTTP et `Retry-After` ; le corps n'est lu que pour un 400
 //!   de consultation, un 404 de consultation et un 2xx vide (« introuvable », 04 §11).
+//! - `codes` (M6, vide en vague 0) : table des codes issue de `/list/code`, qui servira
+//!   `find_article` (04 §7.1).
 //! - `config` : configuration de l'adapter (`PisteConfig`, champs privés, réglages avancés
 //!   validés `PisteTuning`) et validation des URL surchargées.
 //! - `corpus` : `PisteCorpus`, l'assemblage de l'adapter : mode dégradé sans E/S, puis pour chaque
@@ -94,6 +96,7 @@
 
 mod auth;
 mod classify;
+mod codes;
 mod config;
 mod corpus;
 mod deadline;

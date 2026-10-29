@@ -7,6 +7,8 @@
 
 use std::time::Duration;
 
+use lf_domain::{DomainError, fond::Fond};
+
 use crate::{
     error::{AppError, ErrorCode, UpstreamCause},
     ports::{
@@ -271,6 +273,252 @@ fn config(kind: ConfigKind, detail: &str) -> AppError {
         ConfigKind::Settings => clip(detail, SETTINGS_DETAIL_MAX),
     };
     AppError::config(message)
+}
+
+/// Longueur maximale, en caractères, d'une valeur de l'utilisateur recopiée dans un message
+/// (E-27, 03 §2.7) : au-delà, la valeur est coupée et suivie de `…`.
+const SHOWN_MAX_CHARS: usize = 64;
+
+/// Plus grande borne d'un entier : une borne haute à `i64::MAX` s'écrit ouverte, `(1..)`.
+const OPEN_ENDED: i64 = i64::MAX;
+
+/// `value` telle que le modèle la lit entre apostrophes : coupée à 64 caractères (`…` ensuite),
+/// barre oblique inverse, retours à la ligne, contrôles et séparateurs de ligne Unicode échappés.
+fn shown(value: &str) -> String {
+    let mut chars = value.chars();
+    let mut out = String::new();
+    for c in chars.by_ref().take(SHOWN_MAX_CHARS) {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') => {
+                out.extend(c.escape_unicode());
+            }
+            c => out.push(c),
+        }
+    }
+    if chars.next().is_some() {
+        out.push('…');
+    }
+    out
+}
+
+/// Argument absent (`text_id is required.`, parité P-012).
+#[must_use]
+pub fn required(field: &str) -> AppError {
+    AppError::invalid_argument(format!("{field} is required."))
+}
+
+/// Entier hors de ses bornes incluses (`page_size=0 out of range (1..100).`, parité P-011).
+/// Une borne haute à `i64::MAX` s'écrit ouverte : `page=0 out of range (1..).`
+#[must_use]
+pub fn out_of_range(field: &'static str, value: i64, min: i64, max: i64) -> AppError {
+    let upper = if max == OPEN_ENDED { String::new() } else { max.to_string() };
+    AppError::invalid_argument(format!("{field}={value} out of range ({min}..{upper})."))
+}
+
+/// Valeur hors d'une liste fermée (`match='or' must be one of ['all', 'any', 'exact'].`). La
+/// valeur est recopiée par `shown` ; `allowed` s'écrit tel que donné, dans l'ordre reçu.
+#[must_use]
+pub fn not_one_of(field: &'static str, value: &str, allowed: &[&str]) -> AppError {
+    let list = allowed.iter().map(|item| format!("'{item}'")).collect::<Vec<_>>().join(", ");
+    AppError::invalid_argument(format!("{field}='{}' must be one of [{list}].", shown(value)))
+}
+
+/// Erreur du domaine rendue au modèle (03 §9, 05 §7.3), pour l'argument par défaut de l'outil :
+/// l'identifiant de [`id_field`] et la date `date`. Un cas d'usage qui connaît l'argument fautif
+/// (`date_from`, `version_date`...) appelle [`domain_arg`].
+#[must_use]
+pub fn domain(tool: ToolName, error: &DomainError) -> AppError {
+    domain_arg(tool, None, error)
+}
+
+/// Comme [`domain`], en nommant l'argument fautif quand l'erreur ne le porte pas (`InvalidDate`,
+/// `InvalidEcli`). Pour un identifiant, `arg` remplace le nom de [`id_field`].
+///
+/// La famille « entrée » de 03 §9 donne `invalid_arg`, avec la phrase d'aide qui cite l'outil à
+/// employer. La famille « données amont » (`HitKindMismatch`, `TocTooDeep`, `TextTooLarge`) et
+/// l'invariant de construction `EmptyCoverageGaps` ne sont pas une faute de l'utilisateur : ils
+/// rendent le message de `Decode` (`upstream_error`). Le `match` est exhaustif : une variante
+/// ajoutée au domaine casse la compilation.
+#[must_use]
+pub fn domain_arg(tool: ToolName, arg: Option<&'static str>, error: &DomainError) -> AppError {
+    let id = arg.unwrap_or_else(|| id_field(tool));
+    match error {
+        DomainError::InvalidId { input, expected, .. } => {
+            invalid_argument(invalid_id(id, input, expected))
+        }
+        DomainError::BadSuffix { input, .. } => invalid_argument(format!(
+            "{id}='{}': invalid version suffix (expected _DD-MM-YYYY, e.g. _08-09-2023).",
+            shown(input)
+        )),
+        DomainError::InvalidDate { input, .. } => invalid_argument(format!(
+            "{}='{}' is not a valid date (expected YYYY-MM-DD, e.g. 2026-10-15).",
+            arg.unwrap_or("date"),
+            shown(input)
+        )),
+        DomainError::InvalidEcli { input, .. } => invalid_argument(format!(
+            "{}='{}' is not a valid ECLI (expected ECLI:FR:<court>:<year>:<ordinal>).",
+            arg.unwrap_or("ecli"),
+            shown(input)
+        )),
+        DomainError::UnknownFond { input, .. } => {
+            let mut names = Fond::ALL.map(Fond::name);
+            names.sort_unstable();
+            not_one_of("fond", input, &names)
+        }
+        DomainError::EmptyQuery => required("query"),
+        DomainError::QueryTooLong { len, max } => invalid_argument(format!(
+            "query is too long ({len} characters, max {max}); shorten it or use match=\"all\"."
+        )),
+        DomainError::OutOfRange { field, value, min, max } => {
+            out_of_range(field, *value, *min, *max)
+        }
+        DomainError::InvertedDateRange { from, to } => {
+            invalid_argument(format!("date_from={from} is after date_to={to}."))
+        }
+        DomainError::VersionDateNotApplicable { fond: _ } => invalid_argument(
+            "version_date only applies to fond LODA or CODE; remove it, or use \
+             date_from/date_to."
+                .to_owned(),
+        ),
+        DomainError::DateFilterNotApplicable { fond } => {
+            let hint = if fond.needs_version_date() { "; use version_date" } else { "" };
+            invalid_argument(format!("date_from/date_to are not supported for fond={fond}{hint}."))
+        }
+        DomainError::PageBeyondReach { page, page_size, max } => invalid_argument(format!(
+            "page={page} with page_size={page_size} goes beyond the {max} reachable results; \
+             narrow the query with match or date_from/date_to."
+        )),
+        DomainError::OffsetPastEnd { offset, text_length } => invalid_argument(format!(
+            "offset={offset} is past the end of the text (text_length={text_length}); restart \
+             from offset=0 or omit offset."
+        )),
+        DomainError::FocusWithoutTerms => invalid_argument(
+            "focus contains no searchable word (only stop words or punctuation); give a few \
+             meaningful words or omit focus."
+                .to_owned(),
+        ),
+        DomainError::TocOffsetPastEnd { offset, total } => invalid_argument(format!(
+            "toc_offset={offset} is past the end of the table of contents (toc_total={total}); \
+             restart from toc_offset=0."
+        )),
+        DomainError::NumberKindNotApplicable { fond, kind } => {
+            invalid_argument(format!("{kind} is not a number kind of fond {fond}."))
+        }
+        DomainError::HitKindMismatch { .. }
+        | DomainError::TocTooDeep { .. }
+        | DomainError::TextTooLarge { .. }
+        | DomainError::EmptyCoverageGaps => decode(),
+    }
+}
+
+/// Nom de l'argument identifiant de l'outil (`text_id` pour `fr_get_act`...), `id` par défaut.
+/// Les resources reprennent le nom de la variable de leur gabarit (05 §8.2).
+#[must_use]
+pub fn id_field(tool: ToolName) -> &'static str {
+    match tool {
+        ToolName::FR_GET_ACT | ToolName::RESOURCE_ACT => "text_id",
+        ToolName::FR_GET_TEXT
+        | ToolName::FR_DIFF_ARTICLE
+        | ToolName::RESOURCE_ARTICLE
+        | ToolName::RESOURCE_CODE_ARTICLE => "article_id",
+        ToolName::FR_GET_DECISION | ToolName::RESOURCE_DECISION => "decision_id",
+        ToolName::FR_GET_DELIBERATION => "deliberation_id",
+        ToolName::FR_GET_CONVENTION => "convention_id",
+        ToolName::FR_GET_COMPANY_AGREEMENT => "agreement_id",
+        _ => "id",
+    }
+}
+
+/// Ce que désigne un préfixe d'identifiant et l'outil qui le lit (table d'aide de 03 §2.7).
+/// `JORFTEXT` a sa propre phrase (`jorf_hint`) : aucun outil ne le lit.
+const PREFIX_HELP: [(&str, &str, &str); 9] = [
+    ("LEGITEXT", "a whole text", ToolName::FR_GET_ACT.as_str()),
+    ("LEGIARTI", "an article", ToolName::FR_GET_TEXT.as_str()),
+    ("KALIARTI", "an article", ToolName::FR_GET_TEXT.as_str()),
+    ("JURITEXT", "a court decision", ToolName::FR_GET_DECISION.as_str()),
+    ("CONSTEXT", "a court decision", ToolName::FR_GET_DECISION.as_str()),
+    ("CETATEXT", "a court decision", ToolName::FR_GET_DECISION.as_str()),
+    ("CNILTEXT", "a CNIL deliberation", ToolName::FR_GET_DELIBERATION.as_str()),
+    ("KALITEXT", "a collective agreement", ToolName::FR_GET_CONVENTION.as_str()),
+    ("ACCOTEXT", "a company agreement", ToolName::FR_GET_COMPANY_AGREEMENT.as_str()),
+];
+
+/// Phrase d'aide pour un `JORFTEXT...` : texte d'origine du Journal officiel, que rien ne lit.
+const JORF_HINT: &str = " JORFTEXT... is the original Journal officiel text: search it with \
+                         fr_search fond=LODA and use the LEGITEXT id of the hit.";
+
+/// Identifiant bien formé d'un exemple, par préfixe (`e.g.` des messages de chiffres).
+const EXAMPLE_IDS: [(&str, &str); 7] = [
+    ("LEGITEXT", "LEGITEXT000006070721"),
+    ("LEGIARTI", "LEGIARTI000006419288"),
+    ("JURITEXT", "JURITEXT000037999394"),
+    ("CNILTEXT", "CNILTEXT000053352643"),
+    ("KALITEXT", "KALITEXT000005652329"),
+    ("ACCOTEXT", "ACCOTEXT000037731479"),
+    ("KALIARTI", "KALIARTI000049886059"),
+];
+
+/// Préfixes admis lus dans `expected` (`LEGITEXT`, `LEGIARTI or KALIARTI`, `JURITEXT, CONSTEXT or
+/// CETATEXT`) ; vide quand `expected` n'en liste pas (`8 letters`).
+fn expected_prefixes(expected: &str) -> Vec<&str> {
+    expected
+        .split([',', ' '])
+        .filter(|word| word.len() == 8 && word.bytes().all(|b| b.is_ascii_uppercase()))
+        .collect()
+}
+
+/// Message d'un identifiant refusé (03 §2.7) : mauvaise famille, préfixe inconnu ou chiffres.
+fn invalid_id(field: &str, input: &str, expected: &str) -> String {
+    let prefixes = expected_prefixes(expected);
+    let value = shown(input);
+    let head: String = input.trim_start().chars().take(8).collect::<String>().to_ascii_uppercase();
+    // Le bon préfixe suivi d'un reste qui n'est pas 12 chiffres.
+    if prefixes.contains(&head.as_str()) {
+        let example = prefixes.first().map_or_else(String::new, |prefix| {
+            EXAMPLE_IDS.iter().find(|(known, _)| known == prefix).map_or_else(
+                || format!("{prefix}000000000001"),
+                |(_, example)| (*example).to_owned(),
+            )
+        });
+        return format!(
+            "{field}='{value}' must be {expected} followed by exactly 12 digits (e.g. {example})."
+        );
+    }
+    let wanted = match prefixes.as_slice() {
+        [] => {
+            return format!(
+                "{field}='{value}' must be a Legifrance identifier ({expected} followed by 12 \
+                 digits)."
+            );
+        }
+        [_, _, _, ..] => format!(
+            "start with one of ({})",
+            prefixes.iter().map(|p| format!("'{p}'")).collect::<Vec<_>>().join(", ")
+        ),
+        [one] => format!("be a Legifrance {one}... identifier"),
+        [first, second] => format!("be a Legifrance {first}... or {second}... identifier"),
+    };
+    let help = if head == "JORFTEXT" {
+        JORF_HINT.to_owned()
+    } else {
+        PREFIX_HELP
+            .iter()
+            .find(|(prefix, ..)| *prefix == head)
+            .map(|(_, what, tool)| {
+                let then = if head == "LEGITEXT" && field == "article_id" {
+                    ", then pick an article_id from its table of contents"
+                } else {
+                    ""
+                };
+                format!(" {head}... identifies {what}: use {tool}{then}.")
+            })
+            .unwrap_or_default()
+    };
+    format!("{field}='{value}' must {wanted}.{help}")
 }
 
 #[cfg(test)]
@@ -1020,5 +1268,334 @@ mod tests {
         assert_eq!(clip("éàü", 2), "éà");
         assert_eq!(clip("a😀b😀", 3), "a😀b");
         assert_eq!(clip("e\u{301}x", 2), "e\u{301}");
+    }
+
+    // ---- aides d'argument et erreurs du domaine (vague 0, unité 0C) ----
+
+    use lf_domain::{
+        date::VersionDate,
+        ecli::Ecli,
+        entity::SearchHit,
+        id::{AnyId, ArticleId, DecisionId, DocumentId, KaliTextId, LegiTextId},
+    };
+
+    fn invalid(message: &str) -> AppError {
+        AppError::invalid_argument(message)
+    }
+
+    /// Message rendu par `domain` pour l'outil `tool`.
+    fn domain_text(tool: ToolName, error: &DomainError) -> String {
+        let app = domain(tool, error);
+        assert_eq!(app.code(), Some(ErrorCode::InvalidArg), "{error}");
+        app.message().to_owned()
+    }
+
+    #[test]
+    fn required_names_the_argument() {
+        assert_eq!(required("text_id"), invalid("text_id is required."));
+    }
+
+    #[test]
+    fn out_of_range_matches_the_reference_wording() {
+        assert_eq!(
+            out_of_range("page_size", 0, 1, 100),
+            invalid("page_size=0 out of range (1..100).")
+        );
+        assert_eq!(
+            out_of_range("max_chars", -5, 500, 40_000),
+            invalid("max_chars=-5 out of range (500..40000).")
+        );
+        // Borne haute ouverte : `(1..)`.
+        assert_eq!(out_of_range("page", 0, 1, i64::MAX), invalid("page=0 out of range (1..)."));
+    }
+
+    #[test]
+    fn not_one_of_lists_the_allowed_values_in_the_given_order() {
+        assert_eq!(
+            not_one_of("match", "or", &["all", "any", "exact"]),
+            invalid("match='or' must be one of ['all', 'any', 'exact'].")
+        );
+        assert_eq!(
+            not_one_of("detail", "long", &["full", "summary"]).message(),
+            "detail='long' must be one of ['full', 'summary']."
+        );
+    }
+
+    #[test]
+    fn shown_escapes_controls_and_cuts_at_64_characters() {
+        assert_eq!(shown("a\nb\tc\rd"), r"a\nb\tc\rd");
+        assert_eq!(shown("a\\b"), r"a\\b");
+        assert_eq!(shown("a\u{1b}\u{0}b"), r"a\u{1b}\u{0}b");
+        // Séparateurs de ligne et de paragraphe Unicode : échappés aussi.
+        assert_eq!(shown("a\u{2028}b\u{2029}"), r"a\u{2028}b\u{2029}");
+        // Accents et emoji passent tels quels.
+        assert_eq!(shown("é😀"), "é😀");
+        // 64 caractères : intacts ; 65 : coupés et suivis de `…`.
+        assert_eq!(shown(&"x".repeat(64)), "x".repeat(64));
+        assert_eq!(shown(&"x".repeat(65)), format!("{}…", "x".repeat(64)));
+        assert_eq!(shown(""), "");
+        // La coupe précède l'échappement : 64 caractères d'entrée, quel que soit le rendu.
+        assert_eq!(shown(&"\n".repeat(65)), format!("{}…", r"\n".repeat(64)));
+        assert!(!not_one_of("fond", "x\ny", &["A"]).message().contains('\n'));
+    }
+
+    #[test]
+    fn id_errors_follow_the_table_of_03_section_2_7() {
+        let act = ToolName::FR_GET_ACT;
+        // Mauvaise famille, avec l'outil à employer.
+        let wrong_family = LegiTextId::parse("JURITEXT000051743650").unwrap_err();
+        assert_eq!(
+            domain_text(act, &wrong_family),
+            "text_id='JURITEXT000051743650' must be a Legifrance LEGITEXT... identifier. \
+             JURITEXT... identifies a court decision: use fr_get_decision."
+        );
+        let whole_text = ArticleId::parse("LEGITEXT000006070721").unwrap_err();
+        assert_eq!(
+            domain_text(ToolName::FR_GET_TEXT, &whole_text),
+            "article_id='LEGITEXT000006070721' must be a Legifrance LEGIARTI... or KALIARTI... \
+             identifier. LEGITEXT... identifies a whole text: use fr_get_act, then pick an \
+             article_id from its table of contents."
+        );
+        // Le renvoi vers la table des matières ne vaut que pour `article_id`.
+        assert_eq!(
+            domain_text(ToolName::FR_GET_RELATED, &AnyId::parse("x").unwrap_err()),
+            "id='x' must be a Legifrance identifier (8 letters followed by 12 digits)."
+        );
+        let deliberation = DecisionId::parse("CNILTEXT000053352643").unwrap_err();
+        assert_eq!(
+            domain_text(ToolName::FR_GET_DECISION, &deliberation),
+            "decision_id='CNILTEXT000053352643' must start with one of ('JURITEXT', \
+             'CONSTEXT', 'CETATEXT'). CNILTEXT... identifies a CNIL deliberation: use \
+             fr_get_deliberation."
+        );
+        let convention = KaliTextId::parse("LEGITEXT000006070721").unwrap_err();
+        assert_eq!(
+            domain_text(ToolName::FR_GET_CONVENTION, &convention),
+            "convention_id='LEGITEXT000006070721' must be a Legifrance KALITEXT... identifier. \
+             LEGITEXT... identifies a whole text: use fr_get_act."
+        );
+        // Préfixe inconnu : pas de phrase d'aide.
+        let unknown = KaliTextId::parse("KALICONT000005635096").unwrap_err();
+        assert_eq!(
+            domain_text(ToolName::FR_GET_CONVENTION, &unknown),
+            "convention_id='KALICONT000005635096' must be a Legifrance KALITEXT... identifier."
+        );
+        // Journal officiel : aucun outil ne le lit.
+        let jorf = LegiTextId::parse("JORFTEXT000033202746").unwrap_err();
+        assert_eq!(
+            domain_text(act, &jorf),
+            "text_id='JORFTEXT000033202746' must be a Legifrance LEGITEXT... identifier. \
+             JORFTEXT... is the original Journal officiel text: search it with fr_search \
+             fond=LODA and use the LEGITEXT id of the hit."
+        );
+    }
+
+    #[test]
+    fn id_errors_with_the_right_prefix_ask_for_twelve_digits() {
+        let cases = [
+            (
+                ToolName::FR_GET_ACT,
+                LegiTextId::parse("LEGITEXT0001").unwrap_err(),
+                "text_id='LEGITEXT0001' must be LEGITEXT followed by exactly 12 digits (e.g. \
+              LEGITEXT000006070721).",
+            ),
+            (
+                ToolName::FR_GET_TEXT,
+                ArticleId::parse("legiarti0001").unwrap_err(),
+                "article_id='legiarti0001' must be LEGIARTI or KALIARTI followed by exactly 12 \
+              digits (e.g. LEGIARTI000006419288).",
+            ),
+            (
+                ToolName::FR_GET_DECISION,
+                DecisionId::parse("CETATEXT12").unwrap_err(),
+                "decision_id='CETATEXT12' must be JURITEXT, CONSTEXT or CETATEXT followed by exactly \
+              12 digits (e.g. JURITEXT000037999394).",
+            ),
+            (
+                ToolName::FR_GET_COMPANY_AGREEMENT,
+                lf_domain::id::AccoTextId::parse("ACCOTEXT1").unwrap_err(),
+                "agreement_id='ACCOTEXT1' must be ACCOTEXT followed by exactly 12 digits (e.g. \
+              ACCOTEXT000037731479).",
+            ),
+        ];
+        for (tool, error, expected) in cases {
+            assert_eq!(domain_text(tool, &error), expected);
+        }
+    }
+
+    #[test]
+    fn long_prefix_lists_and_unknown_letters_are_rendered_without_help() {
+        let foo = DocumentId::parse("FOOTEXT000000000001").unwrap_err();
+        let message = domain_text(ToolName::FR_GET_RELATED, &foo);
+        assert!(
+            message.starts_with(
+                "id='FOOTEXT000000000001' must start with one of ('LEGITEXT', 'LEGIARTI', "
+            ),
+            "{message}"
+        );
+        assert!(message.ends_with("')."), "{message}");
+        // Une liste de deux préfixes sans exemple connu : l'exemple est fabriqué à partir du premier.
+        let scta = lf_domain::id::SectionId::parse("LEGISCTA1").unwrap_err();
+        assert_eq!(
+            domain_text(ToolName::FR_GET_ACT, &scta),
+            "text_id='LEGISCTA1' must be LEGISCTA or KALISCTA followed by exactly 12 digits (e.g. \
+             LEGISCTA000000000001)."
+        );
+    }
+
+    #[test]
+    fn bad_suffix_cites_the_whole_identifier() {
+        let error = LegiTextId::parse("LEGITEXT000033205014_31-02-2023").unwrap_err();
+        assert_eq!(
+            domain_text(ToolName::FR_GET_ACT, &error),
+            "text_id='LEGITEXT000033205014_31-02-2023': invalid version suffix (expected \
+             _DD-MM-YYYY, e.g. _08-09-2023)."
+        );
+    }
+
+    #[test]
+    fn argument_names_follow_the_tool_or_the_caller() {
+        let date = VersionDate::parse("2016-13-45").unwrap_err();
+        assert_eq!(
+            domain_text(ToolName::FR_GET_ACT, &date),
+            "date='2016-13-45' is not a valid date (expected YYYY-MM-DD, e.g. 2026-10-15)."
+        );
+        let named = domain_arg(ToolName::FR_SEARCH, Some("date_from"), &date);
+        assert_eq!(
+            named.message(),
+            "date_from='2016-13-45' is not a valid date (expected YYYY-MM-DD, e.g. 2026-10-15)."
+        );
+        let ecli = Ecli::parse("x").unwrap_err();
+        assert_eq!(
+            domain_text(ToolName::FR_RESOLVE, &ecli),
+            "ecli='x' is not a valid ECLI (expected ECLI:FR:<court>:<year>:<ordinal>)."
+        );
+        assert_eq!(
+            domain_arg(ToolName::FR_RESOLVE, Some("citation"), &ecli).message(),
+            "citation='x' is not a valid ECLI (expected ECLI:FR:<court>:<year>:<ordinal>)."
+        );
+        // Pour un identifiant, l'argument de l'appelant remplace celui de l'outil.
+        let id = LegiTextId::parse("LEGITEXT0001").unwrap_err();
+        assert!(
+            domain_arg(ToolName::FR_DIFF_ARTICLE, Some("id"), &id).message().starts_with("id='")
+        );
+        assert!(domain(ToolName::FR_DIFF_ARTICLE, &id).message().starts_with("article_id='"));
+    }
+
+    #[test]
+    fn id_field_names_the_identifier_argument_of_each_tool() {
+        let rows = [
+            (ToolName::FR_GET_ACT, "text_id"),
+            (ToolName::FR_GET_TEXT, "article_id"),
+            (ToolName::FR_GET_DECISION, "decision_id"),
+            (ToolName::FR_GET_DELIBERATION, "deliberation_id"),
+            (ToolName::FR_GET_CONVENTION, "convention_id"),
+            (ToolName::FR_GET_COMPANY_AGREEMENT, "agreement_id"),
+            (ToolName::FR_GET_RELATED, "id"),
+            (ToolName::FR_DIFF_ARTICLE, "article_id"),
+            (ToolName::RESOURCE_ARTICLE, "article_id"),
+            (ToolName::RESOURCE_CODE_ARTICLE, "article_id"),
+            (ToolName::RESOURCE_DECISION, "decision_id"),
+            (ToolName::RESOURCE_ACT, "text_id"),
+            (ToolName::FR_SEARCH, "id"),
+            (ToolName::FR_COVERAGE, "id"),
+            (ToolName::RESOURCE_COVERAGE, "id"),
+        ];
+        for (tool, field) in rows {
+            assert_eq!(id_field(tool), field, "{}", tool.as_str());
+        }
+    }
+
+    #[test]
+    fn input_family_domain_errors_have_the_texts_of_05_section_7_3() {
+        let tool = ToolName::FR_SEARCH;
+        let from = VersionDate::parse("2026-01-01").unwrap();
+        let to = VersionDate::parse("2025-01-01").unwrap();
+        let rows = [
+            (
+                Fond::parse("XYZ").unwrap_err(),
+                "fond='XYZ' must be one of ['ACCO', 'CETAT', 'CNIL', 'CODE', 'CONSTIT', 'JURI', \
+                 'KALI', 'LODA'].",
+            ),
+            (DomainError::EmptyQuery, "query is required."),
+            (
+                DomainError::QueryTooLong { len: 612, max: 450 },
+                "query is too long (612 characters, max 450); shorten it or use match=\"all\".",
+            ),
+            (
+                DomainError::OutOfRange { field: "page_size", value: 0, min: 1, max: 100 },
+                "page_size=0 out of range (1..100).",
+            ),
+            (
+                DomainError::InvertedDateRange { from, to },
+                "date_from=2026-01-01 is after date_to=2025-01-01.",
+            ),
+            (
+                DomainError::VersionDateNotApplicable { fond: Fond::Juri },
+                "version_date only applies to fond LODA or CODE; remove it, or use \
+                 date_from/date_to.",
+            ),
+            (
+                DomainError::DateFilterNotApplicable { fond: Fond::Code },
+                "date_from/date_to are not supported for fond=CODE; use version_date.",
+            ),
+            (
+                DomainError::DateFilterNotApplicable { fond: Fond::Juri },
+                "date_from/date_to are not supported for fond=JURI.",
+            ),
+            (
+                DomainError::PageBeyondReach { page: 200, page_size: 100, max: 10_000 },
+                "page=200 with page_size=100 goes beyond the 10000 reachable results; narrow the \
+                 query with match or date_from/date_to.",
+            ),
+            (
+                DomainError::OffsetPastEnd { offset: 20_000, text_length: 14_332 },
+                "offset=20000 is past the end of the text (text_length=14332); restart from \
+                 offset=0 or omit offset.",
+            ),
+            (
+                DomainError::FocusWithoutTerms,
+                "focus contains no searchable word (only stop words or punctuation); give a few \
+                 meaningful words or omit focus.",
+            ),
+            (
+                DomainError::TocOffsetPastEnd { offset: 300, total: 88 },
+                "toc_offset=300 is past the end of the table of contents (toc_total=88); \
+                 restart from toc_offset=0.",
+            ),
+            (
+                DomainError::NumberKindNotApplicable { fond: Fond::Cnil, kind: "ecli" },
+                "ecli is not a number kind of fond CNIL.",
+            ),
+        ];
+        for (error, expected) in rows {
+            assert_eq!(domain_text(tool, &error), expected);
+        }
+    }
+
+    #[test]
+    fn upstream_family_domain_errors_are_decode_failures() {
+        // `HitKindMismatch` ne se construit pas hors du domaine : on le provoque.
+        let mismatch =
+            SearchHit::new(Fond::Juri, DocumentId::parse("LEGITEXT000006070721").unwrap(), None)
+                .unwrap_err();
+        assert!(matches!(mismatch, DomainError::HitKindMismatch { .. }));
+        for error in [
+            mismatch,
+            DomainError::TocTooDeep { max: 64 },
+            DomainError::TextTooLarge { chars: 16_000_001 },
+            DomainError::EmptyCoverageGaps,
+        ] {
+            let app = domain(ToolName::FR_GET_ACT, &error);
+            assert_eq!(
+                view(&app),
+                (
+                    Some(ErrorCode::UpstreamError),
+                    Some(UpstreamCause::Decode),
+                    "unexpected response from Legifrance; report it."
+                ),
+                "{error}"
+            );
+        }
     }
 }

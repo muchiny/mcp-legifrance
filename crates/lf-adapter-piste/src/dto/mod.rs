@@ -12,6 +12,8 @@ pub(crate) mod de;
 pub(crate) mod decode;
 pub(crate) mod error;
 pub(crate) mod juri;
+pub(crate) mod m6;
+pub(crate) mod m7;
 pub(crate) mod oauth;
 pub(crate) mod search;
 
@@ -59,9 +61,14 @@ mod tests {
         assert_eq!(get(&absent), &None, "absent");
     }
 
+    /// Fichiers de DTO de M6 et de M7, écrits après ce décompte : leurs listes doivent être bornées
+    /// comme les autres, mais le total attendu ci-dessous ne les compte pas (leurs unités ne
+    /// possèdent pas ce fichier et ne peuvent pas l'ajuster).
+    const LATER_FILES: [&str; 2] = ["m6.rs", "m7.rs"];
+
     /// Les fichiers de `dto/`, `mod.rs` compris, et leur source. Un fichier ajouté au dossier sans
     /// être listé ici fait échouer `every_dto_file_is_listed`.
-    const SOURCES: [(&str, &str); 11] = [
+    const SOURCES: [(&str, &str); 13] = [
         ("acco.rs", include_str!("acco.rs")),
         ("article.rs", include_str!("article.rs")),
         ("budget.rs", include_str!("budget.rs")),
@@ -70,6 +77,8 @@ mod tests {
         ("decode.rs", include_str!("decode.rs")),
         ("error.rs", include_str!("error.rs")),
         ("juri.rs", include_str!("juri.rs")),
+        ("m6.rs", include_str!("m6.rs")),
+        ("m7.rs", include_str!("m7.rs")),
         ("mod.rs", include_str!("mod.rs")),
         ("oauth.rs", include_str!("oauth.rs")),
         ("search.rs", include_str!("search.rs")),
@@ -299,6 +308,9 @@ mod tests {
         for (file, source) in SOURCES {
             let scan = scan(file, source);
             assert_eq!(scan.unbounded, Vec::<String>::new(), "{file}");
+            if LATER_FILES.contains(&file) {
+                continue;
+            }
             total.bounded += scan.bounded;
             total.readers += scan.readers;
         }

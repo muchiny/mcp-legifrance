@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-use crate::{date::CivilDate, error::DomainError};
+use crate::{date::CivilDate, error::DomainError, fond::Fond};
 
 /// État de la source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +131,41 @@ impl Coverage {
     }
 }
 
+/// Ce que la configuration du processus apprend à la couverture (03 §4.8) : trois faits, sans
+/// secret ni phrase. La liste des problèmes détectés reste dans `lf-application`
+/// (`ConfigurationState`) et n'entre pas dans le domaine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConfigFacts {
+    /// Les identifiants PISTE sont présents (FR-102 sinon).
+    pub credentials_configured: bool,
+    /// Un hôte hors des quatre hôtes officiels est configuré (FR-103).
+    pub custom_host: bool,
+    /// Au moins un problème de configuration est détecté, mode dégradé compris (FR-104).
+    pub has_problems: bool,
+}
+
+/// Couverture déclarée du connecteur pour un environnement, une configuration et les fonds
+/// servis (03 §4.8 : catalogue FR-001 à FR-009 et lacunes calculées FR-007, FR-101 à FR-104).
+///
+/// STUB(V0) → V1-03 : forme et signature gelées, corps provisoire. Il rend une seule lacune
+/// fixe et ignore ses arguments, pour que `fr_coverage` compile avant que V1-03 n'écrive le
+/// catalogue.
+#[must_use]
+pub fn coverage(_env: PisteEnvironment, _facts: &ConfigFacts, _served: &[Fond]) -> Coverage {
+    // STUB(V0) → V1-03
+    Coverage {
+        status: CoverageStatus::Ok,
+        as_of_note: String::new(),
+        families: Vec::new(),
+        known_gaps: vec![CoverageGap {
+            id: "FR-001".to_owned(),
+            family: "Legislation (LODA, codes)".to_owned(),
+            missing: "native ELI".to_owned(),
+            fallback: "Cite source_url; never build an /eli/ path.".to_owned(),
+        }],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -187,6 +222,26 @@ mod tests {
             captured_at: None,
             live: true,
         }
+    }
+
+    #[test]
+    fn config_facts_are_plain_copyable_values() {
+        let facts =
+            ConfigFacts { credentials_configured: true, custom_host: false, has_problems: false };
+        let copy = facts; // `facts` reste employable : le test cesse de compiler sans `Copy`
+        assert_eq!(facts, copy);
+        assert_ne!(facts, ConfigFacts { custom_host: true, ..facts });
+        assert!(format!("{facts:?}").contains("credentials_configured: true"));
+    }
+
+    #[test]
+    fn stub_coverage_names_at_least_one_gap() {
+        // STUB(V0) → V1-03 : seule la forme est gelée, la liste des lacunes est vérifiée là-bas.
+        let facts =
+            ConfigFacts { credentials_configured: false, custom_host: false, has_problems: true };
+        let c = coverage(PisteEnvironment::Sandbox, &facts, &[Fond::Loda]);
+        assert_eq!(c.known_gaps().len(), 1);
+        assert_eq!(c.known_gaps()[0].id, "FR-001");
     }
 
     #[test]

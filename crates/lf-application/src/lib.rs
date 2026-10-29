@@ -10,18 +10,29 @@
 //! journalise l'échec du port avant de lui déléguer le message ; le module `testing` (feature
 //! `test-support`) fournit les doublures `FakeCorpus`, `FixedClock`, `MemoryAuditLog` et
 //! `FailingAuditLog` ; le décorateur [`audited::Audited`] enveloppe chaque exécution d'outil
-//! (délai global, annulation, ligne d'audit). Les cas d'usage viennent au plan 3b.
+//! (délai global, annulation, ligne d'audit). La vague 0 du plan « fin du projet » gèle les
+//! interfaces des cas d'usage : le port complet à douze méthodes, les entrées décodées des outils
+//! ([`input`]), le budget de réponse ([`budget`]) avec la politique de lecture, la façade
+//! [`service::LegalService`] et ses réglages, et les fichiers vides des cas d'usage ([`usecase`]),
+//! des sorties ([`output`]) et des citations ([`citation`]) que les vagues suivantes remplissent.
 //!
 //! Dépendances : liste fermée de 02 §3.2 (R2), vérifiée par `cargo xtask check-arch`.
 
 pub mod audited;
+pub mod budget;
+pub mod citation;
+#[cfg(feature = "test-support")]
+pub mod contract;
 pub mod deadline;
 pub mod error;
 pub mod failure;
 pub mod input;
 pub mod messages;
+pub mod output;
 pub mod ports;
+pub mod service;
 pub mod tools;
+pub mod usecase;
 
 #[cfg(test)]
 mod capture;

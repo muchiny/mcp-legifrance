@@ -6,16 +6,23 @@
 
 mod clean;
 pub mod encoding;
+mod focus;
 pub(crate) mod fold;
 mod html;
 mod long_text;
 mod passages;
 mod rank;
+mod stopwords;
+mod summary;
 mod window;
 
 pub use clean::{CleanReport, clean, clean_field, clean_with_report};
+pub use focus::{FOCUS_MAX_CHARS, Focus};
 pub(crate) use html::is_invisible;
 pub use long_text::LongText;
 pub use passages::{Passage, passages};
 pub use rank::{B, K1, Scored, rank};
+pub use summary::{
+    DispositifRule, LEAD_MIN_CHARS, SUMMARY_CAP_CHARS, Summary, SummarySource, summary,
+};
 pub use window::{Window, window};

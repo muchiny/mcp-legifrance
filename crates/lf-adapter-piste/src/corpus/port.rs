@@ -1,4 +1,5 @@
-//! `impl LegalCorpus for PisteCorpus` : les sept opérations du port (04 §1.3, §7.1, §12.3).
+//! `impl LegalCorpus for PisteCorpus` : les douze opérations du port (04 §1.3, §7.1, §12.3). Les
+//! cinq de M6 et M7 délèguent à `corpus::m6` et `corpus::m7`.
 //!
 //! L'identifiant d'une consultation va dans le **corps** de la requête (`request::consult`), jamais
 //! dans le chemin : le gabarit d'endpoint est constant, ne dépend que de l'opération, et aucune
@@ -10,13 +11,14 @@
 //! alimente `search_body` et sa garde défensive, avant toute requête, jeton compris) et ne retient
 //! le mode reçu qu'**après** le mapping : sur `Err`, rien n'est retenu (R12).
 
-use lf_application::ports::{CorpusError, LegalCorpus};
+use lf_application::ports::{ArticleAt, CorpusError, LegalCorpus};
 use lf_domain::date::VersionDate;
 use lf_domain::entity::{
-    Act, ArticleText, CompanyAgreement, Convention, Decision, Deliberation, SearchPage,
+    Act, ArticleText, ArticleVersion, CodeListing, CompanyAgreement, Convention, Decision,
+    Deliberation, RelatedLinks, SearchHit, SearchPage,
 };
 use lf_domain::id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId};
-use lf_domain::search::SearchQuery;
+use lf_domain::search::{NumberQuery, SearchQuery};
 use serde::de::DeserializeOwned;
 
 use super::PisteCorpus;
@@ -91,6 +93,31 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S>
     ) -> Result<CompanyAgreement, CorpusError> {
         self.consult(Consultation::Agreement(id), |dto, diags| agreement::agreement(dto, id, diags))
             .await
+    }
+
+    async fn find_article(
+        &self,
+        text: &LegiTextId,
+        num: &str,
+        at: ArticleAt,
+    ) -> Result<ArticleText, CorpusError> {
+        self.find_article_impl(text, num, at).await
+    }
+
+    async fn find_by_number(&self, query: &NumberQuery) -> Result<Vec<SearchHit>, CorpusError> {
+        self.find_by_number_impl(query).await
+    }
+
+    async fn list_codes(&self) -> Result<Vec<CodeListing>, CorpusError> {
+        self.list_codes_impl().await
+    }
+
+    async fn article_versions(&self, id: &ArticleId) -> Result<Vec<ArticleVersion>, CorpusError> {
+        self.article_versions_impl(id).await
+    }
+
+    async fn related_links(&self, id: &ArticleId) -> Result<RelatedLinks, CorpusError> {
+        self.related_links_impl(id).await
     }
 }
 
