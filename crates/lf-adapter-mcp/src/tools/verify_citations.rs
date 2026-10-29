@@ -1,11 +1,165 @@
-//! Outil `fr_verify_citations` (05 §5). Routeur vide jusqu'à la tranche V3-05, qui écrit ici son `#[tool]` selon le
-//! motif de `tools/mod.rs`.
+//! Outil `fr_verify_citations` (05 §5.9) : le contrôle, en un appel, de toutes les citations
+//! juridiques d'un texte contre le registre officiel.
+//!
+//! Motif de `tools/mod.rs` : arguments bruts (`JsonObject`), décodage par `to_call`, appel de la
+//! façade avec le jeton d'annulation de la requête, vue de sortie à schéma explicite. La vue
+//! ramène elle-même la réponse sous le plafond dur de 45 000 caractères (05 §6.4).
 
-use lf_application::ports::{AuditLog, Clock, LegalCorpus};
-use rmcp::tool_router;
+use lf_application::{
+    input::VerifyCitationsInput,
+    ports::{AuditLog, Clock, LegalCorpus},
+};
+use rmcp::{Json, model::JsonObject, tool, tool_router};
+use tokio_util::sync::CancellationToken;
 
-use crate::server::LegifranceServer;
+use crate::{
+    decode::to_call,
+    failure::ToolFailure,
+    params::verify_citations::VerifyCitationsParams,
+    schema::{input_schema, output_schema},
+    server::LegifranceServer,
+    views::verify_citations::VerifyView,
+};
 
-// STUB(V0) → V3-05 : bloc vide (`allow_empty`), combiné par `LegifranceServer::new`.
-#[tool_router(router = verify_citations_router, vis = "pub(crate)", allow_empty)]
-impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {}
+/// Description de l'outil (715 caractères, 5 phrases ; 05 §5.9).
+pub(crate) const DESCRIPTION: &str = "Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles, laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; a quoted excerpt right after a citation is compared with the official text. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.";
+
+#[tool_router(router = verify_citations_router, vis = "pub(crate)")]
+impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
+    #[tool(
+        name = "fr_verify_citations",
+        title = "Verify legal citations",
+        description = DESCRIPTION,
+        input_schema = input_schema::<VerifyCitationsParams>(),
+        output_schema = output_schema::<VerifyView>(),
+        annotations(
+            title = "Verify legal citations",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn fr_verify_citations(
+        &self,
+        args: JsonObject,
+        ct: CancellationToken,
+    ) -> Result<Json<VerifyView>, ToolFailure> {
+        let call = to_call::<VerifyCitationsParams, VerifyCitationsInput>(args);
+        let output = self.service.verify_citations(call, ct.cancelled()).await?;
+        Ok(Json(VerifyView::from(output)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    #[test]
+    fn the_description_is_the_documented_text() {
+        assert_eq!(DESCRIPTION.chars().count(), 715);
+        assert!(DESCRIPTION.starts_with("Check every legal citation found in a text"));
+        assert!(DESCRIPTION.contains("`max_citations` (default 50)"));
+        assert!(DESCRIPTION.ends_with("for a single citation fr_resolve is lighter."));
+        // Les outils cités le sont par leur nom d'enregistrement (05 §4.3).
+        assert!(DESCRIPTION.contains("fr_resolve"));
+    }
+
+    #[cfg(feature = "test-support")]
+    mod over_the_wire {
+        use lf_application::{
+            error::ErrorCode,
+            ports::{AuditStatus, CorpusError},
+            tools::ToolName,
+        };
+        use lf_domain::{entity::CodeListing, id::LegiTextId, status::LegalStatus};
+        use pretty_assertions::assert_eq;
+        use rmcp::model::CallToolRequestParams;
+        use serde_json::{Value, json};
+
+        use crate::testing::Fixture;
+
+        async fn call(fixture: &Fixture, arguments: &Value) -> rmcp::model::CallToolResult {
+            let client = fixture.connect().await;
+            let mut params = CallToolRequestParams::new("fr_verify_citations");
+            params.arguments = arguments.as_object().cloned();
+            client.call_tool(params).await.unwrap()
+        }
+
+        fn civil_code_listed(fixture: &Fixture) {
+            fixture.corpus.push_list_codes(Ok(vec![CodeListing {
+                id: LegiTextId::parse("LEGITEXT000006070721").unwrap(),
+                title: "Code civil".to_owned(),
+                etat: Some(LegalStatus::Vigueur),
+            }]));
+        }
+
+        #[tokio::test]
+        async fn a_missing_article_comes_back_with_its_span_status_and_note() {
+            let fixture = Fixture::default();
+            civil_code_listed(&fixture);
+            fixture.corpus.push_find_article(Err(CorpusError::NotFound { what: "x".to_owned() }));
+            let text = "Voir l'article 9999 du code civil.";
+
+            let result = call(&fixture, &json!({"text": text})).await;
+
+            assert_eq!(result.is_error, Some(false));
+            let content = result.structured_content.clone().unwrap();
+            assert_eq!(
+                (content["found"].clone(), content["checked"].clone()),
+                (json!(1), json!(1))
+            );
+            assert!(content.get("truncated").is_none());
+            let citation = &content["citations"][0];
+            assert_eq!(citation["kind"], "code_article");
+            assert_eq!(citation["raw"], "article 9999 du code civil");
+            assert_eq!(citation["span"], json!({"start": 7, "end": 33}));
+            // L'environnement de la fixture décide : jamais `not_found` en bac à sable.
+            let status = citation["status"].as_str().unwrap();
+            assert!(["not_found", "unresolvable"].contains(&status), "{status}");
+            assert!(citation["note"].as_str().unwrap().contains("9999"));
+            // Le bloc texte porte le même JSON que `structuredContent`.
+            let text_block = &result.content[0].as_text().unwrap().text;
+            assert_eq!(serde_json::from_str::<Value>(text_block).unwrap(), content);
+
+            let records = fixture.audit.records();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].tool, ToolName::FR_VERIFY_CITATIONS);
+            assert_eq!(records[0].status, AuditStatus::Ok);
+            assert_eq!(records[0].output_count_or_size, 1, "le nombre de citations contrôlées");
+        }
+
+        #[tokio::test]
+        async fn invalid_arguments_are_audited_as_invalid_arg() {
+            let fixture = Fixture::default();
+            let result =
+                call(&fixture, &json!({"text": "article 9 du code civil", "max_citations": 0}))
+                    .await;
+            assert_eq!(result.is_error, Some(true));
+            let message = &result.content[0].as_text().unwrap().text;
+            assert_eq!(message, "[invalid_arg] max_citations=0 out of range (1..100).");
+            assert_eq!(fixture.audit.records()[0].error_code, Some(ErrorCode::InvalidArg));
+
+            let result = call(&fixture, &json!({})).await;
+            assert_eq!(
+                result.content[0].as_text().unwrap().text,
+                "[invalid_arg] text is required."
+            );
+            assert_eq!(fixture.corpus.calls(), 0);
+        }
+
+        #[tokio::test]
+        async fn every_citation_failing_upstream_fails_the_call() {
+            let fixture = Fixture::default();
+            civil_code_listed(&fixture);
+            fixture.corpus.push_find_article(Err(CorpusError::Timeout));
+            let result = call(&fixture, &json!({"text": "article 9 du code civil"})).await;
+            assert_eq!(result.is_error, Some(true));
+            let message = &result.content[0].as_text().unwrap().text;
+            assert!(message.starts_with("[upstream_error] "), "{message}");
+            assert_eq!(fixture.audit.records()[0].error_code, Some(ErrorCode::UpstreamError));
+        }
+    }
+}

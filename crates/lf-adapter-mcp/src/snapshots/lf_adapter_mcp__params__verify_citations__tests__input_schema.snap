@@ -1,0 +1,27 @@
+---
+source: crates/lf-adapter-mcp/src/params/verify_citations.rs
+expression: schema()
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "max_citations": {
+      "default": 50,
+      "description": "Maximum citations checked, in order of appearance.",
+      "format": "uint32",
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "text": {
+      "description": "The text whose citations must be checked (up to 20000 characters).",
+      "maxLength": 20000,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "text"
+  ],
+  "type": "object"
+}

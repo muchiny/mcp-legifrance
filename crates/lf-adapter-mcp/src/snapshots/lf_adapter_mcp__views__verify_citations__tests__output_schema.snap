@@ -1,0 +1,109 @@
+---
+source: crates/lf-adapter-mcp/src/views/verify_citations.rs
+expression: schema
+---
+{
+  "$defs": {
+    "CitationView": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "quote": {
+          "type": "string"
+        },
+        "raw": {
+          "type": "string"
+        },
+        "resolved": {
+          "$ref": "#/$defs/ResolvedView"
+        },
+        "span": {
+          "$ref": "#/$defs/SpanView"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "span",
+        "raw",
+        "kind",
+        "status"
+      ],
+      "type": "object"
+    },
+    "ResolvedView": {
+      "properties": {
+        "citation": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "source_url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "citation",
+        "source_url"
+      ],
+      "type": "object"
+    },
+    "SpanView": {
+      "properties": {
+        "end": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "start": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "type": "object"
+    }
+  },
+  "properties": {
+    "checked": {
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "citations": {
+      "items": {
+        "$ref": "#/$defs/CitationView"
+      },
+      "type": "array"
+    },
+    "found": {
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "note": {
+      "type": "string"
+    },
+    "truncated": {
+      "description": "True if found > checked.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "found",
+    "checked",
+    "citations"
+  ],
+  "type": "object"
+}

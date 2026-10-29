@@ -1,0 +1,37 @@
+---
+source: crates/lf-adapter-mcp/src/views/verify_citations.rs
+expression: json_of(view)
+---
+{
+  "checked": 2,
+  "citations": [
+    {
+      "kind": "code_article",
+      "quote": "match",
+      "raw": "article 9 du code civil",
+      "resolved": {
+        "citation": "Code civil, art. 9",
+        "id": "LEGIARTI000006419288",
+        "source_url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288"
+      },
+      "span": {
+        "end": 31,
+        "start": 8
+      },
+      "status": "verified"
+    },
+    {
+      "kind": "code_article",
+      "note": "Code civil has no article 9999 in force on 2026-10-15.",
+      "raw": "article 9999 du code civil",
+      "span": {
+        "end": 279,
+        "start": 253
+      },
+      "status": "not_found"
+    }
+  ],
+  "found": 3,
+  "note": "List shortened to the first 2 citations.",
+  "truncated": true
+}
