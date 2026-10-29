@@ -15,6 +15,10 @@
 //! - Rien de ce qui est lu n'est recopié dans un message : ni secret, ni URL, ni valeur refusée.
 //!   Les messages ne citent que des noms de variables et des bornes.
 //! - Aucune lecture de fichier (`piste.env` compris, ADR-0005).
+//! - Source des textes (M9) : PISTE, sauf si `LF_DILA_DIR` désigne l'index local DILA
+//!   ([`CorpusSource`]). Le binaire ne télécharge aucun dump (plan « fin du projet » : script hors
+//!   binaire) ; le répertoire contient un index déjà bâti. Si la source locale est demandée sans
+//!   pouvoir servir, le serveur est dégradé et ne se rabat jamais sur PISTE.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -60,6 +64,9 @@ const BURST: &str = "LF_PISTE_BURST";
 const CONCURRENCY: &str = "LF_PISTE_CONCURRENCY";
 /// `LF_PISTE_MOJIBAKE_REPAIR` : réparation du mojibake.
 const MOJIBAKE_REPAIR: &str = "LF_PISTE_MOJIBAKE_REPAIR";
+/// `LF_DILA_DIR` : répertoire de l'index local DILA (M9). Défini, il remplace PISTE comme source
+/// des textes ; absent, PISTE reste la source.
+const DILA_DIR: &str = "LF_DILA_DIR";
 
 /// Équivalent hérité de `LF_PISTE_CLIENT_ID`.
 const LEGACY_CLIENT_ID: &str = "FR_ELI_CLIENT_ID";
@@ -82,8 +89,9 @@ const IGNORED_LEGACY: [&str; 5] = [
     "PISTE_CLIENT_SECRET",
 ];
 
-/// Variables dont la valeur est lue : la liste fermée de 00 §1 et les `FR_ELI_*` de compatibilité.
-const READ_VARIABLES: [&str; 19] = [
+/// Variables dont la valeur est lue : la liste fermée de 00 §1, `LF_DILA_DIR` (M9, à ajouter à 00 §1
+/// et à 02 §8.2) et les `FR_ELI_*` de compatibilité.
+const READ_VARIABLES: [&str; 20] = [
     PISTE_ENV,
     CLIENT_ID,
     CLIENT_SECRET,
@@ -98,6 +106,7 @@ const READ_VARIABLES: [&str; 19] = [
     BURST,
     CONCURRENCY,
     MOJIBAKE_REPAIR,
+    DILA_DIR,
     LEGACY_CLIENT_ID,
     LEGACY_CLIENT_SECRET,
     LEGACY_OAUTH_URL,
@@ -224,6 +233,57 @@ impl fmt::Display for AuditDirProblem {
     }
 }
 
+/// `LF_DILA_DIR` inutilisable : la source locale est demandée, mais ne peut pas servir.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DilaDirProblem {
+    /// `LF_DILA_DIR` n'est pas un chemin absolu.
+    NotAbsolute,
+    /// `LF_DILA_DIR` commence par `~/` et le répertoire personnel est introuvable.
+    NoHome,
+    /// Ce binaire est compilé sans la feature `dila` : il n'a pas d'index local.
+    NotCompiled,
+}
+
+impl fmt::Display for DilaDirProblem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::NotAbsolute => "LF_DILA_DIR must be an absolute path",
+            Self::NoHome => "LF_DILA_DIR starts with ~/ but the home directory is unknown",
+            Self::NotCompiled => {
+                "LF_DILA_DIR is set but this build has no local DILA index: it needs the dila feature"
+            }
+        })
+    }
+}
+
+/// Source des textes juridiques (02 §8.5) : PISTE par défaut, l'index local DILA si `LF_DILA_DIR`
+/// est défini.
+///
+/// Une source locale demandée mais inutilisable n'est **jamais** remplacée par PISTE : le choix de
+/// l'hors-ligne est souvent un choix de confidentialité, et une requête ne doit pas partir sur le
+/// réseau contre la volonté de l'utilisateur. Le serveur démarre alors en mode dégradé
+/// (`[config_error]` sur chaque outil), comme pour tout réglage invalide (00 §1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CorpusSource {
+    /// L'API PISTE, derrière le cache (défaut).
+    Piste,
+    /// L'index local DILA du répertoire (feature `dila`).
+    Dila(PathBuf),
+    /// La source locale est demandée et inutilisable : aucun corpus.
+    Unusable(DilaDirProblem),
+}
+
+impl CorpusSource {
+    /// Nom de la source dans le journal de démarrage.
+    pub(crate) fn label(&self) -> &'static str {
+        match self {
+            Self::Piste => "piste",
+            Self::Dila(_) => "dila",
+            Self::Unusable(_) => "unavailable",
+        }
+    }
+}
+
 /// Réglages de l'audit (00 §1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AuditSettings {
@@ -247,6 +307,8 @@ pub(crate) struct AppConfig {
     pub(crate) log_filter: Option<String>,
     /// État de la configuration, tel que `fr_coverage` le rend.
     pub(crate) configuration: ConfigurationState,
+    /// Source des textes : PISTE, ou l'index local DILA (`LF_DILA_DIR`, M9).
+    pub(crate) source: CorpusSource,
 }
 
 /// Avertissement ou problème relevé en lisant la configuration (jamais de secret ni de valeur lue).
@@ -290,6 +352,8 @@ pub(crate) enum Notice {
     Problem(ConfigProblem),
     /// Répertoire d'audit inutilisable.
     AuditDir(AuditDirProblem),
+    /// Index local DILA demandé et inutilisable : mode dégradé, jamais un repli sur PISTE.
+    DilaDir(DilaDirProblem),
     /// Identifiants PISTE absents : mode dégradé.
     CredentialsMissing,
 }
@@ -302,6 +366,7 @@ impl Notice {
             Self::UnknownAuditMode
                 | Self::Problem(_)
                 | Self::AuditDir(_)
+                | Self::DilaDir(_)
                 | Self::CredentialsMissing
         )
     }
@@ -340,6 +405,7 @@ impl fmt::Display for Notice {
             Self::Warning(warning) => warning.fmt(f),
             Self::Problem(problem) => problem.fmt(f),
             Self::AuditDir(problem) => problem.fmt(f),
+            Self::DilaDir(problem) => problem.fmt(f),
             Self::CredentialsMissing => {
                 write!(f, "PISTE credentials missing: set {CLIENT_ID} and {CLIENT_SECRET}")
             }
@@ -426,7 +492,8 @@ pub(crate) struct Loaded {
     pub(crate) config: AppConfig,
     /// Avertissements et problèmes, dans l'ordre de lecture.
     pub(crate) notices: Vec<Notice>,
-    /// Une ligne par variable de la liste fermée, dans l'ordre de 02 §8.2.
+    /// Une ligne par variable de la liste fermée, dans l'ordre de 02 §8.2, plus `LF_DILA_DIR` en
+    /// dernier quand elle est définie (sans elle, la table garde ses quatorze lignes).
     pub(crate) lines: Vec<SettingLine>,
 }
 
@@ -527,8 +594,9 @@ impl<E: EnvSource> Collector<'_, E> {
     }
 
     /// Identifiants OAuth : les deux ou aucun. Le secret est enveloppé dès sa lecture ; seule sa
-    /// longueur et le début de l'identifiant sont montrés.
-    fn credentials(&mut self) -> Option<PisteCredentials> {
+    /// longueur et le début de l'identifiant sont montrés. Leur absence n'est signalée que si
+    /// PISTE est la source (`needed`) : l'index local DILA n'en exige pas.
+    fn credentials(&mut self, needed: bool) -> Option<PisteCredentials> {
         let id = self.read(CLIENT_ID, Some(LEGACY_CLIENT_ID));
         let secret = self.read(CLIENT_SECRET, Some(LEGACY_CLIENT_SECRET));
         match &id.value {
@@ -546,7 +614,7 @@ impl<E: EnvSource> Collector<'_, E> {
             (Some(id), Some(secret)) => Some(PisteCredentials::new(id, SecretString::from(secret))),
             _ => None,
         };
-        if credentials.is_none() {
+        if needed && credentials.is_none() {
             self.notices.push(Notice::CredentialsMissing);
         }
         credentials
@@ -628,6 +696,35 @@ impl<E: EnvSource> Collector<'_, E> {
             }
         }
         resolved
+    }
+
+    /// `LF_DILA_DIR` (M9) : l'index local DILA à la place de PISTE.
+    ///
+    /// Absent ou blanc : PISTE, et aucune ligne pour `check-config`. Défini : un chemin absolu
+    /// (un `~/` en tête est développé) et un binaire compilé avec la feature `dila` ; sinon la
+    /// source est inutilisable, avec un problème, et jamais remplacée par PISTE.
+    fn corpus_source(&mut self) -> CorpusSource {
+        let read = self.read(DILA_DIR, None);
+        let Some(raw) = read.value else {
+            return CorpusSource::Piste;
+        };
+        let resolved = match absolute_path(self.env, &raw) {
+            Ok(_) if !cfg!(feature = "dila") => Err(DilaDirProblem::NotCompiled),
+            Ok(dir) => Ok(dir),
+            Err(PathProblem::NotAbsolute) => Err(DilaDirProblem::NotAbsolute),
+            Err(PathProblem::NoHome) => Err(DilaDirProblem::NoHome),
+        };
+        match resolved {
+            Ok(dir) => {
+                self.line(DILA_DIR, read.source, dir.display().to_string(), LineState::Ok);
+                CorpusSource::Dila(dir)
+            }
+            Err(problem) => {
+                self.line(DILA_DIR, read.source, "(unusable)", LineState::Problem);
+                self.notices.push(Notice::DilaDir(problem));
+                CorpusSource::Unusable(problem)
+            }
+        }
     }
 
     /// `LF_AUDIT_MODE` : `strict` (défaut, Q9) ou `best-effort`. Une valeur inconnue donne
@@ -747,13 +844,29 @@ fn concerns(warning: &ConfigWarning, setting: &str) -> bool {
     }
 }
 
-/// `LF_AUDIT_DIR` posé explicitement : `~/` développé, puis chemin absolu exigé.
-fn explicit_audit_dir(env: &impl EnvSource, raw: &str) -> Result<PathBuf, AuditDirProblem> {
+/// Pourquoi le chemin d'une variable est refusé.
+enum PathProblem {
+    /// Le chemin n'est pas absolu.
+    NotAbsolute,
+    /// Le chemin commence par `~/` et le répertoire personnel est introuvable.
+    NoHome,
+}
+
+/// Chemin d'une variable de répertoire : `~/` développé, puis chemin absolu exigé.
+fn absolute_path(env: &impl EnvSource, raw: &str) -> Result<PathBuf, PathProblem> {
     let path = match raw.strip_prefix("~/") {
-        Some(rest) => env.home_dir().ok_or(AuditDirProblem::NoHome)?.join(rest),
+        Some(rest) => env.home_dir().ok_or(PathProblem::NoHome)?.join(rest),
         None => PathBuf::from(raw),
     };
-    if path.is_absolute() { Ok(path) } else { Err(AuditDirProblem::NotAbsolute) }
+    if path.is_absolute() { Ok(path) } else { Err(PathProblem::NotAbsolute) }
+}
+
+/// `LF_AUDIT_DIR` posé explicitement : `~/` développé, puis chemin absolu exigé.
+fn explicit_audit_dir(env: &impl EnvSource, raw: &str) -> Result<PathBuf, AuditDirProblem> {
+    absolute_path(env, raw).map_err(|problem| match problem {
+        PathProblem::NotAbsolute => AuditDirProblem::NotAbsolute,
+        PathProblem::NoHome => AuditDirProblem::NoHome,
+    })
 }
 
 /// Entier non nul à partir d'une valeur déjà bornée à 1 au moins.
@@ -774,10 +887,11 @@ pub(crate) fn load(env: &impl EnvSource) -> Loaded {
     let mut reader = Collector { env, notices: Vec::new(), lines: Vec::new() };
 
     let (piste_env, env_problem) = reader.environment();
-    let credentials = reader.credentials();
-    let credentials_configured = credentials.is_some();
+    // L'index local ne demande pas d'identifiants PISTE : leur absence n'est alors pas signalée.
+    let credentials = reader.credentials(!env.is_set(DILA_DIR));
     let (endpoints, custom_host) = reader.endpoints(piste_env, env_problem);
-    let problems = endpoints.as_ref().err().map(ToString::to_string).into_iter().collect();
+    let mut problems: Vec<String> =
+        endpoints.as_ref().err().map(ToString::to_string).into_iter().collect();
 
     let audit_dir = reader.audit_dir();
     let audit = AuditSettings { dir: audit_dir, mode: reader.audit_mode() };
@@ -789,6 +903,13 @@ pub(crate) fn load(env: &impl EnvSource) -> Loaded {
     let burst = reader.bounded(BURST, 1, 100, DEFAULT_BURST);
     let concurrency = reader.bounded(CONCURRENCY, 1, 16, DEFAULT_CONCURRENCY);
     let repair_mojibake = reader.mojibake_repair();
+    let source = reader.corpus_source();
+    // `credentials_configured` dit que la source n'attend rien de plus pour répondre (FR-102,
+    // statut de `fr_coverage`) : l'index local DILA n'a pas besoin d'identifiants PISTE.
+    let credentials_configured = credentials.is_some() || !matches!(source, CorpusSource::Piste);
+    if let CorpusSource::Unusable(problem) = &source {
+        problems.push(problem.to_string());
+    }
 
     // Les variables héritées jamais lues ne sont que signalées.
     for variable in IGNORED_LEGACY {
@@ -816,6 +937,7 @@ pub(crate) fn load(env: &impl EnvSource) -> Loaded {
         tool_deadline,
         log_filter,
         configuration: ConfigurationState { credentials_configured, custom_host, problems },
+        source,
     };
     Loaded { config, notices: reader.notices, lines: reader.lines }
 }
@@ -1607,6 +1729,125 @@ mod tests {
         assert!(AuditDirProblem::NoDataDir.to_string().contains("set LF_AUDIT_DIR"));
     }
 
+    // --- Source locale DILA (M9) ----------------------------------------------------------------
+
+    #[test]
+    fn piste_is_the_source_unless_a_dila_dir_is_set() {
+        let plain = with_credentials(&[]);
+        assert_eq!(plain.config.source, CorpusSource::Piste);
+        assert!(plain.lines.iter().all(|line| line.name != DILA_DIR));
+        // Blanc : comme absent, et la table de `check-config` garde ses 14 lignes.
+        let blank = with_credentials(&[(DILA_DIR, "  ")]);
+        assert_eq!(blank.config.source, CorpusSource::Piste);
+        assert_eq!(blank.lines.len(), 14);
+        assert_eq!(blank.notices, Vec::new());
+    }
+
+    #[cfg(feature = "dila")]
+    #[test]
+    fn a_dila_dir_selects_the_local_index_and_needs_no_credentials() {
+        let dir = abs_str("index");
+        // Sans identifiants PISTE : la source locale n'en exige pas, la configuration est saine.
+        let local = loaded(&[(DILA_DIR, format!("  {dir}  ").as_str())]);
+        assert_eq!(local.config.source, CorpusSource::Dila(abs("index")));
+        assert_eq!(local.notices, Vec::new());
+        assert!(local.is_valid());
+        assert!(local.config.configuration.credentials_configured);
+        assert_eq!(local.config.configuration.problems, Vec::<String>::new());
+        // La ligne de `check-config` vient après les quatorze autres, et seulement si définie.
+        assert_eq!(local.lines.len(), 15);
+        let shown = local.lines.last().unwrap();
+        assert_eq!(shown.name, DILA_DIR);
+        assert_eq!(shown.source, Source::Variable(DILA_DIR));
+        assert_eq!(shown.value, abs("index").display().to_string());
+        assert_eq!(shown.state, LineState::Ok);
+        // Le choix explicite l'emporte sur des identifiants PISTE valides.
+        let both = with_credentials(&[(DILA_DIR, dir.as_str())]);
+        assert_eq!(both.config.source, CorpusSource::Dila(abs("index")));
+        // `~/` en tête développé avec le répertoire personnel.
+        let tilde = loaded(&[(DILA_DIR, "~/index")]);
+        assert_eq!(tilde.config.source, CorpusSource::Dila(abs("home").join("index")));
+    }
+
+    #[cfg(not(feature = "dila"))]
+    #[test]
+    fn a_dila_dir_without_the_feature_is_unusable_and_never_falls_back_to_piste() {
+        let dir = abs_str("index");
+        let loaded = with_credentials(&[(DILA_DIR, dir.as_str())]);
+        assert_eq!(loaded.config.source, CorpusSource::Unusable(DilaDirProblem::NotCompiled));
+        assert_eq!(loaded.notices, vec![Notice::DilaDir(DilaDirProblem::NotCompiled)]);
+        assert!(!loaded.is_valid());
+        assert_eq!(loaded.config.configuration.problems, [DilaDirProblem::NotCompiled.to_string()]);
+        assert_eq!(line(&loaded, DILA_DIR).state, LineState::Problem);
+    }
+
+    #[test]
+    fn an_unusable_dila_dir_is_a_problem_and_never_falls_back_to_piste() {
+        // Des identifiants valides n'y changent rien : la source demandée n'est pas PISTE.
+        let relative = with_credentials(&[(DILA_DIR, "relative/LEAK")]);
+        assert_eq!(relative.config.source, CorpusSource::Unusable(DilaDirProblem::NotAbsolute));
+        assert_eq!(relative.notices, vec![Notice::DilaDir(DilaDirProblem::NotAbsolute)]);
+        assert!(!relative.is_valid());
+        assert_eq!(
+            relative.config.configuration.problems,
+            ["LF_DILA_DIR must be an absolute path".to_owned()]
+        );
+        assert_eq!(line(&relative, DILA_DIR).state, LineState::Problem);
+        assert_eq!(line(&relative, DILA_DIR).value, "(unusable)");
+        assert!(!format!("{relative:?}").contains("LEAK"));
+        // Sans identifiants non plus, aucune notice sur PISTE : il n'est pas employé.
+        let bare = loaded(&[(DILA_DIR, "relative")]);
+        assert_eq!(bare.notices, vec![Notice::DilaDir(DilaDirProblem::NotAbsolute)]);
+
+        let mut env = MapEnv::new(&[(DILA_DIR, "~/index")]);
+        env.home = None;
+        let no_home = load(&env);
+        assert_eq!(no_home.config.source, CorpusSource::Unusable(DilaDirProblem::NoHome));
+        assert!(no_home.notices.contains(&Notice::DilaDir(DilaDirProblem::NoHome)));
+    }
+
+    #[test]
+    fn the_startup_log_names_the_source_without_its_path() {
+        assert_eq!(CorpusSource::Piste.label(), "piste");
+        assert_eq!(CorpusSource::Dila(abs("secret-place")).label(), "dila");
+        assert_eq!(CorpusSource::Unusable(DilaDirProblem::NoHome).label(), "unavailable");
+    }
+
+    #[test]
+    fn dila_dir_problem_messages_name_the_variable_and_never_the_value() {
+        assert_eq!(DilaDirProblem::NotAbsolute.to_string(), "LF_DILA_DIR must be an absolute path");
+        assert_eq!(
+            DilaDirProblem::NoHome.to_string(),
+            "LF_DILA_DIR starts with ~/ but the home directory is unknown"
+        );
+        assert_eq!(
+            DilaDirProblem::NotCompiled.to_string(),
+            "LF_DILA_DIR is set but this build has no local DILA index: it needs the dila feature"
+        );
+        for problem in
+            [DilaDirProblem::NotAbsolute, DilaDirProblem::NoHome, DilaDirProblem::NotCompiled]
+        {
+            let notice = Notice::DilaDir(problem);
+            assert!(notice.is_problem(), "{notice}");
+            assert_eq!(notice.to_string(), problem.to_string());
+        }
+    }
+
+    /// V-180 : les contenus `dereferenced` et `inap` ne sont pas indexés. Aucune variable de la
+    /// liste fermée ne permet de les admettre, ni d'élargir la source locale aux fonds qui les
+    /// portent : l'exclusion ne se désactive pas par la configuration.
+    #[test]
+    fn no_variable_admits_dereferenced_or_inap_content() {
+        for name in READ_VARIABLES {
+            let upper = name.to_ascii_uppercase();
+            for forbidden in ["DEREFERENCED", "INAP", "PUBLIC", "ALL_FUNDS", "JORF"] {
+                assert!(!upper.contains(forbidden), "{name} could widen the local source");
+            }
+        }
+        // La seule variable de la source locale désigne un répertoire, rien d'autre.
+        assert_eq!(READ_VARIABLES.iter().filter(|name| name.contains("DILA")).count(), 1);
+    }
+
     // --- Journal --------------------------------------------------------------------------------
 
     #[test]
@@ -1798,6 +2039,7 @@ mod tests {
             Notice::UnknownAuditMode,
             Notice::CredentialsMissing,
             Notice::AuditDir(AuditDirProblem::NotAbsolute),
+            Notice::DilaDir(DilaDirProblem::NotAbsolute),
             Notice::Problem(ConfigProblem::invalid_env("x")),
         ];
         for notice in problems {
@@ -1947,6 +2189,7 @@ mod tests {
             "LF_PISTE_BURST",
             "LF_PISTE_CONCURRENCY",
             "LF_PISTE_MOJIBAKE_REPAIR",
+            "LF_DILA_DIR",
         ];
         let legacy = [
             "FR_ELI_CLIENT_ID",

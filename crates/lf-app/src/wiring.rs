@@ -1,12 +1,16 @@
 //! Câblage : assemble les adapters en un `LegalService`, puis le sert sur stdio (02 §8.4).
 //!
-//! La composition de production est `LegalService<CachedCorpus<PisteCorpus>, AppAudit,
-//! SystemClock>` ([`AppService`]) :
+//! La composition de production est `LegalService<AnyCorpus, AppAudit, SystemClock>`
+//! ([`AppService`]) :
 //!
+//! - [`AnyCorpus`] choisit la source des textes à l'exécution (02 §8.5), sans `Box<dyn>` : PISTE
+//!   derrière le cache (défaut), l'index local DILA si `LF_DILA_DIR` le demande (feature `dila`),
+//!   ou une source indisponible qui répond `[config_error]` à chaque opération ;
 //! - `PisteCorpus::new` ne fait aucune E/S : le client HTTP et le jeton OAuth naissent au premier
 //!   appel, et un problème de configuration ou des identifiants absents donnent le mode dégradé
 //!   (`[config_error]` sur les outils PISTE, sans réseau) plutôt qu'un refus de démarrer (00 §1) ;
-//! - `CachedCorpus` décore le port, l'audit restant au-dessus, dans la façade (ADR-0008) ;
+//! - `CachedCorpus` décore le port de PISTE seul, l'audit restant au-dessus, dans la façade
+//!   (ADR-0008) ; l'index local n'a pas de cache ;
 //! - [`AppAudit`] est `JsonlAuditLog`, ou un journal inutilisable qui échoue à chaque ligne quand
 //!   `LF_AUDIT_DIR` est inutilisable : `audit_error` dès le premier appel en mode `strict`
 //!   (02 §8.2), jamais un refus de démarrer ;
@@ -14,35 +18,188 @@
 //!   (`LF_TOOL_DEADLINE_S`) arrivent dans l'[`AuditPolicy`] de la façade par
 //!   [`service_settings`].
 //!
+//! # Source locale DILA (M9)
+//!
+//! - **Aucun téléchargement** : le binaire ne contacte pas `echanges.dila.gouv.fr` (plan « fin du
+//!   projet » : dumps téléchargés par script, hors binaire). `LF_DILA_DIR` désigne un index déjà
+//!   bâti ; l'ouvrir lit ce répertoire (et le crée vide s'il n'existe pas), seule E/S de [`build`].
+//! - **Jamais de repli sur PISTE** : une source locale demandée mais inutilisable (chemin refusé,
+//!   feature absente, index illisible) ne sert aucun texte. Une requête ne doit pas partir sur le
+//!   réseau quand l'utilisateur a choisi l'hors-ligne.
+//! - **V-180** : l'index local ne porte que le fonds LEGI. Les contenus `dereferenced` et `inap`
+//!   (jurisprudence, CNIL, accords, JORF) n'y entrent pas, et aucune variable ne les admet.
+//! - **Environnement** (02 §8.5) : la source locale se déclare `production` dans l'audit et dans
+//!   `fr_coverage` (le bac à sable de PISTE n'y est pour rien), sans identifiants exigés.
+//!
 //! [`run`] est la commande `serve` : stdin et stdout portent le JSON-RPC (stdout n'a pas d'autre
 //! usage), les journaux vont sur stderr. Le code de sortie est 0 à l'EOF de stdin et à l'arrêt
 //! demandé, et une erreur (code 1 dans `main`) si le service échoue (02 §8.8).
 
-use std::{process::ExitCode, sync::Arc};
+use std::{path::Path, process::ExitCode, sync::Arc};
 
 use anyhow::Context as _;
 use lf_adapter_audit::JsonlAuditLog;
 use lf_adapter_cache::{CachePolicy, CachedCorpus};
+#[cfg(feature = "dila")]
+use lf_adapter_dila::DilaCorpus;
 use lf_adapter_mcp::{LegifranceServer, serve_stdio};
 use lf_adapter_piste::PisteCorpus;
 use lf_application::{
     audited::AuditPolicy,
     budget::ResponseBudget,
-    ports::{AuditError, AuditErrorKind, AuditLog, AuditRecord},
+    ports::{
+        ArticleAt, AuditError, AuditErrorKind, AuditLog, AuditRecord, ConfigKind, CorpusError,
+        LegalCorpus, PisteEnvironment,
+    },
     service::{LegalService, ServiceSettings},
+};
+use lf_domain::{
+    date::VersionDate,
+    entity::{
+        Act, ArticleText, ArticleVersion, CodeListing, CompanyAgreement, Convention, Decision,
+        Deliberation, RelatedLinks, SearchHit, SearchPage,
+    },
+    id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId},
+    search::{NumberQuery, SearchQuery},
 };
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     clock::SystemClock,
-    config::{AppConfig, AuditSettings},
+    config::{AppConfig, AuditSettings, CorpusSource},
 };
 
-/// Le corpus de production : PISTE derrière le cache (02 §8.4).
-pub(crate) type AppCorpus = CachedCorpus<PisteCorpus>;
+/// Le corpus de production : PISTE derrière le cache, ou l'index local DILA (02 §8.5).
+pub(crate) type AppCorpus = AnyCorpus;
 
 /// La façade de production : corpus, journal d'audit et horloge de [`build`].
 pub(crate) type AppService = LegalService<AppCorpus, AppAudit, SystemClock>;
+
+/// Ce que le modèle lit quand l'index local DILA demandé ne peut pas être ouvert : ni chemin ni
+/// cause, que le journal de diagnostic porte.
+#[cfg(feature = "dila")]
+const INDEX_UNREADABLE: &str =
+    "the local DILA index cannot be opened: check LF_DILA_DIR and the server log";
+
+/// Source des textes, choisie une fois au démarrage (02 §8.5). Un enum de dispatch statique : ni
+/// `Box<dyn>`, ni futur boxé (ADR-0004, ADR-0012). Aucune méthode du port n'a de défaut.
+pub(crate) enum AnyCorpus {
+    /// PISTE derrière le cache (le cache ne sert qu'à PISTE).
+    Piste(CachedCorpus<PisteCorpus>),
+    /// L'index local des dumps DILA (LEGI) : déjà local, donc sans cache.
+    #[cfg(feature = "dila")]
+    Dila(DilaCorpus),
+    /// La source locale demandée ne peut pas servir : chaque opération rend ce texte, que le
+    /// modèle lit (`[config_error]`), sans aucune E/S.
+    Unavailable(String),
+}
+
+/// Erreur d'une source indisponible : une erreur de configuration, au texte déjà rédigé.
+fn unavailable(detail: &str) -> CorpusError {
+    CorpusError::Config { kind: ConfigKind::Settings, detail: detail.to_owned() }
+}
+
+/// Envoie l'opération à la variante du corpus. Une source indisponible répond sans rien appeler.
+macro_rules! dispatch {
+    ($corpus:expr, $method:ident($($argument:expr),*)) => {
+        match $corpus {
+            AnyCorpus::Piste(corpus) => corpus.$method($($argument),*).await,
+            #[cfg(feature = "dila")]
+            AnyCorpus::Dila(corpus) => corpus.$method($($argument),*).await,
+            AnyCorpus::Unavailable(detail) => Err(unavailable(detail)),
+        }
+    };
+}
+
+impl LegalCorpus for AnyCorpus {
+    async fn search(&self, query: &SearchQuery) -> Result<SearchPage, CorpusError> {
+        dispatch!(self, search(query))
+    }
+
+    async fn get_act(&self, id: &LegiTextId, date: VersionDate) -> Result<Act, CorpusError> {
+        dispatch!(self, get_act(id, date))
+    }
+
+    async fn get_article(&self, id: &ArticleId) -> Result<ArticleText, CorpusError> {
+        dispatch!(self, get_article(id))
+    }
+
+    async fn get_decision(&self, id: &DecisionId) -> Result<Decision, CorpusError> {
+        dispatch!(self, get_decision(id))
+    }
+
+    async fn get_deliberation(&self, id: &CnilTextId) -> Result<Deliberation, CorpusError> {
+        dispatch!(self, get_deliberation(id))
+    }
+
+    async fn get_convention(&self, id: &KaliTextId) -> Result<Convention, CorpusError> {
+        dispatch!(self, get_convention(id))
+    }
+
+    async fn get_company_agreement(
+        &self,
+        id: &AccoTextId,
+    ) -> Result<CompanyAgreement, CorpusError> {
+        dispatch!(self, get_company_agreement(id))
+    }
+
+    async fn find_article(
+        &self,
+        text: &LegiTextId,
+        num: &str,
+        at: ArticleAt,
+    ) -> Result<ArticleText, CorpusError> {
+        dispatch!(self, find_article(text, num, at))
+    }
+
+    async fn find_by_number(&self, query: &NumberQuery) -> Result<Vec<SearchHit>, CorpusError> {
+        dispatch!(self, find_by_number(query))
+    }
+
+    async fn list_codes(&self) -> Result<Vec<CodeListing>, CorpusError> {
+        dispatch!(self, list_codes())
+    }
+
+    async fn article_versions(&self, id: &ArticleId) -> Result<Vec<ArticleVersion>, CorpusError> {
+        dispatch!(self, article_versions(id))
+    }
+
+    async fn related_links(&self, id: &ArticleId) -> Result<RelatedLinks, CorpusError> {
+        dispatch!(self, related_links(id))
+    }
+}
+
+/// Le corpus que la configuration demande. PISTE n'est jamais le repli d'une source locale
+/// inutilisable.
+pub(crate) fn corpus_for(config: &AppConfig) -> AnyCorpus {
+    match &config.source {
+        CorpusSource::Piste => {
+            let piste = PisteCorpus::new(config.piste.clone());
+            AnyCorpus::Piste(CachedCorpus::new(piste, config.piste.env(), CachePolicy::default()))
+        }
+        CorpusSource::Dila(dir) => local_index(dir),
+        CorpusSource::Unusable(problem) => AnyCorpus::Unavailable(problem.to_string()),
+    }
+}
+
+/// Ouvre l'index local DILA de `dir` ; un échec laisse la source indisponible.
+#[cfg(feature = "dila")]
+fn local_index(dir: &Path) -> AnyCorpus {
+    match DilaCorpus::open(dir) {
+        Ok(corpus) => AnyCorpus::Dila(corpus),
+        Err(error) => {
+            // L'opérateur lit la cause dans stderr ; le modèle n'en voit ni cause ni chemin.
+            tracing::error!(%error, "cannot open the local DILA index");
+            AnyCorpus::Unavailable(INDEX_UNREADABLE.to_owned())
+        }
+    }
+}
+
+/// Sans la feature `dila`, il n'y a pas d'index local : la source demandée est indisponible.
+#[cfg(not(feature = "dila"))]
+fn local_index(_dir: &Path) -> AnyCorpus {
+    AnyCorpus::Unavailable(crate::config::DilaDirProblem::NotCompiled.to_string())
+}
 
 /// Journal d'audit du processus : le fichier JSONL, ou l'impossibilité d'en avoir un.
 ///
@@ -95,7 +252,7 @@ pub(crate) fn service_settings(config: &AppConfig) -> ServiceSettings {
         policy: AuditPolicy {
             mode: config.audit.mode,
             deadline: config.tool_deadline,
-            env: config.piste.env(),
+            env: audit_environment(config),
             server_version: env!("CARGO_PKG_VERSION"),
         },
         configuration: config.configuration.clone(),
@@ -103,11 +260,27 @@ pub(crate) fn service_settings(config: &AppConfig) -> ServiceSettings {
     }
 }
 
-/// Assemble la façade de production. Aucune E/S : ni réseau, ni fichier, ni répertoire.
+/// Environnement déclaré dans l'audit et dans `fr_coverage` (02 §8.5, second point à trancher) :
+/// celui de PISTE pour PISTE, `production` pour l'index local, dont les textes sont les textes
+/// publiés (le bac à sable de PISTE ne s'y applique pas, et `PisteEnvironment` n'a pas de
+/// troisième valeur).
+fn audit_environment(config: &AppConfig) -> PisteEnvironment {
+    match config.source {
+        CorpusSource::Dila(_) => PisteEnvironment::Production,
+        CorpusSource::Piste | CorpusSource::Unusable(_) => config.piste.env(),
+    }
+}
+
+/// Assemble la façade de production. Aucune E/S réseau ni du journal d'audit ; l'index local DILA,
+/// s'il est demandé, ouvre son répertoire (et le crée vide s'il n'existe pas).
 pub(crate) fn build(config: &AppConfig) -> AppService {
-    let piste = PisteCorpus::new(config.piste.clone());
-    let corpus = CachedCorpus::new(piste, config.piste.env(), CachePolicy::default());
-    LegalService::new(corpus, AppAudit::open(&config.audit), SystemClock, service_settings(config))
+    tracing::info!(source = config.source.label(), "corpus source");
+    LegalService::new(
+        corpus_for(config),
+        AppAudit::open(&config.audit),
+        SystemClock,
+        service_settings(config),
+    )
 }
 
 /// Commande `serve` : sert le serveur MCP sur stdin et stdout jusqu'à l'EOF de stdin ou jusqu'à
@@ -123,7 +296,7 @@ pub(crate) async fn run(
 ) -> anyhow::Result<ExitCode> {
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
-        env = %config.piste.env(),
+        env = %audit_environment(&config),
         "starting"
     );
     let server = LegifranceServer::new(Arc::new(build(&config)));
@@ -134,14 +307,18 @@ pub(crate) async fn run(
 
 #[cfg(test)]
 mod tests {
-    use std::{future::pending, path::Path};
+    use std::{future::pending, num::NonZeroU32, path::Path};
 
     use lf_application::{
         audited::AuditMode,
         error::ErrorCode,
         input::{CanonicalInput, CoverageInput, ToolCall},
-        ports::{AuditStatus, PisteEnvironment},
+        ports::AuditStatus,
         tools::ToolName,
+    };
+    use lf_domain::{
+        fond::Fond,
+        search::{MatchMode, NumberKind, NumberValue, PageSize, QueryText},
     };
 
     use super::*;
@@ -270,6 +447,214 @@ mod tests {
             assert_eq!(kind, AuditErrorKind::Io);
             assert_eq!(detail, "the audit directory is empty");
         }
+    }
+
+    // --- Sélection de la source (M9, 02 §8.5) ---------------------------------------------------
+
+    /// Les douze opérations du port avec une entrée valide : le résultat de chacune, sans sa valeur.
+    async fn every_operation(corpus: &AnyCorpus) -> Vec<(&'static str, Result<(), CorpusError>)> {
+        let at = VersionDate::parse("2026-10-15").unwrap();
+        let text = LegiTextId::parse("LEGITEXT000006070721").unwrap();
+        let article = ArticleId::parse("LEGIARTI000006419288").unwrap();
+        let number = NumberQuery::new(
+            Fond::Juri,
+            NumberKind::Case,
+            NumberValue::parse("24-13.470").unwrap(),
+            at,
+        )
+        .unwrap();
+        vec![
+            ("search", corpus.search(&search(Fond::Loda)).await.map(drop)),
+            ("get_act", corpus.get_act(&text, at).await.map(drop)),
+            ("get_article", corpus.get_article(&article).await.map(drop)),
+            (
+                "get_decision",
+                corpus
+                    .get_decision(&DecisionId::parse("JURITEXT000007042010").unwrap())
+                    .await
+                    .map(drop),
+            ),
+            (
+                "get_deliberation",
+                corpus
+                    .get_deliberation(&CnilTextId::parse("CNILTEXT000017653838").unwrap())
+                    .await
+                    .map(drop),
+            ),
+            (
+                "get_convention",
+                corpus
+                    .get_convention(&KaliTextId::parse("KALITEXT000005635534").unwrap())
+                    .await
+                    .map(drop),
+            ),
+            (
+                "get_company_agreement",
+                corpus
+                    .get_company_agreement(&AccoTextId::parse("ACCOTEXT000042000000").unwrap())
+                    .await
+                    .map(drop),
+            ),
+            (
+                "find_article",
+                corpus.find_article(&text, "L36-11", ArticleAt::On(at)).await.map(drop),
+            ),
+            ("find_by_number", corpus.find_by_number(&number).await.map(drop)),
+            ("list_codes", corpus.list_codes().await.map(drop)),
+            ("article_versions", corpus.article_versions(&article).await.map(drop)),
+            ("related_links", corpus.related_links(&article).await.map(drop)),
+        ]
+    }
+
+    /// Une recherche plein texte sur `fond`, à la date du jour des tests.
+    fn search(fond: Fond) -> SearchQuery {
+        SearchQuery::new(
+            fond,
+            QueryText::parse("responsabilité").unwrap(),
+            NonZeroU32::MIN,
+            PageSize::new(10).unwrap(),
+            MatchMode::Any,
+            None,
+            fond.needs_version_date().then(|| VersionDate::parse("2026-10-15").unwrap()),
+        )
+        .unwrap()
+    }
+
+    /// Le détail d'une erreur de configuration que le modèle lira ; toute autre erreur donne un
+    /// texte qui la nomme, pour que l'assertion qui suit échoue en la montrant.
+    fn settings_detail(error: &CorpusError) -> String {
+        match error {
+            CorpusError::Config { kind: ConfigKind::Settings, detail } => detail.clone(),
+            other => format!("not a settings error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn piste_stays_the_source_unless_a_local_index_is_asked_for() {
+        let corpus = corpus_for(&config_with(&[]));
+        assert!(matches!(corpus, AnyCorpus::Piste(_)));
+        // Blanc : comme absent.
+        let blank = corpus_for(&config_with(&[("LF_DILA_DIR", "  ")]));
+        assert!(matches!(blank, AnyCorpus::Piste(_)));
+        // Environnement de la politique : celui de PISTE.
+        let settings = service_settings(&config_with(&[("LF_PISTE_ENV", "production")]));
+        assert_eq!(settings.policy.env, PisteEnvironment::Production);
+    }
+
+    #[tokio::test]
+    async fn an_unusable_source_answers_a_config_error_on_every_operation_without_piste() {
+        // Des identifiants PISTE valides sont là : la source demandée est locale et inutilisable,
+        // aucune requête ne doit partir vers PISTE.
+        let config = config_with(&[("LF_DILA_DIR", "relative/index")]);
+        let corpus = corpus_for(&config);
+        assert!(matches!(corpus, AnyCorpus::Unavailable(_)));
+        let results = every_operation(&corpus).await;
+        assert_eq!(results.len(), 12);
+        for (operation, result) in results {
+            let error = result.unwrap_err();
+            assert_eq!(
+                settings_detail(&error),
+                "LF_DILA_DIR must be an absolute path",
+                "{operation}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unusable_source_degrades_the_coverage_and_names_the_problem() {
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let service =
+            build(&config_with(&[audit_dir(audit.path()), ("LF_DILA_DIR", "relative/index")]));
+        let output = service.coverage(coverage_call(), pending()).await.expect("fr_coverage");
+        assert_eq!(output.coverage.status(), lf_domain::coverage::CoverageStatus::Degraded);
+        assert_eq!(output.configuration.problems, ["LF_DILA_DIR must be an absolute path"]);
+    }
+
+    #[cfg(not(feature = "dila"))]
+    #[tokio::test]
+    async fn without_the_dila_feature_a_local_index_request_is_unavailable() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let config = config_with(&[("LF_DILA_DIR", dir.path().to_str().unwrap())]);
+        let corpus = corpus_for(&config);
+        assert!(matches!(corpus, AnyCorpus::Unavailable(_)));
+        let error = corpus.list_codes().await.unwrap_err();
+        assert!(settings_detail(&error).contains("dila feature"), "{error}");
+    }
+
+    #[cfg(feature = "dila")]
+    #[tokio::test]
+    async fn dila_feature_selects_dila_corpus() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let index = dir.path().join("index");
+        let config = config_with(&[("LF_DILA_DIR", index.to_str().unwrap())]);
+        let corpus = corpus_for(&config);
+        assert!(matches!(corpus, AnyCorpus::Dila(_)), "the local index is the corpus");
+        // L'index est ouvert (créé vide) : `list_codes` répond depuis lui, sans réseau ni erreur.
+        assert!(index.is_dir());
+        assert_eq!(corpus.list_codes().await.unwrap(), Vec::new());
+        // La source locale n'est pas l'environnement PISTE : ni bac à sable, ni identifiants exigés.
+        assert_eq!(service_settings(&config).policy.env, PisteEnvironment::Production);
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let bare = load(&MapEnv::new(&[
+            audit_dir(audit.path()),
+            ("LF_DILA_DIR", index.to_str().unwrap()),
+        ]))
+        .config;
+        let service = build(&bare);
+        let output = service.coverage(coverage_call(), pending()).await.expect("fr_coverage");
+        assert_eq!(output.coverage.status(), lf_domain::coverage::CoverageStatus::Ok);
+        assert_eq!(output.environment, PisteEnvironment::Production);
+        assert_eq!(output.configuration.problems, Vec::<String>::new());
+    }
+
+    #[cfg(feature = "dila")]
+    #[tokio::test]
+    async fn an_index_that_cannot_be_opened_is_unavailable_and_hides_its_path() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let file = dir.path().join("not-a-directory");
+        std::fs::write(&file, b"x").unwrap();
+        let blocked = file.join("index");
+        let config = config_with(&[("LF_DILA_DIR", blocked.to_str().unwrap())]);
+        let corpus = corpus_for(&config);
+        assert!(matches!(corpus, AnyCorpus::Unavailable(_)));
+        for (operation, result) in every_operation(&corpus).await {
+            let error = result.unwrap_err();
+            let detail = settings_detail(&error);
+            assert!(detail.contains("local DILA index cannot be opened"), "{operation}: {detail}");
+            assert!(!detail.contains("not-a-directory"), "{operation}: {detail}");
+        }
+    }
+
+    /// V-180 : les contenus `dereferenced` et `inap` (décisions, délibérations, accords, JORF) ne
+    /// sont jamais dans l'index local, qui ne porte que le fonds LEGI. Les opérations des autres
+    /// fonds rendent une erreur de configuration, jamais un contenu, et rien ne repasse par PISTE.
+    #[cfg(feature = "dila")]
+    #[tokio::test]
+    async fn dereferenced_and_inap_excluded() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let config = config_with(&[("LF_DILA_DIR", dir.path().to_str().unwrap())]);
+        let corpus = corpus_for(&config);
+        assert!(matches!(corpus, AnyCorpus::Dila(_)));
+        let results = every_operation(&corpus).await;
+        let by_name =
+            |name: &str| &results.iter().find(|(operation, _)| *operation == name).unwrap().1;
+        // Les consultations des fonds de jurisprudence, CNIL, KALI et ACCO sont refusées.
+        for name in ["get_decision", "get_deliberation", "get_convention", "get_company_agreement"]
+        {
+            let error = by_name(name).as_ref().unwrap_err();
+            assert!(settings_detail(error).contains("LEGI fund only"), "{name}: {error}");
+        }
+        // Les recherches aussi, fond par fond.
+        for fond in [Fond::Juri, Fond::Constit, Fond::Cetat, Fond::Cnil, Fond::Kali, Fond::Acco] {
+            let error = corpus.search(&search(fond)).await.unwrap_err();
+            assert!(settings_detail(&error).contains("LEGI fund only"), "{}: {error}", fond.name());
+        }
+        // Et la recherche par numéro de décision ou d'affaire.
+        let error = by_name("find_by_number").as_ref().unwrap_err();
+        assert!(settings_detail(error).contains("LEGI fund only"), "{error}");
+        // Les fonds LEGI, eux, sont servis : l'exclusion n'est pas une panne générale.
+        corpus.search(&search(Fond::Code)).await.expect("the CODE fund is served");
+        corpus.search(&search(Fond::Loda)).await.expect("the LODA fund is served");
     }
 
     #[tokio::test]
