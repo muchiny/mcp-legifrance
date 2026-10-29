@@ -27,12 +27,18 @@ const HINTS: [(&str, bool); 4] = [
 ];
 
 /// Budgets de `tools/list` en octets (05 §6.6) : jalon v0.1, v0.2, v0.3. Valeurs initiales, à
-/// recalibrer en M4 sur la mesure réelle plus 10 %.
-const TOOLS_LIST_BUDGETS: [usize; 3] = [20_000, 24_000, 29_000];
+/// recalibrer sur la mesure réelle plus 10 %. Le budget de v0.3 l'est à l'intégration de V3
+/// (30 152 octets mesurés pour douze outils, soit 33 500) ; F1 le reprend sur les treize outils.
+const TOOLS_LIST_BUDGETS: [usize; 3] = [20_000, 24_000, 33_500];
 
 /// Outils qui n'existent qu'à partir de v0.2 (M6) et de v0.3 (M7) : ils fixent le budget.
 const V02_TOOLS: [&str; 2] = ["fr_verify_citations", "fr_resolve"];
 const V03_TOOLS: [&str; 3] = ["fr_get_related", "fr_diff_article", "fr_search_all"];
+
+/// Outils que des descriptions déjà servies citent avant que leur tranche ne les enregistre :
+/// `fr_resolve` (V4-01) est nommé par `fr_verify_citations` et `fr_get_related`, dont les textes
+/// sont ceux de 05 §5. Provisoire : V4-01 enregistre l'outil et retire cette liste.
+const CITED_BEFORE_REGISTERED: [&str; 1] = ["fr_resolve"];
 
 /// Résultat des contrôles.
 #[derive(Debug, Default, PartialEq)]
@@ -309,7 +315,10 @@ pub(crate) fn run(surface: &Surface, crate_version: &str) -> Findings {
         descriptions(item, &mut texts);
         // Triés et sans doublon : l'ordre ne dépend pas de celui des clés du descripteur.
         let cited: BTreeSet<&str> = texts.into_iter().flat_map(cited_tool_names).collect();
-        for unknown in cited.difference(&registered) {
+        for unknown in cited
+            .difference(&registered)
+            .filter(|unknown| !CITED_BEFORE_REGISTERED.contains(unknown))
+        {
             found.errors.push(format!("{kind} `{name}` cites the unregistered tool `{unknown}`"));
         }
     }
@@ -557,6 +566,10 @@ mod tests {
                 "tool `fr_search` cites the unregistered tool `fr_phantom`",
             ]
         );
+        // Un outil de V4 que des descriptions citent déjà n'est pas refusé en attendant son
+        // enregistrement ; tout autre nom absent l'est (ci-dessus).
+        let found = tool_findings(|t| t["description"] = json!("Then use fr_resolve."));
+        assert_eq!(found.errors, Vec::<String>::new());
         let found = findings_with(|surface| {
             surface.prompts.insert(
                 "review".into(),
@@ -617,7 +630,7 @@ mod tests {
             run(&v01, VERSION).errors,
             ["tools/list is 20001 bytes, over the 20000 bytes budget (05 §6.6)"]
         );
-        for (extra, budget) in [("fr_resolve", 24_000), ("fr_search_all", 29_000)] {
+        for (extra, budget) in [("fr_resolve", 24_000), ("fr_search_all", 33_500)] {
             let mut bigger = surface();
             bigger.tools.insert(extra.to_owned(), tool(extra));
             padded(&mut bigger, budget);

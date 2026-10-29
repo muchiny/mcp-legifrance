@@ -1057,13 +1057,16 @@ mod budgets {
     }
 
     /// Régression : D-33. Le coût fixe de `tools/list` reste sous le budget de 06 §12.2 de la plus
-    /// riche des surfaces (29 000 octets, v0.3), et aucune description ne dépasse 1 000 caractères.
+    /// riche des surfaces (v0.3), et aucune description ne dépasse 1 000 caractères. Le budget
+    /// initial de 29 000 octets est recalibré sur la mesure plus 10 % (05 §6.6) : 30 152 octets
+    /// pour les douze outils enregistrés à l'intégration de V3, soit 33 500 octets. `fr_resolve`
+    /// (V4-01) s'y ajoute ; F1 le recalibre une dernière fois sur les treize outils.
     #[tokio::test]
     async fn descriptor_size_budget() {
         let client = Fixture::default().connect().await;
         let tools = client.list_all_tools().await.unwrap();
         let bytes = serde_json::to_vec(&tools).unwrap().len();
-        assert!(bytes <= 29_000, "tools/list: {bytes} bytes");
+        assert!(bytes <= 33_500, "tools/list: {bytes} bytes");
         for tool in &tools {
             let description = tool.description.as_deref().unwrap_or("");
             assert!(description.chars().count() <= 1_000, "{}: {description}", tool.name);

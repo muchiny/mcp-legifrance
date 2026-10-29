@@ -533,12 +533,18 @@ mod descriptors {
         names
     }
 
+    /// Outils que des descriptions déjà servies citent avant que leur tranche ne les enregistre :
+    /// `fr_resolve` (V4-01) est nommé par `fr_verify_citations` et `fr_get_related`. Provisoire :
+    /// V4-01 enregistre l'outil et retire cette liste (comme celle de `xtask`).
+    const CITED_BEFORE_REGISTERED: [&str; 1] = ["fr_resolve"];
+
     /// Les citations de `texts` qui ne désignent aucun outil de `registered` : un nom doit être
     /// enregistré, une famille (`fr_get_*`) doit en couvrir au moins un.
     fn unregistered_citations(texts: &[String], registered: &BTreeSet<String>) -> BTreeSet<String> {
         texts
             .iter()
             .flat_map(|text| cited_names(text))
+            .filter(|cited| !CITED_BEFORE_REGISTERED.contains(&cited.as_str()))
             .filter(|cited| match cited.strip_suffix('*') {
                 Some(prefix) => !registered.iter().any(|name| name.starts_with(prefix)),
                 None => !registered.contains(cited),
