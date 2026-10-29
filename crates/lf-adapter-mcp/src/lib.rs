@@ -10,6 +10,9 @@
 //! - [`serve_stdio`] sert un serveur MCP sur stdin et stdout, derrière un filtre de cycle de vie
 //!   (`lifecycle`) qui écarte les messages reçus avant toute ère, et se termine avec le code 0
 //!   à l'EOF en moins d'une seconde ([`ServeOutcome`], [`ServeError`]) ;
+//! - `serve_http` (feature `http`, M8) sert le même serveur en Streamable HTTP sans session, sur la
+//!   boucle locale seulement : `HttpOptions` règle l'écoute, le jeton statique, les hôtes et les
+//!   origines admis ; une couche axum contrôle l'en-tête de version et le débit des invocations ;
 //! - les schémas (`schema`), le décodage tolérant (`lenient`, `canonical`, `decode`), les échecs
 //!   in-band (`failure`) et les versions de protocole (`versions`) sont les briques des outils ;
 //! - [`Surface`] et [`SURFACE`] disent quelle surface d'outils (v0.1, v0.2 ou v0.3) le serveur
@@ -23,6 +26,8 @@ mod canonical;
 mod completions;
 mod decode;
 mod failure;
+#[cfg(feature = "http")]
+mod http;
 mod lenient;
 mod lifecycle;
 mod params;
@@ -39,6 +44,8 @@ mod views;
 #[cfg(feature = "test-support")]
 pub mod testing;
 
+#[cfg(feature = "http")]
+pub use http::{HttpOptions, HttpOptionsError, HttpToken, HttpTokenError, serve_http};
 pub use server::LegifranceServer;
 pub use stdio::{ServeError, ServeOutcome, serve_stdio};
 pub use text::{SURFACE, Surface};

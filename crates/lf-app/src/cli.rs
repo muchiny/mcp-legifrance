@@ -3,16 +3,26 @@
 //! ```text
 //! mcp-legifrance [serve]                       # défaut : serveur MCP stdio
 //! mcp-legifrance check-config [--online] [--format text|json]
+//! mcp-legifrance serve-http [--listen 127.0.0.1:<port>] [--allow-origin <origine>]...   # feature `http`
 //! mcp-legifrance --version | --help
 //! ```
 //!
 //! Aucune option ne porte un secret : un argument de ligne de commande se lit dans `ps`. La
-//! configuration vient de l'environnement (`config.rs`). `serve-http` (M8) n'existe pas encore.
+//! configuration vient de l'environnement (`config.rs`), et le jeton de `serve-http` de
+//! `LF_MCP_HTTP_TOKEN` (`http_config.rs`). `serve-http` (M8, profil local, Q4) n'existe que dans
+//! un binaire compilé avec la feature `http`.
+
+#[cfg(feature = "http")]
+use std::net::SocketAddr;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+/// Adresse d'écoute par défaut de `serve-http` : la boucle locale (annexe D §5.2, §6.2).
+#[cfg(feature = "http")]
+const DEFAULT_LISTEN: &str = "127.0.0.1:8765";
+
 /// Arguments du binaire `mcp-legifrance`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Parser)]
+#[derive(Debug, Clone, PartialEq, Eq, Parser)]
 #[command(name = "mcp-legifrance", version, about)]
 pub(crate) struct Cli {
     /// Sous-commande ; `serve` quand elle est absente.
@@ -28,12 +38,31 @@ impl Cli {
 }
 
 /// Sous-commandes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Subcommand)]
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub(crate) enum Command {
     /// Lance le serveur MCP sur stdin et stdout (défaut quand aucune sous-commande n'est donnée).
     Serve,
     /// Charge et valide la configuration, puis l'affiche sans révéler aucun secret.
     CheckConfig(CheckConfigArgs),
+    /// Lance le serveur MCP en Streamable HTTP sur la boucle locale (profil local : jeton statique
+    /// dans `LF_MCP_HTTP_TOKEN`, refus de démarrer sans lui).
+    #[cfg(feature = "http")]
+    ServeHttp(ServeHttpArgs),
+}
+
+/// Options de `serve-http`. Aucune ne porte le jeton, qui se lirait dans `ps` : il vient de
+/// l'environnement.
+#[cfg(feature = "http")]
+#[derive(Debug, Clone, PartialEq, Eq, Args)]
+pub(crate) struct ServeHttpArgs {
+    /// Adresse d'écoute, de la boucle locale seulement (`127.0.0.0/8` ou `[::1]`).
+    #[arg(long, value_name = "ADDR", default_value = DEFAULT_LISTEN)]
+    pub(crate) listen: SocketAddr,
+    /// Origine admise dans l'en-tête `Origin` (schéma obligatoire, `:*` pour tout port, par
+    /// exemple `http://localhost:*`) ; répétable. Sans option, tout `Origin` présent est refusé
+    /// (les clients qui ne sont pas des navigateurs n'en envoient pas).
+    #[arg(long = "allow-origin", value_name = "ORIGIN")]
+    pub(crate) allow_origin: Vec<String>,
 }
 
 /// Options de `check-config`.
@@ -129,6 +158,56 @@ mod tests {
             let err = parse(&[flag, "valeur"]).unwrap_err();
             assert_eq!(err.kind(), ErrorKind::UnknownArgument, "{flag}");
         }
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn serve_http_listens_on_loopback_by_default_and_takes_origins() {
+        let default =
+            ServeHttpArgs { listen: DEFAULT_LISTEN.parse().unwrap(), allow_origin: vec![] };
+        assert!(default.listen.ip().is_loopback());
+        assert_eq!(parse(&["serve-http"]).unwrap().resolve(), Command::ServeHttp(default));
+
+        let cli = parse(&[
+            "serve-http",
+            "--listen",
+            "127.0.0.1:9000",
+            "--allow-origin",
+            "http://localhost:*",
+            "--allow-origin=https://app.test:443",
+        ])
+        .unwrap();
+        assert_eq!(
+            cli.resolve(),
+            Command::ServeHttp(ServeHttpArgs {
+                listen: "127.0.0.1:9000".parse().unwrap(),
+                allow_origin: vec![
+                    "http://localhost:*".to_owned(),
+                    "https://app.test:443".to_owned()
+                ],
+            })
+        );
+        // Une adresse illisible est une erreur d'usage (code 2).
+        let err = parse(&["serve-http", "--listen", "not-an-address"]).unwrap_err();
+        assert_eq!(err.exit_code(), 2);
+        assert_eq!(err.kind(), ErrorKind::ValueValidation);
+    }
+
+    /// Le jeton ne passe jamais par la ligne de commande : `serve-http` n'a aucune option pour lui.
+    #[cfg(feature = "http")]
+    #[test]
+    fn serve_http_has_no_token_option() {
+        for flag in ["--token", "--http-token", "--password", "--secret"] {
+            let err = parse(&["serve-http", flag, "valeur"]).unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::UnknownArgument, "{flag}");
+        }
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn help_lists_serve_http() {
+        let help = parse(&["--help"]).unwrap_err().to_string();
+        assert!(help.contains("serve-http"), "{help}");
     }
 
     #[test]
