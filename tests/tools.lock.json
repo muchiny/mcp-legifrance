@@ -20,9 +20,9 @@
   "server_version": "0.0.0",
   "sizes": {
     "instructions_chars": 2879,
-    "tools_list_bytes": 26299
+    "tools_list_bytes": 30152
   },
-  "surface_sha256": "4d9783dd4ef5e9e7d434fb8d2eede25867b903eb968a02dd47f2826c4351816f",
+  "surface_sha256": "21141bc1a7bac70e5f4b92a372d0ead7de8e5bc8faddbb5759cfbda04352fa86",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -1107,6 +1107,96 @@
       },
       "sha256": "f68b3511d559ba3ed8636bb49fa3b1015654a15e999b97dee4524b653be8ac38"
     },
+    "fr_get_related": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Related texts and decisions"
+        },
+        "description": "List the legal links of an article (LEGIARTI) or a decision (JURITEXT, CONSTEXT, CETATEXT): texts it cites, texts citing it, and case law it refers to. Article links come from Légifrance with their ids; decision links are parsed from the decision's references and may lack an id (pass them to fr_resolve). Each link has a `relation`, a `citation` and, when known, an `id` and `source_url`. At most 100 links are returned: `truncated` is true when there are more, and there is no next page.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "description": "A LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... decision id.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
+        "name": "fr_get_related",
+        "outputSchema": {
+          "$defs": {
+            "LinkView": {
+              "properties": {
+                "citation": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "relation": {
+                  "type": "string"
+                },
+                "source_url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "relation",
+                "kind",
+                "citation"
+              ],
+              "type": "object"
+            }
+          },
+          "properties": {
+            "citation": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "links": {
+              "items": {
+                "$ref": "#/$defs/LinkView"
+              },
+              "type": "array"
+            },
+            "source_url": {
+              "type": "string"
+            },
+            "total": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "citation",
+            "source_url",
+            "total",
+            "links"
+          ],
+          "type": "object"
+        },
+        "title": "Related texts and decisions"
+      },
+      "sha256": "9a401a825feed611634daecfd55cc58df88f5fdf63c0c6c608999b8217ad3fc0"
+    },
     "fr_get_text": {
       "descriptor": {
         "annotations": {
@@ -1662,7 +1752,150 @@
         "title": "Search several fonds"
       },
       "sha256": "9525203d1a1333bb76ffca372295b13e12155cc98fc129e5ddb6f49accef0ca6"
+    },
+    "fr_verify_citations": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Verify legal citations"
+        },
+        "description": "Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles, laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; a quoted excerpt right after a citation is compared with the official text. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "max_citations": {
+              "default": 50,
+              "description": "Maximum citations checked, in order of appearance.",
+              "format": "uint32",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "text": {
+              "description": "The text whose citations must be checked (up to 20000 characters).",
+              "maxLength": 20000,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        },
+        "name": "fr_verify_citations",
+        "outputSchema": {
+          "$defs": {
+            "CitationView": {
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "quote": {
+                  "type": "string"
+                },
+                "raw": {
+                  "type": "string"
+                },
+                "resolved": {
+                  "$ref": "#/$defs/ResolvedView"
+                },
+                "span": {
+                  "$ref": "#/$defs/SpanView"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "span",
+                "raw",
+                "kind",
+                "status"
+              ],
+              "type": "object"
+            },
+            "ResolvedView": {
+              "properties": {
+                "citation": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "source_url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "citation",
+                "source_url"
+              ],
+              "type": "object"
+            },
+            "SpanView": {
+              "properties": {
+                "end": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "start": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "type": "object"
+            }
+          },
+          "properties": {
+            "checked": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "citations": {
+              "items": {
+                "$ref": "#/$defs/CitationView"
+              },
+              "type": "array"
+            },
+            "found": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "note": {
+              "type": "string"
+            },
+            "truncated": {
+              "description": "True if found > checked.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "found",
+            "checked",
+            "citations"
+          ],
+          "type": "object"
+        },
+        "title": "Verify legal citations"
+      },
+      "sha256": "320698c773ab02bac6fe3e7f43da1cdd4d70e7b915c5ea5521d18c21b3f5166c"
     }
   },
-  "toolset_sha256": "fb80f89c224eb26f0960bd1eaf9b406ab7a54a0c24195fc5a49de47876eff03b"
+  "toolset_sha256": "d101e751515fd9cad7b774f37aa9c58a0070edac105a2a50b44bbc0cc8e7d50b"
 }

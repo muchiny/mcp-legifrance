@@ -1,35 +1,44 @@
 {
-  "manifest_version": "0.3",
-  "name": "mcp-legifrance",
-  "display_name": "Légifrance (unofficial)",
-  "version": "0.1.0",
-  "description": "Unofficial MCP server for French law via the Légifrance API (PISTE): search, read and cite texts.",
-  "long_description": "Search and read French legislation, codes and case law from Légifrance through the official PISTE API, with stable citations and source URLs. Requires your own free PISTE application credentials. Not affiliated with or endorsed by DILA.",
   "author": {
     "name": "Loïc Wernert",
     "url": "https://github.com/muchiny"
   },
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ]
+  },
+  "description": "Unofficial MCP server for French law via the Légifrance API (PISTE): search, read and cite texts.",
+  "display_name": "Légifrance (unofficial)",
+  "homepage": "https://github.com/muchiny/mcp-legifrance",
+  "icon": "icon.png",
+  "keywords": [
+    "legifrance",
+    "law",
+    "france",
+    "legal",
+    "jurisprudence"
+  ],
+  "license": "Apache-2.0",
+  "long_description": "Search and read French legislation, codes and case law from Légifrance through the official PISTE API, with stable citations and source URLs. Requires your own free PISTE application credentials. Not affiliated with or endorsed by DILA.",
+  "manifest_version": "0.3",
+  "name": "mcp-legifrance",
+  "privacy_policies": [
+    "https://github.com/muchiny/mcp-legifrance/blob/main/PRIVACY.md"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/muchiny/mcp-legifrance.git"
   },
-  "homepage": "https://github.com/muchiny/mcp-legifrance",
-  "support": "https://github.com/muchiny/mcp-legifrance/issues",
-  "icon": "icon.png",
-  "license": "Apache-2.0",
-  "keywords": ["legifrance", "law", "france", "legal", "jurisprudence"],
-  "privacy_policies": [
-    "https://github.com/muchiny/mcp-legifrance/blob/main/PRIVACY.md"
-  ],
-  "compatibility": {
-    "platforms": ["darwin", "win32", "linux"]
-  },
   "server": {
-    "type": "binary",
     "entry_point": "server/launcher",
     "mcp_config": {
+      "args": [
+        "serve"
+      ],
       "command": "${__dirname}/server/launcher",
-      "args": ["serve"],
       "env": {
         "LF_PISTE_CLIENT_ID": "${user_config.piste_client_id}",
         "LF_PISTE_CLIENT_SECRET": "${user_config.piste_client_secret}",
@@ -40,31 +49,83 @@
           "command": "${__dirname}/server/win32-x86_64/mcp-legifrance.exe"
         }
       }
-    }
+    },
+    "type": "binary"
   },
+  "support": "https://github.com/muchiny/mcp-legifrance/issues",
+  "tools": [
+    {
+      "description": "Describe what this server covers, how it is sourced and what it does NOT cover. Call it before telling a user that the law \"does not contain\" something, and whenever a search comes back empty: the gap may be in this server, not in the law. Each gap comes with a fallback. It also reports the PISTE environment (sandbox or production), whether the configuration is complete, the data source and licence with today's consultation date, and the note on ELI identifiers. No arguments, no network call.",
+      "name": "fr_coverage"
+    },
+    {
+      "description": "Compare the versions of a code or law article (LEGIARTI) in force on `date_a` and `date_b` (YYYY-MM-DD; `date_b` defaults to today in Paris). Returns both versions with their validity dates (no `date_fin`: no end date) and a compact word-level diff: removed and added passages with a little context. `identical` is true when both dates fall in the same version. To read a single version use fr_get_text.",
+      "name": "fr_diff_article"
+    },
+    {
+      "description": "Read a consolidated law, decree or code by its LEGITEXT id (from fr_search on LODA or CODE): metadata, citation, source_url and a table of contents of sections and articles with their `article_id`. Returns the version in force on `date` (YYYY-MM-DD; default: the version named by a suffixed text_id, else today in Paris); without `date_fin_version` that version has no end date. The table of contents is paged: up to `toc_limit` entries (default 100) from `toc_offset`; continue with `next_toc_offset`. It does not return article text: read an article with fr_get_text. For a collective agreement (KALITEXT) use fr_get_convention.",
+      "name": "fr_get_act"
+    },
+    {
+      "description": "Read a company-level agreement (accord d'entreprise) by its ACCOTEXT id from fr_search on fond ACCO. Returns METADATA ONLY: company, SIRET, IDCC, APE code, sector, themes, signatory unions, dates, citation and source_url. Légifrance distributes the full text only as a .docx attachment, which this tool does not return: point the user to source_url.",
+      "name": "fr_get_company_agreement"
+    },
+    {
+      "description": "Read a collective labour agreement text (convention collective, avenant, annexe) by its KALITEXT id from fr_search on fond KALI: title, IDCC, parent convention, status, citation, source_url and a table of contents. Article entries carry KALIARTI ids: read them with fr_get_text. Page the table of contents with `toc_offset`/`toc_limit` (default 100) and `next_toc_offset`. For a company-level agreement use fr_get_company_agreement.",
+      "name": "fr_get_convention"
+    },
+    {
+      "description": "Read a court decision by id: JURITEXT (Cour de cassation, courts of appeal), CONSTEXT (Conseil constitutionnel) or CETATEXT (Conseil d'État, administrative courts), as found by fr_search. Returns court, formation, solution, case numbers, date, the native `ecli` when Légifrance has one (never invented), citation and source_url. By default it adds a short `summary`: the official summary when published, else the operative part or the beginning of the text; a short decision comes back whole in `text`. Use `detail`=\"full\" with `offset`/`max_chars` (default 4,000 characters) to read the text page by page (follow `next_offset`), or `focus` to get the best matching passages (default 3).",
+      "name": "fr_get_decision"
+    },
+    {
+      "description": "Read a CNIL deliberation or decision by its CNILTEXT id (from fr_search on fond CNIL): number, nature (e.g. Sanction), status, dates, citation and source_url. By default a short text comes back whole in `text` and a long one as a `summary` (its beginning); `detail`=\"full\" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`, and `focus` returns the most relevant passages (default 3). Personal data is redacted by the CNIL in published texts.",
+      "name": "fr_get_deliberation"
+    },
+    {
+      "description": "List the legal links of an article (LEGIARTI) or a decision (JURITEXT, CONSTEXT, CETATEXT): texts it cites, texts citing it, and case law it refers to. Article links come from Légifrance with their ids; decision links are parsed from the decision's references and may lack an id (pass them to fr_resolve). Each link has a `relation`, a `citation` and, when known, an `id` and `source_url`. At most 100 links are returned: `truncated` is true when there are more, and there is no next page.",
+      "name": "fr_get_related"
+    },
+    {
+      "description": "Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (e.g. \"Code civil, art. 9\"), source_url, status, validity dates and parent code or text. By default (`detail`=\"summary\") a short article comes back whole and a long one is cut after about 1,200 characters; `detail`=\"full\" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).",
+      "name": "fr_get_text"
+    },
+    {
+      "description": "Keyword search in one Légifrance fond (default LODA): laws and decrees (LODA), codes (CODE), case law (JURI, CONSTIT, CETAT), CNIL deliberations (CNIL), collective agreements (KALI) or company agreements (ACCO). Returns one page of hits (default 10) with id, title, snippet, citation and source_url; ask for the next `page` while `has_more` is true. `match` defaults to any word; use `all` or `exact` for precise queries, and `date_from`/`date_to` to filter by date. LODA and CODE hits are the versions in force on `version_date` (default: today in Paris). Open a hit with the fr_get_* tool for its id prefix (LEGITEXT: fr_get_act, JURITEXT/CONSTEXT/CETATEXT: fr_get_decision, CNILTEXT: fr_get_deliberation, KALITEXT: fr_get_convention, ACCOTEXT: fr_get_company_agreement); CODE hits also list matching `articles` for fr_get_text.",
+      "name": "fr_search"
+    },
+    {
+      "description": "Search several Légifrance fonds at once (default LODA, CODE, JURI, CETAT, CONSTIT) and return the top `per_fond` hits of each (default 3, max 10), grouped by fond with their totals. Use it for a first overview when you do not know where the answer is; then refine with fr_search on the relevant fond, which supports paging and filters. A fond that fails yields an error entry without failing the others.",
+      "name": "fr_search_all"
+    },
+    {
+      "description": "Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles, laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; a quoted excerpt right after a citation is compared with the official text. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.",
+      "name": "fr_verify_citations"
+    }
+  ],
+  "tools_generated": false,
   "user_config": {
     "piste_client_id": {
-      "type": "string",
-      "title": "PISTE client ID",
       "description": "Client ID of your own Légifrance application on piste.gouv.fr (never share it).",
       "required": true,
-      "sensitive": true
+      "sensitive": true,
+      "title": "PISTE client ID",
+      "type": "string"
     },
     "piste_client_secret": {
-      "type": "string",
-      "title": "PISTE client secret",
       "description": "Client secret of the same PISTE application.",
       "required": true,
-      "sensitive": true
+      "sensitive": true,
+      "title": "PISTE client secret",
+      "type": "string"
     },
     "piste_env": {
-      "type": "string",
-      "title": "PISTE environment",
+      "default": "sandbox",
       "description": "sandbox (default) or production. Credentials are specific to each environment.",
       "required": false,
-      "default": "sandbox"
+      "title": "PISTE environment",
+      "type": "string"
     }
   },
-  "tools": [],
-  "tools_generated": false
+  "version": "0.0.0"
 }
