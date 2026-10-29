@@ -109,6 +109,13 @@ fn clip(mut text: String) -> String {
 /// Ce que l'on sait analyser d'une décision : `citationJp` et les titres des liens de citation
 /// (`liens[].title`, 03 §4.4).
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "liens de décision : `Decision` ne porte pas encore les références, `fr_get_related` refuse les décisions"
+    )
+)]
 pub(crate) struct DecisionReferences<'a> {
     /// Texte de `citationJp`, absent s'il est vide.
     pub(crate) cited_case_law: Option<&'a str>,
@@ -137,6 +144,13 @@ struct Draft {
 
 /// Les liens d'une décision : jurisprudence citée d'abord, textes appliqués ensuite, chaque groupe
 /// dans l'ordre du texte (`citationJp` puis `liens`).
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "liens de décision : `Decision` ne porte pas encore les références, `fr_get_related` refuse les décisions"
+    )
+)]
 pub(crate) fn decision_links(references: &DecisionReferences<'_>) -> Vec<LinkOut> {
     let options =
         ParseOptions { strip_html: true, repair_mojibake: false, ..ParseOptions::default() };

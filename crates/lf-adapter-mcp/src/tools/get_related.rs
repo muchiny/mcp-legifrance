@@ -67,11 +67,8 @@ mod tests {
         tools::ToolName,
     };
     use lf_domain::{
-        entity::{
-            ArticleText, Decision, OfficialSummary, ParentText, RelatedLink, RelatedLinks,
-            RelatedNature,
-        },
-        id::{ArticleId, DecisionId, DocumentId},
+        entity::{ArticleText, ParentText, RelatedLink, RelatedLinks, RelatedNature},
+        id::{ArticleId, DocumentId},
         text::LongText,
     };
     use pretty_assertions::assert_eq;
@@ -100,23 +97,6 @@ mod tests {
             date_fin: None,
             text: LongText::from_plain("Chacun a droit au respect de sa vie privée.").unwrap(),
             nota: None,
-        }
-    }
-
-    fn decision() -> Decision {
-        Decision {
-            decision_id: DecisionId::parse(JURI).unwrap(),
-            ecli: None,
-            num: None,
-            juridiction: None,
-            formation: None,
-            solution: None,
-            numero_affaire: vec![],
-            date_texte: None,
-            nature: None,
-            title: Some("Cour de cassation, civile, Chambre civile 1, 4 juin 2025".to_owned()),
-            text: LongText::default(),
-            official_summary: OfficialSummary::default(),
         }
     }
 
@@ -233,21 +213,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_decision_answers_with_its_citation_and_one_port_call() {
+    async fn a_decision_is_refused_without_a_port_call() {
         let fixture = Fixture::default();
-        fixture.corpus.push_get_decision(Ok(decision()));
 
         let result = call(&fixture, &json!({"id": JURI})).await;
 
-        assert_eq!(result.is_error, Some(false));
-        let content = result.structured_content.unwrap();
-        assert_eq!(content["id"], JURI);
-        assert_eq!(content["citation"], "Cour de cassation, civile, Chambre civile 1, 4 juin 2025");
-        assert_eq!(content["source_url"], format!("https://www.legifrance.gouv.fr/juri/id/{JURI}"));
-        assert_eq!(content["links"], json!([]));
-        assert_eq!(content["total"], 0);
-        assert!(content.get("truncated").is_none());
-        assert_eq!(fixture.corpus.calls(), 1);
+        assert_eq!(result.is_error, Some(true));
+        assert_eq!(
+            text_of(&result),
+            "[invalid_arg] Decision links are not available yet. Read the decision with \
+             fr_get_decision, then check what it cites with fr_verify_citations."
+        );
+        assert_eq!(fixture.audit.records()[0].error_code, Some(ErrorCode::InvalidArg));
+        assert_eq!(fixture.corpus.calls(), 0);
     }
 
     #[tokio::test]
@@ -274,8 +252,9 @@ mod tests {
     #[tokio::test]
     async fn a_port_failure_is_an_in_band_error() {
         let fixture = Fixture::default();
-        fixture.corpus.push_get_decision(Err(CorpusError::Timeout));
-        let result = call(&fixture, &json!({"id": JURI})).await;
+        fixture.corpus.push_get_article(Err(CorpusError::Timeout));
+        fixture.corpus.push_related_links(Err(CorpusError::Timeout));
+        let result = call(&fixture, &json!({"id": ARTI})).await;
         assert_eq!(result.is_error, Some(true));
         assert!(text_of(&result).starts_with("[upstream_error] "));
     }
@@ -325,8 +304,8 @@ mod tests {
         let content = result.structured_content.unwrap();
         assert!(validator.is_valid(&content), "{content}");
         // Le cas vide et le cas tronqué passent aussi.
-        fixture.corpus.push_get_decision(Ok(decision()));
-        let empty = call(&fixture, &json!({"id": JURI})).await.structured_content.unwrap();
+        serve_article(&fixture, RelatedLinks::default());
+        let empty = call(&fixture, &json!({"id": ARTI})).await.structured_content.unwrap();
         assert!(validator.is_valid(&empty), "{empty}");
     }
 

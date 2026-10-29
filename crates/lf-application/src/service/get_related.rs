@@ -48,7 +48,6 @@ mod tests {
         ports::{AuditStatus, CorpusError},
         testing::FakeCorpus,
         tools::ToolName,
-        usecase::get_decision::fixtures::decision,
     };
     use lf_domain::{
         entity::{ArticleText, RelatedLink, RelatedLinks, RelatedNature},
@@ -113,14 +112,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_decision_without_references_is_audited_with_zero_links() {
+    async fn a_decision_is_audited_as_invalid_arg_without_network() {
         let corpus = FakeCorpus::new();
-        corpus.push_get_decision(Ok(decision(JURI, "texte")));
         let (service, audit) = service(corpus);
 
-        service.get_related(call("{}", Some(JURI)), pending()).await.unwrap();
+        let error = service.get_related(call("{}", Some(JURI)), pending()).await.unwrap_err();
 
-        assert_eq!(audit.records()[0].output_count_or_size, 0);
+        assert_eq!(error.code(), Some(ErrorCode::InvalidArg));
+        let lines = audit.records();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].error_code, Some(ErrorCode::InvalidArg));
+        assert_eq!(lines[0].output_count_or_size, 0);
     }
 
     #[tokio::test]
@@ -170,10 +172,11 @@ mod tests {
     #[tokio::test]
     async fn a_cancelled_call_is_audited_without_a_code() {
         let corpus = FakeCorpus::new();
-        corpus.push_get_decision(Ok(decision(JURI, "texte")));
+        corpus.push_get_article(Ok(article()));
+        corpus.push_related_links(Ok(RelatedLinks::default()));
         let (service, audit) = service(corpus);
 
-        let error = service.get_related(call("{}", Some(JURI)), ready(())).await.unwrap_err();
+        let error = service.get_related(call("{}", Some(ARTI)), ready(())).await.unwrap_err();
 
         assert_eq!(error.code(), None);
         let lines = audit.records();
