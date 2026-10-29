@@ -1,8 +1,8 @@
 //! Moteur de résolution d'une citation (annexe B §7.1 à §7.6), partagé par `fr_verify_citations`
 //! et, en V4, par `fr_resolve`.
 //!
-//! [`Resolver::resolve_ref`] prend une citation reconnue par le parseur et rend une
-//! [`Resolution`] : un [`Outcome`] (vérifiée, en écart, plusieurs enregistrements, absente,
+//! `Resolver::resolve_ref` prend une citation reconnue par le parseur et rend une
+//! `Resolution` : un `Outcome` (vérifiée, en écart, plusieurs enregistrements, absente,
 //! non résoluble, échec amont) et, quand le texte officiel a été lu, ce texte, que l'appelant
 //! compare à l'extrait cité. Le moteur ne sait rien du transport ni du format de sortie.
 //!
@@ -10,10 +10,10 @@
 //!
 //! - **Identifiant lu, jamais construit** (§7.1) : tout [`ResolvedRecord`] vient d'une réponse du
 //!   corpus. Une citation `LegifranceId` consulte l'identifiant tel quel.
-//! - **Pas d'absence sans preuve** (§7.2) : [`Outcome::Absent`] n'est rendu que si la table
-//!   [`policy::POLICY`](super::policy::POLICY) l'autorise pour la famille ; ailleurs, l'absence est
-//!   `Unresolvable`. En bac à sable, [`Outcome::status`] la rend `unresolvable` (jamais `not_found`).
-//! - **Hors ligne d'abord** : [`offline`] tranche sans appel ce que les drapeaux, les ambiguïtés et
+//! - **Pas d'absence sans preuve** (§7.2) : `Outcome::Absent` n'est rendu que si la table
+//!   `policy::POLICY` l'autorise pour la famille ; ailleurs, l'absence est
+//!   `Unresolvable`. En bac à sable, `Outcome::status` la rend `unresolvable` (jamais `not_found`).
+//! - **Hors ligne d'abord** : `offline` tranche sans appel ce que les drapeaux, les ambiguïtés et
 //!   la résolvabilité du parseur permettent de trancher (N02, N20, N32…).
 //!
 //! # Limites de cette version

@@ -1,6 +1,6 @@
 //! Contrôle des citations d'un texte (annexe B §7.7, `fr_verify_citations`).
 //!
-//! [`verify_text`] enchaîne les étapes de l'algorithme : analyse du texte, tri hors ligne,
+//! `verify_text` enchaîne les étapes de l'algorithme : analyse du texte, tri hors ligne,
 //! dédoublonnage par clé de résolution, résolution quatre à la fois sous un budget de 80 % du
 //! délai de l'outil, puis composition des contrôles dans l'ordre du texte. Il ne connaît ni la
 //! validation de l'entrée (le cas d'usage) ni le plafond de réponse (le cas d'usage et la vue).
@@ -9,7 +9,7 @@
 //!
 //! - Les citations de même clé partagent leur résolution : une répétition ne coûte aucun appel.
 //! - La liste des codes n'est lue qu'une fois, et seulement si une citation la demande.
-//! - Au plus [`CONCURRENCY`] résolutions sont en vol. Passé le budget, les citations restantes
+//! - Au plus `CONCURRENCY` résolutions sont en vol. Passé le budget, les citations restantes
 //!   sont `unresolvable` (« time budget ») sans appel au corpus.
 //! - Si **toutes** les citations soumises au corpus ont échoué, l'erreur de la première est
 //!   rendue : un résultat fait uniquement de « not checked » laisserait croire à une vérification.

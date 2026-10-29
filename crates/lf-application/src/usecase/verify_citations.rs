@@ -5,7 +5,7 @@
 //!
 //! 1. Validation sans réseau : `text` de 1 à 20 000 caractères, `max_citations` de 1 à 100 (50 par
 //!    défaut).
-//! 2. Le contrôle lui-même est [`verify_text`] : analyse, tri hors ligne, dédoublonnage, résolution
+//! 2. Le contrôle lui-même est `verify_text` : analyse, tri hors ligne, dédoublonnage, résolution
 //!    quatre à la fois sous le budget de 80 % du délai de l'outil, extrait cité.
 //! 3. Plafond de réponse (05 §6.4) : la taille de la liste est estimée (somme des longueurs plus 64
 //!    par champ, cible 42 000) et la liste est raccourcie par la fin au besoin ; `truncated` et une

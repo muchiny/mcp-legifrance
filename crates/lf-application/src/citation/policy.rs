@@ -4,9 +4,9 @@
 //!
 //! - la **concurrence** (quatre résolutions à la fois) et le **budget de temps** (80 % du délai de
 //!   l'outil) ;
-//! - la **preuve d'absence** : la table [`POLICY`] dit, famille par famille, si l'absence d'un
+//! - la **preuve d'absence** : la table `POLICY` dit, famille par famille, si l'absence d'un
 //!   enregistrement permet de conclure `not_found` (§7.2) ;
-//! - le **seuil de l'extrait cité** (V-162) : [`check_quote`] compare l'extrait au texte officiel
+//! - le **seuil de l'extrait cité** (V-162) : `check_quote` compare l'extrait au texte officiel
 //!   lu, après repli des accents et de la casse ;
 //! - les bornes de consultation (candidats rendus, documents consultés par numéro).
 

@@ -2,11 +2,11 @@
 //!
 //! Deux sources, deux traitements, et le même résultat : des [`LinkOut`].
 //!
-//! - **Article** ([`article_links`]) : les listes `liensCite` et `liensCitePar` du port
+//! - **Article** (`article_links`) : les listes `liensCite` et `liensCitePar` du port
 //!   (`RelatedLinks`, 03 §4.11) deviennent des liens `cites` et `cited_by`. La famille (`kind`)
 //!   suit la table nature → kind de 05 §5.11 ; `id` et `source_url` ne sont rendus que pour une
 //!   cible typée qu'un outil servi sait lire, jamais fabriqués.
-//! - **Décision** ([`decision_links`]) : `citationJp` et les titres de `liens` passent par le
+//! - **Décision** (`decision_links`) : `citationJp` et les titres de `liens` passent par le
 //!   parseur de citations (`strip_html: true`, `repair_mojibake: false` : le corps est déjà
 //!   réparé par l'adapter). Une décision ou un ECLI de `citationJp` est `cites_case_law`, toute
 //!   autre citation est `applies_text`. Les fragments sans ancre (« 1 du code civil. », « article

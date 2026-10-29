@@ -10,12 +10,12 @@
 //!    demandés ensemble. Un article inconnu rend le `not_found` de `fr_get_text`, et c'est
 //!    l'erreur de la lecture qui l'emporte sur celle des liens.
 //! 3. **Décision** : `get_decision`, puis les références de la décision passent par le parseur
-//!    ([`decision_links`]). Un seul appel au port : les liens n'ont pas d'identifiant et ne sont
+//!    (`decision_links`). Un seul appel au port : les liens n'ont pas d'identifiant et ne sont
 //!    pas résolus.
 //!
 //! # Plafond de réponse (05 §5.11, 05 §6.4)
 //!
-//! Au plus [`MAX_LINKS`] liens, sans suite : `total` compte les liens avant troncature et
+//! Au plus `MAX_LINKS` liens, sans suite : `total` compte les liens avant troncature et
 //! `truncated` le dit. L'estimation de la réponse ([`estimate_chars`]) reste sous la cible, en
 //! retirant des liens par la fin ([`shrink_from_end`]) ; la vue mesure ensuite la taille exacte.
 
