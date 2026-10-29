@@ -35,6 +35,12 @@ tokio = { version = "1.53", default-features = false, features = ["rt", "macros"
 tokio-util = { version = "0.7", default-features = false }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 
+# `rmcp-macros` n'est jamais importé par ce crate : les macros arrivent par `rmcp` (feature
+# `macros`). Il n'est déclaré que pour éprouver la forme d'épinglage de l'ADR-0003 (`=3.5.1` des
+# deux côtés, `rmcp` le demandant en caret) ; le garder dans le verrou est le point du spike.
+[package.metadata.cargo-machete]
+ignored = ["rmcp-macros"]
+
 [lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
