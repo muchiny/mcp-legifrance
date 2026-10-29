@@ -137,13 +137,149 @@ fn initialization_end(error: ServerInitializeError) -> Result<(), ServeError> {
     }
 }
 
+/// Outils de test partagés avec les autres modules : messages JSON-RPC bruts et client brut relié
+/// à un serveur par un tube mémoire, derrière le chemin de production.
+#[cfg(test)]
+pub(crate) mod testkit {
+    use std::time::{Duration, Instant};
+
+    use pretty_assertions::assert_eq;
+    use serde_json::{Value, json};
+    use tokio::{
+        io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, Lines, ReadHalf, WriteHalf},
+        task::JoinHandle,
+    };
+
+    use super::*;
+
+    /// Borne d'attente : au-delà, une réponse attendue est déclarée manquante.
+    pub(crate) const WAIT: Duration = Duration::from_secs(5);
+
+    pub(crate) fn initialize(id: u64) -> Value {
+        json!({"jsonrpc": "2.0", "id": id, "method": "initialize", "params": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "lifecycle-test", "version": "0.0.0"}
+        }})
+    }
+
+    pub(crate) fn initialized() -> Value {
+        json!({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    }
+
+    pub(crate) fn cancelled() -> Value {
+        json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 7}})
+    }
+
+    pub(crate) fn client_response() -> Value {
+        json!({"jsonrpc": "2.0", "id": 99, "result": {}})
+    }
+
+    pub(crate) fn client_error() -> Value {
+        json!({"jsonrpc": "2.0", "id": 98, "error": {"code": -1, "message": "client error"}})
+    }
+
+    pub(crate) fn ping(id: u64) -> Value {
+        json!({"jsonrpc": "2.0", "id": id, "method": "ping"})
+    }
+
+    pub(crate) fn discover(id: u64) -> Value {
+        json!({"jsonrpc": "2.0", "id": id, "method": "server/discover", "params": {"_meta": modern_meta("2026-07-28")}})
+    }
+
+    /// `_meta` d'une requête de l'ère moderne : version du protocole et capacités du client.
+    pub(crate) fn modern_meta(version: &str) -> Value {
+        json!({
+            "io.modelcontextprotocol/protocolVersion": version,
+            "io.modelcontextprotocol/clientInfo": {"name": "lifecycle-test", "version": "0.0.0"},
+            "io.modelcontextprotocol/clientCapabilities": {}
+        })
+    }
+
+    /// `tools/call` de l'outil `name` avec `arguments` (ère legacy, sans `_meta`).
+    pub(crate) fn call_tool(id: u64, name: &str, arguments: &Value) -> Value {
+        json!({"jsonrpc": "2.0", "id": id, "method": "tools/call",
+               "params": {"name": name, "arguments": arguments}})
+    }
+
+    pub(crate) fn tools_list(id: u64, meta: Option<Value>) -> Value {
+        match meta {
+            Some(meta) => {
+                json!({"jsonrpc": "2.0", "id": id, "method": "tools/list", "params": {"_meta": meta}})
+            }
+            None => json!({"jsonrpc": "2.0", "id": id, "method": "tools/list"}),
+        }
+    }
+
+    /// Client brut : écrit des lignes JSON, lit les lignes du serveur.
+    pub(crate) struct Wire {
+        pub(crate) write: WriteHalf<DuplexStream>,
+        pub(crate) lines: Lines<BufReader<ReadHalf<DuplexStream>>>,
+        pub(crate) server: JoinHandle<Result<ServeOutcome, ServeError>>,
+        pub(crate) shutdown: CancellationToken,
+    }
+
+    impl Wire {
+        /// Sert `server` sur un tube mémoire, derrière le chemin de production (`serve_io`).
+        pub(crate) fn serve<S: ServerHandler>(server: S) -> Self {
+            let (client, server_io) = tokio::io::duplex(1 << 20);
+            let (server_read, server_write) = tokio::io::split(server_io);
+            let shutdown = CancellationToken::new();
+            let server =
+                tokio::spawn(serve_io(server, server_read, server_write, shutdown.clone()));
+            let (read, write) = tokio::io::split(client);
+            Self { write, lines: BufReader::new(read).lines(), server, shutdown }
+        }
+
+        pub(crate) async fn send(&mut self, message: &Value) {
+            let mut line = serde_json::to_vec(message).unwrap();
+            line.push(b'\n');
+            self.write.write_all(&line).await.unwrap();
+            self.write.flush().await.unwrap();
+        }
+
+        /// Prochaine ligne JSON du serveur (au plus [`WAIT`] d'attente).
+        pub(crate) async fn recv(&mut self) -> Value {
+            let line = tokio::time::timeout(WAIT, self.lines.next_line())
+                .await
+                .expect("no line from the server")
+                .unwrap()
+                .expect("the server closed its output");
+            serde_json::from_str(&line).unwrap()
+        }
+
+        /// Poignée de main legacy 2025-11-25, puis `notifications/initialized` ; rend la réponse
+        /// à `initialize`.
+        pub(crate) async fn handshake(&mut self) -> Value {
+            self.send(&initialize(1)).await;
+            let response = self.recv().await;
+            assert_eq!(response["id"], json!(1), "{response}");
+            assert_eq!(response["result"]["protocolVersion"], json!("2025-11-25"), "{response}");
+            self.send(&initialized()).await;
+            response
+        }
+
+        /// Ferme stdin (EOF) et attend la fin du service ; rend son issue et la durée écoulée.
+        pub(crate) async fn close(mut self) -> (Result<ServeOutcome, ServeError>, Duration) {
+            // `shutdown` et non `drop` : la moitié de lecture garde le tube ouvert.
+            self.write.shutdown().await.unwrap();
+            let started = Instant::now();
+            let outcome = tokio::time::timeout(WAIT, self.server)
+                .await
+                .expect("the service did not stop after EOF")
+                .unwrap();
+            (outcome, started.elapsed())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
         collections::VecDeque,
         convert::Infallible,
         sync::{Arc, Mutex, PoisonError},
-        time::{Duration, Instant},
+        time::Duration,
     };
 
     use pretty_assertions::assert_eq;
@@ -156,15 +292,9 @@ mod tests {
         service::RequestContext,
     };
     use serde_json::{Value, json};
-    use tokio::{
-        io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, Lines, ReadHalf, WriteHalf},
-        task::JoinHandle,
-    };
+    use tokio::io::AsyncWriteExt;
 
-    use super::*;
-
-    /// Borne d'attente : au-delà, une réponse attendue est déclarée manquante.
-    const WAIT: Duration = Duration::from_secs(5);
+    use super::{testkit::*, *};
 
     // ---- le filtre, sur un transport scénarisé -------------------------------------------
 
@@ -210,56 +340,6 @@ mod tests {
 
     fn scripted(messages: &[Value]) -> Scripted {
         Scripted { queue: messages.iter().map(message).collect(), ..Scripted::default() }
-    }
-
-    fn initialize(id: u64) -> Value {
-        json!({"jsonrpc": "2.0", "id": id, "method": "initialize", "params": {
-            "protocolVersion": "2025-11-25",
-            "capabilities": {},
-            "clientInfo": {"name": "lifecycle-test", "version": "0.0.0"}
-        }})
-    }
-
-    fn initialized() -> Value {
-        json!({"jsonrpc": "2.0", "method": "notifications/initialized"})
-    }
-
-    fn cancelled() -> Value {
-        json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 7}})
-    }
-
-    fn client_response() -> Value {
-        json!({"jsonrpc": "2.0", "id": 99, "result": {}})
-    }
-
-    fn client_error() -> Value {
-        json!({"jsonrpc": "2.0", "id": 98, "error": {"code": -1, "message": "client error"}})
-    }
-
-    fn ping(id: u64) -> Value {
-        json!({"jsonrpc": "2.0", "id": id, "method": "ping"})
-    }
-
-    fn discover(id: u64) -> Value {
-        json!({"jsonrpc": "2.0", "id": id, "method": "server/discover", "params": {"_meta": modern_meta("2026-07-28")}})
-    }
-
-    /// `_meta` d'une requête de l'ère moderne : version du protocole et capacités du client.
-    fn modern_meta(version: &str) -> Value {
-        json!({
-            "io.modelcontextprotocol/protocolVersion": version,
-            "io.modelcontextprotocol/clientInfo": {"name": "lifecycle-test", "version": "0.0.0"},
-            "io.modelcontextprotocol/clientCapabilities": {}
-        })
-    }
-
-    fn tools_list(id: u64, meta: Option<Value>) -> Value {
-        match meta {
-            Some(meta) => {
-                json!({"jsonrpc": "2.0", "id": id, "method": "tools/list", "params": {"_meta": meta}})
-            }
-            None => json!({"jsonrpc": "2.0", "id": id, "method": "tools/list"}),
-        }
     }
 
     /// Les `n` prochains messages que le filtre transmet, puis `None` si l'EOF suit.
@@ -452,70 +532,17 @@ mod tests {
         }
     }
 
-    /// Client brut : écrit des lignes JSON, lit les lignes du serveur.
-    struct Wire {
-        write: WriteHalf<DuplexStream>,
-        lines: Lines<BufReader<ReadHalf<DuplexStream>>>,
-        server: JoinHandle<Result<ServeOutcome, ServeError>>,
-        shutdown: CancellationToken,
-    }
-
-    impl Wire {
-        fn start(delay: Duration) -> Self {
-            let (client, server) = tokio::io::duplex(1 << 20);
-            let (server_read, server_write) = tokio::io::split(server);
-            let shutdown = CancellationToken::new();
-            let server =
-                tokio::spawn(serve_io(Bare { delay }, server_read, server_write, shutdown.clone()));
-            let (read, write) = tokio::io::split(client);
-            Self { write, lines: BufReader::new(read).lines(), server, shutdown }
-        }
-
-        async fn send(&mut self, message: &Value) {
-            let mut line = serde_json::to_vec(message).unwrap();
-            line.push(b'\n');
-            self.write.write_all(&line).await.unwrap();
-            self.write.flush().await.unwrap();
-        }
-
-        /// Prochaine ligne JSON du serveur (au plus [`WAIT`] d'attente).
-        async fn recv(&mut self) -> Value {
-            let line = tokio::time::timeout(WAIT, self.lines.next_line())
-                .await
-                .expect("no line from the server")
-                .unwrap()
-                .expect("the server closed its output");
-            serde_json::from_str(&line).unwrap()
-        }
-
-        /// Poignée de main legacy 2025-11-25, puis `notifications/initialized`.
-        async fn handshake(&mut self) {
-            self.send(&initialize(1)).await;
-            let response = self.recv().await;
-            assert_eq!(response["id"], json!(1), "{response}");
-            assert_eq!(response["result"]["protocolVersion"], json!("2025-11-25"), "{response}");
-            self.send(&initialized()).await;
-        }
-
-        /// Ferme stdin (EOF) et attend la fin du service ; rend son issue et la durée écoulée.
-        async fn close(mut self) -> (Result<ServeOutcome, ServeError>, Duration) {
-            // `shutdown` et non `drop` : la moitié de lecture garde le tube ouvert.
-            self.write.shutdown().await.unwrap();
-            let started = Instant::now();
-            let outcome = tokio::time::timeout(WAIT, self.server)
-                .await
-                .expect("the service did not stop after EOF")
-                .unwrap();
-            (outcome, started.elapsed())
-        }
-    }
-
+    /// Review Focus 5 : une notification, une réponse ou une erreur reçue avant `initialize` ne
+    /// fait pas quitter le serveur (rmcp, sans le filtre, s'arrêterait sur
+    /// `ExpectedInitializeRequest`) ; il sert ensuite la poignée de main et les appels, puis se
+    /// termine à l'EOF avec l'issue `Eof` (code 0 pour `lf-app`) en moins d'une seconde.
     #[tokio::test]
-    async fn messages_before_initialize_are_ignored_then_the_handshake_succeeds() {
-        let mut wire = Wire::start(Duration::ZERO);
+    async fn premature_notification_does_not_stop_server() {
+        let mut wire = Wire::serve(Bare { delay: Duration::ZERO });
         for premature in [initialized(), cancelled(), client_response(), client_error()] {
             wire.send(&premature).await;
         }
+        assert!(!wire.server.is_finished(), "le service s'est arrêté sur un message prématuré");
         // Un `ping` avant toute ère reste servi par rmcp lui-même (`{}`), sans autre ligne avant.
         wire.send(&ping(5)).await;
         let pong = wire.recv().await;
@@ -524,18 +551,21 @@ mod tests {
         wire.handshake().await;
         wire.send(&tools_list(2, None)).await;
         assert_eq!(wire.recv().await["result"]["tools"], json!([]));
+        let (outcome, elapsed) = wire.close().await;
+        assert_eq!(outcome.unwrap(), ServeOutcome::Eof);
+        assert!(elapsed < Duration::from_secs(1), "{elapsed:?}");
     }
 
     #[tokio::test]
     async fn eof_before_any_lifecycle_ends_with_the_eof_outcome_within_a_second() {
-        let (outcome, elapsed) = Wire::start(Duration::ZERO).close().await;
+        let (outcome, elapsed) = Wire::serve(Bare { delay: Duration::ZERO }).close().await;
         assert_eq!(outcome.unwrap(), ServeOutcome::Eof);
         assert!(elapsed < Duration::from_secs(1), "{elapsed:?}");
     }
 
     #[tokio::test]
     async fn eof_after_initialize_ends_with_the_eof_outcome_within_a_second() {
-        let mut wire = Wire::start(Duration::ZERO);
+        let mut wire = Wire::serve(Bare { delay: Duration::ZERO });
         wire.handshake().await;
         let (outcome, elapsed) = wire.close().await;
         assert_eq!(outcome.unwrap(), ServeOutcome::Eof);
@@ -545,7 +575,7 @@ mod tests {
     #[tokio::test]
     async fn eof_with_a_call_in_flight_does_not_wait_for_it() {
         // Sans `cancel_on_eof`, rmcp attendrait jusqu'à 5 s la réponse de l'appel en vol.
-        let mut wire = Wire::start(Duration::from_secs(30));
+        let mut wire = Wire::serve(Bare { delay: Duration::from_secs(30) });
         wire.handshake().await;
         wire.send(&tools_list(2, None)).await;
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -556,7 +586,7 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_after_initialize_ends_with_the_shutdown_outcome() {
-        let mut wire = Wire::start(Duration::ZERO);
+        let mut wire = Wire::serve(Bare { delay: Duration::ZERO });
         wire.handshake().await;
         wire.shutdown.cancel();
         let outcome = tokio::time::timeout(WAIT, &mut wire.server).await.unwrap().unwrap();
@@ -565,7 +595,7 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_before_any_message_ends_with_the_shutdown_outcome() {
-        let wire = Wire::start(Duration::ZERO);
+        let wire = Wire::serve(Bare { delay: Duration::ZERO });
         wire.shutdown.cancel();
         let outcome = tokio::time::timeout(WAIT, wire.server).await.unwrap().unwrap();
         assert_eq!(outcome.unwrap(), ServeOutcome::Shutdown);

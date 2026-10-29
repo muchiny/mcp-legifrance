@@ -1,0 +1,5 @@
+---
+source: crates/lf-adapter-mcp/src/failure.rs
+expression: text
+---
+[upstream_error] Legifrance/PISTE HTTP 503 (service unavailable); retry once, then report it.

@@ -1,0 +1,5 @@
+---
+source: crates/lf-adapter-mcp/src/failure.rs
+expression: text
+---
+[invalid_arg] query is required.

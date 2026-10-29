@@ -1,0 +1,5 @@
+---
+source: crates/lf-adapter-mcp/src/failure.rs
+expression: text
+---
+[not_found] No article found for LEGIARTI000006419999. Check the id, or find the article with fr_get_act or fr_search.

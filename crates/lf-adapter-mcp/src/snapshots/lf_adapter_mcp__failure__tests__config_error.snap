@@ -1,0 +1,5 @@
+---
+source: crates/lf-adapter-mcp/src/failure.rs
+expression: text
+---
+[config_error] PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET (from your piste.gouv.fr application, section OAuth Credentials).

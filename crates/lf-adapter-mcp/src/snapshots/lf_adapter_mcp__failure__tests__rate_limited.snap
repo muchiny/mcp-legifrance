@@ -1,0 +1,5 @@
+---
+source: crates/lf-adapter-mcp/src/failure.rs
+expression: text
+---
+[rate_limited] PISTE quota reached; retry in 12 s.
