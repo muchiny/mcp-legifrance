@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ARTICLE>
+<META>
+<META_COMMUN>
+<ID>LEGIARTI000045418514</ID>
+<ANCIEN_ID/>
+<ORIGINE>LEGI</ORIGINE>
+<URL>article/LEGI/ARTI/00/00/45/41/85/LEGIARTI000045418514.xml</URL>
+<NATURE>Article</NATURE>
+</META_COMMUN>
+<META_SPEC>
+<META_ARTICLE>
+
+<NUM>D510-1</NUM>
+
+<ETAT>MODIFIE</ETAT>
+
+<DATE_DEBUT>2022-03-28</DATE_DEBUT>
+<DATE_FIN>2025-01-01</DATE_FIN>
+
+
+
+<TYPE>AUTONOME</TYPE>
+</META_ARTICLE>
+</META_SPEC>
+</META>
+<CONTEXTE>
+<TEXTE autorite="" cid="LEGITEXT000006074220" date_publi="2999-01-01" date_signature="2999-01-01" ministere="" nature="CODE" nor="" num="" num_parution_jo="">
+<TITRE_TXT c_titre_court="Code de l'environnement" debut="2000-09-21" fin="2999-01-01" id_txt="LEGITEXT000006074220">Code de l'environnement</TITRE_TXT>
+<TM>
+<TITRE_TM debut="2003-08-07" fin="2999-01-01" id="LEGISCTA000006108631">Partie réglementaire</TITRE_TM>
+<TM>
+<TITRE_TM debut="2007-10-16" fin="2999-01-01" id="LEGISCTA000006129034">Livre V : Prévention des pollutions, des risques et des nuisances</TITRE_TM>
+<TM>
+<TITRE_TM debut="2011-12-19" fin="2022-03-28" id="LEGISCTA000024985993">Titre préliminaire : Conseil supérieur de la prévention des risques technologiques </TITRE_TM>
+<TITRE_TM debut="2022-03-28" fin="2999-01-01" id="LEGISCTA000045418469">Titre préliminaire : Enquêtes techniques et Conseil supérieur de la prévention des risques technologiques</TITRE_TM>
+<TM>
+<TITRE_TM debut="2022-03-28" fin="2999-01-01" id="LEGISCTA000045417758">Chapitre II : Conseil supérieur de la prévention des risques technologiques</TITRE_TM>
+</TM>
+</TM>
+</TM>
+</TM>
+</TEXTE>
+</CONTEXTE>
+
+<VERSIONS>
+<VERSION etat="MODIFIE">
+<LIEN_ART debut="2011-12-19" etat="MODIFIE" fin="2013-12-30" id="LEGIARTI000024985995" num="D510-1" origine="LEGI"/>
+</VERSION>
+<VERSION etat="MODIFIE">
+<LIEN_ART debut="2013-12-30" etat="MODIFIE" fin="2016-12-31" id="LEGIARTI000028424050" num="D510-1" origine="LEGI"/>
+</VERSION>
+<VERSION etat="MODIFIE">
+<LIEN_ART debut="2016-12-31" etat="MODIFIE" fin="2019-04-01" id="LEGIARTI000033853248" num="D510-1" origine="LEGI"/>
+</VERSION>
+<VERSION etat="MODIFIE">
+<LIEN_ART debut="2019-04-01" etat="MODIFIE" fin="2021-05-31" id="LEGIARTI000038247261" num="D510-1" origine="LEGI"/>
+</VERSION>
+<VERSION etat="MODIFIE">
+<LIEN_ART debut="2022-03-28" etat="MODIFIE" fin="2025-01-01" id="LEGIARTI000045418514" num="D510-1" origine="LEGI"/>
+</VERSION>
+<VERSION etat="MODIFIE">
+<LIEN_ART debut="2021-05-31" etat="MODIFIE" fin="2022-03-28" id="LEGIARTI000043574906" num="D510-1" origine="LEGI"/>
+</VERSION>
+<VERSION etat="VIGUEUR">
+<LIEN_ART debut="2025-01-01" etat="VIGUEUR" fin="2999-01-01" id="LEGIARTI000050813430" num="D510-1" origine="LEGI"/>
+</VERSION>
+</VERSIONS>
+<NOTA>
+<CONTENU/>
+</NOTA>
+<BLOC_TEXTUEL>
+<CONTENU>
+<p>Le Conseil supérieur de la prévention des risques technologiques assiste les ministres chargés des installations classées pour la protection de l'environnement, de la sûreté nucléaire, de la sécurité industrielle et du transport des marchandises dangereuses et de la mer.<br/>
+<br/>
+ Le Conseil supérieur donne son avis dans tous les cas où la loi ou les règlements l'exigent.<br/>
+<br/>
+ Il étudie tout projet de réglementation ou toute question relative :</p>
+<p>
+<br/>
+-aux installations classées pour la protection de l'environnement ;<br/>
+<br/>
+-aux installations nucléaires de base ;<br/>
+<br/>
+-aux canalisations de transport de gaz naturel ou assimilé, d'hydrocarbures et de produits chimiques ;<br/>
+<br/>
+-aux canalisations de distribution de gaz ;<br/>
+<br/>
+-aux appareils à pression ainsi qu'à la sécurité des installations d'utilisation des gaz combustibles ;<br/>
+<br/>
+-au transport des marchandises dangereuses par voie maritime, ferroviaire ou guidée, routière, ou fluviale et à leur manutention dans les ports,</p>
+<p>
+<br/>
+ que les ministres chargés de ces sujets ou que l'Autorité de sûreté nucléaire, s'agissant de questions relatives aux installations nucléaires de base ou au transport de substances radioactives, jugent utile de lui soumettre.</p>
+</CONTENU>
+</BLOC_TEXTUEL>
+<LIENS>
+<LIEN cidtexte="JORFTEXT000000469544" datesignatexte="2007-11-02" id="LEGIARTI000032794330" naturetexte="DECRET" nortexte="DEVQ0762539D" num="35" numtexte="2007-1557" sens="cible" typelien="CITATION">Décret n°2007-1557 du 2 novembre 2007 - art. 35 (VT)</LIEN>
+<LIEN cidtexte="JORFTEXT000019146895" datesignatexte="2008-07-09" id="LEGIARTI000025087731" naturetexte="DECRET" nortexte="DEVK0815780D" num="1" numtexte="2008-679" sens="cible" typelien="CITATION">Décret n°2008-679
+ du 9 juillet 2008 - art. 1 (Ab)</LIEN>
+<LIEN cidtexte="JORFTEXT000025338573" datesignatexte="2012-02-07" id="LEGIARTI000025339659" naturetexte="ARRETE" nortexte="DEVP1202101A" num="9.5" numtexte="" sens="cible" typelien="CITATION">Arrêté du 7 février 2012 - art. 9.5 (VD)</LIEN>
+
+
+
+
+
+
+
+
+
+
+<LIEN cidtexte="JORFTEXT000045411976" datesignatexte="2022-03-25" id="LEGIARTI000045414059" naturetexte="DECRET" nortexte="TREV2132528D" num="3" numtexte="2022-427" sens="cible" typelien="DEPLACE">Décret n°2022-427 du 25 mars 2022 - art. 3</LIEN>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<LIEN cidtexte="LEGITEXT000006074220" datesignatexte="2999-01-01" id="LEGIARTI000045628895" naturetexte="CODE" nortexte="" num="D510-2" numtexte="" sens="cible" typelien="CITATION">Code de l'environnement - art. D510-2 (V)</LIEN>
+<LIEN cidtexte="LEGITEXT000006074220" datesignatexte="2999-01-01" id="LEGIARTI000045418498" naturetexte="CODE" nortexte="" num="D510-3" numtexte="" sens="cible" typelien="CITATION">Code de l'environnement - art. D510-3 (V)</LIEN>
+<LIEN cidtexte="LEGITEXT000006074220" datesignatexte="2999-01-01" id="LEGIARTI000025109678" naturetexte="CODE" nortexte="" num="L593-2" numtexte="" sens="source" typelien="CITATION">Code de l'environnement - art. L593-2</LIEN>
+<LIEN cidtexte="LEGITEXT000006074220" datesignatexte="2999-01-01" id="LEGIARTI000036017499" naturetexte="CODE" nortexte="" num="R554-39" numtexte="" sens="cible" typelien="CITATION">Code de l'environnement - art. R554-39 (VD)</LIEN>
+</LIENS>
+</ARTICLE>

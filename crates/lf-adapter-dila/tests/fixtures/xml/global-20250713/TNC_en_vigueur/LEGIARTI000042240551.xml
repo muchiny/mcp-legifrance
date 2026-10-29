@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ARTICLE>
+<META>
+<META_COMMUN>
+<ID>LEGIARTI000042240551</ID>
+<ANCIEN_ID/>
+<ORIGINE>LEGI</ORIGINE>
+<URL>article/LEGI/ARTI/00/00/42/24/05/LEGIARTI000042240551.xml</URL>
+<NATURE>Article</NATURE>
+</META_COMMUN>
+<META_SPEC>
+<META_ARTICLE>
+
+<NUM>22</NUM>
+
+<ETAT>VIGUEUR</ETAT>
+
+<DATE_DEBUT>1955-07-21</DATE_DEBUT>
+<DATE_FIN>2999-01-01</DATE_FIN>
+
+
+
+<TYPE>AUTONOME</TYPE>
+</META_ARTICLE>
+</META_SPEC>
+</META>
+<CONTEXTE>
+<TEXTE autorite="" cid="JORFTEXT000000282978" date_publi="1955-07-20" date_signature="1955-07-05" ministere="" nature="ARRETE" nor="" num="" num_parution_jo="">
+<TITRE_TXT c_titre_court="Arrêté du 5 juillet 1955" debut="2999-01-01" fin="2999-01-01" id_txt="JORFTEXT000000282978">Arrêté du 5 juillet 1955 portant statut du personnel ouvrier du service du cadastre </TITRE_TXT>
+<TITRE_TXT c_titre_court="Arrêté du 5 juillet 1955" debut="1955-07-21" fin="2999-01-01" id_txt="LEGITEXT000042239717">Arrêté du 5 juillet 1955 relatif au statut du personnel ouvrier du service du cadastre</TITRE_TXT>
+</TEXTE>
+</CONTEXTE>
+<VERSIONS>
+<VERSION etat="VIGUEUR">
+<LIEN_ART debut="1955-07-21" etat="VIGUEUR" fin="2999-01-01" id="LEGIARTI000042240551" num="22" origine="LEGI"/>
+</VERSION>
+</VERSIONS>
+<NOTA>
+<CONTENU/>
+</NOTA>
+<BLOC_TEXTUEL>
+<CONTENU>
+<p>L'indemnité de licenciement est refusée aux ouvriers démissionnaires et aux ouvriers licenciés pour insuffisance profes­sionnelle ou peur motif disciplinaire.</p>
+</CONTENU>
+</BLOC_TEXTUEL>
+<LIENS/>
+</ARTICLE>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SECTION_TA>
+<ID>LEGISCTA000006143868</ID>
+<TITRE_TA>Section 2 : Exercice salarial.</TITRE_TA>
+<STRUCTURE_TA>
+<LIEN_ART debut="1980-03-25" etat="VIGUEUR" fin="2999-01-01" id="LEGIARTI000006842458" num="43" origine="LEGI"/>
+<LIEN_ART debut="1980-03-25" etat="VIGUEUR" fin="2999-01-01" id="LEGIARTI000006842459" num="44" origine="LEGI"/>
+<LIEN_ART debut="1980-03-25" etat="VIGUEUR" fin="2999-01-01" id="LEGIARTI000006842460" num="45" origine="LEGI"/>
+</STRUCTURE_TA>
+<CONTEXTE>
+<TEXTE autorite="" cid="LEGITEXT000006074232" date_publi="2999-01-01" date_signature="2999-01-01" ministere="" nature="CODE" nor="" num="" num_parution_jo="">
+<TITRE_TXT c_titre_court="Code de déontologie des architectes" debut="1980-03-25" fin="2999-01-01" id_txt="LEGITEXT000006074232">Code de déontologie des architectes</TITRE_TXT>
+<TM>
+<TITRE_TM debut="1980-03-25" fin="2999-01-01" id="LEGISCTA000006108696">TITRE II : Devoirs professionnels</TITRE_TM>
+<TM>
+<TITRE_TM debut="1980-03-25" fin="2999-01-01" id="LEGISCTA000006129094">CHAPITRE II : Règles particulières à chacun des modes d'exercice</TITRE_TM>
+</TM>
+</TM>
+</TEXTE>
+</CONTEXTE>
+</SECTION_TA>

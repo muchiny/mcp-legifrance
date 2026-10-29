@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ARTICLE>
+<META>
+<META_COMMUN>
+<ID>LEGIARTI000020964453</ID>
+<ANCIEN_ID/>
+<ORIGINE>LEGI</ORIGINE>
+<URL>article/LEGI/ARTI/00/00/20/96/44/LEGIARTI000020964453.xml</URL>
+<NATURE>Article</NATURE>
+</META_COMMUN>
+<META_SPEC>
+<META_ARTICLE>
+
+<NUM>7</NUM>
+
+<ETAT>ABROGE_DIFF</ETAT>
+
+<DATE_DEBUT>1980-08-31</DATE_DEBUT>
+<DATE_FIN>2222-02-22</DATE_FIN>
+
+
+
+<TYPE>AUTONOME</TYPE>
+</META_ARTICLE>
+</META_SPEC>
+</META>
+<CONTEXTE>
+<TEXTE autorite="" cid="JORFTEXT000000308356" date_publi="1980-08-30" date_signature="1980-08-18" ministere="" nature="DECRET" nor="" num="" num_parution_jo="">
+<TITRE_TXT c_titre_court="Décret du 18 août 1980" debut="2999-01-01" fin="2999-01-01" id_txt="JORFTEXT000000308356">Décret du 18 août 1980 relatif à l'appellation d'origine "Brie de Melun"</TITRE_TXT>
+<TITRE_TXT c_titre_court="Décret du 18 août 1980" debut="1980-08-31" fin="2222-02-22" id_txt="LEGITEXT000020964439">Décret du 18 août 1980 relatif à l'appellation d'origine "Brie de Melun"</TITRE_TXT>
+</TEXTE>
+</CONTEXTE>
+<VERSIONS>
+<VERSION etat="ABROGE_DIFF">
+<LIEN_ART debut="1980-08-31" etat="ABROGE_DIFF" fin="2222-02-22" id="LEGIARTI000020964453" num="7" origine="LEGI"/>
+</VERSION>
+</VERSIONS>
+<NOTA>
+<CONTENU/>
+</NOTA>
+<BLOC_TEXTUEL>
+<CONTENU>
+<br/>
+<p>Le ministre de l'agriculture est chargé de l'exécution du présent décret, qui sera publié au <i>Journal officiel</i> de la République française.</p>
+<br/>
+</CONTENU>
+</BLOC_TEXTUEL>
+<LIENS>
+<LIEN cidtexte="JORFTEXT000037368065" datesignatexte="2018-08-29" id="LEGIARTI000037369894" naturetexte="ARRETE" nortexte="AGRT1803039A" num="3" numtexte="" sens="cible" typelien="ABROGE">Arrêté du 29 août 2018 - art. 3</LIEN>
+</LIENS>
+</ARTICLE>

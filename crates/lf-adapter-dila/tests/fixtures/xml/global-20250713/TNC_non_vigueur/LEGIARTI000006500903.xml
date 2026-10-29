@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ARTICLE>
+<META>
+<META_COMMUN>
+<ID>LEGIARTI000006500903</ID>
+<ANCIEN_ID>ACIAYXXXXXXD00AAXXXXXXAA</ANCIEN_ID>
+<ORIGINE>LEGI</ORIGINE>
+<URL>article/LEGI/ARTI/00/00/06/50/09/LEGIARTI000006500903.xml</URL>
+<NATURE>Article</NATURE>
+</META_COMMUN>
+<META_SPEC>
+<META_ARTICLE>
+
+<NUM>Annexe IV</NUM>
+
+<ETAT>TRANSFERE</ETAT>
+
+<DATE_DEBUT>1993-01-29</DATE_DEBUT>
+<DATE_FIN>1997-04-01</DATE_FIN>
+
+
+
+<TYPE>AUTONOME</TYPE>
+</META_ARTICLE>
+</META_SPEC>
+</META>
+<CONTEXTE>
+<TEXTE autorite="" cid="LEGITEXT000006071096" date_publi="2999-01-01" date_signature="1976-12-28" ministere="" nature="ARRETE" nor="" num="" num_parution_jo="">
+<TITRE_TXT c_titre_court="Arrêté du 28 décembre 1976" debut="1997-04-23" fin="2010-08-18" id_txt="LEGITEXT000006071096">Arrêté du 28 décembre 1976 instituant la répartition catégorielle des meublés de tourisme</TITRE_TXT>
+<TM>
+<TITRE_TM debut="1976-01-29" fin="2010-08-18" id="LEGISCTA000006094544">Annexes</TITRE_TM>
+</TM>
+</TEXTE>
+</CONTEXTE>
+
+<VERSIONS>
+<VERSION etat="TRANSFERE">
+<LIEN_ART debut="1993-01-29" etat="TRANSFERE" fin="1997-04-01" id="LEGIARTI000006500903" num="Annexe IV" origine="LEGI"/>
+</VERSION>
+</VERSIONS>
+<NOTA>
+<CONTENU/>
+</NOTA>
+<BLOC_TEXTUEL>
+<CONTENU>
+<br/>  .<br/>
+<br/>
+</CONTENU>
+</BLOC_TEXTUEL>
+<LIENS>
+<LIEN cidtexte="" datesignatexte="" id="" naturetexte="" nortexte="" num="" numtexte="" sens="source" typelien="CONCORDE">Arrêté 1976-12-28 annexe III</LIEN>
+<LIEN cidtexte="" datesignatexte="" id="" naturetexte="" nortexte="" num="" numtexte="" sens="source" typelien="CREATION">Arrêté 1993-01-08 art. 2 JORF 29 janvier 1993</LIEN>
+</LIENS>
+</ARTICLE>

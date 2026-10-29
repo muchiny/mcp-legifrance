@@ -1,0 +1,26 @@
+source = "https://echanges.dila.gouv.fr/OPENDATA/LEGI/Freemium_legi_global_20250713-140000.tar.gz"
+fonds = "LEGI"
+archive = "Freemium_legi_global_20250713-140000.tar.gz"
+archive_date = "2025-07-13"
+archive_bytes = 1171027316
+archive_sha256 = "f862b4a2238e11ec3c48ec70f3b1c68bac0bb1985907841666b98608653d4eca"
+member = "legi/global/code_et_TNC_non_vigueur/TNC_non_vigueur/LEGI/TEXT/00/00/06/07/10/LEGITEXT000006071048/article/LEGI/ARTI/00/00/06/49/38/LEGIARTI000006493843.xml"
+member_mtime = "2023-11-21T19:01:51Z"
+origin = "global"
+archive_prefix = ""
+in_mini_archive = false
+root = "ARTICLE"
+purpose = "article ENTIEREMENT_MODIF : ETAT vide (<ETAT/>) et DATE_DEBUT = DATE_FIN = 2999-01-01 (environ 229 900 articles dans le global)"
+captured_at = "2026-10-29"
+http_status = 200
+bytes_raw = 1121
+sha256_raw = "20541749d72a6545e0741249447df649499e840162805b83aac77c98a5502ea8"
+sha256_file = "20541749d72a6545e0741249447df649499e840162805b83aac77c98a5502ea8"
+transform = "aucune (octets identiques à ceux du membre de l'archive)"
+encoding_declared = "UTF-8"
+mojibake_detected = false
+redactions = []
+known_issues = []
+tool = "unité V1-16 (T-M9-01) : curl, tar -xzf, python3 -I"
+license = "Licence Ouverte 2.0 — source : DILA, base LEGI (Légifrance)"
+attribution = "Source : DILA — base LEGI, Légifrance — fichier Freemium_legi_global_20250713-140000.tar.gz du 2025-07-13 — https://echanges.dila.gouv.fr/OPENDATA/LEGI/Freemium_legi_global_20250713-140000.tar.gz"

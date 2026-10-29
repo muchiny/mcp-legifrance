@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ARTICLE>
+<META>
+<META_COMMUN>
+<ID>LEGIARTI000006683254</ID>
+<ANCIEN_ID>SMHB7XXXXXX003AAXXXXXXAA</ANCIEN_ID>
+<ORIGINE>LEGI</ORIGINE>
+<URL>article/LEGI/ARTI/00/00/06/68/32/LEGIARTI000006683254.xml</URL>
+<NATURE>Article</NATURE>
+</META_COMMUN>
+<META_SPEC>
+<META_ARTICLE>
+
+<NUM>3</NUM>
+
+<ETAT/>
+
+<DATE_DEBUT>2999-01-01</DATE_DEBUT>
+<DATE_FIN>2004-10-27</DATE_FIN>
+
+
+
+<TYPE>ENTIEREMENT_MODIF</TYPE>
+</META_ARTICLE>
+</META_SPEC>
+</META>
+<CONTEXTE>
+<TEXTE autorite="" cid="LEGITEXT000006072641" date_publi="2999-01-01" date_signature="1961-05-15" ministere="" nature="DECRET" nor="" num="61-495" num_parution_jo="">
+<TITRE_TXT c_titre_court="Décret n°61-495 du 15 mai 1961" debut="1961-05-19" fin="2004-10-27" id_txt="LEGITEXT000006072641">Décret n°61-495 du 15 mai 1961 modifiant certaines dispositions des titres III et IV du code de la famille et de l'aide sociale et du décret n° 59-143 du 7 janvier 1959.</TITRE_TXT>
+</TEXTE>
+</CONTEXTE>
+<VERSIONS>
+<VERSION etat="">
+<LIEN_ART debut="2999-01-01" etat="" fin="2004-10-27" id="LEGIARTI000006683254" num="3" origine="LEGI"/>
+</VERSION>
+</VERSIONS>
+<NOTA>
+<CONTENU/>
+</NOTA>
+<BLOC_TEXTUEL>
+<CONTENU>a modifié les dispositions suivantes<br/>
+<br/>
+</CONTENU>
+</BLOC_TEXTUEL>
+<LIENS>
+<LIEN cidtexte="JORFTEXT000000441044" datesignatexte="2004-10-21" id="LEGIARTI000006235407" naturetexte="DECRET" nortexte="SOCA0422170D" num="4" numtexte="2004-1136" sens="source" typelien="ABROGATION">Décret n°2004-1136 du 21 octobre 2004 - art. 4 (V)</LIEN>
+</LIENS>
+</ARTICLE>

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ARTICLE>
+<META>
+<META_COMMUN>
+<ID>LEGIARTI000024586529</ID>
+<ANCIEN_ID/>
+<ORIGINE>LEGI</ORIGINE>
+<URL>article/LEGI/ARTI/00/00/24/58/65/LEGIARTI000024586529.xml</URL>
+<NATURE>Article</NATURE>
+</META_COMMUN>
+<META_SPEC>
+<META_ARTICLE>
+
+<NUM>2</NUM>
+
+<ETAT/>
+
+<DATE_DEBUT>2999-01-01</DATE_DEBUT>
+<DATE_FIN>2999-01-01</DATE_FIN>
+
+
+
+<TYPE>ENTIEREMENT_MODIF</TYPE>
+</META_ARTICLE>
+</META_SPEC>
+</META>
+<CONTEXTE>
+<TEXTE autorite="" cid="JORFTEXT000024583863" date_publi="2011-09-24" date_signature="2011-09-22" ministere="Ministère de l'agriculture, de l'alimentation, de la pêche, de la ruralité et de l'aménagement du territoire" nature="DECRET" nor="AGRT1109610D" num="2011-1168" num_parution_jo="0222">
+<TITRE_TXT c_titre_court="Décret n°2011-1168 du 22 septembre 2011" debut="2999-01-01" fin="2999-01-01" id_txt="JORFTEXT000024583863">Décret n° 2011-1168 du 22 septembre 2011 relatif à l'appellation d'origine contrôlée « Seyssel »</TITRE_TXT>
+<TITRE_TXT c_titre_court="Décret n°2011-1168&#10; du 22 septembre 2011" debut="2011-09-25" fin="2999-01-01" id_txt="LEGITEXT000024586520">Décret n° 2011-1168 du 22 septembre 2011 relatif à l'appellation d'origine contrôlée « Seyssel »</TITRE_TXT>
+</TEXTE>
+</CONTEXTE>
+<VERSIONS>
+<VERSION etat="">
+<LIEN_ART debut="2999-01-01" etat="" fin="2999-01-01" id="LEGIARTI000024586529" num="2" origine="LEGI"/>
+</VERSION>
+<VERSION etat="">
+<LIEN_ART debut="2999-01-01" etat="" fin="2999-01-01" id="JORFARTI000024583871" num="2" origine="JORF"/>
+</VERSION>
+</VERSIONS>
+<NOTA>
+<CONTENU/>
+</NOTA>
+<BLOC_TEXTUEL>
+<CONTENU>
+<br/>A modifié les dispositions suivantes :<blockquote>- Décret n°2009-1306 du 27 octobre 2009<blockquote>
+  Art. 1,   Art. AOC "Seyssel"
+</blockquote>
+</blockquote>
+<br/>
+</CONTENU>
+</BLOC_TEXTUEL>
+<LIENS>
+<LIEN cidtexte="JORFTEXT000021204681" datesignatexte="2009-10-27" id="LEGIARTI000024596884" naturetexte="DECRET" nortexte="AGRT0912391D" num="1" numtexte="2009-1306" sens="source" typelien="MODIFIE">Décret n°2009-1306 - art. 1 (V)</LIEN>
+<LIEN cidtexte="JORFTEXT000021204681" datesignatexte="2009-10-27" id="LEGIARTI000021207410" naturetexte="DECRET" nortexte="AGRT0912391D" num="AOC &quot;Seyssel&quot;" numtexte="2009-1306" sens="source" typelien="ABROGE">Décret n°2009-1306 - art. AOC "Seyssel" (Ab)</LIEN>
+</LIENS>
+</ARTICLE>
