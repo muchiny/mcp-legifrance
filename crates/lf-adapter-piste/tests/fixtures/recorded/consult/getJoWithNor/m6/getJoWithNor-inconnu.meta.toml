@@ -1,0 +1,14 @@
+endpoint = "/consult/getJoWithNor"
+request = "{\"nor\":\"ZZZZ0000000Z\"}"
+env = "sandbox"
+captured_at = "2026-10-29T10:30:00Z"
+http_status = 400
+content_type = "application/json"
+elapsed_ms = 148
+bytes_raw = 151
+sha256_raw = "d4b2843e7e956a9671205d813ba943466c480b383d13c692d5070d071433e6c8"
+sha256_file = "d4b2843e7e956a9671205d813ba943466c480b383d13c692d5070d071433e6c8"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

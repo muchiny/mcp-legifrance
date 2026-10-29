@@ -1,0 +1,14 @@
+endpoint = "/consult/kaliContIdcc"
+request = "{\"id\":\"2121\"}"
+env = "sandbox"
+captured_at = "2026-10-29T10:30:01Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 158
+bytes_raw = 193137
+sha256_raw = "171759d6b428361eea53f87b56e0f694f4e9202b477a000999e8350bfad78acb"
+sha256_file = "171759d6b428361eea53f87b56e0f694f4e9202b477a000999e8350bfad78acb"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

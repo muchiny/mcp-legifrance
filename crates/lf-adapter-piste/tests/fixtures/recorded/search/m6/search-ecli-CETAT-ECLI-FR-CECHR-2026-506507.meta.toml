@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"CETAT\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"*\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"ECLI\",\"valeurs\":[\"ECLI:FR:CECHR:2026:506507.20260529\"]}],\"pageNumber\":1,\"pageSize\":10,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-10-29T10:29:57Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 417
+bytes_raw = 3932
+sha256_raw = "ec741c6d137a8430c11fd38853cf18cffd1e83ea1db44f113b5d9434ae35a59e"
+sha256_file = "ec741c6d137a8430c11fd38853cf18cffd1e83ea1db44f113b5d9434ae35a59e"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"
