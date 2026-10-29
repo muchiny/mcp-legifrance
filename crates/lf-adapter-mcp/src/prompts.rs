@@ -17,7 +17,7 @@
 //! poserait `ttlMs: 0` aux pairs modernes, et il n'y a pas de routeur à reconstruire pour trois
 //! textes fixes.
 
-use lf_application::{messages, tools::ToolName};
+use lf_application::messages;
 use lf_domain::id::DecisionId;
 use rmcp::{
     ErrorData,
@@ -127,7 +127,7 @@ fn no_arguments(arguments: &JsonObject) -> Result<(), ErrorData> {
 }
 
 /// L'argument `decision_id` d'`analyser_decision` : une chaîne, requise, reconnue comme un
-/// identifiant de décision (la validation de `fr_get_decision`, mêmes messages). Rend la forme
+/// identifiant de décision (la validation de `fr_get_decision`, sans recopier la valeur). Rend la forme
 /// normalisée, seule à entrer dans le texte du prompt.
 fn decision_id(arguments: &JsonObject) -> Result<DecisionId, ErrorData> {
     if arguments.keys().any(|key| key != DECISION_ID) {
@@ -142,9 +142,14 @@ fn decision_id(arguments: &JsonObject) -> Result<DecisionId, ErrorData> {
             )
         })?,
     };
-    DecisionId::parse(raw)
-        .map_err(|error| invalid(&messages::domain(ToolName::FR_GET_DECISION, &error)))
+    // Le message ne recopie pas la valeur : rmcp journalise toute erreur de handler, et un
+    // argument de prompt est du texte du client.
+    DecisionId::parse(raw).map_err(|_| ErrorData::invalid_params(NOT_A_DECISION_ID, None))
 }
+
+/// Refus d'un `decision_id` qui n'est pas un identifiant de décision, sans la valeur reçue.
+const NOT_A_DECISION_ID: &str = "decision_id is not a decision identifier: it must start with one \
+     of ('JURITEXT', 'CONSTEXT', 'CETATEXT') followed by digits.";
 
 /// Erreur `-32602` portant le message rédigé par `lf_application::messages`.
 fn invalid(error: &lf_application::error::AppError) -> ErrorData {
@@ -165,6 +170,7 @@ Cite la décision avec sa `citation`, son `ecli` s'il existe et son `source_url`
 
 #[cfg(test)]
 mod tests {
+    use lf_application::tools::ToolName;
     use pretty_assertions::assert_eq;
     use rmcp::model::ErrorCode;
     use serde_json::{Value, json};
@@ -369,12 +375,12 @@ mod tests {
             (Some(json!({})), "decision_id is required."),
             (Some(json!({"decision_id": 7})), "decision_id must be a string"),
             (Some(json!({"decision_id": null})), "decision_id must be a string"),
-            (Some(json!({"decision_id": "not-an-id"})), "decision_id='not-an-id'"),
+            (Some(json!({"decision_id": "not-an-id"})), "decision_id is not a decision identifier"),
             (
                 Some(json!({"decision_id": "LEGIARTI000006419288"})),
-                "decision_id='LEGIARTI000006419288'",
+                "decision_id is not a decision identifier",
             ),
-            (Some(json!({"decision_id": ""})), "decision_id"),
+            (Some(json!({"decision_id": ""})), "decision_id is not a decision identifier"),
             (Some(json!({"decision_id": ID, "extra": "x"})), "unexpected argument"),
             (Some(json!({"other": ID})), "unexpected argument"),
         ];
@@ -384,6 +390,10 @@ mod tests {
             assert_eq!(error.code, ErrorCode::INVALID_PARAMS, "{given:?}");
             assert!(error.message.contains(expected), "{given:?}: {}", error.message);
             assert_eq!(error.data, None);
+            // Jamais la valeur reçue : rmcp journalise l'erreur.
+            if let Some(Value::String(value)) = given.as_ref().and_then(|v| v.get("decision_id")) {
+                assert!(value.is_empty() || !error.message.contains(value.as_str()), "{given:?}");
+            }
         }
     }
 

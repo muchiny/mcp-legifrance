@@ -1020,12 +1020,13 @@ mod tests {
                     "legifrance://article/a b",
                     "",
                 ];
-                // `-32602` dans les deux ères, avec l'URI ; rien n'est exécuté ni audité.
+                // `-32602` dans les deux ères, sans recopier l'URI (texte libre du client, que rmcp
+                // journaliserait) ; rien n'est exécuté ni audité.
                 for (id, uri) in (2..).zip(outside_grammar) {
                     let response =
                         ask(&mut wire, id, "resources/read", read_params(uri), modern).await;
                     assert_eq!(response["error"]["code"], json!(-32602), "{uri:?}: {response}");
-                    assert_eq!(response["error"]["data"], json!({"uri": uri}), "{response}");
+                    assert!(response["error"].get("data").is_none(), "{uri:?}: {response}");
                     assert!(response.get("result").is_none(), "{response}");
                 }
                 // Une URI de plus de 512 octets n'est pas recopiée.

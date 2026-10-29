@@ -146,6 +146,14 @@ impl ResourceRef {
     }
 }
 
+/// Vrai si `uri` est dans la grammaire des resources : bien formée, avec ou sans gabarit connu.
+/// Seule une telle URI peut être recopiée dans une réponse d'erreur (`data.uri`) : une URI hors
+/// grammaire est du texte libre du client, qui ne doit pas atteindre les journaux.
+#[must_use]
+pub fn is_resource_uri(uri: &str) -> bool {
+    matches!(ResourceRef::parse(uri), Ok(_) | Err(AppError::NotFound { .. }))
+}
+
 /// `invalid_arg` d'une URI hors grammaire. Elle ne la recopie pas.
 fn malformed() -> AppError {
     AppError::invalid_argument(format!("uri is not a valid resource URI; use {TEMPLATES}."))
@@ -614,6 +622,31 @@ mod tests {
         }
         for not_plain in [".", "..", "a/b", "/", "a\u{0}", "a\n", "\u{7f}", "\u{85}"] {
             assert!(!is_plain(not_plain), "{not_plain:?}");
+        }
+    }
+
+    #[test]
+    fn only_a_uri_of_the_grammar_may_be_echoed() {
+        for uri in [
+            "legifrance://coverage",
+            "legifrance://article/LEGIARTI000006419288",
+            "legifrance://code/code-civil/article/L.%209",
+            // De la grammaire, sans gabarit : « introuvable ».
+            "legifrance://inconnue/x",
+        ] {
+            assert!(is_resource_uri(uri), "{uri}");
+        }
+        for uri in [
+            "",
+            "texte libre",
+            "https://example.org/x",
+            "legifrance://article/un texte",
+            "legifrance://article/é",
+            "legifrance://code/../article/9",
+            "legifrance://article/%2F",
+            &format!("legifrance://article/{}", "x".repeat(600)),
+        ] {
+            assert!(!is_resource_uri(uri), "{uri}");
         }
     }
 

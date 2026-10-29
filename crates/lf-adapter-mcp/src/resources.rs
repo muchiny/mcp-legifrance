@@ -18,6 +18,7 @@ use lf_application::{
     error::{AppError, ErrorCode},
     input::{ResourceInput, ToolCall},
     output::resource::{ResourceContent, ResourceKind, ResourceOutput},
+    usecase::resource::is_resource_uri,
 };
 use rmcp::{
     ErrorData,
@@ -29,10 +30,6 @@ use rmcp::{
 use serde_json::{Value, json};
 
 use crate::{canonical, views::coverage::CoverageView};
-
-/// Longueur maximale d'une URI reprise dans `data.uri`, en octets : celle que la grammaire
-/// accepte. Au-delà, l'URI est hors grammaire et n'est pas recopiée.
-const MAX_ECHOED_URI_BYTES: usize = 512;
 
 /// Description d'une resource ou d'un gabarit annoncé (05 §8.2).
 struct Entry {
@@ -145,9 +142,11 @@ pub(crate) fn contents(uri: &str, output: ResourceOutput) -> ReadResourceResult 
     ReadResourceResult::new(vec![ResourceContents::text(text, uri).with_mime_type(mime_type)])
 }
 
-/// L'erreur JSON-RPC d'une lecture refusée (05 §8.3).
+/// L'erreur JSON-RPC d'une lecture refusée (05 §8.3). `data.uri` ne recopie qu'une URI de la
+/// grammaire : rmcp journalise l'erreur entière, et une URI hors grammaire est du texte libre du
+/// client (jamais de texte de requête dans un journal).
 pub(crate) fn error(uri: &str, failure: &AppError) -> ErrorData {
-    let data = (uri.len() <= MAX_ECHOED_URI_BYTES).then(|| json!({ "uri": uri }));
+    let data = is_resource_uri(uri).then(|| json!({ "uri": uri }));
     match failure.code() {
         Some(ErrorCode::NotFound) => {
             ErrorData::resource_not_found(failure.message().to_owned(), data)
@@ -364,10 +363,27 @@ mod tests {
         let failure = messages::required("uri");
 
         assert_eq!(error(&uri, &failure).data, None);
-        // 512 octets exactement : encore recopiée.
-        let edge = format!("legifrance://article/{}", "x".repeat(MAX_ECHOED_URI_BYTES - 21));
-        assert_eq!(edge.len(), MAX_ECHOED_URI_BYTES);
+        // 512 octets exactement : la limite de la grammaire, encore recopiée.
+        let edge = format!("legifrance://article/{}", "x".repeat(512 - 21));
+        assert_eq!(edge.len(), 512);
         assert_eq!(error(&edge, &failure).data, Some(json!({"uri": edge})));
+    }
+
+    #[test]
+    fn a_uri_outside_the_grammar_is_never_echoed() {
+        let failure = messages::required("uri");
+
+        for uri in ["texte libre de la requete", "https://example.org/x", "legifrance://article/é"]
+        {
+            let error = error(uri, &failure);
+            assert_eq!(error.data, None, "{uri}");
+            assert!(!format!("{error:?}").contains("libre"), "{uri}");
+        }
+        // De la grammaire, même inconnue : recopiée (05 §8.3).
+        assert_eq!(
+            error("legifrance://inconnue/x", &failure).data,
+            Some(json!({"uri": "legifrance://inconnue/x"}))
+        );
     }
 
     #[test]

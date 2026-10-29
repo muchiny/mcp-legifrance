@@ -237,6 +237,11 @@ mod leaks {
         assert!(!id_line.contains(&secrets.client_id[..5]), "{id_line}");
     }
 
+    /// Une requête JSON-RPC `method` de paramètres `params`.
+    fn method(id: u64, method: &str, params: &Value) -> Value {
+        json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+    }
+
     /// §10, D-15 : une requête marquée n'apparaît pas dans stderr, même en `trace`, ni dans le
     /// journal d'audit (qui n'a que son empreinte), quelle que soit l'issue de l'appel : succès,
     /// servi par le cache, refus de l'amont, argument invalide, identifiants absents.
@@ -270,6 +275,21 @@ mod leaks {
                     &json!({"article_id": "LEGIARTI000006419288", "detail": "focus", "focus": marker}),
                 ))
                 .await;
+            // Resources, complétion et prompt : une URI hors grammaire, une valeur de complétion
+            // et un argument de prompt qui portent la marque. rmcp journalise toute erreur de
+            // handler avec son `data` : aucune ne doit la recopier.
+            let outside_grammar = format!("legifrance://article/{marker} x");
+            for (id, request) in [(6, json!({"uri": marker})), (7, json!({"uri": outside_grammar}))]
+            {
+                session.request(&method(id, "resources/read", &request)).await;
+            }
+            let completion = json!({
+                "ref": {"type": "ref/resource", "uri": "legifrance://code/{code}/article/{num}"},
+                "argument": {"name": "code", "value": marker},
+            });
+            session.request(&method(8, "completion/complete", &completion)).await;
+            let prompt = json!({"name": "analyser_decision", "arguments": {"decision_id": marker}});
+            session.request(&method(9, "prompts/get", &prompt)).await;
             let finished = session.finish().await;
             assert_eq!(finished.code(), Some(0), "{label}: stderr:\n{}", finished.stderr);
             assert!(!finished.stderr.is_empty(), "{label}: LF_LOG=trace logs nothing");
