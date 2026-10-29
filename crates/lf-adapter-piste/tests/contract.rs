@@ -1,11 +1,16 @@
 //! Suite de contrat du port `LegalCorpus` sur `PisteCorpus` (T-M3-05, 06 §2.3) : le vrai client
-//! HTTP de l'adapter parle à un `wiremock` qui sert les seize réponses de référence
-//! (`tests/fixtures/reference`) sur les mêmes cas que `FakeCorpus` et `CachedCorpus`.
+//! HTTP de l'adapter parle à un `wiremock` qui sert les réponses de référence
+//! (`tests/fixtures/reference`) et les fixtures enregistrées de M6 et M7
+//! (`tests/fixtures/recorded`) sur les mêmes cas que `FakeCorpus` et `CachedCorpus`, pour les
+//! douze opérations du port.
 //!
 //! Les cas sont ceux de `ContractFixtures::reference` : les identifiants des fixtures. Une
-//! consultation sert la fixture de son identifiant ; une recherche, celle de son fond ; tout autre
-//! identifiant reçoit la réponse que PISTE donne à un identifiant inconnu (400, enregistrée en
-//! sandbox), que l'adapter classe en `NotFound` (04 §11.2). Aucun réseau hors de la boucle locale.
+//! consultation sert la fixture de son identifiant ; une recherche, celle de son fond ou de son
+//! numéro ; tout autre identifiant reçoit la réponse que PISTE donne à un identifiant inconnu,
+//! enregistrée en sandbox : 400 pour les consultations (que l'adapter classe en `NotFound`, 04
+//! §11.2), 200 sans octet pour `canonicalArticleVersion`, 200 à enveloppe nulle pour
+//! `getArticleWithIdAndNum`, et 500 pour `relatedLinksArticle` (qui reste une erreur amont, 04
+//! §11.1). Aucun réseau hors de la boucle locale.
 //!
 //! Tout le fichier est sous `cfg(test)` : les aides partagent les règles de lint des tests
 //! (`unwrap` permis, `clippy.toml`).
@@ -17,10 +22,11 @@ mod contract {
     use lf_adapter_piste::{
         PisteConfig, PisteCorpus, PisteCredentials, PisteEndpoints, PisteTuning, RateQuota,
     };
-    use lf_application::contract::{ContractFixtures, corpus_contract_m5};
+    use lf_application::contract::{ContractFixtures, corpus_contract};
     use lf_domain::coverage::PisteEnvironment;
     use lf_domain::fond::Fond;
     use lf_domain::id::DecisionId;
+    use lf_domain::search::{NumberKind, NumberQuery};
     use secrecy::SecretString;
     use serde_json::{Value, json};
     use wiremock::matchers::{body_partial_json, method, path};
@@ -37,6 +43,48 @@ mod contract {
     const CONSULT_CNIL: &[u8] = include_bytes!("fixtures/reference/consult_cnil.json");
     const CONSULT_KALI: &[u8] = include_bytes!("fixtures/reference/consult_kali.json");
     const CONSULT_ACCO: &[u8] = include_bytes!("fixtures/reference/consult_acco.json");
+
+    // M6 : fixtures enregistrées en sandbox (étape I-R).
+    const BY_NUMBER: &[u8] = include_bytes!(
+        "fixtures/recorded/consult/getArticleWithIdAndNum/m6/getArticleWithIdAndNum-code-civil-9.json"
+    );
+    const BY_NUMBER_UNKNOWN: &[u8] = include_bytes!(
+        "fixtures/recorded/consult/getArticleWithIdAndNum/m6/getArticleWithIdAndNum-numero-inconnu.json"
+    );
+    const EXACT_ARTICLE_9: &[u8] =
+        include_bytes!("fixtures/recorded/search/m6/search-exacte-num-article-9.json");
+    const ECLI_JURI: &[u8] = include_bytes!(
+        "fixtures/recorded/search/m6/search-ecli-JURI-ECLI-FR-CCASS-2025-C100399.json"
+    );
+    const ECLI_UNKNOWN: &[u8] =
+        include_bytes!("fixtures/recorded/search/m6/search-ecli-JURI-inconnu.json");
+    const IDCC_2121: &[u8] =
+        include_bytes!("fixtures/recorded/consult/kaliContIdcc/m6/kaliContIdcc-2121.json");
+    const LIST_CODE_1: &[u8] =
+        include_bytes!("fixtures/recorded/list/code/m6/list-code-page1.json");
+    const LIST_CODE_2: &[u8] =
+        include_bytes!("fixtures/recorded/list/code/m6/list-code-page2.json");
+
+    // M7 : idem.
+    const CANONICAL: &[u8] = include_bytes!(
+        "fixtures/recorded/search/canonicalArticleVersion/m7/canonicalArticleVersion-LEGIARTI000006419288.json"
+    );
+    const CANONICAL_UNKNOWN: &[u8] = include_bytes!(
+        "fixtures/recorded/search/canonicalArticleVersion/m7/canonicalArticleVersion-inconnu.json"
+    );
+    const RELATED: &[u8] = include_bytes!(
+        "fixtures/recorded/consult/relatedLinksArticle/m7/relatedLinksArticle-LEGIARTI000006419288.json"
+    );
+    const RELATED_UNKNOWN: &[u8] = include_bytes!(
+        "fixtures/recorded/consult/relatedLinksArticle/m7/relatedLinksArticle-inconnu.json"
+    );
+
+    /// L'ECLI dont la recherche est enregistrée ; tout autre ECLI du contrat reçoit la page vide.
+    const RECORDED_ECLI: &str = "ECLI:FR:CCASS:2025:C100399";
+
+    /// Une page de `/search` sans résultat, pour un numéro d'article qu'aucun code ne porte.
+    const NO_ARTICLE: &[u8] =
+        br#"{"executionTime":0,"results":[],"totalResultNumber":0,"typePagination":"ARTICLE"}"#;
 
     /// Réponse de `/search` du fond.
     fn search_fixture(fond: Fond) -> &'static [u8] {
@@ -75,12 +123,24 @@ mod contract {
             .await;
     }
 
-    /// Tout autre corps de `endpoint` reçoit le 400 d'un identifiant inconnu, moins prioritaire
-    /// que les fixtures.
-    async fn unknown(server: &MockServer, endpoint: &str, message: &'static str) {
+    /// Comme [`serve`], mais plus prioritaire que la fixture générale du fond : une recherche par
+    /// numéro ou par ECLI a le même `fond` qu'une recherche en texte libre.
+    async fn serve_first(server: &MockServer, request: Value, body: &'static [u8]) {
+        Mock::given(method("POST"))
+            .and(path(format!("{API_BASE}/search")))
+            .and(body_partial_json(request))
+            .respond_with(json_reply(200, body))
+            .with_priority(1)
+            .mount(server)
+            .await;
+    }
+
+    /// Tout autre corps de `endpoint` reçoit `status` et `body`, moins prioritaire que les
+    /// fixtures : la réponse de PISTE à un identifiant inconnu.
+    async fn fallback(server: &MockServer, endpoint: &str, status: u16, body: &'static [u8]) {
         Mock::given(method("POST"))
             .and(path(format!("{API_BASE}{endpoint}")))
-            .respond_with(json_reply(400, message.as_bytes()))
+            .respond_with(json_reply(status, body))
             .with_priority(10)
             .mount(server)
             .await;
@@ -91,7 +151,47 @@ mod contract {
     const UNKNOWN: &str = r#"{"error":400,"status":"Bad Request","message":"L'expression à valider est fausse.","errorCode":null}"#;
     const UNKNOWN_ACCO: &str = r#"{"error":400,"status":"Bad Request","message":"Le nombre de résultat retourné par le moteur de recherche n'est pas égal à 1.","errorCode":null}"#;
 
-    /// Serveur simulé : le jeton, les fixtures de `fx`, et le 400 pour tout le reste.
+    /// Requête de recherche exacte de l'article `num` (`find_article` à une date, recherche par
+    /// numéro d'article) : la forme se distingue d'une recherche en texte libre par son champ.
+    fn exact_article_request(num: &str) -> Value {
+        json!({
+            "fond": "CODE_DATE",
+            "recherche": {"champs": [{
+                "typeChamp": "NUM_ARTICLE",
+                "criteres": [{"typeRecherche": "EXACTE", "valeur": num}],
+            }]},
+        })
+    }
+
+    /// Requête de recherche d'un ECLI : la facette `ECLI`, à valeur exacte.
+    fn ecli_request(query: &NumberQuery) -> Value {
+        json!({
+            "fond": query.fond.api_name(),
+            "recherche": {"filtres": [{"facette": "ECLI", "valeurs": [query.value.as_str()]}]},
+        })
+    }
+
+    /// Les réponses d'une recherche par numéro (`find_by_number`) : celles de l'article partagent
+    /// la recherche exacte de `find_article`, montée à part ; un NOR inconnu reçoit le 400 général.
+    async fn serve_number(server: &MockServer, query: &NumberQuery) {
+        match query.kind {
+            NumberKind::Ecli => {
+                let page =
+                    if query.value.as_str() == RECORDED_ECLI { ECLI_JURI } else { ECLI_UNKNOWN };
+                serve_first(server, ecli_request(query), page).await;
+            }
+            NumberKind::Idcc => {
+                let request = json!({"id": query.value.as_str()});
+                serve(server, "/consult/kaliContIdcc", request, IDCC_2121).await;
+            }
+            // Aucune autre nature n'a de cas dans le contrat ; un cas ajouté sans fixture reçoit
+            // la réponse d'un inconnu, et la suite le dit.
+            _ => {}
+        }
+    }
+
+    /// Serveur simulé : le jeton, les fixtures de `fx`, et la réponse de PISTE à un inconnu pour
+    /// tout le reste.
     async fn piste_server(fx: &ContractFixtures) -> MockServer {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
@@ -124,15 +224,39 @@ mod contract {
         for endpoint in
             ["/consult/lawDecree", "/consult/getArticle", "/consult/juri", "/consult/cnil"]
         {
-            unknown(&server, endpoint, UNKNOWN).await;
+            fallback(&server, endpoint, 400, UNKNOWN.as_bytes()).await;
         }
-        unknown(&server, "/consult/kaliText", UNKNOWN).await;
-        unknown(&server, "/consult/acco", UNKNOWN_ACCO).await;
+        fallback(&server, "/consult/kaliText", 400, UNKNOWN.as_bytes()).await;
+        fallback(&server, "/consult/acco", 400, UNKNOWN_ACCO.as_bytes()).await;
+        serve_m6_m7(&server, fx).await;
         server
     }
 
+    /// Les réponses de M6 et M7 : `find_article` (par numéro, puis par recherche exacte),
+    /// `find_by_number`, la liste des codes en deux pages, les versions et les liens.
+    async fn serve_m6_m7(server: &MockServer, fx: &ContractFixtures) {
+        let by_number = json!({"id": fx.code.as_str(), "num": fx.article_num});
+        serve(server, "/consult/getArticleWithIdAndNum", by_number, BY_NUMBER).await;
+        serve_first(server, exact_article_request(&fx.article_num), EXACT_ARTICLE_9).await;
+        serve_first(server, exact_article_request(&fx.absent_article_num), NO_ARTICLE).await;
+        fallback(server, "/consult/getArticleWithIdAndNum", 200, BY_NUMBER_UNKNOWN).await;
+        for query in fx.numbers.iter().chain(&fx.absent_numbers) {
+            serve_number(server, query).await;
+        }
+        fallback(server, "/consult/getJoWithNor", 400, UNKNOWN.as_bytes()).await;
+        serve(server, "/list/code", json!({"pageNumber": 1}), LIST_CODE_1).await;
+        serve(server, "/list/code", json!({"pageNumber": 2}), LIST_CODE_2).await;
+        let versions = json!({"id": fx.article.as_str()});
+        serve(server, "/search/canonicalArticleVersion", versions, CANONICAL).await;
+        fallback(server, "/search/canonicalArticleVersion", 200, CANONICAL_UNKNOWN).await;
+        fallback(server, "/consult/getArticleByCid", 400, UNKNOWN.as_bytes()).await;
+        let related = json!({"articleId": fx.article.as_str()});
+        serve(server, "/consult/relatedLinksArticle", related, RELATED).await;
+        fallback(server, "/consult/relatedLinksArticle", 500, RELATED_UNKNOWN).await;
+    }
+
     /// `PisteCorpus` ordinaire (horloge et attente réelles) vers `server`, au débit maximal permis
-    /// pour que les 38 appels de la suite ne s'attendent pas.
+    /// pour que les 66 appels de la suite ne s'attendent pas.
     fn corpus_for(server: &MockServer) -> PisteCorpus {
         let uri = server.uri();
         let (endpoints, _warnings) = PisteEndpoints::with_overrides(
@@ -160,11 +284,11 @@ mod contract {
     }
 
     #[tokio::test]
-    async fn contract_on_piste_corpus_with_fixtures() {
+    async fn contract_on_piste_corpus() {
         let fx = ContractFixtures::reference();
         let server = piste_server(&fx).await;
         let corpus = corpus_for(&server);
-        corpus_contract_m5(&corpus, &fx).await;
+        corpus_contract(&corpus, &fx).await;
 
         // Les fixtures servies sont celles des identifiants demandés : aucun identifiant renvoyé
         // ne diffère et aucun résultat n'est écarté. Une partie des fixtures porte du mojibake, que
@@ -172,19 +296,40 @@ mod contract {
         let stats = corpus.stats();
         assert_eq!((stats.id_mismatch, stats.dropped_hits), (0, 0), "{stats:?}");
         assert!(stats.mojibake_repairs > 0, "the reference fixtures carry mojibake: {stats:?}");
-        // Un seul jeton pour toute la suite, puis exactement les appels de la suite : 16
-        // recherches, 7 décisions et 3 appels pour chacune des cinq autres consultations. Aucun
-        // appel de plus (ni N+1, ni URL lue dans une réponse).
+        // Un seul jeton pour toute la suite, puis exactement les appels de la suite, route par
+        // route. Aucun appel de plus (ni N+1, ni URL lue dans une réponse).
         let requests = server.received_requests().await.unwrap();
         let count = |route: &str| requests.iter().filter(|r| r.url.path() == route).count();
         assert_eq!(count(TOKEN_PATH), 1);
-        assert_eq!(count(&format!("{API_BASE}/search")), 16);
-        assert_eq!(count(&format!("{API_BASE}/consult/juri")), 7);
-        for endpoint in ["lawDecree", "getArticle", "cnil", "kaliText", "acco"]
-            .map(|name| format!("{API_BASE}/consult/{name}"))
-        {
-            assert_eq!(count(&endpoint), 3, "{endpoint}");
+        let routes = [
+            // 16 recherches ; `find_article` à une date : 2 lectures et 1 numéro absent, plus le
+            // numéro absent d'« aujourd'hui », qui retombe sur la recherche ; `find_by_number` :
+            // l'ECLI présent (2), l'article 9 (2) et l'ECLI absent (1).
+            ("/search", 16 + 4 + 5),
+            ("/consult/juri", 7),
+            // 3 pour la v0.1, plus 2 lectures de `find_article` à une date.
+            ("/consult/getArticle", 3 + 2),
+            ("/consult/lawDecree", 3),
+            ("/consult/cnil", 3),
+            ("/consult/kaliText", 3),
+            ("/consult/acco", 3),
+            // « Aujourd'hui » : 2 lectures et 1 numéro absent (200 à enveloppe nulle).
+            ("/consult/getArticleWithIdAndNum", 3),
+            // IDCC présent (2) ; NOR absent (1, 400 classé en liste vide).
+            ("/consult/kaliContIdcc", 2),
+            ("/consult/getJoWithNor", 1),
+            // La table des codes se charge en deux pages, une seule fois pour les deux lectures.
+            ("/list/code", 2),
+            // 2 lectures, plus l'article absent, qui retombe sur `getArticleByCid` (400).
+            ("/search/canonicalArticleVersion", 3),
+            ("/consult/getArticleByCid", 1),
+            // 2 lectures, plus l'article absent : 500, deux tentatives (04 §5.1).
+            ("/consult/relatedLinksArticle", 2 + 2),
+        ];
+        for (endpoint, expected) in routes {
+            assert_eq!(count(&format!("{API_BASE}{endpoint}")), expected, "{endpoint}");
         }
-        assert_eq!(requests.len(), 1 + 16 + 7 + 5 * 3);
+        let total = 1 + routes.iter().map(|(_, expected)| expected).sum::<usize>();
+        assert_eq!(requests.len(), total);
     }
 }
