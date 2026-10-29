@@ -7,7 +7,7 @@
 
 use crate::{
     date::{DateRange, VersionDate},
-    error::DomainError,
+    error::{DomainError, echo},
     fond::Fond,
 };
 
@@ -102,21 +102,31 @@ pub struct NumberValue(String);
 impl NumberValue {
     /// Valide `input` sans le modifier.
     ///
-    /// STUB(V0) → V2-08 : seule la longueur est contrôlée. Le jeu de caractères et l'erreur qui
-    /// l'accompagne (aucune variante de [`DomainError`] n'est encore dédiée) restent à écrire.
+    /// Le jeu de caractères est celui de l'annexe B §6.6 : lettres et chiffres ASCII, le point,
+    /// l'étoile, la barre oblique, les deux-points, le tiret bas, le tiret et l'espace. Il couvre les numéros de pourvoi (`24-13.470`), de décision
+    /// (`2025-1173 QPC`), de délibération, les NOR, les IDCC, les ECLI (`ECLI:FR:CCASS:2025:C100399`)
+    /// et les chemins ELI cités (`/eli/loi/2016/10/7/ECFI1524250L/jo/texte`), et exclut tout ce qui
+    /// ne sert qu'à fabriquer une requête (guillemets, barre oblique inverse, retours à la ligne,
+    /// caractères de contrôle, lettres accentuées).
     ///
     /// # Errors
     ///
     /// [`DomainError::EmptyQuery`] si `input` est vide, [`DomainError::QueryTooLong`] au-delà de
-    /// [`NUMBER_VALUE_MAX_CHARS`] caractères.
+    /// [`NUMBER_VALUE_MAX_CHARS`] caractères, puis [`DomainError::InvalidId`] (`expected` :
+    /// `number value`) pour un caractère hors du jeu : aucune variante de [`DomainError`] n'est
+    /// dédiée à cette faute, `InvalidId` en tient lieu.
     pub fn parse(input: &str) -> Result<Self, DomainError> {
-        // STUB(V0) → V2-08
         match input.chars().count() {
-            0 => Err(DomainError::EmptyQuery),
+            0 => return Err(DomainError::EmptyQuery),
             len if len > NUMBER_VALUE_MAX_CHARS => {
-                Err(DomainError::QueryTooLong { len, max: NUMBER_VALUE_MAX_CHARS })
+                return Err(DomainError::QueryTooLong { len, max: NUMBER_VALUE_MAX_CHARS });
             }
-            _ => Ok(Self(input.to_owned())),
+            _ => {}
+        }
+        if input.chars().all(is_number_char) {
+            Ok(Self(input.to_owned()))
+        } else {
+            Err(forbidden_character(input))
         }
     }
 
@@ -124,6 +134,17 @@ impl NumberValue {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// Vrai pour un caractère du jeu `[A-Za-z0-9.*/:_ -]` de l'annexe B §6.6.
+const fn is_number_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '.' | '*' | '/' | ':' | '_' | ' ' | '-')
+}
+
+/// Erreur d'un caractère hors du jeu : en un seul endroit, pour qu'une variante dédiée du domaine
+/// (demandée en `shared_requests`) la remplace sans toucher au reste.
+fn forbidden_character(input: &str) -> DomainError {
+    DomainError::InvalidId { input: echo(input), expected: "number value" }
 }
 
 /// Requête de recherche par numéro, entrée de `LegalCorpus::find_by_number`.
@@ -200,6 +221,7 @@ impl NumberQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::ECHO_MAX_CHARS;
     use pretty_assertions::assert_eq;
 
     fn at() -> VersionDate {
@@ -293,12 +315,114 @@ mod tests {
 
     #[test]
     fn value_length_is_one_to_128_characters() {
-        // STUB(V0) → V2-08 : le jeu de caractères est éprouvé là-bas.
         assert_eq!(NumberValue::parse(""), Err(DomainError::EmptyQuery));
         assert!(NumberValue::parse(&"9".repeat(NUMBER_VALUE_MAX_CHARS)).is_ok());
         assert_eq!(
             NumberValue::parse(&"9".repeat(NUMBER_VALUE_MAX_CHARS + 1)),
             Err(DomainError::QueryTooLong { len: 129, max: 128 })
         );
+    }
+
+    #[test]
+    fn value_length_is_checked_before_the_charset() {
+        // 129 lettres accentuées : la longueur l'emporte, comme pour la valeur ASCII de 129 « 9 ».
+        let accented = "é".repeat(NUMBER_VALUE_MAX_CHARS + 1);
+        assert_eq!(
+            NumberValue::parse(&accented),
+            Err(DomainError::QueryTooLong { len: 129, max: 128 })
+        );
+        // 128 lettres accentuées (256 octets) : la longueur se compte en caractères, puis le
+        // jeu de caractères refuse la valeur.
+        let accented = "é".repeat(NUMBER_VALUE_MAX_CHARS);
+        assert_eq!(NumberValue::parse(&accented), Err(forbidden_character(&accented)));
+    }
+
+    #[test]
+    fn value_charset_covers_the_numbers_of_annex_b_6_6() {
+        for accepted in [
+            "24-13.470",
+            "2025-1173 QPC",
+            "SAN-2026-002",
+            "2121",
+            "ECFI1524250L",
+            "ECLI:FR:CCASS:2025:C100399",
+            "/eli/loi/2016/10/7/ECFI1524250L/jo/texte",
+            "L1242-2",
+            "R. 4624-31",
+            "a_b",
+            "*",
+        ] {
+            assert_eq!(value(accepted).as_str(), accepted, "{accepted:?}");
+        }
+    }
+
+    #[test]
+    fn value_charset_refuses_everything_else() {
+        for refused in [
+            "é",
+            "24-13,470",
+            "a\"b",
+            "a\\b",
+            "a\nb",
+            "a\tb",
+            "a\0b",
+            "a;b",
+            "a<b>",
+            "a(b)",
+            "a%20b",
+            "a\u{a0}b",
+            "a\u{2011}b",
+            "ａ",
+            "12\u{200b}",
+        ] {
+            assert_eq!(
+                NumberValue::parse(refused),
+                Err(DomainError::InvalidId { input: refused.to_owned(), expected: "number value" }),
+                "{refused:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_refused_value_is_echoed_truncated() {
+        let long = format!("{}!", "9".repeat(100));
+        assert_eq!(
+            NumberValue::parse(&long),
+            Err(DomainError::InvalidId {
+                input: format!("{}…", "9".repeat(ECHO_MAX_CHARS)),
+                expected: "number value"
+            })
+        );
+    }
+
+    #[test]
+    fn number_kind_not_applicable() {
+        // Les 13 couples autorisés sont fixés par `exactly_thirteen_fond_and_kind_pairs_are_allowed` ;
+        // les 59 autres (8 fonds x 9 natures = 72) sont refusés par `NumberQuery::new`, avec le nom
+        // de la nature tel que le message d'erreur le cite.
+        let mut refused = 0;
+        for fond in Fond::ALL {
+            for kind in NumberKind::ALL {
+                let result = NumberQuery::new(fond, kind, value("275"), at());
+                if kind.applies_to(fond) {
+                    assert!(result.is_ok(), "{fond} {kind:?}");
+                } else {
+                    refused += 1;
+                    assert_eq!(
+                        result,
+                        Err(DomainError::NumberKindNotApplicable { fond, kind: kind.as_str() }),
+                        "{fond} {kind:?}"
+                    );
+                }
+            }
+        }
+        assert_eq!(refused, 59);
+    }
+
+    #[test]
+    fn a_refused_pair_names_the_kind_and_the_fond_in_the_message() {
+        let error = NumberQuery::new(Fond::Juri, NumberKind::Decision, value("2025-1173"), at())
+            .unwrap_err();
+        assert_eq!(error.to_string(), "decision is not a number kind of fond JURI");
     }
 }
