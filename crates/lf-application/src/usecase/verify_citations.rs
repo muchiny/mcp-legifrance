@@ -21,6 +21,7 @@ use crate::{
     budget::{ResponseBudget, bounded, estimate_chars, shrink_from_end},
     citation::{
         CitationCheck,
+        resolve::Proof,
         verify::{Run, verify_text},
     },
     deadline::Deadline,
@@ -29,7 +30,7 @@ use crate::{
     input::VerifyCitationsInput,
     messages,
     output::verify_citations::VerifyCitationsOutput,
-    ports::{Clock, LegalCorpus, PisteEnvironment},
+    ports::{Clock, LegalCorpus},
     tools::ToolName,
 };
 
@@ -48,20 +49,16 @@ const ENTRY_FIXED_CHARS: usize = 40;
 pub(crate) struct VerifyCitationsUseCase<'a, C: LegalCorpus, K: Clock> {
     corpus: &'a C,
     clock: &'a K,
-    env: PisteEnvironment,
+    proof: Proof,
     deadline: Duration,
 }
 
 impl<'a, C: LegalCorpus, K: Clock> VerifyCitationsUseCase<'a, C, K> {
-    /// `env` est l'environnement PISTE, `deadline` l'échéance de l'outil, repli quand aucune
-    /// échéance n'est publiée par [`Audited`](crate::audited::Audited).
-    pub(crate) const fn new(
-        corpus: &'a C,
-        clock: &'a K,
-        env: PisteEnvironment,
-        deadline: Duration,
-    ) -> Self {
-        Self { corpus, clock, env, deadline }
+    /// `proof` est ce que prouve l'absence dans la source interrogée (production, bac à sable ou
+    /// instantané local), `deadline` l'échéance de l'outil, repli quand aucune échéance n'est
+    /// publiée par [`Audited`](crate::audited::Audited).
+    pub(crate) const fn new(corpus: &'a C, clock: &'a K, proof: Proof, deadline: Duration) -> Self {
+        Self { corpus, clock, proof, deadline }
     }
 
     /// Contrôle les citations de `input.text`.
@@ -94,7 +91,7 @@ impl<'a, C: LegalCorpus, K: Clock> VerifyCitationsUseCase<'a, C, K> {
         let today = VersionDate::try_from(self.clock.today_paris())
             .map_err(|_| AppError::config("the clock is outside the supported date range."))?;
         let run = Run {
-            env: self.env,
+            proof: self.proof,
             today,
             remaining: Deadline::current_or(self.deadline),
             max_citations,
@@ -154,7 +151,7 @@ mod tests {
         audited::AuditMetric,
         citation::CheckStatus,
         error::ErrorCode,
-        ports::CorpusError,
+        ports::{CorpusError, PisteEnvironment},
         testing::{FakeCorpus, FixedClock},
     };
     use chrono::{TimeZone, Utc};
@@ -209,7 +206,7 @@ mod tests {
     ) -> Result<VerifyCitationsOutput, AppError> {
         let clock = clock();
         let input = VerifyCitationsInput { text: text.map(str::to_owned), max_citations };
-        VerifyCitationsUseCase::new(corpus, &clock, env, Duration::from_secs(60))
+        VerifyCitationsUseCase::new(corpus, &clock, Proof::of(env, false), Duration::from_secs(60))
             .execute(input)
             .await
     }

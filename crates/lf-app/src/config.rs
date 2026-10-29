@@ -936,7 +936,14 @@ pub(crate) fn load(env: &impl EnvSource) -> Loaded {
         audit,
         tool_deadline,
         log_filter,
-        configuration: ConfigurationState { credentials_configured, custom_host, problems },
+        configuration: ConfigurationState {
+            credentials_configured,
+            custom_host,
+            problems,
+            // L'index local est un instantané : une absence n'y prouve rien et `fr_coverage` ne le
+            // présente pas comme du direct. Une source inutilisable ne sert aucun texte.
+            local_snapshot: matches!(source, CorpusSource::Dila(_)),
+        },
         source,
     };
     Loaded { config, notices: reader.notices, lines: reader.lines }
@@ -1086,7 +1093,8 @@ mod tests {
             ConfigurationState {
                 credentials_configured: true,
                 custom_host: false,
-                problems: Vec::new()
+                problems: Vec::new(),
+                local_snapshot: false
             }
         );
     }
@@ -1754,6 +1762,8 @@ mod tests {
         assert!(local.is_valid());
         assert!(local.config.configuration.credentials_configured);
         assert_eq!(local.config.configuration.problems, Vec::<String>::new());
+        // L'index local est un instantané ; PISTE, même avec des identifiants, n'en est pas un.
+        assert!(local.config.configuration.local_snapshot);
         // La ligne de `check-config` vient après les quatorze autres, et seulement si définie.
         assert_eq!(local.lines.len(), 15);
         let shown = local.lines.last().unwrap();
@@ -1764,6 +1774,7 @@ mod tests {
         // Le choix explicite l'emporte sur des identifiants PISTE valides.
         let both = with_credentials(&[(DILA_DIR, dir.as_str())]);
         assert_eq!(both.config.source, CorpusSource::Dila(abs("index")));
+        assert!(both.config.configuration.local_snapshot);
         // `~/` en tête développé avec le répertoire personnel.
         let tilde = loaded(&[(DILA_DIR, "~/index")]);
         assert_eq!(tilde.config.source, CorpusSource::Dila(abs("home").join("index")));
@@ -1793,6 +1804,8 @@ mod tests {
             ["LF_DILA_DIR must be an absolute path".to_owned()]
         );
         assert_eq!(line(&relative, DILA_DIR).state, LineState::Problem);
+        // Une source inutilisable ne sert aucun texte : ce n'est pas un instantané.
+        assert!(!relative.config.configuration.local_snapshot);
         assert_eq!(line(&relative, DILA_DIR).value, "(unusable)");
         assert!(!format!("{relative:?}").contains("LEAK"));
         // Sans identifiants non plus, aucune notice sur PISTE : il n'est pas employé.

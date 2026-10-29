@@ -18,6 +18,10 @@ use crate::{
 /// partie, d'où la lacune FR-007).
 const SERVED: [Fond; 8] = Fond::ALL;
 
+/// Fonds que sert l'instantané local de l'index DILA : LEGI seul, les codes et les textes
+/// consolidés. Décisions, délibérations CNIL, conventions et accords n'y sont pas.
+const SERVED_BY_SNAPSHOT: [Fond; 2] = [Fond::Loda, Fond::Code];
+
 /// Déclare ce que le serveur couvre, et ce qu'il ne couvre pas.
 pub(crate) struct CoverageUseCase<'a, K: Clock> {
     settings: &'a ServiceSettings,
@@ -36,13 +40,16 @@ impl<'a, K: Clock> CoverageUseCase<'a, K> {
     pub(crate) fn execute(&self, _input: &CoverageInput) -> CoverageOutput {
         let configuration = &self.settings.configuration;
         let environment = self.settings.policy.env;
+        let served: &[Fond] =
+            if configuration.local_snapshot { &SERVED_BY_SNAPSHOT } else { &SERVED };
         CoverageOutput {
-            coverage: coverage(environment, &configuration.facts(), &SERVED),
+            coverage: coverage(environment, &configuration.facts(), served),
             environment,
             configuration: CoverageConfiguration {
                 credentials_configured: configuration.credentials_configured,
                 audit_mode: self.settings.policy.mode,
                 problems: configuration.problems.clone(),
+                local_snapshot: configuration.local_snapshot,
             },
             consulted_on: self.clock.today_paris(),
         }
@@ -110,8 +117,27 @@ mod tests {
                 credentials_configured: true,
                 audit_mode: AuditMode::Strict,
                 problems: Vec::new(),
+                local_snapshot: false,
             }
         );
+    }
+
+    /// V4-02 : depuis l'index local DILA, la couverture ne se présente plus comme du direct. Elle
+    /// ne liste que les familles que l'instantané sert (LEGI), n'est jamais `ok` et dit pourquoi.
+    #[test]
+    fn a_local_snapshot_is_degraded_lists_only_legi_and_says_it_is_not_live() {
+        let configuration = ConfigurationState { local_snapshot: true, ..configured() };
+        let output = run(&settings(PisteEnvironment::Production, AuditMode::Strict, configuration));
+        assert_eq!(output.coverage.status(), CoverageStatus::Degraded);
+        assert_eq!(gap_ids(&output).last(), Some(&"FR-105"));
+        assert!(output.configuration.local_snapshot);
+        let names: Vec<&str> =
+            output.coverage.families().iter().map(|family| family.name.as_str()).collect();
+        assert_eq!(names, ["LODA", "CODE"]);
+        assert!(output.coverage.families().iter().all(|family| !family.live));
+        assert!(!output.coverage.as_of_note().contains("queried live against the source"));
+        // Le catalogue statique, lui, est inchangé.
+        assert_eq!(gap_ids(&output).len(), 10);
     }
 
     #[test]

@@ -29,14 +29,14 @@ use crate::{
     citation::{
         Candidate, CandidateKind, Note, ResolvedRecord,
         policy::MAX_CANDIDATES,
-        resolve::{CodeTable, Outcome, Resolver, needs_codes},
+        resolve::{CodeTable, Outcome, Proof, Resolver, needs_codes},
     },
     error::AppError,
     failure::port_failure,
     input::ResolveInput,
     messages,
     output::resolve::ResolveOutput,
-    ports::{Clock, LegalCorpus, PisteEnvironment},
+    ports::{Clock, LegalCorpus},
     tools::ToolName,
 };
 
@@ -49,14 +49,14 @@ pub(crate) const CITATION_MAX_CHARS: usize = 1_000;
 pub(crate) struct ResolveUseCase<'a, C: LegalCorpus, K: Clock> {
     corpus: &'a C,
     clock: &'a K,
-    env: PisteEnvironment,
+    proof: Proof,
 }
 
 impl<'a, C: LegalCorpus, K: Clock> ResolveUseCase<'a, C, K> {
-    /// `env` est l'environnement PISTE : en bac à sable, l'absence d'un enregistrement a la note
-    /// du bac à sable.
-    pub(crate) const fn new(corpus: &'a C, clock: &'a K, env: PisteEnvironment) -> Self {
-        Self { corpus, clock, env }
+    /// `proof` est ce que prouve l'absence dans la source interrogée : dans le bac à sable de PISTE
+    /// ou dans l'instantané local, l'absence d'un enregistrement a la note de cette source.
+    pub(crate) const fn new(corpus: &'a C, clock: &'a K, proof: Proof) -> Self {
+        Self { corpus, clock, proof }
     }
 
     /// Résout la première citation de `input.citation`.
@@ -98,7 +98,7 @@ impl<'a, C: LegalCorpus, K: Clock> ResolveUseCase<'a, C, K> {
         if let Outcome::Failed(error) = &outcome {
             return Err(port_failure(TOOL, "the citation", error));
         }
-        let mut notes: Vec<Note> = note_of(&outcome, self.env).into_iter().collect();
+        let mut notes: Vec<Note> = note_of(&outcome, self.proof).into_iter().collect();
         if !others.is_empty() {
             notes.push(Note::OtherCitations { count: others.len() });
         }
@@ -128,10 +128,10 @@ impl<'a, C: LegalCorpus, K: Clock> ResolveUseCase<'a, C, K> {
 
 /// Note de l'issue. Une liste de candidats non vide parle d'elle-même : la note « N records match;
 /// call `fr_resolve` » du moteur renverrait ici à l'outil en cours.
-fn note_of(outcome: &Outcome, env: PisteEnvironment) -> Option<Note> {
+fn note_of(outcome: &Outcome, proof: Proof) -> Option<Note> {
     match outcome {
         Outcome::Candidates { items, .. } if !items.is_empty() => None,
-        other => other.note(env),
+        other => other.note(proof),
     }
 }
 
@@ -165,7 +165,7 @@ mod tests {
     use super::*;
     use crate::{
         error::ErrorCode,
-        ports::{ArticleAt, CorpusError},
+        ports::{ArticleAt, CorpusError, PisteEnvironment},
         testing::{FakeCorpus, FixedClock, PortRequest},
     };
     use chrono::{TimeZone, Utc};
@@ -233,8 +233,16 @@ mod tests {
         env: PisteEnvironment,
         input: ResolveInput,
     ) -> Result<ResolveOutput, AppError> {
+        run_with(corpus, Proof::of(env, false), input).await
+    }
+
+    async fn run_with(
+        corpus: &FakeCorpus,
+        proof: Proof,
+        input: ResolveInput,
+    ) -> Result<ResolveOutput, AppError> {
         let clock = clock();
-        ResolveUseCase::new(corpus, &clock, env).execute(input).await
+        ResolveUseCase::new(corpus, &clock, proof).execute(input).await
     }
 
     async fn resolve(corpus: &FakeCorpus, citation: &str) -> ResolveOutput {
@@ -422,7 +430,7 @@ mod tests {
             Utc.with_ymd_and_hms(1400, 1, 1, 0, 0, 0).unwrap(),
             CivilDate::new(1400, 1, 1).unwrap(),
         );
-        let usecase = ResolveUseCase::new(&corpus, &clock, PisteEnvironment::Production);
+        let usecase = ResolveUseCase::new(&corpus, &clock, Proof::Production);
         let error = usecase.execute(input("art. 9 c. civ.", None)).await.unwrap_err();
         assert_eq!(error.message(), "the clock is outside the supported date range.");
         assert_eq!(error.code(), Some(ErrorCode::ConfigError));
@@ -478,6 +486,20 @@ mod tests {
                 .unwrap();
         assert_eq!(output.candidates, []);
         assert!(output.notes[0].text().contains("sandbox data differ from production"));
+
+        // Dans l'instantané local de l'index DILA, la note dit qu'il peut être périmé, sans parler
+        // de bac à sable : l'absence ne prouve rien.
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Err(not_found()));
+        let output = run_with(&corpus, Proof::Snapshot, input("article 9999 du code civil", None))
+            .await
+            .unwrap();
+        assert_eq!(output.candidates, []);
+        assert_eq!(
+            output.notes[0].text(),
+            "No article record matches Code civil, art. 9999 on 2026-10-29 in the local DILA \
+             snapshot, which may be out of date."
+        );
     }
 
     #[tokio::test]

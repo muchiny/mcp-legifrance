@@ -44,10 +44,15 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
         self.audited
             .run(meta, cancel, async {
                 let input = input.map_err(AppError::from)?;
-                let policy = &self.settings.policy;
-                VerifyCitationsUseCase::new(&self.corpus, &self.clock, policy.env, policy.deadline)
-                    .execute(input)
-                    .await
+                let settings = &self.settings;
+                VerifyCitationsUseCase::new(
+                    &self.corpus,
+                    &self.clock,
+                    settings.proof(),
+                    settings.policy.deadline,
+                )
+                .execute(input)
+                .await
             })
             .await
     }
@@ -87,6 +92,15 @@ mod tests {
         corpus: FakeCorpus,
         env: PisteEnvironment,
     ) -> (LegalService<FakeCorpus, SharedLog, FixedClock>, Arc<MemoryAuditLog>) {
+        rig_with(corpus, env, ConfigurationState::default())
+    }
+
+    /// Idem, avec l'état de configuration `configuration`.
+    fn rig_with(
+        corpus: FakeCorpus,
+        env: PisteEnvironment,
+        configuration: ConfigurationState,
+    ) -> (LegalService<FakeCorpus, SharedLog, FixedClock>, Arc<MemoryAuditLog>) {
         let audit = Arc::new(MemoryAuditLog::new());
         let settings = ServiceSettings {
             policy: AuditPolicy {
@@ -95,7 +109,7 @@ mod tests {
                 env,
                 server_version: "9.9.9",
             },
-            configuration: ConfigurationState::default(),
+            configuration,
             budget: ResponseBudget,
         };
         let now = Utc.with_ymd_and_hms(2026, 10, 29, 8, 30, 0).unwrap();
@@ -148,6 +162,26 @@ mod tests {
         let output =
             service.verify_citations(call("article 9999 du code civil"), pending()).await.unwrap();
         assert_eq!(output.citations[0].status, CheckStatus::Unresolvable);
+    }
+
+    /// L'index local DILA se déclare `production` dans l'audit, mais son drapeau d'instantané fait
+    /// rendre `unresolvable` : un dump périmé ne prouve pas qu'un article n'existe pas (V4-02).
+    #[tokio::test]
+    async fn the_local_snapshot_flag_decides_unresolvable_even_when_declared_production() {
+        let corpus = FakeCorpus::new();
+        civil_code_listed(&corpus);
+        corpus.push_find_article(Err(CorpusError::NotFound { what: "x".to_owned() }));
+        let configuration = ConfigurationState { local_snapshot: true, ..Default::default() };
+        let (service, audit) = rig_with(corpus, PisteEnvironment::Production, configuration);
+        let output =
+            service.verify_citations(call("article 9999 du code civil"), pending()).await.unwrap();
+        assert_eq!(output.citations[0].status, CheckStatus::Unresolvable);
+        assert!(
+            output.citations[0].note.as_ref().unwrap().text().contains("local DILA snapshot"),
+            "{:?}",
+            output.citations[0].note
+        );
+        assert_eq!(audit.records()[0].env, PisteEnvironment::Production);
     }
 
     #[tokio::test]

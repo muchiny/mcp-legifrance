@@ -140,10 +140,14 @@ impl Coverage {
     }
 }
 
-/// Ce que la configuration du processus apprend à la couverture (03 §4.8) : trois faits, sans
+/// Ce que la configuration du processus apprend à la couverture (03 §4.8) : quatre faits, sans
 /// secret ni phrase. La liste des problèmes détectés reste dans `lf-application`
 /// (`ConfigurationState`) et n'entre pas dans le domaine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "quatre faits indépendants, chacun donnant sa lacune FR-102 à FR-105 : aucune machine à états ne les range"
+)]
 pub struct ConfigFacts {
     /// Les identifiants PISTE sont présents (FR-102 sinon).
     pub credentials_configured: bool,
@@ -151,16 +155,32 @@ pub struct ConfigFacts {
     pub custom_host: bool,
     /// Au moins un problème de configuration est détecté, mode dégradé compris (FR-104).
     pub has_problems: bool,
+    /// La source des textes est l'instantané local de l'index DILA (LEGI seul), non PISTE en
+    /// direct (FR-105) : la couverture le dit, et son statut n'est jamais `Ok`.
+    pub local_snapshot: bool,
 }
 
 /// Source des données de chaque famille (`SOURCE`, `coverage.py:57`).
 pub const SOURCE: &str = "legifrance.gouv.fr via the PISTE API";
+
+/// Source des données de chaque famille quand la source des textes est l'index local DILA
+/// ([`ConfigFacts::local_snapshot`]) : un instantané des dumps LEGI, pas une interrogation en
+/// direct de PISTE.
+pub const SNAPSHOT_SOURCE: &str =
+    "local snapshot of the DILA LEGI dumps (laws, decrees and codes), not queried live";
 
 /// Ce que signifient, et ne garantissent pas, les dates (`AS_OF_NOTE`, `coverage.py:59-63`) :
 /// la valeur `as_of_note` de `fr_coverage` (05 §5.8), mot pour mot.
 pub const AS_OF_NOTE: &str = "Data is queried live against the source, so there is no local snapshot date. \
 Any date on a record states when the source published it - not that this connector verified the \
 text is still in force today.";
+
+/// Ce que signifient, et ne garantissent pas, les dates quand la source est l'index local DILA :
+/// la valeur `as_of_note` de `fr_coverage` en mode instantané. Elle ne dit plus « interrogé en
+/// direct » : le dump peut être périmé, et sa date n'est pas rendue.
+pub const SNAPSHOT_AS_OF_NOTE: &str = "Data comes from a local snapshot of the DILA LEGI dumps, not from a live query: texts published or \
+amended after the dump are missing, and the dump date is not reported. Any date on a record states \
+when the source published it - not that this connector verified the text is still in force today.";
 
 /// Texte d'une lacune du catalogue (05 §5.8) : `fond` est le fond concerné, `None` quand elle
 /// vaut pour le connecteur entier.
@@ -275,36 +295,48 @@ const INVALID_CONFIG_GAP: GapText = GapText {
     fallback: "Fix the variables listed in configuration.problems; run mcp-legifrance check-config.",
 };
 
-/// Famille d'un fond servi : le nom du fond, sans outil (hors du domaine), interrogée en direct.
-fn family_of(fond: Fond) -> CoverageFamily {
+/// FR-105 : source locale, un instantané des dumps LEGI (index DILA, M9, V-180).
+const LOCAL_SNAPSHOT_GAP: GapText = GapText {
+    id: "FR-105",
+    fond: None,
+    missing: "Texts come from a local snapshot of the DILA LEGI dumps (laws, decrees and codes only), not from a live query: it may be out of date, and case law, CNIL deliberations and collective or company agreements are not in it.",
+    fallback: "Treat an absence as unproven; unset LF_DILA_DIR to query Légifrance live.",
+};
+
+/// Famille d'un fond servi : le nom du fond, sans outil (hors du domaine). Interrogée en direct,
+/// sauf depuis l'instantané local, qui n'a pas de date de capture rendue.
+fn family_of(fond: Fond, local_snapshot: bool) -> CoverageFamily {
     CoverageFamily {
         name: fond.name().to_owned(),
         tool: String::new(),
-        source: SOURCE.to_owned(),
+        source: if local_snapshot { SNAPSHOT_SOURCE } else { SOURCE }.to_owned(),
         captured_at: None,
-        live: true,
+        live: !local_snapshot,
     }
 }
 
 /// Couverture déclarée du connecteur pour un environnement, une configuration et les fonds
 /// servis (03 §4.8, 05 §5.8).
 ///
-/// - **Statut** : `Ok` si les identifiants sont présents et qu'aucun problème n'est détecté,
-///   `Degraded` sinon ; `Failed` n'est jamais produit en v0.x. Un hôte personnalisé est un
+/// - **Statut** : `Ok` si les identifiants sont présents, qu'aucun problème n'est détecté et que
+///   la source est PISTE en direct, `Degraded` sinon (l'instantané local ne couvre que LEGI et
+///   peut être périmé) ; `Failed` n'est jamais produit en v0.x. Un hôte personnalisé est un
 ///   avertissement, pas un problème : il donne FR-103 sans changer le statut.
-/// - **Familles** : une par fond de `served`, dans l'ordre reçu, sans doublon.
+/// - **Familles** : une par fond de `served`, dans l'ordre reçu, sans doublon. Interrogées en
+///   direct (`SOURCE`), sauf depuis l'instantané local (`SNAPSHOT_SOURCE`, `live: false`).
+/// - **Note de date** : `AS_OF_NOTE`, ou `SNAPSHOT_AS_OF_NOTE` depuis l'instantané local.
 /// - **Lacunes** : le catalogue FR-001 à FR-009, puis les lacunes calculées dans l'ordre FR-101
-///   (bac à sable), FR-102 (identifiants absents), FR-103 (hôte personnalisé) et FR-104
-///   (problème de configuration). Jamais vide.
+///   (bac à sable), FR-102 (identifiants absents), FR-103 (hôte personnalisé), FR-104 (problème
+///   de configuration) et FR-105 (instantané local, LEGI seul). Jamais vide.
 #[must_use]
 pub fn coverage(env: PisteEnvironment, facts: &ConfigFacts, served: &[Fond]) -> Coverage {
-    let healthy = facts.credentials_configured && !facts.has_problems;
+    let healthy = facts.credentials_configured && !facts.has_problems && !facts.local_snapshot;
     let status = if healthy { CoverageStatus::Ok } else { CoverageStatus::Degraded };
 
     let mut families: Vec<CoverageFamily> = Vec::with_capacity(served.len());
     for &fond in served {
         if families.iter().all(|family| family.name != fond.name()) {
-            families.push(family_of(fond));
+            families.push(family_of(fond, facts.local_snapshot));
         }
     }
 
@@ -313,6 +345,7 @@ pub fn coverage(env: PisteEnvironment, facts: &ConfigFacts, served: &[Fond]) -> 
         (!facts.credentials_configured, &NO_CREDENTIALS_GAP),
         (facts.custom_host, &CUSTOM_HOST_GAP),
         (facts.has_problems, &INVALID_CONFIG_GAP),
+        (facts.local_snapshot, &LOCAL_SNAPSHOT_GAP),
     ];
     let known_gaps = STATIC_GAPS
         .iter()
@@ -320,8 +353,10 @@ pub fn coverage(env: PisteEnvironment, facts: &ConfigFacts, served: &[Fond]) -> 
         .map(GapText::to_gap)
         .collect();
 
+    let as_of_note = if facts.local_snapshot { SNAPSHOT_AS_OF_NOTE } else { AS_OF_NOTE };
+
     // Construction directe : le catalogue statique n'est jamais vide (test `gaps_never_empty`).
-    Coverage { status, as_of_note: AS_OF_NOTE.to_owned(), families, known_gaps }
+    Coverage { status, as_of_note: as_of_note.to_owned(), families, known_gaps }
 }
 
 #[cfg(test)]
@@ -384,29 +419,37 @@ mod tests {
 
     #[test]
     fn config_facts_are_plain_copyable_values() {
-        let facts =
-            ConfigFacts { credentials_configured: true, custom_host: false, has_problems: false };
+        let facts = HEALTHY;
         let copy = facts; // `facts` reste employable : le test cesse de compiler sans `Copy`
         assert_eq!(facts, copy);
         assert_ne!(facts, ConfigFacts { custom_host: true, ..facts });
+        assert_ne!(facts, ConfigFacts { local_snapshot: true, ..facts });
         assert!(format!("{facts:?}").contains("credentials_configured: true"));
     }
 
-    /// Configuration saine : identifiants présents, ni hôte personnalisé ni problème.
-    const HEALTHY: ConfigFacts =
-        ConfigFacts { credentials_configured: true, custom_host: false, has_problems: false };
+    /// Configuration saine : identifiants présents, ni hôte personnalisé, ni problème, PISTE en
+    /// direct.
+    const HEALTHY: ConfigFacts = ConfigFacts {
+        credentials_configured: true,
+        custom_host: false,
+        has_problems: false,
+        local_snapshot: false,
+    };
 
-    /// Les huit combinaisons de faits de configuration.
+    /// Les seize combinaisons de faits de configuration.
     fn all_facts() -> Vec<ConfigFacts> {
         let flags = [false, true];
         flags
             .into_iter()
             .flat_map(|credentials_configured| {
                 flags.into_iter().flat_map(move |custom_host| {
-                    flags.into_iter().map(move |has_problems| ConfigFacts {
-                        credentials_configured,
-                        custom_host,
-                        has_problems,
+                    flags.into_iter().flat_map(move |has_problems| {
+                        flags.into_iter().map(move |local_snapshot| ConfigFacts {
+                            credentials_configured,
+                            custom_host,
+                            has_problems,
+                            local_snapshot,
+                        })
                     })
                 })
             })
@@ -435,12 +478,18 @@ mod tests {
                 for served in served_sets {
                     let c = coverage(env, &facts, served);
                     assert!(!c.known_gaps().is_empty(), "{env:?} {facts:?}");
-                    assert_eq!(c.as_of_note(), AS_OF_NOTE);
+                    let (note, source) = if facts.local_snapshot {
+                        (SNAPSHOT_AS_OF_NOTE, SNAPSHOT_SOURCE)
+                    } else {
+                        (AS_OF_NOTE, SOURCE)
+                    };
+                    assert_eq!(c.as_of_note(), note);
                     // `Failed` est une énumération de parité, jamais produite en v0.x.
                     assert_ne!(c.status(), CoverageStatus::Failed);
-                    // Interrogation en direct : pas de date de capture.
-                    assert!(c.families().iter().all(|f| f.live && f.captured_at.is_none()));
-                    assert!(c.families().iter().all(|f| f.source == SOURCE));
+                    // Jamais de date de capture ; en direct, sauf depuis l'instantané local.
+                    assert!(c.families().iter().all(|f| f.captured_at.is_none()));
+                    assert!(c.families().iter().all(|f| f.live != facts.local_snapshot));
+                    assert!(c.families().iter().all(|f| f.source == source));
                     // Les identifiants de lacune sont uniques.
                     let unique: std::collections::HashSet<_> = ids(&c).into_iter().collect();
                     assert_eq!(unique.len(), c.known_gaps().len());
@@ -565,8 +614,7 @@ mod tests {
 
     #[test]
     fn coverage_degraded_without_credentials() {
-        let without =
-            ConfigFacts { credentials_configured: false, custom_host: false, has_problems: false };
+        let without = ConfigFacts { credentials_configured: false, ..HEALTHY };
         let c = coverage(PisteEnvironment::Production, &without, &Fond::ALL);
         assert_eq!(c.status(), CoverageStatus::Degraded);
         assert_eq!(ids(&c).last(), Some(&"FR-102"));
@@ -609,6 +657,42 @@ mod tests {
         assert!(gap_of(&c, "FR-103").missing.starts_with("A custom API host is configured"));
     }
 
+    /// FR-105 : depuis l'index local DILA, la couverture ne dit plus « PISTE en direct ». La source
+    /// et la note de date parlent d'un instantané, les familles ne sont plus en direct, une lacune
+    /// « instantané local, LEGI seul » apparaît et le statut n'est jamais `Ok`.
+    #[test]
+    fn coverage_from_the_local_snapshot_is_not_presented_as_live() {
+        let facts = ConfigFacts { local_snapshot: true, ..HEALTHY };
+        let c = coverage(PisteEnvironment::Production, &facts, &[Fond::Loda, Fond::Code]);
+        assert_eq!(c.status(), CoverageStatus::Degraded);
+        assert_eq!(c.as_of_note(), SNAPSHOT_AS_OF_NOTE);
+        assert!(!c.as_of_note().contains("queried live against the source"));
+        assert!(c.as_of_note().ends_with("is still in force today."));
+        assert_eq!(
+            SNAPSHOT_SOURCE,
+            "local snapshot of the DILA LEGI dumps (laws, decrees and codes), not queried live"
+        );
+        assert!(!SNAPSHOT_SOURCE.contains("PISTE"));
+        assert!(!SNAPSHOT_AS_OF_NOTE.contains("PISTE"));
+        let names: Vec<&str> = c.families().iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["LODA", "CODE"]);
+        assert!(c.families().iter().all(|f| !f.live && f.source == SNAPSHOT_SOURCE));
+        assert_eq!(ids(&c).last(), Some(&"FR-105"));
+        let gap = gap_of(&c, "FR-105");
+        assert_eq!(gap.family, "");
+        assert!(gap.missing.starts_with("Texts come from a local snapshot of the DILA LEGI dumps"));
+        assert!(gap.missing.contains("it may be out of date"));
+        assert_eq!(
+            gap.fallback,
+            "Treat an absence as unproven; unset LF_DILA_DIR to query Légifrance live."
+        );
+        // Sans instantané local, ni FR-105 ni changement de statut.
+        let live = coverage(PisteEnvironment::Production, &HEALTHY, &[Fond::Loda, Fond::Code]);
+        assert!(!ids(&live).contains(&"FR-105"));
+        assert_eq!(live.status(), CoverageStatus::Ok);
+        assert_eq!(live.as_of_note(), AS_OF_NOTE);
+    }
+
     #[test]
     fn coverage_lists_sandbox_gap() {
         // FR-101 : la sandbox est un avertissement (D-18), le statut reste `ok`.
@@ -626,10 +710,14 @@ mod tests {
 
     #[test]
     fn computed_gaps_follow_the_catalogue_in_id_order() {
-        let everything =
-            ConfigFacts { credentials_configured: false, custom_host: true, has_problems: true };
+        let everything = ConfigFacts {
+            credentials_configured: false,
+            custom_host: true,
+            has_problems: true,
+            local_snapshot: true,
+        };
         let c = coverage(PisteEnvironment::Sandbox, &everything, &Fond::ALL);
-        assert_eq!(&ids(&c)[9..], ["FR-101", "FR-102", "FR-103", "FR-104"]);
+        assert_eq!(&ids(&c)[9..], ["FR-101", "FR-102", "FR-103", "FR-104", "FR-105"]);
         assert_eq!(c.status(), CoverageStatus::Degraded);
     }
 
@@ -661,14 +749,16 @@ mod tests {
     }
 
     #[test]
-    fn status_follows_credentials_and_problems_only() {
+    fn status_follows_credentials_problems_and_the_local_snapshot_only() {
         for env in [PisteEnvironment::Sandbox, PisteEnvironment::Production] {
             for facts in all_facts() {
-                let wanted = if facts.credentials_configured && !facts.has_problems {
-                    CoverageStatus::Ok
-                } else {
-                    CoverageStatus::Degraded
-                };
+                let wanted =
+                    if facts.credentials_configured && !facts.has_problems && !facts.local_snapshot
+                    {
+                        CoverageStatus::Ok
+                    } else {
+                        CoverageStatus::Degraded
+                    };
                 assert_eq!(coverage(env, &facts, &Fond::ALL).status(), wanted, "{env:?} {facts:?}");
             }
         }

@@ -12,7 +12,8 @@
 //!   corpus. Une citation `LegifranceId` consulte l'identifiant tel quel.
 //! - **Pas d'absence sans preuve** (§7.2) : `Outcome::Absent` n'est rendu que si la table
 //!   `policy::POLICY` l'autorise pour la famille ; ailleurs, l'absence est
-//!   `Unresolvable`. En bac à sable, `Outcome::status` la rend `unresolvable` (jamais `not_found`).
+//!   `Unresolvable`. Dans une source qui ne prouve rien (bac à sable de PISTE, instantané local de
+//!   l'index DILA, voir [`Proof`]), `Outcome::status` la rend `unresolvable` (jamais `not_found`).
 //! - **Hors ligne d'abord** : `offline` tranche sans appel ce que les drapeaux, les ambiguïtés et
 //!   la résolvabilité du parseur permettent de trancher (N02, N20, N32…).
 //!
@@ -78,12 +79,12 @@ pub(crate) enum Outcome {
         /// Pourquoi.
         note: Note,
     },
-    /// Preuve d'absence réunie (§7.2) : `not_found` en production.
+    /// Preuve d'absence réunie (§7.2) : `not_found` quand la source la prouve (production).
     Absent {
         /// Note de production (`NotInForce`, `NoRecord`).
         prod: Note,
-        /// Note de bac à sable (`NotInSandbox`).
-        sandbox: Note,
+        /// Ce qui a été cherché en vain : sert les notes des sources qui ne prouvent rien.
+        miss: Miss,
     },
     /// Contrôle impossible, pour la raison de la note.
     Unresolvable {
@@ -94,15 +95,60 @@ pub(crate) enum Outcome {
     Failed(CorpusError),
 }
 
+/// Ce que prouve l'absence d'un enregistrement, selon la source interrogée (§7.2, §7.6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Proof {
+    /// PISTE en production, interrogée en direct : l'absence établit l'inexistence (`not_found`).
+    Production,
+    /// Bac à sable de PISTE : ses données diffèrent de la production (`unresolvable`).
+    Sandbox,
+    /// Index local DILA : un instantané peut être périmé, l'absence ne prouve rien
+    /// (`unresolvable`).
+    Snapshot,
+}
+
+impl Proof {
+    /// La source que désignent l'environnement de la politique d'audit et le drapeau d'instantané
+    /// local de la configuration. L'index local se déclare `production` dans l'audit : le drapeau
+    /// l'emporte, sinon un dump périmé ferait déclarer inexistant un texte récent.
+    pub(crate) const fn of(env: PisteEnvironment, local_snapshot: bool) -> Self {
+        match (local_snapshot, env) {
+            (true, _) => Self::Snapshot,
+            (false, PisteEnvironment::Production) => Self::Production,
+            (false, PisteEnvironment::Sandbox) => Self::Sandbox,
+        }
+    }
+}
+
+/// Ce qui a été cherché en vain : la famille (vocabulaire fermé), la valeur canonique et la date.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Miss {
+    family: &'static str,
+    value: String,
+    date: Option<VersionDate>,
+}
+
+impl Miss {
+    /// Note d'une absence constatée dans le bac à sable de PISTE.
+    fn in_sandbox(&self) -> Note {
+        Note::NotInSandbox { family: self.family, value: self.value.clone(), date: self.date }
+    }
+
+    /// Note d'une absence constatée dans l'instantané local.
+    fn in_snapshot(&self) -> Note {
+        Note::NotInSnapshot { family: self.family, value: self.value.clone(), date: self.date }
+    }
+}
+
 impl Outcome {
-    /// Statut rendu pour cette issue dans l'environnement `env` (§7.6) ; en bac à sable,
-    /// l'absence est `unresolvable`.
-    pub(crate) fn status(&self, env: PisteEnvironment) -> CheckStatus {
+    /// Statut rendu pour cette issue pour la source `proof` (§7.6) : une absence n'est `not_found`
+    /// que si la source la prouve, sinon elle est `unresolvable`.
+    pub(crate) fn status(&self, proof: Proof) -> CheckStatus {
         match self {
             Self::Verified { .. } => CheckStatus::Verified,
             Self::Mismatch { .. } | Self::Invalid { .. } => CheckStatus::Invalid,
             Self::Candidates { .. } => CheckStatus::Ambiguous,
-            Self::Absent { .. } if env == PisteEnvironment::Production => CheckStatus::NotFound,
+            Self::Absent { .. } if proof == Proof::Production => CheckStatus::NotFound,
             Self::Absent { .. } | Self::Unresolvable { .. } | Self::Failed(_) => {
                 CheckStatus::Unresolvable
             }
@@ -117,18 +163,18 @@ impl Outcome {
         }
     }
 
-    /// Note de l'issue dans l'environnement `env`.
-    pub(crate) fn note(&self, env: PisteEnvironment) -> Option<Note> {
+    /// Note de l'issue pour la source `proof`.
+    pub(crate) fn note(&self, proof: Proof) -> Option<Note> {
         match self {
             Self::Verified { note, .. } => note.clone(),
             Self::Mismatch { note, .. }
             | Self::Invalid { note }
             | Self::Candidates { note, .. }
             | Self::Unresolvable { note } => Some(note.clone()),
-            Self::Absent { prod, sandbox } => Some(if env == PisteEnvironment::Production {
-                prod.clone()
-            } else {
-                sandbox.clone()
+            Self::Absent { prod, miss } => Some(match proof {
+                Proof::Production => prod.clone(),
+                Proof::Sandbox => miss.in_sandbox(),
+                Proof::Snapshot => miss.in_snapshot(),
             }),
             Self::Failed(_) => Some(Note::NotChecked { reason: NotCheckedReason::Upstream }),
         }
@@ -478,7 +524,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         }
         let key = num.num_key();
         let prod = Note::NotInForce { code: label.to_owned(), num: key.clone(), date: at.date() };
-        let sandbox = Note::NotInSandbox {
+        let miss = Miss {
             family: "article",
             value: format!("{label}, art. {key}"),
             date: Some(at.date()),
@@ -487,15 +533,15 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         Resolution::of(Self::when_absent(
             family,
             prod,
-            sandbox,
+            miss,
             Note::CouldNotConfirm { index: "LODA" },
         ))
     }
 
     /// Issue d'une absence selon la table de la politique (§7.2).
-    fn when_absent(family: Family, prod: Note, sandbox: Note, fallback: Note) -> Outcome {
+    fn when_absent(family: Family, prod: Note, miss: Miss, fallback: Note) -> Outcome {
         match policy::absence(family) {
-            Absence::Allowed => Outcome::Absent { prod, sandbox },
+            Absence::Allowed => Outcome::Absent { prod, miss },
             Absence::AfterVerification | Absence::Never => Outcome::Unresolvable { note: fallback },
         }
     }
@@ -782,11 +828,11 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             Err(CorpusError::NotFound { .. }) => {
                 let prod =
                     Note::NoRecord { family: "identifier", value: label.clone(), date: None };
-                let sandbox = Note::NotInSandbox { family: "identifier", value: label, date: None };
+                let miss = Miss { family: "identifier", value: label, date: None };
                 Resolution::of(Self::when_absent(
                     Family::LegifranceId,
                     prod,
-                    sandbox,
+                    miss,
                     Note::CouldNotConfirm { index: "LEGI" },
                 ))
             }
@@ -1267,11 +1313,11 @@ mod tests {
     }
 
     fn status(resolution: &Resolution) -> CheckStatus {
-        resolution.outcome.status(PisteEnvironment::Production)
+        resolution.outcome.status(Proof::Production)
     }
 
     fn note(resolution: &Resolution) -> String {
-        resolution.outcome.note(PisteEnvironment::Production).map(|n| n.text()).unwrap_or_default()
+        resolution.outcome.note(Proof::Production).map(|n| n.text()).unwrap_or_default()
     }
 
     fn candidates_of(outcome: Outcome) -> Option<(Vec<Candidate>, Note)> {
@@ -1817,24 +1863,37 @@ mod tests {
     }
 
     #[test]
-    fn statuses_follow_the_environment_for_an_absence() {
+    fn statuses_follow_the_source_for_an_absence() {
         let absent = Outcome::Absent {
             prod: Note::NoRecord { family: "text", value: "1".to_owned(), date: None },
-            sandbox: Note::NotInSandbox { family: "text", value: "1".to_owned(), date: None },
+            miss: Miss { family: "text", value: "1".to_owned(), date: None },
         };
-        assert_eq!(absent.status(PisteEnvironment::Production), CheckStatus::NotFound);
-        assert_eq!(absent.status(PisteEnvironment::Sandbox), CheckStatus::Unresolvable);
+        // Seule la production prouve l'absence ; le bac à sable et l'instantané local ne prouvent rien.
+        assert_eq!(absent.status(Proof::Production), CheckStatus::NotFound);
+        assert_eq!(absent.status(Proof::Sandbox), CheckStatus::Unresolvable);
+        assert_eq!(absent.status(Proof::Snapshot), CheckStatus::Unresolvable);
+        assert_eq!(absent.note(Proof::Production).unwrap().text(), "No text record matches 1.");
         assert_eq!(
-            absent.note(PisteEnvironment::Production).unwrap().text(),
-            "No text record matches 1."
+            absent.note(Proof::Sandbox).unwrap().text(),
+            "No text record matches 1 in the PISTE sandbox; sandbox data differ from production."
         );
-        assert!(absent.note(PisteEnvironment::Sandbox).unwrap().text().contains("sandbox"));
+        assert_eq!(
+            absent.note(Proof::Snapshot).unwrap().text(),
+            "No text record matches 1 in the local DILA snapshot, which may be out of date."
+        );
         let failed = Outcome::Failed(upstream());
-        assert_eq!(failed.status(PisteEnvironment::Production), CheckStatus::Unresolvable);
-        assert_eq!(
-            failed.note(PisteEnvironment::Production).unwrap().text(),
-            "Not checked: upstream error."
-        );
+        assert_eq!(failed.status(Proof::Production), CheckStatus::Unresolvable);
+        assert_eq!(failed.note(Proof::Production).unwrap().text(), "Not checked: upstream error.");
         assert!(failed.record().is_none());
+    }
+
+    /// Le drapeau d'instantané local l'emporte sur l'environnement : l'index local se déclare
+    /// `production` dans l'audit, et c'est précisément pour cela que le drapeau existe.
+    #[test]
+    fn the_local_snapshot_flag_overrides_the_declared_environment() {
+        assert_eq!(Proof::of(PisteEnvironment::Production, false), Proof::Production);
+        assert_eq!(Proof::of(PisteEnvironment::Sandbox, false), Proof::Sandbox);
+        assert_eq!(Proof::of(PisteEnvironment::Production, true), Proof::Snapshot);
+        assert_eq!(Proof::of(PisteEnvironment::Sandbox, true), Proof::Snapshot);
     }
 }

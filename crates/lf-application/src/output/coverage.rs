@@ -21,6 +21,9 @@ pub struct CoverageConfiguration {
     pub audit_mode: AuditMode,
     /// Problèmes de configuration détectés, en phrases sans secret (vide si aucun).
     pub problems: Vec<String>,
+    /// La source des textes est l'instantané local de l'index DILA, non PISTE en direct : la vue
+    /// en tire la mention de la `source`.
+    pub local_snapshot: bool,
 }
 
 /// Ce que `CoverageUseCase` rend.
@@ -58,6 +61,7 @@ mod tests {
             credentials_configured: credentials,
             custom_host: false,
             has_problems: false,
+            local_snapshot: false,
         };
         CoverageOutput {
             coverage: coverage(env, &facts, &Fond::ALL),
@@ -66,6 +70,7 @@ mod tests {
                 credentials_configured: credentials,
                 audit_mode: AuditMode::Strict,
                 problems: Vec::new(),
+                local_snapshot: false,
             },
             consulted_on: CivilDate::new(2026, 10, 29).unwrap(),
         }

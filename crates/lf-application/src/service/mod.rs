@@ -20,6 +20,7 @@ use lf_domain::coverage::ConfigFacts;
 use crate::{
     audited::{AuditPolicy, Audited},
     budget::ResponseBudget,
+    citation::resolve::Proof,
     ports::{AuditLog, Clock, LegalCorpus},
     usecase::complete::CompleteGate,
 };
@@ -50,10 +51,17 @@ pub struct ConfigurationState {
     pub custom_host: bool,
     /// Problèmes de configuration détectés, mode dégradé compris (00 §1).
     pub problems: Vec<String>,
+    /// La source des textes est l'instantané local de l'index DILA (LEGI seul), non PISTE en
+    /// direct. Posé par `lf-app` quand `LF_DILA_DIR` choisit l'index local. Un dump peut être
+    /// périmé : une absence n'y prouve rien (`fr_verify_citations` rend `unresolvable`, jamais
+    /// `not_found`), et `fr_coverage` décrit la source comme un instantané. L'environnement de
+    /// l'audit reste celui d'un texte publié (`production`) : seul ce drapeau distingue l'index
+    /// local.
+    pub local_snapshot: bool,
 }
 
 impl ConfigurationState {
-    /// Les trois faits que le domaine lit pour calculer la couverture ; la liste des problèmes
+    /// Les quatre faits que le domaine lit pour calculer la couverture ; la liste des problèmes
     /// n'y entre pas.
     #[must_use]
     pub fn facts(&self) -> ConfigFacts {
@@ -61,6 +69,7 @@ impl ConfigurationState {
             credentials_configured: self.credentials_configured,
             custom_host: self.custom_host,
             has_problems: !self.problems.is_empty(),
+            local_snapshot: self.local_snapshot,
         }
     }
 }
@@ -75,6 +84,15 @@ pub struct ServiceSettings {
     pub configuration: ConfigurationState,
     /// Bornes de réponse.
     pub budget: ResponseBudget,
+}
+
+impl ServiceSettings {
+    /// Ce que prouve l'absence d'un enregistrement dans la source interrogée : l'environnement de
+    /// la politique, sauf pour l'instantané local, que seul le drapeau de la configuration
+    /// distingue.
+    pub(crate) const fn proof(&self) -> Proof {
+        Proof::of(self.policy.env, self.configuration.local_snapshot)
+    }
 }
 
 /// Façade des cas d'usage, partagée par `Arc` entre les tâches. Elle est `Send + Sync` parce que
@@ -134,22 +152,63 @@ mod tests {
         let ok = ConfigurationState { credentials_configured: true, ..Default::default() };
         assert_eq!(
             ok.facts(),
-            ConfigFacts { credentials_configured: true, custom_host: false, has_problems: false }
+            ConfigFacts {
+                credentials_configured: true,
+                custom_host: false,
+                has_problems: false,
+                local_snapshot: false
+            }
         );
         let degraded = ConfigurationState {
             credentials_configured: false,
             custom_host: true,
             problems: vec!["LF_PISTE_ENV is invalid".to_owned()],
+            local_snapshot: false,
         };
         assert_eq!(
             degraded.facts(),
-            ConfigFacts { credentials_configured: false, custom_host: true, has_problems: true }
+            ConfigFacts {
+                credentials_configured: false,
+                custom_host: true,
+                has_problems: true,
+                local_snapshot: false
+            }
         );
-        // Une configuration par défaut n'a ni identifiants ni problème.
+        let snapshot = ConfigurationState { local_snapshot: true, ..Default::default() };
+        assert_eq!(
+            snapshot.facts(),
+            ConfigFacts {
+                credentials_configured: false,
+                custom_host: false,
+                has_problems: false,
+                local_snapshot: true
+            }
+        );
+        // Une configuration par défaut n'a ni identifiants ni problème, et PISTE pour source.
         assert_eq!(
             ConfigurationState::default().facts(),
-            ConfigFacts { credentials_configured: false, custom_host: false, has_problems: false }
+            ConfigFacts {
+                credentials_configured: false,
+                custom_host: false,
+                has_problems: false,
+                local_snapshot: false
+            }
         );
+    }
+
+    /// Le drapeau d'instantané local l'emporte sur l'environnement de la politique, que l'index
+    /// local déclare `production` : sans lui, un dump périmé prouverait l'inexistence.
+    #[test]
+    fn the_proof_follows_the_environment_unless_the_source_is_a_local_snapshot() {
+        let proof = |env, local_snapshot| {
+            let mut settings =
+                settings(ConfigurationState { local_snapshot, ..Default::default() });
+            settings.policy.env = env;
+            settings.proof()
+        };
+        assert_eq!(proof(PisteEnvironment::Production, false), Proof::Production);
+        assert_eq!(proof(PisteEnvironment::Sandbox, false), Proof::Sandbox);
+        assert_eq!(proof(PisteEnvironment::Production, true), Proof::Snapshot);
     }
 
     #[test]

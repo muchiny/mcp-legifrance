@@ -32,11 +32,12 @@
 //!   (jurisprudence, CNIL, accords, JORF) n'y entrent pas, et aucune variable ne les admet.
 //! - **Environnement** (02 §8.5) : la source locale se déclare `production` dans l'audit et dans
 //!   `fr_coverage` (le bac à sable de PISTE n'y est pour rien), sans identifiants exigés.
-//!   **Limite connue** : cette déclaration fait aussi rendre `not_found` à `fr_verify_citations`
-//!   pour une absence de l'index, et `fr_coverage` décrit encore la source comme PISTE en direct.
-//!   Un instantané peut être périmé ; le correctif (un drapeau d'instantané lu par
-//!   `Outcome::status` et par la couverture) touche `lf-application` et `lf-domain`, hors de ce
-//!   fichier : reporté à la passe finale.
+//! - **Instantané** : un index local peut être périmé, et sa déclaration `production` ne dit pas
+//!   qu'il prouve une absence. Le drapeau `local_snapshot` de la configuration (posé à la lecture
+//!   de `LF_DILA_DIR`, voir `config.rs`) le dit à `lf-application` : `fr_verify_citations` et
+//!   `fr_resolve` rendent une absence `unresolvable`, jamais `not_found`, avec une note qui
+//!   parle de l'instantané ; `fr_coverage` décrit la source comme un instantané des dumps LEGI
+//!   (statut `degraded`, lacune FR-105, familles LODA et CODE seules), non comme du direct.
 //!
 //! [`run`] est la commande `serve` : stdin et stdout portent le JSON-RPC (stdout n'a pas d'autre
 //! usage), les journaux vont sur stderr. Le code de sortie est 0 à l'EOF de stdin et à l'arrêt
@@ -288,8 +289,9 @@ pub(crate) fn service_settings(config: &AppConfig) -> ServiceSettings {
 /// publiés (le bac à sable de PISTE ne s'y applique pas, et `PisteEnvironment` n'a pas de
 /// troisième valeur).
 ///
-/// Limite connue : `production` fait rendre `not_found` à une absence de l'index, qui est un
-/// instantané peut-être périmé (voir « Source locale DILA » en tête de ce fichier).
+/// `production` ne dit pas que l'index prouve une absence : le drapeau `local_snapshot` de la
+/// configuration, lu par `lf-application`, l'en empêche (voir « Source locale DILA » en tête de ce
+/// fichier).
 fn audit_environment(config: &AppConfig) -> PisteEnvironment {
     match config.source {
         CorpusSource::Dila(_) => PisteEnvironment::Production,
@@ -650,11 +652,21 @@ mod tests {
             ("LF_DILA_DIR", index.to_str().unwrap()),
         ]))
         .config;
+        assert!(service_settings(&bare).configuration.local_snapshot);
         let service = build(&bare);
         let output = service.coverage(coverage_call(), pending()).await.expect("fr_coverage");
-        assert_eq!(output.coverage.status(), lf_domain::coverage::CoverageStatus::Ok);
+        // Ni identifiants ni problème, mais un instantané n'est pas du direct : `degraded`, avec
+        // la lacune FR-105, les seules familles LEGI et une note de date qui ne dit pas « live ».
+        assert_eq!(output.coverage.status(), lf_domain::coverage::CoverageStatus::Degraded);
         assert_eq!(output.environment, PisteEnvironment::Production);
         assert_eq!(output.configuration.problems, Vec::<String>::new());
+        assert!(output.configuration.local_snapshot);
+        let gaps = output.coverage.known_gaps();
+        assert_eq!(gaps.last().map(|gap| gap.id.as_str()), Some("FR-105"));
+        let families: Vec<&str> =
+            output.coverage.families().iter().map(|family| family.name.as_str()).collect();
+        assert_eq!(families, ["LODA", "CODE"]);
+        assert!(!output.coverage.as_of_note().contains("queried live against the source"));
     }
 
     /// Un index absent ou sans document ne sert rien : ouvert tel quel, il répondrait « introuvable »

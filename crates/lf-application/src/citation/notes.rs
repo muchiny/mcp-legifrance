@@ -194,6 +194,16 @@ pub enum Note {
         /// Date de la recherche, s'il y en a une.
         date: Option<VersionDate>,
     },
+    /// Absence constatée dans l'index local DILA, un instantané peut-être périmé : `unresolvable`,
+    /// jamais `not_found`.
+    NotInSnapshot {
+        /// Famille, vocabulaire fermé.
+        family: &'static str,
+        /// Valeur recherchée, sous sa forme canonique.
+        value: String,
+        /// Date de la recherche, s'il y en a une.
+        date: Option<VersionDate>,
+    },
     /// Aucune citation reconnue dans l'entrée de `fr_resolve`.
     NoCitationRecognised,
     /// Plusieurs citations dans l'entrée de `fr_resolve` : seule la première est résolue.
@@ -281,6 +291,11 @@ impl Note {
             Self::NotInSandbox { family, value, date } => format!(
                 "No {family} record matches {value}{} in the PISTE sandbox; sandbox data differ \
                  from production.",
+                on(*date)
+            ),
+            Self::NotInSnapshot { family, value, date } => format!(
+                "No {family} record matches {value}{} in the local DILA snapshot, which may be out \
+                 of date.",
                 on(*date)
             ),
             Self::NoCitationRecognised => "No citation recognised.".to_owned(),
@@ -411,9 +426,27 @@ mod tests {
         ]
     }
 
+    /// Les notes d'absence dans l'instantané local de l'index DILA (V4-02).
+    fn snapshot_catalogue() -> Vec<(Note, &'static str)> {
+        vec![
+            (
+                Note::NotInSnapshot {
+                    family: "code article",
+                    value: "9999".to_owned(),
+                    date: Some(date("2026-10-29")),
+                },
+                "No code article record matches 9999 on 2026-10-29 in the local DILA snapshot, which may be out of date.",
+            ),
+            (
+                Note::NotInSnapshot { family: "text", value: "2016-1321".to_owned(), date: None },
+                "No text record matches 2016-1321 in the local DILA snapshot, which may be out of date.",
+            ),
+        ]
+    }
+
     #[test]
     fn notes_are_static_templates() {
-        for (note, expected) in catalogue() {
+        for (note, expected) in catalogue().into_iter().chain(snapshot_catalogue()) {
             let text = note.text();
             assert_eq!(text, expected, "{note:?}");
             assert!(text.chars().count() <= NOTE_MAX_CHARS, "{text}");

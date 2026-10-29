@@ -26,11 +26,11 @@ use tokio::time::{Instant, timeout_at};
 use super::{
     CitationCheck, Note, QuoteCheck,
     policy::{CONCURRENCY, budget_of, check_quote},
-    resolve::{CodeTable, Outcome, Resolution, Resolver, needs_codes, offline},
+    resolve::{CodeTable, Outcome, Proof, Resolution, Resolver, needs_codes, offline},
 };
 use crate::{
     messages,
-    ports::{CorpusError, LegalCorpus, PisteEnvironment},
+    ports::{CorpusError, LegalCorpus},
 };
 
 /// Longueur maximale, en caractères, de l'extrait d'origine rendu pour une citation.
@@ -42,8 +42,9 @@ const PARSE_LIMIT: usize = 1_000;
 /// Réglages d'un contrôle.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Run {
-    /// Environnement PISTE : en bac à sable, l'absence n'est jamais `not_found`.
-    pub(crate) env: PisteEnvironment,
+    /// Source interrogée : l'absence n'est `not_found` que si elle la prouve (ni bac à sable, ni
+    /// instantané local).
+    pub(crate) proof: Proof,
     /// Jour de Paris.
     pub(crate) today: VersionDate,
     /// Temps restant de l'appel : le budget en est 80 %.
@@ -156,7 +157,7 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
                 (None, Some(slot)) => outcomes[slot].clone(),
                 (None, None) => Resolution::out_of_time(),
             };
-            compose(run.env, text, item, resolution)
+            compose(run.proof, text, item, resolution)
         })
         .collect();
     Ok(Verification { found, checks })
@@ -164,7 +165,7 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
 
 /// Contrôle d'une citation : statut, enregistrement, extrait cité et note, span en points de code.
 fn compose(
-    env: PisteEnvironment,
+    proof: Proof,
     text: &str,
     item: &Spanned<CitationRef>,
     resolution: Resolution,
@@ -175,14 +176,14 @@ fn compose(
         Some(check_quote(text.get(span.start..span.end)?, official))
     });
     let note = outcome
-        .note(env)
+        .note(proof)
         .or_else(|| (quote == Some(QuoteCheck::QuoteMismatch)).then_some(Note::QuoteMismatch));
     let raw = text.get(item.span.start..item.span.end).unwrap_or_default();
     CitationCheck {
         span: item.span.to_chars(text),
         raw: messages::clip(raw, RAW_MAX_CHARS),
         kind: item.value.kind(),
-        status: outcome.status(env),
+        status: outcome.status(proof),
         resolved: outcome.record().cloned(),
         quote,
         note,
@@ -194,7 +195,7 @@ mod tests {
     use super::*;
     use crate::{
         citation::CheckStatus,
-        ports::ArticleAt,
+        ports::{ArticleAt, PisteEnvironment},
         testing::{FakeCorpus, PortRequest},
     };
     use lf_domain::{
@@ -216,7 +217,11 @@ mod tests {
     }
 
     fn run(env: PisteEnvironment) -> Run {
-        Run { env, today: today(), remaining: Duration::from_secs(60), max_citations: 50 }
+        run_with(Proof::of(env, false))
+    }
+
+    fn run_with(proof: Proof) -> Run {
+        Run { proof, today: today(), remaining: Duration::from_secs(60), max_citations: 50 }
     }
 
     fn listing(id: &str, title: &str) -> CodeListing {
@@ -318,6 +323,33 @@ mod tests {
             note_text(check),
             "No article record matches Code civil, art. 9999 on 2026-10-29 in the PISTE sandbox; \
              sandbox data differ from production."
+        );
+    }
+
+    /// Une absence dans l'instantané local de l'index DILA n'est jamais `not_found` : un dump
+    /// périmé ne prouve pas l'inexistence (V4-02). La note le dit, sans parler de bac à sable.
+    #[tokio::test]
+    async fn a_local_snapshot_never_proves_an_absence() {
+        let text = "article 9999 du code civil et l'identifiant LEGIARTI000006419288";
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        corpus.push_find_article(Err(not_found()));
+        corpus.push_get_article(Err(not_found()));
+        let verification = verify_text(&corpus, run_with(Proof::Snapshot), text).await.unwrap();
+        assert_eq!(verification.checks.len(), 2);
+        for check in &verification.checks {
+            assert_eq!(check.status, CheckStatus::Unresolvable, "{}", check.raw);
+            let note = note_text(check);
+            assert!(
+                note.contains("in the local DILA snapshot, which may be out of date"),
+                "{note}"
+            );
+            assert!(!note.contains("sandbox"), "{note}");
+        }
+        assert_eq!(
+            note_text(&verification.checks[0]),
+            "No article record matches Code civil, art. 9999 on 2026-10-29 in the local DILA \
+             snapshot, which may be out of date."
         );
     }
 

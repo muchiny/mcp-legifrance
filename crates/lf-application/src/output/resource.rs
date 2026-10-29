@@ -668,8 +668,12 @@ mod tests {
 
     #[test]
     fn coverage_keeps_its_computed_output_and_counts_gaps() {
-        let facts =
-            ConfigFacts { credentials_configured: true, custom_host: false, has_problems: false };
+        let facts = ConfigFacts {
+            credentials_configured: true,
+            custom_host: false,
+            has_problems: false,
+            local_snapshot: false,
+        };
         let coverage_output = CoverageOutput {
             coverage: coverage(PisteEnvironment::Sandbox, &facts, &Fond::ALL),
             environment: PisteEnvironment::Sandbox,
@@ -677,6 +681,7 @@ mod tests {
                 credentials_configured: true,
                 audit_mode: AuditMode::Strict,
                 problems: Vec::new(),
+                local_snapshot: false,
             },
             consulted_on: CivilDate::new(2026, 10, 29).unwrap(),
         };

@@ -297,6 +297,7 @@ mod tests {
                     credentials_configured: true,
                     custom_host: false,
                     has_problems: false,
+                    local_snapshot: false,
                 },
                 &lf_domain::fond::Fond::ALL,
             ),
@@ -305,6 +306,7 @@ mod tests {
                 credentials_configured: true,
                 audit_mode: lf_application::audited::AuditMode::Strict,
                 problems: Vec::new(),
+                local_snapshot: false,
             },
             consulted_on: lf_domain::date::CivilDate::new(2026, 10, 29).unwrap(),
         };

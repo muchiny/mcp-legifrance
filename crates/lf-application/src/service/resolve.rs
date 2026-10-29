@@ -40,7 +40,7 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
         self.audited
             .run(meta, cancel, async {
                 let input = input.map_err(AppError::from)?;
-                ResolveUseCase::new(&self.corpus, &self.clock, self.settings.policy.env)
+                ResolveUseCase::new(&self.corpus, &self.clock, self.settings.proof())
                     .execute(input)
                     .await
             })
@@ -87,6 +87,15 @@ mod tests {
         corpus: FakeCorpus,
         env: PisteEnvironment,
     ) -> (LegalService<FakeCorpus, SharedLog, FixedClock>, Arc<MemoryAuditLog>) {
+        rig_with(corpus, env, ConfigurationState::default())
+    }
+
+    /// Idem, avec l'état de configuration `configuration`.
+    fn rig_with(
+        corpus: FakeCorpus,
+        env: PisteEnvironment,
+        configuration: ConfigurationState,
+    ) -> (LegalService<FakeCorpus, SharedLog, FixedClock>, Arc<MemoryAuditLog>) {
         let audit = Arc::new(MemoryAuditLog::new());
         let settings = ServiceSettings {
             policy: AuditPolicy {
@@ -95,7 +104,7 @@ mod tests {
                 env,
                 server_version: "9.9.9",
             },
-            configuration: ConfigurationState::default(),
+            configuration,
             budget: ResponseBudget,
         };
         let now = Utc.with_ymd_and_hms(2026, 10, 29, 8, 30, 0).unwrap();
@@ -146,6 +155,29 @@ mod tests {
         assert_eq!(record.status, AuditStatus::Ok);
         assert_eq!(record.output_count_or_size, 1);
         assert_eq!(record.server_version, "9.9.9");
+    }
+
+    /// Le drapeau d'instantané local arrive jusqu'au moteur : la note d'une absence parle de
+    /// l'instantané, bien que l'environnement de l'audit soit `production`.
+    #[tokio::test]
+    async fn the_local_snapshot_flag_reaches_the_note_of_an_absence() {
+        let corpus = FakeCorpus::new();
+        corpus.push_list_codes(Ok(vec![CodeListing {
+            id: LegiTextId::parse("LEGITEXT000006070721").unwrap(),
+            title: "Code civil".to_owned(),
+            etat: Some(LegalStatus::Vigueur),
+        }]));
+        corpus.push_find_article(Err(CorpusError::NotFound { what: "x".to_owned() }));
+        let configuration = ConfigurationState { local_snapshot: true, ..Default::default() };
+        let (service, audit) = rig_with(corpus, PisteEnvironment::Production, configuration);
+        let output = service.resolve(call("article 9999 du code civil"), pending()).await.unwrap();
+        assert_eq!(output.candidates, []);
+        assert_eq!(
+            output.notes[0].text(),
+            "No article record matches Code civil, art. 9999 on 2026-10-29 in the local DILA \
+             snapshot, which may be out of date."
+        );
+        assert_eq!(audit.records()[0].env, PisteEnvironment::Production);
     }
 
     #[tokio::test]

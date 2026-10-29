@@ -2,7 +2,7 @@
 //! de sa configuration.
 //!
 //! Le domaine calcule le statut, les familles (une par fond servi) et les lacunes (catalogue
-//! FR-001 à FR-009, puis FR-101 à FR-104) ; la vue y ajoute ce qui est de présentation : le libellé
+//! FR-001 à FR-009, puis FR-101 à FR-105) ; la vue y ajoute ce qui est de présentation : le libellé
 //! et les outils de chaque famille (le domaine ne nomme aucun outil), les outils transverses selon
 //! la surface annoncée, la source, l'attribution des données et la date de consultation (Q15).
 //! Pas de commentaire de doc sur les champs : le schéma de sortie n'en porte aucun.
@@ -22,6 +22,11 @@ use crate::text::{SURFACE, Surface};
 
 /// `source` : d'où viennent les données (05 §5.8).
 pub(crate) const SOURCE: &str = "Légifrance (DILA), through the official PISTE API.";
+
+/// `source` quand les textes viennent de l'index local DILA : un instantané des dumps LEGI, non
+/// l'API PISTE interrogée en direct (V4-02).
+pub(crate) const SNAPSHOT_SOURCE: &str =
+    "Légifrance (DILA), from a local snapshot of the LEGI dumps; not queried live.";
 
 /// `attribution` : mention exacte de la Licence Ouverte (00 §12, Q15).
 pub(crate) const ATTRIBUTION: &str = "Source : Légifrance / DILA — Licence Ouverte 2.0";
@@ -190,6 +195,7 @@ impl CoverageView {
     /// La vue de `output` pour la surface `surface` (v0.1, v0.2 ou v0.3).
     pub(crate) fn new(output: CoverageOutput, surface: Surface) -> Self {
         let CoverageOutput { coverage, environment, configuration, consulted_on } = output;
+        let source = if configuration.local_snapshot { SNAPSHOT_SOURCE } else { SOURCE };
         Self {
             status: status_view(coverage.status()),
             environment: environment_view(environment),
@@ -198,7 +204,7 @@ impl CoverageView {
                 audit_mode: audit_mode_view(configuration.audit_mode),
                 problems: configuration.problems,
             },
-            source: SOURCE.to_owned(),
+            source: source.to_owned(),
             attribution: ATTRIBUTION.to_owned(),
             consulted_on: consulted_on.to_string(),
             as_of_note: coverage.as_of_note().to_owned(),
@@ -242,8 +248,12 @@ mod tests {
         custom_host: bool,
         problems: &[&str],
     ) -> CoverageOutput {
-        let facts =
-            ConfigFacts { credentials_configured, custom_host, has_problems: !problems.is_empty() };
+        let facts = ConfigFacts {
+            credentials_configured,
+            custom_host,
+            has_problems: !problems.is_empty(),
+            local_snapshot: false,
+        };
         CoverageOutput {
             coverage: coverage(environment, &facts, &Fond::ALL),
             environment,
@@ -251,6 +261,7 @@ mod tests {
                 credentials_configured,
                 audit_mode: AuditMode::Strict,
                 problems: problems.iter().map(|problem| (*problem).to_owned()).collect(),
+                local_snapshot: false,
             },
             consulted_on: CivilDate::new(2026, 10, 15).unwrap(),
         }
@@ -301,6 +312,46 @@ mod tests {
         assert_eq!(view["consulted_on"], "2026-10-15");
         let schema = Value::Object(output_schema::<CoverageView>().as_ref().clone());
         assert_eq!(schema["properties"]["consulted_on"]["format"], "date");
+    }
+
+    /// V4-02 : depuis l'index local DILA, la vue ne dit plus « through the official PISTE API » ni
+    /// « queried live » ; la lacune FR-105 est rendue et le statut est dégradé.
+    #[test]
+    fn a_local_snapshot_is_not_presented_as_a_live_piste_source() {
+        let mut out = output(PisteEnvironment::Production, true, false, &[]);
+        let facts = ConfigFacts {
+            credentials_configured: true,
+            custom_host: false,
+            has_problems: false,
+            local_snapshot: true,
+        };
+        out.coverage = coverage(PisteEnvironment::Production, &facts, &[Fond::Loda, Fond::Code]);
+        out.configuration.local_snapshot = true;
+        let view = serde_json::to_value(CoverageView::from(out)).unwrap();
+        assert_eq!(
+            view["source"],
+            "Légifrance (DILA), from a local snapshot of the LEGI dumps; not queried live."
+        );
+        assert_eq!(view["status"], "degraded");
+        assert!(
+            view["as_of_note"].as_str().unwrap().starts_with("Data comes from a local snapshot")
+        );
+        let ids: Vec<&str> = view["gaps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|gap| gap["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids.last(), Some(&"FR-105"));
+        let fonds: Vec<&str> = view["families"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|family| family["fond"].as_str().unwrap())
+            .collect();
+        assert_eq!(fonds, ["LODA", "CODE"]);
+        // Le schéma de sortie n'a pas changé : le drapeau n'est pas un champ de la vue.
+        assert!(view["configuration"].get("local_snapshot").is_none());
     }
 
     #[test]
