@@ -22,7 +22,9 @@
 //!
 //! - **Aucun téléchargement** : le binaire ne contacte pas `echanges.dila.gouv.fr` (plan « fin du
 //!   projet » : dumps téléchargés par script, hors binaire). `LF_DILA_DIR` désigne un index déjà
-//!   bâti ; l'ouvrir lit ce répertoire (et le crée vide s'il n'existe pas), seule E/S de [`build`].
+//!   bâti ; l'ouvrir lit ce répertoire, seule E/S de [`build`]. Un répertoire absent, ou un index
+//!   sans aucun document, rend la source indisponible (`config_error`) : un index « sain » et vide
+//!   déclarerait introuvable toute id demandée directement.
 //! - **Jamais de repli sur PISTE** : une source locale demandée mais inutilisable (chemin refusé,
 //!   feature absente, index illisible) ne sert aucun texte. Une requête ne doit pas partir sur le
 //!   réseau quand l'utilisateur a choisi l'hors-ligne.
@@ -30,6 +32,11 @@
 //!   (jurisprudence, CNIL, accords, JORF) n'y entrent pas, et aucune variable ne les admet.
 //! - **Environnement** (02 §8.5) : la source locale se déclare `production` dans l'audit et dans
 //!   `fr_coverage` (le bac à sable de PISTE n'y est pour rien), sans identifiants exigés.
+//!   **Limite connue** : cette déclaration fait aussi rendre `not_found` à `fr_verify_citations`
+//!   pour une absence de l'index, et `fr_coverage` décrit encore la source comme PISTE en direct.
+//!   Un instantané peut être périmé ; le correctif (un drapeau d'instantané lu par
+//!   `Outcome::status` et par la couverture) touche `lf-application` et `lf-domain`, hors de ce
+//!   fichier : reporté à la passe finale.
 //!
 //! [`run`] est la commande `serve` : stdin et stdout portent le JSON-RPC (stdout n'a pas d'autre
 //! usage), les journaux vont sur stderr. Le code de sortie est 0 à l'EOF de stdin et à l'arrêt
@@ -80,6 +87,12 @@ pub(crate) type AppService = LegalService<AppCorpus, AppAudit, SystemClock>;
 #[cfg(feature = "dila")]
 const INDEX_UNREADABLE: &str =
     "the local DILA index cannot be opened: check LF_DILA_DIR and the server log";
+
+/// Ce que le modèle lit quand `LF_DILA_DIR` ne désigne aucun répertoire, ou que l'index n'a aucun
+/// document : une source vide ne prouve l'absence de rien.
+#[cfg(feature = "dila")]
+const INDEX_EMPTY: &str =
+    "the local DILA index is missing or empty: build it from the LEGI dumps and check LF_DILA_DIR";
 
 /// Source des textes, choisie une fois au démarrage (02 §8.5). Un enum de dispatch statique : ni
 /// `Box<dyn>`, ni futur boxé (ADR-0004, ADR-0012). Aucune méthode du port n'a de défaut.
@@ -182,10 +195,20 @@ pub(crate) fn corpus_for(config: &AppConfig) -> AnyCorpus {
     }
 }
 
-/// Ouvre l'index local DILA de `dir` ; un échec laisse la source indisponible.
+/// Ouvre l'index local DILA de `dir` ; un échec laisse la source indisponible, de même qu'un
+/// répertoire absent (l'ouvrir le créerait vide : une faute de frappe de `LF_DILA_DIR` donnerait
+/// un index « sain » où toute id directe est introuvable) ou un index sans aucun document.
 #[cfg(feature = "dila")]
 fn local_index(dir: &Path) -> AnyCorpus {
+    if !dir.is_dir() {
+        tracing::error!("LF_DILA_DIR does not name an existing directory");
+        return AnyCorpus::Unavailable(INDEX_EMPTY.to_owned());
+    }
     match DilaCorpus::open(dir) {
+        Ok(corpus) if corpus.engine().is_empty() => {
+            tracing::error!("the local DILA index holds no document");
+            AnyCorpus::Unavailable(INDEX_EMPTY.to_owned())
+        }
         Ok(corpus) => AnyCorpus::Dila(corpus),
         Err(error) => {
             // L'opérateur lit la cause dans stderr ; le modèle n'en voit ni cause ni chemin.
@@ -264,6 +287,9 @@ pub(crate) fn service_settings(config: &AppConfig) -> ServiceSettings {
 /// celui de PISTE pour PISTE, `production` pour l'index local, dont les textes sont les textes
 /// publiés (le bac à sable de PISTE ne s'y applique pas, et `PisteEnvironment` n'a pas de
 /// troisième valeur).
+///
+/// Limite connue : `production` fait rendre `not_found` à une absence de l'index, qui est un
+/// instantané peut-être périmé (voir « Source locale DILA » en tête de ce fichier).
 fn audit_environment(config: &AppConfig) -> PisteEnvironment {
     match config.source {
         CorpusSource::Dila(_) => PisteEnvironment::Production,
@@ -272,7 +298,7 @@ fn audit_environment(config: &AppConfig) -> PisteEnvironment {
 }
 
 /// Assemble la façade de production. Aucune E/S réseau ni du journal d'audit ; l'index local DILA,
-/// s'il est demandé, ouvre son répertoire (et le crée vide s'il n'existe pas).
+/// s'il est demandé, ouvre son répertoire, qui doit exister et porter des documents.
 pub(crate) fn build(config: &AppConfig) -> AppService {
     tracing::info!(source = config.source.label(), "corpus source");
     LegalService::new(
@@ -581,17 +607,41 @@ mod tests {
         assert!(settings_detail(&error).contains("dila feature"), "{error}");
     }
 
+    /// Bâtit un vrai index local dans `index` : la mini-archive du global de V1-16 (fixtures de
+    /// `lf-adapter-dila`), sous un nom d'archive de la DILA.
+    #[cfg(feature = "dila")]
+    async fn filled_index(index: &Path) {
+        let archives = tempfile::tempdir().expect("a temporary directory");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../lf-adapter-dila/tests/fixtures/archives/legi-global-mini.tar.gz");
+        std::fs::copy(fixture, archives.path().join("Freemium_legi_global_20250713-140000.tar.gz"))
+            .expect("the fixture archive is copied");
+        let work = tempfile::tempdir().expect("a temporary directory");
+        let corpus = lf_adapter_dila::DilaCorpus::open(index).expect("an index is created");
+        corpus
+            .sync(
+                archives.path().to_path_buf(),
+                work.path().join("registry.toml"),
+                lf_adapter_dila::IngestLimits::default(),
+            )
+            .await
+            .expect("the archive is applied");
+        assert!(!corpus.engine().is_empty());
+    }
+
     #[cfg(feature = "dila")]
     #[tokio::test]
     async fn dila_feature_selects_dila_corpus() {
         let dir = tempfile::tempdir().expect("a temporary directory");
         let index = dir.path().join("index");
+        filled_index(&index).await;
         let config = config_with(&[("LF_DILA_DIR", index.to_str().unwrap())]);
         let corpus = corpus_for(&config);
         assert!(matches!(corpus, AnyCorpus::Dila(_)), "the local index is the corpus");
-        // L'index est ouvert (créé vide) : `list_codes` répond depuis lui, sans réseau ni erreur.
-        assert!(index.is_dir());
-        assert_eq!(corpus.list_codes().await.unwrap(), Vec::new());
+        // L'index est lu : `list_codes` répond depuis lui (le petit code des architectes de la
+        // mini-archive), sans réseau ni erreur.
+        let codes = corpus.list_codes().await.unwrap();
+        assert!(codes.iter().any(|code| code.id.as_str() == "LEGITEXT000006074232"), "{codes:?}");
         // La source locale n'est pas l'environnement PISTE : ni bac à sable, ni identifiants exigés.
         assert_eq!(service_settings(&config).policy.env, PisteEnvironment::Production);
         let audit = tempfile::tempdir().expect("a temporary directory");
@@ -607,21 +657,45 @@ mod tests {
         assert_eq!(output.configuration.problems, Vec::<String>::new());
     }
 
+    /// Un index absent ou sans document ne sert rien : ouvert tel quel, il répondrait « introuvable »
+    /// à toute id demandée directement, comme une preuve d'absence.
+    #[cfg(feature = "dila")]
+    #[tokio::test]
+    async fn a_missing_or_empty_index_is_unavailable_and_nothing_is_created() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let missing = dir.path().join("typo-in-the-path");
+        let empty = dir.path().join("empty");
+        std::fs::create_dir(&empty).unwrap();
+        for index in [&missing, &empty] {
+            let config = config_with(&[("LF_DILA_DIR", index.to_str().unwrap())]);
+            let corpus = corpus_for(&config);
+            assert!(matches!(corpus, AnyCorpus::Unavailable(_)), "{index:?}");
+            for (operation, result) in every_operation(&corpus).await {
+                let detail = settings_detail(&result.unwrap_err());
+                assert!(detail.contains("missing or empty"), "{operation}: {detail}");
+                assert!(!detail.contains("typo-in-the-path"), "{operation}: {detail}");
+            }
+        }
+        // Un répertoire absent n'est pas créé par la lecture.
+        assert!(!missing.exists());
+    }
+
     #[cfg(feature = "dila")]
     #[tokio::test]
     async fn an_index_that_cannot_be_opened_is_unavailable_and_hides_its_path() {
+        // Le répertoire existe, mais le descripteur de l'index est corrompu.
         let dir = tempfile::tempdir().expect("a temporary directory");
-        let file = dir.path().join("not-a-directory");
-        std::fs::write(&file, b"x").unwrap();
-        let blocked = file.join("index");
-        let config = config_with(&[("LF_DILA_DIR", blocked.to_str().unwrap())]);
+        let broken = dir.path().join("broken-index");
+        std::fs::create_dir(&broken).unwrap();
+        std::fs::write(broken.join("meta.json"), b"not an index").unwrap();
+        let config = config_with(&[("LF_DILA_DIR", broken.to_str().unwrap())]);
         let corpus = corpus_for(&config);
         assert!(matches!(corpus, AnyCorpus::Unavailable(_)));
         for (operation, result) in every_operation(&corpus).await {
             let error = result.unwrap_err();
             let detail = settings_detail(&error);
             assert!(detail.contains("local DILA index cannot be opened"), "{operation}: {detail}");
-            assert!(!detail.contains("not-a-directory"), "{operation}: {detail}");
+            assert!(!detail.contains("broken-index"), "{operation}: {detail}");
         }
     }
 
@@ -632,7 +706,9 @@ mod tests {
     #[tokio::test]
     async fn dereferenced_and_inap_excluded() {
         let dir = tempfile::tempdir().expect("a temporary directory");
-        let config = config_with(&[("LF_DILA_DIR", dir.path().to_str().unwrap())]);
+        let index = dir.path().join("index");
+        filled_index(&index).await;
+        let config = config_with(&[("LF_DILA_DIR", index.to_str().unwrap())]);
         let corpus = corpus_for(&config);
         assert!(matches!(corpus, AnyCorpus::Dila(_)));
         let results = every_operation(&corpus).await;
