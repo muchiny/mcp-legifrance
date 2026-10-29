@@ -36,6 +36,7 @@
 //! (`ArticleAt::Today`).
 
 use lf_domain::{
+    citation::ArticleNum,
     date::VersionDate,
     entity::ArticleText,
     text::{DispositifRule, window},
@@ -246,6 +247,7 @@ impl<'a, C: LegalCorpus, K: Clock> ResourceUseCase<'a, C, K> {
     async fn code_article(&self, code: &str, num: &str) -> Result<ResourceOutput, AppError> {
         let slug = code_slug(code)?;
         let num = article_number(num)?;
+        let key = article_key(&num)?;
         let codes = self
             .corpus
             .list_codes()
@@ -259,13 +261,20 @@ impl<'a, C: LegalCorpus, K: Clock> ResourceUseCase<'a, C, K> {
         })?;
         let today = VersionDate::try_from(self.clock.today_paris())
             .map_err(|error| messages::domain(CODE_ARTICLE, &error))?;
-        let article = self
-            .corpus
-            .find_article(&text_id, &num, ArticleAt::Today(today))
-            .await
-            .map_err(|error| article_failure(&slug, &num, &error))?;
-        let output = read_article(article, self.page_chars)?;
-        Ok(ResourceOutput::article(ResourceKind::CodeArticle, &output))
+        // L'API attend la clé canonique (`L1234-5`, annexe C), pas la forme citée (`L. 1234-5`) :
+        // chaque variante de la clé est essayée dans l'ordre (`R*641-1` puis `R641-1`).
+        let mut absent = CorpusError::NotFound { what: "article".to_owned() };
+        for variant in key.key_variants() {
+            match self.corpus.find_article(&text_id, &variant, ArticleAt::Today(today)).await {
+                Ok(article) => {
+                    let output = read_article(article, self.page_chars)?;
+                    return Ok(ResourceOutput::article(ResourceKind::CodeArticle, &output));
+                }
+                Err(error @ CorpusError::NotFound { .. }) => absent = error,
+                Err(error) => return Err(article_failure(&slug, &num, &error)),
+            }
+        }
+        Err(article_failure(&slug, &num, &absent))
     }
 }
 
@@ -315,6 +324,17 @@ fn article_number(num: &str) -> Result<String, AppError> {
         ));
     }
     Ok(num.to_owned())
+}
+
+/// Le numéro d'article lu par la grammaire des citations : `invalid_arg` si ce n'est pas un numéro
+/// (`9_1` est refusé plus tôt, `99999999999` dépasse ce que la clé sait porter).
+fn article_key(num: &str) -> Result<ArticleNum, AppError> {
+    num.parse().map_err(|_| {
+        AppError::invalid_argument(
+            "num is not an article number (as in L. 1234-5, R*641-1 or 1er); search with \
+             fr_search fond=CODE.",
+        )
+    })
 }
 
 /// Erreur de `find_article`, journalisée comme les autres : l'absence de l'article n'est pas celle
@@ -780,11 +800,49 @@ mod tests {
                 PortRequest::ListCodes,
                 PortRequest::FindArticle(
                     LegiTextId::parse(TEXT_ID).unwrap(),
-                    "L. 9".to_owned(),
+                    "L9".to_owned(),
                     ArticleAt::Today(today)
                 ),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn the_article_is_asked_by_its_canonical_key_and_its_variants_in_order() {
+        let today = VersionDate::parse("2026-10-29").unwrap();
+        let text = LegiTextId::parse(TEXT_ID).unwrap();
+        let asked = |num: &str| {
+            PortRequest::FindArticle(text.clone(), num.to_owned(), ArticleAt::Today(today))
+        };
+
+        // `L. 1234-5` devient `L1234-5`, la seule forme que l'API connaît.
+        let corpus = FakeCorpus::new();
+        corpus.push_list_codes(Ok(codes()));
+        corpus.push_find_article(Ok(article("Texte.", None)));
+        read_uri(&corpus, "legifrance://code/code-civil/article/L.%201234-5").await.unwrap();
+        assert_eq!(corpus.seen_requests(), [PortRequest::ListCodes, asked("L1234-5")]);
+
+        // `R*641-1` puis, faute d'article, `R641-1`.
+        let corpus = FakeCorpus::new();
+        corpus.push_list_codes(Ok(codes()));
+        corpus.push_find_article(Err(CorpusError::NotFound { what: "/consult".to_owned() }));
+        corpus.push_find_article(Ok(article("Texte.", None)));
+        read_uri(&corpus, "legifrance://code/code-civil/article/R*641-1").await.unwrap();
+        assert_eq!(
+            corpus.seen_requests(),
+            [PortRequest::ListCodes, asked("R*641-1"), asked("R641-1")]
+        );
+
+        // Toutes les variantes absentes : introuvable, avec le numéro tel que demandé.
+        let corpus = FakeCorpus::new();
+        corpus.push_list_codes(Ok(codes()));
+        corpus.push_find_article(Err(CorpusError::NotFound { what: "/consult".to_owned() }));
+        corpus.push_find_article(Err(CorpusError::NotFound { what: "/consult".to_owned() }));
+        let error =
+            read_uri(&corpus, "legifrance://code/code-civil/article/R*641-1").await.unwrap_err();
+        assert_eq!(error.code(), Some(ErrorCode::NotFound));
+        assert!(error.message().starts_with("No article R*641-1 found in code-civil."), "{error}");
+        assert_eq!(corpus.calls_of("find_article"), 2);
     }
 
     #[tokio::test]
@@ -845,6 +903,9 @@ mod tests {
             "legifrance://code/code%20civil/article/9",
             "legifrance://code/code-civil/article/",
             "legifrance://code/code-civil/article/9_1",
+            // Caractères admis, mais pas un numéro d'article.
+            "legifrance://code/code-civil/article/99999999999",
+            "legifrance://code/code-civil/article/abc",
             // Hors grammaire : refusée avant tout cas d'usage.
             "legifrance://code/../article/9",
         ] {
