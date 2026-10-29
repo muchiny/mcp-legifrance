@@ -1,0 +1,5 @@
+{"comment":"C-25, V-31 : inputResponses et requestState sont tolérés dans les paramètres de tools/call ; jamais de résultat input_required"}
+{"send":{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"fr_coverage","arguments":{},"inputResponses":{},"requestState":"opaque","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":1,"result":{"resultType":"complete","isError":false,"content":[{"type":"text"}],"structuredContent":{"attribution":"Source : Légifrance / DILA — Licence Ouverte 2.0"}}}}
+{"send":{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fr_coverage","arguments":{},"requestState":"opaque","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":2,"result":{"resultType":"complete","isError":false,"content":[{"type":"text"}],"structuredContent":{"attribution":"Source : Légifrance / DILA — Licence Ouverte 2.0"}}}}

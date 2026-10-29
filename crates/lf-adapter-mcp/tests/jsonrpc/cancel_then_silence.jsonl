@@ -1,0 +1,9 @@
+{"needs":"slow_upstream"}
+{"comment":"C-23 : notifications/cancelled arrête l'appel en vol ; plus aucun message pour son id ; une annulation inconnue est ignorée"}
+{"send":{"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"fr_search","arguments":{"query":"bail"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect_silence_ms":200}
+{"comment":"l'appel est en vol : l'amont dure 30 s, rien n'a répondu"}
+{"send":{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"call-1"}}}
+{"expect_silence_ms":500}
+{"send":{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":999}}}
+{"expect_alive":true}

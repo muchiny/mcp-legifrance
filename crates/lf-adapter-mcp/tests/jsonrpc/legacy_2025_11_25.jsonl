@@ -1,0 +1,14 @@
+{"comment":"C-14, C-15, C-24, C-28, V-33 : ère legacy 2025-11-25, sans resultType ni ttlMs ni cacheScope ; ping vide ; listen en -32601"}
+{"send":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"transcript","version":"0"}}}}
+{"expect":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","serverInfo":{"name":"mcp-legifrance","title":"Légifrance (PISTE)","websiteUrl":"https://github.com/muchiny/mcp-legifrance"}}},"absent":["/result/resultType"]}
+{"send":{"jsonrpc":"2.0","method":"notifications/initialized"}}
+{"send":{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}}
+{"expect":{"jsonrpc":"2.0","id":2,"result":{}},"absent":["/result/resultType","/result/ttlMs","/result/cacheScope","/result/nextCursor"],"snapshot":"legacy_2025_11_25_tools_list","redact":["/result/tools"]}
+{"send":{"jsonrpc":"2.0","id":3,"method":"ping","params":{}}}
+{"expect":{"jsonrpc":"2.0","id":3,"result":{}},"mode":"exact"}
+{"send":{"jsonrpc":"2.0","id":4,"method":"subscriptions/listen","params":{"notifications":{}}}}
+{"expect":{"jsonrpc":"2.0","id":4,"error":{"code":-32601}},"absent":["/result"]}
+{"send":{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"fr_coverage","arguments":{}}}}
+{"expect":{"jsonrpc":"2.0","id":5,"result":{"isError":false,"content":[{"type":"text"}],"structuredContent":{"attribution":"Source : Légifrance / DILA — Licence Ouverte 2.0"}}},"absent":["/result/resultType"]}
+{"close_stdin":true}
+{"expect_exit":{"code":0,"within_ms":1000}}

@@ -1,0 +1,10 @@
+{"comment":"C-04, C-05 : une ligne non JSON est ignorée sans réponse ; un tableau (batch) ou un objet qui n'est pas un message JSON-RPC reçoit -32600 sans id ; le processus vit"}
+{"send_raw":"this is not json"}
+{"expect_silence_ms":500}
+{"send_raw":"[{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}]"}
+{"expect":{"jsonrpc":"2.0","error":{"code":-32600}},"absent":["/id","/result"]}
+{"send_raw":"{}"}
+{"expect":{"jsonrpc":"2.0","error":{"code":-32600}},"absent":["/id","/result"]}
+{"send_raw":"{\"jsonrpc\":\"2.0\",\"id\":2}"}
+{"expect":{"jsonrpc":"2.0","error":{"code":-32600}},"absent":["/id","/result"]}
+{"expect_alive":true}

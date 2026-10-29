@@ -1,0 +1,9 @@
+{"comment":"V-34, constat figé : une requête à enveloppe moderne qui déclare 2025-11-25 ou 2025-06-18 est servie, sans resultType ni ttlMs ni cacheScope (rmcp 3.5.1, annexe D §4.4)"}
+{"comment":"le repli de 00 §6 (-32022 par PreLifecycleFilter, discover à [2026-07-28]) n'est pas appliqué : s'il l'est dans lifecycle.rs, inverser ces attentes"}
+{"send":{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2025-11-25","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":1,"result":{}},"absent":["/result/resultType","/result/ttlMs","/result/cacheScope"]}
+{"send":{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fr_coverage","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2025-06-18","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":2,"result":{"isError":false,"content":[{"type":"text"}],"structuredContent":{"attribution":"Source : Légifrance / DILA — Licence Ouverte 2.0"}}},"absent":["/result/resultType"]}
+{"comment":"l'enveloppe legacy n'épingle pas l'ère : la requête suivante, à enveloppe 2026-07-28, est servie en moderne"}
+{"send":{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":3,"result":{"resultType":"complete","ttlMs":3600000,"cacheScope":"public"}}}

@@ -1,0 +1,7 @@
+{"comment":"C-14, C-20 : tools/call moderne ; l'erreur métier est un résultat isError, l'outil inconnu un -32602"}
+{"send":{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"fr_coverage","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":1,"result":{"resultType":"complete","isError":false,"content":[{"type":"text"}],"structuredContent":{"attribution":"Source : Légifrance / DILA — Licence Ouverte 2.0"}}}}
+{"send":{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fr_nope","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"tool not found"}},"absent":["/result"]}
+{"send":{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"fr_search","arguments":{"page":"x"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":3,"result":{"resultType":"complete","isError":true,"content":[{"type":"text","text":"[invalid_arg] page: invalid value: string \"x\", expected an integer"}]}},"absent":["/result/structuredContent"]}

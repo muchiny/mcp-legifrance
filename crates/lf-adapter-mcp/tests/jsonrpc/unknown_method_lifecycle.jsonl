@@ -1,0 +1,13 @@
+{"comment":"C-07, V-30 : une requête inconnue ou prématurée reçoit une réponse et ne fait pas quitter le service, avant comme après initialize"}
+{"send":{"jsonrpc":"2.0","id":1,"method":"foo/bar","params":{}}}
+{"expect":{"jsonrpc":"2.0","id":1,"error":{"code":-32602}},"absent":["/result"]}
+{"send":{"jsonrpc":"2.0","id":2,"method":"foo/bar","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":2,"error":{"code":-32601}},"absent":["/result"]}
+{"expect_alive":true}
+{"send":{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"transcript","version":"0"}}}}
+{"expect":{"jsonrpc":"2.0","id":3,"result":{"protocolVersion":"2025-11-25"}}}
+{"send":{"jsonrpc":"2.0","method":"notifications/initialized"}}
+{"comment":"rmcp 3.5.1 : une méthode inconnue d'un pair legacy reçoit -32602, comme avant l'ère (annexe D §4.2) ; seul le pair moderne reçoit -32601"}
+{"send":{"jsonrpc":"2.0","id":4,"method":"foo/bar","params":{}}}
+{"expect":{"jsonrpc":"2.0","id":4,"error":{"code":-32602}},"absent":["/result"]}
+{"expect_alive":true}

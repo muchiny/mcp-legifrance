@@ -1,0 +1,27 @@
+---
+source: crates/lf-adapter-mcp/src/testing.rs
+---
+{
+  "id": "discover-1",
+  "jsonrpc": "2.0",
+  "result": {
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "mcp-legifrance",
+        "title": "Légifrance (PISTE)",
+        "version": "[version]",
+        "websiteUrl": "https://github.com/muchiny/mcp-legifrance"
+      }
+    },
+    "cacheScope": "public",
+    "capabilities": "[redacted]",
+    "instructions": "[redacted]",
+    "resultType": "complete",
+    "supportedVersions": [
+      "2026-07-28",
+      "2025-11-25",
+      "2025-06-18"
+    ],
+    "ttlMs": 3600000
+  }
+}

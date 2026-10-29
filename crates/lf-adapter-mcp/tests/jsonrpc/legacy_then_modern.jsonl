@@ -1,0 +1,14 @@
+{"comment":"C-28 : après initialize, une requête moderne reste acceptée et servie en moderne ; sans _meta, elle est servie en legacy"}
+{"send":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"transcript","version":"0"}}}}
+{"expect":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25"}}}
+{"send":{"jsonrpc":"2.0","method":"notifications/initialized"}}
+{"send":{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}}
+{"expect":{"jsonrpc":"2.0","id":2,"result":{}},"absent":["/result/resultType","/result/ttlMs","/result/cacheScope"]}
+{"send":{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":3,"result":{"resultType":"complete","ttlMs":3600000,"cacheScope":"public"}}}
+{"send":{"jsonrpc":"2.0","id":4,"method":"tools/list","params":{}}}
+{"expect":{"jsonrpc":"2.0","id":4,"result":{}},"absent":["/result/resultType","/result/ttlMs","/result/cacheScope"]}
+{"send":{"jsonrpc":"2.0","id":5,"method":"ping","params":{}}}
+{"expect":{"jsonrpc":"2.0","id":5,"result":{}},"mode":"exact"}
+{"send":{"jsonrpc":"2.0","id":6,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":6,"result":{"resultType":"complete","supportedVersions":["2026-07-28","2025-11-25","2025-06-18"]}}}
