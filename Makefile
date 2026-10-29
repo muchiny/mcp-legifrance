@@ -136,7 +136,7 @@ surface:
 	cmp crates/lf-domain/tests/data/citations/citations-corpus-negatifs.jsonl $(DONNEES)/citations-corpus-negatifs.jsonl
 
 # Taille des instructions du serveur (05 §4.1) : lance `mcp-legifrance serve` (binaire de V2-04), envoie
-# `server/discover` puis `tools/list` et refuse plus de 3 500 caractères. Rouge tant que `main` est un stub.
+# `server/discover` puis `tools/list` et refuse plus de 3 500 caractères.
 instructions:
 	cargo xtask instructions-size
 

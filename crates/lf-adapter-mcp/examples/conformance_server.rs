@@ -18,16 +18,10 @@
 //! échantillonnage, sollicitation, abonnement aux resources, résultats `input_required`), est porté
 //! avec sa raison dans `tests/conformance-baseline.yml`.
 //!
-//! La logique n'existe qu'avec les features `http` (stub `serve_http` du préambule M8) et
+//! La logique n'existe qu'avec les features `http` (transport M8, `serve_http`) et
 //! `test-support` (corpus factice) : `--all-features` les active. Sans elles, l'exemple se réduit
 //! à un message d'erreur, pour que `cargo test` ou `cargo build --examples` hors `--all-features`
 //! compilent encore.
-
-// La feature `http` est déclarée par le préambule M8 (V4) ; tant qu'elle manque, le lint `unexpected_cfgs` la signale.
-#![allow(
-    unexpected_cfgs,
-    reason = "la feature `http` vient du préambule M8 ; sans elle l'exemple se réduit à son message"
-)]
 
 use std::process::ExitCode;
 
