@@ -765,7 +765,7 @@ Total : **53 unités**, dont 5 en V0. Largeur parallèle maximale : **16 agents,
 | Intégration de V1 finie après H+13 | M9 est coupé : ni V2-15, ni V3-08, ni V4-02. Le rapport de V1-16 est gardé. |
 | Intégration de V2 finie après H+18 | V3 se réduit à V3-01, V3-02, V3-03, V3-09 et V3-10, puis on passe à la fin. M6 et M7 sont coupés côté outils ; les méthodes de port vertes restent. |
 | V2-13 rend `blocked` | M6 passe en coupe interne. |
-| Intégration de V3 finie après H+22 | V4 est abandonnée et on passe à la fin. |
+| Intégration de V3 finie après H+22 | V4 est abandonnée et on passe à la fin, sauf V4-01 (`fr_resolve`, M, Sonnet, `resolve_ref` déjà livré), faite avant F1 : les descriptions de `fr_verify_citations` et `fr_get_related` et le prompt `verifier_citations` citent déjà `fr_resolve` (`CITED_BEFORE_REGISTERED`). Si V4-01 est tout de même coupée, retirer `fr_resolve` de ces trois textes et de `CITED_BEFORE_REGISTERED`, puis régénérer le verrou. |
 | Pendant V4 | La règle d'abandon de M8 (§4) s'applique. |
 
 ## 9. Risques

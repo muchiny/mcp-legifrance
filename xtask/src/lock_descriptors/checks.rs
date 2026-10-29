@@ -37,7 +37,10 @@ const V03_TOOLS: [&str; 3] = ["fr_get_related", "fr_diff_article", "fr_search_al
 
 /// Outils que des descriptions déjà servies citent avant que leur tranche ne les enregistre :
 /// `fr_resolve` (V4-01) est nommé par `fr_verify_citations` et `fr_get_related`, dont les textes
-/// sont ceux de 05 §5. Provisoire : V4-01 enregistre l'outil et retire cette liste.
+/// sont ceux de 05 §5. Provisoire : V4-01 enregistre l'outil et retire cette liste. Si V4-01 était
+/// coupée (plan §8), il faudrait retirer `fr_resolve` de ces descriptions et du prompt
+/// `verifier_citations`, puis de cette liste, et régénérer le verrou : on ne livre pas un texte qui
+/// envoie le modèle vers un outil absent.
 const CITED_BEFORE_REGISTERED: [&str; 1] = ["fr_resolve"];
 
 /// Résultat des contrôles.
