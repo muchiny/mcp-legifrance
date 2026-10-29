@@ -263,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn the_cap_note_is_not_repeated_and_an_irreducible_view_is_sent_as_it_is() {
+    fn the_cap_note_is_not_repeated_when_the_last_candidates_are_removed() {
         // Un seul candidat démesuré : le retrait le viderait, la note du plafond est posée une fois.
         let giant = candidate("LEGITEXT000006070721", &"y".repeat(50_000), Confidence::Low);
         let value = json_of(output(vec![giant], vec![]));
@@ -276,6 +276,21 @@ mod tests {
         let value = json_of(output(giants, vec![]));
         assert_eq!(value["candidates"], json!([]));
         assert_eq!(value["note"], FURTHER_NOTE);
+    }
+
+    #[test]
+    fn an_irreducible_view_is_sent_as_it_is() {
+        // Aucun candidat à retirer et la vue dépasse le plafond (la citation lue est démesurée) :
+        // la réponse part telle quelle, sans note de plafond (rien n'a été retiré).
+        let irreducible = ResolveOutput {
+            interpreted_as: Some("y".repeat(50_000)),
+            candidates: vec![],
+            notes: vec![],
+        };
+        let value = json_of(irreducible);
+        assert_eq!(value["candidates"], json!([]));
+        assert_eq!(value["interpreted_as"].as_str().map(str::len), Some(50_000));
+        assert!(value.get("note").is_none(), "{value}");
     }
 
     #[test]
