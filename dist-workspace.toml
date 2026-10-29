@@ -1,0 +1,80 @@
+# Configuration de dist (cargo-dist 0.33.0) : binaires, archives, installeurs et provenance
+# du binaire `mcp-legifrance` (T-MD-01, 08 §2, §3.4 à §3.7).
+#
+# `.github/workflows/release.yml` est GÉNÉRÉ par `dist generate` : ne jamais l'éditer à la main
+# (`dist plan` échoue sur un fichier modifié). Après tout changement de ce fichier :
+#   dist generate && dist plan
+# dist 0.33.0 s'installe depuis la release GitHub (binaire, somme SHA-256 vérifiée), jamais par
+# `cargo install`. Aucune release ni étiquette poussée par un agent (D14) ; `publish = false` est
+# gardé (Q13).
+
+[workspace]
+members = ["cargo:."]
+# Seul paquet distribué. dist 0.33.0 ne lit cette liste que dans `[workspace]` (axoproject,
+# `generic.rs` : « If `workspace.packages` is set »). Sous `[dist]`, comme dans l'esquisse de
+# 08 §2.2, elle est ignorée : `publish = false` cache alors le binaire (« nothing to Release »).
+# Écrite ici, elle écarte aussi `xtask`, l'autre paquet à binaire.
+packages = ["mcp-legifrance"]
+
+[dist]
+cargo-dist-version = "0.33.0"
+ci = ["github"]
+targets = [
+  "x86_64-unknown-linux-gnu",  "aarch64-unknown-linux-gnu",
+  "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl",
+  "x86_64-apple-darwin",       "aarch64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+]
+installers = ["shell", "powershell"]
+install-path = "~/.mcp-legifrance/bin"   # le public juriste n'a pas de toolchain Rust (08 §2.5) ; défaut dist : CARGO_HOME
+install-updater = false                  # ADR-0005 : aucun appel réseau non sollicité
+checksum = "sha256"                      # un .sha256 par archive et un sha256.sum unifié (08 §3.4)
+include = ["NOTICE", "THIRD_PARTY_LICENSES.md"]
+cargo-auditable = true                   # dépendances embarquées dans le binaire, `cargo audit bin` (08 §3.6)
+cargo-cyclonedx = true                   # SBOM CycloneDX : `mcp-legifrance.cdx.xml` dans la release (08 §3.6)
+pr-run-mode = "plan"                     # PR : `dist plan` seulement ; les 7 cibles sont construites par smoke-targets.yml
+fail-fast = false
+
+# Provenance (08 §3.5) : attestations GitHub (Sigstore) sur TOUS les fichiers de la release, y
+# compris ceux que V2-16 ajoute avant `host` (MCPB, server.json). Aucun niveau SLSA n'est revendiqué
+# tant que V-171 est ouverte.
+github-attestations = true
+github-attestations-phase = "host"
+github-release = "host"                  # requis avec la phase « host » (reference/config.md, `github-release`)
+# `dist plan` (0.33.0) liste, hors archives : source.tar.gz, les .sha256, sha256.sum, les deux
+# installeurs, le SBOM `mcp-legifrance.cdx.xml` et `dist-manifest.json`.
+github-attestations-filters = [
+  "*.tar.xz", "*.tar.gz", "*.zip", "*.sh", "*.ps1", "*.mcpb",
+  "*.sha256", "sha256.sum", "*.xml", "server.json", "*.json",
+]
+
+# Signature (Q5) : aucun certificat, binaires et MCPB non signés, ni T-MD-08 ni T-MD-09. AUCUNE
+# ligne de signature active (`macos-sign`, `ssldotcom-windows-sign`, `[dist.azure-windows-sign]`)
+# tant que Q5 n'est pas tranchée et que les secrets n'existent pas (08 §2.2, §3.8).
+
+# Jobs personnalisés (08 §7.4) : workflows réutilisables `.github/workflows/<nom>.yml`.
+# dist appelle un job de `plan-jobs` en parallèle de `plan`, sans l'entrée `plan`, et aussi sur
+# les PR : release-gates.yml se limite donc aux étiquettes (`github.ref_type == 'tag'`).
+plan-jobs = ["./release-gates"]
+# À l'intégration de V2-16, dont les workflows n'existent pas encore (actionlint refuse un
+# `uses:` vers un fichier absent) : ajouter ces trois lignes, les trois permissions ci-dessous
+# (build-mcpb : contents = "read" ; publish-oci : contents = "read", packages = "write",
+# id-token = "write", attestations = "write" ; publish-mcp-registry : contents = "read",
+# id-token = "write"), puis `dist generate`.
+#   global-artifacts-jobs = ["./build-mcpb"]
+#   publish-jobs = ["./publish-oci"]
+#   post-announce-jobs = ["./publish-mcp-registry"]
+
+[dist.github-custom-job-permissions]
+"release-gates" = { contents = "read" }
+
+# Épinglage des actions du workflow généré par SHA complet (D-44, 08 §3.7). Mêmes SHA que ci.yml
+# pour checkout (v7.0.1), upload-artifact (v7.0.2) et download-artifact (v8.0.2) ; attest v4.2.2
+# (2026-08-04). Dependabot propose ces montées dans release.yml : les reporter ici puis
+# `dist generate`, sinon `dist plan` échoue (fichier généré modifié). `swatinem/rust-cache`
+# (cache-builds), `actions/setup-node` (npm) et `azure/login` (Azure) ne sont pas employés.
+[dist.github-action-commits]
+"actions/checkout" = "3d3c42e5aac5ba805825da76410c181273ba90b1"
+"actions/upload-artifact" = "cf430e030ddbb5b0abf93d22962f4752f3646cd9"
+"actions/download-artifact" = "9000827ccba6bdab643e8b6fd33ac0654aef8333"
+"actions/attest" = "1e69f48acb82d1966a394da916b4c1698aa569d6"

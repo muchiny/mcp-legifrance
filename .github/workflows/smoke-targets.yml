@@ -1,0 +1,118 @@
+name: Smoke targets
+
+# Test fumée `initialize` sur les 7 cibles de la release, dans une construction de PR (T-MD-04,
+# 08 §4.5, 07 M4). `release.yml` ne fait que `dist plan` sur une PR (`pr-run-mode = "plan"`,
+# V-170) : ce workflow compile le binaire pour chaque cible, avec le profil `dist` et les mêmes
+# runners que dist (08 §1.2), l'exécute, et vérifie sa poignée de main MCP.
+#
+# Sans réseau et sans identifiant : le démarrage n'appelle pas PISTE (00 §6). Les drapeaux de
+# dist (`-Ctarget-feature=+crt-static`, plus `-Clink-self-contained=yes` en musl : cargo-dist
+# `build/cargo.rs`) sont reproduits, pour que la PR échoue là où la release échouerait.
+# Réserves à lever au premier run :
+# - `ubuntu-22.04-arm` n'est gratuit que pour un dépôt public ;
+# - aucun `CC_<cible>=musl-gcc` n'est posé, comme dans le workflow généré par dist : si
+#   `aarch64-unknown-linux-musl` échoue faute de compilateur C (`tls-spike.yml` pose ce `CC`), la
+#   release échouera de même et dist devra poser ce `CC` (`github-build-setup`) ;
+# - le binaire de la PR n'est ni signé ni notarisé (Q5).
+
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "dist-workspace.toml"
+      - ".github/workflows/smoke-targets.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-targets-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Actions épinglées par SHA complet, version en commentaire : voir ci.yml.
+jobs:
+  smoke:
+    name: ${{ matrix.target.triple }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { triple: x86_64-unknown-linux-gnu, os: ubuntu-22.04, exe: "", rustflags: "" }
+          - { triple: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm, exe: "", rustflags: "" }
+          - { triple: x86_64-unknown-linux-musl, os: ubuntu-22.04, exe: "", rustflags: "-C target-feature=+crt-static -C link-self-contained=yes" }
+          - { triple: aarch64-unknown-linux-musl, os: ubuntu-22.04-arm, exe: "", rustflags: "-C target-feature=+crt-static -C link-self-contained=yes" }
+          - { triple: x86_64-apple-darwin, os: macos-15-intel, exe: "", rustflags: "" }
+          - { triple: aarch64-apple-darwin, os: macos-14, exe: "", rustflags: "" }
+          - { triple: x86_64-pc-windows-msvc, os: windows-2022, exe: ".exe", rustflags: "-C target-feature=+crt-static" }
+    runs-on: ${{ matrix.target.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Vide hors musl et Windows : cargo ignore une valeur vide.
+      RUSTFLAGS: ${{ matrix.target.rustflags }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.0
+          targets: ${{ matrix.target.triple }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: smoke-${{ matrix.target.triple }}
+      # Paquet apt que dist installe pour ces cibles (08 §1.2).
+      - name: musl-tools
+        if: ${{ endsWith(matrix.target.triple, '-musl') }}
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo fetch --locked
+      - name: Compilation (profil dist)
+        env:
+          TARGET: ${{ matrix.target.triple }}
+        run: cargo build --locked --profile dist --package mcp-legifrance --target "$TARGET"
+      # Aucune interpolation dans ce script : tout passe par l'environnement (zizmor).
+      - name: Poignée de main initialize
+        timeout-minutes: 2
+        env:
+          TARGET: ${{ matrix.target.triple }}
+          EXE: ${{ matrix.target.exe }}
+        run: |
+          set -euo pipefail
+          bin="target/$TARGET/dist/mcp-legifrance$EXE"
+          test -x "$bin"
+          version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mcp-legifrance") | .version' | tr -d '\r')"
+          test -n "$version"
+
+          # stdin ferme sur EOF : le serveur doit répondre puis sortir proprement (code 0).
+          request='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"release-smoke","version":"0"}}}'
+          printf '%s\n' "$request" | "$bin" serve >stdout.txt 2>stderr.txt || {
+            echo "::error::le serveur est sorti en échec"
+            cat stderr.txt
+            exit 1
+          }
+          echo "--- stderr"
+          cat stderr.txt
+          echo "--- stdout"
+          cat stdout.txt
+
+          # stdout ne porte que du JSON-RPC : une seule ligne, la réponse à l'id 1.
+          tr -d '\r' <stdout.txt >stdout.lf
+          lines="$(wc -l <stdout.lf | tr -d ' ')"
+          if [ "$lines" != 1 ]; then
+            echo "::error::stdout porte $lines lignes au lieu d'une réponse JSON-RPC"
+            exit 1
+          fi
+          jq -e --arg version "$version" '.jsonrpc == "2.0" and .id == 1 and .result.serverInfo.name == "mcp-legifrance" and .result.serverInfo.version == $version' stdout.lf >/dev/null || {
+            echo "::error::réponse initialize inattendue (nom ou version du serveur)"
+            exit 1
+          }
+          echo "ok : $TARGET, mcp-legifrance $version"
