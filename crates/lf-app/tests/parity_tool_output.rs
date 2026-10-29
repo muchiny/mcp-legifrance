@@ -1121,14 +1121,7 @@ mod parity {
     /// aucune unité du plan ne les porte et que la passe documentaire ou la revue finale tranche :
     /// écrire le test, ou aligner le catalogue sur un test existant). Un nom qui apparaît dans le
     /// code, ou qui quitte le catalogue, fait échouer le test : il faut alors le retirer d'ici.
-    const PENDING: [(&str, &str); 27] = [
-        // V3-01 : e2e du binaire (tests/{e2e_stdio,cli,leaks}.rs).
-        ("audit_unwritable_dir_fails_call", "V3-01"),
-        ("e2e_invalid_config_starts_degraded", "V3-01"),
-        ("e2e_missing_credentials_config_error_audited", "V3-01"),
-        ("error_messages_never_contain_secret_or_userinfo", "V3-01"),
-        ("second_identical_loda_search_hits_cache", "V3-01"),
-        ("two_processes_share_audit_file", "V3-01"),
+    const PENDING: [(&str, &str); 21] = [
         // Aucune unité du plan ne porte ces noms.
         ("article_9_has_two_paragraphs", "F6 : dépend de V-90 (texteHtml de getArticle)"),
         ("default_env_is_sandbox", "F6 : lf-app/config.rs, V1-11 n'a pas ce test"),
