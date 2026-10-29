@@ -394,4 +394,66 @@ mod tests {
             assert_eq!(run(scan, input, &anchors), [], "{input}");
         }
     }
+
+    /// Un numéro CAA ou TA collé au signe « no » (sans espace) n'est pas lu, ni un numéro CAA
+    /// sans code de cour, trop court ou trop long.
+    #[test]
+    fn malformed_case_numbers_give_no_citation() {
+        for (input, anchors) in [
+            ("CAA Lyon, 4 juin 2020, no20LY00123", vec![(Sigle, "CAA")]),
+            ("CAA Lyon, 4 juin 2020, n° LY00123", vec![(Sigle, "CAA")]),
+            ("CAA Lyon, 4 juin 2020, n° 20LY0012", vec![(Sigle, "CAA")]),
+            ("CAA Lyon, 4 juin 2020, n° 20LY001234", vec![(Sigle, "CAA")]),
+            ("TA Paris, 30 juin 2022, no2005064", vec![(Sigle, "TA")]),
+        ] {
+            assert_eq!(run(scan, input, &anchors), [], "{input}");
+        }
+    }
+
+    /// La forme inverse d'un arrêt exige chaque morceau, dans l'ordre : mot, signe de numéro,
+    /// numéro, « du », date, puis la cour et un siège connu.
+    #[test]
+    fn caa_reverse_form_needs_every_part() {
+        let anchors = [(CaaNumberA, "22NC02259")];
+        for input in [
+            "arrêt, n° 22NC02259 du 22 mai 2025 la cour administrative d'appel de Nancy",
+            "arrêt 22NC02259 du 22 mai 2025 la cour administrative d'appel de Nancy",
+            "arrêt n° 22NC02259, du 22 mai 2025 la cour administrative d'appel de Nancy",
+            "arrêt n° 22NC02259 le 22 mai 2025 la cour administrative d'appel de Nancy",
+            "arrêt n° 22NC02259 du-22 mai 2025 la cour administrative d'appel de Nancy",
+            "arrêt n° 22NC02259 du demain la cour administrative d'appel de Nancy",
+            "arrêt n° 22NC02259 du 22 mai 2025 la juridiction de Nancy",
+            "arrêt n° 22NC02259 du 22 mai 2025 la cour administrative d'appel Nancy",
+            "arrêt n° 22NC02259 du 22 mai 2025 la cour administrative d'appel de Atlantis",
+        ] {
+            assert_eq!(run(scan, input, &anchors), [], "{input}");
+        }
+        // Un code de cour inconnu n'est pas un numéro CAA.
+        let input = "arrêt n° 22XX02259 du 22 mai 2025 la cour administrative d'appel de Nancy";
+        assert_eq!(run(scan, input, &[(CaaNumberA, "22XX02259")]), []);
+    }
+
+    /// Même exigence pour la forme inverse d'un jugement.
+    #[test]
+    fn ta_reverse_form_needs_every_part() {
+        let anchors = [(CourtA, "tribunal administratif")];
+        for input in [
+            "jugement, n° 2005064 du 30 juin 2022, le tribunal administratif",
+            "jugement 2005064 du 30 juin 2022, le tribunal administratif",
+            "jugement n° 20050 du 30 juin 2022, le tribunal administratif",
+            "jugement n° 2005064, du 30 juin 2022, le tribunal administratif",
+            "jugement n° 2005064 le 30 juin 2022, le tribunal administratif",
+            "jugement n° 2005064 du-30 juin 2022, le tribunal administratif",
+            "jugement n° 2005064 du demain, le tribunal administratif",
+        ] {
+            assert_eq!(run(scan, input, &anchors), [], "{input}");
+        }
+    }
+
+    /// `trib.adm.` sans espace après `trib.` n'est pas l'abréviation du tribunal.
+    #[test]
+    fn trib_adm_needs_a_space_after_trib() {
+        let input = "trib.adm. Paris, 30 juin 2022, 2005064";
+        assert_eq!(run(scan, input, &[(CourtA, "trib")]), []);
+    }
 }

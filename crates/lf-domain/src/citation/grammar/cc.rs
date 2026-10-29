@@ -410,4 +410,38 @@ mod tests {
             assert_eq!(run(scan, input, &anchors), [], "{input}");
         }
     }
+
+    /// Un titre sans « du » ni tiret après le type n'a pas de date : la décision s'arrête au type.
+    #[test]
+    fn title_without_date_stops_at_the_type() {
+        let input = "Décision 2025-1173 QPC voir ci-dessous";
+        let got = only(run(scan, input, &[(CcNumberA, "2025-1173 QPC")]));
+        assert_eq!(matched(input, &got), "Décision 2025-1173 QPC");
+        assert_eq!(decision(&got).date, None);
+        assert_eq!(decision(&got).parties, None);
+        // « du » sans espace ni date derrière : pas de date non plus.
+        let input = "Décision 2025-1173 QPC du";
+        let got = only(run(scan, input, &[(CcNumberA, "2025-1173 QPC")]));
+        assert_eq!(matched(input, &got), "Décision 2025-1173 QPC");
+        assert_eq!(decision(&got).date, None);
+    }
+
+    /// Chaque morceau de la forme datée et de la forme titrée est exigé ; sinon rien n'est cité.
+    #[test]
+    fn dated_and_titled_forms_need_every_part() {
+        for (input, anchors) in [
+            // Rien après la juridiction qui la sépare de la suite.
+            ("Cons. const.2025-1173 QPC", vec![(CourtA, "Cons. const.")]),
+            // La date est collée à ce qui la suit.
+            ("Cons. const., 30 juill. 2010x 2010-14 QPC", vec![(CourtA, "Cons. const.")]),
+            // Le numéro n'a pas de rang.
+            ("Décision 2025-abc QPC", vec![(CcNumberA, "QPC")]),
+            ("Cons. const., 30 juill. 2010, n° abc QPC", vec![(CourtA, "Cons. const.")]),
+            // Le type est collé au numéro ou n'en est pas un.
+            ("Cons. const., 30 juill. 2010, n° 2010-14QPC", vec![(CourtA, "Cons. const.")]),
+            ("Cons. const., 30 juill. 2010, n° 2010-14 XYZ", vec![(CourtA, "Cons. const.")]),
+        ] {
+            assert_eq!(run(scan, input, &anchors), [], "{input}");
+        }
+    }
 }

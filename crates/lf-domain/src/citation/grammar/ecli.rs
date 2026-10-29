@@ -117,7 +117,8 @@ fn ecli(c: &Cur<'_>, s: usize) -> Option<Hit> {
     let ordinal = year_end + 1;
     c.ch(ordinal).filter(char::is_ascii_alphanumeric)?;
     let raw = run(c, ordinal, MAX_ORDINAL, |ch| ch.is_ascii_alphanumeric() || ch == '.');
-    let len = (1..=raw).rev().find(|&k| !c.is(ordinal + k - 1, '.'))?;
+    // Le premier caractère de l'ordinal est alphanumérique (ci-dessus) : `k = 1` convient toujours.
+    let len = (1..=raw).rev().find(|&k| !c.is(ordinal + k - 1, '.')).unwrap_or(1);
     let end = ordinal + len;
     c.bound(end).then_some(())?;
     let text = c.text(s, end).to_uppercase();
@@ -153,12 +154,18 @@ mod tests {
     use crate::ecli::Ecli;
 
     fn ecli_of(candidate: &Candidate) -> &str {
-        assert!(matches!(candidate.value, CitationRef::Ecli(_)), "{:?}", candidate.value);
         let found = match &candidate.value {
             CitationRef::Ecli(e) => Some(e.as_str()),
             _ => None,
         };
-        found.expect("ECLI vérifié ci-dessus")
+        found.expect("le candidat n'est pas un ECLI français")
+    }
+
+    #[test]
+    #[should_panic(expected = "le candidat n'est pas un ECLI français")]
+    fn ecli_of_refuses_a_foreign_ecli() {
+        let got = only(run(scan, "ECLI:EU:C:2024:216", &[(EcliA, "ECLI")]));
+        let _ = ecli_of(&got);
     }
 
     #[test]
@@ -238,6 +245,9 @@ mod tests {
             ("ECLI:FR:CE:2024:123456.20240101", vec![Flag::EcliCodeCeSeul]),
             ("ECLI:FR:CC:2023:123.QPC", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cc)]),
             ("ECLI:FR:CC:2023:2023.12.XYZ", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cc)]),
+            // Ordinal du Conseil constitutionnel sans numéro d'ordre, ou sans type.
+            ("ECLI:FR:CC:2023:2023.abc.QPC", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cc)]),
+            ("ECLI:FR:CC:2023:2023.12", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cc)]),
             ("ECLI:FR:CCASS:2099:XX99999", vec![Flag::ChambreCassInconnue("XX".into())]),
             ("ECLI:FR:CCASS:2025:C10039", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cass)]),
             ("ECLI:FR:CECHR:2026:506507.2026", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Ce)]),
@@ -276,5 +286,16 @@ mod tests {
         ] {
             assert_eq!(run(scan, input, &[(EcliA, "ECLI")]), [], "{input}");
         }
+    }
+
+    /// La vue clé replie `İ` en `i` : le début « ECLİ: » est reconnu, mais le texte qui en
+    /// résulte n'est pas un ECLI valide. Aucun ECLI n'est fabriqué.
+    #[test]
+    fn dotted_capital_i_does_not_make_an_ecli() {
+        let input = "ECLİ:FR:CCASS:2025:C100399";
+        assert_eq!(run(scan, input, &[(EcliA, "ECL")]), []);
+        // Le même texte avec un « I » ordinaire est bien un ECLI.
+        let input = "ECLI:FR:CCASS:2025:C100399";
+        assert_eq!(ecli_of(&only(run(scan, input, &[(EcliA, "ECL")]))), input);
     }
 }

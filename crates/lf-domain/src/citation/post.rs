@@ -188,7 +188,7 @@ fn rescue_version_texts(order: &[&Unit], selected: &mut [bool]) {
         let from = texts.partition_point(|(unit, _)| unit.extent.start < outer.extent.start);
         let inside: Vec<&(&Unit, &TextCite)> = texts[from..]
             .iter()
-            .take_while(|(unit, _)| unit.extent.start < outer.extent.end)
+            .take_while(|(unit, _)| outer.extent.contains(&unit.extent.start))
             .filter(|(unit, _)| unit.extent.end <= outer.extent.end)
             .collect();
         let mut wanted: Vec<&TextCite> = Vec::new();
@@ -890,6 +890,24 @@ mod tests {
             low,
         ]);
         assert_eq!(out[1].confidence, Confidence::Low);
+    }
+
+    /// Bornes de la règle 5 : un texte qui commence exactement au début de l'étendue de l'article
+    /// retenu est sauvé (le début de l'étendue appartient à l'étendue).
+    #[test]
+    fn version_text_starting_at_the_article_start_is_emitted() {
+        let ordinance =
+            text_cite(TextNature::Ordonnance, Some("2016-131"), Some(date(2016, 2, 10)));
+        let qualified = CitationRef::CodeArticle {
+            code: CodeRef::Known(CodeKey::CodeCivil),
+            article: article(1244),
+            version: Some(VersionQualifier::RedactionAnterieureA(Box::new(ordinance.clone()))),
+            code_via: None,
+        };
+        let out =
+            run(vec![candidate(0..60, qualified), candidate(0..40, CitationRef::Text(ordinance))]);
+        assert_eq!(spans(&out), [(0, 60), (0, 40)]);
+        assert_eq!(kinds(&out), [CitationKind::CodeArticle, CitationKind::Text]);
     }
 
     #[test]
