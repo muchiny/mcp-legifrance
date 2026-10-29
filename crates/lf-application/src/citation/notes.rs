@@ -213,6 +213,9 @@ pub enum Note {
     },
     /// Appellation d'un texte : `fr_search` plutôt que `fr_resolve`.
     UseSearch,
+    /// `fr_get_related` : l'API ne donne aucune référence (`citationJp`, `liens`) pour cette
+    /// décision, alors que son texte en cite peut-être (V4-05) ; la liste vide ne prouve rien.
+    NoDecisionReferences,
 }
 
 /// Sens des sigles ambigus (annexe B §5.3), vocabulaire fermé.
@@ -306,6 +309,10 @@ impl Note {
             Self::UseSearch => {
                 "A popular name is not a citation; find the text with fr_search.".to_owned()
             }
+            Self::NoDecisionReferences => "The API gives no references for this decision; its \
+                 text may still cite some: read it with fr_get_decision and check it with \
+                 fr_verify_citations."
+                .to_owned(),
         };
         messages::clip(&text, NOTE_MAX_CHARS)
     }
@@ -426,9 +433,14 @@ mod tests {
         ]
     }
 
-    /// Les notes d'absence dans l'instantané local de l'index DILA (V4-02).
-    fn snapshot_catalogue() -> Vec<(Note, &'static str)> {
+    /// Les notes de la fin du projet : absence dans l'instantané local de l'index DILA (V4-02) et
+    /// décision sans références pour `fr_get_related` (V4-05).
+    fn later_catalogue() -> Vec<(Note, &'static str)> {
         vec![
+            (
+                Note::NoDecisionReferences,
+                "The API gives no references for this decision; its text may still cite some: read it with fr_get_decision and check it with fr_verify_citations.",
+            ),
             (
                 Note::NotInSnapshot {
                     family: "code article",
@@ -446,7 +458,7 @@ mod tests {
 
     #[test]
     fn notes_are_static_templates() {
-        for (note, expected) in catalogue().into_iter().chain(snapshot_catalogue()) {
+        for (note, expected) in catalogue().into_iter().chain(later_catalogue()) {
             let text = note.text();
             assert_eq!(text, expected, "{note:?}");
             assert!(text.chars().count() <= NOTE_MAX_CHARS, "{text}");

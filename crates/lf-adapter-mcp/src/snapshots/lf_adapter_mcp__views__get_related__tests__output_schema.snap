@@ -43,6 +43,9 @@ expression: schema
       },
       "type": "array"
     },
+    "note": {
+      "type": "string"
+    },
     "source_url": {
       "type": "string"
     },

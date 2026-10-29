@@ -15,11 +15,11 @@
 //!    sans références rend `links: []`, mais cette liste vide ne prouve pas que la décision ne cite
 //!    rien : pour les fonds CETAT et CONSTIT, les captures `consult_juri_cetat.json` et
 //!    `consult_juri_constit.json` n'ont ni `citationJp` ni `liens` (vides ou nuls), alors que
-//!    leur texte intégral fait plusieurs milliers de caractères. Aucun champ de la réponse ne le
-//!    dit encore : une note « l'API ne donne aucune référence pour cette décision » exige un champ
-//!    de `GetRelatedOutput` et de la vue, donc un amendement de 05 §5.11 (reporté en F6). Les
-//!    références analysées sont bornées à `MAX_ANALYSED_CHARS` caractères : au-delà, elles sont
-//!    ignorées et `truncated` le dit.
+//!    leur texte intégral fait plusieurs milliers de caractères. La réponse porte alors la `note`
+//!    [`Note::NoDecisionReferences`] (« l'API ne donne aucune référence pour cette décision »),
+//!    et seulement alors : une décision dont les références existent mais ne contiennent aucune
+//!    citation lisible n'a pas de note. Les références analysées sont bornées à
+//!    `MAX_ANALYSED_CHARS` caractères : au-delà, elles sont ignorées et `truncated` le dit.
 //!
 //! # Plafond de réponse (05 §5.11, 05 §6.4)
 //!
@@ -35,7 +35,10 @@ use lf_domain::{
 
 use crate::{
     budget::{ResponseBudget, estimate_chars, shrink_from_end},
-    citation::related::{DecisionReferences, MAX_LINKS, article_links, decision_links},
+    citation::{
+        Note,
+        related::{DecisionReferences, MAX_LINKS, article_links, decision_links},
+    },
     error::AppError,
     failure::port_failure,
     input::GetRelatedInput,
@@ -105,8 +108,15 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
             .map_err(|error| port_failure(ToolName::FR_GET_DECISION, id.as_str(), &error))?;
         let references = DecisionReferences::of(&decision);
         let found = output(id.as_str(), &decision.contract(), decision_links(&references));
-        // Des références ignorées faute de place (`MAX_ANALYSED_CHARS`) : la liste est incomplète.
-        Ok(GetRelatedOutput { truncated: found.truncated || references.clipped, ..found })
+        // Des références que l'API ne donne pas du tout : lues sur la décision, non sur les
+        // références analysées, que `MAX_ANALYSED_CHARS` peut avoir vidées.
+        let unreferenced = decision.cited_case_law.is_none() && decision.applied_texts.is_empty();
+        Ok(GetRelatedOutput {
+            // Des références ignorées faute de place : la liste est incomplète.
+            truncated: found.truncated || references.clipped,
+            note: unreferenced.then_some(Note::NoDecisionReferences),
+            ..found
+        })
     }
 }
 
@@ -132,6 +142,7 @@ fn output(id: &str, contract: &CitationContract, mut links: Vec<LinkOut>) -> Get
         total: u32::try_from(total).unwrap_or(u32::MAX),
         truncated: links.len() < total,
         links,
+        note: None,
     }
 }
 
@@ -194,6 +205,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        citation::related::MAX_ANALYSED_CHARS,
         error::ErrorCode,
         output::get_related::Relation,
         ports::CorpusError,
@@ -517,6 +529,35 @@ mod tests {
         corpus.push_get_decision(Ok(decision(CETAT, "texte")));
         let out = run(&corpus, Some(CETAT)).await.unwrap();
         assert_eq!((out.links.len(), out.total, out.truncated), (0, 0, false));
+        // La réponse le dit : l'absence de lien n'est pas l'absence de citation.
+        assert_eq!(out.note, Some(Note::NoDecisionReferences));
+    }
+
+    #[tokio::test]
+    async fn the_no_references_note_is_only_for_a_decision_the_api_gives_no_references_for() {
+        // Des références existent mais le parseur n'y lit aucune citation : liste vide, sans note
+        // (l'API en a donné, ce n'est pas elle qui s'est tue).
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(referencing(JURI, Some("néant"), vec![])));
+        let out = run(&corpus, Some(JURI)).await.unwrap();
+        assert_eq!((out.links.len(), out.note), (0, None));
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(referencing(JURI, None, vec!["néant".to_owned()])));
+        assert_eq!(run(&corpus, Some(JURI)).await.unwrap().note, None);
+
+        // Des références qui dépassent la place d'analyse : ignorées, mais l'API en a donné.
+        let corpus = FakeCorpus::new();
+        let too_long = "a".repeat(MAX_ANALYSED_CHARS + 1);
+        corpus.push_get_decision(Ok(referencing(JURI, None, vec![too_long])));
+        let out = run(&corpus, Some(JURI)).await.unwrap();
+        assert_eq!((out.links.len(), out.truncated, out.note), (0, true, None));
+
+        // Des liens trouvés : pas de note. Un article : jamais de note.
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(referencing(JURI, Some(CITATION_JP), applied_texts())));
+        assert_eq!(run(&corpus, Some(JURI)).await.unwrap().note, None);
+        let corpus = serving(RelatedLinks::default());
+        assert_eq!(run(&corpus, Some(ARTI)).await.unwrap().note, None);
     }
 
     #[tokio::test]

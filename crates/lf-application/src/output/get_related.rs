@@ -6,7 +6,7 @@
 
 use lf_domain::citation::CitationKind;
 
-use crate::audited::AuditMetric;
+use crate::{audited::AuditMetric, citation::Note};
 
 /// Sens d'un lien par rapport à la page demandée (05 §5.11).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -65,6 +65,9 @@ pub struct GetRelatedOutput {
     pub links: Vec<LinkOut>,
     /// Vrai quand des liens ont été retirés (au-delà de cent, ou pour tenir sous le plafond).
     pub truncated: bool,
+    /// Présente quand l'API ne donne aucune référence pour la décision demandée : la liste vide
+    /// ne dit alors pas que la décision ne cite rien (V4-05).
+    pub note: Option<Note>,
 }
 
 impl AuditMetric for GetRelatedOutput {
@@ -98,6 +101,7 @@ mod tests {
             total,
             links,
             truncated: false,
+            note: None,
         }
     }
 

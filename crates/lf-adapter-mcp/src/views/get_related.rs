@@ -1,15 +1,19 @@
 //! Vue de sortie de `fr_get_related` (05 §5.11) : `RelatedView`.
 //!
 //! Construite depuis le [`GetRelatedOutput`] de l'application. `links` est toujours présent, même
-//! vide ; `truncated` seulement quand il est vrai ; `id` et `source_url` d'un lien seulement
-//! quand la cible est lisible. L'application a déjà borné la liste (cent liens, estimation sous la
+//! vide ; `truncated` seulement quand il est vrai ; `note` seulement quand l'API ne donne aucune
+//! référence pour la décision (une liste vide ne dit alors pas qu'elle ne cite rien) ; `id` et
+//! `source_url` d'un lien seulement quand la cible est lisible. L'application a déjà borné la liste (cent liens, estimation sous la
 //! cible) ; la mesure exacte du JSON compact suit la construction (`views::fit`), car les
 //! échappements JSON peuvent encore faire dépasser le plafond dur : la vue retire alors des liens
 //! par la fin et `truncated` le dit. `total` garde le compte d'avant toute troncature. Les
 //! commentaires des champs sont des `//` : un doc comment partirait dans l'`outputSchema`, dont la
 //! taille compte (05 §3.4).
 
-use lf_application::output::get_related::{GetRelatedOutput, LinkOut};
+use lf_application::{
+    citation::Note,
+    output::get_related::{GetRelatedOutput, LinkOut},
+};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -33,6 +37,11 @@ pub(crate) struct RelatedView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "bool")]
     truncated: Option<bool>,
+    // Présente quand l'API ne donne aucune référence pour cette décision : la liste vide ne prouve
+    // pas qu'elle ne cite rien.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    note: Option<String>,
 }
 
 // Un lien vers ou depuis la page demandée.
@@ -65,6 +74,7 @@ impl From<GetRelatedOutput> for RelatedView {
             total: output.total,
             links: output.links.into_iter().map(LinkView::from).collect(),
             truncated: output.truncated.then_some(true),
+            note: output.note.as_ref().map(Note::text),
         };
         view.fit();
         view
@@ -120,6 +130,7 @@ mod tests {
             total: u32::try_from(links.len()).unwrap(),
             links,
             truncated: false,
+            note: None,
         }
     }
 
@@ -194,6 +205,20 @@ mod tests {
         let view = json_of(out);
         assert_eq!(view["truncated"], true);
         assert_eq!(view["total"], 250, "le total d'avant la troncature");
+    }
+
+    #[test]
+    fn the_no_references_note_is_rendered_only_when_the_application_sets_it() {
+        let mut out = output(vec![]);
+        out.note = Some(Note::NoDecisionReferences);
+        let view = json_of(out);
+        assert_eq!(view["links"], json!([]));
+        assert_eq!(
+            view["note"],
+            "The API gives no references for this decision; its text may still cite some: read it \
+             with fr_get_decision and check it with fr_verify_citations."
+        );
+        assert!(json_of(output(vec![])).get("note").is_none());
     }
 
     #[test]
