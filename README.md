@@ -403,6 +403,9 @@ Le projet note ses incertitudes plutôt que de les taire. Pour la 0.3.0 :
 - `cargo install --git` n'a pas encore été essayé sous macOS et Windows.
 - Le chemin par défaut du journal d'audit sous Windows, ses permissions, la prise en compte d'un proxy et le comportement de VS Code face à `openWorldHint` ne sont pas mesurés.
 - Le bac à sable PISTE renvoie parfois d'autres données que la production.
+- L'index local DILA (option de compilation `dila`) n'a été éprouvé que sur de petits jeux de test : sa taille, son temps de construction sur de vrais dumps et la licence propre à chaque fonds ne sont pas mesurés.
+- L'adresse Légifrance qu'un article de loi reçoit dans `source_url` n'a pas été ouverte dans un navigateur pour confirmer qu'elle s'affiche.
+- Un passage de 21 tests en bac à sable PISTE a réussi le 2026-10-29 ; il ne dit rien de la production, et la CI ne rejoue qu'une partie de ces tests chaque semaine.
 
 Le registre complet des points ouverts est dans [`docs/plan/09-risques-et-questions.md`](docs/plan/09-risques-et-questions.md).
 
@@ -413,7 +416,7 @@ Le registre complet des points ouverts est dans [`docs/plan/09-risques-et-questi
 | Langage | Rust (édition 2024, MSRV 1.88, chaîne 1.99.0 épinglée), workspace Cargo `crates/lf-*`, binaire `mcp-legifrance` |
 | Architecture | hexagonale : `lf-domain` pur → `lf-application` (ports, cas d'usage) → adapters PISTE, cache, audit, MCP → `lf-app` (binaire) |
 | SDK MCP | `rmcp` 3.5.1 |
-| Qualité | 100 % de couverture en lignes, régions et fonctions, 0 mutant survivant ; `make ci` est la preuve de complétion |
+| Qualité | 100 % de couverture en lignes, régions et fonctions, à une exception nommée près (`stdio.rs`, la colle sur les vrais stdin et stdout, couverte par un test de bout en bout du binaire) ; mutation : le diff de chaque PR est muté sur les fichiers à risque seulement, le reste du code l'est chaque semaine, et des mutants survivants y sont connus et non résolus ; `make ci` est la preuve de complétion |
 
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** : boucle de développement, portes de qualité, règles de licence des contributions.
 - **[docs/plan/](docs/plan/)** : point d'entrée du plan et ordre de lecture ; **[docs/plan/00-decisions.md](docs/plan/00-decisions.md)** : décisions normatives ; **[docs/plan/07-feuille-de-route.md](docs/plan/07-feuille-de-route.md)** : jalons et tâches.

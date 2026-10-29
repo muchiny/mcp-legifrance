@@ -46,7 +46,7 @@ Exception datée : lors de la réconciliation du 2026-10-16 (décisions C1 à C7
 
 ## 3. Conventions
 
-- Fichier `docs/adr/NNNN-titre-en-kebab-case.md`, numéro sur 4 chiffres. Les ADR 0001 et 0002 ont été livrés avec M0 ; ce plan crée les ADR 0003 à 0016 (0015 et 0016 sont les ex-0001 et ex-0002 du plan, renumérotés le 2026-10-16) ; la numérotation continue à **0018** (0017 : réessais sans `backon`, plan 2c) et un numéro n'est **jamais** réutilisé (06 §13.2).
+- Fichier `docs/adr/NNNN-titre-en-kebab-case.md`, numéro sur 4 chiffres. Les ADR 0001 et 0002 ont été livrés avec M0 ; ce plan crée les ADR 0003 à 0016 (0015 et 0016 sont les ex-0001 et ex-0002 du plan, renumérotés le 2026-10-16) ; la numérotation continue à **0019** (0017 : réessais sans `backon`, plan 2c ; 0018 : dépendances de la fin du projet ; 0019 : `DilaCorpus`, M9) et un numéro n'est **jamais** réutilisé (06 §13.2).
 - Langue : français ; identifiants techniques tels quels.
 - Longueur : 40 à 120 lignes. Un ADR est court ; le détail est dans le plan, vers lequel il renvoie.
 - Sources : chaque fait non trivial est sourcé, par exemple (recherche 03 §4), (référence `citations.py:309`), (fixture `consult_juri_cetat.json`) ou une URL. Les défauts de la référence sont cités `D-01…D-47` ([recherche 02](../recherche/02-defauts.md)), les points de parité `P-xxx` et les écarts `E-xx` ([recherche 01](../recherche/01-parite.md)).
@@ -109,15 +109,17 @@ Toutes les questions de la colonne « Questions » sont adoptées par défaut et
 | [ADR-0016](0016-hexagonal-workspace.md) | Architecture hexagonale en workspace multi-crates (ex-0002 du plan ; remplace ADR-0001) | Accepté (révisé) | M0 (livré), M3 | Q1 (décidée), Q13 | [02-architecture](../plan/02-architecture.md) |
 | [ADR-0017](0017-reessais-sans-backon.md) | Réessais sans backon : boucle maison | **Proposé** (accepté à la fusion de la PR du plan 2c) | M2 | — | [00-decisions](../plan/00-decisions.md) §8, [04-adapter-piste](../plan/04-adapter-piste.md) §5.2 |
 | [ADR-0018](0018-dependances-fin-de-projet.md) | Dépendances de la fin du projet : déclarées en une fois, par la vague 0 | **Proposé** (accepté à la fusion de la PR unique du plan fin-du-projet) | M3 à M9 | — | [00-decisions](../plan/00-decisions.md) §2, §11.1, [02-architecture](../plan/02-architecture.md) §3.0.1, §4.3 |
+| [ADR-0019](0019-dilacorpus-hors-ligne.md) | `DilaCorpus` : le port `LegalCorpus` hors ligne, sur un index tantivy des dumps LEGI | **Proposé** (accepté à la fusion de la PR unique du plan fin-du-projet) | M9 | Q6 | [00-decisions](../plan/00-decisions.md) §5, [02-architecture](../plan/02-architecture.md) §8.5, [ADR-0004](0004-piste-puis-dila.md) |
 
-Prochain numéro libre : **0019**. Un numéro n'est jamais réutilisé : les ex-0001 et ex-0002 du plan ont été renumérotés 0015 et 0016 parce que 0001 et 0002 étaient déjà livrés.
+Prochain numéro libre : **0020**. Un numéro n'est jamais réutilisé : les ex-0001 et ex-0002 du plan ont été renumérotés 0015 et 0016 parce que 0001 et 0002 étaient déjà livrés.
 
 Conditions d'acceptation des ADR proposés :
 
 - [ ] **ADR-0013** : réponse à Q5 (proposition par défaut : Azure Artifact Signing si éligible, sinon SSL.com eSigner ; compte Apple Developer pour `codesign` et `notarytool` ; bundle MCPB unique), avant v0.1.0 ; réponse à Q13 (proposition par défaut : `cargo install --git` en v0.x, sans crates.io ; la publication crates.io n'est pas tranchée avant M5, C6), avant v0.1.0 ; Q1 est décidée le 2026-10-16 (nom `mcp-legifrance`) ; résultat du spike TLS (aws-lc ou ring) provisoirement consigné dans l'ADR (§7, plan 2c) ; définitif après la matrice.
 - [ ] **ADR-0017** : acceptation à la fusion de la PR du plan 2c.
 - [ ] **ADR-0018** : acceptation à la fusion de la PR unique du plan fin-du-projet.
-- [ ] **ADR-0014** : réponse à Q10 (proposition par défaut : `any` jusqu'à V-79, puis `all` si V-79 confirme la sémantique et un rappel acceptable sur les 9 scénarios de la référence), consignée avant le verrou des descripteurs de M4 ; mesures de M5 sur la pagination profonde (V-83) et sur `typePagination` en page 2 (V-82).
+- [ ] **ADR-0019** : acceptation à la fusion de la PR unique du plan fin-du-projet ; Q6 (réseau de construction de l'index) et V-189 (licence par fonds) restent à confirmer.
+- [ ] **ADR-0014** : réponse à Q10 (proposition par défaut : `any` jusqu'à V-79, puis `all` si V-79 confirme la sémantique et un rappel acceptable sur les 9 scénarios de la référence), consignée avant le verrou des descripteurs de M4 ; mesures de M5 sur la pagination profonde (V-83) et sur `typePagination` en page 2 (V-82), **réussies en sandbox le 2026-10-29** (06 §5.4) : reste la réponse à Q10, V-79 n'étant que partielle.
 
 Questions et vérifications à confirmer des ADR acceptés (une réponse contraire produit un nouvel ADR, §2) :
 
@@ -145,6 +147,7 @@ graph LR
     A6 --> A14[0014 recherche]
     A6 --> A9[0009 citation v2]
     A12 --> A4[0004 PISTE puis DILA]
+    A4 --> A19[0019 DilaCorpus]
     A11[0011 dates] --> A7
     A5[0005 pas de config distante] --> A13[0013 distribution]
     A8 --> A10

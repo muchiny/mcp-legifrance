@@ -39,6 +39,11 @@ Ce que vous cherchez peut révéler votre activité. PISTE et la DILA voient les
 
 **Journaux de diagnostic.** Ils vont sur stderr, sans texte de requête ni secret. Où ils atterrissent dépend de votre client MCP, qui peut les conserver dans ses propres fichiers.
 
+## Options de compilation facultatives (absentes des binaires publiés)
+
+- **Index local DILA** (`dila`). Quand `LF_DILA_DIR` désigne un répertoire, les textes (codes, lois et décrets seulement) sont lus dans un index que vous avez construit vous-même à partir des dumps publics de la DILA, sur votre disque : aucun identifiant PISTE n'est demandé et aucune requête ne part vers PISTE. Le serveur n'écrit rien dans ce répertoire en fonctionnement normal et ne télécharge rien ; le script de téléchargement des dumps est extérieur au binaire. Le journal d'audit est tenu comme d'habitude, et il étiquette cette source `production` (c'est un nom d'environnement, non une indication de réseau). Le contenu de l'index est public ; ce que vous y cherchez reste sur votre poste.
+- **Transport HTTP local** (`http`, sous-commande `serve-http`). Le serveur écoute sur la boucle locale seulement, derrière un jeton que vous fournissez dans `LF_MCP_HTTP_TOKEN`. Ce jeton n'est jamais transmis à PISTE, journalisé ni audité. Ce transport n'ouvre aucune connexion sortante de plus que le mode par défaut.
+
 ## Ni télémétrie, ni compte, ni service tiers
 
 Aucune télémétrie, aucune vérification de version en ligne, aucune mise à jour automatique, aucune configuration distante, aucun compte (ADR-0005). Chaque utilisateur apporte ses identifiants. Le projet n'exploite aucun serveur.

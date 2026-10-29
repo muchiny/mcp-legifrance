@@ -4,6 +4,7 @@
 - **Date** : 2026-10-15
 - **Jalons concernés** : M2 (payload `/search`, mesure V-79), M3 (validations du cas d'usage), M4 (verrou des descripteurs : Q10 tranchée avant), M5 (pagination, mesures, v0.1.0), M7 (`fr_search_all`)
 - **Questions liées** : Q10 (proposition adoptée par défaut, à confirmer)
+- Point au 2026-10-29 (F6-b, d'après l'exécution live de F2, 06 §5.4) : le statut **reste « Proposé »**. Les mesures de M5 ont réussi en sandbox : `live_type_pagination_page2_code` (V-82 : la page 2 de `CODE_DATE` ne rejoue pas la page 1 quand le mémo de `typePagination` est rejoué) et `live_deep_pagination_limit` (V-83 : la page 100 de 100 résultats, positions 9 901 à 10 000, est pleine et le total atteint la fenêtre). En revanche la condition de Q10 n'est pas remplie : V-79 n'est que **partielle** (l'ordre `any` ≥ `all` ≥ `exact` est confirmé, 09 §2.20 ; le sens de `all` avec `typeChamp = ALL` pour des mots répartis entre titre et article, et le rappel en `all` sur les 9 scénarios de la référence, ne sont **pas mesurés**), et la réponse du propriétaire à Q10 n'est pas consignée. Le défaut reste `any`. Le passage à « Accepté » attend cette réponse ; il n'est pas déduit des seules mesures M5.
 - Révisé le 2026-10-15 (revue) : défaut de `match` et calendrier de Q10 (AM-41) ; `PaginationMemo` et rejets `invalid_arg` dans le cas d'usage (00 §7, AM-04) ; `has_more` borné par la fenêtre atteignable ; copie défensive de l'adapter (00 §5, AM-28) ; contrôle final du 2026-10-16 : règle exacte de `has_more` (05 §5.1, 03 §4.1).
 
 ## Contexte

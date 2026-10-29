@@ -50,6 +50,8 @@ Design reference: `docs/plan/06-qualite.md` §10 (threats MEN-01 to MEN-23).
 - By default only the official PISTE hosts are contacted. A custom `LF_PISTE_OAUTH_URL` or `LF_PISTE_BASE_URL` is accepted but warned about, and credentials are then sent to that host: set it only to a host you trust. There is no telemetry and no remote configuration.
 - The default rate limit is 5 requests per second. Over-consumption can get your PISTE application suspended, which is not under our control.
 - The PISTE sandbox has no service commitment, and its data are not identical to production.
+- Known limit (2026-10-29): when the upstream echoes a client identifier or the user-info part of a URL inside an error message, that text can reach the tool error, the logs and the audit log. The client secret and the tokens never do (tested). Redacting URLs in upstream messages is planned, not guaranteed (design reference D-40).
+- Known limit (2026-10-29): a string given for an integer field (for example `page_size`) that is not a number is quoted in full in the argument error, hence in the audit `error` field (cut to 500 characters, control characters neutralised). A model that puts a secret there would find it in the log. Not yet fixed.
 
 **Supply chain**
 
@@ -65,6 +67,14 @@ stdio is the transport of the published binaries. If you build the optional HTTP
 - This static token is a deliberate deviation from the OAuth 2.1 authorisation that the MCP specification recommends for HTTP. The OAuth "remote" profile is **not offered**: PISTE keys are reserved to your application (open question Q4). Do not expose this server on a network, and never share it between several people.
 - The `Origin` header is validated (a bad one gets a 403, against DNS rebinding), request bodies are capped at 256 KiB, tool invocations are rate-limited, `GET` and `DELETE` answer 405, and no session is created.
 - The inbound token is never forwarded to PISTE, logged or audited. The two trust relationships (client to server, server to PISTE) are never mixed.
+- `serve-http` refuses to start without `LF_MCP_HTTP_TOKEN`. A token shorter than 32 bytes is accepted with a warning at start-up: use at least 32 random bytes (for example the output of `openssl rand -hex 32`). Only the `mcp-legifrance` binary enforces the token: the library entry point `serve_http` can run without one, so do not embed it elsewhere without adding the check. The token is held as an ordinary string in memory, not wiped on exit.
+- At shutdown, requests still in flight are cancelled, audited and answered with HTTP 500 (rmcp 3.5.1 drops the response of a cancelled call); the grace period for draining them does not apply to tool calls. Do not rely on a call finishing during a shutdown.
+
+**Local index (optional `dila` build, not in the published binaries)**
+
+- The index is a snapshot of the DILA LEGI dumps (codes, laws and decrees only). It can lag behind Légifrance, so a text missing from it is reported `unresolvable`, never `not_found`, and `fr_coverage` describes the source as a degraded snapshot.
+- When `LF_DILA_DIR` is set, the server never falls back to PISTE: an index that is missing, empty or unreadable makes the source unavailable, and no request leaves the machine. The refusals the model reads are fixed texts without any path.
+- The archives are read as a stream and nothing is extracted to disk. Paths are validated, links are never followed, a member is capped at 16 MiB, and `DOCTYPE` and `ENTITY` are refused. The dumps are downloaded by a script outside the binary; their integrity is yours to check.
 
 ### Hardening advice
 
@@ -122,6 +132,8 @@ Référence de conception : `docs/plan/06-qualite.md` §10 (menaces MEN-01 à ME
 - Par défaut, seuls les hôtes officiels de PISTE sont contactés. Un `LF_PISTE_OAUTH_URL` ou `LF_PISTE_BASE_URL` personnalisé est accepté mais signalé par un avertissement, et les identifiants partent alors vers cet hôte : ne le renseignez que pour un hôte de confiance. Il n'y a ni télémétrie ni configuration distante.
 - Le débit par défaut est de 5 requêtes par seconde. Une surconsommation peut faire suspendre votre application PISTE, ce que nous ne maîtrisons pas.
 - La sandbox PISTE n'a pas d'engagement de service, et ses données ne sont pas celles de la production.
+- Limite connue (2026-10-29) : quand l'amont recopie un identifiant client ou la partie utilisateur d'une URL dans un message d'erreur, ce texte peut atteindre l'erreur de l'outil, les journaux et le journal d'audit. Le secret client et les jetons, eux, n'y figurent jamais (testé). La rédaction des URL dans les messages amont est prévue, non garantie (référence de conception D-40).
+- Limite connue (2026-10-29) : une chaîne donnée pour un champ entier (par exemple `page_size`) qui n'est pas un nombre est citée en entier dans l'erreur d'argument, donc dans le champ `error` de l'audit (coupé à 500 caractères, caractères de contrôle neutralisés). Un modèle qui y met un secret l'y retrouverait. Non corrigé à ce jour.
 
 **Chaîne d'approvisionnement**
 
@@ -137,6 +149,14 @@ stdio est le transport des binaires publiés. Si vous compilez le transport HTTP
 - Ce jeton statique est un écart assumé à l'autorisation OAuth 2.1 que la spécification MCP recommande en HTTP. Le profil « distant » OAuth n'est **pas proposé** : les clés PISTE sont réservées à votre application (question ouverte Q4). N'exposez pas ce serveur sur un réseau et ne le partagez jamais entre plusieurs personnes.
 - L'en-tête `Origin` est validé (un `Origin` invalide reçoit un 403, contre le rebinding DNS), les corps de requête sont plafonnés à 256 Kio, les appels d'outils sont limités en débit, `GET` et `DELETE` répondent 405, et aucune session n'est créée.
 - Le jeton entrant n'est jamais transmis à PISTE, journalisé ni audité. Les deux relations de confiance (client vers serveur, serveur vers PISTE) ne sont jamais mélangées.
+- `serve-http` refuse de démarrer sans `LF_MCP_HTTP_TOKEN`. Un jeton de moins de 32 octets est accepté avec un avertissement au démarrage : prenez au moins 32 octets aléatoires (par exemple la sortie de `openssl rand -hex 32`). Seul le binaire `mcp-legifrance` impose le jeton : le point d'entrée de bibliothèque `serve_http` peut s'exécuter sans lui, ne l'intégrez donc pas ailleurs sans ajouter ce contrôle. Le jeton est tenu en mémoire comme une chaîne ordinaire, non effacée à la sortie.
+- À l'arrêt, les requêtes en vol sont annulées, auditées et reçoivent un HTTP 500 (rmcp 3.5.1 jette la réponse d'un appel annulé) ; le délai d'évacuation ne vaut pas pour les appels d'outil. Ne comptez pas sur la fin d'un appel pendant un arrêt.
+
+**Index local (compilation facultative `dila`, absente des binaires publiés)**
+
+- L'index est un instantané des dumps LEGI de la DILA (codes, lois et décrets seulement). Il peut être en retard sur Légifrance : un texte qui en est absent est rendu `unresolvable`, jamais `not_found`, et `fr_coverage` décrit la source comme un instantané dégradé.
+- Quand `LF_DILA_DIR` est défini, le serveur ne se replie jamais sur PISTE : un index absent, vide ou illisible rend la source indisponible, et aucune requête ne quitte la machine. Les refus que lit le modèle sont des textes fixes, sans aucun chemin.
+- Les archives sont lues en flux et rien n'est extrait sur le disque. Les chemins sont validés, les liens ne sont jamais suivis, un membre est plafonné à 16 Mio, `DOCTYPE` et `ENTITY` sont refusés. Les dumps sont téléchargés par un script extérieur au binaire : leur intégrité est à vérifier par vous.
 
 ### Conseils de durcissement
 

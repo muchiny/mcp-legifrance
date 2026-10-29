@@ -96,6 +96,7 @@
 
 ## Références et sources
 
+- Suite livrée de M9 : [ADR-0019](0019-dilacorpus-hors-ligne.md) (`DilaCorpus`, ajout de référence du 2026-10-29).
 - Plan : [00-decisions.md](../plan/00-decisions.md) §2, §3, §5, §8 à §13 (révision 2) ; [09-risques-et-questions.md](../plan/09-risques-et-questions.md) §3.3, §3.6, §3.15 (Q3, Q6, Q15) ; [02-architecture.md](../plan/02-architecture.md) §5.1, §8.5, §12.2, §13 ; [04-adapter-piste.md](../plan/04-adapter-piste.md) §1, §2 ; [annexes/C-api-legifrance.md](../plan/annexes/C-api-legifrance.md) (dumps DILA) ; [annexes/B-citations.md](../plan/annexes/B-citations.md) (résolution).
 - Recherche : [05-piste-dila.md](../recherche/05-piste-dila.md) §1, §3, §4, §5, §6, §8 ; [01-parite.md](../recherche/01-parite.md) §0 ; [02-defauts.md](../recherche/02-defauts.md) D-18, D-34.
 - Données ouvertes DILA : https://echanges.dila.gouv.fr/OPENDATA/ (injoignable pendant la recherche).

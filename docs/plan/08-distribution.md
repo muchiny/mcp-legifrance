@@ -523,6 +523,7 @@ esac
 
 - Le dépôt contient `packaging/mcpb/manifest.json` (02 §2), `packaging/mcpb/launcher` et `packaging/mcpb/icon.png`.
 - `cargo xtask lock-descriptors --update` réécrit la section `tools` et le champ `version` du manifeste à partir du verrou. `--check` (mode par défaut, 05 §9.4) échoue si le manifeste diverge : version différente de celle du workspace, ou outils différents du verrou. C'est la ligne `xtask` de 00 §2 (révision 2, AM-31) : génération et contrôle du manifeste MCPB et de la version de `server.json` par `lock-descriptors`, sans nouvelle commande (§12.1, point 9).
+- **Amendement du 2026-10-29 (F6-b, d'après `xtask/src/lock_descriptors.rs` et `packaging/check-server-json.sh`).** `--update` ne pose dans `server.json` que les champs `version` (celui du fichier et celui du paquet) ; les identifiants des paquets `mcpb` (URL de l'asset) et `oci` (référence de l'image) ne sont **pas** réécrits et se changent à la main à chaque version. `packaging/check-server-json.sh [--provisional] <server.json> <version> [<manifest.json>]` en contrôle la cohérence avec la version de la release, le manifeste et les noms des assets (`jq` requis) : sans `--provisional`, il exige la somme `fileSha256` réelle du MCPB ; avec, il accepte la somme provisoire de 64 zéros du fichier versionné. Un décalage échoue avant le registre, car une version publiée est immuable (§6.6).
 - Un seul manifeste : il n'existe pas de bundle par architecture (§4.1).
 
 ### 4.5 Construction en CI (job `build-mcpb`)
@@ -827,6 +828,8 @@ Le **SemVer de la surface d'outils** (classes rupture, ajout et correctif ; règ
 | Montée de rmcp (manuelle, 00 §6) | selon le verrou, au minimum correctif ; à noter explicitement |
 
 La politique de version ne dépend pas des jalons : M5 → v0.1.0, M6 → v0.2.0, M7 → v0.3.0, M8 → v0.4.0, M9 → v1.0.0 (00 §11). Une version corrective `0.x.(y+1)` peut sortir à tout moment.
+
+**Amendement du 2026-10-29 (D14, fin de projet).** Les jalons M5 à M7 ne sont pas publiés un à un : le workspace passe directement à `0.3.0` (verrou, manifeste MCPB et `server.json` alignés), et aucune version, étiquette ni release n'existe encore (CHANGELOG : `## [0.3.0] - non publiée`). Les versions `0.1.0` et `0.2.0` des exemples de ce document restent des exemples. Les identifiants de `server.json` pour `0.3.0` pointent vers des assets qui n'existent pas avant l'étiquette `v0.3.0` ; leur somme `fileSha256` est provisoire jusqu'au job `build-mcpb`. L'étiquette, la signature (Q5) et le canal `cargo install --git` (Q13) restent des décisions du propriétaire.
 
 ### 7.2 CHANGELOG
 

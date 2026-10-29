@@ -10,7 +10,24 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 `[Unreleased]` reste en tête. Chaque version portera sa date ISO et un lien de comparaison. Rien n'est publié avant 0.1.0 (M5).
 
+**État au 2026-10-29 (D14).** La version du workspace est `0.3.0`, mais aucune version, aucune étiquette et aucun binaire n'ont été publiés : les versions 0.1.0 et 0.2.0 n'ont jamais existé hors du dépôt. Les entrées de M0 à M9 sont donc réunies sous `[0.3.0] - non publiée`. Au moment d'étiqueter, le mainteneur remplace « non publiée » par la date ISO (le contrôle de `release-gates.yml` exige `## [X.Y.Z] - AAAA-MM-JJ`) et ajoute le lien de comparaison.
+
 ## [Unreleased]
+
+Rien depuis `0.3.0`.
+
+## [0.3.0] - non publiée
+
+### Tool surface
+
+Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0.3.0`), régénéré par `cargo xtask lock-descriptors --update` (`make lock`) ; les trois ères sont identiques.
+
+- **13 outils** : `fr_search`, `fr_search_all`, `fr_get_text`, `fr_get_act`, `fr_get_decision`, `fr_get_deliberation`, `fr_get_convention`, `fr_get_company_agreement`, `fr_get_related`, `fr_diff_article`, `fr_resolve`, `fr_verify_citations` et `fr_coverage`.
+- **1 ressource** `legifrance://coverage` et **4 modèles de ressource** : `legifrance://act/{text_id}`, `legifrance://article/{article_id}`, `legifrance://code/{code}/article/{num}` et `legifrance://decision/{decision_id}` (la variable `code` se complète).
+- **3 prompts** : `analyser_decision`, `etat_du_droit` et `verifier_citations`.
+- **Capacités** : `tools`, `resources`, `prompts` et `completions`.
+- **Tailles mesurées** : instructions du serveur 3 278 caractères ; `tools/list` 31 853 octets, sous le plafond de 32 900 octets.
+- **Descriptions** : les exemples de `fr_get_text`, `fr_resolve` et `fr_verify_citations` s'écrivent « for example » (aucun point dans « e.g. », que le comptage de phrases lisait comme une fin de phrase) ; `fr_get_related` ajoute à sa sortie le champ optionnel `note` (voir Added).
 
 ### Added
 
@@ -53,6 +70,15 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - `check-arch` (plan 3a) : la feature `test-support` de `lf-application` n'est admise qu'en dépendance de développement ; `tracing` borné à `std` dans `lf-application`.
 - Application (plan 3a, revue finale) : `failure::port_failure`, point d'entrée des cas d'usage pour une `CorpusError` (événement `corpus call failed` avec la variante, l'outil et le `detail`, jamais l'identifiant demandé ; puis `messages::corpus_error`) ; champ `cause` du span `tool_call` ; `FakeCorpus::seen_requests` (`PortRequest`, arguments de chaque appel) et `FakeCorpus::unserved`.
 - `check-arch` (plan 3a, revue finale) : chez `lf-application`, aucune feature autre que `test-support` (`default`, `full`…) ne peut lister `test-support`.
+- M2 à M7 : surface de lecture et de recherche (`fr_search`, `fr_search_all`, `fr_get_text`, `fr_get_act`, `fr_get_decision`, `fr_get_deliberation`, `fr_get_convention`, `fr_get_company_agreement`, `fr_diff_article`, `fr_coverage`), adapter PISTE, cache en mémoire (`lf-adapter-cache`), audit en décorateur (`lf-adapter-audit`), serveur MCP (`lf-adapter-mcp`) et binaire `mcp-legifrance` (`lf-app`), transport stdio.
+- M6 : parseur de citations de `lf-domain` (ancres, arbitrage, formes canoniques, extrait cité) et outils `fr_verify_citations` et `fr_resolve` ; corpus de l'annexe B et fuzz.
+- M7 : outil `fr_get_related` (liens d'un article ou d'une décision), resources, prompts et completions.
+- M9 : crate `lf-adapter-dila` (ingestion en flux des dumps LEGI, registre des archives, index tantivy) et port `DilaCorpus`, huit opérations servies hors ligne ; source choisie par `LF_DILA_DIR` derrière la feature `dila` (ADR-0019). Absente des binaires publiés.
+- M8 : sous-commande `serve-http` (Streamable HTTP sans session, profil local) derrière la feature `http`, absente des binaires publiés ; job de conformité HTTP.
+- `fr_get_related` : le champ optionnel `note` dit, pour une décision, que l'API ne donne aucune référence (`NoDecisionReferences`) ; une liste vide ne prouve plus l'absence de liens.
+- `ConfigFacts.local_snapshot` et lacune `FR-105` : un index local est un instantané ; `fr_verify_citations` et `fr_resolve` rendent `unresolvable`, jamais `not_found`, et `fr_coverage` décrit la source comme dégradée.
+- Distribution : lanceur POSIX du bundle MCPB, image OCI distroless, `server.json` (`packaging/`), verrou et manifeste alignés sur `0.3.0`.
+- Documentation : ADR-0019 (`DilaCorpus`).
 
 ### Changed
 
@@ -75,6 +101,13 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - Domaine (plan 2e) : `text`, `etat`, `idcc` et `nor` des entités typés (`LongText`, `LegalStatus`, `Idcc`, `Nor`) à la place de chaînes ; `CodeArticleRef.snippet` est un `Option<Snippet>` ; `clean` délègue à `clean_with_report`.
 - `CorpusError` typé (plan 3a) : `Auth { origin: AuthOrigin, status, detail }`, `Config { kind: ConfigKind, detail }` et nouvelle variante `TooLarge` ; l'adapter PISTE rend `TooLarge` pour un corps au-delà de la borne sur `/search` et les consultations (`Decode` sur l'endpoint du jeton), et pose l'origine, le statut et la nature à chaque site.
 - Adapter PISTE (plan 3a) : `ConfigProblem::InvalidEnv { value: RejectedEnv }`, construit par `ConfigProblem::invalid_env` (texte de `docs/plan/05-outils-mcp.md` §7.2 ; la valeur n'est citée que si elle fait 1 à 16 lettres ASCII, sinon le message ne donne que son nombre de caractères et la valeur brute n'est jamais conservée, pas même dans le `Debug`) ; `ConfigProblem::EnvMismatch` porte `variable` (`LF_PISTE_BASE_URL` ou `LF_PISTE_OAUTH_URL`) à la place de `setting`, et son texte devient celui de 05 §7.2.
+- Version du workspace `0.3.0` (D14), `server.json` et manifeste MCPB alignés ; aucune étiquette n'est posée.
+- `LegalCorpus::find_article` prend `(&LegiTextId, &str, ArticleAt)` avec `ArticleAt::{Today, On}` (D5) ; `ServiceSettings { policy, configuration, budget }` (D13).
+- `cargo deny` : `multiple-versions = "deny"`, huit `skip` nominatifs et sans `skip-tree` (T-M5-09) ; `fs4` en deux versions (D21).
+- `cargo machete` : plus aucune entrée `ignored` ni `STUB(V0)` (ADR-0018).
+- Plafond de `tools/list` : 24 000 puis 33 500 puis 32 900 octets (mesure de 31 853 octets plus 3 %).
+- CI : mutation du diff de chaque PR limitée aux fichiers à risque de `.github/mutants-scope.txt` (D7) ; couverture : seule exclusion nommée, `crates/lf-adapter-mcp/src/stdio.rs` (D6).
+- Adapter PISTE : `list_codes` complète une pagination instable de la sandbox (union dédoublonnée, jusqu'à 3 parcours).
 
 ### Removed
 
@@ -83,6 +116,7 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ### Fixed
 
+- Sonde live du scénario 3 : un article de loi rend `/codes/article_lc/` en sandbox (Q17) ; la sonde n'exige plus `/loda/article_lc/`.
 - Un suffixe de version impossible (`_31-02-2023`, `_foo`) est refusé au lieu d'être retiré en silence.
 - Les dates sentinelles (2999-01-01, 2222-02-22) se lisent comme « sans fin ».
 - Tests de l'adapter PISTE : port « fermé » rendu déterministe (`ClosedPort`).
@@ -99,9 +133,16 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - TLS rustls avec aws-lc, à titre provisoire (ADR-0013).
 - Application (plan 3a, revue finale) : `Debug` de `CanonicalInput` (longueur en octets seule) et de `ToolCall` écrit à la main, sans argument ; champ `error` de la ligne d'audit neutralisé (contrôles, U+2028, U+2029 et formats bidi remplacés par une espace) ; message de décodage coupé à 500 caractères ; `Deadline::after` sature au lieu de paniquer sur un budget démesuré. Adapter PISTE : la valeur refusée de `LF_PISTE_ENV` n'est plus jamais gardée (citée seulement si elle fait 1 à 16 lettres ASCII, sinon son nombre de caractères).
 - `rustls` 0.23.46, `rustls-webpki` 0.103.16 et `webpki-root-certs` 1.0.10 (RUSTSEC-2026-0346 à -0349, -0382, -0383) par l'exception `security-fix` de la règle d'âge, sans `ignore` dans `deny.toml`.
+- `serve-http` refuse de démarrer sans `LF_MCP_HTTP_TOKEN`, n'écoute que la boucle locale et refuse tout `Origin` non autorisé ; la source locale ne se replie jamais sur PISTE ; les refus de `DilaCorpus` sont des textes fixes sans chemin.
+
+### Protocol
+
+- MCP `2026-07-28`, `2025-11-25` et `2025-06-18` servis par `rmcp =3.5.1` (ADR-0003). Annulation (spike 0A) : rmcp 3.5.1 jette la réponse d'un appel annulé ; à l'arrêt, le transport HTTP répond 500.
+- Statut des sept issues rmcp suivies, relevé le 2026-10-29 (annexe D §9.1) : 4 ouvertes, 3 fermées ; présence des correctifs dans une version publiée non établie (**NON VÉRIFIÉ**).
 
 ### Parity
 
 - Domaine seulement, visible par un client à partir de M4 : citation du Conseil constitutionnel sans « - objet » (P-035), plus de `eli_uri` (P-031, P-039), sentinelle de date omise (P-030).
 
 [Unreleased]: https://github.com/muchiny/mcp-legifrance/commits/main
+[0.3.0]: https://github.com/muchiny/mcp-legifrance/commits/main

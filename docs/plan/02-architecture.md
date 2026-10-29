@@ -254,7 +254,7 @@ crates/lf-domain/src/             # disposition cible : 03-domaine §1.5 (fait f
     ├── text/             # from_html, clean, LongText, window, passages, rank (BM25), summary,
     │                     # encoding (réparation du mojibake : fonction pure appelée par l'adapter, 03 §7.1 ;
     │                     # reliquat de M1 non livré : tâche de tête de M2, 00 §11.1)
-    └── citation/         # M6 : parse (winnow 1.0 + aho-corasick), dictionnaires codes et juridictions
+    └── citation/         # M6 : parse (grammaires écrites à la main + aho-corasick + regex), dictionnaires codes et juridictions
 crates/lf-application/src/
     ├── lib.rs
     ├── ports/            # mod.rs, corpus.rs (LegalCorpus, CorpusError, AuthOrigin, ConfigKind), audit.rs (AuditLog, AuditRecord…),
@@ -370,7 +370,7 @@ Versions relues dans l'index sparse crates.io le 2026-10-15 (recherche 04 §4.1,
 | Crate | Version de référence | MSRV déclarée | Publiée | Crates utilisateurs | Features et remarques |
 |---|---|---|---|---|---|
 | `rmcp` | `=3.5.1` | 1.88 | 2026-10-05 ⚠ (éligible le 2026-10-19) | lf-adapter-mcp (dev : idem avec `client`) | features par défaut (`base64`, `macros`, `server` ; `server` active `schemars`) + `transport-io` ; `transport-streamable-http-server` en M8 seulement. Ni `request-state`, ni `elicitation`, ni `auth` (recherche 09 §7a). Épinglé exactement, comme rmcp-macros : ce sont les deux seuls crates dans ce cas (00 §6). Il reste soumis à la règle d'âge : verrou au jalon qui l'introduit, pas avant le 2026-10-19 (00 §2). |
-| `rmcp-macros` | `=3.5.1` | 1.88 | 2026-10-05 ⚠ (éligible le 2026-10-19) | lf-adapter-mcp | rmcp 3.5.1 déclare `rmcp-macros = { version = "3.5.1" }`, une exigence **caret** (`Cargo.toml` racine du tag `rmcp-v3.5.1`, ligne 9, vérifié). Sans épinglage direct, un `cargo update` pourrait associer rmcp 3.5.1 à un rmcp-macros plus récent. Le crate est déclaré mais pas utilisé directement : `[package.metadata.cargo-machete] ignored = ["rmcp-macros"]`. C'est la seule exception à la règle des squelettes (une dépendance n'est déclarée que lorsqu'un code l'emploie, 00 §2 ; §3.0.2). |
+| `rmcp-macros` | `=3.5.1` | 1.88 | 2026-10-05 ⚠ (éligible le 2026-10-19) | lf-adapter-mcp | rmcp 3.5.1 déclare `rmcp-macros = { version = "3.5.1" }`, une exigence **caret** (`Cargo.toml` racine du tag `rmcp-v3.5.1`, ligne 9, vérifié). Sans épinglage direct, un `cargo update` pourrait associer rmcp 3.5.1 à un rmcp-macros plus récent. *Amendement du 2026-10-29 (F1)* : le crate est maintenant employé directement (`#[tool]`, `#[tool_router]` dans les fichiers de `tools/`, `#[tool_handler]` dans `server.rs`, importés de `rmcp_macros` et non du réexport de `rmcp`) ; plus aucune exception `cargo-machete` dans les membres du workspace (restent, hors workspace et commentées, `fuzz/` et `spikes/rmcp-stdio`). |
 | `schemars` | `1.2.3` | 1.74 | 2026-10-12 ⚠ (éligible le 2026-10-26) | lf-adapter-mcp | 1.x imposé par rmcp (`schemars ^1.0`, feature `chrono04`). Dépendance directe nécessaire, car le derive émet des chemins `schemars::…`. Exigence `"1.2"`. Le lint `unused_qualifications` exige ≥ 1.2.3 (recherche 04 §2.16) : il reste désactivé tant que le verrou retient une version antérieure, 1.2.2 avant le 2026-10-26 (00 §2, R-22). |
 | `serde` | `1.0.229` | 1.56 | 2026-07-18 | adapters, lf-app | `["derive"]` (adapter PISTE : DTO d'OAuth). Interdit dans lf-domain et lf-application (00 §2, §4). |
 | `serde_json` | `1.0.154` | 1.71 | 2026-10-11 ⚠ (éligible le 2026-10-25) | adapters, lf-app, xtask | Interdit dans lf-domain et dans lf-application (liste fermée de 00 §2, §4). |
@@ -387,12 +387,12 @@ Versions relues dans l'index sparse crates.io le 2026-10-15 (recherche 04 §4.1,
 | `chrono` | `0.4.45` | 1.62 | 2026-06-04 | lf-application, adapters (**pas lf-domain** : le domaine a `CivilDate`, ADR-0011 amendé) | `default-features = false`, `["std"]` au workspace ; **lf-app seul** ajoute `clock` ; lf-adapter-piste : `std` seul, pour `parse_from_rfc2822` (`Retry-After`, 04 §5.2). Déjà présent dans le graphe via rmcp (`now`, `serde`) : l'unification des features rend `Utc::now` compilable partout, d'où `clippy.toml` et le job de pureté (§4.4). |
 | `chrono-tz` | `0.10.4` | 1.65 | 2025-07-11 | lf-app (`SystemClock`), lf-adapter-piste (midi Europe/Paris de `DATE_VERSION`, 00 §8) | Base IANA embarquée à la compilation. |
 | `unicode-normalization` | `0.1.25` | 1.36 | 2025-10-30 | lf-domain, **à partir de M6** (NFC) par ADR ; M5 seulement si un retrait maison des marques combinantes ne suffit pas | |
-| `winnow` | `1.0.4` | 1.65 | 2026-07-13 | lf-domain, à partir de M6, par ADR | API 1.0 : les tutoriels 0.6/0.7 ne s'appliquent pas tels quels. |
+| `winnow` | `1.0.4` | 1.65 | 2026-07-13 | **aucun** (prévu pour lf-domain en M6, non retenu) | Non employé : les grammaires de M6 sont écrites à la main (amendement du 2026-10-29, ADR-0018). Reste au verrou principal par `toml`. |
 | `aho-corasick` | `1.1.5` | 1.60 | 2026-08-03 | lf-domain, à partir de M6, par ADR | |
 | `regex` | `1.13.1` | 1.65 | 2026-07-15 | lf-domain, à partir de M6, par ADR | compilées une fois (`std::sync::LazyLock`). |
 | `similar` | `3.2.0` | 1.85 | 2026-08-17 | lf-application (M7) | `fr_diff_article`. N'entre pas dans lf-domain (liste blanche `thiserror` seul, élargie par ADR). |
 | `sha2` / `hex` | `0.11.1` / `0.4.3` | 1.88 / — | 2026-10-12 ⚠ (éligible le 2026-10-26) / 2021-03-03 | lf-adapter-audit, xtask | API `digest 0.11` **NON VÉRIFIÉE** [V-05 · api-sha2-0-11] ; 0.11.0 (2026-03-25, MSRV 1.85), retenue par un verrou fait avant le 2026-10-26. |
-| `fs4` | `1.1.0` | 1.75 | 2026-04-28 | lf-adapter-audit | verrou consultatif inter-processus sur `.mcp-legifrance.lock`, pris pour chaque ligne (00 §2, §7 ; §3.5). |
+| `fs4` | `1.1.0` | 1.75 | 2026-04-28 | lf-adapter-audit | verrou consultatif inter-processus sur `.mcp-legifrance.lock`, pris pour chaque ligne (00 §2, §7 ; §3.5). **Deuxième version au verrou (D21, 2026-10-29)** : `fs4 0.13.1`, tirée par tantivy 0.26.2 (feature par défaut `mmap`, exigée par l'index sur disque de M9) ; `deny.toml` la tolère par `skip` et ajoute `tantivy` aux `wrappers` de `fs4`. |
 | `tracing` | `0.1.44` | 1.65 | 2025-12-18 | tous sauf lf-domain | `["std"]`, sans `attributes` (adapter PISTE : `warn!` du mojibake). |
 | `tracing-subscriber` | `0.3.23` | 1.65 | 2026-03-13 | lf-app ; dev de lf-adapter-piste | `default-features = false`, `["std", "fmt", "env-filter", "smallvec", "tracing-log"]` (sans `ansi`). `env-filter` ne fait pas partie des features par défaut. Dev de l'adapter PISTE : `["std", "fmt"]` seulement (captation du `warn!`). |
 | `clap` | `4.6.7` | 1.85 | 2026-09-14 | lf-app | `derive`. Pas de feature `env` : la lecture de l'environnement est centralisée dans `config.rs`. |
@@ -516,7 +516,7 @@ Deux points sont à mesurer au premier `cargo clippy` du spike rmcp (**avant la 
   - M6 et M7 : `NumberQuery`, `NumberKind`, `NumberValue` (forme : annexe B §6.6, placés dans `search.rs`), `CodeListing` (entrée de `list_codes()`, M6), `ArticleVersion` et `RelatedLinks` (M7), définis dans 03 ;
   - erreurs : `DomainError`.
   - Les types de sortie sont `Clone`, `Send` et `Sync`. Une recommandation pour 03 : `LongText` partage ses paragraphes par `Arc<str>`, pour que le clone servi par le cache (§7.2) reste bon marché.
-- **Dépendances (liste blanche normative, `DOMAIN_ALLOWED`)** : `thiserror` 2.0.21 **seul** (xtask/src/arch.rs, liste blanche qui échoue fermé ; crates/lf-domain/Cargo.toml). Les dates sont portées par `CivilDate` (crates/lf-domain/src/date.rs), sans `chrono`. La liste ne s'élargit que par un ADR, au jalon qui en a besoin : `winnow`, `aho-corasick` et `regex` en M6 (parseur de citations) ; `unicode-normalization` en M6 (NFC), en M5 seulement si un retrait maison des marques combinantes ne suffit pas. Rien d'autre, ni `tracing`, ni `serde`, ni `chrono`. Dev : `proptest` 1.12.0 (livré), `insta`.
+- **Dépendances (liste blanche normative, `DOMAIN_ALLOWED`)** : `thiserror` 2.0.21 **seul** (xtask/src/arch.rs, liste blanche qui échoue fermé ; crates/lf-domain/Cargo.toml). Les dates sont portées par `CivilDate` (crates/lf-domain/src/date.rs), sans `chrono`. La liste ne s'élargit que par un ADR, au jalon qui en a besoin : `aho-corasick` et `regex` en M6 (parseur de citations) ; `unicode-normalization` en M6 (NFC), en M5 seulement si un retrait maison des marques combinantes ne suffit pas. *Amendement du 2026-10-29 (F1, ADR-0018 décision 3)* : `winnow` n'est pas employé, les grammaires de M6 sont écrites à la main (curseur sur une vue en caractères) ; il est retiré de `lf-domain`, de `[workspace.dependencies]` et des trois verrous de `Cargo.lock` autonomes (il reste au verrou principal par `toml`). Rien d'autre, ni `tracing`, ni `serde`, ni `chrono`. Dev : `proptest` 1.12.0 (livré), `insta`.
 - **Features Cargo** : aucune.
 - **Pièges** :
   1. La décision ne prévoit **aucun crate HTML** dans le domaine. `text::from_html` (reconstitution des paragraphes depuis `texteHtml`, D-26) est donc écrit à la main : tokeniseur de balises de bloc (`<p>`, `<br/>`, `<div>`, `<li>`), décodage des entités (`&nbsp;`, `&amp;`, `&#NNN;`), et tests sur les fixtures CETAT (85 `<br/>`) et CNIL (`<p>`) (recherche 02 D-26).
@@ -709,7 +709,7 @@ Les règles R1 à R5, ainsi que la liste fermée de R2, reprennent la décision 
 
 | # | Règle | Origine |
 |---|---|---|
-| R1 | `lf-domain` ne dépend d'aucun `lf-*`. Sa liste blanche externe, qui **échoue fermé**, est `thiserror` seul (`DOMAIN_ALLOWED`, `xtask/src/arch.rs`). Elle s'élargit par ADR au jalon qui en a besoin : `winnow`, `aho-corasick`, `regex` et `unicode-normalization` en M6 (ADR-0011 amendé). | 00-decisions §2 ; ADR-0016 |
+| R1 | `lf-domain` ne dépend d'aucun `lf-*`. Sa liste blanche externe, qui **échoue fermé**, est `thiserror` seul (`DOMAIN_ALLOWED`, `xtask/src/arch.rs`). Elle s'élargit par ADR au jalon qui en a besoin : `aho-corasick`, `regex` et `unicode-normalization` en M6 (ADR-0011 amendé, ADR-0018). `winnow` n'est pas employé (les grammaires de M6 sont écrites à la main, avec un curseur sur une vue en caractères) et a été retiré de `lf-domain` ; `DOMAIN_ALLOWED` l'admet encore (autorisation sans obligation), à retirer si la liste doit se fermer. | 00-decisions §2 ; ADR-0016 |
 | R2 | `lf-application` ne dépend d'aucun adapter. Sa liste fermée externe : `thiserror`, `chrono` (`std`), `tracing`, `futures` (`std`, `async-await`), `tokio` (`time`, `macros`, `rt` — `rt` pour `task_local!` seulement), `similar` (M7). Interdits : `serde`, `serde_json`, `rmcp`, `reqwest`, `moka`, `governor`, `backon`, `async-trait`. Livrée dans `check-arch` au plan 2b, à la création de `lf-application`, avec les bornes de features de `tokio` et de `chrono` ; le plan 3a borne aussi `tracing` à `std` (`APPLICATION_FEATURES`, trois entrées). | 00-decisions §2 |
 | R3 | Aucun `lf-adapter-*` ne dépend d'un autre `lf-adapter-*`, ni de `lf-app`. `lf-adapter-audit` dépend de `lf-application` seul et accède aux types du domaine par ses ré-exports. | 00-decisions §2 |
 | R4 | Seul `lf-app` dépend de tous les `lf-*` ; aucun crate ne dépend de `lf-app`, qui n'a pas de cible `lib`. | 00-decisions §2 |
@@ -777,7 +777,7 @@ La syntaxe `wrappers` de cargo-deny 0.20.2 (éprouvée en 0.19.6 en local : V-24
 all-features = true
 
 [bans]
-multiple-versions = "warn"                # "deny" à partir de M5
+multiple-versions = "deny"                # T-M5-09, posé par F1 le 2026-10-29 ; chaque doublon accepté a un `skip` exact `crate@version` justifié
 wildcards = "deny"
 allow-wildcard-paths = true          # dépendances `path` des crates internes
 deny = [
@@ -790,6 +790,10 @@ deny = [
   { crate = "reqwest", wrappers = ["lf-adapter-piste"], reason = "HTTP sortant confiné" },
   { crate = "governor", wrappers = ["lf-adapter-piste"], reason = "limiteur de débit confiné" },
   { crate = "moka",    wrappers = ["lf-adapter-cache"], reason = "cache confiné (ADR-0007)" },
+  { crate = "fs4",     wrappers = ["lf-adapter-audit", "tantivy"], reason = "D21 : tantivy tire fs4 0.13 par `mmap`" },
+]
+skip = [   # huit entrées au 2026-10-29, voir deny.toml : base64@0.22.1, core-foundation@0.9.4, fs4@0.13.1 (D21),
+           # getrandom@0.3.4, hashbrown@0.16.1, r-efi@5.3.0, syn@2.0.119, windows-sys@0.59.0
 ]
 
 [advisories]
@@ -818,16 +822,20 @@ Les signatures suivent [00-decisions §3](00-decisions.md#3-ports-lf-application
 ### 5.1 `LegalCorpus` et `CorpusError`
 
 ```rust
-// crates/lf-application/src/ports/corpus.rs — méthodes v0.1, CorpusError, AuthOrigin et ConfigKind livrés
-// (plans 2b et 3a ; extrait, chemins d'import simplifiés) ; méthodes M6 et M7 non compilées, à valider au jalon qui les implémente
+// crates/lf-application/src/ports/corpus.rs — les douze méthodes sont livrées (D3 du plan « fin du projet » : le port a été
+// gelé complet en V0 ; extrait, chemins d'import simplifiés, `find_article` amendé par D5)
 use std::time::Duration;
 use lf_domain::{
     Act, AccoTextId, ArticleId, ArticleText, CnilTextId, CompanyAgreement, Convention, Decision,
     DecisionId, Deliberation, KaliTextId, LegiTextId, SearchHit, SearchPage, SearchQuery, VersionDate,
-    // M6 : CodeRef, ArticleNum (03), NumberQuery (forme : annexe B §6.6, type placé dans lf-domain::search),
-    //      CodeListing (03) ; M7 : ArticleVersion, RelatedLinks (03)
+    // M6 : NumberQuery (forme : annexe B §6.6, type placé dans lf-domain::search), CodeListing (03) ;
+    //      M7 : ArticleVersion, RelatedLinks (03). `find_article` ne prend plus de CodeRef ni d'ArticleNum (D5, ci-dessous)
     // CodeListing ne réutilise pas le nom CodeEntry, pris par le dictionnaire statique de l'annexe B (&'static)
 };
+
+/// Date demandée à `find_article` (D5) ; `lf_application::ports`, livré avec le port.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ArticleAt { Today(VersionDate), On(VersionDate) }
 
 /// Port sortant unique vers le corpus juridique : PISTE en v0.x, DILA en M9.
 /// Aucune méthode par défaut : un décorateur qui oublie de déléguer ne compile pas.
@@ -849,13 +857,15 @@ pub trait LegalCorpus: Send + Sync + 'static {
         -> impl Future<Output = Result<CompanyAgreement, CorpusError>> + Send;
 
     // ---- M6 (v0.2) : résolution des citations (annexe B) ----
-    /// CodeRef → LegiTextId par la table des codes (celle de list_codes) ; à la date du jour,
-    /// /consult/getArticleWithIdAndNum (version en vigueur seulement) ; à une autre date, /search EXACTE
-    /// sur NUM_ARTICLE + DATE_VERSION, hits filtrés par cid, jamais NOM_CODE sans V-121 (00 §8 ; 04 §7.2).
-    /// L'adapter n'a pas d'horloge : il ne sait que `date` est le jour que si l'application le lui indique.
-    /// La forme de ce signal est fixée avec la signature en M6 (amendement de 00 §3 si elle change) ;
-    /// à défaut, la voie /search sert pour toutes les dates (04 §7.2 étape 2).
-    fn find_article(&self, code: &CodeRef, num: &ArticleNum, date: VersionDate)
+    /// Article d'un texte par son numéro. D5 (plan « fin du projet », amendement du 2026-10-29) : le
+    /// port reçoit un `LegiTextId` et un numéro brut, non un `CodeRef` ni un `ArticleNum`. L'application
+    /// résout le code en `LegiTextId` par `list_codes()` (la table de l'adapter, TTL 7 j), puis choisit
+    /// `ArticleAt::Today` quand la date demandée vaut `clock.today_paris()`, `ArticleAt::On` sinon :
+    /// `Today` autorise `/consult/getArticleWithIdAndNum` (version en vigueur seulement), `On` impose
+    /// `/search` EXACTE sur NUM_ARTICLE + DATE_VERSION, hits filtrés par cid, jamais NOM_CODE sans V-121
+    /// (00 §8 ; 04 §7.2). C'est le signal « aujourd'hui » que l'adapter, qui n'a pas d'horloge, ne peut
+    /// pas deviner.
+    fn find_article(&self, text: &LegiTextId, num: &str, at: ArticleAt)
         -> impl Future<Output = Result<ArticleText, CorpusError>> + Send;
     /// /search en EXACTE sur NUM_ARTICLE, NUM, NUM_AFFAIRE, NUM_DEC, NUM_DELIB, IDCC ; /search filtré par
     /// la facette ECLI (JURI, CETAT ; V-128) ; /consult/getJoWithNor ; /consult/kaliContIdcc ; ELI cités
@@ -1046,7 +1056,7 @@ pub struct InputError { pub message: String }     // ex. "page_size: invalid typ
 ### 6.1 Règles communes
 
 - **Signature** : `async fn execute(&self, input: XInput) -> Result<XOutput, AppError>` (décision §3). Les cas d'usage sont de petites structs construites par la façade à chaque appel, sans coût : `GetDecisionUseCase { corpus: &C, clock: &K, budget: &ResponseBudget }`.
-- **Analyse des entrées** : un `XInput` est fait de types primitifs (`Option<String>`, `Option<u32>`). Le cas d'usage le convertit en types du domaine, dans l'**ordre de validation de la référence** (P-011 : `fond` → `query` → `page_size`), puis valide les nouveaux paramètres. Un `DomainError` devient `AppError::InvalidArgument`, avec les messages anglais de parité (P-012 ; liste des écarts dans [05-outils-mcp.md](05-outils-mcp.md)).
+- **Analyse des entrées** : un `XInput` est fait de types primitifs (`Option<String>`, `Option<i64>`). Les entiers sont des `i64` tolérants, que l'adapter entrant a déjà décodés (nombre entier, flottant à partie fractionnaire nulle ou chaîne décimale, 05 §3.3) ; le cas d'usage en vérifie les bornes et rédige le message de parité (`page_size=0 out of range (1..100).`). *Amendement du 2026-10-29 : le plan disait `Option<u32>` ; la forme livrée est `Option<i64>` (`crates/lf-application/src/input.rs`).* Le cas d'usage le convertit en types du domaine, dans l'**ordre de validation de la référence** (P-011 : `fond` → `query` → `page_size`), puis valide les nouveaux paramètres. Un `DomainError` devient `AppError::InvalidArgument`, avec les messages anglais de parité (P-012 ; liste des écarts dans [05-outils-mcp.md](05-outils-mcp.md)).
 - **Dates par défaut** : `clock.today_paris()`, jamais l'UTC (D-19, E-05).
 - **Messages** : le cas d'usage rédige le message final par le module `messages` (§3.2), dont les textes sont ceux de 05 §7.2-§7.4 : messages de parité et phrase d'aide qui cite l'outil à utiliser pour `invalid_arg`, gabarits `upstream_error`, `config_error`, `rate_limited` et `audit_error`. Pour `not_found`, il remplace le message générique de `CorpusError::NotFound` par celui de l'outil (P-013) ; `fr_get_decision` nomme le fond selon le préfixe : `No JURI decision found for {id}.`, `No CONSTIT decision found for {id}.` ou `No CETAT decision found for {id}.`, suivi de `Check the id, or search with fr_search.` (00 §5, E-15).
 - **Métrique d'audit** : chaque `XOutput` implémente `AuditMetric::output_count_or_size()` (décision §7). En erreur, `Audited` inscrit 0.
@@ -1090,14 +1100,15 @@ pub struct LegalService<C: LegalCorpus, A: AuditLog, K: Clock> {
     settings: ServiceSettings,
 }
 
-pub struct ServiceSettings {
-    pub env: PisteEnvironment,
-    pub server_version: &'static str,        // env!("CARGO_PKG_VERSION") passé par lf-app
-    pub audit_mode: AuditMode,               // LF_AUDIT_MODE, défaut Strict (Q9)
-    pub tool_deadline: std::time::Duration,  // LF_TOOL_DEADLINE_S, défaut 60 s
-    pub configuration: ConfigurationState,   // identifiants présents, problèmes détectés (fr_coverage)
+pub struct ServiceSettings {                 // D13 (plan « fin du projet », amendement du 2026-10-29)
+    pub policy: AuditPolicy,                 // mode (LF_AUDIT_MODE, défaut Strict, Q9), échéance (LF_TOOL_DEADLINE_S, 60 s),
+                                             // env (PisteEnvironment) et server_version (env!("CARGO_PKG_VERSION") passé par lf-app)
+    pub configuration: ConfigurationState,   // identifiants présents, problèmes détectés, hôte personnalisé, instantané local (fr_coverage)
     pub budget: ResponseBudget,
 }
+// Les champs séparés `env`, `server_version`, `audit_mode` et `tool_deadline` du plan d'origine ne sont plus répétés :
+// `AuditPolicy` les porte déjà. `LegalService` porte en plus `complete_gate: CompleteGate`, qui tient le débit de
+// 10 complétions par seconde et par processus : un état par processus, hors de `ServiceSettings`.
 
 impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
     pub fn new(corpus: C, audit: A, clock: K, settings: ServiceSettings) -> Self;
@@ -1178,7 +1189,7 @@ async fn audit<O, W, X>(&self, span: Span, meta: CallMeta, cancel: X, work: W) -
 | not found (404 reconnu ou 200 vide) | `error` | `not_found` | 0 | réelle | `Err(NotFound)` |
 | erreurs amont, quota, configuration | `error` | `upstream_error`, `rate_limited` ou `config_error` | 0 | réelle | `Err(…)` |
 | délai global dépassé | `error` | `upstream_error` | 0 | ≈ `LF_TOOL_DEADLINE_S` | `Err(Upstream{cause: Deadline})` |
-| annulation par le client | `error` | absent ; `error: cancelled by client` (00 §7) | 0 | réelle | sans effet attendu : une lecture de rmcp (`service.rs:1503-1505`) concluait que rmcp jette la réponse d'une requête annulée ; l'audit de sécurité du plan 3a lit au contraire que rmcp 1.8/2.1 envoie quand même la réponse d'un appel annulé (à revérifier au spike V-28 sur la version cible) |
+| annulation par le client | `error` | absent ; `error: cancelled by client` (00 §7) | 0 | réelle | sans effet attendu : rmcp 3.5.1 n'envoie pas la réponse d'une requête annulée (`service.rs:1503-1505` journalise « dropping response for cancelled request »), sur stdio ; la ligne d'audit est la seule trace de l'appel. Verdict du spike 0A (`spikes/rmcp-stdio/README.md`, § « Annulation : rmcp jette la réponse »), qui lève la réserve du plan 3a (une lecture de rmcp 1.8/2.1 laissait croire que la réponse partait quand même). Sur le transport HTTP, l'annulation de l'arrêt répond 500 aux POST en vol (voir `http.rs`) |
 | échec d'écriture, mode `strict` | — (aucune ligne) | — | — | — | `Err(Audit)` → `[audit_error]`, en citant le code d'origine s'il y en avait un (D-02) ; `error!` |
 | échec d'écriture, mode `best-effort` | — | — | — | — | résultat d'origine, `warn!` et compteur (`write_failures()`) |
 | annulation et échec d'écriture, tout mode | — (aucune ligne) | — | — | — | annulation inchangée (rien à retenir : personne ne lit la réponse) ; `warn!` ; compteur en `best-effort` seulement |
@@ -1330,10 +1341,10 @@ async fn serve(cfg: AppConfig) -> ExitCode {
 La sélection d'adapter se fait à l'exécution, par un enum de dispatch dans `lf-app` (le seul crate qui voit les deux adapters). Il n'y a ni `Box<dyn>` ni boxing de futur (ADR-0004, ADR-0012) :
 
 ```rust
-// crates/lf-app/src/wiring.rs (M9) — non compilé, à valider au jalon qui l'implémente
+// crates/lf-app/src/wiring.rs (M9, livré) — extrait ; la variante `Unavailable` (source demandée mais inutilisable) est omise ici
 pub enum AnyCorpus {
     Piste(CachedCorpus<PisteCorpus>),   // le cache ne sert qu'à PISTE
-    Dila(DilaCorpus),                   // index local : pas de cache
+    Dila(DilaCorpus),                   // index local (feature `dila`) : pas de cache
 }
 impl LegalCorpus for AnyCorpus {
     async fn get_decision(&self, id: &DecisionId) -> Result<Decision, CorpusError> {
@@ -1347,7 +1358,10 @@ impl LegalCorpus for AnyCorpus {
 pub type Service = LegalService<AnyCorpus, JsonlAuditLog, SystemClock>;   // à partir de M9 seulement
 ```
 
-Deux points sont à décider en M9 : la variable de sélection (son nom n'est pas fixé par la décision et ne doit pas être inventé avant M9) et la valeur de `env` pour DILA dans l'audit et dans `fr_coverage`.
+Les deux points laissés à M9 sont tranchés (livrés, `crates/lf-app/src/wiring.rs`, amendement du 2026-10-29) :
+
+- **Variable de sélection** : `LF_DILA_DIR`, répertoire d'un index déjà bâti. Elle n'agit qu'avec la feature `dila` ; sans la feature, ou avec un chemin refusé ou un index illisible, la source est **indisponible** (`AnyCorpus::Unavailable` : chaque opération répond `[config_error]`), jamais un repli silencieux sur PISTE. Un répertoire absent ou un index sans aucun document rend aussi la source indisponible (`INDEX_EMPTY`, sans chemin dans le message), et ouvrir l'index ne crée rien. Aucun téléchargement par le binaire (point 3.9 : script hors binaire).
+- **`env` pour DILA** : `production` dans l'audit et dans `fr_coverage`, sans identifiants exigés ; écarter `Sandbox`, qui mentirait sur l'environnement. Comme cette déclaration ne dit pas qu'un instantané prouve une absence, `ConfigFacts` porte un quatrième fait, `local_snapshot` (posé par `lf-app` quand `LF_DILA_DIR` choisit l'index local, jamais pour une source inutilisable). Effets : la lacune calculée FR-105 (instantané LEGI, peut être en retard), le statut `degraded` de `fr_coverage`, des familles `live: false` (seules LODA et CODE sont servies), `SNAPSHOT_SOURCE` et `SNAPSHOT_AS_OF_NOTE` à la place de la source et de la note « interrogé en direct », et, pour `fr_verify_citations` et `fr_resolve`, une absence qui est `unresolvable` avec la note `NotInSnapshot`, jamais `not_found` (`Outcome::status` lit une `Proof` : production, bac à sable ou instantané local).
 
 ### 8.6 `tracing` sur stderr
 
@@ -1419,7 +1433,7 @@ Cette table est la source unique de la correspondance cause → `CorpusError` �
 | 18 | Réseau, timeout HTTP | `LF_HTTP_TIMEOUT_S` | retries, puis `CorpusError::Timeout` ou `Upstream { status: None }` | `Upstream` | `[upstream_error] …` | idem |
 | 19 | Corps illisible ou trop gros | HTML, `null`, type inattendu ; corps au-delà de la borne de 16 Mio | `CorpusError::Decode` (chemin via `serde_path_to_error`) ; au-delà de la borne : `CorpusError::TooLarge` sur `/search` et `/consult/*` (plan 3a), `Decode` sur l'endpoint du jeton | `Upstream` | `[upstream_error] unexpected response from Legifrance; report it.` (texte : 05 §7.2 ; E-21, D-11) ; `TooLarge` de `fr_get_act` : `[upstream_error] this text is too large for fr_get_act; read its articles with fr_get_text, or find them with fr_search fond=CODE.` (04 §7.3) | idem |
 | 20 | Délai global | `LF_TOOL_DEADLINE_S` dépassé | (`Audited`) | `Upstream { cause: Deadline }` | `[upstream_error] tool deadline of 60 s exceeded; retry, or narrow the request (smaller page_size, fewer fonds).` | idem |
-| 21 | Annulation | `notifications/cancelled` | (`Audited`) | `Upstream { cause: Cancelled }` | erreur `cancelled by client` sans code (`messages::cancelled`) ; aucune réponse émise si rmcp la jette, mais rmcp 1.8/2.1 envoie quand même la réponse d'un appel annulé (à revérifier au spike V-28 sur la version cible) | `error`, code absent, `error = "cancelled by client"` |
+| 21 | Annulation | `notifications/cancelled` | (`Audited`) | `Upstream { cause: Cancelled }` | erreur `cancelled by client` sans code (`messages::cancelled`) ; aucune réponse émise : rmcp 3.5.1 la jette (`service.rs:1503-1505`, spike 0A, 2026-10-29), donc la ligne d'audit est la seule trace | `error`, code absent, `error = "cancelled by client"` |
 | 22 | Échec d'écriture du journal, mode strict | disque plein | `AuditError` | `Audit` | `[audit_error] audit log unavailable; the call was not recorded and its result is withheld (see server logs).` suivi de `Original error: [code].` s'il y en avait une — sans chemin (05 §7.2). **Sauf** un appel annulé (ligne 21) : l'annulation reste telle quelle, en strict comme en best-effort (`warn!`, plan 3a) | aucune ligne possible |
 | 23 | Échec d'écriture du journal, mode best-effort | | `AuditError` | — | résultat d'origine | aucune ligne ; `warn!` + compteur |
 | 24 | Resource inconnue (M7) | `legifrance://foo` | `ErrorData::resource_not_found(…, data {uri})` | — | JSON-RPC `-32002` aux pairs legacy (spécification 2025-11-25), `-32602` aux pairs 2026-07-28 (rmcp réécrit le code selon l'ère ; décision 00 §6) ; identifiant invalide dans une URI de gabarit → `-32602` (`invalid_params`) dans les deux ères | aucune |
@@ -1621,7 +1635,7 @@ Dans chaque cas, ce document applique [00-decisions.md](00-decisions.md). Les re
   - `crates/rmcp/src/handler/server/tool.rs:252-258` (extracteur `JsonObject`) ;
   - `crates/rmcp/src/handler/server/router/tool.rs:144-156` (erreurs de désérialisation in-band), `:566-571` (« tool not found » → `-32602`), `:581-589` (tri de `list_all`) ;
   - `crates/rmcp/src/handler/server.rs:147-154` (`subscriptions/listen` → `-32601` par défaut), `:454-480` (`accepted_subscription_filter`, `listen`) ;
-  - `crates/rmcp/src/service.rs:140-142` (`peer_cancels_subscriptions` = false côté serveur), `:348` (`serve_with_ct`), `:1199-1203` (`QuitReason`), `:1234` (`protocol_version`), `:1322-1328` (`tokio::spawn`), `:1503-1505` (réponse d'une requête annulée jetée ; lecture contredite par l'audit de sécurité du plan 3a, à revérifier au spike V-28), `:1593-1615` (journalisation `debug ?result`), `:1645-1652` (annulation du jeton de requête), `:1762-1766` (délais de vidage 5 s et 2 s).
+  - `crates/rmcp/src/service.rs:140-142` (`peer_cancels_subscriptions` = false côté serveur), `:348` (`serve_with_ct`), `:1199-1203` (`QuitReason`), `:1234` (`protocol_version`), `:1322-1328` (`tokio::spawn`), `:1503-1505` (réponse d'une requête annulée jetée ; confirmé par le spike 0A du 2026-10-29), `:1593-1615` (journalisation `debug ?result`), `:1645-1652` (annulation du jeton de requête), `:1762-1766` (délais de vidage 5 s et 2 s).
 - `moka-rs/moka`, tag `v0.12.16` (`a616ec1`) : `src/future/cache.rs:1194-1207, 1305-1316` (`try_get_with` : erreurs non insérées, `Arc<E>`, coalescence) ; `src/future/value_initializer.rs:170-206` (relance après abandon, 200 tentatives au plus) ; `src/future/entry_selector.rs:651` ; `src/common/entry.rs:80` ; `src/policy.rs:182` (`Expiry::expire_after_create`) ; `src/future/builder.rs:245, 277, 399`.
 - `boinkor-net/governor`, tag `v0.10.4` (`9f3a79d`) : `governor/Cargo.toml` (features), `governor/src/state/direct/future.rs:11-45` (`until_ready` via `futures_timer`), `governor/src/clock.rs:128` (`FakeRelativeClock`), `governor/src/clock/default.rs`.
 - `GREsau/schemars`, tag `v1.2.3` : `schemars_derive/src/schema_exprs.rs:725-739` (propriété facultative en contrat `Deserialize` seulement avec `default` ou `Option`) ; `schemars/src/generate.rs` (préréglages en `Contract::Deserialize`).

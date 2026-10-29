@@ -26,16 +26,26 @@ exigences de qualité (§10) y font foi. Ce fichier dit comment les tenir au quo
 | Licences tierces | `cargo about generate about.hbs` (job `release-gates`, à l'étiquette) | `THIRD_PARTY_LICENSES.md` identique à la régénération (voir « Licences tierces ») |
 | Âge des dépendances | `make min-age` (PR) ; `make min-age-selftest` dans `make ci` | toute version ajoutée ou montée publiée depuis 14 jours au moins |
 | Workflows | `make workflow-lint` | zizmor et actionlint sans alerte, actions épinglées par SHA |
-| Couverture | `make cov` | 100 % lignes, régions, fonctions (`--lib`) |
-| Mutation | `make mutants FILE=…` / CI | 0 mutant `MISSED` |
+| Couverture | `make cov` | 100 % lignes, régions, fonctions (`--lib`), à une exclusion nommée près : `crates/lf-adapter-mcp/src/stdio.rs` (`COV_IGNORE` du `Makefile`, D6), colle sur les vrais stdin et stdout couverte par l'e2e du binaire ; toute autre exclusion exige la même justification |
+| Mutation | `make mutants FILE=…` / CI | 0 mutant `MISSED` sur le fichier touché ; en CI, le diff de la PR n'est muté que sur les fichiers de `.github/mutants-scope.txt` (D7), le reste chaque semaine |
 | Parité | `make surface` | golden de parité reproduit à l'octet depuis les fixtures, table des codes identique à celle du plan |
 | Instructions du serveur | `make instructions` | 3 500 caractères au plus (05 §4.1), mesurés sur le binaire |
 | Verrou des descripteurs | `make lock` | `tests/tools.lock.json`, manifeste MCPB et `server.json` identiques au binaire ; après un changement de description, de schéma, de version ou de surface : `cargo xtask lock-descriptors --update`, puis relire le diff (les identifiants de `server.json` se changent à la main) |
 | Analyse statique | job `sonar` (CI) ; en local, `make cov` puis `make cov-cobertura` et `make clippy-json` produisent ses deux rapports | informatif, non bloquant |
 
-La CI rejoue tout sur chaque PR et mute le diff de la PR ; le lundi, `weekly.yml`
-mute tout le workspace (4 shards) et lance les cibles de fuzz ; chaque nuit,
-`deny-nightly.yml` relance cargo-deny.
+La CI rejoue tout sur chaque PR et mute le diff de la PR, **limité aux fichiers à
+risque de `.github/mutants-scope.txt`** (D7 : 4 tranches de 120 minutes, contrôle
+agrégé `mutants (diff de la PR)`) ; le lundi, `weekly.yml` mute tout le workspace
+(4 shards) et lance les cibles de fuzz ; chaque nuit, `deny-nightly.yml` relance
+cargo-deny. Les tests live (`live.yml`, hebdomadaire et manuel, sandbox) ne bloquent
+jamais une PR et ne jouent qu'une partie des tests live du dépôt (06 §7.5).
+
+**Ajouter un fichier à la liste de mutation.** Une ligne de `.github/mutants-scope.txt`
+par fichier, ajoutée dans la PR qui crée un fichier où une faute coûterait cher
+(décision, borne, hachage, codage). Une ligne qui ne désigne aucun fichier fait
+échouer la CI. **Dette** : un fichier hors liste n'est pas muté avant la fusion ; le
+premier `weekly.yml` signale ses `MISSED`, à traiter ensuite par
+`make mutants FILE=<chemin>`, un fichier à la fois.
 
 ## Écrire des tests qui tiennent 100 % des régions
 
@@ -87,6 +97,22 @@ viables : un retour `Self` sans `Default` ne produit qu'un mutant non
 compilable, une décision écrite avec un opérateur (`!`, `&&`, `>`) en produit
 de vrais. Contrôle : `cargo mutants --list --file <chemin>` liste les mutants
 de la fonction privée.
+
+## Variables du README
+
+Le README ne cite que des variables d'environnement que le binaire lit (celles de
+`crates/lf-app/src/config.rs` et de `http_config.rs`), ou les variables héritées de
+`fr-eli-mcp` qu'il documente pour la migration. Il n'existe pas de test Rust pour
+cette règle (`readme_mentions_only_supported_env_vars` figure au catalogue, 06
+§3.1) : le contrôle est une commande, à lancer après toute modification du README.
+
+```sh
+grep -oE '\b[A-Z][A-Z0-9]*(_[A-Z0-9]+)+\b' README.md | sort -u
+```
+
+Chaque nom de la liste doit être soit lu par `lf-app`, soit une variable héritée du
+tableau de migration, soit un nom de variable d'un autre outil cité tel quel
+(`HTTPS_PROXY`). Le nom du fichier des licences tierces ne s'écrit jamais dans le README.
 
 ## Sur WSL
 
