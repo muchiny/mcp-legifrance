@@ -15,6 +15,9 @@
 //! - `default_outputs_match_snapshots` : les seize sorties par défaut, figées dans
 //!   `tests/snapshots/parity_tool_output__*.snap` (format d'instantané `insta`, sans la dépendance :
 //!   `lf-app` n'a pas `insta` en dépendance de développement).
+//! - `no_view_has_eli_uri` et `ported_no_fabricated_eli` (D-30, F3) : aucune sortie ni aucun schéma
+//!   ne porte `eli_uri`, et aucun ELI n'est fabriqué ; `security_regressions_are_all_implemented`
+//!   (D-43) : les dix garanties de sécurité du catalogue ont leur test (`security_regressions.rs`).
 //! - `regression_catalog_is_implemented` (D-43) : les noms de test du catalogue 06 §3.1 existent
 //!   dans le code.
 //!
@@ -954,6 +957,132 @@ mod parity {
         assert_eq!(requests.len(), 2 + 2 * 16, "{by_path:?}");
     }
 
+    // ---- D-30 : aucun `eli_uri`, aucun ELI fabriqué --------------------------------------------
+
+    /// Les chemins (`/a/0/b`) des clés de `value`, à toute profondeur, dont le nom (sans `_` ni
+    /// casse) est l'un de `names`.
+    fn keys_named(value: &Value, names: &[&str], at: &str, found: &mut Vec<String>) {
+        match value {
+            Value::Object(object) => {
+                for (key, child) in object {
+                    let here = format!("{at}/{key}");
+                    let folded = key.replace('_', "").to_ascii_lowercase();
+                    if names.contains(&folded.as_str()) {
+                        found.push(here.clone());
+                    }
+                    keys_named(child, names, &here, found);
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    keys_named(child, names, &format!("{at}/{index}"), found);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Les valeurs de `value` qui seraient un ELI que la source n'a pas donné : une clé `eli`,
+    /// `idEli` ou `idEliAlias` non nulle dont la valeur n'est pas dans le corps brut de la
+    /// fixture, ou une chaîne qui contient `/eli/` sans que le corps brut la contienne.
+    fn fabricated_eli(value: &Value, raw: &str, at: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        match value {
+            Value::Object(object) => {
+                for (key, child) in object {
+                    let here = format!("{at}/{key}");
+                    let folded = key.replace('_', "").to_ascii_lowercase();
+                    let eli_key = matches!(folded.as_str(), "eli" | "ideli" | "idelialias");
+                    if eli_key && !child.is_null() {
+                        let native = child.as_str().is_some_and(|text| raw.contains(text));
+                        if !native {
+                            found.push(format!("{here}: {child}"));
+                        }
+                    }
+                    found.extend(fabricated_eli(child, raw, &here));
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    found.extend(fabricated_eli(child, raw, &format!("{at}/{index}")));
+                }
+            }
+            Value::String(text) if text.contains("/eli/") && !raw.contains(text.as_str()) => {
+                found.push(format!("{at}: {text}"));
+            }
+            _ => {}
+        }
+        found
+    }
+
+    /// Le corps brut enregistré de la fixture `name`.
+    fn raw_fixture(name: &str) -> String {
+        let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../lf-adapter-piste/tests/fixtures/reference")
+            .join(format!("{name}.json"));
+        String::from_utf8_lossy(&fs::read(&file).expect("a recorded fixture")).into_owned()
+    }
+
+    /// Régression : D-30, P-031. Aucune des seize sorties, dans les deux ères, ni aucun schéma
+    /// annoncé par `tools/list` ne porte de champ `eli_uri` (le doublon trompeur de `source_url`).
+    /// La recherche de clé voit un champ réintroduit, à toute profondeur.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn no_view_has_eli_uri() {
+        // La recherche voit un `eli_uri` enfoui.
+        let mut found = Vec::new();
+        keys_named(&json!({"hits": [{"nested": {"eli_uri": "x"}}]}), &["eliuri"], "", &mut found);
+        assert_eq!(found, ["/hits/0/nested/eli_uri"]);
+
+        let server = piste().await;
+        for era in [Era::Legacy, Era::Modern] {
+            let outputs = run(&server, era, Case::default_arguments).await;
+            assert_eq!(outputs.len(), CASES.len());
+            for (case, output) in CASES.iter().zip(&outputs) {
+                let mut found = Vec::new();
+                keys_named(output, &["eliuri"], "", &mut found);
+                assert!(found.is_empty(), "{}: eli_uri at {found:?}", case.fixture);
+            }
+        }
+
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let mut session = Session::start(&server, audit.path(), Era::Legacy).await;
+        let listed = session.request("tools/list", json!({})).await;
+        let tools = listed["result"]["tools"].as_array().expect("a tool list");
+        assert!(tools.len() >= 8, "{listed:.300}");
+        for tool in tools {
+            let mut found = Vec::new();
+            keys_named(&tool["outputSchema"], &["eliuri"], "", &mut found);
+            keys_named(&tool["inputSchema"], &["eliuri"], "", &mut found);
+            assert!(found.is_empty(), "{}: eli_uri in a schema at {found:?}", tool["name"]);
+        }
+        session.finish().await;
+    }
+
+    /// Régression : D-30, P-039. Sur les seize fixtures, un ELI vient de la source ou n'existe pas :
+    /// aucune sortie ne porte de champ ELI que le corps brut n'ait donné, ni d'URL `/eli/` que la
+    /// source n'ait donnée. Les fixtures n'ont aucun ELI natif (`eli`, `idEli` à `null`) : toute
+    /// valeur serait donc fabriquée. Le détecteur est vérifié sur des ELI fabriqués.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn ported_no_fabricated_eli() {
+        // Le détecteur voit un ELI fabriqué, de trois formes, et laisse passer un ELI natif.
+        let raw = r#"{"idEli":"eli/loi/2020/1"}"#;
+        assert_eq!(fabricated_eli(&json!({"eli": "eli/loi/2020/2"}), raw, "").len(), 1);
+        assert_eq!(fabricated_eli(&json!({"a": [{"idEliAlias": "x"}]}), raw, "").len(), 1);
+        let url = "https://www.legifrance.gouv.fr/eli/loi/2020/2";
+        assert_eq!(fabricated_eli(&json!({"source_url": url}), raw, "").len(), 1);
+        let native = fabricated_eli(&json!({"eli": "eli/loi/2020/1", "ecli": null}), raw, "");
+        assert_eq!(native, Vec::<String>::new());
+
+        let server = piste().await;
+        for era in [Era::Legacy, Era::Modern] {
+            let outputs = run(&server, era, Case::default_arguments).await;
+            for (case, output) in CASES.iter().zip(&outputs) {
+                let fabricated = fabricated_eli(output, &raw_fixture(case.fixture), "");
+                assert!(fabricated.is_empty(), "{}: {fabricated:?}", case.fixture);
+            }
+        }
+    }
+
     // ---- budgets des sorties par défaut --------------------------------------------------------
 
     /// Colonne « Cible, appel par défaut » de 05 §6.5, en caractères de JSON compact du
@@ -1144,25 +1273,23 @@ mod parity {
     ];
 
     /// Noms du catalogue qui portent une garantie de sécurité ou d'audit (D-04, D-05, D-07, D-16,
-    /// D-18, D-30, D-38, D-40) et que **aucun test n'exerce encore** : F6 est une passe
-    /// documentaire, qui n'écrit aucun test. Ils sont à écrire en F3 (plan §6), avant la revue de
-    /// sécurité de F4. Tant que la liste n'est pas vide, `security_regressions_are_all_implemented`
-    /// échoue (il est ignoré par défaut pour ne pas bloquer les vagues, et se lance avec
-    /// `--run-ignored only -E 'test(security_regressions)'`).
-    const SECURITY_PENDING: [(&str, &str); 10] = [
-        (
-            "default_env_is_sandbox",
-            "F3 : D-18, le défaut sandbox de lf-app/config.rs n'a pas de test (V1-11)",
-        ),
-        ("every_tool_goes_through_audited", "F3 : D-07, une ligne d'audit par outil enregistré"),
-        ("no_view_has_eli_uri", "F3 : D-30, aucune vue n'a de champ eli_uri"),
-        ("ported_no_fabricated_eli", "F3 : D-30, un ELI vient de la source ou n'existe pas"),
-        ("production_sources_contain_only_allowlisted_urls", "F3 : D-04, liste blanche d'URL"),
-        ("record_returns_only_after_sync", "F3 : D-16, durabilité de JsonlAuditLog"),
-        ("redact_url_drops_userinfo_and_query", "F3 : D-40, fonction de rédaction d'URL"),
-        ("server_answers_discover_while_tool_waits_upstream", "F3 : D-05, transcription ou test"),
-        ("startup_logs_sandbox_notice", "F3 : D-18, avertissement bac à sable sur stderr"),
-        ("tool_calls_progress_while_audit_write_is_slow", "F3 : D-38"),
+    /// D-18, D-30, D-38, D-40) et que **aucun test n'exerce encore**. Vide depuis F3 (plan §6) :
+    /// chaque garantie a son test, dans `security_regressions.rs` ou ici (D-30). Une entrée
+    /// ajoutée ici fait échouer `security_regressions_are_all_implemented`.
+    const SECURITY_PENDING: [(&str, &str); 0] = [];
+
+    /// Les dix garanties de sécurité et d'audit du catalogue (06 §3.1), chacune avec son test.
+    const SECURITY_GUARANTEES: [&str; 10] = [
+        "default_env_is_sandbox",
+        "every_tool_goes_through_audited",
+        "no_view_has_eli_uri",
+        "ported_no_fabricated_eli",
+        "production_sources_contain_only_allowlisted_urls",
+        "record_returns_only_after_sync",
+        "redact_url_drops_userinfo_and_query",
+        "server_answers_discover_while_tool_waits_upstream",
+        "startup_logs_sandbox_notice",
+        "tool_calls_progress_while_audit_write_is_slow",
     ];
 
     /// Les noms que le code n'a pas encore, quelle qu'en soit la raison.
@@ -1171,13 +1298,23 @@ mod parity {
     }
 
     /// Régression : D-43, volet sécurité. Un catalogue « implémenté » ne dit rien d'un nom que
-    /// `SECURITY_PENDING` excuse : cette garantie n'a alors aucune preuve.
+    /// `SECURITY_PENDING` excuse : cette garantie n'a alors aucune preuve. La liste est vide, et
+    /// chacune des dix garanties de sécurité existe comme fonction du dépôt, sans être excusée par
+    /// `PENDING`.
     #[test]
-    #[ignore = "F3 (plan §6) : tests de sécurité du catalogue à écrire, voir SECURITY_PENDING"]
     fn security_regressions_are_all_implemented() {
         let missing: Vec<String> =
             SECURITY_PENDING.iter().map(|(name, unit)| format!("{name} ({unit})")).collect();
         assert!(missing.is_empty(), "security regressions without a test:\n{}", missing.join("\n"));
+
+        let implemented = implemented_names();
+        for name in SECURITY_GUARANTEES {
+            assert!(implemented.contains(name), "no test named {name}");
+            assert!(
+                !PENDING.iter().any(|(pending, _)| *pending == name),
+                "{name} is a security guarantee: it cannot be excused by PENDING"
+            );
+        }
     }
 
     /// Régression : D-43. Chaque nom de test du catalogue 06 §3.1 existe dans le code, ou est couvert
