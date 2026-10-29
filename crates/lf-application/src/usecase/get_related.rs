@@ -3,16 +3,19 @@
 //!
 //! # Étapes
 //!
-//! 1. Validation sans réseau : `id` requis, puis un `LEGIARTI` (article). Un `JURITEXT`,
-//!    `CONSTEXT` ou `CETATEXT` (décision) est refusé en `invalid_arg`, sans appel au port : le
-//!    domaine ne porte pas encore les références d'une décision (`Decision` n'a ni
-//!    `cited_case_law` ni `applied_texts`, 03 §4.4 « non livré, M7 »), et rendre `links: []`
-//!    présenterait un manque de données comme l'absence de liens. Les autres familles
-//!    d'identifiants valides, `KALIARTI` compris (V-136, **NON VÉRIFIÉ**), sont refusées de même,
-//!    avec l'outil à employer.
+//! 1. Validation sans réseau : `id` requis, puis un `LEGIARTI` (article) ou un `JURITEXT`,
+//!    `CONSTEXT`, `CETATEXT` (décision). Les autres familles d'identifiants valides, `KALIARTI`
+//!    compris (V-136, **NON VÉRIFIÉ**), sont refusées en `invalid_arg` avec l'outil à employer.
 //! 2. **Article** : `get_article` (la citation et la page de l'article) et `related_links` sont
 //!    demandés ensemble. Un article inconnu rend le `not_found` de `fr_get_text`, et c'est
 //!    l'erreur de la lecture qui l'emporte sur celle des liens.
+//! 3. **Décision** : `get_decision`, puis `cited_case_law` (`citationJp`) et `applied_texts` (les
+//!    titres des liens de citation) de la décision passent par le parseur (`decision_links`). Un
+//!    seul appel au port : les liens n'ont pas d'identifiant et ne sont pas résolus. Une décision
+//!    sans références rend `links: []` : c'est alors l'absence réelle de liens, que l'API donne
+//!    (`citationJp` vide, `liens` vide), non un manque de données. Les références analysées
+//!    sont bornées à `MAX_ANALYSED_CHARS` caractères : au-delà, elles sont ignorées et
+//!    `truncated` le dit.
 //!
 //! # Plafond de réponse (05 §5.11, 05 §6.4)
 //!
@@ -23,12 +26,12 @@
 use futures::future::join;
 use lf_domain::{
     contract::{Citable, CitationContract},
-    id::{ArticleId, DocumentId, LegiArtiId},
+    id::{ArticleId, DecisionId, DocumentId, LegiArtiId},
 };
 
 use crate::{
     budget::{ResponseBudget, estimate_chars, shrink_from_end},
-    citation::related::{MAX_LINKS, article_links},
+    citation::related::{DecisionReferences, MAX_LINKS, article_links, decision_links},
     error::AppError,
     failure::port_failure,
     input::GetRelatedInput,
@@ -44,7 +47,8 @@ const TOOL: ToolName = ToolName::FR_GET_RELATED;
 /// Champs estimés de l'enveloppe : `id`, `citation`, `source_url`, `total`, `links`, `truncated`.
 const ENVELOPE_FIELDS: usize = 6;
 
-/// Les liens d'un article : analyse de l'identifiant, deux appels au port, politique de réponse.
+/// Les liens d'un article ou d'une décision : analyse de l'identifiant, un ou deux appels au port,
+/// politique de réponse.
 pub(crate) struct GetRelatedUseCase<'a, C: LegalCorpus> {
     corpus: &'a C,
 }
@@ -59,9 +63,9 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
     ///
     /// # Errors
     ///
-    /// `invalid_arg` si `id` est absent, mal formé, d'une décision (liens non livrés) ou d'une
-    /// famille que l'outil ne lit pas (sans appel au port) ; `not_found` si le corpus ne connaît
-    /// pas l'article (message de `fr_get_text`, 05 §7.4) ; sinon l'erreur du port, traduite par
+    /// `invalid_arg` si `id` est absent, mal formé ou d'une famille que l'outil ne lit pas (sans
+    /// appel au port) ; `not_found` si le corpus ne connaît pas l'article ou la décision (message
+    /// de l'outil de lecture correspondant, 05 §7.4) ; sinon l'erreur du port, traduite par
     /// [`port_failure`].
     pub(crate) async fn execute(
         &self,
@@ -70,9 +74,9 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
         let raw = input.id.ok_or_else(|| messages::required(messages::id_field(TOOL)))?;
         match DocumentId::parse(&raw).map_err(|error| messages::domain(TOOL, &error))? {
             DocumentId::LegiArti(id) => self.article(id).await,
-            DocumentId::JuriText(_) | DocumentId::ConsText(_) | DocumentId::CetaText(_) => {
-                Err(decision_links_unavailable())
-            }
+            DocumentId::JuriText(id) => self.decision(DecisionId::Juri(id)).await,
+            DocumentId::ConsText(id) => self.decision(DecisionId::Constit(id)).await,
+            DocumentId::CetaText(id) => self.decision(DecisionId::Cetat(id)).await,
             other => Err(unsupported(&other)),
         }
     }
@@ -87,15 +91,19 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
         let links = links.map_err(failure)?;
         Ok(output(id.as_str(), &article.contract(), article_links(&links)))
     }
-}
 
-/// Refus d'une décision : ses références ne sont pas lues (aucun appel au port). Ce n'est pas un
-/// succès vide, qui dirait « aucun lien ».
-fn decision_links_unavailable() -> AppError {
-    messages::invalid_argument(
-        "Decision links are not available yet. Read the decision with fr_get_decision, then \
-         check what it cites with fr_verify_citations.",
-    )
+    /// Une décision : sa citation et les liens que le parseur lit dans ses références.
+    async fn decision(&self, id: DecisionId) -> Result<GetRelatedOutput, AppError> {
+        let decision = self
+            .corpus
+            .get_decision(&id)
+            .await
+            .map_err(|error| port_failure(ToolName::FR_GET_DECISION, id.as_str(), &error))?;
+        let references = DecisionReferences::of(&decision);
+        let found = output(id.as_str(), &decision.contract(), decision_links(&references));
+        // Des références ignorées faute de place (`MAX_ANALYSED_CHARS`) : la liste est incomplète.
+        Ok(GetRelatedOutput { truncated: found.truncated || references.clipped, ..found })
+    }
 }
 
 /// La réponse de la page `id` (`contract` : sa citation et sa page) pour `links`, ramenée aux
@@ -164,7 +172,8 @@ fn unsupported(id: &DocumentId) -> AppError {
         }
     };
     messages::invalid_argument(format!(
-        "{}='{}' must be a LEGIARTI... article id (decision links are not available yet).{hint}",
+        "{}='{}' must be a LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... \
+         decision id.{hint}",
         messages::id_field(TOOL),
         id.as_str()
     ))
@@ -174,7 +183,7 @@ fn unsupported(id: &DocumentId) -> AppError {
 mod tests {
     use lf_domain::{
         citation::CitationKind,
-        entity::{ArticleText, ParentText, RelatedLink, RelatedLinks, RelatedNature},
+        entity::{ArticleText, Decision, ParentText, RelatedLink, RelatedLinks, RelatedNature},
         text::LongText,
     };
     use pretty_assertions::assert_eq;
@@ -185,6 +194,7 @@ mod tests {
         output::get_related::Relation,
         ports::CorpusError,
         testing::{FakeCorpus, PortRequest},
+        usecase::get_decision::fixtures::decision,
     };
 
     const ARTI: &str = "LEGIARTI000006419288";
@@ -367,17 +377,227 @@ mod tests {
 
     // ---- décision ------------------------------------------------------------------------
 
-    #[tokio::test]
-    async fn a_decision_is_refused_without_a_port_call() {
-        // Les trois préfixes de décision : un refus explicite, jamais `links: []` (qui dirait
-        // « aucun lien » alors que le domaine ne porte pas les références).
-        for id in [JURI, CONSTIT, CETAT] {
-            assert_eq!(
-                rejected(Some(id)).await,
-                "Decision links are not available yet. Read the decision with fr_get_decision, \
-                 then check what it cites with fr_verify_citations."
-            );
+    /// `citationJp` de `JURITEXT000051743650` (`consult_juri.json`, mojibake réparé), tel que
+    /// l'adapter le range dans `Decision::cited_case_law`.
+    const CITATION_JP: &str = "Sur l'interprétation du droit interne à la lumière de la directive \
+        85/374/CEE du Conseil du 25 juillet 1985, à rapprocher : 1re Civ., 25 mai 2023, pourvoi \
+        n° 21-23.174 (cassation partielle) et l'arrêt cité.";
+
+    /// Les deux titres de `liens` de la même décision, tels que l'adapter les range dans
+    /// `Decision::applied_texts`.
+    fn applied_texts() -> Vec<String> {
+        vec![
+            "1 du code civil.".to_owned(),
+            "Article 10 de la directive 85/374/CEE du Conseil, du 25 juillet 1985, relative au \
+             rapprochement des dispositions législatives, réglementaires et administratives des \
+             Etats membres en matière de responsabilité du fait des produits défectueux ; article \
+             2270-"
+                .to_owned(),
+        ]
+    }
+
+    /// Une décision `id` qui porte ces références.
+    fn referencing(id: &str, cited: Option<&str>, applied: Vec<String>) -> Decision {
+        Decision {
+            cited_case_law: cited.map(str::to_owned),
+            applied_texts: applied,
+            ..decision(id, "texte")
         }
+    }
+
+    #[tokio::test]
+    async fn a_decision_needs_one_port_call_and_gets_its_citation_and_page() {
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(decision(CONSTIT, "Considérant que…")));
+
+        let out = run(&corpus, Some(CONSTIT)).await.unwrap();
+
+        assert_eq!(out.id, CONSTIT);
+        assert_eq!(out.source_url, format!("https://www.legifrance.gouv.fr/cons/id/{CONSTIT}"));
+        assert_eq!(out.citation, format!("Légifrance {CONSTIT}"), "repli sans titre ni numéro");
+        assert_eq!(corpus.calls(), 1);
+        assert_eq!(
+            corpus.seen_requests(),
+            [PortRequest::GetDecision(DecisionId::parse(CONSTIT).unwrap())]
+        );
+        // Les trois préfixes de décision sont lus, et chacun a sa page.
+        for (id, page) in [(JURI, "juri"), (CETAT, "ceta")] {
+            let corpus = FakeCorpus::new();
+            corpus.push_get_decision(Ok(decision(id, "texte")));
+            let out = run(&corpus, Some(id)).await.unwrap();
+            assert_eq!(out.id, id);
+            assert_eq!(out.source_url, format!("https://www.legifrance.gouv.fr/{page}/id/{id}"));
+            assert_eq!(corpus.calls(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unknown_decision_names_the_fond_of_its_prefix() {
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Err(CorpusError::NotFound { what: "/consult/juri".into() }));
+        let error = run(&corpus, Some(CETAT)).await.unwrap_err();
+        assert_eq!(error.code(), Some(ErrorCode::NotFound));
+        assert_eq!(
+            error.message(),
+            "No CETAT decision found for CETATEXT000051655317. Check the id, or search with \
+             fr_search."
+        );
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Err(CorpusError::Timeout));
+        let error = run(&corpus, Some(JURI)).await.unwrap_err();
+        assert_eq!(error.code(), Some(ErrorCode::UpstreamError));
+    }
+
+    #[tokio::test]
+    async fn decision_related_from_citationjp() {
+        // Ce que le port rend d'une décision JURI dont `citationJp` et `liens` sont renseignés
+        // (fixture consult_juri.json, mojibake réparé) : `cited_case_law` et `applied_texts` de la
+        // vraie `Decision`, passés par la même chaîne que la lecture (parseur, dédoublonnage,
+        // plafond), de bout en bout par le cas d'usage.
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(referencing(JURI, Some(CITATION_JP), applied_texts())));
+
+        let out = run(&corpus, Some(JURI)).await.unwrap();
+
+        assert_eq!(out.total, 2);
+        assert!(!out.truncated);
+        let shape: Vec<_> = out
+            .links
+            .iter()
+            .map(|link| (link.relation.as_str(), link.kind.snake_case(), link.citation.as_str()))
+            .collect();
+        // « 1 du code civil. » n'a pas d'ancre : aucun lien. La directive de `citationJp` et celle de
+        // `liens` visent le même acte : la plus précise (l'article 10) est gardée.
+        assert_eq!(
+            shape,
+            [
+                ("cites_case_law", "decision", "Cass. 1re civ., 25 mai 2023, n° 21-23.174"),
+                (
+                    "applies_text",
+                    "unsupported",
+                    "Article 10 de la directive 85/374/CEE du Conseil, du 25 juillet 1985"
+                ),
+            ]
+        );
+        assert_eq!(out.source_url, format!("https://www.legifrance.gouv.fr/juri/id/{JURI}"));
+        assert!(
+            out.links.iter().all(|link| link.id.is_none() && link.source_url.is_none()),
+            "les liens de décision ne sont pas résolus"
+        );
+        assert_eq!(corpus.calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn each_reference_of_the_decision_counts_on_its_own() {
+        // Seul `citationJp` : la jurisprudence citée et la directive ; seuls les `liens` : des
+        // textes appliqués.
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(referencing(JURI, Some(CITATION_JP), vec![])));
+        let out = run(&corpus, Some(JURI)).await.unwrap();
+        let relations: Vec<_> = out.links.iter().map(|link| link.relation).collect();
+        assert_eq!(relations, [Relation::CitesCaseLaw, Relation::AppliesText]);
+
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(referencing(JURI, None, applied_texts())));
+        let out = run(&corpus, Some(JURI)).await.unwrap();
+        let relations: Vec<_> = out.links.iter().map(|link| link.relation).collect();
+        assert_eq!(relations, [Relation::AppliesText]);
+    }
+
+    #[tokio::test]
+    async fn a_decision_without_references_has_an_empty_list() {
+        // CETAT : `citationJp: ""` et `liens: []` dans la capture. L'API ne donne aucun lien, la
+        // liste est vide, sans suite.
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(decision(CETAT, "texte")));
+        let out = run(&corpus, Some(CETAT)).await.unwrap();
+        assert_eq!((out.links.len(), out.total, out.truncated), (0, 0, false));
+    }
+
+    #[tokio::test]
+    async fn decision_links_are_capped_like_article_links() {
+        let texts: Vec<String> = (1..=150).map(|n| format!("article {n} du code civil")).collect();
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(referencing(JURI, None, texts)));
+        let out = run(&corpus, Some(JURI)).await.unwrap();
+        assert_eq!((out.links.len(), out.total, out.truncated), (100, 150, true));
+        assert_eq!(out.links[0].citation, "Code civil, art. 1");
+        assert_eq!(out.links[99].citation, "Code civil, art. 100");
+
+        // Exactement cent : rien n'est retiré, rien n'est dit.
+        let texts: Vec<String> = (1..=100).map(|n| format!("article {n} du code civil")).collect();
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(referencing(JURI, None, texts)));
+        let out = run(&corpus, Some(JURI)).await.unwrap();
+        assert_eq!((out.links.len(), out.total, out.truncated), (100, 100, false));
+    }
+
+    #[tokio::test]
+    async fn the_longest_decision_links_still_fit_the_estimate_target() {
+        // Une citation de décision tient en quelques dizaines de caractères (le parseur n'en garde
+        // que la partie reconnue) : cent liens parmi les plus longs, des règlements européens,
+        // restent sous la cible de 42 000 de l'estimation, sans rien retirer.
+        let texts: Vec<String> = (1..=100)
+            .map(|n| {
+                format!(
+                    "Règlement (UE) 2016/{n} du Parlement européen et du Conseil du 27 avril 2016"
+                )
+            })
+            .collect();
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(referencing(JURI, None, texts)));
+
+        let out = run(&corpus, Some(JURI)).await.unwrap();
+
+        assert_eq!((out.links.len(), out.total, out.truncated), (100, 100, false));
+        let kept: usize = out.links.iter().map(cost).sum();
+        assert!(kept <= ResponseBudget::ESTIMATE_TARGET_CHARS, "{kept}");
+        assert!(out.links.iter().all(|link| link.citation.chars().count() < 100));
+    }
+
+    #[tokio::test]
+    async fn a_decision_with_a_long_reference_list_stays_bounded() {
+        // Mille textes appliqués : cent liens rendus, `total` garde le compte d'avant la
+        // troncature, estimation sous la cible, quelle que soit la taille de la liste de l'API.
+        let texts: Vec<String> =
+            (1..=1_000).map(|n| format!("article {n} du code civil")).collect();
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(referencing(JURI, Some(CITATION_JP), texts)));
+
+        let out = run(&corpus, Some(JURI)).await.unwrap();
+
+        assert_eq!(out.total, 1_002);
+        assert!(out.truncated);
+        assert_eq!(out.links.len(), 100);
+        assert_eq!(out.links[0].relation, Relation::CitesCaseLaw, "la jurisprudence passe devant");
+        let kept: usize = out.links.iter().map(cost).sum();
+        assert!(kept <= ResponseBudget::ESTIMATE_TARGET_CHARS, "{kept}");
+    }
+
+    #[tokio::test]
+    async fn references_beyond_the_analysis_budget_are_ignored_and_truncated_says_so() {
+        // Quatre titres de 20 000 caractères (`a`, `b`, `c`, `d` répétés) après une citation courte :
+        // seuls les deux premiers tiennent dans les 50 000 caractères analysés. Deux liens
+        // seulement sont trouvés, bien en dessous de cent : `truncated` vient de l'analyse
+        // partielle, non du plafond de liens.
+        let long = |article: u32| format!("article {article} du code civil {}", "x".repeat(19_950));
+        let texts: Vec<String> = (1..=4).map(long).collect();
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(referencing(JURI, None, texts)));
+
+        let out = run(&corpus, Some(JURI)).await.unwrap();
+
+        let citations: Vec<_> = out.links.iter().map(|link| link.citation.as_str()).collect();
+        assert_eq!(citations, ["Code civil, art. 1", "Code civil, art. 2"]);
+        assert_eq!(out.total, 2);
+        assert!(out.truncated, "des références n'ont pas été lues");
+
+        // Dans la limite, rien n'est dit.
+        let texts: Vec<String> = (1..=2).map(long).collect();
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(referencing(JURI, None, texts)));
+        let out = run(&corpus, Some(JURI)).await.unwrap();
+        assert_eq!((out.links.len(), out.total, out.truncated), (2, 2, false));
     }
 
     // ---- validation ----------------------------------------------------------------------
@@ -436,8 +656,8 @@ mod tests {
             assert_eq!(
                 rejected(Some(id)).await,
                 format!(
-                    "id='{id}' must be a LEGIARTI... article id (decision links are not \
-                     available yet). {hint}"
+                    "id='{id}' must be a LEGIARTI... article id or a JURITEXT..., CONSTEXT... or \
+                     CETATEXT... decision id. {hint}"
                 )
             );
         }

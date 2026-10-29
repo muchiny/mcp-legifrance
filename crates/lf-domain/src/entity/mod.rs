@@ -88,6 +88,8 @@ mod tests {
             title: title.map(Into::into),
             text: LongText::default(),
             official_summary: OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
         }
     }
 

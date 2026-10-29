@@ -3,6 +3,8 @@ source: crates/lf-adapter-piste/src/view.rs
 expression: view(&mapped)
 ---
 {
+  "applied_texts": [],
+  "cited_case_law": null,
   "contract": {
     "citation": "Conseil d'État, 2ème - 7ème chambres réunies, 29/05/2026, 506507",
     "ecli": "ECLI:FR:CECHR:2026:506507.20260529",

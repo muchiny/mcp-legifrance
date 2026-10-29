@@ -424,6 +424,8 @@ mod tests {
             title: None,
             text: LongText::from_plain(DECISION_TEXT).unwrap(),
             official_summary: OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
         }
     }
 

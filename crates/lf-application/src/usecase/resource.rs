@@ -770,6 +770,8 @@ mod tests {
             title: Some("Cass. civ. 1re, 5 juin 2019".to_owned()),
             text: LongText::from_plain("La Cour rejette le pourvoi.").unwrap(),
             official_summary: OfficialSummary::new(["Analyse."], Vec::<String>::new()),
+            cited_case_law: None,
+            applied_texts: vec![],
         }));
 
         let output = read_uri(&corpus, "legifrance://decision/JURITEXT000037999394").await.unwrap();

@@ -48,9 +48,10 @@ mod tests {
         ports::{AuditStatus, CorpusError},
         testing::FakeCorpus,
         tools::ToolName,
+        usecase::get_decision::fixtures::decision,
     };
     use lf_domain::{
-        entity::{ArticleText, RelatedLink, RelatedLinks, RelatedNature},
+        entity::{ArticleText, Decision, RelatedLink, RelatedLinks, RelatedNature},
         id::{ArticleId, DocumentId},
         text::LongText,
     };
@@ -112,11 +113,71 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_decision_is_audited_as_invalid_arg_without_network() {
+    async fn a_decision_is_audited_with_the_number_of_links_it_references() {
+        // Les références de la décision (`citationJp` et `liens`) donnent deux liens : la
+        // jurisprudence citée et le texte appliqué.
         let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(Decision {
+            cited_case_law: Some(
+                "à rapprocher : 1re Civ., 25 mai 2023, pourvoi n° 21-23.174".into(),
+            ),
+            applied_texts: vec!["Article 1240 du code civil".to_owned()],
+            ..decision(JURI, "texte")
+        }));
+        let (service, audit) = service(corpus);
+        let arguments = format!(r#"{{"id":"{JURI}"}}"#);
+
+        let output = service.get_related(call(&arguments, Some(JURI)), pending()).await.unwrap();
+
+        assert_eq!(output.links.len(), 2);
+        let lines = audit.records();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].tool, ToolName::FR_GET_RELATED);
+        assert_eq!(lines[0].status, AuditStatus::Ok);
+        assert_eq!(lines[0].error_code, None);
+        assert_eq!(lines[0].output_count_or_size, 2);
+        assert_eq!(lines[0].input.as_str(), arguments);
+    }
+
+    #[tokio::test]
+    async fn a_decision_without_references_is_audited_with_zero_links() {
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(decision(JURI, "texte")));
+        let (service, audit) = service(corpus);
+
+        service.get_related(call("{}", Some(JURI)), pending()).await.unwrap();
+
+        let lines = audit.records();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].status, AuditStatus::Ok);
+        assert_eq!(lines[0].output_count_or_size, 0);
+    }
+
+    #[tokio::test]
+    async fn an_unknown_decision_is_audited_as_not_found() {
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Err(CorpusError::NotFound { what: "/consult/juri".into() }));
         let (service, audit) = service(corpus);
 
         let error = service.get_related(call("{}", Some(JURI)), pending()).await.unwrap_err();
+
+        assert_eq!(error.code(), Some(ErrorCode::NotFound));
+        let lines = audit.records();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].status, AuditStatus::Error);
+        assert_eq!(lines[0].error_code, Some(ErrorCode::NotFound));
+        assert_eq!(lines[0].output_count_or_size, 0);
+    }
+
+    #[tokio::test]
+    async fn another_family_is_audited_as_invalid_arg_without_network() {
+        let corpus = FakeCorpus::new();
+        let (service, audit) = service(corpus);
+
+        let error = service
+            .get_related(call("{}", Some("LEGITEXT000006070721")), pending())
+            .await
+            .unwrap_err();
 
         assert_eq!(error.code(), Some(ErrorCode::InvalidArg));
         let lines = audit.records();

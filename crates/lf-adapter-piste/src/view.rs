@@ -227,6 +227,8 @@ fn decision_view(decision: &Decision) -> Value {
         title,
         text,
         official_summary,
+        cited_case_law,
+        applied_texts,
     } = decision;
     json!({
         "decision_id": shown(decision_id),
@@ -241,6 +243,8 @@ fn decision_view(decision: &Decision) -> Value {
         "title": title,
         "text": long_text(text),
         "official_summary": summary_view(official_summary),
+        "cited_case_law": cited_case_law,
+        "applied_texts": applied_texts,
         "contract": contract(&decision.contract()),
     })
 }

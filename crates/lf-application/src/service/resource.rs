@@ -151,6 +151,8 @@ mod tests {
             title: Some("Cass. civ. 1re, 5 juin 2019".to_owned()),
             text: LongText::from_plain("La Cour rejette.").unwrap(),
             official_summary: OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
         }
     }
 

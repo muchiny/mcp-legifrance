@@ -212,6 +212,8 @@ impl Weigh for Decision {
             + self.text.heap_bytes()
             + texts(&self.official_summary.analyses)
             + texts(&self.official_summary.titrages)
+            + text(self.cited_case_law.as_ref())
+            + texts(&self.applied_texts)
     }
 }
 
@@ -370,7 +372,7 @@ mod tests {
         grows_by(7, |f| article(f).weight());
         grows_by(10, |f| act(f).weight());
         grows_by(13, |f| convention(f).weight());
-        grows_by(13, |f| decision(f).weight());
+        grows_by(16, |f| decision(f).weight());
         grows_by(6, |f| deliberation(f).weight());
         grows_by(10, |f| agreement(f).weight());
         grows_by(3, |f| codes(f, 3).weight());

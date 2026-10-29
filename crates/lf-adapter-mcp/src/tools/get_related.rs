@@ -61,14 +61,18 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
 #[cfg(feature = "test-support")]
 mod tests {
     use lf_application::{
+        budget::ResponseBudget,
         error::ErrorCode,
         ports::{AuditStatus, CorpusError},
         testing::PortRequest,
         tools::ToolName,
     };
     use lf_domain::{
-        entity::{ArticleText, ParentText, RelatedLink, RelatedLinks, RelatedNature},
-        id::{ArticleId, DocumentId},
+        entity::{
+            ArticleText, Decision, OfficialSummary, ParentText, RelatedLink, RelatedLinks,
+            RelatedNature,
+        },
+        id::{ArticleId, DecisionId, DocumentId},
         text::LongText,
     };
     use pretty_assertions::assert_eq;
@@ -97,6 +101,31 @@ mod tests {
             date_fin: None,
             text: LongText::from_plain("Chacun a droit au respect de sa vie privée.").unwrap(),
             nota: None,
+        }
+    }
+
+    /// `citationJp` de `JURITEXT000051743650` (`consult_juri.json`, mojibake réparé).
+    const CITATION_JP: &str = "Sur l'interprétation du droit interne à la lumière de la directive \
+        85/374/CEE du Conseil du 25 juillet 1985, à rapprocher : 1re Civ., 25 mai 2023, pourvoi \
+        n° 21-23.174 (cassation partielle) et l'arrêt cité.";
+
+    /// Une décision JURI qui porte ces références (`citationJp` et titres des liens de citation).
+    fn decision(cited: Option<&str>, applied: Vec<String>) -> Decision {
+        Decision {
+            decision_id: DecisionId::parse(JURI).unwrap(),
+            ecli: None,
+            num: None,
+            juridiction: None,
+            formation: None,
+            solution: None,
+            numero_affaire: vec![],
+            date_texte: None,
+            nature: None,
+            title: Some("Cour de cassation, civile, Chambre civile 1, 4 juin 2025".to_owned()),
+            text: LongText::default(),
+            official_summary: OfficialSummary::default(),
+            cited_case_law: cited.map(str::to_owned),
+            applied_texts: applied,
         }
     }
 
@@ -213,19 +242,120 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_decision_is_refused_without_a_port_call() {
+    async fn a_decision_answers_with_the_links_of_its_references_and_one_port_call() {
         let fixture = Fixture::default();
+        fixture.corpus.push_get_decision(Ok(decision(
+            Some(CITATION_JP),
+            vec!["1 du code civil.".to_owned(), "Article 1240 du code civil".to_owned()],
+        )));
+
+        let result = call(&fixture, &json!({"id": JURI})).await;
+
+        assert_eq!(result.is_error, Some(false));
+        let content = result.structured_content.clone().unwrap();
+        // « 1 du code civil. » n'a pas d'ancre : aucun lien. Les liens d'une décision n'ont ni
+        // `id` ni `source_url` (ils ne sont pas résolus), et `truncated` est absent.
+        assert_eq!(
+            content,
+            json!({
+                "id": JURI,
+                "citation": "Cour de cassation, civile, Chambre civile 1, 4 juin 2025",
+                "source_url": format!("https://www.legifrance.gouv.fr/juri/id/{JURI}"),
+                "total": 3,
+                "links": [
+                    {
+                        "relation": "cites_case_law",
+                        "kind": "decision",
+                        "citation": "Cass. 1re civ., 25 mai 2023, n° 21-23.174"
+                    },
+                    {
+                        "relation": "applies_text",
+                        "kind": "unsupported",
+                        "citation": "directive 85/374/CEE du Conseil du 25 juillet 1985"
+                    },
+                    {
+                        "relation": "applies_text",
+                        "kind": "code_article",
+                        "citation": "Code civil, art. 1240"
+                    }
+                ]
+            })
+        );
+        assert_eq!(serde_json::from_str::<Value>(text_of(&result)).unwrap(), content);
+
+        let records = fixture.audit.records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].tool, ToolName::FR_GET_RELATED);
+        assert_eq!(records[0].status, AuditStatus::Ok);
+        assert_eq!(records[0].output_count_or_size, 3, "le nombre de liens");
+        assert_eq!(
+            fixture.corpus.seen_requests(),
+            [PortRequest::GetDecision(DecisionId::parse(JURI).unwrap())]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_decision_without_references_answers_with_an_empty_list() {
+        let fixture = Fixture::default();
+        fixture.corpus.push_get_decision(Ok(decision(None, vec![])));
+
+        let result = call(&fixture, &json!({"id": JURI})).await;
+
+        assert_eq!(result.is_error, Some(false));
+        let content = result.structured_content.unwrap();
+        assert_eq!(content["id"], JURI);
+        assert_eq!(content["links"], json!([]));
+        assert_eq!(content["total"], 0);
+        assert!(content.get("truncated").is_none());
+        assert_eq!(fixture.corpus.calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_unknown_decision_is_a_not_found_error_of_its_fond() {
+        let fixture = Fixture::default();
+        fixture
+            .corpus
+            .push_get_decision(Err(CorpusError::NotFound { what: "/consult/juri".into() }));
 
         let result = call(&fixture, &json!({"id": JURI})).await;
 
         assert_eq!(result.is_error, Some(true));
         assert_eq!(
             text_of(&result),
-            "[invalid_arg] Decision links are not available yet. Read the decision with \
-             fr_get_decision, then check what it cites with fr_verify_citations."
+            "[not_found] No JURI decision found for JURITEXT000051743650. Check the id, or \
+             search with fr_search."
         );
-        assert_eq!(fixture.audit.records()[0].error_code, Some(ErrorCode::InvalidArg));
-        assert_eq!(fixture.corpus.calls(), 0);
+        assert_eq!(fixture.audit.records()[0].error_code, Some(ErrorCode::NotFound));
+    }
+
+    #[tokio::test]
+    async fn a_decision_with_many_references_stays_under_the_hard_cap() {
+        // 300 textes appliqués, des plus longs que le parseur retienne (règlements européens) :
+        // cent liens au plus, et la réponse mesurée (JSON compact, en caractères) sous 45 000.
+        let texts: Vec<String> = (1..=300)
+            .map(|n| {
+                format!(
+                    "Règlement (UE) 2016/{n} du Parlement européen et du Conseil du 27 avril 2016"
+                )
+            })
+            .collect();
+        let fixture = Fixture::default();
+        fixture.corpus.push_get_decision(Ok(decision(Some(CITATION_JP), texts)));
+
+        let result = call(&fixture, &json!({"id": JURI})).await;
+
+        assert_eq!(result.is_error, Some(false));
+        let content = result.structured_content.clone().unwrap();
+        let links = content["links"].as_array().unwrap();
+        assert_eq!(links.len(), 100);
+        assert_eq!(content["total"], 302);
+        assert_eq!(content["truncated"], true);
+        assert_eq!(links[0]["relation"], "cites_case_law");
+        let size = serde_json::to_string(&content).unwrap().chars().count();
+        assert!(size <= ResponseBudget::HARD_CAP_CHARS, "{size} caractères");
+        let text = text_of(&result).chars().count();
+        assert!(text <= ResponseBudget::HARD_CAP_CHARS, "{text} caractères");
+        assert_eq!(fixture.audit.records()[0].output_count_or_size, 100);
     }
 
     #[tokio::test]
@@ -255,6 +385,11 @@ mod tests {
         fixture.corpus.push_get_article(Err(CorpusError::Timeout));
         fixture.corpus.push_related_links(Err(CorpusError::Timeout));
         let result = call(&fixture, &json!({"id": ARTI})).await;
+        assert_eq!(result.is_error, Some(true));
+        assert!(text_of(&result).starts_with("[upstream_error] "));
+
+        fixture.corpus.push_get_decision(Err(CorpusError::Timeout));
+        let result = call(&fixture, &json!({"id": JURI})).await;
         assert_eq!(result.is_error, Some(true));
         assert!(text_of(&result).starts_with("[upstream_error] "));
     }
@@ -307,6 +442,13 @@ mod tests {
         serve_article(&fixture, RelatedLinks::default());
         let empty = call(&fixture, &json!({"id": ARTI})).await.structured_content.unwrap();
         assert!(validator.is_valid(&empty), "{empty}");
+        // Une décision, avec et sans références.
+        fixture.corpus.push_get_decision(Ok(decision(Some(CITATION_JP), vec![])));
+        let linked = call(&fixture, &json!({"id": JURI})).await.structured_content.unwrap();
+        assert!(validator.is_valid(&linked), "{linked}");
+        fixture.corpus.push_get_decision(Ok(decision(None, vec![])));
+        let bare = call(&fixture, &json!({"id": JURI})).await.structured_content.unwrap();
+        assert!(validator.is_valid(&bare), "{bare}");
     }
 
     #[tokio::test]

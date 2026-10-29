@@ -220,7 +220,7 @@ mod fixtures {
         }
     }
 
-    /// Décision : 13 champs `filler`.
+    /// Décision : 16 champs `filler`.
     pub(crate) fn decision(filler: &str) -> Decision {
         let two = || vec![filler.to_owned(), filler.to_owned()];
         Decision {
@@ -236,6 +236,8 @@ mod fixtures {
             title: Some(filler.into()),
             text: long(filler),
             official_summary: OfficialSummary { analyses: two(), titrages: two() },
+            cited_case_law: Some(filler.into()),
+            applied_texts: two(),
         }
     }
 

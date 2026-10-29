@@ -479,6 +479,8 @@ mod tests {
                 ["La Cour rejette le pourvoi."],
                 ["CONTRATS ET OBLIGATIONS - Bonne foi"],
             ),
+            cited_case_law: None,
+            applied_texts: vec![],
         }
     }
 

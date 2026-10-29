@@ -41,6 +41,15 @@ pub struct Decision {
     pub text: LongText,
     /// Sommaire officiel (analyses et titrages, 03 §4.4) ; vide : l'API n'en fournit pas.
     pub official_summary: OfficialSummary,
+    /// Jurisprudence citée : le texte libre de `citationJp`, tel que l'API le donne, nettoyé ; `None`
+    /// s'il est vide ou absent (03 §4.4). C'est de la prose (« … à rapprocher : 1re Civ., 25 mai
+    /// 2023, pourvoi n° 21-23.174 … »), que `fr_get_related` passe au parseur de citations ; elle
+    /// n'est jamais résolue ici.
+    pub cited_case_law: Option<String>,
+    /// Textes appliqués : les `title` des `liens` de type `CITATION`, un par entrée, dans l'ordre
+    /// reçu, ceux qui sont vides écartés (03 §4.4). Ce sont des fragments de prose, parfois coupés
+    /// (« 1 du code civil. », « … ;  article 2270- »), sans identifiant : l'API n'en donne aucun.
+    pub applied_texts: Vec<String>,
 }
 
 impl Citable for Decision {
@@ -83,6 +92,8 @@ mod tests {
             title: Some("Titre Légifrance [Objet]".into()),
             text: LongText::default(),
             official_summary: OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
         }
     }
 
@@ -217,6 +228,27 @@ mod tests {
                 assert!(!debug.contains(fragment), "{fragment} dans {debug}");
             }
             assert!(debug.contains("LongText(") && debug.contains("analyses: 1"), "{debug}");
+        }
+    }
+
+    #[test]
+    fn references_are_carried_without_changing_the_citation_contract() {
+        // `cited_case_law` (`citationJp`) et `applied_texts` (titres des liens de citation) sont des
+        // références pour `fr_get_related` : ni la citation, ni l'URL, ni l'ECLI n'en dépendent.
+        for id in IDS {
+            let bare = decision(id);
+            assert_eq!(
+                (bare.cited_case_law.as_deref(), bare.applied_texts.len()),
+                (None, 0),
+                "{id}"
+            );
+
+            let mut linked = decision(id);
+            linked.cited_case_law = Some("à rapprocher : 1re Civ., 25 mai 2023".to_owned());
+            linked.applied_texts = vec!["1 du code civil.".to_owned(), "article 2270-".to_owned()];
+            assert_eq!(linked.contract(), bare.contract(), "{id}");
+            assert_ne!(linked, bare, "{id}");
+            assert_eq!(linked.clone(), linked, "{id}");
         }
     }
 

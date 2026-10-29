@@ -367,6 +367,8 @@ mod tests {
             title: Some("Conseil d'État, 2ème - 7ème chambres réunies, 29/05/2026, 506507".into()),
             text: LongText::from_plain("Texte de la décision.").unwrap(),
             official_summary: OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
         }));
         let verification =
             verify(&corpus, PisteEnvironment::Production, "ECLI:FR:CECHR:2026:506507.20260530")

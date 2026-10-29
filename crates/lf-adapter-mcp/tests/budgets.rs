@@ -248,6 +248,8 @@ mod budgets {
             title: Some("Décision 2025-1173 QPC - 07 novembre 2025".to_owned()),
             text: LongText::from_plain(text).unwrap(),
             official_summary: summary,
+            cited_case_law: None,
+            applied_texts: vec![],
         }
     }
 

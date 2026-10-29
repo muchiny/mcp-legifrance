@@ -17,10 +17,10 @@ use std::collections::HashSet;
 
 use lf_domain::{
     citation::{CitationKind, CitationRef, ParseOptions, Spanned, format::canonical, parse_with},
-    entity::{RelatedLink, RelatedLinks, RelatedNature},
+    entity::{Decision, RelatedLink, RelatedLinks, RelatedNature},
     id::DocumentId,
     text::clean_field,
-    url::WEB_BASE,
+    url::{ResourceKind, legifrance_url},
 };
 
 use crate::output::get_related::{LinkOut, Relation};
@@ -79,18 +79,19 @@ fn kind_of(nature: &RelatedNature, target: Option<&DocumentId>) -> CitationKind 
 /// `LEGITEXT`, `KALIARTI`, `KALITEXT`). Le `JORFTEXT` n'en est pas : la surface JORF n'est pas
 /// retenue (T-M7-01), et les autres familles n'apparaissent pas dans ces listes.
 ///
-/// Les chemins sont ceux de `lf_domain::url` (`ResourceKind`), dont la construction est réservée
-/// au domaine : une demande partagée propose de l'exposer pour supprimer cette copie.
+/// La page est celle de `lf_domain::url` (`legifrance_url`), la même que celle des contrats de
+/// citation : `LEGIARTI` donne `/codes/article_lc/`, `LEGITEXT` un code `/codes/texte_lc/` et tout
+/// autre texte `/loda/id/`, `KALIARTI` et `KALITEXT` `/conv_coll/id/`.
 fn located(nature: &RelatedNature, target: &DocumentId) -> Option<(String, String)> {
-    let path = match target {
-        DocumentId::LegiArti(_) => "codes/article_lc",
-        DocumentId::LegiText(_) if *nature == RelatedNature::Code => "codes/texte_lc",
-        DocumentId::LegiText(_) => "loda/id",
-        DocumentId::KaliArti(_) | DocumentId::KaliText(_) => "conv_coll/id",
+    let kind = match target {
+        DocumentId::LegiArti(_) => ResourceKind::CodeArticle,
+        DocumentId::LegiText(_) if *nature == RelatedNature::Code => ResourceKind::Code,
+        DocumentId::LegiText(_) => ResourceKind::Loda,
+        DocumentId::KaliArti(_) | DocumentId::KaliText(_) => ResourceKind::Kali,
         _ => return None,
     };
     let id = target.as_str();
-    Some((id.to_owned(), format!("{WEB_BASE}/{path}/{id}")))
+    Some((id.to_owned(), legifrance_url(kind, id).to_string()))
 }
 
 /// Coupe à [`CITATION_MAX_CHARS`] caractères, suivis de `…`.
@@ -106,21 +107,58 @@ fn clip(mut text: String) -> String {
 // Décision
 // ---------------------------------------------------------------------------------------------
 
+/// Caractères de références analysés au plus pour une décision, `citationJp` et textes appliqués
+/// confondus. Le parseur est dimensionné pour des textes de quelques milliers de caractères (cible
+/// de 50 ms pour 20 000) et le dédoublonnage compare chaque lien aux précédents : la liste que
+/// l'API rend (jusqu'à 200 000 `liens`) n'est donc pas lue en entier. Les références d'une décision
+/// réelle tiennent en quelques centaines de caractères ; ce qui ne tient pas est ignoré et
+/// `clipped` le dit.
+pub(crate) const MAX_ANALYSED_CHARS: usize = 50_000;
+
 /// Ce que l'on sait analyser d'une décision : `citationJp` et les titres des liens de citation
 /// (`liens[].title`, 03 §4.4).
 #[derive(Debug, Clone, Copy)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "liens de décision : `Decision` ne porte pas encore les références, `fr_get_related` refuse les décisions"
-    )
-)]
 pub(crate) struct DecisionReferences<'a> {
     /// Texte de `citationJp`, absent s'il est vide.
     pub(crate) cited_case_law: Option<&'a str>,
     /// Titres des `liens` de type `CITATION`.
     pub(crate) applied_texts: &'a [String],
+    /// Vrai si des références de la décision n'ont pas été reprises ici, faute de place dans
+    /// [`MAX_ANALYSED_CHARS`] : la liste des liens est alors incomplète.
+    pub(crate) clipped: bool,
+}
+
+impl<'a> DecisionReferences<'a> {
+    /// Les références que porte `decision` : `cited_case_law` puis `applied_texts`, tels que
+    /// l'adapter les a mappés, dans la limite de [`MAX_ANALYSED_CHARS`] caractères. `citationJp`
+    /// est coupée à la limite ; la liste des textes appliqués s'arrête avant le premier titre qui
+    /// ne tient plus entier, les suivants sont ignorés.
+    pub(crate) fn of(decision: &'a Decision) -> Self {
+        let mut room = MAX_ANALYSED_CHARS;
+        let mut clipped = false;
+        let cited_case_law = decision.cited_case_law.as_deref().map(|text| {
+            let kept = prefix(text, room);
+            room -= kept.chars().count();
+            clipped |= kept.len() < text.len();
+            kept
+        });
+        let mut kept = 0;
+        for text in &decision.applied_texts {
+            let size = text.chars().count();
+            if size > room {
+                break;
+            }
+            room -= size;
+            kept += 1;
+        }
+        clipped |= kept < decision.applied_texts.len();
+        Self { cited_case_law, applied_texts: &decision.applied_texts[..kept], clipped }
+    }
+}
+
+/// Les `chars` premiers caractères de `text` (tout `text` s'il en a moins).
+fn prefix(text: &str, chars: usize) -> &str {
+    text.char_indices().nth(chars).and_then(|(byte, _)| text.get(..byte)).unwrap_or(text)
 }
 
 /// D'où vient un texte analysé.
@@ -144,13 +182,6 @@ struct Draft {
 
 /// Les liens d'une décision : jurisprudence citée d'abord, textes appliqués ensuite, chaque groupe
 /// dans l'ordre du texte (`citationJp` puis `liens`).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "liens de décision : `Decision` ne porte pas encore les références, `fr_get_related` refuse les décisions"
-    )
-)]
 pub(crate) fn decision_links(references: &DecisionReferences<'_>) -> Vec<LinkOut> {
     let options =
         ParseOptions { strip_html: true, repair_mojibake: false, ..ParseOptions::default() };
@@ -250,6 +281,8 @@ mod tests {
     use super::*;
     use lf_domain::{citation::UnsupportedCite, date::CivilDate};
     use pretty_assertions::assert_eq;
+
+    use crate::usecase::get_decision::fixtures::decision;
 
     const ARTI: &str = "LEGIARTI000006419288";
     const TEXT: &str = "LEGITEXT000006070721";
@@ -431,7 +464,11 @@ mod tests {
     }
 
     fn links_of(cited: Option<&str>, applied: &[String]) -> Vec<LinkOut> {
-        decision_links(&DecisionReferences { cited_case_law: cited, applied_texts: applied })
+        decision_links(&DecisionReferences {
+            cited_case_law: cited,
+            applied_texts: applied,
+            clipped: false,
+        })
     }
 
     fn shape(links: &[LinkOut]) -> Vec<(&'static str, &'static str, &str)> {
@@ -458,6 +495,82 @@ mod tests {
             ]
         );
         assert!(out.iter().all(|link| link.id.is_none() && link.source_url.is_none()));
+    }
+
+    #[test]
+    fn a_real_decision_gives_the_same_links_as_its_strings() {
+        // `Decision::cited_case_law` et `Decision::applied_texts` (fixture consult_juri.json)
+        // passent par la même analyse que les chaînes : mêmes liens, dans le même ordre.
+        let linked = referencing(Some(CITATION_JP.to_owned()), liens());
+        let references = DecisionReferences::of(&linked);
+        assert_eq!(references.cited_case_law, Some(CITATION_JP));
+        assert_eq!(references.applied_texts, liens().as_slice());
+        assert!(!references.clipped);
+        assert_eq!(decision_links(&references), links_of(Some(CITATION_JP), &liens()));
+        assert_eq!(decision_links(&references).len(), 2);
+
+        // Sans références : rien à lire, aucun lien.
+        let bare = decision("CETATEXT000051655317", "texte");
+        let references = DecisionReferences::of(&bare);
+        assert_eq!((references.cited_case_law, references.applied_texts.len()), (None, 0));
+        assert_eq!(decision_links(&references), vec![]);
+    }
+
+    /// Une décision qui porte ces références.
+    fn referencing(cited: Option<String>, applied: Vec<String>) -> Decision {
+        Decision {
+            cited_case_law: cited,
+            applied_texts: applied,
+            ..decision("JURITEXT000051743650", "texte")
+        }
+    }
+
+    #[test]
+    fn references_within_the_budget_are_read_whole() {
+        let at_the_limit = "é".repeat(MAX_ANALYSED_CHARS - 10);
+        let applied = vec!["x".repeat(4), "y".repeat(6)];
+        let decision = referencing(Some(at_the_limit.clone()), applied.clone());
+        let references = DecisionReferences::of(&decision);
+        assert_eq!(references.cited_case_law, Some(at_the_limit.as_str()));
+        assert_eq!(references.applied_texts, applied.as_slice());
+        assert!(!references.clipped, "exactement la limite : rien n'est retiré");
+    }
+
+    #[test]
+    fn a_huge_citation_jp_is_cut_at_a_character_boundary_and_leaves_no_room() {
+        let huge = "é".repeat(MAX_ANALYSED_CHARS + 5);
+        let decision = referencing(Some(huge), vec!["article 1240 du code civil".to_owned()]);
+        let references = DecisionReferences::of(&decision);
+        let kept = references.cited_case_law.unwrap();
+        assert_eq!(kept.chars().count(), MAX_ANALYSED_CHARS);
+        assert!(kept.chars().all(|c| c == 'é'), "coupée entre deux caractères, pas dans l'un");
+        assert_eq!(references.applied_texts, &[] as &[String]);
+        assert!(references.clipped);
+    }
+
+    #[test]
+    fn applied_texts_stop_before_the_first_title_that_no_longer_fits() {
+        // `citationJp` consomme 25 000 caractères ; trois titres de 10 000 : deux tiennent (il reste
+        // 5 000), le troisième ne tient plus entier et le quatrième, pourtant court, est ignoré
+        // avec lui.
+        let applied = vec!["a".repeat(10_000), "b".repeat(10_000), "c".repeat(10_000), "d".into()];
+        let decision = referencing(Some("é".repeat(25_000)), applied.clone());
+        let references = DecisionReferences::of(&decision);
+        assert_eq!(references.cited_case_law.map(|text| text.chars().count()), Some(25_000));
+        assert_eq!(references.applied_texts, &applied[..2]);
+        assert!(references.clipped);
+    }
+
+    #[test]
+    fn a_very_long_reference_list_is_read_in_bounded_time_and_flagged() {
+        // 200 000 titres de 26 caractères (le plafond du budget de l'adapter) : seuls les premiers
+        // sont repris, et la liste des liens se dit incomplète.
+        let applied = vec!["article 1240 du code civil".to_owned(); 200_000];
+        let decision = referencing(None, applied);
+        let references = DecisionReferences::of(&decision);
+        assert_eq!(references.applied_texts.len(), MAX_ANALYSED_CHARS / 26);
+        assert!(references.clipped);
+        assert_eq!(decision_links(&references).len(), 1, "le même article, fusionné");
     }
 
     #[test]

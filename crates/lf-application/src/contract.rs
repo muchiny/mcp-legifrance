@@ -811,6 +811,8 @@ fn sample_decision(id: &DecisionId) -> Decision {
         title: Some(format!("Décision de test {id}")),
         text: sample_text("Le texte de la décision."),
         official_summary: lf_domain::entity::OfficialSummary::default(),
+        cited_case_law: None,
+        applied_texts: vec![],
     }
 }
 

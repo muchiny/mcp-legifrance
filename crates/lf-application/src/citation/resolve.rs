@@ -1242,6 +1242,8 @@ mod tests {
             title: None,
             text: LongText::from_plain("Texte de la décision.").unwrap(),
             official_summary: lf_domain::entity::OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
         }
     }
 
