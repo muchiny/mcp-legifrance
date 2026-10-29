@@ -1,0 +1,74 @@
+---
+source: crates/lf-adapter-mcp/src/params/search.rs
+expression: schema()
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "date_from": {
+      "description": "Earliest date YYYY-MM-DD (fond date filter).",
+      "format": "date",
+      "type": "string"
+    },
+    "date_to": {
+      "description": "Latest date YYYY-MM-DD.",
+      "format": "date",
+      "type": "string"
+    },
+    "fond": {
+      "default": "LODA",
+      "description": "Fond to search (case-insensitive).",
+      "enum": [
+        "LODA",
+        "CODE",
+        "JURI",
+        "CONSTIT",
+        "CETAT",
+        "CNIL",
+        "KALI",
+        "ACCO"
+      ],
+      "type": "string"
+    },
+    "match": {
+      "default": "any",
+      "description": "\"any\": any word (default); \"all\": all words; \"exact\": exact phrase.",
+      "enum": [
+        "any",
+        "all",
+        "exact"
+      ],
+      "type": "string"
+    },
+    "page": {
+      "default": 1,
+      "description": "Page number, from 1.",
+      "format": "uint32",
+      "minimum": 1,
+      "type": "integer"
+    },
+    "page_size": {
+      "default": 10,
+      "description": "Hits per page (1..100).",
+      "format": "uint32",
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "query": {
+      "description": "Free-text query, e.g. \"republique numerique\".",
+      "maxLength": 450,
+      "minLength": 1,
+      "type": "string"
+    },
+    "version_date": {
+      "description": "LODA and CODE only: version in force on this date, YYYY-MM-DD (default today, Paris).",
+      "format": "date",
+      "type": "string"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "type": "object"
+}

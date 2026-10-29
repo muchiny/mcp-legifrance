@@ -1,0 +1,27 @@
+---
+source: crates/lf-adapter-mcp/src/views/search.rs
+expression: view
+---
+{
+  "total": 1,
+  "page": 1,
+  "has_more": false,
+  "total_articles": 4,
+  "hits": [
+    {
+      "kind": "code",
+      "id": "LEGITEXT000006070721",
+      "nature": "code",
+      "etat": "VIGUEUR",
+      "articles": [
+        {
+          "article_id": "LEGIARTI000006419288",
+          "num": "9",
+          "snippet": "[...]Chacun a droit au respect de sa vie privée. Les juges peuvent, sans préjudice de la réparation [...]"
+        }
+      ],
+      "citation": "Code civil",
+      "source_url": "https://www.legifrance.gouv.fr/codes/texte_lc/LEGITEXT000006070721"
+    }
+  ]
+}
