@@ -21,11 +21,15 @@ exigences de qualité (§10) y font foi. Ce fichier dit comment les tenir au quo
 | Tests | `make test` | tous verts : nextest (profil `default`, `ci` en CI) puis doc-tests ; en CI, Linux, macOS et Windows |
 | Doc | `make doc` | zéro avertissement |
 | Architecture | `make arch` | liste blanche des dépendances normales (`lf-domain` : `thiserror` seul), frontières application et adapters (§2), R6, R8 ; échoue fermé si `cargo metadata` est incomplet |
+| Pureté | `make purity` | `lf-application` compile seul (ses features ne dépendent d'aucun autre membre) |
 | Dépendances | `make deny`, `make machete` | aucun avis, aucune dépendance inutile ; `make deny` couvre le workspace et `fuzz/` ; `make audit-fuzz` (réseau, hors `make ci`) |
+| Licences tierces | `cargo about generate about.hbs` (job `release-gates`, à l'étiquette) | `THIRD_PARTY_LICENSES.md` identique à la régénération (voir « Licences tierces ») |
 | Âge des dépendances | `make min-age` (PR) ; `make min-age-selftest` dans `make ci` | toute version ajoutée ou montée publiée depuis 14 jours au moins |
 | Workflows | `make workflow-lint` | zizmor et actionlint sans alerte, actions épinglées par SHA |
 | Couverture | `make cov` | 100 % lignes, régions, fonctions (`--lib`) |
 | Mutation | `make mutants FILE=…` / CI | 0 mutant `MISSED` |
+| Parité | `make surface` | golden de parité reproduit à l'octet depuis les fixtures, table des codes identique à celle du plan |
+| Instructions du serveur | `make instructions` | 3 500 caractères au plus (05 §4.1), mesurés sur le binaire |
 | Analyse statique | job `sonar` (CI) ; en local, `make cov` puis `make cov-cobertura` et `make clippy-json` produisent ses deux rapports | informatif, non bloquant |
 
 La CI rejoue tout sur chaque PR et mute le diff de la PR ; le lundi, `weekly.yml`
@@ -127,6 +131,59 @@ Le projet est sous licence Apache-2.0. La licence entrante est la licence
 sortante (section 5 de la licence) : toute contribution est publiée sous
 Apache-2.0, sans CLA (`docs/plan/08-distribution.md` §9.1).
 
+## Licences tierces
+
+`THIRD_PARTY_LICENSES.md` reproduit les licences des crates liés au binaire
+(MIT et BSD exigent de reproduire leur notice). Il est versionné, généré par
+`cargo-about` à partir de `about.toml` et `about.hbs`, et jamais modifié à la
+main. Le job `release-gates` le régénère à chaque étiquette et échoue au
+moindre écart (`diff -u`).
+
+- **Version épinglée : cargo-about 0.9.2**, la même que `release-gates`. Sa
+  feature `cli` n'est pas active par défaut :
+  `cargo install cargo-about --locked --version 0.9.2 --features cli`. Compter
+  quelques minutes de compilation (profil `release`) ; sur WSL, `TMPDIR=/var/tmp`
+  et aucune autre compilation en parallèle (section « Sur WSL »).
+- **Régénérer**, à la racine du dépôt, sans option (c'est la commande exacte de
+  `release-gates`, toute la configuration est dans `about.toml`) :
+
+  ```sh
+  cargo about generate about.hbs > THIRD_PARTY_LICENSES.md
+  ```
+
+  Relancer la commande donne le même fichier à l'octet : `diff -u
+  THIRD_PARTY_LICENSES.md <(cargo about generate about.hbs)` ne sort rien.
+- **Quand** : dès qu'une PR change `Cargo.lock` (ajout, montée ou retrait d'un
+  paquet), `about.toml` ou `about.hbs`. Commiter le fichier dans la même PR.
+- **Licence refusée** : la génération échoue (`failed to satisfy license
+  requirements`) si un paquet n'offre aucune licence de la liste `accepted`.
+  Cette liste est celle de `deny.toml` (`[licenses] allow`), dans le même ordre ;
+  une licence se discute une fois (ADR) puis s'ajoute aux deux fichiers. Une
+  exception à un seul paquet (comme MPL-2.0 pour `option-ext`) s'écrit dans les
+  deux, sous le nom du crate.
+- **Périmètre** : tout le workspace, hors dépendances de développement et de
+  construction, pour les sept cibles de `dist-workspace.toml`. Seuls les
+  fichiers de licence des paquets font foi, aucun service tiers ne les complète :
+  la sortie est la même avec `--offline`.
+
+## Sécurité et confidentialité
+
+- **Vulnérabilité** : jamais d'issue publique. Signalement privé selon
+  `SECURITY.md`, sans identifiant PISTE, jeton ni journal d'audit réel.
+- **Secrets** : aucune option de ligne de commande, aucun journal, message,
+  fixture ni ligne d'audit n'en porte (`SECURITY.md`, menace MEN-01). Une clé
+  PISTE publiée par erreur se réinitialise sur PISTE tout de suite.
+- **`SECURITY.md`** : la même PR le met à jour quand elle change une limite
+  connue, le périmètre ou une garantie qu'il énonce (journal d'audit, TLS,
+  transport HTTP).
+- **`PRIVACY.md`** : la même PR le met à jour quand le binaire contacte un
+  nouvel hôte (tableau « Hôtes contactés », 08 §1.4), envoie une donnée de plus à
+  PISTE ou conserve un nouveau fichier en local. `packaging/mcpb/manifest.json`
+  (`privacy_policies`) pointe vers ce fichier.
+- Rien ne se vérifie de mémoire : un point non vérifié s'écrit « non vérifié »
+  avec son numéro `V-nnn`, comme V-165 (ACL Windows du journal d'audit) dans
+  `PRIVACY.md`.
+
 ## Projets AGPL : idées seulement
 
 Deux projets sont sous AGPL : juridix (`Ktulu-Analog/juridix`) et le
@@ -162,6 +219,8 @@ mcp-legifrance de Ktulu-Analog. Cinq règles (08 §9.4) :
   `cargo update -p <crate> --precise <version>`.
 - Dépendance déclarée seulement dans le crate qui l'emploie, licence dans la
   liste blanche de `deny.toml`, `make deny` et `make machete` verts.
+- Tout changement de `Cargo.lock` régénère `THIRD_PARTY_LICENSES.md` dans la
+  même PR (section « Licences tierces »).
 
 ## Toolchain
 
