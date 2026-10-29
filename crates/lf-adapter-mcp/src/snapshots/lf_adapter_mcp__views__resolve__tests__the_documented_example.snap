@@ -1,0 +1,31 @@
+---
+source: crates/lf-adapter-mcp/src/views/resolve.rs
+expression: json_of(view)
+---
+{
+  "candidates": [
+    {
+      "citation": "Code civil, art. 9",
+      "confidence": "high",
+      "id": "LEGIARTI000006419288",
+      "kind": "article",
+      "source_url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288"
+    },
+    {
+      "citation": "Code civil",
+      "confidence": "low",
+      "id": "LEGITEXT000006070721",
+      "kind": "loda",
+      "source_url": "https://www.legifrance.gouv.fr/loda/id/LEGITEXT000006070721"
+    },
+    {
+      "citation": "Cour de cassation, 4 juin 2025",
+      "confidence": "medium",
+      "id": "JURITEXT000051743650",
+      "kind": "juri",
+      "source_url": "https://www.legifrance.gouv.fr/juri/id/JURITEXT000051743650"
+    }
+  ],
+  "interpreted_as": "Code civil, art. 9",
+  "note": "2 more citation(s) found; only the first is resolved, use fr_verify_citations for the whole text."
+}
