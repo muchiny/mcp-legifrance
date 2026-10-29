@@ -1,0 +1,54 @@
+---
+source: crates/lf-adapter-mcp/src/params/search_all.rs
+expression: schema()
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "fonds": {
+      "default": [
+        "LODA",
+        "CODE",
+        "JURI",
+        "CETAT",
+        "CONSTIT"
+      ],
+      "description": "Fonds to search (default LODA, CODE, JURI, CETAT, CONSTIT).",
+      "items": {
+        "enum": [
+          "LODA",
+          "CODE",
+          "JURI",
+          "CONSTIT",
+          "CETAT",
+          "CNIL",
+          "KALI",
+          "ACCO"
+        ],
+        "type": "string"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "per_fond": {
+      "default": 3,
+      "description": "Hits per fond (1..10).",
+      "format": "uint32",
+      "maximum": 10,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "query": {
+      "description": "Free-text query.",
+      "maxLength": 450,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "type": "object"
+}
