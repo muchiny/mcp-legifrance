@@ -7,7 +7,7 @@
 //! 2. Analyse : la **première** citation reconnue est résolue ; les suivantes ne sont que comptées
 //!    (une note renvoie à `fr_verify_citations`). Aucune citation reconnue : `candidates: []`.
 //! 3. `interpreted_as` : la forme canonique de ce que le parseur a lu.
-//! 4. Résolution par le moteur partagé avec `fr_verify_citations` ([`Resolver::resolve_ref`]) ; la
+//! 4. Résolution par le moteur partagé avec `fr_verify_citations` (`Resolver::resolve_ref`) ; la
 //!    `date` de l'appel est la date de version des articles, à défaut d'une date citée. Sans
 //!    `date`, c'est la version en vigueur aujourd'hui à Paris (`ArticleAt::Today`, D5).
 //! 5. Les candidats sont rangés du plus sûr au moins sûr et limités à cinq.
