@@ -1,0 +1,85 @@
+# Échecs attendus de la suite officielle `@modelcontextprotocol/conformance` contre
+# `crates/lf-adapter-mcp/examples/conformance_server.rs` (job `conformance-http`, T-M8-04,
+# 06 §6.2, annexe D §8.3, C-60). Fichier lu par `--expected-failures`.
+#
+# Format (V-43, relevé dans la version épinglée du job, 0.2.0-alpha.12) : une liste YAML de chaînes
+# sous la clé `server`, chacune `<scénario>` (le scénario entier doit échouer) ou
+# `<scénario>:<id-de-vérification>` (une seule vérification, les autres restent exigées). Pas de
+# champ de raison dans ce format : elle est portée par les commentaires `# raison:` et `# lien:`
+# du bloc (suite de lignes sans ligne vide) qui précède l'entrée. Le job échoue si une entrée n'a
+# pas les deux (étape « Baseline »). Rien d'autre que la clé `server` : la suite n'est lancée
+# qu'en serveur.
+#
+# Règles de la suite, rappelées pour la relecture :
+#   - un scénario ou une vérification attendu en échec qui passe fait échouer le job (entrée
+#     périmée : la retirer) ; un échec absent de la liste le fait échouer aussi ;
+#   - un avertissement (WARNING) compte comme un échec ;
+#   - un même fichier sert aux deux exécutions (`--requirements 2026-07-28`, puis
+#     `--requirements 2025-11-25`) : une entrée dont le scénario n'est pas joué dans une exécution
+#     y est ignorée. Une vérification qui n'existe que dans une ère est donc entrée par son
+#     `<scénario>:<id>`, pas par le scénario.
+#
+# Établissement (V-42) : cette liste vient de la lecture du code de la suite et de la liste des
+# éléments de test servis par l'exemple (outils `test_*`, resources `test://…`, prompts
+# `test_*`) ; elle n'a pas encore été confrontée à une exécution. Le premier passage en CI
+# (`npx` + `--expected-failures`) nomme les écarts : entrées périmées à retirer, échecs à ajouter
+# avec leur raison. La liste est relue à chaque montée de rmcp ou de la suite.
+server:
+  # raison: la vérification appelle l'outil dédié `test_streaming_elicitation` (flux de résultats
+  # `input_required`) ; le serveur ne sollicite jamais le client, donc l'exemple ne le sert pas.
+  # lien: docs/plan/00-decisions.md §6 (« ni sampling, ni roots, ni elicitation, ni MRTR ») ; annexe D C-25
+  - server-stateless:sep-2575-http-server-no-independent-requests-on-stream
+
+  # raison: SEP-2322 (MRTR) : ces scénarios attendent un `resultType: input_required` d'outils
+  # dédiés (`test_input_required_result_*`) ou de prompts ; le serveur n'émet jamais de résultat
+  # incomplet (il tolère seulement `inputResponses` et `requestState` en entrée).
+  # lien: docs/plan/00-decisions.md §6 ; annexe D C-25 (`mrtr_fields_tolerated`, V-31)
+  - input-required-result-basic-elicitation
+  - input-required-result-basic-sampling
+  - input-required-result-basic-list-roots
+  - input-required-result-request-state
+  - input-required-result-multiple-input-requests
+  - input-required-result-multi-round
+  - input-required-result-missing-input-response
+  - input-required-result-non-tool-request
+  - input-required-result-result-type
+  - input-required-result-tampered-state
+  - input-required-result-capability-check
+  - input-required-result-ignore-extra-params
+
+  # raison: les clients 2025-11-25 ouvrent normalement une session (`Mcp-Session-Id`) ; le
+  # transport est sans session et n'en émet jamais, donc la suite rend un avertissement et n'ouvre
+  # pas ses flux multiples. Seule cette vérification est attendue : en 2026-07-28 le scénario passe
+  # par un flux par requête.
+  # lien: annexe D §5.2 et C-41 (aucun `Mcp-Session-Id` émis) ; 00 §6
+  - server-sse-multiple-streams:server-sse-multiple-streams-session
+
+  # raison: `logging/setLevel` n'est pas servi (-32601) : le serveur n'annonce aucune capacité
+  # `logging`, retirée en 2026-07-28 ; ses journaux vont sur stderr (tracing).
+  # lien: docs/plan/00-decisions.md §6 (« Pas de capacité `logging` »)
+  - logging-set-level
+
+  # raison: l'outil `test_tool_with_logging` n'existe pas dans l'exemple, faute de capacité
+  # `logging` (aucune notification `notifications/message`).
+  # lien: docs/plan/00-decisions.md §6 (« Pas de capacité `logging` »)
+  - tools-call-with-logging
+
+  # raison: l'échantillonnage (`sampling/createMessage`) est une requête du serveur vers le client ;
+  # le transport sans session n'en porte pas, et le serveur n'en émet jamais.
+  # lien: docs/plan/00-decisions.md §6 (« ni sampling ») ; annexe D §5.2
+  - tools-call-sampling
+
+  # raison: la sollicitation (`elicitation/create`) est une requête du serveur vers le client ; le
+  # transport sans session n'en porte pas, et le serveur n'en émet jamais. Les deux scénarios
+  # suivants éprouvent ses valeurs par défaut (SEP-1034) et ses énumérations (SEP-1330).
+  # lien: docs/plan/00-decisions.md §6 (« ni elicitation ») ; annexe D §5.2
+  - tools-call-elicitation
+  - elicitation-sep1034-defaults
+  - elicitation-sep1330-enums
+
+  # raison: le serveur n'annonce ni `resources.subscribe` ni `listChanged` : `resources/subscribe` et
+  # `resources/unsubscribe` répondent -32601 (les abonnements passent par `subscriptions/listen`,
+  # accusé minimal, sans notification).
+  # lien: docs/plan/00-decisions.md §6 (`subscriptions/listen`, « ni `resources/subscribe` ni `listChanged` ») ; annexe D C-24
+  - resources-subscribe
+  - resources-unsubscribe
