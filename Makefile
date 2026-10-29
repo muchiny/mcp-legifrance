@@ -61,10 +61,11 @@ purity:
 
 # Deux graphes sous un seul deny.toml (M1-D16) : le workspace, puis fuzz/ (hors workspace, son propre
 # Cargo.lock). Chaque run signalerait des avertissements propres à l'autre graphe : `-A` les masque
-# (licence ou wrapper non rencontrés, exception NCSA non employée), sans configuration par graphe.
+# (licence, wrapper ou `skip` de doublon non rencontrés, exception NCSA non employée), sans configuration
+# par graphe. `multiple-versions = "deny"` : chaque doublon du workspace a son `skip` justifié (deny.toml).
 deny:
 	cargo deny --locked check -A license-exception-not-encountered
-	cargo deny --locked --manifest-path fuzz/Cargo.toml check -A license-not-encountered -A unused-wrapper
+	cargo deny --locked --manifest-path fuzz/Cargo.toml check -A license-not-encountered -A unused-wrapper -A unmatched-skip
 
 # Avis RustSec sur fuzz/Cargo.lock (M1-D16), hors `make ci` : réseau (base d'avis). Le binaire
 # `cargo-audit audit` et non `cargo audit` : la sous-commande passe par rustup et téléchargerait la

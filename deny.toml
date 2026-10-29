@@ -40,9 +40,24 @@ exceptions = [
 ignore = true
 
 [bans]
-multiple-versions = "warn"
+# T-M5-09 : un doublon de version est une erreur, sauf s'il est listé dans `skip` ci-dessous. Chaque entrée vise
+# une version précise (`crate@version`, la plus ancienne des deux) et dit quels paquets la tirent. Aucun
+# `skip-tree` : trop large. Quand le paquet qui tire la vieille version monte, cargo-deny signale le `skip`
+# devenu inutile (`unmatched-skip`) : il se retire alors. Aucun `cargo update` ne les résout aujourd'hui
+# (les exigences des paquets amont, `^0.22` de base64 par exemple, excluent la version commune).
+multiple-versions = "deny"
 wildcards = "deny"
 allow-wildcard-paths = true
+skip = [
+  { crate = "base64@0.22.1", reason = "tantivy 0.26.2 (index DILA, M9) et wiremock 0.6.5 (dev de lf-adapter-piste et de mcp-legifrance) exigent ^0.22 ; reqwest, hyper-util et rmcp 3.5.1 sont en 0.23" },
+  { crate = "core-foundation@0.9.4", reason = "system-configuration 0.7.0 <- hyper-util 0.1.21 <- reqwest, axum et wiremock (macOS seulement) ; rustls-platform-verifier et security-framework sont en 0.10" },
+  { crate = "fs4@0.13.1", reason = "D21 : tantivy 0.26.2 tire fs4 ^0.13.1 par sa feature `mmap`, que l'index sur disque de M9 exige ; lf-adapter-audit prend fs4 1.1 (confinement : `wrappers` de fs4 plus bas)" },
+  { crate = "getrandom@0.3.4", reason = "ahash 0.8.12, jsonschema 0.58.6, jsonschema-value et referencing (dev de lf-adapter-mcp, xtask) ; jobserver, rand 0.10, tempfile et uuid sont en 0.4" },
+  { crate = "hashbrown@0.16.1", reason = "governor 0.10.4 (lf-adapter-piste) et lru 0.16.4 <- tantivy 0.26.2 ; indexmap 2.14.2 et referencing (jsonschema) sont en 0.17" },
+  { crate = "r-efi@5.3.0", reason = "getrandom 0.3.4 (cible UEFI) ; getrandom 0.4.3 tire r-efi 6.0.0 (voir getrandom@0.3.4)" },
+  { crate = "syn@2.0.119", reason = "tracing-attributes 0.1.31, strum_macros 0.28.0 (tantivy), jni-macros et jni-sys-macros (rustls-platform-verifier), windows-implement et windows-interface ; les autres macros dérivées (serde_derive, thiserror-impl, rmcp-macros, schemars_derive, clap_derive...) sont en syn 3" },
+  { crate = "windows-sys@0.59.0", reason = "fs4 0.13.1 (tantivy, voir fs4@0.13.1) ; le reste du graphe (fs4 1.1, tokio, mio, socket2, tempfile...) est en 0.61.2" },
+]
 deny = [
   { crate = "openssl", reason = "TLS = rustls uniquement (00 §8)" },
   { crate = "openssl-sys", reason = "TLS = rustls uniquement" },
