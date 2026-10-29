@@ -3,7 +3,7 @@
 //! # Ce que le corpus sait faire
 //!
 //! Les dumps de la DILA portent le fonds **LEGI** seul : les codes et les textes consolidés (lois,
-//! décrets, arrêtés). Décision 00 §5 (M9 : LEGI seul) : cinq opérations sont servies hors ligne,
+//! décrets, arrêtés). Décision 00 §5 (M9 : LEGI seul) : huit opérations sont servies hors ligne,
 //! `search` (fonds `CODE` et `LODA`), `get_act`, `get_article`, `find_article`, `find_by_number`
 //! (numéro d'article, numéro de texte, NOR), `list_codes`, `article_versions` et `related_links`.
 //! Tout le reste (décisions, délibérations CNIL, conventions KALI, accords ACCO, ELI, numéros
