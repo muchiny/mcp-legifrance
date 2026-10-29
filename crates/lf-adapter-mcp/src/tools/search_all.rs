@@ -24,8 +24,8 @@ use lf_application::{
 use rmcp::{
     Json, Peer, RoleServer,
     model::{JsonObject, ProgressNotificationParam, RequestMetaObject},
-    tool, tool_router,
 };
+use rmcp_macros::{tool, tool_router};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use tokio_util::sync::CancellationToken;
 

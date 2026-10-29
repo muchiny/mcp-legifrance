@@ -8,16 +8,10 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
-[package.metadata.cargo-machete]
-# winnow : déclaré en 0B, mais les grammaires de V2-10 à V2-12 sont écrites à la main (curseur
-# sur une vue en caractères). À retirer en F1 si aucune unité ne l'emploie. aho-corasick et regex
-# servent à `find_anchors` (V2-13).
-ignored = ["winnow"]
-
 [dependencies]
 thiserror.workspace = true
-# parseur de citations (M6, ADR-0018) : grammaire, balayage multi-motifs, expressions compilées une fois, NFC
-winnow.workspace = true
+# parseur de citations (M6, ADR-0018) : balayage multi-motifs (find_anchors), expressions compilées une fois, NFC ;
+# les grammaires sont écrites à la main (curseur sur une vue en caractères), sans winnow
 aho-corasick.workspace = true
 regex.workspace = true
 unicode-normalization.workspace = true

@@ -49,8 +49,8 @@ use rmcp::{
         ReadResourceResult, ServerCapabilities, ServerConfig, SubscriptionFilter,
     },
     service::RequestContext,
-    tool_handler,
 };
+use rmcp_macros::tool_handler;
 
 use crate::{
     completions, prompts, resources,

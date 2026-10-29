@@ -82,8 +82,7 @@ dirs = "6.0"
 anyhow = { version = "1.0", default-features = false, features = ["std"] }
 # default-features = false : les défauts (resolve-http, tls-aws-lc-rs…) tirent reqwest, banni hors de l'adapter PISTE (R6)
 jsonschema = { version = "0.58", default-features = false }
-# parseur de citations (lf-domain, 03 §4) ; défauts : `std`
-winnow = "1.0"
+# parseur de citations (lf-domain, 03 §4) : les grammaires sont écrites à la main, winnow n'est pas employé
 aho-corasick = { version = "1.1", default-features = false, features = ["std"] }
 # `unicode` : classes \p{…}, \w et casse sur le français ; sans `perf` (textes courts)
 regex = { version = "1.13", default-features = false, features = ["std", "unicode"] }

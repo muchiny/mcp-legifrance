@@ -9,7 +9,8 @@ use lf_application::{
     input::GetDecisionInput,
     ports::{AuditLog, Clock, LegalCorpus},
 };
-use rmcp::{Json, model::JsonObject, tool, tool_router};
+use rmcp::{Json, model::JsonObject};
+use rmcp_macros::{tool, tool_router};
 use tokio_util::sync::CancellationToken;
 
 use crate::{

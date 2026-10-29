@@ -1671,7 +1671,6 @@ dependencies = [
  "serde_json",
  "thiserror",
  "unicode-normalization",
- "winnow",
 ]
 
 [[package]]

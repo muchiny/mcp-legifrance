@@ -37,6 +37,9 @@
 //!   une tâche isolée autour de l'exécution est nécessaire pour obtenir une erreur et une ligne
 //!   d'audit (V1-10).
 //! - **Bloc vide** : `allow_empty` (rmcp-macros `tool_router.rs:21`).
+//! - **Import des macros** : `#[tool]`, `#[tool_router]` et `#[tool_handler]` viennent de
+//!   `rmcp_macros` (dépendance directe, épinglée `=3.5.1` comme `rmcp`, R6) et non de leur
+//!   réexport par `rmcp` : la dépendance est employée, `cargo machete` n'a rien à ignorer.
 //! - **Bornes génériques** : aucune n'est ajoutée par les macros ; `LegalCorpus`, `AuditLog` et
 //!   `Clock` portent déjà `Send + Sync + 'static`.
 
