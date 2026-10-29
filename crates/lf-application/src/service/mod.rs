@@ -85,7 +85,6 @@ pub struct LegalService<C: LegalCorpus, A: AuditLog, K: Clock> {
     clock: K,
     settings: ServiceSettings,
     /// Débit des complétions, un état par processus (02 §6.2).
-    #[allow(dead_code, reason = "lu par les complétions, écrites en V3-07")]
     complete_gate: CompleteGate,
 }
 

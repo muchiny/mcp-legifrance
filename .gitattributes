@@ -7,3 +7,6 @@ tests/jsonrpc/** -text
 # Données du plan citées par empreinte (00 §10) : la copie du golden dans le crate est comparée à
 # l'octet (golden_copy_matches_plan_data), sans conversion de fin de ligne.
 docs/plan/annexes/donnees/** -text
+# Licences tierces générées par cargo-about : un texte de licence contient des CRLF, que la régénération
+# (cargo about generate about.hbs) reproduit à l'octet près.
+THIRD_PARTY_LICENSES.md -text

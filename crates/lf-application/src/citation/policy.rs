@@ -12,6 +12,8 @@
 
 use std::{collections::HashSet, time::Duration};
 
+use lf_domain::text::fold;
+
 use super::QuoteCheck;
 
 /// Résolutions simultanément en vol (`buffer_unordered(4)`, 02 §6.2, 05 §5.9). Le limiteur de
@@ -113,39 +115,15 @@ pub(crate) fn absence(family: Family) -> Absence {
         .unwrap_or(Absence::Never)
 }
 
-/// Mots d'un texte, repliés : minuscules, accents français retirés (`œ` devient `oe`), tout ce qui
-/// n'est ni lettre ni chiffre sépare deux mots (apostrophes, ponctuation, espaces insécables).
+/// Mots d'un texte, repliés : minuscules, accents français retirés (`œ` devient `oe`, par
+/// [`lf_domain::text::fold`]), tout ce qui n'est ni lettre ni chiffre sépare deux mots
+/// (apostrophes, ponctuation, espaces insécables).
 pub(crate) fn fold_words(text: &str) -> Vec<String> {
-    let mut words = Vec::new();
-    let mut current = String::new();
-    for c in text.chars().flat_map(char::to_lowercase) {
-        let folded = match c {
-            'à' | 'â' | 'ä' => "a",
-            'ç' => "c",
-            'é' | 'è' | 'ê' | 'ë' => "e",
-            'î' | 'ï' => "i",
-            'ô' | 'ö' => "o",
-            'ù' | 'û' | 'ü' => "u",
-            'ÿ' => "y",
-            'œ' => "oe",
-            'æ' => "ae",
-            other if other.is_alphanumeric() => {
-                current.push(other);
-                continue;
-            }
-            _ => {
-                if !current.is_empty() {
-                    words.push(std::mem::take(&mut current));
-                }
-                continue;
-            }
-        };
-        current.push_str(folded);
-    }
-    if !current.is_empty() {
-        words.push(current);
-    }
-    words
+    fold(text)
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Texte replié sur une ligne, mots séparés par une espace : la forme de comparaison des titres.

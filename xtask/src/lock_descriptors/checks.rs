@@ -90,6 +90,7 @@ fn sentence_count(text: &str) -> usize {
 }
 
 /// Noms de la forme `fr_…` cités dans `text` (frontière de mot avant, minuscules et `_` après).
+/// Une famille (`fr_get_*`) n'est pas un nom d'outil : elle est ignorée.
 fn cited_tool_names(text: &str) -> Vec<&str> {
     let mut names = Vec::new();
     let mut from = 0;
@@ -103,7 +104,7 @@ fn cited_tool_names(text: &str) -> Vec<&str> {
             end += 1;
         }
         let name = text[start..end].trim_end_matches('_');
-        if bounded && name.len() > 3 {
+        if bounded && name.len() > 3 && bytes.get(end) != Some(&b'*') {
             names.push(name);
         }
         from = end;
@@ -537,6 +538,7 @@ mod tests {
             ["fr_search", "fr_get_text", "fr_a"]
         );
         assert_eq!(cited_tool_names("fr_search"), ["fr_search"]);
+        assert_eq!(cited_tool_names("the fr_get_* family, then fr_search"), ["fr_search"]);
         assert_eq!(cited_tool_names("écrit fr_x"), ["fr_x"]);
         assert_eq!(cited_tool_names("no tool here"), Vec::<&str>::new());
     }

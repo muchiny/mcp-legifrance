@@ -32,7 +32,7 @@ MIN_AGE_DAYS ?= 14
 SURFACE_DIR ?= target/surface
 DONNEES := docs/plan/annexes/donnees
 
-.PHONY: fmt fmt-check lint test doc arch purity deny audit-fuzz min-age min-age-selftest machete cov cov-cobertura clippy-json mem-check mutants mutants-diff workflow-lint surface instructions ci
+.PHONY: fmt fmt-check lint test doc arch purity deny audit-fuzz min-age min-age-selftest machete cov cov-cobertura clippy-json mem-check mutants mutants-diff workflow-lint surface instructions lock ci
 
 fmt:
 	cargo fmt --all
@@ -132,10 +132,17 @@ surface:
 	cmp crates/lf-adapter-piste/tests/fixtures/reference/parite-golden.json $(DONNEES)/parite-golden.json
 	python3 -I $(DONNEES)/scripts/check_golden.py $(DONNEES)/parite-golden.json
 	cmp crates/lf-domain/tests/data/citations/codes-table.md $(DONNEES)/codes-table.md
+	cmp crates/lf-domain/tests/data/citations/citations-corpus-positifs.jsonl $(DONNEES)/citations-corpus-positifs.jsonl
+	cmp crates/lf-domain/tests/data/citations/citations-corpus-negatifs.jsonl $(DONNEES)/citations-corpus-negatifs.jsonl
 
 # Taille des instructions du serveur (05 §4.1) : lance `mcp-legifrance serve` (binaire de V2-04), envoie
 # `server/discover` puis `tools/list` et refuse plus de 3 500 caractères. Rouge tant que `main` est un stub.
 instructions:
 	cargo xtask instructions-size
 
-ci: fmt-check lint test doc arch purity deny min-age-selftest machete cov surface instructions
+# Verrou des descripteurs (05 §9) : `tests/tools.lock.json`, le manifeste MCPB et `server.json` doivent
+# correspondre au binaire (trois sessions rejouées). Régénération : `cargo xtask lock-descriptors --update`.
+lock:
+	cargo xtask lock-descriptors --check
+
+ci: fmt-check lint test doc arch purity deny min-age-selftest machete cov surface instructions lock
