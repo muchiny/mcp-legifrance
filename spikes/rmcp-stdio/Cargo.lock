@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "lf-application"
-version = "0.0.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "futures",
@@ -309,13 +309,12 @@ dependencies = [
 
 [[package]]
 name = "lf-domain"
-version = "0.0.0"
+version = "0.3.0"
 dependencies = [
  "aho-corasick",
  "regex",
  "thiserror",
  "unicode-normalization",
- "winnow",
 ]
 
 [[package]]
@@ -853,15 +852,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091"
 dependencies = [
  "windows-link",
-]
-
-[[package]]
-name = "winnow"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
-dependencies = [
- "memchr",
 ]
 
 [[package]]

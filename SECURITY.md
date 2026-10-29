@@ -6,7 +6,7 @@ English first, French below. / Version française plus bas.
 
 ### Supported versions
 
-Nothing is published yet (the workspace is at `0.0.0`) and fixes land on `main`. From the first release (`0.1.0`) and until 1.0, only the latest published minor version receives fixes.
+Nothing is published yet (the workspace is at `0.3.0`, the version of the first release) and fixes land on `main`. From that release (`0.3.0`) and until 1.0, only the latest published minor version receives fixes.
 
 ### Reporting a vulnerability
 
@@ -78,7 +78,7 @@ stdio is the transport of the published binaries. If you build the optional HTTP
 
 ### Versions prises en charge
 
-Rien n'est encore publié (le workspace est en `0.0.0`) et les correctifs vont sur `main`. À partir de la première version (`0.1.0`) et jusqu'à la 1.0, seule la dernière version mineure publiée reçoit des correctifs.
+Rien n'est encore publié (le workspace est en `0.3.0`, version de la première release) et les correctifs vont sur `main`. À partir de cette version (`0.3.0`) et jusqu'à la 1.0, seule la dernière version mineure publiée reçoit des correctifs.
 
 ### Signaler une vulnérabilité
 

@@ -1556,7 +1556,7 @@ checksum = "0c2cdeb66e45e9f36bfad5bbdb4d2384e70936afbee843c6f6543f0c551ebb25"
 
 [[package]]
 name = "lf-adapter-audit"
-version = "0.0.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "fs4 1.1.0",
@@ -1571,7 +1571,7 @@ dependencies = [
 
 [[package]]
 name = "lf-adapter-cache"
-version = "0.0.0"
+version = "0.3.0"
 dependencies = [
  "lf-application",
  "lf-domain",
@@ -1583,7 +1583,7 @@ dependencies = [
 
 [[package]]
 name = "lf-adapter-dila"
-version = "0.0.0"
+version = "0.3.0"
 dependencies = [
  "flate2",
  "lf-application",
@@ -1599,7 +1599,7 @@ dependencies = [
 
 [[package]]
 name = "lf-adapter-mcp"
-version = "0.0.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "futures",
@@ -1623,7 +1623,7 @@ dependencies = [
 
 [[package]]
 name = "lf-adapter-piste"
-version = "0.0.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -1647,7 +1647,7 @@ dependencies = [
 
 [[package]]
 name = "lf-application"
-version = "0.0.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "futures",
@@ -1662,7 +1662,7 @@ dependencies = [
 
 [[package]]
 name = "lf-domain"
-version = "0.0.0"
+version = "0.3.0"
 dependencies = [
  "aho-corasick",
  "pretty_assertions",
@@ -1753,7 +1753,7 @@ checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "mcp-legifrance"
-version = "0.0.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4020,7 +4020,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.0.0"
+version = "0.3.0"
 dependencies = [
  "jsonschema",
  "pretty_assertions",

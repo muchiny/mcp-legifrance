@@ -8,7 +8,7 @@ Serveur MCP en **Rust** pour interroger le droit français officiel (lois, codes
 
 > **Binaires non signés.** Les binaires et le bundle MCPB ne sont signés par aucun certificat (ni Authenticode sous Windows, ni notarisation sous macOS). Sous Windows, Smart App Control peut bloquer l'exécutable : ne le désactivez pas, utilisez l'image Docker ou WSL. Sous macOS, Gatekeeper peut demander une confirmation. Les sommes SHA-256 et les attestations de provenance GitHub permettent de contrôler ce que vous installez (voir [Vérifier un téléchargement](#vérifier-un-téléchargement)).
 >
-> **Statut.** Cette page décrit la version **0.1.0**. Les commandes d'installation s'appliquent dès que l'étiquette `v0.1.0` et sa release GitHub existent ; avant cela, seule la compilation depuis un clone du dépôt est possible.
+> **Statut.** Cette page décrit la version **0.3.0**. Les commandes d'installation s'appliquent dès que l'étiquette `v0.3.0` et sa release GitHub existent ; avant cela, seule la compilation depuis un clone du dépôt est possible.
 
 ## Sommaire
 
@@ -26,7 +26,7 @@ Serveur MCP en **Rust** pour interroger le droit français officiel (lois, codes
 
 ## Ce que fait le serveur
 
-Huit outils, tous en lecture seule (`readOnlyHint`), qui interrogent Légifrance sur le réseau (`openWorldHint`) :
+Treize outils, tous en lecture seule (`readOnlyHint`), qui interrogent Légifrance sur le réseau (`openWorldHint`) :
 
 | Outil | Rôle |
 |---|---|
@@ -38,10 +38,17 @@ Huit outils, tous en lecture seule (`readOnlyHint`), qui interrogent Légifrance
 | `fr_get_convention` | Convention collective : métadonnées et table des matières. |
 | `fr_get_company_agreement` | Accord d'entreprise : métadonnées seules (le texte est une pièce jointe). |
 | `fr_coverage` | Ce que le serveur couvre et ne couvre pas, l'environnement PISTE, l'état de la configuration, la source et la date de consultation. |
+| `fr_resolve` | Transforme une citation en texte libre (« article 1240 du code civil », « Cass. civ. 1re, 4 juin 2025, n° 24-13.470 », un ECLI) en identifiants Légifrance, avec un niveau de confiance. Rien n'est deviné ni inventé. |
+| `fr_verify_citations` | Vérifie toutes les citations juridiques d'un texte (jusqu'à 20 000 caractères, par exemple un brouillon de réponse) contre Légifrance : codes, lois, décrets, décisions, ECLI, délibérations de la CNIL, conventions. |
+| `fr_get_related` | Liens juridiques d'un article ou d'une décision : textes cités, textes qui le citent, jurisprudence mentionnée. |
+| `fr_diff_article` | Compare les versions d'un article à deux dates : passages retirés et ajoutés, avec un peu de contexte. |
+| `fr_search_all` | Recherche dans plusieurs fonds à la fois : les meilleurs résultats de chacun, groupés par fonds, avec leurs totaux. |
 
 **Retour progressif.** Pour économiser le contexte du modèle, un texte de plus de 1 200 caractères est d'abord rendu en résumé. Pour le lire en entier, demandez `detail: "full"` et enchaînez avec `offset = next_offset` ; `focus` extrait les passages qui correspondent à des mots donnés. Une réponse ne dépasse jamais 45 000 caractères de JSON compact.
 
-**Versions suivantes.** Les outils des versions 0.2 et 0.3 (vérification et résolution de citations, liens entre textes, différences entre versions d'un article, recherche multi-fonds, resources et prompts) ne font pas partie de la 0.1.0. Le [CHANGELOG](CHANGELOG.md) dit, version par version, ce que livre chaque release.
+**Resources, prompts et complétions.** En plus des outils, le serveur expose la resource `legifrance://coverage`, quatre modèles de resources (`legifrance://act/{text_id}`, `legifrance://article/{article_id}`, `legifrance://code/{code}/article/{num}`, `legifrance://decision/{decision_id}`), trois prompts en français (`analyser_decision`, `etat_du_droit`, `verifier_citations`) et la complétion de leurs arguments.
+
+**Options de compilation, absentes des binaires publiés.** Deux fonctions existent dans le code et se compilent à la demande, mais aucune n'est active par défaut ni livrée dans les binaires, l'image Docker et le bundle MCPB : le transport Streamable HTTP local (`--features http`, sous-commande `serve-http`, boucle locale seulement, jeton dans `LF_MCP_HTTP_TOKEN`) et l'index local DILA (`--features dila`, fonds LEGI seul, activé par `LF_DILA_DIR`). L'index local est un instantané : il peut être en retard sur Légifrance et ne prouve donc jamais qu'un texte n'existe pas. Le [CHANGELOG](CHANGELOG.md) dit, version par version, ce que livre chaque release.
 
 **Protocole.** MCP 2026-07-28 (« moderne »), ainsi que 2025-11-25 et 2025-06-18 (« legacy ») dans le même binaire. La version 2025-03-26 n'est pas servie. Le démarrage ne fait aucun appel réseau : l'authentification PISTE se fait au premier appel d'outil.
 
@@ -62,7 +69,7 @@ Si vos clés sont divulguées, réinitialisez-les sur PISTE sans attendre, puis 
 | Canal | Pour qui | Commande ou action | Intégrité |
 |---|---|---|---|
 | Installeur (archives de la release) | juristes et développeurs à l'aise en terminal | `curl … \| sh` (Linux, macOS) ; `irm … \| iex` (Windows) | HTTPS ; sommes SHA-256 et attestations, non signé |
-| **Bundle MCPB** | Claude Desktop | double-clic sur `mcp-legifrance-0.1.0.mcpb` | `fileSha256` vérifié par le client ; non signé |
+| **Bundle MCPB** | Claude Desktop | double-clic sur `mcp-legifrance-0.3.0.mcpb` | `fileSha256` vérifié par le client ; non signé |
 | **Image Docker** | isolation, VS Code (galerie), Docker Desktop | `docker run -i --rm …` | digest, attestation |
 | **`cargo install --git`** | développeurs Rust | compilation locale depuis le dépôt, à l'étiquette | `Cargo.lock` imposé par `--locked` ; non signé |
 
@@ -74,12 +81,12 @@ Le serveur est aussi déclaré au registre MCP sous le nom `io.github.muchiny/mc
 
 ```sh
 # Linux, macOS
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/muchiny/mcp-legifrance/releases/download/v0.1.0/mcp-legifrance-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/muchiny/mcp-legifrance/releases/download/v0.3.0/mcp-legifrance-installer.sh | sh
 ```
 
 ```powershell
 # Windows
-powershell -c "irm https://github.com/muchiny/mcp-legifrance/releases/download/v0.1.0/mcp-legifrance-installer.ps1 | iex"
+powershell -c "irm https://github.com/muchiny/mcp-legifrance/releases/download/v0.3.0/mcp-legifrance-installer.ps1 | iex"
 ```
 
 Le binaire est posé dans `~/.mcp-legifrance/bin/mcp-legifrance` (Windows : dossier `.mcp-legifrance\bin` de votre dossier utilisateur, fichier `mcp-legifrance.exe`) et ce répertoire est ajouté au `PATH`. Une application graphique déjà ouverte (Claude Desktop, VS Code) ne voit pas le nouveau `PATH` : redémarrez-la, ou donnez le **chemin absolu** dans sa configuration, comme dans les exemples plus bas. L'installeur ne fait aucune mise à jour automatique : pour changer de version, relancez-le avec l'étiquette voulue.
@@ -100,7 +107,7 @@ Les noms d'archives suivent le motif `mcp-legifrance-<cible>.tar.xz` (Windows : 
 
 ### Bundle MCPB (Claude Desktop)
 
-1. Télécharger `mcp-legifrance-0.1.0.mcpb` depuis la page de la release.
+1. Télécharger `mcp-legifrance-0.3.0.mcpb` depuis la page de la release.
 2. Le double-cliquer, ou le glisser dans les réglages d'extensions de Claude Desktop.
 3. Renseigner les trois champs demandés : identifiant client PISTE, secret client PISTE (tous deux conservés par le stockage sécurisé du client) et environnement (`sandbox` par défaut).
 
@@ -109,10 +116,10 @@ Un seul bundle sert toutes les plateformes ; il choisit le bon binaire au lancem
 ### Image Docker
 
 ```sh
-docker pull ghcr.io/muchiny/mcp-legifrance:0.1.0
+docker pull ghcr.io/muchiny/mcp-legifrance:0.3.0
 
 # vérification de la configuration (aucun secret sur la ligne de commande : -e NOM sans valeur)
-docker run --rm -e LF_PISTE_CLIENT_ID -e LF_PISTE_CLIENT_SECRET ghcr.io/muchiny/mcp-legifrance:0.1.0 check-config
+docker run --rm -e LF_PISTE_CLIENT_ID -e LF_PISTE_CLIENT_SECRET ghcr.io/muchiny/mcp-legifrance:0.3.0 check-config
 ```
 
 L'image est publique, minimale (distroless), exécutée par un utilisateur non root, pour linux/amd64 et linux/arm64. `-i` est indispensable : le client dialogue avec le serveur par l'entrée et la sortie standard. Le journal d'audit est écrit dans `/data/audit` ; montez-y un volume nommé pour le conserver (exemple plus bas). L'image est faite pour un usage **local**.
@@ -120,7 +127,7 @@ L'image est publique, minimale (distroless), exécutée par un utilisateur non r
 ### `cargo install --git`
 
 ```sh
-cargo install --git https://github.com/muchiny/mcp-legifrance --tag v0.1.0 --locked mcp-legifrance
+cargo install --git https://github.com/muchiny/mcp-legifrance --tag v0.3.0 --locked mcp-legifrance
 ```
 
 - Prérequis : une chaîne Rust d'au moins la version 1.88 et un compilateur C. Le fournisseur TLS actuel (aws-lc) peut réclamer d'autres outils de compilation sur certaines plateformes (non confirmé hors Linux).
@@ -249,7 +256,7 @@ Fichier `~/.cursor/mcp.json` (global) ou `.cursor/mcp.json` (projet). Format et 
       "args": ["run", "-i", "--rm",
                "-e", "LF_PISTE_CLIENT_ID", "-e", "LF_PISTE_CLIENT_SECRET", "-e", "LF_PISTE_ENV",
                "-v", "mcp-legifrance-audit:/data/audit",
-               "ghcr.io/muchiny/mcp-legifrance:0.1.0"],
+               "ghcr.io/muchiny/mcp-legifrance:0.3.0"],
       "env": {
         "LF_PISTE_CLIENT_ID": "${LF_PISTE_CLIENT_ID}",
         "LF_PISTE_CLIENT_SECRET": "${LF_PISTE_CLIENT_SECRET}",
@@ -388,7 +395,7 @@ Pour un utilisateur de la référence Python (`fr-eli-mcp`). La note complète, 
 
 ## Ce qui n'est pas encore vérifié
 
-Le projet note ses incertitudes plutôt que de les taire. Pour la 0.1.0 :
+Le projet note ses incertitudes plutôt que de les taire. Pour la 0.3.0 :
 
 - Les adresses PISTE de **production** n'ont jamais été appelées.
 - La syntaxe de configuration de chaque client est tirée de sa documentation ; elle n'a pas été éprouvée sur une installation réelle (priorité : Claude Code et VS Code). Les formats de Cursor et l'emplacement des fichiers de Claude Desktop sont à confirmer.

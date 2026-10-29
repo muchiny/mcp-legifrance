@@ -149,7 +149,7 @@ dependencies = [
 
 [[package]]
 name = "lf-application"
-version = "0.0.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "futures",
@@ -162,7 +162,7 @@ dependencies = [
 
 [[package]]
 name = "lf-domain"
-version = "0.0.0"
+version = "0.3.0"
 dependencies = [
  "aho-corasick",
  "regex",
