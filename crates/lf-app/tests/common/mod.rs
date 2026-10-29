@@ -49,15 +49,6 @@ pub(crate) const WAIT: Duration = Duration::from_secs(30);
 /// Attente d'un message du serveur dans une transcription (celle de `replay_in_process`).
 pub(crate) const MESSAGE_WAIT: Duration = Duration::from_secs(5);
 
-/// Pause entre le dernier message attendu et la fermeture de stdin d'une transcription rejouée.
-///
-/// Défaut connu du binaire (à lever, voir `eof_right_after_listen_ack_exits_within_1s`) : un EOF
-/// qui arrive dans la milliseconde qui suit l'accusé d'un `subscriptions/listen` fait attendre
-/// 5 s le drainage de rmcp (`timed out draining in-flight responses`) au lieu de clore le `listen`
-/// aussitôt (mesuré : 3 lancements sur 8 sans pause, 0 sur 40 avec une pause de 1 ms ou plus). 50 ms rendent les
-/// transcriptions déterministes sans masquer le défaut, que ce test dédié garde en vue.
-pub(crate) const EOF_SETTLE: Duration = Duration::from_millis(50);
-
 /// Durée d'un appel amont « lent » : bien plus que n'importe quel test.
 pub(crate) const SLOW_UPSTREAM: Duration = Duration::from_secs(30);
 
@@ -906,9 +897,6 @@ impl ChildRun {
                 }
             }
             Step::CloseStdin => {
-                // Un client lit ce qu'il attendait avant de fermer : l'EOF n'arrive pas dans la
-                // milliseconde qui suit l'accusé d'un `listen` (voir `EOF_SETTLE`).
-                tokio::time::sleep(EOF_SETTLE).await;
                 self.close_stdin().await;
                 Ok(())
             }

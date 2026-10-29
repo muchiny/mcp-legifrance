@@ -7,7 +7,14 @@
 //!   [`PreLifecycleFilter`] les écarte ;
 //! - à l'EOF, rmcp attend jusqu'à 5 s la réponse d'un appel en vol (`service.rs:1762-1766`) :
 //!   le filtre annule le service à l'EOF, qui se termine alors en moins d'une seconde ;
-//! - l'EOF ou l'arrêt avant toute ère (sonde d'un client) n'est pas une erreur : code 0.
+//! - l'EOF ou l'arrêt avant toute ère (sonde d'un client) n'est pas une erreur : code 0 ;
+//! - si l'EOF suit de près un `subscriptions/listen`, la boucle de rmcp peut s'arrêter avant d'avoir
+//!   traité la fin de l'écriture de l'accusé (`service.rs:1471-1481`) : l'`establish` du `listen`
+//!   attend alors cette fin jusqu'au drainage de 5 s (`failed to acknowledge subscription:
+//!   Transport closed`). Le filtre laisse donc [`LISTEN_EOF_GRACE`] à la boucle avant de rendre
+//!   l'EOF, et seulement quand une écoute a été reçue.
+
+use std::time::Duration;
 
 use rmcp::{
     RoleServer, ServerHandler, ServiceExt,
@@ -15,7 +22,10 @@ use rmcp::{
     service::{QuitReason, RxJsonRpcMessage, ServerInitializeError, TxJsonRpcMessage},
     transport::{Transport, async_rw::AsyncRwTransport},
 };
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    time::{Instant, sleep_until},
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -23,18 +33,29 @@ use crate::{
     versions::SUPPORTED,
 };
 
+/// Délai que le filtre laisse à la boucle de rmcp, à l'EOF d'une entrée qui a ouvert une écoute
+/// (`subscriptions/listen`), pour traiter l'écriture de l'accusé avant de voir l'entrée fermée.
+/// Mesuré : 3 sorties sur 8 attendaient 5 s quand l'EOF suivait l'accusé de moins d'une
+/// milliseconde, aucune sur 40 avec une pause d'une milliseconde ; 50 ms laissent de la marge sans
+/// rien coûter, le processus s'arrêtant de toute façon.
+pub(crate) const LISTEN_EOF_GRACE: Duration = Duration::from_millis(50);
+
 /// Écarte notifications, réponses et erreurs du client tant qu'aucune ère n'est ouverte, et annule
 /// un jeton à la fin de l'entrée (EOF).
 pub(crate) struct PreLifecycleFilter<T> {
     inner: T,
     opened: bool,
     eof: Option<CancellationToken>,
+    /// Une écoute (`subscriptions/listen`) a été reçue.
+    listening: bool,
+    /// L'EOF a été lu : instant avant lequel il n'est pas encore rendu.
+    release_at: Option<Instant>,
 }
 
 impl<T> PreLifecycleFilter<T> {
     /// Enveloppe `inner` : aucune ère n'est ouverte, aucun jeton n'est annulé à l'EOF.
     pub(crate) fn new(inner: T) -> Self {
-        Self { inner, opened: false, eof: None }
+        Self { inner, opened: false, eof: None, listening: false, release_at: None }
     }
 
     /// Annule `token` quand l'entrée se ferme : le service n'attend alors pas les appels en vol.
@@ -57,12 +78,24 @@ impl<T: Transport<RoleServer>> Transport<RoleServer> for PreLifecycleFilter<T> {
 
     async fn receive(&mut self) -> Option<RxJsonRpcMessage<RoleServer>> {
         loop {
-            let Some(message) = self.inner.receive().await else {
+            // L'EOF est lu une fois ; un appel interrompu (la boucle de rmcp abandonne cet appel
+            // à chaque autre événement) reprend ici, avec la même échéance.
+            if let Some(release_at) = self.release_at {
+                sleep_until(release_at).await;
                 if let Some(eof) = &self.eof {
                     eof.cancel();
                 }
                 return None;
+            }
+            let Some(message) = self.inner.receive().await else {
+                let grace = if self.listening { LISTEN_EOF_GRACE } else { Duration::ZERO };
+                self.release_at = Some(Instant::now() + grace);
+                continue;
             };
+            if let ClientJsonRpcMessage::Request(request) = &message {
+                self.listening |=
+                    matches!(request.request, ClientRequest::SubscriptionsListenRequest(_));
+            }
             if self.opened {
                 return Some(message);
             }
@@ -179,6 +212,12 @@ pub(crate) mod testkit {
         json!({"jsonrpc": "2.0", "id": 98, "error": {"code": -1, "message": "client error"}})
     }
 
+    /// `subscriptions/listen` de l'ère moderne, sans catégorie demandée.
+    pub(crate) fn listen(id: &str) -> Value {
+        json!({"jsonrpc": "2.0", "id": id, "method": "subscriptions/listen",
+               "params": {"notifications": {}, "_meta": modern_meta("2026-07-28")}})
+    }
+
     pub(crate) fn ping(id: u64) -> Value {
         json!({"jsonrpc": "2.0", "id": id, "method": "ping"})
     }
@@ -287,7 +326,7 @@ mod tests {
         ErrorData,
         model::{
             Implementation, ListToolsResult, NotificationNoParam, PaginatedRequestParams,
-            ServerCapabilities, ServerConfig,
+            ServerCapabilities, ServerConfig, SubscriptionFilter,
         },
         service::RequestContext,
     };
@@ -442,6 +481,39 @@ mod tests {
         assert!(token.is_cancelled());
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn eof_after_a_listen_is_held_back_for_the_grace_then_cancels_the_token() {
+        let token = CancellationToken::new();
+        let mut filter =
+            PreLifecycleFilter::new(scripted(&[listen("listen-1")])).cancel_on_eof(token.clone());
+        assert!(filter.receive().await.is_some());
+        let started = Instant::now();
+        // Un appel abandonné avant l'échéance (comme le fait la boucle de rmcp) ne rend pas l'EOF.
+        let interrupted = tokio::time::timeout(LISTEN_EOF_GRACE / 2, filter.receive()).await;
+        assert!(interrupted.is_err());
+        assert!(!token.is_cancelled(), "l'EOF n'est pas rendu avant la fin de la pause");
+        // L'appel suivant reprend la même échéance : la pause ne repart pas de zéro.
+        assert!(filter.receive().await.is_none());
+        assert!(token.is_cancelled());
+        assert_eq!(started.elapsed(), LISTEN_EOF_GRACE);
+        // Passé l'échéance, l'EOF est rendu sans attente.
+        assert!(filter.receive().await.is_none());
+        assert_eq!(started.elapsed(), LISTEN_EOF_GRACE);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn eof_without_a_listen_is_not_held_back() {
+        let token = CancellationToken::new();
+        let mut filter = PreLifecycleFilter::new(scripted(&[initialize(1), discover(2)]))
+            .cancel_on_eof(token.clone());
+        assert!(filter.receive().await.is_some());
+        assert!(filter.receive().await.is_some());
+        let started = Instant::now();
+        assert!(filter.receive().await.is_none());
+        assert!(token.is_cancelled());
+        assert_eq!(started.elapsed(), Duration::ZERO);
+    }
+
     #[tokio::test]
     async fn eof_without_a_token_simply_ends_the_stream() {
         let mut filter = PreLifecycleFilter::new(scripted(&[]));
@@ -582,6 +654,58 @@ mod tests {
         let (outcome, elapsed) = wire.close().await;
         assert_eq!(outcome.unwrap(), ServeOutcome::Eof);
         assert!(elapsed < Duration::from_secs(1), "{elapsed:?}");
+    }
+
+    /// Serveur minimal qui accepte l'écoute (filtre vide) : `listen` attend l'annulation, comme
+    /// celui de `LegifranceServer`.
+    struct Listening;
+
+    impl ServerHandler for Listening {
+        fn get_info(&self) -> ServerConfig {
+            ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+                .with_server_info(Implementation::new("lifecycle-test", "0.0.0"))
+        }
+
+        fn supported_protocol_versions(&self) -> std::borrow::Cow<'static, [ProtocolVersion]> {
+            std::borrow::Cow::Borrowed(SUPPORTED)
+        }
+
+        fn accepted_subscription_filter(
+            &self,
+            _requested: &SubscriptionFilter,
+        ) -> Option<SubscriptionFilter> {
+            Some(SubscriptionFilter::new())
+        }
+    }
+
+    /// C-09, C-24, V-35 : l'EOF aussitôt après l'accusé d'un `listen` termine le service en moins
+    /// d'une seconde et clôt le `listen` par son résultat final. Sans la pause du filtre, la boucle
+    /// de rmcp s'arrêtait parfois avant d'avoir traité l'écriture de l'accusé, et le drainage durait
+    /// 5 s. Le défaut n'apparaît pas sur un tube mémoire : `eof_right_after_listen_ack_exits_within_1s`, sur
+    /// le binaire, l'éprouve sur de vrais tubes ; celui-ci garde le résultat final du `listen`.
+    #[tokio::test]
+    async fn eof_right_after_the_listen_ack_closes_the_listen_within_a_second() {
+        for attempt in 0..25 {
+            let mut wire = Wire::serve(Listening);
+            wire.send(&listen("listen-1")).await;
+            let ack = wire.recv().await;
+            assert_eq!(ack["method"], json!("notifications/subscriptions/acknowledged"), "{ack}");
+
+            let Wire { mut write, mut lines, server, .. } = wire;
+            write.shutdown().await.unwrap();
+            let started = Instant::now();
+            let outcome = tokio::time::timeout(WAIT, server).await.expect("the service stopped");
+            assert_eq!(outcome.unwrap().unwrap(), ServeOutcome::Eof, "attempt {attempt}");
+            assert!(started.elapsed() < Duration::from_secs(1), "attempt {attempt}");
+            let mut last = None;
+            while let Some(line) = lines.next_line().await.unwrap() {
+                last = Some(line);
+            }
+            let closing: Value =
+                serde_json::from_str(&last.expect("the listen is closed")).unwrap();
+            assert_eq!(closing["id"], json!("listen-1"), "attempt {attempt}: {closing}");
+            assert_eq!(closing["result"]["resultType"], json!("complete"), "attempt {attempt}");
+        }
     }
 
     #[tokio::test]

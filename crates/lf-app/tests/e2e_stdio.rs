@@ -180,23 +180,22 @@ mod lifecycle {
         assert_eq!(finished.stdout.len(), 1, "{:?}", finished.stdout);
     }
 
-    /// Lancements du test de la fenêtre de l'EOF : l'échec est fréquent (3 sur 8 mesurés), dix
-    /// lancements le rendent quasi certain tant que le défaut est là.
+    /// Lancements du test de la fenêtre de l'EOF : avant la pause du filtre de `lf-adapter-mcp`
+    /// (`LISTEN_EOF_GRACE`), l'échec était fréquent (3 sur 8 mesurés) ; dix lancements le rendent
+    /// quasi certain si le défaut revient.
     const RACE_LAUNCHES: usize = 10;
 
     /// C-09, C-24, V-35 : l'EOF **aussitôt après l'accusé** d'un `subscriptions/listen` ouvert
     /// clôt le `listen` par son résultat final et termine le processus avec le code 0 en moins
-    /// d'une seconde, comme `eof_with_open_listen` le fait dès qu'une pause de quelques
-    /// millisecondes sépare l'accusé de l'EOF.
+    /// d'une seconde.
     ///
-    /// Défaut connu, constaté sur le binaire (V3-01) : sans cette pause, le serveur attend les
-    /// 5 s du drainage de rmcp (`timed out draining in-flight responses`), ferme stdout sans
-    /// résultat final pour le `listen` (rmcp journalise l'erreur « failed to acknowledge
-    /// subscription: Transport closed »), puis sort avec le code 0.
-    /// `#[ignore]` jusqu'à la correction (demande partagée de V3-01 : `lf-adapter-mcp`, boucle de
-    /// `serve_io`, annulation des `listen` ouverts à l'EOF) ; à lever alors.
+    /// Défaut corrigé à l'intégration de V3 (constaté sur le binaire par V3-01) : la boucle de rmcp
+    /// pouvait s'arrêter avant d'avoir traité la fin de l'écriture de l'accusé, et le serveur
+    /// attendait alors les 5 s du drainage (`timed out draining in-flight responses`, « failed to
+    /// acknowledge subscription: Transport closed »), fermait stdout sans résultat final pour le
+    /// `listen`, puis sortait avec le code 0. Le filtre de stdin laisse maintenant `LISTEN_EOF_GRACE`
+    /// à la boucle avant de rendre l'EOF d'une entrée qui a ouvert une écoute.
     #[tokio::test]
-    #[ignore = "known defect: an EOF right after the listen ack waits for rmcp's 5 s drain (V3-01 shared request)"]
     async fn eof_right_after_listen_ack_exits_within_1s() {
         for launch in 0..RACE_LAUNCHES {
             let audit = tempfile::tempdir().expect("a temporary directory");
