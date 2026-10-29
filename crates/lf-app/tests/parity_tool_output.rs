@@ -1117,37 +1117,63 @@ mod parity {
         ("new_does_no_io", "open_does_no_io_until_the_first_record"),
     ];
 
-    /// Noms du catalogue que le code n'a pas encore : (nom, unité qui doit les livrer, ou `F6` quand
-    /// aucune unité du plan ne les porte et que la passe documentaire ou la revue finale tranche :
-    /// écrire le test, ou aligner le catalogue sur un test existant). Un nom qui apparaît dans le
-    /// code, ou qui quitte le catalogue, fait échouer le test : il faut alors le retirer d'ici.
-    const PENDING: [(&str, &str); 21] = [
-        // Aucune unité du plan ne porte ces noms.
+    /// Noms du catalogue que le code n'a pas encore et qui ne sont que des écarts de nom ou de
+    /// document : (nom, ce que la passe documentaire de F6 tranche : écrire le test, ou aligner le
+    /// catalogue sur un test existant). Un nom qui apparaît dans le code, ou qui quitte le
+    /// catalogue, fait échouer le test : il faut alors le retirer d'ici.
+    const PENDING: [(&str, &str); 11] = [
         ("article_9_has_two_paragraphs", "F6 : dépend de V-90 (texteHtml de getArticle)"),
-        ("default_env_is_sandbox", "F6 : lf-app/config.rs, V1-11 n'a pas ce test"),
         ("duration_includes_normalization", "F6 : prévu au plan 3b (façade), jamais livré"),
-        ("every_tool_goes_through_audited", "F6 : D-07, une ligne d'audit par outil enregistré"),
-        ("no_view_has_eli_uri", "F6 : D-30, aucune vue n'a de champ eli_uri"),
         ("get_act_on_code_uses_table_matieres", "F6 : conditionnel à V-96 (00 §8)"),
         ("law_article_url_uses_loda_article_lc", "F6 : règle d'URL après V-140 et V-142"),
         ("piste_request_span_fields", "F6 : span piste_request de 02 §11.1"),
-        ("ported_no_fabricated_eli", "F6 : les 19 `ported_*` de D-30 et D-35 n'existent pas"),
         ("ported_search_loda_hits", "F6 : les 19 `ported_*` de D-30 et D-35 n'existent pas"),
-        ("production_sources_contain_only_allowlisted_urls", "F6 : liste blanche d'URL (D-04)"),
         ("readme_mentions_only_supported_env_vars", "F6 : README de V3-10, sans test Rust"),
-        ("record_returns_only_after_sync", "F6 : durabilité de JsonlAuditLog (D-16)"),
         ("recorded_fixtures_have_no_mojibake", "F6 : seul `recorded_fixtures_pass_integrity`"),
-        ("redact_url_drops_userinfo_and_query", "F6 : fonction de rédaction d'URL (D-40)"),
-        ("server_answers_discover_while_tool_waits_upstream", "F6 : transcription ou test D-05"),
-        ("startup_logs_sandbox_notice", "F6 : avertissement bac à sable sur stderr (D-18)"),
         (
             "tool_call_emits_one_info_event",
             "F6 : `tool_call_event_level_follows_the_outcome` couvre le niveau",
         ),
-        ("tool_calls_progress_while_audit_write_is_slow", "F6 : D-38"),
         ("tools_list_snapshot", "F6 : second filet derrière le verrou de V3-02"),
         ("versions_are_consistent", "F6 : paquet, serverInfo, verrou, server.json et manifeste"),
     ];
+
+    /// Noms du catalogue qui portent une garantie de sécurité ou d'audit (D-04, D-05, D-07, D-16,
+    /// D-18, D-30, D-38, D-40) et que **aucun test n'exerce encore** : F6 est une passe
+    /// documentaire, qui n'écrit aucun test. Ils sont à écrire en F3 (plan §6), avant la revue de
+    /// sécurité de F4. Tant que la liste n'est pas vide, `security_regressions_are_all_implemented`
+    /// échoue (il est ignoré par défaut pour ne pas bloquer les vagues, et se lance avec
+    /// `--run-ignored only -E 'test(security_regressions)'`).
+    const SECURITY_PENDING: [(&str, &str); 10] = [
+        (
+            "default_env_is_sandbox",
+            "F3 : D-18, le défaut sandbox de lf-app/config.rs n'a pas de test (V1-11)",
+        ),
+        ("every_tool_goes_through_audited", "F3 : D-07, une ligne d'audit par outil enregistré"),
+        ("no_view_has_eli_uri", "F3 : D-30, aucune vue n'a de champ eli_uri"),
+        ("ported_no_fabricated_eli", "F3 : D-30, un ELI vient de la source ou n'existe pas"),
+        ("production_sources_contain_only_allowlisted_urls", "F3 : D-04, liste blanche d'URL"),
+        ("record_returns_only_after_sync", "F3 : D-16, durabilité de JsonlAuditLog"),
+        ("redact_url_drops_userinfo_and_query", "F3 : D-40, fonction de rédaction d'URL"),
+        ("server_answers_discover_while_tool_waits_upstream", "F3 : D-05, transcription ou test"),
+        ("startup_logs_sandbox_notice", "F3 : D-18, avertissement bac à sable sur stderr"),
+        ("tool_calls_progress_while_audit_write_is_slow", "F3 : D-38"),
+    ];
+
+    /// Les noms que le code n'a pas encore, quelle qu'en soit la raison.
+    fn pending_entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> {
+        PENDING.iter().chain(SECURITY_PENDING.iter())
+    }
+
+    /// Régression : D-43, volet sécurité. Un catalogue « implémenté » ne dit rien d'un nom que
+    /// `SECURITY_PENDING` excuse : cette garantie n'a alors aucune preuve.
+    #[test]
+    #[ignore = "F3 (plan §6) : tests de sécurité du catalogue à écrire, voir SECURITY_PENDING"]
+    fn security_regressions_are_all_implemented() {
+        let missing: Vec<String> =
+            SECURITY_PENDING.iter().map(|(name, unit)| format!("{name} ({unit})")).collect();
+        assert!(missing.is_empty(), "security regressions without a test:\n{}", missing.join("\n"));
+    }
 
     /// Régression : D-43. Chaque nom de test du catalogue 06 §3.1 existe dans le code, ou est couvert
     /// par la table de correspondance « livré » du même paragraphe. Lit le document du dépôt.
@@ -1186,7 +1212,7 @@ mod parity {
                 || NOT_RUST_TESTS.iter().any(|(not_test, _)| *not_test == name)
                 || RENAMED.iter().any(|(old, new)| *old == name && implemented.contains(*new))
         };
-        let pending: BTreeSet<&str> = PENDING.iter().map(|(name, _)| *name).collect();
+        let pending: BTreeSet<&str> = pending_entries().map(|(name, _)| *name).collect();
 
         let unexplained: Vec<String> = catalogue
             .iter()
@@ -1202,7 +1228,7 @@ mod parity {
 
         // Les listes d'exceptions ne vieillissent pas : une entrée devenue inutile est retirée.
         let mut stale = Vec::new();
-        for (name, unit) in PENDING {
+        for &(name, unit) in pending_entries() {
             if !catalogue.contains_key(name) || covered(name) {
                 stale.push(format!("PENDING {name} ({unit}) is implemented or left the catalogue"));
             }

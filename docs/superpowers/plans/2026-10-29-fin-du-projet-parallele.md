@@ -693,7 +693,7 @@ Si la sandbox est indisponible, ou si le propriétaire refuse (§7), V2-08 et V2
   - `live_m6` et `live_m7`.
 
   Les constats vont en F6, et aucune sortie brute n'est commitée.
-- **F3. `make ci` complet**, couverture bloquante comprise. Si la couverture manque : un workflow de balayage, un agent par crate en défaut (au plus 6), dont la liste blanche se limite aux fichiers `src/` de ce crate pour leurs `mod tests`. On estime ce balayage à 1 à 2 h, puisque la règle T est appliquée depuis V1. Aucune exclusion nouvelle sans justification de « colle d'E/S irréductible » (06 §7.6).
+- **F3. `make ci` complet**, couverture bloquante comprise. Avant lui, écrire les tests de sécurité et d'audit du catalogue encore excusés par `SECURITY_PENDING` (`crates/lf-app/tests/parity_tool_output.rs` : D-04, D-05, D-07, D-16, D-18, D-30, D-38, D-40) : F6 est documentaire et n'en écrit aucun. `cargo nextest run -p mcp-legifrance --run-ignored only -E 'test(security_regressions)'` doit passer avant F4. Si la couverture manque : un workflow de balayage, un agent par crate en défaut (au plus 6), dont la liste blanche se limite aux fichiers `src/` de ce crate pour leurs `mod tests`. On estime ce balayage à 1 à 2 h, puisque la règle T est appliquée depuis V1. Aucune exclusion nouvelle sans justification de « colle d'E/S irréductible » (06 §7.6).
 - **F4. Revue sécurité unique** : agent `security-auditor` (Opus) sur `git diff origin/main...HEAD`.
   - Points examinés : les secrets (configuration, journaux, audit, `Debug`), l'entrée stdio, les permissions du journal d'audit, la désérialisation, le transport HTTP s'il est livré, et les workflows de release.
   - Corriger les constats critiques et importants, puis relancer `lf-all make lint test`.
