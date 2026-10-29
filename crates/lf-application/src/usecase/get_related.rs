@@ -12,10 +12,14 @@
 //! 3. **Décision** : `get_decision`, puis `cited_case_law` (`citationJp`) et `applied_texts` (les
 //!    titres des liens de citation) de la décision passent par le parseur (`decision_links`). Un
 //!    seul appel au port : les liens n'ont pas d'identifiant et ne sont pas résolus. Une décision
-//!    sans références rend `links: []` : c'est alors l'absence réelle de liens, que l'API donne
-//!    (`citationJp` vide, `liens` vide), non un manque de données. Les références analysées
-//!    sont bornées à `MAX_ANALYSED_CHARS` caractères : au-delà, elles sont ignorées et
-//!    `truncated` le dit.
+//!    sans références rend `links: []`, mais cette liste vide ne prouve pas que la décision ne cite
+//!    rien : pour les fonds CETAT et CONSTIT, les captures `consult_juri_cetat.json` et
+//!    `consult_juri_constit.json` n'ont ni `citationJp` ni `liens` (vides ou nuls), alors que
+//!    leur texte intégral fait plusieurs milliers de caractères. Aucun champ de la réponse ne le
+//!    dit encore : une note « l'API ne donne aucune référence pour cette décision » exige un champ
+//!    de `GetRelatedOutput` et de la vue, donc un amendement de 05 §5.11 (reporté en F6). Les
+//!    références analysées sont bornées à `MAX_ANALYSED_CHARS` caractères : au-delà, elles sont
+//!    ignorées et `truncated` le dit.
 //!
 //! # Plafond de réponse (05 §5.11, 05 §6.4)
 //!
@@ -506,8 +510,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_decision_without_references_has_an_empty_list() {
-        // CETAT : `citationJp: ""` et `liens: []` dans la capture. L'API ne donne aucun lien, la
-        // liste est vide, sans suite.
+        // CETAT : `citationJp: ""` et `liens: []` dans la capture. L'API ne donne aucune
+        // référence : la liste est vide, sans suite, sans que cela prouve que la décision ne cite
+        // rien (voir la doc du module).
         let corpus = FakeCorpus::new();
         corpus.push_get_decision(Ok(decision(CETAT, "texte")));
         let out = run(&corpus, Some(CETAT)).await.unwrap();
