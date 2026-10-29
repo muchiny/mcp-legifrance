@@ -1,5 +1,4 @@
 //! Règles de rendu communes aux vues (05 §5.0.4, §1.4 règle 9).
-#![allow(dead_code, reason = "STUB(V0) → V1-01 : employé par les vues des tranches d'outils")]
 
 use lf_domain::{
     date::{CivilDate, open_ended},

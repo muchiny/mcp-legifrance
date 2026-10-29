@@ -75,7 +75,6 @@ const INTERNAL_ERROR_MESSAGE: &str = "internal error";
 /// Serveur MCP de Légifrance : les outils, puis les resources, prompts et complétions.
 pub struct LegifranceServer<C: LegalCorpus, A: AuditLog, K: Clock> {
     /// La façade des cas d'usage, lue par les outils (`tools/*.rs`).
-    #[allow(dead_code, reason = "lu par les outils des tranches (tools/*.rs), pas encore écrits")]
     pub(crate) service: Arc<LegalService<C, A, K>>,
     /// Identité, capacités et instructions, calculées une fois : rmcp appelle `get_info` à chaque
     /// `initialize`, `server/discover` et `subscriptions/listen`.

@@ -3,7 +3,6 @@
 //! `inputSchema` et `outputSchema` sont donnés explicitement à `#[tool]`, jamais déduits des
 //! extracteurs, et ne portent jamais la clé `$schema` : les descripteurs des deux ères sont
 //! ainsi identiques et leur taille reste bornée.
-#![allow(dead_code, reason = "STUB(V0) → V1 : employé par les tranches d'outils (#[tool])")]
 
 use std::{any::type_name, sync::Arc};
 

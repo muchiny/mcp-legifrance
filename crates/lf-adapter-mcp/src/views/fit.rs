@@ -5,7 +5,6 @@
 //! conservatrice mais pas exacte : une fenêtre riche en échappements JSON (`"`, `\`, U+0000 à
 //! U+001F, qui prennent 2 à 6 caractères) ou en caractères hors BMP peut encore dépasser le
 //! plafond, d'où cette seconde garde.
-#![allow(dead_code, reason = "STUB(V0) → V1-01 : employé par les vues des tranches d'outils")]
 
 use lf_application::budget::ResponseBudget;
 use serde::Serialize;

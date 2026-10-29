@@ -11,10 +11,6 @@ use rmcp::model::{ContentBlock, IntoContents};
 /// `Result<Json<V>, ToolFailure>`. rmcp met `isError: true` sur le résultat dès que le retour
 /// est un `Err` d'`IntoContents`.
 #[derive(Debug)]
-#[allow(
-    dead_code,
-    reason = "construit par les outils des tranches (tools/*.rs), pas encore écrits"
-)]
 pub(crate) struct ToolFailure(pub(crate) AppError);
 
 impl From<AppError> for ToolFailure {

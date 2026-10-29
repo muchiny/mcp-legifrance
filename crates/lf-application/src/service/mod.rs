@@ -79,16 +79,13 @@ pub struct ServiceSettings {
 
 /// Façade des cas d'usage, partagée par `Arc` entre les tâches. Elle est `Send + Sync` parce que
 /// `C`, `A` et `K` le sont par les bornes des ports.
-#[allow(
-    dead_code,
-    reason = "STUB(V0) → V1-01 à V4-01 : les champs sont lus par les méthodes d'outil"
-)]
 pub struct LegalService<C: LegalCorpus, A: AuditLog, K: Clock> {
     corpus: C,
     audited: Audited<A>,
     clock: K,
     settings: ServiceSettings,
     /// Débit des complétions, un état par processus (02 §6.2).
+    #[allow(dead_code, reason = "lu par les complétions, écrites en V3-07")]
     complete_gate: CompleteGate,
 }
 
