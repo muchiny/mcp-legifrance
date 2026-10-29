@@ -516,7 +516,14 @@ mod harness {
         let listen = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         let server = ConformanceServer { inner: Arc::new(Fixture::default().server()) };
         announce(&format!("conformance_server: listening on http://{listen}/mcp"));
-        let options = HttpOptions { listen, ..HttpOptions::default() };
+        // Sans jeton : la suite de conformité n'envoie aucun en-tête d'authentification (V-43).
+        let options = match HttpOptions::local(listen) {
+            Ok(options) => options,
+            Err(error) => {
+                announce(&format!("conformance_server: {error}"));
+                return ExitCode::FAILURE;
+            }
+        };
         match serve_http(move || server.clone(), options, CancellationToken::new()).await {
             Ok(ServeOutcome::Eof | ServeOutcome::Shutdown) => ExitCode::SUCCESS,
             Err(error) => {
