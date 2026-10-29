@@ -1,0 +1,1668 @@
+{
+  "capabilities": {
+    "tools": {}
+  },
+  "eras_identical": true,
+  "instructions": {
+    "chars": 2879,
+    "sha256": "5a8a687574128a6089a506f8c83e3991adf0b21361e36ba7ba5cdd4b5171b737",
+    "text": "French law from Légifrance through the official PISTE API (read-only): consolidated laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company agreements (ACCO). Use these tools for any question on French legislation, code articles or case law.\n\n## Workflow\n1. Find: `fr_search` searches one fond, paged with `page` and `has_more`.\n2. Read by id prefix: LEGITEXT -> `fr_get_act` (metadata and table of contents); LEGIARTI or KALIARTI -> `fr_get_text`; JURITEXT, CONSTEXT or CETATEXT -> `fr_get_decision`; CNILTEXT -> `fr_get_deliberation`; KALITEXT -> `fr_get_convention`; ACCOTEXT -> `fr_get_company_agreement` (metadata only: the full text is a .docx on Légifrance).\n3. Limits: `fr_coverage` says what this server does not cover and whether it runs on the PISTE sandbox.\n\n## Long texts\n`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. For the text itself pass `detail=\"full\"`; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.\n\n## Hard rules\n- Cite every source with its `citation` and `source_url`; for case law add the `ecli` when present.\n- Never invent an id, an ECLI, an ELI or a citation: take each one from tool output. Many CAA and TA decisions have no ECLI.\n- ELI: the API returns no native ELI for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.\n- Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the data, give this source and the consultation date (`consulted_on` in `fr_coverage`).\n- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim: this server does not decide whether a provision applies to a case.\n- An empty result does not mean the law is silent: call `fr_coverage` and tell the user what is missing.\n\n## Errors\nA failed call returns isError with a text that starts with a code:\n- `[invalid_arg]` an argument is missing or malformed: fix it as the message says.\n- `[not_found]` nothing exists for that id: search again.\n- `[rate_limited]` PISTE quota reached: wait the delay given, then retry.\n- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.\n- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the server configuration.\n- `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user."
+  },
+  "lock_format": 1,
+  "prompts": {},
+  "protocol_versions": [
+    "2026-07-28",
+    "2025-11-25",
+    "2025-06-18"
+  ],
+  "resource_templates": {},
+  "resources": {},
+  "server_version": "0.0.0",
+  "sizes": {
+    "instructions_chars": 2879,
+    "tools_list_bytes": 26299
+  },
+  "surface_sha256": "4d9783dd4ef5e9e7d434fb8d2eede25867b903eb968a02dd47f2826c4351816f",
+  "tools": {
+    "fr_coverage": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Coverage and known gaps"
+        },
+        "description": "Describe what this server covers, how it is sourced and what it does NOT cover. Call it before telling a user that the law \"does not contain\" something, and whenever a search comes back empty: the gap may be in this server, not in the law. Each gap comes with a fallback. It also reports the PISTE environment (sandbox or production), whether the configuration is complete, the data source and licence with today's consultation date, and the note on ELI identifiers. No arguments, no network call.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "name": "fr_coverage",
+        "outputSchema": {
+          "properties": {
+            "as_of_note": {
+              "type": "string"
+            },
+            "attribution": {
+              "type": "string"
+            },
+            "configuration": {
+              "properties": {
+                "audit_mode": {
+                  "enum": [
+                    "strict",
+                    "best-effort"
+                  ],
+                  "type": "string"
+                },
+                "credentials_configured": {
+                  "type": "boolean"
+                },
+                "problems": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "credentials_configured",
+                "audit_mode"
+              ],
+              "type": "object"
+            },
+            "consulted_on": {
+              "format": "date",
+              "type": "string"
+            },
+            "eli_note": {
+              "type": "string"
+            },
+            "environment": {
+              "enum": [
+                "sandbox",
+                "production"
+              ],
+              "type": "string"
+            },
+            "families": {
+              "items": {
+                "properties": {
+                  "fond": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "tools": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "fond",
+                  "label",
+                  "tools"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "gaps": {
+              "items": {
+                "properties": {
+                  "fallback": {
+                    "type": "string"
+                  },
+                  "fond": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "missing": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "missing",
+                  "fallback"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "general_tools": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "source": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "ok",
+                "degraded",
+                "failed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "environment",
+            "configuration",
+            "source",
+            "attribution",
+            "consulted_on",
+            "as_of_note",
+            "eli_note",
+            "general_tools",
+            "families",
+            "gaps"
+          ],
+          "type": "object"
+        },
+        "title": "Coverage and known gaps"
+      },
+      "sha256": "9f2dd5e356ef24485877ffdc33e4d275446d43405a66dccf6a0f143899ae48b0"
+    },
+    "fr_diff_article": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Compare article versions"
+        },
+        "description": "Compare the versions of a code or law article (LEGIARTI) in force on `date_a` and `date_b` (YYYY-MM-DD; `date_b` defaults to today in Paris). Returns both versions with their validity dates (no `date_fin`: no end date) and a compact word-level diff: removed and added passages with a little context. `identical` is true when both dates fall in the same version. To read a single version use fr_get_text.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "article_id": {
+              "description": "A LEGIARTI... id of any version of the article.",
+              "type": "string"
+            },
+            "date_a": {
+              "description": "First date YYYY-MM-DD.",
+              "format": "date",
+              "type": "string"
+            },
+            "date_b": {
+              "description": "Second date YYYY-MM-DD (default: today in Paris).",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          "required": [
+            "article_id",
+            "date_a"
+          ],
+          "type": "object"
+        },
+        "name": "fr_diff_article",
+        "outputSchema": {
+          "$defs": {
+            "HunkView": {
+              "properties": {
+                "added": {
+                  "type": "string"
+                },
+                "at": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "context": {
+                  "type": "string"
+                },
+                "removed": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "at"
+              ],
+              "type": "object"
+            },
+            "VersionView": {
+              "properties": {
+                "article_id": {
+                  "type": "string"
+                },
+                "date_debut": {
+                  "type": "string"
+                },
+                "date_fin": {
+                  "type": "string"
+                },
+                "etat": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "article_id"
+              ],
+              "type": "object"
+            }
+          },
+          "properties": {
+            "article_id": {
+              "type": "string"
+            },
+            "citation": {
+              "type": "string"
+            },
+            "hunks": {
+              "items": {
+                "$ref": "#/$defs/HunkView"
+              },
+              "type": "array"
+            },
+            "identical": {
+              "type": "boolean"
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "version_a": {
+              "$ref": "#/$defs/VersionView"
+            },
+            "version_b": {
+              "$ref": "#/$defs/VersionView"
+            }
+          },
+          "required": [
+            "article_id",
+            "citation",
+            "version_a",
+            "version_b",
+            "identical",
+            "hunks"
+          ],
+          "type": "object"
+        },
+        "title": "Compare article versions"
+      },
+      "sha256": "66ef9f76284847cb23e7fa11cc849b25f6a65b898c628a0d10c229907f4448cc"
+    },
+    "fr_get_act": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Read a law, decree or code"
+        },
+        "description": "Read a consolidated law, decree or code by its LEGITEXT id (from fr_search on LODA or CODE): metadata, citation, source_url and a table of contents of sections and articles with their `article_id`. Returns the version in force on `date` (YYYY-MM-DD; default: the version named by a suffixed text_id, else today in Paris); without `date_fin_version` that version has no end date. The table of contents is paged: up to `toc_limit` entries (default 100) from `toc_offset`; continue with `next_toc_offset`. It does not return article text: read an article with fr_get_text. For a collective agreement (KALITEXT) use fr_get_convention.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "date": {
+              "default": null,
+              "description": "Version date YYYY-MM-DD (default: the version named by a suffixed text_id, else today in Paris).",
+              "format": "date",
+              "type": "string"
+            },
+            "text_id": {
+              "description": "A LEGITEXT... id (from fr_search on LODA or CODE).",
+              "type": "string"
+            },
+            "toc_limit": {
+              "default": 100,
+              "description": "Maximum table-of-contents entries (1..500).",
+              "format": "uint32",
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "toc_offset": {
+              "default": 0,
+              "description": "First table-of-contents entry (pass next_toc_offset).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "text_id"
+          ],
+          "type": "object"
+        },
+        "name": "fr_get_act",
+        "outputSchema": {
+          "properties": {
+            "aliases": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "citation": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string"
+            },
+            "date_debut_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "date_fin_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "date_parution": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "eli": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "etat": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "jo_reference": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "nature": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "next_toc_offset": {
+              "description": "Pass as toc_offset to read the next page; absent on the last page.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "nor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "note": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "num_parution": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source_url": {
+              "type": "string"
+            },
+            "text_id": {
+              "type": "string"
+            },
+            "title": {
+              "description": "Omitted when citation already contains it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "toc": {
+              "items": {
+                "properties": {
+                  "article_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "depth": {
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "etat": {
+                    "description": "Omitted when equal to the etat of the text.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "num": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "depth"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "toc_total": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "text_id",
+            "date",
+            "citation",
+            "source_url",
+            "toc",
+            "toc_total"
+          ],
+          "type": "object"
+        },
+        "title": "Read a law, decree or code"
+      },
+      "sha256": "a7955761313f96d6423c52f52180442ce21d47ac4e71c3eaba2d701fbfe986ec"
+    },
+    "fr_get_company_agreement": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Read a company agreement (metadata)"
+        },
+        "description": "Read a company-level agreement (accord d'entreprise) by its ACCOTEXT id from fr_search on fond ACCO. Returns METADATA ONLY: company, SIRET, IDCC, APE code, sector, themes, signatory unions, dates, citation and source_url. Légifrance distributes the full text only as a .docx attachment, which this tool does not return: point the user to source_url.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "agreement_id": {
+              "description": "An ACCOTEXT... id (from fr_search on fond ACCO).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "agreement_id"
+          ],
+          "type": "object"
+        },
+        "name": "fr_get_company_agreement",
+        "outputSchema": {
+          "properties": {
+            "agreement_id": {
+              "type": "string"
+            },
+            "attachment_note": {
+              "type": "string"
+            },
+            "citation": {
+              "type": "string"
+            },
+            "code_ape": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "date_depot": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "date_effet": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "date_texte": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "idcc": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "nature": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "raison_sociale": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "secteur": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "siret": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source_url": {
+              "type": "string"
+            },
+            "syndicats": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "themes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "agreement_id",
+            "attachment_note",
+            "citation",
+            "source_url"
+          ],
+          "type": "object"
+        },
+        "title": "Read a company agreement (metadata)"
+      },
+      "sha256": "7d21e2eead478f0cd2ce59415e0624fcac5010bf7319c44116d26e64cc753f9e"
+    },
+    "fr_get_convention": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Read a collective agreement"
+        },
+        "description": "Read a collective labour agreement text (convention collective, avenant, annexe) by its KALITEXT id from fr_search on fond KALI: title, IDCC, parent convention, status, citation, source_url and a table of contents. Article entries carry KALIARTI ids: read them with fr_get_text. Page the table of contents with `toc_offset`/`toc_limit` (default 100) and `next_toc_offset`. For a company-level agreement use fr_get_company_agreement.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "convention_id": {
+              "description": "A KALITEXT... id (from fr_search on fond KALI).",
+              "type": "string"
+            },
+            "toc_limit": {
+              "default": 100,
+              "description": "Maximum table-of-contents entries (1..500).",
+              "format": "uint32",
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "toc_offset": {
+              "default": 0,
+              "description": "First table-of-contents entry (pass next_toc_offset).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "convention_id"
+          ],
+          "type": "object"
+        },
+        "name": "fr_get_convention",
+        "outputSchema": {
+          "properties": {
+            "bulletin": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "citation": {
+              "type": "string"
+            },
+            "container_title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "convention_id": {
+              "type": "string"
+            },
+            "date_publication": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "etat": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "idcc": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "next_toc_offset": {
+              "description": "Pass as toc_offset to read the next page; absent on the last page.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "nor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source_url": {
+              "type": "string"
+            },
+            "title": {
+              "description": "Omitted when citation already contains it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "toc": {
+              "items": {
+                "properties": {
+                  "article_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "depth": {
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "etat": {
+                    "description": "Omitted when equal to the etat of the text.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "num": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "depth"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "toc_total": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "convention_id",
+            "citation",
+            "source_url",
+            "toc",
+            "toc_total"
+          ],
+          "type": "object"
+        },
+        "title": "Read a collective agreement"
+      },
+      "sha256": "5a1ba75c5edd293a8900c8082d5fdf9723716e6c070ded64cf8d970a597ab76c"
+    },
+    "fr_get_decision": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Read a court decision"
+        },
+        "description": "Read a court decision by id: JURITEXT (Cour de cassation, courts of appeal), CONSTEXT (Conseil constitutionnel) or CETATEXT (Conseil d'État, administrative courts), as found by fr_search. Returns court, formation, solution, case numbers, date, the native `ecli` when Légifrance has one (never invented), citation and source_url. By default it adds a short `summary`: the official summary when published, else the operative part or the beginning of the text; a short decision comes back whole in `text`. Use `detail`=\"full\" with `offset`/`max_chars` (default 4,000 characters) to read the text page by page (follow `next_offset`), or `focus` to get the best matching passages (default 3).",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "decision_id": {
+              "description": "A JURITEXT..., CONSTEXT... or CETATEXT... id (from fr_search on JURI, CONSTIT or CETAT).",
+              "type": "string"
+            },
+            "detail": {
+              "default": null,
+              "description": "\"summary\" (default): metadata and a short summary. \"full\": the text from offset, up to max_chars.",
+              "enum": [
+                "summary",
+                "full"
+              ],
+              "type": "string"
+            },
+            "focus": {
+              "default": null,
+              "description": "A few words: return the best matching passages instead of the summary or window.",
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            "max_chars": {
+              "default": 4000,
+              "description": "Maximum characters of text returned (500 to 40000).",
+              "format": "uint32",
+              "maximum": 40000,
+              "minimum": 500,
+              "type": "integer"
+            },
+            "offset": {
+              "default": 0,
+              "description": "Start position in characters for detail=\"full\"; pass the next_offset of the previous call.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "passages": {
+              "default": 3,
+              "description": "Number of passages returned with focus.",
+              "format": "uint32",
+              "maximum": 10,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "decision_id"
+          ],
+          "type": "object"
+        },
+        "name": "fr_get_decision",
+        "outputSchema": {
+          "properties": {
+            "citation": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string"
+            },
+            "decision_id": {
+              "type": "string"
+            },
+            "ecli": {
+              "description": "Native ECLI only, never derived.",
+              "type": "string"
+            },
+            "formation": {
+              "type": "string"
+            },
+            "juridiction": {
+              "type": "string"
+            },
+            "nature": {
+              "type": "string"
+            },
+            "next_offset": {
+              "description": "Pass as offset to read the next window.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "note": {
+              "type": "string"
+            },
+            "numero_affaire": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "passages": {
+              "items": {
+                "properties": {
+                  "offset": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "offset",
+                  "text"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "solution": {
+              "type": "string"
+            },
+            "source_url": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "summary_source": {
+              "enum": [
+                "official",
+                "dispositif",
+                "lead"
+              ],
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "text_length": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "title": {
+              "description": "Omitted when citation already contains it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "decision_id",
+            "citation",
+            "source_url",
+            "text_length"
+          ],
+          "type": "object"
+        },
+        "title": "Read a court decision"
+      },
+      "sha256": "6ce2aaa291b74c44302a252380c51f214fec3caebe7cfc0e024f5b204c4e8524"
+    },
+    "fr_get_deliberation": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Read a CNIL deliberation"
+        },
+        "description": "Read a CNIL deliberation or decision by its CNILTEXT id (from fr_search on fond CNIL): number, nature (e.g. Sanction), status, dates, citation and source_url. By default a short text comes back whole in `text` and a long one as a `summary` (its beginning); `detail`=\"full\" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`, and `focus` returns the most relevant passages (default 3). Personal data is redacted by the CNIL in published texts.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "deliberation_id": {
+              "description": "A CNILTEXT... id (from fr_search on fond CNIL).",
+              "type": "string"
+            },
+            "detail": {
+              "default": null,
+              "description": "\"summary\" (default): metadata and a short summary. \"full\": the text from offset, up to max_chars.",
+              "enum": [
+                "summary",
+                "full"
+              ],
+              "type": "string"
+            },
+            "focus": {
+              "default": null,
+              "description": "A few words: return the best matching passages instead of the summary or window.",
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            "max_chars": {
+              "default": 4000,
+              "description": "Maximum characters of text returned (500 to 40000).",
+              "format": "uint32",
+              "maximum": 40000,
+              "minimum": 500,
+              "type": "integer"
+            },
+            "offset": {
+              "default": 0,
+              "description": "Start position in characters for detail=\"full\"; pass the next_offset of the previous call.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "passages": {
+              "default": 3,
+              "description": "Number of passages returned with focus.",
+              "format": "uint32",
+              "maximum": 10,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "deliberation_id"
+          ],
+          "type": "object"
+        },
+        "name": "fr_get_deliberation",
+        "outputSchema": {
+          "properties": {
+            "citation": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string"
+            },
+            "date_publication": {
+              "type": "string"
+            },
+            "deliberation_id": {
+              "type": "string"
+            },
+            "etat": {
+              "type": "string"
+            },
+            "nature": {
+              "type": "string"
+            },
+            "nature_delib": {
+              "type": "string"
+            },
+            "next_offset": {
+              "description": "Pass as offset to read the next window.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "note": {
+              "type": "string"
+            },
+            "num": {
+              "type": "string"
+            },
+            "passages": {
+              "items": {
+                "properties": {
+                  "offset": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "offset",
+                  "text"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "source_url": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "summary_source": {
+              "enum": [
+                "official",
+                "dispositif",
+                "lead"
+              ],
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "text_length": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "title": {
+              "description": "Omitted when citation already contains it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "deliberation_id",
+            "citation",
+            "source_url",
+            "text_length"
+          ],
+          "type": "object"
+        },
+        "title": "Read a CNIL deliberation"
+      },
+      "sha256": "f68b3511d559ba3ed8636bb49fa3b1015654a15e999b97dee4524b653be8ac38"
+    },
+    "fr_get_text": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Read an article"
+        },
+        "description": "Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (e.g. \"Code civil, art. 9\"), source_url, status, validity dates and parent code or text. By default (`detail`=\"summary\") a short article comes back whole and a long one is cut after about 1,200 characters; `detail`=\"full\" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "article_id": {
+              "description": "A LEGIARTI... id (from fr_get_act or a CODE hit) or a KALIARTI... id (from fr_get_convention).",
+              "type": "string"
+            },
+            "detail": {
+              "default": null,
+              "description": "\"summary\" (default): metadata and a short summary. \"full\": the text from offset, up to max_chars.",
+              "enum": [
+                "summary",
+                "full"
+              ],
+              "type": "string"
+            },
+            "focus": {
+              "default": null,
+              "description": "A few words: return the best matching passages instead of the summary or window.",
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            "max_chars": {
+              "default": 4000,
+              "description": "Maximum characters of text returned (500 to 40000).",
+              "format": "uint32",
+              "maximum": 40000,
+              "minimum": 500,
+              "type": "integer"
+            },
+            "offset": {
+              "default": 0,
+              "description": "Start position in characters for detail=\"full\"; pass the next_offset of the previous call.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "passages": {
+              "default": 3,
+              "description": "Number of passages returned with focus.",
+              "format": "uint32",
+              "maximum": 10,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "article_id"
+          ],
+          "type": "object"
+        },
+        "name": "fr_get_text",
+        "outputSchema": {
+          "properties": {
+            "article_id": {
+              "type": "string"
+            },
+            "citation": {
+              "type": "string"
+            },
+            "code_title": {
+              "type": "string"
+            },
+            "date_debut": {
+              "description": "Omitted when the entry into force is not set yet (see etat).",
+              "type": "string"
+            },
+            "date_fin": {
+              "description": "Omitted when the article is in force without an end date.",
+              "type": "string"
+            },
+            "eli": {
+              "type": "string"
+            },
+            "etat": {
+              "type": "string"
+            },
+            "next_offset": {
+              "description": "Pass as offset to read the next window.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "nota": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            },
+            "num": {
+              "type": "string"
+            },
+            "parent_id": {
+              "description": "LEGITEXT or KALITEXT of the parent text.",
+              "type": "string"
+            },
+            "passages": {
+              "items": {
+                "properties": {
+                  "offset": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "offset",
+                  "text"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "path": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "source_url": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "summary_source": {
+              "enum": [
+                "official",
+                "dispositif",
+                "lead"
+              ],
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "text_length": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "article_id",
+            "citation",
+            "source_url",
+            "text_length"
+          ],
+          "type": "object"
+        },
+        "title": "Read an article"
+      },
+      "sha256": "4269ba64bdfe356ccea2cf2f9ac6ea6073c7d76a219a2e78a1fa3565bde3418a"
+    },
+    "fr_search": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Search Légifrance"
+        },
+        "description": "Keyword search in one Légifrance fond (default LODA): laws and decrees (LODA), codes (CODE), case law (JURI, CONSTIT, CETAT), CNIL deliberations (CNIL), collective agreements (KALI) or company agreements (ACCO). Returns one page of hits (default 10) with id, title, snippet, citation and source_url; ask for the next `page` while `has_more` is true. `match` defaults to any word; use `all` or `exact` for precise queries, and `date_from`/`date_to` to filter by date. LODA and CODE hits are the versions in force on `version_date` (default: today in Paris). Open a hit with the fr_get_* tool for its id prefix (LEGITEXT: fr_get_act, JURITEXT/CONSTEXT/CETATEXT: fr_get_decision, CNILTEXT: fr_get_deliberation, KALITEXT: fr_get_convention, ACCOTEXT: fr_get_company_agreement); CODE hits also list matching `articles` for fr_get_text.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "date_from": {
+              "description": "Earliest date YYYY-MM-DD (fond date filter).",
+              "format": "date",
+              "type": "string"
+            },
+            "date_to": {
+              "description": "Latest date YYYY-MM-DD.",
+              "format": "date",
+              "type": "string"
+            },
+            "fond": {
+              "default": "LODA",
+              "description": "Fond to search (case-insensitive).",
+              "enum": [
+                "LODA",
+                "CODE",
+                "JURI",
+                "CONSTIT",
+                "CETAT",
+                "CNIL",
+                "KALI",
+                "ACCO"
+              ],
+              "type": "string"
+            },
+            "match": {
+              "default": "any",
+              "description": "\"any\": any word (default); \"all\": all words; \"exact\": exact phrase.",
+              "enum": [
+                "any",
+                "all",
+                "exact"
+              ],
+              "type": "string"
+            },
+            "page": {
+              "default": 1,
+              "description": "Page number, from 1.",
+              "format": "uint32",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "page_size": {
+              "default": 10,
+              "description": "Hits per page (1..100).",
+              "format": "uint32",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "query": {
+              "description": "Free-text query, e.g. \"republique numerique\".",
+              "maxLength": 450,
+              "minLength": 1,
+              "type": "string"
+            },
+            "version_date": {
+              "description": "LODA and CODE only: version in force on this date, YYYY-MM-DD (default today, Paris).",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        },
+        "name": "fr_search",
+        "outputSchema": {
+          "$defs": {
+            "ArticleView": {
+              "description": "Un article trouvé dans un résultat de code.",
+              "properties": {
+                "article_id": {
+                  "description": "Identifiant de l'article.",
+                  "type": "string"
+                },
+                "num": {
+                  "description": "Numéro affiché.",
+                  "type": "string"
+                },
+                "snippet": {
+                  "description": "Extrait de l'article.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "article_id"
+              ],
+              "type": "object"
+            },
+            "HitView": {
+              "description": "Un résultat de recherche.",
+              "properties": {
+                "articles": {
+                  "description": "Articles trouvés (fonds `CODE` et `KALI`), lisibles avec `fr_get_text`.",
+                  "items": {
+                    "$ref": "#/$defs/ArticleView"
+                  },
+                  "type": "array"
+                },
+                "citation": {
+                  "description": "Citation selon l'usage français.",
+                  "type": "string"
+                },
+                "date": {
+                  "description": "Date `AAAA-MM-JJ`, si elle est connue.",
+                  "type": "string"
+                },
+                "etat": {
+                  "description": "État juridique, en code d'API (`VIGUEUR`, `ABROGE`...).",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "Identifiant sans suffixe de version ; son préfixe désigne l'outil de lecture.",
+                  "type": "string"
+                },
+                "idcc": {
+                  "description": "IDCC (KALI et ACCO), à partir de la v0.2.",
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "Fond du résultat, en minuscules : `loda`, `code`, `juri`, `constit`, `cetat`, `cnil`,\n`kali` ou `acco`.",
+                  "type": "string"
+                },
+                "nature": {
+                  "description": "Nature du texte.",
+                  "type": "string"
+                },
+                "snippet": {
+                  "description": "Extrait de 280 caractères au plus.",
+                  "type": "string"
+                },
+                "source_url": {
+                  "description": "Page Légifrance de la ressource.",
+                  "type": "string"
+                },
+                "title": {
+                  "description": "Titre, s'il n'est pas déjà dans `citation`.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id",
+                "citation",
+                "source_url"
+              ],
+              "type": "object"
+            }
+          },
+          "properties": {
+            "has_more": {
+              "description": "True if a next page exists and is reachable.",
+              "type": "boolean"
+            },
+            "hits": {
+              "description": "Résultats, dans l'ordre de l'API ; toujours présents, même vides.",
+              "items": {
+                "$ref": "#/$defs/HitView"
+              },
+              "type": "array"
+            },
+            "note": {
+              "description": "Remarque exceptionnelle (fin de la fenêtre atteignable, contenu retiré).",
+              "type": "string"
+            },
+            "page": {
+              "description": "Page servie, à partir de 1.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "total": {
+              "description": "Nombre total de résultats annoncé par la source.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "total_articles": {
+              "description": "Nombre total d'articles correspondants (fond `CODE`), à partir de la v0.2.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "total",
+            "page",
+            "has_more",
+            "hits"
+          ],
+          "type": "object"
+        },
+        "title": "Search Légifrance"
+      },
+      "sha256": "c8048543bba67f399dce900eee85e050bde63cc6d60524c1a4d6c376f768276f"
+    },
+    "fr_search_all": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Search several fonds"
+        },
+        "description": "Search several Légifrance fonds at once (default LODA, CODE, JURI, CETAT, CONSTIT) and return the top `per_fond` hits of each (default 3, max 10), grouped by fond with their totals. Use it for a first overview when you do not know where the answer is; then refine with fr_search on the relevant fond, which supports paging and filters. A fond that fails yields an error entry without failing the others.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "fonds": {
+              "default": [
+                "LODA",
+                "CODE",
+                "JURI",
+                "CETAT",
+                "CONSTIT"
+              ],
+              "description": "Fonds to search (default LODA, CODE, JURI, CETAT, CONSTIT).",
+              "items": {
+                "enum": [
+                  "LODA",
+                  "CODE",
+                  "JURI",
+                  "CONSTIT",
+                  "CETAT",
+                  "CNIL",
+                  "KALI",
+                  "ACCO"
+                ],
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "per_fond": {
+              "default": 3,
+              "description": "Hits per fond (1..10).",
+              "format": "uint32",
+              "maximum": 10,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "query": {
+              "description": "Free-text query.",
+              "maxLength": 450,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        },
+        "name": "fr_search_all",
+        "outputSchema": {
+          "$defs": {
+            "ArticleView": {
+              "properties": {
+                "article_id": {
+                  "type": "string"
+                },
+                "num": {
+                  "type": "string"
+                },
+                "snippet": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "article_id"
+              ],
+              "type": "object"
+            },
+            "GroupView": {
+              "properties": {
+                "error": {
+                  "type": "string"
+                },
+                "fond": {
+                  "type": "string"
+                },
+                "has_more": {
+                  "description": "True if fr_search can page further in this fond.",
+                  "type": "boolean"
+                },
+                "hits": {
+                  "items": {
+                    "$ref": "#/$defs/HitView"
+                  },
+                  "type": "array"
+                },
+                "total": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "fond"
+              ],
+              "type": "object"
+            },
+            "HitView": {
+              "properties": {
+                "articles": {
+                  "items": {
+                    "$ref": "#/$defs/ArticleView"
+                  },
+                  "type": "array"
+                },
+                "citation": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "etat": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "idcc": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "nature": {
+                  "type": "string"
+                },
+                "snippet": {
+                  "type": "string"
+                },
+                "source_url": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id",
+                "citation",
+                "source_url"
+              ],
+              "type": "object"
+            }
+          },
+          "properties": {
+            "groups": {
+              "items": {
+                "$ref": "#/$defs/GroupView"
+              },
+              "type": "array"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "groups"
+          ],
+          "type": "object"
+        },
+        "title": "Search several fonds"
+      },
+      "sha256": "9525203d1a1333bb76ffca372295b13e12155cc98fc129e5ddb6f49accef0ca6"
+    }
+  },
+  "toolset_sha256": "fb80f89c224eb26f0960bd1eaf9b406ab7a54a0c24195fc5a49de47876eff03b"
+}
