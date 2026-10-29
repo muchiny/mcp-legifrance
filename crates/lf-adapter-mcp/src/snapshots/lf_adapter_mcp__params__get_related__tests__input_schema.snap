@@ -1,0 +1,17 @@
+---
+source: crates/lf-adapter-mcp/src/params/get_related.rs
+expression: schema()
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "description": "A LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... decision id.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}

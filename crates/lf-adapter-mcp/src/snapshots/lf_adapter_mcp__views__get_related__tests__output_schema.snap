@@ -1,0 +1,66 @@
+---
+source: crates/lf-adapter-mcp/src/views/get_related.rs
+expression: schema
+---
+{
+  "$defs": {
+    "LinkView": {
+      "properties": {
+        "citation": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "source_url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "relation",
+        "kind",
+        "citation"
+      ],
+      "type": "object"
+    }
+  },
+  "properties": {
+    "citation": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "links": {
+      "items": {
+        "$ref": "#/$defs/LinkView"
+      },
+      "type": "array"
+    },
+    "source_url": {
+      "type": "string"
+    },
+    "total": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "citation",
+    "source_url",
+    "total",
+    "links"
+  ],
+  "type": "object"
+}
