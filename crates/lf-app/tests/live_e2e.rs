@@ -219,7 +219,8 @@ mod scenarios {
         );
 
         // 3. Loi : `LEGITEXT000033205014` (loi pour une République numérique), puis son premier
-        //    article, dont l'URL est `/loda/article_lc/` (E-19).
+        //    article, dont l'URL est celle de l'article (E-19 attend `/loda/article_lc/`, mais Q17
+        //    garde `/codes/article_lc/` tant que V-140 et V-141 sont ouvertes).
         let act = run.tool("3", "fr_get_act", &json!({"text_id": "LEGITEXT000033205014"})).await;
         assert_eq!(act["text_id"], "LEGITEXT000033205014", "scenario 3: {act:.500}");
         assert!(
@@ -230,12 +231,21 @@ mod scenarios {
         let article_id = first_toc_article("3", &act);
         let article = run.tool("3", "fr_get_text", &json!({"article_id": article_id})).await;
         assert_readable("3", &article);
+        // Q17 : tant que V-140 et V-141 (ouverture des URL dans un navigateur, par le mainteneur)
+        // sont ouvertes, tout `LEGIARTI` garde `/codes/article_lc/` (`ArticleText::contract`,
+        // ADR-0009 point 6). La cible E-19 `/loda/article_lc/` n'est donc pas encore attendue : la
+        // sonde exige l'URL d'un article de l'identifiant demandé sous l'un ou l'autre chemin
+        // (constaté en sandbox le 2026-10-29 : `textTitles[].nature` d'un article de loi vaut
+        // `LOI`, et l'URL rendue est `/codes/article_lc/`).
         let url = article["source_url"].as_str().unwrap_or_default();
         if law {
-            assert!(url.contains("/loda/article_lc/"), "scenario 3: {url}");
+            assert!(
+                url.ends_with(&format!("/article_lc/{article_id}")),
+                "scenario 3: {url} for {article_id}"
+            );
         } else {
-            // Les enregistrements ne contiennent qu'un article de code : toujours `/article_lc/`.
-            assert!(url.contains("/article_lc/"), "scenario 3: {url}");
+            // Les enregistrements ne contiennent qu'un article de code.
+            assert!(url.contains("/codes/article_lc/"), "scenario 3: {url}");
         }
 
         // 4. JURI : `responsabilite`, 3 ; lecture de la première décision.
