@@ -210,10 +210,12 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn connect_lists_no_tools_on_empty_router() {
+    async fn connect_lists_the_tools_of_the_router() {
         let fixture = Fixture::default();
-        let client = connect(fixture.server()).await;
-        assert_eq!(client.list_all_tools().await.unwrap().len(), 0);
+        let mut server = fixture.server();
+        let registered = server.router_mut().list_all().len();
+        let client = connect(server).await;
+        assert_eq!(client.list_all_tools().await.unwrap().len(), registered);
         let info = client.peer_info().expect("the server introduced itself");
         assert_eq!(info.server_info.as_ref().unwrap().name, "mcp-legifrance");
     }
@@ -221,7 +223,9 @@ mod tests {
     #[tokio::test]
     async fn the_fixture_connects_its_own_server() {
         let client = Fixture::default().connect().await;
-        assert_eq!(client.list_all_tools().await.unwrap().len(), 0);
+        let names: Vec<_> =
+            client.list_all_tools().await.unwrap().into_iter().map(|tool| tool.name).collect();
+        assert!(names.iter().any(|name| name == "fr_coverage"), "{names:?}");
     }
 
     #[test]
