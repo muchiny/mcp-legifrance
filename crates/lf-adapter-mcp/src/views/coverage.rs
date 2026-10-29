@@ -232,7 +232,7 @@ mod tests {
 
     use lf_application::output::coverage::CoverageConfiguration;
     use lf_domain::{
-        coverage::{ConfigFacts, coverage},
+        coverage::{ConfigFacts, Coverage, coverage},
         date::CivilDate,
     };
     use pretty_assertions::assert_eq;
@@ -399,6 +399,54 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_source_is_rendered_as_failed() {
+        let mut failed = output(PisteEnvironment::Production, true, false, &[]);
+        failed.coverage = Coverage::new(
+            CoverageStatus::Failed,
+            failed.coverage.as_of_note().to_owned(),
+            failed.coverage.families().to_vec(),
+            failed.coverage.known_gaps().to_vec(),
+        )
+        .unwrap();
+        let view = serde_json::to_value(CoverageView::from(failed)).unwrap();
+        assert_eq!(view["status"], "failed");
+    }
+
+    #[test]
+    fn a_family_that_names_no_fond_is_left_out() {
+        let family = |name: &str| CoverageFamily {
+            name: name.to_owned(),
+            tool: String::new(),
+            source: "Légifrance".to_owned(),
+            captured_at: None,
+            live: true,
+        };
+        assert!(family_view(&family("NOT-A-FOND"), Surface::V03).is_none());
+        let kept = family_view(&family("CNIL"), Surface::V03).unwrap();
+        assert_eq!(kept.fond, "CNIL");
+        assert_eq!(kept.label, "CNIL deliberations");
+        assert_eq!(kept.tools, ["fr_get_deliberation"]);
+
+        // De bout en bout : la famille inconnue disparaît de la vue sans toucher aux autres.
+        let mut out = output(PisteEnvironment::Sandbox, true, false, &[]);
+        out.coverage = Coverage::new(
+            CoverageStatus::Ok,
+            "note".to_owned(),
+            vec![family("NOT-A-FOND"), family("KALI")],
+            out.coverage.known_gaps().to_vec(),
+        )
+        .unwrap();
+        let view = serde_json::to_value(CoverageView::from(out)).unwrap();
+        let fonds: Vec<&str> = view["families"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["fond"].as_str().unwrap())
+            .collect();
+        assert_eq!(fonds, ["KALI"]);
+    }
+
+    #[test]
     fn coverage_degraded_without_credentials() {
         let view = serde_json::to_value(CoverageView::from(output(
             PisteEnvironment::Production,
@@ -551,7 +599,8 @@ mod tests {
         .map(str::to_owned)
         .collect::<BTreeSet<_>>();
         for tool in ToolName::ALL {
-            assert!(announced.contains(tool.as_str()), "{}", tool.as_str());
+            let name = tool.as_str();
+            assert!(announced.contains(name), "{name}");
         }
     }
 

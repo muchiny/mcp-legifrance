@@ -65,9 +65,7 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
 #[cfg(test)]
 #[cfg(feature = "test-support")]
 mod tests {
-    use lf_application::{
-        error::ErrorCode, ports::AuditStatus, testing::PortRequest, tools::ToolName,
-    };
+    use lf_application::{error::ErrorCode, ports::AuditStatus, tools::ToolName};
     use lf_domain::{
         date::CivilDate,
         entity::{CodeArticleRef, SearchHit, SearchPage, Snippet},
@@ -160,7 +158,7 @@ mod tests {
         );
         let requests = fixture.corpus.seen_requests();
         assert_eq!(requests.len(), 1);
-        assert!(matches!(requests[0], PortRequest::Search(_)));
+        assert_eq!(requests[0].method(), "search");
     }
 
     #[tokio::test]
@@ -195,7 +193,8 @@ mod tests {
         assert_eq!(result.is_error, Some(false));
         let content = result.structured_content.unwrap();
         let compact = serde_json::to_string(&content).unwrap();
-        assert!(compact.chars().count() <= 45_000, "{}", compact.chars().count());
+        let length = compact.chars().count();
+        assert!(length <= 45_000, "{length}");
 
         let hits = content["hits"].as_array().unwrap();
         assert_eq!(hits.len(), 60, "aucun résultat n'est retiré");
@@ -322,7 +321,8 @@ mod tests {
         let tool = descriptor(&Fixture::default()).await;
         let description = tool.description.as_deref().unwrap();
         assert_eq!(description, DESCRIPTION);
-        assert!(description.chars().count() <= 1_000, "{}", description.chars().count());
+        let length = description.chars().count();
+        assert!(length <= 1_000, "{length}");
         let sentences = description.split(". ").count();
         assert!((3..=6).contains(&sentences), "{sentences} phrases");
         // Seuls des outils de la surface v0.1 sont cités : les huit premiers de `ToolName::ALL`.
@@ -366,14 +366,16 @@ mod tests {
         let fixture = Fixture::default();
         let unknown = call(&fixture, &json!({"query": "bail", "foo": 1})).await;
         assert_eq!(unknown.is_error, Some(true));
-        assert!(text_of(&unknown).starts_with("[invalid_arg] "), "{}", text_of(&unknown));
-        assert!(text_of(&unknown).contains("unknown field `foo`"), "{}", text_of(&unknown));
+        let unknown_text = text_of(&unknown);
+        assert!(unknown_text.starts_with("[invalid_arg] "), "{unknown_text}");
+        assert!(unknown_text.contains("unknown field `foo`"), "{unknown_text}");
 
         let missing = call(&fixture, &json!({})).await;
         assert_eq!(text_of(&missing), "[invalid_arg] query is required.");
 
         let order = call(&fixture, &json!({"query": "bail", "fond": "NOPE"})).await;
-        assert!(text_of(&order).starts_with("[invalid_arg] "), "{}", text_of(&order));
+        let order_text = text_of(&order);
+        assert!(order_text.starts_with("[invalid_arg] "), "{order_text}");
 
         assert_eq!(fixture.audit.records().len(), 3);
         assert_eq!(fixture.corpus.calls(), 0);
@@ -385,7 +387,8 @@ mod tests {
         fixture.corpus.push_search(Err(lf_application::ports::CorpusError::Timeout));
         let result = call(&fixture, &json!({"query": "bail"})).await;
         assert_eq!(result.is_error, Some(true));
-        assert!(text_of(&result).starts_with("[upstream_error] "), "{}", text_of(&result));
+        let text = text_of(&result);
+        assert!(text.starts_with("[upstream_error] "), "{text}");
         assert_eq!(fixture.audit.records().len(), 1);
     }
 }

@@ -829,9 +829,7 @@ impl Run {
                 }
             }
             Step::CloseStdin => {
-                if let Some(mut write) = self.write.take() {
-                    write.shutdown().await.ok();
-                }
+                self.close_stdin().await;
                 Ok(())
             }
             Step::ExpectExit { code, within } => {
@@ -845,10 +843,17 @@ impl Run {
         }
     }
 
+    /// Ferme l'entrée du service ; sans effet si elle l'est déjà.
+    async fn close_stdin(&mut self) {
+        if let Some(mut write) = self.write.take() {
+            write.shutdown().await.ok();
+        }
+    }
+
     /// Fin de la transcription : ferme l'entrée, attend la fin du service (code 0), puis exige que
     /// le serveur n'ait rien dit de plus que ce qui a été attendu.
     async fn finish(&mut self) -> Result<(), String> {
-        self.apply(&Step::CloseStdin).await?;
+        self.close_stdin().await;
         if self.server.is_some() {
             self.apply(&Step::ExpectExit { code: 0, within: MESSAGE_WAIT }).await?;
         }
@@ -1018,10 +1023,17 @@ mod tests {
         assert_eq!(transcript.name(), "eof_after_discover");
         assert!(transcript.steps().len() > 3);
         let missing = Transcript::load(transcripts_dir().join("absent.jsonl")).unwrap_err();
-        assert!(matches!(missing, TranscriptError::Io { .. }), "{missing}");
-        assert!(missing.to_string().starts_with("cannot read "), "{missing}");
-        let unreadable_dir = Transcript::load_all(transcripts_dir().join("absent")).unwrap_err();
-        assert!(matches!(unreadable_dir, TranscriptError::Io { .. }), "{unreadable_dir}");
+        // Seule la variante `Io` s'écrit « cannot read <chemin>: ».
+        let missing_path = transcripts_dir().join("absent.jsonl");
+        let missing_text = missing.to_string();
+        let wanted = format!("cannot read {}: ", missing_path.display());
+        assert!(missing_text.starts_with(&wanted), "{missing_text}");
+        let absent_dir = transcripts_dir().join("absent");
+        // Même type d'argument (`PathBuf`) que les autres appels : une seule instance générique à
+        // couvrir.
+        let unreadable_dir = Transcript::load_all(absent_dir.clone()).unwrap_err().to_string();
+        let wanted = format!("cannot read {}: ", absent_dir.display());
+        assert!(unreadable_dir.starts_with(&wanted), "{unreadable_dir}");
     }
 
     // ---- transcriptions : comparaison, instantanés et contrôles communs ------------------------
@@ -1302,6 +1314,51 @@ mod tests {
         assert_eq!(error, "inline.jsonl line 2: the service exited with code 0, expected 1");
         let error = replay_error(&format!("{close}\n{}\n{}", exit(0), exit(0))).await;
         assert_eq!(error, "inline.jsonl line 3: the service already exited");
+    }
+
+    /// Écrit une requête sans l'enregistrer dans `sent_ids` : la réponse du serveur porte alors
+    /// l'`id` d'une requête que la transcription n'a pas envoyée (C-26).
+    async fn send_unregistered_ping(run: &mut Run) {
+        run.write_line(r#"{"jsonrpc":"2.0","id":41,"method":"ping"}"#).await.unwrap();
+    }
+
+    const UNKNOWN_ID: &str = "the response does not carry the id of a request (C-26)";
+
+    #[tokio::test]
+    async fn a_violation_during_a_silence_is_reported_as_such() {
+        let mut run = Run::start(Fixture::default().server());
+        send_unregistered_ping(&mut run).await;
+        let error = run.apply(&Step::ExpectSilence(Duration::from_secs(2))).await.unwrap_err();
+        assert!(error.starts_with(UNKNOWN_ID), "{error}");
+        assert_eq!(run.replay.received.len(), 0, "le message fautif n'est pas retenu");
+    }
+
+    #[tokio::test]
+    async fn a_violation_after_the_exit_fails_the_end_of_the_transcript() {
+        let mut run = Run::start(Fixture::default().server());
+        send_unregistered_ping(&mut run).await;
+        let error = run.finish().await.unwrap_err();
+        assert!(error.starts_with(UNKNOWN_ID), "{error}");
+        assert!(run.server.is_none(), "le service s'était bien arrêté avant la lecture");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_service_that_does_not_stop_fails_the_end_of_the_transcript() {
+        let mut run = Run::start(Fixture::default().server());
+        run.server = Some(tokio::spawn(std::future::pending::<Result<ServeOutcome, ServeError>>()));
+        let error = run.finish().await.unwrap_err();
+        assert_eq!(error, "the service did not exit within 5s");
+        assert!(run.write.is_none(), "l'entrée a été fermée avant l'attente");
+    }
+
+    #[tokio::test]
+    async fn a_probe_after_the_end_of_the_input_fails_without_waiting_for_a_reply() {
+        let mut run = Run::start(Fixture::default().server());
+        run.apply(&Step::CloseStdin).await.unwrap();
+        let error = run.apply(&Step::ExpectAlive).await.unwrap_err();
+        assert_eq!(error, "stdin is closed");
+        assert_eq!(run.probes, 1);
+        assert!(run.replay.received.is_empty(), "aucune réponse n'a été lue");
     }
 
     #[tokio::test]

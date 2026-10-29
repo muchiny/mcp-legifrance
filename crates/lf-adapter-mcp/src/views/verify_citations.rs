@@ -286,7 +286,8 @@ mod tests {
         let citations: Vec<CitationCheck> = (0..100).map(heavy).collect();
         let view = VerifyView::from(output(citations, 100));
         let json = serde_json::to_string(&view).unwrap();
-        assert!(json.chars().count() <= 45_000, "{}", json.chars().count());
+        let length = json.chars().count();
+        assert!(length <= 45_000, "{length}");
         let value: Value = serde_json::from_str(&json).unwrap();
         let kept = value["citations"].as_array().unwrap().len();
         assert!(kept > 0 && kept < 100, "{kept}");
@@ -296,6 +297,37 @@ mod tests {
         assert!(value["note"].as_str().unwrap().contains("45,000"));
         // Les citations gardées sont les premières.
         assert!(value["citations"][0]["raw"].as_str().unwrap().starts_with("0 "));
+    }
+
+    #[test]
+    fn the_note_of_the_application_comes_first_when_the_view_shortens_the_list_again() {
+        let heavy = |n: usize| CitationCheck {
+            raw: format!("{n} {}", "x".repeat(300)),
+            note: Some(Note::NoRecord { family: "text", value: "é".repeat(150), date: None }),
+            ..verified()
+        };
+        let citations: Vec<CitationCheck> = (0..100).map(heavy).collect();
+        let mut over = output(citations, 100);
+        let application_note = "List shortened to the first 100 citations.";
+        over.note = Some(application_note.to_owned());
+        let value = json_of(over);
+        // Le retrait a eu lieu plusieurs fois, la note de la vue n'est ajoutée qu'une fois.
+        assert!(value["citations"].as_array().unwrap().len() < 100);
+        assert_eq!(value["note"], format!("{application_note} {FURTHER_NOTE}"));
+    }
+
+    #[test]
+    fn an_empty_list_over_the_cap_has_nothing_to_remove_and_keeps_its_note() {
+        // Aucune citation à retirer : le plafond reste dépassé par la seule note, qui part telle
+        // quelle, sans `truncated` ni note de la vue.
+        let mut over = output(vec![], 0);
+        let long_note = "z".repeat(50_000);
+        over.note = Some(long_note.clone());
+        let value = json_of(over);
+        assert_eq!(value["citations"], json!([]));
+        assert_eq!(value["checked"], 0);
+        assert_eq!(value["note"], long_note);
+        assert!(value.get("truncated").is_none());
     }
 
     #[test]
