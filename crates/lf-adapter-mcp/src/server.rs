@@ -17,6 +17,11 @@
 //!   autres.
 //! - `call_tool` est écrit à la main pour intercepter la panique d'un outil (V-36) : sans cela
 //!   rmcp ne répond rien à la requête, qui reste pendue côté client (`spikes/rmcp-stdio`).
+//! - Les resources, les prompts et les complétions (v0.3, M7) sont écrits à la main aussi
+//!   (`resources.rs`, `prompts.rs`, `completions.rs`) : `#[prompt_handler]` poserait `ttlMs: 0` et
+//!   remplacerait ces méthodes. Les cinq résultats cachables (`tools/list`, `prompts/list`,
+//!   `resources/list`, `resources/templates/list`, `resources/read`) portent `ttlMs` et
+//!   `cacheScope` aux seuls pairs modernes ([`cached`], Q8, 05 §2.3).
 
 use std::{
     any::Any,
@@ -29,6 +34,7 @@ use std::{
 };
 
 use lf_application::{
+    output::complete::CompleteOutput,
     ports::{AuditLog, Clock, LegalCorpus},
     service::LegalService,
 };
@@ -40,7 +46,7 @@ use rmcp::{
         DiscoverResult, GetPromptRequestParams, GetPromptResponse, Implementation,
         ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ListToolsResult,
         PaginatedRequestParams, ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse,
-        ServerCapabilities, ServerConfig, SubscriptionFilter,
+        ReadResourceResult, ServerCapabilities, ServerConfig, SubscriptionFilter,
     },
     service::RequestContext,
     tool_handler,
@@ -159,6 +165,42 @@ fn is_modern(context: &RequestContext<RoleServer>) -> bool {
     context.protocol_version().is_some_and(|version| version >= ProtocolVersion::V_2026_07_28)
 }
 
+/// Un résultat cachable (SEP-2549) : il porte `ttlMs` et `cacheScope`.
+trait Cacheable: Sized {
+    /// Le résultat avec ses indications de cache.
+    fn with_cache_hints(self, ttl_ms: u64, scope: CacheScope) -> Self;
+}
+
+/// Les cinq résultats cachables du serveur (05 §2.3) ; tous ont les mêmes deux constructeurs.
+macro_rules! cacheable {
+    ($($result:ty),+ $(,)?) => {
+        $(impl Cacheable for $result {
+            fn with_cache_hints(self, ttl_ms: u64, scope: CacheScope) -> Self {
+                self.with_ttl_ms(ttl_ms).with_cache_scope(scope)
+            }
+        })+
+    };
+}
+
+cacheable!(
+    ListToolsResult,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
+    ReadResourceResult,
+);
+
+/// `result` avec les indications de cache de Q8 (`ttlMs` d'une heure, `cacheScope` public) si le
+/// pair est de l'ère moderne ; tel quel sinon : rmcp ne retire que `resultType` aux pairs legacy,
+/// pour qui ces champs n'existent pas (05 §2.3).
+fn cached<T: Cacheable>(result: T, context: &RequestContext<RoleServer>) -> T {
+    if is_modern(context) {
+        result.with_cache_hints(CACHE_TTL_MS, CacheScope::Public)
+    } else {
+        result
+    }
+}
+
 /// Futur qui rend la panique du futur interne comme une valeur (`FutureExt::catch_unwind` de
 /// `futures`, sans la dépendance). Le futur interne est boxé : il reste ainsi `Unpin`, sans
 /// `unsafe` ni projection de broches.
@@ -235,11 +277,7 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> ServerHandler for LegifranceServer<C
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
         let listed = ListToolsResult::with_all_items(self.tool_router.list_all());
-        Ok(if is_modern(&context) {
-            listed.with_ttl_ms(CACHE_TTL_MS).with_cache_scope(CacheScope::Public)
-        } else {
-            listed
-        })
+        Ok(cached(listed, &context))
     }
 
     /// `tools/call` : le routeur du champ, avec la panique d'un outil rendue en `-32603`
@@ -261,52 +299,72 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> ServerHandler for LegifranceServer<C
         }
     }
 
+    /// `resources/list` : la resource statique `legifrance://coverage` (05 §8.2).
     async fn list_resources(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
-        Ok(resources::list())
+        Ok(cached(resources::list(), &context))
     }
 
+    /// `resources/templates/list` : les quatre gabarits (05 §8.2).
     async fn list_resource_templates(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, ErrorData> {
-        Ok(resources::list_templates())
+        Ok(cached(resources::list_templates(), &context))
     }
 
+    /// `resources/read` : la lecture auditée sous `resource:<gabarit>` ; introuvable en `-32002`
+    /// (legacy) ou `-32602` (moderne, réécrit par rmcp), URI ou identifiant invalide en `-32602`
+    /// (05 §8.3).
     async fn read_resource(
         &self,
-        _request: ReadResourceRequestParams,
-        _context: RequestContext<RoleServer>,
+        request: ReadResourceRequestParams,
+        context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, ErrorData> {
-        Err(resources::read())
+        let uri = request.uri;
+        // Boxé : la lecture, qui embarque les cas d'usage de lecture, grossit sinon de plus de
+        // 20 kio le futur de `serve_stdio` (clippy::large_futures).
+        let reading = self.service.read_resource(resources::call(&uri), context.ct.cancelled());
+        let output = Box::pin(reading).await.map_err(|failure| resources::error(&uri, &failure))?;
+        Ok(ReadResourceResponse::from(cached(resources::contents(&uri, output), &context)))
     }
 
+    /// `prompts/list` : les trois prompts français (05 §8.5).
     async fn list_prompts(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListPromptsResult, ErrorData> {
-        Ok(prompts::list())
+        Ok(cached(prompts::list(), &context))
     }
 
+    /// `prompts/get` : jamais d'audit ni de cache ; `-32602` pour un nom inconnu ou un argument
+    /// invalide.
     async fn get_prompt(
         &self,
-        _request: GetPromptRequestParams,
+        request: GetPromptRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<GetPromptResponse, ErrorData> {
-        Err(prompts::get())
+        prompts::get(&request.name, request.arguments.as_ref()).map(GetPromptResponse::from)
     }
 
+    /// `completion/complete` : les slugs de codes de la variable `code`, jamais une erreur ni un
+    /// audit (05 §8.4).
     async fn complete(
         &self,
-        _request: CompleteRequestParams,
+        request: CompleteRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CompleteResult, ErrorData> {
-        Ok(completions::complete())
+        let output = match completions::input(&request) {
+            // Boxé comme la lecture de `resources/read` (clippy::large_futures).
+            Some(input) => Box::pin(self.service.complete(input)).await,
+            None => CompleteOutput::empty(),
+        };
+        Ok(completions::result(output))
     }
 }
 
@@ -678,25 +736,519 @@ mod tests {
             assert_eq!(legacy.recv().await["result"]["protocolVersion"], json!("2025-11-25"));
         }
 
-        #[tokio::test]
-        async fn resources_prompts_and_completions_are_empty_stubs() {
-            let client = connect(server()).await;
-            assert_eq!(client.list_all_resources().await.unwrap().len(), 0);
-            assert_eq!(client.list_all_resource_templates().await.unwrap().len(), 0);
-            assert_eq!(client.list_all_prompts().await.unwrap().len(), 0);
-            assert_eq!(client.complete_prompt_simple("any", "arg", "val").await.unwrap().len(), 0);
+        // ---- resources, prompts et complétions (v0.3, M7) ---------------------------------------
+
+        use lf_application::{
+            error::ErrorCode,
+            ports::{AuditStatus, CorpusError},
+        };
+        use lf_domain::{
+            entity::{Act, ArticleText, CodeListing, Decision, OfficialSummary, TextBody},
+            id::{ArticleId, DecisionId, LegiTextId},
+            status::LegalStatus,
+            text::LongText,
+        };
+
+        use crate::testing::{SharedAudit, SharedCorpus};
+
+        const ARTICLE_URI: &str = "legifrance://article/LEGIARTI000006419288";
+        const DECISION_URI: &str = "legifrance://decision/JURITEXT000037999394";
+        const ACT_URI: &str = "legifrance://act/LEGITEXT000006070721";
+        const CODE_ARTICLE_URI: &str = "legifrance://code/code-civil/article/9";
+        const COVERAGE_URI: &str = "legifrance://coverage";
+        const CODE_TEMPLATE: &str = "legifrance://code/{code}/article/{num}";
+        const TEXT: &str = "Chacun a droit au respect de sa vie privée.";
+
+        /// Le serveur de la surface v0.3 sur les doubles de `fixture` : `SURFACE` reste v0.1
+        /// jusqu'à la bascule, mais ces tests éprouvent la surface complète.
+        fn v03_server(fixture: &Fixture) -> FixtureServer {
+            #[expect(
+                clippy::default_trait_access,
+                reason = "chrono n'est pas une dépendance de ce crate : l'instant par défaut est l'époque Unix"
+            )]
+            let now = Default::default();
+            let service = LegalService::new(
+                SharedCorpus(Arc::clone(&fixture.corpus)),
+                SharedAudit(Arc::clone(&fixture.audit)),
+                FixedClock::new(now, fixture.today),
+                fixture.settings.clone(),
+            );
+            LegifranceServer::with_surface(Arc::new(service), Surface::V03)
+        }
+
+        /// Une requête brute : `_meta` moderne complet pour l'ère moderne, rien pour la legacy.
+        fn request(id: u64, method: &str, params: Value, modern: bool) -> Value {
+            let mut params = params;
+            if modern {
+                params["_meta"] = modern_meta("2026-07-28");
+            }
+            json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+        }
+
+        /// Un pair de la v0.3 : poignée de main faite en legacy, aucune en moderne (chaque
+        /// requête porte son `_meta`).
+        async fn peer(fixture: &Fixture, modern: bool) -> Wire {
+            let mut wire = Wire::serve(v03_server(fixture));
+            if !modern {
+                wire.handshake().await;
+            }
+            wire
+        }
+
+        /// Pose une question et rend la réponse à son `id`.
+        async fn ask(wire: &mut Wire, id: u64, method: &str, params: Value, modern: bool) -> Value {
+            wire.send(&request(id, method, params, modern)).await;
+            let response = wire.recv().await;
+            assert_eq!(response["id"], json!(id), "{response}");
+            response
+        }
+
+        fn read_params(uri: &str) -> Value {
+            json!({ "uri": uri })
+        }
+
+        fn complete_params(template: &str, variable: &str, typed: &str) -> Value {
+            json!({
+                "ref": {"type": "ref/resource", "uri": template},
+                "argument": {"name": variable, "value": typed}
+            })
+        }
+
+        fn article() -> ArticleText {
+            ArticleText {
+                article_id: ArticleId::parse("LEGIARTI000006419288").unwrap(),
+                num: Some("9".to_owned()),
+                etat: Some(LegalStatus::Vigueur),
+                code_title: Some("Code civil".to_owned()),
+                parent: None,
+                path: Vec::new(),
+                full_sections_titre: None,
+                date_debut: None,
+                date_fin: None,
+                text: LongText::from_plain(TEXT).unwrap(),
+                nota: None,
+            }
+        }
+
+        fn decision() -> Decision {
+            Decision {
+                decision_id: DecisionId::parse("JURITEXT000037999394").unwrap(),
+                ecli: None,
+                num: None,
+                juridiction: Some("Cour de cassation".to_owned()),
+                formation: None,
+                solution: None,
+                numero_affaire: Vec::new(),
+                date_texte: None,
+                nature: None,
+                title: Some("Cass. civ. 1re, 5 juin 2019".to_owned()),
+                text: LongText::from_plain("La Cour rejette le pourvoi.").unwrap(),
+                official_summary: OfficialSummary::default(),
+            }
+        }
+
+        fn act() -> Act {
+            Act {
+                text_id: LegiTextId::parse("LEGITEXT000006070721").unwrap(),
+                body: TextBody { title: Some("Code civil".to_owned()), ..TextBody::default() },
+            }
+        }
+
+        fn codes() -> Vec<CodeListing> {
+            ["Code civil", "Code du travail", "Code de la sécurité sociale"]
+                .into_iter()
+                .map(|title| CodeListing {
+                    id: LegiTextId::parse("LEGITEXT000006070721").unwrap(),
+                    title: title.to_owned(),
+                    etat: Some(LegalStatus::Vigueur),
+                })
+                .collect()
         }
 
         #[tokio::test]
-        async fn reading_a_resource_is_not_found_and_getting_a_prompt_is_invalid_params() {
-            let client = connect(server()).await;
-            // Le client en processus négocie l'ère legacy : -32002. L'ère moderne rend -32602
-            // (SEP-2164) ; V3-07 fige le code par ère.
-            let read = client
-                .read_resource(ReadResourceRequestParams::new("legifrance://coverage"))
+        async fn v03_announces_resources_prompts_and_completions_in_both_eras() {
+            let all = json!({"tools": {}, "resources": {}, "prompts": {}, "completions": {}});
+            let mut legacy = Wire::serve(v03_server(&Fixture::default()));
+            let initialized = legacy_initialize(&mut legacy).await;
+            assert_eq!(initialized["capabilities"], all, "{initialized}");
+
+            let mut modern = Wire::serve(v03_server(&Fixture::default()));
+            let discovered = modern_discover(&mut modern).await;
+            assert_eq!(discovered["capabilities"], all, "{discovered}");
+        }
+
+        #[tokio::test]
+        async fn the_lists_describe_the_resource_the_templates_and_the_prompts() {
+            let fixture = Fixture::default();
+            let mut wire = peer(&fixture, false).await;
+
+            let resources = ask(&mut wire, 2, "resources/list", json!({}), false).await;
+            let listed = resources["result"]["resources"].as_array().unwrap();
+            assert_eq!(listed.len(), 1, "{resources}");
+            assert_eq!(listed[0]["uri"], json!(COVERAGE_URI));
+            assert_eq!(listed[0]["mimeType"], json!("application/json"));
+
+            let templates = ask(&mut wire, 3, "resources/templates/list", json!({}), false).await;
+            let listed = templates["result"]["resourceTemplates"].as_array().unwrap();
+            let uris: Vec<&str> =
+                listed.iter().map(|template| template["uriTemplate"].as_str().unwrap()).collect();
+            assert_eq!(
+                uris,
+                [
+                    "legifrance://article/{article_id}",
+                    "legifrance://decision/{decision_id}",
+                    "legifrance://act/{text_id}",
+                    "legifrance://code/{code}/article/{num}",
+                ]
+            );
+            assert!(listed.iter().all(|template| template["mimeType"] == json!("text/markdown")));
+
+            let prompts = ask(&mut wire, 4, "prompts/list", json!({}), false).await;
+            let names: Vec<&str> = prompts["result"]["prompts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|prompt| prompt["name"].as_str().unwrap())
+                .collect();
+            assert_eq!(names, ["analyser_decision", "verifier_citations", "etat_du_droit"]);
+            // Lister n'exécute rien : ni port, ni audit.
+            assert_eq!((fixture.corpus.calls(), fixture.audit.records().len()), (0, 0));
+        }
+
+        #[tokio::test]
+        async fn resource_read_audited_as_resource_name() {
+            let fixture = Fixture::default();
+            fixture.corpus.push_get_article(Ok(article()));
+            fixture.corpus.push_get_decision(Ok(decision()));
+            fixture.corpus.push_get_act(Ok(act()));
+            fixture.corpus.push_list_codes(Ok(codes()));
+            fixture.corpus.push_find_article(Ok(article()));
+            let mut wire = peer(&fixture, false).await;
+
+            let uris = [COVERAGE_URI, ARTICLE_URI, DECISION_URI, ACT_URI, CODE_ARTICLE_URI];
+            let mut sizes = Vec::new();
+            for (id, uri) in (2..).zip(uris) {
+                let response = ask(&mut wire, id, "resources/read", read_params(uri), false).await;
+                let contents = response["result"]["contents"].as_array().unwrap();
+                assert_eq!(contents.len(), 1, "{response}");
+                assert_eq!(contents[0]["uri"], json!(uri), "{response}");
+                let mime = if uri == COVERAGE_URI { "application/json" } else { "text/markdown" };
+                assert_eq!(contents[0]["mimeType"], json!(mime), "{response}");
+                sizes.push(contents[0]["text"].as_str().unwrap().chars().count());
+            }
+            // Une sixième lecture, sans plus rien en file : le double répond une erreur.
+            let failed = ask(&mut wire, 7, "resources/read", read_params(ARTICLE_URI), false).await;
+            assert!(failed.get("error").is_some(), "{failed}");
+
+            let lines = fixture.audit.records();
+            let names: Vec<&str> = lines.iter().map(|line| line.tool.as_str()).collect();
+            assert_eq!(
+                names,
+                [
+                    "resource:coverage",
+                    "resource:article",
+                    "resource:decision",
+                    "resource:act",
+                    "resource:code_article",
+                    "resource:article",
+                ]
+            );
+            // Les caractères renvoyés, pour un Markdown ; la dernière lecture a échoué : zéro.
+            for index in 1..5 {
+                assert_eq!(lines[index].status, AuditStatus::Ok);
+                assert_eq!(lines[index].output_count_or_size, u64::try_from(sizes[index]).unwrap());
+            }
+            assert_eq!(lines[5].status, AuditStatus::Error);
+            assert_eq!(lines[5].output_count_or_size, 0);
+            assert_eq!(lines[1].input.as_str(), format!("{{\"uri\":\"{ARTICLE_URI}\"}}"));
+        }
+
+        #[tokio::test]
+        async fn resource_not_found_codes_by_era() {
+            for (modern, code) in [(false, -32002), (true, -32602)] {
+                let fixture = Fixture::default();
+                fixture.corpus.push_get_article(Err(CorpusError::NotFound {
+                    what: "/consult/getArticle".into(),
+                }));
+                fixture.corpus.push_list_codes(Ok(codes()));
+                let mut wire = peer(&fixture, modern).await;
+
+                // Un enregistrement introuvable, un code inconnu, puis une URI sans gabarit.
+                let unknown_record = "legifrance://article/LEGIARTI000006419999";
+                let unknown_code = "legifrance://code/code-inconnu/article/9";
+                let unknown_template = "legifrance://unknown/x";
+                for (id, uri) in (2..).zip([unknown_record, unknown_code, unknown_template]) {
+                    let response =
+                        ask(&mut wire, id, "resources/read", read_params(uri), modern).await;
+                    assert_eq!(response["error"]["code"], json!(code), "{uri}: {response}");
+                    assert_eq!(response["error"]["data"], json!({"uri": uri}), "{response}");
+                    // Jamais `contents: []`.
+                    assert!(response.get("result").is_none(), "{response}");
+                }
+
+                // Les deux lectures qui ont exécuté un cas d'usage sont auditées ; l'URI sans
+                // gabarit, qui n'a rien exécuté, ne l'est pas.
+                let lines = fixture.audit.records();
+                let audited: Vec<(&str, AuditStatus, Option<ErrorCode>)> = lines
+                    .iter()
+                    .map(|line| (line.tool.as_str(), line.status, line.error_code))
+                    .collect();
+                assert_eq!(
+                    audited,
+                    [
+                        ("resource:article", AuditStatus::Error, Some(ErrorCode::NotFound)),
+                        ("resource:code_article", AuditStatus::Error, Some(ErrorCode::NotFound)),
+                    ]
+                );
+            }
+        }
+
+        #[tokio::test]
+        async fn malformed_resource_uri() {
+            let long = format!("legifrance://article/{}", "A".repeat(600));
+            for modern in [false, true] {
+                let fixture = Fixture::default();
+                let mut wire = peer(&fixture, modern).await;
+                let outside_grammar = [
+                    "file:///etc/passwd",
+                    "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288",
+                    "legifrance://article/..",
+                    "legifrance://code/../article/9",
+                    "legifrance://article/%2e%2e",
+                    "legifrance://article/%zz",
+                    "legifrance://article/%ff",
+                    "legifrance://article/a b",
+                    "",
+                ];
+                // `-32602` dans les deux ères, avec l'URI ; rien n'est exécuté ni audité.
+                for (id, uri) in (2..).zip(outside_grammar) {
+                    let response =
+                        ask(&mut wire, id, "resources/read", read_params(uri), modern).await;
+                    assert_eq!(response["error"]["code"], json!(-32602), "{uri:?}: {response}");
+                    assert_eq!(response["error"]["data"], json!({"uri": uri}), "{response}");
+                    assert!(response.get("result").is_none(), "{response}");
+                }
+                // Une URI de plus de 512 octets n'est pas recopiée.
+                let response =
+                    ask(&mut wire, 20, "resources/read", read_params(&long), modern).await;
+                assert_eq!(response["error"]["code"], json!(-32602), "{response}");
+                assert!(response["error"].get("data").is_none(), "{response}");
+                assert_eq!((fixture.corpus.calls(), fixture.audit.records().len()), (0, 0));
+
+                // Un identifiant invalide dans un gabarit reconnu : `-32602` aussi, et la lecture,
+                // qui a été tentée, est auditée.
+                for (id, uri) in
+                    [(30, "legifrance://decision/not-an-id"), (31, "legifrance://act/")]
+                {
+                    let response =
+                        ask(&mut wire, id, "resources/read", read_params(uri), modern).await;
+                    assert_eq!(response["error"]["code"], json!(-32602), "{uri}: {response}");
+                    assert_eq!(response["error"]["data"], json!({"uri": uri}), "{response}");
+                }
+                let lines = fixture.audit.records();
+                let audited: Vec<(&str, Option<ErrorCode>)> =
+                    lines.iter().map(|line| (line.tool.as_str(), line.error_code)).collect();
+                assert_eq!(
+                    audited,
+                    [
+                        ("resource:decision", Some(ErrorCode::InvalidArg)),
+                        ("resource:act", Some(ErrorCode::InvalidArg)),
+                    ]
+                );
+                assert_eq!(fixture.corpus.calls(), 0);
+            }
+        }
+
+        #[tokio::test]
+        async fn other_resource_errors_are_internal_errors_with_the_tool_text() {
+            let fixture = Fixture::default();
+            // Rien de programmé : le double répond une erreur, que la lecture rend en `-32603`.
+            let mut wire = peer(&fixture, false).await;
+
+            let response =
+                ask(&mut wire, 2, "resources/read", read_params(ARTICLE_URI), false).await;
+
+            assert_eq!(response["error"]["code"], json!(-32603), "{response}");
+            let message = response["error"]["message"].as_str().unwrap();
+            let lines = fixture.audit.records();
+            assert_eq!(lines.len(), 1);
+            assert_eq!(lines[0].tool.as_str(), "resource:article");
+            let code = lines[0].error_code.unwrap();
+            assert!(message.starts_with(&format!("[{}] ", code.as_str())), "{message}");
+            assert!(response["error"].get("data").is_none(), "{response}");
+        }
+
+        #[tokio::test]
+        async fn ttl_and_cache_scope_modern_only() {
+            let cacheable: [(&str, Value); 5] = [
+                ("tools/list", json!({})),
+                ("prompts/list", json!({})),
+                ("resources/list", json!({})),
+                ("resources/templates/list", json!({})),
+                ("resources/read", read_params(COVERAGE_URI)),
+            ];
+            let not_cacheable: [(&str, Value); 2] = [
+                ("prompts/get", json!({"name": "etat_du_droit"})),
+                ("completion/complete", complete_params(CODE_TEMPLATE, "code", "c")),
+            ];
+            for modern in [true, false] {
+                let fixture = Fixture::default();
+                fixture.corpus.push_list_codes(Ok(codes()));
+                let mut wire = peer(&fixture, modern).await;
+                for (id, (method, params)) in (2..).zip(&cacheable) {
+                    let response = ask(&mut wire, id, method, params.clone(), modern).await;
+                    let result = response["result"].as_object().unwrap();
+                    if modern {
+                        assert_eq!(result["ttlMs"], json!(3_600_000), "{method}: {response}");
+                        assert_eq!(result["cacheScope"], json!("public"), "{method}: {response}");
+                        assert_eq!(result["resultType"], json!("complete"), "{method}: {response}");
+                    } else {
+                        for key in ["ttlMs", "cacheScope", "resultType"] {
+                            assert!(!result.contains_key(key), "{method} {key}: {response}");
+                        }
+                    }
+                }
+                // `prompts/get` et `completion/complete` ne sont jamais cachables (05 §2.3).
+                for (id, (method, params)) in (20..).zip(&not_cacheable) {
+                    let response = ask(&mut wire, id, method, params.clone(), modern).await;
+                    let result = response["result"].as_object().unwrap();
+                    for key in ["ttlMs", "cacheScope"] {
+                        assert!(!result.contains_key(key), "{method} {key}: {response}");
+                    }
+                }
+            }
+        }
+
+        #[tokio::test]
+        async fn prompts_over_the_wire_in_both_eras() {
+            for modern in [false, true] {
+                let fixture = Fixture::default();
+                let mut wire = peer(&fixture, modern).await;
+
+                let wanted = json!({
+                    "name": "analyser_decision",
+                    "arguments": {"decision_id": "JURITEXT000037999394"}
+                });
+                let got = ask(&mut wire, 2, "prompts/get", wanted, modern).await;
+                let message = &got["result"]["messages"][0];
+                assert_eq!(message["role"], json!("user"), "{got}");
+                assert_eq!(message["content"]["type"], json!("text"), "{got}");
+                let text = message["content"]["text"].as_str().unwrap();
+                assert!(
+                    text.starts_with("Analyse la décision Légifrance JURITEXT000037999394."),
+                    "{got}"
+                );
+
+                let invalid = [
+                    json!({"name": "analyse"}),
+                    json!({"name": "analyser_decision"}),
+                    json!({"name": "analyser_decision", "arguments": {"decision_id": "x"}}),
+                    json!({"name": "etat_du_droit", "arguments": {"question": "bail"}}),
+                ];
+                for (id, params) in (3..).zip(invalid) {
+                    let response = ask(&mut wire, id, "prompts/get", params.clone(), modern).await;
+                    assert_eq!(response["error"]["code"], json!(-32602), "{params}: {response}");
+                    assert!(response.get("result").is_none(), "{response}");
+                }
+                // Un prompt n'est pas un outil : ni port, ni audit.
+                assert_eq!((fixture.corpus.calls(), fixture.audit.records().len()), (0, 0));
+            }
+        }
+
+        #[tokio::test]
+        async fn completion_only_for_code_variable_over_the_wire() {
+            let fixture = Fixture::default();
+            fixture.corpus.push_list_codes(Ok(codes()));
+            let mut wire = peer(&fixture, false).await;
+
+            // Les slugs, préfixes d'abord ; `total` et `hasMore` renseignés.
+            let params = complete_params(CODE_TEMPLATE, "code", "code-d");
+            let response = ask(&mut wire, 2, "completion/complete", params, false).await;
+            let completion = &response["result"]["completion"];
+            assert_eq!(
+                completion["values"],
+                json!(["code-de-la-securite-sociale", "code-du-travail"]),
+                "{response}"
+            );
+            assert_eq!(completion["total"], json!(2), "{response}");
+            assert_eq!(completion["hasMore"], json!(false), "{response}");
+            assert_eq!(fixture.corpus.calls_of("list_codes"), 1);
+
+            // Toute autre variable, tout autre gabarit, tout prompt : liste vide, sans port.
+            let empty_cases = [
+                complete_params(CODE_TEMPLATE, "num", "9"),
+                complete_params("legifrance://article/{article_id}", "article_id", "LEGI"),
+                complete_params("legifrance://article/{article_id}", "code", "c"),
+                json!({
+                    "ref": {"type": "ref/prompt", "name": "analyser_decision"},
+                    "argument": {"name": "decision_id", "value": "JURI"}
+                }),
+            ];
+            for (id, params) in (3..).zip(empty_cases) {
+                let response =
+                    ask(&mut wire, id, "completion/complete", params.clone(), false).await;
+                assert_eq!(
+                    response["result"]["completion"]["values"],
+                    json!([]),
+                    "{params}: {response}"
+                );
+                assert!(response.get("error").is_none(), "{response}");
+            }
+            assert_eq!(fixture.corpus.calls(), 1);
+            // Les complétions ne sont pas auditées.
+            assert_eq!(fixture.audit.records().len(), 0);
+        }
+
+        #[tokio::test]
+        async fn completions_are_rate_limited() {
+            let fixture = Fixture::default();
+            for _ in 0..30 {
+                fixture.corpus.push_list_codes(Ok(codes()));
+            }
+            let mut wire = peer(&fixture, false).await;
+
+            let mut served = Vec::new();
+            for id in 2..32 {
+                let params = complete_params(CODE_TEMPLATE, "code", "");
+                let response = ask(&mut wire, id, "completion/complete", params, false).await;
+                // Jamais une erreur : au-delà du débit, une liste vide.
+                assert!(response.get("error").is_none(), "{response}");
+                let values = response["result"]["completion"]["values"].as_array().unwrap();
+                served.push(!values.is_empty());
+            }
+
+            // Dix par seconde pour le processus : les premières passent, les dernières non, et
+            // un seau qui se remplit à 10 par seconde ne laisse pas passer les trente.
+            assert!(served[..10].iter().all(|ok| *ok), "{served:?}");
+            assert!(!served[29], "{served:?}");
+            let passed = served.iter().filter(|ok| **ok).count();
+            assert!((10..30).contains(&passed), "{passed} : {served:?}");
+            assert_eq!(fixture.corpus.calls_of("list_codes"), passed);
+        }
+
+        #[tokio::test]
+        async fn the_in_process_client_lists_reads_and_completes() {
+            let fixture = Fixture::default();
+            fixture.corpus.push_list_codes(Ok(codes()));
+            let client = connect(v03_server(&fixture)).await;
+            let info = client.peer_info().expect("le serveur s'est présenté");
+            assert!(info.capabilities.resources.is_some());
+            assert!(info.capabilities.prompts.is_some());
+            assert!(info.capabilities.completions.is_some());
+
+            assert_eq!(client.list_all_resources().await.unwrap().len(), 1);
+            assert_eq!(client.list_all_resource_templates().await.unwrap().len(), 4);
+            assert_eq!(client.list_all_prompts().await.unwrap().len(), 3);
+            let read =
+                client.read_resource(ReadResourceRequestParams::new(COVERAGE_URI)).await.unwrap();
+            assert_eq!(read.contents.len(), 1);
+
+            // Le client en processus négocie l'ère legacy : -32002.
+            let missing = client
+                .read_resource(ReadResourceRequestParams::new("legifrance://unknown/x"))
                 .await
                 .unwrap_err();
-            assert_eq!(read.to_string(), "Mcp error: -32002: resource not found");
+            assert!(missing.to_string().starts_with("Mcp error: -32002: "), "{missing}");
             let prompt =
                 client.get_prompt(GetPromptRequestParams::new("anything")).await.unwrap_err();
             assert_eq!(prompt.to_string(), "Mcp error: -32602: unknown prompt");
