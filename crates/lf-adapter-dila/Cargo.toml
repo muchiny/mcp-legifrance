@@ -9,11 +9,8 @@ repository.workspace = true
 publish.workspace = true
 
 [package.metadata.cargo-machete]
-# Employées par l'ingestion et l'index de M9 (V2-15, V3-08)
-ignored = [
-  "lf-application", "lf-domain", "tantivy", "quick-xml", "tar", "flate2", "tokio", "tracing",
-  "thiserror", "tempfile",
-]
+# Employées par l'index et le port de M9 (V3-08) ; l'ingestion (V2-15) n'écrit aucun journal.
+ignored = ["lf-application", "tantivy", "tokio", "tracing"]
 
 [dependencies]
 lf-application.workspace = true

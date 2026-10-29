@@ -29,7 +29,6 @@ use crate::citation::types::{Ambiguity, CitationKind, CitationRef, Confidence, F
 
 /// Ce qu'un candidat porte en plus de sa valeur : de quoi remplir `Spanned` à l'arbitrage.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
-#[allow(dead_code, reason = "STUB(V0) → V2-13 : lu par `post::arbitrate`")]
 pub(crate) struct Flags {
     /// Drapeaux de contrôle syntaxique.
     pub list: Vec<Flag>,
@@ -45,7 +44,6 @@ pub(crate) struct Flags {
 
 /// Une citation proposée par une grammaire, avant arbitrage.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[allow(dead_code, reason = "STUB(V0) → V2-13 : lu par `post::arbitrate`")]
 pub(crate) struct Candidate {
     /// Plage en octets du texte d'origine.
     pub range: Range<usize>,
@@ -62,7 +60,6 @@ pub(crate) struct Candidate {
 /// Priorité de départage à longueur de span égale (annexe B §4.16) : `Ecli` > `LegifranceId` >
 /// `Eli` > `Nor` > `Decision` > `CnilDeliberation` > `Convention` > `Jorf` > `TextArticle` >
 /// `Text` > `CodeArticle` > `Unsupported`. Plus la valeur est grande, plus la famille l'emporte.
-#[allow(dead_code, reason = "STUB(V0) → V2-10 : employé par `Candidate::new` des grammaires")]
 pub(crate) const fn priority_of(kind: CitationKind) -> u8 {
     match kind {
         CitationKind::Ecli => 12,
@@ -82,7 +79,6 @@ pub(crate) const fn priority_of(kind: CitationKind) -> u8 {
 
 impl Candidate {
     /// Candidat de confiance haute, sans drapeau, à la priorité de sa famille.
-    #[allow(dead_code, reason = "STUB(V0) → V2-10 : employé par les grammaires")]
     pub(crate) fn new(range: Range<usize>, value: CitationRef) -> Self {
         Self {
             range,

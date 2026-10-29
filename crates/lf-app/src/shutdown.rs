@@ -1,10 +1,5 @@
 //! Signaux du processus (SIGINT, SIGTERM) convertis en `CancellationToken` d'arrêt.
 
-#![allow(
-    dead_code,
-    reason = "consommé par la racine de composition (V2-04, `wiring::run`) ; retirer à ce moment"
-)]
-
 use tokio_util::sync::CancellationToken;
 
 /// Jeton annulé à la réception d'un signal d'arrêt : SIGINT ou SIGTERM sous Unix, Ctrl+C,

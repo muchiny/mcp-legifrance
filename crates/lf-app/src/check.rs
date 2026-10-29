@@ -15,8 +15,6 @@
 //! `impl io::Write` que l'appelant ouvre sur `io::stdout().lock()`, ce que `clippy::print_stdout`
 //! ne voit pas (02 §3.7, piège 3).
 
-#![allow(dead_code, reason = "binaire sans appelant avant le câblage de `main` (V2-04)")]
-
 use std::{fmt::Write as _, io, process::ExitCode};
 
 use lf_adapter_piste::PisteCorpus;

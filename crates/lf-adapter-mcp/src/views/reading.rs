@@ -4,10 +4,6 @@
 //! `fr_get_deliberation` : chaque outil l'aplatit (`#[serde(flatten)]`) dans sa propre vue, après
 //! ses métadonnées. Elle est construite depuis la [`Reading`] de l'application ; les champs
 //! absents ne sont pas sérialisés.
-#![allow(
-    dead_code,
-    reason = "STUB(V0) → V2-01, V2-02, V2-03 : aplatie dans les vues des trois lectures"
-)]
 
 use lf_application::budget::{PassageOut, Reading};
 use lf_domain::text::{SummarySource, window};

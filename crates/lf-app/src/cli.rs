@@ -9,11 +9,6 @@
 //! Aucune option ne porte un secret : un argument de ligne de commande se lit dans `ps`. La
 //! configuration vient de l'environnement (`config.rs`). `serve-http` (M8) n'existe pas encore.
 
-#![allow(
-    dead_code,
-    reason = "consommé par la racine de composition (V2-04, `wiring::run`) ; retirer à ce moment"
-)]
-
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 /// Arguments du binaire `mcp-legifrance`.

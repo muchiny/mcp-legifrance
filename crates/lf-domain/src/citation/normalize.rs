@@ -18,8 +18,6 @@
 //! idempotente (§3.5). Pour la même raison, la NFC est rejouée après la table : un `ʳ` suivi
 //! d'une marque devient `r` + marque, qui se compose.
 
-#![allow(dead_code, reason = "STUB(V0) → V2-10 : lu par les grammaires et par `post::arbitrate`")]
-
 use std::borrow::Cow;
 use std::ops::Range;
 
@@ -79,6 +77,10 @@ pub(crate) struct Normalized {
     /// Vrai si l'étape 1 a réparé le texte (drapeau `mojibake_repare`).
     pub mojibake_repaired: bool,
     /// Vrai si l'entrée dépassait [`MAX_INPUT_BYTES`] et a été coupée.
+    #[allow(
+        dead_code,
+        reason = "aucune sortie du pipeline ne signale la troncature ; lu par les tests"
+    )]
     pub truncated: bool,
     /// Table d'offsets : texte normalisé vers texte d'origine.
     offsets: OffsetMap,
@@ -442,6 +444,10 @@ impl Normalized {
     }
 
     /// Offset dans `key` du caractère qui commence à l'offset `text_offset` de `text`.
+    #[allow(
+        dead_code,
+        reason = "réciproque de `key_to_text`, que les grammaires n'emploient pas ; lue par les tests"
+    )]
     pub(crate) fn text_to_key(&self, text_offset: usize) -> Option<usize> {
         if text_offset == self.text.len() {
             return Some(self.key.len());

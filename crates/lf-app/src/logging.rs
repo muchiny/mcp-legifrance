@@ -4,11 +4,6 @@
 //! plafonne `rmcp` à `warn`, car rmcp journalise en `debug` la réponse complète de chaque
 //! appel, donc les arguments et le texte des outils.
 
-#![allow(
-    dead_code,
-    reason = "consommé par la racine de composition (V2-04, `wiring::run`) ; retirer à ce moment"
-)]
-
 use tracing_subscriber::{
     EnvFilter,
     filter::LevelFilter,
@@ -35,6 +30,10 @@ pub(crate) enum FilterNote {
 #[derive(Debug)]
 pub(crate) struct LogPlan {
     /// Directives du filtre effectif.
+    #[allow(
+        dead_code,
+        reason = "lu par les tests du filtre seulement ; `main` n'emploie que `filter` et `notes`"
+    )]
     pub(crate) directives: String,
     /// Filtre construit à partir des directives.
     pub(crate) filter: EnvFilter,

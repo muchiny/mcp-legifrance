@@ -1,11 +1,6 @@
 //! `SystemClock` : implémentation du port `Clock` sur l'heure murale. Seul lieu où l'horloge
 //! système est lue (`clippy.toml`, `disallowed-methods`).
 
-#![allow(
-    dead_code,
-    reason = "consommé par la racine de composition (V2-04, `wiring::run`) ; retirer à ce moment"
-)]
-
 use chrono::{DateTime, Datelike, Offset, TimeZone, Utc};
 use lf_application::ports::Clock;
 use lf_domain::date::{CivilDate, VersionDate};

@@ -9,8 +9,10 @@ repository.workspace = true
 publish.workspace = true
 
 [package.metadata.cargo-machete]
-# Grammaires et balayage du parseur de citations, employés par V2-10 à V2-13
-ignored = ["winnow", "aho-corasick", "regex"]
+# winnow : déclaré en 0B, mais les grammaires de V2-10 à V2-12 sont écrites à la main (curseur
+# sur une vue en caractères). À retirer en F1 si aucune unité ne l'emploie. aho-corasick et regex
+# servent à `find_anchors` (V2-13).
+ignored = ["winnow"]
 
 [dependencies]
 thiserror.workspace = true

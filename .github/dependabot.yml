@@ -17,3 +17,10 @@ updates:
       interval: weekly
     cooldown:
       default-days: 14
+  # Outil `mcpb` du paquet MCPB (packaging/mcpb/cli/package-lock.json, V2-16).
+  - package-ecosystem: npm
+    directory: /packaging/mcpb/cli
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14

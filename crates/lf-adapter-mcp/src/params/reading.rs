@@ -6,10 +6,6 @@
 //! sont des `Option` : la validation (bornes, ordre, messages de
 //! parité) reste au cas d'usage (`lf_application::budget::ReadingRequest::parse`), qui produit les
 //! phrases de 05 §7.3. Les entiers passent par [`lenient::opt_int`](crate::lenient::opt_int).
-#![allow(
-    dead_code,
-    reason = "STUB(V0) → V2-01, V2-02, V2-03 : aplati dans les paramètres des trois lectures longues"
-)]
 
 use lf_application::input::ReadingInput;
 use schemars::JsonSchema;

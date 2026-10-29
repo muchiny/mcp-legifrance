@@ -16,8 +16,6 @@
 //!   Les messages ne citent que des noms de variables et des bornes.
 //! - Aucune lecture de fichier (`piste.env` compris, ADR-0005).
 
-#![allow(dead_code, reason = "binaire sans appelant avant le câblage de `main` (V2-04)")]
-
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,

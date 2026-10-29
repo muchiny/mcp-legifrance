@@ -56,17 +56,18 @@ github-attestations-filters = [
 # dist appelle un job de `plan-jobs` en parallèle de `plan`, sans l'entrée `plan`, et aussi sur
 # les PR : release-gates.yml se limite donc aux étiquettes (`github.ref_type == 'tag'`).
 plan-jobs = ["./release-gates"]
-# À l'intégration de V2-16, dont les workflows n'existent pas encore (actionlint refuse un
-# `uses:` vers un fichier absent) : ajouter ces trois lignes, les trois permissions ci-dessous
-# (build-mcpb : contents = "read" ; publish-oci : contents = "read", packages = "write",
-# id-token = "write", attestations = "write" ; publish-mcp-registry : contents = "read",
-# id-token = "write"), puis `dist generate`.
-#   global-artifacts-jobs = ["./build-mcpb"]
-#   publish-jobs = ["./publish-oci"]
-#   post-announce-jobs = ["./publish-mcp-registry"]
+# Workflows de V2-16 : MCPB (artefact global), image OCI (publication), registre MCP (après
+# l'annonce). Leurs permissions sont déclarées ci-dessous ; `release.yml` est généré par
+# `dist generate`.
+global-artifacts-jobs = ["./build-mcpb"]
+publish-jobs = ["./publish-oci"]
+post-announce-jobs = ["./publish-mcp-registry"]
 
 [dist.github-custom-job-permissions]
 "release-gates" = { contents = "read" }
+"build-mcpb" = { contents = "read" }
+"publish-oci" = { contents = "read", packages = "write", id-token = "write", attestations = "write" }
+"publish-mcp-registry" = { contents = "read", id-token = "write" }
 
 # Épinglage des actions du workflow généré par SHA complet (D-44, 08 §3.7). Mêmes SHA que ci.yml
 # pour checkout (v7.0.1), upload-artifact (v7.0.2) et download-artifact (v8.0.2) ; attest v4.2.2

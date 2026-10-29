@@ -13,8 +13,8 @@ categories.workspace = true
 publish.workspace = true
 
 [package.metadata.cargo-machete]
-# Employées par la racine de composition (V2-04, `wiring.rs`) et par V4-02 (`dila`)
-ignored = ["anyhow", "lf-adapter-audit", "lf-adapter-cache", "lf-adapter-dila", "lf-adapter-mcp"]
+# lf-adapter-dila : dépendance optionnelle, employée par V4-02 (feature `dila`)
+ignored = ["lf-adapter-dila"]
 
 [features]
 # M9 : source locale DILA. Absente des binaires publiés (plan fin-du-projet, M9).
