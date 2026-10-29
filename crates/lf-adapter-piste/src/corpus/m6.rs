@@ -12,11 +12,13 @@
 //!   un hit et dont l'absence est une liste vide (l'IDCC retombe sur la recherche si la
 //!   consultation échoue sur un identifiant inconnu : l'API répond alors 500).
 //! - **`list_codes`** : `/list/code` paginé par 100, chargé paresseusement dans la table unique
-//!   (`CodeTable`, 7 jours).
+//!   (`CodeTable`, 7 jours), sans doublon ; un parcours dont les pages se recoupent est repris, au
+//!   plus trois fois, et les parcours s'ajoutent (pagination instable de la sandbox).
 //!
 //! Le corps d'une recherche est construit, et sa requête de cadrage assemblée, **avant** tout
 //! appel : une garde défensive franchie ne coûte ni requête ni jeton (`InvalidRequest`).
 
+use std::collections::HashSet;
 use std::num::NonZeroU32;
 use std::pin::pin;
 
@@ -44,6 +46,10 @@ const MAX_ARTICLE_PAGES: u32 = 3;
 
 /// Nombre maximal de pages de `/list/code` (04 §7.3) : 1 000 codes, dix fois ce qui existe.
 const MAX_CODE_PAGES: u32 = 10;
+
+/// Nombre maximal de parcours de `/list/code` quand les pages d'un parcours se recoupent : trois
+/// parcours de deux pages tiennent en six requêtes, soit six secondes au quota de la sandbox.
+const MAX_CODE_PASSES: u32 = 3;
 
 impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     /// Article d'un texte par son numéro : `getArticleWithIdAndNum` pour [`ArticleAt::Today`],
@@ -241,13 +247,42 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
         Ok(table.to_vec())
     }
 
-    /// Toutes les pages de `/list/code`, jusqu'à `totalResultNumber` (au plus [`MAX_CODE_PAGES`]).
+    /// Table des codes de `/list/code`, sans doublon, dans l'ordre où les codes arrivent.
+    ///
+    /// La pagination de la sandbox n'est pas stable d'un appel à l'autre (mesure du 2026-10-29,
+    /// F2 : deux pages de 100 et de 8 pour 108 codes ne rendaient que 104 codes distincts, le Code
+    /// civil manquait, et `sort: TITLE_ASC` n'y ordonne rien). Un parcours dont une page répète un
+    /// code déjà reçu est donc incomplet : l'union des parcours le complète, au plus
+    /// [`MAX_CODE_PASSES`] fois. Un parcours sans répétition qui atteint le total annoncé a toutes
+    /// ses entrées distinctes, il est complet et rien n'est rejoué.
     ///
     /// # Errors
     ///
     /// Celles de `fetch` : une page qui échoue fait échouer le chargement, rien n'est gardé.
     async fn load_codes(&self) -> Result<Vec<CodeListing>, CorpusError> {
         let mut codes = Vec::new();
+        for _ in 0..MAX_CODE_PASSES {
+            if !self.load_code_pass(&mut codes).await? {
+                return Ok(codes);
+            }
+        }
+        tracing::warn!(
+            passes = MAX_CODE_PASSES,
+            "list/code pages keep repeating codes: serving the union of the traversals"
+        );
+        Ok(codes)
+    }
+
+    /// Un parcours de `/list/code` jusqu'à `totalResultNumber` (au plus [`MAX_CODE_PAGES`]
+    /// pages) : ajoute à `codes` les codes qu'il ne contient pas encore. Rend `true` si une page
+    /// de ce parcours a répété un code déjà reçu pendant ce même parcours.
+    ///
+    /// # Errors
+    ///
+    /// Celles de `fetch`.
+    async fn load_code_pass(&self, codes: &mut Vec<CodeListing>) -> Result<bool, CorpusError> {
+        let mut in_pass = HashSet::new();
+        let mut repeated = false;
         let mut received = 0_usize;
         for page in 1..=MAX_CODE_PAGES {
             let loaded = self
@@ -259,14 +294,19 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
                 )
                 .await?;
             received = received.saturating_add(loaded.received);
-            codes.extend(loaded.listings);
+            for listing in loaded.listings {
+                repeated |= !in_pass.insert(listing.id.clone());
+                if !codes.iter().any(|known| known.id == listing.id) {
+                    codes.push(listing);
+                }
+            }
             let full = loaded.received >= request::CODE_PAGE_SIZE as usize;
             let more = loaded.total.is_none_or(|total| (received as u64) < total);
             if !(full && more) {
                 break;
             }
         }
-        Ok(codes)
+        Ok(repeated)
     }
 }
 
@@ -1038,22 +1078,87 @@ mod tests {
         assert_eq!(bodies(&rig, "/list/code").await.len(), 1);
     }
 
+    /// Page de 100 codes distincts : les numéros `first` à `first + 99`.
+    fn numbered_page(first: u64, total: u64) -> String {
+        let entries: Vec<Value> = (first..first + 100)
+            .map(|n| json!({"id": format!("LEGITEXT{n:012}"), "titre": format!("Code {n}")}))
+            .collect();
+        json!({"totalResultNumber": total, "results": entries}).to_string()
+    }
+
     #[tokio::test]
     async fn list_codes_never_asks_for_more_than_ten_pages() {
         let rig = Rig::new().await;
         token_mock(&rig.server, "tok-1", 1).await;
-        let entries: Vec<Value> = (1..=100_u64)
-            .map(|n| json!({"id": format!("LEGITEXT{n:012}"), "titre": format!("Code {n}")}))
-            .collect();
-        let page = json!({"totalResultNumber": 5_000, "results": entries}).to_string();
-        Mock::given(method("POST"))
-            .and(path(route("/list/code")))
-            .respond_with(json_reply(200, &page))
-            .expect(10)
-            .mount(&rig.server)
-            .await;
+        // Dix pages de codes tous distincts pour un total annoncé de 5 000 : le plafond de pages
+        // s'applique, et aucune répétition ne déclenche de second parcours.
+        for page in 1..=10_u32 {
+            let first = u64::from(page) * 100 - 99;
+            let reply = json_reply(200, &numbered_page(first, 5_000));
+            serve(&rig, "/list/code", &page_request(page), reply, 1).await;
+        }
 
         assert_eq!(rig.corpus.list_codes().await.unwrap().len(), 1_000);
+        assert_eq!(bodies(&rig, "/list/code").await.len(), 10);
+    }
+
+    /// Deuxième page de `PAGE_2` dont les quatre premiers codes sont ceux de la première page :
+    /// ce que la sandbox a rendu le 2026-10-29 (104 codes distincts pour 108 annoncés, le Code
+    /// civil manquait).
+    fn overlapping_page_2() -> String {
+        let first: Value = serde_json::from_str(PAGE_1).unwrap();
+        let mut second: Value = serde_json::from_str(PAGE_2).unwrap();
+        for index in 0..4 {
+            second["results"][index] = first["results"][index].clone();
+        }
+        second.to_string()
+    }
+
+    #[tokio::test]
+    async fn list_codes_completes_a_traversal_whose_pages_overlap() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        // Premier parcours : la seconde page répète quatre codes de la première (104 distincts).
+        serve(&rig, "/list/code", &page_request(1), json_reply(200, PAGE_1), 1).await;
+        serve(&rig, "/list/code", &page_request(2), json_reply(200, &overlapping_page_2()), 1)
+            .await;
+        // Second parcours : les pages sont disjointes, les 108 codes y sont.
+        serve(&rig, "/list/code", &page_request(1), json_reply(200, PAGE_1), 1).await;
+        serve(&rig, "/list/code", &page_request(2), json_reply(200, PAGE_2), 1).await;
+
+        let codes = rig.corpus.list_codes().await.unwrap();
+
+        assert_eq!(codes.len(), 108);
+        let distinct: HashSet<&LegiTextId> = codes.iter().map(|code| &code.id).collect();
+        assert_eq!(distinct.len(), 108);
+        assert!(distinct.contains(&civil_code()));
+        // Deux parcours de deux pages, pas un de plus : le second est sans répétition.
+        assert_eq!(bodies(&rig, "/list/code").await.len(), 4);
+    }
+
+    #[tokio::test]
+    async fn list_codes_gives_up_after_three_traversals_and_serves_their_union() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        // Chaque parcours rend 100 codes puis 4 nouveaux et 4 répétés : 104 distincts pour 108.
+        let first_four = |page: String| -> Vec<Value> {
+            let page: Value = serde_json::from_str(&page).unwrap();
+            page["results"].as_array().unwrap().iter().take(4).cloned().collect()
+        };
+        let mut results = first_four(numbered_page(101, 108));
+        results.extend(first_four(numbered_page(1, 108)));
+        let page_2 = json!({"totalResultNumber": 108, "results": results}).to_string();
+        serve(&rig, "/list/code", &page_request(1), json_reply(200, &numbered_page(1, 108)), 3)
+            .await;
+        serve(&rig, "/list/code", &page_request(2), json_reply(200, &page_2), 3).await;
+
+        let codes = rig.corpus.list_codes().await.unwrap();
+
+        assert_eq!(codes.len(), 104);
+        // Trois parcours de deux pages, puis la table est servie telle quelle (et gardée).
+        assert_eq!(bodies(&rig, "/list/code").await.len(), 6);
+        assert_eq!(rig.corpus.list_codes().await.unwrap(), codes);
+        assert_eq!(bodies(&rig, "/list/code").await.len(), 6);
     }
 
     #[tokio::test]
