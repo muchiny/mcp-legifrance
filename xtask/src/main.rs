@@ -6,6 +6,8 @@ use xtask::{
     arch::{inherits_workspace_lints, violations, workspace_packages},
     args::utf8_args,
     graph::{graph_violations, resolved_graph},
+    instructions,
+    lock_descriptors::{self, LockMode},
     record::example_command,
 };
 
@@ -81,7 +83,12 @@ fn main() -> ExitCode {
     let result = match args.get(1).map(String::as_str) {
         Some("record-fixture") => return record_fixture(&args[2..]),
         Some("check-arch") => check_arch(),
-        _ => Err("usage: cargo xtask check-arch | record-fixture <arguments>".into()),
+        Some("lock-descriptors") => LockMode::from_args(&args[2..]).and_then(lock_descriptors::run),
+        Some("instructions-size") if args.len() == 2 => instructions::run(),
+        _ => Err("usage: cargo xtask check-arch | record-fixture <arguments> | \
+                  lock-descriptors [--check | --update | --compare <ref-git>] | \
+                  instructions-size"
+            .into()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
