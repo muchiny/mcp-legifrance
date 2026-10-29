@@ -132,6 +132,19 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
     }
 }
 
+/// Clone manuel, car `derive` exigerait `C: Clone`, `A: Clone` et `K: Clock + Clone` alors que la
+/// façade est partagée par `Arc`. Il sert la fabrique sans état du transport HTTP (M8), appelée à
+/// chaque requête : on clone un prototype dont le routeur est construit une fois (02 §3.6, 05 §10.1).
+impl<C: LegalCorpus, A: AuditLog, K: Clock> Clone for LegifranceServer<C, A, K> {
+    fn clone(&self) -> Self {
+        Self {
+            service: Arc::clone(&self.service),
+            info: self.info.clone(),
+            tool_router: self.tool_router.clone(),
+        }
+    }
+}
+
 /// Capacités de la surface (05 §2.2) : les outils seuls en v0.1 et v0.2, plus les resources, les
 /// prompts et les complétions en v0.3. Jamais `listChanged`, `subscribe`, `logging`,
 /// `extensions` ni `experimental`.

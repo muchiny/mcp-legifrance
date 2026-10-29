@@ -19,6 +19,8 @@ ignored = ["lf-adapter-dila"]
 [features]
 # M9 : source locale DILA. Absente des binaires publiés (plan fin-du-projet, M9).
 dila = ["dep:lf-adapter-dila"]
+# M8 : sous-commande `serve-http` (profil local, Q4). Absente des binaires publiés.
+http = ["lf-adapter-mcp/http"]
 
 [dependencies]
 lf-domain.workspace = true

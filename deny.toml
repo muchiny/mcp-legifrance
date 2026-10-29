@@ -61,6 +61,7 @@ deny = [
   { crate = "moka", wrappers = ["lf-adapter-cache"], reason = "cache mémoire confiné à l'adapter de cache (R6)" },
   { crate = "sha2", wrappers = ["lf-adapter-audit"], reason = "empreintes de l'audit confinées à l'adapter d'audit (R6)" },
   { crate = "fs4", wrappers = ["lf-adapter-audit", "tantivy"], reason = "verrou de fichier de l'audit (fs4 1.x) ; tantivy tire fs4 0.13 par sa feature `mmap` (D21)" },
+  { crate = "axum", wrappers = ["lf-adapter-mcp"], reason = "serveur HTTP du transport Streamable HTTP confiné à l'adapter MCP (R6, M8)" },
   { crate = "tantivy", wrappers = ["lf-adapter-dila"], reason = "index local confiné à l'adapter DILA (R6, M9)" },
   { crate = "quick-xml", wrappers = ["lf-adapter-dila"], reason = "lecture des dumps XML confinée à l'adapter DILA (R6, M9)" },
   { crate = "tar", wrappers = ["lf-adapter-dila"], reason = "lecture des archives confinée à l'adapter DILA (R6, M9)" },

@@ -16,6 +16,9 @@ ignored = ["rmcp-macros"]
 # Harnais `testing.rs` (client rmcp en processus). Jamais activée en dépendance normale :
 # `cargo xtask check-arch` (R10) ne l'admet que dans les `[dev-dependencies]` des autres membres.
 test-support = ["rmcp/client"]
+# M8 : transport Streamable HTTP (annexe D §5.2), profil local seul. Jamais activée par défaut ni dans
+# les binaires publiés (Q4). `tokio/net` : `TcpListener` de `serve_http`.
+http = ["rmcp/transport-streamable-http-server", "dep:axum", "tokio/net"]
 
 [dependencies]
 lf-application.workspace = true
@@ -31,6 +34,7 @@ tokio = { workspace = true, features = ["io-std", "io-util", "rt", "sync", "time
 tokio-util.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
+axum = { workspace = true, optional = true }
 
 [dev-dependencies]
 lf-application = { workspace = true, features = ["test-support"] }
@@ -38,6 +42,10 @@ insta = { workspace = true, features = ["json"] }
 jsonschema.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 pretty_assertions.workspace = true
+# corps en flux des tests du routeur HTTP (`stream::iter`)
+futures.workspace = true
+# `ServiceExt::oneshot` : tests du routeur HTTP sans socket (06 §6.2) ; jamais reqwest (ban cargo-deny)
+tower.workspace = true
 
 [lints]
 workspace = true

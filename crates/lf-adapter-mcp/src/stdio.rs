@@ -30,6 +30,11 @@ pub enum ServeError {
     /// La tâche de service a paniqué ou a été interrompue.
     #[error("MCP service task failed: {0}")]
     Join(tokio::task::JoinError),
+    /// Écoute impossible (adresse prise ou refusée) ou service HTTP interrompu par une erreur
+    /// d'entrée-sortie (`serve_http`, M8).
+    #[cfg(feature = "http")]
+    #[error("MCP HTTP transport failed: {0}")]
+    Http(std::io::Error),
 }
 
 /// Sert `server` en JSON-RPC sur stdin et stdout jusqu'à l'EOF de stdin ou jusqu'à l'annulation de
