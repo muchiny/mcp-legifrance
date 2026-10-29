@@ -787,8 +787,27 @@ Total : **53 unités**, dont 5 en V0. Largeur parallèle maximale : **16 agents,
 | Sandbox indisponible ou quota | I-R et F2 reportées, V-xx consignées ouvertes ; la PR n'en dépend pas. |
 | Dumps DILA (taille, disponibilité, licence) | LEGI seul, extraits minimaux versionnés ; M9 coupable sans toucher à la v0.1. |
 | Revue allégée qui laisse passer un défaut | Revue sécurité unique en fin, mutation CI des fichiers à risque, scénarios du Review Focus. |
-| Disque (jusqu'à environ 130 Go de builds par vague) | Purge des `t-*` à chaque intégration ; 683 Go libres. |
+| Disque (jusqu'à environ 130 Go de builds par vague) | Purge des `t-*` à chaque intégration. **Mesure l'espace libre du disque C: de Windows, pas celui que `df` voit dans WSL** (§9.1). |
+| La machine WSL s'arrête sans message (disque C: plein) | Contrôle de C: avant chaque étape lourde, 2 unités de compilation au plus, chaque unité supprime sa copie à la fin (§9.1). |
 | Worktrees du harnais placés sous le dépôt (`.claude/worktrees/`), donc vus par `make machete` | Nettoyage (§5.3) avant le contrôle de vague (§5.5). |
+
+### 9.1 Incident du 2026-10-29 et garde-fous de la machine
+
+**Ce qui s'est passé.** Pendant la partie B de la fin (F3), la machine WSL s'est arrêtée quatre fois (18:35, 19:06, 19:58, plus un arrêt propre à 19:21). Les arrêts de 19:06 et de 19:58 sont nets, sans message du noyau : c'est Windows qui coupe la machine virtuelle. Le disque C: de Windows n'avait plus que 0,6 Go libres sur 1 650 Go, alors que `df` dans WSL annonçait 328 Go libres : le disque virtuel (`ext4.vhdx`, 655 Go) est un fichier posé sur C: et sa taille déclarée (1 007 Go) dépasse la place réelle.
+
+**Cause.** Chaque unité de couverture amorçait son dossier de compilation par une copie de la base chaude (22 à 38 Go). En 27 minutes, une exécution a écrit environ 450 Go. Les copies simultanées ont aussi rempli le cache de fichiers (21,5 Go sur 26), ce qui a fait échouer des allocations de mémoire d'un seul bloc (`page allocation failure: order:7`), mais le tueur est le disque C: plein. Deux explications précédentes (copies simultanées, cache mémoire) étaient incomplètes. Vérifié : supprimer les copies côté WSL rend l'espace à Windows (C: de 0,65 à 137,6 Go libres), le disque virtuel se compacte seul.
+
+**Après un arrêt, avant toute reprise :**
+1. `git fsck --no-dangling` sur le dépôt commun, et `find <dépôt commun>/.git/objects -type f -size 0` : un objet vide est un objet écrit au moment de l'arrêt. Supprimer les objets vides, puis recontrôler.
+2. Les branches `worktree-*` d'un run interrompu et leurs espaces sous `.claude/worktrees/` sont supprimés, après avoir sauvé en patch tout commit utile (`git format-patch`). Un run interrompu n'est pas repris par `resumeFromRunId` quand ses résultats en cache désignent des branches supprimées : relancer à neuf.
+3. Les 13 branches d'origine, `main` et la branche de la PR doivent rester lisibles (`git rev-list --objects <branche>`).
+
+**Garde-fous, obligatoires pour tout travail lourd (F3 et mutation locale comprises) :**
+- Avant chaque copie de la base, chaque `make cov` et chaque `cargo mutants` : lire l'espace libre de C: avec `powershell.exe -NoProfile -Command "[math]::Round((Get-PSDrive C).Free/1GB,1)"`. **Moins de 50 Go : s'arrêter, le dire, ne rien relancer.**
+- Au plus **2 unités de compilation à la fois** (au lieu de 4). Une seule copie de la base à la fois, sous `flock /var/tmp/lf-fin/copy.lock`.
+- Chaque unité **supprime son dossier `/var/tmp/lf-fin/t-<id>`** dès son dernier commit : le total des copies vivantes reste sous 60 Go.
+- Une sentinelle surveille C: (alerte sous 50 Go) et la mémoire disponible (alerte sous 6 Go) pendant tout workflow lourd.
+- La couverture et les mutants se mesurent d'abord par la CI de GitHub (D7). La mutation locale reste réservée aux fichiers encore `MISSED` en CI (D8).
 
 ## 10. Critiques rejetées ou adaptées
 
