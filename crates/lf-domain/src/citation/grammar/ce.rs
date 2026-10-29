@@ -292,7 +292,9 @@ fn is_orphan_number(c: &Cur<'_>, i: usize) -> bool {
 mod tests {
     use pretty_assertions::assert_eq;
 
-    use super::super::cassation::testing::{blank, date, decision, matched, only, run, with_court};
+    use super::super::cassation::testing::{
+        blank, date, decision, matched, only, read, run, with_court,
+    };
     use super::*;
     use crate::citation::scan::AnchorClass::{Court as CourtA, Sigle};
     use crate::citation::types::{DecisionCite, Flag};
@@ -542,5 +544,46 @@ mod tests {
         ] {
             assert_eq!(run(scan, input, &anchors), [], "{input}");
         }
+    }
+
+    #[test]
+    fn formations_cut_short_are_not_formations() {
+        for text in ["2e", "2e ch.", "2e chambres", "2e ch. xyz"] {
+            assert_eq!(read(text, |c| chambers_together(c, 0)), None, "{text}");
+        }
+        assert_eq!(read("2e", |c| chamber_alone(c, 0)), None);
+        for text in
+            ["7 / x", "7 / 5", "7 / 5 xyz", "4e", "4e et", "4e et xyz", "4e et 5e", "4e et 5e xyz"]
+        {
+            assert_eq!(read(text, |c| subsections_together(c, 0)), None, "{text}");
+        }
+        for text in ["6e", "6e xyz"] {
+            assert_eq!(read(text, |c| subsection_alone(c, 0)), None, "{text}");
+        }
+        // Une formation que rien ne sépare de la date n'est pas lue, la date non plus.
+        assert!(read("ord.3 mars 2020", |c| formation_and_date(c, 0, false)).is_none());
+        // Titre Légifrance dont la formation libre n'est pas suivie d'une date.
+        assert!(read("texte libre, xyz", |c| free_formation(c, 0)).is_none());
+    }
+
+    #[test]
+    fn court_spellings_and_registration_numbers_cut_short() {
+        assert_eq!(read("Cons.d'Etat", |c| court(c, 0)), None);
+        assert_eq!(read("Cons. d'Etat", |c| court(c, 0)), Some((12, false)));
+        assert_eq!(read("a123456", |c| requete_end(c, 1)), None);
+        assert_eq!(read("123456", |c| requete_end(c, 0)), Some(6));
+        assert!(read("CE xyz", |c| header(c, 0)).is_none());
+        assert!(read("CE n° 12", |c| header(c, 0)).is_none());
+    }
+
+    #[test]
+    fn parties_and_publication_cut_short() {
+        for text in ["12 x, 123456", "Société n° 5, 123456", "Société X, abc"] {
+            assert_eq!(read(text, |c| parties_then_numbers(c, 0)), None, "{text}");
+        }
+        for text in ["p.", "p. x"] {
+            assert_eq!(read(text, |c| page(c, 0)), None, "{text}");
+        }
+        assert_eq!(read("xyz", |c| lebon(c, 0)), None);
     }
 }

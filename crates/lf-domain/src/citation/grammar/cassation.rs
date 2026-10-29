@@ -1250,13 +1250,19 @@ pub(crate) mod testing {
     }
 
     /// La décision d'un candidat.
+    #[expect(clippy::panic, reason = "aide d'échec de test : le message est ce que le test dit")]
     pub(crate) fn decision(c: &Candidate) -> &DecisionCite {
-        assert!(matches!(c.value, CitationRef::Decision(_)), "pas une décision : {:?}", c.value);
-        let found = match &c.value {
-            CitationRef::Decision(d) => Some(d),
-            _ => None,
-        };
-        found.expect("décision vérifiée ci-dessus")
+        match &c.value {
+            CitationRef::Decision(d) => d,
+            other => panic!("pas une décision : {other:?}"),
+        }
+    }
+
+    /// Fenêtre de lecture ouverte au début de `text` (normalisé), passée à `f`.
+    pub(crate) fn read<T>(text: &str, f: impl Fn(&super::lex::Cur<'_>) -> T) -> T {
+        let n = normalize(text, Steps::default());
+        let doc = super::lex::Doc::new(&n);
+        f(&doc.cur(0))
     }
 
     /// Décision vide, sans juridiction.
@@ -1292,13 +1298,14 @@ pub(crate) mod testing {
 mod tests {
     use pretty_assertions::assert_eq;
 
-    use super::testing::{date, decision, matched, only, run, with_court};
+    use super::testing::{date, decision, matched, only, read, run, with_court};
     use super::*;
     use crate::citation::dict::courts::CassChamber;
+    use crate::citation::grammar::Candidate;
     use crate::citation::scan::AnchorClass::{Court as CourtA, Pourvoi as PourvoiA, Sink};
     use crate::citation::types::{
-        Ambiguity, BulletinRef, CaseNumber, Confidence, Court, CourtVia, DecisionKind, Flag,
-        Pourvoi, Publication,
+        Ambiguity, BulletinRef, CaseNumber, CitationRef, Confidence, Court, CourtVia, DecisionKind,
+        Flag, Pourvoi, Publication, UnsupportedCite, UnsupportedFamily,
     };
 
     fn cass(chamber: Option<CassChamber>) -> crate::citation::types::DecisionCite {
@@ -1671,13 +1678,6 @@ mod tests {
 
     #[test]
     fn lexer_primitives() {
-        use crate::citation::normalize::{Steps, normalize};
-
-        fn read<T>(text: &str, f: impl Fn(&lex::Cur<'_>) -> T) -> T {
-            let n = normalize(text, Steps::default());
-            let doc = lex::Doc::new(&n);
-            f(&doc.cur(0))
-        }
         let republican = read("3 brumaire an IV", |c| c.date(0)).map(|d| (d.date, d.flags));
         assert_eq!(republican, Some((None, vec![Flag::DateRepublicaine])));
         assert_eq!(read("1er janvier 2020", |c| c.date(0)).map(|d| d.date), Some(date(2020, 1, 1)));
@@ -1700,5 +1700,284 @@ mod tests {
         // 99 pour 2000 : pas postérieur.
         let got = only(run(scan, "Cass. soc., 3 mars 2000, n° 99-12.345", &[(CourtA, "Cass.")]));
         assert_eq!(got.flags.list, []);
+    }
+
+    #[test]
+    fn dates_cut_short_are_not_dates() {
+        for text in [
+            "7 octobre2016",
+            "7 octobre 99",
+            "12/ab/2020",
+            "12/05-2020",
+            "12/13/2020",
+            "12/05/20",
+            "2026/04/30",
+            "2026-4-30",
+            "2026-04-3",
+            "2026-04-32",
+            "2026-13-01",
+            "3 janvier an IV",
+            "3 brumaire",
+            "3 brumaire en IV",
+            "3 brumaire an",
+            "3 brumaire an iv",
+        ] {
+            assert_eq!(read(text, |c| c.date(0)), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn lexer_readers_stop_at_the_first_missing_piece() {
+        // Une espace du gabarit exige au moins une espace du texte.
+        assert_eq!(read("cour-de", |c| c.kw(0, "cour de")), None);
+        assert_eq!(read("cour   de", |c| c.kw(0, "cour de")), Some(9));
+        // Un ordinal sans le mot « chambre » n'ouvre aucune chambre.
+        assert_eq!(read("2e civ", |c| c.ordinal_chamber_ends(0)), Vec::<usize>::new());
+        // Un littéral que le texte interrompt n'est pas lu.
+        assert_eq!(read("ab", |c| c.lit(0, "abc")), None);
+        assert_eq!(read("abc", |c| c.lit(0, "abc")), Some(3));
+        // Une virgule suivie de « et » : l'espace qui suit est avalée.
+        assert_eq!(read("x, et 5", |c| c.list_sep(1)), Some(6));
+        assert_eq!(read("x, 5", |c| c.list_sep(1)), Some(3));
+        for text in ["21-2.345", "21-23.17", "21-234"] {
+            assert!(read(text, |c| pourvoi(c, 0)).is_none(), "{text}");
+        }
+        for text in ["Bull. civ.", "Bull. civ., xyz", "Bull. civ., n° x"] {
+            assert_eq!(read(text, |c| super::bulletin(c, 0)), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn bulletin_names_the_plenary_assembly_and_the_mixed_chamber() {
+        for text in ["Bull. ass. plén., n° 5", "Bull. ch. mixte, n° 5"] {
+            assert_eq!(
+                read(text, |c| super::bulletin(c, 0)),
+                Some((text.chars().count(), text.to_owned())),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn chambers_in_their_less_common_spellings() {
+        assert_eq!(
+            read("ch. réunies", |c| chamber_short(c, 0)),
+            Some((11, Some(CassChamber::Reunies), None))
+        );
+        // Sans virgule derrière : la lecture s'arrête à la chambre.
+        assert_eq!(
+            read("chambre sociale", |c| chamber_long(c, 0)),
+            Some((15, Some(CassChamber::Soc), None))
+        );
+        // Chambre commerciale « économique et financière », dans les deux ordres.
+        for text in [
+            "chambre commerciale, économique et financière",
+            "chambre commerciale, financière et économique",
+        ] {
+            assert_eq!(
+                read(text, |c| chamber_long(c, 0)),
+                Some((text.chars().count(), Some(CassChamber::Com), None)),
+                "{text}"
+            );
+        }
+        // La précision ne vaut que pour la chambre commerciale.
+        assert_eq!(
+            read("chambre sociale, économique et financière", |c| chamber_long(c, 0)),
+            Some((15, Some(CassChamber::Soc), None))
+        );
+        assert_eq!(
+            read("AP", |c| chamber_short(c, 0)),
+            Some((2, Some(CassChamber::AssPlen), None))
+        );
+        // « civ. » suivi d'un chiffre seul : numéro de chambre, sauf si c'est un jour de date.
+        assert_eq!(read("civ. 3", |c| civ_number(c, 0)), Some((6, 3)));
+        for text in ["civ. x", "civ. 12", "civ. 4 juin 2020"] {
+            assert_eq!(read(text, |c| civ_number(c, 0)), None, "{text}");
+        }
+        assert_eq!(read("première-chambre civile", |c| chamber_long(c, 0)), None);
+        for text in ["chambre", "Chambre civile x", "Chambre civile 12"] {
+            assert_eq!(read(text, |c| chamber_lf(c, 0)), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn decision_kinds_ordonnance_and_arret() {
+        assert_eq!(read("ordonnance", |c| kind_word(c, 0)), Some((10, DecisionKind::Ordonnance)));
+        assert_eq!(read("ord.", |c| kind_word(c, 0)), Some((4, DecisionKind::Ordonnance)));
+        assert_eq!(read("arrêt", |c| kind_word(c, 0)), Some((5, DecisionKind::Arret)));
+    }
+
+    #[test]
+    fn publication_tail_inedit_rapport_and_formation_without_letters() {
+        let input = "Cass. soc., 4 juin 2025, n° 24-13.470, Rapport";
+        let got = only(run(scan, input, &[(CourtA, "Cass.")]));
+        assert_eq!(matched(input, &got), input);
+        assert_eq!(decision(&got).publication, None);
+        let input = "Cass. soc., 4 juin 2025, n° 24-13.470, Inédit";
+        let got = only(run(scan, input, &[(CourtA, "Cass.")]));
+        assert_eq!(matched(input, &got), input);
+        assert_eq!(
+            decision(&got).publication,
+            Some(Publication { bulletin: Some(BulletinRef::Inedit), lebon: None })
+        );
+        // « FS- » sans lettre de publication : seule la formation est lue.
+        let input = "Cass. soc., 4 juin 2025, n° 24-13.470, FS-Z";
+        let got = only(run(scan, input, &[(CourtA, "Cass.")]));
+        assert_eq!(matched(input, &got), "Cass. soc., 4 juin 2025, n° 24-13.470, FS");
+        assert_eq!(decision(&got).formation_code.as_deref(), Some("FS"));
+        assert_eq!(decision(&got).publication_codes, Vec::<char>::new());
+    }
+
+    #[test]
+    fn legifrance_title_without_or_with_inedit_publication() {
+        check(&Case {
+            input: "Cour de cassation, civile, Chambre civile 1, 4 juin 2025, 24-13.470, Inédit",
+            anchors: &[(CourtA, "Cour de cassation")],
+            span: "Cour de cassation, civile, Chambre civile 1, 4 juin 2025, 24-13.470, Inédit",
+            want: crate::citation::types::DecisionCite {
+                date: date(2025, 6, 4),
+                numbers: vec![pv(24, 13, 470, None)],
+                publication: Some(Publication { bulletin: Some(BulletinRef::Inedit), lebon: None }),
+                ..cass(Some(CassChamber::Civ1))
+            },
+        });
+        check(&Case {
+            input: "Cour de cassation, civile, Chambre civile 1, 4 juin 2025, 24-13.470, texte",
+            anchors: &[(CourtA, "Cour de cassation")],
+            span: "Cour de cassation, civile, Chambre civile 1, 4 juin 2025, 24-13.470",
+            want: crate::citation::types::DecisionCite {
+                date: date(2025, 6, 4),
+                numbers: vec![pv(24, 13, 470, None)],
+                ..cass(Some(CassChamber::Civ1))
+            },
+        });
+    }
+
+    #[test]
+    fn header_without_formation_letter() {
+        check(&Case {
+            input: "Arrêt n° 399 Pourvoi n° 24-13.470",
+            anchors: &[(CourtA, "Arrêt"), (PourvoiA, "24-13.470")],
+            span: "Arrêt n° 399 Pourvoi n° 24-13.470",
+            want: crate::citation::types::DecisionCite {
+                kind: Some(DecisionKind::Arret),
+                arret_num: Some(399),
+                numbers: vec![pv(24, 13, 470, None)],
+                ..cass(None)
+            },
+        });
+    }
+
+    #[test]
+    fn incomplete_grammar_forms_give_nothing() {
+        type Grammar = fn(&Cur<'_>, usize) -> Option<Hit>;
+        let cases: [(&str, Grammar, &[&str]); 5] = [
+            ("short_form", short_form, &["Cass.4 juin 2025, n° 24-13.470"]),
+            (
+                "legifrance_title",
+                legifrance_title,
+                &[
+                    "Cour de cassation",
+                    "Cour de cassation, Chambre sociale",
+                    "Cour de cassation, Chambre sociale, texte",
+                    "Cour de cassation, Chambre sociale, 4 juin 2025",
+                ],
+            ),
+            (
+                "long_chamber",
+                long_chamber,
+                &[
+                    "première chambre civile",
+                    "première chambre civile, texte",
+                    "première chambre civile, 4 juin 2025",
+                ],
+            ),
+            (
+                "parenthesised",
+                parenthesised,
+                &[
+                    "Cour de cassation (xyz",
+                    "Cour de cassation (chambre criminelle",
+                    "Cour de cassation (chambre criminelle, xyz",
+                    "Cour de cassation (chambre criminelle, arrêt",
+                    "Cour de cassation (chambre criminelle, arrêt xyz",
+                    "Cour de cassation (chambre criminelle, arrêt n° x",
+                    "Cour de cassation (chambre criminelle, arrêt n° 1133",
+                    "Cour de cassation (chambre criminelle, arrêt n° 1133 xx",
+                    "Cour de cassation (chambre criminelle, arrêt n° 1133 du",
+                    "Cour de cassation (chambre criminelle, arrêt n° 1133 du xyz",
+                    "Cour de cassation (chambre criminelle, arrêt n° 1133 du 6 août 2025 x",
+                ],
+            ),
+            (
+                "header",
+                header,
+                &[
+                    "Arrêt",
+                    "Arrêt xyz",
+                    "Arrêt n° x",
+                    "Arrêt n° 399",
+                    "Arrêt n° 399 xyz",
+                    "Arrêt n° 399 Pourvoi n° x",
+                ],
+            ),
+        ];
+        for (name, grammar, inputs) in cases {
+            for text in inputs {
+                assert!(read(text, |c| grammar(c, 0)).is_none(), "{name} : {text}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_place_needs_a_dated_decision_after_its_chamber() {
+        fn glued(c: &Cur<'_>, i: usize) -> Vec<usize> {
+            c.int(i).map(|(e, _)| e).into_iter().collect()
+        }
+        fn one_number(c: &Cur<'_>, i: usize) -> Option<(usize, Vec<CaseNumber>)> {
+            c.int(i).map(|(e, n)| (e, vec![pv(0, 0, u16::try_from(n).unwrap_or(0), None)]))
+        }
+        let seat = |key: &str| (key != "nowhere").then(|| key.to_owned());
+        let at = |text: &str| read(text, |c| lex::at_place(c, 0, glued, one_number, seat));
+        // Lieu inconnu, ou lieu collé à ce qui suit : rien n'est lu.
+        assert!(at("Nowhere, 12, 4 juin 2025, 7").is_none());
+        assert!(at("Paris12, 12, 4 juin 2025, 7").is_none());
+        // Date sans séparateur derrière, ou séparateur sans numéro.
+        assert!(at("Paris, 12, 4 juin 2025").is_none());
+        assert!(at("Paris, 12, 4 juin 2025, x").is_none());
+        // Sans chambre lisible, la date suit directement le lieu.
+        assert_eq!(at("Paris, 4 juin 2025, 7").map(|f| f.chamber), Some(None));
+        // La chambre « 12 » est collée à « x » : pas de séparateur, pas de décision.
+        assert!(
+            read("Paris, 12x, 4 juin 2025, 7", |c| lex::at_place(c, 0, glued, one_number, seat))
+                .is_none()
+        );
+        // La chambre est lue, mais la date manque derrière.
+        assert!(
+            read("Paris, 12, texte", |c| lex::at_place(c, 0, glued, one_number, seat)).is_none()
+        );
+        let found = read("Paris, 12, 4 juin 2025, 7", |c| {
+            lex::at_place(c, 0, glued, one_number, seat)
+                .map(|f| (f.seat, f.chamber, f.date.date, f.numbers))
+        });
+        assert_eq!(
+            found,
+            Some((
+                "paris".to_owned(),
+                Some("12".to_owned()),
+                date(2025, 6, 4),
+                vec![pv(0, 0, 7, None)]
+            ))
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "pas une décision")]
+    fn the_decision_helper_rejects_other_citations() {
+        let other = Candidate::new(
+            0..1,
+            CitationRef::Unsupported(UnsupportedCite { family: UnsupportedFamily::Ue, key: None }),
+        );
+        let _ = decision(&other);
     }
 }

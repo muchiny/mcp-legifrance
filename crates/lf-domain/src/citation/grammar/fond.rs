@@ -183,7 +183,9 @@ fn registry_header(c: &Cur<'_>, s: usize) -> Option<Hit> {
 mod tests {
     use pretty_assertions::assert_eq;
 
-    use super::super::cassation::testing::{blank, date, decision, matched, only, run, with_court};
+    use super::super::cassation::testing::{
+        blank, date, decision, matched, only, read, run, with_court,
+    };
     use super::*;
     use crate::citation::dict::courts::CaSeat;
     use crate::citation::scan::AnchorClass::{Court as CourtA, Rg, Sigle};
@@ -371,6 +373,70 @@ mod tests {
             ("N° RG 23/136", vec![(Rg, "23/136")]),
         ] {
             assert_eq!(run(scan, input, &anchors), [], "{input}");
+        }
+    }
+
+    #[test]
+    fn case_numbers_cut_short_are_not_numbers() {
+        assert_eq!(read("24/15215", |c| super::rg(c, 0)), Some((8, rg(24, 15215))));
+        for text in ["24-15215", "24/123"] {
+            assert_eq!(read(text, |c| super::rg(c, 0)), None, "{text}");
+        }
+        assert_eq!(
+            read("2019J00123", |c| commerce_number(c, 0)),
+            Some((10, vec![CaseNumber::Unknown("2019J00123".into())]))
+        );
+        for text in ["12 x", "2019J12"] {
+            assert_eq!(read(text, |c| commerce_number(c, 0)), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn portalis_codes_need_every_segment() {
+        assert_eq!(read("35L7-V-B7H-CIDHB", |c| portalis(c, 0)), Some(16));
+        for text in [
+            "abcd-V-B7H-CIDHB",
+            "35L7X",
+            "35L7-1-B7H-CIDHB",
+            "35L7-VX",
+            "35L7-V-b7h-CIDHB",
+            "35L7-V-B7H_CIDHB",
+        ] {
+            assert_eq!(read(text, |c| portalis(c, 0)), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn chambers_cut_short_are_not_chambers() {
+        for text in [
+            "pole-1",
+            "pole x",
+            "pole 1 - xyz",
+            "pole 1 - chambre",
+            "pole 1x",
+            "pole 1, xyz",
+            "pole 1, chambre",
+            "chambre-1",
+            "chambre x",
+            "chambre 1",
+            "chambre 1 xyz",
+            "chambre 1 section",
+            "chambre 1 section x",
+        ] {
+            assert_eq!(read(text, |c| chamber_ends(c, 0)), Vec::<usize>::new(), "{text}");
+        }
+        assert_eq!(read("pole 1 - chambre 2", |c| chamber_ends(c, 0)), [18]);
+        assert_eq!(read("pole 1, ch. 2", |c| chamber_ends(c, 0)), [13]);
+    }
+
+    #[test]
+    fn registry_header_keeps_only_what_is_complete() {
+        assert!(read("N° RG", |c| registry_header(c, 0)).is_none());
+        for tail in [" - xyz", " - N° xyz", " - N° Portalis"] {
+            let input = format!("N° RG 23/13690{tail}");
+            let got = only(run(scan, &input, &[(Rg, "23/13690")]));
+            assert_eq!(matched(&input, &got), "N° RG 23/13690", "{input}");
+            assert_eq!(decision(&got).numbers, [rg(23, 13690)], "{input}");
         }
     }
 }
