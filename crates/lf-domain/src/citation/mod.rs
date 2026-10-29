@@ -219,6 +219,29 @@ mod tests {
     }
 
     #[test]
+    fn versioned_legifrance_ids_are_found_by_the_pipeline() {
+        // P198 : le suffixe `_JJ-MM-AAAA` suit l'identifiant ; l'ancre ne doit pas s'y arrêter.
+        let input = "voir LEGITEXT000033205014_08-09-2023.";
+        let found = parse(input);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            input.get(found[0].span.start..found[0].span.end),
+            Some("LEGITEXT000033205014_08-09-2023")
+        );
+        assert!(matches!(
+            &found[0].value,
+            CitationRef::LegifranceId(id)
+                if id.digits == 33_205_014 && id.version_start == CivilDate::new(2023, 9, 8)
+        ));
+        // Sans suffixe, ou avec un suffixe qui n'est pas une date, l'identifiant reste cité seul.
+        assert_eq!(parse("LEGITEXT000033205014").len(), 1);
+        let loose = parse("LEGITEXT000033205014_foo");
+        assert!(
+            matches!(&loose[..], [c] if matches!(&c.value, CitationRef::LegifranceId(id) if id.version_start.is_none()))
+        );
+    }
+
+    #[test]
     fn parse_calls_are_independent() {
         // Deux appels de suite sur le même texte rendent la même chose : rien ne subsiste du
         // premier (dernier code, derniers textes). La pile elle-même est testée dans `post`.

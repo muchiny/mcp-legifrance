@@ -251,7 +251,9 @@ static TOKENS: LazyLock<Vec<Token>> = LazyLock::new(|| {
     vec![
         token(AnchorClass::Ecli, r"(?i)\becli:"),
         token(AnchorClass::Nor, r"\b[A-Z]{4}[0-9]{7}[A-Z]\b"),
-        token(AnchorClass::LegifranceId, &format!(r"\b(?:{ids})[0-9]{{12}}\b")),
+        // `_` borne l'identifiant autant qu'une frontière de mot : `_JJ-MM-AAAA` est le suffixe de
+        // version (P198), et `\b` ne sépare pas un chiffre d'un `_`.
+        token(AnchorClass::LegifranceId, &format!(r"\b(?:{ids})[0-9]{{12}}(?:\b|_)")),
         token(AnchorClass::Pourvoi, r"\b[0-9]{2}-[0-9]{2}\.?[0-9]{3}\b"),
         token(AnchorClass::CaaNumber, &format!(r"\b[0-9]{{2}}(?:{caa})[0-9]{{5}}\b")),
         token(AnchorClass::Rg, r"\b[0-9]{2}/[0-9]{4,5}\b"),
@@ -551,6 +553,9 @@ mod tests {
         assert!(!has_class("NOR ECFI152425L", AnchorClass::Nor));
         assert!(!has_class("LEGIARTI00000641928", AnchorClass::LegifranceId));
         assert!(!has_class("LEGIARTI0000064192888", AnchorClass::LegifranceId));
+        // P198 : le suffixe de version `_JJ-MM-AAAA` borne l'identifiant comme une frontière.
+        assert!(has_class("LEGITEXT000033205014_08-09-2023", AnchorClass::LegifranceId));
+        assert!(!has_class("LEGITEXT0000332050144_08-09-2023", AnchorClass::LegifranceId));
         assert!(!has_class("pour la période 2016-1321", AnchorClass::CcNumber));
         assert!(!has_class("aux 1234 RG", AnchorClass::Rg));
         assert!(has("ECLI:FR:CCASS:2025", AnchorClass::Ecli, "ECLI:"));

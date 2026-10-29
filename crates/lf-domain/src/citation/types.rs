@@ -1359,7 +1359,8 @@ impl fmt::Display for CcNumber {
     /// Forme canonique `2025-1173`, avec les numéros joints et le `R` de rectification, sans
     /// le type.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut out = format!("{}-{}", self.year, self.seq);
+        // Année sur quatre chiffres, comme `FromStr` l'exige : `0001-5` se relit.
+        let mut out = format!("{:04}-{}", self.year, self.seq);
         for joined in &self.joined {
             out.push('/');
             out.push_str(&joined.to_string());
@@ -1404,7 +1405,7 @@ impl FromStr for CnilNumber {
 impl fmt::Display for CnilNumber {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let series = self.series.as_ref().map_or_else(String::new, |s| format!("{s}-"));
-        write!(f, "{series}{}-{:03}", self.year, self.seq)
+        write!(f, "{series}{:04}-{:03}", self.year, self.seq)
     }
 }
 
@@ -2206,6 +2207,21 @@ mod tests {
             );
         }
         assert_eq!(NumberParseError { kind: "rg" }.to_string(), "invalid rg number");
+    }
+
+    /// Une année lue sur quatre chiffres avec des zéros de tête se réécrit sur quatre chiffres : la
+    /// forme réécrite se relit (cible de fuzzing `citation_parse`).
+    #[test]
+    fn leading_zero_years_are_written_back_on_four_digits() {
+        let cc: CcNumber = "0001-5 DC".parse().expect("valide");
+        assert_eq!(
+            (cc.year, cc.to_string(), cc.full()),
+            (1, "0001-5".to_owned(), "0001-5 DC".to_owned())
+        );
+        assert_eq!(cc.full().parse::<CcNumber>(), Ok(cc));
+        let cnil: CnilNumber = "SAN-0042-007".parse().expect("valide");
+        assert_eq!((cnil.year, cnil.to_string()), (42, "SAN-0042-007".to_owned()));
+        assert_eq!(cnil.to_string().parse::<CnilNumber>(), Ok(cnil));
     }
 
     #[test]
