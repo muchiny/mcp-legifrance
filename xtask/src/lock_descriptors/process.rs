@@ -340,8 +340,10 @@ mod tests {
     #[test]
     fn a_server_that_exits_with_an_error_code_is_reported() {
         let error = with_server(&peer("fail"), &mut nothing).unwrap_err();
+        // `ExitStatus` s'affiche « exit status: 3 » sous Unix et « exit code: 3 » sous Windows.
         assert!(
-            error.starts_with("the server exited with exit status: 3 after the end of its input"),
+            error.starts_with("the server exited with exit ")
+                && error.contains(": 3 after the end of its input"),
             "{error}"
         );
     }
