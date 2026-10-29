@@ -1572,6 +1572,10 @@ mod tests {
 
     /// Préfixe et nanosecondes d'horloge murale en hexadécimal : imprévisible, sans dépendance.
     fn random_word(prefix: &str) -> String {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "test : suffixe imprévisible tiré de l'horloge murale, sans dépendance (ADR-0018)"
+        )]
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         format!("{prefix}-{nanos:x}")
     }

@@ -8,8 +8,17 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[package.metadata.cargo-machete]
+# STUB(V0) : parseur de citations (M6, 03 §4), employé à partir de l'unité qui l'écrit
+ignored = ["winnow", "aho-corasick", "regex", "unicode-normalization"]
+
 [dependencies]
 thiserror.workspace = true
+# parseur de citations (M6, ADR-0018) : grammaire, balayage multi-motifs, expressions compilées une fois, NFC
+winnow.workspace = true
+aho-corasick.workspace = true
+regex.workspace = true
+unicode-normalization.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

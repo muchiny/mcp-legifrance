@@ -108,13 +108,15 @@ Toutes les questions de la colonne « Questions » sont adoptées par défaut et
 | [ADR-0015](0015-reecriture-en-rust.md) | Réécriture en Rust (ex-0001 du plan) | Accepté (révisé) | M0 → M9 | Q1 (décidée), Q2 (décidée), Q6 | [01-existant](../plan/01-existant.md), [A-parite](../plan/annexes/A-parite.md) |
 | [ADR-0016](0016-hexagonal-workspace.md) | Architecture hexagonale en workspace multi-crates (ex-0002 du plan ; remplace ADR-0001) | Accepté (révisé) | M0 (livré), M3 | Q1 (décidée), Q13 | [02-architecture](../plan/02-architecture.md) |
 | [ADR-0017](0017-reessais-sans-backon.md) | Réessais sans backon : boucle maison | **Proposé** (accepté à la fusion de la PR du plan 2c) | M2 | — | [00-decisions](../plan/00-decisions.md) §8, [04-adapter-piste](../plan/04-adapter-piste.md) §5.2 |
+| [ADR-0018](0018-dependances-fin-de-projet.md) | Dépendances de la fin du projet : déclarées en une fois, par la vague 0 | **Proposé** (accepté à la fusion de la PR unique du plan fin-du-projet) | M3 à M9 | — | [00-decisions](../plan/00-decisions.md) §2, §11.1, [02-architecture](../plan/02-architecture.md) §3.0.1, §4.3 |
 
-Prochain numéro libre : **0018**. Un numéro n'est jamais réutilisé : les ex-0001 et ex-0002 du plan ont été renumérotés 0015 et 0016 parce que 0001 et 0002 étaient déjà livrés.
+Prochain numéro libre : **0019**. Un numéro n'est jamais réutilisé : les ex-0001 et ex-0002 du plan ont été renumérotés 0015 et 0016 parce que 0001 et 0002 étaient déjà livrés.
 
 Conditions d'acceptation des ADR proposés :
 
 - [ ] **ADR-0013** : réponse à Q5 (proposition par défaut : Azure Artifact Signing si éligible, sinon SSL.com eSigner ; compte Apple Developer pour `codesign` et `notarytool` ; bundle MCPB unique), avant v0.1.0 ; réponse à Q13 (proposition par défaut : `cargo install --git` en v0.x, sans crates.io ; la publication crates.io n'est pas tranchée avant M5, C6), avant v0.1.0 ; Q1 est décidée le 2026-10-16 (nom `mcp-legifrance`) ; résultat du spike TLS (aws-lc ou ring) provisoirement consigné dans l'ADR (§7, plan 2c) ; définitif après la matrice.
 - [ ] **ADR-0017** : acceptation à la fusion de la PR du plan 2c.
+- [ ] **ADR-0018** : acceptation à la fusion de la PR unique du plan fin-du-projet.
 - [ ] **ADR-0014** : réponse à Q10 (proposition par défaut : `any` jusqu'à V-79, puis `all` si V-79 confirme la sémantique et un rappel acceptable sur les 9 scénarios de la référence), consignée avant le verrou des descripteurs de M4 ; mesures de M5 sur la pagination profonde (V-83) et sur `typePagination` en page 2 (V-82).
 
 Questions et vérifications à confirmer des ADR acceptés (une réponse contraire produit un nouvel ADR, §2) :

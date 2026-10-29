@@ -1,0 +1,36 @@
+[package]
+name = "lf-adapter-dila"
+description = "Composant interne de mcp-legifrance ; aucune garantie de stabilité d'API. Adapter DILA (dumps LEGI, index tantivy), M9, derrière la feature dila."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[package.metadata.cargo-machete]
+# STUB(V0) : employées par l'unité M9
+ignored = [
+  "lf-application", "lf-domain", "tantivy", "quick-xml", "tar", "flate2", "tokio", "tracing",
+  "thiserror", "tempfile",
+]
+
+[dependencies]
+lf-application.workspace = true
+lf-domain.workspace = true
+# défauts de tantivy, donc `mmap` (index sur disque, D21)
+tantivy.workspace = true
+quick-xml.workspace = true
+tar.workspace = true
+flate2.workspace = true
+tokio = { workspace = true, features = ["rt"] }
+tracing.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+lf-application = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

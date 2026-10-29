@@ -8,7 +8,11 @@
 # au lieu de le réécrire. `--all-features` sur lint, test, doc et cov (06 §7.1) : la feature
 # `record` de lf-adapter-piste (enregistrement de fixtures) est ainsi compilée et couverte.
 
-COV_FLAGS := --workspace --lib --all-features --locked --summary-only \
+# Une seule exclusion nommée de la couverture (D6, 06 §7.6) : `stdio.rs` de lf-adapter-mcp, réduit à
+# la colle `serve_stdio` sur les vrais stdin et stdout, couverte par l'e2e du binaire (`--lib` ne
+# mesure que les `#[cfg(test)] mod tests`). La logique du cycle de vie vit dans `lifecycle.rs`, mesuré.
+COV_IGNORE := --ignore-filename-regex 'crates/lf-adapter-mcp/src/stdio\.rs$$'
+COV_FLAGS := --workspace --lib --all-features --locked --summary-only $(COV_IGNORE) \
 	--fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
 MUTANTS_SAFE := TMPDIR=/var/tmp NEXTEST_TEST_THREADS=2 cargo mutants -j 1
 BASE ?= origin/main
@@ -89,7 +93,7 @@ cov:
 # Rapport Cobertura de SonarQube Cloud (sonar-project.properties), relu depuis les profils que
 # `make cov` vient d'écrire : sans recompilation, et sans seuil (le seuil est celui de `cov`).
 cov-cobertura:
-	cargo llvm-cov report --cobertura --output-path cobertura.xml
+	cargo llvm-cov report $(COV_IGNORE) --cobertura --output-path cobertura.xml
 
 # Rapport Clippy JSON de SonarQube Cloud, hors `make ci`. Même périmètre que `lint`, mais sans
 # `-D warnings` : le rapport liste tous les avertissements au lieu de s'arrêter au premier.

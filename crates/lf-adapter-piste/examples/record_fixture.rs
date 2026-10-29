@@ -30,6 +30,10 @@ use lf_domain::coverage::PisteEnvironment;
 use secrecy::SecretString;
 
 fn corpus(env: PisteEnvironment) -> Result<PisteCorpus, String> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "exemple d'enregistrement : identifiants lus dans l'environnement (jamais affichés)"
+    )]
     let (Ok(id), Ok(secret)) = (env::var("LF_PISTE_CLIENT_ID"), env::var("LF_PISTE_CLIENT_SECRET"))
     else {
         return Err("set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET in the environment".into());
@@ -71,10 +75,18 @@ fn probes(mode: Mode) -> Result<Vec<Probe>, String> {
 }
 
 fn now() -> String {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "exemple d'enregistrement : horodatage du sidecar, hors de toute logique testée"
+    )]
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
     record::rfc3339_utc(i64::try_from(secs).unwrap_or(i64::MAX))
 }
 
+#[expect(
+    clippy::print_stdout,
+    reason = "exemple en ligne de commande : une ligne par sonde sur stdout"
+)]
 async fn run(args: Args) -> Result<usize, String> {
     let (env, force) = (args.env, args.force);
     // Sélection et contrôles d'abord : ni identifiants ni réseau si le lot est vide ou refusé.
@@ -124,6 +136,10 @@ async fn run(args: Args) -> Result<usize, String> {
 }
 
 #[tokio::main(flavor = "current_thread")]
+#[expect(
+    clippy::print_stderr,
+    reason = "exemple en ligne de commande : le diagnostic va sur stderr"
+)]
 async fn main() -> ExitCode {
     // `args_os` : `env::args()` paniquerait sur un argument qui n'est pas de l'UTF-8 (M8) ; la
     // conversion est explicite et refuse avec le code 2, sans écho de l'argument.

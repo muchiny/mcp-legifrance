@@ -10,6 +10,10 @@ profile = "mutants"
 additional_cargo_args = ["--locked"]
 exclude_globs = [
     "xtask/src/main.rs", # glue d'I/O (cargo metadata, stdout) ; la logique est dans arch.rs
+    # colle `serve_stdio` sur les vrais stdin et stdout (D6, 06 §7.6) : exclue de la couverture `--lib`
+    # (COV_IGNORE du Makefile) et couverte par l'e2e du binaire ; la logique du cycle de vie est dans
+    # lifecycle.rs, muté.
+    "crates/lf-adapter-mcp/src/stdio.rs",
     "crates/lf-adapter-piste/examples/**", # glue d'E/S de record-fixture ; la logique est dans src/record.rs
     "fuzz/**", # cibles cargo-fuzz hors workspace (Cargo.toml exclude) : pas du code livré ; filet si le dossier y entrait
 ]

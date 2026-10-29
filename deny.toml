@@ -13,7 +13,7 @@ include-dev = true
 # Liste exacte du graphe complet (dev comprise, toutes plateformes) : chaque licence est requise par
 # au moins un paquet sans alternative admise (M1-D17 ; retirer une licence fait échouer
 # `cargo deny check licenses`). Ni OpenSSL (absente des expressions d'aws-lc-sys et de ring), ni
-# MPL-2.0, ni LGPL (r-efi : alternative MIT).
+# MPL-2.0 globale (une exception nominative, plus bas), ni LGPL (r-efi : alternative MIT).
 allow = [
   "MIT",                 # tokio, hyper, governor, bytes, ... (34 paquets sans autre licence admise, dont phf et phf_shared ; `cargo deny list`)
   "Apache-2.0",          # nonzero_ext, sync_wrapper (seules), ryu et dunce (alternative), aws-lc-sys
@@ -22,12 +22,18 @@ allow = [
   "BSD-3-Clause",        # aws-lc-sys, subtle (chaîne TLS de reqwest)
   "CDLA-Permissive-2.0", # webpki-root-certs (racines de certificats, chaîne TLS de reqwest)
   "Zlib",                # foldhash 0.2.0 (licence seule), tiré par hashbrown 0.16.1 <- governor (T-M2-04)
+  "MIT-0",               # borrow-or-share 0.2.4 (licence seule), tiré par fluent-uri <- referencing <- jsonschema (dev de lf-adapter-mcp, xtask) ; ADR-0018
 ]
 exceptions = [
   # Fuzzing seulement (fuzz/Cargo.lock, hors workspace, jamais livré) : « (MIT OR Apache-2.0) AND NCSA ».
   # NCSA est permissive mais n'est requise par aucun autre paquet : exception nominative plutôt que
   # licence globale, pour que tout nouveau paquet sous NCSA soit vu.
   { crate = "libfuzzer-sys", allow = ["NCSA"] },
+  # MPL-2.0 (copyleft de fichier, sans effet sur notre code : dépendance non modifiée, liée telle quelle) :
+  # option-ext 0.2.0 est tiré par dirs-sys <- dirs 6.0 (lf-app, défaut de LF_AUDIT_DIR via `data_dir()`,
+  # 02 §3.0.1). Exception nominative plutôt que licence globale, pour que tout autre paquet MPL-2.0 soit
+  # vu ; ADR-0018.
+  { crate = "option-ext", allow = ["MPL-2.0"] },
 ]
 
 [licenses.private]
@@ -42,11 +48,22 @@ deny = [
   { crate = "openssl-sys", reason = "TLS = rustls uniquement" },
   { crate = "native-tls", reason = "TLS = rustls uniquement" },
   { crate = "backoff", reason = "non maintenu ; réessais maison (ADR-0017)" },
-  # wrappers : seuls les crates déjà dans le graphe ; rmcp (M4) et moka (M3) viennent à leur jalon.
+  # wrappers : crates déjà dans le graphe (rmcp, moka et le reste arrivent en 0B, plus bas).
   # Seconde ligne derrière R6 de `cargo xtask check-arch` (02 §4.3) : un autre membre qui déclare
   # reqwest, ou un dev-dependency qui le tire (graph all-features), rend `check bans` rouge.
   { crate = "reqwest", wrappers = ["lf-adapter-piste"], reason = "HTTP sortant confiné à l'adapter PISTE (R6)" },
   { crate = "governor", wrappers = ["lf-adapter-piste"], reason = "limiteur de débit confiné à l'adapter PISTE (R6)" },
+  # Confinements de la fin du projet (ADR-0018). `wrappers` ne regarde que le parent direct : ce sont les
+  # parents directs réels (`cargo tree -i <crate> -e normal,dev --all-features --depth 1`).
+  { crate = "rmcp", wrappers = ["lf-adapter-mcp"], reason = "SDK MCP confiné à l'adapter MCP (R6)" },
+  { crate = "rmcp-macros", wrappers = ["lf-adapter-mcp", "rmcp"], reason = "macros de rmcp : déclaré par l'adapter MCP pour son épinglage exact, tiré par rmcp" },
+  { crate = "schemars", wrappers = ["lf-adapter-mcp", "rmcp"], reason = "schémas JSON des outils : confinés à l'adapter MCP, tirés par rmcp" },
+  { crate = "moka", wrappers = ["lf-adapter-cache"], reason = "cache mémoire confiné à l'adapter de cache (R6)" },
+  { crate = "sha2", wrappers = ["lf-adapter-audit"], reason = "empreintes de l'audit confinées à l'adapter d'audit (R6)" },
+  { crate = "fs4", wrappers = ["lf-adapter-audit", "tantivy"], reason = "verrou de fichier de l'audit (fs4 1.x) ; tantivy tire fs4 0.13 par sa feature `mmap` (D21)" },
+  { crate = "tantivy", wrappers = ["lf-adapter-dila"], reason = "index local confiné à l'adapter DILA (R6, M9)" },
+  { crate = "quick-xml", wrappers = ["lf-adapter-dila"], reason = "lecture des dumps XML confinée à l'adapter DILA (R6, M9)" },
+  { crate = "tar", wrappers = ["lf-adapter-dila"], reason = "lecture des archives confinée à l'adapter DILA (R6, M9)" },
 ]
 
 [sources]

@@ -1,0 +1,48 @@
+[package]
+name = "lf-adapter-mcp"
+description = "Composant interne de mcp-legifrance ; aucune garantie de stabilité d'API. Adapter MCP (rmcp) : outils, paramètres, vues, cycle de vie stdio."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[package.metadata.cargo-machete]
+# STUB(V0) : employées par les unités des vagues V1 à V3 ; rmcp-macros n'est déclaré que pour son
+# épinglage (rmcp déclare une exigence caret sur rmcp-macros, 02 §3.0.1)
+ignored = [
+  "lf-application", "lf-domain", "rmcp", "rmcp-macros", "schemars", "serde", "serde_json",
+  "serde_path_to_error", "tokio", "tokio-util", "tracing", "thiserror",
+  "insta", "jsonschema", "pretty_assertions",
+]
+
+[features]
+# Harnais `testing.rs` (client rmcp en processus). Jamais activée en dépendance normale :
+# `cargo xtask check-arch` (R10) ne l'admet que dans les `[dev-dependencies]` des autres membres.
+test-support = ["rmcp/client"]
+
+[dependencies]
+lf-application.workspace = true
+lf-domain.workspace = true
+# features par défaut (base64, macros, server) + transport-io (AsyncRwTransport sur stdin/stdout)
+rmcp = { workspace = true, features = ["transport-io"] }
+rmcp-macros.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_path_to_error.workspace = true
+tokio = { workspace = true, features = ["io-std", "io-util", "rt", "sync", "time", "macros"] }
+tokio-util.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+lf-application = { workspace = true, features = ["test-support"] }
+insta = { workspace = true, features = ["json"] }
+jsonschema.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true
