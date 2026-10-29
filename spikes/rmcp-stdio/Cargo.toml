@@ -1,0 +1,52 @@
+[package]
+name = "rmcp-stdio-spike"
+description = "Spike rmcp (T-M0-13, T-M0-14, T-M0-18) : serveur stdio dual-era minimal, hors workspace."
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+publish = false
+
+# Hors workspace : le `[workspace]` vide fait de ce crate sa propre racine (son verrou est le
+# sien), sans toucher au Cargo.toml racine. spikes/tls-provider est, lui, exclu par la racine.
+[workspace]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "rmcp-stdio-spike"
+path = "src/main.rs"
+
+[dependencies]
+# Le vrai contrat d'entrée livré au plan 3a (ToolCall, CanonicalInput, InputError) et le vrai
+# décorateur (Audited) avec sa doublure MemoryAuditLog : le spike éprouve la chaîne réelle.
+lf-application = { path = "../../crates/lf-application", features = ["test-support"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+# Version visée par le plan (ADR-0003) : rmcp ET rmcp-macros épinglés, rmcp déclarant les macros
+# en caret (^3.5.1). Features par défaut (base64, macros, server) + transport-io.
+rmcp = { version = "=3.5.1", features = ["transport-io"] }
+rmcp-macros = "=3.5.1"
+schemars = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_path_to_error = "0.1"
+tokio = { version = "1.53", default-features = false, features = ["rt", "macros", "io-std", "io-util", "time", "sync"] }
+tokio-util = { version = "0.7", default-features = false }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unreachable_pub = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+must_use_candidate = "allow"
+unwrap_used = "warn"
+expect_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
+panic = "warn"
+unreachable = "warn"
+unimplemented = "warn"
