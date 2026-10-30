@@ -309,7 +309,7 @@ mod tests {
         let deadline = within(&clock, Duration::from_secs(60));
         drop(gate.acquire(&deadline).await.unwrap());
         // le temps réel ne rend aucun crédit : seule l'horloge injectée compte
-        std::thread::sleep(ms(20));
+        tokio::time::sleep(ms(20)).await;
         clock.advance(Duration::from_secs(1));
         drop(gate.acquire(&deadline).await.unwrap());
         assert_eq!(sleeper.waits(), Vec::<Duration>::new());
