@@ -1098,7 +1098,7 @@ mod tests {
         {
             let mut out = plain(hit);
             assert_eq!(strip_details(&mut out), expected);
-            assert!(out.hit.articles.is_empty());
+            assert_eq!(out.hit.articles, Vec::new());
             assert!(out.hit.title.is_none() && out.hit.nature.is_none());
             assert!(out.hit.etat.is_none() && out.hit.date.is_none());
         }
