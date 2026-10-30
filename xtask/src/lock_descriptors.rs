@@ -30,7 +30,7 @@ mod surface;
 use std::{
     ffi::OsString,
     fs,
-    io::ErrorKind,
+    io::{self, ErrorKind, Write},
     path::{Path, PathBuf},
 };
 
@@ -293,6 +293,15 @@ fn sessions(launch: &Launch) -> Result<(Vec<Capture>, usize), String> {
     Ok((captures, ignored))
 }
 
+/// Avertissement sur les lignes de la sortie du serveur qui n'étaient pas du JSON-RPC, s'il y en a.
+fn ignored_warning(ignored: usize) -> Option<String> {
+    (ignored > 0).then(|| {
+        format!(
+            "warning: {ignored} line(s) of the server's stdout were not JSON-RPC and were ignored"
+        )
+    })
+}
+
 /// Le système réel : racine du dépôt, processus, fichiers, git et consoles.
 struct RealHost {
     root: PathBuf,
@@ -301,6 +310,10 @@ struct RealHost {
     build_args: Vec<OsString>,
     /// Lancement du serveur ; `program` est remplacé par l'exécutable que la construction annonce.
     server: Launch,
+    /// Console : les verdicts vont sur la sortie standard, les avertissements sur l'erreur
+    /// standard. Des écrivains, pour que les tests lisent ce qui est dit.
+    stdout: Box<dyn Write>,
+    stderr: Box<dyn Write>,
 }
 
 impl RealHost {
@@ -312,6 +325,8 @@ impl RealHost {
             cargo: cargo_program(),
             build_args: BUILD_ARGS.map(OsString::from).to_vec(),
             server: Launch::serve(PathBuf::new()),
+            stdout: Box::new(io::stdout()),
+            stderr: Box::new(io::stderr()),
         }
     }
 }
@@ -322,14 +337,9 @@ impl Host for RealHost {
         let mut server = self.server.clone();
         server.program = process::built_executable(&output, "mcp-legifrance")?;
         let (captures, ignored) = sessions(&server)?;
-        (ignored > 0)
-            .then(|| {
-                format!(
-                    "warning: {ignored} line(s) of the server's stdout were not JSON-RPC and were ignored"
-                )
-            })
-            .iter()
-            .for_each(|warning| self.warn(warning));
+        if let Some(warning) = ignored_warning(ignored) {
+            self.warn(&warning);
+        }
         Ok(captures)
     }
 
@@ -352,26 +362,24 @@ impl Host for RealHost {
         process::run_git(&self.root, &["show", &format!("{reference}:{path}")])
     }
 
-    #[expect(
-        clippy::print_stdout,
-        reason = "CLI de développement : le verdict va sur stdout (exception admise pour xtask)"
-    )]
     fn say(&mut self, line: &str) {
-        println!("{line}");
+        // Une console fermée (tube rompu) ne change pas le verdict : l'erreur est ignorée.
+        let _ = writeln!(self.stdout, "{line}");
     }
 
-    #[expect(
-        clippy::print_stderr,
-        reason = "CLI de développement : les avertissements vont sur stderr (exception admise pour xtask)"
-    )]
     fn warn(&mut self, line: &str) {
-        eprintln!("{line}");
+        let _ = writeln!(self.stderr, "{line}");
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, env, process as os, time::Duration};
+    use std::{
+        collections::BTreeMap,
+        env, process as os,
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
 
     use super::*;
     use crate::lock_descriptors::fixtures::{VERSION, VERSIONS, capture, peer, peer_args, tool};
@@ -922,7 +930,84 @@ mod tests {
             cargo: env::current_exe().unwrap().into_os_string(),
             build_args: peer_args("cargo"),
             server: peer(mode),
+            stdout: Box::new(io::sink()),
+            stderr: Box::new(io::sink()),
         }
+    }
+
+    /// Écrivain qui garde ce qu'on lui écrit, lisible après coup.
+    #[derive(Clone, Default)]
+    struct Shared(Arc<Mutex<Vec<u8>>>);
+
+    impl Shared {
+        fn text(&self) -> String {
+            String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+        }
+    }
+
+    impl Write for Shared {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn cargo_program_is_never_empty() {
+        assert!(!cargo_program().is_empty());
+    }
+
+    #[test]
+    fn the_warning_counts_the_ignored_lines_and_only_exists_for_some() {
+        assert_eq!(ignored_warning(0), None);
+        assert_eq!(
+            ignored_warning(1).as_deref(),
+            Some("warning: 1 line(s) of the server's stdout were not JSON-RPC and were ignored")
+        );
+        assert_eq!(
+            ignored_warning(7).as_deref(),
+            Some("warning: 7 line(s) of the server's stdout were not JSON-RPC and were ignored")
+        );
+    }
+
+    #[test]
+    fn the_three_sessions_add_up_the_lines_they_ignored() {
+        // Chaque session ignore au moins la bannière du pair et l'en-tête de libtest.
+        let (captures, ignored) = sessions(&peer("noisy")).unwrap();
+        assert_eq!(captures.len(), SESSIONS.len());
+        assert!(ignored >= 2 * SESSIONS.len(), "{ignored}");
+    }
+
+    #[test]
+    fn the_real_host_says_on_stdout_and_warns_on_stderr() {
+        let root = work_dir("console");
+        let (out, err) = (Shared::default(), Shared::default());
+        let mut host = peer_host(&root, "noisy");
+        host.stdout = Box::new(out.clone());
+        host.stderr = Box::new(err.clone());
+        host.say("lock-descriptors: ok");
+        host.warn("warning: careful");
+        assert_eq!(out.text(), "lock-descriptors: ok\n");
+        assert_eq!(err.text(), "warning: careful\n");
+        // La construction d'un serveur bruyant avertit, sur l'erreur standard seulement.
+        let captures = host.capture().unwrap();
+        assert_eq!(captures.len(), SESSIONS.len());
+        let warned = err.text();
+        let warning = warned.lines().nth(1).unwrap();
+        assert!(
+            warning.starts_with("warning: ")
+                && warning.ends_with(
+                    " line(s) of the server's stdout were not JSON-RPC and were ignored"
+                ),
+            "{warned}"
+        );
+        assert_eq!(warned.lines().count(), 2, "{warned}");
+        assert_eq!(out.text(), "lock-descriptors: ok\n");
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
