@@ -134,6 +134,10 @@ fn room_for_reading(article: &ArticleText, nota: Option<&str>, reading: &Reading
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::as_conversions,
+    reason = "tests : tailles et indices bornés par les données du test"
+)]
 mod tests {
     use super::*;
     use crate::{

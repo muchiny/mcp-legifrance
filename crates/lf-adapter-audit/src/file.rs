@@ -225,7 +225,7 @@ fn first_date_of(file: &mut File, len: u64) -> io::Result<Option<String>> {
         return Ok(None);
     }
     let mut prefix = Vec::with_capacity(PREFIX_LEN);
-    file.take(PREFIX_LEN as u64)
+    file.take(u64::try_from(PREFIX_LEN).unwrap_or(u64::MAX))
         .read_to_end(&mut prefix)
         .map(|_| rotation::date_of_prefix(&prefix).map(str::to_owned))
 }

@@ -295,6 +295,10 @@ fn merge(drafts: &mut Vec<Draft>, draft: Draft) {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::as_conversions,
+    reason = "tests : tailles et indices bornés par les données du test"
+)]
 mod tests {
     use super::*;
     use lf_domain::{citation::UnsupportedCite, date::CivilDate};

@@ -300,8 +300,11 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
                     codes.push(listing);
                 }
             }
-            let full = loaded.received >= request::CODE_PAGE_SIZE as usize;
-            let more = loaded.total.is_none_or(|total| (received as u64) < total);
+            let full =
+                loaded.received >= usize::try_from(request::CODE_PAGE_SIZE).unwrap_or(usize::MAX);
+            let more = loaded.total.is_none_or(|total| {
+                u64::try_from(received).map_or(true, |received| received < total)
+            });
             if !(full && more) {
                 break;
             }

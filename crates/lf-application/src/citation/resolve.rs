@@ -635,16 +635,11 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
                 (None, Note::OutOfCoverage { court: "tribunal judiciaire" })
             }
             Court::AutreJudiciaire { .. } => (None, Note::OutOfCoverage { court: "lower court" }),
-            Court::ConseilEtat { .. } => (
-                Some(is_conseil_etat as fn(&str) -> bool),
-                Note::CouldNotConfirm { index: "CETAT" },
-            ),
-            Court::Caa { .. } => {
-                (Some(is_caa as fn(&str) -> bool), Note::OutOfCoverage { court: "CAA" })
+            Court::ConseilEtat { .. } => {
+                (Some(is_conseil_etat), Note::CouldNotConfirm { index: "CETAT" })
             }
-            Court::Ta { .. } => {
-                (Some(is_ta as fn(&str) -> bool), Note::OutOfCoverage { court: "TA" })
-            }
+            Court::Caa { .. } => (Some(is_caa), Note::OutOfCoverage { court: "CAA" }),
+            Court::Ta { .. } => (Some(is_ta), Note::OutOfCoverage { court: "TA" }),
             Court::ConseilConstitutionnel => (None, Note::CouldNotConfirm { index: "CONSTIT" }),
         };
         let cc_type = cite.numbers.iter().find_map(|number| match number {
@@ -728,7 +723,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
                     Fond::Cetat,
                     NumberKind::Decision,
                     first.to_owned(),
-                    Some(is_conseil_etat as fn(&str) -> bool),
+                    Some(is_conseil_etat),
                     Note::CouldNotConfirm { index: "CETAT" },
                 );
                 (self.lookup(spec).await, "CETAT", false)

@@ -83,6 +83,7 @@ impl<'de> Visitor<'de> for OptInt {
 /// Flottant entier vers `i64`, saturant : hors des bornes, `i64::MIN` ou `i64::MAX`.
 #[expect(
     clippy::cast_possible_truncation,
+    clippy::as_conversions,
     reason = "la conversion `as` d'un flottant sature : c'est la lecture voulue des entiers hors bornes"
 )]
 fn saturating(value: f64) -> i64 {

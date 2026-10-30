@@ -124,6 +124,8 @@ unimplemented = "warn"
 print_stdout = "warn"
 print_stderr = "warn"
 exit = "warn"
+# `as` silencieux interdit en production : `From`, `TryFrom`, ou `#[expect(…, reason)]` (rust-hardening §1). Les modules de test portent leur propre `#[expect]`.
+as_conversions = "warn"
 
 # Profil dédié à cargo-mutants (`profile = "mutants"` dans .cargo/mutants.toml) :
 # pas d'infos de debug, build plus rapide par mutant.

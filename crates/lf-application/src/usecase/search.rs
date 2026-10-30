@@ -353,6 +353,10 @@ fn chars(text: &str) -> usize {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::as_conversions,
+    reason = "tests : tailles et indices bornés par les données du test"
+)]
 mod tests {
     use std::num::NonZeroU32;
 

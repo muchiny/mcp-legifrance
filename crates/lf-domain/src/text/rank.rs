@@ -89,13 +89,22 @@ fn query_terms(query: &str) -> BTreeSet<String> {
     legal_tokens(query).into_iter().collect()
 }
 
+/// Compte converti en flottant : les comptes de passages et de jetons sont ≪ 2^52, la conversion est exacte.
+#[expect(
+    clippy::cast_precision_loss,
+    clippy::as_conversions,
+    reason = "aucune conversion `usize` vers `f64` sans perte n'existe ; comptes ≪ 2^52"
+)]
+fn count_f64(n: usize) -> f64 {
+    n as f64
+}
+
 /// Les `k` meilleurs passages pour `query`, score décroissant puis indice
 /// croissant. Le score est strictement positif : un passage sans terme commun
 /// avec la requête est exclu, et une requête sans jeton donne un résultat vide.
 ///
 /// Coût linéaire en passages × termes : l'idf de chaque terme est calculé une
 /// seule fois, hors de la boucle des passages.
-#[allow(clippy::cast_precision_loss)] // comptes de passages et de jetons ≪ 2^52
 pub fn rank(passages: &[&str], query: &str, k: usize) -> Vec<Scored> {
     let docs: Vec<Vec<String>> = passages.iter().map(|p| legal_tokens(p)).collect();
     let total_len: usize = docs.iter().map(Vec::len).sum();
@@ -104,12 +113,13 @@ pub fn rank(passages: &[&str], query: &str, k: usize) -> Vec<Scored> {
     if total_len == 0 {
         return Vec::new();
     }
-    let n = docs.len() as f64;
-    let avg_len = total_len as f64 / n;
+    let n = count_f64(docs.len());
+    let avg_len = count_f64(total_len) / n;
     let idf: Vec<(String, f64)> = query_terms(query)
         .into_iter()
         .map(|term| {
-            let df = docs.iter().filter(|d| d.contains(&term)).count() as f64;
+            let df = docs.iter().filter(|d| d.contains(&term)).count();
+            let df = count_f64(df);
             let idf = (1.0 + (n - df + 0.5) / (df + 0.5)).ln();
             (term, idf)
         })
@@ -118,11 +128,11 @@ pub fn rank(passages: &[&str], query: &str, k: usize) -> Vec<Scored> {
         .iter()
         .enumerate()
         .filter_map(|(index, doc)| {
-            let len_norm = 1.0 - B + B * doc.len() as f64 / avg_len;
+            let len_norm = 1.0 - B + B * count_f64(doc.len()) / avg_len;
             let score: f64 = idf
                 .iter()
                 .map(|(term, idf)| {
-                    let tf = doc.iter().filter(|t| *t == term).count() as f64;
+                    let tf = count_f64(doc.iter().filter(|t| *t == term).count());
                     idf * tf * (K1 + 1.0) / (tf + K1 * len_norm)
                 })
                 .sum();
