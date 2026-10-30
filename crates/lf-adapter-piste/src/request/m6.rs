@@ -9,13 +9,11 @@
 //! assemblée à la main) : `InvalidRequest { status: None }`, sans appel réseau et avec un `warn!`
 //! qui ne nomme jamais la valeur du numéro.
 //!
-//! Le filtre `DATE_VERSION` envoie le midi du jour à Paris en millisecondes Unix, comme
-//! `request::search` (04 §6.3) ; l'algorithme est recopié de ce module, qui ne l'expose pas.
+//! Le filtre `DATE_VERSION` envoie le midi du jour à Paris en millisecondes Unix (04 §6.3) :
+//! la conversion est celle de `request::search`, partagée (`paris_noon_ms`).
 
 use std::num::NonZeroU32;
 
-use chrono::{DateTime, Offset, TimeDelta, TimeZone};
-use chrono_tz::Europe::Paris;
 use lf_application::ports::CorpusError;
 use lf_domain::{
     DomainError,
@@ -25,6 +23,8 @@ use lf_domain::{
     search::{MatchMode, NumberKind, NumberQuery, NumberValue, PageSize, QueryText, SearchQuery},
 };
 use serde_json::{Value, json};
+
+use super::search::paris_noon_ms;
 
 /// `POST /consult/getArticleWithIdAndNum` : l'article en vigueur d'un texte, par son numéro.
 pub(crate) const GET_ARTICLE_WITH_ID_AND_NUM: &str = "/consult/getArticleWithIdAndNum";
@@ -63,15 +63,6 @@ const DATE_VERSION: &str = "DATE_VERSION";
 
 /// Facette du filtre par ECLI (04 §7.2), à valeur exacte.
 const ECLI: &str = "ECLI";
-
-/// Millisecondes par jour.
-const DAY_MS: i64 = 86_400_000;
-
-/// Millisecondes de midi.
-const NOON_MS: i64 = 43_200_000;
-
-/// Jours entre 0000-03-01 et 1970-01-01 dans l'algorithme de Hinnant.
-const EPOCH_SHIFT_DAYS: i64 = 719_468;
 
 /// Sérialise un corps déjà construit : `Value::to_string` ne peut pas échouer.
 fn bytes(body: &Value) -> Vec<u8> {
@@ -318,29 +309,6 @@ const fn date_facet(fond: Fond) -> Option<&'static str> {
 fn defensive(detail: String) -> CorpusError {
     tracing::warn!(%detail, "number search request refused before sending: probable bug");
     CorpusError::InvalidRequest { status: None, detail }
-}
-
-/// Midi du jour à Paris, en millisecondes Unix (04 §6.3) ; recopié de `request::search`.
-fn paris_noon_ms(date: VersionDate) -> i64 {
-    let civil = date.as_civil();
-    let days =
-        days_from_civil(i64::from(civil.year()), i64::from(civil.month()), i64::from(civil.day()));
-    let utc_noon_ms = days * DAY_MS + NOON_MS;
-    // Pas de panique possible : `VersionDate` est borné à 1500..=2221, loin des limites de chrono.
-    let utc = DateTime::UNIX_EPOCH.naive_utc() + TimeDelta::milliseconds(utc_noon_ms);
-    let offset = Paris.offset_from_utc_datetime(&utc).fix().local_minus_utc();
-    utc_noon_ms - i64::from(offset) * 1_000
-}
-
-/// Nombre de jours depuis 1970-01-01 pour une date civile grégorienne (algorithme de Hinnant).
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = year.div_euclid(400);
-    let year_of_era = year.rem_euclid(400);
-    let shifted_month = (month + 9) % 12;
-    let day_of_year = (153 * shifted_month + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - EPOCH_SHIFT_DAYS
 }
 
 #[cfg(test)]
@@ -717,27 +685,5 @@ mod tests {
             body(&eli_body(&article)),
             json!({"idEliOrAlias": "/eli/loi/2016/10/7/ECFI1524250L/jo/article_1"})
         );
-    }
-
-    // ---- midi Europe/Paris -----------------------------------------------------------------
-
-    #[test]
-    fn paris_noon_matches_the_vectors_of_the_search_body() {
-        let vectors = [
-            ("2026-10-15", 1_792_058_400_000),
-            ("2026-10-28", 1_793_185_200_000),
-            ("1970-01-01", 39_600_000),
-            ("2000-02-29", 951_822_000_000),
-            ("2024-02-29", 1_709_204_400_000),
-            ("1976-03-28", 196_855_200_000),
-            ("1944-08-25", -800_028_000_000),
-            ("1911-03-11", -1_855_915_200_000),
-            ("1900-03-01", -2_203_848_561_000),
-            ("1500-01-01", -14_831_726_961_000),
-            ("2221-12-31", 7_952_295_600_000),
-        ];
-        for (date, want) in vectors {
-            assert_eq!(paris_noon_ms(day(date)), want, "{date}");
-        }
     }
 }

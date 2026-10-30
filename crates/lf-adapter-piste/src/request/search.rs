@@ -276,8 +276,8 @@ fn defensive(detail: String) -> CorpusError {
     CorpusError::InvalidRequest { status: None, detail }
 }
 
-/// Midi du jour à Paris, en millisecondes Unix (04 §6.3).
-fn paris_noon_ms(date: VersionDate) -> i64 {
+/// Midi du jour à Paris, en millisecondes Unix (04 §6.3) ; partagée avec `request::m6`.
+pub(super) fn paris_noon_ms(date: VersionDate) -> i64 {
     let civil = date.as_civil();
     let days =
         days_from_civil(i64::from(civil.year()), i64::from(civil.month()), i64::from(civil.day()));
