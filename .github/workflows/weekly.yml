@@ -32,7 +32,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: mutants-full
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest@0.9.148,cargo-mutants@27.1.0
       - run: cargo mutants --shard ${{ matrix.shard }}/4 -j 2 --timeout 60
@@ -58,7 +58,7 @@ jobs:
         with:
           toolchain: nightly
       # cargo-fuzz n'a pas de manifeste dans install-action : repli sur cargo-binstall.
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-fuzz@0.13.1
       - if: matrix.target != 'dto_decode'
