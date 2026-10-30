@@ -809,6 +809,8 @@ mod tests {
                 assert_eq!(reading.text.as_deref(), Some(text.as_str()));
                 // Un résumé n'accompagne le texte entier que s'il est officiel (05 §6.2).
                 assert!(reading.summary.as_ref().is_none_or(is_official));
+                // Et il l'accompagne bien dès qu'un sommaire officiel existe.
+                assert_eq!(reading.summary.is_some(), official.is_some());
             }
         }
         // Sans sommaire officiel, le début du texte n'est jamais répété.
