@@ -26,7 +26,7 @@ impl<'a, C: LegalCorpus> GetCompanyAgreementUseCase<'a, C> {
     ///
     /// # Errors
     ///
-    /// - `invalid_arg` si `agreement_id` est absent ou n'est pas un `ACCOTEXT` valide : aucun
+    /// - `invalid_arg` si `agreement_id` est absent, blanc ou n'est pas un `ACCOTEXT` valide : aucun
     ///   appel n'est fait au port ;
     /// - `not_found` si le corpus ne connaît pas l'accord, et les autres erreurs du port
     ///   (`upstream_error`, `rate_limited`, `config_error`) traduites par `messages`.
@@ -35,7 +35,10 @@ impl<'a, C: LegalCorpus> GetCompanyAgreementUseCase<'a, C> {
         input: GetCompanyAgreementInput,
     ) -> Result<GetCompanyAgreementOutput, AppError> {
         let tool = ToolName::FR_GET_COMPANY_AGREEMENT;
-        let raw = input.agreement_id.ok_or_else(|| messages::required(messages::id_field(tool)))?;
+        let raw = input
+            .agreement_id
+            .filter(|raw| !raw.trim().is_empty())
+            .ok_or_else(|| messages::required(messages::id_field(tool)))?;
         let id = AccoTextId::parse(&raw).map_err(|error| messages::domain(tool, &error))?;
         let agreement = self
             .corpus
@@ -98,11 +101,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_missing_id_is_invalid_arg_without_network() {
+    async fn a_missing_or_blank_id_is_required_without_network() {
         let corpus = FakeCorpus::new();
-        let error =
-            GetCompanyAgreementUseCase::new(&corpus).execute(input(None)).await.unwrap_err();
-        assert_eq!(error, AppError::invalid_argument("agreement_id is required."));
+        let use_case = GetCompanyAgreementUseCase::new(&corpus);
+        for raw in [None, Some(""), Some("   ")] {
+            let error = use_case.execute(input(raw)).await.unwrap_err();
+            assert_eq!(error, AppError::invalid_argument("agreement_id is required."), "{raw:?}");
+        }
         assert_eq!(corpus.calls(), 0);
     }
 
@@ -118,8 +123,6 @@ mod tests {
         let short = use_case.execute(input(Some("ACCOTEXT0001"))).await.unwrap_err();
         assert_eq!(short.code(), Some(ErrorCode::InvalidArg));
         assert!(short.message().starts_with("agreement_id='ACCOTEXT0001'"), "{}", short.message());
-        let blank = use_case.execute(input(Some("   "))).await.unwrap_err();
-        assert_eq!(blank.code(), Some(ErrorCode::InvalidArg));
         assert_eq!(corpus.calls(), 0);
     }
 
