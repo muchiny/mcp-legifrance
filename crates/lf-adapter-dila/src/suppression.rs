@@ -30,14 +30,14 @@ impl Deletions {
     pub fn read_file_list(&mut self, data: &[u8]) {
         for line in data.split(|b| *b == b'\n') {
             let Ok(line) = std::str::from_utf8(line) else {
-                self.invalid += 1;
+                self.invalid = self.invalid.saturating_add(1);
                 continue;
             };
             for token in line.split_ascii_whitespace() {
                 let key = token.strip_suffix(".xml").unwrap_or(token);
                 match doc_for_key(key) {
                     Some(doc) => self.files.push(doc),
-                    None => self.invalid += 1,
+                    None => self.invalid = self.invalid.saturating_add(1),
                 }
             }
         }
@@ -47,7 +47,7 @@ impl Deletions {
     pub fn read_dir_list(&mut self, data: &[u8]) {
         for line in data.split(|b| *b == b'\n') {
             let Ok(line) = std::str::from_utf8(line) else {
-                self.invalid += 1;
+                self.invalid = self.invalid.saturating_add(1);
                 continue;
             };
             let mut tokens = line.split_ascii_whitespace();
@@ -55,9 +55,9 @@ impl Deletions {
                 (None, _, _) => {}
                 (Some(dir), Some("D"), None) => match text_dir_for(dir) {
                     Some(dir) => self.dirs.push(dir),
-                    None => self.invalid += 1,
+                    None => self.invalid = self.invalid.saturating_add(1),
                 },
-                _ => self.invalid += 1,
+                _ => self.invalid = self.invalid.saturating_add(1),
             }
         }
     }

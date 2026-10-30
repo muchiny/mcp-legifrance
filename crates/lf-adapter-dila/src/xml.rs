@@ -149,7 +149,7 @@ fn date_of(text: Option<&str>, label: &'static str) -> Result<Option<CivilDate>,
 
 /// Ouvre un élément : compte, lit le nom et les attributs (valeurs normalisées).
 fn open(start: &BytesStart<'_>, count: &mut usize) -> Result<Node, XmlError> {
-    *count += 1;
+    *count = count.saturating_add(1);
     if *count > MAX_NODES {
         return Err(XmlError::TooManyNodes);
     }
@@ -632,7 +632,7 @@ mod tests {
 
     #[test]
     fn every_real_fixture_parses_into_a_document_with_the_id_of_its_file_name() {
-        let mut checked = 0;
+        let mut checked = 0_usize;
         for tree in ["xml/global-20250713", "xml/incr-20261028"] {
             for dir in std::fs::read_dir(fixture_path(tree)).unwrap() {
                 let dir = dir.unwrap().path();
@@ -658,7 +658,7 @@ mod tests {
                     assert!(parsed.is_ok(), "{name}: {parsed:?}");
                     let document = parsed.unwrap();
                     assert_eq!((document.id(), document.kind()), (id, kind), "{name}");
-                    checked += 1;
+                    checked = checked.saturating_add(1);
                 }
             }
         }

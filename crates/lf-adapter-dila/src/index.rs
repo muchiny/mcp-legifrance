@@ -128,7 +128,13 @@ pub(crate) fn plain(html: &str) -> String {
 /// Date en `AAAAMMJJ`, la valeur de repli quand elle manque.
 fn date_key(date: Option<CivilDate>, missing: u64) -> u64 {
     date.map_or(missing, |date| {
-        u64::from(date.year()) * 10_000 + u64::from(date.month()) * 100 + u64::from(date.day())
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "année, mois et jour d'une date civile : le résultat tient en 8 chiffres"
+        )]
+        let key =
+            u64::from(date.year()) * 10_000 + u64::from(date.month()) * 100 + u64::from(date.day());
+        key
     })
 }
 
@@ -314,7 +320,7 @@ impl Fault {
                 Err(tantivy::TantivyError::InternalError("injected fault".to_owned()))
             }
             left => {
-                self.countdown.store(left - 1, Ordering::SeqCst);
+                self.countdown.store(left.saturating_sub(1), Ordering::SeqCst);
                 result
             }
         }

@@ -194,7 +194,7 @@ impl In<'_> {
     /// Suite d'éléments ; chaque élément pèse au moins un octet, ce qui borne la réservation.
     fn seq<T>(&mut self, read: impl Fn(&mut Self) -> Option<T>) -> Option<Vec<T>> {
         let len = self.len()?;
-        let mut items = Vec::with_capacity(len.min(self.buf.len() - self.pos));
+        let mut items = Vec::with_capacity(len.min(self.buf.len().saturating_sub(self.pos)));
         for _ in 0..len {
             items.push(read(self)?);
         }

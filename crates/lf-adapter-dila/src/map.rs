@@ -272,7 +272,9 @@ fn draft_level(
                 let section = view.by_id(DocKind::Section, &link.id)?;
                 let section = section.as_ref().and_then(|doc| doc.document.as_section());
                 let (children, leaves) = match section {
-                    Some(section) => draft_level(view, &section.structure, at, budget, depth + 1)?,
+                    Some(section) => {
+                        draft_level(view, &section.structure, at, budget, depth.saturating_add(1))?
+                    }
                     None => (Vec::new(), Vec::new()),
                 };
                 sections.push(SectionDraft {
