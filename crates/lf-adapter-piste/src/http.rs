@@ -624,7 +624,10 @@ mod tests {
                 let client = shared
                     .get_or_build(|| {
                         builds.fetch_add(1, Ordering::SeqCst);
-                        std::thread::sleep(Duration::from_millis(20));
+                        // construction lente, simulée : elle bloque son thread (`worker_threads = 4`)
+                        tokio::task::block_in_place(|| {
+                            std::thread::sleep(Duration::from_millis(20));
+                        });
                         build_client(&config, &endpoints)
                     })
                     .await
