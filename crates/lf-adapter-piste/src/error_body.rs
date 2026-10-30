@@ -180,6 +180,10 @@ pub(crate) fn looks_like_html(body: &[u8]) -> bool {
     clippy::as_conversions,
     reason = "tests : tailles et indices bornés par les données du test"
 )]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 mod tests {
     use super::*;
 

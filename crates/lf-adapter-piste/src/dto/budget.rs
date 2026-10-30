@@ -91,7 +91,7 @@ fn spend(remaining: Option<u32>) -> Result<u32, Refusal> {
     match remaining {
         None => Err(Refusal::NotArmed),
         Some(0) => Err(Refusal::Exhausted),
-        Some(left) => Ok(left - 1),
+        Some(left) => Ok(left.saturating_sub(1)),
     }
 }
 

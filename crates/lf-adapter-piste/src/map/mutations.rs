@@ -103,11 +103,11 @@ fn check(fixture: &Fixture) -> (Vec<String>, usize) {
     let mut all = Vec::new();
     pointers(&document, "", &mut all);
     let mut failures = Vec::new();
-    let mut tried = 0;
+    let mut tried = 0_usize;
     for pointer in &all {
         for mutation in MUTATIONS {
             let Some(body) = mutated(&document, pointer, mutation) else { continue };
-            tried += 1;
+            tried = tried.saturating_add(1);
             let text = body.to_string();
             let outcome = catch_unwind(AssertUnwindSafe(|| {
                 map_body(fixture.kind, &text, fixture.requested, &mut Diagnostics::default())

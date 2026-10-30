@@ -91,7 +91,7 @@ impl<K: MonoClock> CodeTable<K> {
                 Ok(listings)
             }
             Err(error) => match slot.as_ref() {
-                Some(previous) if age(previous, now) < TTL + STALE_GRACE => {
+                Some(previous) if age(previous, now) < TTL.saturating_add(STALE_GRACE) => {
                     tracing::warn!(
                         age_days = age(previous, now).as_secs() / 86_400,
                         "code table refresh failed: serving the previous table"

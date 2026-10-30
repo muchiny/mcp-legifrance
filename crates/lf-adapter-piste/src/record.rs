@@ -506,16 +506,16 @@ fn skip_blank(bytes: &[u8], at: usize) -> usize {
         .iter()
         .take_while(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b'\r'))
         .count();
-    at + blank
+    at.saturating_add(blank)
 }
 
 /// Fin (exclue) de la chaîne JSON qui commence au `"` de `at`.
 fn string_end(bytes: &[u8], at: usize) -> Option<usize> {
-    let mut index = at + 1;
+    let mut index = at.saturating_add(1);
     loop {
         match bytes.get(index)? {
-            b'\\' => index += 2,
-            b'"' => return Some(index + 1),
+            b'\\' => index = index.saturating_add(2),
+            b'"' => return Some(index.saturating_add(1)),
             // Pas de `+=` ici : son mutant `*=` vaut `*= 1`, l'identité, et la boucle ne finirait
             // jamais (le test ne le verrait que par le délai). `saturating_add` n'a pas de mutant.
             _ => index = index.saturating_add(1),
@@ -540,11 +540,11 @@ fn value_end(bytes: &[u8], at: usize) -> Option<usize> {
                         index = string_end(bytes, index)?;
                         continue;
                     }
-                    b'{' | b'[' => depth += 1,
+                    b'{' | b'[' => depth = depth.saturating_add(1),
                     b'}' | b']' => {
-                        depth -= 1;
+                        depth = depth.saturating_sub(1);
                         if depth == 0 {
-                            return Some(index + 1);
+                            return Some(index.saturating_add(1));
                         }
                     }
                     _ => {}
@@ -559,7 +559,7 @@ fn value_end(bytes: &[u8], at: usize) -> Option<usize> {
                 .iter()
                 .position(|byte| matches!(byte, b',' | b'}' | b']' | b' ' | b'\t' | b'\n' | b'\r'))
                 .unwrap_or(rest.len());
-            Some(at + length)
+            Some(at.saturating_add(length))
         }
     }
 }
@@ -577,13 +577,13 @@ fn child(bytes: &[u8], at: usize, token: &str) -> Option<usize> {
         b'[' => Some(token.parse::<usize>().ok()?),
         _ => return None,
     };
-    let mut index = skip_blank(bytes, at + 1);
+    let mut index = skip_blank(bytes, at.saturating_add(1));
     let mut position = 0;
     while !matches!(bytes.get(index)?, b'}' | b']') {
         let value = if wanted.is_none() {
             let key_end = string_end(bytes, index)?;
             let key: String = serde_json::from_slice(&bytes[index..key_end]).ok()?;
-            let value = skip_blank(bytes, skip_blank(bytes, key_end) + 1);
+            let value = skip_blank(bytes, skip_blank(bytes, key_end).saturating_add(1));
             if key == token {
                 return Some(value);
             }
@@ -596,16 +596,16 @@ fn child(bytes: &[u8], at: usize, token: &str) -> Option<usize> {
         };
         index = skip_blank(bytes, value_end(bytes, value)?);
         if bytes.get(index) == Some(&b',') {
-            index = skip_blank(bytes, index + 1);
+            index = skip_blank(bytes, index.saturating_add(1));
         }
-        position += 1;
+        position = position.saturating_add(1);
     }
     None
 }
 
 /// Chaîne TOML de base (`"…"`) : `\` et `"` échappés, caractères de contrôle en `\uXXXX`.
 fn toml_string(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 2);
+    let mut out = String::with_capacity(text.len().saturating_add(2));
     out.push('"');
     for c in text.chars() {
         match c {

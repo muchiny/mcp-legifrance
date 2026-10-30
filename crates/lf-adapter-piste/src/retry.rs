@@ -91,7 +91,7 @@ impl Jitter for SystemJitter {
 /// La borne est limitée à un `u64` de nanosecondes (environ 584 ans).
 fn scale(bound: Duration, random: u64) -> Duration {
     let nanos = u64::try_from(bound.as_nanos()).unwrap_or(u64::MAX);
-    let scaled = (u128::from(nanos) * u128::from(random)) >> 64;
+    let scaled = u128::from(nanos).saturating_mul(u128::from(random)) >> 64;
     Duration::from_nanos(u64::try_from(scaled).unwrap_or(u64::MAX))
 }
 
@@ -163,7 +163,7 @@ where
     Fut: Future<Output = Outcome<T>>,
 {
     let mut last = CorpusError::Timeout;
-    let mut reduced_seen = 0;
+    let mut reduced_seen = 0_u32;
     // Borne dure : la boucle ne peut pas dépasser `MAX_ATTEMPTS` tours, même mutée.
     for number in 1..=MAX_ATTEMPTS {
         match attempt().await {
@@ -172,7 +172,7 @@ where
             Outcome::Transient { error, retry_after, budget } => {
                 last = error;
                 if budget == Budget::Reduced {
-                    reduced_seen += 1;
+                    reduced_seen = reduced_seen.saturating_add(1);
                 }
                 if out_of_attempts(number, reduced_seen) {
                     break;
@@ -187,6 +187,10 @@ where
     Err(last)
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;

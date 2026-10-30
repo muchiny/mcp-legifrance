@@ -335,6 +335,10 @@ pub(crate) async fn try_send(
     classify(send_once(client, attempt).await, attempt.endpoint, context)
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;

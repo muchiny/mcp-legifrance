@@ -138,6 +138,10 @@ pub(crate) struct ConteneurDto {
     pub titre: Option<String>,
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 mod tests {
     use super::*;
