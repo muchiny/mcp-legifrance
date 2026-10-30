@@ -444,6 +444,10 @@ fn acquire(
     try_lock: &mut dyn FnMut() -> Result<(), TryLockError>,
     timeout: Duration,
 ) -> io::Result<()> {
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "`timeout` est le délai de configuration du journal (secondes) : loin du débordement d'`Instant`"
+    )]
     let deadline = Instant::now() + timeout;
     loop {
         match try_lock() {
@@ -1154,6 +1158,10 @@ mod tests {
             Id::from_u64(u64::try_from(seen.spans.len()).unwrap())
         }
 
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "tests : valeurs bornées par les données du test"
+        )]
         fn record(&self, span: &Id, values: &Record<'_>) {
             let mut seen = self.0.lock().unwrap();
             let index = usize::try_from(span.into_u64()).unwrap() - 1;

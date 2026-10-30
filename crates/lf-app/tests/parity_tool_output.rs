@@ -25,6 +25,10 @@
 //! (`unwrap` et `expect` permis, `clippy.toml`).
 
 #![expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
+#![expect(
     clippy::as_conversions,
     reason = "tests : tailles et indices bornés par les données du test"
 )]

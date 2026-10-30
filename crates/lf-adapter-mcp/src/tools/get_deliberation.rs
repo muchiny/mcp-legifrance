@@ -122,6 +122,10 @@ mod tests {
         }
 
         /// Une longue délibération : 30 paragraphes de quatre phrases.
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "tests : valeurs bornées par les données du test"
+        )]
         fn long_text() -> String {
             let paragraph = |p: usize| (0..4).map(|s| sentence(p * 10 + s)).collect::<String>();
             (0..30).map(|p| paragraph(p).trim_end().to_owned()).collect::<Vec<_>>().join("\n")

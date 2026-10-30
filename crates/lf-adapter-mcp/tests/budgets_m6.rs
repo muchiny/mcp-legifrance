@@ -18,6 +18,11 @@
 //! fichier est sous `cfg(test)` : les aides partagent les règles de lint des tests (`unwrap` et
 //! `expect` permis, `clippy.toml`).
 
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
+
 // Le harnais en processus n'existe qu'avec la feature `test-support`.
 #[cfg(test)]
 #[cfg(feature = "test-support")]

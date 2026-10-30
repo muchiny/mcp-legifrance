@@ -29,7 +29,8 @@ pub(crate) struct Active {
 /// pas cette forme (fichier étranger, tronqué ou vide).
 pub(crate) fn date_of_prefix(prefix: &[u8]) -> Option<&str> {
     const OPENING: &[u8] = br#"{"ts":""#;
-    let date = prefix.strip_prefix(OPENING)?.get(..PREFIX_LEN - OPENING.len())?;
+    const DATE_LEN: usize = PREFIX_LEN - OPENING.len();
+    let date = prefix.strip_prefix(OPENING)?.get(..DATE_LEN)?;
     let well_formed = date.iter().enumerate().all(|(at, byte)| match at {
         4 | 7 => *byte == b'-',
         _ => byte.is_ascii_digit(),

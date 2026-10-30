@@ -128,6 +128,8 @@ exit = "warn"
 as_conversions = "warn"
 # Indexation et découpage qui peuvent paniquer interdits en production : `get`, itérateurs, ou `#[expect(…, reason)]` quand l'indice est borné par construction (rust-hardening §1).
 indexing_slicing = "warn"
+# Arithmétique qui peut déborder interdite en production : `checked_*`, `saturating_*`, ou `#[expect(…, reason)]` quand la borne est évidente (rust-hardening §1). Déploiement par crate : les crates pas encore traités portent un `#![expect]` provisoire à leur racine.
+arithmetic_side_effects = "warn"
 
 # Profil dédié à cargo-mutants (`profile = "mutants"` dans .cargo/mutants.toml) :
 # pas d'infos de debug, build plus rapide par mutant.

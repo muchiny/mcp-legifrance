@@ -20,6 +20,11 @@
 //! (`--all-features`). Tout le fichier est sous `cfg(test)` : les aides partagent les règles de
 //! lint des tests (`unwrap` et `expect` permis, `clippy.toml`).
 
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
+
 #[cfg(test)]
 #[cfg(all(feature = "http", feature = "test-support"))]
 mod http {

@@ -137,7 +137,7 @@ fn push_float(out: &mut String, value: f64) {
     }
     let (digits, exponent) = shortest_digits(magnitude);
     // La valeur vaut 0.CHIFFRES × 10^point : `point` est la place de la virgule dans les chiffres.
-    let point = exponent + 1;
+    let point = exponent.saturating_add(1);
     if (-3..=16).contains(&point) {
         push_positional(out, &digits, point);
     } else {
@@ -179,7 +179,7 @@ fn push_positional(out: &mut String, digits: &str, point: i32) {
         out.push_str(digits);
     } else if places >= digits.len() {
         out.push_str(digits);
-        out.push_str(&"0".repeat(places - digits.len()));
+        out.push_str(&"0".repeat(places.saturating_sub(digits.len())));
         out.push_str(".0");
     } else {
         let (integer, fraction) = digits.split_at(places);

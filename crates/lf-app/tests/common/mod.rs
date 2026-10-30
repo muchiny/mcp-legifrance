@@ -14,6 +14,10 @@
 //! Tout le module est sous `cfg(test)` (déclaré ainsi par les cibles) : les aides partagent les
 //! règles de lint des tests (`unwrap` et `expect` permis, `clippy.toml`).
 
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #![allow(dead_code, reason = "chaque cible de test n'emploie qu'une partie de ces aides")]
 
 use std::{

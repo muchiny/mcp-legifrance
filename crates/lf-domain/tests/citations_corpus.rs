@@ -6,6 +6,10 @@
 //! Ce fichier est une cible de test d'intégration : il ne compte pas dans la couverture `--lib`
 //! (06 §3). Les tests de couverture du parseur vivent dans les modules de `src/citation/`.
 
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "déploiement par crate de `arithmetic_side_effects` : dérogation provisoire, à retirer avec la PR de ce crate"
+)]
 // Harnais de test : un corpus invalide ou une fixture illisible doit faire échouer le test avec un
 // message, et la mesure de performance comme l'absence de fixture se signalent sur stderr.
 #![expect(

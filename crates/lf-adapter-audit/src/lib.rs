@@ -52,6 +52,10 @@ pub(crate) mod fixtures {
     };
 
     /// Instant d'essai : `2026-10-15T15:09:12.345Z`.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "tests : valeurs bornées par les données du test"
+    )]
     pub(crate) fn instant() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 10, 15, 15, 9, 12).unwrap()
             + chrono::TimeDelta::milliseconds(345)

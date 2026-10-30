@@ -458,10 +458,10 @@ impl Transcript {
                 .and_then(|line| parse_step(&line))
                 .map_err(|reason| TranscriptError::Line {
                     name: name.to_owned(),
-                    line: index + 1,
+                    line: index.saturating_add(1),
                     reason,
                 })?;
-            steps.push(Instruction { line: index + 1, step });
+            steps.push(Instruction { line: index.saturating_add(1), step });
         }
         Ok(Self { name: name.to_owned(), steps })
     }
@@ -813,7 +813,7 @@ impl Run {
                 }
             }
             Step::ExpectAlive => {
-                self.probes += 1;
+                self.probes = self.probes.saturating_add(1);
                 let id = json!(format!("alive-{}", self.probes));
                 let probe = json!({"jsonrpc": "2.0", "id": id, "method": "server/discover",
                 "params": {"_meta": {

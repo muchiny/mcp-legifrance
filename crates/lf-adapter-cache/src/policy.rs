@@ -5,6 +5,11 @@
 //! réelle (V-08, `moka-horloge-tests`). On teste donc directement la fonction [`Expiry`] qui les
 //! calcule, et les tests de capacité s'appuient sur le poids, pas sur le temps.
 
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "estimations de poids : sommes de tailles d'objets qui existent déjà en mémoire, donc sous `usize::MAX`"
+)]
+
 use std::{
     mem::{size_of, size_of_val},
     time::{Duration, Instant},

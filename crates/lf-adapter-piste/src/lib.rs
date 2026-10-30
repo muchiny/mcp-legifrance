@@ -94,6 +94,11 @@
 //!   champs, sans `..`), chaînes d'une valeur avec leur chemin (`leaf_strings`) et contrôle
 //!   `no_mojibake_after_mapping` (`mojibake_paths`, D-35).
 
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "déploiement par crate de `arithmetic_side_effects` : dérogation provisoire, à retirer avec la PR de ce crate"
+)]
+
 mod auth;
 mod classify;
 mod codes;
