@@ -69,9 +69,13 @@ fn following(input: &str, from: usize) -> Option<Span> {
     let rest = input.get(from..).unwrap_or_default();
     for (offset, c) in rest.char_indices().take(MAX_GAP_CHARS + 1) {
         if let Some(closers) = closers_of(c) {
-            let at = from + offset;
+            let at = from.saturating_add(offset);
             let opens = c != '"' || is_straight_opener(input, at);
-            return if opens { quoted_after(input, at + c.len_utf8(), c, closers) } else { None };
+            return if opens {
+                quoted_after(input, at.saturating_add(c.len_utf8()), c, closers)
+            } else {
+                None
+            };
         }
         if !is_separator(c) {
             return None;
@@ -102,7 +106,7 @@ fn quoted_after(input: &str, start: usize, opener: char, closers: &[char]) -> Op
     let mut end = None;
     for (offset, c) in rest.char_indices().take(SCAN_LIMIT_CHARS) {
         if closers.contains(&c) {
-            end = Some(start + offset);
+            end = Some(start.saturating_add(offset));
             break;
         }
         if c == opener {
@@ -118,7 +122,7 @@ fn quoted_before(input: &str, at: usize, closer: char) -> Option<Span> {
     let mut start = None;
     for (offset, c) in head.char_indices().rev().take(SCAN_LIMIT_CHARS) {
         if pairs_with(c, closer) {
-            start = Some(offset + c.len_utf8());
+            start = Some(offset.saturating_add(c.len_utf8()));
             break;
         }
         if c == closer {
@@ -135,10 +139,17 @@ fn inner_span(input: &str, start: usize, end: usize) -> Option<Span> {
     if !(MIN_QUOTE_CHARS..=MAX_QUOTE_CHARS).contains(&trimmed.chars().count()) {
         return None;
     }
-    let lead = inner.len() - inner.trim_start().len();
-    Some(Span { start: start + lead, end: start + lead + trimmed.len() })
+    let lead = inner.len().saturating_sub(inner.trim_start().len());
+    Some(Span {
+        start: start.saturating_add(lead),
+        end: start.saturating_add(lead).saturating_add(trimmed.len()),
+    })
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;

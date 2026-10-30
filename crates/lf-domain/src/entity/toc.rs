@@ -193,7 +193,7 @@ impl Toc {
         let total = weigh(&draft.sections, &draft.articles, TOC_MAX_DEPTH)?;
         let mut builder = Builder::default();
         let roots = builder.children(draft.sections, draft.articles)?;
-        Ok(Self { roots, dropped: to_u32(total - builder.kept) })
+        Ok(Self { roots, dropped: to_u32(total.saturating_sub(builder.kept)) })
     }
 
     /// Nœuds de premier niveau.
@@ -232,7 +232,7 @@ impl Toc {
         let entries: Vec<_> =
             all.into_iter().skip(to_usize(offset)).take(to_usize(limit.get())).collect();
         // Ici offset < total ou offset = 0 = total : la somme ne dépasse pas total.
-        let next = offset + to_u32(entries.len());
+        let next = offset.saturating_add(to_u32(entries.len()));
         Ok(TocPage { entries, total, next_offset: (next < total).then_some(next) })
     }
 
@@ -255,7 +255,11 @@ fn weigh(
     }
     // Un niveau de moins par appel : au plus TOC_MAX_DEPTH + 1 appels imbriqués.
     sections.iter().try_fold(articles.len(), |total, section| {
-        Ok(total + weigh(&section.sections, &section.articles, budget - 1)?)
+        Ok(total.saturating_add(weigh(
+            &section.sections,
+            &section.articles,
+            budget.saturating_sub(1),
+        )?))
     })
 }
 
@@ -320,7 +324,7 @@ impl Builder {
         if !self.articles.insert(article.article_id.as_str().to_owned()) {
             return Ok(None);
         }
-        self.kept += 1;
+        self.kept = self.kept.saturating_add(1);
         article.inline_text = inline_text(content_html)?;
         Ok(Some(TocNode::Article(article)))
     }
@@ -374,7 +378,7 @@ fn flatten<'a>(nodes: &'a [TocNode], depth: u16, out: &mut Vec<TocEntry<'a>>) {
                     out.push(TocEntry { depth, node: TocEntryRef::Section { title } });
                 }
                 // Profondeur bornée par `Toc::build` : au plus TOC_MAX_DEPTH.
-                flatten(&section.children, depth + 1, out);
+                flatten(&section.children, depth.saturating_add(1), out);
             }
         }
     }
@@ -390,6 +394,10 @@ fn to_usize(n: u32) -> usize {
     usize::try_from(n).unwrap_or(usize::MAX)
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 mod tests {
     use super::*;

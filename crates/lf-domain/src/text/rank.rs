@@ -144,6 +144,10 @@ pub fn rank(passages: &[&str], query: &str, k: usize) -> Vec<Scored> {
     scored
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 mod tests {
     use super::*;

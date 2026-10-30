@@ -143,7 +143,7 @@ impl LongText {
     /// Octets occupés sur le tas : texte canonique et table des paragraphes (en-têtes des `Arc`
     /// exclus). Poids d'une entité pour le `weigher` du cache (02 §9).
     pub fn heap_bytes(&self) -> usize {
-        self.canonical.len() + mem::size_of_val(&*self.paras)
+        self.canonical.len().saturating_add(mem::size_of_val(&*self.paras))
     }
 
     /// Paragraphes, avec la position de leur premier caractère dans le texte canonique, en
@@ -151,10 +151,9 @@ impl LongText {
     pub fn paragraphs(&self) -> impl Iterator<Item = (u32, &str)> {
         self.paras.iter().enumerate().map(|(i, para)| {
             let start = index(para.byte_start);
-            let end = self
-                .paras
-                .get(i + 1)
-                .map_or(self.canonical.len(), |next| index(next.byte_start) - SEPARATOR.len());
+            let end = self.paras.get(i.saturating_add(1)).map_or(self.canonical.len(), |next| {
+                index(next.byte_start).saturating_sub(SEPARATOR.len())
+            });
             (para.char_start, &self.canonical[start..end])
         })
     }
@@ -221,7 +220,7 @@ impl Canonical {
             self.seal();
             self.push(if fresh { SEPARATOR } else { " " });
         }
-        self.segments += 1;
+        self.segments = self.segments.saturating_add(1);
         if fresh && let Some((text, paras)) = &mut self.built {
             let (byte_start, char_start) = (narrow(text.len()), narrow_wide(self.chars));
             paras.push(Para { byte_start, char_start, char_len: 0 });
@@ -233,14 +232,14 @@ impl Canonical {
         if let Some((_, paras)) = &mut self.built
             && let Some(last) = paras.last_mut()
         {
-            last.char_len = narrow_wide(self.chars - u64::from(last.char_start));
+            last.char_len = narrow_wide(self.chars.saturating_sub(u64::from(last.char_start)));
         }
     }
 
     /// Ajoute `piece` au texte et compte ses caractères ; au dépassement de
     /// [`LongText::MAX_CHARS`], le texte est abandonné.
     fn push(&mut self, piece: &str) {
-        self.chars += wide(piece.chars().count());
+        self.chars = self.chars.saturating_add(wide(piece.chars().count()));
         if self.chars > u64::from(LongText::MAX_CHARS) {
             self.built = None;
         }
@@ -253,7 +252,7 @@ impl Canonical {
     /// [`LongText::best_of`]) : chaque séparateur `"\n\n"` y compte pour un.
     fn joined_chars(&self) -> u64 {
         let paragraphs = self.segments.min(u64::from(LongText::MAX_PARAGRAPHS));
-        self.chars - paragraphs.saturating_sub(1)
+        self.chars.saturating_sub(paragraphs.saturating_sub(1))
     }
 
     /// Texte construit, ou `TextTooLarge` avec la longueur du texte entier.
@@ -282,10 +281,10 @@ fn html_is_complete(html_chars: u64, plain_chars: u64) -> bool {
 fn folded_chars(text: &str) -> usize {
     let (mut words, mut chars) = (0_usize, 0_usize);
     for word in text.split_whitespace() {
-        words += 1;
-        chars += word.chars().count();
+        words = words.saturating_add(1);
+        chars = chars.saturating_add(word.chars().count());
     }
-    chars + words.saturating_sub(1)
+    chars.saturating_add(words.saturating_sub(1))
 }
 
 /// `usize` en `u64`. Sans perte sur toute cible usuelle (`usize` d'au plus 64 bits).
