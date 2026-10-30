@@ -112,11 +112,15 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
         }
         let slot = *slots.entry(key_of(item)).or_insert_with(|| {
             unique.push(item.clone());
-            unique.len() - 1
+            unique.len().saturating_sub(1)
         });
         routes.push(Err(slot));
     }
 
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "`run.remaining` est le délai restant de la requête (secondes), jamais proche du débordement d'`Instant`"
+    )]
     let limit = Instant::now() + budget_of(run.remaining);
     let codes = if unique.iter().any(needs_codes) {
         let listed = timeout_at(limit, corpus.list_codes()).await;

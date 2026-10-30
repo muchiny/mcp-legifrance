@@ -116,6 +116,10 @@ fn capped_nota(nota: &LongText) -> String {
 /// Caractères de texte que la lecture peut encore porter sous la cible du budget, une fois
 /// comptés les métadonnées de l'article (citation comprise), le `nota` et les champs de la
 /// lecture, au moins [`ResponseBudget::MAX_CHARS_MIN`] (le minimum d'un `max_chars`).
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
+)]
 fn room_for_reading(article: &ArticleText, nota: Option<&str>, reading: &Reading) -> usize {
     let contract = article.contract();
     let texts = [article.num.as_deref(), article.code_title.as_deref(), nota]

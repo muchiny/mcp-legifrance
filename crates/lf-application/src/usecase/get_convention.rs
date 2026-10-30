@@ -72,6 +72,10 @@ fn convention_id(raw: Option<&str>) -> Result<KaliTextId, AppError> {
 }
 
 /// Estimation des champs de la réponse hors table des matières (05 §6.4).
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
+)]
 fn metadata_cost(convention: &Convention) -> usize {
     let body = &convention.body;
     let texts = [

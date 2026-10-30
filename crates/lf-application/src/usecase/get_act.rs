@@ -122,6 +122,10 @@ fn suffix_out_of_range(start: CivilDate) -> AppError {
 }
 
 /// Estimation des champs de la réponse hors table des matières (05 §6.4).
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
+)]
 fn metadata_cost(act: &Act, note: Option<&str>) -> usize {
     let body = &act.body;
     let aliases = body.aliases.iter().map(|alias| Some(alias.as_str()));
@@ -218,6 +222,10 @@ fn line_of(entry: &TocEntry<'_>) -> TocLine {
 /// Estimation d'une page : une section rend `depth` et `title` ; un article `depth`,
 /// `article_id`, et `num` et `etat` quand ils existent (l'`etat` égal à celui du texte sera omis
 /// par la vue, l'estimation le compte quand même).
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
+)]
 fn cost(lines: &[TocLine]) -> usize {
     lines.iter().fold(0, |total, line| {
         let (fields, chars) = match line {
@@ -232,6 +240,10 @@ fn cost(lines: &[TocLine]) -> usize {
     })
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 pub(crate) mod fixtures {
     //! Textes de test partagés par les cas d'usage `fr_get_act` et `fr_get_convention`, par leurs

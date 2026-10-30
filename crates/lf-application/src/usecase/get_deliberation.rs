@@ -64,6 +64,10 @@ impl<'a, C: LegalCorpus> GetDeliberationUseCase<'a, C> {
     }
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 #[expect(
     clippy::as_conversions,

@@ -148,6 +148,10 @@ fn output(id: &str, contract: &CitationContract, mut links: Vec<LinkOut>) -> Get
 
 /// Coût estimé d'un lien : l'élément, ses trois champs toujours présents (`relation`, `kind`,
 /// `citation`) et les deux facultatifs (`id`, `source_url`) quand ils y sont.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
+)]
 fn cost(link: &LinkOut) -> usize {
     let optional = [&link.id, &link.source_url];
     let present = optional.iter().filter(|field| field.is_some()).count();

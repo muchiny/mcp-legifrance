@@ -284,7 +284,7 @@ impl FakeCorpus {
         let method = request.method();
         lock(&self.requests).push(request);
         lock(&self.deadlines).push(Deadline::current_or(NO_DEADLINE));
-        let now_in_flight = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        let now_in_flight = self.in_flight.fetch_add(1, Ordering::SeqCst).saturating_add(1);
         let _slot = InFlight(&self.in_flight);
         self.max_in_flight.fetch_max(now_in_flight, Ordering::SeqCst);
         // Le verrou est pris et rendu dans la même instruction : jamais tenu à travers un `await`.

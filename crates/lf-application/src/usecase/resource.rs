@@ -178,16 +178,16 @@ fn percent_decode(segment: &str) -> Option<String> {
     let mut index = 0;
     while let Some(&byte) = bytes.get(index) {
         if byte == b'%' {
-            let hex = segment.get(index + 1..index + 3)?;
+            let hex = segment.get(index.saturating_add(1)..index.saturating_add(3))?;
             // `from_str_radix` accepte un `+` de tête : seuls les chiffres hexadécimaux passent.
             let value = u8::from_str_radix(hex, 16)
                 .ok()
                 .filter(|_| hex.bytes().all(|digit| digit.is_ascii_hexdigit()))?;
             out.push(value);
-            index += 3;
+            index = index.saturating_add(3);
         } else {
             out.push(byte);
-            index += 1;
+            index = index.saturating_add(1);
         }
     }
     String::from_utf8(out).ok()

@@ -139,18 +139,18 @@ impl<'a> DecisionReferences<'a> {
         let mut clipped = false;
         let cited_case_law = decision.cited_case_law.as_deref().map(|text| {
             let kept = whole_words(text, room);
-            room -= kept.chars().count();
+            room = room.saturating_sub(kept.chars().count());
             clipped |= kept.len() < text.len();
             kept
         });
-        let mut kept = 0;
+        let mut kept = 0_usize;
         for text in &decision.applied_texts {
             let size = text.chars().count();
             if size > room {
                 break;
             }
-            room -= size;
-            kept += 1;
+            room = room.saturating_sub(size);
+            kept = kept.saturating_add(1);
         }
         clipped |= kept < decision.applied_texts.len();
         Self {

@@ -182,6 +182,10 @@ fn shared_failure(groups: &[GroupOut]) -> Option<AppError> {
 
 /// Dégrade les résultats, du dernier au premier, jusqu'à ce que l'estimation de la réponse passe
 /// sous la cible (05 §6.4). Rend la `note` qui le dit, s'il y a eu dégradation.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
+)]
 fn fit_under_target(groups: &mut [GroupOut]) -> Option<String> {
     let fixed = estimate_chars(1, 0)
         + DEGRADE_NOTE_RESERVE
@@ -207,6 +211,10 @@ fn fit_under_target(groups: &mut [GroupOut]) -> Option<String> {
 
 /// Coût estimé d'un groupe hors résultats : `fond`, `total`, `has_more` et `hits`, ou `fond` et
 /// `error`.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
+)]
 fn group_cost(group: &GroupOut) -> usize {
     match &group.result {
         Ok(_) => estimate_chars(4, FOND_NAME_CHARS),
@@ -259,6 +267,10 @@ fn details_note(hits: usize) -> String {
 
 /// Coût estimé d'un résultat : 64 par champ ou élément, plus la longueur de ses textes. `kind`,
 /// `id`, `citation` et `source_url` sont toujours rendus ; le reste seulement s'il est présent.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
+)]
 fn hit_cost(out: &HitOut) -> usize {
     let hit = &out.hit;
     let articles = hit.articles.iter().flat_map(|article| {
@@ -296,6 +308,10 @@ fn chars(text: &str) -> usize {
     text.chars().count()
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 mod tests {
     use std::time::Duration;

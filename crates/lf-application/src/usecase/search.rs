@@ -184,7 +184,7 @@ fn present(query: &SearchQuery, page: SearchPage) -> Result<SearchOutput, AppErr
     let (number, size) = (query.page(), query.page_size());
     let more = has_more(number, size, page.total);
     // Il reste des résultats après cette page, mais la fenêtre atteignable s'arrête ici.
-    let seen = u64::from(number.get()) * u64::from(size.get());
+    let seen = u64::from(number.get()).saturating_mul(u64::from(size.get()));
     let note = (!more && seen < page.total).then(|| REACHABLE_NOTE.to_owned());
     let mut output = SearchOutput {
         total: page.total,
@@ -213,6 +213,10 @@ fn hit_out(hit: SearchHit) -> HitOut {
 // -------------------------------------------------------------------------------------------
 
 /// Dégrade `output` jusqu'à ce que son estimation passe sous la cible (05 §6.4), ou refuse la page.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
+)]
 fn fit_under_target(output: &mut SearchOutput, requested: PageSize) -> Result<(), AppError> {
     let fixed = envelope_cost(output) + DEGRADE_NOTE_RESERVE;
     let over = |hits: &[HitOut]| fixed + page_cost(hits) > ResponseBudget::ESTIMATE_TARGET_CHARS;
@@ -292,6 +296,10 @@ fn largest_page_size(hits: &[HitOut], fixed: usize) -> usize {
 
 /// Coût estimé de l'enveloppe : `total`, `page`, `has_more`, `hits`, plus `total_articles` et
 /// `note` quand ils sont présents.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
+)]
 fn envelope_cost(output: &SearchOutput) -> usize {
     let optional =
         usize::from(output.total_articles.is_some()) + usize::from(output.note.is_some());
@@ -305,6 +313,10 @@ fn page_cost(hits: &[HitOut]) -> usize {
 
 /// Coût estimé d'un résultat : 64 par champ ou élément, plus la longueur de ses textes. `kind`,
 /// `id`, `citation` et `source_url` sont toujours rendus ; le reste seulement s'il est présent.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
+)]
 fn hit_cost(out: &HitOut) -> usize {
     let hit = &out.hit;
     let mut fields = 4;
