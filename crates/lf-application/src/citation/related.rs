@@ -575,11 +575,7 @@ mod tests {
         let decision = referencing(Some(text), Vec::new());
         let references = DecisionReferences::of(&decision);
         let kept = references.cited_case_law.unwrap();
-        assert!(
-            kept.ends_with("pourvoi n°"),
-            "{:?}",
-            kept.chars().rev().take(20).collect::<String>()
-        );
+        assert!(kept.ends_with("pourvoi n°"));
         assert!(!kept.contains("21-23"));
         assert!(references.clipped);
     }

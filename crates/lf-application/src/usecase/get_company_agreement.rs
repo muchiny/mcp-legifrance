@@ -119,10 +119,10 @@ mod tests {
         let foreign = use_case.execute(input(Some("LEGITEXT000006070721"))).await.unwrap_err();
         assert_eq!(foreign.code(), Some(ErrorCode::InvalidArg));
         assert!(foreign.message().starts_with("agreement_id='LEGITEXT000006070721'"));
-        assert!(foreign.message().contains("fr_get_act"), "{}", foreign.message());
+        assert!(foreign.message().contains("fr_get_act"));
         let short = use_case.execute(input(Some("ACCOTEXT0001"))).await.unwrap_err();
         assert_eq!(short.code(), Some(ErrorCode::InvalidArg));
-        assert!(short.message().starts_with("agreement_id='ACCOTEXT0001'"), "{}", short.message());
+        assert!(short.message().starts_with("agreement_id='ACCOTEXT0001'"));
         assert_eq!(corpus.calls(), 0);
     }
 
