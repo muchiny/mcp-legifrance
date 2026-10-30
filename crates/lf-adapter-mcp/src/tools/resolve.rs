@@ -270,7 +270,7 @@ mod tests {
         fixture.corpus.push_find_article(Err(CorpusError::Timeout));
         let result = call(&fixture, &json!({"citation": "article 9 du code civil"})).await;
         assert_eq!(result.is_error, Some(true));
-        assert!(text_of(&result).starts_with("[upstream_error] "), "{}", text_of(&result));
+        assert_eq!(text_of(&result).get(..17), Some("[upstream_error] "));
         assert_eq!(fixture.audit.records()[0].error_code, Some(ErrorCode::UpstreamError));
     }
 
@@ -312,7 +312,7 @@ mod tests {
         let chars: Vec<char> = description.chars().collect();
         let boundaries =
             chars.windows(3).filter(|w| w[0] == '.' && w[1] == ' ' && w[2].is_uppercase()).count();
-        assert!((3..=6).contains(&(boundaries + 1)), "{} phrases", boundaries + 1);
+        assert!((3..=6).contains(&(boundaries + 1)));
         // Les outils cités existent.
         for cited in description.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
             if cited.starts_with("fr_") && !cited.ends_with('_') {

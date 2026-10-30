@@ -209,34 +209,21 @@ mod tests {
     #[test]
     fn strip_stops_when_under_and_when_nothing_is_left() {
         let mut values = [1, 2, 3];
-        assert_eq!(
-            strip_from_end(
-                &mut values,
-                |_| false,
-                |v| {
-                    *v = 0;
-                    true
-                }
-            ),
-            0
-        );
+        let calls = std::cell::Cell::new(0);
+        let mut strip = |_: &mut i32| {
+            calls.set(calls.get() + 1);
+            false
+        };
+        // Pas trop gros d'emblée : `strip` n'est jamais appelé.
+        assert_eq!(strip_from_end(&mut values, |_| false, &mut strip), 0);
         assert_eq!(values, [1, 2, 3]);
+        assert_eq!(calls.get(), 0);
         // `over` reste vrai mais `strip` ne trouve rien : on parcourt toute la liste une fois.
-        let mut calls = 0;
-        assert_eq!(
-            strip_from_end(
-                &mut values,
-                |_| true,
-                |_| {
-                    calls += 1;
-                    false
-                }
-            ),
-            0
-        );
-        assert_eq!(calls, 3);
-        let mut empty: [u8; 0] = [];
-        assert_eq!(strip_from_end(&mut empty, |_| true, |_| true), 0);
+        assert_eq!(strip_from_end(&mut values, |_| true, &mut strip), 0);
+        assert_eq!(calls.get(), 3);
+        let mut empty: [i32; 0] = [];
+        assert_eq!(strip_from_end(&mut empty, |_| true, &mut strip), 0);
+        assert_eq!(calls.get(), 3);
     }
 
     #[test]

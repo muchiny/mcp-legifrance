@@ -229,10 +229,7 @@ mod tests {
         .await;
         never(&rig.server, &route(GET_ARTICLE_BY_CID)).await;
         let error = rig.corpus.article_versions(&article()).await.unwrap_err();
-        assert!(
-            matches!(error, CorpusError::InvalidRequest { status: Some(400), .. }),
-            "{error:?}"
-        );
+        assert!(format!("{error:?}").starts_with("InvalidRequest { status: Some(400), "));
     }
 
     #[tokio::test]
@@ -243,7 +240,7 @@ mod tests {
             .await;
         never(&rig.server, &route(GET_ARTICLE_BY_CID)).await;
         let error = rig.corpus.article_versions(&article()).await.unwrap_err();
-        assert!(matches!(error, CorpusError::Config { .. }), "{error:?}");
+        assert!(format!("{error:?}").starts_with("Config { "));
     }
 
     #[tokio::test]
@@ -319,8 +316,7 @@ mod tests {
             .await;
         let error = rig.corpus.related_links(&article()).await.unwrap_err();
         assert!(
-            matches!(error, CorpusError::Upstream { status: Some(500), retryable: false, .. }),
-            "{error:?}"
+            format!("{error:?}").starts_with("Upstream { status: Some(500), retryable: false, ")
         );
     }
 }

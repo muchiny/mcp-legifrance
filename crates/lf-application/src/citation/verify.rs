@@ -102,20 +102,20 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
     let found = parsed.len();
     let kept: Vec<Spanned<CitationRef>> = parsed.into_iter().take(run.max_citations).collect();
 
-    // Tri hors ligne, puis une résolution par clé.
-    let mut offline_done: Vec<Option<Resolution>> = kept.iter().map(offline).collect();
+    // Tri hors ligne (`Ok`), puis une résolution par clé (`Err` : le rang de la résolution).
     let mut slots: HashMap<String, usize> = HashMap::new();
     let mut unique: Vec<Spanned<CitationRef>> = Vec::new();
-    let mut slot_of: Vec<Option<usize>> = vec![None; kept.len()];
-    for (index, item) in kept.iter().enumerate() {
-        if offline_done[index].is_some() {
+    let mut routes: Vec<Result<Resolution, usize>> = Vec::with_capacity(kept.len());
+    for item in &kept {
+        if let Some(done) = offline(item) {
+            routes.push(Ok(done));
             continue;
         }
         let slot = *slots.entry(key_of(item)).or_insert_with(|| {
             unique.push(item.clone());
             unique.len() - 1
         });
-        slot_of[index] = Some(slot);
+        routes.push(Err(slot));
     }
 
     let limit = Instant::now() + budget_of(run.remaining);
@@ -150,13 +150,9 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
 
     let checks = kept
         .iter()
-        .enumerate()
-        .map(|(index, item)| {
-            let resolution = match (offline_done[index].take(), slot_of[index]) {
-                (Some(done), _) => done,
-                (None, Some(slot)) => outcomes[slot].clone(),
-                (None, None) => Resolution::out_of_time(),
-            };
+        .zip(routes)
+        .map(|(item, route)| {
+            let resolution = route.unwrap_or_else(|slot| outcomes[slot].clone());
             compose(run.proof, text, item, resolution)
         })
         .collect();
@@ -173,7 +169,7 @@ fn compose(
     let Resolution { outcome, official } = resolution;
     let quote = official.as_deref().and_then(|official| {
         let span = adjacent_quote(text, item.span)?;
-        Some(check_quote(text.get(span.start..span.end)?, official))
+        text.get(span.start..span.end).map(|quoted| check_quote(quoted, official))
     });
     let note = outcome
         .note(proof)

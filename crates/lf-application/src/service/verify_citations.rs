@@ -176,11 +176,7 @@ mod tests {
         let output =
             service.verify_citations(call("article 9999 du code civil"), pending()).await.unwrap();
         assert_eq!(output.citations[0].status, CheckStatus::Unresolvable);
-        assert!(
-            output.citations[0].note.as_ref().unwrap().text().contains("local DILA snapshot"),
-            "{:?}",
-            output.citations[0].note
-        );
+        assert!(output.citations[0].note.as_ref().unwrap().text().contains("local DILA snapshot"));
         assert_eq!(audit.records()[0].env, PisteEnvironment::Production);
     }
 

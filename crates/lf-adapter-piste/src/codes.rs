@@ -142,20 +142,31 @@ mod tests {
         CorpusError::Upstream { status: Some(503), retryable: true, detail: "down".to_owned() }
     }
 
-    /// Une lecture de la table, sans limite d'attente, qui charge `n` entrées et compte ses
-    /// chargements dans `loads`.
+    /// Une lecture de la table dont le chargement rend `outcome` (`n` entrées ou une erreur) et
+    /// est compté dans `loads`. Toutes les lectures de ces tests passent par ce chargeur (un seul
+    /// type de fermeture) : la couverture du générique `get_or_load` se mesure par instance.
+    async fn read_with(
+        table: &CodeTable<ManualClock>,
+        loads: &AtomicUsize,
+        wait: Pin<&mut (dyn Future<Output = ()> + Send)>,
+        outcome: Result<u64, CorpusError>,
+    ) -> Result<Arc<[CodeListing]>, CorpusError> {
+        table
+            .get_or_load(wait, || async {
+                loads.fetch_add(1, Ordering::SeqCst);
+                outcome.map(|n| (1..=n).map(listing).collect())
+            })
+            .await
+    }
+
+    /// Une lecture sans limite d'attente qui charge `n` entrées.
     async fn read(
         table: &CodeTable<ManualClock>,
         loads: &AtomicUsize,
         n: u64,
     ) -> Result<Arc<[CodeListing]>, CorpusError> {
         let mut wait = pin!(pending::<()>());
-        table
-            .get_or_load(wait.as_mut(), || async {
-                loads.fetch_add(1, Ordering::SeqCst);
-                Ok((1..=n).map(listing).collect())
-            })
-            .await
+        read_with(table, loads, wait.as_mut(), Ok(n)).await
     }
 
     /// Une lecture dont le chargement échoue.
@@ -164,12 +175,7 @@ mod tests {
         loads: &AtomicUsize,
     ) -> Result<Arc<[CodeListing]>, CorpusError> {
         let mut wait = pin!(pending::<()>());
-        table
-            .get_or_load(wait.as_mut(), || async {
-                loads.fetch_add(1, Ordering::SeqCst);
-                Err(upstream())
-            })
-            .await
+        read_with(table, loads, wait.as_mut(), Err(upstream())).await
     }
 
     #[tokio::test]
@@ -267,7 +273,6 @@ mod tests {
 
     #[tokio::test]
     async fn a_waiter_gives_up_at_its_deadline_without_touching_the_table() {
-        type Load = Result<Vec<CodeListing>, CorpusError>;
         let (table, _clock) = table();
         let table = Arc::new(table);
         let release = Arc::new(Notify::new());
@@ -286,8 +291,10 @@ mod tests {
         // Laisse le premier appel prendre le verrou et attendre son chargement.
         tokio::task::yield_now().await;
         let mut expired = pin!(ready(()));
-        let waiter = table.get_or_load(expired.as_mut(), pending::<Load>).await;
+        let waiter_loads = AtomicUsize::new(0);
+        let waiter = read_with(&table, &waiter_loads, expired.as_mut(), Ok(9)).await;
         assert_eq!(waiter.unwrap_err(), CorpusError::Timeout);
+        assert_eq!(waiter_loads.load(Ordering::SeqCst), 0);
         // Le chargement en cours n'est pas touché : il aboutit et la table le garde.
         release.notify_one();
         assert_eq!(holder.await.unwrap().unwrap().len(), 1);
@@ -297,11 +304,9 @@ mod tests {
     #[tokio::test]
     async fn a_free_lock_is_taken_even_when_the_deadline_has_passed() {
         let (table, _clock) = table();
+        let loads = AtomicUsize::new(0);
         let mut expired = pin!(ready(()));
-        let loaded = table
-            .get_or_load(expired.as_mut(), || async { Ok(vec![listing(1), listing(2)]) })
-            .await
-            .unwrap();
-        assert_eq!(loaded.len(), 2);
+        let loaded = read_with(&table, &loads, expired.as_mut(), Ok(2)).await.unwrap();
+        assert_eq!((loads.load(Ordering::SeqCst), loaded.len()), (1, 2));
     }
 }

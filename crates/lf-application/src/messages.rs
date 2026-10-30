@@ -1511,7 +1511,7 @@ mod tests {
             (ToolName::RESOURCE_COVERAGE, "id"),
         ];
         for (tool, field) in rows {
-            assert_eq!(id_field(tool), field, "{}", tool.as_str());
+            assert_eq!((tool.as_str(), id_field(tool)), (tool.as_str(), field));
         }
     }
 
@@ -1588,7 +1588,11 @@ mod tests {
         let mismatch =
             SearchHit::new(Fond::Juri, DocumentId::parse("LEGITEXT000006070721").unwrap(), None)
                 .unwrap_err();
-        assert!(matches!(mismatch, DomainError::HitKindMismatch { .. }));
+        assert!(
+            mismatch
+                .to_string()
+                .starts_with("hit identifier \"LEGITEXT000006070721\" does not belong")
+        );
         for error in [
             mismatch,
             DomainError::TocTooDeep { max: 64 },

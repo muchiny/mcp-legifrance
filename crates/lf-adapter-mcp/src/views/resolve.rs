@@ -249,7 +249,7 @@ mod tests {
         let candidates: Vec<Candidate> = (1..=5).map(heavy).collect();
         let view = ResolveView::from(output(candidates, vec![Note::NoCitationRecognised]));
         let json = serde_json::to_string(&view).unwrap();
-        assert!(json.chars().count() <= 45_000, "{}", json.chars().count());
+        assert!(json.chars().count() <= 45_000);
         let value: Value = serde_json::from_str(&json).unwrap();
         let kept = value["candidates"].as_array().unwrap().len();
         assert!((1..5).contains(&kept), "{kept}");

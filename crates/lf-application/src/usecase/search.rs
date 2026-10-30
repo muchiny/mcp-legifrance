@@ -374,7 +374,7 @@ mod tests {
         budget::{ResponseBudget, estimate_chars},
         error::ErrorCode,
         ports::CorpusError,
-        testing::{FakeCorpus, FixedClock, PortRequest},
+        testing::{FakeCorpus, FixedClock},
     };
 
     const REACHABLE_NOTE: &str = "Results beyond the first 10,000 are not reachable; narrow the \
@@ -436,11 +436,7 @@ mod tests {
 
     /// La requête que le port a reçue.
     fn sent(corpus: &FakeCorpus) -> lf_domain::search::SearchQuery {
-        let query = match corpus.seen_requests().remove(0) {
-            PortRequest::Search(query) => Some(query),
-            _ => None,
-        };
-        query.expect("the only request is a search")
+        corpus.seen_requests().remove(0).into_search().expect("the only request is a search")
     }
 
     const NOT_A_DATE: &str = "is not a valid date (expected YYYY-MM-DD, e.g. 2026-10-15).";
@@ -1007,7 +1003,7 @@ mod tests {
         assert_eq!(replay.hits.len(), 33);
         // Et la taille suivante ne tient plus.
         let error = big_page(hits[..34].to_vec(), Fond::Juri, 34).await.unwrap_err();
-        assert!(error.message().ends_with("use page_size <= 33."), "{}", error.message());
+        assert!(error.message().ends_with("use page_size <= 33."));
     }
 
     #[tokio::test]

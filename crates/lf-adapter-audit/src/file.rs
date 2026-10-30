@@ -518,7 +518,7 @@ mod tests {
     /// émission, pour tout le processus : un test sans capteur qui l'atteint le premier le fige à
     /// « personne n'écoute », et un capteur local installé ensuite ne reçoit plus rien. Sous
     /// `cargo test` (couverture), où tous les tests partagent un processus, cela rend les tests de
-    /// traces aléatoires. Un capteur global qui répond « toujours » règle l'intérêt une fois.
+    /// traces aléatoires. Un capteur global qui ne répond jamais « jamais » (`sometimes`) évite ce gel.
     fn local_capture() -> (Capture, tracing::subscriber::DefaultGuard) {
         static INTEREST: std::sync::Once = std::sync::Once::new();
         INTEREST.call_once(|| {
@@ -1139,7 +1139,7 @@ mod tests {
 
     impl Subscriber for Capture {
         fn register_callsite(&self, _: &'static Metadata<'static>) -> Interest {
-            Interest::always()
+            Interest::sometimes()
         }
 
         fn enabled(&self, _: &Metadata<'_>) -> bool {

@@ -264,6 +264,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_clock_outside_the_supported_range_is_a_config_error() {
+        let corpus = corpus_with_civil_code();
+        let clock = FixedClock::new(
+            Utc.with_ymd_and_hms(1400, 1, 1, 8, 30, 0).unwrap(),
+            CivilDate::new(1400, 1, 1).unwrap(),
+        );
+        let input = VerifyCitationsInput {
+            text: Some("article 9 du code civil".to_owned()),
+            max_citations: None,
+        };
+        let proof = Proof::of(PisteEnvironment::Production, false);
+        let error = VerifyCitationsUseCase::new(&corpus, &clock, proof, Duration::from_secs(60))
+            .execute(input)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), Some(ErrorCode::ConfigError));
+        assert_eq!(error.message(), "the clock is outside the supported date range.");
+        assert_eq!(corpus.calls(), 0);
+    }
+
+    #[tokio::test]
     async fn all_upstream_failures_fail_the_call_with_upstream_error() {
         let corpus = corpus_with_civil_code();
         let failure =

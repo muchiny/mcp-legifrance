@@ -116,6 +116,15 @@ impl PortRequest {
             Self::RelatedLinks(_) => "related_links",
         }
     }
+
+    /// La requête de recherche, si c'est un `search`.
+    #[must_use]
+    pub fn into_search(self) -> Option<SearchQuery> {
+        match self {
+            Self::Search(query) => Some(query),
+            _ => None,
+        }
+    }
 }
 
 /// Faux corpus : une file de réponses par méthode du port, rejouées dans l'ordre.
@@ -609,7 +618,7 @@ mod tests {
                 PortRequest::GetDeliberation(deliberation),
                 PortRequest::GetConvention(convention),
                 PortRequest::GetCompanyAgreement(agreement),
-                PortRequest::Search(cnil),
+                PortRequest::Search(cnil.clone()),
                 PortRequest::GetAct(act, VersionDate::MIN),
             ]
         );
@@ -630,6 +639,10 @@ mod tests {
             ]
         );
         assert_eq!((corpus.calls(), corpus.calls_of("get_act")), (9, 2));
+        // Seules les deux recherches donnent une requête de recherche.
+        let searches: Vec<SearchQuery> =
+            corpus.seen_requests().into_iter().filter_map(PortRequest::into_search).collect();
+        assert_eq!(searches, [query(), cnil]);
     }
 
     fn article_text() -> ArticleText {
