@@ -49,7 +49,7 @@ jobs:
           - { triple: x86_64-unknown-linux-musl, os: ubuntu-22.04, exe: "", rustflags: "-C target-feature=+crt-static -C link-self-contained=yes" }
           - { triple: aarch64-unknown-linux-musl, os: ubuntu-22.04-arm, exe: "", rustflags: "-C target-feature=+crt-static -C link-self-contained=yes" }
           - { triple: x86_64-apple-darwin, os: macos-15-intel, exe: "", rustflags: "" }
-          - { triple: aarch64-apple-darwin, os: macos-14, exe: "", rustflags: "" }
+          - { triple: aarch64-apple-darwin, os: macos-15, exe: "", rustflags: "" }
           - { triple: x86_64-pc-windows-msvc, os: windows-2022, exe: ".exe", rustflags: "-C target-feature=+crt-static" }
     runs-on: ${{ matrix.target.os }}
     timeout-minutes: 60

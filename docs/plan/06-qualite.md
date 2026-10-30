@@ -938,7 +938,7 @@ jobs:
   test:
     strategy:
       fail-fast: false
-      matrix: { os: [ubuntu-24.04, macos-14, windows-2022] }
+      matrix: { os: [ubuntu-24.04, macos-15, windows-2022] }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:

@@ -71,7 +71,7 @@ Runners par défaut de cargo-dist 0.33.0, lus dans `cargo-dist/src/backend/ci/gi
 | `x86_64-unknown-linux-musl` | `ubuntu-22.04` + paquet apt `musl-tools` (`github.rs:795-801`) | natif, autre libc | `-Ctarget-feature=+crt-static -Clink-self-contained=yes` | archive, repli des installeurs si glibc trop ancienne (`cargo-dist/src/platform.rs:154-162`), **MCPB Linux**, **image OCI amd64** |
 | `aarch64-unknown-linux-musl` | `ubuntu-22.04-arm` + `musl-tools` | idem | idem | archive, **MCPB Linux**, **image OCI arm64** |
 | `x86_64-apple-darwin` | `macos-15-intel` | natif | — | archive, installeur sh, **MCPB macOS** |
-| `aarch64-apple-darwin` | `macos-14` | natif | — | archive, installeur sh, **MCPB macOS** |
+| `aarch64-apple-darwin` | `macos-15` | natif | — | archive, installeur sh, **MCPB macOS** |
 | `x86_64-pc-windows-msvc` | `windows-2022` | natif | `-Ctarget-feature=+crt-static` (dist l'ajoute toujours en msvc ; `msvc-crt-static = true` par défaut, book `reference/config.md:632-650`) | archive, installeur ps1, **MCPB Windows** |
 
 Conséquences :
@@ -533,7 +533,7 @@ C'est le workflow réutilisable `.github/workflows/build-mcpb.yml`, déclaré da
 | Job | Runner | Étapes |
 |---|---|---|
 | `verify-windows` | `windows-2022` | 1. télécharger l'artefact de workflow de la cible msvc (`actions/download-artifact`, motif `artifacts-*`) ; 2. extraire ; 3. `Get-AuthenticodeSignature` = `Valid` (si Q5) ; 4. test fumée JSON-RPC (ci-dessous) ; 5. téléverser le `.exe` vérifié en artefact interne |
-| `notarize-macos` | `macos-14` | 1. télécharger les deux archives darwin ; 2. `codesign --verify --strict` (si Q5) ; 3. notarisation `notarytool … --wait` (si Q5) ; 4. test fumée de l'arm64 en natif et du x86_64 sous Rosetta, **NON VÉRIFIÉ** [V-196 · rosetta-runner-ci] sur le runner ; 5. téléverser |
+| `notarize-macos` | `macos-15` | 1. télécharger les deux archives darwin ; 2. `codesign --verify --strict` (si Q5) ; 3. notarisation `notarytool … --wait` (si Q5) ; 4. test fumée de l'arm64 en natif et du x86_64 sous Rosetta, **NON VÉRIFIÉ** [V-196 · rosetta-runner-ci] sur le runner ; 5. téléverser |
 | `assemble` | `ubuntu-22.04` | 1. télécharger les deux musl et les sorties des deux jobs précédents ; 2. test fumée du musl x86_64 ; 3. copier l'arborescence du §4.2 et poser `chmod +x` ; 4. `npx --yes @anthropic-ai/mcpb@<version épinglée> validate` puis `pack` (paquet npm `@anthropic-ai/mcpb`, 2.1.2 au commit lu) ; 5. éventuellement `mcpb sign` (§4.6) ; 6. `sha256sum` → `.mcpb.sha256` ; 7. produire le **`server.json` final** (§6.2) en remplaçant le `fileSha256` provisoire ; 8. `mcp-publisher validate server.json` ; 9. téléverser le tout comme artefact de workflow **`artifacts-mcpb`** |
 
 Les artefacts intermédiaires échangés entre ces trois jobs ne doivent **jamais** porter le préfixe `artifacts-` : ils seraient sinon publiés dans la release (ci-dessous). On les nomme par exemple `mcpb-tmp-windows` et `mcpb-tmp-macos`.
@@ -1292,7 +1292,7 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 | [V-193 · azure-artifact-signing-eligibilite] | Éligibilité (pays, personne physique ou morale), validation d'identité et coût d'Azure Artifact Signing ; coût d'un certificat EV SSL.com eSigner. |
 | [V-194 · cargo-dist-macos-sign] | Fonctionnement de `macos-sign` (expérimental) dans dist 0.33.0 : transmission des variables `CODESIGN_*` aux jobs de build, prise en compte de `CODESIGN_OPTIONS=runtime`. |
 | [V-195 · macos-notarisation-binaire-nu] | Notarisation d'un exécutable nu soumis en zip par `notarytool` ; impossibilité d'agrafer ; comportement de Gatekeeper en ligne et hors ligne au premier lancement. |
-| [V-196 · rosetta-runner-ci] | Le runner GitHub `macos-14` (arm64) peut exécuter le binaire `x86_64-apple-darwin` sous Rosetta pour le test fumée ; sinon, test sur `macos-15-intel`. |
+| [V-196 · rosetta-runner-ci] | Le runner GitHub `macos-15` (arm64) peut exécuter le binaire `x86_64-apple-darwin` sous Rosetta pour le test fumée ; sinon, test sur `macos-15-intel`. |
 | [V-174 · mcpb-quarantaine-macos] | Les binaires extraits d'un MCPB par Claude Desktop portent-ils l'attribut de quarantaine (et déclenchent-ils Gatekeeper) ? |
 | [V-197 · mcpb-multi-architecture] | Un bundle multi-plateforme avec lanceur POSIX (`entry_point` sans extension) et override `win32` vers un `.exe` explicite est accepté et lancé par Claude Desktop et par les plugins de Claude Code ; pas de double suffixe `.exe`. |
 | [V-198 · lipo-signatures] | Un binaire universel produit par `lipo -create` à partir de deux binaires signés reste valide (`codesign --verify --strict`) et notarisable sans nouvelle signature. |
