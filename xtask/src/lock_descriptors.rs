@@ -285,13 +285,14 @@ fn cargo_program() -> OsString {
 /// Joue les trois sessions sur `launch`, avec le nombre de lignes non JSON ignorées au total.
 fn sessions(launch: &Launch) -> Result<(Vec<Capture>, usize), String> {
     let mut captures = Vec::new();
-    let mut ignored = 0;
+    let mut ignored = 0_usize;
     for kind in SESSIONS {
         let mut capture = None;
-        ignored += process::with_server(launch, &mut |transport| {
+        let skipped = process::with_server(launch, &mut |transport| {
             capture = Some(run_session(transport, kind)?);
             Ok(())
         })?;
+        ignored = ignored.saturating_add(skipped);
         captures.extend(capture);
     }
     Ok((captures, ignored))

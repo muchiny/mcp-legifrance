@@ -79,7 +79,7 @@ impl Transport for ProcessTransport {
             }
             match serde_json::from_str::<Value>(line) {
                 Ok(message) if message.is_object() => return Ok(message),
-                _ => self.ignored += 1,
+                _ => self.ignored = self.ignored.saturating_add(1),
             }
         }
     }
@@ -87,6 +87,10 @@ impl Transport for ProcessTransport {
 
 /// Attend la fin de `child` jusqu'à `grace`, puis le tue.
 fn wait_for_exit(child: &mut Child, grace: Duration) -> Result<ExitStatus, String> {
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "`grace` est un délai de quelques secondes fixé par l'outil : loin du débordement d'`Instant`"
+    )]
     let deadline = Instant::now() + grace;
     loop {
         // Une erreur de `try_wait` vaut « pas encore parti » : le délai tranche.

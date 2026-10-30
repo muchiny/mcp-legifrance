@@ -86,7 +86,7 @@ fn sentence_count(text: &str) -> usize {
         .enumerate()
         .filter(|(index, character)| {
             matches!(character, '.' | '!' | '?')
-                && chars.get(index + 1).is_none_or(|next| next.is_whitespace())
+                && chars.get(index.saturating_add(1)).is_none_or(|next| next.is_whitespace())
         })
         .count()
 }
@@ -95,15 +95,17 @@ fn sentence_count(text: &str) -> usize {
 /// Une famille (`fr_get_*`) n'est pas un nom d'outil : elle est ignorée.
 fn cited_tool_names(text: &str) -> Vec<&str> {
     let mut names = Vec::new();
-    let mut from = 0;
+    let mut from = 0_usize;
     while let Some(offset) = text[from..].find("fr_") {
-        let start = from + offset;
+        let start = from.saturating_add(offset);
         let bytes = text.as_bytes();
-        let bounded = start == 0
-            || !bytes.get(start - 1).is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_');
-        let mut end = start + 3;
+        let bounded = start
+            .checked_sub(1)
+            .and_then(|before| bytes.get(before))
+            .is_none_or(|b| !(b.is_ascii_alphanumeric() || *b == b'_'));
+        let mut end = start.saturating_add(3);
         while bytes.get(end).is_some_and(|b| b.is_ascii_lowercase() || *b == b'_') {
-            end += 1;
+            end = end.saturating_add(1);
         }
         let name = text[start..end].trim_end_matches('_');
         if bounded && name.len() > 3 && bytes.get(end) != Some(&b'*') {

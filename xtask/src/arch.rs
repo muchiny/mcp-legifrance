@@ -520,7 +520,7 @@ fn dependency_name<'a>(normal: &[&'a Value], key: &'a str) -> &'a str {
 fn enable(features: &mut Vec<(String, Vec<String>)>, dep: &str, feature: &str) {
     let position = features.iter().position(|(name, _)| name == dep).unwrap_or_else(|| {
         features.push((dep.to_owned(), Vec::new()));
-        features.len() - 1
+        features.len().saturating_sub(1)
     });
     let enabled = &mut features[position].1;
     if !enabled.iter().any(|f| f == feature) {

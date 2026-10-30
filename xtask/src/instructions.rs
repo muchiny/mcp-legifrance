@@ -162,7 +162,7 @@ pub fn verdict(measure: &Measure) -> Result<(), String> {
         return Err(format!(
             "instructions are {} characters, {} over the budget of {BUDGET_CHARS}",
             measure.chars,
-            measure.chars - BUDGET_CHARS
+            measure.chars.saturating_sub(BUDGET_CHARS)
         ));
     }
     Ok(())
