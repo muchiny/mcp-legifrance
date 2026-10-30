@@ -61,10 +61,10 @@ pub const fn estimate_chars(fields: usize, text_chars: usize) -> usize {
 /// (table des matières, listes de citations). Rend le nombre d'éléments retirés ; la liste peut
 /// se vider si rien ne tient.
 pub fn shrink_from_end<T>(items: &mut Vec<T>, mut over: impl FnMut(&[T]) -> bool) -> usize {
-    let mut removed = 0;
+    let mut removed = 0_usize;
     while !items.is_empty() && over(items) {
         items.pop();
-        removed += 1;
+        removed = removed.saturating_add(1);
     }
     removed
 }
@@ -78,7 +78,7 @@ pub fn strip_from_end<T>(
     mut over: impl FnMut(&[T]) -> bool,
     mut strip: impl FnMut(&mut T) -> bool,
 ) -> usize {
-    let mut stripped = 0;
+    let mut stripped = 0_usize;
     for index in (0..items.len()).rev() {
         if !over(items) {
             break;
@@ -86,7 +86,7 @@ pub fn strip_from_end<T>(
         if let Some(item) = items.get_mut(index)
             && strip(item)
         {
-            stripped += 1;
+            stripped = stripped.saturating_add(1);
         }
     }
     stripped

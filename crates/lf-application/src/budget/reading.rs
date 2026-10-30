@@ -286,7 +286,7 @@ fn read_passages(text: &LongText, focus: &Focus, count: usize, max_chars: usize)
             continue;
         };
         let kept = kept.trim_end();
-        left -= chars(kept);
+        left = left.saturating_sub(chars(kept));
         passages.push(PassageOut { offset, text: kept.to_owned() });
     }
     let note = if text.is_empty() {
@@ -332,6 +332,10 @@ fn to_u32(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 #[expect(
     clippy::as_conversions,

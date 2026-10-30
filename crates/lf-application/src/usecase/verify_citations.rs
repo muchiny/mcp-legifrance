@@ -123,6 +123,10 @@ impl<'a, C: LegalCorpus, K: Clock> VerifyCitationsUseCase<'a, C, K> {
 
 /// Taille estimée de la liste : par entrée, le span, `raw`, `kind` et `status` ; l'enregistrement
 /// (`id`, `citation`, `source_url`), l'extrait et la note quand ils existent.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
+)]
 fn estimate_list(citations: &[CitationCheck]) -> usize {
     citations
         .iter()

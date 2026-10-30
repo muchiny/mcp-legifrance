@@ -155,7 +155,7 @@ pub(crate) fn check_quote(quoted: &str, official: &str) -> QuoteCheck {
         .filter(|(a, b)| known.contains(&(a.as_str(), b.as_str())))
         .count();
     let (numerator, denominator) = QUOTE_SIMILARITY;
-    if pairs > 0 && found * denominator >= pairs * numerator {
+    if pairs > 0 && found.saturating_mul(denominator) >= pairs.saturating_mul(numerator) {
         QuoteCheck::Match
     } else {
         QuoteCheck::QuoteMismatch

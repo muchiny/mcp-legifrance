@@ -126,8 +126,10 @@ impl<'a, C: LegalCorpus, K: Clock> DiffArticleUseCase<'a, C, K> {
             (after, hunks)
         };
         let citation = target.contract().citation.as_str().to_owned();
-        let (hunks, truncated) =
-            fit(hunks, estimate_chars(ENVELOPE_FIELDS, ENVELOPE_TEXT_CHARS + chars(&citation)));
+        let (hunks, truncated) = fit(
+            hunks,
+            estimate_chars(ENVELOPE_FIELDS, ENVELOPE_TEXT_CHARS.saturating_add(chars(&citation))),
+        );
         Ok(DiffArticleOutput {
             article_id: id,
             citation,
@@ -251,7 +253,7 @@ impl<'a> WordIndex<'a> {
                 (false, None) => open = Some((byte, chars)),
                 _ => {}
             }
-            chars += 1;
+            chars = chars.saturating_add(1);
         }
         if let Some((from, start)) = open {
             words.push(&text[from..]);
@@ -310,9 +312,9 @@ fn context_before(words: &[&str], upto: usize) -> Option<String> {
     let last = before.last()?;
     let mut count = fitting_tail(before, CONTEXT_MAX_CHARS);
     if count < before.len() {
-        count = fitting_tail(before, CONTEXT_MAX_CHARS - ELLIPSIS.chars().count());
+        count = fitting_tail(before, CONTEXT_MAX_CHARS.saturating_sub(ELLIPSIS.chars().count()));
     }
-    let tail = &before[before.len() - count..];
+    let tail = &before[before.len().saturating_sub(count)..];
     Some(if tail.is_empty() {
         let kept: Vec<char> = last.chars().rev().take(CONTEXT_MAX_CHARS - 1).collect();
         format!("…{}", kept.into_iter().rev().collect::<String>())
@@ -326,15 +328,15 @@ fn context_before(words: &[&str], upto: usize) -> Option<String> {
 /// Combien de mots, en partant de la fin, tiennent dans `limit` caractères une fois joints par
 /// une espace.
 fn fitting_tail(words: &[&str], limit: usize) -> usize {
-    let mut used = 0;
-    let mut count = 0;
+    let mut used = 0_usize;
+    let mut count = 0_usize;
     for word in words.iter().rev() {
-        let next = used + chars(word) + usize::from(count > 0);
+        let next = used.saturating_add(chars(word)).saturating_add(usize::from(count > 0));
         if next > limit {
             break;
         }
         used = next;
-        count += 1;
+        count = count.saturating_add(1);
     }
     count
 }
@@ -378,6 +380,10 @@ fn hunk_text_chars(hunk: &HunkOut) -> usize {
 }
 
 /// Coût estimé d'un hunk : l'élément, `at`, plus un champ par texte présent.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
+)]
 fn hunk_cost(hunk: &HunkOut) -> usize {
     let present =
         [&hunk.context, &hunk.removed, &hunk.added].iter().filter(|text| text.is_some()).count();
@@ -389,6 +395,10 @@ fn chars(text: &str) -> usize {
     text.chars().count()
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 #[expect(
     clippy::as_conversions,

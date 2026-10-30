@@ -30,7 +30,7 @@ pub(crate) fn returned_chars(reading: &Reading) -> usize {
     let summary = reading.summary.as_ref().map_or(0, |summary| summary.text.chars().count());
     let text = reading.text.as_ref().map_or(0, |text| text.chars().count());
     let passages = reading.passages.iter().flatten().map(|passage| passage.text.chars().count());
-    summary + text + passages.sum::<usize>()
+    summary.saturating_add(text).saturating_add(passages.sum::<usize>())
 }
 
 impl AuditMetric for GetTextOutput {

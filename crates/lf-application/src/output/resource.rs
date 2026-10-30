@@ -233,9 +233,9 @@ fn truncation(md: &mut String, next_offset: Option<u32>, tool: &str) {
 /// Un nombre avec une virgule tous les trois chiffres (`40,000`).
 fn group_thousands(value: usize) -> String {
     let digits = value.to_string();
-    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    let mut grouped = String::with_capacity(digits.len().saturating_add(digits.len() / 3));
     for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+        if index > 0 && digits.len().saturating_sub(index).is_multiple_of(3) {
             grouped.push(',');
         }
         grouped.push(digit);

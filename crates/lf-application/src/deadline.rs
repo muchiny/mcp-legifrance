@@ -34,6 +34,10 @@ impl Deadline {
     /// plus loin que celui de Linux), l'échéance sature à un instant lointain, comme la garde de
     /// `tokio::time::timeout` qui l'accompagne (I-1).
     #[must_use]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "`now + FAR_FUTURE` (30 ans) ne déborde pas : l'horloge monotone part du démarrage de la machine"
+    )]
     pub fn after(budget: Duration) -> Self {
         let now = Instant::now();
         // `now + FAR_FUTURE` ne déborde pas : l'horloge monotone part du démarrage de la machine.

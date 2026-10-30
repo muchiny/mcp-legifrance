@@ -332,6 +332,10 @@ const fn status_name(status: AuditStatus) -> &'static str {
     }
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 mod tests {
     use super::*;

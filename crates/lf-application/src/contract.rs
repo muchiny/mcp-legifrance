@@ -525,10 +525,10 @@ fn assert_toc(what: &str, toc: &Toc) {
     let whole = toc.page(0, NonZeroU32::MAX).expect("the whole table of contents");
     assert_eq!(whole.total, toc.len(), "{what}: toc total");
     assert_eq!(whole.next_offset, None, "{what}: one block reads the whole toc");
-    let mut previous = 0;
+    let mut previous = 0_u16;
     for entry in &whole.entries {
         assert!(
-            (1..=previous + 1).contains(&entry.depth),
+            (1..=previous.saturating_add(1)).contains(&entry.depth),
             "{what}: toc depth {} follows depth {previous}",
             entry.depth
         );
@@ -607,7 +607,7 @@ fn push_m6_m7(fake: &FakeCorpus, fx: &ContractFixtures, copies: usize) {
         num: Some(fx.article_num.clone()),
         ..sample_article(&fx.article, fx.version_date)
     };
-    for _ in 0..2 * copies {
+    for _ in 0..copies.saturating_mul(2) {
         fake.push_find_article(Ok(found.clone()));
     }
     for _ in 0..2 {
