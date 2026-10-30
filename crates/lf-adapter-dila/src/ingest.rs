@@ -135,7 +135,10 @@ pub struct IngestReport {
 impl IngestReport {
     /// Nombre de documents rangés, toutes natures confondues.
     pub fn documents(&self) -> u64 {
-        self.articles + self.sections + self.text_structs + self.text_versions
+        self.articles
+            .saturating_add(self.sections)
+            .saturating_add(self.text_structs)
+            .saturating_add(self.text_versions)
     }
 
     fn count(&mut self, kind: DocKind) {
@@ -145,11 +148,11 @@ impl IngestReport {
             DocKind::TextStruct => &mut self.text_structs,
             DocKind::TextVersion => &mut self.text_versions,
         };
-        *counter += 1;
+        *counter = counter.saturating_add(1);
     }
 
     fn reject(&mut self, raw_path: &[u8], reason: RejectReason) {
-        self.rejected += 1;
+        self.rejected = self.rejected.saturating_add(1);
         if self.rejections.len() < MAX_KEPT_REJECTIONS {
             let member = String::from_utf8_lossy(raw_path)
                 .chars()
@@ -189,24 +192,28 @@ impl<S: DocStore> Run<'_, S> {
         }
         self.buf.clear();
         entry.read_to_end(&mut self.buf).map_err(|source| self.archive_error(source))?;
-        self.report.content_bytes += size;
+        self.report.content_bytes = self.report.content_bytes.saturating_add(size);
         Ok(true)
     }
 
     fn visit<R: Read>(&mut self, entry: &mut Entry<'_, R>) -> Result<(), IngestError> {
         let kind = entry.header().entry_type();
         if kind.is_dir() {
-            self.report.directories += 1;
+            self.report.directories = self.report.directories.saturating_add(1);
         } else if kind.is_symlink() || kind.is_hard_link() {
-            self.report.links += 1;
+            self.report.links = self.report.links.saturating_add(1);
         } else if !kind.is_file() {
-            self.report.other_entries += 1;
+            self.report.other_entries = self.report.other_entries.saturating_add(1);
         } else {
             let raw_path = entry.path_bytes().into_owned();
             match classify_member(&raw_path) {
                 Err(reason) => self.report.reject(&raw_path, RejectReason::Path(reason)),
-                Ok(Member::Ignored(Ignored::Eli)) => self.report.ignored_eli += 1,
-                Ok(Member::Ignored(Ignored::Other)) => self.report.ignored_other += 1,
+                Ok(Member::Ignored(Ignored::Eli)) => {
+                    self.report.ignored_eli = self.report.ignored_eli.saturating_add(1);
+                }
+                Ok(Member::Ignored(Ignored::Other)) => {
+                    self.report.ignored_other = self.report.ignored_other.saturating_add(1);
+                }
                 Ok(list @ (Member::FileList | Member::DirList)) => {
                     let read = self.read(entry, self.limits.max_list_bytes, &raw_path)?;
                     match (read, list) {
@@ -228,7 +235,7 @@ impl<S: DocStore> Run<'_, S> {
         raw_path: &[u8],
     ) -> Result<(), IngestError> {
         if entry.size() == 0 {
-            self.report.empty_members += 1;
+            self.report.empty_members = self.report.empty_members.saturating_add(1);
             return Ok(());
         }
         if !self.read(entry, self.limits.max_member_bytes, raw_path)? {
@@ -259,11 +266,14 @@ impl<S: DocStore> Run<'_, S> {
         self.report.deleted_dirs_listed = u64::try_from(dirs.len()).unwrap_or(u64::MAX);
         for file in &files {
             if self.store.remove_file(&file.key)? {
-                self.report.deleted_files_removed += 1;
+                self.report.deleted_files_removed =
+                    self.report.deleted_files_removed.saturating_add(1);
             }
         }
         for dir in &dirs {
-            self.report.deleted_dir_docs_removed += self.store.remove_text_dir(dir)?;
+            let removed = self.store.remove_text_dir(dir)?;
+            self.report.deleted_dir_docs_removed =
+                self.report.deleted_dir_docs_removed.saturating_add(removed);
         }
         Ok(())
     }
@@ -303,7 +313,7 @@ pub fn ingest_archive<R: Read, S: DocStore>(
     // `entries()` n'échoue que sur une archive déjà entamée, ce qu'une archive neuve n'est pas.
     for entry in archive.entries().into_iter().flatten() {
         let mut entry = entry.map_err(|source| run.archive_error(source))?;
-        run.report.entries += 1;
+        run.report.entries = run.report.entries.saturating_add(1);
         run.visit(&mut entry)?;
     }
     // La fin du tar (blocs nuls) n'est pas la fin du gzip : lire jusqu'au bout vérifie la somme

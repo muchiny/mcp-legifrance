@@ -231,10 +231,10 @@ fn doc(parts: &[&str]) -> Option<DocPath> {
     let (kind, prefix, file) = tail(head.rest)?;
     let id = file.strip_suffix(".xml").filter(|id| has_id_shape(id, prefix))?;
     // La clé est le chemin dont le dernier composant perd son `.xml`.
-    let dirs = join_first(parts, parts.len() - 1);
+    let dirs = join_first(parts, parts.len().saturating_sub(1));
     Some(DocPath {
         key: format!("{dirs}/{id}"),
-        text_dir: join_first(parts, parts.len() - head.rest.len()),
+        text_dir: join_first(parts, parts.len().saturating_sub(head.rest.len())),
         cid: head.cid.to_owned(),
         id: id.to_owned(),
         kind,

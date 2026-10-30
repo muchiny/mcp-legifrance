@@ -145,7 +145,7 @@ impl Registry {
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            let invalid = IngestError::Registry { line: index + 1 };
+            let invalid = IngestError::Registry { line: index.saturating_add(1) };
             let Some((status, file_name)) = line.split_once('\t') else {
                 return Err(invalid);
             };

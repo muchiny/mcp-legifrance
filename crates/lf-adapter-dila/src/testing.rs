@@ -62,7 +62,7 @@ impl Read for TestReader {
             return Err(io::Error::other("disk gone"));
         }
         let read = self.inner.read(out).unwrap();
-        self.consumed.set(self.consumed.get() + read);
+        self.consumed.set(self.consumed.get().saturating_add(read));
         Ok(read)
     }
 }
@@ -130,7 +130,7 @@ impl DocStore for TestStore {
         if self.refuse_commit_after == Some(self.commits) {
             return Err(StoreError::new("commit refused"));
         }
-        self.commits += 1;
+        self.commits = self.commits.saturating_add(1);
         self.inner.commit()
     }
 }
@@ -149,9 +149,9 @@ pub(crate) fn fixture(relative: &str) -> Vec<u8> {
 /// panne doit toujours remonter en erreur, jamais être avalée. Rend le nombre d'accès (et donc de
 /// pannes) de `run`, qui doit réussir quand aucune panne ne l'atteint.
 pub(crate) fn every_fault<T, E>(engine: &Engine, mut run: impl FnMut() -> Result<T, E>) -> u64 {
-    let mut faults = 0;
+    let mut faults = 0_u64;
     loop {
-        let access = faults + 1;
+        let access = faults.saturating_add(1);
         engine.fail_nth_access(access);
         let result = run();
         if engine.fault_pending() {
@@ -160,7 +160,7 @@ pub(crate) fn every_fault<T, E>(engine: &Engine, mut run: impl FnMut() -> Result
             return faults;
         }
         assert!(result.is_err(), "the failure of access {access} was swallowed");
-        faults += 1;
+        faults = faults.saturating_add(1);
     }
 }
 
@@ -178,7 +178,12 @@ pub(crate) fn text_dir(sub: &str, cid: &str) -> String {
 /// Les cinq niveaux `NN/NN/NN/NN/NN` d'un identifiant (ses dix premiers chiffres, par paires).
 fn levels(id: &str) -> String {
     let digits = &id[8..18];
-    (0..5).map(|i| &digits[2 * i..2 * i + 2]).collect::<Vec<_>>().join("/")
+    digits
+        .as_bytes()
+        .chunks(2)
+        .map(|pair| pair.iter().map(|&digit| char::from(digit)).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Clé de stockage d'un document du texte `cid`, sous `sub` (`code_en_vigueur`, etc.).

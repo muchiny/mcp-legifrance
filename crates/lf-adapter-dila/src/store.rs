@@ -137,7 +137,7 @@ impl DocStore for MemoryStore {
     fn remove_text_dir(&mut self, text_dir: &str) -> Result<u64, StoreError> {
         let before = self.docs.len();
         self.docs.retain(|_, doc| doc.path.text_dir != text_dir);
-        Ok(u64::try_from(before - self.docs.len()).unwrap_or(u64::MAX))
+        Ok(u64::try_from(before.saturating_sub(self.docs.len())).unwrap_or(u64::MAX))
     }
 }
 

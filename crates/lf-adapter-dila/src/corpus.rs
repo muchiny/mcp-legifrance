@@ -213,7 +213,7 @@ fn group_by_text(docs: Vec<StoredDoc>) -> Vec<Group> {
     for doc in docs {
         let index = *slot.entry(doc.path.cid.clone()).or_insert_with(|| {
             groups.push(Group { dir_cid: doc.path.cid.clone(), articles: Vec::new() });
-            groups.len() - 1
+            groups.len().saturating_sub(1)
         });
         if doc.document.as_article().is_some() {
             groups[index].articles.push(doc);
@@ -232,7 +232,7 @@ fn hits_of(
     with_articles: bool,
 ) -> Result<(Vec<SearchHit>, u32), CorpusError> {
     let mut hits = Vec::with_capacity(groups.len());
-    let mut dropped = 0;
+    let mut dropped = 0_u32;
     for group in groups {
         let text = view.text_of_dir(&group.dir_cid)?;
         let hit = text
@@ -240,7 +240,7 @@ fn hits_of(
             .and_then(|doc| doc.document.as_text_version())
             .and_then(|text| text_hit(fond, text));
         let Some(mut hit) = hit else {
-            dropped += 1;
+            dropped = dropped.saturating_add(1);
             continue;
         };
         let cited: Vec<CodeArticleRef> = group
@@ -924,9 +924,9 @@ mod tests {
         Fut: Future<Output = Result<T, CorpusError>>,
     {
         let engine = corpus.engine();
-        let mut faults = 0;
+        let mut faults = 0_u64;
         loop {
-            let access = faults + 1;
+            let access = faults.saturating_add(1);
             engine.fail_nth_access(access);
             let result = run().await;
             if engine.fault_pending() {
@@ -938,7 +938,7 @@ mod tests {
             let error = result.err();
             let surfaced = error.as_ref().is_some_and(is_read_failure);
             assert!(surfaced, "access {access} gave {error:?}");
-            faults += 1;
+            faults = faults.saturating_add(1);
         }
     }
 
