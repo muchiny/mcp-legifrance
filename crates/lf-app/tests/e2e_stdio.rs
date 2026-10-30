@@ -27,10 +27,9 @@ mod transcripts {
         let file: PathBuf = transcripts_dir().join(format!("{name}.jsonl"));
         let transcript = Transcript::load(&file).expect("the transcript loads");
         assert_eq!(transcript.name(), name);
-        if let Err(error) = replay_on_child(&transcript).await {
-            // Le message dit la transcription et la ligne de l'instruction en échec.
-            assert!(error.message.is_empty(), "{error}");
-        }
+        // Le message de l'échec dit la transcription et la ligne de l'instruction en cause.
+        let replayed = replay_on_child(&transcript).await.map_err(|error| error.to_string());
+        replayed.expect("the transcript replays on the child process");
     }
 
     /// Un test par transcription, nommé comme son fichier (06 §6.1), et la liste de ces noms.
