@@ -108,7 +108,7 @@ jobs:
       matrix:
         target:
           - { triple: x86_64-pc-windows-msvc, os: windows-2022, archive: zip, exe: ".exe" }
-          - { triple: aarch64-apple-darwin, os: macos-14, archive: tar.xz, exe: "" }
+          - { triple: aarch64-apple-darwin, os: macos-15, archive: tar.xz, exe: "" }
           - { triple: x86_64-apple-darwin, os: macos-15-intel, archive: tar.xz, exe: "" }
           - { triple: aarch64-unknown-linux-musl, os: ubuntu-22.04-arm, archive: tar.xz, exe: "" }
     runs-on: ${{ matrix.target.os }}
