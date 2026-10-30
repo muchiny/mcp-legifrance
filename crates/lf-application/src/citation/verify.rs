@@ -85,6 +85,10 @@ async fn resolve_within<C: LegalCorpus>(
 ///
 /// L'erreur du corpus de la première citation résolue, si toutes les citations soumises au corpus
 /// ont échoué.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`slot` est le rang d'un élément unique : `outcomes` en compte autant"
+)]
 pub(crate) async fn verify_text<C: LegalCorpus>(
     corpus: &C,
     run: Run,
@@ -138,8 +142,8 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
                 _ => None,
             })
             .collect();
-        if failures.len() == outcomes.len() {
-            return Err(failures[0].clone());
+        if let Some(first) = failures.first().filter(|_| failures.len() == outcomes.len()) {
+            return Err((*first).clone());
         }
     }
 

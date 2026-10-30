@@ -242,6 +242,10 @@ fn check(host: &mut dyn Host, version: &str) -> Result<(), String> {
     }
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "indexation de `serde_json::Value` : un champ absent donne `Null`, sans panique"
+)]
 fn compare(host: &mut dyn Host, reference: &str, version: &str) -> Result<(), String> {
     let old_text = host.git_show(reference, LOCK_PATH)?;
     let old = lock::baseline(Some(&old_text), &format!("{LOCK_PATH} at {reference}"))?;

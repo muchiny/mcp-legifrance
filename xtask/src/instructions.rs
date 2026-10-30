@@ -94,6 +94,10 @@ pub fn requests() -> Vec<String> {
 }
 
 /// Le `result` d'une réponse JSON-RPC d'identifiant `id`.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "indexation de `serde_json::Value` : un champ absent donne `Null`, sans panique"
+)]
 fn result_of(line: &str, id: u64) -> Result<Value, String> {
     let mut response: Value =
         serde_json::from_str(line).map_err(|e| format!("response {id} is not JSON: {e}"))?;
@@ -111,6 +115,10 @@ fn result_of(line: &str, id: u64) -> Result<Value, String> {
 /// # Errors
 ///
 /// Une réponse manquante, illisible ou en erreur, sans `instructions` ou sans `tools`.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "indexation de `serde_json::Value` : un champ absent donne `Null`, sans panique"
+)]
 pub fn measure(responses: &[String]) -> Result<Measure, String> {
     let [discovered, listed] = responses else {
         return Err(format!("expected 2 responses, got {}", responses.len()));

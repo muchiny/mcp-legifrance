@@ -513,6 +513,10 @@ fn dependency_name<'a>(normal: &[&'a Value], key: &'a str) -> &'a str {
 
 /// Ajoute `feature` aux features activées de `dep`, sans doublon ; une
 /// dépendance sans entrée en reçoit une.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`position` vient de `position()` ou du `push` juste au-dessus"
+)]
 fn enable(features: &mut Vec<(String, Vec<String>)>, dep: &str, feature: &str) {
     let position = features.iter().position(|(name, _)| name == dep).unwrap_or_else(|| {
         features.push((dep.to_owned(), Vec::new()));

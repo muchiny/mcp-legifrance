@@ -90,6 +90,10 @@ impl Client<'_> {
     }
 
     /// Liste paginée : suit `nextCursor` jusqu'à épuisement et aplatit les pages.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "`params` est un objet JSON construit par l'appelant ; l'écriture y ajoute une clé"
+    )]
     fn list(&mut self, method: &str, key: &str, base: &Value) -> Result<Vec<Value>, String> {
         let mut items = Vec::new();
         let mut params = base.clone();
@@ -110,6 +114,10 @@ impl Client<'_> {
 }
 
 /// `_meta` d'une requête moderne : version, informations et capacités du client (annexe D §3.1).
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`params` est un objet JSON construit par l'appelant ; l'écriture y ajoute une clé"
+)]
 fn modern_params(extra: Value) -> Value {
     let mut params = extra;
     params["_meta"] = json!({

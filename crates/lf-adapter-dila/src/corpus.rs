@@ -203,6 +203,10 @@ struct Group {
 /// Regroupe les documents par dossier de texte, dans l'ordre de leur première apparition (le
 /// meilleur document d'un texte donne le rang du texte). Les versions de texte ouvrent un groupe
 /// sans article.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`index` vient de la table `slot` ou du `push` juste au-dessus : il désigne un groupe existant"
+)]
 fn group_by_text(docs: Vec<StoredDoc>) -> Vec<Group> {
     let mut groups: Vec<Group> = Vec::new();
     let mut slot: HashMap<String, usize> = HashMap::new();
@@ -292,7 +296,7 @@ fn search_page(view: &View<'_>, query: &SearchQuery) -> Result<SearchPage, Corpu
     let size = usize::try_from(query.page_size().get()).unwrap_or(usize::MAX);
     let offset = usize::try_from(query.page().get() - 1).unwrap_or(usize::MAX).saturating_mul(size);
     let window = groups.get(offset..).unwrap_or_default();
-    let window = &window[..window.len().min(size)];
+    let window = window.get(..size).unwrap_or(window);
     let (hits, dropped) = hits_of(view, fond, window, fond == Fond::Code)?;
     Ok(SearchPage::new(fond, text, Some(total), None, hits, dropped, PaginationMode::Defaut))
 }

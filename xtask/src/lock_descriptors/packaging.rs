@@ -28,6 +28,10 @@ fn lock_version(lock: &Value) -> Result<&str, String> {
 /// # Errors
 ///
 /// Un manifeste qui n'est pas un objet, ou un outil du verrou sans description.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "indexation de `serde_json::Value` : un champ absent donne `Null`, sans panique"
+)]
 pub(crate) fn manifest(current: &Value, lock: &Value) -> Result<Value, String> {
     let mut out = object(current, "the MCPB manifest")?.clone();
     out.insert("version".to_owned(), json!(lock_version(lock)?));

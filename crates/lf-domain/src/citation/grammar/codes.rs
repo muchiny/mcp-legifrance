@@ -132,6 +132,10 @@ pub(super) fn consume(text: &str, at: usize, c: char) -> Option<usize> {
 }
 
 /// Entier décimal d'au plus neuf chiffres lu en `at` : sa valeur et sa fin.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`digits` chiffres ASCII ont été comptés à partir de `at`"
+)]
 pub(super) fn uint(text: &str, at: usize) -> Option<(u32, usize)> {
     let digits =
         text.get(at..).map_or(0, |rest| rest.bytes().take_while(u8::is_ascii_digit).count());

@@ -85,6 +85,7 @@ fn compare_keys(left: &str, right: &str) -> Ordering {
 }
 
 /// Écrit une chaîne avec l'échappement `ensure_ascii` de Python.
+#[expect(clippy::indexing_slicing, reason = "indice masqué à 4 bits dans une table de 16 chiffres")]
 fn push_string(out: &mut String, text: &str) {
     out.push('"');
     for character in text.chars() {

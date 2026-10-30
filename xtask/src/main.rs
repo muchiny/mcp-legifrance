@@ -81,9 +81,11 @@ fn main() -> ExitCode {
         }
     };
     let result = match args.get(1).map(String::as_str) {
-        Some("record-fixture") => return record_fixture(&args[2..]),
+        Some("record-fixture") => return record_fixture(args.get(2..).unwrap_or_default()),
         Some("check-arch") => check_arch(),
-        Some("lock-descriptors") => LockMode::from_args(&args[2..]).and_then(lock_descriptors::run),
+        Some("lock-descriptors") => {
+            LockMode::from_args(args.get(2..).unwrap_or_default()).and_then(lock_descriptors::run)
+        }
         Some("instructions-size") if args.len() == 2 => instructions::run(),
         _ => Err("usage: cargo xtask check-arch | record-fixture <arguments> | \
                   lock-descriptors [--check | --update | --compare <ref-git>] | \

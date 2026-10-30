@@ -147,11 +147,12 @@ pub(crate) fn check_quote(quoted: &str, official: &str) -> QuoteCheck {
         return QuoteCheck::Match;
     }
     let known: HashSet<(&str, &str)> =
-        text.windows(2).map(|pair| (pair[0].as_str(), pair[1].as_str())).collect();
+        text.iter().zip(text.iter().skip(1)).map(|(a, b)| (a.as_str(), b.as_str())).collect();
     let pairs = wanted.len().saturating_sub(1);
     let found = wanted
-        .windows(2)
-        .filter(|pair| known.contains(&(pair[0].as_str(), pair[1].as_str())))
+        .iter()
+        .zip(wanted.iter().skip(1))
+        .filter(|(a, b)| known.contains(&(a.as_str(), b.as_str())))
         .count();
     let (numerator, denominator) = QUOTE_SIMILARITY;
     if pairs > 0 && found * denominator >= pairs * numerator {

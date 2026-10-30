@@ -145,7 +145,7 @@ impl In<'_> {
     }
 
     fn u8(&mut self) -> Option<u8> {
-        self.take(1).map(|bytes| bytes[0])
+        self.take(1).and_then(|bytes| bytes.first().copied())
     }
 
     fn u64(&mut self) -> Option<u64> {

@@ -456,7 +456,10 @@ pub fn redact(raw: &[u8], pointers: &[String]) -> Result<(Vec<u8>, Vec<String>),
         };
         let place = span(&file, &tokens)
             .filter(|place| {
-                serde_json::from_slice::<Value>(&file[place.clone()]).ok().as_ref() == Some(target)
+                file.get(place.clone())
+                    .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+                    .as_ref()
+                    == Some(target)
             })
             .ok_or_else(|| failure("value not found in the raw bytes"))?;
         let label = match target {
@@ -497,7 +500,9 @@ fn span(bytes: &[u8], tokens: &[String]) -> Option<Range<usize>> {
 
 /// Premier octet non blanc à partir de `at`.
 fn skip_blank(bytes: &[u8], at: usize) -> usize {
-    let blank = bytes[at.min(bytes.len())..]
+    let blank = bytes
+        .get(at..)
+        .unwrap_or_default()
         .iter()
         .take_while(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b'\r'))
         .count();
@@ -519,6 +524,10 @@ fn string_end(bytes: &[u8], at: usize) -> Option<usize> {
 }
 
 /// Fin (exclue) de la valeur JSON qui commence à `at`.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "les positions viennent du balayage de ces mêmes octets (`skip_blank`, `string_end`) et ne dépassent pas leur longueur"
+)]
 fn value_end(bytes: &[u8], at: usize) -> Option<usize> {
     match bytes.get(at)? {
         b'"' => string_end(bytes, at),
@@ -557,6 +566,10 @@ fn value_end(bytes: &[u8], at: usize) -> Option<usize> {
 
 /// Début de la valeur `token` du conteneur qui commence à `at` : membre d'un objet (clé
 /// décodée) ou élément d'un tableau (indice décimal).
+#[expect(
+    clippy::indexing_slicing,
+    reason = "les positions viennent du balayage de ces mêmes octets (`skip_blank`, `string_end`) et ne dépassent pas leur longueur"
+)]
 fn child(bytes: &[u8], at: usize, token: &str) -> Option<usize> {
     let open = *bytes.get(at)?;
     let wanted = match open {

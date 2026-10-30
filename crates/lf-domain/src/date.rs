@@ -284,6 +284,10 @@ impl CivilDate {
     /// assert_eq!(date.to_french(), "7 novembre 2025");
     /// # Ok::<(), lf_domain::DomainError>(())
     /// ```
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "le mois d'une `CivilDate` est validé entre 1 et 12 à la construction"
+    )]
     pub fn to_french(self) -> String {
         let month = FR_MONTHS[usize::from(self.month - 1)];
         if self.day == 1 {
