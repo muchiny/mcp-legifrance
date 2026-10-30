@@ -2670,4 +2670,83 @@ mod tests {
             assert!(dict_at(not_a_code, 0).is_none(), "{not_a_code}");
         }
     }
+
+    /// Briques lexicales, vérifiées directement : une valeur de retour fausse ne se voit pas
+    /// toujours dans la grammaire (elle y fait boucler l'analyse au lieu d'échouer vite).
+    #[test]
+    fn lexical_bricks_return_the_end_of_what_they_read() {
+        // `abbr` : le point facultatif est inclus, sinon une frontière de mot est exigée.
+        assert_eq!(abbr("art. 5", 0, "art"), Some(4));
+        assert_eq!(abbr("art 5", 0, "art"), Some(3));
+        assert_eq!(abbr("x art 5", 2, "art"), Some(5));
+        assert_eq!(abbr("artx", 0, "art"), None);
+        assert_eq!(abbr("ar 5", 0, "art"), None);
+        // `consume` : la fin compte les octets du caractère lu.
+        assert_eq!(consume("a", 0, 'a'), Some(1));
+        assert_eq!(consume("xa", 1, 'a'), Some(2));
+        assert_eq!(consume("éa", 0, 'é'), Some(2));
+        assert_eq!(consume("b", 0, 'a'), None);
+        // `list_sep` : « , », « , et », « et », « ou », suivis de leurs espaces.
+        assert_eq!(list_sep("1, 2", 1), Some(3));
+        assert_eq!(list_sep("1 , 2", 1), Some(4));
+        assert_eq!(list_sep("1, et 2", 1), Some(6));
+        assert_eq!(list_sep("1 et 2", 1), Some(5));
+        assert_eq!(list_sep("1 ou 2", 1), Some(5));
+        assert_eq!(list_sep("1x", 1), None);
+        assert_eq!(list_sep("1 etc", 1), None);
+    }
+
+    #[test]
+    fn gaps_need_at_least_one_character() {
+        // Ni espace, ni virgule : pas d'intervalle (`end > at`, pas `end >= at`).
+        assert_eq!(gap("ab", 0), None);
+        assert_eq!(gap("ab", 2), None);
+        assert_eq!(gap("a b", 1), Some(2));
+        assert_eq!(gap("a, b", 1), Some(3));
+        assert_eq!(gap("a,b", 1), Some(2));
+        assert_eq!(token_gap("ab", 0), None);
+        assert_eq!(token_gap("ab", 2), None);
+        assert_eq!(token_gap("a b", 1), Some(2));
+        assert_eq!(token_gap("a. b", 1), Some(3));
+        assert_eq!(token_gap("a.b", 1), Some(2));
+        assert_eq!(token_gap("a,b", 1), Some(2));
+    }
+
+    #[test]
+    fn year4_wants_exactly_four_digits_and_a_word_boundary() {
+        assert_eq!(year4("2000", 0), Some((2000, 4)));
+        assert_eq!(year4("x 1999 y", 2), Some((1999, 6)));
+        // Quatre chiffres collés à une lettre : pas de frontière de mot.
+        assert_eq!(year4("2000x", 0), None);
+        // Zéros de tête : la valeur est dans la plage, mais pas la forme à quatre chiffres.
+        assert_eq!(year4("02000", 0), None);
+        assert_eq!(year4("02000 ", 0), None);
+        // Hors de 1500 à 2099.
+        assert_eq!(year4("1499", 0), None);
+        assert_eq!(year4("2100", 0), None);
+    }
+
+    #[test]
+    fn capital_letters_stop_at_a_word_boundary_after_the_letters() {
+        assert_eq!(capital_letters("199 B", 4), Some(("B".to_owned(), 5)));
+        assert_eq!(capital_letters("199 AB x", 4), Some(("AB".to_owned(), 6)));
+        // Une majuscule suivie d'une minuscule débute un mot : pas une lettre de suffixe.
+        assert_eq!(capital_letters("1 Ab", 2), None);
+        assert_eq!(capital_letters("199 Bx", 4), None);
+        // Trois majuscules ou plus, mots de liaison et sigles ambigus.
+        assert_eq!(capital_letters("199 ABC", 4), None);
+        assert_eq!(capital_letters("199 DE", 4), None);
+        assert_eq!(capital_letters("199 CE", 4), None);
+    }
+
+    #[test]
+    fn an_ambiguous_sigle_ends_where_its_capitals_end() {
+        let end = |text: &str, at: usize| sigle_at(text, at).map(|hit| hit.end);
+        assert_eq!(end("xx CE ", 3), Some(5));
+        assert_eq!(end("xx CPI", 3), Some(6));
+        assert_eq!(end("CE", 0), Some(2));
+        // Collé à une lettre : pas de frontière de mot (en fin de texte, `at * len` en aurait vu une).
+        assert_eq!(end("xx CEz", 3), None);
+        assert_eq!(end("xx ce ", 3), None);
+    }
 }

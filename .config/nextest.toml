@@ -7,6 +7,14 @@
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
 
+# lf-domain : un mutant de la grammaire de citations qui ne fait plus avancer la lecture (`abbr`,
+# `consume`…) fait boucler tous les tests d'analyse. Nextest attend la fin des tests en cours avant
+# de rendre son verdict : sans cette borne, le test qui échoue vite est noyé dans l'attente et
+# cargo-mutants rend TIMEOUT au lieu de « tué ». Le test le plus long du crate dure 2,3 s.
+[[profile.default.overrides]]
+filter = 'package(lf-domain)'
+slow-timeout = { period = "5s", terminate-after = 4 }
+
 [profile.ci]
 fail-fast = false
 retries = 0                                  # PT9 : aucun réessai, un test instable est corrigé
