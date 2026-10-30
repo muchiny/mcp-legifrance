@@ -293,6 +293,13 @@ fn sessions(launch: &Launch) -> Result<(Vec<Capture>, usize), String> {
     Ok((captures, ignored))
 }
 
+/// Transmet à `warn` l'avertissement des lignes ignorées, s'il y en a.
+fn report_ignored(ignored: usize, warn: &mut impl FnMut(&str)) {
+    if let Some(warning) = ignored_warning(ignored) {
+        warn(&warning);
+    }
+}
+
 /// Avertissement sur les lignes de la sortie du serveur qui n'étaient pas du JSON-RPC, s'il y en a.
 fn ignored_warning(ignored: usize) -> Option<String> {
     (ignored > 0).then(|| {
@@ -337,9 +344,7 @@ impl Host for RealHost {
         let mut server = self.server.clone();
         server.program = process::built_executable(&output, "mcp-legifrance")?;
         let (captures, ignored) = sessions(&server)?;
-        if let Some(warning) = ignored_warning(ignored) {
-            self.warn(&warning);
-        }
+        report_ignored(ignored, &mut |line| self.warn(line));
         Ok(captures)
     }
 
@@ -961,6 +966,22 @@ mod tests {
         assert!(!cargo_program().is_empty());
     }
 
+    /// Ce que `report_ignored` transmet pour `ignored` lignes.
+    fn reported(ignored: usize) -> Vec<String> {
+        let mut said = Vec::new();
+        report_ignored(ignored, &mut |line| said.push(line.to_owned()));
+        said
+    }
+
+    #[test]
+    fn ignored_lines_are_reported_once_and_only_when_there_are_some() {
+        assert_eq!(reported(0), Vec::<String>::new());
+        assert_eq!(
+            reported(3),
+            ["warning: 3 line(s) of the server's stdout were not JSON-RPC and were ignored"]
+        );
+    }
+
     #[test]
     fn the_warning_counts_the_ignored_lines_and_only_exists_for_some() {
         assert_eq!(ignored_warning(0), None);
@@ -991,6 +1012,8 @@ mod tests {
         host.stderr = Box::new(err.clone());
         host.say("lock-descriptors: ok");
         host.warn("warning: careful");
+        host.stdout.flush().unwrap();
+        host.stderr.flush().unwrap();
         assert_eq!(out.text(), "lock-descriptors: ok\n");
         assert_eq!(err.text(), "warning: careful\n");
         // La construction d'un serveur bruyant avertit, sur l'erreur standard seulement.
