@@ -1,11 +1,15 @@
 # Configuration de dist (cargo-dist 0.33.0) : binaires, archives, installeurs et provenance
 # du binaire `mcp-legifrance` (T-MD-01, 08 §2, §3.4 à §3.7).
 #
-# `.github/workflows/release.yml` est GÉNÉRÉ par `dist generate` : ne jamais l'éditer à la main
-# (`dist plan` échoue sur un fichier modifié). Après tout changement de ce fichier :
-#   dist generate && dist plan
-# dist 0.33.0 s'installe depuis la release GitHub (binaire, somme SHA-256 vérifiée), jamais par
-# `cargo install`. Aucune release ni étiquette poussée par un agent (D14) ; `publish = false` est
+# `.github/workflows/release.yml` est parti du gabarit de dist puis est MAINTENU À LA MAIN (F4,
+# SUP-01 et SUP-02 : permissions minimales par job, GH_TOKEN absent des jobs qui compilent,
+# installation des outils à somme épinglée) ; `allow-dirty = ["ci"]` ci-dessous empêche `dist plan`
+# d'échouer sur ce fichier modifié, et `dist generate` ne doit plus l'écraser. Après tout
+# changement de ce fichier : régénérer dans un clone jetable, reporter les différences à la main,
+# puis `dist plan` et `make release-selftest`.
+# dist 0.33.0 s'installe par .github/scripts/install-release-tool.sh : archive de la release
+# GitHub dont la somme SHA-256 est épinglée dans le script (jamais `curl | sh`, jamais
+# `cargo install`). Aucune release ni étiquette poussée par un agent (D14) ; `publish = false` est
 # gardé (Q13).
 
 [workspace]
@@ -19,6 +23,7 @@ packages = ["mcp-legifrance"]
 [dist]
 cargo-dist-version = "0.33.0"
 ci = ["github"]
+allow-dirty = ["ci"]                     # release.yml est maintenu à la main (voir l'en-tête)
 targets = [
   "x86_64-unknown-linux-gnu",  "aarch64-unknown-linux-gnu",
   "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl",
@@ -57,8 +62,8 @@ github-attestations-filters = [
 # les PR : release-gates.yml se limite donc aux étiquettes (`github.ref_type == 'tag'`).
 plan-jobs = ["./release-gates"]
 # Workflows de V2-16 : MCPB (artefact global), image OCI (publication), registre MCP (après
-# l'annonce). Leurs permissions sont déclarées ci-dessous ; `release.yml` est généré par
-# `dist generate`.
+# l'annonce). Leurs permissions sont déclarées ci-dessous et reportées à la main dans
+# `release.yml`.
 global-artifacts-jobs = ["./build-mcpb"]
 publish-jobs = ["./publish-oci"]
 post-announce-jobs = ["./publish-mcp-registry"]
@@ -71,8 +76,8 @@ post-announce-jobs = ["./publish-mcp-registry"]
 
 # Épinglage des actions du workflow généré par SHA complet (D-44, 08 §3.7). Mêmes SHA que ci.yml
 # pour checkout (v7.0.1), upload-artifact (v7.0.2) et download-artifact (v8.0.2) ; attest v4.2.2
-# (2026-08-04). Dependabot propose ces montées dans release.yml : les reporter ici puis
-# `dist generate`, sinon `dist plan` échoue (fichier généré modifié). `swatinem/rust-cache`
+# (2026-08-04). Dependabot propose ces montées dans release.yml : les reporter aussi ici
+# (release.yml est maintenu à la main, `allow-dirty = ["ci"]`). `swatinem/rust-cache`
 # (cache-builds), `actions/setup-node` (npm) et `azure/login` (Azure) ne sont pas employés.
 [dist.github-action-commits]
 "actions/checkout" = "3d3c42e5aac5ba805825da76410c181273ba90b1"

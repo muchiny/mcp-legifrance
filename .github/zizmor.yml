@@ -1,13 +1,11 @@
 # Configuration de zizmor (make workflow-lint, workflow-lint.yml).
 #
-# `release.yml` est GÉNÉRÉ par `dist generate` (dist-workspace.toml) et ne s'édite pas à la main : les
-# constats qui viennent du gabarit de dist sont écartés ici, fichier par fichier. Les workflows écrits
-# à la main (ci.yml, release-gates.yml, smoke-targets.yml, ...) restent soumis à toutes les règles.
+# `release.yml` vient du gabarit de dist (dist-workspace.toml) : les constats hérités de ce gabarit
+# sont écartés ici, règle par règle. Les permissions, elles, ne le sont plus (F4, SUP-01) : le
+# workflow est maintenu à la main avec `permissions: {}` et des droits par job. Les workflows
+# écrits à la main (ci.yml, release-gates.yml, smoke-targets.yml, ...) restent soumis à toutes les
+# règles.
 rules:
-  # permissions: contents: write au niveau du workflow (gabarit dist)
-  excessive-permissions:
-    ignore:
-      - release.yml
   # expansions ${{ }} du gabarit dist
   template-injection:
     ignore:

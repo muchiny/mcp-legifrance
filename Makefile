@@ -32,7 +32,7 @@ MIN_AGE_DAYS ?= 14
 SURFACE_DIR ?= target/surface
 DONNEES := docs/plan/annexes/donnees
 
-.PHONY: fmt fmt-check lint test doc arch purity deny audit-fuzz min-age min-age-selftest machete cov cov-cobertura clippy-json mem-check mutants mutants-diff workflow-lint surface instructions lock ci
+.PHONY: fmt fmt-check lint test doc arch purity deny audit-fuzz min-age min-age-selftest release-selftest machete cov cov-cobertura clippy-json mem-check mutants mutants-diff workflow-lint surface instructions lock ci
 
 fmt:
 	cargo fmt --all
@@ -83,6 +83,12 @@ min-age-selftest:
 	shellcheck .github/scripts/check-min-age.sh .github/scripts/tests/min-age/run.sh
 	.github/scripts/tests/min-age/run.sh
 
+# Auto-test du workflow de release : garde-fous de release.yml et installation à somme épinglée
+# des outils de release (F4, SUP-01 et SUP-02), hors réseau.
+release-selftest:
+	shellcheck .github/scripts/check-release-workflow.sh .github/scripts/install-release-tool.sh .github/scripts/tests/release/run.sh
+	.github/scripts/tests/release/run.sh
+
 machete:
 	cargo machete
 
@@ -120,6 +126,7 @@ mutants-diff: mem-check
 # Workflows GitHub (zizmor puis actionlint) : hors `make ci`, lancé par workflow-lint.yml
 # quand `.github/` change (06 §7.1).
 workflow-lint:
+	.github/scripts/check-release-workflow.sh
 	$(ZIZMOR) .github/
 	$(ACTIONLINT)
 
@@ -146,4 +153,4 @@ instructions:
 lock:
 	cargo xtask lock-descriptors --check
 
-ci: fmt-check lint test doc arch purity deny min-age-selftest machete cov surface instructions lock
+ci: fmt-check lint test doc arch purity deny min-age-selftest release-selftest machete cov surface instructions lock
