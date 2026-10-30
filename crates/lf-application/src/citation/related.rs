@@ -131,13 +131,14 @@ pub(crate) struct DecisionReferences<'a> {
 impl<'a> DecisionReferences<'a> {
     /// Les références que porte `decision` : `cited_case_law` puis `applied_texts`, tels que
     /// l'adapter les a mappés, dans la limite de [`MAX_ANALYSED_CHARS`] caractères. `citationJp`
-    /// est coupée à la limite ; la liste des textes appliqués s'arrête avant le premier titre qui
+    /// est coupée à la limite, sur une frontière de mot (jamais au milieu d'un numéro de pourvoi,
+    /// qui deviendrait une référence que le texte ne contient pas) ; la liste des textes appliqués s'arrête avant le premier titre qui
     /// ne tient plus entier, les suivants sont ignorés.
     pub(crate) fn of(decision: &'a Decision) -> Self {
         let mut room = MAX_ANALYSED_CHARS;
         let mut clipped = false;
         let cited_case_law = decision.cited_case_law.as_deref().map(|text| {
-            let kept = prefix(text, room);
+            let kept = whole_words(text, room);
             room -= kept.chars().count();
             clipped |= kept.len() < text.len();
             kept
@@ -154,6 +155,23 @@ impl<'a> DecisionReferences<'a> {
         clipped |= kept < decision.applied_texts.len();
         Self { cited_case_law, applied_texts: &decision.applied_texts[..kept], clipped }
     }
+}
+
+/// Les `chars` premiers caractères de `text`, sans le mot que la coupe séparerait de sa fin (tout
+/// `text` s'il en a moins). Un texte sans blanc avant la limite est coupé à la limite.
+fn whole_words(text: &str, chars: usize) -> &str {
+    let head = prefix(text, chars);
+    let splits_a_word =
+        text.get(head.len()..).and_then(|rest| rest.chars().next()).is_some_and(|next| {
+            !next.is_whitespace() && head.chars().next_back().is_some_and(|c| !c.is_whitespace())
+        });
+    if !splits_a_word {
+        return head;
+    }
+    head.rfind(char::is_whitespace)
+        .and_then(|blank| head.get(..blank))
+        .filter(|words| !words.is_empty())
+        .unwrap_or(head)
 }
 
 /// Les `chars` premiers caractères de `text` (tout `text` s'il en a moins).
@@ -546,6 +564,38 @@ mod tests {
         assert!(kept.chars().all(|c| c == 'é'), "coupée entre deux caractères, pas dans l'un");
         assert_eq!(references.applied_texts, &[] as &[String]);
         assert!(references.clipped);
+    }
+
+    #[test]
+    fn a_citation_jp_is_never_cut_inside_a_case_number() {
+        // Le numéro de pourvoi à cheval sur la limite : coupé net, il donnerait « 21-23.174 » que
+        // le texte ne contient pas. La coupe recule jusqu'au blanc qui précède le numéro.
+        let text = format!("{}pourvoi n° 21-23.17499", "é ".repeat((MAX_ANALYSED_CHARS - 20) / 2));
+        assert_eq!(text.chars().count(), MAX_ANALYSED_CHARS + 2);
+        let decision = referencing(Some(text), Vec::new());
+        let references = DecisionReferences::of(&decision);
+        let kept = references.cited_case_law.unwrap();
+        assert!(
+            kept.ends_with("pourvoi n°"),
+            "{:?}",
+            kept.chars().rev().take(20).collect::<String>()
+        );
+        assert!(!kept.contains("21-23"));
+        assert!(references.clipped);
+    }
+
+    #[test]
+    fn a_cut_that_falls_between_two_words_keeps_the_text_up_to_the_limit() {
+        // La limite tombe juste après un blanc, puis juste avant un blanc : aucun mot n'est séparé.
+        for text in [
+            format!("{} suite", "é".repeat(MAX_ANALYSED_CHARS - 1)),
+            format!("{} suite", "é".repeat(MAX_ANALYSED_CHARS)),
+        ] {
+            let decision = referencing(Some(text), Vec::new());
+            let kept = DecisionReferences::of(&decision).cited_case_law.unwrap();
+            assert_eq!(kept.chars().count(), MAX_ANALYSED_CHARS);
+            assert!(kept.trim_end().chars().all(|c| c == 'é'));
+        }
     }
 
     #[test]
