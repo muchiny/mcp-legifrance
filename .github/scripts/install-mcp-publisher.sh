@@ -27,7 +27,7 @@ usage() {
   exit 2
 }
 
-[ "$#" -eq 1 ] || usage
+[[ "$#" -eq 1 ]] || usage
 version="$1"
 # X.Y.Z strict : la version entre dans une URL et dans un nom de fichier.
 printf '%s' "$version" | grep -Eqx '[0-9]+[.][0-9]+[.][0-9]+' || usage
@@ -42,7 +42,7 @@ case "$(uname -m)" in
   aarch64 | arm64) arch=arm64 ;;
   *) arch="" ;;
 esac
-if [ -z "$os" ] || [ -z "$arch" ]; then
+if [[ -z "$os" ]] || [[ -z "$arch" ]]; then
   echo "install-mcp-publisher: unsupported platform $(uname -s)-$(uname -m)" >&2
   exit 1
 fi
@@ -93,21 +93,21 @@ fetch "$archive"
 fetch "$checksums"
 
 actual="$(sha256_of "$work/$archive")"
-if [ "$actual" != "$expected" ]; then
+if [[ "$actual" != "$expected" ]]; then
   echo "install-mcp-publisher: checksum mismatch for $archive: expected $expected, got $actual" >&2
   exit 1
 fi
 listed="$(awk -v name="$archive" '$2 == name { print $1 }' "$work/$checksums")"
-if [ "$listed" != "$expected" ]; then
+if [[ "$listed" != "$expected" ]]; then
   echo "install-mcp-publisher: $checksums does not list the pinned checksum for $archive (got '${listed:-nothing}')" >&2
   exit 1
 fi
 
 tar -xzf "$work/$archive" -C "$work" mcp-publisher
 bin_dir="${MCP_PUBLISHER_BIN_DIR:-/usr/local/bin}"
-if [ -d "$bin_dir" ] && [ -w "$bin_dir" ]; then
+if [[ -d "$bin_dir" ]] && [[ -w "$bin_dir" ]]; then
   install -m 0755 "$work/mcp-publisher" "$bin_dir/mcp-publisher"
-elif [ ! -d "$bin_dir" ] && mkdir -p "$bin_dir" 2>/dev/null; then
+elif [[ ! -d "$bin_dir" ]] && mkdir -p "$bin_dir" 2>/dev/null; then
   install -m 0755 "$work/mcp-publisher" "$bin_dir/mcp-publisher"
 else
   sudo -n install -m 0755 "$work/mcp-publisher" "$bin_dir/mcp-publisher"

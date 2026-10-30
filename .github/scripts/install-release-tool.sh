@@ -35,7 +35,7 @@ usage() {
   exit 2
 }
 
-[ "$#" -eq 2 ] || usage
+[[ "$#" -eq 2 ]] || usage
 tool="$1"
 version="$2"
 # X.Y.Z strict : la version entre dans une URL et dans un nom de fichier.
@@ -60,7 +60,7 @@ case "$tool" in
   *) usage ;;
 esac
 
-if [ -n "${RELEASE_TOOL_TRIPLE:-}" ]; then
+if [[ -n "${RELEASE_TOOL_TRIPLE:-}" ]]; then
   triple="$RELEASE_TOOL_TRIPLE"
 else
   case "$(uname -s)/$(uname -m)" in
@@ -72,7 +72,7 @@ else
     *) triple="" ;;
   esac
 fi
-if [ -z "$triple" ]; then
+if [[ -z "$triple" ]]; then
   echo "install-release-tool: unsupported platform $(uname -s)-$(uname -m)" >&2
   exit 1
 fi
@@ -131,7 +131,7 @@ case "$base" in
 esac
 
 actual="$(sha256_of "$work/$archive")"
-if [ "$actual" != "$expected" ]; then
+if [[ "$actual" != "$expected" ]]; then
   echo "install-release-tool: checksum mismatch for $archive: expected $expected, got $actual" >&2
   exit 1
 fi
@@ -151,7 +151,7 @@ case "$ext" in
 esac
 
 found="$(find "$work/x" -type f \( -name "$bin" -o -name "$bin.exe" \) | head -n 1)"
-if [ -z "$found" ]; then
+if [[ -z "$found" ]]; then
   echo "install-release-tool: $archive does not contain $bin" >&2
   exit 1
 fi
@@ -159,7 +159,7 @@ fi
 bin_dir="${RELEASE_TOOL_BIN_DIR:-${CARGO_HOME:-$HOME/.cargo}/bin}"
 mkdir -p "$bin_dir"
 install -m 0755 "$found" "$bin_dir/$(basename "$found")"
-if [ -n "${GITHUB_PATH:-}" ]; then
+if [[ -n "${GITHUB_PATH:-}" ]]; then
   printf '%s\n' "$bin_dir" >>"$GITHUB_PATH"
 fi
 echo "$tool $version ($triple) installed in $bin_dir, sha256 $actual"

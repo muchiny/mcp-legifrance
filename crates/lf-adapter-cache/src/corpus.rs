@@ -579,7 +579,7 @@ mod tests {
         let q = query("bail");
         assert_eq!(corpus.search(&q).await, Ok(page("a", 1)));
         assert_eq!(corpus.get_article(&article_id()).await, Ok(article("a")));
-        std::thread::sleep(Duration::from_millis(120));
+        tokio::time::sleep(Duration::from_millis(120)).await;
         assert_eq!(corpus.search(&q).await, Ok(page("b", 1)));
         // La consultation garde ses 24 h : elle est toujours en cache.
         assert_eq!(corpus.get_article(&article_id()).await, Ok(article("a")));

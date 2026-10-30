@@ -255,7 +255,7 @@ impl TestArchive {
         let mut header = Header::new_gnu();
         header.set_size(u64::try_from(size).unwrap());
         header.set_mtime(mtime);
-        header.set_mode(0o644);
+        header.set_mode(0o600);
         header.set_entry_type(kind);
         header
     }

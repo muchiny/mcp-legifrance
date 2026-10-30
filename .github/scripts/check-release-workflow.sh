@@ -17,7 +17,7 @@
 set -euo pipefail
 
 file="${1:-.github/workflows/release.yml}"
-[ -f "$file" ] || {
+[[ -f "$file" ]] || {
   echo "check-release-workflow: $file not found" >&2
   exit 2
 }
