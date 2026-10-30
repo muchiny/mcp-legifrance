@@ -69,7 +69,7 @@ const MCP_PATH: &str = "/mcp";
 /// plus 20 000 caractères ; le défaut de rmcp est de 4 Mio.
 const MAX_REQUEST_BODY_BYTES: usize = 256 * 1024;
 
-/// Délai laissé aux requêtes en vol quand l'arrêt est demandé, avant de fermer les connexions.
+/// Délai laissé aux connexions encore ouvertes quand l'arrêt est demandé, avant de les fermer.
 const SHUTDOWN_DRAIN: Duration = Duration::from_secs(5);
 
 /// Clé de `params._meta` qui désigne une requête de l'ère moderne (2026-07-28) : rmcp compare
@@ -167,8 +167,8 @@ pub enum HttpOptionsError {
 }
 
 /// Jeton statique du profil local (`LF_MCP_HTTP_TOKEN`, annexe D §6.2). Son `Debug` ne montre pas
-/// la valeur.
-#[derive(Clone, PartialEq, Eq)]
+/// la valeur. Sans `PartialEq` : seule la comparaison en temps constant de `matches` est permise.
+#[derive(Clone)]
 pub struct HttpToken(String);
 
 impl HttpToken {
@@ -309,8 +309,12 @@ fn retry_after_seconds(wait: Duration) -> u64 {
 }
 
 /// Sert `make()` en Streamable HTTP sans session sur `opts.listen()` jusqu'à l'annulation de
-/// `shutdown` : l'écoute s'arrête, les requêtes en vol ont 5 s pour finir, puis les connexions
-/// restantes sont fermées.
+/// `shutdown` : l'écoute s'arrête, les connexions ouvertes ont 5 s pour finir, puis les restantes
+/// sont fermées.
+///
+/// Le jeton d'arrêt est transmis (en enfant) à rmcp : un appel d'outil en vol est donc annulé
+/// aussitôt (réponse 500 « empty response », appel audité comme annulé), sans attendre ces 5 s,
+/// qui ne servent qu'aux autres requêtes (lecture d'en-têtes ou de corps, réponse déjà émise).
 ///
 /// `make` est appelé à chaque requête (fabrique sans état de rmcp) : il clone un prototype dont le
 /// routeur d'outils est construit une fois. Les couches de [`HttpOptions`] précèdent rmcp ; la
@@ -1071,9 +1075,13 @@ mod tests {
 
         #[test]
         fn a_token_is_non_empty_printable_ascii_and_never_shown() {
-            assert_eq!(HttpToken::new(""), Err(HttpTokenError::Empty));
+            assert_eq!(HttpToken::new("").unwrap_err(), HttpTokenError::Empty);
             for bad in ["has space", "tab\there", "new\nline", "accentué", "\u{7f}"] {
-                assert_eq!(HttpToken::new(bad), Err(HttpTokenError::NotPrintable), "{bad:?}");
+                assert_eq!(
+                    HttpToken::new(bad).unwrap_err(),
+                    HttpTokenError::NotPrintable,
+                    "{bad:?}"
+                );
             }
             let token = HttpToken::new(TOKEN).expect("a valid token");
             assert_eq!(token.len(), TOKEN.len());

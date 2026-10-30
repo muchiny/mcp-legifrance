@@ -18,10 +18,6 @@ use crate::canonical;
 /// « chemin: motif » de `serde_path_to_error` (par exemple
 /// `page_size: invalid type: sequence, expected an integer`), seul message que l'adapter rédige
 /// (02 §9.3). L'empreinte (`canonical`) porte sur les arguments bruts, valides ou non.
-#[allow(
-    dead_code,
-    reason = "appelé par les tranches d'outils de V1 ; retirer à l'intégration de la première"
-)]
 pub(crate) fn to_call<P, I>(args: JsonObject) -> ToolCall<I>
 where
     P: DeserializeOwned + Into<I>,
