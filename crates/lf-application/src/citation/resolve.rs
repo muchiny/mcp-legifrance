@@ -575,6 +575,10 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
     }
 
     /// Texte numéroté (LODA) : `find_by_number`, puis comparaison de la nature et de la date.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "les indices viennent des motifs de tranche ou de l'énumération des mêmes listes"
+    )]
     async fn text(&self, cite: &TextCite) -> TextStep {
         let Some(number) = &cite.number else {
             return TextStep::Done(not_supported("text cited without a number"));
@@ -1111,6 +1115,10 @@ fn is_ta(title: &str) -> bool {
 
 /// Choisit parmi les décisions consultées celle que la citation désigne (date citée, type du
 /// Conseil constitutionnel).
+#[expect(
+    clippy::indexing_slicing,
+    reason = "les indices viennent des motifs de tranche ou de l'énumération des mêmes listes"
+)]
 fn choose_decision(
     found: &[(DocumentId, Decision)],
     date: Option<CivilDate>,

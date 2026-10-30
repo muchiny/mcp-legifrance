@@ -272,6 +272,10 @@ impl<'a> WordIndex<'a> {
 /// Un hunk est une suite contiguë de mots retirés et/ou ajoutés ; deux changements séparés par
 /// au moins un mot commun sont deux hunks. Les blancs sont ramenés à une espace dans les passages
 /// rendus.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "les plages viennent du diff de ces mêmes mots ; `count` est au plus la longueur de `before`"
+)]
 fn word_hunks(old: &str, new: &str, deadline: Option<Instant>) -> Vec<HunkOut> {
     let before = WordIndex::of(old);
     let after = WordIndex::of(new);
@@ -297,6 +301,10 @@ fn passage(words: &[&str]) -> Option<String> {
 /// Au plus [`CONTEXT_MAX_CHARS`] caractères des mots qui précèdent `upto`, joints par une espace
 /// et coupés à une limite de mot. Précédés de `… ` quand le début manque ; si le dernier mot
 /// seul est trop long, ses derniers caractères suivent un `…`.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "les plages viennent du diff de ces mêmes mots ; `count` est au plus la longueur de `before`"
+)]
 fn context_before(words: &[&str], upto: usize) -> Option<String> {
     let before = &words[..upto];
     let last = before.last()?;

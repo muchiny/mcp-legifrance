@@ -124,6 +124,10 @@ pub(crate) fn report(old: &Value, new: &Value) -> Vec<String> {
 
 /// Changements classés entre le verrou `old` (référence) et `new`. Les deux sont des verrous déjà
 /// relus par [`super::lock::parse`] : `server_version` n'est pas comparé ici.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "indexation de `serde_json::Value` : un champ absent donne `Null`, sans panique"
+)]
 pub(crate) fn classify(old: &Value, new: &Value) -> Vec<Change> {
     let mut changes = Vec::new();
     let mut sink = Sink { out: &mut changes };

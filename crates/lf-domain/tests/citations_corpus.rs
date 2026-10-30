@@ -10,9 +10,10 @@
 // message, et la mesure de performance comme l'absence de fixture se signalent sur stderr.
 #![expect(
     clippy::expect_used,
+    clippy::indexing_slicing,
     clippy::panic,
     clippy::print_stderr,
-    reason = "harnais de test : échec bruyant sur corpus invalide, diagnostic de mesure et de fixture absente sur stderr"
+    reason = "harnais de test : échec bruyant sur corpus invalide ou indice hors corpus, diagnostic de mesure et de fixture absente sur stderr"
 )]
 
 use std::collections::{BTreeMap, BTreeSet};

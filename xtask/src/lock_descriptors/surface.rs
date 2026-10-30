@@ -119,6 +119,10 @@ impl Surface {
     ///
     /// Aucune session, une session illisible, aucune annonce de versions, ou la liste des chemins
     /// JSON qui diffèrent entre deux sessions.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "`split_first` a réussi : `captures` n'est pas vide"
+    )]
     pub(crate) fn from_captures(captures: &[Capture]) -> Result<Self, String> {
         let surfaces = captures.iter().map(Self::from_capture).collect::<Result<Vec<_>, _>>()?;
         let (first, others) = surfaces.split_first().ok_or("no session was captured")?;

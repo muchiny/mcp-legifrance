@@ -99,10 +99,10 @@ fn cited_tool_names(text: &str) -> Vec<&str> {
     while let Some(offset) = text[from..].find("fr_") {
         let start = from + offset;
         let bytes = text.as_bytes();
-        let bounded =
-            start == 0 || !(bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_');
+        let bounded = start == 0
+            || !bytes.get(start - 1).is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_');
         let mut end = start + 3;
-        while end < bytes.len() && (bytes[end].is_ascii_lowercase() || bytes[end] == b'_') {
+        while bytes.get(end).is_some_and(|b| b.is_ascii_lowercase() || *b == b'_') {
             end += 1;
         }
         let name = text[start..end].trim_end_matches('_');

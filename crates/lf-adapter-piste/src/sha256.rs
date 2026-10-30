@@ -127,6 +127,10 @@ const fn majority(x: u32, y: u32, z: u32) -> u32 {
 }
 
 /// Fonction de compression de FIPS 180-4 (§6.2.2) : mêle un bloc de 64 octets à l'état.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "FIPS 180-4 : `t` parcourt 16..64 sur un tableau de 64 mots ; un quartet indexe 16 chiffres"
+)]
 #[expect(clippy::many_single_char_names, reason = "notation de FIPS 180-4 : a à h et w")]
 fn compress(state: &mut [u32; 8], block: &[u8; 64]) {
     let mut w = [0_u32; 64];
@@ -161,6 +165,10 @@ fn compress(state: &mut [u32; 8], block: &[u8; 64]) {
 }
 
 /// Chiffres hexadécimaux minuscules de `digest`, deux par octet.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "FIPS 180-4 : `t` parcourt 16..64 sur un tableau de 64 mots ; un quartet indexe 16 chiffres"
+)]
 pub(crate) fn hex(digest: &[u8]) -> String {
     let mut out = String::with_capacity(digest.len() * 2);
     for byte in digest {

@@ -43,6 +43,10 @@ pub struct Resolved {
 /// # Errors
 ///
 /// Échoue fermé si `resolve.nodes` n'est pas un tableau.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "indexation de `serde_json::Value` : un champ absent donne `Null`, sans panique"
+)]
 pub fn resolved_graph(metadata: &Value) -> Result<Resolved, String> {
     let nodes = metadata["resolve"]["nodes"]
         .as_array()

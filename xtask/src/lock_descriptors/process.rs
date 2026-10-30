@@ -234,6 +234,10 @@ pub(crate) fn run_git(root: &Path, args: &[&str]) -> Result<String, String> {
 /// # Errors
 ///
 /// Aucun message `compiler-artifact` n'annonce d'exécutable pour cette cible.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "indexation de `serde_json::Value` : un champ absent donne `Null`, sans panique"
+)]
 pub(crate) fn built_executable(cargo_output: &str, name: &str) -> Result<PathBuf, String> {
     cargo_output
         .lines()

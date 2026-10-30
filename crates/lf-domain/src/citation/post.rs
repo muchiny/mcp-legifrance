@@ -88,6 +88,10 @@ fn hull(a: &Range<usize>, b: Option<&Range<usize>>) -> Range<usize> {
 
 /// Regroupe les candidats en unités. Les plages vides ou inversées, qu'aucune grammaire ne doit
 /// produire, sont écartées.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`Unit::id` est le rang de l'unité dans `units` ; `selected` en a autant"
+)]
 fn units_of(candidates: Vec<Candidate>) -> Vec<Unit> {
     let mut units: Vec<Unit> = Vec::new();
     let mut groups: HashMap<(u32, Option<Range<usize>>), usize> = HashMap::new();
@@ -129,6 +133,10 @@ fn arbitration_order(units: &[Unit]) -> Vec<&Unit> {
 /// Acceptation gloutonne : une unité est retenue si son étendue ne chevauche aucune unité déjà
 /// retenue. Les étendues retenues sont disjointes : la plus proche à gauche de la fin de la
 /// nouvelle étendue est la seule à tester.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`Unit::id` est le rang de l'unité dans `units` ; `selected` en a autant"
+)]
 fn accept(order: &[&Unit], total: usize) -> Vec<bool> {
     let mut taken: BTreeMap<usize, usize> = BTreeMap::new();
     let mut selected = vec![false; total];
@@ -179,6 +187,10 @@ fn same_text(a: &TextCite, b: &TextCite) -> bool {
 ///
 /// Les textes sont triés par début de span : chaque article retenu ne parcourt que ceux de son
 /// étendue, et les étendues retenues sont disjointes, d'où un coût total linéaire en leur nombre.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`Unit::id` est le rang de l'unité dans `units` ; `selected` en a autant"
+)]
 fn rescue_version_texts(order: &[&Unit], selected: &mut [bool]) {
     let mut texts: Vec<(&Unit, &TextCite)> =
         order.iter().filter_map(|u| lone_text(u).map(|text| (*u, text))).collect();
@@ -405,6 +417,10 @@ fn group_number(n: usize) -> u32 {
 }
 
 /// Citations retenues, triées par début de span puis par longueur décroissante.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`Unit::id` est le rang de l'unité dans `units` ; `selected` en a autant"
+)]
 pub(crate) fn arbitrate(
     candidates: Vec<Candidate>,
     opts: &ParseOptions,

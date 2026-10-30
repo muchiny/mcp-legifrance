@@ -1,6 +1,7 @@
 msrv = "1.88.0"
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
+allow-indexing-slicing-in-tests = true
 
 # Entrées-sorties non déterministes (T-M3-10, 00 §11.1) : l'horloge et l'environnement passent par
 # des ports (`Clock`, `ProcessEnv`) pour que les tests restent déterministes. Exceptions admises :

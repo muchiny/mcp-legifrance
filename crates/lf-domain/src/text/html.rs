@@ -370,9 +370,11 @@ fn entity(tail: &str) -> Option<(char, usize)> {
     let name = &tail[1..end];
     let ch = match name.strip_prefix('#') {
         Some(number) => numeric(number)?,
-        None => {
-            ENTITIES.binary_search_by(|&(known, _)| known.cmp(name)).ok().map(|i| ENTITIES[i].1)?
-        }
+        None => ENTITIES
+            .binary_search_by(|&(known, _)| known.cmp(name))
+            .ok()
+            .and_then(|i| ENTITIES.get(i))
+            .map(|entry| entry.1)?,
     };
     Some((ch, end + 1))
 }

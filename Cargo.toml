@@ -126,6 +126,8 @@ print_stderr = "warn"
 exit = "warn"
 # `as` silencieux interdit en production : `From`, `TryFrom`, ou `#[expect(…, reason)]` (rust-hardening §1). Les modules de test portent leur propre `#[expect]`.
 as_conversions = "warn"
+# Indexation et découpage qui peuvent paniquer interdits en production : `get`, itérateurs, ou `#[expect(…, reason)]` quand l'indice est borné par construction (rust-hardening §1).
+indexing_slicing = "warn"
 
 # Profil dédié à cargo-mutants (`profile = "mutants"` dans .cargo/mutants.toml) :
 # pas d'infos de debug, build plus rapide par mutant.

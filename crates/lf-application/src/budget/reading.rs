@@ -263,6 +263,10 @@ fn read_window(text: &LongText, offset: usize, max_chars: usize) -> Result<Readi
 /// Mode passages : au plus `count` segments classés par BM25 sur les termes de `focus`, dont la
 /// somme des longueurs ne dépasse pas `max_chars` (03 §7.8). Sans correspondance, `passages` est
 /// vide et une remarque propose la lecture en texte plein.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`scored.index` vient du classement de ces mêmes `segments`"
+)]
 fn read_passages(text: &LongText, focus: &Focus, count: usize, max_chars: usize) -> Reading {
     let segments = segments(text);
     let texts: Vec<&str> = segments.iter().map(|(_, segment)| *segment).collect();

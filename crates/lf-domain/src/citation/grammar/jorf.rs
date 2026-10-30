@@ -180,6 +180,10 @@ impl Win {
     }
 
     /// Texte des caractères `a..b`.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "les bornes viennent de reconnaissances faites sur ces mêmes caractères"
+    )]
     pub(crate) fn text_of(&self, a: usize, b: usize) -> String {
         self.text[a..b].iter().collect()
     }
@@ -261,6 +265,10 @@ impl Win {
     }
 
     /// Valeur des chiffres `a..b` (saturée au-delà de 19 chiffres).
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "les bornes viennent de reconnaissances faites sur ces mêmes caractères"
+    )]
     fn value(&self, a: usize, b: usize) -> u64 {
         self.text[a..b].iter().fold(0_u64, |acc, c| {
             acc.saturating_mul(10).saturating_add(u64::from(c.to_digit(10).unwrap_or(0)))
@@ -405,6 +413,10 @@ impl Win {
     }
 
     /// Candidat d'une reconnaissance, avec une plage d'offsets du texte d'origine.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "les bornes viennent de reconnaissances faites sur ces mêmes caractères"
+    )]
     fn candidate(&self, n: &Normalized, hit: Hit) -> Candidate {
         let range = n.orig_range(self.byte[hit.start]..self.byte[hit.end]);
         let mut candidate = Candidate::new(range, hit.value);

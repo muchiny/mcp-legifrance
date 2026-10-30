@@ -153,7 +153,11 @@ impl<'a> DecisionReferences<'a> {
             kept += 1;
         }
         clipped |= kept < decision.applied_texts.len();
-        Self { cited_case_law, applied_texts: &decision.applied_texts[..kept], clipped }
+        Self {
+            cited_case_law,
+            applied_texts: decision.applied_texts.get(..kept).unwrap_or_default(),
+            clipped,
+        }
     }
 }
 
