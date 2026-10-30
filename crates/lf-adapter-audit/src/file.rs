@@ -901,25 +901,25 @@ mod tests {
     async fn a_dropped_record_future_still_gets_its_line_written() {
         let dir = tempfile::tempdir().unwrap();
         let (release, gate) = std_mpsc::channel::<()>();
+        let (done, finished) = std_mpsc::channel::<()>();
         let mut store = Store::new(dir.path().to_owned(), 1 << 20, Duration::from_secs(5));
         let log = journal(dir.path()).with_sender(
             spawn_writer(move |line, date| {
                 let _ = gate.recv();
-                store.append(line, date)
+                let written = store.append(line, date);
+                let _ = done.send(());
+                written
             })
             .unwrap(),
         );
         let abandoned = tokio::time::timeout(Duration::ZERO, log.record(&record())).await;
         assert!(abandoned.is_err(), "l'appelant a renoncé avant l'accusé");
         assert!(!dir.path().join(ACTIVE_FILE).exists(), "le fil attend encore");
+        // Le fil d'écriture prévient quand la ligne est écrite : pas de sondage, donc pas de course
+        // entre le test et le fil (qui ferait varier la couverture selon la vitesse de la machine).
         release.send(()).unwrap();
+        finished.recv_timeout(Duration::from_secs(5)).unwrap();
         let active = dir.path().join(ACTIVE_FILE);
-        for _ in 0..500 {
-            if active.exists() && fs::metadata(&active).unwrap().len() > 0 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
         assert_eq!(lines_of(&active).len(), 1);
     }
 
