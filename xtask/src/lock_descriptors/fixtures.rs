@@ -109,7 +109,11 @@ impl FakeServer {
     fn list(&self, items: &[Value], key: &str, params: &Value, modern: bool) -> Value {
         let start =
             params["cursor"].as_str().and_then(|cursor| cursor.parse::<usize>().ok()).unwrap_or(0);
-        let end = if self.page == 0 { items.len() } else { (start + self.page).min(items.len()) };
+        let end = if self.page == 0 {
+            items.len()
+        } else {
+            start.saturating_add(self.page).min(items.len())
+        };
         let mut result = json!({ key: items[start..end] });
         if end < items.len() {
             result["nextCursor"] = json!(end.to_string());

@@ -57,7 +57,7 @@ impl Client<'_> {
     /// Envoie une requête et rend son `result`. Les notifications du serveur sont ignorées ;
     /// une requête du serveur au client est une erreur (aucune n'est attendue, 05 §2.4).
     fn request(&mut self, method: &str, params: &Value) -> Result<Value, String> {
-        self.next_id += 1;
+        self.next_id = self.next_id.saturating_add(1);
         let id = self.next_id;
         self.transport
             .send(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))?;
@@ -405,7 +405,7 @@ mod tests {
     impl Transport for Scripted {
         fn send(&mut self, _: &Value) -> Result<(), String> {
             let rank = self.sent;
-            self.sent += 1;
+            self.sent = self.sent.saturating_add(1);
             match &self.send_error {
                 Some((at, error)) if *at == rank => Err(error.clone()),
                 _ => Ok(()),
