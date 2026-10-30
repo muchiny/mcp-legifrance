@@ -185,30 +185,27 @@ fn log_mapping(endpoint: &str, diags: &Diagnostics) {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
     use std::io;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Once;
 
     use tracing_subscriber::fmt::MakeWriter;
 
     use super::*;
     use crate::encoding::decode_body;
 
-    /// Journal capté en mémoire : sert à la fois de `io::Write` et de `MakeWriter`.
-    #[derive(Clone, Default)]
-    struct Capture {
-        bytes: Arc<Mutex<Vec<u8>>>,
+    thread_local! {
+        /// Journal du thread courant : chaque test tourne sur son propre thread.
+        static JOURNAL: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     }
 
-    impl Capture {
-        fn text(&self) -> String {
-            io::Write::flush(&mut self.clone()).unwrap();
-            String::from_utf8(self.bytes.lock().unwrap().clone()).unwrap()
-        }
-    }
+    /// Écrit dans le journal du thread courant : sert à la fois de `io::Write` et de `MakeWriter`.
+    #[derive(Clone, Copy)]
+    struct ThreadLog;
 
-    impl io::Write for Capture {
+    impl io::Write for ThreadLog {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.bytes.lock().unwrap().extend_from_slice(buf);
+            JOURNAL.with_borrow_mut(|journal| journal.extend_from_slice(buf));
             Ok(buf.len())
         }
 
@@ -217,23 +214,44 @@ mod tests {
         }
     }
 
-    impl MakeWriter<'_> for Capture {
-        type Writer = Capture;
+    impl MakeWriter<'_> for ThreadLog {
+        type Writer = ThreadLog;
 
         fn make_writer(&self) -> Self::Writer {
-            self.clone()
+            *self
         }
     }
 
-    /// Exécute `run` sous un abonné local au thread et rend le journal produit.
+    /// Journal capté pendant un appel à `capturing`.
+    struct Capture {
+        text: String,
+    }
+
+    impl Capture {
+        fn text(&self) -> String {
+            self.text.clone()
+        }
+    }
+
+    /// Exécute `run` et rend le journal que ce thread a produit.
+    ///
+    /// L'abonné est global et installé une seule fois : un abonné local (`with_default`) change
+    /// l'intérêt mis en cache par chaque point d'instrumentation, et un test voisin qui passe
+    /// par le même point sans abonné pouvait le figer sur « jamais », d'où des lignes perdues.
     fn capturing(run: impl FnOnce()) -> Capture {
-        let capture = Capture::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(capture.clone())
-            .with_max_level(tracing::Level::TRACE)
-            .finish();
-        tracing::subscriber::with_default(subscriber, run);
-        capture
+        static INSTALL: Once = Once::new();
+        INSTALL.call_once(|| {
+            let subscriber = tracing_subscriber::fmt()
+                .with_writer(ThreadLog)
+                .with_max_level(tracing::Level::TRACE)
+                .finish();
+            tracing::subscriber::set_global_default(subscriber).unwrap();
+        });
+        JOURNAL.with_borrow_mut(Vec::clear);
+        run();
+        io::Write::flush(&mut ThreadLog).unwrap();
+        let bytes = JOURNAL.with_borrow_mut(std::mem::take);
+        Capture { text: String::from_utf8(bytes).unwrap() }
     }
 
     /// Corps JSON dont le texte est du mojibake synthétique (octets UTF-8 relus en latin-1).
