@@ -87,8 +87,9 @@ aho-corasick = { version = "1.1", default-features = false, features = ["std"] }
 # `unicode` : classes \p{…}, \w et casse sur le français ; sans `perf` (textes courts)
 regex = { version = "1.13", default-features = false, features = ["std", "unicode"] }
 unicode-normalization = { version = "0.1", default-features = false }
-# D10 : 2.7, déjà au verrou par insta, au lieu de 3.2 (02 §3.0.1)
-similar = { version = "2.7", default-features = false, features = ["text"] }
+# D10 levée le 2026-10-30 par le propriétaire : 3.2 malgré insta, qui garde 2.7 (doublon listé dans `deny.toml`).
+# `std` est nécessaire : sans lui, `Instant` devient `()` et `capture_diff_slices_deadline` perd sa date limite.
+similar = { version = "3.2", default-features = false, features = ["std", "text"] }
 # M9 (lf-adapter-dila) : défauts de tantivy sauf `columnar-zstd-compression`, qui tire zstd 0.13 (zstd,
 # zstd-safe et zstd-sys : RUSTSEC-2026-0391, -0398, -0403 et -0410, `cargo deny` rouge). `mmap` est gardé
 # (index sur disque, D21) ; la compression des documents reste lz4 (ADR-0018)

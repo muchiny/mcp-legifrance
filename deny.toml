@@ -55,6 +55,7 @@ skip = [
   { crate = "getrandom@0.3.4", reason = "ahash 0.8.12, jsonschema 0.58.6, jsonschema-value et referencing (dev de lf-adapter-mcp, xtask) ; jobserver, rand 0.10, tempfile et uuid sont en 0.4" },
   { crate = "hashbrown@0.16.1", reason = "governor 0.10.4 (lf-adapter-piste) et lru 0.16.4 <- tantivy 0.26.2 ; indexmap 2.14.2 et referencing (jsonschema) sont en 0.17" },
   { crate = "r-efi@5.3.0", reason = "getrandom 0.3.4 (cible UEFI) ; getrandom 0.4.3 tire r-efi 6.0.0 (voir getrandom@0.3.4)" },
+  { crate = "similar@2.7.0", reason = "insta 1.49.0 (dev de lf-adapter-mcp et de lf-adapter-piste) exige ^2 ; lf-application est en 3.2 (D10 levée le 2026-10-30). À retirer quand insta passe à similar 3" },
   { crate = "syn@2.0.119", reason = "tracing-attributes 0.1.31, strum_macros 0.28.0 (tantivy), jni-macros et jni-sys-macros (rustls-platform-verifier), windows-implement et windows-interface ; les autres macros dérivées (serde_derive, thiserror-impl, rmcp-macros, schemars_derive, clap_derive...) sont en syn 3" },
   { crate = "windows-sys@0.59.0", reason = "fs4 0.13.1 (tantivy, voir fs4@0.13.1) ; le reste du graphe (fs4 1.1, tokio, mio, socket2, tempfile...) est en 0.61.2" },
 ]

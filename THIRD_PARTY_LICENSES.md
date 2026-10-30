@@ -880,7 +880,7 @@ Utilisé par :
 
 Utilisé par :
 
-- `similar` 2.7.0 : https://github.com/mitsuhiko/similar
+- `similar` 3.2.0 : https://github.com/mitsuhiko/similar
 
 ~~~~~~~~
                               Apache License
@@ -2945,7 +2945,7 @@ THE SOFTWARE.
 Utilisé par :
 
 - `dirs-sys` 0.5.0 : https://github.com/dirs-dev/dirs-sys-rs
-- `dirs` 6.0.0 : https://github.com/soc/dirs-rs
+- `dirs` 7.0.0 : https://codeberg.org/dirs/dirs-rs
 
 ~~~~~~~~
 Copyright (c) 2018-2019 dirs-rs contributors
@@ -3861,8 +3861,8 @@ Utilisé par :
 - `clap_builder` 4.6.7 : https://github.com/clap-rs/clap
 - `clap_derive` 4.6.7 : https://github.com/clap-rs/clap
 - `clap_lex` 1.1.1 : https://github.com/clap-rs/clap
-- `serde_spanned` 1.1.1 : https://github.com/toml-rs/toml
-- `toml` 1.1.6+spec-1.1.0 : https://github.com/toml-rs/toml
+- `serde_spanned` 1.1.2 : https://github.com/toml-rs/toml
+- `toml` 1.1.8+spec-1.1.0 : https://github.com/toml-rs/toml
 - `toml_datetime` 1.1.2+spec-1.1.0 : https://github.com/toml-rs/toml
 - `toml_parser` 1.1.5+spec-1.1.0 : https://github.com/toml-rs/toml
 
