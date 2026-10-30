@@ -748,12 +748,20 @@ impl CodeKey {
     }
 
     /// Entrée du dictionnaire : `CODES[key as usize]`.
+    #[expect(
+        clippy::as_conversions,
+        reason = "discriminant d'une énumération sans donnée, dans l'ordre de `CODES` (test `keys_follow_the_table_order_and_names_are_unique`)"
+    )]
     pub fn entry(self) -> &'static CodeEntry {
         &CODES[self as usize]
     }
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::as_conversions,
+    reason = "tests : tailles et indices bornés par les données du test"
+)]
 mod tests {
     use std::collections::HashSet;
 

@@ -127,6 +127,10 @@ fn to_u32(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
+fn to_usize(n: u32) -> usize {
+    usize::try_from(n).unwrap_or(usize::MAX)
+}
+
 /// Caractère de largeur nulle, supprimé (annexe B §3.2, classe « Largeur nulle »).
 pub(crate) fn is_zero_width(c: char) -> bool {
     matches!(c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}' | '\u{00AD}')
@@ -428,9 +432,9 @@ impl Normalized {
     pub(crate) fn orig_range(&self, norm: Range<usize>) -> Range<usize> {
         let start = self.offsets.to_orig(to_u32(norm.start));
         if norm.start >= norm.end {
-            return start as usize..start as usize;
+            return to_usize(start)..to_usize(start);
         }
-        start as usize..self.offsets.to_orig_end(to_u32(norm.end)) as usize
+        to_usize(start)..to_usize(self.offsets.to_orig_end(to_u32(norm.end)))
     }
 
     /// Offset dans `text` du caractère qui commence à l'offset `key_offset` de `key`.
@@ -440,7 +444,7 @@ impl Normalized {
         }
         let wanted = to_u32(key_offset);
         let i = self.key_index.binary_search_by_key(&wanted, |&(k, _)| k).ok()?;
-        self.key_index.get(i).map(|&(_, t)| t as usize)
+        self.key_index.get(i).map(|&(_, t)| to_usize(t))
     }
 
     /// Offset dans `key` du caractère qui commence à l'offset `text_offset` de `text`.
@@ -454,7 +458,7 @@ impl Normalized {
         }
         let wanted = to_u32(text_offset);
         let i = self.key_index.binary_search_by_key(&wanted, |&(_, t)| t).ok()?;
-        self.key_index.get(i).map(|&(k, _)| k as usize)
+        self.key_index.get(i).map(|&(k, _)| to_usize(k))
     }
 }
 
@@ -506,6 +510,10 @@ impl OffsetMap {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::as_conversions,
+    reason = "tests : tailles et indices bornés par les données du test"
+)]
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;

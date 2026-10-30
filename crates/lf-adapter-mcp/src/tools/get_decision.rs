@@ -53,6 +53,10 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::as_conversions,
+    reason = "tests : tailles et indices bornés par les données du test"
+)]
 mod tests {
     use pretty_assertions::assert_eq;
 

@@ -372,11 +372,20 @@ pub(crate) fn find_anchors(n: &Normalized) -> Vec<Anchor> {
             token.regex.find_iter(&n.text).map(|m| Anchor { class: token.class, range: m.range() }),
         );
     }
-    anchors.sort_by_key(|a| (a.range.start, a.range.end, a.class as u8));
+    #[expect(
+        clippy::as_conversions,
+        reason = "discriminant d'une énumération sans donnée, clé de tri stable des ancres"
+    )]
+    let class_key = |anchor: &Anchor| anchor.class as u8;
+    anchors.sort_by_key(|a| (a.range.start, a.range.end, class_key(a)));
     anchors
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::as_conversions,
+    reason = "tests : tailles et indices bornés par les données du test"
+)]
 mod tests {
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;

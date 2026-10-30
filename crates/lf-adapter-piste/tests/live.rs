@@ -15,6 +15,11 @@
 //! Tout le fichier est sous `cfg(test)` : les aides partagent les règles de lint des tests
 //! (`unwrap` permis, `clippy.toml`).
 
+#![expect(
+    clippy::as_conversions,
+    reason = "tests : tailles et indices bornés par les données du test"
+)]
+
 #[cfg(test)]
 mod live {
     use std::num::{NonZeroU16, NonZeroU32};

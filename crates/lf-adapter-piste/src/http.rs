@@ -408,6 +408,10 @@ fn classify_parts(
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::as_conversions,
+    reason = "tests : tailles et indices bornés par les données du test"
+)]
 mod tests {
     use std::fmt;
     use std::future::Future;

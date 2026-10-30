@@ -210,6 +210,10 @@ impl From<CodeArticleRef> for ArticleView {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::as_conversions,
+    reason = "tests : tailles et indices bornés par les données du test"
+)]
 mod tests {
     use lf_application::budget::ResponseBudget;
     use lf_domain::{

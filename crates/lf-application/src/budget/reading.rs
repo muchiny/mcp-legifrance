@@ -329,6 +329,10 @@ fn to_u32(value: usize) -> u32 {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::as_conversions,
+    reason = "tests : tailles et indices bornés par les données du test"
+)]
 mod tests {
     use lf_domain::text::{SUMMARY_CAP_CHARS, SummarySource, rank};
     use pretty_assertions::assert_eq;
