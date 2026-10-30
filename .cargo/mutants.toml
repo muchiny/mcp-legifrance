@@ -37,4 +37,12 @@ exclude_re = [
     # termes à 1 ne vaut que 0, 1 ou 3. Or le xor de 0, 1 ou 3 uns vaut 0, 1 ou 1, comme leur ou.
     # Les deux `^` donnent donc le même résultat que `|` sur toutes les entrées (équivalent, plan 2h).
     'sha256\.rs:\d+:\d+: replace \^ with \| in majority$',
+    # citation/normalize.rs, `joins` : le garde `next < '\u{300}'` ne s'évalue qu'après le retour
+    # anticipé `canonical_combining_class(next) != 0`. Ce garde n'est qu'un raccourci de performance :
+    # sous U+0300, aucun caractère de base ne se compose avec ce qui précède, donc `joined != apart`
+    # y vaut déjà faux. Deux mutants ne changent aucune sortie : `<=`, car la seule valeur où `<` et
+    # `<=` diffèrent est U+0300, une marque (classe 230) qui a déjà rendu `true` plus haut ; `==`,
+    # car il supprime le raccourci (même résultat par le chemin lent, seulement plus coûteux). Le
+    # mutant `>` reste visé : il casse la composition Hangul (nfc_composes_by_group).
+    'normalize\.rs:\d+:\d+: replace < with (<=|==) in joins$',
 ]

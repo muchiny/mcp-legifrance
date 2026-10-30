@@ -828,6 +828,41 @@ mod tests {
     }
 
     #[test]
+    fn numeric_references_accept_digits_only() {
+        // `u32::from_str_radix` tolère un `+` en tête : seul le contrôle des chiffres le refuse.
+        let t = |s: &str| normalize(s, HTML).text;
+        assert_eq!(t("&#+65;"), "&#+65;");
+        assert_eq!(t("&#x+41;"), "&#x+41;");
+        assert_eq!(t("&#65; &#x41;"), "A A");
+    }
+
+    #[test]
+    fn kept_and_expanded_characters_shape_the_segments() {
+        // « é » déjà composé est conservé tel quel : il prolonge le segment `Copy` voisin.
+        let copy =
+            Seg { norm_start: 0, norm_len: 4, orig_start: 0, orig_len: 4, kind: SegKind::Copy };
+        assert_eq!(normalize("a\u{e9}b", PLAIN).offsets.segs, [copy]);
+        // `№` devient `n°` : deux caractères pour la même plage, un seul segment `Replace`.
+        let replace =
+            Seg { norm_start: 0, norm_len: 3, orig_start: 0, orig_len: 3, kind: SegKind::Replace };
+        assert_eq!(normalize("\u{2116}", PLAIN).offsets.segs, [replace]);
+    }
+
+    #[test]
+    fn replace_segment_extends_only_on_the_same_original_range() {
+        let seg =
+            Seg { norm_start: 0, norm_len: 1, orig_start: 2, orig_len: 3, kind: SegKind::Replace };
+        let unit = Unit { ch: 'x', start: 2, end: 5, kept: false };
+        assert!(seg.extends(SegKind::Replace, &unit));
+        assert!(!seg.extends(SegKind::Copy, &unit));
+        // Même fin, début différent.
+        assert!(!seg.extends(SegKind::Replace, &Unit { start: 3, ..unit }));
+        // Même début, fin différente (dont 6, qui vaut 2 * 3 et non 2 + 3).
+        assert!(!seg.extends(SegKind::Replace, &Unit { end: 6, ..unit }));
+        assert!(!seg.extends(SegKind::Replace, &Unit { end: 7, ..unit }));
+    }
+
+    #[test]
     fn mojibake_is_repaired_only_when_asked_and_reported() {
         let broken = "pr\u{c3}\u{a9}sident n\u{c2}\u{b0} 5";
         let fixed = normalize(broken, MOJIBAKE);
