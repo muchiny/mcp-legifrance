@@ -89,7 +89,7 @@ impl<T: Transport<RoleServer>> Transport<RoleServer> for PreLifecycleFilter<T> {
             }
             let Some(message) = self.inner.receive().await else {
                 let grace = if self.listening { LISTEN_EOF_GRACE } else { Duration::ZERO };
-                self.release_at = Some(Instant::now() + grace);
+                self.release_at = Instant::now().checked_add(grace);
                 continue;
             };
             if let ClientJsonRpcMessage::Request(request) = &message {

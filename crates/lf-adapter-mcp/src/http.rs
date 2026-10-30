@@ -282,15 +282,19 @@ impl Bucket {
     /// Le temps à attendre avant le prochain jeton, quand le seau est vide.
     fn try_acquire(&mut self, now: Instant) -> Result<(), Duration> {
         let elapsed = now.saturating_duration_since(self.refilled_at);
-        let gained =
-            u32::try_from(elapsed.as_nanos() / self.refill_every.as_nanos()).unwrap_or(u32::MAX);
+        let gained = elapsed
+            .as_nanos()
+            .checked_div(self.refill_every.as_nanos())
+            .map_or(u32::MAX, |periods| u32::try_from(periods).unwrap_or(u32::MAX));
         if gained > 0 {
             self.tokens = self.tokens.saturating_add(gained).min(self.capacity);
             // Le reste de la période écoulée compte pour la suivante ; seau plein, on repart de `now`.
             self.refilled_at = if self.tokens == self.capacity {
                 now
             } else {
-                self.refilled_at + self.refill_every * gained
+                self.refilled_at
+                    .checked_add(self.refill_every.saturating_mul(gained))
+                    .unwrap_or(now)
             };
         }
         if self.tokens == 0 {
@@ -298,14 +302,14 @@ impl Bucket {
                 .refill_every
                 .saturating_sub(now.saturating_duration_since(self.refilled_at)));
         }
-        self.tokens -= 1;
+        self.tokens = self.tokens.saturating_sub(1);
         Ok(())
     }
 }
 
 /// Secondes de `Retry-After` : l'attente arrondie au-dessus, d'une seconde au moins.
 fn retry_after_seconds(wait: Duration) -> u64 {
-    (wait.as_secs() + u64::from(wait.subsec_nanos() > 0)).max(1)
+    wait.as_secs().saturating_add(u64::from(wait.subsec_nanos() > 0)).max(1)
 }
 
 /// Sert `make()` en Streamable HTTP sans session sur `opts.listen()` jusqu'à l'annulation de
@@ -502,7 +506,7 @@ async fn read_limited(mut body: Body, limit: usize) -> Result<Vec<u8>, BodyRejec
         // Les trailers ne portent rien pour nous : une trame qui n'est pas de données compte pour
         // zéro octet.
         let data = frame.map_err(|_| BodyRejection::Unreadable)?.into_data().unwrap_or_default();
-        if data.len() > limit - bytes.len() {
+        if data.len() > limit.saturating_sub(bytes.len()) {
             return Err(BodyRejection::TooLarge);
         }
         bytes.extend_from_slice(&data);

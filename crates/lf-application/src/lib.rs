@@ -18,6 +18,11 @@
 //!
 //! Dépendances : liste fermée de 02 §3.2 (R2), vérifiée par `cargo xtask check-arch`.
 
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "déploiement par crate de `arithmetic_side_effects` : dérogation provisoire, à retirer avec la PR de ce crate"
+)]
+
 pub mod audited;
 pub mod budget;
 pub mod citation;

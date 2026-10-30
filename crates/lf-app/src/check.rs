@@ -245,7 +245,7 @@ fn json_array(items: impl Iterator<Item = String>) -> String {
 
 /// Chaîne JSON entre guillemets : `"`, `\` et les caractères de contrôle sont échappés.
 fn json_string(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 2);
+    let mut out = String::with_capacity(text.len().saturating_add(2));
     out.push('"');
     for c in text.chars() {
         match c {

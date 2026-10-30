@@ -98,6 +98,10 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
     }
 
     /// [`LegifranceServer::new`] pour une surface donnée : ses capacités et ses instructions.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "`+` fusionne deux `ToolRouter` (opérateur du SDK), ce n'est pas de l'arithmétique d'entiers"
+    )]
     pub(crate) fn with_surface(service: Arc<LegalService<C, A, K>>, surface: Surface) -> Self {
         let tool_router =
             Self::routers().into_iter().fold(ToolRouter::new(), |all, router| all + router);

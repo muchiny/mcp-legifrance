@@ -28,6 +28,11 @@
 //! bornés à 16 Mio, `DOCTYPE` et `ENTITY` sont refusés. Aucune erreur ne cite le contenu d'un
 //! membre.
 
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "déploiement par crate de `arithmetic_side_effects` : dérogation provisoire, à retirer avec la PR de ce crate"
+)]
+
 pub mod archive;
 mod codec;
 pub mod corpus;
