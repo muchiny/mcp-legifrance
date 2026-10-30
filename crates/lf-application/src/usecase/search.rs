@@ -1014,6 +1014,124 @@ mod tests {
         assert_eq!(largest_page_size(&[hit], 0), 1);
     }
 
+    /// Un résultat rendu tel quel, à citation et URL courtes, pour mesurer les coûts.
+    fn plain(hit: SearchHit) -> HitOut {
+        HitOut { citation: "c".to_owned(), source_url: "u".to_owned(), hit }
+    }
+
+    fn output_of(hits: Vec<HitOut>) -> SearchOutput {
+        SearchOutput { total: 1, page: 1, has_more: false, total_articles: None, hits, note: None }
+    }
+
+    fn article_ref(n: u32, snippet: &str) -> CodeArticleRef {
+        CodeArticleRef::new(ArticleId::parse(&format!("LEGIARTI{n:012}")).unwrap(), None, snippet)
+    }
+
+    /// La page qui tient pile à la cible est conservée telle quelle ; un caractère de plus et les
+    /// champs optionnels sont retirés.
+    #[test]
+    fn a_page_exactly_at_the_target_is_not_degraded() {
+        let with_title = |length: usize| {
+            output_of(vec![plain(SearchHit {
+                title: Some("x".repeat(length)),
+                ..bare(Fond::Juri, 1)
+            })])
+        };
+        let empty = with_title(0);
+        let fixed = envelope_cost(&empty) + DEGRADE_NOTE_RESERVE;
+        let exact = TARGET - fixed - page_cost(&empty.hits);
+
+        let mut at_target = with_title(exact);
+        assert_eq!(fixed + page_cost(&at_target.hits), TARGET);
+        fit_under_target(&mut at_target, PageSize::new(1).unwrap()).unwrap();
+        assert_eq!(at_target, with_title(exact));
+
+        let mut over_target = with_title(exact + 1);
+        fit_under_target(&mut over_target, PageSize::new(1).unwrap()).unwrap();
+        assert_eq!(over_target.hits[0].hit.title, None);
+        assert_eq!(over_target.note, Some(details_note(1)));
+    }
+
+    #[test]
+    fn strip_snippets_reports_a_snippet_of_the_hit_or_of_one_of_its_articles() {
+        let own = SearchHit { snippet: Snippet::new("abc"), ..bare(Fond::Code, 1) };
+        let in_article = SearchHit {
+            articles: vec![article_ref(1, ""), article_ref(2, "def")],
+            ..bare(Fond::Code, 2)
+        };
+        let both = SearchHit {
+            snippet: Snippet::new("abc"),
+            articles: vec![article_ref(3, "def")],
+            ..bare(Fond::Code, 3)
+        };
+        let own_with_bare_articles = SearchHit {
+            snippet: Snippet::new("abc"),
+            articles: vec![article_ref(4, "")],
+            ..bare(Fond::Code, 4)
+        };
+        let nothing = SearchHit { articles: vec![article_ref(5, "")], ..bare(Fond::Code, 5) };
+        for (hit, expected) in [
+            (own, true),
+            (in_article, true),
+            (both, true),
+            (own_with_bare_articles, true),
+            (nothing, false),
+        ] {
+            let mut out = plain(hit);
+            assert_eq!(strip_snippets(&mut out), expected);
+            assert!(out.hit.snippet.is_none());
+            assert!(out.hit.articles.iter().all(|article| article.snippet.is_none()));
+        }
+    }
+
+    #[test]
+    fn strip_details_reports_articles_or_optional_fields() {
+        let fields = SearchHit { nature: Some("ARRET".to_owned()), ..bare(Fond::Juri, 1) };
+        let articles = SearchHit { articles: vec![article_ref(1, "")], ..bare(Fond::Code, 2) };
+        let both = SearchHit {
+            date: CivilDate::new(2024, 1, 2),
+            articles: vec![article_ref(2, "")],
+            ..bare(Fond::Code, 3)
+        };
+        for (hit, expected) in
+            [(fields, true), (articles, true), (both, true), (bare(Fond::Juri, 4), false)]
+        {
+            let mut out = plain(hit);
+            assert_eq!(strip_details(&mut out), expected);
+            assert!(out.hit.articles.is_empty());
+            assert!(out.hit.title.is_none() && out.hit.nature.is_none());
+            assert!(out.hit.etat.is_none() && out.hit.date.is_none());
+        }
+        // L'`idcc` identifie la convention : il reste.
+        let mut kept = plain(SearchHit { idcc: Idcc::parse("275"), ..bare(Fond::Kali, 5) });
+        assert!(!strip_details(&mut kept));
+        assert!(kept.hit.idcc.is_some());
+    }
+
+    #[test]
+    fn the_details_note_names_the_count_and_the_fields() {
+        assert_eq!(
+            details_note(7),
+            "Article lists and the optional fields title, nature, etat and date were removed from \
+             the last 7 hits to keep the response under 45,000 characters; use a smaller \
+             page_size to get them."
+        );
+    }
+
+    #[test]
+    fn the_envelope_cost_counts_the_optional_total_articles_and_note() {
+        let cost = |total_articles: Option<u64>, note: Option<&str>| {
+            let mut output = output_of(vec![]);
+            output.total_articles = total_articles;
+            output.note = note.map(str::to_owned);
+            envelope_cost(&output)
+        };
+        assert_eq!(cost(None, None), estimate_chars(4, 0));
+        assert_eq!(cost(Some(12), None), estimate_chars(5, 0));
+        assert_eq!(cost(None, Some("abc")), estimate_chars(5, 3));
+        assert_eq!(cost(Some(12), Some("abc")), estimate_chars(6, 3));
+    }
+
     #[tokio::test]
     async fn the_audit_metric_counts_returned_hits() {
         let corpus =
