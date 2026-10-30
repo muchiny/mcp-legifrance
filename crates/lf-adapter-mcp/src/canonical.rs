@@ -228,6 +228,22 @@ mod tests {
             .to_owned()
     }
 
+    /// Le signe de l'exposant : `-` seulement s'il est négatif, `+` sinon, zéro compris (que
+    /// `push_float` n'envoie jamais ici, mais que la fonction sait écrire).
+    #[test]
+    fn scientific_notation_signs_and_pads_the_exponent() {
+        let scientific = |digits: &str, exponent: i32| {
+            let mut out = String::new();
+            push_scientific(&mut out, digits, exponent);
+            out
+        };
+        assert_eq!(scientific("1", 0), "1e+00");
+        assert_eq!(scientific("15", 0), "1.5e+00");
+        assert_eq!(scientific("1", 16), "1e+16");
+        assert_eq!(scientific("15", -7), "1.5e-07");
+        assert_eq!(scientific("1", -5), "1e-05");
+    }
+
     #[test]
     fn keys_are_sorted_and_the_output_is_compact() {
         assert_eq!(
