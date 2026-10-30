@@ -166,6 +166,31 @@ jobs:
           SECURITY_FIX: ${{ contains(github.event.pull_request.labels.*.name, 'security-fix') }}
         run: make min-age MIN_AGE_BASE="origin/$BASE_REF" MIN_AGE_DAYS=14   # cible du Makefile (00 §10), qui appelle .github/scripts/check-min-age.sh
 
+  licences:
+    name: licences tierces à jour
+    # Informatif, hors des contrôles requis de `main` : l'inventaire n'était relu qu'à la publication
+    # (release-gates.yml) et avait pris du retard sur dirs 7, toml et serde_spanned sans qu'on le voie.
+    # Chaque montée de dépendance le change : il se régénère avec `cargo about generate about.hbs`.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.0
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          # Même version que release-gates.yml (0.9.3 n'a pas 14 jours au 2026-10-30).
+          tool: cargo-about@0.9.2
+      - name: THIRD_PARTY_LICENSES.md à jour
+        run: |
+          cargo about generate about.hbs > "$RUNNER_TEMP/third-party-licenses.md"
+          diff -u THIRD_PARTY_LICENSES.md "$RUNNER_TEMP/third-party-licenses.md"
+
   msrv:
     name: MSRV 1.88
     runs-on: ubuntu-latest
