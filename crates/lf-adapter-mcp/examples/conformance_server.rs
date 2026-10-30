@@ -511,8 +511,15 @@ mod harness {
         let server = ConformanceServer { inner: Arc::new(Fixture::default().server()) };
         announce(&format!("conformance_server: listening on http://{listen}/mcp"));
         // Sans jeton : la suite de conformité n'envoie aucun en-tête d'authentification (V-43).
+        // Origines de la boucle locale admises : le scénario `dns-rebinding-protection` exige
+        // qu'un `Origin` local reçoive un 2xx (et qu'un `Origin` étranger reçoive un 403). Le
+        // défaut du produit reste « aucune origine » : seul ce serveur de test les ouvre.
         let options = match HttpOptions::local(listen) {
-            Ok(options) => options,
+            Ok(options) => options.with_allowed_origins([
+                "http://127.0.0.1:*",
+                "http://localhost:*",
+                "http://[::1]:*",
+            ]),
             Err(error) => {
                 announce(&format!("conformance_server: {error}"));
                 return ExitCode::FAILURE;
