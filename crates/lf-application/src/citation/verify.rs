@@ -36,9 +36,6 @@ use crate::{
 /// Longueur maximale, en caractères, de l'extrait d'origine rendu pour une citation.
 const RAW_MAX_CHARS: usize = 300;
 
-/// Garde-fou de l'analyse : l'application borne ensuite à `max_citations` (annexe B §7.7).
-const PARSE_LIMIT: usize = 1_000;
-
 /// Réglages d'un contrôle.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Run {
@@ -93,11 +90,9 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
     run: Run,
     text: &str,
 ) -> Result<Verification, CorpusError> {
-    let options = ParseOptions {
-        max_citations: PARSE_LIMIT,
-        today: Some(run.today.as_civil()),
-        ..ParseOptions::default()
-    };
+    // Le garde-fou de l'analyse est la borne par défaut du domaine (1 000) : l'application borne
+    // ensuite à `max_citations` (annexe B §7.7).
+    let options = ParseOptions { today: Some(run.today.as_civil()), ..ParseOptions::default() };
     let parsed = parse_with(text, &options);
     let found = parsed.len();
     let kept: Vec<Spanned<CitationRef>> = parsed.into_iter().take(run.max_citations).collect();
@@ -459,6 +454,50 @@ mod tests {
         assert_eq!(check.quote, Some(QuoteCheck::QuoteMismatch));
         assert_eq!(note_text(check), "Current version in force since 2016-10-01.");
         assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), "LEGIARTI000006419288");
+    }
+
+    /// Sans note de version, un extrait infidèle porte à lui seul la note `QuoteMismatch`, et un
+    /// extrait fidèle n'en porte aucune.
+    #[tokio::test]
+    async fn a_quote_mismatch_is_noted_only_when_nothing_else_is() {
+        for (quoted, expected_quote, expected_note) in [
+            (
+                "Tout fait quelconque de l'homme",
+                QuoteCheck::QuoteMismatch,
+                "Quoted text not found in the official text.",
+            ),
+            ("Chacun a droit au respect de sa vie privée", QuoteCheck::Match, ""),
+        ] {
+            let corpus = FakeCorpus::new();
+            codes(&corpus);
+            // `Today` et pas de début de version : l'issue vérifiée n'a pas de note.
+            corpus.push_find_article(Ok(article(
+                6_419_288,
+                Some("9"),
+                None,
+                "Chacun a droit au respect de sa vie privée.",
+            )));
+            let text = format!("Selon l'article 9 du code civil, « {quoted} »");
+            let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+            let check = &verification.checks[0];
+            assert_eq!(check.status, CheckStatus::Verified, "{quoted}");
+            assert_eq!(check.quote, Some(expected_quote), "{quoted}");
+            assert_eq!(note_text(check), expected_note, "{quoted}");
+        }
+    }
+
+    /// La date du jour est transmise à l'analyse : une année future est un fait impossible,
+    /// décidé sans appel au corpus (drapeau `annee_future`).
+    #[tokio::test]
+    async fn a_future_year_is_decided_offline_from_the_run_date() {
+        let corpus = FakeCorpus::new();
+        let verification =
+            verify(&corpus, PisteEnvironment::Production, "ECLI:FR:CCASS:2099:C100399")
+                .await
+                .unwrap();
+        assert_eq!(statuses(&verification), vec![CheckStatus::Invalid]);
+        assert!(note_text(&verification.checks[0]).contains("in the future"));
+        assert_eq!(corpus.calls(), 0);
     }
 
     #[tokio::test]
