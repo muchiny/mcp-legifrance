@@ -199,7 +199,7 @@ fn request_dto<'a>(params: &Params<'a>) -> Result<SearchRequestDto<'a>, CorpusEr
 /// Garde de profondeur : l'API n'atteint que `REACHABLE_RESULTS` résultats (04 §6.7). Le
 /// produit se fait en `u64` : `u32::MAX` au carré y tient.
 fn check_reach(page: u32, page_size: u32) -> Result<(), CorpusError> {
-    if u64::from(page) * u64::from(page_size) > REACHABLE_RESULTS {
+    if u64::from(page).saturating_mul(u64::from(page_size)) > REACHABLE_RESULTS {
         return Err(defensive(format!(
             "page {page} x page_size {page_size} exceeds {REACHABLE_RESULTS} reachable results"
         )));
@@ -277,6 +277,10 @@ fn defensive(detail: String) -> CorpusError {
 }
 
 /// Midi du jour à Paris, en millisecondes Unix (04 §6.3) ; partagée avec `request::m6`.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "`VersionDate` est borné à 1500..=2221 : jours et millisecondes tiennent dans un `i64`"
+)]
 pub(super) fn paris_noon_ms(date: VersionDate) -> i64 {
     let civil = date.as_civil();
     let days =
@@ -289,6 +293,10 @@ pub(super) fn paris_noon_ms(date: VersionDate) -> i64 {
 }
 
 /// Nombre de jours depuis 1970-01-01 pour une date civile grégorienne (algorithme de Hinnant).
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "algorithme de Hinnant sur des années bornées à 1500..=2221 : tous les termes tiennent dans un `i64`"
+)]
 fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let year = if month <= 2 { year - 1 } else { year };
     let era = year.div_euclid(400);

@@ -100,8 +100,8 @@ pub(crate) fn sha256(bytes: &[u8]) -> [u8; 32] {
     last.push(0x80);
     // Zéros de remplissage : amène la longueur à 56 modulo 64 (`tail` fait moins de 64 octets). Un
     // calcul plutôt qu'une boucle `while`, dont le mutant `% -> +` ne s'arrête jamais.
-    let zeros = (119 - tail.len()) % 64;
-    last.resize(last.len() + zeros, 0);
+    let zeros = 119_usize.saturating_sub(tail.len()) % 64;
+    last.resize(last.len().saturating_add(zeros), 0);
     let bit_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX) << 3;
     last.extend_from_slice(&bit_len.to_be_bytes());
     for block in last.as_chunks::<64>().0 {
@@ -132,6 +132,10 @@ const fn majority(x: u32, y: u32, z: u32) -> u32 {
     reason = "FIPS 180-4 : `t` parcourt 16..64 sur un tableau de 64 mots ; un quartet indexe 16 chiffres"
 )]
 #[expect(clippy::many_single_char_names, reason = "notation de FIPS 180-4 : a à h et w")]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "FIPS 180-4 : `t` parcourt 16..64, donc `t - 16` reste dans le tableau de 64 mots"
+)]
 fn compress(state: &mut [u32; 8], block: &[u8; 64]) {
     let mut w = [0_u32; 64];
     for (word, chunk) in w.iter_mut().zip(block.as_chunks::<4>().0) {
@@ -170,7 +174,7 @@ fn compress(state: &mut [u32; 8], block: &[u8; 64]) {
     reason = "FIPS 180-4 : `t` parcourt 16..64 sur un tableau de 64 mots ; un quartet indexe 16 chiffres"
 )]
 pub(crate) fn hex(digest: &[u8]) -> String {
-    let mut out = String::with_capacity(digest.len() * 2);
+    let mut out = String::with_capacity(digest.len().saturating_mul(2));
     for byte in digest {
         out.push(char::from(DIGITS[usize::from(byte >> 4)]));
         out.push(char::from(DIGITS[usize::from(byte & 0x0f)]));

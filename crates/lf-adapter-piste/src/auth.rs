@@ -141,7 +141,7 @@ impl<K: MonoClock, S: Sleeper> TokenManager<K, S> {
             return Ok(cached.lease());
         }
         let (grant, obtained_at) = self.fetch(deadline).await?;
-        state.issued += 1;
+        state.issued = state.issued.saturating_add(1);
         let cached = CachedToken {
             value: grant.value,
             refresh_at: refresh_at(obtained_at, grant.lifetime),
@@ -247,7 +247,9 @@ fn lifetime_of(expires_in: Option<u64>) -> Duration {
 /// Instant de renouvellement : obtention plus durée de vie, moins la marge (60 s, ou la
 /// moitié de la durée de vie si elle est plus courte).
 fn refresh_at(obtained_at: Duration, lifetime: Duration) -> Duration {
-    let margin = REFRESH_MARGIN.min(lifetime / MARGIN_DIVISOR);
+    let margin = lifetime
+        .checked_div(MARGIN_DIVISOR)
+        .map_or(REFRESH_MARGIN, |half| REFRESH_MARGIN.min(half));
     obtained_at.saturating_add(lifetime).saturating_sub(margin)
 }
 
