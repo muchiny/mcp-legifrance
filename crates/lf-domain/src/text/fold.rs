@@ -7,7 +7,8 @@
 //! en M5.
 
 /// Minuscules et accents français repliés (`é` → `e`, `œ` → `oe`).
-pub(crate) fn fold(s: &str) -> String {
+#[must_use]
+pub fn fold(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars().flat_map(char::to_lowercase) {
         match c {

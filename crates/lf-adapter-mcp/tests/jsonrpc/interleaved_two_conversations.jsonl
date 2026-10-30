@@ -1,0 +1,20 @@
+{"needs":"slow_upstream"}
+{"comment":"C-16 : deux conversations entrelacées sur le même processus ; un appel lent n'en retarde pas un autre ; aucune requête ne s'appuie sur la précédente"}
+{"send":{"jsonrpc":"2.0","id":"a1","method":"tools/call","params":{"name":"fr_search","arguments":{"query":"bail"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"conversation-a","version":"0"},"io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"send":{"jsonrpc":"2.0","id":"b1","method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"conversation-b","version":"0"},"io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":"b1","result":{"resultType":"complete"}}}
+{"send":{"jsonrpc":"2.0","id":"a2","method":"tools/call","params":{"name":"fr_coverage","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"conversation-a","version":"0"},"io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":"a2","result":{"resultType":"complete","isError":false,"content":[{"type":"text"}],"structuredContent":{"attribution":"Source : Légifrance / DILA — Licence Ouverte 2.0"}}}}
+{"send":{"jsonrpc":"2.0","id":"b2","method":"tools/call","params":{"name":"fr_coverage","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"conversation-b","version":"0"},"io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":"b2","result":{"resultType":"complete","isError":false,"content":[{"type":"text"}],"structuredContent":{"attribution":"Source : Légifrance / DILA — Licence Ouverte 2.0"}}}}
+{"comment":"deux requêtes envoyées d'affilée sont attendues dans l'ordre inverse : l'appariement se fait par id"}
+{"send":{"jsonrpc":"2.0","id":"b3","method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"conversation-b","version":"0"},"io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"send":{"jsonrpc":"2.0","id":"a3","method":"tools/call","params":{"name":"fr_coverage","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"conversation-a","version":"0"},"io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":"a3","result":{"resultType":"complete","isError":false,"content":[{"type":"text"}],"structuredContent":{"attribution":"Source : Légifrance / DILA — Licence Ouverte 2.0"}}}}
+{"expect":{"jsonrpc":"2.0","id":"b3","result":{"resultType":"complete"}}}
+{"comment":"une troisième conversation sans _meta ne profite pas de l'ère ouverte par les autres"}
+{"send":{"jsonrpc":"2.0","id":"c1","method":"tools/list","params":{}}}
+{"expect":{"jsonrpc":"2.0","id":"c1","error":{"code":-32602}},"absent":["/result"]}
+{"send":{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"a1"}}}
+{"expect_silence_ms":500}
+{"expect_alive":true}

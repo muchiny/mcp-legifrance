@@ -29,6 +29,7 @@
 //! casse.
 
 use std::{
+    cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
     marker::PhantomData,
@@ -167,8 +168,9 @@ impl<K: IdKind> Id<K> {
     }
 }
 
-/// Identifiant `LEGITEXT` et date de son suffixe de version.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Identifiant `LEGITEXT` et date de son suffixe de version. L'ordre est celui de l'identifiant,
+/// puis de la date (une date absente précède une date présente).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VersionedId {
     /// Identifiant, suffixe retiré.
     pub id: LegiTextId,
@@ -226,6 +228,22 @@ impl<K> PartialEq for Id<K> {
 }
 
 impl<K> Eq for Id<K> {}
+
+/// Ordre total des identifiants (M1-D11) : celui de la forme normalisée, comme [`PartialEq`] la
+/// compare et [`Hash`] la hache. À taille fixe (8 lettres puis 12 chiffres), c'est le préfixe,
+/// puis le numéro. Impl manuelle, comme `Clone`, `PartialEq` et `Hash` : `derive(Ord)` exigerait
+/// `K: Ord`, que les familles (enums vides) n'implémentent pas.
+impl<K> PartialOrd for Id<K> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<K> Ord for Id<K> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.raw.cmp(&other.raw)
+    }
+}
 
 /// Hache la forme normalisée seule, comme [`PartialEq`] la compare : deux identifiants égaux
 /// ont la même empreinte, celle de leur `&str`. Impl manuelle, comme `Clone` et `PartialEq` :
@@ -368,8 +386,9 @@ pub type CnilTextId = Id<CnilText>;
 /// Identifiant `ACCOTEXT…`.
 pub type AccoTextId = Id<AccoText>;
 
-/// Identifiant de forme valide, quel que soit son préfixe (résultats de recherche).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Identifiant de forme valide, quel que soit son préfixe (résultats de recherche). L'ordre est
+/// celui de la forme normalisée.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AnyId(String);
 
 impl AnyId {
@@ -418,8 +437,9 @@ impl FromStr for AnyId {
     }
 }
 
-/// Article consultable par `/consult/getArticle` (`server.py:284`).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Article consultable par `/consult/getArticle` (`server.py:284`). L'ordre suit la variante
+/// (`Legi` avant `Kali`), puis l'identifiant.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ArticleId {
     /// Article consolidé `LEGIARTI…`.
     Legi(LegiArtiId),
@@ -477,10 +497,10 @@ impl FromStr for ArticleId {
 
 /// Section de table des matières (`LEGISCTA…` ou `KALISCTA…`). Employée seulement par la table
 /// des matières (03 §2.2), jamais rendue en sortie.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SectionId(SectionInner);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum SectionInner {
     Legi(Id<LegiScta>),
     Kali(Id<KaliScta>),
@@ -545,8 +565,9 @@ impl FromStr for SectionId {
     }
 }
 
-/// Décision consultable par `/consult/juri` (`server.py:103`).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Décision consultable par `/consult/juri` (`server.py:103`). L'ordre suit la variante (`Juri`,
+/// `Constit`, `Cetat`), puis l'identifiant.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DecisionId {
     /// Cour de cassation, cours d'appel : `JURITEXT…`.
     Juri(JuriTextId),
@@ -671,7 +692,9 @@ fn prefix_of(normalized: &str) -> Option<&'static str> {
 /// );
 /// # Ok::<(), lf_domain::DomainError>(())
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// L'ordre suit la variante, dans l'ordre de déclaration ci-dessous, puis l'identifiant.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DocumentId {
     /// Texte consolidé `LEGITEXT…`.
     LegiText(LegiTextId),
@@ -778,7 +801,11 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
-    use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
+    use std::{
+        cmp::Ordering,
+        collections::BTreeSet,
+        hash::{BuildHasher, BuildHasherDefault, DefaultHasher},
+    };
 
     /// Empreinte déterministe (clés fixes, sans graine aléatoire).
     fn hash_of<T: Hash + ?Sized>(value: &T) -> u64 {
@@ -1298,6 +1325,163 @@ mod tests {
         assert_eq!(prefix_of("legitext000006070721"), None);
     }
 
+    /// Les lois d'un ordre total sur `items`, pris deux à deux et trois à trois : totalité et
+    /// antisymétrie (`cmp` rend `Equal` exactement quand `==`), transitivité, et accord de
+    /// `PartialOrd` avec `Ord` (M1-D11).
+    fn assert_total_order<T: Ord + Clone + fmt::Debug>(items: &[T]) {
+        for a in items {
+            assert_eq!(a.cmp(a), Ordering::Equal, "{a:?}");
+            for b in items {
+                assert_eq!(a.partial_cmp(b), Some(a.cmp(b)), "{a:?} / {b:?}");
+                assert_eq!(a.cmp(b), b.cmp(a).reverse(), "{a:?} / {b:?}");
+                assert_eq!(a.cmp(b) == Ordering::Equal, a == b, "{a:?} / {b:?}");
+                for c in items {
+                    if a <= b && b <= c {
+                        assert!(a <= c, "{a:?} <= {b:?} <= {c:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Les valeurs de `parse` pour chacune des chaînes `raws`, dans l'ordre donné.
+    fn parsed<T>(parse: Parser<T>, raws: &[&str]) -> Vec<T> {
+        raws.iter().map(|raw| parse(raw).unwrap()).collect()
+    }
+
+    #[test]
+    fn ids_have_total_order() {
+        // `Id<K>` : la forme normalisée, caractère par caractère (préfixe, puis chiffres).
+        let small = LegiTextId::parse("LEGITEXT000006070721").unwrap();
+        let large = LegiTextId::parse("LEGITEXT000033205014").unwrap();
+        assert!(small < large);
+        assert_eq!(large.clone().max(small.clone()), large);
+        // Le suffixe de version est retiré avant la comparaison : même identifiant, même rang.
+        let suffixed = LegiTextId::parse("LEGITEXT000006070721_09-04-2026").unwrap();
+        assert_eq!(small.cmp(&suffixed), Ordering::Equal);
+        // Triable, et utilisable comme clé d'un `BTreeSet` (l'ordre est celui de la chaîne).
+        let mut sorted = vec![large.clone(), small.clone(), large.clone()];
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted, [small.clone(), large.clone()]);
+        let set: BTreeSet<LegiTextId> = [large.clone(), small.clone(), large.clone()].into();
+        assert_eq!(set.into_iter().collect::<Vec<_>>(), [small.clone(), large.clone()]);
+        assert_total_order(&[small, large, suffixed]);
+
+        // `AnyId` : la chaîne normalisée, tous préfixes confondus.
+        let any = parsed(
+            AnyId::parse,
+            &["LEGITEXT000006070721", "ACCOTEXT000053643828", "ACCOTEXT000051888026"],
+        );
+        let mut by_cmp = any.clone();
+        by_cmp.sort();
+        let mut by_str: Vec<&str> = any.iter().map(AnyId::as_str).collect();
+        by_str.sort_unstable();
+        assert_eq!(by_cmp.iter().map(AnyId::as_str).collect::<Vec<_>>(), by_str);
+        assert_total_order(&any);
+
+        // `ArticleId` : la variante d'abord (`Legi` avant `Kali`, quel que soit le numéro), puis
+        // l'identifiant.
+        let articles = parsed(
+            ArticleId::parse,
+            &["LEGIARTI000099999999", "LEGIARTI000006419288", "KALIARTI000000000001"],
+        );
+        assert!(articles[1] < articles[0]);
+        assert!(articles[0] < articles[2]);
+        assert_total_order(&articles);
+
+        // `DecisionId` : `Juri`, `Constit`, `Cetat` (ordre de déclaration), puis l'identifiant.
+        let decisions = parsed(
+            DecisionId::parse,
+            &[
+                "CETATEXT000051655317",
+                "JURITEXT000048465611",
+                "CONSTEXT000037434572",
+                "JURITEXT000037999394",
+            ],
+        );
+        let mut sorted = decisions.clone();
+        sorted.sort();
+        assert_eq!(
+            sorted.iter().map(DecisionId::as_str).collect::<Vec<_>>(),
+            [
+                "JURITEXT000037999394",
+                "JURITEXT000048465611",
+                "CONSTEXT000037434572",
+                "CETATEXT000051655317"
+            ]
+        );
+        assert_total_order(&decisions);
+    }
+
+    #[test]
+    fn document_section_and_versioned_ids_follow_declaration_order() {
+        // `DocumentId` : l'ordre de déclaration des dix familles, puis l'identifiant.
+        let documents = parsed(
+            DocumentId::parse,
+            &[
+                "ACCOTEXT000053643828",
+                "LEGIARTI000006419288",
+                "LEGITEXT000033205014",
+                "LEGITEXT000006070721",
+                "CNILTEXT000053352643",
+            ],
+        );
+        let mut sorted = documents.clone();
+        sorted.sort();
+        assert_eq!(
+            sorted.iter().map(DocumentId::as_str).collect::<Vec<_>>(),
+            [
+                "LEGITEXT000006070721",
+                "LEGITEXT000033205014",
+                "LEGIARTI000006419288",
+                "CNILTEXT000053352643",
+                "ACCOTEXT000053643828",
+            ]
+        );
+        assert_total_order(&documents);
+
+        // `SectionId` : `LEGISCTA` avant `KALISCTA`.
+        let sections = parsed(
+            SectionId::parse,
+            &["KALISCTA000049886029", "LEGISCTA000033205040", "LEGISCTA000006117610"],
+        );
+        let mut sorted = sections.clone();
+        sorted.sort();
+        assert_eq!(
+            sorted.iter().map(SectionId::as_str).collect::<Vec<_>>(),
+            ["LEGISCTA000006117610", "LEGISCTA000033205040", "KALISCTA000049886029"]
+        );
+        assert_total_order(&sections);
+
+        // `VersionedId` : l'identifiant d'abord, puis la date de version (absente avant présente).
+        let versioned = parsed(
+            parse_versioned,
+            &[
+                "LEGITEXT000033205014_08-09-2023",
+                "LEGITEXT000006070721",
+                "LEGITEXT000033205014",
+                "LEGITEXT000033205014_01-01-2020",
+            ],
+        );
+        let mut sorted = versioned.clone();
+        sorted.sort();
+        let order: Vec<(&str, Option<String>)> = sorted
+            .iter()
+            .map(|v| (v.id.as_str(), v.version_start.map(|date| date.to_string())))
+            .collect();
+        assert_eq!(
+            order,
+            [
+                ("LEGITEXT000006070721", None),
+                ("LEGITEXT000033205014", None),
+                ("LEGITEXT000033205014", Some("2020-01-01".to_owned())),
+                ("LEGITEXT000033205014", Some("2023-09-08".to_owned())),
+            ]
+        );
+        assert_total_order(&versioned);
+    }
+
     /// Chaque famille accepte son préfixe et refuse celui des onze autres.
     macro_rules! each_kind_rejects_every_other_prefix {
         ($($kind:ty),+ $(,)?) => {{
@@ -1362,6 +1546,32 @@ mod tests {
             let id = SectionId::parse(&format!(" {prefix}{digits} ")).unwrap();
             prop_assert_eq!(id.as_str(), format!("{}{digits}", prefix.to_ascii_uppercase()));
             prop_assert_eq!(SectionId::parse(id.as_str()).unwrap(), id);
+        }
+
+        /// L'ordre d'un identifiant est celui de sa forme normalisée : total, antisymétrique,
+        /// transitif, et d'accord avec `Eq` et `Hash` (M1-D11).
+        #[test]
+        fn id_order_is_the_normalized_string_order(
+            a in "(LEGITEXT|LEGIARTI|KALITEXT|ACCOTEXT)[0-9]{12}",
+            b in "(LEGITEXT|LEGIARTI|KALITEXT|ACCOTEXT)[0-9]{12}",
+            c in "(LEGITEXT|LEGIARTI|KALITEXT|ACCOTEXT)[0-9]{12}",
+        ) {
+            let a = AnyId::parse(&a).unwrap();
+            let b = AnyId::parse(&b).unwrap();
+            let c = AnyId::parse(&c).unwrap();
+            prop_assert_eq!(a.cmp(&b), a.as_str().cmp(b.as_str()));
+            prop_assert_eq!(a.cmp(&b), b.cmp(&a).reverse());
+            prop_assert_eq!(a.cmp(&b) == Ordering::Equal, a == b);
+            if a == b {
+                prop_assert_eq!(hash_of(&a), hash_of(&b));
+            }
+            if a <= b && b <= c {
+                prop_assert!(a <= c);
+            }
+            // Même ordre pour `Id<K>` que pour la chaîne, sur un seul préfixe.
+            let x = LegiTextId::parse(&format!("LEGITEXT{}", &a.as_str()[8..])).unwrap();
+            let y = LegiTextId::parse(&format!("LEGITEXT{}", &b.as_str()[8..])).unwrap();
+            prop_assert_eq!(x.cmp(&y), x.as_str().cmp(y.as_str()));
         }
 
         #[test]

@@ -1,0 +1,14 @@
+endpoint = "/consult/relatedLinksArticle"
+request = "{\"articleId\":\"LEGIARTI000033205058\"}"
+env = "sandbox"
+captured_at = "2026-10-29T10:30:09Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 230
+bytes_raw = 52
+sha256_raw = "e707176bb6159a2ef0a413b96febcc34070d8c7ae5f24d4bd0a327797044ea93"
+sha256_file = "e707176bb6159a2ef0a413b96febcc34070d8c7ae5f24d4bd0a327797044ea93"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

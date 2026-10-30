@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 serde_json.workspace = true
+# validité 2020-12 des schémas (lock-descriptors) ; default-features = false déjà au workspace (02 l.402)
+jsonschema.workspace = true
 toml.workspace = true
 
 [dev-dependencies]

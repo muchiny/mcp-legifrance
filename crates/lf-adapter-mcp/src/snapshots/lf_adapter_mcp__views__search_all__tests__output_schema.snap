@@ -1,0 +1,116 @@
+---
+source: crates/lf-adapter-mcp/src/views/search_all.rs
+expression: schema
+---
+{
+  "$defs": {
+    "ArticleView": {
+      "properties": {
+        "article_id": {
+          "type": "string"
+        },
+        "num": {
+          "type": "string"
+        },
+        "snippet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "article_id"
+      ],
+      "type": "object"
+    },
+    "GroupView": {
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "fond": {
+          "type": "string"
+        },
+        "has_more": {
+          "description": "True if fr_search can page further in this fond.",
+          "type": "boolean"
+        },
+        "hits": {
+          "items": {
+            "$ref": "#/$defs/HitView"
+          },
+          "type": "array"
+        },
+        "total": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fond"
+      ],
+      "type": "object"
+    },
+    "HitView": {
+      "properties": {
+        "articles": {
+          "items": {
+            "$ref": "#/$defs/ArticleView"
+          },
+          "type": "array"
+        },
+        "citation": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "etat": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idcc": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "nature": {
+          "type": "string"
+        },
+        "snippet": {
+          "type": "string"
+        },
+        "source_url": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "citation",
+        "source_url"
+      ],
+      "type": "object"
+    }
+  },
+  "properties": {
+    "groups": {
+      "items": {
+        "$ref": "#/$defs/GroupView"
+      },
+      "type": "array"
+    },
+    "note": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "groups"
+  ],
+  "type": "object"
+}

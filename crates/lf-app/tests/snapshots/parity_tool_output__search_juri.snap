@@ -1,0 +1,27 @@
+---
+source: crates/lf-app/tests/parity_tool_output.rs
+expression: search_juri
+---
+{
+  "has_more": true,
+  "hits": [
+    {
+      "citation": "Cour de cassation, civile, Chambre civile 1, 4 juin 2025, 24-13.470, Publié au bulletin",
+      "id": "JURITEXT000051743650",
+      "kind": "juri",
+      "nature": "arret",
+      "snippet": "[...] Les consorts [E] font grief à l'arrêt de rejeter leurs demandes, alors « qu'aux termes de l'article 2270-1 ancien du code civil, les actions en responsabilité civile extracontractuelle se prescrivent par [...] Aux termes du premier de ces textes, les actions en responsab",
+      "source_url": "https://www.legifrance.gouv.fr/juri/id/JURITEXT000051743650"
+    },
+    {
+      "citation": "Cour de cassation, civile, Chambre commerciale, 22 novembre 2023, 22-17.843, Publié au bulletin",
+      "id": "JURITEXT000048465611",
+      "kind": "juri",
+      "nature": "arret",
+      "snippet": "[...] La limitation de responsabilité du manutentionnaire prévue à l'article L. 5422-23 du code des transports ne s'applique qu'à l'égard du transporteur et ne peut donc porter que sur les dommages subis par [...] Il résulte des articles L. 5422-13 et L. 5422-23 du code des…",
+      "source_url": "https://www.legifrance.gouv.fr/juri/id/JURITEXT000048465611"
+    }
+  ],
+  "page": 1,
+  "total": 122147
+}

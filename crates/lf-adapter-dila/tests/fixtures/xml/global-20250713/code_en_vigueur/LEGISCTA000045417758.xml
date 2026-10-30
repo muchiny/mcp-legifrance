@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SECTION_TA>
+<ID>LEGISCTA000045417758</ID>
+<TITRE_TA>Chapitre II : Conseil supérieur de la prévention des risques technologiques</TITRE_TA>
+<STRUCTURE_TA>
+<LIEN_ART debut="2022-03-28" etat="MODIFIE" fin="2025-01-01" id="LEGIARTI000045418514" num="D510-1" origine="LEGI"/>
+<LIEN_ART debut="2025-01-01" etat="VIGUEUR" fin="2999-01-01" id="LEGIARTI000050813430" num="D510-1" origine="LEGI"/>
+<LIEN_ART debut="2022-03-28" etat="MODIFIE" fin="2022-04-22" id="LEGIARTI000045418505" num="D510-2" origine="LEGI"/>
+<LIEN_ART debut="2022-04-22" etat="MODIFIE" fin="2025-01-01" id="LEGIARTI000045628895" num="D510-2" origine="LEGI"/>
+<LIEN_ART debut="2025-01-01" etat="VIGUEUR" fin="2999-01-01" id="LEGIARTI000050813426" num="D510-2" origine="LEGI"/>
+<LIEN_ART debut="2022-03-28" etat="VIGUEUR" fin="2999-01-01" id="LEGIARTI000045418498" num="D510-3" origine="LEGI"/>
+<LIEN_ART debut="2022-03-28" etat="VIGUEUR" fin="2999-01-01" id="LEGIARTI000045418495" num="D510-4" origine="LEGI"/>
+<LIEN_ART debut="2022-03-28" etat="VIGUEUR" fin="2999-01-01" id="LEGIARTI000045418492" num="D510-5" origine="LEGI"/>
+<LIEN_ART debut="2022-03-28" etat="MODIFIE" fin="2025-01-01" id="LEGIARTI000045418489" num="D510-6" origine="LEGI"/>
+<LIEN_ART debut="2025-01-01" etat="VIGUEUR" fin="2999-01-01" id="LEGIARTI000050498073" num="D510-6" origine="LEGI"/>
+<LIEN_ART debut="2022-03-28" etat="MODIFIE" fin="2025-01-01" id="LEGIARTI000045418486" num="D510-7" origine="LEGI"/>
+<LIEN_ART debut="2025-01-01" etat="VIGUEUR" fin="2999-01-01" id="LEGIARTI000050813421" num="D510-7" origine="LEGI"/>
+</STRUCTURE_TA>
+<CONTEXTE>
+<TEXTE autorite="" cid="LEGITEXT000006074220" date_publi="2999-01-01" date_signature="2999-01-01" ministere="" nature="CODE" nor="" num="" num_parution_jo="">
+<TITRE_TXT c_titre_court="Code de l'environnement" debut="2000-09-21" fin="2999-01-01" id_txt="LEGITEXT000006074220">Code de l'environnement</TITRE_TXT>
+<TM>
+<TITRE_TM debut="2003-08-07" fin="2999-01-01" id="LEGISCTA000006108631">Partie réglementaire</TITRE_TM>
+<TM>
+<TITRE_TM debut="2007-10-16" fin="2999-01-01" id="LEGISCTA000006129034">Livre V : Prévention des pollutions, des risques et des nuisances</TITRE_TM>
+<TM>
+<TITRE_TM debut="2011-12-19" fin="2022-03-28" id="LEGISCTA000024985993">Titre préliminaire : Conseil supérieur de la prévention des risques technologiques </TITRE_TM>
+<TITRE_TM debut="2022-03-28" fin="2999-01-01" id="LEGISCTA000045418469">Titre préliminaire : Enquêtes techniques et Conseil supérieur de la prévention des risques technologiques</TITRE_TM>
+</TM>
+</TM>
+</TM>
+</TEXTE>
+</CONTEXTE>
+</SECTION_TA>

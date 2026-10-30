@@ -1,0 +1,8 @@
+{"binary_only":"V-35 : la clôture d'un subscriptions/listen ouvert se mesure sur le binaire (06 §6.1) ; en processus, voir les tests de testing.rs"}
+{"comment":"C-09, C-24, V-35 : EOF de stdin avec un listen ouvert : code 0 en moins d'une seconde"}
+{"send":{"jsonrpc":"2.0","id":"listen-1","method":"subscriptions/listen","params":{"notifications":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{"notifications":{},"_meta":{"io.modelcontextprotocol/subscriptionId":"listen-1"}}},"absent":["/id"]}
+{"close_stdin":true}
+{"comment":"rmcp ferme le listen ouvert par son résultat final (resultType complete, subscriptionId) avant de s'arrêter"}
+{"expect":{"jsonrpc":"2.0","id":"listen-1","result":{"resultType":"complete","_meta":{"io.modelcontextprotocol/subscriptionId":"listen-1"}}},"absent":["/error"]}
+{"expect_exit":{"code":0,"within_ms":1000}}

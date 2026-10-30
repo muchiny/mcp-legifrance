@@ -1414,6 +1414,10 @@ mod tests {
     /// Sonde : ne fait rien sans la variable sentinelle ; sinon un `send_once` vers cette URL.
     #[tokio::test]
     async fn proxy_child_probe() {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "test : sonde en sous-processus, sentinelle lue dans l'environnement (set_var est interdit par unsafe_code)"
+        )]
         let Ok(target) = std::env::var(PROBE_ENV) else {
             return;
         };

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ARTICLE>
+<META>
+<META_COMMUN>
+<ID>LEGIARTI000006828908</ID>
+<ANCIEN_ID>UCICWXXXXXX006AAXXXXXXAA</ANCIEN_ID>
+<ORIGINE>LEGI</ORIGINE>
+<URL>article/LEGI/ARTI/00/00/06/82/89/LEGIARTI000006828908.xml</URL>
+<NATURE>Article</NATURE>
+</META_COMMUN>
+<META_SPEC>
+<META_ARTICLE>
+
+<NUM>6</NUM>
+
+<ETAT>ABROGE</ETAT>
+
+<DATE_DEBUT>1980-01-15</DATE_DEBUT>
+<DATE_FIN>1981-09-13</DATE_FIN>
+
+
+
+<TYPE>AUTONOME</TYPE>
+</META_ARTICLE>
+</META_SPEC>
+</META>
+<CONTEXTE>
+<TEXTE autorite="" cid="LEGITEXT000006074161" date_publi="2999-01-01" date_signature="1980-01-09" ministere="" nature="ARRETE" nor="" num="" num_parution_jo="">
+<TITRE_TXT c_titre_court="Arrêté du 9 janvier 1980" debut="1980-01-15" fin="1988-01-01" id_txt="LEGITEXT000006074161">Arrêté du 9 janvier 1980 relatif aux dépassements des prix de référence des logements locatifs.</TITRE_TXT>
+</TEXTE>
+</CONTEXTE>
+<VERSIONS>
+<VERSION etat="ABROGE">
+<LIEN_ART debut="1980-01-15" etat="ABROGE" fin="1981-09-13" id="LEGIARTI000006828908" num="6" origine="LEGI"/>
+</VERSION>
+</VERSIONS>
+<NOTA>
+<CONTENU/>
+</NOTA>
+<BLOC_TEXTUEL>
+<CONTENU>
+<br/>   (texte non reproduit).<br/>
+<br/>
+</CONTENU>
+</BLOC_TEXTUEL>
+<LIENS/>
+</ARTICLE>

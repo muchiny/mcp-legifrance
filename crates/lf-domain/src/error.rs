@@ -195,6 +195,26 @@ pub enum DomainError {
         /// Longueur du texte reçu, en caractères.
         chars: u64,
     },
+    /// `offset` de lecture égal ou supérieur à la longueur du texte (03 §7.6, 05 §6.1) : la
+    /// fenêtre serait vide. Un texte vide lu à `offset = 0` n'est pas une erreur.
+    #[error("offset={offset} is past the end of the text (text_length={text_length})")]
+    OffsetPastEnd {
+        /// Décalage demandé, en caractères.
+        offset: usize,
+        /// Longueur du texte, en caractères.
+        text_length: usize,
+    },
+    /// `focus` sans mot recherchable : vide, ponctuation seule ou mots vides seuls (03 §7.8).
+    #[error("focus contains no searchable word")]
+    FocusWithoutTerms,
+    /// Nature de numéro qui n'existe pas pour ce fond (`NumberQuery::new`, annexe B §6.6).
+    #[error("{kind} is not a number kind of fond {fond}")]
+    NumberKindNotApplicable {
+        /// Fond demandé.
+        fond: Fond,
+        /// Nature demandée (`"article"`, `"ecli"`, ...), nom du paramètre côté utilisateur.
+        kind: &'static str,
+    },
 }
 
 /// Recopie `input` pour un message d'erreur, tronquée à [`ECHO_MAX_CHARS`] caractères.
@@ -234,7 +254,10 @@ mod tests {
             | DomainError::VersionDateNotApplicable { .. }
             | DomainError::DateFilterNotApplicable { .. }
             | DomainError::PageBeyondReach { .. }
-            | DomainError::TextTooLarge { .. } => "",
+            | DomainError::TextTooLarge { .. }
+            | DomainError::OffsetPastEnd { .. }
+            | DomainError::FocusWithoutTerms
+            | DomainError::NumberKindNotApplicable { .. } => "",
         }
     }
 
@@ -338,6 +361,19 @@ mod tests {
     }
 
     #[test]
+    fn reading_and_number_errors_have_actionable_messages() {
+        assert_eq!(
+            DomainError::OffsetPastEnd { offset: 20_000, text_length: 14_332 }.to_string(),
+            "offset=20000 is past the end of the text (text_length=14332)"
+        );
+        assert_eq!(DomainError::FocusWithoutTerms.to_string(), "focus contains no searchable word");
+        assert_eq!(
+            DomainError::NumberKindNotApplicable { fond: Fond::Cnil, kind: "ecli" }.to_string(),
+            "ecli is not a number kind of fond CNIL"
+        );
+    }
+
+    #[test]
     fn text_too_large_message_names_the_limit() {
         assert_eq!(
             DomainError::TextTooLarge { chars: 16_000_001 }.to_string(),
@@ -395,6 +431,9 @@ mod tests {
             DomainError::DateFilterNotApplicable { fond: Fond::Code },
             DomainError::PageBeyondReach { page: 200, page_size: 100, max: 10_000 },
             DomainError::TextTooLarge { chars: 16_000_001 },
+            DomainError::OffsetPastEnd { offset: 20_000, text_length: 14_332 },
+            DomainError::FocusWithoutTerms,
+            DomainError::NumberKindNotApplicable { fond: Fond::Cnil, kind: "ecli" },
         ] {
             assert_eq!(echoed(&error), "", "{error}");
         }

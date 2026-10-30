@@ -1,0 +1,27 @@
+---
+source: crates/lf-app/tests/parity_tool_output.rs
+expression: consult_acco
+---
+{
+  "agreement_id": "ACCOTEXT000053643828",
+  "attachment_note": "Full text is only distributed by Legifrance as a .docx attachment; consult source_url for the human-readable page. This tool returns metadata only.",
+  "citation": "Accord d'entreprise relatif au télétravail (CORSAIR (Télétravail))",
+  "code_ape": "5110Z",
+  "date_depot": "2026-02-27",
+  "date_effet": "2025-12-20",
+  "date_texte": "2025-12-19",
+  "idcc": "275",
+  "nature": "ACCORD",
+  "raison_sociale": "CORSAIR (Télétravail)",
+  "secteur": "Transports aériens de passagers",
+  "siret": "32862158600143",
+  "source_url": "https://www.legifrance.gouv.fr/acco/id/ACCOTEXT000053643828",
+  "syndicats": [
+    "CFTC",
+    "CFE-CGC",
+    "Autre"
+  ],
+  "themes": [
+    "Télétravail"
+  ]
+}

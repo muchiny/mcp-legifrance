@@ -1,0 +1,233 @@
+name: Build MCPB
+
+# Bundle MCPB multi-plateforme (T-MD-04, 08 §4) : un seul `mcp-legifrance-<version>.mcpb`, avec le
+# lanceur POSIX pour macOS et Linux et l'override `win32` pour Windows, plus le `server.json` final
+# (somme du bundle posée) et sa somme `.mcpb.sha256`. Pas de signature : aucun certificat (Q5,
+# T-MD-08 et T-MD-09 non faits), le bundle repose sur fileSha256 et sur l'attestation GitHub.
+#
+# Deux usages :
+# - release : workflow réutilisable, déclaré dans `global-artifacts-jobs` de dist-workspace.toml.
+#   Il s'exécute après `build-local-artifacts` et avant `host` ; il lit les archives de dist dans
+#   les artefacts `artifacts-build-local-*` et téléverse `artifacts-mcpb`, que `host` publie avec la
+#   release, attesté, sans édition de release.yml (08 §4.5). Les artefacts intermédiaires ne
+#   portent jamais le préfixe `artifacts-`, sinon ils seraient publiés.
+# - PR : le job `checks` construit un bundle d'essai avec des binaires factices, éprouve les
+#   scripts de packaging et valide server.json. La construction des vrais binaires reste celle de
+#   dist (smoke-targets.yml en PR).
+#
+# Les entrées passent par `env:`, jamais interpolées dans un script (zizmor). Le plan de dist n'est
+# lu que par le job `meta`, hors Windows (limite de 32 Ko d'une variable d'environnement).
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        description: "Plan de dist (JSON), fourni par release.yml"
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - "packaging/**"
+      - "server.json"
+      - ".github/workflows/build-mcpb.yml"
+      - ".github/scripts/install-mcp-publisher.sh"
+
+permissions:
+  contents: read
+
+env:
+  # mcp-publisher épinglé (08 §3.7, V-206) : la somme est dans install-mcp-publisher.sh. 1.8.1 est
+  # la dernière version qui a au moins 14 jours ; une montée relève la table du script.
+  MCP_PUBLISHER_VERSION: "1.8.1"
+
+# Actions épinglées par SHA complet, version en commentaire : voir ci.yml.
+jobs:
+  checks:
+    name: contrôles du paquetage (PR)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Scripts de packaging (shellcheck) et leurs tests
+        run: |
+          shellcheck packaging/mcpb/launcher packaging/mcpb/*.sh packaging/smoke/*.sh packaging/oci/*.sh \
+            packaging/tests/*.sh packaging/*.sh .github/scripts/install-mcp-publisher.sh
+          bash packaging/tests/run-all.sh
+      - name: server.json et manifeste MCPB alignés
+        run: |
+          version="$(jq -r .version packaging/mcpb/manifest.json)"
+          packaging/check-server-json.sh --provisional server.json "$version" packaging/mcpb/manifest.json
+      - name: Outil mcpb (arbre de dépendances épinglé, sans scripts d'installation)
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix packaging/mcpb/cli
+      - name: Bundle d'essai (binaires factices)
+        env:
+          STAGE_SKIP_FORMAT_CHECK: "1"
+        run: |
+          mkdir -p dummy
+          for dir in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
+            mkdir -p "dummy/$dir"
+            printf '#!/bin/sh\nexit 0\n' >"dummy/$dir/mcp-legifrance"
+          done
+          mkdir -p dummy/win32-x86_64
+          printf 'MZ' >dummy/win32-x86_64/mcp-legifrance.exe
+          version="$(jq -r .version packaging/mcpb/manifest.json)"
+          packaging/mcpb/build.sh dummy bundle-out "$version"
+      - name: server.json valide (mcp-publisher)
+        run: |
+          ./.github/scripts/install-mcp-publisher.sh "$MCP_PUBLISHER_VERSION"
+          mcp-publisher validate server.json
+
+  meta:
+    name: étiquette et version
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: release
+        env:
+          PLAN: ${{ inputs.plan }}
+        run: packaging/resolve-release.sh >>"$GITHUB_OUTPUT"
+
+  # Test fumée `initialize` du binaire de la release, sur chaque plateforme que le runner de dist a
+  # construite hors du runner d'assemblage (08 §4.5, jobs `verify-windows` et `notarize-macos`
+  # sans la signature : Q5). macOS x86_64 passe par son runner natif, sans Rosetta [V-196].
+  smoke:
+    name: fumée ${{ matrix.target.triple }}
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { triple: x86_64-pc-windows-msvc, os: windows-2022, archive: zip, exe: ".exe" }
+          - { triple: aarch64-apple-darwin, os: macos-14, archive: tar.xz, exe: "" }
+          - { triple: x86_64-apple-darwin, os: macos-15-intel, archive: tar.xz, exe: "" }
+          - { triple: aarch64-unknown-linux-musl, os: ubuntu-22.04-arm, archive: tar.xz, exe: "" }
+    runs-on: ${{ matrix.target.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: ${{ matrix.target.triple }}
+      ARCHIVE: ${{ matrix.target.archive }}
+      EXE: ${{ matrix.target.exe }}
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: artifacts-build-local-${{ matrix.target.triple }}
+          path: dist
+      - name: Extraire le binaire
+        run: |
+          set -euo pipefail
+          archive="dist/mcp-legifrance-$TARGET.$ARCHIVE"
+          test -f "$archive"
+          mkdir extracted
+          if [ "$ARCHIVE" = zip ]; then
+            # Git Bash n'a pas de décompresseur de zip fiable : PowerShell, chemins relatifs.
+            # shellcheck disable=SC2016 # $env:… est une variable PowerShell, pas bash
+            ARCHIVE_PATH="$archive" pwsh -NoProfile -Command 'Expand-Archive -LiteralPath $env:ARCHIVE_PATH -DestinationPath extracted'
+          else
+            tar -xJf "$archive" -C extracted
+          fi
+          bin="$(find extracted -type f -name "mcp-legifrance$EXE")"
+          test "$(printf '%s\n' "$bin" | wc -l | tr -d ' ')" = 1
+          chmod +x "$bin"
+          echo "$bin" >bin-path.txt
+          file -b "$bin" || true
+      - name: Test fumée initialize
+        timeout-minutes: 2
+        run: bash packaging/smoke/initialize.sh "$VERSION" "$(cat bin-path.txt)" serve
+
+  assemble:
+    name: assemblage du bundle
+    needs: [meta, smoke]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Avant tout téléchargement : un server.json ou un manifeste qui ne suit pas la version de
+      # l'étiquette ferait publier une version fausse, et une version publiée est immuable.
+      - name: server.json et manifeste alignés sur l'étiquette
+        run: packaging/check-server-json.sh --provisional server.json "$VERSION" packaging/mcpb/manifest.json
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: artifacts-build-local-*
+          path: dist
+          merge-multiple: true
+      - name: Extraire les cinq binaires
+        run: |
+          set -euo pipefail
+          extract() { # cible répertoire-du-bundle nom extension
+            local triple="$1" dir="$2" name="$3" ext="$4" found
+            mkdir -p "extracted/$triple" "bins/$dir"
+            if [ "$ext" = zip ]; then
+              unzip -q "dist/mcp-legifrance-$triple.zip" -d "extracted/$triple"
+            else
+              tar -xJf "dist/mcp-legifrance-$triple.tar.xz" -C "extracted/$triple"
+            fi
+            found="$(find "extracted/$triple" -type f -name "$name")"
+            test "$(printf '%s\n' "$found" | wc -l | tr -d ' ')" = 1
+            cp "$found" "bins/$dir/$name"
+          }
+          extract aarch64-apple-darwin darwin-aarch64 mcp-legifrance tar.xz
+          extract x86_64-apple-darwin darwin-x86_64 mcp-legifrance tar.xz
+          extract aarch64-unknown-linux-musl linux-aarch64 mcp-legifrance tar.xz
+          extract x86_64-unknown-linux-musl linux-x86_64 mcp-legifrance tar.xz
+          extract x86_64-pc-windows-msvc win32-x86_64 mcp-legifrance.exe zip
+      - name: Scripts de packaging (shellcheck) et leurs tests
+        run: |
+          shellcheck packaging/mcpb/launcher packaging/mcpb/*.sh packaging/smoke/*.sh packaging/oci/*.sh \
+            packaging/tests/*.sh packaging/*.sh .github/scripts/install-mcp-publisher.sh
+          bash packaging/tests/run-all.sh
+      - name: Outil mcpb (arbre de dépendances épinglé, sans scripts d'installation)
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix packaging/mcpb/cli
+      # Arborescence du §4.2, format des binaires (architecture, musl statique), `mcpb validate`,
+      # `mcpb pack` et bits d'exécution : tout est dans build.sh, que la PR éprouve aussi.
+      - name: Construire le bundle
+        run: packaging/mcpb/build.sh bins out "$VERSION"
+      # Le lanceur choisit le binaire par `uname` : ce test fumée passe donc par lui, sur le
+      # binaire musl x86_64 du bundle fraîchement décompressé (le client le lancera ainsi).
+      - name: Test fumée du bundle (lanceur, Linux x86_64)
+        timeout-minutes: 2
+        run: |
+          mkdir unpacked
+          unzip -q "out/mcp-legifrance-$VERSION.mcpb" -d unpacked
+          bash packaging/smoke/initialize.sh "$VERSION" unpacked/server/launcher serve
+      # La somme est calculée après toute modification du fichier (`mcpb sign` en ajouterait une :
+      # non utilisé, Q5), et reportée dans le server.json final (08 §3.4, §6.2).
+      - name: Somme du bundle et server.json final
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          cp "out/mcp-legifrance-$VERSION.mcpb" release-assets/
+          (cd release-assets && sha256sum "mcp-legifrance-$VERSION.mcpb" >"mcp-legifrance-$VERSION.mcpb.sha256")
+          sha="$(cut -d ' ' -f 1 "release-assets/mcp-legifrance-$VERSION.mcpb.sha256")"
+          jq --arg sha "$sha" '(.packages[] | select(.registryType == "mcpb") | .fileSha256) = $sha' server.json >release-assets/server.json
+          packaging/check-server-json.sh release-assets/server.json "$VERSION" packaging/mcpb/manifest.json
+          cat "release-assets/mcp-legifrance-$VERSION.mcpb.sha256"
+      - name: server.json final valide (mcp-publisher)
+        run: |
+          ./.github/scripts/install-mcp-publisher.sh "$MCP_PUBLISHER_VERSION"
+          mcp-publisher validate release-assets/server.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: artifacts-mcpb
+          path: release-assets/*
+          if-no-files-found: error

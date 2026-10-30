@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ARTICLE>
+<META>
+<META_COMMUN>
+<ID>LEGIARTI000006842417</ID>
+<ANCIEN_ID>UHAXXXXXXXX5X006000AXXAA</ANCIEN_ID>
+<ORIGINE>LEGI</ORIGINE>
+<URL>article/LEGI/ARTI/00/00/06/84/24/LEGIARTI000006842417.xml</URL>
+<NATURE>Article</NATURE>
+</META_COMMUN>
+<META_SPEC>
+<META_ARTICLE>
+
+<NUM>6</NUM>
+
+<ETAT>VIGUEUR</ETAT>
+
+<DATE_DEBUT>1980-03-25</DATE_DEBUT>
+<DATE_FIN>2999-01-01</DATE_FIN>
+
+
+
+<TYPE>AUTONOME</TYPE>
+</META_ARTICLE>
+</META_SPEC>
+</META>
+<CONTEXTE>
+<TEXTE autorite="" cid="LEGITEXT000006074232" date_publi="2999-01-01" date_signature="2999-01-01" ministere="" nature="CODE" nor="" num="" num_parution_jo="">
+<TITRE_TXT c_titre_court="Code de déontologie des architectes" debut="1980-03-25" fin="2999-01-01" id_txt="LEGITEXT000006074232">Code de déontologie des architectes</TITRE_TXT>
+<TM>
+<TITRE_TM debut="1980-03-25" fin="2999-01-01" id="LEGISCTA000006108696">TITRE II : Devoirs professionnels</TITRE_TM>
+<TM>
+<TITRE_TM debut="1980-03-25" fin="2999-01-01" id="LEGISCTA000006129093">CHAPITRE 1er : Règles générales</TITRE_TM>
+<TM>
+<TITRE_TM debut="1980-03-25" fin="2999-01-01" id="LEGISCTA000006143863">Section 1 : Règles personnelles.</TITRE_TM>
+</TM>
+</TM>
+</TM>
+</TEXTE>
+</CONTEXTE>
+
+<VERSIONS>
+<VERSION etat="VIGUEUR">
+<LIEN_ART debut="1980-03-25" etat="VIGUEUR" fin="2999-01-01" id="LEGIARTI000006842417" num="6" origine="LEGI"/>
+</VERSION>
+</VERSIONS>
+<NOTA>
+<CONTENU/>
+</NOTA>
+<BLOC_TEXTUEL>
+<CONTENU>
+<p>   Tout architecte se doit de prêter son concours aux actions d'intérêt général en faveur de l'architecture.</p>
+<br/>
+<br/>
+</CONTENU>
+</BLOC_TEXTUEL>
+<LIENS>
+<LIEN cidtexte="JORFTEXT000000519770" datesignatexte="1980-03-20" id="JORFTEXT000000519770" naturetexte="DECRET" nortexte="" num="" numtexte="80-217" sens="source" typelien="CODIFICATION">Décret 80-217 1980-03-20</LIEN>
+</LIENS>
+</ARTICLE>

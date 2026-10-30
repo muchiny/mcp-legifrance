@@ -1,0 +1,26 @@
+[package]
+name = "lf-adapter-cache"
+description = "Composant interne de mcp-legifrance ; aucune garantie de stabilité d'API. Adapter de cache mémoire (CachedCorpus)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+lf-application.workspace = true
+lf-domain.workspace = true
+# moka::future::Cache (00 §2 ; la valeur par défaut de moka est vide)
+moka = { workspace = true, features = ["future"] }
+# sync : verrou de coalescence des requêtes identiques
+tokio = { workspace = true, features = ["sync"] }
+tracing.workspace = true
+
+[dev-dependencies]
+lf-application = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

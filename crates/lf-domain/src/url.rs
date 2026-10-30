@@ -70,9 +70,9 @@ impl From<Fond> for ResourceKind {
 }
 
 /// URL publique d'une ressource legifrance.gouv.fr (`source_url` du contrat v2,
-/// ADR-0009). Seule `legifrance_url` (réservée au crate) la construit, depuis un
-/// identifiant typé : jamais vide, toujours sous [`WEB_BASE`], sans échappement
-/// nécessaire (`[A-Z0-9]`).
+/// ADR-0009). Seule [`legifrance_url`] la construit, depuis un identifiant typé :
+/// jamais vide, toujours sous [`WEB_BASE`], sans échappement nécessaire
+/// (`[A-Z0-9]`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SourceUrl(String);
 
@@ -94,8 +94,11 @@ impl fmt::Display for SourceUrl {
 /// Divergence avec `citations.py:76-102`, où la référence renvoie `None` pour
 /// un id vide ou un `kind` inconnu : ici la fonction est totale, parce que
 /// `kind` est un enum et que l'id vient toujours d'un identifiant typé déjà
-/// validé (d'où la visibilité `pub(crate)`).
-pub(crate) fn legifrance_url(kind: ResourceKind, id: &str) -> SourceUrl {
+/// validé. Elle est publique depuis M7 : `fr_get_related` (application) en tire
+/// la page d'un lien d'article, au lieu de recopier la table des chemins ; l'appelant
+/// passe `id` d'un identifiant typé (`DocumentId::as_str`), jamais d'un texte du corps.
+#[must_use]
+pub fn legifrance_url(kind: ResourceKind, id: &str) -> SourceUrl {
     SourceUrl(format!("{WEB_BASE}/{}/{id}", kind.path()))
 }
 

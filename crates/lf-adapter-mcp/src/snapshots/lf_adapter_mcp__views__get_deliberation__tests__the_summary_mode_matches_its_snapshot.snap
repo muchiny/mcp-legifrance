@@ -1,0 +1,19 @@
+---
+source: crates/lf-adapter-mcp/src/views/get_deliberation.rs
+expression: actual
+---
+{
+  "citation": "CNIL, délibération n° SAN-2026-002 du 8 janvier 2026",
+  "date": "2026-01-08",
+  "date_publication": "2026-01-14",
+  "deliberation_id": "CNILTEXT000053352643",
+  "etat": "VIGUEUR",
+  "nature": "Délibération",
+  "nature_delib": "Sanction",
+  "num": "SAN-2026-002",
+  "source_url": "https://www.legifrance.gouv.fr/cnil/id/CNILTEXT000053352643",
+  "summary": "- Les développements de la délibération comportant des données à caractère personnel ou des secrets protégés par la loi sont remplacés par le signe […] -\n\nLa Commission nationale de l’informatique et des libertés, réunie en sa formation restreinte composée de M. Philippe-Pierre CABOURDIN, président, M. Vincent LESCLOUS, vice-président, Mmes Laurence FRANCESCHINI et Isabelle LATOURNARIE-WILLEMS, MM. KLING, membres,\n\nVu le règlement (UE) 2016/679 du Parlement européen et du Conseil du 27 avril 2016 relatif à la protection des personnes physiques à l’égard du traitement des données à [...]\n\n- Les développements de la délibération comportant des données à caractère personnel ou des secrets protégés par la loi sont remplacés par le signe […] -",
+  "summary_source": "lead",
+  "text_length": 2378,
+  "title": "Délibération de la formation restreinte n° SAN-2026-002 du 8 janvier 2026 prononçant une sanction pécuniaire à l'encontre de la société FREE"
+}

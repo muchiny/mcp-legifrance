@@ -1,0 +1,42 @@
+# Licences des logiciels tiers
+
+mcp-legifrance est distribué sous licence Apache-2.0 (fichiers `LICENSE` et `NOTICE`). Il s'appuie
+sur les logiciels tiers ci-dessous, pour l'essentiel liés statiquement dans le binaire. Chacun reste
+soumis à sa propre licence, dont le texte est reproduit plus bas comme l'exigent les licences MIT,
+BSD, ISC et Zlib.
+
+Ce fichier est généré par cargo-about 0.9.2 à partir de `about.toml` et de `about.hbs` : ne le
+modifiez pas à la main. Pour le régénérer, à la racine du dépôt :
+
+```sh
+cargo about generate about.hbs > THIRD_PARTY_LICENSES.md
+```
+
+Il recense les paquets du workspace hors dépendances de développement et de construction, pour
+les sept cibles de `dist-workspace.toml`. La liste est volontairement large : elle comprend aussi
+des paquets d'outils ou de fonctions que le binaire publié n'embarque pas, ce qui ne peut que la
+rendre plus complète. Les composants de ce dépôt ne figurent pas ici. Ceci n'est pas un avis
+juridique.
+
+## Résumé
+
+{{#each overview}}
+- {{{name}}} (`{{{id}}}`) : {{count}} paquet(s)
+{{/each}}
+
+## Textes de licence
+
+{{#each licenses}}
+### {{{name}}} (`{{{id}}}`)
+
+Utilisé par :
+
+{{#each used_by}}
+- `{{{crate.name}}}` {{{crate.version}}}{{#if crate.repository}} : {{{crate.repository}}}{{/if}}
+{{/each}}
+
+~~~~~~~~
+{{{text}}}
+~~~~~~~~
+
+{{/each}}

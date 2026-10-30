@@ -1,0 +1,105 @@
+---
+source: crates/lf-adapter-mcp/src/views/get_text.rs
+expression: schema
+---
+{
+  "properties": {
+    "article_id": {
+      "type": "string"
+    },
+    "citation": {
+      "type": "string"
+    },
+    "code_title": {
+      "type": "string"
+    },
+    "date_debut": {
+      "description": "Omitted when the entry into force is not set yet (see etat).",
+      "type": "string"
+    },
+    "date_fin": {
+      "description": "Omitted when the article is in force without an end date.",
+      "type": "string"
+    },
+    "eli": {
+      "type": "string"
+    },
+    "etat": {
+      "type": "string"
+    },
+    "next_offset": {
+      "description": "Pass as offset to read the next window.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "nota": {
+      "type": "string"
+    },
+    "note": {
+      "type": "string"
+    },
+    "num": {
+      "type": "string"
+    },
+    "parent_id": {
+      "description": "LEGITEXT or KALITEXT of the parent text.",
+      "type": "string"
+    },
+    "passages": {
+      "items": {
+        "properties": {
+          "offset": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "offset",
+          "text"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "path": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "source_url": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "summary_source": {
+      "enum": [
+        "official",
+        "dispositif",
+        "lead"
+      ],
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    },
+    "text_length": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "article_id",
+    "citation",
+    "source_url",
+    "text_length"
+  ],
+  "type": "object"
+}

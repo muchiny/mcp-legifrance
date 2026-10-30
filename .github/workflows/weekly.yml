@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [dto_decode, from_html, ids, text, version_date]
+        target: [citation_parse, dto_decode, from_html, ids, text, version_date]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

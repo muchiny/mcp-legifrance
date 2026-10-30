@@ -13,6 +13,10 @@ lf-domain.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
 tracing.workspace = true
+# join_all et buffer_unordered (M6, M7)
+futures.workspace = true
+# fr_diff_article (M7, D10 : 2.7)
+similar.workspace = true
 # rt : pour task_local! seulement (Deadline) ; time : Instant et timeout (R2) ; macros : select!
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
 

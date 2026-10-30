@@ -12,6 +12,10 @@ use crate::{
     fond::Fond,
 };
 
+mod number;
+
+pub use number::{NUMBER_VALUE_MAX_CHARS, NumberKind, NumberQuery, NumberValue};
+
 /// Longueur maximale, en caractères, d'une requête normalisée.
 ///
 /// Mesurée en sandbox [V-81 · longueur-max-query] : PISTE accepte 450 caractères et rend un 500

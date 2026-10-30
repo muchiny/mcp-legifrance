@@ -1,0 +1,10 @@
+---
+source: crates/lf-adapter-mcp/src/testing.rs
+---
+{
+  "id": 2,
+  "jsonrpc": "2.0",
+  "result": {
+    "tools": "[redacted]"
+  }
+}

@@ -1,3 +1,17 @@
 msrv = "1.88.0"
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
+
+# Entrées-sorties non déterministes (T-M3-10, 00 §11.1) : l'horloge et l'environnement passent par
+# des ports (`Clock`, `ProcessEnv`) pour que les tests restent déterministes. Exceptions admises :
+# `lf-app` (`clock.rs`, `config.rs`), `xtask/src/main.rs`, et les sites de test ou d'exemple qui
+# portent un `#[expect(clippy::disallowed_methods, reason = …)]`.
+disallowed-methods = [
+  { path = "chrono::Utc::now", reason = "horloge murale : passer par le port `Clock` (injecté), jamais en direct" },
+  { path = "chrono::Local::now", reason = "horloge murale : passer par le port `Clock` (injecté), jamais en direct" },
+  { path = "std::time::SystemTime::now", reason = "horloge murale : passer par le port `Clock` (injecté), jamais en direct" },
+  { path = "std::env::var", reason = "environnement : lu une seule fois par `ProcessEnv` dans lf-app/config.rs, puis injecté" },
+  { path = "std::env::var_os", reason = "environnement : lu une seule fois par `ProcessEnv` dans lf-app/config.rs, puis injecté" },
+  { path = "std::env::vars", reason = "environnement : lu une seule fois par `ProcessEnv` dans lf-app/config.rs, puis injecté" },
+  { path = "std::env::vars_os", reason = "environnement : lu une seule fois par `ProcessEnv` dans lf-app/config.rs, puis injecté" },
+]

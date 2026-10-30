@@ -1,9 +1,13 @@
-//! Noms des outils MCP de la v0.1 (02 §3.2, `tools.rs`).
+//! Noms des outils MCP du catalogue (02 §3.2, `tools.rs`).
 //!
 //! Source unique des noms : l'audit les inscrit (`AuditRecord::tool`) et l'adapter MCP les
 //! enregistre. [`ToolName::ALL`] sert au test de dérive entre les deux.
+//!
+//! `ALL` compte les treize outils enregistrés (v0.1 à v0.3). La lecture d'une resource est
+//! auditée sous `resource:<gabarit>` (`RESOURCE_*`, 05 §8.2) : ces noms ne sont pas des outils et
+//! ne figurent jamais dans `ALL`.
 
-/// Nom d'un outil MCP, toujours préfixé `fr_`.
+/// Nom d'un outil MCP (préfixé `fr_`) ou d'une lecture de resource (préfixé `resource:`).
 ///
 /// Le champ est privé : on ne fabrique un nom que par les constantes ci-dessous, ce qui
 /// interdit qu'une ligne d'audit porte un nom inventé.
@@ -27,9 +31,33 @@ impl ToolName {
     pub const FR_GET_COMPANY_AGREEMENT: Self = Self("fr_get_company_agreement");
     /// `fr_coverage`.
     pub const FR_COVERAGE: Self = Self("fr_coverage");
+    /// `fr_verify_citations` (M6).
+    pub const FR_VERIFY_CITATIONS: Self = Self("fr_verify_citations");
+    /// `fr_resolve` (M6).
+    pub const FR_RESOLVE: Self = Self("fr_resolve");
+    /// `fr_get_related` (M7).
+    pub const FR_GET_RELATED: Self = Self("fr_get_related");
+    /// `fr_diff_article` (M7).
+    pub const FR_DIFF_ARTICLE: Self = Self("fr_diff_article");
+    /// `fr_search_all` (M7).
+    pub const FR_SEARCH_ALL: Self = Self("fr_search_all");
 
-    /// Les outils de la v0.1, dans l'ordre du catalogue (05 §3) ; tout nouvel outil s'y ajoute.
-    pub const ALL: [Self; 8] = [
+    /// Lecture de la resource `legifrance://article/{article_id}` (M7), nom d'audit
+    /// `resource:article`.
+    pub const RESOURCE_ARTICLE: Self = Self("resource:article");
+    /// Lecture de `legifrance://decision/{decision_id}` (M7), nom d'audit `resource:decision`.
+    pub const RESOURCE_DECISION: Self = Self("resource:decision");
+    /// Lecture de `legifrance://act/{text_id}` (M7), nom d'audit `resource:act`.
+    pub const RESOURCE_ACT: Self = Self("resource:act");
+    /// Lecture de `legifrance://code/{code}/article/{num}` (M7), nom d'audit
+    /// `resource:code_article`.
+    pub const RESOURCE_CODE_ARTICLE: Self = Self("resource:code_article");
+    /// Lecture de `legifrance://coverage` (M7), nom d'audit `resource:coverage`.
+    pub const RESOURCE_COVERAGE: Self = Self("resource:coverage");
+
+    /// Les treize outils enregistrés, dans l'ordre du catalogue (05 §3) : les huit de la v0.1,
+    /// puis ceux de M6 et de M7.
+    pub const ALL: [Self; 13] = [
         Self::FR_SEARCH,
         Self::FR_GET_ACT,
         Self::FR_GET_TEXT,
@@ -38,6 +66,11 @@ impl ToolName {
         Self::FR_GET_CONVENTION,
         Self::FR_GET_COMPANY_AGREEMENT,
         Self::FR_COVERAGE,
+        Self::FR_VERIFY_CITATIONS,
+        Self::FR_RESOLVE,
+        Self::FR_GET_RELATED,
+        Self::FR_DIFF_ARTICLE,
+        Self::FR_SEARCH_ALL,
     ];
 
     /// Le nom tel qu'il apparaît dans `tools/list` et dans le journal d'audit.
@@ -67,10 +100,32 @@ mod tests {
                 "fr_get_convention",
                 "fr_get_company_agreement",
                 "fr_coverage",
+                "fr_verify_citations",
+                "fr_resolve",
+                "fr_get_related",
+                "fr_diff_article",
+                "fr_search_all",
             ]
         );
         assert!(names.iter().all(|name| name.starts_with("fr_")));
         assert_eq!(names.iter().collect::<HashSet<_>>().len(), names.len());
+    }
+
+    #[test]
+    fn resources_have_constants_outside_all() {
+        let later = [
+            (ToolName::RESOURCE_ARTICLE, "resource:article"),
+            (ToolName::RESOURCE_DECISION, "resource:decision"),
+            (ToolName::RESOURCE_ACT, "resource:act"),
+            (ToolName::RESOURCE_CODE_ARTICLE, "resource:code_article"),
+            (ToolName::RESOURCE_COVERAGE, "resource:coverage"),
+        ];
+        for (tool, name) in later {
+            assert_eq!(tool.as_str(), name);
+            assert!(!ToolName::ALL.contains(&tool), "{name}");
+        }
+        let names: HashSet<&str> = later.iter().map(|(_, name)| *name).collect();
+        assert_eq!(names.len(), later.len());
     }
 
     #[test]
@@ -84,6 +139,11 @@ mod tests {
             ToolName::FR_GET_CONVENTION,
             ToolName::FR_GET_COMPANY_AGREEMENT,
             ToolName::FR_COVERAGE,
+            ToolName::FR_VERIFY_CITATIONS,
+            ToolName::FR_RESOLVE,
+            ToolName::FR_GET_RELATED,
+            ToolName::FR_DIFF_ARTICLE,
+            ToolName::FR_SEARCH_ALL,
         ];
         assert_eq!(ToolName::ALL, constants);
         assert_eq!(ToolName::ALL.into_iter().collect::<HashSet<_>>().len(), constants.len());

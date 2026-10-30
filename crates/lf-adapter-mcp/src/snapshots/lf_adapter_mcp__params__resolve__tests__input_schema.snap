@@ -1,0 +1,25 @@
+---
+source: crates/lf-adapter-mcp/src/params/resolve.rs
+expression: schema()
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "citation": {
+      "description": "One citation in free text, e.g. \"art. L. 1234-5 du code du travail\" or an ECLI.",
+      "maxLength": 1000,
+      "minLength": 1,
+      "type": "string"
+    },
+    "date": {
+      "default": null,
+      "description": "Date YYYY-MM-DD for the article version (default: today in Paris).",
+      "format": "date",
+      "type": "string"
+    }
+  },
+  "required": [
+    "citation"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,134 @@
+name: Release gates
+
+# Vérifications bloquantes avant toute publication immuable (T-MD-07, 08 §7.5). Workflow
+# réutilisable : dist l'appelle depuis release.yml (`plan-jobs = ["./release-gates"]`), en parallèle
+# de `plan` et avant `build-local-artifacts`, qui l'attend. Si une porte échoue, rien n'est construit
+# ni publié : corriger, supprimer et recréer l'étiquette (08 §7.6).
+#
+# dist appelle ce job sans l'entrée `plan` (elle n'existe pas encore à cette étape), et aussi sur
+# les PR (release.yml se déclenche sur `pull_request`, où `dist plan` suffit) : le job ne tourne
+# donc que sur une étiquette. Une préversion `vX.Y.Z-rc.N` franchit les mêmes portes, ce qui permet
+# de les essayer sans rien publier au registre MCP.
+#
+# Reprend ci.yml sur le commit étiqueté (fmt, clippy, tests, doc, architecture, deny) : un tag peut
+# être posé sur un commit qui n'a jamais traversé la CI. Couverture, mutation, Windows, macOS et
+# SonarQube restent propres à ci.yml.
+#
+# Pas de cache de compilation : un workflow qui précède une publication ne lit pas de cache
+# (cache-poisoning, zizmor). Les entrées d'environnement passent par `env:`, jamais interpolées
+# dans un script.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Actions épinglées par SHA complet, version en commentaire : voir ci.yml.
+jobs:
+  gates:
+    name: portes de publication
+    if: ${{ github.ref_type == 'tag' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Historique et étiquettes complets : `git describe` retrouve l'étiquette précédente.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.0
+          components: clippy, rustfmt
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          # cargo-about 0.9.2 (2026-08-18) : la 0.9.3 (2026-10-26) n'a pas 14 jours.
+          tool: cargo-nextest@0.9.148,cargo-deny@0.20.2,cargo-about@0.9.2
+
+      - name: Étiquette, version du workspace et CHANGELOG
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mcp-legifrance") | .version')"
+          test -n "$VERSION"
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::l'étiquette '$TAG' ne vaut pas 'v$VERSION', version du paquet mcp-legifrance"
+            exit 1
+          fi
+          # Une section `## [X.Y.Z] - AAAA-MM-JJ` (Keep a Changelog 1.1.0, format que dist lit pour
+          # le corps de la release, V-210) ; une préversion peut s'appuyer sur celle de sa version finale.
+          BASE="${VERSION%%-*}"
+          found=
+          for v in "$VERSION" "$BASE"; do
+            pattern="^## \[$(printf '%s' "$v" | sed 's/[.]/\\./g')\] - [0-9]{4}-[0-9]{2}-[0-9]{2}"
+            if grep -Eq "$pattern" CHANGELOG.md; then found=$v; break; fi
+          done
+          if [ -z "$found" ]; then
+            echo "::error::CHANGELOG.md n'a pas de section '## [$VERSION] - AAAA-MM-JJ'"
+            exit 1
+          fi
+          echo "étiquette $TAG = version $VERSION ; section CHANGELOG [$found]"
+
+      - run: cargo fetch --locked
+
+      - name: Verrou des descripteurs, versions alignées, instructions
+        run: |
+          # Verrou, versions du crate, de server.json et du manifeste MCPB alignées (08 §4.4).
+          cargo xtask lock-descriptors --check
+          # Première release : aucune étiquette précédente, comparaison sautée (05 §9.5 : aucune
+          # compatibilité revendiquée avec la référence).
+          PREV="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 'HEAD^' 2>/dev/null || true)"
+          if [ -n "$PREV" ]; then
+            cargo xtask lock-descriptors --compare "$PREV"
+          else
+            echo "aucune étiquette précédente : comparaison sautée"
+          fi
+          cargo xtask instructions-size
+
+      # Cibles du Makefile (06 §7.1) : les mêmes commandes que le job `check` de ci.yml.
+      - name: Qualité (fmt, clippy, doc, architecture, pureté)
+        run: make fmt-check lint doc arch purity
+
+      # Aucun réseau pendant les tests (PT1), comme le job `test` de ci.yml : dépendances déjà
+      # téléchargées, proxys en échec.
+      - name: Tests (aucun réseau hors boucle locale)
+        env:
+          NEXTEST_PROFILE: ci
+          CARGO_NET_OFFLINE: "true"
+          HTTPS_PROXY: http://127.0.0.1:9
+          HTTP_PROXY: http://127.0.0.1:9
+          NO_PROXY: 127.0.0.1,localhost,::1
+        run: make test
+
+      # `--no-tests=warn` : 06 §13.3 prévoit ce test, qu'aucune unité du plan n'écrit. Sans lui,
+      # la porte avertit au lieu de bloquer ; passer à `fail` dès qu'il existe.
+      - name: Documentation (variables d'environnement du README)
+        env:
+          NEXTEST_PROFILE: ci
+        run: cargo nextest run --workspace --all-features --locked --no-tests=warn -E 'test(readme_mentions_only_supported_env_vars)'
+
+      - name: Licences et avis de sécurité (cargo-deny)
+        run: make deny
+
+      - name: Licences tierces à jour (THIRD_PARTY_LICENSES.md)
+        run: |
+          cargo about generate about.hbs > "$RUNNER_TEMP/third-party-licenses.md"
+          diff -u THIRD_PARTY_LICENSES.md "$RUNNER_TEMP/third-party-licenses.md"
+
+      # Script de V2-16 : télécharge mcp-publisher à la version donnée et vérifie sa somme (V-206).
+      - name: server.json valide (mcp-publisher)
+        run: |
+          ./.github/scripts/install-mcp-publisher.sh 1.8.1
+          mcp-publisher validate server.json
+
+      # Canal cargo install (Q13) : mêmes sources et même Cargo.lock que l'étiquette.
+      - name: Canal cargo install
+        run: |
+          cargo install --path crates/lf-app --locked --root "$RUNNER_TEMP/cargo-install"
+          test -x "$RUNNER_TEMP/cargo-install/bin/mcp-legifrance"

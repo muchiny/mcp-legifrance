@@ -16,11 +16,15 @@
 //! §5.1), et ne pas les lire garantit qu'elles ne laissent aucune trace, même de type imprévu.
 //!
 //! Seuls les champs que le mapping lit sont déclarés (04 §8.1) ; depuis le plan 2g,
-//! `natureQualifiee`, `citationJp`, `publicationRecueil`, `typePublicationBulletin`,
-//! `titreLoiDef`, `idTexteJo`, `titreJo`, `ancienId`, `titrages`, `liens`, `decisionAttaquee`
-//! (D30, renvoyée à M7 ; `the_attacked_decision_is_never_read`, `map/decision.rs`) et l'`id` d'un
-//! sommaire sont sautés par `serde_json` sans construire de valeur (mémoire bornée par la taille
-//! du corps) et ne peuvent faire échouer aucun décodage.
+//! `natureQualifiee`, `publicationRecueil`, `typePublicationBulletin`, `titreLoiDef`, `idTexteJo`,
+//! `titreJo`, `ancienId`, `titrages`, `decisionAttaquee` (D30, renvoyée à M7 ;
+//! `the_attacked_decision_is_never_read`, `map/decision.rs`), l'`id` d'un sommaire et, dans un
+//! lien, tout sauf `typeLien` et `title` sont sautés par `serde_json` sans construire de valeur
+//! (mémoire bornée par la taille du corps) et ne peuvent faire échouer aucun décodage.
+//!
+//! `citationJp` (la jurisprudence citée, en prose) et `liens` (dont les `title` des liens de type
+//! `CITATION` sont les textes appliqués) sont lus pour les liens d'une décision (M7, 03 §4.4) : le
+//! premier comme une chaîne, le second comme une liste payée sur le budget du document.
 
 use serde::Deserialize;
 
@@ -76,6 +80,12 @@ pub(crate) struct JuriTextDto {
     /// Résumés officiels.
     #[serde(deserialize_with = "de::bounded_list")]
     pub sommaire: Vec<SommaireDto>,
+    /// Jurisprudence citée, en prose (`""` : alors `None`).
+    #[serde(deserialize_with = "de::opt_nonempty")]
+    pub citation_jp: Option<String>,
+    /// Liens de la décision ; seuls leur type et leur titre sont lus.
+    #[serde(deserialize_with = "de::bounded_list")]
+    pub liens: Vec<LienDto>,
     /// Date du texte, brute.
     #[serde(deserialize_with = "de::opt_raw_date")]
     pub date_texte: Option<RawDate>,
@@ -104,6 +114,20 @@ pub(crate) struct SommaireDto {
     /// Autre résumé (`""` : alors `None`).
     #[serde(deserialize_with = "de::opt_nonempty")]
     pub autre_resume: Option<String>,
+}
+
+/// Lien d'une décision : seuls le type et le titre sont lus. Les identifiants (`id`, `cidTexte`,
+/// `num`…) sont vides dans les captures (recherche 03 §11.6) et ne sont pas déclarés.
+#[derive(Deserialize, Default)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
+#[serde(rename_all = "camelCase", default)]
+pub(crate) struct LienDto {
+    /// Type du lien (`CITATION`, `APPLICATION`…), casse conservée (`""` : alors `None`).
+    #[serde(deserialize_with = "de::opt_nonempty")]
+    pub type_lien: Option<String>,
+    /// Titre du lien, un fragment de prose (`""` : alors `None`).
+    #[serde(deserialize_with = "de::opt_nonempty")]
+    pub title: Option<String>,
 }
 
 #[cfg(test)]
@@ -171,7 +195,9 @@ mod tests {
     fn every_juri_list_is_budgeted() {
         let strings = repeated(r#""x""#, 200_001);
         let objects = repeated("{}", 200_001);
-        for (field, elements) in [("numeroAffaire", &strings), ("sommaire", &objects)] {
+        for (field, elements) in
+            [("numeroAffaire", &strings), ("sommaire", &objects), ("liens", &objects)]
+        {
             assert_too_many::<ConsultJuriResponseDto>(
                 &wrapped(&format!(r#""{field}":{elements}"#)),
                 JURI,
@@ -207,6 +233,11 @@ mod tests {
                     resume_principal: text!("Il résulte de"),
                     autre_resume: text!("Autre résumé"),
                 }],
+                citation_jp: text!("Sur l'interprétation du droit interne"),
+                liens: vec![
+                    LienDto { type_lien: text!("CITATION"), title: text!("article") },
+                    LienDto { type_lien: text!("APPLICATION"), title: text!("Code civil") },
+                ],
                 ..Default::default()
             }
         );
@@ -298,8 +329,54 @@ mod tests {
     fn null_envelope_or_null_lists_give_empty_dtos() {
         let raws = [r#"{"text":null}"#, "{}", r#"{"dereferenced":false}"#];
         assert_eq!(raws.map(|raw| read(raw).text), [None, None, None]);
-        let raw = wrapped(r#""numeroAffaire":null,"sommaire":null"#);
+        let raw = wrapped(r#""numeroAffaire":null,"sommaire":null,"liens":null,"citationJp":null"#);
         assert_eq!(juri(&raw), JuriTextDto::default());
+    }
+
+    #[test]
+    fn citation_jp_and_liens_keep_only_their_type_and_title() {
+        // La capture CETAT a `citationJp: ""` et `liens: []` ; la capture JURI porte des identifiants
+        // vides dans chaque lien, jamais déclarés.
+        let raw = wrapped(
+            r#""citationJp":"","liens":[{"cidTexte":"LEGITEXT000006070721","id":"","num":"1240",
+            "sens":"source","typeLien":"CITATION","title":"Code civil, art. 1240",
+            "dateSignaTexte":{"x":[1]}},{"typeLien":"","title":" "},{"typeLien":null},{}]"#,
+        );
+        let dto = juri(&raw);
+        assert_eq!(dto.citation_jp, None);
+        assert_eq!(
+            dto.liens,
+            vec![
+                LienDto { type_lien: text!("CITATION"), title: text!("Code civil, art. 1240") },
+                LienDto::default(),
+                LienDto::default(),
+                LienDto::default(),
+            ]
+        );
+        // Une prose non vide est rendue telle quelle, espaces compris.
+        let raw = wrapped(r#""citationJp":" Voir  article 1240. ""#);
+        assert_eq!(juri(&raw).citation_jp, text!(" Voir  article 1240. "));
+    }
+
+    #[test]
+    fn a_wrong_type_in_citation_jp_or_liens_is_a_decode_error_with_a_json_path_and_no_value() {
+        assert_eq!(
+            error_of(r#"{"text":{"citationJp":["secret-text-42"]}}"#),
+            "Decode { detail: \"/consult/juri: text.citationJp: invalid type: sequence, expected \
+             a string\" }"
+        );
+        assert_eq!(
+            error_of(
+                r#"{"text":{"liens":[{"title":"ok"},{"typeLien":"CITATION","title":123456789}]}}"#
+            ),
+            "Decode { detail: \"/consult/juri: text.liens[1].title: invalid type: integer, \
+             expected a string\" }"
+        );
+        assert_eq!(
+            error_of(r#"{"text":{"liens":{"title":"secret-text-42"}}}"#),
+            "Decode { detail: \"/consult/juri: text.liens: invalid type: map, expected a \
+             sequence\" }"
+        );
     }
 
     #[test]

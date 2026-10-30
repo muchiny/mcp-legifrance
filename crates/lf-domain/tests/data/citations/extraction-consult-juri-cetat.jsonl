@@ -1,0 +1,35 @@
+{"ambiguity":null,"confidence":"high","end":173,"enum_group":null,"flags":[],"kind":"Text","match":"délibération du 25 février 2020","start":139}
+{"ambiguity":null,"confidence":"high","end":486,"enum_group":null,"flags":[],"kind":"Decision","match":"jugement nos 2005064, 2006015, 2006016 du 30 juin 2022, le tribunal administratif","start":405}
+{"ambiguity":null,"confidence":"high","end":591,"enum_group":null,"flags":[],"kind":"Decision","match":"arrêt n° 22NC02259 du 22 mai 2025 la cour administrative d'appel de Nancy","start":516}
+{"ambiguity":null,"confidence":"high","end":700,"enum_group":null,"flags":[],"kind":"Text","match":"délibération du 25 février 2020","start":666}
+{"ambiguity":null,"confidence":"high","end":1101,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article L. 761-1 du code de justice administrative","start":1051}
+{"ambiguity":null,"confidence":"high","end":1749,"enum_group":null,"flags":[],"kind":"Text","match":"délibération du 25 février 2020","start":1715}
+{"ambiguity":null,"confidence":"high","end":2325,"enum_group":null,"flags":[],"kind":"Text","match":"délibération du 25 février 2020","start":2291}
+{"ambiguity":null,"confidence":"high","end":2729,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article R. 741-7 du code de justice administrative","start":2679}
+{"ambiguity":null,"confidence":"high","end":3195,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article L. 104-7 du code de l'urbanisme","start":3156}
+{"ambiguity":null,"confidence":"high","end":3598,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article L. 600-4-1 du code de l'urbanisme","start":3557}
+{"ambiguity":null,"confidence":"high","end":5307,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article L. 600-4-1 du code de l'urbanisme","start":5266}
+{"ambiguity":null,"confidence":"high","end":5645,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article L. 123-6 du code de l'urbanisme dans sa rédaction applicable au litige","start":5566}
+{"ambiguity":null,"confidence":"high","end":6297,"enum_group":null,"flags":[],"kind":"Text","match":"délibération du 3 février 2015","start":6264}
+{"ambiguity":null,"confidence":"high","end":7496,"enum_group":null,"flags":[],"kind":"Text","match":"délibération du 3 février 2015","start":7463}
+{"ambiguity":null,"confidence":"high","end":7640,"enum_group":null,"flags":[],"kind":"Text","match":"délibération du 25 février 2020","start":7606}
+{"ambiguity":null,"confidence":"high","end":8037,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article L. 104-7 du code de l'urbanisme","start":7998}
+{"ambiguity":"texte_manquant","confidence":"high","end":8101,"enum_group":1,"flags":[],"kind":"CodeArticle","match":"L. 104-1","start":8093}
+{"ambiguity":"texte_manquant","confidence":"high","end":8113,"enum_group":1,"flags":[],"kind":"CodeArticle","match":"L. 104-2","start":8105}
+{"ambiguity":"texte_manquant","confidence":"high","end":8468,"enum_group":2,"flags":[],"kind":"CodeArticle","match":"L. 104-1","start":8460}
+{"ambiguity":"texte_manquant","confidence":"high","end":8480,"enum_group":2,"flags":[],"kind":"CodeArticle","match":"L. 104-2","start":8472}
+{"ambiguity":"texte_manquant","confidence":"high","end":8728,"enum_group":3,"flags":[],"kind":"CodeArticle","match":"L. 104-4","start":8720}
+{"ambiguity":"texte_manquant","confidence":"high","end":8740,"enum_group":3,"flags":[],"kind":"CodeArticle","match":"L. 104-5","start":8732}
+{"ambiguity":null,"confidence":"high","end":9064,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article R. 104-26 du même code","start":9033}
+{"ambiguity":"texte_manquant","confidence":"high","end":9882,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article R. 132-5","start":9866}
+{"ambiguity":null,"confidence":"high","end":11138,"enum_group":4,"flags":[],"kind":"CodeArticle","match":"L. 104-1","start":11130}
+{"ambiguity":null,"confidence":"high","end":11150,"enum_group":4,"flags":[],"kind":"CodeArticle","match":"L. 104-2","start":11142}
+{"ambiguity":null,"confidence":"high","end":13195,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article L. 104-7 du code de l'urbanisme","start":13156}
+{"ambiguity":null,"confidence":"high","end":13304,"enum_group":null,"flags":[],"kind":"Text","match":"délibération du 25 février 2020","start":13270}
+{"ambiguity":null,"confidence":"high","end":13725,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article L. 761-1 du code de justice administrative","start":13675}
+{"ambiguity":null,"confidence":"high","end":13982,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article L. 761-1 du code de justice administrative","start":13932}
+{"ambiguity":"texte_manquant","confidence":"high","end":14024,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"Article 1er","start":14013}
+{"ambiguity":"texte_manquant","confidence":"high","end":14117,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"Article 2","start":14108}
+{"ambiguity":null,"confidence":"high","end":14297,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article L. 761-1 du code de justice administrative","start":14247}
+{"ambiguity":"texte_manquant","confidence":"high","end":14308,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"Article 3","start":14299}
+{"ambiguity":null,"confidence":"high","end":15055,"enum_group":null,"flags":[],"kind":"Ecli","match":"ECLI:FR:CECHR:2026:506507.20260529","start":15021}

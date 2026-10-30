@@ -1,0 +1,32 @@
+---
+source: crates/lf-adapter-mcp/src/params/get_convention.rs
+expression: schema
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "convention_id": {
+      "description": "A KALITEXT... id (from fr_search on fond KALI).",
+      "type": "string"
+    },
+    "toc_limit": {
+      "default": 100,
+      "description": "Maximum table-of-contents entries (1..500).",
+      "format": "uint32",
+      "maximum": 500,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "toc_offset": {
+      "default": 0,
+      "description": "First table-of-contents entry (pass next_toc_offset).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "convention_id"
+  ],
+  "type": "object"
+}

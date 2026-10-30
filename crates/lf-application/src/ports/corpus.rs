@@ -1,17 +1,45 @@
 //! Port sortant unique vers le corpus juridique (02 §5.1, 00 §3) : PISTE en v0.x, DILA en M9.
 //!
-//! Les sept méthodes de la v0.1 ; `find_article`, `find_by_number` et `list_codes` arrivent en
-//! M6, `article_versions` et `related_links` en M7.
+//! Douze méthodes : les sept de la v0.1, `find_article`, `find_by_number` et `list_codes` pour M6,
+//! `article_versions` et `related_links` pour M7. Le port est gelé complet dès la vague 0 (D3 du
+//! plan « fin du projet »), car ajouter une méthode plus tard casserait chaque implémentation.
 
 use std::time::Duration;
 
 use lf_domain::{
     date::VersionDate,
-    entity::{Act, ArticleText, CompanyAgreement, Convention, Decision, Deliberation, SearchPage},
+    entity::{
+        Act, ArticleText, ArticleVersion, CodeListing, CompanyAgreement, Convention, Decision,
+        Deliberation, RelatedLinks, SearchHit, SearchPage,
+    },
     id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId},
-    search::SearchQuery,
+    search::{NumberQuery, SearchQuery},
 };
 use thiserror::Error;
+
+/// Date demandée à `find_article` : le signal « aujourd'hui » que l'adapter, qui n'a pas
+/// d'horloge, ne peut pas deviner (D5, 02 §5.1).
+///
+/// L'application choisit [`ArticleAt::Today`] quand la date demandée vaut `clock.today_paris()`.
+/// L'adapter peut alors interroger `getArticleWithIdAndNum`, qui ne rend que la version en
+/// vigueur ; pour [`ArticleAt::On`] il passe par la recherche exacte filtrée sur la date.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ArticleAt {
+    /// Le jour courant à Paris : la version en vigueur.
+    Today(VersionDate),
+    /// Un autre jour : la version en vigueur à cette date.
+    On(VersionDate),
+}
+
+impl ArticleAt {
+    /// La date demandée, dans les deux cas.
+    #[must_use]
+    pub const fn date(self) -> VersionDate {
+        match self {
+            Self::Today(date) | Self::On(date) => date,
+        }
+    }
+}
 
 /// Port sortant vers le corpus juridique.
 ///
@@ -61,6 +89,40 @@ pub trait LegalCorpus: Send + Sync + 'static {
         &self,
         id: &AccoTextId,
     ) -> impl Future<Output = Result<CompanyAgreement, CorpusError>> + Send;
+
+    /// Article d'un texte par son numéro (M6) : `getArticleWithIdAndNum` pour
+    /// [`ArticleAt::Today`], recherche exacte sur `NUM_ARTICLE` et `DATE_VERSION` pour
+    /// [`ArticleAt::On`]. L'application a déjà résolu le code en identifiant de texte par
+    /// [`LegalCorpus::list_codes`].
+    fn find_article(
+        &self,
+        text: &LegiTextId,
+        num: &str,
+        at: ArticleAt,
+    ) -> impl Future<Output = Result<ArticleText, CorpusError>> + Send;
+
+    /// Recherche par numéro (M6) : affaire, décision, délibération, IDCC, NOR, ECLI, ELI,
+    /// numéro d'article ou de texte, selon [`NumberQuery`].
+    fn find_by_number(
+        &self,
+        query: &NumberQuery,
+    ) -> impl Future<Output = Result<Vec<SearchHit>, CorpusError>> + Send;
+
+    /// Liste des codes (M6, `/list/code`), abrogés compris. Chargée au premier besoin, jamais au
+    /// démarrage.
+    fn list_codes(&self) -> impl Future<Output = Result<Vec<CodeListing>, CorpusError>> + Send;
+
+    /// Versions d'un article (M7, `canonicalArticleVersion`).
+    fn article_versions(
+        &self,
+        id: &ArticleId,
+    ) -> impl Future<Output = Result<Vec<ArticleVersion>, CorpusError>> + Send;
+
+    /// Liens d'un article (M7, `relatedLinksArticle`).
+    fn related_links(
+        &self,
+        id: &ArticleId,
+    ) -> impl Future<Output = Result<RelatedLinks, CorpusError>> + Send;
 }
 
 /// Endpoint qui a refusé les identifiants ([`CorpusError::Auth`]).
@@ -202,6 +264,10 @@ pub enum CorpusError {
 mod tests {
     use super::*;
     use crate::testing::fixtures::{poll_once, query};
+    use lf_domain::{
+        fond::Fond,
+        search::{NumberKind, NumberValue},
+    };
     use pretty_assertions::assert_eq;
     use std::{future::ready, task::Poll};
 
@@ -238,6 +304,29 @@ mod tests {
         ) -> Result<CompanyAgreement, CorpusError> {
             ready(Err(named("get_company_agreement"))).await
         }
+        async fn find_article(
+            &self,
+            _: &LegiTextId,
+            _: &str,
+            _: ArticleAt,
+        ) -> Result<ArticleText, CorpusError> {
+            ready(Err(named("find_article"))).await
+        }
+        async fn find_by_number(&self, _: &NumberQuery) -> Result<Vec<SearchHit>, CorpusError> {
+            ready(Err(named("find_by_number"))).await
+        }
+        async fn list_codes(&self) -> Result<Vec<CodeListing>, CorpusError> {
+            ready(Err(named("list_codes"))).await
+        }
+        async fn article_versions(
+            &self,
+            _: &ArticleId,
+        ) -> Result<Vec<ArticleVersion>, CorpusError> {
+            ready(Err(named("article_versions"))).await
+        }
+        async fn related_links(&self, _: &ArticleId) -> Result<RelatedLinks, CorpusError> {
+            ready(Err(named("related_links"))).await
+        }
     }
 
     async fn every_method<C: LegalCorpus>(corpus: &C) -> Vec<CorpusError> {
@@ -255,7 +344,29 @@ mod tests {
                 .get_company_agreement(&"ACCOTEXT000037731479".parse().unwrap())
                 .await
                 .unwrap_err(),
+            corpus
+                .find_article(
+                    &"LEGITEXT000006070721".parse().unwrap(),
+                    "9",
+                    ArticleAt::Today(VersionDate::MIN),
+                )
+                .await
+                .unwrap_err(),
+            corpus.find_by_number(&number_query()).await.unwrap_err(),
+            corpus.list_codes().await.unwrap_err(),
+            corpus.article_versions(&"LEGIARTI000006419288".parse().unwrap()).await.unwrap_err(),
+            corpus.related_links(&"LEGIARTI000006419288".parse().unwrap()).await.unwrap_err(),
         ]
+    }
+
+    fn number_query() -> NumberQuery {
+        NumberQuery::new(
+            Fond::Juri,
+            NumberKind::Case,
+            NumberValue::parse("24-13.470").unwrap(),
+            VersionDate::MIN,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -269,8 +380,23 @@ mod tests {
             "get_deliberation",
             "get_convention",
             "get_company_agreement",
+            "find_article",
+            "find_by_number",
+            "list_codes",
+            "article_versions",
+            "related_links",
         ];
         assert_eq!(errors, Poll::Ready(names.map(named).to_vec()));
+    }
+
+    #[test]
+    fn article_at_carries_the_date_in_both_cases() {
+        let today = VersionDate::parse("2026-10-29").unwrap();
+        let earlier = VersionDate::parse("2020-01-01").unwrap();
+        assert_eq!(ArticleAt::Today(today).date(), today);
+        assert_eq!(ArticleAt::On(earlier).date(), earlier);
+        // Même date, signal différent : deux clés de cache distinctes.
+        assert_ne!(ArticleAt::Today(today), ArticleAt::On(today));
     }
 
     #[test]

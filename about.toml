@@ -1,0 +1,54 @@
+# Configuration de cargo-about 0.9.2 (08 §9.3) : génère THIRD_PARTY_LICENSES.md avec `about.hbs`.
+#
+#   cargo about generate about.hbs > THIRD_PARTY_LICENSES.md
+#
+# La commande se lance à la racine, sans option : `release-gates` rejoue exactement celle-ci puis
+# compare le résultat au fichier versionné (`diff -u`). Tout ce qui doit être stable se règle donc
+# ici et non en ligne de commande.
+#
+# Même liste blanche que `deny.toml` (`[licenses] allow`), dans le même ordre : quand l'expression
+# SPDX d'un paquet offre le choix (`MIT OR Apache-2.0`), la première licence admise l'emporte, ce
+# qui rend le choix déterministe. Les paquets du seul fuzzing (`fuzz/`, hors workspace, jamais
+# livré, NCSA de `libfuzzer-sys`) ne sont pas dans ce graphe.
+accepted = [
+  "MIT",
+  "Apache-2.0",
+  "Unicode-3.0",
+  "ISC",
+  "BSD-3-Clause",
+  "CDLA-Permissive-2.0",
+  "Zlib",
+  "MIT-0",
+]
+
+# Seul ce qui est lié au binaire livré compte : ni les dépendances de développement (tests,
+# `wiremock`, `insta`…), ni celles qui ne servent qu'à la construction.
+ignore-dev-dependencies = true
+ignore-build-dependencies = true
+
+# Les cibles de `dist-workspace.toml`. Une dépendance réservée à une autre cible (Windows, macOS)
+# figure dans le fichier : une archive de chaque cible contient le même document.
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-unknown-linux-musl",
+  "aarch64-unknown-linux-musl",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+]
+
+# `ring` n'est pas dans le graphe (TLS par aws-lc-rs, option A de 00 §8) : s'il y entrait un jour,
+# relire son LICENSE (il cite du code OpenSSL/BoringSSL absent de son expression SPDX) et
+# envisager `workarounds = ["ring"]` (08 §9.3).
+
+# Les membres du workspace sont sous Apache-2.0 (`LICENSE`) et non publiés : on ne contrôle pas leur
+# expression de licence.
+[private]
+ignore = true
+
+# MPL-2.0 (copyleft de fichier) : `option-ext`, tiré par `dirs-sys` (dossier de données de l'audit).
+# Dépendance non modifiée, liée telle quelle ; exception nominative, comme dans `deny.toml`, pour
+# que tout autre paquet MPL-2.0 fasse échouer la génération.
+[option-ext]
+accepted = ["MPL-2.0"]

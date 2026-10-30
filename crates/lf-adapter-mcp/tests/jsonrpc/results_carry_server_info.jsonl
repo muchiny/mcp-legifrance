@@ -1,0 +1,8 @@
+{"comment":"C-30, V-32 : serverInfo est dans _meta de server/discover ; les autres résultats modernes ne le portent pas (rmcp 3.5.1 ne le pose que sur discover et la clôture de listen) : écart noté, annexe D §3.6"}
+{"comment":"à inverser si list_tools et call_tool posent _meta.serverInfo (moyen de l'annexe D §3.6)"}
+{"send":{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":1,"result":{"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"mcp-legifrance"}}}}}
+{"send":{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":2,"result":{"resultType":"complete"}},"absent":["/result/_meta/io.modelcontextprotocol~1serverInfo"]}
+{"send":{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"fr_coverage","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":3,"result":{"resultType":"complete","isError":false,"content":[{"type":"text"}],"structuredContent":{"attribution":"Source : Légifrance / DILA — Licence Ouverte 2.0"}}},"absent":["/result/_meta/io.modelcontextprotocol~1serverInfo"]}

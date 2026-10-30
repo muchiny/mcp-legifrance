@@ -1,0 +1,13 @@
+endpoint = "/search/canonicalArticleVersion"
+request = "{\"id\":\"LEGIARTI000000000000\"}"
+env = "sandbox"
+captured_at = "2026-10-29T10:30:12Z"
+http_status = 200
+elapsed_ms = 153
+bytes_raw = 0
+sha256_raw = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+sha256_file = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

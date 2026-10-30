@@ -1,0 +1,13 @@
+---
+source: crates/lf-adapter-mcp/src/testing.rs
+---
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": {
+    "cacheScope": "public",
+    "resultType": "complete",
+    "tools": "[redacted]",
+    "ttlMs": 3600000
+  }
+}

@@ -1506,6 +1506,10 @@ mod tests {
     #[tokio::test]
     async fn error_detail_never_contains_secret_or_token() {
         let (capture, _guard) = capture_at(tracing::Level::TRACE);
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "test : suffixe imprévisible tiré de l'horloge murale, sans dépendance (ADR-0018)"
+        )]
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let secret = format!("s3cr3t-{nanos:x}");
         let token = format!("t0k3n-{nanos:x}");

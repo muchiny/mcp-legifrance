@@ -6,5 +6,5 @@ pub mod corpus;
 
 pub use audit::{AuditError, AuditErrorKind, AuditLog, AuditRecord, AuditStatus};
 pub use clock::Clock;
-pub use corpus::{AuthOrigin, ConfigKind, CorpusError, LegalCorpus};
+pub use corpus::{ArticleAt, AuthOrigin, ConfigKind, CorpusError, LegalCorpus};
 pub use lf_domain::coverage::PisteEnvironment;

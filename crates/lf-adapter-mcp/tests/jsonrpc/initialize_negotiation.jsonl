@@ -1,0 +1,14 @@
+{"comment":"C-27 : 2025-11-25 et 2025-06-18 sont rendues telles quelles ; 2025-03-26, 2024-11-05 et 2026-07-28 donnent le repli 2025-11-25 (annexe D §4.4)"}
+{"send":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"transcript","version":"0"}}}}
+{"expect":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","serverInfo":{"name":"mcp-legifrance","title":"Légifrance (PISTE)","websiteUrl":"https://github.com/muchiny/mcp-legifrance"}}},"absent":["/result/resultType"]}
+{"send":{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"transcript","version":"0"}}}}
+{"expect":{"jsonrpc":"2.0","id":2,"result":{"protocolVersion":"2025-11-25","serverInfo":{"name":"mcp-legifrance","title":"Légifrance (PISTE)","websiteUrl":"https://github.com/muchiny/mcp-legifrance"}}},"absent":["/result/resultType"]}
+{"send":{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"transcript","version":"0"}}}}
+{"expect":{"jsonrpc":"2.0","id":3,"result":{"protocolVersion":"2025-11-25","serverInfo":{"name":"mcp-legifrance","title":"Légifrance (PISTE)","websiteUrl":"https://github.com/muchiny/mcp-legifrance"}}},"absent":["/result/resultType"]}
+{"send":{"jsonrpc":"2.0","id":4,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"transcript","version":"0"}}}}
+{"expect":{"jsonrpc":"2.0","id":4,"result":{"protocolVersion":"2025-11-25","serverInfo":{"name":"mcp-legifrance","title":"Légifrance (PISTE)","websiteUrl":"https://github.com/muchiny/mcp-legifrance"}}},"absent":["/result/resultType"]}
+{"send":{"jsonrpc":"2.0","id":5,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"transcript","version":"0"}}}}
+{"expect":{"jsonrpc":"2.0","id":5,"result":{"protocolVersion":"2025-11-25","serverInfo":{"name":"mcp-legifrance","title":"Légifrance (PISTE)","websiteUrl":"https://github.com/muchiny/mcp-legifrance"}}},"absent":["/result/resultType"]}
+{"comment":"initialize réduit à un _meta moderne n'a pas de paramètres legacy : méthode inconnue (écart conforme, annexe D §4.2)"}
+{"send":{"jsonrpc":"2.0","id":6,"method":"initialize","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":6,"error":{"code":-32601}},"absent":["/result"]}

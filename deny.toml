@@ -13,7 +13,7 @@ include-dev = true
 # Liste exacte du graphe complet (dev comprise, toutes plateformes) : chaque licence est requise par
 # au moins un paquet sans alternative admise (M1-D17 ; retirer une licence fait échouer
 # `cargo deny check licenses`). Ni OpenSSL (absente des expressions d'aws-lc-sys et de ring), ni
-# MPL-2.0, ni LGPL (r-efi : alternative MIT).
+# MPL-2.0 globale (une exception nominative, plus bas), ni LGPL (r-efi : alternative MIT).
 allow = [
   "MIT",                 # tokio, hyper, governor, bytes, ... (34 paquets sans autre licence admise, dont phf et phf_shared ; `cargo deny list`)
   "Apache-2.0",          # nonzero_ext, sync_wrapper (seules), ryu et dunce (alternative), aws-lc-sys
@@ -22,31 +22,64 @@ allow = [
   "BSD-3-Clause",        # aws-lc-sys, subtle (chaîne TLS de reqwest)
   "CDLA-Permissive-2.0", # webpki-root-certs (racines de certificats, chaîne TLS de reqwest)
   "Zlib",                # foldhash 0.2.0 (licence seule), tiré par hashbrown 0.16.1 <- governor (T-M2-04)
+  "MIT-0",               # borrow-or-share 0.2.4 (licence seule), tiré par fluent-uri <- referencing <- jsonschema (dev de lf-adapter-mcp, xtask) ; ADR-0018
 ]
 exceptions = [
   # Fuzzing seulement (fuzz/Cargo.lock, hors workspace, jamais livré) : « (MIT OR Apache-2.0) AND NCSA ».
   # NCSA est permissive mais n'est requise par aucun autre paquet : exception nominative plutôt que
   # licence globale, pour que tout nouveau paquet sous NCSA soit vu.
   { crate = "libfuzzer-sys", allow = ["NCSA"] },
+  # MPL-2.0 (copyleft de fichier, sans effet sur notre code : dépendance non modifiée, liée telle quelle) :
+  # option-ext 0.2.0 est tiré par dirs-sys <- dirs 6.0 (lf-app, défaut de LF_AUDIT_DIR via `data_dir()`,
+  # 02 §3.0.1). Exception nominative plutôt que licence globale, pour que tout autre paquet MPL-2.0 soit
+  # vu ; ADR-0018.
+  { crate = "option-ext", allow = ["MPL-2.0"] },
 ]
 
 [licenses.private]
 ignore = true
 
 [bans]
-multiple-versions = "warn"
+# T-M5-09 : un doublon de version est une erreur, sauf s'il est listé dans `skip` ci-dessous. Chaque entrée vise
+# une version précise (`crate@version`, la plus ancienne des deux) et dit quels paquets la tirent. Aucun
+# `skip-tree` : trop large. Quand le paquet qui tire la vieille version monte, cargo-deny signale le `skip`
+# devenu inutile (`unmatched-skip`) : il se retire alors. Aucun `cargo update` ne les résout aujourd'hui
+# (les exigences des paquets amont, `^0.22` de base64 par exemple, excluent la version commune).
+multiple-versions = "deny"
 wildcards = "deny"
 allow-wildcard-paths = true
+skip = [
+  { crate = "base64@0.22.1", reason = "tantivy 0.26.2 (index DILA, M9) et wiremock 0.6.5 (dev de lf-adapter-piste et de mcp-legifrance) exigent ^0.22 ; reqwest, hyper-util et rmcp 3.5.1 sont en 0.23" },
+  { crate = "core-foundation@0.9.4", reason = "system-configuration 0.7.0 <- hyper-util 0.1.21 <- reqwest, axum et wiremock (macOS seulement) ; rustls-platform-verifier et security-framework sont en 0.10" },
+  { crate = "fs4@0.13.1", reason = "D21 : tantivy 0.26.2 tire fs4 ^0.13.1 par sa feature `mmap`, que l'index sur disque de M9 exige ; lf-adapter-audit prend fs4 1.1 (confinement : `wrappers` de fs4 plus bas)" },
+  { crate = "getrandom@0.3.4", reason = "ahash 0.8.12, jsonschema 0.58.6, jsonschema-value et referencing (dev de lf-adapter-mcp, xtask) ; jobserver, rand 0.10, tempfile et uuid sont en 0.4" },
+  { crate = "hashbrown@0.16.1", reason = "governor 0.10.4 (lf-adapter-piste) et lru 0.16.4 <- tantivy 0.26.2 ; indexmap 2.14.2 et referencing (jsonschema) sont en 0.17" },
+  { crate = "r-efi@5.3.0", reason = "getrandom 0.3.4 (cible UEFI) ; getrandom 0.4.3 tire r-efi 6.0.0 (voir getrandom@0.3.4)" },
+  { crate = "syn@2.0.119", reason = "tracing-attributes 0.1.31, strum_macros 0.28.0 (tantivy), jni-macros et jni-sys-macros (rustls-platform-verifier), windows-implement et windows-interface ; les autres macros dérivées (serde_derive, thiserror-impl, rmcp-macros, schemars_derive, clap_derive...) sont en syn 3" },
+  { crate = "windows-sys@0.59.0", reason = "fs4 0.13.1 (tantivy, voir fs4@0.13.1) ; le reste du graphe (fs4 1.1, tokio, mio, socket2, tempfile...) est en 0.61.2" },
+]
 deny = [
   { crate = "openssl", reason = "TLS = rustls uniquement (00 §8)" },
   { crate = "openssl-sys", reason = "TLS = rustls uniquement" },
   { crate = "native-tls", reason = "TLS = rustls uniquement" },
   { crate = "backoff", reason = "non maintenu ; réessais maison (ADR-0017)" },
-  # wrappers : seuls les crates déjà dans le graphe ; rmcp (M4) et moka (M3) viennent à leur jalon.
+  # wrappers : crates déjà dans le graphe (rmcp, moka et le reste arrivent en 0B, plus bas).
   # Seconde ligne derrière R6 de `cargo xtask check-arch` (02 §4.3) : un autre membre qui déclare
   # reqwest, ou un dev-dependency qui le tire (graph all-features), rend `check bans` rouge.
   { crate = "reqwest", wrappers = ["lf-adapter-piste"], reason = "HTTP sortant confiné à l'adapter PISTE (R6)" },
   { crate = "governor", wrappers = ["lf-adapter-piste"], reason = "limiteur de débit confiné à l'adapter PISTE (R6)" },
+  # Confinements de la fin du projet (ADR-0018). `wrappers` ne regarde que le parent direct : ce sont les
+  # parents directs réels (`cargo tree -i <crate> -e normal,dev --all-features --depth 1`).
+  { crate = "rmcp", wrappers = ["lf-adapter-mcp"], reason = "SDK MCP confiné à l'adapter MCP (R6)" },
+  { crate = "rmcp-macros", wrappers = ["lf-adapter-mcp", "rmcp"], reason = "macros de rmcp : déclaré par l'adapter MCP pour son épinglage exact, tiré par rmcp" },
+  { crate = "schemars", wrappers = ["lf-adapter-mcp", "rmcp"], reason = "schémas JSON des outils : confinés à l'adapter MCP, tirés par rmcp" },
+  { crate = "moka", wrappers = ["lf-adapter-cache"], reason = "cache mémoire confiné à l'adapter de cache (R6)" },
+  { crate = "sha2", wrappers = ["lf-adapter-audit"], reason = "empreintes de l'audit confinées à l'adapter d'audit (R6)" },
+  { crate = "fs4", wrappers = ["lf-adapter-audit", "tantivy"], reason = "verrou de fichier de l'audit (fs4 1.x) ; tantivy tire fs4 0.13 par sa feature `mmap` (D21)" },
+  { crate = "axum", wrappers = ["lf-adapter-mcp"], reason = "serveur HTTP du transport Streamable HTTP confiné à l'adapter MCP (R6, M8)" },
+  { crate = "tantivy", wrappers = ["lf-adapter-dila"], reason = "index local confiné à l'adapter DILA (R6, M9)" },
+  { crate = "quick-xml", wrappers = ["lf-adapter-dila"], reason = "lecture des dumps XML confinée à l'adapter DILA (R6, M9)" },
+  { crate = "tar", wrappers = ["lf-adapter-dila"], reason = "lecture des archives confinée à l'adapter DILA (R6, M9)" },
 ]
 
 [sources]

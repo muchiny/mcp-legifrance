@@ -10,6 +10,10 @@ profile = "mutants"
 additional_cargo_args = ["--locked"]
 exclude_globs = [
     "xtask/src/main.rs", # glue d'I/O (cargo metadata, stdout) ; la logique est dans arch.rs
+    # colle `serve_stdio` sur les vrais stdin et stdout (D6, 06 §7.6) : exclue de la couverture `--lib`
+    # (COV_IGNORE du Makefile) et couverte par l'e2e du binaire ; la logique du cycle de vie est dans
+    # lifecycle.rs, muté.
+    "crates/lf-adapter-mcp/src/stdio.rs",
     "crates/lf-adapter-piste/examples/**", # glue d'E/S de record-fixture ; la logique est dans src/record.rs
     "fuzz/**", # cibles cargo-fuzz hors workspace (Cargo.toml exclude) : pas du code livré ; filet si le dossier y entrait
 ]
@@ -19,6 +23,11 @@ exclude_re = [
     # la bibliothèque standard définit comme `Vec::new()` : même valeur, même capacité nulle, aucune
     # allocation. Aucun test ne peut les distinguer (mutant équivalent, plan 2f, Task 33).
     'ListVisitor<T>>::visit_none -> .* with Ok\(Default::default\(\)\)$',
+    # lenient.rs, `OptInt::visit_none` et `OptInt::visit_unit` : leur corps est `Ok(None)` et
+    # `Self::Value` vaut `Option<i64>`. Le mutant `Ok(Default::default())` appelle
+    # `<Option<i64> as Default>::default()`, qui vaut `None` : même valeur, aucun test ne peut les
+    # distinguer (mutant équivalent, comme `ListVisitor::visit_none` ci-dessus).
+    'for OptInt>::visit_(none|unit) -> .* with Ok\(Default::default\(\)\)$',
     # sha256.rs, `choose` (Ch de FIPS 180-4) : `(x & y) ^ (!x & z)`. Les deux opérandes n'ont jamais un
     # bit à 1 en commun (l'un est masqué par `x`, l'autre par `!x`) : `^` et `|` donnent le même
     # résultat sur toutes les entrées (équivalent, plan 2h, Task 9).
@@ -28,4 +37,12 @@ exclude_re = [
     # termes à 1 ne vaut que 0, 1 ou 3. Or le xor de 0, 1 ou 3 uns vaut 0, 1 ou 1, comme leur ou.
     # Les deux `^` donnent donc le même résultat que `|` sur toutes les entrées (équivalent, plan 2h).
     'sha256\.rs:\d+:\d+: replace \^ with \| in majority$',
+    # citation/normalize.rs, `joins` : le garde `next < '\u{300}'` ne s'évalue qu'après le retour
+    # anticipé `canonical_combining_class(next) != 0`. Ce garde n'est qu'un raccourci de performance :
+    # sous U+0300, aucun caractère de base ne se compose avec ce qui précède, donc `joined != apart`
+    # y vaut déjà faux. Deux mutants ne changent aucune sortie : `<=`, car la seule valeur où `<` et
+    # `<=` diffèrent est U+0300, une marque (classe 230) qui a déjà rendu `true` plus haut ; `==`,
+    # car il supprime le raccourci (même résultat par le chemin lent, seulement plus coûteux). Le
+    # mutant `>` reste visé : il casse la composition Hangul (nfc_composes_by_group).
+    'normalize\.rs:\d+:\d+: replace < with (<=|==) in joins$',
 ]

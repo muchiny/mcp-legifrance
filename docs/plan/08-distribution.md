@@ -376,10 +376,10 @@ La référence téléchargeait `mcp-publisher` en `latest` par `curl | tar` sans
 | Actions épinglées par SHA | `github-action-commits` pour le workflow généré ; SHA en dur dans nos workflows réutilisables ; mises à jour par Dependabot (`github-actions`, 02 §2) |
 | Outils téléchargés à version fixe et vérifiés | `mcp-publisher` en **v1.8.1** (dernier tag au 2026-10-15, `git ls-remote`) téléchargé depuis la release du tag et vérifié contre le fichier de sommes publié par goreleaser (signé par cosign, `registry/.goreleaser.yaml`). Nom exact de ce fichier : **NON VÉRIFIÉ** [V-206 · mcp-publisher-checksums] |
 | Pas de jeton longue durée | OIDC pour le registre MCP, l'attestation, GHCR (`GITHUB_TOKEN`) et Azure ; aucun jeton crates.io en v0.x, faute de publication (Q13) ; à v1.0.0, OIDC si possible (§6.4) |
-| Environnement protégé | environnement GitHub `release`, limité aux tags `v*` et éventuellement soumis à un relecteur (recommandation du registre : `docs/modelcontextprotocol-io/github-actions.mdx`, « Securing your registry token in CI ») |
+| Environnement protégé | environnement GitHub `release`, limité aux tags `v*` et éventuellement soumis à un relecteur ; **à créer avant la première étiquette (T-MD-16 : relevé du 2026-10-30, aucun environnement n'existe)** (recommandation du registre : `docs/modelcontextprotocol-io/github-actions.mdx`, « Securing your registry token in CI ») |
 | Pas de `pull_request_target` | aucun workflow de publication ne s'exécute sur du code de PR (même source) |
 | Analyse statique des workflows | `zizmor` et `actionlint` en CI (06) |
-| Tags protégés | règle de protection des tags `v*` : seuls les mainteneurs créent un tag |
+| Tags protégés | règle de protection des tags `v*` : seuls les mainteneurs créent un tag ; **à créer avant la première étiquette (T-MD-16)** |
 
 Attention à la tension entre épinglage et compatibilité : un `mcp-publisher` trop ancien échoue avec `invalid audience` face au registre (`github-actions.mdx`, section « Troubleshooting »). La version épinglée est donc relevée à chaque release, et l'échec est traité comme un signal de mise à jour, pas comme un incident.
 
@@ -523,6 +523,7 @@ esac
 
 - Le dépôt contient `packaging/mcpb/manifest.json` (02 §2), `packaging/mcpb/launcher` et `packaging/mcpb/icon.png`.
 - `cargo xtask lock-descriptors --update` réécrit la section `tools` et le champ `version` du manifeste à partir du verrou. `--check` (mode par défaut, 05 §9.4) échoue si le manifeste diverge : version différente de celle du workspace, ou outils différents du verrou. C'est la ligne `xtask` de 00 §2 (révision 2, AM-31) : génération et contrôle du manifeste MCPB et de la version de `server.json` par `lock-descriptors`, sans nouvelle commande (§12.1, point 9).
+- **Amendement du 2026-10-29 (F6-b, d'après `xtask/src/lock_descriptors.rs` et `packaging/check-server-json.sh`).** `--update` ne pose dans `server.json` que les champs `version` (celui du fichier et celui du paquet) ; les identifiants des paquets `mcpb` (URL de l'asset) et `oci` (référence de l'image) ne sont **pas** réécrits et se changent à la main à chaque version. `packaging/check-server-json.sh [--provisional] <server.json> <version> [<manifest.json>]` en contrôle la cohérence avec la version de la release, le manifeste et les noms des assets (`jq` requis) : sans `--provisional`, il exige la somme `fileSha256` réelle du MCPB ; avec, il accepte la somme provisoire de 64 zéros du fichier versionné. Un décalage échoue avant le registre, car une version publiée est immuable (§6.6).
 - Un seul manifeste : il n'existe pas de bundle par architecture (§4.1).
 
 ### 4.5 Construction en CI (job `build-mcpb`)
@@ -828,6 +829,8 @@ Le **SemVer de la surface d'outils** (classes rupture, ajout et correctif ; règ
 
 La politique de version ne dépend pas des jalons : M5 → v0.1.0, M6 → v0.2.0, M7 → v0.3.0, M8 → v0.4.0, M9 → v1.0.0 (00 §11). Une version corrective `0.x.(y+1)` peut sortir à tout moment.
 
+**Amendement du 2026-10-29 (D14, fin de projet).** Les jalons M5 à M7 ne sont pas publiés un à un : le workspace passe directement à `0.3.0` (verrou, manifeste MCPB et `server.json` alignés), et aucune version, étiquette ni release n'existe encore (CHANGELOG : `## [0.3.0] - non publiée`). Les versions `0.1.0` et `0.2.0` des exemples de ce document restent des exemples. Les identifiants de `server.json` pour `0.3.0` pointent vers des assets qui n'existent pas avant l'étiquette `v0.3.0` ; leur somme `fileSha256` est provisoire jusqu'au job `build-mcpb`. L'étiquette, la signature (Q5) et le canal `cargo install --git` (Q13) restent des décisions du propriétaire.
+
 ### 7.2 CHANGELOG
 
 - Format **Keep a Changelog** 1.1.0 ; fichier `CHANGELOG.md` à la racine. La référence n'en avait pas, alors que sa CONSTITUTION l'exigeait (D-43). Les règles communes figurent dans [06-qualite.md](06-qualite.md) §13.3, que ce paragraphe complète pour la release.
@@ -969,7 +972,7 @@ L'ajout d'assets à une release déjà publiée peut être interdit si l'option 
 | `LF_PISTE_CLIENT_ID` / `LF_PISTE_CLIENT_SECRET` d'une application **sandbox** du projet | tests live uniquement (`live.yml`, 02 §2) | **jamais** dans les workflows de release | environnement dédié, jamais exposé aux PR de forks |
 | identifiants PISTE de **production** | sondes en lecture seule lancées à la main par le mainteneur avant chaque étiquette (§7.3) | **aucun** : jamais d'identifiants de production en CI (00 §10, Q3) | poste du mainteneur seulement |
 
-L'environnement `release` n'accepte que les tags `v*`, avec relecteur obligatoire en option, comme le recommande le registre (`github-actions.mdx`). Avec l'authentification GitHub, le namespace personnel `io.github.muchiny/*` couvre **tous** les serveurs du compte : un workflow compromis dans un autre dépôt du même compte pourrait publier sous ce nom. D'où la protection des workflows de chaque dépôt du compte.
+L'environnement `release` doit n'accepter que les tags `v*` (à créer : T-MD-16), avec relecteur obligatoire en option, comme le recommande le registre (`github-actions.mdx`). Avec l'authentification GitHub, le namespace personnel `io.github.muchiny/*` couvre **tous** les serveurs du compte : un workflow compromis dans un autre dépôt du même compte pourrait publier sous ce nom. D'où la protection des workflows de chaque dépôt du compte.
 
 ---
 

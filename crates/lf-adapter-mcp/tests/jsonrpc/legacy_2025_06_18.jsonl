@@ -1,0 +1,16 @@
+{"comment":"C-21, scénario (e) de 05 §11 : le même parcours en 2025-06-18 ; structuredContent est un objet, comme l'outputSchema"}
+{"send":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"transcript","version":"0"}}}}
+{"expect":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","serverInfo":{"name":"mcp-legifrance","title":"Légifrance (PISTE)","websiteUrl":"https://github.com/muchiny/mcp-legifrance"}}},"absent":["/result/resultType"]}
+{"send":{"jsonrpc":"2.0","method":"notifications/initialized"}}
+{"send":{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}}
+{"expect":{"jsonrpc":"2.0","id":2,"result":{}},"absent":["/result/resultType","/result/ttlMs","/result/cacheScope","/result/nextCursor"]}
+{"send":{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"fr_coverage","arguments":{}}}}
+{"expect":{"jsonrpc":"2.0","id":3,"result":{"isError":false,"content":[{"type":"text"}],"structuredContent":{"attribution":"Source : Légifrance / DILA — Licence Ouverte 2.0"}}},"absent":["/result/resultType"]}
+{"send":{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"fr_search","arguments":{"page":"x"}}}}
+{"expect":{"jsonrpc":"2.0","id":4,"result":{"isError":true,"content":[{"type":"text","text":"[invalid_arg] page: invalid value: string \"x\", expected an integer"}]}},"absent":["/result/resultType","/result/structuredContent"]}
+{"send":{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"fr_nope","arguments":{}}}}
+{"expect":{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"tool not found"}},"absent":["/result"]}
+{"send":{"jsonrpc":"2.0","id":6,"method":"ping","params":{}}}
+{"expect":{"jsonrpc":"2.0","id":6,"result":{}},"mode":"exact"}
+{"close_stdin":true}
+{"expect_exit":{"code":0,"within_ms":1000}}

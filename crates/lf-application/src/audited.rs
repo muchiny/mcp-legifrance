@@ -127,8 +127,10 @@ impl<A: AuditLog> Audited<A> {
     /// - L'erreur de `work`, telle quelle.
     /// - `upstream_error` ([`crate::error::UpstreamCause::Deadline`]) au-delà de `policy.deadline`.
     /// - `Upstream { cause: Cancelled }`, sans code, après une annulation : le client a renoncé à
-    ///   la réponse, que rmcp 1.8/2.1 envoie quand même (à revérifier au spike V-28 sur la
-    ///   version cible).
+    ///   la réponse, et rmcp 3.5.1 ne l'envoie pas (`service.rs:1503-1505` journalise « dropping
+    ///   response for cancelled request » ; mesure du spike 0A, `spikes/rmcp-stdio/README.md`,
+    ///   § « Annulation : rmcp jette la réponse »). La ligne d'audit est donc la seule trace de
+    ///   l'appel annulé.
     /// - `audit_error` en mode `Strict` quand la ligne ne peut pas être écrite (hors annulation),
     ///   en citant le code d'origine s'il y en avait un : le résultat est retenu.
     ///
@@ -201,9 +203,9 @@ impl<A: AuditLog> Audited<A> {
                 let original = result.as_ref().err().and_then(AppError::code);
                 Err(messages::audit(&error, original))
             }
-            // Mode `BestEffort`, ou annulation : le client a renoncé à la réponse (rmcp 1.8/2.1
-            // l'envoie pourtant, à revérifier au spike V-28), il n'y a rien à retenir ; une seule
-            // tentative d'écriture, dont l'échec est signalé.
+            // Mode `BestEffort`, ou annulation : le client a renoncé à la réponse (rmcp 3.5.1 ne
+            // l'envoie pas), il n'y a rien à retenir ; une seule tentative d'écriture, dont
+            // l'échec est signalé.
             (outcome, mode) => {
                 tracing::warn!(kind = ?error.kind, "audit write failed");
                 if mode == AuditMode::BestEffort {
@@ -424,6 +426,8 @@ mod tests {
             title: None,
             text: LongText::from_plain(DECISION_TEXT).unwrap(),
             official_summary: OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
         }
     }
 

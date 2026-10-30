@@ -1,0 +1,38 @@
+---
+source: crates/lf-adapter-mcp/src/params/get_act.rs
+expression: schema
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "date": {
+      "default": null,
+      "description": "Version date YYYY-MM-DD (default: the version named by a suffixed text_id, else today in Paris).",
+      "format": "date",
+      "type": "string"
+    },
+    "text_id": {
+      "description": "A LEGITEXT... id (from fr_search on LODA or CODE).",
+      "type": "string"
+    },
+    "toc_limit": {
+      "default": 100,
+      "description": "Maximum table-of-contents entries (1..500).",
+      "format": "uint32",
+      "maximum": 500,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "toc_offset": {
+      "default": 0,
+      "description": "First table-of-contents entry (pass next_toc_offset).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "text_id"
+  ],
+  "type": "object"
+}

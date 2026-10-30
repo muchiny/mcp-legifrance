@@ -1,0 +1,53 @@
+---
+source: crates/lf-adapter-mcp/src/views/resolve.rs
+expression: schema
+---
+{
+  "$defs": {
+    "CandidateView": {
+      "properties": {
+        "citation": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "source_url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "citation",
+        "source_url",
+        "confidence"
+      ],
+      "type": "object"
+    }
+  },
+  "properties": {
+    "candidates": {
+      "items": {
+        "$ref": "#/$defs/CandidateView"
+      },
+      "type": "array"
+    },
+    "interpreted_as": {
+      "type": "string"
+    },
+    "note": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "candidates"
+  ],
+  "type": "object"
+}

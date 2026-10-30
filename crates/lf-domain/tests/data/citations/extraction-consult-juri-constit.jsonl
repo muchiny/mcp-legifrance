@@ -1,0 +1,45 @@
+{"ambiguity":null,"confidence":"high","end":137,"enum_group":null,"flags":[],"kind":"Decision","match":"Cour de cassation (chambre criminelle, arrêt n° 1133 du 6 août 2025)","start":64}
+{"ambiguity":null,"confidence":"high","end":206,"enum_group":null,"flags":[],"kind":"TextArticle","match":"article 61-1 de la Constitution","start":175}
+{"ambiguity":null,"confidence":"high","end":478,"enum_group":null,"flags":[],"kind":"Decision","match":"n° 2025-1173 QPC","start":460}
+{"ambiguity":null,"confidence":"high","end":636,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"premier alinéa de l’article 396 du code de procédure pénale","start":572}
+{"ambiguity":null,"confidence":"high","end":676,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article 397-1-1 du même code","start":647}
+{"ambiguity":null,"confidence":"high","end":776,"enum_group":null,"flags":[],"kind":"Text","match":"ordonnance n° 58-1067 du 7 novembre 1958","start":734}
+{"ambiguity":null,"confidence":"high","end":906,"enum_group":null,"flags":[],"kind":"Text","match":"loi n° 2019-222 du 23 mars 2019","start":873}
+{"ambiguity":null,"confidence":"high","end":1010,"enum_group":null,"flags":[],"kind":"Text","match":"loi n° 2023-1059 du 20 novembre 2023","start":973}
+{"ambiguity":null,"confidence":"high","end":1122,"enum_group":null,"flags":[],"kind":"Text","match":"règlement du 4 février 2010","start":1093}
+{"ambiguity":null,"confidence":"high","end":2319,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"premier alinéa de l’article 396 du code de procédure pénale dans sa rédaction résultant de la loi du 20 novembre 2023 mentionnée ci-dessus","start":2173}
+{"ambiguity":null,"confidence":"high","end":2319,"enum_group":null,"flags":[],"kind":"Text","match":"loi du 20 novembre 2023 mentionnée ci-dessus","start":2274}
+{"ambiguity":null,"confidence":"high","end":2440,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article 397-1-1 du même code dans sa rédaction issue de la loi du 23 mars 2019 mentionnée ci-dessus","start":2338}
+{"ambiguity":null,"confidence":"high","end":2440,"enum_group":null,"flags":[],"kind":"Text","match":"loi du 23 mars 2019 mentionnée ci-dessus","start":2399}
+{"ambiguity":null,"confidence":"high","end":2572,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"premier alinéa de l’article 396 du code de procédure pénale dans sa rédaction résultant de la loi du 20 novembre 2023","start":2448}
+{"ambiguity":null,"confidence":"high","end":2572,"enum_group":null,"flags":[],"kind":"Text","match":"loi du 20 novembre 2023","start":2549}
+{"ambiguity":null,"confidence":"high","end":3139,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article 397-1-1 du même code, dans sa rédaction issue de la loi du 23 mars 2019","start":3058}
+{"ambiguity":null,"confidence":"high","end":3139,"enum_group":null,"flags":[],"kind":"Text","match":"loi du 23 mars 2019","start":3120}
+{"ambiguity":"texte_manquant","confidence":"high","end":3256,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article 395","start":3245}
+{"ambiguity":"texte_manquant","confidence":"high","end":3946,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article 396","start":3935}
+{"ambiguity":"texte_manquant","confidence":"high","end":4946,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article 396","start":4935}
+{"ambiguity":"texte_manquant","confidence":"high","end":5601,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"deuxième alinéa de l’article 141-2","start":5563}
+{"ambiguity":"texte_manquant","confidence":"high","end":5625,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article 141-4","start":5612}
+{"ambiguity":"texte_manquant","confidence":"high","end":5726,"enum_group":1,"flags":[],"kind":"CodeArticle","match":"141-2","start":5721}
+{"ambiguity":"texte_manquant","confidence":"high","end":5735,"enum_group":1,"flags":[],"kind":"CodeArticle","match":"141-4","start":5730}
+{"ambiguity":"texte_manquant","confidence":"high","end":6327,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article 388-5","start":6314}
+{"ambiguity":"texte_manquant","confidence":"high","end":6921,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article 393","start":6910}
+{"ambiguity":"texte_manquant","confidence":"high","end":7408,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article 388-5","start":7395}
+{"ambiguity":null,"confidence":"high","end":8821,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"première phrase du troisième alinéa de l’article 397-1-1 du code de procédure pénale","start":8730}
+{"ambiguity":null,"confidence":"high","end":8921,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"premier alinéa de l’article 396 du même code","start":8873}
+{"ambiguity":"texte_manquant","confidence":"high","end":8995,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"deuxième alinéa de l’article 6","start":8961}
+{"ambiguity":null,"confidence":"high","end":9823,"enum_group":2,"flags":[],"kind":"TextArticle","match":"6","start":9822}
+{"ambiguity":null,"confidence":"high","end":9826,"enum_group":2,"flags":[],"kind":"TextArticle","match":"8","start":9825}
+{"ambiguity":null,"confidence":"high","end":9829,"enum_group":2,"flags":[],"kind":"TextArticle","match":"9","start":9828}
+{"ambiguity":null,"confidence":"high","end":9835,"enum_group":2,"flags":[],"kind":"TextArticle","match":"16","start":9833}
+{"ambiguity":null,"confidence":"high","end":10262,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article 397-1-1 du code de procédure pénale","start":10217}
+{"ambiguity":null,"confidence":"high","end":11202,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"article 396 du code de procédure pénale","start":11161}
+{"ambiguity":null,"confidence":"high","end":11832,"enum_group":null,"flags":[],"kind":"TextArticle","match":"article 6 de la Déclaration de 1789","start":11796}
+{"ambiguity":null,"confidence":"medium","end":11936,"enum_group":null,"flags":[],"kind":"TextArticle","match":"Son article 16","start":11922}
+{"ambiguity":"texte_manquant","confidence":"high","end":14248,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"Article 1er","start":14237}
+{"ambiguity":null,"confidence":"high","end":14427,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"première phrase du troisième alinéa de l’article 397-1-1 du code de procédure pénale, dans sa rédaction résultant de la loi du 23 mars 2019","start":14279}
+{"ambiguity":null,"confidence":"high","end":14427,"enum_group":null,"flags":[],"kind":"Text","match":"loi du 23 mars 2019","start":14408}
+{"ambiguity":null,"confidence":"high","end":14584,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"premier alinéa de l’article 396 du même code","start":14536}
+{"ambiguity":"texte_manquant","confidence":"high","end":14630,"enum_group":null,"flags":[],"kind":"CodeArticle","match":"Article 2","start":14621}
+{"ambiguity":null,"confidence":"high","end":14824,"enum_group":null,"flags":[],"kind":"TextArticle","match":"article 23-11 de l’ordonnance du 7 novembre 1958 susvisée","start":14764}
+{"ambiguity":null,"confidence":"high","end":15188,"enum_group":null,"flags":[],"kind":"Ecli","match":"ECLI:FR:CC:2025:2025.1173.QPC","start":15159}

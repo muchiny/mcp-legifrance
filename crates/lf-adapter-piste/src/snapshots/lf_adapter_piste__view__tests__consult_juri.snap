@@ -3,6 +3,11 @@ source: crates/lf-adapter-piste/src/view.rs
 expression: view(&mapped)
 ---
 {
+  "applied_texts": [
+    "1 du code civil.",
+    "Article 10 de la directive 85/374/CEE du Conseil, du 25 juillet 1985, relative au rapprochement des dispositions législatives, réglementaires et administratives des Etats membres en matière de responsabilité du fait des produits défectueux ; article 2270-"
+  ],
+  "cited_case_law": "Sur l'interprétation du droit interne à la lumière de la directive 85/374/CEE du Conseil du 25 juillet 1985, à rapprocher : 1re Civ., 25 mai 2023, pourvoi n° 21-23.174 (cassation partielle) et l'arrêt cité.",
   "contract": {
     "citation": "Cour de cassation, civile, Chambre civile 1, 4 juin 2025, 24-13.470, Publié au bulletin",
     "ecli": "ECLI:FR:CCASS:2025:C100399",

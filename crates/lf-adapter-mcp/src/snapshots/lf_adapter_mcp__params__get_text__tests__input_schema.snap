@@ -1,0 +1,56 @@
+---
+source: crates/lf-adapter-mcp/src/params/get_text.rs
+expression: schema
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "article_id": {
+      "description": "A LEGIARTI... id (from fr_get_act or a CODE hit) or a KALIARTI... id (from fr_get_convention).",
+      "type": "string"
+    },
+    "detail": {
+      "default": null,
+      "description": "\"summary\" (default): metadata and a short summary. \"full\": the text from offset, up to max_chars.",
+      "enum": [
+        "summary",
+        "full"
+      ],
+      "type": "string"
+    },
+    "focus": {
+      "default": null,
+      "description": "A few words: return the best matching passages instead of the summary or window.",
+      "maxLength": 500,
+      "minLength": 1,
+      "type": "string"
+    },
+    "max_chars": {
+      "default": 4000,
+      "description": "Maximum characters of text returned (500 to 40000).",
+      "format": "uint32",
+      "maximum": 40000,
+      "minimum": 500,
+      "type": "integer"
+    },
+    "offset": {
+      "default": 0,
+      "description": "Start position in characters for detail=\"full\"; pass the next_offset of the previous call.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "passages": {
+      "default": 3,
+      "description": "Number of passages returned with focus.",
+      "format": "uint32",
+      "maximum": 10,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "article_id"
+  ],
+  "type": "object"
+}

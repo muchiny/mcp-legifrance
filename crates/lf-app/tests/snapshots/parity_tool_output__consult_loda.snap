@@ -1,0 +1,439 @@
+---
+source: crates/lf-app/tests/parity_tool_output.rs
+expression: consult_loda
+---
+{
+  "aliases": [
+    "loi Lemaire",
+    "loi numérique",
+    "loi Lemaire [2016]"
+  ],
+  "citation": "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)",
+  "date": "[today in Paris]",
+  "date_debut_version": "2023-09-08",
+  "date_parution": "2016-10-08",
+  "etat": "VIGUEUR",
+  "jo_reference": "JORF n°0235 du 8 octobre 2016",
+  "nature": "LOI",
+  "nor": "ECFI1524250L",
+  "num_parution": "0235",
+  "source_url": "https://www.legifrance.gouv.fr/loda/id/LEGITEXT000033205014",
+  "text_id": "LEGITEXT000033205014",
+  "toc": [
+    {
+      "depth": 1,
+      "title": "Titre Ier : LA CIRCULATION DES DONNÉES ET DU SAVOIR"
+    },
+    {
+      "depth": 2,
+      "title": "Chapitre Ier : Economie de la donnée"
+    },
+    {
+      "depth": 3,
+      "title": "Section 1 : Ouverture de l'accès aux données publiques"
+    },
+    {
+      "article_id": "LEGIARTI000033205126",
+      "depth": 4,
+      "num": "1"
+    },
+    {
+      "article_id": "LEGIARTI000033205128",
+      "depth": 4,
+      "num": "2"
+    },
+    {
+      "article_id": "LEGIARTI000033205130",
+      "depth": 4,
+      "num": "3"
+    },
+    {
+      "article_id": "LEGIARTI000033205132",
+      "depth": 4,
+      "num": "4"
+    },
+    {
+      "article_id": "LEGIARTI000033205062",
+      "depth": 4,
+      "num": "5"
+    },
+    {
+      "depth": 3,
+      "title": "Section 2 : Données d'intérêt général"
+    },
+    {
+      "article_id": "LEGIARTI000033205150",
+      "depth": 4,
+      "num": "17"
+    },
+    {
+      "article_id": "LEGIARTI000033205152",
+      "depth": 4,
+      "num": "18"
+    },
+    {
+      "article_id": "LEGIARTI000033205154",
+      "depth": 4,
+      "num": "19"
+    },
+    {
+      "article_id": "LEGIARTI000033205070",
+      "depth": 4,
+      "num": "20"
+    },
+    {
+      "article_id": "LEGIARTI000033205156",
+      "depth": 4,
+      "num": "21"
+    },
+    {
+      "depth": 3,
+      "title": "Section 3 : Gouvernance"
+    },
+    {
+      "article_id": "LEGIARTI000033205164",
+      "depth": 4,
+      "num": "25"
+    },
+    {
+      "article_id": "LEGIARTI000033205094",
+      "depth": 4,
+      "num": "26"
+    },
+    {
+      "article_id": "LEGIARTI000033205166",
+      "depth": 4,
+      "num": "27"
+    },
+    {
+      "article_id": "LEGIARTI000033205168",
+      "depth": 4,
+      "num": "28"
+    },
+    {
+      "article_id": "LEGIARTI000033205170",
+      "depth": 4,
+      "num": "29"
+    },
+    {
+      "depth": 2,
+      "title": "Chapitre II : Economie du savoir"
+    },
+    {
+      "article_id": "LEGIARTI000033205102",
+      "depth": 3,
+      "num": "30"
+    },
+    {
+      "article_id": "LEGIARTI000033205104",
+      "depth": 3,
+      "num": "31"
+    },
+    {
+      "article_id": "LEGIARTI000033205106",
+      "depth": 3,
+      "num": "32"
+    },
+    {
+      "article_id": "LEGIARTI000033205108",
+      "depth": 3,
+      "num": "33"
+    },
+    {
+      "article_id": "LEGIARTI000033205110",
+      "depth": 3,
+      "num": "34"
+    },
+    {
+      "depth": 1,
+      "title": "Titre II : LA PROTECTION DES DROITS DANS LA SOCIÉTÉ NUMÉRIQUE"
+    },
+    {
+      "depth": 2,
+      "title": "Chapitre Ier : Environnement ouvert"
+    },
+    {
+      "depth": 3,
+      "title": "Section 1 : Neutralité de l'internet"
+    },
+    {
+      "article_id": "LEGIARTI000033205172",
+      "depth": 4,
+      "num": "40"
+    },
+    {
+      "article_id": "LEGIARTI000033205072",
+      "depth": 4,
+      "num": "41"
+    },
+    {
+      "article_id": "LEGIARTI000033205176",
+      "depth": 4,
+      "num": "43"
+    },
+    {
+      "article_id": "LEGIARTI000033205178",
+      "depth": 4,
+      "num": "44"
+    },
+    {
+      "article_id": "LEGIARTI000033205180",
+      "depth": 4,
+      "num": "45"
+    },
+    {
+      "depth": 3,
+      "title": "Section 2 : Portabilité et récupération des données"
+    },
+    {
+      "article_id": "LEGIARTI000037090483",
+      "depth": 4,
+      "num": "48"
+    },
+    {
+      "depth": 3,
+      "title": "Section 3 : Loyauté des plateformes et information des consommateurs"
+    },
+    {
+      "article_id": "LEGIARTI000033205188",
+      "depth": 4,
+      "num": "49"
+    },
+    {
+      "article_id": "LEGIARTI000033205190",
+      "depth": 4,
+      "num": "50"
+    },
+    {
+      "article_id": "LEGIARTI000033205192",
+      "depth": 4,
+      "num": "51"
+    },
+    {
+      "article_id": "LEGIARTI000033205194",
+      "depth": 4,
+      "num": "52"
+    },
+    {
+      "article_id": "LEGIARTI000033205196",
+      "depth": 4,
+      "num": "53"
+    },
+    {
+      "depth": 2,
+      "title": "Chapitre II : Protection de la vie privée en ligne"
+    },
+    {
+      "depth": 3,
+      "title": "Section 1 : Protection des données à caractère personnel"
+    },
+    {
+      "article_id": "LEGIARTI000033205074",
+      "depth": 4,
+      "num": "54"
+    },
+    {
+      "article_id": "LEGIARTI000033205076",
+      "depth": 4,
+      "num": "55"
+    },
+    {
+      "article_id": "LEGIARTI000033205198",
+      "depth": 4,
+      "num": "56"
+    },
+    {
+      "article_id": "LEGIARTI000033205078",
+      "depth": 4,
+      "num": "57"
+    },
+    {
+      "article_id": "LEGIARTI000033205200",
+      "depth": 4,
+      "num": "58"
+    },
+    {
+      "depth": 3,
+      "title": "Section 2 : Confidentialité des correspondances électroniques privées"
+    },
+    {
+      "article_id": "LEGIARTI000033205218",
+      "depth": 4,
+      "num": "68"
+    },
+    {
+      "depth": 1,
+      "title": "Titre III : L'ACCÈS AU NUMÉRIQUE"
+    },
+    {
+      "depth": 2,
+      "title": "Chapitre Ier : Numérique et territoires"
+    },
+    {
+      "depth": 3,
+      "title": "Section 1 : Compétences et organisation"
+    },
+    {
+      "article_id": "LEGIARTI000033205220",
+      "depth": 4,
+      "num": "69"
+    },
+    {
+      "article_id": "LEGIARTI000033205082",
+      "depth": 4,
+      "num": "70"
+    },
+    {
+      "article_id": "LEGIARTI000033205222",
+      "depth": 4,
+      "num": "71"
+    },
+    {
+      "depth": 3,
+      "title": "Section 2 : Couverture numérique"
+    },
+    {
+      "article_id": "LEGIARTI000033205084",
+      "depth": 4,
+      "num": "72"
+    },
+    {
+      "article_id": "LEGIARTI000033205224",
+      "depth": 4,
+      "num": "73"
+    },
+    {
+      "article_id": "LEGIARTI000033205226",
+      "depth": 4,
+      "num": "74"
+    },
+    {
+      "article_id": "LEGIARTI000033205228",
+      "depth": 4,
+      "num": "75"
+    },
+    {
+      "article_id": "LEGIARTI000033205230",
+      "depth": 4,
+      "num": "76"
+    },
+    {
+      "depth": 2,
+      "title": "Chapitre II : Facilitation des usages"
+    },
+    {
+      "article_id": "LEGIARTI000033205118",
+      "depth": 3,
+      "num": "86"
+    },
+    {
+      "article_id": "LEGIARTI000033205120",
+      "depth": 3,
+      "num": "87"
+    },
+    {
+      "article_id": "LEGIARTI000033205122",
+      "depth": 3,
+      "num": "88"
+    },
+    {
+      "article_id": "LEGIARTI000033205058",
+      "depth": 3,
+      "num": "89"
+    },
+    {
+      "article_id": "LEGIARTI000033205092",
+      "depth": 3,
+      "num": "90"
+    },
+    {
+      "depth": 3,
+      "title": "Section 1 : Recommandé électronique"
+    },
+    {
+      "article_id": "LEGIARTI000033205240",
+      "depth": 4,
+      "num": "93"
+    },
+    {
+      "depth": 3,
+      "title": "Section 2 : Fourniture de services de paiement dans le cadre de l'exclusion de demande d'agrément applicable à certains instruments de paiement"
+    },
+    {
+      "article_id": "LEGIARTI000033205242",
+      "depth": 4,
+      "num": "94"
+    },
+    {
+      "depth": 3,
+      "title": "Section 3 : Régulation des jeux en ligne"
+    },
+    {
+      "article_id": "LEGIARTI000033205244",
+      "depth": 4,
+      "num": "95"
+    },
+    {
+      "article_id": "LEGIARTI000033205090",
+      "depth": 4,
+      "num": "96"
+    },
+    {
+      "article_id": "LEGIARTI000033205246",
+      "depth": 4,
+      "num": "97"
+    },
+    {
+      "article_id": "LEGIARTI000033205248",
+      "depth": 4,
+      "num": "98"
+    },
+    {
+      "article_id": "LEGIARTI000033205250",
+      "depth": 4,
+      "num": "99"
+    },
+    {
+      "depth": 2,
+      "title": "Chapitre III : Accès des publics fragiles au numérique"
+    },
+    {
+      "depth": 3,
+      "title": "Section 1 : Accès des personnes handicapées aux services téléphoniques"
+    },
+    {
+      "article_id": "LEGIARTI000048050251",
+      "depth": 4,
+      "num": "105"
+    },
+    {
+      "depth": 3,
+      "title": "Section 2 : Accès des personnes handicapées aux sites internet publics"
+    },
+    {
+      "article_id": "LEGIARTI000033205262",
+      "depth": 4,
+      "num": "106"
+    },
+    {
+      "article_id": "LEGIARTI000033205264",
+      "depth": 4,
+      "num": "107"
+    },
+    {
+      "depth": 3,
+      "title": "Section 3 : Maintien de la connexion à internet"
+    },
+    {
+      "article_id": "LEGIARTI000033205266",
+      "depth": 4,
+      "num": "108"
+    },
+    {
+      "article_id": "LEGIARTI000033205268",
+      "depth": 4,
+      "num": "109"
+    }
+  ],
+  "toc_total": 88
+}

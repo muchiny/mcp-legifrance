@@ -26,6 +26,7 @@ use serde::de::DeserializeOwned;
 
 use crate::auth::{TokenLease, TokenManager};
 use crate::classify::{EndpointKind, ErrorContext, Outcome, try_send};
+use crate::codes::CodeTable;
 use crate::config::{ConfigProblem, PisteConfig, PisteEndpoints};
 use crate::deadline::CallDeadline;
 use crate::dto::decode::decode;
@@ -38,6 +39,8 @@ use crate::retry::{RetryContext, SystemJitter, run};
 use crate::stats::{Stats, StatsSnapshot};
 use crate::time::{MonoClock, Sleeper, TokioClock, TokioSleeper};
 
+mod m6;
+mod m7;
 mod port;
 #[cfg(feature = "record")]
 mod raw;
@@ -58,6 +61,8 @@ struct Inner<K: MonoClock + Clone, S: Sleeper> {
     stats: Stats,
     /// `typePagination` reçu par requête sans page (04 §6.6, §12.3), lu et écrit par `search`.
     memo: PaginationMemo<K>,
+    /// Table des codes de `/list/code`, chargée au premier besoin (M6, 04 §12.3).
+    codes: CodeTable<K>,
     clock: K,
     sleeper: S,
 }
@@ -130,6 +135,7 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
                 gate,
                 stats: Stats::default(),
                 memo: PaginationMemo::new(clock.clone()),
+                codes: CodeTable::new(clock.clone()),
                 clock,
                 sleeper,
             }),
@@ -1572,6 +1578,10 @@ mod tests {
 
     /// Préfixe et nanosecondes d'horloge murale en hexadécimal : imprévisible, sans dépendance.
     fn random_word(prefix: &str) -> String {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "test : suffixe imprévisible tiré de l'horloge murale, sans dépendance (ADR-0018)"
+        )]
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         format!("{prefix}-{nanos:x}")
     }

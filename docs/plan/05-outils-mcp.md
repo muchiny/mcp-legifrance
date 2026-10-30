@@ -301,23 +301,30 @@ fn is_modern(ctx: &RequestContext<RoleServer>) -> bool {
 ```
 
 ```rust
-// crates/lf-adapter-mcp/src/failure.rs — non compilé, à valider au jalon qui l'implémente
+// crates/lf-adapter-mcp/src/failure.rs — livré (extrait)
 use rmcp::model::{ContentBlock, IntoContents};
-use lf_application::{AppError, ErrorCode};
+use lf_application::AppError;
 
 /// Erreur métier in-band : rmcp met is_error = true quand Err(E) produit un CallToolResult
 /// (handler/server/tool.rs:125-146). Aucun structuredContent n'est émis (§1.2 c).
-pub(crate) struct ToolFailure { code: ErrorCode, message: String }
+pub(crate) struct ToolFailure(pub(crate) AppError);
 
 impl From<AppError> for ToolFailure {
     // Message final rédigé par lf_application::messages (02 §9.3), déjà inscrit tel quel dans l'audit :
-    // l'adapter n'ajoute que le préfixe « [code] ».
-    fn from(e: AppError) -> Self { Self { code: e.code(), message: e.into_message() } }
+    // l'adapter n'ajoute que le préfixe « [code] ». Amendement du 2026-10-29 : le plan citait
+    // `e.into_message()`, qui n'existe pas ; `AppError::message()` rend un `&str` (error.rs:158) et
+    // `AppError::code()` un `Option<ErrorCode>`.
+    fn from(error: AppError) -> Self { Self(error) }
 }
 
 impl IntoContents for ToolFailure {   // IntoContents n'existe que pour String, ContentBlock et () (content.rs:359-379)
     fn into_contents(self) -> Vec<ContentBlock> {
-        vec![ContentBlock::text(format!("[{}] {}", self.code.as_str(), self.message))]
+        // Un appel annulé n'a pas de code (`code()` rend `None`) et personne ne lira sa réponse : le message seul.
+        let text = match self.0.code() {
+            Some(code) => format!("[{}] {}", code.as_str(), self.0.message()),
+            None => self.0.message().to_owned(),
+        };
+        vec![ContentBlock::text(text)]
     }
 }
 ```
@@ -752,11 +759,13 @@ Le suffixe comme date par défaut (conservé par `parse_versioned` au lieu d'êt
 
 **Objectif.** Lire un article (LEGI ou KALI), avec sa citation, son statut, ses dates de validité, sa place dans le code, et la lecture progressive.
 
-**Description** (726 caractères, 5 phrases) :
+**Description** (733 caractères, 6 phrases comptées par `xtask`) :
 
 ```text
-Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (e.g. "Code civil, art. 9"), source_url, status, validity dates and parent code or text. By default (`detail`="summary") a short article comes back whole and a long one is cut after about 1,200 characters; `detail`="full" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).
+Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (for example "Code civil, art. 9"), source_url, status, validity dates and parent code or text. By default (`detail`="summary") a short article comes back whole and a long one is cut after about 1,200 characters; `detail`="full" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).
 ```
+
+*Comptage des phrases (amendement du 2026-10-29, F1)* : le contrôle `sentence_count` de `xtask` compte tout point suivi d'une espace, « e.g. » compris ; avec « e.g. » la description comptait sept phrases contre « 3 à 6 » attendues (avertissement de 00 §6). « e.g. » devient « for example » : 733 caractères et six phrases comptées (« art. » reste compté).
 
 **Entrée** : `article_id` (string, requis, `LEGIARTI` ou `KALIARTI` + 12 chiffres ; description `A LEGIARTI... id (from fr_get_act or a CODE hit) or a KALIARTI... id (from fr_get_convention).`) et les paramètres communs du §5.0.2.
 
@@ -1000,6 +1009,9 @@ Catalogue des lacunes (rédaction définitive demandée par 03 §4.8) :
 | FR-102 | — | PISTE credentials are not configured: every tool except fr_coverage fails with config_error. | Set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET. | si identifiants absents |
 | FR-103 | — | A custom API host is configured (LF_PISTE_BASE_URL or LF_PISTE_OAUTH_URL): responses may not come from Légifrance. | Remove the override unless it is intended. | si un hôte est hors des quatre hôtes officiels (avertissement `CustomHost`, 00 §1) |
 | FR-104 | — | The server configuration is invalid (see configuration.problems): every tool except fr_coverage fails with config_error. | Fix the variables listed in configuration.problems; run mcp-legifrance check-config. | si un problème de configuration est détecté (mode dégradé, dont `EnvMismatch`, 00 §1) |
+| FR-105 | — | Texts come from a local snapshot of the DILA LEGI dumps (laws, decrees and codes only), not from a live query: it may be out of date, and case law, CNIL deliberations and collective or company agreements are not in it. | Treat an absence as unproven; unset LF_DILA_DIR to query Légifrance live. | si la source des textes est l'index local DILA (`ConfigFacts.local_snapshot`, posé par `lf-app` quand `LF_DILA_DIR` choisit l'index, jamais pour une source inutilisable ; M9, V-180) |
+
+**Instantané local (M9, V4-02 puis `fix(coverage)` de F1, 2026-10-29).** Quand `LF_DILA_DIR` choisit l'index local (feature `dila`, absente des binaires publiés), `ConfigFacts` porte un quatrième fait, `local_snapshot`, et la couverture ne se présente plus comme du direct de production : (1) lacune calculée FR-105 (les identifiants calculés vont de FR-101 à FR-105) ; (2) `status` vaut `degraded`, jamais `ok` ; (3) dans le domaine, les familles sont `live: false` (la vue n'a pas de champ `live`) et leur source est `SNAPSHOT_SOURCE` ; (4) `as_of_note` vaut `SNAPSHOT_AS_OF_NOTE` (« Data comes from a local snapshot of the DILA LEGI dumps, not from a live query … ») au lieu de « Data is queried live … » ; (5) seules les familles LODA et CODE sont servies ; (6) `source` devient « Légifrance (DILA), from a local snapshot of the LEGI dumps; not queried live. ». Le schéma de sortie n'a pas changé : le drapeau n'est pas un champ de la vue. L'environnement de l'audit reste `production` pour l'index local, et seul le drapeau le distingue.
 
 **Exemple** (v0.1, sandbox, identifiants présents ; 3 389 caractères contre 1 343 pour la référence, qui ne déclarait que 3 familles et 2 lacunes ; 3 358 avant l'ajout de `attribution` et `consulted_on` en révision 2) : voir l'objet complet dans le snapshot `coverage_v01_sandbox` (06) ; extrait :
 
@@ -1065,6 +1077,7 @@ Statuts (00 §7, 03 §8.7) :
 - `unresolvable` : hors périmètre (droit de l'UE, CEDH, doctrine), anaphore sans antécédent, ou vérification impossible (budget de temps de 80 % du délai épuisé, erreur amont sur cette citation) ; `note` donne le motif.
 - `invalid` : syntaxe impossible (chambre inexistante, ECLI mal formé, année du numéro ≠ année de la date, N07) **ou** contradiction avec l'enregistrement officiel (ECLI à un jour près, N14) ; `resolved` donne alors l'enregistrement réel.
 - **Sandbox** (00 §7) : quand `LF_PISTE_ENV=sandbox`, une citation bien formée sans enregistrement est rendue `unresolvable` avec la note `sandbox data differ from production`, jamais `not_found` : un faux négatif y est possible (données sandbox différentes de la production, **NON VÉRIFIÉ** [V-61 · sandbox-prod-donnees], V-61). `not_found` est réservé à la production.
+- **Instantané local** (M9, F1) : `Outcome::status` et `Outcome::note` lisent une `Proof` (production, bac à sable ou instantané local), non l'environnement seul. Une absence n'est `not_found` que si la source la prouve, c'est-à-dire PISTE en production. Dans l'instantané local, elle est `unresolvable` avec la note `NotInSnapshot` : « No {family} record matches {value}{ on date} in the local DILA snapshot, which may be out of date. » (même gabarit que `NotInSandbox`, sans la phrase sur le bac à sable).
 
 Comparaison de l'extrait : vue repliée (`text::fold`) et similarité ; seuil **NON VÉRIFIÉ** [V-162 · seuil-quote-mismatch]. Pas de paramètre dédié : le contrôle est automatique quand un extrait jouxte la citation (00 §7).
 
@@ -1098,11 +1111,13 @@ Entrée `text` : `Selon l'article 9 du code civil, « Chacun a droit au respect 
 
 **Objectif.** Transformer une citation libre en identifiants Légifrance, sans jamais deviner (recherche 07 §7.1).
 
-**Description** (579 caractères, 4 phrases) :
+**Description** (586 caractères, 6 phrases comptées par `xtask`) :
 
 ```text
-Turn one free-text legal citation into Légifrance ids, e.g. "article 1240 du code civil", "loi n° 78-17 du 6 janvier 1978", "Cass. civ. 1re, 4 juin 2025, n° 24-13.470" or an ECLI. Returns `candidates` (id, kind, citation, source_url, confidence high/medium/low), best first; nothing is guessed or fabricated, and an empty list comes with a `note` saying why. Pass `date` (YYYY-MM-DD, default: today in Paris) for the article version in force on that day. Then open a candidate with the fr_get_* tool for its kind; to check all citations of a text at once use fr_verify_citations.
+Turn one free-text legal citation into Légifrance ids, for example "article 1240 du code civil", "loi n° 78-17 du 6 janvier 1978", "Cass. civ. 1re, 4 juin 2025, n° 24-13.470" or an ECLI. Returns `candidates` (id, kind, citation, source_url, confidence high/medium/low), best first; nothing is guessed or fabricated, and an empty list comes with a `note` saying why. Pass `date` (YYYY-MM-DD, default: today in Paris) for the article version in force on that day. Then open a candidate with the fr_get_* tool for its kind; to check all citations of a text at once use fr_verify_citations.
 ```
+
+*Comptage des phrases (amendement du 2026-10-29, F1)* : « e.g. » devient « for example » (le contrôle `sentence_count` de `xtask` compte tout point suivi d'une espace) ; 586 caractères et six phrases comptées, « Cass. » et « civ. » restant comptés.
 
 **Entrée** :
 
@@ -1145,7 +1160,9 @@ List the legal links of an article (LEGIARTI) or a decision (JURITEXT, CONSTEXT,
 
 **Entrée** : `id` (string, requis ; `A LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... decision id.`). `KALIARTI` est refusé en v0.3 : la prise en charge par `/consult/relatedLinksArticle` est **NON VÉRIFIÉE** [V-136 · related-links-forme].
 
-**Sortie** (`RelatedView`) : `id`, `citation`, `source_url`, `total` (nombre de liens avant troncature), `links` (toujours, ≤ 100), `truncated?`. Pas de suite : au-delà de 100 liens, ou si le plafond du §6.4 l'impose, la liste est tronquée avec `truncated: true` (00 §7), sans paramètre de continuation. Chaque lien : `relation` (`cites`, `cited_by` pour un article, d'après `liensCite`/`liensCitePar` ; `cites_case_law`, `applies_text` pour une décision, d'après `citationJp` et `liens`), `kind` (valeurs de `fr_verify_citations`), `citation` (forme canonique, ou titre de l'API nettoyé), `id?`, `source_url?`. Les liens d'une décision sont analysés par le parseur M6 ; les fragments sans ancre (« 1 du code civil. », cas N01) ne sont pas émis ; les doublons sont fusionnés.
+**Sortie** (`RelatedView`) : `id`, `citation`, `source_url`, `total` (nombre de liens avant troncature), `links` (toujours, ≤ 100), `truncated?`, `note?` (champ ajouté par V4-05 puis F1, 2026-10-29 : chaîne, absente par défaut). Pas de suite : au-delà de 100 liens, ou si le plafond du §6.4 l'impose, la liste est tronquée avec `truncated: true` (00 §7), sans paramètre de continuation. Chaque lien : `relation` (`cites`, `cited_by` pour un article, d'après `liensCite`/`liensCitePar` ; `cites_case_law`, `applies_text` pour une décision, d'après `citationJp` et `liens`), `kind` (valeurs de `fr_verify_citations`), `citation` (forme canonique, ou titre de l'API nettoyé), `id?`, `source_url?`. Les liens d'une décision sont analysés par le parseur M6 ; les fragments sans ancre (« 1 du code civil. », cas N01) ne sont pas émis ; les doublons sont fusionnés.
+
+**Décision sans référence (`note`).** `note` porte « The API gives no references for this decision; its text may still cite some: read it with fr_get_decision and check it with fr_verify_citations. » (`Note::NoDecisionReferences`, 144 caractères) quand la décision elle-même n'a ni `citationJp` ni `liens` : c'est le cas des captures CETAT et CONSTIT (`consult_juri_cetat.json` : `citationJp: ""`, `liens: []`, texte de 14 601 caractères ; `consult_juri_constit.json` : `citationJp: null`, `liens: []`, texte de 14 322 caractères). **Une liste vide ne prouve donc pas que la décision ne cite rien** : seul son texte, lu avec `fr_get_decision` et vérifié avec `fr_verify_citations`, le dit. Pas de `note` quand des références existent mais que le parseur n'y lit aucune citation, ni quand elles dépassent `MAX_ANALYSED_CHARS` (alors `truncated: true`), ni pour un article. La description de l'outil n'a pas changé : le champ se lit dans le schéma de sortie, dont il augmente la taille (§3.4, §6.6).
 
 Liens d'un article (`RelatedLinks` de 03 §4.11, d'après `LiensRelatifsDTO.nature`, 04 §7.3) : `id` et `source_url` ne sont rendus que si la cible est un identifiant typé qu'un outil servi sait lire (`LEGIARTI`, `LEGITEXT`, `KALIARTI`, `KALITEXT` ; `JORFTEXT` seulement si la surface JORF est retenue en M7, 00 §4), conformément au §1.4 règle 8 ; sinon le lien n'a que `citation`.
 
@@ -1168,6 +1185,13 @@ Liens d'un article (`RelatedLinks` de 03 §4.11, d'après `LiensRelatifsDTO.natu
  "links":[
   {"relation":"cites_case_law","kind":"decision","citation":"1re Civ., 25 mai 2023, pourvoi n° 21-23.174"},
   {"relation":"applies_text","kind":"unsupported","citation":"Article 10 de la directive 85/374/CEE du Conseil, du 25 juillet 1985"}]}
+```
+
+**Exemple d'une décision sans référence** (`{"id": "CETATEXT000054178503"}` ; forme d'après la capture `consult_juri_cetat.json`, titre abrégé ; illustratif) :
+
+```json
+{"id":"CETATEXT000054178503","citation":"…","source_url":"https://www.legifrance.gouv.fr/ceta/id/CETATEXT000054178503","total":0,"links":[],
+ "note":"The API gives no references for this decision; its text may still cite some: read it with fr_get_decision and check it with fr_verify_citations."}
 ```
 
 **Erreurs** : `invalid_arg` ; `not_found` (identifiant inexistant, message de l'outil de lecture correspondant) ; erreurs communes. **Audit, cache** : nombre de liens ; `Related` 24 h, `Decision` 24 h. Forme réelle de `relatedLinksArticle` **NON VÉRIFIÉE** [V-136 · related-links-forme].
@@ -1289,9 +1313,9 @@ Caractères de JSON compact du `structuredContent`. Référence : `tool_output` 
 | Cas (fixture) | Référence | Cible, appel par défaut | Autres modes | Commentaire |
 |---|---|---|---|---|
 | `fr_search` LODA, 2 hits (search_loda.json) | 2 034 | 782 | — | pas d'extrait dans la fixture LODA ; ni notes ni doublons |
-| `fr_search` CODE, 1 hit (search_code.json) | 1 141 | 408 | — | `title` = citation, omis |
+| `fr_search` CODE, 1 hit (search_code.json) | 1 141 | 546 (408 au prototype) | — | `title` = citation, omis ; la sortie réelle porte l'extrait du résultat en plus de ceux de ses articles |
 | `fr_search` CETAT, 3 hits (search_cetat.json) | 1 949 | 1 501 | — | extraits ≤ 280 ajoutés |
-| `fr_search` JURI / CONSTIT / CNIL / KALI / ACCO | 1 645 / 2 518 / 1 883 / 1 761 / 1 491 | 1 099 / 1 853 / 1 108 / 1 031 / 821 | — | prototype de la recherche 03 §13.2 (champs voisins) |
+| `fr_search` JURI / CONSTIT / CNIL / KALI / ACCO | 1 645 / 2 518 / 1 883 / 1 761 / 1 491 | 1 099 / 1 853 / 1 108 / 2 100 / 931 | — | prototype de la recherche 03 §13.2 (champs voisins) ; KALI (1 031 au prototype) et ACCO (821) sont les valeurs **mesurées** : KALI rend les articles trouvés, ACCO un extrait que le prototype n'avait pas compté |
 | `fr_get_act` (consult_loda.json, élaguée) | 4 847 (62 articles) | 6 035 (88 entrées, une page) | 1 002 avec `toc_limit=8` | sections ajoutées (D-25) ; TOC réelle de taille **NON VÉRIFIÉE** [V-75 · taille-max-textes] |
 | `fr_get_text` (consult_article.json) | 949 | 686 | — | article entier |
 | `fr_get_decision` CONSTIT | 15 140 | **1 147** (dispositif) | `focus` 1 716 ; page `full` ≈ 4 350 | ÷ 13 |
@@ -1302,9 +1326,11 @@ Caractères de JSON compact du `structuredContent`. Référence : `tool_output` 
 | `fr_get_company_agreement` (consult_acco.json) | 804 | 664 | — | — |
 | `fr_coverage` | 1 343 | 3 389 | — | 8 familles et 10 lacunes au lieu de 3 et 2 (D-34) ; `attribution` et `consulted_on` compris (Q15) |
 
+**Cibles remplacées par la mesure (F6, 2026-10-29).** 06 §12.2 veut que les valeurs mesurées en M5 remplacent la colonne « Cible ». Trois lignes dépassaient la cible du prototype et ont été remplacées par la valeur mesurée, lue dans la table `TARGETS` de `crates/lf-app/tests/parity_tool_output.rs` (`default_outputs_within_target`, budget = cible + 10 %) : CODE 408 → 546, KALI 1 031 → 2 100, ACCO 821 → 931. Les treize autres lignes gardent la cible du prototype. La ligne `fr_get_act` « 6 035 » et les décisions CONSTIT et CETAT (≤ 2 000 en résumé) sont inchangées.
+
 ### 6.6 Coût fixe par session
 
-Estimation de ce document : prototype qui reconstitue les descripteurs (descriptions du §5, schémas d'entrée du §5, schémas de sortie compacts) ; le JSON réel de schemars sera mesuré en M4 et figé dans le verrou.
+Estimation de ce document : prototype qui reconstitue les descripteurs (descriptions du §5, schémas d'entrée du §5, schémas de sortie compacts) ; le JSON réel de schemars est mesuré et figé dans le verrou (`tests/tools.lock.json`, champ `sizes`). **Mesure de la surface finale (F1, puis F6, 2026-10-29) : voir « Mesure réelle » ci-dessous** ; les chiffres du tableau sont l'estimation d'origine, gardée pour l'historique.
 
 | Élément | Référence 0.5.3 | v0.1 | v0.2 | v0.3 |
 |---|---|---|---|---|
@@ -1312,6 +1338,17 @@ Estimation de ce document : prototype qui reconstitue les descripteurs (descript
 | `tools/list` complet | 17 643 octets, dont 12 167 d'`outputSchema` (D-33) | ≈ 19 400 octets | ≈ 22 900 | ≈ 27 900 |
 | `tools/list` sans `outputSchema` | ≈ 5 500 | ≈ 11 800 | ≈ 14 300 | ≈ 17 400 |
 | Descriptions seules | 55 à 81 caractères pour la plupart (recherche 06 §3.2) | 4 636 caractères | 5 930 | 7 225 |
+
+**Mesure réelle, treize outils, v0.3 (verrou du 2026-10-29).**
+
+| Élément | Estimation v0.3 | Mesuré |
+|---|---|---|
+| `instructions` | 3 278 caractères | 3 278 caractères (`sizes.instructions_chars`) |
+| `tools/list` complet | ≈ 27 900 octets | **31 853 octets** (`sizes.tools_list_bytes` ; `serde_json::to_vec` des outils rmcp et JSON canonique de `xtask` donnent le même nombre) |
+| `tools/list` sans `outputSchema` | ≈ 17 400 | 17 821 octets (descripteur canonique du verrou sans la clé `outputSchema`) |
+| Descriptions seules | 7 225 caractères | 7 239 caractères (treize descriptions, aucune au-dessus de 1 000 : la plus longue, `fr_search`, en compte 830) |
+
+L'écart de l'estimation à la mesure tient aux schémas de sortie et aux `$defs` de schemars, plus grands que ceux du prototype (même constat à chaque étape : 29 000 prévus, 30 152 mesurés à douze outils, 31 853 à treize). Historique du plafond de `tools/list` en v0.3 : **29 000** (valeur initiale, mesure estimée + 10 %) → **33 500** (recalibré à l'intégration de V3 sur 30 152 octets mesurés à douze outils, plus 10 %) → **32 900** (F1, sur 31 853 octets mesurés à treize outils, plus 3 %, soit 32 808,6 arrondi à la centaine supérieure ; 31 814 avaient été mesurés juste après l'alignement de version). La règle « mesure plus 10 % » est abandonnée pour « mesure plus 3 % » : la surface est finale et le verrou change à chaque octet de description. Même valeur dans `descriptor_size_budget` (`crates/lf-adapter-mcp/tests/budgets.rs`) et dans `TOOLS_LIST_BUDGETS` de `xtask/src/lock_descriptors/checks.rs` (v0.1 : 20 000 et v0.2 : 24 000 inchangés).
 
 Révision 2 : descriptions recomptées exactement (sens des dates absentes, défauts et suites demandés par 00 §6, 00 §4), puis le 2026-10-16 (défaut de `fond` dans `fr_search`, de `passages` dans `fr_get_text` : 27 caractères, sans effet sur les arrondis des lignes `tools/list`) ; les deux lignes `tools/list` sont l'estimation initiale augmentée de ces écarts et des champs ajoutés (`attribution`, `consulted_on`, `nor`, `title`, puis `idcc`, `total_articles` en v0.2), sans `$schema` (§2.5).
 
@@ -1328,7 +1365,7 @@ Leviers de réduction, par ordre d'efficacité, à appliquer si la mesure de M4 
 4. descriptions des paramètres de lecture communs raccourcies (elles sont répétées 3 fois) ;
 5. en dernier recours, phrases de description fusionnées, en restant à 3 phrases au moins (00 §6).
 
-Budgets CI (test `descriptor_size_budget`, valeurs initiales à recalibrer en M4 sur la mesure réelle + 10 %) : `tools/list` ≤ 20 000 octets en v0.1, 24 000 en v0.2, 29 000 en v0.3 ; `instructions` ≤ 3 500 caractères ; chaque description ≤ 1 000 caractères (bien sous 4 096).
+Budgets CI (test `descriptor_size_budget`, recalibrés sur la mesure réelle : voir « Mesure réelle ») : `tools/list` ≤ 20 000 octets en v0.1, 24 000 en v0.2, **32 900 en v0.3** (29 000 à l'origine) ; `instructions` ≤ 3 500 caractères ; chaque description ≤ 1 000 caractères (bien sous 4 096).
 
 ---
 
@@ -1365,7 +1402,7 @@ Correspondance complète cause → `CorpusError` → `AppError` → code : 02 §
 | `Upstream` (`CorpusError::InvalidRequest` : HTTP 400 sans marqueur « introuvable », ou garde défensive de l'adapter) | `upstream_error` | `Legifrance rejected the request (HTTP {status}): {détail}` (le nombre vient de `status`, 400 pour un rejet de requête, 403 pour la page de la passerelle ; jamais figé à 400) où `{détail}` est le message PISTE nettoyé (≤ 200 caractères, jeton et secret client retirés) pour une consultation, `HTTP 400 on /search` pour une recherche (le message PISTE n'est jamais recopié), `HTTP 400 on {endpoint}` si le corps d'une consultation ne livre rien (parité S10 ; `warn!` « bug probable » ; 00 §5) ; **sauf** `status: Some(403)` (page HTML de la passerelle, détail `request rejected by the PISTE gateway`, V-81 : le gabarit porte `(HTTP 403)` et non `(HTTP 400)`, ce que rend `lf-application::messages`, livré au plan 3a) et **sauf** `status: None` (garde locale, aucune requête partie) : gabarit distinct, sans « HTTP 400 », `the request was not sent to Legifrance ({détail}); report it.` (07 T-M2-09). Le `{détail}` est coupé à 200 caractères dans les deux gabarits ; cause `Status(status)`, ou `Decode` pour `status: None` | `[upstream_error] Legifrance rejected the request (HTTP 400): …` | reformuler la requête, sinon signaler |
 | `Upstream` (`Decode`, `TooLarge`) | `upstream_error` | `unexpected response from Legifrance; report it.` (E-21 ; `Decode` n'est pas réessayable, donc sans invitation à réessayer, 00 §8). **Exception (C2, 04 §7.3)** : `CorpusError::TooLarge` (corps de `/search` ou d'une consultation au-delà de la borne de corps ; variante typée au plan 3a, plus aucun appariement du `detail`) rend sur `fr_get_act` `this text is too large for fr_get_act; read its articles with fr_get_text, or find them with fr_search fond=CODE.` (texte trop gros, Code du travail) ; sur tout autre outil, le message générique ci-contre. Le corps trop gros de l'endpoint du jeton reste un `Decode`. Cause `Decode` dans tous les cas | `[upstream_error] unexpected response from Legifrance; report it.` ; `[upstream_error] this text is too large for fr_get_act; read its articles with fr_get_text, or find them with fr_search fond=CODE.` | signaler ; pour `fr_get_act`, lire par article ou chercher |
 | `Upstream` (`Deadline`) | `upstream_error` | `tool deadline of {n} s exceeded; retry, or narrow the request (smaller page_size, fewer fonds).` | `[upstream_error] tool deadline of 60 s exceeded; …` | réduire la demande |
-| `Upstream` (`Cancelled`) | — | aucune réponse émise (rmcp jette la réponse d'une requête annulée ; l'audit de sécurité du plan 3a lit au contraire que rmcp 1.8/2.1 l'envoie quand même : à revérifier au spike V-28 sur la version cible) ; audit `status: error`, `error_code` absent, `error: cancelled by client` (00 §7) | — | — |
+| `Upstream` (`Cancelled`) | — | aucune réponse émise : rmcp 3.5.1 jette la réponse d'une requête annulée (`service.rs:1503-1505`, « dropping response for cancelled request »), sur stdio ; verdict du spike 0A du 2026-10-29 (`spikes/rmcp-stdio/README.md`), qui retire la réserve du plan 3a (une lecture de rmcp 1.8/2.1 laissait croire que la réponse partait quand même) ; la ligne d'audit est la seule trace. Sur le transport HTTP (M8), l'annulation de l'arrêt répond 500 aux POST en vol ; audit `status: error`, `error_code` absent, `error: cancelled by client` (00 §7) | — | — |
 | `Config` (identifiants absents) | `config_error` | `PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET (from your piste.gouv.fr application, section OAuth Credentials).` (S6, E-34) | — | prévenir l'utilisateur |
 | `Config` (OAuth 400/401/403, API 401 après un renouvellement : `Auth`, sauf `origin: Api` avec `status: Some(403)`) | `config_error` | `PISTE rejected the credentials (HTTP {status}): check LF_PISTE_CLIENT_ID, LF_PISTE_CLIENT_SECRET and LF_PISTE_ENV.` (sans ` (HTTP {status})` si le statut est inconnu ; jamais `not_found`, 00 §5 ; corrige D-10) | — | prévenir l'utilisateur |
 | `Config` (API 403 : `Auth { origin: Api, status: Some(403) }`) | `config_error` | `PISTE denied access (HTTP 403): check that the PISTE application is subscribed to the Legifrance API.` (00 §5 ; la parité S10 donnait `upstream_error`) | — | prévenir l'utilisateur |

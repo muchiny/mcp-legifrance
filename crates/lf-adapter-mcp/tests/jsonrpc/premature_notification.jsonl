@@ -1,0 +1,17 @@
+{"comment":"C-08, V-29 : notification, réponse et erreur du client avant toute ère sont écartées (PreLifecycleFilter), sans réponse ni arrêt ; ping avant toute ère vaut {} (écart accepté, annexe D §4.7)"}
+{"send":{"jsonrpc":"2.0","method":"notifications/initialized"}}
+{"send":{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":7}}}
+{"send":{"jsonrpc":"2.0","id":99,"result":{}}}
+{"send":{"jsonrpc":"2.0","id":98,"error":{"code":-1,"message":"client error"}}}
+{"expect_silence_ms":500}
+{"expect_alive":true}
+{"send":{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}}
+{"expect":{"jsonrpc":"2.0","id":1,"result":{}},"mode":"exact"}
+{"send":{"jsonrpc":"2.0","id":2,"method":"ping","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":2,"result":{}},"mode":"exact"}
+{"comment":"l'ère s'ouvre ensuite normalement"}
+{"send":{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"transcript","version":"0"}}}}
+{"expect":{"jsonrpc":"2.0","id":3,"result":{"protocolVersion":"2025-11-25"}}}
+{"send":{"jsonrpc":"2.0","method":"notifications/initialized"}}
+{"send":{"jsonrpc":"2.0","id":4,"method":"tools/list","params":{}}}
+{"expect":{"jsonrpc":"2.0","id":4,"result":{}}}

@@ -1,0 +1,128 @@
+name: Conformance HTTP
+
+# Suite officielle de conformité MCP contre le transport HTTP (T-M8-04, 06 §6.2, annexe D §8.3,
+# C-60). L'exemple `conformance_server` (jamais distribué) sert `LegifranceServer` sur 127.0.0.1
+# avec un corpus factice et les éléments de test que la suite exige ; la suite
+# `@modelcontextprotocol/conformance` l'éprouve en 2026-07-28, puis en 2025-11-25. Les échecs
+# attendus sont dans `tests/conformance-baseline.yml`, chacun avec sa raison. Aucun filtre de
+# chemins : le job est destiné à être requis (V-42 levée après le premier passage au vert), et un
+# contrôle requis qu'un filtre ferait sauter bloquerait la fusion.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conformance-http-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # V-43. Version de la suite : 0.2.0-alpha.12, publiée le 2026-10-01 (plus de 14 jours, comme les
+  # dépendances du registre). Options relevées dans cette version (`server --help`, README) :
+  # `--url`, `--requirements <révision>` (remplace `--suite`, `--spec-version` et `--scenario`),
+  # `--expected-failures <fichier>`, `--output-dir`, `--timeout`, `--verbose` ; aucune option
+  # d'authentification, d'où un serveur de test sans jeton. rmcp teste aussi avec l'alpha.10
+  # (09 §3.1), qui n'a pas `--requirements` ; une montée relit ces options et la base d'échecs.
+  # La somme `dist.integrity` vient de `npm view … dist.integrity` ; l'arbre des dépendances
+  # transitives de la suite n'est pas verrouillé (écart assumé : sans scripts d'installation).
+  CONFORMANCE_VERSION: "0.2.0-alpha.12"
+  CONFORMANCE_INTEGRITY: "sha512-eXtZFgmtZiU5SsvXty+RGXGnyIqEVm3GLU/HZmg1wMjtKOocPZZgD9HQKd30oJhio5UB0wFJmsc6r8u48Q+EYA=="
+  CONFORMANCE_PORT: "3000"
+
+# Actions épinglées par SHA complet, version en commentaire : voir ci.yml.
+jobs:
+  conformance-http:
+    name: conformance-http
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # « Une entrée sans raison fait échouer le job » (06 §6.2) : chaque entrée de la liste doit
+      # suivre, dans son bloc (suite de lignes sans ligne vide), une ligne `# raison:` et une ligne
+      # `# lien:`, non vides. Le format de la suite n'a pas de champ de raison.
+      - name: Baseline, chaque entrée est justifiée
+        run: |
+          awk '
+            /^[[:space:]]*$/ { raison = 0; lien = 0; next }
+            /^[[:space:]]*#[[:space:]]*raison:[[:space:]]*[^[:space:]]/ { raison = 1; next }
+            /^[[:space:]]*#[[:space:]]*lien:[[:space:]]*[^[:space:]]/ { lien = 1; next }
+            /^[[:space:]]*#/ { next }
+            /^[[:space:]]*-[[:space:]]/ {
+              entries++
+              if (!raison || !lien) {
+                printf "::error file=tests/conformance-baseline.yml,line=%d::entrée sans raison ou sans lien : %s\n", NR, $0
+                bad = 1
+              }
+            }
+            END {
+              printf "%d entrée(s) dans la baseline\n", entries
+              exit bad
+            }
+          ' tests/conformance-baseline.yml
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Serveur de conformité (exemple, jamais distribué)
+        run: cargo build -p lf-adapter-mcp --example conformance_server --all-features --locked
+      - name: Suite épinglée (somme vérifiée)
+        run: |
+          actual="$(npm view "@modelcontextprotocol/conformance@${CONFORMANCE_VERSION}" dist.integrity)"
+          if [ "$actual" != "$CONFORMANCE_INTEGRITY" ]; then
+            echo "::error::somme de @modelcontextprotocol/conformance@${CONFORMANCE_VERSION} inattendue : ${actual}"
+            exit 1
+          fi
+      # Le serveur et les deux exécutions de la suite partagent un seul pas : un processus lancé
+      # en arrière-plan y est arrêté par le `trap`, quoi qu'il arrive. Les deux révisions passent
+      # toujours (un échec de la première ne masque pas la seconde).
+      - name: Suite officielle, 2026-07-28 puis 2025-11-25
+        env:
+          NPM_CONFIG_IGNORE_SCRIPTS: "true"
+          NPM_CONFIG_AUDIT: "false"
+          NPM_CONFIG_FUND: "false"
+        run: |
+          results="${RUNNER_TEMP}/conformance-results"
+          mkdir -p "$results"
+          url="http://127.0.0.1:${CONFORMANCE_PORT}/mcp"
+          target/debug/examples/conformance_server --port "$CONFORMANCE_PORT" 2>"${results}/server.log" &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; echo "--- journal du serveur ---"; cat "${results}/server.log"' EXIT
+          ready=""
+          for _ in $(seq 1 120); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              echo "::error::le serveur de conformité s'est arrêté avant d'écouter"
+              exit 1
+            fi
+            if curl -s -o /dev/null "$url"; then
+              ready=1
+              break
+            fi
+            sleep 0.5
+          done
+          if [ -z "$ready" ]; then
+            echo "::error::le serveur de conformité n'écoute pas sur ${url}"
+            exit 1
+          fi
+          status=0
+          for revision in 2026-07-28 2025-11-25; do
+            echo "::group::suite officielle, révision ${revision}"
+            npx --yes "@modelcontextprotocol/conformance@${CONFORMANCE_VERSION}" server \
+              --url "$url" \
+              --requirements "$revision" \
+              --expected-failures tests/conformance-baseline.yml \
+              --output-dir "${results}/${revision}" || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: conformance-http-results
+          path: ${{ runner.temp }}/conformance-results
+          if-no-files-found: ignore

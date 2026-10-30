@@ -1,0 +1,79 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "description": "Unofficial MCP server for French law via the Légifrance API (PISTE): search, read and cite texts.",
+  "name": "io.github.muchiny/mcp-legifrance",
+  "packages": [
+    {
+      "environmentVariables": [
+        {
+          "description": "OAuth client ID of your own Légifrance application on piste.gouv.fr. Never share it.",
+          "isRequired": true,
+          "isSecret": true,
+          "name": "LF_PISTE_CLIENT_ID"
+        },
+        {
+          "description": "OAuth client secret of the same PISTE application.",
+          "isRequired": true,
+          "isSecret": true,
+          "name": "LF_PISTE_CLIENT_SECRET"
+        },
+        {
+          "choices": [
+            "sandbox",
+            "production"
+          ],
+          "default": "sandbox",
+          "description": "PISTE environment; credentials are environment-specific.",
+          "isRequired": false,
+          "name": "LF_PISTE_ENV"
+        }
+      ],
+      "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "identifier": "https://github.com/muchiny/mcp-legifrance/releases/download/v0.3.0/mcp-legifrance-0.3.0.mcpb",
+      "registryType": "mcpb",
+      "transport": {
+        "type": "stdio"
+      },
+      "version": "0.3.0"
+    },
+    {
+      "environmentVariables": [
+        {
+          "description": "OAuth client ID of your own Légifrance application on piste.gouv.fr. Never share it.",
+          "isRequired": true,
+          "isSecret": true,
+          "name": "LF_PISTE_CLIENT_ID"
+        },
+        {
+          "description": "OAuth client secret of the same PISTE application.",
+          "isRequired": true,
+          "isSecret": true,
+          "name": "LF_PISTE_CLIENT_SECRET"
+        },
+        {
+          "choices": [
+            "sandbox",
+            "production"
+          ],
+          "default": "sandbox",
+          "description": "PISTE environment; credentials are environment-specific.",
+          "isRequired": false,
+          "name": "LF_PISTE_ENV"
+        }
+      ],
+      "identifier": "ghcr.io/muchiny/mcp-legifrance:0.3.0",
+      "registryType": "oci",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ],
+  "repository": {
+    "id": "1420834686",
+    "source": "github",
+    "url": "https://github.com/muchiny/mcp-legifrance"
+  },
+  "title": "Légifrance (unofficial)",
+  "version": "0.3.0",
+  "websiteUrl": "https://github.com/muchiny/mcp-legifrance#readme"
+}

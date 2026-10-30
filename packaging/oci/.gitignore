@@ -1,0 +1,3 @@
+# Binaires musl de la release, posés par publish-oci.yml avant `docker buildx build` (voie
+# bin-prebuilt du Dockerfile) : jamais versionnés.
+/prebuilt/

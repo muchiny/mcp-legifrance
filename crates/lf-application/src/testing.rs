@@ -24,16 +24,19 @@ use std::{
 use chrono::{DateTime, Utc};
 use lf_domain::{
     date::{CivilDate, VersionDate},
-    entity::{Act, ArticleText, CompanyAgreement, Convention, Decision, Deliberation, SearchPage},
+    entity::{
+        Act, ArticleText, ArticleVersion, CodeListing, CompanyAgreement, Convention, Decision,
+        Deliberation, RelatedLinks, SearchHit, SearchPage,
+    },
     id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId},
-    search::SearchQuery,
+    search::{NumberQuery, SearchQuery},
 };
 
 use crate::{
     deadline::Deadline,
     ports::{
-        AuditError, AuditErrorKind, AuditLog, AuditRecord, Clock, ConfigKind, CorpusError,
-        LegalCorpus,
+        ArticleAt, AuditError, AuditErrorKind, AuditLog, AuditRecord, Clock, ConfigKind,
+        CorpusError, LegalCorpus,
     },
 };
 
@@ -81,6 +84,16 @@ pub enum PortRequest {
     GetConvention(KaliTextId),
     /// `get_company_agreement(id)`.
     GetCompanyAgreement(AccoTextId),
+    /// `find_article(text, num, at)`.
+    FindArticle(LegiTextId, String, ArticleAt),
+    /// `find_by_number(query)`.
+    FindByNumber(NumberQuery),
+    /// `list_codes()`.
+    ListCodes,
+    /// `article_versions(id)`.
+    ArticleVersions(ArticleId),
+    /// `related_links(id)`.
+    RelatedLinks(ArticleId),
 }
 
 impl PortRequest {
@@ -96,6 +109,20 @@ impl PortRequest {
             Self::GetDeliberation(_) => "get_deliberation",
             Self::GetConvention(_) => "get_convention",
             Self::GetCompanyAgreement(_) => "get_company_agreement",
+            Self::FindArticle(..) => "find_article",
+            Self::FindByNumber(_) => "find_by_number",
+            Self::ListCodes => "list_codes",
+            Self::ArticleVersions(_) => "article_versions",
+            Self::RelatedLinks(_) => "related_links",
+        }
+    }
+
+    /// La requête de recherche, si c'est un `search`.
+    #[must_use]
+    pub fn into_search(self) -> Option<SearchQuery> {
+        match self {
+            Self::Search(query) => Some(query),
+            _ => None,
         }
     }
 }
@@ -116,6 +143,11 @@ pub struct FakeCorpus {
     get_deliberation: Responses<Deliberation>,
     get_convention: Responses<Convention>,
     get_company_agreement: Responses<CompanyAgreement>,
+    find_article: Responses<ArticleText>,
+    find_by_number: Responses<Vec<SearchHit>>,
+    list_codes: Responses<Vec<CodeListing>>,
+    article_versions: Responses<Vec<ArticleVersion>>,
+    related_links: Responses<RelatedLinks>,
     delay: Option<Duration>,
     /// Chaque appel reçu, méthode et arguments, dans l'ordre des appels.
     requests: Mutex<Vec<PortRequest>>,
@@ -176,6 +208,31 @@ impl FakeCorpus {
         lock(&self.get_company_agreement).push_back(response);
     }
 
+    /// Programme la réponse suivante de `find_article`.
+    pub fn push_find_article(&self, response: Result<ArticleText, CorpusError>) {
+        lock(&self.find_article).push_back(response);
+    }
+
+    /// Programme la réponse suivante de `find_by_number`.
+    pub fn push_find_by_number(&self, response: Result<Vec<SearchHit>, CorpusError>) {
+        lock(&self.find_by_number).push_back(response);
+    }
+
+    /// Programme la réponse suivante de `list_codes`.
+    pub fn push_list_codes(&self, response: Result<Vec<CodeListing>, CorpusError>) {
+        lock(&self.list_codes).push_back(response);
+    }
+
+    /// Programme la réponse suivante de `article_versions`.
+    pub fn push_article_versions(&self, response: Result<Vec<ArticleVersion>, CorpusError>) {
+        lock(&self.article_versions).push_back(response);
+    }
+
+    /// Programme la réponse suivante de `related_links`.
+    pub fn push_related_links(&self, response: Result<RelatedLinks, CorpusError>) {
+        lock(&self.related_links).push_back(response);
+    }
+
     /// Nombre total d'appels reçus, toutes méthodes confondues.
     #[must_use]
     pub fn calls(&self) -> usize {
@@ -214,7 +271,7 @@ impl FakeCorpus {
         lock(&self.deadlines).clone()
     }
 
-    /// Cœur commun des sept méthodes : à l'entrée (premier sondage du futur), note l'appel, ses
+    /// Cœur commun des douze méthodes : à l'entrée (premier sondage du futur), note l'appel, ses
     /// arguments et l'échéance, tient un emplacement en vol et RETIRE la réponse de la file
     /// (ou compte l'appel comme non servi) ; puis dort le délai et rend la réponse déjà retirée.
     /// Les réponses suivent ainsi l'ordre des appels, même sous `join!` avec un délai. Un appel
@@ -278,6 +335,32 @@ impl LegalCorpus for FakeCorpus {
     ) -> Result<CompanyAgreement, CorpusError> {
         let request = PortRequest::GetCompanyAgreement(id.clone());
         self.serve(request, &self.get_company_agreement).await
+    }
+
+    async fn find_article(
+        &self,
+        text: &LegiTextId,
+        num: &str,
+        at: ArticleAt,
+    ) -> Result<ArticleText, CorpusError> {
+        let request = PortRequest::FindArticle(text.clone(), num.to_owned(), at);
+        self.serve(request, &self.find_article).await
+    }
+
+    async fn find_by_number(&self, query: &NumberQuery) -> Result<Vec<SearchHit>, CorpusError> {
+        self.serve(PortRequest::FindByNumber(query.clone()), &self.find_by_number).await
+    }
+
+    async fn list_codes(&self) -> Result<Vec<CodeListing>, CorpusError> {
+        self.serve(PortRequest::ListCodes, &self.list_codes).await
+    }
+
+    async fn article_versions(&self, id: &ArticleId) -> Result<Vec<ArticleVersion>, CorpusError> {
+        self.serve(PortRequest::ArticleVersions(id.clone()), &self.article_versions).await
+    }
+
+    async fn related_links(&self, id: &ArticleId) -> Result<RelatedLinks, CorpusError> {
+        self.serve(PortRequest::RelatedLinks(id.clone()), &self.related_links).await
     }
 }
 
@@ -535,7 +618,7 @@ mod tests {
                 PortRequest::GetDeliberation(deliberation),
                 PortRequest::GetConvention(convention),
                 PortRequest::GetCompanyAgreement(agreement),
-                PortRequest::Search(cnil),
+                PortRequest::Search(cnil.clone()),
                 PortRequest::GetAct(act, VersionDate::MIN),
             ]
         );
@@ -556,6 +639,101 @@ mod tests {
             ]
         );
         assert_eq!((corpus.calls(), corpus.calls_of("get_act")), (9, 2));
+        // Seules les deux recherches donnent une requête de recherche.
+        let searches: Vec<SearchQuery> =
+            corpus.seen_requests().into_iter().filter_map(PortRequest::into_search).collect();
+        assert_eq!(searches, [query(), cnil]);
+    }
+
+    fn article_text() -> ArticleText {
+        ArticleText {
+            article_id: article_id(),
+            num: Some("9".to_owned()),
+            etat: None,
+            code_title: None,
+            parent: None,
+            path: vec![],
+            full_sections_titre: None,
+            date_debut: None,
+            date_fin: None,
+            text: lf_domain::text::LongText::default(),
+            nota: None,
+        }
+    }
+
+    fn number_query() -> NumberQuery {
+        NumberQuery::new(
+            Fond::Juri,
+            lf_domain::search::NumberKind::Case,
+            lf_domain::search::NumberValue::parse("24-13.470").unwrap(),
+            VersionDate::MIN,
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn fake_corpus_serves_and_records_the_m6_and_m7_methods() {
+        let corpus = FakeCorpus::new();
+        let text: LegiTextId = "LEGITEXT000006070721".parse().unwrap();
+        let today = ArticleAt::Today(VersionDate::parse("2026-10-29").unwrap());
+        let on = ArticleAt::On(VersionDate::parse("2020-01-01").unwrap());
+        let hit =
+            SearchHit::new(Fond::Juri, "JURITEXT000037999394".parse().unwrap(), None).unwrap();
+        let listing = CodeListing { id: text.clone(), title: "Code civil".to_owned(), etat: None };
+        let version = ArticleVersion {
+            id: "LEGIARTI000006419288".parse().unwrap(),
+            num: Some("9".to_owned()),
+            etat: None,
+            date_debut: None,
+            date_fin: None,
+        };
+        corpus.push_find_article(Ok(article_text()));
+        corpus.push_find_by_number(Ok(vec![hit.clone()]));
+        corpus.push_list_codes(Ok(vec![listing.clone()]));
+        corpus.push_article_versions(Ok(vec![version.clone()]));
+        corpus.push_related_links(Ok(RelatedLinks::default()));
+
+        assert_eq!(corpus.find_article(&text, "9", today).await, Ok(article_text()));
+        assert_eq!(corpus.find_by_number(&number_query()).await, Ok(vec![hit]));
+        assert_eq!(corpus.list_codes().await, Ok(vec![listing]));
+        assert_eq!(corpus.article_versions(&article_id()).await, Ok(vec![version]));
+        assert_eq!(corpus.related_links(&article_id()).await, Ok(RelatedLinks::default()));
+
+        // Les arguments reçus sont notés, l'indicateur « aujourd'hui » compris.
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![
+                PortRequest::FindArticle(text.clone(), "9".to_owned(), today),
+                PortRequest::FindByNumber(number_query()),
+                PortRequest::ListCodes,
+                PortRequest::ArticleVersions(article_id()),
+                PortRequest::RelatedLinks(article_id()),
+            ]
+        );
+        for method in
+            ["find_article", "find_by_number", "list_codes", "article_versions", "related_links"]
+        {
+            assert_eq!(corpus.calls_of(method), 1, "{method}");
+        }
+
+        // Files vides : chaque méthode nomme la sienne, et l'appel est compté comme non servi.
+        let unprogrammed = |method: &str| CorpusError::Config {
+            kind: ConfigKind::Settings,
+            detail: format!("FakeCorpus: no response programmed for {method}"),
+        };
+        assert_eq!(corpus.find_article(&text, "9", on).await, Err(unprogrammed("find_article")));
+        assert_eq!(
+            corpus.find_by_number(&number_query()).await,
+            Err(unprogrammed("find_by_number"))
+        );
+        assert_eq!(corpus.list_codes().await, Err(unprogrammed("list_codes")));
+        assert_eq!(
+            corpus.article_versions(&article_id()).await,
+            Err(unprogrammed("article_versions"))
+        );
+        assert_eq!(corpus.related_links(&article_id()).await, Err(unprogrammed("related_links")));
+        assert_eq!(corpus.unserved(), 5);
+        assert_eq!(corpus.seen_requests().last(), Some(&PortRequest::RelatedLinks(article_id())));
     }
 
     #[tokio::test(start_paused = true)]

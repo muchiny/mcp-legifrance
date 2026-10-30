@@ -6,7 +6,7 @@ English first, French below. / Version française plus bas.
 
 ### Supported versions
 
-Nothing is published yet (the workspace is at `0.0.0`). Until 1.0, only the latest published minor version receives fixes.
+Nothing is published yet (the workspace is at `0.3.0`, the version of the first release) and fixes land on `main`. From that release (`0.3.0`) and until 1.0, only the latest published minor version receives fixes.
 
 ### Reporting a vulnerability
 
@@ -14,35 +14,88 @@ Report privately through GitHub's "Private vulnerability reporting" (Security ta
 
 ### Scope
 
-Today: the repository, `lf-domain` and the workflows. The `mcp-legifrance` binary enters scope at milestone M4, then the MCPB bundle and the OCI image. Out of scope: the PISTE API and Légifrance (contact the DILA), MCP clients, and the language model.
+In scope: the repository, the `mcp-legifrance` binary (stdio MCP server and `check-config`), the artefacts built from it (release archives and installers, MCPB bundle, OCI image) and the repository workflows. Out of scope: the PISTE API and Légifrance (contact the DILA), MCP clients, the language model, and the third-party crates themselves (report those upstream; report here if the way we use one is the problem).
 
 ### Compromised PISTE credentials
 
-Reset them on PISTE immediately, then report to the DILA and the AIFE (PISTE terms of use).
+Your keys are strictly reserved to your application (PISTE terms of use). If they leaked, appeared in a log, a shared configuration file or a repository, reset them on PISTE immediately, then report it to the DILA and the AIFE.
 
 ### Threat model and known limitations
 
-Planned design (`docs/plan/06-qualite.md` §10, applicable from M4):
+Design reference: `docs/plan/06-qualite.md` §10 (threats MEN-01 to MEN-23).
 
-- stdio is not a sandbox.
-- The PISTE secret stays in the process environment.
-- `input_hash` is an unsalted SHA-256.
-- The audit log has no integrity proof.
-- Returned texts are data, not instructions.
-- The PISTE sandbox has no service commitment.
+**Trust boundary**
+
+- stdio is not a sandbox. The MCP client and the server share one trust domain, so the server does not try to defend itself against its own client.
+- The PISTE secret stays in the process environment: any process of the same account can read it. No command-line option accepts a secret (it would show in `ps`), `check-config` prints only "set (n characters)", and errors, logs and the audit log never contain it.
+- Logs go to stderr only, never carry a query text, and stdout carries nothing but JSON-RPC.
+
+**Returned texts are data, not instructions**
+
+- Legal texts come from the upstream API and may contain anything, including sentences addressed to a language model. They are returned as data fields: HTML is reduced to text, control, invisible and bidirectional characters are removed, and notes are fixed templates. Tools are read-only and have no side effects.
+- Residual risk: whether a model obeys an instruction hidden in a text is decided by the client and the model, not by this server. Treat any instruction found inside a returned text as untrusted.
+- Tool descriptions are locked (`tests/tools.lock.json`), so that a new version cannot silently change what a client has approved.
+
+**Audit log**
+
+- One JSON line per tool call, in `LF_AUDIT_DIR`. It holds a hash of the arguments, never their values. `input_hash` is an unsalted SHA-256: a short or guessable input can be recovered by enumeration.
+- The log has no integrity proof. A process of the same account can edit it, and nothing chains the lines. Symbolic links are refused for the log file, and rotation never deletes anything.
+- On Unix the directory is created `0700` and files `0600`. A pre-existing directory or file that is more permissive is not modified: the server warns instead.
+- On Windows the server sets no ACL. Files inherit the ACL of the user profile folder, which should be private, but this is **not verified** (V-165): check with `icacls` on your own machine.
+- Search queries are sent to PISTE, which is unavoidable. They are never logged, never audited in clear, and there is no disk cache.
+
+**Network**
+
+- TLS goes through rustls with the platform certificate verifier. Invalid certificates are never accepted and redirects are not followed.
+- By default only the official PISTE hosts are contacted. A custom `LF_PISTE_OAUTH_URL` or `LF_PISTE_BASE_URL` is accepted but warned about, and credentials are then sent to that host: set it only to a host you trust. There is no telemetry and no remote configuration.
+- The default rate limit is 5 requests per second. Over-consumption can get your PISTE application suspended, which is not under our control.
+- The PISTE sandbox has no service commitment, and its data are not identical to production.
+- Known limit (2026-10-29): when the upstream echoes a client identifier or the user-info part of a URL inside an error message, that text can reach the tool error, the logs and the audit log. The client secret and the tokens never do (tested). Redacting URLs in upstream messages is planned, not guaranteed (design reference D-40).
+- Known limit (2026-10-29): a string given for an integer field (for example `page_size`) that is not a number is quoted in full in the argument error, hence in the audit `error` field (cut to 500 characters, control characters neutralised). A model that puts a secret there would find it in the log. Not yet fixed.
+- Known limit (2026-10-30, security review F4): a panic inside a tool is caught and answered with an error, but Rust's default hook first prints the panic message to stderr, and that message can quote up to 256 bytes of a string built from the query or from an upstream text; the panicking call also leaves no audit line. Reads of resources, prompts and completions are not guarded against panics. No panic is known today. Not yet fixed.
+- Known limit (2026-10-30): a stdio JSON-RPC line has no length cap (the HTTP transport caps bodies at 256 KiB), and the rate limit of the HTTP transport covers `tools/call` only, not `resources/read` or `completion/complete`. A second Ctrl+C after the first signal does not force a stop.
+- Known limit (2026-10-30): the audit `error` field keeps invisible characters such as LRM, RLM, ALM, zero-width characters and tag characters (control, U+2028, U+2029 and bidirectional format characters are neutralised, not these), and argument values reach that field beyond the case described above. Audit files are opened without a check for a symbolic link swapped in between the check and the opening (the lock file and files after a rotation are not checked at all) and a file owned by another account is accepted; a half-written last line is never repaired, so the next record is glued to it. All of these need write access to the audit directory, which is already privileged. On a container image, `/data/audit` ships in `0755` and the server warns at each start.
+- Known limit (2026-10-30): the PISTE client honours the system proxy settings (`HTTPS_PROXY`, `ALL_PROXY`). With a custom `http://` loopback PISTE URL (a deliberate local choice, 04 §4.2), the client secret and the bearer token would go through that proxy in clear. Never set such an URL together with a proxy you do not control.
+
+**Supply chain**
+
+- `Cargo.lock` is committed and every build uses `--locked`. `cargo deny` checks advisories, licences, bans and sources on each pull request and every night. A crate version must be at least 14 days old. GitHub Actions are pinned by commit SHA and the workflows are linted. The Rust toolchain and `rmcp` are pinned.
+- Third-party licences are listed in `THIRD_PARTY_LICENSES.md`.
+- Releases are set up to carry SHA-256 sums and GitHub build-provenance attestations. No SLSA level is claimed. Windows and macOS binaries and the MCPB bundle are **not code-signed**: your system may warn when you run them.
+- Release workflow (security review F4, 2026-10-30): `release.yml` starts with no permission and only the `host` job can write to the repository; the build jobs do not receive `GH_TOKEN`; `dist`, `cargo-auditable` and `cargo-cyclonedx` are installed from release archives pinned by SHA-256, and a script checks these rules on every pull request. Not yet exercised on a real runner (a `v0.0.0-rc.N` pre-release will confirm).
+- **GitHub repository protections are not set up yet** (checked through the API on 2026-10-30): no `release` environment, no ruleset on `v*` tags or on `main`, `sha_pinning_required` off. The publication workflows are written for them but do not enforce them, so today a person with write access can move a tag or push to `main`. They are a blocking task before the first tag (T-MD-16 in `docs/plan/07-feuille-de-route.md`) and the owner sets them by hand.
+- The image published on GHCR is attested, but the resume path of the publication workflow can attest an image that already exists without checking where it came from, and the attestation check in CI is not bound to the tag or to the workflow. When you verify, add `--signer-workflow muchiny/mcp-legifrance/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z` to `gh attestation verify` (plain `--repo` accepts an attestation made by any workflow of the repository), and compare the digest with the release notes.
+
+**HTTP transport (optional, not in the default binaries)**
+
+stdio is the transport of the published binaries. If you build the optional HTTP transport (`serve-http`), these rules apply:
+
+- It listens on `127.0.0.1` or `[::1]` only; a non-loopback address is refused. Binding to the loopback address is not an authentication boundary, so every request must carry `Authorization: Bearer <token>`. The token is read from the environment, never from a command-line option, and compared in constant time.
+- This static token is a deliberate deviation from the OAuth 2.1 authorisation that the MCP specification recommends for HTTP. The OAuth "remote" profile is **not offered**: PISTE keys are reserved to your application (open question Q4). Do not expose this server on a network, and never share it between several people.
+- The `Origin` header is validated (a bad one gets a 403, against DNS rebinding), request bodies are capped at 256 KiB, tool invocations are rate-limited, `GET` and `DELETE` answer 405, and no session is created.
+- The inbound token is never forwarded to PISTE, logged or audited. The two trust relationships (client to server, server to PISTE) are never mixed.
+- `serve-http` refuses to start without `LF_MCP_HTTP_TOKEN`. A token shorter than 32 bytes is accepted with a warning at start-up: use at least 32 random bytes (for example the output of `openssl rand -hex 32`). Only the `mcp-legifrance` binary enforces the token: the library entry point `serve_http` can run without one, so do not embed it elsewhere without adding the check. The token is held as an ordinary string in memory, not wiped on exit.
+- At shutdown, requests still in flight are cancelled, audited and answered with HTTP 500 (rmcp 3.5.1 drops the response of a cancelled call); the grace period for draining them does not apply to tool calls. Do not rely on a call finishing during a shutdown.
+
+**Local index (optional `dila` build, not in the published binaries)**
+
+- The index is a snapshot of the DILA LEGI dumps (codes, laws and decrees only). It can lag behind Légifrance, so a text missing from it is reported `unresolvable`, never `not_found`, and `fr_coverage` describes the source as a degraded snapshot.
+- When `LF_DILA_DIR` is set, the server never falls back to PISTE: an index that is missing, empty or unreadable makes the source unavailable, and no request leaves the machine. The refusals the model reads are fixed texts without any path.
+- The archives are read as a stream and nothing is extracted to disk. Paths are validated, links are never followed, a regular member is capped at 16 MiB, and `DOCTYPE` and `ENTITY` are refused. Known limit (2026-10-30): the cap does not cover the GNU long-name (L/K) and PAX (x) extension headers of a tar archive, which are read before the cap applies, so a hostile archive could exhaust memory. This only matters if you build with `dila` and feed it an archive you did not download from the DILA; fix it before that feature is published. The dumps are downloaded by a script outside the binary; their integrity is yours to check.
 
 ### Hardening advice
 
-- Put credentials in the MCP client configuration, with restrictive file permissions.
-- Test against the sandbox.
-- Check the `fileSha256` of an MCPB bundle and the signature of binaries once they exist.
+- Put credentials in the MCP client configuration, with restrictive file permissions, never in a repository.
+- Test against the PISTE sandbox before using production.
+- Verify what you download: `sha256sum -c sha256.sum --ignore-missing` for archives, the `fileSha256` of an MCPB bundle, and `gh attestation verify <file> --repo muchiny/mcp-legifrance`.
+- Keep the audit directory private, and purge old logs yourself: nothing deletes them.
 - Never publish your keys.
 
 ## Français
 
 ### Versions prises en charge
 
-Rien n'est encore publié (le workspace est en `0.0.0`). Jusqu'à la 1.0, seule la dernière version mineure publiée reçoit des correctifs.
+Rien n'est encore publié (le workspace est en `0.3.0`, version de la première release) et les correctifs vont sur `main`. À partir de cette version (`0.3.0`) et jusqu'à la 1.0, seule la dernière version mineure publiée reçoit des correctifs.
 
 ### Signaler une vulnérabilité
 
@@ -50,26 +103,79 @@ Signalez en privé par le « Private vulnerability reporting » de GitHub (ongle
 
 ### Périmètre
 
-Aujourd'hui : le dépôt, `lf-domain` et les workflows. Le binaire `mcp-legifrance` entre dans le périmètre au jalon M4, puis le bundle MCPB et l'image OCI. Hors périmètre : l'API PISTE et Légifrance (contacter la DILA), les clients MCP et le modèle de langage.
+Dans le périmètre : le dépôt, le binaire `mcp-legifrance` (serveur MCP stdio et `check-config`), les artefacts qui en sont tirés (archives et installeurs de release, bundle MCPB, image OCI) et les workflows du dépôt. Hors périmètre : l'API PISTE et Légifrance (contacter la DILA), les clients MCP, le modèle de langage, et les crates tierces elles-mêmes (à signaler chez leurs auteurs ; à signaler ici si c'est notre façon de les employer qui pose problème).
 
 ### Identifiants PISTE compromis
 
-Réinitialisez-les tout de suite sur PISTE, puis signalez-le à la DILA et à l'AIFE (CGU de PISTE).
+Vos clés sont strictement réservées à votre application (CGU de PISTE). Si elles ont fuité, ou sont apparues dans un journal, un fichier de configuration partagé ou un dépôt, réinitialisez-les tout de suite sur PISTE, puis signalez-le à la DILA et à l'AIFE.
 
 ### Modèle de menace et limites connues
 
-Conception prévue (`docs/plan/06-qualite.md` §10, valable à partir de M4) :
+Référence de conception : `docs/plan/06-qualite.md` §10 (menaces MEN-01 à MEN-23).
 
-- stdio n'est pas un bac à sable.
-- Le secret PISTE reste dans l'environnement du processus.
-- `input_hash` est un SHA-256 non salé.
-- Le journal d'audit n'a pas de preuve d'intégrité.
-- Les textes renvoyés sont des données, pas des instructions.
-- La sandbox PISTE n'a pas d'engagement de service.
+**Frontière de confiance**
+
+- stdio n'est pas un bac à sable. Le client MCP et le serveur partagent un même domaine de confiance : le serveur ne cherche donc pas à se protéger de son propre client.
+- Le secret PISTE reste dans l'environnement du processus : tout processus du même compte peut le lire. Aucune option de ligne de commande n'accepte un secret (il se lirait dans `ps`), `check-config` n'affiche que « set (n characters) », et ni les erreurs, ni les journaux, ni le journal d'audit ne le contiennent.
+- Les journaux vont sur stderr seulement, ne portent jamais le texte d'une requête, et stdout ne porte que du JSON-RPC.
+
+**Les textes renvoyés sont des données, pas des instructions**
+
+- Les textes juridiques viennent de l'API amont et peuvent contenir n'importe quoi, y compris des phrases adressées à un modèle de langage. Ils sont rendus comme des champs de données : le HTML est ramené à du texte, les caractères de contrôle, invisibles et bidirectionnels sont retirés, et les notes sont des gabarits fixes. Les outils sont en lecture seule et n'ont aucun effet de bord.
+- Risque résiduel : qu'un modèle obéisse ou non à une consigne cachée dans un texte, c'est le client et le modèle qui en décident, pas ce serveur. Toute consigne trouvée dans un texte renvoyé est à tenir pour non fiable.
+- Les descriptions d'outils sont verrouillées (`tests/tools.lock.json`) : une nouvelle version ne peut pas changer en silence ce qu'un client a approuvé.
+
+**Journal d'audit**
+
+- Une ligne JSON par appel d'outil, dans `LF_AUDIT_DIR`. Elle contient une empreinte des arguments, jamais leurs valeurs. `input_hash` est un SHA-256 non salé : une entrée courte ou devinable se retrouve par énumération.
+- Le journal n'a pas de preuve d'intégrité. Un processus du même compte peut le modifier, et rien n'enchaîne les lignes. Les liens symboliques sont refusés pour le fichier journal, et la rotation ne supprime jamais rien.
+- Sous Unix, le répertoire est créé en `0700` et les fichiers en `0600`. Un répertoire ou un fichier préexistant plus permissif n'est pas modifié : le serveur avertit.
+- Sous Windows, le serveur ne pose aucune ACL. Les fichiers héritent de l'ACL du dossier de profil, a priori privée, mais ce point n'est **pas vérifié** (V-165) : contrôlez-le avec `icacls` sur votre poste.
+- Les requêtes de recherche partent vers PISTE, ce qui est inévitable. Elles ne sont jamais journalisées ni auditées en clair, et il n'y a aucun cache sur disque.
+
+**Réseau**
+
+- TLS passe par rustls avec le vérificateur de certificats de la plateforme. Un certificat invalide n'est jamais accepté et les redirections ne sont pas suivies.
+- Par défaut, seuls les hôtes officiels de PISTE sont contactés. Un `LF_PISTE_OAUTH_URL` ou `LF_PISTE_BASE_URL` personnalisé est accepté mais signalé par un avertissement, et les identifiants partent alors vers cet hôte : ne le renseignez que pour un hôte de confiance. Il n'y a ni télémétrie ni configuration distante.
+- Le débit par défaut est de 5 requêtes par seconde. Une surconsommation peut faire suspendre votre application PISTE, ce que nous ne maîtrisons pas.
+- La sandbox PISTE n'a pas d'engagement de service, et ses données ne sont pas celles de la production.
+- Limite connue (2026-10-29) : quand l'amont recopie un identifiant client ou la partie utilisateur d'une URL dans un message d'erreur, ce texte peut atteindre l'erreur de l'outil, les journaux et le journal d'audit. Le secret client et les jetons, eux, n'y figurent jamais (testé). La rédaction des URL dans les messages amont est prévue, non garantie (référence de conception D-40).
+- Limite connue (2026-10-29) : une chaîne donnée pour un champ entier (par exemple `page_size`) qui n'est pas un nombre est citée en entier dans l'erreur d'argument, donc dans le champ `error` de l'audit (coupé à 500 caractères, caractères de contrôle neutralisés). Un modèle qui y met un secret l'y retrouverait. Non corrigé à ce jour.
+- Limite connue (2026-10-30, revue de sécurité F4) : une panique dans un outil est rattrapée et rendue sous forme d'erreur, mais le crochet par défaut de Rust écrit d'abord le message de la panique sur stderr, et ce message peut citer jusqu'à 256 octets d'une chaîne construite à partir de la requête ou d'un texte amont ; l'appel qui panique ne laisse en outre aucune ligne d'audit. Les lectures de ressources, de prompts et les complétions ne sont pas protégées contre les paniques. Aucune panique n'est connue à ce jour. Non corrigé.
+- Limite connue (2026-10-30) : une ligne JSON-RPC sur stdio n'a pas de plafond de longueur (le transport HTTP plafonne les corps à 256 Kio), et la limite de débit du transport HTTP ne couvre que `tools/call`, pas `resources/read` ni `completion/complete`. Un second Ctrl+C après le premier signal ne force pas l'arrêt.
+- Limite connue (2026-10-30) : le champ `error` de l'audit garde les caractères invisibles (LRM, RLM, ALM, largeur nulle, caractères d'étiquette ; les contrôles, U+2028, U+2029 et les formats bidirectionnels sont neutralisés, pas ceux-là), et des valeurs d'argument y parviennent au-delà du cas décrit ci-dessus. Les fichiers d'audit sont ouverts sans contrôle d'un lien symbolique glissé entre le contrôle et l'ouverture (le fichier de verrou et les fichiers après rotation ne sont pas contrôlés du tout), et un fichier appartenant à un autre compte est accepté ; une dernière ligne écrite à moitié n'est jamais réparée, donc l'enregistrement suivant lui est collé. Tout cela suppose un accès en écriture au répertoire d'audit, déjà privilégié. Dans l'image de conteneur, `/data/audit` est livré en `0755` et le serveur avertit à chaque démarrage.
+- Limite connue (2026-10-30) : le client PISTE respecte les réglages de proxy du système (`HTTPS_PROXY`, `ALL_PROXY`). Avec une URL PISTE personnalisée en `http://` sur la boucle locale (choix local assumé, 04 §4.2), le secret client et le jeton porteur passeraient en clair par ce proxy. Ne combinez jamais une telle URL avec un proxy que vous ne maîtrisez pas.
+
+**Chaîne d'approvisionnement**
+
+- `Cargo.lock` est versionné et toute compilation emploie `--locked`. `cargo deny` contrôle les avis, les licences, les interdits et les sources à chaque PR et chaque nuit. Une version de crate doit avoir au moins 14 jours. Les actions GitHub sont épinglées par SHA de commit et les workflows sont analysés. La chaîne d'outils Rust et `rmcp` sont épinglés.
+- Les licences tierces sont listées dans `THIRD_PARTY_LICENSES.md`.
+- Les releases sont prévues avec des sommes SHA-256 et des attestations de provenance GitHub. Aucun niveau SLSA n'est revendiqué. Les binaires Windows et macOS et le bundle MCPB ne sont **pas signés** : votre système peut avertir au lancement.
+- Workflow de release (revue de sécurité F4, 2026-10-30) : `release.yml` part sans aucun droit et seul le job `host` peut écrire dans le dépôt ; les jobs de compilation ne reçoivent pas `GH_TOKEN` ; `dist`, `cargo-auditable` et `cargo-cyclonedx` s'installent depuis des archives de release à SHA-256 épinglé, et un script contrôle ces règles à chaque PR. Pas encore exercé sur un vrai runner (une préversion `v0.0.0-rc.N` le confirmera).
+- **Les protections du dépôt GitHub ne sont pas encore posées** (relevé par l'API le 2026-10-30) : pas d'environnement `release`, pas de ruleset sur les étiquettes `v*` ni sur `main`, `sha_pinning_required` désactivé. Les workflows de publication sont écrits pour elles mais ne les imposent pas : aujourd'hui, une personne qui a le droit d'écriture peut déplacer une étiquette ou pousser sur `main`. C'est une tâche bloquante avant la première étiquette (T-MD-16 dans `docs/plan/07-feuille-de-route.md`) que le propriétaire règle à la main.
+- L'image publiée sur GHCR est attestée, mais la voie de reprise du workflow de publication peut attester une image déjà présente sans vérifier d'où elle vient, et la vérification d'attestation de la CI n'est liée ni à l'étiquette ni au workflow. Quand vous vérifiez, ajoutez à `gh attestation verify` les options `--signer-workflow muchiny/mcp-legifrance/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z` (le seul `--repo` accepte l'attestation de n'importe quel workflow du dépôt), et comparez l'empreinte avec les notes de release.
+
+**Transport HTTP (facultatif, absent des binaires par défaut)**
+
+stdio est le transport des binaires publiés. Si vous compilez le transport HTTP facultatif (`serve-http`), ces règles s'appliquent :
+
+- Il n'écoute que sur `127.0.0.1` ou `[::1]` ; une adresse hors boucle locale est refusée. L'adresse de boucle locale n'est pas une frontière d'authentification : chaque requête doit donc porter `Authorization: Bearer <jeton>`. Le jeton est lu dans l'environnement, jamais dans une option de ligne de commande, et comparé en temps constant.
+- Ce jeton statique est un écart assumé à l'autorisation OAuth 2.1 que la spécification MCP recommande en HTTP. Le profil « distant » OAuth n'est **pas proposé** : les clés PISTE sont réservées à votre application (question ouverte Q4). N'exposez pas ce serveur sur un réseau et ne le partagez jamais entre plusieurs personnes.
+- L'en-tête `Origin` est validé (un `Origin` invalide reçoit un 403, contre le rebinding DNS), les corps de requête sont plafonnés à 256 Kio, les appels d'outils sont limités en débit, `GET` et `DELETE` répondent 405, et aucune session n'est créée.
+- Le jeton entrant n'est jamais transmis à PISTE, journalisé ni audité. Les deux relations de confiance (client vers serveur, serveur vers PISTE) ne sont jamais mélangées.
+- `serve-http` refuse de démarrer sans `LF_MCP_HTTP_TOKEN`. Un jeton de moins de 32 octets est accepté avec un avertissement au démarrage : prenez au moins 32 octets aléatoires (par exemple la sortie de `openssl rand -hex 32`). Seul le binaire `mcp-legifrance` impose le jeton : le point d'entrée de bibliothèque `serve_http` peut s'exécuter sans lui, ne l'intégrez donc pas ailleurs sans ajouter ce contrôle. Le jeton est tenu en mémoire comme une chaîne ordinaire, non effacée à la sortie.
+- À l'arrêt, les requêtes en vol sont annulées, auditées et reçoivent un HTTP 500 (rmcp 3.5.1 jette la réponse d'un appel annulé) ; le délai d'évacuation ne vaut pas pour les appels d'outil. Ne comptez pas sur la fin d'un appel pendant un arrêt.
+
+**Index local (compilation facultative `dila`, absente des binaires publiés)**
+
+- L'index est un instantané des dumps LEGI de la DILA (codes, lois et décrets seulement). Il peut être en retard sur Légifrance : un texte qui en est absent est rendu `unresolvable`, jamais `not_found`, et `fr_coverage` décrit la source comme un instantané dégradé.
+- Quand `LF_DILA_DIR` est défini, le serveur ne se replie jamais sur PISTE : un index absent, vide ou illisible rend la source indisponible, et aucune requête ne quitte la machine. Les refus que lit le modèle sont des textes fixes, sans aucun chemin.
+- Les archives sont lues en flux et rien n'est extrait sur le disque. Les chemins sont validés, les liens ne sont jamais suivis, un membre ordinaire est plafonné à 16 Mio, `DOCTYPE` et `ENTITY` sont refusés. Limite connue (2026-10-30) : le plafond ne couvre pas les en-têtes d'extension tar GNU (noms longs L/K) et PAX (x), lus avant qu'il s'applique : une archive hostile pourrait épuiser la mémoire. Cela ne compte que si vous compilez avec `dila` et lui donnez une archive qui ne vient pas de la DILA ; à corriger avant de publier cette fonctionnalité. Les dumps sont téléchargés par un script extérieur au binaire : leur intégrité est à vérifier par vous.
 
 ### Conseils de durcissement
 
-- Placez les identifiants dans la configuration du client MCP, avec des droits de fichier restreints.
-- Faites vos essais sur la sandbox.
-- Vérifiez le `fileSha256` d'un bundle MCPB et la signature des binaires quand ils existeront.
+- Placez les identifiants dans la configuration du client MCP, avec des droits de fichier restreints, jamais dans un dépôt.
+- Faites vos essais sur la sandbox PISTE avant la production.
+- Vérifiez ce que vous téléchargez : `sha256sum -c sha256.sum --ignore-missing` pour les archives, le `fileSha256` d'un bundle MCPB, et `gh attestation verify <fichier> --repo muchiny/mcp-legifrance`.
+- Gardez le répertoire d'audit privé et purgez vous-même les anciens journaux : rien ne les supprime.
 - Ne publiez jamais vos clés.

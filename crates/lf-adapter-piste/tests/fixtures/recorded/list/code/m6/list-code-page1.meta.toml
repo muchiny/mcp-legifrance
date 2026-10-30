@@ -1,0 +1,14 @@
+endpoint = "/list/code"
+request = "{\"pageNumber\":1,\"pageSize\":100,\"sort\":\"TITLE_ASC\"}"
+env = "sandbox"
+captured_at = "2026-10-29T10:29:53Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 1470
+bytes_raw = 42063
+sha256_raw = "99b1096ccb68f49216b9e3a94b07ced20188a34fbd52931c3af0339377da1d46"
+sha256_file = "99b1096ccb68f49216b9e3a94b07ced20188a34fbd52931c3af0339377da1d46"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 0.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ARTICLE>
+<META>
+<META_COMMUN>
+<ID>LEGIARTI000006861358</ID>
+<ANCIEN_ID>UPIGEXXXXXX002AAXXXXXXAA</ANCIEN_ID>
+<ORIGINE>LEGI</ORIGINE>
+<URL>article/LEGI/ARTI/00/00/06/86/13/LEGIARTI000006861358.xml</URL>
+<NATURE>Article</NATURE>
+</META_COMMUN>
+<META_SPEC>
+<META_ARTICLE>
+
+<NUM>2</NUM>
+
+<ETAT>MODIFIE_MORT_NE</ETAT>
+
+<DATE_DEBUT>1982-05-04</DATE_DEBUT>
+<DATE_FIN>1982-05-04</DATE_FIN>
+
+
+
+<TYPE>AUTONOME</TYPE>
+</META_ARTICLE>
+</META_SPEC>
+</META>
+<CONTEXTE>
+<TEXTE autorite="" cid="LEGITEXT000006074476" date_publi="2999-01-01" date_signature="1981-05-06" ministere="" nature="ARRETE" nor="" num="" num_parution_jo="">
+<TITRE_TXT c_titre_court="Arrêté du 6 mai 1981" debut="1982-05-04" fin="1982-05-04" id_txt="LEGITEXT000006074476">Arrêté du 6 mai 1981 fixant le montant des redevances cynégétiques pour la campagne 1981-1982</TITRE_TXT>
+</TEXTE>
+</CONTEXTE>
+<VERSIONS>
+<VERSION etat="MODIFIE_MORT_NE">
+<LIEN_ART debut="1982-05-04" etat="MODIFIE_MORT_NE" fin="1982-05-04" id="LEGIARTI000006861358" num="2" origine="LEGI"/>
+</VERSION>
+</VERSIONS>
+<NOTA>
+<CONTENU/>
+</NOTA>
+<BLOC_TEXTUEL>
+<CONTENU>
+<br/>   L'arrêté du 28 juin 1980 relatif au montant des redevances cynégétiques est abrogé.<br/>
+<br/>
+</CONTENU>
+</BLOC_TEXTUEL>
+<LIENS>
+<LIEN cidtexte="" datesignatexte="" id="" naturetexte="" nortexte="" num="" numtexte="" sens="source" typelien="CITATION">Arrêté 1980-06-28</LIEN>
+<LIEN cidtexte="JORFTEXT000000518660" datesignatexte="1977-06-29" id="JORFTEXT000000518660" naturetexte="DECRET" nortexte="" num="" numtexte="77-671" sens="source" typelien="TXT_SOURCE">Décret 77-671 1977-06-29 modifié par Décret 80-474 1980-06-28</LIEN>
+</LIENS>
+</ARTICLE>

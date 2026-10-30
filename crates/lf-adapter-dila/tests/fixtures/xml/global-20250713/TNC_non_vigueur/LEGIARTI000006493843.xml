@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ARTICLE>
+<META>
+<META_COMMUN>
+<ID>LEGIARTI000006493843</ID>
+<ANCIEN_ID>PJEEBXXXXXX004AAXXXXXXAA</ANCIEN_ID>
+<ORIGINE>LEGI</ORIGINE>
+<URL>article/LEGI/ARTI/00/00/06/49/38/LEGIARTI000006493843.xml</URL>
+<NATURE>Article</NATURE>
+</META_COMMUN>
+<META_SPEC>
+<META_ARTICLE>
+
+<NUM>4</NUM>
+
+<ETAT/>
+
+<DATE_DEBUT>2999-01-01</DATE_DEBUT>
+<DATE_FIN>2999-01-01</DATE_FIN>
+
+
+
+<TYPE>ENTIEREMENT_MODIF</TYPE>
+</META_ARTICLE>
+</META_SPEC>
+</META>
+<CONTEXTE>
+<TEXTE autorite="" cid="LEGITEXT000006071048" date_publi="2999-01-01" date_signature="1915-05-22" ministere="" nature="LOI" nor="" num="" num_parution_jo="">
+<TITRE_TXT c_titre_court="Loi du 22 mai 1915" debut="1915-05-23" fin="2007-12-22" id_txt="LEGITEXT000006071048">Loi du 22 mai 1915 sur le recel.</TITRE_TXT>
+</TEXTE>
+</CONTEXTE>
+<VERSIONS>
+<VERSION etat="">
+<LIEN_ART debut="2999-01-01" etat="" fin="2999-01-01" id="LEGIARTI000006493843" num="4" origine="LEGI"/>
+</VERSION>
+</VERSIONS>
+<NOTA>
+<CONTENU/>
+</NOTA>
+<BLOC_TEXTUEL>
+<CONTENU>a modifié les dispositions suivantes<br/>
+<br/>
+</CONTENU>
+</BLOC_TEXTUEL>
+<LIENS/>
+</ARTICLE>

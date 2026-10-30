@@ -1,0 +1,38 @@
+---
+source: crates/lf-adapter-piste/tests/summary_golden.rs
+expression: texts
+---
+[
+  {
+    "chars": 551,
+    "fixture": "consult_juri_constit",
+    "mode": "with the official summary",
+    "source": "dispositif",
+    "text": "Article 1er. - Le renvoi opéré par la première phrase du troisième alinéa de l’article 397-1-1 du code de procédure pénale, dans sa rédaction résultant de la loi du 23 mars 2019 de programmation 2018-2022 et de réforme pour la justice, aux mots « en chambre du conseil » figurant au premier alinéa de l’article 396 du même code est conforme à la Constitution.\n\nArticle 2. - Cette décision sera publiée au Journal officiel de la République française et notifiée dans les conditions prévues à l’article 23-11 de l’ordonnance du 7 novembre 1958 susvisée.",
+    "truncated": false
+  },
+  {
+    "chars": 736,
+    "fixture": "consult_juri_cetat",
+    "mode": "with the official summary",
+    "source": "official",
+    "text": "Projet de plan local d’urbanisme dont la mise en œuvre est susceptible d’avoir des effets notables sur l’environnement d’un autre Etat membre de l’Union européenne (UE). ...Il résulte des articles L. 104-7 et R. 104-26 du code de l’urbanisme, selon lesquelles les documents d’urbanisme mentionnés aux articles L. 104-1 et L. 104-2 du code de l’urbanisme (CUrb), au nombre desquels figurent les plans locaux d’urbanisme, doivent, lorsque leur mise en œuvre est susceptible de produire des effets notables sur l'environnement d’un Etat membre de l’Union européenne, être transmis aux autorités de celui-ci. La consultation des seules communes limitrophes du projet situées dans cet Etat membre ne peut tenir lieu d’une telle consultation.",
+    "truncated": false
+  },
+  {
+    "chars": 411,
+    "fixture": "consult_juri_cetat",
+    "mode": "without the official summary",
+    "source": "dispositif",
+    "text": "Article 1er : Le pourvoi de la communauté de communes du Pays Haut-Val-d'Alzette est rejeté.\n\nArticle 2 : La communauté de communes du Pays Haut-Val-d'Alzette versera à la société Cantebonne la somme de 3 000 euros au titre de l'article L. 761-1 du code de justice administrative.\n\nArticle 3 : La présente décision sera notifiée à la communauté de communes du Pays Haut-Val-d'Alzette et à la société Cantebonne.",
+    "truncated": false
+  },
+  {
+    "chars": 829,
+    "fixture": "consult_juri",
+    "mode": "with the official summary",
+    "source": "official",
+    "text": "L'action en responsabilité dirigée contre le fabricant d'un produit dont le caractère défectueux est invoqué et qui a été mis en circulation après l'expiration du délai de transposition de la directive 85/374/CEE du Conseil, du 25 juillet 1985, relative au rapprochement des dispositions législatives, réglementaires et administratives des Etats membres en matière de responsabilité du fait des produits défectueux, mais avant la date d'entrée en vigueur de la loi n° 98-389 du 19 mai 1998 transposant cette directive, se prescrit selon les dispositions du droit interne telles qu'interprétées à la lumière de l'article 10 de la directive, soit, en cas de dommage corporel, par dix ans à compter du jour où le demandeur a eu ou aurait dû avoir connaissance de la consolidation du dommage, du défaut et de l'identité du producteur",
+    "truncated": false
+  }
+]

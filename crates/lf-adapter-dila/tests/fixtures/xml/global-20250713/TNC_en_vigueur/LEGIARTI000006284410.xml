@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ARTICLE>
+<META>
+<META_COMMUN>
+<ID>LEGIARTI000006284410</ID>
+<ANCIEN_ID>AREBJXXXXXX001AAXXXXXXAA</ANCIEN_ID>
+<ORIGINE>LEGI</ORIGINE>
+<URL>article/LEGI/ARTI/00/00/06/28/44/LEGIARTI000006284410.xml</URL>
+<NATURE>Article</NATURE>
+</META_COMMUN>
+<META_SPEC>
+<META_ARTICLE>
+
+<NUM>1</NUM>
+
+<ETAT/>
+
+<DATE_DEBUT>2999-01-01</DATE_DEBUT>
+<DATE_FIN>2999-01-01</DATE_FIN>
+
+
+
+<TYPE>ENTIEREMENT_MODIF</TYPE>
+</META_ARTICLE>
+</META_SPEC>
+</META>
+<CONTEXTE>
+<TEXTE autorite="" cid="LEGITEXT000006069445" date_publi="2999-01-01" date_signature="1864-06-08" ministere="" nature="LOI" nor="" num="" num_parution_jo="">
+<TITRE_TXT c_titre_court="Loi du 8 juin 1864" debut="1864-06-08" fin="2024-01-01" id_txt="LEGITEXT000006069445">Loi du 8 juin 1864 fixant le budget pour 1864 et relative aux cautionnements des conservateurs des hypothèques</TITRE_TXT>
+</TEXTE>
+</CONTEXTE>
+<VERSIONS>
+<VERSION etat="">
+<LIEN_ART debut="2999-01-01" etat="" fin="2999-01-01" id="LEGIARTI000006284410" num="1" origine="LEGI"/>
+</VERSION>
+</VERSIONS>
+<NOTA>
+<CONTENU/>
+</NOTA>
+<BLOC_TEXTUEL>
+<CONTENU>a modifié les dispositions suivantes<br/>
+<br/>
+</CONTENU>
+</BLOC_TEXTUEL>
+<LIENS/>
+</ARTICLE>

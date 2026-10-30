@@ -3,6 +3,8 @@ source: crates/lf-adapter-piste/src/view.rs
 expression: view(&mapped)
 ---
 {
+  "applied_texts": [],
+  "cited_case_law": null,
   "contract": {
     "citation": "Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025",
     "ecli": "ECLI:FR:CC:2025:2025.1173.QPC",

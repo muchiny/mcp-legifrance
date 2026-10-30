@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ARTICLE>
+<META>
+<META_COMMUN>
+<ID>LEGIARTI000006864987</ID>
+<ANCIEN_ID>UPIXXXXXXXX004AAXXXXXXAA</ANCIEN_ID>
+<ORIGINE>LEGI</ORIGINE>
+<URL>article/LEGI/ARTI/00/00/06/86/49/LEGIARTI000006864987.xml</URL>
+<NATURE>Article</NATURE>
+</META_COMMUN>
+<META_SPEC>
+<META_ARTICLE>
+
+<NUM>4</NUM>
+
+<ETAT>ANNULE</ETAT>
+
+<DATE_DEBUT>1986-03-15</DATE_DEBUT>
+<DATE_FIN>1993-07-28</DATE_FIN>
+
+
+
+<TYPE>AUTONOME</TYPE>
+</META_ARTICLE>
+</META_SPEC>
+</META>
+<CONTEXTE>
+<TEXTE autorite="" cid="LEGITEXT000006074822" date_publi="2999-01-01" date_signature="1986-03-06" ministere="" nature="ARRETE" nor="" num="" num_parution_jo="">
+<TITRE_TXT c_titre_court="Arrêté du 6 mars 1986" debut="1986-03-15" fin="1993-07-28" id_txt="LEGITEXT000006074822">Arrêté du 6 mars 1986 relatif à l'exercice de la police de la pêche en eau douce</TITRE_TXT>
+</TEXTE>
+</CONTEXTE>
+<VERSIONS>
+<VERSION etat="ANNULE">
+<LIEN_ART debut="1986-03-15" etat="ANNULE" fin="1993-07-28" id="LEGIARTI000006864987" num="4" origine="LEGI"/>
+</VERSION>
+</VERSIONS>
+<NOTA>
+<CONTENU/>
+</NOTA>
+<BLOC_TEXTUEL>
+<CONTENU>
+<br/>   Le présent arrêté sera publié au Journal officiel de la République française.<br/>
+<br/>
+</CONTENU>
+</BLOC_TEXTUEL>
+<LIENS>
+<LIEN cidtexte="" datesignatexte="" id="" naturetexte="" nortexte="" num="" numtexte="" sens="source" typelien="ANNULATION">Conseil d'Etat n° 78541 1993-07-28</LIEN>
+</LIENS>
+</ARTICLE>

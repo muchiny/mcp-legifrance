@@ -588,3 +588,103 @@ name = "longueur/499"
 endpoint = "/search"
 body = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat contrat con\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
 allow_error = true
+
+# --- Sondes M6 et M7 (étape I-R du plan fin-du-projet, D17) : sandbox, une requête par seconde ---
+# Identifiants tirés des fixtures existantes : article 9 du Code civil (LEGIARTI000006419288), loi AGRX2502679L,
+# IDCC 2121, ECLI de JURITEXT000051743650 et de CETATEXT000054178503. `--only m6/` puis `--only m7/`.
+
+[[probe]]
+name = "m6/list-code-page1"
+endpoint = "/list/code"
+body = "{\"pageNumber\":1,\"pageSize\":100,\"sort\":\"TITLE_ASC\"}"
+
+[[probe]]
+name = "m6/list-code-page2"
+endpoint = "/list/code"
+body = "{\"pageNumber\":2,\"pageSize\":100,\"sort\":\"TITLE_ASC\"}"
+
+[[probe]]
+name = "m6/getArticleWithIdAndNum-code-civil-9"
+endpoint = "/consult/getArticleWithIdAndNum"
+body = "{\"id\":\"LEGITEXT000006070721\",\"num\":\"9\"}"
+
+[[probe]]
+name = "m6/getArticleWithIdAndNum-numero-inconnu"
+endpoint = "/consult/getArticleWithIdAndNum"
+body = "{\"id\":\"LEGITEXT000006070721\",\"num\":\"99999\"}"
+allow_error = true
+
+[[probe]]
+name = "m6/search-exacte-num-article-9"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_ARTICLE\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"9\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793185200000}],\"pageNumber\":1,\"pageSize\":100,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"ARTICLE\"}}"
+
+[[probe]]
+name = "m6/search-ecli-JURI-ECLI-FR-CCASS-2025-C100399"
+endpoint = "/search"
+body = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"*\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"ECLI\",\"valeurs\":[\"ECLI:FR:CCASS:2025:C100399\"]}],\"pageNumber\":1,\"pageSize\":10,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+
+[[probe]]
+name = "m6/search-ecli-CETAT-ECLI-FR-CECHR-2026-506507"
+endpoint = "/search"
+body = "{\"fond\":\"CETAT\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"*\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"ECLI\",\"valeurs\":[\"ECLI:FR:CECHR:2026:506507.20260529\"]}],\"pageNumber\":1,\"pageSize\":10,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+
+[[probe]]
+name = "m6/search-ecli-JURI-inconnu"
+endpoint = "/search"
+body = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"*\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"ECLI\",\"valeurs\":[\"ECLI:FR:CCASS:1900:C000000\"]}],\"pageNumber\":1,\"pageSize\":10,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "m6/getJoWithNor-AGRX2502679L"
+endpoint = "/consult/getJoWithNor"
+body = "{\"nor\":\"AGRX2502679L\"}"
+
+[[probe]]
+name = "m6/getJoWithNor-inconnu"
+endpoint = "/consult/getJoWithNor"
+body = "{\"nor\":\"ZZZZ0000000Z\"}"
+allow_error = true
+
+[[probe]]
+name = "m6/kaliContIdcc-2121"
+endpoint = "/consult/kaliContIdcc"
+body = "{\"id\":\"2121\"}"
+
+[[probe]]
+name = "m6/kaliContIdcc-inconnu"
+endpoint = "/consult/kaliContIdcc"
+body = "{\"id\":\"99999\"}"
+allow_error = true
+
+[[probe]]
+name = "m7/relatedLinksArticle-LEGIARTI000006419288"
+endpoint = "/consult/relatedLinksArticle"
+body = "{\"articleId\":\"LEGIARTI000006419288\"}"
+
+[[probe]]
+name = "m7/relatedLinksArticle-LEGIARTI000033205058"
+endpoint = "/consult/relatedLinksArticle"
+body = "{\"articleId\":\"LEGIARTI000033205058\"}"
+
+[[probe]]
+name = "m7/relatedLinksArticle-inconnu"
+endpoint = "/consult/relatedLinksArticle"
+body = "{\"articleId\":\"LEGIARTI000000000000\"}"
+allow_error = true
+
+[[probe]]
+name = "m7/canonicalArticleVersion-LEGIARTI000006419288"
+endpoint = "/search/canonicalArticleVersion"
+body = "{\"id\":\"LEGIARTI000006419288\"}"
+
+[[probe]]
+name = "m7/canonicalArticleVersion-inconnu"
+endpoint = "/search/canonicalArticleVersion"
+body = "{\"id\":\"LEGIARTI000000000000\"}"
+allow_error = true
+
+[[probe]]
+name = "m7/getArticleByCid-LEGIARTI000006419288"
+endpoint = "/consult/getArticleByCid"
+body = "{\"cid\":\"LEGIARTI000006419288\"}"

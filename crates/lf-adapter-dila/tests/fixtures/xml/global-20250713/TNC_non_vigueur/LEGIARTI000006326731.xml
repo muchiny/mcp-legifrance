@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ARTICLE>
+<META>
+<META_COMMUN>
+<ID>LEGIARTI000006326731</ID>
+<ANCIEN_ID>FAICDXXXXXX004AAXXXXXXAA</ANCIEN_ID>
+<ORIGINE>LEGI</ORIGINE>
+<URL>article/LEGI/ARTI/00/00/06/32/67/LEGIARTI000006326731.xml</URL>
+<NATURE>Article</NATURE>
+</META_COMMUN>
+<META_SPEC>
+<META_ARTICLE>
+
+<NUM>4</NUM>
+
+<ETAT>PERIME</ETAT>
+
+<DATE_DEBUT>1981-01-01</DATE_DEBUT>
+<DATE_FIN>1981-12-31</DATE_FIN>
+
+
+
+<TYPE>AUTONOME</TYPE>
+</META_ARTICLE>
+</META_SPEC>
+</META>
+<CONTEXTE>
+<TEXTE autorite="" cid="LEGITEXT000006069664" date_publi="2999-01-01" date_signature="1980-12-31" ministere="" nature="ARRETE" nor="" num="" num_parution_jo="">
+<TITRE_TXT c_titre_court="Arrêté du 31 décembre 1980" debut="1981-01-01" fin="1981-12-31" id_txt="LEGITEXT000006069664">Arrêté du 31 décembre 1980 TAUX ET REPARTITION DE LA TAXE PARAFISCALE DU SECTEUR TEXTILE</TITRE_TXT>
+</TEXTE>
+</CONTEXTE>
+<VERSIONS>
+<VERSION etat="PERIME">
+<LIEN_ART debut="1981-01-01" etat="PERIME" fin="1981-12-31" id="LEGIARTI000006326731" num="4" origine="LEGI"/>
+</VERSION>
+</VERSIONS>
+<NOTA>
+<CONTENU/>
+</NOTA>
+<BLOC_TEXTUEL>
+<CONTENU>
+<br/>   Le présent arrêté prendra effet à compter du 1er janvier 1981 jusqu'au 31 décembre 1981.<br/>
+<br/>
+</CONTENU>
+</BLOC_TEXTUEL>
+<LIENS/>
+</ARTICLE>

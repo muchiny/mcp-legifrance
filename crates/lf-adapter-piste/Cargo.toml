@@ -40,6 +40,8 @@ tokio = { workspace = true, features = ["time", "sync"] }
 tracing.workspace = true
 
 [dev-dependencies]
+# doublures (FakeCorpus) de la suite de contrat du port (V2-05, V3-12)
+lf-application = { workspace = true, features = ["test-support"] }
 # net : TcpStream des tests de ClosedPort (testing.rs), TcpListener des serveurs de test ;
 # test-util : #[tokio::test(start_paused = true)] pour lire Deadline sans attendre (deadline.rs seulement)
 tokio = { workspace = true, features = ["macros", "net", "rt", "rt-multi-thread", "test-util"] }

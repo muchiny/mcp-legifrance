@@ -8,7 +8,11 @@
 # au lieu de le réécrire. `--all-features` sur lint, test, doc et cov (06 §7.1) : la feature
 # `record` de lf-adapter-piste (enregistrement de fixtures) est ainsi compilée et couverte.
 
-COV_FLAGS := --workspace --lib --all-features --locked --summary-only \
+# Une seule exclusion nommée de la couverture (D6, 06 §7.6) : `stdio.rs` de lf-adapter-mcp, réduit à
+# la colle `serve_stdio` sur les vrais stdin et stdout, couverte par l'e2e du binaire (`--lib` ne
+# mesure que les `#[cfg(test)] mod tests`). La logique du cycle de vie vit dans `lifecycle.rs`, mesuré.
+COV_IGNORE := --ignore-filename-regex 'crates/lf-adapter-mcp/src/stdio\.rs$$'
+COV_FLAGS := --workspace --lib --all-features --locked --summary-only $(COV_IGNORE) \
 	--fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
 MUTANTS_SAFE := TMPDIR=/var/tmp NEXTEST_TEST_THREADS=2 cargo mutants -j 1
 BASE ?= origin/main
@@ -28,7 +32,7 @@ MIN_AGE_DAYS ?= 14
 SURFACE_DIR ?= target/surface
 DONNEES := docs/plan/annexes/donnees
 
-.PHONY: fmt fmt-check lint test doc arch purity deny audit-fuzz min-age min-age-selftest machete cov cov-cobertura clippy-json mem-check mutants mutants-diff workflow-lint surface ci
+.PHONY: fmt fmt-check lint test doc arch purity deny audit-fuzz min-age min-age-selftest release-selftest machete cov cov-cobertura clippy-json mem-check mutants mutants-diff workflow-lint surface instructions lock ci
 
 fmt:
 	cargo fmt --all
@@ -57,10 +61,11 @@ purity:
 
 # Deux graphes sous un seul deny.toml (M1-D16) : le workspace, puis fuzz/ (hors workspace, son propre
 # Cargo.lock). Chaque run signalerait des avertissements propres à l'autre graphe : `-A` les masque
-# (licence ou wrapper non rencontrés, exception NCSA non employée), sans configuration par graphe.
+# (licence, wrapper ou `skip` de doublon non rencontrés, exception NCSA non employée), sans configuration
+# par graphe. `multiple-versions = "deny"` : chaque doublon du workspace a son `skip` justifié (deny.toml).
 deny:
 	cargo deny --locked check -A license-exception-not-encountered
-	cargo deny --locked --manifest-path fuzz/Cargo.toml check -A license-not-encountered -A unused-wrapper
+	cargo deny --locked --manifest-path fuzz/Cargo.toml check -A license-not-encountered -A unused-wrapper -A unmatched-skip
 
 # Avis RustSec sur fuzz/Cargo.lock (M1-D16), hors `make ci` : réseau (base d'avis). Le binaire
 # `cargo-audit audit` et non `cargo audit` : la sous-commande passe par rustup et téléchargerait la
@@ -78,6 +83,12 @@ min-age-selftest:
 	shellcheck .github/scripts/check-min-age.sh .github/scripts/tests/min-age/run.sh
 	.github/scripts/tests/min-age/run.sh
 
+# Auto-test du workflow de release : garde-fous de release.yml et installation à somme épinglée
+# des outils de release (F4, SUP-01 et SUP-02), hors réseau.
+release-selftest:
+	shellcheck .github/scripts/check-release-workflow.sh .github/scripts/install-release-tool.sh .github/scripts/tests/release/run.sh
+	.github/scripts/tests/release/run.sh
+
 machete:
 	cargo machete
 
@@ -89,7 +100,7 @@ cov:
 # Rapport Cobertura de SonarQube Cloud (sonar-project.properties), relu depuis les profils que
 # `make cov` vient d'écrire : sans recompilation, et sans seuil (le seuil est celui de `cov`).
 cov-cobertura:
-	cargo llvm-cov report --cobertura --output-path cobertura.xml
+	cargo llvm-cov report $(COV_IGNORE) --cobertura --output-path cobertura.xml
 
 # Rapport Clippy JSON de SonarQube Cloud, hors `make ci`. Même périmètre que `lint`, mais sans
 # `-D warnings` : le rapport liste tous les avertissements au lieu de s'arrêter au premier.
@@ -115,6 +126,7 @@ mutants-diff: mem-check
 # Workflows GitHub (zizmor puis actionlint) : hors `make ci`, lancé par workflow-lint.yml
 # quand `.github/` change (06 §7.1).
 workflow-lint:
+	.github/scripts/check-release-workflow.sh
 	$(ZIZMOR) .github/
 	$(ACTIONLINT)
 
@@ -127,5 +139,18 @@ surface:
 	cmp "$(SURFACE_DIR)/parite-golden.json" $(DONNEES)/parite-golden.json
 	cmp crates/lf-adapter-piste/tests/fixtures/reference/parite-golden.json $(DONNEES)/parite-golden.json
 	python3 -I $(DONNEES)/scripts/check_golden.py $(DONNEES)/parite-golden.json
+	cmp crates/lf-domain/tests/data/citations/codes-table.md $(DONNEES)/codes-table.md
+	cmp crates/lf-domain/tests/data/citations/citations-corpus-positifs.jsonl $(DONNEES)/citations-corpus-positifs.jsonl
+	cmp crates/lf-domain/tests/data/citations/citations-corpus-negatifs.jsonl $(DONNEES)/citations-corpus-negatifs.jsonl
 
-ci: fmt-check lint test doc arch purity deny min-age-selftest machete cov surface
+# Taille des instructions du serveur (05 §4.1) : lance `mcp-legifrance serve` (binaire de V2-04), envoie
+# `server/discover` puis `tools/list` et refuse plus de 3 500 caractères.
+instructions:
+	cargo xtask instructions-size
+
+# Verrou des descripteurs (05 §9) : `tests/tools.lock.json`, le manifeste MCPB et `server.json` doivent
+# correspondre au binaire (trois sessions rejouées). Régénération : `cargo xtask lock-descriptors --update`.
+lock:
+	cargo xtask lock-descriptors --check
+
+ci: fmt-check lint test doc arch purity deny min-age-selftest release-selftest machete cov surface instructions lock

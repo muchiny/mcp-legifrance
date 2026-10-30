@@ -1,0 +1,13 @@
+{"comment":"C-10 : _meta moderne sans protocolVersion ou sans clientCapabilities, ou mal typé : -32602 ; clientInfo est facultatif"}
+{"send":{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}}
+{"expect":{"jsonrpc":"2.0","id":1,"error":{"code":-32602}},"absent":["/result"]}
+{"send":{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":2,"error":{"code":-32602}},"absent":["/result"]}
+{"send":{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":5,"io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":3,"error":{"code":-32602}},"absent":["/result"]}
+{"send":{"jsonrpc":"2.0","id":4,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","id":4,"result":{"resultType":"complete"}}}
+{"comment":"l'ère moderne est ouverte : une requête sans _meta est refusée, elle n'est pas lue d'après les précédentes"}
+{"send":{"jsonrpc":"2.0","id":5,"method":"tools/list","params":{}}}
+{"expect":{"jsonrpc":"2.0","id":5,"error":{"code":-32602}},"absent":["/result"]}
+{"expect_alive":true}

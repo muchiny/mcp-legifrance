@@ -6,9 +6,16 @@ use xtask::{
     arch::{inherits_workspace_lints, violations, workspace_packages},
     args::utf8_args,
     graph::{graph_violations, resolved_graph},
+    instructions,
+    lock_descriptors::{self, LockMode},
     record::example_command,
 };
 
+#[expect(
+    clippy::disallowed_methods,
+    clippy::print_stdout,
+    reason = "CLI de développement : CARGO est fourni par cargo, le verdict va sur stdout (exception admise, xtask/src/main.rs)"
+)]
 fn check_arch() -> Result<(), String> {
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".into());
     // Graphe résolu complet : `--all-features` pour le pire cas, `--locked` pour le verrou.
@@ -41,6 +48,11 @@ fn check_arch() -> Result<(), String> {
 /// Lance l'exemple `record_fixture` de l'adapter avec `args`, environnement et sorties hérités.
 /// Le code de sortie de l'exemple (0, 1 sonde non écrite, 2 usage ou identifiants absents) est
 /// celui de `cargo xtask`.
+#[expect(
+    clippy::disallowed_methods,
+    clippy::print_stderr,
+    reason = "CLI de développement : CARGO est fourni par cargo, l'échec va sur stderr (exception admise, xtask/src/main.rs)"
+)]
 fn record_fixture(args: &[String]) -> ExitCode {
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".into());
     match Command::new(cargo).args(example_command(args)).status() {
@@ -55,6 +67,10 @@ fn record_fixture(args: &[String]) -> ExitCode {
     }
 }
 
+#[expect(
+    clippy::print_stderr,
+    reason = "CLI de développement : les messages d'usage et d'erreur vont sur stderr (exception admise, xtask/src/main.rs)"
+)]
 fn main() -> ExitCode {
     // `args_os` : `env::args()` paniquerait sur un argument qui n'est pas de l'UTF-8 (M8).
     let args = match utf8_args(env::args_os()) {
@@ -67,7 +83,12 @@ fn main() -> ExitCode {
     let result = match args.get(1).map(String::as_str) {
         Some("record-fixture") => return record_fixture(&args[2..]),
         Some("check-arch") => check_arch(),
-        _ => Err("usage: cargo xtask check-arch | record-fixture <arguments>".into()),
+        Some("lock-descriptors") => LockMode::from_args(&args[2..]).and_then(lock_descriptors::run),
+        Some("instructions-size") if args.len() == 2 => instructions::run(),
+        _ => Err("usage: cargo xtask check-arch | record-fixture <arguments> | \
+                  lock-descriptors [--check | --update | --compare <ref-git>] | \
+                  instructions-size"
+            .into()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

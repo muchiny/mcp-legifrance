@@ -24,6 +24,13 @@ serde_json = "1.0"
 serde_path_to_error = "0.1"
 
 [[bin]]
+name = "citation_parse"
+path = "fuzz_targets/citation_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "dto_decode"
 path = "fuzz_targets/dto_decode.rs"
 test = false

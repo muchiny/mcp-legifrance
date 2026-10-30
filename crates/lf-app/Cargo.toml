@@ -1,0 +1,52 @@
+[package]
+name = "mcp-legifrance"
+description = "Serveur MCP Légifrance (stdio) et son interface en ligne de commande : données publiques de Légifrance via l'API PISTE."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
+
+[features]
+# M9 : source locale DILA. Absente des binaires publiés (plan fin-du-projet, M9).
+dila = ["dep:lf-adapter-dila"]
+# M8 : sous-commande `serve-http` (profil local, Q4). Absente des binaires publiés.
+http = ["lf-adapter-mcp/http"]
+
+[dependencies]
+lf-domain.workspace = true
+lf-application.workspace = true
+lf-adapter-piste.workspace = true
+lf-adapter-cache.workspace = true
+lf-adapter-audit.workspace = true
+lf-adapter-mcp.workspace = true
+lf-adapter-dila = { workspace = true, optional = true }
+clap = { workspace = true, features = ["derive"] }
+tracing.workspace = true
+# env-filter : LF_LOG ; smallvec et tracing-log : réglages de 02 §3.0.1 ; sans `ansi` (stderr n'est pas un terminal)
+tracing-subscriber = { workspace = true, features = ["env-filter", "smallvec", "tracing-log"] }
+anyhow.workspace = true
+dirs.workspace = true
+secrecy.workspace = true
+# clock : lf-app seul lit l'horloge (SystemClock) ; clippy.toml interdit Utc::now ailleurs
+chrono = { workspace = true, features = ["clock"] }
+chrono-tz.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "signal", "io-std", "macros"] }
+tokio-util.workspace = true
+
+[dev-dependencies]
+lf-adapter-mcp = { workspace = true, features = ["test-support"] }
+lf-application = { workspace = true, features = ["test-support"] }
+wiremock.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+# pas d'assert_cmd : env!("CARGO_BIN_EXE_mcp-legifrance") suffit
+tokio = { workspace = true, features = ["process", "io-util", "time", "test-util"] }
+
+[lints]
+workspace = true

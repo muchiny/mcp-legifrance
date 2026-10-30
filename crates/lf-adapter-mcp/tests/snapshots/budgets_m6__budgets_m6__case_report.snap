@@ -1,0 +1,50 @@
+---
+source: crates/lf-adapter-mcp/tests/budgets_m6.rs
+expression: report
+---
+[
+  {
+    "case": "verify_100_citations_with_1000_char_records",
+    "kept": {
+      "found": 100,
+      "kept": 19
+    },
+    "tool": "fr_verify_citations",
+    "under_estimation_target": false
+  },
+  {
+    "case": "verify_50_plain_citations_by_default",
+    "kept": {
+      "found": 50,
+      "kept": 50
+    },
+    "tool": "fr_verify_citations",
+    "under_estimation_target": true
+  },
+  {
+    "case": "related_150_links_with_500_char_citations",
+    "kept": {
+      "kept": 38,
+      "total": 150
+    },
+    "tool": "fr_get_related",
+    "under_estimation_target": false
+  },
+  {
+    "case": "related_120_short_links",
+    "kept": {
+      "kept": 100,
+      "total": 120
+    },
+    "tool": "fr_get_related",
+    "under_estimation_target": true
+  },
+  {
+    "case": "resolve_5_candidates_with_1000_char_citations",
+    "kept": {
+      "candidates": 5
+    },
+    "tool": "fr_resolve",
+    "under_estimation_target": true
+  }
+]

@@ -36,6 +36,7 @@ jobs:
           rm actionlint actionlint.tar.gz
       # GH_TOKEN active les audits en ligne de zizmor (impostor-commit,
       # ref-version-mismatch, known-vulnerable-actions).
+      - run: make release-selftest
       - run: make workflow-lint
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,0 +1,7 @@
+{"comment":"C-24 : subscriptions/listen moderne, accusé minimal en premier (notifications vide, subscriptionId = id de la requête), puis silence jusqu'à l'annulation"}
+{"send":{"jsonrpc":"2.0","id":"listen-1","method":"subscriptions/listen","params":{"notifications":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}}
+{"expect":{"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{"notifications":{},"_meta":{"io.modelcontextprotocol/subscriptionId":"listen-1"}}},"absent":["/id"]}
+{"expect_silence_ms":500}
+{"send":{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"listen-1"}}}
+{"expect_silence_ms":500}
+{"expect_alive":true}

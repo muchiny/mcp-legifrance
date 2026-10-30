@@ -10,7 +10,8 @@
 //! - membre inconnu : absent de la table, une seule violation, aucun autre
 //!   contrôle sur ce membre ;
 //! - R1 : `lf-domain` sans dépendance interne, liste blanche externe
-//!   `DOMAIN_ALLOWED` (`thiserror` seul, décision C3) ;
+//!   `DOMAIN_ALLOWED` (`thiserror`, puis les parseurs de citations de M6 :
+//!   `winnow`, `aho-corasick`, `regex`, `unicode-normalization`, ADR-0018) ;
 //! - R2 : `lf-application` ne dépend en interne que de `lf-domain`, et en externe
 //!   de la liste fermée `APPLICATION_ALLOWED` ; les features qu'elle active sur
 //!   `tokio`, `chrono` et `tracing` sont bornées par `APPLICATION_FEATURES` (`default`
@@ -27,7 +28,9 @@
 //!   must not depend on {dep} (confined to {portes})` (portes séparées par
 //!   `", "`), en plus de R2 pour `lf-application` (règles distinctes, pas de
 //!   dédoublonnage) ; `NEVER_RENAMED` (`rmcp`) interdit en outre tout
-//!   renommage dans le manifeste, `{membre} must not rename rmcp` ;
+//!   renommage dans le manifeste, `{membre} must not rename rmcp` ; `PINNED`
+//!   (`rmcp`, `rmcp-macros`) exige l'épinglage exact `=3.5.1`, de tout kind,
+//!   `{membre} must pin {dep} to {exigence} (found {lue})` (T-M4-15) ;
 //! - R7 : aucun membre ne dépend directement de `async-trait` (ADR-0012) ;
 //! - R8 : en dépendance de développement, `lf-domain` et `lf-application`
 //!   (`dev_adapters` à `false`) ne prennent aucun adapter ni `mcp-legifrance`,
@@ -35,7 +38,7 @@
 //!   les autres membres (`dev_adapters` à `true`) n'ont pas cette limite ;
 //! - R10 : aucun membre n'active, en dépendance
 //!   normale ou par sa table `[features]`, une feature de `DEV_ONLY_FEATURES`
-//!   (`lf-application/test-support`), message `{membre} must not enable {dep}
+//!   (`lf-application/test-support`, `lf-adapter-mcp/test-support`), message `{membre} must not enable {dep}
 //!   feature {feature} (dev-dependencies only)` ; en `[dev-dependencies]` elle
 //!   reste permise (`cargo metadata` classe ces dépendances à part) ; chez le
 //!   propriétaire, aucune autre feature (`default`, `full`...) ne la liste,
@@ -103,8 +106,10 @@ pub struct Package {
     pub lints_workspace: bool,
 }
 
-/// Seules dépendances normales externes admises dans `lf-domain`.
-const DOMAIN_ALLOWED: [&str; 1] = ["thiserror"];
+/// Seules dépendances normales externes admises dans `lf-domain` : `thiserror`, puis les
+/// parseurs de citations de M6 (03 §4, ADR-0018 : élargissement de 00 §11.1).
+const DOMAIN_ALLOWED: [&str; 5] =
+    ["thiserror", "winnow", "aho-corasick", "regex", "unicode-normalization"];
 
 /// Dépendances normales externes admises dans `lf-application` : liste fermée
 /// de R2 (00 §2).
@@ -117,15 +122,18 @@ const APPLICATION_FEATURES: [(&str, &[&str]); 3] =
     [("tokio", &["time", "macros", "rt"]), ("chrono", &["std"]), ("tracing", &["std"])];
 
 /// Feature réservée aux dépendances de développement (R10) : `(crate, feature)`. Les
-/// doublures de `lf-application` (`test-support`) ne doivent jamais entrer dans un binaire.
-const DEV_ONLY_FEATURES: [(&str, &str); 1] = [("lf-application", "test-support")];
+/// doublures de `lf-application` (`test-support`) et le harnais client de `lf-adapter-mcp`
+/// (`test-support`, qui active `rmcp/client`) ne doivent jamais entrer dans un binaire.
+const DEV_ONLY_FEATURES: [(&str, &str); 2] =
+    [("lf-application", "test-support"), ("lf-adapter-mcp", "test-support")];
 
 /// Crates confinés (R6) : chacun avec les seuls membres autorisés à le déclarer
 /// en dépendance normale (leurs « portes »). `backon` reste ici même si
 /// `lf-adapter-piste` ne l'emploie pas : la table décrit la porte, pas l'usage.
 /// `chrono-tz` n'est ouvert ni à `lf-domain` ni à `lf-application` (00 §2).
-/// Les portes `lf-adapter-dila` sont inertes tant que ce membre est absent de
-/// `RULES`. Dans la table, `lf-app` s'écrit `mcp-legifrance`.
+/// Les portes `lf-adapter-dila` sont actives depuis la vague 0 du plan fin-du-projet : le membre
+/// figure dans `RULES` (M9, derrière la feature `dila` de `mcp-legifrance`). Dans la table,
+/// `lf-app` s'écrit `mcp-legifrance`.
 const CONFINED: [(&str, &[&str]); 21] = [
     ("rmcp", &["lf-adapter-mcp"]),
     ("rmcp-macros", &["lf-adapter-mcp"]),
@@ -153,6 +161,11 @@ const CONFINED: [(&str, &[&str]); 21] = [
 /// Crates que le manifeste ne renomme jamais (R6) : un alias contournerait les
 /// contrôles par nom de `rmcp`.
 const NEVER_RENAMED: [&str; 1] = ["rmcp"];
+
+/// Crates épinglés exactement (R6, T-M4-15) : `(crate, exigence)`. `rmcp` déclare une exigence
+/// caret sur `rmcp-macros` : sans épinglage direct des deux, un `cargo update` pourrait les
+/// désassortir (02 §3.0.1). Une montée passe par un ADR et par cette table.
+const PINNED: [(&str, &str); 2] = [("rmcp", "=3.5.1"), ("rmcp-macros", "=3.5.1")];
 
 /// Portes d'un crate confiné, `None` s'il ne l'est pas.
 fn doors(dep: &str) -> Option<&'static [&'static str]> {
@@ -208,7 +221,7 @@ const LIBRARY: CrateRule = CrateRule {
     dev_adapters: true,
 };
 
-const RULES: [CrateRule; 8] = [
+const RULES: [CrateRule; 9] = [
     CrateRule {
         name: "lf-domain",
         external: Some(&DOMAIN_ALLOWED),
@@ -227,6 +240,7 @@ const RULES: [CrateRule; 8] = [
     CrateRule { name: "lf-adapter-cache", internal: &["lf-application", "lf-domain"], ..LIBRARY },
     CrateRule { name: "lf-adapter-audit", internal: &["lf-application"], ..LIBRARY },
     CrateRule { name: "lf-adapter-mcp", internal: &["lf-application", "lf-domain"], ..LIBRARY },
+    CrateRule { name: "lf-adapter-dila", internal: &["lf-application", "lf-domain"], ..LIBRARY },
     CrateRule {
         name: "mcp-legifrance",
         internal: &[
@@ -236,6 +250,7 @@ const RULES: [CrateRule; 8] = [
             "lf-adapter-cache",
             "lf-adapter-audit",
             "lf-adapter-mcp",
+            "lf-adapter-dila",
         ],
         bin: true,
         lib: false,
@@ -276,6 +291,10 @@ fn member_violations(p: &Package, rule: &CrateRule, domain: Option<&Package>) ->
         .iter()
         .filter(|name| NEVER_RENAMED.contains(&name.as_str()))
         .map(|name| format!("{} must not rename {name}", p.name));
+    let pinned = p.requirements.iter().filter_map(|(dep, req)| {
+        let (_, exact) = PINNED.iter().find(|(name, _)| name == dep)?;
+        (req != exact).then(|| format!("{} must pin {dep} to {exact} (found {req})", p.name))
+    });
     let dev = p
         .dev_deps
         .iter()
@@ -324,6 +343,7 @@ fn member_violations(p: &Package, rule: &CrateRule, domain: Option<&Package>) ->
         (!p.lints_workspace).then(|| format!("{} must declare [lints] workspace = true", p.name));
     deps.chain(confined)
         .chain(renamed)
+        .chain(pinned)
         .chain(dev)
         .chain(features)
         .chain(dev_only)
@@ -608,12 +628,12 @@ mod tests {
             "lf-domain",
             &["lf-application", "tokio", "regex", "chrono", "futures", "thiserror", "serde_json"],
         )];
+        // `regex` est admis depuis ADR-0018 (parseurs de M6) : il n'est plus une violation.
         assert_eq!(
             violations(&graph),
             [
                 "lf-domain must not depend on lf-application",
                 "lf-domain must not depend on tokio",
-                "lf-domain must not depend on regex",
                 "lf-domain must not depend on chrono",
                 "lf-domain must not depend on futures",
                 "lf-domain must not depend on serde_json",
@@ -648,16 +668,16 @@ mod tests {
 
     #[test]
     fn unknown_member_is_a_violation() {
-        let dila = pkg("lf-adapter-dila", &["async-trait", "mcp-legifrance"]);
+        let ghost = pkg("lf-adapter-ghost", &["async-trait", "mcp-legifrance"]);
         let graph = [
             pkg("lf-domain", &["thiserror"]),
             pkg("lf-app", &["lf-domain"]),
-            Package { targets: strings(&["lib", "bin"]), edition: "2021".into(), ..dila },
+            Package { targets: strings(&["lib", "bin"]), edition: "2021".into(), ..ghost },
             pkg("xtask", &[]),
         ];
         assert_eq!(
             violations(&graph),
-            ["unknown workspace member: lf-app", "unknown workspace member: lf-adapter-dila"]
+            ["unknown workspace member: lf-app", "unknown workspace member: lf-adapter-ghost"]
         );
     }
 
@@ -1251,13 +1271,14 @@ mod tests {
     ];
 
     /// Membres connus de `RULES`.
-    const MEMBERS: [&str; 8] = [
+    const MEMBERS: [&str; 9] = [
         "lf-domain",
         "lf-application",
         "lf-adapter-piste",
         "lf-adapter-cache",
         "lf-adapter-audit",
         "lf-adapter-mcp",
+        "lf-adapter-dila",
         "mcp-legifrance",
         "xtask",
     ];
@@ -1533,6 +1554,152 @@ mod tests {
         // Le workspace livré : `test-support = []` seule, aucune violation.
         let clean = declaring(pkg("lf-application", &[]), &[("test-support", &[])]);
         assert_eq!(violations(&[pkg("lf-domain", &[]), clean]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn rmcp_must_be_pinned_exactly() {
+        let mcp = |requirements: &[(&str, &str)]| {
+            let package =
+                requiring(pkg("lf-adapter-mcp", &["lf-application", "rmcp"]), requirements);
+            [pkg("lf-domain", &[]), package]
+        };
+        // Les deux épinglés `=3.5.1` : aucune violation (les autres exigences sont libres).
+        let pinned = [("rmcp", "=3.5.1"), ("rmcp-macros", "=3.5.1"), ("schemars", "^1.2")];
+        assert_eq!(violations(&mcp(&pinned)), Vec::<String>::new());
+        // Exigence caret, plancher, autre version exacte ou intervalle : refusée, pour chacun.
+        for (dep, found) in [
+            ("rmcp", "^3.5.1"),
+            ("rmcp", ">=3.5.1"),
+            ("rmcp", "=3.5.2"),
+            ("rmcp-macros", "^3.5"),
+            ("rmcp-macros", "=3.5.1, <4"),
+            ("rmcp", "*"),
+        ] {
+            assert_eq!(
+                violations(&mcp(&[(dep, found)])),
+                [format!("lf-adapter-mcp must pin {dep} to =3.5.1 (found {found})")],
+                "{dep} {found}"
+            );
+        }
+        // Les deux désassortis : deux violations, dans l'ordre des exigences.
+        assert_eq!(
+            violations(&mcp(&[("rmcp", "^3"), ("rmcp-macros", "^3")])),
+            [
+                "lf-adapter-mcp must pin rmcp to =3.5.1 (found ^3)",
+                "lf-adapter-mcp must pin rmcp-macros to =3.5.1 (found ^3)",
+            ]
+        );
+        // Lue dans `cargo metadata`, quel que soit le kind : un `rmcp` de développement non
+        // épinglé (feature `client`) est refusé comme une dépendance normale.
+        let metadata = json!({
+            "workspace_members": ["a", "b"],
+            "packages": [
+                {
+                    "id": "a", "name": "lf-domain", "version": "0.0.0", "edition": "2024",
+                    "manifest_path": "/w/lf-domain/Cargo.toml", "targets": [],
+                    "dependencies": []
+                },
+                {
+                    "id": "b", "name": "lf-adapter-mcp", "version": "0.0.0", "edition": "2024",
+                    "manifest_path": "/w/lf-adapter-mcp/Cargo.toml", "targets": [],
+                    "dependencies": [
+                        { "name": "rmcp", "kind": null, "req": "=3.5.1" },
+                        { "name": "rmcp", "kind": "dev", "req": "^3.5", "features": ["client"] }
+                    ]
+                }
+            ]
+        });
+        let graph: Vec<Package> = workspace_packages(&metadata)
+            .unwrap()
+            .into_iter()
+            .map(|p| Package { lints_workspace: true, ..p })
+            .collect();
+        assert_eq!(violations(&graph), ["lf-adapter-mcp must pin rmcp to =3.5.1 (found ^3.5)"]);
+    }
+
+    #[test]
+    fn dila_member_has_a_rule() {
+        let dila = |deps: &[&str]| [pkg("lf-domain", &[]), pkg("lf-adapter-dila", deps)];
+        // Ses portes (R6) et ses internes admis : `lf-application` et `lf-domain`.
+        let own = ["lf-application", "lf-domain", "tantivy", "quick-xml", "tar", "flate2"];
+        assert_eq!(violations(&dila(&own)), Vec::<String>::new());
+        // R3 : ni autre adapter ni `mcp-legifrance` ; R6 : pas les crates des autres portes.
+        assert_eq!(
+            violations(&dila(&["lf-adapter-piste", "mcp-legifrance", "moka", "sha2"])),
+            [
+                "lf-adapter-dila must not depend on lf-adapter-piste",
+                "lf-adapter-dila must not depend on mcp-legifrance",
+                "lf-adapter-dila must not depend on moka (confined to lf-adapter-cache)",
+                "lf-adapter-dila must not depend on sha2 (confined to lf-adapter-audit, xtask)",
+            ]
+        );
+        // `mcp-legifrance` peut le prendre (feature `dila`) ; `lf-application` et un autre
+        // adapter, non.
+        let graph = [
+            pkg("lf-domain", &[]),
+            pkg("lf-application", &["lf-adapter-dila"]),
+            pkg("lf-adapter-cache", &["lf-adapter-dila"]),
+            app(&["lf-adapter-dila"]),
+        ];
+        assert_eq!(
+            violations(&graph),
+            [
+                "lf-application must not depend on lf-adapter-dila",
+                "lf-adapter-cache must not depend on lf-adapter-dila",
+            ]
+        );
+    }
+
+    #[test]
+    fn domain_allows_m6_parsers() {
+        let parsers = ["thiserror", "winnow", "aho-corasick", "regex", "unicode-normalization"];
+        assert_eq!(violations(&[pkg("lf-domain", &parsers)]), Vec::<String>::new());
+        // Seuls ces quatre crates sont admis en plus de `thiserror` : tout autre reste refusé.
+        let graph = [pkg("lf-domain", &["winnow", "similar", "regex-lite", "serde", "tantivy"])];
+        assert_eq!(
+            violations(&graph),
+            [
+                "lf-domain must not depend on similar",
+                "lf-domain must not depend on regex-lite",
+                "lf-domain must not depend on serde",
+                "lf-domain must not depend on tantivy",
+                "lf-domain must not depend on tantivy (confined to lf-adapter-dila)",
+            ]
+        );
+    }
+
+    #[test]
+    fn mcp_test_support_is_dev_only() {
+        let forbidden = "mcp-legifrance must not enable lf-adapter-mcp feature test-support \
+                         (dev-dependencies only)";
+        let graph = |app: Package, mcp: Package| [pkg("lf-domain", &[]), mcp, app];
+        let table = || declaring(pkg("lf-adapter-mcp", &[]), &[("test-support", &["rmcp/client"])]);
+        // Le workspace livré : `test-support` seule chez le propriétaire, activée en dev chez
+        // `mcp-legifrance` (que `cargo metadata` classe à part) : aucune violation.
+        let dev = developing(app(&["lf-adapter-mcp"]), &["lf-adapter-mcp"]);
+        assert_eq!(violations(&graph(dev, table())), Vec::<String>::new());
+        // Activée sur la déclaration normale du binaire.
+        let normal = enabling(app(&["lf-adapter-mcp"]), &[("lf-adapter-mcp", &["test-support"])]);
+        assert_eq!(violations(&graph(normal, table())), [forbidden]);
+        // Aucune autre feature du propriétaire ne la liste (`default` l'activerait partout).
+        let listing = declaring(
+            pkg("lf-adapter-mcp", &[]),
+            &[("test-support", &["rmcp/client"]), ("default", &["test-support"])],
+        );
+        assert_eq!(
+            violations(&graph(app(&["lf-adapter-mcp"]), listing)),
+            ["lf-adapter-mcp feature default must not enable test-support (dev-dependencies only)"]
+        );
+        // `lf-application/test-support` reste couverte par la même règle, sans interférence.
+        let both = enabling(
+            app(&["lf-adapter-mcp", "lf-application"]),
+            &[("lf-application", &["test-support"])],
+        );
+        assert_eq!(
+            violations(&graph(both, table())),
+            ["mcp-legifrance must not enable lf-application feature test-support \
+              (dev-dependencies only)"]
+        );
     }
 
     #[test]

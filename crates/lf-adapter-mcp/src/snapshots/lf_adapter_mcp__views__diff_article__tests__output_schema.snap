@@ -1,0 +1,85 @@
+---
+source: crates/lf-adapter-mcp/src/views/diff_article.rs
+expression: schema
+---
+{
+  "$defs": {
+    "HunkView": {
+      "properties": {
+        "added": {
+          "type": "string"
+        },
+        "at": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "context": {
+          "type": "string"
+        },
+        "removed": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "at"
+      ],
+      "type": "object"
+    },
+    "VersionView": {
+      "properties": {
+        "article_id": {
+          "type": "string"
+        },
+        "date_debut": {
+          "type": "string"
+        },
+        "date_fin": {
+          "type": "string"
+        },
+        "etat": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "article_id"
+      ],
+      "type": "object"
+    }
+  },
+  "properties": {
+    "article_id": {
+      "type": "string"
+    },
+    "citation": {
+      "type": "string"
+    },
+    "hunks": {
+      "items": {
+        "$ref": "#/$defs/HunkView"
+      },
+      "type": "array"
+    },
+    "identical": {
+      "type": "boolean"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "version_a": {
+      "$ref": "#/$defs/VersionView"
+    },
+    "version_b": {
+      "$ref": "#/$defs/VersionView"
+    }
+  },
+  "required": [
+    "article_id",
+    "citation",
+    "version_a",
+    "version_b",
+    "identical",
+    "hunks"
+  ],
+  "type": "object"
+}

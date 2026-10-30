@@ -1,0 +1,138 @@
+---
+source: crates/lf-adapter-mcp/src/views/coverage.rs
+expression: "sandbox_view(Surface::V01)"
+---
+{
+  "as_of_note": "Data is queried live against the source, so there is no local snapshot date. Any date on a record states when the source published it - not that this connector verified the text is still in force today.",
+  "attribution": "Source : Légifrance / DILA — Licence Ouverte 2.0",
+  "configuration": {
+    "audit_mode": "strict",
+    "credentials_configured": true
+  },
+  "consulted_on": "2026-10-15",
+  "eli_note": "The API returns no native ELI for legislation: source_url is the stable Légifrance URL, not an ELI. An eli field appears only when the API provides one; never build an /eli/ path.",
+  "environment": "sandbox",
+  "families": [
+    {
+      "fond": "LODA",
+      "label": "Laws, ordinances and decrees (consolidated)",
+      "tools": [
+        "fr_get_act",
+        "fr_get_text"
+      ]
+    },
+    {
+      "fond": "CODE",
+      "label": "Legal codes (consolidated)",
+      "tools": [
+        "fr_get_act",
+        "fr_get_text"
+      ]
+    },
+    {
+      "fond": "JURI",
+      "label": "Judicial case law (Cour de cassation, courts of appeal; selection)",
+      "tools": [
+        "fr_get_decision"
+      ]
+    },
+    {
+      "fond": "CONSTIT",
+      "label": "Conseil constitutionnel decisions",
+      "tools": [
+        "fr_get_decision"
+      ]
+    },
+    {
+      "fond": "CETAT",
+      "label": "Conseil d'État, administrative courts of appeal and tribunals (selection)",
+      "tools": [
+        "fr_get_decision"
+      ]
+    },
+    {
+      "fond": "CNIL",
+      "label": "CNIL deliberations",
+      "tools": [
+        "fr_get_deliberation"
+      ]
+    },
+    {
+      "fond": "KALI",
+      "label": "Collective agreements (conventions collectives)",
+      "tools": [
+        "fr_get_convention",
+        "fr_get_text"
+      ]
+    },
+    {
+      "fond": "ACCO",
+      "label": "Company agreements (metadata only)",
+      "tools": [
+        "fr_get_company_agreement"
+      ]
+    }
+  ],
+  "gaps": [
+    {
+      "fallback": "Cite source_url; never build an /eli/ path.",
+      "id": "FR-001",
+      "missing": "The API returns no native ELI for legislation."
+    },
+    {
+      "fallback": "Check etat, validity dates and transitional provisions on the record itself.",
+      "id": "FR-002",
+      "missing": "Legal force for a given case is not evaluated: texts are returned as published."
+    },
+    {
+      "fallback": "Send the user to source_url.",
+      "fond": "ACCO",
+      "id": "FR-003",
+      "missing": "The full text of company agreements is only a .docx attachment and is not returned."
+    },
+    {
+      "fallback": "Cite citation and source_url; never invent an ECLI.",
+      "fond": "CETAT",
+      "id": "FR-004",
+      "missing": "Many CAA and TA decisions have no ECLI, and tribunal decisions are only partly published."
+    },
+    {
+      "fallback": "Search Judilibre (Cour de cassation open data) for other judicial decisions.",
+      "fond": "JURI",
+      "id": "FR-005",
+      "missing": "Only a selection of courts of appeal and almost no first-instance decisions are on Légifrance; Judilibre is not integrated."
+    },
+    {
+      "fallback": "Do not try to re-identify parties.",
+      "fond": "JURI",
+      "id": "FR-006",
+      "missing": "Published decisions are pseudonymised (JURI) and CNIL texts redacted: party names are replaced."
+    },
+    {
+      "fallback": "Search LODA: consolidated texts carry their JO reference.",
+      "id": "FR-007",
+      "missing": "The Journal officiel (JORF) fond is not searchable yet."
+    },
+    {
+      "fallback": "Narrow the query (match=all or exact, date_from/date_to).",
+      "id": "FR-008",
+      "missing": "Search pages hold at most 100 hits and results beyond 10,000 are not reachable."
+    },
+    {
+      "fallback": "Use EUR-Lex, HUDOC or the relevant official source.",
+      "id": "FR-009",
+      "missing": "Not covered: EU law, CJEU and ECHR case law, doctrine, circulars, parliamentary documents."
+    },
+    {
+      "fallback": "Set LF_PISTE_ENV=production with production credentials.",
+      "id": "FR-101",
+      "missing": "Running on the PISTE sandbox: data may differ from production and availability is not guaranteed."
+    }
+  ],
+  "general_tools": [
+    "fr_search",
+    "fr_coverage"
+  ],
+  "source": "Légifrance (DILA), through the official PISTE API.",
+  "status": "ok"
+}

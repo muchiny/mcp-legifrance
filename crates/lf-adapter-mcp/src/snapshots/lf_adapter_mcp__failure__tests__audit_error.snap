@@ -1,0 +1,5 @@
+---
+source: crates/lf-adapter-mcp/src/failure.rs
+expression: text
+---
+[audit_error] audit log unavailable; the call was not recorded and its result is withheld (see server logs). Original error: [not_found].

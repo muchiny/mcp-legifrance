@@ -1,20 +1,40 @@
 [workspace]
 resolver = "3"
-members = ["crates/lf-domain", "crates/lf-application", "crates/lf-adapter-piste", "xtask"]
+members = [
+    "crates/lf-domain",
+    "crates/lf-application",
+    "crates/lf-adapter-piste",
+    "crates/lf-adapter-cache",
+    "crates/lf-adapter-audit",
+    "crates/lf-adapter-mcp",
+    "crates/lf-adapter-dila",
+    "crates/lf-app",
+    "xtask",
+]
 exclude = ["fuzz", "spikes/tls-provider"]
 
 [workspace.package]
-version = "0.0.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
 repository = "https://github.com/muchiny/mcp-legifrance"
 publish = false
+# Métadonnées de distribution (08 §2.3, T-MD-02) : héritées par le seul paquet `mcp-legifrance`.
+homepage = "https://github.com/muchiny/mcp-legifrance"
+readme = "README.md"
+keywords = ["mcp", "legifrance", "law", "france", "legal"]
+categories = ["command-line-utilities"]
 
 [workspace.dependencies]
 # internes : exigence « = » + version de [workspace.package] (check-arch, étape 5h)
-lf-domain = { path = "crates/lf-domain", version = "=0.0.0" }
-lf-application = { path = "crates/lf-application", version = "=0.0.0" }
+lf-domain = { path = "crates/lf-domain", version = "=0.3.0" }
+lf-application = { path = "crates/lf-application", version = "=0.3.0" }
+lf-adapter-piste = { path = "crates/lf-adapter-piste", version = "=0.3.0" }
+lf-adapter-cache = { path = "crates/lf-adapter-cache", version = "=0.3.0" }
+lf-adapter-audit = { path = "crates/lf-adapter-audit", version = "=0.3.0" }
+lf-adapter-mcp = { path = "crates/lf-adapter-mcp", version = "=0.3.0" }
+lf-adapter-dila = { path = "crates/lf-adapter-dila", version = "=0.3.0" }
 # externes : exigence au niveau mineur, correctif choisi par le verrou (règle d'âge, 02 §3.0.1) ;
 # default-features = false déclaré ici : au niveau d'un membre, l'héritage ne le respecte qu'à partir de 1.99
 thiserror = "2.0.21"
@@ -38,10 +58,56 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 # `std` seul est par défaut et ne sert à rien ici (chrono porte déjà `std`) ; ni `serde`, `case-insensitive` ni `filter-by-regex`
 chrono-tz = { version = "0.10", default-features = false }
 
+# --- Dépendances de la fin du projet (plan fin-du-projet 0B, ADR-0018) ---
+# MCP (confiné à lf-adapter-mcp, R6) : seuls crates épinglés exactement (00 §6, contrôle de check-arch) ;
+# features par défaut de rmcp (base64, macros, server) ; `transport-io` est ajoutée par le membre
+rmcp = { version = "=3.5.1" }
+rmcp-macros = { version = "=3.5.1" }
+# `derive` : le derive émet des chemins `schemars::…` ; `std` : défaut de schemars, repris explicitement
+schemars = { version = "1.2", default-features = false, features = ["derive", "std"] }
+# CancellationToken (sync) : aucune feature nécessaire
+tokio-util = { version = "0.7", default-features = false }
+# join_all et buffer_unordered : `std` suffit (pas d'`async-await`, donc ni futures-macro ni join!/select!)
+futures = { version = "0.3", default-features = false, features = ["std"] }
+# `future` (moka::future::Cache) est ajoutée par le membre ; la valeur par défaut est vide
+moka = { version = "0.12", default-features = false }
+# `alloc` est requise par les empreintes hexadécimales ; ni `oid`, ni `zeroize`
+sha2 = { version = "0.11", default-features = false }
+hex = { version = "0.4", default-features = false, features = ["alloc"] }
+# `sync` (FileExt de std::fs::File) est ajoutée par le membre
+fs4 = { version = "1.1", default-features = false }
+# `derive` est ajoutée par le membre ; pas de `env` (lecture de l'environnement centralisée dans config.rs) ni `color`
+clap = { version = "4.6", default-features = false, features = ["std", "help", "usage", "error-context", "suggestions"] }
+dirs = "6.0"
+anyhow = { version = "1.0", default-features = false, features = ["std"] }
+# default-features = false : les défauts (resolve-http, tls-aws-lc-rs…) tirent reqwest, banni hors de l'adapter PISTE (R6)
+jsonschema = { version = "0.58", default-features = false }
+# parseur de citations (lf-domain, 03 §4) : les grammaires sont écrites à la main, winnow n'est pas employé
+aho-corasick = { version = "1.1", default-features = false, features = ["std"] }
+# `unicode` : classes \p{…}, \w et casse sur le français ; sans `perf` (textes courts)
+regex = { version = "1.13", default-features = false, features = ["std", "unicode"] }
+unicode-normalization = { version = "0.1", default-features = false }
+# D10 : 2.7, déjà au verrou par insta, au lieu de 3.2 (02 §3.0.1)
+similar = { version = "2.7", default-features = false, features = ["text"] }
+# M9 (lf-adapter-dila) : défauts de tantivy sauf `columnar-zstd-compression`, qui tire zstd 0.13 (zstd,
+# zstd-safe et zstd-sys : RUSTSEC-2026-0391, -0398, -0403 et -0410, `cargo deny` rouge). `mmap` est gardé
+# (index sur disque, D21) ; la compression des documents reste lz4 (ADR-0018)
+tantivy = { version = "0.26", default-features = false, features = ["mmap", "stopwords", "lz4-compression", "stemmer"] }
+quick-xml = "0.42"
+tar = { version = "0.4", default-features = false }
+tempfile = "3"
+# M8 (préambule de V4, ADR-0018) : transport Streamable HTTP, confiné à lf-adapter-mcp derrière la feature `http`.
+# `http1` et `tokio` : `axum::serve` sur un `TcpListener`, sans extracteurs JSON, formulaire ni requête.
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+# `util` : `ServiceExt::oneshot`, pour les tests en processus du routeur (dev de lf-adapter-mcp seulement)
+tower = { version = "0.5", default-features = false, features = ["util"] }
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
 unreachable_pub = "warn"
+# `coverage` est posé par cargo-llvm-cov : les mesures `#[ignore]` de lf-adapter-audit (V-165, V-166) y tournent
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage)"] }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
@@ -53,9 +119,22 @@ todo = "warn"
 panic = "warn"
 unreachable = "warn"
 unimplemented = "warn"
+# stdout ne porte que du JSON-RPC (Q9) : toute écriture directe est justifiée par un `#[expect(…, reason)]` (T-M4-15)
+print_stdout = "warn"
+print_stderr = "warn"
+exit = "warn"
 
 # Profil dédié à cargo-mutants (`profile = "mutants"` dans .cargo/mutants.toml) :
 # pas d'infos de debug, build plus rapide par mutant.
 [profile.mutants]
 inherits = "test"
 debug = false
+
+# Profils de distribution (08 §2.2 ; dist compile toujours avec --profile=dist, jamais en local, WSL)
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "unwind"
+
+[profile.dist]
+inherits = "release"

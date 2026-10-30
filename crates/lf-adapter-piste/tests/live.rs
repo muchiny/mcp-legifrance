@@ -37,6 +37,11 @@ mod live {
     /// Identifiants de la sandbox lus dans l'environnement, ou `None` avec un message sur stderr.
     /// L'environnement est vérifié d'abord : hors sandbox, aucune valeur d'identifiant n'est même
     /// lue, et aucune valeur n'est jamais affichée (les messages ne portent que le nom du test).
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::print_stderr,
+        reason = "test live : identifiants lus dans l'environnement et diagnostic sur stderr, sans jamais afficher de valeur"
+    )]
     fn credentials(test: &str) -> Option<PisteCredentials> {
         if std::env::var("LF_PISTE_ENV").is_ok_and(|env| env != "sandbox") {
             eprintln!("{test}: skipped, live tests run against the sandbox only");
@@ -310,6 +315,10 @@ mod live {
         /// lu par le port, rend l'erreur « trop volumineux » de `get_act`.
         #[tokio::test]
         #[ignore = "live: needs LF_PISTE_CLIENT_ID/SECRET"]
+        #[expect(
+            clippy::print_stderr,
+            reason = "test live : diagnostic sur stderr, sans valeur d'identifiant"
+        )]
         async fn live_lawdecree_on_code_size() {
             let Some(corpus) = sandbox("live_lawdecree_on_code_size", default_body()).await else {
                 return;

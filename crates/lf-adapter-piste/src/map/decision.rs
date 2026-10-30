@@ -6,12 +6,15 @@
 //! `origine` qui le contredit est seulement compté (`origin_mismatch`). La date est
 //! `dateTexteComputed` si elle est présente, sinon `dateTexte`. Le texte intégral préfère le HTML
 //! complet au texte brut et ses invisibles retirés sont comptés ; les champs courts passent par
-//! `clean_field`, sans compter les leurs. La décision attaquée n'est pas lue.
+//! `clean_field`, sans compter les leurs (`citationJp` et les titres des liens compris). La décision
+//! attaquée n'est pas lue.
 //!
-//! Trois règles sont propres aux décisions : l'ECLI natif ([`native_ecli`]), le numéro d'affaire
-//! ([`numero_affaire`], D30) et la répartition du sommaire officiel par fond ([`summary_of`],
-//! D29). Aucune valeur du corps ne sort d'ici : un ECLI natif refusé est compté
-//! (`invalid_native_ecli`) puis omis, sans erreur.
+//! Quatre règles sont propres aux décisions : l'ECLI natif ([`native_ecli`]), le numéro d'affaire
+//! ([`numero_affaire`], D30), la répartition du sommaire officiel par fond ([`summary_of`], D29) et
+//! les références pour `fr_get_related` : `citationJp` donne `cited_case_law`, les titres des
+//! `liens` de type `CITATION` ([`applied_texts`]) donnent `applied_texts` (M7, 03 §4.4). Aucune
+//! valeur du corps ne sort d'ici : un ECLI natif refusé est compté (`invalid_native_ecli`) puis
+//! omis, sans erreur.
 
 use lf_application::ports::CorpusError;
 use lf_domain::entity::{Decision, OfficialSummary};
@@ -23,7 +26,7 @@ use super::dates::prefer_computed;
 use super::endpoint::JURI;
 use super::rules::{check_origin, long_text, require, resolve_id};
 use super::{Diagnostics, Field};
-use crate::dto::juri::{ConsultJuriResponseDto, SommaireDto};
+use crate::dto::juri::{ConsultJuriResponseDto, LienDto, SommaireDto};
 
 /// Champ `text.id` de la réponse.
 const ID: Field = Field { endpoint: JURI, path: "text.id" };
@@ -64,6 +67,8 @@ pub(crate) fn decision(
         diags,
     )?;
     let text = long_text(juri.texte_html.as_deref(), juri.texte.as_deref(), TEXTE, diags)?;
+    let cited_case_law = clean_field(juri.citation_jp.as_deref());
+    let applied_texts = applied_texts(&juri.liens);
     Ok(Decision {
         decision_id,
         num: clean_field(juri.num.as_deref()),
@@ -75,6 +80,8 @@ pub(crate) fn decision(
         ecli: native_ecli(juri.ecli.as_deref(), diags),
         numero_affaire: numero_affaire(fond, &juri.numero_affaire, juri.num.as_deref()),
         official_summary: summary_of(fond, &juri.sommaire),
+        cited_case_law,
+        applied_texts,
         date_texte,
         text,
     })
@@ -135,6 +142,23 @@ fn summary_of(fond: Fond, sommaire: &[SommaireDto]) -> OfficialSummary {
     OfficialSummary::new(analyses, titrages)
 }
 
+/// Type des liens dont le titre est un texte appliqué (03 §4.4).
+const CITATION_LINK: &str = "CITATION";
+
+/// Textes appliqués par la décision : le titre nettoyé de chaque lien de type `CITATION`, dans
+/// l'ordre reçu, ceux qui sont vides une fois nettoyés écartés (03 §4.4).
+///
+/// Les titres sont des fragments de prose (recherche 03 §11.6) : ni recoupés, ni dédoublonnés, ni
+/// analysés ici, `fr_get_related` les passe au parseur de citations. Les autres types de lien
+/// (`APPLICATION`…) et tous les identifiants des liens, vides dans les captures, ne sont pas lus.
+fn applied_texts(liens: &[LienDto]) -> Vec<String> {
+    liens
+        .iter()
+        .filter(|lien| lien.type_lien.as_deref() == Some(CITATION_LINK))
+        .filter_map(|lien| clean_field(lien.title.as_deref()))
+        .collect()
+}
+
 /// Textes présents que `pick` tire de chaque entrée, entrée après entrée.
 fn texts<'a>(
     sommaire: &'a [SommaireDto],
@@ -163,6 +187,18 @@ mod tests {
     const CONSTIT_ID: &str = "CONSTEXT000052555275";
     /// Les trois fixtures de `/consult/juri`.
     const DECISIONS: [&str; 3] = ["consult_juri", "consult_juri_cetat", "consult_juri_constit"];
+    /// `citationJp` de la fixture `consult_juri`, mojibake réparé.
+    const CITATION_JP: &str = "Sur l'interprétation du droit interne à la lumière de la directive \
+        85/374/CEE du Conseil du 25 juillet 1985, à rapprocher : 1re Civ., 25 mai 2023, pourvoi \
+        n° 21-23.174 (cassation partielle) et l'arrêt cité.";
+    /// Titres des deux liens de citation de la fixture `consult_juri` : fragmentés, dans l'ordre
+    /// reçu, la double espace avant « article 2270- » ramenée à une seule.
+    const APPLIED_TEXTS: [&str; 2] = [
+        "1 du code civil.",
+        "Article 10 de la directive 85/374/CEE du Conseil, du 25 juillet 1985, relative au \
+         rapprochement des dispositions législatives, réglementaires et administratives des Etats \
+         membres en matière de responsabilité du fait des produits défectueux ; article 2270-",
+    ];
 
     /// Identifiant de décision valide.
     fn decision_id(raw: &str) -> DecisionId {
@@ -243,6 +279,10 @@ mod tests {
         ends_with: Option<&'static str>,
         /// Nombre d'analyses et de titrages du sommaire.
         summary: (usize, usize),
+        /// Jurisprudence citée (`citationJp`).
+        cited_case_law: Option<&'static str>,
+        /// Textes appliqués (titres des liens de citation).
+        applied_texts: &'static [&'static str],
     }
 
     /// Les trois cas de [`decision_fixture_maps`].
@@ -264,6 +304,8 @@ mod tests {
                 starts_with: "LA COUR DE CASSATION, PREMIÈRE CHAMBRE CIVILE",
                 ends_with: None,
                 summary: (1, 2),
+                cited_case_law: Some(CITATION_JP),
+                applied_texts: &APPLIED_TEXTS,
             },
             Expected {
                 name: "consult_juri_cetat",
@@ -280,6 +322,8 @@ mod tests {
                 starts_with: "Vu la procédure suivante :",
                 ends_with: Some("Signé : Mme Sandrine Mendy"),
                 summary: (1, 3),
+                cited_case_law: None,
+                applied_texts: &[],
             },
             Expected {
                 name: "consult_juri_constit",
@@ -298,6 +342,8 @@ mod tests {
                 starts_with: "LE CONSEIL CONSTITUTIONNEL A ÉTÉ SAISI le 8 août 2025",
                 ends_with: Some("Rendu public le 7 novembre 2025."),
                 summary: (0, 0),
+                cited_case_law: None,
+                applied_texts: &[],
             },
         ]
     }
@@ -329,6 +375,8 @@ mod tests {
 
             let summary = &decision.official_summary;
             assert_eq!((summary.analyses.len(), summary.titrages.len()), case.summary, "{name}");
+            assert_eq!(decision.cited_case_law.as_deref(), case.cited_case_law, "{name}");
+            assert_eq!(decision.applied_texts, case.applied_texts, "{name}");
             assert_eq!(diags, Diagnostics::default(), "{name}");
         }
         assert_eq!(
@@ -387,6 +435,70 @@ mod tests {
             assert!(!entry.starts_with("CETAT"), "{entry}");
         }
         assert_flat(&summary);
+    }
+
+    #[test]
+    fn cited_case_law_empty_blank_or_null_is_none() {
+        // CETAT : `citationJp: ""` ; CONSTIT : `null` ; un champ réduit à des blancs ou à des balises
+        // ne dit rien non plus : jamais `Some("")` (03 §4.0).
+        assert_eq!(fixture_decision("consult_juri_cetat").0.cited_case_law, None);
+        assert_eq!(fixture_decision("consult_juri_constit").0.cited_case_law, None);
+        for raw in [None, Some(""), Some(" \n\t "), Some("<br/>"), Some("<p> &nbsp; </p>")] {
+            let (decision, diags) =
+                edited("consult_juri", |text| text.citation_jp = raw.map(str::to_owned));
+            assert_eq!(decision.cited_case_law, None, "{raw:?}");
+            assert_eq!(diags, Diagnostics::default(), "{raw:?}");
+        }
+    }
+
+    #[test]
+    fn cited_case_law_is_cleaned_like_a_short_field() {
+        let raw = "<p>Voir&nbsp;:  1re Civ.,\n25 mai 2023, pourvoi n° 21-23.174\u{200b}</p>";
+        let (decision, diags) =
+            edited("consult_juri", |text| text.citation_jp = Some(raw.to_owned()));
+        assert_eq!(
+            decision.cited_case_law.as_deref(),
+            Some("Voir : 1re Civ.,\n25 mai 2023, pourvoi n° 21-23.174")
+        );
+        // Les invisibles des champs courts ne sont pas comptés (seul le texte intégral compte les siens).
+        assert_eq!(diags, Diagnostics::default());
+    }
+
+    /// Lien de type `kind` et de titre `title`.
+    fn lien(kind: Option<&str>, title: Option<&str>) -> LienDto {
+        LienDto { type_lien: kind.map(str::to_owned), title: title.map(str::to_owned) }
+    }
+
+    #[test]
+    fn applied_texts_are_the_titles_of_citation_links_only() {
+        let liens = [
+            lien(Some("CITATION"), Some("Code civil, art. 1240")),
+            lien(Some("APPLICATION"), Some("Un lien d'application")),
+            lien(Some("citation"), Some("Casse différente")),
+            lien(None, Some("Sans type")),
+            lien(Some("CITATION"), None),
+            lien(Some("CITATION"), Some("Article 10 de la directive 85/374/CEE")),
+        ];
+        assert_eq!(
+            applied_texts(&liens),
+            owned(&["Code civil, art. 1240", "Article 10 de la directive 85/374/CEE"])
+        );
+        assert_eq!(applied_texts(&[]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn applied_texts_are_cleaned_kept_in_order_and_not_deduplicated() {
+        let liens = [
+            lien(Some("CITATION"), Some("  1 du code civil.\n")),
+            lien(Some("CITATION"), Some("<b>article</b>&nbsp;2270-")),
+            lien(Some("CITATION"), Some("   ")),
+            lien(Some("CITATION"), Some("<br/>")),
+            lien(Some("CITATION"), Some("1 du code civil.")),
+        ];
+        assert_eq!(
+            applied_texts(&liens),
+            owned(&["1 du code civil.", "article 2270-", "1 du code civil."])
+        );
     }
 
     #[test]

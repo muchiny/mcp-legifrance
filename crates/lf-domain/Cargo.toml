@@ -10,6 +10,11 @@ publish.workspace = true
 
 [dependencies]
 thiserror.workspace = true
+# parseur de citations (M6, ADR-0018) : balayage multi-motifs (find_anchors), expressions compilées une fois, NFC ;
+# les grammaires sont écrites à la main (curseur sur une vue en caractères), sans winnow
+aho-corasick.workspace = true
+regex.workspace = true
+unicode-normalization.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

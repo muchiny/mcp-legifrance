@@ -47,7 +47,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15, windows-2022]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
@@ -179,11 +179,20 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo +1.88 check --workspace --all-targets --all-features --locked
 
-  mutants:
-    name: mutants (diff de la PR)
+  # Mutation du diff de la PR, limitée aux fichiers à risque de .github/mutants-scope.txt (D7) :
+  # `--in-diff` restreint encore ce filtre au diff, et `--shard k/4` répartit les mutants restants
+  # sur 4 jobs (livre de cargo-mutants : in-diff.md, shards.md). Les fichiers hors liste ne sont pas
+  # mutés avant la fusion : le premier weekly.yml après la fusion en signalera les MISSED (dette
+  # traitée après la PR). Muter tout le diff dépasserait 24 h.
+  mutants-shard:
+    name: mutants (tranche ${{ matrix.shard }}/4)
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -199,22 +208,50 @@ jobs:
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-nextest@0.9.148,cargo-mutants@27.1.0
+      # Une ligne qui ne désigne aucun fichier (renommage, faute de frappe) ferait muter moins que
+      # prévu sans rien signaler : le job échoue.
+      - name: Vérifier la liste des fichiers à risque
+        run: |
+          while read -r f; do
+            test -f "$f" || { echo "::error::mutants-scope.txt : '$f' ne désigne aucun fichier"; exit 1; }
+          done < .github/mutants-scope.txt
       # `--locked` vient de .cargo/mutants.toml (additional_cargo_args).
-      # BASE_REF passe par l'environnement, jamais interpolé dans le script.
+      # BASE_REF et SHARD passent par l'environnement, jamais interpolés dans le script.
       # Sortie non nulle dès qu'un mutant survit (code 2) ou boucle (TIMEOUT,
       # code 3) : la PR est bloquée. `--baseline skip` (le job test prouve déjà
       # l'arbre sain) impose un `--timeout` explicite, sinon 300 s par mutant.
-      - name: Muter le diff
+      - name: Muter le diff (fichiers à risque, une tranche sur quatre)
         env:
           BASE_REF: ${{ github.base_ref }}
+          SHARD: ${{ matrix.shard }}
         run: |
           git diff "origin/${BASE_REF}...HEAD" > pr.diff
-          cargo mutants --in-diff pr.diff -j 2 --baseline skip --timeout 60
+          mapfile -t scope < .github/mutants-scope.txt
+          files=()
+          for f in "${scope[@]}"; do files+=(--file "$f"); done
+          cargo mutants --in-diff pr.diff "${files[@]}" --shard "${SHARD}/4" -j 2 --baseline skip --timeout 60
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: mutants-diff
+          name: mutants-diff-${{ matrix.shard }}
           path: mutants.out
+
+  # Agrégateur : garde le nom du contrôle requis par la protection de branche (`mutants (diff de la
+  # PR)`), qui n'a donc pas à changer. `always()` : sans lui, une tranche échouée ou annulée sauterait
+  # ce job, et un job sauté ne bloque pas la fusion.
+  mutants:
+    name: mutants (diff de la PR)
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: mutants-shard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Résultat des tranches
+        env:
+          RESULT: ${{ needs.mutants-shard.result }}
+        run: |
+          echo "tranches de mutation : $RESULT"
+          test "$RESULT" = success
 
   # SonarQube Cloud (analyse pilotée par la CI : l'analyse automatique ignore Rust). Importe la
   # couverture de `coverage` et un rapport Clippy ; réglages dans sonar-project.properties.

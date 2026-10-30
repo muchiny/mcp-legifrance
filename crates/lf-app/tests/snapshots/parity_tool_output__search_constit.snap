@@ -1,0 +1,35 @@
+---
+source: crates/lf-app/tests/parity_tool_output.rs
+expression: search_constit
+---
+{
+  "has_more": true,
+  "hits": [
+    {
+      "citation": "Décision 2021-817 DC - 20 mai 2021 - Loi pour une sécurité globale préservant les libertés - Non conformité partielle - réserve",
+      "id": "CONSTEXT000043596386",
+      "kind": "constit",
+      "nature": "dc",
+      "snippet": "[...] Parmi ces droits et libertés figurent la liberté d'aller et de venir, composante de la liberté personnelle protégée par les articles 2 et 4 de la Déclaration des droits de l'homme et du citoyen de 1789 [...] Il résulte de ce qui précède que l'article L. 315-3 du code de…",
+      "source_url": "https://www.legifrance.gouv.fr/cons/id/CONSTEXT000043596386"
+    },
+    {
+      "citation": "Décision 2018-769 DC - 04 septembre 2018 - Loi pour la liberté de choisir son avenir professionnel - Non conformité partielle",
+      "id": "CONSTEXT000037434572",
+      "kind": "constit",
+      "nature": "dc",
+      "snippet": "[...] Il en résulterait une violation de la liberté contractuelle et du droit au maintien des conventions légalement conclues. [...] En ce qui concerne les griefs tirés de la méconnaissance de la liberté contractuelle et du droit au maintien des conventions légalement conclues…",
+      "source_url": "https://www.legifrance.gouv.fr/cons/id/CONSTEXT000037434572"
+    },
+    {
+      "citation": "Décision 2025-1173 QPC - 07 novembre 2025 - M. Amine G. [Absence de publicité des débats devant le juge des libertés et de la détention statuant sur la détention provisoire du prévenu] - Conformité",
+      "id": "CONSTEXT000052555275",
+      "kind": "constit",
+      "nature": "qpc",
+      "snippet": "[...] Elle est relative à la conformité aux droits et libertés que la Constitution garantit du premier alinéa de l’article 396 du code de procédure pénale et de l’article 397-1-1 du même code. [...] Par conséquent, les dispositions contestées, qui ne méconnaissent aucun autre…",
+      "source_url": "https://www.legifrance.gouv.fr/cons/id/CONSTEXT000052555275"
+    }
+  ],
+  "page": 1,
+  "total": 1817
+}
