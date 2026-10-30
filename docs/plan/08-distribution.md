@@ -376,10 +376,10 @@ La référence téléchargeait `mcp-publisher` en `latest` par `curl | tar` sans
 | Actions épinglées par SHA | `github-action-commits` pour le workflow généré ; SHA en dur dans nos workflows réutilisables ; mises à jour par Dependabot (`github-actions`, 02 §2) |
 | Outils téléchargés à version fixe et vérifiés | `mcp-publisher` en **v1.8.1** (dernier tag au 2026-10-15, `git ls-remote`) téléchargé depuis la release du tag et vérifié contre le fichier de sommes publié par goreleaser (signé par cosign, `registry/.goreleaser.yaml`). Nom exact de ce fichier : **NON VÉRIFIÉ** [V-206 · mcp-publisher-checksums] |
 | Pas de jeton longue durée | OIDC pour le registre MCP, l'attestation, GHCR (`GITHUB_TOKEN`) et Azure ; aucun jeton crates.io en v0.x, faute de publication (Q13) ; à v1.0.0, OIDC si possible (§6.4) |
-| Environnement protégé | environnement GitHub `release`, limité aux tags `v*` et éventuellement soumis à un relecteur (recommandation du registre : `docs/modelcontextprotocol-io/github-actions.mdx`, « Securing your registry token in CI ») |
+| Environnement protégé | environnement GitHub `release`, limité aux tags `v*` et éventuellement soumis à un relecteur ; **à créer avant la première étiquette (T-MD-16 : relevé du 2026-10-30, aucun environnement n'existe)** (recommandation du registre : `docs/modelcontextprotocol-io/github-actions.mdx`, « Securing your registry token in CI ») |
 | Pas de `pull_request_target` | aucun workflow de publication ne s'exécute sur du code de PR (même source) |
 | Analyse statique des workflows | `zizmor` et `actionlint` en CI (06) |
-| Tags protégés | règle de protection des tags `v*` : seuls les mainteneurs créent un tag |
+| Tags protégés | règle de protection des tags `v*` : seuls les mainteneurs créent un tag ; **à créer avant la première étiquette (T-MD-16)** |
 
 Attention à la tension entre épinglage et compatibilité : un `mcp-publisher` trop ancien échoue avec `invalid audience` face au registre (`github-actions.mdx`, section « Troubleshooting »). La version épinglée est donc relevée à chaque release, et l'échec est traité comme un signal de mise à jour, pas comme un incident.
 
@@ -972,7 +972,7 @@ L'ajout d'assets à une release déjà publiée peut être interdit si l'option 
 | `LF_PISTE_CLIENT_ID` / `LF_PISTE_CLIENT_SECRET` d'une application **sandbox** du projet | tests live uniquement (`live.yml`, 02 §2) | **jamais** dans les workflows de release | environnement dédié, jamais exposé aux PR de forks |
 | identifiants PISTE de **production** | sondes en lecture seule lancées à la main par le mainteneur avant chaque étiquette (§7.3) | **aucun** : jamais d'identifiants de production en CI (00 §10, Q3) | poste du mainteneur seulement |
 
-L'environnement `release` n'accepte que les tags `v*`, avec relecteur obligatoire en option, comme le recommande le registre (`github-actions.mdx`). Avec l'authentification GitHub, le namespace personnel `io.github.muchiny/*` couvre **tous** les serveurs du compte : un workflow compromis dans un autre dépôt du même compte pourrait publier sous ce nom. D'où la protection des workflows de chaque dépôt du compte.
+L'environnement `release` doit n'accepter que les tags `v*` (à créer : T-MD-16), avec relecteur obligatoire en option, comme le recommande le registre (`github-actions.mdx`). Avec l'authentification GitHub, le namespace personnel `io.github.muchiny/*` couvre **tous** les serveurs du compte : un workflow compromis dans un autre dépôt du même compte pourrait publier sous ce nom. D'où la protection des workflows de chaque dépôt du compte.
 
 ---
 

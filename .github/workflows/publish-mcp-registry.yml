@@ -11,7 +11,7 @@ name: Publish MCP registry
 # resteraient à jamais (08 §7.3).
 #
 # Reprise : `workflow_dispatch` avec l'étiquette, à lancer depuis cette étiquette (l'environnement
-# `release` refuse les branches), si l'étape de publication a échoué de façon transitoire. Si
+# `release` doit refuser les branches : T-MD-16), si l'étape de publication a échoué de façon transitoire. Si
 # l'échec suit une publication réussie, le registre refuse la même version (unicité) et le job le
 # traite comme un succès.
 #
@@ -68,9 +68,10 @@ jobs:
     if: ${{ needs.meta.outputs.prerelease != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    # Environnement protégé : limité aux étiquettes `v*` (08 §3.7). Avec l'authentification GitHub,
-    # le namespace `io.github.muchiny/*` couvre tous les serveurs du compte : un workflow d'une
-    # branche ne doit pas pouvoir publier sous ce nom (08 §7.7).
+    # Environnement protégé : DOIT être limité aux étiquettes `v*` (08 §3.7). Avec l'authentification
+    # GitHub, le namespace `io.github.muchiny/*` couvre tous les serveurs du compte : un workflow
+    # d'une branche ne doit pas pouvoir publier sous ce nom (08 §7.7). Il n'existe pas encore : sans
+    # règle, GitHub le crée à la volée et n'impose rien. À créer avant la première étiquette (T-MD-16).
     environment: release
     # Une seule publication à la fois par étiquette (reprise manuelle simultanée de la release).
     concurrency:

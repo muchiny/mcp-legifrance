@@ -95,8 +95,9 @@ jobs:
     if: ${{ needs.meta.outputs.prerelease != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    # Environnement protégé : limité aux étiquettes `v*` (08 §3.7), pour qu'une branche ne puisse
-    # pas pousser sous ce nom avec le jeton du dépôt.
+    # Environnement protégé : DOIT être limité aux étiquettes `v*` (08 §3.7), pour qu'une branche ne
+    # puisse pas pousser sous ce nom avec le jeton du dépôt. Il n'existe pas encore : sans règle,
+    # GitHub le crée à la volée et n'impose rien. À créer avant la première étiquette (T-MD-16).
     environment: release
     # Une seule publication à la fois par étiquette (reprise manuelle simultanée de la release).
     concurrency:
