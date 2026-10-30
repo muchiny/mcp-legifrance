@@ -79,6 +79,9 @@ Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0
 - `ConfigFacts.local_snapshot` et lacune `FR-105` : un index local est un instantané ; `fr_verify_citations` et `fr_resolve` rendent `unresolvable`, jamais `not_found`, et `fr_coverage` décrit la source comme dégradée.
 - Distribution : lanceur POSIX du bundle MCPB, image OCI distroless, `server.json` (`packaging/`), verrou et manifeste alignés sur `0.3.0`.
 - Documentation : ADR-0019 (`DilaCorpus`).
+- Garde-fous de la chaîne de release (revue de sécurité F4) : `.github/scripts/check-release-workflow.sh` échoue si `release.yml` retrouve un droit d'écriture hors du job `host`, un `GH_TOKEN` dans un job de build ou un `| sh` ; son auto-test `.github/scripts/tests/release/run.sh` (19 cas) tourne par `make release-selftest`, dans `make ci` et dans `workflow-lint.yml` ; `.github/scripts/install-release-tool.sh` installe les outils de release par archive à somme SHA-256 épinglée.
+- Tests de non-régression de sécurité du catalogue (`crates/lf-app/tests/security_regressions.rs`, D-04, D-05, D-07, D-16, D-18, D-30, D-38 et D-40) : ils exercent le binaire réel contre un faux PISTE et vérifient, entre autres, que chaque appel d'outil passe par l'audit, qu'une ligne d'audit est sur disque avant la réponse, que l'URL d'un message amont est rédigée et que les sources de production ne contiennent que des hôtes autorisés.
+- Tâche bloquante T-MD-16 (07 §2.10) : les protections GitHub absentes (environnement `release`, rulesets d'étiquettes et de `main`, `sha_pinning_required`, `piste-sandbox`, releases immuables) à poser avant la première étiquette.
 
 ### Changed
 
@@ -116,6 +119,10 @@ Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0
 
 ### Fixed
 
+- `fr_get_related` : la citation de jurisprudence tirée du texte d'une décision est coupée sur une frontière de mot, plus au milieu d'un numéro de pourvoi (« 21-23.17499 » ne devient plus « 21-23 », référence que le texte ne contient pas).
+- `fr_get_company_agreement` : un `agreement_id` blanc est traité comme absent (`invalid_arg` « agreement_id is required. »), comme dans les autres outils d'identifiant, au lieu de partir vers l'amont.
+- Adapter PISTE : le filtre `DATE_VERSION` de `search` et celui des consultations de M6 partagent une seule conversion du midi de Paris (`paris_noon_ms`), au lieu de deux copies.
+- Tests : le rejeu de transcription (`e2e_stdio`) échoue vraiment quand une instruction échoue ; tests de traces d'audit stables en parallèle et test non UTF-8 ignoré sous macOS.
 - Sonde live du scénario 3 : un article de loi rend `/codes/article_lc/` en sandbox (Q17) ; la sonde n'exige plus `/loda/article_lc/`.
 - Un suffixe de version impossible (`_31-02-2023`, `_foo`) est refusé au lieu d'être retiré en silence.
 - Les dates sentinelles (2999-01-01, 2222-02-22) se lisent comme « sans fin ».
@@ -133,6 +140,9 @@ Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0
 - TLS rustls avec aws-lc, à titre provisoire (ADR-0013).
 - Application (plan 3a, revue finale) : `Debug` de `CanonicalInput` (longueur en octets seule) et de `ToolCall` écrit à la main, sans argument ; champ `error` de la ligne d'audit neutralisé (contrôles, U+2028, U+2029 et formats bidi remplacés par une espace) ; message de décodage coupé à 500 caractères ; `Deadline::after` sature au lieu de paniquer sur un budget démesuré. Adapter PISTE : la valeur refusée de `LF_PISTE_ENV` n'est plus jamais gardée (citée seulement si elle fait 1 à 16 lettres ASCII, sinon son nombre de caractères).
 - `rustls` 0.23.46, `rustls-webpki` 0.103.16 et `webpki-root-certs` 1.0.10 (RUSTSEC-2026-0346 à -0349, -0382, -0383) par l'exception `security-fix` de la règle d'âge, sans `ignore` dans `deny.toml`.
+- Chaîne de release (revue de sécurité F4, constats SUP-01 et SUP-02, moyens) : `release.yml` part de `permissions: {}` et chaque job déclare les siens, `contents: write` seulement dans `host` ; `GH_TOKEN` n'entre plus dans l'environnement des jobs qui compilent l'arbre de dépendances (`build-local-artifacts`, `build-global-artifacts`, `announce`), si bien qu'un `build.rs` ou une macro procédurale compromis ne le voit plus ; `dist` 0.33.0, `cargo-auditable` 0.7.7 (jusqu'ici `latest`) et `cargo-cyclonedx` 0.5.5 s'installent depuis l'archive de leur release, SHA-256 épinglé, à la place de `curl | sh` ; l'exception zizmor `excessive-permissions` est retirée. Non exercé sur un vrai runner : à confirmer par une préversion `v0.0.0-rc.N` (T-MD-07).
+- Protections GitHub (constat SUP-03, moyen) : l'environnement `release`, les rulesets `v*` et `main` et `sha_pinning_required` n'existent pas (relevé API du 2026-10-30) alors que les workflows de publication les supposaient acquis ; les commentaires de `publish-oci.yml`, `publish-mcp-registry.yml` et 08 §3.7 ne l'affirment plus, et la tâche bloquante T-MD-16 est inscrite. **Les réglages eux-mêmes ne sont pas faits** : ils reviennent au propriétaire.
+- `HttpToken` (jeton du profil HTTP local) ne dérive plus `PartialEq` : seule la comparaison en temps constant de `matches` est possible.
 - `serve-http` refuse de démarrer sans `LF_MCP_HTTP_TOKEN`, n'écoute que la boucle locale et refuse tout `Origin` non autorisé ; la source locale ne se replie jamais sur PISTE ; les refus de `DilaCorpus` sont des textes fixes sans chemin.
 
 ### Protocol
