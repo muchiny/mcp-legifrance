@@ -23,6 +23,11 @@ exclude_re = [
     # la bibliothèque standard définit comme `Vec::new()` : même valeur, même capacité nulle, aucune
     # allocation. Aucun test ne peut les distinguer (mutant équivalent, plan 2f, Task 33).
     'ListVisitor<T>>::visit_none -> .* with Ok\(Default::default\(\)\)$',
+    # lenient.rs, `OptInt::visit_none` et `OptInt::visit_unit` : leur corps est `Ok(None)` et
+    # `Self::Value` vaut `Option<i64>`. Le mutant `Ok(Default::default())` appelle
+    # `<Option<i64> as Default>::default()`, qui vaut `None` : même valeur, aucun test ne peut les
+    # distinguer (mutant équivalent, comme `ListVisitor::visit_none` ci-dessus).
+    'for OptInt>::visit_(none|unit) -> .* with Ok\(Default::default\(\)\)$',
     # sha256.rs, `choose` (Ch de FIPS 180-4) : `(x & y) ^ (!x & z)`. Les deux opérandes n'ont jamais un
     # bit à 1 en commun (l'un est masqué par `x`, l'autre par `!x`) : `^` et `|` donnent le même
     # résultat sur toutes les entrées (équivalent, plan 2h, Task 9).
