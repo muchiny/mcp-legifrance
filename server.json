@@ -34,7 +34,7 @@
       "transport": {
         "type": "stdio"
       },
-      "version": "0.3.0"
+      "version": "0.3.0-rc.1"
     },
     {
       "environmentVariables": [
@@ -74,6 +74,6 @@
     "url": "https://github.com/muchiny/mcp-legifrance"
   },
   "title": "Légifrance (unofficial)",
-  "version": "0.3.0",
+  "version": "0.3.0-rc.1",
   "websiteUrl": "https://github.com/muchiny/mcp-legifrance#readme"
 }

@@ -16,6 +16,10 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 Rien depuis `0.3.0`.
 
+## [0.3.0-rc.1] - 2026-10-31
+
+Préversion de répétition de la première release : mêmes sources que `[0.3.0]` ci-dessous, qui reste « non publiée » jusqu'à la version finale. Elle passe les portes de `release-gates.yml` et la chaîne de build (08 §7), et ne figure pas au registre MCP (08 §6.5).
+
 ## [0.3.0] - non publiée
 
 ### Tool surface
