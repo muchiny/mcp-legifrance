@@ -14,15 +14,20 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `1.0.0-rc.2`.
+Rien depuis `1.0.0-rc.3`.
 
-## [1.0.0-rc.2] - 2026-10-31
+## [1.0.0-rc.3] - 2026-10-31
 
 Préversion de répétition de la 1.0.0 : mêmes sources que `[1.0.0]` ci-dessous, qui reste « non publiée » jusqu'à la version finale. Elle compile la fonctionnalité `dila` pour les sept cibles et permet de mesurer la taille des binaires ; elle ne figure pas au registre MCP (08 §6.5).
 
 ### Fixed
 
 - Portes de publication : la comparaison avec l'étiquette précédente accepte une préversion (`v0.3.0-rc.1`), et la release GitHub n'est plus créée quand les portes échouent (#56).
+- Release : la compilation macOS Apple Silicon utilise `macos-15` (et `macos-15-intel` pour Intel) au lieu de `macos-14`, que GitHub retire le 2026-11-02.
+
+## [1.0.0-rc.2] - non publiée
+
+**Sans release.** Étiquette `v1.0.0-rc.2` posée, mais la compilation macOS Apple Silicon a été annulée par une coupure programmée de l'image macOS 14 : aucune release GitHub n'a été créée. Utiliser `1.0.0-rc.3`.
 
 ## [1.0.0-rc.1] - 2026-10-31
 

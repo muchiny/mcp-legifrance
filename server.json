@@ -29,12 +29,12 @@
         }
       ],
       "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
-      "identifier": "https://github.com/muchiny/mcp-legifrance/releases/download/v1.0.0-rc.2/mcp-legifrance-1.0.0-rc.2.mcpb",
+      "identifier": "https://github.com/muchiny/mcp-legifrance/releases/download/v1.0.0-rc.3/mcp-legifrance-1.0.0-rc.3.mcpb",
       "registryType": "mcpb",
       "transport": {
         "type": "stdio"
       },
-      "version": "1.0.0-rc.2"
+      "version": "1.0.0-rc.3"
     },
     {
       "environmentVariables": [
@@ -61,7 +61,7 @@
           "name": "LF_PISTE_ENV"
         }
       ],
-      "identifier": "ghcr.io/muchiny/mcp-legifrance:1.0.0-rc.2",
+      "identifier": "ghcr.io/muchiny/mcp-legifrance:1.0.0-rc.3",
       "registryType": "oci",
       "transport": {
         "type": "stdio"
@@ -74,6 +74,6 @@
     "url": "https://github.com/muchiny/mcp-legifrance"
   },
   "title": "Légifrance (unofficial)",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "websiteUrl": "https://github.com/muchiny/mcp-legifrance#readme"
 }

@@ -69,6 +69,13 @@ global-artifacts-jobs = ["./build-mcpb"]
 publish-jobs = ["./publish-oci"]
 post-announce-jobs = ["./publish-mcp-registry"]
 
+# Images macOS : le défaut de dist pour aarch64-apple-darwin est macos-14, que GitHub retire le
+# 2026-11-02 (coupures programmées dès le 2026-10-31 : le job est annulé en une seconde, rc.2). Mêmes
+# images que ci.yml, smoke-targets.yml et build-mcpb.yml.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
+x86_64-apple-darwin = "macos-15-intel"
+
 [dist.github-custom-job-permissions]
 "release-gates" = { contents = "read" }
 "build-mcpb" = { contents = "read" }
