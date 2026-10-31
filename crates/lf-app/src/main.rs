@@ -16,8 +16,8 @@
 //! Codes de sortie : 0 (EOF de stdin, arrêt demandé, configuration valide), 1 (échec du service,
 //! du runtime ou de l'écriture du rapport), 2 (erreur d'usage, configuration invalide pour
 //! `check-config`, jeton ou adresse refusés pour `serve-http`), 3 et 4 (identifiants refusés ou
-//! réseau en échec pour `check-config --online`). stdout ne porte que le JSON-RPC de `serve` et le
-//! rapport de `check-config` ; `serve-http` n'y écrit rien.
+//! réseau en échec pour `check-config --online`). stdout ne porte que le JSON-RPC de `serve`, le
+//! rapport de `check-config` et le bilan de `build-dila-index` ; `serve-http` n'y écrit rien.
 
 mod check;
 mod cli;

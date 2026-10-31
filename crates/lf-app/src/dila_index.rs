@@ -48,6 +48,10 @@ pub(crate) async fn run(
         tracing::error!("--archives does not name an existing directory");
         return Ok(ExitCode::from(EXIT_USAGE));
     }
+    if is_foreign_directory(&index) {
+        tracing::error!("--index names a non-empty directory that is not a DILA index");
+        return Ok(ExitCode::from(EXIT_USAGE));
+    }
     // Ouvrir l'index le crée : une faute de frappe dans `--index` ne doit pas laisser un dossier
     // vide quand il n'y a de toute façon rien à bâtir (aucun global dans les archives).
     if !index.exists() && !has_global(&args.archives) {
@@ -62,6 +66,13 @@ pub(crate) async fn run(
     summary(&index, &report, corpus.engine().len(), out)
         .context("cannot write the build-dila-index report")?;
     Ok(ExitCode::SUCCESS)
+}
+
+/// Vrai si `dir` est un dossier non vide qui n'est pas un index tantivy (pas de `meta.json`) : y
+/// bâtir l'index y éparpillerait ses fichiers (`--index ~`, par exemple).
+fn is_foreign_directory(dir: &Path) -> bool {
+    std::fs::read_dir(dir)
+        .is_ok_and(|mut entries| entries.next().is_some() && !dir.join("meta.json").is_file())
 }
 
 /// Vrai si `dir` contient une archive globale LEGI (le nom suffit : le contenu est lu à l'ingestion).
@@ -226,6 +237,17 @@ mod tests {
             run(&CorpusSource::Piste, &args(&from, Some(&index)), &mut out).await.unwrap_err();
         assert!(format!("{error:#}").contains("cannot apply the DILA archives"), "{error:#}");
         assert_eq!(out, Vec::<u8>::new());
+    }
+
+    #[tokio::test]
+    async fn a_non_empty_directory_that_is_not_an_index_is_refused() {
+        let foreign = TempDir::new().unwrap();
+        fs::write(foreign.path().join("notes.txt"), b"mes notes").unwrap();
+        let from = archives(&[GLOBAL]);
+        let (exit, text) = build(&CorpusSource::Piste, &args(&from, Some(&foreign))).await;
+        assert_eq!(format!("{exit:?}"), code(EXIT_USAGE));
+        assert!(text.is_empty(), "{text}");
+        assert!(!foreign.path().join("registry.tsv").exists());
     }
 
     #[tokio::test]
