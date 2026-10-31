@@ -14,11 +14,19 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `1.0.0-rc.1`.
+Rien depuis `1.0.0-rc.2`.
+
+## [1.0.0-rc.2] - 2026-10-31
+
+Préversion de répétition de la 1.0.0 : mêmes sources que `[1.0.0]` ci-dessous, qui reste « non publiée » jusqu'à la version finale. Elle compile la fonctionnalité `dila` pour les sept cibles et permet de mesurer la taille des binaires ; elle ne figure pas au registre MCP (08 §6.5).
+
+### Fixed
+
+- Portes de publication : la comparaison avec l'étiquette précédente accepte une préversion (`v0.3.0-rc.1`), et la release GitHub n'est plus créée quand les portes échouent (#56).
 
 ## [1.0.0-rc.1] - 2026-10-31
 
-Préversion de répétition de la 1.0.0 : mêmes sources que `[1.0.0]` ci-dessous, qui reste « non publiée » jusqu'à la version finale. Elle compile la fonctionnalité `dila` pour les sept cibles et permet de mesurer la taille des binaires ; elle ne figure pas au registre MCP (08 §6.5).
+**Sans programme.** Les portes de publication ont échoué (comparaison avec `v0.3.0-rc.1`, corrigée en #56) et une release GitHub vide, immuable, a été créée par erreur : ni binaire, ni bundle, ni image. À ignorer ; utiliser `1.0.0-rc.2`.
 
 ## [1.0.0] - non publiée
 
