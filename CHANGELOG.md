@@ -14,7 +14,15 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `0.3.0`.
+### Added
+
+- Sous-commande `build-dila-index --archives <dossier> [--index <dossier>]` (fonctionnalité `dila`) : construit ou met à jour l'index local DILA à partir d'archives LEGI déjà téléchargées, avec reprise, sans accès réseau (#51).
+- Script `scripts/fetch-dila-dumps.sh` : télécharge le dernier global LEGI et ses incréments depuis `echanges.dila.gouv.fr`, hors du binaire (#51).
+- La fonctionnalité `dila` est activée dans les binaires publiés, l'image Docker et le build de fumée (`dist-workspace.toml`, `packaging/oci/Dockerfile`, `smoke-targets.yml`).
+
+### Security
+
+- Ingestion DILA : les en-têtes tar de noms longs sont lus sur 513 octets au plus, les en-têtes PAX et de cibles de lien ne sont plus lus, chaque liste de suppression n'est lue qu'une fois par archive, et le registre est lu sur 1 Mio au plus (#52, P-01 de 09 §3.16.7).
 
 ## [0.3.0-rc.1] - 2026-10-31
 

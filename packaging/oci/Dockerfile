@@ -34,7 +34,7 @@ RUN set -eu; \
     rustup target add "$T"; \
     export "CC_$(echo "$T" | tr '-' '_')=musl-gcc"; \
     RUSTFLAGS="-C target-feature=+crt-static -C link-self-contained=yes" \
-      cargo build --locked --profile dist --target "$T" -p mcp-legifrance; \
+      cargo build --locked --profile dist --target "$T" -p mcp-legifrance --features dila; \
     cp "target/$T/dist/mcp-legifrance" /mcp-legifrance
 
 # --- Binaire de la release (CI) ----------------------------------------------------------------
