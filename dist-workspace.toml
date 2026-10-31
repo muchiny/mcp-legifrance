@@ -37,6 +37,7 @@ checksum = "sha256"                      # un .sha256 par archive et un sha256.s
 include = ["NOTICE", "THIRD_PARTY_LICENSES.md"]
 cargo-auditable = true                   # dépendances embarquées dans le binaire, `cargo audit bin` (08 §3.6)
 cargo-cyclonedx = true                   # SBOM CycloneDX : `mcp-legifrance.cdx.xml` dans la release (08 §3.6)
+features = ["dila"]                      # v1.0.0 (M9) : index local DILA et `build-dila-index` dans les binaires publiés (08 §10)
 pr-run-mode = "plan"                     # PR : `dist plan` seulement ; les 7 cibles sont construites par smoke-targets.yml
 fail-fast = false
 

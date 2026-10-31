@@ -17,12 +17,13 @@ Serveur MCP en **Rust** pour interroger le droit français officiel (lois, codes
 3. [Installation par canal](#installation-par-canal)
 4. [Configuration des clients](#configuration-des-clients)
 5. [Variables d'environnement](#variables-denvironnement)
-6. [Hôtes contactés](#hôtes-contactés)
-7. [Attribution, licence des données et non-affiliation](#attribution-licence-des-données-et-non-affiliation)
-8. [Migrer depuis fr-eli-mcp](#migrer-depuis-fr-eli-mcp)
-9. [Confidentialité et sécurité](#confidentialité-et-sécurité)
-10. [Ce qui n'est pas encore vérifié](#ce-qui-nest-pas-encore-vérifié)
-11. [Développer et contribuer](#développer-et-contribuer)
+6. [Mode hors ligne (index local DILA)](#mode-hors-ligne-index-local-dila)
+7. [Hôtes contactés](#hôtes-contactés)
+8. [Attribution, licence des données et non-affiliation](#attribution-licence-des-données-et-non-affiliation)
+9. [Migrer depuis fr-eli-mcp](#migrer-depuis-fr-eli-mcp)
+10. [Confidentialité et sécurité](#confidentialité-et-sécurité)
+11. [Ce qui n'est pas encore vérifié](#ce-qui-nest-pas-encore-vérifié)
+12. [Développer et contribuer](#développer-et-contribuer)
 
 ## Ce que fait le serveur
 
@@ -48,7 +49,9 @@ Treize outils, tous en lecture seule (`readOnlyHint`), qui interrogent Légifran
 
 **Resources, prompts et complétions.** En plus des outils, le serveur expose la resource `legifrance://coverage`, quatre modèles de resources (`legifrance://act/{text_id}`, `legifrance://article/{article_id}`, `legifrance://code/{code}/article/{num}`, `legifrance://decision/{decision_id}`), trois prompts en français (`analyser_decision`, `etat_du_droit`, `verifier_citations`) et la complétion de leurs arguments.
 
-**Options de compilation, absentes des binaires publiés.** Deux fonctions existent dans le code et se compilent à la demande, mais aucune n'est active par défaut ni livrée dans les binaires, l'image Docker et le bundle MCPB : le transport Streamable HTTP local (`--features http`, sous-commande `serve-http`, boucle locale seulement, jeton dans `LF_MCP_HTTP_TOKEN`) et l'index local DILA (`--features dila`, fonds LEGI seul, activé par `LF_DILA_DIR`). L'index local est un instantané : il peut être en retard sur Légifrance et ne prouve donc jamais qu'un texte n'existe pas. Le [CHANGELOG](CHANGELOG.md) dit, version par version, ce que livre chaque release.
+**Option de compilation, absente des binaires publiés.** Le transport Streamable HTTP local (`--features http`, sous-commande `serve-http`, boucle locale seulement, jeton dans `LF_MCP_HTTP_TOKEN`) existe dans le code et se compile à la demande, mais n'est pas livré dans les binaires, l'image Docker et le bundle MCPB.
+
+**Mode hors ligne, inclus dans les binaires publiés à partir de la 1.0.0.** L'index local DILA (fonctionnalité `dila`, fonds LEGI seul, activé par `LF_DILA_DIR`) se construit avec la sous-commande `build-dila-index`, voir [Mode hors ligne](#mode-hors-ligne-index-local-dila). L'index local est un instantané : il peut être en retard sur Légifrance et ne prouve donc jamais qu'un texte n'existe pas. Le [CHANGELOG](CHANGELOG.md) dit, version par version, ce que livre chaque release.
 
 **Protocole.** MCP 2026-07-28 (« moderne »), ainsi que 2025-11-25 et 2025-06-18 (« legacy ») dans le même binaire. La version 2025-03-26 n'est pas servie. Le démarrage ne fait aucun appel réseau : l'authentification PISTE se fait au premier appel d'outil.
 
@@ -340,6 +343,35 @@ Ces noms viennent du serveur Python dont ce projet est la réécriture ([NOTICE]
 
 L'avertissement a la forme `FR_ELI_ENV ignored: it is never read`, ou `FR_ELI_CLIENT_ID is deprecated: use LF_PISTE_CLIENT_ID` pour une variable lue par compatibilité. Il n'est jamais accompagné de la valeur de la variable.
 
+## Mode hors ligne (index local DILA)
+
+Option : au lieu d'appeler PISTE, le serveur lit une **copie locale** des codes, lois et décrets de Légifrance (le fonds LEGI des données ouvertes de la DILA). Vous n'avez alors ni compte PISTE à créer, ni requête qui quitte votre ordinateur. Les **décisions de justice, les délibérations de la CNIL, les conventions collectives et les accords d'entreprise ne sont pas dans cette copie** : ces outils répondent `[config_error]` et demandent PISTE. Quand `LF_DILA_DIR` est défini, le serveur ne se rabat jamais sur PISTE.
+
+**Place nécessaire** (mesurée le 2026-10-31 sur les archives réelles : 1 fichier complet du 2025-07-13 et 481 mises à jour) : 3,1 Go d'archives à télécharger, puis un index de 3,6 Go (2 405 838 documents, aucun membre refusé), soit environ 7 Go de disque. La construction a pris 1 h 10 avec un binaire de développement non optimisé et 3,6 Go de mémoire au plus ; la durée avec le binaire publié n'a pas été mesurée.
+
+**Trois étapes.**
+
+1. Télécharger les archives avec le script du dépôt (bash et `curl` ; une seule connexion, avec des pauses, reprise possible) :
+
+   ```bash
+   scripts/fetch-dila-dumps.sh ~/dila/archives
+   ```
+
+2. Construire l'index (aucun accès au réseau ; rien n'est extrait sur le disque ; relancer la commande n'applique que ce qui est nouveau) :
+
+   ```bash
+   mcp-legifrance build-dila-index --archives ~/dila/archives --index ~/dila/index
+   ```
+
+3. Déclarer l'index dans la configuration de votre client MCP, à la place des variables PISTE, avec un chemin **absolu** : `LF_DILA_DIR=/chemin/absolu/vers/dila/index`. Vérifiez avec `mcp-legifrance check-config`.
+
+**À savoir.**
+
+- C'est un **instantané** : un texte publié après le fichier téléchargé manque, et une absence est rendue `unresolvable`, jamais `not_found`. La date de l'instantané n'est pas encore indiquée dans les réponses ; le fichier `registry.tsv` du dossier d'index liste les archives appliquées.
+- Pour mettre à jour, relancez les étapes 1 et 2. Un nouveau fichier complet de la DILA refait l'index depuis zéro. Ne lancez pas `build-dila-index` pendant qu'un client lit le même index.
+- Le script est en bash : sous Windows, il n'a pas été essayé (WSL ou Git Bash). Le bundle MCPB ne propose pas ce réglage, et l'image Docker n'a pas été essayée avec un index monté.
+- **Licence des données.** Les fiches de la DILA demandent de mentionner la paternité (DILA), l'adresse de téléchargement, le nom du fichier et sa date. En cas de doute, citez : « Source : DILA, base LEGI, Légifrance, fichier `<nom>` du `<date>`, `https://echanges.dila.gouv.fr/OPENDATA/LEGI/` ». Les fiches citent la Licence Ouverte 2.0 et le portail data.gouv.fr celle de 2014 : l'écart n'est pas tranché (voir `docs/recherche/10-dumps-dila.md` §8).
+
 ## Hôtes contactés
 
 Le serveur ne contacte que les hôtes ci-dessous, et seulement dans les cas indiqués. Aucune télémétrie, aucun compte, aucune vérification de version en ligne, aucune mise à jour automatique.
@@ -403,7 +435,7 @@ Le projet note ses incertitudes plutôt que de les taire. Pour la 0.3.0 :
 - `cargo install --git` n'a pas encore été essayé sous macOS et Windows.
 - Le chemin par défaut du journal d'audit sous Windows, ses permissions, la prise en compte d'un proxy et le comportement de VS Code face à `openWorldHint` ne sont pas mesurés.
 - Le bac à sable PISTE renvoie parfois d'autres données que la production.
-- L'index local DILA (option de compilation `dila`) n'a été éprouvé que sur de petits jeux de test : sa taille, son temps de construction sur de vrais dumps et la licence propre à chaque fonds ne sont pas mesurés.
+- L'index local DILA a été construit une fois sur les archives réelles (1 h 10 avec un binaire de développement) et interrogé sur quelques requêtes, sur Linux seulement : la durée avec le binaire publié, le comportement sous Windows et macOS, la date de l'instantané dans les réponses et la licence propre à chaque fonds ne sont pas vérifiés.
 - L'adresse Légifrance qu'un article de loi reçoit dans `source_url` n'a pas été ouverte dans un navigateur pour confirmer qu'elle s'affiche.
 - Un passage de 21 tests en bac à sable PISTE a réussi le 2026-10-29 ; il ne dit rien de la production, et la CI ne rejoue qu'une partie de ces tests chaque semaine.
 

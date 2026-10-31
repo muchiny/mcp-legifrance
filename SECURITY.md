@@ -77,7 +77,7 @@ stdio is the transport of the published binaries. If you build the optional HTTP
 - `serve-http` refuses to start without `LF_MCP_HTTP_TOKEN`. A token shorter than 32 bytes is accepted with a warning at start-up: use at least 32 random bytes (for example the output of `openssl rand -hex 32`). Only the `mcp-legifrance` binary enforces the token: the library entry point `serve_http` can run without one, so do not embed it elsewhere without adding the check. The token is held as an ordinary string in memory, not wiped on exit.
 - At shutdown, requests still in flight are cancelled, audited and answered with HTTP 500 (rmcp 3.5.1 drops the response of a cancelled call); the grace period for draining them does not apply to tool calls. Do not rely on a call finishing during a shutdown.
 
-**Local index (optional `dila` build, not in the published binaries)**
+**Local index (optional, `dila` feature; included in the published binaries from 1.0.0)**
 
 - The index is a snapshot of the DILA LEGI dumps (codes, laws and decrees only). It can lag behind Légifrance, so a text missing from it is reported `unresolvable`, never `not_found`, and `fr_coverage` describes the source as a degraded snapshot.
 - When `LF_DILA_DIR` is set, the server never falls back to PISTE: an index that is missing, empty or unreadable makes the source unavailable, and no request leaves the machine. The refusals the model reads are fixed texts without any path.
@@ -166,7 +166,7 @@ stdio est le transport des binaires publiés. Si vous compilez le transport HTTP
 - `serve-http` refuse de démarrer sans `LF_MCP_HTTP_TOKEN`. Un jeton de moins de 32 octets est accepté avec un avertissement au démarrage : prenez au moins 32 octets aléatoires (par exemple la sortie de `openssl rand -hex 32`). Seul le binaire `mcp-legifrance` impose le jeton : le point d'entrée de bibliothèque `serve_http` peut s'exécuter sans lui, ne l'intégrez donc pas ailleurs sans ajouter ce contrôle. Le jeton est tenu en mémoire comme une chaîne ordinaire, non effacée à la sortie.
 - À l'arrêt, les requêtes en vol sont annulées, auditées et reçoivent un HTTP 500 (rmcp 3.5.1 jette la réponse d'un appel annulé) ; le délai d'évacuation ne vaut pas pour les appels d'outil. Ne comptez pas sur la fin d'un appel pendant un arrêt.
 
-**Index local (compilation facultative `dila`, absente des binaires publiés)**
+**Index local (facultatif, fonctionnalité `dila` ; inclus dans les binaires publiés à partir de la 1.0.0)**
 
 - L'index est un instantané des dumps LEGI de la DILA (codes, lois et décrets seulement). Il peut être en retard sur Légifrance : un texte qui en est absent est rendu `unresolvable`, jamais `not_found`, et `fr_coverage` décrit la source comme un instantané dégradé.
 - Quand `LF_DILA_DIR` est défini, le serveur ne se replie jamais sur PISTE : un index absent, vide ou illisible rend la source indisponible, et aucune requête ne quitte la machine. Les refus que lit le modèle sont des textes fixes, sans aucun chemin.

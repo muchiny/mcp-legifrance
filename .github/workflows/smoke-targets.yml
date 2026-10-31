@@ -78,7 +78,7 @@ jobs:
       - name: Compilation (profil dist)
         env:
           TARGET: ${{ matrix.target.triple }}
-        run: cargo build --locked --profile dist --package mcp-legifrance --target "$TARGET"
+        run: cargo build --locked --profile dist --package mcp-legifrance --features dila --target "$TARGET"
       # Aucune interpolation dans ce script : tout passe par l'environnement (zizmor).
       - name: Poignée de main initialize
         timeout-minutes: 2
