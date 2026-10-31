@@ -35,7 +35,7 @@ Préversion de répétition de la 1.0.0 : mêmes sources que `[1.0.0]` ci-dessou
 
 ## [1.0.0] - 2026-10-31
 
-Première version publiée. Elle reprend tout `[0.3.0]` ci-dessous, qui n'a jamais été publiée seule (seule la préversion `0.3.0-rc.1` l'a été), et y ajoute le mode hors ligne (M9). Les binaires pèsent environ 24 % de plus que ceux de `0.3.0-rc.1` (+0,9 à +1,5 Mio par archive, selon la cible) à cause de l'index local DILA ; le bundle MCPB passe de 28,5 à 35,7 Mio.
+Première version publiée. Elle reprend tout `[0.3.0]` ci-dessous, qui n'a jamais été publiée seule (seule la préversion `0.3.0-rc.1` l'a été), et y ajoute le mode hors ligne (M9). Les binaires pèsent environ 24 % de plus que ceux de `0.3.0-rc.1` (de +0,85 à +1,43 Mio par archive, selon la cible) à cause de l'index local DILA ; le bundle MCPB passe de 28,5 à 35,7 Mio.
 
 ### Added
 
