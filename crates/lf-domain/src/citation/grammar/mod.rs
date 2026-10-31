@@ -7,9 +7,15 @@
 //! plages des ancres, elles, sont des offsets de `Normalized::text`, celui que lisent les
 //! grammaires.
 
+// Les grammaires ne font que de l'arithmétique de positions : tout indice est un offset dans
+// `Normalized::text`, coupé à `MAX_INPUT_BYTES` (1 Mio, `normalize::truncate`) avant toute
+// grammaire, donc très en dessous de `usize::MAX`. Les soustractions `fin - début` portent sur
+// des positions déjà ordonnées par construction. Des `saturating_*` partout noieraient les règles
+// de lecture (annexe B) sans rien protéger. Une arithmétique qui n'est pas une position (poids,
+// budget, compteur) n'a pas sa place ici : elle se règle dans `lf-application` ou `text`.
 #![expect(
     clippy::arithmetic_side_effects,
-    reason = "déploiement par crate de `arithmetic_side_effects` : dérogation provisoire des grammaires, à retirer avec la PR suivante"
+    reason = "positions dans un texte borné à MAX_INPUT_BYTES (1 Mio), très en dessous de `usize::MAX`"
 )]
 
 pub(crate) mod cassation;
