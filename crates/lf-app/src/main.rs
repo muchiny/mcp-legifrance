@@ -102,6 +102,7 @@ async fn dispatch(command: Command, loaded: Loaded) -> anyhow::Result<ExitCode> 
         Command::CheckConfig(args) => report(&loaded, args, &mut io::stdout().lock()).await,
         #[cfg(feature = "dila")]
         Command::BuildDilaIndex(args) => {
+            loaded.emit();
             dila_index::run(&loaded.config.source, &args, &mut io::stdout().lock()).await
         }
         #[cfg(feature = "http")]

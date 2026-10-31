@@ -4,7 +4,7 @@
 //! - **Aucun accès réseau** : le binaire ne contacte pas `echanges.dila.gouv.fr`. Les archives
 //!   viennent d'un répertoire que l'utilisateur a rempli (script `scripts/fetch-dila-dumps.sh`,
 //!   hors binaire) ; la commande les lit en flux, sans rien extraire sur le disque.
-//! - **Reprise** : le registre des archives appliquées vit dans `<index>/registry.toml`. Rejouer
+//! - **Reprise** : le registre des archives appliquées vit dans `<index>/registry.tsv`. Rejouer
 //!   la commande n'applique que ce qui est nouveau ; un nouveau global refait l'index.
 //! - **Un seul écrivain** : un autre processus qui tient le verrou de l'index fait échouer la
 //!   commande (code 1), jamais corrompre l'index.
@@ -19,12 +19,12 @@ use std::{
 };
 
 use anyhow::Context as _;
-use lf_adapter_dila::{DilaCorpus, IngestLimits, SyncReport};
+use lf_adapter_dila::{ArchiveKind, ArchiveName, DilaCorpus, IngestLimits, SyncReport};
 
 use crate::{cli::BuildDilaIndexArgs, config::CorpusSource};
 
 /// Nom du registre des archives appliquées, dans le répertoire de l'index.
-const REGISTRY_FILE: &str = "registry.toml";
+const REGISTRY_FILE: &str = "registry.tsv";
 
 /// Code de sortie d'une erreur d'usage (02 §8.1).
 const EXIT_USAGE: u8 = 2;
@@ -42,8 +42,16 @@ pub(crate) async fn run(
         tracing::error!("no index directory: pass --index, or set LF_DILA_DIR to an absolute path");
         return Ok(ExitCode::from(EXIT_USAGE));
     };
+    // `LF_DILA_DIR` doit être absolu : le chemin affiché à la fin l'est donc aussi.
+    let index = std::path::absolute(&index).context("cannot resolve the index directory")?;
     if !args.archives.is_dir() {
         tracing::error!("--archives does not name an existing directory");
+        return Ok(ExitCode::from(EXIT_USAGE));
+    }
+    // Ouvrir l'index le crée : une faute de frappe dans `--index` ne doit pas laisser un dossier
+    // vide quand il n'y a de toute façon rien à bâtir (aucun global dans les archives).
+    if !index.exists() && !has_global(&args.archives) {
+        tracing::error!("--archives holds no LEGI global archive: the index cannot be built");
         return Ok(ExitCode::from(EXIT_USAGE));
     }
     let corpus = DilaCorpus::open(&index).context("cannot open the local DILA index")?;
@@ -54,6 +62,17 @@ pub(crate) async fn run(
     summary(&index, &report, corpus.engine().len(), out)
         .context("cannot write the build-dila-index report")?;
     Ok(ExitCode::SUCCESS)
+}
+
+/// Vrai si `dir` contient une archive globale LEGI (le nom suffit : le contenu est lu à l'ingestion).
+fn has_global(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|entries| {
+        entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter_map(|name| ArchiveName::parse(&name))
+            .any(|name| name.kind() == ArchiveKind::Global)
+    })
 }
 
 /// Répertoire de l'index : `--index`, sinon `LF_DILA_DIR` s'il est utilisable.
@@ -143,6 +162,8 @@ mod tests {
         assert_eq!(format!("{exit:?}"), format!("{:?}", ExitCode::SUCCESS), "{text}");
         assert!(text.contains(&format!("Applied {}", GLOBAL.1)), "{text}");
         assert!(text.contains(&format!("Applied {}", INCREMENT.1)), "{text}");
+        assert!(text.contains("was rebuilt from a new global archive"), "{text}");
+        assert!(text.contains("The index holds 23 documents."), "{text}");
         assert!(text.contains(&format!("LF_DILA_DIR={}", index.path().display())), "{text}");
         assert!(index.path().join(REGISTRY_FILE).is_file());
 
@@ -184,7 +205,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_increment_without_a_global_fails_with_an_error() {
+    async fn archives_without_a_global_are_a_usage_error_and_create_no_index() {
+        let parent = TempDir::new().unwrap();
+        let index = parent.path().join("typo");
+        let from = archives(&[INCREMENT]);
+        let wanted =
+            BuildDilaIndexArgs { archives: from.path().to_path_buf(), index: Some(index.clone()) };
+        let (exit, text) = build(&CorpusSource::Piste, &wanted).await;
+        assert_eq!(format!("{exit:?}"), code(EXIT_USAGE));
+        assert!(text.is_empty(), "{text}");
+        assert!(!index.exists(), "un index vide a été créé");
+    }
+
+    #[tokio::test]
+    async fn an_increment_without_a_global_fails_when_the_index_is_new_to_the_registry() {
         let index = TempDir::new().unwrap();
         let from = archives(&[INCREMENT]);
         let mut out = Vec::new();
