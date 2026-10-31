@@ -10,7 +10,8 @@
 //! 4. le runtime tokio multi-thread, construit à la main pour rendre un `ExitCode` et borner
 //!    l'arrêt (02 §8.7) ;
 //! 5. la sous-commande : `serve` (`wiring::run`, par défaut), `check-config` (`check`) ou, dans un
-//!    binaire compilé avec la feature `http`, `serve-http` (`http_serve`, M8).
+//!    binaire compilé avec la feature `http`, `serve-http` (`http_serve`, M8) ou, avec la feature
+//!    `dila`, `build-dila-index` (`dila_index`, M9).
 //!
 //! Codes de sortie : 0 (EOF de stdin, arrêt demandé, configuration valide), 1 (échec du service,
 //! du runtime ou de l'écriture du rapport), 2 (erreur d'usage, configuration invalide pour
@@ -22,6 +23,8 @@ mod check;
 mod cli;
 mod clock;
 mod config;
+#[cfg(feature = "dila")]
+mod dila_index;
 #[cfg(feature = "http")]
 mod http_config;
 #[cfg(feature = "http")]
@@ -97,6 +100,10 @@ async fn dispatch(command: Command, loaded: Loaded) -> anyhow::Result<ExitCode> 
         // Le verrou de stdout n'est pris que pour le rapport : `serve` écrit sur stdout depuis
         // une autre tâche (`tokio::io::stdout`), qu'un verrou tenu par `main` bloquerait.
         Command::CheckConfig(args) => report(&loaded, args, &mut io::stdout().lock()).await,
+        #[cfg(feature = "dila")]
+        Command::BuildDilaIndex(args) => {
+            dila_index::run(&loaded.config.source, &args, &mut io::stdout().lock()).await
+        }
         #[cfg(feature = "http")]
         Command::ServeHttp(args) => {
             serve_http(
