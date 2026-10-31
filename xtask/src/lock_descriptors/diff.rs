@@ -467,8 +467,15 @@ pub(crate) enum Jump {
     Major,
 }
 
+/// Lit `MAJOR.MINOR.PATCH`, avec ou sans suffixe de préversion (`1.0.0-rc.1`) : seul le triplet
+/// compte pour le saut de version, la comparaison avec l'étiquette précédente pouvant partir d'une
+/// préversion (`v0.3.0-rc.1`).
 fn parse_version(text: &str) -> Result<[u64; 3], String> {
-    let parts = text
+    let core = match text.split_once('-') {
+        Some((core, suffix)) if !suffix.is_empty() => core,
+        _ => text,
+    };
+    let parts = core
         .split('.')
         .map(|part| part.parse::<u64>().ok().filter(|_| !part.starts_with('+')))
         .collect::<Option<Vec<_>>>();
@@ -929,7 +936,7 @@ mod tests {
         assert!(ok("1.2.3", "1.2.4", Some(Addition)).is_err());
         assert_eq!(ok("1.2.3", "1.2.4", Some(Fix)), Ok(Jump::Patch));
         // Versions illisibles ou qui reculent.
-        for bad in ["1.2", "1.2.3.4", "a.b.c", "1.2.x", "1.2.3-rc.1", "1.+2.3", "", "-1.0.0"] {
+        for bad in ["1.2", "1.2.3.4", "a.b.c", "1.2.x", "1.2.3-", "1.+2.3", "", "-1.0.0"] {
             assert_eq!(
                 ok(bad, "1.0.0", None).unwrap_err(),
                 format!("`{bad}` is not a MAJOR.MINOR.PATCH version"),
@@ -937,6 +944,11 @@ mod tests {
             );
             assert!(ok("1.0.0", bad, None).is_err(), "{bad}");
         }
+        // Une préversion se compare sur son triplet : la porte de publication part de `v0.3.0-rc.1`.
+        assert_eq!(ok("0.3.0-rc.1", "1.0.0-rc.1", None), Ok(Jump::Major));
+        assert_eq!(ok("1.0.0-rc.1", "1.0.0", None), Ok(Jump::None));
+        assert_eq!(ok("1.0.0-rc.1", "1.0.1", Some(Fix)), Ok(Jump::Patch));
+        assert!(ok("1.0.0-rc.1", "1.0.0", Some(Fix)).is_err());
         assert_eq!(
             ok("0.2.0", "0.1.9", None).unwrap_err(),
             "version 0.1.9 is lower than the reference version 0.2.0"
