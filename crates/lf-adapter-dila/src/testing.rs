@@ -286,6 +286,17 @@ impl TestArchive {
         self
     }
 
+    /// Entrée d'extension (`L`, `K`, `x`, `g`) dont l'en-tête annonce `announced` octets, alors que
+    /// `data` en porte peut-être moins : l'archive est alors tronquée.
+    pub(crate) fn extension(&mut self, kind: EntryType, announced: u64, data: &[u8]) -> &mut Self {
+        let mut header = Self::header(0, 0, kind);
+        header.set_size(announced);
+        header.as_old_mut().name[..13].copy_from_slice(b"././@LongLink");
+        header.set_cksum();
+        self.builder.append(&header, data).unwrap();
+        self
+    }
+
     /// Dossier.
     pub(crate) fn dir(&mut self, path: &str) -> &mut Self {
         let mut header = Self::header(0, 0, EntryType::Directory);

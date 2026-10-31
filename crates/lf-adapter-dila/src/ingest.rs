@@ -14,6 +14,12 @@
 //!    **appliquées après tout le contenu** (annexe C §7.4-4) : d'abord les fichiers, puis les
 //!    dossiers de texte.
 //!
+//! `tar` est lu en **mode brut** : sans lui, il lit en mémoire et en entier, avant tout plafond,
+//! les en-têtes GNU de noms longs et les en-têtes PAX (un en-tête annonçant 20 Gio épuiserait la
+//! mémoire). Le nom long GNU (`L`, près de la moitié des en-têtes de la DILA) est lu sur
+//! `MAX_PATH_BYTES + 1` octets au plus ; `K`, `x` et `g` ne sont ni lus ni interprétés, et chaque
+//! liste de suppression n'est lue qu'une fois par archive.
+//!
 //! Un membre défectueux (XML invalide, trop gros, identifiant incohérent, chemin dangereux) est
 //! compté dans le [`IngestReport`] et n'arrête pas l'archive. Une archive illisible (gzip ou tar
 //! corrompu, lecture interrompue) arrête l'ingestion avec [`IngestError::Archive`]. Le magasin
@@ -26,11 +32,11 @@
 use std::io::{self, BufRead, BufReader, Read};
 
 use flate2::read::MultiGzDecoder;
-use tar::{Archive, Entry};
+use tar::{Archive, Entry, EntryType};
 
 use crate::{
     error::IngestError,
-    path::{DocKind, DocPath, Ignored, Member, PathReject, classify_member},
+    path::{DocKind, DocPath, Ignored, MAX_PATH_BYTES, Member, PathReject, classify_member},
     store::{DocStore, StoredDoc},
     suppression::Deletions,
     xml::{self, XmlError},
@@ -78,6 +84,9 @@ pub enum RejectReason {
     Xml(XmlError),
     /// L'identifiant du XML n'est pas celui du nom de fichier.
     IdMismatch,
+    /// Une deuxième liste de suppression du même type : chacune est lue en entier en mémoire, et
+    /// l'archive n'en porte qu'une de chaque (rapport 10 §6).
+    DuplicateList,
 }
 
 /// Un membre refusé : son chemin (nettoyé des caractères de contrôle, tronqué) et le motif.
@@ -171,11 +180,31 @@ struct Run<'a, S: DocStore> {
     report: IngestReport,
     deletions: Deletions,
     buf: Vec<u8>,
+    /// Les deux listes de suppression ne sont lues qu'une fois chacune.
+    seen_file_list: bool,
+    seen_dir_list: bool,
 }
 
 impl<S: DocStore> Run<'_, S> {
     fn archive_error(&self, source: std::io::Error) -> IngestError {
         IngestError::Archive { entries: self.report.entries, source }
+    }
+
+    /// Le nom long GNU que porte l'entrée `L`, lu jusqu'à `MAX_PATH_BYTES + 1` octets : un nom plus
+    /// long reste plus long que la borne, donc refusé comme tel par `classify_member`, sans que
+    /// l'entrée soit lue en entier (le reste est sauté par `tar`).
+    fn long_name<R: Read>(&self, entry: &mut Entry<'_, R>) -> Result<Vec<u8>, IngestError> {
+        let limit = u64::try_from(MAX_PATH_BYTES).map_or(u64::MAX, |bytes| bytes.saturating_add(1));
+        let mut name = Vec::new();
+        entry
+            .by_ref()
+            .take(limit)
+            .read_to_end(&mut name)
+            .map_err(|source| self.archive_error(source))?;
+        while name.last() == Some(&0) {
+            name.pop();
+        }
+        Ok(name)
     }
 
     /// Lit le contenu du membre dans `self.buf` ; `false` (membre refusé) s'il dépasse `limit`.
@@ -196,7 +225,11 @@ impl<S: DocStore> Run<'_, S> {
         Ok(true)
     }
 
-    fn visit<R: Read>(&mut self, entry: &mut Entry<'_, R>) -> Result<(), IngestError> {
+    fn visit<R: Read>(
+        &mut self,
+        entry: &mut Entry<'_, R>,
+        long_name: Option<Vec<u8>>,
+    ) -> Result<(), IngestError> {
         let kind = entry.header().entry_type();
         if kind.is_dir() {
             self.report.directories = self.report.directories.saturating_add(1);
@@ -205,7 +238,7 @@ impl<S: DocStore> Run<'_, S> {
         } else if !kind.is_file() {
             self.report.other_entries = self.report.other_entries.saturating_add(1);
         } else {
-            let raw_path = entry.path_bytes().into_owned();
+            let raw_path = long_name.unwrap_or_else(|| entry.path_bytes().into_owned());
             match classify_member(&raw_path) {
                 Err(reason) => self.report.reject(&raw_path, RejectReason::Path(reason)),
                 Ok(Member::Ignored(Ignored::Eli)) => {
@@ -215,6 +248,14 @@ impl<S: DocStore> Run<'_, S> {
                     self.report.ignored_other = self.report.ignored_other.saturating_add(1);
                 }
                 Ok(list @ (Member::FileList | Member::DirList)) => {
+                    let seen = match list {
+                        Member::FileList => &mut self.seen_file_list,
+                        _ => &mut self.seen_dir_list,
+                    };
+                    if std::mem::replace(seen, true) {
+                        self.report.reject(&raw_path, RejectReason::DuplicateList);
+                        return Ok(());
+                    }
                     let read = self.read(entry, self.limits.max_list_bytes, &raw_path)?;
                     match (read, list) {
                         (false, _) => {} // trop grosse : déjà comptée comme refusée
@@ -309,12 +350,28 @@ pub fn ingest_archive<R: Read, S: DocStore>(
         report: IngestReport::default(),
         deletions: Deletions::default(),
         buf: Vec::new(),
+        seen_file_list: false,
+        seen_dir_list: false,
     };
+    // Mode brut : sans lui, `tar` lit en mémoire, en entier et avant tout plafond, les en-têtes
+    // GNU de noms longs et les en-têtes PAX (un en-tête `L` annonçant 20 Gio suffit à épuiser la
+    // mémoire). On lit donc nous-mêmes le nom long, borné, et on laisse de côté le reste.
     // `entries()` n'échoue que sur une archive déjà entamée, ce qu'une archive neuve n'est pas.
-    for entry in archive.entries().into_iter().flatten() {
+    let mut long_name: Option<Vec<u8>> = None;
+    for entry in archive.entries().map(|entries| entries.raw(true)).into_iter().flatten() {
         let mut entry = entry.map_err(|source| run.archive_error(source))?;
-        run.report.entries = run.report.entries.saturating_add(1);
-        run.visit(&mut entry)?;
+        match entry.header().entry_type() {
+            EntryType::GNULongName => long_name = Some(run.long_name(&mut entry)?),
+            // Cibles de lien longues et en-têtes PAX : jamais interprétés (les archives de la
+            // DILA n'en portent aucun, rapport 10 §3.2), ni lus.
+            EntryType::GNULongLink | EntryType::XHeader | EntryType::XGlobalHeader => {
+                run.report.other_entries = run.report.other_entries.saturating_add(1);
+            }
+            _ => {
+                run.report.entries = run.report.entries.saturating_add(1);
+                run.visit(&mut entry, long_name.take())?;
+            }
+        }
     }
     // La fin du tar (blocs nuls) n'est pas la fin du gzip : lire jusqu'au bout vérifie la somme
     // de contrôle et révèle une archive tronquée juste après son dernier membre.
@@ -416,6 +473,85 @@ mod tests {
         assert!(first < total / 4, "first document stored after {first} of {total} bytes");
         assert_eq!(consumed.get(), total, "the whole archive is read exactly once");
         assert!(report.content_bytes > 1_000_000);
+    }
+
+    #[test]
+    fn an_oversized_long_name_is_refused_without_being_read_whole() {
+        let id = "LEGIARTI000000000009";
+        let mut archive = TestArchive::new();
+        // un nom long de 100 Kio : seuls les premiers octets sont lus, le reste est sauté
+        archive.extension(EntryType::GNULongName, 100_000, &vec![b'a'; 100_000]);
+        archive.raw_file(b"short-header-name", b"<x/>");
+        archive.file(
+            &article_member("code_en_vigueur", "LEGITEXT000000000001", id),
+            xml(id, "<p>suite</p>").as_bytes(),
+        );
+        let mut store = TestStore::new();
+        let report = ingest(archive.gz(), &mut store).unwrap();
+        assert_eq!(report.rejected, 1);
+        assert_eq!(report.rejections[0].reason, RejectReason::Path(PathReject::TooLong));
+        // le flux est resté aligné : le membre suivant est rangé
+        assert_eq!(report.articles, 1);
+        assert_eq!(report.entries, 2);
+    }
+
+    #[test]
+    fn an_archive_cut_inside_a_long_name_is_an_archive_error() {
+        let mut archive = TestArchive::new();
+        archive.extension(EntryType::GNULongName, 100_000, &vec![b'a'; 100_000]);
+        let mut bytes = archive.gz_stored();
+        // l'en-tête (512 octets) puis une partie seulement des 513 octets de nom que l'on lit
+        bytes.truncate(900);
+        let error = ingest(bytes, &mut TestStore::new()).unwrap_err();
+        assert!(error.to_string().starts_with("archive unreadable"), "{error}");
+    }
+
+    #[test]
+    fn a_long_name_entry_announcing_more_than_the_archive_holds_is_an_archive_error() {
+        let mut archive = TestArchive::new();
+        archive.extension(EntryType::GNULongName, 1 << 33, &[b'a'; 10]);
+        let error = ingest(archive.gz(), &mut TestStore::new()).unwrap_err();
+        assert!(error.to_string().starts_with("archive unreadable"), "{error}");
+    }
+
+    #[test]
+    fn pax_and_long_link_headers_are_skipped_and_counted_not_read() {
+        let id = "LEGIARTI000000000008";
+        let mut archive = TestArchive::new();
+        archive.extension(EntryType::XGlobalHeader, 20, b"20 comment=global\n   ");
+        archive.extension(EntryType::XHeader, 12, b"12 path=a/b\n");
+        archive.extension(EntryType::GNULongLink, 4, b"cible");
+        archive.file(
+            &article_member("code_en_vigueur", "LEGITEXT000000000001", id),
+            xml(id, "<p>ok</p>").as_bytes(),
+        );
+        let mut store = TestStore::new();
+        let report = ingest(archive.gz(), &mut store).unwrap();
+        assert_eq!(report.other_entries, 3);
+        assert_eq!(report.entries, 1);
+        assert_eq!(report.articles, 1);
+        assert_eq!(report.rejected, 0);
+    }
+
+    #[test]
+    fn a_second_deletion_list_of_the_same_kind_is_refused() {
+        let id = "LEGIARTI000000000007";
+        let key = article_member("code_en_vigueur", "LEGITEXT000000000001", id);
+        let mut archive = TestArchive::new();
+        archive.file(&key, xml(id, "<p>reste</p>").as_bytes());
+        archive.file("20260101-100000/liste_suppression_legi.dat", b"");
+        // la deuxième liste nommerait l'article : elle n'est pas lue
+        archive.file("20260101-100000/liste_suppression_legi.dat", key.as_bytes());
+        archive.file("20260101-100000/liste_suppression_legi_dossier.dat", b"");
+        archive.file("20260101-100000/liste_suppression_legi_dossier.dat", b"legi/x D");
+        let mut store = TestStore::new();
+        let report = ingest(archive.gz(), &mut store).unwrap();
+        assert_eq!(report.rejected, 2);
+        assert!(report.rejections.iter().all(|r| r.reason == RejectReason::DuplicateList));
+        assert_eq!(report.deleted_files_listed, 0);
+        assert_eq!(report.deleted_dirs_listed, 0);
+        assert_eq!(report.deleted_files_removed, 0);
+        assert_eq!(store.inner.len(), 1, "l'article n'est pas supprimé");
     }
 
     #[test]

@@ -390,7 +390,7 @@ mod tests {
         std::fs::create_dir(setup.dir.path().join("registry.tsv.tmp")).unwrap();
         setup.put(I1, &increment("20250714-100000", &[], &[(2, "i1")]));
         let error = setup.sync(&mut store).unwrap_err();
-        assert!(error.to_string().starts_with("cannot write the archive registry: "), "{error}");
+        assert!(error.to_string().starts_with("cannot clear the stale registry file: "), "{error}");
         assert_eq!(
             content(&store, 2).as_deref(),
             Some("i1"),
