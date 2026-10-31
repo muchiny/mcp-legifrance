@@ -14,6 +14,16 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
+Rien depuis `1.0.0-rc.1`.
+
+## [1.0.0-rc.1] - 2026-10-31
+
+Préversion de répétition de la 1.0.0 : mêmes sources que `[1.0.0]` ci-dessous, qui reste « non publiée » jusqu'à la version finale. Elle compile la fonctionnalité `dila` pour les sept cibles et permet de mesurer la taille des binaires ; elle ne figure pas au registre MCP (08 §6.5).
+
+## [1.0.0] - non publiée
+
+Reprend tout `[0.3.0]` ci-dessous, dont seule la préversion `0.3.0-rc.1` a été publiée, et y ajoute le mode hors ligne (M9).
+
 ### Added
 
 - Sous-commande `build-dila-index --archives <dossier> [--index <dossier>]` (fonctionnalité `dila`) : construit ou met à jour l'index local DILA à partir d'archives LEGI déjà téléchargées, avec reprise, sans accès réseau (#51).
@@ -167,4 +177,5 @@ Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0
 - Domaine seulement, visible par un client à partir de M4 : citation du Conseil constitutionnel sans « - objet » (P-035), plus de `eli_uri` (P-031, P-039), sentinelle de date omise (P-030).
 
 [Unreleased]: https://github.com/muchiny/mcp-legifrance/commits/main
+[1.0.0]: https://github.com/muchiny/mcp-legifrance/commits/main
 [0.3.0]: https://github.com/muchiny/mcp-legifrance/commits/main
