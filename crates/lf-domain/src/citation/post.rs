@@ -413,7 +413,7 @@ fn add_date_flags(item: &mut Spanned<CitationRef>, today: Option<CivilDate>) {
 
 /// Numéro de groupe affiché pour le `n`-ième groupe de la sortie (à partir de 1).
 fn group_number(n: usize) -> u32 {
-    u32::try_from(n + 1).unwrap_or(u32::MAX)
+    u32::try_from(n.saturating_add(1)).unwrap_or(u32::MAX)
 }
 
 /// Citations retenues, triées par début de span puis par longueur décroissante.
@@ -454,6 +454,10 @@ pub(crate) fn arbitrate(
     emitted.into_iter().map(|(_, item)| item).collect()
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;

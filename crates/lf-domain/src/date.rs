@@ -205,6 +205,10 @@ fn days_in_month(year: u16, month: u8) -> u8 {
     }
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "chiffre ASCII vérifié juste avant : `b - b'0'` est dans 0..=9"
+)]
 fn digit(b: u8) -> Option<u8> {
     b.is_ascii_digit().then(|| b - b'0')
 }
@@ -236,6 +240,10 @@ impl CivilDate {
 
     /// Lit exactement `AAAA-MM-JJ`, sans rognage. Sert aussi au suffixe de version
     /// des identifiants (`JJ-MM-AAAA` réordonné, `id.rs`).
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "chiffres 0..=9 : l'année (au plus 9999) et le mois ou le jour (au plus 99) tiennent dans leur type"
+    )]
     pub(crate) fn parse_iso(bytes: &[u8]) -> Option<Self> {
         let &[y1, y2, y3, y4, b'-', m1, m2, b'-', d1, d2] = bytes else {
             return None;
@@ -288,6 +296,10 @@ impl CivilDate {
         clippy::indexing_slicing,
         reason = "le mois d'une `CivilDate` est validé entre 1 et 12 à la construction"
     )]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "le mois d'une `CivilDate` est validé entre 1 et 12 à la construction"
+    )]
     pub fn to_french(self) -> String {
         let month = FR_MONTHS[usize::from(self.month - 1)];
         if self.day == 1 {
@@ -300,6 +312,10 @@ impl CivilDate {
 
 /// Jours depuis 1970-01-01 vers date civile (algorithme `civil_from_days`
 /// de H. Hinnant, <https://howardhinnant.github.io/date_algorithms.html>).
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "jours issus de millisecondes `i64` par `div_euclid` : au plus ~10^11, loin du débordement d'un `i64`"
+)]
 fn civil_from_days(days: i64) -> Option<CivilDate> {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
@@ -330,6 +346,10 @@ impl FromStr for CivilDate {
     }
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 mod tests {
     use super::*;

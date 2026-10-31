@@ -260,14 +260,18 @@ impl SearchQuery {
 /// ```
 pub fn has_more(page: NonZeroU32, page_size: PageSize, total: u64) -> bool {
     let (page, size) = (u64::from(page.get()), u64::from(page_size.get()));
-    page * size < total && within_reach(page + 1, size)
+    page.saturating_mul(size) < total && within_reach(page.saturating_add(1), size)
 }
 
 /// Fenêtre unique partagée par le rejet d'une page et par [`has_more`].
 fn within_reach(page: u64, page_size: u64) -> bool {
-    page * page_size <= REACHABLE_RESULTS
+    page.saturating_mul(page_size) <= REACHABLE_RESULTS
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 mod tests {
     use super::*;

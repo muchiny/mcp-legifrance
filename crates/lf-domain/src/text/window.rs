@@ -58,7 +58,7 @@ pub fn window(text: &str, offset: usize, max_chars: usize) -> Window<'_> {
     let head = &rest[..hard];
     let cut = soft_cut(head).unwrap_or(hard);
     let chunk = &rest[..cut];
-    Window { text: chunk, next_offset: Some(offset + chunk.chars().count()) }
+    Window { text: chunk, next_offset: Some(offset.saturating_add(chunk.chars().count())) }
 }
 
 /// Indice en octets du caractère n° `chars`, ou longueur de `s`.
@@ -107,7 +107,7 @@ fn soft_cut(head: &str) -> Option<usize> {
         if !c.is_whitespace() {
             continue;
         }
-        let end = i + c.len_utf8();
+        let end = i.saturating_add(c.len_utf8());
         let after_sentence = chars.peek().is_some_and(|&(j, p)| ends_sentence(head, j, p));
         if c == '\n' || after_sentence {
             return Some(end);

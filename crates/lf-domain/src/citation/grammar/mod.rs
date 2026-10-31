@@ -7,6 +7,11 @@
 //! plages des ancres, elles, sont des offsets de `Normalized::text`, celui que lisent les
 //! grammaires.
 
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "déploiement par crate de `arithmetic_side_effects` : dérogation provisoire des grammaires, à retirer avec la PR suivante"
+)]
+
 pub(crate) mod cassation;
 pub(crate) mod cc;
 pub(crate) mod ce;

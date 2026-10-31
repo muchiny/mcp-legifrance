@@ -193,7 +193,7 @@ fn strip_html(input: &str) -> Vec<Unit> {
             '&' => entity(tail).map(|(len, decoded)| (len, Some(decoded))),
             _ => None,
         };
-        let end = pos + found.map_or(ch.len_utf8(), |(len, _)| len);
+        let end = pos.saturating_add(found.map_or(ch.len_utf8(), |(len, _)| len));
         match found {
             // Balise retirée : rien n'est produit, un trou reste côté origine.
             Some((_, None)) => {}
@@ -234,9 +234,9 @@ fn tag(tail: &str) -> Option<(usize, bool)> {
     }
     match name.to_ascii_lowercase().as_str() {
         "mark" | "sup" | "sub" | "b" | "i" | "em" | "strong" | "u" | "span" | "a" => {
-            Some((end + 1, false))
+            Some((end.saturating_add(1), false))
         }
-        "br" | "p" | "div" | "li" => Some((end + 1, true)),
+        "br" | "p" | "div" | "li" => Some((end.saturating_add(1), true)),
         _ => None,
     }
 }
@@ -256,7 +256,7 @@ fn entity(tail: &str) -> Option<(usize, char)> {
         "gt" => Some('>'),
         _ => name.strip_prefix('#').and_then(numeric),
     };
-    decoded.map(|c| (semi + 1, c))
+    decoded.map(|c| (semi.saturating_add(1), c))
 }
 
 /// Référence numérique d'une entité, sans le `#` : `8217` ou `x2019`.
@@ -275,7 +275,12 @@ fn numeric(digits: &str) -> Option<char> {
 fn plain_units(input: &str) -> Vec<Unit> {
     input
         .char_indices()
-        .map(|(i, ch)| Unit { ch, start: to_u32(i), end: to_u32(i + ch.len_utf8()), kept: true })
+        .map(|(i, ch)| Unit {
+            ch,
+            start: to_u32(i),
+            end: to_u32(i.saturating_add(ch.len_utf8())),
+            kept: true,
+        })
         .collect()
 }
 
@@ -287,16 +292,16 @@ fn repair(units: Vec<Unit>) -> (Vec<Unit>, bool) {
     let Cow::Owned(fixed) = repair_latin1_mojibake(&text) else {
         return (units, false);
     };
-    let mut pos = 0;
+    let mut pos = 0_usize;
     let repaired = fixed
         .chars()
         .map(|ch| {
             let first = pos;
-            pos += ch.len_utf8();
+            pos = pos.saturating_add(ch.len_utf8());
             Unit {
                 ch,
                 start: units.get(first).map_or(0, |u| u.start),
-                end: units.get(pos - 1).map_or(0, |u| u.end),
+                end: pos.checked_sub(1).and_then(|last| units.get(last)).map_or(0, |u| u.end),
                 kept: false,
             }
         })
@@ -382,7 +387,7 @@ fn truncate(input: &str) -> (&str, bool) {
     }
     let mut end = MAX_INPUT_BYTES;
     while !input.is_char_boundary(end) {
-        end -= 1;
+        end = end.saturating_sub(1);
     }
     (&input[..end], true)
 }
@@ -412,12 +417,12 @@ impl Normalized {
             text.push(unit.ch);
             key.push(fold_char(unit.ch));
             let norm_len = to_u32(unit.ch.len_utf8());
-            let orig_len = unit.end - unit.start;
+            let orig_len = unit.end.saturating_sub(unit.start);
             let kind = if unit.kept { SegKind::Copy } else { SegKind::Replace };
             if let Some(prev) = segs.last_mut().filter(|p| p.extends(kind, unit)) {
-                prev.norm_len += norm_len;
+                prev.norm_len = prev.norm_len.saturating_add(norm_len);
                 if kind == SegKind::Copy {
-                    prev.orig_len += orig_len;
+                    prev.orig_len = prev.orig_len.saturating_add(orig_len);
                 }
             } else {
                 segs.push(Seg { norm_start, norm_len, orig_start: unit.start, orig_len, kind });
@@ -467,10 +472,11 @@ impl Seg {
     fn extends(&self, kind: SegKind, unit: &Unit) -> bool {
         self.kind == kind
             && match kind {
-                SegKind::Copy => self.orig_start + self.orig_len == unit.start,
+                SegKind::Copy => self.orig_start.saturating_add(self.orig_len) == unit.start,
                 // Expansion (`№` donne `n°`) : plusieurs caractères pour la même plage.
                 SegKind::Replace => {
-                    self.orig_start == unit.start && self.orig_start + self.orig_len == unit.end
+                    self.orig_start == unit.start
+                        && self.orig_start.saturating_add(self.orig_len) == unit.end
                 }
             }
     }
@@ -479,20 +485,22 @@ impl Seg {
 impl OffsetMap {
     /// Segment qui contient l'octet normalisé `norm`.
     fn seg_at(&self, norm: u32) -> Option<&Seg> {
-        let i = self.segs.partition_point(|s| s.norm_start + s.norm_len <= norm);
+        let i = self.segs.partition_point(|s| s.norm_start.saturating_add(s.norm_len) <= norm);
         self.segs.get(i)
     }
 
     /// Fin, côté origine, du dernier segment (0 pour un texte vide).
     fn orig_end(&self) -> u32 {
-        self.segs.last().map_or(0, |s| s.orig_start + s.orig_len)
+        self.segs.last().map_or(0, |s| s.orig_start.saturating_add(s.orig_len))
     }
 
     /// Offset d'origine du caractère qui commence en `norm` (début de span). Un offset au bord
     /// du texte, ou au-delà, rend la fin du dernier segment.
     pub(crate) fn to_orig(&self, norm: u32) -> u32 {
         match self.seg_at(norm) {
-            Some(s) if s.kind == SegKind::Copy => s.orig_start + (norm - s.norm_start),
+            Some(s) if s.kind == SegKind::Copy => {
+                s.orig_start.saturating_add(norm.saturating_sub(s.norm_start))
+            }
             Some(s) => s.orig_start,
             None => self.orig_end(),
         }
@@ -502,8 +510,10 @@ impl OffsetMap {
     /// segment `Replace` rend toute sa plage ; une suppression finale reste hors du span.
     pub(crate) fn to_orig_end(&self, norm_end: u32) -> u32 {
         match self.seg_at(norm_end.saturating_sub(1)) {
-            Some(s) if s.kind == SegKind::Copy => s.orig_start + (norm_end - s.norm_start),
-            Some(s) => s.orig_start + s.orig_len,
+            Some(s) if s.kind == SegKind::Copy => {
+                s.orig_start.saturating_add(norm_end.saturating_sub(s.norm_start))
+            }
+            Some(s) => s.orig_start.saturating_add(s.orig_len),
             None => self.orig_end(),
         }
     }

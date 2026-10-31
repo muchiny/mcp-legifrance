@@ -42,10 +42,10 @@ impl Span {
     /// hors frontière est arrondi au caractère suivant.
     #[must_use]
     pub fn to_chars(self, input: &str) -> Self {
-        let (mut start, mut end) = (0, 0);
+        let (mut start, mut end) = (0_usize, 0_usize);
         for (byte, _) in input.char_indices() {
-            start += usize::from(byte < self.start);
-            end += usize::from(byte < self.end);
+            start = start.saturating_add(usize::from(byte < self.start));
+            end = end.saturating_add(usize::from(byte < self.end));
         }
         Self { start, end }
     }

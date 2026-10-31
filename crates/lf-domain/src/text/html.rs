@@ -204,7 +204,7 @@ fn drop_closings(html: &str) -> HashMap<String, usize> {
             && classify(&tag.name) == Class::Drop
             && (closings.len() < MAX_DROP_NAMES || closings.contains_key(&tag.name))
         {
-            closings.insert(tag.name, at + tag.len);
+            closings.insert(tag.name, at.saturating_add(tag.len));
         }
     });
     closings
@@ -235,7 +235,7 @@ fn lex_all<'a>(html: &'a str, visit: &mut dyn FnMut(Piece<'a>)) {
             Lexeme::Skip(len) => len,
             Lexeme::Tag(tag) => {
                 let len = tag.len;
-                visit(Piece::Tag(html.len() - tail.len(), tag));
+                visit(Piece::Tag(html.len().saturating_sub(tail.len()), tag));
                 len
             }
         };
@@ -281,7 +281,7 @@ fn lex(tail: &str, no_comment_end: &mut bool) -> Lexeme {
     if let Some(body) = tail.strip_prefix("<!--") {
         if !*no_comment_end {
             if let Some(end) = body.find("-->") {
-                return Lexeme::Skip("<!--".len() + end + "-->".len());
+                return Lexeme::Skip("<!--".len().saturating_add(end).saturating_add("-->".len()));
             }
             *no_comment_end = true;
         }
@@ -303,7 +303,8 @@ fn lex(tail: &str, no_comment_end: &mut bool) -> Lexeme {
     while let Some((i, b)) = bytes.next() {
         match b {
             b'>' => {
-                let tag = Tag { name, closing, self_closing: last == b'/', len: i + 1 };
+                let tag =
+                    Tag { name, closing, self_closing: last == b'/', len: i.saturating_add(1) };
                 return Lexeme::Tag(tag);
             }
             b'<' => return Lexeme::Literal(i),
@@ -376,7 +377,7 @@ fn entity(tail: &str) -> Option<(char, usize)> {
             .and_then(|i| ENTITIES.get(i))
             .map(|entry| entry.1)?,
     };
-    Some((ch, end + 1))
+    Some((ch, end.saturating_add(1)))
 }
 
 /// Entité numérique sans `&#` ni `;` : décimale, ou hexadécimale après `x` ou `X`.
@@ -659,6 +660,10 @@ fn close_segment(segment: &mut String, visible: &mut dyn FnMut(&str)) -> u32 {
     removed
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "tests : valeurs bornées par les données du test"
+)]
 #[cfg(test)]
 mod tests {
     use super::*;

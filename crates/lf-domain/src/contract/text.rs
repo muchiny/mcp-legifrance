@@ -110,7 +110,7 @@ fn fold_blanks(raw: &str) -> String {
 /// [`CUT_WINDOW_CHARS`] derniers, sinon coupe franche, puis `…` est ajouté. `max_chars` vaut au
 /// moins 1 : les appelants passent une constante.
 pub(crate) fn cut_at_word(text: &str, max_chars: usize) -> Option<String> {
-    let mut rest = text.char_indices().skip(max_chars - 1);
+    let mut rest = text.char_indices().skip(max_chars.saturating_sub(1));
     let (head_end, _) = rest.next()?;
     rest.next()?;
     let head = &text[..head_end];
