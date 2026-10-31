@@ -8,13 +8,13 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - **Parity** : clé de `docs/plan/annexes/A-parite.md` §4.
 - **Protocol** : versions MCP, ères, montée de rmcp.
 
-`[Unreleased]` reste en tête. Chaque version portera sa date ISO et un lien de comparaison. Rien n'est publié avant 0.1.0 (M5).
+`[Unreleased]` reste en tête. Chaque version portera sa date ISO et un lien de comparaison. La première version publiée est la 1.0.0.
 
-**État au 2026-10-29 (D14).** La version du workspace est `0.3.0`, mais aucune version, aucune étiquette et aucun binaire n'ont été publiés : les versions 0.1.0 et 0.2.0 n'ont jamais existé hors du dépôt. Les entrées de M0 à M9 sont donc réunies sous `[0.3.0] - non publiée`. Au moment d'étiqueter, le mainteneur remplace « non publiée » par la date ISO (le contrôle de `release-gates.yml` exige `## [X.Y.Z] - AAAA-MM-JJ`) et ajoute le lien de comparaison.
+**État au 2026-10-31.** La première version publiée est `1.0.0` ; les versions 0.1.0 et 0.2.0 n'ont jamais existé hors du dépôt, et `0.3.0` n'a été publiée qu'en préversion (`0.3.0-rc.1`). Les entrées de M0 à M8 sont réunies sous `[0.3.0] - non publiée`, que `[1.0.0]` reprend. Au moment d'étiqueter, le mainteneur remplace « non publiée » par la date ISO (le contrôle de `release-gates.yml` exige `## [X.Y.Z] - AAAA-MM-JJ`) et ajoute le lien de comparaison.
 
 ## [Unreleased]
 
-Rien depuis `1.0.0-rc.3`.
+Rien depuis `1.0.0`.
 
 ## [1.0.0-rc.3] - 2026-10-31
 
@@ -33,9 +33,9 @@ Préversion de répétition de la 1.0.0 : mêmes sources que `[1.0.0]` ci-dessou
 
 **Sans programme.** Les portes de publication ont échoué (comparaison avec `v0.3.0-rc.1`, corrigée en #56) et une release GitHub vide, immuable, a été créée par erreur : ni binaire, ni bundle, ni image. À ignorer ; utiliser `1.0.0-rc.2`.
 
-## [1.0.0] - non publiée
+## [1.0.0] - 2026-10-31
 
-Reprend tout `[0.3.0]` ci-dessous, dont seule la préversion `0.3.0-rc.1` a été publiée, et y ajoute le mode hors ligne (M9).
+Première version publiée. Elle reprend tout `[0.3.0]` ci-dessous, qui n'a jamais été publiée seule (seule la préversion `0.3.0-rc.1` l'a été), et y ajoute le mode hors ligne (M9). Les binaires pèsent environ 24 % de plus que ceux de `0.3.0-rc.1` (+0,9 à +1,5 Mio par archive, selon la cible) à cause de l'index local DILA ; le bundle MCPB passe de 28,5 à 35,7 Mio.
 
 ### Added
 

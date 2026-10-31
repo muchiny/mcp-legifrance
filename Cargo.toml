@@ -14,7 +14,7 @@ members = [
 exclude = ["fuzz", "spikes/tls-provider"]
 
 [workspace.package]
-version = "1.0.0-rc.3"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
@@ -28,13 +28,13 @@ categories = ["command-line-utilities"]
 
 [workspace.dependencies]
 # internes : exigence « = » + version de [workspace.package] (check-arch, étape 5h)
-lf-domain = { path = "crates/lf-domain", version = "=1.0.0-rc.3" }
-lf-application = { path = "crates/lf-application", version = "=1.0.0-rc.3" }
-lf-adapter-piste = { path = "crates/lf-adapter-piste", version = "=1.0.0-rc.3" }
-lf-adapter-cache = { path = "crates/lf-adapter-cache", version = "=1.0.0-rc.3" }
-lf-adapter-audit = { path = "crates/lf-adapter-audit", version = "=1.0.0-rc.3" }
-lf-adapter-mcp = { path = "crates/lf-adapter-mcp", version = "=1.0.0-rc.3" }
-lf-adapter-dila = { path = "crates/lf-adapter-dila", version = "=1.0.0-rc.3" }
+lf-domain = { path = "crates/lf-domain", version = "=1.0.0" }
+lf-application = { path = "crates/lf-application", version = "=1.0.0" }
+lf-adapter-piste = { path = "crates/lf-adapter-piste", version = "=1.0.0" }
+lf-adapter-cache = { path = "crates/lf-adapter-cache", version = "=1.0.0" }
+lf-adapter-audit = { path = "crates/lf-adapter-audit", version = "=1.0.0" }
+lf-adapter-mcp = { path = "crates/lf-adapter-mcp", version = "=1.0.0" }
+lf-adapter-dila = { path = "crates/lf-adapter-dila", version = "=1.0.0" }
 # externes : exigence au niveau mineur, correctif choisi par le verrou (règle d'âge, 02 §3.0.1) ;
 # default-features = false déclaré ici : au niveau d'un membre, l'héritage ne le respecte qu'à partir de 1.99
 thiserror = "2.0.21"
