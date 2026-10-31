@@ -27,7 +27,12 @@
 //! Sinon, le plan est la liste des incréments du répertoire postérieurs au global et pas encore
 //! appliqués, du plus ancien au plus récent.
 
-use std::{collections::BTreeSet, fs, io, path::Path};
+use std::{
+    collections::BTreeSet,
+    fs,
+    io::{self, Read},
+    path::Path,
+};
 
 use crate::{
     archive::{ArchiveKind, ArchiveName},
@@ -35,6 +40,9 @@ use crate::{
 };
 
 const HEADER: &str = "# lf-adapter-dila archive registry v1";
+
+/// Taille maximale d'un registre à la lecture (480 lignes d'environ 45 octets en pratique).
+const MAX_REGISTRY_BYTES: u64 = 1024 * 1024;
 
 /// État d'une archive dans le registre.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,11 +119,21 @@ impl Registry {
     /// [`IngestError::Io`] si le fichier existe sans être lisible, [`IngestError::Registry`] si
     /// une de ses lignes est invalide.
     pub fn load(path: &Path) -> Result<Self, IngestError> {
-        match fs::read_to_string(path) {
-            Ok(text) => Self::parse(&text),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Self::new()),
-            Err(source) => Err(IngestError::Io { action: "read the archive registry", source }),
+        let io_error = |source| IngestError::Io { action: "read the archive registry", source };
+        let file = match fs::File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Self::new()),
+            Err(error) => return Err(io_error(error)),
+        };
+        // Borné : un registre qui est un lien vers `/dev/zero` ne doit pas épuiser la mémoire.
+        let mut text = String::new();
+        file.take(MAX_REGISTRY_BYTES.saturating_add(1))
+            .read_to_string(&mut text)
+            .map_err(io_error)?;
+        if u64::try_from(text.len()).map_or(true, |length| length > MAX_REGISTRY_BYTES) {
+            return Err(io_error(io::Error::new(io::ErrorKind::InvalidData, "registry too large")));
         }
+        Self::parse(&text)
     }
 
     /// Écrit le registre, de façon atomique (fichier voisin puis renommage) : un arrêt en cours
@@ -128,6 +146,14 @@ impl Registry {
         let mut temporary = path.as_os_str().to_owned();
         temporary.push(".tmp");
         let io_error = |source| IngestError::Io { action: "write the archive registry", source };
+        // Un fichier temporaire laissé par un arrêt, ou un lien posé à sa place, est retiré sans
+        // être suivi : l'écriture crée alors un fichier neuf et ne tronque aucune cible.
+        match fs::remove_file(&temporary) {
+            Err(source) if source.kind() != io::ErrorKind::NotFound => {
+                return Err(IngestError::Io { action: "clear the stale registry file", source });
+            }
+            _ => {}
+        }
         fs::write(&temporary, self.render()).map_err(io_error)?;
         fs::rename(&temporary, path).map_err(io_error)
     }
@@ -389,6 +415,64 @@ mod tests {
             let expected = format!("archive registry line {line} is invalid");
             assert_eq!(error.to_string(), expected, "{text:?}");
         }
+    }
+
+    #[test]
+    fn a_registry_of_exactly_the_maximum_size_is_still_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("registry.tsv");
+        let line = format!("#{}\n", "x".repeat(1022));
+        let lines = usize::try_from(MAX_REGISTRY_BYTES).unwrap() / line.len();
+        fs::write(&path, line.repeat(lines)).unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().len(), MAX_REGISTRY_BYTES);
+        assert_eq!(Registry::load(&path).unwrap(), Registry::new());
+    }
+
+    #[test]
+    fn an_oversized_registry_is_refused_not_read_into_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("registry.tsv");
+        let line = "# commentaire de remplissage\n";
+        let text = line.repeat(usize::try_from(MAX_REGISTRY_BYTES).unwrap() / line.len() + 1);
+        fs::write(&path, text).unwrap();
+        let error = Registry::load(&path).unwrap_err();
+        assert!(error.to_string().contains("read the archive registry"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unopenable_registry_is_an_io_error_not_an_empty_registry() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("pas-un-dossier");
+        fs::write(&file, "x").unwrap();
+        // le parent est un fichier : l'ouverture échoue autrement que par « introuvable »
+        let error = Registry::load(&file.join("registry.tsv")).unwrap_err();
+        assert!(error.to_string().contains("read the archive registry"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saving_replaces_a_stale_temporary_link_without_following_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("registry.tsv");
+        let victim = dir.path().join("victim");
+        fs::write(&victim, "ne pas toucher").unwrap();
+        std::os::unix::fs::symlink(&victim, dir.path().join("registry.tsv.tmp")).unwrap();
+        built_on_2025(&[1]).save(&path).unwrap();
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "ne pas toucher");
+        assert_eq!(Registry::load(&path).unwrap().increment_count(), 1);
+    }
+
+    #[test]
+    fn saving_fails_when_the_temporary_path_cannot_be_cleared() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("registry.tsv");
+        // un dossier plein à la place du fichier temporaire : ni retirable, ni remplaçable
+        let temporary = dir.path().join("registry.tsv.tmp");
+        fs::create_dir(&temporary).unwrap();
+        fs::write(temporary.join("occupé"), "x").unwrap();
+        let error = built_on_2025(&[1]).save(&path).unwrap_err();
+        assert!(error.to_string().starts_with("cannot clear the stale registry file: "), "{error}");
     }
 
     #[test]
