@@ -29,7 +29,7 @@
         }
       ],
       "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
-      "identifier": "https://github.com/muchiny/mcp-legifrance/releases/download/v0.3.0/mcp-legifrance-0.3.0.mcpb",
+      "identifier": "https://github.com/muchiny/mcp-legifrance/releases/download/v0.3.0-rc.1/mcp-legifrance-0.3.0-rc.1.mcpb",
       "registryType": "mcpb",
       "transport": {
         "type": "stdio"
@@ -61,7 +61,7 @@
           "name": "LF_PISTE_ENV"
         }
       ],
-      "identifier": "ghcr.io/muchiny/mcp-legifrance:0.3.0",
+      "identifier": "ghcr.io/muchiny/mcp-legifrance:0.3.0-rc.1",
       "registryType": "oci",
       "transport": {
         "type": "stdio"
