@@ -4,6 +4,7 @@
 //! mcp-legifrance [serve]                       # défaut : serveur MCP stdio
 //! mcp-legifrance check-config [--online] [--format text|json]
 //! mcp-legifrance serve-http [--listen 127.0.0.1:<port>] [--allow-origin <origine>]...   # feature `http`
+//! mcp-legifrance build-dila-index --archives <dossier> [--index <dossier>]               # feature `dila`
 //! mcp-legifrance --version | --help
 //! ```
 //!
@@ -14,6 +15,8 @@
 
 #[cfg(feature = "http")]
 use std::net::SocketAddr;
+#[cfg(feature = "dila")]
+use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
@@ -48,6 +51,22 @@ pub(crate) enum Command {
     /// dans `LF_MCP_HTTP_TOKEN`, refus de démarrer sans lui).
     #[cfg(feature = "http")]
     ServeHttp(ServeHttpArgs),
+    /// Bâtit ou met à jour l'index local DILA depuis des archives LEGI déjà téléchargées (aucun
+    /// accès réseau).
+    #[cfg(feature = "dila")]
+    BuildDilaIndex(BuildDilaIndexArgs),
+}
+
+/// Options de `build-dila-index`.
+#[cfg(feature = "dila")]
+#[derive(Debug, Clone, PartialEq, Eq, Args)]
+pub(crate) struct BuildDilaIndexArgs {
+    /// Dossier des archives `tar.gz` du fonds LEGI (un global, puis ses incréments).
+    #[arg(long, value_name = "DIR")]
+    pub(crate) archives: PathBuf,
+    /// Dossier de l'index à bâtir ; par défaut, celui de `LF_DILA_DIR`.
+    #[arg(long, value_name = "DIR")]
+    pub(crate) index: Option<PathBuf>,
 }
 
 /// Options de `serve-http`. Aucune ne porte le jeton, qui se lirait dans `ps` : il vient de
@@ -208,6 +227,38 @@ mod tests {
     fn help_lists_serve_http() {
         let help = parse(&["--help"]).unwrap_err().to_string();
         assert!(help.contains("serve-http"), "{help}");
+    }
+
+    #[cfg(feature = "dila")]
+    #[test]
+    fn build_dila_index_takes_archives_and_an_optional_index() {
+        let cli = parse(&["build-dila-index", "--archives", "dumps"]).unwrap();
+        assert_eq!(
+            cli.resolve(),
+            Command::BuildDilaIndex(BuildDilaIndexArgs { archives: "dumps".into(), index: None })
+        );
+        let cli = parse(&["build-dila-index", "--archives=dumps", "--index", "idx"]).unwrap();
+        assert_eq!(
+            cli.resolve(),
+            Command::BuildDilaIndex(BuildDilaIndexArgs {
+                archives: "dumps".into(),
+                index: Some("idx".into()),
+            })
+        );
+    }
+
+    #[cfg(feature = "dila")]
+    #[test]
+    fn build_dila_index_requires_the_archive_directory() {
+        let err = parse(&["build-dila-index"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[cfg(feature = "dila")]
+    #[test]
+    fn help_lists_build_dila_index() {
+        let help = parse(&["--help"]).unwrap_err().to_string();
+        assert!(help.contains("build-dila-index"), "{help}");
     }
 
     #[test]
