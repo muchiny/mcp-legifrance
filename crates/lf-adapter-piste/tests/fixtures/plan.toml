@@ -1163,7 +1163,7 @@ name = "c101/C16-juri-consult-liens-JURITEXT000038427064"
 endpoint = "/consult/juri"
 body = "{\"textId\":\"JURITEXT000038427064\"}"
 
-# C17 : repli de L2-16, recherche plein texte du numéro seul d'une décision jointe.
+# C17 : recherche plein texte du numéro seul d'une décision jointe (repli de L2-16 essayé puis retiré, V-154).
 [[probe]]
 name = "c101/C17-constit-all-exacte-2010-14"
 endpoint = "/search"
