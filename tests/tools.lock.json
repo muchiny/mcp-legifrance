@@ -107,9 +107,9 @@
   "server_version": "1.0.1",
   "sizes": {
     "instructions_chars": 3278,
-    "tools_list_bytes": 30634
+    "tools_list_bytes": 31604
   },
-  "surface_sha256": "79a796aa77cdae7a6cd30ab220d267020e6a11f6feb80b15bc82ebacff9d39b4",
+  "surface_sha256": "0c81ccc6003cf73eb6f2204540ea669b754fca795f0739b5beea3fde9502460a",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -356,6 +356,9 @@
             "identical": {
               "type": "boolean"
             },
+            "note": {
+              "type": "string"
+            },
             "truncated": {
               "type": "boolean"
             },
@@ -378,7 +381,7 @@
         },
         "title": "Compare article versions"
       },
-      "sha256": "c7d87690f76f02ef6a6e5a7f4e1c3e4d7e64a6cb66a457c2bca87a74dd454410"
+      "sha256": "a9bf3082ffd943a3043045d9e8bebcdab22b5831190706d1cc60e7d73ed672e8"
     },
     "fr_get_act": {
       "descriptor": {
@@ -876,6 +879,10 @@
               ],
               "type": "string"
             },
+            "summary_truncated": {
+              "description": "True when the summary stops before the end of the text.",
+              "type": "boolean"
+            },
             "text": {
               "type": "string"
             },
@@ -898,7 +905,7 @@
         },
         "title": "Read a court decision"
       },
-      "sha256": "ca5487e16f514cde24fb6da489f5b03bc470e4b1729b3d9c9eb3923dfe7ecf7e"
+      "sha256": "ae0a3463cdfb4e56643d893c4971009c77809135dc4462915c9d6db22260480b"
     },
     "fr_get_deliberation": {
       "descriptor": {
@@ -1025,6 +1032,10 @@
               ],
               "type": "string"
             },
+            "summary_truncated": {
+              "description": "True when the summary stops before the end of the text.",
+              "type": "boolean"
+            },
             "text": {
               "type": "string"
             },
@@ -1047,7 +1058,7 @@
         },
         "title": "Read a CNIL deliberation"
       },
-      "sha256": "08a8792e9b4bc68bb6d9f41dd59afc07fe902dddb04097e20be1489a1c32f691"
+      "sha256": "d53b401727d81a8a86e176b4e30034daf267a8c1eabfeb2ae345682726725776"
     },
     "fr_get_related": {
       "descriptor": {
@@ -1064,6 +1075,16 @@
           "properties": {
             "id": {
               "description": "A LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... decision id.",
+              "type": "string"
+            },
+            "relation": {
+              "description": "Only the links of this relation: cites or cited_by for an article, cites_case_law or applies_text for a decision. Omit it to get them all. The filter is applied before the 100-link cap, and total counts the links of that relation.",
+              "enum": [
+                "cites",
+                "cited_by",
+                "cites_case_law",
+                "applies_text"
+              ],
               "type": "string"
             }
           },
@@ -1139,7 +1160,7 @@
         },
         "title": "Related texts and decisions"
       },
-      "sha256": "ad74f6c3a7600d4cfb6211a722cacf1b04b1097ebd19674d605e0bb4355b23cb"
+      "sha256": "040e38ebb041250066db7840da2e8365b481b4213384ab08b06e7d25a3209633"
     },
     "fr_get_text": {
       "descriptor": {
@@ -1150,7 +1171,7 @@
           "readOnlyHint": true,
           "title": "Read an article"
         },
-        "description": "Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (for example \"Code civil, art. 9\"), source_url, status, validity dates and parent code or text. By default (`detail`=\"summary\") a short article comes back whole and a long one is cut after about 1,200 characters; `detail`=\"full\" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).",
+        "description": "Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (for example \"Code civil, art. 9\"), source_url, status, validity dates and parent code or text. By default (`detail`=\"summary\") an article of up to 2,000 characters comes back whole and a longer one as a summary of about 1,200 characters (`summary_truncated` is true when the summary stops before the end of the text); `detail`=\"full\" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -1281,6 +1302,10 @@
               ],
               "type": "string"
             },
+            "summary_truncated": {
+              "description": "True when the summary stops before the end of the text.",
+              "type": "boolean"
+            },
             "text": {
               "type": "string"
             },
@@ -1299,7 +1324,7 @@
         },
         "title": "Read an article"
       },
-      "sha256": "734b56cc4adcdbe1aede7237b2a6698f65014e6fb58ed5959eef42105c6462b0"
+      "sha256": "317ec84511d527f0ad4f7ecd77eea424f3f483b7aeb8a2e5fa1cdac98a663025"
     },
     "fr_resolve": {
       "descriptor": {
@@ -1340,6 +1365,15 @@
                   "type": "string"
                 },
                 "confidence": {
+                  "type": "string"
+                },
+                "date_debut": {
+                  "type": "string"
+                },
+                "date_fin": {
+                  "type": "string"
+                },
+                "etat": {
                   "type": "string"
                 },
                 "id": {
@@ -1383,7 +1417,7 @@
         },
         "title": "Resolve a legal citation"
       },
-      "sha256": "e1120ab36db4925dc25f893091958b121e73d05166d8a65e0883b4d40fb9a49c"
+      "sha256": "03584837c017458045c91de8570b793871b68fc100281c6ff3e1bba0e403f540"
     },
     "fr_search": {
       "descriptor": {
@@ -1838,6 +1872,15 @@
                 "citation": {
                   "type": "string"
                 },
+                "date_debut": {
+                  "type": "string"
+                },
+                "date_fin": {
+                  "type": "string"
+                },
+                "etat": {
+                  "type": "string"
+                },
                 "id": {
                   "type": "string"
                 },
@@ -1902,8 +1945,8 @@
         },
         "title": "Verify legal citations"
       },
-      "sha256": "7a080d811a56c1c9045e3e878af7b006bb20b4dc5502f5f3ca1d2d2c1cb1464f"
+      "sha256": "c539d50242a936db43da2baa069526f49b042500b03555eba7c63357a7dc8ce2"
     }
   },
-  "toolset_sha256": "cf609f3e675c47a1be47b07ee522e8a77a0bf5fa80993929150e8ec2daa8c36a"
+  "toolset_sha256": "7cb609060ab24274a392bb8f00e564bbfca5fd46274a1d48c43d4003c6d587f5"
 }
