@@ -385,11 +385,22 @@ const PREFIXES: [(&str, ArticlePrefix); 9] = [
     ("L", ArticlePrefix::L),
 ];
 
+/// Graphie typographique des lois organiques : `L.O` ou `L. O` (majuscules, point obligatoire
+/// après le `L`) ; renvoie la position qui suit le `O`, avant le point facultatif.
+fn dotted_lo(text: &str, at: usize) -> Option<usize> {
+    let dot = consume(text, at, 'L').and_then(|pos| consume(text, pos, '.'))?;
+    consume(text, ws0(text, dot), 'O')
+}
+
 /// `prefix` suivi d'un chiffre : le préfixe (sensible à la casse) et la position du chiffre.
 fn prefix(text: &str, at: usize) -> Option<(ArticlePrefix, usize)> {
     let rest = text.get(at..).unwrap_or_default();
-    let &(spelled, found) = PREFIXES.iter().find(|(spelled, _)| rest.starts_with(spelled))?;
-    let pos = at + spelled.len();
+    let (found, pos) = if let Some(after) = dotted_lo(text, at) {
+        (ArticlePrefix::Lo, after)
+    } else {
+        let &(spelled, found) = PREFIXES.iter().find(|(spelled, _)| rest.starts_with(spelled))?;
+        (found, at + spelled.len())
+    };
     let pos = ws0(text, consume(text, pos, '.').unwrap_or(pos));
     next_char(text, pos).is_some_and(|c| c.is_ascii_digit()).then_some((found, pos))
 }
@@ -1830,6 +1841,21 @@ mod tests {
                 &[("article LO. 141 du code électoral", "Code électoral|LO141")],
             ),
             (
+                "art. L.O. 127 du code électoral",
+                &[ART_DOT],
+                &[("art. L.O. 127 du code électoral", "Code électoral|LO127")],
+            ),
+            (
+                "l'article L. O. 141 du code électoral",
+                &[ART],
+                &[("article L. O. 141 du code électoral", "Code électoral|LO141")],
+            ),
+            (
+                "C. élect., art. L.O.141",
+                &[ART_DOT],
+                &[("C. élect., art. L.O.141", "Code électoral|LO141 conf=Medium")],
+            ),
+            (
                 "c'est le cas, par exemple, de l'article 39 octies du code général des impôts.",
                 &[ART],
                 &[(
@@ -2808,6 +2834,10 @@ mod tests {
         assert_eq!(num_of("L.761-1"), Some(key("L761-1", 7)));
         assert_eq!(num_of("R*111-1"), Some(key("R*111-1", 7)));
         assert_eq!(num_of("LO 141,"), Some(key("LO141", 6)));
+        assert_eq!(num_of("L.O. 127 du"), Some(key("LO127", 8)));
+        assert_eq!(num_of("L. O. 141,"), Some(key("LO141", 9)));
+        assert_eq!(num_of("L.O.141"), Some(key("LO141", 7)));
+        assert_eq!(num_of("L.O 141"), Some(key("LO141", 7)));
         assert_eq!(num_of("1er"), Some(key("1er", 3)));
         assert_eq!(num_of("premier"), Some(key("1er", 7)));
         assert_eq!(num_of("unique"), Some(key("unique", 6)));
@@ -2823,6 +2853,12 @@ mod tests {
         assert_eq!(num_of("5 ABC"), Some(key("5", 1)));
         assert_eq!(num_of("5 a"), Some(key("5", 1)));
         assert_eq!(num_of("5 C. civ."), Some(key("5", 1)));
+        // L1-03 : « l.o. » en minuscules, « L.O.I. » et « L O » sans point restent refusés ; « L. 5 »
+        // et « LO 5 » gardent leur lecture.
+        assert_eq!(num_of("L. 5"), Some(key("L5", 4)));
+        for refused in ["l.o. 127", "L.O.I. 5", "L O 141", "L.O.", "L.O. x"] {
+            assert_eq!(num_of(refused), None, "{refused}");
+        }
         for not_a_number in ["5 bis ter", "1234-5a", "2270-", "2°", "L", "L. x", "", "uniques"] {
             assert_eq!(num_of(not_a_number), None, "{not_a_number}");
         }

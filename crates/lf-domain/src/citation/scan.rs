@@ -64,7 +64,7 @@ pub(crate) enum AnchorClass {
     CcNumber,
     /// Sigle en majuscules : `CE`, `CC`, `CGI`.
     Sigle,
-    /// Préfixe d'article suivi d'un chiffre : `(LO|L|R|D|A)\*{0,2}\.?\s?\d`.
+    /// Préfixe d'article suivi d'un chiffre : `(L\.\s?O\.?|(LO|L|R|D|A)\*{0,2}\.?)\s?\d`.
     ArticlePrefix,
 }
 
@@ -262,7 +262,7 @@ static TOKENS: LazyLock<Vec<Token>> = LazyLock::new(|| {
             &format!(r"\b(?:[0-9]{{4}}|[5-9][0-9])-[0-9]+(?:/[0-9]+)?R?[ ]?(?:{cc})\b"),
         ),
         token(AnchorClass::Sigle, &format!(r"\b(?:{sigles})\b")),
-        token(AnchorClass::ArticlePrefix, r"\b(?:LO|L|R|D|A)\*{0,2}\.?[ ]?[0-9]"),
+        token(AnchorClass::ArticlePrefix, r"\b(?:L\.[ ]?O\.?|(?:LO|L|R|D|A)\*{0,2}\.?)[ ]?[0-9]"),
     ]
 });
 
@@ -534,6 +534,26 @@ mod tests {
         // Les quinze classes du tableau sont couvertes.
         let covered: BTreeSet<u8> = cases.iter().map(|&(_, class, _)| class as u8).collect();
         assert_eq!(covered.len(), 15);
+    }
+
+    #[test]
+    fn the_organic_law_prefix_with_points_anchors_only_in_capitals_before_a_digit() {
+        for (text, slice) in [
+            ("art. L.O. 127 du code électoral", "L.O. 1"),
+            ("article L. O. 141", "L. O. 1"),
+            ("article L.O.141", "L.O.1"),
+        ] {
+            assert!(has(text, AnchorClass::ArticlePrefix, slice), "{text:?} : {:?}", found(text));
+        }
+        // « l.o. », « L.O.I. » et « L.O. » sans chiffre n'ancrent pas.
+        for text in ["article l.o. 127", "L.O.I. 5", "article L.O. x", "D. 2016, p. 1234 L.O.I."] {
+            let seen = found(text);
+            assert!(
+                !seen.iter().any(|(class, slice)| *class == AnchorClass::ArticlePrefix
+                    && slice.starts_with("L.")),
+                "{text:?} : {seen:?}"
+            );
+        }
     }
 
     #[test]

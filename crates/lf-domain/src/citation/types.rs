@@ -811,8 +811,19 @@ const PREFIXES: [(&str, ArticlePrefix); 9] = [
     ("L", ArticlePrefix::L),
 ];
 
+/// `L.O. 141`, `L. O.141` : graphie typographique des lois organiques, qui doit être suivie d'un
+/// chiffre (après un point facultatif et des espaces) ; renvoie ce qui commence au chiffre.
+fn strip_dotted_lo(text: &str) -> Option<&str> {
+    let rest = text.strip_prefix("L.")?.trim_start().strip_prefix('O')?;
+    let rest = rest.strip_prefix('.').unwrap_or(rest).trim_start();
+    rest.starts_with(|c: char| c.is_ascii_digit()).then_some(rest)
+}
+
 /// Sépare un préfixe d'article (`L.`, `R*`) de ce qui le suit, qui doit commencer par un chiffre.
 fn split_prefix(text: &str) -> (Option<ArticlePrefix>, &str) {
+    if let Some(rest) = strip_dotted_lo(text) {
+        return (Some(ArticlePrefix::Lo), rest);
+    }
     for (spelled, prefix) in PREFIXES {
         if let Some(rest) = text.strip_prefix(spelled) {
             let rest = rest.strip_prefix('.').unwrap_or(rest).trim_start();
@@ -1960,6 +1971,9 @@ mod tests {
         let cases = [
             ("L. 761-1", "L761-1", vec!["L761-1"]),
             ("LO. 141", "LO141", vec!["LO141"]),
+            ("L.O. 141", "LO141", vec!["LO141"]),
+            ("L. O. 141", "LO141", vec!["LO141"]),
+            ("L.O.141", "LO141", vec!["LO141"]),
             ("R* 111-1", "R*111-1", vec!["R*111-1", "R111-1"]),
             ("R**111-1", "R**111-1", vec!["R**111-1", "R111-1"]),
             ("D*12", "D*12", vec!["D*12", "D12"]),
@@ -2012,6 +2026,11 @@ mod tests {
         assert_eq!(parsed.letters.as_deref(), Some("B"));
         assert_eq!(num("L761-1").prefix, Some(ArticlePrefix::L));
         assert_eq!(num("LO141").prefix, Some(ArticlePrefix::Lo));
+        assert_eq!(num("L.O. 141").prefix, Some(ArticlePrefix::Lo));
+        assert_eq!(num("L. 141").prefix, Some(ArticlePrefix::L));
+        for refused in ["l.o. 141", "L.O.I. 5", "L O 141", "L.O."] {
+            assert!(refused.parse::<ArticleNum>().is_err(), "{refused}");
+        }
         assert_eq!(num("1234-5").prefix, None);
         assert_eq!(num("  12 B ").letters.as_deref(), Some("B"));
     }
