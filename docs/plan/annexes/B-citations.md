@@ -286,6 +286,7 @@ impl OffsetMap {
 - Entre littéraux d'une même alternative, la forme **la plus longue** est essayée d'abord, quel que soit l'ordre d'écriture (`"articles"` avant `"article"`, `"décret-loi"` avant `"décret"`, `'**'` avant `'*'`) : un `alt` winnow ne revient pas en arrière après un succès. `alt` est limité à 10 branches par tuple depuis winnow 1.0 : imbriquer (recherche 07 §9.1).
 - `WS` = une ou plusieurs espaces (après repli, il n'y a plus que U+0020) ; `WS?` = zéro ou plus.
 - `SEP` = `WS? ("," | ";" | ":") WS?` ou `WS`.
+- `CODE_SEP` = `WS? ("," | ":") WS?` ou `WS` : `SEP` sans le point-virgule (L1-02). Un code suivi de « ; » appartient à la citation qui précède : « Code civil ; art. 9 » n'est plus une forme 2, l'article est lu sans code et reste `ambiguous`.
 - `LIST_SEP` = `WS? "," WS?` | `WS "et" WS` | `WS "ou" WS` | `WS? "," WS? "et" WS`.
 - `B` = frontière de mot : le caractère suivant n'est ni une lettre ni un chiffre. `regex` n'ayant ni look-around ni backreference (recherche 07 §9.1), `B` est un combinateur winnow (`boundary()`).
 - Les contraintes sémantiques (date valide, chambre existante, cohérence des années) sont vérifiées **après** le parsing et produisent des **drapeaux** (§4.19), jamais un échec silencieux.
@@ -331,13 +332,14 @@ LATIN_ADV    = "bis" | "ter" | "quater" | "quinquies" | "sexies" | "septies" | "
 
 ```ebnf
 code_article  = art_kw WS art_list [ SEP sub_list ] WS? code_link code_ref [ version_q ]       (* P001, P004, P010, P013, P018 *)
-              | code_ref SEP art_kw WS art_item                                              (* P015, P016, P039, P044 *)
+              | code_ref CODE_SEP art_kw WS art_item                                         (* P015, P016, P039, P044 ; garde L1-02 ci-dessous *)
               | art_kw WS art_item WS code_abbr                                              (* P017, P019, P029, P041, P048 *)
               | sub_lead art_kw WS art_item WS? code_link code_ref [ version_q ]             (* P007, P008, P040 *)
               | prefixed_num [ SEP sub_list ] WS? code_link code_ref [ version_q ]           (* P005, P020 *)
               | [ sub_lead ] art_kw WS art_list                                             (* sans code : N03, N26, P009 *)
               | prefixed_num_dash ;                                                         (* sans art_kw ni code : N02, N41 *)
 
+et_seq        = [ WS "et" ] WS ( "s." | "ss." | "suiv." ) | [ WS "et" ] WS ( "suivants" | "suivantes" ) B ;   (* « art. 1240 et s. du code civil », « art. 1217 s. C. civ. », « et suivants » (L1-02, gap3-2) ; le point des abréviations est obligatoire (« art. 5 s'applique » n'en est pas une) ; tolérée entre la liste d'articles (ou le numéro préfixé) et le code ; si aucun code ne suit, la mention reste hors de la citation *)
 art_kw        = "articles" | "article" | "arts" | "art." ;           (* "art" sans point : seulement suivi de WS puis chiffre ou préfixe ; "arts." avec point : NON reconnu, voir la limite connue ci-dessous *)
 art_list      = art_item { LIST_SEP art_item }                       (* énumération : une citation par élément (§4.15) *)
               | art_item WS "à" WS art_item ;                        (* plage, P035 ; « au » introduit une date (P061) *)
@@ -358,7 +360,7 @@ suffix        = WS LATIN_ADV [ "-" INT ] | WS /[A-Z]{1,2}/ B | WS LATIN_ADV ;   
    « 199 terdecies-0 A ter », « 1649 quater B quinquies », « 5 B bis ». *)
 version_inline= "ancien" | "(ancien)" | "nouveau" ;                  (* « article 2270-1 ancien du code civil », P010 *)
 sub_list      = sub { SEP sub } ;
-sub           = ( "al." | "alinéa" | "alinéas" ) WS INT              (* P038 *)
+sub           = ( "al." | "alinéa" | "alinéas" ) WS? ( ORDN | INT )   (* P038 ; ORDN avant INT : « al. 1er », « al. premier », « al. 2e » (Alinea(n)), « al. dernier » (DernierAlinea) ; « al. 3 » en repli (L1-02) *)
               | INT "°"                                              (* item, P031 *)
               | ROMAN                                                (* paragraphe I, II *)
               | "§" WS? INT
@@ -401,6 +403,7 @@ version_q     = SEP ( "dans sa rédaction" | "dans leur rédaction" ) WS
 6. Sigles ambigus : voir §5.3. `CE` n'est **jamais** résolu en code sans contexte (N04) ; `CP` donne le Code pénal en confiance basse (N05).
 7. `code_generic` n'est tenté qu'après un `art_kw` ou un numéro préfixé, et seulement si aucun `code_name` du dictionnaire ne correspond.
 8. `zone 1AU` et autres codes de zonage ne sont pas des articles : pas de préfixe reconnu, pas d'`art_kw` (N40).
+9. **Un code appartient à une seule citation** (L1-02). Forme 2 : `code_ref CODE_SEP art_kw WS art_item`, avec `CODE_SEP` sans le point-virgule. Garde : si l'article lu porte lui-même un code (« C. civ., art. 9 C. pr. civ. »), la forme 2 n'est pas retenue et seul « art. 9 C. pr. civ. » est lu ; un code qui ouvre à son tour une forme « code, art. » (« C. civ., art. 9, C. pr. civ., art. 10 ») ne compte pas comme le code de l'article. `et_seq` (« et s. », « suiv. », « et suivants ») est aussi pris en compte par la garde.
 
 ### 4.3 Textes et articles de textes
 
@@ -432,6 +435,8 @@ text_target   = text_cite | const_block | "Convention" B ;           (* « Conve
 
 - **Natures** produites (valeurs du corpus) : `LOI`, `LOI_ORGANIQUE`, `LOI_CONSTIT`, `LOI_FINANCES`, `LOI_FSS`, `LOI_DU_PAYS`, `ORDONNANCE`, `DECRET`, `DECRET_LOI`, `ARRETE`, `REGLEMENT`, `CIRCULAIRE`, `INSTRUCTION`, `DELIBERATION`, `DECISION`, `CONSTITUTION`, `DDHC`, `PREAMBULE_1946`, `CHARTE_ENVIRONNEMENT`. Natures LEGI connues : `legi/titles.py:20-29,44` ; facette LODA : §2.4.
 - **Numéro** : année sur 2 chiffres pour le XXe siècle (`58-1067`, `86-1067`, `93-1419`, `98-389`, fixtures et DILA), sur 4 chiffres ensuite. `year = 1900 + AA` pour 2 chiffres. Date de bascule, numérotation commune ou séparée entre lois, ordonnances et décrets d'une même année, numérotation antérieure à 1945 : **NON VÉRIFIÉ** [V-157 · numerotation-textes]. `TextNumber { year: Option<u16>, seq, extra, raw }` : `raw` garde la forme écrite, tirets normalisés (`2016-1321`).
+- **Forme cherchée dans l'index** (L2-01, ground_truth-1) : un numéro de texte d'avant 2000 est cherché dans l'index NUM sous deux formes, dans cet ordre : `AA-N` (`89-462`, forme que la sandbox indexe) puis `AAAA-N` (`1989-462`) ; la seconde n'est tentée que si la première ne rend aucun texte LEGI. À partir de 2000 : `AAAA-N` seule ; sans année : `N`. Mesuré en sandbox (relevés C3 du 2026-11-01) : `89-462`, `78-17` et `93-1419` sont trouvés, `1989-462`, `1978-17` et `1993-1419` ne le sont pas, `2016-1321` l'est. **V-120 levée** (C3, 2026-11-01) : la forme stockée dans l'index NUM d'un texte d'avant 2000 est `AA-N`.
+- **Date d'un texte numéroté** (L2-02, resolve-2) : la date citée est comparée à la date de signature lue dans le titre du hit (« Loi n° 2016-1321 du 7 octobre 2016 … »), jamais à `hit.date` (entrée en vigueur ou publication selon le fonds, ex. 2016-10-09 pour la loi 2016-1321). Seule la citation du même numéro dans le titre compte (un décret cite la loi qu'il applique). Titre absent, sans numéro ou sans date lisible : le texte est retenu sans comparaison, confiance `medium`. Confiance `high` seulement si la date citée a été comparée et égale. Un écart cite la date du titre.
 - **Contrôle d'hallucination** : numéro et date présents avec `year(num) ≠ year(date)` → drapeau `annee_numero_differente_annee_date` (N07). Cohérent avec toutes les fixtures (58-1067 / 7 novembre 1958 ; 2016-1321 / 7 octobre 2016 ; 2019-222 / 23 mars 2019) ; règle générale **NON VÉRIFIÉ** [V-157 · numerotation-textes] (cas limites de fin d'année) → drapeau de sévérité « suspect », pas rejet (§4.19).
 - **`title_hint`** est capturé dans la valeur mais **hors du span** (P050, P051, P055, P056, P060, P073). Il ne **réserve pas** sa plage : une citation complète qu'il contient est émise normalement et le `title_hint` s'arrête juste avant elle (titre réel « Décret n° 2016-1849 … relatif à la carte mobilité inclusion pris en application de l'article 107 de la loi n° 2016-1321 … », search_loda.json:56, qui donne le décret **et** les articles de lois cités, P051 à P053). Les nombres qu'il contient ne deviennent pas des numéros faute de nature et de `n°` : `2018-2022` dans « de programmation 2018-2022 » (P056) ; de même un `AAAA-NNNN` isolé (N06).
 - Normalisation des titres amont : `n°°`, `n° °`, `n°X` collé → `n° ` (legi.py `titles.py:36,88`).
@@ -696,6 +701,7 @@ lf_prefix     = 'LEGITEXT' | 'LEGIARTI' | 'LEGISCTA' | 'JORFTEXT' | 'JORFARTI' |
 eu_act        = [ art_kw WS art_item WS ( "de la" | "du" ) WS ] ( "directive" | "règlement" | "décision" )
                 [ WS "(" ( 'UE' | 'CE' | 'CEE' | 'Euratom' ) ")" ] [ WS NUM_SIGN ]
                 /[0-9]{2,4}\/[0-9]{1,4}(\/(CE|CEE|UE))?/ [ [","] WS "du Conseil" | [","] WS "du Parlement européen et du Conseil" ] [ [","] WS DATE_LINK ] ;
+eu_article    = art_kw WS art_item ( WS SIGLE | SEP ( "de la" | "du" ) WS ( SIGLE | NOM ) ) ;   (* essayée avant eu_act ; L1-07 *)
 cjue          = ( 'CJUE' | 'CJCE' | "Trib. UE" ) SEP DATE SEP [ parties SEP ] [ "aff." WS ] /[CT]-[0-9]{1,4}\/[0-9]{2}/ ;   (* L1-06 *)
 cedh          = ( 'CEDH' | "Cour EDH" ) SEP DATE SEP [ parties SEP ] [ "req." WS ] [ NUM_SIGN ] /[0-9]{3,5}\/[0-9]{2}/ ;
 doctrine      = 'D.' WS YEAR4 SEP ( "p." | "somm." | "chron." | "jur." ) WS? INT                    (* N33 *)
@@ -706,6 +712,8 @@ doctrine      = 'D.' WS YEAR4 SEP ( "p." | "somm." | "chron." | "jur." ) WS? INT
    Non reconnus : « CJUE, 4 juin 2024 » seul, parties sans numéro d'affaire (l'article voisin reste lu), parties de plus de 100 caractères, parties qui contiennent un ancrage d'article (« art. », « article », « articles » : « CJUE, 4 juin 2024, voir l'article 1240 du code civil, C-362/14 » n'est pas absorbé, l'article reste lu et vérifié). *)
 ecli_etranger = ecli (* country ≠ FR → UnsupportedFamily::ForeignEcli, code ecli_etranger *) ;
 ```
+
+Articles du droit de l'Union et de la Convention EDH (`eu_article`, L1-07) : `SIGLE` (casse significative, frontière de mot) : `TFUE`, `TUE`, `CDFUE`, `RGPD` (famille `Ue`), `CEDH` (famille `Cedh`) ; jamais `CE` ni `CP`. `NOM` (vue repliée) : « Convention européenne des droits de l'homme » (suivie, facultativement, de « et des libertés fondamentales »), « Convention européenne de sauvegarde des droits de l'homme [et des libertés fondamentales] » (famille `Cedh`) ; « Charte des droits fondamentaux [de l'Union européenne] », « traité sur le fonctionnement de l'Union européenne », « traité sur l'Union européenne », « règlement général sur la protection des données » (famille `Ue`). « Convention » seul, « Convention collective… » ne sont pas des instruments. Le puits couvre « article 6 § 1 de la CEDH » (subdivisions de `art_item`) mais n'absorbe que le groupe nominal (« L'article 8 de la Convention européenne des droits de l'homme » : le puits commence à « article »). Clé du puits : aucune. Extension d'`eu_act` : après la date de l'acte, `WS? "(" SIGLE ")" SEP art_kw WS art_item` est absorbé (« Le règlement (UE) 2016/679 du 27 avril 2016 (RGPD), art. 17 » : un seul puits, clé `2016/679`) ; sans sigle entre parenthèses ou sans article lisible, l'acte garde son étendue actuelle. Exemples négatifs : « art. L. 52-8 CE », « article 121-3 CP », « article 5 de la Convention collective nationale », « art. 267 tfue » (casse).
 
 Formes réelles : `directive 85/374/CEE du Conseil du 25 juillet 1985` (consult_juri.json:92, N32), `Règlement (UE) 2016/679`, `ECLI:EU:C:2024:216` (P159), `Affaire C-740/22` (TIERS justicelibre). Résolution : hors API Légifrance (EUR-Lex, HUDOC) → statut `unresolvable`, motif « hors périmètre ».
 
@@ -847,7 +855,7 @@ Au total, 50 codes ont au moins une abréviation ; 27 ne sont reconnus que par l
 | `CU` | Code de l'urbanisme | `Low` | — |
 | `CPI` | Code de la propriété intellectuelle ; Cour pénale internationale | code seulement après `art. N`, `Low` | — |
 | `CCP` | Code de la commande publique ; (procédure pénale mal abrégée) | `Low` | — |
-| `CPCE` | deux codes | `code = None`, `sigle_ambigu:CPCE` | — |
+| `CPCE` | Code des postes et des communications électroniques ; Code des procédures civiles d'exécution | `code = None`, `sigle_ambigu:CPCE` ; note : `'CPCE' is ambiguous (Code des postes et des communications électroniques, Code des procédures civiles d'exécution); name the code in full.` (133 caractères) | — |
 | `L.`, `D.` | préfixe d'article ; « loi », « décret » ; `D.` = Recueil Dalloz | règles 1 et 2 du §4.2 | P069, N33 |
 
 Un sigle (tout en majuscules) se compare **en respectant la casse** et avec frontières de mot ; une abréviation à points (`C. civ.`) se compare sans casse ni accents.
@@ -1329,24 +1337,26 @@ Tri : confiance décroissante, puis égalité de date avec la date citée, puis 
 
 | Note | Gabarit (≤ 200 caractères) | Statut |
 |---|---|---|
-| `NotInForce` | `{code} has no article {num} in force on {date}.` (exemple de 05 §5.9) | `not_found` |
+| `NotInForce` | `{code} has no article {num} in force on {date}. The article may exist in earlier versions; retry with a date.` (exemple de 05 §5.9) | `not_found` |
 | `NoRecord` | `No {family} record matches {value}{ on date}.` | `not_found` |
 | `Mismatch` | `Cited {field} {cited} differs from the official record ({actual}).` | `invalid` |
 | `NativeEcli` | `Native ECLI is {ecli}.` | `invalid`, `verified` |
 | `Impossible` | `{fact}.` (ex. `There is no 4th civil chamber at the Cour de cassation.`) | `invalid` |
 | `AmbiguousSigle` | `'{sigle}' is ambiguous ({meanings}); name the code in full.` | `ambiguous` |
 | `ReadAs` | `Read '{sigle}' as {code}.` | `verified` |
-| `MissingTarget` | `No code or text given for article {num}; add it or call fr_resolve.` | `ambiguous` |
+| `MissingTarget` | `No recognised code or text for article {num} (an unknown abbreviation counts as missing); name the code in full, for example "article {num} du code civil".` (même texte pour `fr_resolve` et `fr_verify_citations`, sans renvoi à `fr_resolve`) | `ambiguous` |
 | `NoNumber` | `No case number: use fr_search (fond={fond}, date_from={d}, date_to={d}).` | `ambiguous` |
 | `Candidates` | `{n} records match; call fr_resolve to list them.` | `ambiguous` |
 | `OutOfScope` | `{family} is not on Légifrance (see EUR-Lex / HUDOC).` | `unresolvable` |
 | `OutOfCoverage` | `Légifrance only holds a selection of {court} decisions; absence is not proof (see fr_coverage).` | `unresolvable` |
 | `NotSupported` | `Not checkable in this version ({what}).` | `unresolvable` |
-| `CouldNotConfirm` | `Could not confirm existence; nothing was found in {index}.` | `unresolvable` |
+| `CouldNotConfirm` | `Could not confirm existence: nothing was found in {index}, which does not prove that it does not exist.` | `unresolvable` |
 | `NotChecked` | `Not checked: {reason} (upstream error, time budget).` | `unresolvable` |
 | `VersionSince` | `Current version in force since {date}.` | `verified` |
 | `QuoteMismatch` | `Quoted text not found in the official text.` | tout statut avec `quote` |
-| `NotInSandbox` | `No {family} record matches {value}{ on date} in the PISTE sandbox; sandbox data differ from production.` | `unresolvable` (sandbox : remplace `NotInForce` et `NoRecord`, 00 §7) |
+| `NotInSandbox` | `No {family} record matches {value}{ on date} in the PISTE sandbox; sandbox data differ from production.` ; pour la famille `article` seulement, on ajoute ` The article may exist in earlier versions; retry with a date.` | `unresolvable` (sandbox : remplace `NotInForce` et `NoRecord`, 00 §7) |
+
+Texte de `NoAgreement` : `No collective agreement identified; give its IDCC (e.g. 'IDCC 1486').` (la résolution par titre n'existe pas, par conception). Règle commune aux notes `NotInForce` et `NotInSandbox` d'un article : si le texte dépasse 200 caractères, le titre du code est raccourci par « … » pour que la piste « earlier versions » reste entière (L2-09).
 
 **Paramètres typés** (assainissement des sorties, 05 §5.9 ; test `notes_are_static_templates`, 06 §2.6). Chaque note est un gabarit fixe dont chaque paramètre a un type fermé, jamais une chaîne libre issue de l'API :
 
