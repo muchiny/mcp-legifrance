@@ -556,6 +556,26 @@ mod tests {
         }
     }
 
+    /// Revue W4 (L1-03) : la normalisation ramène l'espace insécable et le saut de ligne à une
+    /// espace ; l'ancre `L.O` (une espace au plus) les lit donc comme `dotted_lo`. Une suite
+    /// d'espaces n'est pas repliée et n'ancre pour aucun préfixe (« L.  761 » pas plus que
+    /// « L.  O. 141 ») : le refus est général et voulu, la grammaire n'y est jamais appelée.
+    #[test]
+    fn the_organic_law_anchor_reads_the_blanks_the_normalization_leaves() {
+        for text in ["article L.\u{a0}O. 141", "article L.\nO. 141", "article L.\u{a0}O.\u{a0}141"]
+        {
+            let seen = found(text);
+            assert!(seen.contains(&(AnchorClass::ArticlePrefix, "L. O. 1".to_owned())), "{seen:?}");
+        }
+        for text in ["article L.  O. 141", "article L.  761-1", "article L. \u{a0}O. 141"] {
+            let seen = found(text);
+            assert!(
+                !seen.iter().any(|(class, _)| *class == AnchorClass::ArticlePrefix),
+                "{text:?} : {seen:?}"
+            );
+        }
+    }
+
     #[test]
     fn keywords_need_isolated_words() {
         // `art` dans `part`, `loi` dans `loisir`, `cass` dans `cassation` : pas d'ancre.

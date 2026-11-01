@@ -599,6 +599,28 @@ mod tests {
         ]
     }
 
+    /// Revue W4 (L4-01) : le texte officiel sépare les cellules d'un tableau par « | ». La barre
+    /// n'est pas un mot (`split_words` ne garde que lettres, chiffres et unités) : un extrait
+    /// recopié à travers deux cellules, avec ou sans barre, reste fidèle ; un chiffre faux reste
+    /// un écart.
+    #[test]
+    fn a_table_bar_in_the_official_text_is_not_a_word_of_the_quote() {
+        let official = "Comprise entre 8 072 € et 12 109 € | 10\n\nComprise entre 12 109 € et \
+            15 932 € | 15";
+        for quote in [
+            "12 109 € 10",
+            "12 109 € | 10",
+            "12 109 €|10",
+            "entre 8 072 € et 12 109 € | 10 Comprise entre 12 109 €",
+            "109 € | 10 […] 15 932 € | 15",
+        ] {
+            assert_eq!(check_quote(quote, official), QuoteCheck::Match, "{quote}");
+        }
+        for quote in ["12 109 € 15", "12 109 € | 11", "12 109 € | | 10 5"] {
+            assert_eq!(check_quote(quote, official), QuoteCheck::QuoteMismatch, "{quote}");
+        }
+    }
+
     /// Jeu de non-régression (Q5) : des extraits fidèles réels, jamais déclarés en écart.
     #[test]
     fn faithful_real_quotes_never_raise_a_false_mismatch() {

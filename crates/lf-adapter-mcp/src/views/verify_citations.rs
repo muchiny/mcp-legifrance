@@ -301,6 +301,9 @@ mod tests {
 
     #[test]
     fn a_hundred_citations_with_quotes_fit_under_the_cap_without_shortening_gap1_5() {
+        // Complément de vue du cas d'usage `max_citations_100_is_reached_with_quotes_gap1_5`
+        // (lf-application), qui prouve la correction de L2-13 : ce test-ci réussissait déjà avant,
+        // il fixe seulement que la vue ne coupe pas à la taille réelle de gap1-5.
         // Cas réel de gap1-5 : cent citations dont trente suivies d'un extrait, l'enregistrement et
         // une note chacune (environ 400 caractères de JSON). Seule la mesure exacte coupe : ici
         // rien n'est retiré, `max_citations=100` est atteint.

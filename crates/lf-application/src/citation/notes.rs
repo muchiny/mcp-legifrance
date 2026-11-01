@@ -20,6 +20,9 @@ use crate::messages;
 /// Longueur maximale, en caractères, du texte d'une note (annexe B §7.10).
 pub const NOTE_MAX_CHARS: usize = 200;
 
+/// Nombre maximal de dates rendues par [`Note::NoRecordAtDate`].
+pub(crate) const FOUND_DATES_MAX: usize = 5;
+
 /// Phrase de l'écart d'extrait, en tête de [`Note::QuoteMismatch`] et de [`Note::WithQuoteMismatch`].
 const QUOTE_GAP: &str = "Quoted text not found in the official text.";
 
@@ -107,6 +110,20 @@ pub enum Note {
         value: String,
         /// Date de la recherche, s'il y en a une.
         date: Option<VersionDate>,
+    },
+    /// Des enregistrements portent ce numéro, aucun la date citée : `unresolvable`. Ce n'est pas
+    /// une absence (`NoRecord`) : le numéro existe, à d'autres dates (L2-06, revue W4).
+    NoRecordAtDate {
+        /// Nombre d'enregistrements qui portent le numéro.
+        n: usize,
+        /// Numéro, sous sa forme canonique.
+        number: String,
+        /// Date citée.
+        date: CivilDate,
+        /// Dates trouvées, dédoublonnées, croissantes, au plus [`FOUND_DATES_MAX`].
+        found: Vec<CivilDate>,
+        /// Nombre de dates distinctes de plus que celles de `found`.
+        more: usize,
     },
     /// Champ dur différent de l'enregistrement officiel : `invalid`.
     Mismatch {
@@ -314,6 +331,14 @@ impl Note {
             Self::NoRecord { family, value, date } => {
                 format!("No {family} record matches {value}{}.", on(*date))
             }
+            Self::NoRecordAtDate { n, number, date, found, more } => fit(number, |number| {
+                let dates = found.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
+                let rest = if *more > 0 { format!(" and {more} more") } else { String::new() };
+                format!(
+                    "{n} records share number {number}, none dated {date}; dates found: \
+                     {dates}{rest}."
+                )
+            }),
             Self::Mismatch { field, cited, actual } => format!(
                 "Cited {} {cited} differs from the official record ({actual}).",
                 field.label()
@@ -520,6 +545,26 @@ mod tests {
     fn later_catalogue() -> Vec<(Note, &'static str)> {
         vec![
             (
+                Note::NoRecordAtDate {
+                    n: 3,
+                    number: "00-00.000".to_owned(),
+                    date: civil(2021, 3, 17),
+                    found: vec![civil(1989, 3, 17), civil(2003, 3, 17), civil(2004, 3, 17)],
+                    more: 0,
+                },
+                "3 records share number 00-00.000, none dated 2021-03-17; dates found: 1989-03-17, 2003-03-17, 2004-03-17.",
+            ),
+            (
+                Note::NoRecordAtDate {
+                    n: 9,
+                    number: "00-00.000".to_owned(),
+                    date: civil(2021, 3, 17),
+                    found: vec![civil(1989, 3, 17)],
+                    more: 4,
+                },
+                "9 records share number 00-00.000, none dated 2021-03-17; dates found: 1989-03-17 and 4 more.",
+            ),
+            (
                 Note::MissingTarget { num: "L1234-5".to_owned() },
                 "No recognised code or text for article L1234-5 (an unknown abbreviation counts as missing); name the code in full, for example \"article L1234-5 du code civil\".",
             ),
@@ -612,6 +657,23 @@ mod tests {
         let text = Note::WithQuoteMismatch(Box::new(long)).text();
         assert_eq!(text.chars().count(), NOTE_MAX_CHARS);
         assert!(text.starts_with("Quoted text not found in the official text. No text record"));
+    }
+
+    #[test]
+    fn a_long_number_shrinks_before_the_dates_of_a_no_record_at_date_note() {
+        let note = Note::NoRecordAtDate {
+            n: 9,
+            number: "é".repeat(300),
+            date: civil(2021, 3, 17),
+            found: (1..=FOUND_DATES_MAX)
+                .map(|d| civil(2000, 1, u8::try_from(d).unwrap()))
+                .collect(),
+            more: 12,
+        };
+        let text = note.text();
+        assert!(text.chars().count() <= NOTE_MAX_CHARS, "{text}");
+        assert!(text.contains('…'), "{text}");
+        assert!(text.ends_with("2000-01-05 and 12 more."), "{text}");
     }
 
     #[test]

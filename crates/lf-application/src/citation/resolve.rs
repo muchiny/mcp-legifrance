@@ -46,6 +46,7 @@ use lf_domain::{
 
 use super::{
     Candidate, CandidateKind, CheckStatus, Field, NotCheckedReason, Note, ResolvedRecord,
+    notes::FOUND_DATES_MAX,
     policy::{self, Absence, CONSULT_LIMIT, Family, MAX_CANDIDATES, fold_line, fold_words},
 };
 use crate::ports::{ArticleAt, CorpusError, LegalCorpus, PisteEnvironment};
@@ -711,7 +712,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
                 && let Some(dates) = hits.iter().map(judged_on).collect::<Option<Vec<_>>>()
                 && !dates.contains(&cited)
             {
-                return no_record_at_date(&number, cited);
+                return no_record_at_date(&number, cited, dates);
             }
             return Resolution::of(candidates_of_hits(&hits));
         }
@@ -730,7 +731,8 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         if let Some(cited) = spec.date
             && none_on_the_day(&found, cited)
         {
-            return no_record_at_date(&number, cited);
+            let dates = found.iter().filter_map(|(_, decision)| decision.date_texte).collect();
+            return no_record_at_date(&number, cited, dates);
         }
         choose_decision(&found, spec.date, spec.cc_type, spec.chamber)
     }
@@ -1148,13 +1150,21 @@ fn none_on_the_day(found: &[(DocumentId, Decision)], cited: CivilDate) -> bool {
 }
 
 /// Des enregistrements portent ce numéro, aucun la date citée : `unresolvable`, et non « rien
-/// trouvé » (`absent`), puisque des enregistrements existent. La note dit que rien ne correspond
-/// au numéro ce jour-là.
-fn no_record_at_date(number: &str, cited: CivilDate) -> Resolution {
-    Resolution::unresolvable(Note::NoRecord {
-        family: "decision",
-        value: number.to_owned(),
-        date: VersionDate::try_from(cited).ok(),
+/// trouvé » (`absent`), puisque des enregistrements existent. `dates` est la date de chacun
+/// (un enregistrement par élément) : la note donne leur nombre et leurs dates distinctes
+/// (croissantes, bornées), pour que l'appelant ne conclue pas que le numéro n'existe pas.
+fn no_record_at_date(number: &str, cited: CivilDate, mut dates: Vec<CivilDate>) -> Resolution {
+    let n = dates.len();
+    dates.sort_unstable();
+    dates.dedup();
+    let more = dates.len().saturating_sub(FOUND_DATES_MAX);
+    dates.truncate(FOUND_DATES_MAX);
+    Resolution::unresolvable(Note::NoRecordAtDate {
+        n,
+        number: number.to_owned(),
+        date: cited,
+        found: dates,
+        more,
     })
 }
 
@@ -1964,7 +1974,11 @@ mod tests {
         }
         let resolution = resolve(&corpus, SOC_CITED).await;
         assert_eq!(status(&resolution), CheckStatus::Unresolvable);
-        assert_eq!(note(&resolution), "No decision record matches 00-00.000 on 2021-03-17.");
+        assert_eq!(
+            note(&resolution),
+            "3 records share number 00-00.000, none dated 2021-03-17; dates found: 1989-03-17, \
+             2003-03-17, 2004-03-17."
+        );
         assert_eq!(corpus.calls_of("get_decision"), 3);
     }
 
@@ -2021,7 +2035,11 @@ mod tests {
             .collect()));
         let resolution = resolve(&corpus, SOC_CITED).await;
         assert_eq!(status(&resolution), CheckStatus::Unresolvable);
-        assert_eq!(note(&resolution), "No decision record matches 00-00.000 on 2021-03-17.");
+        assert_eq!(
+            note(&resolution),
+            "8 records share number 00-00.000, none dated 2021-03-17; dates found: 1989-12-09, \
+             2003-03-12, 2004-05-01, 2004-05-02, 2004-05-03 and 3 more."
+        );
         assert_eq!(corpus.calls_of("get_decision"), 0);
     }
 
@@ -2093,10 +2111,22 @@ mod tests {
     }
 
     #[test]
-    fn the_absence_note_drops_a_date_outside_the_version_range() {
-        let resolution = no_record_at_date("00-00.000", civil(1400, 1, 1));
+    fn the_no_record_at_date_note_counts_records_and_lists_distinct_sorted_dates() {
+        let day = civil(1400, 1, 1);
+        let dates = vec![civil(2004, 1, 2), civil(1989, 1, 1), civil(2004, 1, 2)];
+        let resolution = no_record_at_date("00-00.000", day, dates);
         assert_eq!(status(&resolution), CheckStatus::Unresolvable);
-        assert_eq!(note(&resolution), "No decision record matches 00-00.000.");
+        assert_eq!(
+            note(&resolution),
+            "3 records share number 00-00.000, none dated 1400-01-01; dates found: 1989-01-01, \
+             2004-01-02."
+        );
+        let many = (1..=7).map(|d| civil(2000, 1, d)).collect();
+        assert_eq!(
+            note(&no_record_at_date("1", day, many)),
+            "7 records share number 1, none dated 1400-01-01; dates found: 2000-01-01, \
+             2000-01-02, 2000-01-03, 2000-01-04, 2000-01-05 and 2 more."
+        );
     }
 
     /// Reports de W3 (possibles depuis L1-08) : « loi 89-462 » et « loi 78-17 », sans « n° » ni

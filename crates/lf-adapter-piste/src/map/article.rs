@@ -9,7 +9,7 @@
 
 use lf_application::ports::CorpusError;
 use lf_domain::date::CivilDate;
-use lf_domain::entity::{ArticleText, ParentText};
+use lf_domain::entity::{ArticleText, ParentNature, ParentText};
 use lf_domain::id::{ArticleId, DocumentId};
 use lf_domain::status::LegalStatus;
 use lf_domain::text::{LongText, clean_field};
@@ -48,11 +48,14 @@ fn preferred_title(titles: &[TextTitleDto]) -> Option<&TextTitleDto> {
 }
 
 /// Titre de citation de `title` (règle D26) : le titre officiel complet (`titreLong`) d'un texte
-/// qui n'est pas un code, nettoyé et non vide, sinon le titre court. Un code garde son titre court
-/// (le titre long du CGI n'a pas son « , CGI. »). Deux arrêtés du même jour n'ont le même titre
+/// non codifié (`parent` de nature [`ParentNature::Text`]), nettoyé et non vide, sinon le titre
+/// court. Un code, un texte conventionnel (KALI), une nature inconnue ou un parent sans
+/// identifiant gardent leur titre court : seul le cas `Text` retire l'appel de note final
+/// ` (n)` du titre long (`article_citation_for`). Deux arrêtés du même jour n'ont le même titre
 /// court que leur titre long distingue (L3-03).
-fn citation_title(title: &TextTitleDto) -> Option<String> {
-    let long = (!is_code(title.nature.as_deref()))
+fn citation_title(title: &TextTitleDto, parent: Option<&ParentText>) -> Option<String> {
+    let long = parent
+        .is_some_and(|parent| parent.nature == ParentNature::Text)
         .then(|| clean_field(title.titre_long.as_deref()))
         .flatten();
     long.or_else(|| clean_field(title.titre.as_deref()))
@@ -248,7 +251,7 @@ pub(crate) fn article(
         article_id,
         num: clean_field(num.as_deref()),
         etat: etat.as_deref().and_then(LegalStatus::parse),
-        code_title: chosen.and_then(citation_title),
+        code_title: chosen.and_then(|title| citation_title(title, parent.as_ref())),
         parent,
         path: section_path(&context.titres_tm, Reference::of(date_fin)),
         full_sections_titre: clean_field(full_sections_titre.as_deref()),
@@ -262,7 +265,6 @@ pub(crate) fn article(
 #[cfg(test)]
 mod tests {
     use lf_domain::contract::Citable;
-    use lf_domain::entity::ParentNature;
     use lf_domain::status::LegalStatus;
 
     use super::*;
@@ -1178,6 +1180,33 @@ mod tests {
         assert_eq!(fall_back(r#""   ""#).as_deref(), Some("Loi X"));
         assert_eq!(fall_back(r#""<br>""#).as_deref(), Some("Loi X"));
         assert_eq!(fall_back("null").as_deref(), Some("Loi X"));
+    }
+
+    #[test]
+    fn an_unknown_nature_and_a_kali_parent_keep_their_short_title() {
+        // Review W4 (L3-03): the long title (and its trailing note call) is only for `Text`.
+        let unknown = with_fields(
+            r#""num":"9","textTitles":[{"nature":"DECISION","titre":"Décision du 1er mai","titreLong":"Décision du 1er mai relative à X (1)","cid":"JORFTEXT000033202746"}]"#,
+        );
+        let article = run(&unknown, ART_9).0.unwrap();
+        assert_eq!(article.parent.as_ref().map(|p| p.nature), Some(ParentNature::Unknown));
+        assert_eq!(article.code_title.as_deref(), Some("Décision du 1er mai"));
+        assert_eq!(article.contract().citation.as_str(), "Décision du 1er mai, art. 9");
+
+        let kali = with_fields(
+            r#""num":"9","textTitles":[{"nature":"CONVENTION","titre":"Convention X","titreLong":"Convention collective X très longue (2)","cid":"KALITEXT000005635534"}]"#,
+        );
+        let article = run(&kali, ART_9).0.unwrap();
+        assert_eq!(article.parent.as_ref().map(|p| p.nature), Some(ParentNature::Kali));
+        assert_eq!(article.code_title.as_deref(), Some("Convention X"));
+
+        // Without an identifier there is no parent: still the short title.
+        let orphan = with_fields(
+            r#""num":"9","textTitles":[{"nature":"LOI","titre":"Loi X","titreLong":"Loi X longue (1)"}]"#,
+        );
+        let article = run(&orphan, ART_9).0.unwrap();
+        assert!(article.parent.is_none());
+        assert_eq!(article.code_title.as_deref(), Some("Loi X"));
     }
 
     #[test]

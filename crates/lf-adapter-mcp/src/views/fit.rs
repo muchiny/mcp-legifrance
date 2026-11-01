@@ -4,7 +4,8 @@
 //! puis mesurent ici la taille **exacte** du JSON compact, en caractères. L'estimation est
 //! conservatrice mais pas exacte : une fenêtre riche en échappements JSON (`"`, `\`, U+0000 à
 //! U+001F, qui prennent 2 à 6 caractères) ou en caractères hors BMP peut encore dépasser le
-//! plafond, d'où cette seconde garde.
+//! plafond, d'où cette seconde garde. Exception : `fr_verify_citations` n'estime plus (L2-13),
+//! cette mesure y est la seule à couper la liste.
 
 use lf_application::budget::ResponseBudget;
 use serde::Serialize;

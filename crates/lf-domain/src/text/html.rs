@@ -164,6 +164,10 @@ pub(crate) fn scan<'a>(html: &'a str, mut sink: impl FnMut(Event<'a>)) {
 /// rendue comme une coupure mais comme l'espace [`Event::Text`] `" "` : le contenu reste dans
 /// la cellule. `tr` et `table` (ouvrantes ou fermantes) restent des coupures, et ferment la
 /// cellule. Hors cellule, tout est identique à [`scan`].
+///
+/// Limite connue (revue W4) : une cellule jamais fermée, sans `tr` ni `table` derrière, reste
+/// ouverte jusqu'à la fin de l'entrée, et tous les blocs qui suivent valent des espaces (un seul
+/// paragraphe, pagination dégradée, coût linéaire). `<td/>` ouvre une cellule comme `<td>`.
 pub(crate) fn scan_rows<'a>(html: &'a str, mut sink: impl FnMut(Event<'a>)) {
     scan_into(html, true, &mut sink);
 }
@@ -1552,6 +1556,20 @@ mod tests {
     fn from_html_an_unclosed_cell_ends_at_the_next_cell() {
         assert_eq!(texts("<tr><td>a<td>b<td>c"), ["a | b | c"]);
         assert_eq!(texts("<tr><th>a<th><p>b</p><tr><td>c<td>d"), ["a | b", "c | d"]);
+    }
+
+    /// Revue W4 (L4-01) : comportement connu, voulu. Une cellule jamais fermée, sans `tr` ni
+    /// `table` fermant derrière, reste ouverte jusqu'à la fin : les blocs qui suivent valent des
+    /// espaces et tiennent en un seul paragraphe. Le coût reste linéaire ; seule la pagination
+    /// s'en ressent. Une `<td/>` est une ouvrante comme une autre. Un `tr` ou un `table`, ouvrant
+    /// ou fermant, rend les paragraphes.
+    #[test]
+    fn from_html_an_orphan_cell_swallows_the_blocks_that_follow() {
+        assert_eq!(texts("<td>a<p>b</p><p>c</p>d"), ["a b c d"]);
+        assert_eq!(texts("<td/>a<p>b</p><p>c</p>"), ["a b c"]);
+        assert_eq!(texts("x<p>y</p><td>a<h2>b</h2><p>c</p>"), ["x", "y", "a b c"]);
+        assert_eq!(texts("<td>a<p>b</p></table><p>c</p><p>d</p>"), ["a b", "c", "d"]);
+        assert_eq!(texts("<td>a<p>b</p><tr><p>c</p>"), ["a b", "c"]);
     }
 
     #[test]
