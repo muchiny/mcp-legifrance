@@ -1150,6 +1150,35 @@ mod tests {
     }
 
     #[test]
+    fn paginated_windows_of_a_recorded_article_never_end_on_an_enumerator() {
+        // L4-02 (get_text-7), capture C13: « I bis. – 1. » used to end a 4000-character page,
+        // its content starting the next one. Every window must now end on prose, and the
+        // windows still partition the text.
+        let text = recorded(C13_CGI, "LEGIARTI000047288653").text;
+        let full = text.as_str();
+        let mut rebuilt = String::new();
+        let mut offset = 0;
+        let mut pages = 0;
+        loop {
+            let w = lf_domain::text::window(full, offset, 4000);
+            let tail = w.text.trim_end();
+            let last_line = tail.rsplit('\n').next().unwrap_or_default();
+            assert!(
+                !(last_line.ends_with('.') && last_line.chars().count() < 14),
+                "page {pages} ends on {last_line:?}"
+            );
+            rebuilt.push_str(w.text);
+            pages += 1;
+            match w.next_offset {
+                Some(next) => offset = next,
+                None => break,
+            }
+        }
+        assert_eq!(rebuilt, full);
+        assert!(pages >= 3, "{pages}");
+    }
+
+    #[test]
     fn the_long_title_tells_apart_two_decrees_of_the_same_day() {
         let pianos = recorded(C8_PIANOS, "LEGIARTI000054241470");
         assert_eq!(pianos.num.as_deref(), Some("ANNEXE V"));

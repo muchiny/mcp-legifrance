@@ -12,6 +12,14 @@
 //! ;` et le saut de ligne restent des fins de phrase. Limite : on n'exige pas
 //! de majuscule après le point.
 //!
+//! Un énumérateur n'est pas une fin de phrase (L4-02) : un point qui suit une ligne
+//! faite seulement de jetons d'énumérateur (entiers, chiffres romains de I à XX, lettres
+//! seules, `bis`, `ter`…, séparés par blancs, tirets ou points) ne coupe pas, sinon une
+//! page finirait par « I bis. – 1. » et son contenu commencerait la suivante. La ligne
+//! se mesure depuis le dernier saut de ligne de la tête de fenêtre (ou son début : une
+//! fenêtre qui démarre en milieu de ligne ignore ce qui précède). « article 5. Suite »
+//! reste une fin de phrase.
+//!
 //! Tient lieu de `text::truncate` (§4 de docs/plan/00-decisions.md, Domaine) :
 //! `window(t, 0, n).text` est la troncature en fin de phrase.
 //!
@@ -86,12 +94,60 @@ fn ends_sentence(head: &str, j: usize, p: char) -> bool {
     if p != '.' {
         return matches!(p, '!' | '?' | '…' | ';');
     }
-    let word = head[..j]
+    let before = &head[..j];
+    let word = before
         .trim_end_matches('.')
         .rsplit(|c: char| !c.is_alphanumeric())
         .next()
         .unwrap_or_default();
-    word.is_empty() || !is_abbreviation(word)
+    if !word.is_empty() && is_abbreviation(word) {
+        return false;
+    }
+    let line = before.rsplit('\n').next().unwrap_or_default();
+    !is_enumerator_line(line)
+}
+
+/// Chiffres romains de II à XX (en majuscules) ; « I », « V » et « X » sont des lettres seules.
+const ROMAN: [&str; 17] = [
+    "II", "III", "IV", "VI", "VII", "VIII", "IX", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII",
+    "XVIII", "XIX", "XX",
+];
+
+/// Suffixes d'ordinal des articles (en minuscules) : « 12 bis », « 3 quater ».
+const ORDINALS: [&str; 12] = [
+    "bis",
+    "ter",
+    "quater",
+    "quinquies",
+    "sexies",
+    "septies",
+    "octies",
+    "nonies",
+    "decies",
+    "undecies",
+    "duodecies",
+    "terdecies",
+];
+
+/// Vrai pour un entier, une lettre seule, un chiffre romain de [`ROMAN`] ou un mot de [`ORDINALS`].
+fn is_enumerator_token(token: &str) -> bool {
+    let mut letters = token.chars();
+    let single_letter = letters.next().is_some_and(char::is_alphabetic) && letters.next().is_none();
+    single_letter
+        || token.bytes().all(|b| b.is_ascii_digit())
+        || ROMAN.contains(&token)
+        || ORDINALS.contains(&token.to_lowercase().as_str())
+}
+
+/// Vrai si `line` (la ligne courante, sans le point qui suit) n'est faite que de jetons
+/// d'énumérateur séparés par des blancs, des tirets ou des points : « I bis. – 1 » ou « II ».
+/// Un point qui la suit ne termine pas une phrase, mais un en-tête (« article 5 » n'en est pas un).
+fn is_enumerator_line(line: &str) -> bool {
+    let mut tokens = line
+        .split(|c: char| c.is_whitespace() || matches!(c, '-' | '–' | '—' | '.'))
+        .filter(|t| !t.is_empty())
+        .peekable();
+    tokens.peek().is_some() && tokens.all(is_enumerator_token)
 }
 
 /// Coupe juste après un espace, dans la seconde moitié de `head` : d'abord un
@@ -267,6 +323,96 @@ mod tests {
     #[test]
     fn zero_max_chars_still_progresses() {
         assert_eq!(window("ab", 0, 0), Window { text: "a", next_offset: Some(1) });
+    }
+
+    /// Texte de la première fenêtre d'au plus `max` caractères.
+    fn cut_of(text: &str, max: usize) -> String {
+        window(text, 0, max).text.to_owned()
+    }
+
+    #[test]
+    fn an_enumerator_alone_on_its_line_is_not_a_sentence_end() {
+        // Sans la règle, la page se terminait par « I bis. – 1. », le contenu à la page suivante.
+        let text = "Le montant est fixé comme suit.\n\nI bis. – 1. Le prélèvement est dû";
+        assert_eq!(cut_of(text, 45), "Le montant est fixé comme suit.\n\n");
+        // Jumeau : le même texte sans énumérateur se coupe bien après la phrase.
+        let text = "Le montant est fixé comme suit.\n\nLe bis. – Le prélèvement est dû";
+        assert_eq!(cut_of(text, 44), "Le montant est fixé comme suit.\n\nLe bis. ");
+        // Jumeau : une phrase qui se termine par un nombre reste une fin de phrase.
+        let text = "Voir article 5. Suite des dispositions applicables";
+        assert_eq!(cut_of(text, 30), "Voir article 5. ");
+    }
+
+    #[test]
+    fn a_roman_numeral_header_is_kept_with_its_paragraph() {
+        let text = "Le montant est fixé comme suit.\n\nII. Le prélèvement prévu au I est dû";
+        assert_eq!(cut_of(text, 37), "Le montant est fixé comme suit.\n\n");
+        // Un « II. » placé après une vraie phrase, sur la même ligne, reste une fin de phrase :
+        // la ligne n'est pas faite que d'énumérateurs.
+        let text = "Le montant est fixé. II. Le prélèvement prévu au I est dû";
+        assert_eq!(cut_of(text, 26), "Le montant est fixé. II. ");
+    }
+
+    #[test]
+    fn enumerator_rules() {
+        for line in [
+            "1",
+            "12",
+            "I",
+            "II",
+            "XIV",
+            "XX",
+            "a",
+            "Z",
+            "bis",
+            "Ter",
+            "quater",
+            "quinquies",
+            "decies",
+            "I bis",
+            "I bis – 1",
+            "I — 1",
+            "I\u{a0}bis",
+            "1 - 2",
+            "I – 1 bis",
+            "2.3",
+            "A.1",
+            "1\t2",
+        ] {
+            assert!(is_enumerator_line(line), "{line:?}");
+        }
+        for line in [
+            "",
+            " ",
+            "–",
+            "...",
+            "article 5",
+            "article",
+            "II.A. Suite",
+            "XXI",
+            "IIII",
+            "IL",
+            "CIVIL",
+            "ii",
+            "bise",
+            "terre",
+            "1a",
+            "Le bis",
+            "5 €",
+            "1°",
+        ] {
+            assert!(!is_enumerator_line(line), "{line:?}");
+        }
+    }
+
+    #[test]
+    fn a_line_is_measured_from_the_last_newline() {
+        // L'énumérateur est seul sur sa ligne, même si la ligne précédente porte du texte.
+        let text = "Texte avant\n1. Suite du paragraphe numéroté et plus";
+        assert_eq!(cut_of(text, 20), "Texte avant\n");
+        // Une ligne qui porte du texte avant « 1. » : fin de phrase conservée.
+        let text = "Texte avant 1. Suite du paragraphe numéroté et plus";
+        assert_eq!(cut_of(text, 20), "Texte avant 1. ");
     }
 
     proptest! {
