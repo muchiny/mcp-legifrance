@@ -1134,7 +1134,8 @@ Couples autorisés : (`Code`|`Loda`, `Article`), (`Loda`, `Text`), (`Juri`, `Cas
 ```rust
 // crates/lf-application/src/citation/mod.rs — non compilé, à valider au jalon qui l'implémente
 pub enum CheckStatus { Verified, NotFound, Ambiguous, Unresolvable, Invalid }      // 00 §7
-pub struct ResolvedRecord { pub id: DocumentId, pub citation: CitationText, pub source_url: SourceUrl, pub ecli: Option<Ecli> }
+pub struct ResolvedRecord { pub id: DocumentId, pub citation: CitationText, pub source_url: SourceUrl, pub ecli: Option<Ecli>, pub validity: Option<Validity> }  // 1.1.0 (D-03)
+pub struct Validity { pub etat: Option<LegalStatus>, pub date_debut: Option<CivilDate>, pub date_fin: Option<CivilDate> }
 pub enum QuoteCheck { Match, QuoteMismatch }
 pub struct CitationCheck {
     pub span: Span, pub kind: CitationKind, pub status: CheckStatus,
@@ -1157,6 +1158,8 @@ pub enum UnresolvableReason {
     Sandbox,       // preuve d'absence réunie, mais en LF_PISTE_ENV=sandbox : jamais not_found (00 §7, V-61)
 }
 ```
+
+**Période de validité (1.1.0, D-03).** L'enregistrement résolu d'un article (`ResolvedRecord`) garde la période de validité de la version lue : `validity { etat, date_debut, date_fin }`, remplie par la lecture d'un article (`article_found`) seulement, y compris pour le candidat de confiance moyenne d'un écart de numéro. Les bornes sont celles de l'API, sentinelle comprise ; c'est le rendu des vues qui écarte la date de fin sentinelle (05 §5.9, §5.10). Un document qui n'est pas un article, ou un article lu par son identifiant (`legifrance_id`), n'en porte pas ; `Validity::of` renvoie `None` quand état et dates sont tous absents.
 
 `Note` est une valeur structurée (faits) ; `lf-adapter-mcp` la rend en anglais (§7.10), comme les erreurs (03 §2.7).
 
@@ -1403,6 +1406,7 @@ Entrée (05 §5.11) : `id` (`LEGIARTI`, `JURITEXT`, `CONSTEXT`, `CETATEXT` ; `KA
 - **Décision** : `get_decision(&DecisionId)` puis le parseur sur `cited_case_law` (`citationJp`) et sur chaque entrée d'`applied_texts` (`liens[].title`, 03 §4.4), avec `strip_html: true` et `repair_mojibake: false` (corps déjà réparé par l'adapter). `Decision` et `Ecli` de `citationJp` → `cites_case_law` ; toute autre citation (`CodeArticle`, `Text`, `TextArticle`, `Unsupported`) → `applies_text`. Les fragments sans ancre (`1 du code civil.`, N01 ; `article 2270-`) ne sont pas émis.
 - **Code d'un lien de décision (L4-13, 1.0.1)** : le code d'une citation n'est gardé que s'il est écrit dans la mention de l'article (relecture de la mention seule, même forme canonique) ; sinon le lien montre l'article seul (« article 700 »). La note `DecisionLinkCodes` est livrée dès qu'un lien de décision porte un code, gardé ou refusé : le titre brut est un fragment amont non fiable (V-117). Précision plutôt que rappel : dans une énumération légitime (« articles 455 et 458 du code de procédure civile »), les membres perdent leur code. Si le titre brut de `liens[]` porte lui-même le mauvais code (V-117), la garde ne peut pas le détecter ; le relevé C16 (JURITEXT000038427064) n'en montre aucun cas : ses trois titres donnent sept liens sans code faux (rappel perdu pour L. 120-1, 1382 et 1240).
 - **Dédoublonnage** : clé (famille, valeurs normalisées) ; quand deux liens visent le même acte et que l'un est plus précis (article de cet acte), le plus précis est gardé (« Article 10 de la directive 85/374/CEE » l'emporte sur « directive 85/374/CEE du Conseil du 25 juillet 1985 », exemple de 05 §5.11).
+- **Filtre `relation` (1.1.0, D-05)** : paramètre facultatif, enum fermé {`cites`, `cited_by`, `cites_case_law`, `applies_text`}, appliqué avant `links.truncate(MAX_LINKS)` (05 §5.11). Source : related_diff-6 (254 liens `cited_by` sur LEGIARTI000035644154, 100 servis, 154 inaccessibles).
 - **Pas de résolution automatique** des liens de décision : ils n'ont pas d'identifiant (03 §4.4) ; la description de l'outil renvoie à `fr_resolve` (05 §5.11). Cela borne le coût à un appel.
 - Les marqueurs de relation de `citationJp` (« à rapprocher », « contra », « cf. ») ne sont pas typés en v0.3 : seul « à rapprocher » est observé (consult_juri.json:92, search_juri.json) ; liste **NON VÉRIFIÉ** [V-160 · marqueurs-relation-jp].
 - Audit : nombre de liens (00 §7). Cache : `Related` 24 h, `Decision` 24 h (05 §5.11).

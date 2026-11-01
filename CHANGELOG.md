@@ -14,7 +14,27 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `1.0.1`.
+Ajouts compatibles de la 1.1.0 (vague V1) : champs de sortie optionnels, paramètre optionnel, texte d'une description. Aucun champ requis retiré, aucun type changé, aucune valeur d'énumération retirée : `lock-descriptors --compare v1.0.1` classe ses 12 changements en 11 additions et 1 correctif de texte.
+
+### Added
+
+- `fr_resolve` et `fr_verify_citations` : les articles résolus portent la période de validité de la version lue, en champs optionnels `etat`, `date_debut` et `date_fin` (`candidates[]` et `citations[].resolved` ; date de fin sentinelle et valeurs absentes omises ; aucun champ pour les décisions et les textes). Complète la note de version de la 1.0.1. (journey_patrimoine-14, D-03)
+- `fr_diff_article` : champ de sortie optionnel `note`, présent quand moins de 30 % des mots de la version A se retrouvent dans la version B (article renuméroté ou remplacé, par exemple Code civil 1382 et 1240 : les deux textes n'ont alors aucun rapport). Le diff reste rendu en entier ; la note invite à lire les deux versions avec `fr_get_text`. Absent pour des versions identiques, un amendement ou un texte sans mot. (related_diff-1, D-06)
+- `summary_truncated` : booléen optionnel (absent sauf si vrai) sur les sorties de `fr_get_text`, `fr_get_decision` et `fr_get_deliberation`, vrai quand le résumé s'arrête avant la fin du texte, y compris quand le début de texte rendu est plus court que le texte sans que le plafond l'ait coupé. (decisions-4, D-01)
+- `fr_get_related` : paramètre facultatif `relation` (`cites`, `cited_by`, `cites_case_law`, `applies_text`, sans casse) pour ne demander que les liens d'un sens. Le filtre est appliqué avant le plafond de 100 liens : `total` compte la relation demandée, ce qui rend accessibles les liens « cités par » d'un article très cité (L. 1234-9 du Code du travail : 254 liens, 100 servis jusque-là). Valeur inconnue : `invalid_arg` qui liste les quatre valeurs. Sans `relation`, la réponse est inchangée. (related_diff-6, D-05)
+
+### Changed
+
+- `fr_get_text` : en mode résumé, un article (LEGIARTI ou KALIARTI) de 2 000 caractères au plus (`min(max_chars, 2 000)`) est rendu entier au lieu de 1 200 ; le résumé d'un article plus long, d'une décision ou d'une délibération reste plafonné à 1 200 caractères (par exemple l'article 757 B du CGI, 1 307 caractères, revient entier). (decisions-4, D-01)
+- `summary` / `summary_source` (`fr_get_decision`, `fr_get_text`, `fr_get_deliberation`) : une entrée du sommaire officiel de moins de 20 caractères alphanumériques (par exemple le « X » amont d'une ordonnance du TJ de Paris) n'est plus présentée comme sommaire officiel ; le résumé retombe sur le dispositif puis sur le début du texte et `summary_source` le dit. Aucun champ ni schéma ne change. (decisions-1, D-07)
+
+### Tool surface
+
+- Addition compatible : trois propriétés de sortie optionnelles (`etat`, `date_debut`, `date_fin`, type string) sur `candidates[]` de `fr_resolve` et sur `citations[].resolved` de `fr_verify_citations` ; aucune propriété requise, aucun paramètre d'entrée ni aucune description changés. (D-03)
+- Addition compatible : propriété de sortie optionnelle `note` (string) de `fr_diff_article`. (D-06)
+- Addition compatible : propriété de sortie optionnelle `summary_truncated` (boolean) dans `fr_get_text`, `fr_get_decision` et `fr_get_deliberation` ; description de `fr_get_text` : seuil d'article entier de 2 000 caractères et `summary_truncated` (classée correctif de texte par `--compare`, 733 → 839 caractères). (D-01)
+- Addition compatible : propriété d'entrée optionnelle `relation` (string, enum de 4 valeurs, non requise) de `fr_get_related` ; sortie et description de l'outil inchangées. (D-05)
+- `tools/list` : 30 634 → 31 604 octets (+970), sous le plafond de 32 900 ; instructions inchangées (3 278 caractères). Le verrou `tests/tools.lock.json` et le manifeste MCPB (`packaging/mcpb/manifest.json`, description de `fr_get_text`) sont régénérés ; `server_version` reste 1.0.1 jusqu'à la PR de version (le saut « Minor » est exigé par `--compare`).
 
 ## [1.0.1] - 2026-11-01
 

@@ -574,8 +574,9 @@ Bornes : 00 §7. Ordre de validation : identifiant, puis `detail`, `offset`, `ma
 | Champ | Type | Présent quand | Règle |
 |---|---|---|---|
 | `summary` | string | mode résumé, si `text_length > min(max_chars, 1 200)` ou si un résumé officiel existe | §6.2 ; au plus `min(max_chars, 1 200)` caractères, coupé en fin de phrase (03 §7.9) |
-| `summary_source` | string, `enum ["official","dispositif","lead"]` | avec `summary` | origine du résumé (00 §4) |
-| `text` | string | mode `full` ; ou mode résumé quand `text_length ≤ min(max_chars, 1 200)` (texte entier, 00 §7) | fenêtre `text::window` (03 §7.6) |
+| `summary_source` | string, `enum ["official","dispositif","lead"]` | avec `summary` | origine du résumé (00 §4) ; `official` garantit une entrée d'au moins 20 caractères alphanumériques (D-07, Q23 = A) : un sommaire amont plus court (« X ») est ignoré et la source devient `dispositif` ou `lead` |
+| `summary_truncated` | booléen | absent sauf si vrai (1.1.0, D-01) | vrai quand `summary` s'arrête avant la fin de sa source : le domaine l'a coupé au plafond, ou c'est un début de texte (`summary_source` = `lead`) plus court que le texte entier (`text_length`). Jamais écrit `false`. Un sommaire officiel ou un dispositif non coupé n'est pas signalé. Pour lire la suite : `detail="full"` ou `focus` |
+| `text` | string | mode `full` ; ou mode résumé quand `text_length ≤ min(max_chars, 1 200)` (texte entier, 00 §7) ; seuil de `min(max_chars, 2 000)` pour un article de `fr_get_text` (1.1.0, D-01, Q20 = B) | fenêtre `text::window` (03 §7.6) |
 | `text_length` | integer | toujours (lectures longues) | longueur du texte canonique entier, en caractères (paragraphes joints par `\n\n`) ; pour un article à tableau (L4-01), le texte n'est plus strictement verbatim : le serveur ajoute ` | ` entre les cellules d'une même ligne de tableau (une ligne = un paragraphe), et `text_length` comme les `offset` comptent ces séparateurs (ils diffèrent de ceux de la 1.0.0 pour ces articles) |
 | `next_offset` | integer | mode `full`, si la fenêtre n'atteint pas la fin | à repasser tel quel dans `offset` ; absent en fin de texte (00 §7) |
 | `passages` | array of `{offset, text, score}` | mode `focus` | au plus `passages` éléments, Σ des longueurs ≤ `max_chars` ; `score` arrondi à 2 décimales ; `offset` utilisable comme `offset` de fenêtre (03 §7.7-7.8) |
@@ -586,7 +587,7 @@ flowchart LR
   A[appel] --> F{focus ?}
   F -- oui --> P[passages BM25<br/>+ text_length]
   F -- non --> D{detail}
-  D -- summary --> S{"text_length ≤ min(max_chars, 1 200) ?"}
+  D -- summary --> S{"text_length ≤ min(max_chars, 1 200)<br/>(2 000 pour un article) ?"}
   S -- oui --> T[text entier<br/>+ summary officiel s'il existe]
   S -- non --> R[summary + summary_source]
   D -- full --> W[text = fenêtre offset/max_chars<br/>+ next_offset si reste]
@@ -763,10 +764,10 @@ Le suffixe comme date par défaut (conservé par `parse_versioned` au lieu d'êt
 
 **Objectif.** Lire un article (LEGI ou KALI), avec sa citation, son statut, ses dates de validité, sa place dans le code, et la lecture progressive.
 
-**Description** (733 caractères, 6 phrases comptées par `xtask`) :
+**Description** (839 caractères depuis la 1.1.0, D-01 ; 733 en 1.0.1 ; 6 phrases comptées par `xtask`) :
 
 ```text
-Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (for example "Code civil, art. 9"), source_url, status, validity dates and parent code or text. By default (`detail`="summary") a short article comes back whole and a long one is cut after about 1,200 characters; `detail`="full" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).
+Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (for example "Code civil, art. 9"), source_url, status, validity dates and parent code or text. By default (`detail`="summary") an article of up to 2,000 characters comes back whole and a longer one as a summary of about 1,200 characters (`summary_truncated` is true when the summary stops before the end of the text); `detail`="full" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).
 ```
 
 *Comptage des phrases (amendement du 2026-10-29, F1)* : le contrôle `sentence_count` de `xtask` compte tout point suivi d'une espace, « e.g. » compris ; avec « e.g. » la description comptait sept phrases contre « 3 à 6 » attendues (avertissement de 00 §6). « e.g. » devient « for example » : 733 caractères et six phrases comptées (« art. » reste compté).
@@ -775,7 +776,7 @@ Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIA
 
 **Sortie** (`ArticleView`) : `article_id`, `num?`, `etat?`, `code_title?`, `parent_id?` (`LEGITEXT` ou `KALITEXT` du texte parent, pour enchaîner avec `fr_get_act` ou `fr_get_convention` ; pour un article de loi, d'ordonnance, de décret ou d'arrêté, c'est le `LEGITEXT` consolidé du texte ; **omis** quand le seul identifiant connu est un `JORFTEXT`, qu'aucun outil ne lit en 1.0.x, la citation et `code_title` nommant toujours le texte parent : L3-04, get_act-3), `path?` (titres hiérarchiques `context.titresTM`, 03 §4.3), `date_debut?` (absente : date d'entrée en vigueur non déterminée, `etat` `VIGUEUR_DIFF`), `date_fin?` (absente : en vigueur sans date de fin), omises au-delà du seuil des sentinelles (§1.4 règle 9), `nota?` (≤ 1 200 caractères), `eli?`, `citation`, `source_url`, puis les champs de lecture du §5.0.3. **`path`** (L3-02) : titres de `context.titresTM` en vigueur à la date de la version lue (une entrée par niveau, sans doublon) ; voir 03 §4.3 et 04 §9.1.
 
-- Résumé d'un article : `summary_source = "lead"` (début du texte, ≤ `min(max_chars, 1 200)` caractères). Un article de `min(max_chars, 1 200)` caractères au plus est rendu entier dans `text`, sans `summary`.
+- Résumé d'un article : `summary_source = "lead"` (début du texte, ≤ `min(max_chars, 1 200)` caractères). Depuis la 1.1.0 (D-01, Q20 = B), un article de `min(max_chars, 2 000)` caractères au plus est rendu entier dans `text`, sans `summary` (le CGI 757 B, 1 307 caractères, revient entier) ; le seuil de 1 200 reste celui des décisions et des délibérations, et le plafond du résumé reste 1 200 caractères pour les trois outils. Un article plus long est résumé et `summary_truncated` le dit (le début rendu est plus court que le texte, même quand la coupe est propre).
 
 **Exemple** (`{"article_id": "LEGIARTI000006419288"}` ; fixture consult_article.json réparée ; 686 caractères contre 949) :
 
@@ -1081,7 +1082,7 @@ Check every legal citation found in a text of up to 20,000 characters, for examp
 | `raw` | string | extrait d'origine |
 | `kind` | string | `code_article`, `text_article`, `text`, `decision`, `ecli`, `cnil_deliberation`, `convention`, `jorf`, `nor`, `eli`, `legifrance_id`, `unsupported` (variantes de `CitationRef` en `snake_case`) |
 | `status` | `enum ["verified","not_found","ambiguous","unresolvable","invalid"]` | voir ci-dessous |
-| `resolved` | `{id, citation, source_url}` | si un enregistrement officiel a été trouvé (y compris quand il contredit la citation) |
+| `resolved` | `{id, citation, source_url, etat?, date_debut?, date_fin?}` | si un enregistrement officiel a été trouvé (y compris quand il contredit la citation). 1.1.0 (D-03) : `resolved` d'un article porte en plus les champs optionnels `etat`, `date_debut` et `date_fin`, avec les mêmes règles que les candidats de `fr_resolve` (§5.10) : date de fin sentinelle et valeurs absentes omises, aucun champ pour une décision ou un texte. Surcoût mesuré : au plus 67 caractères par article résolu (version MODIFIE avec deux dates), environ 44 pour une version en vigueur sans fin ; cent citations du test de volume de gap1-5 (extrait, enregistrement, note) passent de 36 611 à 43 311 caractères de JSON dans le cas le plus lourd, sans coupe sous le plafond de 45 000 |
 | `quote` | `enum ["match","quote_mismatch"]` | calculé automatiquement (00 §7) si un extrait entre guillemets (`« … »`, `"…"`) jouxte la citation et que le texte officiel a été lu |
 | `note` | string | explication actionnable : écart, candidats, motif de non-résolution. Gabarit à paramètres typés : vocabulaire fermé (titre d'un code tiré du dictionnaire statique `CodeKey` de l'annexe B, famille, juridiction), dates ISO, identifiants validés, nombres ; jamais une chaîne libre de l'API (assainissement des sorties) |
 
@@ -1163,6 +1164,8 @@ Turn one free-text legal citation into Légifrance ids, for example "article 124
 
 **Sortie** (`ResolveView`) : `interpreted_as?` (forme canonique de la citation reconnue, ex. « Code civil, art. 9 », pour que le modèle détecte une mauvaise lecture), `candidates` (toujours, ≤ 5, meilleure d'abord : `{id, kind, citation, source_url, confidence}` avec `kind` ∈ `article`, `loda`, `code`, `juri`, `constit`, `cetat`, `cnil`, `kali`, `acco` (+ `jorf` si la surface JORF est retenue à l'ouverture de M7, 00 §4) et `confidence` ∈ `high`, `medium`, `low`), `note?`.
 
+**Période de validité (1.1.0, D-03).** Chaque candidat d'un article (`kind=article`) porte en plus, quand l'API les donne, `etat` (code d'API de la version lue : VIGUEUR, MODIFIE, ABROGE…), `date_debut` et `date_fin` (dates ISO de la version). `date_fin` est omise pour une version sans fin (date sentinelle 2999 ou postérieure à 2222-01-01) ; chaque champ est omis quand l'API ne le donne pas. Aucun de ces champs pour une décision, un texte LODA, un code ou une délibération. Ils complètent la note de version de L2-12 (« Version in force on … »), qui reste inchangée, et permettent de lire la période sans appeler `fr_get_text`. Pour une citation en écart de numéro, le candidat de confiance moyenne porte la période de la version lue.
+
 **Plages d'articles (1.0.1, L2-07).** Une plage donne un candidat unique de confiance `medium` (le premier article de la plage) et la note « Only the first and last articles of the range were checked. » ; dernière borne introuvable : aucun candidat et la note « The first article of the range exists, but its last, article {num}, was not found; check the number or the date. ».
 
 Chemins de résolution (00 §3, §8 ; détail : annexe B, 04 §7) :
@@ -1200,6 +1203,12 @@ List the legal links of an article (LEGIARTI) or a decision (JURITEXT, CONSTEXT,
 ```
 
 **Entrée** : `id` (string, requis ; `A LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... decision id.`). `KALIARTI` est refusé en v0.3 : la prise en charge par `/consult/relatedLinksArticle` est **NON VÉRIFIÉE** [V-136 · related-links-forme].
+
+| Nom | Type JSON | Requis | Contraintes | Description |
+|---|---|---|---|---|
+| `relation` (1.1.0, D-05) | string, `enum ["cites","cited_by","cites_case_law","applies_text"]` | non | insensible à la casse, blancs autour ignorés | Sens des seuls liens demandés : `cites`, `cited_by` (article), `cites_case_law`, `applies_text` (décision). Absent : tous les liens (comportement de la 1.0.1, octet pour octet). Toute autre valeur : `invalid_arg` `relation='<valeur>' must be one of ['cites', 'cited_by', 'cites_case_law', 'applies_text'].` sans appel au port. |
+
+**Filtre et plafond (1.1.0, D-05).** Quand `relation` est donnée, les liens des autres sens sont écartés avant la troncature à 100 : `total` compte les liens de la relation demandée et `truncated` se rapporte à eux (L. 1234-9 du Code du travail : 254 liens `cited_by`, 100 servis en 1.0.1, désormais tous accessibles par ce filtre). Une relation sans aucun lien (ou un sens qui n'existe pas pour ce type de page, par exemple `cited_by` sur une décision) donne `links: []`, `total: 0`, sans erreur. Les notes de décision (`NoDecisionReferences`, `DecisionLinkCodes`) restent calculées sur la décision entière, que `relation` soit donnée ou non. Pas de paramètre `kind`, `limit` ni de pagination. La description de l'outil est inchangée (D-12 y mentionnera `relation`).
 
 **Sortie** (`RelatedView`) : `id`, `citation`, `source_url`, `total` (nombre de liens avant troncature), `links` (toujours, ≤ 100), `truncated?`, `note?` (champ ajouté par V4-05 puis F1, 2026-10-29 : chaîne, absente par défaut). Pas de suite : au-delà de 100 liens, ou si le plafond du §6.4 l'impose, la liste est tronquée avec `truncated: true` (00 §7), sans paramètre de continuation. Chaque lien : `relation` (`cites`, `cited_by` pour un article, d'après `liensCite`/`liensCitePar` ; `cites_case_law`, `applies_text` pour une décision, d'après `citationJp` et `liens`), `kind` (valeurs de `fr_verify_citations`), `citation` (forme canonique, ou titre de l'API nettoyé), `id?`, `source_url?`. Les liens d'une décision sont analysés par le parseur M6 ; les fragments sans ancre (« 1 du code civil. », cas N01) ne sont pas émis ; les doublons sont fusionnés.
 
@@ -1261,7 +1270,9 @@ Compare the versions of a code or law article (LEGIARTI) in force on `date_a` an
 | `date_a` | string, `format: date` | oui | — | date valide | `First date YYYY-MM-DD.` |
 | `date_b` | string, `format: date` | non | aujourd'hui (Europe/Paris) | date valide | `Second date YYYY-MM-DD (default: today in Paris).` |
 
-**Sortie** (`DiffView`) : `article_id`, `citation`, `version_a` et `version_b` (`{article_id, date_debut?, date_fin?, etat?}`, dates omises selon le §1.4 règle 9), `identical`, `hunks` (toujours ; `{at, context?, removed?, added?}` où `at` est la position en caractères dans la version A et `context` au plus 60 caractères qui précèdent), `truncated?` (texte des hunks plafonné à 8 000 caractères). Diff mot à mot avec la crate `similar` (00 §7).
+**Sortie** (`DiffView`) : `article_id`, `citation`, `version_a` et `version_b` (`{article_id, date_debut?, date_fin?, etat?}`, dates omises selon le §1.4 règle 9), `identical`, `hunks` (toujours ; `{at, context?, removed?, added?}` où `at` est la position en caractères dans la version A et `context` au plus 60 caractères qui précèdent), `truncated?` (texte des hunks plafonné à 8 000 caractères), `note?` (1.1.0, D-06). Diff mot à mot avec la crate `similar` (00 §7).
+
+**`note` (1.1.0, D-06 ; string, optionnel).** Présent seulement quand `identical` est faux, que les deux textes contiennent des mots et que moins de 30 % des mots de la version A se retrouvent dans la version B (part calculée sur tout le diff mot à mot, avant les plafonds de hunks ; exactement 30 % ne déclenche pas la note). Valeur constante : « The two versions share little text: the article may have been renumbered or replaced. Read both with fr_get_text. » Cas typique : article renuméroté (Code civil 1382 et 1240, ordonnance 2016-131), que Légifrance range dans la même chaîne de versions (CID) ; le diff reste rendu en entier, la note avertit qu'il compare deux textes sans rapport. Absente pour des versions identiques, un amendement, ou quand un des deux textes n'a aucun mot. La réponse compte la `note` dans l'estimation de taille (environ 120 caractères) ; en cas de dépassement du plafond dur, la vue retire des hunks par la fin et conserve la note. Seuil calibré sur une seule paire réelle (Code civil art. 9, version abrogée contre version en vigueur : 4,4 % de mots conservés) et un amendement synthétique ; à réexaminer quand des paires réelles (1382, 1240, CGI 777) seront capturées.
 
 **Exemple** (schématique : aucune fixture de versions ; une fixture recapturée le remplacera en M7) :
 
@@ -1330,7 +1341,7 @@ Search several Légifrance fonds at once (default LODA, CODE, JURI, CETAT, CONST
 |---|---|---|
 | `fr_get_decision` | sommaire officiel (`official`) → dispositif CONSTIT/CETAT (`dispositif`) → début (`lead`) | 03 §7.9 |
 | `fr_get_deliberation` | début (`lead`) | pas de sommaire CNIL |
-| `fr_get_text` | début (`lead`) | un article de `min(max_chars, 1 200)` caractères au plus est rendu entier dans `text` |
+| `fr_get_text` | début (`lead`) | un article de `min(max_chars, 2 000)` caractères au plus est rendu entier dans `text` (1.1.0, D-01 ; 1 200 en 1.0.1) ; `summary_truncated` quand le résumé s'arrête avant la fin du texte |
 | tous | si `text_length ≤ min(max_chars, 1 200)` : `text` entier, sans `next_offset`, plus `summary` seulement s'il existe un sommaire officiel (00 §7) | ex. JURI tronqué de la fixture (§6.5) |
 
 Le plafond de 1 200 caractères est fixé par 00 §4 (et §7) ; les mesures de M5 sur des fixtures recapturées ([V-75 · taille-max-textes]) ne servent qu'à un éventuel amendement.
@@ -1399,6 +1410,8 @@ Estimation de ce document : prototype qui reconstitue les descripteurs (descript
 | Descriptions seules | 7 225 caractères | 7 239 caractères (treize descriptions, aucune au-dessus de 1 000 : la plus longue, `fr_search`, en compte 830) |
 
 L'écart de l'estimation à la mesure tient aux schémas de sortie et aux `$defs` de schemars, plus grands que ceux du prototype (même constat à chaque étape : 29 000 prévus, 30 152 mesurés à douze outils, 31 853 à treize). Historique du plafond de `tools/list` en v0.3 : **29 000** (valeur initiale, mesure estimée + 10 %) → **33 500** (recalibré à l'intégration de V3 sur 30 152 octets mesurés à douze outils, plus 10 %) → **32 900** (F1, sur 31 853 octets mesurés à treize outils, plus 3 %, soit 32 808,6 arrondi à la centaine supérieure ; 31 814 avaient été mesurés juste après l'alignement de version). La règle « mesure plus 10 % » est abandonnée pour « mesure plus 3 % » : la surface est finale et le verrou change à chaque octet de description. Même valeur dans `descriptor_size_budget` (`crates/lf-adapter-mcp/tests/budgets.rs`) et dans `TOOLS_LIST_BUDGETS` de `xtask/src/lock_descriptors/checks.rs` (v0.1 : 20 000 et v0.2 : 24 000 inchangés).
+
+**Mesure 1.1.0 (vague V1, 2026-11-01).** `tools/list` : **31 604 octets** (`sizes.tools_list_bytes`, 30 634 en 1.0.1, soit +970 : période de validité de `fr_resolve` et `fr_verify_citations`, `note` de `fr_diff_article`, `summary_truncated` de trois lectures, `relation` de `fr_get_related`, description de `fr_get_text`) ; `instructions` inchangées (3 278 caractères). Le plafond de 32 900 est conservé ; il reste 1 296 octets de marge pour la suite de la 1.1.0.
 
 Révision 2 : descriptions recomptées exactement (sens des dates absentes, défauts et suites demandés par 00 §6, 00 §4), puis le 2026-10-16 (défaut de `fond` dans `fr_search`, de `passages` dans `fr_get_text` : 27 caractères, sans effet sur les arrondis des lignes `tools/list`) ; les deux lignes `tools/list` sont l'estimation initiale augmentée de ces écarts et des champs ajoutés (`attribution`, `consulted_on`, `nor`, `title`, puis `idcc`, `total_articles` en v0.2), sans `$schema` (§2.5).
 
