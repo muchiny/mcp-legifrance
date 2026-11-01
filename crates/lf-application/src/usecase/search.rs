@@ -185,10 +185,17 @@ fn date_of(name: &'static str, value: Option<&str>) -> Result<Option<VersionDate
 /// citation de chaque résultat, puis plafond de réponse.
 fn present(query: &SearchQuery, page: SearchPage) -> Result<SearchOutput, AppError> {
     let (number, size) = (query.page(), query.page_size());
-    let more = has_more(number, size, page.total);
+    // CODE : `page_size` compte des articles quand l'amont pagine par article, et `total` des
+    // textes. Le mode reçu ne décide pas (il ne suit pas le mode demandé) : seul compte
+    // `total_articles > page × page_size`, dans la fenêtre atteignable (L4-07).
+    let more_articles = page.total_articles.filter(|&count| has_more(number, size, count));
+    let more = more_articles.is_some() || has_more(number, size, page.total);
     // Il reste des résultats après cette page, mais la fenêtre atteignable s'arrête ici.
     let seen = u64::from(number.get()).saturating_mul(u64::from(size.get()));
-    let note = (!more && seen < page.total).then(|| REACHABLE_NOTE.to_owned());
+    let largest = page.total.max(page.total_articles.unwrap_or(0));
+    let note = more_articles
+        .map(|count| articles_note(count, &page.hits, number))
+        .or_else(|| (!more && seen < largest).then(|| REACHABLE_NOTE.to_owned()));
     let mut output = SearchOutput {
         total: page.total,
         page: number.get(),
@@ -199,6 +206,17 @@ fn present(query: &SearchQuery, page: SearchPage) -> Result<SearchOutput, AppErr
     };
     fit_under_target(&mut output, size)?;
     Ok(output)
+}
+
+/// Note des articles encore à lire sur les pages suivantes (CODE, 05 §5.1) : combien en
+/// correspondent, combien cette page en liste, et la page à demander.
+fn articles_note(count: u64, hits: &[SearchHit], page: NonZeroU32) -> String {
+    let shown: usize = hits.iter().map(|hit| hit.articles.len()).sum();
+    format!(
+        "{count} matching articles, {shown} shown (page {page}); request page={} for the next \
+         articles of this code.",
+        page.saturating_add(1)
+    )
 }
 
 /// Le résultat et son contrat de citation, calculé avant toute dégradation.
@@ -754,6 +772,113 @@ mod tests {
         assert_eq!(end.total, 50_000);
     }
 
+    /// Page CODE d'un seul texte, `total_articles` articles trouvés dont `listed` sont listés,
+    /// reçue dans le mode `mode`.
+    fn code_page(total_articles: Option<u64>, listed: u32, mode: PaginationMode) -> SearchPage {
+        let articles = (1..=listed)
+            .map(|n| {
+                CodeArticleRef::new(
+                    ArticleId::parse(&format!("LEGIARTI{n:012}")).unwrap(),
+                    Some(n.to_string()),
+                    "extrait",
+                )
+            })
+            .collect();
+        let hit = SearchHit { articles, ..bare(Fond::Code, 1) };
+        SearchPage::new(Fond::Code, "bail", Some(1), total_articles, vec![hit], 0, mode)
+    }
+
+    /// Page `page` de taille `size` d'une recherche CODE servie par `served`.
+    async fn code_paged(page: i64, size: i64, served: SearchPage) -> SearchOutput {
+        let input = SearchInput {
+            page: Some(page),
+            page_size: Some(size),
+            fond: Some("CODE".to_owned()),
+            ..text("bail")
+        };
+        run(&serving(served), &clock(), input).await.unwrap()
+    }
+
+    /// L4-07 (journey_patrimoine-11, C12) : 1 texte, 16 articles, 5 listés par page.
+    #[tokio::test]
+    async fn a_code_hit_listing_fewer_articles_than_total_articles_has_more_in_article_mode() {
+        let output = code_paged(1, 5, code_page(Some(16), 5, PaginationMode::Article)).await;
+        assert!(output.has_more);
+        assert_eq!(output.total, 1);
+        assert_eq!(
+            output.note.as_deref(),
+            Some(
+                "16 matching articles, 5 shown (page 1); request page=2 for the next articles \
+                 of this code."
+            )
+        );
+        let middle = code_paged(3, 5, code_page(Some(16), 5, PaginationMode::Article)).await;
+        assert!(middle.has_more);
+        assert!(middle.note.as_deref().is_some_and(|note| {
+            note.ends_with("request page=4 for the next articles of this code.")
+        }));
+    }
+
+    /// Le mode reçu ne compte pas : la page 1 de C12 demandée en `DEFAUT` répond `ARTICLE`, et
+    /// les fixtures CODE enregistrées ne s'accordent pas sur le mode.
+    #[tokio::test]
+    async fn the_received_mode_does_not_decide_has_more_for_articles() {
+        let output = code_paged(1, 5, code_page(Some(16), 5, PaginationMode::Defaut)).await;
+        assert!(output.has_more);
+        assert!(
+            output
+                .note
+                .as_deref()
+                .is_some_and(|note| note.starts_with("16 matching articles, 5 shown (page 1);"))
+        );
+    }
+
+    /// Jumeau : sans `total_articles` (mode `DEFAUT` ordinaire) rien ne change, ni `has_more`
+    /// ni note.
+    #[tokio::test]
+    async fn defaut_mode_ignores_total_articles() {
+        let output = code_paged(1, 5, code_page(None, 5, PaginationMode::Defaut)).await;
+        assert!(!output.has_more);
+        assert_eq!(output.note, None);
+    }
+
+    /// Dernière page : 16 articles à 5 par page, la page 4 en porte un et n'a pas de suite ; une
+    /// page pile à la fin non plus.
+    #[tokio::test]
+    async fn the_last_page_of_articles_has_no_follow_up() {
+        let last = code_paged(4, 5, code_page(Some(16), 1, PaginationMode::Article)).await;
+        assert!(!last.has_more);
+        assert_eq!(last.note, None);
+        let exact = code_paged(2, 5, code_page(Some(10), 5, PaginationMode::Article)).await;
+        assert!(!exact.has_more);
+        assert_eq!(exact.note, None);
+    }
+
+    /// La fenêtre de 10 000 s'applique aux articles comme aux textes.
+    #[tokio::test]
+    async fn the_reachable_window_applies_to_articles_too() {
+        let before =
+            code_paged(99, 100, code_page(Some(20_000), 100, PaginationMode::Article)).await;
+        assert!(before.has_more);
+        let end = code_paged(100, 100, code_page(Some(10_001), 100, PaginationMode::Article)).await;
+        assert!(!end.has_more);
+        assert_eq!(end.note.as_deref(), Some(REACHABLE_NOTE));
+    }
+
+    /// La note des articles s'ajoute aux notes de dégradation au lieu de les remplacer.
+    #[tokio::test]
+    async fn the_articles_note_is_joined_with_the_degradation_notes() {
+        let mut page = code_page(Some(400), 5, PaginationMode::Article);
+        page.hits.extend(
+            (2..=100)
+                .map(|n| SearchHit { snippet: Some(snippet(n as usize)), ..bare(Fond::Code, n) }),
+        );
+        let output = code_paged(1, 100, page).await;
+        let note = output.note.unwrap();
+        assert!(note.starts_with("400 matching articles, 5 shown (page 1);"), "{note}");
+        assert!(note.contains("Snippets were removed"), "{note}");
+    }
+
     #[tokio::test]
     async fn an_empty_search_is_a_success() {
         let corpus = serving(page_of(Fond::Loda, 0, vec![]));
@@ -785,7 +910,7 @@ mod tests {
             Fond::Juri,
             "bail",
             Some(57),
-            Some(12),
+            Some(8),
             vec![first.clone(), second.clone()],
             1,
             PaginationMode::Article,
@@ -794,7 +919,7 @@ mod tests {
         let input = SearchInput { fond: Some("JURI".to_owned()), ..text("bail") };
         let output = run(&corpus, &clock(), input).await.unwrap();
 
-        assert_eq!((output.total, output.total_articles, output.page), (57, Some(12), 1));
+        assert_eq!((output.total, output.total_articles, output.page), (57, Some(8), 1));
         assert_eq!(output.output_count_or_size(), 2);
         let ids: Vec<_> = output.hits.iter().map(|h| h.hit.id.as_str().to_owned()).collect();
         assert_eq!(ids, ["JURITEXT000000000001", "JURITEXT000000000002"]);
