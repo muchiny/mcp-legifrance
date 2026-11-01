@@ -116,8 +116,7 @@ fn map_hit(
     };
     check_origin(result.origin.as_deref(), hit.id.as_str(), diags);
     hit.cid = hit_cid(fond, &hit.id, title.and_then(|title| title.cid.as_deref()), diags);
-    hit.title =
-        restore_capped_title(fond, clean_field(title.and_then(|title| title.title.as_deref())));
+    hit.title = restore_capped_title(fond, title.and_then(|title| title.title.as_deref()));
     hit.nature = clean_field(result.nature.as_deref());
     hit.etat = status_of(result.etat.as_deref(), None);
     hit.idcc = result.idcc.as_deref().and_then(Idcc::parse);

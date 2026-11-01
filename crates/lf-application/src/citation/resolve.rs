@@ -608,7 +608,12 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
                 index: "LODA",
             }));
         }
-        let fits: Vec<TextFit> = hits.iter().map(|hit| text_fit(cite, hit)).collect();
+        // La date de signature se lit une fois par hit : l'ajustement et la confiance du hit
+        // retenu partent de la même lecture.
+        let signed: Vec<Option<CivilDate>> =
+            hits.iter().map(|hit| signed_on(hit, number)).collect();
+        let fits: Vec<TextFit> =
+            hits.iter().zip(&signed).map(|(hit, &signed)| text_fit(cite, hit, signed)).collect();
         let exact: Vec<usize> = fits
             .iter()
             .enumerate()
@@ -619,7 +624,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             ([only], _) => {
                 let hit = &hits[*only];
                 // Sûr seulement si la date citée a été comparée à celle du titre, et égale.
-                let compared = cite.date.is_some() && signed_on(hit, number) == cite.date;
+                let compared = cite.date.is_some() && signed[*only] == cite.date;
                 let confidence = if compared { Confidence::High } else { Confidence::Medium };
                 let record = ResolvedRecord::of(hit.id.clone(), hit);
                 TextStep::Found { id: ids[*only].clone(), record, confidence }
@@ -992,13 +997,14 @@ fn signed_on(hit: &SearchHit, number: &TextNumber) -> Option<CivilDate> {
     })
 }
 
-fn text_fit(cite: &TextCite, hit: &SearchHit) -> TextFit {
+/// Ajustement du hit à la citation, `signed` étant la date de signature lue dans son titre
+/// (`signed_on`).
+fn text_fit(cite: &TextCite, hit: &SearchHit, signed: Option<CivilDate>) -> TextFit {
     if let (Some(wanted), Some(actual)) = (plain_nature(cite.nature), hit.nature.as_deref())
         && fold_line(actual) != fold_line(wanted)
     {
         return TextFit::Nature(fold_line(actual).to_uppercase());
     }
-    let signed = cite.number.as_ref().and_then(|number| signed_on(hit, number));
     match (cite.date, signed) {
         (Some(cited), Some(actual)) if cited != actual => TextFit::Date(actual),
         _ => TextFit::Exact,
@@ -3300,20 +3306,20 @@ mod tests {
             let cite = text_cite(nature, Some((2016, 1321)), Some(day));
             let mut found = law_hit();
             found.nature = Some(name.to_lowercase());
-            assert_eq!(text_fit(&cite, &found), TextFit::Exact, "{name}");
+            assert_eq!(fit_of(&cite, &found), TextFit::Exact, "{name}");
             let other = if name == "LOI" { "DECRET" } else { "LOI" };
             found.nature = Some(other.to_owned());
-            assert_eq!(text_fit(&cite, &found), TextFit::Nature(other.to_owned()), "{name}");
+            assert_eq!(fit_of(&cite, &found), TextFit::Nature(other.to_owned()), "{name}");
         }
         // Une nature sans nom univoque ne se compare pas ; la date, si.
         let cite = text_cite(TextNature::Circulaire, Some((2016, 1321)), Some(day));
         let mut found = law_hit();
         found.nature = Some("DECRET".to_owned());
         found.title = Some("LOI n° 2016-1321 du 8 octobre 2016 pour une République".into());
-        assert_eq!(text_fit(&cite, &found), TextFit::Date(civil(2016, 10, 8)));
+        assert_eq!(fit_of(&cite, &found), TextFit::Date(civil(2016, 10, 8)));
         // Sans titre lisible, rien ne contredit la date citée.
         found.title = None;
-        assert_eq!(text_fit(&cite, &found), TextFit::Exact);
+        assert_eq!(fit_of(&cite, &found), TextFit::Exact);
     }
 
     #[test]
@@ -3397,6 +3403,11 @@ mod tests {
         ] {
             assert_eq!(text_keys(&number(year, 1419)), expected, "{year:?}");
         }
+    }
+
+    /// `text_fit` avec la date de signature lue dans le titre pour le numéro cité.
+    fn fit_of(cite: &TextCite, hit: &SearchHit) -> TextFit {
+        text_fit(cite, hit, cite.number.as_ref().and_then(|number| signed_on(hit, number)))
     }
 
     #[test]

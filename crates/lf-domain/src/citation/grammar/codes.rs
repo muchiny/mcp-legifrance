@@ -1273,8 +1273,12 @@ fn code_first(text: &str, start: usize) -> Option<Hit> {
         .and_then(|pos| art_kw(text, pos))
         .and_then(|pos| art_item(text, pos))?;
     // Un code appartient à une seule citation : un article qui porte le sien n'emprunte pas
-    // celui-ci. Un code qui ouvre à son tour une forme « code, art. » n'est pas le sien.
-    let own = gap(text, after_list(text, item.end)).and_then(|pos| code_part(text, pos));
+    // celui-ci. Un code qui ouvre à son tour une forme « code, art. » n'est pas le sien. Seul un
+    // code sans réserve compte comme le sien : un sigle ambigu (« CE »), une anaphore ou un titre
+    // hors dictionnaire qui suit l'article ne fait pas perdre le code explicite.
+    let own = gap(text, after_list(text, item.end))
+        .and_then(|pos| code_part(text, pos))
+        .filter(|own| matches!(own.code, CodeRef::Known(_)) && own.ambiguity.is_none());
     if own.is_some_and(|own| code_sep(text, own.end).and_then(|pos| art_kw(text, pos)).is_none()) {
         return None;
     }
@@ -2082,6 +2086,37 @@ mod tests {
                     ("C. civ., art. 9", "Code civil|9"),
                     ("C. pr. civ., art. 10", "Code de procédure civile|10"),
                 ],
+            ),
+        ]);
+    }
+
+    #[test]
+    fn a_reserved_code_after_the_article_does_not_steal_it_l1_02() {
+        check(&[
+            // Sigle ambigu : la jurisprudence du Conseil d'État citée après l'article.
+            (
+                "C. civ., art. 1240, CE, 12 mars 2020, n° 1",
+                &[ART_DOT],
+                &[("C. civ., art. 1240", "Code civil|1240")],
+            ),
+            (
+                "Code de justice administrative, art. L. 521-2, CE, ord. 1",
+                &[ART_DOT],
+                &[(
+                    "Code de justice administrative, art. L. 521-2",
+                    "Code de justice administrative|L521-2",
+                )],
+            ),
+            // Anaphore et titre hors dictionnaire : le code explicite est gardé.
+            (
+                "Code civil, art. 9 du même code",
+                &[ART_DOT],
+                &[("Code civil, art. 9", "Code civil|9")],
+            ),
+            (
+                "Code civil, art. 9 du code de la voirie communale",
+                &[ART_DOT],
+                &[("Code civil, art. 9", "Code civil|9")],
             ),
         ]);
     }

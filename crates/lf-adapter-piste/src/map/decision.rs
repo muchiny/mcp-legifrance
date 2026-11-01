@@ -76,7 +76,7 @@ pub(crate) fn decision(
         formation: clean_field(juri.formation.as_deref()),
         solution: clean_field(juri.solution.as_deref()),
         nature: clean_field(juri.nature.as_deref()),
-        title: restore_capped_title(fond, clean_field(juri.titre.as_deref())),
+        title: restore_capped_title(fond, juri.titre.as_deref()),
         ecli: native_ecli(juri.ecli.as_deref(), diags),
         numero_affaire: numero_affaire(fond, &juri.numero_affaire, juri.num.as_deref()),
         official_summary: summary_of(fond, &juri.sommaire),

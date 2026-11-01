@@ -188,11 +188,14 @@ fn present(query: &SearchQuery, page: SearchPage) -> Result<SearchOutput, AppErr
     // CODE : `page_size` compte des articles quand l'amont pagine par article, et `total` des
     // textes. Le mode reçu ne décide pas (il ne suit pas le mode demandé) : seul compte
     // `total_articles > page × page_size`, dans la fenêtre atteignable (L4-07).
-    let more_articles = page.total_articles.filter(|&count| has_more(number, size, count));
+    // Seul CODE compte des articles : un autre fond qui renseignerait `total_articles` n'ajoute
+    // ni suite ni note.
+    let articles = page.total_articles.filter(|_| page.fond == Fond::Code);
+    let more_articles = articles.filter(|&count| has_more(number, size, count));
     let more = more_articles.is_some() || has_more(number, size, page.total);
     // Il reste des résultats après cette page, mais la fenêtre atteignable s'arrête ici.
     let seen = u64::from(number.get()).saturating_mul(u64::from(size.get()));
-    let largest = page.total.max(page.total_articles.unwrap_or(0));
+    let largest = page.total.max(articles.unwrap_or(0));
     let note = more_articles
         .map(|count| articles_note(count, &page.hits, number))
         .or_else(|| (!more && seen < largest).then(|| REACHABLE_NOTE.to_owned()));
@@ -835,6 +838,28 @@ mod tests {
 
     /// Jumeau : sans `total_articles` (mode `DEFAUT` ordinaire) rien ne change, ni `has_more`
     /// ni note.
+    /// `total_articles` n'a de sens que pour CODE : un autre fond qui le renseignerait au-delà de
+    /// `page_size` n'obtient ni `has_more` ni note.
+    #[tokio::test]
+    async fn total_articles_of_a_fond_other_than_code_adds_no_more_and_no_note() {
+        for fond in [Fond::Juri, Fond::Loda] {
+            let page = SearchPage::new(
+                fond,
+                "bail",
+                Some(2),
+                Some(500),
+                vec![bare(fond, 1), bare(fond, 2)],
+                0,
+                PaginationMode::Article,
+            );
+            let corpus = serving(page);
+            let input = SearchInput { fond: Some(fond.name().to_owned()), ..text("bail") };
+            let output = run(&corpus, &clock(), input).await.unwrap();
+            assert!(!output.has_more, "{fond:?}");
+            assert_eq!(output.note, None, "{fond:?}");
+        }
+    }
+
     #[tokio::test]
     async fn defaut_mode_ignores_total_articles() {
         let output = code_paged(1, 5, code_page(None, 5, PaginationMode::Defaut)).await;

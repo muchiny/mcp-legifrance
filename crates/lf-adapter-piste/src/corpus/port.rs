@@ -19,6 +19,7 @@ use lf_domain::entity::{
     Act, ArticleText, ArticleVersion, CodeListing, CompanyAgreement, Convention, Decision,
     Deliberation, RelatedLinks, SearchHit, SearchPage,
 };
+use lf_domain::fond::{Fond, PaginationMode};
 use lf_domain::id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId};
 use lf_domain::search::{NumberQuery, SearchQuery};
 use serde::de::DeserializeOwned;
@@ -45,30 +46,53 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     }
 }
 
+impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
+    /// Une recherche envoyée en `mode`, et le mode reçu en réponse.
+    async fn search_in(
+        &self,
+        query: &SearchQuery,
+        mode: PaginationMode,
+    ) -> Result<(SearchPage, Option<PaginationMode>), CorpusError> {
+        let body = search_body(query, mode)?;
+        // Une page de taille 1 est demandée en taille 2 (L3-05) : on ne garde que son créneau.
+        let wire = wire_page_for(query.fond(), mode, query.page().get(), query.page_size().get());
+        self.fetch(
+            EndpointKind::Search,
+            endpoint::SEARCH,
+            &body,
+            |mut dto: SearchResponseDto, diags| {
+                dto.keep_window(
+                    endpoint::SEARCH,
+                    wire.page_size,
+                    wire.skip,
+                    query.page_size().get(),
+                )?;
+                search_page_with_mode(dto, query, diags)
+            },
+        )
+        .await
+    }
+}
+
 impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S> {
     async fn search(&self, query: &SearchQuery) -> Result<SearchPage, CorpusError> {
         let memo = &self.inner.memo;
         let mode = memo.mode_for(query);
-        let body = search_body(query, mode)?;
-        // Une page de taille 1 est demandée en taille 2 (L3-05) : on ne garde que son créneau.
-        let wire = wire_page_for(query.fond(), mode, query.page().get(), query.page_size().get());
-        let (page, received) = self
-            .fetch(
-                EndpointKind::Search,
-                endpoint::SEARCH,
-                &body,
-                |mut dto: SearchResponseDto, diags| {
-                    dto.keep_window(
-                        endpoint::SEARCH,
-                        wire.page_size,
-                        wire.skip,
-                        query.page_size().get(),
-                    )?;
-                    search_page_with_mode(dto, query, diags)
-                },
-            )
-            .await?;
+        let (page, received) = self.search_in(query, mode).await?;
         memo.remember(query, received);
+        // CODE, `page_size` 1, mode non mémorisé : la requête a été doublée en `DEFAUT` (L3-05),
+        // or l'amont répond `ARTICLE`, où la taille compte des articles. La page reçue (deux
+        // articles, coupée à un hit) n'est pas celle qui est demandée et la page suivante
+        // redonnerait un article déjà rendu : elle est relue une fois, en `ARTICLE`, non doublée.
+        let doubled =
+            wire_page_for(query.fond(), mode, query.page().get(), query.page_size().get())
+                .page_size
+                != query.page_size().get();
+        if doubled && query.fond() == Fond::Code && received == Some(PaginationMode::Article) {
+            let (page, received) = self.search_in(query, PaginationMode::Article).await?;
+            memo.remember(query, received);
+            return Ok(page);
+        }
         Ok(page)
     }
 
@@ -598,34 +622,96 @@ mod tests {
         );
     }
 
-    /// CODE en mode `ARTICLE` (mémorisé après une réponse `ARTICLE`) : `pageSize` compte des
-    /// articles ; la requête et la page lue restent inchangées, sans troncature.
+    /// Réponse `body` à une requête de la page `wire_page` et de la taille `wire_size`.
+    async fn sized_replies(rig: &Rig, wire_page: u32, wire_size: u32, body: &str) {
+        Mock::given(method("POST"))
+            .and(path(format!("{API_BASE}{}", endpoint::SEARCH)))
+            .and(body_partial_json(
+                json!({"recherche": {"pageNumber": wire_page, "pageSize": wire_size}}),
+            ))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_raw(body.to_owned(), "application/json"),
+            )
+            .mount(&rig.server)
+            .await;
+    }
+
+    /// `body` d'une page CODE à un seul hit, répondue en mode `ARTICLE`.
+    fn lone_article_page(body: &str) -> String {
+        let mut value: Value = serde_json::from_str(body).unwrap();
+        value["results"].as_array_mut().unwrap().truncate(1);
+        value["typePagination"] = json!("ARTICLE");
+        value.to_string()
+    }
+
+    /// CODE en mode `ARTICLE` (déjà mémorisé) : `pageSize` compte des articles ; la requête et la
+    /// page lue restent inchangées, sans troncature.
     #[tokio::test]
     async fn code_page_size_1_in_article_mode_is_left_alone() {
+        let lone = lone_article_page(CODE_PAGE_2);
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        sized_replies(&rig, 2, 1, &lone).await;
+        rig.corpus.inner.memo.remember(&sized(Fond::Code, 1, 1), Some(PaginationMode::Article));
+        // Requête inchangée (page 2, taille 1) ; doublée, elle aurait demandé la page 1 de
+        // taille 2 et rendu un autre hit.
+        let second = rig.corpus.search(&sized(Fond::Code, 2, 1)).await.unwrap();
+        assert_eq!(ids(&second), ["LEGITEXT000006070299"]);
+        assert_eq!(sent_pages(&rig).await, [(json!(2), json!(1))]);
+        assert_eq!(sent_modes(&rig).await, [json!("ARTICLE")]);
+    }
+
+    /// CODE `page_size` 1, première requête (mode inconnu) doublée en `DEFAUT` mais répondue en
+    /// `ARTICLE` : la page de deux articles n'est pas celle qui est demandée. Elle est relue en
+    /// `ARTICLE`, non doublée, et ne rend qu'un article ; la page 2 le suit sans doublon.
+    #[tokio::test]
+    async fn code_page_size_1_first_page_answered_by_article_is_read_again() {
         let by_article = CODE_PAGE_1.replacen(
             r#""typePagination":"DEFAUT""#,
             r#""typePagination":"ARTICLE""#,
             1,
         );
         assert_ne!(by_article, CODE_PAGE_1);
-        let lone = {
-            let mut value: Value = serde_json::from_str(CODE_PAGE_2).unwrap();
-            value["results"].as_array_mut().unwrap().truncate(1);
-            value.to_string()
-        };
         let rig = Rig::new().await;
         token_mock(&rig.server, "tok-1", 1).await;
-        page_replies(&rig, 1, &by_article).await;
-        page_replies(&rig, 2, &lone).await;
-        // La page 1 part en DEFAUT (doublée, tronquée à un hit) et mémorise le mode ARTICLE.
+        sized_replies(&rig, 1, 2, &by_article).await;
+        sized_replies(&rig, 1, 1, &lone_article_page(CODE_PAGE_1)).await;
+        sized_replies(&rig, 2, 1, &lone_article_page(CODE_PAGE_2)).await;
         let first = rig.corpus.search(&sized(Fond::Code, 1, 1)).await.unwrap();
-        // La page 2 suit le mémo : requête inchangée (page 2, taille 1), l'unique résultat reçu
-        // est gardé ; doublée, elle aurait demandé la page 1 de taille 2 et rendu un autre hit.
         let second = rig.corpus.search(&sized(Fond::Code, 2, 1)).await.unwrap();
         assert_eq!(ids(&first), ["LEGITEXT000005634379"]);
         assert_eq!(ids(&second), ["LEGITEXT000006070299"]);
-        assert_eq!(sent_pages(&rig).await, [(json!(1), json!(2)), (json!(2), json!(1))]);
-        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("ARTICLE")]);
+        assert_eq!(
+            sent_pages(&rig).await,
+            [(json!(1), json!(2)), (json!(1), json!(1)), (json!(2), json!(1))]
+        );
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("ARTICLE"), json!("ARTICLE")]);
+    }
+
+    /// L'échec de la relecture est rendu tel quel, sans page tronquée.
+    #[tokio::test]
+    async fn a_failing_second_read_of_a_code_page_is_an_error() {
+        let by_article = CODE_PAGE_1.replacen(
+            r#""typePagination":"DEFAUT""#,
+            r#""typePagination":"ARTICLE""#,
+            1,
+        );
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        sized_replies(&rig, 1, 2, &by_article).await;
+        assert!(rig.corpus.search(&sized(Fond::Code, 1, 1)).await.is_err());
+        assert_eq!(sent_pages(&rig).await.first(), Some(&(json!(1), json!(2))));
+    }
+
+    /// Jumeau : une première page CODE `page_size` 1 répondue en `DEFAUT` n'est pas relue.
+    #[tokio::test]
+    async fn code_page_size_1_first_page_answered_by_defaut_is_not_read_again() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        sized_replies(&rig, 1, 2, CODE_PAGE_1).await;
+        let first = rig.corpus.search(&sized(Fond::Code, 1, 1)).await.unwrap();
+        assert_eq!(ids(&first), ["LEGITEXT000005634379"]);
+        assert_eq!(sent_pages(&rig).await, [(json!(1), json!(2))]);
     }
 
     #[tokio::test]
