@@ -1234,17 +1234,22 @@ fn candidates_of_hits(hits: &[SearchHit]) -> Outcome {
     Outcome::Candidates { items, note: Note::Candidates { n: hits.len() } }
 }
 
-/// Date de la décision, lue dans le titre du hit (« Cour de cassation, civile, Chambre sociale,
-/// 21 mai 2025, 22-11.901 », « Conseil d'État, …, 30/01/2020, 419837 »). Les hits JURI, CETAT et
-/// CONSTIT n'ont aucune date propre : `date`, `datePublication` et `dateSignature` valent null.
-/// Seule la première décision du titre compte (celui du Conseil constitutionnel cite des lois).
-/// `None` si le titre manque ou ne se lit pas.
+/// Date de la décision, lue dans le titre du hit. Les hits JURI, CETAT et CONSTIT n'ont aucune
+/// date propre : `date`, `datePublication` et `dateSignature` valent null. Formes relevées en
+/// bac à sable : « Cour de Cassation, Chambre sociale, du 18 octobre 1989, 00-00.000, Inédit »,
+/// « Cour de cassation, civile, Chambre sociale, 21 mai 2025, 23-11.110, Publié au bulletin »,
+/// « Tribunal des Conflits, du 1 décembre 2003, … », « Conseil d'État, …, 30/01/2020, 419837 »,
+/// « Décision 2018-769 DC - 04 septembre 2018 - Loi … ». Le titre se découpe en segments (aux
+/// virgules et aux « - ») ; le premier segment qui est exactement une date, précédée ou non de
+/// « du », est celle de la décision (celui du Conseil constitutionnel cite ensuite des lois, dans
+/// un segment plus long). `None` si le titre manque ou ne se lit pas : il n'écarte alors rien.
 fn judged_on(hit: &SearchHit) -> Option<CivilDate> {
     let title = hit.title.as_deref()?;
-    parse(title).into_iter().find_map(|item| match item.value {
-        CitationRef::Decision(decision) => Some(decision.date),
-        _ => None,
-    })?
+    title.split(',').flat_map(|part| part.split(" - ")).find_map(|segment| {
+        let segment = segment.trim();
+        let date = segment.strip_prefix("du ").unwrap_or(segment);
+        CivilDate::from_french(date)
+    })
 }
 
 /// Plusieurs décisions portent ce numéro et toutes sont datées d'un autre jour que `cited`. Une
@@ -2164,6 +2169,37 @@ mod tests {
         assert_eq!(corpus.calls_of("get_decision"), 0);
     }
 
+    /// errors-6 rejoué sur les titres réels de la sandbox (« …, du 19 janvier 2004, 00-00.000,
+    /// Publié au bulletin ») : huit enregistrements, aucun le 17 mars 2021.
+    #[tokio::test]
+    async fn sandbox_titles_of_eight_records_none_on_the_cited_day_are_unresolvable() {
+        let ids = juri_ids(8);
+        let titles = [
+            "Cour de Cassation, Chambre civile 2, du 25 janvier 1989, 00-00.000, Inédit",
+            "Cour de Cassation, Chambre civile 3, du 20 juillet 1989, 00-00.000, Inédit",
+            "Cour de Cassation, Chambre sociale, du 18 octobre 1989, 00-00.000, Inédit",
+            "Cour de Cassation, Cour de cassation saisie pour avis, du 1 décembre 2003, 00-00.000, Publié au bulletin",
+            "Tribunal des Conflits, du 19 janvier 2004, 00-00.000, Publié au bulletin",
+            "Tribunal des Conflits, du 19 janvier 2004, 00-00.000, Publié au bulletin",
+            "Tribunal des Conflits, du 19 janvier 2004, 00-00.000, Publié au bulletin",
+            "Tribunal des Conflits, du 19 janvier 2004, 00-00.000, Publié au bulletin",
+        ];
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(ids
+            .iter()
+            .zip(titles)
+            .map(|(id, title)| titled(Fond::Juri, id, title))
+            .collect()));
+        let resolution = resolve(&corpus, SOC_CITED).await;
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable);
+        assert_eq!(
+            note(&resolution),
+            "8 records share number 00-00.000, none dated 2021-03-17; dates found: 1989-01-25, \
+             1989-07-20, 1989-10-18, 2003-12-01, 2004-01-19."
+        );
+        assert_eq!(corpus.calls_of("get_decision"), 0);
+    }
+
     /// Jumeaux : un titre à la date citée garde les candidats ; un titre illisible n'écarte rien ;
     /// sans date citée, rien n'est filtré.
     #[tokio::test]
@@ -2212,7 +2248,57 @@ mod tests {
             ),
             Some(civil(2000, 7, 27))
         );
-        // Un titre sans date, sans décision (un texte seul) ou absent ne se lit pas.
+        // Titres réels de la sandbox (errors-6) : « du », jour « 1 » sans « er », juridictions
+        // sans chambre, majuscules.
+        assert_eq!(
+            dated("Tribunal des Conflits, du 19 janvier 2004, 00-00.000, Publié au bulletin"),
+            Some(civil(2004, 1, 19))
+        );
+        assert_eq!(
+            dated("Cour de Cassation, Chambre sociale, du 18 octobre 1989, 00-00.000, Inédit"),
+            Some(civil(1989, 10, 18))
+        );
+        assert_eq!(
+            dated(
+                "Cour de Cassation, Cour de cassation saisie pour avis, du 1 décembre 2003, 00-00.000, Publié au bulletin"
+            ),
+            Some(civil(2003, 12, 1))
+        );
+        assert_eq!(
+            dated(
+                "Cour de cassation, civile, Chambre sociale, 21 mai 2025, 23-11.110, Publié au bulletin"
+            ),
+            Some(civil(2025, 5, 21))
+        );
+        // Autres formes relevées : cour d'appel (sans numéro de pourvoi), CAA, CONSTIT à jour
+        // zéro-rempli, « 1er ».
+        assert_eq!(
+            dated("Cour d'appel de Reims, soc, du 29 janvier 2003, 99/02184"),
+            Some(civil(2003, 1, 29))
+        );
+        assert_eq!(
+            dated(
+                "CAA de MARSEILLE, 1ère chambre - formation à 3, 07/06/2018, 16MA02959, Inédit au recueil Lebon"
+            ),
+            Some(civil(2018, 6, 7))
+        );
+        assert_eq!(
+            dated(
+                "Décision 2018-769 DC - 04 septembre 2018 - Loi pour la <mark>liberté</mark> de choisir"
+            ),
+            Some(civil(2018, 9, 4))
+        );
+        assert_eq!(
+            dated("Cour de Cassation, Chambre civile 1, du 1er juillet 1981, 79-14.757, Inédit"),
+            Some(civil(1981, 7, 1))
+        );
+        // Un titre sans date, sans décision (un texte seul) ou absent ne se lit pas ; un jour
+        // impossible non plus.
+        assert_eq!(dated("Cour de Cassation, Chambre sociale, 77-41.406, Inédit"), None);
+        assert_eq!(
+            dated("Cour de Cassation, Chambre sociale, du 31 février 2003, 77-41.406"),
+            None
+        );
         assert_eq!(dated("Cour de cassation, Chambre sociale, 22-11.901"), None);
         assert_eq!(dated("Loi n° 2016-1321 du 7 octobre 2016"), None);
         assert_eq!(judged_on(&hit(Fond::Juri, "JURITEXT000000000001")), None);

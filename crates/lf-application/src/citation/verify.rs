@@ -404,6 +404,34 @@ mod tests {
         assert_eq!(corpus.calls(), 0);
     }
 
+    /// errors-6 rejoué par `fr_verify_citations` sur les titres réels de la sandbox : huit
+    /// enregistrements, aucun le 17 mars 2021, donc « unresolvable » et non « 8 records match ».
+    #[tokio::test]
+    async fn eight_sandbox_records_none_on_the_cited_day_are_unresolvable() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok((1..=8)
+            .map(|n| {
+                let mut hit = hit(Fond::Juri, &format!("JURITEXT{n:012}"));
+                hit.title = Some(
+                    "Tribunal des Conflits, du 19 janvier 2004, 00-00.000, Publié au bulletin"
+                        .to_owned(),
+                );
+                hit
+            })
+            .collect()));
+        let verification =
+            verify(&corpus, PisteEnvironment::Sandbox, "Cass. soc., 17 mars 2021, n° 00-00.000")
+                .await
+                .unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Unresolvable);
+        assert_eq!(
+            note_text(check),
+            "8 records share number 00-00.000, none dated 2021-03-17; dates found: 2004-01-19."
+        );
+        assert_eq!(corpus.calls_of("get_decision"), 0);
+    }
+
     #[tokio::test]
     async fn n24_sandbox_article_9999_is_unresolvable_with_the_sandbox_note() {
         let corpus = FakeCorpus::new();
