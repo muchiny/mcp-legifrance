@@ -263,6 +263,8 @@ mod tests {
             // Ordinal du Conseil constitutionnel sans numéro d'ordre, ou sans type.
             ("ECLI:FR:CC:2023:2023.abc.QPC", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cc)]),
             ("ECLI:FR:CC:2023:2023.12", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cc)]),
+            // Un quatrième composant après le type n'est pas un ordinal du Conseil constitutionnel.
+            ("ECLI:FR:CC:2023:2023.12.QPC.X", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cc)]),
             ("ECLI:FR:CCASS:2099:XX99999", vec![Flag::ChambreCassInconnue("XX".into())]),
             ("ECLI:FR:CCASS:2025:C10039", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cass)]),
             ("ECLI:FR:CECHR:2026:506507.2026", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Ce)]),

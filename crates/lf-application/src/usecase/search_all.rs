@@ -599,8 +599,7 @@ mod tests {
         // E2E search_all-1 : six fonds échouaient tous en 503 ; une seule erreur locale désormais.
         for odd in ["\"licenciement", "licenciement\""] {
             let corpus = FakeCorpus::new();
-            let error = SearchAllUseCase::new(&corpus, &clock())
-                .execute(all_of(Some(odd), Some(&["LODA", "JURI", "CODE"]), Some(1)), |_, _| {})
+            let error = run(&corpus, all_of(Some(odd), Some(&["LODA", "JURI", "CODE"]), Some(1)))
                 .await
                 .unwrap_err();
             assert_eq!(error.code(), Some(ErrorCode::InvalidArg), "{odd:?}");
