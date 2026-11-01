@@ -151,7 +151,7 @@ fn parse_focus(raw: &str) -> Result<Focus, AppError> {
 fn parse_offset(raw: Option<i64>, detail: Option<Detail>) -> Result<usize, AppError> {
     let Some(raw) = raw else { return Ok(0) };
     let Ok(offset) = usize::try_from(raw) else {
-        return Err(messages::out_of_range("offset", raw, 0, i64::MAX));
+        return Err(messages::out_of_range("offset", raw, 0, i64::from(u32::MAX)));
     };
     if offset > 0 && detail == Some(Detail::Summary) {
         return Err(messages::invalid_argument(OFFSET_NEEDS_FULL));
@@ -504,11 +504,11 @@ mod tests {
                 i.detail = Some("summary".to_owned());
                 i.offset = Some(-1);
             }),
-            invalid("offset=-1 out of range (0..).")
+            invalid("offset=-1 out of range (0..4294967295).")
         );
         assert_eq!(
             refusal(|i| i.offset = Some(i64::MIN)),
-            invalid(&format!("offset={} out of range (0..).", i64::MIN))
+            invalid(&format!("offset={} out of range (0..4294967295).", i64::MIN))
         );
         // `focus` l'emporte : l'offset est ignoré, donc sans conflit avec le résumé.
         let focused = request(|i| {
@@ -562,7 +562,7 @@ mod tests {
                 i.offset = Some(-3);
                 i.max_chars = Some(1);
             }),
-            invalid("offset=-3 out of range (0..).")
+            invalid("offset=-3 out of range (0..4294967295).")
         );
     }
 
@@ -615,6 +615,20 @@ mod tests {
                 )
             );
         }
+    }
+
+    #[test]
+    fn a_focus_over_500_characters_gives_its_length_not_a_value() {
+        // L4-09 (protocol-13) : « focus is 501 characters long », pas « focus=501 out of range ».
+        for length in [501, 1_396] {
+            assert_eq!(
+                refusal(|i| i.focus = Some("a".repeat(length))),
+                invalid(&format!("focus is {length} characters long (max 500); shorten it."))
+            );
+        }
+        // Jumeau : 500 caractères exactement sont acceptés.
+        let accepted = request(|i| i.focus = Some("a".repeat(500)));
+        assert!(matches!(accepted.mode, Mode::Passages { .. }));
     }
 
     #[test]
@@ -685,7 +699,7 @@ mod tests {
         };
         let past = |offset: usize, length: usize| {
             Err(invalid(&format!(
-                "offset={offset} is past the end of the text (text_length={length}); restart \
+                "offset={offset} is at or past the end of the text (text_length={length}); restart \
                  from offset=0 or omit offset."
             )))
         };

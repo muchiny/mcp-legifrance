@@ -394,7 +394,7 @@ mod tests {
         assert_eq!(
             error,
             AppError::invalid_argument(
-                "offset=593 is past the end of the text (text_length=593); restart from offset=0 \
+                "offset=593 is at or past the end of the text (text_length=593); restart from offset=0 \
                  or omit offset."
             )
         );
@@ -449,7 +449,7 @@ mod tests {
                 },
                 "offset requires detail=\"full\" (or omit detail).",
             ),
-            (|i| i.offset = Some(-1), "offset=-1 out of range (0..)."),
+            (|i| i.offset = Some(-1), "offset=-1 out of range (0..4294967295)."),
             (
                 |i| {
                     i.focus = Some("le de la".to_owned());

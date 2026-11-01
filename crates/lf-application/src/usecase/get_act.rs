@@ -556,7 +556,7 @@ mod tests {
             failure(&error),
             (
                 Some(ErrorCode::InvalidArg),
-                "date='2999-01-01' is not a valid date (expected YYYY-MM-DD, e.g. 2026-10-15)."
+                "date='2999-01-01' is outside the supported range (1500-01-01..2221-12-31)."
             )
         );
         assert_eq!(corpus.calls(), 0);

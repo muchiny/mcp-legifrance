@@ -484,6 +484,7 @@ mod tests {
     }
 
     const NOT_A_DATE: &str = "is not a valid date (expected YYYY-MM-DD, e.g. 2026-10-15).";
+    const OUT_OF_RANGE: &str = "is outside the supported range (1500-01-01..2221-12-31).";
 
     #[tokio::test]
     async fn search_validation_order_matches_reference() {
@@ -543,7 +544,7 @@ mod tests {
         }
         assert_eq!(
             rejected(text(&"a".repeat(612))).await,
-            "query is too long (612 characters, max 450); shorten it or use match=\"all\"."
+            "query is too long (612 characters, max 450); shorten it."
         );
     }
 
@@ -617,8 +618,16 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_date_is_rejected_locally() {
-        let bad = ["2016-13-45", "07/10/2016", "", " 2016-10-07", "2999-01-01", "1499-12-31"];
-        for value in bad {
+        let bad = [
+            ("2016-13-45", NOT_A_DATE),
+            ("07/10/2016", NOT_A_DATE),
+            ("", NOT_A_DATE),
+            (" 2016-10-07", NOT_A_DATE),
+            // Bien formées mais hors plage : le message le dit (L4-09, protocol-6).
+            ("2999-01-01", OUT_OF_RANGE),
+            ("1499-12-31", OUT_OF_RANGE),
+        ];
+        for (value, reason) in bad {
             let dates = [
                 ("date_from", SearchInput { date_from: Some(value.to_owned()), ..text("bail") }),
                 ("date_to", SearchInput { date_to: Some(value.to_owned()), ..text("bail") }),
@@ -628,7 +637,7 @@ mod tests {
                 ),
             ];
             for (name, input) in dates {
-                assert_eq!(rejected(input).await, format!("{name}='{value}' {NOT_A_DATE}"));
+                assert_eq!(rejected(input).await, format!("{name}='{value}' {reason}"));
             }
         }
     }

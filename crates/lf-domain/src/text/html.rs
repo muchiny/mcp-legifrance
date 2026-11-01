@@ -629,7 +629,7 @@ fn is_blank_control(c: char) -> bool {
 
 /// Caractère du jeu de [`strip_invisible`] : contrôle autre que `\t`, `\n` et `\r`, ou point de
 /// code « ignorable par défaut ».
-pub(crate) fn is_invisible(c: char) -> bool {
+pub fn is_invisible(c: char) -> bool {
     let control = c.is_control() && !matches!(c, '\t' | '\n' | '\r');
     control || is_default_ignorable(c)
 }

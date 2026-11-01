@@ -408,7 +408,7 @@ mod tests {
         assert_eq!(
             error,
             AppError::invalid_argument(
-                "offset=20000 is past the end of the text (text_length=17); restart from \
+                "offset=20000 is at or past the end of the text (text_length=17); restart from \
                  offset=0 or omit offset."
             )
         );

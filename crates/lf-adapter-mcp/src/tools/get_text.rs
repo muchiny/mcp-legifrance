@@ -358,7 +358,7 @@ mod tests {
         assert_eq!(result.is_error, Some(true));
         assert_eq!(
             text_of(&result),
-            "[invalid_arg] offset=322 is past the end of the text (text_length=322); restart from \
+            "[invalid_arg] offset=322 is at or past the end of the text (text_length=322); restart from \
              offset=0 or omit offset."
         );
     }

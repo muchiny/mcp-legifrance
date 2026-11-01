@@ -26,7 +26,7 @@ impl Focus {
     ///
     /// # Errors
     ///
-    /// - [`DomainError::OutOfRange`] (`focus`, 1 à 500) si la valeur, une fois ses blancs de bord
+    /// - [`DomainError::FocusTooLong`] si la valeur, une fois ses blancs de bord
     ///   retirés, dépasse [`FOCUS_MAX_CHARS`] caractères ;
     /// - [`DomainError::FocusWithoutTerms`] si aucun mot recherchable ne reste (vide, ponctuation
     ///   seule ou mots vides seuls).
@@ -34,12 +34,7 @@ impl Focus {
         let trimmed = raw.trim();
         let len = trimmed.chars().count();
         if len > FOCUS_MAX_CHARS {
-            return Err(DomainError::OutOfRange {
-                field: "focus",
-                value: i64::try_from(len).unwrap_or(i64::MAX),
-                min: 1,
-                max: i64::try_from(FOCUS_MAX_CHARS).unwrap_or(i64::MAX),
-            });
+            return Err(DomainError::FocusTooLong { len, max: FOCUS_MAX_CHARS });
         }
         let mut terms: Vec<String> = Vec::new();
         for token in legal_tokens(trimmed) {
@@ -128,7 +123,7 @@ mod tests {
         let word = "a".repeat(501);
         assert_eq!(
             Focus::parse(&word).unwrap_err(),
-            DomainError::OutOfRange { field: "focus", value: 501, min: 1, max: 500 }
+            DomainError::FocusTooLong { len: 501, max: 500 }
         );
         // 500 caractères exactement : accepté, un seul terme.
         assert_eq!(Focus::parse(&"a".repeat(500)).unwrap().terms(), ["a".repeat(500)]);
@@ -139,14 +134,14 @@ mod tests {
         assert_eq!(Focus::parse(&"é".repeat(500)).unwrap().terms(), ["e".repeat(500)]);
         assert_eq!(
             Focus::parse(&"é".repeat(501)).unwrap_err(),
-            DomainError::OutOfRange { field: "focus", value: 501, min: 1, max: 500 }
+            DomainError::FocusTooLong { len: 501, max: 500 }
         );
         // La borne passe avant les mots vides : 600 caractères de mots vides sont refusés
         // comme trop longs, pas comme vides.
         let stop = "le ".repeat(200);
         assert_eq!(
             Focus::parse(&stop).unwrap_err(),
-            DomainError::OutOfRange { field: "focus", value: 599, min: 1, max: 500 }
+            DomainError::FocusTooLong { len: 599, max: 500 }
         );
     }
 

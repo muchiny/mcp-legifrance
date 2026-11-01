@@ -454,7 +454,7 @@ mod tests {
         let negative = read_with(&corpus, reading(|r| r.offset = Some(-5))).await.unwrap_err();
 
         assert_eq!(summary.message(), "offset requires detail=\"full\" (or omit detail).");
-        assert_eq!(negative.message(), "offset=-5 out of range (0..).");
+        assert_eq!(negative.message(), "offset=-5 out of range (0..4294967295).");
         assert_eq!(corpus.calls(), 0);
     }
 
@@ -472,7 +472,7 @@ mod tests {
         assert_eq!(
             error.message(),
             format!(
-                "offset={length} is past the end of the text (text_length={length}); restart from \
+                "offset={length} is at or past the end of the text (text_length={length}); restart from \
                  offset=0 or omit offset."
             )
         );

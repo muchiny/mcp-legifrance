@@ -238,6 +238,20 @@ impl CivilDate {
             .ok_or_else(|| DomainError::InvalidDate { input: echo(input) })
     }
 
+    /// Vrai si `input` est exactement une date civile `AAAA-MM-JJ` (années 1 à 9999), quelle que
+    /// soit la plage d'un [`VersionDate`] : distingue une date bien formée hors plage d'une
+    /// saisie illisible quand [`VersionDate::parse`] la refuse.
+    ///
+    /// ```
+    /// use lf_domain::date::CivilDate;
+    ///
+    /// assert!(CivilDate::is_iso("2999-01-01"));
+    /// assert!(!CivilDate::is_iso("2016-13-45"));
+    /// ```
+    pub fn is_iso(input: &str) -> bool {
+        Self::parse_iso(input.as_bytes()).is_some()
+    }
+
     /// Lit exactement `AAAA-MM-JJ`, sans rognage. Sert aussi au suffixe de version
     /// des identifiants (`JJ-MM-AAAA` réordonné, `id.rs`).
     #[expect(
@@ -359,6 +373,18 @@ mod tests {
 
     fn d(y: u16, m: u8, day: u8) -> CivilDate {
         CivilDate::new(y, m, day).unwrap()
+    }
+
+    #[test]
+    fn is_iso_tells_a_calendar_date_from_unreadable_input() {
+        for good in ["2016-10-07", "2999-01-01", "0001-01-01", "1000-01-01", "9999-12-31"] {
+            assert!(CivilDate::is_iso(good), "{good}");
+        }
+        for bad in
+            ["", "2016-13-45", "2016-02-30", "07/10/2016", " 2016-10-07", "2016-1-07", "0000-01-01"]
+        {
+            assert!(!CivilDate::is_iso(bad), "{bad:?}");
+        }
     }
 
     #[test]

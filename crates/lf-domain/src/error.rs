@@ -201,12 +201,21 @@ pub enum DomainError {
     },
     /// `offset` de lecture égal ou supérieur à la longueur du texte (03 §7.6, 05 §6.1) : la
     /// fenêtre serait vide. Un texte vide lu à `offset = 0` n'est pas une erreur.
-    #[error("offset={offset} is past the end of the text (text_length={text_length})")]
+    #[error("offset={offset} is at or past the end of the text (text_length={text_length})")]
     OffsetPastEnd {
         /// Décalage demandé, en caractères.
         offset: usize,
         /// Longueur du texte, en caractères.
         text_length: usize,
+    },
+    /// `focus` de plus de [`FOCUS_MAX_CHARS`](crate::text::FOCUS_MAX_CHARS) caractères (03 §7.8) :
+    /// la longueur reçue n'est pas une valeur du paramètre, d'où une variante propre.
+    #[error("focus is {len} characters long (max {max})")]
+    FocusTooLong {
+        /// Longueur de `focus` après rognage des blancs de bord, en caractères.
+        len: usize,
+        /// Longueur maximale acceptée.
+        max: usize,
     },
     /// `focus` sans mot recherchable : vide, ponctuation seule ou mots vides seuls (03 §7.8).
     #[error("focus contains no searchable word")]
@@ -256,6 +265,7 @@ mod tests {
             | DomainError::QueryTooLong { .. }
             | DomainError::UnbalancedQuotes
             | DomainError::OutOfRange { .. }
+            | DomainError::FocusTooLong { .. }
             | DomainError::VersionDateNotApplicable { .. }
             | DomainError::DateFilterNotApplicable { .. }
             | DomainError::PageBeyondReach { .. }
@@ -373,9 +383,13 @@ mod tests {
     fn reading_and_number_errors_have_actionable_messages() {
         assert_eq!(
             DomainError::OffsetPastEnd { offset: 20_000, text_length: 14_332 }.to_string(),
-            "offset=20000 is past the end of the text (text_length=14332)"
+            "offset=20000 is at or past the end of the text (text_length=14332)"
         );
         assert_eq!(DomainError::FocusWithoutTerms.to_string(), "focus contains no searchable word");
+        assert_eq!(
+            DomainError::FocusTooLong { len: 1396, max: 500 }.to_string(),
+            "focus is 1396 characters long (max 500)"
+        );
         assert_eq!(
             DomainError::NumberKindNotApplicable { fond: Fond::Cnil, kind: "ecli" }.to_string(),
             "ecli is not a number kind of fond CNIL"
@@ -442,6 +456,7 @@ mod tests {
             DomainError::PageBeyondReach { page: 200, page_size: 100, max: 10_000 },
             DomainError::TextTooLarge { chars: 16_000_001 },
             DomainError::OffsetPastEnd { offset: 20_000, text_length: 14_332 },
+            DomainError::FocusTooLong { len: 501, max: 500 },
             DomainError::FocusWithoutTerms,
             DomainError::NumberKindNotApplicable { fond: Fond::Cnil, kind: "ecli" },
         ] {
