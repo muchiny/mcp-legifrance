@@ -1466,10 +1466,17 @@ mod tests {
 
     #[test]
     fn shown_escapes_exactly_the_invisible_set_of_the_domain() {
-        // Dérive : `shown` et `is_invisible` du domaine partagent une seule définition. Pour
-        // chaque plage de la spécification 03 §7.3 (SPEC_INVISIBLE de `clean.rs`), premier,
-        // milieu et dernier point sont échappés ; leurs voisins immédiats ne le sont pas.
-        let ranges: [(u32, u32); 17] = [
+        // Dérive : `shown` et `is_invisible` du domaine partagent une seule définition. La table
+        // reprend les 21 plages de la spécification 03 §7.3 (`SPEC_INVISIBLE` de `clean.rs`, privée
+        // à ses tests : une table d'une autre caisse ne s'importe pas). Chaque point de code Unicode
+        // est contrôlé : `is_invisible` vaut la table, et `shown` échappe exactement la table, les
+        // contrôles et les séparateurs U+2028 et U+2029 (les lettres, symboles et emoji restent
+        // tels quels). `\t`, `\n`, `\r` et `\` ont leur propre échappement, vérifié ailleurs.
+        let ranges: [(u32, u32); 21] = [
+            (0x0, 0x8),
+            (0xb, 0xc),
+            (0xe, 0x1f),
+            (0x7f, 0x9f),
             (0xad, 0xad),
             (0x34f, 0x34f),
             (0x61c, 0x61c),
@@ -1488,22 +1495,18 @@ mod tests {
             (0x1d173, 0x1d17a),
             (0xe0000, 0xe0fff),
         ];
-        for (first, last) in ranges {
-            for code in [first, u32::midpoint(first, last), last] {
-                let c = char::from_u32(code).unwrap();
-                assert_eq!(shown(&c.to_string()), c.escape_unicode().to_string(), "{c:?}");
+        for code in 0..=0x0010_ffff_u32 {
+            let Some(c) = char::from_u32(code) else { continue };
+            if matches!(c, '\t' | '\n' | '\r' | '\\') {
+                continue;
             }
-            for code in [first - 1, last + 1] {
-                let c = char::from_u32(code).unwrap();
-                let echoed = shown(&c.to_string());
-                // Un voisin n'est échappé que s'il appartient lui-même à une autre plage ou
-                // aux contrôles : jamais pour une lettre ou un symbole ordinaire.
-                if !c.is_control()
-                    && !matches!(c, '\u{2028}' | '\u{2029}')
-                    && !lf_domain::text::is_invisible(c)
-                {
-                    assert_eq!(echoed, c.to_string(), "{c:?}");
-                }
+            let in_spec = ranges.iter().any(|&(first, last)| (first..=last).contains(&code));
+            assert_eq!(lf_domain::text::is_invisible(c), in_spec, "{c:?}");
+            let escaped = shown(&c.to_string()) == c.escape_unicode().to_string();
+            let expected = in_spec || c.is_control() || matches!(c, '\u{2028}' | '\u{2029}');
+            assert_eq!(escaped, expected, "{c:?}");
+            if !expected {
+                assert_eq!(shown(&c.to_string()), c.to_string(), "{c:?}");
             }
         }
     }

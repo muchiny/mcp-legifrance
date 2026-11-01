@@ -12,8 +12,8 @@ use crate::text::{clean, fold::fold};
 ///
 /// Chaque liste est normalisée par [`OfficialSummary::new`] : entrées nettoyées sur une
 /// seule ligne, code(s) de classement de tête retiré(s), entrées coupées sur les suites de
-/// quatre points ou plus, entrées vides écartées, doublons supprimés. Le sens de `analyses` et `titrages` dépend du fond (03 §4.4) ; une liste
-/// vide signifie que l'API n'en fournit pas.
+/// quatre points ou plus, entrées vides écartées, doublons supprimés. Le sens de `analyses` et
+/// `titrages` dépend du fond (03 §4.4) ; une liste vide signifie que l'API n'en fournit pas.
 ///
 /// `Debug` n'écrit jamais les entrées (texte du corps d'une décision), seulement leur nombre.
 #[derive(Clone, PartialEq, Eq, Default)]
@@ -90,7 +90,8 @@ where
 /// soit un préfixe `CETAT` facultatif sur le premier code, exactement deux chiffres ASCII,
 /// puis zéro, un ou plusieurs groupes `-NN` ou `-NNN` (un tiret suivi de deux ou trois
 /// chiffres, jamais un, jamais quatre). Une liste enchaîne d'autres codes après une virgule
-/// suivie d'au moins un blanc (`01-01-02-02, 15-03-01-01`) et les marques de recueil `RJ1`,
+/// suivie d'au moins un blanc (`01-01-02-02, 15-03-01-01`) ; chaque code après la virgule porte au
+/// moins un groupe `-NN`, de sorte que `12, 15 Euros` reste intact ; et les marques de recueil `RJ1`,
 /// `RJ2` des titrages du Conseil d'État (`CETAT01-01-02-02,RJ1,RJ2`). Une subdivision d'une
 /// lettre minuscule suivie d'une parenthèse fermante (`01-04-005 a)`) peut suivre. Le tout
 /// n'est retiré, avec ses blancs, que si au moins un blanc sépare la liste du reste et que
@@ -108,7 +109,7 @@ fn strip_class_code(entry: &str) -> &str {
         let blank = item.len() != tail.len();
         if let Some(len) = mark_len(item) {
             rest = &item[len..];
-        } else if let Some(len) = code_len(item).filter(|_| blank) {
+        } else if let Some(len) = code_len(item).filter(|&len| blank && len > 2) {
             rest = &item[len..];
         } else {
             return entry;
@@ -154,7 +155,9 @@ fn mark_len(s: &str) -> Option<usize> {
 /// Coupe une entrée sur chaque suite d'au moins quatre points (séparateur de l'amont DILA,
 /// `Cour.......Par suite`). Le point final est restitué au fragment de gauche, sauf s'il se
 /// termine déjà par `.`, `!` ou `?`. Une suite sans texte d'un côté (entrée qui commence ou
-/// finit par elle, `etc....`) ne coupe rien : l'entrée reste telle quelle.
+/// finit par elle, `etc....`) ne coupe rien : l'entrée reste telle quelle. Une suite sans texte à sa
+/// gauche, après une coupe (`A.... ....B`), est absorbée : elle ne coupe rien et le fragment
+/// suivant commence après elle (`A.` puis `B`).
 fn split_dotted(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut start = 0;
@@ -164,7 +167,13 @@ fn split_dotted(text: &str) -> Vec<String> {
         let end = at.saturating_add(text[at..].bytes().take_while(|&b| b == b'.').count());
         from = end;
         let left = text[start..at].trim();
-        if left.is_empty() || end == text.len() {
+        if left.is_empty() {
+            if start > 0 {
+                start = end;
+            }
+            continue;
+        }
+        if end == text.len() {
             continue;
         }
         let mut fragment = left.to_owned();
@@ -363,6 +372,8 @@ mod tests {
     fn class_code_list_keeps_what_is_not_a_code_list() {
         assert_eq!(strip_class_code("12,50 Euros"), "12,50 Euros");
         assert_eq!(strip_class_code("44, Abc"), "44, Abc");
+        assert_eq!(strip_class_code("12, 15 Euros"), "12, 15 Euros");
+        assert_eq!(strip_class_code("44-12, 15 Abc"), "44-12, 15 Abc");
         assert_eq!(strip_class_code("44-12, 15-1 Abc"), "44-12, 15-1 Abc");
         assert_eq!(strip_class_code("44-12, abc Def"), "44-12, abc Def");
         assert_eq!(strip_class_code("44,"), "44,");
@@ -398,6 +409,9 @@ mod tests {
         assert_eq!(norm(&["Alpha. ....Beta"]), ["Alpha.", "Beta"]);
         assert_eq!(norm(&["Vraiment ?....Oui"]), ["Vraiment ?", "Oui"]);
         assert_eq!(norm(&["Non !....Oui"]), ["Non !", "Oui"]);
+        assert_eq!(norm(&["A.... ....B"]), ["A.", "B"]);
+        assert_eq!(norm(&["A.... ...."]), ["A."]);
+        assert_eq!(norm(&["....A.... ....B"]), ["....A.", "B"]);
     }
 
     #[test]

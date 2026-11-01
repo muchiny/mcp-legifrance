@@ -1415,8 +1415,9 @@ fn check_ecli(
     Resolution { outcome, official }
 }
 
-/// Note `ReadAs` d'une citation lue avec le code par défaut d'un sigle ambigu (N05) ; si le
-/// document n'est pas trouvé, la lecture reste ambiguë.
+/// Note `ReadAs` d'une citation lue avec le code par défaut d'un sigle ambigu (N05), composée avec
+/// la mention de plage quand les deux bornes sont lues ; si le document n'est pas trouvé, la
+/// lecture reste ambiguë.
 fn with_sigle_reading(
     item: &Spanned<CitationRef>,
     code: &CodeRef,
@@ -1427,11 +1428,20 @@ fn with_sigle_reading(
     };
     let Resolution { outcome, official } = resolution;
     let outcome = match outcome {
-        Outcome::Verified { record, confidence, .. } => Outcome::Verified {
-            record,
-            confidence: confidence.min(Confidence::Medium),
-            note: Some(Note::ReadAs { sigle: *sigle, code: key.title() }),
-        },
+        Outcome::Verified { record, confidence, note } => {
+            let read_as = Note::ReadAs { sigle: *sigle, code: key.title() };
+            // Une plage dont les deux bornes existent garde sa mention : le milieu n'est pas lu.
+            let note = if note == Some(Note::RangeEndpointsOnly) {
+                Note::WithRange(Box::new(read_as))
+            } else {
+                read_as
+            };
+            Outcome::Verified {
+                record,
+                confidence: confidence.min(Confidence::Medium),
+                note: Some(note),
+            }
+        }
         Outcome::Absent { .. } | Outcome::Mismatch { .. } | Outcome::Unresolvable { .. } => {
             Outcome::Candidates { items: Vec::new(), note: Note::AmbiguousSigle { sigle: *sigle } }
         }
@@ -4627,15 +4637,19 @@ mod tests {
     }
 
     /// Une plage lue avec le code par défaut d'un sigle ambigu : les deux bornes sont lues, la note
-    /// de lecture du sigle prime.
+    /// dit à la fois la lecture du sigle et que le milieu de la plage n'est pas lu.
     #[tokio::test]
-    async fn a_range_with_an_ambiguous_sigle_keeps_the_sigle_reading_note() {
+    async fn a_range_with_an_ambiguous_sigle_says_both_the_reading_and_the_range() {
         let corpus = FakeCorpus::new();
         corpus.push_find_article(Ok(numbered(1, "121-3")));
         corpus.push_find_article(Ok(numbered(2, "121-5")));
         let resolution = resolve(&corpus, "articles 121-3 à 121-5 CP").await;
         assert_eq!(status(&resolution), CheckStatus::Verified);
-        assert_eq!(note(&resolution), "Read 'CP' as Code pénal.");
+        assert_eq!(
+            note(&resolution),
+            "Read 'CP' as Code pénal. Only the first and last articles of the range were \
+             checked; the articles between were not."
+        );
         assert_eq!(corpus.calls_of("find_article"), 2);
     }
 

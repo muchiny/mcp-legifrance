@@ -218,6 +218,10 @@ pub enum Note {
     /// Plage d'articles (« articles 1240 à 1244 ») dont les deux bornes existent : `verified` de
     /// confiance moyenne, les articles intermédiaires ne sont pas lus (L2-07).
     RangeEndpointsOnly,
+    /// Plage d'articles dont les deux bornes existent, lue avec le code par défaut d'un sigle
+    /// ambigu : la note enveloppée (`ReadAs`) puis la phrase de [`Note::RangeEndpointsOnly`], pour
+    /// que la lecture du sigle ne masque pas que le milieu de la plage n'est pas lu.
+    WithRange(Box<Note>),
     /// Plage d'articles dont la première borne existe mais pas la dernière : `ambiguous`, jamais
     /// `invalid` ni `not_found` (la plage peut être juste pour une autre date, L2-07).
     RangeEndNotFound {
@@ -418,6 +422,9 @@ impl Note {
             Self::CodeNotListed => "Code not found in the list of codes.".to_owned(),
             Self::VersionSince(date) => format!("Current version in force since {date}."),
             Self::RangeEndpointsOnly | Self::RangeEndNotFound { .. } => range_text(self),
+            Self::WithRange(inner) => {
+                format!("{} {}", inner.text(), range_text(&Self::RangeEndpointsOnly))
+            }
             Self::QuoteMismatch => QUOTE_GAP.to_owned(),
             Self::WithQuoteMismatch(inner) => format!("{QUOTE_GAP} {}", inner.text()),
             Self::NotInSandbox { family, value, date } => fit(value, |value| {
@@ -670,6 +677,10 @@ mod tests {
             (
                 Note::RangeEndpointsOnly,
                 "Only the first and last articles of the range were checked; the articles between were not.",
+            ),
+            (
+                Note::WithRange(Box::new(Note::ReadAs { sigle: Sigle::Cp, code: "Code pénal" })),
+                "Read 'CP' as Code pénal. Only the first and last articles of the range were checked; the articles between were not.",
             ),
             (
                 Note::RangeEndNotFound { num: "L9999-99".to_owned() },

@@ -147,10 +147,12 @@ fn parse_focus(raw: &str) -> Result<Focus, AppError> {
     parsed.map_err(|error| messages::domain(TOOL, &error))
 }
 
-/// `offset` demandé : 0 par défaut ; négatif, ou positif avec `detail="summary"`, il est refusé.
+/// `offset` demandé : 0 par défaut ; négatif, supérieur à `u32::MAX` (la borne annoncée, les
+/// positions rendues tiennent dans un `u32`), ou positif avec `detail="summary"`, il est refusé.
 fn parse_offset(raw: Option<i64>, detail: Option<Detail>) -> Result<usize, AppError> {
     let Some(raw) = raw else { return Ok(0) };
-    let Ok(offset) = usize::try_from(raw) else {
+    let Some(offset) = u32::try_from(raw).ok().and_then(|offset| usize::try_from(offset).ok())
+    else {
         return Err(messages::out_of_range("offset", raw, 0, i64::from(u32::MAX)));
     };
     if offset > 0 && detail == Some(Detail::Summary) {
@@ -510,6 +512,17 @@ mod tests {
             refusal(|i| i.offset = Some(i64::MIN)),
             invalid(&format!("offset={} out of range (0..4294967295).", i64::MIN))
         );
+        // La borne annoncée est réelle : u32::MAX est accepté, au-delà l'offset est refusé.
+        assert_eq!(
+            request(|i| i.offset = Some(i64::from(u32::MAX))).mode,
+            Mode::Full { offset: usize::try_from(u32::MAX).unwrap() }
+        );
+        for over in [i64::from(u32::MAX) + 1, i64::MAX] {
+            assert_eq!(
+                refusal(|i| i.offset = Some(over)),
+                invalid(&format!("offset={over} out of range (0..4294967295)."))
+            );
+        }
         // `focus` l'emporte : l'offset est ignoré, donc sans conflit avec le résumé.
         let focused = request(|i| {
             i.detail = Some("summary".to_owned());
@@ -708,7 +721,12 @@ mod tests {
         };
         assert_eq!(at(100), past(100, 100));
         assert_eq!(at(101), past(101, 100));
-        assert_eq!(at(i64::MAX), past(usize::try_from(i64::MAX).unwrap(), 100));
+        assert_eq!(at(i64::from(u32::MAX)), past(usize::try_from(u32::MAX).unwrap(), 100));
+        // Au-delà de la borne annoncée (u32::MAX), l'offset est refusé comme hors limites.
+        assert_eq!(
+            refusal(|i| i.offset = Some(i64::MAX)),
+            invalid(&format!("offset={} out of range (0..4294967295).", i64::MAX))
+        );
         // Le dernier caractère reste lisible.
         let last = at(99).unwrap();
         assert_eq!(last.text.as_deref(), Some("a"));
