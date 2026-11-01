@@ -7,6 +7,9 @@
 //! dépasse la cible du budget (05 §6.4, étape 1) : `next_toc_offset` suit la page réellement
 //! rendue. Le découpage de la table est partagé avec `fr_get_convention` (`TocRequest`).
 //!
+//! Une version lue à une date choisie dont `date_fin_version` (hors sentinelle) précède aujourd'hui
+//! à Paris porte la `note` « past version » (L3-14) : `etat` est celui du texte, pas de la version.
+//!
 //! Un `NotFound` du port pour une date choisie par l'appelant (`date` ou suffixe de `text_id`)
 //! devient « No version of {id} is available on {date}… » : PISTE répond le même 400 pour un id
 //! inconnu et pour une date avant la première version, et aucune sonde n'est faite pour les
@@ -15,7 +18,7 @@
 use std::num::NonZeroU32;
 
 use lf_domain::{
-    date::{CivilDate, VersionDate},
+    date::{CivilDate, VersionDate, open_ended},
     entity::{Act, Toc, TocEntry, TocEntryRef},
     id::{LegiTextId, VersionedId, parse_versioned},
     status::LegalStatus,
@@ -38,6 +41,17 @@ const TOOL: ToolName = ToolName::FR_GET_ACT;
 /// est la seule lecture possible, et la plus utile est l'article lui-même.
 pub(crate) const CODE_NOTE: &str = "This is a whole code: its table of contents can be very long. \
 Page it with toc_offset/toc_limit, or find an article with fr_search fond=CODE.";
+
+/// `note` d'une version terminée lue à une date choisie (gap4-12, L3-14) : `etat` est celui du
+/// texte, pas celui de la version, et la sortie ne dit pas seule que la version est révolue.
+pub(crate) const PAST_VERSION_NOTE: &str = "This is a past version of the text (see \
+date_fin_version); the current text may differ: call without date.";
+
+/// `CODE_NOTE` puis `PAST_VERSION_NOTE`, séparés par une espace (un test le vérifie) : une note
+/// statique ne se concatène pas à l'exécution.
+const CODE_PAST_VERSION_NOTE: &str = "This is a whole code: its table of contents can be very \
+long. Page it with toc_offset/toc_limit, or find an article with fr_search fond=CODE. This is a \
+past version of the text (see date_fin_version); the current text may differ: call without date.";
 
 /// Champs de la réponse hors table des matières, pour l'estimation (`text_id`, dates, `citation`,
 /// `source_url`, `toc`, `toc_total`...).
@@ -80,12 +94,19 @@ impl<'a, C: LegalCorpus, K: Clock> GetActUseCase<'a, C, K> {
         })?;
         // La table est lue une fois, puis lâchée : la sortie ne porte que la page rendue.
         let toc = std::mem::take(&mut act.body.toc);
-        let note = act
-            .body
-            .nature
-            .as_deref()
-            .is_some_and(|nature| nature.eq_ignore_ascii_case("CODE"))
-            .then_some(CODE_NOTE);
+        let is_code =
+            act.body.nature.as_deref().is_some_and(|nature| nature.eq_ignore_ascii_case("CODE"));
+        // Une date choisie et une fin de version révolue (sentinelle exclue) : sans date choisie,
+        // la version servie est celle d'aujourd'hui, et « call without date » n'apprendrait rien.
+        let ended = dated
+            && open_ended(act.body.date_fin_version)
+                .is_some_and(|end| end < self.clock.today_paris());
+        let note = match (is_code, ended) {
+            (true, true) => Some(CODE_PAST_VERSION_NOTE),
+            (true, false) => Some(CODE_NOTE),
+            (false, true) => Some(PAST_VERSION_NOTE),
+            (false, false) => None,
+        };
         let window = request.window(TOOL, &toc, metadata_cost(&act, note))?;
         Ok(GetActOutput {
             act,
@@ -705,6 +726,72 @@ mod tests {
         unnamed.body.nature = None;
         let output = run(&corpus_with(unnamed), &clock(), input(TEXT_ID)).await.unwrap();
         assert_eq!(output.note, None);
+    }
+
+    /// `act` de nature `nature` dont la version se termine le `end`.
+    fn act_ending(nature: &str, end: CivilDate) -> lf_domain::entity::Act {
+        let mut ended = act(nature, toc(1, 1, "Titre"));
+        ended.body.date_fin_version = Some(end);
+        ended
+    }
+
+    fn dated(date: &str) -> GetActInput {
+        GetActInput { date: Some(date.to_owned()), ..input(TEXT_ID) }
+    }
+
+    #[tokio::test]
+    async fn get_act_on_a_dated_ended_version_says_it_is_a_past_version() {
+        // gap4-12 : la Constitution au 2007-01-01 (version du 2005-03-02 au 2007-02-24), etat
+        // VIGUEUR. Aujourd'hui (2026-10-29) est postérieur à la fin : la version est révolue.
+        let ended = act_ending("LOI", day(2007, 2, 24));
+        let output = run(&corpus_with(ended.clone()), &clock(), dated("2007-01-01")).await.unwrap();
+        assert_eq!(output.note, Some(PAST_VERSION_NOTE));
+
+        // Même chose quand la date vient du suffixe de `text_id`.
+        let suffixed = input("LEGITEXT000033205014_01-01-2007");
+        let output = run(&corpus_with(ended), &clock(), suffixed).await.unwrap();
+        assert_eq!(output.note, Some(PAST_VERSION_NOTE));
+
+        // La veille d'aujourd'hui est révolue ; le jour même, la version sert encore.
+        let output =
+            run(&corpus_with(act_ending("LOI", day(2026, 10, 28))), &clock(), dated("2026-10-01"))
+                .await
+                .unwrap();
+        assert_eq!(output.note, Some(PAST_VERSION_NOTE));
+    }
+
+    #[tokio::test]
+    async fn get_act_keeps_no_note_for_a_version_still_in_force() {
+        // Jumeau : fin le jour même, fin future (abrogation programmée), sentinelle de l'API et
+        // fin absente ne disent jamais « version passée ».
+        for end in [Some(day(2026, 10, 29)), Some(day(2027, 1, 1)), Some(day(2999, 1, 1)), None] {
+            let mut current = act("LOI", toc(1, 1, "Titre"));
+            current.body.date_fin_version = end;
+            let output = run(&corpus_with(current), &clock(), dated("2026-10-01")).await.unwrap();
+            assert_eq!(output.note, None, "{end:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn get_act_without_a_chosen_date_never_says_past_version() {
+        // Un texte abrogé lu sans date : « call without date » ne mènerait nulle part.
+        let repealed = act_ending("LOI", day(2007, 2, 24));
+        let output = run(&corpus_with(repealed), &clock(), input(TEXT_ID)).await.unwrap();
+        assert_eq!(output.note, None);
+    }
+
+    #[tokio::test]
+    async fn get_act_on_a_dated_ended_code_joins_both_notes() {
+        let ended = act_ending("CODE", day(2007, 2, 24));
+        let output = run(&corpus_with(ended), &clock(), dated("2007-01-01")).await.unwrap();
+        assert_eq!(
+            output.note.map(str::to_owned),
+            Some(format!("{CODE_NOTE} {PAST_VERSION_NOTE}"))
+        );
+        // Un code encore en vigueur garde sa seule note.
+        let current = act("CODE", toc(1, 1, "Titre"));
+        let output = run(&corpus_with(current), &clock(), dated("2026-10-01")).await.unwrap();
+        assert_eq!(output.note, Some(CODE_NOTE));
     }
 
     #[tokio::test]
