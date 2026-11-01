@@ -212,6 +212,40 @@ mod live {
         assert!(totals[0] >= totals[1] && totals[1] >= totals[2] && totals[2] >= 1, "{totals:?}");
     }
 
+    /// L3-05 (`search-1`) : PISTE ignore `pageNumber` quand `pageSize` vaut 1 ; l'adapter sert la
+    /// page `p` de taille 1 par la page `(p+1)/2` de taille 2. Les pages 1 à 4 de taille 1 rendent
+    /// donc des hits tous différents, les deux premiers étant ceux de la page 1 de taille 2.
+    #[tokio::test]
+    #[ignore = "live: needs LF_PISTE_CLIENT_ID/SECRET"]
+    async fn live_page_size_1_walks_the_ranks() {
+        let Some(corpus) = sandbox("live_page_size_1_walks_the_ranks", default_body()).await else {
+            return;
+        };
+        let at = |page: u32, size: u32| {
+            SearchQuery::new(
+                Fond::Juri,
+                QueryText::parse("bail commercial").unwrap(),
+                NonZeroU32::new(page).unwrap(),
+                PageSize::new(size).unwrap(),
+                MatchMode::Any,
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        let reference = corpus.search(&at(1, 2)).await.unwrap();
+        let wanted: Vec<_> = reference.hits.iter().map(|hit| hit.id.as_str().to_owned()).collect();
+        let mut walked = Vec::new();
+        for page in 1..=4 {
+            let single = corpus.search(&at(page, 1)).await.unwrap();
+            assert_eq!(single.hits.len(), 1, "page {page}");
+            walked.push(single.hits[0].id.as_str().to_owned());
+        }
+        assert_eq!(walked[..2], wanted[..], "{walked:?}");
+        let distinct: std::collections::HashSet<_> = walked.iter().collect();
+        assert_eq!(distinct.len(), 4, "{walked:?}");
+    }
+
     /// Tests sur les octets bruts (`PisteCorpus::exchange`, feature `record`).
     #[cfg(feature = "record")]
     mod raw {

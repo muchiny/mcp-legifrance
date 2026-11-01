@@ -9,7 +9,9 @@
 //!
 //! `search` lit le mémo de `typePagination` **avant** l'envoi (`PaginationMemo::mode_for`, qui
 //! alimente `search_body` et sa garde défensive, avant toute requête, jeton compris) et ne retient
-//! le mode reçu qu'**après** le mapping : sur `Err`, rien n'est retenu (R12).
+//! le mode reçu qu'**après** le mapping : sur `Err`, rien n'est retenu (R12). Une page de taille 1
+//! est demandée en taille 2 (PISTE ignore `pageNumber` à `pageSize` 1, L3-05) : la réponse est
+//! coupée à son créneau (`SearchResponseDto::keep_window`) avant le mapping.
 
 use lf_application::ports::{ArticleAt, CorpusError, LegalCorpus};
 use lf_domain::date::VersionDate;
@@ -23,11 +25,12 @@ use serde::de::DeserializeOwned;
 
 use super::PisteCorpus;
 use crate::classify::EndpointKind;
+use crate::dto::search::SearchResponseDto;
 use crate::map::endpoint;
 use crate::map::search::search_page_with_mode;
 use crate::map::{Diagnostics, act, agreement, article, convention, decision, deliberation};
 use crate::request::consult::Consultation;
-use crate::request::search::search_body;
+use crate::request::search::{search_body, wire_page_for};
 use crate::time::{MonoClock, Sleeper};
 
 impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
@@ -45,11 +48,25 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
 impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S> {
     async fn search(&self, query: &SearchQuery) -> Result<SearchPage, CorpusError> {
         let memo = &self.inner.memo;
-        let body = search_body(query, memo.mode_for(query))?;
+        let mode = memo.mode_for(query);
+        let body = search_body(query, mode)?;
+        // Une page de taille 1 est demandée en taille 2 (L3-05) : on ne garde que son créneau.
+        let wire = wire_page_for(query.fond(), mode, query.page().get(), query.page_size().get());
         let (page, received) = self
-            .fetch(EndpointKind::Search, endpoint::SEARCH, &body, |dto, diags| {
-                search_page_with_mode(dto, query, diags)
-            })
+            .fetch(
+                EndpointKind::Search,
+                endpoint::SEARCH,
+                &body,
+                |mut dto: SearchResponseDto, diags| {
+                    dto.keep_window(
+                        endpoint::SEARCH,
+                        wire.page_size,
+                        wire.skip,
+                        query.page_size().get(),
+                    )?;
+                    search_page_with_mode(dto, query, diags)
+                },
+            )
             .await?;
         memo.remember(query, received);
         Ok(page)
@@ -128,11 +145,12 @@ mod tests {
 
     use lf_application::ports::{CorpusError, LegalCorpus};
     use lf_domain::date::{DateRange, VersionDate};
+    use lf_domain::entity::SearchPage;
     use lf_domain::fond::{Fond, PaginationMode};
     use lf_domain::id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId};
     use lf_domain::search::{MatchMode, PageSize, QueryText, SearchQuery};
     use serde_json::{Value, json};
-    use wiremock::matchers::{body_json, header, method, path, path_regex};
+    use wiremock::matchers::{body_json, body_partial_json, header, method, path, path_regex};
     use wiremock::{Mock, ResponseTemplate};
 
     use crate::corpus::tests::{API_BASE, Rig, TOKEN_PATH, never, requests_to, token_mock};
@@ -421,6 +439,193 @@ mod tests {
             .map(|n| json!({"titles": [{"id": format!("JURITEXT{n:012}"), "title": "t"}]}))
             .collect();
         json!({"results": results, "totalResultNumber": count}).to_string()
+    }
+
+    // ---- L3-05 (search-1) : `pageSize` 1 ignoré par PISTE, relevés C9 ----------------------
+
+    /// Relevés C9 : `bail commercial`, pages de taille 2 (la page 1 est la 1 et la 2 du rang) ; les
+    /// pages de taille 1 des mêmes relevés rendent toutes le rang 1 (le défaut amont).
+    const JURI_PAGE_1: &str =
+        include_str!("../../tests/fixtures/recorded/search/c101/C9-juri-taille2-page1.json");
+    const JURI_PAGE_2: &str =
+        include_str!("../../tests/fixtures/recorded/search/c101/C9-juri-taille2-page2.json");
+    const CODE_PAGE_1: &str =
+        include_str!("../../tests/fixtures/recorded/search/c101/C9-code-taille2-page1.json");
+    const CODE_PAGE_2: &str =
+        include_str!("../../tests/fixtures/recorded/search/c101/C9-code-taille2-page2.json");
+
+    /// Requête « golden » du fond à la page `page`, de taille `size`.
+    fn sized(fond: Fond, page: u32, size: u32) -> SearchQuery {
+        let version = matches!(fond, Fond::Loda | Fond::Code).then(version_date);
+        SearchQuery::new(
+            fond,
+            QueryText::parse("bail commercial").unwrap(),
+            NonZeroU32::new(page).unwrap(),
+            PageSize::new(size).unwrap(),
+            MatchMode::default(),
+            None,
+            version,
+        )
+        .unwrap()
+    }
+
+    /// Le jeton une fois ; la page `wire_page` de `/search` répond `body` (200) à volonté.
+    async fn page_replies(rig: &Rig, wire_page: u32, body: &str) {
+        Mock::given(method("POST"))
+            .and(path(format!("{API_BASE}{}", endpoint::SEARCH)))
+            .and(body_partial_json(json!({"recherche": {"pageNumber": wire_page}})))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_raw(body.to_owned(), "application/json"),
+            )
+            .mount(&rig.server)
+            .await;
+    }
+
+    /// Identifiants des hits d'une page, dans l'ordre.
+    fn ids(page: &SearchPage) -> Vec<&str> {
+        page.hits.iter().map(|hit| hit.id.as_str()).collect()
+    }
+
+    /// `(pageNumber, pageSize)` de chaque requête `/search`, dans l'ordre.
+    async fn sent_pages(rig: &Rig) -> Vec<(Value, Value)> {
+        search_bodies(rig)
+            .await
+            .iter()
+            .map(|body| {
+                (body["recherche"]["pageNumber"].clone(), body["recherche"]["pageSize"].clone())
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn page_size_1_is_served_by_pages_of_two() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        page_replies(&rig, 1, JURI_PAGE_1).await;
+        page_replies(&rig, 2, JURI_PAGE_2).await;
+        let mut served = Vec::new();
+        for page in 1..=4 {
+            let result = rig.corpus.search(&sized(Fond::Juri, page, 1)).await.unwrap();
+            assert_eq!(result.total, 152_062, "page {page}");
+            served.push(ids(&result).join(","));
+        }
+        // Les rangs 1 à 4 des relevés de taille 2 : un hit par page, et pas deux fois le rang 1.
+        assert_eq!(
+            served,
+            [
+                "JURITEXT000041975710",
+                "JURITEXT000054167256",
+                "JURITEXT000041490554",
+                "JURITEXT000035574682"
+            ]
+        );
+        let pages = [1, 1, 2, 2].map(|number| (json!(number), json!(2)));
+        assert_eq!(sent_pages(&rig).await, pages);
+    }
+
+    /// Dernière page impaire : la page de taille 2 ne porte qu'un résultat, la page de rang pair
+    /// est vide, sans panique ; une page de taille 2 vide l'est aussi.
+    #[tokio::test]
+    async fn the_odd_last_page_of_size_1_leaves_the_second_slot_empty() {
+        let lone = {
+            let mut value: Value = serde_json::from_str(JURI_PAGE_2).unwrap();
+            value["results"].as_array_mut().unwrap().truncate(1);
+            value.to_string()
+        };
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        page_replies(&rig, 2, &lone).await;
+        let odd = rig.corpus.search(&sized(Fond::Juri, 3, 1)).await.unwrap();
+        let even = rig.corpus.search(&sized(Fond::Juri, 4, 1)).await.unwrap();
+        assert_eq!(ids(&odd), ["JURITEXT000041490554"]);
+        assert_eq!(ids(&even), Vec::<&str>::new());
+        assert_eq!(even.total, 152_062);
+    }
+
+    #[tokio::test]
+    async fn a_page_of_size_1_that_overflows_the_wire_page_is_a_decode_error() {
+        let three = {
+            let mut value: Value = serde_json::from_str(JURI_PAGE_1).unwrap();
+            let first = value["results"][0].clone();
+            value["results"].as_array_mut().unwrap().push(first);
+            value.to_string()
+        };
+        let rig = Rig::new().await;
+        search_replies(&rig, &three).await;
+        let outcome = rig.corpus.search(&sized(Fond::Juri, 1, 1)).await.map(drop);
+        assert_eq!(
+            outcome,
+            Err(CorpusError::Decode {
+                detail: "/search: results: more results than page size".to_owned()
+            })
+        );
+    }
+
+    /// Jumeau : les tailles 2 et 3 partent telles quelles et rendent la page entière.
+    #[tokio::test]
+    async fn page_sizes_2_and_3_are_sent_and_read_unchanged() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        page_replies(&rig, 2, JURI_PAGE_2).await;
+        let two = rig.corpus.search(&sized(Fond::Juri, 2, 2)).await.unwrap();
+        assert_eq!(ids(&two), ["JURITEXT000041490554", "JURITEXT000035574682"]);
+        let three = rig.corpus.search(&sized(Fond::Juri, 2, 3)).await.unwrap();
+        assert_eq!(ids(&three).len(), 2);
+        assert_eq!(sent_pages(&rig).await, [(json!(2), json!(2)), (json!(2), json!(3))]);
+    }
+
+    /// CODE en `DEFAUT` : même correction (relevés C9-code-taille1 : la page 3 rend le hit de la
+    /// page 1).
+    #[tokio::test]
+    async fn code_page_size_1_is_served_by_pages_of_two_in_defaut_mode() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        page_replies(&rig, 1, CODE_PAGE_1).await;
+        page_replies(&rig, 2, CODE_PAGE_2).await;
+        let mut served = Vec::new();
+        for page in 1..=4 {
+            let result = rig.corpus.search(&sized(Fond::Code, page, 1)).await.unwrap();
+            served.push(ids(&result).join(","));
+        }
+        assert_eq!(
+            served,
+            [
+                "LEGITEXT000005634379",
+                "LEGITEXT000006074075",
+                "LEGITEXT000006070299",
+                "LEGITEXT000006072665"
+            ]
+        );
+    }
+
+    /// CODE en mode `ARTICLE` (mémorisé après une réponse `ARTICLE`) : `pageSize` compte des
+    /// articles ; la requête et la page lue restent inchangées, sans troncature.
+    #[tokio::test]
+    async fn code_page_size_1_in_article_mode_is_left_alone() {
+        let by_article = CODE_PAGE_1.replacen(
+            r#""typePagination":"DEFAUT""#,
+            r#""typePagination":"ARTICLE""#,
+            1,
+        );
+        assert_ne!(by_article, CODE_PAGE_1);
+        let lone = {
+            let mut value: Value = serde_json::from_str(CODE_PAGE_2).unwrap();
+            value["results"].as_array_mut().unwrap().truncate(1);
+            value.to_string()
+        };
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        page_replies(&rig, 1, &by_article).await;
+        page_replies(&rig, 2, &lone).await;
+        // La page 1 part en DEFAUT (doublée, tronquée à un hit) et mémorise le mode ARTICLE.
+        let first = rig.corpus.search(&sized(Fond::Code, 1, 1)).await.unwrap();
+        // La page 2 suit le mémo : requête inchangée (page 2, taille 1), l'unique résultat reçu
+        // est gardé ; doublée, elle aurait demandé la page 1 de taille 2 et rendu un autre hit.
+        let second = rig.corpus.search(&sized(Fond::Code, 2, 1)).await.unwrap();
+        assert_eq!(ids(&first), ["LEGITEXT000005634379"]);
+        assert_eq!(ids(&second), ["LEGITEXT000006070299"]);
+        assert_eq!(sent_pages(&rig).await, [(json!(1), json!(2)), (json!(2), json!(1))]);
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("ARTICLE")]);
     }
 
     #[tokio::test]
