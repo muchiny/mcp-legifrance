@@ -29,7 +29,7 @@ use lf_domain::status::status_of;
 use lf_domain::text::clean_field;
 
 use super::dates::first_civil;
-use super::rules::{check_origin, note_suffix, suffix_start};
+use super::rules::{check_origin, note_suffix, restore_capped_title, suffix_start};
 use super::{Diagnostics, Field, endpoint};
 use crate::dto::search::{SearchExtractDto, SearchResponseDto, SearchResultDto, SearchSectionDto};
 use crate::memo::received_mode;
@@ -116,7 +116,8 @@ fn map_hit(
     };
     check_origin(result.origin.as_deref(), hit.id.as_str(), diags);
     hit.cid = hit_cid(fond, &hit.id, title.and_then(|title| title.cid.as_deref()), diags);
-    hit.title = clean_field(title.and_then(|title| title.title.as_deref()));
+    hit.title =
+        restore_capped_title(fond, clean_field(title.and_then(|title| title.title.as_deref())));
     hit.nature = clean_field(result.nature.as_deref());
     hit.etat = status_of(result.etat.as_deref(), None);
     hit.idcc = result.idcc.as_deref().and_then(Idcc::parse);
@@ -323,6 +324,40 @@ mod tests {
             result[key] = value.clone();
         }
         result
+    }
+
+    /// Relevé de la page 9901 à 10000 de `JURI` : le hit `JURITEXT000027366470` a un titre coupé
+    /// à 256 caractères par l'amont, au milieu d'un numéro de pourvoi (« 11-19. »).
+    const JURI_CAPPED_PAGE: &str =
+        include_str!("../../tests/fixtures/recorded/search/pagination/juri-9901-10000.json");
+    /// Relevé de `CONSTIT` dont deux titres légitimes font 256 caractères.
+    const CONSTIT_256_PAGE: &str =
+        include_str!("../../tests/fixtures/recorded/search/identifiants/search-CONSTIT-100.json");
+
+    /// Titre du hit `id` de la page `json` de `fond`.
+    fn title_of(fond: Fond, json: &str, id: &str) -> String {
+        let (page, _) = page_of(fond, json);
+        let hit = page.hits.into_iter().find(|hit| hit.id.as_str() == id).unwrap();
+        hit.title.unwrap()
+    }
+
+    /// L3-05 voisin, L3-06 (search-4) : un titre JURI de 256 caractères est coupé par l'amont ;
+    /// le dernier jeton partiel disparaît et une marque est ajoutée.
+    #[test]
+    fn a_juri_title_cut_at_256_loses_its_partial_token() {
+        let title = title_of(Fond::Juri, JURI_CAPPED_PAGE, "JURITEXT000027366470");
+        assert!(title.ends_with(" 11-19.130 …"), "{title}");
+        assert!(!title.contains("11-19. "), "{title}");
+    }
+
+    /// Jumeau : un titre CONSTIT de 256 caractères est légitime et reste tel quel.
+    #[test]
+    fn a_constit_title_of_256_characters_is_left_alone() {
+        for id in ["CONSTEXT000051347309", "CONSTEXT000053915381"] {
+            let title = title_of(Fond::Constit, CONSTIT_256_PAGE, id);
+            assert_eq!(title.chars().count(), 256, "{id}");
+            assert!(!title.ends_with('…'), "{id}");
+        }
     }
 
     #[test]

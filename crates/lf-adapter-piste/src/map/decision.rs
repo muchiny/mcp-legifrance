@@ -24,7 +24,7 @@ use lf_domain::{ecli::Ecli, fond::Fond, text::clean_field};
 use super::body::non_blank;
 use super::dates::prefer_computed;
 use super::endpoint::JURI;
-use super::rules::{check_origin, long_text, require, resolve_id};
+use super::rules::{check_origin, long_text, require, resolve_id, restore_capped_title};
 use super::{Diagnostics, Field};
 use crate::dto::juri::{ConsultJuriResponseDto, LienDto, SommaireDto};
 
@@ -76,7 +76,7 @@ pub(crate) fn decision(
         formation: clean_field(juri.formation.as_deref()),
         solution: clean_field(juri.solution.as_deref()),
         nature: clean_field(juri.nature.as_deref()),
-        title: clean_field(juri.titre.as_deref()),
+        title: restore_capped_title(fond, clean_field(juri.titre.as_deref())),
         ecli: native_ecli(juri.ecli.as_deref(), diags),
         numero_affaire: numero_affaire(fond, &juri.numero_affaire, juri.num.as_deref()),
         official_summary: summary_of(fond, &juri.sommaire),
@@ -240,6 +240,47 @@ mod tests {
     /// Nombre de caractères de `text`.
     fn chars(text: &str) -> usize {
         text.chars().count()
+    }
+
+    /// Relevé C10 : `JURITEXT000048104620`, 23 pourvois joints, titre coupé à 256 caractères par
+    /// l'amont (`titre` et `titreLong`).
+    const CAPPED_JURI: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/juri/c101/C10-juri-consult-JURITEXT000048104620.json"
+    );
+
+    /// Décision du relevé C10.
+    fn capped_decision() -> Decision {
+        let dto: ConsultJuriResponseDto = decode(CAPPED_JURI, "/consult/juri").unwrap();
+        decision_of(dto, "JURITEXT000048104620").0.unwrap()
+    }
+
+    /// L3-06 (search-4) : le dernier jeton partiel (« 22- ») disparaît et la marque est ajoutée ;
+    /// les 23 numéros d'affaire, eux, restent complets.
+    #[test]
+    fn a_juri_title_cut_at_256_loses_its_partial_token() {
+        let decision = capped_decision();
+        let title = decision.title.unwrap();
+        assert!(title.ends_with(" 22-13.508 …"), "{title}");
+        assert!(!title.ends_with("22-"), "{title}");
+        assert_eq!(decision.numero_affaire.len(), 23);
+        assert_eq!(decision.numero_affaire.last().map(String::as_str), Some("22-13.512"));
+    }
+
+    /// Jumeau : le titre de 87 caractères de `consult_juri` est conservé tel quel, et les 256
+    /// caractères d'un titre CONSTIT ou CETAT sont légitimes.
+    #[test]
+    fn titles_that_are_not_capped_are_kept() {
+        let (decision, _) = fixture_decision("consult_juri");
+        let title = decision.title.unwrap();
+        assert_eq!(chars(&title), 87, "{title}");
+        assert!(!title.ends_with('…'), "{title}");
+        for name in ["consult_juri_constit", "consult_juri_cetat"] {
+            let (decision, _) = edited(name, |text| {
+                text.titre = Some("x ".repeat(127) + "xy");
+            });
+            let title = decision.title.unwrap();
+            assert_eq!(chars(&title), 256, "{name}");
+        }
     }
 
     /// Chaque entrée du sommaire tient sur une ligne, sans balise.
