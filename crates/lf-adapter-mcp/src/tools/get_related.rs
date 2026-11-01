@@ -440,10 +440,10 @@ mod tests {
                 .unwrap()
                 .iter()
                 .map(|entry| {
+                    // La capture ne compte que des natures LODA (13) et KALI (1).
                     let nature = match entry["nature"].as_str().unwrap() {
-                        "LODA" => RelatedNature::Loda,
                         "KALI" => RelatedNature::Kali,
-                        other => RelatedNature::Other(other.to_owned()),
+                        _ => RelatedNature::Loda,
                     };
                     link(nature, entry["id"].as_str(), entry["name"].as_str().unwrap())
                 })

@@ -556,7 +556,8 @@ mod tests {
             read(&text, Some(&cut_official), DispositifRule::None, &request(|_| {})).unwrap();
         assert_eq!(flagged.summary.as_ref().map(|s| s.source), Some(SummarySource::Official));
         assert!(flagged.summary_truncated);
-        let short_official = OfficialSummary::new(["Analyse officielle."], Vec::<String>::new());
+        let short_official =
+            OfficialSummary::new(["Analyse officielle courte."], Vec::<String>::new());
         let kept =
             read(&text, Some(&short_official), DispositifRule::None, &request(|_| {})).unwrap();
         assert_eq!(kept.summary.as_ref().map(|s| s.source), Some(SummarySource::Official));
