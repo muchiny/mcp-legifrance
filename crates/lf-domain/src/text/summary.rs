@@ -4,7 +4,8 @@
 //! Ordre de préférence (00 §4) :
 //!
 //! 1. le sommaire officiel de la décision : `analyses`, sinon `titrages`, joints par une ligne
-//!    vide ;
+//!    vide, les entrées de moins de 20 caractères alphanumériques
+//!    (« X ») étant ignorées ;
 //! 2. le dispositif, quand la juridiction a une [`DispositifRule`] et que ses deux marqueurs sont
 //!    dans le texte ;
 //! 3. le début du texte, jusqu'à au moins [`LEAD_MIN_CHARS`] caractères.
@@ -33,6 +34,12 @@ pub const SUMMARY_CAP_CHARS: usize = 1_200;
 /// Longueur minimale, en caractères, du début de texte rendu comme résumé quand ni sommaire
 /// officiel ni dispositif n'existent.
 pub const LEAD_MIN_CHARS: usize = 600;
+
+/// Nombre minimal de caractères alphanumériques (`char::is_alphanumeric`) d'une entrée du sommaire
+/// officiel pour qu'elle serve de résumé : en dessous, la donnée amont est dégénérée (« X » pour
+/// une ordonnance du TJ de Paris) et le résumé retombe sur le dispositif, puis sur le début du
+/// texte (D-07, 03 §7.9).
+const OFFICIAL_MIN_ALNUM_CHARS: usize = 20;
 
 /// D'où vient le résumé (`summary_source` de la sortie, 05 §5.0.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,8 +147,10 @@ pub fn summary(
     Summary { source, text, truncated }
 }
 
-/// Sommaire officiel : `analyses`, sinon `titrages`, entrées rognées et non vides, jointes par
-/// une ligne vide. `None` quand ni l'une ni l'autre liste n'a d'entrée.
+/// Sommaire officiel : `analyses`, sinon `titrages`, entrées rognées et d'au moins
+/// [`OFFICIAL_MIN_ALNUM_CHARS`] caractères alphanumériques, jointes par une ligne vide. `None`
+/// quand ni l'une ni l'autre liste n'a d'entrée assez longue : le résumé retombe alors sur le
+/// dispositif, puis sur le début du texte.
 fn official_body(official: &OfficialSummary) -> Option<String> {
     [&official.analyses, &official.titrages]
         .into_iter()
@@ -149,7 +158,10 @@ fn official_body(official: &OfficialSummary) -> Option<String> {
             let kept: Vec<&str> = entries
                 .iter()
                 .map(|entry| entry.trim())
-                .filter(|entry| !entry.is_empty())
+                .filter(|entry| {
+                    entry.chars().filter(|c| c.is_alphanumeric()).count()
+                        >= OFFICIAL_MIN_ALNUM_CHARS
+                })
                 .collect();
             kept.join(BLOCK_SEPARATOR)
         })
@@ -235,6 +247,47 @@ mod tests {
     );
     const CETAT: &str =
         include_str!("../../../lf-adapter-piste/tests/fixtures/reference/consult_juri_cetat.json");
+    const CASSATION: &str =
+        include_str!("../../../lf-adapter-piste/tests/fixtures/reference/consult_juri.json");
+    const CETAT_OLD: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/F-juri-consult-CETATEXT000007742504.json"
+    );
+    const CETAT_NEW: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/F-juri-consult-CETATEXT000052137642.json"
+    );
+    const C4_CIV1: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-chambre-civ1-JURITEXT000038322046.json"
+    );
+    const C4_CIV3: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-chambre-civ3-JURITEXT000032056669.json"
+    );
+    const C4_COM: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-chambre-com-JURITEXT000054218381.json"
+    );
+    const C4_CRIM: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-chambre-crim-JURITEXT000021854686.json"
+    );
+    const C4_SOCIALE: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-chambre-formation-CHAMBRE_SOCIALE-JURITEXT000054929168.json"
+    );
+    const C4_I7: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-chambre-formation-I7-JURITEXT000045653019.json"
+    );
+    const C4_89: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-89-15.231-JURITEXT000007026394.json"
+    );
+    const C4_05: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-05-13.255-JURITEXT000007052928.json"
+    );
+    const C4_14: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-14-24.444-JURITEXT000031539712.json"
+    );
+    const C4_06: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-06-12.769-JURITEXT000017739957.json"
+    );
+    const C16_LIENS: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C16-juri-consult-liens-JURITEXT000038427064.json"
+    );
     /// 2022-196 PDR : « DÉCIDE » puis « Délibéré par… / Rendu public… », sans « Jugé par ».
     const PDR: &str = include_str!(
         "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C14-juri-consult-CC-2022-196-PDR-CONSTEXT000045802100.json"
@@ -311,29 +364,48 @@ mod tests {
         let rule = DispositifRule::ConseilEtat;
 
         // Les analyses l'emportent sur les titrages, jointes par une ligne vide.
-        let both = official(&["Analyse A.", "Analyse B."], &["Titrage"]);
+        let both = official(
+            &["Analyse A du sommaire officiel.", "Analyse B du sommaire officiel."],
+            &["Titrage"],
+        );
         assert_eq!(
             parts(&summary(&body, Some(&both), rule, 4_000)),
-            (SummarySource::Official, "Analyse A.\n\nAnalyse B.", false)
+            (
+                SummarySource::Official,
+                "Analyse A du sommaire officiel.\n\nAnalyse B du sommaire officiel.",
+                false
+            )
         );
 
         // Sans analyse, les titrages.
-        let titrages = official(&[], &["Titrage 1", "Titrage 2"]);
+        let titrages =
+            official(&[], &["Titrage numéro 1 du sommaire", "Titrage numéro 2 du sommaire"]);
         assert_eq!(
             parts(&summary(&body, Some(&titrages), rule, 4_000)),
-            (SummarySource::Official, "Titrage 1\n\nTitrage 2", false)
+            (
+                SummarySource::Official,
+                "Titrage numéro 1 du sommaire\n\nTitrage numéro 2 du sommaire",
+                false
+            )
         );
 
         // Des analyses blanches ne comptent pas : les titrages prennent le relais, rognés.
-        let blank = official(&["", "   "], &["  Titrage  "]);
+        let blank = official(&["", "   "], &["  Titrage du sommaire officiel  "]);
         assert_eq!(
             parts(&summary(&body, Some(&blank), rule, 4_000)),
-            (SummarySource::Official, "Titrage", false)
+            (SummarySource::Official, "Titrage du sommaire officiel", false)
         );
-        let padded = official(&["  Analyse  ", "", "Suite."], &[]);
+        let padded = official(
+            &["  Analyse du sommaire officiel  ", "", "Suite de l'analyse officielle."],
+            &[],
+        );
         assert_eq!(
             parts(&summary(&body, Some(&padded), rule, 4_000)),
-            (SummarySource::Official, "Analyse\n\nSuite.", false)
+            (
+                SummarySource::Official,
+                "Analyse du sommaire officiel\n\nSuite de l'analyse officielle.",
+                false
+            )
         );
     }
 
@@ -350,6 +422,164 @@ mod tests {
         }
     }
 
+    /// TJ Paris, ordonnance du JME du 5 juillet 2022 (JURITEXT000046652043) : la donnée amont est
+    /// `sommaire[].abstrats = "X"` (D-07, défaut decisions-1). Capture réelle.
+    const TJ_PARIS_X: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-chambre-formation-CT0196-JURITEXT000046652043.json"
+    );
+
+    /// Sommaire officiel tel que le mapper l'écrit pour une fixture réelle : `abstrats` en
+    /// analyses puis `resumePrincipal` et `autreResume` en titrages pour la Cour de cassation, les
+    /// deux inversés pour le Conseil d'État (`map::decision::summary_of`).
+    fn recorded_official(json: &str, cetat: bool) -> OfficialSummary {
+        let value: serde_json::Value = serde_json::from_str(json).unwrap();
+        let entries = value["text"]["sommaire"].as_array().cloned().unwrap_or_default();
+        let pick = |keys: &[&str]| -> Vec<String> {
+            entries
+                .iter()
+                .flat_map(|entry| keys.iter().filter_map(|key| entry[*key].as_str()))
+                .map(str::to_owned)
+                .collect()
+        };
+        let (abstrats, resumes) = (pick(&["abstrats"]), pick(&["resumePrincipal", "autreResume"]));
+        if cetat {
+            OfficialSummary::new(resumes, abstrats)
+        } else {
+            OfficialSummary::new(abstrats, resumes)
+        }
+    }
+
+    /// Nombre de caractères alphanumériques de `s`, comme la règle du seuil.
+    fn alnum(s: &str) -> usize {
+        s.chars().filter(|c| c.is_alphanumeric()).count()
+    }
+
+    #[test]
+    fn a_trivial_official_summary_falls_back_to_the_lead() {
+        // Cas réel decisions-1 : « X » ne doit plus passer pour un sommaire officiel.
+        let value: serde_json::Value = serde_json::from_str(TJ_PARIS_X).unwrap();
+        assert_eq!(value["text"]["sommaire"][0]["abstrats"], "X");
+        let decision = fixture(TJ_PARIS_X);
+        let given = recorded_official(TJ_PARIS_X, false);
+        assert_eq!(given.analyses, ["X"]);
+        let got = summary(&decision, Some(&given), DispositifRule::None, 4_000);
+        assert_eq!(got.source, SummarySource::Lead);
+        assert!(got.text.starts_with("TRIBUNAL\n\nJUDICIAIRE\n\nDE PARIS"), "{}", got.text);
+        assert!(chars(&got.text) >= LEAD_MIN_CHARS);
+
+        // Synthétique : avec une règle de dispositif, c'est le dispositif qui prend le relais.
+        let decision = long(&["Visa.", "D E C I D E :", "Article 1er : A.", "Délibéré à Paris."]);
+        let trivial = official(&["X"], &[]);
+        let got = summary(&decision, Some(&trivial), DispositifRule::ConseilEtat, 4_000);
+        assert_eq!(parts(&got), (SummarySource::Dispositif, "Article 1er : A.", false));
+
+        // Jumeau : un sommaire officiel d'au moins 20 caractères alphanumériques est conservé.
+        let real = official(&["Le sommaire est assez long."], &[]);
+        let got = summary(&decision, Some(&real), DispositifRule::ConseilEtat, 4_000);
+        assert_eq!(parts(&got), (SummarySource::Official, "Le sommaire est assez long.", false));
+    }
+
+    #[test]
+    fn the_official_threshold_is_20_alphanumeric_characters() {
+        let body = long(&["Texte de repli, assez long pour servir de début."]);
+        let source = |entry: &str| {
+            summary(&body, Some(&official(&[entry], &[])), DispositifRule::None, 4_000).source
+        };
+        assert_eq!(OFFICIAL_MIN_ALNUM_CHARS, 20);
+
+        // Bornes 19 et 20, en analyses comme en titrages.
+        assert_eq!(source(&filler(19)), SummarySource::Lead);
+        assert_eq!(source(&filler(20)), SummarySource::Official);
+        let titrage = |entry: &str| {
+            summary(&body, Some(&official(&[], &[entry])), DispositifRule::None, 4_000).source
+        };
+        assert_eq!(titrage(&filler(19)), SummarySource::Lead);
+        assert_eq!(titrage(&filler(20)), SummarySource::Official);
+
+        // Seuls les caractères alphanumériques comptent : blancs, ponctuation, tirets et points
+        // de conduite n'en font pas partie, les lettres accentuées et les chiffres si.
+        let padded = format!("{} . - ... ;\t, !?", filler(19));
+        assert_eq!(source(&padded), SummarySource::Lead);
+        assert_eq!(source(&format!("{padded} z")), SummarySource::Official);
+        assert_eq!(source(&"é".repeat(20)), SummarySource::Official);
+        assert_eq!(source(&"é".repeat(19)), SummarySource::Lead);
+        assert_eq!(source(&"7".repeat(20)), SummarySource::Official);
+        assert_eq!(source(&format!("{}c", "a b ".repeat(9))), SummarySource::Lead);
+        assert_eq!(source(&"a b ".repeat(10)), SummarySource::Official);
+        assert_eq!(source(&"-".repeat(300)), SummarySource::Lead);
+    }
+
+    #[test]
+    fn trivial_entries_are_dropped_one_by_one() {
+        let body = long(&["Texte de repli."]);
+        let given = official(&["X", "Une analyse suffisamment longue.", "12"], &["Titrage"]);
+        let got = summary(&body, Some(&given), DispositifRule::None, 4_000);
+        assert_eq!(
+            parts(&got),
+            (SummarySource::Official, "Une analyse suffisamment longue.", false)
+        );
+
+        // Des analyses toutes triviales cèdent la place aux titrages, eux-mêmes filtrés.
+        let given = official(&["X", "Y"], &["Z", "Un titrage suffisamment long."]);
+        let got = summary(&body, Some(&given), DispositifRule::None, 4_000);
+        assert_eq!(parts(&got), (SummarySource::Official, "Un titrage suffisamment long.", false));
+
+        // Jumeau : deux entrées assez longues sont jointes comme avant.
+        let given =
+            official(&["Première analyse assez longue.", "Seconde analyse assez longue."], &[]);
+        let got = summary(&body, Some(&given), DispositifRule::None, 4_000);
+        assert_eq!(
+            parts(&got),
+            (
+                SummarySource::Official,
+                "Première analyse assez longue.\n\nSeconde analyse assez longue.",
+                false
+            )
+        );
+
+        // Tout trivial : repli.
+        let given = official(&["X"], &["Y"]);
+        let got = summary(&body, Some(&given), DispositifRule::None, 4_000);
+        assert_eq!(parts(&got), (SummarySource::Lead, "Texte de repli.", false));
+    }
+
+    #[test]
+    fn recorded_official_summaries_all_clear_the_threshold() {
+        // Sommaires officiels réels (Cour de cassation et Conseil d'État) : après la
+        // normalisation du mapper, aucune entrée utile ne tombe sous le seuil. Le Conseil
+        // constitutionnel n'a pas de sommaire officiel (le mapper n'en lit pas). Seule exception
+        // enregistrée : le « X » du TJ Paris, que la règle vise.
+        let recorded: [(&str, bool); 15] = [
+            (CASSATION, false),
+            (CETAT, true),
+            (CETAT_OLD, true),
+            (CETAT_NEW, true),
+            (C4_CIV1, false),
+            (C4_CIV3, false),
+            (C4_COM, false),
+            (C4_CRIM, false),
+            (C4_SOCIALE, false),
+            (C4_I7, false),
+            (C4_89, false),
+            (C4_05, false),
+            (C4_14, false),
+            (C4_06, false),
+            (C16_LIENS, false),
+        ];
+        let mut shortest = usize::MAX;
+        let mut entries = 0;
+        for (json, cetat) in recorded {
+            let given = recorded_official(json, cetat);
+            for entry in given.analyses.iter().chain(&given.titrages) {
+                entries += 1;
+                shortest = shortest.min(alnum(entry));
+            }
+        }
+        assert!(entries >= 30, "{entries}");
+        assert!(shortest >= OFFICIAL_MIN_ALNUM_CHARS, "{shortest}");
+        assert_eq!(shortest, 83, "plus court sommaire officiel réel conservé");
+    }
+
     #[test]
     fn official_wins_over_the_dispositif() {
         let decision = long(&[
@@ -358,9 +588,12 @@ mod tests {
             "Article 1er. - Rejet.",
             "Jugé par le Conseil constitutionnel.",
         ]);
-        let given = official(&["Sommaire officiel."], &[]);
+        let given = official(&["Sommaire officiel de la décision."], &[]);
         let got = summary(&decision, Some(&given), DispositifRule::ConseilConstitutionnel, 4_000);
-        assert_eq!(parts(&got), (SummarySource::Official, "Sommaire officiel.", false));
+        assert_eq!(
+            parts(&got),
+            (SummarySource::Official, "Sommaire officiel de la décision.", false)
+        );
     }
 
     #[test]
@@ -841,6 +1074,23 @@ mod tests {
     }
 
     proptest! {
+        #[test]
+        fn an_official_source_always_has_enough_alphanumerics(
+            analyses in proptest::collection::vec("[ a-zA-Z0-9é.\\-]{0,40}", 0..4),
+            titrages in proptest::collection::vec("[ a-zA-Z0-9é.\\-]{0,40}", 0..4),
+        ) {
+            let body = long(&["Texte de repli."]);
+            let given = OfficialSummary { analyses, titrages };
+            let got = summary(&body, Some(&given), DispositifRule::None, SUMMARY_CAP_CHARS);
+            // Quatre entrées de 40 caractères au plus tiennent dans le plafond : jamais coupé.
+            prop_assert!(!got.truncated);
+            if got.source == SummarySource::Official {
+                prop_assert!(alnum(&got.text) >= OFFICIAL_MIN_ALNUM_CHARS);
+            } else {
+                prop_assert_eq!(got.text.as_str(), "Texte de repli.");
+            }
+        }
+
         #[test]
         fn summary_never_exceeds_its_budget(
             text in "[a-zé .!?\n]{0,2500}",

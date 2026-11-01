@@ -1043,7 +1043,8 @@ mod tests {
         let official_summary = Summary { source: SummarySource::Official, ..lead.clone() };
         assert!(is_official(&official_summary) && !is_official(&lead));
         let text = long("Un court texte, rendu en entier.");
-        let official = OfficialSummary::new(["Analyse officielle."], Vec::<String>::new());
+        let official =
+            OfficialSummary::new(["Analyse officielle de la décision."], Vec::<String>::new());
         let req = request(|_| {});
         for rule in [DispositifRule::None, DispositifRule::ConseilEtat] {
             for official in [None, Some(&official)] {
@@ -1057,6 +1058,11 @@ mod tests {
         }
         // Sans sommaire officiel, le début du texte n'est jamais répété.
         assert_eq!(read(&text, None, DispositifRule::None, &req).unwrap().summary, None);
+        // D-07 : un sommaire officiel trivial (« X ») n'en est pas un, le texte entier est rendu
+        // seul ; jumeau ci-dessus : une analyse assez longue l'accompagne.
+        let trivial = OfficialSummary::new(["X"], Vec::<String>::new());
+        let reading = read(&text, Some(&trivial), DispositifRule::None, &req).unwrap();
+        assert_eq!((reading.text.as_deref(), reading.summary), (Some(text.as_str()), None));
     }
 
     #[test]
