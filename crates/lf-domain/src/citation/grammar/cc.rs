@@ -64,9 +64,19 @@ fn decision_word(c: &Cur<'_>, i: usize) -> Option<usize> {
     c.kwb(i, "decision").or_else(|| c.abbr(i, "dec")).map(|e| c.ws0(e))
 }
 
-/// `cc_num` : `2025-1173`, `2010-14/22`, `2015-491R`.
+/// Année sur deux chiffres de 59 à 99 (1959-1999), forme de `NUM_DEC` : `71` pour 1971. Elle ne
+/// doit pas être la fin d'un nombre plus long (`2016-71-44`, `12.71-44`, `12/71-44`).
+fn short_year(c: &Cur<'_>, i: usize) -> Option<(usize, u16)> {
+    let alone =
+        i.checked_sub(1).is_none_or(|p| !c.ch(p).is_some_and(|ch| matches!(ch, '-' | '.' | '/')));
+    let e = c.exact(i, 2).filter(|_| alone && c.left_ok(i))?;
+    let year = 1900_u16.saturating_add(u16::try_from(c.val(i, e)).unwrap_or(0));
+    (1959..=1999).contains(&year).then_some((e, year))
+}
+
+/// `cc_num` : `2025-1173`, `2010-14/22`, `2015-491R`, et `71-44` pour 1971.
 fn cc_num(c: &Cur<'_>, i: usize) -> Option<(usize, Num)> {
-    let (e, year) = c.year4(i)?;
+    let (e, year) = c.year4(i).or_else(|| short_year(c, i))?;
     c.is(e, '-').then_some(())?;
     let (mut end, seq) = c.int(e + 1)?;
     let mut joined = Vec::new();
@@ -324,6 +334,94 @@ mod tests {
         }
     }
 
+    /// L1-04 : année sur deux chiffres (1959-1999), lue comme 19AA.
+    #[test]
+    fn two_digit_year_forms_l1_04() {
+        let cases = [
+            (
+                "Conseil constitutionnel, décision n° 71-44 DC du 16 juillet 1971",
+                vec![(CourtA, "Conseil constitutionnel")],
+                "Conseil constitutionnel, décision n° 71-44 DC du 16 juillet 1971",
+                DecisionCite {
+                    date: date(1971, 7, 16),
+                    numbers: num(1971, 44, &[], false, CcType::Dc),
+                    ..cc()
+                },
+            ),
+            (
+                "Décision n° 82-132 DC du 16 janvier 1982",
+                vec![(CcNumberA, "82-132 DC")],
+                "Décision n° 82-132 DC du 16 janvier 1982",
+                DecisionCite {
+                    date: date(1982, 1, 16),
+                    numbers: num(1982, 132, &[], false, CcType::Dc),
+                    ..cc()
+                },
+            ),
+            (
+                "DC 71-44",
+                vec![],
+                "DC 71-44",
+                DecisionCite { numbers: num(1971, 44, &[], false, CcType::Dc), ..cc() },
+            ),
+            (
+                "Cons. const., décision n° 94-343/344 DC du 27 juillet 1994",
+                vec![(CourtA, "Cons. const.")],
+                "Cons. const., décision n° 94-343/344 DC du 27 juillet 1994",
+                DecisionCite {
+                    date: date(1994, 7, 27),
+                    numbers: num(1994, 343, &[344], false, CcType::Dc),
+                    ..cc()
+                },
+            ),
+            // Numéro en tout début de texte (aucun caractère à gauche).
+            (
+                "71-44 DC",
+                vec![(CcNumberA, "71-44 DC")],
+                "71-44 DC",
+                DecisionCite { numbers: num(1971, 44, &[], false, CcType::Dc), ..cc() },
+            ),
+            // La forme à quatre chiffres reste lue pour les années 1959-1999.
+            (
+                "Cons. const., décision n° 1971-44 DC du 16 juillet 1971",
+                vec![(CourtA, "Cons. const.")],
+                "Cons. const., décision n° 1971-44 DC du 16 juillet 1971",
+                DecisionCite {
+                    date: date(1971, 7, 16),
+                    numbers: num(1971, 44, &[], false, CcType::Dc),
+                    ..cc()
+                },
+            ),
+            // Bornes de l'intervalle 59-99.
+            (
+                "Décision n° 59-1 DC du 1 janvier 1959",
+                vec![(CcNumberA, "59-1 DC")],
+                "Décision n° 59-1 DC du 1 janvier 1959",
+                DecisionCite {
+                    date: date(1959, 1, 1),
+                    numbers: num(1959, 1, &[], false, CcType::Dc),
+                    ..cc()
+                },
+            ),
+            (
+                "Décision n° 99-410 DC du 15 mars 1999",
+                vec![(CcNumberA, "99-410 DC")],
+                "Décision n° 99-410 DC du 15 mars 1999",
+                DecisionCite {
+                    date: date(1999, 3, 15),
+                    numbers: num(1999, 410, &[], false, CcType::Dc),
+                    ..cc()
+                },
+            ),
+        ];
+        for (input, anchors, span, want) in cases {
+            let got = only(run(scan, input, &anchors));
+            assert_eq!(matched(input, &got), span, "{input}");
+            assert_eq!(*decision(&got), want, "{input}");
+            assert_eq!(got.confidence, Confidence::High, "{input}");
+        }
+    }
+
     #[test]
     fn title_tails_are_captured_outside_the_span_p141_p142() {
         let input = "Décision 2025-1173 QPC - 07 novembre 2025 - M.\u{a0}Amine G. [Absence de publicité des débats devant le juge] - Conformité";
@@ -409,6 +507,36 @@ mod tests {
         ] {
             assert_eq!(run(scan, input, &anchors), [], "{input}");
         }
+    }
+
+    /// L1-04 : l'année sur deux chiffres ne capte ni les numéros de texte, ni les années hors
+    /// 1959-1999, ni un nombre qui n'est pas un début de numéro (N44).
+    #[test]
+    fn two_digit_years_are_limited_to_1959_1999_n44() {
+        for (input, anchors) in [
+            // Décret, loi, pourvoi : numéros de texte ou de dossier, pas du Conseil constitutionnel.
+            ("décret n° 93-1419 L du 29 décembre 1993", vec![(CcNumberA, "93-1419 L")]),
+            ("loi n° 58-1067 du 28 octobre 1958", vec![]),
+            ("pourvoi n° 93-12.345", vec![]),
+            // Année deux chiffres hors de 59-99, ou sur trois chiffres.
+            ("Décision n° 58-1 DC du 1 janvier 1958", vec![]),
+            ("Décision n° 25-1173 QPC du 7 novembre 2025", vec![]),
+            ("Décision n° 00-12 DC", vec![]),
+            ("Décision n° 971-44 DC du 16 juillet 1971", vec![]),
+            // Le nombre fait partie d'un numéro plus long.
+            ("Selon 2016-71-44 DC", vec![(CcNumberA, "71-44 DC")]),
+            ("Selon 12.71-44 DC", vec![(CcNumberA, "71-44 DC")]),
+            ("Selon 12/71-44 DC", vec![(CcNumberA, "71-44 DC")]),
+            ("Selon x71-44 DC", vec![(CcNumberA, "71-44 DC")]),
+        ] {
+            assert_eq!(run(scan, input, &anchors), [], "{input}");
+        }
+        // Jumeau : le même décret avec un contexte « Cons. const. » est bien lu.
+        let input = "Cons. const., déc. n° 93-1419 L du 29 décembre 1993";
+        let got = only(run(scan, input, &[(CourtA, "Cons. const.")]));
+        assert_eq!(decision(&got).numbers, num(1993, 1419, &[], false, CcType::L));
+        // « décision n° 71-44 » sans type reste un numéro de texte : rien ici.
+        assert_eq!(run(scan, "décision n° 71-44", &[]), []);
     }
 
     /// Un titre sans « du » ni tiret après le type n'a pas de date : la décision s'arrête au type.

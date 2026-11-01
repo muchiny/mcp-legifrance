@@ -257,7 +257,10 @@ static TOKENS: LazyLock<Vec<Token>> = LazyLock::new(|| {
         token(AnchorClass::Pourvoi, r"\b[0-9]{2}-[0-9]{2}\.?[0-9]{3}\b"),
         token(AnchorClass::CaaNumber, &format!(r"\b[0-9]{{2}}(?:{caa})[0-9]{{5}}\b")),
         token(AnchorClass::Rg, r"\b[0-9]{2}/[0-9]{4,5}\b"),
-        token(AnchorClass::CcNumber, &format!(r"\b[0-9]{{4}}-[0-9]+(?:/[0-9]+)?R?[ ]?(?:{cc})\b")),
+        token(
+            AnchorClass::CcNumber,
+            &format!(r"\b(?:[0-9]{{4}}|[5-9][0-9])-[0-9]+(?:/[0-9]+)?R?[ ]?(?:{cc})\b"),
+        ),
         token(AnchorClass::Sigle, &format!(r"\b(?:{sigles})\b")),
         token(AnchorClass::ArticlePrefix, r"\b(?:LO|L|R|D|A)\*{0,2}\.?[ ]?[0-9]"),
     ]
@@ -513,6 +516,8 @@ mod tests {
             ("n° 2010-14/22 QPC", CcNumber, "2010-14/22 QPC"),
             ("n° 2015-491R DC", CcNumber, "2015-491R DC"),
             ("n° 2011-4 SEN/QPC", CcNumber, "2011-4 SEN/QPC"),
+            ("décision n° 71-44 DC", CcNumber, "71-44 DC"),
+            ("n° 94-343/344 DC", CcNumber, "94-343/344 DC"),
             ("art. L. 52-8 CE", Sigle, "CE"),
             ("art. 1 du CGI", Sigle, "CGI"),
             ("art. 700 du CPC", Sigle, "CPC"),
@@ -567,6 +572,11 @@ mod tests {
         assert!(!has_class("LEGITEXT0000332050144_08-09-2023", AnchorClass::LegifranceId));
         assert!(!has_class("pour la période 2016-1321", AnchorClass::CcNumber));
         assert!(!has_class("aux 1234 RG", AnchorClass::Rg));
+        // L1-04 : l'ancre à deux chiffres exige un type et ne lit pas un numéro de texte.
+        assert!(!has_class("loi n° 58-1067", AnchorClass::CcNumber));
+        assert!(!has_class("pourvoi n° 93-12.345", AnchorClass::CcNumber));
+        // 58 passe l'ancre (`[5-9][0-9]`) ; la grammaire le refuse (avant 1959).
+        assert!(!has_class("décision n° 71-44", AnchorClass::CcNumber));
         assert!(has("ECLI:FR:CCASS:2025", AnchorClass::Ecli, "ECLI:"));
         // L'identifiant collé à un autre mot n'est pas isolé.
         assert!(!has_class("xLEGIARTI000006419288", AnchorClass::LegifranceId));

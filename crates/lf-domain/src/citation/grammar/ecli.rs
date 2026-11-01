@@ -48,16 +48,22 @@ fn digits_only(text: &str, min: usize, max: usize) -> bool {
     (min..=max).contains(&text.len()) && text.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// `AAAA.N.TYPE` : année de l'ordinal d'un ECLI du Conseil constitutionnel.
+/// `AAAA.N.TYPE` ou `AA.N.TYPE` : année de l'ordinal d'un ECLI du Conseil constitutionnel. Sur
+/// deux chiffres, l'année va de 59 à 99 et vaut 1900 + AA (`71.44.DC` pour 1971).
 fn cc_ordinal_year(ordinal: &str) -> Option<u16> {
     let mut parts = ordinal.split('.');
-    let year = parts.next().filter(|y| digits_only(y, 4, 4))?;
+    let year = parts.next().filter(|y| digits_only(y, 2, 4))?;
     parts.next().filter(|n| digits_only(n, 1, 9))?;
     CcType::parse(parts.next()?)?;
-    parts.next().is_none().then(|| {
-        year.bytes()
-            .fold(0_u16, |acc, b| acc.saturating_mul(10).saturating_add(u16::from(b - b'0')))
-    })
+    parts.next().is_none().then_some(())?;
+    let value = year
+        .bytes()
+        .fold(0_u16, |acc, b| acc.saturating_mul(10).saturating_add(u16::from(b - b'0')));
+    match year.len() {
+        4 => Some(value),
+        2 => (59..=99).contains(&value).then_some(1900_u16.saturating_add(value)),
+        _ => None,
+    }
 }
 
 /// Drapeaux d'un ECLI du Conseil constitutionnel.
@@ -211,6 +217,15 @@ mod tests {
                 "ECLI:FR:CCASS:2013:CR00710",
                 "ECLI:FR:CCASS:2013:CR00710",
             ),
+            // L1-04 : ordinal du Conseil constitutionnel à année sur deux chiffres (1959-1999).
+            ("ECLI:FR:CC:1971:71.44.DC", "ECLI:FR:CC:1971:71.44.DC", "ECLI:FR:CC:1971:71.44.DC"),
+            (
+                "ECLI:FR:CC:2010:2010.14.QPC",
+                "ECLI:FR:CC:2010:2010.14.QPC",
+                "ECLI:FR:CC:2010:2010.14.QPC",
+            ),
+            ("ECLI:FR:CC:1959:59.1.DC", "ECLI:FR:CC:1959:59.1.DC", "ECLI:FR:CC:1959:59.1.DC"),
+            ("ECLI:FR:CC:1999:99.410.DC", "ECLI:FR:CC:1999:99.410.DC", "ECLI:FR:CC:1999:99.410.DC"),
             (
                 "ecli:fr:ccass:2025:c100399",
                 "ecli:fr:ccass:2025:c100399",
@@ -252,6 +267,13 @@ mod tests {
             ("ECLI:FR:CCASS:2025:C10039", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cass)]),
             ("ECLI:FR:CECHR:2026:506507.2026", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Ce)]),
             ("ECLI:FR:CESSR:2026:abc.20260101", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Ce)]),
+            // L1-04 : deux chiffres hors de 59-99, ou trois chiffres, ne sont pas une année.
+            ("ECLI:FR:CC:1971:05.44.DC", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cc)]),
+            ("ECLI:FR:CC:1971:58.44.DC", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cc)]),
+            ("ECLI:FR:CC:1971:971.44.DC", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cc)]),
+            ("ECLI:FR:CC:1971:7.44.DC", vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cc)]),
+            // Jumeau : l'année du numéro (1971) postérieure à celle de l'ECLI est signalée.
+            ("ECLI:FR:CC:1970:71.44.DC", vec![Flag::EcliAnneeAnterieureNumero]),
             ("ECLI:FR:CC:2024:2025.1173.QPC", vec![Flag::EcliAnneeAnterieureNumero]),
             // Juridiction sans interprétation française : aucun drapeau.
             ("ECLI:FR:XYZ:2020:123", vec![]),

@@ -1388,7 +1388,11 @@ impl fmt::Display for TaNumber {
     }
 }
 
-/// Numéro d'une décision du Conseil constitutionnel (`2025-1173 QPC`, `2010-14/22 QPC`).
+/// Première année du Conseil constitutionnel : 1959, début de la forme à deux chiffres.
+const CC_FIRST_YEAR: u16 = 1959;
+
+/// Numéro d'une décision du Conseil constitutionnel (`2025-1173 QPC`, `2010-14/22 QPC`,
+/// `71-44 DC`).
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct CcNumber {
     /// Année de la saisine.
@@ -1416,12 +1420,23 @@ impl FromStr for CcNumber {
         let mut parts = rest.split('/').map(|p| fixed_digits_any(p).ok_or(invalid));
         let seq = parts.next().unwrap_or(Err(invalid))?;
         Ok(Self {
-            year: fixed_digits(year, 4).ok_or(invalid)?,
+            year: cc_year(year).ok_or(invalid)?,
             seq,
             joined: parts.collect::<Result<_, _>>()?,
             rectif,
             kind,
         })
+    }
+}
+
+/// Année d'un numéro du Conseil constitutionnel : quatre chiffres, ou deux chiffres de 59 à 99
+/// (`71` pour 1971, forme de `NUM_DEC` des décisions de 1959 à 1999).
+fn cc_year(text: &str) -> Option<u16> {
+    match two_digits(text) {
+        Some(yy) => (CC_FIRST_YEAR..=1999)
+            .contains(&1900_u16.saturating_add(u16::from(yy)))
+            .then(|| 1900_u16.saturating_add(u16::from(yy))),
+        None => fixed_digits(text, 4),
     }
 }
 
@@ -1431,6 +1446,21 @@ fn fixed_digits_any(text: &str) -> Option<u32> {
 }
 
 impl CcNumber {
+    /// Première forme du numéro, sans numéros joints, `R` ni type : `71-44`, `2010-14`. C'est la
+    /// forme écrite dans `NUM_DEC` de Légifrance, que la recherche par numéro attend.
+    pub fn first_form(&self) -> String {
+        format!("{}-{}", self.year_text(), self.seq)
+    }
+
+    /// Année écrite comme Légifrance : deux chiffres de 1959 à 1999, sinon quatre.
+    fn year_text(&self) -> String {
+        if (CC_FIRST_YEAR..=1999).contains(&self.year) {
+            format!("{:02}", self.year.saturating_sub(1900))
+        } else {
+            format!("{:04}", self.year)
+        }
+    }
+
     /// Forme complète `2025-1173 QPC`, que `FromStr` relit.
     pub fn full(&self) -> String {
         format!("{self} {}", self.kind.as_str())
@@ -1441,8 +1471,8 @@ impl fmt::Display for CcNumber {
     /// Forme canonique `2025-1173`, avec les numéros joints et le `R` de rectification, sans
     /// le type.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Année sur quatre chiffres, comme `FromStr` l'exige : `0001-5` se relit.
-        let mut out = format!("{:04}-{}", self.year, self.seq);
+        // Deux chiffres de 1959 à 1999 (`71-44`), sinon quatre : `FromStr` relit les deux formes.
+        let mut out = self.first_form();
         for joined in &self.joined {
             out.push('/');
             out.push_str(&joined.to_string());
@@ -2299,7 +2329,7 @@ mod tests {
             ("2025-1173 QPC", "2025-1173"),
             ("2010-14/22 QPC", "2010-14/22"),
             ("2015-491R DC", "2015-491R"),
-            ("1959-1 FNR", "1959-1"),
+            ("59-1 FNR", "59-1"),
         ] {
             let cc: CcNumber = text.parse().expect("valide");
             assert_eq!(cc.to_string(), canonical);
@@ -2315,6 +2345,10 @@ mod tests {
             "2025-1173",
             "2025-1173 XXX",
             "25-1173 QPC",
+            "58-1 DC",
+            "100-1 DC",
+            "971-44 DC",
+            "7-44 DC",
             "2025 QPC",
             "2025-/22 QPC",
             "2025-1173/ QPC",
@@ -2363,6 +2397,39 @@ mod tests {
         let cnil: CnilNumber = "SAN-0042-007".parse().expect("valide");
         assert_eq!((cnil.year, cnil.to_string()), (42, "SAN-0042-007".to_owned()));
         assert_eq!(cnil.to_string().parse::<CnilNumber>(), Ok(cnil));
+    }
+
+    /// L1-04 : une année de 1959 à 1999 s'écrit sur deux chiffres, comme `NUM_DEC` de Légifrance
+    /// (`71-44`), et les deux formes se lisent ; `first_form` ignore numéros joints et `R`.
+    #[test]
+    fn two_digit_cc_years_round_trip_and_first_form() {
+        for (text, canonical, year) in [
+            ("71-44 DC", "71-44", 1971),
+            ("1971-44 DC", "71-44", 1971),
+            ("59-1 DC", "59-1", 1959),
+            ("1959-1 DC", "59-1", 1959),
+            ("99-410 DC", "99-410", 1999),
+            ("1999-410 DC", "99-410", 1999),
+            ("94-343/344 DC", "94-343/344", 1994),
+            // Jumeaux : hors de 1959-1999, quatre chiffres.
+            ("2000-427 DC", "2000-427", 2000),
+            ("1958-4 DC", "1958-4", 1958),
+        ] {
+            let cc: CcNumber = text.parse().expect("valide");
+            assert_eq!((cc.year, cc.to_string()), (year, canonical.to_owned()), "{text}");
+            let again: CcNumber = cc.full().parse().expect("relu");
+            assert_eq!(again, cc, "{text}");
+        }
+        for (text, first) in [
+            ("71-44 DC", "71-44"),
+            ("94-343/344 DC", "94-343"),
+            ("2015-491R QPC", "2015-491"),
+            ("2010-14/22 QPC", "2010-14"),
+            ("0001-5 DC", "0001-5"),
+        ] {
+            let cc: CcNumber = text.parse().expect("valide");
+            assert_eq!(cc.first_form(), first, "{text}");
+        }
     }
 
     #[test]
