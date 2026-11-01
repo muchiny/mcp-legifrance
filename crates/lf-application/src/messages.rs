@@ -516,6 +516,20 @@ fn expected_prefixes(expected: &str) -> Vec<&str> {
         .collect()
 }
 
+/// L'entrée (rendue par [`shown`]) d'un identifiant dont **aucun préfixe** n'est connu du
+/// domaine, `None` pour toute autre erreur, y compris un préfixe connu suivi de chiffres faux
+/// (L4-10). L'erreur du domaine liste alors les dix familles ; un outil qui n'en lit que
+/// quelques-unes rédige sa propre phrase.
+#[must_use]
+pub(crate) fn unknown_id_family(error: &DomainError) -> Option<String> {
+    match error {
+        DomainError::InvalidId { input, expected, .. } if expected_prefixes(expected).len() > 1 => {
+            Some(shown(input))
+        }
+        _ => None,
+    }
+}
+
 /// Message d'un identifiant refusé (03 §2.7) : mauvaise famille, préfixe inconnu ou chiffres.
 fn invalid_id(field: &str, input: &str, expected: &str) -> String {
     let prefixes = expected_prefixes(expected);
@@ -1429,6 +1443,17 @@ mod tests {
             not_one_of("detail", "long", &["full", "summary"]).message(),
             "detail='long' must be one of ['full', 'summary']."
         );
+    }
+
+    #[test]
+    fn unknown_id_family_tells_an_unknown_prefix_from_wrong_digits() {
+        // L4-10 : seul un préfixe inconnu (liste des dix familles) donne l'entrée échappée.
+        let unknown = DocumentId::parse("foo\u{202e}").unwrap_err();
+        assert_eq!(unknown_id_family(&unknown).as_deref(), Some(r"foo\u{202e}"));
+        // Un préfixe connu aux chiffres faux, une autre erreur du domaine : `None`.
+        let digits = DocumentId::parse("LEGIARTI123").unwrap_err();
+        assert_eq!(unknown_id_family(&digits), None);
+        assert_eq!(unknown_id_family(&DomainError::EmptyQuery), None);
     }
 
     #[test]

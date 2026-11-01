@@ -79,7 +79,16 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
         input: GetRelatedInput,
     ) -> Result<GetRelatedOutput, AppError> {
         let raw = input.id.ok_or_else(|| messages::required(messages::id_field(TOOL)))?;
-        match DocumentId::parse(&raw).map_err(|error| messages::domain(TOOL, &error))? {
+        let parsed = DocumentId::parse(&raw).map_err(|error| {
+            // Un préfixe inconnu : la phrase de l'outil, non la liste des dix familles du domaine
+            // dont six sont refusées juste après (L4-10). Un préfixe connu aux chiffres faux garde
+            // le message du domaine.
+            messages::unknown_id_family(&error).map_or_else(
+                || messages::domain(TOOL, &error),
+                |shown| messages::invalid_argument(wanted(&shown, "")),
+            )
+        })?;
+        match parsed {
             DocumentId::LegiArti(id) => self.article(id).await,
             DocumentId::JuriText(id) => self.decision(DecisionId::Juri(id)).await,
             DocumentId::ConsText(id) => self.decision(DecisionId::Constit(id)).await,
@@ -190,12 +199,16 @@ fn unsupported(id: &DocumentId) -> AppError {
              fond=LODA and use the LEGITEXT id of the hit."
         }
     };
-    messages::invalid_argument(format!(
-        "{}='{}' must be a LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... \
+    messages::invalid_argument(wanted(id.as_str(), hint))
+}
+
+/// Ce que l'outil lit, pour l'identifiant `shown` (déjà normalisé ou échappé), suivi de `hint`.
+fn wanted(shown: &str, hint: &str) -> String {
+    format!(
+        "{}='{shown}' must be a LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... \
          decision id.{hint}",
         messages::id_field(TOOL),
-        id.as_str()
-    ))
+    )
 }
 
 #[cfg(test)]
@@ -694,16 +707,26 @@ mod tests {
     #[tokio::test]
     async fn the_id_is_required_and_must_be_well_formed() {
         assert_eq!(rejected(None).await, "id is required.");
+        // L4-10 (related_diff-8) : un préfixe inconnu cite ce que l'outil lit, non les dix
+        // familles du domaine dont six sont refusées ensuite.
+        for raw in ["x", "foo", "", "FOOTEXT000000000001"] {
+            assert_eq!(
+                rejected(Some(raw)).await,
+                format!(
+                    "id='{raw}' must be a LEGIARTI... article id or a JURITEXT..., CONSTEXT... \
+                     or CETATEXT... decision id."
+                ),
+                "{raw:?}"
+            );
+        }
+        // Un préfixe connu aux chiffres faux garde le message du domaine.
         assert_eq!(
-            rejected(Some("x")).await,
-            "id='x' must start with one of ('LEGITEXT', 'LEGIARTI', 'JORFTEXT', 'KALITEXT', \
-             'KALIARTI', 'JURITEXT', 'CONSTEXT', 'CETATEXT', 'CNILTEXT', 'ACCOTEXT')."
+            rejected(Some("LEGIARTI123")).await,
+            "id='LEGIARTI123' must be LEGIARTI followed by exactly 12 digits \
+             (e.g. LEGIARTI000006419288)."
         );
-        let message = rejected(Some("FOOTEXT000000000001")).await;
-        assert!(
-            message.starts_with("id='FOOTEXT000000000001' must start with one of ("),
-            "{message}"
-        );
+        let message = rejected(Some("JURITEXT12")).await;
+        assert!(message.contains("must be JURITEXT followed by exactly 12 digits"), "{message}");
     }
 
     #[tokio::test]
