@@ -1023,6 +1023,7 @@ mod tests {
             DispositifRule::None,
             DispositifRule::ConseilConstitutionnel,
             DispositifRule::ConseilEtat,
+            DispositifRule::Cnil,
         ];
         for max_chars in [500_i64, 777, 1_199, 1_200, 1_201, 4_000, 40_000] {
             let cap = usize::try_from(max_chars).unwrap().min(SUMMARY_CAP_CHARS);

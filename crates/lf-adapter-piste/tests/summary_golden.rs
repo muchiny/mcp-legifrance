@@ -18,8 +18,8 @@ mod golden {
     };
     use lf_application::ports::LegalCorpus;
     use lf_domain::coverage::PisteEnvironment;
-    use lf_domain::entity::{Decision, OfficialSummary};
-    use lf_domain::id::DecisionId;
+    use lf_domain::entity::{Decision, Deliberation, OfficialSummary};
+    use lf_domain::id::{CnilTextId, DecisionId};
     use lf_domain::text::{DispositifRule, SUMMARY_CAP_CHARS, SummarySource, summary};
     use secrecy::SecretString;
     use serde_json::{Value, json};
@@ -64,8 +64,12 @@ mod golden {
         },
     ];
 
-    /// `PisteCorpus` vers un serveur simulé qui sert `case` pour son identifiant.
-    async fn decision(case: &Case) -> Decision {
+    /// `PisteCorpus` vers un serveur simulé qui sert `body` sur `endpoint` pour l'identifiant `id`.
+    async fn corpus_serving(
+        endpoint: &str,
+        id: &str,
+        body: &'static [u8],
+    ) -> (MockServer, PisteCorpus) {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path(TOKEN_PATH))
@@ -79,9 +83,9 @@ mod golden {
             .mount(&server)
             .await;
         Mock::given(method("POST"))
-            .and(path(format!("{API_BASE}/consult/juri")))
-            .and(body_partial_json(json!({"textId": case.id})))
-            .respond_with(ResponseTemplate::new(200).set_body_raw(case.body, "application/json"))
+            .and(path(format!("{API_BASE}{endpoint}")))
+            .and(body_partial_json(json!({"textId": id})))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
             .expect(1)
             .mount(&server)
             .await;
@@ -105,7 +109,12 @@ mod golden {
         )
         .with_tuning(tuning)
         .unwrap();
-        let corpus = PisteCorpus::new(config);
+        (server, PisteCorpus::new(config))
+    }
+
+    /// Décision servie pour `case`.
+    async fn decision(case: &Case) -> Decision {
+        let (_server, corpus) = corpus_serving("/consult/juri", case.id, case.body).await;
         corpus.get_decision(&DecisionId::parse(case.id).unwrap()).await.unwrap()
     }
 
@@ -172,5 +181,94 @@ mod golden {
             }));
         }
         insta::assert_json_snapshot!("summaries", texts);
+    }
+    /// Délibération de la CNIL de référence : fixture enregistrée, nature attendue.
+    struct CnilCase {
+        /// Libellé court dans le snapshot.
+        label: &'static str,
+        /// Identifiant demandé à la capture.
+        id: &'static str,
+        /// Contenu de la fixture.
+        body: &'static [u8],
+        /// Source attendue du résumé.
+        source: SummarySource,
+    }
+
+    const CNIL_CASES: [CnilCase; 6] = [
+        CnilCase {
+            label: "sanction SAN-2025-008",
+            id: "CNILTEXT000052266505",
+            body: include_bytes!(
+                "fixtures/recorded/consult/cnil/c110/D09-cnil-consult-SAN-2025-008-CNILTEXT000052266505.json"
+            ),
+            source: SummarySource::Dispositif,
+        },
+        CnilCase {
+            label: "sanction SAN-2018-008",
+            id: "CNILTEXT000037273346",
+            body: include_bytes!(
+                "fixtures/recorded/consult/cnil/c110/D09-cnil-consult-SAN-2018-008-CNILTEXT000037273346.json"
+            ),
+            source: SummarySource::Dispositif,
+        },
+        CnilCase {
+            label: "sanction SAN-2026-002",
+            id: "CNILTEXT000053352643",
+            body: include_bytes!(
+                "fixtures/recorded/consult/cnil/complet/cnil-CNILTEXT000053352643.json"
+            ),
+            source: SummarySource::Dispositif,
+        },
+        CnilCase {
+            label: "mise en demeure MED-2024-150",
+            id: "CNILTEXT000050719865",
+            body: include_bytes!(
+                "fixtures/recorded/consult/cnil/c110/D09-cnil-consult-MED-2024-150-CNILTEXT000050719865.json"
+            ),
+            source: SummarySource::Dispositif,
+        },
+        CnilCase {
+            label: "avis 2025-083",
+            id: "CNILTEXT000053018448",
+            body: include_bytes!(
+                "fixtures/recorded/consult/cnil/c110/D09-cnil-consult-avis-2025-083-CNILTEXT000053018448.json"
+            ),
+            source: SummarySource::Lead,
+        },
+        CnilCase {
+            label: "avis 2025-107",
+            id: "CNILTEXT000053308330",
+            body: include_bytes!(
+                "fixtures/recorded/consult/cnil/c110/D09-cnil-consult-avis-CNILTEXT000053308330.json"
+            ),
+            source: SummarySource::Lead,
+        },
+    ];
+
+    /// Délibération servie pour `case`.
+    async fn deliberation(case: &CnilCase) -> Deliberation {
+        let (_server, corpus) = corpus_serving("/consult/cnil", case.id, case.body).await;
+        corpus.get_deliberation(&CnilTextId::parse(case.id).unwrap()).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn cnil_summary_texts_are_golden() {
+        // D-09 : les sanctions et la mise en demeure donnent leur dispositif, les avis leur début.
+        // La CNIL ne publie pas de sommaire officiel : `official` est toujours `None`.
+        let mut texts: Vec<Value> = Vec::new();
+        for case in &CNIL_CASES {
+            let deliberation = deliberation(case).await;
+            let got = summary(&deliberation.text, None, DispositifRule::Cnil, MAX_CHARS);
+            assert_eq!(got.source, case.source, "{}", case.label);
+            assert!(got.text.chars().count() <= SUMMARY_CAP_CHARS);
+            texts.push(json!({
+                "case": case.label,
+                "source": got.source.as_str(),
+                "chars": got.text.chars().count(),
+                "truncated": got.truncated,
+                "text": got.text,
+            }));
+        }
+        insta::assert_json_snapshot!("summaries_cnil", texts);
     }
 }

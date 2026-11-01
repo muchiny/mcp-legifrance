@@ -15,7 +15,8 @@
 //! soulignés, égalités, étoiles et blancs, comme la ligne de tirets du Conseil d'État) sont
 //! ignorés par les étapes 2 et 3 (03 §7.2). Les marqueurs de dispositif ont été validés sur une
 //! décision de chaque juridiction : les variantes anciennes sont NON VÉRIFIÉES (V-110, V-111) et
-//! retombent sur le début du texte.
+//! retombent sur le début du texte. Ceux de la CNIL ont été lus sur trois sanctions, une mise en
+//! demeure et deux avis relevés (D-09) ; un avis n'a pas de dispositif et reste au début du texte.
 
 use std::fmt;
 
@@ -71,6 +72,10 @@ pub enum DispositifRule {
     ConseilConstitutionnel,
     /// Décision du Conseil d'État : après les considérants, paragraphes décoratifs écartés.
     ConseilEtat,
+    /// Délibération de la CNIL : après « PAR CES MOTIFS » (sanctions) ou « II- Mesures
+    /// correctrices prononcées par la CNIL » (mise en demeure), jusqu'à la signature ou à la
+    /// mention des voies de recours. Un avis n'a aucun de ces en-têtes : début du texte.
+    Cnil,
     /// Pas de règle de dispositif (autres fonds).
     None,
 }
@@ -124,6 +129,18 @@ const CONSEIL_CONSTITUTIONNEL: Markers = Markers {
 /// Conseil d'État : « D E C I D E : » (ou « DECIDE : ») … « Délibéré ».
 const CONSEIL_ETAT: Markers =
     Markers { headers: &["decide"], footers: &["delibere"], open_ended: false };
+
+/// CNIL (D-09, relevés c110) : « PAR CES MOTIFS » ouvre le dispositif des quatre sanctions relevées
+/// (SAN-2018-008, SAN-2025-008, SAN-2026-002 et son jumeau), « II- Mesures correctrices
+/// prononcées par la CNIL » celui de l'unique mise en demeure relevée (MED-2024-150). Clôture :
+/// « Le Président » / « La Présidente » (signature) ou la mention des voies de recours (« Cette
+/// décision peut faire… », « Cette décision est susceptible… »). Dispositif fermé : sans clôture,
+/// le texte reste au début.
+const CNIL: Markers = Markers {
+    headers: &["parcesmotifs", "ii-mesurescorrectricesprononceesparlacnil"],
+    footers: &["lepresident", "lapresident", "cettedecisionpeut", "cettedecisionest"],
+    open_ended: false,
+};
 
 /// Résumé de `text`, d'au plus `min(max_chars, SUMMARY_CAP_CHARS)` caractères.
 ///
@@ -192,6 +209,7 @@ fn dispositif(text: &LongText, rule: DispositifRule) -> Option<String> {
     let markers = match rule {
         DispositifRule::ConseilConstitutionnel => CONSEIL_CONSTITUTIONNEL,
         DispositifRule::ConseilEtat => CONSEIL_ETAT,
+        DispositifRule::Cnil => CNIL,
         DispositifRule::None => return None,
     };
     let mut body = Vec::new();
@@ -295,6 +313,30 @@ mod tests {
     /// 2021-150 ORGA : « DÉCIDE : » seul comme en-tête.
     const ORGA: &str = include_str!(
         "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C14-juri-consult-CC-2021-150-ORGA-CONSTEXT000044239153.json"
+    );
+
+    /// Sanction SAN-2025-008 (relevé sandbox c110, D-09).
+    const CNIL_SAN_2025: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/cnil/c110/D09-cnil-consult-SAN-2025-008-CNILTEXT000052266505.json"
+    );
+    /// Sanction SAN-2018-008 (ancienne rédaction, « sanction pécuniaire »).
+    const CNIL_SAN_2018: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/cnil/c110/D09-cnil-consult-SAN-2018-008-CNILTEXT000037273346.json"
+    );
+    /// Sanction SAN-2026-002 (amende de 15 millions, injonction, astreinte).
+    const CNIL_SAN_2026: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/cnil/complet/cnil-CNILTEXT000053352643.json"
+    );
+    /// Mise en demeure MED-2024-150.
+    const CNIL_MED: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/cnil/c110/D09-cnil-consult-MED-2024-150-CNILTEXT000050719865.json"
+    );
+    /// Avis 2025-083 (projet de loi) et avis 2025-107 (projet de décret).
+    const CNIL_AVIS_083: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/cnil/c110/D09-cnil-consult-avis-2025-083-CNILTEXT000053018448.json"
+    );
+    const CNIL_AVIS_107: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/cnil/c110/D09-cnil-consult-avis-CNILTEXT000053308330.json"
     );
 
     /// Texte canonique d'une fixture réelle (`text.texteHtml`).
@@ -919,6 +961,166 @@ mod tests {
         }
     }
 
+    /// Paragraphes de `text` strictement entre le premier qui commence par `from` et le premier
+    /// suivant qui commence par `to`.
+    fn between(text: &LongText, from: &str, to: &str) -> String {
+        let all: Vec<&str> = text.paragraphs().map(|(_, p)| p).collect();
+        let start = all.iter().position(|p| p.starts_with(from)).unwrap();
+        let end = all.iter().skip(start).position(|p| p.starts_with(to)).unwrap();
+        all.iter().skip(start).take(end).skip(1).copied().collect::<Vec<_>>().join("\n\n")
+    }
+
+    #[test]
+    fn dispositif_cnil_sanctions_cite_the_pronounced_penalty() {
+        // Trois sanctions réelles : « PAR CES MOTIFS » ouvre le dispositif, « Le Président » le
+        // ferme. Aucune n'a de sommaire officiel (D-09).
+        let cases = [
+            (CNIL_SAN_2025, "amende administrative d’un montant de"),
+            (CNIL_SAN_2018, "sanction pécuniaire d’un montant de cinquante mille (50.000) euros"),
+            (CNIL_SAN_2026, "amende administrative d’un montant de 15 000 000 (quinze millions)"),
+        ];
+        for (json, penalty) in cases {
+            let text = fixture(json);
+            let got = summary(&text, None, DispositifRule::Cnil, 4_000);
+            assert_eq!(got.source, SummarySource::Dispositif, "{penalty}");
+            assert_eq!(got.text, between(&text, "PAR CES MOTIFS", "Le Président"), "{penalty}");
+            assert!(got.text.starts_with("La formation restreinte de la CNIL, après en avoir"));
+            assert!(got.text.contains(penalty), "{penalty}");
+            assert!(!got.text.contains("PAR CES MOTIFS") && !got.text.contains("Président"));
+            assert!(!got.truncated);
+        }
+    }
+
+    #[test]
+    fn dispositif_cnil_of_the_largest_sanction_is_cut_at_the_cap() {
+        // Jumeau borné : le dispositif de SAN-2026-002 (1 038 caractères) tient dans le plafond,
+        // mais un plafond plus bas le coupe sans changer de source.
+        let text = fixture(CNIL_SAN_2026);
+        let got = summary(&text, None, DispositifRule::Cnil, 300);
+        assert_eq!(got.source, SummarySource::Dispositif);
+        assert!(got.truncated);
+        assert!(chars(&got.text) <= 300);
+        assert!(between(&text, "PAR CES MOTIFS", "Le Président").starts_with(&got.text));
+    }
+
+    #[test]
+    fn dispositif_cnil_of_the_recorded_formal_notice() {
+        // MED-2024-150, seule mise en demeure relevée : « II- Mesures correctrices prononcées par
+        // la CNIL » ouvre le dispositif, « Cette décision est susceptible… » le ferme.
+        let text = fixture(CNIL_MED);
+        let got = summary(&text, None, DispositifRule::Cnil, 4_000);
+        assert_eq!(got.source, SummarySource::Dispositif);
+        assert!(got.truncated, "2 401 caractères pour un plafond de 1 200");
+        assert!(chars(&got.text) <= SUMMARY_CAP_CHARS);
+        assert!(got.text.starts_with("En raison de l’ensemble de ces éléments"));
+        assert!(got.text.contains("Une MISE EN DEMEURE, sous un délai de deux (2) mois"));
+        let whole = between(&text, "II- Mesures correctrices", "Cette décision est susceptible");
+        assert_eq!(chars(&whole), 2_401);
+        assert!(whole.starts_with(&got.text));
+    }
+
+    #[test]
+    fn dispositif_cnil_leaves_the_opinions_to_the_lead() {
+        // Deux avis réels : ni « PAR CES MOTIFS » ni « Mesures correctrices » (jumeau des
+        // sanctions) : le résumé reste le début du texte.
+        for json in [CNIL_AVIS_083, CNIL_AVIS_107] {
+            let text = fixture(json);
+            let got = summary(&text, None, DispositifRule::Cnil, 4_000);
+            assert_eq!(got.source, SummarySource::Lead);
+            assert!(text.as_str().starts_with(&got.text));
+            assert_eq!(parts(&got), parts(&summary(&text, None, DispositifRule::None, 4_000)));
+        }
+    }
+
+    #[test]
+    fn dispositif_cnil_header_and_footer_variants() {
+        // Synthétique : variantes de casse, de blancs, de deux-points et de clôture.
+        let rule = DispositifRule::Cnil;
+        for header in ["PAR CES MOTIFS", "Par ces motifs :", "par  ces  motifs", "PAR CES MOTIFS:"]
+        {
+            for footer in ["Le Président", "La Présidente", "Cette décision peut faire l’objet"]
+            {
+                let text = long(&["Visa.", header, "Décide de sanctionner.", footer, "Reste."]);
+                let got = summary(&text, None, rule, 4_000);
+                assert_eq!(
+                    parts(&got),
+                    (SummarySource::Dispositif, "Décide de sanctionner.", false),
+                    "{header} / {footer}"
+                );
+            }
+        }
+        // Mise en demeure.
+        let text = long(&[
+            "Visa.",
+            "II- Mesures correctrices prononcées par la CNIL",
+            "Une MISE EN DEMEURE sous deux mois.",
+            "La Présidente",
+        ]);
+        assert_eq!(
+            parts(&summary(&text, None, rule, 4_000)),
+            (SummarySource::Dispositif, "Une MISE EN DEMEURE sous deux mois.", false)
+        );
+    }
+
+    #[test]
+    fn dispositif_cnil_needs_both_markers_and_a_body() {
+        let rule = DispositifRule::Cnil;
+        let cases: [&[&str]; 7] = [
+            // en-tête introuvable
+            &["Visa.", "Motif.", "Le Président"],
+            // clôture introuvable : le dispositif n'est pas ouvert, pas de repli sur la fin
+            &["Visa.", "PAR CES MOTIFS", "La formation décide de sanctionner."],
+            // dispositif vide, ou réduit à des séparateurs
+            &["Visa.", "PAR CES MOTIFS", "Le Président"],
+            &["Visa.", "PAR CES MOTIFS", "-----", "Le Président"],
+            // clôture avant l'en-tête : elle ne ferme rien
+            &["Le Président", "PAR CES MOTIFS", "La formation décide de sanctionner."],
+            // une phrase qui contient les mots n'est pas l'en-tête
+            &["Il convient de préciser par ces motifs que…", "Corps.", "Le Président"],
+            // le marqueur d'une autre juridiction ne compte pas
+            &["Visa.", "D E C I D E :", "Article 1er : A.", "Délibéré."],
+        ];
+        for paragraphs in cases {
+            let text = long(paragraphs);
+            let got = summary(&text, None, rule, 4_000);
+            assert_eq!(got.source, SummarySource::Lead, "{paragraphs:?}");
+        }
+    }
+
+    #[test]
+    fn dispositif_cnil_official_summary_still_comes_first() {
+        let text = long(&["Visa.", "PAR CES MOTIFS", "La formation décide.", "Le Président"]);
+        let given = official(&["Analyse officielle assez longue pour servir."], &[]);
+        let got = summary(&text, Some(&given), DispositifRule::Cnil, 4_000);
+        assert_eq!(got.source, SummarySource::Official);
+    }
+
+    #[test]
+    fn dispositif_cnil_cost_is_linear_in_the_text() {
+        // Borne de coût : 100 000 caractères en 1 000 paragraphes, dispositif en fin de texte.
+        let mut paragraphs: Vec<String> = (0..999).map(|_| filler(99)).collect();
+        paragraphs.push("PAR CES MOTIFS".to_owned());
+        paragraphs.push("La formation restreinte décide de prononcer une amende.".to_owned());
+        paragraphs.push("Le Président".to_owned());
+        let refs: Vec<&str> = paragraphs.iter().map(String::as_str).collect();
+        let text = long(&refs);
+        assert!(text.char_len() >= 100_000);
+        let started = std::time::Instant::now();
+        let got = summary(&text, None, DispositifRule::Cnil, 4_000);
+        assert_eq!(
+            parts(&got),
+            (
+                SummarySource::Dispositif,
+                "La formation restreinte décide de prononcer une amende.",
+                false
+            )
+        );
+        // Sans marqueur, le même texte passe aussi et retombe sur le début.
+        let plain = long(&refs[..999]);
+        assert_eq!(summary(&plain, None, DispositifRule::Cnil, 4_000).source, SummarySource::Lead);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
     #[test]
     fn dispositif_is_cut_at_the_cap() {
         let paragraph = sentences(100);
@@ -944,6 +1146,7 @@ mod tests {
         for rule in [
             DispositifRule::ConseilConstitutionnel,
             DispositifRule::ConseilEtat,
+            DispositifRule::Cnil,
             DispositifRule::None,
         ] {
             let got = summary(&decision, None, rule, 4_000);

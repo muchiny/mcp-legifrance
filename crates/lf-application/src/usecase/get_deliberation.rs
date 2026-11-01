@@ -3,8 +3,10 @@
 //! Ordre de validation (05 §5.0.2, §5.5) : l'identifiant (requis, puis `CNILTEXT` + 12 chiffres,
 //! espaces et casse tolérés), puis les paramètres de lecture (`detail`, `offset`, `max_chars`,
 //! `focus`, `passages`), tous avant l'appel au port. Le texte lu est ensuite confié à
-//! [`read`], sans sommaire officiel (la CNIL n'en publie pas) ni règle de
-//! dispositif : le résumé d'une délibération longue est donc toujours son début (`lead`, 05 §6.2).
+//! [`read`], sans sommaire officiel (la CNIL n'en publie pas) et avec la règle de dispositif
+//! [`DispositifRule::Cnil`] (D-09) : le résumé d'une sanction ou d'une mise en demeure longue est
+//! son dispositif (`dispositif`), celui de toute autre délibération, avis compris, son début
+//! (`lead`, 05 §6.2).
 //! Un `offset` au-delà de la fin du texte ne se voit qu'une fois le texte lu : il est refusé après
 //! l'appel au port. Les phrases `invalid_arg` viennent du module `messages` ; une panne du corpus
 //! passe par `failure::port_failure`.
@@ -59,7 +61,7 @@ impl<'a, C: LegalCorpus> GetDeliberationUseCase<'a, C> {
             .map_err(|error| port_failure(TOOL, id.as_str(), &error))?;
         // Le texte est lu une fois, puis lâché : la sortie ne porte que la lecture.
         let text = std::mem::take(&mut deliberation.text);
-        let reading = read(&text, None, DispositifRule::None, &request)?;
+        let reading = read(&text, None, DispositifRule::Cnil, &request)?;
         Ok(GetDeliberationOutput { deliberation, reading })
     }
 }
@@ -155,8 +157,8 @@ mod tests {
         corpus.push_get_deliberation(Ok(deliberation_with(text.clone())));
         let output =
             GetDeliberationUseCase::new(&corpus).execute(input(Some(ID), |_| {})).await.unwrap();
-        // La CNIL ne publie pas de sommaire et n'a pas de dispositif repérable : le résumé est
-        // toujours le début du texte.
+        // La CNIL ne publie pas de sommaire et ce texte n'a pas de dispositif repérable (ni
+        // « PAR CES MOTIFS » ni mesures correctrices, comme un avis) : le résumé est le début.
         let summary = output.reading.summary.as_ref().expect("un texte long donne un résumé");
         assert_eq!(summary.source, SummarySource::Lead);
         assert_eq!(summary.source.as_str(), "lead");
@@ -175,6 +177,43 @@ mod tests {
         // Les métadonnées restent, le texte entier est lâché.
         assert_eq!(output.deliberation, deliberation_with(LongText::default()));
         assert_eq!(output.output_count_or_size(), u64::try_from(size).unwrap());
+    }
+
+    /// Une sanction longue : motifs, puis « PAR CES MOTIFS », le dispositif et la signature.
+    fn sanction_text() -> LongText {
+        let mut paragraphs: Vec<String> =
+            (0..30).map(|p| format!("{p}. {}", sentence(p).trim_end())).collect();
+        paragraphs.push("PAR CES MOTIFS".to_owned());
+        paragraphs.push(
+            "La formation restreinte de la CNIL, après en avoir délibéré, décide de :".to_owned(),
+        );
+        paragraphs.push("- prononcer à l’encontre de la société X une amende administrative d’un montant de 50 000 euros ;".to_owned());
+        paragraphs.push("Le Président".to_owned());
+        paragraphs.push(
+            "Cette décision peut faire l’objet d’un recours devant le Conseil d’État.".to_owned(),
+        );
+        LongText::from_plain(&paragraphs.join("\n")).unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_summary_of_a_sanction_is_its_operative_part() {
+        // D-09 : « PAR CES MOTIFS » ... « Le Président » donne le résumé, pas le début du texte.
+        let text = sanction_text();
+        assert!(chars(text.as_str()) > SUMMARY_CAP_CHARS);
+        let corpus = FakeCorpus::new();
+        corpus.push_get_deliberation(Ok(deliberation_with(text)));
+        let output =
+            GetDeliberationUseCase::new(&corpus).execute(input(Some(ID), |_| {})).await.unwrap();
+        let summary = output.reading.summary.as_ref().expect("un texte long donne un résumé");
+        assert_eq!(summary.source, SummarySource::Dispositif);
+        assert_eq!(summary.source.as_str(), "dispositif");
+        assert_eq!(
+            summary.text,
+            "La formation restreinte de la CNIL, après en avoir délibéré, décide de :\n\n\
+             - prononcer à l’encontre de la société X une amende administrative d’un montant de 50 000 euros ;"
+        );
+        assert!(!summary.truncated);
+        assert_eq!(output.reading.text, None);
     }
 
     #[tokio::test]
