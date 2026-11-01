@@ -2,4 +2,4 @@
 source: crates/lf-adapter-mcp/src/failure.rs
 expression: text
 ---
-[upstream_error] Legifrance/PISTE HTTP 503 (service unavailable); if it repeats, rephrase the query.
+[upstream_error] Legifrance/PISTE HTTP 503 (service unavailable); if it repeats, rephrase the query or report it.

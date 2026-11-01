@@ -207,7 +207,7 @@ const fn retry_suffix(retryable: bool) -> &'static str {
 /// Suffixe d'un 500 ou 503 sur une recherche : le moteur les rend aussi pour une requête qu'il ne
 /// sait pas lire (opérateur `AND` en fin de requête, `NOT` seul, guillemets), et la rejouer à
 /// l'identique échoue de la même façon : on invite à reformuler, non à réessayer (L4-08, gap5-4).
-const REPHRASE_SUFFIX: &str = "; if it repeats, rephrase the query.";
+const REPHRASE_SUFFIX: &str = "; if it repeats, rephrase the query or report it.";
 
 /// `Upstream` (lignes 17 et 18). Sans statut, c'est une erreur réseau : la catégorie reste fixe,
 /// `CorpusError::Upstream` ne la porte pas (05 §7.2 cite `TLS error` en exemple).
@@ -1129,7 +1129,7 @@ mod tests {
                 expected_upstream(
                     UpstreamCause::Status(503),
                     "Legifrance/PISTE HTTP 503 (service unavailable); if it repeats, rephrase \
-                     the query."
+                     the query or report it."
                 )
             );
             let app = corpus_error(tool, "", &upstream(Some(500), false));
@@ -1138,7 +1138,7 @@ mod tests {
                 expected_upstream(
                     UpstreamCause::Status(500),
                     "Legifrance/PISTE HTTP 500 (internal server error); if it repeats, \
-                     rephrase the query."
+                     rephrase the query or report it."
                 )
             );
         }
