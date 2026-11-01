@@ -431,6 +431,74 @@ mod tests {
         );
     }
 
+    fn corpus_with_cgi() -> FakeCorpus {
+        let corpus = FakeCorpus::new();
+        corpus.push_list_codes(Ok(vec![CodeListing {
+            id: LegiTextId::parse("LEGITEXT000006069577").unwrap(),
+            title: "Code général des impôts".to_owned(),
+            etat: Some(LegalStatus::Vigueur),
+        }]));
+        corpus
+    }
+
+    /// Version de l'article 779 du CGI lue au 2011-06-01 : remplacée depuis (MODIFIE, fin
+    /// 2011-06-12), comme la réponse réelle de journey_patrimoine-14.
+    fn cgi_779(etat: LegalStatus, date_fin: Option<CivilDate>) -> ArticleText {
+        ArticleText {
+            etat: Some(etat),
+            date_debut: CivilDate::new(2010, 5, 1),
+            date_fin,
+            code_title: Some("Code général des impôts, CGI.".to_owned()),
+            ..article(22_201_685, "779")
+        }
+    }
+
+    /// L2-12 (journey_patrimoine-14, resolve-5) : une version lue à une date et remplacée depuis le
+    /// dit, en une note de 200 caractères au plus ; une version en vigueur, ou une date absente,
+    /// ne dit rien de plus.
+    #[tokio::test]
+    async fn a_replaced_version_read_at_a_date_says_so_and_a_current_one_does_not() {
+        let corpus = corpus_with_cgi();
+        corpus.push_find_article(Ok(cgi_779(LegalStatus::Modifie, CivilDate::new(2011, 6, 12))));
+        let output = run(
+            &corpus,
+            PisteEnvironment::Production,
+            input("article 779 du CGI", Some("2011-06-01")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(output.candidates.len(), 1);
+        assert_eq!(output.candidates[0].confidence, Confidence::High);
+        assert_eq!(output.notes.len(), 1, "{:?}", output.notes);
+        let text = output.notes[0].text();
+        assert_eq!(
+            text,
+            "This is the version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12); the \
+             current text may differ: read it without a date."
+        );
+        assert!(text.chars().count() <= 200);
+
+        // Jumeau : la version lue à cette date est encore en vigueur, rien à signaler.
+        let corpus = corpus_with_cgi();
+        corpus.push_find_article(Ok(cgi_779(LegalStatus::Vigueur, None)));
+        let output = run(
+            &corpus,
+            PisteEnvironment::Production,
+            input("article 779 du CGI", Some("2011-06-01")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(output.notes, []);
+
+        // Sans date : la note de la version en vigueur, inchangée.
+        let corpus = corpus_with_cgi();
+        corpus.push_find_article(Ok(cgi_779(LegalStatus::Vigueur, None)));
+        let output = run(&corpus, PisteEnvironment::Production, input("article 779 du CGI", None))
+            .await
+            .unwrap();
+        assert_eq!(output.notes[0].text(), "Current version in force since 2010-05-01.");
+    }
+
     #[tokio::test]
     async fn citation_and_date_are_validated_before_any_call() {
         let corpus = FakeCorpus::new();

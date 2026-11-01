@@ -1144,16 +1144,19 @@ async fn close_range(
     end: Option<&ArticleNum>,
     resolve_end: impl AsyncFnOnce(&ArticleNum) -> Resolution,
 ) -> Resolution {
-    let (Some(end), Outcome::Verified { record, .. }) = (end, &first.outcome) else {
+    let (Some(end), Outcome::Verified { record, note, .. }) = (end, &first.outcome) else {
         return first;
     };
     let record = record.clone();
+    // L'avertissement de version de la première borne reste en tête de la mention de plage.
+    let range = note
+        .as_ref()
+        .and_then(Note::version_warning)
+        .map_or(Note::RangeEndpointsOnly, |warning| warning.clone().then(Note::RangeEndpointsOnly));
     let outcome = match resolve_end(end).await.outcome {
-        Outcome::Verified { .. } => Outcome::Verified {
-            record,
-            confidence: Confidence::Medium,
-            note: Some(Note::RangeEndpointsOnly),
-        },
+        Outcome::Verified { .. } => {
+            Outcome::Verified { record, confidence: Confidence::Medium, note: Some(range) }
+        }
         Outcome::Absent { .. } | Outcome::Unresolvable { note: Note::CouldNotConfirm { .. } } => {
             Outcome::Candidates {
                 items: Vec::new(),
@@ -1189,9 +1192,42 @@ fn article_found(
     }
     let note = match at {
         ArticleAt::Today(_) => article.date_debut.map(Note::VersionSince),
-        ArticleAt::On(_) => None,
+        ArticleAt::On(date) => not_current_version(article, date),
     };
     Resolution { official, ..verified(record, Confidence::High, note) }
+}
+
+/// Code d'état d'une version qui n'est plus en vigueur, en vocabulaire fermé. `None` : version en
+/// vigueur (y compris étendue ou non étendue, différée, initiale), ou état sans signal (`SANS_ETAT`
+/// et code inconnu : rien n'autorise à dire que la version est remplacée).
+const fn replaced_code(status: &LegalStatus) -> Option<&'static str> {
+    match status {
+        LegalStatus::Abroge => Some("ABROGE"),
+        LegalStatus::AbrogeDiff => Some("ABROGE_DIFF"),
+        LegalStatus::Modifie => Some("MODIFIE"),
+        LegalStatus::ModifieMortNe => Some("MODIFIE_MORT_NE"),
+        LegalStatus::Perime => Some("PERIME"),
+        LegalStatus::Annule => Some("ANNULE"),
+        LegalStatus::Disjoint => Some("DISJOINT"),
+        LegalStatus::Transfere => Some("TRANSFERE"),
+        LegalStatus::Remplace => Some("REMPLACE"),
+        LegalStatus::Denonce => Some("DENONCE"),
+        LegalStatus::Substitue => Some("SUBSTITUE"),
+        LegalStatus::Vigueur
+        | LegalStatus::VigueurEtendue
+        | LegalStatus::VigueurNonEtendue
+        | LegalStatus::VigueurDifferee
+        | LegalStatus::Initiale
+        | LegalStatus::SansEtat
+        | LegalStatus::Other(_) => None,
+    }
+}
+
+/// Note d'un article lu à une date (`on`) quand la version lue n'est plus en vigueur (L2-12) : le
+/// texte d'aujourd'hui peut différer.
+fn not_current_version(article: &lf_domain::entity::ArticleText, on: VersionDate) -> Option<Note> {
+    let etat = article.etat.as_ref().and_then(replaced_code)?;
+    Some(Note::NotCurrentVersion { on, etat, ended: article.date_fin })
 }
 
 /// Document consulté par son identifiant : trouvé, de confiance haute.
@@ -1486,11 +1522,16 @@ fn with_sigle_reading(
         Outcome::Verified { record, confidence, note } => {
             let read_as = Note::ReadAs { sigle: *sigle, code: key.title() };
             // Une plage dont les deux bornes existent garde sa mention : le milieu n'est pas lu.
-            let note = if note == Some(Note::RangeEndpointsOnly) {
+            let read = if note.as_ref().is_some_and(Note::ends_with_range) {
                 Note::WithRange(Box::new(read_as))
             } else {
                 read_as
             };
+            // Une version remplacée garde son avertissement, en tête (L2-12).
+            let note = note
+                .as_ref()
+                .and_then(Note::version_warning)
+                .map_or(read.clone(), |warning| warning.clone().then(read));
             Outcome::Verified {
                 record,
                 confidence: confidence.min(Confidence::Medium),
@@ -5041,6 +5082,144 @@ mod tests {
         );
         assert_eq!(record_id(&legi).as_deref(), Some("LEGIARTI000006419288"));
         assert_eq!(status(&legi), CheckStatus::Verified);
+    }
+
+    /// Version de l'article 779 du CGI lue à une date : l'état et la fin de vigueur de l'API.
+    fn dated(etat: Option<LegalStatus>, date_fin: Option<CivilDate>) -> ArticleText {
+        ArticleText { etat, date_fin, ..numbered(1, "121-3") }
+    }
+
+    /// L2-12 : seule une version lue à une date et qui n'est plus en vigueur porte l'avertissement ;
+    /// chaque état de l'API est classé, et les états sans signal n'en portent pas.
+    #[test]
+    fn only_a_version_read_at_a_date_that_is_no_longer_in_force_is_flagged() {
+        let on = VersionDate::parse("2011-06-01").unwrap();
+        let end = Some(civil(2011, 6, 12));
+        let variants = ["121-3".to_owned()];
+        let flagged = [
+            (LegalStatus::Abroge, "ABROGE"),
+            (LegalStatus::AbrogeDiff, "ABROGE_DIFF"),
+            (LegalStatus::Modifie, "MODIFIE"),
+            (LegalStatus::ModifieMortNe, "MODIFIE_MORT_NE"),
+            (LegalStatus::Perime, "PERIME"),
+            (LegalStatus::Annule, "ANNULE"),
+            (LegalStatus::Disjoint, "DISJOINT"),
+            (LegalStatus::Transfere, "TRANSFERE"),
+            (LegalStatus::Remplace, "REMPLACE"),
+            (LegalStatus::Denonce, "DENONCE"),
+            (LegalStatus::Substitue, "SUBSTITUE"),
+        ];
+        for (etat, code) in flagged {
+            let resolution =
+                article_found(&dated(Some(etat.clone()), end), &variants, ArticleAt::On(on));
+            assert_eq!(
+                resolution.outcome.note(Proof::Production),
+                Some(Note::NotCurrentVersion { on, etat: code, ended: end }),
+                "{etat:?}"
+            );
+            assert_eq!(status(&resolution), CheckStatus::Verified, "{etat:?}");
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High), "{etat:?}");
+            // Sans fin de vigueur dans la réponse, la note n'en invente pas.
+            let open =
+                article_found(&dated(Some(etat.clone()), None), &variants, ArticleAt::On(on));
+            assert_eq!(
+                open.outcome.note(Proof::Production),
+                Some(Note::NotCurrentVersion { on, etat: code, ended: None }),
+                "{etat:?}"
+            );
+            // La version du jour n'est jamais « remplacée » : sa note reste celle du début.
+            let today_note = article_found(
+                &dated(Some(etat.clone()), end),
+                &variants,
+                ArticleAt::Today(today()),
+            );
+            assert_eq!(
+                today_note.outcome.note(Proof::Production),
+                Some(Note::VersionSince(civil(2016, 10, 1))),
+                "{etat:?}"
+            );
+        }
+        let quiet = [
+            Some(LegalStatus::Vigueur),
+            Some(LegalStatus::VigueurEtendue),
+            Some(LegalStatus::VigueurNonEtendue),
+            Some(LegalStatus::VigueurDifferee),
+            Some(LegalStatus::Initiale),
+            Some(LegalStatus::SansEtat),
+            Some(LegalStatus::Other("INCONNU".to_owned())),
+            None,
+        ];
+        for etat in quiet {
+            let resolution = article_found(&dated(etat.clone(), end), &variants, ArticleAt::On(on));
+            assert_eq!(resolution.outcome.note(Proof::Production), None, "{etat:?}");
+        }
+        // Un article d'un autre numéro reste un écart, sans note de version.
+        let wrong = article_found(
+            &dated(Some(LegalStatus::Modifie), end),
+            &["9".to_owned()],
+            ArticleAt::On(on),
+        );
+        assert_eq!(status(&wrong), CheckStatus::Invalid);
+    }
+
+    /// L2-12 : l'avertissement de la première borne d'une plage, ou d'un sigle lu par défaut, reste
+    /// en tête de la mention de plage et de la lecture du sigle.
+    #[tokio::test]
+    async fn the_version_warning_stays_first_with_a_range_and_a_default_sigle() {
+        let on = VersionDate::parse("2011-06-01").unwrap();
+        let warning =
+            Note::NotCurrentVersion { on, etat: "MODIFIE", ended: Some(civil(2011, 6, 12)) };
+        let old = |n: u32, num: &str| ArticleText {
+            etat: Some(LegalStatus::Modifie),
+            date_fin: Some(civil(2011, 6, 12)),
+            ..numbered(n, num)
+        };
+        let item = |text: &str| first(text);
+        let run = |text: &'static str, bounds: Vec<ArticleText>| async move {
+            let corpus = FakeCorpus::new();
+            for article in bounds {
+                corpus.push_find_article(Ok(article));
+            }
+            resolve_with(&corpus, &codes(), &item(text), Some(on)).await
+        };
+
+        // Plage de deux bornes datées.
+        let range =
+            run("articles 1240 à 1244 du code civil", vec![old(1, "1240"), old(2, "1244")]).await;
+        assert_eq!(
+            range.outcome.note(Proof::Production),
+            Some(warning.clone().then(Note::RangeEndpointsOnly))
+        );
+        assert_eq!(confidence_of(&range.outcome), Some(Confidence::Medium));
+
+        // Sigle ambigu seul.
+        let sigle = run("article 121-3 CP", vec![old(1, "121-3")]).await;
+        assert_eq!(
+            sigle.outcome.note(Proof::Production),
+            Some(warning.clone().then(Note::ReadAs { sigle: Sigle::Cp, code: "Code pénal" }))
+        );
+
+        // Plage et sigle ambigu : l'avertissement, la lecture, puis la plage.
+        let both = run("articles 121-3 à 121-5 CP", vec![old(1, "121-3"), old(2, "121-5")]).await;
+        assert_eq!(
+            both.outcome.note(Proof::Production),
+            Some(warning.then(Note::WithRange(Box::new(Note::ReadAs {
+                sigle: Sigle::Cp,
+                code: "Code pénal",
+            }))))
+        );
+
+        // Jumeaux : des versions en vigueur gardent les notes d'avant (sigle seul, plage seule).
+        let current = |n: u32, num: &str| ArticleText { date_fin: None, ..numbered(n, num) };
+        let sigle = run("article 121-3 CP", vec![current(1, "121-3")]).await;
+        assert_eq!(
+            sigle.outcome.note(Proof::Production),
+            Some(Note::ReadAs { sigle: Sigle::Cp, code: "Code pénal" })
+        );
+        let range =
+            run("articles 1240 à 1244 du code civil", vec![current(1, "1240"), current(2, "1244")])
+                .await;
+        assert_eq!(range.outcome.note(Proof::Production), Some(Note::RangeEndpointsOnly));
     }
 
     // ----------------------------------------------------------------------------------------

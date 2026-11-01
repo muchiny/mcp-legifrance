@@ -226,6 +226,29 @@ pub enum Note {
     CodeNotListed,
     /// Début de la version en vigueur : `verified`.
     VersionSince(CivilDate),
+    /// Version lue à une date passée qui n'est plus en vigueur (`etat` remplacé, abrogé…) :
+    /// `verified`, mais le texte d'aujourd'hui peut différer (L2-12, resolve-5,
+    /// journey_patrimoine-14). `etat` est le code de l'API, vocabulaire fermé ; `ended` la fin de
+    /// vigueur de la version lue, si l'API la donne.
+    NotCurrentVersion {
+        /// Date de la lecture.
+        on: VersionDate,
+        /// Code d'état de la version lue.
+        etat: &'static str,
+        /// Fin de vigueur de la version lue.
+        ended: Option<CivilDate>,
+    },
+    /// Citation d'article avec une subdivision (alinéa, point, phrase…) : seul l'article est
+    /// contrôlé (L2-17, gap3-8). Statut inchangé.
+    SubdivisionNotChecked,
+    /// Texte de `fr_verify_citations` avec un passage entre guillemets que ne jouxte aucune
+    /// citation : il n'a pas été contrôlé (L2-17, verify_citations-8). Note de la réponse, non
+    /// d'une citation.
+    QuoteNotAttached,
+    /// Plusieurs notes d'un même verdict, dans l'ordre où elles sont rendues (la plus utile en
+    /// tête) : version lue, lecture du sigle, plage, subdivision. Bâtie par [`Note::then`], donc
+    /// toujours d'au moins deux notes et sans autre `Chain` à l'intérieur.
+    Chain(Vec<Note>),
     /// Plage d'articles (« articles 1240 à 1244 ») dont les deux bornes existent : `verified` de
     /// confiance moyenne, les articles intermédiaires ne sont pas lus (L2-07).
     RangeEndpointsOnly,
@@ -370,7 +393,100 @@ const DECISION_LINK_CODES: &str = "The codes of decision links may be inexact: t
      fragments, and a code not written next to its article is left out; check the decision with \
      fr_verify_citations.";
 
+/// Textes de plusieurs notes mis bout à bout (une espace entre deux). Le premier est rendu en
+/// entier (rogné par la borne de [`Note::text`] s'il la dépasse à lui seul) ; chacun des suivants
+/// n'est ajouté que s'il tient en entier sous [`NOTE_MAX_CHARS`] : mieux vaut une note de moins
+/// qu'une phrase coupée en son milieu.
+fn join_fitting(parts: impl IntoIterator<Item = String>) -> String {
+    let mut parts = parts.into_iter();
+    let mut text = parts.next().unwrap_or_default();
+    for part in parts {
+        let joined = format!("{text} {part}");
+        if joined.chars().count() <= NOTE_MAX_CHARS {
+            text = joined;
+        }
+    }
+    text
+}
+
+/// Texte de [`Note::NoRecordAtDate`] : le numéro raccourcit avant les dates.
+fn no_record_at_date_text(
+    n: usize,
+    number: &str,
+    date: CivilDate,
+    found: &[CivilDate],
+    more: usize,
+) -> String {
+    fit(number, |number| {
+        let dates = found.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
+        let rest = if more > 0 { format!(" and {more} more") } else { String::new() };
+        format!("{n} records share number {number}, none dated {date}; dates found: {dates}{rest}.")
+    })
+}
+
+/// Texte de [`Note::NotCurrentVersion`].
+fn not_current_text(on: VersionDate, etat: &str, ended: Option<CivilDate>) -> String {
+    let ended = ended.map_or_else(String::new, |date| format!(", ended {date}"));
+    format!(
+        "This is the version in force on {on} (etat={etat}{ended}); the current text may differ: \
+         read it without a date."
+    )
+}
+
+/// Texte de [`Note::WithQuoteMismatch`] : l'écart d'extrait en tête, puis la note enveloppée. Une
+/// chaîne enveloppée est aplatie derrière l'écart, pour que ses notes se rendent entières ou pas
+/// du tout.
+fn quote_gap_text(inner: &Note) -> String {
+    match inner {
+        Note::Chain(parts) => {
+            join_fitting(std::iter::once(QUOTE_GAP.to_owned()).chain(parts.iter().map(Note::text)))
+        }
+        other => format!("{QUOTE_GAP} {}", other.text()),
+    }
+}
+
+/// Gabarit de [`Note::SubdivisionNotChecked`].
+const SUBDIVISION_NOT_CHECKED: &str = "The sub-division was not checked, only the article.";
+
+/// Gabarit de [`Note::QuoteNotAttached`].
+const QUOTE_NOT_ATTACHED: &str =
+    "A quoted passage is not attached to a citation and was not checked.";
+
 impl Note {
+    /// Cette note suivie de `next` : les deux sont rendues, celle-ci en tête (une seule note par
+    /// verdict, la plus utile d'abord). Les chaînes s'aplatissent.
+    #[must_use]
+    pub(crate) fn then(self, next: Self) -> Self {
+        let mut parts = match self {
+            Self::Chain(parts) => parts,
+            other => vec![other],
+        };
+        match next {
+            Self::Chain(more) => parts.extend(more),
+            other => parts.push(other),
+        }
+        Self::Chain(parts)
+    }
+
+    /// L'avertissement de version (`NotCurrentVersion`) que porte cette note en tête, seul ou en
+    /// début de chaîne.
+    pub(crate) fn version_warning(&self) -> Option<&Self> {
+        match self {
+            Self::NotCurrentVersion { .. } => Some(self),
+            Self::Chain(parts) => parts.first().filter(|first| first.version_warning().is_some()),
+            _ => None,
+        }
+    }
+
+    /// Cette note finit-elle par la mention de plage ?
+    pub(crate) fn ends_with_range(&self) -> bool {
+        match self {
+            Self::RangeEndpointsOnly => true,
+            Self::Chain(parts) => parts.last() == Some(&Self::RangeEndpointsOnly),
+            _ => false,
+        }
+    }
+
     /// Texte anglais de la note, gabarit de l'annexe B §7.10, borné à [`NOTE_MAX_CHARS`] caractères.
     #[must_use]
     pub fn text(&self) -> String {
@@ -381,14 +497,9 @@ impl Note {
             Self::NoRecord { family, value, date } => {
                 format!("No {family} record matches {value}{}.", on(*date))
             }
-            Self::NoRecordAtDate { n, number, date, found, more } => fit(number, |number| {
-                let dates = found.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
-                let rest = if *more > 0 { format!(" and {more} more") } else { String::new() };
-                format!(
-                    "{n} records share number {number}, none dated {date}; dates found: \
-                     {dates}{rest}."
-                )
-            }),
+            Self::NoRecordAtDate { n, number, date, found, more } => {
+                no_record_at_date_text(*n, number, *date, found, *more)
+            }
             Self::Mismatch { field, cited, actual } => format!(
                 "Cited {} {cited} differs from the official record ({actual}).",
                 field.label()
@@ -442,12 +553,16 @@ impl Note {
             Self::NotChecked { reason } => format!("Not checked: {}.", reason.label()),
             Self::CodeNotListed => "Code not found in the list of codes.".to_owned(),
             Self::VersionSince(date) => format!("Current version in force since {date}."),
+            Self::NotCurrentVersion { on, etat, ended } => not_current_text(*on, etat, *ended),
+            Self::SubdivisionNotChecked => SUBDIVISION_NOT_CHECKED.to_owned(),
+            Self::QuoteNotAttached => QUOTE_NOT_ATTACHED.to_owned(),
+            Self::Chain(parts) => join_fitting(parts.iter().map(Self::text)),
             Self::RangeEndpointsOnly | Self::RangeEndNotFound { .. } => range_text(self),
             Self::WithRange(inner) => {
                 format!("{} {}", inner.text(), range_text(&Self::RangeEndpointsOnly))
             }
             Self::QuoteMismatch => QUOTE_GAP.to_owned(),
-            Self::WithQuoteMismatch(inner) => format!("{QUOTE_GAP} {}", inner.text()),
+            Self::WithQuoteMismatch(inner) => quote_gap_text(inner),
             Self::NotInSandbox { family, value, date } => fit(value, |value| {
                 format!(
                     "No {family} record matches {value}{} in the PISTE sandbox; sandbox data \
@@ -716,16 +831,119 @@ mod tests {
         ]
     }
 
+    /// Les notes de L2-12 (version remplacée) et L2-17 (non contrôlé), et leurs compositions.
+    fn version_catalogue() -> Vec<(Note, &'static str)> {
+        let replaced = Note::NotCurrentVersion {
+            on: date("2011-06-01"),
+            etat: "MODIFIE",
+            ended: Some(civil(2011, 6, 12)),
+        };
+        vec![
+            (
+                replaced.clone(),
+                "This is the version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12); the current text may differ: read it without a date.",
+            ),
+            (
+                Note::NotCurrentVersion { on: date("2011-06-01"), etat: "ABROGE", ended: None },
+                "This is the version in force on 2011-06-01 (etat=ABROGE); the current text may differ: read it without a date.",
+            ),
+            (Note::SubdivisionNotChecked, "The sub-division was not checked, only the article."),
+            (
+                Note::QuoteNotAttached,
+                "A quoted passage is not attached to a citation and was not checked.",
+            ),
+            (
+                replaced.clone().then(Note::ReadAs { sigle: Sigle::Cp, code: "Code pénal" }),
+                "This is the version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12); the current text may differ: read it without a date. Read 'CP' as Code pénal.",
+            ),
+            (
+                Note::VersionSince(civil(2016, 10, 1)).then(Note::SubdivisionNotChecked),
+                "Current version in force since 2016-10-01. The sub-division was not checked, only the article.",
+            ),
+            (
+                Note::WithQuoteMismatch(Box::new(replaced.clone())),
+                "Quoted text not found in the official text. This is the version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12); the current text may differ: read it without a date.",
+            ),
+            (
+                Note::WithQuoteMismatch(Box::new(
+                    Note::VersionSince(civil(2016, 10, 1)).then(Note::SubdivisionNotChecked),
+                )),
+                "Quoted text not found in the official text. Current version in force since 2016-10-01. The sub-division was not checked, only the article.",
+            ),
+        ]
+    }
+
     #[test]
     fn notes_are_static_templates() {
-        for (note, expected) in
-            catalogue().into_iter().chain(later_catalogue()).chain(range_catalogue())
+        for (note, expected) in catalogue()
+            .into_iter()
+            .chain(later_catalogue())
+            .chain(range_catalogue())
+            .chain(version_catalogue())
         {
             let text = note.text();
             assert_eq!(text, expected, "{note:?}");
             assert!(text.chars().count() <= NOTE_MAX_CHARS, "{text}");
             assert!(!text.contains('\n'), "{text}");
         }
+    }
+
+    #[test]
+    fn then_flattens_and_keeps_the_order() {
+        let a = Note::VersionSince(civil(2016, 10, 1));
+        let b = Note::SubdivisionNotChecked;
+        let c = Note::RangeEndpointsOnly;
+        let ab = a.clone().then(b.clone());
+        assert_eq!(ab, Note::Chain(vec![a.clone(), b.clone()]));
+        // Une chaîne à gauche, à droite, ou des deux côtés : toujours une seule chaîne plate.
+        assert_eq!(ab.clone().then(c.clone()), Note::Chain(vec![a.clone(), b.clone(), c.clone()]));
+        assert_eq!(c.clone().then(ab.clone()), Note::Chain(vec![c.clone(), a.clone(), b.clone()]));
+        assert_eq!(
+            ab.clone().then(ab),
+            Note::Chain(vec![a.clone(), b.clone(), a.clone(), b.clone()])
+        );
+    }
+
+    #[test]
+    fn the_version_warning_and_the_range_are_found_in_a_chain() {
+        let warning =
+            Note::NotCurrentVersion { on: date("2011-06-01"), etat: "MODIFIE", ended: None };
+        // Seul, ou en tête de chaîne : l'avertissement est rendu. Ailleurs, non.
+        assert_eq!(warning.version_warning(), Some(&warning));
+        let chained = warning.clone().then(Note::RangeEndpointsOnly);
+        assert_eq!(chained.version_warning(), Some(&warning));
+        let behind = Note::SubdivisionNotChecked.then(warning.clone());
+        assert_eq!(behind.version_warning(), None);
+        assert_eq!(Note::VersionSince(civil(2016, 10, 1)).version_warning(), None);
+        assert_eq!(Note::RangeEndpointsOnly.version_warning(), None);
+
+        assert!(Note::RangeEndpointsOnly.ends_with_range());
+        assert!(chained.ends_with_range());
+        assert!(!behind.ends_with_range());
+        assert!(!Note::SubdivisionNotChecked.ends_with_range());
+        assert!(!warning.ends_with_range());
+    }
+
+    #[test]
+    fn a_chain_leaves_out_a_note_that_does_not_fit_rather_than_cutting_it() {
+        let replaced = Note::NotCurrentVersion {
+            on: date("2011-06-01"),
+            etat: "MODIFIE_MORT_NE",
+            ended: Some(civil(2011, 6, 12)),
+        };
+        // 137 + 1 + 51 = 189 : tient. Avec l'écart d'extrait devant (43), 233 : la dernière saute.
+        let both = replaced.clone().then(Note::SubdivisionNotChecked);
+        assert_eq!(both.text().chars().count(), 189);
+        assert!(both.text().ends_with("only the article."));
+        let with_gap = Note::WithQuoteMismatch(Box::new(both)).text();
+        assert!(with_gap.chars().count() <= NOTE_MAX_CHARS, "{with_gap}");
+        assert!(with_gap.starts_with("Quoted text not found in the official text. This is the"));
+        assert!(with_gap.ends_with("read it without a date."), "{with_gap}");
+        // Une première note qui dépasse seule est rognée, les suivantes sautent.
+        let long = Note::NoRecord { family: "text", value: "é".repeat(400), date: None };
+        let text = long.then(Note::SubdivisionNotChecked).text();
+        assert_eq!(text.chars().count(), NOTE_MAX_CHARS);
+        assert!(!text.contains("sub-division"));
     }
 
     #[test]
