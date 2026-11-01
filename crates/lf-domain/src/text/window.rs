@@ -103,8 +103,27 @@ fn ends_sentence(head: &str, j: usize, p: char) -> bool {
     if !word.is_empty() && is_abbreviation(word) {
         return false;
     }
-    let line = before.rsplit('\n').next().unwrap_or_default();
-    !is_enumerator_line(line)
+    !header_line(before).is_some_and(is_enumerator_line)
+}
+
+/// Longueur maximale, en caractères, d'une ligne d'en-tête d'énumérateur : « XVIII quaterdecies. –
+/// 12. – a » en compte une trentaine. Au-delà, la ligne est du texte. La borne fixe aussi le coût
+/// de chaque point examiné par [`soft_cut`], sans quoi une ligne amont « 1. 1. 1. … » sans saut de
+/// ligne coûterait un temps quadratique dans la taille de la fenêtre.
+const HEADER_LINE_MAX: usize = 64;
+
+/// Ligne courante de `before` (depuis son dernier saut de ligne), ou `None` si elle dépasse
+/// [`HEADER_LINE_MAX`] caractères : une ligne si longue n'est pas un en-tête.
+fn header_line(before: &str) -> Option<&str> {
+    for (count, (i, c)) in before.char_indices().rev().enumerate() {
+        if c == '\n' {
+            return before.get(i.saturating_add(1)..);
+        }
+        if count >= HEADER_LINE_MAX {
+            return None;
+        }
+    }
+    Some(before)
 }
 
 /// Chiffres romains de II à XX (en majuscules) ; « I », « V » et « X » sont des lettres seules.
@@ -178,6 +197,33 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
+
+    #[test]
+    fn the_header_line_stops_at_the_newline_and_at_its_length_cap() {
+        assert_eq!(header_line("Alinéa.\nI bis"), Some("I bis"));
+        assert_eq!(header_line("II"), Some("II"));
+        assert_eq!(header_line(""), Some(""));
+        assert_eq!(header_line("ligne\n"), Some(""));
+        let at_cap = "–".repeat(HEADER_LINE_MAX);
+        assert_eq!(header_line(&at_cap), Some(at_cap.as_str()));
+        assert_eq!(header_line(&format!("x\n{at_cap}")), Some(at_cap.as_str()));
+        let past_cap = "1".repeat(HEADER_LINE_MAX + 1);
+        assert_eq!(header_line(&past_cap), None);
+        assert_eq!(header_line(&format!("x\n{past_cap}")), None);
+    }
+
+    #[test]
+    fn a_line_of_enumerators_longer_than_a_header_ends_a_sentence() {
+        let short = "1. ".repeat(10);
+        let short = short.trim_end();
+        assert!(!ends_sentence(short, short.len() - 1, '.'), "{short:?}");
+        let long = "1. ".repeat(20_000);
+        let long = long.trim_end();
+        assert!(ends_sentence(long, long.len() - 1, '.'));
+        let cut = window(long, 0, 1_000);
+        assert!(cut.text.ends_with(". "), "{:?}", cut.text);
+        assert_eq!(cut.next_offset, Some(cut.text.chars().count()));
+    }
 
     #[test]
     fn whole_text_fits() {
