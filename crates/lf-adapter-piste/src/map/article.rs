@@ -47,6 +47,17 @@ fn preferred_title(titles: &[TextTitleDto]) -> Option<&TextTitleDto> {
     titles.iter().find(|title| is_code(title.nature.as_deref())).or_else(|| titles.first())
 }
 
+/// Titre de citation de `title` (règle D26) : le titre officiel complet (`titreLong`) d'un texte
+/// qui n'est pas un code, nettoyé et non vide, sinon le titre court. Un code garde son titre court
+/// (le titre long du CGI n'a pas son « , CGI. »). Deux arrêtés du même jour n'ont le même titre
+/// court que leur titre long distingue (L3-03).
+fn citation_title(title: &TextTitleDto) -> Option<String> {
+    let long = (!is_code(title.nature.as_deref()))
+        .then(|| clean_field(title.titre_long.as_deref()))
+        .flatten();
+    long.or_else(|| clean_field(title.titre.as_deref()))
+}
+
 /// Texte parent de `title` : identifiant lu dans `cid`, à défaut dans `id` (le premier des deux
 /// qui n'est pas blanc), nature brute de `title`.
 ///
@@ -237,7 +248,7 @@ pub(crate) fn article(
         article_id,
         num: clean_field(num.as_deref()),
         etat: etat.as_deref().and_then(LegalStatus::parse),
-        code_title: chosen.and_then(|title| clean_field(title.titre.as_deref())),
+        code_title: chosen.and_then(citation_title),
         parent,
         path: section_path(&context.titres_tm, Reference::of(date_fin)),
         full_sections_titre: clean_field(full_sections_titre.as_deref()),
@@ -1064,5 +1075,118 @@ mod tests {
                 "I : Revenu imposable",
             ]
         );
+    }
+
+    // ---- L3-03 : titre long d'un texte non codifié (relevés C8) ----
+
+    /// Relevé C8 : ordonnance 2016-131, art. 10 (dispositions finales du droit des contrats).
+    const C8_ORDONNANCE: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C8-getArticle-LEGIARTI000032006589.json"
+    );
+    /// Relevé C8 : loi 89-462, art. 6.
+    const C8_LOI_89_462: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C8-getArticle-LEGIARTI000043977105.json"
+    );
+    /// Relevé C8 : arrêté du 20 mai 2026 (CAP Facture de pianos), « ANNEXE V ».
+    const C8_PIANOS: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C8-getArticle-LEGIARTI000054241470.json"
+    );
+    /// Relevé : article 89 de la loi pour une République numérique (titre long à appel de note).
+    const LOI_NUMERIQUE: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/contenu/getArticle-LEGIARTI000033205058.json"
+    );
+    /// Relevé C13 : CGI, dont le titre court garde « , CGI. » et le titre long non.
+    const C13_CGI: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C13-getArticle-LEGIARTI000047288653.json"
+    );
+
+    /// Article du relevé `body`, demandé sous `requested`.
+    fn recorded(body: &str, requested: &str) -> ArticleText {
+        run_body(body, requested).0.unwrap()
+    }
+
+    #[test]
+    fn recorded_decree_texts_cite_their_long_title() {
+        let cases = [
+            (
+                C8_PIANOS,
+                "LEGIARTI000054241470",
+                "Arrêté du 20 mai 2026 portant création de la spécialité « Facture de pianos » de \
+                 certificat d'aptitude professionnelle et fixant ses modalités de délivrance, art. \
+                 ANNEXE V",
+            ),
+            (
+                C8_ORDONNANCE,
+                "LEGIARTI000032006589",
+                "Ordonnance n° 2016-131 du 10 février 2016 portant réforme du droit des contrats, \
+                 du régime général et de la preuve des obligations, art. 10",
+            ),
+            (
+                C8_LOI_89_462,
+                "LEGIARTI000043977105",
+                "Loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs et \
+                 portant modification de la loi n° 86-1290 du 23 décembre 1986, art. 6",
+            ),
+            (
+                C7_SALMONELLA,
+                "LEGIARTI000031122369",
+                "Arrêté du 26 février 2008 relatif aux modalités de la participation financière \
+                 de l'Etat à la lutte contre les infections à Salmonella dans les troupeaux de \
+                 reproduction de l'espèce Gallus gallus en filière chair, art. Tableau I",
+            ),
+            (
+                LOI_NUMERIQUE,
+                "LEGIARTI000033205058",
+                "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique, art. 89",
+            ),
+        ];
+        for (body, id, citation) in cases {
+            let article = recorded(body, id);
+            assert_eq!(article.parent.as_ref().map(|p| p.nature), Some(ParentNature::Text), "{id}");
+            assert_eq!(article.contract().citation.as_str(), citation, "{id}");
+        }
+    }
+
+    #[test]
+    fn the_long_title_tells_apart_two_decrees_of_the_same_day() {
+        let pianos = recorded(C8_PIANOS, "LEGIARTI000054241470");
+        assert_eq!(pianos.num.as_deref(), Some("ANNEXE V"));
+        let long = pianos.code_title.as_deref().unwrap();
+        assert!(long.starts_with("Arrêté du 20 mai 2026 portant création"), "{long}");
+        assert!(long.contains("Facture de pianos"), "{long}");
+    }
+
+    #[test]
+    fn a_code_keeps_its_short_title_and_a_blank_long_title_falls_back() {
+        // Neighbours kept: the CGI short title is not replaced by the long one (L2-15 owns that
+        // wording), and the Code civil is unchanged.
+        let cgi = recorded(C13_CGI, "LEGIARTI000047288653");
+        assert_eq!(cgi.code_title.as_deref(), Some("Code général des impôts, CGI."));
+        let civil = map_fixture(ART_9).0.unwrap();
+        assert_eq!(civil.contract().citation.as_str(), "Code civil, art. 9");
+
+        let fall_back = |long: &str| {
+            let titles = format!(
+                r#""textTitles":[{{"nature":"LOI","titre":"Loi X","titreLong":{long},"cid":"JORFTEXT000033202746"}}]"#
+            );
+            run(&with_fields(&titles), ART_9).0.unwrap().code_title
+        };
+        assert_eq!(
+            fall_back(r#""Loi X portant objet (2)""#).as_deref(),
+            Some("Loi X portant objet (2)")
+        );
+        assert_eq!(fall_back(r#""   ""#).as_deref(), Some("Loi X"));
+        assert_eq!(fall_back(r#""<br>""#).as_deref(), Some("Loi X"));
+        assert_eq!(fall_back("null").as_deref(), Some("Loi X"));
+    }
+
+    #[test]
+    fn an_accented_nature_still_gives_a_text_parent() {
+        let json = with_fields(
+            r#""num":"9","textTitles":[{"nature":"ARRÊTÉ","titre":"Arrêté du 1er mai","titreLong":"Arrêté du 1er mai relatif à X (1)","cid":"JORFTEXT000033202746"}]"#,
+        );
+        let article = run(&json, ART_9).0.unwrap();
+        assert_eq!(article.parent.as_ref().map(|p| p.nature), Some(ParentNature::Text));
+        assert_eq!(article.contract().citation.as_str(), "Arrêté du 1er mai relatif à X, art. 9");
     }
 }

@@ -36,7 +36,7 @@ impl ParentText {
     /// Texte parent d'identifiant `id` et de nature brute `nature_raw` (`textTitles[].nature`).
     ///
     /// Un identifiant `KALITEXT` donne [`ParentNature::Kali`]. Sinon le libellé, sans égard à la
-    /// casse, `_` et `-` valant espace : `CODE` donne [`ParentNature::Code`] ; `LOI`,
+    /// casse ni aux accents, `_` et `-` valant espace : `CODE` donne [`ParentNature::Code`] ; `LOI`,
     /// `LOI ORGANIQUE`, `LOI CONSTITUTIONNELLE`, `ORDONNANCE`, `DECRET`, `DECRET LOI` et
     /// `ARRETE` donnent [`ParentNature::Text`] ; le reste, ou l'absence de libellé, donne
     /// [`ParentNature::Unknown`]. Les valeurs réelles de `textTitles[].nature` pour un article
@@ -47,8 +47,8 @@ impl ParentText {
     }
 }
 
-/// Famille du parent : le préfixe `KALITEXT` l'emporte ; sinon le libellé brut, replié (casse
-/// ASCII, `_` et `-` vaut espace, blancs en une seule espace), est cherché dans la table :
+/// Famille du parent : le préfixe `KALITEXT` l'emporte ; sinon le libellé brut, replié (casse,
+/// accents, `_` et `-` vaut espace, blancs en une seule espace), est cherché dans la table :
 /// `CODE` donne [`ParentNature::Code`] ; `LOI`, `LOI ORGANIQUE`, `LOI CONSTITUTIONNELLE`,
 /// `ORDONNANCE`, `DECRET`, `DECRET LOI` et `ARRETE` donnent [`ParentNature::Text`] ; tout le
 /// reste, y compris l'absence de libellé, donne [`ParentNature::Unknown`]. Table **NON
@@ -72,12 +72,23 @@ fn parent_nature(id: &DocumentId, raw: Option<&str>) -> ParentNature {
     }
 }
 
-/// Libellé de nature replié : majuscules ASCII, `_` et `-` en espaces, blancs repliés.
+/// Libellé de nature replié : majuscules, accents retirés (`ARRÊTÉ` vaut `ARRETE`, forme
+/// décomposée comprise), `_` et `-` en espaces, blancs repliés.
 fn fold_label(raw: &str) -> String {
     let spaced: String = raw
-        .to_ascii_uppercase()
         .chars()
-        .map(|c| if c == '_' || c == '-' { ' ' } else { c })
+        .flat_map(char::to_uppercase)
+        .filter(|c| !('\u{300}'..='\u{36f}').contains(c))
+        .map(|c| match c {
+            '_' | '-' => ' ',
+            'À' | 'Â' | 'Ä' => 'A',
+            'Ç' => 'C',
+            'É' | 'È' | 'Ê' | 'Ë' => 'E',
+            'Î' | 'Ï' => 'I',
+            'Ô' | 'Ö' => 'O',
+            'Ù' | 'Û' | 'Ü' => 'U',
+            other => other,
+        })
         .collect();
     spaced.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -193,6 +204,16 @@ mod tests {
             (legi, Some("DECRET"), ParentNature::Text),
             (legi, Some("ORDONNANCE"), ParentNature::Text),
             (legi, Some("ARRETE"), ParentNature::Text),
+            // Accents repliés (L3-03) : la forme accentuée vaut la forme ASCII.
+            (legi, Some("ARRÊTÉ"), ParentNature::Text),
+            (legi, Some("arrêté"), ParentNature::Text),
+            (legi, Some("Décret-loi"), ParentNature::Text),
+            (legi, Some("DÉCRET"), ParentNature::Text),
+            // Forme décomposée (e + accent combinant).
+            (legi, Some("ARRE\u{302}TE\u{301}"), ParentNature::Text),
+            // Un libellé voisin reste inconnu, accentué ou non.
+            (legi, Some("ARRÊTÉS"), ParentNature::Unknown),
+            (legi, Some("ARRÊTEE"), ParentNature::Unknown),
             (legi, Some("???"), ParentNature::Unknown),
             (legi, Some(""), ParentNature::Unknown),
             (legi, Some("LOIS"), ParentNature::Unknown),
@@ -212,7 +233,12 @@ mod tests {
 
     #[test]
     fn fold_label_normalizes_case_separators_and_blanks() {
-        assert_eq!(fold_label("  Décret_loi--x 	 y "), "DéCRET LOI X Y");
+        assert_eq!(fold_label("  Décret_loi--x \t y "), "DECRET LOI X Y");
+        assert_eq!(
+            fold_label("çàâäéèêëîïôöùûü ÇÀÂÄÉÈÊËÎÏÔÖÙÛÜ"),
+            "CAAAEEEEIIOOUUU CAAAEEEEIIOOUUU"
+        );
+        assert_eq!(fold_label("E\u{301}te\u{301}"), "ETE");
         assert_eq!(fold_label(""), "");
     }
 

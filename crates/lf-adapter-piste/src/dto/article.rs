@@ -117,8 +117,11 @@ pub(crate) struct TextTitleDto {
     pub id: Option<String>,
     /// Identifiant chronologique du texte.
     pub cid: Option<String>,
-    /// Titre du texte.
+    /// Titre du texte (court : « Arrêté du 20 mai 2026 »).
     pub titre: Option<String>,
+    /// Titre officiel complet (clé `titreLong`), avec l'objet du texte et un éventuel appel de
+    /// note final ; égal à `titre` pour un code.
+    pub titre_long: Option<String>,
     /// Nature du texte (`CODE`…), casse conservée.
     pub nature: Option<String>,
 }
@@ -218,6 +221,7 @@ mod tests {
                     id: text!("LEGITEXT000006070721"),
                     cid: text!("LEGITEXT000006070721"),
                     titre: text!("Code civil"),
+                    titre_long: text!("Code civil"),
                     nature: text!("CODE"),
                 }],
             }
