@@ -1021,6 +1021,14 @@ fn gap(text: &str, at: usize) -> Option<usize> {
     (end > at).then_some(end)
 }
 
+/// Un code suit-il la liste d'articles qui finit en `end` ? Lien facultatif puis code (titre,
+/// abréviation, sigle ambigu, anaphore ou titre hors dictionnaire), comme `article_first`, « et
+/// s. » compris. Garde des articles rattachés à un texte qui les précède : un article suivi d'un
+/// code est un article de code.
+pub(super) fn code_follows(text: &str, end: usize) -> bool {
+    gap(text, after_list(text, end)).and_then(|pos| code_part(text, pos)).is_some()
+}
+
 // ---------------------------------------------------------------------------------------------
 // Qualificatifs de version (annexe B §4.2, `version_q`)
 // ---------------------------------------------------------------------------------------------
@@ -3055,6 +3063,24 @@ mod tests {
         assert_eq!(list_sep("1 ou 2", 1), Some(5));
         assert_eq!(list_sep("1x", 1), None);
         assert_eq!(list_sep("1 etc", 1), None);
+    }
+
+    #[test]
+    fn a_code_follows_a_list_with_or_without_a_link_l1_08() {
+        // Le 4 de « art. 4 » finit en 6.
+        for text in [
+            "art. 4 C. civ.",
+            "art. 4 du code civil",
+            "art. 4, code civil",
+            "art. 4 et s. C. civ.",
+            "art. 4 CE",
+            "art. 4 du même code",
+        ] {
+            assert!(code_follows(text, 6), "{text}");
+        }
+        for text in ["art. 4", "art. 4 ", "art. 4, ainsi que", "art. 4 ; C. civ."] {
+            assert!(!code_follows(text, 6), "{text}");
+        }
     }
 
     #[test]
