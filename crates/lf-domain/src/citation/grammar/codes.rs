@@ -510,13 +510,25 @@ pub(super) fn art_num(text: &str, at: usize) -> Option<(ArticleNum, usize)> {
     num_end(text, end).then_some((num, end))
 }
 
+/// Rang d'un alinéa écrit après « al. » : un ordinal (« 1er », « 2e », « dernier ») avant un
+/// entier nu, sinon « 2e » laisserait un « e » (annexe B §4.2, `sub`).
+fn alinea_rank(text: &str, at: usize) -> Option<(Subdivision, usize)> {
+    match ordinal(text, at) {
+        Some((Ordinal::Last, end)) => Some((Subdivision::DernierAlinea, end)),
+        Some((Ordinal::Nth(n), end)) => Some((Subdivision::Alinea(n), end)),
+        None => {
+            let (n, end) = uint(text, at)?;
+            u16::try_from(n).ok().map(|n| (Subdivision::Alinea(n), end))
+        }
+    }
+}
+
 /// `sub` : une subdivision à la suite d'un numéro, avec sa fin.
 fn sub(text: &str, at: usize) -> Option<(Subdivision, usize)> {
     let alinea = longest(text, at, &["alineas", "alinea"])
         .map(|(_, end)| end)
         .or_else(|| abbr(text, at, "al"))
-        .and_then(|end| uint(text, ws0(text, end)))
-        .and_then(|(n, end)| u16::try_from(n).ok().map(|n| (Subdivision::Alinea(n), end)));
+        .and_then(|end| alinea_rank(text, ws0(text, end)));
     alinea
         .or_else(|| {
             let (n, end) = uint(text, at)?;
@@ -974,6 +986,34 @@ fn code_part(text: &str, at: usize) -> Option<CodeHit> {
     link(text, at, false).and_then(|pos| code_core(text, pos)).or_else(|| code_core(text, at))
 }
 
+/// `et_seq` : « et s. », « et suiv. », « et suivants », ou seul « s. », « ss. », « suiv. »,
+/// après un numéro d'article. Le point des abréviations est exigé : « art. 5 s'applique » n'en
+/// est pas une. Rend la fin de la mention (annexe B §4.2).
+fn et_seq(text: &str, at: usize) -> Option<usize> {
+    let start = ws(text, at)?;
+    let pos = word(text, start, "et").and_then(|end| ws(text, end)).unwrap_or(start);
+    ["ss", "suiv", "s"]
+        .iter()
+        .find_map(|stem| kw(text, pos, stem).and_then(|end| consume(text, end, '.')))
+        .or_else(|| longest(text, pos, &["suivants", "suivantes"]).map(|(_, end)| end))
+}
+
+/// Fin de la liste d'articles, mention « et s. » comprise : d'où l'on cherche le code.
+fn after_list(text: &str, end: usize) -> usize {
+    et_seq(text, end).unwrap_or(end)
+}
+
+/// `code_sep` : le séparateur entre un code et son article, `SEP` sans le point-virgule. Un code
+/// suivi de « ; » appartient à la citation qui précède (annexe B §4.2).
+fn code_sep(text: &str, at: usize) -> Option<usize> {
+    let pos = ws0(text, at);
+    if matches!(next_char(text, pos), Some(',' | ':')) {
+        Some(ws0(text, pos + 1))
+    } else {
+        ws(text, at)
+    }
+}
+
 /// Intervalle entre un article et son code : des espaces, une virgule facultative.
 fn gap(text: &str, at: usize) -> Option<usize> {
     let pos = ws0(text, at);
@@ -1229,9 +1269,15 @@ fn coded(code: &CodeHit) -> impl Fn(ArticleRef, Option<VersionQualifier>) -> Cit
 /// `code_ref SEP art_kw WS art_item` : « Code civil, art. 9 », « C. civ., art. 1240 ».
 fn code_first(text: &str, start: usize) -> Option<Hit> {
     let code = dict_at(text, start)?;
-    let item = sep(text, code.end)
+    let item = code_sep(text, code.end)
         .and_then(|pos| art_kw(text, pos))
         .and_then(|pos| art_item(text, pos))?;
+    // Un code appartient à une seule citation : un article qui porte le sien n'emprunte pas
+    // celui-ci. Un code qui ouvre à son tour une forme « code, art. » n'est pas le sien.
+    let own = gap(text, after_list(text, item.end)).and_then(|pos| code_part(text, pos));
+    if own.is_some_and(|own| code_sep(text, own.end).and_then(|pos| art_kw(text, pos)).is_none()) {
+        return None;
+    }
     let end = item.end;
     let tail = Tail {
         span_end: end,
@@ -1249,7 +1295,8 @@ fn code_first(text: &str, start: usize) -> Option<Hit> {
 fn article_first(text: &str, start: usize) -> Option<Hit> {
     let (lead, pos) = sub_lead(text, start).unwrap_or_else(|| (Vec::new(), start));
     let list = art_list(text, art_kw(text, pos)?)?;
-    let Some(code) = gap(text, list.end).and_then(|pos| code_part(text, pos)) else {
+    let Some(code) = gap(text, after_list(text, list.end)).and_then(|pos| code_part(text, pos))
+    else {
         // Sans code ni texte : « l'article 12 ».
         let tail = Tail {
             span_end: list.end,
@@ -1288,7 +1335,7 @@ fn prefixed(text: &str, start: usize) -> Option<Hit> {
     let item = art_item(text, start).filter(|item| item.num.prefix.is_some())?;
     let (num_span, item_end, dashed) = (item.span.clone(), item.end, item.num.base.len() > 1);
     let list = ArtList { items: vec![item], end: item_end };
-    if let Some(code) = gap(text, item_end).and_then(|pos| code_part(text, pos)) {
+    if let Some(code) = gap(text, after_list(text, item_end)).and_then(|pos| code_part(text, pos)) {
         let version = version_q(text, code.end);
         let end = version.as_ref().map_or(code.end, |&(_, end)| end);
         let tail = Tail {
@@ -1880,6 +1927,175 @@ mod tests {
                 &[("2° de l'article 6 du code civil", "Code civil|6 sub=[Item(2)]")],
             ),
         ]);
+    }
+
+    #[test]
+    fn ordinal_alineas_keep_their_code_l1_02() {
+        check(&[
+            (
+                "article 6, al. 1er, du code civil",
+                &[ART],
+                &[("article 6, al. 1er, du code civil", "Code civil|6 sub=[Alinea(1)]")],
+            ),
+            (
+                "article 6, alinéa premier du code civil",
+                &[ART],
+                &[("article 6, alinéa premier du code civil", "Code civil|6 sub=[Alinea(1)]")],
+            ),
+            (
+                "article 6, al. 2e, du code civil",
+                &[ART],
+                &[("article 6, al. 2e, du code civil", "Code civil|6 sub=[Alinea(2)]")],
+            ),
+            (
+                "article 6, al. dernier, du code civil",
+                &[ART],
+                &[("article 6, al. dernier, du code civil", "Code civil|6 sub=[DernierAlinea]")],
+            ),
+            // Jumeau : l'entier nu reste lu (repli de `alinea_rank`), et un alinéa sans rang
+            // n'est pas une subdivision.
+            (
+                "article 6, al. 3, du code civil",
+                &[ART],
+                &[("article 6, al. 3, du code civil", "Code civil|6 sub=[Alinea(3)]")],
+            ),
+            ("article 6, al. x, du code civil", &[ART], &[("article 6", "-|6 amb=texte_manquant")]),
+            (
+                "Voir l'art. 9, al. 1er, C. pr. civ. ; art. 9 C. civ.",
+                &[ART_DOT],
+                &[
+                    ("art. 9, al. 1er, C. pr. civ.", "Code de procédure civile|9 sub=[Alinea(1)]"),
+                    ("art. 9 C. civ.", "Code civil|9"),
+                ],
+            ),
+        ]);
+    }
+
+    /// Fin de la mention « et s. » lue après `prefix` dans `text`.
+    fn seq_of(text: &str, prefix: &str) -> Option<usize> {
+        et_seq(text, prefix.len())
+    }
+
+    #[test]
+    fn et_seq_reads_the_abbreviations_of_following_articles_l1_02() {
+        for (text, end) in [
+            ("5 et s. du", 7),
+            ("5 s. du", 4),
+            ("5 ss. du", 5),
+            ("5 suiv. du", 7),
+            ("5 et suiv. du", 10),
+            ("5 et suivants du", 13),
+            ("5 et suivantes du", 14),
+            ("5 suivants du", 10),
+            ("5 ET S. DU", 7),
+        ] {
+            assert_eq!(seq_of(text, "5"), Some(end), "{text:?}");
+        }
+        // Jumeaux : sans point, collé, ou mot plus long, ce n'est pas la mention.
+        for text in [
+            "5 s'applique",
+            "5 sans code",
+            "5 s du",
+            "5 ss du",
+            "5 suiv du",
+            "5 et 6",
+            "5 et",
+            "5 etc.",
+            "5 et suivantsx",
+            "5 suivre",
+            "5s.",
+            "5 et s",
+            "5",
+        ] {
+            assert_eq!(seq_of(text, "5"), None, "{text:?}");
+        }
+        assert_eq!(after_list("5 et s. du", 1), 7);
+        assert_eq!(after_list("5 sans", 1), 1);
+    }
+
+    #[test]
+    fn et_seq_does_not_cost_the_code_l1_02() {
+        check(&[
+            (
+                "art. 1240 et s. du code civil",
+                &[ART_DOT],
+                &[("art. 1240 et s. du code civil", "Code civil|1240")],
+            ),
+            ("art. 1217 s. C. civ.", &[ART_DOT], &[("art. 1217 s. C. civ.", "Code civil|1217")]),
+            (
+                "article 1240 et suivants du code civil",
+                &[ART],
+                &[("article 1240 et suivants du code civil", "Code civil|1240")],
+            ),
+            (
+                "L. 1234-5 et s. du code du travail",
+                &[(ArticlePrefix, "L. 1")],
+                &[("L. 1234-5 et s. du code du travail", "Code du travail|L1234-5")],
+            ),
+            // Sans code, la mention reste hors de la citation.
+            ("art. 12 et s. de ce texte", &[ART_DOT], &[("art. 12", "-|12 amb=texte_manquant")]),
+            ("art. 5 s'applique", &[ART_DOT], &[("art. 5", "-|5 amb=texte_manquant")]),
+            ("art. 5 sans code", &[ART_DOT], &[("art. 5", "-|5 amb=texte_manquant")]),
+            // Jumeau : « et » suivi d'un autre article reste une liste.
+            (
+                "art. 1103 et 1104 du code civil",
+                &[ART_DOT],
+                &[("1103", "Code civil|1103 grp"), ("1104", "Code civil|1104 grp")],
+            ),
+        ]);
+    }
+
+    #[test]
+    fn a_code_belongs_to_one_citation_only_l1_02() {
+        check(&[
+            // `code_sep` n'accepte plus « ; » : le code précédent n'est pas celui de l'article.
+            ("Code civil ; art. 9", &[ART_DOT], &[("art. 9", "-|9 amb=texte_manquant")]),
+            ("C. pr. civ. ; art. 9 C. civ.", &[ART_DOT], &[("art. 9 C. civ.", "Code civil|9")]),
+            // Jumeaux vrais positifs : la virgule, les deux-points et l'espace séparent encore.
+            ("Code civil, art. 9", &[ART_DOT], &[("Code civil, art. 9", "Code civil|9")]),
+            ("Code civil : art. 9", &[ART_DOT], &[("Code civil : art. 9", "Code civil|9")]),
+            ("Code civil art. 9", &[ART_DOT], &[("Code civil art. 9", "Code civil|9")]),
+            // Garde : un article qui porte son propre code n'emprunte pas celui qui précède.
+            (
+                "C. civ., art. 9 C. pr. civ.",
+                &[ART_DOT],
+                &[("art. 9 C. pr. civ.", "Code de procédure civile|9")],
+            ),
+            (
+                "C. civ., art. 9 du code de commerce",
+                &[ART_DOT],
+                &[("art. 9 du code de commerce", "Code de commerce|9")],
+            ),
+            (
+                "C. civ., art. 9 et s. C. pr. civ.",
+                &[ART_DOT],
+                &[("art. 9 et s. C. pr. civ.", "Code de procédure civile|9")],
+            ),
+            // Jumeaux : un mot qui n'est pas un code, ou un code qui ouvre sa propre forme
+            // « code, art. », laisse la lecture « code, art. ».
+            ("C. civ., art. 9 s'applique", &[ART_DOT], &[("C. civ., art. 9", "Code civil|9")]),
+            ("C. civ., art. 9 et s.", &[ART_DOT], &[("C. civ., art. 9", "Code civil|9")]),
+            (
+                "C. civ., art. 9, C. pr. civ., art. 10",
+                &[ART_DOT],
+                &[
+                    ("C. civ., art. 9", "Code civil|9"),
+                    ("C. pr. civ., art. 10", "Code de procédure civile|10"),
+                ],
+            ),
+        ]);
+    }
+
+    #[test]
+    fn code_separators_exclude_the_semicolon_l1_02() {
+        assert_eq!(code_sep("a , b", 1), Some(4));
+        assert_eq!(code_sep("a: b", 1), Some(3));
+        assert_eq!(code_sep("a b", 1), Some(2));
+        assert_eq!(code_sep("ab", 1), None);
+        // Le « ; » n'est pas lu comme ponctuation : seules les espaces avant lui le sont, et
+        // `art_kw` échoue ensuite sur lui.
+        assert_eq!(code_sep("a;b", 1), None);
+        assert_eq!(code_sep("a ; b", 1), Some(2));
     }
 
     #[test]

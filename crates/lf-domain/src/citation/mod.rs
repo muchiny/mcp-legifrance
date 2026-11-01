@@ -284,7 +284,7 @@ mod tests {
     }
 
     /// Citations complètes (code compris) du corpus positif, dont les formes de L1-01.
-    const COMPLETE: [&str; 10] = [
+    const COMPLETE: [&str; 20] = [
         "l'article 1240 du code civil",
         "art. L. 1234-5 du code du travail",
         "CGI, art. 150-0 B ter",
@@ -295,6 +295,17 @@ mod tests {
         "C. civ., art. 9",
         "art. 121-3 CP",
         "art. 163 quatervicies du CGI",
+        // Couples de verify_citations-6 et gap3-2 (L1-02) : « al. 1er », « s. », « et s. ».
+        "art. 9, al. 1er, C. pr. civ.",
+        "art. 9, alinéa 1er du code civil",
+        "art. 1240, al. 1er, C. civ.",
+        "art. 1240 s. C. civ.",
+        "art. 1217 et s. du code civil",
+        "article L. 1234-9, alinéa 2 du code du travail",
+        "art. 1240 C. pén.",
+        "art. 9 C. civ.",
+        "art. 1240 du code pénal",
+        "art. 1103 et suivants du code civil",
     ];
 
     mod no_panic {
