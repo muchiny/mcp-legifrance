@@ -12,7 +12,6 @@ expression: schema()
       "type": "string"
     },
     "date": {
-      "default": null,
       "description": "Date YYYY-MM-DD for the article version (default: today in Paris).",
       "format": "date",
       "type": "string"

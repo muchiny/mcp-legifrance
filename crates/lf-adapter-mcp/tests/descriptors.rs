@@ -203,6 +203,77 @@ mod descriptors {
         }
     }
 
+    /// Les `format` du vocabulaire standard de JSON Schema 2020-12 (validation, §7.3).
+    const STANDARD_FORMATS: [&str; 19] = [
+        "date-time",
+        "date",
+        "time",
+        "duration",
+        "email",
+        "idn-email",
+        "hostname",
+        "idn-hostname",
+        "ipv4",
+        "ipv6",
+        "uri",
+        "uri-reference",
+        "iri",
+        "iri-reference",
+        "uuid",
+        "uri-template",
+        "json-pointer",
+        "relative-json-pointer",
+        "regex",
+    ];
+
+    /// Chaque `format` hors liste standard (`uint32`…) et chaque `default: null`, à n'importe
+    /// quelle profondeur (L5-01, protocol-9). Parcours aveugle : sans conséquence ici, aucun
+    /// descripteur ne porte de donnée nommée `format` ou `default`.
+    fn nonstandard_keyword_paths(value: &Value, path: &str, out: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                for (key, item) in map {
+                    let here = format!("{path}/{key}");
+                    let bad_format = key == "format"
+                        && item.as_str().is_some_and(|name| !STANDARD_FORMATS.contains(&name));
+                    if bad_format || (key == "default" && item.is_null()) {
+                        out.push(here.clone());
+                    }
+                    nonstandard_keyword_paths(item, &here, out);
+                }
+            }
+            Value::Array(items) => {
+                for (index, item) in items.iter().enumerate() {
+                    nonstandard_keyword_paths(item, &format!("{path}/{index}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Chaque `type` qui liste `"null"` : les sorties omettent un champ absent, elles n'écrivent
+    /// jamais `null` (L5-01, point d).
+    fn null_type_paths(value: &Value, path: &str, out: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                for (key, item) in map {
+                    let here = format!("{path}/{key}");
+                    if key == "type" && item.as_array().is_some_and(|t| t.contains(&json!("null")))
+                    {
+                        out.push(here.clone());
+                    }
+                    null_type_paths(item, &here, out);
+                }
+            }
+            Value::Array(items) => {
+                for (index, item) in items.iter().enumerate() {
+                    null_type_paths(item, &format!("{path}/{index}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Les raisons pour lesquelles `schema` n'est pas une racine d'objet admise (05 §2.5, §3.6).
     fn root_problems(schema: &Value) -> Vec<String> {
         let mut problems = Vec::new();
@@ -220,6 +291,9 @@ mod descriptors {
         let mut dollar = Vec::new();
         dollar_schema_paths(schema, "", &mut dollar);
         problems.extend(dollar.into_iter().map(|path| format!("{path} is a $schema key")));
+        let mut nonstandard = Vec::new();
+        nonstandard_keyword_paths(schema, "", &mut nonstandard);
+        problems.extend(nonstandard.into_iter().map(|path| format!("{path} is not standard")));
         if let Err(error) = jsonschema::draft202012::meta::validate(schema) {
             problems.push(format!("not a JSON Schema 2020-12 document: {error}"));
         }
@@ -247,6 +321,9 @@ mod descriptors {
             );
             let output = schema_of(tool, "outputSchema");
             assert_eq!(root_problems(output), Vec::<String>::new(), "{name} : outputSchema");
+            let mut nulls = Vec::new();
+            null_type_paths(output, "", &mut nulls);
+            assert_eq!(nulls, Vec::<String>::new(), "{name} : outputSchema déclare \"null\"");
         }
     }
 

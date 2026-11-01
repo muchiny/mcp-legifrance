@@ -10,7 +10,10 @@ use std::collections::BTreeSet;
 
 use serde_json::{Map, Value};
 
-use super::json::{changed_paths, escape_token};
+use super::{
+    checks::STANDARD_FORMATS,
+    json::{changed_paths, escape_token},
+};
 
 /// Familles de descripteurs du verrou.
 const FAMILIES: [&str; 4] = ["tools", "prompts", "resources", "resource_templates"];
@@ -356,6 +359,17 @@ fn keyword(
         "description" | "title" | "$comment" | "examples" => {
             sink.push(Class::Fix, path, "text reworded");
         }
+        // Nettoyages de L5-01 (05 §9.5) : ils ne changent ni ce qu'un client peut envoyer, ni
+        // ce qu'il reçoit. Tout autre changement de ces mots-clés tombe dans le cas général.
+        "format" if non_standard_format_removed(old, new) => {
+            sink.push(Class::Fix, path, "non-standard format removed");
+        }
+        "default" if old == Some(&Value::Null) && new.is_none() => {
+            sink.push(Class::Fix, path, "null default removed");
+        }
+        "type" if !input && null_type_removed(old, new) => {
+            sink.push(Class::Fix, path, "output type no longer lists null, never emitted");
+        }
         "properties" => properties(side, path, old, new, sink),
         "$defs" | "definitions" => definitions(side, path, old, new, sink),
         "items" | "additionalProperties"
@@ -404,6 +418,20 @@ fn keyword(
         }
         _ => sink.push(Class::Breaking, path, format!("`{key}` changed")),
     }
+}
+
+/// `true` si `new` retire un `format` hors liste standard (`uint32`…) et ne le remplace par rien.
+fn non_standard_format_removed(old: Option<&Value>, new: Option<&Value>) -> bool {
+    new.is_none()
+        && old.and_then(Value::as_str).is_some_and(|name| !STANDARD_FORMATS.contains(&name))
+}
+
+/// `true` si `new` est `old` privé de `"null"` et garde au moins un type.
+fn null_type_removed(old: Option<&Value>, new: Option<&Value>) -> bool {
+    let (Some(mut before), Some(after)) = (members(old), members(new)) else {
+        return false;
+    };
+    before.remove(&Value::from("null").to_string()) && !after.is_empty() && before == after
 }
 
 fn properties(
@@ -817,6 +845,76 @@ mod tests {
                 (Addition, "/tools/fr_a/inputSchema/properties/extra")
             ]
         );
+    }
+
+    /// L5-01 (protocol-9) : retirer un `format` hors liste standard, un `default: null` ou le
+    /// `"null"` d'un type de sortie jamais émis est un correctif ; tout autre changement de
+    /// ces mots-clés reste une rupture.
+    #[test]
+    fn schema_cleanups_of_l5_01_are_fixes_and_every_other_change_stays_breaking() {
+        use Class::{Breaking, Fix};
+        let with = |keyword: &'static str, value: Value| {
+            move |t: &mut Value| t["inputSchema"]["properties"]["query"][keyword] = value
+        };
+        let without = |keyword: &'static str| {
+            move |t: &mut Value| {
+                t["inputSchema"]["properties"]["query"].as_object_mut().unwrap().remove(keyword);
+            }
+        };
+        // `format`
+        assert_eq!(one(with("format", json!("uint32")), without("format")), Fix);
+        assert_eq!(one(with("format", json!("uint")), without("format")), Fix);
+        assert_eq!(one(with("format", json!("date")), without("format")), Breaking);
+        assert_eq!(one(|_| {}, with("format", json!("uint32"))), Breaking);
+        assert_eq!(one(with("format", json!("uint32")), with("format", json!("uint64"))), Breaking);
+        assert_eq!(one(with("format", json!("uint32")), with("format", json!("date"))), Breaking);
+        assert_eq!(one(with("format", json!(5)), without("format")), Breaking);
+        // `default`
+        assert_eq!(one(with("default", Value::Null), without("default")), Fix);
+        assert_eq!(one(with("default", json!("a")), without("default")), Breaking);
+        assert_eq!(one(with("default", Value::Null), with("default", json!("a"))), Breaking);
+        assert_eq!(one(without("default"), with("default", Value::Null)), Breaking);
+        // `"null"` retiré d'un type de sortie, y compris sous `items`.
+        let out_type = |value: Value| {
+            move |t: &mut Value| t["outputSchema"]["properties"]["hits"]["type"] = value
+        };
+        let nullable = || out_type(json!(["string", "null"]));
+        assert_eq!(one(nullable(), out_type(json!("string"))), Fix);
+        assert_eq!(one(nullable(), out_type(json!(["string"]))), Fix);
+        assert_eq!(
+            one(
+                out_type(json!(["integer", "string", "null"])),
+                out_type(json!(["integer", "string"]))
+            ),
+            Fix
+        );
+        assert_eq!(
+            one(
+                |t| t["outputSchema"]["properties"]["hits"]["items"] =
+                    json!({"type": ["string", "null"]}),
+                |t| t["outputSchema"]["properties"]["hits"]["items"] = json!({"type": "string"})
+            ),
+            Fix
+        );
+        // Ce n'est un correctif que si `"null"` est la seule différence, et en sortie seulement.
+        assert_eq!(one(nullable(), out_type(json!("integer"))), Breaking);
+        assert_eq!(one(nullable(), out_type(json!(["integer"]))), Breaking);
+        assert_eq!(one(nullable(), out_type(json!(["string", "integer"]))), Breaking);
+        assert_eq!(one(out_type(json!("string")), nullable()), Breaking, "`null` ajouté");
+        assert_eq!(one(out_type(json!(["null"])), out_type(json!([]))), Breaking);
+        assert_eq!(one(nullable(), out_type(json!(["string", "null", "integer"]))), Breaking);
+        assert_eq!(one(nullable(), out_type(json!(5))), Breaking);
+        let no_type = |t: &mut Value| {
+            t["outputSchema"]["properties"]["hits"].as_object_mut().unwrap().remove("type");
+        };
+        assert_eq!(one(nullable(), no_type), Breaking, "un `type` retiré en entier");
+        assert_eq!(
+            one(with("type", json!(["string", "null"])), with("type", json!("string"))),
+            Breaking,
+            "en entrée, retirer `null` restreint"
+        );
+        // La version : 1.0.0 -> 1.0.1 suffit pour un correctif.
+        assert_eq!(check_version_jump("1.0.0", "1.0.1", Some(Fix)), Ok(Jump::Patch));
     }
 
     #[test]

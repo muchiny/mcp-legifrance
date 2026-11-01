@@ -10,7 +10,6 @@ expression: schema
       "type": "string"
     },
     "detail": {
-      "default": null,
       "description": "\"summary\" (default): metadata and a short summary. \"full\": the text from offset, up to max_chars.",
       "enum": [
         "summary",
@@ -19,7 +18,6 @@ expression: schema
       "type": "string"
     },
     "focus": {
-      "default": null,
       "description": "A few words: return the best matching passages instead of the summary or window.",
       "maxLength": 500,
       "minLength": 1,
@@ -28,7 +26,6 @@ expression: schema
     "max_chars": {
       "default": 4000,
       "description": "Maximum characters of text returned (500 to 40000).",
-      "format": "uint32",
       "maximum": 40000,
       "minimum": 500,
       "type": "integer"
@@ -36,14 +33,12 @@ expression: schema
     "offset": {
       "default": 0,
       "description": "Start position in characters for detail=\"full\"; pass the next_offset of the previous call.",
-      "format": "uint32",
       "minimum": 0,
       "type": "integer"
     },
     "passages": {
       "default": 3,
       "description": "Number of passages returned with focus.",
-      "format": "uint32",
       "maximum": 10,
       "minimum": 1,
       "type": "integer"

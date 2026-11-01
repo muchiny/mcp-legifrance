@@ -2,9 +2,13 @@
 //!
 //! `inputSchema` et `outputSchema` sont donnés explicitement à `#[tool]`, jamais déduits des
 //! extracteurs, et ne portent jamais la clé `$schema` : les descripteurs des deux ères sont
-//! ainsi identiques et leur taille reste bornée.
+//! ainsi identiques et leur taille reste bornée. Ils ne portent pas non plus les mots-clés que
+//! schemars ajoute et que la norme ne connaît pas (`format: uint32`…), ni de `default: null`
+//! sur un type qui n'accepte pas `null` : un client strict les refuserait (L5-01, protocol-9).
 
 use std::{any::type_name, sync::Arc};
+
+use serde_json::Value;
 
 use rmcp::{
     handler::server::tool::{schema_for_input, schema_for_output},
@@ -32,7 +36,7 @@ fn object_root_or_panic(
     type_name: &str,
 ) -> Arc<JsonObject> {
     match schema {
-        Ok(schema) => without_dollar_schema(&schema),
+        Ok(schema) => published(&schema, Side::Input),
         Err(error) => panic!("invalid inputSchema for {type_name}: {error}"),
     }
 }
@@ -40,14 +44,136 @@ fn object_root_or_panic(
 /// `outputSchema` de `V`, sans `title`, `description` ni `$schema`. Sans cet appel explicite,
 /// rmcp déduit le schéma du type de retour `Json<V>` **avec** `$schema` (05 §3.4).
 pub(crate) fn output_schema<V: JsonSchema + 'static>() -> Arc<JsonObject> {
-    without_dollar_schema(&schema_for_output::<V>())
+    published(&schema_for_output::<V>(), Side::Output)
 }
 
-/// Copie de `schema` privée de sa clé `$schema` (05 §2.5).
-pub(crate) fn without_dollar_schema(schema: &JsonObject) -> Arc<JsonObject> {
+/// Le sens d'un schéma : ce que le client envoie ou ce qu'il reçoit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Input,
+    Output,
+}
+
+/// Les `format` du vocabulaire standard de JSON Schema 2020-12 (validation, §7.3). Les
+/// `uint32`, `uint`, `uint16` et `uint64` que schemars écrit pour les entiers non signés n'en
+/// font pas partie : `minimum: 0` dit déjà la même chose.
+const STANDARD_FORMATS: [&str; 19] = [
+    "date-time",
+    "date",
+    "time",
+    "duration",
+    "email",
+    "idn-email",
+    "hostname",
+    "idn-hostname",
+    "ipv4",
+    "ipv6",
+    "uri",
+    "uri-reference",
+    "iri",
+    "iri-reference",
+    "uuid",
+    "uri-template",
+    "json-pointer",
+    "relative-json-pointer",
+    "regex",
+];
+
+/// Mots-clés dont la valeur est un objet de sous-schémas, indexés par nom.
+const SCHEMA_MAPS: [&str; 5] =
+    ["properties", "$defs", "definitions", "patternProperties", "dependentSchemas"];
+
+/// Mots-clés dont la valeur est un sous-schéma (`items` aussi, en liste, avec `SCHEMA_LISTS`).
+const SCHEMA_SINGLES: [&str; 10] = [
+    "items",
+    "additionalProperties",
+    "not",
+    "if",
+    "then",
+    "else",
+    "contains",
+    "propertyNames",
+    "unevaluatedItems",
+    "unevaluatedProperties",
+];
+
+/// Mots-clés dont la valeur est une liste de sous-schémas.
+const SCHEMA_LISTS: [&str; 5] = ["anyOf", "oneOf", "allOf", "prefixItems", "items"];
+
+/// Schéma tel que le serveur le publie : copie de `schema` sans `$schema` (05 §2.5) et
+/// [`standardize`].
+fn published(schema: &JsonObject, side: Side) -> Arc<JsonObject> {
     let mut object = schema.clone();
     object.remove("$schema");
+    standardize(&mut object, side);
     Arc::new(object)
+}
+
+/// Retire d'un schéma, à toute profondeur, ce que la norme ne connaît pas :
+///
+/// - un `format` hors de [`STANDARD_FORMATS`] ;
+/// - un `default: null` (schemars l'écrit pour tout `#[serde(default)]` sur un `Option`, y compris
+///   sur un `string` qui n'accepte pas `null`) ;
+/// - en sortie seulement, `"null"` dans un `type` en liste (`["string", "null"]` devient
+///   `"string"`) : les vues omettent un champ absent (`skip_serializing_if`), elles n'écrivent
+///   jamais `null` (L5-01, point d).
+///
+/// Le parcours est conscient du schéma, jamais aveugle : il ne descend que dans les sous-schémas
+/// (`properties`, `$defs`, `items`, `anyOf`…), jamais dans `enum`, `const`, `default` ou
+/// `examples`, et une propriété *nommée* `format` ou `default` n'est qu'un nom. `minimum: 0` est
+/// gardé, aucun `maximum` n'est ajouté.
+fn standardize(schema: &mut JsonObject, side: Side) {
+    if schema
+        .get("format")
+        .and_then(Value::as_str)
+        .is_some_and(|name| !STANDARD_FORMATS.contains(&name))
+    {
+        schema.remove("format");
+    }
+    if schema.get("default").is_some_and(Value::is_null) {
+        schema.remove("default");
+    }
+    if side == Side::Output {
+        drop_null_type(schema);
+    }
+    for key in SCHEMA_MAPS {
+        let named = schema.get_mut(key).and_then(Value::as_object_mut);
+        for sub in named.into_iter().flat_map(|schemas| schemas.values_mut()) {
+            standardize_value(sub, side);
+        }
+    }
+    for key in SCHEMA_SINGLES {
+        if let Some(sub) = schema.get_mut(key) {
+            standardize_value(sub, side);
+        }
+    }
+    for key in SCHEMA_LISTS {
+        for sub in schema.get_mut(key).and_then(Value::as_array_mut).into_iter().flatten() {
+            standardize_value(sub, side);
+        }
+    }
+}
+
+/// [`standardize`] d'un sous-schéma, qui peut être un booléen (`items: true`) : alors rien à faire.
+fn standardize_value(value: &mut Value, side: Side) {
+    if let Some(object) = value.as_object_mut() {
+        standardize(object, side);
+    }
+}
+
+/// `type: ["string", "null"]` devient `type: "string"` ; `["integer", "string", "null"]` devient
+/// `["integer", "string"]`. Un `type` réduit à `null` seul reste tel quel.
+fn drop_null_type(schema: &mut JsonObject) {
+    let Some(Value::Array(types)) = schema.get("type") else { return };
+    let kept: Vec<Value> = types.iter().filter(|name| **name != "null").cloned().collect();
+    if kept.is_empty() || kept.len() == types.len() {
+        return;
+    }
+    let reduced = match kept.as_slice() {
+        [only] => only.clone(),
+        _ => Value::Array(kept),
+    };
+    schema.insert("type".to_owned(), reduced);
 }
 
 #[cfg(test)]
@@ -109,12 +235,173 @@ mod tests {
     }
 
     #[test]
-    fn without_dollar_schema_only_removes_that_key() {
+    fn published_removes_the_dollar_schema_key_and_leaves_the_original_alone() {
         let schema =
             json!({"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object"});
         let object = schema.as_object().unwrap();
-        let stripped = without_dollar_schema(object);
+        let stripped = published(object, Side::Input);
         assert_eq!(serde_json::Value::Object(stripped.as_ref().clone()), json!({"type": "object"}));
         assert!(object.contains_key("$schema"), "l'original n'est pas modifié");
+    }
+
+    /// Paramètres témoins de L5-01 : un entier borné avec défaut, une date, deux défauts nuls.
+    #[derive(JsonSchema)]
+    #[allow(dead_code, reason = "lu par schemars seulement")]
+    struct Bounded {
+        #[schemars(with = "u32", range(min = 1, max = 100), extend("default" = 10))]
+        page_size: Option<u32>,
+        #[schemars(with = "String", extend("format" = "date"))]
+        date: Option<String>,
+        #[serde(default)]
+        focus: Option<String>,
+        count: u64,
+    }
+
+    #[test]
+    fn a_bounded_integer_keeps_its_bounds_and_default_without_a_uint_format() {
+        let schema = input_schema::<Bounded>();
+        let page_size = &schema["properties"]["page_size"];
+        assert_eq!(page_size["minimum"], 1);
+        assert_eq!(page_size["maximum"], 100);
+        assert_eq!(page_size["default"], 10);
+        assert_eq!(page_size.get("format"), None, "{page_size}");
+        assert_eq!(schema["properties"]["count"].get("format"), None);
+        assert_eq!(schema["properties"]["count"]["minimum"], 0, "minimum: 0 est gardé");
+        assert_eq!(schema["properties"]["count"].get("maximum"), None, "aucun maximum ajouté");
+    }
+
+    #[test]
+    fn a_null_default_goes_but_the_date_format_stays() {
+        let schema = input_schema::<Bounded>();
+        assert_eq!(schema["properties"]["date"]["format"], "date");
+        assert_eq!(schema["properties"]["focus"].get("default"), None, "{schema:?}");
+        assert_eq!(
+            schema["properties"]["focus"]["type"],
+            json!(["string", "null"]),
+            "en entrée, `null` reste accepté"
+        );
+    }
+
+    #[test]
+    fn standardize_walks_defs_items_and_combinators_and_spares_data() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "format": {"type": "string", "format": "uint32"},
+                "default": {"type": "string", "default": null},
+                "mode": {
+                    "type": "string",
+                    "enum": ["format", null],
+                    "const": {"format": "uint32", "default": null},
+                    "default": {"format": "uint32", "default": null},
+                    "examples": [{"format": "uint32", "default": null}]
+                },
+                "list": {"type": "array", "items": {"type": "integer", "format": "uint"}},
+                "pair": {"type": "array", "items": [{"format": "uint16"}], "prefixItems": [{"format": "uint64"}]},
+                "either": {"anyOf": [{"type": "integer", "format": "uint32"}, {"type": "null"}]},
+                "open": {"type": "object", "additionalProperties": {"format": "uint32"}, "not": true}
+            },
+            "$defs": {"Count": {"type": "integer", "format": "uint32", "default": null}},
+            "allOf": [{"format": "uint32"}],
+            "oneOf": [{"format": "uint32"}],
+            "format": "uint32"
+        });
+        standardize(schema.as_object_mut().unwrap(), Side::Input);
+        assert_eq!(
+            schema,
+            json!({
+                "type": "object",
+                "properties": {
+                    "format": {"type": "string"},
+                    "default": {"type": "string"},
+                    "mode": {
+                        "type": "string",
+                        "enum": ["format", null],
+                        "const": {"format": "uint32", "default": null},
+                        "default": {"format": "uint32", "default": null},
+                        "examples": [{"format": "uint32", "default": null}]
+                    },
+                    "list": {"type": "array", "items": {"type": "integer"}},
+                    "pair": {"type": "array", "items": [{}], "prefixItems": [{}]},
+                    "either": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+                    "open": {"type": "object", "additionalProperties": {}, "not": true}
+                },
+                "$defs": {"Count": {"type": "integer"}},
+                "allOf": [{}],
+                "oneOf": [{}]
+            })
+        );
+    }
+
+    #[test]
+    fn standard_formats_survive_everywhere() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "a": {"type": "string", "format": "date"},
+                "b": {"type": "string", "format": "date-time"},
+                "c": {"type": "string", "format": "uri"}
+            }
+        });
+        let before = schema.clone();
+        standardize(schema.as_object_mut().unwrap(), Side::Output);
+        assert_eq!(schema, before);
+        for name in STANDARD_FORMATS {
+            let mut one = json!({"format": name});
+            standardize(one.as_object_mut().unwrap(), Side::Input);
+            assert_eq!(one, json!({"format": name}));
+        }
+    }
+
+    /// Sortie témoin : des champs absents plutôt que nuls (`skip_serializing_if`).
+    #[derive(Serialize, JsonSchema)]
+    #[allow(dead_code, reason = "lu par schemars seulement")]
+    struct Optional {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        next_offset: Option<u32>,
+        items: Vec<Entry>,
+    }
+
+    #[derive(Serialize, JsonSchema)]
+    #[allow(dead_code, reason = "lu par schemars seulement")]
+    struct Entry {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        num: Option<String>,
+    }
+
+    #[test]
+    fn an_output_schema_never_lists_null_but_keeps_its_types() {
+        let schema = Value::Object(output_schema::<Optional>().as_ref().clone());
+        assert_eq!(schema["properties"]["title"]["type"], "string", "{schema}");
+        assert_eq!(schema["properties"]["next_offset"]["type"], "integer");
+        assert_eq!(schema["properties"]["next_offset"]["minimum"], 0);
+        assert_eq!(schema["properties"]["next_offset"].get("format"), None);
+        assert!(!schema.to_string().contains("null"), "{schema}");
+        assert_eq!(schema["properties"]["items"]["type"], "array");
+    }
+
+    #[test]
+    fn null_is_dropped_from_output_types_only_when_another_type_remains() {
+        let run = |types: Value, side: Side| {
+            let mut schema = json!({"type": types});
+            standardize(schema.as_object_mut().unwrap(), side);
+            schema["type"].clone()
+        };
+        assert_eq!(run(json!(["string", "null"]), Side::Output), json!("string"));
+        assert_eq!(run(json!(["null", "string"]), Side::Output), json!("string"));
+        assert_eq!(
+            run(json!(["integer", "string", "null"]), Side::Output),
+            json!(["integer", "string"])
+        );
+        // Rien à retirer, ou rien qui resterait : le type est laissé tel quel.
+        assert_eq!(run(json!(["string", "integer"]), Side::Output), json!(["string", "integer"]));
+        assert_eq!(run(json!(["null"]), Side::Output), json!(["null"]));
+        assert_eq!(run(json!(["null", "null"]), Side::Output), json!(["null", "null"]));
+        assert_eq!(run(json!("null"), Side::Output), json!("null"));
+        assert_eq!(run(json!("string"), Side::Output), json!("string"));
+        // En entrée, `null` est accepté : le type n'est pas touché.
+        assert_eq!(run(json!(["string", "null"]), Side::Input), json!(["string", "null"]));
     }
 }

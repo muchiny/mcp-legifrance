@@ -10,7 +10,6 @@ expression: schema
           "type": "string"
         },
         "at": {
-          "format": "uint32",
           "minimum": 0,
           "type": "integer"
         },

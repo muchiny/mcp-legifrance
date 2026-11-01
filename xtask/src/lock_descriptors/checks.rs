@@ -152,6 +152,83 @@ fn external_refs<'a>(value: &'a Value, out: &mut Vec<&'a str>) {
     }
 }
 
+/// Valeurs de `format` du vocabulaire standard de JSON Schema 2020-12 (validation, §7.3). Les
+/// `uint32`, `uint`, `uint16` et `uint64` de schemars n'en font pas partie (L5-01, protocol-9).
+pub(crate) const STANDARD_FORMATS: [&str; 19] = [
+    "date-time",
+    "date",
+    "time",
+    "duration",
+    "email",
+    "idn-email",
+    "hostname",
+    "idn-hostname",
+    "ipv4",
+    "ipv6",
+    "uri",
+    "uri-reference",
+    "iri",
+    "iri-reference",
+    "uuid",
+    "uri-template",
+    "json-pointer",
+    "relative-json-pointer",
+    "regex",
+];
+
+/// Mots-clés dont la valeur est un objet de sous-schémas, indexés par nom.
+const SCHEMA_MAPS: [&str; 5] =
+    ["properties", "$defs", "definitions", "patternProperties", "dependentSchemas"];
+
+/// Mots-clés dont la valeur est un sous-schéma (`items` aussi, en liste, avec `SCHEMA_LISTS`).
+const SCHEMA_SINGLES: [&str; 10] = [
+    "items",
+    "additionalProperties",
+    "not",
+    "if",
+    "then",
+    "else",
+    "contains",
+    "propertyNames",
+    "unevaluatedItems",
+    "unevaluatedProperties",
+];
+
+/// Mots-clés dont la valeur est une liste de sous-schémas.
+const SCHEMA_LISTS: [&str; 5] = ["anyOf", "oneOf", "allOf", "prefixItems", "items"];
+
+/// Chemins des `format` hors liste standard et des `default: null` d'un schéma. Le parcours est
+/// conscient du schéma : il ne descend que dans les sous-schémas, jamais dans `enum`, `const`,
+/// `default` ou `examples`, et une propriété *nommée* `format` ou `default` est un nom, pas un
+/// mot-clé.
+fn nonstandard_keywords(schema: &Value, path: &str, out: &mut Vec<String>) {
+    let Some(object) = schema.as_object() else { return };
+    if object.get("format").and_then(Value::as_str).is_some_and(|f| !STANDARD_FORMATS.contains(&f))
+    {
+        out.push(format!("{path}/format"));
+    }
+    if object.get("default").is_some_and(Value::is_null) {
+        out.push(format!("{path}/default"));
+    }
+    for key in SCHEMA_MAPS {
+        for (name, sub) in object.get(key).and_then(Value::as_object).into_iter().flatten() {
+            nonstandard_keywords(sub, &format!("{path}/{key}/{name}"), out);
+        }
+    }
+    for key in SCHEMA_SINGLES {
+        if let Some(sub) = object.get(key) {
+            nonstandard_keywords(sub, &format!("{path}/{key}"), out);
+        }
+    }
+    for key in SCHEMA_LISTS {
+        for (index, sub) in
+            object.get(key).and_then(Value::as_array).into_iter().flatten().enumerate()
+        {
+            nonstandard_keywords(sub, &format!("{path}/{key}/{index}"), out);
+        }
+    }
+}
+
 /// Contrôles d'un schéma d'entrée (`input`) ou de sortie.
 fn check_schema(
     tool: &str,
@@ -199,6 +276,11 @@ fn check_schema(
                 )));
             }
         }
+    }
+    let mut nonstandard = Vec::new();
+    nonstandard_keywords(value, "", &mut nonstandard);
+    for path in nonstandard {
+        found.errors.push(at(&format!("has a non-standard format or a null default at {path}")));
     }
     if let Err(error) = jsonschema::draft202012::meta::validate(value) {
         found.errors.push(at(&format!("is not a valid JSON Schema 2020-12 document: {error}")));
@@ -476,6 +558,28 @@ mod tests {
                 "description has 1001 characters, over 1000",
             ),
             (
+                "non-standard format (uint32)",
+                Box::new(|t| {
+                    t["inputSchema"]["properties"]["query"]["format"] = json!("uint32");
+                }),
+                "inputSchema has a non-standard format or a null default at /properties/query/format",
+            ),
+            (
+                "null default",
+                Box::new(|t| {
+                    t["inputSchema"]["properties"]["query"]["default"] = Value::Null;
+                }),
+                "inputSchema has a non-standard format or a null default at /properties/query/default",
+            ),
+            (
+                "non-standard format in an output $defs",
+                Box::new(|t| {
+                    t["outputSchema"]["$defs"] =
+                        json!({"Count": {"type": "integer", "format": "uint"}});
+                }),
+                "outputSchema has a non-standard format or a null default at /$defs/Count/format",
+            ),
+            (
                 "float in a descriptor",
                 Box::new(|t| t["inputSchema"]["properties"]["query"]["maxLength"] = json!(2.5)),
                 "floating-point number 2.5",
@@ -489,6 +593,75 @@ mod tests {
                 found.errors
             );
         }
+    }
+
+    #[test]
+    fn standard_formats_and_non_null_defaults_are_accepted() {
+        let found = tool_findings(|t| {
+            t["inputSchema"]["properties"]["date"] =
+                json!({"type": "string", "format": "date", "default": "2026-01-01"});
+            t["inputSchema"]["properties"]["page_size"] =
+                json!({"type": "integer", "minimum": 0, "default": 10});
+            t["outputSchema"]["properties"]["at"] =
+                json!({"type": "string", "format": "date-time"});
+        });
+        assert_eq!(found.errors, Vec::<String>::new());
+    }
+
+    #[test]
+    fn data_named_format_or_default_is_not_a_keyword() {
+        // Une propriété nommée `format` ou `default`, et un `enum`, `const` ou `examples` qui
+        // contiennent ces mots : ce sont des données, pas des mots-clés.
+        let found = tool_findings(|t| {
+            t["inputSchema"]["properties"]["format"] = json!({"type": "string"});
+            t["inputSchema"]["properties"]["default"] = json!({"type": "string"});
+            t["inputSchema"]["properties"]["mode"] = json!({
+                "type": "string",
+                "enum": ["format", "default"],
+                "examples": [{"format": "uint32", "default": null}],
+                "const": {"format": "uint32"}
+            });
+        });
+        assert_eq!(found.errors, Vec::<String>::new());
+    }
+
+    #[test]
+    fn non_standard_keywords_are_found_in_every_sub_schema_position() {
+        let bad = json!({"format": "uint32", "default": null});
+        let schema = json!({
+            "type": "object",
+            "properties": {"a": bad},
+            "$defs": {"b": bad},
+            "patternProperties": {"^x": bad},
+            "items": bad,
+            "additionalProperties": bad,
+            "anyOf": [bad],
+            "prefixItems": [bad]
+        });
+        let mut paths = Vec::new();
+        nonstandard_keywords(&schema, "", &mut paths);
+        paths.sort();
+        let expected = [
+            "$defs/b",
+            "additionalProperties",
+            "anyOf/0",
+            "items",
+            "patternProperties/^x",
+            "prefixItems/0",
+            "properties/a",
+        ]
+        .iter()
+        .flat_map(|at| [format!("/{at}/default"), format!("/{at}/format")])
+        .collect::<Vec<_>>();
+        let mut expected = expected;
+        expected.sort();
+        assert_eq!(paths, expected);
+        // `items` en liste, valeur qui n'est pas un schéma : aucun parcours, aucun échec.
+        let mut none = Vec::new();
+        nonstandard_keywords(&json!({"items": [bad], "not": true}), "", &mut none);
+        assert_eq!(none, ["/items/0/format", "/items/0/default"]);
+        nonstandard_keywords(&json!(true), "", &mut none);
+        assert_eq!(none.len(), 2);
     }
 
     #[test]

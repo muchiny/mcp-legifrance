@@ -259,6 +259,22 @@ mod tests {
     }
 
     #[test]
+    fn the_view_validates_against_its_output_schema_and_the_schema_never_lists_null() {
+        let schema = Value::Object(output_schema::<CompanyAgreementView>().as_ref().clone());
+        let validator = jsonschema::validator_for(&schema).unwrap();
+        for agreement in [corsair(), bare()] {
+            let view = view(agreement);
+            assert!(validator.is_valid(&view), "{view}");
+        }
+        assert!(!schema.to_string().contains("null"), "{schema}");
+        assert_eq!(schema["properties"]["siret"]["type"], "string");
+        // Un champ présent mais nul n'est pas conforme : les absents sont omis, jamais nuls.
+        let mut nulled = view(corsair());
+        nulled["siret"] = Value::Null;
+        assert!(!validator.is_valid(&nulled));
+    }
+
+    #[test]
     fn the_view_matches_its_snapshot() {
         // Règle S : les snapshots vivent dans `src/snapshots/`, pas dans `src/views/snapshots/`.
         insta::with_settings!({snapshot_path => "../snapshots"}, {
