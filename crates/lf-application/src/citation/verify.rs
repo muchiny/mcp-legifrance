@@ -443,6 +443,34 @@ mod tests {
         ));
     }
 
+    /// Repro de ground_truth-1 : la loi de 1978 n'est indexée que sous
+    /// `78-17` (sandbox).
+    #[tokio::test]
+    async fn a_pre_2000_law_is_verified_by_its_short_number() {
+        let corpus = FakeCorpus::new();
+        let mut law = hit(Fond::Loda, "LEGITEXT000006068624");
+        law.nature = Some("LOI".to_owned());
+        law.date = CivilDate::new(1978, 1, 6);
+        law.title = Some(
+            "Loi n° 78-17 du 6 janvier 1978 relative à l'informatique, aux fichiers et aux libertés"
+                .into(),
+        );
+        corpus.push_find_by_number(Ok(vec![law]));
+        let verification =
+            verify(&corpus, PisteEnvironment::Production, "loi n° 78-17 du 6 janvier 1978")
+                .await
+                .unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(note_text(check), "");
+        assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), "LEGITEXT000006068624");
+        assert!(matches!(
+            &corpus.seen_requests()[0],
+            PortRequest::FindByNumber(query)
+                if query.fond == Fond::Loda && query.value.as_str() == "78-17"
+        ));
+    }
+
     #[tokio::test]
     async fn n25_renumbered_article_is_verified_but_the_quote_differs() {
         let corpus = FakeCorpus::new();

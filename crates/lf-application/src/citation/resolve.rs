@@ -27,7 +27,7 @@ use lf_domain::{
     citation::{
         Ambiguity, ArticleNum, CaseNumber, CitationRef, CnilCite, CnilNumber, CodeRef, Confidence,
         ConventionCite, Court, DecisionCite, Flag, LegifranceIdRef, Resolvability, Spanned,
-        TextCite, TextNature, UnresolvableWhy, UnsupportedFamily, VersionQualifier,
+        TextCite, TextNature, TextNumber, UnresolvableWhy, UnsupportedFamily, VersionQualifier,
         dict::courts::CcType,
     },
     contract::{Citable, Eli, Nor},
@@ -583,20 +583,26 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         let Some(number) = &cite.number else {
             return TextStep::Done(not_supported("text cited without a number"));
         };
-        let key = number
-            .year
-            .map_or_else(|| number.seq.to_string(), |year| format!("{year}-{}", number.seq));
-        let hits = match self.by_number(Fond::Loda, NumberKind::Text, &key).await {
-            Ok(hits) => hits,
-            Err(error) => return TextStep::Done(Resolution::failed(error)),
-        };
-        let (ids, hits): (Vec<LegiTextId>, Vec<SearchHit>) = hits
-            .into_iter()
-            .filter_map(|hit| match &hit.id {
-                DocumentId::LegiText(id) => Some((id.clone(), hit)),
-                _ => None,
-            })
-            .unzip();
+        // Premier jeu de résultats LEGI parmi les formes du numéro (`89-462`, puis `1989-462`) :
+        // la sandbox ne connaît que la forme à deux chiffres des textes d'avant 2000.
+        let mut found: Vec<(LegiTextId, SearchHit)> = Vec::new();
+        for key in text_keys(number) {
+            let hits = match self.by_number(Fond::Loda, NumberKind::Text, &key).await {
+                Ok(hits) => hits,
+                Err(error) => return TextStep::Done(Resolution::failed(error)),
+            };
+            found = hits
+                .into_iter()
+                .filter_map(|hit| match &hit.id {
+                    DocumentId::LegiText(id) => Some((id.clone(), hit)),
+                    _ => None,
+                })
+                .collect();
+            if !found.is_empty() {
+                break;
+            }
+        }
+        let (ids, hits): (Vec<LegiTextId>, Vec<SearchHit>) = found.into_iter().unzip();
         if hits.is_empty() {
             return TextStep::Done(Resolution::unresolvable(Note::CouldNotConfirm {
                 index: "LODA",
@@ -953,6 +959,18 @@ const fn plain_nature(nature: TextNature) -> Option<&'static str> {
     }
 }
 
+/// Formes du numéro à chercher dans l'index NUM, dans l'ordre : `AA-N` puis `AAAA-N` avant 2000
+/// (le `AA` est celui que la sandbox indexe), `AAAA-N` après, `N` sans année.
+fn text_keys(number: &TextNumber) -> Vec<String> {
+    match number.year {
+        None => vec![number.seq.to_string()],
+        Some(year @ 1900..=1999) => {
+            vec![format!("{:02}-{}", year % 100, number.seq), format!("{year}-{}", number.seq)]
+        }
+        Some(year) => vec![format!("{year}-{}", number.seq)],
+    }
+}
+
 fn text_fit(cite: &TextCite, hit: &SearchHit) -> TextFit {
     if let (Some(wanted), Some(actual)) = (plain_nature(cite.nature), hit.nature.as_deref())
         && fold_line(actual) != fold_line(wanted)
@@ -1230,8 +1248,8 @@ mod tests {
     use crate::testing::{FakeCorpus, PortRequest};
     use lf_domain::{
         citation::{
-            Anaphora, ArticleRef, EcliFamily, IdPrefix, Sigle, Span, SpecialNum, TextNumber,
-            UnsupportedCite, parse,
+            Anaphora, ArticleRef, EcliFamily, IdPrefix, Sigle, Span, SpecialNum, UnsupportedCite,
+            parse,
         },
         contract::{Idcc, Nor},
         entity::{Act, ArticleText, CompanyAgreement, Convention, Deliberation, TextBody},
@@ -1737,6 +1755,14 @@ mod tests {
         law.nature = Some("LOI".to_owned());
         law.date = Some(civil(2016, 10, 7));
         law
+    }
+
+    /// Un texte LODA tel que la recherche par numéro le rend : nature, titre et `date`.
+    fn loda_hit(id: &str, nature: &str, title: &str, date: Option<CivilDate>) -> SearchHit {
+        let mut found = titled(Fond::Loda, id, title);
+        found.nature = Some(nature.to_owned());
+        found.date = date;
+        found
     }
 
     #[tokio::test]
@@ -3316,6 +3342,187 @@ mod tests {
                 actual: "2016-10-07".to_owned()
             })
         );
+    }
+
+    #[test]
+    fn a_text_number_is_searched_in_the_forms_the_index_may_hold() {
+        let number =
+            |year: Option<u16>, seq| TextNumber { year, seq, extra: None, raw: String::new() };
+        for (year, expected) in [
+            (None, vec!["1419"]),
+            (Some(1993), vec!["93-1419", "1993-1419"]),
+            (Some(1900), vec!["00-1419", "1900-1419"]),
+            (Some(1905), vec!["05-1419", "1905-1419"]),
+            (Some(1999), vec!["99-1419", "1999-1419"]),
+            (Some(2000), vec!["2000-1419"]),
+            (Some(2016), vec!["2016-1419"]),
+            (Some(1899), vec!["1899-1419"]),
+            (Some(1804), vec!["1804-1419"]),
+        ] {
+            assert_eq!(text_keys(&number(year, 1419)), expected, "{year:?}");
+        }
+    }
+
+    /// L2-01 (ground_truth-1) : la sandbox trouve `89-462` et ne trouve rien avec `1989-462`.
+    #[tokio::test]
+    async fn a_pre_2000_law_is_searched_by_its_two_digit_number_first() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![loda_hit(
+            "LEGITEXT000006069108",
+            "LOI",
+            "Loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs",
+            Some(civil(1989, 7, 6)),
+        )]));
+        let resolution = resolve(&corpus, "loi n° 89-462 du 6 juillet 1989").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+        assert_eq!(record_id(&resolution).as_deref(), Some("LEGITEXT000006069108"));
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![find_request(Fond::Loda, NumberKind::Text, "89-462")]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_pre_2000_law_falls_back_to_the_four_digit_number() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        corpus.push_find_by_number(Ok(vec![loda_hit(
+            "LEGITEXT000006068624",
+            "LOI",
+            "Loi n° 78-17 du 6 janvier 1978 relative à l'informatique, aux fichiers et aux libertés",
+            Some(civil(1978, 1, 6)),
+        )]));
+        let resolution = resolve(&corpus, "loi n° 78-17 du 6 janvier 1978").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(record_id(&resolution).as_deref(), Some("LEGITEXT000006068624"));
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![
+                find_request(Fond::Loda, NumberKind::Text, "78-17"),
+                find_request(Fond::Loda, NumberKind::Text, "1978-17"),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_pre_2000_law_found_nowhere_is_unconfirmed_after_exactly_two_requests() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        corpus.push_find_by_number(Ok(vec![]));
+        let resolution = resolve(&corpus, "décret n° 93-1419 du 29 décembre 1993").await;
+        assert_eq!(
+            resolution.outcome,
+            unresolvable_outcome(Note::CouldNotConfirm { index: "LODA" })
+        );
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![
+                find_request(Fond::Loda, NumberKind::Text, "93-1419"),
+                find_request(Fond::Loda, NumberKind::Text, "1993-1419"),
+            ]
+        );
+    }
+
+    /// Une forme qui ne rend que des hits hors LEGI (Journal officiel) ne compte pas comme un
+    /// résultat : la forme suivante est essayée.
+    #[tokio::test]
+    async fn a_form_that_returns_no_legal_text_does_not_stop_the_search() {
+        let mut journal = law_hit();
+        journal.id = DocumentId::parse("JORFTEXT000006069108").unwrap();
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![journal]));
+        corpus.push_find_by_number(Ok(vec![law_hit()]));
+        let resolution = resolve(&corpus, "loi n° 89-462").await;
+        assert_eq!(record_id(&resolution).as_deref(), Some("LEGITEXT000033202746"));
+        assert_eq!(corpus.calls_of("find_by_number"), 2);
+    }
+
+    #[tokio::test]
+    async fn a_failing_form_fails_the_resolution() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Err(upstream()));
+        let resolution = resolve(&corpus, "loi n° 89-462").await;
+        assert_eq!(resolution.outcome, Outcome::Failed(upstream()));
+        assert_eq!(corpus.calls_of("find_by_number"), 1);
+
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        corpus.push_find_by_number(Err(upstream()));
+        let resolution = resolve(&corpus, "loi n° 89-462").await;
+        assert_eq!(resolution.outcome, Outcome::Failed(upstream()));
+        assert_eq!(corpus.calls_of("find_by_number"), 2);
+    }
+
+    /// Les lois de 2000 et après, et les numéros sans année, ne coûtent qu'une requête.
+    #[tokio::test]
+    async fn a_post_1999_law_is_searched_once() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        let resolution = resolve(&corpus, "loi n° 2016-1321 du 7 octobre 2016").await;
+        assert_eq!(
+            resolution.outcome,
+            unresolvable_outcome(Note::CouldNotConfirm { index: "LODA" })
+        );
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![find_request(Fond::Loda, NumberKind::Text, "2016-1321")]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_article_of_a_pre_2000_law_is_searched_in_the_law_found_by_its_short_number() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![loda_hit(
+            "LEGITEXT000006069108",
+            "LOI",
+            "Loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs",
+            Some(civil(1989, 7, 6)),
+        )]));
+        corpus.push_find_article(Ok(article(Some("22"))));
+        let resolution = resolve(&corpus, "article 22 de la loi n° 89-462 du 6 juillet 1989").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![
+                find_request(Fond::Loda, NumberKind::Text, "89-462"),
+                PortRequest::FindArticle(
+                    LegiTextId::parse("LEGITEXT000006069108").unwrap(),
+                    "22".to_owned(),
+                    ArticleAt::Today(today())
+                ),
+            ]
+        );
+    }
+
+    /// Les deux repros de ground_truth-1 sans « n° » (si la grammaire les lit) et sans date.
+    #[tokio::test]
+    async fn a_pre_2000_law_without_date_is_found_with_medium_confidence() {
+        for (cited, number, id, title) in [
+            (
+                "loi n° 89-462",
+                "89-462",
+                "LEGITEXT000006069108",
+                "Loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs",
+            ),
+            (
+                "loi n° 78-17",
+                "78-17",
+                "LEGITEXT000006068624",
+                "Loi n° 78-17 du 6 janvier 1978 relative à l'informatique, aux fichiers et aux libertés",
+            ),
+        ] {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![loda_hit(id, "LOI", title, None)]));
+            let resolution = resolve(&corpus, cited).await;
+            assert_eq!(record_id(&resolution).as_deref(), Some(id), "{cited}");
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium), "{cited}");
+            assert_eq!(
+                corpus.seen_requests(),
+                vec![find_request(Fond::Loda, NumberKind::Text, number)],
+                "{cited}"
+            );
+        }
     }
 
     #[tokio::test]
