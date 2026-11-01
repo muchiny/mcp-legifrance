@@ -294,7 +294,10 @@ mod tests {
         assert_eq!(verification.found, 1);
         let check = &verification.checks[0];
         assert_eq!(check.status, CheckStatus::NotFound);
-        assert_eq!(note_text(check), "Code civil has no article 9999 in force on 2026-10-29.");
+        assert_eq!(
+            note_text(check),
+            "Code civil has no article 9999 in force on 2026-10-29. The article may exist in earlier versions; retry with a date."
+        );
         assert!(check.resolved.is_none());
         assert_eq!(
             corpus.seen_requests(),
@@ -309,6 +312,20 @@ mod tests {
         );
     }
 
+    /// L2-09 (gap3-11) : `verify` nomme aussi les deux codes du CPCE, sans appel au corpus.
+    #[tokio::test]
+    async fn an_ambiguous_cpce_names_both_codes() {
+        let corpus = FakeCorpus::new();
+        let verification =
+            verify(&corpus, PisteEnvironment::Production, "art. L. 32 CPCE").await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Ambiguous);
+        let text = note_text(check);
+        assert!(text.contains("Code des postes et des communications électroniques"), "{text}");
+        assert!(text.contains("Code des procédures civiles d'exécution"), "{text}");
+        assert_eq!(corpus.calls(), 0);
+    }
+
     #[tokio::test]
     async fn n24_sandbox_article_9999_is_unresolvable_with_the_sandbox_note() {
         let corpus = FakeCorpus::new();
@@ -321,7 +338,7 @@ mod tests {
         assert_eq!(
             note_text(check),
             "No article record matches Code civil, art. 9999 on 2026-10-29 in the PISTE sandbox; \
-             sandbox data differ from production."
+             sandbox data differ from production. The article may exist in earlier versions; retry with a date."
         );
     }
 

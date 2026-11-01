@@ -241,7 +241,7 @@ mod tests {
                         "raw": "article 9999 du code civil",
                         "kind": "code_article",
                         "status": "not_found",
-                        "note": "Code civil has no article 9999 in force on 2026-10-15."
+                        "note": "Code civil has no article 9999 in force on 2026-10-15. The article may exist in earlier versions; retry with a date."
                     }
                 ]
             })

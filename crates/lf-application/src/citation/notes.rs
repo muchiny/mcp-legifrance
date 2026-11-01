@@ -229,8 +229,38 @@ const fn meanings(sigle: Sigle) -> &'static str {
         Sigle::Cu => "Code de l'urbanisme",
         Sigle::Cpi => "Code de la propriété intellectuelle, Cour pénale internationale",
         Sigle::Ccp => "Code de la commande publique, Code de procédure pénale",
-        Sigle::Cpce => "two codes",
+        Sigle::Cpce => {
+            "Code des postes et des communications électroniques, Code des procédures civiles d'exécution"
+        }
     }
+}
+
+/// Rend une note dont `label` (titre de code, ou « titre, art. clé ») est le seul morceau long :
+/// quand le texte dépasse [`NOTE_MAX_CHARS`], le titre est raccourci par « … » plutôt que de
+/// couper la fin de la note, qui porte la piste donnée à l'appelant.
+fn fit(label: &str, build: impl Fn(&str) -> String) -> String {
+    let full = build(label);
+    let over = full.chars().count().saturating_sub(NOTE_MAX_CHARS);
+    if over == 0 {
+        return full;
+    }
+    let shrink = |title: &str| {
+        let keep = title.chars().count().saturating_sub(over.saturating_add(1));
+        title.chars().take(keep).chain(std::iter::once('…')).collect::<String>()
+    };
+    match label.rsplit_once(", art. ") {
+        Some((title, key)) => build(&format!("{}, art. {key}", shrink(title))),
+        None => build(&shrink(label)),
+    }
+}
+
+/// Piste donnée avec l'absence d'un article : une version plus ancienne peut exister (resolve-5).
+const EARLIER_VERSIONS: &str = "The article may exist in earlier versions; retry with a date.";
+
+/// ` {EARLIER_VERSIONS}` pour la famille « article » (les seuls articles ont des versions
+/// datées), rien pour les autres familles.
+fn earlier_versions(family: &str) -> String {
+    if family == "article" { format!(" {EARLIER_VERSIONS}") } else { String::new() }
 }
 
 /// ` on {date}` quand la date est connue.
@@ -243,9 +273,9 @@ impl Note {
     #[must_use]
     pub fn text(&self) -> String {
         let text = match self {
-            Self::NotInForce { code, num, date } => {
-                format!("{code} has no article {num} in force on {date}.")
-            }
+            Self::NotInForce { code, num, date } => fit(code, |code| {
+                format!("{code} has no article {num} in force on {date}. {EARLIER_VERSIONS}")
+            }),
             Self::NoRecord { family, value, date } => {
                 format!("No {family} record matches {value}{}.", on(*date))
             }
@@ -262,7 +292,10 @@ impl Note {
             ),
             Self::ReadAs { sigle, code } => format!("Read '{}' as {code}.", sigle.as_str()),
             Self::MissingTarget { num } => {
-                format!("No code or text given for article {num}; add it or call fr_resolve.")
+                format!(
+                    "No recognised code or text for article {num} (an unknown abbreviation counts \
+                     as missing); name the code in full, for example \"article {num} du code civil\"."
+                )
             }
             Self::NoNumber { fond, date } => {
                 let dates = date
@@ -274,7 +307,7 @@ impl Note {
                     .to_owned()
             }
             Self::NoAgreement => {
-                "No collective agreement identified; give its IDCC or its title.".to_owned()
+                "No collective agreement identified; give its IDCC (e.g. 'IDCC 1486').".to_owned()
             }
             Self::Candidates { n } => format!("{n} records match; call fr_resolve to list them."),
             Self::OutOfScope { family } => {
@@ -286,17 +319,23 @@ impl Note {
             ),
             Self::NotSupported { what } => format!("Not checkable in this version ({what})."),
             Self::CouldNotConfirm { index } => {
-                format!("Could not confirm existence; nothing was found in {index}.")
+                format!(
+                    "Could not confirm existence: nothing was found in {index}, which does not \
+                     prove that it does not exist."
+                )
             }
             Self::NotChecked { reason } => format!("Not checked: {}.", reason.label()),
             Self::CodeNotListed => "Code not found in the list of codes.".to_owned(),
             Self::VersionSince(date) => format!("Current version in force since {date}."),
             Self::QuoteMismatch => "Quoted text not found in the official text.".to_owned(),
-            Self::NotInSandbox { family, value, date } => format!(
-                "No {family} record matches {value}{} in the PISTE sandbox; sandbox data differ \
-                 from production.",
-                on(*date)
-            ),
+            Self::NotInSandbox { family, value, date } => fit(value, |value| {
+                format!(
+                    "No {family} record matches {value}{} in the PISTE sandbox; sandbox data \
+                     differ from production.{}",
+                    on(*date),
+                    earlier_versions(family)
+                )
+            }),
             Self::NotInSnapshot { family, value, date } => format!(
                 "No {family} record matches {value}{} in the local DILA snapshot, which may be out \
                  of date.",
@@ -347,7 +386,7 @@ mod tests {
                     num: "9999".to_owned(),
                     date: date("2026-10-15"),
                 },
-                "Code civil has no article 9999 in force on 2026-10-15.",
+                "Code civil has no article 9999 in force on 2026-10-15. The article may exist in earlier versions; retry with a date.",
             ),
             (
                 Note::NoRecord {
@@ -380,10 +419,6 @@ mod tests {
             ),
             (Note::ReadAs { sigle: Sigle::Cp, code: "Code pénal" }, "Read 'CP' as Code pénal."),
             (
-                Note::MissingTarget { num: "L1234-5".to_owned() },
-                "No code or text given for article L1234-5; add it or call fr_resolve.",
-            ),
-            (
                 Note::NoNumber { fond: Fond::Juri, date: Some(civil(2018, 3, 28)) },
                 "No case number: use fr_search (fond=JURI, date_from=2018-03-28, date_to=2018-03-28).",
             ),
@@ -395,7 +430,10 @@ mod tests {
                 Note::NoCourt,
                 "No court given: name it, or call fr_resolve to list the matching decisions.",
             ),
-            (Note::NoAgreement, "No collective agreement identified; give its IDCC or its title."),
+            (
+                Note::NoAgreement,
+                "No collective agreement identified; give its IDCC (e.g. 'IDCC 1486').",
+            ),
             (Note::Candidates { n: 3 }, "3 records match; call fr_resolve to list them."),
             (
                 Note::OutOfScope { family: "EU law" },
@@ -406,10 +444,6 @@ mod tests {
                 "Légifrance only holds a selection of Cour d'appel decisions; absence is not proof (see fr_coverage).",
             ),
             (Note::NotSupported { what: "JORF" }, "Not checkable in this version (JORF)."),
-            (
-                Note::CouldNotConfirm { index: "LODA" },
-                "Could not confirm existence; nothing was found in LODA.",
-            ),
             (
                 Note::NotChecked { reason: NotCheckedReason::TimeBudget },
                 "Not checked: time budget.",
@@ -445,6 +479,26 @@ mod tests {
     /// décision sans références pour `fr_get_related` (V4-05).
     fn later_catalogue() -> Vec<(Note, &'static str)> {
         vec![
+            (
+                Note::MissingTarget { num: "L1234-5".to_owned() },
+                "No recognised code or text for article L1234-5 (an unknown abbreviation counts as missing); name the code in full, for example \"article L1234-5 du code civil\".",
+            ),
+            (
+                Note::CouldNotConfirm { index: "LODA" },
+                "Could not confirm existence: nothing was found in LODA, which does not prove that it does not exist.",
+            ),
+            (
+                Note::AmbiguousSigle { sigle: Sigle::Cpce },
+                "'CPCE' is ambiguous (Code des postes et des communications électroniques, Code des procédures civiles d'exécution); name the code in full.",
+            ),
+            (
+                Note::NotInSandbox {
+                    family: "article",
+                    value: "Code général des impôts, art. 885 A".to_owned(),
+                    date: Some(date("2026-11-01")),
+                },
+                "No article record matches Code général des impôts, art. 885 A on 2026-11-01 in the PISTE sandbox; sandbox data differ from production. The article may exist in earlier versions; retry with a date.",
+            ),
             (
                 Note::NoDecisionReferences,
                 "The API gives no references for this decision; its text may still cite some: read it with fr_get_decision and check it with fr_verify_citations.",
@@ -508,6 +562,89 @@ mod tests {
         for sigle in Sigle::ALL {
             assert!(!meanings(sigle).is_empty(), "{sigle:?}");
         }
-        assert_eq!(meanings(Sigle::Cpce), "two codes");
+        assert_eq!(
+            meanings(Sigle::Cpce),
+            "Code des postes et des communications électroniques, Code des procédures civiles d'exécution"
+        );
+    }
+
+    #[test]
+    fn the_earlier_versions_hint_survives_the_clip_for_every_code() {
+        use lf_domain::citation::CODES;
+        const HINT: &str = "The article may exist in earlier versions; retry with a date.";
+        for entry in CODES {
+            let num = "L1234-5-1".to_owned();
+            let in_force = Note::NotInForce {
+                code: entry.title.to_owned(),
+                num: num.clone(),
+                date: date("2026-11-01"),
+            }
+            .text();
+            assert!(in_force.ends_with(HINT), "{in_force}");
+            assert!(in_force.chars().count() <= NOTE_MAX_CHARS, "{in_force}");
+            assert!(in_force.contains("article L1234-5-1 in force on 2026-11-01"), "{in_force}");
+            let sandbox = Note::NotInSandbox {
+                family: "article",
+                value: format!("{}, art. {num}", entry.title),
+                date: Some(date("2026-11-01")),
+            }
+            .text();
+            assert!(sandbox.ends_with(HINT), "{sandbox}");
+            assert!(sandbox.chars().count() <= NOTE_MAX_CHARS, "{sandbox}");
+            assert!(sandbox.contains(", art. L1234-5-1 on 2026-11-01 in the PISTE"), "{sandbox}");
+            assert!(sandbox.contains("sandbox data differ from production."), "{sandbox}");
+        }
+    }
+
+    #[test]
+    fn a_long_title_is_shortened_but_a_short_one_is_left_alone() {
+        let short = Note::NotInForce {
+            code: "Code civil".to_owned(),
+            num: "9".to_owned(),
+            date: date("2026-11-01"),
+        };
+        assert!(!short.text().contains('…'), "{}", short.text());
+        let long_title = "Code du domaine de l'Etat et des collectivités publiques applicable à la collectivité territoriale de Mayotte";
+        let long = Note::NotInForce {
+            code: long_title.to_owned(),
+            num: "L1234-5-1".to_owned(),
+            date: date("2026-11-01"),
+        }
+        .text();
+        assert_eq!(long.chars().count(), NOTE_MAX_CHARS, "{long}");
+        assert!(long.starts_with("Code du domaine de l'Etat"), "{long}");
+        assert!(long.contains("… has no article L1234-5-1 in force"), "{long}");
+        // Sans « , art. » dans la valeur, c'est la valeur entière qui est raccourcie.
+        let bare =
+            Note::NotInSandbox { family: "article", value: "é".repeat(300), date: None }.text();
+        assert_eq!(bare.chars().count(), NOTE_MAX_CHARS, "{bare}");
+        assert!(bare.contains("é… in the PISTE sandbox"), "{bare}");
+        assert!(bare.ends_with("retry with a date."), "{bare}");
+    }
+
+    #[test]
+    fn only_the_article_absences_suggest_earlier_versions() {
+        let decision = Note::NotInSandbox {
+            family: "decision",
+            value: "506507".to_owned(),
+            date: Some(date("2026-11-01")),
+        };
+        assert!(!decision.text().contains("earlier versions"), "{}", decision.text());
+        let snapshot = Note::NotInSnapshot {
+            family: "article",
+            value: "Code civil, art. 9999".to_owned(),
+            date: Some(date("2026-11-01")),
+        };
+        assert!(!snapshot.text().contains("earlier versions"), "{}", snapshot.text());
+    }
+
+    #[test]
+    fn the_notes_of_this_task_do_not_send_a_tool_to_itself_or_claim_a_nonexistence() {
+        let missing = Note::MissingTarget { num: "1".to_owned() }.text();
+        assert!(!missing.contains("fr_resolve"), "{missing}");
+        let unconfirmed = Note::CouldNotConfirm { index: "LODA" }.text();
+        assert!(unconfirmed.contains("does not prove"), "{unconfirmed}");
+        // `Candidates` garde son renvoi : la liste est celle de `fr_resolve`.
+        assert!(Note::Candidates { n: 2 }.text().contains("fr_resolve"));
     }
 }

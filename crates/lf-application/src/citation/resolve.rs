@@ -1570,7 +1570,10 @@ mod tests {
         corpus.push_find_by_number(Ok(vec![]));
         let resolution = resolve(&corpus, text).await;
         assert_eq!(status(&resolution), CheckStatus::Unresolvable);
-        assert_eq!(note(&resolution), "Could not confirm existence; nothing was found in JURI.");
+        assert_eq!(
+            note(&resolution),
+            "Could not confirm existence: nothing was found in JURI, which does not prove that it does not exist."
+        );
 
         let corpus = FakeCorpus::new();
         corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, "JURITEXT000051743650")]));
@@ -1674,7 +1677,10 @@ mod tests {
         corpus.push_find_by_number(Ok(vec![]));
         let resolution = resolve(&corpus, text).await;
         assert_eq!(status(&resolution), CheckStatus::Unresolvable);
-        assert_eq!(note(&resolution), "Could not confirm existence; nothing was found in CNIL.");
+        assert_eq!(
+            note(&resolution),
+            "Could not confirm existence: nothing was found in CNIL, which does not prove that it does not exist."
+        );
     }
 
     #[tokio::test]
@@ -1693,7 +1699,10 @@ mod tests {
         let corpus = FakeCorpus::new();
         corpus.push_find_by_number(Ok(vec![]));
         let resolution = resolve_with(&corpus, &codes(), &nor, None).await;
-        assert_eq!(note(&resolution), "Could not confirm existence; nothing was found in LODA.");
+        assert_eq!(
+            note(&resolution),
+            "Could not confirm existence: nothing was found in LODA, which does not prove that it does not exist."
+        );
         let corpus = FakeCorpus::new();
         corpus.push_find_by_number(Ok(vec![hit(Fond::Loda, "LEGITEXT000033202746")]));
         assert_eq!(
@@ -1817,7 +1826,7 @@ mod tests {
         assert_eq!(status(&resolution), CheckStatus::NotFound);
         assert_eq!(
             note(&resolution),
-            "LEGITEXT000033202746 has no article 6 in force on 2026-10-29."
+            "LEGITEXT000033202746 has no article 6 in force on 2026-10-29. The article may exist in earlier versions; retry with a date."
         );
         // Texte sans date citée : confiance moyenne, l'absence ne prouve rien.
         let corpus = FakeCorpus::new();
@@ -1868,7 +1877,8 @@ mod tests {
             (
                 "conformément à l'article 12",
                 CheckStatus::Ambiguous,
-                "No code or text given for article 12; add it or call fr_resolve.",
+                "No recognised code or text for article 12 (an unknown abbreviation counts as missing); \
+                 name the code in full, for example \"article 12 du code civil\".",
             ),
             (
                 "Décision 2025-1173",
@@ -1883,7 +1893,7 @@ mod tests {
             (
                 "l'avenant n° 18",
                 CheckStatus::Ambiguous,
-                "No collective agreement identified; give its IDCC or its title.",
+                "No collective agreement identified; give its IDCC (e.g. 'IDCC 1486').",
             ),
             (
                 "Bull. civ. I, n° 270",
