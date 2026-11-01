@@ -236,7 +236,7 @@ mod tests {
         assert_eq!(
             text_of(&result),
             format!(
-                "[not_found] No LODA text found for {ID}. Check the id, or search with fr_search \
+                "[not_found] No text found for {ID}. Check the id, or search with fr_search \
                  fond=LODA or CODE."
             )
         );

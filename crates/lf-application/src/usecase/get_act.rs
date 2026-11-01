@@ -6,13 +6,18 @@
 //! aplatie en préordre (`Toc::page`), puis raccourcie en partant de la fin tant que son estimation
 //! dépasse la cible du budget (05 §6.4, étape 1) : `next_toc_offset` suit la page réellement
 //! rendue. Le découpage de la table est partagé avec `fr_get_convention` (`TocRequest`).
+//!
+//! Un `NotFound` du port pour une date choisie par l'appelant (`date` ou suffixe de `text_id`)
+//! devient « No version of {id} is available on {date}… » : PISTE répond le même 400 pour un id
+//! inconnu et pour une date avant la première version, et aucune sonde n'est faite pour les
+//! distinguer (L3-11, Q12). Sans date choisie, le message générique de `messages` s'applique.
 
 use std::num::NonZeroU32;
 
 use lf_domain::{
     date::{CivilDate, VersionDate},
     entity::{Act, Toc, TocEntry, TocEntryRef},
-    id::{VersionedId, parse_versioned},
+    id::{LegiTextId, VersionedId, parse_versioned},
     status::LegalStatus,
 };
 
@@ -23,7 +28,7 @@ use crate::{
     input::GetActInput,
     messages,
     output::get_act::{GetActOutput, TocLine},
-    ports::{Clock, LegalCorpus},
+    ports::{Clock, CorpusError, LegalCorpus},
     tools::ToolName,
 };
 
@@ -63,11 +68,16 @@ impl<'a, C: LegalCorpus, K: Clock> GetActUseCase<'a, C, K> {
         let wanted = text_id(input.text_id.as_deref())?;
         let date = self.version_date(&wanted, input.date.as_deref())?;
         let request = TocRequest::parse(input.toc_offset, input.toc_limit)?;
-        let mut act = self
-            .corpus
-            .get_act(&wanted.id, date)
-            .await
-            .map_err(|error| port_failure(TOOL, wanted.id.as_str(), &error))?;
+        let dated = input.date.is_some() || wanted.version_start.is_some();
+        let mut act = self.corpus.get_act(&wanted.id, date).await.map_err(|error| {
+            let failure = port_failure(TOOL, wanted.id.as_str(), &error);
+            match error {
+                // Le 400 de PISTE est le même pour un id inconnu et pour une date avant la
+                // première version : sans sonde (L3-11), le message nomme la date demandée.
+                CorpusError::NotFound { .. } if dated => no_version_on(&wanted.id, date),
+                _ => failure,
+            }
+        })?;
         // La table est lue une fois, puis lâchée : la sortie ne porte que la page rendue.
         let toc = std::mem::take(&mut act.body.toc);
         let note = act
@@ -109,6 +119,14 @@ fn text_id(raw: Option<&str>) -> Result<VersionedId, AppError> {
     let raw =
         raw.filter(|raw| !raw.trim().is_empty()).ok_or_else(|| messages::required("text_id"))?;
     parse_versioned(raw).map_err(|error| messages::domain(TOOL, &error))
+}
+
+/// `not_found` d'un texte demandé à une date choisie par l'appelant (date explicite ou suffixe).
+fn no_version_on(id: &LegiTextId, date: VersionDate) -> AppError {
+    AppError::not_found(format!(
+        "No version of {id} is available on {date}. If the id is right, the text may exist only \
+         from a later date: try a later date, or omit date."
+    ))
 }
 
 /// Le suffixe de `text_id` est une vraie date, mais hors de la plage des versions servies.
@@ -313,7 +331,6 @@ mod tests {
         budget::{ResponseBudget, estimate_chars},
         error::ErrorCode,
         input::GetActInput,
-        ports::CorpusError,
         testing::{FakeCorpus, FixedClock, PortRequest},
         tools::ToolName,
     };
@@ -709,8 +726,8 @@ mod tests {
             (
                 CorpusError::NotFound { what: "LEGITEXT000033205014".to_owned() },
                 ErrorCode::NotFound,
-                "No LODA text found for LEGITEXT000033205014. Check the id, or search with \
-                 fr_search fond=LODA or CODE.",
+                "No text found for LEGITEXT000033205014. Check the id, or search with fr_search \
+                 fond=LODA or CODE.",
             ),
             (
                 CorpusError::TooLarge { detail: "32 MiB".to_owned() },
@@ -737,6 +754,74 @@ mod tests {
         let error =
             run(&corpus, &clock(), input("LEGITEXT000033205014_15-07-2020")).await.unwrap_err();
 
-        assert!(error.message().starts_with("No LODA text found for LEGITEXT000033205014. "));
+        assert!(error.message().starts_with("No version of LEGITEXT000033205014 is available on "));
+    }
+
+    #[tokio::test]
+    async fn a_date_without_a_version_says_so_without_a_second_call() {
+        let corpus = FakeCorpus::new();
+        corpus.push_get_act(Err(CorpusError::NotFound { what: "x".to_owned() }));
+        let input = GetActInput { date: Some("1700-01-01".to_owned()), ..input(TEXT_ID) };
+
+        let error = run(&corpus, &clock(), input).await.unwrap_err();
+
+        assert_eq!(
+            failure(&error),
+            (
+                Some(ErrorCode::NotFound),
+                "No version of LEGITEXT000033205014 is available on 1700-01-01. If the id is \
+                 right, the text may exist only from a later date: try a later date, or omit \
+                 date."
+            )
+        );
+        assert_eq!(corpus.calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_suffix_date_without_a_version_says_so_with_the_bare_identifier() {
+        let corpus = FakeCorpus::new();
+        corpus.push_get_act(Err(CorpusError::NotFound { what: "x".to_owned() }));
+
+        let error =
+            run(&corpus, &clock(), input("LEGITEXT000033205014_06-01-1978")).await.unwrap_err();
+
+        assert_eq!(
+            failure(&error),
+            (
+                Some(ErrorCode::NotFound),
+                "No version of LEGITEXT000033205014 is available on 1978-01-06. If the id is \
+                 right, the text may exist only from a later date: try a later date, or omit \
+                 date."
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_text_without_a_date_keeps_the_generic_message() {
+        let corpus = FakeCorpus::new();
+        corpus.push_get_act(Err(CorpusError::NotFound { what: "x".to_owned() }));
+
+        let error = run(&corpus, &clock(), input(TEXT_ID)).await.unwrap_err();
+
+        assert_eq!(
+            failure(&error),
+            (
+                Some(ErrorCode::NotFound),
+                "No text found for LEGITEXT000033205014. Check the id, or search with fr_search \
+                 fond=LODA or CODE."
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn a_dated_call_keeps_the_other_port_failures_unmasked() {
+        let corpus = FakeCorpus::new();
+        corpus.push_get_act(Err(CorpusError::TooLarge { detail: "32 MiB".to_owned() }));
+        let input = GetActInput { date: Some("2020-01-01".to_owned()), ..input(TEXT_ID) };
+
+        let error = run(&corpus, &clock(), input).await.unwrap_err();
+
+        assert_eq!(error.code(), Some(ErrorCode::UpstreamError));
+        assert!(error.message().starts_with("this text is too large for fr_get_act"));
     }
 }

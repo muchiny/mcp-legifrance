@@ -143,8 +143,8 @@ fn decode() -> AppError {
 fn not_found(tool: ToolName, subject: &str) -> AppError {
     let message = match tool {
         ToolName::FR_GET_ACT => format!(
-            "No LODA text found for {subject}. Check the id, or search with fr_search fond=LODA \
-             or CODE."
+            "No text found for {subject}. Check the id, or search with fr_search fond=LODA or \
+             CODE."
         ),
         ToolName::FR_GET_TEXT => format!(
             "No article found for {subject}. Check the id, or find the article with fr_get_act or \
@@ -770,8 +770,8 @@ mod tests {
             (
                 ToolName::FR_GET_ACT,
                 "LEGITEXT000006070721",
-                "No LODA text found for LEGITEXT000006070721. Check the id, or search with \
-                 fr_search fond=LODA or CODE.",
+                "No text found for LEGITEXT000006070721. Check the id, or search with fr_search \
+                 fond=LODA or CODE.",
             ),
             (
                 ToolName::FR_GET_TEXT,
@@ -926,8 +926,8 @@ mod tests {
         assert_eq!(
             corpus_error(act, uri, &CorpusError::NotFound { what: uri.to_owned() }),
             AppError::not_found(
-                "No LODA text found for LEGITEXT000006070721. Check the id, or search with \
-                 fr_search fond=LODA or CODE."
+                "No text found for LEGITEXT000006070721. Check the id, or search with fr_search \
+                 fond=LODA or CODE."
             )
         );
         assert_eq!(
@@ -1048,8 +1048,8 @@ mod tests {
         assert_eq!(
             corpus_error(act, uri, &empty),
             AppError::not_found(
-                "No LODA text found for LEGITEXT000006070721. Check the id, or search with \
-                 fr_search fond=LODA or CODE."
+                "No text found for LEGITEXT000006070721. Check the id, or search with fr_search \
+                 fond=LODA or CODE."
             )
         );
         // S17 : audit, sans puis avec code d'origine.

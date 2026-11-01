@@ -746,7 +746,7 @@ mod tests {
         for (error, message) in [
             (article, "No article found for LEGIARTI000006419288."),
             (decision, "No JURI decision found for JURITEXT000037999394."),
-            (act, "No LODA text found for LEGITEXT000006070721."),
+            (act, "No text found for LEGITEXT000006070721."),
         ] {
             let error = error.unwrap_err();
             assert_eq!(error.code(), Some(ErrorCode::NotFound));
