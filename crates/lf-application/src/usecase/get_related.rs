@@ -24,7 +24,7 @@
 //! # Plafond de réponse (05 §5.11, 05 §6.4)
 //!
 //! Au plus `MAX_LINKS` liens, sans suite : `total` compte les liens avant troncature et
-//! `truncated` le dit. L'estimation de la réponse ([`estimate_chars`]) reste sous la cible, en
+//! `truncated` le dit. L'estimation de la réponse ([`estimate_list_chars`], 24 par lien et par champ) reste sous la cible, en
 //! retirant des liens par la fin ([`shrink_from_end`]) ; la vue mesure ensuite la taille exacte.
 
 use futures::future::join;
@@ -34,7 +34,7 @@ use lf_domain::{
 };
 
 use crate::{
-    budget::{ResponseBudget, estimate_chars, shrink_from_end},
+    budget::{ResponseBudget, escaped_chars, estimate_chars, estimate_list_chars, shrink_from_end},
     citation::{
         Note,
         related::{DecisionReferences, MAX_LINKS, article_links, decision_links},
@@ -146,7 +146,7 @@ fn output(id: &str, contract: &CitationContract, mut links: Vec<LinkOut>) -> Get
     }
 }
 
-/// Coût estimé d'un lien : l'élément, ses trois champs toujours présents (`relation`, `kind`,
+/// Coût estimé d'un lien (24 par champ, textes échappés comme en JSON) : l'élément, ses trois champs toujours présents (`relation`, `kind`,
 /// `citation`) et les deux facultatifs (`id`, `source_url`) quand ils y sont.
 #[expect(
     clippy::arithmetic_side_effects,
@@ -158,9 +158,9 @@ fn cost(link: &LinkOut) -> usize {
     let text = [link.relation.as_str(), link.kind.snake_case(), link.citation.as_str()]
         .into_iter()
         .chain(optional.into_iter().flatten().map(String::as_str))
-        .map(chars)
+        .map(escaped_chars)
         .fold(0, usize::saturating_add);
-    estimate_chars(4 + present, text)
+    estimate_list_chars(4 + present, text)
 }
 
 /// Longueur en caractères (points de code) : l'unité des plafonds.
@@ -332,17 +332,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn links_with_an_id_and_a_page_cost_more_so_the_estimate_may_trim_before_100() {
-        // Chaque lien identifié compte cinq champs et une page : l'estimation, volontairement
-        // large (64 par champ), retire les derniers liens bien avant les 45 000 caractères réels.
-        let links = RelatedLinks { cites: (1..=100).map(cited).collect(), cited_by: vec![] };
+    async fn a_hundred_short_links_are_all_served() {
+        // 254 liens identifiés (cas réel LEGIARTI000035644154) : cent servis, `truncated`, et rien
+        // n'est retiré par l'estimation, qui comptait 64 par champ et coupait à 79-86 liens.
+        let links = RelatedLinks { cited_by: (1..=254).map(cited).collect(), cites: vec![] };
 
         let out = run(&serving(links), Some(ARTI)).await.unwrap();
 
-        assert_eq!(out.total, 100);
-        assert!(out.truncated);
-        let kept = out.links.len();
-        assert!((1..100).contains(&kept), "{kept}");
+        assert_eq!((out.links.len(), out.total, out.truncated), (100, 254, true));
+        // Les cent premiers, dans l'ordre de l'API.
+        assert_eq!(out.links[99].citation, "Code civil, art. 100");
+    }
+
+    #[tokio::test]
+    async fn cites_come_before_cited_by_and_the_cut_falls_on_the_tail() {
+        // Ordre documenté (05 §5.11) : les liens « cites » d'abord, puis les « cited_by ».
+        let links = RelatedLinks {
+            cites: (1..=3).map(cited).collect(),
+            cited_by: (100..=300).map(cited).collect(),
+        };
+
+        let out = run(&serving(links), Some(ARTI)).await.unwrap();
+
+        assert_eq!((out.links.len(), out.total, out.truncated), (100, 204, true));
+        assert!(out.links[..3].iter().all(|link| link.relation == Relation::Cites));
+        assert!(out.links[3..].iter().all(|link| link.relation == Relation::CitedBy));
+    }
+
+    #[test]
+    fn the_cost_of_a_link_counts_24_per_field_and_the_json_escapes() {
+        let link = |citation: &str, id: Option<&str>| LinkOut {
+            relation: Relation::Cites,
+            kind: CitationKind::CodeArticle,
+            citation: citation.to_owned(),
+            id: id.map(str::to_owned),
+            source_url: id.map(|id| format!("u/{id}")),
+        };
+        let text = Relation::Cites.as_str().len() + CitationKind::CodeArticle.snake_case().len();
+        assert_eq!(cost(&link("abc", None)), estimate_list_chars(4, text + 3));
+        assert_eq!(cost(&link("abc", Some("L1"))), estimate_list_chars(6, text + 3 + 2 + 4));
+        // Un guillemet pèse deux caractères, un contrôle six.
+        assert_eq!(cost(&link("a\"\u{1}", None)), estimate_list_chars(4, text + 1 + 2 + 6));
     }
 
     #[tokio::test]

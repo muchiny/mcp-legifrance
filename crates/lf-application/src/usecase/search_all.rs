@@ -30,7 +30,7 @@ use futures::{StreamExt, stream};
 use lf_domain::{entity::Snippet, fond::Fond, search::QueryText, status::LegalStatus};
 
 use crate::{
-    budget::{ResponseBudget, bounded, estimate_chars, strip_from_end},
+    budget::{ResponseBudget, bounded, estimate_chars, strip_from_end, the_last_hits},
     error::AppError,
     input::{SearchAllInput, SearchInput},
     messages,
@@ -251,17 +251,19 @@ fn strip_details(out: &mut HitOut) -> bool {
 /// Note des extraits retirés (05 §6.4).
 fn snippets_note(hits: usize) -> String {
     format!(
-        "Snippets were removed from the last {hits} hits to keep the response under 45,000 \
-         characters; use fr_search on one fond to get them."
+        "Snippets were removed from {} to keep the response under 45,000 characters; use \
+         fr_search on one fond to get them.",
+        the_last_hits(hits)
     )
 }
 
 /// Note des listes d'articles et champs optionnels retirés.
 fn details_note(hits: usize) -> String {
     format!(
-        "Article lists and the optional fields title, nature, etat and date were removed from the \
-         last {hits} hits to keep the response under 45,000 characters; use fr_search on one fond \
-         to get them."
+        "Article lists and the optional fields title, nature, etat and date were removed from \
+         {} to keep the response under 45,000 characters; use fr_search on one fond to get \
+         them.",
+        the_last_hits(hits)
     )
 }
 
@@ -693,6 +695,23 @@ mod tests {
         assert!(code_hit[9].hit.articles[0].num.is_some(), "l'article reste, sans son extrait");
         // Les citations, calculées avant la dégradation, restent entières.
         assert!(hits[39].citation.starts_with("JURI 10 titre"));
+    }
+
+    #[test]
+    fn notes_use_the_singular_for_one_hit() {
+        assert_eq!(
+            snippets_note(1),
+            "Snippets were removed from the last hit to keep the response under 45,000 \
+             characters; use fr_search on one fond to get them."
+        );
+        assert_eq!(
+            details_note(1),
+            "Article lists and the optional fields title, nature, etat and date were removed from \
+             the last hit to keep the response under 45,000 characters; use fr_search on one fond \
+             to get them."
+        );
+        assert!(snippets_note(5).contains("from the last 5 hits to"));
+        assert!(details_note(5).contains("from the last 5 hits to"));
     }
 
     /// Le résultat et sa citation, comme `fr_search` les rend.

@@ -15,8 +15,8 @@
 //!
 //! # Plafond de réponse (05 §6.4, 02 §6.1)
 //!
-//! La taille de la page est estimée (somme des longueurs en caractères plus 64 par champ ou
-//! élément, cible 42 000, [`estimate_chars`]), puis dégradée dans cet ordre, sans jamais retirer
+//! La taille de la page est estimée (somme des longueurs en caractères échappées plus 24 par champ ou
+//! élément, cible 42 000, [`estimate_list_chars`]), puis dégradée dans cet ordre, sans jamais retirer
 //! un résultat : (1) extraits des derniers résultats, avec une `note` ; (2) listes d'articles et
 //! champs optionnels (`title`, `nature`, `etat`, `date`) des derniers résultats ; (3) si la page
 //! ne tient toujours pas, `invalid_arg` qui propose la plus grande `page_size` qui tiendrait. La
@@ -34,7 +34,10 @@ use lf_domain::{
 };
 
 use crate::{
-    budget::{ResponseBudget, estimate_chars, strip_from_end},
+    budget::{
+        ResponseBudget, escaped_chars, estimate_chars, estimate_list_chars, strip_from_end,
+        the_last_hits,
+    },
     error::AppError,
     failure::port_failure,
     input::SearchInput,
@@ -267,17 +270,18 @@ fn strip_details(out: &mut HitOut) -> bool {
 /// Note des extraits retirés (05 §6.4).
 fn snippets_note(hits: usize) -> String {
     format!(
-        "Snippets were removed from the last {hits} hits to keep the response under 45,000 \
-         characters; use a smaller page_size to get them."
+        "Snippets were removed from {} to keep the response under 45,000 characters; use a \
+         smaller page_size to get them.",
+        the_last_hits(hits)
     )
 }
 
 /// Note des listes d'articles et champs optionnels retirés.
 fn details_note(hits: usize) -> String {
     format!(
-        "Article lists and the optional fields title, nature, etat and date were removed from the \
-         last {hits} hits to keep the response under 45,000 characters; use a smaller page_size \
-         to get them."
+        "Article lists and the optional fields title, nature, etat and date were removed from \
+         {} to keep the response under 45,000 characters; use a smaller page_size to get them.",
+        the_last_hits(hits)
     )
 }
 
@@ -311,8 +315,9 @@ fn page_cost(hits: &[HitOut]) -> usize {
     hits.iter().map(hit_cost).fold(0, usize::saturating_add)
 }
 
-/// Coût estimé d'un résultat : 64 par champ ou élément, plus la longueur de ses textes. `kind`,
-/// `id`, `citation` et `source_url` sont toujours rendus ; le reste seulement s'il est présent.
+/// Coût estimé d'un résultat : 24 par champ ou élément ([`estimate_list_chars`]), plus la longueur
+/// de ses textes telle qu'elle sera écrite en JSON (échappements compris). `kind`, `id`,
+/// `citation` et `source_url` sont toujours rendus ; le reste seulement s'il est présent.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
@@ -322,8 +327,8 @@ fn hit_cost(out: &HitOut) -> usize {
     let mut fields = 4;
     let mut text = hit.fond.name().len()
         + hit.id.as_str().len()
-        + chars(&out.citation)
-        + chars(&out.source_url);
+        + escaped_chars(&out.citation)
+        + escaped_chars(&out.source_url);
     let strings = [
         hit.title.as_deref(),
         hit.nature.as_deref(),
@@ -332,7 +337,7 @@ fn hit_cost(out: &HitOut) -> usize {
     ];
     for value in strings.into_iter().flatten() {
         fields += 1;
-        text += chars(value);
+        text += escaped_chars(value);
     }
     if hit.date.is_some() {
         fields += 1;
@@ -353,10 +358,10 @@ fn hit_cost(out: &HitOut) -> usize {
             .flatten()
         {
             fields += 1;
-            text += chars(value);
+            text += escaped_chars(value);
         }
     }
-    estimate_chars(fields, text)
+    estimate_list_chars(fields, text)
 }
 
 /// Longueur en caractères (points de code) : l'unité du plafond.
@@ -387,7 +392,7 @@ mod tests {
     use super::*;
     use crate::{
         audited::AuditMetric,
-        budget::{ResponseBudget, estimate_chars},
+        budget::{ResponseBudget, estimate_chars, estimate_list_chars},
         error::ErrorCode,
         ports::CorpusError,
         testing::{FakeCorpus, FixedClock},
@@ -882,7 +887,7 @@ mod tests {
         let fixed =
             "juri".len() + 20 + bare_hit.citation.chars().count() + bare_hit.source_url.len();
         assert_eq!(fixed, 4 + 20 + 31 + 59);
-        assert_eq!(hit_cost(&bare_hit), estimate_chars(4, fixed));
+        assert_eq!(hit_cost(&bare_hit), estimate_list_chars(4, fixed));
 
         // Tous les champs optionnels, un snippet de 6 caractères et deux articles.
         let full = hit(SearchHit {
@@ -910,8 +915,115 @@ mod tests {
         // et `snippet` du premier (2).
         assert_eq!(
             hit_cost(&full),
-            estimate_chars(4 + 6 + 1 + 4 + 2, titled_fixed + optional_text + articles_text)
+            estimate_list_chars(4 + 6 + 1 + 4 + 2, titled_fixed + optional_text + articles_text)
         );
+    }
+
+    #[test]
+    fn hit_cost_counts_json_escapes_in_every_text() {
+        let plain_hit = |title: &str, snippet: &str, article: &str| {
+            plain(SearchHit {
+                title: Some(title.to_owned()),
+                snippet: Snippet::new(snippet),
+                articles: vec![CodeArticleRef::new(
+                    ArticleId::parse("LEGIARTI000006419288").unwrap(),
+                    Some(article.to_owned()),
+                    "",
+                )],
+                ..bare(Fond::Code, 1)
+            })
+        };
+        let flat = hit_cost(&plain_hit("aa", "bb", "cc"));
+        // Un guillemet ou un antislash pèse deux caractères, un contrôle six : titre, extrait,
+        // numéro d'article.
+        assert_eq!(hit_cost(&plain_hit("a\"", "bb", "cc")), flat + 1);
+        assert_eq!(hit_cost(&plain_hit("aa", "b\\", "cc")), flat + 1);
+        assert_eq!(hit_cost(&plain_hit("aa", "bb", "\"\u{1}")), flat + 1 + 5);
+        // Citation et URL (rendues telles que le contrat les donne).
+        let quoted = HitOut { citation: "\"c\"".to_owned(), ..plain(bare(Fond::Juri, 2)) };
+        let unquoted = HitOut { citation: "xcx".to_owned(), ..plain(bare(Fond::Juri, 2)) };
+        assert_eq!(hit_cost(&quoted), hit_cost(&unquoted) + 2);
+        let url = HitOut { source_url: "u\\".to_owned(), ..plain(bare(Fond::Juri, 2)) };
+        let flat_url = HitOut { source_url: "ux".to_owned(), ..plain(bare(Fond::Juri, 2)) };
+        assert_eq!(hit_cost(&url), hit_cost(&flat_url) + 1);
+    }
+
+    /// Cent résultats JURI tels que Légifrance les donne : titre-citation d'une soixantaine de
+    /// caractères, date, nature, extrait de 280 caractères.
+    fn typical_juri_hits(count: u32) -> Vec<SearchHit> {
+        (1..=count)
+            .map(|n| SearchHit {
+                date: CivilDate::new(2020, 3, 12),
+                nature: Some("ARRET".to_owned()),
+                snippet: Some(snippet(n as usize)),
+                ..titled(
+                    n,
+                    &format!("Cour de cassation, civile, Chambre civile 1, 12 mars 2020, {n}"),
+                )
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_hundred_juri_hits_with_typical_citations_are_not_refused() {
+        let output = big_page(typical_juri_hits(100), Fond::Juri, 100).await.unwrap();
+        assert_eq!(output.hits.len(), 100, "aucun résultat n'est retiré");
+        // Les extraits ne partent que des derniers résultats, et les premiers gardent le leur :
+        // l'estimation à 64 par champ les retirait tous, puis refusait la page.
+        let kept = output.hits.iter().filter(|h| h.hit.snippet.is_some()).count();
+        assert!((1..100).contains(&kept), "{kept}");
+        assert!(output.hits[..kept].iter().all(|h| h.hit.snippet.is_some()));
+        assert!(output.hits[kept..].iter().all(|h| h.hit.snippet.is_none()));
+        assert!(output.hits.iter().all(|h| h.hit.title.is_some()), "les détails restent");
+        assert_eq!(output.note, Some(snippets_note(100 - kept)));
+    }
+
+    #[tokio::test]
+    async fn a_hundred_pathological_hits_are_still_refused_with_a_page_size_that_fits() {
+        // Jumeau « vrai positif conservé » : la page qui ne tient vraiment pas est refusée.
+        let hits: Vec<SearchHit> = (1..=100).map(|n| titled(n, &"x".repeat(700))).collect();
+        let error = big_page(hits, Fond::Juri, 100).await.unwrap_err();
+        assert_eq!(error.code(), Some(ErrorCode::InvalidArg));
+        assert!(error.message().starts_with("page_size=100 would exceed"));
+    }
+
+    #[test]
+    fn notes_use_the_singular_for_one_hit() {
+        assert_eq!(
+            snippets_note(1),
+            "Snippets were removed from the last hit to keep the response under 45,000 \
+             characters; use a smaller page_size to get them."
+        );
+        assert_eq!(
+            details_note(1),
+            "Article lists and the optional fields title, nature, etat and date were removed from \
+             the last hit to keep the response under 45,000 characters; use a smaller page_size \
+             to get them."
+        );
+        // Le pluriel reste pour deux et plus.
+        assert!(snippets_note(2).contains("from the last 2 hits to"));
+        assert!(details_note(2).contains("from the last 2 hits to"));
+    }
+
+    #[test]
+    fn only_the_last_hit_loses_its_snippet_and_the_note_says_the_last_hit() {
+        let pair = |length: usize| {
+            output_of(vec![
+                plain(SearchHit { title: Some("x".repeat(length)), ..bare(Fond::Juri, 1) }),
+                plain(bare(Fond::Juri, 2)),
+            ])
+        };
+        // Sans extrait, la page tient pile à la cible ; l'extrait du second résultat la dépasse.
+        let empty = pair(0);
+        let fixed = envelope_cost(&empty) + DEGRADE_NOTE_RESERVE;
+        let mut output = pair(TARGET - fixed - page_cost(&empty.hits));
+        assert_eq!(fixed + page_cost(&output.hits), TARGET);
+        output.hits[1].hit.snippet = Snippet::new("last");
+        // Le premier n'en a pas : seul le dernier est touché.
+        fit_under_target(&mut output, PageSize::new(2).unwrap()).unwrap();
+        assert!(output.hits[1].hit.snippet.is_none());
+        assert_eq!(output.note, Some(snippets_note(1)));
+        assert!(output.note.as_deref().unwrap().contains("from the last hit to"));
     }
 
     #[test]
@@ -1001,8 +1113,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_page_that_cannot_fit_even_stripped_is_invalid_arg_with_a_usable_page_size() {
-        // Citation de 899 caractères : un résultat nu coûte 1 245 (4 champs, 4 + 20 + 899 + 59
-        // caractères), et l'enveloppe plus la réserve des notes 720 : (42 000 - 720) / 1 245 = 33.
+        // Citation de 899 caractères : un résultat nu coûte 1 078 (4 champs à 24, 4 + 20 + 899 + 59
+        // caractères), et l'enveloppe plus la réserve des notes 720 : (42 000 - 720) / 1 078 = 38.
         let long = format!("{}fin", "mot ".repeat(224));
         let hits: Vec<SearchHit> = (1..=100)
             .map(|n| SearchHit { snippet: Snippet::new("extrait"), ..titled(n, &long) })
@@ -1012,14 +1124,14 @@ mod tests {
         assert_eq!(
             error.message(),
             "page_size=100 would exceed the 45,000-character response cap for this query; use \
-             page_size <= 33."
+             page_size <= 38."
         );
         // Règle rejouable : avec cette taille de page, la réponse tient.
-        let replay = big_page(hits[..33].to_vec(), Fond::Juri, 33).await.unwrap();
-        assert_eq!(replay.hits.len(), 33);
+        let replay = big_page(hits[..38].to_vec(), Fond::Juri, 38).await.unwrap();
+        assert_eq!(replay.hits.len(), 38);
         // Et la taille suivante ne tient plus.
-        let error = big_page(hits[..34].to_vec(), Fond::Juri, 34).await.unwrap_err();
-        assert!(error.message().ends_with("use page_size <= 33."));
+        let error = big_page(hits[..39].to_vec(), Fond::Juri, 39).await.unwrap_err();
+        assert!(error.message().ends_with("use page_size <= 38."));
     }
 
     #[tokio::test]

@@ -387,9 +387,9 @@ mod budgets {
                     assert_eq!(hits.len(), 100, "aucun résultat n'est retiré");
                     snippets_go_from_the_end(hits);
                     let kept = hits_with_snippet(hits);
-                    // L'estimation (somme des longueurs + 64 par champ) est conservatrice : cent
-                    // résultats nus la dépassent presque, aucun extrait ne survit. Ce que la note
-                    // annonce est exactement ce qui a été retiré.
+                    // L'estimation (somme des longueurs + 24 par champ) est conservatrice : les
+                    // derniers extraits partent, les premiers survivent. Ce que la note annonce est
+                    // exactement ce qui a été retiré.
                     assert!(kept < 100, "{kept}");
                     assert!(
                         observed.note().starts_with(&format!(
@@ -970,6 +970,41 @@ mod budgets {
         }
 
         insta::assert_json_snapshot!("case_report", report);
+    }
+
+    /// L4-06 (search-5). Cent résultats JURI aux citations typiques (une soixantaine de
+    /// caractères) ne sont plus refusés : l'estimation à 64 par champ les refusait à partir de
+    /// `page_size=97`, alors que la réponse exacte tient largement sous le plafond.
+    #[tokio::test]
+    async fn search_juri_100_typical() {
+        let typical: fn(u32) -> String =
+            |n| format!("Cour de cassation, civile, Chambre civile 1, 12 mars 2020, 19-{n:05}");
+        // Sans extrait : rien n'est retiré, aucune note.
+        let fixture = Fixture::default();
+        fixture.corpus.push_search(Ok(juri_page(100, typical, "").0));
+        let bare = Observed::of(&call(&fixture, "fr_search", &arguments_of_search("JURI")).await);
+        assert!(bare.error.is_none(), "{:?}", bare.error);
+        assert_eq!(hits_of(&bare).len(), 100);
+        assert!(hits_of(&bare).iter().all(|hit| hit["date"].is_string()), "détails conservés");
+        assert!(bare.value.get("note").is_none(), "{}", bare.note());
+        assert!(bare.chars < CAP, "{}", bare.chars);
+
+        // Avec des extraits de 280 caractères : les derniers les perdent, les premiers les gardent.
+        let fixture = Fixture::default();
+        fixture.corpus.push_search(Ok(juri_page(100, typical, &"mot ".repeat(70)).0));
+        let rich = Observed::of(&call(&fixture, "fr_search", &arguments_of_search("JURI")).await);
+        assert!(rich.error.is_none(), "{:?}", rich.error);
+        let hits = hits_of(&rich);
+        assert_eq!(hits.len(), 100);
+        snippets_go_from_the_end(hits);
+        let kept = hits_with_snippet(hits);
+        assert!((1..100).contains(&kept), "{kept}");
+        assert!(
+            rich.note()
+                .starts_with(&format!("Snippets were removed from the last {} hits", 100 - kept))
+        );
+        assert!(!rich.note().contains(FURTHER_NOTE), "{}", rich.note());
+        assert!(rich.chars <= CAP, "{}", rich.chars);
     }
 
     /// Régression : D-33. La `page_size` proposée par un refus tient : la page ainsi demandée est
