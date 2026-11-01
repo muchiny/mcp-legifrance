@@ -105,6 +105,44 @@ impl LegalStatus {
             Self::Other(raw) => raw,
         }
     }
+
+    /// Cette version n'est-elle plus celle en vigueur, d'après son seul `etat` (sans horloge) ?
+    /// Vrai pour `MODIFIE`, `MODIFIE_MORT_NE`, `ABROGE`, `PERIME`, `ANNULE`, `DISJOINT`,
+    /// `TRANSFERE`, `REMPLACE`, `DENONCE` et `SUBSTITUE`. Faux pour `VIGUEUR*`, `INITIALE`,
+    /// `SANS_ETAT`, les codes inconnus et `ABROGE_DIFF` : une abrogation différée est encore en
+    /// vigueur aujourd'hui, rien n'autorise à dire que la version est remplacée. Règle unique de
+    /// `fr_resolve` (note de version) et de `fr_get_text` (avertissement), qui ne doivent pas
+    /// diverger (revue finale I2).
+    ///
+    /// ```
+    /// use lf_domain::status::LegalStatus;
+    ///
+    /// assert!(LegalStatus::Modifie.is_superseded());
+    /// assert!(!LegalStatus::AbrogeDiff.is_superseded());
+    /// ```
+    #[must_use]
+    pub const fn is_superseded(&self) -> bool {
+        match self {
+            Self::Abroge
+            | Self::Modifie
+            | Self::ModifieMortNe
+            | Self::Perime
+            | Self::Annule
+            | Self::Disjoint
+            | Self::Transfere
+            | Self::Remplace
+            | Self::Denonce
+            | Self::Substitue => true,
+            Self::Vigueur
+            | Self::VigueurEtendue
+            | Self::VigueurNonEtendue
+            | Self::VigueurDifferee
+            | Self::AbrogeDiff
+            | Self::Initiale
+            | Self::SansEtat
+            | Self::Other(_) => false,
+        }
+    }
 }
 
 /// `raw` sans ses contrôles (`\t`, `\n` et `\r` compris) ni ses caractères invisibles.
@@ -203,6 +241,28 @@ mod tests {
             let mixed = format!("  {}  ", code.to_lowercase());
             assert_eq!(LegalStatus::parse(&mixed), Some(status), "{mixed:?}");
         }
+    }
+
+    /// Revue finale I2 : une seule règle « plus en vigueur » pour les 17 codes, `ABROGE_DIFF`
+    /// (encore en vigueur) exclu, `DISJOINT` compris ; un code inconnu n'en est pas un.
+    #[test]
+    fn is_superseded_is_one_table_over_every_variant() {
+        let superseded = [
+            "ABROGE",
+            "MODIFIE",
+            "MODIFIE_MORT_NE",
+            "PERIME",
+            "ANNULE",
+            "DISJOINT",
+            "TRANSFERE",
+            "REMPLACE",
+            "DENONCE",
+            "SUBSTITUE",
+        ];
+        for (code, status) in table() {
+            assert_eq!(status.is_superseded(), superseded.contains(&code), "{code}");
+        }
+        assert!(!LegalStatus::Other("EN_COURS".to_owned()).is_superseded());
     }
 
     #[test]

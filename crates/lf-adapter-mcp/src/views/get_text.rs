@@ -82,25 +82,14 @@ fn readable_parent_id(id: &DocumentId) -> Option<String> {
 /// Note (champ `note` existant, aucun octet de schéma) quand l'article lu n'est plus la version en
 /// vigueur : un texte exact d'une version terminée se lit sinon comme le droit actuel (L3-13).
 ///
-/// Déclenchée par l'`etat` seul (`MODIFIE`, `MODIFIE_MORT_NE`, `ABROGE`, `PERIME`, `ANNULE`,
-/// `REMPLACE`, `SUBSTITUE`, `TRANSFERE`, `DENONCE`), sans horloge : `VIGUEUR*`, `ABROGE_DIFF`
-/// (encore en vigueur), `INITIALE`, les autres états et les codes inconnus n'en portent pas. La
-/// date de fin n'est citée que si elle est réelle (hors zone sentinelle).
+/// Déclenchée par l'`etat` seul, sans horloge, selon [`LegalStatus::is_superseded`] (règle commune
+/// avec `fr_resolve`) : `MODIFIE`, `MODIFIE_MORT_NE`, `ABROGE`, `PERIME`, `ANNULE`, `DISJOINT`,
+/// `REMPLACE`, `SUBSTITUE`, `TRANSFERE`, `DENONCE`. `VIGUEUR*`, `ABROGE_DIFF` (encore en vigueur),
+/// `INITIALE`, `SANS_ETAT` et les codes inconnus n'en portent pas. La date de fin n'est citée que
+/// si elle est réelle (hors zone sentinelle).
 fn not_in_force_note(etat: Option<&LegalStatus>, date_fin: Option<CivilDate>) -> Option<String> {
     let etat = etat?;
-    let ended = matches!(
-        etat,
-        LegalStatus::Modifie
-            | LegalStatus::ModifieMortNe
-            | LegalStatus::Abroge
-            | LegalStatus::Perime
-            | LegalStatus::Annule
-            | LegalStatus::Remplace
-            | LegalStatus::Substitue
-            | LegalStatus::Transfere
-            | LegalStatus::Denonce
-    );
-    if !ended {
+    if !etat.is_superseded() {
         return None;
     }
     let code = etat.as_api_code();
@@ -356,6 +345,7 @@ mod tests {
             "ABROGE",
             "PERIME",
             "ANNULE",
+            "DISJOINT",
             "REMPLACE",
             "SUBSTITUE",
             "TRANSFERE",
@@ -375,7 +365,6 @@ mod tests {
             "VIGUEUR_DIFF",
             "ABROGE_DIFF",
             "INITIALE",
-            "DISJOINT",
             "SANS_ETAT",
             "EN_COURS",
         ];

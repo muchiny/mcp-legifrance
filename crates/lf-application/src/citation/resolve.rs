@@ -1221,12 +1221,13 @@ fn article_found(
 }
 
 /// Code d'état d'une version qui n'est plus en vigueur, en vocabulaire fermé. `None` : version en
-/// vigueur (y compris étendue ou non étendue, différée, initiale), ou état sans signal (`SANS_ETAT`
-/// et code inconnu : rien n'autorise à dire que la version est remplacée).
+/// vigueur (y compris étendue ou non étendue, différée, initiale, `ABROGE_DIFF`), ou état sans
+/// signal (`SANS_ETAT` et code inconnu : rien n'autorise à dire que la version est remplacée). La
+/// décision est celle de [`LegalStatus::is_superseded`], règle commune avec `fr_get_text` ; le test
+/// `the_replaced_code_follows_the_one_superseded_rule` garde l'accord des deux.
 const fn replaced_code(status: &LegalStatus) -> Option<&'static str> {
     match status {
         LegalStatus::Abroge => Some("ABROGE"),
-        LegalStatus::AbrogeDiff => Some("ABROGE_DIFF"),
         LegalStatus::Modifie => Some("MODIFIE"),
         LegalStatus::ModifieMortNe => Some("MODIFIE_MORT_NE"),
         LegalStatus::Perime => Some("PERIME"),
@@ -1240,6 +1241,7 @@ const fn replaced_code(status: &LegalStatus) -> Option<&'static str> {
         | LegalStatus::VigueurEtendue
         | LegalStatus::VigueurNonEtendue
         | LegalStatus::VigueurDifferee
+        | LegalStatus::AbrogeDiff
         | LegalStatus::Initiale
         | LegalStatus::SansEtat
         | LegalStatus::Other(_) => None,
@@ -5111,6 +5113,40 @@ mod tests {
         ArticleText { etat, date_fin, ..numbered(1, "121-3") }
     }
 
+    /// Revue finale I2 : `replaced_code` et la règle commune `is_superseded` (celle de
+    /// `fr_get_text`) donnent le même verdict pour chacun des 17 codes et pour un code inconnu ;
+    /// un code remplacé est le code de l'API.
+    #[test]
+    fn the_replaced_code_follows_the_one_superseded_rule() {
+        let all = [
+            "VIGUEUR",
+            "VIGUEUR_ETEN",
+            "VIGUEUR_NON_ETEN",
+            "VIGUEUR_DIFF",
+            "ABROGE",
+            "ABROGE_DIFF",
+            "MODIFIE",
+            "MODIFIE_MORT_NE",
+            "PERIME",
+            "ANNULE",
+            "DISJOINT",
+            "TRANSFERE",
+            "REMPLACE",
+            "DENONCE",
+            "INITIALE",
+            "SANS_ETAT",
+            "SUBSTITUE",
+            "EN_COURS",
+        ];
+        for raw in all {
+            let status = LegalStatus::parse(raw).unwrap();
+            let expected = status.is_superseded().then_some(raw);
+            assert_eq!(replaced_code(&status), expected, "{raw}");
+        }
+        assert_eq!(replaced_code(&LegalStatus::Disjoint), Some("DISJOINT"));
+        assert_eq!(replaced_code(&LegalStatus::AbrogeDiff), None);
+    }
+
     /// L2-12 : seule une version lue à une date et qui n'est plus en vigueur porte l'avertissement ;
     /// chaque état de l'API est classé, et les états sans signal n'en portent pas.
     #[test]
@@ -5120,7 +5156,6 @@ mod tests {
         let variants = ["121-3".to_owned()];
         let flagged = [
             (LegalStatus::Abroge, "ABROGE"),
-            (LegalStatus::AbrogeDiff, "ABROGE_DIFF"),
             (LegalStatus::Modifie, "MODIFIE"),
             (LegalStatus::ModifieMortNe, "MODIFIE_MORT_NE"),
             (LegalStatus::Perime, "PERIME"),
@@ -5166,6 +5201,8 @@ mod tests {
             Some(LegalStatus::VigueurEtendue),
             Some(LegalStatus::VigueurNonEtendue),
             Some(LegalStatus::VigueurDifferee),
+            // Abrogation différée : encore en vigueur aujourd'hui, pas une version remplacée.
+            Some(LegalStatus::AbrogeDiff),
             Some(LegalStatus::Initiale),
             Some(LegalStatus::SansEtat),
             Some(LegalStatus::Other("INCONNU".to_owned())),
