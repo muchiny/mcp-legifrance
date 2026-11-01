@@ -107,9 +107,9 @@
   "server_version": "1.0.1",
   "sizes": {
     "instructions_chars": 3278,
-    "tools_list_bytes": 32009
+    "tools_list_bytes": 32111
   },
-  "surface_sha256": "5e1b2c7e076ab42043b0e7ac867e57b77152e888e2ccfe0cb9d52ad720965b83",
+  "surface_sha256": "b57c3217a608e6f09b103986327a4009ef153528589fa2b3fc17dd417c48595c",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -850,13 +850,17 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "score": {
+                    "type": "number"
+                  },
                   "text": {
                     "type": "string"
                   }
                 },
                 "required": [
                   "offset",
-                  "text"
+                  "text",
+                  "score"
                 ],
                 "type": "object"
               },
@@ -905,7 +909,7 @@
         },
         "title": "Read a court decision"
       },
-      "sha256": "e53ba55914f6acefb3579427545e668bed45dcb0de7fdfa048c70405d4714676"
+      "sha256": "ae360a259277f15f44da1f1d7828e480888625dbd3fb1d0f2526f63a372db81e"
     },
     "fr_get_deliberation": {
       "descriptor": {
@@ -1006,13 +1010,17 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "score": {
+                    "type": "number"
+                  },
                   "text": {
                     "type": "string"
                   }
                 },
                 "required": [
                   "offset",
-                  "text"
+                  "text",
+                  "score"
                 ],
                 "type": "object"
               },
@@ -1058,7 +1066,7 @@
         },
         "title": "Read a CNIL deliberation"
       },
-      "sha256": "6ab0ed066abb3ee858fab44febcf0f2f37b4c0003ceb5e2c5719d2570a211fb3"
+      "sha256": "a2d911b3861c36a8e75cb3293a5d11c042b2b9aa6a41d8bc213f7c25b00f9a03"
     },
     "fr_get_related": {
       "descriptor": {
@@ -1270,13 +1278,17 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "score": {
+                    "type": "number"
+                  },
                   "text": {
                     "type": "string"
                   }
                 },
                 "required": [
                   "offset",
-                  "text"
+                  "text",
+                  "score"
                 ],
                 "type": "object"
               },
@@ -1324,7 +1336,7 @@
         },
         "title": "Read an article"
       },
-      "sha256": "4a8f99e9e1338e5d5457072062460e51c2907d2cf3dba9d93b467822a0497545"
+      "sha256": "dcdde2e2bd527a287645f17ecfd60e20645bd949399651d076e331cb74510118"
     },
     "fr_resolve": {
       "descriptor": {
@@ -1948,5 +1960,5 @@
       "sha256": "c539d50242a936db43da2baa069526f49b042500b03555eba7c63357a7dc8ce2"
     }
   },
-  "toolset_sha256": "3c5bfd331153ee6548f1d249e2061e99cb0d7afa176ce1a386f9793aa044c823"
+  "toolset_sha256": "970032ec6b1d7164acca1eb8ae3e4b926ef70c547b542df9d2b10f735d9a6396"
 }
