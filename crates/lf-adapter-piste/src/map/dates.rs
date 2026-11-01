@@ -43,6 +43,17 @@ pub(crate) fn civil(
     date.ok_or_else(|| field.decode(UNREADABLE)).map(|date| open_ended(Some(date)))
 }
 
+/// Date civile d'un champ secondaire, lue sans jamais échouer : `None` si le champ est absent, si
+/// la date est une sentinelle **ou si elle est illisible** (une date inconnue n'est pas une
+/// erreur `Decode`). Aucun diagnostic n'est compté.
+///
+/// Sert aux bornes des sections d'un chemin (`context.titresTM[]`), où une date perdue ne doit
+/// pas faire perdre l'article.
+pub(crate) fn civil_or_unknown(raw: Option<&RawDate>) -> Option<CivilDate> {
+    const SECTION: Field = Field { endpoint: super::endpoint::GET_ARTICLE, path: "section" };
+    civil(raw, SECTION, &mut Diagnostics::default()).ok().flatten()
+}
+
 /// Première date présente et hors sentinelle des `candidates`, dans l'ordre.
 ///
 /// Lecture paresseuse : les candidats suivant la première date ne sont pas lus.
@@ -255,6 +266,20 @@ mod tests {
             (millis(7_952_256_000_000), Some(d(2221, 12, 31))),
             (text("2221-12-31"), Some(d(2221, 12, 31))),
         ]);
+    }
+
+    #[test]
+    fn unknown_section_dates_are_none_never_an_error() {
+        let known =
+            [(text("2016-10-01"), d(2016, 10, 1)), (millis(1_475_280_000_000), d(2016, 10, 1))];
+        for (raw, expected) in known {
+            assert_eq!(civil_or_unknown(Some(&raw)), Some(expected));
+        }
+        // Absente, sentinelle, calendrier impossible, forme inconnue : inconnue.
+        for raw in [text("2999-01-01"), text("2016-13-45"), text("hier"), millis(i64::MAX)] {
+            assert_eq!(civil_or_unknown(Some(&raw)), None, "{raw:?}");
+        }
+        assert_eq!(civil_or_unknown(None), None);
     }
 
     #[test]

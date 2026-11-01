@@ -8,13 +8,14 @@
 //! [`CorpusError::Decode`] qui ne nomme que l'endpoint et le chemin du champ.
 
 use lf_application::ports::CorpusError;
+use lf_domain::date::CivilDate;
 use lf_domain::entity::{ArticleText, ParentText};
 use lf_domain::id::{ArticleId, DocumentId};
 use lf_domain::status::LegalStatus;
 use lf_domain::text::{LongText, clean_field};
 
 use super::body::non_blank;
-use super::dates::civil;
+use super::dates::{civil, civil_or_unknown};
 use super::endpoint::GET_ARTICLE;
 use super::rules::{long_text, parse_counted, require, resolve_id};
 use super::{Diagnostics, Field};
@@ -71,10 +72,104 @@ fn parent_text(
     Ok(Some(ParentText::new(id, title.nature.as_deref())))
 }
 
-/// Titres des sections traversées, nettoyés par `clean_field`, dans l'ordre reçu ; les titres
-/// absents ou vides sont omis.
-fn section_path(entries: &[ContextEntryDto]) -> Vec<String> {
-    entries.iter().filter_map(|entry| clean_field(entry.titre.as_deref())).collect()
+/// Date de référence du chemin de sections : le jour où la version de l'article s'applique.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reference {
+    /// Version sans fin : le chemin est celui d'aujourd'hui, soit les sections sans fin.
+    Open,
+    /// Version qui finit le jour donné (exclu) : le chemin est celui de sa veille, dernier jour où
+    /// elle s'applique. La veille n'est pas calculée, la comparaison se fait sur le jour de fin.
+    Until(CivilDate),
+}
+
+impl Reference {
+    /// Référence d'une version de fin `date_fin` (`None` : version ouverte).
+    fn of(date_fin: Option<CivilDate>) -> Self {
+        date_fin.map_or(Self::Open, Self::Until)
+    }
+}
+
+/// Section d'un chemin : une version d'un niveau de la hiérarchie.
+struct Section {
+    /// Titre nettoyé, non vide.
+    title: String,
+    /// Niveau (nombre de segments `TM` du `xPath`, au moins 1) ; `None` s'il est inconnu.
+    level: Option<usize>,
+    /// Début de vigueur ; `None` : inconnu (absent ou illisible).
+    debut: Option<CivilDate>,
+    /// Fin de vigueur ; `None` : sans fin ou inconnue (absente, sentinelle ou illisible).
+    fin: Option<CivilDate>,
+    /// L'entrée est dite en vigueur par l'amont.
+    in_force: bool,
+}
+
+impl Section {
+    /// Section de `entry` ; `None` si son titre est absent ou vide après nettoyage.
+    fn of(entry: &ContextEntryDto) -> Option<Self> {
+        let title = clean_field(entry.titre.as_deref())?;
+        let level = entry
+            .x_path
+            .as_deref()
+            .map(|path| path.split('/').filter(|segment| *segment == "TM").count())
+            .filter(|count| *count > 0);
+        Some(Self {
+            title,
+            level,
+            debut: civil_or_unknown(entry.debut.as_ref()),
+            fin: civil_or_unknown(entry.fin.as_ref()),
+            in_force: entry.etat.as_deref().is_some_and(|etat| etat.trim() == "VIGUEUR"),
+        })
+    }
+
+    /// Vrai si la section s'applique à `reference` : elle a commencé avant la fin de la version
+    /// et ne finit pas avant elle. Une borne inconnue ne l'écarte pas.
+    fn applies(&self, reference: Reference) -> bool {
+        match reference {
+            Reference::Open => self.fin.is_none(),
+            Reference::Until(end) => {
+                self.debut.is_none_or(|debut| debut < end) && self.fin.is_none_or(|fin| end <= fin)
+            }
+        }
+    }
+}
+
+/// Une seule section par niveau, la dernière reçue, sauf pour une version ouverte où une section
+/// en vigueur l'emporte sur une section qui ne l'est pas ; l'ordre reçu est gardé (une section
+/// sans niveau connu est gardée telle quelle).
+fn one_per_level(sections: Vec<&Section>, reference: Reference) -> Vec<&Section> {
+    let mut kept: Vec<&Section> = Vec::new();
+    for section in sections {
+        let held = section
+            .level
+            .and_then(|level| kept.iter_mut().find(|other| other.level == Some(level)));
+        match held {
+            Some(held) => {
+                if reference != Reference::Open || !held.in_force || section.in_force {
+                    *held = section;
+                }
+            }
+            None => kept.push(section),
+        }
+    }
+    kept
+}
+
+/// Titres des sections traversées en vigueur à `reference`, nettoyés par `clean_field`, dans
+/// l'ordre reçu, une section par niveau, sans titre identique consécutif ; les titres absents ou
+/// vides sont omis (L3-02).
+///
+/// PISTE rend toutes les versions de chaque niveau (ancienne et nouvelle structure d'un code
+/// remanié). Si aucune section ne s'applique, toutes sont gardées avant le dédoublonnage : un
+/// chemin approximatif vaut mieux qu'un chemin vide.
+fn section_path(entries: &[ContextEntryDto], reference: Reference) -> Vec<String> {
+    let sections: Vec<Section> = entries.iter().filter_map(Section::of).collect();
+    let current: Vec<&Section> =
+        sections.iter().filter(|section| section.applies(reference)).collect();
+    let chosen = if current.is_empty() { sections.iter().collect() } else { current };
+    let mut path: Vec<String> =
+        one_per_level(chosen, reference).into_iter().map(|section| section.title.clone()).collect();
+    path.dedup();
+    path
 }
 
 /// Nota de l'article : le meilleur texte de `html` et de `plain` (règle f) ; `None` s'il est
@@ -139,7 +234,7 @@ pub(crate) fn article(
         etat: etat.as_deref().and_then(LegalStatus::parse),
         code_title: chosen.and_then(|title| clean_field(title.titre.as_deref())),
         parent,
-        path: section_path(&context.titres_tm),
+        path: section_path(&context.titres_tm, Reference::of(date_fin)),
         full_sections_titre: clean_field(full_sections_titre.as_deref()),
         date_debut,
         date_fin,
@@ -156,6 +251,7 @@ mod tests {
 
     use super::*;
     use crate::dto::article::GetArticleResponseDto;
+    use crate::dto::de::RawDate;
     use crate::dto::decode::decode;
     use crate::map::fixtures::{d, decode_as, text};
 
@@ -195,7 +291,7 @@ mod tests {
 
     /// Entrée de contexte de titre `titre`.
     fn entry(titre: Option<&str>) -> ContextEntryDto {
-        ContextEntryDto { titre: titre.map(str::to_owned) }
+        ContextEntryDto { titre: titre.map(str::to_owned), ..ContextEntryDto::default() }
     }
 
     #[test]
@@ -275,8 +371,187 @@ mod tests {
             entry(None),
             entry(Some("Titre II")),
         ];
-        assert_eq!(section_path(&entries), ["Livre Ier", "Titre II"]);
-        assert_eq!(section_path(&[]), Vec::<String>::new());
+        assert_eq!(section_path(&entries, Reference::Open), ["Livre Ier", "Titre II"]);
+        assert_eq!(section_path(&[], Reference::Open), Vec::<String>::new());
+    }
+
+    /// Entrée `titre` de période `debut`..`fin` (texte brut), de niveau `level` (0 : sans
+    /// `xPath`) et d'état `etat`.
+    fn section(
+        titre: &str,
+        (debut, fin): (Option<&str>, Option<&str>),
+        level: usize,
+        etat: Option<&str>,
+    ) -> ContextEntryDto {
+        let raw = |date: Option<&str>| date.map(|date| RawDate::Text(date.to_owned()));
+        ContextEntryDto {
+            titre: text!(titre),
+            debut: raw(debut),
+            fin: raw(fin),
+            x_path: (level > 0).then(|| format!("/ARTICLE{}/TITRE_TM", "/TM".repeat(level))),
+            etat: etat.map(str::to_owned),
+        }
+    }
+
+    /// Période fermée `debut`..`fin`.
+    fn span<'a>(debut: &'a str, fin: &'a str) -> (Option<&'a str>, Option<&'a str>) {
+        (Some(debut), Some(fin))
+    }
+
+    /// Jour de fin de version des tests de bornes.
+    fn end() -> Reference {
+        Reference::Until(d(2016, 10, 1))
+    }
+
+    #[test]
+    fn reference_follows_the_end_of_the_version() {
+        assert_eq!(Reference::of(None), Reference::Open);
+        assert_eq!(Reference::of(Some(d(2016, 10, 1))), end());
+    }
+
+    #[test]
+    fn open_version_keeps_the_sections_without_end() {
+        let entries = [
+            section("Ancien", span("1804-03-21", "2016-10-01"), 1, Some("MODIFIE")),
+            section("Courant", (Some("2016-10-01"), Some("2999-01-01")), 1, Some("VIGUEUR")),
+            section("Sans date", (None, None), 2, None),
+        ];
+        assert_eq!(section_path(&entries, Reference::Open), ["Courant", "Sans date"]);
+    }
+
+    #[test]
+    fn closed_version_keeps_the_sections_of_its_last_day() {
+        let entries = [
+            section("Ancien", span("1804-03-21", "2016-10-01"), 1, Some("MODIFIE")),
+            section("Courant", (Some("2016-10-01"), Some("2999-01-01")), 1, Some("VIGUEUR")),
+        ];
+        assert_eq!(section_path(&entries, end()), ["Ancien"]);
+        // Jumeau : la même structure, lue pour une version qui court jusqu'à aujourd'hui.
+        assert_eq!(section_path(&entries, Reference::Open), ["Courant"]);
+    }
+
+    #[test]
+    fn section_bounds_are_start_inclusive_and_end_exclusive_of_the_last_day() {
+        // La version finit le 2016-10-01 : son dernier jour est le 2016-09-30.
+        let cases = [
+            // (début, fin, retenue)
+            ("2016-09-30", "2016-10-01", true), // débute la veille de la fin : en vigueur ce jour
+            ("2016-10-01", "2999-01-01", false), // débute le jour de fin : pas encore
+            ("1804-03-21", "2016-10-01", true), // finit le jour de fin : couvre la veille
+            ("1804-03-21", "2016-09-30", false), // finit la veille : ne couvre pas la veille
+        ];
+        for (debut, fin, expected) in cases {
+            let entries = [section("A", (Some(debut), Some(fin)), 1, None), entry(Some("Z"))];
+            let path = section_path(&entries, end());
+            let held = if expected { vec!["A", "Z"] } else { vec!["Z"] };
+            assert_eq!(path, held, "{debut}..{fin}");
+        }
+    }
+
+    #[test]
+    fn unreadable_or_missing_bounds_do_not_discard_a_section() {
+        let entries = [
+            section("Sans bornes", (None, None), 1, None),
+            section("Illisible", (Some("pas une date"), Some("2016-13-45")), 2, None),
+        ];
+        assert_eq!(section_path(&entries, end()), ["Sans bornes", "Illisible"]);
+        // Une fin illisible est inconnue donc ouverte : la version ouverte la garde aussi.
+        assert_eq!(section_path(&entries, Reference::Open), ["Sans bornes", "Illisible"]);
+    }
+
+    #[test]
+    fn a_filter_that_discards_everything_falls_back_to_all_sections() {
+        let entries = [
+            section("Livre", span("1804-03-21", "1900-01-01"), 1, None),
+            section("Titre A", span("1804-03-21", "1900-01-01"), 2, None),
+            section("Titre B", span("1900-01-01", "1950-01-01"), 2, None),
+        ];
+        // Aucune ne couvre la veille de 2016-10-01 : toutes gardées, une par niveau.
+        assert_eq!(section_path(&entries, end()), ["Livre", "Titre B"]);
+        // Jumeau : quand le filtre garde une section, les autres sont écartées.
+        let entries = [
+            section("Livre", span("1804-03-21", "1900-01-01"), 1, None),
+            section("Titre C", (None, None), 2, None),
+        ];
+        assert_eq!(section_path(&entries, end()), ["Titre C"]);
+    }
+
+    #[test]
+    fn one_section_per_level_keeps_the_last_received() {
+        let entries = [
+            section("Titre III ancien", (None, None), 1, Some("VIGUEUR")),
+            section("Chapitre", (None, None), 2, None),
+            section("Titre III nouveau", (None, None), 1, Some("MODIFIE")),
+        ];
+        // Version close : pas de préférence d'état, la dernière reçue prend la place du niveau.
+        assert_eq!(section_path(&entries, end()), ["Titre III nouveau", "Chapitre"]);
+        // Jumeau : deux niveaux différents, rien n'est écarté.
+        assert_eq!(section_path(&entries[..2], end()), ["Titre III ancien", "Chapitre"]);
+    }
+
+    #[test]
+    fn open_version_prefers_the_section_in_force_at_a_level() {
+        let held = |first: Option<&str>, second: Option<&str>| {
+            let entries = [
+                section("Première", (None, None), 1, first),
+                section("Seconde", (None, None), 1, second),
+            ];
+            section_path(&entries, Reference::Open)
+        };
+        assert_eq!(held(Some("VIGUEUR"), Some("MODIFIE")), ["Première"]);
+        assert_eq!(held(Some("VIGUEUR"), Some("VIGUEUR")), ["Seconde"]);
+        assert_eq!(held(Some("MODIFIE"), Some("VIGUEUR")), ["Seconde"]);
+        assert_eq!(held(None, None), ["Seconde"]);
+    }
+
+    #[test]
+    fn sections_without_a_level_are_never_merged() {
+        let entries = [
+            section("A", (None, None), 0, None),
+            section("B", (None, None), 0, None),
+            section("A", (None, None), 0, None),
+        ];
+        assert_eq!(section_path(&entries, Reference::Open), ["A", "B", "A"]);
+    }
+
+    #[test]
+    fn consecutive_identical_titles_are_merged() {
+        let entries = [
+            section("Annexes", (None, None), 0, None),
+            section("Annexe B", (None, None), 0, None),
+            section("Annexe B", (None, None), 0, None),
+        ];
+        assert_eq!(section_path(&entries, Reference::Open), ["Annexes", "Annexe B"]);
+    }
+
+    #[test]
+    fn section_level_counts_the_tm_segments_of_the_xpath() {
+        let level = |x_path: Option<&str>| {
+            let entry = ContextEntryDto {
+                titre: text!("T"),
+                x_path: x_path.map(str::to_owned),
+                ..ContextEntryDto::default()
+            };
+            Section::of(&entry).unwrap().level
+        };
+        assert_eq!(level(Some("/ARTICLE/CONTEXTE/TEXTE/TM/TITRE_TM")), Some(1));
+        assert_eq!(level(Some("/ARTICLE/CONTEXTE/TEXTE/TM/TM/TM/TITRE_TM")), Some(3));
+        assert_eq!(level(Some("/ARTICLE/CONTEXTE/TEXTE/TITRE_TM")), None);
+        assert_eq!(level(None), None);
+    }
+
+    #[test]
+    fn article_reference_comes_from_its_end_date() {
+        let structure = r#""context":{"titresTM":[
+            {"titre":"Ancien","debut":"1804-03-21","fin":"2016-10-01","xPath":"/A/TM/T"},
+            {"titre":"Nouveau","debut":"2016-10-01","fin":"2999-01-01","xPath":"/A/TM/T"}]}"#;
+        let path = |dates: &str| {
+            let json = with_fields(&format!("{structure},{dates}"));
+            run(&json, ART_9).0.unwrap().path
+        };
+        assert_eq!(path(r#""dateDebut":"2016-10-01","dateFin":"2999-01-01""#), ["Nouveau"]);
+        assert_eq!(path(r#""dateDebut":"2016-10-01""#), ["Nouveau"]);
+        assert_eq!(path(r#""dateDebut":"1804-03-21","dateFin":"2016-10-01""#), ["Ancien"]);
     }
 
     #[test]
@@ -682,5 +957,93 @@ mod tests {
             let error = run(&json, ART_9).0.unwrap_err();
             assert!(!format!("{error:?} {error}").contains(secret), "{error:?}");
         }
+    }
+
+    // ---- L3-02 : chemin de sections en vigueur, sans doublon (relevés C7) ----
+
+    /// Relevé C7 : Code civil, art. 1240 (en vigueur depuis 2016-10-01).
+    const C7_1240: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C7-getArticle-1240-LEGIARTI000032041571.json"
+    );
+    /// Relevé C7 : Code civil, art. 1382 dans sa version d'avant 2016 (fin 2016-10-01).
+    const C7_1382_OLD: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C7-getArticle-1382-ancienne-LEGIARTI000006438819.json"
+    );
+    /// Relevé C7 : arrêté Salmonella, « Tableau I » (annexe B, deux versions du titre).
+    const C7_SALMONELLA: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C7-getArticle-salmonella-LEGIARTI000031122369.json"
+    );
+    /// Relevé C7 : CGI, art. 163 bis H (sept niveaux, aucun doublon).
+    const C7_CGI_163: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C7-getArticle-cgi-163-bis-H-LEGIARTI000053543789.json"
+    );
+    /// Relevé C7 : loi 89-462, art. 19 (version abrogée le 2014-03-27).
+    const C7_LOI_89_462: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C7-getArticle-loi-89-462-art-19-LEGIARTI000039337710.json"
+    );
+
+    /// Chemin de l'article du relevé `body`, demandé sous `requested`.
+    fn recorded_path(body: &str, requested: &str) -> Vec<String> {
+        run_body(body, requested).0.unwrap().path
+    }
+
+    #[test]
+    fn recorded_1240_keeps_only_the_current_structure() {
+        assert_eq!(
+            recorded_path(C7_1240, "LEGIARTI000032041571"),
+            [
+                "Livre III : Des différentes manières dont on acquiert la propriété",
+                "Titre III : Des sources d'obligations",
+                "Sous-titre II : La responsabilité extracontractuelle",
+                "Chapitre Ier : La responsabilité extracontractuelle en général",
+            ]
+        );
+    }
+
+    #[test]
+    fn recorded_old_1382_keeps_only_the_old_structure() {
+        assert_eq!(
+            recorded_path(C7_1382_OLD, "LEGIARTI000006438819"),
+            [
+                "Livre III : Des différentes manières dont on acquiert la propriété",
+                "Titre IV : Des engagements qui se forment sans convention",
+                "Chapitre II : Des délits et des quasi-délits.",
+            ]
+        );
+    }
+
+    #[test]
+    fn recorded_salmonella_has_one_annexe_b() {
+        assert_eq!(
+            recorded_path(C7_SALMONELLA, "LEGIARTI000031122369"),
+            ["Annexes", "Annexe B : BARÈMES D'INDEMNISATION D'ÉLIMINATION DES TROUPEAUX"]
+        );
+    }
+
+    #[test]
+    fn recorded_closed_version_uses_the_day_before_its_end() {
+        assert_eq!(
+            recorded_path(C7_LOI_89_462, "LEGIARTI000039337710"),
+            [
+                "Titre Ier : Des rapports entre bailleurs et locataires",
+                "Chapitre III : Du loyer, des charges et du règlement des litiges.",
+            ]
+        );
+    }
+
+    #[test]
+    fn recorded_cgi_path_without_duplicates_is_unchanged() {
+        assert_eq!(
+            recorded_path(C7_CGI_163, "LEGIARTI000053543789"),
+            [
+                "Livre premier : Assiette et liquidation de l'impôt",
+                "Première Partie : Impôts d'État",
+                "Titre premier : Impôts directs et taxes assimilées",
+                "Chapitre premier : Impôt sur le revenu",
+                "Section II : Revenus imposables",
+                "2e Sous-section : Revenu global",
+                "I : Revenu imposable",
+            ]
+        );
     }
 }
