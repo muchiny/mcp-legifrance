@@ -405,7 +405,7 @@ mod tests {
         ] {
             let error = read_with(&corpus, input(&id)).await.unwrap_err();
             assert_eq!(error.code(), Some(ErrorCode::InvalidArg), "{id}");
-            assert!(error.message().contains(&id), "{id}: {}", error.message());
+            assert!(error.message().contains(&id), "{id}");
         }
         assert_eq!(corpus.calls(), 0);
     }
