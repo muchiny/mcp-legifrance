@@ -473,8 +473,8 @@ mod tests {
         let text = output.notes[0].text();
         assert_eq!(
             text,
-            "This is the version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12); the \
-             current text may differ: read it without a date."
+            "Version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12); omit the date to \
+             read the current text."
         );
         assert!(text.chars().count() <= 200);
 

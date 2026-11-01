@@ -4971,8 +4971,7 @@ mod tests {
         assert_eq!(status(&resolution), CheckStatus::Verified);
         assert_eq!(
             note(&resolution),
-            "Read 'CP' as Code pénal. Only the first and last articles of the range were \
-             checked; the articles between were not."
+            "Read 'CP' as Code pénal. Only the first and last articles of the range were checked."
         );
         assert_eq!(corpus.calls_of("find_article"), 2);
     }
@@ -5214,6 +5213,12 @@ mod tests {
             Some(warning.clone().then(Note::RangeEndpointsOnly))
         );
         assert_eq!(confidence_of(&range.outcome), Some(Confidence::Medium));
+        // Revue finale I1 : le texte rendu garde la version ET la plage.
+        let text = range.outcome.note(Proof::Production).unwrap().text();
+        assert!(
+            text.starts_with("Version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12)")
+        );
+        assert!(text.ends_with("Only the first and last articles of the range were checked."));
 
         // Sigle ambigu seul.
         let sigle = run("article 121-3 CP", vec![old(1, "121-3")]).await;

@@ -365,9 +365,7 @@ fn range_text(note: &Note) -> String {
             "The first article of the range exists, but its last, article {num}, was not found; \
              check the number or the date."
         ),
-        _ => "Only the first and last articles of the range were checked; the articles between \
-              were not."
-            .to_owned(),
+        _ => "Only the first and last articles of the range were checked.".to_owned(),
     }
 }
 
@@ -431,8 +429,7 @@ fn no_record_at_date_text(
 fn not_current_text(on: VersionDate, etat: &str, ended: Option<CivilDate>) -> String {
     let ended = ended.map_or_else(String::new, |date| format!(", ended {date}"));
     format!(
-        "This is the version in force on {on} (etat={etat}{ended}); the current text may differ: \
-         read it without a date."
+        "Version in force on {on} (etat={etat}{ended}); omit the date to read the current text."
     )
 }
 
@@ -826,11 +823,11 @@ mod tests {
         vec![
             (
                 Note::RangeEndpointsOnly,
-                "Only the first and last articles of the range were checked; the articles between were not.",
+                "Only the first and last articles of the range were checked.",
             ),
             (
                 Note::WithRange(Box::new(Note::ReadAs { sigle: Sigle::Cp, code: "Code pénal" })),
-                "Read 'CP' as Code pénal. Only the first and last articles of the range were checked; the articles between were not.",
+                "Read 'CP' as Code pénal. Only the first and last articles of the range were checked.",
             ),
             (
                 Note::RangeEndNotFound { num: "L9999-99".to_owned() },
@@ -849,11 +846,11 @@ mod tests {
         vec![
             (
                 replaced.clone(),
-                "This is the version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12); the current text may differ: read it without a date.",
+                "Version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12); omit the date to read the current text.",
             ),
             (
                 Note::NotCurrentVersion { on: date("2011-06-01"), etat: "ABROGE", ended: None },
-                "This is the version in force on 2011-06-01 (etat=ABROGE); the current text may differ: read it without a date.",
+                "Version in force on 2011-06-01 (etat=ABROGE); omit the date to read the current text.",
             ),
             (Note::SubdivisionNotChecked, "The sub-division was not checked, only the article."),
             (
@@ -862,7 +859,7 @@ mod tests {
             ),
             (
                 replaced.clone().then(Note::ReadAs { sigle: Sigle::Cp, code: "Code pénal" }),
-                "This is the version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12); the current text may differ: read it without a date. Read 'CP' as Code pénal.",
+                "Version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12); omit the date to read the current text. Read 'CP' as Code pénal.",
             ),
             (
                 Note::VersionSince(civil(2016, 10, 1)).then(Note::SubdivisionNotChecked),
@@ -870,7 +867,7 @@ mod tests {
             ),
             (
                 Note::WithQuoteMismatch(Box::new(replaced.clone())),
-                "Quoted text not found in the official text. This is the version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12); the current text may differ: read it without a date.",
+                "Quoted text not found in the official text. Version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12); omit the date to read the current text.",
             ),
             (
                 Note::WithQuoteMismatch(Box::new(
@@ -894,6 +891,62 @@ mod tests {
             assert!(text.chars().count() <= NOTE_MAX_CHARS, "{text}");
             assert!(!text.contains('\n'), "{text}");
         }
+    }
+
+    /// Revue finale I1 : la note de version et la mention de plage tiennent ensemble sous 200
+    /// caractères, au pire état (`MODIFIE_MORT_NE`, avec une date de fin) ; sinon la mention de plage,
+    /// qui justifie la confiance `medium`, disparaissait derrière la version.
+    #[test]
+    fn the_version_note_and_the_range_note_fit_together_at_the_worst_state() {
+        let worst = Note::NotCurrentVersion {
+            on: date("2011-06-01"),
+            etat: "MODIFIE_MORT_NE",
+            ended: Some(civil(2011, 6, 12)),
+        };
+        let version = "Version in force on 2011-06-01 (etat=MODIFIE_MORT_NE, ended 2011-06-12); \
+                       omit the date to read the current text.";
+        let range = "Only the first and last articles of the range were checked.";
+        assert_eq!(worst.text(), version);
+        assert_eq!(Note::RangeEndpointsOnly.text(), range);
+        let text = worst.clone().then(Note::RangeEndpointsOnly).text();
+        assert_eq!(text, format!("{version} {range}"));
+        assert!(text.chars().count() <= NOTE_MAX_CHARS, "{text}");
+        assert_eq!(text.chars().count(), 172);
+    }
+
+    /// Revue finale I1 : version, sigle lu par défaut et plage. Au pire état (`MODIFIE_MORT_NE`,
+    /// date de fin), le code pénal et le code civil tiennent avec leurs trois phrases ; un titre plus
+    /// long (ici le code des postes et des communications électroniques) ne tient pas : la lecture du
+    /// sigle et la plage sautent ENSEMBLE (`WithRange` est une seule note), la version reste seule.
+    /// Avec l'état courant `MODIFIE`, seuls les titres les plus longs sautent.
+    #[test]
+    fn the_version_sigle_and_range_notes_drop_together_when_the_title_is_long() {
+        let version = |etat: &'static str| Note::NotCurrentVersion {
+            on: date("2011-06-01"),
+            etat,
+            ended: Some(civil(2011, 6, 12)),
+        };
+        let chain = |etat: &'static str, sigle: Sigle, code: &'static str| {
+            version(etat).then(Note::WithRange(Box::new(Note::ReadAs { sigle, code })))
+        };
+        let range = "Only the first and last articles of the range were checked.";
+        for (sigle, code) in [(Sigle::Cp, "Code pénal"), (Sigle::Cc, "Code civil")] {
+            let text = chain("MODIFIE_MORT_NE", sigle, code).text();
+            assert!(text.chars().count() <= NOTE_MAX_CHARS, "{text}");
+            assert!(text.contains("(etat=MODIFIE_MORT_NE, ended 2011-06-12)"), "{text}");
+            assert!(text.contains(&format!("Read '{}' as {code}.", sigle.as_str())), "{text}");
+            assert!(text.ends_with(range), "{text}");
+        }
+        let long = "Code des postes et des communications électroniques";
+        for etat in ["MODIFIE_MORT_NE", "MODIFIE"] {
+            let text = chain(etat, Sigle::Cpce, long).text();
+            assert_eq!(text, version(etat).text(), "{etat}");
+        }
+        // Un titre moyen tient avec `MODIFIE`, pas au pire état.
+        let text = chain("MODIFIE", Sigle::Ct, "Code du travail").text();
+        assert!(text.ends_with(range), "{text}");
+        let worst = chain("MODIFIE_MORT_NE", Sigle::Ct, "Code du travail").text();
+        assert_eq!(worst, version("MODIFIE_MORT_NE").text());
     }
 
     #[test]
@@ -939,14 +992,16 @@ mod tests {
             etat: "MODIFIE_MORT_NE",
             ended: Some(civil(2011, 6, 12)),
         };
-        // 137 + 1 + 51 = 189 : tient. Avec l'écart d'extrait devant (43), 233 : la dernière saute.
+        // 112 + 1 + 51 = 164 : tient. Avec l'écart d'extrait devant (43), 208 : la dernière saute.
         let both = replaced.clone().then(Note::SubdivisionNotChecked);
-        assert_eq!(both.text().chars().count(), 189);
+        assert_eq!(both.text().chars().count(), 164);
         assert!(both.text().ends_with("only the article."));
         let with_gap = Note::WithQuoteMismatch(Box::new(both)).text();
         assert!(with_gap.chars().count() <= NOTE_MAX_CHARS, "{with_gap}");
-        assert!(with_gap.starts_with("Quoted text not found in the official text. This is the"));
-        assert!(with_gap.ends_with("read it without a date."), "{with_gap}");
+        assert!(
+            with_gap.starts_with("Quoted text not found in the official text. Version in force on")
+        );
+        assert!(with_gap.ends_with("omit the date to read the current text."), "{with_gap}");
         // Une première note qui dépasse seule est rognée, les suivantes sautent.
         let long = Note::NoRecord { family: "text", value: "é".repeat(400), date: None };
         let text = long.then(Note::SubdivisionNotChecked).text();

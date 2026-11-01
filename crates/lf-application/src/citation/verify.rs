@@ -896,10 +896,7 @@ mod tests {
         assert_eq!(verification.checks.len(), 1);
         let check = &verification.checks[0];
         assert_eq!(check.status, CheckStatus::Verified);
-        assert_eq!(
-            note_text(check),
-            "Only the first and last articles of the range were checked; the articles between were not."
-        );
+        assert_eq!(note_text(check), "Only the first and last articles of the range were checked.");
         assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), "LEGIARTI000000000001");
         assert_eq!(check.quote, None);
         assert_eq!(
@@ -1099,7 +1096,7 @@ mod tests {
         codes(&corpus);
         let mut replaced =
             article(1, Some("9"), CivilDate::new(2010, 5, 1), "Chacun a droit au respect.");
-        replaced.etat = Some(LegalStatus::Modifie);
+        replaced.etat = Some(LegalStatus::ModifieMortNe);
         replaced.date_fin = CivilDate::new(2011, 6, 12);
         corpus.push_find_article(Ok(replaced));
         let text = "article 9, alinéa 2 du code civil, en vigueur au 1er juin 2011 : \
@@ -1108,13 +1105,12 @@ mod tests {
         let check = &verification.checks[0];
         assert_eq!(check.status, CheckStatus::Verified);
         assert_eq!(check.quote, Some(QuoteCheck::QuoteMismatch));
-        // Trois notes de 43, 129 et 51 caractères : la troisième ne tient pas en entier, elle est
-        // omise plutôt que coupée au milieu d'une phrase.
+        // Trois notes de 43, 112 et 51 caractères : la troisième ne tient pas en entier (208), elle
+        // est omise plutôt que coupée au milieu d'une phrase.
         assert_eq!(
             note_text(check),
-            "Quoted text not found in the official text. This is the version in force on \
-             2011-06-01 (etat=MODIFIE, ended 2011-06-12); the current text may differ: read it \
-             without a date."
+            "Quoted text not found in the official text. Version in force on 2011-06-01 \
+             (etat=MODIFIE_MORT_NE, ended 2011-06-12); omit the date to read the current text."
         );
     }
 
