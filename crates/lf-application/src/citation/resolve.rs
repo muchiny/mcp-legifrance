@@ -20,15 +20,18 @@
 //! # Limites de cette version
 //!
 //! L'article d'un texte est cherché par `find_article` sur le `LEGITEXT` résolu, sans parcourir
-//! la table des matières. Un texte cité par sa seule date, la chambre et la formation d'une
-//! décision, les avenants et les alinéas du Préambule ne sont pas contrôlés (`NotSupported`).
+//! la table des matières. Un texte cité par sa seule date, la formation du Conseil d'État, le
+//! siège d'une cour d'appel ou d'un tribunal, les avenants et les alinéas du Préambule ne sont pas
+//! contrôlés (`NotSupported` ou ignorés). La chambre de la Cour de cassation l'est, sur les seules
+//! chambres modernes (`check_chamber`).
 
 use lf_domain::{
     citation::{
         Ambiguity, ArticleNum, CaseNumber, CitationRef, CnilCite, CnilNumber, CodeRef, Confidence,
         ConventionCite, Court, DecisionCite, Flag, LegifranceIdRef, Resolvability, Spanned,
         TextCite, TextNature, TextNumber, UnresolvableWhy, UnsupportedFamily, VersionQualifier,
-        dict::courts::CcType, parse,
+        dict::courts::{CassChamber, CcType},
+        parse,
     },
     contract::{Citable, Eli, Nor},
     date::{CivilDate, VersionDate},
@@ -400,6 +403,7 @@ struct Lookup {
     title_filter: Option<TitleFilter>,
     date: Option<CivilDate>,
     cc_type: Option<CcType>,
+    chamber: Option<CassChamber>,
     absent: Note,
 }
 
@@ -663,8 +667,21 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             CaseNumber::Cc(cc) => Some(cc.kind),
             _ => None,
         });
-        self.lookup(Lookup { fond, kind, forms, title_filter, date: cite.date, cc_type, absent })
-            .await
+        let chamber = match court {
+            Court::CourDeCassation { chamber } => *chamber,
+            _ => None,
+        };
+        self.lookup(Lookup {
+            fond,
+            kind,
+            forms,
+            title_filter,
+            date: cite.date,
+            cc_type,
+            chamber,
+            absent,
+        })
+        .await
     }
 
     /// Cherche une décision par numéro, la consulte et compare la date (et le type du Conseil
@@ -702,7 +719,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         if found.is_empty() {
             return Resolution::unresolvable(spec.absent);
         }
-        choose_decision(&found, spec.date, spec.cc_type)
+        choose_decision(&found, spec.date, spec.cc_type, spec.chamber)
     }
 
     /// ECLI cité : numéro tiré de l'ordinal (CC, CE) ou facette ECLI (Cour de cassation), puis
@@ -722,6 +739,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             title_filter: filter,
             date: None,
             cc_type: None,
+            chamber: None,
             absent,
         };
         let (resolution, index, strict) = match (court, second) {
@@ -1159,8 +1177,55 @@ fn is_ta(title: &str) -> bool {
     fold_line(title).contains("tribunal administratif")
 }
 
+/// Chambres que la formation du corpus désigne sans ambiguïté (annexe B §4.5) : seules elles se
+/// comparent. Les chambres historiques (`Reunies`, `CivUnique`, `Requetes`) n'ont pas de valeur
+/// de facette établie ou changent de sens selon l'époque.
+const fn is_modern(chamber: CassChamber) -> bool {
+    matches!(
+        chamber,
+        CassChamber::Civ1
+            | CassChamber::Civ2
+            | CassChamber::Civ3
+            | CassChamber::Com
+            | CassChamber::Soc
+            | CassChamber::Crim
+            | CassChamber::AssPlen
+            | CassChamber::Mixte
+            | CassChamber::PremierPresident
+    )
+}
+
+/// Ce que la comparaison de la chambre citée avec la formation officielle a établi.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChamberCheck {
+    /// Rien à comparer, ou chambres identiques.
+    Fine,
+    /// Les deux côtés sont des chambres modernes et diffèrent : (citée, officielle).
+    Differs(CassChamber, CassChamber),
+    /// Chambre moderne citée, mais la formation officielle n'en est pas une.
+    NotComparable,
+}
+
+/// Compare la chambre citée (Cour de cassation) à la `formation` de la décision consultée. Jamais
+/// d'écart si un côté est absent ou n'est pas une chambre moderne (Q7) : une formation inattendue
+/// (juridiction du fond, code inconnu) ne donne qu'une note.
+fn check_chamber(cited: Option<CassChamber>, formation: Option<&str>) -> ChamberCheck {
+    let Some(cited) = cited.filter(|chamber| is_modern(*chamber)) else {
+        return ChamberCheck::Fine;
+    };
+    let Some(formation) = formation.map(str::trim).filter(|value| !value.is_empty()) else {
+        return ChamberCheck::Fine;
+    };
+    match CassChamber::from_facet(formation).filter(|chamber| is_modern(*chamber)) {
+        Some(actual) if actual == cited => ChamberCheck::Fine,
+        Some(actual) => ChamberCheck::Differs(cited, actual),
+        None => ChamberCheck::NotComparable,
+    }
+}
+
 /// Choisit parmi les décisions consultées celle que la citation désigne (date citée, type du
-/// Conseil constitutionnel).
+/// Conseil constitutionnel, chambre de la Cour de cassation). Tous les champs durs en écart sont
+/// rendus ensemble.
 #[expect(
     clippy::indexing_slicing,
     reason = "les indices viennent des motifs de tranche ou de l'énumération des mêmes listes"
@@ -1169,6 +1234,7 @@ fn choose_decision(
     found: &[(DocumentId, Decision)],
     date: Option<CivilDate>,
     cc_type: Option<CcType>,
+    chamber: Option<CassChamber>,
 ) -> Resolution {
     let candidates = |found: &[(DocumentId, Decision)]| {
         let items = found
@@ -1199,21 +1265,31 @@ fn choose_decision(
     let (id, decision) = &found[index];
     let record = ResolvedRecord::of(id.clone(), decision);
     let official = Some(decision.text.as_str().to_owned());
-    let mismatch = match (date, decision.date_texte, cc_type, decision.nature.as_deref()) {
-        (Some(cited), Some(actual), _, _) if cited != actual => {
-            Some((Field::Date, cited.to_string(), actual.to_string()))
-        }
-        (_, _, Some(kind), Some(actual)) if fold_line(actual) != fold_line(kind.as_str()) => {
-            Some((Field::CcType, kind.as_str().to_owned(), fold_line(actual).to_uppercase()))
-        }
-        _ => None,
-    };
-    match mismatch {
-        Some((field, cited, actual)) => {
-            Resolution { official, ..Resolution::mismatch(record, field, cited, actual) }
-        }
-        None => Resolution { official, ..verified(record, confidence, None) },
+    let mut gaps: Vec<(Field, String, String)> = Vec::new();
+    if let (Some(cited), Some(actual)) = (date, decision.date_texte)
+        && cited != actual
+    {
+        gaps.push((Field::Date, cited.to_string(), actual.to_string()));
     }
+    let chamber_check = check_chamber(chamber, decision.formation.as_deref());
+    if let ChamberCheck::Differs(cited, actual) = chamber_check {
+        gaps.push((Field::Chamber, cited.code().to_owned(), actual.code().to_owned()));
+    }
+    if let (Some(kind), Some(actual)) = (cc_type, decision.nature.as_deref())
+        && fold_line(actual) != fold_line(kind.as_str())
+    {
+        gaps.push((Field::CcType, kind.as_str().to_owned(), fold_line(actual).to_uppercase()));
+    }
+    let note = match gaps.len() {
+        0 => None,
+        1 => gaps.pop().map(|(field, cited, actual)| Note::Mismatch { field, cited, actual }),
+        _ => Some(Note::Mismatches(gaps)),
+    };
+    if let Some(note) = note {
+        return Resolution { official, ..Resolution::of(Outcome::Mismatch { record, note }) };
+    }
+    let note = (chamber_check == ChamberCheck::NotComparable).then_some(Note::ChamberNotCompared);
+    Resolution { official, ..verified(record, confidence, note) }
 }
 
 /// Égalité de l'ECLI natif du document avec l'ECLI cité (§7.3). `strict` : un ECLI différent ou
@@ -1590,6 +1666,220 @@ mod tests {
             note(&resolution),
             "Cited date 2025-06-04 differs from the official record (2025-06-05)."
         );
+    }
+
+    /// Pourvoi relevé (capture C4) : texte cité, identifiant, date officielle, formation lue.
+    struct Recorded {
+        text: &'static str,
+        id: &'static str,
+        date: (u16, u8, u8),
+        formation: &'static str,
+    }
+
+    /// Les huit arrêts réels dont la chambre citée est la bonne (relevés C4).
+    const FAITHFUL: [Recorded; 8] = [
+        Recorded {
+            text: "Cass. civ. 1re, 13 mars 2019, n° 18-12.605",
+            id: "JURITEXT000038322046",
+            date: (2019, 3, 13),
+            formation: "CHAMBRE_CIVILE_1",
+        },
+        Recorded {
+            text: "Cass. civ. 2e, 24 septembre 2009, n° 08-17.523",
+            id: "JURITEXT000021080678",
+            date: (2009, 9, 24),
+            formation: "CHAMBRE_CIVILE_2",
+        },
+        Recorded {
+            text: "Cass. civ. 3e, 11 février 2016, n° 14-26.866",
+            id: "JURITEXT000032056669",
+            date: (2016, 2, 11),
+            formation: "CHAMBRE_CIVILE_3",
+        },
+        Recorded {
+            text: "Cass. com., 3 juin 2026, n° 24-14.748",
+            id: "JURITEXT000054218381",
+            date: (2026, 6, 3),
+            formation: "CHAMBRE_COMMERCIALE",
+        },
+        Recorded {
+            text: "Cass. crim., 26 janvier 2010, n° 08-88.134",
+            id: "JURITEXT000021854686",
+            date: (2010, 1, 26),
+            formation: "CHAMBRE_CRIMINELLE",
+        },
+        Recorded {
+            text: "Cass. soc., 9 septembre 2026, n° 25-14.356",
+            id: "JURITEXT000054929168",
+            date: (2026, 9, 9),
+            formation: "CHAMBRE_SOCIALE",
+        },
+        Recorded {
+            text: "Cass. soc., 25 novembre 2015, n° 14-24.444",
+            id: "JURITEXT000031539712",
+            date: (2015, 11, 25),
+            formation: "CHAMBRE_SOCIALE",
+        },
+        Recorded {
+            text: "Cass. ch. mixte, 21 décembre 2007, n° 06-12.769",
+            id: "JURITEXT000017739957",
+            date: (2007, 12, 21),
+            formation: "CHAMBRE_MIXTE",
+        },
+    ];
+
+    /// Résout `text` contre une décision de la Cour de cassation dont la formation est `formation`.
+    async fn resolve_cassation(
+        text: &str,
+        id: &str,
+        date: (u16, u8, u8),
+        formation: Option<&str>,
+    ) -> Resolution {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, id)]));
+        let mut official = decision(id, civil(date.0, date.1, date.2), None);
+        official.formation = formation.map(str::to_owned);
+        corpus.push_get_decision(Ok(official));
+        resolve(&corpus, text).await
+    }
+
+    #[tokio::test]
+    async fn a_wrong_cassation_chamber_is_a_mismatch() {
+        // Les quatre pourvois de l'E2E (verify_citations-2), cités avec une autre chambre.
+        for (text, id, date, formation, expected) in [
+            (
+                "Cass. civ. 1re, 25 novembre 2015, n° 14-24.444",
+                "JURITEXT000031539712",
+                (2015, 11, 25),
+                "CHAMBRE_SOCIALE",
+                "Cited chamber CIV1 differs from the official record (SOC).",
+            ),
+            (
+                "Cass. crim., 6 octobre 2006, n° 05-13.255",
+                "JURITEXT000007052928",
+                (2006, 10, 6),
+                "ASSEMBLEE_PLENIERE",
+                "Cited chamber CRIM differs from the official record (AP).",
+            ),
+            (
+                "Cass. com., 29 mars 1991, n° 89-15.231",
+                "JURITEXT000007026394",
+                (1991, 3, 29),
+                "ASSEMBLEE_PLENIERE",
+                "Cited chamber COM differs from the official record (AP).",
+            ),
+            (
+                "Cass. soc., 21 décembre 2007, n° 06-12.769",
+                "JURITEXT000017739957",
+                (2007, 12, 21),
+                "CHAMBRE_MIXTE",
+                "Cited chamber SOC differs from the official record (MIXTE).",
+            ),
+        ] {
+            let resolution = resolve_cassation(text, id, date, Some(formation)).await;
+            assert_eq!(status(&resolution), CheckStatus::Invalid, "{text}");
+            assert_eq!(note(&resolution), expected, "{text}");
+            assert_eq!(record_id(&resolution).as_deref(), Some(id));
+        }
+    }
+
+    #[tokio::test]
+    async fn the_right_cassation_chamber_stays_verified_on_the_recorded_decisions() {
+        for case in &FAITHFUL {
+            let resolution =
+                resolve_cassation(case.text, case.id, case.date, Some(case.formation)).await;
+            assert_eq!(status(&resolution), CheckStatus::Verified, "{}", case.text);
+            assert_eq!(resolution.outcome.note(Proof::Production), None, "{}", case.text);
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High), "{}", case.text);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_wrong_date_and_a_wrong_chamber_are_both_reported() {
+        let resolution = resolve_cassation(
+            "Cass. soc., 5 mai 2021, n° 99-12.345",
+            "JURITEXT000000000001",
+            (2000, 12, 20),
+            Some("CHAMBRE_CIVILE_1"),
+        )
+        .await;
+        assert_eq!(status(&resolution), CheckStatus::Invalid);
+        assert_eq!(
+            note(&resolution),
+            "Cited date 2021-05-05 differs from the official record (2000-12-20); chamber SOC \
+             differs (CIV1)."
+        );
+    }
+
+    #[tokio::test]
+    async fn a_formation_that_cannot_be_compared_gives_a_note_never_a_mismatch() {
+        let expected = "The cited chamber could not be compared: the official record gives a \
+                        formation that is not a modern Cour de cassation chamber.";
+        // Valeurs réelles des relevés C4 (décisions de juridictions du fond), puis une chambre
+        // historique et la chambre unique : jamais `invalid`.
+        for formation in ["CT0196", "I7", "CHAMBRES_REUNIES", "CHAMBRE_CIVILE"] {
+            let resolution = resolve_cassation(
+                "Cass. soc., 25 novembre 2015, n° 14-24.444",
+                "JURITEXT000031539712",
+                (2015, 11, 25),
+                Some(formation),
+            )
+            .await;
+            assert_eq!(status(&resolution), CheckStatus::Verified, "{formation}");
+            assert_eq!(note(&resolution), expected, "{formation}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_missing_or_blank_formation_is_not_compared_and_not_noted() {
+        for formation in [None, Some(""), Some("  ")] {
+            let resolution = resolve_cassation(
+                "Cass. soc., 25 novembre 2015, n° 14-24.444",
+                "JURITEXT000031539712",
+                (2015, 11, 25),
+                formation,
+            )
+            .await;
+            assert_eq!(status(&resolution), CheckStatus::Verified, "{formation:?}");
+            assert_eq!(resolution.outcome.note(Proof::Production), None, "{formation:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_cited_chamber_that_is_absent_or_historical_is_not_compared() {
+        // Chambre non citée.
+        let resolution = resolve_cassation(
+            "Cour de cassation, 25 novembre 2015, 14-24.444",
+            "JURITEXT000031539712",
+            (2015, 11, 25),
+            Some("CHAMBRE_SOCIALE"),
+        )
+        .await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(resolution.outcome.note(Proof::Production), None);
+        // Chambre civile sans numéro (citée, historique) contre une chambre moderne.
+        let resolution = resolve_cassation(
+            "Cass. civ., 25 novembre 1925, n° 14-24.444",
+            "JURITEXT000031539712",
+            (1925, 11, 25),
+            Some("CHAMBRE_SOCIALE"),
+        )
+        .await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(resolution.outcome.note(Proof::Production), None);
+    }
+
+    #[tokio::test]
+    async fn the_chamber_of_a_non_cassation_decision_is_never_compared() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, "JURITEXT000046652043")]));
+        let mut official = decision("JURITEXT000046652043", civil(2022, 7, 5), None);
+        official.formation = Some("CHAMBRE_SOCIALE".to_owned());
+        corpus.push_get_decision(Ok(official));
+        let text = "Cour d'appel de Paris, Pôle 1 - Chambre 12, 5 juillet 2022, n°14/10026";
+        let resolution = resolve(&corpus, text).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(resolution.outcome.note(Proof::Production), None);
     }
 
     #[tokio::test]
@@ -2653,6 +2943,7 @@ mod tests {
             title_filter: None,
             date: None,
             cc_type: None,
+            chamber: None,
             absent: Note::CouldNotConfirm { index: "JURI" },
         }
     }
@@ -2834,7 +3125,7 @@ mod tests {
     fn the_decision_of_the_cited_day_is_chosen_with_high_confidence_and_its_text() {
         let day = civil(2025, 6, 4);
         let found = found_of(&[civil(2025, 6, 3), day, civil(2025, 6, 5)], None);
-        let chosen = choose_decision(&found, Some(day), None);
+        let chosen = choose_decision(&found, Some(day), None, None);
         assert_eq!(confidence_of(&chosen.outcome), Some(Confidence::High));
         assert_eq!(record_id(&chosen).as_deref(), Some("JURITEXT000000000002"));
         assert_eq!(chosen.official.as_deref(), Some("Texte de la décision."));
@@ -2844,7 +3135,7 @@ mod tests {
     #[test]
     fn a_single_decision_of_another_day_is_a_date_mismatch_carrying_its_text() {
         let found = found_of(&[civil(2025, 6, 5)], None);
-        let chosen = choose_decision(&found, Some(civil(2025, 6, 4)), None);
+        let chosen = choose_decision(&found, Some(civil(2025, 6, 4)), None, None);
         assert_eq!(
             chosen.outcome.note(Proof::Production),
             Some(Note::Mismatch {
@@ -2861,12 +3152,13 @@ mod tests {
     #[test]
     fn without_a_date_a_single_decision_is_medium_and_several_are_candidates() {
         let found = found_of(&[civil(2025, 6, 5)], None);
-        let chosen = choose_decision(&found, None, None);
+        let chosen = choose_decision(&found, None, None, None);
         assert_eq!(confidence_of(&chosen.outcome), Some(Confidence::Medium));
         assert_eq!(chosen.official.as_deref(), Some("Texte de la décision."));
 
         let many = found_of(&[civil(2025, 6, 5), civil(2025, 6, 6)], None);
-        let (items, note) = candidates_of(choose_decision(&many, None, None).outcome).unwrap();
+        let (items, note) =
+            candidates_of(choose_decision(&many, None, None, None).outcome).unwrap();
         assert_eq!(items.len(), 2);
         assert_eq!(note, Note::Candidates { n: 2 });
         assert!(
@@ -2879,17 +3171,18 @@ mod tests {
         let day = civil(2025, 6, 4);
         // Deux décisions du jour cité.
         let twice = found_of(&[day, day], None);
-        let (_, note) = candidates_of(choose_decision(&twice, Some(day), None).outcome).unwrap();
+        let (_, note) =
+            candidates_of(choose_decision(&twice, Some(day), None, None).outcome).unwrap();
         assert_eq!(note, Note::Candidates { n: 2 });
         // Plusieurs décisions, aucune du jour cité.
         let other_days = found_of(&[civil(2025, 6, 5), civil(2025, 6, 6)], None);
         let (_, note) =
-            candidates_of(choose_decision(&other_days, Some(day), None).outcome).unwrap();
+            candidates_of(choose_decision(&other_days, Some(day), None, None).outcome).unwrap();
         assert_eq!(note, Note::Candidates { n: 2 });
         // Au-delà de cinq, cinq candidats et le compte exact.
         let dates: Vec<CivilDate> = (1..=6).map(|d| civil(2025, 7, d)).collect();
         let six = found_of(&dates, None);
-        let (items, note) = candidates_of(choose_decision(&six, None, None).outcome).unwrap();
+        let (items, note) = candidates_of(choose_decision(&six, None, None, None).outcome).unwrap();
         assert_eq!(items.len(), MAX_CANDIDATES);
         assert_eq!(note, Note::Candidates { n: 6 });
     }
@@ -2897,7 +3190,8 @@ mod tests {
     #[test]
     fn a_constitutional_type_is_compared_only_when_the_record_names_one() {
         let day = civil(2025, 11, 7);
-        let mismatch = choose_decision(&found_of(&[day], Some("DC")), Some(day), Some(CcType::Qpc));
+        let mismatch =
+            choose_decision(&found_of(&[day], Some("DC")), Some(day), Some(CcType::Qpc), None);
         assert_eq!(
             mismatch.outcome.note(Proof::Production),
             Some(Note::Mismatch {
@@ -2907,20 +3201,132 @@ mod tests {
             })
         );
         assert_eq!(mismatch.official.as_deref(), Some("Texte de la décision."));
-        let same = choose_decision(&found_of(&[day], Some("QPC")), Some(day), Some(CcType::Qpc));
+        let same =
+            choose_decision(&found_of(&[day], Some("QPC")), Some(day), Some(CcType::Qpc), None);
         assert_eq!(confidence_of(&same.outcome), Some(Confidence::High));
         assert_eq!(same.official.as_deref(), Some("Texte de la décision."));
-        let unnamed = choose_decision(&found_of(&[day], None), Some(day), Some(CcType::Qpc));
+        let unnamed = choose_decision(&found_of(&[day], None), Some(day), Some(CcType::Qpc), None);
         assert_eq!(confidence_of(&unnamed.outcome), Some(Confidence::High));
-        // La date en écart l'emporte sur le type.
+        // La date et le type en écart sont rendus ensemble.
         let found = found_of(&[day], Some("DC"));
-        let both = choose_decision(&found, Some(civil(2025, 11, 8)), Some(CcType::Qpc));
+        let both = choose_decision(&found, Some(civil(2025, 11, 8)), Some(CcType::Qpc), None);
         assert_eq!(
             both.outcome.note(Proof::Production),
+            Some(Note::Mismatches(vec![
+                (Field::Date, "2025-11-08".to_owned(), "2025-11-07".to_owned()),
+                (Field::CcType, "QPC".to_owned(), "DC".to_owned()),
+            ]))
+        );
+    }
+
+    fn with_formation(dates: &[CivilDate], formation: Option<&str>) -> Vec<(DocumentId, Decision)> {
+        let mut found = found_of(dates, None);
+        for (_, official) in &mut found {
+            official.formation = formation.map(str::to_owned);
+        }
+        found
+    }
+
+    #[test]
+    fn only_the_modern_chambers_are_comparable() {
+        let modern = [
+            CassChamber::Civ1,
+            CassChamber::Civ2,
+            CassChamber::Civ3,
+            CassChamber::Com,
+            CassChamber::Soc,
+            CassChamber::Crim,
+            CassChamber::AssPlen,
+            CassChamber::Mixte,
+            CassChamber::PremierPresident,
+        ];
+        for chamber in CassChamber::ALL {
+            assert_eq!(is_modern(chamber), modern.contains(&chamber), "{chamber:?}");
+        }
+    }
+
+    #[test]
+    fn the_cited_chamber_is_compared_with_the_official_formation() {
+        let same = check_chamber(Some(CassChamber::Soc), Some("CHAMBRE_SOCIALE"));
+        assert_eq!(same, ChamberCheck::Fine);
+        let differs = check_chamber(Some(CassChamber::Civ1), Some("CHAMBRE_SOCIALE"));
+        assert_eq!(differs, ChamberCheck::Differs(CassChamber::Civ1, CassChamber::Soc));
+        // Les espaces autour de la valeur officielle ne comptent pas.
+        let spaced = check_chamber(Some(CassChamber::Soc), Some(" CHAMBRE_SOCIALE "));
+        assert_eq!(spaced, ChamberCheck::Fine);
+        // Rien à comparer : chambre citée absente ou historique, formation absente ou vide.
+        assert_eq!(check_chamber(None, Some("CHAMBRE_SOCIALE")), ChamberCheck::Fine);
+        let unique = check_chamber(Some(CassChamber::CivUnique), Some("CHAMBRE_SOCIALE"));
+        assert_eq!(unique, ChamberCheck::Fine);
+        assert_eq!(check_chamber(Some(CassChamber::Soc), None), ChamberCheck::Fine);
+        assert_eq!(check_chamber(Some(CassChamber::Soc), Some("")), ChamberCheck::Fine);
+        assert_eq!(check_chamber(Some(CassChamber::Soc), Some("  ")), ChamberCheck::Fine);
+        // Formation inattendue (relevés C4), historique ou casse différente : note, pas d'écart.
+        for formation in ["CT0196", "I7", "CHAMBRES_REUNIES", "CHAMBRE_CIVILE", "chambre_sociale"] {
+            let check = check_chamber(Some(CassChamber::Soc), Some(formation));
+            assert_eq!(check, ChamberCheck::NotComparable, "{formation}");
+        }
+    }
+
+    #[test]
+    fn a_cassation_chamber_gap_is_reported_alone_or_with_the_date() {
+        let day = civil(2025, 6, 4);
+        let soc = with_formation(&[day], Some("CHAMBRE_SOCIALE"));
+        // Chambre seule.
+        let alone = choose_decision(&soc, Some(day), None, Some(CassChamber::Civ1));
+        assert_eq!(
+            alone.outcome.note(Proof::Production),
+            Some(Note::Mismatch {
+                field: Field::Chamber,
+                cited: "CIV1".to_owned(),
+                actual: "SOC".to_owned()
+            })
+        );
+        assert_eq!(alone.official.as_deref(), Some("Texte de la décision."));
+        // Date et chambre.
+        let both = choose_decision(&soc, Some(civil(2025, 6, 5)), None, Some(CassChamber::Civ1));
+        assert_eq!(
+            both.outcome.note(Proof::Production),
+            Some(Note::Mismatches(vec![
+                (Field::Date, "2025-06-05".to_owned(), "2025-06-04".to_owned()),
+                (Field::Chamber, "CIV1".to_owned(), "SOC".to_owned()),
+            ]))
+        );
+        // Date seule, bonne chambre : l'ancien rendu, un seul écart.
+        let date_only =
+            choose_decision(&soc, Some(civil(2025, 6, 5)), None, Some(CassChamber::Soc));
+        assert_eq!(
+            date_only.outcome.note(Proof::Production),
             Some(Note::Mismatch {
                 field: Field::Date,
-                cited: "2025-11-08".to_owned(),
-                actual: "2025-11-07".to_owned()
+                cited: "2025-06-05".to_owned(),
+                actual: "2025-06-04".to_owned()
+            })
+        );
+        // Bonne chambre et bonne date : vérifié, sans note.
+        let fine = choose_decision(&soc, Some(day), None, Some(CassChamber::Soc));
+        assert_eq!(confidence_of(&fine.outcome), Some(Confidence::High));
+        assert_eq!(fine.outcome.note(Proof::Production), None);
+    }
+
+    #[test]
+    fn an_unexpected_formation_is_verified_with_a_note_and_a_date_gap_still_wins() {
+        let day = civil(2025, 6, 4);
+        let odd = with_formation(&[day], Some("CT0196"));
+        let noted = choose_decision(&odd, Some(day), None, Some(CassChamber::Soc));
+        assert_eq!(confidence_of(&noted.outcome), Some(Confidence::High));
+        assert_eq!(noted.outcome.note(Proof::Production), Some(Note::ChamberNotCompared));
+        // Une chambre non citée ne produit aucune note, même devant une formation inattendue.
+        let silent = choose_decision(&odd, Some(day), None, None);
+        assert_eq!(silent.outcome.note(Proof::Production), None);
+        // Un écart de date reste un écart de date : la note de chambre ne s'y ajoute pas.
+        let late = choose_decision(&odd, Some(civil(2025, 6, 5)), None, Some(CassChamber::Soc));
+        assert_eq!(
+            late.outcome.note(Proof::Production),
+            Some(Note::Mismatch {
+                field: Field::Date,
+                cited: "2025-06-05".to_owned(),
+                actual: "2025-06-04".to_owned()
             })
         );
     }

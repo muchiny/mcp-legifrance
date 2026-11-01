@@ -114,6 +114,14 @@ pub enum Note {
         /// Valeur officielle, sous sa forme canonique.
         actual: String,
     },
+    /// Plusieurs champs durs différents de l'enregistrement officiel : `invalid`. Chaque écart
+    /// est un champ, la valeur citée et la valeur officielle (formes canoniques), dans l'ordre
+    /// où ils sont rendus.
+    Mismatches(Vec<(Field, String, String)>),
+    /// Chambre de la Cour de cassation citée, mais formation officielle qui n'est pas une chambre
+    /// moderne (juridiction du fond, chambre historique, valeur inconnue) : le contrôle de la
+    /// chambre n'a pas pu se faire, `verified` conservé.
+    ChamberNotCompared,
     /// ECLI natif de la décision consultée.
     NativeEcli(Ecli),
     /// Impossibilité syntaxique relevée par le parseur : `invalid`.
@@ -268,6 +276,26 @@ fn on(date: Option<VersionDate>) -> String {
     date.map_or_else(String::new, |date| format!(" on {date}"))
 }
 
+/// Texte de plusieurs écarts : le premier avec le gabarit `Mismatch`, les suivants abrégés,
+/// séparés par « ; ».
+fn mismatches_text(gaps: &[(Field, String, String)]) -> String {
+    let parts: Vec<String> = gaps
+        .iter()
+        .enumerate()
+        .map(|(rank, (field, cited, actual))| {
+            if rank == 0 {
+                format!(
+                    "Cited {} {cited} differs from the official record ({actual})",
+                    field.label()
+                )
+            } else {
+                format!("{} {cited} differs ({actual})", field.label())
+            }
+        })
+        .collect();
+    format!("{}.", parts.join("; "))
+}
+
 impl Note {
     /// Texte anglais de la note, gabarit de l'annexe B §7.10, borné à [`NOTE_MAX_CHARS`] caractères.
     #[must_use]
@@ -283,6 +311,10 @@ impl Note {
                 "Cited {} {cited} differs from the official record ({actual}).",
                 field.label()
             ),
+            Self::Mismatches(gaps) => mismatches_text(gaps),
+            Self::ChamberNotCompared => "The cited chamber could not be compared: the official \
+                 record gives a formation that is not a modern Cour de cassation chamber."
+                .to_owned(),
             Self::NativeEcli(ecli) => format!("Native ECLI is {ecli}."),
             Self::Impossible { fact } => format!("{fact}."),
             Self::AmbiguousSigle { sigle } => format!(
@@ -514,6 +546,33 @@ mod tests {
             (
                 Note::NotInSnapshot { family: "text", value: "2016-1321".to_owned(), date: None },
                 "No text record matches 2016-1321 in the local DILA snapshot, which may be out of date.",
+            ),
+            (
+                Note::Mismatches(vec![(
+                    Field::Date,
+                    "2015-10-07".to_owned(),
+                    "2016-10-07".to_owned(),
+                )]),
+                "Cited date 2015-10-07 differs from the official record (2016-10-07).",
+            ),
+            (
+                Note::Mismatches(vec![
+                    (Field::Date, "2015-10-07".to_owned(), "2016-10-07".to_owned()),
+                    (Field::Chamber, "SOC".to_owned(), "CIV1".to_owned()),
+                ]),
+                "Cited date 2015-10-07 differs from the official record (2016-10-07); chamber SOC differs (CIV1).",
+            ),
+            (
+                Note::Mismatches(vec![
+                    (Field::Date, "2015-10-07".to_owned(), "2016-10-07".to_owned()),
+                    (Field::Chamber, "PREMIER_PRESIDENT".to_owned(), "CIV1".to_owned()),
+                    (Field::CcType, "QPC".to_owned(), "DC".to_owned()),
+                ]),
+                "Cited date 2015-10-07 differs from the official record (2016-10-07); chamber PREMIER_PRESIDENT differs (CIV1); decision type QPC differs (DC).",
+            ),
+            (
+                Note::ChamberNotCompared,
+                "The cited chamber could not be compared: the official record gives a formation that is not a modern Cour de cassation chamber.",
             ),
         ]
     }

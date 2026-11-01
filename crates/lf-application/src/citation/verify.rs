@@ -434,6 +434,66 @@ mod tests {
         ));
     }
 
+    /// Repro de verify_citations-2 et -14 : les quatre pourvois de l'E2E (relevés C4), cités avec
+    /// une autre chambre, sont `invalid` avec la vraie chambre en note.
+    #[tokio::test]
+    async fn a_cassation_citation_with_the_wrong_chamber_is_invalid_with_the_real_one() {
+        for (text, id, date, formation, expected) in [
+            (
+                "Cass. civ. 1re, 25 novembre 2015, n° 14-24.444",
+                "JURITEXT000031539712",
+                (2015, 11, 25),
+                "CHAMBRE_SOCIALE",
+                "Cited chamber CIV1 differs from the official record (SOC).",
+            ),
+            (
+                "Cass. crim., 6 octobre 2006, n° 05-13.255",
+                "JURITEXT000007052928",
+                (2006, 10, 6),
+                "ASSEMBLEE_PLENIERE",
+                "Cited chamber CRIM differs from the official record (AP).",
+            ),
+            (
+                "Cass. com., 29 mars 1991, n° 89-15.231",
+                "JURITEXT000007026394",
+                (1991, 3, 29),
+                "ASSEMBLEE_PLENIERE",
+                "Cited chamber COM differs from the official record (AP).",
+            ),
+            (
+                "Cass. soc., 21 décembre 2007, n° 06-12.769",
+                "JURITEXT000017739957",
+                (2007, 12, 21),
+                "CHAMBRE_MIXTE",
+                "Cited chamber SOC differs from the official record (MIXTE).",
+            ),
+        ] {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, id)]));
+            corpus.push_get_decision(Ok(Decision {
+                decision_id: DecisionId::parse(id).unwrap(),
+                ecli: None,
+                num: None,
+                juridiction: None,
+                formation: Some(formation.to_owned()),
+                solution: None,
+                numero_affaire: vec![],
+                date_texte: CivilDate::new(date.0, date.1, date.2),
+                nature: Some("ARRET".to_owned()),
+                title: None,
+                text: LongText::from_plain("Texte de la décision.").unwrap(),
+                official_summary: OfficialSummary::default(),
+                cited_case_law: None,
+                applied_texts: vec![],
+            }));
+            let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+            let check = &verification.checks[0];
+            assert_eq!(check.status, CheckStatus::Invalid, "{text}");
+            assert_eq!(note_text(check), expected, "{text}");
+            assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), id);
+        }
+    }
+
     #[tokio::test]
     async fn n07_year_mismatch_is_invalid_with_the_real_law() {
         let corpus = FakeCorpus::new();
