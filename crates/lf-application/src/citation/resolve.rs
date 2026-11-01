@@ -22,7 +22,7 @@
 //! L'article d'un texte est cherché par `find_article` sur le `LEGITEXT` résolu, sans parcourir
 //! la table des matières. Un texte cité par sa seule date, la formation du Conseil d'État, le
 //! siège d'une cour d'appel ou d'un tribunal, les avenants et les alinéas du Préambule ne sont pas
-//! contrôlés (`NotSupported` ou ignorés). La chambre de la Cour de cassation l'est, sur les seules
+//! contrôlés (`NotSupported`, `NumberlessText` ou ignorés). La chambre de la Cour de cassation l'est, sur les seules
 //! chambres modernes (`check_chamber`).
 
 use lf_domain::{
@@ -341,7 +341,7 @@ pub(crate) fn offline(item: &Spanned<CitationRef>) -> Option<Resolution> {
         }
         CitationRef::TextArticle { text: Some(TextCite { number: None, .. }), .. }
         | CitationRef::Text(TextCite { number: None, .. }) => {
-            Some(not_supported("text cited without a number"))
+            Some(Resolution::unresolvable(Note::NumberlessText))
         }
         CitationRef::CodeArticle { article, .. } | CitationRef::TextArticle { article, .. }
             if article.num.num_key().is_empty() =>
@@ -596,7 +596,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
     )]
     async fn text(&self, cite: &TextCite) -> TextStep {
         let Some(number) = &cite.number else {
-            return TextStep::Done(not_supported("text cited without a number"));
+            return TextStep::Done(Resolution::unresolvable(Note::NumberlessText));
         };
         // Premier jeu de résultats LEGI parmi les formes du numéro (`89-462`, puis `1989-462`) :
         // la sandbox ne connaît que la forme à deux chiffres des textes d'avant 2000.
@@ -2910,8 +2910,7 @@ mod tests {
         );
         assert!(offline(&convention_item(Some(1486), None)).is_none());
 
-        let numberless =
-            unresolvable_outcome(Note::NotSupported { what: "text cited without a number" });
+        let numberless = unresolvable_outcome(Note::NumberlessText);
         let loi = text_cite(TextNature::Loi, None, None);
         assert_eq!(
             offline(&standalone(CitationRef::Text(loi.clone()))).unwrap().outcome,
@@ -4442,10 +4441,7 @@ mod tests {
         let corpus = FakeCorpus::new();
         let codes = codes();
         let step = resolver(&corpus, &codes).text(&text_cite(TextNature::Loi, None, None)).await;
-        assert_eq!(
-            step.into_resolution().outcome,
-            unresolvable_outcome(Note::NotSupported { what: "text cited without a number" })
-        );
+        assert_eq!(step.into_resolution().outcome, unresolvable_outcome(Note::NumberlessText));
         assert_eq!(corpus.calls(), 0);
     }
 

@@ -557,6 +557,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_text_cited_without_a_number_points_to_fr_search() {
+        for citation in
+            ["loi du 1er juillet 1901", "article 34 de la Constitution du 4 octobre 1958"]
+        {
+            let corpus = FakeCorpus::new();
+            let output = resolve(&corpus, citation).await;
+            assert_eq!(output.candidates, [], "{citation}");
+            assert_eq!(output.notes, [Note::NumberlessText], "{citation}");
+            let text = output.notes[0].text();
+            assert!(text.contains("fr_search (query: its title and date)"), "{text}");
+            assert!(!text.contains("Not checkable in this version"), "{text}");
+            assert_eq!(corpus.calls(), 0, "{citation}");
+        }
+    }
+
+    #[tokio::test]
     async fn nothing_found_is_an_empty_list_with_the_reason_never_not_found() {
         let corpus = corpus_with_civil_code();
         corpus.push_find_article(Err(not_found()));

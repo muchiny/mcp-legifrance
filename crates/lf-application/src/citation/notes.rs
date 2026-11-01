@@ -30,6 +30,14 @@ const QUOTE_GAP: &str = "Quoted text not found in the official text.";
 const NO_CITATION: &str = "No citation recognised. Only citations introduced by 'article' or \
      'art.' are read; an empty result does not prove the text cites nothing.";
 
+/// Texte de [`Note::NumberlessText`].
+const NUMBERLESS_TEXT: &str = "A text cited without a number cannot be checked here; find it with \
+     fr_search (query: its title and date).";
+
+/// Texte de [`Note::NoDecisionReferences`].
+const NO_DECISION_REFERENCES: &str = "The API gives no references for this decision; its text may \
+     still cite some: read it with fr_get_decision and check it with fr_verify_citations.";
+
 /// Champ dont l'écart donne `invalid` (annexe B §6.6, champs durs de §7.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
@@ -201,6 +209,9 @@ pub enum Note {
         /// Ce qui n'est pas contrôlable, vocabulaire fermé.
         what: &'static str,
     },
+    /// Texte cité sans numéro (« loi du 1er juillet 1901 », « la Constitution du 4 octobre
+    /// 1958 ») : `unresolvable`, avec la piste de la recherche plein texte (L2-10).
+    NumberlessText,
     /// Existence non confirmée : `unresolvable`.
     CouldNotConfirm {
         /// Index interrogé, vocabulaire fermé.
@@ -412,6 +423,7 @@ impl Note {
                  (see fr_coverage)."
             ),
             Self::NotSupported { what } => format!("Not checkable in this version ({what})."),
+            Self::NumberlessText => NUMBERLESS_TEXT.to_owned(),
             Self::CouldNotConfirm { index } => {
                 format!(
                     "Could not confirm existence: nothing was found in {index}, which does not \
@@ -448,10 +460,7 @@ impl Note {
             Self::UseSearch => {
                 "A popular name is not a citation; find the text with fr_search.".to_owned()
             }
-            Self::NoDecisionReferences => "The API gives no references for this decision; its \
-                 text may still cite some: read it with fr_get_decision and check it with \
-                 fr_verify_citations."
-                .to_owned(),
+            Self::NoDecisionReferences => NO_DECISION_REFERENCES.to_owned(),
         };
         messages::clip(&text, NOTE_MAX_CHARS)
     }
@@ -539,6 +548,10 @@ mod tests {
                 "Légifrance only holds a selection of Cour d'appel decisions; absence is not proof (see fr_coverage).",
             ),
             (Note::NotSupported { what: "JORF" }, "Not checkable in this version (JORF)."),
+            (
+                Note::NumberlessText,
+                "A text cited without a number cannot be checked here; find it with fr_search (query: its title and date).",
+            ),
             (
                 Note::NotChecked { reason: NotCheckedReason::TimeBudget },
                 "Not checked: time budget.",
