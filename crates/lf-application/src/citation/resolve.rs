@@ -40,10 +40,7 @@ use lf_domain::{
     entity::{CodeListing, Decision, SearchHit},
     fond::Fond,
     id::{ArticleId, CnilTextId, DecisionId, DocumentId, LegiTextId},
-    search::{
-        MatchMode, NUMBER_VALUE_MAX_CHARS, NumberKind, NumberQuery, NumberValue, PageSize,
-        QueryText, SearchQuery,
-    },
+    search::{NUMBER_VALUE_MAX_CHARS, NumberKind, NumberQuery, NumberValue},
     status::LegalStatus,
     url::WEB_BASE,
 };
@@ -54,7 +51,6 @@ use super::{
     policy::{self, Absence, CONSULT_LIMIT, Family, MAX_CANDIDATES, fold_line, fold_words},
 };
 use crate::ports::{ArticleAt, CorpusError, LegalCorpus, PisteEnvironment};
-use std::num::NonZeroU32;
 
 /// Ce que la résolution d'une citation a établi.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -700,43 +696,6 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         .await
     }
 
-    /// Formes complètes (`2010-14/22`) des décisions du Conseil constitutionnel jointes à la
-    /// décision de premier numéro `first` (`2010-14`). Un ECLI ne porte que ce premier numéro,
-    /// alors que `NUM_DEC` vaut `2010-14/22` et que la recherche exacte de `2010-14` ne trouve
-    /// rien (relevé C6) : on suppose que la recherche plein texte donne des intitulés qui
-    /// commencent par « Décision 2010-14/22 QPC », dont on retient le mot qui commence par
-    /// `2010-14/`. Cette hypothèse n'est PAS confirmée : le relevé C17 (sandbox, V-154) ne renvoie
-    /// pas la décision jointe, seulement un résultat sans rapport, et le repli ne retient alors
-    /// rien. L'égalité stricte avec l'ECLI natif (`check_ecli`) reste le garde-fou.
-    async fn joined_constit_forms(&self, first: &str) -> Result<Vec<String>, CorpusError> {
-        let query = QueryText::parse(first).ok().and_then(|text| {
-            SearchQuery::new(
-                Fond::Constit,
-                text,
-                NonZeroU32::MIN,
-                PageSize::DEFAULT,
-                MatchMode::Exact,
-                None,
-                None,
-            )
-            .ok()
-        });
-        let hits = match query {
-            Some(query) => self.corpus.search(&query).await?.hits,
-            None => Vec::new(),
-        };
-        let prefix = format!("{first}/");
-        let mut forms: Vec<String> = Vec::new();
-        for word in
-            hits.iter().filter_map(|hit| hit.title.as_deref()).flat_map(str::split_whitespace)
-        {
-            if word.starts_with(&prefix) && !forms.iter().any(|form| form == word) {
-                forms.push(word.to_owned());
-            }
-        }
-        Ok(forms)
-    }
-
     /// Cherche une décision par numéro, la consulte et compare la date (et le type du Conseil
     /// constitutionnel).
     async fn lookup(&self, spec: Lookup) -> Resolution {
@@ -799,10 +758,10 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         let ordinal = parts.nth(1).unwrap_or_default();
         let mut pieces = ordinal.split('.');
         let (first, second) = (pieces.next().unwrap_or_default(), pieces.next());
-        let lookup = |fond, kind, forms: Vec<String>, filter, absent| Lookup {
+        let lookup = |fond, kind, form: String, filter, absent| Lookup {
             fond,
             kind,
-            forms,
+            forms: vec![form],
             title_filter: filter,
             date: None,
             cc_type: None,
@@ -811,35 +770,20 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         };
         let (resolution, index, strict) = match (court, second) {
             ("CC", Some(seq)) => {
-                let absent = Note::CouldNotConfirm { index: "CONSTIT" };
-                let first_form = format!("{first}-{seq}");
                 let spec = lookup(
                     Fond::Constit,
                     NumberKind::Decision,
-                    vec![first_form.clone()],
+                    format!("{first}-{seq}"),
                     None,
-                    absent.clone(),
+                    Note::CouldNotConfirm { index: "CONSTIT" },
                 );
-                let mut resolution = self.lookup(spec).await;
-                // Rien sous le premier numéro seul : une décision jointe s'écrit `2010-14/22`.
-                if resolution.outcome == (Outcome::Unresolvable { note: absent.clone() }) {
-                    resolution = match self.joined_constit_forms(&first_form).await {
-                        Ok(forms) if !forms.is_empty() => {
-                            let spec =
-                                lookup(Fond::Constit, NumberKind::Decision, forms, None, absent);
-                            self.lookup(spec).await
-                        }
-                        Ok(_) => resolution,
-                        Err(error) => Resolution::failed(error),
-                    };
-                }
-                (resolution, "CONSTIT", false)
+                (self.lookup(spec).await, "CONSTIT", false)
             }
             (court, _) if court.starts_with("CE") => {
                 let spec = lookup(
                     Fond::Cetat,
                     NumberKind::Decision,
-                    vec![first.to_owned()],
+                    first.to_owned(),
                     Some(is_conseil_etat),
                     Note::CouldNotConfirm { index: "CETAT" },
                 );
@@ -849,7 +793,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
                 let spec = lookup(
                     Fond::Juri,
                     NumberKind::Ecli,
-                    vec![cited.as_str().to_owned()],
+                    cited.as_str().to_owned(),
                     None,
                     Note::CouldNotConfirm { index: "JURI" },
                 );
@@ -1586,10 +1530,7 @@ mod tests {
             Anaphora, ArticleRef, EcliFamily, IdPrefix, Sigle, Span, SpecialNum, UnsupportedCite,
         },
         contract::{Idcc, Nor},
-        entity::{
-            Act, ArticleText, CompanyAgreement, Convention, Deliberation, SearchPage, TextBody,
-        },
-        fond::PaginationMode,
+        entity::{Act, ArticleText, CompanyAgreement, Convention, Deliberation, TextBody},
         id::{AccoTextId, ArticleId, CnilTextId, KaliTextId},
         text::LongText,
     };
@@ -3838,27 +3779,6 @@ mod tests {
         Note::NativeEcli(Ecli::parse(text).unwrap())
     }
 
-    /// Page de résultats `CONSTIT` dont chaque hit porte l'intitulé donné.
-    fn constit_page(hits: &[(&str, &str)]) -> SearchPage {
-        let hits = hits.iter().map(|(id, title)| titled(Fond::Constit, id, title)).collect();
-        SearchPage::new(Fond::Constit, "2010-14", None, None, hits, 0, PaginationMode::Defaut)
-    }
-
-    fn constit_search(text: &str) -> PortRequest {
-        PortRequest::Search(
-            SearchQuery::new(
-                Fond::Constit,
-                QueryText::parse(text).unwrap(),
-                NonZeroU32::MIN,
-                PageSize::DEFAULT,
-                MatchMode::Exact,
-                None,
-                None,
-            )
-            .unwrap(),
-        )
-    }
-
     /// Garde de non-régression (L2-16) : le parseur ne signale pas l'ordinal d'un ECLI du Conseil
     /// constitutionnel à deux chiffres (`71.44.DC`) ni d'une décision jointe (`2010.14.QPC`).
     #[test]
@@ -3898,118 +3818,16 @@ mod tests {
         );
     }
 
-    /// L2-16 (resolve-6, relevé C6) : l'ordinal d'une décision jointe ne porte que le premier
-    /// numéro (`2010.14`), alors que `NUM_DEC` vaut `2010-14/22` et que la recherche exacte de
-    /// `2010-14` ne trouve rien. L'intitulé des résultats donne la forme complète.
+    /// V-154 (relevé C17, `recorded/search/c101/C17-constit-all-exacte-2010-14.json`) : l'ECLI d'une
+    /// décision jointe (`2010.14` pour 2010-14/22 QPC) n'est pas retrouvée. La recherche exacte de
+    /// `NUM_DEC` « 2010-14 » ne donne rien (relevé C6), et un repli par recherche plein texte
+    /// n'aboutit pas non plus (relevé C17 : un résultat sans rapport) ; il a été retiré. Une seule
+    /// requête part, et la réponse reste « could not confirm ».
     #[tokio::test]
-    async fn a_joined_constitutional_ecli_is_found_through_the_title_of_the_search() {
-        let id = "CONSTEXT000022762681";
+    async fn a_joined_constitutional_ecli_stays_unconfirmed_after_one_number_search() {
         let ecli = "ECLI:FR:CC:2010:2010.14.QPC";
         let corpus = FakeCorpus::new();
         corpus.push_find_by_number(Ok(vec![]));
-        // Titres hypothétiques, non observés sur le sandbox : le relevé C17 ne renvoie pas la
-        // décision jointe (voir `the_recorded_full_text_search_of_a_joined_number_confirms_nothing`).
-        corpus.push_search(Ok(constit_page(&[
-            ("CONSTEXT000023000000", "Décision 2010-140 QPC - 1 janvier 2010 - Autre"),
-            (
-                id,
-                "Décision 2010-14/22 QPC - 30 juillet 2010 - M. Daniel W. et autres [Garde à vue]",
-            ),
-        ])));
-        corpus.push_find_by_number(Ok(vec![hit(Fond::Constit, id)]));
-        corpus.push_get_decision(Ok(with_ecli(
-            decision(id, civil(2010, 7, 30), Some("QPC")),
-            Some(ecli),
-        )));
-        let resolution = resolve_with(&corpus, &codes(), &ecli_item(ecli), None).await;
-        assert_eq!(status(&resolution), CheckStatus::Verified);
-        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
-        assert_eq!(resolution.outcome.note(Proof::Production), Some(native_note(ecli)));
-        assert_eq!(record_id(&resolution).as_deref(), Some(id));
-        assert_eq!(
-            corpus.seen_requests(),
-            vec![
-                find_request(Fond::Constit, NumberKind::Decision, "2010-14"),
-                constit_search("2010-14"),
-                find_request(Fond::Constit, NumberKind::Decision, "2010-14/22"),
-                PortRequest::GetDecision(DecisionId::parse(id).unwrap()),
-            ]
-        );
-
-        // Jumeau : la forme exacte trouvée du premier coup ne déclenche aucune recherche.
-        let corpus = FakeCorpus::new();
-        corpus.push_find_by_number(Ok(vec![hit(Fond::Constit, id)]));
-        corpus.push_get_decision(Ok(with_ecli(
-            decision(id, civil(2010, 7, 30), Some("QPC")),
-            Some(ecli),
-        )));
-        let resolution = resolve_with(&corpus, &codes(), &ecli_item(ecli), None).await;
-        assert_eq!(status(&resolution), CheckStatus::Verified);
-        assert_eq!(corpus.calls_of("search"), 0);
-    }
-
-    /// Deux intitulés portant la même forme jointe ne la donnent qu'une fois, dans l'ordre des
-    /// résultats ; un autre premier numéro (`2010-140/…`) n'est pas retenu.
-    #[tokio::test]
-    async fn joined_forms_are_distinct_and_exact_on_the_first_number() {
-        // Titres hypothétiques, non observés sur le sandbox (relevé C17, V-154).
-        let corpus = FakeCorpus::new();
-        corpus.push_search(Ok(constit_page(&[
-            ("CONSTEXT000023000000", "Décision 2010-14/22 QPC - 30 juillet 2010 - A"),
-            ("CONSTEXT000023000001", "Décision 2010-140/141 QPC - 1 août 2010 - B"),
-            ("CONSTEXT000023000002", "Décision 2010-14/22 QPC - 30 juillet 2010 - A bis"),
-            ("CONSTEXT000023000003", "Décision 2010-14/23 QPC - 31 juillet 2010 - C"),
-        ])));
-        let forms = resolver(&corpus, &codes()).joined_constit_forms("2010-14").await;
-        assert_eq!(forms, Ok(vec!["2010-14/22".to_owned(), "2010-14/23".to_owned()]));
-    }
-
-    /// Sans intitulé à numéros joints, ou si la recherche échoue, rien n'est inventé.
-    #[tokio::test]
-    async fn a_constitutional_ecli_without_a_joined_title_stays_unconfirmed() {
-        let ecli = "ECLI:FR:CC:2010:2010.14.QPC";
-        let corpus = FakeCorpus::new();
-        corpus.push_find_by_number(Ok(vec![]));
-        corpus.push_search(Ok(constit_page(&[
-            ("CONSTEXT000023000000", "Décision 2010-140 QPC - 1 janvier 2010 - Autre"),
-            ("CONSTEXT000023000001", "Décision 2010-14 QPC - 1 janvier 2010 - Sans jointure"),
-        ])));
-        let resolution = resolve_with(&corpus, &codes(), &ecli_item(ecli), None).await;
-        assert_eq!(
-            resolution.outcome,
-            unresolvable_outcome(Note::CouldNotConfirm { index: "CONSTIT" })
-        );
-        assert_eq!(corpus.calls_of("find_by_number"), 1);
-
-        let corpus = FakeCorpus::new();
-        corpus.push_find_by_number(Ok(vec![]));
-        corpus.push_search(Err(upstream()));
-        let resolution = resolve_with(&corpus, &codes(), &ecli_item(ecli), None).await;
-        assert_eq!(resolution.outcome, Outcome::Failed(upstream()));
-
-        // Une requête vide ne part pas : aucun appel de recherche.
-        let corpus = FakeCorpus::new();
-        assert_eq!(resolver(&corpus, &codes()).joined_constit_forms("").await, Ok(vec![]));
-        assert_eq!(corpus.calls(), 0);
-    }
-
-    /// V-154 (relevé C17, `recorded/search/c101/C17-constit-all-exacte-2010-14.json`) : la recherche
-    /// plein texte exacte « 2010-14 » ne renvoie pas la décision jointe 2010-14/22 QPC mais un seul
-    /// résultat sans rapport (« Décision 2015-4948 SEN », dont le texte cite la loi du pays
-    /// n° 2010-14). Aucun numéro joint n'en est tiré : pas de recherche `NUM_DEC` de plus, et la
-    /// réponse reste « could not confirm » (l'appel de recherche, lui, est dépensé).
-    #[tokio::test]
-    async fn the_recorded_full_text_search_of_a_joined_number_confirms_nothing() {
-        let ecli = "ECLI:FR:CC:2010:2010.14.QPC";
-        let corpus = FakeCorpus::new();
-        corpus.push_find_by_number(Ok(vec![]));
-        // Titre recopié du test C17 de `lf-adapter-piste/src/map/search.rs` (lf-application ne lit
-        // pas les fixtures de l'adapter) : à garder synchrone. Seul le titre est lu par le repli,
-        // jamais l'extrait.
-        corpus.push_search(Ok(constit_page(&[(
-            "CONSTEXT000031554429",
-            "Décision 2015-4948 SEN - 19 novembre 2015 - Polynésie française - Rejet",
-        )])));
         let resolution = resolve_with(&corpus, &codes(), &ecli_item(ecli), None).await;
         assert_eq!(
             resolution.outcome,
@@ -4017,10 +3835,7 @@ mod tests {
         );
         assert_eq!(
             corpus.seen_requests(),
-            vec![
-                find_request(Fond::Constit, NumberKind::Decision, "2010-14"),
-                constit_search("2010-14"),
-            ]
+            vec![find_request(Fond::Constit, NumberKind::Decision, "2010-14")]
         );
     }
 
