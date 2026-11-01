@@ -1220,6 +1220,11 @@ mod tests {
         "../../tests/fixtures/recorded/consult/getArticle/c101/C13-getArticle-LEGIARTI000047288653.json"
     );
 
+    /// Relevé C11 : CGI, art. 777 (barème des droits de succession), 1 500 caractères environ.
+    const C11_CGI_777: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C11-getArticle-cgi-777-LEGIARTI000030061736.json"
+    );
+
     /// Article du relevé `body`, demandé sous `requested`.
     fn recorded(body: &str, requested: &str) -> ArticleText {
         run_body(body, requested).0.unwrap()
@@ -1294,6 +1299,35 @@ mod tests {
         }
         assert_eq!(rebuilt, full);
         assert!(pages >= 3, "{pages}");
+    }
+
+    #[test]
+    fn recorded_cgi_articles_read_whole_up_to_2000_characters_or_are_flagged() {
+        // D-01 / Q20, captures C11 et C13 : un article réel de 1 200 à 2 000 caractères revient
+        // entier, sans résumé ; un article plus long est résumé et le dit (`summary_truncated`).
+        use lf_application::budget::{ReadingRequest, read};
+        use lf_application::input::ReadingInput;
+        use lf_domain::text::DispositifRule;
+
+        let read_article = |body: &str, id: &str| {
+            let text = recorded(body, id).text;
+            let request = ReadingRequest::parse(&ReadingInput::default()).unwrap();
+            let article = read(&text, None, DispositifRule::None, &request.clone().for_article());
+            let decision = read(&text, None, DispositifRule::None, &request);
+            (text, article.unwrap(), decision.unwrap())
+        };
+        let (text, article, decision) = read_article(C11_CGI_777, "LEGIARTI000030061736");
+        let size = text.char_len();
+        assert!((1_201..=2_000).contains(&size), "{size}");
+        assert_eq!(article.text.as_deref(), Some(text.as_str()));
+        assert!(article.summary.is_none() && !article.summary_truncated);
+        // Lu avec le plafond de 1 200 d'une décision, le même texte est résumé et signalé.
+        assert!(decision.text.is_none() && decision.summary_truncated);
+
+        let (text, article, _) = read_article(C13_CGI, "LEGIARTI000047288653");
+        assert!(text.char_len() > 10_000);
+        assert!(article.text.is_none() && article.summary_truncated);
+        assert!(article.summary.is_some_and(|summary| summary.text.chars().count() <= 1_200));
     }
 
     #[test]

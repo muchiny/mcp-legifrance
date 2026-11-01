@@ -193,6 +193,7 @@ mod tests {
             next_offset: None,
             passages: None,
             note: None,
+            summary_truncated: false,
         }
     }
 
@@ -522,6 +523,7 @@ mod tests {
                 "source_url",
                 "summary",
                 "summary_source",
+                "summary_truncated",
                 "text",
                 "text_length",
             ]

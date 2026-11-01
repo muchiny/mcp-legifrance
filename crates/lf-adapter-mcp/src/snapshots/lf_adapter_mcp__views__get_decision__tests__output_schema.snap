@@ -1,5 +1,6 @@
 ---
 source: crates/lf-adapter-mcp/src/views/get_decision.rs
+assertion_line: 420
 expression: schema
 ---
 {
@@ -75,6 +76,10 @@ expression: schema
         "lead"
       ],
       "type": "string"
+    },
+    "summary_truncated": {
+      "description": "True when the summary stops before the end of the text.",
+      "type": "boolean"
     },
     "text": {
       "type": "string"

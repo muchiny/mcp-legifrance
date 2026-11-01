@@ -58,6 +58,7 @@ mod tests {
             next_offset: None,
             passages: None,
             note: Some("a note that is not counted".to_owned()),
+            summary_truncated: false,
         }
     }
 

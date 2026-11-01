@@ -68,7 +68,7 @@ impl<'a, C: LegalCorpus> GetTextUseCase<'a, C> {
     ///   l'article lu.
     pub(crate) async fn execute(&self, input: GetTextInput) -> Result<GetTextOutput, AppError> {
         let id = article_id(input.article_id.as_deref())?;
-        let request = ReadingRequest::parse(&input.reading)?;
+        let request = ReadingRequest::parse(&input.reading)?.for_article();
         let mut article = self
             .corpus
             .get_article(&id)
@@ -91,6 +91,7 @@ impl<'a, C: LegalCorpus> GetTextUseCase<'a, C> {
             // ni la lecture n'échouent. Dans le cas improbable où l'une échouerait, la lecture
             // entière est gardée et l'adapter la raccourcit à la mesure exacte.
             let shortened = ReadingRequest::parse(&capped)
+                .map(ReadingRequest::for_article)
                 .ok()
                 .and_then(|request| read(&text, None, DispositifRule::None, &request).ok());
             reading = shortened.unwrap_or(reading);
@@ -262,6 +263,26 @@ mod tests {
         assert_eq!(output.reading.text, None);
         assert_eq!(output.reading.next_offset, None);
         assert_eq!(output.reading.text_length, u32::try_from(chars(long.trim_end())).unwrap());
+    }
+
+    #[tokio::test]
+    async fn an_article_is_whole_up_to_2000_characters_and_flagged_beyond() {
+        // Textes SYNTHÉTIQUES de la longueur de l'article 757 B du CGI (1 307) et des bornes.
+        for size in [1_307, 2_000] {
+            let text = "a".repeat(size);
+            let output = read_with(&served(&text), input(ID)).await.unwrap();
+            assert_eq!(output.reading.text.as_deref(), Some(text.as_str()), "{size}");
+            assert_eq!((output.reading.summary, output.reading.summary_truncated), (None, false));
+        }
+        let text = "a".repeat(2_001);
+        let output = read_with(&served(&text), input(ID)).await.unwrap();
+        assert_eq!(output.reading.text, None);
+        assert!(output.reading.summary.is_some() && output.reading.summary_truncated);
+        // max_chars plus petit : la règle min(max_chars, 2 000) s'applique.
+        let small = read_with(&served(&"a".repeat(1_501)), reading(|r| r.max_chars = Some(1_500)))
+            .await
+            .unwrap();
+        assert!(small.reading.text.is_none() && small.reading.summary_truncated);
     }
 
     #[tokio::test]

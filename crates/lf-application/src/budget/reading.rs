@@ -5,8 +5,10 @@
 //! [`read`] lit un [`LongText`] selon ce mode :
 //!
 //! - **résumé** (défaut) : le texte entier s'il tient dans `min(max_chars, 1 200)` caractères
-//!   (accompagné du sommaire officiel s'il existe), sinon le résumé du domaine
-//!   ([`lf_domain::text::summary`]) ;
+//!   (`min(max_chars, 2 000)` pour un article, [`ReadingRequest::for_article`]), accompagné du
+//!   sommaire officiel s'il existe, sinon le résumé du domaine ([`lf_domain::text::summary`]),
+//!   toujours d'au plus `min(max_chars, 1 200)` caractères ; [`Reading::summary_truncated`] dit
+//!   que ce résumé s'arrête avant la fin de sa source ;
 //! - **texte plein** (`detail="full"`, ou `offset > 0` sans `detail`) : la fenêtre
 //!   [`lf_domain::text::window`] de `max_chars` caractères à partir de `offset`, avec le
 //!   `next_offset` à repasser tel quel ; les pages successives se concatènent en le texte exact ;
@@ -42,6 +44,11 @@ const NO_PASSAGE_NOTE: &str = "No passage matches focus; read the text with deta
 /// Refus de `detail="summary"` explicite combiné à un `offset` positif (05 §7.3).
 const OFFSET_NEEDS_FULL: &str = "offset requires detail=\"full\" (or omit detail).";
 
+/// Plafond, en caractères, du texte qu'un article rend entier en mode résumé (Q20, 05 §5.0.3) :
+/// plus haut que [`SUMMARY_CAP_CHARS`], qui reste celui du résumé d'une décision, d'une
+/// délibération ou d'un article plus long.
+pub const ARTICLE_WHOLE_CHARS: usize = 2_000;
+
 /// Taille maximale, en caractères, d'un segment de texte classé en mode passages (03 §7.7).
 const SEGMENT_MAX_CHARS: usize = 1_200;
 
@@ -60,6 +67,8 @@ const TOOL: ToolName = ToolName::FR_GET_TEXT;
 pub struct ReadingRequest {
     mode: Mode,
     max_chars: usize,
+    /// Plafond, en caractères, sous lequel le mode résumé rend le texte entier (avant `max_chars`).
+    whole_cap: usize,
 }
 
 /// Mode de lecture déduit des paramètres.
@@ -134,7 +143,15 @@ impl ReadingRequest {
             None if detail == Some(Detail::Full) || offset > 0 => Mode::Full { offset },
             None => Mode::Summary,
         };
-        Ok(Self { mode, max_chars })
+        Ok(Self { mode, max_chars, whole_cap: SUMMARY_CAP_CHARS })
+    }
+
+    /// Cette lecture pour un article (`fr_get_text`) : en mode résumé, un article de
+    /// `min(max_chars, ARTICLE_WHOLE_CHARS)` caractères au plus est rendu entier, au lieu de
+    /// `min(max_chars, 1 200)`. Le plafond du résumé d'un texte plus long reste 1 200.
+    #[must_use]
+    pub fn for_article(self) -> Self {
+        Self { whole_cap: ARTICLE_WHOLE_CHARS, ..self }
     }
 }
 
@@ -186,6 +203,9 @@ pub struct Reading {
     pub passages: Option<Vec<PassageOut>>,
     /// Remarque exceptionnelle (texte vide, par exemple).
     pub note: Option<String>,
+    /// Le résumé s'arrête avant la fin de sa source (vrai pour un résumé coupé, ou pour un début de
+    /// texte plus court que le texte) ; faux sans résumé.
+    pub summary_truncated: bool,
 }
 
 /// Lit `text` selon `req`.
@@ -204,7 +224,7 @@ pub fn read(
     req: &ReadingRequest,
 ) -> Result<Reading, AppError> {
     match &req.mode {
-        Mode::Summary => Ok(read_summary(text, official, rule, req.max_chars)),
+        Mode::Summary => Ok(read_summary(text, official, rule, req.max_chars, req.whole_cap)),
         Mode::Full { offset } => read_window(text, *offset, req.max_chars),
         Mode::Passages { focus, count } => Ok(read_passages(text, focus, *count, req.max_chars)),
     }
@@ -219,28 +239,43 @@ fn bare(text: &LongText) -> Reading {
         next_offset: None,
         passages: None,
         note: text.is_empty().then(|| NO_TEXT_NOTE.to_owned()),
+        summary_truncated: false,
     }
 }
 
-/// Mode résumé : le texte entier s'il tient dans `min(max_chars, 1 200)` caractères (avec le
-/// sommaire officiel s'il existe, jamais un résumé tiré du texte lui-même), sinon le résumé.
+/// Mode résumé : le texte entier s'il tient dans `min(max_chars, whole_cap)` caractères (avec le
+/// sommaire officiel s'il existe, jamais un résumé tiré du texte lui-même), sinon le résumé, d'au
+/// plus `min(max_chars, 1 200)` caractères. `whole_cap` vaut 1 200, ou 2 000 pour un article.
 fn read_summary(
     text: &LongText,
     official: Option<&OfficialSummary>,
     rule: DispositifRule,
     max_chars: usize,
+    whole_cap: usize,
 ) -> Reading {
-    let cap = max_chars.min(SUMMARY_CAP_CHARS);
-    let built = summary(text, official, rule, cap);
-    if length(text) <= cap {
+    let built = summary(text, official, rule, max_chars.min(SUMMARY_CAP_CHARS));
+    let partial = summary_is_partial(&built, length(text));
+    if length(text) <= max_chars.min(whole_cap) {
+        let official = built.source == SummarySource::Official;
         Reading {
-            summary: (built.source == SummarySource::Official).then_some(built),
+            summary: official.then_some(built),
             text: (!text.is_empty()).then(|| text.as_str().to_owned()),
+            summary_truncated: official && partial,
             ..bare(text)
         }
     } else {
-        Reading { summary: Some(built), ..bare(text) }
+        Reading { summary: Some(built), summary_truncated: partial, ..bare(text) }
     }
+}
+
+/// Vrai quand `summary` s'arrête avant la fin de sa source : le domaine l'a coupé au plafond, ou
+/// c'est un début de texte (`lead`) plus court que le texte entier de `text_length` caractères.
+/// `Summary::truncated` seul ne suffit pas : un début de ~800 caractères sur un texte de 1 307
+/// n'est pas coupé par le plafond, mais s'arrête bien avant la fin. Un sommaire officiel ou un
+/// dispositif a sa propre fin : sa longueur ne dit rien du texte.
+fn summary_is_partial(summary: &Summary, text_length: usize) -> bool {
+    summary.truncated
+        || (summary.source == SummarySource::Lead && chars(&summary.text) < text_length)
 }
 
 /// Mode texte plein : la fenêtre de `max_chars` caractères à partir de `offset`. Un texte vide
@@ -411,6 +446,154 @@ mod tests {
         long(&"a".repeat(n))
     }
 
+    /// Lecture d'un article en mode résumé avec `max_chars` (4 000 par défaut).
+    fn article_read(text: &LongText, max_chars: Option<i64>) -> Reading {
+        let req = request(|i| i.max_chars = max_chars).for_article();
+        run(text, &req).unwrap()
+    }
+
+    /// Texte SYNTHÉTIQUE (aucune donnée réelle) fait de paragraphes de 400 caractères, au total
+    /// `total` caractères au plus : sa longueur est celle de l'article 757 B du CGI (1 307).
+    fn blocks(total: usize) -> LongText {
+        let paragraph = format!("{} {}", "Lorem", "a".repeat(394));
+        let mut parts = Vec::new();
+        let mut used = 0;
+        while used < total {
+            let room = total - used;
+            let part: String = paragraph.chars().take(room).collect();
+            used += chars(&part) + 2;
+            parts.push(part);
+        }
+        long(&parts.join("\n\n"))
+    }
+
+    #[test]
+    fn an_article_is_whole_up_to_2000_characters_and_summarised_beyond() {
+        // 757 B du CGI : 1 307 caractères (texte synthétique de même longueur).
+        let b757 = blocks(1_307);
+        assert_eq!(b757.char_len(), 1_307);
+        let reading = article_read(&b757, None);
+        assert_eq!(reading.text.as_deref(), Some(b757.as_str()));
+        assert_eq!((reading.summary, reading.summary_truncated), (None, false));
+        // Les bornes : 2 000 entier, 2 001 résumé coupé.
+        let edge = article_read(&flat(ARTICLE_WHOLE_CHARS), None);
+        assert_eq!(edge.text.as_deref(), Some("a".repeat(2_000).as_str()));
+        assert_eq!((edge.summary, edge.summary_truncated), (None, false));
+        let over = article_read(&flat(ARTICLE_WHOLE_CHARS + 1), None);
+        assert_eq!(over.text, None);
+        assert!(over.summary.is_some() && over.summary_truncated);
+        // Résumé d'un article de 2 001 caractères : toujours plafonné à 1 200.
+        let size = chars(&over.summary.unwrap().text);
+        assert_eq!(size, SUMMARY_CAP_CHARS);
+    }
+
+    #[test]
+    fn a_small_max_chars_keeps_the_min_rule_for_articles() {
+        // max_chars < 2 000 : le plafond est max_chars (règle min(max_chars, 2 000)).
+        let whole = article_read(&flat(1_500), Some(1_500));
+        assert_eq!(whole.text.as_deref(), Some("a".repeat(1_500).as_str()));
+        assert!(!whole.summary_truncated);
+        let cut = article_read(&flat(1_501), Some(1_500));
+        assert_eq!(cut.text, None);
+        assert!(cut.summary_truncated);
+        assert_eq!(chars(&cut.summary.unwrap().text), SUMMARY_CAP_CHARS);
+        let min = article_read(&flat(501), Some(500));
+        assert_eq!(min.text, None);
+        assert_eq!(chars(&min.summary.unwrap().text), 500);
+        // max_chars plus grand que 2 000 : 2 000 reste le plafond.
+        assert_eq!(article_read(&flat(2_001), Some(40_000)).text, None);
+        assert!(article_read(&flat(2_000), Some(40_000)).text.is_some());
+    }
+
+    #[test]
+    fn the_whole_cap_applies_to_articles_only() {
+        let text = flat(1_500);
+        let plain = request(|_| {});
+        assert_eq!(run(&text, &plain).unwrap().text, None);
+        assert!(run(&text, &plain.clone().for_article()).unwrap().text.is_some());
+        // Les autres modes ignorent le plafond de l'article.
+        let full = request(|i| i.detail = Some("full".to_owned())).for_article();
+        assert!(!run(&text, &full).unwrap().summary_truncated);
+    }
+
+    #[test]
+    fn a_lead_that_stops_short_of_its_source_is_flagged_even_when_the_cut_is_clean() {
+        // 757 B : 1 307 caractères, lus comme une décision (plafond 1 200) : le début s'arrête
+        // après 2 paragraphes (~800), `cut()` ne coupe rien, mais le texte continue.
+        let text = blocks(1_307);
+        let reading = run(&text, &request(|_| {})).unwrap();
+        let summary = reading.summary.as_ref().unwrap();
+        assert_eq!(summary.source, SummarySource::Lead);
+        assert!(!summary.truncated, "le domaine ne dit rien : c'est le cas du piège");
+        assert!(chars(&summary.text) < usize::try_from(text.char_len()).unwrap());
+        assert!(reading.summary_truncated);
+        // Même chose pour un article de 2 400 caractères.
+        let article = article_read(&blocks(2_400), None);
+        assert!(!article.summary.as_ref().unwrap().truncated);
+        assert!(article.summary_truncated);
+    }
+
+    #[test]
+    fn summary_partiality_follows_the_source() {
+        let make =
+            |source, truncated, text: &str| Summary { source, text: text.to_owned(), truncated };
+        // Début de texte : partiel dès qu'il est plus court que le texte ; complet sinon.
+        assert!(summary_is_partial(&make(SummarySource::Lead, false, "abc"), 4));
+        assert!(!summary_is_partial(&make(SummarySource::Lead, false, "abc"), 3));
+        assert!(summary_is_partial(&make(SummarySource::Lead, true, "abc"), 3));
+        // Sommaire officiel et dispositif : leur longueur ne dit rien, seule la coupe compte.
+        for source in [SummarySource::Official, SummarySource::Dispositif] {
+            assert!(!summary_is_partial(&make(source, false, "abc"), 9_999));
+            assert!(summary_is_partial(&make(source, true, "abc"), 9_999));
+        }
+    }
+
+    #[test]
+    fn official_and_dispositif_summaries_are_flagged_only_when_cut() {
+        let text = long(&paragraphs(30, 4));
+        let cut_official = OfficialSummary::new(["Mot ".repeat(400)], Vec::<String>::new());
+        let flagged =
+            read(&text, Some(&cut_official), DispositifRule::None, &request(|_| {})).unwrap();
+        assert_eq!(flagged.summary.as_ref().map(|s| s.source), Some(SummarySource::Official));
+        assert!(flagged.summary_truncated);
+        let short_official = OfficialSummary::new(["Analyse officielle."], Vec::<String>::new());
+        let kept =
+            read(&text, Some(&short_official), DispositifRule::None, &request(|_| {})).unwrap();
+        assert_eq!(kept.summary.as_ref().map(|s| s.source), Some(SummarySource::Official));
+        assert!(!kept.summary_truncated);
+        // Dispositif non coupé : un texte court après l'en-tête, la clôture arrête le dispositif.
+        let decision = long(&format!(
+            "{}\n\nDÉCIDE :\n\nArticle 1er.- Le texte est conforme.\n\nDélibéré par le Conseil.",
+            paragraphs(20, 4)
+        ));
+        let dispositif =
+            read(&decision, None, DispositifRule::ConseilConstitutionnel, &request(|_| {}))
+                .unwrap();
+        assert_eq!(dispositif.summary.as_ref().map(|s| s.source), Some(SummarySource::Dispositif));
+        assert!(!dispositif.summary_truncated);
+        // Dispositif coupé au plafond.
+        let long_dispositif = long(&format!(
+            "{}\n\nDÉCIDE :\n\n{}\n\nDélibéré par le Conseil.",
+            paragraphs(20, 4),
+            paragraphs(10, 4)
+        ));
+        let cut =
+            read(&long_dispositif, None, DispositifRule::ConseilConstitutionnel, &request(|_| {}))
+                .unwrap();
+        assert_eq!(cut.summary.as_ref().map(|s| s.source), Some(SummarySource::Dispositif));
+        assert!(cut.summary_truncated);
+    }
+
+    #[test]
+    fn modes_without_a_summary_never_flag_one() {
+        let text = long(&paragraphs(30, 4));
+        let full = run(&text, &request(|i| i.detail = Some("full".to_owned()))).unwrap();
+        assert!(!full.summary_truncated);
+        let focused = run(&text, &request(|i| i.focus = Some("solution".to_owned()))).unwrap();
+        assert!(!focused.summary_truncated);
+        assert!(!run(&long(""), &request(|_| {})).unwrap().summary_truncated);
+    }
+
     #[test]
     fn reading_compares_by_value() {
         let reading = Reading {
@@ -420,6 +603,7 @@ mod tests {
             next_offset: None,
             passages: Some(vec![PassageOut { offset: 0, text: "texte".to_owned() }]),
             note: None,
+            summary_truncated: false,
         };
         assert_eq!(reading.clone(), reading);
         assert_ne!(Reading { note: Some("vide".to_owned()), ..reading.clone() }, reading);
@@ -428,7 +612,10 @@ mod tests {
     #[test]
     fn reading_request_modes() {
         let default = request(|_| {});
-        assert_eq!(default, ReadingRequest { mode: Mode::Summary, max_chars: 4_000 });
+        assert_eq!(
+            default,
+            ReadingRequest { mode: Mode::Summary, max_chars: 4_000, whole_cap: SUMMARY_CAP_CHARS }
+        );
         assert_eq!(default.max_chars, ResponseBudget::MAX_CHARS_DEFAULT);
 
         let summary = request(|i| i.detail = Some("summary".to_owned()));
@@ -448,7 +635,14 @@ mod tests {
             i.offset = Some(120);
             i.max_chars = Some(800);
         });
-        assert_eq!(paged, ReadingRequest { mode: Mode::Full { offset: 120 }, max_chars: 800 });
+        assert_eq!(
+            paged,
+            ReadingRequest {
+                mode: Mode::Full { offset: 120 },
+                max_chars: 800,
+                whole_cap: SUMMARY_CAP_CHARS
+            }
+        );
 
         let focused = request(|i| i.focus = Some("  zibeline ".to_owned()));
         let focus = Focus::parse("zibeline").unwrap();
@@ -750,6 +944,7 @@ mod tests {
             next_offset: None,
             passages,
             note: Some(NO_TEXT.to_owned()),
+            summary_truncated: false,
         };
         // Résumé (défaut), texte plein et passages : la même remarque, jamais d'erreur.
         assert_eq!(run(&empty, &request(|_| {})).unwrap(), expected(None));
@@ -1008,6 +1203,7 @@ mod tests {
                 next_offset: None,
                 passages: Some(Vec::new()),
                 note: Some(NO_PASSAGE.to_owned()),
+                summary_truncated: false,
             }
         );
     }

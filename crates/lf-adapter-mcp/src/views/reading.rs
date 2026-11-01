@@ -42,6 +42,12 @@ pub(crate) struct ReadingView {
     #[schemars(with = "SummarySourceView")]
     pub(crate) summary_source: Option<SummarySourceView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "bool",
+        description = "True when the summary stops before the end of the text."
+    )]
+    pub(crate) summary_truncated: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String")]
     pub(crate) text: Option<String>,
     pub(crate) text_length: u32,
@@ -126,6 +132,8 @@ impl From<Reading> for ReadingView {
         Self {
             summary,
             summary_source,
+            // Absent sauf si vrai : un résumé complet n'a rien à signaler.
+            summary_truncated: reading.summary_truncated.then_some(true),
             text: reading.text,
             text_length: reading.text_length,
             next_offset: reading.next_offset,
@@ -162,6 +170,7 @@ mod tests {
             next_offset: None,
             passages: None,
             note: None,
+            summary_truncated: false,
         }
     }
 
@@ -188,6 +197,75 @@ mod tests {
             view(reading),
             json!({"summary": "Article 1er.", "summary_source": "dispositif", "text_length": 14_332})
         );
+    }
+
+    #[test]
+    fn summary_truncated_is_written_only_when_true() {
+        let lead = |truncated, summary_truncated| Reading {
+            summary: Some(Summary {
+                source: SummarySource::Lead,
+                text: "Début.".to_owned(),
+                truncated,
+            }),
+            summary_truncated,
+            ..bare(1_307)
+        };
+        // Vrai : le drapeau est écrit, après `summary_source`.
+        assert_eq!(
+            view(lead(false, true)),
+            json!({
+                "summary": "Début.",
+                "summary_source": "lead",
+                "summary_truncated": true,
+                "text_length": 1_307
+            })
+        );
+        // Faux : absent, jamais `false`. La coupe du domaine seule ne l'écrit pas : c'est
+        // `Reading::summary_truncated` (calculé par l'application) qui décide.
+        for reading in [lead(false, false), lead(true, false)] {
+            assert_eq!(
+                view(reading),
+                json!({"summary": "Début.", "summary_source": "lead", "text_length": 1_307})
+            );
+        }
+        assert_eq!(view(bare(0)), json!({"text_length": 0}));
+    }
+
+    #[test]
+    fn the_three_long_readings_validate_summary_truncated_against_their_output_schema() {
+        use crate::views::{
+            get_decision::DecisionView, get_deliberation::DeliberationView, get_text::ArticleView,
+        };
+        let base = json!({
+            "citation": "Code civil, art. 9",
+            "source_url": "https://www.legifrance.gouv.fr/",
+            "text_length": 1_307,
+            "summary": "Début.",
+            "summary_source": "lead",
+            "summary_truncated": true,
+        });
+        let cases = [
+            (output_schema::<ArticleView>(), "article_id"),
+            (output_schema::<DecisionView>(), "decision_id"),
+            (output_schema::<DeliberationView>(), "deliberation_id"),
+        ];
+        for (schema, id_field) in cases {
+            let schema = Value::Object(schema.as_ref().clone());
+            let property = &schema["properties"]["summary_truncated"];
+            assert_eq!(property["type"], "boolean", "{schema}");
+            assert!(property["description"].as_str().unwrap().is_ascii());
+            // Optionnel : jamais requis.
+            let required = schema["required"].as_array().unwrap();
+            assert!(!required.contains(&json!("summary_truncated")));
+            let validator = jsonschema::validator_for(&schema).unwrap();
+            let mut valid = base.clone();
+            valid[id_field] = json!("ID000000000001");
+            assert!(validator.is_valid(&valid), "{id_field}");
+            valid.as_object_mut().unwrap().remove("summary_truncated");
+            assert!(validator.is_valid(&valid), "{id_field} sans le drapeau");
+            valid["summary_truncated"] = json!("true");
+            assert!(!validator.is_valid(&valid), "{id_field} : un texte n'est pas un booléen");
+        }
     }
 
     #[test]
@@ -259,12 +337,14 @@ mod tests {
             next_offset: Some(1),
             passages: Some(vec![PassageOut { offset: 0, text: "p".to_owned() }]),
             note: Some("n".to_owned()),
+            summary_truncated: true,
             ..bare(9)
         };
         assert_eq!(
             serde_json::to_string(&ReadingView::from(reading)).unwrap(),
             concat!(
-                r#"{"summary":"début","summary_source":"lead","text":"t","text_length":9,"#,
+                r#"{"summary":"début","summary_source":"lead","summary_truncated":true,"#,
+                r#""text":"t","text_length":9,"#,
                 r#""next_offset":1,"passages":[{"offset":0,"text":"p"}],"note":"n"}"#
             )
         );

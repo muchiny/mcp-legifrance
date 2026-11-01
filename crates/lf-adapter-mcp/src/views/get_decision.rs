@@ -159,6 +159,7 @@ mod tests {
             next_offset: None,
             passages: None,
             note: None,
+            summary_truncated: false,
         }
     }
 
