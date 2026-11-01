@@ -11,7 +11,10 @@
 //! `next_offset` reste exact (05 §6.4, étape 4).
 
 use lf_application::output::get_text::GetTextOutput;
-use lf_domain::contract::{Citable, Eli};
+use lf_domain::{
+    contract::{Citable, Eli},
+    id::DocumentId,
+};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -67,6 +70,13 @@ pub(crate) struct ArticleView {
     reading: ReadingView,
 }
 
+/// Identifiant du texte parent, seulement s'il est lisible par `fr_get_act` (`LEGITEXT`) ou
+/// `fr_get_convention` (`KALITEXT`) : un `JORFTEXT` ou une autre famille est omis (05 §1.4,
+/// règle 8).
+fn readable_parent_id(id: &DocumentId) -> Option<String> {
+    matches!(id, DocumentId::LegiText(_) | DocumentId::KaliText(_)).then(|| id.as_str().to_owned())
+}
+
 impl From<GetTextOutput> for ArticleView {
     fn from(output: GetTextOutput) -> Self {
         let GetTextOutput { article, nota, reading } = output;
@@ -76,7 +86,7 @@ impl From<GetTextOutput> for ArticleView {
             num: article.num,
             etat: etat_code(article.etat.as_ref()),
             code_title: article.code_title,
-            parent_id: article.parent.map(|parent| parent.id.as_str().to_owned()),
+            parent_id: article.parent.and_then(|parent| readable_parent_id(&parent.id)),
             path: article.path,
             date_debut: date_unless_sentinel(article.date_debut),
             date_fin: date_unless_sentinel(article.date_fin),
@@ -221,6 +231,25 @@ mod tests {
             view["source_url"],
             "https://www.legifrance.gouv.fr/conv_coll/id/KALIARTI000005805295"
         );
+    }
+
+    #[test]
+    fn parent_id_is_only_rendered_for_a_text_fr_get_act_or_fr_get_convention_reads() {
+        let parent = |id: &str, nature: &str| ArticleText {
+            parent: Some(ParentText::new(DocumentId::parse(id).unwrap(), Some(nature))),
+            ..article()
+        };
+
+        // Un texte de loi : l'identifiant consolidé est rendu.
+        let law = view_json(output(parent("LEGITEXT000033205014", "LOI"), whole("Texte.")));
+        assert_eq!(law["parent_id"], "LEGITEXT000033205014");
+
+        // Un JORFTEXT n'est lu par aucun outil : la clé est omise.
+        let jorf = view_json(output(parent("JORFTEXT000033202746", "LOI"), whole("Texte.")));
+        assert!(jorf.get("parent_id").is_none(), "{jorf}");
+        // Le reste de la vue est inchangé.
+        assert_eq!(jorf["code_title"], "Code civil");
+        assert_eq!(jorf["citation"], "Code civil, art. 9");
     }
 
     #[test]

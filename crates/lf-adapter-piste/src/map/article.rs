@@ -3,7 +3,8 @@
 //!
 //! [`article`] assemble l'[`ArticleText`] d'une réponse, sans décision locale, à partir de règles
 //! pures chacune testée seule : le titre de texte préféré ([`preferred_title`]), le texte parent
-//! d'après son `cid` puis son `id` ([`parent_text`]), le chemin de sections ([`section_path`]) et
+//! d'après le premier `LEGITEXT`/`KALITEXT` de `textTitles` ([`consolidated_parent`]) sinon le `cid`
+//! puis l'`id` de l'entrée choisie ([`parent_text`]), le chemin de sections ([`section_path`]) et
 //! le nota ([`nota_of`]). Aucune valeur du corps ne sort d'ici : un identifiant refusé devient un
 //! [`CorpusError::Decode`] qui ne nomme que l'endpoint et le chemin du champ.
 
@@ -17,7 +18,7 @@ use lf_domain::text::{LongText, clean_field};
 use super::body::non_blank;
 use super::dates::{civil, civil_or_unknown};
 use super::endpoint::GET_ARTICLE;
-use super::rules::{long_text, parse_counted, require, resolve_id};
+use super::rules::{long_text, note_suffix, parse_counted, require, resolve_id};
 use super::{Diagnostics, Field};
 use crate::dto::article::{ArticleDto, ContextEntryDto, GetArticleResponseDto, TextTitleDto};
 
@@ -61,8 +62,8 @@ fn citation_title(title: &TextTitleDto, parent: Option<&ParentText>) -> Option<S
     long.or_else(|| clean_field(title.titre.as_deref()))
 }
 
-/// Texte parent de `title` : identifiant lu dans `cid`, à défaut dans `id` (le premier des deux
-/// qui n'est pas blanc), nature brute de `title`.
+/// Repli de [`consolidated_parent`] : texte parent de `title`, identifiant lu dans `cid`, à
+/// défaut dans `id` (le premier des deux qui n'est pas blanc), nature brute de `title`.
 ///
 /// Un `cid` présent et valide l'emporte sur un `id` illisible, qui n'est alors pas lu. Ni `cid`
 /// ni `id` non blanc : `Ok(None)`. L'identifiant retenu est lu par `parse_counted` (règle c) : un
@@ -84,6 +85,33 @@ fn parent_text(
     };
     let id = parse_counted::<DocumentId>(raw, diags).map_err(|error| field.domain(&error))?;
     Ok(Some(ParentText::new(id, title.nature.as_deref())))
+}
+
+/// Texte consolidé parent (`LEGITEXT` ou `KALITEXT`) de l'article, cherché dans **toutes** les
+/// entrées de `titles` (L3-04) ; `None` si aucune n'en porte un lisible.
+///
+/// Pour un texte non codifié, PISTE rend deux entrées : le texte du Journal officiel (`cid` et
+/// `id` en `JORFTEXT`) et sa version consolidée (`id` en `LEGITEXT`, `cid` encore en `JORFTEXT`).
+/// Seul le `LEGITEXT` est lu par `fr_get_act`, d'où la recherche du premier identifiant de cette
+/// famille, `cid` puis `id` de chaque entrée dans l'ordre reçu. Un identifiant illisible ou d'une
+/// autre famille est sauté sans erreur : le repli [`parent_text`] de l'entrée choisie le lit,
+/// et le refuse s'il est illisible. La nature reste celle de l'entrée choisie (`nature`, brute).
+/// Le suffixe retiré de l'identifiant retenu est compté dans `diags`, jamais celui des autres.
+fn consolidated_parent(
+    titles: &[TextTitleDto],
+    nature: Option<&str>,
+    diags: &mut Diagnostics,
+) -> Option<ParentText> {
+    let (raw, id) = titles
+        .iter()
+        .flat_map(|title| [title.cid.as_deref(), title.id.as_deref()])
+        .flatten()
+        .find_map(|raw| {
+            let id = raw.trim().parse::<DocumentId>().ok()?;
+            matches!(id, DocumentId::LegiText(_) | DocumentId::KaliText(_)).then_some((raw, id))
+        })?;
+    note_suffix(raw.trim(), id.as_str(), diags);
+    Some(ParentText::new(id, nature))
 }
 
 /// Date de référence du chemin de sections : le jour où la version de l'article s'applique.
@@ -242,7 +270,13 @@ pub(crate) fn article(
     } = require(dto.article, GET_ARTICLE)?;
     let article_id = resolve_id(requested, id.as_deref(), ID, diags)?;
     let chosen = preferred_title(&text_titles);
-    let parent = chosen.map(|title| parent_text(title, diags)).transpose()?.flatten();
+    let parent = match chosen {
+        None => None,
+        Some(title) => match consolidated_parent(&text_titles, title.nature.as_deref(), diags) {
+            found @ Some(_) => found,
+            None => parent_text(title, diags)?,
+        },
+    };
     let date_debut = civil(date_debut.as_ref(), DATE_DEBUT, diags)?;
     let date_fin = civil(date_fin.as_ref(), DATE_FIN, diags)?;
     let text = long_text(texte_html.as_deref(), texte.as_deref(), TEXTE, diags)?;
@@ -379,6 +413,78 @@ mod tests {
             Err(invalid_id("article.textTitles[].id"))
         );
         assert_eq!(diags, Diagnostics::default());
+    }
+
+    /// Identifiant de document lu, pour les attentes.
+    fn doc(raw: &str) -> DocumentId {
+        DocumentId::parse(raw).unwrap()
+    }
+
+    /// Identifiant et nature attendus d'un texte parent, `None` : aucun.
+    type Expected = Option<(&'static str, ParentNature)>;
+
+    #[test]
+    fn consolidated_parent_rules() {
+        let law_then_consolidated = [
+            ided(Some("JORFTEXT000033202746"), Some("JORFTEXT000033202746"), Some("LOI")),
+            ided(Some("JORFTEXT000033202746"), Some("LEGITEXT000033205014"), Some("LOI")),
+        ];
+        let kali_second = [
+            ided(Some("JORFTEXT000033202746"), None, Some("LOI")),
+            ided(Some("KALITEXT000005635534"), None, None),
+        ];
+        let cases: [(&[TextTitleDto], Expected); 9] = [
+            // Le LEGITEXT est dans `id`, le `cid` d'un texte de loi reste un JORFTEXT.
+            (&law_then_consolidated, Some(("LEGITEXT000033205014", ParentNature::Text))),
+            // Un LEGITEXT dans `cid` est retenu, `cid` d'abord.
+            (
+                &[ided(Some("LEGITEXT000006070721"), Some("LEGITEXT000033205014"), Some("CODE"))],
+                Some(("LEGITEXT000006070721", ParentNature::Code)),
+            ),
+            // La nature reste celle de l'entrée choisie, pas celle de l'entrée qui porte l'id.
+            (
+                &[
+                    ided(Some("JORFTEXT000033202746"), None, Some("LOI")),
+                    ided(Some("LEGITEXT000006070721"), None, Some("CODE")),
+                ],
+                Some(("LEGITEXT000006070721", ParentNature::Text)),
+            ),
+            // Un KALITEXT est consommable par `fr_get_convention`.
+            (&kali_second, Some(("KALITEXT000005635534", ParentNature::Kali))),
+            // Premier LEGITEXT lisible : un identifiant illisible est sauté, jamais une erreur.
+            (
+                &[
+                    ided(Some("FOO"), Some("LEGITEXT000033205014"), Some("LOI")),
+                    ided(Some("LEGITEXT000006070721"), None, None),
+                ],
+                Some(("LEGITEXT000033205014", ParentNature::Text)),
+            ),
+            // Aucun LEGITEXT/KALITEXT : le repli est l'appelant (JORFTEXT, illisible, vide).
+            (&[ided(Some("JORFTEXT000033202746"), None, Some("LOI"))], None),
+            (&[ided(Some("FOO"), Some("BAR"), Some("LOI"))], None),
+            (&[ided(None, None, Some("LOI"))], None),
+            (&[], None),
+        ];
+        for (titles, expected) in cases {
+            let mut diags = Diagnostics::default();
+            let nature = titles.first().and_then(|title| title.nature.as_deref());
+            let found = consolidated_parent(titles, nature, &mut diags);
+            let expected = expected.map(|(id, nature)| ParentText { id: doc(id), nature });
+            assert_eq!(found, expected, "{titles:?}");
+            assert_eq!(diags, Diagnostics::default(), "{titles:?}");
+        }
+    }
+
+    #[test]
+    fn a_suffix_stripped_from_the_kept_consolidated_parent_is_counted_once() {
+        let titles = [
+            ided(Some("JORFTEXT000033202746_08-10-2016"), None, Some("LOI")),
+            ided(Some("KALITEXT000005635534_01-01-2020"), None, None),
+        ];
+        let mut diags = Diagnostics::default();
+        let found = consolidated_parent(&titles, Some("LOI"), &mut diags).unwrap();
+        assert_eq!(found.id, doc("KALITEXT000005635534"));
+        assert_eq!(diags, Diagnostics { upstream_suffix_stripped: 1, ..Diagnostics::default() });
     }
 
     #[test]
@@ -1246,5 +1352,40 @@ mod tests {
         let article = run(&json, ART_9).0.unwrap();
         assert_eq!(article.parent.as_ref().map(|p| p.nature), Some(ParentNature::Text));
         assert_eq!(article.contract().citation.as_str(), "Arrêté du 1er mai relatif à X, art. 9");
+    }
+
+    // ---- L3-04 : parent_id d'un article de loi = LEGITEXT consolidé ----
+
+    #[test]
+    fn law_article_parent_is_the_consolidated_legitext() {
+        let cases = [
+            (LOI_NUMERIQUE, "LEGIARTI000033205058", "LEGITEXT000033205014"),
+            (C8_LOI_89_462, "LEGIARTI000043977105", "LEGITEXT000006069108"),
+            (C8_ORDONNANCE, "LEGIARTI000032006589", "LEGITEXT000032006567"),
+            (C8_PIANOS, "LEGIARTI000054241470", "LEGITEXT000054241418"),
+        ];
+        for (body, id, legitext) in cases {
+            let article = recorded(body, id);
+            let parent = article.parent.as_ref().expect(id);
+            assert_eq!(parent.id.as_str(), legitext, "{id}");
+            assert_eq!(parent.nature, ParentNature::Text, "{id}");
+            // L'identifiant rendu est celui que `fr_get_act` sait lire.
+            assert!(lf_domain::id::LegiTextId::parse(parent.id.as_str()).is_ok(), "{id}");
+            // La citation garde le titre long du texte : elle ne dépend pas de l'identifiant.
+            assert!(article.contract().citation.as_str().contains(", art. "), "{id}");
+        }
+    }
+
+    #[test]
+    fn a_law_article_without_a_consolidated_entry_keeps_its_jorftext() {
+        let json = with_fields(
+            r#""textTitles":[{"nature":"LOI","titre":"Loi X","cid":"JORFTEXT000033202746"}]"#,
+        );
+        let parent = run(&json, ART_9).0.unwrap().parent.unwrap();
+        assert_eq!(parent.id.as_str(), "JORFTEXT000033202746");
+
+        // Un identifiant illisible reste une erreur quand aucun LEGITEXT ne le remplace.
+        let broken = with_fields(r#""textTitles":[{"nature":"LOI","cid":"BAR"}]"#);
+        assert_eq!(run(&broken, ART_9).0, Err(invalid_id("article.textTitles[].cid")));
     }
 }

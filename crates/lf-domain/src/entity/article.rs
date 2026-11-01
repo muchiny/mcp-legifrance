@@ -105,8 +105,9 @@ pub struct ArticleText {
     /// Titre du texte parent (`citations.py:236-245`, `_code_title` : entrée `textTitles`
     /// de nature `CODE` en priorité, sinon la première).
     pub code_title: Option<String>,
-    /// Texte parent (`cid` et nature de la même entrée de `textTitles`) ; décide de la règle
-    /// de citation.
+    /// Texte parent ; décide de la règle de citation. Son identifiant est le premier `LEGITEXT`
+    /// ou `KALITEXT` de `textTitles`, à défaut le `cid` de l'entrée choisie (un `JORFTEXT` pour
+    /// une loi sans version consolidée) ; sa nature est celle de l'entrée choisie.
     pub parent: Option<ParentText>,
     /// Chemin des sections, du plus haut au plus bas (`context.titresTM[].titre`).
     pub path: Vec<String>,
