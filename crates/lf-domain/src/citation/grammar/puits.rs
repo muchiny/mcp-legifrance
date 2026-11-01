@@ -742,6 +742,12 @@ mod tests {
             one("CEDH, 8 juillet 2003, n° 12345/99", "CEDH").text,
             "CEDH, 8 juillet 2003, n° 12345/99"
         );
+        // Les parties finissent à une virgule : un numéro qu'elles contiennent sans virgule avant
+        // lui n'est pas le numéro de requête (mutant de `after_parties`).
+        let named = "CEDH, 26 avr. 1979, Syndicat 123/45 c. Royaume-Uni, req. n° 6538/74";
+        let h = one(named, "CEDH");
+        assert_eq!(h.text, named);
+        assert_eq!(h.value, unsupported(UnsupportedFamily::Cedh, Some("6538/74")));
     }
 
     #[test]

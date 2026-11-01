@@ -269,6 +269,11 @@ mod tests {
             passages("« extérieur \"x\" long » \"entre guillemets\""),
             ["extérieur \"x\" long", "entre guillemets"]
         );
+        // Un `"` de rang impair ferme, même quand l'extrait qu'il ferme est refusé (trop court) :
+        // il n'ouvre pas le texte qui le suit.
+        assert_eq!(passages("\"ab\" un texte assez long entre deux \"cd\""), Vec::<&str>::new());
+        // Après un `"` resté seul (des pouces), les autres familles de guillemets restent lues.
+        assert_eq!(passages("taille 5\" puis « un extrait lisible »"), ["un extrait lisible"]);
     }
 
     #[test]
