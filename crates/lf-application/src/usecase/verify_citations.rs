@@ -366,6 +366,27 @@ mod tests {
         assert_eq!(output.note, None);
     }
 
+    /// L2-17 : la subdivision fait partie de la clé de résolution. Le même article cité une fois
+    /// avec alinéa et une fois sans ne partage pas sa résolution, donc la note de subdivision ne
+    /// passe pas de l'une à l'autre.
+    #[tokio::test]
+    async fn the_same_article_with_and_without_subdivision_does_not_share_its_note() {
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1)));
+        corpus.push_find_article(Ok(article(1)));
+        let text = "Voir l'art. 9, al. 2 du code civil et l'article 9 du code civil.";
+        let output = run(&corpus, PisteEnvironment::Production, Some(text), None).await.unwrap();
+        assert_eq!(output.checked, 2);
+        assert_eq!(corpus.calls_of("find_article"), 2);
+        assert_eq!(corpus.unserved(), 0);
+        let version = Note::VersionSince(CivilDate::new(2016, 10, 1).unwrap());
+        assert_eq!(
+            output.citations[0].note,
+            Some(version.clone().then(Note::SubdivisionNotChecked))
+        );
+        assert_eq!(output.citations[1].note, Some(version));
+    }
+
     #[tokio::test]
     async fn statuses_and_spans_in_code_points() {
         let corpus = corpus_with_civil_code();
