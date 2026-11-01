@@ -215,6 +215,37 @@ mod tests {
         );
     }
 
+    /// D-10 (`search_all-9`) : tous les fonds vides, la réponse porte la note, valide contre
+    /// l'`outputSchema` (champ `note` existant, aucun champ nouveau).
+    #[tokio::test]
+    async fn a_search_with_no_result_anywhere_carries_the_no_match_note() {
+        let fixture = Fixture::default();
+        let tool = descriptor(&fixture).await;
+        let schema = Value::Object(tool.output_schema.unwrap().as_ref().clone());
+        let validator = jsonschema::validator_for(&schema).unwrap();
+        for fond in [Fond::Loda, Fond::Juri] {
+            fixture.corpus.push_search(Ok(page(fond, 0, 0)));
+        }
+
+        let result =
+            call(&fixture, &json!({"query": "zzqxwv pfrtgh", "fonds": ["LODA", "JURI"]})).await;
+
+        assert_eq!(result.is_error, Some(false));
+        let content = result.structured_content.unwrap();
+        assert!(validator.is_valid(&content), "{content}");
+        assert_eq!(
+            content,
+            json!({
+                "groups": [
+                    {"fond": "LODA", "total": 0, "has_more": false, "hits": []},
+                    {"fond": "JURI", "total": 0, "has_more": false, "hits": []}
+                ],
+                "note": "No match in any fond: try other words or other fonds, or call \
+                         fr_coverage; an empty result does not mean the law is silent."
+            })
+        );
+    }
+
     #[tokio::test]
     async fn a_failing_fond_is_an_error_entry_and_does_not_fail_the_call() {
         let fixture = Fixture::default();

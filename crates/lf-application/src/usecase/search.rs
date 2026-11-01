@@ -56,6 +56,14 @@ const TOOL: ToolName = ToolName::FR_SEARCH;
 const REACHABLE_NOTE: &str = "Results beyond the first 10,000 are not reachable; narrow the query \
                               with match or date_from/date_to.";
 
+/// Note d'une recherche sans résultat (D-10, 05 §5.1) : `hits` vide et aucun total annoncé. La
+/// recherche réussit, mais un modèle lit surtout la réponse : elle lui rappelle que le vide ne
+/// prouve pas le silence de la loi. Les autres notes (articles à lire, fin de fenêtre) supposent un
+/// total positif : elles ne coïncident jamais avec celle-ci.
+pub(crate) const NO_MATCH_NOTE: &str = "No match: try other words, remove the date filters or \
+                                        call fr_coverage; an empty result does not mean the law \
+                                        is silent.";
+
 /// Longueur ISO d'une date rendue, `AAAA-MM-JJ`.
 const ISO_DATE_CHARS: usize = 10;
 
@@ -185,8 +193,8 @@ fn date_of(name: &'static str, value: Option<&str>) -> Result<Option<VersionDate
         .transpose()
 }
 
-/// Met la page du port en forme de réponse : `has_more`, note de fin de fenêtre, contrat de
-/// citation de chaque résultat, puis plafond de réponse.
+/// Met la page du port en forme de réponse : `has_more`, note (fin de fenêtre, articles à lire ou
+/// aucun résultat), contrat de citation de chaque résultat, puis plafond de réponse.
 fn present(query: &SearchQuery, page: SearchPage) -> Result<SearchOutput, AppError> {
     let (number, size) = (query.page(), query.page_size());
     // CODE : `page_size` compte des articles quand l'amont pagine par article, et `total` des
@@ -200,9 +208,13 @@ fn present(query: &SearchQuery, page: SearchPage) -> Result<SearchOutput, AppErr
     // Il reste des résultats après cette page, mais la fenêtre atteignable s'arrête ici.
     let seen = u64::from(number.get()).saturating_mul(u64::from(size.get()));
     let largest = page.total.max(articles.unwrap_or(0));
+    // Aucun résultat du tout (D-10) : ni total, ni article annoncé, ni résultat listé. Un seul
+    // chemin produit une note : les deux autres exigent un total positif.
+    let no_match = largest == 0 && page.hits.is_empty();
     let note = more_articles
         .map(|count| articles_note(count, &page.hits, number))
-        .or_else(|| (!more && seen < largest).then(|| REACHABLE_NOTE.to_owned()));
+        .or_else(|| (!more && seen < largest).then(|| REACHABLE_NOTE.to_owned()))
+        .or_else(|| no_match.then(|| NO_MATCH_NOTE.to_owned()));
     let mut output = SearchOutput {
         total: page.total,
         page: number.get(),
@@ -1061,10 +1073,84 @@ mod tests {
                 has_more: false,
                 total_articles: None,
                 hits: vec![],
-                note: None
+                note: Some(NO_MATCH_NOTE.to_owned())
             }
         );
         assert_eq!(output.output_count_or_size(), 0);
+    }
+
+    /// D-10 : la note d'une recherche sans résultat reprend le texte de la fiche et tient très
+    /// en deçà de la réserve des notes de dégradation.
+    #[test]
+    fn the_no_match_note_names_the_ways_out() {
+        assert_eq!(
+            NO_MATCH_NOTE,
+            "No match: try other words, remove the date filters or call fr_coverage; an empty \
+             result does not mean the law is silent."
+        );
+        assert!(NO_MATCH_NOTE.len() < DEGRADE_NOTE_RESERVE_CHARS / 2);
+    }
+
+    /// D-10, faux positif évité : une page vide dont le total est positif (page au-delà des
+    /// résultats, fin de fenêtre) ne dit jamais « No match » : la loi n'est pas muette, la page
+    /// est seulement vide. La note de fin de fenêtre reste la seule note.
+    #[tokio::test]
+    async fn an_empty_page_of_a_non_empty_search_gets_no_no_match_note() {
+        let past_the_results = serving(page_of(Fond::Loda, 30, vec![]));
+        let input = SearchInput { page: Some(5), ..text("bail") };
+        let output = run(&past_the_results, &clock(), input).await.unwrap();
+        assert_eq!((output.total, output.hits.len(), output.note), (30, 0, None));
+
+        let past_the_window = serving(page_of(Fond::Loda, 50_000, vec![]));
+        let input = SearchInput { page: Some(333), page_size: Some(30), ..text("bail") };
+        let output = run(&past_the_window, &clock(), input).await.unwrap();
+        assert_eq!(output.note.as_deref(), Some(REACHABLE_NOTE));
+    }
+
+    /// D-10, faux positif évité : des articles annoncés (CODE) sans texte listé ne sont pas
+    /// « aucun résultat ».
+    #[tokio::test]
+    async fn an_empty_code_page_with_articles_announced_gets_no_no_match_note() {
+        let page = SearchPage::new(
+            Fond::Code,
+            "bail",
+            Some(0),
+            Some(5),
+            vec![],
+            0,
+            PaginationMode::Article,
+        );
+        let output = run(&serving(page), &clock(), text("bail")).await.unwrap();
+        assert_eq!((output.total, output.total_articles, output.note), (0, Some(5), None));
+    }
+
+    /// D-10, faux positif évité : un résultat présent, même si la source annonce un total nul,
+    /// n'est pas une recherche sans résultat.
+    #[tokio::test]
+    async fn a_listed_hit_gets_no_no_match_note_even_with_a_zero_total() {
+        let output = run(
+            &serving(page_of(Fond::Loda, 0, vec![bare(Fond::Loda, 1)])),
+            &clock(),
+            text("bail"),
+        )
+        .await
+        .unwrap();
+        assert_eq!((output.hits.len(), output.note), (1, None));
+    }
+
+    /// D-10, vrai positif conservé : la note vaut pour tout fond, et pour une page 2 vide d'une
+    /// recherche qui n'a rien trouvé.
+    #[tokio::test]
+    async fn the_no_match_note_applies_to_every_fond_and_page() {
+        for fond in ["LODA", "CODE", "JURI", "CNIL", "KALI", "ACCO"] {
+            let parsed = Fond::parse(fond).unwrap();
+            let input = SearchInput { fond: Some(fond.to_owned()), ..text("zzzz") };
+            let output = run(&serving(page_of(parsed, 0, vec![])), &clock(), input).await.unwrap();
+            assert_eq!(output.note.as_deref(), Some(NO_MATCH_NOTE), "{fond}");
+        }
+        let input = SearchInput { page: Some(2), ..text("zzzz") };
+        let output = run(&serving(page_of(Fond::Loda, 0, vec![])), &clock(), input).await.unwrap();
+        assert_eq!(output.note.as_deref(), Some(NO_MATCH_NOTE));
     }
 
     #[tokio::test]

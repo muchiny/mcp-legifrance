@@ -177,7 +177,11 @@ mod tests {
         assert_eq!(result.is_error, Some(false));
         assert_eq!(
             result.structured_content.unwrap(),
-            json!({"total": 0, "page": 1, "has_more": false, "hits": []})
+            json!({
+                "total": 0, "page": 1, "has_more": false, "hits": [],
+                "note": "No match: try other words, remove the date filters or call \
+                         fr_coverage; an empty result does not mean the law is silent."
+            })
         );
     }
 

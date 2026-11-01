@@ -62,6 +62,12 @@ const PER_FOND_MAX: usize = 10;
 /// Recherches simultanément en vol.
 const CONCURRENCY: usize = 4;
 
+/// Note quand tous les fonds ont répondu sans résultat (D-10, 05 §5.13) : l'appel réussit, mais
+/// rien ne rappelait que le vide ne prouve pas le silence de la loi. Pas de filtre de date ici :
+/// la note ne cite que ce que `fr_search_all` offre.
+const NO_MATCH_NOTE: &str = "No match in any fond: try other words or other fonds, or call \
+                             fr_coverage; an empty result does not mean the law is silent.";
+
 /// Longueur ISO d'une date rendue, `AAAA-MM-JJ`.
 const ISO_DATE_CHARS: usize = 10;
 
@@ -128,7 +134,7 @@ impl<'a, C: LegalCorpus, K: Clock> SearchAllUseCase<'a, C, K> {
         if let Some(error) = shared_failure(&groups) {
             return Err(error);
         }
-        let note = fit_under_target(&mut groups);
+        let note = fit_under_target(&mut groups).or_else(|| all_empty(&groups));
         Ok(SearchAllOutput { groups, note })
     }
 
@@ -170,6 +176,18 @@ fn fonds_of(value: Option<Vec<String>>) -> Result<Vec<Fond>, AppError> {
         fonds.push(fond);
     }
     Ok(fonds)
+}
+
+/// La note « aucun résultat » quand chaque fond a répondu, sans total ni résultat. Un fond en
+/// erreur n'est pas un fond vide : sa seule entrée le dit. La dégradation ne retire que des
+/// extraits et des champs de résultats : elle ne coïncide jamais avec cette note.
+fn all_empty(groups: &[GroupOut]) -> Option<String> {
+    groups
+        .iter()
+        .all(|group| {
+            group.result.as_ref().is_ok_and(|found| found.total == 0 && found.hits.is_empty())
+        })
+        .then(|| NO_MATCH_NOTE.to_owned())
 }
 
 /// L'erreur commune quand tous les fonds ont échoué avec le même code ; `None` dès qu'un fond a
@@ -449,6 +467,55 @@ mod tests {
             .map(|group| group.result.as_ref().map(|found| found.total).unwrap())
             .collect();
         assert_eq!((fond_names(&output), totals), (vec!["KALI", "CNIL"], vec![1, 2]));
+    }
+
+    /// D-10 : tous les fonds répondent sans résultat (cas réel `search_all-9`, requête
+    /// « zzqxwv pfrtgh » : cinq groupes à `total` 0, sans note) : une note le dit.
+    #[tokio::test]
+    async fn a_note_says_so_when_every_fond_is_empty() {
+        let corpus = FakeCorpus::new();
+        for fond in DEFAULT_FONDS {
+            corpus.push_search(Ok(page_of(fond, 0, vec![])));
+        }
+        let output = run(&corpus, all_of(Some("zzqxwv pfrtgh"), None, None)).await.unwrap();
+        assert_eq!(output.groups.len(), 5);
+        assert_eq!(output.note.as_deref(), Some(NO_MATCH_NOTE));
+        assert!(!NO_MATCH_NOTE.contains("date"), "fr_search_all n'a pas de filtre de date");
+    }
+
+    /// D-10, faux positif évité : un seul groupe avec un résultat, ou avec un total annoncé, et
+    /// il n'y a pas de note.
+    #[tokio::test]
+    async fn no_note_when_one_fond_has_results() {
+        let corpus = FakeCorpus::new();
+        corpus.push_search(Ok(page_of(Fond::Loda, 0, vec![])));
+        corpus.push_search(Ok(bare_page(Fond::Code, 4, 1)));
+        let output = run(&corpus, named(&["LODA", "CODE"])).await.unwrap();
+        assert_eq!(output.note, None);
+
+        // Un total positif sans résultat listé n'est pas un fond vide.
+        let corpus = FakeCorpus::new();
+        corpus.push_search(Ok(page_of(Fond::Loda, 0, vec![])));
+        corpus.push_search(Ok(page_of(Fond::Code, 7, vec![])));
+        let output = run(&corpus, named(&["LODA", "CODE"])).await.unwrap();
+        assert_eq!(output.note, None);
+    }
+
+    /// D-10, faux positif évité : un fond en erreur n'est pas un fond vide, donc pas de note
+    /// « No match » (l'entrée d'erreur dit déjà quoi faire). Vrai positif conservé : un seul fond
+    /// demandé et vide a bien sa note.
+    #[tokio::test]
+    async fn a_failed_fond_is_not_an_empty_one() {
+        let corpus = FakeCorpus::new();
+        corpus.push_search(Ok(page_of(Fond::Loda, 0, vec![])));
+        corpus.push_search(Err(CorpusError::Timeout));
+        let output = run(&corpus, named(&["LODA", "JURI"])).await.unwrap();
+        assert_eq!(output.note, None);
+
+        let corpus = FakeCorpus::new();
+        corpus.push_search(Ok(page_of(Fond::Juri, 0, vec![])));
+        let output = run(&corpus, named(&["JURI"])).await.unwrap();
+        assert_eq!(output.note.as_deref(), Some(NO_MATCH_NOTE));
     }
 
     #[tokio::test]
