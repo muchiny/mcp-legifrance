@@ -380,6 +380,29 @@ mod tests {
         assert_eq!(seen, 4, "extraits relevés");
     }
 
+    /// Relevé C17 : recherche CONSTIT, champ ALL, exacte « 2010-14 », page 1 de taille 10.
+    const CONSTIT_C17_PAGE: &str = include_str!(
+        "../../tests/fixtures/recorded/search/c101/C17-constit-all-exacte-2010-14.json"
+    );
+
+    /// V-154 (relevé C17) : la recherche plein texte exacte « 2010-14 » ne renvoie pas la décision
+    /// jointe 2010-14/22 QPC (CONSTEXT000022762681) mais un seul résultat sans rapport, la
+    /// décision 2015-4948 SEN, dont le texte cite la loi du pays n° 2010-14.
+    #[test]
+    fn the_joined_decision_is_absent_from_the_full_text_search_of_its_first_number() {
+        let (page, diags) = page_of(Fond::Constit, CONSTIT_C17_PAGE);
+        assert_eq!(diags, Diagnostics::default());
+        assert_eq!((page.hits.len(), page.dropped), (1, 0));
+        let hit = &page.hits[0];
+        assert_eq!(hit.id.as_str(), "CONSTEXT000031554429");
+        assert_eq!(
+            hit.title.as_deref(),
+            Some("Décision 2015-4948 SEN - 19 novembre 2015 - Polynésie française - Rejet")
+        );
+        assert_ne!(hit.id.as_str(), "CONSTEXT000022762681");
+        assert!(page.hits.iter().all(|hit| hit.id.as_str() != "CONSTEXT000022762681"));
+    }
+
     /// Jumeau : un titre déjà sur une ligne est inchangé ; les blancs multiples et les sauts de
     /// ligne d'un titre LODA se replient en une espace.
     #[test]

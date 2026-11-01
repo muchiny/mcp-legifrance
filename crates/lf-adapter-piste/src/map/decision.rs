@@ -266,6 +266,39 @@ mod tests {
         assert_eq!(decision.numero_affaire.last().map(String::as_str), Some("22-13.512"));
     }
 
+    /// Relevé C16 : `JURITEXT000038427064` (Cass. civ. 1re, 10 avril 2019, 17-13.307), dont les trois
+    /// `liens[]` de type `CITATION` ont `id` et `cidTexte` vides et un titre brut.
+    const LINKS_JURI: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/juri/c101/C16-juri-consult-liens-JURITEXT000038427064.json"
+    );
+
+    /// V-117 (relevé C16, L4-13) : les titres des trois liens deviennent les textes appliqués, dans
+    /// l'ordre reçu, la double espace avant « article 19 » ramenée à une seule ; `citationJp` devient
+    /// la jurisprudence citée. `fr_get_related` les analyse ensuite : le test de ce comportement
+    /// (`the_recorded_links_of_a_cassation_decision_give_no_wrong_code`, `lf-application`) reprend ces chaînes.
+    #[test]
+    fn the_recorded_links_of_a_cassation_decision_keep_their_raw_titles() {
+        let dto: ConsultJuriResponseDto = decode(LINKS_JURI, "/consult/juri").unwrap();
+        let decision = decision_of(dto, "JURITEXT000038427064").0.unwrap();
+        assert_eq!(
+            decision.applied_texts,
+            [
+                "Sur le numéro 1 : article 16 du code de procédure civile ; article 19 du règlement \
+                 n° 861/2007 du Parlement européen et du Conseil du 11 juillet 2007 ;",
+                "Sur le numéro 2 : directive 2005/29/CE du Parlement européen et du Conseil du 11 mai \
+                 2005 ; article L. 120-1, devenu L. 121-1, du code de la consommation",
+                "Sur le numéro 3 : article 1382, devenu 1240, du code civil ; article 700 du code de \
+                 procédure civile",
+            ]
+        );
+        assert_eq!(
+            decision.cited_case_law.as_deref(),
+            Some(
+                "N3 > A rapprocher : 2e Civ., 8 juillet 2004, pourvoi n° 03-15.155, Bull. 2004, II, n° 365 (cassation)"
+            )
+        );
+    }
+
     /// Jumeau : le titre de 87 caractères de `consult_juri` est conservé tel quel, et les 256
     /// caractères d'un titre CONSTIT ou CETAT sont légitimes.
     #[test]

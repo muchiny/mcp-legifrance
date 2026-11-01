@@ -961,6 +961,61 @@ mod tests {
         }
     }
 
+    /// V-117, L4-13 (relevé C16, `JURITEXT000038427064`, Cass. civ. 1re, 10 avril 2019, 17-13.307) :
+    /// ce que `fr_get_related` rend des trois `liens[]` réels et de `citationJp`, tels que l'adapter
+    /// les mappe (chaînes du test `the_recorded_links_of_a_cassation_decision_keep_their_raw_titles`
+    /// de `lf-adapter-piste`). Aucun code n'est attribué à un article qui n'est pas le sien. Les
+    /// limites connues (« precision over recall ») sont figées : le code de « article L. 120-1,
+    /// devenu L. 121-1, du code de la consommation » n'est gardé que pour L. 121-1 (L. 120-1 reste
+    /// sans code), celui de « article 1382, devenu 1240, du code civil » n'est gardé pour aucun, et
+    /// « 1240 » n'est pas reconnu comme un article (aucun lien). Le règlement 861/2007 et la
+    /// directive 2005/29/CE (droit de l'Union, hors périmètre) sont montrés tels qu'écrits.
+    #[test]
+    fn the_recorded_links_of_a_cassation_decision_give_no_wrong_code() {
+        let cited = "N3 > A rapprocher : 2e Civ., 8 juillet 2004, pourvoi n° 03-15.155, Bull. 2004, \
+                     II, n° 365 (cassation)";
+        let applied = [
+            "Sur le numéro 1 : article 16 du code de procédure civile ; article 19 du règlement \
+             n° 861/2007 du Parlement européen et du Conseil du 11 juillet 2007 ;",
+            "Sur le numéro 2 : directive 2005/29/CE du Parlement européen et du Conseil du 11 mai \
+             2005 ; article L. 120-1, devenu L. 121-1, du code de la consommation",
+            "Sur le numéro 3 : article 1382, devenu 1240, du code civil ; article 700 du code de \
+             procédure civile",
+        ]
+        .map(str::to_owned);
+        let decision = decision_links(&DecisionReferences {
+            cited_case_law: Some(cited),
+            applied_texts: &applied,
+            clipped: false,
+        });
+        assert_eq!(
+            shape(&decision.links),
+            [
+                ("cites_case_law", "decision", "Cass. 2e civ., 8 juillet 2004, n° 03-15.155"),
+                ("applies_text", "code_article", "Code de procédure civile, art. 16"),
+                (
+                    "applies_text",
+                    "unsupported",
+                    "article 19 du règlement n° 861/2007 du Parlement européen et du Conseil du 11 \
+                     juillet 2007"
+                ),
+                (
+                    "applies_text",
+                    "unsupported",
+                    "directive 2005/29/CE du Parlement européen et du Conseil du 11 mai 2005"
+                ),
+                ("applies_text", "code_article", "article L. 120-1"),
+                ("applies_text", "code_article", "Code de la consommation, art. L121-1"),
+                ("applies_text", "code_article", "article 1382"),
+                ("applies_text", "code_article", "Code de procédure civile, art. 700"),
+            ]
+        );
+        // Des codes sont montrés ou refusés : la réponse porte la note des codes inexacts.
+        assert!(decision.code_involved);
+        // Précision : le code civil n'est attribué à aucun article, ni à 700, ni à 1382.
+        assert!(decision.links.iter().all(|link| !link.citation.contains("Code civil")));
+    }
+
     #[test]
     fn a_text_article_enumeration_loses_its_text_too_and_a_named_article_keeps_its_word() {
         // Un texte non codifié partage lui aussi le sien : « articles 4 et 5 de la loi n° 2016-1321 ».

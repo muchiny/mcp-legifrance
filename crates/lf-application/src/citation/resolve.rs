@@ -3988,6 +3988,34 @@ mod tests {
         assert_eq!(corpus.calls(), 0);
     }
 
+    /// V-154 (relevé C17, `recorded/search/c101/C17-constit-all-exacte-2010-14.json`) : la recherche
+    /// plein texte exacte « 2010-14 » ne renvoie pas la décision jointe 2010-14/22 QPC mais un seul
+    /// résultat sans rapport (« Décision 2015-4948 SEN », dont le texte cite la loi du pays
+    /// n° 2010-14). Aucun numéro joint n'en est tiré : pas de recherche `NUM_DEC` de plus, et la
+    /// réponse reste « could not confirm » (l'appel de recherche, lui, est dépensé).
+    #[tokio::test]
+    async fn the_recorded_full_text_search_of_a_joined_number_confirms_nothing() {
+        let ecli = "ECLI:FR:CC:2010:2010.14.QPC";
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        corpus.push_search(Ok(constit_page(&[(
+            "CONSTEXT000031554429",
+            "Décision 2015-4948 SEN - 19 novembre 2015 - Polynésie française - Rejet",
+        )])));
+        let resolution = resolve_with(&corpus, &codes(), &ecli_item(ecli), None).await;
+        assert_eq!(
+            resolution.outcome,
+            unresolvable_outcome(Note::CouldNotConfirm { index: "CONSTIT" })
+        );
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![
+                find_request(Fond::Constit, NumberKind::Decision, "2010-14"),
+                constit_search("2010-14"),
+            ]
+        );
+    }
+
     #[tokio::test]
     async fn a_constitutional_ecli_is_searched_by_its_number_and_compared_with_the_native_one() {
         let id = "CONSTEXT000052555275";
