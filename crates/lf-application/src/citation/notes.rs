@@ -277,6 +277,10 @@ pub enum Note {
     /// `fr_get_related` : l'API ne donne aucune référence (`citationJp`, `liens`) pour cette
     /// décision, alors que son texte en cite peut-être (V4-05) ; la liste vide ne prouve rien.
     NoDecisionReferences,
+    /// `fr_get_related` : le code d'au moins un lien de décision n'était pas écrit à côté de son
+    /// article et n'a pas été repris ; les titres de `liens` sont des fragments de prose (V-117),
+    /// les codes des liens d'une décision peuvent donc être inexacts.
+    DecisionLinkCodes,
 }
 
 /// Sens des sigles ambigus (annexe B §5.3), vocabulaire fermé.
@@ -360,6 +364,11 @@ fn mismatches_text(gaps: &[(Field, String, String)]) -> String {
         .collect();
     format!("{}.", parts.join("; "))
 }
+
+/// Gabarit de [`Note::DecisionLinkCodes`].
+const DECISION_LINK_CODES: &str = "The codes of decision links may be inexact: the API gives text \
+     fragments, and a code not written next to its article is left out; check the decision with \
+     fr_verify_citations.";
 
 impl Note {
     /// Texte anglais de la note, gabarit de l'annexe B §7.10, borné à [`NOTE_MAX_CHARS`] caractères.
@@ -461,6 +470,7 @@ impl Note {
                 "A popular name is not a citation; find the text with fr_search.".to_owned()
             }
             Self::NoDecisionReferences => NO_DECISION_REFERENCES.to_owned(),
+            Self::DecisionLinkCodes => DECISION_LINK_CODES.to_owned(),
         };
         messages::clip(&text, NOTE_MAX_CHARS)
     }
@@ -630,6 +640,10 @@ mod tests {
             (
                 Note::NoDecisionReferences,
                 "The API gives no references for this decision; its text may still cite some: read it with fr_get_decision and check it with fr_verify_citations.",
+            ),
+            (
+                Note::DecisionLinkCodes,
+                "The codes of decision links may be inexact: the API gives text fragments, and a code not written next to its article is left out; check the decision with fr_verify_citations.",
             ),
             (
                 Note::NotInSnapshot {

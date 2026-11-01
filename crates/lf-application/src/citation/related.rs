@@ -16,7 +16,9 @@
 use std::collections::HashSet;
 
 use lf_domain::{
-    citation::{CitationKind, CitationRef, ParseOptions, Spanned, format::canonical, parse_with},
+    citation::{
+        CitationKind, CitationRef, CodeRef, ParseOptions, Spanned, format::canonical, parse_with,
+    },
     contract::CitationText,
     entity::{Decision, RelatedLink, RelatedLinks, RelatedNature},
     id::DocumentId,
@@ -196,33 +198,61 @@ struct Draft {
     act: String,
     /// Article de l'acte, quand le lien en désigne un.
     article: Option<String>,
+    /// Le code de la citation n'était pas écrit dans sa mention et n'a pas été gardé (L4-13).
+    code_dropped: bool,
+}
+
+/// Les liens d'une décision et ce que l'on sait de leur fiabilité.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DecisionLinks {
+    /// Les liens, jurisprudence citée d'abord.
+    pub(crate) links: Vec<LinkOut>,
+    /// Vrai si le code d'au moins une citation n'était pas écrit dans sa mention (énumération
+    /// « articles 1382 et 700 du code civil ») : le lien montre l'article seul, et la réponse dit
+    /// que les codes des liens d'une décision peuvent être inexacts (L4-13).
+    pub(crate) code_dropped: bool,
 }
 
 /// Les liens d'une décision : jurisprudence citée d'abord, textes appliqués ensuite, chaque groupe
 /// dans l'ordre du texte (`citationJp` puis `liens`).
-pub(crate) fn decision_links(references: &DecisionReferences<'_>) -> Vec<LinkOut> {
+///
+/// Les titres de `liens` sont des fragments de prose coupés, parfois dans le désordre (V-117) : un
+/// code n'est gardé que s'il est écrit dans la mention même de l'article (« article 700 du code
+/// de procédure civile »). Quand le parseur l'a emprunté à la fin d'une énumération (« articles
+/// 1382 et 700 du code civil »), rien ne dit qu'il vaut pour tous les numéros : le lien montre
+/// l'article seul (« article 700 ») et `code_dropped` est vrai.
+pub(crate) fn decision_links(references: &DecisionReferences<'_>) -> DecisionLinks {
     let options =
         ParseOptions { strip_html: true, repair_mojibake: false, ..ParseOptions::default() };
     let cited = references.cited_case_law.map(|text| (Source::CitationJp, text));
     let applied = references.applied_texts.iter().map(|text| (Source::Liens, text.as_str()));
     let found = cited.into_iter().chain(applied).flat_map(|(source, text)| {
         let citations = parse_with(text, &options);
-        citations.into_iter().filter_map(move |citation| draft_of(source, text, &citation))
+        let options = &options;
+        citations.into_iter().filter_map(move |citation| draft_of(source, text, &citation, options))
     });
     let mut drafts: Vec<Draft> = Vec::new();
+    let mut code_dropped = false;
     for draft in found {
+        code_dropped |= draft.code_dropped;
         merge(&mut drafts, draft);
     }
     // Tri stable : la jurisprudence citée passe devant, l'ordre du texte est gardé dans chaque groupe.
     drafts.sort_by_key(|draft| draft.link.relation == Relation::AppliesText);
-    drafts.into_iter().map(|draft| draft.link).collect()
+    DecisionLinks { links: drafts.into_iter().map(|draft| draft.link).collect(), code_dropped }
 }
 
 /// Le brouillon de lien d'une citation reconnue dans `text`, ou `None` si elle n'a rien de lisible
 /// à montrer.
-fn draft_of(source: Source, text: &str, found: &Spanned<CitationRef>) -> Option<Draft> {
+fn draft_of(
+    source: Source,
+    text: &str,
+    found: &Spanned<CitationRef>,
+    options: &ParseOptions,
+) -> Option<Draft> {
     let raw = text.get(found.span.start..found.span.end).unwrap_or_default();
-    let citation = shown(&found.value, raw)?;
+    let code_dropped = has_code(&found.value) && !code_is_written(&found.value, raw, options);
+    let citation = if code_dropped { article_only(raw) } else { shown(&found.value, raw) }?;
     let kind = found.value.kind();
     let relation = match (source, kind) {
         (Source::CitationJp, CitationKind::Decision | CitationKind::Ecli) => Relation::CitesCaseLaw,
@@ -233,7 +263,34 @@ fn draft_of(source: Source, text: &str, found: &Spanned<CitationRef>) -> Option<
         link: LinkOut { relation, kind, citation, id: None, source_url: None },
         act,
         article,
+        code_dropped,
     })
+}
+
+/// La citation est un article rattaché à un code ou à un texte.
+fn has_code(value: &CitationRef) -> bool {
+    match value {
+        CitationRef::CodeArticle { code, .. } => {
+            matches!(code, CodeRef::Known(_) | CodeRef::Unknown(_))
+        }
+        CitationRef::TextArticle { text, .. } => text.is_some(),
+        _ => false,
+    }
+}
+
+/// Le code de `value` est écrit dans sa propre mention `raw` : relue seule, elle donne la même
+/// forme canonique. Faux quand le parseur l'a pris à la fin d'une énumération.
+fn code_is_written(value: &CitationRef, raw: &str, options: &ParseOptions) -> bool {
+    let expected = canonical(value);
+    parse_with(raw, options).first().is_some_and(|alone| canonical(&alone.value) == expected)
+}
+
+/// La mention d'un article dont on ne garde pas le code, sur une ligne et bornée : « 700 » devient
+/// « article 700 ». `None` si elle est vide une fois nettoyée.
+fn article_only(raw: &str) -> Option<String> {
+    let text = clean_field(Some(raw))?;
+    let named = text.to_lowercase().starts_with("art");
+    one_line(&if named { text } else { format!("article {text}") })
 }
 
 /// Ce que le lien montre : la forme canonique de la citation, sinon le texte reconnu, nettoyé
@@ -532,6 +589,17 @@ mod tests {
             applied_texts: applied,
             clipped: false,
         })
+        .links
+    }
+
+    fn code_dropped(applied: &[&str]) -> bool {
+        let applied: Vec<String> = applied.iter().map(|text| (*text).to_owned()).collect();
+        decision_links(&DecisionReferences {
+            cited_case_law: None,
+            applied_texts: &applied,
+            clipped: false,
+        })
+        .code_dropped
     }
 
     fn shape(links: &[LinkOut]) -> Vec<(&'static str, &'static str, &str)> {
@@ -569,14 +637,14 @@ mod tests {
         assert_eq!(references.cited_case_law, Some(CITATION_JP));
         assert_eq!(references.applied_texts, liens().as_slice());
         assert!(!references.clipped);
-        assert_eq!(decision_links(&references), links_of(Some(CITATION_JP), &liens()));
-        assert_eq!(decision_links(&references).len(), 2);
+        assert_eq!(decision_links(&references).links, links_of(Some(CITATION_JP), &liens()));
+        assert_eq!(decision_links(&references).links.len(), 2);
 
         // Sans références : rien à lire, aucun lien.
         let bare = decision("CETATEXT000051655317", "texte");
         let references = DecisionReferences::of(&bare);
         assert_eq!((references.cited_case_law, references.applied_texts.len()), (None, 0));
-        assert_eq!(decision_links(&references), vec![]);
+        assert_eq!(decision_links(&references).links, vec![]);
     }
 
     /// Une décision qui porte ces références.
@@ -661,7 +729,7 @@ mod tests {
         let references = DecisionReferences::of(&decision);
         assert_eq!(references.applied_texts.len(), MAX_ANALYSED_CHARS / 26);
         assert!(references.clipped);
-        assert_eq!(decision_links(&references).len(), 1, "le même article, fusionné");
+        assert_eq!(decision_links(&references).links.len(), 1, "le même article, fusionné");
     }
 
     #[test]
@@ -763,8 +831,8 @@ mod tests {
         assert_eq!(shown(&unsupported, "Dalloz 2020"), Some("Dalloz 2020".to_owned()));
         let spanned = Spanned::new(unsupported, lf_domain::citation::Span { start: 0, end: 7 });
         // Un span qui ne tombe pas sur le texte donné (frontière invalide) ne fait pas paniquer.
-        assert!(draft_of(Source::Liens, "<b></b>", &spanned).is_none());
-        assert!(draft_of(Source::Liens, "é", &spanned).is_none());
+        assert!(draft_of(Source::Liens, "<b></b>", &spanned, &ParseOptions::default()).is_none());
+        assert!(draft_of(Source::Liens, "é", &spanned, &ParseOptions::default()).is_none());
     }
 
     #[test]
@@ -791,6 +859,76 @@ mod tests {
         // Jumeau : une citation reconnue sur une ligne reste intacte.
         let out = links_of(None, &["Loi n° 2016-1321 du 7 octobre 2016, art. 5".to_owned()]);
         assert_eq!(out[0].citation, "Loi n° 2016-1321 du 7 octobre 2016, art. 5");
+    }
+
+    #[test]
+    fn a_code_only_shared_with_the_article_by_an_enumeration_is_not_kept() {
+        // related_diff-2 (E2E, Cass. 1re civ., 10 avril 2019) : le 700 d'une énumération prenait le
+        // code de la fin de l'énumération. Le code n'est gardé que s'il est écrit dans la mention
+        // de l'article ; sinon le lien montre l'article seul.
+        let out = links_of(None, &["articles 1382 et 700 du code civil".to_owned()]);
+        assert_eq!(
+            shape(&out),
+            [
+                ("applies_text", "code_article", "article 1382"),
+                ("applies_text", "code_article", "article 700"),
+            ]
+        );
+        assert!(out.iter().all(|link| !link.citation.contains("Code civil")), "{out:?}");
+    }
+
+    #[test]
+    fn a_code_written_next_to_its_article_is_kept() {
+        // Jumeau : « Code de procédure civile, art. 700 » ne devient jamais « Code civil, art. 700 »
+        // et un lien correct reste inchangé.
+        let out = links_of(
+            None,
+            &["article 1240 du code civil, ensemble l'article 700 du code de procédure civile"
+                .to_owned()],
+        );
+        assert_eq!(
+            shape(&out),
+            [
+                ("applies_text", "code_article", "Code civil, art. 1240"),
+                ("applies_text", "code_article", "Code de procédure civile, art. 700"),
+            ]
+        );
+        let out = links_of(None, &["L. 121-1 du code de la consommation".to_owned()]);
+        assert_eq!(shape(&out)[0].2, "Code de la consommation, art. L121-1");
+    }
+
+    #[test]
+    fn the_report_says_whether_a_code_was_dropped() {
+        assert!(code_dropped(&["articles 1382 et 700 du code civil"]));
+        // Un doublon écarté par la fusion compte : le code a bien été refusé.
+        assert!(code_dropped(&["article 700 du code civil", "articles 1382 et 700 du code civil"]));
+        // Jumeaux : un code écrit, un article déjà sans code, une mention sans article.
+        assert!(!code_dropped(&["article 700 du code de procédure civile"]));
+        assert!(!code_dropped(&["article 1382, devenu 1240 du code civil"]));
+        assert!(!code_dropped(&["Loi n° 2016-1321 du 7 octobre 2016, art. 5", "néant"]));
+        assert!(!code_dropped(&[]));
+    }
+
+    #[test]
+    fn a_text_article_enumeration_loses_its_text_too_and_a_named_article_keeps_its_word() {
+        // Un texte non codifié partage lui aussi le sien : « articles 4 et 5 de la loi n° 2016-1321 ».
+        let out = links_of(
+            None,
+            &["articles 4 et 5 de la loi n° 2016-1321 du 7 octobre 2016".to_owned()],
+        );
+        assert!(out.iter().all(|link| !link.citation.contains("2016")), "{out:?}");
+        assert!(out.iter().all(|link| link.citation.starts_with("article ")), "{out:?}");
+        // Un lien qui garde son mot « article » ne le répète pas.
+        assert_eq!(article_only("Art. 700").as_deref(), Some("Art. 700"));
+        assert_eq!(article_only("700").as_deref(), Some("article 700"));
+        assert_eq!(article_only("<b></b>"), None);
+    }
+
+    #[test]
+    fn a_link_without_code_stays_without_code() {
+        // Jumeau : un article déjà sans code n'en reçoit pas.
+        let out = links_of(None, &["article 1382, devenu 1240 du code civil".to_owned()]);
+        assert_eq!(shape(&out)[0].2, "article 1382");
     }
 
     #[test]
