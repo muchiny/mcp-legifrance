@@ -17,7 +17,7 @@
 //! 3. Les deux dates dans la même version : `identical`, sans hunk et avec un seul `get_article`
 //!    (la citation). Sinon les deux textes se lisent ensemble.
 //! 4. Diff mot à mot ([`similar`], Myers) : un hunk par suite contiguë de mots changés, avec sa
-//!    position dans A (en caractères) et jusqu'à 60 caractères de contexte avant. Si moins de 30 %
+//!    position dans A (en caractères) et jusqu'à 60 caractères de contexte avant. Si moins de 40 %
 //!    des mots de A se retrouvent dans B (comptés sur tout le diff, avant les plafonds), la
 //!    réponse porte une `note` : article renuméroté ou remplacé, les deux textes sont sans
 //!    rapport (D-06). Rien pour des textes identiques, ni quand un côté n'a aucun mot.
@@ -83,9 +83,10 @@ const ENVELOPE_FIELDS: usize = 16;
 const ENVELOPE_TEXT_CHARS: usize = 20 + 2 * (20 + 2 * 10 + 16);
 
 /// Part des mots de A conservés dans B, en pourcentage, sous laquelle la réponse porte une note
-/// (D-06). Un amendement garde l'essentiel du texte ; deux textes sans rapport (renumérotation,
-/// art. 9 du Code civil : nationalité puis vie privée, 4 %) en gardent quelques mots outils.
-const LOW_SIMILARITY_PERCENT: usize = 30;
+/// (D-06). Un amendement garde l'essentiel du texte (CGI 777, versions 13 à 14 : 99 %) ; deux
+/// textes sans rapport en gardent leurs mots outils, jusqu'à 30,4 % (Code civil, 1240 actuel contre
+/// ancien). Calibré sur les relevés réels, voir les tests `the_threshold_*` ci-dessous.
+const LOW_SIMILARITY_PERCENT: usize = 40;
 
 /// Note jointe quand les deux versions partagent très peu de texte (D-06).
 const LOW_SIMILARITY_NOTE: &str = "The two versions share little text: the article may have been renumbered or replaced. Read both with fr_get_text.";
@@ -1087,12 +1088,12 @@ mod tests {
     }
 
     #[test]
-    fn the_note_threshold_is_thirty_percent_of_the_words_of_a() {
+    fn the_note_threshold_is_forty_percent_of_the_words_of_a() {
         let old = "a1 a2 a3 a4 a5 a6 a7 a8 a9 a10";
-        // 3 mots sur 10 conservés : 30 %, pas sous le seuil.
-        assert_eq!(shared(old, "a1 a2 a3 x4 x5 x6 x7 x8 x9 x10"), (3, 10, 10, false));
-        // 2 sur 10 : 20 %, sous le seuil.
-        assert_eq!(shared(old, "a1 a2 x3 x4 x5 x6 x7 x8 x9 x10"), (2, 10, 10, true));
+        // 4 mots sur 10 conservés : 40 %, pas sous le seuil.
+        assert_eq!(shared(old, "a1 a2 a3 a4 x5 x6 x7 x8 x9 x10"), (4, 10, 10, false));
+        // 3 sur 10 : 30 %, sous le seuil.
+        assert_eq!(shared(old, "a1 a2 a3 x4 x5 x6 x7 x8 x9 x10"), (3, 10, 10, true));
         // Tout conservé, rien conservé.
         assert_eq!(shared(old, old), (10, 10, 10, false));
         assert_eq!(shared(old, "x1 x2"), (0, 10, 2, true));
@@ -1100,11 +1101,13 @@ mod tests {
 
     #[test]
     fn the_share_is_taken_over_the_words_of_a_not_of_b() {
-        // 3 mots de A (sur 10) conservés dans un B de 100 mots : la part de A fait foi.
+        // 4 mots de A (sur 10) conservés dans un B de 100 mots : la part de A fait foi.
         let old = "a1 a2 a3 a4 a5 a6 a7 a8 a9 a10";
-        let new =
-            format!("a1 a2 a3 {}", (0..97).map(|n| format!("x{n}")).collect::<Vec<_>>().join(" "));
-        assert_eq!(shared(old, &new), (3, 10, 100, false));
+        let new = format!(
+            "a1 a2 a3 a4 {}",
+            (0..96).map(|n| format!("x{n}")).collect::<Vec<_>>().join(" ")
+        );
+        assert_eq!(shared(old, &new), (4, 10, 100, false));
         // Et un B plus court qui garde tout de lui, mais 2 mots de A sur 10 seulement.
         assert_eq!(shared(old, "a1 a2"), (2, 10, 2, true));
     }
@@ -1295,18 +1298,123 @@ mod tests {
         assert_eq!(output.note, None);
     }
 
-    // Textes enregistrés (fixtures `getArticle` C7) : l'ancien article 1382 du Code civil
-    // (LEGIARTI000006438819, jusqu'au 2016-10-01) et l'article 1240 (LEGIARTI000032041571) qui le
-    // remplace par renumérotation (ordonnance 2016-131) portent le même texte.
-    const CIVIL_1382_OLD: &str = "Tout fait quelconque de l'homme, qui cause à autrui un dommage, oblige celui par la faute duquel il est arrivé à le réparer.";
-    const CIVIL_1240: &str = "Tout fait quelconque de l'homme, qui cause à autrui un dommage, oblige celui par la faute duquel il est arrivé à le réparer.";
+    /// Le champ `texte` d'un relevé `getArticle` (valeur lue telle qu'enregistrée, sans
+    /// `texteHtml`). Les textes de ces relevés ne portent aucune séquence d'échappement JSON : le
+    /// test échoue plutôt que de lire un texte déformé.
+    fn recorded_text(raw: &str) -> &str {
+        const KEY: &str = "\"texte\":\"";
+        let start = raw.find(KEY).unwrap().saturating_add(KEY.len());
+        let tail = &raw[start..];
+        let text = &tail[..tail.find('"').unwrap()];
+        assert!(!text.contains('\\'), "séquence d'échappement dans le relevé");
+        text
+    }
+
+    // Les six textes réels de la calibration du seuil (relevés `getArticle` de `c101/` et `c110/`).
+    // 1382 du Code civil : ancien (LEGIARTI000006438819, jusqu'au 2016-10-01) et actuel
+    // (LEGIARTI000032042379, sur les présomptions : l'ancien texte est devenu l'art. 1240).
+    // 1240 : ancien (LEGIARTI000006437044, le paiement fait de bonne foi) et actuel
+    // (LEGIARTI000032041571, la responsabilité). CGI 777 : versions 13 (LEGIARTI000026292569) et
+    // 14 (LEGIARTI000030061736), même tableau de taux.
+    fn civil_1382_old() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C7-getArticle-1382-ancienne-LEGIARTI000006438819.json"
+        ))
+    }
+    fn civil_1382_current() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c110/\
+             D06-getArticle-1382-actuel-LEGIARTI000032042379.json"
+        ))
+    }
+    fn civil_1240_old() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c110/\
+             D06-getArticle-1240-ancien-LEGIARTI000006437044.json"
+        ))
+    }
+    fn civil_1240_current() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C7-getArticle-1240-LEGIARTI000032041571.json"
+        ))
+    }
+    fn cgi_777_v13() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c110/\
+             D06-getArticle-cgi-777-v13-LEGIARTI000026292569.json"
+        ))
+    }
+    fn cgi_777_v14() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C11-getArticle-cgi-777-LEGIARTI000030061736.json"
+        ))
+    }
+
+    #[test]
+    fn the_recorded_texts_are_the_ones_the_calibration_names() {
+        assert!(civil_1382_old().starts_with("Tout fait quelconque de l'homme"));
+        assert!(civil_1382_current().starts_with("Les présomptions qui ne sont pas établies"));
+        assert!(civil_1240_old().starts_with("Le paiement fait de bonne foi"));
+        assert!(civil_1240_current().starts_with("Tout fait quelconque de l'homme"));
+        assert!(cgi_777_v13().starts_with("Les droits de mutation à titre gratuit"));
+        assert!(cgi_777_v14().starts_with("Les droits de mutation à titre gratuit"));
+    }
+
+    // Part de mots de A conservés dans B, mesurée avec `word_diff` sur les paires réelles
+    // (mots conservés, mots de A, mots de B) :
+    //   1382 ancien -> actuel : 4 sur 23 (17 %), note attendue (renumérotation, texte remplacé) ;
+    //   1240 ancien -> actuel : 7 sur 27 (26 %), note attendue (même cause) ;
+    //   CGI 777 v13 -> v14   : 292 sur 295 (99 %), aucune note (amendement d'un tarif).
+    // Deux textes sans rapport partagent déjà leurs mots outils : dans l'autre sens, 1240 actuel ->
+    // ancien garde 7 sur 23 (30,4 %), et l'ancien 1382 -> ancien 1240 aussi. Un seuil de 30 % les
+    // laissait passer sans note (et ne gardait que 4 points sur le 1240) ; 40 % garde 9 points sur
+    // la paire sans rapport la plus proche et 59 sur le CGI.
+    #[test]
+    fn the_threshold_separates_the_real_renumbered_pairs_from_the_real_amendment() {
+        assert_eq!(shared(civil_1382_old(), civil_1382_current()), (4, 23, 43, true));
+        assert_eq!(shared(civil_1240_old(), civil_1240_current()), (7, 27, 23, true));
+        assert_eq!(shared(cgi_777_v13(), cgi_777_v14()), (292, 295, 299, false));
+    }
+
+    #[test]
+    fn unrelated_real_texts_sharing_their_function_words_just_above_the_old_thirty_percent_threshold_get_the_note()
+     {
+        // 7 mots sur 23 : 30,4 %, au-dessus de l'ancien seuil de 30 %.
+        assert_eq!(shared(civil_1240_current(), civil_1240_old()), (7, 23, 27, true));
+        assert_eq!(shared(civil_1382_old(), civil_1240_old()), (7, 23, 27, true));
+        assert_eq!(shared(civil_1382_current(), civil_1382_old()), (4, 43, 23, true));
+    }
+
+    #[tokio::test]
+    async fn real_renumbered_articles_get_the_note() {
+        for (old, new) in
+            [(civil_1382_old(), civil_1382_current()), (civil_1240_old(), civil_1240_current())]
+        {
+            let output = diffed(old, new).await;
+            assert!(!output.identical);
+            assert_eq!(output.note.as_deref(), Some(LOW_SIMILARITY_NOTE));
+            assert_ne!(output.hunks, Vec::<HunkOut>::new());
+        }
+    }
+
+    #[tokio::test]
+    async fn a_real_amendment_of_a_tariff_gets_no_note() {
+        let output = diffed(cgi_777_v13(), cgi_777_v14()).await;
+
+        assert!(!output.identical);
+        assert_ne!(output.hunks, Vec::<HunkOut>::new());
+        assert_eq!(output.note, None);
+    }
 
     #[tokio::test]
     async fn a_real_renumbering_that_keeps_the_text_gets_no_note() {
-        // Mesuré sur les deux fixtures : 23 mots sur 23 conservés (100 %). La note ne vise que les
-        // renumérotations dont le texte change ; ici il n'y a rien à signaler.
-        assert_eq!(shared(CIVIL_1382_OLD, CIVIL_1240), (23, 23, 23, false));
-        let output = diffed(CIVIL_1382_OLD, CIVIL_1240).await;
+        // Mesuré : l'ancien 1382 et le 1240 actuel portent le même texte, 23 mots sur 23
+        // conservés (100 %). La note ne vise que les renumérotations dont le texte change.
+        assert_eq!(shared(civil_1382_old(), civil_1240_current()), (23, 23, 23, false));
+        let output = diffed(civil_1382_old(), civil_1240_current()).await;
 
         assert!(!output.identical);
         assert_eq!(output.hunks, Vec::<HunkOut>::new());
