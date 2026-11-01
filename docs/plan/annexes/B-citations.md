@@ -349,9 +349,13 @@ prefix        = ( 'LO' | 'L' | 'R' | 'D' | 'A' ) [ '**' | '*' ] [ '.' ] ;   (* �
 prefixed_num  = prefix WS? base_num { suffix } num_end ;
 prefixed_num_dash = prefix WS? INT "-" INT { "-" INT } { suffix } num_end ;  (* tiret obligatoire sans code_ref *)
 base_num      = INT { "-" INT } ;                                    (* 1234-5 ; 600-4-1 ; 397-1-1 *)
-suffix        = WS LATIN_ADV | WS /[A-Z]{1,2}/ B ;                   (* 39 octies (P027) ; 199 undecies B (P028) ; 238 bis (P029) ;
+suffix        = WS LATIN_ADV [ "-" INT ] | WS /[A-Z]{1,2}/ B | WS LATIN_ADV ;   (* 39 octies (P027) ; 199 undecies B (P028) ; 238 bis (P029) ;
+                                                                        150-0 B ter ; 199 terdecies-0 A (L1-01) ;
                                                                         lettres refusées si elles forment un sigle du dictionnaire §5 :
                                                                         « article 121-3 CP » = Code pénal (N05), pas l'article « 121-3 CP » *)
+(* Ordre lu : [adverbe [ "-" entier collé ]] [lettres] [adverbe], chacun au plus une fois ; jamais deux adverbes
+   consécutifs ni deux groupes de lettres consécutifs. Exemples : « 150-0 B ter », « 199 terdecies-0 A »,
+   « 199 terdecies-0 A ter », « 1649 quater B quinquies », « 5 B bis ». *)
 version_inline= "ancien" | "(ancien)" | "nouveau" ;                  (* « article 2270-1 ancien du code civil », P010 *)
 sub_list      = sub { SEP sub } ;
 sub           = ( "al." | "alinéa" | "alinéas" ) WS INT              (* P038 *)
@@ -392,7 +396,7 @@ version_q     = SEP ( "dans sa rédaction" | "dans leur rédaction" ) WS
 1. `L.`, `D.` ou `Ord.` suivis de `WS? n°` désignent une **nature de texte** (loi, décret, ordonnance), pas un préfixe d'article (P068 à P070).
 2. `D.` suivi de `YEAR4` puis `, p.`, `, somm.`, `, chron.` ou `, jur.` est le **Recueil Dalloz** (`Unsupported`, famille `doctrine`), jamais un article (N33).
 3. Sans `art_kw`, un **nombre nu** n'est jamais un article (N01). Un **numéro préfixé** l'est : suivi d'un `code_ref`, il donne un article de ce code (P005, P020) ; sans `code_ref`, il n'est émis que s'il contient un tiret (`L. 1234-5`), avec l'ambiguïté `code_manquant` (N02) ou `code_implicite` si un contexte de document est fourni (N41). Le tiret limite les faux positifs (`L. 12` peut être autre chose) ; un article sans tiret (`L. 1` du code électoral) n'est reconnu qu'avec `art_kw` ou un `code_ref`.
-4. Un suffixe minuscule collé (`L. 1234-5a`) ou un tiret final sans chiffre (`article 2270-`) annule la citation : ne jamais tronquer en `L1234-5` ou `2270` (N36 ; idée reprise de juridix, AGPL, sans code).
+4. Un suffixe minuscule collé (`L. 1234-5a`) ou un tiret final sans chiffre (`article 2270-`) annule la citation : ne jamais tronquer en `L1234-5` ou `2270` (N36 ; idée reprise de juridix, AGPL, sans code). Le filet vaut aussi pour les suffixes composés (L1-01) : un adverbe latin valide, ou une lettre capitale valide, qui ne peut plus être lu après un adverbe fait que la lecture du numéro renvoie `None`, jamais un numéro tronqué (`5 bis ter`, `5 B bis ter`, `1594 F quinquies A`, `885-0 V bis A`). `885-0 V bis A` est un article réel du CGI dont la lecture lettre-adverbe-lettre n'est pas prise en charge (limite documentée, reportée en 09) : il n'apparaît pas dans `found`.
 5. `art_kw` sans `code_ref` ni texte : `CodeArticle { code: Missing }` avec `texte_manquant` (N03, N26), ou `code_implicite` avec `code_via = contexte_document` si `ParseOptions.default_text` est fourni (P009).
 6. Sigles ambigus : voir §5.3. `CE` n'est **jamais** résolu en code sans contexte (N04) ; `CP` donne le Code pénal en confiance basse (N05).
 7. `code_generic` n'est tenté qu'après un `art_kw` ou un numéro préfixé, et seulement si aucun `code_name` du dictionnaire ne correspond.
@@ -647,18 +651,19 @@ cnil_series   = 'SAN' | 'MED' | /[A-Z]{2,4}/ ;
 ### 4.12 Conventions collectives (KALI) et accords d'entreprise (ACCO)
 
 ```ebnf
-convention    = conv_kind [ WS conv_title ] [ WS "du" WS DATE ] [ WS? "(" conv_ids ")" ]   (* P180, P182, P184 *)
+convention    = conv_kind [ WS conv_title ] [ WS "du" WS DATE ] [ WS? "(" conv_ids ")" | WS conv_ids ]   (* P180, P182, P184, P211 *)
               | conv_ids                                                                   (* P183, P185 *)
               | "Avenant" WS NUM_SIGN INT [ WS "du" WS DATE ] [ WS "à la" WS convention ] ; (* P181, N17 *)
 conv_kind     = "Convention collective nationale" | "convention collective" | 'CCN' | "Accord national interprofessionnel"
               | 'ANI' | "Accord" | "Annexe" WS ROMAN ;
-conv_title    = <texte jusqu'à « du » DATE, « ( » ou une ponctuation forte, ≤ 120 caractères> ;   (* inclus dans le span *)
+conv_title    = <texte jusqu'à « du » DATE, « ( », une ponctuation forte, des identifiants lisibles (idcc_part ou brochure_part) ou la fin du texte, ≤ 120 caractères> ;   (* inclus dans le span *)
 conv_ids      = idcc_part [ SEP brochure_part ] | brochure_part [ SEP idcc_part ] ;
 idcc_part     = 'IDCC' WS? [ NUM_SIGN ] /[0-9]{1,4}/ B ;               (* 275 ; 1486 ; 2121 *)
 brochure_part = "brochure" [ WS "JO" ] WS? [ NUM_SIGN ] /[0-9]{4}/ B ; (* 3018 *)
 (* acco_numero = /T[0-9]{11}/ : forme observée (T09426064936), non reconnue en v0.2 *)
 ```
 
+- Identifiants sans parenthèses (L1-05) : « convention collective IDCC 1486 », « CCN IDCC 1486 », « convention collective nationale des bureaux d'études techniques IDCC 1486 » (titre conservé), « convention collective IDCC 1486, brochure n° 3018 » sont lus comme `conv_kind [ conv_title ] WS conv_ids` (P211). Le titre s'arrête devant un mot-clé d'identifiant lisible ; « convention collective de l'IDCC » et « IDCC 12345 » restent des titres (ou rien). P211 (« convention collective IDCC 1486 » → `Convention { idcc: 1486 }`) est à ajouter au corpus positif par L1-09.
 - IDCC `2121` = « Convention collective nationale de l'édition du 14 janvier 2000 » (`KALICONT000005635096`, consult_kali.json:145-149) ; `codeIdcc` sur 3 chiffres (`275`, consult_acco.json:23). Syntec = IDCC 1486, brochure 3018 (WEB, résumés). Borne supérieure et format de l'IDCC : **NON VÉRIFIÉ** [V-132 · idcc-bornes].
 - Un avenant sans convention identifiée porte l'ambiguïté `convention_inconnue` (N17). Le numéro ACCO (`T…`) n'est pas une forme citée dans les textes : il n'est pas reconnu en v0.2.
 
@@ -691,11 +696,14 @@ lf_prefix     = 'LEGITEXT' | 'LEGIARTI' | 'LEGISCTA' | 'JORFTEXT' | 'JORFARTI' |
 eu_act        = [ art_kw WS art_item WS ( "de la" | "du" ) WS ] ( "directive" | "règlement" | "décision" )
                 [ WS "(" ( 'UE' | 'CE' | 'CEE' | 'Euratom' ) ")" ] [ WS NUM_SIGN ]
                 /[0-9]{2,4}\/[0-9]{1,4}(\/(CE|CEE|UE))?/ [ [","] WS "du Conseil" | [","] WS "du Parlement européen et du Conseil" ] [ [","] WS DATE_LINK ] ;
-cjue          = ( 'CJUE' | 'CJCE' | "Trib. UE" ) SEP DATE SEP [ "aff." WS ] /[CT]-[0-9]{1,4}\/[0-9]{2}/ ;
+cjue          = ( 'CJUE' | 'CJCE' | "Trib. UE" ) SEP DATE SEP [ parties SEP ] [ "aff." WS ] /[CT]-[0-9]{1,4}\/[0-9]{2}/ ;   (* L1-06 *)
 cedh          = ( 'CEDH' | "Cour EDH" ) SEP DATE SEP [ parties SEP ] [ "req." WS ] [ NUM_SIGN ] /[0-9]{3,5}\/[0-9]{2}/ ;
 doctrine      = 'D.' WS YEAR4 SEP ( "p." | "somm." | "chron." | "jur." ) WS? INT                    (* N33 *)
               | 'JCP' [ WS ( 'G' | 'E' | 'A' | 'S' | 'N' ) ] WS YEAR4 SEP INT                    (* N34 *)
               | "RTD civ." | "RTD com." | "Gaz. Pal." | 'AJDA' | 'RFDA' | "Dr. soc." | "Rev. crit. DIP" ;
+(* parties de la CJUE : même règle que celles de la CEDH (`after_parties`), jusqu'à la première virgule après laquelle une référence d'affaire se lit, dans les 100 caractères.
+   Reconnus : « CJUE, 6 octobre 2015, Schrems, C-362/14 », « CJUE, 6 octobre 2015, Maximillian Schrems c. Data Protection Commissioner, aff. C-362/14 », « Trib. UE, 12 mars 2019, Foo c. Commission, T-123/18 ».
+   Non reconnus : « CJUE, 4 juin 2024 » seul, parties sans numéro d'affaire (l'article voisin reste lu), parties de plus de 100 caractères. *)
 ecli_etranger = ecli (* country ≠ FR → UnsupportedFamily::ForeignEcli, code ecli_etranger *) ;
 ```
 
@@ -1297,7 +1305,7 @@ Audit (00 §7) : `output_count_or_size` = nombre de citations (`checked`, 05 §5
 
 Entrée (05 §5.10) : `citation` de 1 à 1 000 caractères, `date?` (`VersionDate`, défaut aujourd'hui Paris) (00 §7). Sortie : `interpreted_as?`, `candidates[{id, kind, citation, source_url, confidence}]` (au plus 5, meilleur d'abord, 00 §7), `note?`.
 
-1. `parse_with(citation, …)` ; aucune citation → `candidates: []`, note « no citation recognised ». Plusieurs → la première est résolue, la note signale les autres et renvoie à `fr_verify_citations` (05 §5.10).
+1. `parse_with(citation, …)` ; aucune citation → `candidates: []`, note `NoCitationRecognised` : « No citation recognised. Only citations introduced by 'article' or 'art.' are read; an empty result does not prove the text cites nothing. » (texte partagé avec `fr_verify_citations`, L2-08). Plusieurs → la première est résolue, la note signale les autres et renvoie à `fr_verify_citations` (05 §5.10).
 2. `interpreted_as` = `format::canonical` (§6.5), pour que le modèle détecte une mauvaise lecture.
 3. Résolution par famille (§7.3), avec `date` comme date de version des articles. Pour les ambiguïtés bloquantes, recherche de candidats quand une requête exacte existe (article sans code, décision sans numéro, `Décision AAAA-N` : `find_by_number(Constit, Decision, …)`).
 4. Rien trouvé : succès avec `candidates: []` et la note du motif ; jamais `not_found` en erreur (05 §5.10).
@@ -1313,7 +1321,7 @@ Tri : confiance décroissante, puis égalité de date avec la date citée, puis 
 ### 7.9 Vérification de l'extrait cité
 
 - **Détection** (domaine, `adjacent_quote`) : un extrait entre `« … »` ou `"…"` (après repli, `“ ”` restent des guillemets) qui commence au plus 3 caractères après la fin du span (séparateurs admis : espaces, `:`, `,`), ou qui finit au plus 3 caractères avant son début (« … », dispose l'article 9) ; longueur 10 à 2 000 caractères ; guillemets appariés. Exemple (05 §5.9) : `Selon l'article 9 du code civil, « Chacun a droit au respect de sa vie privée »`.
-- **Comparaison** (application) : extrait et texte officiel repliés par `fold_char` (03 §7, exposée par le domaine en M6 ; `text::fold` reste `pub(crate)`) ; `Match` si l'extrait replié est contenu dans le texte replié, ou si la similarité dépasse un seuil **NON VÉRIFIÉ** [V-162 · seuil-quote-mismatch] ; sinon `QuoteMismatch`.
+- **Comparaison** (application) : extrait et texte officiel repliés par `fold_char` (03 §7, exposée par le domaine en M6 ; `text::fold` reste `pub(crate)`) ; règle d'extrait **stricte** (L2-03, ADR-0020, amendement AM-67 ; Q5) : l'extrait est coupé aux ellipses (`…`, `...`, `[…]`, `[...]`, `(…)`, `(...)`) ; chaque tronçon replié (casse, accents, ligatures, ponctuation, apostrophes, espaces insécables) doit être une suite contiguë de mots du texte officiel replié, les tronçons dans l'ordre ; sinon `QuoteMismatch`. Les repères d'énumération (« 1° », « a) », « I.- ») et la forme « L. 1234-9 » = « L1234-9 » sont tolérés ; chiffres, symboles (€ % ‰ $ £) et ajouts entre crochets sont des mots. Un extrait à ellipses compte au moins 3 mots ; un extrait sans mot est un écart. Le seuil de similarité (V-162) est supprimé (constante `QUOTE_SIMILARITY` retirée).
 - **Portée** : articles de codes et de textes (texte de l'article consulté), décisions (texte de la décision consultée). Pas de champ d'entrée dédié : `quote` (`match` ou `quote_mismatch`) est calculé **automatiquement** quand un extrait entre guillemets jouxte la citation et que le texte officiel a été lu (00 §7), donc pour une citation `verified` comme pour une citation `invalid` dont le document réel a été consulté ; sans texte officiel lu, `quote` est absent.
 - Effet : champ `quote`, statut inchangé ; une note « quoted text not found in the official text » accompagne `QuoteMismatch`. C'est le principal garde-fou contre le piège des renumérotations (N25 : l'article 1382 du code civil existe, mais son contenu a changé ; connaissance générale **NON VÉRIFIÉ** [V-163 · corpus-cas-de-memoire]).
 

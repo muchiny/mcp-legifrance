@@ -110,8 +110,9 @@ Toutes les questions de la colonne « Questions » sont adoptées par défaut et
 | [ADR-0017](0017-reessais-sans-backon.md) | Réessais sans backon : boucle maison | **Proposé** (accepté à la fusion de la PR du plan 2c) | M2 | — | [00-decisions](../plan/00-decisions.md) §8, [04-adapter-piste](../plan/04-adapter-piste.md) §5.2 |
 | [ADR-0018](0018-dependances-fin-de-projet.md) | Dépendances de la fin du projet : déclarées en une fois, par la vague 0 | **Proposé** (accepté à la fusion de la PR unique du plan fin-du-projet) | M3 à M9 | — | [00-decisions](../plan/00-decisions.md) §2, §11.1, [02-architecture](../plan/02-architecture.md) §3.0.1, §4.3 |
 | [ADR-0019](0019-dilacorpus-hors-ligne.md) | `DilaCorpus` : le port `LegalCorpus` hors ligne, sur un index tantivy des dumps LEGI | **Proposé** (accepté à la fusion de la PR unique du plan fin-du-projet) | M9 | Q6 | [00-decisions](../plan/00-decisions.md) §5, [02-architecture](../plan/02-architecture.md) §8.5, [ADR-0004](0004-piste-puis-dila.md) |
+| [ADR-0020](0020-extrait-strict.md) | Règle d'extrait stricte pour `fr_verify_citations` | Accepté | 1.0.1 | Q5 | [00-decisions](../plan/00-decisions.md) §7, §14 (AM-67), [B-citations](../plan/annexes/B-citations.md) §7.9 |
 
-Prochain numéro libre : **0020**. Un numéro n'est jamais réutilisé : les ex-0001 et ex-0002 du plan ont été renumérotés 0015 et 0016 parce que 0001 et 0002 étaient déjà livrés.
+Prochain numéro libre : **0021**. Un numéro n'est jamais réutilisé : les ex-0001 et ex-0002 du plan ont été renumérotés 0015 et 0016 parce que 0001 et 0002 étaient déjà livrés.
 
 Conditions d'acceptation des ADR proposés :
 

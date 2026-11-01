@@ -1223,6 +1223,10 @@ pub enum CitationRef {
 pub enum CodeRef { Known(CodeKey), Unknown(String), Anaphora(Anaphora), Missing }
 pub struct ArticleRef { pub num: ArticleNum, pub sub: Vec<Subdivision>, pub range_to: Option<ArticleNum> }
 // ArticleNum.special : Option<SpecialNum> = Premier | Unique | Liminaire | Preliminaire | SansNumero (alinéa du Préambule, P085)
+// ArticleNum { prefix, special, base, latin: Option<LatinAdverb>, latin_sub: Option<u32>, letters: Option<String>, latin_after: Option<LatinAdverb> } (L1-01) :
+// num_key() écrit préfixe, base jointe par '-', puis [' ' adverbe ['-' latin_sub]], [' ' lettres], [' ' latin_after] (« 199 terdecies-0 A », « 150-0 B ter »).
+// ArticleNum::from_str applique la même règle et refuse (NumberParseError) ce que la grammaire refuse (« 5 bis ter », « 885-0 V bis A », « 5 B bis-3 »).
+// Champs ajoutés à une structure publique de lf-domain (non publié séparément).
 impl ArticleNum { pub fn num_key(&self) -> String; pub fn key_variants(&self) -> Vec<String>; } // "L. 761-1" -> "L761-1"
 ```
 

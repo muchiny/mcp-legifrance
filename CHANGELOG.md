@@ -14,7 +14,20 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `1.0.0`.
+### Fixed
+
+- Citations : les articles à suffixe composé sont lus en entier, « 150-0 B ter » (jusqu'ici lu « 150-0 B », avec une fausse validation sur l'article voisin quand un code précédait) et « 199 terdecies-0 A » (jusqu'ici ignoré sans trace). Un numéro dont un adverbe latin ou une lettre ne peut pas être lu (« 5 bis ter », « 885-0 V bis A ») n'est plus tronqué : il n'est pas reconnu comme citation. La propagation du sigle devant « (art. 777 ; … » (gap3-6, partie B) n'est pas corrigée. (L1-01)
+- `fr_verify_citations` : une décision de la CJUE ou du Tribunal de l'UE citée avec ses parties entre la date et le numéro d'affaire (« CJUE, 6 octobre 2015, Schrems, C-362/14 ») est maintenant détectée et rapportée hors périmètre (`unresolvable`) au lieu d'être omise silencieusement (`checked` 0, `found` 0). (L1-06, verify_citations-15)
+- Une convention collective citée avec son IDCC sans parenthèses (« convention collective IDCC 1486 », « CCN IDCC 1486 ») est maintenant reconnue et résolue comme « IDCC 1486 » (`fr_resolve`, `fr_verify_citations`) ; auparavant l'IDCC était avalé dans le titre et la réponse était une liste vide avec une note fausse. (L1-05, resolve-7)
+- `fr_verify_citations` : un extrait entre guillemets n'est plus tenu pour fidèle (`quote: "match"`) quand un chiffre, une négation ou un mot du texte officiel a été changé (par exemple « 12 mois » pour « 8 mois » à l'article L. 1234-9 du code du travail, ou « un préjudice » pour « un dommage » à l'article 1240 du code civil). Chaque mot de l'extrait doit figurer à la suite et dans l'ordre dans le texte officiel ; la casse, les accents, la ponctuation, les espaces, les apostrophes, les repères d'énumération (« 1° », « a) », « I.- ») et la forme « L. 1234-9 » / « L1234-9 » restent tolérés, et « […] » coupe l'extrait en tronçons ordonnés. Le seuil de similarité de 90 % est supprimé. Conséquence : une citation approximative mais honnête, ou un ajout entre crochets, donne désormais `quote_mismatch` (ADR-0020). (L2-03, verify_citations-1)
+- `fr_verify_citations` refuse un texte composé de blancs seuls (`invalid_arg`, « text is required. ») comme le fait déjà `fr_resolve`, et renvoie une note quand aucune citation n'est reconnue (`found: 0`) : « No citation recognised. Only citations introduced by 'article' or 'art.' are read; an empty result does not prove the text cites nothing. » La même note, étendue, est celle de `fr_resolve`. (L2-08, errors-14, verify_citations-16)
+- `fr_search` : `page_size=100` n'est plus refusé (« use page_size <= 96 ») pour des citations usuelles, et les extraits et détails ne sont plus retirés plus qu'il ne faut ; l'estimation de taille compte 24 caractères par champ au lieu de 64, échappements JSON comptés. La note dit « the last hit » au singulier (`fr_search`, `fr_search_all`). (L4-06, search-5)
+- `fr_get_related` : la liste n'est plus coupée à 79-86 liens par une estimation trop pessimiste ; elle va jusqu'à 100 liens (`cites` d'abord, puis `cited_by`) tant que la réponse tient sous 45 000 caractères. (L4-06, gap1-3)
+
+### Changed
+
+- Règle d'extrait de `fr_verify_citations` : égalité stricte des mots à la place du seuil de similarité (ADR-0020, AM-67 ; V-162 levée). Aucun champ de sortie ajouté.
+- `ArticleNum` (crate `lf-domain`) gagne les champs `latin_sub` et `latin_after` ; `num_key()` et `FromStr` écrivent et lisent les suffixes composés (« 150-0 B ter »). (L1-01)
 
 ## [1.0.0-rc.3] - 2026-10-31
 
