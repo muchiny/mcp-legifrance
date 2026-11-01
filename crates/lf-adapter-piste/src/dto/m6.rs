@@ -61,6 +61,23 @@ pub(crate) struct KaliContDto {
     /// Identifiants `KALITEXT…` des textes de base du conteneur.
     #[serde(deserialize_with = "de::bounded_list")]
     pub texte_base_id: Vec<String>,
+    /// Sections de premier niveau : une par texte de base (avec son `etat`), puis les textes
+    /// attachés et salaires (sans `id`). Les sous-sections et les articles ne sont pas lus.
+    #[serde(deserialize_with = "de::bounded_list")]
+    pub sections: Vec<KaliSectionDto>,
+}
+
+/// Une section de premier niveau d'un conteneur KALI : le texte de base et son état.
+#[derive(Deserialize, Default)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
+#[serde(rename_all = "camelCase", default)]
+pub(crate) struct KaliSectionDto {
+    /// Identifiant `KALITEXT…` du texte de base (absent des sections de textes attachés).
+    pub id: Option<String>,
+    /// État juridique du texte (`VIGUEUR_ETEN`, `ABROGE`…).
+    pub etat: Option<String>,
+    /// Intitulé, précédé de `Texte de base : ` pour un texte de base.
+    pub title: Option<String>,
 }
 
 /// Réponse de `/consult/getJoWithNor` et de `/consult/eliAndAliasRedirectionTexte` : un texte du
@@ -100,6 +117,8 @@ mod tests {
     const IDCC_2121: &str = include_str!(
         "../../tests/fixtures/recorded/consult/kaliContIdcc/m6/kaliContIdcc-2121.json"
     );
+    const IDCC_1486: &str =
+        include_str!("../../tests/fixtures/derived/kaliContIdcc-1486-reduit.json");
     const NOR: &str = include_str!(
         "../../tests/fixtures/recorded/consult/getJoWithNor/m6/getJoWithNor-AGRX2502679L.json"
     );
@@ -162,8 +181,57 @@ mod tests {
                 titre: text!("Convention collective nationale de l'édition du 14 janvier 2000\n"),
                 num: text!("2121"),
                 texte_base_id: vec!["KALITEXT000005654011".to_owned()],
+                sections: vec![
+                    KaliSectionDto {
+                        id: text!("KALITEXT000005654011"),
+                        etat: text!("VIGUEUR_ETEN"),
+                        title: text!(
+                            "Texte de base : Convention collective nationale de l'édition du 14 janvier 2000\n"
+                        ),
+                    },
+                    KaliSectionDto {
+                        id: None,
+                        etat: text!("VIGUEUR"),
+                        title: text!("Textes Attachés"),
+                    },
+                    KaliSectionDto {
+                        id: None,
+                        etat: text!("VIGUEUR"),
+                        title: text!("Textes Salaires"),
+                    },
+                ],
             }
         );
+    }
+
+    #[test]
+    fn the_reduced_container_of_the_idcc_1486_gives_the_state_of_each_base_text() {
+        let cont: KaliContDto = decode(IDCC_1486, "/consult/kaliContIdcc").unwrap();
+        assert_eq!(cont.texte_base_id, ["KALITEXT000005679895", "KALITEXT000044253019"]);
+        let states: Vec<_> = cont
+            .sections
+            .iter()
+            .map(|section| (section.id.as_deref(), section.etat.as_deref()))
+            .collect();
+        assert_eq!(
+            states[..2],
+            [
+                (Some("KALITEXT000005679895"), Some("ABROGE")),
+                (Some("KALITEXT000044253019"), Some("VIGUEUR_ETEN")),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_container_without_sections_reads_an_empty_list() {
+        let cont: KaliContDto = decode(r#"{"sections":null}"#, "/consult/kaliContIdcc").unwrap();
+        assert_eq!(cont, KaliContDto::default());
+    }
+
+    #[test]
+    fn the_section_list_is_bounded_by_the_document_budget() {
+        let raw = format!(r#"{{"sections":{}}}"#, repeated("{}", 200_001));
+        assert_too_many::<KaliContDto>(&raw, "/consult/kaliContIdcc", "sections[200000]");
     }
 
     #[test]

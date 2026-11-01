@@ -24,7 +24,7 @@ use lf_domain::entity::{ArticleText, CodeArticleRef, CodeListing, SearchHit, Sea
 use lf_domain::fond::Fond;
 use lf_domain::id::{ArticleId, DocumentId, LegiTextId};
 use lf_domain::search::SearchQuery;
-use lf_domain::status::status_of;
+use lf_domain::status::{LegalStatus, status_of};
 use lf_domain::text::clean_field;
 
 use super::article::article;
@@ -33,7 +33,9 @@ use super::rules::{note_suffix, suffix_start};
 use super::search::search_page_with_mode;
 use super::{Diagnostics, Field, not_found};
 use crate::dto::article::GetArticleResponseDto;
-use crate::dto::m6::{CodeEntryDto, CodeListResponseDto, ConsultJorfDto, KaliContDto};
+use crate::dto::m6::{
+    CodeEntryDto, CodeListResponseDto, ConsultJorfDto, KaliContDto, KaliSectionDto,
+};
 use crate::dto::search::SearchResponseDto;
 
 /// Une page de `/list/code`, mappée.
@@ -143,28 +145,81 @@ pub(crate) fn article_of_text(
         .map(|found| found.article_id.clone())
 }
 
+/// Hit `fond` d'identifiant `raw`, lu par le domaine, sans compter le suffixe de version. `None` si
+/// l'identifiant est illisible ou d'une autre famille que le fond.
+fn readable_hit(fond: Fond, raw: &str) -> Option<SearchHit> {
+    let id = DocumentId::parse(raw).ok()?;
+    SearchHit::new(fond, id, suffix_start(raw)).ok()
+}
+
 /// Hit `fond` d'identifiant `raw` : lu par le domaine puis rapproché du fond, suffixe de version
 /// retiré et compté. `None` si l'identifiant est illisible ou d'une autre famille que le fond.
 fn start_hit(fond: Fond, raw: &str, diags: &mut Diagnostics) -> Option<SearchHit> {
-    let id = DocumentId::parse(raw).ok()?;
-    let hit = SearchHit::new(fond, id, suffix_start(raw)).ok()?;
+    let hit = readable_hit(fond, raw)?;
     note_suffix(raw, hit.id.as_str(), diags);
     Some(hit)
 }
 
-/// Au plus un hit KALI : le premier texte de base (`texteBaseId`) lisible comme `KALITEXT`, avec le
-/// titre et l'IDCC du conteneur. Des textes de base tous illisibles sont comptés comme un résultat
-/// écarté.
+/// Préfixe de l'intitulé d'une section de texte de base.
+const BASE_TEXT_PREFIX: &str = "Texte de base :";
+
+/// Intitulé de `section` sans le préfixe `Texte de base : `, `None` s'il n'en reste rien.
+fn section_title(section: &KaliSectionDto) -> Option<String> {
+    let title = clean_field(section.title.as_deref())?;
+    let bare = title.strip_prefix(BASE_TEXT_PREFIX).unwrap_or(&title).trim();
+    (!bare.is_empty()).then(|| bare.to_owned())
+}
+
+/// Le texte est en vigueur : `VIGUEUR`, `VIGUEUR_ETEN` ou `VIGUEUR_NON_ETEN` (`VIGUEUR_DIFF` n'est
+/// pas encore applicable).
+fn is_in_force(status: Option<&LegalStatus>) -> bool {
+    matches!(
+        status,
+        Some(LegalStatus::Vigueur | LegalStatus::VigueurEtendue | LegalStatus::VigueurNonEtendue)
+    )
+}
+
+/// Section de `dto` du texte de base `id` et son état.
+fn base_section<'a>(
+    dto: &'a KaliContDto,
+    id: &str,
+) -> Option<(&'a KaliSectionDto, Option<LegalStatus>)> {
+    dto.sections
+        .iter()
+        .find(|section| section.id.as_deref().is_some_and(|found| found.trim() == id))
+        .map(|section| (section, status_of(section.etat.as_deref(), None)))
+}
+
+/// Au plus un hit KALI : parmi les textes de base (`texteBaseId`) lisibles comme `KALITEXT`, le
+/// premier dont la section est en vigueur, sinon le premier lisible ; avec l'IDCC du conteneur et
+/// l'état de sa section. Le titre est celui du conteneur (la version à jour), sauf pour un texte
+/// dont la section dit qu'il n'est pas en vigueur : le conteneur le présenterait sous la citation
+/// d'un autre texte, le titre est alors celui de sa section, sans `Texte de base : `. Des textes
+/// de base tous illisibles sont comptés comme un résultat écarté.
 pub(crate) fn kali_cont_hits(dto: &KaliContDto, diags: &mut Diagnostics) -> Vec<SearchHit> {
-    let found = dto.texte_base_id.iter().find_map(|raw| start_hit(Fond::Kali, raw, diags));
-    let Some(mut hit) = found else {
+    let readable: Vec<(&str, SearchHit)> = dto
+        .texte_base_id
+        .iter()
+        .filter_map(|raw| readable_hit(Fond::Kali, raw).map(|hit| (raw.as_str(), hit)))
+        .collect();
+    let in_force = readable.iter().position(|(_, hit)| {
+        is_in_force(base_section(dto, hit.id.as_str()).and_then(|s| s.1).as_ref())
+    });
+    let Some((raw, mut hit)) = readable.into_iter().nth(in_force.unwrap_or(0)) else {
         if !dto.texte_base_id.is_empty() {
             diags.note_dropped_hit();
         }
         return Vec::new();
     };
+    note_suffix(raw, hit.id.as_str(), diags);
     hit.title = clean_field(dto.titre.as_deref());
     hit.idcc = dto.num.as_deref().and_then(Idcc::parse);
+    if let Some((section, status)) = base_section(dto, hit.id.as_str()) {
+        if status.is_some() && !is_in_force(status.as_ref()) {
+            hit.title = section_title(section);
+        }
+        hit.etat = status;
+    }
     vec![hit]
 }
 
@@ -203,14 +258,12 @@ pub(crate) fn eli_article_hits(found: ArticleText) -> Vec<SearchHit> {
 
 #[cfg(test)]
 mod tests {
-    use lf_domain::entity::ParentText;
-    use lf_domain::search::{NumberKind, NumberQuery, NumberValue};
-    use lf_domain::status::LegalStatus;
-
     use super::*;
     use crate::dto::decode::decode;
     use crate::map::fixtures::read;
     use crate::request::m6::{GET_ARTICLE_WITH_ID_AND_NUM, result_frame};
+    use lf_domain::entity::ParentText;
+    use lf_domain::search::{NumberKind, NumberQuery, NumberValue};
 
     macro_rules! text {
         ($value:expr) => {
@@ -503,6 +556,7 @@ mod tests {
             Some("Convention collective nationale de l'édition du 14 janvier 2000")
         );
         assert_eq!(hit.idcc.map(Idcc::get), Some(2121));
+        assert_eq!(hit.etat, Some(LegalStatus::VigueurEtendue));
         assert_eq!(diags, Diagnostics::default());
     }
 
@@ -529,6 +583,165 @@ mod tests {
 
         let mut diags = Diagnostics::default();
         assert_eq!(kali_cont_hits(&KaliContDto::default(), &mut diags), Vec::new());
+        assert_eq!(diags, Diagnostics::default());
+    }
+
+    const IDCC_1486: &str =
+        include_str!("../../tests/fixtures/derived/kaliContIdcc-1486-reduit.json");
+
+    /// Conteneur d'un IDCC avec `texteBaseId` dans l'ordre donné et une section `(id, etat, titre)`
+    /// par entrée de `sections`.
+    fn container(bases: &[&str], sections: &[(&str, &str, &str)]) -> KaliContDto {
+        let sections: Vec<serde_json::Value> = sections
+            .iter()
+            .map(|(id, etat, title)| serde_json::json!({ "id": id, "etat": etat, "title": title }))
+            .collect();
+        let raw = serde_json::json!({
+            "titre": "Convention du conteneur, mise à jour par avenant n° 46 ",
+            "num": "1486",
+            "texteBaseId": bases,
+            "sections": sections,
+        });
+        read(&raw.to_string(), "/consult/kaliContIdcc")
+    }
+
+    const OLD: &str = "KALITEXT000005679895";
+    const CURRENT: &str = "KALITEXT000044253019";
+
+    #[test]
+    fn kali_cont_hits_prefers_the_text_in_force() {
+        let sections = [
+            (OLD, "ABROGE", "Texte de base : Convention de 1987. \n"),
+            (CURRENT, "VIGUEUR_ETEN", "Texte de base : Convention du conteneur, version 2021"),
+        ];
+        for bases in [[OLD, CURRENT], [CURRENT, OLD]] {
+            let mut diags = Diagnostics::default();
+            let hits = kali_cont_hits(&container(&bases, &sections), &mut diags);
+            assert_eq!(hits.len(), 1, "{bases:?}");
+            assert_eq!(hits[0].id.as_str(), CURRENT, "{bases:?}");
+            assert_eq!(hits[0].etat, Some(LegalStatus::VigueurEtendue), "{bases:?}");
+            assert_eq!(
+                hits[0].title.as_deref(),
+                Some("Convention du conteneur, mise à jour par avenant n° 46"),
+                "{bases:?}"
+            );
+            assert_eq!(hits[0].idcc.map(Idcc::get), Some(1486), "{bases:?}");
+            assert_eq!(diags, Diagnostics::default());
+        }
+    }
+
+    #[test]
+    fn the_first_text_is_kept_when_it_is_the_one_in_force() {
+        let sections = [(CURRENT, "VIGUEUR", "x"), (OLD, "ABROGE", "y")];
+        let hits =
+            kali_cont_hits(&container(&[CURRENT, OLD], &sections), &mut Diagnostics::default());
+        assert_eq!(
+            (hits[0].id.as_str(), hits[0].etat.clone()),
+            (CURRENT, Some(LegalStatus::Vigueur))
+        );
+    }
+
+    #[test]
+    fn a_single_repealed_text_keeps_its_own_title_and_its_state() {
+        let sections = [(OLD, "ABROGE", "Texte de base : Convention de 1987. \n")];
+        let hits = kali_cont_hits(&container(&[OLD], &sections), &mut Diagnostics::default());
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id.as_str(), OLD);
+        assert_eq!(hits[0].etat, Some(LegalStatus::Abroge));
+        assert_eq!(hits[0].title.as_deref(), Some("Convention de 1987."));
+    }
+
+    #[test]
+    fn several_repealed_texts_give_the_first_one_with_its_title() {
+        let sections =
+            [(OLD, "ABROGE", "Texte de base : Premier"), (CURRENT, "REMPLACE", "Second")];
+        let hits =
+            kali_cont_hits(&container(&[OLD, CURRENT], &sections), &mut Diagnostics::default());
+        assert_eq!(
+            (hits[0].id.as_str(), hits[0].etat.clone(), hits[0].title.as_deref()),
+            (OLD, Some(LegalStatus::Abroge), Some("Premier"))
+        );
+    }
+
+    #[test]
+    fn a_deferred_or_unknown_state_is_not_in_force() {
+        for etat in ["VIGUEUR_DIFF", "MODIFIE", "", "FOO"] {
+            let sections = [(OLD, etat, "Texte de base : Ancien"), (CURRENT, "ABROGE", "Autre")];
+            let hits =
+                kali_cont_hits(&container(&[OLD, CURRENT], &sections), &mut Diagnostics::default());
+            assert_eq!(hits[0].id.as_str(), OLD, "{etat}");
+        }
+        for etat in ["VIGUEUR", "VIGUEUR_ETEN", "VIGUEUR_NON_ETEN"] {
+            let sections = [(OLD, "ABROGE", "Ancien"), (CURRENT, etat, "Courant")];
+            let hits =
+                kali_cont_hits(&container(&[OLD, CURRENT], &sections), &mut Diagnostics::default());
+            assert_eq!(hits[0].id.as_str(), CURRENT, "{etat}");
+        }
+    }
+
+    #[test]
+    fn without_a_section_for_the_text_the_container_title_stays() {
+        let hits = kali_cont_hits(
+            &container(&[OLD, CURRENT], &[("KALITEXT000000000001", "VIGUEUR", "Autre")]),
+            &mut Diagnostics::default(),
+        );
+        assert_eq!(hits[0].id.as_str(), OLD);
+        assert_eq!(hits[0].etat, None);
+        assert_eq!(
+            hits[0].title.as_deref(),
+            Some("Convention du conteneur, mise à jour par avenant n° 46")
+        );
+    }
+
+    #[test]
+    fn a_repealed_section_title_without_the_prefix_is_kept_whole() {
+        for (title, expected) in [
+            ("Convention de 1987", Some("Convention de 1987")),
+            ("Texte de base :", None),
+            ("Texte de base :  \n", None),
+        ] {
+            let hits = kali_cont_hits(
+                &container(&[OLD], &[(OLD, "ABROGE", title)]),
+                &mut Diagnostics::default(),
+            );
+            assert_eq!(hits[0].title.as_deref(), expected, "{title:?}");
+        }
+    }
+
+    #[test]
+    fn a_repealed_section_without_a_title_gives_no_title() {
+        let hits = kali_cont_hits(
+            &container(&[OLD], &[(OLD, "ABROGE", "  ")]),
+            &mut Diagnostics::default(),
+        );
+        assert_eq!(
+            (hits[0].etat.clone(), hits[0].title.clone()),
+            (Some(LegalStatus::Abroge), None)
+        );
+    }
+
+    #[test]
+    fn an_unreadable_text_is_skipped_before_the_state_choice() {
+        let sections = [(CURRENT, "VIGUEUR_ETEN", "Courant")];
+        let hits = kali_cont_hits(
+            &container(&["nope", "LEGITEXT000006070721", CURRENT], &sections),
+            &mut Diagnostics::default(),
+        );
+        assert_eq!(hits[0].id.as_str(), CURRENT);
+    }
+
+    #[test]
+    fn the_recorded_container_of_the_idcc_1486_gives_the_text_in_force() {
+        let mut diags = Diagnostics::default();
+        let hits = kali_cont_hits(&read(IDCC_1486, "/consult/kaliContIdcc"), &mut diags);
+        assert_eq!(hits.len(), 1);
+        let hit = &hits[0];
+        assert_eq!((hit.fond, hit.id.as_str()), (Fond::Kali, CURRENT));
+        assert_eq!(hit.etat, Some(LegalStatus::VigueurEtendue));
+        assert_eq!(hit.idcc.map(Idcc::get), Some(1486));
+        assert!(
+            hit.title.as_deref().is_some_and(|t| t.ends_with("avenant n° 46 du 16 juillet 2021"))
+        );
         assert_eq!(diags, Diagnostics::default());
     }
 
