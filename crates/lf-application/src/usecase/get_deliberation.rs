@@ -205,6 +205,60 @@ mod tests {
         assert_eq!(output.output_count_or_size(), 593);
     }
 
+    /// Un paragraphe de `size` caractères exactement, sans blanc de fin (L4-12, cnil_kali_acco-15).
+    fn paragraph_of(size: usize) -> String {
+        let mut paragraph: String = "Vu la loi n° 78-17 du 6 janvier 1978 modifiée, "
+            .chars()
+            .cycle()
+            .take(size.checked_sub(1).unwrap())
+            .collect();
+        paragraph.push('.');
+        paragraph
+    }
+
+    /// Un texte de 3 852 caractères comme CNILTEXT000019796121 : 18 paragraphes de 200, un de 216.
+    fn cnil_3852_chars() -> LongText {
+        let mut paragraphs: Vec<String> = (0..18).map(|_| paragraph_of(200)).collect();
+        paragraphs.push(paragraph_of(216));
+        let text = LongText::from_plain(&paragraphs.join("\n")).unwrap();
+        assert_eq!(text.char_len(), 3_852);
+        text
+    }
+
+    #[tokio::test]
+    async fn a_3852_character_deliberation_is_summarised_although_it_fits_max_chars() {
+        // CNILTEXT000019796121 : 3 852 caractères < max_chars par défaut (4 000), mais le texte
+        // entier n'est rendu que sous min(max_chars, 1 200) (05 §5.0.3) : le seuil est 1 200.
+        let text = cnil_3852_chars();
+        let corpus = FakeCorpus::new();
+        corpus.push_get_deliberation(Ok(deliberation_with(text.clone())));
+        let output =
+            GetDeliberationUseCase::new(&corpus).execute(input(Some(ID), |_| {})).await.unwrap();
+        assert_eq!(output.reading.text, None);
+        assert_eq!(output.reading.text_length, 3_852);
+        let summary = output.reading.summary.as_ref().expect("au-dessus de 1 200 : un résumé");
+        assert_eq!(summary.source, SummarySource::Lead);
+        assert!(chars(&summary.text) <= SUMMARY_CAP_CHARS);
+        assert!(text.as_str().starts_with(&summary.text));
+        assert_eq!(output.reading.next_offset, None);
+    }
+
+    #[tokio::test]
+    async fn a_3852_character_deliberation_comes_back_whole_with_detail_full() {
+        // Jumeau : le texte entier reste à un appel de là, sans fenêtre ni `next_offset`.
+        let text = cnil_3852_chars();
+        let corpus = FakeCorpus::new();
+        corpus.push_get_deliberation(Ok(deliberation_with(text.clone())));
+        let output = GetDeliberationUseCase::new(&corpus)
+            .execute(input(Some(ID), |i| i.detail = Some("full".to_owned())))
+            .await
+            .unwrap();
+        assert_eq!(output.reading.text.as_deref(), Some(text.as_str()));
+        assert_eq!(output.reading.text_length, 3_852);
+        assert_eq!(output.reading.summary, None);
+        assert_eq!(output.reading.next_offset, None);
+    }
+
     #[tokio::test]
     async fn the_port_receives_the_normalized_id() {
         let corpus = FakeCorpus::new();
