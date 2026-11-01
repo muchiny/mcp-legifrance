@@ -1155,3 +1155,17 @@ name = "c101/C15-acco-search-teletravail"
 endpoint = "/search"
 body = "{\"fond\":\"ACCO\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"télétravail\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":4,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
 allow_error = true
+
+# Relevés C16 et C17 de la vague W8 des correctifs 1.0.1 (accord du propriétaire, 2026-11-01).
+# C16 : titres bruts de `liens[]` d'une décision de la Cour de cassation (V-117, L4-13).
+[[probe]]
+name = "c101/C16-juri-consult-liens-JURITEXT000038427064"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"JURITEXT000038427064\"}"
+
+# C17 : repli de L2-16, recherche plein texte du numéro seul d'une décision jointe.
+[[probe]]
+name = "c101/C17-constit-all-exacte-2010-14"
+endpoint = "/search"
+body = "{\"fond\":\"CONSTIT\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"2010-14\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":10,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
