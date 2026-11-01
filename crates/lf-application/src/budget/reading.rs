@@ -628,7 +628,10 @@ mod tests {
         }
         // Jumeau : 500 caractères exactement sont acceptés.
         let accepted = request(|i| i.focus = Some("a".repeat(500)));
-        assert!(matches!(accepted.mode, Mode::Passages { .. }));
+        assert_eq!(
+            accepted.mode,
+            Mode::Passages { focus: Focus::parse(&"a".repeat(500)).unwrap(), count: 3 }
+        );
     }
 
     #[test]

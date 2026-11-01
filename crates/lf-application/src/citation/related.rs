@@ -461,7 +461,7 @@ mod tests {
         };
         let out = article_links(&links);
         assert!(out[0].citation.chars().count() <= CITATION_MAX_CHARS);
-        assert!(out[0].citation.ends_with(" mot…"), "coupe sur un mot : {}", out[0].citation);
+        assert!(out[0].citation.ends_with(" mot…"));
         // À la limite exacte, rien n'est coupé.
         let exact = "e".repeat(CITATION_MAX_CHARS);
         assert_eq!(one_line(&exact), Some(exact));
