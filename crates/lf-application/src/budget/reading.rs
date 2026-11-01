@@ -849,7 +849,13 @@ mod tests {
             "fin.".repeat(300)
         ));
         let one_paragraph = long(&sentence(7).repeat(80));
-        for text in [&accents, &exotic, &one_paragraph] {
+        // Un barème : une ligne par paragraphe, cellules séparées par « | » (L4-01).
+        let row = "<tr><td><p>Comprise entre N 000 € et N 999 € </p></td><td><br/>N <br/></td><td></td></tr>";
+        let rows: Vec<String> = (0..60).map(|i| row.replace('N', &i.to_string())).collect();
+        let rows = rows.concat();
+        let table = LongText::from_html(&format!("<p>Tableau I</p><table>{rows}</table>")).unwrap();
+        assert!(table.as_str().contains("Comprise entre 7 000 € et 7 999 € | 7\n\n"));
+        for text in [&accents, &exotic, &one_paragraph, &table] {
             for max_chars in [500_i64, 777, 1_200, 4_000, 40_000] {
                 let max = usize::try_from(max_chars).unwrap();
                 let mut rebuilt = String::new();

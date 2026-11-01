@@ -154,15 +154,29 @@ const MAX_DROP_NAMES: usize = 256;
 /// l'élément en cours de suppression. Le tampon d'événements précédent montait à 25 fois la
 /// taille de l'entrée (`<script>` suivi de `<` répétés, audit M-1).
 pub(crate) fn scan<'a>(html: &'a str, mut sink: impl FnMut(Event<'a>)) {
-    scan_into(html, &mut sink);
+    scan_into(html, false, &mut sink);
 }
 
-/// Corps de [`scan`], non générique : `cargo-llvm-cov` résume une fonction générique par son
-/// instance la mieux couverte, pas par l'union des instances (CONTRIBUTING.md).
-fn scan_into<'a>(html: &'a str, sink: &mut dyn FnMut(Event<'a>)) {
+/// Variante de [`scan`] pour le texte long (L4-01) : les cellules d'un tableau portent leurs
+/// blocs. [`Event::Cell`] n'est rendu qu'à l'ouvrante `td` ou `th` (elle ferme la cellule
+/// précédente et en ouvre une) ; `</td>` rend une espace. Tant qu'une cellule est ouverte, une
+/// coupure de bloc `br`, `p`, `div`, `li`, `ul`, `ol` ou `hN` (fermantes comprises) n'est pas
+/// rendue comme une coupure mais comme l'espace [`Event::Text`] `" "` : le contenu reste dans
+/// la cellule. `tr` et `table` (ouvrantes ou fermantes) restent des coupures, et ferment la
+/// cellule. Hors cellule, tout est identique à [`scan`].
+pub(crate) fn scan_rows<'a>(html: &'a str, mut sink: impl FnMut(Event<'a>)) {
+    scan_into(html, true, &mut sink);
+}
+
+/// Corps de [`scan`] et de [`scan_rows`] (`rows`), non générique : `cargo-llvm-cov` résume une
+/// fonction générique par son instance la mieux couverte, pas par l'union des instances
+/// (CONTRIBUTING.md).
+fn scan_into<'a>(html: &'a str, rows: bool, sink: &mut dyn FnMut(Event<'a>)) {
     let closings = drop_closings(html);
     // Nom de l'élément en cours de suppression : tout part jusqu'à sa première fermante.
     let mut discard: Option<String> = None;
+    // Une cellule `td` ou `th` est ouverte (`rows` seulement) : seul état ajouté, un booléen.
+    let mut in_cell = false;
     lex_all(html, &mut |piece| match piece {
         Piece::Text(text) => {
             if discard.is_none() {
@@ -176,7 +190,27 @@ fn scan_into<'a>(html: &'a str, sink: &mut dyn FnMut(Event<'a>)) {
                 }
                 return;
             }
-            match (classify(&tag.name), tag.closing) {
+            let class = classify(&tag.name);
+            if rows {
+                match class {
+                    Class::Cell => {
+                        in_cell = !tag.closing;
+                        // Ouvrante : nouvelle cellule. Fermante : une espace, le texte qui la
+                        // suit n'est pas collé à celui de la cellule.
+                        sink(if in_cell { Event::Cell } else { Event::Text(" ") });
+                        return;
+                    }
+                    Class::Break(Block::Other) if matches!(tag.name.as_str(), "tr" | "table") => {
+                        in_cell = false;
+                    }
+                    Class::Break(_) if in_cell => {
+                        sink(Event::Text(" "));
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+            match (class, tag.closing) {
                 (Class::Drop, false) => {
                     // Fermante de ce nom après l'ouvrant : `end > at` (une fermante qui le
                     // précède, même accolée, finit au plus à `at`).
@@ -625,39 +659,88 @@ fn is_default_ignorable(c: char) -> bool {
     )
 }
 
-/// Découpe `html` en segments de paragraphe (03 §7.2, étape 4) et rend le texte visible de
-/// chacun à `visible`, au fil de la lecture ; rend le nombre de caractères invisibles retirés.
+/// Séparateur de deux cellules d'une ligne de tableau dans le texte long (L4-01, Q4) : ajouté
+/// par le serveur, il ne vient pas de la source.
+const CELL_SEPARATOR: &str = " | ";
+
+/// Découpe `html` en lignes (03 §7.2, étape 4) et rend le texte visible de chacune à `visible`,
+/// au fil de la lecture ; rend le nombre de caractères invisibles retirés.
 ///
-/// Un segment est le texte compris entre deux coupures de bloc ([`Event::Break`], de n'importe
+/// Une ligne est le texte compris entre deux coupures de bloc ([`Event::Break`], de n'importe
 /// quelle sorte : `<BR></BR>` coupe deux fois, ce qui est sans effet puisque l'appelant ignore
-/// les segments blancs). Une cellule ([`Event::Cell`]) vaut une espace. Chaque segment passe
-/// par [`decode_entities`], puis [`strip_invisible`]. Ses blancs ne sont pas repliés ici :
-/// `LongText` les replie directement dans son texte canonique, sans tableau intermédiaire de
-/// paragraphes ni de mots (audit M-2). Sans balise de bloc, il n'y a qu'un segment.
+/// les segments blancs). Elle est lue par [`scan_rows`] : une ligne de tableau (`tr`) est une
+/// seule ligne, dont les cellules ([`Event::Cell`]) sont séparées par [`CELL_SEPARATOR`] ; les
+/// blocs d'une cellule (`<td><p>…</p></td>`) y valent une espace. Une cellule vide (blancs,
+/// balises vides, invisibles seuls) entre deux cellules garde son séparateur, pour que les
+/// colonnes ne se perdent pas (`Mode | Initial | | Différé`) ; les cellules vides en tête et en
+/// fin de ligne s'effacent, et la ligne ne commence ni ne finit par un séparateur. Chaque
+/// cellule passe par [`decode_entities`], puis [`strip_invisible`]. Les blancs ne sont pas
+/// repliés ici : `LongText` les replie directement dans son texte canonique, sans tableau
+/// intermédiaire de paragraphes ni de mots (audit M-2). Sans balise de bloc, il n'y a qu'une
+/// ligne.
 ///
-/// Le nombre rendu est la somme, sur tous les segments, des caractères invisibles retirés (y
-/// compris ceux des segments qui n'ont rien d'autre et disparaissent).
+/// Le nombre rendu est la somme, sur toutes les cellules, des caractères invisibles retirés (y
+/// compris ceux des cellules qui n'ont rien d'autre et disparaissent).
 pub(crate) fn paragraphs(html: &str, visible: &mut dyn FnMut(&str)) -> u32 {
     let mut invisible = 0_u32;
     let mut segment = String::new();
-    scan(html, |event| match event {
+    let mut row = Row::default();
+    scan_rows(html, |event| match event {
         Event::Text(text) => segment.push_str(text),
-        Event::Cell => segment.push(' '),
+        Event::Cell => invisible = invisible.saturating_add(row.push_cell(&mut segment)),
         Event::Break(_) => {
-            invisible = invisible.saturating_add(close_segment(&mut segment, visible));
+            invisible = invisible.saturating_add(row.push_cell(&mut segment));
+            row.finish(visible);
         }
     });
-    invisible.saturating_add(close_segment(&mut segment, visible))
+    invisible = invisible.saturating_add(row.push_cell(&mut segment));
+    row.finish(visible);
+    invisible
 }
 
-/// Termine le segment en cours : il est vidé, et son texte décodé, sans invisibles, est rendu à
-/// `visible`. Rend le nombre de caractères invisibles retirés.
-fn close_segment(segment: &mut String, visible: &mut dyn FnMut(&str)) -> u32 {
-    let decoded = decode_entities(segment);
-    segment.clear();
-    let (text, removed) = strip_invisible(&decoded);
-    visible(&text);
-    removed
+/// Ligne en cours de [`paragraphs`] : texte visible des cellules déjà reçues.
+#[derive(Default)]
+struct Row {
+    /// Texte de la ligne, séparateurs compris.
+    text: String,
+    /// Une cellule non vide a déjà été ajoutée.
+    has_text: bool,
+    /// Cellules vides vues depuis la dernière cellule non vide : leur séparateur n'est écrit que
+    /// si une cellule non vide les suit (jamais en fin de ligne).
+    pending: usize,
+}
+
+impl Row {
+    /// Termine la cellule `segment` (vidé) : décodée, sans invisibles. Rend le nombre
+    /// d'invisibles retirés.
+    fn push_cell(&mut self, segment: &mut String) -> u32 {
+        let decoded = decode_entities(segment);
+        segment.clear();
+        let (text, removed) = strip_invisible(&decoded);
+        if text.split_whitespace().next().is_some() {
+            if self.has_text {
+                // Un séparateur par cellule vide d'écart, plus celui de la cellule elle-même.
+                for _ in 0..=self.pending {
+                    self.text.push_str(CELL_SEPARATOR);
+                }
+            }
+            self.text.push_str(&text);
+            self.has_text = true;
+            self.pending = 0;
+        } else if self.has_text {
+            self.pending = self.pending.saturating_add(1);
+        } else {
+            // Blancs de tête : gardés tels quels, c'est le texte d'une ligne sans cellule.
+            self.text.push_str(&text);
+        }
+        removed
+    }
+
+    /// Rend la ligne à `visible` et repart d'une ligne vide.
+    fn finish(&mut self, visible: &mut dyn FnMut(&str)) {
+        visible(&self.text);
+        *self = Self::default();
+    }
 }
 
 #[expect(
@@ -1371,6 +1454,13 @@ mod tests {
     const CNIL: &str =
         include_str!("../../../lf-adapter-piste/tests/fixtures/reference/consult_cnil.json");
 
+    const CGI_777: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/C11-getArticle-cgi-777-LEGIARTI000030061736.json"
+    );
+    const CGI_669: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/C11-getArticle-cgi-669-LEGIARTI000006310173.json"
+    );
+
     /// `texteHtml` d'une fixture.
     fn text_html(fixture_json: &str) -> String {
         text_field(fixture_json, &["text", "texteHtml"])
@@ -1397,9 +1487,157 @@ mod tests {
     }
 
     #[test]
-    fn from_html_table_cell_is_a_space() {
-        assert_eq!(texts("<tr><td>a</td><td>b</td></tr>"), ["a b"]);
-        assert_eq!(texts("a<th>b"), ["a b"]);
+    fn from_html_table_cells_are_separated_by_a_bar() {
+        // Une ligne de tableau est un paragraphe ; les cellules y sont séparées par ` | ` (L4-01).
+        assert_eq!(texts("<tr><td>a</td><td>b</td></tr>"), ["a | b"]);
+        assert_eq!(texts("a<th>b"), ["a | b"]);
+        assert_eq!(
+            texts("<tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr>"),
+            ["a | b", "c | d"]
+        );
+        // Une cellule seule n'a pas de séparateur.
+        assert_eq!(texts("<tr><td>a</td></tr>"), ["a"]);
+    }
+
+    #[test]
+    fn from_html_cells_with_paragraphs_stay_on_the_row() {
+        // Forme de Légifrance (art. 777 CGI) : `<td><p>…</p></td>` et `<td><br/>10 <br/></td>`.
+        let table = "<table><tbody>\
+            <tr><td><p align=\"left\">Comprise entre 8 072 € et 12 109 € </p></td>\
+            <td align=\"center\"><br/>10 <br/></td></tr>\
+            <tr><td><p>Comprise entre 12 109 € et 15 932 € </p></td><td><br/>15 <br/></td></tr>\
+            </tbody></table>";
+        assert_eq!(
+            texts(table),
+            ["Comprise entre 8 072 € et 12 109 € | 10", "Comprise entre 12 109 € et 15 932 € | 15"]
+        );
+        // Vrai positif conservé : hors cellule, `<p>` et `<br>` coupent toujours.
+        assert_eq!(texts("<p>a</p><td>b</td><p>c</p>"), ["a", "b", "c"]);
+        assert_eq!(texts("a<br/>b<table><tr><td>c</td></tr></table>d"), ["a", "b", "c", "d"]);
+    }
+
+    #[test]
+    fn from_html_breaks_inside_a_cell_are_a_space_not_a_column() {
+        // `<br>`, `<p>`, `<li>`… dans une cellule : le contenu reste dans la même colonne.
+        assert_eq!(
+            texts("<tr><td><p>TARIF </p><p>applicable (%) </p></td><td>x</td></tr>"),
+            ["TARIF applicable (%) | x"]
+        );
+        assert_eq!(
+            texts(
+                "<tr><td>Paiement <br/>(payable)</td><td><ul><li>un</li><li>deux</li></ul></td></tr>"
+            ),
+            ["Paiement (payable) | un deux"]
+        );
+        assert_eq!(
+            texts("<tr><td>a</br>b<div>c</div><h2>d</h2><ol><li>e</td><td>f"),
+            ["a b c d e | f"]
+        );
+    }
+
+    #[test]
+    fn from_html_a_row_or_a_table_ends_the_cell() {
+        // `tr`, `table` et leurs fermantes coupent la ligne, même dans une cellule ouverte ;
+        // après elles, un bloc coupe de nouveau.
+        assert_eq!(texts("<td><p>a</p></td></tr><p>b</p><p>c</p>"), ["a", "b", "c"]);
+        assert_eq!(texts("<td>a<tr><td>b</td></tr>"), ["a", "b"]);
+        assert_eq!(
+            texts("<table><tr><td>a<table><tr><td>b</table>c<p>d</p>"),
+            ["a", "b", "c", "d"]
+        );
+        assert_eq!(texts("<td>a</td></table><p>b</p>"), ["a", "b"]);
+    }
+
+    #[test]
+    fn from_html_an_unclosed_cell_ends_at_the_next_cell() {
+        assert_eq!(texts("<tr><td>a<td>b<td>c"), ["a | b | c"]);
+        assert_eq!(texts("<tr><th>a<th><p>b</p><tr><td>c<td>d"), ["a | b", "c | d"]);
+    }
+
+    #[test]
+    fn from_html_an_empty_cell_inside_a_row_keeps_its_bar() {
+        // Fixture KALITEXT000049878950 : `<th></th>` au milieu d'une ligne.
+        assert_eq!(
+            texts("<tr><th>Mode </th><th>Initial </th><th></th><th>Différé </th></tr>"),
+            ["Mode | Initial | | Différé"]
+        );
+        assert_eq!(texts("<tr><td>a</td><td></td><td></td><td>d</td></tr>"), ["a | | | d"]);
+        // Une cellule qui n'a que des blancs, des balises vides ou des invisibles est vide.
+        assert_eq!(
+            texts("<tr><td>a</td><td> <p></p><br/>&nbsp;&#8203;</td><td>c</td></tr>"),
+            ["a | | c"]
+        );
+        // Jamais de séparateur en tête ni en fin de ligne.
+        assert_eq!(texts("<tr><td></td><td>a</td><td>b</td><td></td><td></td></tr>"), ["a | b"]);
+        assert_eq!(
+            texts("<tr><td><p align=\"center\"></p></td><td></td></tr>"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            texts("<tr><td>Moins de :</td><td><p></p></td><td><p></p></td></tr>"),
+            ["Moins de :"]
+        );
+        // Les invisibles des cellules vides sont comptés quand même.
+        assert_eq!(
+            split("<tr><td>a</td><td>\u{200b}</td><td>b</td></tr>"),
+            (vec!["a | | b".to_owned()], 1)
+        );
+    }
+
+    #[test]
+    fn from_html_text_around_cells_is_kept() {
+        // Du texte avant la première cellule ou entre `</td>` et la suivante n'est pas perdu.
+        assert_eq!(
+            texts("<tr>avant<td>a</td>entre<td>b</td>après</tr>"),
+            ["avant | a entre | b après"]
+        );
+    }
+
+    #[test]
+    fn clean_keeps_a_cell_as_a_plain_space() {
+        use crate::text::clean::clean;
+        // Les champs courts ne changent pas : ni séparateur, ni cellule de paragraphe.
+        assert_eq!(clean("<tr><td>a</td><td>b</td></tr>"), "a b");
+        assert_eq!(clean("<td><p>a</p></td><td>b</td>"), "a\n\nb");
+    }
+
+    /// `texteHtml` de l'article d'une fixture C11 (relevé de `getArticle`).
+    fn article_html(fixture_json: &str) -> String {
+        text_field(fixture_json, &["article", "texteHtml"])
+    }
+
+    #[test]
+    fn article_777_cgi_rows_are_one_paragraph_each() {
+        // Relevé C11 (art. 777 CGI) : trois tableaux dont une cellule d'en-tête à deux `<p>`,
+        // des cellules `<br/>10 <br/>` et, au tableau III, des lignes à cellule de droite vide.
+        let rows = texts(&article_html(CGI_777));
+        assert_eq!(rows[1], "Tableau I");
+        assert_eq!(rows[3], "FRACTION DE PART NETTE TAXABLE | TARIF applicable (%)");
+        assert_eq!(rows[4], "N'excédant pas 8 072 € | 5");
+        assert_eq!(rows[5], "Comprise entre 8 072 € et 12 109 € | 10");
+        assert_eq!(rows[10], "Au-delà de 1 805 677 € | 45");
+        assert_eq!(rows[11], "Tableau II");
+        // Une ligne de titre de sous-tableau, cellule de tarif vide : pas de barre finale.
+        assert!(rows.contains(&"Entre frères et sœurs vivants ou représentés :".to_owned()));
+        assert!(rows.contains(&"Supérieure à 24 430 € | 45".to_owned()));
+        // Aucune ligne ne commence ni ne finit par une barre, aucune cellule n'est seule.
+        assert!(rows.iter().all(|row| !row.starts_with('|') && !row.ends_with('|')));
+        assert!(!rows.contains(&"5".to_owned()) && !rows.contains(&"10".to_owned()));
+    }
+
+    #[test]
+    fn article_669_cgi_rows_are_one_paragraph_each() {
+        let rows = texts(&article_html(CGI_669));
+        assert_eq!(
+            rows[1],
+            "AGE de l'usufruitier | VALEUR de l'usufruit | VALEUR de la nue-propriété"
+        );
+        // Cellules de droite vides : pas de barre finale.
+        assert_eq!(rows[2], "Moins de :");
+        assert_eq!(rows[3], "21 ans révolus | 90 % | 10 %");
+        assert_eq!(rows[11], "Plus de 91 ans révolus | 10 % | 90 %");
+        assert!(rows[12].starts_with("Pour déterminer la valeur de la nue-propriété"));
+        assert_eq!(rows.len(), 14);
     }
 
     #[test]
@@ -1528,6 +1766,31 @@ mod tests {
     }
 
     proptest! {
+        #[test]
+        fn rows_lose_no_word_and_add_only_bars(
+            parts in proptest::collection::vec(
+                prop_oneof!["<td>", "</td>", "<th>", "<tr>", "</tr>", "<table>", "</table>", "<p>",
+                    "</p>", "<br/>", "<li>", "<script>", "</script>", "a", "bc", " ", "\n"],
+                0..60,
+            ),
+        ) {
+            let html = parts.concat();
+            // Mots de la lecture à plat (`scan`), qui n'ajoute aucun séparateur.
+            let mut flat = String::new();
+            scan(&html, |event| match event {
+                Event::Text(text) => flat.push_str(text),
+                Event::Break(_) | Event::Cell => flat.push(' '),
+            });
+            let flat: Vec<&str> = flat.split_whitespace().collect();
+            let rows = texts(&html);
+            // Les lignes n'ajoutent que des barres, ne commencent ni ne finissent par une barre,
+            // et gardent tous les mots dans l'ordre.
+            prop_assert!(rows.iter().all(|row| !row.starts_with('|') && !row.ends_with('|')));
+            let kept: Vec<&str> =
+                rows.iter().flat_map(|row| row.split_whitespace()).filter(|w| *w != "|").collect();
+            prop_assert_eq!(kept, flat);
+        }
+
         #[test]
         fn from_html_never_panics_and_preserves_text(
             parts in proptest::collection::vec(
