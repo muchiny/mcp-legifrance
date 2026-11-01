@@ -940,6 +940,93 @@ mod tests {
         assert_eq!(page.hits[0].date, Some(d(2024, 3, 15)));
     }
 
+    /// Relevé v78 : un résultat CNIL (`datePublication` seule), fond `CNIL`.
+    const CNIL_DATES_PAGE: &str =
+        include_str!("../../tests/fixtures/recorded/search/dates/v78-CNIL-DATE_DELIB-2020.json");
+    /// Relevé v78 : un résultat KALI dont `datePublication` est la sentinelle 2999.
+    const KALI_DATES_PAGE: &str = include_str!(
+        "../../tests/fixtures/recorded/search/dates/v78-KALI-DATE_SIGNATURE-2020.json"
+    );
+    /// Relevé v78 : un résultat LODA avec `date` (entrée en vigueur) et `datePublication`.
+    const LODA_DATES_PAGE: &str = include_str!(
+        "../../tests/fixtures/recorded/search/dates/v78-LODA_DATE-DATE_SIGNATURE-2020.json"
+    );
+    /// Relevé v78 : un résultat ACCO avec `dateSignature` seule.
+    const ACCO_DATES_PAGE: &str = include_str!(
+        "../../tests/fixtures/recorded/search/dates/v78-ACCO-DATE_SIGNATURE-2020.json"
+    );
+    /// Relevé : recherche `CODE` (dix codes), `date` = date du texte initial, publication 2999.
+    const CODE_DATES_PAGE: &str =
+        include_str!("../../tests/fixtures/recorded/search/pagination/code-page1-defaut.json");
+
+    /// Titre et date du premier hit de la page `json` de `fond`.
+    fn first_title_and_date(fond: Fond, json: &str) -> (String, Option<CivilDate>) {
+        let (page, _) = page_of(fond, json);
+        let hit = page.hits.into_iter().next().unwrap();
+        (hit.title.unwrap(), hit.date)
+    }
+
+    /// L3-08 (search-2) : le champ `date` d'un hit est la date que Légifrance donne pour le fond,
+    /// pas la date de l'acte ni celle que filtrent `date_from`/`date_to`. CNIL : la publication.
+    #[test]
+    fn a_cnil_hit_date_is_the_publication_not_the_deliberation() {
+        let (title, date) = first_title_and_date(Fond::Cnil, CNIL_DATES_PAGE);
+        assert!(title.contains("du 10 novembre 2020"), "{title}");
+        assert_eq!(date, Some(d(2020, 11, 17)));
+    }
+
+    /// L3-08 (search-2), relevé C15 : la recherche CNIL « 2021 » rend des délibérations de 2021
+    /// datées de leur publication, dont une en 2022 ; aucune n'a la date de sa séance.
+    #[test]
+    fn the_cnil_search_of_2021_shows_publication_dates() {
+        let (page, _) = page_of(Fond::Cnil, CNIL_C15_PAGE);
+        let shown: Vec<_> = page
+            .hits
+            .iter()
+            .map(|hit| {
+                let title = hit.title.as_deref().unwrap_or("");
+                (title.split(" portant ").next().unwrap_or("").to_owned(), hit.date)
+            })
+            .collect();
+        let expected = [
+            ("Délibération n° 2021-147 du 9 décembre 2021", d(2021, 12, 31)),
+            ("Délibération n° 2021-088 du 22 juillet 2021", d(2021, 9, 10)),
+            ("Délibération n° 2021-087 du 22 juillet 2021", d(2021, 9, 10)),
+            ("Délibération n° 2021-130 du 23 septembre 2021", d(2022, 4, 12)),
+            ("Délibération n°2021-065 du 3 juin 2021", d(2021, 6, 11)),
+        ];
+        let expected: Vec<_> =
+            expected.into_iter().map(|(title, date)| (title.to_owned(), Some(date))).collect();
+        assert_eq!(shown, expected);
+    }
+
+    /// L3-08 (search-2) : CODE = date du texte initial du code (la publication, sentinelle 2999,
+    /// est ignorée) ; LODA = `date` (entrée en vigueur) avant la publication.
+    #[test]
+    fn code_and_loda_hit_dates_are_the_initial_text_and_the_entry_into_force() {
+        let (page, _) = page_of(Fond::Code, CODE_DATES_PAGE);
+        assert_eq!(page.hits[0].title.as_deref(), Some("Code des transports"));
+        assert_eq!(page.hits[0].date, Some(d(2010, 12, 1)));
+        assert_eq!(page.hits[1].title.as_deref(), Some("Code du travail"));
+        assert_eq!(page.hits[1].date, Some(d(1973, 1, 3)));
+
+        let (title, date) = first_title_and_date(Fond::Loda, LODA_DATES_PAGE);
+        assert!(title.contains("du 24 décembre 2020"), "{title}");
+        assert_eq!(date, Some(d(2020, 12, 27)), "date, avant datePublication du 26");
+    }
+
+    /// L3-08 (search-2) : KALI n'a pas de date de hit (publication sentinelle) ; ACCO donne la
+    /// date de signature, la seule qui soit celle de l'acte.
+    #[test]
+    fn kali_hits_have_no_date_and_acco_hits_carry_the_signature() {
+        let (title, date) = first_title_and_date(Fond::Kali, KALI_DATES_PAGE);
+        assert!(title.contains("du 13 octobre 2020"), "{title}");
+        assert_eq!(date, None);
+
+        let (_, date) = first_title_and_date(Fond::Acco, ACCO_DATES_PAGE);
+        assert_eq!(date, Some(d(2020, 9, 11)));
+    }
+
     /// Résultat de `json`, lu comme la production.
     fn result_of(json: &Value) -> SearchResultDto {
         decode(&json.to_string(), "/search").unwrap()
