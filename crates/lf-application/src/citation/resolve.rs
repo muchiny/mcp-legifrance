@@ -274,7 +274,7 @@ const fn out_of_scope(family: UnsupportedFamily) -> &'static str {
     match family {
         UnsupportedFamily::Ue => "EU law",
         UnsupportedFamily::Cjue => "CJEU case law",
-        UnsupportedFamily::Cedh => "ECHR case law",
+        UnsupportedFamily::Cedh => "ECHR law and case law",
         UnsupportedFamily::Doctrine => "Legal scholarship",
         UnsupportedFamily::Recueil => "A law report",
         UnsupportedFamily::ForeignEcli => "A foreign ECLI",
@@ -2168,7 +2168,7 @@ mod tests {
         let cases = [
             (UnsupportedFamily::Ue, "EU law"),
             (UnsupportedFamily::Cjue, "CJEU case law"),
-            (UnsupportedFamily::Cedh, "ECHR case law"),
+            (UnsupportedFamily::Cedh, "ECHR law and case law"),
             (UnsupportedFamily::Doctrine, "Legal scholarship"),
             (UnsupportedFamily::Recueil, "A law report"),
             (UnsupportedFamily::ForeignEcli, "A foreign ECLI"),
@@ -2188,7 +2188,7 @@ mod tests {
             ),
             (
                 UnresolvableWhy::HorsPerimetre(UnsupportedFamily::Cedh),
-                unresolvable_outcome(Note::OutOfScope { family: "ECHR case law" }),
+                unresolvable_outcome(Note::OutOfScope { family: "ECHR law and case law" }),
             ),
             (
                 UnresolvableWhy::SigleSansContexte(Sigle::Ce),

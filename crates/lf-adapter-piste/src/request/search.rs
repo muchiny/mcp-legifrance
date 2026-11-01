@@ -205,7 +205,8 @@ fn request_dto<'a>(params: &Params<'a>) -> Result<SearchRequestDto<'a>, CorpusEr
 /// PISTE ignore `pageNumber` quand `pageSize` vaut 1 : les pages 1, 2 et 3 rendent toutes le rang 1
 /// (relevés C9 de la sandbox, JURI, LODA, CNIL et CODE). Une page de taille 1 est donc servie par
 /// une page de taille 2, dont on ne garde que l'élément `skip`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(test, derive(Debug))]
 pub(crate) struct WirePage {
     /// `pageNumber` envoyé.
     pub(crate) page_number: u32,
