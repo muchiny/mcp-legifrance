@@ -29,7 +29,7 @@ use lf_domain::{
     date::{DateRange, VersionDate},
     entity::{SearchHit, SearchPage, Snippet},
     fond::Fond,
-    search::{MatchMode, PageSize, QueryText, SearchQuery, has_more},
+    search::{MatchMode, PageSize, QueryText, SearchQuery, check_quotes, has_more},
     status::LegalStatus,
 };
 
@@ -134,7 +134,9 @@ fn fond_of(value: Option<&str>) -> Result<Fond, AppError> {
 /// `query` : requise, normalisée et bornée par le domaine.
 fn text_of(value: Option<&str>) -> Result<QueryText, AppError> {
     let value = value.ok_or_else(|| messages::required("query"))?;
-    QueryText::parse(value).map_err(|error| messages::domain(TOOL, &error))
+    let text = QueryText::parse(value).map_err(|error| messages::domain(TOOL, &error))?;
+    check_quotes(&text).map_err(|error| messages::domain(TOOL, &error))?;
+    Ok(text)
 }
 
 /// `page_size` : 10 par défaut, de 1 à 100 (P-011), `i64` hors de `u32` compris.
@@ -543,6 +545,39 @@ mod tests {
             rejected(text(&"a".repeat(612))).await,
             "query is too long (612 characters, max 450); shorten it or use match=\"all\"."
         );
+    }
+
+    const UNBALANCED: &str = "query has an unbalanced double quote (\"): close it or remove it.";
+
+    #[tokio::test]
+    async fn an_unbalanced_double_quote_is_refused_before_the_port_is_called() {
+        // E2E search_all-1 : PISTE répond 503 (500 sur CODE) à ces formes.
+        for odd in ["\"licenciement", "licenciement\"", "\"", "\"a\" \"b", "a \" b"] {
+            for fond in ["LODA", "CODE", "JURI"] {
+                let input = SearchInput { fond: Some(fond.to_owned()), ..text(odd) };
+                let corpus = FakeCorpus::new();
+                let error = run(&corpus, &clock(), input).await.unwrap_err();
+                assert_eq!(error.code(), Some(ErrorCode::InvalidArg), "{odd:?} {fond}");
+                assert_eq!(error.message(), UNBALANCED, "{odd:?} {fond}");
+                assert_eq!(corpus.calls(), 0, "{odd:?} {fond}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn the_unbalanced_quote_message_never_echoes_the_query() {
+        let secret = "\"confidentiel-9f3a";
+        let message = rejected(text(secret)).await;
+        assert!(!message.contains("confidentiel"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn balanced_quotes_apostrophes_and_open_parentheses_still_search() {
+        for fine in ["\"licenciement économique\"", "l'article (1240", "«licenciement", "bail"] {
+            let corpus = serving(page_of(Fond::Loda, 0, vec![]));
+            run(&corpus, &clock(), text(fine)).await.unwrap();
+            assert_eq!(corpus.calls(), 1, "{fine:?}");
+        }
     }
 
     #[tokio::test]

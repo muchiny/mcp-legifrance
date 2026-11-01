@@ -72,6 +72,36 @@ impl QueryText {
     }
 }
 
+/// Refuse une requête dont le nombre de guillemets droits (`"`) est impair.
+///
+/// PISTE répond 503 (500 sur `CODE`) à un guillemet non apparié : la requête est sans espoir, et
+/// l'invitation à réessayer du message amont est trompeuse (le quota est consommé). Les
+/// guillemets typographiques (`«`, `»`, `“`, `”`) ne sont pas comptés : le moteur ne les traite
+/// pas en délimiteurs. Les autres opérateurs ne sont pas contrôlés.
+///
+/// Appelée explicitement par les cas d'usage de recherche, et non par [`QueryText::parse`], que
+/// la recherche par numéro emploie aussi pour cadrer ses résultats.
+///
+/// ```
+/// use lf_domain::{DomainError, search::{QueryText, check_quotes}};
+///
+/// let balanced = QueryText::parse("\"droit de grève\"").unwrap();
+/// assert_eq!(check_quotes(&balanced), Ok(()));
+/// let odd = QueryText::parse("\"droit de grève").unwrap();
+/// assert_eq!(check_quotes(&odd), Err(DomainError::UnbalancedQuotes));
+/// ```
+///
+/// # Errors
+///
+/// [`DomainError::UnbalancedQuotes`] si le nombre de guillemets droits est impair.
+pub fn check_quotes(query: &QueryText) -> Result<(), DomainError> {
+    if query.as_str().matches('"').count().is_multiple_of(2) {
+        Ok(())
+    } else {
+        Err(DomainError::UnbalancedQuotes)
+    }
+}
+
 /// Découpe sur les blancs Unicode, retire les caractères de contrôle de chaque mot, écarte les
 /// mots devenus vides et joint par une espace.
 fn normalize(input: &str) -> String {
@@ -353,6 +383,43 @@ mod tests {
             QueryText::parse(&"é".repeat(451)),
             Err(DomainError::QueryTooLong { len: 451, max: 450 })
         );
+    }
+
+    #[test]
+    fn an_odd_number_of_straight_double_quotes_is_refused() {
+        // Cas réels de l'E2E (search_all-1) : le moteur répond 503 ou 500.
+        for odd in ["\"licenciement", "licenciement\"", "\"", "\"a\" \"b", "\"\"\"", "a \" b"] {
+            assert_eq!(check_quotes(&text(odd)), Err(DomainError::UnbalancedQuotes), "{odd:?}");
+        }
+    }
+
+    #[test]
+    fn balanced_quotes_apostrophes_and_open_parentheses_pass() {
+        for fine in [
+            "licenciement économique",
+            "\"licenciement économique\"",
+            "\"\"",
+            "\"a\" \"b\"",
+            "l'article 1240 du code civil",
+            "(licenciement",
+            "travail~2 AND",
+            // Guillemets typographiques : non comptés (le moteur ne les traite pas en délimiteurs).
+            "\u{ab}licenciement\u{bb}",
+            "\u{201c}licenciement",
+            "licenciement\u{201d}",
+        ] {
+            assert_eq!(check_quotes(&text(fine)), Ok(()), "{fine:?}");
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn quotes_are_refused_exactly_when_their_count_is_odd(raw in "[a-z\" ()'\u{ab}\u{bb}]{1,40}") {
+            if let Ok(query) = QueryText::parse(&raw) {
+                let odd = query.as_str().matches('"').count() % 2 == 1;
+                prop_assert_eq!(check_quotes(&query).is_err(), odd);
+            }
+        }
     }
 
     #[test]

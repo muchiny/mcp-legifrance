@@ -114,7 +114,9 @@ pub fn corpus_error(tool: ToolName, subject: &str, error: &CorpusError) -> AppEr
     match error {
         CorpusError::NotFound { what: _ } => not_found(tool, subject),
         CorpusError::InvalidRequest { status, detail } => invalid_request(*status, detail),
-        CorpusError::Upstream { status, retryable, detail: _ } => upstream(*status, *retryable),
+        CorpusError::Upstream { status, retryable, detail: _ } => {
+            upstream(tool, *status, *retryable)
+        }
         CorpusError::Timeout => AppError::Upstream {
             message: format!("Legifrance/PISTE did not answer in time{}", retry_suffix(true)),
             cause: UpstreamCause::Timeout,
@@ -202,10 +204,20 @@ const fn retry_suffix(retryable: bool) -> &'static str {
     if retryable { "; retry once, then report it." } else { "; report it." }
 }
 
+/// Suffixe d'un 500 ou 503 sur une recherche : le moteur les rend aussi pour une requête qu'il ne
+/// sait pas lire (opérateur `AND` en fin de requête, `NOT` seul, guillemets), et la rejouer à
+/// l'identique échoue de la même façon : on invite à reformuler, non à réessayer (L4-08, gap5-4).
+const REPHRASE_SUFFIX: &str = "; if it repeats, rephrase the query.";
+
 /// `Upstream` (lignes 17 et 18). Sans statut, c'est une erreur réseau : la catégorie reste fixe,
 /// `CorpusError::Upstream` ne la porte pas (05 §7.2 cite `TLS error` en exemple).
-fn upstream(status: Option<u16>, retryable: bool) -> AppError {
-    let suffix = retry_suffix(retryable);
+fn upstream(tool: ToolName, status: Option<u16>, retryable: bool) -> AppError {
+    let is_search = matches!(tool, ToolName::FR_SEARCH | ToolName::FR_SEARCH_ALL);
+    let suffix = if is_search && matches!(status, Some(500 | 503)) {
+        REPHRASE_SUFFIX
+    } else {
+        retry_suffix(retryable)
+    };
     match status {
         Some(status) => {
             let reason = match status {
@@ -373,6 +385,9 @@ pub fn domain_arg(tool: ToolName, arg: Option<&'static str>, error: &DomainError
         DomainError::QueryTooLong { len, max } => invalid_argument(format!(
             "query is too long ({len} characters, max {max}); shorten it or use match=\"all\"."
         )),
+        DomainError::UnbalancedQuotes => invalid_argument(
+            "query has an unbalanced double quote (\"): close it or remove it.".to_owned(),
+        ),
         DomainError::OutOfRange { field, value, min, max } => {
             out_of_range(field, *value, *min, *max)
         }
@@ -1105,6 +1120,55 @@ mod tests {
     }
 
     #[test]
+    fn a_500_or_503_on_a_search_asks_to_rephrase_instead_of_retrying() {
+        // E2E search_all-1 et gap5-4 : « travail AND », « NOT », un guillemet orphelin.
+        for tool in [ToolName::FR_SEARCH, ToolName::FR_SEARCH_ALL] {
+            let app = corpus_error(tool, "", &upstream(Some(503), true));
+            assert_eq!(
+                app,
+                expected_upstream(
+                    UpstreamCause::Status(503),
+                    "Legifrance/PISTE HTTP 503 (service unavailable); if it repeats, rephrase \
+                     the query."
+                )
+            );
+            let app = corpus_error(tool, "", &upstream(Some(500), false));
+            assert_eq!(
+                app,
+                expected_upstream(
+                    UpstreamCause::Status(500),
+                    "Legifrance/PISTE HTTP 500 (internal server error); if it repeats, \
+                     rephrase the query."
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn other_search_failures_and_other_tools_keep_their_usual_suffix() {
+        // Jumeau : seuls 500 et 503 d'une recherche changent.
+        for (status, message) in [
+            (502, "Legifrance/PISTE HTTP 502 (bad gateway); retry once, then report it."),
+            (504, "Legifrance/PISTE HTTP 504 (gateway timeout); retry once, then report it."),
+        ] {
+            let app = corpus_error(ToolName::FR_SEARCH, "", &upstream(Some(status), true));
+            assert_eq!(app.message(), message);
+        }
+        let timeout = corpus_error(ToolName::FR_SEARCH_ALL, "", &CorpusError::Timeout);
+        assert_eq!(
+            timeout.message(),
+            "Legifrance/PISTE did not answer in time; retry once, then report it."
+        );
+        let network = corpus_error(ToolName::FR_SEARCH, "", &upstream(None, true));
+        assert!(network.message().ends_with("; retry once, then report it."));
+        let consult = corpus_error(ToolName::FR_GET_TEXT, ID, &upstream(Some(503), true));
+        assert_eq!(
+            consult.message(),
+            "Legifrance/PISTE HTTP 503 (service unavailable); retry once, then report it."
+        );
+    }
+
+    #[test]
     fn upstream_reason_phrases_cover_the_documented_statuses_only() {
         let rows = [
             (500, "Legifrance/PISTE HTTP 500 (internal server error); report it."),
@@ -1527,6 +1591,10 @@ mod tests {
                  'KALI', 'LODA'].",
             ),
             (DomainError::EmptyQuery, "query is required."),
+            (
+                DomainError::UnbalancedQuotes,
+                "query has an unbalanced double quote (\"): close it or remove it.",
+            ),
             (
                 DomainError::QueryTooLong { len: 612, max: 450 },
                 "query is too long (612 characters, max 450); shorten it or use match=\"all\".",

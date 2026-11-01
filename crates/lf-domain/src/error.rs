@@ -135,6 +135,10 @@ pub enum DomainError {
         /// Longueur maximale acceptée.
         max: usize,
     },
+    /// Requête de recherche dont le nombre de guillemets droits (`"`) est impair : PISTE la
+    /// rejette en 503 ou 500 ([`check_quotes`](crate::search::check_quotes)).
+    #[error("query has an unbalanced double quote (\")")]
+    UnbalancedQuotes,
     /// Valeur numérique hors de ses bornes (bornes incluses), ex. `page_size`.
     #[error("{field}={value} out of range ({min}..{max})")]
     OutOfRange {
@@ -250,6 +254,7 @@ mod tests {
             | DomainError::InvertedDateRange { .. }
             | DomainError::EmptyQuery
             | DomainError::QueryTooLong { .. }
+            | DomainError::UnbalancedQuotes
             | DomainError::OutOfRange { .. }
             | DomainError::VersionDateNotApplicable { .. }
             | DomainError::DateFilterNotApplicable { .. }
@@ -324,6 +329,10 @@ mod tests {
         assert_eq!(
             DomainError::QueryTooLong { len: 612, max: 450 }.to_string(),
             "query is too long (612 characters, max 450)"
+        );
+        assert_eq!(
+            DomainError::UnbalancedQuotes.to_string(),
+            "query has an unbalanced double quote (\")"
         );
         assert_eq!(
             DomainError::OutOfRange { field: "page_size", value: 0, min: 1, max: 100 }.to_string(),
@@ -426,6 +435,7 @@ mod tests {
             DomainError::InvertedDateRange { from: VersionDate::MAX, to: VersionDate::MIN },
             DomainError::EmptyQuery,
             DomainError::QueryTooLong { len: 451, max: 450 },
+            DomainError::UnbalancedQuotes,
             DomainError::OutOfRange { field: "page_size", value: 0, min: 1, max: 100 },
             DomainError::VersionDateNotApplicable { fond: Fond::Juri },
             DomainError::DateFilterNotApplicable { fond: Fond::Code },

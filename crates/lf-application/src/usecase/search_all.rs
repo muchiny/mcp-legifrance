@@ -27,7 +27,12 @@
 //! d'usage ne sait rien du transport : la façade et l'adaptateur décident de ce qu'ils en font.
 
 use futures::{StreamExt, stream};
-use lf_domain::{entity::Snippet, fond::Fond, search::QueryText, status::LegalStatus};
+use lf_domain::{
+    entity::Snippet,
+    fond::Fond,
+    search::{QueryText, check_quotes},
+    status::LegalStatus,
+};
 
 use crate::{
     budget::{ResponseBudget, bounded, estimate_chars, strip_from_end, the_last_hits},
@@ -100,7 +105,8 @@ impl<'a, C: LegalCorpus, K: Clock> SearchAllUseCase<'a, C, K> {
     ) -> Result<SearchAllOutput, AppError> {
         let SearchAllInput { query, fonds, per_fond } = input;
         let query = query.ok_or_else(|| messages::required("query"))?;
-        QueryText::parse(&query).map_err(|error| messages::domain(TOOL, &error))?;
+        let text = QueryText::parse(&query).map_err(|error| messages::domain(TOOL, &error))?;
+        check_quotes(&text).map_err(|error| messages::domain(TOOL, &error))?;
         let fonds = fonds_of(fonds)?;
         let per_fond = bounded("per_fond", per_fond, PER_FOND_DEFAULT, PER_FOND_MIN, PER_FOND_MAX)?;
 
@@ -586,6 +592,36 @@ mod tests {
     async fn a_too_long_query_is_rejected_once_before_any_fond_is_searched() {
         let message = rejected(all_of(Some(&"a".repeat(612)), None, None)).await;
         assert!(message.starts_with("query is too long (612 characters, max 450)"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn an_unbalanced_double_quote_is_one_invalid_arg_and_no_fond_is_searched() {
+        // E2E search_all-1 : six fonds échouaient tous en 503 ; une seule erreur locale désormais.
+        for odd in ["\"licenciement", "licenciement\""] {
+            let corpus = FakeCorpus::new();
+            let error = SearchAllUseCase::new(&corpus, &clock())
+                .execute(all_of(Some(odd), Some(&["LODA", "JURI", "CODE"]), Some(1)), |_, _| {})
+                .await
+                .unwrap_err();
+            assert_eq!(error.code(), Some(ErrorCode::InvalidArg), "{odd:?}");
+            assert_eq!(
+                error.message(),
+                "query has an unbalanced double quote (\"): close it or remove it.",
+                "{odd:?}"
+            );
+            assert_eq!(corpus.calls(), 0, "{odd:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn balanced_quotes_still_search_every_fond() {
+        let corpus = FakeCorpus::new();
+        corpus.push_search(Ok(bare_page(Fond::Loda, 0, 0)));
+        corpus.push_search(Ok(bare_page(Fond::Code, 0, 0)));
+        run(&corpus, all_of(Some("\"licenciement économique\""), Some(&["LODA", "CODE"]), Some(1)))
+            .await
+            .unwrap();
+        assert_eq!(corpus.calls(), 2);
     }
 
     #[tokio::test]
