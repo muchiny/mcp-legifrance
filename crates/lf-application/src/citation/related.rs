@@ -17,6 +17,7 @@ use std::collections::HashSet;
 
 use lf_domain::{
     citation::{CitationKind, CitationRef, ParseOptions, Spanned, format::canonical, parse_with},
+    contract::CitationText,
     entity::{Decision, RelatedLink, RelatedLinks, RelatedNature},
     id::DocumentId,
     text::clean_field,
@@ -27,10 +28,6 @@ use crate::output::get_related::{LinkOut, Relation};
 
 /// Nombre maximal de liens rendus, sans suite (00 §7, 05 §5.11).
 pub(crate) const MAX_LINKS: usize = 100;
-
-/// Longueur maximale d'une `citation`, en caractères : un titre démesuré de l'API ne doit pas
-/// vider la liste à lui seul (il serait retiré avec tous ceux qui le suivent).
-const CITATION_MAX_CHARS: usize = 500;
 
 // ---------------------------------------------------------------------------------------------
 // Article
@@ -50,11 +47,12 @@ pub(crate) fn article_links(links: &RelatedLinks) -> Vec<LinkOut> {
 fn article_link(relation: Relation, link: &RelatedLink) -> Option<LinkOut> {
     let located = link.target.as_ref().and_then(|target| located(&link.nature, target));
     let citation = clean_field(link.title.as_deref())
+        .and_then(|title| one_line(&title))
         .or_else(|| link.target.as_ref().map(|target| target.as_str().to_owned()))?;
     Some(LinkOut {
         relation,
         kind: kind_of(&link.nature, link.target.as_ref()),
-        citation: clip(citation),
+        citation,
         id: located.as_ref().map(|(id, _)| id.clone()),
         source_url: located.map(|(_, url)| url),
     })
@@ -94,13 +92,11 @@ fn located(nature: &RelatedNature, target: &DocumentId) -> Option<(String, Strin
     Some((id.to_owned(), legifrance_url(kind, id).to_string()))
 }
 
-/// Coupe à [`CITATION_MAX_CHARS`] caractères, suivis de `…`.
-fn clip(mut text: String) -> String {
-    if let Some((byte, _)) = text.char_indices().nth(CITATION_MAX_CHARS) {
-        text.truncate(byte);
-        text.push('…');
-    }
-    text
+/// Le texte d'un lien sur une seule ligne et borné à [`CITATION_MAX_CHARS`] caractères (coupe sur un
+/// mot, suivie de `…`) : l'invariant de toute citation exposée (`CitationText`, ADR-0009). `None`
+/// s'il ne reste aucun caractère visible.
+fn one_line(text: &str) -> Option<String> {
+    CitationText::new(text).map(|citation| citation.as_str().to_owned())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -234,16 +230,17 @@ fn draft_of(source: Source, text: &str, found: &Spanned<CitationRef>) -> Option<
     };
     let (act, article) = identity(&found.value, &citation);
     Some(Draft {
-        link: LinkOut { relation, kind, citation: clip(citation), id: None, source_url: None },
+        link: LinkOut { relation, kind, citation, id: None, source_url: None },
         act,
         article,
     })
 }
 
 /// Ce que le lien montre : la forme canonique de la citation, sinon le texte reconnu, nettoyé
-/// (balises et entités retirées). `None` si ce texte est vide une fois nettoyé.
+/// (balises et entités retirées), sur une ligne et borné. `None` si ce texte est vide une fois
+/// nettoyé.
 fn shown(value: &CitationRef, raw: &str) -> Option<String> {
-    canonical(value).or_else(|| clean_field(Some(raw)))
+    canonical(value).or_else(|| clean_field(Some(raw))).and_then(|text| one_line(&text))
 }
 
 /// L'acte visé par la citation et l'article de cet acte, s'il est désigné.
@@ -305,7 +302,7 @@ fn merge(drafts: &mut Vec<Draft>, draft: Draft) {
 )]
 mod tests {
     use super::*;
-    use lf_domain::{citation::UnsupportedCite, date::CivilDate};
+    use lf_domain::{citation::UnsupportedCite, contract::CITATION_MAX_CHARS, date::CivilDate};
     use pretty_assertions::assert_eq;
 
     use crate::usecase::get_decision::fixtures::decision;
@@ -456,18 +453,58 @@ mod tests {
     }
 
     #[test]
-    fn a_huge_title_is_clipped_so_it_cannot_empty_the_list() {
-        let title = "é".repeat(CITATION_MAX_CHARS + 10);
+    fn a_huge_title_is_cut_at_a_word_so_it_cannot_empty_the_list() {
+        let title = "mot ".repeat(500);
         let links = RelatedLinks {
             cites: vec![related(RelatedNature::Code, Some(ARTI), Some(&title))],
             cited_by: vec![],
         };
         let out = article_links(&links);
-        assert_eq!(out[0].citation.chars().count(), CITATION_MAX_CHARS + 1);
-        assert!(out[0].citation.ends_with('…'));
+        assert!(out[0].citation.chars().count() <= CITATION_MAX_CHARS);
+        assert!(out[0].citation.ends_with(" mot…"), "coupe sur un mot : {}", out[0].citation);
         // À la limite exacte, rien n'est coupé.
         let exact = "e".repeat(CITATION_MAX_CHARS);
-        assert_eq!(clip(exact.clone()), exact);
+        assert_eq!(one_line(&exact), Some(exact));
+        assert_eq!(one_line("\u{7}\n"), None);
+    }
+
+    #[test]
+    fn an_article_title_with_a_line_break_is_shown_on_one_line() {
+        let title = "Décret n°2010-148\ndu 16 février 2010 - art. 2 (V)";
+        let links = RelatedLinks {
+            cites: vec![],
+            cited_by: vec![related(RelatedNature::Loda, Some(ARTI), Some(title))],
+        };
+        let out = article_links(&links);
+        assert_eq!(out[0].citation, "Décret n°2010-148 du 16 février 2010 - art. 2 (V)");
+        // Jumeau : un titre déjà sur une ligne reste tel quel.
+        let one = related(RelatedNature::Code, Some(ARTI), Some("Code civil, art. 1240"));
+        let kept = article_links(&RelatedLinks { cites: vec![one], cited_by: vec![] });
+        assert_eq!(kept[0].citation, "Code civil, art. 1240");
+    }
+
+    #[test]
+    fn a_title_that_is_only_control_characters_falls_back_to_the_id() {
+        let links = RelatedLinks {
+            cites: vec![related(RelatedNature::Code, Some(ARTI), Some("\u{7}"))],
+            cited_by: vec![],
+        };
+        let out = article_links(&links);
+        assert_eq!(out[0].citation, ARTI);
+    }
+
+    #[test]
+    fn titles_that_differ_only_by_blanks_are_merged() {
+        let a = related(RelatedNature::Code, Some(ARTI), Some("Code civil,\n art. 1240"));
+        let b = related(RelatedNature::Code, Some(ARTI), Some("Code civil,  art. 1240"));
+        let links = RelatedLinks { cites: vec![a, b], cited_by: vec![] };
+        let out = article_links(&links);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].citation, "Code civil, art. 1240");
+        // Jumeau : deux titres réellement différents restent deux liens.
+        let c = related(RelatedNature::Code, Some(ARTI), Some("Code civil, art. 1241"));
+        let d = related(RelatedNature::Code, Some(ARTI), Some("Code civil,\n art. 1240"));
+        assert_eq!(article_links(&RelatedLinks { cites: vec![c, d], cited_by: vec![] }).len(), 2);
     }
 
     // ---- liens d'une décision ------------------------------------------------------------
@@ -728,6 +765,32 @@ mod tests {
         // Un span qui ne tombe pas sur le texte donné (frontière invalide) ne fait pas paniquer.
         assert!(draft_of(Source::Liens, "<b></b>", &spanned).is_none());
         assert!(draft_of(Source::Liens, "é", &spanned).is_none());
+    }
+
+    #[test]
+    fn a_decision_link_is_on_one_line_and_bounded() {
+        let unsupported = CitationRef::Unsupported(UnsupportedCite {
+            family: lf_domain::citation::UnsupportedFamily::Doctrine,
+            key: None,
+        });
+        // Mention non reconnue en famille : le texte brut, avec ses sauts de ligne, est montré.
+        assert_eq!(
+            shown(&unsupported, "Dalloz\n2020,\n\np. 12"),
+            Some("Dalloz 2020, p. 12".to_owned())
+        );
+        // Mention démesurée : bornée à la longueur d'une citation.
+        let long = format!("Dalloz {}", "mot ".repeat(500));
+        let bounded = shown(&unsupported, &long).unwrap();
+        assert!(bounded.chars().count() <= CITATION_MAX_CHARS);
+        assert!(bounded.ends_with('…'));
+        // Un texte appliqué à cheval sur deux lignes : une seule ligne en sortie.
+        let split = "Article 10 de la directive\n85/374/CEE du Conseil".to_owned();
+        let out = links_of(None, &[split]);
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert!(!out[0].citation.contains('\n'), "{out:?}");
+        // Jumeau : une citation reconnue sur une ligne reste intacte.
+        let out = links_of(None, &["Loi n° 2016-1321 du 7 octobre 2016, art. 5".to_owned()]);
+        assert_eq!(out[0].citation, "Loi n° 2016-1321 du 7 octobre 2016, art. 5");
     }
 
     #[test]
