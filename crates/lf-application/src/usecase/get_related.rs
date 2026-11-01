@@ -29,7 +29,9 @@
 //! Au plus `MAX_LINKS` liens, sans suite : `total` compte les liens avant troncature et
 //! `truncated` le dit. Le paramètre facultatif `relation` (D-05) écarte les liens des autres sens
 //! **avant** la troncature : `total` compte alors la relation demandée, et sans `relation` la
-//! réponse est celle de la 1.0.1. L'estimation de la réponse ([`estimate_list_chars`], 24 par lien et par champ) reste sous la cible, en
+//! réponse est celle de la 1.0.1. `truncated` (références coupées) et la `note` d'une décision décrivent
+//! eux aussi la liste filtrée : une référence coupée ou un code qui ne peuvent concerner que d'autres
+//! relations ne les déclenchent pas (D-05-suite). L'estimation de la réponse ([`estimate_list_chars`], 24 par lien et par champ) reste sous la cible, en
 //! retirant des liens par la fin ([`shrink_from_end`]) ; la vue mesure ensuite la taille exacte.
 
 use futures::future::join;
@@ -42,7 +44,7 @@ use crate::{
     budget::{ResponseBudget, escaped_chars, estimate_chars, estimate_list_chars, shrink_from_end},
     citation::{
         Note,
-        related::{DecisionLinks, DecisionReferences, MAX_LINKS, article_links, decision_links},
+        related::{DecisionReferences, MAX_LINKS, article_links, decision_links},
     },
     error::AppError,
     failure::port_failure,
@@ -132,18 +134,22 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
             .await
             .map_err(|error| port_failure(ToolName::FR_GET_DECISION, id.as_str(), &error))?;
         let references = DecisionReferences::of(&decision);
-        let DecisionLinks { links, code_involved } = decision_links(&references);
-        let found = output(id.as_str(), &decision.contract(), links, relation);
+        let analysed = decision_links(&references);
+        // `truncated` et la note décrivent la liste rendue : celle de `relation` quand elle est
+        // donnée (D-05-suite). Sans `relation`, rien ne change.
+        let codes = analysed.code_involved_for(relation);
+        let found = output(id.as_str(), &decision.contract(), analysed.links, relation);
         // Des références que l'API ne donne pas du tout : lues sur la décision, non sur les
         // références analysées, que `MAX_ANALYSED_CHARS` peut avoir vidées.
         let unreferenced = decision.cited_case_law.is_none() && decision.applied_texts.is_empty();
         Ok(GetRelatedOutput {
-            // Des références ignorées faute de place : la liste est incomplète.
-            truncated: found.truncated || references.clipped,
+            // Des références ignorées faute de place qui ont pu porter des liens de cette liste :
+            // elle est incomplète.
+            truncated: found.truncated || references.clips(relation),
             note: if unreferenced {
                 Some(Note::NoDecisionReferences)
             } else {
-                code_involved.then_some(Note::DecisionLinkCodes)
+                codes.then_some(Note::DecisionLinkCodes)
             },
             ..found
         })
@@ -860,6 +866,132 @@ mod tests {
         corpus.push_get_decision(Ok(referencing(JURI, None, texts)));
         let out = run(&corpus, Some(JURI)).await.unwrap();
         assert_eq!((out.links.len(), out.total, out.truncated), (2, 2, false));
+    }
+
+    // ---- relation et décision : `truncated`, `total` et `note` décrivent la liste filtrée ----
+    // (D-05-suite, remarque de revue de la vague V1)
+
+    /// Une jurisprudence citée (`citationJp`), sans code : de quoi avoir un lien `cites_case_law`.
+    const CASE_LAW_ONLY: &str = "1re Civ., 25 mai 2023, pourvoi n° 21-23.174";
+
+    /// Une décision dont `citationJp` cite une décision et dont un texte appliqué porte un code.
+    fn with_code_and_case_law() -> FakeCorpus {
+        let corpus = FakeCorpus::new();
+        let texts = vec!["article 700 du code de procédure civile".to_owned()];
+        corpus.push_get_decision(Ok(referencing(JURI, Some(CASE_LAW_ONLY), texts)));
+        corpus
+    }
+
+    /// Relation et note de la réponse de `relation` (`None` : sans filtre).
+    async fn shape_of(
+        corpus: &FakeCorpus,
+        relation: Option<&str>,
+    ) -> (Vec<Relation>, u32, Option<Note>) {
+        let input =
+            GetRelatedInput { id: Some(JURI.to_owned()), relation: relation.map(str::to_owned) };
+        let out = GetRelatedUseCase::new(corpus).execute(input).await.unwrap();
+        (out.links.iter().map(|link| link.relation).collect(), out.total, out.note)
+    }
+
+    #[tokio::test]
+    async fn the_code_note_follows_the_filtered_decision_links() {
+        // Faux positif évité : la note sur les codes ne décrit que le lien « texte appliqué » ;
+        // la relation `cites_case_law` ne le contient pas, donc pas de note.
+        let shape = shape_of(&with_code_and_case_law(), Some("cites_case_law")).await;
+        assert_eq!(shape, (vec![Relation::CitesCaseLaw], 1, None));
+        // Vrai positif conservé : la relation qui porte le code garde la note…
+        let shape = shape_of(&with_code_and_case_law(), Some("applies_text")).await;
+        assert_eq!(shape, (vec![Relation::AppliesText], 1, Some(Note::DecisionLinkCodes)));
+        // … et sans `relation`, la réponse est celle d'avant (les deux liens, la note).
+        let shape = shape_of(&with_code_and_case_law(), None).await;
+        assert_eq!(
+            shape,
+            (vec![Relation::CitesCaseLaw, Relation::AppliesText], 2, Some(Note::DecisionLinkCodes))
+        );
+        // Une relation qu'une décision n'a pas : liste vide, aucune note sur des codes absents.
+        let shape = shape_of(&with_code_and_case_law(), Some("cited_by")).await;
+        assert_eq!(shape, (vec![], 0, None));
+    }
+
+    #[tokio::test]
+    async fn the_no_references_note_stays_with_any_relation_on_an_unreferenced_decision() {
+        // La liste vide s'explique toujours par l'absence de références : la note reste.
+        for relation in [None, Some("applies_text"), Some("cites_case_law")] {
+            let corpus = FakeCorpus::new();
+            corpus.push_get_decision(Ok(decision(JURI, "texte")));
+            let shape = shape_of(&corpus, relation).await;
+            assert_eq!(shape, (vec![], 0, Some(Note::NoDecisionReferences)), "{relation:?}");
+        }
+    }
+
+    /// Titres de `liens` de 20 000 caractères : seuls deux tiennent dans l'analyse.
+    fn long_applied_texts() -> Vec<String> {
+        (1..=4).map(|n| format!("article {n} du code civil {}", "x".repeat(19_950))).collect()
+    }
+
+    /// (liens, total, truncated) de la réponse de `relation` pour une décision qui porte ces
+    /// références.
+    async fn bounds_of(
+        cited: Option<&str>,
+        applied: Vec<String>,
+        relation: Option<&str>,
+    ) -> (usize, u32, bool) {
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(referencing(JURI, cited, applied)));
+        let input =
+            GetRelatedInput { id: Some(JURI.to_owned()), relation: relation.map(str::to_owned) };
+        let out = GetRelatedUseCase::new(&corpus).execute(input).await.unwrap();
+        (out.links.len(), out.total, out.truncated)
+    }
+
+    #[tokio::test]
+    async fn truncated_follows_the_relation_when_the_applied_texts_were_clipped() {
+        // Les textes appliqués sont coupés par l'analyse, `citationJp` est entière.
+        let clipped = || long_applied_texts();
+        // Sans filtre : inchangé, la liste est incomplète.
+        assert_eq!(bounds_of(Some(CASE_LAW_ONLY), clipped(), None).await, (3, 3, true));
+        // Vrai positif conservé : les textes appliqués sont la part perdue.
+        assert_eq!(
+            bounds_of(Some(CASE_LAW_ONLY), clipped(), Some("applies_text")).await,
+            (2, 2, true)
+        );
+        // Faux positif évité : la jurisprudence citée tient entière, `truncated` ne l'accuse pas.
+        assert_eq!(
+            bounds_of(Some(CASE_LAW_ONLY), clipped(), Some("cites_case_law")).await,
+            (1, 1, false)
+        );
+    }
+
+    #[tokio::test]
+    async fn truncated_follows_the_relation_when_citationjp_was_clipped() {
+        // `citationJp` dépasse l'analyse : tout ce qui suivait est perdu, jurisprudence citée
+        // comme textes appliqués.
+        let cited = format!("{CASE_LAW_ONLY} {}", "x ".repeat(30_000));
+        let applied = || vec!["article 700 du code de procédure civile".to_owned()];
+        assert!(bounds_of(Some(&cited), applied(), None).await.2);
+        assert!(bounds_of(Some(&cited), applied(), Some("cites_case_law")).await.2);
+        assert!(bounds_of(Some(&cited), applied(), Some("applies_text")).await.2);
+        // Une relation qu'une décision n'a pas : rien n'a pu être perdu pour elle.
+        assert_eq!(bounds_of(Some(&cited), applied(), Some("cited_by")).await, (0, 0, false));
+        assert_eq!(bounds_of(Some(&cited), applied(), Some("cites")).await, (0, 0, false));
+    }
+
+    #[tokio::test]
+    async fn the_cap_of_links_follows_the_relation_on_a_decision() {
+        let texts: Vec<String> = (1..=150).map(|n| format!("article {n} du code civil")).collect();
+        let cited = Some(CASE_LAW_ONLY);
+        // Cent cinquante textes appliqués : la relation qui les contient est tronquée…
+        assert_eq!(bounds_of(cited, texts.clone(), Some("applies_text")).await, (100, 150, true));
+        // … l'autre tient entière (jumeau), même si la réponse sans filtre est tronquée.
+        assert_eq!(bounds_of(cited, texts.clone(), Some("cites_case_law")).await, (1, 1, false));
+        assert_eq!(bounds_of(cited, texts, None).await, (100, 151, true));
+    }
+
+    #[tokio::test]
+    async fn an_article_never_carries_a_note_with_a_relation() {
+        let corpus = serving(RelatedLinks { cites: vec![cited(1)], cited_by: vec![cited(2)] });
+        let out = run_relation(&corpus, ARTI, "cites").await.unwrap();
+        assert_eq!((out.links.len(), out.total, out.truncated, out.note), (1, 1, false, None));
     }
 
     // ---- validation ----------------------------------------------------------------------

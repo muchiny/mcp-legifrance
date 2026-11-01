@@ -124,6 +124,8 @@ pub(crate) struct DecisionReferences<'a> {
     /// Vrai si des références de la décision n'ont pas été reprises ici, faute de place dans
     /// [`MAX_ANALYSED_CHARS`] : la liste des liens est alors incomplète.
     pub(crate) clipped: bool,
+    /// Vrai si c'est `citationJp` qui a été coupée (les textes appliqués ne le disent pas).
+    pub(crate) case_law_clipped: bool,
 }
 
 impl<'a> DecisionReferences<'a> {
@@ -134,11 +136,11 @@ impl<'a> DecisionReferences<'a> {
     /// ne tient plus entier, les suivants sont ignorés.
     pub(crate) fn of(decision: &'a Decision) -> Self {
         let mut room = MAX_ANALYSED_CHARS;
-        let mut clipped = false;
+        let mut case_law_clipped = false;
         let cited_case_law = decision.cited_case_law.as_deref().map(|text| {
             let kept = whole_words(text, room);
             room = room.saturating_sub(kept.chars().count());
-            clipped |= kept.len() < text.len();
+            case_law_clipped = kept.len() < text.len();
             kept
         });
         let mut kept = 0_usize;
@@ -150,11 +152,24 @@ impl<'a> DecisionReferences<'a> {
             room = room.saturating_sub(size);
             kept = kept.saturating_add(1);
         }
-        clipped |= kept < decision.applied_texts.len();
+        let clipped = case_law_clipped || kept < decision.applied_texts.len();
         Self {
             cited_case_law,
             applied_texts: decision.applied_texts.get(..kept).unwrap_or_default(),
             clipped,
+            case_law_clipped,
+        }
+    }
+
+    /// Des références ignorées faute de place ont pu porter des liens de `relation` (`None` : tous
+    /// les liens). Les textes appliqués ne donnent que des liens `applies_text` ; `citationJp`
+    /// donne les deux sens d'une décision ; aucune référence ne donne `cites` ni `cited_by`
+    /// (D-05-suite).
+    pub(crate) const fn clips(&self, relation: Option<Relation>) -> bool {
+        match relation {
+            None | Some(Relation::AppliesText) => self.clipped,
+            Some(Relation::CitesCaseLaw) => self.case_law_clipped,
+            Some(Relation::Cites | Relation::CitedBy) => false,
         }
     }
 }
@@ -214,6 +229,19 @@ pub(crate) struct DecisionLinks {
     /// code n'était pas écrit dans la mention (énumération « articles 1382 et 700 du code
     /// civil »), le lien montre l'article seul.
     pub(crate) code_involved: bool,
+}
+
+impl DecisionLinks {
+    /// La `note` sur les codes concerne la réponse de `relation` (`None` : tous les liens). Seul un
+    /// article ou un texte porte un code, et la citation en est toujours un lien `applies_text`
+    /// (une décision ou un ECLI ne porte jamais de code) : une autre relation n'a rien à dire
+    /// des codes (D-05-suite).
+    pub(crate) const fn code_involved_for(&self, relation: Option<Relation>) -> bool {
+        match relation {
+            None | Some(Relation::AppliesText) => self.code_involved,
+            Some(Relation::Cites | Relation::CitedBy | Relation::CitesCaseLaw) => false,
+        }
+    }
 }
 
 /// Les liens d'une décision : jurisprudence citée d'abord, textes appliqués ensuite, chaque groupe
@@ -593,8 +621,46 @@ mod tests {
             cited_case_law: cited,
             applied_texts: applied,
             clipped: false,
+            case_law_clipped: false,
         })
         .links
+    }
+
+    #[test]
+    fn the_code_note_concerns_only_the_applies_text_relation() {
+        let with_code = DecisionLinks { links: Vec::new(), code_involved: true };
+        let without = DecisionLinks { links: Vec::new(), code_involved: false };
+        assert!(with_code.code_involved_for(None));
+        assert!(with_code.code_involved_for(Some(Relation::AppliesText)));
+        assert!(!without.code_involved_for(None));
+        assert!(!without.code_involved_for(Some(Relation::AppliesText)));
+        for relation in [Relation::Cites, Relation::CitedBy, Relation::CitesCaseLaw] {
+            assert!(!with_code.code_involved_for(Some(relation)), "{relation:?}");
+        }
+    }
+
+    #[test]
+    fn a_citation_with_a_code_is_always_an_applies_text_link() {
+        // Fonde `code_involved_for` : même dans `citationJp`, un article de code n'est pas une
+        // jurisprudence citée, alors qu'une décision citée ne porte jamais de code.
+        let cited =
+            "article 700 du code de procédure civile ; 1re Civ., 25 mai 2023, pourvoi n° 21-23.174";
+        let found = decision_links(&DecisionReferences {
+            cited_case_law: Some(cited),
+            applied_texts: &[],
+            clipped: false,
+            case_law_clipped: false,
+        });
+        assert!(found.code_involved);
+        let relations: Vec<_> = found.links.iter().map(|link| link.relation).collect();
+        assert_eq!(relations, [Relation::CitesCaseLaw, Relation::AppliesText]);
+        let only_case_law = decision_links(&DecisionReferences {
+            cited_case_law: Some("1re Civ., 25 mai 2023, pourvoi n° 21-23.174"),
+            applied_texts: &[],
+            clipped: false,
+            case_law_clipped: false,
+        });
+        assert!(!only_case_law.code_involved);
     }
 
     fn code_involved(applied: &[&str]) -> bool {
@@ -603,6 +669,7 @@ mod tests {
             cited_case_law: None,
             applied_texts: &applied,
             clipped: false,
+            case_law_clipped: false,
         })
         .code_involved
     }
@@ -670,6 +737,7 @@ mod tests {
         assert_eq!(references.cited_case_law, Some(at_the_limit.as_str()));
         assert_eq!(references.applied_texts, applied.as_slice());
         assert!(!references.clipped, "exactement la limite : rien n'est retiré");
+        assert!(!references.case_law_clipped);
     }
 
     #[test]
@@ -682,6 +750,7 @@ mod tests {
         assert!(kept.chars().all(|c| c == 'é'), "coupée entre deux caractères, pas dans l'un");
         assert_eq!(references.applied_texts, &[] as &[String]);
         assert!(references.clipped);
+        assert!(references.case_law_clipped);
     }
 
     #[test]
@@ -723,6 +792,39 @@ mod tests {
         assert_eq!(references.cited_case_law.map(|text| text.chars().count()), Some(25_000));
         assert_eq!(references.applied_texts, &applied[..2]);
         assert!(references.clipped);
+        assert!(
+            !references.case_law_clipped,
+            "citationJp est entière : seuls les titres sont coupés"
+        );
+    }
+
+    #[test]
+    fn clipped_references_are_only_charged_to_the_relations_they_could_have_carried() {
+        let references = |clipped, case_law_clipped| DecisionReferences {
+            cited_case_law: None,
+            applied_texts: &[],
+            clipped,
+            case_law_clipped,
+        };
+        // Rien de coupé : aucune relation n'est incomplète.
+        for relation in [None].into_iter().chain(Relation::ALL.map(Some)) {
+            assert!(!references(false, false).clips(relation), "{relation:?}");
+        }
+        // Textes appliqués coupés : tous les liens et `applies_text`, ni la jurisprudence citée,
+        // ni les sens d'un article.
+        let applied = references(true, false);
+        assert!(applied.clips(None));
+        assert!(applied.clips(Some(Relation::AppliesText)));
+        assert!(!applied.clips(Some(Relation::CitesCaseLaw)));
+        assert!(!applied.clips(Some(Relation::Cites)));
+        assert!(!applied.clips(Some(Relation::CitedBy)));
+        // `citationJp` coupée : les deux sens d'une décision, jamais ceux d'un article.
+        let cited = references(true, true);
+        assert!(cited.clips(None));
+        assert!(cited.clips(Some(Relation::AppliesText)));
+        assert!(cited.clips(Some(Relation::CitesCaseLaw)));
+        assert!(!cited.clips(Some(Relation::Cites)));
+        assert!(!cited.clips(Some(Relation::CitedBy)));
     }
 
     #[test]
@@ -991,6 +1093,7 @@ mod tests {
             cited_case_law: Some(cited),
             applied_texts: &applied,
             clipped: false,
+            case_law_clipped: false,
         });
         assert_eq!(
             shape(&decision.links),
