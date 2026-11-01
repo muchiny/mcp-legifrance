@@ -1363,7 +1363,7 @@ Tri : confiance décroissante, puis égalité de date avec la date citée, puis 
 | `Impossible` | `{fact}.` (ex. `There is no 4th civil chamber at the Cour de cassation.`) | `invalid` |
 | `AmbiguousSigle` | `'{sigle}' is ambiguous ({meanings}); name the code in full.` | `ambiguous` |
 | `ReadAs` | `Read '{sigle}' as {code}.` | `verified` |
-| `MissingTarget` | `No recognised code or text for article {num} (an unknown abbreviation counts as missing); name the code in full, for example "article {num} du code civil".` (même texte pour `fr_resolve` et `fr_verify_citations`, sans renvoi à `fr_resolve`) | `ambiguous` |
+| `MissingTarget` | `No recognised code or text for article {num} (an unknown or unattached abbreviation counts as missing); name the code next to the article, in full.` (même texte pour `fr_resolve` et `fr_verify_citations`, sans renvoi à `fr_resolve`, sans exemple de code : le sigle peut être connu mais non rattaché à l'article, comme « CGI (art. 777 ; art. 150-0 B ter) », et un exemple « du code civil » orienterait vers le mauvais code) | `ambiguous` |
 | `NoNumber` | `No case number: use fr_search (fond={fond}, date_from={d}, date_to={d}).` | `ambiguous` |
 | `Candidates` | `{n} records match; call fr_resolve to list them.` | `ambiguous` |
 | `OutOfScope` | `{family} is not on Légifrance (see EUR-Lex / HUDOC).` | `unresolvable` |

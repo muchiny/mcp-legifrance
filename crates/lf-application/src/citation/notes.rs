@@ -529,8 +529,8 @@ impl Note {
             Self::ReadAs { sigle, code } => format!("Read '{}' as {code}.", sigle.as_str()),
             Self::MissingTarget { num } => {
                 format!(
-                    "No recognised code or text for article {num} (an unknown abbreviation counts \
-                     as missing); name the code in full, for example \"article {num} du code civil\"."
+                    "No recognised code or text for article {num} (an unknown or unattached \
+                     abbreviation counts as missing); name the code next to the article, in full."
                 )
             }
             Self::NoNumber { fond, date } => {
@@ -748,7 +748,7 @@ mod tests {
             ),
             (
                 Note::MissingTarget { num: "L1234-5".to_owned() },
-                "No recognised code or text for article L1234-5 (an unknown abbreviation counts as missing); name the code in full, for example \"article L1234-5 du code civil\".",
+                "No recognised code or text for article L1234-5 (an unknown or unattached abbreviation counts as missing); name the code next to the article, in full.",
             ),
             (
                 Note::CouldNotConfirm { index: "LODA" },

@@ -2670,8 +2670,8 @@ mod tests {
             (
                 "conformément à l'article 12",
                 CheckStatus::Ambiguous,
-                "No recognised code or text for article 12 (an unknown abbreviation counts as missing); \
-                 name the code in full, for example \"article 12 du code civil\".",
+                "No recognised code or text for article 12 (an unknown or unattached abbreviation counts as missing); \
+                 name the code next to the article, in full.",
             ),
             (
                 "Décision 2025-1173",

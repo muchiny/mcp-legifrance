@@ -581,8 +581,13 @@ mod tests {
             assert_eq!(output.notes, [Note::MissingTarget { num: num.to_owned() }], "{citation}");
             let text = output.notes[0].text();
             assert!(text.starts_with("No recognised code or text for article "), "{text}");
-            assert!(text.contains("an unknown abbreviation counts as missing"), "{text}");
-            assert!(text.contains(&format!("\"article {num} du code civil\"")), "{text}");
+            assert!(
+                text.contains("an unknown or unattached abbreviation counts as missing"),
+                "{text}"
+            );
+            assert!(text.ends_with("name the code next to the article, in full."), "{text}");
+            // Aucun code en exemple : le sigle peut être connu mais non rattaché à l'article.
+            assert!(!text.contains("code civil") && !text.contains("for example"), "{text}");
             assert!(!text.contains("fr_resolve") && !text.contains("No code or text given"));
             assert_eq!(corpus.calls(), 0, "{citation}");
         }
