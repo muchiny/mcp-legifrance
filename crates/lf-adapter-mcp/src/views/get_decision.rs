@@ -366,12 +366,19 @@ mod tests {
             ],
         );
         let passages = Reading {
-            passages: Some(vec![PassageOut { offset: 11_008, text: "14. Dès lors.".to_owned() }]),
+            passages: Some(vec![PassageOut {
+                offset: 11_008,
+                text: "14. Dès lors.".to_owned(),
+                score: 1.0,
+            }]),
             ..reading(14_332)
         };
         let actual =
             serde_json::to_value(DecisionView::from(output(bare(JURI), passages))).unwrap();
-        assert_eq!(actual["passages"], json!([{"offset": 11_008, "text": "14. Dès lors."}]));
+        assert_eq!(
+            actual["passages"],
+            json!([{"offset": 11_008, "text": "14. Dès lors.", "score": 1.0}])
+        );
         assert_eq!(actual["text_length"], 14_332);
     }
 
@@ -438,8 +445,9 @@ mod tests {
                 PassageOut {
                     offset: 11_008,
                     text: "14. Dès lors, le grief tiré de la méconnaissance du principe de publicité des débats du procès pénal ne peut qu’être écarté.".to_owned(),
+                    score: 3.12,
                 },
-                PassageOut { offset: 7_016, text: "4. Le requérant reproche à ces dispositions […]".to_owned() },
+                PassageOut { offset: 7_016, text: "4. Le requérant reproche à ces dispositions […]".to_owned(), score: 2.04 },
             ]),
             ..reading(14_332)
         };

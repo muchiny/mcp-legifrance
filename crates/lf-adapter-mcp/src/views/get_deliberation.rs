@@ -339,12 +339,16 @@ mod tests {
     #[test]
     fn passages_and_windows_pass_through() {
         let passages = Reading {
-            passages: Some(vec![PassageOut { offset: 120, text: "Le grief.".to_owned() }]),
+            passages: Some(vec![PassageOut {
+                offset: 120,
+                text: "Le grief.".to_owned(),
+                score: 1.0,
+            }]),
             ..bare_reading(900)
         };
         let actual =
             serde_json::to_value(DeliberationView::from(output(free(), passages))).unwrap();
-        assert_eq!(actual["passages"], json!([{"offset": 120, "text": "Le grief."}]));
+        assert_eq!(actual["passages"], json!([{"offset": 120, "text": "Le grief.", "score": 1.0}]));
         let window =
             Reading { text: Some("Page.".to_owned()), next_offset: Some(5), ..bare_reading(900) };
         let actual = serde_json::to_value(DeliberationView::from(output(free(), window))).unwrap();

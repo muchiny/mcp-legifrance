@@ -19,13 +19,17 @@ expression: schema
             "minimum": 0,
             "type": "integer"
           },
+          "score": {
+            "type": "number"
+          },
           "text": {
             "type": "string"
           }
         },
         "required": [
           "offset",
-          "text"
+          "text",
+          "score"
         ],
         "type": "object"
       },

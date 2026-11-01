@@ -13,7 +13,7 @@ use crate::{audited::AuditMetric, budget::Reading};
 pub const NOTA_MAX_CHARS: usize = 1_200;
 
 /// Ce que `fr_get_text` rend à l'adapter : l'article, son `nota` borné et la lecture demandée.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GetTextOutput {
     /// L'article lu. Son texte et son `nota` sont vidés : la lecture est dans `reading` et le
     /// `nota` borné dans `nota`.
@@ -99,8 +99,8 @@ mod tests {
         assert_eq!(output(summary).output_count_or_size(), 5);
         let passages = Reading {
             passages: Some(vec![
-                PassageOut { offset: 0, text: "un".to_owned() },
-                PassageOut { offset: 40, text: "trois".to_owned() },
+                PassageOut { offset: 0, text: "un".to_owned(), score: 1.0 },
+                PassageOut { offset: 40, text: "trois".to_owned(), score: 1.0 },
             ]),
             ..reading()
         };

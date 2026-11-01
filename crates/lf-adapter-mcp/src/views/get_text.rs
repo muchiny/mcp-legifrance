@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn serialization_writes_the_metadata_then_the_reading() {
         let reading = Reading {
-            passages: Some(vec![PassageOut { offset: 0, text: "p".to_owned() }]),
+            passages: Some(vec![PassageOut { offset: 0, text: "p".to_owned(), score: 1.0 }]),
             text: None,
             ..whole("")
         };
@@ -451,7 +451,7 @@ mod tests {
                 r#""path":["Livre Ier : Des personnes","Titre Ier : Des droits civils"],"#,
                 r#""date_debut":"1970-07-19","citation":"Code civil, art. 9","#,
                 r#""source_url":"https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288","#,
-                r#""text_length":0,"passages":[{"offset":0,"text":"p"}]}"#
+                r#""text_length":0,"passages":[{"offset":0,"text":"p","score":1.0}]}"#
             )
         );
     }

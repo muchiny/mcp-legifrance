@@ -178,18 +178,28 @@ fn parse_offset(raw: Option<i64>, detail: Option<Detail>) -> Result<usize, AppEr
     Ok(offset)
 }
 
-/// Un passage rendu en mode `focus` : sa position et son texte (05 §5.0.3).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Un passage rendu en mode `focus` : sa position, son texte et son score (05 §5.0.3).
+///
+/// Le score est un `f64` : le type ne dérive pas `Eq`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct PassageOut {
     /// Position du premier caractère du passage dans le texte canonique, en caractères.
     pub offset: u32,
     /// Texte du passage.
     pub text: String,
+    /// Score BM25 du segment dont le passage est tiré, arrondi à 2 décimales (`round_score`) ;
+    /// strictement positif avant l'arrondi. Un passage coupé au budget garde le score du segment.
+    pub score: f64,
+}
+
+/// Arrondit un score BM25 à 2 décimales (05 §5.0.3 : « score arrondi à 2 décimales »).
+fn round_score(score: f64) -> f64 {
+    (score * 100.0).round() / 100.0
 }
 
 /// Résultat d'une lecture : les champs communs aux trois lectures longues (05 §5.0.3). Chaque
 /// mode ne remplit que les siens.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Reading {
     /// Résumé, en mode résumé.
     pub summary: Option<Summary>,
@@ -324,7 +334,11 @@ fn read_passages(text: &LongText, focus: &Focus, count: usize, max_chars: usize)
         };
         let kept = kept.trim_end();
         left = left.saturating_sub(chars(kept));
-        passages.push(PassageOut { offset, text: kept.to_owned() });
+        passages.push(PassageOut {
+            offset,
+            text: kept.to_owned(),
+            score: round_score(scored.score),
+        });
     }
     let note = if text.is_empty() {
         Some(NO_TEXT_NOTE)
@@ -602,7 +616,7 @@ mod tests {
             text: Some("texte".to_owned()),
             text_length: 5,
             next_offset: None,
-            passages: Some(vec![PassageOut { offset: 0, text: "texte".to_owned() }]),
+            passages: Some(vec![PassageOut { offset: 0, text: "texte".to_owned(), score: 1.0 }]),
             note: None,
             summary_truncated: false,
         };
@@ -1175,11 +1189,10 @@ mod tests {
         assert_eq!(reading.note, None);
         assert_eq!(reading.text_length, text.char_len());
         // La première occurrence (trois fois, paragraphe court) devant la seconde.
-        let expected = vec![
-            PassageOut { offset: paras[1].0, text: paras[1].1.clone() },
-            PassageOut { offset: paras[3].0, text: paras[3].1.clone() },
-        ];
-        assert_eq!(reading.passages, Some(expected));
+        let expected = vec![(paras[1].0, paras[1].1.clone()), (paras[3].0, paras[3].1.clone())];
+        let seen = reading.passages.as_ref().unwrap();
+        let seen: Vec<(u32, String)> = seen.iter().map(|p| (p.offset, p.text.clone())).collect();
+        assert_eq!(seen, expected);
         // Chaque offset est utilisable comme offset de fenêtre (05 §5.0.3).
         for passage in reading.passages.unwrap() {
             let from: String = text.as_str().chars().skip(passage.offset as usize).collect();
@@ -1188,13 +1201,55 @@ mod tests {
     }
 
     #[test]
+    fn passages_carry_their_bm25_score() {
+        // D-02 (get_text-6) : le score du classement n'est plus jeté ; les passages restent triés du
+        // mieux noté au moins bon, chaque score est strictement positif.
+        let (text, paras) = zibeline_text();
+        let reading = focused(&text, "zibeline", 3, 4_000);
+        let passages = reading.passages.unwrap();
+        let offsets: Vec<u32> = passages.iter().map(|passage| passage.offset).collect();
+        assert_eq!(offsets, [paras[1].0, paras[3].0]);
+        assert!(passages[0].score > passages[1].score, "{passages:?}");
+        assert!(passages.iter().all(|passage| passage.score > 0.0), "{passages:?}");
+    }
+
+    #[test]
+    fn a_passage_score_is_rounded_to_two_decimals() {
+        // Le score exposé est le score BM25 du domaine arrondi à 2 décimales, jamais le brut.
+        let (text, _) = zibeline_text();
+        let segments: Vec<&str> = text.paragraphs().map(|(_, para)| para).collect();
+        let raw = rank(&segments, "zibeline", segments.len());
+        let reading = focused(&text, "zibeline", 3, 4_000);
+        let passages = reading.passages.unwrap();
+        assert_eq!(passages.len(), 2);
+        for (passage, scored) in passages.iter().zip(&raw) {
+            let hundredths = passage.score * 100.0;
+            assert!((hundredths - hundredths.round()).abs() < 1e-9, "{}", passage.score);
+            assert!((passage.score - (scored.score * 100.0).round() / 100.0).abs() < 1e-12);
+            // Le brut a plus de 2 décimales : l'arrondi est bien appliqué.
+            assert!((scored.score - passage.score).abs() > 1e-9, "{}", scored.score);
+        }
+    }
+
+    #[test]
+    fn a_cut_passage_keeps_the_score_of_its_segment() {
+        // Jumeau : un passage coupé au budget garde le score de son segment entier.
+        let body = "La zibeline vit dans les forêts boréales. ".repeat(20);
+        let text = long(&format!("Préambule sans rapport.\n\n{body}"));
+        let whole = focused(&text, "zibeline", 1, 4_000).passages.unwrap();
+        let cut = focused(&text, "zibeline", 1, 500).passages.unwrap();
+        assert!(cut[0].text.chars().count() < whole[0].text.chars().count());
+        assert_eq!(cut[0].offset, whole[0].offset);
+        assert!((cut[0].score - whole[0].score).abs() < 1e-12);
+    }
+
+    #[test]
     fn focus_returns_at_most_the_requested_passages() {
         let (text, paras) = zibeline_text();
         let reading = focused(&text, "zibeline", 1, 4_000);
-        assert_eq!(
-            reading.passages,
-            Some(vec![PassageOut { offset: paras[1].0, text: paras[1].1.clone() }])
-        );
+        let passages = reading.passages.unwrap();
+        assert_eq!(passages.len(), 1);
+        assert_eq!((passages[0].offset, &passages[0].text), (paras[1].0, &paras[1].1));
     }
 
     #[test]

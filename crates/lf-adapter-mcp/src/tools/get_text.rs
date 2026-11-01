@@ -266,7 +266,10 @@ mod tests {
         let result = call(&fixture, &json!({"article_id": ID, "focus": "préavis"})).await;
 
         let view = result.structured_content.unwrap();
-        assert_eq!(view["passages"], json!([{"offset": rent.chars().count() + 2, "text": notice}]));
+        assert_eq!(
+            view["passages"],
+            json!([{"offset": rent.chars().count() + 2, "text": notice, "score": 0.68}])
+        );
         assert!(view.get("text").is_none() && view.get("summary").is_none());
         // Le texte rendu au modèle est celui des passages : la métrique compte leurs caractères.
         assert_eq!(

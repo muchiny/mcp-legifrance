@@ -24,16 +24,17 @@ pub(crate) enum SummarySourceView {
     Lead,
 }
 
-// Un passage du mode `focus` : sa position et son texte.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+// Un passage du mode `focus` : sa position, son texte et son score (D-02).
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[schemars(inline)]
 pub(crate) struct PassageView {
     pub(crate) offset: u32,
     pub(crate) text: String,
+    pub(crate) score: f64,
 }
 
 // Champs de lecture communs en sortie (05 §5.0.3), dans l'ordre du tableau.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 pub(crate) struct ReadingView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String")]
@@ -119,7 +120,7 @@ impl From<SummarySource> for SummarySourceView {
 
 impl From<PassageOut> for PassageView {
     fn from(passage: PassageOut) -> Self {
-        Self { offset: passage.offset, text: passage.text }
+        Self { offset: passage.offset, text: passage.text, score: passage.score }
     }
 }
 
@@ -295,8 +296,8 @@ mod tests {
     fn passages_keep_their_offsets_and_an_empty_list_stays() {
         let reading = Reading {
             passages: Some(vec![
-                PassageOut { offset: 11_008, text: "14. Dès lors.".to_owned() },
-                PassageOut { offset: 8_853, text: "8. M. A.".to_owned() },
+                PassageOut { offset: 11_008, text: "14. Dès lors.".to_owned(), score: 2.45 },
+                PassageOut { offset: 8_853, text: "8. M. A.".to_owned(), score: 0.3 },
             ]),
             ..bare(14_332)
         };
@@ -304,8 +305,8 @@ mod tests {
             view(reading),
             json!({
                 "passages": [
-                    {"offset": 11_008, "text": "14. Dès lors."},
-                    {"offset": 8_853, "text": "8. M. A."},
+                    {"offset": 11_008, "text": "14. Dès lors.", "score": 2.45},
+                    {"offset": 8_853, "text": "8. M. A.", "score": 0.3},
                 ],
                 "text_length": 14_332
             })
@@ -326,6 +327,45 @@ mod tests {
     }
 
     #[test]
+    fn a_passage_requires_its_score_in_the_output_schema() {
+        // D-02 (get_text-6) : `score` est requis dans chaque élément de `passages`, sans
+        // `minimum` ni `maximum` (le verrou des descripteurs refuse les flottants).
+        use crate::views::{
+            get_decision::DecisionView, get_deliberation::DeliberationView, get_text::ArticleView,
+        };
+        let passage = json!({"offset": 1_139, "text": "Taux."});
+        let base = json!({
+            "citation": "Code général des impôts, art. 125-0 A",
+            "source_url": "https://www.legifrance.gouv.fr/",
+            "text_length": 9_000,
+        });
+        let cases = [
+            (output_schema::<ArticleView>(), "article_id"),
+            (output_schema::<DecisionView>(), "decision_id"),
+            (output_schema::<DeliberationView>(), "deliberation_id"),
+        ];
+        for (schema, id_field) in cases {
+            let schema = Value::Object(schema.as_ref().clone());
+            let item = &schema["properties"]["passages"]["items"];
+            assert_eq!(item["properties"]["score"]["type"], "number", "{item}");
+            let required: Vec<&str> =
+                item["required"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+            assert_eq!(required, ["offset", "text", "score"], "{item}");
+            let bounds = ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "format"];
+            assert!(bounds.iter().all(|key| item["properties"]["score"].get(key).is_none()));
+            let validator = jsonschema::validator_for(&schema).unwrap();
+            let mut with = base.clone();
+            with[id_field] = json!("ID000000000001");
+            with["passages"] = json!([{"offset": 1_139, "text": "Taux.", "score": 4.51}]);
+            assert!(validator.is_valid(&with), "{id_field}");
+            with["passages"] = json!([passage]);
+            assert!(!validator.is_valid(&with), "{id_field} : le score est requis");
+            with["passages"] = json!([]);
+            assert!(validator.is_valid(&with), "{id_field} : une liste vide reste valide");
+        }
+    }
+
+    #[test]
     fn fields_are_written_in_the_order_of_the_reference() {
         let reading = Reading {
             summary: Some(Summary {
@@ -335,7 +375,7 @@ mod tests {
             }),
             text: Some("t".to_owned()),
             next_offset: Some(1),
-            passages: Some(vec![PassageOut { offset: 0, text: "p".to_owned() }]),
+            passages: Some(vec![PassageOut { offset: 0, text: "p".to_owned(), score: 1.0 }]),
             note: Some("n".to_owned()),
             summary_truncated: true,
             ..bare(9)
@@ -345,7 +385,7 @@ mod tests {
             concat!(
                 r#"{"summary":"début","summary_source":"lead","summary_truncated":true,"#,
                 r#""text":"t","text_length":9,"#,
-                r#""next_offset":1,"passages":[{"offset":0,"text":"p"}],"note":"n"}"#
+                r#""next_offset":1,"passages":[{"offset":0,"text":"p","score":1.0}],"note":"n"}"#
             )
         );
     }
@@ -412,7 +452,8 @@ mod tests {
 
     #[test]
     fn degrade_drops_passages_from_the_end_then_shortens_the_last_one() {
-        let passage = |offset: u32, text: &str| PassageOut { offset, text: text.to_owned() };
+        let passage =
+            |offset: u32, text: &str| PassageOut { offset, text: text.to_owned(), score: 1.0 };
         let reading = Reading {
             passages: Some(vec![
                 passage(40, "Premier passage, le plus pertinent."),

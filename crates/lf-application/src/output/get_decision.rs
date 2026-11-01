@@ -9,7 +9,7 @@ use lf_domain::entity::Decision;
 use crate::{audited::AuditMetric, budget::Reading};
 
 /// Ce que `GetDecisionUseCase` rend : la décision lue et ce qu'on en montre.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GetDecisionOutput {
     /// La décision, telle que le corpus l'a lue.
     pub decision: Decision,
@@ -80,7 +80,7 @@ mod tests {
     }
 
     fn passage(text: &str) -> PassageOut {
-        PassageOut { offset: 0, text: text.to_owned() }
+        PassageOut { offset: 0, text: text.to_owned(), score: 1.0 }
     }
 
     #[test]

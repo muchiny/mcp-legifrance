@@ -12,10 +12,12 @@ expression: to_value(passages)
   "passages": [
     {
       "offset": 11008,
+      "score": 3.12,
       "text": "14. Dès lors, le grief tiré de la méconnaissance du principe de publicité des débats du procès pénal ne peut qu’être écarté."
     },
     {
       "offset": 7016,
+      "score": 2.04,
       "text": "4. Le requérant reproche à ces dispositions […]"
     }
   ],

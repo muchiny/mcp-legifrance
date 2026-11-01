@@ -1331,6 +1331,36 @@ mod tests {
     }
 
     #[test]
+    fn recorded_cgi_article_ranks_its_focus_passages_with_a_score() {
+        // D-02 (get_text-6), capture C13 : `focus` « taux du prélèvement 31,25 % » rendait trois
+        // passages sans score. Le passage du taux (offset 1139) est le mieux noté, les scores
+        // décroissent et sont arrondis à 2 décimales.
+        use lf_application::budget::{ReadingRequest, read};
+        use lf_application::input::ReadingInput;
+        use lf_domain::text::DispositifRule;
+
+        let text = recorded(C13_CGI, "LEGIARTI000047288653").text;
+        let input = ReadingInput {
+            focus: Some("taux du prélèvement 31,25 %".to_owned()),
+            ..ReadingInput::default()
+        };
+        let request = ReadingRequest::parse(&input).unwrap().for_article();
+        let reading = read(&text, None, DispositifRule::None, &request).unwrap();
+        let passages = reading.passages.unwrap();
+        assert_eq!(passages.len(), 3, "{passages:?}");
+        assert_eq!(passages[0].offset, 1_139);
+        for pair in passages.windows(2) {
+            assert!(pair[0].score >= pair[1].score, "{passages:?}");
+        }
+        assert!(passages[0].score > passages[2].score, "{passages:?}");
+        for passage in &passages {
+            let hundredths = passage.score * 100.0;
+            assert!((hundredths - hundredths.round()).abs() < 1e-9, "{}", passage.score);
+            assert!(passage.score > 0.0);
+        }
+    }
+
+    #[test]
     fn the_long_title_tells_apart_two_decrees_of_the_same_day() {
         let pianos = recorded(C8_PIANOS, "LEGIARTI000054241470");
         assert_eq!(pianos.num.as_deref(), Some("ANNEXE V"));
