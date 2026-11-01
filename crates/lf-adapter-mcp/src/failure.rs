@@ -21,7 +21,14 @@ impl From<AppError> for ToolFailure {
 
 impl IntoContents for ToolFailure {
     /// Un bloc texte `[code] message`. Un appel annulé n'a pas de code (`AppError::code` rend
-    /// `None`) et personne ne lira sa réponse : le message seul suffit.
+    /// `None`) et personne ne lira sa réponse : le message seul suffit (AM-64, voulu).
+    ///
+    /// Deux annulations, deux sorties. Sur `notifications/cancelled`, rmcp jette la réponse : rien
+    /// n'est écrit sur stdout. À l'EOF de l'entrée avec une requête en vol, rmcp écrit encore, à
+    /// l'arrêt, la réponse `isError` « cancelled by client » sans `[code]` (le client est parti ;
+    /// sortie 0, ligne d'audit écrite avant). Ne pas supprimer cette réponse (rmcp est épinglé) ni
+    /// lui donner un préfixe `[upstream_error]` : voir
+    /// `eof_and_notifications_cancelled_differ_only_by_the_late_response` (`testing.rs`).
     fn into_contents(self) -> Vec<ContentBlock> {
         let text = match self.0.code() {
             Some(code) => format!("[{}] {}", code.as_str(), self.0.message()),

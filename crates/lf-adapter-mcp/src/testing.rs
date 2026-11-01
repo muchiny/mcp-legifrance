@@ -1626,6 +1626,64 @@ mod tests {
         assert_eq!(records[0].error.as_deref(), Some("cancelled by client"));
     }
 
+    /// L5-03 (protocol-7) : deux annulations d'un appel en vol, deux sorties. Sur
+    /// `notifications/cancelled`, rmcp jette la réponse (`service.rs:1503-1505`) : rien n'est écrit.
+    /// À l'EOF de l'entrée, il écrit encore la réponse `isError` « cancelled by client », sans
+    /// `[code]`, à l'arrêt. Voulu (AM-64) : le client est parti, rmcp est épinglé et le texte sans
+    /// code dit que personne ne lira la réponse. Dans les deux cas : sortie 0 et une ligne d'audit
+    /// `Error` « cancelled by client », écrite avant toute réponse tardive. Ce test fige la seule
+    /// différence : la réponse tardive.
+    #[tokio::test]
+    async fn eof_and_notifications_cancelled_differ_only_by_the_late_response() {
+        async fn cancel(
+            by_notification: bool,
+        ) -> (Option<Value>, Vec<(AuditStatus, Option<String>)>) {
+            let fixture = Fixture::slow_upstream();
+            let mut run = Run::start(fixture.server());
+            let call = json!({"jsonrpc": "2.0", "id": "call-1", "method": "tools/call",
+                "params": {"name": "fr_search", "arguments": {"query": "bail"}, "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}}}});
+            let cancelled = json!({"jsonrpc": "2.0", "method": "notifications/cancelled",
+                "params": {"requestId": "call-1"}});
+            let mut steps = vec![Step::Send(call), Step::ExpectSilence(Duration::from_millis(200))];
+            if by_notification {
+                steps.push(Step::Send(cancelled));
+                steps.push(Step::ExpectSilence(Duration::from_millis(500)));
+            }
+            steps.push(Step::CloseStdin);
+            steps.push(Step::ExpectExit { code: 0, within: Duration::from_secs(1) });
+            for step in &steps {
+                run.apply(step).await.unwrap();
+            }
+            let late = match run.read(MESSAGE_WAIT).await.unwrap() {
+                Read::Message(message) => Some(message),
+                Read::Silence | Read::Eof => None,
+            };
+            let audit = fixture
+                .audit
+                .records()
+                .iter()
+                .map(|record| (record.status, record.error.clone()))
+                .collect();
+            (late, audit)
+        }
+
+        let (by_notification, notification_audit) = cancel(true).await;
+        let (by_eof, eof_audit) = cancel(false).await;
+        // Notification : aucune réponse (contrat 05 §7.2).
+        assert_eq!(by_notification, None);
+        // EOF : la réponse tardive, sans code.
+        let late = by_eof.expect("rmcp writes the late response at the EOF");
+        assert_eq!(late["id"], json!("call-1"));
+        assert_eq!(late["result"]["isError"], json!(true));
+        assert_eq!(late["result"]["content"][0]["text"], json!("cancelled by client"));
+        // L'audit, lui, est identique.
+        let expected = vec![(AuditStatus::Error, Some("cancelled by client".to_owned()))];
+        assert_eq!(notification_audit, expected);
+        assert_eq!(eof_audit, expected);
+    }
+
     /// Bug rmcp #1347 (annexe D §9.1, test documentaire) : une méthode connue dont les `params` ne
     /// se désérialisent pas reçoit `-32601` (la requête est lue comme une méthode inconnue) au lieu
     /// de `-32602`, avant tout code de l'outil et donc sans ligne d'audit. Tant que l'issue est
