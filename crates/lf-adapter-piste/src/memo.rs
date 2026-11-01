@@ -44,6 +44,7 @@ pub(crate) struct MemoKey {
     mode: MatchMode,
     version_date: Option<VersionDate>,
     date_range: Option<DateRange>,
+    in_force_only: bool,
     page_size: u32,
 }
 
@@ -56,6 +57,7 @@ impl MemoKey {
             mode: query.mode(),
             version_date: query.version_date(),
             date_range: query.date_range(),
+            in_force_only: query.in_force_only(),
             page_size: query.page_size().get(),
         }
     }
@@ -410,6 +412,26 @@ mod tests {
         for (index, variant) in variants.iter().enumerate() {
             assert!(base != *variant, "variant {index}");
         }
+    }
+
+    /// D-08 : `in_force_only` est un filtre de la requête, donc de la clé.
+    #[test]
+    fn in_force_only_changes_the_key() {
+        let build = |on: bool| {
+            SearchQuery::new(
+                Fond::Kali,
+                QueryText::parse("grève").unwrap(),
+                NonZeroU32::new(1).unwrap(),
+                PageSize::DEFAULT,
+                MatchMode::Any,
+                None,
+                None,
+            )
+            .and_then(|query| query.with_in_force_only(on))
+            .unwrap()
+        };
+        assert!(MemoKey::from_query(&build(false)) != MemoKey::from_query(&build(true)));
+        assert!(MemoKey::from_query(&build(true)) == MemoKey::from_query(&build(true)));
     }
 
     /// Deux requêtes qui ne diffèrent que par le fond : leurs clés diffèrent et un mode

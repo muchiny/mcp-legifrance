@@ -1,5 +1,6 @@
 ---
 source: crates/lf-adapter-mcp/src/params/search.rs
+assertion_line: 252
 expression: schema()
 ---
 {
@@ -29,6 +30,11 @@ expression: schema()
         "ACCO"
       ],
       "type": "string"
+    },
+    "in_force_only": {
+      "default": false,
+      "description": "KALI only: keep texts in force (VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN), drop DENONCE, MODIFIE, PERIME, REMPLACE, ABROGE. It filters texts, not the status of their articles.",
+      "type": "boolean"
     },
     "match": {
       "default": "any",

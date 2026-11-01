@@ -96,6 +96,8 @@ pub struct SearchInput {
     pub date_to: Option<String>,
     /// Date de version pour `LODA` et `CODE`, `AAAA-MM-JJ`.
     pub version_date: Option<String>,
+    /// Garde les textes en vigueur seulement (`KALI` seulement, D-08) ; absent ou `false` : aucun filtre.
+    pub in_force_only: Option<bool>,
 }
 
 /// Arguments de `fr_get_act` (05 §5.2).

@@ -433,6 +433,9 @@ pub fn domain_arg(tool: ToolName, arg: Option<&'static str>, error: &DomainError
             let hint = if fond.needs_version_date() { "; use version_date" } else { "" };
             invalid_argument(format!("date_from/date_to are not supported for fond={fond}{hint}."))
         }
+        DomainError::InForceOnlyNotApplicable { fond } => invalid_argument(format!(
+            "in_force_only only applies to fond KALI, not {fond}; set fond=KALI or remove it."
+        )),
         DomainError::PageBeyondReach { page, page_size, max } => invalid_argument(format!(
             "page={page} with page_size={page_size} goes beyond the {max} reachable results; \
              narrow the query with match or date_from/date_to."
@@ -1781,6 +1784,10 @@ mod tests {
             (
                 DomainError::DateFilterNotApplicable { fond: Fond::Juri },
                 "date_from/date_to are not supported for fond=JURI.",
+            ),
+            (
+                DomainError::InForceOnlyNotApplicable { fond: Fond::Loda },
+                "in_force_only only applies to fond KALI, not LODA; set fond=KALI or remove it.",
             ),
             (
                 DomainError::PageBeyondReach { page: 200, page_size: 100, max: 10_000 },

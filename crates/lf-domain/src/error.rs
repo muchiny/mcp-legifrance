@@ -163,6 +163,12 @@ pub enum DomainError {
         /// Fond demandé.
         fond: Fond,
     },
+    /// `in_force_only` demandé pour un fond autre que `KALI`.
+    #[error("in_force_only only applies to fond KALI, not {fond}")]
+    InForceOnlyNotApplicable {
+        /// Fond demandé.
+        fond: Fond,
+    },
     /// Page hors de la fenêtre de résultats atteignables
     /// ([`REACHABLE_RESULTS`](crate::search::REACHABLE_RESULTS)).
     #[error("page={page} with page_size={page_size} goes beyond the {max} reachable results")]
@@ -268,6 +274,7 @@ mod tests {
             | DomainError::FocusTooLong { .. }
             | DomainError::VersionDateNotApplicable { .. }
             | DomainError::DateFilterNotApplicable { .. }
+            | DomainError::InForceOnlyNotApplicable { .. }
             | DomainError::PageBeyondReach { .. }
             | DomainError::TextTooLarge { .. }
             | DomainError::OffsetPastEnd { .. }
@@ -355,6 +362,10 @@ mod tests {
         assert_eq!(
             DomainError::DateFilterNotApplicable { fond: Fond::Code }.to_string(),
             "date_from/date_to are not supported for fond=CODE"
+        );
+        assert_eq!(
+            DomainError::InForceOnlyNotApplicable { fond: Fond::Juri }.to_string(),
+            "in_force_only only applies to fond KALI, not JURI"
         );
         assert_eq!(
             DomainError::PageBeyondReach { page: 200, page_size: 100, max: 10_000 }.to_string(),
@@ -453,6 +464,7 @@ mod tests {
             DomainError::OutOfRange { field: "page_size", value: 0, min: 1, max: 100 },
             DomainError::VersionDateNotApplicable { fond: Fond::Juri },
             DomainError::DateFilterNotApplicable { fond: Fond::Code },
+            DomainError::InForceOnlyNotApplicable { fond: Fond::Juri },
             DomainError::PageBeyondReach { page: 200, page_size: 100, max: 10_000 },
             DomainError::TextTooLarge { chars: 16_000_001 },
             DomainError::OffsetPastEnd { offset: 20_000, text_length: 14_332 },

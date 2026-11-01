@@ -5,7 +5,8 @@
 //! Sans réseau et dans l'ordre de la référence : `fond`, `query`, `page_size`, puis `page`,
 //! `match`, `date_from`, `date_to` et `version_date` (leur forme), puis les combinaisons, dans
 //! l'ordre du domaine : période inversée (`DateRange::new`), `version_date` hors LODA et CODE,
-//! période sur CODE, page hors de la fenêtre atteignable (`SearchQuery::new`). Le premier échec
+//! période sur CODE, page hors de la fenêtre atteignable (`SearchQuery::new`), puis `in_force_only`
+//! hors de KALI (`SearchQuery::with_in_force_only`, D-08). Le premier échec
 //! est rendu ; aucun appel au port ne part.
 //!
 //! # Dates par défaut (03 §6.4)
@@ -102,6 +103,7 @@ impl<'a, C: LegalCorpus, K: Clock> SearchUseCase<'a, C, K> {
             date_from,
             date_to,
             version_date,
+            in_force_only,
         } = input;
         let fond = fond_of(fond.as_deref())?;
         let text = text_of(query.as_deref())?;
@@ -114,6 +116,7 @@ impl<'a, C: LegalCorpus, K: Clock> SearchUseCase<'a, C, K> {
         let range = DateRange::new(from, to).map_err(|error| messages::domain(TOOL, &error))?;
         let version = version.or_else(|| fond.needs_version_date().then(|| self.today()));
         SearchQuery::new(fond, text, page, page_size, mode, range, version)
+            .and_then(|query| query.with_in_force_only(in_force_only.unwrap_or(false)))
             .map_err(|error| messages::domain(TOOL, &error))
     }
 
@@ -538,6 +541,7 @@ mod tests {
             date_from: Some("2016-13-45".to_owned()),
             date_to: Some("nope".to_owned()),
             version_date: Some("later".to_owned()),
+            in_force_only: None,
         };
         // Chaque étape corrige l'argument qui vient d'être refusé : le suivant parle alors.
         assert_eq!(
@@ -740,6 +744,62 @@ mod tests {
             ..text("bail")
         };
         assert_eq!(rejected(both).await, "date_from=2026-01-01 is after date_to=2025-01-01.");
+    }
+
+    /// D-08 : le vrai positif, `in_force_only` sur KALI arrive au port.
+    #[tokio::test]
+    async fn in_force_only_on_kali_reaches_the_port() {
+        let corpus = serving(page_of(Fond::Kali, 0, vec![]));
+        let input = SearchInput {
+            fond: Some("kali".to_owned()),
+            in_force_only: Some(true),
+            ..text("convention collective")
+        };
+        run(&corpus, &clock(), input).await.unwrap();
+        let query = sent(&corpus);
+        assert_eq!((query.fond(), query.in_force_only()), (Fond::Kali, true));
+        assert_eq!(query.version_date(), None);
+    }
+
+    /// D-08 : `false` ou absent donne la requête de la 1.0.1, sur tous les fonds.
+    #[tokio::test]
+    async fn in_force_only_false_or_absent_changes_nothing() {
+        for fond in Fond::ALL {
+            for flag in [None, Some(false)] {
+                let corpus = serving(page_of(fond, 0, vec![]));
+                let input = SearchInput {
+                    fond: Some(fond.name().to_owned()),
+                    in_force_only: flag,
+                    ..text("bail")
+                };
+                run(&corpus, &clock(), input).await.unwrap();
+                assert!(!sent(&corpus).in_force_only(), "{fond} {flag:?}");
+            }
+        }
+    }
+
+    /// D-08 : tout autre fond, et le fond absent (LODA), refuse `in_force_only=true` en le disant.
+    #[tokio::test]
+    async fn in_force_only_is_rejected_outside_kali() {
+        for fond in Fond::ALL.into_iter().filter(|fond| *fond != Fond::Kali) {
+            let input = SearchInput {
+                fond: Some(fond.name().to_owned()),
+                in_force_only: Some(true),
+                ..text("bail")
+            };
+            assert_eq!(
+                rejected(input).await,
+                format!(
+                    "in_force_only only applies to fond KALI, not {fond}; set fond=KALI or remove it."
+                ),
+                "{fond}"
+            );
+        }
+        let no_fond = SearchInput { in_force_only: Some(true), ..text("bail") };
+        assert_eq!(
+            rejected(no_fond).await,
+            "in_force_only only applies to fond KALI, not LODA; set fond=KALI or remove it."
+        );
     }
 
     #[tokio::test]

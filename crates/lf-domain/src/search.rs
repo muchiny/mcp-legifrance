@@ -185,7 +185,9 @@ pub const REACHABLE_RESULTS: u64 = 10_000;
 ///
 /// - `version_date` n'est admise que pour un fond qui la consomme (`LODA`, `CODE`) ;
 /// - `date_range` n'est admise que pour un fond à filtre de période (tous sauf `CODE`) ;
-/// - la page demandée reste dans la fenêtre de [`REACHABLE_RESULTS`] résultats.
+/// - la page demandée reste dans la fenêtre de [`REACHABLE_RESULTS`] résultats ;
+/// - `in_force_only` (D-08) n'est admis que pour `KALI` ([`with_in_force_only`](Self::with_in_force_only)) :
+///   il garde les textes dont l'état est `VIGUEUR`, `VIGUEUR_ETEN` ou `VIGUEUR_NON_ETEN`.
 ///
 /// `Eq + Hash` : la valeur sert de clé de cache (00 §9). Elle ne porte pas de
 /// `typePagination`, que l'adapter choisit seul (04 §6.6).
@@ -198,6 +200,7 @@ pub struct SearchQuery {
     mode: MatchMode,
     date_range: Option<DateRange>,
     version_date: Option<VersionDate>,
+    in_force_only: bool,
 }
 
 impl SearchQuery {
@@ -218,7 +221,24 @@ impl SearchQuery {
         date_range: Option<DateRange>,
         version_date: Option<VersionDate>,
     ) -> Result<Self, DomainError> {
-        Self { fond, text, page, page_size, mode, date_range, version_date }.checked()
+        Self { fond, text, page, page_size, mode, date_range, version_date, in_force_only: false }
+            .checked()
+    }
+
+    /// Active ou non le filtre « textes en vigueur seulement » (`in_force_only`, D-08).
+    ///
+    /// `false` ne change rien, pour tout fond : la requête reste celle de la 1.0.1.
+    ///
+    /// # Errors
+    ///
+    /// [`DomainError::InForceOnlyNotApplicable`] si `in_force_only` est vrai pour un fond autre
+    /// que `KALI`.
+    pub fn with_in_force_only(mut self, in_force_only: bool) -> Result<Self, DomainError> {
+        if in_force_only && self.fond != Fond::Kali {
+            return Err(DomainError::InForceOnlyNotApplicable { fond: self.fond });
+        }
+        self.in_force_only = in_force_only;
+        Ok(self)
     }
 
     /// Fond interrogé.
@@ -254,6 +274,11 @@ impl SearchQuery {
     /// Date de version demandée, le cas échéant.
     pub fn version_date(&self) -> Option<VersionDate> {
         self.version_date
+    }
+
+    /// Vrai si seuls les textes en vigueur sont demandés (`KALI` seulement).
+    pub fn in_force_only(&self) -> bool {
+        self.in_force_only
     }
 
     fn checked(self) -> Result<Self, DomainError> {
@@ -466,6 +491,37 @@ mod tests {
                 assert_eq!(got.map(|q| q.date_range()), Ok(range()), "{fond}");
             }
         }
+    }
+
+    #[test]
+    fn in_force_only_is_accepted_for_kali_alone() {
+        for fond in Fond::ALL {
+            let got = query(fond, 1, 10, None, None).and_then(|q| q.with_in_force_only(true));
+            if fond == Fond::Kali {
+                assert_eq!(got.map(|q| q.in_force_only()), Ok(true));
+            } else {
+                assert_eq!(got, Err(DomainError::InForceOnlyNotApplicable { fond }), "{fond}");
+            }
+        }
+    }
+
+    #[test]
+    fn in_force_only_false_is_a_no_op_for_every_fond() {
+        for fond in Fond::ALL {
+            let base = query(fond, 1, 10, None, None).unwrap();
+            assert!(!base.in_force_only(), "{fond}: off by default");
+            assert_eq!(base.clone().with_in_force_only(false), Ok(base), "{fond}");
+        }
+    }
+
+    #[test]
+    fn in_force_only_is_part_of_the_cache_key() {
+        let all = query(Fond::Kali, 1, 10, None, None).unwrap();
+        let live = all.clone().with_in_force_only(true).unwrap();
+        assert_ne!(all, live);
+        assert_eq!(live.clone().with_in_force_only(true), Ok(live.clone()));
+        let keys: HashSet<_> = [all, live].into_iter().collect();
+        assert_eq!(keys.len(), 2);
     }
 
     #[test]
