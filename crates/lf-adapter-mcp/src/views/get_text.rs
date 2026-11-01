@@ -13,7 +13,9 @@
 use lf_application::output::get_text::GetTextOutput;
 use lf_domain::{
     contract::{Citable, Eli},
+    date::CivilDate,
     id::DocumentId,
+    status::LegalStatus,
 };
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -77,9 +79,53 @@ fn readable_parent_id(id: &DocumentId) -> Option<String> {
     matches!(id, DocumentId::LegiText(_) | DocumentId::KaliText(_)).then(|| id.as_str().to_owned())
 }
 
+/// Note (champ `note` existant, aucun octet de schéma) quand l'article lu n'est plus la version en
+/// vigueur : un texte exact d'une version terminée se lit sinon comme le droit actuel (L3-13).
+///
+/// Déclenchée par l'`etat` seul (`MODIFIE`, `MODIFIE_MORT_NE`, `ABROGE`, `PERIME`, `ANNULE`,
+/// `REMPLACE`, `SUBSTITUE`, `TRANSFERE`, `DENONCE`), sans horloge : `VIGUEUR*`, `ABROGE_DIFF`
+/// (encore en vigueur), `INITIALE`, les autres états et les codes inconnus n'en portent pas. La
+/// date de fin n'est citée que si elle est réelle (hors zone sentinelle).
+fn not_in_force_note(etat: Option<&LegalStatus>, date_fin: Option<CivilDate>) -> Option<String> {
+    let etat = etat?;
+    let ended = matches!(
+        etat,
+        LegalStatus::Modifie
+            | LegalStatus::ModifieMortNe
+            | LegalStatus::Abroge
+            | LegalStatus::Perime
+            | LegalStatus::Annule
+            | LegalStatus::Remplace
+            | LegalStatus::Substitue
+            | LegalStatus::Transfere
+            | LegalStatus::Denonce
+    );
+    if !ended {
+        return None;
+    }
+    let code = etat.as_api_code();
+    let since =
+        date_unless_sentinel(date_fin).map_or_else(String::new, |date| format!(", ended {date}"));
+    Some(format!(
+        "Not the version in force (etat={code}{since}). Use fr_resolve with a date, or \
+         fr_diff_article, for the text in force."
+    ))
+}
+
+/// Joint la note de lecture et l'avertissement de version, séparés par une espace.
+fn join_notes(reading: Option<String>, version: Option<String>) -> Option<String> {
+    match (reading, version) {
+        (Some(reading), Some(version)) => Some(format!("{reading} {version}")),
+        (reading, version) => reading.or(version),
+    }
+}
+
 impl From<GetTextOutput> for ArticleView {
     fn from(output: GetTextOutput) -> Self {
         let GetTextOutput { article, nota, reading } = output;
+        let version_note = not_in_force_note(article.etat.as_ref(), article.date_fin);
+        let mut reading = ReadingView::from(reading);
+        reading.note = join_notes(reading.note.take(), version_note);
         let contract = article.contract();
         let mut view = Self {
             article_id: article.article_id.as_str().to_owned(),
@@ -94,7 +140,7 @@ impl From<GetTextOutput> for ArticleView {
             eli: contract.eli.as_ref().map(Eli::as_str).map(str::to_owned),
             citation: contract.citation.as_str().to_owned(),
             source_url: contract.source_url.to_string(),
-            reading: ReadingView::from(reading),
+            reading,
         };
         fit_under_cap(&mut view, |view| view.reading.degrade());
         view
@@ -278,6 +324,102 @@ mod tests {
         let mut ended = article();
         ended.date_fin = Some(day(2023, 9, 7));
         assert_eq!(view_json(output(ended, whole("Texte.")))["date_fin"], "2023-09-07");
+    }
+
+    const NOTE_1382: &str = "Not the version in force (etat=MODIFIE, ended 2016-10-01). Use fr_resolve with a date, or fr_diff_article, for the text in force.";
+
+    fn with_etat(code: &str, date_fin: Option<CivilDate>) -> ArticleText {
+        ArticleText { etat: LegalStatus::parse(code), date_fin, ..article() }
+    }
+
+    /// L3-13 (get_text-11) : l'ancien article 1382 (`etat=MODIFIE`, fin 2016-10-01) porte l'alerte.
+    #[test]
+    fn an_ended_version_says_it_is_not_the_version_in_force() {
+        let old = ArticleText {
+            article_id: ArticleId::parse("LEGIARTI000006438819").unwrap(),
+            ..with_etat("MODIFIE", Some(day(2016, 10, 1)))
+        };
+
+        let view = view_json(output(old, whole("Tout fait quelconque de l'homme...")));
+
+        assert_eq!(view["note"], NOTE_1382);
+        assert_eq!(view["etat"], "MODIFIE");
+        assert_eq!(view["date_fin"], "2016-10-01");
+        assert_eq!(view["text"], "Tout fait quelconque de l'homme...");
+    }
+
+    #[test]
+    fn every_ended_etat_carries_the_warning_and_the_others_do_not() {
+        let ended = [
+            "MODIFIE",
+            "MODIFIE_MORT_NE",
+            "ABROGE",
+            "PERIME",
+            "ANNULE",
+            "REMPLACE",
+            "SUBSTITUE",
+            "TRANSFERE",
+            "DENONCE",
+        ];
+        for code in ended {
+            let view = view_json(output(with_etat(code, Some(day(2014, 3, 27))), whole("T.")));
+            let expected = format!(
+                "Not the version in force (etat={code}, ended 2014-03-27). Use fr_resolve with a date, or fr_diff_article, for the text in force."
+            );
+            assert_eq!(view["note"], expected, "{code}");
+        }
+        let current = [
+            "VIGUEUR",
+            "VIGUEUR_ETEN",
+            "VIGUEUR_NON_ETEN",
+            "VIGUEUR_DIFF",
+            "ABROGE_DIFF",
+            "INITIALE",
+            "DISJOINT",
+            "SANS_ETAT",
+            "EN_COURS",
+        ];
+        for code in current {
+            let view = view_json(output(with_etat(code, Some(day(2014, 3, 27))), whole("T.")));
+            assert!(view.get("note").is_none(), "{code}: {view}");
+        }
+        // Sans `etat` : aucune note.
+        let none = ArticleText { etat: None, ..article() };
+        assert!(view_json(output(none, whole("T."))).get("note").is_none());
+    }
+
+    #[test]
+    fn the_warning_omits_the_end_date_when_there_is_none_or_a_sentinel() {
+        let expected = "Not the version in force (etat=ABROGE). Use fr_resolve with a date, or fr_diff_article, for the text in force.";
+        for date_fin in [None, Some(day(2999, 1, 1))] {
+            let view = view_json(output(with_etat("ABROGE", date_fin), whole("T.")));
+            assert_eq!(view["note"], expected, "{date_fin:?}");
+        }
+    }
+
+    #[test]
+    fn the_warning_follows_the_existing_reading_note_after_a_space() {
+        let reading = Reading { note: Some("Reading note.".to_owned()), ..whole("T.") };
+
+        let ended =
+            view_json(output(with_etat("MODIFIE", Some(day(2016, 10, 1))), reading.clone()));
+        assert_eq!(ended["note"], format!("Reading note. {NOTE_1382}"));
+
+        // Version en vigueur : la note de lecture reste seule, inchangée.
+        let current = view_json(output(article(), reading));
+        assert_eq!(current["note"], "Reading note.");
+    }
+
+    #[test]
+    fn a_kali_article_that_is_ended_carries_the_warning() {
+        let kali = ArticleText {
+            article_id: ArticleId::parse("KALIARTI000005805295").unwrap(),
+            ..with_etat("ABROGE", Some(day(2016, 8, 1)))
+        };
+
+        let view = view_json(output(kali, whole("Texte.")));
+
+        assert!(view["note"].as_str().unwrap().contains("etat=ABROGE, ended 2016-08-01"));
     }
 
     #[test]
