@@ -103,7 +103,7 @@ Toute valeur externe est convertie **une seule fois**, à la frontière, en un t
 ```text
 crates/lf-domain/src/
   lib.rs            modules publics, ré-export de DomainError
-  error.rs          DomainError (17 variantes), echo, ECHO_MAX_CHARS (§9)
+  error.rs          DomainError (17 variantes, puis `UnbalancedQuotes` en 1.0.1 : L4-08), echo, ECHO_MAX_CHARS (§9)
   id.rs             IdKind (scellé), Id<K>, 10 alias, AnyId, ArticleId, DecisionId, DocumentId, VersionedId / parse_versioned, SectionId (pas de macro, pas de sous-module)
   fond.rs           Fond (name, api_name, hit_prefix, needs_version_date, has_date_filter, parse, ALL), PaginationMode
   status.rs         LegalStatus, status_of
@@ -325,7 +325,7 @@ pub enum LegalStatus { Vigueur, VigueurEtendue, VigueurNonEtendue, VigueurDiffer
                        Modifie, ModifieMortNe, Perime, Annule, Disjoint, Transfere, Remplace, Denonce,
                        Initiale, SansEtat, Substitue, Other(String) }    // 17 codes de l'API + Other
 impl LegalStatus {
-    pub fn parse(raw: &str) -> Option<LegalStatus>;   // contrôles et invisibles retirés, trim, insensible à la casse ;
+    pub fn parse(raw: &str) -> Option<LegalStatus>;   // contrôles et invisibles retirés, trim, insensible à la casse et aux accents (L3-01) ;
                                                       // rien de visible -> None ; inconnu -> Other (≤ 64 caractères + …)
     pub fn as_api_code(&self) -> &str;                // "VIGUEUR", "VIGUEUR_ETEN", … ; Other -> code conservé, nettoyé
 }
@@ -333,6 +333,7 @@ pub fn status_of(etat: Option<&str>, juris_state: Option<&str>) -> Option<LegalS
 ```
 
 - Règle unique pour LODA et KALI : `etat` s'il n'est pas vide, sinon `jurisState`. Sur consult_loda.json, la sortie devient donc `VIGUEUR` au lieu de `null`. C'est une divergence volontaire (§5.6).
+- **Libellés accentués** (L3-01, get_act-4) : `LegalStatus::parse` reconnaît les 17 codes sans égard à la casse ni aux accents : le texte est rogné, décomposé (NFD), ses marques combinantes sont retirées, puis il est replié par `text::fold::fold` et mis en majuscules ASCII avant la recherche dans la table. Les libellés accentués de `jurisState` (Abrogé, Modifié, Périmé, Annulé, Transféré, Remplacé, Dénoncé, Substitué) donnent donc le code correspondant (ABROGE, MODIFIE, PERIME, ANNULE, TRANSFERE, REMPLACE, DENONCE, SUBSTITUE), en forme composée ou décomposée. Un libellé inconnu (par exemple Échu) reste `Other` avec son texte d'origine, accents compris. Il n'existe aucune table de libellés à espaces (V-113 reste non vérifié pour ces formes).
 - [livré, plan 2e, vague de fin ; audit de sécurité L-2] `parse` retire du code, avant la table et avant `echo`, tout caractère de contrôle (`\n`, ESC…) et tout invisible du jeu de `clean` (§7.3) : `Other` ne rend jamais de bidi, de saut de ligne ni de séquence ANSI par `as_api_code`, et un code connu masqué par un invisible (`VIG\u{200b}UEUR`) est reconnu. `Other` est une variante publique (filtrage par motif) qui ne doit être construite que par `parse` : écrite à la main, elle n'a ni ce nettoyage ni la borne.
 - Liste fermée de 17 codes : `ABROGE`, `ABROGE_DIFF`, `ANNULE`, `DENONCE`, `DISJOINT`, `INITIALE`, `MODIFIE`, `MODIFIE_MORT_NE`, `PERIME`, `REMPLACE`, `SANS_ETAT`, `SUBSTITUE`, `TRANSFERE`, `VIGUEUR`, `VIGUEUR_DIFF`, `VIGUEUR_ETEN`, `VIGUEUR_NON_ETEN` (facette `ARTICLE_LEGAL_STATUS` de search_loda.json ; Swagger 2.4.2 `CodeListRequest.states` ; annexe C §3.7). `DENONCE` est courant en KALI (479 textes dans la facette `LEGAL_STATUS` de search_kali.json). `Other(String)` couvre une évolution de l'API : aucun code inconnu n'est perdu. Restent à confirmer la casse et les variantes de `jurisState` (`Vigueur` sur consult_loda.json), dont les valeurs possibles hors des fixtures sont **NON VÉRIFIÉ** [V-113 · etats-juridiques-liste].
 
@@ -485,7 +486,7 @@ Règles de `Toc::build`, dans l'ordre :
 | `etat` | `Option<LegalStatus>` | `etat` | `VIGUEUR` |
 | `code_title` | `Option<String>` | `textTitles[nature=="CODE"].titre`, sinon `textTitles[0].titre` | parité (référence citations.py:236-245) : `Code civil` |
 | `parent` | `Option<ParentText { id: DocumentId, nature: ParentNature }>` | même entrée de `textTitles` : `cid`, `nature` | `ParentNature::{Code, Text, Kali, Unknown}` décide de la **règle de citation**, pas de l'URL : tant que V-140 et V-142 ne sont pas levées, l'URL d'un article reste `code_article` (`/codes/article_lc/` pour un `LEGIARTI`, `/conv_coll/id/` pour un `KALIARTI`, type d'identifiant seul ; livré au plan 2e). La valeur de `textTitles[].nature` pour un article de loi est `LOI` pour les deux entrées de `LEGIARTI000033205058`, relevée en sandbox le 2026-10-28 [V-142 · texttitles-nature-loi] (09 §2.20, levé) ; reste V-140 (forme canonique de l'URL), bloquant pour v0.1.0 (00 §4) |
-| `path` | `Vec<String>` | `context.titresTM[].titre` | chemin complet `["Livre Ier : Des personnes", "Titre Ier : Des droits civils"]` (consult_article.json). Piège de renommage `titresTM` (04) |
+| `path` | `Vec<String>` | `context.titresTM[].titre` | chemin complet `["Livre Ier : Des personnes", "Titre Ier : Des droits civils"]` (consult_article.json). Piège de renommage `titresTM` (04) **L3-02 (get_text-1, gap4-8)** : un seul intitulé par niveau, celui en vigueur pour la version de l'article ; les intitulés d'une autre époque du code (avant ou après remaniement) ne figurent pas, et un titre identique deux fois de suite est fusionné (04 §9.1). |
 | `full_sections_titre` | `Option<String>` | `fullSectionsTitre` | conservé pour la parité, mais incomplet (`Livre Ier : Des personnes`, recherche 03 §7) ; `path` est préféré au rendu |
 | `date_debut`, `date_fin` | `Option<CivilDate>` | `dateDebut`, `dateFin` (ms) | `1970-07-19` et `None` (sentinelle) |
 | `text` | `LongText` | `texteHtml`, sinon `texte` | §7.4. `texteHtml` est absent de la fixture, donc l'article 9 tient en un seul paragraphe alors qu'il en compte deux (D-26). Présence en direct vérifiée en sandbox le 2026-10-28 [V-90 · texte-html-getarticle-juri] (09 §2.20, levé) : `texteHtml` est présent sur les trois articles enregistrés |
@@ -931,7 +932,7 @@ Non modifiés : apostrophes typographiques U+2019 (117 dans le texte CONSTIT, re
 
 `clean` ne s'applique qu'aux textes issus de l'API. Le texte soumis par l'utilisateur à `fr_verify_citations` n'est pas nettoyé, puisque ses spans s'y rapportent : le parseur travaille sur sa propre vue normalisée, avec une table d'offsets vers le texte d'origine (§8.2). Le texte canonique de `LongText` est défini **après** `clean`, de sorte que la fenêtre, le BM25 et le parseur restent cohérents.
 
-`Snippet` [livré, plan 2e : `Snippet::new` passe par `clean`, coupe à `SNIPPET_MAX_CHARS` = 280 en fin de mot et ajoute `…`, `entity/search.rs` ; `None` si le texte nettoyé est vide ; `CodeArticleRef.snippet` et `SearchHit.snippet` sont des `Option<Snippet>`] est un extrait de recherche d'au plus 280 caractères (`char`). Si le texte nettoyé dépasse 280, on coupe à la dernière espace située dans les 40 derniers caractères (sinon coupure franche) et on ajoute `…`, inclus dans les 280. Les `[...]` de l'API (début et fin d'extrait, recherche 03 §2) sont conservés. La référence tronquait à 280 points de code sans ellipse ; aucun extrait CODE des fixtures n'atteint la limite (108 caractères, recherche 01 §11.5).
+`Snippet` [livré, plan 2e : `Snippet::new` passe par `clean`, coupe à `SNIPPET_MAX_CHARS` = 280 en fin de mot et ajoute `…`, `entity/search.rs` ; `None` si le texte nettoyé est vide ; `CodeArticleRef.snippet` et `SearchHit.snippet` sont des `Option<Snippet>`] est un extrait de recherche d'au plus 280 caractères (`char`). Si le texte nettoyé dépasse 280, on coupe à la dernière espace située dans les 40 derniers caractères (sinon coupure franche) et on ajoute `…`, inclus dans les 280. Les `[...]` de l'API (début et fin d'extrait, recherche 03 §2) sont conservés. La référence tronquait à 280 points de code sans ellipse ; aucun extrait CODE des fixtures n'atteint la limite (108 caractères, recherche 01 §11.5). **L3-07 (search-15)** : un extrait tient sur une ligne : après `clean`, tout blanc (saut de ligne, tabulation, espaces répétés) est replié en une seule espace par `text::flatten_whitespace`, avant la coupe à 280 caractères. Le `title` d'un hit est replié de la même façon par le mapping de recherche ; la comparaison `title` / `citation` (05 §5.0.4) se fait sur les blancs repliés des deux côtés.
 
 ### 7.4 Choix de la source : `texteHtml` ou `texte` [livré, plan 2e]
 
@@ -1275,6 +1276,7 @@ pub enum DomainError {
     #[error("date_from must be on or before date_to.")]                InvertedDateRange,
     #[error("{field}={value} out of range ({min}..{max}).")]           OutOfRange { field: &'static str, value: i64, min: i64, max: i64 },
     #[error("query is too long ({len} characters, max {max}).")]      QueryTooLong { len: usize, max: usize },
+    #[error("query has an unbalanced double quote (\")")]            UnbalancedQuotes,     // L4-08 : sans champ (la requête n'est jamais recopiée) ; lf_domain::search::check_quotes(&QueryText), appelée par les cas d'usage (non par QueryText::parse)
     #[error("offset={offset} is past the end of the text (text_length={text_length}).")] OffsetPastEnd { offset: usize, text_length: usize },
     #[error("focus contains no searchable word.")]                    FocusWithoutTerms,
     #[error("toc_offset={offset} is past the end (toc_total={total}).")] TocOffsetPastEnd { offset: u32, total: u32 },

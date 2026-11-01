@@ -332,6 +332,7 @@ Chaque divergence porte une **clé** stable. La colonne « Golden » vaut **oui*
 | `query_normalized` | `query.strip()` | `QueryText` : trim, blancs repliés, contrôles retirés, 1 à 450 caractères (au-delà, `invalid_arg`) | D-32, 03 §4.1, V-81 | requêtes de plus de 450 caractères refusées | non |
 | `snippets_all_fonds` | extraits CODE seulement (`articles`) | `snippet` ≤ 280 caractères pour tous les fonds ; `articles` aussi pour KALI | D-33, E-26 | champs nouveaux | non (liste blanche) |
 | `snippet_ellipsis` | coupe franche à 280 points de code | coupe à la dernière espace des 40 derniers caractères, puis `…` inclus dans les 280 caractères | 03 §7.3 | extraits légèrement plus courts | non (aucun extrait des fixtures n'atteint 280) |
+| `snippet_one_line` | la référence conservait les sauts de ligne de l'extrait (96 textes ACCO sur 100 en portaient) | tout blanc de l'extrait et du `title` d'un hit est replié en une espace (`text::flatten_whitespace`), avant la coupe à 280 | 03 §7.3, L3-07 | extraits et titres sur une ligne ; le doublon de snippet des hits CODE (search-13) reste reporté en v2 (A4/Q9) | non (liste blanche) |
 | `hit_date` | aucune date dans les hits | `date` (date du document, hors sentinelle) | D-21 | champ nouveau | non (liste blanche) |
 | `invalid_hits_dropped` | hit sans `id` renvoyé avec `source_url: null` | hit écarté et compté (`SearchPage.dropped`, journalisé) | D-30 | `hits.len()` peut être inférieur à `page_size` sans que ce soit la fin | non |
 
