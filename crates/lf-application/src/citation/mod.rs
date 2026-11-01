@@ -15,8 +15,11 @@ pub mod verify;
 use lf_domain::{
     citation::{CitationKind, Confidence, Span},
     contract::{Citable, CitationContract},
+    date::CivilDate,
     ecli::Ecli,
+    entity::ArticleText,
     id::DocumentId,
+    status::LegalStatus,
 };
 
 pub use notes::{Field, NotCheckedReason, Note};
@@ -82,6 +85,32 @@ pub struct ResolvedRecord {
     pub source_url: String,
     /// ECLI natif, s'il y en a un.
     pub ecli: Option<Ecli>,
+    /// Période de validité de la version lue, pour un article seulement (D-03).
+    pub validity: Option<Validity>,
+}
+
+/// Période de validité de la version d'un article que la résolution a lue : l'`etat` de l'API et
+/// les bornes de la version, telles que l'API les donne (la date sentinelle de fin ouverte est
+/// écartée au rendu, pas ici).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Validity {
+    /// État juridique de la version.
+    pub etat: Option<LegalStatus>,
+    /// Début de vigueur de la version.
+    pub date_debut: Option<CivilDate>,
+    /// Fin de vigueur de la version.
+    pub date_fin: Option<CivilDate>,
+}
+
+impl Validity {
+    /// Période de `article`, `None` quand l'API n'en donne rien.
+    pub(crate) fn of(article: &ArticleText) -> Option<Self> {
+        let ArticleText { etat, date_debut, date_fin, .. } = article;
+        if etat.is_none() && date_debut.is_none() && date_fin.is_none() {
+            return None;
+        }
+        Some(Self { etat: etat.clone(), date_debut: *date_debut, date_fin: *date_fin })
+    }
 }
 
 impl ResolvedRecord {
@@ -93,6 +122,7 @@ impl ResolvedRecord {
             citation: citation.as_str().to_owned(),
             source_url: source_url.as_str().to_owned(),
             ecli,
+            validity: None,
         }
     }
 }

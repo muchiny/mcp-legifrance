@@ -46,7 +46,7 @@ use lf_domain::{
 };
 
 use super::{
-    Candidate, CandidateKind, CheckStatus, Field, NotCheckedReason, Note, ResolvedRecord,
+    Candidate, CandidateKind, CheckStatus, Field, NotCheckedReason, Note, ResolvedRecord, Validity,
     notes::FOUND_DATES_MAX,
     policy::{self, Absence, CONSULT_LIMIT, Family, MAX_CANDIDATES, fold_line, fold_words},
 };
@@ -1147,7 +1147,8 @@ fn article_found(
         ArticleId::Legi(id) => DocumentId::LegiArti(id.clone()),
         ArticleId::Kali(id) => DocumentId::KaliArti(id.clone()),
     };
-    let record = ResolvedRecord::of(id, article);
+    let record =
+        ResolvedRecord { validity: Validity::of(article), ..ResolvedRecord::of(id, article) };
     let official = Some(article.text.as_str().to_owned());
     if let Some(actual) = article.num.as_deref() {
         let squashed = squash(actual);
@@ -5048,6 +5049,85 @@ mod tests {
     /// Version de l'article 779 du CGI lue à une date : l'état et la fin de vigueur de l'API.
     fn dated(etat: Option<LegalStatus>, date_fin: Option<CivilDate>) -> ArticleText {
         ArticleText { etat, date_fin, ..numbered(1, "121-3") }
+    }
+
+    /// D-03 : l'article trouvé garde sa période de validité (état, début, fin) à la date du jour
+    /// comme à une date passée ; `etat` et bornes sont ceux de l'API, la sentinelle comprise.
+    #[test]
+    fn an_article_found_keeps_its_validity() {
+        let variants = ["121-3".to_owned()];
+        let validity_of =
+            |resolution: &Resolution| resolution.outcome.record().unwrap().validity.clone();
+        // Aujourd'hui : version en vigueur, sans fin.
+        let current = article_found(
+            &ArticleText { etat: Some(LegalStatus::Vigueur), ..numbered(1, "121-3") },
+            &variants,
+            ArticleAt::Today(today()),
+        );
+        assert_eq!(
+            validity_of(&current),
+            Some(Validity {
+                etat: Some(LegalStatus::Vigueur),
+                date_debut: Some(civil(2016, 10, 1)),
+                date_fin: None,
+            })
+        );
+        // Cas 779 CGI à 2011-06-01 : version MODIFIE du 2010-05-01 au 2011-06-12.
+        let past = article_found(
+            &ArticleText {
+                etat: Some(LegalStatus::Modifie),
+                date_debut: Some(civil(2010, 5, 1)),
+                date_fin: Some(civil(2011, 6, 12)),
+                ..numbered(1, "121-3")
+            },
+            &variants,
+            ArticleAt::On(VersionDate::parse("2011-06-01").unwrap()),
+        );
+        assert_eq!(
+            validity_of(&past),
+            Some(Validity {
+                etat: Some(LegalStatus::Modifie),
+                date_debut: Some(civil(2010, 5, 1)),
+                date_fin: Some(civil(2011, 6, 12)),
+            })
+        );
+        // La sentinelle de fin ouverte est gardée telle quelle : c'est la vue qui l'écarte.
+        let open = article_found(
+            &ArticleText { date_fin: Some(civil(2999, 1, 1)), ..numbered(1, "121-3") },
+            &variants,
+            ArticleAt::Today(today()),
+        );
+        assert_eq!(validity_of(&open).unwrap().date_fin, Some(civil(2999, 1, 1)));
+        // Un article en écart de numéro porte aussi la validité de la version lue.
+        let wrong =
+            article_found(&numbered(1, "121-3"), &["9".to_owned()], ArticleAt::Today(today()));
+        assert_eq!(status(&wrong), CheckStatus::Invalid);
+        assert_eq!(validity_of(&wrong).unwrap().date_debut, Some(civil(2016, 10, 1)));
+    }
+
+    /// Jumeau de D-03 : une réponse sans état ni date ne fabrique pas de période vide, et un
+    /// document qui n'est pas un article n'en porte jamais.
+    #[test]
+    fn an_article_without_etat_or_dates_and_the_other_documents_have_no_validity() {
+        let bare =
+            ArticleText { etat: None, date_debut: None, date_fin: None, ..numbered(1, "121-3") };
+        let found = article_found(&bare, &["121-3".to_owned()], ArticleAt::Today(today()));
+        assert_eq!(found.outcome.record().unwrap().validity, None);
+        // Un résultat de recherche (texte, décision…) n'a pas de période.
+        let hit = hit(Fond::Loda, "LEGITEXT000033202746");
+        assert_eq!(ResolvedRecord::of(hit.id.clone(), &hit).validity, None);
+        // Une seule borne suffit à produire une période.
+        let only_end = ArticleText {
+            etat: None,
+            date_debut: None,
+            date_fin: Some(civil(2011, 6, 12)),
+            ..numbered(1, "121-3")
+        };
+        let found = article_found(&only_end, &["121-3".to_owned()], ArticleAt::Today(today()));
+        assert_eq!(
+            found.outcome.record().unwrap().validity.as_ref().unwrap().date_fin,
+            Some(civil(2011, 6, 12))
+        );
     }
 
     /// Revue finale I2 : `replaced_code` et la règle commune `is_superseded` (celle de

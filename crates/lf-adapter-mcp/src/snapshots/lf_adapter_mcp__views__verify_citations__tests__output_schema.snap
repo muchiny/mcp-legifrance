@@ -41,6 +41,15 @@ expression: schema
         "citation": {
           "type": "string"
         },
+        "date_debut": {
+          "type": "string"
+        },
+        "date_fin": {
+          "type": "string"
+        },
+        "etat": {
+          "type": "string"
+        },
         "id": {
           "type": "string"
         },

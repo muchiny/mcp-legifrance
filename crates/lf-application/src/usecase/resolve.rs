@@ -164,6 +164,7 @@ fn best_first(mut candidates: Vec<Candidate>) -> Vec<Candidate> {
 mod tests {
     use super::*;
     use crate::{
+        citation::Validity,
         error::ErrorCode,
         ports::{ArticleAt, CorpusError, PisteEnvironment},
         testing::{FakeCorpus, FixedClock, PortRequest},
@@ -259,6 +260,7 @@ mod tests {
                 source_url: format!("https://example.test/{n}"),
                 id,
                 ecli: None,
+                validity: None,
             },
             confidence,
         }
@@ -497,6 +499,45 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(output.notes[0].text(), "Current version in force since 2010-05-01.");
+    }
+
+    /// D-03 (journey_patrimoine-14) : le candidat d'un article lu à une date porte la période de la
+    /// version (valeurs de la réponse réelle, reconstituées : l'article 779 du CGI au 2011-06-01),
+    /// aujourd'hui comme à une date passée ; une décision n'en porte pas.
+    #[tokio::test]
+    async fn the_candidate_of_an_article_carries_the_validity_of_its_version() {
+        let corpus = corpus_with_cgi();
+        corpus.push_find_article(Ok(cgi_779(LegalStatus::Modifie, CivilDate::new(2011, 6, 12))));
+        let output = run(
+            &corpus,
+            PisteEnvironment::Production,
+            input("article 779 du CGI", Some("2011-06-01")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            output.candidates[0].record.validity,
+            Some(Validity {
+                etat: Some(LegalStatus::Modifie),
+                date_debut: CivilDate::new(2010, 5, 1),
+                date_fin: CivilDate::new(2011, 6, 12),
+            })
+        );
+
+        // Aujourd'hui : en vigueur depuis le début de la version, sans fin.
+        let corpus = corpus_with_cgi();
+        corpus.push_find_article(Ok(cgi_779(LegalStatus::Vigueur, None)));
+        let output = run(&corpus, PisteEnvironment::Production, input("article 779 du CGI", None))
+            .await
+            .unwrap();
+        assert_eq!(
+            output.candidates[0].record.validity,
+            Some(Validity {
+                etat: Some(LegalStatus::Vigueur),
+                date_debut: CivilDate::new(2010, 5, 1),
+                date_fin: None,
+            })
+        );
     }
 
     /// L2-17 (gap3-8) : un alinéa cité n'est pas contrôlé, et la réponse le dit ; sans alinéa, rien.

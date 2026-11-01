@@ -19,7 +19,7 @@ use lf_application::{
 use schemars::JsonSchema;
 use serde::Serialize;
 
-use super::fit::fit_under_cap;
+use super::{common::ValidityFields, fit::fit_under_cap};
 
 /// Note ajoutée quand la vue doit encore raccourcir la liste après l'estimation de l'application.
 const FURTHER_NOTE: &str = "List shortened to keep the response under 45,000 characters; call \
@@ -84,6 +84,16 @@ struct ResolvedView {
     id: String,
     citation: String,
     source_url: String,
+    // Article seulement : état de la version lue (VIGUEUR, MODIFIE…) et ses dates (D-03).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    etat: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    date_debut: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    date_fin: Option<String>,
 }
 
 impl From<VerifyCitationsOutput> for VerifyView {
@@ -143,20 +153,26 @@ impl From<CitationCheck> for CitationView {
 
 impl From<ResolvedRecord> for ResolvedView {
     fn from(record: ResolvedRecord) -> Self {
+        let ValidityFields { etat, date_debut, date_fin } = record.validity.into();
         Self {
             id: record.id.as_str().to_owned(),
             citation: record.citation,
             source_url: record.source_url,
+            etat,
+            date_debut,
+            date_fin,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use lf_application::citation::{CheckStatus, Note, QuoteCheck};
+    use lf_application::citation::{CheckStatus, Note, QuoteCheck, Validity};
     use lf_domain::{
         citation::{CitationKind, Span},
+        date::CivilDate,
         id::DocumentId,
+        status::LegalStatus,
     };
     use pretty_assertions::assert_eq;
     use serde_json::{Value, json};
@@ -171,6 +187,7 @@ mod tests {
             source_url: "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288"
                 .to_owned(),
             ecli: None,
+            validity: None,
         }
     }
 
@@ -247,6 +264,101 @@ mod tests {
                 ]
             })
         );
+    }
+
+    fn with_validity(validity: Validity) -> CitationCheck {
+        let mut check = verified();
+        check.resolved.as_mut().unwrap().validity = Some(validity);
+        check
+    }
+
+    /// D-03 : `resolved` d'un article porte la période de la version lue ; la fin sentinelle 2999
+    /// et les champs absents sont omis, une décision (sans période) n'en porte aucun.
+    #[test]
+    fn a_resolved_article_renders_its_validity_period() {
+        let dated = with_validity(Validity {
+            etat: Some(LegalStatus::Modifie),
+            date_debut: CivilDate::new(2010, 5, 1),
+            date_fin: CivilDate::new(2011, 6, 12),
+        });
+        let open = with_validity(Validity {
+            etat: Some(LegalStatus::Vigueur),
+            date_debut: CivilDate::new(2013, 1, 1),
+            date_fin: CivilDate::new(2999, 1, 1),
+        });
+        let value = json_of(output(vec![dated, open, verified()], 3));
+        assert_eq!(
+            value["citations"][0]["resolved"],
+            json!({
+                "id": "LEGIARTI000006419288",
+                "citation": "Code civil, art. 9",
+                "source_url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288",
+                "etat": "MODIFIE",
+                "date_debut": "2010-05-01",
+                "date_fin": "2011-06-12"
+            })
+        );
+        assert_eq!(
+            value["citations"][1]["resolved"],
+            json!({
+                "id": "LEGIARTI000006419288",
+                "citation": "Code civil, art. 9",
+                "source_url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288",
+                "etat": "VIGUEUR",
+                "date_debut": "2013-01-01"
+            })
+        );
+        let plain = value["citations"][2]["resolved"].as_object().unwrap();
+        assert_eq!(plain.len(), 3, "{plain:?}");
+    }
+
+    #[test]
+    fn the_view_with_a_period_validates_against_its_output_schema() {
+        let schema = Value::Object(output_schema::<VerifyView>().as_ref().clone());
+        let validator = jsonschema::validator_for(&schema).unwrap();
+        let dated = with_validity(Validity {
+            etat: Some(LegalStatus::Modifie),
+            date_debut: CivilDate::new(2010, 5, 1),
+            date_fin: CivilDate::new(2011, 6, 12),
+        });
+        let value = json_of(output(vec![dated, verified()], 2));
+        assert!(validator.is_valid(&value), "{value}");
+    }
+
+    /// D-03, budget : cent citations avec extrait, enregistrement et note (le test de volume de
+    /// gap1-5) tiennent encore sous le plafond avec la période de chaque article, sans coupe ; le
+    /// surcoût mesuré est borné par la taille des trois champs.
+    #[test]
+    fn a_hundred_dated_citations_still_fit_under_the_cap_and_the_overhead_is_small() {
+        let entry = |n: usize, dated: bool| {
+            let mut check = CitationCheck {
+                raw: format!("article {n} du code civil, selon lequel « Texte. »"),
+                quote: (n < 30).then_some(QuoteCheck::Match),
+                note: Some(Note::NoRecord { family: "text", value: "é".repeat(40), date: None }),
+                ..verified()
+            };
+            if dated {
+                check.resolved.as_mut().unwrap().validity = Some(Validity {
+                    etat: Some(LegalStatus::Modifie),
+                    date_debut: CivilDate::new(2010, 5, 1),
+                    date_fin: CivilDate::new(2011, 6, 12),
+                });
+            }
+            check
+        };
+        let size = |dated: bool| {
+            let citations: Vec<CitationCheck> = (0..100).map(|n| entry(n, dated)).collect();
+            let json = serde_json::to_string(&VerifyView::from(output(citations, 100))).unwrap();
+            let value: Value = serde_json::from_str(&json).unwrap();
+            assert_eq!(value["citations"].as_array().unwrap().len(), 100, "aucune coupe");
+            assert!(value.get("truncated").is_none() && value.get("note").is_none());
+            json.chars().count()
+        };
+        let (plain, dated) = (size(false), size(true));
+        assert!(dated <= 45_000, "{dated}");
+        // Cas le plus lourd (MODIFIE, deux dates) : 67 caractères par article résolu (le plan
+        // en prévoyait 75) ; une version en vigueur sans fin en coûte une quarantaine.
+        assert_eq!(dated - plain, 100 * 67, "surcoût par article ; plain={plain} dated={dated}");
     }
 
     #[test]

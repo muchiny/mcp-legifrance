@@ -151,7 +151,9 @@ mod tests {
                     "kind": "article",
                     "citation": "Code civil, art. 9",
                     "source_url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288",
-                    "confidence": "high"
+                    "confidence": "high",
+                    "etat": "VIGUEUR",
+                    "date_debut": "2016-10-01"
                 }],
                 "note": "Current version in force since 2016-10-01."
             })

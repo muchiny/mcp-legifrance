@@ -1,5 +1,6 @@
 //! Règles de rendu communes aux vues (05 §5.0.4, §1.4 règle 9).
 
+use lf_application::citation::Validity;
 use lf_domain::{
     date::{CivilDate, open_ended},
     status::LegalStatus,
@@ -23,6 +24,25 @@ pub(crate) fn etat_code(status: Option<&LegalStatus>) -> Option<String> {
 /// Date ISO `AAAA-MM-JJ`, sauf dans la zone sentinelle (2222-01-01 et après), qui vaut « absente ».
 pub(crate) fn date_unless_sentinel(date: Option<CivilDate>) -> Option<String> {
     open_ended(date).map(|date| date.to_string())
+}
+
+/// Période de validité d'un article résolu, rendue champ par champ (D-03) : l'`etat` de l'API et
+/// les deux dates ISO, la fin sentinelle (2999) et toute valeur absente étant omises.
+#[derive(Debug, Default)]
+pub(crate) struct ValidityFields {
+    pub(crate) etat: Option<String>,
+    pub(crate) date_debut: Option<String>,
+    pub(crate) date_fin: Option<String>,
+}
+
+impl From<Option<Validity>> for ValidityFields {
+    fn from(validity: Option<Validity>) -> Self {
+        validity.map_or_else(Self::default, |validity| Self {
+            etat: etat_code(validity.etat.as_ref()),
+            date_debut: date_unless_sentinel(validity.date_debut),
+            date_fin: date_unless_sentinel(validity.date_fin),
+        })
+    }
 }
 
 #[cfg(test)]

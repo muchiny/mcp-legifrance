@@ -413,6 +413,25 @@ mod tests {
         assert_eq!(output.note, None);
     }
 
+    /// D-03 : l'enregistrement officiel d'un article vérifié porte la période de sa version.
+    #[tokio::test]
+    async fn the_record_of_a_verified_article_carries_its_validity() {
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1)));
+        let output = run(
+            &corpus,
+            PisteEnvironment::Production,
+            Some("Voir l'article 9 du code civil."),
+            None,
+        )
+        .await
+        .unwrap();
+        let validity = output.citations[0].resolved.as_ref().unwrap().validity.as_ref().unwrap();
+        assert_eq!(validity.date_debut, CivilDate::new(2016, 10, 1));
+        assert_eq!(validity.date_fin, None);
+        assert_eq!(validity.etat, Some(LegalStatus::Vigueur));
+    }
+
     /// L2-17 : la subdivision fait partie de la clé de résolution. Le même article cité une fois
     /// avec alinéa et une fois sans ne partage pas sa résolution, donc la note de subdivision ne
     /// passe pas de l'une à l'autre.
