@@ -1183,6 +1183,8 @@ Chemins de résolution (00 §3, §8 ; détail : annexe B, 04 §7) :
 
 **Texte cité sans numéro (1.0.1, L2-10).** Pour une citation de texte sans numéro (« loi du 1er juillet 1901 », « article 34 de la Constitution du 4 octobre 1958 »), la note de `fr_resolve` et de `fr_verify_citations` est « A text cited without a number cannot be checked here; find it with fr_search (query: its title and date). » ; candidats vides, statut `unresolvable`. Les avenants, JORF et alinéas du Préambule gardent « Not checkable in this version (…). »
 
+**Notes de version et de subdivision (1.0.1, L2-12, L2-17).** Les règles de §5.9 valent aussi pour `fr_resolve` : avec `date`, une version lue qui n'est plus en vigueur porte la note « This is the version in force on {date} (etat={etat}, ended {date_fin}); the current text may differ: read it without a date. » (défaut journey_patrimoine-14) ; un article cité avec une subdivision (alinéa, point…) porte en dernier « The sub-division was not checked, only the article. » (gap3-8). Une seule note, composée dans l'ordre de §5.9, chaque note suivante n'étant ajoutée que si elle tient en entier sous 200 caractères.
+
 ### 5.11 `fr_get_related` (v0.3, M7)
 
 **Objectif.** Naviguer dans les liens d'un article ou d'une décision.
