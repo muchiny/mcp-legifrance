@@ -2,7 +2,7 @@
 //! §4.12).
 //!
 //! ```text
-//! convention = conv_kind [ WS conv_title ] [ WS "du" WS DATE ] [ WS? "(" conv_ids ")" ]
+//! convention = conv_kind [ WS conv_title ] [ WS "du" WS DATE ] [ WS? "(" conv_ids ")" | WS conv_ids ]
 //!            | conv_ids
 //!            | "Avenant" WS NUM_SIGN INT [ WS "du" WS DATE ] [ WS "à la" WS convention ]
 //! conv_ids   = idcc_part [ SEP brochure_part ] | brochure_part [ SEP idcc_part ]
@@ -10,9 +10,9 @@
 //!
 //! Deux précisions sur le texte du spec. Un nom de nature seul (« convention collective »,
 //! `CCN`, « Accord ») ne cite rien : il faut en plus un titre, une date ou des identifiants. Le
-//! titre `conv_title` court jusqu'à « du » DATE, une parenthèse, une ponctuation forte ou la fin du
-//! texte ; au-delà de 120 caractères sans rien de tout cela, ce n'est plus un titre et il est
-//! abandonné. Le numéro ACCO (`T09426064936`) n'est pas reconnu en v0.2. Les plages des
+//! titre `conv_title` court jusqu'à « du » DATE, une parenthèse, une ponctuation forte, des
+//! identifiants lisibles (« IDCC 1486 ») ou la fin du texte ; au-delà de 120 caractères sans rien
+//! de tout cela, ce n'est plus un titre et il est abandonné. Le numéro ACCO (`T09426064936`) n'est pas reconnu en v0.2. Les plages des
 //! candidats sont des offsets du texte d'ORIGINE (`Normalized::orig_range`), celles des ancres
 //! des offsets de `Normalized::text`.
 
@@ -102,14 +102,21 @@ fn parenthesized(w: &Win, p: usize) -> Option<(usize, Ids)> {
     Some((w.cs(q, ")")?, ids))
 }
 
-/// `conv_title` : texte jusqu'à « du » DATE, une ponctuation forte ou la fin du texte, d'au plus
-/// 120 caractères. `p` est la fin de la nature ; rend la fin du titre (sans espace finale) et son
+/// `WS conv_ids` : des identifiants nus, sans parenthèses (« convention collective IDCC 1486 »).
+fn bare_ids(w: &Win, p: usize) -> Option<(usize, Ids)> {
+    ids(w, w.ws(p)?)
+}
+
+/// `conv_title` : texte jusqu'à « du » DATE, une ponctuation forte, des identifiants lisibles
+/// (`idcc_part` ou `brochure_part`) ou la fin du texte, d'au plus 120 caractères. `p` est la fin de la nature ; rend la fin du titre (sans espace finale) et son
 /// texte.
 fn title(w: &Win, p: usize) -> Option<(usize, String)> {
     let start = w.ws(p)?;
     let limit = (start + TITLE_MAX).min(w.len());
-    let stops =
-        |c: char, i: usize| TITLE_STOPS.contains(&c) || (c == ' ' && w.du_date(i).is_some());
+    let stops = |c: char, i: usize| {
+        TITLE_STOPS.contains(&c)
+            || (c == ' ' && (w.du_date(i).is_some() || bare_ids(w, i).is_some()))
+    };
     let stop = (p..limit).find(|&i| w.at(i).is_some_and(|c| stops(c, i)));
     let mut end = stop.or((limit == w.len()).then_some(limit))?;
     while end > start && w.at(end - 1) == Some(' ') {
@@ -155,7 +162,7 @@ fn named(w: &Win, s: usize) -> Option<Parsed> {
     let p = title.as_ref().map_or(p, |(end, _)| *end);
     let date = w.du_date(p);
     let p = date.map_or(p, |d| d.end);
-    let parens = parenthesized(w, p);
+    let parens = parenthesized(w, p).or_else(|| bare_ids(w, p));
     let end = parens.as_ref().map_or(p, |(end, _)| *end);
     let informative = title.is_some() || date.is_some() || parens.is_some();
     informative.then(|| Parsed {
@@ -500,6 +507,101 @@ mod tests {
         let all = found("CCN Syntec (art. 3) IDCC 1486", &["IDCC"]);
         let texts: Vec<&str> = all.iter().map(|f| f.text.as_str()).collect();
         assert_eq!(texts, ["CCN Syntec", "IDCC 1486"]);
+    }
+
+    #[test]
+    fn l1_05_bare_identifiers_after_the_kind_are_read_not_swallowed_by_the_title() {
+        // Cas réel de l'E2E (resolve-7) : sans parenthèses, « IDCC 1486 » était avalé comme titre.
+        let f = one("convention collective IDCC 1486", &["IDCC"]);
+        assert_eq!(f.text, "convention collective IDCC 1486");
+        let want =
+            Want { kind: Some(ConventionKind::Convention), idcc: Some(1486), ..Want::default() };
+        assert_eq!(f.value, convention(want));
+        let g = one("CCN IDCC 1486", &["IDCC"]);
+        assert_eq!(g.text, "CCN IDCC 1486");
+        assert_eq!(
+            g.value,
+            convention(Want {
+                kind: Some(ConventionKind::Ccn),
+                idcc: Some(1486),
+                ..Want::default()
+            })
+        );
+        let h = one("convention collective IDCC 1486, brochure n° 3018", &["IDCC"]);
+        assert_eq!(h.text, "convention collective IDCC 1486, brochure n° 3018");
+        let want = Want {
+            kind: Some(ConventionKind::Convention),
+            idcc: Some(1486),
+            brochure: Some(3018),
+            ..Want::default()
+        };
+        assert_eq!(h.value, convention(want));
+        let i = one("convention collective brochure n° 3018", &["brochure"]);
+        let want = Want {
+            kind: Some(ConventionKind::Convention),
+            brochure: Some(3018),
+            ..Want::default()
+        };
+        assert_eq!(i.value, convention(want));
+    }
+
+    #[test]
+    fn l1_05_a_title_is_kept_when_the_identifiers_follow_it() {
+        let input = "convention collective nationale des bureaux d'études techniques IDCC 1486";
+        let f = one(input, &["IDCC"]);
+        assert_eq!(f.text, input);
+        let want = Want {
+            kind: Some(ConventionKind::Ccn),
+            idcc: Some(1486),
+            title: Some("des bureaux d'études techniques"),
+            ..Want::default()
+        };
+        assert_eq!(f.value, convention(want));
+        // Titre, date, puis identifiants nus.
+        let g = one("convention collective de l'édition du 14 janvier 2000 IDCC 2121", &["IDCC"]);
+        let want = Want {
+            kind: Some(ConventionKind::Convention),
+            idcc: Some(2121),
+            title: Some("de l'édition"),
+            date: Some((2000, 1, 14)),
+            ..Want::default()
+        };
+        assert_eq!(g.value, convention(want));
+    }
+
+    #[test]
+    fn l1_05_neighbours_are_unchanged() {
+        // Une parenthèse reste prioritaire (p182, p184).
+        let f = one("CCN Syntec (IDCC 1486)", &["IDCC"]);
+        let want = Want {
+            kind: Some(ConventionKind::Ccn),
+            idcc: Some(1486),
+            title: Some("Syntec"),
+            ..Want::default()
+        };
+        assert_eq!(f.value, convention(want));
+        // Un IDCC mal formé ou un mot « IDCC » sans nombre reste dans le titre.
+        let g = one("convention collective de l'IDCC en vigueur", &["convention"]);
+        let want = Want {
+            kind: Some(ConventionKind::Convention),
+            title: Some("de l'IDCC en vigueur"),
+            ..Want::default()
+        };
+        assert_eq!(g.value, convention(want));
+        let h = one("convention collective IDCC 12345", &["onvention"]);
+        let want = Want {
+            kind: Some(ConventionKind::Convention),
+            title: Some("IDCC 12345"),
+            ..Want::default()
+        };
+        assert_eq!(h.value, convention(want));
+    }
+
+    #[test]
+    fn l1_05_the_sentence_gives_a_single_citation() {
+        let input = "Selon la convention collective IDCC 1486, les salariés bénéficient du préavis";
+        let f = one(input, &["onvention"]);
+        assert_eq!(f.text, "convention collective IDCC 1486");
     }
 
     #[test]
