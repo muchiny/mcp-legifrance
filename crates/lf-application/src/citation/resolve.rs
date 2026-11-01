@@ -688,11 +688,13 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
     /// constitutionnel).
     async fn lookup(&self, spec: Lookup) -> Resolution {
         let mut hits = Vec::new();
+        let mut number = String::new();
         for form in &spec.forms {
             match self.by_number(spec.fond, spec.kind, form).await {
                 Ok(found) if found.is_empty() => {}
                 Ok(found) => {
                     hits = found;
+                    number.clone_from(form);
                     break;
                 }
                 Err(error) => return Resolution::failed(error),
@@ -705,6 +707,12 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             return Resolution::unresolvable(spec.absent);
         }
         if hits.len() > CONSULT_LIMIT {
+            if let Some(cited) = spec.date
+                && let Some(dates) = hits.iter().map(judged_on).collect::<Option<Vec<_>>>()
+                && !dates.contains(&cited)
+            {
+                return no_record_at_date(&number, cited);
+            }
             return Resolution::of(candidates_of_hits(&hits));
         }
         let mut found: Vec<(DocumentId, Decision)> = Vec::new();
@@ -718,6 +726,11 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         }
         if found.is_empty() {
             return Resolution::unresolvable(spec.absent);
+        }
+        if let Some(cited) = spec.date
+            && none_on_the_day(&found, cited)
+        {
+            return no_record_at_date(&number, cited);
         }
         choose_decision(&found, spec.date, spec.cc_type, spec.chamber)
     }
@@ -1112,6 +1125,37 @@ fn candidates_of_hits(hits: &[SearchHit]) -> Outcome {
         })
         .collect();
     Outcome::Candidates { items, note: Note::Candidates { n: hits.len() } }
+}
+
+/// Date de la décision, lue dans le titre du hit (« Cour de cassation, civile, Chambre sociale,
+/// 21 mai 2025, 22-11.901 », « Conseil d'État, …, 30/01/2020, 419837 »). Les hits JURI, CETAT et
+/// CONSTIT n'ont aucune date propre : `date`, `datePublication` et `dateSignature` valent null.
+/// Seule la première décision du titre compte (celui du Conseil constitutionnel cite des lois).
+/// `None` si le titre manque ou ne se lit pas.
+fn judged_on(hit: &SearchHit) -> Option<CivilDate> {
+    let title = hit.title.as_deref()?;
+    parse(title).into_iter().find_map(|item| match item.value {
+        CitationRef::Decision(decision) => Some(decision.date),
+        _ => None,
+    })?
+}
+
+/// Plusieurs décisions portent ce numéro et toutes sont datées d'un autre jour que `cited`. Une
+/// décision sans date ne peut rien écarter : elle laisse la question ouverte.
+fn none_on_the_day(found: &[(DocumentId, Decision)], cited: CivilDate) -> bool {
+    found.len() > 1
+        && found.iter().all(|(_, decision)| decision.date_texte.is_some_and(|date| date != cited))
+}
+
+/// Des enregistrements portent ce numéro, aucun la date citée : `unresolvable`, et non « rien
+/// trouvé » (`absent`), puisque des enregistrements existent. La note dit que rien ne correspond
+/// au numéro ce jour-là.
+fn no_record_at_date(number: &str, cited: CivilDate) -> Resolution {
+    Resolution::unresolvable(Note::NoRecord {
+        family: "decision",
+        value: number.to_owned(),
+        date: VersionDate::try_from(cited).ok(),
+    })
 }
 
 /// Formes essayées pour le numéro d'une décision de cette juridiction, et le fond à interroger.
@@ -1901,6 +1945,189 @@ mod tests {
         );
         assert_eq!(note.text(), "6 records match; call fr_resolve to list them.");
         assert_eq!(corpus.calls_of("get_decision"), 0);
+    }
+
+    const SOC_CITED: &str = "Cass. soc., 17 mars 2021, n° 00-00.000";
+
+    fn juri_ids(count: usize) -> Vec<String> {
+        (1..=count).map(|n| format!("JURITEXT{n:012}")).collect()
+    }
+
+    /// errors-6 : plusieurs enregistrements portent le numéro, aucun à la date citée.
+    #[tokio::test]
+    async fn records_of_the_number_none_dated_the_cited_day_are_unresolvable() {
+        let ids = juri_ids(3);
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(ids.iter().map(|id| hit(Fond::Juri, id)).collect()));
+        for (id, year) in ids.iter().zip([1989, 2003, 2004]) {
+            corpus.push_get_decision(Ok(decision(id, civil(year, 3, 17), None)));
+        }
+        let resolution = resolve(&corpus, SOC_CITED).await;
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable);
+        assert_eq!(note(&resolution), "No decision record matches 00-00.000 on 2021-03-17.");
+        assert_eq!(corpus.calls_of("get_decision"), 3);
+    }
+
+    /// Jumeaux « vrai positif conservé » : un enregistrement du jour cité reste le choix sûr ; une
+    /// décision sans date ne peut rien écarter ; sans date citée, rien n'est écarté.
+    #[tokio::test]
+    async fn a_record_of_the_cited_day_or_an_undated_one_keeps_the_choice() {
+        let ids = juri_ids(2);
+        let run = |dates: [Option<CivilDate>; 2], text: &'static str| {
+            let ids = ids.clone();
+            async move {
+                let corpus = FakeCorpus::new();
+                corpus.push_find_by_number(Ok(ids.iter().map(|id| hit(Fond::Juri, id)).collect()));
+                for (id, date) in ids.iter().zip(dates) {
+                    let mut record = decision(id, civil(2000, 1, 1), None);
+                    record.date_texte = date;
+                    corpus.push_get_decision(Ok(record));
+                }
+                resolve(&corpus, text).await
+            }
+        };
+        let day = Some(civil(2021, 3, 17));
+        let other = Some(civil(2003, 3, 17));
+        let chosen = run([other, day], SOC_CITED).await;
+        assert_eq!(status(&chosen), CheckStatus::Verified);
+        assert_eq!(confidence_of(&chosen.outcome), Some(Confidence::High));
+        assert_eq!(record_id(&chosen).as_deref(), Some("JURITEXT000000000002"));
+        let undated = run([other, None], SOC_CITED).await;
+        assert_eq!(status(&undated), CheckStatus::Ambiguous);
+        let no_date = run([other, other], "Cass. soc., n° 00-00.000").await;
+        assert_eq!(status(&no_date), CheckStatus::Ambiguous);
+    }
+
+    /// errors-6, au-delà de cinq hits : les hits JURI n'ont pas de date, c'est le titre qui la dit
+    /// (comme en bac à sable).
+    #[tokio::test]
+    async fn more_than_five_hits_titled_with_other_days_are_unresolvable_without_a_consultation() {
+        let ids = juri_ids(8);
+        let titles = [
+            "Cour de cassation, civile, Chambre sociale, 9 décembre 1989, 00-00.000, Publié au bulletin",
+            "Cour de cassation, Chambre sociale, du 12 mars 2003, 00-00.000",
+            "Cour de cassation, civile, Chambre sociale, 4 mai 2004, 00-00.000",
+            "Cour de cassation, civile, Chambre sociale, 1 mai 2004, 00-00.000",
+            "Cour de cassation, civile, Chambre sociale, 2 mai 2004, 00-00.000",
+            "Cour de cassation, civile, Chambre sociale, 3 mai 2004, 00-00.000",
+            "Cour de cassation, civile, Chambre sociale, 5 mai 2004, 00-00.000",
+            "Cour de cassation, civile, Chambre sociale, 6 mai 2004, 00-00.000",
+        ];
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(ids
+            .iter()
+            .zip(titles)
+            .map(|(id, title)| titled(Fond::Juri, id, title))
+            .collect()));
+        let resolution = resolve(&corpus, SOC_CITED).await;
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable);
+        assert_eq!(note(&resolution), "No decision record matches 00-00.000 on 2021-03-17.");
+        assert_eq!(corpus.calls_of("get_decision"), 0);
+    }
+
+    /// Jumeaux : un titre à la date citée garde les candidats ; un titre illisible n'écarte rien ;
+    /// sans date citée, rien n'est filtré.
+    #[tokio::test]
+    async fn more_than_five_hits_keep_their_candidates_when_a_title_fits_or_cannot_be_read() {
+        let other = "Cour de cassation, civile, Chambre sociale, 4 mai 2004, 00-00.000";
+        let day = "Cour de cassation, civile, Chambre sociale, 17 mars 2021, 00-00.000";
+        let ids = juri_ids(7);
+        let run = |odd: Option<&'static str>, text: &'static str| {
+            let ids = ids.clone();
+            async move {
+                let mut hits: Vec<SearchHit> =
+                    ids.iter().map(|id| titled(Fond::Juri, id, other)).collect();
+                hits[3].title = odd.map(str::to_owned);
+                let corpus = FakeCorpus::new();
+                corpus.push_find_by_number(Ok(hits));
+                resolve(&corpus, text).await
+            }
+        };
+        for (odd, text) in [
+            (Some(day), SOC_CITED),
+            (Some("Chambre sociale"), SOC_CITED),
+            (None, SOC_CITED),
+            (Some(other), "Cass. soc., n° 00-00.000"),
+        ] {
+            let resolution = run(odd, text).await;
+            let (items, note) = candidates_of(resolution.outcome).expect("des candidats");
+            assert_eq!(items.len(), MAX_CANDIDATES, "{odd:?} {text}");
+            assert_eq!(note, Note::Candidates { n: 7 }, "{odd:?} {text}");
+        }
+    }
+
+    #[test]
+    fn a_decision_title_gives_its_own_date_and_never_a_cited_text() {
+        let dated = |title: &str| judged_on(&titled(Fond::Juri, "JURITEXT000000000001", title));
+        assert_eq!(
+            dated("Cour de cassation, civile, Chambre sociale, 21 mai 2025, 22-11.901"),
+            Some(civil(2025, 5, 21))
+        );
+        assert_eq!(
+            dated("Conseil d'État, 10ème - 9ème chambres réunies, 30/01/2020, 419837"),
+            Some(civil(2020, 1, 30))
+        );
+        assert_eq!(
+            dated(
+                "Décision 2000-433 DC - 27 juillet 2000 - Loi modifiant la loi n° 86-1067 du 30 septembre 1986"
+            ),
+            Some(civil(2000, 7, 27))
+        );
+        // Un titre sans date, sans décision (un texte seul) ou absent ne se lit pas.
+        assert_eq!(dated("Cour de cassation, Chambre sociale, 22-11.901"), None);
+        assert_eq!(dated("Loi n° 2016-1321 du 7 octobre 2016"), None);
+        assert_eq!(judged_on(&hit(Fond::Juri, "JURITEXT000000000001")), None);
+    }
+
+    #[test]
+    fn no_decision_is_on_the_day_only_when_several_are_all_dated_another_day() {
+        let day = civil(2025, 6, 4);
+        let other = [civil(2025, 6, 5), civil(2025, 6, 6)];
+        assert!(none_on_the_day(&found_of(&other, None), day));
+        // Une seule décision : c'est un écart de date, pas une absence.
+        assert!(!none_on_the_day(&found_of(&other[..1], None), day));
+        assert!(!none_on_the_day(&found_of(&[other[0], day], None), day));
+        let mut undated = found_of(&other, None);
+        undated[1].1.date_texte = None;
+        assert!(!none_on_the_day(&undated, day));
+    }
+
+    #[test]
+    fn the_absence_note_drops_a_date_outside_the_version_range() {
+        let resolution = no_record_at_date("00-00.000", civil(1400, 1, 1));
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable);
+        assert_eq!(note(&resolution), "No decision record matches 00-00.000.");
+    }
+
+    /// Reports de W3 (possibles depuis L1-08) : « loi 89-462 » et « loi 78-17 », sans « n° » ni
+    /// date, cherchent la forme courte et rendent le candidat en confiance moyenne (L2-02).
+    #[tokio::test]
+    async fn a_pre_2000_law_cited_without_n_degree_is_searched_by_its_short_number() {
+        for (cited, number, id, title) in [
+            (
+                "loi 89-462",
+                "89-462",
+                "LEGITEXT000006069108",
+                "Loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs",
+            ),
+            (
+                "loi 78-17",
+                "78-17",
+                "LEGITEXT000006068624",
+                "Loi n° 78-17 du 6 janvier 1978 relative à l'informatique, aux fichiers et aux libertés",
+            ),
+        ] {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![loda_hit(id, "LOI", title, None)]));
+            let resolution = resolve(&corpus, cited).await;
+            assert_eq!(record_id(&resolution).as_deref(), Some(id), "{cited}");
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium), "{cited}");
+            assert_eq!(
+                corpus.seen_requests(),
+                vec![find_request(Fond::Loda, NumberKind::Text, number)],
+                "{cited}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -3174,7 +3401,8 @@ mod tests {
         let (_, note) =
             candidates_of(choose_decision(&twice, Some(day), None, None).outcome).unwrap();
         assert_eq!(note, Note::Candidates { n: 2 });
-        // Plusieurs décisions, aucune du jour cité.
+        // Plusieurs décisions, aucune du jour cité : `lookup` l'écarte avant (`none_on_the_day`),
+        // ce choix ne voit plus que les listes qu'une décision sans date laisse ouvertes.
         let other_days = found_of(&[civil(2025, 6, 5), civil(2025, 6, 6)], None);
         let (_, note) =
             candidates_of(choose_decision(&other_days, Some(day), None, None).outcome).unwrap();
