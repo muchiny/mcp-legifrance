@@ -90,10 +90,10 @@ fn starts_with_number(text: &str) -> bool {
         .any(|candidate| candidate.chars().next().is_some_and(|c| c.is_ascii_digit()))
 }
 
-/// Intervalles de `read` triés et fusionnés (les spans vides sont ignorés).
+/// Intervalles de `read` triés et fusionnés. Un span vide (ou inversé) reste un intervalle qui ne
+/// couvre aucun octet : [`is_covered`] exige `start <= at < end`.
 fn merged(read: &[Span]) -> Vec<(usize, usize)> {
-    let mut spans: Vec<(usize, usize)> =
-        read.iter().filter(|span| span.start < span.end).map(|s| (s.start, s.end)).collect();
+    let mut spans: Vec<(usize, usize)> = read.iter().map(|s| (s.start, s.end)).collect();
     spans.sort_unstable();
     let mut out: Vec<(usize, usize)> = Vec::with_capacity(spans.len());
     for (start, end) in spans {
@@ -139,6 +139,19 @@ mod tests {
             // Le jumeau sans l'article refusé n'a rien d'illisible.
             assert!(!unread("L'article 1240 du code civil."), "{text}");
         }
+        // Entre deux citations lues, la mention refusée n'est pas couverte : les spans ne sont
+        // fusionnés que s'ils se touchent.
+        let between = "L'article 1240 du code civil ; CGI, art. 885-0 V bis A ; l'article 1241 du code civil.";
+        assert!(unread(between), "{between}");
+    }
+
+    /// Un span vide ne couvre rien, même posé sur le mot-clé.
+    #[test]
+    fn an_empty_span_covers_nothing() {
+        let text = "CGI, art. 885-0 V bis A";
+        let at = text.find("art.").unwrap();
+        assert!(unread_article_mentions(text, &[Span { start: at, end: at }]));
+        assert!(!unread_article_mentions(text, &[Span { start: at, end: text.len() }]));
     }
 
     #[test]

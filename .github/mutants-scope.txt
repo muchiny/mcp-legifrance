@@ -22,3 +22,4 @@ crates/lf-app/src/config.rs
 xtask/src/lock_descriptors.rs
 crates/lf-application/src/citation/policy.rs
 crates/lf-application/src/citation/notes.rs
+crates/lf-domain/src/citation/unread.rs

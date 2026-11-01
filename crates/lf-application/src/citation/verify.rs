@@ -269,6 +269,26 @@ mod tests {
     const CIVIL: &str = "LEGITEXT000006070721";
     const TRAVAIL: &str = "LEGITEXT000006072050";
 
+    /// Revue finale I3 : quand l'analyse atteint son garde-fou, la mention illisible qui suit n'est
+    /// pas signalée (les citations au-delà ne sont pas rendues) ; une citation de moins, elle l'est.
+    #[test]
+    fn the_unread_article_check_stops_at_the_parse_cap() {
+        let cap = ParseOptions::default().max_citations;
+        let text_with = |count: usize| {
+            let cites: Vec<String> =
+                (0..count).map(|i| format!("article {} du code civil.", 1000 + i)).collect();
+            format!("{} CGI, art. 885-0 V bis A.", cites.join(" "))
+        };
+        let full = text_with(cap);
+        let parsed = parse_with(&full, &ParseOptions::default());
+        assert_eq!(parsed.len(), cap);
+        assert!(!has_unread_article(&full, &parsed));
+        let short = text_with(cap - 1);
+        let parsed = parse_with(&short, &ParseOptions::default());
+        assert_eq!(parsed.len(), cap - 1);
+        assert!(has_unread_article(&short, &parsed));
+    }
+
     fn today() -> VersionDate {
         VersionDate::parse("2026-10-29").unwrap()
     }
