@@ -916,11 +916,11 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         Ok(match id {
             DocumentId::LegiArti(arti) => {
                 let article = self.corpus.get_article(&ArticleId::Legi(arti.clone())).await?;
-                found_with_text(id, &article, article.text.as_str())
+                found_article(id, &article)
             }
             DocumentId::KaliArti(arti) => {
                 let article = self.corpus.get_article(&ArticleId::Kali(arti.clone())).await?;
-                found_with_text(id, &article, article.text.as_str())
+                found_article(id, &article)
             }
             DocumentId::LegiText(text) => {
                 let date = cited
@@ -1207,6 +1207,19 @@ fn found_with_text<T: Citable>(id: &DocumentId, entity: &T, text: &str) -> Resol
     Resolution {
         official: official_text(text),
         ..verified(ResolvedRecord::of(id.clone(), entity), Confidence::High, None)
+    }
+}
+
+/// Article consulté par son identifiant : trouvé, avec la période de validité de la version lue
+/// (D-03), comme l'article trouvé par son numéro.
+fn found_article(id: &DocumentId, article: &lf_domain::entity::ArticleText) -> Resolution {
+    let record = ResolvedRecord {
+        validity: Validity::of(article),
+        ..ResolvedRecord::of(id.clone(), article)
+    };
+    Resolution {
+        official: official_text(article.text.as_str()),
+        ..verified(record, Confidence::High, None)
     }
 }
 
@@ -5470,6 +5483,51 @@ mod tests {
             None,
         )
         .await;
+    }
+
+    /// D-03-suite : un article lu par son identifiant porte la même période de validité que par
+    /// son numéro (ARTICLE LEGI et KALI) ; une décision, un texte LODA ou une délibération n'en
+    /// portent jamais. Une réponse sans état ni date ne fabrique pas de période.
+    #[tokio::test]
+    async fn an_article_read_by_its_identifier_keeps_its_validity() {
+        let validity_by_id = |corpus: FakeCorpus, prefix, digits| async move {
+            let item = id_citation(prefix, digits, None);
+            let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+            assert_eq!(status(&resolution), CheckStatus::Verified, "{prefix:?}");
+            resolution.outcome.record().unwrap().validity.clone()
+        };
+        let past = ArticleText {
+            etat: Some(LegalStatus::Modifie),
+            date_debut: Some(civil(2010, 5, 1)),
+            date_fin: Some(civil(2011, 6, 12)),
+            ..article(Some("779"))
+        };
+        let expected = Some(Validity {
+            etat: Some(LegalStatus::Modifie),
+            date_debut: Some(civil(2010, 5, 1)),
+            date_fin: Some(civil(2011, 6, 12)),
+        });
+        for (prefix, digits) in [(IdPrefix::LegiArti, 6_419_288), (IdPrefix::KaliArti, 5_805_295)] {
+            let corpus = FakeCorpus::new();
+            corpus.push_get_article(Ok(past.clone()));
+            assert_eq!(validity_by_id(corpus, prefix, digits).await, expected, "{prefix:?}");
+        }
+        // Jumeau : l'article sans état ni date n'a pas de période.
+        let bare =
+            ArticleText { etat: None, date_debut: None, date_fin: None, ..article(Some("779")) };
+        let corpus = FakeCorpus::new();
+        corpus.push_get_article(Ok(bare));
+        assert_eq!(validity_by_id(corpus, IdPrefix::LegiArti, 6_419_288).await, None);
+        // Les autres familles n'en portent pas.
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(decision("JURITEXT000051743650", civil(2025, 6, 4), None)));
+        assert_eq!(validity_by_id(corpus, IdPrefix::JuriText, 51_743_650).await, None);
+        let corpus = FakeCorpus::new();
+        corpus.push_get_act(Ok(Act {
+            text_id: LegiTextId::parse("LEGITEXT000033205014").unwrap(),
+            body: TextBody::default(),
+        }));
+        assert_eq!(validity_by_id(corpus, IdPrefix::LegiText, 33_205_014).await, None);
     }
 
     #[tokio::test]
