@@ -3,7 +3,7 @@
 > Ce document applique les décisions normatives de [00-decisions.md](00-decisions.md) (révision 2, amendements `AM-01…AM-43`, décisions C1-C7 du 2026-10-16). Il en reprend les noms, les crates, les ports, les erreurs et les jalons sans y déroger. Il décrit la **structure** du produit : crates, dépendances, ports, cas d'usage, décorateurs, composition, erreurs, concurrence et observabilité.
 > **Statut** : M0-M1 livrés (plan 1), le reste est un plan. Pour M0-M1, le code livré et le plan 1 font foi (00 en-tête, clause de priorité) ; leurs écarts avec ce document sont listés en [00 §11.1](00-decisions.md#111-écarts-et-reports) et résumés ci-dessous là où ils touchent la structure : `check-arch` et sa liste blanche (§4), `CivilDate` (§3.1, §5), MSRV 1.88 et toolchain (§2.2, §3.0), lints (§3.0.3).
 > Document propriétaire (00 §0) : 02 fait foi pour les **dépendances, les crates et les règles d'architecture**. Il renvoie sans recopier le détail à 04 pour les internes et les fixtures de `lf-adapter-piste`, à 05 pour le contrat des outils et le texte des messages, à l'annexe D pour le protocole, à 06 pour les tests, les chemins de tests, la CI, les lints et les règles de `check-arch` (dont R9), à 08 pour la distribution et à 09 pour les registres des risques et des vérifications.
-> Les autres documents détaillent le reste : le domaine dans [03-domaine.md](03-domaine.md), l'adapter PISTE dans [04-adapter-piste.md](04-adapter-piste.md), les schémas d'outils dans [05-outils-mcp.md](05-outils-mcp.md), les tests et la CI dans [06-qualite.md](06-qualite.md), l'ordre des tâches de M2 à M9 dans [07-feuille-de-route.md](07-feuille-de-route.md) (M0 et M1 livrés, plan 1) et sa déclinaison exécutable dans `docs/superpowers/plans/` (« plan N, tâche M »), la table des jalons de [00 §11](00-decisions.md#11-jalons-identiques-partout), la distribution dans [08-distribution.md](08-distribution.md) et le registre des risques et des vérifications dans [09-risques-et-questions.md](09-risques-et-questions.md). Le protocole est détaillé dans [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md).
+> Les autres documents détaillent le reste : le domaine dans [03-domaine.md](03-domaine.md), l'adapter PISTE dans [04-adapter-piste.md](04-adapter-piste.md), les schémas d'outils dans [05-outils-mcp.md](05-outils-mcp.md), les tests et la CI dans [06-qualite.md](06-qualite.md), l'ordre des tâches de M2 à M9 dans [07-feuille-de-route.md](07-feuille-de-route.md) (M0 et M1 livrés, plan 1) et sa déclinaison exécutable dans les plans d'implémentation (« plan N, tâche M », plans retirés : voir [README du plan §3.5](README.md#35-plans-dimplémentation-retirés)), la table des jalons de [00 §11](00-decisions.md#11-jalons-identiques-partout), la distribution dans [08-distribution.md](08-distribution.md) et le registre des risques et des vérifications dans [09-risques-et-questions.md](09-risques-et-questions.md). Le protocole est détaillé dans [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md).
 >
 > Conventions :
 > - Les extraits Rust sont **non compilés, à valider au jalon qui les implémente** (sauf les éléments marqués « livré », cités avec fichier:ligne).
@@ -228,7 +228,6 @@ mcp-legifrance/                      # ex-mcp-ligitfrance, renommé par son prop
     ├── plan/                        # ce plan (README.md : index ; 00…09, annexes/) ; annexes/donnees/ : golden de parité et scripts
     │                                # versionnés scripts/golden.py, check_golden.py, dto_repair_check.py (00 §10)
     ├── adr/                         # README.md + 0001…0017 (0001 et 0002 livrés avec M0 ; 0015 et 0016 = ex-0001/0002 du plan ; 0017 : plan 2c)
-    ├── superpowers/plans/           # plans exécutables (plan 1 = M0 + M1, livré) ; ils déclinent 07-feuille-de-route.md
     └── recherche/                   # rapports bruts 01…09
 ```
 
@@ -1523,7 +1522,7 @@ Le test e2e `stdout_contains_only_jsonrpc` (D-46) vérifie que chaque ligne de s
 - [ ] **Instructions** : mentionner l'outil si nécessaire, puis lancer le test de dérive et `cargo xtask instructions-size`.
 - [ ] `cargo xtask lock-descriptors --update` (05 §9.4), puis commit de `tests/tools.lock.json` et des snapshots `insta` ; la CI relance `--check`.
 - [ ] Tests : succès, chaque code d'erreur, une ligne d'audit par issue, budget de taille ([06-qualite.md](06-qualite.md)).
-- [ ] Mettre à jour `CHANGELOG.md` et la table des outils du plan en cours (`docs/superpowers/plans/`).
+- [ ] Mettre à jour `CHANGELOG.md` et la table des outils du plan d'implémentation du jalon.
 
 ### 12.2 Ajouter un adapter de corpus (DILA, M9)
 

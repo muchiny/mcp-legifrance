@@ -1,4 +1,4 @@
-- [ ] Jalon et tâche : plan et tâche de `docs/superpowers/plans/` indiqués
+- [ ] Jalon et tâche : plan d'implémentation et tâche indiqués
 - [ ] Surface MCP modifiée : `cargo xtask lock-descriptors --update` lancé, diff du verrou relu, rubrique « Tool surface » du CHANGELOG
 - [ ] Règles de dépendance : licence, âge ≥ 14 jours, exigence au niveau mineur dans `[workspace.dependencies]`, déclarée seulement dans le crate qui l'emploie, justification, `cargo deny` et `cargo machete` verts
 - [ ] Aucun contenu copié d'un projet AGPL (juridix, mcp-legifrance de Ktulu-Analog) : idées seulement, 08 §9.4

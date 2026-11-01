@@ -63,5 +63,5 @@
 
 ## Références et sources
 
-- Plan : `docs/superpowers/plans/2026-10-29-fin-du-projet-parallele.md` (D9, D21) ; [00-decisions.md](../plan/00-decisions.md) §3, §5 ; [02-architecture.md](../plan/02-architecture.md) §8.5 ; [09-risques-et-questions.md](../plan/09-risques-et-questions.md) R-16, V-166, V-185 à V-189, Q6.
+- Plan : `2026-10-29-fin-du-projet-parallele.md`, plan retiré : voir [README du plan §3.5](../plan/README.md#35-plans-dimplémentation-retirés) (D9, D21) ; [00-decisions.md](../plan/00-decisions.md) §3, §5 ; [02-architecture.md](../plan/02-architecture.md) §8.5 ; [09-risques-et-questions.md](../plan/09-risques-et-questions.md) R-16, V-166, V-185 à V-189, Q6.
 - Code : `crates/lf-adapter-dila/src/{corpus,map,ingest,sync,registry,store,index}.rs` ; `crates/lf-app/src/{config,wiring}.rs` ; `deny.toml`.

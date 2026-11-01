@@ -7,11 +7,11 @@
 > **Conventions** :
 > - Les extraits Rust sont **non compilés, à valider au jalon qui l'implémente**. Les extraits YAML et TOML sont des **esquisses, à valider au jalon qui l'implémente**.
 > - Un point non vérifié est marqué **NON VÉRIFIÉ** suivi d'une étiquette `[V-xx · étiquette]`, reprise par le registre V-xx de [09-risques-et-questions.md](09-risques-et-questions.md). Les étiquettes déjà employées par d'autres documents du plan sont reprises telles quelles, sauf les alias des groupes fusionnés (09 §2.1), remplacés par leur étiquette de référence (index de 09 §2.19).
-> - Identifiants : défauts `D-01…D-47` ([recherche 02](../recherche/02-defauts.md) §1) ; points de parité `P-0xx`, écarts `E-xx` et scénarios d'erreur `S1…S17` ([recherche 01](../recherche/01-parite.md) §15, §14, §2.6) ; exigences protocolaires `C-xx` ([annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md) §8) ; questions ouvertes `Q1…Q17` (00 §13 : Q1 et Q2 sont décidées le 2026-10-16, Q16 et Q17 sont propres au livré, les autres portent une proposition adoptée par défaut, appliquée ici jusqu'à la réponse de l'utilisateur) ; amendements `AM-xx` (00 §14) ; décisions du propriétaire `C1…C7` du 2026-10-16 (00 §14, table des décisions). Les tâches `T-Mx-yy` sont celles de [07-feuille-de-route.md](07-feuille-de-route.md), déclinées par les plans exécutables de `docs/superpowers/plans/` (forme « plan N, tâche M ») ; ce document ne crée ni tâche `T-…`, ni risque `R-…`, ni vérification `V-…`. Les points différés de la revue de clôture M1 portent l'identifiant `M1-D1…M1-D24` (00 §11.1), distinct des défauts `D-01…`.
+> - Identifiants : défauts `D-01…D-47` ([recherche 02](../recherche/02-defauts.md) §1) ; points de parité `P-0xx`, écarts `E-xx` et scénarios d'erreur `S1…S17` ([recherche 01](../recherche/01-parite.md) §15, §14, §2.6) ; exigences protocolaires `C-xx` ([annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md) §8) ; questions ouvertes `Q1…Q17` (00 §13 : Q1 et Q2 sont décidées le 2026-10-16, Q16 et Q17 sont propres au livré, les autres portent une proposition adoptée par défaut, appliquée ici jusqu'à la réponse de l'utilisateur) ; amendements `AM-xx` (00 §14) ; décisions du propriétaire `C1…C7` du 2026-10-16 (00 §14, table des décisions). Les tâches `T-Mx-yy` sont celles de [07-feuille-de-route.md](07-feuille-de-route.md), déclinées par les plans d'implémentation exécutables (forme « plan N, tâche M », plans retirés : voir [README du plan §3.5](README.md#35-plans-dimplémentation-retirés)) ; ce document ne crée ni tâche `T-…`, ni risque `R-…`, ni vérification `V-…`. Les points différés de la revue de clôture M1 portent l'identifiant `M1-D1…M1-D24` (00 §11.1), distinct des défauts `D-01…`.
 > - Repères locaux, non transverses et propres à ce document : principes de test `PT1…PT11` (§1.2) et menaces `MEN-01…MEN-23` (§10.2). Ils ne se confondent ni avec les scénarios d'erreur `S1…S17`, ni avec les tâches `T-…`.
 > - « La référence Python » désigne `matematicsolutions/fr-eli-mcp@d3b5b13` (v0.5.3, Apache-2.0).
 
-Documents liés : [02-architecture.md](02-architecture.md) (crates, ports, décorateurs, erreurs), [03-domaine.md](03-domaine.md) (types et algorithmes purs), [04-adapter-piste.md](04-adapter-piste.md) (OAuth, résilience, fixtures, tests wiremock), [05-outils-mcp.md](05-outils-mcp.md) (outils, instructions, verrou, budgets), [docs/superpowers/plans/](../superpowers/plans/) (plans exécutables, tâches), [08-distribution.md](08-distribution.md) (release, signature), [09-risques-et-questions.md](09-risques-et-questions.md) (registres), [annexes/A-parite.md](annexes/A-parite.md) (parité et golden), [annexes/B-citations.md](annexes/B-citations.md) (corpus de citations), [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md) (protocole et conformité), ADR-0002 (`portes-qualite.md`, livré), ADR-0008, ADR-0010 et ADR-0016 ([index des ADR](../adr/README.md)).
+Documents liés : [02-architecture.md](02-architecture.md) (crates, ports, décorateurs, erreurs), [03-domaine.md](03-domaine.md) (types et algorithmes purs), [04-adapter-piste.md](04-adapter-piste.md) (OAuth, résilience, fixtures, tests wiremock), [05-outils-mcp.md](05-outils-mcp.md) (outils, instructions, verrou, budgets), plans d'implémentation exécutables (retirés), [08-distribution.md](08-distribution.md) (release, signature), [09-risques-et-questions.md](09-risques-et-questions.md) (registres), [annexes/A-parite.md](annexes/A-parite.md) (parité et golden), [annexes/B-citations.md](annexes/B-citations.md) (corpus de citations), [annexes/D-mcp-2026-07-28.md](annexes/D-mcp-2026-07-28.md) (protocole et conformité), ADR-0002 (`portes-qualite.md`, livré), ADR-0008, ADR-0010 et ADR-0016 ([index des ADR](../adr/README.md)).
 
 ---
 
@@ -1627,7 +1627,7 @@ Les volumes réels (grandes décisions, longues TOC, codes) ne sont connus qu'ap
 - **Modèle de PR** (`.github/pull_request_template.md`, 02 §2) :
 
 ```markdown
-- [ ] Jalon et tâche concernés (plan et tâche, `docs/superpowers/plans/`) :
+- [ ] Jalon et tâche concernés (plan d'implémentation et tâche) :
 - [ ] Surface MCP modifiée ? (descripteurs, instructions, capacités, versions de protocole)
       → `cargo xtask lock-descriptors --update`, diff du verrou relu, rubrique « Tool surface » du CHANGELOG
 - [ ] Règles de dépendance touchées ? (nouvelle dépendance : licence, âge ≥ 14 jours, exigence au niveau mineur dans `[workspace.dependencies]`, déclarée seulement dans le crate dont le code l'emploie, justification, `cargo deny` et `cargo machete` verts)
@@ -1665,7 +1665,7 @@ Les volumes réels (grandes décisions, longues TOC, codes) ne sont connus qu'ap
 
 ### 13.4 Définition de « terminé »
 
-Commune à toutes les tâches des plans exécutables de `docs/superpowers/plans/`. Une tâche est terminée quand **toutes** les cases applicables sont cochées :
+Commune à toutes les tâches des plans d'implémentation exécutables. Une tâche est terminée quand **toutes** les cases applicables sont cochées :
 
 - [ ] Le code respecte [00-decisions.md](00-decisions.md) ; tout écart est un ADR accepté.
 - [ ] `make ci` est vert (`fmt-check`, `lint`, `test`, `doc`, `arch`, `deny`, `machete`, `cov`), `make cov` est à 100 % des lignes, régions et fonctions, et le diff a 0 `MISSED` et 0 `TIMEOUT` (`make mutants FILE=…`, 00 §10).

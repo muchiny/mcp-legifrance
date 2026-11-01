@@ -58,4 +58,4 @@
 
 - Plan : [00-decisions.md](../plan/00-decisions.md) §2, §8 ; [04-adapter-piste.md](../plan/04-adapter-piste.md) §5.2 (mise en œuvre, repli prévu) ; [02-architecture.md](../plan/02-architecture.md) §3.0.1, §4.1 (R2, R6) ; [09-risques-et-questions.md](../plan/09-risques-et-questions.md) §2.20 (V-06) ; [06-qualite.md](../plan/06-qualite.md) §13.2 (gabarit).
 - Code : `crates/lf-adapter-piste/src/retry.rs` ; `backon-1.6.0/src/{retry.rs,sleep.rs,backoff/exponential.rs}` (index crates.io).
-- Plan d'implémentation : `docs/superpowers/plans/2026-10-21-m2c-adapter-piste.md` (tâche 9).
+- Plan d'implémentation : `2026-10-21-m2c-adapter-piste.md`, plan retiré : voir [README du plan §3.5](../plan/README.md#35-plans-dimplémentation-retirés) (tâche 9).
