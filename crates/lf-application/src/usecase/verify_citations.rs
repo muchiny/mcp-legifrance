@@ -105,7 +105,7 @@ impl<'a, C: LegalCorpus, K: Clock> VerifyCitationsUseCase<'a, C, K> {
         let note = if found == 0 {
             Some(Note::NoCitationRecognised.text())
         } else {
-            verified.unattached_quote.then(|| Note::QuoteNotAttached.text())
+            response_note(verified.unread_article, verified.unattached_quote)
         };
         Ok(VerifyCitationsOutput {
             found,
@@ -115,6 +115,16 @@ impl<'a, C: LegalCorpus, K: Clock> VerifyCitationsUseCase<'a, C, K> {
             note,
         })
     }
+}
+
+/// Note de la réponse quand des citations sont lues : l'article illisible d'abord (il manque aux
+/// citations rendues), puis le passage entre guillemets non rattaché ; les deux, si les deux.
+fn response_note(unread_article: bool, unattached_quote: bool) -> Option<String> {
+    let notes = [
+        unread_article.then_some(Note::ArticleNotRead),
+        unattached_quote.then_some(Note::QuoteNotAttached),
+    ];
+    notes.into_iter().flatten().reduce(Note::then).map(|note| note.text())
 }
 
 #[cfg(test)]
@@ -324,6 +334,43 @@ mod tests {
                 run(&corpus, PisteEnvironment::Production, Some(plain), None).await.unwrap();
             assert_eq!(output.note, None, "{plain}");
         }
+    }
+
+    /// Revue finale I3 : un article au numéro illisible, refusé en entier par le parseur (filet
+    /// N36), ne disparaît plus sans trace quand d'autres citations sont lues ; la note vient avant
+    /// celle d'un passage non rattaché, et un texte sans article illisible n'a pas de note.
+    #[tokio::test]
+    async fn an_article_that_cannot_be_read_is_flagged_next_to_the_citations_that_are() {
+        let note = "An article reference could not be read and was not checked.";
+        for refused in ["CGI, art. 885-0 V bis A", "art. 150-0 B ter I du CGI"] {
+            let text = format!("L'article 1 du code civil ; {refused}.");
+            let corpus = corpus_with_civil_code();
+            corpus.push_find_article(Ok(article(1)));
+            let output =
+                run(&corpus, PisteEnvironment::Production, Some(&text), None).await.unwrap();
+            assert_eq!((output.found, output.checked), (1, 1), "{text}");
+            assert_eq!(output.note.as_deref(), Some(note), "{text}");
+        }
+        // Avec un passage non rattaché : les deux phrases, l'article d'abord.
+        let both = "L'article 1 du code civil énonce « Chacun a droit au respect de sa vie privée » \
+                    et art. 150-0 B ter I du CGI.";
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1)));
+        let output = run(&corpus, PisteEnvironment::Production, Some(both), None).await.unwrap();
+        assert_eq!(
+            output.note,
+            Some(format!(
+                "{note} A quoted passage is not attached to a citation and was not checked."
+            ))
+        );
+        // Jumeau : tout est lu, aucune note.
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1)));
+        let clean =
+            run(&corpus, PisteEnvironment::Production, Some("L'article 1 du code civil."), None)
+                .await
+                .unwrap();
+        assert_eq!(clean.note, None);
     }
 
     /// Sans aucune citation, la note est celle de L2-08 : un extrait ne s'y ajoute pas.

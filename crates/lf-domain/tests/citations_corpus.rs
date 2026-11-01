@@ -26,7 +26,7 @@ use lf_domain::citation::{
     Ambiguity, Anaphora, ArticlePrefix, BulletinRef, CODES, CaseNumber, CitationRef, CodeRef,
     CodeVia, Confidence, ConventionKind, Court, CourtVia, DecisionCite, Flag, LebonRef,
     ParseOptions, Severity, Spanned, Subdivision, TextAnaphora, TextCite, TextContext,
-    VersionQualifier, parse_with,
+    VersionQualifier, parse_with, unread_article_mentions,
 };
 use lf_domain::contract::Idcc;
 use lf_domain::date::CivilDate;
@@ -2245,5 +2245,27 @@ fn flag_and_ambiguity_codes_cover_the_corpus_vocabulary() {
                 );
             }
         }
+    }
+}
+
+/// Revue finale I3 : la note « article non lu » de `fr_verify_citations` ne se déclenche sur aucun
+/// des 185 textes du corpus positif (tous ont leurs articles lus par le parseur), et
+/// se déclenche sur les deux formes que le filet N36 refuse en entier.
+#[test]
+fn no_positive_case_has_an_unread_article_mention() {
+    let mut flagged = Vec::new();
+    for case in cases(POSITIVES) {
+        let spans: Vec<_> =
+            parse_with(&case.input, &options_for(&case)).iter().map(|cite| cite.span).collect();
+        if unread_article_mentions(&case.input, &spans) {
+            flagged.push(format!("{} : {}", case.id, case.input));
+        }
+    }
+    assert_eq!(flagged, Vec::<String>::new());
+    for refused in ["CGI, art. 885-0 V bis A", "art. 150-0 B ter I du CGI"] {
+        let input = format!("article 1240 du code civil ; {refused}");
+        let spans: Vec<_> =
+            parse_with(&input, &ParseOptions::default()).iter().map(|cite| cite.span).collect();
+        assert!(unread_article_mentions(&input, &spans), "{input}");
     }
 }

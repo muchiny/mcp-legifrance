@@ -20,6 +20,7 @@ use futures::{StreamExt, stream};
 use lf_domain::{
     citation::{
         CitationRef, ParseOptions, Span, Spanned, adjacent_quote, parse_with, quoted_passages,
+        unread_article_mentions,
     },
     date::VersionDate,
 };
@@ -62,6 +63,9 @@ pub(crate) struct Verification {
     /// Le texte a un passage entre guillemets que ne jouxte aucune citation : il n'est pas
     /// contrôlé (L2-17).
     pub(crate) unattached_quote: bool,
+    /// Le texte a une mention d'article (mot-clé puis numéro) hors de toute citation lue : le
+    /// parseur l'a refusée en entier, elle n'est pas contrôlée (revue finale I3).
+    pub(crate) unread_article: bool,
 }
 
 /// Une citation et un passage se recouvrent-ils ?
@@ -77,6 +81,13 @@ fn has_unattached_quote(text: &str, parsed: &[Spanned<CitationRef>]) -> bool {
     quoted_passages(text).into_iter().any(|passage| {
         !attached.contains(&passage) && !parsed.iter().any(|c| overlaps(c.span, passage))
     })
+}
+
+/// `text` a-t-il une mention d'article que le parseur n'a pas lue ? Sans objet quand l'analyse a
+/// atteint son garde-fou (les citations au-delà ne sont pas rendues, donc pas « illisibles »).
+fn has_unread_article(text: &str, parsed: &[Spanned<CitationRef>]) -> bool {
+    let spans: Vec<Span> = parsed.iter().map(|cite| cite.span).collect();
+    parsed.len() < ParseOptions::default().max_citations && unread_article_mentions(text, &spans)
 }
 
 /// Clé de résolution d'une citation : tout ce qui peut changer le résultat de la recherche. Deux
@@ -120,6 +131,7 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
     let parsed = parse_with(text, &options);
     let found = parsed.len();
     let unattached_quote = has_unattached_quote(text, &parsed);
+    let unread_article = has_unread_article(text, &parsed);
     let kept: Vec<Spanned<CitationRef>> = parsed.into_iter().take(run.max_citations).collect();
 
     // Tri hors ligne (`Ok`), puis une résolution par clé (`Err` : le rang de la résolution).
@@ -180,7 +192,7 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
             compose(run.proof, text, item, resolution)
         })
         .collect();
-    Ok(Verification { found, checks, unattached_quote })
+    Ok(Verification { found, checks, unattached_quote, unread_article })
 }
 
 /// Note finale : l'écart d'extrait passe toujours en tête d'une note de statut `verified`

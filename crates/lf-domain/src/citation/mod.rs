@@ -19,10 +19,12 @@ mod post;
 mod quote;
 mod scan;
 pub mod types;
+mod unread;
 
 pub use dict::codes::{CODES, CodeEntry, CodeKey, CodeRefKey};
 pub use quote::{adjacent_quote, quoted_passages};
 pub use types::*;
+pub use unread::unread_article_mentions;
 
 use crate::date::CivilDate;
 

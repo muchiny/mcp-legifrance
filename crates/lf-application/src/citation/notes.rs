@@ -245,6 +245,11 @@ pub enum Note {
     /// citation : il n'a pas été contrôlé (L2-17, verify_citations-8). Note de la réponse, non
     /// d'une citation.
     QuoteNotAttached,
+    /// Texte de `fr_verify_citations` avec une mention d'article (mot-clé puis numéro) que le
+    /// parseur n'a pas lue, hors de toute citation lue : « CGI, art. 885-0 V bis A » est refusé en
+    /// entier (filet N36) et disparaissait sans trace des citations rendues (revue finale I3). Note
+    /// de la réponse, non d'une citation.
+    ArticleNotRead,
     /// Plusieurs notes d'un même verdict, dans l'ordre où elles sont rendues (la plus utile en
     /// tête) : version lue, lecture du sigle, plage, subdivision. Bâtie par [`Note::then`], donc
     /// toujours d'au moins deux notes et sans autre `Chain` à l'intérieur.
@@ -455,6 +460,9 @@ const QUOTE_TOO_LONG: &str = "The quoted passage was too long to compare and was
 const QUOTE_NOT_ATTACHED: &str =
     "A quoted passage is not attached to a citation and was not checked.";
 
+/// Gabarit de [`Note::ArticleNotRead`].
+const ARTICLE_NOT_READ: &str = "An article reference could not be read and was not checked.";
+
 impl Note {
     /// Cette note suivie de `next` : les deux sont rendues, celle-ci en tête (une seule note par
     /// verdict, la plus utile d'abord). Les chaînes s'aplatissent.
@@ -559,6 +567,7 @@ impl Note {
             Self::NotCurrentVersion { on, etat, ended } => not_current_text(*on, etat, *ended),
             Self::SubdivisionNotChecked => SUBDIVISION_NOT_CHECKED.to_owned(),
             Self::QuoteNotAttached => QUOTE_NOT_ATTACHED.to_owned(),
+            Self::ArticleNotRead => ARTICLE_NOT_READ.to_owned(),
             Self::Chain(parts) => join_fitting(parts.iter().map(Self::text)),
             Self::RangeEndpointsOnly | Self::RangeEndNotFound { .. } => range_text(self),
             Self::WithRange(inner) => {
@@ -856,6 +865,11 @@ mod tests {
             (
                 Note::QuoteNotAttached,
                 "A quoted passage is not attached to a citation and was not checked.",
+            ),
+            (Note::ArticleNotRead, "An article reference could not be read and was not checked."),
+            (
+                Note::ArticleNotRead.then(Note::QuoteNotAttached),
+                "An article reference could not be read and was not checked. A quoted passage is not attached to a citation and was not checked.",
             ),
             (
                 replaced.clone().then(Note::ReadAs { sigle: Sigle::Cp, code: "Code pénal" }),
