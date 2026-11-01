@@ -688,3 +688,468 @@ allow_error = true
 name = "m7/getArticleByCid-LEGIARTI000006419288"
 endpoint = "/consult/getArticleByCid"
 body = "{\"cid\":\"LEGIARTI000006419288\"}"
+
+# --- Vague 0 des correctifs 1.0.1 (2026-11-01) ---
+# Relevés C1 à C15 du plan correctifs-e2e §4.1, sandbox, une requête par seconde. `--only c101/` lance le lot.
+# Corps identiques à ceux de l'adaptateur (request/search.rs, request/m6.rs, request/consult.rs) ; DATE_VERSION = midi à Paris du 2026-11-01 (1793530800000).
+# Identifiants issus de l'E2E et du serveur installé (fr_resolve, fr_search) ; aucun n'est inventé.
+
+[[probe]]
+name = "c101/C1-getArticle-cgi-150-0-B-ter"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000053542872\"}"
+
+[[probe]]
+name = "c101/C1-getArticleWithIdAndNum-cgi-150-0-B-ter"
+endpoint = "/consult/getArticleWithIdAndNum"
+body = "{\"id\":\"LEGITEXT000006069577\",\"num\":\"150-0 B ter\"}"
+allow_error = true
+
+[[probe]]
+name = "c101/C1-search-num-article-cgi-150-0-B-ter"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_ARTICLE\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"150-0 B ter\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":1,\"pageSize\":100,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"ARTICLE\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C1-getArticle-cgi-199-terdecies-0-A"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000053543691\"}"
+
+[[probe]]
+name = "c101/C1-getArticleWithIdAndNum-cgi-199-terdecies-0-A"
+endpoint = "/consult/getArticleWithIdAndNum"
+body = "{\"id\":\"LEGITEXT000006069577\",\"num\":\"199 terdecies-0 A\"}"
+allow_error = true
+
+[[probe]]
+name = "c101/C1-search-num-article-cgi-199-terdecies-0-A"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_ARTICLE\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"199 terdecies-0 A\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":1,\"pageSize\":100,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"ARTICLE\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C2-constit-num-dec-71-44"
+endpoint = "/search"
+body = "{\"fond\":\"CONSTIT\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_DEC\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"71-44\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C2-constit-num-dec-71-44-DC"
+endpoint = "/search"
+body = "{\"fond\":\"CONSTIT\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_DEC\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"71-44 DC\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C2-constit-num-dec-1971-44"
+endpoint = "/search"
+body = "{\"fond\":\"CONSTIT\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_DEC\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"1971-44\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C2-constit-num-dec-1971-44-DC"
+endpoint = "/search"
+body = "{\"fond\":\"CONSTIT\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_DEC\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"1971-44 DC\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C3-loda-num-89-462"
+endpoint = "/search"
+body = "{\"fond\":\"LODA_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"89-462\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C3-loda-num-1989-462"
+endpoint = "/search"
+body = "{\"fond\":\"LODA_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"1989-462\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C3-loda-num-78-17"
+endpoint = "/search"
+body = "{\"fond\":\"LODA_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"78-17\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C3-loda-num-1978-17"
+endpoint = "/search"
+body = "{\"fond\":\"LODA_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"1978-17\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C3-loda-num-93-1419"
+endpoint = "/search"
+body = "{\"fond\":\"LODA_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"93-1419\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C3-loda-num-1993-1419"
+endpoint = "/search"
+body = "{\"fond\":\"LODA_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"1993-1419\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C3-loda-num-2016-1321"
+endpoint = "/search"
+body = "{\"fond\":\"LODA_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"2016-1321\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C4-juri-affaire-14-24.444"
+endpoint = "/search"
+body = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_AFFAIRE\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"14-24.444\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C4-juri-consult-14-24.444-JURITEXT000031539712"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"JURITEXT000031539712\"}"
+
+[[probe]]
+name = "c101/C4-juri-affaire-05-13.255"
+endpoint = "/search"
+body = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_AFFAIRE\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"05-13.255\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C4-juri-consult-05-13.255-JURITEXT000007052928"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"JURITEXT000007052928\"}"
+
+[[probe]]
+name = "c101/C4-juri-affaire-89-15.231"
+endpoint = "/search"
+body = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_AFFAIRE\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"89-15.231\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C4-juri-consult-89-15.231-JURITEXT000007026394"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"JURITEXT000007026394\"}"
+
+[[probe]]
+name = "c101/C4-juri-affaire-06-12.769"
+endpoint = "/search"
+body = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_AFFAIRE\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"06-12.769\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C4-juri-consult-06-12.769-JURITEXT000017739957"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"JURITEXT000017739957\"}"
+
+[[probe]]
+name = "c101/C4-juri-consult-chambre-civ1-JURITEXT000038322046"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"JURITEXT000038322046\"}"
+
+[[probe]]
+name = "c101/C4-juri-consult-chambre-civ2-JURITEXT000021080678"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"JURITEXT000021080678\"}"
+
+[[probe]]
+name = "c101/C4-juri-consult-chambre-civ3-JURITEXT000032056669"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"JURITEXT000032056669\"}"
+
+[[probe]]
+name = "c101/C4-juri-consult-chambre-com-JURITEXT000054218381"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"JURITEXT000054218381\"}"
+
+[[probe]]
+name = "c101/C4-juri-consult-chambre-crim-JURITEXT000021854686"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"JURITEXT000021854686\"}"
+
+[[probe]]
+name = "c101/C4-juri-consult-chambre-formation-I7-JURITEXT000045653019"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"JURITEXT000045653019\"}"
+
+[[probe]]
+name = "c101/C4-juri-consult-chambre-formation-CT0196-JURITEXT000046652043"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"JURITEXT000046652043\"}"
+
+[[probe]]
+name = "c101/C4-juri-consult-chambre-formation-CHAMBRE_SOCIALE-JURITEXT000054929168"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"JURITEXT000054929168\"}"
+
+[[probe]]
+name = "c101/C5-kaliContIdcc-1486"
+endpoint = "/consult/kaliContIdcc"
+body = "{\"id\":\"1486\"}"
+
+[[probe]]
+name = "c101/C6-constit-num-dec-2010-14-22"
+endpoint = "/search"
+body = "{\"fond\":\"CONSTIT\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_DEC\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"2010-14/22\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C6-constit-num-dec-2010-14"
+endpoint = "/search"
+body = "{\"fond\":\"CONSTIT\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_DEC\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"2010-14\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C6-constit-num-dec-2010-14-22-QPC"
+endpoint = "/search"
+body = "{\"fond\":\"CONSTIT\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_DEC\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"2010-14/22 QPC\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C7-getArticle-1240-LEGIARTI000032041571"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000032041571\"}"
+
+[[probe]]
+name = "c101/C7-getArticle-1382-ancienne-LEGIARTI000006438819"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000006438819\"}"
+
+[[probe]]
+name = "c101/C7-getArticle-salmonella-LEGIARTI000031122369"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000031122369\"}"
+
+[[probe]]
+name = "c101/C7-getArticle-cgi-163-bis-H-LEGIARTI000053543789"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000053543789\"}"
+
+[[probe]]
+name = "c101/C7-getArticle-loi-89-462-art-19-LEGIARTI000039337710"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000039337710\"}"
+
+[[probe]]
+name = "c101/C8-getArticle-LEGIARTI000054241470"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000054241470\"}"
+
+[[probe]]
+name = "c101/C8-getArticle-LEGIARTI000043977105"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000043977105\"}"
+
+[[probe]]
+name = "c101/C8-getArticle-LEGIARTI000032006589"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000032006589\"}"
+
+[[probe]]
+name = "c101/C9-juri-taille1-page1"
+endpoint = "/search"
+body = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"bail commercial\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-juri-taille1-page3"
+endpoint = "/search"
+body = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"bail commercial\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":3,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-juri-taille2-page1"
+endpoint = "/search"
+body = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"bail commercial\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":2,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-juri-taille2-page2"
+endpoint = "/search"
+body = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"bail commercial\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":2,\"pageSize\":2,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-loda-taille1-page1"
+endpoint = "/search"
+body = "{\"fond\":\"LODA_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"urbanisme\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":1,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-loda-taille1-page3"
+endpoint = "/search"
+body = "{\"fond\":\"LODA_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"urbanisme\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":3,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-loda-taille2-page1"
+endpoint = "/search"
+body = "{\"fond\":\"LODA_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"urbanisme\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":1,\"pageSize\":2,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-loda-taille2-page2"
+endpoint = "/search"
+body = "{\"fond\":\"LODA_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"urbanisme\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":2,\"pageSize\":2,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-cnil-taille1-page1"
+endpoint = "/search"
+body = "{\"fond\":\"CNIL\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"dommage causé par le fait des choses sous sa garde\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-cnil-taille1-page3"
+endpoint = "/search"
+body = "{\"fond\":\"CNIL\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"dommage causé par le fait des choses sous sa garde\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":3,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-cnil-taille2-page1"
+endpoint = "/search"
+body = "{\"fond\":\"CNIL\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"dommage causé par le fait des choses sous sa garde\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":2,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-cnil-taille2-page2"
+endpoint = "/search"
+body = "{\"fond\":\"CNIL\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"dommage causé par le fait des choses sous sa garde\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":2,\"pageSize\":2,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-code-taille1-page1"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"bail commercial\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":1,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-code-taille1-page3"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"bail commercial\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":3,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-code-taille2-page1"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"bail commercial\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":1,\"pageSize\":2,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-code-taille2-page2"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"bail commercial\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":2,\"pageSize\":2,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-code-taille1-page3-article"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"bail commercial\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":3,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"ARTICLE\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C9-code-taille2-page2-article"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"bail commercial\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":2,\"pageSize\":2,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"ARTICLE\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C10-juri-consult-JURITEXT000048104620"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"JURITEXT000048104620\"}"
+
+[[probe]]
+name = "c101/C11-getArticle-cgi-777-LEGIARTI000030061736"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000030061736\"}"
+
+[[probe]]
+name = "c101/C11-getArticle-cgi-669-LEGIARTI000006310173"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000006310173\"}"
+
+[[probe]]
+name = "c101/C12-code-emoluments-page1-defaut"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"TOUS_LES_MOTS_DANS_UN_CHAMP\",\"valeur\":\"émoluments notaire donation\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":1,\"pageSize\":5,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C12-code-emoluments-page2-defaut"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"TOUS_LES_MOTS_DANS_UN_CHAMP\",\"valeur\":\"émoluments notaire donation\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":2,\"pageSize\":5,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C12-code-emoluments-page3-defaut"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"TOUS_LES_MOTS_DANS_UN_CHAMP\",\"valeur\":\"émoluments notaire donation\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":3,\"pageSize\":5,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C12-code-emoluments-page4-defaut"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"TOUS_LES_MOTS_DANS_UN_CHAMP\",\"valeur\":\"émoluments notaire donation\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":4,\"pageSize\":5,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C12-code-emoluments-page2-article"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"TOUS_LES_MOTS_DANS_UN_CHAMP\",\"valeur\":\"émoluments notaire donation\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":2,\"pageSize\":5,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"ARTICLE\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C12-code-emoluments-page3-article"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"TOUS_LES_MOTS_DANS_UN_CHAMP\",\"valeur\":\"émoluments notaire donation\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":3,\"pageSize\":5,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"ARTICLE\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C12-code-emoluments-page4-article"
+endpoint = "/search"
+body = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"TOUS_LES_MOTS_DANS_UN_CHAMP\",\"valeur\":\"émoluments notaire donation\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":4,\"pageSize\":5,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"ARTICLE\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/F-lawDecree-abroge-LEGITEXT000006068980"
+endpoint = "/consult/lawDecree"
+body = "{\"textId\":\"LEGITEXT000006068980\",\"date\":\"2026-11-01\"}"
+allow_error = true
+
+[[probe]]
+name = "c101/F-juri-consult-CETATEXT000007742504"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"CETATEXT000007742504\"}"
+
+[[probe]]
+name = "c101/F-juri-consult-CETATEXT000052137642"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"CETATEXT000052137642\"}"
+
+[[probe]]
+name = "c101/C13-getArticle-LEGIARTI000047288653"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000047288653\"}"
+
+[[probe]]
+name = "c101/C14-juri-consult-CC-2022-196-PDR-CONSTEXT000045802100"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"CONSTEXT000045802100\"}"
+
+[[probe]]
+name = "c101/C14-juri-consult-CC-2021-150-ORGA-CONSTEXT000044239153"
+endpoint = "/consult/juri"
+body = "{\"textId\":\"CONSTEXT000044239153\"}"
+
+[[probe]]
+name = "c101/C15-cnil-consult-CNILTEXT000044033275"
+endpoint = "/consult/cnil"
+body = "{\"textId\":\"CNILTEXT000044033275\"}"
+
+[[probe]]
+name = "c101/C15-cnil-search-protection-donnees-2021"
+endpoint = "/search"
+body = "{\"fond\":\"CNIL\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"protection des données\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_DELIB\",\"dates\":{\"start\":\"2021-01-01\",\"end\":\"2021-12-31\"}}],\"pageNumber\":1,\"pageSize\":5,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+[[probe]]
+name = "c101/C15-acco-search-teletravail"
+endpoint = "/search"
+body = "{\"fond\":\"ACCO\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"télétravail\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":4,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
