@@ -20,6 +20,9 @@ use crate::messages;
 /// Longueur maximale, en caractères, du texte d'une note (annexe B §7.10).
 pub const NOTE_MAX_CHARS: usize = 200;
 
+/// Phrase de l'écart d'extrait, en tête de [`Note::QuoteMismatch`] et de [`Note::WithQuoteMismatch`].
+const QUOTE_GAP: &str = "Quoted text not found in the official text.";
+
 /// Champ dont l'écart donne `invalid` (annexe B §6.6, champs durs de §7.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
@@ -193,6 +196,10 @@ pub enum Note {
     VersionSince(CivilDate),
     /// Extrait cité introuvable dans le texte officiel (statut inchangé).
     QuoteMismatch,
+    /// Note d'un statut `verified` précédée de l'écart d'extrait : l'écart est rendu en tête, avant
+    /// la note enveloppée (version en vigueur, sigle lu par défaut, chambre non comparée, ECLI
+    /// natif), pour ne jamais être masqué ni rognée par la borne de 200 caractères.
+    WithQuoteMismatch(Box<Note>),
     /// Absence constatée en bac à sable : `unresolvable`, jamais `not_found` (00 §7).
     NotInSandbox {
         /// Famille, vocabulaire fermé.
@@ -359,7 +366,8 @@ impl Note {
             Self::NotChecked { reason } => format!("Not checked: {}.", reason.label()),
             Self::CodeNotListed => "Code not found in the list of codes.".to_owned(),
             Self::VersionSince(date) => format!("Current version in force since {date}."),
-            Self::QuoteMismatch => "Quoted text not found in the official text.".to_owned(),
+            Self::QuoteMismatch => QUOTE_GAP.to_owned(),
+            Self::WithQuoteMismatch(inner) => format!("{QUOTE_GAP} {}", inner.text()),
             Self::NotInSandbox { family, value, date } => fit(value, |value| {
                 format!(
                     "No {family} record matches {value}{} in the PISTE sandbox; sandbox data \
@@ -571,6 +579,17 @@ mod tests {
                 "Cited date 2015-10-07 differs from the official record (2016-10-07); chamber PREMIER_PRESIDENT differs (CIV1); decision type QPC differs (DC).",
             ),
             (
+                Note::WithQuoteMismatch(Box::new(Note::VersionSince(civil(2016, 10, 1)))),
+                "Quoted text not found in the official text. Current version in force since 2016-10-01.",
+            ),
+            (
+                Note::WithQuoteMismatch(Box::new(Note::ReadAs {
+                    sigle: Sigle::Cp,
+                    code: "Code pénal",
+                })),
+                "Quoted text not found in the official text. Read 'CP' as Code pénal.",
+            ),
+            (
                 Note::ChamberNotCompared,
                 "The cited chamber could not be compared: the official record gives a formation that is not a modern Cour de cassation chamber.",
             ),
@@ -585,6 +604,14 @@ mod tests {
             assert!(text.chars().count() <= NOTE_MAX_CHARS, "{text}");
             assert!(!text.contains('\n'), "{text}");
         }
+    }
+
+    #[test]
+    fn the_quote_gap_comes_first_and_survives_the_clip_of_a_long_inner_note() {
+        let long = Note::NoRecord { family: "text", value: "é".repeat(400), date: None };
+        let text = Note::WithQuoteMismatch(Box::new(long)).text();
+        assert_eq!(text.chars().count(), NOTE_MAX_CHARS);
+        assert!(text.starts_with("Quoted text not found in the official text. No text record"));
     }
 
     #[test]

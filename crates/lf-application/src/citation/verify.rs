@@ -24,7 +24,7 @@ use lf_domain::{
 use tokio::time::{Instant, timeout_at};
 
 use super::{
-    CitationCheck, Note, QuoteCheck,
+    CheckStatus, CitationCheck, Note, QuoteCheck,
     policy::{CONCURRENCY, budget_of, check_quote},
     resolve::{CodeTable, Outcome, Proof, Resolution, Resolver, needs_codes, offline},
 };
@@ -162,6 +162,21 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
     Ok(Verification { found, checks })
 }
 
+/// Note finale : l'écart d'extrait passe toujours en tête d'une note de statut `verified`
+/// (version en vigueur, sigle lu par défaut, chambre non comparée), qu'elle ne masque plus. Pour un
+/// autre statut, la note du statut reste en tête : c'est la vraie raison, qu'un écart d'extrait
+/// ne doit ni précéder ni faire rogner par la borne de 200 caractères.
+fn with_quote_gap(
+    status: CheckStatus,
+    note: Option<Note>,
+    quote: Option<QuoteCheck>,
+) -> Option<Note> {
+    if quote != Some(QuoteCheck::QuoteMismatch) || status != CheckStatus::Verified {
+        return note;
+    }
+    Some(note.map_or(Note::QuoteMismatch, |inner| Note::WithQuoteMismatch(Box::new(inner))))
+}
+
 /// Contrôle d'une citation : statut, enregistrement, extrait cité et note, span en points de code.
 fn compose(
     proof: Proof,
@@ -174,15 +189,14 @@ fn compose(
         let span = adjacent_quote(text, item.span)?;
         text.get(span.start..span.end).map(|quoted| check_quote(quoted, official))
     });
-    let note = outcome
-        .note(proof)
-        .or_else(|| (quote == Some(QuoteCheck::QuoteMismatch)).then_some(Note::QuoteMismatch));
+    let status = outcome.status(proof);
+    let note = with_quote_gap(status, outcome.note(proof), quote);
     let raw = text.get(item.span.start..item.span.end).unwrap_or_default();
     CitationCheck {
         span: item.span.to_chars(text),
         raw: messages::clip(raw, RAW_MAX_CHARS),
         kind: item.value.kind(),
-        status: outcome.status(proof),
+        status,
         resolved: outcome.record().cloned(),
         quote,
         note,
@@ -565,7 +579,10 @@ mod tests {
         let check = &verification.checks[0];
         assert_eq!(check.status, CheckStatus::Verified);
         assert_eq!(check.quote, Some(QuoteCheck::QuoteMismatch));
-        assert_eq!(note_text(check), "Current version in force since 2016-10-01.");
+        assert_eq!(
+            note_text(check),
+            "Quoted text not found in the official text. Current version in force since 2016-10-01."
+        );
         assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), "LEGIARTI000006419288");
     }
 
@@ -596,6 +613,112 @@ mod tests {
             assert_eq!(check.status, CheckStatus::Verified, "{quoted}");
             assert_eq!(check.quote, Some(expected_quote), "{quoted}");
             assert_eq!(note_text(check), expected_note, "{quoted}");
+        }
+    }
+
+    /// Repro de verify_citations-7 : l'art. 1240 en vigueur depuis 2016-10-01, cité avec un extrait
+    /// faux, ne garde plus la seule note de version. Jumeau : l'extrait fidèle garde la note de
+    /// version seule.
+    #[tokio::test]
+    async fn a_false_quote_on_a_current_article_leads_the_version_note() {
+        for (quoted, expected_quote, expected_note) in [
+            (
+                "Le chat est un animal domestique",
+                QuoteCheck::QuoteMismatch,
+                "Quoted text not found in the official text. Current version in force since 2016-10-01.",
+            ),
+            (
+                "Tout fait quelconque de l'homme",
+                QuoteCheck::Match,
+                "Current version in force since 2016-10-01.",
+            ),
+        ] {
+            let corpus = FakeCorpus::new();
+            codes(&corpus);
+            corpus.push_find_article(Ok(article(
+                32_041_571,
+                Some("1240"),
+                CivilDate::new(2016, 10, 1),
+                "Tout fait quelconque de l'homme, qui cause à autrui un dommage, oblige celui par \
+                 la faute duquel il est arrivé à le réparer.",
+            )));
+            let text = format!("Art. 1240 C. civ. : « {quoted}. »");
+            let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+            let check = &verification.checks[0];
+            assert_eq!(check.status, CheckStatus::Verified, "{quoted}");
+            assert_eq!(check.quote, Some(expected_quote), "{quoted}");
+            assert_eq!(note_text(check), expected_note, "{quoted}");
+        }
+    }
+
+    fn cassation_decision(id: &str, formation: &str, date: (u16, u8, u8)) -> Decision {
+        Decision {
+            decision_id: DecisionId::parse(id).unwrap(),
+            ecli: None,
+            num: None,
+            juridiction: None,
+            formation: Some(formation.to_owned()),
+            solution: None,
+            numero_affaire: vec![],
+            date_texte: CivilDate::new(date.0, date.1, date.2),
+            nature: Some("ARRET".to_owned()),
+            title: None,
+            text: LongText::from_plain("Texte de la décision.").unwrap(),
+            official_summary: OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
+        }
+    }
+
+    /// Le statut `invalid` garde sa vraie raison en tête, même avec un extrait faux : la note de
+    /// l'écart de chambre n'est pas enveloppée et reste dans les 200 caractères.
+    #[tokio::test]
+    async fn a_hard_field_gap_stays_ahead_of_the_quote_gap() {
+        let corpus = FakeCorpus::new();
+        let id = "JURITEXT000017739957";
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, id)]));
+        corpus.push_get_decision(Ok(cassation_decision(id, "CHAMBRE_MIXTE", (2007, 12, 21))));
+        let text = "Cass. soc., 21 décembre 2007, n° 06-12.769 : « Phrase qui ne figure pas ici »";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Invalid);
+        assert_eq!(check.quote, Some(QuoteCheck::QuoteMismatch));
+        let note = note_text(check);
+        assert_eq!(note, "Cited chamber SOC differs from the official record (MIXTE).");
+        assert!(note.chars().count() <= 200);
+    }
+
+    /// `ChamberNotCompared` est une note de statut `verified` : l'écart d'extrait passe devant,
+    /// et sans écart la note reste seule.
+    #[tokio::test]
+    async fn the_chamber_not_compared_note_does_not_hide_a_quote_gap() {
+        for (quoted, expected_quote, expected_note) in [
+            (
+                "Phrase qui ne figure pas ici",
+                QuoteCheck::QuoteMismatch,
+                "Quoted text not found in the official text. The cited chamber could not be \
+                 compared: the official record gives a formation that is not a modern Cour de \
+                 cassation chamber.",
+            ),
+            (
+                "Texte de la décision",
+                QuoteCheck::Match,
+                "The cited chamber could not be compared: the official record gives a formation \
+                 that is not a modern Cour de cassation chamber.",
+            ),
+        ] {
+            let corpus = FakeCorpus::new();
+            let id = "JURITEXT000017739957";
+            corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, id)]));
+            corpus.push_get_decision(Ok(cassation_decision(id, "CT0196", (2007, 12, 21))));
+            let text = format!("Cass. soc., 21 décembre 2007, n° 06-12.769 : « {quoted} »");
+            let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+            let check = &verification.checks[0];
+            assert_eq!(check.status, CheckStatus::Verified, "{quoted}");
+            assert_eq!(check.quote, Some(expected_quote), "{quoted}");
+            let note = note_text(check);
+            assert_eq!(note, expected_note, "{quoted}");
+            assert!(note.chars().count() <= 200, "{note}");
         }
     }
 
