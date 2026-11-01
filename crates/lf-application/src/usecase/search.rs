@@ -15,8 +15,10 @@
 //!
 //! # Plafond de réponse (05 §6.4, 02 §6.1)
 //!
-//! La taille de la page est estimée (somme des longueurs en caractères échappées plus 24 par champ ou
-//! élément, cible 42 000, [`estimate_list_chars`]), puis dégradée dans cet ordre, sans jamais retirer
+//! La taille de la page est calculée au caractère près, comme le JSON compact de la vue de
+//! `lf-adapter-mcp` l'écrira (clés, guillemets, séparateurs et échappements compris, et seulement
+//! les champs que la vue rend : le `title` contenu dans la citation et une date sentinelle sont
+//! omis), puis comparée à la cible de 42 000 caractères ; la page est dégradée dans cet ordre, sans jamais retirer
 //! un résultat : (1) extraits des derniers résultats, avec une `note` ; (2) listes d'articles et
 //! champs optionnels (`title`, `nature`, `etat`, `date`) des derniers résultats ; (3) si la page
 //! ne tient toujours pas, `invalid_arg` qui propose la plus grande `page_size` qui tiendrait. La
@@ -26,18 +28,16 @@ use std::num::NonZeroU32;
 
 use lf_domain::{
     contract::Citable,
-    date::{DateRange, VersionDate},
-    entity::{SearchHit, SearchPage, Snippet},
+    date::{DateRange, VersionDate, open_ended},
+    entity::{CodeArticleRef, SearchHit, SearchPage, Snippet},
     fond::Fond,
     search::{MatchMode, PageSize, QueryText, SearchQuery, check_quotes, has_more},
     status::LegalStatus,
+    text::title_unless_in_citation,
 };
 
 use crate::{
-    budget::{
-        ResponseBudget, escaped_chars, estimate_chars, estimate_list_chars, strip_from_end,
-        the_last_hits,
-    },
+    budget::{ResponseBudget, escaped_chars, strip_from_end, the_last_hits},
     error::AppError,
     failure::port_failure,
     input::SearchInput,
@@ -57,15 +57,13 @@ const REACHABLE_NOTE: &str = "Results beyond the first 10,000 are not reachable;
 /// Longueur ISO d'une date rendue, `AAAA-MM-JJ`.
 const ISO_DATE_CHARS: usize = 10;
 
-/// Longueur maximale d'un IDCC rendu (1 à 9999).
-const IDCC_CHARS: usize = 4;
-
 /// Caractères réservés aux deux notes de dégradation (`snippets_note`, `details_note`) dans
 /// l'estimation : les deux notes, avec trois chiffres de compteur, tiennent largement dedans.
 const DEGRADE_NOTE_RESERVE_CHARS: usize = 400;
 
-/// Coût estimé de la réservation des notes : le champ `note` et leur texte.
-const DEGRADE_NOTE_RESERVE: usize = estimate_chars(1, DEGRADE_NOTE_RESERVE_CHARS);
+/// Réservation des notes : leur texte, plus le champ `note` s'il n'existe pas encore (`,"note":""`,
+/// 10 caractères) ou l'espace qui joint la nouvelle note à l'ancienne.
+const DEGRADE_NOTE_RESERVE: usize = DEGRADE_NOTE_RESERVE_CHARS + 11;
 
 /// Recherche plein texte : analyse des arguments, un appel au port, politique de réponse.
 pub(crate) struct SearchUseCase<'a, C: LegalCorpus, K: Clock> {
@@ -312,8 +310,10 @@ fn details_note(hits: usize) -> String {
 /// déterministe, donc rejouable. Au moins 1, pour ne jamais proposer une page vide.
 fn largest_page_size(hits: &[HitOut], fixed: usize) -> usize {
     hits.iter()
-        .scan(fixed, |used, out| {
-            *used = used.saturating_add(hit_cost(out));
+        .enumerate()
+        .scan(fixed, |used, (index, out)| {
+            // Une virgule sépare chaque résultat du précédent.
+            *used = used.saturating_add(hit_cost(out)).saturating_add(usize::from(index > 0));
             Some(*used)
         })
         .take_while(|&used| used <= ResponseBudget::ESTIMATE_TARGET_CHARS)
@@ -321,75 +321,111 @@ fn largest_page_size(hits: &[HitOut], fixed: usize) -> usize {
         .max(1)
 }
 
-/// Coût estimé de l'enveloppe : `total`, `page`, `has_more`, `hits`, plus `total_articles` et
-/// `note` quand ils sont présents.
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
-)]
-fn envelope_cost(output: &SearchOutput) -> usize {
-    let optional =
-        usize::from(output.total_articles.is_some()) + usize::from(output.note.is_some());
-    estimate_chars(4 + optional, output.note.as_deref().map_or(0, chars))
+/// Longueur, en caractères, du JSON compact d'un objet en construction : `{`, ses champs séparés
+/// par des virgules, `}`. Les clés sont de l'ASCII.
+#[derive(Default)]
+struct JsonObject {
+    len: usize,
+    fields: usize,
 }
 
-/// Coût estimé des résultats.
-fn page_cost(hits: &[HitOut]) -> usize {
-    hits.iter().map(hit_cost).fold(0, usize::saturating_add)
-}
+impl JsonObject {
+    /// Champ `"clé":valeur` dont la valeur occupe `value` caractères, guillemets compris.
+    fn raw(&mut self, key: &str, value: usize) {
+        // `"` + clé + `"` + `:` : trois caractères autour de la clé.
+        self.len = self.len.saturating_add(key.len()).saturating_add(3).saturating_add(value);
+        self.fields = self.fields.saturating_add(1);
+    }
 
-/// Coût estimé d'un résultat : 24 par champ ou élément ([`estimate_list_chars`]), plus la longueur
-/// de ses textes telle qu'elle sera écrite en JSON (échappements compris). `kind`, `id`,
-/// `citation` et `source_url` sont toujours rendus ; le reste seulement s'il est présent.
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
-)]
-fn hit_cost(out: &HitOut) -> usize {
-    let hit = &out.hit;
-    let mut fields = 4;
-    let mut text = hit.fond.name().len()
-        + hit.id.as_str().len()
-        + escaped_chars(&out.citation)
-        + escaped_chars(&out.source_url);
-    let strings = [
-        hit.title.as_deref(),
-        hit.nature.as_deref(),
-        hit.etat.as_ref().map(LegalStatus::as_api_code),
-        hit.snippet.as_ref().map(Snippet::as_str),
-    ];
-    for value in strings.into_iter().flatten() {
-        fields += 1;
-        text += escaped_chars(value);
+    /// Champ texte : la valeur entre guillemets, échappée comme `serde_json` l'écrit.
+    fn text(&mut self, key: &str, value: &str) {
+        self.raw(key, escaped_chars(value).saturating_add(2));
     }
-    if hit.date.is_some() {
-        fields += 1;
-        text += ISO_DATE_CHARS;
-    }
-    if hit.idcc.is_some() {
-        fields += 1;
-        text += IDCC_CHARS;
-    }
-    if !hit.articles.is_empty() {
-        fields += 1;
-    }
-    for article in &hit.articles {
-        fields += 2;
-        text += article.article_id.as_str().len();
-        for value in [article.num.as_deref(), article.snippet.as_ref().map(Snippet::as_str)]
-            .into_iter()
-            .flatten()
-        {
-            fields += 1;
-            text += escaped_chars(value);
+
+    /// Champ texte présent seulement s'il y a une valeur.
+    fn optional_text(&mut self, key: &str, value: Option<&str>) {
+        if let Some(value) = value {
+            self.text(key, value);
         }
     }
-    estimate_list_chars(fields, text)
+
+    fn total(&self) -> usize {
+        self.len.saturating_add(self.fields.saturating_sub(1)).saturating_add(2)
+    }
 }
 
-/// Longueur en caractères (points de code) : l'unité du plafond.
-fn chars(text: &str) -> usize {
-    text.chars().count()
+/// Nombre de chiffres d'un entier écrit en décimal.
+fn digits(number: u64) -> usize {
+    number.to_string().len()
+}
+
+/// Longueur du JSON compact de l'enveloppe, `hits` vide : `total`, `page`, `has_more`, `hits`, plus
+/// `total_articles` et `note` quand ils sont présents. Les résultats s'y ajoutent par
+/// [`page_cost`].
+fn envelope_cost(output: &SearchOutput) -> usize {
+    let mut json = JsonObject::default();
+    json.raw("total", digits(output.total));
+    json.raw("page", digits(u64::from(output.page)));
+    json.raw("has_more", if output.has_more { 4 } else { 5 });
+    if let Some(articles) = output.total_articles {
+        json.raw("total_articles", digits(articles));
+    }
+    json.raw("hits", 2);
+    json.optional_text("note", output.note.as_deref());
+    json.total()
+}
+
+/// Longueur du JSON compact des résultats, sans les crochets de la liste (ceux de
+/// [`envelope_cost`]) : leurs objets et les virgules qui les séparent.
+fn page_cost(hits: &[HitOut]) -> usize {
+    hits.iter()
+        .map(hit_cost)
+        .fold(0, usize::saturating_add)
+        .saturating_add(hits.len().saturating_sub(1))
+}
+
+/// Longueur du JSON compact d'un résultat, telle que la vue l'écrit (`views/search.rs`) : mêmes
+/// champs, dans les mêmes conditions. `kind`, `id`, `citation` et `source_url` sont toujours
+/// rendus ; `title` seulement s'il n'est pas dans la citation, `date` hors de la zone sentinelle,
+/// le reste s'il est présent.
+fn hit_cost(out: &HitOut) -> usize {
+    let hit = &out.hit;
+    let mut json = JsonObject::default();
+    json.raw("kind", hit.fond.name().len().saturating_add(2));
+    json.text("id", hit.id.as_str());
+    json.optional_text("title", title_unless_in_citation(hit.title.as_deref(), &out.citation));
+    if open_ended(hit.date).is_some() {
+        json.raw("date", ISO_DATE_CHARS.saturating_add(2));
+    }
+    json.optional_text("nature", hit.nature.as_deref());
+    json.optional_text("etat", hit.etat.as_ref().map(LegalStatus::as_api_code));
+    if let Some(idcc) = &hit.idcc {
+        json.text("idcc", &idcc.to_string());
+    }
+    json.optional_text("snippet", hit.snippet.as_ref().map(Snippet::as_str));
+    if !hit.articles.is_empty() {
+        json.raw("articles", articles_cost(&hit.articles));
+    }
+    json.text("citation", &out.citation);
+    json.text("source_url", &out.source_url);
+    json.total()
+}
+
+/// Longueur du JSON compact de la liste d'articles d'un résultat : `[`, ses objets séparés par des
+/// virgules, `]`.
+fn articles_cost(articles: &[CodeArticleRef]) -> usize {
+    articles
+        .iter()
+        .map(|article| {
+            let mut json = JsonObject::default();
+            json.text("article_id", article.article_id.as_str());
+            json.optional_text("num", article.num.as_deref());
+            json.optional_text("snippet", article.snippet.as_ref().map(Snippet::as_str));
+            json.total()
+        })
+        .fold(0, usize::saturating_add)
+        .saturating_add(articles.len().saturating_sub(1))
+        .saturating_add(2)
 }
 
 #[cfg(test)]
@@ -415,7 +451,7 @@ mod tests {
     use super::*;
     use crate::{
         audited::AuditMetric,
-        budget::{ResponseBudget, estimate_chars, estimate_list_chars},
+        budget::ResponseBudget,
         error::ErrorCode,
         ports::CorpusError,
         testing::{FakeCorpus, FixedClock},
@@ -1045,7 +1081,7 @@ mod tests {
     fn with_snippets(count: u32) -> Vec<SearchHit> {
         (1..=count)
             .map(|n| SearchHit {
-                title: Some(format!("Loi n° {n}")),
+                title: Some(format!("Loi n° {n} relative à l'organisation du service public")),
                 snippet: Some(snippet(n as usize)),
                 ..bare(Fond::Loda, n)
             })
@@ -1066,26 +1102,24 @@ mod tests {
         run(&corpus, &clock(), input).await
     }
 
+    /// Le coût d'un résultat est la longueur exacte de son JSON compact, champ par champ, dans
+    /// l'ordre et aux conditions de la vue.
     #[test]
-    fn hit_cost_counts_fields_and_characters() {
-        let hit = |hit| {
-            let contract = Citable::contract(&hit);
-            HitOut {
-                citation: contract.citation.as_str().to_owned(),
-                source_url: contract.source_url.as_str().to_owned(),
-                hit,
-            }
-        };
-        // Nu : kind (4), id (20), citation « Légifrance JURITEXT… » (31), URL (59), 4 champs.
-        let bare_hit = hit(bare(Fond::Juri, 7));
-        let fixed =
-            "juri".len() + 20 + bare_hit.citation.chars().count() + bare_hit.source_url.len();
-        assert_eq!(fixed, 4 + 20 + 31 + 59);
-        assert_eq!(hit_cost(&bare_hit), estimate_list_chars(4, fixed));
+    fn hit_cost_is_the_length_of_the_compact_json_of_the_view() {
+        let json_len = |json: &str| json.chars().count();
+        // Nu : `kind`, `id`, `citation`, `source_url`.
+        let bare_hit = plain(bare(Fond::Juri, 7));
+        assert_eq!(
+            hit_cost(&bare_hit),
+            json_len(
+                r#"{"kind":"juri","id":"JURITEXT000000000007","citation":"c","source_url":"u"}"#
+            )
+        );
 
-        // Tous les champs optionnels, un snippet de 6 caractères et deux articles.
-        let full = hit(SearchHit {
-            title: Some("Titre".to_owned()),
+        // Tous les champs optionnels, un extrait et deux articles (le second sans `num` ni
+        // extrait). Le titre n'est pas dans la citation `c` : il est rendu.
+        let full = plain(SearchHit {
+            title: Some(" Titre ".to_owned()),
             date: CivilDate::new(2024, 1, 2),
             nature: Some("ARRET".to_owned()),
             etat: Some(LegalStatus::Abroge),
@@ -1101,16 +1135,35 @@ mod tests {
             ],
             ..bare(Fond::Juri, 7)
         });
-        // La citation d'un résultat titré est son titre : elle est comptée à part, en plus de `title`.
-        let titled_fixed = "juri".len() + 20 + "Titre".len() + 59;
-        let optional_text = "Titre".len() + 10 + "ARRET".len() + "ABROGE".len() + 6 + 4;
-        let articles_text = (20 + 1 + 3) + 20;
-        // 4 champs fixes, 6 optionnels, la liste (1), 2 éléments et leurs identifiants (4), `num`
-        // et `snippet` du premier (2).
         assert_eq!(
             hit_cost(&full),
-            estimate_list_chars(4 + 6 + 1 + 4 + 2, titled_fixed + optional_text + articles_text)
+            json_len(concat!(
+                r#"{"kind":"juri","id":"JURITEXT000000000007","title":"Titre","#,
+                r#""date":"2024-01-02","nature":"ARRET","etat":"ABROGE","idcc":"275","#,
+                r#""snippet":"abcdef","articles":[{"article_id":"LEGIARTI000006419288","#,
+                r#""num":"9","snippet":"xyz"},{"article_id":"LEGIARTI000006419289"}],"#,
+                r#""citation":"c","source_url":"u"}"#
+            ))
         );
+    }
+
+    /// Ce que la vue omet n'est pas compté : un titre contenu dans la citation (blanc replié) et
+    /// une date sentinelle. Un titre qui diffère de la citation, lui, l'est.
+    #[test]
+    fn hit_cost_ignores_what_the_view_omits() {
+        let cost = |title: Option<&str>, citation: &str, date: Option<CivilDate>| {
+            let hit = SearchHit { title: title.map(str::to_owned), date, ..bare(Fond::Juri, 1) };
+            hit_cost(&HitOut { citation: citation.to_owned(), source_url: "u".to_owned(), hit })
+        };
+        let without = cost(None, "Loi X, art. 1", None);
+        assert_eq!(cost(Some("Loi X"), "Loi X, art. 1", None), without);
+        assert_eq!(cost(Some("Loi\nX"), "Loi X, art. 1", None), without);
+        assert_eq!(cost(Some(" "), "Loi X, art. 1", None), without);
+        // `,"title":"Loi Y"` : 16 caractères.
+        assert_eq!(cost(Some("Loi Y"), "Loi X, art. 1", None), without + 16);
+        // Une date sentinelle (2999-01-01) est omise, une date ordinaire coûte `,"date":"2024-01-02"`, 20 caractères.
+        assert_eq!(cost(None, "Loi X, art. 1", CivilDate::new(2999, 1, 1)), without);
+        assert_eq!(cost(None, "Loi X, art. 1", CivilDate::new(2024, 1, 2)), without + 20);
     }
 
     #[test]
@@ -1208,9 +1261,10 @@ mod tests {
             ])
         };
         // Sans extrait, la page tient pile à la cible ; l'extrait du second résultat la dépasse.
-        let empty = pair(0);
-        let fixed = envelope_cost(&empty) + DEGRADE_NOTE_RESERVE;
-        let mut output = pair(TARGET - fixed - page_cost(&empty.hits));
+        // Le titre est rendu dès un caractère : la mesure part d'un titre d'un caractère.
+        let one = pair(1);
+        let fixed = envelope_cost(&one) + DEGRADE_NOTE_RESERVE;
+        let mut output = pair(TARGET - fixed - page_cost(&one.hits) + 1);
         assert_eq!(fixed + page_cost(&output.hits), TARGET);
         output.hits[1].hit.snippet = Snippet::new("last");
         // Le premier n'en a pas : seul le dernier est touché.
@@ -1233,11 +1287,11 @@ mod tests {
 
     #[tokio::test]
     async fn snippets_are_removed_from_the_last_hits_when_over_the_estimate() {
-        let output = big_page(with_snippets(90), Fond::Loda, 90).await.unwrap();
+        let output = big_page(with_snippets(100), Fond::Loda, 100).await.unwrap();
         // Aucun résultat n'est retiré.
-        assert_eq!(output.hits.len(), 90);
+        assert_eq!(output.hits.len(), 100);
         let removed = output.hits.iter().filter(|h| h.hit.snippet.is_none()).count();
-        assert!(removed > 0 && removed < 90, "{removed}");
+        assert!(removed > 0 && removed < 100, "{removed}");
         // Ils sont retirés en partant du dernier, sans trou.
         let first_removed = output.hits.len() - removed;
         assert!(output.hits[..first_removed].iter().all(|h| h.hit.snippet.is_some()));
@@ -1247,10 +1301,11 @@ mod tests {
         assert!(output.hits.iter().all(|h| h.hit.title.is_some() && !h.citation.is_empty()));
         // L'estimation passe sous la cible, et rendre son extrait au premier résultat dégradé la
         // ferait dépasser : on n'en retire pas plus que nécessaire.
-        let fixed = estimate_chars(4, 0) + DEGRADE_NOTE_RESERVE;
+        let shell = SearchOutput { hits: vec![], note: None, ..output.clone() };
+        let fixed = envelope_cost(&shell) + DEGRADE_NOTE_RESERVE;
         assert!(fixed + page_cost(&output.hits) <= TARGET);
         let mut restored = output.hits.clone();
-        restored[first_removed].hit.snippet = with_snippets(90)[first_removed].snippet.clone();
+        restored[first_removed].hit.snippet = with_snippets(100)[first_removed].snippet.clone();
         assert!(fixed + page_cost(&restored) > TARGET, "retrait minimal");
     }
 
@@ -1263,8 +1318,8 @@ mod tests {
 
     #[tokio::test]
     async fn article_lists_and_optional_fields_go_after_the_snippets() {
-        // 40 résultats CODE : titre de 400 caractères, trois articles à extrait.
-        let long = "mot ".repeat(100);
+        // 40 résultats CODE : titre (donc citation) de 800 caractères, trois articles à extrait.
+        let long = "mot ".repeat(200);
         let hits: Vec<SearchHit> = (1..=40)
             .map(|n| SearchHit {
                 title: Some(long.clone()),
@@ -1307,8 +1362,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_page_that_cannot_fit_even_stripped_is_invalid_arg_with_a_usable_page_size() {
-        // Citation de 899 caractères : un résultat nu coûte 1 078 (4 champs à 24, 4 + 20 + 899 + 59
-        // caractères), et l'enveloppe plus la réserve des notes 720 : (42 000 - 720) / 1 078 = 38.
+        // Citation de 899 caractères : un résultat nu coûte 1 031 caractères de JSON (`kind` 13,
+        // `id` 27, `citation` 912, `source_url` 74, trois virgules et deux accolades), plus une
+        // virgule entre deux résultats ; l'enveloppe (49) et la réserve des notes (411) en prennent
+        // 460 : 460 + 40 × 1 031 + 39 = 41 739 tient, 41 résultats font 42 771.
         let long = format!("{}fin", "mot ".repeat(224));
         let hits: Vec<SearchHit> = (1..=100)
             .map(|n| SearchHit { snippet: Snippet::new("extrait"), ..titled(n, &long) })
@@ -1318,14 +1375,14 @@ mod tests {
         assert_eq!(
             error.message(),
             "page_size=100 would exceed the 45,000-character response cap for this query; use \
-             page_size <= 38."
+             page_size <= 40."
         );
         // Règle rejouable : avec cette taille de page, la réponse tient.
-        let replay = big_page(hits[..38].to_vec(), Fond::Juri, 38).await.unwrap();
-        assert_eq!(replay.hits.len(), 38);
+        let replay = big_page(hits[..40].to_vec(), Fond::Juri, 40).await.unwrap();
+        assert_eq!(replay.hits.len(), 40);
         // Et la taille suivante ne tient plus.
-        let error = big_page(hits[..39].to_vec(), Fond::Juri, 39).await.unwrap_err();
-        assert!(error.message().ends_with("use page_size <= 38."));
+        let error = big_page(hits[..41].to_vec(), Fond::Juri, 41).await.unwrap_err();
+        assert!(error.message().ends_with("use page_size <= 40."));
     }
 
     #[tokio::test]
@@ -1359,9 +1416,10 @@ mod tests {
                 ..bare(Fond::Juri, 1)
             })])
         };
-        let empty = with_title(0);
-        let fixed = envelope_cost(&empty) + DEGRADE_NOTE_RESERVE;
-        let exact = TARGET - fixed - page_cost(&empty.hits);
+        // Un titre vide n'est pas rendu : la mesure part d'un titre d'un caractère.
+        let one = with_title(1);
+        let fixed = envelope_cost(&one) + DEGRADE_NOTE_RESERVE;
+        let exact = TARGET - fixed - page_cost(&one.hits) + 1;
 
         let mut at_target = with_title(exact);
         assert_eq!(fixed + page_cost(&at_target.hits), TARGET);
@@ -1441,17 +1499,52 @@ mod tests {
     }
 
     #[test]
-    fn the_envelope_cost_counts_the_optional_total_articles_and_note() {
-        let cost = |total_articles: Option<u64>, note: Option<&str>| {
-            let mut output = output_of(vec![]);
-            output.total_articles = total_articles;
-            output.note = note.map(str::to_owned);
-            envelope_cost(&output)
-        };
-        assert_eq!(cost(None, None), estimate_chars(4, 0));
-        assert_eq!(cost(Some(12), None), estimate_chars(5, 0));
-        assert_eq!(cost(None, Some("abc")), estimate_chars(5, 3));
-        assert_eq!(cost(Some(12), Some("abc")), estimate_chars(6, 3));
+    fn the_envelope_cost_is_the_length_of_its_compact_json_without_hits() {
+        let cost =
+            |total: u64, page: u32, more: bool, articles: Option<u64>, note: Option<&str>| {
+                let output = SearchOutput {
+                    total,
+                    page,
+                    has_more: more,
+                    total_articles: articles,
+                    hits: vec![],
+                    note: note.map(str::to_owned),
+                };
+                envelope_cost(&output)
+            };
+        let len = |json: &str| json.chars().count();
+        assert_eq!(
+            cost(1, 1, false, None, None),
+            len(r#"{"total":1,"page":1,"has_more":false,"hits":[]}"#)
+        );
+        assert_eq!(
+            cost(12_345, 120, true, None, None),
+            len(r#"{"total":12345,"page":120,"has_more":true,"hits":[]}"#)
+        );
+        assert_eq!(
+            cost(0, 1, false, Some(1_000), None),
+            len(r#"{"total":0,"page":1,"has_more":false,"total_articles":1000,"hits":[]}"#)
+        );
+        // La note est comptée échappée.
+        assert_eq!(
+            cost(1, 1, false, None, Some("a\"b")),
+            len(r#"{"total":1,"page":1,"has_more":false,"hits":[],"note":"a\"b"}"#)
+        );
+        assert_eq!(
+            cost(1, 1, true, Some(12), Some("abc")),
+            len(
+                r#"{"total":1,"page":1,"has_more":true,"total_articles":12,"hits":[],"note":"abc"}"#
+            )
+        );
+    }
+
+    #[test]
+    fn the_page_cost_adds_a_comma_between_hits() {
+        let one = plain(bare(Fond::Juri, 1));
+        let alone = hit_cost(&one);
+        assert_eq!(page_cost(&[]), 0);
+        assert_eq!(page_cost(std::slice::from_ref(&one)), alone);
+        assert_eq!(page_cost(&[one.clone(), one.clone(), one]), 3 * alone + 2);
     }
 
     #[tokio::test]

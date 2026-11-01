@@ -387,9 +387,8 @@ mod budgets {
                     assert_eq!(hits.len(), 100, "aucun résultat n'est retiré");
                     snippets_go_from_the_end(hits);
                     let kept = hits_with_snippet(hits);
-                    // L'estimation (somme des longueurs + 24 par champ) est conservatrice : les
-                    // derniers extraits partent, les premiers survivent. Ce que la note annonce est
-                    // exactement ce qui a été retiré.
+                    // L'estimation compte le JSON de la vue : les derniers extraits partent, les
+                    // premiers survivent. Ce que la note annonce est exactement ce qui a été retiré.
                     assert!(kept < 100, "{kept}");
                     assert!(
                         observed.note().starts_with(&format!(
@@ -431,19 +430,41 @@ mod budgets {
                 arguments: arguments_of_search("JURI"),
                 extreme: Extreme::OverTheCap,
                 setup: |fixture| {
-                    let (page, raw) = juri_page(100, |_| nasty(150), &nasty(280));
+                    let (page, raw) = juri_page(100, |_| nasty(300), &nasty(280));
                     fixture.corpus.push_search(Ok(page));
                     raw
                 },
                 check: |observed| {
-                    // Le titre est compté deux fois par l'estimation (titre et citation), ce qui
-                    // couvre largement le doublement des guillemets et des antislash : la page est
-                    // refusée, avec la `page_size` qui tient, avant toute mesure exacte.
+                    // La longueur écrite en JSON (guillemets et antislash doublés) est comptée
+                    // exactement : la page est refusée, avec la `page_size` qui tient, avant toute
+                    // mesure de la vue.
                     let message = observed.error.as_deref().expect("a refusal");
                     assert!(message.starts_with("[invalid_arg] page_size=100 would exceed"));
                     let suggested = suggested_page_size(message);
                     assert!((1..100).contains(&suggested), "{message}");
                     json!({"refused": true, "suggested_page_size": suggested})
+                },
+            },
+            Case {
+                name: "search_100_hits_with_escape_rich_citations_that_fit",
+                tool: "fr_search",
+                arguments: arguments_of_search("JURI"),
+                extreme: Extreme::OverTheCap,
+                setup: |fixture| {
+                    let (page, raw) = juri_page(100, |_| nasty(150), &nasty(280));
+                    fixture.corpus.push_search(Ok(page));
+                    raw
+                },
+                check: |observed| {
+                    // Le titre est dans la citation, donc omis par la vue et non compté : les cent
+                    // résultats tiennent, sans extrait ; l'estimation exacte n'a pas besoin du
+                    // repli de la vue.
+                    let hits = hits_of(observed);
+                    assert_eq!(hits.len(), 100);
+                    snippets_go_from_the_end(hits);
+                    assert!(!observed.note().contains(FURTHER_NOTE), "{}", observed.note());
+                    assert!(observed.chars <= TARGET, "{}", observed.chars);
+                    json!({"hits": hits.len(), "snippets_kept": hits_with_snippet(hits)})
                 },
             },
             Case {
@@ -1007,12 +1028,114 @@ mod budgets {
         assert!(rich.chars <= CAP, "{}", rich.chars);
     }
 
+    /// Réponses réelles du bac à sable (rejeu E2E de la 1.0.1, search-5) : hits JURI et CODE
+    /// recopiés tels quels, extraits retirés par la 1.0.1 complétés.
+    const SANDBOX_SEARCH_5: &str = include_str!("fixtures/search-5-sandbox.json");
+
+    /// Les hits `key` (`juri` ou `code`) du relevé, reconstruits comme l'amont les donne : le titre
+    /// d'un hit est sa citation (la vue l'omet donc).
+    fn sandbox_hits(key: &str, fond: Fond) -> Vec<SearchHit> {
+        let relevé: Value = serde_json::from_str(SANDBOX_SEARCH_5).unwrap();
+        let text = |hit: &Value, field: &str| hit[field].as_str().map(str::to_owned);
+        relevé[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|hit| SearchHit {
+                title: text(hit, "citation"),
+                date: hit["date"].as_str().map(|date| CivilDate::parse(date).unwrap()),
+                nature: text(hit, "nature"),
+                etat: hit["etat"].as_str().map(|_| LegalStatus::Vigueur),
+                snippet: hit["snippet"].as_str().and_then(Snippet::new),
+                articles: hit["articles"]
+                    .as_array()
+                    .map(|articles| {
+                        articles
+                            .iter()
+                            .map(|article| {
+                                CodeArticleRef::new(
+                                    ArticleId::parse(article["article_id"].as_str().unwrap())
+                                        .unwrap(),
+                                    text(article, "num"),
+                                    article["snippet"].as_str().unwrap_or_default(),
+                                )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                ..SearchHit::new(
+                    fond,
+                    DocumentId::parse(hit["id"].as_str().unwrap()).unwrap(),
+                    None,
+                )
+                .unwrap()
+            })
+            .collect()
+    }
+
+    /// L4-06 (search-5, rejeu de la 1.0.1). L'estimation comptait le `title` des hits JURI, que la
+    /// vue omet puisqu'il est dans la citation : cent résultats réels étaient rendus sans aucun
+    /// extrait (24 394 caractères pour un plafond de 45 000) et le dernier perdait sa `nature`.
+    /// Ne part que le nécessaire : des extraits en partant du dernier, jusqu'à la cible, sans
+    /// toucher aux détails.
+    #[tokio::test]
+    async fn search_5_sandbox_juri_100_loses_only_the_snippets_it_must() {
+        let fixture = Fixture::default();
+        let hits = sandbox_hits("juri", Fond::Juri);
+        assert_eq!(hits.len(), 100);
+        fixture.corpus.push_search(Ok(page(Fond::Juri, hits)));
+        let observed =
+            Observed::of(&call(&fixture, "fr_search", &arguments_of_search("JURI")).await);
+        assert!(observed.error.is_none(), "{:?}", observed.error);
+        let hits = hits_of(&observed);
+        assert_eq!(hits.len(), 100);
+        snippets_go_from_the_end(hits);
+        let kept = hits_with_snippet(hits);
+        assert!((50..100).contains(&kept), "{kept} extraits gardés");
+        assert!(hits.iter().all(|hit| hit.get("nature").is_some()), "les détails restent");
+        assert!(
+            observed
+                .note()
+                .starts_with(&format!("Snippets were removed from the last {} hits", 100 - kept)),
+            "{}",
+            observed.note()
+        );
+        assert!(!observed.note().contains("Article lists"), "{}", observed.note());
+        assert!(!observed.note().contains(FURTHER_NOTE), "{}", observed.note());
+        // Sous la cible, et à moins de deux extraits de la cible : rien n'est retiré pour rien.
+        assert!(observed.chars <= TARGET, "{}", observed.chars);
+        assert!(observed.chars + 600 > TARGET, "{}", observed.chars);
+    }
+
+    /// L4-06 (search-5, CODE `page_size=30`). La page réelle tient sous la cible avec tous ses
+    /// extraits (31 376 caractères avec 8 retirés en 1.0.1) : aucun n'est retiré, aucune note.
+    #[tokio::test]
+    async fn search_5_sandbox_code_30_keeps_every_snippet() {
+        let fixture = Fixture::default();
+        let hits = sandbox_hits("code", Fond::Code);
+        assert_eq!(hits.len(), 30);
+        fixture.corpus.push_search(Ok(page(Fond::Code, hits)));
+        let arguments = json!({"query": "vie privée", "fond": "CODE", "page_size": 30, "page": 2});
+        let observed = Observed::of(&call(&fixture, "fr_search", &arguments).await);
+        assert!(observed.error.is_none(), "{:?}", observed.error);
+        let hits = hits_of(&observed);
+        assert_eq!(hits.len(), 30);
+        assert_eq!(hits_with_snippet(hits), 30);
+        assert!(hits.iter().all(|hit| {
+            hit["articles"].as_array().is_some_and(|articles| {
+                articles.iter().all(|article| article.get("snippet").is_some())
+            })
+        }));
+        assert!(observed.value.get("note").is_none(), "{}", observed.note());
+        assert!(observed.chars <= TARGET, "{}", observed.chars);
+    }
+
     /// Régression : D-33. La `page_size` proposée par un refus tient : la page ainsi demandée est
     /// rendue sous le plafond, sans remarque de repli.
     #[tokio::test]
     async fn a_refusal_names_a_page_size_that_fits() {
         let plain: fn(u32) -> String = |n| format!("{n} {}", "x".repeat(997));
-        let escape_rich: fn(u32) -> String = |_| nasty(150);
+        let escape_rich: fn(u32) -> String = |_| nasty(300);
         for (title, snippet) in [(plain, "mot ".repeat(70)), (escape_rich, nasty(280))] {
             let page_of = |hits: usize| {
                 let hits = u32::try_from(hits).unwrap();

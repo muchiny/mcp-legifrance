@@ -3,18 +3,15 @@
 use lf_domain::{
     date::{CivilDate, open_ended},
     status::LegalStatus,
-    text::flatten_whitespace,
+    text::title_unless_in_citation as domain_rule,
 };
 
-/// `title` sauf s'il est déjà dans `citation` (égalité ou inclusion). Les deux textes sont déjà
-/// nettoyés par le mapping (`clean`), qui garde les sauts de ligne de la source alors que la
-/// citation est repliée sur une ligne : la comparaison replie donc le blanc des deux côtés
-/// (`CNILTEXT000044033275`). Le titre rendu garde ses blancs d'origine, bords retirés. Un titre
-/// absent ou vide donne `None`.
+/// `title` sauf s'il est déjà dans `citation` (égalité ou inclusion), blanc replié des deux côtés
+/// (`CNILTEXT000044033275`) : la règle est celle du domaine, que l'estimation de taille de
+/// l'application applique aussi. Le titre rendu garde ses blancs d'origine, bords retirés. Un
+/// titre absent ou vide donne `None`.
 pub(crate) fn title_unless_in_citation(title: Option<&str>, citation: &str) -> Option<String> {
-    let title = title?.trim();
-    // Un titre vide est contenu dans toute citation : il tombe dans le même cas.
-    (!flatten_whitespace(citation).contains(&flatten_whitespace(title))).then(|| title.to_owned())
+    domain_rule(title, citation).map(str::to_owned)
 }
 
 /// Code d'API de l'`etat` (`VIGUEUR`, `VIGUEUR_ETEN`, `ABROGE`…), via

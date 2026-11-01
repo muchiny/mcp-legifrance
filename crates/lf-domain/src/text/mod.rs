@@ -16,7 +16,10 @@ mod stopwords;
 mod summary;
 mod window;
 
-pub use clean::{CleanReport, clean, clean_field, clean_with_report, flatten_whitespace};
+pub use clean::{
+    CleanReport, clean, clean_field, clean_with_report, flatten_whitespace,
+    title_unless_in_citation,
+};
 pub use focus::{FOCUS_MAX_CHARS, Focus};
 pub use fold::fold;
 pub use html::is_invisible;
