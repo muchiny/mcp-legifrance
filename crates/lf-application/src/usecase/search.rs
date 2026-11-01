@@ -1398,6 +1398,27 @@ mod tests {
         assert_eq!(largest_page_size(&[hit], 0), 1);
     }
 
+    /// Les virgules entre résultats comptent, une par résultat après le premier : trois résultats
+    /// qui tiennent tout juste avec leurs deux virgules donnent 3 ; un caractère de plus, 2.
+    #[test]
+    fn the_largest_page_size_counts_one_comma_between_hits() {
+        let hits: Vec<HitOut> = (1..=3).map(|n| plain(bare(Fond::Juri, n))).collect();
+        let costs: usize = hits.iter().map(hit_cost).sum();
+        let exact = ResponseBudget::ESTIMATE_TARGET_CHARS - costs - 2;
+        assert_eq!(largest_page_size(&hits, exact), 3);
+        assert_eq!(largest_page_size(&hits, exact + 1), 2);
+    }
+
+    /// La réserve des notes de dégradation vaut 411 caractères : le test de dérive de
+    /// `lf-adapter-mcp` (`tests/budgets.rs`) épingle la même valeur de bout en bout. Elle couvre les
+    /// deux notes au compteur le plus long, l'espace qui les joint et le champ `,"note":""`.
+    #[test]
+    fn the_degrade_note_reserve_covers_both_notes_and_the_note_field() {
+        assert_eq!(DEGRADE_NOTE_RESERVE, 411);
+        let notes = snippets_note(100).len() + details_note(100).len();
+        assert!(notes + 1 + r#","note":"""#.len() <= DEGRADE_NOTE_RESERVE);
+    }
+
     /// Un résultat rendu tel quel, à citation et URL courtes, pour mesurer les coûts.
     fn plain(hit: SearchHit) -> HitOut {
         HitOut { citation: "c".to_owned(), source_url: "u".to_owned(), hit }
