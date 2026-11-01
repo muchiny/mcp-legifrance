@@ -204,7 +204,8 @@ pub enum Note {
         /// Date de la recherche, s'il y en a une.
         date: Option<VersionDate>,
     },
-    /// Aucune citation reconnue dans l'entrée de `fr_resolve`.
+    /// Aucune citation reconnue dans l'entrée de `fr_resolve` ou de `fr_verify_citations` : seules
+    /// les citations introduites par « article » ou « art. » sont lues.
     NoCitationRecognised,
     /// Plusieurs citations dans l'entrée de `fr_resolve` : seule la première est résolue.
     OtherCitations {
@@ -301,7 +302,11 @@ impl Note {
                  of date.",
                 on(*date)
             ),
-            Self::NoCitationRecognised => "No citation recognised.".to_owned(),
+            Self::NoCitationRecognised => {
+                "No citation recognised. Only citations introduced by 'article' \
+                 or 'art.' are read; an empty result does not prove the text cites nothing."
+                    .to_owned()
+            }
             Self::OtherCitations { count } => format!(
                 "{count} more citation(s) found; only the first is resolved, use \
                  fr_verify_citations for the whole text."
@@ -424,7 +429,10 @@ mod tests {
                 },
                 "No code article record matches 9999 on 2026-10-29 in the PISTE sandbox; sandbox data differ from production.",
             ),
-            (Note::NoCitationRecognised, "No citation recognised."),
+            (
+                Note::NoCitationRecognised,
+                "No citation recognised. Only citations introduced by 'article' or 'art.' are read; an empty result does not prove the text cites nothing.",
+            ),
             (
                 Note::OtherCitations { count: 2 },
                 "2 more citation(s) found; only the first is resolved, use fr_verify_citations for the whole text.",

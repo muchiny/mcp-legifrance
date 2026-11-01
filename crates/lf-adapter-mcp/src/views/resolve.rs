@@ -181,7 +181,10 @@ mod tests {
             candidates: vec![],
             notes: vec![Note::NoCitationRecognised],
         };
-        assert_eq!(json_of(empty), json!({"candidates": [], "note": "No citation recognised."}));
+        assert_eq!(
+            json_of(empty),
+            json!({"candidates": [], "note": Note::NoCitationRecognised.text()})
+        );
     }
 
     #[test]
@@ -255,7 +258,7 @@ mod tests {
         assert!((1..5).contains(&kept), "{kept}");
         assert_eq!(
             value["note"],
-            format!("No citation recognised. {FURTHER_NOTE}"),
+            format!("{} {FURTHER_NOTE}", Note::NoCitationRecognised.text()),
             "la note existante est gardée, celle du plafond s'y ajoute"
         );
         // Les candidats gardés sont les premiers.

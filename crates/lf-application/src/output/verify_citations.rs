@@ -18,7 +18,8 @@ pub struct VerifyCitationsOutput {
     pub truncated: bool,
     /// Les contrôles, un par citation rendue.
     pub citations: Vec<CitationCheck>,
-    /// Remarque exceptionnelle : liste raccourcie pour tenir sous le plafond de réponse.
+    /// Remarque exceptionnelle : liste raccourcie pour tenir sous le plafond de réponse, ou aucune
+    /// citation reconnue (`found == 0`).
     pub note: Option<String>,
 }
 

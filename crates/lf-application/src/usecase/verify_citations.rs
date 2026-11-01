@@ -20,7 +20,7 @@ use lf_domain::date::VersionDate;
 use crate::{
     budget::{ResponseBudget, bounded, estimate_chars, shrink_from_end},
     citation::{
-        CitationCheck,
+        CitationCheck, Note,
         resolve::Proof,
         verify::{Run, verify_text},
     },
@@ -72,8 +72,9 @@ impl<'a, C: LegalCorpus, K: Clock> VerifyCitationsUseCase<'a, C, K> {
         input: VerifyCitationsInput,
     ) -> Result<VerifyCitationsOutput, AppError> {
         let VerifyCitationsInput { text, max_citations } = input;
-        let text =
-            text.filter(|text| !text.is_empty()).ok_or_else(|| messages::required("text"))?;
+        let text = text
+            .filter(|text| !text.trim().is_empty())
+            .ok_or_else(|| messages::required("text"))?;
         let length = text.chars().count();
         if length > TEXT_MAX_CHARS {
             return Err(messages::invalid_argument(format!(
@@ -104,13 +105,15 @@ impl<'a, C: LegalCorpus, K: Clock> VerifyCitationsUseCase<'a, C, K> {
         let removed = shrink_from_end(&mut citations, |all| {
             estimate_list(all) > ResponseBudget::ESTIMATE_TARGET_CHARS
         });
-        let note = (removed > 0).then(|| {
-            format!(
+        let note = if removed > 0 {
+            Some(format!(
                 "List shortened to the first {} citations to fit the response cap; check the \
                  text in several calls.",
                 citations.len()
-            )
-        });
+            ))
+        } else {
+            (found == 0).then(|| Note::NoCitationRecognised.text())
+        };
         Ok(VerifyCitationsOutput {
             found,
             checked: citations.len(),
@@ -153,7 +156,7 @@ mod tests {
     use super::*;
     use crate::{
         audited::AuditMetric,
-        citation::CheckStatus,
+        citation::{CheckStatus, Note},
         error::ErrorCode,
         ports::{CorpusError, PisteEnvironment},
         testing::{FakeCorpus, FixedClock},
@@ -223,6 +226,13 @@ mod tests {
         assert_eq!(missing.message(), "text is required.");
         let empty = run(&corpus, env, Some(""), None).await.unwrap_err();
         assert_eq!(empty.message(), "text is required.");
+        // Le blanc seul vaut le vide (errors-14, verify_citations-16) : espace insécable, tabulation,
+        // saut de ligne.
+        for blank in ["\u{a0}\t", "   \n "] {
+            let error = run(&corpus, env, Some(blank), None).await.unwrap_err();
+            assert_eq!(error.message(), "text is required.", "{blank:?}");
+            assert_eq!(error.code(), Some(ErrorCode::InvalidArg));
+        }
         let long = "a".repeat(TEXT_MAX_CHARS + 1);
         let too_long = run(&corpus, env, Some(&long), None).await.unwrap_err();
         assert_eq!(
@@ -240,6 +250,42 @@ mod tests {
         let limit = "a".repeat(TEXT_MAX_CHARS);
         assert!(run(&corpus, env, Some(&limit), Some(1)).await.is_ok());
         assert!(run(&corpus, env, Some(&limit), Some(100)).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_text_without_citation_says_so_and_calls_nothing() {
+        let corpus = corpus_with_civil_code();
+        let output =
+            run(&corpus, PisteEnvironment::Production, Some("Bonjour, ceci ne cite rien."), None)
+                .await
+                .unwrap();
+        assert_eq!((output.found, output.checked, output.truncated), (0, 0, false));
+        assert_eq!(output.citations, []);
+        let note = output.note.expect("no citation recognised carries a note");
+        assert_eq!(note, Note::NoCitationRecognised.text());
+        assert_eq!(
+            note,
+            "No citation recognised. Only citations introduced by 'article' or 'art.' are read; \
+             an empty result does not prove the text cites nothing."
+        );
+        assert!(note.chars().count() <= 200);
+        assert_eq!(corpus.calls(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_text_with_a_citation_carries_no_such_note() {
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1)));
+        let output = run(
+            &corpus,
+            PisteEnvironment::Production,
+            Some("Voir l'article 1 du code civil."),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!((output.found, output.checked), (1, 1));
+        assert_eq!(output.note, None);
     }
 
     #[tokio::test]
