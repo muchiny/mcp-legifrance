@@ -683,7 +683,7 @@ Base : le payload de la référence (server.py:133-156, recherche 03 §3.1, rech
 | `criteres[0].typeRecherche` | selon `match` (§6.4) | 00 §8 |
 | `criteres[0].valeur` | `QueryText` (déjà normalisée par le domaine, §6.8) | 03 §4.1 |
 | `criteres[0].operateur`, `champs[0].operateur`, `recherche.operateur` | `ET` | parité ; requis par le Swagger (`CritereDTO`, `RechercheSpecifiqueDTO`) |
-| `filtres` | toujours présent : `[]` si aucun filtre (parité server.py:149) ; ordre déterministe : `DATE_VERSION` d'abord, puis la facette de plage | tests de sérialisation, stabilité du cache |
+| `filtres` | toujours présent : `[]` si aucun filtre (parité server.py:149) ; ordre déterministe : `DATE_VERSION` d'abord, puis `LEGAL_STATUS` (KALI avec `in_force_only`, 1.1.0, D-08), puis la facette de plage | tests de sérialisation, stabilité du cache |
 | `pageNumber`, `pageSize` | `page` (≥ 1), `page_size` (1..=100) | 00 §7 ; Swagger : `pageSize` « (max=100) » |
 | `sort` | `PERTINENCE` | 00 §8 ; seul tri attesté pour CODE (recherche 05 §2.2) |
 | `typePagination` | §6.6 (`PaginationMemo` ; ici `DEFAUT`, page 2 d'une recherche LODA sans mémo) | Swagger `RechercheSpecifiqueDTO.typePagination` |
@@ -691,7 +691,7 @@ Base : le payload de la référence (server.py:133-156, recherche 03 §3.1, rech
 
 Les champs requis du Swagger sont tous présents : `fond` et `recherche` (`SearchRequestDTO`) ; `champs`, `operateur`, `pageNumber`, `pageSize`, `sort` et `typePagination` (`RechercheSpecifiqueDTO`) ; `operateur`, `typeRecherche` et `valeur` (`CritereDTO`).
 
-Les DTO de requête de la recherche 03 §12.3 sont repris (`SearchRequestDto`, `RechercheDto`, `ChampDto`, `CritereDto`, `FiltreDto`, `DatePeriodDto`, enums en `SCREAMING_SNAKE_CASE`), avec `FiltreDto.single_date: Option<i64>` (epoch ms) et `dates: Option<DatePeriodDto { start: String, end: String }>`. Les variantes inutiles en v0.1 (`multi_valeurs`, `proximite`, sous-critères) ne sont pas déclarées. Livré (plan 2d, tâche 8) : privés à `request/search.rs` et sans `Debug` ; `search_body(&SearchQuery, PaginationMode) -> Result<Vec<u8>, CorpusError>` sérialise en un seul passage (l'ordre des clés est celui des champs) ; les enums ne déclarent que les variantes employées (`Operateur::Et`, `TypeChamp::All`, `Sort::Pertinence`, trois `TypeRecherche`) ; `fond`, `facette` et `typePagination` sont des `&'static str` d'API.
+Les DTO de requête de la recherche 03 §12.3 sont repris (`SearchRequestDto`, `RechercheDto`, `ChampDto`, `CritereDto`, `FiltreDto`, `DatePeriodDto`, enums en `SCREAMING_SNAKE_CASE`), avec `FiltreDto.single_date: Option<i64>` (epoch ms), `dates: Option<DatePeriodDto { start: String, end: String }>` et (1.1.0, D-08) `valeurs: Option<Vec<String>>` pour les facettes à valeurs (`LEGAL_STATUS`). Les variantes inutiles en v0.1 (`multi_valeurs`, `proximite`, sous-critères) ne sont pas déclarées. Livré (plan 2d, tâche 8) : privés à `request/search.rs` et sans `Debug` ; `search_body(&SearchQuery, PaginationMode) -> Result<Vec<u8>, CorpusError>` sérialise en un seul passage (l'ordre des clés est celui des champs) ; les enums ne déclarent que les variantes employées (`Operateur::Et`, `TypeChamp::All`, `Sort::Pertinence`, trois `TypeRecherche`) ; `fond`, `facette` et `typePagination` sont des `&'static str` d'API.
 
 ### 6.2 Fond et `DATE_VERSION`
 

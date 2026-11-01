@@ -130,7 +130,7 @@ Plafond dur : le `structuredContent` sérialisé (JSON compact) d'une réponse n
 
 Règles de `fr_search` :
 - `typePagination` jamais exposé au modèle : l'adapter mémorise la valeur reçue par requête normalisée sans `page` (`PaginationMemo`, TTL 1 h, 1 024 entrées) et la renvoie à PISTE pour la page suivante ; sans mémo (redémarrage, autre processus), `DEFAUT` en page > 1 pour tous les fonds (le repli `ARTICLE` pour CODE rejouait la page 1 en sandbox, V-82, plan 2h ; si le mémo ne suffit pas, paramètre opaque `pagination`, classe « ajout »).
-- Rejets `invalid_arg` dans le cas d'usage, sans réseau : `version_date` hors LODA/CODE ; `date_from`/`date_to` sur un fond sans facette de date (CODE) ; `date_from` > `date_to` ; `page × page_size` > 10 000 (fenêtre supposée, V-83).
+- Rejets `invalid_arg` dans le cas d'usage, sans réseau : `version_date` hors LODA/CODE ; `date_from`/`date_to` sur un fond sans facette de date (CODE) ; `date_from` > `date_to` ; `page × page_size` > 10 000 (fenêtre supposée, V-83) ; `in_force_only` vrai hors KALI (1.1.0, D-08).
 - Hits : liste du tableau en v0.1 ; en v0.2 (classe « ajout ») `idcc?` pour les hits KALI et ACCO, et `total_articles?` au niveau de la page pour CODE (portés dès v0.1 par le domaine : `SearchHit.idcc`, `SearchPage.total_articles`).
 
 Resources (v0.3) : templates `legifrance://article/{article_id}`, `legifrance://decision/{decision_id}`, `legifrance://act/{text_id}`, `legifrance://code/{code}/article/{num}` ; ressource statique `legifrance://coverage` ; erreurs : §6.
