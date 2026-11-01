@@ -324,6 +324,43 @@ mod tests {
         assert_eq!(output.candidates[0].confidence, Confidence::Medium);
     }
 
+    /// L2-07 (gap3-7) : une plage donne un candidat unique de confiance moyenne, et la note dit
+    /// que seules les deux bornes ont été lues.
+    #[tokio::test]
+    async fn a_range_is_one_medium_candidate_with_the_range_note() {
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "1240")));
+        corpus.push_find_article(Ok(article(2, "1244")));
+        let output = resolve(&corpus, "articles 1240 à 1244 du code civil").await;
+        assert_eq!(output.interpreted_as.as_deref(), Some("Code civil, art. 1240 à 1244"));
+        assert_eq!(ids(&output.candidates), vec!["LEGIARTI000000000001".to_owned()]);
+        assert_eq!(output.candidates[0].confidence, Confidence::Medium);
+        assert_eq!(output.notes, [Note::RangeEndpointsOnly]);
+        assert_eq!(corpus.calls_of("find_article"), 2);
+    }
+
+    #[tokio::test]
+    async fn a_range_with_a_missing_last_article_has_no_candidate_and_says_why() {
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "1240")));
+        corpus.push_find_article(Err(not_found()));
+        let output = resolve(&corpus, "articles 1240 à 9999 du code civil").await;
+        assert_eq!(output.candidates, []);
+        assert_eq!(output.notes, [Note::RangeEndNotFound { num: "9999".to_owned() }]);
+    }
+
+    /// Jumeau : une liste « 1240 et 1241 » reste signalée par la note des autres citations, et la
+    /// première est lue seule, de confiance haute.
+    #[tokio::test]
+    async fn a_list_is_not_a_range() {
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "1240")));
+        let output = resolve(&corpus, "articles 1240 et 1241 du code civil").await;
+        assert_eq!(output.candidates[0].confidence, Confidence::High);
+        assert!(output.notes.contains(&Note::OtherCitations { count: 1 }), "{:?}", output.notes);
+        assert_eq!(corpus.calls_of("find_article"), 1);
+    }
+
     #[tokio::test]
     async fn interpreted_as_present() {
         let corpus = corpus_with_civil_code();

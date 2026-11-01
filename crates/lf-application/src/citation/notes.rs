@@ -26,6 +26,10 @@ pub(crate) const FOUND_DATES_MAX: usize = 5;
 /// Phrase de l'écart d'extrait, en tête de [`Note::QuoteMismatch`] et de [`Note::WithQuoteMismatch`].
 const QUOTE_GAP: &str = "Quoted text not found in the official text.";
 
+/// Texte de [`Note::NoCitationRecognised`].
+const NO_CITATION: &str = "No citation recognised. Only citations introduced by 'article' or \
+     'art.' are read; an empty result does not prove the text cites nothing.";
+
 /// Champ dont l'écart donne `invalid` (annexe B §6.6, champs durs de §7.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
@@ -211,6 +215,15 @@ pub enum Note {
     CodeNotListed,
     /// Début de la version en vigueur : `verified`.
     VersionSince(CivilDate),
+    /// Plage d'articles (« articles 1240 à 1244 ») dont les deux bornes existent : `verified` de
+    /// confiance moyenne, les articles intermédiaires ne sont pas lus (L2-07).
+    RangeEndpointsOnly,
+    /// Plage d'articles dont la première borne existe mais pas la dernière : `ambiguous`, jamais
+    /// `invalid` ni `not_found` (la plage peut être juste pour une autre date, L2-07).
+    RangeEndNotFound {
+        /// Dernier article de la plage, sous sa forme de clé.
+        num: String,
+    },
     /// Extrait cité introuvable dans le texte officiel (statut inchangé).
     QuoteMismatch,
     /// Note d'un statut `verified` précédée de l'écart d'extrait : l'écart est rendu en tête, avant
@@ -298,6 +311,19 @@ fn earlier_versions(family: &str) -> String {
 /// ` on {date}` quand la date est connue.
 fn on(date: Option<VersionDate>) -> String {
     date.map_or_else(String::new, |date| format!(" on {date}"))
+}
+
+/// Texte des notes de plage d'articles (L2-07).
+fn range_text(note: &Note) -> String {
+    match note {
+        Note::RangeEndNotFound { num } => format!(
+            "The first article of the range exists, but its last, article {num}, was not found; \
+             check the number or the date."
+        ),
+        _ => "Only the first and last articles of the range were checked; the articles between \
+              were not."
+            .to_owned(),
+    }
 }
 
 /// Texte de plusieurs écarts : le premier avec le gabarit `Mismatch`, les suivants abrégés,
@@ -391,6 +417,7 @@ impl Note {
             Self::NotChecked { reason } => format!("Not checked: {}.", reason.label()),
             Self::CodeNotListed => "Code not found in the list of codes.".to_owned(),
             Self::VersionSince(date) => format!("Current version in force since {date}."),
+            Self::RangeEndpointsOnly | Self::RangeEndNotFound { .. } => range_text(self),
             Self::QuoteMismatch => QUOTE_GAP.to_owned(),
             Self::WithQuoteMismatch(inner) => format!("{QUOTE_GAP} {}", inner.text()),
             Self::NotInSandbox { family, value, date } => fit(value, |value| {
@@ -406,11 +433,7 @@ impl Note {
                  of date.",
                 on(*date)
             ),
-            Self::NoCitationRecognised => {
-                "No citation recognised. Only citations introduced by 'article' \
-                 or 'art.' are read; an empty result does not prove the text cites nothing."
-                    .to_owned()
-            }
+            Self::NoCitationRecognised => NO_CITATION.to_owned(),
             Self::OtherCitations { count } => format!(
                 "{count} more citation(s) found; only the first is resolved, use \
                  fr_verify_citations for the whole text."
@@ -641,9 +664,25 @@ mod tests {
         ]
     }
 
+    /// Les notes de plage d'articles (L2-07).
+    fn range_catalogue() -> Vec<(Note, &'static str)> {
+        vec![
+            (
+                Note::RangeEndpointsOnly,
+                "Only the first and last articles of the range were checked; the articles between were not.",
+            ),
+            (
+                Note::RangeEndNotFound { num: "L9999-99".to_owned() },
+                "The first article of the range exists, but its last, article L9999-99, was not found; check the number or the date.",
+            ),
+        ]
+    }
+
     #[test]
     fn notes_are_static_templates() {
-        for (note, expected) in catalogue().into_iter().chain(later_catalogue()) {
+        for (note, expected) in
+            catalogue().into_iter().chain(later_catalogue()).chain(range_catalogue())
+        {
             let text = note.text();
             assert_eq!(text, expected, "{note:?}");
             assert!(text.chars().count() <= NOTE_MAX_CHARS, "{text}");

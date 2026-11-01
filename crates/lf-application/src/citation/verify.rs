@@ -795,6 +795,86 @@ mod tests {
         ));
     }
 
+    fn find_travail(num: &str) -> PortRequest {
+        PortRequest::FindArticle(
+            LegiTextId::parse(TRAVAIL).unwrap(),
+            num.to_owned(),
+            ArticleAt::Today(today()),
+        )
+    }
+
+    /// L2-07 (verify_citations-9) : une plage est une seule citation, dont les deux bornes sont
+    /// lues ; elle est `verified` avec la note qui dit que le milieu n'est pas lu, et l'extrait
+    /// cité n'est pas comparé.
+    #[tokio::test]
+    async fn a_range_is_checked_at_both_ends_and_says_so() {
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        corpus.push_find_article(Ok(article(1, Some("L. 1234-9"), None, "Premier.")));
+        corpus.push_find_article(Ok(article(2, Some("L. 1234-11"), None, "Dernier.")));
+        let text = "les articles L. 1234-9 à L. 1234-11 du code du travail";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        assert_eq!(verification.found, 1);
+        assert_eq!(verification.checks.len(), 1);
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(
+            note_text(check),
+            "Only the first and last articles of the range were checked; the articles between were not."
+        );
+        assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), "LEGIARTI000000000001");
+        assert_eq!(check.quote, None);
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![PortRequest::ListCodes, find_travail("L1234-9"), find_travail("L1234-11")]
+        );
+    }
+
+    /// Une dernière borne inventée n'est plus verified : `ambiguous`, jamais `not_found`.
+    #[tokio::test]
+    async fn a_range_ending_at_a_missing_article_is_ambiguous_not_not_found() {
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        corpus.push_find_article(Ok(article(1, Some("L. 1234-9"), None, "Premier.")));
+        corpus.push_find_article(Err(not_found()));
+        let text = "les articles L. 1234-9 à L. 9999-99 du code du travail";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Ambiguous);
+        assert!(check.resolved.is_none());
+        assert_eq!(
+            note_text(check),
+            "The first article of the range exists, but its last, article L9999-99, was not found; check the number or the date."
+        );
+    }
+
+    /// Une première borne absente : un seul appel, l'issue d'un article seul (`not_found`).
+    #[tokio::test]
+    async fn a_range_starting_at_a_missing_article_is_not_found_after_one_call() {
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        corpus.push_find_article(Err(not_found()));
+        let text = "les articles L. 9998-1 à L. 9999-99 du code du travail";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        assert_eq!(verification.checks[0].status, CheckStatus::NotFound);
+        assert_eq!(corpus.calls_of("find_article"), 1);
+    }
+
+    /// Jumeau : « 1240 et 1241 » reste une liste, une citation et un appel par numéro, chacune
+    /// verified de confiance haute (sans la note des plages).
+    #[tokio::test]
+    async fn a_list_of_two_articles_is_not_a_range() {
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        corpus.push_find_article(Ok(article(1, Some("1240"), None, "Un.")));
+        corpus.push_find_article(Ok(article(2, Some("1241"), None, "Deux.")));
+        let text = "les articles 1240 et 1241 du code civil";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        assert_eq!(statuses(&verification), vec![CheckStatus::Verified, CheckStatus::Verified]);
+        assert_eq!(corpus.calls_of("find_article"), 2);
+        assert!(verification.checks.iter().all(|c| !note_text(c).contains("range")));
+    }
+
     const TWO_ARTICLES: &str = "article 9 du code civil. Voir aussi l'article 10 du code civil.";
 
     #[tokio::test]

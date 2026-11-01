@@ -27,9 +27,10 @@
 
 use lf_domain::{
     citation::{
-        Ambiguity, ArticleNum, CaseNumber, CitationRef, CnilCite, CnilNumber, CodeRef, Confidence,
-        ConventionCite, Court, DecisionCite, Flag, LegifranceIdRef, Resolvability, Spanned,
-        TextCite, TextNature, TextNumber, UnresolvableWhy, UnsupportedFamily, VersionQualifier,
+        Ambiguity, ArticleNum, ArticleRef, CaseNumber, CitationRef, CnilCite, CnilNumber, CodeRef,
+        Confidence, ConventionCite, Court, DecisionCite, Flag, LegifranceIdRef, Resolvability,
+        Spanned, TextCite, TextNature, TextNumber, UnresolvableWhy, UnsupportedFamily,
+        VersionQualifier,
         dict::courts::{CassChamber, CcType},
         parse,
     },
@@ -433,11 +434,15 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
     async fn search(&self, item: &Spanned<CitationRef>, at: Option<VersionDate>) -> Resolution {
         match &item.value {
             CitationRef::CodeArticle { code, article, version, .. } => {
-                let resolution = self.code_article(code, &article.num, version.as_ref(), at).await;
+                let first = self.code_article(code, &article.num, version.as_ref(), at).await;
+                let resolution = close_range(first, article.range_to.as_ref(), async |end| {
+                    self.code_article(code, end, version.as_ref(), at).await
+                })
+                .await;
                 with_sigle_reading(item, code, resolution)
             }
             CitationRef::TextArticle { text: Some(text), article, at_date } => {
-                self.text_article(text, &article.num, *at_date, at).await
+                self.text_article(text, article, *at_date, at).await
             }
             CitationRef::Text(text) => self.text(text).await.into_resolution(),
             CitationRef::Decision(decision) => self.decision(decision).await,
@@ -558,11 +563,12 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         }
     }
 
-    /// Article d'un texte non codifié : résout le texte, puis l'article dans ce texte.
+    /// Article d'un texte non codifié (ou plage d'articles) : résout le texte une fois, puis
+    /// l'article dans ce texte, et la dernière borne d'une plage.
     async fn text_article(
         &self,
         text: &TextCite,
-        num: &ArticleNum,
+        article: &ArticleRef,
         at_date: Option<CivilDate>,
         tool: Option<VersionDate>,
     ) -> Resolution {
@@ -573,7 +579,11 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         match self.text(text).await {
             TextStep::Found { id, confidence, .. } => {
                 let sure = confidence == Confidence::High;
-                self.article_in(&id, id.as_str(), num, when, sure).await
+                let first = self.article_in(&id, id.as_str(), &article.num, when, sure).await;
+                close_range(first, article.range_to.as_ref(), async |end| {
+                    self.article_in(&id, id.as_str(), end, when, sure).await
+                })
+                .await
             }
             TextStep::Done(done) => done,
         }
@@ -1065,6 +1075,40 @@ fn text_mismatch(cite: &TextCite, hit: &SearchHit, fit: &TextFit) -> Resolution 
 
 fn verified(record: ResolvedRecord, confidence: Confidence, note: Option<Note>) -> Resolution {
     Resolution::of(Outcome::Verified { record, confidence, note })
+}
+
+/// Plage d'articles (« articles 1240 à 1244 », L2-07) : la dernière borne `end` est lue par le même
+/// chemin que la première, mais seulement quand la première est vérifiée (sinon son issue est
+/// rendue, sans second appel). Les deux bornes vérifiées donnent `verified` de confiance moyenne,
+/// avec la note qui dit que le milieu n'est pas lu, sans comparaison d'extrait. Une dernière borne
+/// absente (preuve d'absence, ou « existence non confirmée » d'un texte sans date comparée) donne
+/// `ambiguous`, jamais `invalid` ni `not_found` : la plage peut être juste pour une autre date.
+/// Toute autre issue de la dernière borne est rendue telle quelle. Sans `end`, la première
+/// résolution est rendue inchangée.
+async fn close_range(
+    first: Resolution,
+    end: Option<&ArticleNum>,
+    resolve_end: impl AsyncFnOnce(&ArticleNum) -> Resolution,
+) -> Resolution {
+    let (Some(end), Outcome::Verified { record, .. }) = (end, &first.outcome) else {
+        return first;
+    };
+    let record = record.clone();
+    let outcome = match resolve_end(end).await.outcome {
+        Outcome::Verified { .. } => Outcome::Verified {
+            record,
+            confidence: Confidence::Medium,
+            note: Some(Note::RangeEndpointsOnly),
+        },
+        Outcome::Absent { .. } | Outcome::Unresolvable { note: Note::CouldNotConfirm { .. } } => {
+            Outcome::Candidates {
+                items: Vec::new(),
+                note: Note::RangeEndNotFound { num: end.num_key() },
+            }
+        }
+        other => other,
+    };
+    Resolution::of(outcome)
 }
 
 /// Issue d'un article trouvé : cohérence du numéro, texte officiel, début de la version courante.
@@ -4548,6 +4592,155 @@ mod tests {
         corpus.push_find_article(Err(upstream()));
         let resolution = resolve(&corpus, "article 121-3 CP").await;
         assert_eq!(resolution.outcome, Outcome::Failed(upstream()));
+    }
+
+    /// Article d'un code, d'identifiant propre à `n`.
+    fn numbered(n: u32, num: &str) -> ArticleText {
+        ArticleText {
+            article_id: ArticleId::parse(&format!("LEGIARTI{n:012}")).unwrap(),
+            ..article(Some(num))
+        }
+    }
+
+    fn find_civil(num: &str) -> PortRequest {
+        PortRequest::FindArticle(
+            LegiTextId::parse(CIVIL).unwrap(),
+            num.to_owned(),
+            ArticleAt::Today(today()),
+        )
+    }
+
+    /// L2-07 (verify_citations-9, gap3-7) : les deux bornes d'une plage sont lues ; la plage est
+    /// vérifiée de confiance moyenne, avec la note qui dit que le milieu n'est pas lu.
+    #[tokio::test]
+    async fn a_range_resolves_both_ends_and_says_so() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Ok(numbered(1, "1240")));
+        corpus.push_find_article(Ok(numbered(2, "1244")));
+        let resolution = resolve(&corpus, "articles 1240 à 1244 du code civil").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+        assert_eq!(resolution.outcome.note(Proof::Production), Some(Note::RangeEndpointsOnly));
+        assert_eq!(record_id(&resolution).as_deref(), Some("LEGIARTI000000000001"));
+        assert_eq!(resolution.official, None, "pas de comparaison d'extrait sur une plage");
+        assert_eq!(corpus.seen_requests(), vec![find_civil("1240"), find_civil("1244")]);
+    }
+
+    /// Une plage lue avec le code par défaut d'un sigle ambigu : les deux bornes sont lues, la note
+    /// de lecture du sigle prime.
+    #[tokio::test]
+    async fn a_range_with_an_ambiguous_sigle_keeps_the_sigle_reading_note() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Ok(numbered(1, "121-3")));
+        corpus.push_find_article(Ok(numbered(2, "121-5")));
+        let resolution = resolve(&corpus, "articles 121-3 à 121-5 CP").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(note(&resolution), "Read 'CP' as Code pénal.");
+        assert_eq!(corpus.calls_of("find_article"), 2);
+    }
+
+    #[tokio::test]
+    async fn a_range_whose_last_article_does_not_exist_is_not_verified() {
+        for proof in [Proof::Production, Proof::Sandbox, Proof::Snapshot] {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_article(Ok(numbered(1, "1240")));
+            corpus.push_find_article(Err(not_found()));
+            let resolution = resolve(&corpus, "articles 1240 à 9999 du code civil").await;
+            assert_eq!(
+                resolution.outcome,
+                ambiguous_outcome(Note::RangeEndNotFound { num: "9999".to_owned() })
+            );
+            assert_eq!(resolution.outcome.status(proof), CheckStatus::Ambiguous, "{proof:?}");
+            assert_eq!(resolution.official, None);
+            assert_eq!(corpus.seen_requests(), vec![find_civil("1240"), find_civil("9999")]);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_range_whose_first_article_is_missing_makes_a_single_call() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Err(not_found()));
+        let resolution = resolve(&corpus, "articles 9998 à 9999 du code civil").await;
+        assert_eq!(status(&resolution), CheckStatus::NotFound);
+        assert_eq!(corpus.seen_requests(), vec![find_civil("9998")]);
+
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Err(upstream()));
+        let resolution = resolve(&corpus, "articles 1240 à 1244 du code civil").await;
+        assert_eq!(resolution.outcome, Outcome::Failed(upstream()));
+        assert_eq!(corpus.calls_of("find_article"), 1);
+    }
+
+    /// La seconde borne garde son issue quand ce n'est pas une absence : écart de numéro, échec
+    /// amont.
+    #[tokio::test]
+    async fn a_range_end_that_is_not_absent_keeps_its_own_outcome() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Ok(numbered(1, "1240")));
+        corpus.push_find_article(Ok(numbered(2, "1245")));
+        let resolution = resolve(&corpus, "articles 1240 à 1244 du code civil").await;
+        assert_eq!(status(&resolution), CheckStatus::Invalid);
+        assert_eq!(
+            note(&resolution),
+            "Cited article number 1244 differs from the official record (1245)."
+        );
+        assert_eq!(resolution.official, None);
+
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Ok(numbered(1, "1240")));
+        corpus.push_find_article(Err(upstream()));
+        let resolution = resolve(&corpus, "articles 1240 à 1244 du code civil").await;
+        assert_eq!(resolution.outcome, Outcome::Failed(upstream()));
+    }
+
+    /// Jumeau de « plage » : un article seul garde la confiance haute et son extrait ; une liste
+    /// (« 1240 et 1241 ») n'est pas une plage.
+    #[tokio::test]
+    async fn a_single_article_and_a_list_are_not_ranges() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Ok(numbered(1, "1240")));
+        let resolution = resolve(&corpus, "article 1240 du code civil").await;
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+        assert_eq!(resolution.official.as_deref(), Some("Texte officiel."));
+        assert_eq!(corpus.calls_of("find_article"), 1);
+
+        let items = parse("articles 1240 et 1241 du code civil");
+        assert_eq!(items.len(), 2);
+        for (item, num) in items.iter().zip(["1240", "1241"]) {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_article(Ok(numbered(1, num)));
+            let resolution = resolve_with(&corpus, &codes(), item, None).await;
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+            assert_eq!(corpus.calls_of("find_article"), 1);
+        }
+    }
+
+    /// Plage d'un texte non codifié : le texte est cherché une fois, les deux articles dans ce
+    /// texte.
+    #[tokio::test]
+    async fn a_range_of_a_numbered_text_resolves_the_text_once() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Loda, "LEGITEXT000033202746")]));
+        corpus.push_find_article(Ok(numbered(1, "3")));
+        corpus.push_find_article(Ok(numbered(2, "5")));
+        let resolution = resolve(&corpus, "articles 3 à 5 de la loi n° 2016-1321").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+        assert_eq!(resolution.outcome.note(Proof::Production), Some(Note::RangeEndpointsOnly));
+        assert_eq!(corpus.calls_of("find_by_number"), 1);
+        assert_eq!(corpus.calls_of("find_article"), 2);
+
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Loda, "LEGITEXT000033202746")]));
+        corpus.push_find_article(Ok(numbered(1, "3")));
+        corpus.push_find_article(Err(not_found()));
+        let resolution = resolve(&corpus, "articles 3 à 99 de la loi n° 2016-1321").await;
+        assert_eq!(status(&resolution), CheckStatus::Ambiguous);
+        assert_eq!(
+            note(&resolution),
+            "The first article of the range exists, but its last, article 99, was not found; \
+             check the number or the date."
+        );
     }
 
     #[test]
