@@ -2,7 +2,7 @@
 
 - **Statut** : **Proposé** — accepté à la fusion de la PR unique du plan fin-du-projet.
 - **Date** : 2026-10-29
-- **Jalons concernés** : M3 à M9 (plan `docs/superpowers/plans/2026-10-29-fin-du-projet-parallele.md`, vague 0, unité 0B)
+- **Jalons concernés** : M3 à M9 (plan `2026-10-29-fin-du-projet-parallele.md`, plan retiré : voir [README du plan §3.5](../plan/README.md#35-plans-dimplémentation-retirés), vague 0, unité 0B)
 - **Questions liées** : —
 - Révisé le 2026-10-29 (F6-b, fin de projet) : les exceptions `STUB(V0)` de `cargo machete` ont disparu (décision 1) ; `winnow` n'est pas employé (décision 3) ; `fs4@0.13.1` est un `skip` de `deny.toml` et `multiple-versions` vaut `deny` (décision 5, T-M5-09). Le statut reste « Proposé » jusqu'à la fusion de la PR unique.
 - Amende [00-decisions.md](../plan/00-decisions.md) §2 (tableau des crates par membre) et §11.1 (liste blanche de `lf-domain`), [02-architecture.md](../plan/02-architecture.md) §3.0.1 (`similar`), §3.0.2 (les squelettes ne déclaraient pas de dépendance d'avance) et §4.3 (`wrappers`), et [06-qualite.md](../plan/06-qualite.md) §7.6 et §9.1 (mutation en CI, `deny.toml`).
@@ -64,6 +64,6 @@
 
 ## Références et sources
 
-- Plan : `docs/superpowers/plans/2026-10-29-fin-du-projet-parallele.md` (§1 D6, D7, D9, D10, D18 et D21 ; §3, unité 0B) ; [00-decisions.md](../plan/00-decisions.md) §2, §11.1 ; [02-architecture.md](../plan/02-architecture.md) §3.0.1, §3.0.2, §4.3 ; [06-qualite.md](../plan/06-qualite.md) §7.6, §9.1 ; [07-feuille-de-route.md](../plan/07-feuille-de-route.md) T-M3-10 et T-M4-15.
+- Plan : `2026-10-29-fin-du-projet-parallele.md` (§1 D6, D7, D9, D10, D18 et D21 ; §3, unité 0B) ; [00-decisions.md](../plan/00-decisions.md) §2, §11.1 ; [02-architecture.md](../plan/02-architecture.md) §3.0.1, §3.0.2, §4.3 ; [06-qualite.md](../plan/06-qualite.md) §7.6, §9.1 ; [07-feuille-de-route.md](../plan/07-feuille-de-route.md) T-M3-10 et T-M4-15.
 - Code : `Cargo.toml`, `deny.toml`, `clippy.toml`, `Makefile`, `.cargo/mutants.toml`, `.github/workflows/ci.yml`, `.github/mutants-scope.txt`, `xtask/src/arch.rs`.
 - Index crates.io (dates de publication, sparse) et base d'avis RustSec, relevés le 2026-10-29.
