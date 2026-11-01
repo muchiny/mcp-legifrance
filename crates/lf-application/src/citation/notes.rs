@@ -264,6 +264,9 @@ pub enum Note {
     },
     /// Extrait cité introuvable dans le texte officiel (statut inchangé).
     QuoteMismatch,
+    /// Extrait cité trop long à comparer au texte officiel (budget d'états épuisé) : il n'a pas
+    /// été contrôlé, le champ `quote` reste absent (revue finale S1). Statut inchangé.
+    QuoteTooLong,
     /// Note d'un statut `verified` précédée de l'écart d'extrait : l'écart est rendu en tête, avant
     /// la note enveloppée (version en vigueur, sigle lu par défaut, chambre non comparée, ECLI
     /// natif), pour ne jamais être masqué ni rognée par la borne de 200 caractères.
@@ -448,6 +451,9 @@ fn quote_gap_text(inner: &Note) -> String {
 /// Gabarit de [`Note::SubdivisionNotChecked`].
 const SUBDIVISION_NOT_CHECKED: &str = "The sub-division was not checked, only the article.";
 
+/// Gabarit de [`Note::QuoteTooLong`].
+const QUOTE_TOO_LONG: &str = "The quoted passage was too long to compare and was not checked.";
+
 /// Gabarit de [`Note::QuoteNotAttached`].
 const QUOTE_NOT_ATTACHED: &str =
     "A quoted passage is not attached to a citation and was not checked.";
@@ -562,6 +568,7 @@ impl Note {
                 format!("{} {}", inner.text(), range_text(&Self::RangeEndpointsOnly))
             }
             Self::QuoteMismatch => QUOTE_GAP.to_owned(),
+            Self::QuoteTooLong => QUOTE_TOO_LONG.to_owned(),
             Self::WithQuoteMismatch(inner) => quote_gap_text(inner),
             Self::NotInSandbox { family, value, date } => fit(value, |value| {
                 format!(
@@ -688,6 +695,7 @@ mod tests {
             (Note::CodeNotListed, "Code not found in the list of codes."),
             (Note::VersionSince(civil(2016, 10, 1)), "Current version in force since 2016-10-01."),
             (Note::QuoteMismatch, "Quoted text not found in the official text."),
+            (Note::QuoteTooLong, "The quoted passage was too long to compare and was not checked."),
             (
                 Note::NotInSandbox {
                     family: "code article",

@@ -269,22 +269,50 @@ fn quote_segments(quoted: &str) -> (Vec<Vec<Word>>, bool) {
     (segments, parts.len() > 1)
 }
 
+/// États (position dans le texte officiel, mot visé de l'extrait) que le contrôle d'un extrait
+/// explore au plus, tronçons et départs confondus (revue finale S1). Une suite de repères tolérés
+/// (« 1. 1. 1. … zzz ») sans fin trouvée explore autant d'états que le texte compte de mots fois
+/// l'extrait de repères : sur une décision de 53 683 mots et 665 repères, 35,8 millions d'états et
+/// 1,7 Gio. Mesures (test `a_long_run_of_markers_is_cut_by_the_state_budget`) : les extraits
+/// fidèles réels du jeu de non-régression en explorent 338 au plus ; un extrait altéré, cherché
+/// sur toute la décision de 53 683 mots, en explore 53 745. 1 million laisse plus de dix fois cette
+/// marge (dix-huit fois pour la plus longue décision relevée, trois mille fois pour les extraits
+/// fidèles) et borne la mémoire à quelques dizaines de Mio.
+pub(crate) const QUOTE_STATE_BUDGET: usize = 1_000_000;
+
+/// Issue de la recherche d'un tronçon dans le texte officiel.
+#[derive(Debug, PartialEq, Eq)]
+enum Search {
+    /// Fin du tronçon trouvé.
+    Found(usize),
+    /// Tous les états atteignables sont explorés : le tronçon est absent.
+    Absent,
+    /// Le budget d'états est épuisé avant la fin de l'exploration : rien n'est établi.
+    Exhausted,
+}
+
 /// Fin de la première suite de `official` à partir de `start` qui égale `wanted` mot pour mot, en
-/// laissant passer les repères d'énumération de l'un ou de l'autre.
+/// laissant passer les repères d'énumération de l'un ou de l'autre. Chaque état nouvellement
+/// exploré consomme un point de `budget`.
 fn match_from(
     official: &[Word],
     start: usize,
     wanted: &[Word],
     seen: &mut HashSet<(usize, usize)>,
-) -> Option<usize> {
+    budget: &mut usize,
+) -> Search {
     let mut stack = vec![(start, 0_usize)];
     while let Some((at, next)) = stack.pop() {
         let Some(want) = wanted.get(next) else {
-            return Some(at);
+            return Search::Found(at);
         };
         if !seen.insert((at, next)) {
             continue;
         }
+        let Some(left) = budget.checked_sub(1) else {
+            return Search::Exhausted;
+        };
+        *budget = left;
         // Empilés du moins au plus souhaitable : la lecture littérale est essayée la première.
         if want.marker {
             stack.push((at, next.saturating_add(1)));
@@ -298,10 +326,25 @@ fn match_from(
             }
         }
     }
-    None
+    Search::Absent
 }
 
-/// Compare l'extrait cité au texte officiel lu (§7.9, règle d'extrait stricte de L2-03).
+/// Cherche `segment` dans `text` à partir de `from` : fin du premier départ qui réussit.
+fn find_segment(text: &[Word], from: usize, segment: &[Word], budget: &mut usize) -> Search {
+    // Un état déjà exploré sans succès échoue pour tout départ : la mémoire est commune.
+    let mut seen = HashSet::new();
+    for start in from..text.len() {
+        match match_from(text, start, segment, &mut seen, budget) {
+            Search::Absent => {}
+            outcome => return outcome,
+        }
+    }
+    Search::Absent
+}
+
+/// Compare l'extrait cité au texte officiel lu (§7.9, règle d'extrait stricte de L2-03). `None` :
+/// le budget de [`QUOTE_STATE_BUDGET`] états est épuisé, l'extrait est trop long à comparer et
+/// n'est pas contrôlé (ni `Match` ni `QuoteMismatch`).
 ///
 /// `Match` si chaque tronçon de l'extrait (coupé aux ellipses) est une suite de mots du texte
 /// officiel, mot pour mot, et si les tronçons se suivent dans l'ordre. Sont ignorés : la casse, les
@@ -311,26 +354,48 @@ fn match_from(
 /// Un extrait à ellipses compte au moins [`MIN_ELIDED_WORDS`] mots ; un extrait sans mot ne peut
 /// pas être tenu pour trouvé. Faiblesse acceptée : un tronçon d'un seul mot est vrai presque
 /// partout (« le […] la fin »).
-pub(crate) fn check_quote(quoted: &str, official: &str) -> QuoteCheck {
+pub(crate) fn check_quote(quoted: &str, official: &str) -> Option<QuoteCheck> {
+    check_quote_within(quoted, official, QUOTE_STATE_BUDGET).0
+}
+
+/// [`check_quote`] avec son budget d'états en paramètre ; rend aussi le nombre d'états explorés.
+/// `None` : le budget est épuisé, l'extrait n'a été ni trouvé ni écarté (trop long à comparer).
+fn check_quote_within(quoted: &str, official: &str, budget: usize) -> (Option<QuoteCheck>, usize) {
     let (segments, elided) = quote_segments(quoted);
     let count: usize =
         segments.iter().map(|segment| segment.iter().filter(|word| !word.marker).count()).sum();
     if segments.is_empty() || (elided && count < MIN_ELIDED_WORDS) {
-        return QuoteCheck::QuoteMismatch;
+        return (Some(QuoteCheck::QuoteMismatch), 0);
     }
     let text = words(official, false);
-    let found = segments.iter().try_fold(0, |from, segment| {
-        // Un état déjà exploré sans succès échoue pour tout départ : la mémoire est commune.
-        let mut seen = HashSet::new();
-        (from..text.len()).find_map(|start| match_from(&text, start, segment, &mut seen))
-    });
-    if found.is_some() { QuoteCheck::Match } else { QuoteCheck::QuoteMismatch }
+    let mut left = budget;
+    let mut from = 0;
+    let mut verdict = Some(QuoteCheck::Match);
+    for segment in &segments {
+        match find_segment(&text, from, segment, &mut left) {
+            Search::Found(end) => from = end,
+            Search::Absent => {
+                verdict = Some(QuoteCheck::QuoteMismatch);
+                break;
+            }
+            Search::Exhausted => {
+                verdict = None;
+                break;
+            }
+        }
+    }
+    (verdict, budget.saturating_sub(left))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    /// Verdict d'un extrait de taille ordinaire : le budget n'y est jamais épuisé.
+    fn check_quote(quoted: &str, official: &str) -> QuoteCheck {
+        super::check_quote(quoted, official).unwrap()
+    }
 
     #[test]
     fn every_family_has_exactly_one_line_in_the_policy_table() {
@@ -926,5 +991,91 @@ mod tests {
         assert_eq!(check_quote(&altered, &official), QuoteCheck::QuoteMismatch);
         let scattered = format!("{}fin", "1° a) ".repeat(150));
         assert_eq!(check_quote(&scattered, &official), QuoteCheck::Match);
+    }
+
+    /// Texte de la décision C4-I7 (cour d'appel de Paris, 53 683 mots) lu dans son relevé : la valeur
+    /// de `texte`, sans `texteHtml`.
+    fn long_decision() -> String {
+        const RAW: &str = include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/\
+             C4-juri-consult-chambre-formation-I7-JURITEXT000045653019.json"
+        );
+        const KEY: &str = "\"texte\":\"";
+        let start = RAW.find(KEY).unwrap().saturating_add(KEY.len());
+        let mut out = String::new();
+        let mut chars = RAW[start..].chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '"' => break,
+                '\\' => match chars.next() {
+                    Some('n') => out.push('\n'),
+                    Some('t') => out.push('\t'),
+                    Some('u') => {
+                        let code: String = chars.by_ref().take(4).collect();
+                        out.push(
+                            u32::from_str_radix(&code, 16)
+                                .ok()
+                                .and_then(char::from_u32)
+                                .unwrap_or('\u{fffd}'),
+                        );
+                    }
+                    Some(other) => out.push(other),
+                    None => break,
+                },
+                other => out.push(other),
+            }
+        }
+        out
+    }
+
+    /// Revue finale S1 : une suite de repères tolérés sans fin trouvée explorait autant d'états que
+    /// le texte compte de mots fois le nombre de repères (35,8 millions, 1,7 Gio, sur la décision
+    /// C4-I7 et 665 repères). Le budget arrête le calcul : ni `match` ni `quote_mismatch`.
+    #[test]
+    fn a_long_run_of_markers_is_cut_by_the_state_budget() {
+        let official = long_decision();
+        assert!(words(&official, false).len() > 50_000, "la décision entière");
+        let quote = format!("{}zzz", "1. ".repeat(665));
+        let (verdict, used) = check_quote_within(&quote, &official, QUOTE_STATE_BUDGET);
+        assert_eq!(verdict, None);
+        assert_eq!(used, QUOTE_STATE_BUDGET);
+        assert_eq!(super::check_quote(&quote, &official), None);
+        // Les repères « a) » enchaînés se comportent de même.
+        let lettered = format!("{}zzz", "a) ".repeat(665));
+        assert_eq!(super::check_quote(&lettered, &official), None);
+        // Un extrait court dont les mots ne figurent pas est écarté, sans épuiser le budget.
+        let (verdict, used) = check_quote_within("zzz qqq", &official, QUOTE_STATE_BUDGET);
+        assert_eq!(verdict, Some(QuoteCheck::QuoteMismatch));
+        assert!(used < QUOTE_STATE_BUDGET / 10, "{used} états");
+    }
+
+    /// Jumeau de S1 : un vrai extrait fidèle de la même décision reste `match`, avec peu d'états.
+    #[test]
+    fn a_faithful_quote_of_the_same_decision_still_matches() {
+        let official = long_decision();
+        let passage: Vec<&str> = official.split_whitespace().skip(30_000).take(40).collect();
+        let quote = passage.join(" ");
+        let (verdict, used) = check_quote_within(&quote, &official, QUOTE_STATE_BUDGET);
+        assert_eq!(verdict, Some(QuoteCheck::Match));
+        assert!(used < QUOTE_STATE_BUDGET / 10, "{used} états");
+        // Altéré d'un mot : un écart, après lecture complète du texte, toujours sous le budget.
+        let altered = format!("{quote} zzz");
+        let (verdict, used) = check_quote_within(&altered, &official, QUOTE_STATE_BUDGET);
+        assert_eq!(verdict, Some(QuoteCheck::QuoteMismatch));
+        assert!(used < QUOTE_STATE_BUDGET / 10, "{used} états");
+        assert_eq!(used, 53_745, "une lecture complète de la décision");
+    }
+
+    /// Le budget est commun aux tronçons d'un extrait à ellipses.
+    #[test]
+    fn the_state_budget_is_shared_by_the_segments_of_a_quote() {
+        let official = "le salarié a droit à une indemnité ".repeat(20);
+        let quote = "le salarié a droit […] à une indemnité";
+        let (verdict, used) = check_quote_within(quote, &official, QUOTE_STATE_BUDGET);
+        assert_eq!(verdict, Some(QuoteCheck::Match));
+        assert!(used > 0);
+        // Avec exactement les états nécessaires, l'extrait passe ; avec un de moins, il est coupé.
+        assert_eq!(check_quote_within(quote, &official, used).0, Some(QuoteCheck::Match));
+        assert_eq!(check_quote_within(quote, &official, used - 1).0, None);
     }
 }

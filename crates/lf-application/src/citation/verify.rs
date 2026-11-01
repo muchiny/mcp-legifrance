@@ -186,13 +186,22 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
 /// Note finale : l'écart d'extrait passe toujours en tête d'une note de statut `verified`
 /// (version en vigueur, sigle lu par défaut, chambre non comparée), qu'elle ne masque plus. Pour un
 /// autre statut, la note du statut reste en tête : c'est la vraie raison, qu'un écart d'extrait
-/// ne doit ni précéder ni faire rogner par la borne de 200 caractères.
+/// ne doit ni précéder ni faire rogner par la borne de 200 caractères. Un extrait trop long pour
+/// être comparé (`too_long`, budget d'états épuisé) est signalé de la même façon, en tête : le
+/// champ `quote` reste absent, ni `match` ni `quote_mismatch`.
 fn with_quote_gap(
     status: CheckStatus,
     note: Option<Note>,
     quote: Option<QuoteCheck>,
+    too_long: bool,
 ) -> Option<Note> {
-    if quote != Some(QuoteCheck::QuoteMismatch) || status != CheckStatus::Verified {
+    if status != CheckStatus::Verified {
+        return note;
+    }
+    if too_long {
+        return Some(note.map_or(Note::QuoteTooLong, |inner| Note::QuoteTooLong.then(inner)));
+    }
+    if quote != Some(QuoteCheck::QuoteMismatch) {
         return note;
     }
     Some(note.map_or(Note::QuoteMismatch, |inner| Note::WithQuoteMismatch(Box::new(inner))))
@@ -206,12 +215,14 @@ fn compose(
     resolution: Resolution,
 ) -> CitationCheck {
     let Resolution { outcome, official } = resolution;
-    let quote = official.as_deref().and_then(|official| {
+    // `Some(None)` : un extrait jouxte la citation, mais il est trop long pour être comparé.
+    let verdict = official.as_deref().and_then(|official| {
         let span = adjacent_quote(text, item.span)?;
         text.get(span.start..span.end).map(|quoted| check_quote(quoted, official))
     });
+    let quote = verdict.flatten();
     let status = outcome.status(proof);
-    let note = with_quote_gap(status, outcome.note(proof), quote);
+    let note = with_quote_gap(status, outcome.note(proof), quote, verdict == Some(None));
     let raw = text.get(item.span.start..item.span.end).unwrap_or_default();
     CitationCheck {
         span: item.span.to_chars(text),
@@ -605,6 +616,52 @@ mod tests {
             "Quoted text not found in the official text. Current version in force since 2016-10-01."
         );
         assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), "LEGIARTI000006419288");
+    }
+
+    /// Revue finale S1 : un extrait fait de repères tolérés que le budget d'états ne laisse pas
+    /// comparer (665 repères contre un article de 2 000 mots) n'est ni `match` ni `quote_mismatch` :
+    /// `quote` reste absent et la note le dit, en tête de celle de la version.
+    #[tokio::test]
+    async fn a_quote_too_long_to_compare_is_not_checked_and_says_so() {
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        let official = "mot ".repeat(2_000);
+        corpus.push_find_article(Ok(article(
+            6_419_288,
+            Some("9"),
+            CivilDate::new(2016, 10, 1),
+            &official,
+        )));
+        let quoted = format!("{}zzz", "1. ".repeat(665));
+        let text = format!("Selon l'article 9 du code civil, « {quoted} »");
+        let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(check.quote, None);
+        assert_eq!(
+            note_text(check),
+            "The quoted passage was too long to compare and was not checked. Current version in \
+             force since 2016-10-01."
+        );
+    }
+
+    /// Les trois issues de `with_quote_gap` pour un extrait trop long : en tête d'une note
+    /// `verified`, seule sans note, absente d'un autre statut.
+    #[test]
+    fn the_too_long_quote_note_goes_first_and_only_on_a_verified_citation() {
+        let since = Note::VersionSince(CivilDate::new(2016, 10, 1).unwrap());
+        assert_eq!(
+            with_quote_gap(CheckStatus::Verified, Some(since.clone()), None, true),
+            Some(Note::QuoteTooLong.then(since.clone()))
+        );
+        assert_eq!(
+            with_quote_gap(CheckStatus::Verified, None, None, true),
+            Some(Note::QuoteTooLong)
+        );
+        assert_eq!(
+            with_quote_gap(CheckStatus::Invalid, Some(since.clone()), None, true),
+            Some(since)
+        );
     }
 
     /// Sans note de version, un extrait infidèle porte à lui seul la note `QuoteMismatch`, et un
