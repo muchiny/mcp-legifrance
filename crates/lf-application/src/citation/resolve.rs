@@ -443,10 +443,11 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
                     self.code_article(code, end, version.as_ref(), at).await
                 })
                 .await;
-                with_sigle_reading(item, code, resolution)
+                with_subdivision(article, with_sigle_reading(item, code, resolution))
             }
             CitationRef::TextArticle { text: Some(text), article, at_date } => {
-                self.text_article(text, article, *at_date, at).await
+                let resolution = self.text_article(text, article, *at_date, at).await;
+                with_subdivision(article, resolution)
             }
             CitationRef::Text(text) => self.text(text).await.into_resolution(),
             CitationRef::Decision(decision) => self.decision(decision).await,
@@ -1166,6 +1167,28 @@ async fn close_range(
         other => other,
     };
     Resolution::of(outcome)
+}
+
+/// Une citation d'article avec une subdivision (alinéa, point, phrase…) n'est contrôlée que sur
+/// l'article : la note le dit, après les autres (L2-17). Seule une issue `verified` est annotée ;
+/// ailleurs, l'article lui-même manque et la subdivision n'a rien à ajouter.
+fn with_subdivision(article: &ArticleRef, resolution: Resolution) -> Resolution {
+    if article.sub.is_empty() {
+        return resolution;
+    }
+    let Resolution { outcome, official } = resolution;
+    let outcome = match outcome {
+        Outcome::Verified { record, confidence, note } => Outcome::Verified {
+            record,
+            confidence,
+            note: Some(match note {
+                Some(note) => note.then(Note::SubdivisionNotChecked),
+                None => Note::SubdivisionNotChecked,
+            }),
+        },
+        other => other,
+    };
+    Resolution { outcome, official }
 }
 
 /// Issue d'un article trouvé : cohérence du numéro, texte officiel, début de la version courante.
@@ -5220,6 +5243,56 @@ mod tests {
             run("articles 1240 à 1244 du code civil", vec![current(1, "1240"), current(2, "1244")])
                 .await;
         assert_eq!(range.outcome.note(Proof::Production), Some(Note::RangeEndpointsOnly));
+    }
+
+    /// Résolution de `text` quand le corpus rend l'article 9 en vigueur.
+    async fn resolved_article_9(text: &str) -> Resolution {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Ok(article(Some("9"))));
+        resolve(&corpus, text).await
+    }
+
+    /// L2-17 (gap3-8) : une subdivision citée ajoute sa note, en dernier, aux seules issues
+    /// `verified` ; sans subdivision, l'issue est inchangée.
+    #[tokio::test]
+    async fn a_subdivision_adds_its_note_last_to_a_verified_outcome_only() {
+        let flagged = resolved_article_9("article 9, alinéa 2 du code civil").await;
+        assert_eq!(
+            flagged.outcome.note(Proof::Production),
+            Some(Note::VersionSince(civil(2016, 10, 1)).then(Note::SubdivisionNotChecked))
+        );
+        assert_eq!(status(&flagged), CheckStatus::Verified);
+        assert_eq!(flagged.official.as_deref(), Some("Texte officiel."));
+        let plain = resolved_article_9("article 9 du code civil").await;
+        assert_eq!(
+            plain.outcome.note(Proof::Production),
+            Some(Note::VersionSince(civil(2016, 10, 1)))
+        );
+
+        // Une version datée et en vigueur n'a pas de note : celle de la subdivision reste seule.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Ok(article(Some("9"))));
+        let on = VersionDate::parse("2018-01-01").unwrap();
+        let item = first("article 9, alinéa 2 du code civil");
+        let bare = resolve_with(&corpus, &codes(), &item, Some(on)).await;
+        assert_eq!(bare.outcome.note(Proof::Production), Some(Note::SubdivisionNotChecked));
+
+        // Un article absent n'est pas annoté.
+        let corpus = FakeCorpus::new();
+        for _ in 0..3 {
+            corpus.push_find_article(Err(not_found()));
+        }
+        let missing = resolve(&corpus, "article 9999, alinéa 2 du code civil").await;
+        assert_eq!(status(&missing), CheckStatus::NotFound);
+        assert!(!note(&missing).contains("sub-division"));
+
+        // Un texte non codifié : même note.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Loda, "LEGITEXT000033202746")]));
+        corpus.push_find_article(Ok(numbered(1, "3")));
+        let text = resolve(&corpus, "article 3, alinéa 2 de la loi n° 2016-1321").await;
+        assert_eq!(status(&text), CheckStatus::Verified);
+        assert!(note(&text).ends_with("The sub-division was not checked, only the article."));
     }
 
     // ----------------------------------------------------------------------------------------

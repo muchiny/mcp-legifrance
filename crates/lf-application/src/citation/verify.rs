@@ -18,7 +18,9 @@ use std::{collections::HashMap, time::Duration};
 
 use futures::{StreamExt, stream};
 use lf_domain::{
-    citation::{CitationRef, ParseOptions, Spanned, adjacent_quote, parse_with},
+    citation::{
+        CitationRef, ParseOptions, Span, Spanned, adjacent_quote, parse_with, quoted_passages,
+    },
     date::VersionDate,
 };
 use tokio::time::{Instant, timeout_at};
@@ -57,6 +59,24 @@ pub(crate) struct Verification {
     pub(crate) found: usize,
     /// Les `max_citations` premières citations, contrôlées, dans l'ordre du texte.
     pub(crate) checks: Vec<CitationCheck>,
+    /// Le texte a un passage entre guillemets que ne jouxte aucune citation : il n'est pas
+    /// contrôlé (L2-17).
+    pub(crate) unattached_quote: bool,
+}
+
+/// Une citation et un passage se recouvrent-ils ?
+const fn overlaps(cite: Span, passage: Span) -> bool {
+    cite.start < passage.end && passage.start < cite.end
+}
+
+/// `text` a-t-il un passage entre guillemets que ni une citation ne jouxte (même celle que
+/// `max_citations` laisse de côté), ni ne recouvre (un titre cité entre guillemets) ? L'extrait
+/// jouxtant une citation est un passage au même span que celui de [`adjacent_quote`].
+fn has_unattached_quote(text: &str, parsed: &[Spanned<CitationRef>]) -> bool {
+    let attached: Vec<Span> = parsed.iter().filter_map(|c| adjacent_quote(text, c.span)).collect();
+    quoted_passages(text).into_iter().any(|passage| {
+        !attached.contains(&passage) && !parsed.iter().any(|c| overlaps(c.span, passage))
+    })
 }
 
 /// Clé de résolution d'une citation : tout ce qui peut changer le résultat de la recherche. Deux
@@ -99,6 +119,7 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
     let options = ParseOptions { today: Some(run.today.as_civil()), ..ParseOptions::default() };
     let parsed = parse_with(text, &options);
     let found = parsed.len();
+    let unattached_quote = has_unattached_quote(text, &parsed);
     let kept: Vec<Spanned<CitationRef>> = parsed.into_iter().take(run.max_citations).collect();
 
     // Tri hors ligne (`Ok`), puis une résolution par clé (`Err` : le rang de la résolution).
@@ -159,7 +180,7 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
             compose(run.proof, text, item, resolution)
         })
         .collect();
-    Ok(Verification { found, checks })
+    Ok(Verification { found, checks, unattached_quote })
 }
 
 /// Note finale : l'écart d'extrait passe toujours en tête d'une note de statut `verified`
@@ -975,6 +996,69 @@ mod tests {
         let verification = verify_text(&corpus, run, TWO_ARTICLES).await.unwrap();
         assert_eq!((verification.found, verification.checks.len()), (2, 1));
         assert_eq!(corpus.calls_of("find_article"), 1);
+    }
+
+    /// L2-17 (verify_citations-8) : un passage entre guillemets que ne jouxte aucune citation est
+    /// signalé ; un passage collé à une citation (même laissée de côté par `max_citations`), ou qui
+    /// en contient une, ne l'est pas ; une citation sans guillemets non plus.
+    #[tokio::test]
+    async fn an_unattached_quote_is_reported_and_an_attached_or_enclosing_one_is_not() {
+        let quote = "« Chacun a droit au respect de sa vie privée »";
+        let cases = [
+            (format!("L'article 1 du code civil énonce : {quote}"), true),
+            (format!("L'article 1 du code civil précise que {quote}"), true),
+            (format!("L'article 1 du code civil : {quote}"), false),
+            (format!("{quote} article 1 du code civil"), false),
+            (format!("L'article 1 du code civil : {quote} ; il précise que {quote}"), true),
+            ("« voir l'article 1 du code civil et la suite de la phrase »".to_owned(), false),
+            ("L'article 1 du code civil, dit « oui », s'applique.".to_owned(), false),
+            ("L'article 1 du code civil s'applique.".to_owned(), false),
+        ];
+        for (text, expected) in cases {
+            let corpus = FakeCorpus::new();
+            codes(&corpus);
+            corpus.push_find_article(Ok(article(1, None, None, "Texte.")));
+            let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+            assert_eq!(verification.unattached_quote, expected, "{text}");
+        }
+        // La citation qui jouxte l'extrait est au-delà de `max_citations` : il est tout de même
+        // rattaché.
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        corpus.push_find_article(Ok(article(1, None, None, "Texte.")));
+        let text = format!("article 1 du code civil ; article 2 du code civil : {quote}");
+        let run = Run { max_citations: 1, ..run(PisteEnvironment::Production) };
+        let verification = verify_text(&corpus, run, &text).await.unwrap();
+        assert_eq!((verification.found, verification.checks.len()), (2, 1));
+        assert!(!verification.unattached_quote);
+    }
+
+    /// L2-12 et L2-17 ensemble : l'écart d'extrait, puis la version remplacée, puis la subdivision ;
+    /// une seule note, de 200 caractères au plus.
+    #[tokio::test]
+    async fn the_quote_gap_then_the_replaced_version_in_one_note_and_the_subdivision_that_does_not_fit_is_left_out()
+     {
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        let mut replaced =
+            article(1, Some("9"), CivilDate::new(2010, 5, 1), "Chacun a droit au respect.");
+        replaced.etat = Some(LegalStatus::Modifie);
+        replaced.date_fin = CivilDate::new(2011, 6, 12);
+        corpus.push_find_article(Ok(replaced));
+        let text = "article 9, alinéa 2 du code civil, en vigueur au 1er juin 2011 : \
+                    « Tout fait quelconque de l'homme, qui cause à autrui un dommage »";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(check.quote, Some(QuoteCheck::QuoteMismatch));
+        // Trois notes de 43, 129 et 51 caractères : la troisième ne tient pas en entier, elle est
+        // omise plutôt que coupée au milieu d'une phrase.
+        assert_eq!(
+            note_text(check),
+            "Quoted text not found in the official text. This is the version in force on \
+             2011-06-01 (etat=MODIFIE, ended 2011-06-12); the current text may differ: read it \
+             without a date."
+        );
     }
 
     #[tokio::test]

@@ -101,7 +101,12 @@ impl<'a, C: LegalCorpus, K: Clock> VerifyCitationsUseCase<'a, C, K> {
             .map_err(|error| port_failure(TOOL, "the citations", &error))?;
         let found = verified.found;
         let citations = verified.checks;
-        let note = (found == 0).then(|| Note::NoCitationRecognised.text());
+        // Sans citation, la note dit déjà qu'il n'y a rien à contrôler : un extrait ne s'y ajoute pas.
+        let note = if found == 0 {
+            Some(Note::NoCitationRecognised.text())
+        } else {
+            verified.unattached_quote.then(|| Note::QuoteNotAttached.text())
+        };
         Ok(VerifyCitationsOutput {
             found,
             checked: citations.len(),
@@ -270,6 +275,94 @@ mod tests {
         .await
         .unwrap();
         assert_eq!((output.found, output.checked), (1, 1));
+        assert_eq!(output.note, None);
+    }
+
+    /// L2-17 (verify_citations-8) : un extrait que la tournure éloigne de sa citation (« énonce : »,
+    /// « précise que ») n'est pas contrôlé ; la réponse le dit une fois. Un extrait collé est
+    /// contrôlé et ne déclenche rien (jumeau).
+    #[tokio::test]
+    async fn a_quote_not_attached_to_a_citation_is_flagged_and_an_attached_one_is_not() {
+        let quote = "« Chacun a droit au respect de sa vie privée. »";
+        let loose = format!("L'article 1 du code civil énonce : {quote}");
+        let corpus = corpus_with_civil_code();
+        let mut official = article(1);
+        official.text =
+            LongText::from_plain("Chacun a droit au respect de sa vie privée.").unwrap();
+        corpus.push_find_article(Ok(official.clone()));
+        let output = run(&corpus, PisteEnvironment::Production, Some(&loose), None).await.unwrap();
+        assert_eq!((output.found, output.checked), (1, 1));
+        assert_eq!(output.citations[0].quote, None);
+        assert_eq!(
+            output.note.as_deref(),
+            Some("A quoted passage is not attached to a citation and was not checked.")
+        );
+
+        let glued = format!("L'article 1 du code civil : {quote}");
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(official.clone()));
+        let output = run(&corpus, PisteEnvironment::Production, Some(&glued), None).await.unwrap();
+        assert!(output.citations[0].quote.is_some());
+        assert_eq!(output.note, None);
+
+        // Un extrait collé et un autre qui ne l'est pas : la note est due.
+        let both = format!("L'article 1 du code civil : {quote} ; il précise que {quote}");
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(official));
+        let output = run(&corpus, PisteEnvironment::Production, Some(&both), None).await.unwrap();
+        assert!(output.citations[0].quote.is_some());
+        assert_eq!(output.note, Some(Note::QuoteNotAttached.text()));
+
+        // Sans guillemets, ou avec un guillemet trop court pour être un extrait : rien.
+        for plain in [
+            "L'article 1 du code civil énonce que tout est dit.",
+            "Article 1 du code civil, dit « oui ».",
+        ] {
+            let corpus = corpus_with_civil_code();
+            corpus.push_find_article(Ok(article(1)));
+            let output =
+                run(&corpus, PisteEnvironment::Production, Some(plain), None).await.unwrap();
+            assert_eq!(output.note, None, "{plain}");
+        }
+    }
+
+    /// Sans aucune citation, la note est celle de L2-08 : un extrait ne s'y ajoute pas.
+    #[tokio::test]
+    async fn a_text_with_a_quote_but_no_citation_keeps_the_no_citation_note() {
+        let corpus = corpus_with_civil_code();
+        let text = "Il a dit : « Chacun a droit au respect de sa vie privée. »";
+        let output = run(&corpus, PisteEnvironment::Production, Some(text), None).await.unwrap();
+        assert_eq!(output.found, 0);
+        assert_eq!(output.note, Some(Note::NoCitationRecognised.text()));
+    }
+
+    /// L2-17 (gap3-8) : l'alinéa ou le point cité n'est pas contrôlé, la note de la citation le dit.
+    #[tokio::test]
+    async fn a_cited_subdivision_is_flagged_on_the_citation_only() {
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1)));
+        corpus.push_find_article(Ok(article(2)));
+        let text = "Voir l'art. 9, al. 2 du code civil et l'article 10 du code civil.";
+        let output = run(&corpus, PisteEnvironment::Production, Some(text), None).await.unwrap();
+        assert_eq!(output.checked, 2);
+        assert_eq!(
+            output.citations[0].note,
+            Some(
+                Note::VersionSince(CivilDate::new(2016, 10, 1).unwrap())
+                    .then(Note::SubdivisionNotChecked)
+            )
+        );
+        assert_eq!(
+            output.citations[0].note.as_ref().map(Note::text).as_deref(),
+            Some(
+                "Current version in force since 2016-10-01. The sub-division was not checked, \
+                 only the article."
+            )
+        );
+        assert_eq!(
+            output.citations[1].note,
+            Some(Note::VersionSince(CivilDate::new(2016, 10, 1).unwrap()))
+        );
         assert_eq!(output.note, None);
     }
 

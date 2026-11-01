@@ -21,7 +21,7 @@ mod scan;
 pub mod types;
 
 pub use dict::codes::{CODES, CodeEntry, CodeKey, CodeRefKey};
-pub use quote::adjacent_quote;
+pub use quote::{adjacent_quote, quoted_passages};
 pub use types::*;
 
 use crate::date::CivilDate;

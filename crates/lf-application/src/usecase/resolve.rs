@@ -499,6 +499,28 @@ mod tests {
         assert_eq!(output.notes[0].text(), "Current version in force since 2010-05-01.");
     }
 
+    /// L2-17 (gap3-8) : un alinéa cité n'est pas contrôlé, et la réponse le dit ; sans alinéa, rien.
+    #[tokio::test]
+    async fn a_cited_subdivision_is_flagged_as_not_checked() {
+        for citation in ["art. 9, al. 2 du code civil", "art. 9 alinéa 2 du code civil"] {
+            let corpus = corpus_with_civil_code();
+            corpus.push_find_article(Ok(article(1, "9")));
+            let output = resolve(&corpus, citation).await;
+            assert_eq!(output.candidates.len(), 1, "{citation}");
+            assert_eq!(output.notes.len(), 1, "{citation}: {:?}", output.notes);
+            assert_eq!(
+                output.notes[0].text(),
+                "Current version in force since 2016-10-01. The sub-division was not checked, \
+                 only the article.",
+                "{citation}"
+            );
+        }
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "9")));
+        let output = resolve(&corpus, "art. 9 du code civil").await;
+        assert_eq!(output.notes[0].text(), "Current version in force since 2016-10-01.");
+    }
+
     #[tokio::test]
     async fn citation_and_date_are_validated_before_any_call() {
         let corpus = FakeCorpus::new();
