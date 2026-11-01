@@ -140,6 +140,35 @@ mod tests {
     }
 
     #[test]
+    fn cjue_with_parties_is_one_sink_and_leaves_neighbours_readable() {
+        // L1-06 : cas réel de l'E2E (verify_citations-15, partie CJUE).
+        let input = "CJUE, 6 octobre 2015, Schrems, C-362/14.";
+        let found = parse(input);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            found[0].value,
+            CitationRef::Unsupported(UnsupportedCite {
+                family: UnsupportedFamily::Cjue,
+                key: Some("C-362/14".to_owned()),
+            })
+        );
+        assert_eq!(
+            &input[found[0].span.start..found[0].span.end],
+            "CJUE, 6 octobre 2015, Schrems, C-362/14"
+        );
+        // Voisin : sans numéro d'affaire, pas de puits ; l'article reste lu comme article.
+        let neighbour = parse("CJUE, 4 juin 2024, Schrems, et voir l'article 5 du code civil");
+        assert!(
+            neighbour.iter().all(|c| !matches!(c.value, CitationRef::Unsupported(_))),
+            "{neighbour:?}"
+        );
+        assert!(
+            neighbour.iter().any(|c| matches!(c.value, CitationRef::CodeArticle { .. })),
+            "{neighbour:?}"
+        );
+    }
+
+    #[test]
     fn the_dictionary_is_reachable_from_the_module_root() {
         assert_eq!(CODES.len(), 77);
         assert_eq!(CodeKey::CodeCivil.title(), "Code civil");

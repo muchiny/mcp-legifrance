@@ -140,13 +140,18 @@ fn eu_case(w: &Win, p: usize) -> Option<(usize, String)> {
     Some((q, w.text_of(p, q)))
 }
 
-/// `( 'CJUE' | 'CJCE' | "Trib. UE" ) SEP DATE SEP [ "aff." WS ] /[CT]-[0-9]{1,4}\/[0-9]{2}/`.
+/// `[ "aff." WS ] /[CT]-[0-9]{1,4}\/[0-9]{2}/` : la référence d'affaire, précédée ou non de « aff. ».
+fn eu_case_marked(w: &Win, p: usize) -> Option<(usize, String)> {
+    eu_case(w, w.kw(p, "aff.").and_then(|r| w.ws(r)).unwrap_or(p))
+}
+
+/// `( 'CJUE' | 'CJCE' | "Trib. UE" ) SEP DATE SEP [ parties SEP ] [ "aff." WS ] /[CT]-[0-9]{1,4}\/[0-9]{2}/`.
 fn cjue_headed(w: &Win, s: usize) -> Option<(usize, String)> {
     let q =
         w.cs_word(s, "CJUE").or_else(|| w.cs_word(s, "CJCE")).or_else(|| w.kw(s, "trib. ue"))?;
     let date = w.date(w.sep(q)?)?;
     let q = w.sep(date.end)?;
-    eu_case(w, w.kw(q, "aff.").and_then(|r| w.ws(r)).unwrap_or(q))
+    eu_case_marked(w, q).or_else(|| after_parties(w, q, eu_case_marked))
 }
 
 /// `"affaire" WS /[CT]-[0-9]{1,4}\/[0-9]{2}/` : la référence seule.
@@ -170,13 +175,15 @@ fn cedh_application(w: &Win, p: usize) -> Option<(usize, String)> {
     Some((q, w.text_of(start, q)))
 }
 
-/// `[ parties SEP ]` puis la requête : les parties tiennent jusqu'à la première virgule après
-/// laquelle une requête se lit, dans les 100 caractères.
-fn cedh_after_parties(w: &Win, p: usize) -> Option<(usize, String)> {
+/// `[ parties SEP ]` puis la référence lue par `reader` : les parties tiennent jusqu'à la première
+/// virgule après laquelle une référence se lit, dans les 100 caractères.
+fn after_parties(
+    w: &Win,
+    p: usize,
+    reader: fn(&Win, usize) -> Option<(usize, String)>,
+) -> Option<(usize, String)> {
     let limit = (p + PARTIES_MAX).min(w.len());
-    (p..limit)
-        .filter(|&i| w.at(i) == Some(','))
-        .find_map(|i| w.sep(i).and_then(|q| cedh_application(w, q)))
+    (p..limit).filter(|&i| w.at(i) == Some(',')).find_map(|i| w.sep(i).and_then(|q| reader(w, q)))
 }
 
 /// `cedh` : `( 'CEDH' | "Cour EDH" ) SEP DATE SEP [ parties SEP ] [ "req." WS ] [ NUM_SIGN ] …`.
@@ -184,7 +191,8 @@ fn cedh(w: &Win, s: usize) -> Option<Hit> {
     let q = w.cs_word(s, "CEDH").or_else(|| w.kw(s, "cour edh"))?;
     let date = w.date(w.sep(q)?)?;
     let q = w.sep(date.end)?;
-    let (end, application) = cedh_application(w, q).or_else(|| cedh_after_parties(w, q))?;
+    let (end, application) =
+        cedh_application(w, q).or_else(|| after_parties(w, q, cedh_application))?;
     Some(sink(s, end, UnsupportedFamily::Cedh, Some(application)))
 }
 
@@ -437,6 +445,44 @@ mod tests {
         assert_eq!(h[0].text, "Affaire C-740/22");
         assert_eq!(h[0].value, unsupported(UnsupportedFamily::Cjue, Some("C-740/22")));
         assert_eq!(find(scan, "aff. T-1/20", AnchorClass::Family, &["aff."]).len(), 1);
+    }
+
+    #[test]
+    fn cjue_with_parties_between_date_and_case() {
+        // L1-06 (verify_citations-15) : les parties précèdent le numéro d'affaire.
+        let input = "CJUE, 6 octobre 2015, Schrems, C-362/14";
+        let f = one(input, "CJUE");
+        assert_eq!(f.text, input);
+        assert_eq!(f.value, unsupported(UnsupportedFamily::Cjue, Some("C-362/14")));
+        let long = "CJUE, 6 octobre 2015, Maximillian Schrems c. Data Protection Commissioner, aff. C-362/14";
+        let g = one(long, "CJUE");
+        assert_eq!(g.text, long);
+        assert_eq!(g.value, unsupported(UnsupportedFamily::Cjue, Some("C-362/14")));
+        let h = one("Trib. UE, 12 mars 2019, Foo c. Commission, T-123/18", "Trib");
+        assert_eq!(h.text, "Trib. UE, 12 mars 2019, Foo c. Commission, T-123/18");
+        assert_eq!(h.value, unsupported(UnsupportedFamily::Cjue, Some("T-123/18")));
+        // Vrai positif conservé : sans partie, le puits garde sa forme et son étendue.
+        assert_eq!(
+            one("CJUE, 6 octobre 2015, aff. C-362/14", "CJUE").text,
+            "CJUE, 6 octobre 2015, aff. C-362/14"
+        );
+    }
+
+    #[test]
+    fn cjue_parties_do_not_swallow_neighbours() {
+        assert_none(&[
+            ("CJUE, 4 juin 2024", "CJUE"),
+            ("CJUE, 4 juin 2024, Schrems", "CJUE"),
+            ("CJUE, 4 juin 2024, Schrems, et voir l'article 5 du code civil", "CJUE"),
+            ("CJUE, 4 juin 2024, Schrems, C-362", "CJUE"),
+            ("CJUE, 4 juin 2024, Schrems, X-362/14", "CJUE"),
+        ]);
+        // Les parties tiennent en 100 caractères.
+        let far = format!("CJUE, 4 juin 2024, {}, C-362/14", "x".repeat(150));
+        assert_none(&[(far.as_str(), "CJUE")]);
+        // Le puits s'arrête au numéro d'affaire : la suite reste lue.
+        let after = one("CJUE, 6 octobre 2015, Schrems, C-362/14, et l'article 5", "CJUE");
+        assert_eq!(after.text, "CJUE, 6 octobre 2015, Schrems, C-362/14");
     }
 
     #[test]
