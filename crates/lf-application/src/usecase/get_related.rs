@@ -977,6 +977,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn truncated_stays_true_for_both_decision_relations_when_citationjp_is_clipped() {
+        // `citationJp` coupée ET de nombreux textes appliqués : la perte touche les deux sens, que
+        // les textes appliqués rendus soient ou non au plafond de 100.
+        let cited = format!("{CASE_LAW_ONLY} {}", "x ".repeat(30_000));
+        let many = || (1..=150).map(|n| format!("article {n} du code civil")).collect::<Vec<_>>();
+        for relation in [None, Some("cites_case_law"), Some("applies_text")] {
+            let (_, _, truncated) = bounds_of(Some(&cited), many(), relation).await;
+            assert!(truncated, "{relation:?}");
+        }
+        // Jumeau : `citationJp` entière, la jurisprudence citée ne l'est pas accusée par les
+        // textes appliqués plafonnés à 100.
+        assert!(!bounds_of(Some(CASE_LAW_ONLY), many(), Some("cites_case_law")).await.2);
+        assert!(bounds_of(Some(CASE_LAW_ONLY), many(), Some("applies_text")).await.2);
+    }
+
+    #[tokio::test]
     async fn the_cap_of_links_follows_the_relation_on_a_decision() {
         let texts: Vec<String> = (1..=150).map(|n| format!("article {n} du code civil")).collect();
         let cited = Some(CASE_LAW_ONLY);

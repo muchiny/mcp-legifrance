@@ -30,6 +30,9 @@ pub(crate) enum SummarySourceView {
 pub(crate) struct PassageView {
     pub(crate) offset: u32,
     pub(crate) text: String,
+    #[schemars(
+        description = "BM25 relevance, only comparable between the passages of this answer."
+    )]
     pub(crate) score: f64,
 }
 

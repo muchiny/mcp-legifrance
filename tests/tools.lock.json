@@ -107,9 +107,9 @@
   "server_version": "1.0.1",
   "sizes": {
     "instructions_chars": 3278,
-    "tools_list_bytes": 32111
+    "tools_list_bytes": 32366
   },
-  "surface_sha256": "b57c3217a608e6f09b103986327a4009ef153528589fa2b3fc17dd417c48595c",
+  "surface_sha256": "248ead0fc247831d28d3c61ab8f5b2d4dff07d2d619ec8f17017fcf8ca7b8a50",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -851,6 +851,7 @@
                     "type": "integer"
                   },
                   "score": {
+                    "description": "BM25 relevance, only comparable between the passages of this answer.",
                     "type": "number"
                   },
                   "text": {
@@ -909,7 +910,7 @@
         },
         "title": "Read a court decision"
       },
-      "sha256": "ae360a259277f15f44da1f1d7828e480888625dbd3fb1d0f2526f63a372db81e"
+      "sha256": "81f067ab9a55cb6f882b66af6e2b9e2dcd83760c5b3208cf0a6bac33b4ec3f11"
     },
     "fr_get_deliberation": {
       "descriptor": {
@@ -1011,6 +1012,7 @@
                     "type": "integer"
                   },
                   "score": {
+                    "description": "BM25 relevance, only comparable between the passages of this answer.",
                     "type": "number"
                   },
                   "text": {
@@ -1066,7 +1068,7 @@
         },
         "title": "Read a CNIL deliberation"
       },
-      "sha256": "a2d911b3861c36a8e75cb3293a5d11c042b2b9aa6a41d8bc213f7c25b00f9a03"
+      "sha256": "c3688bfae0716b9003fe3abd465e92b5f1000871c901ec3eb96a1b982c01cbaa"
     },
     "fr_get_related": {
       "descriptor": {
@@ -1279,6 +1281,7 @@
                     "type": "integer"
                   },
                   "score": {
+                    "description": "BM25 relevance, only comparable between the passages of this answer.",
                     "type": "number"
                   },
                   "text": {
@@ -1336,7 +1339,7 @@
         },
         "title": "Read an article"
       },
-      "sha256": "dcdde2e2bd527a287645f17ecfd60e20645bd949399651d076e331cb74510118"
+      "sha256": "4dd96ac23b13d76a5ea0fb702a6ee64d540638f54317bb2cbae3405a3041ffcd"
     },
     "fr_resolve": {
       "descriptor": {
@@ -1960,5 +1963,5 @@
       "sha256": "c539d50242a936db43da2baa069526f49b042500b03555eba7c63357a7dc8ce2"
     }
   },
-  "toolset_sha256": "970032ec6b1d7164acca1eb8ae3e4b926ef70c547b542df9d2b10f735d9a6396"
+  "toolset_sha256": "68b598fc18dedae0e783a83c9ea5d641255c1d4f5b6cc3393b119e091c8ecbcf"
 }

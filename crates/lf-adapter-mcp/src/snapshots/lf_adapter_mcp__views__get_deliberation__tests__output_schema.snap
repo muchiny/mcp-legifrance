@@ -44,6 +44,7 @@ expression: schema
             "type": "integer"
           },
           "score": {
+            "description": "BM25 relevance, only comparable between the passages of this answer.",
             "type": "number"
           },
           "text": {

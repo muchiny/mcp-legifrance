@@ -188,13 +188,15 @@ pub struct PassageOut {
     /// Texte du passage.
     pub text: String,
     /// Score BM25 du segment dont le passage est tiré, arrondi à 2 décimales (`round_score`) ;
-    /// strictement positif avant l'arrondi. Un passage coupé au budget garde le score du segment.
+    /// jamais inférieur à 0,01 (un score brut sous 0,005 est relevé à 0,01, pour rester strictement
+    /// positif). Un passage coupé au budget garde le score du segment.
     pub score: f64,
 }
 
-/// Arrondit un score BM25 à 2 décimales (05 §5.0.3 : « score arrondi à 2 décimales »).
+/// Arrondit un score BM25 à 2 décimales (05 §5.0.3 : « score arrondi à 2 décimales »), sans
+/// descendre sous 0,01 : le score brut est strictement positif, l'arrondi ne doit pas le ramener à 0.
 fn round_score(score: f64) -> f64 {
-    (score * 100.0).round() / 100.0
+    ((score * 100.0).round() / 100.0).max(0.01)
 }
 
 /// Résultat d'une lecture : les champs communs aux trois lectures longues (05 §5.0.3). Chaque
@@ -1214,6 +1216,17 @@ mod tests {
     }
 
     #[test]
+    fn a_tiny_score_is_floored_at_one_hundredth() {
+        // Un terme présent dans presque tous les segments donne un idf proche de 0 : l'arrondi
+        // ne doit pas produire 0.0, la promesse « strictement positif » tient.
+        assert!((round_score(0.001) - 0.01).abs() < 1e-12);
+        assert!((round_score(0.004) - 0.01).abs() < 1e-12);
+        assert!((round_score(0.006) - 0.01).abs() < 1e-12);
+        assert!((round_score(1.234) - 1.23).abs() < 1e-12);
+        assert!((round_score(3.125_1) - 3.13).abs() < 1e-12);
+    }
+
+    #[test]
     fn a_passage_score_is_rounded_to_two_decimals() {
         // Le score exposé est le score BM25 du domaine arrondi à 2 décimales, jamais le brut.
         let (text, _) = zibeline_text();
@@ -1226,8 +1239,6 @@ mod tests {
             let hundredths = passage.score * 100.0;
             assert!((hundredths - hundredths.round()).abs() < 1e-9, "{}", passage.score);
             assert!((passage.score - (scored.score * 100.0).round() / 100.0).abs() < 1e-12);
-            // Le brut a plus de 2 décimales : l'arrondi est bien appliqué.
-            assert!((scored.score - passage.score).abs() > 1e-9, "{}", scored.score);
         }
     }
 

@@ -75,7 +75,13 @@ mod tests {
             ports::{AuditStatus, CorpusError},
             tools::ToolName,
         };
-        use lf_domain::{entity::CodeListing, id::LegiTextId, status::LegalStatus};
+        use lf_domain::{
+            date::CivilDate,
+            entity::{ArticleText, CodeListing},
+            id::{ArticleId, LegiTextId},
+            status::LegalStatus,
+            text::LongText,
+        };
         use pretty_assertions::assert_eq;
         use rmcp::model::CallToolRequestParams;
         use serde_json::{Value, json};
@@ -130,6 +136,47 @@ mod tests {
             assert_eq!(records[0].tool, ToolName::FR_VERIFY_CITATIONS);
             assert_eq!(records[0].status, AuditStatus::Ok);
             assert_eq!(records[0].output_count_or_size, 1, "le nombre de citations contrôlées");
+        }
+
+        /// D-03-suite : un article cité par son identifiant LEGIARTI porte `etat`, `date_debut`
+        /// et `date_fin` sur le fil ; la date de fin sentinelle 2999 est omise ; pas de `note`
+        /// de version sur ce chemin (asymétrie assumée avec le chemin par numéro).
+        #[tokio::test]
+        async fn an_article_cited_by_its_identifier_carries_its_validity_on_the_wire() {
+            let article = |date_fin| ArticleText {
+                article_id: ArticleId::parse("LEGIARTI000006419288").unwrap(),
+                num: Some("9".to_owned()),
+                etat: LegalStatus::parse("VIGUEUR"),
+                code_title: Some("Code civil".to_owned()),
+                parent: None,
+                path: Vec::new(),
+                full_sections_titre: None,
+                date_debut: CivilDate::new(1970, 7, 19),
+                date_fin,
+                text: LongText::from_plain("Chacun a droit au respect de sa vie privée.").unwrap(),
+                nota: None,
+            };
+            let fixture = Fixture::default();
+            fixture.corpus.push_get_article(Ok(article(CivilDate::new(2999, 1, 1))));
+            let result =
+                call(&fixture, &json!({"text": "Voir LEGIARTI000006419288 pour la règle."})).await;
+            assert_eq!(result.is_error, Some(false));
+            let content = result.structured_content.unwrap();
+            let citation = &content["citations"][0];
+            assert_eq!(citation["status"], "verified", "{content}");
+            let resolved = &citation["resolved"];
+            assert_eq!(resolved["etat"], "VIGUEUR", "{content}");
+            assert_eq!(resolved["date_debut"], "1970-07-19", "{content}");
+            assert!(resolved.get("date_fin").is_none(), "sentinelle omise : {content}");
+            assert!(citation.get("note").is_none(), "{content}");
+
+            // Jumeau : une vraie date de fin est rendue.
+            let fixture = Fixture::default();
+            fixture.corpus.push_get_article(Ok(article(CivilDate::new(2011, 6, 12))));
+            let result =
+                call(&fixture, &json!({"text": "Voir LEGIARTI000006419288 pour la règle."})).await;
+            let content = result.structured_content.unwrap();
+            assert_eq!(content["citations"][0]["resolved"]["date_fin"], "2011-06-12", "{content}");
         }
 
         #[tokio::test]
