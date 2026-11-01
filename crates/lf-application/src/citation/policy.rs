@@ -241,8 +241,9 @@ fn words(text: &str, lenient: bool) -> Vec<Word> {
 }
 
 /// Tronçons de l'extrait, coupés aux ellipses (`…`, `...`, `[…]`, `(...)`). Un tronçon sans mot
-/// (ou fait de seuls repères d'énumération) disparaît.
-fn quote_segments(quoted: &str) -> Vec<Vec<Word>> {
+/// (ou fait de seuls repères d'énumération) disparaît. Le drapeau dit si l'extrait portait au
+/// moins une ellipse, y compris en bordure (« […] le […] »).
+fn quote_segments(quoted: &str) -> (Vec<Vec<Word>>, bool) {
     let mut parts = Vec::new();
     let mut current = String::new();
     let mut dots = String::new();
@@ -260,11 +261,12 @@ fn quote_segments(quoted: &str) -> Vec<Vec<Word>> {
         current.push(c);
     }
     parts.push(current);
-    parts
+    let segments = parts
         .iter()
         .map(|part| words(part, true))
         .filter(|segment| segment.iter().any(|word| !word.marker))
-        .collect()
+        .collect();
+    (segments, parts.len() > 1)
 }
 
 /// Fin de la première suite de `official` à partir de `start` qui égale `wanted` mot pour mot, en
@@ -310,10 +312,10 @@ fn match_from(
 /// pas être tenu pour trouvé. Faiblesse acceptée : un tronçon d'un seul mot est vrai presque
 /// partout (« le […] la fin »).
 pub(crate) fn check_quote(quoted: &str, official: &str) -> QuoteCheck {
-    let segments = quote_segments(quoted);
+    let (segments, elided) = quote_segments(quoted);
     let count: usize =
         segments.iter().map(|segment| segment.iter().filter(|word| !word.marker).count()).sum();
-    if segments.is_empty() || (segments.len() > 1 && count < MIN_ELIDED_WORDS) {
+    if segments.is_empty() || (elided && count < MIN_ELIDED_WORDS) {
         return QuoteCheck::QuoteMismatch;
     }
     let text = words(official, false);
@@ -738,6 +740,15 @@ mod tests {
         assert_eq!(check_quote("Chacun a […] vie", OFFICIAL), QuoteCheck::Match);
         // Les repères d'énumération ne comptent pas comme des mots.
         assert_eq!(check_quote("Chacun […] 1° privée", OFFICIAL), QuoteCheck::QuoteMismatch);
+        // Une seule partie bordée d'ellipses est un extrait à ellipses : même minimum.
+        for quote in ["[…] le […]", "…droit…", "[...] la", "(...) vie", "Chacun […]", "[…] sa vie"]
+        {
+            assert_eq!(check_quote(quote, OFFICIAL), QuoteCheck::QuoteMismatch, "{quote}");
+        }
+        assert_eq!(check_quote("[…] la vie privée […]", OFFICIAL), QuoteCheck::Match);
+        assert_eq!(check_quote("Chacun a le droit au respect […]", OFFICIAL), QuoteCheck::Match);
+        // Sans ellipse, un extrait court reste accepté (aucun minimum).
+        assert_eq!(check_quote("vie privée", OFFICIAL), QuoteCheck::Match);
     }
 
     #[test]

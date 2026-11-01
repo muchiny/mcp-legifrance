@@ -2613,6 +2613,22 @@ mod tests {
         }
     }
 
+    /// Limite documentée (B §4.2, 09) : un paragraphe romain collé après un adverbe se lit comme
+    /// une lettre de suffixe. Après « lettre adverbe », une seconde lettre fait refuser tout le
+    /// numéro (filet N36) ; après « adverbe » seul, la lettre est prise dans la clé. Dans les deux
+    /// cas rien n'est tronqué en silence : au pire la clé ne se résout pas (`not_found`).
+    #[test]
+    fn a_roman_paragraph_glued_after_an_adverb_is_a_documented_limit() {
+        // Refusé en entier : « 150-0 B ter » seul se lit, « 150-0 B ter I » non.
+        assert_eq!(num_of("150-0 B ter"), Some(key("150-0 B ter", 11)));
+        assert_eq!(num_of("150-0 B ter I"), None);
+        assert_eq!(num_of("150-0 B ter I du"), None);
+        // Lu comme une lettre de suffixe : la clé « 200 bis I » ne se résoudra pas.
+        assert_eq!(num_of("200 bis I"), Some(key("200 bis I", 9)));
+        assert_eq!(num_of("5 bis A l'égard de"), Some(key("5 bis A", 7)));
+        assert_eq!(num_of("5 bis A du"), Some(key("5 bis A", 7)));
+    }
+
     #[test]
     fn article_keywords() {
         assert_eq!(art_kw("articles 5", 0), Some(9));

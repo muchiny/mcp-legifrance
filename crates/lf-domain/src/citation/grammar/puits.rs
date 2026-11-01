@@ -176,14 +176,24 @@ fn cedh_application(w: &Win, p: usize) -> Option<(usize, String)> {
 }
 
 /// `[ parties SEP ]` puis la référence lue par `reader` : les parties tiennent jusqu'à la première
-/// virgule après laquelle une référence se lit, dans les 100 caractères.
+/// virgule après laquelle une référence se lit, dans les 100 caractères. Des parties qui portent un
+/// ancrage d'article (« art. », « article ») ne sont pas des parties : la citation d'article
+/// qu'elles contiennent reste lue et vérifiée, le puits ne l'absorbe pas (B §4.14).
 fn after_parties(
     w: &Win,
     p: usize,
     reader: fn(&Win, usize) -> Option<(usize, String)>,
 ) -> Option<(usize, String)> {
     let limit = (p + PARTIES_MAX).min(w.len());
-    (p..limit).filter(|&i| w.at(i) == Some(',')).find_map(|i| w.sep(i).and_then(|q| reader(w, q)))
+    let anchor = (p..limit).find(|&j| w.word_start(j) && article_anchor(w, j)).unwrap_or(limit);
+    (p..anchor.min(limit))
+        .filter(|&i| w.at(i) == Some(','))
+        .find_map(|i| w.sep(i).and_then(|q| reader(w, q)))
+}
+
+/// Un ancrage d'article lu en `j` : « art. », « art », « article » ou « articles ».
+fn article_anchor(w: &Win, j: usize) -> bool {
+    ["art.", "articles", "article"].iter().any(|label| w.kw(j, label).is_some())
 }
 
 /// `cedh` : `( 'CEDH' | "Cour EDH" ) SEP DATE SEP [ parties SEP ] [ "req." WS ] [ NUM_SIGN ] …`.
@@ -477,6 +487,15 @@ mod tests {
             ("CJUE, 4 juin 2024, Schrems, C-362", "CJUE"),
             ("CJUE, 4 juin 2024, Schrems, X-362/14", "CJUE"),
         ]);
+        // Une citation d'article dans la zone des parties n'est pas absorbée par le puits.
+        assert_none(&[
+            ("CJUE, 4 juin 2024, voir l'article 1240 du code civil, C-362/14", "CJUE"),
+            ("CJUE, 4 juin 2024, Schrems, art. 5 du code civil, C-362/14", "CJUE"),
+            ("CEDH, 4 juin 2024, voir l'article 1240 du code civil, req. 12345/20", "CEDH"),
+        ]);
+        // Un nom de partie qui contient « art » sans être un ancrage reste une partie.
+        let martin = one("CJUE, 4 juin 2024, Martin c. Partner, C-362/14", "CJUE");
+        assert_eq!(martin.value, unsupported(UnsupportedFamily::Cjue, Some("C-362/14")));
         // Les parties tiennent en 100 caractères.
         let far = format!("CJUE, 4 juin 2024, {}, C-362/14", "x".repeat(150));
         assert_none(&[(far.as_str(), "CJUE")]);

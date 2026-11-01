@@ -18,7 +18,7 @@ Jusqu'à 1.0.0, un extrait entre guillemets jouxtant une citation était tenu po
 2. Chaque tronçon est replié (minuscules, accents et ligatures, ponctuation, apostrophes droites ou typographiques, espaces dont les insécables) et doit être une suite contiguë de mots du texte officiel replié. Les tronçons se suivent dans l'ordre du texte, sans réemploi.
 3. Sont tolérés, des deux côtés : les repères d'énumération (« 1° », « 4° bis », « a) », « (2) », « I.- », « II. – », « 1. ») en tête d'alinéa ou après « ; », « : », « . », et, dans l'extrait seulement, les repères de forme sûre (« 1° », « a) ») au milieu d'une phrase ; la forme du numéro d'article (« L. 1234-9 » = « L1234-9 », lettres L, R, D, A).
 4. Restent des mots, donc des écarts s'ils diffèrent : les chiffres, les nombres (« 12 109 » n'est pas « 12109 »), les symboles € % ‰ $ £, un renvoi en milieu de phrase (« au 3° du I »), un ajout éditorial entre crochets (« [sic] », « [le salarié] »).
-5. Un extrait à ellipses compte au moins trois mots sur ses tronçons ; en deçà, des tronçons d'un ou deux mots sont vrais presque partout. Un extrait d'un seul tronçon n'a pas de minimum.
+5. Un extrait à ellipses compte au moins trois mots sur ses tronçons ; en deçà, des tronçons d'un ou deux mots sont vrais presque partout. Le minimum s'applique dès que l'extrait porte une ellipse, y compris en bordure (« […] le […] ») ; un extrait sans ellipse n'a pas de minimum.
 6. Le champ `quote` garde ses deux valeurs (`match`, `quote_mismatch`) ; aucun champ n'est ajouté en 1.0.1. Un champ `quote_diff` est envisagé pour 1.1.0 (Q17/Q26).
 
 ## Critère d'acceptation
