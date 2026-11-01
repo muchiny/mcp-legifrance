@@ -443,14 +443,14 @@ mod tests {
         ));
     }
 
-    /// Repro de ground_truth-1 : la loi de 1978 n'est indexée que sous
-    /// `78-17` (sandbox).
+    /// Repros de ground_truth-1 et de resolve-2 : la loi de 1978 n'est indexée que sous
+    /// `78-17` (sandbox) et sa date citée est celle de la signature, pas de l'entrée en vigueur.
     #[tokio::test]
-    async fn a_pre_2000_law_is_verified_by_its_short_number() {
+    async fn a_pre_2000_law_is_verified_by_its_short_number_and_its_signature_date() {
         let corpus = FakeCorpus::new();
         let mut law = hit(Fond::Loda, "LEGITEXT000006068624");
         law.nature = Some("LOI".to_owned());
-        law.date = CivilDate::new(1978, 1, 6);
+        law.date = CivilDate::new(1978, 1, 7);
         law.title = Some(
             "Loi n° 78-17 du 6 janvier 1978 relative à l'informatique, aux fichiers et aux libertés"
                 .into(),

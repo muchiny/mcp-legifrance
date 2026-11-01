@@ -28,7 +28,7 @@ use lf_domain::{
         Ambiguity, ArticleNum, CaseNumber, CitationRef, CnilCite, CnilNumber, CodeRef, Confidence,
         ConventionCite, Court, DecisionCite, Flag, LegifranceIdRef, Resolvability, Spanned,
         TextCite, TextNature, TextNumber, UnresolvableWhy, UnsupportedFamily, VersionQualifier,
-        dict::courts::CcType,
+        dict::courts::CcType, parse,
     },
     contract::{Citable, Eli, Nor},
     date::{CivilDate, VersionDate},
@@ -615,10 +615,12 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             .filter(|(_, fit)| **fit == TextFit::Exact)
             .map(|(i, _)| i)
             .collect();
-        let confidence = if cite.date.is_some() { Confidence::High } else { Confidence::Medium };
         match (exact.as_slice(), hits.as_slice()) {
             ([only], _) => {
                 let hit = &hits[*only];
+                // Sûr seulement si la date citée a été comparée à celle du titre, et égale.
+                let compared = cite.date.is_some() && signed_on(hit, number) == cite.date;
+                let confidence = if compared { Confidence::High } else { Confidence::Medium };
                 let record = ResolvedRecord::of(hit.id.clone(), hit);
                 TextStep::Found { id: ids[*only].clone(), record, confidence }
             }
@@ -971,13 +973,33 @@ fn text_keys(number: &TextNumber) -> Vec<String> {
     }
 }
 
+/// Date de signature d'un texte, lue dans le titre du hit (« Loi n° 2016-1321 du 7 octobre
+/// 2016 … ») : le titre cite d'autres textes, seule la citation du même numéro compte. `hit.date`
+/// n'est jamais lue (entrée en vigueur ou publication selon le fond). `None` si le titre manque
+/// ou ne se lit pas.
+fn signed_on(hit: &SearchHit, number: &TextNumber) -> Option<CivilDate> {
+    let title = hit.title.as_deref()?;
+    parse(title).into_iter().find_map(|item| match item.value {
+        CitationRef::Text(text)
+            if text
+                .number
+                .as_ref()
+                .is_some_and(|read| read.year == number.year && read.seq == number.seq) =>
+        {
+            text.date
+        }
+        _ => None,
+    })
+}
+
 fn text_fit(cite: &TextCite, hit: &SearchHit) -> TextFit {
     if let (Some(wanted), Some(actual)) = (plain_nature(cite.nature), hit.nature.as_deref())
         && fold_line(actual) != fold_line(wanted)
     {
         return TextFit::Nature(fold_line(actual).to_uppercase());
     }
-    match (cite.date, hit.date) {
+    let signed = cite.number.as_ref().and_then(|number| signed_on(hit, number));
+    match (cite.date, signed) {
         (Some(cited), Some(actual)) if cited != actual => TextFit::Date(actual),
         _ => TextFit::Exact,
     }
@@ -1249,7 +1271,6 @@ mod tests {
     use lf_domain::{
         citation::{
             Anaphora, ArticleRef, EcliFamily, IdPrefix, Sigle, Span, SpecialNum, UnsupportedCite,
-            parse,
         },
         contract::{Idcc, Nor},
         entity::{Act, ArticleText, CompanyAgreement, Convention, Deliberation, TextBody},
@@ -1753,11 +1774,15 @@ mod tests {
     fn law_hit() -> SearchHit {
         let mut law = hit(Fond::Loda, "LEGITEXT000033202746");
         law.nature = Some("LOI".to_owned());
-        law.date = Some(civil(2016, 10, 7));
+        // Comme en bac à sable : `date` est la date d'entrée en vigueur, pas la signature.
+        law.date = Some(civil(2016, 10, 9));
+        law.title =
+            Some("LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)".into());
         law
     }
 
-    /// Un texte LODA tel que la recherche par numéro le rend : nature, titre et `date`.
+    /// Un texte LODA tel que la recherche par numéro le rend : nature, titre et `date` (celle de
+    /// l'entrée en vigueur, qui n'est jamais la signature).
     fn loda_hit(id: &str, nature: &str, title: &str, date: Option<CivilDate>) -> SearchHit {
         let mut found = titled(Fond::Loda, id, title);
         found.nature = Some(nature.to_owned());
@@ -3274,9 +3299,10 @@ mod tests {
         let cite = text_cite(TextNature::Circulaire, Some((2016, 1321)), Some(day));
         let mut found = law_hit();
         found.nature = Some("DECRET".to_owned());
-        found.date = Some(civil(2016, 10, 8));
+        found.title = Some("LOI n° 2016-1321 du 8 octobre 2016 pour une République".into());
         assert_eq!(text_fit(&cite, &found), TextFit::Date(civil(2016, 10, 8)));
-        found.date = None;
+        // Sans titre lisible, rien ne contredit la date citée.
+        found.title = None;
         assert_eq!(text_fit(&cite, &found), TextFit::Exact);
     }
 
@@ -3363,6 +3389,34 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_signature_date_is_read_in_the_title_for_the_cited_number_only() {
+        let number =
+            |year, seq| TextNumber { year: Some(year), seq, extra: None, raw: String::new() };
+        let mut found = law_hit();
+        found.title = Some(
+            "Décret n° 2019-536 du 29 mai 2019 pris pour l'application de la loi n° 2018-493 du \
+             20 juin 2018"
+                .to_owned(),
+        );
+        // Le numéro du décret, pas celui de la loi qu'il applique.
+        assert_eq!(signed_on(&found, &number(2019, 536)), Some(civil(2019, 5, 29)));
+        assert_eq!(signed_on(&found, &number(2018, 493)), Some(civil(2018, 6, 20)));
+        assert_eq!(signed_on(&found, &number(2019, 537)), None);
+        assert_eq!(signed_on(&found, &number(2018, 536)), None);
+        // Un numéro sans année ne se lit pas dans un titre à numéro daté.
+        let yearless = TextNumber { year: None, seq: 536, extra: None, raw: String::new() };
+        assert_eq!(signed_on(&found, &yearless), None);
+        // Sans titre, ou sans date dans le titre : rien à lire.
+        found.title = None;
+        assert_eq!(signed_on(&found, &number(2019, 536)), None);
+        found.title = Some("Décret n° 2019-536 portant diverses mesures".to_owned());
+        assert_eq!(signed_on(&found, &number(2019, 536)), None);
+        // La date d'entrée en vigueur du hit n'est jamais lue.
+        found.date = Some(civil(2019, 6, 1));
+        assert_eq!(signed_on(&found, &number(2019, 536)), None);
+    }
+
     /// L2-01 (ground_truth-1) : la sandbox trouve `89-462` et ne trouve rien avec `1989-462`.
     #[tokio::test]
     async fn a_pre_2000_law_is_searched_by_its_two_digit_number_first() {
@@ -3371,7 +3425,7 @@ mod tests {
             "LEGITEXT000006069108",
             "LOI",
             "Loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs",
-            Some(civil(1989, 7, 6)),
+            Some(civil(1989, 7, 8)),
         )]));
         let resolution = resolve(&corpus, "loi n° 89-462 du 6 juillet 1989").await;
         assert_eq!(status(&resolution), CheckStatus::Verified);
@@ -3391,7 +3445,7 @@ mod tests {
             "LEGITEXT000006068624",
             "LOI",
             "Loi n° 78-17 du 6 janvier 1978 relative à l'informatique, aux fichiers et aux libertés",
-            Some(civil(1978, 1, 6)),
+            Some(civil(1978, 1, 7)),
         )]));
         let resolution = resolve(&corpus, "loi n° 78-17 du 6 janvier 1978").await;
         assert_eq!(status(&resolution), CheckStatus::Verified);
@@ -3477,7 +3531,7 @@ mod tests {
             "LEGITEXT000006069108",
             "LOI",
             "Loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs",
-            Some(civil(1989, 7, 6)),
+            Some(civil(1989, 7, 8)),
         )]));
         corpus.push_find_article(Ok(article(Some("22"))));
         let resolution = resolve(&corpus, "article 22 de la loi n° 89-462 du 6 juillet 1989").await;
@@ -3493,6 +3547,104 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    /// L2-02 (resolve-2) : la date citée est la signature, lue dans le titre ; `hit.date`
+    /// (entrée en vigueur) n'est jamais comparée.
+    #[tokio::test]
+    async fn the_cited_date_is_compared_to_the_signature_date_read_in_the_title() {
+        let cases = [
+            (
+                "LOI",
+                "LEGITEXT000033205014",
+                "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)",
+                civil(2016, 10, 9),
+                "loi n° 2016-1321 du 7 octobre 2016",
+            ),
+            (
+                "ORDONNANCE",
+                "LEGITEXT000032004939",
+                "Ordonnance n° 2016-131 du 10 février 2016 portant réforme du droit des contrats, du régime général et de la preuve des obligations",
+                civil(2016, 10, 1),
+                "ordonnance n° 2016-131 du 10 février 2016",
+            ),
+            (
+                "DECRET",
+                "LEGITEXT000038531569",
+                "Décret n° 2019-536 du 29 mai 2019 pris pour l'application de la loi n° 2018-493 du 20 juin 2018 relative à la protection des données personnelles",
+                civil(2019, 6, 1),
+                "décret n° 2019-536 du 29 mai 2019",
+            ),
+            (
+                "LOI",
+                "LEGITEXT000005789847",
+                "Loi n° 2004-575 du 21 juin 2004 pour la confiance dans l'économie numérique",
+                civil(2004, 6, 22),
+                "loi n° 2004-575 du 21 juin 2004",
+            ),
+        ];
+        for (nature, id, title, in_force, cited) in cases {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![loda_hit(id, nature, title, Some(in_force))]));
+            let resolution = resolve(&corpus, cited).await;
+            assert_eq!(status(&resolution), CheckStatus::Verified, "{cited}");
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High), "{cited}");
+            assert_eq!(resolution.outcome.note(Proof::Production), None, "{cited}");
+        }
+    }
+
+    /// Jumeau « vrai positif conservé » : une date de signature fausse reste un écart, et l'écart
+    /// cite la date du titre, jamais la date d'entrée en vigueur.
+    #[tokio::test]
+    async fn a_wrong_signature_date_is_still_a_mismatch_naming_the_title_date() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![law_hit()]));
+        let resolution = resolve(&corpus, "loi n° 2016-1321 du 9 octobre 2016").await;
+        assert_eq!(status(&resolution), CheckStatus::Invalid);
+        assert_eq!(
+            resolution.outcome.note(Proof::Production),
+            Some(Note::Mismatch {
+                field: Field::Date,
+                cited: "2016-10-09".to_owned(),
+                actual: "2016-10-07".to_owned()
+            })
+        );
+    }
+
+    /// Le résultat ne dépend pas de `hit.date` : absente ou différente, la signature décide.
+    #[tokio::test]
+    async fn the_hit_date_never_decides() {
+        for date in [None, Some(civil(2016, 10, 7)), Some(civil(1999, 1, 1))] {
+            let mut found = law_hit();
+            found.date = date;
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![found.clone()]));
+            let resolution = resolve(&corpus, "loi n° 2016-1321 du 7 octobre 2016").await;
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High), "{date:?}");
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![found]));
+            let resolution = resolve(&corpus, "loi n° 2016-1321 du 8 octobre 2016").await;
+            assert_eq!(status(&resolution), CheckStatus::Invalid, "{date:?}");
+        }
+    }
+
+    /// Titre absent, sans numéro ou sans date : rien n'a été comparé, confiance moyenne.
+    #[tokio::test]
+    async fn an_unreadable_title_is_exact_with_medium_confidence() {
+        for title in [
+            None,
+            Some("Loi relative à la République numérique"),
+            Some("LOI n° 2016-1321 pour une République numérique"),
+            Some("Loi n° 2015-990 du 6 août 2015 pour la croissance"),
+        ] {
+            let mut found = law_hit();
+            found.title = title.map(str::to_owned);
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![found]));
+            let resolution = resolve(&corpus, "loi n° 2016-1321 du 7 octobre 2016").await;
+            assert_eq!(status(&resolution), CheckStatus::Verified, "{title:?}");
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium), "{title:?}");
+        }
     }
 
     /// Les deux repros de ground_truth-1 sans « n° » (si la grammaire les lit) et sans date.
