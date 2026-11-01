@@ -13,6 +13,9 @@
 //! Le texte de la requête n'est jamais journalisé et aucune struct de ce module n'implémente
 //! `Debug` : un message d'erreur ne cite que des noms de fonds et des nombres.
 //!
+//! `pageSize` 1 est envoyé en taille 2 (`wire_page_for`, L3-05) : PISTE ignore `pageNumber` à
+//! `pageSize` 1. Les gardes de portée lisent la page demandée par l'appelant, pas la page envoyée.
+//!
 //! Le filtre `DATE_VERSION` de LODA et de CODE envoie le midi du jour à Paris en millisecondes
 //! Unix (`paris_noon_ms`, 04 §6.3), calculé avec la base IANA embarquée par `chrono-tz`.
 
@@ -174,6 +177,7 @@ fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, CorpusError> {
 /// Le DTO de requête, après les gardes.
 fn request_dto<'a>(params: &Params<'a>) -> Result<SearchRequestDto<'a>, CorpusError> {
     check_reach(params.page, params.page_size)?;
+    let wire = wire_page_for(params.fond, params.pagination, params.page, params.page_size);
     Ok(SearchRequestDto {
         fond: params.fond.api_name(),
         recherche: RechercheDto {
@@ -187,13 +191,62 @@ fn request_dto<'a>(params: &Params<'a>) -> Result<SearchRequestDto<'a>, CorpusEr
                 operateur: Operateur::Et,
             }],
             filtres: filtres(params)?,
-            page_number: params.page,
-            page_size: params.page_size,
+            page_number: wire.page_number,
+            page_size: wire.page_size,
             operateur: Operateur::Et,
             sort: Sort::Pertinence,
             type_pagination: params.pagination.api_name(),
         },
     })
+}
+
+/// Page réellement demandée à PISTE pour une page de l'appelant (L3-05, `search-1`).
+///
+/// PISTE ignore `pageNumber` quand `pageSize` vaut 1 : les pages 1, 2 et 3 rendent toutes le rang 1
+/// (relevés C9 de la sandbox, JURI, LODA, CNIL et CODE). Une page de taille 1 est donc servie par
+/// une page de taille 2, dont on ne garde que l'élément `skip`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(test, derive(Debug))]
+pub(crate) struct WirePage {
+    /// `pageNumber` envoyé.
+    pub(crate) page_number: u32,
+    /// `pageSize` envoyé.
+    pub(crate) page_size: u32,
+    /// Rang, dans la page reçue, du premier résultat à garder.
+    pub(crate) skip: usize,
+}
+
+/// Page de taille 2 qui porte la page `page` de taille 1 ; sinon la page telle quelle.
+///
+/// `page` vaut au moins 1 (`NonZeroU32` côté domaine) : le rang gardé est `(page - 1) % 2`.
+fn wire_page(page: u32, page_size: u32) -> WirePage {
+    if page_size == 1 {
+        WirePage {
+            page_number: page.div_ceil(2),
+            page_size: 2,
+            skip: usize::from(page.is_multiple_of(2)),
+        }
+    } else {
+        WirePage { page_number: page, page_size, skip: 0 }
+    }
+}
+
+/// Page à envoyer pour `fond` en mode `pagination`.
+///
+/// `CODE` en mode `ARTICLE` est exclu : `pageSize` y compte des articles et non des hits, un hit en
+/// porte plusieurs, et couper au niveau des articles n'est pas planifié. Le mode `DEFAUT` de
+/// `CODE` a le défaut (C9-code-taille1-page3 rend le hit de la page 1) et est corrigé.
+pub(crate) fn wire_page_for(
+    fond: Fond,
+    pagination: PaginationMode,
+    page: u32,
+    page_size: u32,
+) -> WirePage {
+    if fond == Fond::Code && pagination == PaginationMode::Article {
+        WirePage { page_number: page, page_size, skip: 0 }
+    } else {
+        wire_page(page, page_size)
+    }
 }
 
 /// Garde de profondeur : l'API n'atteint que `REACHABLE_RESULTS` résultats (04 §6.7). Le
@@ -471,6 +524,81 @@ mod tests {
             let body = body_of(&Params { pagination, ..params(Fond::Code) });
             assert_eq!(body["recherche"]["typePagination"], json!(want));
         }
+    }
+
+    #[test]
+    fn wire_page_table() {
+        let table = [
+            ((1, 1), (1, 2, 0)),
+            ((2, 1), (1, 2, 1)),
+            ((3, 1), (2, 2, 0)),
+            ((4, 1), (2, 2, 1)),
+            ((9_999, 1), (5_000, 2, 0)),
+            ((10_000, 1), (5_000, 2, 1)),
+            ((u32::MAX, 1), (2_147_483_648, 2, 0)),
+            ((1, 2), (1, 2, 0)),
+            ((7, 2), (7, 2, 0)),
+            ((5, 3), (5, 3, 0)),
+            ((2, 100), (2, 100, 0)),
+        ];
+        for ((page, size), (page_number, page_size, skip)) in table {
+            assert_eq!(
+                wire_page(page, size),
+                WirePage { page_number, page_size, skip },
+                "page {page} size {size}"
+            );
+        }
+    }
+
+    /// `(pageNumber, pageSize)` du corps pour la page `page` de taille `page_size`.
+    fn wire_of(params: &Params<'_>) -> (Value, Value) {
+        let body = body_of(params);
+        (body["recherche"]["pageNumber"].clone(), body["recherche"]["pageSize"].clone())
+    }
+
+    /// L3-05 (search-1) : PISTE ignore `pageNumber` quand `pageSize` vaut 1 (relevés C9, fonds
+    /// JURI, LODA, CNIL, CODE) ; la page `p` de taille 1 est servie par la page `(p+1)/2` de
+    /// taille 2.
+    #[test]
+    fn page_size_1_is_sent_as_pages_of_two() {
+        let wanted = [(1, 1), (2, 1), (3, 2), (4, 2), (9_999, 5_000), (10_000, 5_000)];
+        for fond in [Fond::Juri, Fond::Loda, Fond::Cnil, Fond::Constit, Fond::Cetat, Fond::Kali] {
+            for (page, number) in wanted {
+                let sent = wire_of(&Params { page, page_size: 1, ..params(fond) });
+                assert_eq!(sent, (json!(number), json!(2)), "{fond:?} page {page}");
+            }
+        }
+    }
+
+    /// Jumeau de `page_size_1_is_sent_as_pages_of_two` : les tailles 2, 3 et 10 sont inchangées.
+    #[test]
+    fn other_page_sizes_are_sent_unchanged() {
+        for page_size in [2, 3, 10, 100] {
+            let sent = wire_of(&Params { page: 3, page_size, ..params(Fond::Juri) });
+            assert_eq!(sent, (json!(3), json!(page_size)), "size {page_size}");
+        }
+    }
+
+    /// CODE en mode `DEFAUT` a le même défaut (C9-code-taille1-page3 rend le hit de la page 1) ;
+    /// en mode `ARTICLE`, `pageSize` compte des articles, un hit en porte plusieurs et la
+    /// troncature au niveau des articles n'est pas planifiée : la requête reste inchangée.
+    #[test]
+    fn code_page_size_1_is_doubled_in_defaut_mode_only() {
+        let code = Params { page: 3, page_size: 1, ..params(Fond::Code) };
+        assert_eq!(wire_of(&code), (json!(2), json!(2)));
+        let by_article = Params { pagination: PaginationMode::Article, ..code };
+        assert_eq!(wire_of(&by_article), (json!(3), json!(1)));
+    }
+
+    #[test]
+    fn the_reach_guard_still_reads_the_requested_page() {
+        let at_the_edge = Params { page: 10_000, page_size: 1, ..params(Fond::Juri) };
+        assert!(request_dto(&at_the_edge).is_ok());
+        let beyond = Params { page: 10_001, page_size: 1, ..params(Fond::Juri) };
+        assert_eq!(
+            request_dto(&beyond).err(),
+            Some(invalid("page 10001 x page_size 1 exceeds 10000 reachable results"))
+        );
     }
 
     #[test]

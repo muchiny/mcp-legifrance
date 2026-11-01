@@ -61,8 +61,26 @@ jobs:
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-fuzz@0.13.1
-      - if: matrix.target != 'dto_decode'
+      - if: matrix.target != 'dto_decode' && matrix.target != 'from_html' && matrix.target != 'citation_parse'
         run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=300
+      # citation_parse : graines des numéros composés et des décisions du Conseil constitutionnel
+      # (« 150-0 B ter », « 199 terdecies-0 A », « 71-44 DC », « 94-343/344 DC »), commitées dans
+      # fuzz/seeds/citation_parse (format Arbitrary de la cible). Même principe que from_html :
+      # libFuzzer n'écrit que dans le premier dossier, les graines restent intactes.
+      - if: matrix.target == 'citation_parse'
+        run: |
+          mkdir -p fuzz/corpus/citation_parse
+          cargo +nightly fuzz run citation_parse fuzz/corpus/citation_parse fuzz/seeds/citation_parse \
+            -- -max_total_time=300
+      # from_html : graines de tableaux (art. 777 et 669 du CGI, cellules vides, `<td>` répétés,
+      # cellule orpheline, ligne géante), commitées dans fuzz/seeds/from_html. Même principe que
+      # dto_decode : libFuzzer n'écrit que dans le premier dossier, les graines restent intactes.
+      # `-max_len` couvre la ligne géante (environ 18 Kio).
+      - if: matrix.target == 'from_html'
+        run: |
+          mkdir -p fuzz/corpus/from_html
+          cargo +nightly fuzz run from_html fuzz/corpus/from_html fuzz/seeds/from_html \
+            -- -max_total_time=300 -max_len=32768
       # dto_decode : corps jusqu'à 64 Kio (le défaut de libFuzzer, 4 096 octets, n'atteint ni les
       # chemins profonds ni le plafond de 100 results ; le budget de 200 000 éléments, lui, exige au
       # moins 3 octets par élément, soit environ 600 Kio, et n'est donc pas atteint ici) ; les

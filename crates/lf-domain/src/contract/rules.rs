@@ -21,8 +21,10 @@ pub fn article_citation(code_title: Option<&str>, num: Option<&str>) -> Option<S
 ///
 /// Pour un texte non codifié ([`ParentNature::Text`]), le titre officiel perd son appel de
 /// note final ` (n)` (« LOI n° 2016-1321 … numérique (1) » devient « … numérique ») avant la
-/// règle de [`article_citation`] ; pour les autres natures, c'est exactement
-/// [`article_citation`] (parité : le titre garde son éventuel appel de note).
+/// règle de [`article_citation`]. Pour un code ([`ParentNature::Code`]), le titre perd son
+/// sigle final redondant (« Code général des impôts, CGI. » devient « Code général des
+/// impôts », L2-15). Pour les autres natures, c'est exactement [`article_citation`] (parité :
+/// le titre garde son éventuel appel de note).
 pub fn article_citation_for(
     parent: ParentNature,
     code_title: Option<&str>,
@@ -30,9 +32,32 @@ pub fn article_citation_for(
 ) -> Option<String> {
     let title = match parent {
         ParentNature::Text => code_title.map(strip_note_call),
-        ParentNature::Code | ParentNature::Kali | ParentNature::Unknown => code_title,
+        ParentNature::Code => code_title.map(strip_sigle),
+        ParentNature::Kali | ParentNature::Unknown => code_title,
     };
     article_citation(title, num)
+}
+
+/// Retire de `title` (bords blancs ôtés) le sigle final redondant d'un titre de code : une
+/// virgule, une espace, de 2 à 8 majuscules, un point, en toute fin (« Code général des
+/// impôts, CGI. » donne « Code général des impôts »). Tout autre titre est rendu tel quel :
+/// sigle sans point final, minuscules, un seul caractère ou plus de huit, texte après le
+/// sigle, annexe (« …, annexe II »). Un titre réduit au sigle (« , CGI. ») reste inchangé : le
+/// retirer laisserait un titre vide.
+fn strip_sigle(title: &str) -> &str {
+    let title = title.trim();
+    let Some(body) = title.strip_suffix('.') else {
+        return title;
+    };
+    let Some((head, sigle)) = body.rsplit_once(", ") else {
+        return title;
+    };
+    let head = head.trim_end();
+    let letters = sigle.chars().count();
+    if head.is_empty() || !(2..=8).contains(&letters) || !sigle.chars().all(char::is_uppercase) {
+        return title;
+    }
+    head
 }
 
 /// Retire de `title` (bords blancs ôtés) l'appel de note final ` (n)` : une espace, `(`, un ou
@@ -152,6 +177,77 @@ mod tests {
                 Some("Texte (1), art. 2"),
                 "{nature:?}"
             );
+        }
+    }
+
+    #[test]
+    fn a_code_citation_drops_the_redundant_sigle() {
+        // L2-15 (verify_citations-16): le titre LEGI « Code général des impôts, CGI. ».
+        assert_eq!(
+            article_citation_for(
+                ParentNature::Code,
+                Some("Code général des impôts, CGI."),
+                Some("777")
+            )
+            .as_deref(),
+            Some("Code général des impôts, art. 777")
+        );
+        // Jumeau : les titres sans sigle final restent tels quels.
+        for title in ["Code civil", "Code général des impôts, annexe II"] {
+            assert_eq!(
+                article_citation_for(ParentNature::Code, Some(title), Some("9")).as_deref(),
+                Some(format!("{title}, art. 9").as_str()),
+                "{title}"
+            );
+        }
+        // Sans numéro : le titre nettoyé seul. Titre réduit au sigle : jamais de titre vide.
+        assert_eq!(
+            article_citation_for(ParentNature::Code, Some("Code du travail, C. trav."), None)
+                .as_deref(),
+            Some("Code du travail, C. trav.")
+        );
+        assert_eq!(
+            article_citation_for(ParentNature::Code, Some("Code de la route, CR."), None)
+                .as_deref(),
+            Some("Code de la route")
+        );
+        // Les autres natures gardent le titre brut (parité).
+        for nature in [ParentNature::Kali, ParentNature::Unknown] {
+            assert_eq!(
+                article_citation_for(nature, Some("Code général des impôts, CGI."), Some("777"))
+                    .as_deref(),
+                Some("Code général des impôts, CGI., art. 777"),
+                "{nature:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn sigle_only_stripped_when_final_uppercase_two_to_eight_and_dotted() {
+        let cases = [
+            ("Code général des impôts, CGI.", "Code général des impôts"),
+            ("  Code général des impôts, CGI.  ", "Code général des impôts"),
+            ("Code, AB.", "Code"),
+            ("Code, ABCDEFGH.", "Code"),
+            ("Code , CGI.", "Code"),
+            ("Code, CÉSEDA.", "Code"),
+            // Bornes : 1 ou 9 majuscules, minuscules, mélange, chiffres, vide, sans point.
+            ("Code, A.", "Code, A."),
+            ("Code, ABCDEFGHI.", "Code, ABCDEFGHI."),
+            ("Code, Cgi.", "Code, Cgi."),
+            ("Code, CG1.", "Code, CG1."),
+            ("Code, .", "Code, ."),
+            ("Code, CGI", "Code, CGI"),
+            ("Code CGI.", "Code CGI."),
+            ("Code, CGI. suite", "Code, CGI. suite"),
+            ("Code, C. trav.", "Code, C. trav."),
+            // Titre réduit au sigle : rien à retirer, il resterait un titre vide.
+            (", CGI.", ", CGI."),
+            (" , CGI.", ", CGI."),
+            ("", ""),
+        ];
+        for (title, expected) in cases {
+            assert_eq!(strip_sigle(title), expected, "{title:?}");
         }
     }
 

@@ -26,10 +26,10 @@ use lf_domain::fond::{Fond, PaginationMode};
 use lf_domain::id::{ArticleId, DocumentId};
 use lf_domain::search::SearchQuery;
 use lf_domain::status::status_of;
-use lf_domain::text::clean_field;
+use lf_domain::text::{clean_field, flatten_whitespace};
 
 use super::dates::first_civil;
-use super::rules::{check_origin, note_suffix, suffix_start};
+use super::rules::{check_origin, note_suffix, restore_capped_title, suffix_start};
 use super::{Diagnostics, Field, endpoint};
 use crate::dto::search::{SearchExtractDto, SearchResponseDto, SearchResultDto, SearchSectionDto};
 use crate::memo::received_mode;
@@ -116,7 +116,8 @@ fn map_hit(
     };
     check_origin(result.origin.as_deref(), hit.id.as_str(), diags);
     hit.cid = hit_cid(fond, &hit.id, title.and_then(|title| title.cid.as_deref()), diags);
-    hit.title = clean_field(title.and_then(|title| title.title.as_deref()));
+    hit.title = restore_capped_title(fond, title.and_then(|title| title.title.as_deref()))
+        .map(|title| flatten_whitespace(&title));
     hit.nature = clean_field(result.nature.as_deref());
     hit.etat = status_of(result.etat.as_deref(), None);
     hit.idcc = result.idcc.as_deref().and_then(Idcc::parse);
@@ -323,6 +324,106 @@ mod tests {
             result[key] = value.clone();
         }
         result
+    }
+
+    /// Relevé de la page 9901 à 10000 de `JURI` : le hit `JURITEXT000027366470` a un titre coupé
+    /// à 256 caractères par l'amont, au milieu d'un numéro de pourvoi (« 11-19. »).
+    const JURI_CAPPED_PAGE: &str =
+        include_str!("../../tests/fixtures/recorded/search/pagination/juri-9901-10000.json");
+    /// Relevé de `CONSTIT` dont deux titres légitimes font 256 caractères.
+    const CONSTIT_256_PAGE: &str =
+        include_str!("../../tests/fixtures/recorded/search/identifiants/search-CONSTIT-100.json");
+
+    /// Titre du hit `id` de la page `json` de `fond`.
+    fn title_of(fond: Fond, json: &str, id: &str) -> String {
+        let (page, _) = page_of(fond, json);
+        let hit = page.hits.into_iter().find(|hit| hit.id.as_str() == id).unwrap();
+        hit.title.unwrap()
+    }
+
+    /// L3-05 voisin, L3-06 (search-4) : un titre JURI de 256 caractères est coupé par l'amont ;
+    /// le dernier jeton partiel disparaît et une marque est ajoutée.
+    #[test]
+    fn a_juri_title_cut_at_256_loses_its_partial_token() {
+        let title = title_of(Fond::Juri, JURI_CAPPED_PAGE, "JURITEXT000027366470");
+        assert!(title.ends_with(" 11-19.130 …"), "{title}");
+        assert!(!title.contains("11-19. "), "{title}");
+    }
+
+    /// Relevé C15 : recherche CNIL dont un titre porte des sauts de ligne.
+    const CNIL_C15_PAGE: &str = include_str!(
+        "../../tests/fixtures/recorded/search/c101/C15-cnil-search-protection-donnees-2021.json"
+    );
+    /// Relevé C15 : recherche ACCO « télétravail » dont les extraits portent des sauts de ligne.
+    const ACCO_C15_PAGE: &str =
+        include_str!("../../tests/fixtures/recorded/search/c101/C15-acco-search-teletravail.json");
+
+    /// L3-07 (search-15) : le titre de CNILTEXT000044033275, relevé sur trois lignes, tient sur une
+    /// ligne (et suit donc la citation repliée).
+    #[test]
+    fn hit_title_is_one_line() {
+        let title = title_of(Fond::Cnil, CNIL_C15_PAGE, "CNILTEXT000044033275");
+        assert!(!title.contains('\n'), "{title:?}");
+        assert!(title.ends_with("(rectificatif) (demande d’approbation n° 20005213)"), "{title:?}");
+    }
+
+    /// Les extraits ACCO relevés (les 4 portent des sauts de ligne dans le relevé) tiennent sur une ligne.
+    #[test]
+    fn acco_snippets_are_one_line() {
+        let (page, _) = page_of(Fond::Acco, ACCO_C15_PAGE);
+        let mut seen = 0_usize;
+        for hit in page.hits {
+            seen += 1;
+            let snippet = hit.snippet.expect("extrait");
+            assert!(!snippet.as_str().contains(['\n', '\r', '\t']), "{snippet:?}");
+        }
+        assert_eq!(seen, 4, "extraits relevés");
+    }
+
+    /// Relevé C17 : recherche CONSTIT, champ ALL, exacte « 2010-14 », page 1 de taille 10.
+    const CONSTIT_C17_PAGE: &str = include_str!(
+        "../../tests/fixtures/recorded/search/c101/C17-constit-all-exacte-2010-14.json"
+    );
+
+    /// V-154 (relevé C17) : la recherche plein texte exacte « 2010-14 » ne renvoie pas la décision
+    /// jointe 2010-14/22 QPC (CONSTEXT000022762681) mais un seul résultat sans rapport, la
+    /// décision 2015-4948 SEN, dont le texte cite la loi du pays n° 2010-14.
+    #[test]
+    fn the_joined_decision_is_absent_from_the_full_text_search_of_its_first_number() {
+        let (page, diags) = page_of(Fond::Constit, CONSTIT_C17_PAGE);
+        assert_eq!(diags, Diagnostics::default());
+        assert_eq!((page.hits.len(), page.dropped), (1, 0));
+        let hit = &page.hits[0];
+        assert_eq!(hit.id.as_str(), "CONSTEXT000031554429");
+        assert_eq!(
+            hit.title.as_deref(),
+            Some("Décision 2015-4948 SEN - 19 novembre 2015 - Polynésie française - Rejet")
+        );
+        assert!(page.hits.iter().all(|hit| hit.id.as_str() != "CONSTEXT000022762681"));
+    }
+
+    /// Jumeau : un titre déjà sur une ligne est inchangé ; les blancs multiples et les sauts de
+    /// ligne d'un titre LODA se replient en une espace.
+    #[test]
+    fn a_one_line_title_is_unchanged_and_blank_runs_are_folded() {
+        let one = loda_hit(
+            &json!({ "titles": [{ "id": "LEGITEXT000006070721", "title": "LOI n° 1 (2)" }] }),
+        );
+        assert_eq!(one.title.as_deref(), Some("LOI n° 1 (2)"));
+        let many = loda_hit(
+            &json!({ "titles": [{ "id": "LEGITEXT000006070721", "title": "LOI n° 1\n\n(2)" }] }),
+        );
+        assert_eq!(many.title.as_deref(), Some("LOI n° 1 (2)"));
+    }
+
+    /// Jumeau : un titre CONSTIT de 256 caractères est légitime et reste tel quel.
+    #[test]
+    fn a_constit_title_of_256_characters_is_left_alone() {
+        for id in ["CONSTEXT000051347309", "CONSTEXT000053915381"] {
+            let title = title_of(Fond::Constit, CONSTIT_256_PAGE, id);
+            assert_eq!(title.chars().count(), 256, "{id}");
+            assert!(!title.ends_with('…'), "{id}");
+        }
     }
 
     #[test]
@@ -861,6 +962,93 @@ mod tests {
         assert_eq!(page.hits[0].date, Some(d(2024, 3, 15)));
     }
 
+    /// Relevé v78 : un résultat CNIL (`datePublication` seule), fond `CNIL`.
+    const CNIL_DATES_PAGE: &str =
+        include_str!("../../tests/fixtures/recorded/search/dates/v78-CNIL-DATE_DELIB-2020.json");
+    /// Relevé v78 : un résultat KALI dont `datePublication` est la sentinelle 2999.
+    const KALI_DATES_PAGE: &str = include_str!(
+        "../../tests/fixtures/recorded/search/dates/v78-KALI-DATE_SIGNATURE-2020.json"
+    );
+    /// Relevé v78 : un résultat LODA avec `date` (entrée en vigueur) et `datePublication`.
+    const LODA_DATES_PAGE: &str = include_str!(
+        "../../tests/fixtures/recorded/search/dates/v78-LODA_DATE-DATE_SIGNATURE-2020.json"
+    );
+    /// Relevé v78 : un résultat ACCO avec `dateSignature` seule.
+    const ACCO_DATES_PAGE: &str = include_str!(
+        "../../tests/fixtures/recorded/search/dates/v78-ACCO-DATE_SIGNATURE-2020.json"
+    );
+    /// Relevé : recherche `CODE` (dix codes), `date` = date du texte initial, publication 2999.
+    const CODE_DATES_PAGE: &str =
+        include_str!("../../tests/fixtures/recorded/search/pagination/code-page1-defaut.json");
+
+    /// Titre et date du premier hit de la page `json` de `fond`.
+    fn first_title_and_date(fond: Fond, json: &str) -> (String, Option<CivilDate>) {
+        let (page, _) = page_of(fond, json);
+        let hit = page.hits.into_iter().next().unwrap();
+        (hit.title.unwrap(), hit.date)
+    }
+
+    /// L3-08 (search-2) : le champ `date` d'un hit est la date que Légifrance donne pour le fond,
+    /// pas la date de l'acte ni celle que filtrent `date_from`/`date_to`. CNIL : la publication.
+    #[test]
+    fn a_cnil_hit_date_is_the_publication_not_the_deliberation() {
+        let (title, date) = first_title_and_date(Fond::Cnil, CNIL_DATES_PAGE);
+        assert!(title.contains("du 10 novembre 2020"), "{title}");
+        assert_eq!(date, Some(d(2020, 11, 17)));
+    }
+
+    /// L3-08 (search-2), relevé C15 : la recherche CNIL « 2021 » rend des délibérations de 2021
+    /// datées de leur publication, dont une en 2022 ; aucune n'a la date de sa séance.
+    #[test]
+    fn the_cnil_search_of_2021_shows_publication_dates() {
+        let (page, _) = page_of(Fond::Cnil, CNIL_C15_PAGE);
+        let shown: Vec<_> = page
+            .hits
+            .iter()
+            .map(|hit| {
+                let title = hit.title.as_deref().unwrap_or("");
+                (title.split(" portant ").next().unwrap_or("").to_owned(), hit.date)
+            })
+            .collect();
+        let expected = [
+            ("Délibération n° 2021-147 du 9 décembre 2021", d(2021, 12, 31)),
+            ("Délibération n° 2021-088 du 22 juillet 2021", d(2021, 9, 10)),
+            ("Délibération n° 2021-087 du 22 juillet 2021", d(2021, 9, 10)),
+            ("Délibération n° 2021-130 du 23 septembre 2021", d(2022, 4, 12)),
+            ("Délibération n°2021-065 du 3 juin 2021", d(2021, 6, 11)),
+        ];
+        let expected: Vec<_> =
+            expected.into_iter().map(|(title, date)| (title.to_owned(), Some(date))).collect();
+        assert_eq!(shown, expected);
+    }
+
+    /// L3-08 (search-2) : CODE = date du texte initial du code (la publication, sentinelle 2999,
+    /// est ignorée) ; LODA = `date` (entrée en vigueur) avant la publication.
+    #[test]
+    fn code_and_loda_hit_dates_are_the_initial_text_and_the_entry_into_force() {
+        let (page, _) = page_of(Fond::Code, CODE_DATES_PAGE);
+        assert_eq!(page.hits[0].title.as_deref(), Some("Code des transports"));
+        assert_eq!(page.hits[0].date, Some(d(2010, 12, 1)));
+        assert_eq!(page.hits[1].title.as_deref(), Some("Code du travail"));
+        assert_eq!(page.hits[1].date, Some(d(1973, 1, 3)));
+
+        let (title, date) = first_title_and_date(Fond::Loda, LODA_DATES_PAGE);
+        assert!(title.contains("du 24 décembre 2020"), "{title}");
+        assert_eq!(date, Some(d(2020, 12, 27)), "date, avant datePublication du 26");
+    }
+
+    /// L3-08 (search-2) : KALI n'a pas de date de hit (publication sentinelle) ; ACCO donne la
+    /// date de signature, la seule qui soit celle de l'acte.
+    #[test]
+    fn kali_hits_have_no_date_and_acco_hits_carry_the_signature() {
+        let (title, date) = first_title_and_date(Fond::Kali, KALI_DATES_PAGE);
+        assert!(title.contains("du 13 octobre 2020"), "{title}");
+        assert_eq!(date, None);
+
+        let (_, date) = first_title_and_date(Fond::Acco, ACCO_DATES_PAGE);
+        assert_eq!(date, Some(d(2020, 9, 11)));
+    }
+
     /// Résultat de `json`, lu comme la production.
     fn result_of(json: &Value) -> SearchResultDto {
         decode(&json.to_string(), "/search").unwrap()
@@ -1299,10 +1487,10 @@ mod tests {
         let idccs = [275, 1486];
         let dates = [d(2025, 12, 19), d(2025, 2, 7)];
         let lengths = [215, 212];
-        let newlines = [5, 4];
+        // L3-07 (search-15) : l'extrait est aplati sur une ligne (il portait 5 et 4 sauts).
         let starts = [
-            "[...]définitions liées au télétravail 4\n3.1. Définition du Télétravail 4",
-            "[...]ACCORD TELETRAVAIL HOPIUM\nPRÉAMBULE 3",
+            "[...]définitions liées au télétravail 4 3.1. Définition du Télétravail 4",
+            "[...]ACCORD TELETRAVAIL HOPIUM PRÉAMBULE 3",
         ];
         for (index, hit) in page.hits.iter().enumerate() {
             assert_eq!(hit.id, doc_id(ids[index]), "{index}");
@@ -1312,7 +1500,7 @@ mod tests {
             assert_eq!(hit.date, Some(dates[index]), "{index}");
             assert_eq!((hit.nature.as_ref(), hit.etat.as_ref()), (None, None), "{index}");
             assert_eq!(snippet_len(hit), lengths[index], "{index}");
-            assert_eq!(snippet_str(hit).matches('\n').count(), newlines[index], "{index}");
+            assert!(!snippet_str(hit).contains('\n'), "{index}");
             assert!(snippet_str(hit).starts_with(starts[index]), "{index}");
         }
     }

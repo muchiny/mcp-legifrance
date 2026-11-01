@@ -37,6 +37,37 @@ pub fn adjacent_quote(input: &str, span: Span) -> Option<Span> {
     following(input, span.end).or_else(|| preceding(input, span.start))
 }
 
+/// Tous les extraits entre guillemets de `input`, qu'une citation les jouxte ou non, dans l'ordre
+/// du texte. Mêmes règles que [`adjacent_quote`] (familles de guillemets, longueur de 10 à 2000
+/// caractères, appariement des `"` par rang) et même span : l'extrait sans ses guillemets ni les
+/// blancs qui les bordent, en octets de `input`, de sorte qu'un extrait jouxtant une citation
+/// est égal à l'un d'eux. Un extrait emboîté dans un autre n'est pas rendu à part, ni le
+/// guillemet fermant d'un extrait lu comme un ouvrant.
+pub fn quoted_passages(input: &str) -> Vec<Span> {
+    let mut found = Vec::new();
+    let mut straight = 0_usize;
+    let mut resume = 0_usize;
+    for (at, c) in input.char_indices() {
+        // Le rang d'un `"` compte même s'il est dans un extrait déjà lu.
+        let even_straight = straight.is_multiple_of(2);
+        if c == '"' {
+            straight = straight.saturating_add(1);
+        }
+        if at < resume || (c == '"' && !even_straight) {
+            continue;
+        }
+        let Some(closers) = closers_of(c) else { continue };
+        let Some(span) = quoted_after(input, at.saturating_add(c.len_utf8()), c, closers) else {
+            continue;
+        };
+        let tail = input.get(span.end..).unwrap_or_default();
+        let close = tail.find(|ch: char| closers.contains(&ch)).unwrap_or_default();
+        resume = span.end.saturating_add(close).saturating_add(1);
+        found.push(span);
+    }
+    found
+}
+
 /// Les guillemets qui ferment `open`, si c'en est un ouvrant.
 fn closers_of(open: char) -> Option<&'static [char]> {
     PAIRS.iter().find(|(o, _)| *o == open).map(|(_, closers)| *closers)
@@ -190,6 +221,61 @@ mod tests {
         }
     }
 
+    /// Textes des extraits de `quoted_passages`.
+    fn passages(input: &str) -> Vec<&str> {
+        quoted_passages(input).iter().filter_map(|s| input.get(s.start..s.end)).collect()
+    }
+
+    #[test]
+    fn quoted_passages_lists_every_quote_in_order_attached_or_not() {
+        let text = format!(
+            "Il dit : « {PRIVACY} ». L'article 9 du code civil précise que “ autre extrait long ” \
+             puis \"troisième extrait\" et enfin „ quatrième extrait “."
+        );
+        assert_eq!(
+            passages(&text),
+            [PRIVACY, "autre extrait long", "troisième extrait", "quatrième extrait"]
+        );
+        // L'extrait qui jouxte une citation est l'un d'eux, au même span.
+        let cite = "article 9 du code civil";
+        let glued = format!("{cite} : « {PRIVACY} » puis « autre extrait long »");
+        let first = adjacent_quote(&glued, span_of(&glued, cite)).expect("extrait collé");
+        assert_eq!(quoted_passages(&glued).first(), Some(&first));
+        assert_eq!(quoted_passages(&glued).len(), 2);
+    }
+
+    #[test]
+    fn quoted_passages_ignores_short_unbalanced_and_nested_quotes() {
+        assert_eq!(passages(""), Vec::<&str>::new());
+        assert_eq!(passages("sans guillemets"), Vec::<&str>::new());
+        // Trop court (9 caractères), mal fermé, fermant d'une autre famille, fermant isolé.
+        assert_eq!(passages("« neuf cars » et « jamais fermé"), Vec::<&str>::new());
+        assert_eq!(passages(&format!("« {PRIVACY} ”")), Vec::<&str>::new());
+        assert_eq!(passages(&format!("{PRIVACY} »")), Vec::<&str>::new());
+        // Un ouvrant qui revient avant le fermant : seul le dernier extrait est lu.
+        assert_eq!(passages("« perdu « extrait lisible » ensuite"), ["extrait lisible"]);
+        // Emboîté : l'extrait extérieur seul, le fermant de `„ … “` n'ouvre pas un extrait.
+        assert_eq!(
+            passages("« extérieur long “ intérieur long ” fin »"),
+            ["extérieur long “ intérieur long ” fin"]
+        );
+        assert_eq!(passages("„ allemand extrait “ puis texte ” fin"), ["allemand extrait"]);
+        // Les `"` s'apparient par rang, même ceux d'un extrait emboîté.
+        assert_eq!(
+            passages("\"un extrait long\" et \"un autre extrait\""),
+            ["un extrait long", "un autre extrait"]
+        );
+        assert_eq!(
+            passages("« extérieur \"x\" long » \"entre guillemets\""),
+            ["extérieur \"x\" long", "entre guillemets"]
+        );
+        // Un `"` de rang impair ferme, même quand l'extrait qu'il ferme est refusé (trop court) :
+        // il n'ouvre pas le texte qui le suit.
+        assert_eq!(passages("\"ab\" un texte assez long entre deux \"cd\""), Vec::<&str>::new());
+        // Après un `"` resté seul (des pouces), les autres familles de guillemets restent lues.
+        assert_eq!(passages("taille 5\" puis « un extrait lisible »"), ["un extrait lisible"]);
+    }
+
     #[test]
     fn the_span_excludes_guillemets_and_inner_blanks() {
         let text = "art. 9 C. civ. :\u{a0}«\u{a0}Chacun a droit au respect\u{202f}» fin";
@@ -329,6 +415,29 @@ mod tests {
                 prop_assert!((10..=2_000).contains(&text.chars().count()));
                 prop_assert_eq!(text.trim(), text);
                 prop_assert!(quote.end <= span.start || quote.start >= span.end);
+            }
+        }
+
+        /// Les extraits listés sont valides, croissants, disjoints, et celui que jouxte un span
+        /// quelconque en fait partie (guillemets français seuls : les familles croisées, mal
+        /// formées, s'apparient différemment vers l'avant et vers l'arrière).
+        #[test]
+        fn quoted_passages_are_ordered_valid_and_contain_every_adjacent_quote(
+            input in "[a-zé« » :,.]{0,80}",
+            a in 0usize..120,
+            b in 0usize..120,
+        ) {
+            let all = quoted_passages(&input);
+            let mut last_end = 0;
+            for span in &all {
+                let text = input.get(span.start..span.end).expect("frontières valides");
+                prop_assert!((10..=2_000).contains(&text.chars().count()));
+                prop_assert!(span.start >= last_end);
+                last_end = span.end;
+            }
+            let span = Span { start: a.min(b), end: a.max(b) };
+            if let Some(quote) = adjacent_quote(&input, span) {
+                prop_assert!(all.contains(&quote), "{input:?} {span:?} {quote:?} {all:?}");
             }
         }
 

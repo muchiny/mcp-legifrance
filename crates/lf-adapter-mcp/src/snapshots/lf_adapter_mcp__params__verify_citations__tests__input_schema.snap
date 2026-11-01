@@ -8,7 +8,6 @@ expression: schema()
     "max_citations": {
       "default": 50,
       "description": "Maximum citations checked, in order of appearance.",
-      "format": "uint32",
       "maximum": 100,
       "minimum": 1,
       "type": "integer"

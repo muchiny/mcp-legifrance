@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"CNIL\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"dommage causé par le fait des choses sous sa garde\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":2,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-11-01T01:59:56Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 664
+bytes_raw = 3738
+sha256_raw = "96d6f2cb23885ad8499564c0cf1e36ab4ed8c2906db98693bf9daea2c32d4116"
+sha256_file = "96d6f2cb23885ad8499564c0cf1e36ab4ed8c2906db98693bf9daea2c32d4116"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 1.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

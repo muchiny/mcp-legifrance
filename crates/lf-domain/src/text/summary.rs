@@ -97,18 +97,26 @@ impl fmt::Debug for Summary {
 /// Marqueurs d'un dispositif, sur la vue repliée des paragraphes (casse, accents et blancs
 /// ignorés, 03 §7.9).
 struct Markers {
-    /// Paragraphe d'en-tête, entier, avec ou sans `:` final. Exclu du résumé.
-    header: &'static str,
-    /// Début du paragraphe qui ferme le dispositif. Exclu du résumé.
-    footer: &'static str,
+    /// Paragraphes d'en-tête acceptés, entiers, avec ou sans `:` final. Exclu du résumé.
+    headers: &'static [&'static str],
+    /// Débuts de paragraphe qui ferment le dispositif. Exclu du résumé.
+    footers: &'static [&'static str],
+    /// Sans clôture, le dispositif court jusqu'à la fin du texte (il faut un en-tête et un corps
+    /// non vide).
+    open_ended: bool,
 }
 
-/// Conseil constitutionnel : « LE CONSEIL CONSTITUTIONNEL DÉCIDE : » … « Jugé par ».
-const CONSEIL_CONSTITUTIONNEL: Markers =
-    Markers { header: "leconseilconstitutionneldecide", footer: "jugepar" };
+/// Conseil constitutionnel : « LE CONSEIL CONSTITUTIONNEL DÉCIDE : » ou « DÉCIDE : » (décisions
+/// ORGA) … « Jugé par », « Délibéré par » ou « Rendu public » (décisions PDR, sans « Jugé par »).
+const CONSEIL_CONSTITUTIONNEL: Markers = Markers {
+    headers: &["leconseilconstitutionneldecide", "decide"],
+    footers: &["jugepar", "delibere", "rendupublic"],
+    open_ended: true,
+};
 
 /// Conseil d'État : « D E C I D E : » (ou « DECIDE : ») … « Délibéré ».
-const CONSEIL_ETAT: Markers = Markers { header: "decide", footer: "delibere" };
+const CONSEIL_ETAT: Markers =
+    Markers { headers: &["decide"], footers: &["delibere"], open_ended: false };
 
 /// Résumé de `text`, d'au plus `min(max_chars, SUMMARY_CAP_CHARS)` caractères.
 ///
@@ -165,8 +173,9 @@ fn marker_key(paragraph: &str) -> String {
 }
 
 /// Dispositif de `text` selon `rule` : les paragraphes entre l'en-tête et le paragraphe de
-/// clôture, les deux exclus, joints par une ligne vide. `None` si la règle est `None`, si l'un
-/// des marqueurs manque (la clôture ne compte qu'après l'en-tête) ou si le dispositif est vide.
+/// clôture, les deux exclus, joints par une ligne vide. `None` si la règle est `None`, si
+/// l'en-tête manque, si la clôture manque (la clôture ne compte qu'après l'en-tête) sauf pour une
+/// règle à dispositif ouvert (fin du texte), ou si le dispositif est vide.
 fn dispositif(text: &LongText, rule: DispositifRule) -> Option<String> {
     let markers = match rule {
         DispositifRule::ConseilConstitutionnel => CONSEIL_CONSTITUTIONNEL,
@@ -178,14 +187,15 @@ fn dispositif(text: &LongText, rule: DispositifRule) -> Option<String> {
     for paragraph in content_paragraphs(text) {
         let key = marker_key(paragraph);
         if !inside {
-            inside = key.strip_suffix(':').unwrap_or(&key) == markers.header;
-        } else if key.starts_with(markers.footer) {
+            let header = key.strip_suffix(':').unwrap_or(&key);
+            inside = markers.headers.contains(&header);
+        } else if markers.footers.iter().any(|footer| key.starts_with(footer)) {
             return (!body.is_empty()).then(|| body.join(BLOCK_SEPARATOR));
         } else {
             body.push(paragraph);
         }
     }
-    None
+    (markers.open_ended && !body.is_empty()).then(|| body.join(BLOCK_SEPARATOR))
 }
 
 /// Début de `text` : les premiers paragraphes, jusqu'à ce que le total atteigne au moins
@@ -225,6 +235,14 @@ mod tests {
     );
     const CETAT: &str =
         include_str!("../../../lf-adapter-piste/tests/fixtures/reference/consult_juri_cetat.json");
+    /// 2022-196 PDR : « DÉCIDE » puis « Délibéré par… / Rendu public… », sans « Jugé par ».
+    const PDR: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C14-juri-consult-CC-2022-196-PDR-CONSTEXT000045802100.json"
+    );
+    /// 2021-150 ORGA : « DÉCIDE : » seul comme en-tête.
+    const ORGA: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C14-juri-consult-CC-2021-150-ORGA-CONSTEXT000044239153.json"
+    );
 
     /// Texte canonique d'une fixture réelle (`text.texteHtml`).
     fn fixture(json: &str) -> LongText {
@@ -412,32 +430,181 @@ mod tests {
     }
 
     #[test]
-    fn dispositif_constit_needs_both_markers_and_a_body() {
+    fn dispositif_constit_needs_a_header_and_a_body() {
         let rule = DispositifRule::ConseilConstitutionnel;
         let header = "LE CONSEIL CONSTITUTIONNEL DÉCIDE :";
         let footer = "Jugé par le Conseil constitutionnel.";
-        let cases: [&[&str]; 7] = [
+        let cases: [&[&str]; 6] = [
             // en-tête introuvable
             &["Visa.", "Article 1er. - A.", footer],
-            // « Jugé par » introuvable
-            &["Visa.", header, "Article 1er. - A."],
-            // dispositif vide
+            // dispositif vide, avec ou sans clôture
             &["Visa.", header, footer],
-            // « Jugé par » avant l'en-tête : il ne ferme rien
-            &[footer, header, "Article 1er. - A."],
+            &["Visa.", header],
+            &["Visa.", header, "-----", "====="],
             // une phrase qui contient « décide » n'est pas l'en-tête
             &["Visa.", "Le Conseil constitutionnel décide que la loi est conforme.", footer],
-            // un « Jugé par » au milieu d'un paragraphe n'est pas le marqueur
-            &["Visa.", header, "Article 1er. - Jugé par erreur."],
-            // le marqueur de l'autre juridiction ne compte pas
-            &["Visa.", "D E C I D E :", "Article 1er : A.", "Délibéré à l'issue de la séance."],
+            &["Visa.", "Le Conseil constitutionnel décide que la loi est conforme."],
         ];
         for paragraphs in cases {
             let decision = long(paragraphs);
             let got = summary(&decision, None, rule, 4_000);
             assert_eq!(got.source, SummarySource::Lead, "{paragraphs:?}");
-            assert_eq!(got.text, decision.as_str(), "{paragraphs:?}");
         }
+    }
+
+    #[test]
+    fn dispositif_constit_pdr_without_jugé_par() {
+        let rule = DispositifRule::ConseilConstitutionnel;
+
+        // 2022-196 PDR (1806 caractères) : « Délibéré par… / Rendu public… » ferment le dispositif.
+        let decision = fixture(PDR);
+        assert_eq!(decision.char_len(), 1_806);
+        let got = summary(&decision, None, rule, 4_000);
+        assert_eq!(got.source, SummarySource::Dispositif);
+        assert!(!got.truncated);
+        assert!(
+            got.text.starts_with("Article 1er. - Les deux candidats habilités"),
+            "{}",
+            got.text
+        );
+        assert!(got.text.contains("Monsieur Emmanuel MACRON et Madame Marine LE PEN."));
+        assert!(got.text.contains("Article 2. - La présente décision sera publiée"));
+        assert!(!got.text.contains("Délibéré") && !got.text.contains("Rendu public"));
+        assert!(!got.text.contains("DÉCIDE"));
+
+        // Texte synthétique : « Rendu public » ferme seul, de même que « Délibéré par ».
+        for footer in
+            ["Rendu public le 13 avril 2022.", "Délibéré par le Conseil, où siégeaient : X."]
+        {
+            let decision = long(&[
+                "Visa.",
+                "Le Conseil constitutionnel décide :",
+                "Article 1er. - A.",
+                footer,
+            ]);
+            let got = summary(&decision, None, rule, 4_000);
+            assert_eq!(
+                parts(&got),
+                (SummarySource::Dispositif, "Article 1er. - A.", false),
+                "{footer}"
+            );
+        }
+
+        // Jumeau : une phrase qui contient seulement « rendu public » ne ferme rien.
+        let decision = long(&[
+            "LE CONSEIL CONSTITUTIONNEL DÉCIDE :",
+            "Article 1er. - A.",
+            "Article 2. - Le texte est rendu public.",
+        ]);
+        let got = summary(&decision, None, rule, 4_000);
+        assert_eq!(
+            parts(&got),
+            (
+                SummarySource::Dispositif,
+                "Article 1er. - A.\n\nArticle 2. - Le texte est rendu public.",
+                false
+            )
+        );
+    }
+
+    #[test]
+    fn dispositif_constit_orga_with_decide_alone() {
+        let rule = DispositifRule::ConseilConstitutionnel;
+
+        // 2021-150 ORGA : l'en-tête est « DÉCIDE : » seul, la clôture « Délibéré par ».
+        let decision = fixture(ORGA);
+        let got = summary(&decision, None, rule, 4_000);
+        assert_eq!(got.source, SummarySource::Dispositif);
+        assert!(got.text.starts_with("Article 1er. - L'ordre selon lequel est établie la liste"));
+        // Le dispositif dépasse le plafond de 1 200 caractères : coupé, sans clôture.
+        assert!(got.truncated);
+        assert!(chars(&got.text) <= SUMMARY_CAP_CHARS);
+        assert!(!got.text.contains("Délibéré") && !got.text.contains("DÉCIDE"));
+
+        for header in ["DÉCIDE :", "Décide", "D E C I D E :", "DECIDE:"] {
+            let decision =
+                long(&["Visa.", header, "Article 1er. - A.", "Délibéré par le Conseil."]);
+            let got = summary(&decision, None, rule, 4_000);
+            assert_eq!(
+                parts(&got),
+                (SummarySource::Dispositif, "Article 1er. - A.", false),
+                "{header}"
+            );
+        }
+    }
+
+    #[test]
+    fn dispositif_constit_without_footer_runs_to_the_end() {
+        let rule = DispositifRule::ConseilConstitutionnel;
+        let decision = long(&[
+            "Visa.",
+            "LE CONSEIL CONSTITUTIONNEL DÉCIDE :",
+            "Article 1er. - A.",
+            "-----",
+            "Article 2. - B.",
+        ]);
+        let got = summary(&decision, None, rule, 4_000);
+        assert_eq!(
+            parts(&got),
+            (SummarySource::Dispositif, "Article 1er. - A.\n\nArticle 2. - B.", false)
+        );
+
+        // Un « Jugé par » avant l'en-tête ne ferme rien : le dispositif court jusqu'à la fin.
+        let decision = long(&["Jugé par erreur.", "DÉCIDE :", "Article 1er. - A."]);
+        let got = summary(&decision, None, rule, 4_000);
+        assert_eq!(parts(&got), (SummarySource::Dispositif, "Article 1er. - A.", false));
+
+        // Jumeau : la règle du Conseil d'État garde l'exigence des deux marqueurs.
+        let decision = long(&["Visa.", "D E C I D E :", "Article 1er : A."]);
+        let got = summary(&decision, None, DispositifRule::ConseilEtat, 4_000);
+        assert_eq!(got.source, SummarySource::Lead);
+    }
+
+    #[test]
+    fn dispositif_of_a_dc_or_qpc_without_closure_is_open_ended_by_choice() {
+        // L4-03 : la règle du Conseil constitutionnel est la même pour toutes ses décisions. Sans
+        // « Jugé par », « Délibéré » ni « Rendu public », le dispositif court jusqu'à la fin du
+        // texte, signatures comprises : choix assumé (03 §7.9), figé ici pour DC et QPC.
+        let rule = DispositifRule::ConseilConstitutionnel;
+        let decision = long(&[
+            "Décision n° 2025-1000 DC du 6 novembre 2025.",
+            "Vu la Constitution.",
+            "LE CONSEIL CONSTITUTIONNEL DÉCIDE :",
+            "Article 1er. - La loi est conforme à la Constitution.",
+            "Article 2. - Cette décision sera publiée au Journal officiel.",
+            "Le président, Laurent FABIUS.",
+        ]);
+        let got = summary(&decision, None, rule, 4_000);
+        assert_eq!(
+            parts(&got),
+            (
+                SummarySource::Dispositif,
+                "Article 1er. - La loi est conforme à la Constitution.\n\nArticle 2. - Cette \
+                 décision sera publiée au Journal officiel.\n\nLe président, Laurent FABIUS.",
+                false
+            )
+        );
+
+        // Fixture QPC réelle privée de sa clôture : mêmes articles, puis tout ce qui suit.
+        let full = fixture(CONSTIT);
+        let paragraphs: Vec<&str> = full.paragraphs().map(|(_, p)| p).collect();
+        let footer = paragraphs.iter().position(|p| marker_key(p).starts_with("jugepar")).unwrap();
+        let mut open: Vec<&str> = paragraphs[..footer].to_vec();
+        open.push("Le président, Laurent FABIUS.");
+        let got = summary(&long(&open), None, rule, 4_000);
+        assert_eq!(got.source, SummarySource::Dispositif);
+        assert!(got.text.starts_with("Article 1er. - Le renvoi opéré"));
+        assert!(got.text.ends_with("Le président, Laurent FABIUS."));
+        assert_eq!(chars(&got.text), 551 + 2 + "Le président, Laurent FABIUS.".chars().count());
+
+        // Jumeau : avec la clôture, la signature n'est pas dans le dispositif.
+        let closed = long(&[
+            "LE CONSEIL CONSTITUTIONNEL DÉCIDE :",
+            "Article 1er. - A.",
+            "Jugé par le Conseil constitutionnel.",
+            "Le président, Laurent FABIUS.",
+        ]);
+        assert_eq!(parts(&summary(&closed, None, rule, 4_000)).1, "Article 1er. - A.");
     }
 
     #[test]

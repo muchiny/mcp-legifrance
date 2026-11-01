@@ -79,6 +79,37 @@ impl SearchResponseDto {
     }
 }
 
+impl SearchResponseDto {
+    /// Ne garde que la fenêtre demandée d'une page reçue en taille `wire_size` (L3-05) : les
+    /// `keep` résultats qui suivent les `skip` premiers.
+    ///
+    /// La page reçue est bornée à `wire_size`, la taille réellement envoyée à PISTE, avant toute
+    /// coupe. Sans doublement de page (`skip` nul et `keep == wire_size`), la fenêtre garde tout.
+    /// Une fenêtre au-delà des résultats reçus rend une page vide.
+    ///
+    /// # Errors
+    ///
+    /// [`CorpusError::Decode`] (`<endpoint>: results: more results than page size`) si la page
+    /// porte plus de `wire_size` résultats.
+    pub(crate) fn keep_window(
+        &mut self,
+        endpoint: &str,
+        wire_size: u32,
+        skip: usize,
+        keep: u32,
+    ) -> Result<(), CorpusError> {
+        if !fits(self.results.len(), wire_size) {
+            return Err(CorpusError::Decode {
+                detail: format!("{endpoint}: results: more results than page size"),
+            });
+        }
+        let kept = usize::try_from(keep).unwrap_or(usize::MAX);
+        self.results =
+            std::mem::take(&mut self.results).into_iter().skip(skip).take(kept).collect();
+        Ok(())
+    }
+}
+
 /// Vrai si `results` résultats tiennent dans une page de `page_size` (borne comprise).
 fn fits(results: usize, page_size: u32) -> bool {
     u32::try_from(results).is_ok_and(|count| count <= page_size)
@@ -351,6 +382,37 @@ mod tests {
         });
         let expected = Err(expected_decode("/search: results: more results than page size"));
         assert_eq!(refused, [expected.clone(), expected]);
+    }
+
+    #[test]
+    fn keep_window_cuts_the_wanted_slot_of_a_doubled_page() {
+        let ids = |dto: &SearchResponseDto| -> Vec<Option<String>> {
+            dto.results.iter().map(|r| r.titles.first().and_then(|t| t.id.clone())).collect()
+        };
+        let two = r#"{"results":[{"titles":[{"id":"A"}]},{"titles":[{"id":"B"}]}]}"#;
+        for (skip, want) in [(0, "A"), (1, "B")] {
+            let mut dto = read(two);
+            dto.keep_window(ENDPOINT, 2, skip, 1).unwrap();
+            assert_eq!(ids(&dto), [Some(want.to_owned())], "skip {skip}");
+        }
+        // Dernière page impaire : un seul résultat reçu, la seconde case est vide.
+        let mut lone = read(r#"{"results":[{"titles":[{"id":"A"}]}]}"#);
+        lone.keep_window(ENDPOINT, 2, 1, 1).unwrap();
+        assert_eq!(lone.results.len(), 0);
+        // Sans doublement la fenêtre garde tout.
+        let mut whole = read(two);
+        whole.keep_window(ENDPOINT, 2, 0, 2).unwrap();
+        assert_eq!(ids(&whole).len(), 2);
+    }
+
+    #[test]
+    fn keep_window_refuses_a_page_wider_than_the_wire_size() {
+        let mut dto = read(&empty_results(3));
+        assert_eq!(
+            dto.keep_window(ENDPOINT, 2, 0, 1),
+            Err(expected_decode("/search: results: more results than page size"))
+        );
+        assert_eq!(dto.results.len(), 3, "refusée avant toute coupe");
     }
 
     #[test]

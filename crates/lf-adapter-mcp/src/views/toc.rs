@@ -162,6 +162,27 @@ mod tests {
     }
 
     #[test]
+    fn toc_etat_is_omitted_under_a_repealed_text_given_as_an_accented_label() {
+        // get_act-4 : le texte porte `jurisState` « Abrogé », les articles le code ABROGE.
+        let lines = [
+            article(1, "LEGIARTI000033205126", Some("1"), Some("ABROGE")),
+            article(1, "LEGIARTI000033205128", Some("2"), Some("VIGUEUR")),
+        ];
+        let text_etat = lf_domain::status::status_of(None, Some("Abrogé"));
+
+        let view = TocView::new(&lines, 2, None, text_etat.as_ref());
+
+        // Jumeau : l'article de même état est omis, celui d'un autre état reste rendu.
+        assert_eq!(
+            rendered(&view)["toc"],
+            json!([
+                {"depth": 1, "article_id": "LEGIARTI000033205126", "num": "1"},
+                {"depth": 1, "article_id": "LEGIARTI000033205128", "num": "2", "etat": "VIGUEUR"},
+            ])
+        );
+    }
+
+    #[test]
     fn toc_etat_is_kept_when_the_text_has_none() {
         let lines = [article(1, "LEGIARTI000033205126", None, Some("VIGUEUR"))];
 

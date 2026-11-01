@@ -366,6 +366,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_well_formed_version_suffix_on_an_article_id_is_accepted_and_ignored() {
+        // Décision C4 (AM-43) : un suffixe `_JJ-MM-AAAA` bien formé est toléré puis retiré, sur
+        // LEGIARTI comme sur KALIARTI ; le port ne reçoit que l'identifiant nu, sans note.
+        for (suffixed, bare) in [
+            (format!("{ID}_01-01-2020"), ID),
+            (format!(" {}_01-01-2020 ", ID.to_lowercase()), ID),
+            (format!("{KALI_ID}_31-12-2019"), KALI_ID),
+        ] {
+            let corpus = FakeCorpus::new();
+            corpus.push_get_article(Ok(article_with(bare, LongText::from_plain(RENT).unwrap())));
+
+            let output = read_with(&corpus, input(&suffixed)).await.unwrap();
+
+            assert_eq!(output.article.article_id, ArticleId::parse(bare).unwrap(), "{suffixed}");
+            assert_eq!(output.reading.text.as_deref(), Some(RENT), "{suffixed}");
+            assert_eq!(output.reading.note, None, "{suffixed}");
+            assert_eq!(
+                corpus.seen_requests(),
+                [PortRequest::GetArticle(ArticleId::parse(bare).unwrap())],
+                "{suffixed}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_malformed_version_suffix_is_refused() {
+        // Jumeau : seul un suffixe bien formé est toléré ; les autres sont refusés sans appel.
+        let corpus = FakeCorpus::new();
+
+        for id in [
+            format!("{ID}_"),
+            format!("{ID}_foo"),
+            format!("{ID}_31-02-2023"),
+            format!("{ID}_2023-09-08"),
+            format!("{KALI_ID}_1-1-2020"),
+            format!("{KALI_ID}_01-01-2020_01-01-2020"),
+        ] {
+            let error = read_with(&corpus, input(&id)).await.unwrap_err();
+            assert_eq!(error.code(), Some(ErrorCode::InvalidArg), "{id}");
+            assert!(error.message().contains(&id), "{id}");
+        }
+        assert_eq!(corpus.calls(), 0);
+    }
+
+    #[tokio::test]
     async fn a_missing_or_blank_id_is_required_without_network() {
         let corpus = FakeCorpus::new();
 
@@ -454,7 +499,7 @@ mod tests {
         let negative = read_with(&corpus, reading(|r| r.offset = Some(-5))).await.unwrap_err();
 
         assert_eq!(summary.message(), "offset requires detail=\"full\" (or omit detail).");
-        assert_eq!(negative.message(), "offset=-5 out of range (0..).");
+        assert_eq!(negative.message(), "offset=-5 out of range (0..4294967295).");
         assert_eq!(corpus.calls(), 0);
     }
 
@@ -472,7 +517,7 @@ mod tests {
         assert_eq!(
             error.message(),
             format!(
-                "offset={length} is past the end of the text (text_length={length}); restart from \
+                "offset={length} is at or past the end of the text (text_length={length}); restart from \
                  offset=0 or omit offset."
             )
         );

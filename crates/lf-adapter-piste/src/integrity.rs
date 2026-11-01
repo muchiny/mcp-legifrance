@@ -8,8 +8,8 @@
 //! dix-sept snapshots `insta`, ni le golden ne portent de chaîne qui ressemble à un secret
 //! (D-35) : mot d'authentification (`bearer`, `access_token`…, quelle que soit la casse), UUID,
 //! suite hexadécimale de 32 caractères ou plus, JWT, suite base64 de 40 caractères ou plus (sauf
-//! sous les clés `path`, `url`, `eli` et `pdfFilePath`, `BASE64_KEYS`, où chaque segment séparé par `/` reste
-//! contrôlé).
+//! sous les clés `path`, `url`, `eli`, `pdfFilePath` et `xPath`, `BASE64_KEYS`, où chaque segment séparé par `/` reste
+//! contrôlé ; toute valeur sous `xPath` doit en outre être un chemin de balises `^(/[A-Z_]+)+$`).
 //!
 //! Les fixtures **enregistrées** (`tests/fixtures/recorded/<endpoint>/<nom>.json`, écrites par
 //! `cargo xtask record-fixture`, 04 §13.4) passent les mêmes détecteurs, plus le contrôle de leur
@@ -17,6 +17,10 @@
 //! l'endpoint, licence, 1 Mio au plus) et la cohérence de `sha256_raw` et de `mojibake_detected`
 //! quand rien n'a été caviardé. Le répertoire est absent tant qu'aucune fixture n'est
 //! enregistrée ; le décompte est épinglé (`RECORDED`).
+//!
+//! Les dérivés réduits (`tests/fixtures/derived/<nom>.json`) ne sont pas des relevés : ni sidecar,
+//! ni décompte `RECORDED`. Ils passent les mêmes détecteurs de secrets et exigent un
+//! `<nom>.README.md` voisin (`DERIVED` épingle leur nombre).
 //!
 //! Le SHA-256 vient de [`crate::sha256`] (FIPS 180-4, sans dépendance), partagé avec
 //! l'enregistrement des fixtures (feature `record`). Le module n'existe que sous `cfg(test)`.
@@ -258,11 +262,12 @@ mod tests {
             .any(|run| run.len() >= BASE64_RUN)
     }
 
-    /// Clés dont la valeur texte n'est pas soumise au détecteur base64 : `path`, `url`, `eli` et
-    /// `pdfFilePath`. Les chemins de la table des matières (`/LEGISCTA…/LEGIARTI…`), l'adresse d'un
-    /// accord (`texte/acco/ACCO/TEXT/00/00/53/…/ACCOTEXT…`), un lien de téléchargement, un ELI
-    /// (`/eli/loi/2025/8/11/AGRX2502679L/jo/texte`) et le chemin du PDF d'un code
-    /// (`/LEGI/TEXT/00/…`) sont faits de
+    /// Clés dont la valeur texte n'est pas soumise au détecteur base64 : `path`, `url`, `eli`,
+    /// `pdfFilePath` et `xPath`. Les chemins de la table des matières (`/LEGISCTA…/LEGIARTI…`),
+    /// l'adresse d'un accord (`texte/acco/ACCO/TEXT/00/00/53/…/ACCOTEXT…`), un lien de
+    /// téléchargement, un ELI (`/eli/loi/2025/8/11/AGRX2502679L/jo/texte`), le chemin du PDF d'un
+    /// code (`/LEGI/TEXT/00/…`) et le chemin XML d'un titre de section d'article
+    /// (`/ARTICLE/CONTEXTE/TEXTE/TM/TM/TM/TM/TITRE_TM`, vague 0 des correctifs 1.0.1) sont faits de
     /// lettres, de chiffres et de `/` sur plus de 40 caractères ; il y en a des milliers par
     /// fixture enregistrée, trop pour une exemption par pointeur (D10). L'exemption est par la
     /// DERNIÈRE clé de la feuille, jamais par la valeur : la même suite sous toute autre clé, ou
@@ -270,16 +275,22 @@ mod tests {
     /// à chaque segment séparé par `/` : seule la longueur cumulée d'un chemin est exemptée. Les
     /// autres détecteurs (mots d'authentification, UUID, suite hexadécimale, JWT) s'appliquent
     /// partout, y compris sous ces clés.
-    const BASE64_KEYS: [&str; 4] = ["path", "url", "eli", "pdfFilePath"];
+    const BASE64_KEYS: [&str; 5] = ["path", "url", "eli", "pdfFilePath", "xPath"];
 
     /// Ajoute à `exempt` les valeurs texte de `value` portées directement par une clé de
     /// [`BASE64_KEYS`] (`key` est la clé de `value` dans son objet, `None` à la racine ou dans un
     /// tableau). Le parcours se fait sur le JSON lui-même : une clé qui contient un point ou des
     /// crochets ne peut pas se faire passer pour `path`.
-    fn base64_exempt<'a>(value: &'a Value, key: Option<&str>, exempt: &mut Vec<&'a str>) {
+    fn base64_exempt<'a>(
+        value: &'a Value,
+        key: Option<&'a str>,
+        exempt: &mut Vec<(&'a str, &'a str)>,
+    ) {
         match value {
-            Value::String(text) if key.is_some_and(|key| BASE64_KEYS.contains(&key)) => {
-                exempt.push(text);
+            Value::String(text) => {
+                if let Some(key) = key.filter(|key| BASE64_KEYS.contains(key)) {
+                    exempt.push((key, text));
+                }
             }
             Value::Array(items) => {
                 for item in items {
@@ -291,8 +302,18 @@ mod tests {
                     base64_exempt(item, Some(key), exempt);
                 }
             }
-            Value::String(_) | Value::Null | Value::Bool(_) | Value::Number(_) => {}
+            Value::Null | Value::Bool(_) | Value::Number(_) => {}
         }
+    }
+
+    /// Vrai si `text` a la forme d'un chemin XML de Légifrance : un ou plusieurs segments `/` suivis
+    /// de lettres majuscules ou de `_` (`/ARTICLE/CONTEXTE/TEXTE/TM/TITRE_TM`).
+    fn is_xpath(text: &str) -> bool {
+        text.strip_prefix('/').is_some_and(|rest| {
+            rest.split('/').all(|segment| {
+                !segment.is_empty() && segment.chars().all(|c| c.is_ascii_uppercase() || c == '_')
+            })
+        })
     }
 
     /// Ce qui, dans le document `name` (texte brut `raw` et sa lecture JSON `json`), ressemble à un
@@ -320,7 +341,14 @@ mod tests {
             if looks_like_jwt(text) {
                 found.push(format!("{name}: JWT-like string at {path}"));
             }
-            let by_key = exempt.iter().any(|safe| std::ptr::eq(*safe, text));
+            let keyed = exempt.iter().find(|(_, safe)| std::ptr::eq(*safe, text));
+            let by_key = keyed.is_some();
+            // L'exemption base64 vaut par nom de clé : une valeur sous `xPath` doit donc avoir la
+            // forme d'un chemin de balises (`/A/B_C`), faute de quoi la clé servirait de
+            // cachette à un jeton.
+            if keyed.is_some_and(|(key, _)| *key == "xPath") && !is_xpath(text) {
+                found.push(format!("{name}: xPath value is not a tag path at {path}"));
+            }
             // Sous une clé exemptée, le détecteur ne regarde que chaque segment séparé par `/` :
             // un chemin ou une adresse (suite de segments courts) passe, un jeton glissé dans un
             // segment (`?sig=…`) reste signalé (L4).
@@ -368,7 +396,7 @@ mod tests {
     // ---- Fixtures enregistrées (04 §13.4, plan 2h) ----------------------------------------
 
     /// Nombre de fixtures enregistrées versionnées (fichiers `.json`, sidecars non comptés).
-    const RECORDED: usize = 118;
+    const RECORDED: usize = 201;
 
     /// Clés obligatoires d'un sidecar enregistré (04 §13.4) ; `content_type` et
     /// `content_encoding` sont facultatives (absentes si l'en-tête l'était).
@@ -640,7 +668,7 @@ mod tests {
 
     #[test]
     fn base64_lookalikes_are_exempt_by_key_only() {
-        assert_eq!(BASE64_KEYS, ["path", "url", "eli", "pdfFilePath"]);
+        assert_eq!(BASE64_KEYS, ["path", "url", "eli", "pdfFilePath", "xPath"]);
         // Forme de chemin : cinq segments de 12 caractères séparés par `/` (64 caractères). La
         // suite entière est une « suite base64 » (le `/` est dans l'alphabet), aucun segment seul
         // n'en est une.
@@ -699,6 +727,109 @@ mod tests {
                 "others: hexadecimal run",
                 "others: secret word at url",
                 "others: JWT-like string at url",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_xpath_value_must_be_a_tag_path() {
+        for good in ["/ARTICLE", "/ARTICLE/CONTEXTE/TEXTE/TM/TM/TITRE_TM"] {
+            assert!(is_xpath(good), "{good}");
+        }
+        // Un jeton sous `xPath` échappe au détecteur base64 par clé : la forme stricte le rattrape.
+        let token = ["QUJDQUJDQUJD"; 5].join("/");
+        for bad in ["", "/", "ARTICLE/TM", "/ARTICLE/", "//TM", "/article", "/TM1", token.as_str()]
+        {
+            assert!(!is_xpath(bad), "{bad:?}");
+        }
+        let fine = json!({"xPath": "/ARTICLE/CONTEXTE/TITRE_TM", "other": [{"xPath": "/A"}]});
+        assert_eq!(leaks("fine", &fine.to_string(), &fine), Vec::<String>::new());
+        let hidden = json!({"a": {"xPath": token}, "b": [{"xPath": "/tm"}]});
+        assert_eq!(
+            leaks("hidden", &hidden.to_string(), &hidden),
+            [
+                "hidden: xPath value is not a tag path at a.xPath",
+                "hidden: xPath value is not a tag path at b[0].xPath",
+            ]
+        );
+        // Le contrôle ne vise que la clé `xPath` : `path` garde sa forme libre.
+        let other = json!({"path": "/legi/TEXT"});
+        assert_eq!(leaks("other", &other.to_string(), &other), Vec::<String>::new());
+    }
+
+    /// Les dérivés réduits (`tests/fixtures/derived/<nom>.json`) ne sont pas des relevés
+    /// enregistrés : pas de sidecar, mais le même détecteur de secrets et un
+    /// `<nom>.README.md` voisin qui dit d'où ils viennent.
+    #[test]
+    fn derived_fixtures_pass_the_secret_detectors_and_have_a_readme() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/derived");
+        let (problems, derived) = derived_tree(&root);
+        assert_eq!((problems, derived), (Vec::<String>::new(), DERIVED));
+    }
+
+    /// Nombre de dérivés réduits versionnés (fichiers `.json`).
+    const DERIVED: usize = 1;
+
+    /// Problèmes de l'arbre `root` des dérivés : fichier hors `.json`/`.README.md`, README
+    /// orphelin, dérivé sans README, dérivé qui n'est pas du JSON ou qui ressemble à un secret ; et
+    /// le nombre de dérivés.
+    fn derived_tree(root: &Path) -> (Vec<String>, usize) {
+        let files = files_under(root);
+        let mut found = Vec::new();
+        let mut derived = 0;
+        for path in &files {
+            let shown =
+                path.strip_prefix(root).expect("under root").to_string_lossy().replace('\\', "/");
+            if let Some(stem) = shown.strip_suffix(".README.md") {
+                if !files.contains(&root.join(format!("{stem}.json"))) {
+                    found.push(format!("{shown}: orphan README"));
+                }
+            } else if let Some(stem) = shown.strip_suffix(".json") {
+                derived += 1;
+                if !files.contains(&root.join(format!("{stem}.README.md"))) {
+                    found.push(format!("{shown}: no README"));
+                }
+                let raw = String::from_utf8_lossy(&fs::read(path).expect("derived is readable"))
+                    .into_owned();
+                match serde_json::from_str::<Value>(&raw) {
+                    Ok(json) => found.extend(leaks(&shown, &raw, &json)),
+                    Err(_) => found.push(format!("{shown}: not JSON")),
+                }
+            } else {
+                found.push(format!("{shown}: unexpected file"));
+            }
+        }
+        (found, derived)
+    }
+
+    #[test]
+    fn derived_tree_flags_each_problem() {
+        let root = std::env::temp_dir().join(format!("lf-derived-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create dir");
+        // Un dérivé sain avec son README, un dérivé sans README, un illisible, un qui fuit, un
+        // README orphelin et un fichier étranger.
+        fs::write(root.join("ok.json"), r#"{"id": "x"}"#).expect("write");
+        fs::write(root.join("ok.README.md"), "d").expect("write");
+        fs::write(root.join("bare.json"), "{}").expect("write");
+        fs::write(root.join("broken.json"), "{").expect("write");
+        fs::write(root.join("broken.README.md"), "d").expect("write");
+        fs::write(root.join("leak.json"), r#"{"k": "Bearer x"}"#).expect("write");
+        fs::write(root.join("leak.README.md"), "d").expect("write");
+        fs::write(root.join("lonely.README.md"), "d").expect("write");
+        fs::write(root.join("note.txt"), "d").expect("write");
+        let (found, derived) = derived_tree(&root);
+        fs::remove_dir_all(&root).expect("clean up");
+        assert_eq!(derived, 4);
+        assert_eq!(
+            found,
+            [
+                "bare.json: no README",
+                "broken.json: not JSON",
+                "leak.json: secret word \"bearer\"",
+                "leak.json: secret word at k",
+                "lonely.README.md: orphan README",
+                "note.txt: unexpected file",
             ]
         );
     }

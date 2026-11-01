@@ -162,6 +162,11 @@ voir plus bas). Passé tel quel en `ct.cancelled()` au paramètre `cancel` d'`Au
 d'audit est donc la seule trace de l'appel annulé : l'invariant « une ligne d'audit par appel »
 tient bien, il n'y a rien à ajouter côté réponse.
 
+Précision (L5-03, 1.0.1) : ce verdict vaut pour `notifications/cancelled`. À l'EOF avec une requête en
+vol, rmcp 3.5.1 écrit encore à l'arrêt la réponse `isError` « cancelled by client » (sans `[code]`) ;
+`service.rs:1503-1505` ne jette la réponse que pour une notification (garde
+`eof_and_notifications_cancelled_differ_only_by_the_late_response`, 05 §7.2, AM-70).
+
 ## Panique dans un outil (V-36, mesure)
 
 Une route qui panique (`boom_route`) ne produit **aucune** réponse pour son `id` (la tâche de la

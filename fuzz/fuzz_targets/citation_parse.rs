@@ -57,6 +57,9 @@ fuzz_target!(|input: (&str, u8, u8)| {
     // Les numéros typés et les identifiants lisent n'importe quelle chaîne sans paniquer.
     if let Ok(num) = ArticleNum::from_str(data) {
         assert!(!num.key_variants().is_empty());
+        // Un numéro d'article se relit à l'identique depuis sa clé : les suffixes composés
+        // (« 150-0 B ter », « 199 terdecies-0 A ») ne se tronquent ni ne se perdent (L1-01).
+        assert_eq!(ArticleNum::from_str(&num.num_key()).map(|n| n.num_key()), Ok(num.num_key()));
     }
     let _ = Ecli::parse(data);
     let _ = Nor::parse(data);

@@ -5,99 +5,61 @@ expression: schema
 {
   "properties": {
     "bulletin": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "citation": {
       "type": "string"
     },
     "container_title": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "convention_id": {
       "type": "string"
     },
     "date_publication": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "etat": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "idcc": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "next_toc_offset": {
       "description": "Pass as toc_offset to read the next page; absent on the last page.",
-      "format": "uint32",
       "minimum": 0,
-      "type": [
-        "integer",
-        "null"
-      ]
+      "type": "integer"
     },
     "nor": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "source_url": {
       "type": "string"
     },
     "title": {
       "description": "Omitted when citation already contains it.",
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "toc": {
       "items": {
         "properties": {
           "article_id": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "depth": {
-            "format": "uint16",
             "maximum": 65535,
             "minimum": 0,
             "type": "integer"
           },
           "etat": {
             "description": "Omitted when equal to the etat of the text.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "num": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "title": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           }
         },
         "required": [
@@ -108,7 +70,6 @@ expression: schema
       "type": "array"
     },
     "toc_total": {
-      "format": "uint32",
       "minimum": 0,
       "type": "integer"
     }

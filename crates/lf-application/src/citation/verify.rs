@@ -18,13 +18,16 @@ use std::{collections::HashMap, time::Duration};
 
 use futures::{StreamExt, stream};
 use lf_domain::{
-    citation::{CitationRef, ParseOptions, Spanned, adjacent_quote, parse_with},
+    citation::{
+        CitationRef, ParseOptions, Span, Spanned, adjacent_quote, parse_with, quoted_passages,
+        unread_article_mentions,
+    },
     date::VersionDate,
 };
 use tokio::time::{Instant, timeout_at};
 
 use super::{
-    CitationCheck, Note, QuoteCheck,
+    CheckStatus, CitationCheck, Note, QuoteCheck,
     policy::{CONCURRENCY, budget_of, check_quote},
     resolve::{CodeTable, Outcome, Proof, Resolution, Resolver, needs_codes, offline},
 };
@@ -57,6 +60,34 @@ pub(crate) struct Verification {
     pub(crate) found: usize,
     /// Les `max_citations` premières citations, contrôlées, dans l'ordre du texte.
     pub(crate) checks: Vec<CitationCheck>,
+    /// Le texte a un passage entre guillemets que ne jouxte aucune citation : il n'est pas
+    /// contrôlé (L2-17).
+    pub(crate) unattached_quote: bool,
+    /// Le texte a une mention d'article (mot-clé puis numéro) hors de toute citation lue : le
+    /// parseur l'a refusée en entier, elle n'est pas contrôlée (revue finale I3).
+    pub(crate) unread_article: bool,
+}
+
+/// Une citation et un passage se recouvrent-ils ?
+const fn overlaps(cite: Span, passage: Span) -> bool {
+    cite.start < passage.end && passage.start < cite.end
+}
+
+/// `text` a-t-il un passage entre guillemets que ni une citation ne jouxte (même celle que
+/// `max_citations` laisse de côté), ni ne recouvre (un titre cité entre guillemets) ? L'extrait
+/// jouxtant une citation est un passage au même span que celui de [`adjacent_quote`].
+fn has_unattached_quote(text: &str, parsed: &[Spanned<CitationRef>]) -> bool {
+    let attached: Vec<Span> = parsed.iter().filter_map(|c| adjacent_quote(text, c.span)).collect();
+    quoted_passages(text).into_iter().any(|passage| {
+        !attached.contains(&passage) && !parsed.iter().any(|c| overlaps(c.span, passage))
+    })
+}
+
+/// `text` a-t-il une mention d'article que le parseur n'a pas lue ? Sans objet quand l'analyse a
+/// atteint son garde-fou (les citations au-delà ne sont pas rendues, donc pas « illisibles »).
+fn has_unread_article(text: &str, parsed: &[Spanned<CitationRef>]) -> bool {
+    let spans: Vec<Span> = parsed.iter().map(|cite| cite.span).collect();
+    parsed.len() < ParseOptions::default().max_citations && unread_article_mentions(text, &spans)
 }
 
 /// Clé de résolution d'une citation : tout ce qui peut changer le résultat de la recherche. Deux
@@ -99,6 +130,8 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
     let options = ParseOptions { today: Some(run.today.as_civil()), ..ParseOptions::default() };
     let parsed = parse_with(text, &options);
     let found = parsed.len();
+    let unattached_quote = has_unattached_quote(text, &parsed);
+    let unread_article = has_unread_article(text, &parsed);
     let kept: Vec<Spanned<CitationRef>> = parsed.into_iter().take(run.max_citations).collect();
 
     // Tri hors ligne (`Ok`), puis une résolution par clé (`Err` : le rang de la résolution).
@@ -159,7 +192,31 @@ pub(crate) async fn verify_text<C: LegalCorpus>(
             compose(run.proof, text, item, resolution)
         })
         .collect();
-    Ok(Verification { found, checks })
+    Ok(Verification { found, checks, unattached_quote, unread_article })
+}
+
+/// Note finale : l'écart d'extrait passe toujours en tête d'une note de statut `verified`
+/// (version en vigueur, sigle lu par défaut, chambre non comparée), qu'elle ne masque plus. Pour un
+/// autre statut, la note du statut reste en tête : c'est la vraie raison, qu'un écart d'extrait
+/// ne doit ni précéder ni faire rogner par la borne de 200 caractères. Un extrait trop long pour
+/// être comparé (`too_long`, budget d'états épuisé) est signalé de la même façon, en tête : le
+/// champ `quote` reste absent, ni `match` ni `quote_mismatch`.
+fn with_quote_gap(
+    status: CheckStatus,
+    note: Option<Note>,
+    quote: Option<QuoteCheck>,
+    too_long: bool,
+) -> Option<Note> {
+    if status != CheckStatus::Verified {
+        return note;
+    }
+    if too_long {
+        return Some(note.map_or(Note::QuoteTooLong, |inner| Note::QuoteTooLong.then(inner)));
+    }
+    if quote != Some(QuoteCheck::QuoteMismatch) {
+        return note;
+    }
+    Some(note.map_or(Note::QuoteMismatch, |inner| Note::WithQuoteMismatch(Box::new(inner))))
 }
 
 /// Contrôle d'une citation : statut, enregistrement, extrait cité et note, span en points de code.
@@ -170,19 +227,20 @@ fn compose(
     resolution: Resolution,
 ) -> CitationCheck {
     let Resolution { outcome, official } = resolution;
-    let quote = official.as_deref().and_then(|official| {
+    // `Some(None)` : un extrait jouxte la citation, mais il est trop long pour être comparé.
+    let verdict = official.as_deref().and_then(|official| {
         let span = adjacent_quote(text, item.span)?;
         text.get(span.start..span.end).map(|quoted| check_quote(quoted, official))
     });
-    let note = outcome
-        .note(proof)
-        .or_else(|| (quote == Some(QuoteCheck::QuoteMismatch)).then_some(Note::QuoteMismatch));
+    let quote = verdict.flatten();
+    let status = outcome.status(proof);
+    let note = with_quote_gap(status, outcome.note(proof), quote, verdict == Some(None));
     let raw = text.get(item.span.start..item.span.end).unwrap_or_default();
     CitationCheck {
         span: item.span.to_chars(text),
         raw: messages::clip(raw, RAW_MAX_CHARS),
         kind: item.value.kind(),
-        status: outcome.status(proof),
+        status,
         resolved: outcome.record().cloned(),
         quote,
         note,
@@ -210,6 +268,36 @@ mod tests {
 
     const CIVIL: &str = "LEGITEXT000006070721";
     const TRAVAIL: &str = "LEGITEXT000006072050";
+
+    /// Spans semi-ouverts : une citation et un passage qui se touchent ne se recouvrent pas (L2-17).
+    #[test]
+    fn a_citation_and_a_passage_that_only_touch_do_not_overlap() {
+        let span = |start, end| Span { start, end };
+        assert!(overlaps(span(0, 6), span(5, 10)));
+        assert!(overlaps(span(5, 10), span(0, 6)));
+        assert!(!overlaps(span(0, 5), span(5, 10)));
+        assert!(!overlaps(span(5, 10), span(0, 5)));
+    }
+
+    /// Revue finale I3 : quand l'analyse atteint son garde-fou, la mention illisible qui suit n'est
+    /// pas signalée (les citations au-delà ne sont pas rendues) ; une citation de moins, elle l'est.
+    #[test]
+    fn the_unread_article_check_stops_at_the_parse_cap() {
+        let cap = ParseOptions::default().max_citations;
+        let text_with = |count: usize| {
+            let cites: Vec<String> =
+                (0..count).map(|i| format!("article {} du code civil.", 1000 + i)).collect();
+            format!("{} CGI, art. 885-0 V bis A.", cites.join(" "))
+        };
+        let full = text_with(cap);
+        let parsed = parse_with(&full, &ParseOptions::default());
+        assert_eq!(parsed.len(), cap);
+        assert!(!has_unread_article(&full, &parsed));
+        let short = text_with(cap - 1);
+        let parsed = parse_with(&short, &ParseOptions::default());
+        assert_eq!(parsed.len(), cap - 1);
+        assert!(has_unread_article(&short, &parsed));
+    }
 
     fn today() -> VersionDate {
         VersionDate::parse("2026-10-29").unwrap()
@@ -294,7 +382,10 @@ mod tests {
         assert_eq!(verification.found, 1);
         let check = &verification.checks[0];
         assert_eq!(check.status, CheckStatus::NotFound);
-        assert_eq!(note_text(check), "Code civil has no article 9999 in force on 2026-10-29.");
+        assert_eq!(
+            note_text(check),
+            "Code civil has no article 9999 in force on 2026-10-29. The article may exist in earlier versions; retry with a date."
+        );
         assert!(check.resolved.is_none());
         assert_eq!(
             corpus.seen_requests(),
@@ -309,6 +400,48 @@ mod tests {
         );
     }
 
+    /// L2-09 (gap3-11) : `verify` nomme aussi les deux codes du CPCE, sans appel au corpus.
+    #[tokio::test]
+    async fn an_ambiguous_cpce_names_both_codes() {
+        let corpus = FakeCorpus::new();
+        let verification =
+            verify(&corpus, PisteEnvironment::Production, "art. L. 32 CPCE").await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Ambiguous);
+        let text = note_text(check);
+        assert!(text.contains("Code des postes et des communications électroniques"), "{text}");
+        assert!(text.contains("Code des procédures civiles d'exécution"), "{text}");
+        assert_eq!(corpus.calls(), 0);
+    }
+
+    /// errors-6 rejoué par `fr_verify_citations` sur les titres réels de la sandbox : huit
+    /// enregistrements, aucun le 17 mars 2021, donc « unresolvable » et non « 8 records match ».
+    #[tokio::test]
+    async fn eight_sandbox_records_none_on_the_cited_day_are_unresolvable() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok((1..=8)
+            .map(|n| {
+                let mut hit = hit(Fond::Juri, &format!("JURITEXT{n:012}"));
+                hit.title = Some(
+                    "Tribunal des Conflits, du 19 janvier 2004, 00-00.000, Publié au bulletin"
+                        .to_owned(),
+                );
+                hit
+            })
+            .collect()));
+        let verification =
+            verify(&corpus, PisteEnvironment::Sandbox, "Cass. soc., 17 mars 2021, n° 00-00.000")
+                .await
+                .unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Unresolvable);
+        assert_eq!(
+            note_text(check),
+            "8 records share number 00-00.000, none dated 2021-03-17; dates found: 2004-01-19."
+        );
+        assert_eq!(corpus.calls_of("get_decision"), 0);
+    }
+
     #[tokio::test]
     async fn n24_sandbox_article_9999_is_unresolvable_with_the_sandbox_note() {
         let corpus = FakeCorpus::new();
@@ -321,7 +454,7 @@ mod tests {
         assert_eq!(
             note_text(check),
             "No article record matches Code civil, art. 9999 on 2026-10-29 in the PISTE sandbox; \
-             sandbox data differ from production."
+             sandbox data differ from production. The article may exist in earlier versions; retry with a date."
         );
     }
 
@@ -417,6 +550,66 @@ mod tests {
         ));
     }
 
+    /// Repro de verify_citations-2 et -14 : les quatre pourvois de l'E2E (relevés C4), cités avec
+    /// une autre chambre, sont `invalid` avec la vraie chambre en note.
+    #[tokio::test]
+    async fn a_cassation_citation_with_the_wrong_chamber_is_invalid_with_the_real_one() {
+        for (text, id, date, formation, expected) in [
+            (
+                "Cass. civ. 1re, 25 novembre 2015, n° 14-24.444",
+                "JURITEXT000031539712",
+                (2015, 11, 25),
+                "CHAMBRE_SOCIALE",
+                "Cited chamber CIV1 differs from the official record (SOC).",
+            ),
+            (
+                "Cass. crim., 6 octobre 2006, n° 05-13.255",
+                "JURITEXT000007052928",
+                (2006, 10, 6),
+                "ASSEMBLEE_PLENIERE",
+                "Cited chamber CRIM differs from the official record (AP).",
+            ),
+            (
+                "Cass. com., 29 mars 1991, n° 89-15.231",
+                "JURITEXT000007026394",
+                (1991, 3, 29),
+                "ASSEMBLEE_PLENIERE",
+                "Cited chamber COM differs from the official record (AP).",
+            ),
+            (
+                "Cass. soc., 21 décembre 2007, n° 06-12.769",
+                "JURITEXT000017739957",
+                (2007, 12, 21),
+                "CHAMBRE_MIXTE",
+                "Cited chamber SOC differs from the official record (MIXTE).",
+            ),
+        ] {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, id)]));
+            corpus.push_get_decision(Ok(Decision {
+                decision_id: DecisionId::parse(id).unwrap(),
+                ecli: None,
+                num: None,
+                juridiction: None,
+                formation: Some(formation.to_owned()),
+                solution: None,
+                numero_affaire: vec![],
+                date_texte: CivilDate::new(date.0, date.1, date.2),
+                nature: Some("ARRET".to_owned()),
+                title: None,
+                text: LongText::from_plain("Texte de la décision.").unwrap(),
+                official_summary: OfficialSummary::default(),
+                cited_case_law: None,
+                applied_texts: vec![],
+            }));
+            let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+            let check = &verification.checks[0];
+            assert_eq!(check.status, CheckStatus::Invalid, "{text}");
+            assert_eq!(note_text(check), expected, "{text}");
+            assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), id);
+        }
+    }
+
     #[tokio::test]
     async fn n07_year_mismatch_is_invalid_with_the_real_law() {
         let corpus = FakeCorpus::new();
@@ -443,6 +636,34 @@ mod tests {
         ));
     }
 
+    /// Repros de ground_truth-1 et de resolve-2 : la loi de 1978 n'est indexée que sous
+    /// `78-17` (sandbox) et sa date citée est celle de la signature, pas de l'entrée en vigueur.
+    #[tokio::test]
+    async fn a_pre_2000_law_is_verified_by_its_short_number_and_its_signature_date() {
+        let corpus = FakeCorpus::new();
+        let mut law = hit(Fond::Loda, "LEGITEXT000006068624");
+        law.nature = Some("LOI".to_owned());
+        law.date = CivilDate::new(1978, 1, 7);
+        law.title = Some(
+            "Loi n° 78-17 du 6 janvier 1978 relative à l'informatique, aux fichiers et aux libertés"
+                .into(),
+        );
+        corpus.push_find_by_number(Ok(vec![law]));
+        let verification =
+            verify(&corpus, PisteEnvironment::Production, "loi n° 78-17 du 6 janvier 1978")
+                .await
+                .unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(note_text(check), "");
+        assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), "LEGITEXT000006068624");
+        assert!(matches!(
+            &corpus.seen_requests()[0],
+            PortRequest::FindByNumber(query)
+                if query.fond == Fond::Loda && query.value.as_str() == "78-17"
+        ));
+    }
+
     #[tokio::test]
     async fn n25_renumbered_article_is_verified_but_the_quote_differs() {
         let corpus = FakeCorpus::new();
@@ -460,8 +681,57 @@ mod tests {
         let check = &verification.checks[0];
         assert_eq!(check.status, CheckStatus::Verified);
         assert_eq!(check.quote, Some(QuoteCheck::QuoteMismatch));
-        assert_eq!(note_text(check), "Current version in force since 2016-10-01.");
+        assert_eq!(
+            note_text(check),
+            "Quoted text not found in the official text. Current version in force since 2016-10-01."
+        );
         assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), "LEGIARTI000006419288");
+    }
+
+    /// Revue finale S1 : un extrait fait de repères tolérés que le budget d'états ne laisse pas
+    /// comparer (665 repères contre un article de 2 000 mots) n'est ni `match` ni `quote_mismatch` :
+    /// `quote` reste absent et la note le dit, en tête de celle de la version.
+    #[tokio::test]
+    async fn a_quote_too_long_to_compare_is_not_checked_and_says_so() {
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        let official = "mot ".repeat(2_000);
+        corpus.push_find_article(Ok(article(
+            6_419_288,
+            Some("9"),
+            CivilDate::new(2016, 10, 1),
+            &official,
+        )));
+        let quoted = format!("{}zzz", "1. ".repeat(665));
+        let text = format!("Selon l'article 9 du code civil, « {quoted} »");
+        let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(check.quote, None);
+        assert_eq!(
+            note_text(check),
+            "The quoted passage was too long to compare and was not checked. Current version in \
+             force since 2016-10-01."
+        );
+    }
+
+    /// Les trois issues de `with_quote_gap` pour un extrait trop long : en tête d'une note
+    /// `verified`, seule sans note, absente d'un autre statut.
+    #[test]
+    fn the_too_long_quote_note_goes_first_and_only_on_a_verified_citation() {
+        let since = Note::VersionSince(CivilDate::new(2016, 10, 1).unwrap());
+        assert_eq!(
+            with_quote_gap(CheckStatus::Verified, Some(since.clone()), None, true),
+            Some(Note::QuoteTooLong.then(since.clone()))
+        );
+        assert_eq!(
+            with_quote_gap(CheckStatus::Verified, None, None, true),
+            Some(Note::QuoteTooLong)
+        );
+        assert_eq!(
+            with_quote_gap(CheckStatus::Invalid, Some(since.clone()), None, true),
+            Some(since)
+        );
     }
 
     /// Sans note de version, un extrait infidèle porte à lui seul la note `QuoteMismatch`, et un
@@ -491,6 +761,112 @@ mod tests {
             assert_eq!(check.status, CheckStatus::Verified, "{quoted}");
             assert_eq!(check.quote, Some(expected_quote), "{quoted}");
             assert_eq!(note_text(check), expected_note, "{quoted}");
+        }
+    }
+
+    /// Repro de verify_citations-7 : l'art. 1240 en vigueur depuis 2016-10-01, cité avec un extrait
+    /// faux, ne garde plus la seule note de version. Jumeau : l'extrait fidèle garde la note de
+    /// version seule.
+    #[tokio::test]
+    async fn a_false_quote_on_a_current_article_leads_the_version_note() {
+        for (quoted, expected_quote, expected_note) in [
+            (
+                "Le chat est un animal domestique",
+                QuoteCheck::QuoteMismatch,
+                "Quoted text not found in the official text. Current version in force since 2016-10-01.",
+            ),
+            (
+                "Tout fait quelconque de l'homme",
+                QuoteCheck::Match,
+                "Current version in force since 2016-10-01.",
+            ),
+        ] {
+            let corpus = FakeCorpus::new();
+            codes(&corpus);
+            corpus.push_find_article(Ok(article(
+                32_041_571,
+                Some("1240"),
+                CivilDate::new(2016, 10, 1),
+                "Tout fait quelconque de l'homme, qui cause à autrui un dommage, oblige celui par \
+                 la faute duquel il est arrivé à le réparer.",
+            )));
+            let text = format!("Art. 1240 C. civ. : « {quoted}. »");
+            let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+            let check = &verification.checks[0];
+            assert_eq!(check.status, CheckStatus::Verified, "{quoted}");
+            assert_eq!(check.quote, Some(expected_quote), "{quoted}");
+            assert_eq!(note_text(check), expected_note, "{quoted}");
+        }
+    }
+
+    fn cassation_decision(id: &str, formation: &str, date: (u16, u8, u8)) -> Decision {
+        Decision {
+            decision_id: DecisionId::parse(id).unwrap(),
+            ecli: None,
+            num: None,
+            juridiction: None,
+            formation: Some(formation.to_owned()),
+            solution: None,
+            numero_affaire: vec![],
+            date_texte: CivilDate::new(date.0, date.1, date.2),
+            nature: Some("ARRET".to_owned()),
+            title: None,
+            text: LongText::from_plain("Texte de la décision.").unwrap(),
+            official_summary: OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
+        }
+    }
+
+    /// Le statut `invalid` garde sa vraie raison en tête, même avec un extrait faux : la note de
+    /// l'écart de chambre n'est pas enveloppée et reste dans les 200 caractères.
+    #[tokio::test]
+    async fn a_hard_field_gap_stays_ahead_of_the_quote_gap() {
+        let corpus = FakeCorpus::new();
+        let id = "JURITEXT000017739957";
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, id)]));
+        corpus.push_get_decision(Ok(cassation_decision(id, "CHAMBRE_MIXTE", (2007, 12, 21))));
+        let text = "Cass. soc., 21 décembre 2007, n° 06-12.769 : « Phrase qui ne figure pas ici »";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Invalid);
+        assert_eq!(check.quote, Some(QuoteCheck::QuoteMismatch));
+        let note = note_text(check);
+        assert_eq!(note, "Cited chamber SOC differs from the official record (MIXTE).");
+        assert!(note.chars().count() <= 200);
+    }
+
+    /// `ChamberNotCompared` est une note de statut `verified` : l'écart d'extrait passe devant,
+    /// et sans écart la note reste seule.
+    #[tokio::test]
+    async fn the_chamber_not_compared_note_does_not_hide_a_quote_gap() {
+        for (quoted, expected_quote, expected_note) in [
+            (
+                "Phrase qui ne figure pas ici",
+                QuoteCheck::QuoteMismatch,
+                "Quoted text not found in the official text. The cited chamber could not be \
+                 compared: the official record gives a formation that is not a modern Cour de \
+                 cassation chamber.",
+            ),
+            (
+                "Texte de la décision",
+                QuoteCheck::Match,
+                "The cited chamber could not be compared: the official record gives a formation \
+                 that is not a modern Cour de cassation chamber.",
+            ),
+        ] {
+            let corpus = FakeCorpus::new();
+            let id = "JURITEXT000017739957";
+            corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, id)]));
+            corpus.push_get_decision(Ok(cassation_decision(id, "CT0196", (2007, 12, 21))));
+            let text = format!("Cass. soc., 21 décembre 2007, n° 06-12.769 : « {quoted} »");
+            let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+            let check = &verification.checks[0];
+            assert_eq!(check.status, CheckStatus::Verified, "{quoted}");
+            assert_eq!(check.quote, Some(expected_quote), "{quoted}");
+            let note = note_text(check);
+            assert_eq!(note, expected_note, "{quoted}");
+            assert!(note.chars().count() <= 200, "{note}");
         }
     }
 
@@ -565,6 +941,83 @@ mod tests {
             PortRequest::FindByNumber(query)
                 if query.fond == Fond::Juri && query.value.as_str() == "24/15215"
         ));
+    }
+
+    fn find_travail(num: &str) -> PortRequest {
+        PortRequest::FindArticle(
+            LegiTextId::parse(TRAVAIL).unwrap(),
+            num.to_owned(),
+            ArticleAt::Today(today()),
+        )
+    }
+
+    /// L2-07 (verify_citations-9) : une plage est une seule citation, dont les deux bornes sont
+    /// lues ; elle est `verified` avec la note qui dit que le milieu n'est pas lu, et l'extrait
+    /// cité n'est pas comparé.
+    #[tokio::test]
+    async fn a_range_is_checked_at_both_ends_and_says_so() {
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        corpus.push_find_article(Ok(article(1, Some("L. 1234-9"), None, "Premier.")));
+        corpus.push_find_article(Ok(article(2, Some("L. 1234-11"), None, "Dernier.")));
+        let text = "les articles L. 1234-9 à L. 1234-11 du code du travail";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        assert_eq!(verification.found, 1);
+        assert_eq!(verification.checks.len(), 1);
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(note_text(check), "Only the first and last articles of the range were checked.");
+        assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), "LEGIARTI000000000001");
+        assert_eq!(check.quote, None);
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![PortRequest::ListCodes, find_travail("L1234-9"), find_travail("L1234-11")]
+        );
+    }
+
+    /// Une dernière borne inventée n'est plus verified : `ambiguous`, jamais `not_found`.
+    #[tokio::test]
+    async fn a_range_ending_at_a_missing_article_is_ambiguous_not_not_found() {
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        corpus.push_find_article(Ok(article(1, Some("L. 1234-9"), None, "Premier.")));
+        corpus.push_find_article(Err(not_found()));
+        let text = "les articles L. 1234-9 à L. 9999-99 du code du travail";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Ambiguous);
+        assert!(check.resolved.is_none());
+        assert_eq!(
+            note_text(check),
+            "The first article of the range exists, but its last, article L9999-99, was not found; check the number or the date."
+        );
+    }
+
+    /// Une première borne absente : un seul appel, l'issue d'un article seul (`not_found`).
+    #[tokio::test]
+    async fn a_range_starting_at_a_missing_article_is_not_found_after_one_call() {
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        corpus.push_find_article(Err(not_found()));
+        let text = "les articles L. 9998-1 à L. 9999-99 du code du travail";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        assert_eq!(verification.checks[0].status, CheckStatus::NotFound);
+        assert_eq!(corpus.calls_of("find_article"), 1);
+    }
+
+    /// Jumeau : « 1240 et 1241 » reste une liste, une citation et un appel par numéro, chacune
+    /// verified de confiance haute (sans la note des plages).
+    #[tokio::test]
+    async fn a_list_of_two_articles_is_not_a_range() {
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        corpus.push_find_article(Ok(article(1, Some("1240"), None, "Un.")));
+        corpus.push_find_article(Ok(article(2, Some("1241"), None, "Deux.")));
+        let text = "les articles 1240 et 1241 du code civil";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        assert_eq!(statuses(&verification), vec![CheckStatus::Verified, CheckStatus::Verified]);
+        assert_eq!(corpus.calls_of("find_article"), 2);
+        assert!(verification.checks.iter().all(|c| !note_text(c).contains("range")));
     }
 
     const TWO_ARTICLES: &str = "article 9 du code civil. Voir aussi l'article 10 du code civil.";
@@ -667,6 +1120,68 @@ mod tests {
         let verification = verify_text(&corpus, run, TWO_ARTICLES).await.unwrap();
         assert_eq!((verification.found, verification.checks.len()), (2, 1));
         assert_eq!(corpus.calls_of("find_article"), 1);
+    }
+
+    /// L2-17 (verify_citations-8) : un passage entre guillemets que ne jouxte aucune citation est
+    /// signalé ; un passage collé à une citation (même laissée de côté par `max_citations`), ou qui
+    /// en contient une, ne l'est pas ; une citation sans guillemets non plus.
+    #[tokio::test]
+    async fn an_unattached_quote_is_reported_and_an_attached_or_enclosing_one_is_not() {
+        let quote = "« Chacun a droit au respect de sa vie privée »";
+        let cases = [
+            (format!("L'article 1 du code civil énonce : {quote}"), true),
+            (format!("L'article 1 du code civil précise que {quote}"), true),
+            (format!("L'article 1 du code civil : {quote}"), false),
+            (format!("{quote} article 1 du code civil"), false),
+            (format!("L'article 1 du code civil : {quote} ; il précise que {quote}"), true),
+            ("« voir l'article 1 du code civil et la suite de la phrase »".to_owned(), false),
+            ("L'article 1 du code civil, dit « oui », s'applique.".to_owned(), false),
+            ("L'article 1 du code civil s'applique.".to_owned(), false),
+        ];
+        for (text, expected) in cases {
+            let corpus = FakeCorpus::new();
+            codes(&corpus);
+            corpus.push_find_article(Ok(article(1, None, None, "Texte.")));
+            let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+            assert_eq!(verification.unattached_quote, expected, "{text}");
+        }
+        // La citation qui jouxte l'extrait est au-delà de `max_citations` : il est tout de même
+        // rattaché.
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        corpus.push_find_article(Ok(article(1, None, None, "Texte.")));
+        let text = format!("article 1 du code civil ; article 2 du code civil : {quote}");
+        let run = Run { max_citations: 1, ..run(PisteEnvironment::Production) };
+        let verification = verify_text(&corpus, run, &text).await.unwrap();
+        assert_eq!((verification.found, verification.checks.len()), (2, 1));
+        assert!(!verification.unattached_quote);
+    }
+
+    /// L2-12 et L2-17 ensemble : l'écart d'extrait, puis la version remplacée, puis la subdivision ;
+    /// une seule note, de 200 caractères au plus.
+    #[tokio::test]
+    async fn the_quote_gap_then_the_replaced_version_in_one_note_and_the_subdivision_that_does_not_fit_is_left_out()
+     {
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        let mut replaced =
+            article(1, Some("9"), CivilDate::new(2010, 5, 1), "Chacun a droit au respect.");
+        replaced.etat = Some(LegalStatus::ModifieMortNe);
+        replaced.date_fin = CivilDate::new(2011, 6, 12);
+        corpus.push_find_article(Ok(replaced));
+        let text = "article 9, alinéa 2 du code civil, en vigueur au 1er juin 2011 : \
+                    « Tout fait quelconque de l'homme, qui cause à autrui un dommage »";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(check.quote, Some(QuoteCheck::QuoteMismatch));
+        // Trois notes de 43, 112 et 51 caractères : la troisième ne tient pas en entier (208), elle
+        // est omise plutôt que coupée au milieu d'une phrase.
+        assert_eq!(
+            note_text(check),
+            "Quoted text not found in the official text. Version in force on 2011-06-01 \
+             (etat=MODIFIE_MORT_NE, ended 2011-06-12); omit the date to read the current text."
+        );
     }
 
     #[tokio::test]

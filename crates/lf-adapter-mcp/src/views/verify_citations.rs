@@ -38,7 +38,8 @@ pub(crate) struct VerifyView {
     truncated: Option<bool>,
     // Un contrôle par citation, toujours présent.
     citations: Vec<CitationView>,
-    // Remarque exceptionnelle (liste raccourcie).
+    // Notes de la réponse : liste raccourcie par la mesure exacte du JSON (`truncated`), aucune
+    // citation reconnue, passage ou subdivision non contrôlés. Absente quand rien n'est à dire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String")]
     note: Option<String>,
@@ -241,7 +242,7 @@ mod tests {
                         "raw": "article 9999 du code civil",
                         "kind": "code_article",
                         "status": "not_found",
-                        "note": "Code civil has no article 9999 in force on 2026-10-15."
+                        "note": "Code civil has no article 9999 in force on 2026-10-15. The article may exist in earlier versions; retry with a date."
                     }
                 ]
             })
@@ -297,6 +298,29 @@ mod tests {
         assert!(value["note"].as_str().unwrap().contains("45,000"));
         // Les citations gardées sont les premières.
         assert!(value["citations"][0]["raw"].as_str().unwrap().starts_with("0 "));
+    }
+
+    #[test]
+    fn a_hundred_citations_with_quotes_fit_under_the_cap_without_shortening_gap1_5() {
+        // Complément de vue du cas d'usage `max_citations_100_is_reached_with_quotes_gap1_5`
+        // (lf-application), qui prouve la correction de L2-13 : ce test-ci réussissait déjà avant,
+        // il fixe seulement que la vue ne coupe pas à la taille réelle de gap1-5.
+        // Cas réel de gap1-5 : cent citations dont trente suivies d'un extrait, l'enregistrement et
+        // une note chacune (environ 400 caractères de JSON). Seule la mesure exacte coupe : ici
+        // rien n'est retiré, `max_citations=100` est atteint.
+        let entry = |n: usize| CitationCheck {
+            raw: format!("article {n} du code civil, selon lequel « Texte. »"),
+            quote: (n < 30).then_some(QuoteCheck::Match),
+            note: Some(Note::NoRecord { family: "text", value: "é".repeat(40), date: None }),
+            ..verified()
+        };
+        let citations: Vec<CitationCheck> = (0..100).map(entry).collect();
+        let json = serde_json::to_string(&VerifyView::from(output(citations, 100))).unwrap();
+        assert!(json.chars().count() <= 45_000);
+        let value: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["citations"].as_array().unwrap().len(), 100);
+        assert_eq!(value["checked"], 100);
+        assert!(value.get("truncated").is_none() && value.get("note").is_none());
     }
 
     #[test]

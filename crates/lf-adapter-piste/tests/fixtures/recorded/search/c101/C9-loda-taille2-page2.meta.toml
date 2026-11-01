@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"LODA_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"urbanisme\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":2,\"pageSize\":2,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-11-01T01:59:53Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 521
+bytes_raw = 5906
+sha256_raw = "f607cc1c86ed26d9a42375b7865444af0eac709e46d46af97f36b18239fd3536"
+sha256_file = "f607cc1c86ed26d9a42375b7865444af0eac709e46d46af97f36b18239fd3536"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 1.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

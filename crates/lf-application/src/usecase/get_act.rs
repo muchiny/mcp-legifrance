@@ -6,13 +6,21 @@
 //! aplatie en préordre (`Toc::page`), puis raccourcie en partant de la fin tant que son estimation
 //! dépasse la cible du budget (05 §6.4, étape 1) : `next_toc_offset` suit la page réellement
 //! rendue. Le découpage de la table est partagé avec `fr_get_convention` (`TocRequest`).
+//!
+//! Une version lue à une date choisie dont `date_fin_version` (hors sentinelle) précède aujourd'hui
+//! à Paris porte la `note` « past version » (L3-14) : `etat` est celui du texte, pas de la version.
+//!
+//! Un `NotFound` du port pour une date choisie par l'appelant (`date` ou suffixe de `text_id`)
+//! devient « No version of {id} is available on {date}… » : PISTE répond le même 400 pour un id
+//! inconnu et pour une date avant la première version, et aucune sonde n'est faite pour les
+//! distinguer (L3-11, Q12). Sans date choisie, le message générique de `messages` s'applique.
 
 use std::num::NonZeroU32;
 
 use lf_domain::{
-    date::{CivilDate, VersionDate},
+    date::{CivilDate, VersionDate, open_ended},
     entity::{Act, Toc, TocEntry, TocEntryRef},
-    id::{VersionedId, parse_versioned},
+    id::{LegiTextId, VersionedId, parse_versioned},
     status::LegalStatus,
 };
 
@@ -23,7 +31,7 @@ use crate::{
     input::GetActInput,
     messages,
     output::get_act::{GetActOutput, TocLine},
-    ports::{Clock, LegalCorpus},
+    ports::{Clock, CorpusError, LegalCorpus},
     tools::ToolName,
 };
 
@@ -33,6 +41,17 @@ const TOOL: ToolName = ToolName::FR_GET_ACT;
 /// est la seule lecture possible, et la plus utile est l'article lui-même.
 pub(crate) const CODE_NOTE: &str = "This is a whole code: its table of contents can be very long. \
 Page it with toc_offset/toc_limit, or find an article with fr_search fond=CODE.";
+
+/// `note` d'une version terminée lue à une date choisie (gap4-12, L3-14) : `etat` est celui du
+/// texte, pas celui de la version, et la sortie ne dit pas seule que la version est révolue.
+pub(crate) const PAST_VERSION_NOTE: &str = "This is a past version of the text (see \
+date_fin_version); the current text may differ: call without date.";
+
+/// `CODE_NOTE` puis `PAST_VERSION_NOTE`, séparés par une espace (un test le vérifie) : une note
+/// statique ne se concatène pas à l'exécution.
+const CODE_PAST_VERSION_NOTE: &str = "This is a whole code: its table of contents can be very \
+long. Page it with toc_offset/toc_limit, or find an article with fr_search fond=CODE. This is a \
+past version of the text (see date_fin_version); the current text may differ: call without date.";
 
 /// Champs de la réponse hors table des matières, pour l'estimation (`text_id`, dates, `citation`,
 /// `source_url`, `toc`, `toc_total`...).
@@ -63,19 +82,31 @@ impl<'a, C: LegalCorpus, K: Clock> GetActUseCase<'a, C, K> {
         let wanted = text_id(input.text_id.as_deref())?;
         let date = self.version_date(&wanted, input.date.as_deref())?;
         let request = TocRequest::parse(input.toc_offset, input.toc_limit)?;
-        let mut act = self
-            .corpus
-            .get_act(&wanted.id, date)
-            .await
-            .map_err(|error| port_failure(TOOL, wanted.id.as_str(), &error))?;
+        let dated = input.date.is_some() || wanted.version_start.is_some();
+        let mut act = self.corpus.get_act(&wanted.id, date).await.map_err(|error| {
+            let failure = port_failure(TOOL, wanted.id.as_str(), &error);
+            match error {
+                // Le 400 de PISTE est le même pour un id inconnu et pour une date avant la
+                // première version : sans sonde (L3-11), le message nomme la date demandée.
+                CorpusError::NotFound { .. } if dated => no_version_on(&wanted.id, date),
+                _ => failure,
+            }
+        })?;
         // La table est lue une fois, puis lâchée : la sortie ne porte que la page rendue.
         let toc = std::mem::take(&mut act.body.toc);
-        let note = act
-            .body
-            .nature
-            .as_deref()
-            .is_some_and(|nature| nature.eq_ignore_ascii_case("CODE"))
-            .then_some(CODE_NOTE);
+        let is_code =
+            act.body.nature.as_deref().is_some_and(|nature| nature.eq_ignore_ascii_case("CODE"));
+        // Une date choisie et une fin de version révolue (sentinelle exclue) : sans date choisie,
+        // la version servie est celle d'aujourd'hui, et « call without date » n'apprendrait rien.
+        let ended = dated
+            && open_ended(act.body.date_fin_version)
+                .is_some_and(|end| end < self.clock.today_paris());
+        let note = match (is_code, ended) {
+            (true, true) => Some(CODE_PAST_VERSION_NOTE),
+            (true, false) => Some(CODE_NOTE),
+            (false, true) => Some(PAST_VERSION_NOTE),
+            (false, false) => None,
+        };
         let window = request.window(TOOL, &toc, metadata_cost(&act, note))?;
         Ok(GetActOutput {
             act,
@@ -109,6 +140,14 @@ fn text_id(raw: Option<&str>) -> Result<VersionedId, AppError> {
     let raw =
         raw.filter(|raw| !raw.trim().is_empty()).ok_or_else(|| messages::required("text_id"))?;
     parse_versioned(raw).map_err(|error| messages::domain(TOOL, &error))
+}
+
+/// `not_found` d'un texte demandé à une date choisie par l'appelant (date explicite ou suffixe).
+fn no_version_on(id: &LegiTextId, date: VersionDate) -> AppError {
+    AppError::not_found(format!(
+        "No version of {id} is available on {date}. If the id is right, the text may exist only \
+         from a later date: try a later date, or omit date."
+    ))
 }
 
 /// Le suffixe de `text_id` est une vraie date, mais hors de la plage des versions servies.
@@ -313,7 +352,6 @@ mod tests {
         budget::{ResponseBudget, estimate_chars},
         error::ErrorCode,
         input::GetActInput,
-        ports::CorpusError,
         testing::{FakeCorpus, FixedClock, PortRequest},
         tools::ToolName,
     };
@@ -539,7 +577,7 @@ mod tests {
             failure(&error),
             (
                 Some(ErrorCode::InvalidArg),
-                "date='2999-01-01' is not a valid date (expected YYYY-MM-DD, e.g. 2026-10-15)."
+                "date='2999-01-01' is outside the supported range (1500-01-01..2221-12-31)."
             )
         );
         assert_eq!(corpus.calls(), 0);
@@ -690,6 +728,72 @@ mod tests {
         assert_eq!(output.note, None);
     }
 
+    /// `act` de nature `nature` dont la version se termine le `end`.
+    fn act_ending(nature: &str, end: CivilDate) -> lf_domain::entity::Act {
+        let mut ended = act(nature, toc(1, 1, "Titre"));
+        ended.body.date_fin_version = Some(end);
+        ended
+    }
+
+    fn dated(date: &str) -> GetActInput {
+        GetActInput { date: Some(date.to_owned()), ..input(TEXT_ID) }
+    }
+
+    #[tokio::test]
+    async fn get_act_on_a_dated_ended_version_says_it_is_a_past_version() {
+        // gap4-12 : la Constitution au 2007-01-01 (version du 2005-03-02 au 2007-02-24), etat
+        // VIGUEUR. Aujourd'hui (2026-10-29) est postérieur à la fin : la version est révolue.
+        let ended = act_ending("LOI", day(2007, 2, 24));
+        let output = run(&corpus_with(ended.clone()), &clock(), dated("2007-01-01")).await.unwrap();
+        assert_eq!(output.note, Some(PAST_VERSION_NOTE));
+
+        // Même chose quand la date vient du suffixe de `text_id`.
+        let suffixed = input("LEGITEXT000033205014_01-01-2007");
+        let output = run(&corpus_with(ended), &clock(), suffixed).await.unwrap();
+        assert_eq!(output.note, Some(PAST_VERSION_NOTE));
+
+        // La veille d'aujourd'hui est révolue ; le jour même, la version sert encore.
+        let output =
+            run(&corpus_with(act_ending("LOI", day(2026, 10, 28))), &clock(), dated("2026-10-01"))
+                .await
+                .unwrap();
+        assert_eq!(output.note, Some(PAST_VERSION_NOTE));
+    }
+
+    #[tokio::test]
+    async fn get_act_keeps_no_note_for_a_version_still_in_force() {
+        // Jumeau : fin le jour même, fin future (abrogation programmée), sentinelle de l'API et
+        // fin absente ne disent jamais « version passée ».
+        for end in [Some(day(2026, 10, 29)), Some(day(2027, 1, 1)), Some(day(2999, 1, 1)), None] {
+            let mut current = act("LOI", toc(1, 1, "Titre"));
+            current.body.date_fin_version = end;
+            let output = run(&corpus_with(current), &clock(), dated("2026-10-01")).await.unwrap();
+            assert_eq!(output.note, None, "{end:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn get_act_without_a_chosen_date_never_says_past_version() {
+        // Un texte abrogé lu sans date : « call without date » ne mènerait nulle part.
+        let repealed = act_ending("LOI", day(2007, 2, 24));
+        let output = run(&corpus_with(repealed), &clock(), input(TEXT_ID)).await.unwrap();
+        assert_eq!(output.note, None);
+    }
+
+    #[tokio::test]
+    async fn get_act_on_a_dated_ended_code_joins_both_notes() {
+        let ended = act_ending("CODE", day(2007, 2, 24));
+        let output = run(&corpus_with(ended), &clock(), dated("2007-01-01")).await.unwrap();
+        assert_eq!(
+            output.note.map(str::to_owned),
+            Some(format!("{CODE_NOTE} {PAST_VERSION_NOTE}"))
+        );
+        // Un code encore en vigueur garde sa seule note.
+        let current = act("CODE", toc(1, 1, "Titre"));
+        let output = run(&corpus_with(current), &clock(), dated("2026-10-01")).await.unwrap();
+        assert_eq!(output.note, Some(CODE_NOTE));
+    }
+
     #[tokio::test]
     async fn output_metric_counts_the_returned_toc_entries() {
         use crate::audited::AuditMetric;
@@ -709,8 +813,8 @@ mod tests {
             (
                 CorpusError::NotFound { what: "LEGITEXT000033205014".to_owned() },
                 ErrorCode::NotFound,
-                "No LODA text found for LEGITEXT000033205014. Check the id, or search with \
-                 fr_search fond=LODA or CODE.",
+                "No text found for LEGITEXT000033205014. Check the id, or search with fr_search \
+                 fond=LODA or CODE.",
             ),
             (
                 CorpusError::TooLarge { detail: "32 MiB".to_owned() },
@@ -737,6 +841,74 @@ mod tests {
         let error =
             run(&corpus, &clock(), input("LEGITEXT000033205014_15-07-2020")).await.unwrap_err();
 
-        assert!(error.message().starts_with("No LODA text found for LEGITEXT000033205014. "));
+        assert!(error.message().starts_with("No version of LEGITEXT000033205014 is available on "));
+    }
+
+    #[tokio::test]
+    async fn a_date_without_a_version_says_so_without_a_second_call() {
+        let corpus = FakeCorpus::new();
+        corpus.push_get_act(Err(CorpusError::NotFound { what: "x".to_owned() }));
+        let input = GetActInput { date: Some("1700-01-01".to_owned()), ..input(TEXT_ID) };
+
+        let error = run(&corpus, &clock(), input).await.unwrap_err();
+
+        assert_eq!(
+            failure(&error),
+            (
+                Some(ErrorCode::NotFound),
+                "No version of LEGITEXT000033205014 is available on 1700-01-01. If the id is \
+                 right, the text may exist only from a later date: try a later date, or omit \
+                 date."
+            )
+        );
+        assert_eq!(corpus.calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_suffix_date_without_a_version_says_so_with_the_bare_identifier() {
+        let corpus = FakeCorpus::new();
+        corpus.push_get_act(Err(CorpusError::NotFound { what: "x".to_owned() }));
+
+        let error =
+            run(&corpus, &clock(), input("LEGITEXT000033205014_06-01-1978")).await.unwrap_err();
+
+        assert_eq!(
+            failure(&error),
+            (
+                Some(ErrorCode::NotFound),
+                "No version of LEGITEXT000033205014 is available on 1978-01-06. If the id is \
+                 right, the text may exist only from a later date: try a later date, or omit \
+                 date."
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_text_without_a_date_keeps_the_generic_message() {
+        let corpus = FakeCorpus::new();
+        corpus.push_get_act(Err(CorpusError::NotFound { what: "x".to_owned() }));
+
+        let error = run(&corpus, &clock(), input(TEXT_ID)).await.unwrap_err();
+
+        assert_eq!(
+            failure(&error),
+            (
+                Some(ErrorCode::NotFound),
+                "No text found for LEGITEXT000033205014. Check the id, or search with fr_search \
+                 fond=LODA or CODE."
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn a_dated_call_keeps_the_other_port_failures_unmasked() {
+        let corpus = FakeCorpus::new();
+        corpus.push_get_act(Err(CorpusError::TooLarge { detail: "32 MiB".to_owned() }));
+        let input = GetActInput { date: Some("2020-01-01".to_owned()), ..input(TEXT_ID) };
+
+        let error = run(&corpus, &clock(), input).await.unwrap_err();
+
+        assert_eq!(error.code(), Some(ErrorCode::UpstreamError));
+        assert!(error.message().starts_with("this text is too large for fr_get_act"));
     }
 }

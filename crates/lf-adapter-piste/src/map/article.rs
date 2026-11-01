@@ -3,20 +3,22 @@
 //!
 //! [`article`] assemble l'[`ArticleText`] d'une réponse, sans décision locale, à partir de règles
 //! pures chacune testée seule : le titre de texte préféré ([`preferred_title`]), le texte parent
-//! d'après son `cid` puis son `id` ([`parent_text`]), le chemin de sections ([`section_path`]) et
+//! d'après le premier `LEGITEXT`/`KALITEXT` de `textTitles` ([`consolidated_parent`]) sinon le `cid`
+//! puis l'`id` de l'entrée choisie ([`parent_text`]), le chemin de sections ([`section_path`]) et
 //! le nota ([`nota_of`]). Aucune valeur du corps ne sort d'ici : un identifiant refusé devient un
 //! [`CorpusError::Decode`] qui ne nomme que l'endpoint et le chemin du champ.
 
 use lf_application::ports::CorpusError;
-use lf_domain::entity::{ArticleText, ParentText};
+use lf_domain::date::CivilDate;
+use lf_domain::entity::{ArticleText, ParentNature, ParentText};
 use lf_domain::id::{ArticleId, DocumentId};
 use lf_domain::status::LegalStatus;
 use lf_domain::text::{LongText, clean_field};
 
 use super::body::non_blank;
-use super::dates::civil;
+use super::dates::{civil, civil_or_unknown};
 use super::endpoint::GET_ARTICLE;
-use super::rules::{long_text, parse_counted, require, resolve_id};
+use super::rules::{long_text, note_suffix, parse_counted, require, resolve_id};
 use super::{Diagnostics, Field};
 use crate::dto::article::{ArticleDto, ContextEntryDto, GetArticleResponseDto, TextTitleDto};
 
@@ -46,8 +48,22 @@ fn preferred_title(titles: &[TextTitleDto]) -> Option<&TextTitleDto> {
     titles.iter().find(|title| is_code(title.nature.as_deref())).or_else(|| titles.first())
 }
 
-/// Texte parent de `title` : identifiant lu dans `cid`, à défaut dans `id` (le premier des deux
-/// qui n'est pas blanc), nature brute de `title`.
+/// Titre de citation de `title` (règle D26) : le titre officiel complet (`titreLong`) d'un texte
+/// non codifié (`parent` de nature [`ParentNature::Text`]), nettoyé et non vide, sinon le titre
+/// court. Un code, un texte conventionnel (KALI), une nature inconnue ou un parent sans
+/// identifiant gardent leur titre court : seul le cas `Text` retire l'appel de note final
+/// ` (n)` du titre long (`article_citation_for`). Deux arrêtés du même jour n'ont le même titre
+/// court que leur titre long distingue (L3-03).
+fn citation_title(title: &TextTitleDto, parent: Option<&ParentText>) -> Option<String> {
+    let long = parent
+        .is_some_and(|parent| parent.nature == ParentNature::Text)
+        .then(|| clean_field(title.titre_long.as_deref()))
+        .flatten();
+    long.or_else(|| clean_field(title.titre.as_deref()))
+}
+
+/// Repli de [`consolidated_parent`] : texte parent de `title`, identifiant lu dans `cid`, à
+/// défaut dans `id` (le premier des deux qui n'est pas blanc), nature brute de `title`.
 ///
 /// Un `cid` présent et valide l'emporte sur un `id` illisible, qui n'est alors pas lu. Ni `cid`
 /// ni `id` non blanc : `Ok(None)`. L'identifiant retenu est lu par `parse_counted` (règle c) : un
@@ -71,10 +87,140 @@ fn parent_text(
     Ok(Some(ParentText::new(id, title.nature.as_deref())))
 }
 
-/// Titres des sections traversées, nettoyés par `clean_field`, dans l'ordre reçu ; les titres
-/// absents ou vides sont omis.
-fn section_path(entries: &[ContextEntryDto]) -> Vec<String> {
-    entries.iter().filter_map(|entry| clean_field(entry.titre.as_deref())).collect()
+/// Texte consolidé parent (`LEGITEXT` ou `KALITEXT`) de l'article, cherché d'abord dans l'entrée
+/// choisie `chosen`, puis dans les autres entrées de `titles` (L3-04) ; `None` si aucune n'en porte
+/// un lisible.
+///
+/// Pour un texte non codifié, PISTE rend deux entrées : le texte du Journal officiel (`cid` et
+/// `id` en `JORFTEXT`) et sa version consolidée (`id` en `LEGITEXT`, `cid` encore en `JORFTEXT`).
+/// Seul le `LEGITEXT` est lu par `fr_get_act`, d'où la recherche du premier identifiant de cette
+/// famille, `cid` puis `id` de chaque entrée, l'entrée choisie d'abord (un article de code garde
+/// ainsi l'identifiant de son entrée `CODE`, jamais celui d'un autre texte), puis les autres dans
+/// l'ordre reçu. Un identifiant illisible ou d'une
+/// autre famille est sauté sans erreur : le repli [`parent_text`] de l'entrée choisie le lit,
+/// et le refuse s'il est illisible. La nature reste celle de l'entrée choisie (`chosen.nature`,
+/// brute).
+/// Le suffixe retiré de l'identifiant retenu est compté dans `diags`, jamais celui des autres.
+fn consolidated_parent(
+    titles: &[TextTitleDto],
+    chosen: &TextTitleDto,
+    diags: &mut Diagnostics,
+) -> Option<ParentText> {
+    let (raw, id) = std::iter::once(chosen)
+        .chain(titles.iter().filter(|title| !std::ptr::eq(*title, chosen)))
+        .flat_map(|title| [title.cid.as_deref(), title.id.as_deref()])
+        .flatten()
+        .find_map(|raw| {
+            let id = raw.trim().parse::<DocumentId>().ok()?;
+            matches!(id, DocumentId::LegiText(_) | DocumentId::KaliText(_)).then_some((raw, id))
+        })?;
+    note_suffix(raw.trim(), id.as_str(), diags);
+    Some(ParentText::new(id, chosen.nature.as_deref()))
+}
+
+/// Date de référence du chemin de sections : le jour où la version de l'article s'applique.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reference {
+    /// Version sans fin : le chemin est celui d'aujourd'hui, soit les sections sans fin.
+    Open,
+    /// Version qui finit le jour donné (exclu) : le chemin est celui de sa veille, dernier jour où
+    /// elle s'applique. La veille n'est pas calculée, la comparaison se fait sur le jour de fin.
+    Until(CivilDate),
+}
+
+impl Reference {
+    /// Référence d'une version de fin `date_fin` (`None` : version ouverte).
+    fn of(date_fin: Option<CivilDate>) -> Self {
+        date_fin.map_or(Self::Open, Self::Until)
+    }
+}
+
+/// Section d'un chemin : une version d'un niveau de la hiérarchie.
+struct Section {
+    /// Titre nettoyé, non vide.
+    title: String,
+    /// Niveau (nombre de segments `TM` du `xPath`, au moins 1) ; `None` s'il est inconnu.
+    level: Option<usize>,
+    /// Début de vigueur ; `None` : inconnu (absent ou illisible).
+    debut: Option<CivilDate>,
+    /// Fin de vigueur ; `None` : sans fin ou inconnue (absente, sentinelle ou illisible).
+    fin: Option<CivilDate>,
+    /// L'entrée est dite en vigueur par l'amont.
+    in_force: bool,
+}
+
+impl Section {
+    /// Section de `entry` ; `None` si son titre est absent ou vide après nettoyage.
+    fn of(entry: &ContextEntryDto) -> Option<Self> {
+        let title = clean_field(entry.titre.as_deref())?;
+        let level = entry
+            .x_path
+            .as_deref()
+            .map(|path| path.split('/').filter(|segment| *segment == "TM").count())
+            .filter(|count| *count > 0);
+        Some(Self {
+            title,
+            level,
+            debut: civil_or_unknown(entry.debut.as_ref()),
+            fin: civil_or_unknown(entry.fin.as_ref()),
+            in_force: entry.etat.as_deref().is_some_and(|etat| etat.trim() == "VIGUEUR"),
+        })
+    }
+
+    /// Vrai si la section s'applique à `reference` : elle a commencé avant la fin de la version
+    /// et ne finit pas avant elle. Une borne inconnue ne l'écarte pas.
+    ///
+    /// Limite connue (L3-02) : pour une version ouverte, toute section avec une `fin` lisible est
+    /// écartée, même si cette `fin` est une vraie date future (restructuration programmée). Le
+    /// mappeur n'a pas d'horloge et aucune capture d'un code à structure annoncée ne tranche ce
+    /// cas ; `a_scheduled_restructuring_is_a_known_limit_of_an_open_version` fige le comportement.
+    fn applies(&self, reference: Reference) -> bool {
+        match reference {
+            Reference::Open => self.fin.is_none(),
+            Reference::Until(end) => {
+                self.debut.is_none_or(|debut| debut < end) && self.fin.is_none_or(|fin| end <= fin)
+            }
+        }
+    }
+}
+
+/// Une seule section par niveau, la dernière reçue, sauf pour une version ouverte où une section
+/// en vigueur l'emporte sur une section qui ne l'est pas ; l'ordre reçu est gardé (une section
+/// sans niveau connu est gardée telle quelle).
+fn one_per_level(sections: Vec<&Section>, reference: Reference) -> Vec<&Section> {
+    let mut kept: Vec<&Section> = Vec::new();
+    for section in sections {
+        let held = section
+            .level
+            .and_then(|level| kept.iter_mut().find(|other| other.level == Some(level)));
+        match held {
+            Some(held) => {
+                if reference != Reference::Open || !held.in_force || section.in_force {
+                    *held = section;
+                }
+            }
+            None => kept.push(section),
+        }
+    }
+    kept
+}
+
+/// Titres des sections traversées en vigueur à `reference`, nettoyés par `clean_field`, dans
+/// l'ordre reçu, une section par niveau, sans titre identique consécutif ; les titres absents ou
+/// vides sont omis (L3-02).
+///
+/// PISTE rend toutes les versions de chaque niveau (ancienne et nouvelle structure d'un code
+/// remanié). Si aucune section ne s'applique, toutes sont gardées avant le dédoublonnage : un
+/// chemin approximatif vaut mieux qu'un chemin vide.
+fn section_path(entries: &[ContextEntryDto], reference: Reference) -> Vec<String> {
+    let sections: Vec<Section> = entries.iter().filter_map(Section::of).collect();
+    let current: Vec<&Section> =
+        sections.iter().filter(|section| section.applies(reference)).collect();
+    let chosen = if current.is_empty() { sections.iter().collect() } else { current };
+    let mut path: Vec<String> =
+        one_per_level(chosen, reference).into_iter().map(|section| section.title.clone()).collect();
+    path.dedup();
+    path
 }
 
 /// Nota de l'article : le meilleur texte de `html` et de `plain` (règle f) ; `None` s'il est
@@ -128,7 +274,13 @@ pub(crate) fn article(
     } = require(dto.article, GET_ARTICLE)?;
     let article_id = resolve_id(requested, id.as_deref(), ID, diags)?;
     let chosen = preferred_title(&text_titles);
-    let parent = chosen.map(|title| parent_text(title, diags)).transpose()?.flatten();
+    let parent = match chosen {
+        None => None,
+        Some(title) => match consolidated_parent(&text_titles, title, diags) {
+            found @ Some(_) => found,
+            None => parent_text(title, diags)?,
+        },
+    };
     let date_debut = civil(date_debut.as_ref(), DATE_DEBUT, diags)?;
     let date_fin = civil(date_fin.as_ref(), DATE_FIN, diags)?;
     let text = long_text(texte_html.as_deref(), texte.as_deref(), TEXTE, diags)?;
@@ -137,9 +289,9 @@ pub(crate) fn article(
         article_id,
         num: clean_field(num.as_deref()),
         etat: etat.as_deref().and_then(LegalStatus::parse),
-        code_title: chosen.and_then(|title| clean_field(title.titre.as_deref())),
+        code_title: chosen.and_then(|title| citation_title(title, parent.as_ref())),
         parent,
-        path: section_path(&context.titres_tm),
+        path: section_path(&context.titres_tm, Reference::of(date_fin)),
         full_sections_titre: clean_field(full_sections_titre.as_deref()),
         date_debut,
         date_fin,
@@ -151,11 +303,11 @@ pub(crate) fn article(
 #[cfg(test)]
 mod tests {
     use lf_domain::contract::Citable;
-    use lf_domain::entity::ParentNature;
     use lf_domain::status::LegalStatus;
 
     use super::*;
     use crate::dto::article::GetArticleResponseDto;
+    use crate::dto::de::RawDate;
     use crate::dto::decode::decode;
     use crate::map::fixtures::{d, decode_as, text};
 
@@ -195,7 +347,7 @@ mod tests {
 
     /// Entrée de contexte de titre `titre`.
     fn entry(titre: Option<&str>) -> ContextEntryDto {
-        ContextEntryDto { titre: titre.map(str::to_owned) }
+        ContextEntryDto { titre: titre.map(str::to_owned), ..ContextEntryDto::default() }
     }
 
     #[test]
@@ -267,6 +419,86 @@ mod tests {
         assert_eq!(diags, Diagnostics::default());
     }
 
+    /// Identifiant de document lu, pour les attentes.
+    fn doc(raw: &str) -> DocumentId {
+        DocumentId::parse(raw).unwrap()
+    }
+
+    /// Identifiant et nature attendus d'un texte parent, `None` : aucun.
+    type Expected = Option<(&'static str, ParentNature)>;
+
+    #[test]
+    fn consolidated_parent_rules() {
+        let law_then_consolidated = [
+            ided(Some("JORFTEXT000033202746"), Some("JORFTEXT000033202746"), Some("LOI")),
+            ided(Some("JORFTEXT000033202746"), Some("LEGITEXT000033205014"), Some("LOI")),
+        ];
+        let kali_second = [
+            ided(Some("JORFTEXT000033202746"), None, Some("LOI")),
+            ided(Some("KALITEXT000005635534"), None, None),
+        ];
+        let cases: [(&[TextTitleDto], Expected); 10] = [
+            // Le LEGITEXT est dans `id`, le `cid` d'un texte de loi reste un JORFTEXT.
+            (&law_then_consolidated, Some(("LEGITEXT000033205014", ParentNature::Text))),
+            // Un LEGITEXT dans `cid` est retenu, `cid` d'abord.
+            (
+                &[ided(Some("LEGITEXT000006070721"), Some("LEGITEXT000033205014"), Some("CODE"))],
+                Some(("LEGITEXT000006070721", ParentNature::Code)),
+            ),
+            // L'entrée choisie (CODE prioritaire) est lue d'abord : son identifiant et sa nature vont
+            // ensemble, même si une entrée antérieure porte un autre LEGITEXT.
+            (
+                &[
+                    ided(Some("JORFTEXT000033202746"), None, Some("LOI")),
+                    ided(Some("LEGITEXT000006070721"), None, Some("CODE")),
+                ],
+                Some(("LEGITEXT000006070721", ParentNature::Code)),
+            ),
+            (
+                &[
+                    ided(Some("JORFTEXT000033202746"), Some("LEGITEXT000033205014"), Some("LOI")),
+                    ided(Some("LEGITEXT000006070721"), None, Some("CODE")),
+                ],
+                Some(("LEGITEXT000006070721", ParentNature::Code)),
+            ),
+            // Un KALITEXT est consommable par `fr_get_convention`.
+            (&kali_second, Some(("KALITEXT000005635534", ParentNature::Kali))),
+            // Premier LEGITEXT lisible : un identifiant illisible est sauté, jamais une erreur.
+            (
+                &[
+                    ided(Some("FOO"), Some("LEGITEXT000033205014"), Some("LOI")),
+                    ided(Some("LEGITEXT000006070721"), None, None),
+                ],
+                Some(("LEGITEXT000033205014", ParentNature::Text)),
+            ),
+            // Aucun LEGITEXT/KALITEXT : le repli est l'appelant (JORFTEXT, illisible, vide).
+            (&[ided(Some("JORFTEXT000033202746"), None, Some("LOI"))], None),
+            (&[ided(Some("FOO"), Some("BAR"), Some("LOI"))], None),
+            (&[ided(None, None, Some("LOI"))], None),
+            (&[], None),
+        ];
+        for (titles, expected) in cases {
+            let mut diags = Diagnostics::default();
+            let found = preferred_title(titles)
+                .and_then(|chosen| consolidated_parent(titles, chosen, &mut diags));
+            let expected = expected.map(|(id, nature)| ParentText { id: doc(id), nature });
+            assert_eq!(found, expected, "{titles:?}");
+            assert_eq!(diags, Diagnostics::default(), "{titles:?}");
+        }
+    }
+
+    #[test]
+    fn a_suffix_stripped_from_the_kept_consolidated_parent_is_counted_once() {
+        let titles = [
+            ided(Some("JORFTEXT000033202746_08-10-2016"), None, Some("LOI")),
+            ided(Some("KALITEXT000005635534_01-01-2020"), None, None),
+        ];
+        let mut diags = Diagnostics::default();
+        let found = consolidated_parent(&titles, titles.first().unwrap(), &mut diags).unwrap();
+        assert_eq!(found.id, doc("KALITEXT000005635534"));
+        assert_eq!(diags, Diagnostics { upstream_suffix_stripped: 1, ..Diagnostics::default() });
+    }
+
     #[test]
     fn section_path_keeps_cleaned_titles_in_order() {
         let entries = [
@@ -275,8 +507,201 @@ mod tests {
             entry(None),
             entry(Some("Titre II")),
         ];
-        assert_eq!(section_path(&entries), ["Livre Ier", "Titre II"]);
-        assert_eq!(section_path(&[]), Vec::<String>::new());
+        assert_eq!(section_path(&entries, Reference::Open), ["Livre Ier", "Titre II"]);
+        assert_eq!(section_path(&[], Reference::Open), Vec::<String>::new());
+    }
+
+    /// Entrée `titre` de période `debut`..`fin` (texte brut), de niveau `level` (0 : sans
+    /// `xPath`) et d'état `etat`.
+    fn section(
+        titre: &str,
+        (debut, fin): (Option<&str>, Option<&str>),
+        level: usize,
+        etat: Option<&str>,
+    ) -> ContextEntryDto {
+        let raw = |date: Option<&str>| date.map(|date| RawDate::Text(date.to_owned()));
+        ContextEntryDto {
+            titre: text!(titre),
+            debut: raw(debut),
+            fin: raw(fin),
+            x_path: (level > 0).then(|| format!("/ARTICLE{}/TITRE_TM", "/TM".repeat(level))),
+            etat: etat.map(str::to_owned),
+        }
+    }
+
+    /// Période fermée `debut`..`fin`.
+    fn span<'a>(debut: &'a str, fin: &'a str) -> (Option<&'a str>, Option<&'a str>) {
+        (Some(debut), Some(fin))
+    }
+
+    /// Jour de fin de version des tests de bornes.
+    fn end() -> Reference {
+        Reference::Until(d(2016, 10, 1))
+    }
+
+    #[test]
+    fn reference_follows_the_end_of_the_version() {
+        assert_eq!(Reference::of(None), Reference::Open);
+        assert_eq!(Reference::of(Some(d(2016, 10, 1))), end());
+    }
+
+    #[test]
+    fn open_version_keeps_the_sections_without_end() {
+        let entries = [
+            section("Ancien", span("1804-03-21", "2016-10-01"), 1, Some("MODIFIE")),
+            section("Courant", (Some("2016-10-01"), Some("2999-01-01")), 1, Some("VIGUEUR")),
+            section("Sans date", (None, None), 2, None),
+        ];
+        assert_eq!(section_path(&entries, Reference::Open), ["Courant", "Sans date"]);
+    }
+
+    #[test]
+    fn a_scheduled_restructuring_is_a_known_limit_of_an_open_version() {
+        // Une `fin` future réelle (non sentinelle) écarte la section d'une version ouverte : seule
+        // la structure annoncée, sans `fin`, est retenue. Comportement figé, à revoir avec une
+        // capture d'un code dont la structure est annoncée (le mappeur n'a pas d'horloge).
+        let entries = [
+            section("Actuel", span("2016-10-01", "2099-01-01"), 1, Some("VIGUEUR")),
+            section("Annoncé", (Some("2099-01-01"), None), 1, Some("VIGUEUR_DIFF")),
+        ];
+        assert_eq!(section_path(&entries, Reference::Open), ["Annoncé"]);
+        // Sans autre section pour la remplacer, elle est retenue par le filet « tout garder ».
+        assert_eq!(section_path(&entries[..1], Reference::Open), ["Actuel"]);
+    }
+
+    #[test]
+    fn closed_version_keeps_the_sections_of_its_last_day() {
+        let entries = [
+            section("Ancien", span("1804-03-21", "2016-10-01"), 1, Some("MODIFIE")),
+            section("Courant", (Some("2016-10-01"), Some("2999-01-01")), 1, Some("VIGUEUR")),
+        ];
+        assert_eq!(section_path(&entries, end()), ["Ancien"]);
+        // Jumeau : la même structure, lue pour une version qui court jusqu'à aujourd'hui.
+        assert_eq!(section_path(&entries, Reference::Open), ["Courant"]);
+    }
+
+    #[test]
+    fn section_bounds_are_start_inclusive_and_end_exclusive_of_the_last_day() {
+        // La version finit le 2016-10-01 : son dernier jour est le 2016-09-30.
+        let cases = [
+            // (début, fin, retenue)
+            ("2016-09-30", "2016-10-01", true), // débute la veille de la fin : en vigueur ce jour
+            ("2016-10-01", "2999-01-01", false), // débute le jour de fin : pas encore
+            ("1804-03-21", "2016-10-01", true), // finit le jour de fin : couvre la veille
+            ("1804-03-21", "2016-09-30", false), // finit la veille : ne couvre pas la veille
+        ];
+        for (debut, fin, expected) in cases {
+            let entries = [section("A", (Some(debut), Some(fin)), 1, None), entry(Some("Z"))];
+            let path = section_path(&entries, end());
+            let held = if expected { vec!["A", "Z"] } else { vec!["Z"] };
+            assert_eq!(path, held, "{debut}..{fin}");
+        }
+    }
+
+    #[test]
+    fn unreadable_or_missing_bounds_do_not_discard_a_section() {
+        let entries = [
+            section("Sans bornes", (None, None), 1, None),
+            section("Illisible", (Some("pas une date"), Some("2016-13-45")), 2, None),
+        ];
+        assert_eq!(section_path(&entries, end()), ["Sans bornes", "Illisible"]);
+        // Une fin illisible est inconnue donc ouverte : la version ouverte la garde aussi.
+        assert_eq!(section_path(&entries, Reference::Open), ["Sans bornes", "Illisible"]);
+    }
+
+    #[test]
+    fn a_filter_that_discards_everything_falls_back_to_all_sections() {
+        let entries = [
+            section("Livre", span("1804-03-21", "1900-01-01"), 1, None),
+            section("Titre A", span("1804-03-21", "1900-01-01"), 2, None),
+            section("Titre B", span("1900-01-01", "1950-01-01"), 2, None),
+        ];
+        // Aucune ne couvre la veille de 2016-10-01 : toutes gardées, une par niveau.
+        assert_eq!(section_path(&entries, end()), ["Livre", "Titre B"]);
+        // Jumeau : quand le filtre garde une section, les autres sont écartées.
+        let entries = [
+            section("Livre", span("1804-03-21", "1900-01-01"), 1, None),
+            section("Titre C", (None, None), 2, None),
+        ];
+        assert_eq!(section_path(&entries, end()), ["Titre C"]);
+    }
+
+    #[test]
+    fn one_section_per_level_keeps_the_last_received() {
+        let entries = [
+            section("Titre III ancien", (None, None), 1, Some("VIGUEUR")),
+            section("Chapitre", (None, None), 2, None),
+            section("Titre III nouveau", (None, None), 1, Some("MODIFIE")),
+        ];
+        // Version close : pas de préférence d'état, la dernière reçue prend la place du niveau.
+        assert_eq!(section_path(&entries, end()), ["Titre III nouveau", "Chapitre"]);
+        // Jumeau : deux niveaux différents, rien n'est écarté.
+        assert_eq!(section_path(&entries[..2], end()), ["Titre III ancien", "Chapitre"]);
+    }
+
+    #[test]
+    fn open_version_prefers_the_section_in_force_at_a_level() {
+        let held = |first: Option<&str>, second: Option<&str>| {
+            let entries = [
+                section("Première", (None, None), 1, first),
+                section("Seconde", (None, None), 1, second),
+            ];
+            section_path(&entries, Reference::Open)
+        };
+        assert_eq!(held(Some("VIGUEUR"), Some("MODIFIE")), ["Première"]);
+        assert_eq!(held(Some("VIGUEUR"), Some("VIGUEUR")), ["Seconde"]);
+        assert_eq!(held(Some("MODIFIE"), Some("VIGUEUR")), ["Seconde"]);
+        assert_eq!(held(None, None), ["Seconde"]);
+    }
+
+    #[test]
+    fn sections_without_a_level_are_never_merged() {
+        let entries = [
+            section("A", (None, None), 0, None),
+            section("B", (None, None), 0, None),
+            section("A", (None, None), 0, None),
+        ];
+        assert_eq!(section_path(&entries, Reference::Open), ["A", "B", "A"]);
+    }
+
+    #[test]
+    fn consecutive_identical_titles_are_merged() {
+        let entries = [
+            section("Annexes", (None, None), 0, None),
+            section("Annexe B", (None, None), 0, None),
+            section("Annexe B", (None, None), 0, None),
+        ];
+        assert_eq!(section_path(&entries, Reference::Open), ["Annexes", "Annexe B"]);
+    }
+
+    #[test]
+    fn section_level_counts_the_tm_segments_of_the_xpath() {
+        let level = |x_path: Option<&str>| {
+            let entry = ContextEntryDto {
+                titre: text!("T"),
+                x_path: x_path.map(str::to_owned),
+                ..ContextEntryDto::default()
+            };
+            Section::of(&entry).unwrap().level
+        };
+        assert_eq!(level(Some("/ARTICLE/CONTEXTE/TEXTE/TM/TITRE_TM")), Some(1));
+        assert_eq!(level(Some("/ARTICLE/CONTEXTE/TEXTE/TM/TM/TM/TITRE_TM")), Some(3));
+        assert_eq!(level(Some("/ARTICLE/CONTEXTE/TEXTE/TITRE_TM")), None);
+        assert_eq!(level(None), None);
+    }
+
+    #[test]
+    fn article_reference_comes_from_its_end_date() {
+        let structure = r#""context":{"titresTM":[
+            {"titre":"Ancien","debut":"1804-03-21","fin":"2016-10-01","xPath":"/A/TM/T"},
+            {"titre":"Nouveau","debut":"2016-10-01","fin":"2999-01-01","xPath":"/A/TM/T"}]}"#;
+        let path = |dates: &str| {
+            let json = with_fields(&format!("{structure},{dates}"));
+            run(&json, ART_9).0.unwrap().path
+        };
+        assert_eq!(path(r#""dateDebut":"2016-10-01","dateFin":"2999-01-01""#), ["Nouveau"]);
+        assert_eq!(path(r#""dateDebut":"2016-10-01""#), ["Nouveau"]);
+        assert_eq!(path(r#""dateDebut":"1804-03-21","dateFin":"2016-10-01""#), ["Ancien"]);
     }
 
     #[test]
@@ -682,5 +1107,298 @@ mod tests {
             let error = run(&json, ART_9).0.unwrap_err();
             assert!(!format!("{error:?} {error}").contains(secret), "{error:?}");
         }
+    }
+
+    // ---- L3-02 : chemin de sections en vigueur, sans doublon (relevés C7) ----
+
+    /// Relevé C7 : Code civil, art. 1240 (en vigueur depuis 2016-10-01).
+    const C7_1240: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C7-getArticle-1240-LEGIARTI000032041571.json"
+    );
+    /// Relevé C7 : Code civil, art. 1382 dans sa version d'avant 2016 (fin 2016-10-01).
+    const C7_1382_OLD: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C7-getArticle-1382-ancienne-LEGIARTI000006438819.json"
+    );
+    /// Relevé C7 : arrêté Salmonella, « Tableau I » (annexe B, deux versions du titre).
+    const C7_SALMONELLA: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C7-getArticle-salmonella-LEGIARTI000031122369.json"
+    );
+    /// Relevé C7 : CGI, art. 163 bis H (sept niveaux, aucun doublon).
+    const C7_CGI_163: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C7-getArticle-cgi-163-bis-H-LEGIARTI000053543789.json"
+    );
+    /// Relevé C7 : loi 89-462, art. 19 (version abrogée le 2014-03-27).
+    const C7_LOI_89_462: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C7-getArticle-loi-89-462-art-19-LEGIARTI000039337710.json"
+    );
+
+    /// Chemin de l'article du relevé `body`, demandé sous `requested`.
+    fn recorded_path(body: &str, requested: &str) -> Vec<String> {
+        run_body(body, requested).0.unwrap().path
+    }
+
+    #[test]
+    fn recorded_1240_keeps_only_the_current_structure() {
+        assert_eq!(
+            recorded_path(C7_1240, "LEGIARTI000032041571"),
+            [
+                "Livre III : Des différentes manières dont on acquiert la propriété",
+                "Titre III : Des sources d'obligations",
+                "Sous-titre II : La responsabilité extracontractuelle",
+                "Chapitre Ier : La responsabilité extracontractuelle en général",
+            ]
+        );
+    }
+
+    #[test]
+    fn recorded_old_1382_keeps_only_the_old_structure() {
+        assert_eq!(
+            recorded_path(C7_1382_OLD, "LEGIARTI000006438819"),
+            [
+                "Livre III : Des différentes manières dont on acquiert la propriété",
+                "Titre IV : Des engagements qui se forment sans convention",
+                "Chapitre II : Des délits et des quasi-délits.",
+            ]
+        );
+    }
+
+    #[test]
+    fn recorded_salmonella_has_one_annexe_b() {
+        assert_eq!(
+            recorded_path(C7_SALMONELLA, "LEGIARTI000031122369"),
+            ["Annexes", "Annexe B : BARÈMES D'INDEMNISATION D'ÉLIMINATION DES TROUPEAUX"]
+        );
+    }
+
+    #[test]
+    fn recorded_closed_version_uses_the_day_before_its_end() {
+        assert_eq!(
+            recorded_path(C7_LOI_89_462, "LEGIARTI000039337710"),
+            [
+                "Titre Ier : Des rapports entre bailleurs et locataires",
+                "Chapitre III : Du loyer, des charges et du règlement des litiges.",
+            ]
+        );
+    }
+
+    #[test]
+    fn recorded_cgi_path_without_duplicates_is_unchanged() {
+        assert_eq!(
+            recorded_path(C7_CGI_163, "LEGIARTI000053543789"),
+            [
+                "Livre premier : Assiette et liquidation de l'impôt",
+                "Première Partie : Impôts d'État",
+                "Titre premier : Impôts directs et taxes assimilées",
+                "Chapitre premier : Impôt sur le revenu",
+                "Section II : Revenus imposables",
+                "2e Sous-section : Revenu global",
+                "I : Revenu imposable",
+            ]
+        );
+    }
+
+    // ---- L3-03 : titre long d'un texte non codifié (relevés C8) ----
+
+    /// Relevé C8 : ordonnance 2016-131, art. 10 (dispositions finales du droit des contrats).
+    const C8_ORDONNANCE: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C8-getArticle-LEGIARTI000032006589.json"
+    );
+    /// Relevé C8 : loi 89-462, art. 6.
+    const C8_LOI_89_462: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C8-getArticle-LEGIARTI000043977105.json"
+    );
+    /// Relevé C8 : arrêté du 20 mai 2026 (CAP Facture de pianos), « ANNEXE V ».
+    const C8_PIANOS: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C8-getArticle-LEGIARTI000054241470.json"
+    );
+    /// Relevé : article 89 de la loi pour une République numérique (titre long à appel de note).
+    const LOI_NUMERIQUE: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/contenu/getArticle-LEGIARTI000033205058.json"
+    );
+    /// Relevé C13 : CGI, dont le titre court garde « , CGI. » et le titre long non.
+    const C13_CGI: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticle/c101/C13-getArticle-LEGIARTI000047288653.json"
+    );
+
+    /// Article du relevé `body`, demandé sous `requested`.
+    fn recorded(body: &str, requested: &str) -> ArticleText {
+        run_body(body, requested).0.unwrap()
+    }
+
+    #[test]
+    fn recorded_decree_texts_cite_their_long_title() {
+        let cases = [
+            (
+                C8_PIANOS,
+                "LEGIARTI000054241470",
+                "Arrêté du 20 mai 2026 portant création de la spécialité « Facture de pianos » de \
+                 certificat d'aptitude professionnelle et fixant ses modalités de délivrance, art. \
+                 ANNEXE V",
+            ),
+            (
+                C8_ORDONNANCE,
+                "LEGIARTI000032006589",
+                "Ordonnance n° 2016-131 du 10 février 2016 portant réforme du droit des contrats, \
+                 du régime général et de la preuve des obligations, art. 10",
+            ),
+            (
+                C8_LOI_89_462,
+                "LEGIARTI000043977105",
+                "Loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs et \
+                 portant modification de la loi n° 86-1290 du 23 décembre 1986, art. 6",
+            ),
+            (
+                C7_SALMONELLA,
+                "LEGIARTI000031122369",
+                "Arrêté du 26 février 2008 relatif aux modalités de la participation financière \
+                 de l'Etat à la lutte contre les infections à Salmonella dans les troupeaux de \
+                 reproduction de l'espèce Gallus gallus en filière chair, art. Tableau I",
+            ),
+            (
+                LOI_NUMERIQUE,
+                "LEGIARTI000033205058",
+                "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique, art. 89",
+            ),
+        ];
+        for (body, id, citation) in cases {
+            let article = recorded(body, id);
+            assert_eq!(article.parent.as_ref().map(|p| p.nature), Some(ParentNature::Text), "{id}");
+            assert_eq!(article.contract().citation.as_str(), citation, "{id}");
+        }
+    }
+
+    #[test]
+    fn paginated_windows_of_a_recorded_article_never_end_on_an_enumerator() {
+        // L4-02 (get_text-7), capture C13: « I bis. – 1. » used to end a 4000-character page,
+        // its content starting the next one. Every window must now end on prose, and the
+        // windows still partition the text.
+        let text = recorded(C13_CGI, "LEGIARTI000047288653").text;
+        let full = text.as_str();
+        let mut rebuilt = String::new();
+        let mut offset = 0;
+        let mut pages = 0;
+        loop {
+            let w = lf_domain::text::window(full, offset, 4000);
+            let tail = w.text.trim_end();
+            let last_line = tail.rsplit('\n').next().unwrap_or_default();
+            assert!(
+                !(last_line.ends_with('.') && last_line.chars().count() < 14),
+                "page {pages} ends on {last_line:?}"
+            );
+            rebuilt.push_str(w.text);
+            pages += 1;
+            match w.next_offset {
+                Some(next) => offset = next,
+                None => break,
+            }
+        }
+        assert_eq!(rebuilt, full);
+        assert!(pages >= 3, "{pages}");
+    }
+
+    #[test]
+    fn the_long_title_tells_apart_two_decrees_of_the_same_day() {
+        let pianos = recorded(C8_PIANOS, "LEGIARTI000054241470");
+        assert_eq!(pianos.num.as_deref(), Some("ANNEXE V"));
+        let long = pianos.code_title.as_deref().unwrap();
+        assert!(long.starts_with("Arrêté du 20 mai 2026 portant création"), "{long}");
+        assert!(long.contains("Facture de pianos"), "{long}");
+    }
+
+    #[test]
+    fn a_code_keeps_its_short_title_and_a_blank_long_title_falls_back() {
+        // Neighbours kept: the CGI short title is not replaced by the long one, but its citation
+        // no longer carries the redundant « , CGI. » (L2-15), and the Code civil is unchanged.
+        let cgi = recorded(C13_CGI, "LEGIARTI000047288653");
+        assert_eq!(cgi.code_title.as_deref(), Some("Code général des impôts, CGI."));
+        assert_eq!(cgi.contract().citation.as_str(), "Code général des impôts, art. 990 I");
+        let civil = map_fixture(ART_9).0.unwrap();
+        assert_eq!(civil.contract().citation.as_str(), "Code civil, art. 9");
+
+        let fall_back = |long: &str| {
+            let titles = format!(
+                r#""textTitles":[{{"nature":"LOI","titre":"Loi X","titreLong":{long},"cid":"JORFTEXT000033202746"}}]"#
+            );
+            run(&with_fields(&titles), ART_9).0.unwrap().code_title
+        };
+        assert_eq!(
+            fall_back(r#""Loi X portant objet (2)""#).as_deref(),
+            Some("Loi X portant objet (2)")
+        );
+        assert_eq!(fall_back(r#""   ""#).as_deref(), Some("Loi X"));
+        assert_eq!(fall_back(r#""<br>""#).as_deref(), Some("Loi X"));
+        assert_eq!(fall_back("null").as_deref(), Some("Loi X"));
+    }
+
+    #[test]
+    fn an_unknown_nature_and_a_kali_parent_keep_their_short_title() {
+        // Review W4 (L3-03): the long title (and its trailing note call) is only for `Text`.
+        let unknown = with_fields(
+            r#""num":"9","textTitles":[{"nature":"DECISION","titre":"Décision du 1er mai","titreLong":"Décision du 1er mai relative à X (1)","cid":"JORFTEXT000033202746"}]"#,
+        );
+        let article = run(&unknown, ART_9).0.unwrap();
+        assert_eq!(article.parent.as_ref().map(|p| p.nature), Some(ParentNature::Unknown));
+        assert_eq!(article.code_title.as_deref(), Some("Décision du 1er mai"));
+        assert_eq!(article.contract().citation.as_str(), "Décision du 1er mai, art. 9");
+
+        let kali = with_fields(
+            r#""num":"9","textTitles":[{"nature":"CONVENTION","titre":"Convention X","titreLong":"Convention collective X très longue (2)","cid":"KALITEXT000005635534"}]"#,
+        );
+        let article = run(&kali, ART_9).0.unwrap();
+        assert_eq!(article.parent.as_ref().map(|p| p.nature), Some(ParentNature::Kali));
+        assert_eq!(article.code_title.as_deref(), Some("Convention X"));
+
+        // Without an identifier there is no parent: still the short title.
+        let orphan = with_fields(
+            r#""num":"9","textTitles":[{"nature":"LOI","titre":"Loi X","titreLong":"Loi X longue (1)"}]"#,
+        );
+        let article = run(&orphan, ART_9).0.unwrap();
+        assert!(article.parent.is_none());
+        assert_eq!(article.code_title.as_deref(), Some("Loi X"));
+    }
+
+    #[test]
+    fn an_accented_nature_still_gives_a_text_parent() {
+        let json = with_fields(
+            r#""num":"9","textTitles":[{"nature":"ARRÊTÉ","titre":"Arrêté du 1er mai","titreLong":"Arrêté du 1er mai relatif à X (1)","cid":"JORFTEXT000033202746"}]"#,
+        );
+        let article = run(&json, ART_9).0.unwrap();
+        assert_eq!(article.parent.as_ref().map(|p| p.nature), Some(ParentNature::Text));
+        assert_eq!(article.contract().citation.as_str(), "Arrêté du 1er mai relatif à X, art. 9");
+    }
+
+    // ---- L3-04 : parent_id d'un article de loi = LEGITEXT consolidé ----
+
+    #[test]
+    fn law_article_parent_is_the_consolidated_legitext() {
+        let cases = [
+            (LOI_NUMERIQUE, "LEGIARTI000033205058", "LEGITEXT000033205014"),
+            (C8_LOI_89_462, "LEGIARTI000043977105", "LEGITEXT000006069108"),
+            (C8_ORDONNANCE, "LEGIARTI000032006589", "LEGITEXT000032006567"),
+            (C8_PIANOS, "LEGIARTI000054241470", "LEGITEXT000054241418"),
+        ];
+        for (body, id, legitext) in cases {
+            let article = recorded(body, id);
+            let parent = article.parent.as_ref().expect(id);
+            assert_eq!(parent.id.as_str(), legitext, "{id}");
+            assert_eq!(parent.nature, ParentNature::Text, "{id}");
+            // L'identifiant rendu est celui que `fr_get_act` sait lire.
+            assert!(lf_domain::id::LegiTextId::parse(parent.id.as_str()).is_ok(), "{id}");
+            // La citation garde le titre long du texte : elle ne dépend pas de l'identifiant.
+            assert!(article.contract().citation.as_str().contains(", art. "), "{id}");
+        }
+    }
+
+    #[test]
+    fn a_law_article_without_a_consolidated_entry_keeps_its_jorftext() {
+        let json = with_fields(
+            r#""textTitles":[{"nature":"LOI","titre":"Loi X","cid":"JORFTEXT000033202746"}]"#,
+        );
+        let parent = run(&json, ART_9).0.unwrap().parent.unwrap();
+        assert_eq!(parent.id.as_str(), "JORFTEXT000033202746");
+
+        // Un identifiant illisible reste une erreur quand aucun LEGITEXT ne le remplace.
+        let broken = with_fields(r#""textTitles":[{"nature":"LOI","cid":"BAR"}]"#);
+        assert_eq!(run(&broken, ART_9).0, Err(invalid_id("article.textTitles[].cid")));
     }
 }

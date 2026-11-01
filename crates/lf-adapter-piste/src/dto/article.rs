@@ -13,10 +13,12 @@
 //! Seuls les champs que le mapping lit sont déclarés (04 §8.1) : `articleVersions`, les listes de
 //! liens réservées à M7, `computedNums`, `activitePro`… ne l'ont jamais été ; depuis le plan 2g,
 //! `versionPrecedente`, `sectionParentTitre`, `isMultipleVersions` (et sa graphie
-//! `multipleVersions`, du Swagger et de KALI), `context.titreTxt` et l'`id`, le `debut` et la `fin`
-//! d'une entrée de `titresTM` sont sautés par `serde_json` sans construire de valeur (mémoire
-//! bornée par la taille du corps) et ne peuvent faire échouer aucun décodage : les deux graphies
-//! ensemble ne donnent plus `duplicate field`.
+//! `multipleVersions`, du Swagger et de KALI), `context.titreTxt` et l'`id` d'une entrée de
+//! `titresTM` sont sautés par `serde_json` sans construire de valeur (mémoire bornée par la
+//! taille du corps) et ne peuvent faire échouer aucun décodage : les deux graphies ensemble ne
+//! donnent plus `duplicate field`. Depuis L3-02, le `debut`, la `fin`, le `xPath` et l'`etat`
+//! d'une entrée de `titresTM` sont lus, tolérants : un type inattendu donne `None`, jamais une
+//! erreur (le mapping choisit les sections en vigueur d'après eux).
 
 use serde::Deserialize;
 
@@ -82,12 +84,28 @@ pub(crate) struct ArticleContextDto {
 }
 
 /// Section traversée par un article (entrée de `titresTM`).
+///
+/// PISTE rend une entrée par version d'une section : l'ancienne et la nouvelle structure d'un
+/// code remanié figurent ensemble, chacune avec sa période (`debut`, `fin`), son niveau (`xPath`,
+/// un segment `TM` par niveau) et son état. Le mapping choisit celles qui étaient en vigueur.
 #[derive(Deserialize, Default)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct ContextEntryDto {
     /// Titre de la section.
     pub titre: Option<String>,
+    /// Début de vigueur de cette version de la section, brut (illisible : `None`).
+    #[serde(deserialize_with = "de::opt_raw_date")]
+    pub debut: Option<RawDate>,
+    /// Fin de vigueur de cette version de la section, brute (`2999-01-01` : sans fin).
+    #[serde(deserialize_with = "de::opt_raw_date")]
+    pub fin: Option<RawDate>,
+    /// Chemin XML de la section (`/ARTICLE/CONTEXTE/TEXTE/TM/TM/TITRE_TM` : niveau 2).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
+    pub x_path: Option<String>,
+    /// État juridique de cette version de la section (`VIGUEUR`, `MODIFIE`…).
+    #[serde(deserialize_with = "de::opt_string_or_number")]
+    pub etat: Option<String>,
 }
 
 /// Titre du texte parent d'un article.
@@ -99,8 +117,11 @@ pub(crate) struct TextTitleDto {
     pub id: Option<String>,
     /// Identifiant chronologique du texte.
     pub cid: Option<String>,
-    /// Titre du texte.
+    /// Titre du texte (court : « Arrêté du 20 mai 2026 »).
     pub titre: Option<String>,
+    /// Titre officiel complet (clé `titreLong`), avec l'objet du texte et un éventuel appel de
+    /// note final ; égal à `titre` pour un code.
+    pub titre_long: Option<String>,
     /// Nature du texte (`CODE`…), casse conservée.
     pub nature: Option<String>,
 }
@@ -188,12 +209,19 @@ mod tests {
                 date_fin: Some(RawDate::Millis(32_472_144_000_000)),
                 full_sections_titre: text!("Livre Ier : Des personnes"),
                 context: ArticleContextDto {
-                    titres_tm: vec![ContextEntryDto { titre: text!("Livre Ier : Des personnes") }],
+                    titres_tm: vec![ContextEntryDto {
+                        titre: text!("Livre Ier : Des personnes"),
+                        debut: Some(RawDate::Text("1804-03-21".to_owned())),
+                        fin: Some(RawDate::Text("2999-01-01".to_owned())),
+                        x_path: text!("/x"),
+                        etat: text!("VIGUEUR"),
+                    }],
                 },
                 text_titles: vec![TextTitleDto {
                     id: text!("LEGITEXT000006070721"),
                     cid: text!("LEGITEXT000006070721"),
                     titre: text!("Code civil"),
+                    titre_long: text!("Code civil"),
                     nature: text!("CODE"),
                 }],
             }
@@ -206,7 +234,7 @@ mod tests {
             "titresTm":[{"id":"mauvaise clé"}],"titreTxt":[{"id":"LEGITEXT1"}]}}}"#;
         assert_eq!(
             article(raw).context.titres_tm,
-            vec![ContextEntryDto { titre: text!("Livre Ier") }]
+            vec![ContextEntryDto { titre: text!("Livre Ier"), ..Default::default() }]
         );
     }
 
@@ -223,10 +251,36 @@ mod tests {
             ArticleDto {
                 id: text!("LEGIARTI1"),
                 context: ArticleContextDto {
-                    titres_tm: vec![ContextEntryDto { titre: text!("Livre Ier") }],
+                    titres_tm: vec![ContextEntryDto {
+                        titre: text!("Livre Ier"),
+                        ..Default::default()
+                    }],
                 },
                 ..Default::default()
             }
+        );
+    }
+
+    #[test]
+    fn section_entry_period_level_and_state_are_read_leniently() {
+        let raw = r#"{"article":{"context":{"titresTM":[
+            {"titre":"A","debut":"1804-03-21","fin":32472144000000,
+             "xPath":"/ARTICLE/CONTEXTE/TEXTE/TM/TM/TITRE_TM","etat":"MODIFIE"},
+            {"titre":"B","debut":true,"fin":[],"xPath":7,"etat":{"a":1}},
+            {"titre":"C","debut":"  ","fin":null,"xPath":"","etat":null}]}}}"#;
+        assert_eq!(
+            article(raw).context.titres_tm,
+            vec![
+                ContextEntryDto {
+                    titre: text!("A"),
+                    debut: Some(RawDate::Text("1804-03-21".to_owned())),
+                    fin: Some(RawDate::Millis(32_472_144_000_000)),
+                    x_path: text!("/ARTICLE/CONTEXTE/TEXTE/TM/TM/TITRE_TM"),
+                    etat: text!("MODIFIE"),
+                },
+                ContextEntryDto { titre: text!("B"), x_path: text!("7"), ..Default::default() },
+                ContextEntryDto { titre: text!("C"), ..Default::default() },
+            ]
         );
     }
 

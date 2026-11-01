@@ -3,15 +3,15 @@
 use lf_domain::{
     date::{CivilDate, open_ended},
     status::LegalStatus,
+    text::title_unless_in_citation as domain_rule,
 };
 
-/// `title` sauf s'il est déjà dans `citation` (égalité ou inclusion). Les deux textes sont déjà
-/// nettoyés par le mapping (`clean`) ; seuls les blancs de bord de `title` sont retirés. Un titre
-/// absent ou vide donne `None`.
+/// `title` sauf s'il est déjà dans `citation` (égalité ou inclusion), blanc replié des deux côtés
+/// (`CNILTEXT000044033275`) : la règle est celle du domaine, que l'estimation de taille de
+/// l'application applique aussi. Le titre rendu garde ses blancs d'origine, bords retirés. Un
+/// titre absent ou vide donne `None`.
 pub(crate) fn title_unless_in_citation(title: Option<&str>, citation: &str) -> Option<String> {
-    let title = title?.trim();
-    // Un titre vide est contenu dans toute citation : il tombe dans le même cas.
-    (!citation.contains(title)).then(|| title.to_owned())
+    domain_rule(title, citation).map(str::to_owned)
 }
 
 /// Code d'API de l'`etat` (`VIGUEUR`, `VIGUEUR_ETEN`, `ABROGE`…), via
@@ -64,6 +64,28 @@ mod tests {
     fn title_is_trimmed_before_the_comparison() {
         assert_eq!(title_unless_in_citation(Some("  Loi X  "), "Loi X, art. 1"), None);
         assert_eq!(title_unless_in_citation(Some("  Loi Y  "), "Loi X"), Some("Loi Y".to_owned()));
+    }
+
+    /// L3-07 (search-15) : une citation repliée sur une ligne contient le titre multi-lignes
+    /// de la même délibération ; le blanc se compare replié des deux côtés.
+    #[test]
+    fn title_is_compared_with_its_whitespace_folded() {
+        assert_eq!(title_unless_in_citation(Some("a\nb"), "a b"), None);
+        assert_eq!(title_unless_in_citation(Some("a b"), "a\n b, art. 1"), None);
+        let citation = "Délibération n° 2021-087 du 22 juillet 2021 (rectificatif) (demande d’approbation n° 20005213)";
+        let title = "Délibération n° 2021-087 du 22 juillet 2021 (rectificatif)\n(demande d’approbation n° 20005213)\n";
+        assert_eq!(title_unless_in_citation(Some(title), citation), None);
+    }
+
+    /// Jumeau : un titre qui diffère vraiment de la citation reste, même replié.
+    #[test]
+    fn a_different_multi_line_title_is_kept() {
+        assert_eq!(
+            title_unless_in_citation(Some("Objet\nde la décision"), "Cons. const., décision n° 1"),
+            Some("Objet\nde la décision".to_owned())
+        );
+        // Les mots collés par un repli naïf (sans espace) ne sont pas confondus.
+        assert_eq!(title_unless_in_citation(Some("a\nb"), "ab"), Some("a\nb".to_owned()));
     }
 
     #[test]

@@ -147,11 +147,13 @@ fn parse_focus(raw: &str) -> Result<Focus, AppError> {
     parsed.map_err(|error| messages::domain(TOOL, &error))
 }
 
-/// `offset` demandé : 0 par défaut ; négatif, ou positif avec `detail="summary"`, il est refusé.
+/// `offset` demandé : 0 par défaut ; négatif, supérieur à `u32::MAX` (la borne annoncée, les
+/// positions rendues tiennent dans un `u32`), ou positif avec `detail="summary"`, il est refusé.
 fn parse_offset(raw: Option<i64>, detail: Option<Detail>) -> Result<usize, AppError> {
     let Some(raw) = raw else { return Ok(0) };
-    let Ok(offset) = usize::try_from(raw) else {
-        return Err(messages::out_of_range("offset", raw, 0, i64::MAX));
+    let Some(offset) = u32::try_from(raw).ok().and_then(|offset| usize::try_from(offset).ok())
+    else {
+        return Err(messages::out_of_range("offset", raw, 0, i64::from(u32::MAX)));
     };
     if offset > 0 && detail == Some(Detail::Summary) {
         return Err(messages::invalid_argument(OFFSET_NEEDS_FULL));
@@ -504,12 +506,23 @@ mod tests {
                 i.detail = Some("summary".to_owned());
                 i.offset = Some(-1);
             }),
-            invalid("offset=-1 out of range (0..).")
+            invalid("offset=-1 out of range (0..4294967295).")
         );
         assert_eq!(
             refusal(|i| i.offset = Some(i64::MIN)),
-            invalid(&format!("offset={} out of range (0..).", i64::MIN))
+            invalid(&format!("offset={} out of range (0..4294967295).", i64::MIN))
         );
+        // La borne annoncée est réelle : u32::MAX est accepté, au-delà l'offset est refusé.
+        assert_eq!(
+            request(|i| i.offset = Some(i64::from(u32::MAX))).mode,
+            Mode::Full { offset: usize::try_from(u32::MAX).unwrap() }
+        );
+        for over in [i64::from(u32::MAX) + 1, i64::MAX] {
+            assert_eq!(
+                refusal(|i| i.offset = Some(over)),
+                invalid(&format!("offset={over} out of range (0..4294967295)."))
+            );
+        }
         // `focus` l'emporte : l'offset est ignoré, donc sans conflit avec le résumé.
         let focused = request(|i| {
             i.detail = Some("summary".to_owned());
@@ -562,7 +575,7 @@ mod tests {
                 i.offset = Some(-3);
                 i.max_chars = Some(1);
             }),
-            invalid("offset=-3 out of range (0..).")
+            invalid("offset=-3 out of range (0..4294967295).")
         );
     }
 
@@ -615,6 +628,23 @@ mod tests {
                 )
             );
         }
+    }
+
+    #[test]
+    fn a_focus_over_500_characters_gives_its_length_not_a_value() {
+        // L4-09 (protocol-13) : « focus is 501 characters long », pas « focus=501 out of range ».
+        for length in [501, 1_396] {
+            assert_eq!(
+                refusal(|i| i.focus = Some("a".repeat(length))),
+                invalid(&format!("focus is {length} characters long (max 500); shorten it."))
+            );
+        }
+        // Jumeau : 500 caractères exactement sont acceptés.
+        let accepted = request(|i| i.focus = Some("a".repeat(500)));
+        assert_eq!(
+            accepted.mode,
+            Mode::Passages { focus: Focus::parse(&"a".repeat(500)).unwrap(), count: 3 }
+        );
     }
 
     #[test]
@@ -685,13 +715,18 @@ mod tests {
         };
         let past = |offset: usize, length: usize| {
             Err(invalid(&format!(
-                "offset={offset} is past the end of the text (text_length={length}); restart \
+                "offset={offset} is at or past the end of the text (text_length={length}); restart \
                  from offset=0 or omit offset."
             )))
         };
         assert_eq!(at(100), past(100, 100));
         assert_eq!(at(101), past(101, 100));
-        assert_eq!(at(i64::MAX), past(usize::try_from(i64::MAX).unwrap(), 100));
+        assert_eq!(at(i64::from(u32::MAX)), past(usize::try_from(u32::MAX).unwrap(), 100));
+        // Au-delà de la borne annoncée (u32::MAX), l'offset est refusé comme hors limites.
+        assert_eq!(
+            refusal(|i| i.offset = Some(i64::MAX)),
+            invalid(&format!("offset={} out of range (0..4294967295).", i64::MAX))
+        );
         // Le dernier caractère reste lisible.
         let last = at(99).unwrap();
         assert_eq!(last.text.as_deref(), Some("a"));
@@ -849,7 +884,13 @@ mod tests {
             "fin.".repeat(300)
         ));
         let one_paragraph = long(&sentence(7).repeat(80));
-        for text in [&accents, &exotic, &one_paragraph] {
+        // Un barème : une ligne par paragraphe, cellules séparées par « | » (L4-01).
+        let row = "<tr><td><p>Comprise entre N 000 € et N 999 € </p></td><td><br/>N <br/></td><td></td></tr>";
+        let rows: Vec<String> = (0..60).map(|i| row.replace('N', &i.to_string())).collect();
+        let rows = rows.concat();
+        let table = LongText::from_html(&format!("<p>Tableau I</p><table>{rows}</table>")).unwrap();
+        assert!(table.as_str().contains("Comprise entre 7 000 € et 7 999 € | 7\n\n"));
+        for text in [&accents, &exotic, &one_paragraph, &table] {
             for max_chars in [500_i64, 777, 1_200, 4_000, 40_000] {
                 let max = usize::try_from(max_chars).unwrap();
                 let mut rebuilt = String::new();

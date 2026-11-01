@@ -85,6 +85,25 @@ pub fn clean_field(raw: Option<&str>) -> Option<String> {
     raw.map(clean).filter(|text| !text.is_empty())
 }
 
+/// Tout blanc (saut de ligne, tabulation, espaces répétés) replié en une seule espace, blancs de
+/// bord retirés : le texte tient sur une ligne. Sert aux titres et aux extraits de résultats de
+/// recherche, qui n'ont pas besoin de paragraphes (03 §7.3).
+pub fn flatten_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// `title` (bords retirés) sauf s'il est déjà dans `citation` (égalité ou inclusion) : la règle de
+/// rendu des titres de résultats (05 §5.0.4, §1.4 règle 9), partagée par les vues et par
+/// l'estimation de taille des réponses pour qu'elles comptent les mêmes champs. Les deux textes
+/// sont déjà nettoyés par le mapping (`clean`), qui garde les sauts de ligne de la source alors
+/// que la citation est repliée sur une ligne : la comparaison replie donc le blanc des deux côtés
+/// ([`flatten_whitespace`]). Un titre absent ou vide donne `None`.
+pub fn title_unless_in_citation<'a>(title: Option<&'a str>, citation: &str) -> Option<&'a str> {
+    let title = title?.trim();
+    // Un titre vide est contenu dans toute citation : il tombe dans le même cas.
+    (!flatten_whitespace(citation).contains(&flatten_whitespace(title))).then_some(title)
+}
+
 /// `s` a un caractère non blanc.
 fn has_text(s: &str) -> bool {
     s.chars().any(|c| !c.is_whitespace())
@@ -120,6 +139,27 @@ mod tests {
     use crate::text::encoding::repair_latin1_mojibake;
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
+
+    #[test]
+    fn a_title_is_omitted_when_the_citation_holds_it_with_its_whitespace_folded() {
+        // Égalité, inclusion, blancs de bord et sauts de ligne de la source.
+        assert_eq!(title_unless_in_citation(Some("Loi X"), "Loi X"), None);
+        assert_eq!(title_unless_in_citation(Some("  Loi X  "), "Loi X, art. 1"), None);
+        assert_eq!(title_unless_in_citation(Some("a\nb"), "a b"), None);
+        // Titre qui diffère, absent ou vide ; la casse compte ; le blanc replié ne colle pas.
+        assert_eq!(title_unless_in_citation(Some("  Loi Y  "), "Loi X"), Some("Loi Y"));
+        assert_eq!(title_unless_in_citation(Some("loi x"), "Loi X"), Some("loi x"));
+        assert_eq!(title_unless_in_citation(Some("a\nb"), "ab"), Some("a\nb"));
+        assert_eq!(title_unless_in_citation(None, "Loi X"), None);
+        assert_eq!(title_unless_in_citation(Some(" \n"), "Loi X"), None);
+    }
+
+    #[test]
+    fn flatten_whitespace_gives_one_line() {
+        assert_eq!(flatten_whitespace(" a\n\nb \t c\r\n d\u{a0}e "), "a b c d e");
+        assert_eq!(flatten_whitespace("déjà sur une ligne"), "déjà sur une ligne");
+        assert_eq!(flatten_whitespace(" \n\t "), "");
+    }
 
     /// Un seul caractère retiré.
     const ONE: CleanReport = CleanReport { invisible_removed: 1 };

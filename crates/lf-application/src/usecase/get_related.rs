@@ -18,13 +18,16 @@
 //!    leur texte intégral fait plusieurs milliers de caractères. La réponse porte alors la `note`
 //!    [`Note::NoDecisionReferences`] (« l'API ne donne aucune référence pour cette décision »),
 //!    et seulement alors : une décision dont les références existent mais ne contiennent aucune
-//!    citation lisible n'a pas de note. Les références analysées sont bornées à
+//!    citation lisible n'a pas de note. Un code qui n'était pas écrit à côté de son article n'est pas
+//!    repris (« articles 1382 et 700 du code civil » donne « article 700 »), et la `note`
+//!    [`Note::DecisionLinkCodes`] dit que les codes des liens d'une décision peuvent être inexacts
+//!    dès qu'un lien en porte un, gardé ou refusé (V-117, L4-13). Les références analysées sont bornées à
 //!    `MAX_ANALYSED_CHARS` caractères : au-delà, elles sont ignorées et `truncated` le dit.
 //!
 //! # Plafond de réponse (05 §5.11, 05 §6.4)
 //!
 //! Au plus `MAX_LINKS` liens, sans suite : `total` compte les liens avant troncature et
-//! `truncated` le dit. L'estimation de la réponse ([`estimate_chars`]) reste sous la cible, en
+//! `truncated` le dit. L'estimation de la réponse ([`estimate_list_chars`], 24 par lien et par champ) reste sous la cible, en
 //! retirant des liens par la fin ([`shrink_from_end`]) ; la vue mesure ensuite la taille exacte.
 
 use futures::future::join;
@@ -34,10 +37,10 @@ use lf_domain::{
 };
 
 use crate::{
-    budget::{ResponseBudget, estimate_chars, shrink_from_end},
+    budget::{ResponseBudget, escaped_chars, estimate_chars, estimate_list_chars, shrink_from_end},
     citation::{
         Note,
-        related::{DecisionReferences, MAX_LINKS, article_links, decision_links},
+        related::{DecisionLinks, DecisionReferences, MAX_LINKS, article_links, decision_links},
     },
     error::AppError,
     failure::port_failure,
@@ -79,7 +82,16 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
         input: GetRelatedInput,
     ) -> Result<GetRelatedOutput, AppError> {
         let raw = input.id.ok_or_else(|| messages::required(messages::id_field(TOOL)))?;
-        match DocumentId::parse(&raw).map_err(|error| messages::domain(TOOL, &error))? {
+        let parsed = DocumentId::parse(&raw).map_err(|error| {
+            // Un préfixe inconnu : la phrase de l'outil, non la liste des dix familles du domaine
+            // dont six sont refusées juste après (L4-10). Un préfixe connu aux chiffres faux garde
+            // le message du domaine.
+            messages::unknown_id_family(&error).map_or_else(
+                || messages::domain(TOOL, &error),
+                |shown| messages::invalid_argument(wanted(&shown, "")),
+            )
+        })?;
+        match parsed {
             DocumentId::LegiArti(id) => self.article(id).await,
             DocumentId::JuriText(id) => self.decision(DecisionId::Juri(id)).await,
             DocumentId::ConsText(id) => self.decision(DecisionId::Constit(id)).await,
@@ -107,14 +119,19 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
             .await
             .map_err(|error| port_failure(ToolName::FR_GET_DECISION, id.as_str(), &error))?;
         let references = DecisionReferences::of(&decision);
-        let found = output(id.as_str(), &decision.contract(), decision_links(&references));
+        let DecisionLinks { links, code_involved } = decision_links(&references);
+        let found = output(id.as_str(), &decision.contract(), links);
         // Des références que l'API ne donne pas du tout : lues sur la décision, non sur les
         // références analysées, que `MAX_ANALYSED_CHARS` peut avoir vidées.
         let unreferenced = decision.cited_case_law.is_none() && decision.applied_texts.is_empty();
         Ok(GetRelatedOutput {
             // Des références ignorées faute de place : la liste est incomplète.
             truncated: found.truncated || references.clipped,
-            note: unreferenced.then_some(Note::NoDecisionReferences),
+            note: if unreferenced {
+                Some(Note::NoDecisionReferences)
+            } else {
+                code_involved.then_some(Note::DecisionLinkCodes)
+            },
             ..found
         })
     }
@@ -146,7 +163,7 @@ fn output(id: &str, contract: &CitationContract, mut links: Vec<LinkOut>) -> Get
     }
 }
 
-/// Coût estimé d'un lien : l'élément, ses trois champs toujours présents (`relation`, `kind`,
+/// Coût estimé d'un lien (24 par champ, textes échappés comme en JSON) : l'élément, ses trois champs toujours présents (`relation`, `kind`,
 /// `citation`) et les deux facultatifs (`id`, `source_url`) quand ils y sont.
 #[expect(
     clippy::arithmetic_side_effects,
@@ -158,9 +175,9 @@ fn cost(link: &LinkOut) -> usize {
     let text = [link.relation.as_str(), link.kind.snake_case(), link.citation.as_str()]
         .into_iter()
         .chain(optional.into_iter().flatten().map(String::as_str))
-        .map(chars)
+        .map(escaped_chars)
         .fold(0, usize::saturating_add);
-    estimate_chars(4 + present, text)
+    estimate_list_chars(4 + present, text)
 }
 
 /// Longueur en caractères (points de code) : l'unité des plafonds.
@@ -190,12 +207,16 @@ fn unsupported(id: &DocumentId) -> AppError {
              fond=LODA and use the LEGITEXT id of the hit."
         }
     };
-    messages::invalid_argument(format!(
-        "{}='{}' must be a LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... \
+    messages::invalid_argument(wanted(id.as_str(), hint))
+}
+
+/// Ce que l'outil lit, pour l'identifiant `shown` (déjà normalisé ou échappé), suivi de `hint`.
+fn wanted(shown: &str, hint: &str) -> String {
+    format!(
+        "{}='{shown}' must be a LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... \
          decision id.{hint}",
         messages::id_field(TOOL),
-        id.as_str()
-    ))
+    )
 }
 
 #[cfg(test)]
@@ -332,17 +353,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn links_with_an_id_and_a_page_cost_more_so_the_estimate_may_trim_before_100() {
-        // Chaque lien identifié compte cinq champs et une page : l'estimation, volontairement
-        // large (64 par champ), retire les derniers liens bien avant les 45 000 caractères réels.
-        let links = RelatedLinks { cites: (1..=100).map(cited).collect(), cited_by: vec![] };
+    async fn a_hundred_short_links_are_all_served() {
+        // 254 liens identifiés (cas réel LEGIARTI000035644154) : cent servis, `truncated`, et rien
+        // n'est retiré par l'estimation, qui comptait 64 par champ et coupait à 79-86 liens.
+        let links = RelatedLinks { cited_by: (1..=254).map(cited).collect(), cites: vec![] };
 
         let out = run(&serving(links), Some(ARTI)).await.unwrap();
 
-        assert_eq!(out.total, 100);
-        assert!(out.truncated);
-        let kept = out.links.len();
-        assert!((1..100).contains(&kept), "{kept}");
+        assert_eq!((out.links.len(), out.total, out.truncated), (100, 254, true));
+        // Les cent premiers, dans l'ordre de l'API.
+        assert_eq!(out.links[99].citation, "Code civil, art. 100");
+    }
+
+    #[tokio::test]
+    async fn cites_come_before_cited_by_and_the_cut_falls_on_the_tail() {
+        // Ordre documenté (05 §5.11) : les liens « cites » d'abord, puis les « cited_by ».
+        let links = RelatedLinks {
+            cites: (1..=3).map(cited).collect(),
+            cited_by: (100..=300).map(cited).collect(),
+        };
+
+        let out = run(&serving(links), Some(ARTI)).await.unwrap();
+
+        assert_eq!((out.links.len(), out.total, out.truncated), (100, 204, true));
+        assert!(out.links[..3].iter().all(|link| link.relation == Relation::Cites));
+        assert!(out.links[3..].iter().all(|link| link.relation == Relation::CitedBy));
+    }
+
+    #[test]
+    fn the_cost_of_a_link_counts_24_per_field_and_the_json_escapes() {
+        let link = |citation: &str, id: Option<&str>| LinkOut {
+            relation: Relation::Cites,
+            kind: CitationKind::CodeArticle,
+            citation: citation.to_owned(),
+            id: id.map(str::to_owned),
+            source_url: id.map(|id| format!("u/{id}")),
+        };
+        let text = Relation::Cites.as_str().len() + CitationKind::CodeArticle.snake_case().len();
+        assert_eq!(cost(&link("abc", None)), estimate_list_chars(4, text + 3));
+        assert_eq!(cost(&link("abc", Some("L1"))), estimate_list_chars(6, text + 3 + 2 + 4));
+        // Un guillemet pèse deux caractères, un contrôle six.
+        assert_eq!(cost(&link("a\"\u{1}", None)), estimate_list_chars(4, text + 1 + 2 + 6));
     }
 
     #[tokio::test]
@@ -565,6 +616,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_decision_link_with_a_code_carries_the_note_and_only_then() {
+        // related_diff-2 : « articles 1382 et 700 du code civil » ne rend plus « Code civil, art.
+        // 700 » ; la réponse dit que les codes des liens d'une décision peuvent être inexacts.
+        let corpus = FakeCorpus::new();
+        let texts = vec!["articles 1382 et 700 du code civil".to_owned()];
+        corpus.push_get_decision(Ok(referencing(JURI, None, texts)));
+        let out = run(&corpus, Some(JURI)).await.unwrap();
+        let shown: Vec<_> = out.links.iter().map(|link| link.citation.as_str()).collect();
+        assert_eq!(shown, ["article 1382", "article 700"]);
+        assert_eq!(out.note, Some(Note::DecisionLinkCodes));
+
+        // Un code écrit à côté de son article est gardé, mais la note est livrée aussi : le titre
+        // brut vient d'un fragment amont (V-117).
+        let corpus = FakeCorpus::new();
+        let texts = vec!["article 700 du code de procédure civile".to_owned()];
+        corpus.push_get_decision(Ok(referencing(JURI, None, texts)));
+        let out = run(&corpus, Some(JURI)).await.unwrap();
+        assert_eq!(out.links[0].citation, "Code de procédure civile, art. 700");
+        assert_eq!(out.note, Some(Note::DecisionLinkCodes));
+
+        // Jumeau : aucun lien ne porte de code, pas de note.
+        let corpus = FakeCorpus::new();
+        let texts = vec!["article 1382, devenu 1240 du code civil".to_owned()];
+        corpus.push_get_decision(Ok(referencing(JURI, None, texts)));
+        assert_eq!(run(&corpus, Some(JURI)).await.unwrap().note, None);
+    }
+
+    #[tokio::test]
     async fn decision_links_are_capped_like_article_links() {
         let texts: Vec<String> = (1..=150).map(|n| format!("article {n} du code civil")).collect();
         let corpus = FakeCorpus::new();
@@ -664,16 +743,26 @@ mod tests {
     #[tokio::test]
     async fn the_id_is_required_and_must_be_well_formed() {
         assert_eq!(rejected(None).await, "id is required.");
+        // L4-10 (related_diff-8) : un préfixe inconnu cite ce que l'outil lit, non les dix
+        // familles du domaine dont six sont refusées ensuite.
+        for raw in ["x", "foo", "", "FOOTEXT000000000001"] {
+            assert_eq!(
+                rejected(Some(raw)).await,
+                format!(
+                    "id='{raw}' must be a LEGIARTI... article id or a JURITEXT..., CONSTEXT... \
+                     or CETATEXT... decision id."
+                ),
+                "{raw:?}"
+            );
+        }
+        // Un préfixe connu aux chiffres faux garde le message du domaine.
         assert_eq!(
-            rejected(Some("x")).await,
-            "id='x' must start with one of ('LEGITEXT', 'LEGIARTI', 'JORFTEXT', 'KALITEXT', \
-             'KALIARTI', 'JURITEXT', 'CONSTEXT', 'CETATEXT', 'CNILTEXT', 'ACCOTEXT')."
+            rejected(Some("LEGIARTI123")).await,
+            "id='LEGIARTI123' must be LEGIARTI followed by exactly 12 digits \
+             (e.g. LEGIARTI000006419288)."
         );
-        let message = rejected(Some("FOOTEXT000000000001")).await;
-        assert!(
-            message.starts_with("id='FOOTEXT000000000001' must start with one of ("),
-            "{message}"
-        );
+        let message = rejected(Some("JURITEXT12")).await;
+        assert!(message.contains("must be JURITEXT followed by exactly 12 digits"), "{message}");
     }
 
     #[tokio::test]

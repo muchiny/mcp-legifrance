@@ -64,7 +64,7 @@ pub(crate) enum AnchorClass {
     CcNumber,
     /// Sigle en majuscules : `CE`, `CC`, `CGI`.
     Sigle,
-    /// Préfixe d'article suivi d'un chiffre : `(LO|L|R|D|A)\*{0,2}\.?\s?\d`.
+    /// Préfixe d'article suivi d'un chiffre : `(L\.\s?O\.?|(LO|L|R|D|A)\*{0,2}\.?)\s?\d`.
     ArticlePrefix,
 }
 
@@ -257,9 +257,12 @@ static TOKENS: LazyLock<Vec<Token>> = LazyLock::new(|| {
         token(AnchorClass::Pourvoi, r"\b[0-9]{2}-[0-9]{2}\.?[0-9]{3}\b"),
         token(AnchorClass::CaaNumber, &format!(r"\b[0-9]{{2}}(?:{caa})[0-9]{{5}}\b")),
         token(AnchorClass::Rg, r"\b[0-9]{2}/[0-9]{4,5}\b"),
-        token(AnchorClass::CcNumber, &format!(r"\b[0-9]{{4}}-[0-9]+(?:/[0-9]+)?R?[ ]?(?:{cc})\b")),
+        token(
+            AnchorClass::CcNumber,
+            &format!(r"\b(?:[0-9]{{4}}|[5-9][0-9])-[0-9]+(?:/[0-9]+)?R?[ ]?(?:{cc})\b"),
+        ),
         token(AnchorClass::Sigle, &format!(r"\b(?:{sigles})\b")),
-        token(AnchorClass::ArticlePrefix, r"\b(?:LO|L|R|D|A)\*{0,2}\.?[ ]?[0-9]"),
+        token(AnchorClass::ArticlePrefix, r"\b(?:L\.[ ]?O\.?|(?:LO|L|R|D|A)\*{0,2}\.?)[ ]?[0-9]"),
     ]
 });
 
@@ -513,6 +516,8 @@ mod tests {
             ("n° 2010-14/22 QPC", CcNumber, "2010-14/22 QPC"),
             ("n° 2015-491R DC", CcNumber, "2015-491R DC"),
             ("n° 2011-4 SEN/QPC", CcNumber, "2011-4 SEN/QPC"),
+            ("décision n° 71-44 DC", CcNumber, "71-44 DC"),
+            ("n° 94-343/344 DC", CcNumber, "94-343/344 DC"),
             ("art. L. 52-8 CE", Sigle, "CE"),
             ("art. 1 du CGI", Sigle, "CGI"),
             ("art. 700 du CPC", Sigle, "CPC"),
@@ -529,6 +534,46 @@ mod tests {
         // Les quinze classes du tableau sont couvertes.
         let covered: BTreeSet<u8> = cases.iter().map(|&(_, class, _)| class as u8).collect();
         assert_eq!(covered.len(), 15);
+    }
+
+    #[test]
+    fn the_organic_law_prefix_with_points_anchors_only_in_capitals_before_a_digit() {
+        for (text, slice) in [
+            ("art. L.O. 127 du code électoral", "L.O. 1"),
+            ("article L. O. 141", "L. O. 1"),
+            ("article L.O.141", "L.O.1"),
+        ] {
+            assert!(has(text, AnchorClass::ArticlePrefix, slice));
+        }
+        // « l.o. », « L.O.I. » et « L.O. » sans chiffre n'ancrent pas.
+        for text in ["article l.o. 127", "L.O.I. 5", "article L.O. x", "D. 2016, p. 1234 L.O.I."] {
+            let seen = found(text);
+            assert!(
+                !seen.iter().any(|(class, slice)| *class == AnchorClass::ArticlePrefix
+                    && slice.starts_with("L.")),
+                "{text:?} : {seen:?}"
+            );
+        }
+    }
+
+    /// Revue W4 (L1-03) : la normalisation ramène l'espace insécable et le saut de ligne à une
+    /// espace ; l'ancre `L.O` (une espace au plus) les lit donc comme `dotted_lo`. Une suite
+    /// d'espaces n'est pas repliée et n'ancre pour aucun préfixe (« L.  761 » pas plus que
+    /// « L.  O. 141 ») : le refus est général et voulu, la grammaire n'y est jamais appelée.
+    #[test]
+    fn the_organic_law_anchor_reads_the_blanks_the_normalization_leaves() {
+        for text in ["article L.\u{a0}O. 141", "article L.\nO. 141", "article L.\u{a0}O.\u{a0}141"]
+        {
+            let seen = found(text);
+            assert!(seen.contains(&(AnchorClass::ArticlePrefix, "L. O. 1".to_owned())), "{seen:?}");
+        }
+        for text in ["article L.  O. 141", "article L.  761-1", "article L. \u{a0}O. 141"] {
+            let seen = found(text);
+            assert!(
+                !seen.iter().any(|(class, _)| *class == AnchorClass::ArticlePrefix),
+                "{text:?} : {seen:?}"
+            );
+        }
     }
 
     #[test]
@@ -567,6 +612,11 @@ mod tests {
         assert!(!has_class("LEGITEXT0000332050144_08-09-2023", AnchorClass::LegifranceId));
         assert!(!has_class("pour la période 2016-1321", AnchorClass::CcNumber));
         assert!(!has_class("aux 1234 RG", AnchorClass::Rg));
+        // L1-04 : l'ancre à deux chiffres exige un type et ne lit pas un numéro de texte.
+        assert!(!has_class("loi n° 58-1067", AnchorClass::CcNumber));
+        assert!(!has_class("pourvoi n° 93-12.345", AnchorClass::CcNumber));
+        // 58 passe l'ancre (`[5-9][0-9]`) ; la grammaire le refuse (avant 1959).
+        assert!(!has_class("décision n° 71-44", AnchorClass::CcNumber));
         assert!(has("ECLI:FR:CCASS:2025", AnchorClass::Ecli, "ECLI:"));
         // L'identifiant collé à un autre mot n'est pas isolé.
         assert!(!has_class("xLEGIARTI000006419288", AnchorClass::LegifranceId));

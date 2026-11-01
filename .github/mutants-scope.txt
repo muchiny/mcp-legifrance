@@ -20,3 +20,6 @@ crates/lf-adapter-audit/src/rotation.rs
 crates/lf-adapter-cache/src/key.rs
 crates/lf-app/src/config.rs
 xtask/src/lock_descriptors.rs
+crates/lf-application/src/citation/policy.rs
+crates/lf-application/src/citation/notes.rs
+crates/lf-domain/src/citation/unread.rs

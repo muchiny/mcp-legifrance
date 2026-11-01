@@ -12,8 +12,9 @@ use std::str::FromStr;
 use lf_application::ports::CorpusError;
 use lf_domain::DomainError;
 use lf_domain::date::{CivilDate, open_ended};
+use lf_domain::fond::Fond;
 use lf_domain::id::parse_versioned;
-use lf_domain::text::LongText;
+use lf_domain::text::{LongText, clean_field};
 
 use super::{Diagnostics, Field, not_found};
 use crate::dto::acco::AccordDto;
@@ -50,6 +51,29 @@ impl Identified for AccordDto {
     fn identity(&self) -> [Option<&str>; 3] {
         [self.id.as_deref(), self.titre_texte.as_deref(), None]
     }
+}
+
+/// Plafond du titre d'une décision `JURI` côté amont, en caractères (L3-06, `search-4`).
+const JURI_TITLE_CAP: usize = 256;
+
+/// Titre d'une décision de `fond`, nettoyé, sans le dernier jeton si l'amont l'a coupé.
+///
+/// PISTE plafonne le titre `JURI` à 256 caractères : l'intitulé d'un arrêt joint à de nombreux
+/// pourvois s'arrête en plein numéro (`… 22-13.508 22-`). Pour `JURI` seulement, un titre de
+/// exactement 256 caractères perd son dernier jeton, possiblement partiel, et reçoit ` …`. La
+/// longueur se lit sur le titre brut et sur le titre nettoyé : le nettoyage retire les blancs de
+/// fin et replie les espaces, et un titre coupé juste après une espace tomberait sous 256. Les
+/// titres `CONSTIT`, `CETAT` et `CNIL` peuvent légitimement atteindre 256 caractères et plus : ils
+/// ne sont pas touchés. Faux positif accepté : un titre complet de 256 caractères perd son dernier
+/// jeton. Sans espace, il n'y a pas de jeton à retirer et seule la marque est ajoutée.
+pub(crate) fn restore_capped_title(fond: Fond, raw: Option<&str>) -> Option<String> {
+    let title = clean_field(raw)?;
+    let at_cap = |text: &str| text.chars().count() == JURI_TITLE_CAP;
+    if fond != Fond::Juri || !(at_cap(&title) || raw.is_some_and(at_cap)) {
+        return Some(title);
+    }
+    let head = title.rsplit_once(char::is_whitespace).map_or(title.as_str(), |(head, _)| head);
+    Some(format!("{} …", head.trim_end()))
 }
 
 /// Au moins un des `fields` est présent et non vide après suppression des blancs.
@@ -443,6 +467,91 @@ mod tests {
             .flat_map(|name| decode_as::<SearchResponseDto>(name).results)
             .map(|result| result.titles[0].id.clone().expect("hit id"))
             .collect()
+    }
+
+    /// Titre de `len` caractères fait de numéros de pourvoi séparés par une espace.
+    fn pourvois(len: usize) -> String {
+        let title: String = (100..).map(|n| format!("22-13.{n} ")).take(len).collect();
+        title.chars().take(len).collect()
+    }
+
+    fn restored(fond: Fond, title: &str) -> String {
+        restore_capped_title(fond, Some(title)).unwrap()
+    }
+
+    #[test]
+    fn a_juri_title_of_exactly_256_characters_loses_its_last_token() {
+        let cut = pourvois(256);
+        assert_eq!(cut.chars().count(), 256);
+        let want = format!("{} …", cut.rsplit_once(' ').unwrap().0);
+        assert_eq!(restored(Fond::Juri, &cut), want);
+        assert!(!want.ends_with("22- …"), "{want}");
+    }
+
+    /// Table 255 / 256 / 257 : seul 256 est touché.
+    #[test]
+    fn only_a_juri_title_of_256_characters_is_restored() {
+        for (len, touched) in [(255, false), (256, true), (257, false), (1_000, false)] {
+            let title = pourvois(len);
+            let got = restored(Fond::Juri, &title);
+            // Le nettoyage rogne les blancs de fin : un titre non touché en est quitte.
+            assert_eq!(got != title.trim_end(), touched, "{len}");
+            assert_eq!(got.ends_with(" …"), touched, "{len}");
+        }
+    }
+
+    /// Les caractères comptent, pas les octets : 256 accents (512 octets) sont touchés, et 128
+    /// caractères sur 256 octets ne le sont pas.
+    #[test]
+    fn the_cap_counts_characters_not_bytes() {
+        let accented = format!("{}é", "é ".repeat(127) + "é");
+        assert_eq!(accented.chars().count(), 256);
+        assert!(accented.len() > 256);
+        assert_eq!(restored(Fond::Juri, &accented), format!("{} …", "é ".repeat(127).trim_end()));
+        let short = "é".repeat(128);
+        assert_eq!(restored(Fond::Juri, &short), short);
+    }
+
+    /// Un seul mot de 256 caractères : pas de jeton à retirer, seule la marque est ajoutée.
+    #[test]
+    fn a_juri_title_without_space_only_gets_the_mark() {
+        let word = "x".repeat(256);
+        assert_eq!(restored(Fond::Juri, &word), format!("{word} …"));
+    }
+
+    /// Jumeau : les autres fonds peuvent légitimement atteindre 256 caractères et plus.
+    #[test]
+    fn other_fonds_keep_a_title_of_256_characters() {
+        let title = pourvois(256);
+        for fond in Fond::ALL.into_iter().filter(|fond| *fond != Fond::Juri) {
+            assert_eq!(restored(fond, &title), title, "{fond:?}");
+        }
+    }
+
+    /// Le nettoyage retire les blancs de fin : un titre brut de 256 caractères terminé par une
+    /// espace (coupure juste après une espace) est reconnu sur sa longueur brute.
+    #[test]
+    fn a_raw_title_of_256_characters_ending_in_a_space_is_restored() {
+        let spaced = |len: usize| {
+            let mut text = pourvois(len);
+            text.pop();
+            text + "9 "
+        };
+        let raw = spaced(255);
+        assert_eq!(raw.chars().count(), 256);
+        assert!(raw.ends_with(' '));
+        let got = restored(Fond::Juri, &raw);
+        assert!(got.ends_with(" …"), "{got}");
+        assert!(!got.ends_with("22- …"), "{got}");
+        // Jumeau : 255 caractères bruts terminés par une espace ne sont pas touchés.
+        let short = spaced(254);
+        assert_eq!(short.chars().count(), 255);
+        assert_eq!(restored(Fond::Juri, &short), short.trim_end());
+    }
+
+    #[test]
+    fn an_absent_title_stays_absent() {
+        assert_eq!(restore_capped_title(Fond::Juri, None), None);
     }
 
     #[test]

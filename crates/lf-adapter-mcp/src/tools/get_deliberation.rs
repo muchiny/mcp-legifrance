@@ -369,7 +369,7 @@ mod tests {
             assert_eq!(result.is_error, Some(true));
             assert_eq!(
                 result.content[0].as_text().unwrap().text,
-                "[invalid_arg] offset=20000 is past the end of the text (text_length=593); \
+                "[invalid_arg] offset=20000 is at or past the end of the text (text_length=593); \
                  restart from offset=0 or omit offset."
             );
             assert_eq!(fixture.audit.records()[0].error_code, Some(ErrorCode::InvalidArg));

@@ -88,6 +88,22 @@ fn text_num(text: &str, at: usize) -> Option<(TextNumber, usize)> {
     (boundary(text, end) && next_char(text, end) != Some('-')).then_some((number, end))
 }
 
+/// Un mot de type de décision (« L », « DC », « QPC ») suit-il ? Quatre majuscules au plus.
+fn decision_type_follows(text: &str, end: usize) -> bool {
+    let Some(pos) = ws(text, end) else { return false };
+    let letters =
+        text.get(pos..).unwrap_or_default().chars().take_while(char::is_ascii_uppercase).count();
+    (1..=4).contains(&letters) && boundary(text, pos + letters)
+}
+
+/// Numéro sans « n° » : `89-462`, `2016-1321`, `78-17`. L'année est exigée (un entier seul n'est
+/// pas un numéro de texte) et un type de décision qui suit (« 93-1419 L ») écarte la lecture : ce
+/// serait le numéro d'une décision du Conseil constitutionnel.
+fn bare_num(text: &str, at: usize) -> Option<(TextNumber, usize)> {
+    text_num(text, at)
+        .filter(|(number, end)| number.year.is_some() && !decision_type_follows(text, *end))
+}
+
 /// Émetteurs d'un texte : forme repliée et forme rendue.
 const EMITTERS: [(&str, &str); 5] = [
     ("ministeriel", "ministériel"),
@@ -275,16 +291,24 @@ struct Body {
     end: usize,
 }
 
-/// `[ WS emitter ] ( WS NUM_SIGN text_num [ WS DATE_LINK ] | WS DATE_LINK )` à partir de `at`.
+/// `[ WS emitter ] ( WS [ NUM_SIGN ] text_num [ WS DATE_LINK ] | WS DATE_LINK )` à partir de
+/// `at`. Le « n° » ne s'omet qu'après « loi », « décret » ou « ordonnance » écrits, et le numéro
+/// porte alors son année (`89-462`, `2016-1321`).
 fn body_after(
     text: &str,
     at: usize,
     emitter: Option<&'static str>,
-    needs_number: bool,
+    nature: &NatureHit,
 ) -> Option<Body> {
+    let needs_number = nature.needs_number;
+    let bare = !needs_number
+        && matches!(nature.nature, TextNature::Loi | TextNature::Decret | TextNature::Ordonnance);
     let numbered = ws(text, at)
-        .and_then(|pos| num_sign(text, pos))
-        .and_then(|pos| text_num(text, pos))
+        .and_then(|pos| {
+            num_sign(text, pos)
+                .and_then(|after| text_num(text, after))
+                .or_else(|| bare.then(|| bare_num(text, pos)).flatten())
+        })
         .map(|(number, end)| {
             let date = ws(text, end).and_then(|pos| codes::date_link(text, pos));
             Body { number: Some(number), end: date.as_ref().map_or(end, |d| d.end), date, emitter }
@@ -298,8 +322,8 @@ fn body_after(
 fn body(text: &str, nature: &NatureHit) -> Option<Body> {
     ws(text, nature.end)
         .and_then(|pos| emitter_at(text, pos))
-        .and_then(|(emitter, after)| body_after(text, after, Some(emitter), nature.needs_number))
-        .or_else(|| body_after(text, nature.end, None, nature.needs_number))
+        .and_then(|(emitter, after)| body_after(text, after, Some(emitter), nature))
+        .or_else(|| body_after(text, nature.end, None, nature))
 }
 
 fn appellation_hit(text: &str, nature: &NatureHit) -> Option<TextHit> {
@@ -449,6 +473,35 @@ fn text_article_at(text: &str, start: usize) -> Option<Hit> {
     Some(Hit { end, found: codes::article_founds(start, &lead, &list, &tail, &make) })
 }
 
+/// `text_article_postfix` : `text_cite "," art_kw art_list`, l'article cité après son texte
+/// (« loi n° 2016-1321 du 7 octobre 2016, art. 1er, I, 2° »). Le texte porte un numéro ou une
+/// date, la virgule est le seul séparateur (un « ; » clôt la citation) et un code qui suit la
+/// liste d'articles, avec ou sans lien, annule la lecture : « …, art. 9 C. civ. » est un article
+/// de code, jamais celui de la loi. Un article suivi d'un lien et d'un autre texte (« …, art. 3 de
+/// la loi n° B ») appartient à cet autre texte : `text_article_at` le lit depuis « art. 3 ».
+fn text_article_postfix(text: &str, start: usize) -> Option<Hit> {
+    let cited = text_core(text, start)?;
+    (cited.cite.number.is_some() || cited.cite.date.is_some()).then_some(())?;
+    let after_comma = consume(text, ws0(text, cited.end), ',')?;
+    let art_start = ws0(text, after_comma);
+    let list = codes::art_list(text, codes::art_kw(text, art_start)?)?;
+    if codes::code_follows(text, list.end) || text_article_at(text, art_start).is_some() {
+        return None;
+    }
+    let end = list.end;
+    let tail = Tail {
+        span_end: end,
+        group_end: end,
+        confidence: cited.confidence,
+        ambiguity: cited.ambiguity,
+        flags: cited.flags,
+        version: None,
+    };
+    let cite = Some(cited.cite);
+    let make = |article, _| CitationRef::TextArticle { text: cite.clone(), article, at_date: None };
+    Some(Hit { end, found: codes::article_founds(start, &[], &list, &tail, &make) })
+}
+
 /// Un texte seul.
 fn text_only_at(text: &str, start: usize) -> Option<Hit> {
     let hit = text_cite(text, start)?;
@@ -464,7 +517,9 @@ fn text_only_at(text: &str, start: usize) -> Option<Hit> {
 }
 
 fn text_at(text: &str, start: usize) -> Option<Hit> {
-    text_article_at(text, start).or_else(|| text_only_at(text, start))
+    text_article_at(text, start)
+        .or_else(|| text_article_postfix(text, start))
+        .or_else(|| text_only_at(text, start))
 }
 
 /// Candidats de la famille, tirés des ancres compatibles avec ses grammaires.
@@ -1121,6 +1176,186 @@ mod tests {
                 &[("articles 1100 à 1101 de la loi n° 78-17", "Art 1100 to=1101 of LOI 78-17 -")],
             ),
         ]);
+    }
+
+    #[test]
+    fn an_article_after_its_text_is_attached_to_it_l1_08() {
+        check(&[
+            (
+                "Voir loi n° 2016-1321 du 7 octobre 2016, art. 1er, I, 2°, ainsi que le décret",
+                &[LOI],
+                &[(
+                    "loi n° 2016-1321 du 7 octobre 2016, art. 1er, I, 2°",
+                    "Art 1er sub=[Paragraphe(\"I\"), Item(2)] of LOI 2016-1321 2016-10-07",
+                )],
+            ),
+            (
+                "décret n° 2019-1500 du 27 décembre 2019, article 3 et 4",
+                &[DECRET],
+                &[
+                    ("3", "Art 3 of DECRET 2019-1500 2019-12-27 grp"),
+                    ("4", "Art 4 of DECRET 2019-1500 2019-12-27 grp"),
+                ],
+            ),
+            (
+                "loi n° 2018-493 du 20 juin 2018, art. 1er",
+                &[LOI],
+                &[(
+                    "loi n° 2018-493 du 20 juin 2018, art. 1er",
+                    "Art 1er of LOI 2018-493 2018-06-20",
+                )],
+            ),
+            (
+                "loi n° 2018-493 du 20 juin 2018 , articles 1100 à 1101",
+                &[LOI],
+                &[(
+                    "loi n° 2018-493 du 20 juin 2018 , articles 1100 à 1101",
+                    "Art 1100 to=1101 of LOI 2018-493 2018-06-20",
+                )],
+            ),
+            (
+                "ordonnance n° 2016-131 susvisée,art. 4",
+                &[ORD],
+                &[(
+                    "ordonnance n° 2016-131 susvisée,art. 4",
+                    "Art 4 of ORDONNANCE 2016-131 - anaphora=Susvisee",
+                )],
+            ),
+            ("loi n° 78-17 ; art. 4", &[LOI], &[("loi n° 78-17", "Text LOI 78-17 -")]),
+            (
+                "loi du 29 juillet 1881, art. 29",
+                &[LOI],
+                &[("loi du 29 juillet 1881, art. 29", "Art 29 of LOI - 1881-07-29")],
+            ),
+        ]);
+    }
+
+    #[test]
+    fn an_article_followed_by_a_code_is_never_the_texts_l1_08() {
+        let law = "loi n° 2016-1321 du 7 octobre 2016";
+        for tail in [
+            ", art. 9 C. civ.",
+            ", art. 9 CPC",
+            ", art. L. 1234-9 C. trav.",
+            ", art. 1240 du code civil",
+            ", art. 1240 code civil",
+            ", art. 1240 et s. du code civil",
+            ", art. 4 CE",
+            ", art. 4 du même code",
+            ", art. 4 du code de la route",
+        ] {
+            let input = format!("{law}{tail}");
+            check(&[(&input, &[LOI], &[(law, "Text LOI 2016-1321 2016-10-07")])]);
+        }
+    }
+
+    #[test]
+    fn an_article_followed_by_a_link_and_another_text_is_that_texts_l1_08() {
+        check(&[
+            (
+                "loi n° 2016-1321 du 7 octobre 2016, art. 3 de la loi n° 2018-493",
+                &[LOI, ART],
+                &[
+                    ("loi n° 2016-1321 du 7 octobre 2016", "Text LOI 2016-1321 2016-10-07"),
+                    ("art. 3 de la loi n° 2018-493", "Art 3 of LOI 2018-493 -"),
+                ],
+            ),
+            (
+                "décret n° 2019-1500, article 4 du décret n° 2020-1",
+                &[DECRET, ART],
+                &[
+                    ("décret n° 2019-1500", "Text DECRET 2019-1500 -"),
+                    ("article 4 du décret n° 2020-1", "Art 4 of DECRET 2020-1 -"),
+                ],
+            ),
+        ]);
+    }
+
+    #[test]
+    fn a_postfix_article_needs_a_text_a_comma_and_an_article_l1_08() {
+        check(&[
+            (
+                "la loi Macron, art. 5",
+                &[LOI],
+                &[("loi Macron", "Text LOI - - app=Macron conf=Low amb=appellation")],
+            ),
+            ("la loi susvisée, art. 4", &[LOI], &[]),
+            ("loi n° 78-17 art. 4", &[LOI], &[("loi n° 78-17", "Text LOI 78-17 -")]),
+            ("loi n° 78-17, alinéa 4", &[LOI], &[("loi n° 78-17", "Text LOI 78-17 -")]),
+            ("loi n° 78-17, art. de", &[LOI], &[("loi n° 78-17", "Text LOI 78-17 -")]),
+            ("loi n° 78-17, art. 4", &[LOI], &[("loi n° 78-17, art. 4", "Art 4 of LOI 78-17 -")]),
+        ]);
+    }
+
+    #[test]
+    fn a_number_without_a_sign_is_read_after_loi_decret_and_ordonnance_l1_08() {
+        check(&[
+            ("loi 89-462, art. 22", &[LOI], &[("loi 89-462, art. 22", "Art 22 of LOI 89-462 -")]),
+            (
+                "la loi 78-17 du 6 janvier 1978",
+                &[LOI],
+                &[("loi 78-17 du 6 janvier 1978", "Text LOI 78-17 1978-01-06")],
+            ),
+            ("la loi 78-17", &[LOI], &[("loi 78-17", "Text LOI 78-17 -")]),
+            ("la loi 2016-1321 modifiée", &[LOI], &[("loi 2016-1321", "Text LOI 2016-1321 -")]),
+            ("décret 93-1419", &[DECRET], &[("décret 93-1419", "Text DECRET 93-1419 -")]),
+            (
+                "décret ministériel 93-1419",
+                &[DECRET],
+                &[("décret ministériel 93-1419", "Text DECRET 93-1419 - emit=ministériel")],
+            ),
+            (
+                "ordonnance 2016-131 du 10 février 2016",
+                &[ORD],
+                &[(
+                    "ordonnance 2016-131 du 10 février 2016",
+                    "Text ORDONNANCE 2016-131 2016-02-10",
+                )],
+            ),
+            (
+                "article 22 de la loi 89-462",
+                &[ART, LOI],
+                &[("article 22 de la loi 89-462", "Art 22 of LOI 89-462 -")],
+            ),
+            // Un numéro sans année n'est pas un numéro de texte.
+            ("la loi 12", &[LOI], &[]),
+            ("la loi 12 du 6 juillet 1989", &[LOI], &[]),
+            // Un type de décision qui suit : numéro d'une décision du Conseil constitutionnel.
+            ("décret 93-1419 L", &[DECRET], &[]),
+            ("décret 93-1419 DC.", &[DECRET], &[]),
+            ("décret 93-1419 QPC", &[DECRET], &[]),
+            // Mot en majuscules trop long, minuscules, lettre collée, chiffre : pas un type.
+            ("décret 93-1419 ABCDE", &[DECRET], &[("décret 93-1419", "Text DECRET 93-1419 -")]),
+            ("décret 93-1419 L1", &[DECRET], &[("décret 93-1419", "Text DECRET 93-1419 -")]),
+            ("décret 93-1419 l", &[DECRET], &[("décret 93-1419", "Text DECRET 93-1419 -")]),
+            // Les autres natures et les abréviations de « L. » et « D. » gardent le « n° ».
+            ("arrêté 2019-123", &[ARRETE], &[]),
+            ("loi organique 2009-1523", &[LOI], &[]),
+            ("décret-loi 35-1", &[DECRET], &[]),
+            ("L. 2016-1321", &[(TextNature, "l. 2")], &[]),
+            ("D. 93-1419", &[(TextNature, "d. 9")], &[]),
+        ]);
+    }
+
+    #[test]
+    fn a_type_word_after_a_number_is_one_to_four_capitals_l1_08() {
+        for (text, follows) in [
+            ("93-1419 L", true),
+            ("93-1419   DC", true),
+            ("93-1419 QPC", true),
+            ("93-1419 LOMA", true),
+            ("93-1419 ABCDE", false),
+            ("93-1419 L1", false),
+            ("93-1419 l", false),
+            ("93-1419 ", false),
+            ("93-1419", false),
+            ("93-1419 du", false),
+        ] {
+            assert_eq!(decision_type_follows(text, 7), follows, "{text}");
+        }
+        assert!(bare_num("93-1419", 0).is_some());
+        assert!(bare_num("93-1419 L", 0).is_none());
+        assert!(bare_num("12", 0).is_none());
     }
 
     #[test]

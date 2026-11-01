@@ -411,6 +411,26 @@ mod tests {
     }
 
     #[test]
+    fn a_table_row_is_one_paragraph_and_its_bars_count_in_the_offsets() {
+        // L4-01 : `text_length` et les `offset` comptent les ` | ` ajoutés par le serveur.
+        let table = "<p>Barème</p><table><tr><td><p>N'excédant pas 8 072 € </p></td>\
+            <td><br/>5 <br/></td></tr><tr><td><p>Au-delà </p></td><td></td><td><br/>45 <br/></td></tr></table>";
+        let text = html(table);
+        assert_eq!(text.as_str(), "Barème\n\nN'excédant pas 8 072 € | 5\n\nAu-delà | | 45");
+        let rows: Vec<(u32, &str)> = text.paragraphs().collect();
+        assert_eq!(
+            rows,
+            [(0, "Barème"), (8, "N'excédant pas 8 072 € | 5"), (36, "Au-delà | | 45")]
+        );
+        assert_eq!(text.char_len(), 36 + 14);
+        assert_eq!(usize::try_from(text.char_len()).unwrap(), text.as_str().chars().count());
+        // Sans tableau, rien ne change : les blocs coupent, aucune barre.
+        assert_eq!(html("<p>a</p><p>b<br/>c</p>").as_str(), "a\n\nb\n\nc");
+        // Un texte brut n'est jamais lu comme un tableau.
+        assert_eq!(plain("a | b").as_str(), "a | b");
+    }
+
+    #[test]
     fn text_length_counts_chars_of_canonical_text() {
         // 03 §7.5 : 14 236 caractères de paragraphes + 2 × 48 séparateurs.
         let constit = html(&text_field(CONSTIT, "texteHtml").unwrap());

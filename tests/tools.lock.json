@@ -107,9 +107,9 @@
   "server_version": "1.0.0",
   "sizes": {
     "instructions_chars": 3278,
-    "tools_list_bytes": 31853
+    "tools_list_bytes": 30634
   },
-  "surface_sha256": "b8e9a51dc9f77f250a779aff4f17fc4b5207a9b2dd64795aa36c186ed2c457c3",
+  "surface_sha256": "79a796aa77cdae7a6cd30ab220d267020e6a11f6feb80b15bc82ebacff9d39b4",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -206,10 +206,7 @@
                     "type": "string"
                   },
                   "fond": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
+                    "type": "string"
                   },
                   "id": {
                     "type": "string"
@@ -262,7 +259,7 @@
         },
         "title": "Coverage and known gaps"
       },
-      "sha256": "9f2dd5e356ef24485877ffdc33e4d275446d43405a66dccf6a0f143899ae48b0"
+      "sha256": "ca2960f3c10db9a910152c9ca27243ce1a2683e60c00fb7c5b22fcdab36d97ec"
     },
     "fr_diff_article": {
       "descriptor": {
@@ -307,7 +304,6 @@
                   "type": "string"
                 },
                 "at": {
-                  "format": "uint32",
                   "minimum": 0,
                   "type": "integer"
                 },
@@ -382,7 +378,7 @@
         },
         "title": "Compare article versions"
       },
-      "sha256": "66ef9f76284847cb23e7fa11cc849b25f6a65b898c628a0d10c229907f4448cc"
+      "sha256": "c7d87690f76f02ef6a6e5a7f4e1c3e4d7e64a6cb66a457c2bca87a74dd454410"
     },
     "fr_get_act": {
       "descriptor": {
@@ -398,7 +394,6 @@
           "additionalProperties": false,
           "properties": {
             "date": {
-              "default": null,
               "description": "Version date YYYY-MM-DD (default: the version named by a suffixed text_id, else today in Paris).",
               "format": "date",
               "type": "string"
@@ -410,7 +405,6 @@
             "toc_limit": {
               "default": 100,
               "description": "Maximum table-of-contents entries (1..500).",
-              "format": "uint32",
               "maximum": 500,
               "minimum": 1,
               "type": "integer"
@@ -418,7 +412,6 @@
             "toc_offset": {
               "default": 0,
               "description": "First table-of-contents entry (pass next_toc_offset).",
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             }
@@ -444,73 +437,39 @@
               "type": "string"
             },
             "date_debut_version": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "date_fin_version": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "date_parution": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "eli": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "etat": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "jo_reference": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "nature": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "next_toc_offset": {
               "description": "Pass as toc_offset to read the next page; absent on the last page.",
-              "format": "uint32",
               "minimum": 0,
-              "type": [
-                "integer",
-                "null"
-              ]
+              "type": "integer"
             },
             "nor": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "note": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "num_parution": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "source_url": {
               "type": "string"
@@ -520,44 +479,28 @@
             },
             "title": {
               "description": "Omitted when citation already contains it.",
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "toc": {
               "items": {
                 "properties": {
                   "article_id": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
+                    "type": "string"
                   },
                   "depth": {
-                    "format": "uint16",
                     "maximum": 65535,
                     "minimum": 0,
                     "type": "integer"
                   },
                   "etat": {
                     "description": "Omitted when equal to the etat of the text.",
-                    "type": [
-                      "string",
-                      "null"
-                    ]
+                    "type": "string"
                   },
                   "num": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
+                    "type": "string"
                   },
                   "title": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -568,7 +511,6 @@
               "type": "array"
             },
             "toc_total": {
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             }
@@ -585,7 +527,7 @@
         },
         "title": "Read a law, decree or code"
       },
-      "sha256": "a7955761313f96d6423c52f52180442ce21d47ac4e71c3eaba2d701fbfe986ec"
+      "sha256": "1301f02da8875824f83c8ef83bf74d9ba67275b1988c91b3314103e17c56226f"
     },
     "fr_get_company_agreement": {
       "descriptor": {
@@ -623,58 +565,31 @@
               "type": "string"
             },
             "code_ape": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "date_depot": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "date_effet": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "date_texte": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "idcc": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "nature": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "raison_sociale": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "secteur": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "siret": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "source_url": {
               "type": "string"
@@ -692,10 +607,7 @@
               "type": "array"
             },
             "title": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           },
           "required": [
@@ -708,7 +620,7 @@
         },
         "title": "Read a company agreement (metadata)"
       },
-      "sha256": "7d21e2eead478f0cd2ce59415e0624fcac5010bf7319c44116d26e64cc753f9e"
+      "sha256": "4215cc32e241df84c392294a66508e651316101f2185bf9e8b202f7228aca243"
     },
     "fr_get_convention": {
       "descriptor": {
@@ -730,7 +642,6 @@
             "toc_limit": {
               "default": 100,
               "description": "Maximum table-of-contents entries (1..500).",
-              "format": "uint32",
               "maximum": 500,
               "minimum": 1,
               "type": "integer"
@@ -738,7 +649,6 @@
             "toc_offset": {
               "default": 0,
               "description": "First table-of-contents entry (pass next_toc_offset).",
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             }
@@ -752,99 +662,61 @@
         "outputSchema": {
           "properties": {
             "bulletin": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "citation": {
               "type": "string"
             },
             "container_title": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "convention_id": {
               "type": "string"
             },
             "date_publication": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "etat": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "idcc": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "next_toc_offset": {
               "description": "Pass as toc_offset to read the next page; absent on the last page.",
-              "format": "uint32",
               "minimum": 0,
-              "type": [
-                "integer",
-                "null"
-              ]
+              "type": "integer"
             },
             "nor": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "source_url": {
               "type": "string"
             },
             "title": {
               "description": "Omitted when citation already contains it.",
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "toc": {
               "items": {
                 "properties": {
                   "article_id": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
+                    "type": "string"
                   },
                   "depth": {
-                    "format": "uint16",
                     "maximum": 65535,
                     "minimum": 0,
                     "type": "integer"
                   },
                   "etat": {
                     "description": "Omitted when equal to the etat of the text.",
-                    "type": [
-                      "string",
-                      "null"
-                    ]
+                    "type": "string"
                   },
                   "num": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
+                    "type": "string"
                   },
                   "title": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -855,7 +727,6 @@
               "type": "array"
             },
             "toc_total": {
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             }
@@ -871,7 +742,7 @@
         },
         "title": "Read a collective agreement"
       },
-      "sha256": "5a1ba75c5edd293a8900c8082d5fdf9723716e6c070ded64cf8d970a597ab76c"
+      "sha256": "08fd553ca4841a1d8366a683f6d20654415e57e7d81d4d144ad6357946db3d3d"
     },
     "fr_get_decision": {
       "descriptor": {
@@ -891,7 +762,6 @@
               "type": "string"
             },
             "detail": {
-              "default": null,
               "description": "\"summary\" (default): metadata and a short summary. \"full\": the text from offset, up to max_chars.",
               "enum": [
                 "summary",
@@ -900,7 +770,6 @@
               "type": "string"
             },
             "focus": {
-              "default": null,
               "description": "A few words: return the best matching passages instead of the summary or window.",
               "maxLength": 500,
               "minLength": 1,
@@ -909,7 +778,6 @@
             "max_chars": {
               "default": 4000,
               "description": "Maximum characters of text returned (500 to 40000).",
-              "format": "uint32",
               "maximum": 40000,
               "minimum": 500,
               "type": "integer"
@@ -917,14 +785,12 @@
             "offset": {
               "default": 0,
               "description": "Start position in characters for detail=\"full\"; pass the next_offset of the previous call.",
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
             "passages": {
               "default": 3,
               "description": "Number of passages returned with focus.",
-              "format": "uint32",
               "maximum": 10,
               "minimum": 1,
               "type": "integer"
@@ -962,7 +828,6 @@
             },
             "next_offset": {
               "description": "Pass as offset to read the next window.",
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
@@ -979,7 +844,6 @@
               "items": {
                 "properties": {
                   "offset": {
-                    "format": "uint32",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -1016,7 +880,6 @@
               "type": "string"
             },
             "text_length": {
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
@@ -1035,7 +898,7 @@
         },
         "title": "Read a court decision"
       },
-      "sha256": "6ce2aaa291b74c44302a252380c51f214fec3caebe7cfc0e024f5b204c4e8524"
+      "sha256": "ca5487e16f514cde24fb6da489f5b03bc470e4b1729b3d9c9eb3923dfe7ecf7e"
     },
     "fr_get_deliberation": {
       "descriptor": {
@@ -1055,7 +918,6 @@
               "type": "string"
             },
             "detail": {
-              "default": null,
               "description": "\"summary\" (default): metadata and a short summary. \"full\": the text from offset, up to max_chars.",
               "enum": [
                 "summary",
@@ -1064,7 +926,6 @@
               "type": "string"
             },
             "focus": {
-              "default": null,
               "description": "A few words: return the best matching passages instead of the summary or window.",
               "maxLength": 500,
               "minLength": 1,
@@ -1073,7 +934,6 @@
             "max_chars": {
               "default": 4000,
               "description": "Maximum characters of text returned (500 to 40000).",
-              "format": "uint32",
               "maximum": 40000,
               "minimum": 500,
               "type": "integer"
@@ -1081,14 +941,12 @@
             "offset": {
               "default": 0,
               "description": "Start position in characters for detail=\"full\"; pass the next_offset of the previous call.",
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
             "passages": {
               "default": 3,
               "description": "Number of passages returned with focus.",
-              "format": "uint32",
               "maximum": 10,
               "minimum": 1,
               "type": "integer"
@@ -1125,7 +983,6 @@
             },
             "next_offset": {
               "description": "Pass as offset to read the next window.",
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
@@ -1139,7 +996,6 @@
               "items": {
                 "properties": {
                   "offset": {
-                    "format": "uint32",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -1173,7 +1029,6 @@
               "type": "string"
             },
             "text_length": {
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
@@ -1192,7 +1047,7 @@
         },
         "title": "Read a CNIL deliberation"
       },
-      "sha256": "f68b3511d559ba3ed8636bb49fa3b1015654a15e999b97dee4524b653be8ac38"
+      "sha256": "08a8792e9b4bc68bb6d9f41dd59afc07fe902dddb04097e20be1489a1c32f691"
     },
     "fr_get_related": {
       "descriptor": {
@@ -1266,7 +1121,6 @@
               "type": "string"
             },
             "total": {
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
@@ -1285,7 +1139,7 @@
         },
         "title": "Related texts and decisions"
       },
-      "sha256": "103699c65376327dd42f56f1fc895a5ac950d518b755a15003b58599ecb7562f"
+      "sha256": "ad74f6c3a7600d4cfb6211a722cacf1b04b1097ebd19674d605e0bb4355b23cb"
     },
     "fr_get_text": {
       "descriptor": {
@@ -1305,7 +1159,6 @@
               "type": "string"
             },
             "detail": {
-              "default": null,
               "description": "\"summary\" (default): metadata and a short summary. \"full\": the text from offset, up to max_chars.",
               "enum": [
                 "summary",
@@ -1314,7 +1167,6 @@
               "type": "string"
             },
             "focus": {
-              "default": null,
               "description": "A few words: return the best matching passages instead of the summary or window.",
               "maxLength": 500,
               "minLength": 1,
@@ -1323,7 +1175,6 @@
             "max_chars": {
               "default": 4000,
               "description": "Maximum characters of text returned (500 to 40000).",
-              "format": "uint32",
               "maximum": 40000,
               "minimum": 500,
               "type": "integer"
@@ -1331,14 +1182,12 @@
             "offset": {
               "default": 0,
               "description": "Start position in characters for detail=\"full\"; pass the next_offset of the previous call.",
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
             "passages": {
               "default": 3,
               "description": "Number of passages returned with focus.",
-              "format": "uint32",
               "maximum": 10,
               "minimum": 1,
               "type": "integer"
@@ -1377,7 +1226,6 @@
             },
             "next_offset": {
               "description": "Pass as offset to read the next window.",
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
@@ -1398,7 +1246,6 @@
               "items": {
                 "properties": {
                   "offset": {
-                    "format": "uint32",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -1438,7 +1285,6 @@
               "type": "string"
             },
             "text_length": {
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             }
@@ -1453,7 +1299,7 @@
         },
         "title": "Read an article"
       },
-      "sha256": "b0ab8381b7b1e4590619a272320b8edff1588b8dc75cf7758a0eacc9f7348fbe"
+      "sha256": "734b56cc4adcdbe1aede7237b2a6698f65014e6fb58ed5959eef42105c6462b0"
     },
     "fr_resolve": {
       "descriptor": {
@@ -1475,7 +1321,6 @@
               "type": "string"
             },
             "date": {
-              "default": null,
               "description": "Date YYYY-MM-DD for the article version (default: today in Paris).",
               "format": "date",
               "type": "string"
@@ -1538,7 +1383,7 @@
         },
         "title": "Resolve a legal citation"
       },
-      "sha256": "fe9cb971be2c3e101a642e673651832c03513f38512415f2eec7f9074624c618"
+      "sha256": "e1120ab36db4925dc25f893091958b121e73d05166d8a65e0883b4d40fb9a49c"
     },
     "fr_search": {
       "descriptor": {
@@ -1591,14 +1436,12 @@
             "page": {
               "default": 1,
               "description": "Page number, from 1.",
-              "format": "uint32",
               "minimum": 1,
               "type": "integer"
             },
             "page_size": {
               "default": 10,
               "description": "Hits per page (1..100).",
-              "format": "uint32",
               "maximum": 100,
               "minimum": 1,
               "type": "integer"
@@ -1722,19 +1565,16 @@
             },
             "page": {
               "description": "Page servie, à partir de 1.",
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
             "total": {
               "description": "Nombre total de résultats annoncé par la source.",
-              "format": "uint64",
               "minimum": 0,
               "type": "integer"
             },
             "total_articles": {
               "description": "Nombre total d'articles correspondants (fond `CODE`), à partir de la v0.2.",
-              "format": "uint64",
               "minimum": 0,
               "type": "integer"
             }
@@ -1749,7 +1589,7 @@
         },
         "title": "Search Légifrance"
       },
-      "sha256": "c8048543bba67f399dce900eee85e050bde63cc6d60524c1a4d6c376f768276f"
+      "sha256": "a5c0be1b9c7c47b8a1b25edc0002b6c950e15600716750679a4da3519265af9b"
     },
     "fr_search_all": {
       "descriptor": {
@@ -1794,7 +1634,6 @@
             "per_fond": {
               "default": 3,
               "description": "Hits per fond (1..10).",
-              "format": "uint32",
               "maximum": 10,
               "minimum": 1,
               "type": "integer"
@@ -1850,7 +1689,6 @@
                   "type": "array"
                 },
                 "total": {
-                  "format": "uint64",
                   "minimum": 0,
                   "type": "integer"
                 }
@@ -1926,7 +1764,7 @@
         },
         "title": "Search several fonds"
       },
-      "sha256": "9525203d1a1333bb76ffca372295b13e12155cc98fc129e5ddb6f49accef0ca6"
+      "sha256": "6a0c9f21aed065a7b16ed249f959874b48688e371c0ffd9a7faeda04a6556d7f"
     },
     "fr_verify_citations": {
       "descriptor": {
@@ -1944,7 +1782,6 @@
             "max_citations": {
               "default": 50,
               "description": "Maximum citations checked, in order of appearance.",
-              "format": "uint32",
               "maximum": 100,
               "minimum": 1,
               "type": "integer"
@@ -2018,12 +1855,10 @@
             "SpanView": {
               "properties": {
                 "end": {
-                  "format": "uint",
                   "minimum": 0,
                   "type": "integer"
                 },
                 "start": {
-                  "format": "uint",
                   "minimum": 0,
                   "type": "integer"
                 }
@@ -2037,7 +1872,6 @@
           },
           "properties": {
             "checked": {
-              "format": "uint",
               "minimum": 0,
               "type": "integer"
             },
@@ -2048,7 +1882,6 @@
               "type": "array"
             },
             "found": {
-              "format": "uint",
               "minimum": 0,
               "type": "integer"
             },
@@ -2069,8 +1902,8 @@
         },
         "title": "Verify legal citations"
       },
-      "sha256": "320698c773ab02bac6fe3e7f43da1cdd4d70e7b915c5ea5521d18c21b3f5166c"
+      "sha256": "7a080d811a56c1c9045e3e878af7b006bb20b4dc5502f5f3ca1d2d2c1cb1464f"
     }
   },
-  "toolset_sha256": "1091a035c2593cae793298d452a59ecc726ae611e5755fb8801bd83e1aaa5f1a"
+  "toolset_sha256": "cf609f3e675c47a1be47b07ee522e8a77a0bf5fa80993929150e8ec2daa8c36a"
 }

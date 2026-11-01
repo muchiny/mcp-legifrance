@@ -149,6 +149,7 @@ impl<K: MonoClock, S: Sleeper> TokenManager<K, S> {
         };
         let lease = cached.lease();
         state.cached = Some(cached);
+        log_grant(lease.generation, grant.lifetime, self.config.env());
         Ok(lease)
     }
 
@@ -220,6 +221,18 @@ impl<K: MonoClock, S: Sleeper> TokenManager<K, S> {
         })
         .await?;
         Ok((grant, obtained_at))
+    }
+}
+
+/// Trace l'obtention (génération 1) ou le renouvellement d'un jeton : la génération, la durée
+/// de vie retenue en secondes et l'environnement, jamais le jeton, le `client_id`, le secret ni
+/// la réponse OAuth. Rien n'est émis quand le cache sert le jeton.
+fn log_grant(generation: u64, lifetime: Duration, env: PisteEnvironment) {
+    let lifetime_secs = lifetime.as_secs();
+    if generation <= 1 {
+        tracing::info!(generation, lifetime_secs, environment = %env, "PISTE token obtained");
+    } else {
+        tracing::info!(generation, lifetime_secs, environment = %env, "PISTE token renewed");
     }
 }
 
@@ -1505,6 +1518,104 @@ mod tests {
         }
     }
 
+    /// Lignes du journal capté qui portent `needle`.
+    fn lines_with(logs: &str, needle: &str) -> Vec<String> {
+        logs.lines().filter(|line| line.contains(needle)).map(str::to_owned).collect()
+    }
+
+    #[tokio::test]
+    async fn token_obtention_and_renewal_are_logged_once_each() {
+        let (capture, _guard) = capture_at(tracing::Level::INFO);
+        let server = MockServer::start().await;
+        reply(&server, ok("first", &json!(3600)), 1).await;
+        reply(&server, ok("second", &json!(120)), 1).await;
+        let fixture = Fixture::on(&server);
+        // Obtention, puis trois lectures du cache : une seule ligne.
+        fixture.lease_at(Duration::ZERO).await;
+        for instant in [secs(1), secs(2), secs(3539)] {
+            fixture.lease_at(instant).await;
+        }
+        let after_obtention = capture.text();
+        // Renouvellement à l'expiration, puis une lecture du cache.
+        fixture.lease_at(secs(3541)).await;
+        fixture.lease_at(secs(3542)).await;
+        let logs = capture.text();
+        let obtained = lines_with(&logs, "PISTE token obtained");
+        let renewed = lines_with(&logs, "PISTE token renewed");
+        assert_eq!(lines_with(&after_obtention, "PISTE token").len(), 1, "{after_obtention}");
+        assert_eq!((obtained.len(), renewed.len(), logs.lines().count()), (1, 1, 2), "{logs}");
+        for (line, generation, lifetime) in [(&obtained[0], 1, 3600), (&renewed[0], 2, 120)] {
+            assert!(line.contains("INFO"), "{line}");
+            assert!(line.contains(&format!("generation={generation}")), "{line}");
+            assert!(line.contains(&format!("lifetime_secs={lifetime}")), "{line}");
+            assert!(line.contains("environment=sandbox"), "{line}");
+        }
+        for secret in ["first", "second", CLIENT_ID, CLIENT_SECRET, "Bearer", "Authorization"] {
+            assert!(!logs.contains(secret), "{secret} in {logs}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_invalidated_token_is_logged_as_renewed() {
+        let (capture, _guard) = capture_at(tracing::Level::INFO);
+        let server = MockServer::start().await;
+        reply(&server, ok("old", &json!(3600)), 1).await;
+        reply(&server, ok("new", &json!(null)), 1).await;
+        let fixture = Fixture::on(&server);
+        fixture.lease_at(Duration::ZERO).await;
+        fixture.manager.invalidate(1, &fixture.deadline()).await.unwrap();
+        fixture.lease_at(secs(5)).await;
+        let logs = capture.text();
+        assert_eq!(lines_with(&logs, "PISTE token obtained").len(), 1, "{logs}");
+        let renewed = lines_with(&logs, "PISTE token renewed");
+        assert_eq!(renewed.len(), 1, "{logs}");
+        assert!(renewed[0].contains("generation=2"), "{logs}");
+        // `expires_in` absent : la durée retenue est celle par défaut.
+        assert!(renewed[0].contains("lifetime_secs=3600"), "{logs}");
+    }
+
+    #[tokio::test]
+    async fn a_refused_token_request_logs_no_success_event() {
+        let (capture, _guard) = capture_at(tracing::Level::INFO);
+        let replies = [
+            json_reply(401, r#"{"error":"invalid_client"}"#),
+            json_reply(200, r#"{"token_type":"Bearer"}"#),
+            json_reply(500, "boom"),
+        ];
+        for template in replies {
+            let (_, sent, _) = failure(template).await;
+            assert!(sent >= 1);
+        }
+        let logs = capture.text();
+        assert!(!logs.contains("PISTE token"), "{logs}");
+    }
+
+    #[tokio::test]
+    async fn concurrent_calls_log_a_single_obtention() {
+        let (capture, _guard) = capture_at(tracing::Level::INFO);
+        let server = MockServer::start().await;
+        reply(&server, ok("shared", &json!(3600)).set_delay(ms(50)), 1).await;
+        let clock = TokioClock::new();
+        let manager = Arc::new(TokenManager::new(
+            Arc::new(SharedClient::new()),
+            Arc::new(config_for(&server.uri())),
+            clock,
+            TokioSleeper,
+        ));
+        let mut tasks = JoinSet::new();
+        for _ in 0..10 {
+            let manager = Arc::clone(&manager);
+            tasks.spawn(async move {
+                let deadline = CallDeadline::start(&clock, secs(30));
+                manager.token(&deadline).await.unwrap().generation
+            });
+        }
+        let generations = tasks.join_all().await;
+        let logs = capture.text();
+        assert_eq!(generations, vec![1; 10]);
+        assert_eq!((logs.lines().count(), lines_with(&logs, "obtained").len()), (1, 1), "{logs}");
+    }
+
     #[tokio::test]
     async fn error_detail_never_contains_secret_or_token() {
         let (capture, _guard) = capture_at(tracing::Level::TRACE);
@@ -1551,7 +1662,10 @@ mod tests {
         let lease = fixture.token().await.unwrap();
         shown.push(format!("{lease:?}"));
         shown.push(format!("{:?}", fixture.manager.state.lock().await));
-        shown.push(capture.text());
+        let logs = capture.text();
+        // Le journal n'est pas vide : l'obtention du jeton y est tracée, sans aucun secret.
+        assert!(logs.contains("PISTE token obtained"), "{logs}");
+        shown.push(logs);
         for text in &shown {
             assert!(!text.contains(&secret), "{text}");
             assert!(!text.contains(&token), "{text}");

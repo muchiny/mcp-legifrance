@@ -42,7 +42,7 @@ pub(crate) fn scan(n: &Normalized, anchors: &[Anchor]) -> Vec<Candidate> {
         AnchorClass::Family,
         AnchorClass::Ecli,
     ];
-    scan_with(n, anchors, &classes, &[eu_act, cjue, cedh, doctrine, foreign_ecli])
+    scan_with(n, anchors, &classes, &[eu_article, eu_act, cjue, cedh, doctrine, foreign_ecli])
 }
 
 /// Un puits de la famille `family`, de span `s..end`.
@@ -68,10 +68,15 @@ fn article_item(w: &Win, p: usize) -> Option<usize> {
     Some(sub.map_or(q, |(e, _)| e))
 }
 
-/// `art_kw WS art_item WS ( "de la" | "du" ) WS` : la fin du préfixe d'article d'un acte.
-fn article_prefix(w: &Win, s: usize) -> Option<usize> {
+/// `art_kw WS art_item` : la fin de « article 6 § 1 » ou « art. 267 ».
+fn article_head(w: &Win, s: usize) -> Option<usize> {
     let q = ["articles", "article", "arts", "art."].iter().find_map(|k| w.kw(s, k))?;
-    let q = w.sep(article_item(w, w.ws(q)?)?)?;
+    article_item(w, w.ws(q)?)
+}
+
+/// `art_kw WS art_item SEP ( "de la" | "du" ) WS` : la fin du préfixe d'article d'un acte.
+fn article_prefix(w: &Win, s: usize) -> Option<usize> {
+    let q = w.sep(article_head(w, s)?)?;
     w.ws(w.kw(q, "de la").or_else(|| w.kw(q, "du"))?)
 }
 
@@ -126,8 +131,60 @@ fn eu_act(w: &Win, s: usize) -> Option<Hit> {
     let council = institution(w, q);
     let q = council.unwrap_or(q);
     let end = date_link(w, q).unwrap_or(q);
+    let end = sigle_article(w, end).unwrap_or(end);
     let european = paren.is_some() || suffixed || council.is_some();
     (european || !needs_mark).then(|| sink(s, end, UnsupportedFamily::Ue, Some(number)))
+}
+
+/// `WS? "(" SIGLE ")" SEP art_kw WS art_item` : « (RGPD), art. 17 » après un acte de l'Union.
+fn sigle_article(w: &Win, p: usize) -> Option<usize> {
+    let q = w.cs(w.ws0(p), "(")?;
+    let (q, _) = instrument_sigle(w, q)?;
+    article_head(w, w.sep(w.cs(q, ")")?)?)
+}
+
+// ---- Articles du droit de l'Union et de la Convention EDH -----------------------------------------
+
+/// Un sigle d'instrument (casse significative) : sa fin et sa famille. Jamais « CE » ni « CP ».
+fn instrument_sigle(w: &Win, p: usize) -> Option<(usize, UnsupportedFamily)> {
+    ["TFUE", "TUE", "CDFUE", "RGPD"]
+        .iter()
+        .find_map(|label| w.cs_word(p, label).map(|q| (q, UnsupportedFamily::Ue)))
+        .or_else(|| w.cs_word(p, "CEDH").map(|q| (q, UnsupportedFamily::Cedh)))
+}
+
+/// Le nom d'un instrument, replié : la fin et la famille. « Convention » seul n'en est pas un.
+fn instrument_name(w: &Win, p: usize) -> Option<(usize, UnsupportedFamily)> {
+    let convention = w.kw(p, "convention europeenne").and_then(|q| {
+        let q = w.ws(q)?;
+        let q = w
+            .kw(q, "de sauvegarde des droits de l'homme")
+            .or_else(|| w.kw(q, "des droits de l'homme"))?;
+        Some(w.ws(q).and_then(|r| w.kw(r, "et des libertes fondamentales")).unwrap_or(q))
+    });
+    if let Some(q) = convention {
+        return Some((q, UnsupportedFamily::Cedh));
+    }
+    let charte = w
+        .kw(p, "charte des droits fondamentaux")
+        .map(|q| w.ws(q).and_then(|r| w.kw(r, "de l'union europeenne")).unwrap_or(q));
+    charte
+        .or_else(|| w.kw(p, "traite sur le fonctionnement de l'union europeenne"))
+        .or_else(|| w.kw(p, "traite sur l'union europeenne"))
+        .or_else(|| w.kw(p, "reglement general sur la protection des donnees"))
+        .map(|q| (q, UnsupportedFamily::Ue))
+}
+
+/// `eu_article` : `art_kw WS art_item ( WS SIGLE | SEP ( "de la" | "du" ) WS ( SIGLE | NOM ) )`.
+fn eu_article(w: &Win, s: usize) -> Option<Hit> {
+    let head = article_head(w, s)?;
+    let suffix = w.ws(head).and_then(|q| instrument_sigle(w, q));
+    let (end, family) = suffix.or_else(|| {
+        let q = w.sep(head)?;
+        let q = w.ws(w.kw(q, "de la").or_else(|| w.kw(q, "du"))?)?;
+        instrument_sigle(w, q).or_else(|| instrument_name(w, q))
+    })?;
+    Some(sink(s, end, family, None))
 }
 
 // ---- CJUE et CEDH --------------------------------------------------------------------------------
@@ -140,13 +197,18 @@ fn eu_case(w: &Win, p: usize) -> Option<(usize, String)> {
     Some((q, w.text_of(p, q)))
 }
 
-/// `( 'CJUE' | 'CJCE' | "Trib. UE" ) SEP DATE SEP [ "aff." WS ] /[CT]-[0-9]{1,4}\/[0-9]{2}/`.
+/// `[ "aff." WS ] /[CT]-[0-9]{1,4}\/[0-9]{2}/` : la référence d'affaire, précédée ou non de « aff. ».
+fn eu_case_marked(w: &Win, p: usize) -> Option<(usize, String)> {
+    eu_case(w, w.kw(p, "aff.").and_then(|r| w.ws(r)).unwrap_or(p))
+}
+
+/// `( 'CJUE' | 'CJCE' | "Trib. UE" ) SEP DATE SEP [ parties SEP ] [ "aff." WS ] /[CT]-[0-9]{1,4}\/[0-9]{2}/`.
 fn cjue_headed(w: &Win, s: usize) -> Option<(usize, String)> {
     let q =
         w.cs_word(s, "CJUE").or_else(|| w.cs_word(s, "CJCE")).or_else(|| w.kw(s, "trib. ue"))?;
     let date = w.date(w.sep(q)?)?;
     let q = w.sep(date.end)?;
-    eu_case(w, w.kw(q, "aff.").and_then(|r| w.ws(r)).unwrap_or(q))
+    eu_case_marked(w, q).or_else(|| after_parties(w, q, eu_case_marked))
 }
 
 /// `"affaire" WS /[CT]-[0-9]{1,4}\/[0-9]{2}/` : la référence seule.
@@ -170,13 +232,25 @@ fn cedh_application(w: &Win, p: usize) -> Option<(usize, String)> {
     Some((q, w.text_of(start, q)))
 }
 
-/// `[ parties SEP ]` puis la requête : les parties tiennent jusqu'à la première virgule après
-/// laquelle une requête se lit, dans les 100 caractères.
-fn cedh_after_parties(w: &Win, p: usize) -> Option<(usize, String)> {
+/// `[ parties SEP ]` puis la référence lue par `reader` : les parties tiennent jusqu'à la première
+/// virgule après laquelle une référence se lit, dans les 100 caractères. Des parties qui portent un
+/// ancrage d'article (« art. », « article ») ne sont pas des parties : la citation d'article
+/// qu'elles contiennent reste lue et vérifiée, le puits ne l'absorbe pas (B §4.14).
+fn after_parties(
+    w: &Win,
+    p: usize,
+    reader: fn(&Win, usize) -> Option<(usize, String)>,
+) -> Option<(usize, String)> {
     let limit = (p + PARTIES_MAX).min(w.len());
-    (p..limit)
+    let anchor = (p..limit).find(|&j| w.word_start(j) && article_anchor(w, j)).unwrap_or(limit);
+    (p..anchor.min(limit))
         .filter(|&i| w.at(i) == Some(','))
-        .find_map(|i| w.sep(i).and_then(|q| cedh_application(w, q)))
+        .find_map(|i| w.sep(i).and_then(|q| reader(w, q)))
+}
+
+/// Un ancrage d'article lu en `j` : « art. », « art », « article » ou « articles ».
+fn article_anchor(w: &Win, j: usize) -> bool {
+    ["art.", "articles", "article"].iter().any(|label| w.kw(j, label).is_some())
 }
 
 /// `cedh` : `( 'CEDH' | "Cour EDH" ) SEP DATE SEP [ parties SEP ] [ "req." WS ] [ NUM_SIGN ] …`.
@@ -184,7 +258,8 @@ fn cedh(w: &Win, s: usize) -> Option<Hit> {
     let q = w.cs_word(s, "CEDH").or_else(|| w.kw(s, "cour edh"))?;
     let date = w.date(w.sep(q)?)?;
     let q = w.sep(date.end)?;
-    let (end, application) = cedh_application(w, q).or_else(|| cedh_after_parties(w, q))?;
+    let (end, application) =
+        cedh_application(w, q).or_else(|| after_parties(w, q, cedh_application))?;
     Some(sink(s, end, UnsupportedFamily::Cedh, Some(application)))
 }
 
@@ -421,6 +496,148 @@ mod tests {
         assert_eq!(one("directive 85/374/CEEX", "directive").text, "directive 85/374");
     }
 
+    // ---- Articles du droit de l'Union et de la CEDH (L1-07) -----------------------------------------
+
+    fn art(input: &str) -> Vec<Found> {
+        find(scan, input, AnchorClass::ArticleKeyword, &["rticle", "rt.", "rts"])
+    }
+
+    fn one_art(input: &str) -> Found {
+        let mut all = art(input);
+        assert_eq!(all.len(), 1, "{input:?} : {all:?}");
+        all.remove(0)
+    }
+
+    #[test]
+    fn an_article_followed_by_an_instrument_sigle_is_one_sink() {
+        for (input, family) in [
+            ("Art. 267 TFUE", UnsupportedFamily::Ue),
+            ("art. 4 TUE", UnsupportedFamily::Ue),
+            ("article 8 CEDH", UnsupportedFamily::Cedh),
+            ("article 6 § 1 CEDH", UnsupportedFamily::Cedh),
+            ("art. 47 CDFUE", UnsupportedFamily::Ue),
+            ("article 17 RGPD", UnsupportedFamily::Ue),
+        ] {
+            let f = one_art(input);
+            assert_eq!(f.text, input, "{input}");
+            assert_eq!(f.value, unsupported(family, None), "{input}");
+            assert_eq!((f.confidence, f.ambiguity, f.flags), (Confidence::High, None, vec![]));
+        }
+    }
+
+    #[test]
+    fn an_article_of_a_named_instrument_is_one_sink() {
+        for (input, family) in [
+            (
+                "article 8 de la Convention européenne des droits de l'homme",
+                UnsupportedFamily::Cedh,
+            ),
+            (
+                "article 8 de la Convention européenne des droits de l'homme et des libertés fondamentales",
+                UnsupportedFamily::Cedh,
+            ),
+            (
+                "article 8 de la Convention européenne de sauvegarde des droits de l'homme et des libertés fondamentales",
+                UnsupportedFamily::Cedh,
+            ),
+            ("article 6 § 1 de la CEDH", UnsupportedFamily::Cedh),
+            ("article 6, paragraphe 1, de la CEDH", UnsupportedFamily::Cedh),
+            ("article 17 du RGPD", UnsupportedFamily::Ue),
+            ("art. 267 du TFUE", UnsupportedFamily::Ue),
+            ("article 4 du TUE", UnsupportedFamily::Ue),
+            ("article 47 de la CDFUE", UnsupportedFamily::Ue),
+            ("article 47 de la Charte des droits fondamentaux", UnsupportedFamily::Ue),
+            (
+                "article 47 de la Charte des droits fondamentaux de l'Union européenne",
+                UnsupportedFamily::Ue,
+            ),
+            ("article 4 du traité sur l'Union européenne", UnsupportedFamily::Ue),
+            (
+                "article 267 du traité sur le fonctionnement de l'Union européenne",
+                UnsupportedFamily::Ue,
+            ),
+            (
+                "article 17 du règlement général sur la protection des données",
+                UnsupportedFamily::Ue,
+            ),
+        ] {
+            let f = one_art(input);
+            assert_eq!(f.text, input, "{input}");
+            assert_eq!(f.value, unsupported(family, None), "{input}");
+        }
+        // La phrase entière : seul le groupe nominal est absorbé.
+        let f = one_art("L'article 8 de la Convention européenne des droits de l'homme. Suite");
+        assert_eq!(f.text, "article 8 de la Convention européenne des droits de l'homme");
+    }
+
+    #[test]
+    fn an_eu_act_followed_by_its_sigle_absorbs_the_article() {
+        let input = "Le règlement (UE) 2016/679 du 27 avril 2016 (RGPD), art. 17";
+        let f = one(input, "règlement");
+        assert_eq!(f.text, "règlement (UE) 2016/679 du 27 avril 2016 (RGPD), art. 17");
+        assert_eq!(f.value, unsupported(UnsupportedFamily::Ue, Some("2016/679")));
+        for tail in [" (RGPD) art. 17", " (RGPD), article 17 bis", " (RGPD), art. 6 § 1"] {
+            let input = format!("règlement (UE) 2016/679 du 27 avril 2016{tail}");
+            assert_eq!(one(&input, "règlement").text, input, "{input}");
+        }
+        // Vrai positif conservé : sans sigle ni article, l'acte garde son étendue.
+        for (input, text) in [
+            (
+                "règlement (UE) 2016/679 du 27 avril 2016 (RGPD)",
+                "règlement (UE) 2016/679 du 27 avril 2016",
+            ),
+            (
+                "règlement (UE) 2016/679 du 27 avril 2016, art. 17",
+                "règlement (UE) 2016/679 du 27 avril 2016",
+            ),
+            (
+                "règlement (UE) 2016/679 du 27 avril 2016 (RGPD), art. x",
+                "règlement (UE) 2016/679 du 27 avril 2016",
+            ),
+            (
+                "règlement (UE) 2016/679 du 27 avril 2016 (XYZ), art. 17",
+                "règlement (UE) 2016/679 du 27 avril 2016",
+            ),
+            (
+                "règlement (UE) 2016/679 du 27 avril 2016 (RGPD, art. 17",
+                "règlement (UE) 2016/679 du 27 avril 2016",
+            ),
+        ] {
+            assert_eq!(one(input, "règlement").text, text, "{input}");
+        }
+    }
+
+    #[test]
+    fn french_articles_next_to_the_instruments_are_not_sinks() {
+        for input in [
+            "art. L. 52-8 CE",
+            "article 121-3 CP",
+            "article 5 de la Convention collective nationale",
+            "article 5 de la Convention",
+            "article 5 de la convention européenne",
+            "art. 267 tfue",
+            "art. 267 TFUEX",
+            "art. 267 Tfue",
+            "article 17 du RGPDX",
+            "article 5 du traité de Rome",
+            "article x de la CEDH",
+            "article 5",
+            "article 5.",
+            "article 5 du",
+            "article 5 de la",
+            "article 5 de la convention européenne des droits",
+            "article 5 de CEDH",
+            "article 5 la CEDH",
+            "article 5 du code civil",
+            "article 1240 du code civil et la CEDH",
+        ] {
+            assert_eq!(art(input), [], "{input}");
+        }
+        // L'article d'une directive reste lu par la grammaire des actes.
+        let f = one("article 10 de la directive 85/374/CEE", "directive");
+        assert_eq!(f.value, unsupported(UnsupportedFamily::Ue, Some("85/374/CEE")));
+    }
+
     // ---- CJUE et CEDH ----------------------------------------------------------------------------
 
     #[test]
@@ -437,6 +654,53 @@ mod tests {
         assert_eq!(h[0].text, "Affaire C-740/22");
         assert_eq!(h[0].value, unsupported(UnsupportedFamily::Cjue, Some("C-740/22")));
         assert_eq!(find(scan, "aff. T-1/20", AnchorClass::Family, &["aff."]).len(), 1);
+    }
+
+    #[test]
+    fn cjue_with_parties_between_date_and_case() {
+        // L1-06 (verify_citations-15) : les parties précèdent le numéro d'affaire.
+        let input = "CJUE, 6 octobre 2015, Schrems, C-362/14";
+        let f = one(input, "CJUE");
+        assert_eq!(f.text, input);
+        assert_eq!(f.value, unsupported(UnsupportedFamily::Cjue, Some("C-362/14")));
+        let long = "CJUE, 6 octobre 2015, Maximillian Schrems c. Data Protection Commissioner, aff. C-362/14";
+        let g = one(long, "CJUE");
+        assert_eq!(g.text, long);
+        assert_eq!(g.value, unsupported(UnsupportedFamily::Cjue, Some("C-362/14")));
+        let h = one("Trib. UE, 12 mars 2019, Foo c. Commission, T-123/18", "Trib");
+        assert_eq!(h.text, "Trib. UE, 12 mars 2019, Foo c. Commission, T-123/18");
+        assert_eq!(h.value, unsupported(UnsupportedFamily::Cjue, Some("T-123/18")));
+        // Vrai positif conservé : sans partie, le puits garde sa forme et son étendue.
+        assert_eq!(
+            one("CJUE, 6 octobre 2015, aff. C-362/14", "CJUE").text,
+            "CJUE, 6 octobre 2015, aff. C-362/14"
+        );
+    }
+
+    #[test]
+    fn cjue_parties_do_not_swallow_neighbours() {
+        assert_none(&[
+            ("CJUE, 4 juin 2024", "CJUE"),
+            ("CJUE, 4 juin 2024, Schrems", "CJUE"),
+            ("CJUE, 4 juin 2024, Schrems, et voir l'article 5 du code civil", "CJUE"),
+            ("CJUE, 4 juin 2024, Schrems, C-362", "CJUE"),
+            ("CJUE, 4 juin 2024, Schrems, X-362/14", "CJUE"),
+        ]);
+        // Une citation d'article dans la zone des parties n'est pas absorbée par le puits.
+        assert_none(&[
+            ("CJUE, 4 juin 2024, voir l'article 1240 du code civil, C-362/14", "CJUE"),
+            ("CJUE, 4 juin 2024, Schrems, art. 5 du code civil, C-362/14", "CJUE"),
+            ("CEDH, 4 juin 2024, voir l'article 1240 du code civil, req. 12345/20", "CEDH"),
+        ]);
+        // Un nom de partie qui contient « art » sans être un ancrage reste une partie.
+        let martin = one("CJUE, 4 juin 2024, Martin c. Partner, C-362/14", "CJUE");
+        assert_eq!(martin.value, unsupported(UnsupportedFamily::Cjue, Some("C-362/14")));
+        // Les parties tiennent en 100 caractères.
+        let far = format!("CJUE, 4 juin 2024, {}, C-362/14", "x".repeat(150));
+        assert_none(&[(far.as_str(), "CJUE")]);
+        // Le puits s'arrête au numéro d'affaire : la suite reste lue.
+        let after = one("CJUE, 6 octobre 2015, Schrems, C-362/14, et l'article 5", "CJUE");
+        assert_eq!(after.text, "CJUE, 6 octobre 2015, Schrems, C-362/14");
     }
 
     #[test]
@@ -478,6 +742,12 @@ mod tests {
             one("CEDH, 8 juillet 2003, n° 12345/99", "CEDH").text,
             "CEDH, 8 juillet 2003, n° 12345/99"
         );
+        // Les parties finissent à une virgule : un numéro qu'elles contiennent sans virgule avant
+        // lui n'est pas le numéro de requête (mutant de `after_parties`).
+        let named = "CEDH, 26 avr. 1979, Syndicat 123/45 c. Royaume-Uni, req. n° 6538/74";
+        let h = one(named, "CEDH");
+        assert_eq!(h.text, named);
+        assert_eq!(h.value, unsupported(UnsupportedFamily::Cedh, Some("6538/74")));
     }
 
     #[test]

@@ -27,10 +27,15 @@
 //! d'usage ne sait rien du transport : la façade et l'adaptateur décident de ce qu'ils en font.
 
 use futures::{StreamExt, stream};
-use lf_domain::{entity::Snippet, fond::Fond, search::QueryText, status::LegalStatus};
+use lf_domain::{
+    entity::Snippet,
+    fond::Fond,
+    search::{QueryText, check_quotes},
+    status::LegalStatus,
+};
 
 use crate::{
-    budget::{ResponseBudget, bounded, estimate_chars, strip_from_end},
+    budget::{ResponseBudget, bounded, estimate_chars, strip_from_end, the_last_hits},
     error::AppError,
     input::{SearchAllInput, SearchInput},
     messages,
@@ -100,7 +105,8 @@ impl<'a, C: LegalCorpus, K: Clock> SearchAllUseCase<'a, C, K> {
     ) -> Result<SearchAllOutput, AppError> {
         let SearchAllInput { query, fonds, per_fond } = input;
         let query = query.ok_or_else(|| messages::required("query"))?;
-        QueryText::parse(&query).map_err(|error| messages::domain(TOOL, &error))?;
+        let text = QueryText::parse(&query).map_err(|error| messages::domain(TOOL, &error))?;
+        check_quotes(&text).map_err(|error| messages::domain(TOOL, &error))?;
         let fonds = fonds_of(fonds)?;
         let per_fond = bounded("per_fond", per_fond, PER_FOND_DEFAULT, PER_FOND_MIN, PER_FOND_MAX)?;
 
@@ -251,17 +257,19 @@ fn strip_details(out: &mut HitOut) -> bool {
 /// Note des extraits retirés (05 §6.4).
 fn snippets_note(hits: usize) -> String {
     format!(
-        "Snippets were removed from the last {hits} hits to keep the response under 45,000 \
-         characters; use fr_search on one fond to get them."
+        "Snippets were removed from {} to keep the response under 45,000 characters; use \
+         fr_search on one fond to get them.",
+        the_last_hits(hits)
     )
 }
 
 /// Note des listes d'articles et champs optionnels retirés.
 fn details_note(hits: usize) -> String {
     format!(
-        "Article lists and the optional fields title, nature, etat and date were removed from the \
-         last {hits} hits to keep the response under 45,000 characters; use fr_search on one fond \
-         to get them."
+        "Article lists and the optional fields title, nature, etat and date were removed from \
+         {} to keep the response under 45,000 characters; use fr_search on one fond to get \
+         them.",
+        the_last_hits(hits)
     )
 }
 
@@ -587,6 +595,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_unbalanced_double_quote_is_one_invalid_arg_and_no_fond_is_searched() {
+        // E2E search_all-1 : six fonds échouaient tous en 503 ; une seule erreur locale désormais.
+        for odd in ["\"licenciement", "licenciement\""] {
+            let corpus = FakeCorpus::new();
+            let error = run(&corpus, all_of(Some(odd), Some(&["LODA", "JURI", "CODE"]), Some(1)))
+                .await
+                .unwrap_err();
+            assert_eq!(error.code(), Some(ErrorCode::InvalidArg), "{odd:?}");
+            assert_eq!(
+                error.message(),
+                "query has an unbalanced double quote (\"): close it or remove it.",
+                "{odd:?}"
+            );
+            assert_eq!(corpus.calls(), 0, "{odd:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn balanced_quotes_still_search_every_fond() {
+        let corpus = FakeCorpus::new();
+        corpus.push_search(Ok(bare_page(Fond::Loda, 0, 0)));
+        corpus.push_search(Ok(bare_page(Fond::Code, 0, 0)));
+        run(&corpus, all_of(Some("\"licenciement économique\""), Some(&["LODA", "CODE"]), Some(1)))
+            .await
+            .unwrap();
+        assert_eq!(corpus.calls(), 2);
+    }
+
+    #[tokio::test]
     async fn progress_counts_each_finished_fond() {
         let corpus = FakeCorpus::new();
         corpus.push_search(Ok(bare_page(Fond::Loda, 1, 1)));
@@ -693,6 +730,23 @@ mod tests {
         assert!(code_hit[9].hit.articles[0].num.is_some(), "l'article reste, sans son extrait");
         // Les citations, calculées avant la dégradation, restent entières.
         assert!(hits[39].citation.starts_with("JURI 10 titre"));
+    }
+
+    #[test]
+    fn notes_use_the_singular_for_one_hit() {
+        assert_eq!(
+            snippets_note(1),
+            "Snippets were removed from the last hit to keep the response under 45,000 \
+             characters; use fr_search on one fond to get them."
+        );
+        assert_eq!(
+            details_note(1),
+            "Article lists and the optional fields title, nature, etat and date were removed from \
+             the last hit to keep the response under 45,000 characters; use fr_search on one fond \
+             to get them."
+        );
+        assert!(snippets_note(5).contains("from the last 5 hits to"));
+        assert!(details_note(5).contains("from the last 5 hits to"));
     }
 
     /// Le résultat et sa citation, comme `fr_search` les rend.

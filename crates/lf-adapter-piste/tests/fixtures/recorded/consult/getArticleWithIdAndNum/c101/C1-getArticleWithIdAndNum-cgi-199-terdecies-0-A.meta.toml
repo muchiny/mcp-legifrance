@@ -1,0 +1,14 @@
+endpoint = "/consult/getArticleWithIdAndNum"
+request = "{\"id\":\"LEGITEXT000006069577\",\"num\":\"199 terdecies-0 A\"}"
+env = "sandbox"
+captured_at = "2026-11-01T01:59:05Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 184
+bytes_raw = 80473
+sha256_raw = "11de9d5b535052adcc13addc83edba48ec2a2cb425bb97a8067de130016475e9"
+sha256_file = "11de9d5b535052adcc13addc83edba48ec2a2cb425bb97a8067de130016475e9"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 1.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

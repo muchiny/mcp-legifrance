@@ -213,6 +213,20 @@ fn digit(b: u8) -> Option<u8> {
     b.is_ascii_digit().then(|| b - b'0')
 }
 
+/// Entier écrit en chiffres ASCII seuls, dont la longueur est dans `len`.
+fn digits<T: FromStr>(text: &str, len: std::ops::RangeInclusive<usize>) -> Option<T> {
+    if !len.contains(&text.len()) || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    text.parse().ok()
+}
+
+/// Numéro (1 à 12) d'un nom de mois français, sans tenir compte de la casse.
+fn month_number(name: &str) -> Option<u8> {
+    let name = name.to_lowercase();
+    (1_u8..=12).zip(FR_MONTHS).find_map(|(number, month)| (month == name).then_some(number))
+}
+
 impl CivilDate {
     /// Construit une date si elle existe dans le calendrier.
     pub fn new(year: u16, month: u8, day: u8) -> Option<Self> {
@@ -238,6 +252,20 @@ impl CivilDate {
             .ok_or_else(|| DomainError::InvalidDate { input: echo(input) })
     }
 
+    /// Vrai si `input` est exactement une date civile `AAAA-MM-JJ` (années 1 à 9999), quelle que
+    /// soit la plage d'un [`VersionDate`] : distingue une date bien formée hors plage d'une
+    /// saisie illisible quand [`VersionDate::parse`] la refuse.
+    ///
+    /// ```
+    /// use lf_domain::date::CivilDate;
+    ///
+    /// assert!(CivilDate::is_iso("2999-01-01"));
+    /// assert!(!CivilDate::is_iso("2016-13-45"));
+    /// ```
+    pub fn is_iso(input: &str) -> bool {
+        Self::parse_iso(input.as_bytes()).is_some()
+    }
+
     /// Lit exactement `AAAA-MM-JJ`, sans rognage. Sert aussi au suffixe de version
     /// des identifiants (`JJ-MM-AAAA` réordonné, `id.rs`).
     #[expect(
@@ -254,6 +282,37 @@ impl CivilDate {
             + u16::from(digit(y4)?);
         let month = digit(m1)? * 10 + digit(m2)?;
         let day = digit(d1)? * 10 + digit(d2)?;
+        Self::new(year, month, day)
+    }
+
+    /// Lit une date écrite en français, telle que la portent les titres des décisions :
+    /// `21 mai 2025`, `1er juillet 1981`, `1 décembre 2003` ou `30/01/2020`. Le texte doit être
+    /// exactement la date (espaces autour tolérés) ; une date impossible ou un autre texte donne
+    /// `None`.
+    ///
+    /// ```
+    /// use lf_domain::date::CivilDate;
+    ///
+    /// assert_eq!(CivilDate::from_french("1er mars 2026"), CivilDate::new(2026, 3, 1));
+    /// assert_eq!(CivilDate::from_french("30/01/2020"), CivilDate::new(2020, 1, 30));
+    /// assert_eq!(CivilDate::from_french("31 février 2020"), None);
+    /// ```
+    pub fn from_french(input: &str) -> Option<Self> {
+        let words: Vec<&str> = input.split_whitespace().collect();
+        let (day, month, year) = match *words.as_slice() {
+            [numeric] => match *numeric.split('/').collect::<Vec<_>>() {
+                [day, month, year] => (day, digits(month, 1..=2)?, year),
+                _ => return None,
+            },
+            [day, name, year] => (day, month_number(name)?, year),
+            _ => return None,
+        };
+        let day = match day.strip_suffix("er") {
+            Some("1") => 1,
+            Some(_) => return None,
+            None => digits(day, 1..=2)?,
+        };
+        let year = digits(year, 4..=4)?;
         Self::new(year, month, day)
     }
 
@@ -359,6 +418,18 @@ mod tests {
 
     fn d(y: u16, m: u8, day: u8) -> CivilDate {
         CivilDate::new(y, m, day).unwrap()
+    }
+
+    #[test]
+    fn is_iso_tells_a_calendar_date_from_unreadable_input() {
+        for good in ["2016-10-07", "2999-01-01", "0001-01-01", "1000-01-01", "9999-12-31"] {
+            assert!(CivilDate::is_iso(good), "{good}");
+        }
+        for bad in
+            ["", "2016-13-45", "2016-02-30", "07/10/2016", " 2016-10-07", "2016-1-07", "0000-01-01"]
+        {
+            assert!(!CivilDate::is_iso(bad), "{bad:?}");
+        }
     }
 
     #[test]
@@ -586,6 +657,45 @@ mod tests {
         assert_eq!((date.year(), date.month(), date.day()), (2025, 3, 7));
         assert_eq!(date.to_string(), "2025-03-07");
         assert_eq!(d(812, 1, 2).to_string(), "0812-01-02");
+    }
+
+    #[test]
+    fn from_french_reads_title_dates_and_nothing_else() {
+        for (text, want) in [
+            ("21 mai 2025", d(2025, 5, 21)),
+            ("1er juillet 1981", d(1981, 7, 1)),
+            ("1 décembre 2003", d(2003, 12, 1)),
+            ("04 septembre 2018", d(2018, 9, 4)),
+            ("  9 FÉVRIER 2020 ", d(2020, 2, 9)),
+            ("15 août 2026", d(2026, 8, 15)),
+            ("30/01/2020", d(2020, 1, 30)),
+            ("1/2/2020", d(2020, 2, 1)),
+        ] {
+            assert_eq!(CivilDate::from_french(text), Some(want), "{text}");
+        }
+        for text in [
+            "",
+            "mai 2025",
+            "21 mai",
+            "21 mai 2025 à Paris",
+            "21 mais 2025",
+            "31 février 2020",
+            "2er mai 2025",
+            "0er mai 2025",
+            "21 mai 25",
+            "21 mai 02025",
+            "+1 mai 2025",
+            "123 mai 2025",
+            "30/01",
+            "30/01/2020/1",
+            "30/13/2020",
+            "30/01/20",
+            "a/b/cccc",
+            "2020-01-30",
+        ] {
+            assert_eq!(CivilDate::from_french(text), None, "{text}");
+        }
+        assert_eq!(CivilDate::from_french("1er 5 2025"), None);
     }
 
     #[test]

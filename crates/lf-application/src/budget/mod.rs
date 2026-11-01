@@ -45,6 +45,11 @@ impl ResponseBudget {
     pub const ESTIMATE_TARGET_CHARS: usize = 42_000;
     /// Poids estimé d'un champ ou d'un élément de liste (clé, guillemets, séparateurs).
     pub const ESTIMATE_PER_FIELD: usize = 64;
+    /// Poids estimé d'un champ ou d'un élément dans les listes de liens de `fr_get_related` : une
+    /// clé JSON courte, ses guillemets et son séparateur en pèsent 10 à 18, d'où une marge sous 24
+    /// (64 surestimait d'un facteur 2 à 3 et rognait ou refusait des pages qui tenaient).
+    /// `fr_search` n'estime plus : il calcule la longueur exacte du JSON de sa vue.
+    pub const ESTIMATE_PER_LIST_FIELD: usize = 24;
     /// Nombre de résultats de recherche atteignables (`page × page_size`).
     pub const REACHABLE_RESULTS: u64 = lf_domain::search::REACHABLE_RESULTS;
 }
@@ -55,6 +60,35 @@ impl ResponseBudget {
 #[must_use]
 pub const fn estimate_chars(fields: usize, text_chars: usize) -> usize {
     fields.saturating_mul(ResponseBudget::ESTIMATE_PER_FIELD).saturating_add(text_chars)
+}
+
+/// Taille estimée d'une liste de résultats ou de liens : `fields` champs ou éléments à
+/// [`ResponseBudget::ESTIMATE_PER_LIST_FIELD`] caractères, plus `text_chars` caractères de texte
+/// (mesurés par [`escaped_chars`]). Même saturation que [`estimate_chars`], dont le coefficient
+/// global reste celui des autres outils.
+#[must_use]
+pub const fn estimate_list_chars(fields: usize, text_chars: usize) -> usize {
+    fields.saturating_mul(ResponseBudget::ESTIMATE_PER_LIST_FIELD).saturating_add(text_chars)
+}
+
+/// Longueur de `text` une fois écrit dans un JSON compact : un point de code compte pour un
+/// caractère, sauf `"` et `\` (deux), les contrôles `\b \t \n \f \r` (deux) et les autres
+/// contrôles U+0000 à U+001F (six, `\u00XX`). Sature.
+#[must_use]
+pub fn escaped_chars(text: &str) -> usize {
+    text.chars()
+        .map(|c| match c {
+            '"' | '\\' | '\u{8}' | '\t' | '\n' | '\u{c}' | '\r' => 2,
+            c if c < ' ' => 6,
+            _ => 1,
+        })
+        .fold(0, usize::saturating_add)
+}
+
+/// « the last hit » ou « the last N hits » : le groupe nominal des notes de dégradation.
+#[must_use]
+pub fn the_last_hits(count: usize) -> String {
+    if count == 1 { "the last hit".to_owned() } else { format!("the last {count} hits") }
 }
 
 /// Retire des éléments en partant de la fin tant que `over` dit que la liste est trop grosse
@@ -141,6 +175,7 @@ mod tests {
             (ResponseBudget::HARD_CAP_CHARS, 45_000),
             (ResponseBudget::ESTIMATE_TARGET_CHARS, 42_000),
             (ResponseBudget::ESTIMATE_PER_FIELD, 64),
+            (ResponseBudget::ESTIMATE_PER_LIST_FIELD, 24),
         ];
         for (actual, expected) in budget {
             assert_eq!(actual, expected);
@@ -159,6 +194,40 @@ mod tests {
         // Saturant : ni dépassement ni panique.
         assert_eq!(estimate_chars(usize::MAX, 1), usize::MAX);
         assert_eq!(estimate_chars(1, usize::MAX), usize::MAX);
+    }
+
+    #[test]
+    fn list_estimate_counts_24_per_field_and_saturates() {
+        assert_eq!(estimate_list_chars(0, 0), 0);
+        assert_eq!(estimate_list_chars(1, 0), 24);
+        assert_eq!(estimate_list_chars(10, 250), 490);
+        assert_eq!(estimate_list_chars(0, 4_000), 4_000);
+        assert_eq!(estimate_list_chars(usize::MAX, 1), usize::MAX);
+        assert_eq!(estimate_list_chars(1, usize::MAX), usize::MAX);
+        // Le coefficient global des autres outils ne bouge pas.
+        assert_eq!(estimate_chars(1, 0), 64);
+    }
+
+    #[test]
+    fn escaped_chars_matches_the_compact_json_length() {
+        assert_eq!(escaped_chars(""), 0);
+        assert_eq!(escaped_chars("plain é \u{1F600}"), 9);
+        // Guillemet, antislash, \b \t \n \f \r : deux caractères chacun.
+        assert_eq!(escaped_chars("\"\\\u{8}\t\n\u{c}\r"), 14);
+        // Autres contrôles : \u00XX, six caractères, bornes U+0000 et U+001F comprises.
+        assert_eq!(escaped_chars("\u{0}\u{1f}"), 12);
+        // U+0020 n'est pas un contrôle.
+        assert_eq!(escaped_chars(" "), 1);
+        // U+007F et les C1 ne sont pas échappés par `serde_json`.
+        assert_eq!(escaped_chars("\u{7f}\u{80}"), 2);
+        assert_eq!(escaped_chars("a\"b"), 4);
+    }
+
+    #[test]
+    fn the_last_hits_is_singular_for_one() {
+        assert_eq!(the_last_hits(1), "the last hit");
+        assert_eq!(the_last_hits(2), "the last 2 hits");
+        assert_eq!(the_last_hits(33), "the last 33 hits");
     }
 
     #[test]

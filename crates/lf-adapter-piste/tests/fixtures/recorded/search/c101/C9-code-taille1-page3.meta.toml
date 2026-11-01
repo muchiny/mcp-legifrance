@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"bail commercial\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":3,\"pageSize\":1,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-11-01T01:59:59Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 675
+bytes_raw = 4882
+sha256_raw = "70576eb100f49037e2503f29ab912d69dc87b4e9a3a26702b7532bf6e5bf7563"
+sha256_file = "70576eb100f49037e2503f29ab912d69dc87b4e9a3a26702b7532bf6e5bf7563"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 1.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

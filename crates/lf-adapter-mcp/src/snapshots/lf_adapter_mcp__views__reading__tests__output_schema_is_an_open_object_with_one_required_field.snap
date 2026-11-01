@@ -6,7 +6,6 @@ expression: schema
   "properties": {
     "next_offset": {
       "description": "Pass as offset to read the next window.",
-      "format": "uint32",
       "minimum": 0,
       "type": "integer"
     },
@@ -17,7 +16,6 @@ expression: schema
       "items": {
         "properties": {
           "offset": {
-            "format": "uint32",
             "minimum": 0,
             "type": "integer"
           },
@@ -48,7 +46,6 @@ expression: schema
       "type": "string"
     },
     "text_length": {
-      "format": "uint32",
       "minimum": 0,
       "type": "integer"
     }

@@ -204,6 +204,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_pdr_decision_summary_is_its_operative_part() {
+        // 2022-196 PDR : « DÉCIDE » puis « Délibéré par… / Rendu public… », sans « Jugé par ».
+        let text = format!(
+            "{}\n\nLE CONSEIL CONSTITUTIONNEL DÉCIDE :\n\nArticle 1er. - Les deux candidats \
+             habilités à se présenter au second tour sont :\n\nMonsieur A et Madame B.\n\n\
+             Article 2. - La présente décision sera publiée au Journal officiel.\n\n\
+             Délibéré par le Conseil constitutionnel dans sa séance du 13 avril 2022.\n\n\
+             Rendu public le 13 avril 2022.",
+            fillers(12)
+        );
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(decision(CONSTIT, &text)));
+
+        let output = GetDecisionUseCase::new(&corpus).execute(input(Some(CONSTIT))).await.unwrap();
+
+        assert_eq!(source(&output), Some(SummarySource::Dispositif));
+        let summary = output.reading.summary.unwrap();
+        assert!(!summary.truncated);
+        assert_eq!(
+            summary.text,
+            "Article 1er. - Les deux candidats habilités à se présenter au second tour sont :\n\n\
+             Monsieur A et Madame B.\n\n\
+             Article 2. - La présente décision sera publiée au Journal officiel."
+        );
+    }
+
+    #[tokio::test]
     async fn the_rule_follows_the_decision_the_port_returned() {
         // Le fond de l'identifiant rendu règle le dispositif (04 §9.2, D28) : une demande
         // `CONSTEXT` qui reçoit une décision `CETATEXT` la résume avec la règle du Conseil d'État.
@@ -408,7 +435,7 @@ mod tests {
         assert_eq!(
             error,
             AppError::invalid_argument(
-                "offset=20000 is past the end of the text (text_length=17); restart from \
+                "offset=20000 is at or past the end of the text (text_length=17); restart from \
                  offset=0 or omit offset."
             )
         );

@@ -7,7 +7,12 @@
 
 use std::time::Duration;
 
-use lf_domain::{DomainError, fond::Fond};
+use lf_domain::{
+    DomainError,
+    date::{CivilDate, VersionDate},
+    fond::Fond,
+    text::is_invisible,
+};
 
 use crate::{
     error::{AppError, ErrorCode, UpstreamCause},
@@ -114,7 +119,9 @@ pub fn corpus_error(tool: ToolName, subject: &str, error: &CorpusError) -> AppEr
     match error {
         CorpusError::NotFound { what: _ } => not_found(tool, subject),
         CorpusError::InvalidRequest { status, detail } => invalid_request(*status, detail),
-        CorpusError::Upstream { status, retryable, detail: _ } => upstream(*status, *retryable),
+        CorpusError::Upstream { status, retryable, detail: _ } => {
+            upstream(tool, *status, *retryable)
+        }
         CorpusError::Timeout => AppError::Upstream {
             message: format!("Legifrance/PISTE did not answer in time{}", retry_suffix(true)),
             cause: UpstreamCause::Timeout,
@@ -143,8 +150,14 @@ fn decode() -> AppError {
 fn not_found(tool: ToolName, subject: &str) -> AppError {
     let message = match tool {
         ToolName::FR_GET_ACT => format!(
-            "No LODA text found for {subject}. Check the id, or search with fr_search fond=LODA \
-             or CODE."
+            "No text found for {subject}. Check the id, or search with fr_search fond=LODA or \
+             CODE."
+        ),
+        // Un KALIARTI est un article de convention collective : `fr_get_act` ne le retrouve pas
+        // (L4-09, get_text-12).
+        ToolName::FR_GET_TEXT if subject.starts_with("KALIARTI") => format!(
+            "No article found for {subject}. Check the id, or find the article with \
+             fr_get_convention."
         ),
         ToolName::FR_GET_TEXT => format!(
             "No article found for {subject}. Check the id, or find the article with fr_get_act or \
@@ -202,10 +215,20 @@ const fn retry_suffix(retryable: bool) -> &'static str {
     if retryable { "; retry once, then report it." } else { "; report it." }
 }
 
+/// Suffixe d'un 500 ou 503 sur une recherche : le moteur les rend aussi pour une requête qu'il ne
+/// sait pas lire (opérateur `AND` en fin de requête, `NOT` seul, guillemets), et la rejouer à
+/// l'identique échoue de la même façon : on invite à reformuler, non à réessayer (L4-08, gap5-4).
+const REPHRASE_SUFFIX: &str = "; if it repeats, rephrase the query or report it.";
+
 /// `Upstream` (lignes 17 et 18). Sans statut, c'est une erreur réseau : la catégorie reste fixe,
 /// `CorpusError::Upstream` ne la porte pas (05 §7.2 cite `TLS error` en exemple).
-fn upstream(status: Option<u16>, retryable: bool) -> AppError {
-    let suffix = retry_suffix(retryable);
+fn upstream(tool: ToolName, status: Option<u16>, retryable: bool) -> AppError {
+    let is_search = matches!(tool, ToolName::FR_SEARCH | ToolName::FR_SEARCH_ALL);
+    let suffix = if is_search && matches!(status, Some(500 | 503)) {
+        REPHRASE_SUFFIX
+    } else {
+        retry_suffix(retryable)
+    };
     match status {
         Some(status) => {
             let reason = match status {
@@ -231,8 +254,12 @@ fn upstream(status: Option<u16>, retryable: bool) -> AppError {
 /// `Retry-After` (V-63).
 fn rate_limited(retry_after: Option<Duration>) -> AppError {
     let message = match retry_after {
-        Some(delay) => format!("PISTE quota reached; retry in {} s.", ceil_secs(delay)),
-        None => "PISTE quota reached; retry in a few seconds.".to_owned(),
+        Some(delay) if !delay.is_zero() => {
+            format!("PISTE quota reached; retry in {} s.", ceil_secs(delay))
+        }
+        // Un délai nul (`Retry-After: 0`, limiteur local) n'est pas une attente exploitable :
+        // même phrase que sans délai (L4-09, errors-10).
+        Some(_) | None => "PISTE quota reached; retry in a few seconds.".to_owned(),
     };
     AppError::RateLimited { message, retry_after }
 }
@@ -283,7 +310,9 @@ const SHOWN_MAX_CHARS: usize = 64;
 const OPEN_ENDED: i64 = i64::MAX;
 
 /// `value` telle que le modèle la lit entre apostrophes : coupée à 64 caractères (`…` ensuite),
-/// barre oblique inverse, retours à la ligne, contrôles et séparateurs de ligne Unicode échappés.
+/// barre oblique inverse, retours à la ligne, contrôles, séparateurs de ligne Unicode et
+/// caractères invisibles (format, bidi, largeur nulle : [`is_invisible`], source unique avec le
+/// nettoyage des textes) échappés.
 fn shown(value: &str) -> String {
     let mut chars = value.chars();
     let mut out = String::new();
@@ -293,7 +322,7 @@ fn shown(value: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            c if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') => {
+            c if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') || is_invisible(c) => {
                 out.extend(c.escape_unicode());
             }
             c => out.push(c),
@@ -354,6 +383,16 @@ pub fn domain_arg(tool: ToolName, arg: Option<&'static str>, error: &DomainError
             "{id}='{}': invalid version suffix (expected _DD-MM-YYYY, e.g. _08-09-2023).",
             shown(input)
         )),
+        DomainError::InvalidDate { input, .. } if CivilDate::is_iso(input) => {
+            // Date bien formée que la plage de `VersionDate` refuse (L4-09, protocol-6).
+            invalid_argument(format!(
+                "{}='{}' is outside the supported range ({}..{}).",
+                arg.unwrap_or("date"),
+                shown(input),
+                VersionDate::MIN,
+                VersionDate::MAX
+            ))
+        }
         DomainError::InvalidDate { input, .. } => invalid_argument(format!(
             "{}='{}' is not a valid date (expected YYYY-MM-DD, e.g. 2026-10-15).",
             arg.unwrap_or("date"),
@@ -371,8 +410,14 @@ pub fn domain_arg(tool: ToolName, arg: Option<&'static str>, error: &DomainError
         }
         DomainError::EmptyQuery => required("query"),
         DomainError::QueryTooLong { len, max } => invalid_argument(format!(
-            "query is too long ({len} characters, max {max}); shorten it or use match=\"all\"."
+            "query is too long ({len} characters, max {max}); shorten it."
         )),
+        DomainError::FocusTooLong { len, max } => {
+            invalid_argument(format!("focus is {len} characters long (max {max}); shorten it."))
+        }
+        DomainError::UnbalancedQuotes => invalid_argument(
+            "query has an unbalanced double quote (\"): close it or remove it.".to_owned(),
+        ),
         DomainError::OutOfRange { field, value, min, max } => {
             out_of_range(field, *value, *min, *max)
         }
@@ -393,7 +438,7 @@ pub fn domain_arg(tool: ToolName, arg: Option<&'static str>, error: &DomainError
              narrow the query with match or date_from/date_to."
         )),
         DomainError::OffsetPastEnd { offset, text_length } => invalid_argument(format!(
-            "offset={offset} is past the end of the text (text_length={text_length}); restart \
+            "offset={offset} is at or past the end of the text (text_length={text_length}); restart \
              from offset=0 or omit offset."
         )),
         DomainError::FocusWithoutTerms => invalid_argument(
@@ -469,6 +514,20 @@ fn expected_prefixes(expected: &str) -> Vec<&str> {
         .split([',', ' '])
         .filter(|word| word.len() == 8 && word.bytes().all(|b| b.is_ascii_uppercase()))
         .collect()
+}
+
+/// L'entrée (rendue par [`shown`]) d'un identifiant dont **aucun préfixe** n'est connu du
+/// domaine, `None` pour toute autre erreur, y compris un préfixe connu suivi de chiffres faux
+/// (L4-10). L'erreur du domaine liste alors les dix familles ; un outil qui n'en lit que
+/// quelques-unes rédige sa propre phrase.
+#[must_use]
+pub(crate) fn unknown_id_family(error: &DomainError) -> Option<String> {
+    match error {
+        DomainError::InvalidId { input, expected, .. } if expected_prefixes(expected).len() > 1 => {
+            Some(shown(input))
+        }
+        _ => None,
+    }
 }
 
 /// Message d'un identifiant refusé (03 §2.7) : mauvaise famille, préfixe inconnu ou chiffres.
@@ -770,14 +829,21 @@ mod tests {
             (
                 ToolName::FR_GET_ACT,
                 "LEGITEXT000006070721",
-                "No LODA text found for LEGITEXT000006070721. Check the id, or search with \
-                 fr_search fond=LODA or CODE.",
+                "No text found for LEGITEXT000006070721. Check the id, or search with fr_search \
+                 fond=LODA or CODE.",
             ),
             (
                 ToolName::FR_GET_TEXT,
                 "LEGIARTI000006419999",
                 "No article found for LEGIARTI000006419999. Check the id, or find the article \
                  with fr_get_act or fr_search.",
+            ),
+            // L4-09 : un KALIARTI se lit avec fr_get_convention, pas avec fr_get_act.
+            (
+                ToolName::FR_GET_TEXT,
+                "KALIARTI000099999999",
+                "No article found for KALIARTI000099999999. Check the id, or find the article \
+                 with fr_get_convention.",
             ),
             (
                 ToolName::FR_GET_DECISION,
@@ -926,8 +992,8 @@ mod tests {
         assert_eq!(
             corpus_error(act, uri, &CorpusError::NotFound { what: uri.to_owned() }),
             AppError::not_found(
-                "No LODA text found for LEGITEXT000006070721. Check the id, or search with \
-                 fr_search fond=LODA or CODE."
+                "No text found for LEGITEXT000006070721. Check the id, or search with fr_search \
+                 fond=LODA or CODE."
             )
         );
         assert_eq!(
@@ -1048,8 +1114,8 @@ mod tests {
         assert_eq!(
             corpus_error(act, uri, &empty),
             AppError::not_found(
-                "No LODA text found for LEGITEXT000006070721. Check the id, or search with \
-                 fr_search fond=LODA or CODE."
+                "No text found for LEGITEXT000006070721. Check the id, or search with fr_search \
+                 fond=LODA or CODE."
             )
         );
         // S17 : audit, sans puis avec code d'origine.
@@ -1105,6 +1171,55 @@ mod tests {
     }
 
     #[test]
+    fn a_500_or_503_on_a_search_asks_to_rephrase_instead_of_retrying() {
+        // E2E search_all-1 et gap5-4 : « travail AND », « NOT », un guillemet orphelin.
+        for tool in [ToolName::FR_SEARCH, ToolName::FR_SEARCH_ALL] {
+            let app = corpus_error(tool, "", &upstream(Some(503), true));
+            assert_eq!(
+                app,
+                expected_upstream(
+                    UpstreamCause::Status(503),
+                    "Legifrance/PISTE HTTP 503 (service unavailable); if it repeats, rephrase \
+                     the query or report it."
+                )
+            );
+            let app = corpus_error(tool, "", &upstream(Some(500), false));
+            assert_eq!(
+                app,
+                expected_upstream(
+                    UpstreamCause::Status(500),
+                    "Legifrance/PISTE HTTP 500 (internal server error); if it repeats, \
+                     rephrase the query or report it."
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn other_search_failures_and_other_tools_keep_their_usual_suffix() {
+        // Jumeau : seuls 500 et 503 d'une recherche changent.
+        for (status, message) in [
+            (502, "Legifrance/PISTE HTTP 502 (bad gateway); retry once, then report it."),
+            (504, "Legifrance/PISTE HTTP 504 (gateway timeout); retry once, then report it."),
+        ] {
+            let app = corpus_error(ToolName::FR_SEARCH, "", &upstream(Some(status), true));
+            assert_eq!(app.message(), message);
+        }
+        let timeout = corpus_error(ToolName::FR_SEARCH_ALL, "", &CorpusError::Timeout);
+        assert_eq!(
+            timeout.message(),
+            "Legifrance/PISTE did not answer in time; retry once, then report it."
+        );
+        let network = corpus_error(ToolName::FR_SEARCH, "", &upstream(None, true));
+        assert!(network.message().ends_with("; retry once, then report it."));
+        let consult = corpus_error(ToolName::FR_GET_TEXT, ID, &upstream(Some(503), true));
+        assert_eq!(
+            consult.message(),
+            "Legifrance/PISTE HTTP 503 (service unavailable); retry once, then report it."
+        );
+    }
+
+    #[test]
     fn upstream_reason_phrases_cover_the_documented_statuses_only() {
         let rows = [
             (500, "Legifrance/PISTE HTTP 500 (internal server error); report it."),
@@ -1127,7 +1242,7 @@ mod tests {
             // Arrondi au supérieur : 1,2 s se lit « 2 s », jamais une attente trop courte.
             (Some(Duration::from_millis(1200)), "PISTE quota reached; retry in 2 s."),
             (Some(Duration::from_millis(1)), "PISTE quota reached; retry in 1 s."),
-            (Some(Duration::ZERO), "PISTE quota reached; retry in 0 s."),
+            (Some(Duration::ZERO), "PISTE quota reached; retry in a few seconds."),
             (None, "PISTE quota reached; retry in a few seconds."),
         ];
         for (retry_after, message) in rows {
@@ -1331,6 +1446,17 @@ mod tests {
     }
 
     #[test]
+    fn unknown_id_family_tells_an_unknown_prefix_from_wrong_digits() {
+        // L4-10 : seul un préfixe inconnu (liste des dix familles) donne l'entrée échappée.
+        let unknown = DocumentId::parse("foo\u{202e}").unwrap_err();
+        assert_eq!(unknown_id_family(&unknown).as_deref(), Some(r"foo\u{202e}"));
+        // Un préfixe connu aux chiffres faux, une autre erreur du domaine : `None`.
+        let digits = DocumentId::parse("LEGIARTI123").unwrap_err();
+        assert_eq!(unknown_id_family(&digits), None);
+        assert_eq!(unknown_id_family(&DomainError::EmptyQuery), None);
+    }
+
+    #[test]
     fn shown_escapes_controls_and_cuts_at_64_characters() {
         assert_eq!(shown("a\nb\tc\rd"), r"a\nb\tc\rd");
         assert_eq!(shown("a\\b"), r"a\\b");
@@ -1346,6 +1472,106 @@ mod tests {
         // La coupe précède l'échappement : 64 caractères d'entrée, quel que soit le rendu.
         assert_eq!(shown(&"\n".repeat(65)), format!("{}…", r"\n".repeat(64)));
         assert!(!not_one_of("fond", "x\ny", &["A"]).message().contains('\n'));
+    }
+
+    #[test]
+    fn shown_escapes_format_characters_and_keeps_letters() {
+        // L4-09 (protocol-13) : les caractères de catégorie Cf (bidi, largeur nulle, BOM) sont
+        // échappés, comme les contrôles.
+        assert_eq!(shown("LEGIARTI0000320415\u{202e}71"), r"LEGIARTI0000320415\u{202e}71");
+        for c in
+            ['\u{200b}', '\u{200f}', '\u{202a}', '\u{2060}', '\u{2066}', '\u{2069}', '\u{feff}']
+        {
+            let expected = format!("a{}b", c.escape_unicode());
+            assert_eq!(shown(&format!("a{c}b")), expected, "{c:?}");
+        }
+        // Jumeau : lettres accentuées, œ, € et emoji restent tels quels.
+        assert_eq!(shown("éàçœŒ€ñ😀"), "éàçœŒ€ñ😀");
+    }
+
+    #[test]
+    fn shown_escapes_exactly_the_invisible_set_of_the_domain() {
+        // Dérive : `shown` et `is_invisible` du domaine partagent une seule définition. La table
+        // reprend les 21 plages de la spécification 03 §7.3 (`SPEC_INVISIBLE` de `clean.rs`, privée
+        // à ses tests : une table d'une autre caisse ne s'importe pas). Chaque point de code Unicode
+        // est contrôlé : `is_invisible` vaut la table, et `shown` échappe exactement la table, les
+        // contrôles et les séparateurs U+2028 et U+2029 (les lettres, symboles et emoji restent
+        // tels quels). `\t`, `\n`, `\r` et `\` ont leur propre échappement, vérifié ailleurs.
+        let ranges: [(u32, u32); 21] = [
+            (0x0, 0x8),
+            (0xb, 0xc),
+            (0xe, 0x1f),
+            (0x7f, 0x9f),
+            (0xad, 0xad),
+            (0x34f, 0x34f),
+            (0x61c, 0x61c),
+            (0x115f, 0x1160),
+            (0x17b4, 0x17b5),
+            (0x180b, 0x180f),
+            (0x200b, 0x200f),
+            (0x202a, 0x202e),
+            (0x2060, 0x206f),
+            (0x3164, 0x3164),
+            (0xfe00, 0xfe0f),
+            (0xfeff, 0xfeff),
+            (0xffa0, 0xffa0),
+            (0xfff0, 0xfff8),
+            (0x1bca0, 0x1bca3),
+            (0x1d173, 0x1d17a),
+            (0xe0000, 0xe0fff),
+        ];
+        for code in 0..=0x0010_ffff_u32 {
+            let Some(c) = char::from_u32(code) else { continue };
+            if matches!(c, '\t' | '\n' | '\r' | '\\') {
+                continue;
+            }
+            let in_spec = ranges.iter().any(|&(first, last)| (first..=last).contains(&code));
+            assert_eq!(lf_domain::text::is_invisible(c), in_spec, "{c:?}");
+            let escaped = shown(&c.to_string()) == c.escape_unicode().to_string();
+            let expected = in_spec || c.is_control() || matches!(c, '\u{2028}' | '\u{2029}');
+            assert_eq!(escaped, expected, "{c:?}");
+            if !expected {
+                assert_eq!(shown(&c.to_string()), c.to_string(), "{c:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_well_formed_date_out_of_range_says_so_and_a_malformed_one_does_not() {
+        // L4-09 (protocol-6) : 2999-01-01 est une date valide, hors de 1500-01-01..2221-12-31.
+        let range = "is outside the supported range (1500-01-01..2221-12-31).";
+        for (input, arg) in [
+            ("2999-01-01", None),
+            ("2500-01-01", None),
+            ("1000-01-01", None),
+            ("0001-01-01", None),
+            ("2222-01-01", Some("version_date")),
+            ("1499-12-31", Some("date_a")),
+        ] {
+            let error = VersionDate::parse(input).unwrap_err();
+            let name = arg.unwrap_or("date");
+            assert_eq!(
+                domain_arg(ToolName::FR_GET_ACT, arg, &error).message(),
+                format!("{name}='{input}' {range}"),
+            );
+        }
+        // Jumeau : date mal formée, impossible ou espacée gardent « not a valid date ».
+        for input in
+            ["2016-13-45", "2016-02-30", "07/10/2016", " 2016-10-07", "2016-1-07", "hier", ""]
+        {
+            let error = VersionDate::parse(input).unwrap_err();
+            let message = domain_arg(ToolName::FR_GET_ACT, None, &error).message().to_owned();
+            assert!(message.contains("is not a valid date (expected YYYY-MM-DD"), "{message}");
+            assert!(!message.contains("supported range"), "{message}");
+        }
+        // Les bornes incluses restent acceptées.
+        assert!(
+            VersionDate::parse("1500-01-01").is_ok() && VersionDate::parse("2221-12-31").is_ok()
+        );
+        // Une date civile convertie hors plage (resolve) est dite hors plage, elle aussi.
+        let civil = lf_domain::date::CivilDate::parse("2999-01-01").unwrap();
+        let error = VersionDate::try_from(civil).unwrap_err();
+        assert_eq!(domain_text(ToolName::FR_RESOLVE, &error), format!("date='2999-01-01' {range}"));
     }
 
     #[test]
@@ -1528,8 +1754,12 @@ mod tests {
             ),
             (DomainError::EmptyQuery, "query is required."),
             (
+                DomainError::UnbalancedQuotes,
+                "query has an unbalanced double quote (\"): close it or remove it.",
+            ),
+            (
                 DomainError::QueryTooLong { len: 612, max: 450 },
-                "query is too long (612 characters, max 450); shorten it or use match=\"all\".",
+                "query is too long (612 characters, max 450); shorten it.",
             ),
             (
                 DomainError::OutOfRange { field: "page_size", value: 0, min: 1, max: 100 },
@@ -1559,8 +1789,12 @@ mod tests {
             ),
             (
                 DomainError::OffsetPastEnd { offset: 20_000, text_length: 14_332 },
-                "offset=20000 is past the end of the text (text_length=14332); restart from \
-                 offset=0 or omit offset.",
+                "offset=20000 is at or past the end of the text (text_length=14332); restart \
+                 from offset=0 or omit offset.",
+            ),
+            (
+                DomainError::FocusTooLong { len: 501, max: 500 },
+                "focus is 501 characters long (max 500); shorten it.",
             ),
             (
                 DomainError::FocusWithoutTerms,

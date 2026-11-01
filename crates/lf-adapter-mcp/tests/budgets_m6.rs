@@ -46,7 +46,8 @@ mod budgets_m6 {
     const CAP: usize = ResponseBudget::HARD_CAP_CHARS;
     const TARGET: usize = ResponseBudget::ESTIMATE_TARGET_CHARS;
 
-    /// Début de la note que l'application pose quand elle raccourcit la liste de `fr_verify_citations`.
+    /// Début de la note que la vue pose quand elle raccourcit la liste de `fr_verify_citations`
+    /// (seule la mesure exacte du JSON coupe, L2-13 : l'application ne coupe plus par estimation).
     const VERIFY_NOTE: &str = "List shortened to";
 
     // ---- données synthétiques ------------------------------------------------------------------
@@ -251,8 +252,8 @@ mod budgets_m6 {
                 check: |observed| {
                     let citations = observed.list("citations");
                     let kept = citations.len();
-                    // L'estimation de l'application raccourcit la liste, puis la mesure exacte de
-                    // la vue, qui compte les échappements, retire encore des citations par la fin.
+                    // Seule la mesure exacte de la vue, qui compte les échappements, retire des
+                    // citations par la fin (L2-13 : l'application ne coupe plus par estimation).
                     assert!((1..100).contains(&kept), "{kept}");
                     assert_eq!(observed.value["found"], 100);
                     assert_eq!(observed.value["checked"], kept);

@@ -24,11 +24,11 @@ expression: report
   {
     "case": "related_150_links_with_500_char_citations",
     "kept": {
-      "kept": 38,
+      "kept": 33,
       "total": 150
     },
     "tool": "fr_get_related",
-    "under_estimation_target": false
+    "under_estimation_target": true
   },
   {
     "case": "related_120_short_links",

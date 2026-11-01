@@ -2,11 +2,17 @@
 //!
 //! L'API emploie `etat` (`VIGUEUR`, `ABROGE`) et `jurisState` (`Vigueur` pour LODA,
 //! `VIGUEUR_ETEN` pour KALI), avec une casse variable. La règle est unique pour tous les fonds :
-//! `etat` s'il n'est pas vide, sinon `jurisState` (corrige E-10). La liste est fermée à 17 codes ;
+//! `etat` s'il n'est pas vide, sinon `jurisState` (corrige E-10). La liste est fermée à 17 codes,
+//! reconnus sans égard à la casse ni aux accents (`Abrogé` ⇒ `ABROGE`) ;
 //! [`LegalStatus::Other`] garde tout code inconnu (évolution de l'API), sans contrôle ni
 //! caractère invisible, tronqué à [`ECHO_MAX_CHARS`](crate::error::ECHO_MAX_CHARS) caractères.
 
-use crate::{error::echo, text::is_invisible};
+use unicode_normalization::{UnicodeNormalization, char::canonical_combining_class};
+
+use crate::{
+    error::echo,
+    text::{fold::fold, is_invisible},
+};
 
 /// Statut juridique : les 17 codes de l'API, plus [`Other`](Self::Other) pour un code inconnu.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -72,10 +78,7 @@ impl LegalStatus {
         if trimmed.is_empty() {
             return None;
         }
-        Some(
-            code_to_status(&trimmed.to_ascii_uppercase())
-                .unwrap_or_else(|| Self::Other(echo(trimmed))),
-        )
+        Some(code_to_status(&table_key(trimmed)).unwrap_or_else(|| Self::Other(echo(trimmed))))
     }
 
     /// Code de l'API (`"VIGUEUR"`, `"VIGUEUR_ETEN"`, …) ; pour [`Other`](Self::Other), le texte
@@ -102,11 +105,60 @@ impl LegalStatus {
             Self::Other(raw) => raw,
         }
     }
+
+    /// Cette version n'est-elle plus celle en vigueur, d'après son seul `etat` (sans horloge) ?
+    /// Vrai pour `MODIFIE`, `MODIFIE_MORT_NE`, `ABROGE`, `PERIME`, `ANNULE`, `DISJOINT`,
+    /// `TRANSFERE`, `REMPLACE`, `DENONCE` et `SUBSTITUE`. Faux pour `VIGUEUR*`, `INITIALE`,
+    /// `SANS_ETAT`, les codes inconnus et `ABROGE_DIFF` : une abrogation différée est encore en
+    /// vigueur aujourd'hui, rien n'autorise à dire que la version est remplacée. Règle unique de
+    /// `fr_resolve` (note de version) et de `fr_get_text` (avertissement), qui ne doivent pas
+    /// diverger (revue finale I2).
+    ///
+    /// ```
+    /// use lf_domain::status::LegalStatus;
+    ///
+    /// assert!(LegalStatus::Modifie.is_superseded());
+    /// assert!(!LegalStatus::AbrogeDiff.is_superseded());
+    /// ```
+    #[must_use]
+    pub const fn is_superseded(&self) -> bool {
+        match self {
+            Self::Abroge
+            | Self::Modifie
+            | Self::ModifieMortNe
+            | Self::Perime
+            | Self::Annule
+            | Self::Disjoint
+            | Self::Transfere
+            | Self::Remplace
+            | Self::Denonce
+            | Self::Substitue => true,
+            Self::Vigueur
+            | Self::VigueurEtendue
+            | Self::VigueurNonEtendue
+            | Self::VigueurDifferee
+            | Self::AbrogeDiff
+            | Self::Initiale
+            | Self::SansEtat
+            | Self::Other(_) => false,
+        }
+    }
 }
 
 /// `raw` sans ses contrôles (`\t`, `\n` et `\r` compris) ni ses caractères invisibles.
 fn visible_code(raw: &str) -> String {
     raw.chars().filter(|&c| !(c.is_control() || is_invisible(c))).collect()
+}
+
+/// Clé de la table pour `trimmed` (déjà rogné) : marques combinantes retirées après décomposition
+/// (`Abrogé` composé ou `e` + accent aigu), accents et ligatures repliés par [`fold`], puis
+/// majuscules. L'insensibilité à la casse et aux accents vaut pour la clé seule : [`Other`]
+/// garde le texte d'origine (get_act-4 : `jurisState` « Abrogé » ⇒ `ABROGE`).
+///
+/// [`Other`]: LegalStatus::Other
+fn table_key(trimmed: &str) -> String {
+    let bare: String = trimmed.nfd().filter(|&c| canonical_combining_class(c) == 0).collect();
+    fold(&bare).to_ascii_uppercase()
 }
 
 /// Table des 17 codes : `upper` est déjà rogné et en majuscules ASCII.
@@ -191,6 +243,28 @@ mod tests {
         }
     }
 
+    /// Revue finale I2 : une seule règle « plus en vigueur » pour les 17 codes, `ABROGE_DIFF`
+    /// (encore en vigueur) exclu, `DISJOINT` compris ; un code inconnu n'en est pas un.
+    #[test]
+    fn is_superseded_is_one_table_over_every_variant() {
+        let superseded = [
+            "ABROGE",
+            "MODIFIE",
+            "MODIFIE_MORT_NE",
+            "PERIME",
+            "ANNULE",
+            "DISJOINT",
+            "TRANSFERE",
+            "REMPLACE",
+            "DENONCE",
+            "SUBSTITUE",
+        ];
+        for (code, status) in table() {
+            assert_eq!(status.is_superseded(), superseded.contains(&code), "{code}");
+        }
+        assert!(!LegalStatus::Other("EN_COURS".to_owned()).is_superseded());
+    }
+
     #[test]
     fn code_to_status_rejects_unknown_and_lowercase() {
         assert_eq!(code_to_status("EN_COURS"), None);
@@ -208,6 +282,52 @@ mod tests {
         assert_eq!(
             LegalStatus::parse("  En_Cours "),
             Some(LegalStatus::Other("En_Cours".to_owned()))
+        );
+    }
+
+    #[test]
+    fn legal_status_accented_labels_fold_to_the_api_codes() {
+        // get_act-4 : `jurisState` arrive en libellé accentué quand `etat` est null (LODA).
+        let labels = [
+            ("Abrogé", LegalStatus::Abroge),
+            ("ABROGÉ", LegalStatus::Abroge),
+            ("abrogé", LegalStatus::Abroge),
+            ("Modifié", LegalStatus::Modifie),
+            ("Périmé", LegalStatus::Perime),
+            ("Annulé", LegalStatus::Annule),
+            ("Transféré", LegalStatus::Transfere),
+            ("Remplacé", LegalStatus::Remplace),
+            ("Dénoncé", LegalStatus::Denonce),
+            ("Substitué", LegalStatus::Substitue),
+        ];
+        for (raw, status) in labels {
+            assert_eq!(LegalStatus::parse(raw), Some(status.clone()), "{raw}");
+            assert_eq!(LegalStatus::parse(&format!(" {raw} ")), Some(status), "{raw}");
+        }
+        // Forme décomposée (e + accent aigu combinant) : même résultat que la forme composée.
+        assert_eq!(LegalStatus::parse("Abroge\u{301}"), Some(LegalStatus::Abroge));
+        assert_eq!(LegalStatus::parse("ABROGE\u{301}"), Some(LegalStatus::Abroge));
+        assert_eq!(LegalStatus::parse("Pe\u{301}rime\u{301}"), Some(LegalStatus::Perime));
+        // Un code à tiret bas accentué se replie aussi.
+        assert_eq!(LegalStatus::parse("Modifié_mort_né"), Some(LegalStatus::ModifieMortNe));
+        // Le texte porté par `status_of` suit.
+        assert_eq!(status_of(None, Some("Abrogé")), Some(LegalStatus::Abroge));
+        assert_eq!(status_of(Some("  "), Some("Abrogé")), Some(LegalStatus::Abroge));
+        assert_eq!(status_of(Some("VIGUEUR"), Some("Abrogé")), Some(LegalStatus::Vigueur));
+    }
+
+    #[test]
+    fn legal_status_unknown_accented_label_keeps_its_original_text() {
+        // Jumeau : un libellé inconnu n'est pas replié dans la valeur conservée.
+        let status = LegalStatus::parse("Échu");
+        assert_eq!(status, Some(LegalStatus::Other("Échu".to_owned())));
+        assert_eq!(status.as_ref().map(LegalStatus::as_api_code), Some("Échu"));
+        // L'accent n'invente pas de code : « Abrogéx » reste inconnu, texte d'origine gardé.
+        assert_eq!(LegalStatus::parse("Abrogéx"), Some(LegalStatus::Other("Abrogéx".to_owned())));
+        // Un libellé à espaces n'est pas reconnu (pas de table de libellés, V-113).
+        assert_eq!(
+            LegalStatus::parse("Abrogé différé"),
+            Some(LegalStatus::Other("Abrogé différé".to_owned()))
         );
     }
 

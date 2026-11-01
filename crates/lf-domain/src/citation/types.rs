@@ -682,15 +682,74 @@ pub struct ArticleNum {
     pub special: Option<SpecialNum>,
     /// Parties numériques : `[1234, 5]` pour `1234-5`.
     pub base: Vec<u32>,
-    /// Adverbe latin.
+    /// Adverbe latin placé avant les lettres (`undecies` dans `199 undecies B`).
     pub latin: Option<LatinAdverb>,
+    /// Entier collé à l'adverbe par un tiret (`0` dans `199 terdecies-0 A`).
+    pub latin_sub: Option<u32>,
     /// Lettres de suffixe (`B` dans `199 undecies B`).
     pub letters: Option<String>,
+    /// Adverbe latin placé après les lettres (`ter` dans `150-0 B ter`).
+    pub latin_after: Option<LatinAdverb>,
+}
+
+/// Suffixes d'un numéro d'article en cours de lecture : `[adverbe [-entier]] [lettres] [adverbe]`.
+/// Machine à états commune à la grammaire (`art_num`) et à `ArticleNum::from_str`.
+#[derive(Default)]
+pub(crate) struct Suffixes {
+    /// Adverbe avant les lettres.
+    pub(crate) latin: Option<LatinAdverb>,
+    /// Entier collé à cet adverbe.
+    pub(crate) latin_sub: Option<u32>,
+    /// Lettres de suffixe.
+    pub(crate) letters: Option<String>,
+    /// Adverbe après les lettres.
+    pub(crate) latin_after: Option<LatinAdverb>,
+}
+
+impl Suffixes {
+    /// Ajoute un adverbe : le premier avant toute lettre, le second après les lettres. Refuse
+    /// deux adverbes consécutifs (`5 bis ter`) et un troisième.
+    pub(crate) fn push_adverb(&mut self, adverb: LatinAdverb) -> bool {
+        if self.letters.is_some() && self.latin_after.is_none() {
+            self.latin_after = Some(adverb);
+            true
+        } else if self.letters.is_none() && self.latin.is_none() {
+            self.latin = Some(adverb);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Ajoute l'entier collé au premier adverbe (`terdecies-0`).
+    pub(crate) fn push_sub(&mut self, sub: u32) -> bool {
+        let fits = self.latin.is_some() && self.letters.is_none() && self.latin_sub.is_none();
+        if fits {
+            self.latin_sub = Some(sub);
+        }
+        fits
+    }
+
+    /// Ajoute les lettres : une seule fois.
+    pub(crate) fn push_letters(&mut self, letters: String) -> bool {
+        let fits = self.letters.is_none();
+        if fits {
+            self.letters = Some(letters);
+        }
+        fits
+    }
+
+    /// Le dernier suffixe lu est un adverbe : ce qui suit ne peut plus être une lettre (`885-0 V
+    /// bis A`) sans que le numéro soit tronqué.
+    pub(crate) fn after_adverb(&self) -> bool {
+        self.latin_after.is_some() || (self.latin.is_some() && self.letters.is_none())
+    }
 }
 
 impl ArticleNum {
     /// Clé canonique : préfixe sans point ni espace, numéro, puis suffixes séparés par une
-    /// espace (`L761-1`, `R*111-1`, `199 undecies B`, `1er`). Vide pour `SansNumero`.
+    /// espace (`L761-1`, `R*111-1`, `199 undecies B`, `150-0 B ter`, `199 terdecies-0 A`, `1er`).
+    /// Vide pour `SansNumero`.
     pub fn num_key(&self) -> String {
         if let Some(special) = self.special {
             return special.as_str().to_owned();
@@ -701,10 +760,18 @@ impl ArticleNum {
         if let Some(latin) = &self.latin {
             key.push(' ');
             key.push_str(latin.as_str());
+            if let Some(sub) = self.latin_sub {
+                key.push('-');
+                key.push_str(&sub.to_string());
+            }
         }
         if let Some(letters) = &self.letters {
             key.push(' ');
             key.push_str(letters);
+        }
+        if let Some(latin) = &self.latin_after {
+            key.push(' ');
+            key.push_str(latin.as_str());
         }
         key
     }
@@ -744,8 +811,19 @@ const PREFIXES: [(&str, ArticlePrefix); 9] = [
     ("L", ArticlePrefix::L),
 ];
 
+/// `L.O. 141`, `L. O.141` : graphie typographique des lois organiques, qui doit être suivie d'un
+/// chiffre (après un point facultatif et des espaces) ; renvoie ce qui commence au chiffre.
+fn strip_dotted_lo(text: &str) -> Option<&str> {
+    let rest = text.strip_prefix("L.")?.trim_start().strip_prefix('O')?;
+    let rest = rest.strip_prefix('.').unwrap_or(rest).trim_start();
+    rest.starts_with(|c: char| c.is_ascii_digit()).then_some(rest)
+}
+
 /// Sépare un préfixe d'article (`L.`, `R*`) de ce qui le suit, qui doit commencer par un chiffre.
 fn split_prefix(text: &str) -> (Option<ArticlePrefix>, &str) {
+    if let Some(rest) = strip_dotted_lo(text) {
+        return (Some(ArticlePrefix::Lo), rest);
+    }
     for (spelled, prefix) in PREFIXES {
         if let Some(rest) = text.strip_prefix(spelled) {
             let rest = rest.strip_prefix('.').unwrap_or(rest).trim_start();
@@ -755,6 +833,14 @@ fn split_prefix(text: &str) -> (Option<ArticlePrefix>, &str) {
         }
     }
     (None, text)
+}
+
+/// L'unique élément d'une liste d'un seul élément.
+fn single(parts: &[u32]) -> Option<u32> {
+    match parts {
+        &[one] => Some(one),
+        _ => None,
+    }
 }
 
 /// Parties numériques d'un numéro (`1234-5` donne `[1234, 5]`).
@@ -781,24 +867,31 @@ impl FromStr for ArticleNum {
                 special: Some(special),
                 base: Vec::new(),
                 latin: None,
+                latin_sub: None,
                 letters: None,
+                latin_after: None,
             });
         }
         let (prefix, rest) = split_prefix(text);
         let mut words = rest.split_whitespace();
         let base = words.next().and_then(parse_base).ok_or(invalid)?;
-        let (mut latin, mut letters) = (None, None);
+        let mut found = Suffixes::default();
         for word in words {
+            let (head, sub) = word.split_once('-').map_or((word, None), |(h, t)| (h, Some(t)));
             let is_letters = word.len() <= 2 && word.bytes().all(|b| b.is_ascii_uppercase());
-            if latin.is_none() && letters.is_none() && LatinAdverb::parse(word).is_some() {
-                latin = LatinAdverb::parse(word);
-            } else if letters.is_none() && is_letters {
-                letters = Some(word.to_owned());
+            let accepted = if let Some(adverb) = LatinAdverb::parse(head) {
+                let sub = sub.map(|digits| parse_base(digits).and_then(|parts| single(&parts)));
+                found.push_adverb(adverb)
+                    && sub.is_none_or(|n| n.is_some_and(|n| found.push_sub(n)))
             } else {
+                is_letters && found.push_letters(word.to_owned())
+            };
+            if !accepted {
                 return Err(invalid);
             }
         }
-        Ok(Self { prefix, special: None, base, latin, letters })
+        let Suffixes { latin, latin_sub, letters, latin_after } = found;
+        Ok(Self { prefix, special: None, base, latin, latin_sub, letters, latin_after })
     }
 }
 
@@ -1306,7 +1399,11 @@ impl fmt::Display for TaNumber {
     }
 }
 
-/// Numéro d'une décision du Conseil constitutionnel (`2025-1173 QPC`, `2010-14/22 QPC`).
+/// Première année du Conseil constitutionnel : 1959, début de la forme à deux chiffres.
+const CC_FIRST_YEAR: u16 = 1959;
+
+/// Numéro d'une décision du Conseil constitutionnel (`2025-1173 QPC`, `2010-14/22 QPC`,
+/// `71-44 DC`).
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct CcNumber {
     /// Année de la saisine.
@@ -1334,12 +1431,23 @@ impl FromStr for CcNumber {
         let mut parts = rest.split('/').map(|p| fixed_digits_any(p).ok_or(invalid));
         let seq = parts.next().unwrap_or(Err(invalid))?;
         Ok(Self {
-            year: fixed_digits(year, 4).ok_or(invalid)?,
+            year: cc_year(year).ok_or(invalid)?,
             seq,
             joined: parts.collect::<Result<_, _>>()?,
             rectif,
             kind,
         })
+    }
+}
+
+/// Année d'un numéro du Conseil constitutionnel : quatre chiffres, ou deux chiffres de 59 à 99
+/// (`71` pour 1971, forme de `NUM_DEC` des décisions de 1959 à 1999).
+fn cc_year(text: &str) -> Option<u16> {
+    match two_digits(text) {
+        Some(yy) => (CC_FIRST_YEAR..=1999)
+            .contains(&1900_u16.saturating_add(u16::from(yy)))
+            .then(|| 1900_u16.saturating_add(u16::from(yy))),
+        None => fixed_digits(text, 4),
     }
 }
 
@@ -1349,6 +1457,21 @@ fn fixed_digits_any(text: &str) -> Option<u32> {
 }
 
 impl CcNumber {
+    /// Première forme du numéro, sans numéros joints, `R` ni type : `71-44`, `2010-14`. C'est la
+    /// forme écrite dans `NUM_DEC` de Légifrance, que la recherche par numéro attend.
+    pub fn first_form(&self) -> String {
+        format!("{}-{}", self.year_text(), self.seq)
+    }
+
+    /// Année écrite comme Légifrance : deux chiffres de 1959 à 1999, sinon quatre.
+    fn year_text(&self) -> String {
+        if (CC_FIRST_YEAR..=1999).contains(&self.year) {
+            format!("{:02}", self.year.saturating_sub(1900))
+        } else {
+            format!("{:04}", self.year)
+        }
+    }
+
     /// Forme complète `2025-1173 QPC`, que `FromStr` relit.
     pub fn full(&self) -> String {
         format!("{self} {}", self.kind.as_str())
@@ -1359,8 +1482,8 @@ impl fmt::Display for CcNumber {
     /// Forme canonique `2025-1173`, avec les numéros joints et le `R` de rectification, sans
     /// le type.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Année sur quatre chiffres, comme `FromStr` l'exige : `0001-5` se relit.
-        let mut out = format!("{:04}-{}", self.year, self.seq);
+        // Deux chiffres de 1959 à 1999 (`71-44`), sinon quatre : `FromStr` relit les deux formes.
+        let mut out = self.first_form();
         for joined in &self.joined {
             out.push('/');
             out.push_str(&joined.to_string());
@@ -1848,6 +1971,9 @@ mod tests {
         let cases = [
             ("L. 761-1", "L761-1", vec!["L761-1"]),
             ("LO. 141", "LO141", vec!["LO141"]),
+            ("L.O. 141", "LO141", vec!["LO141"]),
+            ("L. O. 141", "LO141", vec!["LO141"]),
+            ("L.O.141", "LO141", vec!["LO141"]),
             ("R* 111-1", "R*111-1", vec!["R*111-1", "R111-1"]),
             ("R**111-1", "R**111-1", vec!["R**111-1", "R111-1"]),
             ("D*12", "D*12", vec!["D*12", "D12"]),
@@ -1873,7 +1999,9 @@ mod tests {
             special: Some(SpecialNum::SansNumero),
             base: Vec::new(),
             latin: None,
+            latin_sub: None,
             letters: None,
+            latin_after: None,
         };
         assert_eq!(blank.num_key(), "");
         assert_eq!(blank.key_variants(), [""]);
@@ -1898,8 +2026,70 @@ mod tests {
         assert_eq!(parsed.letters.as_deref(), Some("B"));
         assert_eq!(num("L761-1").prefix, Some(ArticlePrefix::L));
         assert_eq!(num("LO141").prefix, Some(ArticlePrefix::Lo));
+        assert_eq!(num("L.O. 141").prefix, Some(ArticlePrefix::Lo));
+        assert_eq!(num("L. 141").prefix, Some(ArticlePrefix::L));
+        for refused in ["l.o. 141", "L.O.I. 5", "L O 141", "L.O."] {
+            assert!(refused.parse::<ArticleNum>().is_err(), "{refused}");
+        }
         assert_eq!(num("1234-5").prefix, None);
         assert_eq!(num("  12 B ").letters.as_deref(), Some("B"));
+    }
+
+    #[test]
+    fn article_number_suffixes_round_trip_through_the_key() {
+        let cases = [
+            ("150-0 B ter", Some("ter")),
+            ("199 terdecies-0 A", None),
+            ("199 terdecies-0 A bis", Some("bis")),
+            ("1649 quater B quinquies", Some("quinquies")),
+            ("50 terdecies-0", None),
+            ("5 bis-3", None),
+            ("5 B bis", Some("bis")),
+        ];
+        for (text, after) in cases {
+            let parsed = num(text);
+            assert_eq!(parsed.num_key(), text, "{text}");
+            assert_eq!(num(&parsed.num_key()), parsed, "{text}");
+            assert_eq!(parsed.latin_after.as_ref().map(LatinAdverb::as_str), after, "{text}");
+        }
+        let parsed = num("199 terdecies-0 A");
+        assert_eq!(parsed.latin, Some(LatinAdverb::Other("terdecies".into())));
+        assert_eq!(parsed.latin_sub, Some(0));
+        assert_eq!(parsed.letters.as_deref(), Some("A"));
+        assert_eq!(parsed.latin_after, None);
+        let parsed = num("150-0 B ter");
+        assert_eq!(
+            (parsed.base.clone(), parsed.latin, parsed.latin_sub),
+            (vec![150, 0], None, None)
+        );
+        assert_eq!(parsed.letters.as_deref(), Some("B"));
+        assert_eq!(parsed.latin_after, Some(LatinAdverb::Ter));
+        assert_eq!(num("199 terdecies-0 A").key_variants(), ["199 terdecies-0 A"]);
+    }
+
+    #[test]
+    fn article_number_parsing_never_truncates_a_suffix() {
+        for bad in [
+            "5 bis ter",
+            "5 B bis ter",
+            "5 B bis A",
+            "885-0 V bis A",
+            "199 terdecies-0 ter",
+            "5 bis-",
+            "5 bis-x",
+            "5 bis-3-4",
+            "5 bis-+3",
+            "5 B bis-3",
+            "199 undecies B bis-3",
+            "5 B-3",
+            "5 -3",
+        ] {
+            assert_eq!(
+                bad.parse::<ArticleNum>(),
+                Err(NumberParseError { kind: "article" }),
+                "{bad:?}"
+            );
+        }
     }
 
     #[test]
@@ -2158,7 +2348,7 @@ mod tests {
             ("2025-1173 QPC", "2025-1173"),
             ("2010-14/22 QPC", "2010-14/22"),
             ("2015-491R DC", "2015-491R"),
-            ("1959-1 FNR", "1959-1"),
+            ("59-1 FNR", "59-1"),
         ] {
             let cc: CcNumber = text.parse().expect("valide");
             assert_eq!(cc.to_string(), canonical);
@@ -2174,6 +2364,10 @@ mod tests {
             "2025-1173",
             "2025-1173 XXX",
             "25-1173 QPC",
+            "58-1 DC",
+            "100-1 DC",
+            "971-44 DC",
+            "7-44 DC",
             "2025 QPC",
             "2025-/22 QPC",
             "2025-1173/ QPC",
@@ -2222,6 +2416,39 @@ mod tests {
         let cnil: CnilNumber = "SAN-0042-007".parse().expect("valide");
         assert_eq!((cnil.year, cnil.to_string()), (42, "SAN-0042-007".to_owned()));
         assert_eq!(cnil.to_string().parse::<CnilNumber>(), Ok(cnil));
+    }
+
+    /// L1-04 : une année de 1959 à 1999 s'écrit sur deux chiffres, comme `NUM_DEC` de Légifrance
+    /// (`71-44`), et les deux formes se lisent ; `first_form` ignore numéros joints et `R`.
+    #[test]
+    fn two_digit_cc_years_round_trip_and_first_form() {
+        for (text, canonical, year) in [
+            ("71-44 DC", "71-44", 1971),
+            ("1971-44 DC", "71-44", 1971),
+            ("59-1 DC", "59-1", 1959),
+            ("1959-1 DC", "59-1", 1959),
+            ("99-410 DC", "99-410", 1999),
+            ("1999-410 DC", "99-410", 1999),
+            ("94-343/344 DC", "94-343/344", 1994),
+            // Jumeaux : hors de 1959-1999, quatre chiffres.
+            ("2000-427 DC", "2000-427", 2000),
+            ("1958-4 DC", "1958-4", 1958),
+        ] {
+            let cc: CcNumber = text.parse().expect("valide");
+            assert_eq!((cc.year, cc.to_string()), (year, canonical.to_owned()), "{text}");
+            let again: CcNumber = cc.full().parse().expect("relu");
+            assert_eq!(again, cc, "{text}");
+        }
+        for (text, first) in [
+            ("71-44 DC", "71-44"),
+            ("94-343/344 DC", "94-343"),
+            ("2015-491R QPC", "2015-491"),
+            ("2010-14/22 QPC", "2010-14"),
+            ("0001-5 DC", "0001-5"),
+        ] {
+            let cc: CcNumber = text.parse().expect("valide");
+            assert_eq!(cc.first_form(), first, "{text}");
+        }
     }
 
     #[test]

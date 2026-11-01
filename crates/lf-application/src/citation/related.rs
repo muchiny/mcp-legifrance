@@ -16,7 +16,10 @@
 use std::collections::HashSet;
 
 use lf_domain::{
-    citation::{CitationKind, CitationRef, ParseOptions, Spanned, format::canonical, parse_with},
+    citation::{
+        CitationKind, CitationRef, CodeRef, ParseOptions, Spanned, format::canonical, parse_with,
+    },
+    contract::CitationText,
     entity::{Decision, RelatedLink, RelatedLinks, RelatedNature},
     id::DocumentId,
     text::clean_field,
@@ -27,10 +30,6 @@ use crate::output::get_related::{LinkOut, Relation};
 
 /// Nombre maximal de liens rendus, sans suite (00 §7, 05 §5.11).
 pub(crate) const MAX_LINKS: usize = 100;
-
-/// Longueur maximale d'une `citation`, en caractères : un titre démesuré de l'API ne doit pas
-/// vider la liste à lui seul (il serait retiré avec tous ceux qui le suivent).
-const CITATION_MAX_CHARS: usize = 500;
 
 // ---------------------------------------------------------------------------------------------
 // Article
@@ -50,11 +49,12 @@ pub(crate) fn article_links(links: &RelatedLinks) -> Vec<LinkOut> {
 fn article_link(relation: Relation, link: &RelatedLink) -> Option<LinkOut> {
     let located = link.target.as_ref().and_then(|target| located(&link.nature, target));
     let citation = clean_field(link.title.as_deref())
+        .and_then(|title| one_line(&title))
         .or_else(|| link.target.as_ref().map(|target| target.as_str().to_owned()))?;
     Some(LinkOut {
         relation,
         kind: kind_of(&link.nature, link.target.as_ref()),
-        citation: clip(citation),
+        citation,
         id: located.as_ref().map(|(id, _)| id.clone()),
         source_url: located.map(|(_, url)| url),
     })
@@ -94,13 +94,11 @@ fn located(nature: &RelatedNature, target: &DocumentId) -> Option<(String, Strin
     Some((id.to_owned(), legifrance_url(kind, id).to_string()))
 }
 
-/// Coupe à [`CITATION_MAX_CHARS`] caractères, suivis de `…`.
-fn clip(mut text: String) -> String {
-    if let Some((byte, _)) = text.char_indices().nth(CITATION_MAX_CHARS) {
-        text.truncate(byte);
-        text.push('…');
-    }
-    text
+/// Le texte d'un lien sur une seule ligne et borné à [`CITATION_MAX_CHARS`] caractères (coupe sur un
+/// mot, suivie de `…`) : l'invariant de toute citation exposée (`CitationText`, ADR-0009). `None`
+/// s'il ne reste aucun caractère visible.
+fn one_line(text: &str) -> Option<String> {
+    CitationText::new(text).map(|citation| citation.as_str().to_owned())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -200,33 +198,66 @@ struct Draft {
     act: String,
     /// Article de l'acte, quand le lien en désigne un.
     article: Option<String>,
+    /// La citation porte un code ou un texte, gardé ou refusé parce qu'il n'était pas écrit dans
+    /// sa mention (L4-13) : donnée amont non fiable.
+    code_involved: bool,
+}
+
+/// Les liens d'une décision et ce que l'on sait de leur fiabilité.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DecisionLinks {
+    /// Les liens, jurisprudence citée d'abord.
+    pub(crate) links: Vec<LinkOut>,
+    /// Vrai si au moins une citation porte un code, gardé ou refusé : les titres de `liens` sont
+    /// des fragments dont rien ne prouve qu'ils associent le bon code au bon article (V-117), et la
+    /// réponse dit que les codes des liens d'une décision peuvent être inexacts (L4-13). Quand le
+    /// code n'était pas écrit dans la mention (énumération « articles 1382 et 700 du code
+    /// civil »), le lien montre l'article seul.
+    pub(crate) code_involved: bool,
 }
 
 /// Les liens d'une décision : jurisprudence citée d'abord, textes appliqués ensuite, chaque groupe
 /// dans l'ordre du texte (`citationJp` puis `liens`).
-pub(crate) fn decision_links(references: &DecisionReferences<'_>) -> Vec<LinkOut> {
+///
+/// Les titres de `liens` sont des fragments de prose coupés, parfois dans le désordre (V-117) : un
+/// code n'est gardé que s'il est écrit dans la mention même de l'article (« article 700 du code
+/// de procédure civile »). Quand le parseur l'a emprunté à la fin d'une énumération (« articles
+/// 1382 et 700 du code civil »), rien ne dit qu'il vaut pour tous les numéros : le lien montre
+/// l'article seul (« article 700 »). `code_involved` est vrai dès qu'un lien porte un code, gardé
+/// ou refusé : la garde ne voit pas un titre brut qui porte lui-même le mauvais code.
+pub(crate) fn decision_links(references: &DecisionReferences<'_>) -> DecisionLinks {
     let options =
         ParseOptions { strip_html: true, repair_mojibake: false, ..ParseOptions::default() };
     let cited = references.cited_case_law.map(|text| (Source::CitationJp, text));
     let applied = references.applied_texts.iter().map(|text| (Source::Liens, text.as_str()));
     let found = cited.into_iter().chain(applied).flat_map(|(source, text)| {
         let citations = parse_with(text, &options);
-        citations.into_iter().filter_map(move |citation| draft_of(source, text, &citation))
+        let options = &options;
+        citations.into_iter().filter_map(move |citation| draft_of(source, text, &citation, options))
     });
     let mut drafts: Vec<Draft> = Vec::new();
+    let mut code_involved = false;
     for draft in found {
+        code_involved |= draft.code_involved;
         merge(&mut drafts, draft);
     }
     // Tri stable : la jurisprudence citée passe devant, l'ordre du texte est gardé dans chaque groupe.
     drafts.sort_by_key(|draft| draft.link.relation == Relation::AppliesText);
-    drafts.into_iter().map(|draft| draft.link).collect()
+    DecisionLinks { links: drafts.into_iter().map(|draft| draft.link).collect(), code_involved }
 }
 
 /// Le brouillon de lien d'une citation reconnue dans `text`, ou `None` si elle n'a rien de lisible
 /// à montrer.
-fn draft_of(source: Source, text: &str, found: &Spanned<CitationRef>) -> Option<Draft> {
+fn draft_of(
+    source: Source,
+    text: &str,
+    found: &Spanned<CitationRef>,
+    options: &ParseOptions,
+) -> Option<Draft> {
     let raw = text.get(found.span.start..found.span.end).unwrap_or_default();
-    let citation = shown(&found.value, raw)?;
+    let code_involved = has_code(&found.value);
+    let code_dropped = code_involved && !code_is_written(&found.value, raw, options);
+    let citation = if code_dropped { article_only(raw) } else { shown(&found.value, raw) }?;
     let kind = found.value.kind();
     let relation = match (source, kind) {
         (Source::CitationJp, CitationKind::Decision | CitationKind::Ecli) => Relation::CitesCaseLaw,
@@ -234,16 +265,44 @@ fn draft_of(source: Source, text: &str, found: &Spanned<CitationRef>) -> Option<
     };
     let (act, article) = identity(&found.value, &citation);
     Some(Draft {
-        link: LinkOut { relation, kind, citation: clip(citation), id: None, source_url: None },
+        link: LinkOut { relation, kind, citation, id: None, source_url: None },
         act,
         article,
+        code_involved,
     })
 }
 
+/// La citation est un article rattaché à un code ou à un texte.
+fn has_code(value: &CitationRef) -> bool {
+    match value {
+        CitationRef::CodeArticle { code, .. } => {
+            matches!(code, CodeRef::Known(_) | CodeRef::Unknown(_))
+        }
+        CitationRef::TextArticle { text, .. } => text.is_some(),
+        _ => false,
+    }
+}
+
+/// Le code de `value` est écrit dans sa propre mention `raw` : relue seule, elle donne la même
+/// forme canonique. Faux quand le parseur l'a pris à la fin d'une énumération.
+fn code_is_written(value: &CitationRef, raw: &str, options: &ParseOptions) -> bool {
+    let expected = canonical(value);
+    parse_with(raw, options).first().is_some_and(|alone| canonical(&alone.value) == expected)
+}
+
+/// La mention d'un article dont on ne garde pas le code, sur une ligne et bornée : « 700 » devient
+/// « article 700 ». `None` si elle est vide une fois nettoyée.
+fn article_only(raw: &str) -> Option<String> {
+    let text = clean_field(Some(raw))?;
+    let named = text.to_lowercase().starts_with("art");
+    one_line(&if named { text } else { format!("article {text}") })
+}
+
 /// Ce que le lien montre : la forme canonique de la citation, sinon le texte reconnu, nettoyé
-/// (balises et entités retirées). `None` si ce texte est vide une fois nettoyé.
+/// (balises et entités retirées), sur une ligne et borné. `None` si ce texte est vide une fois
+/// nettoyé.
 fn shown(value: &CitationRef, raw: &str) -> Option<String> {
-    canonical(value).or_else(|| clean_field(Some(raw)))
+    canonical(value).or_else(|| clean_field(Some(raw))).and_then(|text| one_line(&text))
 }
 
 /// L'acte visé par la citation et l'article de cet acte, s'il est désigné.
@@ -305,7 +364,7 @@ fn merge(drafts: &mut Vec<Draft>, draft: Draft) {
 )]
 mod tests {
     use super::*;
-    use lf_domain::{citation::UnsupportedCite, date::CivilDate};
+    use lf_domain::{citation::UnsupportedCite, contract::CITATION_MAX_CHARS, date::CivilDate};
     use pretty_assertions::assert_eq;
 
     use crate::usecase::get_decision::fixtures::decision;
@@ -456,18 +515,58 @@ mod tests {
     }
 
     #[test]
-    fn a_huge_title_is_clipped_so_it_cannot_empty_the_list() {
-        let title = "é".repeat(CITATION_MAX_CHARS + 10);
+    fn a_huge_title_is_cut_at_a_word_so_it_cannot_empty_the_list() {
+        let title = "mot ".repeat(500);
         let links = RelatedLinks {
             cites: vec![related(RelatedNature::Code, Some(ARTI), Some(&title))],
             cited_by: vec![],
         };
         let out = article_links(&links);
-        assert_eq!(out[0].citation.chars().count(), CITATION_MAX_CHARS + 1);
-        assert!(out[0].citation.ends_with('…'));
+        assert!(out[0].citation.chars().count() <= CITATION_MAX_CHARS);
+        assert!(out[0].citation.ends_with(" mot…"));
         // À la limite exacte, rien n'est coupé.
         let exact = "e".repeat(CITATION_MAX_CHARS);
-        assert_eq!(clip(exact.clone()), exact);
+        assert_eq!(one_line(&exact), Some(exact));
+        assert_eq!(one_line("\u{7}\n"), None);
+    }
+
+    #[test]
+    fn an_article_title_with_a_line_break_is_shown_on_one_line() {
+        let title = "Décret n°2010-148\ndu 16 février 2010 - art. 2 (V)";
+        let links = RelatedLinks {
+            cites: vec![],
+            cited_by: vec![related(RelatedNature::Loda, Some(ARTI), Some(title))],
+        };
+        let out = article_links(&links);
+        assert_eq!(out[0].citation, "Décret n°2010-148 du 16 février 2010 - art. 2 (V)");
+        // Jumeau : un titre déjà sur une ligne reste tel quel.
+        let one = related(RelatedNature::Code, Some(ARTI), Some("Code civil, art. 1240"));
+        let kept = article_links(&RelatedLinks { cites: vec![one], cited_by: vec![] });
+        assert_eq!(kept[0].citation, "Code civil, art. 1240");
+    }
+
+    #[test]
+    fn a_title_that_is_only_control_characters_falls_back_to_the_id() {
+        let links = RelatedLinks {
+            cites: vec![related(RelatedNature::Code, Some(ARTI), Some("\u{7}"))],
+            cited_by: vec![],
+        };
+        let out = article_links(&links);
+        assert_eq!(out[0].citation, ARTI);
+    }
+
+    #[test]
+    fn titles_that_differ_only_by_blanks_are_merged() {
+        let a = related(RelatedNature::Code, Some(ARTI), Some("Code civil,\n art. 1240"));
+        let b = related(RelatedNature::Code, Some(ARTI), Some("Code civil,  art. 1240"));
+        let links = RelatedLinks { cites: vec![a, b], cited_by: vec![] };
+        let out = article_links(&links);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].citation, "Code civil, art. 1240");
+        // Jumeau : deux titres réellement différents restent deux liens.
+        let c = related(RelatedNature::Code, Some(ARTI), Some("Code civil, art. 1241"));
+        let d = related(RelatedNature::Code, Some(ARTI), Some("Code civil,\n art. 1240"));
+        assert_eq!(article_links(&RelatedLinks { cites: vec![c, d], cited_by: vec![] }).len(), 2);
     }
 
     // ---- liens d'une décision ------------------------------------------------------------
@@ -495,6 +594,17 @@ mod tests {
             applied_texts: applied,
             clipped: false,
         })
+        .links
+    }
+
+    fn code_involved(applied: &[&str]) -> bool {
+        let applied: Vec<String> = applied.iter().map(|text| (*text).to_owned()).collect();
+        decision_links(&DecisionReferences {
+            cited_case_law: None,
+            applied_texts: &applied,
+            clipped: false,
+        })
+        .code_involved
     }
 
     fn shape(links: &[LinkOut]) -> Vec<(&'static str, &'static str, &str)> {
@@ -532,14 +642,14 @@ mod tests {
         assert_eq!(references.cited_case_law, Some(CITATION_JP));
         assert_eq!(references.applied_texts, liens().as_slice());
         assert!(!references.clipped);
-        assert_eq!(decision_links(&references), links_of(Some(CITATION_JP), &liens()));
-        assert_eq!(decision_links(&references).len(), 2);
+        assert_eq!(decision_links(&references).links, links_of(Some(CITATION_JP), &liens()));
+        assert_eq!(decision_links(&references).links.len(), 2);
 
         // Sans références : rien à lire, aucun lien.
         let bare = decision("CETATEXT000051655317", "texte");
         let references = DecisionReferences::of(&bare);
         assert_eq!((references.cited_case_law, references.applied_texts.len()), (None, 0));
-        assert_eq!(decision_links(&references), vec![]);
+        assert_eq!(decision_links(&references).links, vec![]);
     }
 
     /// Une décision qui porte ces références.
@@ -624,7 +734,7 @@ mod tests {
         let references = DecisionReferences::of(&decision);
         assert_eq!(references.applied_texts.len(), MAX_ANALYSED_CHARS / 26);
         assert!(references.clipped);
-        assert_eq!(decision_links(&references).len(), 1, "le même article, fusionné");
+        assert_eq!(decision_links(&references).links.len(), 1, "le même article, fusionné");
     }
 
     #[test]
@@ -726,8 +836,210 @@ mod tests {
         assert_eq!(shown(&unsupported, "Dalloz 2020"), Some("Dalloz 2020".to_owned()));
         let spanned = Spanned::new(unsupported, lf_domain::citation::Span { start: 0, end: 7 });
         // Un span qui ne tombe pas sur le texte donné (frontière invalide) ne fait pas paniquer.
-        assert!(draft_of(Source::Liens, "<b></b>", &spanned).is_none());
-        assert!(draft_of(Source::Liens, "é", &spanned).is_none());
+        assert!(draft_of(Source::Liens, "<b></b>", &spanned, &ParseOptions::default()).is_none());
+        assert!(draft_of(Source::Liens, "é", &spanned, &ParseOptions::default()).is_none());
+    }
+
+    #[test]
+    fn a_decision_link_is_on_one_line_and_bounded() {
+        let unsupported = CitationRef::Unsupported(UnsupportedCite {
+            family: lf_domain::citation::UnsupportedFamily::Doctrine,
+            key: None,
+        });
+        // Mention non reconnue en famille : le texte brut, avec ses sauts de ligne, est montré.
+        assert_eq!(
+            shown(&unsupported, "Dalloz\n2020,\n\np. 12"),
+            Some("Dalloz 2020, p. 12".to_owned())
+        );
+        // Mention démesurée : bornée à la longueur d'une citation.
+        let long = format!("Dalloz {}", "mot ".repeat(500));
+        let bounded = shown(&unsupported, &long).unwrap();
+        assert!(bounded.chars().count() <= CITATION_MAX_CHARS);
+        assert!(bounded.ends_with('…'));
+        // Un texte appliqué à cheval sur deux lignes : une seule ligne en sortie.
+        let split = "Article 10 de la directive\n85/374/CEE du Conseil".to_owned();
+        let out = links_of(None, &[split]);
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert!(!out[0].citation.contains('\n'), "{out:?}");
+        // Jumeau : une citation reconnue sur une ligne reste intacte.
+        let out = links_of(None, &["Loi n° 2016-1321 du 7 octobre 2016, art. 5".to_owned()]);
+        assert_eq!(out[0].citation, "Loi n° 2016-1321 du 7 octobre 2016, art. 5");
+    }
+
+    #[test]
+    fn a_code_only_shared_with_the_article_by_an_enumeration_is_not_kept() {
+        // related_diff-2 (E2E, Cass. 1re civ., 10 avril 2019) : le 700 d'une énumération prenait le
+        // code de la fin de l'énumération. Le code n'est gardé que s'il est écrit dans la mention
+        // de l'article ; sinon le lien montre l'article seul.
+        let out = links_of(None, &["articles 1382 et 700 du code civil".to_owned()]);
+        assert_eq!(
+            shape(&out),
+            [
+                ("applies_text", "code_article", "article 1382"),
+                ("applies_text", "code_article", "article 700"),
+            ]
+        );
+        assert!(out.iter().all(|link| !link.citation.contains("Code civil")), "{out:?}");
+    }
+
+    #[test]
+    fn a_code_written_next_to_its_article_is_kept() {
+        // Jumeau : « Code de procédure civile, art. 700 » ne devient jamais « Code civil, art. 700 »
+        // et un lien correct reste inchangé.
+        let out = links_of(
+            None,
+            &["article 1240 du code civil, ensemble l'article 700 du code de procédure civile"
+                .to_owned()],
+        );
+        assert_eq!(
+            shape(&out),
+            [
+                ("applies_text", "code_article", "Code civil, art. 1240"),
+                ("applies_text", "code_article", "Code de procédure civile, art. 700"),
+            ]
+        );
+        let out = links_of(None, &["L. 121-1 du code de la consommation".to_owned()]);
+        assert_eq!(shape(&out)[0].2, "Code de la consommation, art. L121-1");
+    }
+
+    #[test]
+    fn the_report_says_whenever_a_decision_link_carries_a_code() {
+        // Le titre brut de `liens[]` n'est pas fiable (V-117) : la note est livrée dès qu'un code
+        // est montré, comme quand il est refusé.
+        assert!(code_involved(&["articles 1382 et 700 du code civil"]));
+        // Un doublon écarté par la fusion compte aussi.
+        assert!(code_involved(&[
+            "article 700 du code civil",
+            "articles 1382 et 700 du code civil"
+        ]));
+        // Un code écrit à côté de son article est gardé, mais il vient quand même d'un fragment.
+        assert!(code_involved(&["article 700 du code de procédure civile"]));
+        // Un article d'un texte non codifié porte son texte comme un article porte son code.
+        assert!(code_involved(&["Loi n° 2016-1321 du 7 octobre 2016, art. 5", "néant"]));
+        // Jumeaux : un article déjà sans code, une mention sans article, un texte seul, rien.
+        assert!(!code_involved(&["article 1382, devenu 1240 du code civil"]));
+        assert!(!code_involved(&["néant"]));
+        assert!(!code_involved(&["directive 85/374/CEE du Conseil du 25 juillet 1985"]));
+        assert!(!code_involved(&[]));
+    }
+
+    #[test]
+    fn no_decision_link_shows_a_code_absent_from_its_raw_title() {
+        // Titres réels de `liens[]` (captures `consult_juri*`), puis les mêmes fragments réordonnés
+        // ou coupés comme l'API les rend (V-117). Garde : un lien qui montre un code le montre
+        // parce que le titre brut contient ce code, jamais parce qu'un autre fragment l'a donné.
+        let titles = [
+            "Code civil 1384 al. 1",
+            "Code civil 1382",
+            "Code électoral LO127",
+            "1 du code civil.",
+            "articles L. 4121-1 et L. 4121-2 du code du travail",
+            "Articles L. 134-12 et L. 134-13 du code de commerce.",
+            "Article L. 1233-3, 4°, du code du travail, dans sa rédaction issue de la loi n° 2016-1088 du 8 août 2016.",
+            "700 du code de procédure civile ; article 1382",
+            "article 1382 ; du code civil",
+            "du code de procédure civile article 700, 1382 et 1383 du code civil",
+            "articles 1382 et 700 du code civil",
+            "code civil, article",
+            "article 700 ... code civil",
+        ];
+        for title in titles {
+            let lower = title.to_lowercase();
+            for link in links_of(None, &[title.to_owned()]) {
+                let shown = link.citation.to_lowercase();
+                let Some(code) =
+                    shown.strip_prefix("code ").and_then(|rest| rest.split(", art").next())
+                else {
+                    continue;
+                };
+                assert!(
+                    lower.contains(&format!("code {code}")),
+                    "{title:?} -> {:?}",
+                    link.citation
+                );
+            }
+        }
+    }
+
+    /// V-117, L4-13 (relevé C16, `JURITEXT000038427064`, Cass. civ. 1re, 10 avril 2019, 17-13.307) :
+    /// ce que `fr_get_related` rend des trois `liens[]` réels et de `citationJp`, tels que l'adapter
+    /// les mappe (chaînes du test `the_recorded_links_of_a_cassation_decision_keep_their_raw_titles`
+    /// de `lf-adapter-piste`). Aucun code n'est attribué à un article qui n'est pas le sien. Les
+    /// limites connues (« precision over recall ») sont figées : le code de « article L. 120-1,
+    /// devenu L. 121-1, du code de la consommation » n'est gardé que pour L. 121-1 (L. 120-1 reste
+    /// sans code), celui de « article 1382, devenu 1240, du code civil » n'est gardé pour aucun, et
+    /// « 1240 » n'est pas reconnu comme un article (aucun lien). Le règlement 861/2007 et la
+    /// directive 2005/29/CE (droit de l'Union, hors périmètre) sont montrés tels qu'écrits.
+    /// Ces trois limites sont figées volontairement : un gain de rappel futur (par exemple
+    /// reconnaître 1240 après « devenu ») doit mettre ce test à jour, ce n'est pas une régression.
+    /// Les chaînes sont recopiées du test de l'adapter (lf-application ne lit pas ses fixtures) :
+    /// à garder synchrones.
+    #[test]
+    fn the_recorded_links_of_a_cassation_decision_give_no_wrong_code() {
+        let cited = "N3 > A rapprocher : 2e Civ., 8 juillet 2004, pourvoi n° 03-15.155, Bull. 2004, \
+                     II, n° 365 (cassation)";
+        let applied = [
+            "Sur le numéro 1 : article 16 du code de procédure civile ; article 19 du règlement \
+             n° 861/2007 du Parlement européen et du Conseil du 11 juillet 2007 ;",
+            "Sur le numéro 2 : directive 2005/29/CE du Parlement européen et du Conseil du 11 mai \
+             2005 ; article L. 120-1, devenu L. 121-1, du code de la consommation",
+            "Sur le numéro 3 : article 1382, devenu 1240, du code civil ; article 700 du code de \
+             procédure civile",
+        ]
+        .map(str::to_owned);
+        let decision = decision_links(&DecisionReferences {
+            cited_case_law: Some(cited),
+            applied_texts: &applied,
+            clipped: false,
+        });
+        assert_eq!(
+            shape(&decision.links),
+            [
+                ("cites_case_law", "decision", "Cass. 2e civ., 8 juillet 2004, n° 03-15.155"),
+                ("applies_text", "code_article", "Code de procédure civile, art. 16"),
+                (
+                    "applies_text",
+                    "unsupported",
+                    "article 19 du règlement n° 861/2007 du Parlement européen et du Conseil du 11 \
+                     juillet 2007"
+                ),
+                (
+                    "applies_text",
+                    "unsupported",
+                    "directive 2005/29/CE du Parlement européen et du Conseil du 11 mai 2005"
+                ),
+                ("applies_text", "code_article", "article L. 120-1"),
+                ("applies_text", "code_article", "Code de la consommation, art. L121-1"),
+                ("applies_text", "code_article", "article 1382"),
+                ("applies_text", "code_article", "Code de procédure civile, art. 700"),
+            ]
+        );
+        // Des codes sont montrés ou refusés : la réponse porte la note des codes inexacts.
+        assert!(decision.code_involved);
+        // Précision : le code civil n'est attribué à aucun article, ni à 700, ni à 1382.
+        assert!(decision.links.iter().all(|link| !link.citation.contains("Code civil")));
+    }
+
+    #[test]
+    fn a_text_article_enumeration_loses_its_text_too_and_a_named_article_keeps_its_word() {
+        // Un texte non codifié partage lui aussi le sien : « articles 4 et 5 de la loi n° 2016-1321 ».
+        let out = links_of(
+            None,
+            &["articles 4 et 5 de la loi n° 2016-1321 du 7 octobre 2016".to_owned()],
+        );
+        assert!(out.iter().all(|link| !link.citation.contains("2016")), "{out:?}");
+        assert!(out.iter().all(|link| link.citation.starts_with("article ")), "{out:?}");
+        // Un lien qui garde son mot « article » ne le répète pas.
+        assert_eq!(article_only("Art. 700").as_deref(), Some("Art. 700"));
+        assert_eq!(article_only("700").as_deref(), Some("article 700"));
+        assert_eq!(article_only("<b></b>"), None);
+    }
+
+    #[test]
+    fn a_link_without_code_stays_without_code() {
+        // Jumeau : un article déjà sans code n'en reçoit pas.
+        let out = links_of(None, &["article 1382, devenu 1240 du code civil".to_owned()]);
+        assert_eq!(shape(&out)[0].2, "article 1382");
     }
 
     #[test]

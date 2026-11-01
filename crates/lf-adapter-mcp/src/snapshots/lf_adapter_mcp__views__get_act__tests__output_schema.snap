@@ -17,73 +17,39 @@ expression: schema
       "type": "string"
     },
     "date_debut_version": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "date_fin_version": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "date_parution": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "eli": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "etat": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "jo_reference": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "nature": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "next_toc_offset": {
       "description": "Pass as toc_offset to read the next page; absent on the last page.",
-      "format": "uint32",
       "minimum": 0,
-      "type": [
-        "integer",
-        "null"
-      ]
+      "type": "integer"
     },
     "nor": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "note": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "num_parution": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "source_url": {
       "type": "string"
@@ -93,44 +59,28 @@ expression: schema
     },
     "title": {
       "description": "Omitted when citation already contains it.",
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "toc": {
       "items": {
         "properties": {
           "article_id": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "depth": {
-            "format": "uint16",
             "maximum": 65535,
             "minimum": 0,
             "type": "integer"
           },
           "etat": {
             "description": "Omitted when equal to the etat of the text.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "num": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "title": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           }
         },
         "required": [
@@ -141,7 +91,6 @@ expression: schema
       "type": "array"
     },
     "toc_total": {
-      "format": "uint32",
       "minimum": 0,
       "type": "integer"
     }

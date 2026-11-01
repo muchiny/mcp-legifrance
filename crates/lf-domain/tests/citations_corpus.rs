@@ -1,4 +1,4 @@
-//! Corpus de citations (annexe B §8, T-M6-03) : 170 positifs et 42 négatifs, lus tels quels dans
+//! Corpus de citations (annexe B §8, T-M6-03) : 185 positifs et 45 négatifs, lus tels quels dans
 //! `tests/data/citations/`, sans aucune table de surcharge (§8.4). Le domaine n'a pas de `serde` :
 //! le harnais projette chaque [`Spanned<CitationRef>`] vers un `serde_json::Value` aux clés du
 //! corpus (§8.3), puis compare en sous-ensemble.
@@ -26,7 +26,7 @@ use lf_domain::citation::{
     Ambiguity, Anaphora, ArticlePrefix, BulletinRef, CODES, CaseNumber, CitationRef, CodeRef,
     CodeVia, Confidence, ConventionKind, Court, CourtVia, DecisionCite, Flag, LebonRef,
     ParseOptions, Severity, Spanned, Subdivision, TextAnaphora, TextCite, TextContext,
-    VersionQualifier, parse_with,
+    VersionQualifier, parse_with, unread_article_mentions,
 };
 use lf_domain::contract::Idcc;
 use lf_domain::date::CivilDate;
@@ -1914,7 +1914,15 @@ mod round_trip {
             .prop_map(|(index, prefix, base)| CitationRef::CodeArticle {
                 code: CodeRef::Known(CODES[index].key),
                 article: ArticleRef {
-                    num: ArticleNum { prefix, special: None, base, latin: None, letters: None },
+                    num: ArticleNum {
+                        prefix,
+                        special: None,
+                        base,
+                        latin: None,
+                        latin_sub: None,
+                        letters: None,
+                        latin_after: None,
+                    },
                     sub: Vec::new(),
                     range_to: None,
                 },
@@ -2115,15 +2123,15 @@ fn perf_parse_20k() {
 #[test]
 fn corpus_has_the_documented_size() {
     let (pos, neg) = (cases(POSITIVES), cases(NEGATIVES));
-    assert_eq!(pos.len(), 170);
-    assert_eq!(neg.len(), 42);
+    assert_eq!(pos.len(), 185);
+    assert_eq!(neg.len(), 45);
     let expectations = |cs: &[Case]| cs.iter().map(|c| c.expect.len()).sum::<usize>();
-    assert_eq!(expectations(&pos), 186);
-    assert_eq!(expectations(&neg), 28);
+    assert_eq!(expectations(&pos), 217);
+    assert_eq!(expectations(&neg), 32);
     let mut ids: Vec<&str> = pos.iter().chain(&neg).map(|c| c.id.as_str()).collect();
     ids.sort_unstable();
     ids.dedup();
-    assert_eq!(ids.len(), 212, "identifiants uniques");
+    assert_eq!(ids.len(), 230, "identifiants uniques");
 }
 
 #[test]
@@ -2237,5 +2245,38 @@ fn flag_and_ambiguity_codes_cover_the_corpus_vocabulary() {
                 );
             }
         }
+    }
+}
+
+/// Revue finale I3 : la note « article non lu » de `fr_verify_citations` ne se déclenche sur aucun
+/// des 185 textes du corpus positif (tous ont leurs articles lus par le parseur), et
+/// se déclenche sur les deux formes que le filet N36 refuse en entier.
+#[test]
+fn no_positive_case_has_an_unread_article_mention() {
+    let mut flagged = Vec::new();
+    for case in cases(POSITIVES) {
+        let spans: Vec<_> =
+            parse_with(&case.input, &options_for(&case)).iter().map(|cite| cite.span).collect();
+        if unread_article_mentions(&case.input, &spans) {
+            flagged.push(format!("{} : {}", case.id, case.input));
+        }
+    }
+    assert_eq!(flagged, Vec::<String>::new());
+    // Corpus négatif : les `article N` nus (N03, N26, N27, N41, N43) ne font pas de bruit ; seul
+    // N36 (`expect` vide), qui cite un article que le parseur ne lit pas, est signalé.
+    let mut flagged_negatives = Vec::new();
+    for case in cases(NEGATIVES) {
+        let spans: Vec<_> =
+            parse_with(&case.input, &options_for(&case)).iter().map(|cite| cite.span).collect();
+        if unread_article_mentions(&case.input, &spans) {
+            flagged_negatives.push(case.id);
+        }
+    }
+    assert_eq!(flagged_negatives, vec!["N36".to_owned()]);
+    for refused in ["CGI, art. 885-0 V bis A", "art. 150-0 B ter I du CGI"] {
+        let input = format!("article 1240 du code civil ; {refused}");
+        let spans: Vec<_> =
+            parse_with(&input, &ParseOptions::default()).iter().map(|cite| cite.span).collect();
+        assert!(unread_article_mentions(&input, &spans), "{input}");
     }
 }

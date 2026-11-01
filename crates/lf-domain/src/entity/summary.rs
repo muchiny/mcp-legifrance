@@ -11,9 +11,9 @@ use crate::text::{clean, fold::fold};
 /// Sommaire officiel d'une décision : analyses rédigées et titrages (mots-clés).
 ///
 /// Chaque liste est normalisée par [`OfficialSummary::new`] : entrées nettoyées sur une
-/// seule ligne, code de classement de tête retiré, entrées vides écartées, doublons
-/// supprimés. Le sens de `analyses` et `titrages` dépend du fond (03 §4.4) ; une liste
-/// vide signifie que l'API n'en fournit pas.
+/// seule ligne, code(s) de classement de tête retiré(s), entrées coupées sur les suites de
+/// quatre points ou plus, entrées vides écartées, doublons supprimés. Le sens de `analyses` et
+/// `titrages` dépend du fond (03 §4.4) ; une liste vide signifie que l'API n'en fournit pas.
 ///
 /// `Debug` n'écrit jamais les entrées (texte du corps d'une décision), seulement leur nombre.
 #[derive(Clone, PartialEq, Eq, Default)]
@@ -51,9 +51,12 @@ impl OfficialSummary {
 
 /// Normalise une liste d'entrées : chaque entrée passe par [`clean`], est aplatie sur une
 /// ligne (tout saut de ligne, donc `<br/>`, et toute suite de blancs deviennent une seule
-/// espace), perd son code de classement de tête ; les entrées vides sont écartées et les
-/// doublons supprimés sur la vue repliée (casse et accents ignorés), première occurrence
-/// gardée, ordre conservé.
+/// espace), perd son code de classement de tête (un ou plusieurs codes, voir
+/// `strip_class_code`) puis est coupée en sous-entrées sur chaque suite d'au moins quatre
+/// points (`split_dotted`) ; les entrées vides sont écartées et les doublons supprimés sur la
+/// vue repliée (casse et accents ignorés), première occurrence gardée, ordre conservé. Aucun
+/// dédoublonnage par sous-chaîne : une phrase répétée dans deux analyses de longueur
+/// différente est gardée dans les deux.
 fn normalize_entries<I>(entries: I) -> Vec<String>
 where
     I: IntoIterator,
@@ -64,9 +67,10 @@ where
     for entry in entries {
         let cleaned = clean(entry.as_ref());
         let flat = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
-        let text = strip_class_code(&flat);
-        if !text.is_empty() && seen.insert(fold(text)) {
-            out.push(text.to_owned());
+        for fragment in split_dotted(strip_class_code(&flat)) {
+            if !fragment.is_empty() && seen.insert(fold(&fragment)) {
+                out.push(fragment);
+            }
         }
     }
     out
@@ -77,34 +81,110 @@ where
 /// Grammaire reconnue, au début de l'entrée seulement :
 ///
 /// ```text
-/// code  = [ "CETAT" ] D D { "-" D D D? } blancs reste
+/// code    = [ "CETAT" ] D D { "-" D D D? }
+/// marque  = "RJ" D { D }
+/// liste   = code { "," ( blancs code | blancs? marque ) }
+/// entrée  = liste [ blancs lettre ")" ] blancs reste
 /// ```
 ///
-/// soit un préfixe `CETAT` facultatif, exactement deux chiffres ASCII, puis zéro, un ou
-/// plusieurs groupes `-NN` ou `-NNN` (un tiret suivi de deux ou trois chiffres, jamais un,
-/// jamais quatre), puis au moins un blanc. Le code et ses blancs ne sont retirés que si le
-/// reste commence par une majuscule (`char::is_uppercase`) : `15 jours après` garde son
-/// `15`, et un code seul, sans reste, est conservé tel quel. Tout écart à la grammaire
-/// (trois chiffres de tête, groupe d'un ou quatre chiffres, pas de blanc) rend l'entrée
-/// inchangée. Écart assumé à 03 §4.4, qui retire le code sans condition sur le reste.
+/// soit un préfixe `CETAT` facultatif sur le premier code, exactement deux chiffres ASCII,
+/// puis zéro, un ou plusieurs groupes `-NN` ou `-NNN` (un tiret suivi de deux ou trois
+/// chiffres, jamais un, jamais quatre). Une liste enchaîne d'autres codes après une virgule
+/// suivie d'au moins un blanc (`01-01-02-02, 15-03-01-01`) ; chaque code après la virgule porte au
+/// moins un groupe `-NN`, de sorte que `12, 15 Euros` reste intact ; et les marques de recueil `RJ1`,
+/// `RJ2` des titrages du Conseil d'État (`CETAT01-01-02-02,RJ1,RJ2`). Une subdivision d'une
+/// lettre minuscule suivie d'une parenthèse fermante (`01-04-005 a)`) peut suivre. Le tout
+/// n'est retiré, avec ses blancs, que si au moins un blanc sépare la liste du reste et que
+/// le reste commence par une majuscule (`char::is_uppercase`) : `15 jours après` garde son
+/// `15`, `12,50 Euros` reste intact, et un code seul, sans reste, est conservé tel quel. Tout
+/// écart à la grammaire (trois chiffres de tête, groupe d'un ou quatre chiffres, élément de
+/// liste invalide, pas de blanc) rend l'entrée inchangée. Écart assumé à 03 §4.4, qui retire
+/// le code sans condition sur le reste.
 fn strip_class_code(entry: &str) -> &str {
     let head = entry.strip_prefix("CETAT").unwrap_or(entry);
-    if leading_digits(head) != 2 {
-        return entry;
-    }
-    let mut rest = &head[2..];
-    while let Some(group) = rest.strip_prefix('-') {
-        let digits = leading_digits(group);
-        if !(2..=3).contains(&digits) {
+    let Some(len) = code_len(head) else { return entry };
+    let mut rest = &head[len..];
+    while let Some(tail) = rest.strip_prefix(',') {
+        let item = tail.trim_start();
+        let blank = item.len() != tail.len();
+        if let Some(len) = mark_len(item) {
+            rest = &item[len..];
+        } else if let Some(len) = code_len(item).filter(|&len| blank && len > 2) {
+            rest = &item[len..];
+        } else {
             return entry;
         }
-        rest = &group[digits..];
+    }
+    let item = rest.trim_start();
+    if item.len() != rest.len()
+        && let [letter, b')', ..] = item.as_bytes()
+        && letter.is_ascii_lowercase()
+    {
+        rest = &item[2..];
     }
     let after = rest.trim_start();
     if after.len() == rest.len() {
         return entry;
     }
     if after.chars().next().is_some_and(char::is_uppercase) { after } else { entry }
+}
+
+/// Longueur du code `D D { "-" D D D? }` en tête de `s`, `None` si `s` n'en commence pas
+/// par un, ou si un groupe est mal formé.
+fn code_len(s: &str) -> Option<usize> {
+    if leading_digits(s) != 2 {
+        return None;
+    }
+    let mut len = 2;
+    while let Some(group) = s[len..].strip_prefix('-') {
+        let digits = leading_digits(group);
+        if !(2..=3).contains(&digits) {
+            return None;
+        }
+        len = len.saturating_add(1).saturating_add(digits);
+    }
+    Some(len)
+}
+
+/// Longueur de la marque `RJ` suivie d'au moins un chiffre en tête de `s`.
+fn mark_len(s: &str) -> Option<usize> {
+    let digits = leading_digits(s.strip_prefix("RJ")?);
+    (digits > 0).then_some(digits.saturating_add(2))
+}
+
+/// Coupe une entrée sur chaque suite d'au moins quatre points (séparateur de l'amont DILA,
+/// `Cour.......Par suite`). Le point final est restitué au fragment de gauche, sauf s'il se
+/// termine déjà par `.`, `!` ou `?`. Une suite sans texte d'un côté (entrée qui commence ou
+/// finit par elle, `etc....`) ne coupe rien : l'entrée reste telle quelle. Une suite sans texte à sa
+/// gauche, après une coupe (`A.... ....B`), est absorbée : elle ne coupe rien et le fragment
+/// suivant commence après elle (`A.` puis `B`).
+fn split_dotted(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut from = 0;
+    while let Some(offset) = text[from..].find("....") {
+        let at = from.saturating_add(offset);
+        let end = at.saturating_add(text[at..].bytes().take_while(|&b| b == b'.').count());
+        from = end;
+        let left = text[start..at].trim();
+        if left.is_empty() {
+            if start > 0 {
+                start = end;
+            }
+            continue;
+        }
+        if end == text.len() {
+            continue;
+        }
+        let mut fragment = left.to_owned();
+        if !fragment.ends_with(['.', '!', '?']) {
+            fragment.push('.');
+        }
+        out.push(fragment);
+        start = end;
+    }
+    out.push(text[start..].trim().to_owned());
+    out
 }
 
 /// Nombre de chiffres ASCII consécutifs en tête de `s` (chacun fait un octet).
@@ -258,6 +338,98 @@ mod tests {
         assert_eq!(strip_class_code("44\tAbc"), "Abc");
         assert_eq!(strip_class_code("Abc 44 Def"), "Abc 44 Def");
         assert_eq!(strip_class_code(""), "");
+    }
+
+    // Données réelles : sommaires de CETATEXT000007742504 (Nicolo) et CETATEXT000052137642,
+    // relevés enregistrés du crate lf-adapter-piste.
+    const NICOLO_9AA: &str = "01-01-02-02, 15-03-01-01        En vertu des dispositions de l'article 55 de la Constitution, il appartient au juge administratif de contrôler la compatibilité entre les traités internationaux et les lois françaises même postérieures.";
+
+    #[test]
+    fn class_code_list_is_stripped() {
+        assert_eq!(
+            norm(&[NICOLO_9AA, "17-02-01-01, 54-07-01-04        En vertu des dispositions"]),
+            [
+                "En vertu des dispositions de l'article 55 de la Constitution, il appartient au juge administratif de contrôler la compatibilité entre les traités internationaux et les lois françaises même postérieures.",
+                "En vertu des dispositions"
+            ]
+        );
+        assert_eq!(strip_class_code("44-12, 1, 33-01 Abc"), "44-12, 1, 33-01 Abc");
+        assert_eq!(strip_class_code("44-12, 15-03, 33-01 Abc"), "Abc");
+    }
+
+    #[test]
+    fn class_code_list_with_subdivision() {
+        assert_eq!(strip_class_code("01-04-005 a) Abc def"), "Abc def");
+        assert_eq!(strip_class_code("01-04-005, 15-03 b) État"), "État");
+        assert_eq!(strip_class_code("01-04-005 a)Abc"), "01-04-005 a)Abc");
+        assert_eq!(strip_class_code("01-04-005 a) abc"), "01-04-005 a) abc");
+        assert_eq!(strip_class_code("01-04-005 A) Abc"), "A) Abc");
+        assert_eq!(strip_class_code("01-04-005 ab) Abc"), "01-04-005 ab) Abc");
+        assert_eq!(strip_class_code("01-04-005 a Abc"), "01-04-005 a Abc");
+    }
+
+    #[test]
+    fn class_code_list_keeps_what_is_not_a_code_list() {
+        assert_eq!(strip_class_code("12,50 Euros"), "12,50 Euros");
+        assert_eq!(strip_class_code("44, Abc"), "44, Abc");
+        assert_eq!(strip_class_code("12, 15 Euros"), "12, 15 Euros");
+        assert_eq!(strip_class_code("44-12, 15 Abc"), "44-12, 15 Abc");
+        assert_eq!(strip_class_code("44-12, 15-1 Abc"), "44-12, 15-1 Abc");
+        assert_eq!(strip_class_code("44-12, abc Def"), "44-12, abc Def");
+        assert_eq!(strip_class_code("44,"), "44,");
+    }
+
+    #[test]
+    fn class_code_rj_marks_follow_the_codes() {
+        assert_eq!(
+            strip_class_code("CETAT01-01-02-02,RJ1,RJ2 ACTES LEGISLATIFS"),
+            "ACTES LEGISLATIFS"
+        );
+        assert_eq!(strip_class_code("CETAT15-03-01-01,RJ1 COMMUNAUTES"), "COMMUNAUTES");
+        assert_eq!(strip_class_code("01-01, RJ12 Abc"), "Abc");
+        assert_eq!(strip_class_code("01-01,RJ Abc"), "01-01,RJ Abc");
+        assert_eq!(strip_class_code("01-01,RJ1x Abc"), "01-01,RJ1x Abc");
+        assert_eq!(strip_class_code("RJ1 Abc"), "RJ1 Abc");
+    }
+
+    #[test]
+    fn dotted_separators_split_the_entry() {
+        assert_eq!(
+            norm(&[
+                "15-07 En vertu de l'article 260, l'exécution de l'arrêt de la Cour.......Par suite l'exécution implique 1) sans exception, et 2) sans recherche.......Application à l'arrêt C-416/17."
+            ]),
+            [
+                "En vertu de l'article 260, l'exécution de l'arrêt de la Cour.",
+                "Par suite l'exécution implique 1) sans exception, et 2) sans recherche.",
+                "Application à l'arrêt C-416/17."
+            ]
+        );
+        assert_eq!(norm(&["Alpha....1) Beta"]), ["Alpha.", "1) Beta"]);
+        assert_eq!(norm(&["Alpha ....Beta"]), ["Alpha.", "Beta"]);
+        assert_eq!(norm(&["Alpha. ....Beta"]), ["Alpha.", "Beta"]);
+        assert_eq!(norm(&["Vraiment ?....Oui"]), ["Vraiment ?", "Oui"]);
+        assert_eq!(norm(&["Non !....Oui"]), ["Non !", "Oui"]);
+        assert_eq!(norm(&["A.... ....B"]), ["A.", "B"]);
+        assert_eq!(norm(&["A.... ...."]), ["A."]);
+        assert_eq!(norm(&["....A.... ....B"]), ["....A.", "B"]);
+    }
+
+    #[test]
+    fn dotted_separators_keep_neighbours_unchanged() {
+        assert_eq!(norm(&["Alpha...Beta"]), ["Alpha...Beta"]);
+        assert_eq!(norm(&["etc...."]), ["etc...."]);
+        assert_eq!(norm(&["....Beta"]), ["....Beta"]);
+        assert_eq!(norm(&["Alpha .... "]), ["Alpha ...."]);
+        assert_eq!(norm(&["Alpha...."]), ["Alpha...."]);
+    }
+
+    #[test]
+    fn dotted_fragments_are_not_deduplicated_by_substring() {
+        assert_eq!(
+            norm(&["Alpha....Beta gamma", "Beta gamma delta", "Beta"]),
+            ["Alpha.", "Beta gamma", "Beta gamma delta", "Beta"]
+        );
+        assert_eq!(norm(&["Alpha....Beta", "Beta....Alpha"]), ["Alpha.", "Beta", "Beta.", "Alpha"]);
     }
 
     #[test]

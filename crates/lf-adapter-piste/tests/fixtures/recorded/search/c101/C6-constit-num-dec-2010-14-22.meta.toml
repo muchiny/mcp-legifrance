@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"CONSTIT\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_DEC\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"2010-14/22\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-11-01T01:59:35Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 446
+bytes_raw = 2583
+sha256_raw = "80d64fa23de580084856c6630c10c3da112ae43db4adf3ed8535de39e87a9ab8"
+sha256_file = "80d64fa23de580084856c6630c10c3da112ae43db4adf3ed8535de39e87a9ab8"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 1.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

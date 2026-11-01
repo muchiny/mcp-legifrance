@@ -546,7 +546,7 @@ Deux points sont à mesurer au premier `cargo clippy` du spike rmcp (**avant la 
   3. Utiliser `tokio::time::Instant`, et non `std::time::Instant`, sinon les tests en temps suspendu mesurent zéro.
   4. Pas de `#[async_trait]` ni de `dyn` (ADR-0012).
   5. `Deadline` n'est visible que dans la tâche qui exécute le cas d'usage : les cas d'usage n'utilisent pas `tokio::spawn` (sinon, propagation explicite de l'échéance). Les sous-futurs de `join_all` et `buffer_unordered` sont interrogés dans la même tâche et voient la même échéance (00 §3 ; 04 §5.3).
-  6. La politique de budget **estime** la taille de la réponse (somme des longueurs en caractères des chaînes + 64 par champ ou élément, cible 42 000), puisque ce crate ne connaît ni serde ni la forme sérialisée ; la mesure exacte du `structuredContent` se fait dans `lf-adapter-mcp` (00 §7, §3.6).
+  6. La politique de budget **estime** la taille de la réponse (somme des longueurs en caractères des chaînes + 64 par champ ou élément, cible 42 000), (sauf `fr_get_related` : `ESTIMATE_PER_LIST_FIELD = 24` et `estimate_list_chars(fields, text_chars)`, avec `escaped_chars` pour la longueur JSON des textes, et `fr_search`, dont la taille est calculée exactement, au caractère de JSON compact près, sur les seuls champs que la vue rend ; `fr_search_all` n'est pas modifié, seules ses notes passent au singulier par `budget::the_last_hits`, L4-06) puisque ce crate ne connaît ni serde ni la forme sérialisée ; la mesure exacte du `structuredContent` se fait dans `lf-adapter-mcp` (00 §7, §3.6).
 
 ### 3.3 `lf-adapter-piste`
 
@@ -1136,6 +1136,8 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
 ## 7. Décorateurs : `Audited` et `CachedCorpus`
 
 ### 7.1 `Audited` : chaque exécution est journalisée
+
+*Annulation (L5-03, 1.0.1)* : deux cas distincts. Sur `notifications/cancelled`, aucune réponse n'est émise ; à l'EOF avec une requête en vol, la ligne d'audit est écrite avant l'arrêt et rmcp écrit encore la réponse `isError` « cancelled by client » sans `[code]` (05 §7.2, AM-70).
 
 **Position** : `Audited<A: AuditLog>` vit dans `lf-application` et enveloppe **l'exécution complète** du cas d'usage : décodage, validation, appels au port, politique de lecture. Ce n'est pas un décorateur du port : un `fr_search` en échec de validation n'appelle jamais le port, et doit pourtant être audité (D-02, E-02).
 

@@ -35,7 +35,6 @@ expression: schema()
     "per_fond": {
       "default": 3,
       "description": "Hits per fond (1..10).",
-      "format": "uint32",
       "maximum": 10,
       "minimum": 1,
       "type": "integer"

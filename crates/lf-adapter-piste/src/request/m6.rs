@@ -618,6 +618,16 @@ mod tests {
     }
 
     #[test]
+    fn result_frame_keeps_accepting_an_odd_quote_in_a_number_value() {
+        // `result_frame` passe par `QueryText::parse`, sans contrôle des guillemets (L4-08) : le
+        // contrôle vit dans les cas d'usage de recherche. Le jeu de caractères de `NumberValue`
+        // exclut déjà le guillemet, donc aucune valeur numérique ne porte de guillemet impair.
+        assert!(NumberValue::parse("24-13\".470").is_err());
+        let frame = result_frame(&query(Fond::Juri, NumberKind::Case, "24-13.470", "2026-10-28"));
+        assert_eq!(frame.unwrap().text().as_str(), "24-13.470");
+    }
+
+    #[test]
     fn a_blank_value_has_no_frame_and_the_message_hides_it() {
         let blank = query(Fond::Juri, NumberKind::Case, "   ", "2026-10-28");
         assert_eq!(

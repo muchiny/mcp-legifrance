@@ -20,15 +20,19 @@
 //! # Limites de cette version
 //!
 //! L'article d'un texte est cherché par `find_article` sur le `LEGITEXT` résolu, sans parcourir
-//! la table des matières. Un texte cité par sa seule date, la chambre et la formation d'une
-//! décision, les avenants et les alinéas du Préambule ne sont pas contrôlés (`NotSupported`).
+//! la table des matières. Un texte cité par sa seule date, la formation du Conseil d'État, le
+//! siège d'une cour d'appel ou d'un tribunal, les avenants et les alinéas du Préambule ne sont pas
+//! contrôlés (`NotSupported`, `NumberlessText` ou ignorés). La chambre de la Cour de cassation l'est, sur les seules
+//! chambres modernes (`check_chamber`).
 
 use lf_domain::{
     citation::{
-        Ambiguity, ArticleNum, CaseNumber, CitationRef, CnilCite, CnilNumber, CodeRef, Confidence,
-        ConventionCite, Court, DecisionCite, Flag, LegifranceIdRef, Resolvability, Spanned,
-        TextCite, TextNature, UnresolvableWhy, UnsupportedFamily, VersionQualifier,
-        dict::courts::CcType,
+        Ambiguity, ArticleNum, ArticleRef, CaseNumber, CitationRef, CnilCite, CnilNumber, CodeRef,
+        Confidence, ConventionCite, Court, DecisionCite, Flag, LegifranceIdRef, Resolvability,
+        Spanned, TextCite, TextNature, TextNumber, UnresolvableWhy, UnsupportedFamily,
+        VersionQualifier,
+        dict::courts::{CassChamber, CcType},
+        parse,
     },
     contract::{Citable, Eli, Nor},
     date::{CivilDate, VersionDate},
@@ -43,6 +47,7 @@ use lf_domain::{
 
 use super::{
     Candidate, CandidateKind, CheckStatus, Field, NotCheckedReason, Note, ResolvedRecord,
+    notes::FOUND_DATES_MAX,
     policy::{self, Absence, CONSULT_LIMIT, Family, MAX_CANDIDATES, fold_line, fold_words},
 };
 use crate::ports::{ArticleAt, CorpusError, LegalCorpus, PisteEnvironment};
@@ -274,7 +279,7 @@ const fn out_of_scope(family: UnsupportedFamily) -> &'static str {
     match family {
         UnsupportedFamily::Ue => "EU law",
         UnsupportedFamily::Cjue => "CJEU case law",
-        UnsupportedFamily::Cedh => "ECHR case law",
+        UnsupportedFamily::Cedh => "ECHR law and case law",
         UnsupportedFamily::Doctrine => "Legal scholarship",
         UnsupportedFamily::Recueil => "A law report",
         UnsupportedFamily::ForeignEcli => "A foreign ECLI",
@@ -336,7 +341,7 @@ pub(crate) fn offline(item: &Spanned<CitationRef>) -> Option<Resolution> {
         }
         CitationRef::TextArticle { text: Some(TextCite { number: None, .. }), .. }
         | CitationRef::Text(TextCite { number: None, .. }) => {
-            Some(not_supported("text cited without a number"))
+            Some(Resolution::unresolvable(Note::NumberlessText))
         }
         CitationRef::CodeArticle { article, .. } | CitationRef::TextArticle { article, .. }
             if article.num.num_key().is_empty() =>
@@ -400,6 +405,7 @@ struct Lookup {
     title_filter: Option<TitleFilter>,
     date: Option<CivilDate>,
     cc_type: Option<CcType>,
+    chamber: Option<CassChamber>,
     absent: Note,
 }
 
@@ -428,11 +434,16 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
     async fn search(&self, item: &Spanned<CitationRef>, at: Option<VersionDate>) -> Resolution {
         match &item.value {
             CitationRef::CodeArticle { code, article, version, .. } => {
-                let resolution = self.code_article(code, &article.num, version.as_ref(), at).await;
-                with_sigle_reading(item, code, resolution)
+                let first = self.code_article(code, &article.num, version.as_ref(), at).await;
+                let resolution = close_range(first, article.range_to.as_ref(), async |end| {
+                    self.code_article(code, end, version.as_ref(), at).await
+                })
+                .await;
+                with_subdivision(article, with_sigle_reading(item, code, resolution))
             }
             CitationRef::TextArticle { text: Some(text), article, at_date } => {
-                self.text_article(text, &article.num, *at_date, at).await
+                let resolution = self.text_article(text, article, *at_date, at).await;
+                with_subdivision(article, resolution)
             }
             CitationRef::Text(text) => self.text(text).await.into_resolution(),
             CitationRef::Decision(decision) => self.decision(decision).await,
@@ -553,11 +564,12 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         }
     }
 
-    /// Article d'un texte non codifié : résout le texte, puis l'article dans ce texte.
+    /// Article d'un texte non codifié (ou plage d'articles) : résout le texte une fois, puis
+    /// l'article dans ce texte, et la dernière borne d'une plage.
     async fn text_article(
         &self,
         text: &TextCite,
-        num: &ArticleNum,
+        article: &ArticleRef,
         at_date: Option<CivilDate>,
         tool: Option<VersionDate>,
     ) -> Resolution {
@@ -568,7 +580,11 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         match self.text(text).await {
             TextStep::Found { id, confidence, .. } => {
                 let sure = confidence == Confidence::High;
-                self.article_in(&id, id.as_str(), num, when, sure).await
+                let first = self.article_in(&id, id.as_str(), &article.num, when, sure).await;
+                close_range(first, article.range_to.as_ref(), async |end| {
+                    self.article_in(&id, id.as_str(), end, when, sure).await
+                })
+                .await
             }
             TextStep::Done(done) => done,
         }
@@ -581,38 +597,51 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
     )]
     async fn text(&self, cite: &TextCite) -> TextStep {
         let Some(number) = &cite.number else {
-            return TextStep::Done(not_supported("text cited without a number"));
+            return TextStep::Done(Resolution::unresolvable(Note::NumberlessText));
         };
-        let key = number
-            .year
-            .map_or_else(|| number.seq.to_string(), |year| format!("{year}-{}", number.seq));
-        let hits = match self.by_number(Fond::Loda, NumberKind::Text, &key).await {
-            Ok(hits) => hits,
-            Err(error) => return TextStep::Done(Resolution::failed(error)),
-        };
-        let (ids, hits): (Vec<LegiTextId>, Vec<SearchHit>) = hits
-            .into_iter()
-            .filter_map(|hit| match &hit.id {
-                DocumentId::LegiText(id) => Some((id.clone(), hit)),
-                _ => None,
-            })
-            .unzip();
+        // Premier jeu de résultats LEGI parmi les formes du numéro (`89-462`, puis `1989-462`) :
+        // la sandbox ne connaît que la forme à deux chiffres des textes d'avant 2000.
+        let mut found: Vec<(LegiTextId, SearchHit)> = Vec::new();
+        for key in text_keys(number) {
+            let hits = match self.by_number(Fond::Loda, NumberKind::Text, &key).await {
+                Ok(hits) => hits,
+                Err(error) => return TextStep::Done(Resolution::failed(error)),
+            };
+            found = hits
+                .into_iter()
+                .filter_map(|hit| match &hit.id {
+                    DocumentId::LegiText(id) => Some((id.clone(), hit)),
+                    _ => None,
+                })
+                .collect();
+            if !found.is_empty() {
+                break;
+            }
+        }
+        let (ids, hits): (Vec<LegiTextId>, Vec<SearchHit>) = found.into_iter().unzip();
         if hits.is_empty() {
             return TextStep::Done(Resolution::unresolvable(Note::CouldNotConfirm {
                 index: "LODA",
             }));
         }
-        let fits: Vec<TextFit> = hits.iter().map(|hit| text_fit(cite, hit)).collect();
+        // La date de signature se lit une fois par hit : l'ajustement et la confiance du hit
+        // retenu partent de la même lecture.
+        let signed: Vec<Option<CivilDate>> =
+            hits.iter().map(|hit| signed_on(hit, number)).collect();
+        let fits: Vec<TextFit> =
+            hits.iter().zip(&signed).map(|(hit, &signed)| text_fit(cite, hit, signed)).collect();
         let exact: Vec<usize> = fits
             .iter()
             .enumerate()
             .filter(|(_, fit)| **fit == TextFit::Exact)
             .map(|(i, _)| i)
             .collect();
-        let confidence = if cite.date.is_some() { Confidence::High } else { Confidence::Medium };
         match (exact.as_slice(), hits.as_slice()) {
             ([only], _) => {
                 let hit = &hits[*only];
+                // Sûr seulement si la date citée a été comparée à celle du titre, et égale.
+                let compared = cite.date.is_some() && signed[*only] == cite.date;
+                let confidence = if compared { Confidence::High } else { Confidence::Medium };
                 let record = ResolvedRecord::of(hit.id.clone(), hit);
                 TextStep::Found { id: ids[*only].clone(), record, confidence }
             }
@@ -650,19 +679,34 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             CaseNumber::Cc(cc) => Some(cc.kind),
             _ => None,
         });
-        self.lookup(Lookup { fond, kind, forms, title_filter, date: cite.date, cc_type, absent })
-            .await
+        let chamber = match court {
+            Court::CourDeCassation { chamber } => *chamber,
+            _ => None,
+        };
+        self.lookup(Lookup {
+            fond,
+            kind,
+            forms,
+            title_filter,
+            date: cite.date,
+            cc_type,
+            chamber,
+            absent,
+        })
+        .await
     }
 
     /// Cherche une décision par numéro, la consulte et compare la date (et le type du Conseil
     /// constitutionnel).
     async fn lookup(&self, spec: Lookup) -> Resolution {
         let mut hits = Vec::new();
+        let mut number = String::new();
         for form in &spec.forms {
             match self.by_number(spec.fond, spec.kind, form).await {
                 Ok(found) if found.is_empty() => {}
                 Ok(found) => {
                     hits = found;
+                    number.clone_from(form);
                     break;
                 }
                 Err(error) => return Resolution::failed(error),
@@ -675,6 +719,12 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             return Resolution::unresolvable(spec.absent);
         }
         if hits.len() > CONSULT_LIMIT {
+            if let Some(cited) = spec.date
+                && let Some(dates) = hits.iter().map(judged_on).collect::<Option<Vec<_>>>()
+                && !dates.contains(&cited)
+            {
+                return no_record_at_date(&number, cited, dates);
+            }
             return Resolution::of(candidates_of_hits(&hits));
         }
         let mut found: Vec<(DocumentId, Decision)> = Vec::new();
@@ -689,7 +739,13 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         if found.is_empty() {
             return Resolution::unresolvable(spec.absent);
         }
-        choose_decision(&found, spec.date, spec.cc_type)
+        if let Some(cited) = spec.date
+            && none_on_the_day(&found, cited)
+        {
+            let dates = found.iter().filter_map(|(_, decision)| decision.date_texte).collect();
+            return no_record_at_date(&number, cited, dates);
+        }
+        choose_decision(&found, spec.date, spec.cc_type, spec.chamber)
     }
 
     /// ECLI cité : numéro tiré de l'ordinal (CC, CE) ou facette ECLI (Cour de cassation), puis
@@ -709,6 +765,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             title_filter: filter,
             date: None,
             cc_type: None,
+            chamber: None,
             absent,
         };
         let (resolution, index, strict) = match (court, second) {
@@ -953,13 +1010,46 @@ const fn plain_nature(nature: TextNature) -> Option<&'static str> {
     }
 }
 
-fn text_fit(cite: &TextCite, hit: &SearchHit) -> TextFit {
+/// Formes du numéro à chercher dans l'index NUM, dans l'ordre : `AA-N` puis `AAAA-N` avant 2000
+/// (le `AA` est celui que la sandbox indexe), `AAAA-N` après, `N` sans année.
+fn text_keys(number: &TextNumber) -> Vec<String> {
+    match number.year {
+        None => vec![number.seq.to_string()],
+        Some(year @ 1900..=1999) => {
+            vec![format!("{:02}-{}", year % 100, number.seq), format!("{year}-{}", number.seq)]
+        }
+        Some(year) => vec![format!("{year}-{}", number.seq)],
+    }
+}
+
+/// Date de signature d'un texte, lue dans le titre du hit (« Loi n° 2016-1321 du 7 octobre
+/// 2016 … ») : le titre cite d'autres textes, seule la citation du même numéro compte. `hit.date`
+/// n'est jamais lue (entrée en vigueur ou publication selon le fond). `None` si le titre manque
+/// ou ne se lit pas.
+fn signed_on(hit: &SearchHit, number: &TextNumber) -> Option<CivilDate> {
+    let title = hit.title.as_deref()?;
+    parse(title).into_iter().find_map(|item| match item.value {
+        CitationRef::Text(text)
+            if text
+                .number
+                .as_ref()
+                .is_some_and(|read| read.year == number.year && read.seq == number.seq) =>
+        {
+            text.date
+        }
+        _ => None,
+    })
+}
+
+/// Ajustement du hit à la citation, `signed` étant la date de signature lue dans son titre
+/// (`signed_on`).
+fn text_fit(cite: &TextCite, hit: &SearchHit, signed: Option<CivilDate>) -> TextFit {
     if let (Some(wanted), Some(actual)) = (plain_nature(cite.nature), hit.nature.as_deref())
         && fold_line(actual) != fold_line(wanted)
     {
         return TextFit::Nature(fold_line(actual).to_uppercase());
     }
-    match (cite.date, hit.date) {
+    match (cite.date, signed) {
         (Some(cited), Some(actual)) if cited != actual => TextFit::Date(actual),
         _ => TextFit::Exact,
     }
@@ -988,6 +1078,65 @@ fn verified(record: ResolvedRecord, confidence: Confidence, note: Option<Note>) 
     Resolution::of(Outcome::Verified { record, confidence, note })
 }
 
+/// Plage d'articles (« articles 1240 à 1244 », L2-07) : la dernière borne `end` est lue par le même
+/// chemin que la première, mais seulement quand la première est vérifiée (sinon son issue est
+/// rendue, sans second appel). Les deux bornes vérifiées donnent `verified` de confiance moyenne,
+/// avec la note qui dit que le milieu n'est pas lu, sans comparaison d'extrait. Une dernière borne
+/// absente (preuve d'absence, ou « existence non confirmée » d'un texte sans date comparée) donne
+/// `ambiguous`, jamais `invalid` ni `not_found` : la plage peut être juste pour une autre date.
+/// Toute autre issue de la dernière borne est rendue telle quelle. Sans `end`, la première
+/// résolution est rendue inchangée.
+async fn close_range(
+    first: Resolution,
+    end: Option<&ArticleNum>,
+    resolve_end: impl AsyncFnOnce(&ArticleNum) -> Resolution,
+) -> Resolution {
+    let (Some(end), Outcome::Verified { record, note, .. }) = (end, &first.outcome) else {
+        return first;
+    };
+    let record = record.clone();
+    // L'avertissement de version de la première borne reste en tête de la mention de plage.
+    let range = note
+        .as_ref()
+        .and_then(Note::version_warning)
+        .map_or(Note::RangeEndpointsOnly, |warning| warning.clone().then(Note::RangeEndpointsOnly));
+    let outcome = match resolve_end(end).await.outcome {
+        Outcome::Verified { .. } => {
+            Outcome::Verified { record, confidence: Confidence::Medium, note: Some(range) }
+        }
+        Outcome::Absent { .. } | Outcome::Unresolvable { note: Note::CouldNotConfirm { .. } } => {
+            Outcome::Candidates {
+                items: Vec::new(),
+                note: Note::RangeEndNotFound { num: end.num_key() },
+            }
+        }
+        other => other,
+    };
+    Resolution::of(outcome)
+}
+
+/// Une citation d'article avec une subdivision (alinéa, point, phrase…) n'est contrôlée que sur
+/// l'article : la note le dit, après les autres (L2-17). Seule une issue `verified` est annotée ;
+/// ailleurs, l'article lui-même manque et la subdivision n'a rien à ajouter.
+fn with_subdivision(article: &ArticleRef, resolution: Resolution) -> Resolution {
+    if article.sub.is_empty() {
+        return resolution;
+    }
+    let Resolution { outcome, official } = resolution;
+    let outcome = match outcome {
+        Outcome::Verified { record, confidence, note } => Outcome::Verified {
+            record,
+            confidence,
+            note: Some(match note {
+                Some(note) => note.then(Note::SubdivisionNotChecked),
+                None => Note::SubdivisionNotChecked,
+            }),
+        },
+        other => other,
+    };
+    Resolution { outcome, official }
+}
+
 /// Issue d'un article trouvé : cohérence du numéro, texte officiel, début de la version courante.
 fn article_found(
     article: &lf_domain::entity::ArticleText,
@@ -1012,9 +1161,44 @@ fn article_found(
     }
     let note = match at {
         ArticleAt::Today(_) => article.date_debut.map(Note::VersionSince),
-        ArticleAt::On(_) => None,
+        ArticleAt::On(date) => not_current_version(article, date),
     };
     Resolution { official, ..verified(record, Confidence::High, note) }
+}
+
+/// Code d'état d'une version qui n'est plus en vigueur, en vocabulaire fermé. `None` : version en
+/// vigueur (y compris étendue ou non étendue, différée, initiale, `ABROGE_DIFF`), ou état sans
+/// signal (`SANS_ETAT` et code inconnu : rien n'autorise à dire que la version est remplacée). La
+/// décision est celle de [`LegalStatus::is_superseded`], règle commune avec `fr_get_text` ; le test
+/// `the_replaced_code_follows_the_one_superseded_rule` garde l'accord des deux.
+const fn replaced_code(status: &LegalStatus) -> Option<&'static str> {
+    match status {
+        LegalStatus::Abroge => Some("ABROGE"),
+        LegalStatus::Modifie => Some("MODIFIE"),
+        LegalStatus::ModifieMortNe => Some("MODIFIE_MORT_NE"),
+        LegalStatus::Perime => Some("PERIME"),
+        LegalStatus::Annule => Some("ANNULE"),
+        LegalStatus::Disjoint => Some("DISJOINT"),
+        LegalStatus::Transfere => Some("TRANSFERE"),
+        LegalStatus::Remplace => Some("REMPLACE"),
+        LegalStatus::Denonce => Some("DENONCE"),
+        LegalStatus::Substitue => Some("SUBSTITUE"),
+        LegalStatus::Vigueur
+        | LegalStatus::VigueurEtendue
+        | LegalStatus::VigueurNonEtendue
+        | LegalStatus::VigueurDifferee
+        | LegalStatus::AbrogeDiff
+        | LegalStatus::Initiale
+        | LegalStatus::SansEtat
+        | LegalStatus::Other(_) => None,
+    }
+}
+
+/// Note d'un article lu à une date (`on`) quand la version lue n'est plus en vigueur (L2-12) : le
+/// texte d'aujourd'hui peut différer.
+fn not_current_version(article: &lf_domain::entity::ArticleText, on: VersionDate) -> Option<Note> {
+    let etat = article.etat.as_ref().and_then(replaced_code)?;
+    Some(Note::NotCurrentVersion { on, etat, ended: article.date_fin })
 }
 
 /// Document consulté par son identifiant : trouvé, de confiance haute.
@@ -1048,6 +1232,50 @@ fn candidates_of_hits(hits: &[SearchHit]) -> Outcome {
         })
         .collect();
     Outcome::Candidates { items, note: Note::Candidates { n: hits.len() } }
+}
+
+/// Date de la décision, lue dans le titre du hit. Les hits JURI, CETAT et CONSTIT n'ont aucune
+/// date propre : `date`, `datePublication` et `dateSignature` valent null. Formes relevées en
+/// bac à sable : « Cour de Cassation, Chambre sociale, du 18 octobre 1989, 00-00.000, Inédit »,
+/// « Cour de cassation, civile, Chambre sociale, 21 mai 2025, 23-11.110, Publié au bulletin »,
+/// « Tribunal des Conflits, du 1 décembre 2003, … », « Conseil d'État, …, 30/01/2020, 419837 »,
+/// « Décision 2018-769 DC - 04 septembre 2018 - Loi … ». Le titre se découpe en segments (aux
+/// virgules et aux « - ») ; le premier segment qui est exactement une date, précédée ou non de
+/// « du », est celle de la décision (celui du Conseil constitutionnel cite ensuite des lois, dans
+/// un segment plus long). `None` si le titre manque ou ne se lit pas : il n'écarte alors rien.
+fn judged_on(hit: &SearchHit) -> Option<CivilDate> {
+    let title = hit.title.as_deref()?;
+    title.split(',').flat_map(|part| part.split(" - ")).find_map(|segment| {
+        let segment = segment.trim();
+        let date = segment.strip_prefix("du ").unwrap_or(segment);
+        CivilDate::from_french(date)
+    })
+}
+
+/// Plusieurs décisions portent ce numéro et toutes sont datées d'un autre jour que `cited`. Une
+/// décision sans date ne peut rien écarter : elle laisse la question ouverte.
+fn none_on_the_day(found: &[(DocumentId, Decision)], cited: CivilDate) -> bool {
+    found.len() > 1
+        && found.iter().all(|(_, decision)| decision.date_texte.is_some_and(|date| date != cited))
+}
+
+/// Des enregistrements portent ce numéro, aucun la date citée : `unresolvable`, et non « rien
+/// trouvé » (`absent`), puisque des enregistrements existent. `dates` est la date de chacun
+/// (un enregistrement par élément) : la note donne leur nombre et leurs dates distinctes
+/// (croissantes, bornées), pour que l'appelant ne conclue pas que le numéro n'existe pas.
+fn no_record_at_date(number: &str, cited: CivilDate, mut dates: Vec<CivilDate>) -> Resolution {
+    let n = dates.len();
+    dates.sort_unstable();
+    dates.dedup();
+    let more = dates.len().saturating_sub(FOUND_DATES_MAX);
+    dates.truncate(FOUND_DATES_MAX);
+    Resolution::unresolvable(Note::NoRecordAtDate {
+        n,
+        number: number.to_owned(),
+        date: cited,
+        found: dates,
+        more,
+    })
 }
 
 /// Formes essayées pour le numéro d'une décision de cette juridiction, et le fond à interroger.
@@ -1089,7 +1317,8 @@ fn number_forms(court: &Court, numbers: &[CaseNumber]) -> Option<(Fond, NumberKi
         Court::ConseilConstitutionnel => case(|number| match number {
             CaseNumber::Cc(cc) => {
                 let mut forms = vec![cc.to_string()];
-                let first = format!("{}-{}", cc.year, cc.seq);
+                // `71-44`, jamais `1971-44` : `NUM_DEC` n'écrit que l'année à deux chiffres.
+                let first = cc.first_form();
                 if !forms.contains(&first) {
                     forms.push(first);
                 }
@@ -1113,8 +1342,55 @@ fn is_ta(title: &str) -> bool {
     fold_line(title).contains("tribunal administratif")
 }
 
+/// Chambres que la formation du corpus désigne sans ambiguïté (annexe B §4.5) : seules elles se
+/// comparent. Les chambres historiques (`Reunies`, `CivUnique`, `Requetes`) n'ont pas de valeur
+/// de facette établie ou changent de sens selon l'époque.
+const fn is_modern(chamber: CassChamber) -> bool {
+    matches!(
+        chamber,
+        CassChamber::Civ1
+            | CassChamber::Civ2
+            | CassChamber::Civ3
+            | CassChamber::Com
+            | CassChamber::Soc
+            | CassChamber::Crim
+            | CassChamber::AssPlen
+            | CassChamber::Mixte
+            | CassChamber::PremierPresident
+    )
+}
+
+/// Ce que la comparaison de la chambre citée avec la formation officielle a établi.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChamberCheck {
+    /// Rien à comparer, ou chambres identiques.
+    Fine,
+    /// Les deux côtés sont des chambres modernes et diffèrent : (citée, officielle).
+    Differs(CassChamber, CassChamber),
+    /// Chambre moderne citée, mais la formation officielle n'en est pas une.
+    NotComparable,
+}
+
+/// Compare la chambre citée (Cour de cassation) à la `formation` de la décision consultée. Jamais
+/// d'écart si un côté est absent ou n'est pas une chambre moderne (Q7) : une formation inattendue
+/// (juridiction du fond, code inconnu) ne donne qu'une note.
+fn check_chamber(cited: Option<CassChamber>, formation: Option<&str>) -> ChamberCheck {
+    let Some(cited) = cited.filter(|chamber| is_modern(*chamber)) else {
+        return ChamberCheck::Fine;
+    };
+    let Some(formation) = formation.map(str::trim).filter(|value| !value.is_empty()) else {
+        return ChamberCheck::Fine;
+    };
+    match CassChamber::from_facet(formation).filter(|chamber| is_modern(*chamber)) {
+        Some(actual) if actual == cited => ChamberCheck::Fine,
+        Some(actual) => ChamberCheck::Differs(cited, actual),
+        None => ChamberCheck::NotComparable,
+    }
+}
+
 /// Choisit parmi les décisions consultées celle que la citation désigne (date citée, type du
-/// Conseil constitutionnel).
+/// Conseil constitutionnel, chambre de la Cour de cassation). Tous les champs durs en écart sont
+/// rendus ensemble.
 #[expect(
     clippy::indexing_slicing,
     reason = "les indices viennent des motifs de tranche ou de l'énumération des mêmes listes"
@@ -1123,6 +1399,7 @@ fn choose_decision(
     found: &[(DocumentId, Decision)],
     date: Option<CivilDate>,
     cc_type: Option<CcType>,
+    chamber: Option<CassChamber>,
 ) -> Resolution {
     let candidates = |found: &[(DocumentId, Decision)]| {
         let items = found
@@ -1153,21 +1430,31 @@ fn choose_decision(
     let (id, decision) = &found[index];
     let record = ResolvedRecord::of(id.clone(), decision);
     let official = Some(decision.text.as_str().to_owned());
-    let mismatch = match (date, decision.date_texte, cc_type, decision.nature.as_deref()) {
-        (Some(cited), Some(actual), _, _) if cited != actual => {
-            Some((Field::Date, cited.to_string(), actual.to_string()))
-        }
-        (_, _, Some(kind), Some(actual)) if fold_line(actual) != fold_line(kind.as_str()) => {
-            Some((Field::CcType, kind.as_str().to_owned(), fold_line(actual).to_uppercase()))
-        }
-        _ => None,
-    };
-    match mismatch {
-        Some((field, cited, actual)) => {
-            Resolution { official, ..Resolution::mismatch(record, field, cited, actual) }
-        }
-        None => Resolution { official, ..verified(record, confidence, None) },
+    let mut gaps: Vec<(Field, String, String)> = Vec::new();
+    if let (Some(cited), Some(actual)) = (date, decision.date_texte)
+        && cited != actual
+    {
+        gaps.push((Field::Date, cited.to_string(), actual.to_string()));
     }
+    let chamber_check = check_chamber(chamber, decision.formation.as_deref());
+    if let ChamberCheck::Differs(cited, actual) = chamber_check {
+        gaps.push((Field::Chamber, cited.code().to_owned(), actual.code().to_owned()));
+    }
+    if let (Some(kind), Some(actual)) = (cc_type, decision.nature.as_deref())
+        && fold_line(actual) != fold_line(kind.as_str())
+    {
+        gaps.push((Field::CcType, kind.as_str().to_owned(), fold_line(actual).to_uppercase()));
+    }
+    let note = match gaps.len() {
+        0 => None,
+        1 => gaps.pop().map(|(field, cited, actual)| Note::Mismatch { field, cited, actual }),
+        _ => Some(Note::Mismatches(gaps)),
+    };
+    if let Some(note) = note {
+        return Resolution { official, ..Resolution::of(Outcome::Mismatch { record, note }) };
+    }
+    let note = (chamber_check == ChamberCheck::NotComparable).then_some(Note::ChamberNotCompared);
+    Resolution { official, ..verified(record, confidence, note) }
 }
 
 /// Égalité de l'ECLI natif du document avec l'ECLI cité (§7.3). `strict` : un ECLI différent ou
@@ -1195,8 +1482,9 @@ fn check_ecli(
     Resolution { outcome, official }
 }
 
-/// Note `ReadAs` d'une citation lue avec le code par défaut d'un sigle ambigu (N05) ; si le
-/// document n'est pas trouvé, la lecture reste ambiguë.
+/// Note `ReadAs` d'une citation lue avec le code par défaut d'un sigle ambigu (N05), composée avec
+/// la mention de plage quand les deux bornes sont lues ; si le document n'est pas trouvé, la
+/// lecture reste ambiguë.
 fn with_sigle_reading(
     item: &Spanned<CitationRef>,
     code: &CodeRef,
@@ -1207,11 +1495,25 @@ fn with_sigle_reading(
     };
     let Resolution { outcome, official } = resolution;
     let outcome = match outcome {
-        Outcome::Verified { record, confidence, .. } => Outcome::Verified {
-            record,
-            confidence: confidence.min(Confidence::Medium),
-            note: Some(Note::ReadAs { sigle: *sigle, code: key.title() }),
-        },
+        Outcome::Verified { record, confidence, note } => {
+            let read_as = Note::ReadAs { sigle: *sigle, code: key.title() };
+            // Une plage dont les deux bornes existent garde sa mention : le milieu n'est pas lu.
+            let read = if note.as_ref().is_some_and(Note::ends_with_range) {
+                Note::WithRange(Box::new(read_as))
+            } else {
+                read_as
+            };
+            // Une version remplacée garde son avertissement, en tête (L2-12).
+            let note = note
+                .as_ref()
+                .and_then(Note::version_warning)
+                .map_or(read.clone(), |warning| warning.clone().then(read));
+            Outcome::Verified {
+                record,
+                confidence: confidence.min(Confidence::Medium),
+                note: Some(note),
+            }
+        }
         Outcome::Absent { .. } | Outcome::Mismatch { .. } | Outcome::Unresolvable { .. } => {
             Outcome::Candidates { items: Vec::new(), note: Note::AmbiguousSigle { sigle: *sigle } }
         }
@@ -1230,8 +1532,7 @@ mod tests {
     use crate::testing::{FakeCorpus, PortRequest};
     use lf_domain::{
         citation::{
-            Anaphora, ArticleRef, EcliFamily, IdPrefix, Sigle, Span, SpecialNum, TextNumber,
-            UnsupportedCite, parse,
+            Anaphora, ArticleRef, EcliFamily, IdPrefix, Sigle, Span, SpecialNum, UnsupportedCite,
         },
         contract::{Idcc, Nor},
         entity::{Act, ArticleText, CompanyAgreement, Convention, Deliberation, TextBody},
@@ -1531,7 +1832,10 @@ mod tests {
         corpus.push_find_by_number(Ok(vec![]));
         let resolution = resolve(&corpus, text).await;
         assert_eq!(status(&resolution), CheckStatus::Unresolvable);
-        assert_eq!(note(&resolution), "Could not confirm existence; nothing was found in JURI.");
+        assert_eq!(
+            note(&resolution),
+            "Could not confirm existence: nothing was found in JURI, which does not prove that it does not exist."
+        );
 
         let corpus = FakeCorpus::new();
         corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, "JURITEXT000051743650")]));
@@ -1542,6 +1846,220 @@ mod tests {
             note(&resolution),
             "Cited date 2025-06-04 differs from the official record (2025-06-05)."
         );
+    }
+
+    /// Pourvoi relevé (capture C4) : texte cité, identifiant, date officielle, formation lue.
+    struct Recorded {
+        text: &'static str,
+        id: &'static str,
+        date: (u16, u8, u8),
+        formation: &'static str,
+    }
+
+    /// Les huit arrêts réels dont la chambre citée est la bonne (relevés C4).
+    const FAITHFUL: [Recorded; 8] = [
+        Recorded {
+            text: "Cass. civ. 1re, 13 mars 2019, n° 18-12.605",
+            id: "JURITEXT000038322046",
+            date: (2019, 3, 13),
+            formation: "CHAMBRE_CIVILE_1",
+        },
+        Recorded {
+            text: "Cass. civ. 2e, 24 septembre 2009, n° 08-17.523",
+            id: "JURITEXT000021080678",
+            date: (2009, 9, 24),
+            formation: "CHAMBRE_CIVILE_2",
+        },
+        Recorded {
+            text: "Cass. civ. 3e, 11 février 2016, n° 14-26.866",
+            id: "JURITEXT000032056669",
+            date: (2016, 2, 11),
+            formation: "CHAMBRE_CIVILE_3",
+        },
+        Recorded {
+            text: "Cass. com., 3 juin 2026, n° 24-14.748",
+            id: "JURITEXT000054218381",
+            date: (2026, 6, 3),
+            formation: "CHAMBRE_COMMERCIALE",
+        },
+        Recorded {
+            text: "Cass. crim., 26 janvier 2010, n° 08-88.134",
+            id: "JURITEXT000021854686",
+            date: (2010, 1, 26),
+            formation: "CHAMBRE_CRIMINELLE",
+        },
+        Recorded {
+            text: "Cass. soc., 9 septembre 2026, n° 25-14.356",
+            id: "JURITEXT000054929168",
+            date: (2026, 9, 9),
+            formation: "CHAMBRE_SOCIALE",
+        },
+        Recorded {
+            text: "Cass. soc., 25 novembre 2015, n° 14-24.444",
+            id: "JURITEXT000031539712",
+            date: (2015, 11, 25),
+            formation: "CHAMBRE_SOCIALE",
+        },
+        Recorded {
+            text: "Cass. ch. mixte, 21 décembre 2007, n° 06-12.769",
+            id: "JURITEXT000017739957",
+            date: (2007, 12, 21),
+            formation: "CHAMBRE_MIXTE",
+        },
+    ];
+
+    /// Résout `text` contre une décision de la Cour de cassation dont la formation est `formation`.
+    async fn resolve_cassation(
+        text: &str,
+        id: &str,
+        date: (u16, u8, u8),
+        formation: Option<&str>,
+    ) -> Resolution {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, id)]));
+        let mut official = decision(id, civil(date.0, date.1, date.2), None);
+        official.formation = formation.map(str::to_owned);
+        corpus.push_get_decision(Ok(official));
+        resolve(&corpus, text).await
+    }
+
+    #[tokio::test]
+    async fn a_wrong_cassation_chamber_is_a_mismatch() {
+        // Les quatre pourvois de l'E2E (verify_citations-2), cités avec une autre chambre.
+        for (text, id, date, formation, expected) in [
+            (
+                "Cass. civ. 1re, 25 novembre 2015, n° 14-24.444",
+                "JURITEXT000031539712",
+                (2015, 11, 25),
+                "CHAMBRE_SOCIALE",
+                "Cited chamber CIV1 differs from the official record (SOC).",
+            ),
+            (
+                "Cass. crim., 6 octobre 2006, n° 05-13.255",
+                "JURITEXT000007052928",
+                (2006, 10, 6),
+                "ASSEMBLEE_PLENIERE",
+                "Cited chamber CRIM differs from the official record (AP).",
+            ),
+            (
+                "Cass. com., 29 mars 1991, n° 89-15.231",
+                "JURITEXT000007026394",
+                (1991, 3, 29),
+                "ASSEMBLEE_PLENIERE",
+                "Cited chamber COM differs from the official record (AP).",
+            ),
+            (
+                "Cass. soc., 21 décembre 2007, n° 06-12.769",
+                "JURITEXT000017739957",
+                (2007, 12, 21),
+                "CHAMBRE_MIXTE",
+                "Cited chamber SOC differs from the official record (MIXTE).",
+            ),
+        ] {
+            let resolution = resolve_cassation(text, id, date, Some(formation)).await;
+            assert_eq!(status(&resolution), CheckStatus::Invalid, "{text}");
+            assert_eq!(note(&resolution), expected, "{text}");
+            assert_eq!(record_id(&resolution).as_deref(), Some(id));
+        }
+    }
+
+    #[tokio::test]
+    async fn the_right_cassation_chamber_stays_verified_on_the_recorded_decisions() {
+        for case in &FAITHFUL {
+            let resolution =
+                resolve_cassation(case.text, case.id, case.date, Some(case.formation)).await;
+            assert_eq!(status(&resolution), CheckStatus::Verified, "{}", case.text);
+            assert_eq!(resolution.outcome.note(Proof::Production), None, "{}", case.text);
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High), "{}", case.text);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_wrong_date_and_a_wrong_chamber_are_both_reported() {
+        let resolution = resolve_cassation(
+            "Cass. soc., 5 mai 2021, n° 99-12.345",
+            "JURITEXT000000000001",
+            (2000, 12, 20),
+            Some("CHAMBRE_CIVILE_1"),
+        )
+        .await;
+        assert_eq!(status(&resolution), CheckStatus::Invalid);
+        assert_eq!(
+            note(&resolution),
+            "Cited date 2021-05-05 differs from the official record (2000-12-20); chamber SOC \
+             differs (CIV1)."
+        );
+    }
+
+    #[tokio::test]
+    async fn a_formation_that_cannot_be_compared_gives_a_note_never_a_mismatch() {
+        let expected = "The cited chamber could not be compared: the official record gives a \
+                        formation that is not a modern Cour de cassation chamber.";
+        // Valeurs réelles des relevés C4 (décisions de juridictions du fond), puis une chambre
+        // historique et la chambre unique : jamais `invalid`.
+        for formation in ["CT0196", "I7", "CHAMBRES_REUNIES", "CHAMBRE_CIVILE"] {
+            let resolution = resolve_cassation(
+                "Cass. soc., 25 novembre 2015, n° 14-24.444",
+                "JURITEXT000031539712",
+                (2015, 11, 25),
+                Some(formation),
+            )
+            .await;
+            assert_eq!(status(&resolution), CheckStatus::Verified, "{formation}");
+            assert_eq!(note(&resolution), expected, "{formation}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_missing_or_blank_formation_is_not_compared_and_not_noted() {
+        for formation in [None, Some(""), Some("  ")] {
+            let resolution = resolve_cassation(
+                "Cass. soc., 25 novembre 2015, n° 14-24.444",
+                "JURITEXT000031539712",
+                (2015, 11, 25),
+                formation,
+            )
+            .await;
+            assert_eq!(status(&resolution), CheckStatus::Verified, "{formation:?}");
+            assert_eq!(resolution.outcome.note(Proof::Production), None, "{formation:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_cited_chamber_that_is_absent_or_historical_is_not_compared() {
+        // Chambre non citée.
+        let resolution = resolve_cassation(
+            "Cour de cassation, 25 novembre 2015, 14-24.444",
+            "JURITEXT000031539712",
+            (2015, 11, 25),
+            Some("CHAMBRE_SOCIALE"),
+        )
+        .await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(resolution.outcome.note(Proof::Production), None);
+        // Chambre civile sans numéro (citée, historique) contre une chambre moderne.
+        let resolution = resolve_cassation(
+            "Cass. civ., 25 novembre 1925, n° 14-24.444",
+            "JURITEXT000031539712",
+            (1925, 11, 25),
+            Some("CHAMBRE_SOCIALE"),
+        )
+        .await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(resolution.outcome.note(Proof::Production), None);
+    }
+
+    #[tokio::test]
+    async fn the_chamber_of_a_non_cassation_decision_is_never_compared() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, "JURITEXT000046652043")]));
+        let mut official = decision("JURITEXT000046652043", civil(2022, 7, 5), None);
+        official.formation = Some("CHAMBRE_SOCIALE".to_owned());
+        corpus.push_get_decision(Ok(official));
+        let text = "Cour d'appel de Paris, Pôle 1 - Chambre 12, 5 juillet 2022, n°14/10026";
+        let resolution = resolve(&corpus, text).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(resolution.outcome.note(Proof::Production), None);
     }
 
     #[tokio::test]
@@ -1563,6 +2081,323 @@ mod tests {
         );
         assert_eq!(note.text(), "6 records match; call fr_resolve to list them.");
         assert_eq!(corpus.calls_of("get_decision"), 0);
+    }
+
+    const SOC_CITED: &str = "Cass. soc., 17 mars 2021, n° 00-00.000";
+
+    fn juri_ids(count: usize) -> Vec<String> {
+        (1..=count).map(|n| format!("JURITEXT{n:012}")).collect()
+    }
+
+    /// errors-6 : plusieurs enregistrements portent le numéro, aucun à la date citée.
+    #[tokio::test]
+    async fn records_of_the_number_none_dated_the_cited_day_are_unresolvable() {
+        let ids = juri_ids(3);
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(ids.iter().map(|id| hit(Fond::Juri, id)).collect()));
+        for (id, year) in ids.iter().zip([1989, 2003, 2004]) {
+            corpus.push_get_decision(Ok(decision(id, civil(year, 3, 17), None)));
+        }
+        let resolution = resolve(&corpus, SOC_CITED).await;
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable);
+        assert_eq!(
+            note(&resolution),
+            "3 records share number 00-00.000, none dated 2021-03-17; dates found: 1989-03-17, \
+             2003-03-17, 2004-03-17."
+        );
+        assert_eq!(corpus.calls_of("get_decision"), 3);
+    }
+
+    /// Jumeaux « vrai positif conservé » : un enregistrement du jour cité reste le choix sûr ; une
+    /// décision sans date ne peut rien écarter ; sans date citée, rien n'est écarté.
+    #[tokio::test]
+    async fn a_record_of_the_cited_day_or_an_undated_one_keeps_the_choice() {
+        let ids = juri_ids(2);
+        let run = |dates: [Option<CivilDate>; 2], text: &'static str| {
+            let ids = ids.clone();
+            async move {
+                let corpus = FakeCorpus::new();
+                corpus.push_find_by_number(Ok(ids.iter().map(|id| hit(Fond::Juri, id)).collect()));
+                for (id, date) in ids.iter().zip(dates) {
+                    let mut record = decision(id, civil(2000, 1, 1), None);
+                    record.date_texte = date;
+                    corpus.push_get_decision(Ok(record));
+                }
+                resolve(&corpus, text).await
+            }
+        };
+        let day = Some(civil(2021, 3, 17));
+        let other = Some(civil(2003, 3, 17));
+        let chosen = run([other, day], SOC_CITED).await;
+        assert_eq!(status(&chosen), CheckStatus::Verified);
+        assert_eq!(confidence_of(&chosen.outcome), Some(Confidence::High));
+        assert_eq!(record_id(&chosen).as_deref(), Some("JURITEXT000000000002"));
+        let undated = run([other, None], SOC_CITED).await;
+        assert_eq!(status(&undated), CheckStatus::Ambiguous);
+        let no_date = run([other, other], "Cass. soc., n° 00-00.000").await;
+        assert_eq!(status(&no_date), CheckStatus::Ambiguous);
+    }
+
+    /// errors-6, au-delà de cinq hits : les hits JURI n'ont pas de date, c'est le titre qui la dit
+    /// (comme en bac à sable).
+    #[tokio::test]
+    async fn more_than_five_hits_titled_with_other_days_are_unresolvable_without_a_consultation() {
+        let ids = juri_ids(8);
+        let titles = [
+            "Cour de cassation, civile, Chambre sociale, 9 décembre 1989, 00-00.000, Publié au bulletin",
+            "Cour de cassation, Chambre sociale, du 12 mars 2003, 00-00.000",
+            "Cour de cassation, civile, Chambre sociale, 4 mai 2004, 00-00.000",
+            "Cour de cassation, civile, Chambre sociale, 1 mai 2004, 00-00.000",
+            "Cour de cassation, civile, Chambre sociale, 2 mai 2004, 00-00.000",
+            "Cour de cassation, civile, Chambre sociale, 3 mai 2004, 00-00.000",
+            "Cour de cassation, civile, Chambre sociale, 5 mai 2004, 00-00.000",
+            "Cour de cassation, civile, Chambre sociale, 6 mai 2004, 00-00.000",
+        ];
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(ids
+            .iter()
+            .zip(titles)
+            .map(|(id, title)| titled(Fond::Juri, id, title))
+            .collect()));
+        let resolution = resolve(&corpus, SOC_CITED).await;
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable);
+        assert_eq!(
+            note(&resolution),
+            "8 records share number 00-00.000, none dated 2021-03-17; dates found: 1989-12-09, \
+             2003-03-12, 2004-05-01, 2004-05-02, 2004-05-03 and 3 more."
+        );
+        assert_eq!(corpus.calls_of("get_decision"), 0);
+    }
+
+    /// errors-6 rejoué sur les titres réels de la sandbox (« …, du 19 janvier 2004, 00-00.000,
+    /// Publié au bulletin ») : huit enregistrements, aucun le 17 mars 2021.
+    #[tokio::test]
+    async fn sandbox_titles_of_eight_records_none_on_the_cited_day_are_unresolvable() {
+        let ids = juri_ids(8);
+        let titles = [
+            "Cour de Cassation, Chambre civile 2, du 25 janvier 1989, 00-00.000, Inédit",
+            "Cour de Cassation, Chambre civile 3, du 20 juillet 1989, 00-00.000, Inédit",
+            "Cour de Cassation, Chambre sociale, du 18 octobre 1989, 00-00.000, Inédit",
+            "Cour de Cassation, Cour de cassation saisie pour avis, du 1 décembre 2003, 00-00.000, Publié au bulletin",
+            "Tribunal des Conflits, du 19 janvier 2004, 00-00.000, Publié au bulletin",
+            "Tribunal des Conflits, du 19 janvier 2004, 00-00.000, Publié au bulletin",
+            "Tribunal des Conflits, du 19 janvier 2004, 00-00.000, Publié au bulletin",
+            "Tribunal des Conflits, du 19 janvier 2004, 00-00.000, Publié au bulletin",
+        ];
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(ids
+            .iter()
+            .zip(titles)
+            .map(|(id, title)| titled(Fond::Juri, id, title))
+            .collect()));
+        let resolution = resolve(&corpus, SOC_CITED).await;
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable);
+        assert_eq!(
+            note(&resolution),
+            "8 records share number 00-00.000, none dated 2021-03-17; dates found: 1989-01-25, \
+             1989-07-20, 1989-10-18, 2003-12-01, 2004-01-19."
+        );
+        assert_eq!(corpus.calls_of("get_decision"), 0);
+    }
+
+    /// Jumeaux : un titre à la date citée garde les candidats ; un titre illisible n'écarte rien ;
+    /// sans date citée, rien n'est filtré.
+    #[tokio::test]
+    async fn more_than_five_hits_keep_their_candidates_when_a_title_fits_or_cannot_be_read() {
+        let other = "Cour de cassation, civile, Chambre sociale, 4 mai 2004, 00-00.000";
+        let day = "Cour de cassation, civile, Chambre sociale, 17 mars 2021, 00-00.000";
+        let ids = juri_ids(7);
+        let run = |odd: Option<&'static str>, text: &'static str| {
+            let ids = ids.clone();
+            async move {
+                let mut hits: Vec<SearchHit> =
+                    ids.iter().map(|id| titled(Fond::Juri, id, other)).collect();
+                hits[3].title = odd.map(str::to_owned);
+                let corpus = FakeCorpus::new();
+                corpus.push_find_by_number(Ok(hits));
+                resolve(&corpus, text).await
+            }
+        };
+        for (odd, text) in [
+            (Some(day), SOC_CITED),
+            (Some("Chambre sociale"), SOC_CITED),
+            (None, SOC_CITED),
+            (Some(other), "Cass. soc., n° 00-00.000"),
+        ] {
+            let resolution = run(odd, text).await;
+            let (items, note) = candidates_of(resolution.outcome).expect("des candidats");
+            assert_eq!(items.len(), MAX_CANDIDATES, "{odd:?} {text}");
+            assert_eq!(note, Note::Candidates { n: 7 }, "{odd:?} {text}");
+        }
+    }
+
+    #[test]
+    fn a_decision_title_gives_its_own_date_and_never_a_cited_text() {
+        let dated = |title: &str| judged_on(&titled(Fond::Juri, "JURITEXT000000000001", title));
+        assert_eq!(
+            dated("Cour de cassation, civile, Chambre sociale, 21 mai 2025, 22-11.901"),
+            Some(civil(2025, 5, 21))
+        );
+        assert_eq!(
+            dated("Conseil d'État, 10ème - 9ème chambres réunies, 30/01/2020, 419837"),
+            Some(civil(2020, 1, 30))
+        );
+        assert_eq!(
+            dated(
+                "Décision 2000-433 DC - 27 juillet 2000 - Loi modifiant la loi n° 86-1067 du 30 septembre 1986"
+            ),
+            Some(civil(2000, 7, 27))
+        );
+        // Titres réels de la sandbox (errors-6) : « du », jour « 1 » sans « er », juridictions
+        // sans chambre, majuscules.
+        assert_eq!(
+            dated("Tribunal des Conflits, du 19 janvier 2004, 00-00.000, Publié au bulletin"),
+            Some(civil(2004, 1, 19))
+        );
+        assert_eq!(
+            dated("Cour de Cassation, Chambre sociale, du 18 octobre 1989, 00-00.000, Inédit"),
+            Some(civil(1989, 10, 18))
+        );
+        assert_eq!(
+            dated(
+                "Cour de Cassation, Cour de cassation saisie pour avis, du 1 décembre 2003, 00-00.000, Publié au bulletin"
+            ),
+            Some(civil(2003, 12, 1))
+        );
+        assert_eq!(
+            dated(
+                "Cour de cassation, civile, Chambre sociale, 21 mai 2025, 23-11.110, Publié au bulletin"
+            ),
+            Some(civil(2025, 5, 21))
+        );
+        // Autres formes relevées : cour d'appel (sans numéro de pourvoi), CAA, CONSTIT à jour
+        // zéro-rempli, « 1er ».
+        assert_eq!(
+            dated("Cour d'appel de Reims, soc, du 29 janvier 2003, 99/02184"),
+            Some(civil(2003, 1, 29))
+        );
+        assert_eq!(
+            dated(
+                "CAA de MARSEILLE, 1ère chambre - formation à 3, 07/06/2018, 16MA02959, Inédit au recueil Lebon"
+            ),
+            Some(civil(2018, 6, 7))
+        );
+        assert_eq!(
+            dated(
+                "Décision 2018-769 DC - 04 septembre 2018 - Loi pour la <mark>liberté</mark> de choisir"
+            ),
+            Some(civil(2018, 9, 4))
+        );
+        assert_eq!(
+            dated("Cour de Cassation, Chambre civile 1, du 1er juillet 1981, 79-14.757, Inédit"),
+            Some(civil(1981, 7, 1))
+        );
+        // Un titre sans date, sans décision (un texte seul) ou absent ne se lit pas ; un jour
+        // impossible non plus.
+        assert_eq!(dated("Cour de Cassation, Chambre sociale, 77-41.406, Inédit"), None);
+        assert_eq!(
+            dated("Cour de Cassation, Chambre sociale, du 31 février 2003, 77-41.406"),
+            None
+        );
+        assert_eq!(dated("Cour de cassation, Chambre sociale, 22-11.901"), None);
+        assert_eq!(dated("Loi n° 2016-1321 du 7 octobre 2016"), None);
+        assert_eq!(judged_on(&hit(Fond::Juri, "JURITEXT000000000001")), None);
+    }
+
+    #[test]
+    fn no_decision_is_on_the_day_only_when_several_are_all_dated_another_day() {
+        let day = civil(2025, 6, 4);
+        let other = [civil(2025, 6, 5), civil(2025, 6, 6)];
+        assert!(none_on_the_day(&found_of(&other, None), day));
+        // Une seule décision : c'est un écart de date, pas une absence.
+        assert!(!none_on_the_day(&found_of(&other[..1], None), day));
+        assert!(!none_on_the_day(&found_of(&[other[0], day], None), day));
+        let mut undated = found_of(&other, None);
+        undated[1].1.date_texte = None;
+        assert!(!none_on_the_day(&undated, day));
+    }
+
+    #[test]
+    fn the_no_record_at_date_note_counts_records_and_lists_distinct_sorted_dates() {
+        let day = civil(1400, 1, 1);
+        let dates = vec![civil(2004, 1, 2), civil(1989, 1, 1), civil(2004, 1, 2)];
+        let resolution = no_record_at_date("00-00.000", day, dates);
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable);
+        assert_eq!(
+            note(&resolution),
+            "3 records share number 00-00.000, none dated 1400-01-01; dates found: 1989-01-01, \
+             2004-01-02."
+        );
+        let many = (1..=7).map(|d| civil(2000, 1, d)).collect();
+        assert_eq!(
+            note(&no_record_at_date("1", day, many)),
+            "7 records share number 1, none dated 1400-01-01; dates found: 2000-01-01, \
+             2000-01-02, 2000-01-03, 2000-01-04, 2000-01-05 and 2 more."
+        );
+    }
+
+    /// Reports de W3 (possibles depuis L1-08) : « loi 89-462 » et « loi 78-17 », sans « n° » ni
+    /// date, cherchent la forme courte et rendent le candidat en confiance moyenne (L2-02).
+    #[tokio::test]
+    async fn a_pre_2000_law_cited_without_n_degree_is_searched_by_its_short_number() {
+        for (cited, number, id, title) in [
+            (
+                "loi 89-462",
+                "89-462",
+                "LEGITEXT000006069108",
+                "Loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs",
+            ),
+            (
+                "loi 78-17",
+                "78-17",
+                "LEGITEXT000006068624",
+                "Loi n° 78-17 du 6 janvier 1978 relative à l'informatique, aux fichiers et aux libertés",
+            ),
+        ] {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![loda_hit(id, "LOI", title, None)]));
+            let resolution = resolve(&corpus, cited).await;
+            assert_eq!(record_id(&resolution).as_deref(), Some(id), "{cited}");
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium), "{cited}");
+            assert_eq!(
+                corpus.seen_requests(),
+                vec![find_request(Fond::Loda, NumberKind::Text, number)],
+                "{cited}"
+            );
+        }
+    }
+
+    /// L2-16 (decisions-11) : « 71-44 DC » est cherchée sous `71-44` (relevé C2), une seule fois.
+    #[tokio::test]
+    async fn a_constitutional_decision_of_1971_is_searched_as_71_44() {
+        let id = "CONSTEXT000017665605";
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Constit, id)]));
+        corpus.push_get_decision(Ok(decision(id, civil(1971, 7, 16), Some("DC"))));
+        let text = "Cons. const., décision n° 71-44 DC du 16 juillet 1971";
+        let resolution = resolve(&corpus, text).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(record_id(&resolution).as_deref(), Some(id));
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![
+                find_request(Fond::Constit, NumberKind::Decision, "71-44"),
+                PortRequest::GetDecision(DecisionId::parse(id).unwrap()),
+            ]
+        );
+
+        // Introuvable : une seule recherche, sans la forme à quatre chiffres qui n'existe pas.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        let resolution = resolve(&corpus, text).await;
+        assert_eq!(
+            resolution.outcome,
+            unresolvable_outcome(Note::CouldNotConfirm { index: "CONSTIT" })
+        );
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![find_request(Fond::Constit, NumberKind::Decision, "71-44")]
+        );
     }
 
     #[tokio::test]
@@ -1635,7 +2470,10 @@ mod tests {
         corpus.push_find_by_number(Ok(vec![]));
         let resolution = resolve(&corpus, text).await;
         assert_eq!(status(&resolution), CheckStatus::Unresolvable);
-        assert_eq!(note(&resolution), "Could not confirm existence; nothing was found in CNIL.");
+        assert_eq!(
+            note(&resolution),
+            "Could not confirm existence: nothing was found in CNIL, which does not prove that it does not exist."
+        );
     }
 
     #[tokio::test]
@@ -1654,7 +2492,10 @@ mod tests {
         let corpus = FakeCorpus::new();
         corpus.push_find_by_number(Ok(vec![]));
         let resolution = resolve_with(&corpus, &codes(), &nor, None).await;
-        assert_eq!(note(&resolution), "Could not confirm existence; nothing was found in LODA.");
+        assert_eq!(
+            note(&resolution),
+            "Could not confirm existence: nothing was found in LODA, which does not prove that it does not exist."
+        );
         let corpus = FakeCorpus::new();
         corpus.push_find_by_number(Ok(vec![hit(Fond::Loda, "LEGITEXT000033202746")]));
         assert_eq!(
@@ -1735,8 +2576,20 @@ mod tests {
     fn law_hit() -> SearchHit {
         let mut law = hit(Fond::Loda, "LEGITEXT000033202746");
         law.nature = Some("LOI".to_owned());
-        law.date = Some(civil(2016, 10, 7));
+        // Comme en bac à sable : `date` est la date d'entrée en vigueur, pas la signature.
+        law.date = Some(civil(2016, 10, 9));
+        law.title =
+            Some("LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)".into());
         law
+    }
+
+    /// Un texte LODA tel que la recherche par numéro le rend : nature, titre et `date` (celle de
+    /// l'entrée en vigueur, qui n'est jamais la signature).
+    fn loda_hit(id: &str, nature: &str, title: &str, date: Option<CivilDate>) -> SearchHit {
+        let mut found = titled(Fond::Loda, id, title);
+        found.nature = Some(nature.to_owned());
+        found.date = date;
+        found
     }
 
     #[tokio::test]
@@ -1766,7 +2619,7 @@ mod tests {
         assert_eq!(status(&resolution), CheckStatus::NotFound);
         assert_eq!(
             note(&resolution),
-            "LEGITEXT000033202746 has no article 6 in force on 2026-10-29."
+            "LEGITEXT000033202746 has no article 6 in force on 2026-10-29. The article may exist in earlier versions; retry with a date."
         );
         // Texte sans date citée : confiance moyenne, l'absence ne prouve rien.
         let corpus = FakeCorpus::new();
@@ -1817,7 +2670,8 @@ mod tests {
             (
                 "conformément à l'article 12",
                 CheckStatus::Ambiguous,
-                "No code or text given for article 12; add it or call fr_resolve.",
+                "No recognised code or text for article 12 (an unknown or unattached abbreviation counts as missing); \
+                 name the code next to the article, in full.",
             ),
             (
                 "Décision 2025-1173",
@@ -1832,7 +2686,7 @@ mod tests {
             (
                 "l'avenant n° 18",
                 CheckStatus::Ambiguous,
-                "No collective agreement identified; give its IDCC or its title.",
+                "No collective agreement identified; give its IDCC (e.g. 'IDCC 1486').",
             ),
             (
                 "Bull. civ. I, n° 270",
@@ -1927,7 +2781,9 @@ mod tests {
             special: Some(SpecialNum::SansNumero),
             base: vec![],
             latin: None,
+            latin_sub: None,
             letters: None,
+            latin_after: None,
         };
         ArticleRef { num, sub: vec![], range_to: None }
     }
@@ -2099,7 +2955,7 @@ mod tests {
         let cases = [
             (UnsupportedFamily::Ue, "EU law"),
             (UnsupportedFamily::Cjue, "CJEU case law"),
-            (UnsupportedFamily::Cedh, "ECHR case law"),
+            (UnsupportedFamily::Cedh, "ECHR law and case law"),
             (UnsupportedFamily::Doctrine, "Legal scholarship"),
             (UnsupportedFamily::Recueil, "A law report"),
             (UnsupportedFamily::ForeignEcli, "A foreign ECLI"),
@@ -2119,7 +2975,7 @@ mod tests {
             ),
             (
                 UnresolvableWhy::HorsPerimetre(UnsupportedFamily::Cedh),
-                unresolvable_outcome(Note::OutOfScope { family: "ECHR case law" }),
+                unresolvable_outcome(Note::OutOfScope { family: "ECHR law and case law" }),
             ),
             (
                 UnresolvableWhy::SigleSansContexte(Sigle::Ce),
@@ -2240,8 +3096,7 @@ mod tests {
         );
         assert!(offline(&convention_item(Some(1486), None)).is_none());
 
-        let numberless =
-            unresolvable_outcome(Note::NotSupported { what: "text cited without a number" });
+        let numberless = unresolvable_outcome(Note::NumberlessText);
         let loi = text_cite(TextNature::Loi, None, None);
         assert_eq!(
             offline(&standalone(CitationRef::Text(loi.clone()))).unwrap().outcome,
@@ -2465,6 +3320,27 @@ mod tests {
         assert_eq!(number_forms(&court, &[]), None);
     }
 
+    /// L2-16 (decisions-11) : de 1959 à 1999, `NUM_DEC` s'écrit `71-44` ; la forme `1971-44`
+    /// n'existe pas chez Légifrance (relevé C2) et n'est plus cherchée.
+    #[test]
+    fn a_constitutional_number_of_1959_1999_has_only_the_two_digit_forms() {
+        let cc = |text: &str| CaseNumber::Cc(text.parse().unwrap());
+        let court = Court::ConseilConstitutionnel;
+        for (cited, expected) in [
+            ("71-44 DC", &["71-44"][..]),
+            ("1971-44 DC", &["71-44"]),
+            ("94-343/344 DC", &["94-343/344", "94-343"]),
+            // Jumeaux : hors de 1959-1999, la forme à quatre chiffres reste la seule écrite.
+            ("2000-427 DC", &["2000-427"]),
+        ] {
+            assert_eq!(
+                number_forms(&court, &[cc(cited)]),
+                forms(Fond::Constit, NumberKind::Decision, expected),
+                "{cited}"
+            );
+        }
+    }
+
     #[test]
     fn titles_are_told_apart_by_the_court_they_name() {
         let conseil = "Conseil d'État, 5ème - 6ème chambres réunies";
@@ -2584,6 +3460,7 @@ mod tests {
             title_filter: None,
             date: None,
             cc_type: None,
+            chamber: None,
             absent: Note::CouldNotConfirm { index: "JURI" },
         }
     }
@@ -2765,7 +3642,7 @@ mod tests {
     fn the_decision_of_the_cited_day_is_chosen_with_high_confidence_and_its_text() {
         let day = civil(2025, 6, 4);
         let found = found_of(&[civil(2025, 6, 3), day, civil(2025, 6, 5)], None);
-        let chosen = choose_decision(&found, Some(day), None);
+        let chosen = choose_decision(&found, Some(day), None, None);
         assert_eq!(confidence_of(&chosen.outcome), Some(Confidence::High));
         assert_eq!(record_id(&chosen).as_deref(), Some("JURITEXT000000000002"));
         assert_eq!(chosen.official.as_deref(), Some("Texte de la décision."));
@@ -2775,7 +3652,7 @@ mod tests {
     #[test]
     fn a_single_decision_of_another_day_is_a_date_mismatch_carrying_its_text() {
         let found = found_of(&[civil(2025, 6, 5)], None);
-        let chosen = choose_decision(&found, Some(civil(2025, 6, 4)), None);
+        let chosen = choose_decision(&found, Some(civil(2025, 6, 4)), None, None);
         assert_eq!(
             chosen.outcome.note(Proof::Production),
             Some(Note::Mismatch {
@@ -2792,12 +3669,13 @@ mod tests {
     #[test]
     fn without_a_date_a_single_decision_is_medium_and_several_are_candidates() {
         let found = found_of(&[civil(2025, 6, 5)], None);
-        let chosen = choose_decision(&found, None, None);
+        let chosen = choose_decision(&found, None, None, None);
         assert_eq!(confidence_of(&chosen.outcome), Some(Confidence::Medium));
         assert_eq!(chosen.official.as_deref(), Some("Texte de la décision."));
 
         let many = found_of(&[civil(2025, 6, 5), civil(2025, 6, 6)], None);
-        let (items, note) = candidates_of(choose_decision(&many, None, None).outcome).unwrap();
+        let (items, note) =
+            candidates_of(choose_decision(&many, None, None, None).outcome).unwrap();
         assert_eq!(items.len(), 2);
         assert_eq!(note, Note::Candidates { n: 2 });
         assert!(
@@ -2810,17 +3688,19 @@ mod tests {
         let day = civil(2025, 6, 4);
         // Deux décisions du jour cité.
         let twice = found_of(&[day, day], None);
-        let (_, note) = candidates_of(choose_decision(&twice, Some(day), None).outcome).unwrap();
+        let (_, note) =
+            candidates_of(choose_decision(&twice, Some(day), None, None).outcome).unwrap();
         assert_eq!(note, Note::Candidates { n: 2 });
-        // Plusieurs décisions, aucune du jour cité.
+        // Plusieurs décisions, aucune du jour cité : `lookup` l'écarte avant (`none_on_the_day`),
+        // ce choix ne voit plus que les listes qu'une décision sans date laisse ouvertes.
         let other_days = found_of(&[civil(2025, 6, 5), civil(2025, 6, 6)], None);
         let (_, note) =
-            candidates_of(choose_decision(&other_days, Some(day), None).outcome).unwrap();
+            candidates_of(choose_decision(&other_days, Some(day), None, None).outcome).unwrap();
         assert_eq!(note, Note::Candidates { n: 2 });
         // Au-delà de cinq, cinq candidats et le compte exact.
         let dates: Vec<CivilDate> = (1..=6).map(|d| civil(2025, 7, d)).collect();
         let six = found_of(&dates, None);
-        let (items, note) = candidates_of(choose_decision(&six, None, None).outcome).unwrap();
+        let (items, note) = candidates_of(choose_decision(&six, None, None, None).outcome).unwrap();
         assert_eq!(items.len(), MAX_CANDIDATES);
         assert_eq!(note, Note::Candidates { n: 6 });
     }
@@ -2828,7 +3708,8 @@ mod tests {
     #[test]
     fn a_constitutional_type_is_compared_only_when_the_record_names_one() {
         let day = civil(2025, 11, 7);
-        let mismatch = choose_decision(&found_of(&[day], Some("DC")), Some(day), Some(CcType::Qpc));
+        let mismatch =
+            choose_decision(&found_of(&[day], Some("DC")), Some(day), Some(CcType::Qpc), None);
         assert_eq!(
             mismatch.outcome.note(Proof::Production),
             Some(Note::Mismatch {
@@ -2838,20 +3719,132 @@ mod tests {
             })
         );
         assert_eq!(mismatch.official.as_deref(), Some("Texte de la décision."));
-        let same = choose_decision(&found_of(&[day], Some("QPC")), Some(day), Some(CcType::Qpc));
+        let same =
+            choose_decision(&found_of(&[day], Some("QPC")), Some(day), Some(CcType::Qpc), None);
         assert_eq!(confidence_of(&same.outcome), Some(Confidence::High));
         assert_eq!(same.official.as_deref(), Some("Texte de la décision."));
-        let unnamed = choose_decision(&found_of(&[day], None), Some(day), Some(CcType::Qpc));
+        let unnamed = choose_decision(&found_of(&[day], None), Some(day), Some(CcType::Qpc), None);
         assert_eq!(confidence_of(&unnamed.outcome), Some(Confidence::High));
-        // La date en écart l'emporte sur le type.
+        // La date et le type en écart sont rendus ensemble.
         let found = found_of(&[day], Some("DC"));
-        let both = choose_decision(&found, Some(civil(2025, 11, 8)), Some(CcType::Qpc));
+        let both = choose_decision(&found, Some(civil(2025, 11, 8)), Some(CcType::Qpc), None);
         assert_eq!(
             both.outcome.note(Proof::Production),
+            Some(Note::Mismatches(vec![
+                (Field::Date, "2025-11-08".to_owned(), "2025-11-07".to_owned()),
+                (Field::CcType, "QPC".to_owned(), "DC".to_owned()),
+            ]))
+        );
+    }
+
+    fn with_formation(dates: &[CivilDate], formation: Option<&str>) -> Vec<(DocumentId, Decision)> {
+        let mut found = found_of(dates, None);
+        for (_, official) in &mut found {
+            official.formation = formation.map(str::to_owned);
+        }
+        found
+    }
+
+    #[test]
+    fn only_the_modern_chambers_are_comparable() {
+        let modern = [
+            CassChamber::Civ1,
+            CassChamber::Civ2,
+            CassChamber::Civ3,
+            CassChamber::Com,
+            CassChamber::Soc,
+            CassChamber::Crim,
+            CassChamber::AssPlen,
+            CassChamber::Mixte,
+            CassChamber::PremierPresident,
+        ];
+        for chamber in CassChamber::ALL {
+            assert_eq!(is_modern(chamber), modern.contains(&chamber), "{chamber:?}");
+        }
+    }
+
+    #[test]
+    fn the_cited_chamber_is_compared_with_the_official_formation() {
+        let same = check_chamber(Some(CassChamber::Soc), Some("CHAMBRE_SOCIALE"));
+        assert_eq!(same, ChamberCheck::Fine);
+        let differs = check_chamber(Some(CassChamber::Civ1), Some("CHAMBRE_SOCIALE"));
+        assert_eq!(differs, ChamberCheck::Differs(CassChamber::Civ1, CassChamber::Soc));
+        // Les espaces autour de la valeur officielle ne comptent pas.
+        let spaced = check_chamber(Some(CassChamber::Soc), Some(" CHAMBRE_SOCIALE "));
+        assert_eq!(spaced, ChamberCheck::Fine);
+        // Rien à comparer : chambre citée absente ou historique, formation absente ou vide.
+        assert_eq!(check_chamber(None, Some("CHAMBRE_SOCIALE")), ChamberCheck::Fine);
+        let unique = check_chamber(Some(CassChamber::CivUnique), Some("CHAMBRE_SOCIALE"));
+        assert_eq!(unique, ChamberCheck::Fine);
+        assert_eq!(check_chamber(Some(CassChamber::Soc), None), ChamberCheck::Fine);
+        assert_eq!(check_chamber(Some(CassChamber::Soc), Some("")), ChamberCheck::Fine);
+        assert_eq!(check_chamber(Some(CassChamber::Soc), Some("  ")), ChamberCheck::Fine);
+        // Formation inattendue (relevés C4), historique ou casse différente : note, pas d'écart.
+        for formation in ["CT0196", "I7", "CHAMBRES_REUNIES", "CHAMBRE_CIVILE", "chambre_sociale"] {
+            let check = check_chamber(Some(CassChamber::Soc), Some(formation));
+            assert_eq!(check, ChamberCheck::NotComparable, "{formation}");
+        }
+    }
+
+    #[test]
+    fn a_cassation_chamber_gap_is_reported_alone_or_with_the_date() {
+        let day = civil(2025, 6, 4);
+        let soc = with_formation(&[day], Some("CHAMBRE_SOCIALE"));
+        // Chambre seule.
+        let alone = choose_decision(&soc, Some(day), None, Some(CassChamber::Civ1));
+        assert_eq!(
+            alone.outcome.note(Proof::Production),
+            Some(Note::Mismatch {
+                field: Field::Chamber,
+                cited: "CIV1".to_owned(),
+                actual: "SOC".to_owned()
+            })
+        );
+        assert_eq!(alone.official.as_deref(), Some("Texte de la décision."));
+        // Date et chambre.
+        let both = choose_decision(&soc, Some(civil(2025, 6, 5)), None, Some(CassChamber::Civ1));
+        assert_eq!(
+            both.outcome.note(Proof::Production),
+            Some(Note::Mismatches(vec![
+                (Field::Date, "2025-06-05".to_owned(), "2025-06-04".to_owned()),
+                (Field::Chamber, "CIV1".to_owned(), "SOC".to_owned()),
+            ]))
+        );
+        // Date seule, bonne chambre : l'ancien rendu, un seul écart.
+        let date_only =
+            choose_decision(&soc, Some(civil(2025, 6, 5)), None, Some(CassChamber::Soc));
+        assert_eq!(
+            date_only.outcome.note(Proof::Production),
             Some(Note::Mismatch {
                 field: Field::Date,
-                cited: "2025-11-08".to_owned(),
-                actual: "2025-11-07".to_owned()
+                cited: "2025-06-05".to_owned(),
+                actual: "2025-06-04".to_owned()
+            })
+        );
+        // Bonne chambre et bonne date : vérifié, sans note.
+        let fine = choose_decision(&soc, Some(day), None, Some(CassChamber::Soc));
+        assert_eq!(confidence_of(&fine.outcome), Some(Confidence::High));
+        assert_eq!(fine.outcome.note(Proof::Production), None);
+    }
+
+    #[test]
+    fn an_unexpected_formation_is_verified_with_a_note_and_a_date_gap_still_wins() {
+        let day = civil(2025, 6, 4);
+        let odd = with_formation(&[day], Some("CT0196"));
+        let noted = choose_decision(&odd, Some(day), None, Some(CassChamber::Soc));
+        assert_eq!(confidence_of(&noted.outcome), Some(Confidence::High));
+        assert_eq!(noted.outcome.note(Proof::Production), Some(Note::ChamberNotCompared));
+        // Une chambre non citée ne produit aucune note, même devant une formation inattendue.
+        let silent = choose_decision(&odd, Some(day), None, None);
+        assert_eq!(silent.outcome.note(Proof::Production), None);
+        // Un écart de date reste un écart de date : la note de chambre ne s'y ajoute pas.
+        let late = choose_decision(&odd, Some(civil(2025, 6, 5)), None, Some(CassChamber::Soc));
+        assert_eq!(
+            late.outcome.note(Proof::Production),
+            Some(Note::Mismatch {
+                field: Field::Date,
+                cited: "2025-06-05".to_owned(),
+                actual: "2025-06-04".to_owned()
             })
         );
     }
@@ -2870,6 +3863,66 @@ mod tests {
 
     fn native_note(text: &str) -> Note {
         Note::NativeEcli(Ecli::parse(text).unwrap())
+    }
+
+    /// Garde de non-régression (L2-16) : le parseur ne signale pas l'ordinal d'un ECLI du Conseil
+    /// constitutionnel à deux chiffres (`71.44.DC`) ni d'une décision jointe (`2010.14.QPC`).
+    #[test]
+    fn a_constitutional_ecli_ordinal_is_never_flagged_as_non_conforming() {
+        for text in ["ECLI:FR:CC:1971:71.44.DC", "ECLI:FR:CC:2010:2010.14.QPC"] {
+            let found = lf_domain::citation::parse_with(
+                text,
+                &lf_domain::citation::ParseOptions::default(),
+            );
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].value.kind(), lf_domain::citation::CitationKind::Ecli);
+            assert!(!found[0].flags.contains(&Flag::EcliOrdinalNonConforme(EcliFamily::Cc)));
+        }
+    }
+
+    /// Garde de non-régression (L2-16, relevés C2 et C6) : la branche ECLI tirait déjà `71-44` de
+    /// l'ordinal `71.44` ; l'ECLI natif d'une décision de 1971 est reconnu.
+    #[tokio::test]
+    async fn a_constitutional_ecli_of_1971_is_searched_as_71_44() {
+        let id = "CONSTEXT000017665605";
+        let ecli = "ECLI:FR:CC:1971:71.44.DC";
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Constit, id)]));
+        corpus.push_get_decision(Ok(with_ecli(
+            decision(id, civil(1971, 7, 16), Some("DC")),
+            Some(ecli),
+        )));
+        let resolution = resolve_with(&corpus, &codes(), &ecli_item(ecli), None).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(resolution.outcome.note(Proof::Production), Some(native_note(ecli)));
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![
+                find_request(Fond::Constit, NumberKind::Decision, "71-44"),
+                PortRequest::GetDecision(DecisionId::parse(id).unwrap()),
+            ]
+        );
+    }
+
+    /// V-154 (relevé C17, `recorded/search/c101/C17-constit-all-exacte-2010-14.json`) : l'ECLI d'une
+    /// décision jointe (`2010.14` pour 2010-14/22 QPC) n'est pas retrouvée. La recherche exacte de
+    /// `NUM_DEC` « 2010-14 » ne donne rien (relevé C6), et un repli par recherche plein texte
+    /// n'aboutit pas non plus (relevé C17 : un résultat sans rapport) ; il a été retiré. Une seule
+    /// requête part, et la réponse reste « could not confirm ».
+    #[tokio::test]
+    async fn a_joined_constitutional_ecli_stays_unconfirmed_after_one_number_search() {
+        let ecli = "ECLI:FR:CC:2010:2010.14.QPC";
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        let resolution = resolve_with(&corpus, &codes(), &ecli_item(ecli), None).await;
+        assert_eq!(
+            resolution.outcome,
+            unresolvable_outcome(Note::CouldNotConfirm { index: "CONSTIT" })
+        );
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![find_request(Fond::Constit, NumberKind::Decision, "2010-14")]
+        );
     }
 
     #[tokio::test]
@@ -3237,19 +4290,20 @@ mod tests {
             let cite = text_cite(nature, Some((2016, 1321)), Some(day));
             let mut found = law_hit();
             found.nature = Some(name.to_lowercase());
-            assert_eq!(text_fit(&cite, &found), TextFit::Exact, "{name}");
+            assert_eq!(fit_of(&cite, &found), TextFit::Exact, "{name}");
             let other = if name == "LOI" { "DECRET" } else { "LOI" };
             found.nature = Some(other.to_owned());
-            assert_eq!(text_fit(&cite, &found), TextFit::Nature(other.to_owned()), "{name}");
+            assert_eq!(fit_of(&cite, &found), TextFit::Nature(other.to_owned()), "{name}");
         }
         // Une nature sans nom univoque ne se compare pas ; la date, si.
         let cite = text_cite(TextNature::Circulaire, Some((2016, 1321)), Some(day));
         let mut found = law_hit();
         found.nature = Some("DECRET".to_owned());
-        found.date = Some(civil(2016, 10, 8));
-        assert_eq!(text_fit(&cite, &found), TextFit::Date(civil(2016, 10, 8)));
-        found.date = None;
-        assert_eq!(text_fit(&cite, &found), TextFit::Exact);
+        found.title = Some("LOI n° 2016-1321 du 8 octobre 2016 pour une République".into());
+        assert_eq!(fit_of(&cite, &found), TextFit::Date(civil(2016, 10, 8)));
+        // Sans titre lisible, rien ne contredit la date citée.
+        found.title = None;
+        assert_eq!(fit_of(&cite, &found), TextFit::Exact);
     }
 
     #[test]
@@ -3316,6 +4370,318 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_text_number_is_searched_in_the_forms_the_index_may_hold() {
+        let number =
+            |year: Option<u16>, seq| TextNumber { year, seq, extra: None, raw: String::new() };
+        for (year, expected) in [
+            (None, vec!["1419"]),
+            (Some(1993), vec!["93-1419", "1993-1419"]),
+            (Some(1900), vec!["00-1419", "1900-1419"]),
+            (Some(1905), vec!["05-1419", "1905-1419"]),
+            (Some(1999), vec!["99-1419", "1999-1419"]),
+            (Some(2000), vec!["2000-1419"]),
+            (Some(2016), vec!["2016-1419"]),
+            (Some(1899), vec!["1899-1419"]),
+            (Some(1804), vec!["1804-1419"]),
+        ] {
+            assert_eq!(text_keys(&number(year, 1419)), expected, "{year:?}");
+        }
+    }
+
+    /// `text_fit` avec la date de signature lue dans le titre pour le numéro cité.
+    fn fit_of(cite: &TextCite, hit: &SearchHit) -> TextFit {
+        text_fit(cite, hit, cite.number.as_ref().and_then(|number| signed_on(hit, number)))
+    }
+
+    #[test]
+    fn the_signature_date_is_read_in_the_title_for_the_cited_number_only() {
+        let number =
+            |year, seq| TextNumber { year: Some(year), seq, extra: None, raw: String::new() };
+        let mut found = law_hit();
+        found.title = Some(
+            "Décret n° 2019-536 du 29 mai 2019 pris pour l'application de la loi n° 2018-493 du \
+             20 juin 2018"
+                .to_owned(),
+        );
+        // Le numéro du décret, pas celui de la loi qu'il applique.
+        assert_eq!(signed_on(&found, &number(2019, 536)), Some(civil(2019, 5, 29)));
+        assert_eq!(signed_on(&found, &number(2018, 493)), Some(civil(2018, 6, 20)));
+        assert_eq!(signed_on(&found, &number(2019, 537)), None);
+        assert_eq!(signed_on(&found, &number(2018, 536)), None);
+        // Un numéro sans année ne se lit pas dans un titre à numéro daté.
+        let yearless = TextNumber { year: None, seq: 536, extra: None, raw: String::new() };
+        assert_eq!(signed_on(&found, &yearless), None);
+        // Sans titre, ou sans date dans le titre : rien à lire.
+        found.title = None;
+        assert_eq!(signed_on(&found, &number(2019, 536)), None);
+        found.title = Some("Décret n° 2019-536 portant diverses mesures".to_owned());
+        assert_eq!(signed_on(&found, &number(2019, 536)), None);
+        // La date d'entrée en vigueur du hit n'est jamais lue.
+        found.date = Some(civil(2019, 6, 1));
+        assert_eq!(signed_on(&found, &number(2019, 536)), None);
+    }
+
+    /// L2-01 (ground_truth-1) : la sandbox trouve `89-462` et ne trouve rien avec `1989-462`.
+    #[tokio::test]
+    async fn a_pre_2000_law_is_searched_by_its_two_digit_number_first() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![loda_hit(
+            "LEGITEXT000006069108",
+            "LOI",
+            "Loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs",
+            Some(civil(1989, 7, 8)),
+        )]));
+        let resolution = resolve(&corpus, "loi n° 89-462 du 6 juillet 1989").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+        assert_eq!(record_id(&resolution).as_deref(), Some("LEGITEXT000006069108"));
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![find_request(Fond::Loda, NumberKind::Text, "89-462")]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_pre_2000_law_falls_back_to_the_four_digit_number() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        corpus.push_find_by_number(Ok(vec![loda_hit(
+            "LEGITEXT000006068624",
+            "LOI",
+            "Loi n° 78-17 du 6 janvier 1978 relative à l'informatique, aux fichiers et aux libertés",
+            Some(civil(1978, 1, 7)),
+        )]));
+        let resolution = resolve(&corpus, "loi n° 78-17 du 6 janvier 1978").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(record_id(&resolution).as_deref(), Some("LEGITEXT000006068624"));
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![
+                find_request(Fond::Loda, NumberKind::Text, "78-17"),
+                find_request(Fond::Loda, NumberKind::Text, "1978-17"),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_pre_2000_law_found_nowhere_is_unconfirmed_after_exactly_two_requests() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        corpus.push_find_by_number(Ok(vec![]));
+        let resolution = resolve(&corpus, "décret n° 93-1419 du 29 décembre 1993").await;
+        assert_eq!(
+            resolution.outcome,
+            unresolvable_outcome(Note::CouldNotConfirm { index: "LODA" })
+        );
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![
+                find_request(Fond::Loda, NumberKind::Text, "93-1419"),
+                find_request(Fond::Loda, NumberKind::Text, "1993-1419"),
+            ]
+        );
+    }
+
+    /// Une forme qui ne rend que des hits hors LEGI (Journal officiel) ne compte pas comme un
+    /// résultat : la forme suivante est essayée.
+    #[tokio::test]
+    async fn a_form_that_returns_no_legal_text_does_not_stop_the_search() {
+        let mut journal = law_hit();
+        journal.id = DocumentId::parse("JORFTEXT000006069108").unwrap();
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![journal]));
+        corpus.push_find_by_number(Ok(vec![law_hit()]));
+        let resolution = resolve(&corpus, "loi n° 89-462").await;
+        assert_eq!(record_id(&resolution).as_deref(), Some("LEGITEXT000033202746"));
+        assert_eq!(corpus.calls_of("find_by_number"), 2);
+    }
+
+    #[tokio::test]
+    async fn a_failing_form_fails_the_resolution() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Err(upstream()));
+        let resolution = resolve(&corpus, "loi n° 89-462").await;
+        assert_eq!(resolution.outcome, Outcome::Failed(upstream()));
+        assert_eq!(corpus.calls_of("find_by_number"), 1);
+
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        corpus.push_find_by_number(Err(upstream()));
+        let resolution = resolve(&corpus, "loi n° 89-462").await;
+        assert_eq!(resolution.outcome, Outcome::Failed(upstream()));
+        assert_eq!(corpus.calls_of("find_by_number"), 2);
+    }
+
+    /// Les lois de 2000 et après, et les numéros sans année, ne coûtent qu'une requête.
+    #[tokio::test]
+    async fn a_post_1999_law_is_searched_once() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        let resolution = resolve(&corpus, "loi n° 2016-1321 du 7 octobre 2016").await;
+        assert_eq!(
+            resolution.outcome,
+            unresolvable_outcome(Note::CouldNotConfirm { index: "LODA" })
+        );
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![find_request(Fond::Loda, NumberKind::Text, "2016-1321")]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_article_of_a_pre_2000_law_is_searched_in_the_law_found_by_its_short_number() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![loda_hit(
+            "LEGITEXT000006069108",
+            "LOI",
+            "Loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs",
+            Some(civil(1989, 7, 8)),
+        )]));
+        corpus.push_find_article(Ok(article(Some("22"))));
+        let resolution = resolve(&corpus, "article 22 de la loi n° 89-462 du 6 juillet 1989").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![
+                find_request(Fond::Loda, NumberKind::Text, "89-462"),
+                PortRequest::FindArticle(
+                    LegiTextId::parse("LEGITEXT000006069108").unwrap(),
+                    "22".to_owned(),
+                    ArticleAt::Today(today())
+                ),
+            ]
+        );
+    }
+
+    /// L2-02 (resolve-2) : la date citée est la signature, lue dans le titre ; `hit.date`
+    /// (entrée en vigueur) n'est jamais comparée.
+    #[tokio::test]
+    async fn the_cited_date_is_compared_to_the_signature_date_read_in_the_title() {
+        let cases = [
+            (
+                "LOI",
+                "LEGITEXT000033205014",
+                "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)",
+                civil(2016, 10, 9),
+                "loi n° 2016-1321 du 7 octobre 2016",
+            ),
+            (
+                "ORDONNANCE",
+                "LEGITEXT000032004939",
+                "Ordonnance n° 2016-131 du 10 février 2016 portant réforme du droit des contrats, du régime général et de la preuve des obligations",
+                civil(2016, 10, 1),
+                "ordonnance n° 2016-131 du 10 février 2016",
+            ),
+            (
+                "DECRET",
+                "LEGITEXT000038531569",
+                "Décret n° 2019-536 du 29 mai 2019 pris pour l'application de la loi n° 2018-493 du 20 juin 2018 relative à la protection des données personnelles",
+                civil(2019, 6, 1),
+                "décret n° 2019-536 du 29 mai 2019",
+            ),
+            (
+                "LOI",
+                "LEGITEXT000005789847",
+                "Loi n° 2004-575 du 21 juin 2004 pour la confiance dans l'économie numérique",
+                civil(2004, 6, 22),
+                "loi n° 2004-575 du 21 juin 2004",
+            ),
+        ];
+        for (nature, id, title, in_force, cited) in cases {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![loda_hit(id, nature, title, Some(in_force))]));
+            let resolution = resolve(&corpus, cited).await;
+            assert_eq!(status(&resolution), CheckStatus::Verified, "{cited}");
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High), "{cited}");
+            assert_eq!(resolution.outcome.note(Proof::Production), None, "{cited}");
+        }
+    }
+
+    /// Jumeau « vrai positif conservé » : une date de signature fausse reste un écart, et l'écart
+    /// cite la date du titre, jamais la date d'entrée en vigueur.
+    #[tokio::test]
+    async fn a_wrong_signature_date_is_still_a_mismatch_naming_the_title_date() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![law_hit()]));
+        let resolution = resolve(&corpus, "loi n° 2016-1321 du 9 octobre 2016").await;
+        assert_eq!(status(&resolution), CheckStatus::Invalid);
+        assert_eq!(
+            resolution.outcome.note(Proof::Production),
+            Some(Note::Mismatch {
+                field: Field::Date,
+                cited: "2016-10-09".to_owned(),
+                actual: "2016-10-07".to_owned()
+            })
+        );
+    }
+
+    /// Le résultat ne dépend pas de `hit.date` : absente ou différente, la signature décide.
+    #[tokio::test]
+    async fn the_hit_date_never_decides() {
+        for date in [None, Some(civil(2016, 10, 7)), Some(civil(1999, 1, 1))] {
+            let mut found = law_hit();
+            found.date = date;
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![found.clone()]));
+            let resolution = resolve(&corpus, "loi n° 2016-1321 du 7 octobre 2016").await;
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High), "{date:?}");
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![found]));
+            let resolution = resolve(&corpus, "loi n° 2016-1321 du 8 octobre 2016").await;
+            assert_eq!(status(&resolution), CheckStatus::Invalid, "{date:?}");
+        }
+    }
+
+    /// Titre absent, sans numéro ou sans date : rien n'a été comparé, confiance moyenne.
+    #[tokio::test]
+    async fn an_unreadable_title_is_exact_with_medium_confidence() {
+        for title in [
+            None,
+            Some("Loi relative à la République numérique"),
+            Some("LOI n° 2016-1321 pour une République numérique"),
+            Some("Loi n° 2015-990 du 6 août 2015 pour la croissance"),
+        ] {
+            let mut found = law_hit();
+            found.title = title.map(str::to_owned);
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![found]));
+            let resolution = resolve(&corpus, "loi n° 2016-1321 du 7 octobre 2016").await;
+            assert_eq!(status(&resolution), CheckStatus::Verified, "{title:?}");
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium), "{title:?}");
+        }
+    }
+
+    /// Les deux repros de ground_truth-1 sans « n° » (si la grammaire les lit) et sans date.
+    #[tokio::test]
+    async fn a_pre_2000_law_without_date_is_found_with_medium_confidence() {
+        for (cited, number, id, title) in [
+            (
+                "loi n° 89-462",
+                "89-462",
+                "LEGITEXT000006069108",
+                "Loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs",
+            ),
+            (
+                "loi n° 78-17",
+                "78-17",
+                "LEGITEXT000006068624",
+                "Loi n° 78-17 du 6 janvier 1978 relative à l'informatique, aux fichiers et aux libertés",
+            ),
+        ] {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![loda_hit(id, "LOI", title, None)]));
+            let resolution = resolve(&corpus, cited).await;
+            assert_eq!(record_id(&resolution).as_deref(), Some(id), "{cited}");
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium), "{cited}");
+            assert_eq!(
+                corpus.seen_requests(),
+                vec![find_request(Fond::Loda, NumberKind::Text, number)],
+                "{cited}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn a_text_search_keeps_only_legal_texts_and_reports_a_failure() {
         let unconfirmed = unresolvable_outcome(Note::CouldNotConfirm { index: "LODA" });
@@ -3342,10 +4708,7 @@ mod tests {
         let corpus = FakeCorpus::new();
         let codes = codes();
         let step = resolver(&corpus, &codes).text(&text_cite(TextNature::Loi, None, None)).await;
-        assert_eq!(
-            step.into_resolution().outcome,
-            unresolvable_outcome(Note::NotSupported { what: "text cited without a number" })
-        );
+        assert_eq!(step.into_resolution().outcome, unresolvable_outcome(Note::NumberlessText));
         assert_eq!(corpus.calls(), 0);
     }
 
@@ -3504,6 +4867,158 @@ mod tests {
         assert_eq!(resolution.outcome, Outcome::Failed(upstream()));
     }
 
+    /// Article d'un code, d'identifiant propre à `n`.
+    fn numbered(n: u32, num: &str) -> ArticleText {
+        ArticleText {
+            article_id: ArticleId::parse(&format!("LEGIARTI{n:012}")).unwrap(),
+            ..article(Some(num))
+        }
+    }
+
+    fn find_civil(num: &str) -> PortRequest {
+        PortRequest::FindArticle(
+            LegiTextId::parse(CIVIL).unwrap(),
+            num.to_owned(),
+            ArticleAt::Today(today()),
+        )
+    }
+
+    /// L2-07 (verify_citations-9, gap3-7) : les deux bornes d'une plage sont lues ; la plage est
+    /// vérifiée de confiance moyenne, avec la note qui dit que le milieu n'est pas lu.
+    #[tokio::test]
+    async fn a_range_resolves_both_ends_and_says_so() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Ok(numbered(1, "1240")));
+        corpus.push_find_article(Ok(numbered(2, "1244")));
+        let resolution = resolve(&corpus, "articles 1240 à 1244 du code civil").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+        assert_eq!(resolution.outcome.note(Proof::Production), Some(Note::RangeEndpointsOnly));
+        assert_eq!(record_id(&resolution).as_deref(), Some("LEGIARTI000000000001"));
+        assert_eq!(resolution.official, None, "pas de comparaison d'extrait sur une plage");
+        assert_eq!(corpus.seen_requests(), vec![find_civil("1240"), find_civil("1244")]);
+    }
+
+    /// Une plage lue avec le code par défaut d'un sigle ambigu : les deux bornes sont lues, la note
+    /// dit à la fois la lecture du sigle et que le milieu de la plage n'est pas lu.
+    #[tokio::test]
+    async fn a_range_with_an_ambiguous_sigle_says_both_the_reading_and_the_range() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Ok(numbered(1, "121-3")));
+        corpus.push_find_article(Ok(numbered(2, "121-5")));
+        let resolution = resolve(&corpus, "articles 121-3 à 121-5 CP").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(
+            note(&resolution),
+            "Read 'CP' as Code pénal. Only the first and last articles of the range were checked."
+        );
+        assert_eq!(corpus.calls_of("find_article"), 2);
+    }
+
+    #[tokio::test]
+    async fn a_range_whose_last_article_does_not_exist_is_not_verified() {
+        for proof in [Proof::Production, Proof::Sandbox, Proof::Snapshot] {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_article(Ok(numbered(1, "1240")));
+            corpus.push_find_article(Err(not_found()));
+            let resolution = resolve(&corpus, "articles 1240 à 9999 du code civil").await;
+            assert_eq!(
+                resolution.outcome,
+                ambiguous_outcome(Note::RangeEndNotFound { num: "9999".to_owned() })
+            );
+            assert_eq!(resolution.outcome.status(proof), CheckStatus::Ambiguous, "{proof:?}");
+            assert_eq!(resolution.official, None);
+            assert_eq!(corpus.seen_requests(), vec![find_civil("1240"), find_civil("9999")]);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_range_whose_first_article_is_missing_makes_a_single_call() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Err(not_found()));
+        let resolution = resolve(&corpus, "articles 9998 à 9999 du code civil").await;
+        assert_eq!(status(&resolution), CheckStatus::NotFound);
+        assert_eq!(corpus.seen_requests(), vec![find_civil("9998")]);
+
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Err(upstream()));
+        let resolution = resolve(&corpus, "articles 1240 à 1244 du code civil").await;
+        assert_eq!(resolution.outcome, Outcome::Failed(upstream()));
+        assert_eq!(corpus.calls_of("find_article"), 1);
+    }
+
+    /// La seconde borne garde son issue quand ce n'est pas une absence : écart de numéro, échec
+    /// amont.
+    #[tokio::test]
+    async fn a_range_end_that_is_not_absent_keeps_its_own_outcome() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Ok(numbered(1, "1240")));
+        corpus.push_find_article(Ok(numbered(2, "1245")));
+        let resolution = resolve(&corpus, "articles 1240 à 1244 du code civil").await;
+        assert_eq!(status(&resolution), CheckStatus::Invalid);
+        assert_eq!(
+            note(&resolution),
+            "Cited article number 1244 differs from the official record (1245)."
+        );
+        assert_eq!(resolution.official, None);
+
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Ok(numbered(1, "1240")));
+        corpus.push_find_article(Err(upstream()));
+        let resolution = resolve(&corpus, "articles 1240 à 1244 du code civil").await;
+        assert_eq!(resolution.outcome, Outcome::Failed(upstream()));
+    }
+
+    /// Jumeau de « plage » : un article seul garde la confiance haute et son extrait ; une liste
+    /// (« 1240 et 1241 ») n'est pas une plage.
+    #[tokio::test]
+    async fn a_single_article_and_a_list_are_not_ranges() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Ok(numbered(1, "1240")));
+        let resolution = resolve(&corpus, "article 1240 du code civil").await;
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+        assert_eq!(resolution.official.as_deref(), Some("Texte officiel."));
+        assert_eq!(corpus.calls_of("find_article"), 1);
+
+        let items = parse("articles 1240 et 1241 du code civil");
+        assert_eq!(items.len(), 2);
+        for (item, num) in items.iter().zip(["1240", "1241"]) {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_article(Ok(numbered(1, num)));
+            let resolution = resolve_with(&corpus, &codes(), item, None).await;
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+            assert_eq!(corpus.calls_of("find_article"), 1);
+        }
+    }
+
+    /// Plage d'un texte non codifié : le texte est cherché une fois, les deux articles dans ce
+    /// texte.
+    #[tokio::test]
+    async fn a_range_of_a_numbered_text_resolves_the_text_once() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Loda, "LEGITEXT000033202746")]));
+        corpus.push_find_article(Ok(numbered(1, "3")));
+        corpus.push_find_article(Ok(numbered(2, "5")));
+        let resolution = resolve(&corpus, "articles 3 à 5 de la loi n° 2016-1321").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+        assert_eq!(resolution.outcome.note(Proof::Production), Some(Note::RangeEndpointsOnly));
+        assert_eq!(corpus.calls_of("find_by_number"), 1);
+        assert_eq!(corpus.calls_of("find_article"), 2);
+
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Loda, "LEGITEXT000033202746")]));
+        corpus.push_find_article(Ok(numbered(1, "3")));
+        corpus.push_find_article(Err(not_found()));
+        let resolution = resolve(&corpus, "articles 3 à 99 de la loi n° 2016-1321").await;
+        assert_eq!(status(&resolution), CheckStatus::Ambiguous);
+        assert_eq!(
+            note(&resolution),
+            "The first article of the range exists, but its last, article 99, was not found; \
+             check the number or the date."
+        );
+    }
+
     #[test]
     fn an_article_is_read_from_its_own_family_and_dated_only_for_the_current_version() {
         let kali = ArticleText {
@@ -3528,6 +5043,235 @@ mod tests {
         );
         assert_eq!(record_id(&legi).as_deref(), Some("LEGIARTI000006419288"));
         assert_eq!(status(&legi), CheckStatus::Verified);
+    }
+
+    /// Version de l'article 779 du CGI lue à une date : l'état et la fin de vigueur de l'API.
+    fn dated(etat: Option<LegalStatus>, date_fin: Option<CivilDate>) -> ArticleText {
+        ArticleText { etat, date_fin, ..numbered(1, "121-3") }
+    }
+
+    /// Revue finale I2 : `replaced_code` et la règle commune `is_superseded` (celle de
+    /// `fr_get_text`) donnent le même verdict pour chacun des 17 codes et pour un code inconnu ;
+    /// un code remplacé est le code de l'API.
+    #[test]
+    fn the_replaced_code_follows_the_one_superseded_rule() {
+        let all = [
+            "VIGUEUR",
+            "VIGUEUR_ETEN",
+            "VIGUEUR_NON_ETEN",
+            "VIGUEUR_DIFF",
+            "ABROGE",
+            "ABROGE_DIFF",
+            "MODIFIE",
+            "MODIFIE_MORT_NE",
+            "PERIME",
+            "ANNULE",
+            "DISJOINT",
+            "TRANSFERE",
+            "REMPLACE",
+            "DENONCE",
+            "INITIALE",
+            "SANS_ETAT",
+            "SUBSTITUE",
+            "EN_COURS",
+        ];
+        for raw in all {
+            let status = LegalStatus::parse(raw).unwrap();
+            let expected = status.is_superseded().then_some(raw);
+            assert_eq!(replaced_code(&status), expected, "{raw}");
+        }
+        assert_eq!(replaced_code(&LegalStatus::Disjoint), Some("DISJOINT"));
+        assert_eq!(replaced_code(&LegalStatus::AbrogeDiff), None);
+    }
+
+    /// L2-12 : seule une version lue à une date et qui n'est plus en vigueur porte l'avertissement ;
+    /// chaque état de l'API est classé, et les états sans signal n'en portent pas.
+    #[test]
+    fn only_a_version_read_at_a_date_that_is_no_longer_in_force_is_flagged() {
+        let on = VersionDate::parse("2011-06-01").unwrap();
+        let end = Some(civil(2011, 6, 12));
+        let variants = ["121-3".to_owned()];
+        let flagged = [
+            (LegalStatus::Abroge, "ABROGE"),
+            (LegalStatus::Modifie, "MODIFIE"),
+            (LegalStatus::ModifieMortNe, "MODIFIE_MORT_NE"),
+            (LegalStatus::Perime, "PERIME"),
+            (LegalStatus::Annule, "ANNULE"),
+            (LegalStatus::Disjoint, "DISJOINT"),
+            (LegalStatus::Transfere, "TRANSFERE"),
+            (LegalStatus::Remplace, "REMPLACE"),
+            (LegalStatus::Denonce, "DENONCE"),
+            (LegalStatus::Substitue, "SUBSTITUE"),
+        ];
+        for (etat, code) in flagged {
+            let resolution =
+                article_found(&dated(Some(etat.clone()), end), &variants, ArticleAt::On(on));
+            assert_eq!(
+                resolution.outcome.note(Proof::Production),
+                Some(Note::NotCurrentVersion { on, etat: code, ended: end }),
+                "{etat:?}"
+            );
+            assert_eq!(status(&resolution), CheckStatus::Verified, "{etat:?}");
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High), "{etat:?}");
+            // Sans fin de vigueur dans la réponse, la note n'en invente pas.
+            let open =
+                article_found(&dated(Some(etat.clone()), None), &variants, ArticleAt::On(on));
+            assert_eq!(
+                open.outcome.note(Proof::Production),
+                Some(Note::NotCurrentVersion { on, etat: code, ended: None }),
+                "{etat:?}"
+            );
+            // La version du jour n'est jamais « remplacée » : sa note reste celle du début.
+            let today_note = article_found(
+                &dated(Some(etat.clone()), end),
+                &variants,
+                ArticleAt::Today(today()),
+            );
+            assert_eq!(
+                today_note.outcome.note(Proof::Production),
+                Some(Note::VersionSince(civil(2016, 10, 1))),
+                "{etat:?}"
+            );
+        }
+        let quiet = [
+            Some(LegalStatus::Vigueur),
+            Some(LegalStatus::VigueurEtendue),
+            Some(LegalStatus::VigueurNonEtendue),
+            Some(LegalStatus::VigueurDifferee),
+            // Abrogation différée : encore en vigueur aujourd'hui, pas une version remplacée.
+            Some(LegalStatus::AbrogeDiff),
+            Some(LegalStatus::Initiale),
+            Some(LegalStatus::SansEtat),
+            Some(LegalStatus::Other("INCONNU".to_owned())),
+            None,
+        ];
+        for etat in quiet {
+            let resolution = article_found(&dated(etat.clone(), end), &variants, ArticleAt::On(on));
+            assert_eq!(resolution.outcome.note(Proof::Production), None, "{etat:?}");
+        }
+        // Un article d'un autre numéro reste un écart, sans note de version.
+        let wrong = article_found(
+            &dated(Some(LegalStatus::Modifie), end),
+            &["9".to_owned()],
+            ArticleAt::On(on),
+        );
+        assert_eq!(status(&wrong), CheckStatus::Invalid);
+    }
+
+    /// L2-12 : l'avertissement de la première borne d'une plage, ou d'un sigle lu par défaut, reste
+    /// en tête de la mention de plage et de la lecture du sigle.
+    #[tokio::test]
+    async fn the_version_warning_stays_first_with_a_range_and_a_default_sigle() {
+        let on = VersionDate::parse("2011-06-01").unwrap();
+        let warning =
+            Note::NotCurrentVersion { on, etat: "MODIFIE", ended: Some(civil(2011, 6, 12)) };
+        let old = |n: u32, num: &str| ArticleText {
+            etat: Some(LegalStatus::Modifie),
+            date_fin: Some(civil(2011, 6, 12)),
+            ..numbered(n, num)
+        };
+        let item = |text: &str| first(text);
+        let run = |text: &'static str, bounds: Vec<ArticleText>| async move {
+            let corpus = FakeCorpus::new();
+            for article in bounds {
+                corpus.push_find_article(Ok(article));
+            }
+            resolve_with(&corpus, &codes(), &item(text), Some(on)).await
+        };
+
+        // Plage de deux bornes datées.
+        let range =
+            run("articles 1240 à 1244 du code civil", vec![old(1, "1240"), old(2, "1244")]).await;
+        assert_eq!(
+            range.outcome.note(Proof::Production),
+            Some(warning.clone().then(Note::RangeEndpointsOnly))
+        );
+        assert_eq!(confidence_of(&range.outcome), Some(Confidence::Medium));
+        // Revue finale I1 : le texte rendu garde la version ET la plage.
+        let text = range.outcome.note(Proof::Production).unwrap().text();
+        assert!(
+            text.starts_with("Version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12)")
+        );
+        assert!(text.ends_with("Only the first and last articles of the range were checked."));
+
+        // Sigle ambigu seul.
+        let sigle = run("article 121-3 CP", vec![old(1, "121-3")]).await;
+        assert_eq!(
+            sigle.outcome.note(Proof::Production),
+            Some(warning.clone().then(Note::ReadAs { sigle: Sigle::Cp, code: "Code pénal" }))
+        );
+
+        // Plage et sigle ambigu : l'avertissement, la lecture, puis la plage.
+        let both = run("articles 121-3 à 121-5 CP", vec![old(1, "121-3"), old(2, "121-5")]).await;
+        assert_eq!(
+            both.outcome.note(Proof::Production),
+            Some(warning.then(Note::WithRange(Box::new(Note::ReadAs {
+                sigle: Sigle::Cp,
+                code: "Code pénal",
+            }))))
+        );
+
+        // Jumeaux : des versions en vigueur gardent les notes d'avant (sigle seul, plage seule).
+        let current = |n: u32, num: &str| ArticleText { date_fin: None, ..numbered(n, num) };
+        let sigle = run("article 121-3 CP", vec![current(1, "121-3")]).await;
+        assert_eq!(
+            sigle.outcome.note(Proof::Production),
+            Some(Note::ReadAs { sigle: Sigle::Cp, code: "Code pénal" })
+        );
+        let range =
+            run("articles 1240 à 1244 du code civil", vec![current(1, "1240"), current(2, "1244")])
+                .await;
+        assert_eq!(range.outcome.note(Proof::Production), Some(Note::RangeEndpointsOnly));
+    }
+
+    /// Résolution de `text` quand le corpus rend l'article 9 en vigueur.
+    async fn resolved_article_9(text: &str) -> Resolution {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Ok(article(Some("9"))));
+        resolve(&corpus, text).await
+    }
+
+    /// L2-17 (gap3-8) : une subdivision citée ajoute sa note, en dernier, aux seules issues
+    /// `verified` ; sans subdivision, l'issue est inchangée.
+    #[tokio::test]
+    async fn a_subdivision_adds_its_note_last_to_a_verified_outcome_only() {
+        let flagged = resolved_article_9("article 9, alinéa 2 du code civil").await;
+        assert_eq!(
+            flagged.outcome.note(Proof::Production),
+            Some(Note::VersionSince(civil(2016, 10, 1)).then(Note::SubdivisionNotChecked))
+        );
+        assert_eq!(status(&flagged), CheckStatus::Verified);
+        assert_eq!(flagged.official.as_deref(), Some("Texte officiel."));
+        let plain = resolved_article_9("article 9 du code civil").await;
+        assert_eq!(
+            plain.outcome.note(Proof::Production),
+            Some(Note::VersionSince(civil(2016, 10, 1)))
+        );
+
+        // Une version datée et en vigueur n'a pas de note : celle de la subdivision reste seule.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Ok(article(Some("9"))));
+        let on = VersionDate::parse("2018-01-01").unwrap();
+        let item = first("article 9, alinéa 2 du code civil");
+        let bare = resolve_with(&corpus, &codes(), &item, Some(on)).await;
+        assert_eq!(bare.outcome.note(Proof::Production), Some(Note::SubdivisionNotChecked));
+
+        // Un article absent n'est pas annoté.
+        let corpus = FakeCorpus::new();
+        for _ in 0..3 {
+            corpus.push_find_article(Err(not_found()));
+        }
+        let missing = resolve(&corpus, "article 9999, alinéa 2 du code civil").await;
+        assert_eq!(status(&missing), CheckStatus::NotFound);
+        assert!(!note(&missing).contains("sub-division"));
+
+        // Un texte non codifié : même note.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Loda, "LEGITEXT000033202746")]));
+        corpus.push_find_article(Ok(numbered(1, "3")));
+        let text = resolve(&corpus, "article 3, alinéa 2 de la loi n° 2016-1321").await;
+        assert_eq!(status(&text), CheckStatus::Verified);
+        assert!(note(&text).ends_with("The sub-division was not checked, only the article."));
     }
 
     // ----------------------------------------------------------------------------------------

@@ -170,6 +170,7 @@ mod tests {
     };
     use chrono::{TimeZone, Utc};
     use lf_domain::{
+        citation::Sigle,
         date::CivilDate,
         entity::{ArticleText, CodeListing, SearchHit},
         fond::Fond,
@@ -323,6 +324,43 @@ mod tests {
         assert_eq!(output.candidates[0].confidence, Confidence::Medium);
     }
 
+    /// L2-07 (gap3-7) : une plage donne un candidat unique de confiance moyenne, et la note dit
+    /// que seules les deux bornes ont été lues.
+    #[tokio::test]
+    async fn a_range_is_one_medium_candidate_with_the_range_note() {
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "1240")));
+        corpus.push_find_article(Ok(article(2, "1244")));
+        let output = resolve(&corpus, "articles 1240 à 1244 du code civil").await;
+        assert_eq!(output.interpreted_as.as_deref(), Some("Code civil, art. 1240 à 1244"));
+        assert_eq!(ids(&output.candidates), vec!["LEGIARTI000000000001".to_owned()]);
+        assert_eq!(output.candidates[0].confidence, Confidence::Medium);
+        assert_eq!(output.notes, [Note::RangeEndpointsOnly]);
+        assert_eq!(corpus.calls_of("find_article"), 2);
+    }
+
+    #[tokio::test]
+    async fn a_range_with_a_missing_last_article_has_no_candidate_and_says_why() {
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "1240")));
+        corpus.push_find_article(Err(not_found()));
+        let output = resolve(&corpus, "articles 1240 à 9999 du code civil").await;
+        assert_eq!(output.candidates, []);
+        assert_eq!(output.notes, [Note::RangeEndNotFound { num: "9999".to_owned() }]);
+    }
+
+    /// Jumeau : une liste « 1240 et 1241 » reste signalée par la note des autres citations, et la
+    /// première est lue seule, de confiance haute.
+    #[tokio::test]
+    async fn a_list_is_not_a_range() {
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "1240")));
+        let output = resolve(&corpus, "articles 1240 et 1241 du code civil").await;
+        assert_eq!(output.candidates[0].confidence, Confidence::High);
+        assert!(output.notes.contains(&Note::OtherCitations { count: 1 }), "{:?}", output.notes);
+        assert_eq!(corpus.calls_of("find_article"), 1);
+    }
+
     #[tokio::test]
     async fn interpreted_as_present() {
         let corpus = corpus_with_civil_code();
@@ -393,6 +431,96 @@ mod tests {
         );
     }
 
+    fn corpus_with_cgi() -> FakeCorpus {
+        let corpus = FakeCorpus::new();
+        corpus.push_list_codes(Ok(vec![CodeListing {
+            id: LegiTextId::parse("LEGITEXT000006069577").unwrap(),
+            title: "Code général des impôts".to_owned(),
+            etat: Some(LegalStatus::Vigueur),
+        }]));
+        corpus
+    }
+
+    /// Version de l'article 779 du CGI lue au 2011-06-01 : remplacée depuis (MODIFIE, fin
+    /// 2011-06-12), comme la réponse réelle de journey_patrimoine-14.
+    fn cgi_779(etat: LegalStatus, date_fin: Option<CivilDate>) -> ArticleText {
+        ArticleText {
+            etat: Some(etat),
+            date_debut: CivilDate::new(2010, 5, 1),
+            date_fin,
+            code_title: Some("Code général des impôts, CGI.".to_owned()),
+            ..article(22_201_685, "779")
+        }
+    }
+
+    /// L2-12 (journey_patrimoine-14, resolve-5) : une version lue à une date et remplacée depuis le
+    /// dit, en une note de 200 caractères au plus ; une version en vigueur, ou une date absente,
+    /// ne dit rien de plus.
+    #[tokio::test]
+    async fn a_replaced_version_read_at_a_date_says_so_and_a_current_one_does_not() {
+        let corpus = corpus_with_cgi();
+        corpus.push_find_article(Ok(cgi_779(LegalStatus::Modifie, CivilDate::new(2011, 6, 12))));
+        let output = run(
+            &corpus,
+            PisteEnvironment::Production,
+            input("article 779 du CGI", Some("2011-06-01")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(output.candidates.len(), 1);
+        assert_eq!(output.candidates[0].confidence, Confidence::High);
+        assert_eq!(output.notes.len(), 1, "{:?}", output.notes);
+        let text = output.notes[0].text();
+        assert_eq!(
+            text,
+            "Version in force on 2011-06-01 (etat=MODIFIE, ended 2011-06-12); omit the date to \
+             read the current text."
+        );
+        assert!(text.chars().count() <= 200);
+
+        // Jumeau : la version lue à cette date est encore en vigueur, rien à signaler.
+        let corpus = corpus_with_cgi();
+        corpus.push_find_article(Ok(cgi_779(LegalStatus::Vigueur, None)));
+        let output = run(
+            &corpus,
+            PisteEnvironment::Production,
+            input("article 779 du CGI", Some("2011-06-01")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(output.notes, []);
+
+        // Sans date : la note de la version en vigueur, inchangée.
+        let corpus = corpus_with_cgi();
+        corpus.push_find_article(Ok(cgi_779(LegalStatus::Vigueur, None)));
+        let output = run(&corpus, PisteEnvironment::Production, input("article 779 du CGI", None))
+            .await
+            .unwrap();
+        assert_eq!(output.notes[0].text(), "Current version in force since 2010-05-01.");
+    }
+
+    /// L2-17 (gap3-8) : un alinéa cité n'est pas contrôlé, et la réponse le dit ; sans alinéa, rien.
+    #[tokio::test]
+    async fn a_cited_subdivision_is_flagged_as_not_checked() {
+        for citation in ["art. 9, al. 2 du code civil", "art. 9 alinéa 2 du code civil"] {
+            let corpus = corpus_with_civil_code();
+            corpus.push_find_article(Ok(article(1, "9")));
+            let output = resolve(&corpus, citation).await;
+            assert_eq!(output.candidates.len(), 1, "{citation}");
+            assert_eq!(output.notes.len(), 1, "{citation}: {:?}", output.notes);
+            assert_eq!(
+                output.notes[0].text(),
+                "Current version in force since 2016-10-01. The sub-division was not checked, \
+                 only the article.",
+                "{citation}"
+            );
+        }
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "9")));
+        let output = resolve(&corpus, "art. 9 du code civil").await;
+        assert_eq!(output.notes[0].text(), "Current version in force since 2016-10-01.");
+    }
+
     #[tokio::test]
     async fn citation_and_date_are_validated_before_any_call() {
         let corpus = FakeCorpus::new();
@@ -437,6 +565,64 @@ mod tests {
         assert_eq!(corpus.calls(), 0);
     }
 
+    /// L2-09 (resolve-4, gap3-3) : la note d'un article sans cible ne renvoie plus l'outil à
+    /// lui-même et ne dit pas qu'aucun code n'a été donné quand un sigle inconnu l'a été.
+    #[tokio::test]
+    async fn a_missing_or_unknown_target_note_names_no_circular_tool() {
+        for (citation, num) in [
+            ("article 1", "1"),
+            ("RGPD article 6", "6"),
+            ("art. L. 111-1 CGFP", "L111-1"),
+            ("art. 1240 code civ.", "1240"),
+        ] {
+            let corpus = FakeCorpus::new();
+            let output = resolve(&corpus, citation).await;
+            assert_eq!(output.candidates, [], "{citation}");
+            assert_eq!(output.notes, [Note::MissingTarget { num: num.to_owned() }], "{citation}");
+            let text = output.notes[0].text();
+            assert!(text.starts_with("No recognised code or text for article "), "{text}");
+            assert!(
+                text.contains("an unknown or unattached abbreviation counts as missing"),
+                "{text}"
+            );
+            assert!(text.ends_with("name the code next to the article, in full."), "{text}");
+            // Aucun code en exemple : le sigle peut être connu mais non rattaché à l'article.
+            assert!(!text.contains("code civil") && !text.contains("for example"), "{text}");
+            assert!(!text.contains("fr_resolve") && !text.contains("No code or text given"));
+            assert_eq!(corpus.calls(), 0, "{citation}");
+        }
+    }
+
+    /// Jumeau de `a_missing_or_unknown_target_note_names_no_circular_tool` : un sigle ou une forme
+    /// connus résolvent toujours.
+    #[tokio::test]
+    async fn a_known_abbreviation_still_resolves() {
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "1240")));
+        let output = resolve(&corpus, "art. 1240 C. civ.").await;
+        assert_eq!(output.candidates.len(), 1);
+        assert_eq!(output.interpreted_as.as_deref(), Some("Code civil, art. 1240"));
+        assert!(
+            output.notes.iter().all(|note| !matches!(note, Note::MissingTarget { .. })),
+            "{:?}",
+            output.notes
+        );
+    }
+
+    /// L2-09 (gap3-11) : la note du CPCE nomme ses deux codes.
+    #[tokio::test]
+    async fn the_cpce_note_names_both_codes() {
+        let corpus = FakeCorpus::new();
+        let output = resolve(&corpus, "art. L. 32 CPCE").await;
+        assert_eq!(output.candidates, []);
+        assert_eq!(output.notes, [Note::AmbiguousSigle { sigle: Sigle::Cpce }]);
+        let text = output.notes[0].text();
+        assert!(text.contains("Code des postes et des communications électroniques"), "{text}");
+        assert!(text.contains("Code des procédures civiles d'exécution"), "{text}");
+        assert!(!text.contains("two codes"), "{text}");
+        assert_eq!(corpus.calls(), 0);
+    }
+
     #[tokio::test]
     async fn no_citation_recognised_is_a_success_with_a_note() {
         let corpus = FakeCorpus::new();
@@ -466,6 +652,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_text_cited_without_a_number_points_to_fr_search() {
+        for citation in
+            ["loi du 1er juillet 1901", "article 34 de la Constitution du 4 octobre 1958"]
+        {
+            let corpus = FakeCorpus::new();
+            let output = resolve(&corpus, citation).await;
+            assert_eq!(output.candidates, [], "{citation}");
+            assert_eq!(output.notes, [Note::NumberlessText], "{citation}");
+            let text = output.notes[0].text();
+            assert!(text.contains("fr_search (query: its title and date)"), "{text}");
+            assert!(!text.contains("Not checkable in this version"), "{text}");
+            assert_eq!(corpus.calls(), 0, "{citation}");
+        }
+    }
+
+    #[tokio::test]
     async fn nothing_found_is_an_empty_list_with_the_reason_never_not_found() {
         let corpus = corpus_with_civil_code();
         corpus.push_find_article(Err(not_found()));
@@ -474,7 +676,7 @@ mod tests {
         assert_eq!(output.interpreted_as.as_deref(), Some("Code civil, art. 9999"));
         assert_eq!(
             output.notes[0].text(),
-            "Code civil has no article 9999 in force on 2026-10-29."
+            "Code civil has no article 9999 in force on 2026-10-29. The article may exist in earlier versions; retry with a date."
         );
 
         // En bac à sable, la note dit que ses données diffèrent de la production.

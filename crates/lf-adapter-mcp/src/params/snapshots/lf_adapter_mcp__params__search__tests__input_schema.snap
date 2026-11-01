@@ -43,14 +43,12 @@ expression: schema()
     "page": {
       "default": 1,
       "description": "Page number, from 1.",
-      "format": "uint32",
       "minimum": 1,
       "type": "integer"
     },
     "page_size": {
       "default": 10,
       "description": "Hits per page (1..100).",
-      "format": "uint32",
       "maximum": 100,
       "minimum": 1,
       "type": "integer"

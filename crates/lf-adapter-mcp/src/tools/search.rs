@@ -184,11 +184,11 @@ mod tests {
     #[tokio::test]
     async fn snippets_removed_from_last_hits_when_over_cap() {
         let fixture = Fixture::default();
-        // 60 résultats de 280 caractères d'extrait : près de 58 000 caractères estimés.
-        fixture.corpus.push_search(Ok(juri_page(60, 5_000)));
+        // 100 résultats de 280 caractères d'extrait : plus de 42 000 caractères estimés.
+        fixture.corpus.push_search(Ok(juri_page(100, 5_000)));
 
         let result =
-            call(&fixture, &json!({"query": "bail", "fond": "JURI", "page_size": 60})).await;
+            call(&fixture, &json!({"query": "bail", "fond": "JURI", "page_size": 100})).await;
 
         assert_eq!(result.is_error, Some(false));
         let content = result.structured_content.unwrap();
@@ -197,12 +197,12 @@ mod tests {
         assert!(length <= 45_000, "{length}");
 
         let hits = content["hits"].as_array().unwrap();
-        assert_eq!(hits.len(), 60, "aucun résultat n'est retiré");
+        assert_eq!(hits.len(), 100, "aucun résultat n'est retiré");
         let without: Vec<bool> = hits.iter().map(|hit| hit.get("snippet").is_none()).collect();
         let removed = without.iter().filter(|gone| **gone).count();
-        assert!(removed > 0 && removed < 60, "{removed}");
+        assert!(removed > 0 && removed < 100, "{removed}");
         // En partant du dernier, sans trou : les premiers gardent leur extrait.
-        let first_removed = 60 - removed;
+        let first_removed = 100 - removed;
         assert!(without[..first_removed].iter().all(|gone| !gone));
         assert!(without[first_removed..].iter().all(|gone| *gone));
         assert_eq!(
@@ -213,10 +213,10 @@ mod tests {
             )
         );
         // La citation et l'identifiant restent sur les résultats dégradés.
-        assert!(hits[59]["citation"].as_str().unwrap().contains("Cour de cassation"));
-        assert_eq!(hits[59]["id"], "JURITEXT000000000060");
+        assert!(hits[99]["citation"].as_str().unwrap().contains("Cour de cassation"));
+        assert_eq!(hits[99]["id"], "JURITEXT000000000100");
         // L'audit compte les résultats renvoyés.
-        assert_eq!(fixture.audit.records()[0].output_count_or_size, 60);
+        assert_eq!(fixture.audit.records()[0].output_count_or_size, 100);
     }
 
     #[tokio::test]

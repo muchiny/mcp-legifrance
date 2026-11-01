@@ -19,10 +19,12 @@ mod post;
 mod quote;
 mod scan;
 pub mod types;
+mod unread;
 
 pub use dict::codes::{CODES, CodeEntry, CodeKey, CodeRefKey};
-pub use quote::adjacent_quote;
+pub use quote::{adjacent_quote, quoted_passages};
 pub use types::*;
+pub use unread::unread_article_mentions;
 
 use crate::date::CivilDate;
 
@@ -140,6 +142,35 @@ mod tests {
     }
 
     #[test]
+    fn cjue_with_parties_is_one_sink_and_leaves_neighbours_readable() {
+        // L1-06 : cas réel de l'E2E (verify_citations-15, partie CJUE).
+        let input = "CJUE, 6 octobre 2015, Schrems, C-362/14.";
+        let found = parse(input);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            found[0].value,
+            CitationRef::Unsupported(UnsupportedCite {
+                family: UnsupportedFamily::Cjue,
+                key: Some("C-362/14".to_owned()),
+            })
+        );
+        assert_eq!(
+            &input[found[0].span.start..found[0].span.end],
+            "CJUE, 6 octobre 2015, Schrems, C-362/14"
+        );
+        // Voisin : sans numéro d'affaire, pas de puits ; l'article reste lu comme article.
+        let neighbour = parse("CJUE, 4 juin 2024, Schrems, et voir l'article 5 du code civil");
+        assert!(
+            neighbour.iter().all(|c| !matches!(c.value, CitationRef::Unsupported(_))),
+            "{neighbour:?}"
+        );
+        assert!(
+            neighbour.iter().any(|c| matches!(c.value, CitationRef::CodeArticle { .. })),
+            "{neighbour:?}"
+        );
+    }
+
+    #[test]
     fn the_dictionary_is_reachable_from_the_module_root() {
         assert_eq!(CODES.len(), 77);
         assert_eq!(CodeKey::CodeCivil.title(), "Code civil");
@@ -254,6 +285,31 @@ mod tests {
         assert_eq!(alone, parse_with("du même code, l'article 5", &opts));
     }
 
+    /// Citations complètes (code compris) du corpus positif, dont les formes de L1-01.
+    const COMPLETE: [&str; 20] = [
+        "l'article 1240 du code civil",
+        "art. L. 1234-5 du code du travail",
+        "CGI, art. 150-0 B ter",
+        "article 150-0 B ter du code général des impôts",
+        "art. 199 terdecies-0 A du CGI",
+        "art. 199 undecies B du CGI",
+        "art. 787 B CGI",
+        "C. civ., art. 9",
+        "art. 121-3 CP",
+        "art. 163 quatervicies du CGI",
+        // Couples de verify_citations-6 et gap3-2 (L1-02) : « al. 1er », « s. », « et s. ».
+        "art. 9, al. 1er, C. pr. civ.",
+        "art. 9, alinéa 1er du code civil",
+        "art. 1240, al. 1er, C. civ.",
+        "art. 1240 s. C. civ.",
+        "art. 1217 et s. du code civil",
+        "article L. 1234-9, alinéa 2 du code du travail",
+        "art. 1240 C. pén.",
+        "art. 9 C. civ.",
+        "art. 1240 du code pénal",
+        "art. 1103 et suivants du code civil",
+    ];
+
     mod no_panic {
         use proptest::prelude::*;
 
@@ -289,7 +345,7 @@ mod tests {
                         "article ", "art. ", "L. ", "R. 12-3", "1240", " du code civil", " C. civ.",
                         " et ", ", ", "loi n° 2016-1321", " du 7 octobre 2016", " susvisée",
                         "Cass. civ. 1re, 5 mai 2021, n° 19-12.345", "ECLI:FR:CCASS:2021:C100399",
-                        "NOR : ECFI1524250L", "<p>", "</p>", "&nbsp;", "Ã©", "\u{200b}", "\n",
+                        "NOR : ECFI1524250L", "150-0 B ter", "199 terdecies-0 A", " bis", " ter", "-0 ", "<p>", "</p>", "&nbsp;", "Ã©", "\u{200b}", "\n",
                     ]),
                     0..20,
                 ),
@@ -304,6 +360,24 @@ mod tests {
                     prop_assert!(input.get(c.span.start..c.span.end).is_some());
                 }
                 prop_assert!(in_output_order(&parse(&input)));
+            }
+
+            /// Composition : `parse(A ; B) == parse(A) ++ parse(B)` pour deux citations complètes
+            /// (code compris). Les fragments non autonomes (« art. 9 et 10 du code civil », un
+            /// article sans code suivi d'un code) sont exclus : l'invariant est faux pour eux.
+            #[test]
+            fn parsing_composes_over_complete_citations(
+                first in 0..COMPLETE.len(),
+                second in 0..COMPLETE.len(),
+                sep in prop::sample::select(vec![" ; ", ". ", ", ", " et "]),
+            ) {
+                let (a, b) = (COMPLETE[first], COMPLETE[second]);
+                let values = |input: &str| -> Vec<CitationRef> {
+                    parse(input).into_iter().map(|c| c.value).collect()
+                };
+                let mut expected = values(a);
+                expected.extend(values(b));
+                prop_assert_eq!(values(&format!("{a}{sep}{b}")), expected);
             }
         }
     }
