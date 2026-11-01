@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"KALI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"convention collective\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"LEGAL_STATUS\",\"valeurs\":[\"VIGUEUR\",\"VIGUEUR_ETEN\",\"VIGUEUR_NON_ETEN\"]},{\"facette\":\"DATE_SIGNATURE\",\"dates\":{\"start\":\"2020-01-01\",\"end\":\"2020-12-31\"}}],\"pageNumber\":1,\"pageSize\":10,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-11-01T23:04:37Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 605
+bytes_raw = 59943
+sha256_raw = "e3b490ba4f7d15b9e390b07fcab73e073471866000f0d8c3355f8965deb894a4"
+sha256_file = "e3b490ba4f7d15b9e390b07fcab73e073471866000f0d8c3355f8965deb894a4"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 1.0.1"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

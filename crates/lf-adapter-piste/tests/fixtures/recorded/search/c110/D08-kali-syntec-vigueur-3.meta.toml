@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"KALI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"Syntec bureaux d'études techniques\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"LEGAL_STATUS\",\"valeurs\":[\"VIGUEUR\",\"VIGUEUR_ETEN\",\"VIGUEUR_NON_ETEN\"]}],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "sandbox"
+captured_at = "2026-11-01T23:04:36Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 746
+bytes_raw = 80139
+sha256_raw = "002fd6024e911a294dcc2c637cf9ca60254c728ac31ba30a52c3692d75cb50ce"
+sha256_file = "002fd6024e911a294dcc2c637cf9ca60254c728ac31ba30a52c3692d75cb50ce"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 1.0.1"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"
