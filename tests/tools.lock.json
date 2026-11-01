@@ -107,9 +107,9 @@
   "server_version": "1.0.1",
   "sizes": {
     "instructions_chars": 3278,
-    "tools_list_bytes": 31604
+    "tools_list_bytes": 32009
   },
-  "surface_sha256": "0c81ccc6003cf73eb6f2204540ea669b754fca795f0739b5beea3fde9502460a",
+  "surface_sha256": "5e1b2c7e076ab42043b0e7ac867e57b77152e888e2ccfe0cb9d52ad720965b83",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -880,7 +880,7 @@
               "type": "string"
             },
             "summary_truncated": {
-              "description": "True when the summary stops before the end of the text.",
+              "description": "True when the summary itself is cut short or is only the opening of the text. Absent for an official summary or operative part that is given whole (it may still cover only part of the text).",
               "type": "boolean"
             },
             "text": {
@@ -905,7 +905,7 @@
         },
         "title": "Read a court decision"
       },
-      "sha256": "ae0a3463cdfb4e56643d893c4971009c77809135dc4462915c9d6db22260480b"
+      "sha256": "e53ba55914f6acefb3579427545e668bed45dcb0de7fdfa048c70405d4714676"
     },
     "fr_get_deliberation": {
       "descriptor": {
@@ -1033,7 +1033,7 @@
               "type": "string"
             },
             "summary_truncated": {
-              "description": "True when the summary stops before the end of the text.",
+              "description": "True when the summary itself is cut short or is only the opening of the text. Absent for an official summary or operative part that is given whole (it may still cover only part of the text).",
               "type": "boolean"
             },
             "text": {
@@ -1058,7 +1058,7 @@
         },
         "title": "Read a CNIL deliberation"
       },
-      "sha256": "d53b401727d81a8a86e176b4e30034daf267a8c1eabfeb2ae345682726725776"
+      "sha256": "6ab0ed066abb3ee858fab44febcf0f2f37b4c0003ceb5e2c5719d2570a211fb3"
     },
     "fr_get_related": {
       "descriptor": {
@@ -1303,7 +1303,7 @@
               "type": "string"
             },
             "summary_truncated": {
-              "description": "True when the summary stops before the end of the text.",
+              "description": "True when the summary itself is cut short or is only the opening of the text. Absent for an official summary or operative part that is given whole (it may still cover only part of the text).",
               "type": "boolean"
             },
             "text": {
@@ -1324,7 +1324,7 @@
         },
         "title": "Read an article"
       },
-      "sha256": "317ec84511d527f0ad4f7ecd77eea424f3f483b7aeb8a2e5fa1cdac98a663025"
+      "sha256": "4a8f99e9e1338e5d5457072062460e51c2907d2cf3dba9d93b467822a0497545"
     },
     "fr_resolve": {
       "descriptor": {
@@ -1948,5 +1948,5 @@
       "sha256": "c539d50242a936db43da2baa069526f49b042500b03555eba7c63357a7dc8ce2"
     }
   },
-  "toolset_sha256": "7cb609060ab24274a392bb8f00e564bbfca5fd46274a1d48c43d4003c6d587f5"
+  "toolset_sha256": "3c5bfd331153ee6548f1d249e2061e99cb0d7afa176ce1a386f9793aa044c823"
 }

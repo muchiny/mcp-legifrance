@@ -1,6 +1,5 @@
 ---
 source: crates/lf-adapter-mcp/src/views/get_text.rs
-assertion_line: 544
 expression: schema
 ---
 {
@@ -86,7 +85,7 @@ expression: schema
       "type": "string"
     },
     "summary_truncated": {
-      "description": "True when the summary stops before the end of the text.",
+      "description": "True when the summary itself is cut short or is only the opening of the text. Absent for an official summary or operative part that is given whole (it may still cover only part of the text).",
       "type": "boolean"
     },
     "text": {

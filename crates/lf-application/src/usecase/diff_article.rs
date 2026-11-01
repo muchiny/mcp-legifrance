@@ -307,14 +307,19 @@ struct WordDiff {
     old_words: usize,
     /// Mots de B.
     new_words: usize,
+    /// Faux quand l'échéance est passée pendant le calcul : `similar` rend alors un diff grossier
+    /// (tout le milieu retiré puis ajouté) et `kept` est sous-estimé.
+    exact: bool,
 }
 
 impl WordDiff {
-    /// Vrai quand les deux textes ont des mots et que moins de [`LOW_SIMILARITY_PERCENT`] % des
-    /// mots de A sont conservés dans B : la comparaison porte sans doute sur deux textes sans
-    /// rapport (article renuméroté ou remplacé). Un côté sans mot n'est pas une renumérotation.
+    /// Vrai quand le diff est exact (échéance tenue), que les deux textes ont des mots et que
+    /// moins de [`LOW_SIMILARITY_PERCENT`] % des mots de A sont conservés dans B : la comparaison
+    /// porte sans doute sur deux textes sans rapport (article renuméroté ou remplacé). Un côté sans
+    /// mot n'est pas une renumérotation ; une échéance expirée ne donne jamais la note.
     fn shares_little(&self) -> bool {
-        self.old_words > 0
+        self.exact
+            && self.old_words > 0
             && self.new_words > 0
             && self.kept.saturating_mul(100) < self.old_words.saturating_mul(LOW_SIMILARITY_PERCENT)
     }
@@ -337,6 +342,7 @@ fn word_diff(old: &str, new: &str, deadline: Option<Instant>) -> WordDiff {
             .iter()
             .map(similar::DiffOp::as_tag_tuple)
             .collect();
+    let exact = deadline.is_none_or(|limit| Instant::now() < limit);
     let kept = ops
         .iter()
         .filter(|(tag, ..)| *tag == DiffTag::Equal)
@@ -353,7 +359,7 @@ fn word_diff(old: &str, new: &str, deadline: Option<Instant>) -> WordDiff {
             added: passage(&after.words[new_range]),
         })
         .collect();
-    WordDiff { hunks, kept, old_words: before.words.len(), new_words: after.words.len() }
+    WordDiff { hunks, kept, old_words: before.words.len(), new_words: after.words.len(), exact }
 }
 
 /// Les mots joints par une espace ; `None` s'il n'y en a pas.
@@ -1120,6 +1126,32 @@ mod tests {
     }
 
     #[test]
+    fn an_expired_deadline_never_gives_the_note_for_a_mid_text_amendment() {
+        // Un amendement ordinaire : 90 % des mots conservés, mais le premier et le dernier mot
+        // changent, donc le préfixe et le suffixe communs ne couvrent rien. Échéance expirée, le
+        // diff grossier remplace tout le milieu : la part conservée serait sous-estimée.
+        let old = (0..400).map(|n| format!("mot{n}")).collect::<Vec<_>>().join(" ");
+        let new = (0..400)
+            .map(|n| if n % 10 == 0 || n == 399 { format!("autre{n}") } else { format!("mot{n}") })
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(shared(&old, &new), (360 - 1, 400, 400, false), "avec le temps voulu");
+        let expired = Instant::now().checked_sub(Duration::from_secs(10));
+        let rough = word_diff(&old, &new, expired);
+        assert!(!rough.shares_little(), "kept = {} sur {}", rough.kept, rough.old_words);
+    }
+
+    #[test]
+    fn a_diff_computed_in_time_is_exact_and_can_give_the_note() {
+        let old = "a1 a2 a3 a4 a5 a6 a7 a8 a9 a10";
+        assert!(
+            word_diff(old, "x1 x2", Instant::now().checked_add(Duration::from_secs(60)))
+                .shares_little()
+        );
+        assert!(word_diff(old, "x1 x2", None).shares_little());
+    }
+
+    #[test]
     fn at_most_the_maximum_number_of_hunks_plus_one_are_computed() {
         // 1 000 changements isolés (un mot sur deux).
         let old = (0..2_000).map(|n| format!("m{n}")).collect::<Vec<_>>().join(" ");
@@ -1260,6 +1292,24 @@ mod tests {
 
         assert!(!output.identical);
         assert_ne!(output.hunks, Vec::<HunkOut>::new());
+        assert_eq!(output.note, None);
+    }
+
+    // Textes enregistrés (fixtures `getArticle` C7) : l'ancien article 1382 du Code civil
+    // (LEGIARTI000006438819, jusqu'au 2016-10-01) et l'article 1240 (LEGIARTI000032041571) qui le
+    // remplace par renumérotation (ordonnance 2016-131) portent le même texte.
+    const CIVIL_1382_OLD: &str = "Tout fait quelconque de l'homme, qui cause à autrui un dommage, oblige celui par la faute duquel il est arrivé à le réparer.";
+    const CIVIL_1240: &str = "Tout fait quelconque de l'homme, qui cause à autrui un dommage, oblige celui par la faute duquel il est arrivé à le réparer.";
+
+    #[tokio::test]
+    async fn a_real_renumbering_that_keeps_the_text_gets_no_note() {
+        // Mesuré sur les deux fixtures : 23 mots sur 23 conservés (100 %). La note ne vise que les
+        // renumérotations dont le texte change ; ici il n'y a rien à signaler.
+        assert_eq!(shared(CIVIL_1382_OLD, CIVIL_1240), (23, 23, 23, false));
+        let output = diffed(CIVIL_1382_OLD, CIVIL_1240).await;
+
+        assert!(!output.identical);
+        assert_eq!(output.hunks, Vec::<HunkOut>::new());
         assert_eq!(output.note, None);
     }
 

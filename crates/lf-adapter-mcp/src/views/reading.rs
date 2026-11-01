@@ -44,7 +44,7 @@ pub(crate) struct ReadingView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "bool",
-        description = "True when the summary stops before the end of the text."
+        description = "True when the summary itself is cut short or is only the opening of the text. Absent for an official summary or operative part that is given whole (it may still cover only part of the text)."
     )]
     pub(crate) summary_truncated: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
