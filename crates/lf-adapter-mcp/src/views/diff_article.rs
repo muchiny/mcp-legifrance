@@ -36,6 +36,11 @@ pub(crate) struct DiffView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "bool")]
     truncated: Option<bool>,
+    // Présent quand les deux versions partagent très peu de texte : l'article a pu être renuméroté
+    // ou remplacé, le diff compare alors deux textes sans rapport.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    note: Option<String>,
 }
 
 // Une version de l'article.
@@ -84,6 +89,7 @@ impl From<DiffArticleOutput> for DiffView {
             identical: output.identical,
             hunks: output.hunks.into_iter().map(HunkView::from).collect(),
             truncated: output.truncated.then_some(true),
+            note: output.note,
         };
         view.fit();
         view
@@ -162,6 +168,7 @@ mod tests {
             identical: false,
             hunks,
             truncated: false,
+            note: None,
         }
     }
 
@@ -260,6 +267,54 @@ mod tests {
         let view = DiffView::from(out);
         assert_eq!(view.truncated, Some(true));
         assert_eq!(view.hunks.len(), 1);
+    }
+
+    #[test]
+    fn the_note_is_rendered_when_present_and_absent_otherwise() {
+        let note = "The two versions share little text: the article may have been renumbered or replaced. Read both with fr_get_text.";
+        let mut out = output(vec![hunk(120, "un an", "deux ans")]);
+        out.note = Some(note.to_owned());
+        assert_eq!(
+            json_of(out),
+            json!({
+                "article_id": "LEGIARTI000000000002",
+                "citation": "Code pénal, art. 222-1",
+                "version_a": {
+                    "article_id": "LEGIARTI000000000001",
+                    "date_debut": "2016-10-09",
+                    "date_fin": "2023-09-07",
+                    "etat": "VIGUEUR"
+                },
+                "version_b": {
+                    "article_id": "LEGIARTI000000000002",
+                    "date_debut": "2023-09-08",
+                    "etat": "VIGUEUR"
+                },
+                "identical": false,
+                "hunks": [
+                    {"at": 120, "context": "… est puni de", "removed": "un an", "added": "deux ans"}
+                ],
+                "note": note
+            })
+        );
+        assert!(json_of(output(vec![hunk(0, "a", "b")])).get("note").is_none());
+    }
+
+    #[test]
+    fn the_note_survives_the_fit_and_a_truncated_response_keeps_both() {
+        let mut out = output(vec![hunk(0, "a", "b")]);
+        out.note = Some("n".to_owned());
+        out.truncated = true;
+        let view = DiffView::from(out);
+        assert_eq!(view.note.as_deref(), Some("n"));
+        assert_eq!(view.truncated, Some(true));
+        // Un dépassement du plafond retire des hunks, jamais la note.
+        let big = |at: u32| hunk(at, &"r".repeat(10_000), &"a".repeat(10_000));
+        let mut out = output(vec![big(0), big(1), big(2)]);
+        out.note = Some("n".to_owned());
+        let view = DiffView::from(out);
+        assert_eq!(view.hunks.len(), 2);
+        assert_eq!(view.note.as_deref(), Some("n"));
     }
 
     #[test]

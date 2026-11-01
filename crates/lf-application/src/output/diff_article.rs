@@ -52,6 +52,9 @@ pub struct DiffArticleOutput {
     pub hunks: Vec<HunkOut>,
     /// Vrai quand des changements ou des passages ont été retirés pour tenir sous les bornes.
     pub truncated: bool,
+    /// Note de lecture : les deux versions partagent très peu de texte (renumérotation ou
+    /// remplacement probable, D-06). `None` quand le diff se lit tel quel.
+    pub note: Option<String>,
 }
 
 impl AuditMetric for DiffArticleOutput {
@@ -84,6 +87,7 @@ mod tests {
             identical: false,
             hunks,
             truncated: false,
+            note: None,
         }
     }
 
