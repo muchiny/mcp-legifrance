@@ -1137,6 +1137,8 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
 
 ### 7.1 `Audited` : chaque exécution est journalisée
 
+*Annulation (L5-03, 1.0.1)* : deux cas distincts. Sur `notifications/cancelled`, aucune réponse n'est émise ; à l'EOF avec une requête en vol, la ligne d'audit est écrite avant l'arrêt et rmcp écrit encore la réponse `isError` « cancelled by client » sans `[code]` (05 §7.2, AM-70).
+
 **Position** : `Audited<A: AuditLog>` vit dans `lf-application` et enveloppe **l'exécution complète** du cas d'usage : décodage, validation, appels au port, politique de lecture. Ce n'est pas un décorateur du port : un `fr_search` en échec de validation n'appelle jamais le port, et doit pourtant être audité (D-02, E-02).
 
 **Algorithme** :

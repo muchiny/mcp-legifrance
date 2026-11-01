@@ -757,6 +757,8 @@ Le suffixe comme date par défaut (conservé par `parse_versioned` au lieu d'êt
 
 **Audit, cache, limites** : métrique = entrées de TOC renvoyées (88 sur la fixture, contre 62 dans la référence, 03 §4.2). Cache `Act` 24 h par (`LegiTextId`, `VersionDate`). Une TOC de 500 entrées tient d'ordinaire sous le plafond du §6.4 ; sinon la page est raccourcie et `next_toc_offset` posé en conséquence (étape 1 du §6.4).
 
+**Champ `note` (1.0.1, L3-14).** Deux valeurs statiques, éventuellement jointes par une espace (code d'abord). (1) Texte de nature CODE : « This is a whole code: its table of contents can be very long. Page it with toc_offset/toc_limit, or find an article with fr_search fond=CODE. » (2) Version terminée lue à une date choisie (`date` ou suffixe de `text_id`) dont `date_fin_version`, hors sentinelle, précède strictement aujourd'hui à Paris : « This is a past version of the text (see date_fin_version); the current text may differ: call without date. » `etat` reste celui du texte (§5.2), pas celui de la version. Sans date choisie, jamais cette note (un texte abrogé lu sans date n'a pas de version plus récente). La note est calculée par le cas d'usage (qui a l'horloge), la vue la rend telle quelle. Aucun champ nouveau, schéma inchangé.
+
 ### 5.3 `fr_get_text` (v0.1)
 
 **Objectif.** Lire un article (LEGI ou KALI), avec sa citation, son statut, ses dates de validité, sa place dans le code, et la lecture progressive.
@@ -800,6 +802,8 @@ Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIA
 **Audit, cache, limites** : métrique = caractères renvoyés (322 ici). Cache `Article` 24 h. Réponse ≤ `max_chars` + métadonnées ; la fenêtre est raccourcie si la réponse sérialisée dépasserait le plafond du §6.4.
 
 **Citation d'un article de texte non codifié (L3-03).** Elle porte le titre officiel complet du texte (objet compris), jamais le seul titre court ; elle change donc pour ces textes en 1.0.1 (« Arrêté du 20 mai 2026, art. ANNEXE V » devient « Arrêté du 20 mai 2026 portant création de la spécialité « Facture de pianos » …, art. ANNEXE V »). Les citations d'articles de code sont inchangées.
+
+**Champ `note` (1.0.1, L3-13).** `note` contient aussi, quand `etat` vaut MODIFIE, MODIFIE_MORT_NE, ABROGE, PERIME, ANNULE, REMPLACE, SUBSTITUE, TRANSFERE ou DENONCE (articles LEGIARTI et KALIARTI), l'avertissement « Not the version in force (etat=<ETAT>, ended <date_fin>). Use fr_resolve with a date, or fr_diff_article, for the text in force. » La mention « , ended <date_fin> » est omise quand `date_fin` est absente ou dans la zone sentinelle. L'avertissement est déduit de l'état seul, sans horloge ; il n'est jamais émis pour VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, VIGUEUR_DIFF, ABROGE_DIFF, INITIALE, DISJOINT, SANS_ETAT ni un code inconnu. Il est ajouté, après une espace, à la note de lecture éventuelle. Aucun champ ni schéma nouveau.
 
 ### 5.4 `fr_get_decision` (v0.1)
 
@@ -856,6 +860,8 @@ Le classement (considérant 14, puis 8) correspond au test d'acceptation de 03 �
 **Erreurs** : `invalid_arg` (identifiant, avec renvoi : `CNILTEXT… identifies a CNIL deliberation: use fr_get_deliberation.`, 03 §2.7) ; `not_found` (§7.4) ; erreurs communes. Un HTTP 400 de `/consult/juri` contenant « L'expression à valider est fausse » est traduit en `not_found` par l'adapter (recherche 03 §3.4 ; 04 §11.2 règle 2, qui fait foi pour la classification « introuvable »).
 
 **Audit, cache** : caractères renvoyés ; `Decision` 24 h.
+
+**Résumé d'une décision du Conseil constitutionnel (1.0.1, L4-03).** Quelle que soit sa nature (QPC, DC, PDR, ORGA…), le résumé est le dispositif quand l'en-tête « DÉCIDE » est présent : `summary_source = "dispositif"` (articles seuls, sans en-tête ni clôture « Jugé par / Délibéré par / Rendu public »). Sans en-tête reconnu, ou avec un dispositif vide, le résumé est le début du texte (`summary_source = "lead"`).
 
 ### 5.5 `fr_get_deliberation` (v0.1)
 
@@ -1171,6 +1177,8 @@ Chemins de résolution (00 §3, §8 ; détail : annexe B, 04 §7) :
 
 **Erreurs** : `invalid_arg` (`citation` vide ou trop longue, `date`) ; erreurs communes. **Audit, cache** : métrique 1 ; cache du port.
 
+**Texte cité sans numéro (1.0.1, L2-10).** Pour une citation de texte sans numéro (« loi du 1er juillet 1901 », « article 34 de la Constitution du 4 octobre 1958 »), la note de `fr_resolve` et de `fr_verify_citations` est « A text cited without a number cannot be checked here; find it with fr_search (query: its title and date). » ; candidats vides, statut `unresolvable`. Les avenants, JORF et alinéas du Préambule gardent « Not checkable in this version (…). »
+
 ### 5.11 `fr_get_related` (v0.3, M7)
 
 **Objectif.** Naviguer dans les liens d'un article ou d'une décision.
@@ -1222,6 +1230,8 @@ Liens d'un article (`RelatedLinks` de 03 §4.11, d'après `LiensRelatifsDTO.natu
 ```
 
 **Erreurs** : `invalid_arg` ; `not_found` (identifiant inexistant, message de l'outil de lecture correspondant) ; erreurs communes. **Audit, cache** : nombre de liens ; `Related` 24 h, `Decision` 24 h. Forme réelle de `relatedLinksArticle` **NON VÉRIFIÉE** [V-136 · related-links-forme].
+
+**Codes des liens d'une décision (1.0.1, L4-13).** Les titres de `liens` d'une décision sont des fragments de prose (V-117). Le code d'une citation n'est gardé que s'il est écrit dans la mention même de l'article (« article 700 du code de procédure civile » donne « Code de procédure civile, art. 700 »). Quand le parseur l'emprunte à la fin d'une énumération (« articles 1382 et 700 du code civil »), le lien montre l'article seul (« article 1382 », « article 700 », kind `code_article`) et la réponse porte la `note` : « The codes of decision links may be inexact: the API gives text fragments, and a code not written next to its article is left out; check the decision with fr_verify_citations. » La note n'apparaît que si un code a été écarté, et jamais avec « The API gives no references for this decision » (celle-ci l'emporte).
 
 ### 5.12 `fr_diff_article` (v0.3, M7)
 
@@ -1433,6 +1443,9 @@ Correspondance complète cause → `CorpusError` → `AppError` → code : 02 §
 | `Upstream` (`Decode`, `TooLarge`) | `upstream_error` | `unexpected response from Legifrance; report it.` (E-21 ; `Decode` n'est pas réessayable, donc sans invitation à réessayer, 00 §8). **Exception (C2, 04 §7.3)** : `CorpusError::TooLarge` (corps de `/search` ou d'une consultation au-delà de la borne de corps ; variante typée au plan 3a, plus aucun appariement du `detail`) rend sur `fr_get_act` `this text is too large for fr_get_act; read its articles with fr_get_text, or find them with fr_search fond=CODE.` (texte trop gros, Code du travail) ; sur tout autre outil, le message générique ci-contre. Le corps trop gros de l'endpoint du jeton reste un `Decode`. Cause `Decode` dans tous les cas | `[upstream_error] unexpected response from Legifrance; report it.` ; `[upstream_error] this text is too large for fr_get_act; read its articles with fr_get_text, or find them with fr_search fond=CODE.` | signaler ; pour `fr_get_act`, lire par article ou chercher |
 | `Upstream` (`Deadline`) | `upstream_error` | `tool deadline of {n} s exceeded; retry, or narrow the request (smaller page_size, fewer fonds).` | `[upstream_error] tool deadline of 60 s exceeded; …` | réduire la demande |
 | `Upstream` (`Cancelled`) | — | aucune réponse émise : rmcp 3.5.1 jette la réponse d'une requête annulée (`service.rs:1503-1505`, « dropping response for cancelled request »), sur stdio ; verdict du spike 0A du 2026-10-29 (`spikes/rmcp-stdio/README.md`), qui retire la réserve du plan 3a (une lecture de rmcp 1.8/2.1 laissait croire que la réponse partait quand même) ; la ligne d'audit est la seule trace. Sur le transport HTTP (M8), l'annulation de l'arrêt répond 500 aux POST en vol ; audit `status: error`, `error_code` absent, `error: cancelled by client` (00 §7) | — | — |
+
+**Deux annulations distinctes (1.0.1, L5-03).** (1) `notifications/cancelled` : aucune réponse n'est émise (verdict du spike 0A ; rmcp jette la réponse). (2) EOF de l'entrée avec une requête en vol : le serveur s'arrête avec le code 0 en 15 à 30 ms, la ligne d'audit (statut Error, « cancelled by client ») est écrite avant, puis rmcp écrit encore à l'arrêt la réponse `{"result":{"content":[{"type":"text","text":"cancelled by client"}],"isError":true}}`, sans préfixe `[code]`. Ce texte sans code est voulu (AM-70) : le client est parti, personne ne lit la réponse. Elle n'est pas supprimée (rmcp est épinglé, usage en tube) et ne reçoit pas de préfixe `[upstream_error]`. Garde : `eof_and_notifications_cancelled_differ_only_by_the_late_response`.
+
 | `Config` (identifiants absents) | `config_error` | `PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET (from your piste.gouv.fr application, section OAuth Credentials).` (S6, E-34) | — | prévenir l'utilisateur |
 | `Config` (OAuth 400/401/403, API 401 après un renouvellement : `Auth`, sauf `origin: Api` avec `status: Some(403)`) | `config_error` | `PISTE rejected the credentials (HTTP {status}): check LF_PISTE_CLIENT_ID, LF_PISTE_CLIENT_SECRET and LF_PISTE_ENV.` (sans ` (HTTP {status})` si le statut est inconnu ; jamais `not_found`, 00 §5 ; corrige D-10) | — | prévenir l'utilisateur |
 | `Config` (API 403 : `Auth { origin: Api, status: Some(403) }`) | `config_error` | `PISTE denied access (HTTP 403): check that the PISTE application is subscribed to the Legifrance API.` (00 §5 ; la parité S10 donnait `upstream_error`) | — | prévenir l'utilisateur |
@@ -1461,6 +1474,8 @@ Les messages de parité gardent la première phrase de la référence (`server.p
 | `date_from`/`date_to` | ordre ; fond sans facette | `date_from=2026-01-01 is after date_to=2025-01-01.` ; `date_from/date_to are not supported for fond=CODE; use version_date.` (une borne seule n'est pas une erreur, §5.1) |
 | `version_date` | fond non LODA/CODE | `version_date only applies to fond LODA or CODE; remove it, or use date_from/date_to.` |
 | identifiants | absent ; famille ; chiffres ; suffixe | messages de 03 §2.7 (`text_id is required.` ; `… must be a Legifrance LEGITEXT... identifier. …: use fr_get_decision.` ; `… must be LEGITEXT followed by exactly 12 digits (e.g. LEGITEXT000006070721).` ; suffixe invalide, ou présent sur un autre préfixe que `LEGITEXT`, 00 §4) |
+| `article_id` (`fr_get_text`) | suffixe de version `_JJ-MM-AAAA` sur LEGIARTI ou KALIARTI | **bien formé** (dix octets, vraie date) : toléré puis retiré, sans note ni appel amont (un LEGIARTI nomme déjà une version précise ; décision C4, AM-43, AM-69) ; **mal formé** (`_`, `_foo`, `_31-02-2023`, `_2023-09-08`, `_1-1-2020`, suffixe double) : `invalid_arg` (`BadSuffix`). `fr_get_act` est le seul outil qui exploite le suffixe, comme date de version par défaut d'un LEGITEXT (L4-11). |
+| `id` (`fr_get_related`) | préfixe inconnu, vide | `id='<entrée>' must be a LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... decision id.` (entrée échappée et coupée à 64 caractères). Un préfixe connu suivi de chiffres faux (`LEGIARTI123`) garde le message du domaine (`… must be LEGIARTI followed by exactly 12 digits (e.g. LEGIARTI000006419288).`). Les familles valides mais non lues (LEGITEXT, KALIARTI, KALITEXT, CNILTEXT, ACCOTEXT, JORFTEXT) gardent leur renvoi vers l'outil. Aucun appel au port (L4-10). |
 | `offset` | négatif ; au-delà de la fin ; combiné à `detail="summary"` | `offset=-5 out of range (0..4294967295).` (L4-09) ; §6.1 ; `offset requires detail="full" (or omit detail).` |
 | `max_chars`, `passages`, `toc_limit`, `per_fond`, `max_citations` | hors bornes | `max_chars=100 out of range (500..40000).` (même forme pour chacun) |
 | `toc_offset` | au-delà de la fin | `toc_offset=300 is past the end of the table of contents (toc_total=88); restart from toc_offset=0.` |
