@@ -5,8 +5,9 @@
 //! citation, `etat` en code d'API, date sentinelle omise). `idcc` et `total_articles` sont des
 //! ajouts de la v0.2 (classe « ajout », 00 §7) : ils ne sont rendus que si la surface annoncée
 //! n'est pas la v0.1 ([`SURFACE`]). La mesure exacte du JSON compact suit la construction
-//! (`views::fit`) : l'estimation de l'application ignore les échappements JSON, et la vue reprend
-//! la dégradation dans le même ordre si elle est encore trop grosse (05 §6.4).
+//! (`views::fit`) : pour `fr_search`, l'estimation de l'application est exacte (elle compte le
+//! JSON que cette vue écrit, échappements compris) et la reprise de la dégradation, dans le même
+//! ordre, n'est qu'un filet (05 §6.4).
 
 use lf_application::output::search::{HitOut, SearchOutput};
 use lf_domain::entity::CodeArticleRef;

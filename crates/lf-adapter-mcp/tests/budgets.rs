@@ -1130,6 +1130,73 @@ mod budgets {
         assert!(observed.chars <= TARGET, "{}", observed.chars);
     }
 
+    /// Caractères que l'application réserve aux notes de dégradation dans son estimation
+    /// (`DEGRADE_NOTE_RESERVE` de `usecase/search.rs`, privé) : la page n'est dégradée que si son
+    /// JSON dépasse la cible moins cette réserve.
+    const NOTE_RESERVE: usize = 411;
+
+    /// Une page de `fr_search` dont tous les champs rendus sont présents (titre hors citation, date,
+    /// `nature`, `etat`, extrait, et pour CODE une liste d'articles) ; la `nature` du dernier résultat
+    /// fait `padding` caractères, ce qui règle la taille au caractère.
+    fn full_page(fond: Fond, padding: usize) -> SearchPage {
+        let hits = (1..=20)
+            .map(|n| {
+                let nature = if n == 20 { "n".repeat(padding) } else { "ARRET".to_owned() };
+                let articles = if fond == Fond::Code {
+                    (1..=3)
+                        .map(|a| {
+                            CodeArticleRef::new(
+                                ArticleId::parse(&format!("LEGIARTI{:012}", n * 10 + a)).unwrap(),
+                                Some(format!("L{a}\"")),
+                                "Le texte de l'article \"cité\".",
+                            )
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                SearchHit {
+                    nature: Some(nature),
+                    etat: Some(LegalStatus::Vigueur),
+                    articles,
+                    ..hit(fond, n, &long_title(n), &prose(2))
+                }
+            })
+            .collect();
+        page(fond, hits)
+    }
+
+    /// Dérive de l'estimateur de l'application (`usecase/search.rs`), qui recopie les champs de
+    /// `HitView` et `ArticleView`. Sur une page sans dégradation, la taille mesurée de la réponse
+    /// est celle que l'estimateur compte : elle passe tout juste à `cible - réserve` caractères et
+    /// un caractère de plus déclenche la note d'extraits retirés. Un champ ajouté à la vue sans
+    /// l'estimateur, ou l'inverse, déplace ce seuil.
+    #[tokio::test]
+    async fn search_estimate_matches_the_measured_size_to_the_character() {
+        for (fond, name) in [(Fond::Juri, "JURI"), (Fond::Code, "CODE")] {
+            let render = async |padding: usize| {
+                let fixture = Fixture::default();
+                fixture.corpus.push_search(Ok(full_page(fond, padding)));
+                let arguments = json!({"query": "bail", "fond": name, "page_size": 20});
+                let observed = Observed::of(&call(&fixture, "fr_search", &arguments).await);
+                assert!(observed.error.is_none(), "{name}: {:?}", observed.error);
+                observed
+            };
+            let (one, two) = (render(1_000).await, render(1_001).await);
+            assert_eq!(two.chars, one.chars + 1, "{name}: un caractère de nature, un de réponse");
+            assert!(one.note().is_empty(), "{name}: {}", one.note());
+            let edge = 1_000 + (ResponseBudget::ESTIMATE_TARGET_CHARS - NOTE_RESERVE - one.chars);
+            let fits = render(edge).await;
+            assert_eq!(fits.chars, ResponseBudget::ESTIMATE_TARGET_CHARS - NOTE_RESERVE, "{name}");
+            assert!(fits.note().is_empty(), "{name}: {}", fits.note());
+            assert_eq!(hits_with_snippet(hits_of(&fits)), 20, "{name}");
+            let over = render(edge + 1).await;
+            assert!(over.note().starts_with("Snippets were removed"), "{name}: {}", over.note());
+            assert!(!over.note().contains(FURTHER_NOTE), "{name}: {}", over.note());
+            assert!(over.chars <= TARGET, "{name}: {}", over.chars);
+        }
+    }
+
     /// Régression : D-33. La `page_size` proposée par un refus tient : la page ainsi demandée est
     /// rendue sous le plafond, sans remarque de repli.
     #[tokio::test]

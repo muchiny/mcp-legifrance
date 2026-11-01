@@ -18,11 +18,12 @@
 //! La taille de la page est calculée au caractère près, comme le JSON compact de la vue de
 //! `lf-adapter-mcp` l'écrira (clés, guillemets, séparateurs et échappements compris, et seulement
 //! les champs que la vue rend : le `title` contenu dans la citation et une date sentinelle sont
-//! omis), puis comparée à la cible de 42 000 caractères ; la page est dégradée dans cet ordre, sans jamais retirer
-//! un résultat : (1) extraits des derniers résultats, avec une `note` ; (2) listes d'articles et
-//! champs optionnels (`title`, `nature`, `etat`, `date`) des derniers résultats ; (3) si la page
-//! ne tient toujours pas, `invalid_arg` qui propose la plus grande `page_size` qui tiendrait. La
-//! mesure exacte, sur le JSON, est faite par la vue de `lf-adapter-mcp`.
+//! omis), puis comparée à la cible de 42 000 caractères ; la page est dégradée dans cet ordre,
+//! sans jamais retirer un résultat : (1) extraits des derniers résultats, avec une `note` ; (2)
+//! listes d'articles et champs optionnels (`title`, `nature`, `etat`, `date`) des derniers
+//! résultats ; (3) si la page ne tient toujours pas, `invalid_arg` qui propose la plus grande
+//! `page_size` qui tiendrait. La mesure exacte, sur le JSON, est faite par la vue de
+//! `lf-adapter-mcp`.
 
 use std::num::NonZeroU32;
 
@@ -274,16 +275,20 @@ fn strip_snippets(out: &mut HitOut) -> bool {
 }
 
 /// Retire la liste d'articles et les champs optionnels `title`, `nature`, `etat` et `date` ; vrai
-/// s'il y avait quelque chose à retirer. L'`idcc` reste : il identifie la convention.
+/// s'il y avait quelque chose de rendu à retirer (un titre contenu dans la citation et une date
+/// sentinelle ne le sont pas). L'`idcc` reste : il identifie la convention.
 fn strip_details(out: &mut HitOut) -> bool {
+    let citation = out.citation.as_str();
     let hit = &mut out.hit;
     let had_articles = !hit.articles.is_empty();
     hit.articles.clear();
     let had_fields = [
-        hit.title.take().is_some(),
+        hit.title
+            .take()
+            .is_some_and(|title| title_unless_in_citation(Some(&title), citation).is_some()),
         hit.nature.take().is_some(),
         hit.etat.take().is_some(),
-        hit.date.take().is_some(),
+        hit.date.take().is_some_and(|date| open_ended(Some(date)).is_some()),
     ];
     had_articles || had_fields.contains(&true)
 }
@@ -1482,6 +1487,16 @@ mod tests {
             assert!(out.hit.title.is_none() && out.hit.nature.is_none());
             assert!(out.hit.etat.is_none() && out.hit.date.is_none());
         }
+        // Un titre contenu dans la citation et une date sentinelle ne sont pas rendus : les retirer
+        // ne gagne rien, le résultat n'est pas compté comme dégradé.
+        let unseen = SearchHit {
+            title: Some("c".to_owned()),
+            date: CivilDate::new(2222, 1, 1),
+            ..bare(Fond::Juri, 6)
+        };
+        let mut out = plain(unseen);
+        assert!(!strip_details(&mut out));
+        assert!(out.hit.title.is_none() && out.hit.date.is_none());
         // L'`idcc` identifie la convention : il reste.
         let mut kept = plain(SearchHit { idcc: Idcc::parse("275"), ..bare(Fond::Kali, 5) });
         assert!(!strip_details(&mut kept));
