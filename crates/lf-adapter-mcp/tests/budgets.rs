@@ -1296,14 +1296,15 @@ mod budgets {
     /// riche des surfaces (v0.3), et aucune description ne dépasse 1 000 caractères. Le budget
     /// initial de 29 000 octets avait été recalibré sur la mesure plus 10 % (05 §6.6) ; F1 le pose
     /// une dernière fois sur la surface finale, les treize outils : 31 853 octets mesurés, plus 3 %
-    /// (32 808,6), arrondis à la centaine supérieure, soit 32 900 octets. La même valeur est dans
-    /// `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`), qui mesure le même JSON canonique.
+    /// (32 808,6), arrondis à la centaine supérieure, soit 32 900 octets ; la 1.1.0 le relève à
+    /// 34 500 (Q27 = A, 05 §6.6) : 32 608 octets mesurés à la vague V2b, D-12 ajoute des
+    /// descriptions. La même valeur est dans `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`), qui mesure le même JSON canonique.
     #[tokio::test]
     async fn descriptor_size_budget() {
         let client = Fixture::default().connect().await;
         let tools = client.list_all_tools().await.unwrap();
         let bytes = serde_json::to_vec(&tools).unwrap().len();
-        assert!(bytes <= 32_900, "tools/list: {bytes} bytes");
+        assert!(bytes <= 34_500, "tools/list: {bytes} bytes");
         for tool in &tools {
             let description = tool.description.as_deref().unwrap_or("");
             assert!(description.chars().count() <= 1_000, "{}: {description}", tool.name);

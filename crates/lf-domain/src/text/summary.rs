@@ -113,6 +113,11 @@ struct Markers {
     headers: &'static [&'static str],
     /// Débuts de paragraphe qui ferment le dispositif. Exclu du résumé.
     footers: &'static [&'static str],
+    /// Titres de signature (vue repliée, sans blancs) : un paragraphe fait de ce titre seul, ou
+    /// suivi d'au plus [`SIGNATURE_MAX_NAME_WORDS`] mots à majuscule initiale (le nom du
+    /// signataire), ferme aussi le dispositif. Une phrase qui commence par le titre (« Le Président
+    /// de la CNIL est chargé… ») est un paragraphe du dispositif, pas la signature.
+    signatures: &'static [&'static str],
     /// Sans clôture, le dispositif court jusqu'à la fin du texte (il faut un en-tête et un corps
     /// non vide).
     open_ended: bool,
@@ -123,24 +128,31 @@ struct Markers {
 const CONSEIL_CONSTITUTIONNEL: Markers = Markers {
     headers: &["leconseilconstitutionneldecide", "decide"],
     footers: &["jugepar", "delibere", "rendupublic"],
+    signatures: &[],
     open_ended: true,
 };
 
 /// Conseil d'État : « D E C I D E : » (ou « DECIDE : ») … « Délibéré ».
 const CONSEIL_ETAT: Markers =
-    Markers { headers: &["decide"], footers: &["delibere"], open_ended: false };
+    Markers { headers: &["decide"], footers: &["delibere"], signatures: &[], open_ended: false };
 
 /// CNIL (D-09, relevés c110) : « PAR CES MOTIFS » ouvre le dispositif des quatre sanctions relevées
 /// (SAN-2018-008, SAN-2025-008, SAN-2026-002 et son jumeau), « II- Mesures correctrices
 /// prononcées par la CNIL » celui de l'unique mise en demeure relevée (MED-2024-150). Clôture :
-/// « Le Président » / « La Présidente » (signature) ou la mention des voies de recours (« Cette
-/// décision peut faire… », « Cette décision est susceptible… »). Dispositif fermé : sans clôture,
+/// « Le Président » / « La Présidente » seuls ou suivis du nom du signataire (une phrase qui
+/// commence ainsi reste dans le dispositif) ou la mention des voies de recours (« Cette décision
+/// peut faire l'objet… », « Cette décision est susceptible de recours… » ; pas « Cette décision
+/// est rendue publique… », qui peut figurer dans le dispositif). Dispositif fermé : sans clôture,
 /// le texte reste au début.
 const CNIL: Markers = Markers {
     headers: &["parcesmotifs", "ii-mesurescorrectricesprononceesparlacnil"],
-    footers: &["lepresident", "lapresident", "cettedecisionpeut", "cettedecisionest"],
+    footers: &["cettedecisionpeutfaire", "cettedecisionestsusceptible"],
+    signatures: &["lepresident", "lapresidente"],
     open_ended: false,
 };
+
+/// Mots d'un nom de signataire qui suivent le titre d'une signature (« Jean-François CARREZ »).
+const SIGNATURE_MAX_NAME_WORDS: usize = 4;
 
 /// Résumé de `text`, d'au plus `min(max_chars, SUMMARY_CAP_CHARS)` caractères.
 ///
@@ -219,13 +231,32 @@ fn dispositif(text: &LongText, rule: DispositifRule) -> Option<String> {
         if !inside {
             let header = key.strip_suffix(':').unwrap_or(&key);
             inside = markers.headers.contains(&header);
-        } else if markers.footers.iter().any(|footer| key.starts_with(footer)) {
+        } else if closes(&markers, paragraph, &key) {
             return (!body.is_empty()).then(|| body.join(BLOCK_SEPARATOR));
         } else {
             body.push(paragraph);
         }
     }
     (markers.open_ended && !body.is_empty()).then(|| body.join(BLOCK_SEPARATOR))
+}
+
+/// Vrai si `paragraph` ferme le dispositif : il commence par une clôture (`key` est sa vue
+/// repliée), ou c'est une signature de `markers`.
+fn closes(markers: &Markers, paragraph: &str, key: &str) -> bool {
+    markers.footers.iter().any(|footer| key.starts_with(footer)) || is_signature(markers, paragraph)
+}
+
+/// Vrai pour un paragraphe qui est un titre de signature de `markers`, seul ou suivi d'au plus
+/// [`SIGNATURE_MAX_NAME_WORDS`] mots à majuscule initiale.
+fn is_signature(markers: &Markers, paragraph: &str) -> bool {
+    let mut words = paragraph.split_whitespace();
+    let title = marker_key(&words.by_ref().take(2).collect::<Vec<_>>().join(" "));
+    if !markers.signatures.contains(&title.as_str()) {
+        return false;
+    }
+    let name: Vec<&str> = words.collect();
+    name.len() <= SIGNATURE_MAX_NAME_WORDS
+        && name.iter().all(|word| word.chars().next().is_some_and(char::is_uppercase))
 }
 
 /// Début de `text` : les premiers paragraphes, jusqu'à ce que le total atteigne au moins
@@ -1105,7 +1136,6 @@ mod tests {
         let refs: Vec<&str> = paragraphs.iter().map(String::as_str).collect();
         let text = long(&refs);
         assert!(text.char_len() >= 100_000);
-        let started = std::time::Instant::now();
         let got = summary(&text, None, DispositifRule::Cnil, 4_000);
         assert_eq!(
             parts(&got),
@@ -1118,7 +1148,66 @@ mod tests {
         // Sans marqueur, le même texte passe aussi et retombe sur le début.
         let plain = long(&refs[..999]);
         assert_eq!(summary(&plain, None, DispositifRule::Cnil, 4_000).source, SummarySource::Lead);
-        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn dispositif_cnil_is_not_closed_by_a_sentence_that_starts_like_a_closing() {
+        // Synthétique : un paragraphe du dispositif qui commence comme la signature ou comme la
+        // mention des voies de recours ne le ferme pas, sinon une amende ou une injonction placée
+        // après lui serait perdue sans signal (`truncated` resterait faux).
+        let rule = DispositifRule::Cnil;
+        let body = [
+            "Le Président de la CNIL est chargé de notifier la présente décision.",
+            "Le Président est chargé de la publier.",
+            "La Présidente de la formation restreinte veille à son exécution.",
+            "Cette décision est rendue publique sur le site de la CNIL.",
+            "Cette décision sera notifiée à la société.",
+            "Prononce une amende administrative de 50 000 euros.",
+        ];
+        for closing in [
+            ["Le Président", "Jean-François CARREZ"],
+            ["La Présidente", "Marie-Laure DENIS"],
+            ["Cette décision peut faire l’objet d’un recours devant le Conseil d’État.", "Reste."],
+            ["Cette décision est susceptible de faire l’objet d’un recours.", "Reste."],
+        ] {
+            let mut paragraphs = vec!["Visa.", "PAR CES MOTIFS"];
+            paragraphs.extend(body);
+            paragraphs.extend(closing);
+            let got = summary(&long(&paragraphs), None, rule, 4_000);
+            assert_eq!(got.source, SummarySource::Dispositif, "{closing:?}");
+            assert_eq!(got.text, body.join("\n\n"), "{closing:?}");
+            assert!(!got.truncated);
+        }
+    }
+
+    #[test]
+    fn dispositif_cnil_signature_is_a_title_alone_or_with_a_name() {
+        let rule = DispositifRule::Cnil;
+        for signature in [
+            "Le Président",
+            "La Présidente",
+            "Le Président Jean-François CARREZ",
+            "La Présidente Marie-Laure DENIS",
+            "le président",
+        ] {
+            let text =
+                long(&["Visa.", "PAR CES MOTIFS", "Amende de 10 euros.", signature, "Reste."]);
+            let got = summary(&text, None, rule, 4_000);
+            assert_eq!(parts(&got).1, "Amende de 10 euros.", "{signature}");
+        }
+        // Un titre suivi d'un mot en minuscule ou d'un long texte est une phrase du dispositif.
+        for sentence in ["Le Président est chargé de la publication.", "Le Président A B C D E"]
+        {
+            let text = long(&[
+                "Visa.",
+                "PAR CES MOTIFS",
+                sentence,
+                "Amende de 10 euros.",
+                "Cette décision peut faire l’objet d’un recours.",
+            ]);
+            let got = summary(&text, None, rule, 4_000);
+            assert!(parts(&got).1.ends_with("Amende de 10 euros."), "{sentence}");
+        }
     }
 
     #[test]

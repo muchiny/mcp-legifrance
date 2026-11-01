@@ -85,7 +85,9 @@ const ENVELOPE_TEXT_CHARS: usize = 20 + 2 * (20 + 2 * 10 + 16);
 /// Part des mots de A conservés dans B, en pourcentage, sous laquelle la réponse porte une note
 /// (D-06). Un amendement garde l'essentiel du texte (CGI 777, versions 13 à 14 : 99 %) ; deux
 /// textes sans rapport en gardent leurs mots outils, jusqu'à 30,4 % (Code civil, 1240 actuel contre
-/// ancien). Calibré sur les relevés réels, voir les tests `the_threshold_*` ci-dessous.
+/// ancien) sur des textes courts, 25,8 % au plus sur 45 paires d'articles de 130 à 3 900 mots. Calibré sur
+/// des relevés réels, voir les tests `the_threshold_*` et `long_unrelated_*` ci-dessous. Aucun
+/// amendement réel de 40 à 70 % n'est enregistré : la valeur reste provisoire de ce côté.
 const LOW_SIMILARITY_PERCENT: usize = 40;
 
 /// Note jointe quand les deux versions partagent très peu de texte (D-06).
@@ -1353,6 +1355,39 @@ mod tests {
         ))
     }
 
+    // Cinq textes réels longs (de 528 à 3 928 mots), sans rapport entre eux, pour la mesure du seuil
+    // sur des textes de la taille d'un vrai article de code (relevés `getArticle` de `c101/`).
+    fn cgi_163_bis_h() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C7-getArticle-cgi-163-bis-H-LEGIARTI000053543789.json"
+        ))
+    }
+    fn cgi_150_0_b_ter() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C1-getArticle-cgi-150-0-B-ter.json"
+        ))
+    }
+    fn cgi_199_terdecies_0_a() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C1-getArticle-cgi-199-terdecies-0-A.json"
+        ))
+    }
+    fn cgi_art_47288653() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C13-getArticle-LEGIARTI000047288653.json"
+        ))
+    }
+    fn rental_decency_43977105() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C8-getArticle-LEGIARTI000043977105.json"
+        ))
+    }
+
     #[test]
     fn the_recorded_texts_are_the_ones_the_calibration_names() {
         assert!(civil_1382_old().starts_with("Tout fait quelconque de l'homme"));
@@ -1386,6 +1421,32 @@ mod tests {
         assert_eq!(shared(civil_1240_current(), civil_1240_old()), (7, 23, 27, true));
         assert_eq!(shared(civil_1382_old(), civil_1240_old()), (7, 23, 27, true));
         assert_eq!(shared(civil_1382_current(), civil_1382_old()), (4, 43, 23, true));
+    }
+
+    // Textes longs sans rapport : la LCS sur les mots outils croît avec la longueur, il fallait
+    // vérifier que la part conservée reste sous 40 %. Mesuré (mots conservés, mots de A, mots de
+    // B), dans les deux sens, sur les 45 paires de dix articles réels sans rapport (de 130 à
+    // 3 928 mots, CGI, loi de 1989, convention collective, annexe d'arrêté) : le maximum est de
+    // 25,8 % (CGI 163 bis H vers CGI 150-0 B ter, 486 sur 1 887), soit 14 points sous le
+    // seuil ; le CGI 150-0 B ter vers le 199 terdecies 0 A garde 19 % et son sens inverse 15 %.
+    // Aucun amendement réel de part intermédiaire (40 à 70 %) n'est enregistré : le seuil reste
+    // provisoire de ce côté, voir le CHANGELOG.
+    #[test]
+    fn long_unrelated_real_articles_stay_well_under_the_threshold() {
+        let long = [
+            (cgi_163_bis_h(), cgi_150_0_b_ter(), (486, 1887, 2634)),
+            (cgi_150_0_b_ter(), cgi_199_terdecies_0_a(), (500, 2634, 3928)),
+            (cgi_199_terdecies_0_a(), cgi_150_0_b_ter(), (603, 3928, 2634)),
+            (cgi_art_47288653(), cgi_150_0_b_ter(), (347, 1851, 2634)),
+            (rental_decency_43977105(), cgi_art_47288653(), (114, 528, 1851)),
+            (cgi_163_bis_h(), cgi_199_terdecies_0_a(), (356, 1887, 3928)),
+        ];
+        for (old, new, (kept, old_words, new_words)) in long {
+            // Note attendue : ces textes n'ont aucun rapport, ils doivent la recevoir.
+            assert_eq!(shared(old, new), (kept, old_words, new_words, true));
+            // Marge : la part reste sous 30 %, bien en dessous du seuil de 40 %.
+            assert!(kept * 100 < old_words * 30, "{kept} sur {old_words}");
+        }
     }
 
     #[tokio::test]
