@@ -6,10 +6,14 @@
 //! 1. Validation sans réseau : `article_id` (un `LEGIARTI`), `date_a` (requise), puis `date_b`
 //!    (aujourd'hui à Paris par défaut, jamais la date UTC, D-19).
 //! 2. Un appel `article_versions` : la version en vigueur à chaque date. Une version couvre
-//!    `date_debut..=date_fin` (fin incluse, absente = sans date de fin) ; une version sans
-//!    `date_debut` n'est en vigueur à aucune date (sentinelle `2222-02-22` des entrées en vigueur
-//!    différée, V-101). Si plusieurs couvrent la date, la plus récente l'emporte. Aucune version :
-//!    `not_found` « No version of {id} is in force on {date}. ».
+//!    `date_debut..=date_fin` (absente = sans date de fin) ; une version sans `date_debut` n'est
+//!    en vigueur à aucune date (sentinelle `2222-02-22` des entrées en vigueur différée, V-101).
+//!    Sur les données réelles, la `date_fin` d'une version est le jour d'entrée en vigueur de la
+//!    suivante (L1234-9 : fin et début suivant le 2017-09-24) : ce jour appartient donc déjà à la
+//!    suivante. Le test `<=` couvre les deux versions ce jour-là, et la plus récente l'emporte ;
+//!    on ne passe ni à `day < end` ni à `date_fin - 1` (L5-02). Une `date_fin` future (CGI 200 :
+//!    2027-01-01, état `ABROGE_DIFF`) est une fin programmée, servie telle que l'API la donne.
+//!    Aucune version : `not_found` « No version of {id} is in force on {date}. ».
 //! 3. Les deux dates dans la même version : `identical`, sans hunk et avec un seul `get_article`
 //!    (la citation). Sinon les deux textes se lisent ensemble.
 //! 4. Diff mot à mot ([`similar`], Myers) : un hunk par suite contiguë de mots changés, avec sa
@@ -196,6 +200,11 @@ fn no_version(id: &LegiArtiId, date: VersionDate) -> AppError {
 
 /// La version en vigueur à `date` : celle dont `date_debut..=date_fin` la contient, la plus
 /// récente si plusieurs la contiennent. Une version sans `date_debut` ne contient aucune date.
+///
+/// La `date_fin` réelle d'une version est le jour où la suivante prend effet : ce jour-là, les deux
+/// versions contiennent la date et la plus récente l'emporte (bornes comprises, jamais `day < end`).
+/// La borne n'est « incluse » que faute de successeur ; le cas d'une dernière version abrogée au
+/// jour de sa `date_fin`, sans suivante, reste à mesurer (L5-02).
 fn in_force(versions: &[ArticleVersion], date: VersionDate) -> Option<&ArticleVersion> {
     let day = date.as_civil();
     versions
@@ -435,7 +444,8 @@ mod tests {
 
     type Ymd = Option<(u16, u8, u8)>;
 
-    /// Version `n` en vigueur de `from` à `to` (fin incluse ; `None` : sans borne).
+    /// Version `n` en vigueur de `from` à `to` (`to` : borne de `in_force`, jour d'entrée en
+    /// vigueur de la suivante dans les données réelles ; `None` : sans borne).
     fn version(n: u32, from: Ymd, to: Ymd) -> ArticleVersion {
         ArticleVersion {
             id: arti(n),
@@ -803,9 +813,53 @@ mod tests {
         let versions = two_versions();
         assert_eq!(id_on(&versions, "2016-10-08"), None, "la veille du début");
         assert_eq!(id_on(&versions, "2016-10-09"), Some(arti(1)));
-        assert_eq!(id_on(&versions, "2023-09-07"), Some(arti(1)), "la fin est incluse");
+        assert_eq!(id_on(&versions, "2023-09-07"), Some(arti(1)), "la borne de fin est comprise");
         assert_eq!(id_on(&versions, "2023-09-08"), Some(arti(2)));
         assert_eq!(id_on(&versions, "2221-12-31"), Some(arti(2)), "sans date de fin");
+    }
+
+    #[test]
+    fn on_the_day_a_version_ends_the_next_one_is_served() {
+        // L1234-9 (LEGIARTI000035644154) : la `date_fin` de A et le `date_debut` de B sont le même
+        // jour ; ce jour-là B l'emporte, la veille A est encore servie.
+        let versions = vec![
+            version(1, Some((2016, 10, 9)), Some((2017, 9, 24))),
+            version(2, Some((2017, 9, 24)), None),
+        ];
+        assert_eq!(id_on(&versions, "2017-09-23"), Some(arti(1)), "la veille");
+        assert_eq!(id_on(&versions, "2017-09-24"), Some(arti(2)), "le jour de bascule");
+        assert_eq!(id_on(&versions, "2017-09-25"), Some(arti(2)), "le lendemain");
+    }
+
+    #[tokio::test]
+    async fn a_future_date_fin_and_the_abroge_diff_state_are_served_as_the_api_gives_them() {
+        // CGI 200 : version en vigueur à ce jour avec `date_fin` future et état `ABROGE_DIFF`
+        // (abrogation programmée) ; ni la borne ni l'état ne sont normalisés.
+        let scheduled_repeal = || {
+            let mut scheduled = version(1, Some((2022, 1, 1)), Some((2027, 1, 1)));
+            scheduled.etat = Some(LegalStatus::AbrogeDiff);
+            let mut next = version(2, Some((2027, 1, 1)), None);
+            next.etat = Some(LegalStatus::VigueurDifferee);
+            vec![scheduled, next]
+        };
+        let corpus = serving(scheduled_repeal(), "texte", "texte");
+
+        let output = run(&corpus, &clock(), input(&id_of(1), "2022-01-01", Some("2026-12-31")))
+            .await
+            .unwrap();
+        assert!(output.identical, "le 2026-12-31 est encore dans la version abrogée en différé");
+        assert_eq!(output.version_b.article_id, arti(1));
+        assert_eq!(output.version_b.etat, Some(LegalStatus::AbrogeDiff));
+        assert_eq!(output.version_b.date_fin, Some(day(2027, 1, 1)));
+
+        // Le jour de `date_fin`, la suivante (`VIGUEUR_DIFF`) est servie.
+        let corpus = serving(scheduled_repeal(), "avant", "après");
+        let output = run(&corpus, &clock(), input(&id_of(1), "2026-12-31", Some("2027-01-01")))
+            .await
+            .unwrap();
+        assert!(!output.identical);
+        assert_eq!(output.version_b.article_id, arti(2));
+        assert_eq!(output.version_b.etat, Some(LegalStatus::VigueurDifferee));
     }
 
     #[test]
