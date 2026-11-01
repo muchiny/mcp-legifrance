@@ -97,7 +97,9 @@ fn unnumbered() -> ArticleNum {
         special: Some(SpecialNum::SansNumero),
         base: Vec::new(),
         latin: None,
+        latin_sub: None,
         letters: None,
+        latin_after: None,
     }
 }
 

@@ -682,15 +682,74 @@ pub struct ArticleNum {
     pub special: Option<SpecialNum>,
     /// Parties numériques : `[1234, 5]` pour `1234-5`.
     pub base: Vec<u32>,
-    /// Adverbe latin.
+    /// Adverbe latin placé avant les lettres (`undecies` dans `199 undecies B`).
     pub latin: Option<LatinAdverb>,
+    /// Entier collé à l'adverbe par un tiret (`0` dans `199 terdecies-0 A`).
+    pub latin_sub: Option<u32>,
     /// Lettres de suffixe (`B` dans `199 undecies B`).
     pub letters: Option<String>,
+    /// Adverbe latin placé après les lettres (`ter` dans `150-0 B ter`).
+    pub latin_after: Option<LatinAdverb>,
+}
+
+/// Suffixes d'un numéro d'article en cours de lecture : `[adverbe [-entier]] [lettres] [adverbe]`.
+/// Machine à états commune à la grammaire (`art_num`) et à `ArticleNum::from_str`.
+#[derive(Default)]
+pub(crate) struct Suffixes {
+    /// Adverbe avant les lettres.
+    pub(crate) latin: Option<LatinAdverb>,
+    /// Entier collé à cet adverbe.
+    pub(crate) latin_sub: Option<u32>,
+    /// Lettres de suffixe.
+    pub(crate) letters: Option<String>,
+    /// Adverbe après les lettres.
+    pub(crate) latin_after: Option<LatinAdverb>,
+}
+
+impl Suffixes {
+    /// Ajoute un adverbe : le premier avant toute lettre, le second après les lettres. Refuse
+    /// deux adverbes consécutifs (`5 bis ter`) et un troisième.
+    pub(crate) fn push_adverb(&mut self, adverb: LatinAdverb) -> bool {
+        if self.letters.is_some() && self.latin_after.is_none() {
+            self.latin_after = Some(adverb);
+            true
+        } else if self.letters.is_none() && self.latin.is_none() {
+            self.latin = Some(adverb);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Ajoute l'entier collé au premier adverbe (`terdecies-0`).
+    pub(crate) fn push_sub(&mut self, sub: u32) -> bool {
+        let fits = self.latin.is_some() && self.letters.is_none() && self.latin_sub.is_none();
+        if fits {
+            self.latin_sub = Some(sub);
+        }
+        fits
+    }
+
+    /// Ajoute les lettres : une seule fois.
+    pub(crate) fn push_letters(&mut self, letters: String) -> bool {
+        let fits = self.letters.is_none();
+        if fits {
+            self.letters = Some(letters);
+        }
+        fits
+    }
+
+    /// Le dernier suffixe lu est un adverbe : ce qui suit ne peut plus être une lettre (`885-0 V
+    /// bis A`) sans que le numéro soit tronqué.
+    pub(crate) fn after_adverb(&self) -> bool {
+        self.latin_after.is_some() || (self.latin.is_some() && self.letters.is_none())
+    }
 }
 
 impl ArticleNum {
     /// Clé canonique : préfixe sans point ni espace, numéro, puis suffixes séparés par une
-    /// espace (`L761-1`, `R*111-1`, `199 undecies B`, `1er`). Vide pour `SansNumero`.
+    /// espace (`L761-1`, `R*111-1`, `199 undecies B`, `150-0 B ter`, `199 terdecies-0 A`, `1er`).
+    /// Vide pour `SansNumero`.
     pub fn num_key(&self) -> String {
         if let Some(special) = self.special {
             return special.as_str().to_owned();
@@ -701,10 +760,18 @@ impl ArticleNum {
         if let Some(latin) = &self.latin {
             key.push(' ');
             key.push_str(latin.as_str());
+            if let Some(sub) = self.latin_sub {
+                key.push('-');
+                key.push_str(&sub.to_string());
+            }
         }
         if let Some(letters) = &self.letters {
             key.push(' ');
             key.push_str(letters);
+        }
+        if let Some(latin) = &self.latin_after {
+            key.push(' ');
+            key.push_str(latin.as_str());
         }
         key
     }
@@ -757,6 +824,14 @@ fn split_prefix(text: &str) -> (Option<ArticlePrefix>, &str) {
     (None, text)
 }
 
+/// L'unique élément d'une liste d'un seul élément.
+fn single(parts: &[u32]) -> Option<u32> {
+    match parts {
+        &[one] => Some(one),
+        _ => None,
+    }
+}
+
 /// Parties numériques d'un numéro (`1234-5` donne `[1234, 5]`).
 fn parse_base(word: &str) -> Option<Vec<u32>> {
     word.split('-')
@@ -781,24 +856,31 @@ impl FromStr for ArticleNum {
                 special: Some(special),
                 base: Vec::new(),
                 latin: None,
+                latin_sub: None,
                 letters: None,
+                latin_after: None,
             });
         }
         let (prefix, rest) = split_prefix(text);
         let mut words = rest.split_whitespace();
         let base = words.next().and_then(parse_base).ok_or(invalid)?;
-        let (mut latin, mut letters) = (None, None);
+        let mut found = Suffixes::default();
         for word in words {
+            let (head, sub) = word.split_once('-').map_or((word, None), |(h, t)| (h, Some(t)));
             let is_letters = word.len() <= 2 && word.bytes().all(|b| b.is_ascii_uppercase());
-            if latin.is_none() && letters.is_none() && LatinAdverb::parse(word).is_some() {
-                latin = LatinAdverb::parse(word);
-            } else if letters.is_none() && is_letters {
-                letters = Some(word.to_owned());
+            let accepted = if let Some(adverb) = LatinAdverb::parse(head) {
+                let sub = sub.map(|digits| parse_base(digits).and_then(|parts| single(&parts)));
+                found.push_adverb(adverb)
+                    && sub.is_none_or(|n| n.is_some_and(|n| found.push_sub(n)))
             } else {
+                is_letters && found.push_letters(word.to_owned())
+            };
+            if !accepted {
                 return Err(invalid);
             }
         }
-        Ok(Self { prefix, special: None, base, latin, letters })
+        let Suffixes { latin, latin_sub, letters, latin_after } = found;
+        Ok(Self { prefix, special: None, base, latin, latin_sub, letters, latin_after })
     }
 }
 
@@ -1873,7 +1955,9 @@ mod tests {
             special: Some(SpecialNum::SansNumero),
             base: Vec::new(),
             latin: None,
+            latin_sub: None,
             letters: None,
+            latin_after: None,
         };
         assert_eq!(blank.num_key(), "");
         assert_eq!(blank.key_variants(), [""]);
@@ -1900,6 +1984,63 @@ mod tests {
         assert_eq!(num("LO141").prefix, Some(ArticlePrefix::Lo));
         assert_eq!(num("1234-5").prefix, None);
         assert_eq!(num("  12 B ").letters.as_deref(), Some("B"));
+    }
+
+    #[test]
+    fn article_number_suffixes_round_trip_through_the_key() {
+        let cases = [
+            ("150-0 B ter", Some("ter")),
+            ("199 terdecies-0 A", None),
+            ("199 terdecies-0 A bis", Some("bis")),
+            ("1649 quater B quinquies", Some("quinquies")),
+            ("50 terdecies-0", None),
+            ("5 bis-3", None),
+            ("5 B bis", Some("bis")),
+        ];
+        for (text, after) in cases {
+            let parsed = num(text);
+            assert_eq!(parsed.num_key(), text, "{text}");
+            assert_eq!(num(&parsed.num_key()), parsed, "{text}");
+            assert_eq!(parsed.latin_after.as_ref().map(LatinAdverb::as_str), after, "{text}");
+        }
+        let parsed = num("199 terdecies-0 A");
+        assert_eq!(parsed.latin, Some(LatinAdverb::Other("terdecies".into())));
+        assert_eq!(parsed.latin_sub, Some(0));
+        assert_eq!(parsed.letters.as_deref(), Some("A"));
+        assert_eq!(parsed.latin_after, None);
+        let parsed = num("150-0 B ter");
+        assert_eq!(
+            (parsed.base.clone(), parsed.latin, parsed.latin_sub),
+            (vec![150, 0], None, None)
+        );
+        assert_eq!(parsed.letters.as_deref(), Some("B"));
+        assert_eq!(parsed.latin_after, Some(LatinAdverb::Ter));
+        assert_eq!(num("199 terdecies-0 A").key_variants(), ["199 terdecies-0 A"]);
+    }
+
+    #[test]
+    fn article_number_parsing_never_truncates_a_suffix() {
+        for bad in [
+            "5 bis ter",
+            "5 B bis ter",
+            "5 B bis A",
+            "885-0 V bis A",
+            "199 terdecies-0 ter",
+            "5 bis-",
+            "5 bis-x",
+            "5 bis-3-4",
+            "5 bis-+3",
+            "5 B bis-3",
+            "199 undecies B bis-3",
+            "5 B-3",
+            "5 -3",
+        ] {
+            assert_eq!(
+                bad.parse::<ArticleNum>(),
+                Err(NumberParseError { kind: "article" }),
+                "{bad:?}"
+            );
+        }
     }
 
     #[test]

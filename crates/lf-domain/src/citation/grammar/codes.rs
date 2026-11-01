@@ -34,7 +34,7 @@ use crate::citation::normalize::{Normalized, fold_char};
 use crate::citation::scan::{Anchor, AnchorClass};
 use crate::citation::types::{
     Ambiguity, Anaphora, ArticleNum, ArticlePrefix, ArticleRef, CitationRef, CodeRef, Confidence,
-    Flag, LatinAdverb, Sigle, SpecialNum, Subdivision, VersionQualifier,
+    Flag, LatinAdverb, Sigle, SpecialNum, Subdivision, Suffixes, VersionQualifier,
 };
 use crate::date::CivilDate;
 
@@ -429,27 +429,34 @@ fn capital_letters(text: &str, at: usize) -> Option<(String, usize)> {
         .then(|| (letters.to_owned(), at + len))
 }
 
-/// Suffixes d'un numéro : un adverbe latin puis des lettres, chacun au plus une fois.
-fn suffixes(text: &str, at: usize) -> (Option<LatinAdverb>, Option<String>, usize) {
-    let (mut latin, mut letters, mut end) = (None, None, at);
+/// Suffixes d'un numéro : `[adverbe [-entier]] [lettres] [adverbe]`, chacun au plus une fois
+/// (`199 undecies B`, `150-0 B ter`, `199 terdecies-0 A`). `None` quand un adverbe ou une lettre
+/// valide ne peut plus être lu après un adverbe (`5 bis ter`, `885-0 V bis A`) : le numéro serait
+/// tronqué, donc aucune citation n'est émise.
+fn suffixes(text: &str, at: usize) -> Option<(Suffixes, usize)> {
+    let (mut found, mut end) = (Suffixes::default(), at);
     while let Some(start) = ws(text, end) {
-        let adverb = letters_word(text, start);
-        if latin.is_none()
-            && letters.is_none()
-            && let Some(parsed) = LatinAdverb::parse(adverb)
-        {
-            latin = Some(parsed);
-            end = start + adverb.len();
-        } else if letters.is_none()
-            && let Some((found, after)) = capital_letters(text, start)
-        {
-            letters = Some(found);
+        let word = letters_word(text, start);
+        if let Some(adverb) = LatinAdverb::parse(word) {
+            if !found.push_adverb(adverb) {
+                return None;
+            }
+            end = start + word.len();
+            if let Some((sub, after)) = consume(text, end, '-').and_then(|pos| uint(text, pos))
+                && found.push_sub(sub)
+            {
+                end = after;
+            }
+        } else if let Some((letters, after)) = capital_letters(text, start) {
+            if !found.push_letters(letters) {
+                return if found.after_adverb() { None } else { Some((found, end)) };
+            }
             end = after;
         } else {
             break;
         }
     }
-    (latin, letters, end)
+    Some((found, end))
 }
 
 /// `num_end` : une frontière de mot, sans « ° » (un item) ni « - » (numéro tronqué) collé.
@@ -477,15 +484,28 @@ pub(super) fn art_num(text: &str, at: usize) -> Option<(ArticleNum, usize)> {
                 special: Some(special),
                 base: Vec::new(),
                 latin: None,
+                latin_sub: None,
                 letters: None,
+                latin_after: None,
             },
             end,
         )
     } else {
         let (found, pos) = prefix(text, at).map_or((None, at), |(p, pos)| (Some(p), pos));
         let (base, pos) = base_num(text, pos)?;
-        let (latin, letters, end) = suffixes(text, pos);
-        (ArticleNum { prefix: found, special: None, base, latin, letters }, end)
+        let (Suffixes { latin, latin_sub, letters, latin_after }, end) = suffixes(text, pos)?;
+        (
+            ArticleNum {
+                prefix: found,
+                special: None,
+                base,
+                latin,
+                latin_sub,
+                letters,
+                latin_after,
+            },
+            end,
+        )
     };
     num_end(text, end).then_some((num, end))
 }
@@ -1678,6 +1698,33 @@ mod tests {
     }
 
     #[test]
+    fn suffixed_numbers_keep_their_adverb_and_their_code() {
+        check(&[
+            (
+                "article 150-0 B ter du code général des impôts",
+                &[ART],
+                &[(
+                    "article 150-0 B ter du code général des impôts",
+                    "Code général des impôts|150-0 B ter",
+                )],
+            ),
+            (
+                "CGI, art. 150-0 B ter.",
+                &[ART_DOT],
+                &[("CGI, art. 150-0 B ter", "Code général des impôts|150-0 B ter")],
+            ),
+            (
+                "art. 199 terdecies-0 A du code général des impôts",
+                &[ART_DOT],
+                &[(
+                    "art. 199 terdecies-0 A du code général des impôts",
+                    "Code général des impôts|199 terdecies-0 A",
+                )],
+            ),
+        ]);
+    }
+
+    #[test]
     fn prefixes_and_numbers_p022_to_p029_p036_p042() {
         check(&[
             (
@@ -2509,17 +2556,60 @@ mod tests {
         assert_eq!(num_of("préliminaire"), Some(key("préliminaire", "préliminaire".len())));
         assert_eq!(num_of("39 octies du"), Some(key("39 octies", 9)));
         assert_eq!(num_of("199 undecies B du"), Some(key("199 undecies B", 14)));
-        assert_eq!(num_of("5 bis ter"), Some(key("5 bis", 5)));
+        assert_eq!(num_of("5 B bis"), Some(key("5 B bis", 7)));
         assert_eq!(num_of("5 B C"), Some(key("5 B", 3)));
-        assert_eq!(num_of("5 B bis"), Some(key("5 B", 3)));
         assert_eq!(num_of("121-3 CP"), Some(key("121-3", 5)));
         assert_eq!(num_of("5 DU CODE"), Some(key("5", 1)));
         assert_eq!(num_of("5 ET 6"), Some(key("5", 1)));
         assert_eq!(num_of("5 ABC"), Some(key("5", 1)));
         assert_eq!(num_of("5 a"), Some(key("5", 1)));
         assert_eq!(num_of("5 C. civ."), Some(key("5", 1)));
-        for not_a_number in ["1234-5a", "2270-", "2°", "L", "L. x", "", "uniques"] {
+        for not_a_number in ["5 bis ter", "1234-5a", "2270-", "2°", "L", "L. x", "", "uniques"] {
             assert_eq!(num_of(not_a_number), None, "{not_a_number}");
+        }
+    }
+
+    #[test]
+    fn article_numbers_with_a_latin_adverb_after_the_letters_or_glued_to_a_dash() {
+        // L1-01 : les formes réelles du CGI (E2E resolve-3, gap3-1, gap3-6).
+        let kept = [
+            ("150-0 B ter du", "150-0 B ter", 11),
+            ("150-0 D ter", "150-0 D ter", 11),
+            ("199 terdecies-0 A du", "199 terdecies-0 A", 17),
+            ("199 terdecies-0 AA", "199 terdecies-0 AA", 18),
+            ("199 terdecies-0 A ter", "199 terdecies-0 A ter", 21),
+            ("199 terdecies-0 A bis,", "199 terdecies-0 A bis", 21),
+            ("50 terdecies-0", "50 terdecies-0", 14),
+            ("383-0 ter", "383-0 ter", 9),
+            ("46-0 B ter", "46-0 B ter", 10),
+            ("1649 quater B quinquies", "1649 quater B quinquies", 23),
+            ("1594 F quinquies", "1594 F quinquies", 16),
+            ("199 undecies B", "199 undecies B", 14),
+            ("5 bis A", "5 bis A", 7),
+            ("5 bis-3", "5 bis-3", 7),
+            ("5 bis DU CODE", "5 bis", 5),
+            ("5 B E", "5 B", 3),
+            ("199 undecies B E", "199 undecies B", 14),
+            ("5 B bis DU CODE", "5 B bis", 7),
+        ];
+        for (input, expected, end) in kept {
+            assert_eq!(num_of(input), Some(key(expected, end)), "{input}");
+        }
+        // Jamais un numéro tronqué : un adverbe ou une lettre qui ne peut plus être lu après un
+        // adverbe fait renvoyer `None` (filet N36), « 885-0 V bis A » comprise.
+        let refused = [
+            "5 bis ter",
+            "5 B bis ter",
+            "5 B bis A",
+            "885-0 V bis A",
+            "1594 F quinquies A",
+            "199 terdecies-0 ter",
+            "5 bis-3-4",
+            "5 B bis-3",
+            "199 undecies B bis-3",
+        ];
+        for input in refused {
+            assert_eq!(num_of(input), None, "{input}");
         }
     }
 

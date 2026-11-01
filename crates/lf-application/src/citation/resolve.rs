@@ -1927,7 +1927,9 @@ mod tests {
             special: Some(SpecialNum::SansNumero),
             base: vec![],
             latin: None,
+            latin_sub: None,
             letters: None,
+            latin_after: None,
         };
         ArticleRef { num, sub: vec![], range_to: None }
     }

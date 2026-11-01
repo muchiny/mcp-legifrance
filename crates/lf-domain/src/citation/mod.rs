@@ -254,6 +254,20 @@ mod tests {
         assert_eq!(alone, parse_with("du même code, l'article 5", &opts));
     }
 
+    /// Citations complètes (code compris) du corpus positif, dont les formes de L1-01.
+    const COMPLETE: [&str; 10] = [
+        "l'article 1240 du code civil",
+        "art. L. 1234-5 du code du travail",
+        "CGI, art. 150-0 B ter",
+        "article 150-0 B ter du code général des impôts",
+        "art. 199 terdecies-0 A du CGI",
+        "art. 199 undecies B du CGI",
+        "art. 787 B CGI",
+        "C. civ., art. 9",
+        "art. 121-3 CP",
+        "art. 163 quatervicies du CGI",
+    ];
+
     mod no_panic {
         use proptest::prelude::*;
 
@@ -289,7 +303,7 @@ mod tests {
                         "article ", "art. ", "L. ", "R. 12-3", "1240", " du code civil", " C. civ.",
                         " et ", ", ", "loi n° 2016-1321", " du 7 octobre 2016", " susvisée",
                         "Cass. civ. 1re, 5 mai 2021, n° 19-12.345", "ECLI:FR:CCASS:2021:C100399",
-                        "NOR : ECFI1524250L", "<p>", "</p>", "&nbsp;", "Ã©", "\u{200b}", "\n",
+                        "NOR : ECFI1524250L", "150-0 B ter", "199 terdecies-0 A", " bis", " ter", "-0 ", "<p>", "</p>", "&nbsp;", "Ã©", "\u{200b}", "\n",
                     ]),
                     0..20,
                 ),
@@ -304,6 +318,24 @@ mod tests {
                     prop_assert!(input.get(c.span.start..c.span.end).is_some());
                 }
                 prop_assert!(in_output_order(&parse(&input)));
+            }
+
+            /// Composition : `parse(A ; B) == parse(A) ++ parse(B)` pour deux citations complètes
+            /// (code compris). Les fragments non autonomes (« art. 9 et 10 du code civil », un
+            /// article sans code suivi d'un code) sont exclus : l'invariant est faux pour eux.
+            #[test]
+            fn parsing_composes_over_complete_citations(
+                first in 0..COMPLETE.len(),
+                second in 0..COMPLETE.len(),
+                sep in prop::sample::select(vec![" ; ", ". ", ", ", " et "]),
+            ) {
+                let (a, b) = (COMPLETE[first], COMPLETE[second]);
+                let values = |input: &str| -> Vec<CitationRef> {
+                    parse(input).into_iter().map(|c| c.value).collect()
+                };
+                let mut expected = values(a);
+                expected.extend(values(b));
+                prop_assert_eq!(values(&format!("{a}{sep}{b}")), expected);
             }
         }
     }

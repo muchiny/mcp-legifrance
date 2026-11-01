@@ -1914,7 +1914,15 @@ mod round_trip {
             .prop_map(|(index, prefix, base)| CitationRef::CodeArticle {
                 code: CodeRef::Known(CODES[index].key),
                 article: ArticleRef {
-                    num: ArticleNum { prefix, special: None, base, latin: None, letters: None },
+                    num: ArticleNum {
+                        prefix,
+                        special: None,
+                        base,
+                        latin: None,
+                        latin_sub: None,
+                        letters: None,
+                        latin_after: None,
+                    },
                     sub: Vec::new(),
                     range_to: None,
                 },
