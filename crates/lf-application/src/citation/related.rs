@@ -970,6 +970,10 @@ mod tests {
     /// sans code), celui de « article 1382, devenu 1240, du code civil » n'est gardé pour aucun, et
     /// « 1240 » n'est pas reconnu comme un article (aucun lien). Le règlement 861/2007 et la
     /// directive 2005/29/CE (droit de l'Union, hors périmètre) sont montrés tels qu'écrits.
+    /// Ces trois limites sont figées volontairement : un gain de rappel futur (par exemple
+    /// reconnaître 1240 après « devenu ») doit mettre ce test à jour, ce n'est pas une régression.
+    /// Les chaînes sont recopiées du test de l'adapter (lf-application ne lit pas ses fixtures) :
+    /// à garder synchrones.
     #[test]
     fn the_recorded_links_of_a_cassation_decision_give_no_wrong_code() {
         let cited = "N3 > A rapprocher : 2e Civ., 8 juillet 2004, pourvoi n° 03-15.155, Bull. 2004, \

@@ -703,9 +703,11 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
     /// Formes complètes (`2010-14/22`) des décisions du Conseil constitutionnel jointes à la
     /// décision de premier numéro `first` (`2010-14`). Un ECLI ne porte que ce premier numéro,
     /// alors que `NUM_DEC` vaut `2010-14/22` et que la recherche exacte de `2010-14` ne trouve
-    /// rien (relevé C6) : la recherche plein texte donne des intitulés qui commencent par
-    /// « Décision 2010-14/22 QPC », dont on retient le mot qui commence par `2010-14/`. L'égalité
-    /// stricte avec l'ECLI natif (`check_ecli`) reste le garde-fou.
+    /// rien (relevé C6) : on suppose que la recherche plein texte donne des intitulés qui
+    /// commencent par « Décision 2010-14/22 QPC », dont on retient le mot qui commence par
+    /// `2010-14/`. Cette hypothèse n'est PAS confirmée : le relevé C17 (sandbox, V-154) ne renvoie
+    /// pas la décision jointe, seulement un résultat sans rapport, et le repli ne retient alors
+    /// rien. L'égalité stricte avec l'ECLI natif (`check_ecli`) reste le garde-fou.
     async fn joined_constit_forms(&self, first: &str) -> Result<Vec<String>, CorpusError> {
         let query = QueryText::parse(first).ok().and_then(|text| {
             SearchQuery::new(
@@ -3905,6 +3907,8 @@ mod tests {
         let ecli = "ECLI:FR:CC:2010:2010.14.QPC";
         let corpus = FakeCorpus::new();
         corpus.push_find_by_number(Ok(vec![]));
+        // Titres hypothétiques, non observés sur le sandbox : le relevé C17 ne renvoie pas la
+        // décision jointe (voir `the_recorded_full_text_search_of_a_joined_number_confirms_nothing`).
         corpus.push_search(Ok(constit_page(&[
             ("CONSTEXT000023000000", "Décision 2010-140 QPC - 1 janvier 2010 - Autre"),
             (
@@ -3948,6 +3952,7 @@ mod tests {
     /// résultats ; un autre premier numéro (`2010-140/…`) n'est pas retenu.
     #[tokio::test]
     async fn joined_forms_are_distinct_and_exact_on_the_first_number() {
+        // Titres hypothétiques, non observés sur le sandbox (relevé C17, V-154).
         let corpus = FakeCorpus::new();
         corpus.push_search(Ok(constit_page(&[
             ("CONSTEXT000023000000", "Décision 2010-14/22 QPC - 30 juillet 2010 - A"),
@@ -3998,6 +4003,9 @@ mod tests {
         let ecli = "ECLI:FR:CC:2010:2010.14.QPC";
         let corpus = FakeCorpus::new();
         corpus.push_find_by_number(Ok(vec![]));
+        // Titre recopié du test C17 de `lf-adapter-piste/src/map/search.rs` (lf-application ne lit
+        // pas les fixtures de l'adapter) : à garder synchrone. Seul le titre est lu par le repli,
+        // jamais l'extrait.
         corpus.push_search(Ok(constit_page(&[(
             "CONSTEXT000031554429",
             "Décision 2015-4948 SEN - 19 novembre 2015 - Polynésie française - Rejet",

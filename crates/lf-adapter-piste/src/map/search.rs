@@ -399,7 +399,6 @@ mod tests {
             hit.title.as_deref(),
             Some("Décision 2015-4948 SEN - 19 novembre 2015 - Polynésie française - Rejet")
         );
-        assert_ne!(hit.id.as_str(), "CONSTEXT000022762681");
         assert!(page.hits.iter().all(|hit| hit.id.as_str() != "CONSTEXT000022762681"));
     }
 
