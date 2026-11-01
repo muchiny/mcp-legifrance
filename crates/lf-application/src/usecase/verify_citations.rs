@@ -126,8 +126,8 @@ mod tests {
     use lf_domain::{
         citation::Span,
         date::CivilDate,
-        entity::{ArticleText, CodeListing},
-        id::{ArticleId, LegiTextId},
+        entity::{ArticleText, CodeListing, ParentText},
+        id::{ArticleId, DocumentId, LegiTextId},
         status::LegalStatus,
         text::LongText,
     };
@@ -177,6 +177,30 @@ mod tests {
         VerifyCitationsUseCase::new(corpus, &clock, Proof::of(env, false), Duration::from_secs(60))
             .execute(input)
             .await
+    }
+
+    #[tokio::test]
+    async fn the_resolved_citation_of_a_code_article_drops_the_sigle_of_its_title() {
+        // L2-15 (verify_citations-16): « art. 777 CGI » donnait « Code général des impôts, CGI.,
+        // art. 777 » ; la citation rendue n'a plus le sigle, celle d'un code sans sigle reste.
+        let corpus = FakeCorpus::new();
+        corpus.push_list_codes(Ok(vec![CodeListing {
+            id: LegiTextId::parse("LEGITEXT000006069577").unwrap(),
+            title: "Code général des impôts".to_owned(),
+            etat: Some(LegalStatus::Vigueur),
+        }]));
+        let mut cgi = article(1);
+        cgi.num = Some("777".to_owned());
+        cgi.code_title = Some("Code général des impôts, CGI.".to_owned());
+        cgi.parent = Some(ParentText::new(
+            DocumentId::LegiText(LegiTextId::parse("LEGITEXT000006069577").unwrap()),
+            Some("CODE"),
+        ));
+        corpus.push_find_article(Ok(cgi));
+        let output =
+            run(&corpus, PisteEnvironment::Production, Some("art. 777 CGI"), None).await.unwrap();
+        let resolved = output.citations[0].resolved.as_ref().unwrap();
+        assert_eq!(resolved.citation, "Code général des impôts, art. 777");
     }
 
     #[tokio::test]

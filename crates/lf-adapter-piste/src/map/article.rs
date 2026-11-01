@@ -1307,10 +1307,11 @@ mod tests {
 
     #[test]
     fn a_code_keeps_its_short_title_and_a_blank_long_title_falls_back() {
-        // Neighbours kept: the CGI short title is not replaced by the long one (L2-15 owns that
-        // wording), and the Code civil is unchanged.
+        // Neighbours kept: the CGI short title is not replaced by the long one, but its citation
+        // no longer carries the redundant « , CGI. » (L2-15), and the Code civil is unchanged.
         let cgi = recorded(C13_CGI, "LEGIARTI000047288653");
         assert_eq!(cgi.code_title.as_deref(), Some("Code général des impôts, CGI."));
+        assert_eq!(cgi.contract().citation.as_str(), "Code général des impôts, art. 990 I");
         let civil = map_fixture(ART_9).0.unwrap();
         assert_eq!(civil.contract().citation.as_str(), "Code civil, art. 9");
 
