@@ -107,9 +107,9 @@
   "server_version": "1.0.1",
   "sizes": {
     "instructions_chars": 3278,
-    "tools_list_bytes": 32366
+    "tools_list_bytes": 32608
   },
-  "surface_sha256": "248ead0fc247831d28d3c61ab8f5b2d4dff07d2d619ec8f17017fcf8ca7b8a50",
+  "surface_sha256": "c93ed8e4366dbf3d2afc3a7e791ffeb204861e5495ffb7ac0eb65b9ea6258934",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -1472,6 +1472,11 @@
               ],
               "type": "string"
             },
+            "in_force_only": {
+              "default": false,
+              "description": "KALI only: keep texts in force (VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN), drop DENONCE, MODIFIE, PERIME, REMPLACE, ABROGE. It filters texts, not the status of their articles.",
+              "type": "boolean"
+            },
             "match": {
               "default": "any",
               "description": "\"any\": any word (default); \"all\": all words; \"exact\": exact phrase.",
@@ -1638,7 +1643,7 @@
         },
         "title": "Search Légifrance"
       },
-      "sha256": "a5c0be1b9c7c47b8a1b25edc0002b6c950e15600716750679a4da3519265af9b"
+      "sha256": "18751352fef5daf49ddcf86e34145a7df1ae164cb6dae8e41b56b32e8d81e309"
     },
     "fr_search_all": {
       "descriptor": {
@@ -1963,5 +1968,5 @@
       "sha256": "c539d50242a936db43da2baa069526f49b042500b03555eba7c63357a7dc8ce2"
     }
   },
-  "toolset_sha256": "68b598fc18dedae0e783a83c9ea5d641255c1d4f5b6cc3393b119e091c8ecbcf"
+  "toolset_sha256": "2df9f020d4e5672f43060d55e02ac9645c84a3c1193b6507d7ae97430bc6094d"
 }
