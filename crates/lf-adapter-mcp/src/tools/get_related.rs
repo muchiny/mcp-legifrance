@@ -255,7 +255,8 @@ mod tests {
         assert_eq!(result.is_error, Some(false));
         let content = result.structured_content.clone().unwrap();
         // « 1 du code civil. » n'a pas d'ancre : aucun lien. Les liens d'une décision n'ont ni
-        // `id` ni `source_url` (ils ne sont pas résolus), et `truncated` est absent.
+        // `id` ni `source_url` (ils ne sont pas résolus), et `truncated` est absent. Le code gardé
+        // (« Code civil, art. 1240 ») vient d'un fragment amont : la note le dit.
         assert_eq!(
             content,
             json!({
@@ -279,7 +280,10 @@ mod tests {
                         "kind": "code_article",
                         "citation": "Code civil, art. 1240"
                     }
-                ]
+                ],
+                "note": "The codes of decision links may be inexact: the API gives text \
+                         fragments, and a code not written next to its article is left out; \
+                         check the decision with fr_verify_citations."
             })
         );
         assert_eq!(serde_json::from_str::<Value>(text_of(&result)).unwrap(), content);

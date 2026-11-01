@@ -19,9 +19,9 @@
 //!    [`Note::NoDecisionReferences`] (« l'API ne donne aucune référence pour cette décision »),
 //!    et seulement alors : une décision dont les références existent mais ne contiennent aucune
 //!    citation lisible n'a pas de note. Un code qui n'était pas écrit à côté de son article n'est pas
-//!    repris (« articles 1382 et 700 du code civil » donne « article 700 ») et la `note`
+//!    repris (« articles 1382 et 700 du code civil » donne « article 700 »), et la `note`
 //!    [`Note::DecisionLinkCodes`] dit que les codes des liens d'une décision peuvent être inexacts
-//!    (V-117, L4-13). Les références analysées sont bornées à
+//!    dès qu'un lien en porte un, gardé ou refusé (V-117, L4-13). Les références analysées sont bornées à
 //!    `MAX_ANALYSED_CHARS` caractères : au-delà, elles sont ignorées et `truncated` le dit.
 //!
 //! # Plafond de réponse (05 §5.11, 05 §6.4)
@@ -119,7 +119,7 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
             .await
             .map_err(|error| port_failure(ToolName::FR_GET_DECISION, id.as_str(), &error))?;
         let references = DecisionReferences::of(&decision);
-        let DecisionLinks { links, code_dropped } = decision_links(&references);
+        let DecisionLinks { links, code_involved } = decision_links(&references);
         let found = output(id.as_str(), &decision.contract(), links);
         // Des références que l'API ne donne pas du tout : lues sur la décision, non sur les
         // références analysées, que `MAX_ANALYSED_CHARS` peut avoir vidées.
@@ -130,7 +130,7 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
             note: if unreferenced {
                 Some(Note::NoDecisionReferences)
             } else {
-                code_dropped.then_some(Note::DecisionLinkCodes)
+                code_involved.then_some(Note::DecisionLinkCodes)
             },
             ..found
         })
@@ -616,7 +616,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_dropped_code_is_said_in_the_note_and_only_then() {
+    async fn a_decision_link_with_a_code_carries_the_note_and_only_then() {
         // related_diff-2 : « articles 1382 et 700 du code civil » ne rend plus « Code civil, art.
         // 700 » ; la réponse dit que les codes des liens d'une décision peuvent être inexacts.
         let corpus = FakeCorpus::new();
@@ -627,13 +627,20 @@ mod tests {
         assert_eq!(shown, ["article 1382", "article 700"]);
         assert_eq!(out.note, Some(Note::DecisionLinkCodes));
 
-        // Jumeau : un code écrit à côté de son article est gardé, sans note.
+        // Un code écrit à côté de son article est gardé, mais la note est livrée aussi : le titre
+        // brut vient d'un fragment amont (V-117).
         let corpus = FakeCorpus::new();
         let texts = vec!["article 700 du code de procédure civile".to_owned()];
         corpus.push_get_decision(Ok(referencing(JURI, None, texts)));
         let out = run(&corpus, Some(JURI)).await.unwrap();
         assert_eq!(out.links[0].citation, "Code de procédure civile, art. 700");
-        assert_eq!(out.note, None);
+        assert_eq!(out.note, Some(Note::DecisionLinkCodes));
+
+        // Jumeau : aucun lien ne porte de code, pas de note.
+        let corpus = FakeCorpus::new();
+        let texts = vec!["article 1382, devenu 1240 du code civil".to_owned()];
+        corpus.push_get_decision(Ok(referencing(JURI, None, texts)));
+        assert_eq!(run(&corpus, Some(JURI)).await.unwrap().note, None);
     }
 
     #[tokio::test]

@@ -561,6 +561,53 @@ mod tests {
     }
 
     #[test]
+    fn dispositif_of_a_dc_or_qpc_without_closure_is_open_ended_by_choice() {
+        // L4-03 : la règle du Conseil constitutionnel est la même pour toutes ses décisions. Sans
+        // « Jugé par », « Délibéré » ni « Rendu public », le dispositif court jusqu'à la fin du
+        // texte, signatures comprises : choix assumé (03 §7.9), figé ici pour DC et QPC.
+        let rule = DispositifRule::ConseilConstitutionnel;
+        let decision = long(&[
+            "Décision n° 2025-1000 DC du 6 novembre 2025.",
+            "Vu la Constitution.",
+            "LE CONSEIL CONSTITUTIONNEL DÉCIDE :",
+            "Article 1er. - La loi est conforme à la Constitution.",
+            "Article 2. - Cette décision sera publiée au Journal officiel.",
+            "Le président, Laurent FABIUS.",
+        ]);
+        let got = summary(&decision, None, rule, 4_000);
+        assert_eq!(
+            parts(&got),
+            (
+                SummarySource::Dispositif,
+                "Article 1er. - La loi est conforme à la Constitution.\n\nArticle 2. - Cette \
+                 décision sera publiée au Journal officiel.\n\nLe président, Laurent FABIUS.",
+                false
+            )
+        );
+
+        // Fixture QPC réelle privée de sa clôture : mêmes articles, puis tout ce qui suit.
+        let full = fixture(CONSTIT);
+        let paragraphs: Vec<&str> = full.paragraphs().map(|(_, p)| p).collect();
+        let footer = paragraphs.iter().position(|p| marker_key(p).starts_with("jugepar")).unwrap();
+        let mut open: Vec<&str> = paragraphs[..footer].to_vec();
+        open.push("Le président, Laurent FABIUS.");
+        let got = summary(&long(&open), None, rule, 4_000);
+        assert_eq!(got.source, SummarySource::Dispositif);
+        assert!(got.text.starts_with("Article 1er. - Le renvoi opéré"));
+        assert!(got.text.ends_with("Le président, Laurent FABIUS."));
+        assert_eq!(chars(&got.text), 551 + 2 + "Le président, Laurent FABIUS.".chars().count());
+
+        // Jumeau : avec la clôture, la signature n'est pas dans le dispositif.
+        let closed = long(&[
+            "LE CONSEIL CONSTITUTIONNEL DÉCIDE :",
+            "Article 1er. - A.",
+            "Jugé par le Conseil constitutionnel.",
+            "Le président, Laurent FABIUS.",
+        ]);
+        assert_eq!(parts(&summary(&closed, None, rule, 4_000)).1, "Article 1er. - A.");
+    }
+
+    #[test]
     fn dispositif_cetat_skips_decorative_paragraphs() {
         let rule = DispositifRule::ConseilEtat;
 

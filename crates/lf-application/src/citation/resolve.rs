@@ -3791,8 +3791,23 @@ mod tests {
         )
     }
 
-    /// L2-16 (resolve-6, relevés C2 et C6) : l'ordinal à deux chiffres `71.44` donne `71-44`, et
-    /// l'ECLI natif d'une décision de 1971 est reconnu.
+    /// Garde de non-régression (L2-16) : le parseur ne signale pas l'ordinal d'un ECLI du Conseil
+    /// constitutionnel à deux chiffres (`71.44.DC`) ni d'une décision jointe (`2010.14.QPC`).
+    #[test]
+    fn a_constitutional_ecli_ordinal_is_never_flagged_as_non_conforming() {
+        for text in ["ECLI:FR:CC:1971:71.44.DC", "ECLI:FR:CC:2010:2010.14.QPC"] {
+            let found = lf_domain::citation::parse_with(
+                text,
+                &lf_domain::citation::ParseOptions::default(),
+            );
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].value.kind(), lf_domain::citation::CitationKind::Ecli);
+            assert!(!found[0].flags.contains(&Flag::EcliOrdinalNonConforme(EcliFamily::Cc)));
+        }
+    }
+
+    /// Garde de non-régression (L2-16, relevés C2 et C6) : la branche ECLI tirait déjà `71-44` de
+    /// l'ordinal `71.44` ; l'ECLI natif d'une décision de 1971 est reconnu.
     #[tokio::test]
     async fn a_constitutional_ecli_of_1971_is_searched_as_71_44() {
         let id = "CONSTEXT000017665605";

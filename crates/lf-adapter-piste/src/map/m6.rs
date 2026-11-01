@@ -18,6 +18,8 @@
 //!   du Journal officiel sans version consolidée (`JORFTEXT…`) ne peut pas en être un tant que
 //!   la surface JORF n'est pas ouverte (T-M7-01, 00 §4) : il ne donne aucun hit.
 
+use std::collections::HashMap;
+
 use lf_application::ports::CorpusError;
 use lf_domain::contract::Idcc;
 use lf_domain::entity::{ArticleText, CodeArticleRef, CodeListing, SearchHit, SearchPage};
@@ -179,15 +181,24 @@ fn is_in_force(status: Option<&LegalStatus>) -> bool {
     )
 }
 
-/// Section de `dto` du texte de base `id` et son état.
+/// Les sections de `dto` par identifiant de texte de base (espaces retirés), la première gagnant
+/// quand un identifiant se répète : un seul parcours, quel que soit le nombre de textes de base.
+fn section_index(dto: &KaliContDto) -> HashMap<&str, &KaliSectionDto> {
+    let mut index = HashMap::new();
+    for section in &dto.sections {
+        if let Some(id) = section.id.as_deref() {
+            index.entry(id.trim()).or_insert(section);
+        }
+    }
+    index
+}
+
+/// Section du texte de base `id` dans `index` et son état.
 fn base_section<'a>(
-    dto: &'a KaliContDto,
+    index: &HashMap<&str, &'a KaliSectionDto>,
     id: &str,
 ) -> Option<(&'a KaliSectionDto, Option<LegalStatus>)> {
-    dto.sections
-        .iter()
-        .find(|section| section.id.as_deref().is_some_and(|found| found.trim() == id))
-        .map(|section| (section, status_of(section.etat.as_deref(), None)))
+    index.get(id).map(|section| (*section, status_of(section.etat.as_deref(), None)))
 }
 
 /// Au plus un hit KALI : parmi les textes de base (`texteBaseId`) lisibles comme `KALITEXT`, le
@@ -202,8 +213,9 @@ pub(crate) fn kali_cont_hits(dto: &KaliContDto, diags: &mut Diagnostics) -> Vec<
         .iter()
         .filter_map(|raw| readable_hit(Fond::Kali, raw).map(|hit| (raw.as_str(), hit)))
         .collect();
+    let sections = section_index(dto);
     let in_force = readable.iter().position(|(_, hit)| {
-        is_in_force(base_section(dto, hit.id.as_str()).and_then(|s| s.1).as_ref())
+        is_in_force(base_section(&sections, hit.id.as_str()).and_then(|s| s.1).as_ref())
     });
     let Some((raw, mut hit)) = readable.into_iter().nth(in_force.unwrap_or(0)) else {
         if !dto.texte_base_id.is_empty() {
@@ -214,7 +226,7 @@ pub(crate) fn kali_cont_hits(dto: &KaliContDto, diags: &mut Diagnostics) -> Vec<
     note_suffix(raw, hit.id.as_str(), diags);
     hit.title = clean_field(dto.titre.as_deref());
     hit.idcc = dto.num.as_deref().and_then(Idcc::parse);
-    if let Some((section, status)) = base_section(dto, hit.id.as_str()) {
+    if let Some((section, status)) = base_section(&sections, hit.id.as_str()) {
         if status.is_some() && !is_in_force(status.as_ref()) {
             hit.title = section_title(section);
         }
@@ -607,6 +619,23 @@ mod tests {
 
     const OLD: &str = "KALITEXT000005679895";
     const CURRENT: &str = "KALITEXT000044253019";
+
+    #[test]
+    fn kali_cont_hits_stays_linear_on_a_hostile_container() {
+        // Un conteneur démesuré (des dizaines de milliers de textes de base, tous abrogés) ne coûte
+        // pas un parcours des sections par texte : le temps reste très en deçà de la seconde.
+        let count = 30_000;
+        let ids: Vec<String> = (0..count).map(|i| format!("KALITEXT{i:012}")).collect();
+        let bases: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let sections: Vec<(&str, &str, &str)> =
+            ids.iter().map(|id| (id.as_str(), "ABROGE", "Ancien")).collect();
+        let dto = container(&bases, &sections);
+        let started = std::time::Instant::now();
+        let hits = kali_cont_hits(&dto, &mut Diagnostics::default());
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id.as_str(), "KALITEXT000000000000");
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    }
 
     #[test]
     fn kali_cont_hits_prefers_the_text_in_force() {

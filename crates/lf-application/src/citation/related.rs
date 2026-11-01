@@ -198,8 +198,9 @@ struct Draft {
     act: String,
     /// Article de l'acte, quand le lien en désigne un.
     article: Option<String>,
-    /// Le code de la citation n'était pas écrit dans sa mention et n'a pas été gardé (L4-13).
-    code_dropped: bool,
+    /// La citation porte un code ou un texte, gardé ou refusé parce qu'il n'était pas écrit dans
+    /// sa mention (L4-13) : donnée amont non fiable.
+    code_involved: bool,
 }
 
 /// Les liens d'une décision et ce que l'on sait de leur fiabilité.
@@ -207,10 +208,12 @@ struct Draft {
 pub(crate) struct DecisionLinks {
     /// Les liens, jurisprudence citée d'abord.
     pub(crate) links: Vec<LinkOut>,
-    /// Vrai si le code d'au moins une citation n'était pas écrit dans sa mention (énumération
-    /// « articles 1382 et 700 du code civil ») : le lien montre l'article seul, et la réponse dit
-    /// que les codes des liens d'une décision peuvent être inexacts (L4-13).
-    pub(crate) code_dropped: bool,
+    /// Vrai si au moins une citation porte un code, gardé ou refusé : les titres de `liens` sont
+    /// des fragments dont rien ne prouve qu'ils associent le bon code au bon article (V-117), et la
+    /// réponse dit que les codes des liens d'une décision peuvent être inexacts (L4-13). Quand le
+    /// code n'était pas écrit dans la mention (énumération « articles 1382 et 700 du code
+    /// civil »), le lien montre l'article seul.
+    pub(crate) code_involved: bool,
 }
 
 /// Les liens d'une décision : jurisprudence citée d'abord, textes appliqués ensuite, chaque groupe
@@ -220,7 +223,8 @@ pub(crate) struct DecisionLinks {
 /// code n'est gardé que s'il est écrit dans la mention même de l'article (« article 700 du code
 /// de procédure civile »). Quand le parseur l'a emprunté à la fin d'une énumération (« articles
 /// 1382 et 700 du code civil »), rien ne dit qu'il vaut pour tous les numéros : le lien montre
-/// l'article seul (« article 700 ») et `code_dropped` est vrai.
+/// l'article seul (« article 700 »). `code_involved` est vrai dès qu'un lien porte un code, gardé
+/// ou refusé : la garde ne voit pas un titre brut qui porte lui-même le mauvais code.
 pub(crate) fn decision_links(references: &DecisionReferences<'_>) -> DecisionLinks {
     let options =
         ParseOptions { strip_html: true, repair_mojibake: false, ..ParseOptions::default() };
@@ -232,14 +236,14 @@ pub(crate) fn decision_links(references: &DecisionReferences<'_>) -> DecisionLin
         citations.into_iter().filter_map(move |citation| draft_of(source, text, &citation, options))
     });
     let mut drafts: Vec<Draft> = Vec::new();
-    let mut code_dropped = false;
+    let mut code_involved = false;
     for draft in found {
-        code_dropped |= draft.code_dropped;
+        code_involved |= draft.code_involved;
         merge(&mut drafts, draft);
     }
     // Tri stable : la jurisprudence citée passe devant, l'ordre du texte est gardé dans chaque groupe.
     drafts.sort_by_key(|draft| draft.link.relation == Relation::AppliesText);
-    DecisionLinks { links: drafts.into_iter().map(|draft| draft.link).collect(), code_dropped }
+    DecisionLinks { links: drafts.into_iter().map(|draft| draft.link).collect(), code_involved }
 }
 
 /// Le brouillon de lien d'une citation reconnue dans `text`, ou `None` si elle n'a rien de lisible
@@ -251,7 +255,8 @@ fn draft_of(
     options: &ParseOptions,
 ) -> Option<Draft> {
     let raw = text.get(found.span.start..found.span.end).unwrap_or_default();
-    let code_dropped = has_code(&found.value) && !code_is_written(&found.value, raw, options);
+    let code_involved = has_code(&found.value);
+    let code_dropped = code_involved && !code_is_written(&found.value, raw, options);
     let citation = if code_dropped { article_only(raw) } else { shown(&found.value, raw) }?;
     let kind = found.value.kind();
     let relation = match (source, kind) {
@@ -263,7 +268,7 @@ fn draft_of(
         link: LinkOut { relation, kind, citation, id: None, source_url: None },
         act,
         article,
-        code_dropped,
+        code_involved,
     })
 }
 
@@ -592,14 +597,14 @@ mod tests {
         .links
     }
 
-    fn code_dropped(applied: &[&str]) -> bool {
+    fn code_involved(applied: &[&str]) -> bool {
         let applied: Vec<String> = applied.iter().map(|text| (*text).to_owned()).collect();
         decision_links(&DecisionReferences {
             cited_case_law: None,
             applied_texts: &applied,
             clipped: false,
         })
-        .code_dropped
+        .code_involved
     }
 
     fn shape(links: &[LinkOut]) -> Vec<(&'static str, &'static str, &str)> {
@@ -898,15 +903,62 @@ mod tests {
     }
 
     #[test]
-    fn the_report_says_whether_a_code_was_dropped() {
-        assert!(code_dropped(&["articles 1382 et 700 du code civil"]));
-        // Un doublon écarté par la fusion compte : le code a bien été refusé.
-        assert!(code_dropped(&["article 700 du code civil", "articles 1382 et 700 du code civil"]));
-        // Jumeaux : un code écrit, un article déjà sans code, une mention sans article.
-        assert!(!code_dropped(&["article 700 du code de procédure civile"]));
-        assert!(!code_dropped(&["article 1382, devenu 1240 du code civil"]));
-        assert!(!code_dropped(&["Loi n° 2016-1321 du 7 octobre 2016, art. 5", "néant"]));
-        assert!(!code_dropped(&[]));
+    fn the_report_says_whenever_a_decision_link_carries_a_code() {
+        // Le titre brut de `liens[]` n'est pas fiable (V-117) : la note est livrée dès qu'un code
+        // est montré, comme quand il est refusé.
+        assert!(code_involved(&["articles 1382 et 700 du code civil"]));
+        // Un doublon écarté par la fusion compte aussi.
+        assert!(code_involved(&[
+            "article 700 du code civil",
+            "articles 1382 et 700 du code civil"
+        ]));
+        // Un code écrit à côté de son article est gardé, mais il vient quand même d'un fragment.
+        assert!(code_involved(&["article 700 du code de procédure civile"]));
+        // Un article d'un texte non codifié porte son texte comme un article porte son code.
+        assert!(code_involved(&["Loi n° 2016-1321 du 7 octobre 2016, art. 5", "néant"]));
+        // Jumeaux : un article déjà sans code, une mention sans article, un texte seul, rien.
+        assert!(!code_involved(&["article 1382, devenu 1240 du code civil"]));
+        assert!(!code_involved(&["néant"]));
+        assert!(!code_involved(&["directive 85/374/CEE du Conseil du 25 juillet 1985"]));
+        assert!(!code_involved(&[]));
+    }
+
+    #[test]
+    fn no_decision_link_shows_a_code_absent_from_its_raw_title() {
+        // Titres réels de `liens[]` (captures `consult_juri*`), puis les mêmes fragments réordonnés
+        // ou coupés comme l'API les rend (V-117). Garde : un lien qui montre un code le montre
+        // parce que le titre brut contient ce code, jamais parce qu'un autre fragment l'a donné.
+        let titles = [
+            "Code civil 1384 al. 1",
+            "Code civil 1382",
+            "Code électoral LO127",
+            "1 du code civil.",
+            "articles L. 4121-1 et L. 4121-2 du code du travail",
+            "Articles L. 134-12 et L. 134-13 du code de commerce.",
+            "Article L. 1233-3, 4°, du code du travail, dans sa rédaction issue de la loi n° 2016-1088 du 8 août 2016.",
+            "700 du code de procédure civile ; article 1382",
+            "article 1382 ; du code civil",
+            "du code de procédure civile article 700, 1382 et 1383 du code civil",
+            "articles 1382 et 700 du code civil",
+            "code civil, article",
+            "article 700 ... code civil",
+        ];
+        for title in titles {
+            let lower = title.to_lowercase();
+            for link in links_of(None, &[title.to_owned()]) {
+                let shown = link.citation.to_lowercase();
+                let Some(code) =
+                    shown.strip_prefix("code ").and_then(|rest| rest.split(", art").next())
+                else {
+                    continue;
+                };
+                assert!(
+                    lower.contains(&format!("code {code}")),
+                    "{title:?} -> {:?}",
+                    link.citation
+                );
+            }
+        }
     }
 
     #[test]
