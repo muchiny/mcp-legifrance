@@ -269,6 +269,16 @@ mod tests {
     const CIVIL: &str = "LEGITEXT000006070721";
     const TRAVAIL: &str = "LEGITEXT000006072050";
 
+    /// Spans semi-ouverts : une citation et un passage qui se touchent ne se recouvrent pas (L2-17).
+    #[test]
+    fn a_citation_and_a_passage_that_only_touch_do_not_overlap() {
+        let span = |start, end| Span { start, end };
+        assert!(overlaps(span(0, 6), span(5, 10)));
+        assert!(overlaps(span(5, 10), span(0, 6)));
+        assert!(!overlaps(span(0, 5), span(5, 10)));
+        assert!(!overlaps(span(5, 10), span(0, 5)));
+    }
+
     /// Revue finale I3 : quand l'analyse atteint son garde-fou, la mention illisible qui suit n'est
     /// pas signalée (les citations au-delà ne sont pas rendues) ; une citation de moins, elle l'est.
     #[test]
