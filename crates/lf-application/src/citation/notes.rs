@@ -132,7 +132,7 @@ pub enum Note {
         number: String,
         /// Date citée.
         date: CivilDate,
-        /// Dates trouvées, dédoublonnées, croissantes, au plus [`FOUND_DATES_MAX`].
+        /// Dates trouvées, dédoublonnées, croissantes, au plus `FOUND_DATES_MAX`.
         found: Vec<CivilDate>,
         /// Nombre de dates distinctes de plus que celles de `found`.
         more: usize,
@@ -251,7 +251,7 @@ pub enum Note {
     /// de la réponse, non d'une citation.
     ArticleNotRead,
     /// Plusieurs notes d'un même verdict, dans l'ordre où elles sont rendues (la plus utile en
-    /// tête) : version lue, lecture du sigle, plage, subdivision. Bâtie par [`Note::then`], donc
+    /// tête) : version lue, lecture du sigle, plage, subdivision. Bâtie par `Note::then`, donc
     /// toujours d'au moins deux notes et sans autre `Chain` à l'intérieur.
     Chain(Vec<Note>),
     /// Plage d'articles (« articles 1240 à 1244 ») dont les deux bornes existent : `verified` de
