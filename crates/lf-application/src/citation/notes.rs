@@ -603,7 +603,7 @@ mod tests {
             num: "9".to_owned(),
             date: date("2026-11-01"),
         };
-        assert!(!short.text().contains('…'), "{}", short.text());
+        assert!(!short.text().contains('…'));
         let long_title = "Code du domaine de l'Etat et des collectivités publiques applicable à la collectivité territoriale de Mayotte";
         let long = Note::NotInForce {
             code: long_title.to_owned(),
@@ -629,13 +629,13 @@ mod tests {
             value: "506507".to_owned(),
             date: Some(date("2026-11-01")),
         };
-        assert!(!decision.text().contains("earlier versions"), "{}", decision.text());
+        assert!(!decision.text().contains("earlier versions"));
         let snapshot = Note::NotInSnapshot {
             family: "article",
             value: "Code civil, art. 9999".to_owned(),
             date: Some(date("2026-11-01")),
         };
-        assert!(!snapshot.text().contains("earlier versions"), "{}", snapshot.text());
+        assert!(!snapshot.text().contains("earlier versions"));
     }
 
     #[test]
