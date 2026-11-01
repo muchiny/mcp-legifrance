@@ -27,7 +27,9 @@
 //! # Plafond de réponse (05 §5.11, 05 §6.4)
 //!
 //! Au plus `MAX_LINKS` liens, sans suite : `total` compte les liens avant troncature et
-//! `truncated` le dit. L'estimation de la réponse ([`estimate_list_chars`], 24 par lien et par champ) reste sous la cible, en
+//! `truncated` le dit. Le paramètre facultatif `relation` (D-05) écarte les liens des autres sens
+//! **avant** la troncature : `total` compte alors la relation demandée, et sans `relation` la
+//! réponse est celle de la 1.0.1. L'estimation de la réponse ([`estimate_list_chars`], 24 par lien et par champ) reste sous la cible, en
 //! retirant des liens par la fin ([`shrink_from_end`]) ; la vue mesure ensuite la taille exacte.
 
 use futures::future::join;
@@ -46,7 +48,7 @@ use crate::{
     failure::port_failure,
     input::GetRelatedInput,
     messages,
-    output::get_related::{GetRelatedOutput, LinkOut},
+    output::get_related::{GetRelatedOutput, LinkOut, Relation},
     ports::LegalCorpus,
     tools::ToolName,
 };
@@ -73,8 +75,8 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
     ///
     /// # Errors
     ///
-    /// `invalid_arg` si `id` est absent, mal formé ou d'une famille que l'outil ne lit pas (sans
-    /// appel au port) ; `not_found` si le corpus ne connaît pas l'article ou la décision (message
+    /// `invalid_arg` si `id` est absent, mal formé ou d'une famille que l'outil ne lit pas, ou si
+    /// `relation` n'est pas l'un des quatre sens (sans appel au port) ; `not_found` si le corpus ne connaît pas l'article ou la décision (message
     /// de l'outil de lecture correspondant, 05 §7.4) ; sinon l'erreur du port, traduite par
     /// [`port_failure`].
     pub(crate) async fn execute(
@@ -91,28 +93,39 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
                 |shown| messages::invalid_argument(wanted(&shown, "")),
             )
         })?;
+        let relation = relation_of(input.relation.as_deref())?;
         match parsed {
-            DocumentId::LegiArti(id) => self.article(id).await,
-            DocumentId::JuriText(id) => self.decision(DecisionId::Juri(id)).await,
-            DocumentId::ConsText(id) => self.decision(DecisionId::Constit(id)).await,
-            DocumentId::CetaText(id) => self.decision(DecisionId::Cetat(id)).await,
+            DocumentId::LegiArti(id) => self.article(id, relation).await,
+            DocumentId::JuriText(id) => self.decision(DecisionId::Juri(id), relation).await,
+            DocumentId::ConsText(id) => self.decision(DecisionId::Constit(id), relation).await,
+            DocumentId::CetaText(id) => self.decision(DecisionId::Cetat(id), relation).await,
             other => Err(unsupported(&other)),
         }
     }
 
-    /// Un article : sa citation et ses liens `cites` et `cited_by`.
-    async fn article(&self, id: LegiArtiId) -> Result<GetRelatedOutput, AppError> {
+    /// Un article : sa citation et ses liens `cites` et `cited_by`, ceux de `relation` seuls si elle
+    /// est donnée.
+    async fn article(
+        &self,
+        id: LegiArtiId,
+        relation: Option<Relation>,
+    ) -> Result<GetRelatedOutput, AppError> {
         let id = ArticleId::Legi(id);
         let (article, links) =
             join(self.corpus.get_article(&id), self.corpus.related_links(&id)).await;
         let failure = |error| port_failure(ToolName::FR_GET_TEXT, id.as_str(), &error);
         let article = article.map_err(failure)?;
         let links = links.map_err(failure)?;
-        Ok(output(id.as_str(), &article.contract(), article_links(&links)))
+        Ok(output(id.as_str(), &article.contract(), article_links(&links), relation))
     }
 
-    /// Une décision : sa citation et les liens que le parseur lit dans ses références.
-    async fn decision(&self, id: DecisionId) -> Result<GetRelatedOutput, AppError> {
+    /// Une décision : sa citation et les liens que le parseur lit dans ses références, ceux de
+    /// `relation` seuls si elle est donnée.
+    async fn decision(
+        &self,
+        id: DecisionId,
+        relation: Option<Relation>,
+    ) -> Result<GetRelatedOutput, AppError> {
         let decision = self
             .corpus
             .get_decision(&id)
@@ -120,7 +133,7 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
             .map_err(|error| port_failure(ToolName::FR_GET_DECISION, id.as_str(), &error))?;
         let references = DecisionReferences::of(&decision);
         let DecisionLinks { links, code_involved } = decision_links(&references);
-        let found = output(id.as_str(), &decision.contract(), links);
+        let found = output(id.as_str(), &decision.contract(), links, relation);
         // Des références que l'API ne donne pas du tout : lues sur la décision, non sur les
         // références analysées, que `MAX_ANALYSED_CHARS` peut avoir vidées.
         let unreferenced = decision.cited_case_law.is_none() && decision.applied_texts.is_empty();
@@ -137,9 +150,28 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
     }
 }
 
+/// `relation` : absente, tous les liens ; sinon l'un des quatre sens, insensible à la casse et aux
+/// blancs autour (D-05). Une autre valeur est un `invalid_arg` qui liste les quatre.
+fn relation_of(raw: Option<&str>) -> Result<Option<Relation>, AppError> {
+    raw.map(|raw| {
+        Relation::parse(raw).ok_or_else(|| {
+            messages::not_one_of("relation", raw, &Relation::ALL.map(Relation::as_str))
+        })
+    })
+    .transpose()
+}
+
 /// La réponse de la page `id` (`contract` : sa citation et sa page) pour `links`, ramenée aux
-/// bornes : cent liens au plus, estimation sous la cible.
-fn output(id: &str, contract: &CitationContract, mut links: Vec<LinkOut>) -> GetRelatedOutput {
+/// bornes : cent liens au plus, estimation sous la cible. Quand `relation` est donnée, les autres
+/// liens sont écartés **avant** la troncature : `total` compte la relation demandée, et sans
+/// `relation` la liste est celle de la 1.0.1.
+fn output(
+    id: &str,
+    contract: &CitationContract,
+    mut links: Vec<LinkOut>,
+    relation: Option<Relation>,
+) -> GetRelatedOutput {
+    links.retain(|link| relation.is_none_or(|wanted| link.relation == wanted));
     let total = links.len();
     links.truncate(MAX_LINKS);
     let citation = contract.citation.as_str();
@@ -232,7 +264,6 @@ mod tests {
     use crate::{
         citation::related::MAX_ANALYSED_CHARS,
         error::ErrorCode,
-        output::get_related::Relation,
         ports::CorpusError,
         testing::{FakeCorpus, PortRequest},
         usecase::get_decision::fixtures::decision,
@@ -244,7 +275,7 @@ mod tests {
     const CETAT: &str = "CETATEXT000051655317";
 
     fn input(id: Option<&str>) -> GetRelatedInput {
-        GetRelatedInput { id: id.map(str::to_owned) }
+        GetRelatedInput { id: id.map(str::to_owned), ..GetRelatedInput::default() }
     }
 
     fn article(id: &str) -> ArticleText {
@@ -444,6 +475,108 @@ mod tests {
 
         assert_eq!(error.code(), Some(ErrorCode::UpstreamError));
         assert!(error.message().starts_with("Legifrance/PISTE did not answer in time"));
+    }
+
+    // ---- relation (D-05) -----------------------------------------------------------------
+
+    /// Comme [`run`], pour la seule relation `relation`.
+    async fn run_relation(
+        corpus: &FakeCorpus,
+        id: &str,
+        relation: &str,
+    ) -> Result<GetRelatedOutput, AppError> {
+        let input =
+            GetRelatedInput { id: Some(id.to_owned()), relation: Some(relation.to_owned()) };
+        GetRelatedUseCase::new(corpus).execute(input).await
+    }
+
+    #[tokio::test]
+    async fn the_filter_is_applied_before_the_cap_of_100_links() {
+        // Synthétique, sur le modèle du cas réel LEGIARTI000035644154 (254 liens, tous
+        // `cited_by`) : 150 liens « cites » passent devant 104 « cited_by » ; sans filtre, les
+        // cent rendus sont tous des « cites » et aucun « cited_by » n'est joignable.
+        let links = || RelatedLinks {
+            cites: (1..=150).map(cited).collect(),
+            cited_by: (1_000..1_104).map(cited).collect(),
+        };
+        let out = run(&serving(links()), Some(ARTI)).await.unwrap();
+        assert_eq!((out.links.len(), out.total, out.truncated), (100, 254, true));
+        assert!(out.links.iter().all(|link| link.relation == Relation::Cites));
+
+        // Filtré : `total` compte la relation demandée, la coupe tombe sur elle.
+        let out = run_relation(&serving(links()), ARTI, "cited_by").await.unwrap();
+        assert_eq!((out.links.len(), out.total, out.truncated), (100, 104, true));
+        assert!(out.links.iter().all(|link| link.relation == Relation::CitedBy));
+        assert_eq!(out.links[0].citation, "Code civil, art. 1000", "l'ordre de l'API est gardé");
+        assert_eq!(out.links[99].citation, "Code civil, art. 1099");
+
+        // Jumeau : l'autre relation, 150 liens, cent rendus.
+        let out = run_relation(&serving(links()), ARTI, "cites").await.unwrap();
+        assert_eq!((out.links.len(), out.total, out.truncated), (100, 150, true));
+        assert!(out.links.iter().all(|link| link.relation == Relation::Cites));
+    }
+
+    #[tokio::test]
+    async fn a_filter_that_keeps_everything_or_nothing_says_so() {
+        let links = || RelatedLinks { cites: vec![], cited_by: (1..=3).map(cited).collect() };
+        // Tout est gardé : même réponse que sans filtre.
+        let all = run(&serving(links()), Some(ARTI)).await.unwrap();
+        let kept = run_relation(&serving(links()), ARTI, "cited_by").await.unwrap();
+        assert_eq!(kept, all);
+        // Aucun lien de cette relation : une liste vide, pas une erreur ni une note.
+        let none = run_relation(&serving(links()), ARTI, "cites").await.unwrap();
+        assert_eq!((none.links.len(), none.total, none.truncated, none.note), (0, 0, false, None));
+        assert_eq!(none.id, ARTI);
+        assert_eq!(none.citation, "Code civil, art. 9");
+    }
+
+    #[tokio::test]
+    async fn the_relation_is_matched_without_case_or_surrounding_spaces() {
+        for raw in ["cited_by", "CITED_BY", " Cited_By\t"] {
+            let links = RelatedLinks { cites: vec![cited(1)], cited_by: vec![cited(2)] };
+            let out = run_relation(&serving(links), ARTI, raw).await.unwrap();
+            let relations: Vec<_> = out.links.iter().map(|link| link.relation).collect();
+            assert_eq!(relations, [Relation::CitedBy], "{raw:?}");
+            assert_eq!(out.total, 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn the_relation_applies_to_a_decision_too() {
+        let referenced = || {
+            let corpus = FakeCorpus::new();
+            corpus.push_get_decision(Ok(referencing(JURI, Some(CITATION_JP), applied_texts())));
+            corpus
+        };
+        let out = run_relation(&referenced(), JURI, "applies_text").await.unwrap();
+        let relations: Vec<_> = out.links.iter().map(|link| link.relation).collect();
+        assert_eq!((relations, out.total), (vec![Relation::AppliesText], 1));
+        let out = run_relation(&referenced(), JURI, "CITES_CASE_LAW").await.unwrap();
+        let relations: Vec<_> = out.links.iter().map(|link| link.relation).collect();
+        assert_eq!((relations, out.total), (vec![Relation::CitesCaseLaw], 1));
+        // Une relation d'article n'existe pas pour une décision : liste vide.
+        let out = run_relation(&referenced(), JURI, "cited_by").await.unwrap();
+        assert_eq!((out.links.len(), out.total, out.truncated), (0, 0, false));
+        // Sans filtre, les deux sont rendus (jumeau).
+        let out = run(&referenced(), Some(JURI)).await.unwrap();
+        assert_eq!(out.total, 2);
+    }
+
+    #[tokio::test]
+    async fn an_unknown_relation_is_refused_with_the_list_and_without_network() {
+        for raw in ["foo", "", "cited-by", "cites cited_by"] {
+            let corpus = FakeCorpus::new();
+            let error = run_relation(&corpus, ARTI, raw).await.unwrap_err();
+            assert_eq!(error.code(), Some(ErrorCode::InvalidArg), "{raw:?}");
+            assert_eq!(
+                error.message(),
+                format!(
+                    "relation='{raw}' must be one of ['cites', 'cited_by', 'cites_case_law', \
+                     'applies_text']."
+                )
+            );
+            assert_eq!(corpus.calls(), 0, "un rejet local n'appelle pas le port");
+        }
     }
 
     // ---- décision ------------------------------------------------------------------------

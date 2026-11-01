@@ -1,7 +1,7 @@
 //! Paramètres de `fr_get_related` (05 §5.11).
 //!
-//! Le seul champ est un `Option` : la validation (identifiant requis, famille lue) reste au cas
-//! d'usage, qui rédige les messages de parité. `id` est pourtant annoncé `required` dans le schéma
+//! Les champs sont des `Option` : la validation (identifiant requis, famille lue, sens de
+//! `relation`) reste au cas d'usage, qui rédige les messages de parité. `id` est pourtant annoncé `required` dans le schéma
 //! d'entrée : un client qui valide le voit avant l'appel, et le message `id is required.` reste
 //! celui du cas d'usage. La description du schéma est posée par `#[schemars(description)]` ; les
 //! doc comments restent des notes de code.
@@ -10,7 +10,7 @@ use lf_application::input::GetRelatedInput;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-/// L'unique paramètre de `fr_get_related`.
+/// Les paramètres de `fr_get_related` : `id`, et `relation` (facultatif, D-05).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GetRelatedParams {
@@ -22,11 +22,19 @@ pub(crate) struct GetRelatedParams {
         description = "A LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... decision id."
     )]
     pub(crate) id: Option<String>,
+    /// Sens des seuls liens demandés ; insensible à la casse, vérifié par le cas d'usage.
+    #[serde(default)]
+    #[schemars(
+        with = "String",
+        description = "Only the links of this relation: cites or cited_by for an article, cites_case_law or applies_text for a decision. Omit it to get them all. The filter is applied before the 100-link cap, and total counts the links of that relation.",
+        extend("enum" = ["cites", "cited_by", "cites_case_law", "applies_text"])
+    )]
+    pub(crate) relation: Option<String>,
 }
 
 impl From<GetRelatedParams> for GetRelatedInput {
     fn from(params: GetRelatedParams) -> Self {
-        Self { id: params.id }
+        Self { id: params.id, relation: params.relation }
     }
 }
 
@@ -50,7 +58,26 @@ mod tests {
     #[test]
     fn the_id_reaches_the_application_input() {
         let input = decoded(&json!({"id": "LEGIARTI000006419288"})).unwrap();
-        assert_eq!(input, GetRelatedInput { id: Some("LEGIARTI000006419288".to_owned()) });
+        assert_eq!(
+            input,
+            GetRelatedInput { id: Some("LEGIARTI000006419288".to_owned()), relation: None }
+        );
+    }
+
+    #[test]
+    fn the_relation_reaches_the_application_input_as_given() {
+        // La casse est réglée par le cas d'usage, pas par le décodeur.
+        let input =
+            decoded(&json!({"id": "LEGIARTI000006419288", "relation": "Cited_By"})).unwrap();
+        assert_eq!(
+            input,
+            GetRelatedInput {
+                id: Some("LEGIARTI000006419288".to_owned()),
+                relation: Some("Cited_By".to_owned())
+            }
+        );
+        let input = decoded(&json!({"id": "LEGIARTI000006419288", "relation": null})).unwrap();
+        assert_eq!(input.relation, None);
     }
 
     #[test]
@@ -64,7 +91,7 @@ mod tests {
     fn an_unknown_argument_is_refused_with_the_expected_name() {
         assert_eq!(
             decoded(&json!({"id": "LEGIARTI000006419288", "foo": 1})).unwrap_err(),
-            "foo: unknown field `foo`, expected `id`"
+            "foo: unknown field `foo`, expected `id` or `relation`"
         );
     }
 
@@ -74,6 +101,28 @@ mod tests {
             decoded(&json!({"id": 7})).unwrap_err(),
             "id: invalid type: integer `7`, expected a string"
         );
+    }
+
+    #[test]
+    fn a_mistyped_relation_names_its_path() {
+        assert_eq!(
+            decoded(&json!({"id": "LEGIARTI000006419288", "relation": 2})).unwrap_err(),
+            "relation: invalid type: integer `2`, expected a string"
+        );
+    }
+
+    #[test]
+    fn the_relation_is_an_optional_closed_enumeration() {
+        let schema = schema();
+        assert_eq!(schema["required"], json!(["id"]), "relation n'est pas requise");
+        let relation = &schema["properties"]["relation"];
+        assert_eq!(relation["type"], "string");
+        assert_eq!(
+            relation["enum"],
+            json!(["cites", "cited_by", "cites_case_law", "applies_text"])
+        );
+        let description = relation["description"].as_str().unwrap();
+        assert!(description.chars().count() <= 1000, "{description}");
     }
 
     #[test]

@@ -198,6 +198,9 @@ pub struct ResolveInput {
 pub struct GetRelatedInput {
     /// Identifiant d'un article ou d'une décision.
     pub id: Option<String>,
+    /// Sens des seuls liens demandés : `cites`, `cited_by`, `cites_case_law` ou `applies_text`
+    /// (insensible à la casse) ; tous les liens quand il est absent.
+    pub relation: Option<String>,
 }
 
 /// Arguments de `fr_diff_article` (05 §5.12).
