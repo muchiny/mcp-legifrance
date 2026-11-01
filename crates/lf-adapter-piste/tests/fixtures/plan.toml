@@ -878,6 +878,8 @@ name = "c101/C4-juri-consult-chambre-formation-CHAMBRE_SOCIALE-JURITEXT000054929
 endpoint = "/consult/juri"
 body = "{\"textId\":\"JURITEXT000054929168\"}"
 
+# Réponse de 1,2 Mio (2026-11-01) : au-delà de MAX_VERSIONED_BYTES, elle n'est pas versionnée
+# (04 §13.4, D11 du plan 2h). Les tests de L2-11 emploient une dérivée réduite (sections enfants vidées).
 [[probe]]
 name = "c101/C5-kaliContIdcc-1486"
 endpoint = "/consult/kaliContIdcc"

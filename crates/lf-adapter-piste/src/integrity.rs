@@ -8,7 +8,7 @@
 //! dix-sept snapshots `insta`, ni le golden ne portent de chaîne qui ressemble à un secret
 //! (D-35) : mot d'authentification (`bearer`, `access_token`…, quelle que soit la casse), UUID,
 //! suite hexadécimale de 32 caractères ou plus, JWT, suite base64 de 40 caractères ou plus (sauf
-//! sous les clés `path`, `url`, `eli` et `pdfFilePath`, `BASE64_KEYS`, où chaque segment séparé par `/` reste
+//! sous les clés `path`, `url`, `eli`, `pdfFilePath` et `xPath`, `BASE64_KEYS`, où chaque segment séparé par `/` reste
 //! contrôlé).
 //!
 //! Les fixtures **enregistrées** (`tests/fixtures/recorded/<endpoint>/<nom>.json`, écrites par
@@ -258,11 +258,12 @@ mod tests {
             .any(|run| run.len() >= BASE64_RUN)
     }
 
-    /// Clés dont la valeur texte n'est pas soumise au détecteur base64 : `path`, `url`, `eli` et
-    /// `pdfFilePath`. Les chemins de la table des matières (`/LEGISCTA…/LEGIARTI…`), l'adresse d'un
-    /// accord (`texte/acco/ACCO/TEXT/00/00/53/…/ACCOTEXT…`), un lien de téléchargement, un ELI
-    /// (`/eli/loi/2025/8/11/AGRX2502679L/jo/texte`) et le chemin du PDF d'un code
-    /// (`/LEGI/TEXT/00/…`) sont faits de
+    /// Clés dont la valeur texte n'est pas soumise au détecteur base64 : `path`, `url`, `eli`,
+    /// `pdfFilePath` et `xPath`. Les chemins de la table des matières (`/LEGISCTA…/LEGIARTI…`),
+    /// l'adresse d'un accord (`texte/acco/ACCO/TEXT/00/00/53/…/ACCOTEXT…`), un lien de
+    /// téléchargement, un ELI (`/eli/loi/2025/8/11/AGRX2502679L/jo/texte`), le chemin du PDF d'un
+    /// code (`/LEGI/TEXT/00/…`) et le chemin XML d'un titre de section d'article
+    /// (`/ARTICLE/CONTEXTE/TEXTE/TM/TM/TM/TM/TITRE_TM`, vague 0 des correctifs 1.0.1) sont faits de
     /// lettres, de chiffres et de `/` sur plus de 40 caractères ; il y en a des milliers par
     /// fixture enregistrée, trop pour une exemption par pointeur (D10). L'exemption est par la
     /// DERNIÈRE clé de la feuille, jamais par la valeur : la même suite sous toute autre clé, ou
@@ -270,7 +271,7 @@ mod tests {
     /// à chaque segment séparé par `/` : seule la longueur cumulée d'un chemin est exemptée. Les
     /// autres détecteurs (mots d'authentification, UUID, suite hexadécimale, JWT) s'appliquent
     /// partout, y compris sous ces clés.
-    const BASE64_KEYS: [&str; 4] = ["path", "url", "eli", "pdfFilePath"];
+    const BASE64_KEYS: [&str; 5] = ["path", "url", "eli", "pdfFilePath", "xPath"];
 
     /// Ajoute à `exempt` les valeurs texte de `value` portées directement par une clé de
     /// [`BASE64_KEYS`] (`key` est la clé de `value` dans son objet, `None` à la racine ou dans un
@@ -368,7 +369,7 @@ mod tests {
     // ---- Fixtures enregistrées (04 §13.4, plan 2h) ----------------------------------------
 
     /// Nombre de fixtures enregistrées versionnées (fichiers `.json`, sidecars non comptés).
-    const RECORDED: usize = 118;
+    const RECORDED: usize = 199;
 
     /// Clés obligatoires d'un sidecar enregistré (04 §13.4) ; `content_type` et
     /// `content_encoding` sont facultatives (absentes si l'en-tête l'était).
@@ -640,7 +641,7 @@ mod tests {
 
     #[test]
     fn base64_lookalikes_are_exempt_by_key_only() {
-        assert_eq!(BASE64_KEYS, ["path", "url", "eli", "pdfFilePath"]);
+        assert_eq!(BASE64_KEYS, ["path", "url", "eli", "pdfFilePath", "xPath"]);
         // Forme de chemin : cinq segments de 12 caractères séparés par `/` (64 caractères). La
         // suite entière est une « suite base64 » (le `/` est dans l'alphabet), aucun segment seul
         // n'en est une.

@@ -1,0 +1,14 @@
+endpoint = "/consult/juri"
+request = "{\"textId\":\"JURITEXT000038322046\"}"
+env = "sandbox"
+captured_at = "2026-11-01T01:59:26Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 160
+bytes_raw = 57849
+sha256_raw = "210ac6b32a7fc040da1c8c0714f80bf61401e8411d77a9e3668ba7c95832ed70"
+sha256_file = "210ac6b32a7fc040da1c8c0714f80bf61401e8411d77a9e3668ba7c95832ed70"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 1.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

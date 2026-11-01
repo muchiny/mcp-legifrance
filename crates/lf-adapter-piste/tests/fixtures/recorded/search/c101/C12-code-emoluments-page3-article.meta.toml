@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"CODE_DATE\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"TOUS_LES_MOTS_DANS_UN_CHAMP\",\"valeur\":\"émoluments notaire donation\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_VERSION\",\"singleDate\":1793530800000}],\"pageNumber\":3,\"pageSize\":5,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"ARTICLE\"}}"
+env = "sandbox"
+captured_at = "2026-11-01T02:00:12Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 638
+bytes_raw = 6160
+sha256_raw = "9b4d2db98da3862f8888c353241d175802988c4989c589670d49f1cac9dfb6ae"
+sha256_file = "9b4d2db98da3862f8888c353241d175802988c4989c589670d49f1cac9dfb6ae"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 1.0.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"
