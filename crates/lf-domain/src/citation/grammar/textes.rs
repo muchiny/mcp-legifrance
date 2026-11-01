@@ -477,13 +477,15 @@ fn text_article_at(text: &str, start: usize) -> Option<Hit> {
 /// (« loi n° 2016-1321 du 7 octobre 2016, art. 1er, I, 2° »). Le texte porte un numéro ou une
 /// date, la virgule est le seul séparateur (un « ; » clôt la citation) et un code qui suit la
 /// liste d'articles, avec ou sans lien, annule la lecture : « …, art. 9 C. civ. » est un article
-/// de code, jamais celui de la loi.
+/// de code, jamais celui de la loi. Un article suivi d'un lien et d'un autre texte (« …, art. 3 de
+/// la loi n° B ») appartient à cet autre texte : `text_article_at` le lit depuis « art. 3 ».
 fn text_article_postfix(text: &str, start: usize) -> Option<Hit> {
     let cited = text_core(text, start)?;
     (cited.cite.number.is_some() || cited.cite.date.is_some()).then_some(())?;
     let after_comma = consume(text, ws0(text, cited.end), ',')?;
-    let list = codes::art_list(text, codes::art_kw(text, ws0(text, after_comma))?)?;
-    if codes::code_follows(text, list.end) {
+    let art_start = ws0(text, after_comma);
+    let list = codes::art_list(text, codes::art_kw(text, art_start)?)?;
+    if codes::code_follows(text, list.end) || text_article_at(text, art_start).is_some() {
         return None;
     }
     let end = list.end;
@@ -1245,6 +1247,28 @@ mod tests {
             let input = format!("{law}{tail}");
             check(&[(&input, &[LOI], &[(law, "Text LOI 2016-1321 2016-10-07")])]);
         }
+    }
+
+    #[test]
+    fn an_article_followed_by_a_link_and_another_text_is_that_texts_l1_08() {
+        check(&[
+            (
+                "loi n° 2016-1321 du 7 octobre 2016, art. 3 de la loi n° 2018-493",
+                &[LOI, ART],
+                &[
+                    ("loi n° 2016-1321 du 7 octobre 2016", "Text LOI 2016-1321 2016-10-07"),
+                    ("art. 3 de la loi n° 2018-493", "Art 3 of LOI 2018-493 -"),
+                ],
+            ),
+            (
+                "décret n° 2019-1500, article 4 du décret n° 2020-1",
+                &[DECRET, ART],
+                &[
+                    ("décret n° 2019-1500", "Text DECRET 2019-1500 -"),
+                    ("article 4 du décret n° 2020-1", "Art 4 of DECRET 2020-1 -"),
+                ],
+            ),
+        ]);
     }
 
     #[test]

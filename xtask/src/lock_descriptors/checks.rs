@@ -154,6 +154,8 @@ fn external_refs<'a>(value: &'a Value, out: &mut Vec<&'a str>) {
 
 /// Valeurs de `format` du vocabulaire standard de JSON Schema 2020-12 (validation, §7.3). Les
 /// `uint32`, `uint`, `uint16` et `uint64` de schemars n'en font pas partie (L5-01, protocol-9).
+/// À garder identique à `crates/lf-adapter-mcp/src/schema.rs` (constantes `STANDARD_FORMATS`,
+/// `SCHEMA_*`) : un test de ce crate compare les copies.
 pub(crate) const STANDARD_FORMATS: [&str; 19] = [
     "date-time",
     "date",

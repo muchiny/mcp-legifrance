@@ -56,7 +56,8 @@ enum Side {
 
 /// Les `format` du vocabulaire standard de JSON Schema 2020-12 (validation, §7.3). Les
 /// `uint32`, `uint`, `uint16` et `uint64` que schemars écrit pour les entiers non signés n'en
-/// font pas partie : `minimum: 0` dit déjà la même chose.
+/// font pas partie : `minimum: 0` dit déjà la même chose. À garder identique à `xtask`
+/// (`lock_descriptors/checks.rs`) et à `tests/descriptors.rs` : un test les compare.
 const STANDARD_FORMATS: [&str; 19] = [
     "date-time",
     "date",
@@ -330,6 +331,39 @@ mod tests {
                 "allOf": [{}],
                 "oneOf": [{}]
             })
+        );
+    }
+
+    /// Les chaînes de la constante `name` dans `source` (`const NAME: [&str; N] = [ "a", "b" ];`).
+    fn quoted_items(source: &str, name: &str) -> Vec<String> {
+        let head = format!("const {name}: [&str;");
+        let from = source.find(&head).expect("constante introuvable");
+        let body = source[from..].split_once("] =").unwrap().1.split_once(';').unwrap().0;
+        body.split('"').skip(1).step_by(2).map(str::to_owned).collect()
+    }
+
+    /// Les copies de la liste des formats et des mots-clés de sous-schémas (ici, `xtask` et le
+    /// test des descripteurs) restent identiques : le crate MCP ne peut pas être importé par
+    /// `xtask` (L5-01).
+    #[test]
+    fn the_copies_of_the_schema_constants_stay_identical() {
+        let checks = include_str!("../../../xtask/src/lock_descriptors/checks.rs");
+        let descriptors = include_str!("../tests/descriptors.rs");
+        let own = |name: &str| -> Vec<String> {
+            match name {
+                "STANDARD_FORMATS" => STANDARD_FORMATS.map(str::to_owned).to_vec(),
+                "SCHEMA_MAPS" => SCHEMA_MAPS.map(str::to_owned).to_vec(),
+                "SCHEMA_SINGLES" => SCHEMA_SINGLES.map(str::to_owned).to_vec(),
+                _ => SCHEMA_LISTS.map(str::to_owned).to_vec(),
+            }
+        };
+        for name in ["STANDARD_FORMATS", "SCHEMA_MAPS", "SCHEMA_SINGLES", "SCHEMA_LISTS"] {
+            assert_eq!(quoted_items(checks, name), own(name), "{name} : xtask a dérivé");
+        }
+        assert_eq!(
+            quoted_items(descriptors, "STANDARD_FORMATS"),
+            own("STANDARD_FORMATS"),
+            "STANDARD_FORMATS : tests/descriptors.rs a dérivé"
         );
     }
 

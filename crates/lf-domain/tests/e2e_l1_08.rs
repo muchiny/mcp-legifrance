@@ -104,3 +104,22 @@ fn a_decision_number_followed_by_a_type_letter_is_not_a_decree() {
     assert_eq!(kinds("décret 93-1419"), ["text"]);
     assert_eq!(kinds("décret 93-1419 du 31 décembre 1993"), ["text"]);
 }
+
+#[test]
+fn an_article_followed_by_a_link_and_another_text_belongs_to_that_text() {
+    for (input, first, second) in [
+        (
+            "loi n° 2016-1321 du 7 octobre 2016, art. 3 de la loi n° 2018-493",
+            "Loi 2016-1321",
+            "Loi 2018-493",
+        ),
+        ("décret n° 2019-1500, article 4 du décret n° 2020-1", "Decret 2019-1500", "Decret 2020-1"),
+    ] {
+        let found = reads(input);
+        assert_eq!(
+            found.iter().map(|r| (r.0, r.3.as_str())).collect::<Vec<_>>(),
+            [("text", first), ("text_article", second)],
+            "{input} : {found:?}"
+        );
+    }
+}

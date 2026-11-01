@@ -123,6 +123,11 @@ impl Section {
 
     /// Vrai si la section s'applique à `reference` : elle a commencé avant la fin de la version
     /// et ne finit pas avant elle. Une borne inconnue ne l'écarte pas.
+    ///
+    /// Limite connue (L3-02) : pour une version ouverte, toute section avec une `fin` lisible est
+    /// écartée, même si cette `fin` est une vraie date future (restructuration programmée). Le
+    /// mappeur n'a pas d'horloge et aucune capture d'un code à structure annoncée ne tranche ce
+    /// cas ; `a_scheduled_restructuring_is_a_known_limit_of_an_open_version` fige le comportement.
     fn applies(&self, reference: Reference) -> bool {
         match reference {
             Reference::Open => self.fin.is_none(),
@@ -417,6 +422,20 @@ mod tests {
             section("Sans date", (None, None), 2, None),
         ];
         assert_eq!(section_path(&entries, Reference::Open), ["Courant", "Sans date"]);
+    }
+
+    #[test]
+    fn a_scheduled_restructuring_is_a_known_limit_of_an_open_version() {
+        // Une `fin` future réelle (non sentinelle) écarte la section d'une version ouverte : seule
+        // la structure annoncée, sans `fin`, est retenue. Comportement figé, à revoir avec une
+        // capture d'un code dont la structure est annoncée (le mappeur n'a pas d'horloge).
+        let entries = [
+            section("Actuel", span("2016-10-01", "2099-01-01"), 1, Some("VIGUEUR")),
+            section("Annoncé", (Some("2099-01-01"), None), 1, Some("VIGUEUR_DIFF")),
+        ];
+        assert_eq!(section_path(&entries, Reference::Open), ["Annoncé"]);
+        // Sans autre section pour la remplacer, elle est retenue par le filet « tout garder ».
+        assert_eq!(section_path(&entries[..1], Reference::Open), ["Actuel"]);
     }
 
     #[test]

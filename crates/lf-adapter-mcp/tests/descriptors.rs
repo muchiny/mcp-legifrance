@@ -203,7 +203,8 @@ mod descriptors {
         }
     }
 
-    /// Les `format` du vocabulaire standard de JSON Schema 2020-12 (validation, §7.3).
+    /// Les `format` du vocabulaire standard de JSON Schema 2020-12 (validation, §7.3). À garder
+    /// identique à `src/schema.rs` : un test de ce crate compare les copies.
     const STANDARD_FORMATS: [&str; 19] = [
         "date-time",
         "date",
