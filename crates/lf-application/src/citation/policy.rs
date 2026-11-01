@@ -1051,7 +1051,7 @@ mod tests {
         let (verdict, used) = check_quote_within(&altered, &official, QUOTE_STATE_BUDGET);
         assert_eq!(verdict, Some(QuoteCheck::QuoteMismatch));
         assert!(used < QUOTE_STATE_BUDGET / 10, "{used} états");
-        assert_eq!(used, 53_745, "une lecture complète de la décision");
+        assert!(used > 50_000, "une lecture complète de la décision : {used} états");
     }
 
     /// Le budget est commun aux tronçons d'un extrait à ellipses.

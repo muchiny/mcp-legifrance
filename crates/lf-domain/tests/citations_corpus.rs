@@ -2262,6 +2262,17 @@ fn no_positive_case_has_an_unread_article_mention() {
         }
     }
     assert_eq!(flagged, Vec::<String>::new());
+    // Corpus négatif : les `article N` nus (N03, N26, N27, N41, N43) ne font pas de bruit ; seul
+    // N36 (`expect` vide), qui cite un article que le parseur ne lit pas, est signalé.
+    let mut flagged_negatives = Vec::new();
+    for case in cases(NEGATIVES) {
+        let spans: Vec<_> =
+            parse_with(&case.input, &options_for(&case)).iter().map(|cite| cite.span).collect();
+        if unread_article_mentions(&case.input, &spans) {
+            flagged_negatives.push(case.id);
+        }
+    }
+    assert_eq!(flagged_negatives, vec!["N36".to_owned()]);
     for refused in ["CGI, art. 885-0 V bis A", "art. 150-0 B ter I du CGI"] {
         let input = format!("article 1240 du code civil ; {refused}");
         let spans: Vec<_> =
