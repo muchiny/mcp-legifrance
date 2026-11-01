@@ -1096,6 +1096,8 @@ Les mots juridiquement porteurs (« article », « loi », « code », « non »
 
 Test d'acceptation (prototype de ce document, avec ces paramètres) : sur consult_juri_constit.json, le focus « publicité des débats » classe en tête le considérant 14 (« Dès lors, le grief tiré de la méconnaissance du principe de publicité des débats du procès pénal ne peut qu'être écarté. »), puis le 8 (`focus_returns_relevant_paragraphs`, D-33). Sur consult_juri_cetat.json, « autorités de cet État membre » classe en tête la citation de l'article L. 104-7 et le point 9.
 
+**Score conservé (1.1.0, D-02).** Le score BM25 de chaque segment retenu est gardé (`PassageOut.score`) et arrondi à 2 décimales à la construction, par `(score * 100).round() / 100` ; un passage coupé au budget garde le score de son segment entier. `PassageOut`, `Reading` et les sorties `GetTextOutput`, `GetDecisionOutput`, `GetDeliberationOutput` ne dérivent plus `Eq` (un `f64` l'interdit) mais gardent `PartialEq`.
+
 ### 7.9 `text::summary` : résumé [M5]
 
 ```rust
