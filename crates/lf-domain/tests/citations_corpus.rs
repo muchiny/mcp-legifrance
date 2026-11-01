@@ -1,4 +1,4 @@
-//! Corpus de citations (annexe B §8, T-M6-03) : 170 positifs et 42 négatifs, lus tels quels dans
+//! Corpus de citations (annexe B §8, T-M6-03) : 185 positifs et 45 négatifs, lus tels quels dans
 //! `tests/data/citations/`, sans aucune table de surcharge (§8.4). Le domaine n'a pas de `serde` :
 //! le harnais projette chaque [`Spanned<CitationRef>`] vers un `serde_json::Value` aux clés du
 //! corpus (§8.3), puis compare en sous-ensemble.
@@ -2123,15 +2123,15 @@ fn perf_parse_20k() {
 #[test]
 fn corpus_has_the_documented_size() {
     let (pos, neg) = (cases(POSITIVES), cases(NEGATIVES));
-    assert_eq!(pos.len(), 170);
-    assert_eq!(neg.len(), 42);
+    assert_eq!(pos.len(), 185);
+    assert_eq!(neg.len(), 45);
     let expectations = |cs: &[Case]| cs.iter().map(|c| c.expect.len()).sum::<usize>();
-    assert_eq!(expectations(&pos), 186);
-    assert_eq!(expectations(&neg), 28);
+    assert_eq!(expectations(&pos), 217);
+    assert_eq!(expectations(&neg), 32);
     let mut ids: Vec<&str> = pos.iter().chain(&neg).map(|c| c.id.as_str()).collect();
     ids.sort_unstable();
     ids.dedup();
-    assert_eq!(ids.len(), 212, "identifiants uniques");
+    assert_eq!(ids.len(), 230, "identifiants uniques");
 }
 
 #[test]
