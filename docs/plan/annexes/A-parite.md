@@ -392,6 +392,16 @@ Chaque divergence porte une **clé** stable. La colonne « Golden » vaut **oui*
 
 **Ce qui ne change pas** (garanti par les tests du §2.1) : les 8 noms d'outils et leur rôle ; les noms, défauts et caractères requis des paramètres de la référence, ainsi que l'acceptation des entiers en chaîne ; les 8 valeurs de `fond`, leur correspondance avec les fonds de l'API et le `kind` des hits ; les endpoints appelés et les clés des corps ; les motifs d'URL (sauf `law_article_url`) ; les identifiants renvoyés ; les ECLI natifs ; la recherche vide renvoyée comme un succès ; les 4 codes historiques et leur sens (sauf `error_codes_reclassified`) ; la première phrase des messages `invalid_arg` et `not_found` (sauf `not_found_message_per_court`) ; les annotations en lecture seule ; le transport stdio ; OAuth `client_credentials` avec la sandbox par défaut ; le format de tête des lignes d'audit et l'algorithme d'empreinte.
 
+### 4.10 Messages d'erreur corrigés en 1.0.1 (L4-09)
+
+Divergences consignées avec la référence pour les messages `invalid_arg` et `rate_limited` (05 §7.2 à §7.4, 03 §2.7) :
+
+1. `query is too long (…); shorten it or use match="all".` devient `… shorten it.` (le plafond de 450 caractères ne dépend pas de `match`).
+2. `offset=N is past the end of the text` devient `… is at or past the end of the text` (`offset == text_length` est aussi refusé).
+3. `focus=N out of range (1..500)` devient `focus is N characters long (max 500); shorten it.`
+4. Date bien formée hors de 1500-01-01..2221-12-31 : `is outside the supported range (1500-01-01..2221-12-31).` au lieu de `is not a valid date`.
+5. `retry in 0 s` devient `retry in a few seconds` ; un `offset` négatif donne la borne haute `(0..4294967295)` ; un `article_id` KALIARTI introuvable renvoie vers `fr_get_convention`.
+
 ---
 
 ## 5. Données golden
