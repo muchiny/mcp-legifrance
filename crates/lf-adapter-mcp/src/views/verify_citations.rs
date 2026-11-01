@@ -312,7 +312,7 @@ mod tests {
         };
         let citations: Vec<CitationCheck> = (0..100).map(entry).collect();
         let json = serde_json::to_string(&VerifyView::from(output(citations, 100))).unwrap();
-        assert!(json.chars().count() <= 45_000, "{}", json.chars().count());
+        assert!(json.chars().count() <= 45_000);
         let value: Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["citations"].as_array().unwrap().len(), 100);
         assert_eq!(value["checked"], 100);

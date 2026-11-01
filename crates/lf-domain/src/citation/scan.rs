@@ -543,7 +543,7 @@ mod tests {
             ("article L. O. 141", "L. O. 1"),
             ("article L.O.141", "L.O.1"),
         ] {
-            assert!(has(text, AnchorClass::ArticlePrefix, slice), "{text:?} : {:?}", found(text));
+            assert!(has(text, AnchorClass::ArticlePrefix, slice));
         }
         // « l.o. », « L.O.I. » et « L.O. » sans chiffre n'ancrent pas.
         for text in ["article l.o. 127", "L.O.I. 5", "article L.O. x", "D. 2016, p. 1234 L.O.I."] {
