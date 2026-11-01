@@ -7,9 +7,11 @@
 //!    défaut).
 //! 2. Le contrôle lui-même est `verify_text` : analyse, tri hors ligne, dédoublonnage, résolution
 //!    quatre à la fois sous le budget de 80 % du délai de l'outil, extrait cité.
-//! 3. Plafond de réponse (05 §6.4) : la taille de la liste est estimée (somme des longueurs plus 64
-//!    par champ, cible 42 000) et la liste est raccourcie par la fin au besoin ; `truncated` et une
-//!    `note` le disent. La mesure exacte, sur le JSON, est faite par la vue de `lf-adapter-mcp`.
+//! 3. Plafond de réponse (05 §6.4) : le cas d'usage ne coupe pas par estimation (L2-13, gap1-5 :
+//!    64 caractères par champ surestimaient d'environ 4 fois et coupaient à 69 ou 85 citations).
+//!    `max_citations` est la seule borne ici ; la mesure exacte, sur le JSON, est faite par la vue
+//!    de `lf-adapter-mcp`, qui raccourcit par la fin sous 45 000 caractères et le dit (`truncated`,
+//!    `note`).
 //!
 //! Si toutes les citations soumises au corpus échouent, l'appel échoue avec l'erreur amont.
 
@@ -18,9 +20,9 @@ use std::time::Duration;
 use lf_domain::date::VersionDate;
 
 use crate::{
-    budget::{ResponseBudget, bounded, estimate_chars, shrink_from_end},
+    budget::{ResponseBudget, bounded},
     citation::{
-        CitationCheck, Note,
+        Note,
         resolve::Proof,
         verify::{Run, verify_text},
     },
@@ -41,9 +43,6 @@ pub(crate) const TEXT_MAX_CHARS: usize = 20_000;
 
 /// Borne basse de `max_citations`.
 const MAX_CITATIONS_MIN: usize = 1;
-
-/// Caractères estimés pour les valeurs courtes d'une entrée : chiffres du span, `kind`, `status`.
-const ENTRY_FIXED_CHARS: usize = 40;
 
 /// Cas d'usage `fr_verify_citations`.
 pub(crate) struct VerifyCitationsUseCase<'a, C: LegalCorpus, K: Clock> {
@@ -101,19 +100,8 @@ impl<'a, C: LegalCorpus, K: Clock> VerifyCitationsUseCase<'a, C, K> {
             .await
             .map_err(|error| port_failure(TOOL, "the citations", &error))?;
         let found = verified.found;
-        let mut citations = verified.checks;
-        let removed = shrink_from_end(&mut citations, |all| {
-            estimate_list(all) > ResponseBudget::ESTIMATE_TARGET_CHARS
-        });
-        let note = if removed > 0 {
-            Some(format!(
-                "List shortened to the first {} citations to fit the response cap; check the \
-                 text in several calls.",
-                citations.len()
-            ))
-        } else {
-            (found == 0).then(|| Note::NoCitationRecognised.text())
-        };
+        let citations = verified.checks;
+        let note = (found == 0).then(|| Note::NoCitationRecognised.text());
         Ok(VerifyCitationsOutput {
             found,
             checked: citations.len(),
@@ -122,33 +110,6 @@ impl<'a, C: LegalCorpus, K: Clock> VerifyCitationsUseCase<'a, C, K> {
             note,
         })
     }
-}
-
-/// Taille estimée de la liste : par entrée, le span, `raw`, `kind` et `status` ; l'enregistrement
-/// (`id`, `citation`, `source_url`), l'extrait et la note quand ils existent.
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
-)]
-fn estimate_list(citations: &[CitationCheck]) -> usize {
-    citations
-        .iter()
-        .map(|check| {
-            let record = check.resolved.as_ref();
-            let fields = 2
-                + 3 * usize::from(record.is_some())
-                + usize::from(check.quote.is_some())
-                + usize::from(check.note.is_some());
-            let record_chars = record.map_or(0, |record| {
-                record.id.as_str().len() + record.citation.chars().count() + record.source_url.len()
-            });
-            let note_chars = check.note.as_ref().map_or(0, |note| note.text().chars().count());
-            estimate_chars(
-                fields,
-                ENTRY_FIXED_CHARS + check.raw.chars().count() + record_chars + note_chars,
-            )
-        })
-        .fold(0, usize::saturating_add)
 }
 
 #[cfg(test)]
@@ -347,25 +308,65 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_truncated_under_estimate() {
+    async fn max_citations_100_is_reached_with_quotes_gap1_5() {
+        // Cas réel de gap1-5 : cent citations de code, dont trente suivies d'un extrait collé. L'ancienne
+        // estimation (64 caractères par champ) coupait à 69 ; la mesure exacte est celle de la vue.
         let corpus = corpus_with_civil_code();
         for n in 1..=100 {
-            corpus.push_find_article(Ok(article(n)));
+            let mut quoted = article(n);
+            quoted.text =
+                LongText::from_plain("Chacun a droit au respect de sa vie privée.").unwrap();
+            corpus.push_find_article(Ok(quoted));
+        }
+        let text = (1..=100)
+            .map(|n| {
+                if n <= 30 {
+                    format!(
+                        "article {n} du code civil « Chacun a droit au respect de sa vie privée »"
+                    )
+                } else {
+                    format!("article {n} du code civil")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ; ");
+        let output =
+            run(&corpus, PisteEnvironment::Production, Some(&text), Some(100)).await.unwrap();
+        assert_eq!((output.found, output.checked, output.truncated), (100, 100, false));
+        assert_eq!(output.citations.len(), 100);
+        assert_eq!(output.note, None);
+        assert!(output.citations[0].quote.is_some());
+        // Les premières citations sont gardées, dans l'ordre.
+        assert!(output.citations[0].raw.contains("article 1 "));
+        assert!(output.citations[99].raw.contains("article 100 "));
+    }
+
+    #[tokio::test]
+    async fn the_application_does_not_cut_by_estimate_only_max_citations_bounds_the_list() {
+        // Des enregistrements très lourds : la coupe sur la taille mesurée est celle de la vue, le
+        // cas d'usage rend toutes les citations demandées, sans note de raccourcissement.
+        let corpus = corpus_with_civil_code();
+        for n in 1..=100 {
+            let mut heavy = article(n);
+            heavy.code_title = Some("Code civil ".repeat(100));
+            corpus.push_find_article(Ok(heavy));
         }
         let text =
             (1..=100).map(|n| format!("article {n} du code civil")).collect::<Vec<_>>().join(" ; ");
         let output =
             run(&corpus, PisteEnvironment::Production, Some(&text), Some(100)).await.unwrap();
-        assert_eq!(output.found, 100);
-        assert!(output.truncated);
-        assert!(output.checked < 100 && output.checked > 50, "{}", output.checked);
-        assert_eq!(output.checked, output.citations.len());
-        assert!(estimate_list(&output.citations) <= ResponseBudget::ESTIMATE_TARGET_CHARS);
-        let note = output.note.expect("a shortened list carries a note");
-        assert!(note.contains(&output.checked.to_string()), "{note}");
-        // Les citations gardées sont les premières du texte, dans l'ordre.
-        assert!(output.citations[0].raw.contains("article 1 "));
-        // Sous le plafond, la liste n'est ni raccourcie ni annotée.
+        assert_eq!((output.found, output.checked, output.truncated), (100, 100, false));
+        assert_eq!(output.note, None);
+        // `max_citations` borne toujours : 100 trouvées, 40 demandées, 40 rendues, dans l'ordre.
+        let corpus = corpus_with_civil_code();
+        for n in 1..=100 {
+            corpus.push_find_article(Ok(article(n)));
+        }
+        let output =
+            run(&corpus, PisteEnvironment::Production, Some(&text), Some(40)).await.unwrap();
+        assert_eq!((output.found, output.checked, output.truncated), (100, 40, true));
+        assert!(output.citations[39].raw.contains("article 40 "));
+        // Sous le plafond, la liste n'est ni raccourcie ni annotée (défaut de 50 inchangé).
         let corpus = corpus_with_civil_code();
         for n in 1..=3 {
             corpus.push_find_article(Ok(article(n)));

@@ -300,6 +300,26 @@ mod tests {
     }
 
     #[test]
+    fn a_hundred_citations_with_quotes_fit_under_the_cap_without_shortening_gap1_5() {
+        // Cas réel de gap1-5 : cent citations dont trente suivies d'un extrait, l'enregistrement et
+        // une note chacune (environ 400 caractères de JSON). Seule la mesure exacte coupe : ici
+        // rien n'est retiré, `max_citations=100` est atteint.
+        let entry = |n: usize| CitationCheck {
+            raw: format!("article {n} du code civil, selon lequel « Texte. »"),
+            quote: (n < 30).then_some(QuoteCheck::Match),
+            note: Some(Note::NoRecord { family: "text", value: "é".repeat(40), date: None }),
+            ..verified()
+        };
+        let citations: Vec<CitationCheck> = (0..100).map(entry).collect();
+        let json = serde_json::to_string(&VerifyView::from(output(citations, 100))).unwrap();
+        assert!(json.chars().count() <= 45_000, "{}", json.chars().count());
+        let value: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["citations"].as_array().unwrap().len(), 100);
+        assert_eq!(value["checked"], 100);
+        assert!(value.get("truncated").is_none() && value.get("note").is_none());
+    }
+
+    #[test]
     fn the_note_of_the_application_comes_first_when_the_view_shortens_the_list_again() {
         let heavy = |n: usize| CitationCheck {
             raw: format!("{n} {}", "x".repeat(300)),
