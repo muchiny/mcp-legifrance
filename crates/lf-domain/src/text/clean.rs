@@ -85,6 +85,13 @@ pub fn clean_field(raw: Option<&str>) -> Option<String> {
     raw.map(clean).filter(|text| !text.is_empty())
 }
 
+/// Tout blanc (saut de ligne, tabulation, espaces répétés) replié en une seule espace, blancs de
+/// bord retirés : le texte tient sur une ligne. Sert aux titres et aux extraits de résultats de
+/// recherche, qui n'ont pas besoin de paragraphes (03 §7.3).
+pub fn flatten_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// `s` a un caractère non blanc.
 fn has_text(s: &str) -> bool {
     s.chars().any(|c| !c.is_whitespace())
@@ -120,6 +127,13 @@ mod tests {
     use crate::text::encoding::repair_latin1_mojibake;
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
+
+    #[test]
+    fn flatten_whitespace_gives_one_line() {
+        assert_eq!(flatten_whitespace(" a\n\nb \t c\r\n d\u{a0}e "), "a b c d e");
+        assert_eq!(flatten_whitespace("déjà sur une ligne"), "déjà sur une ligne");
+        assert_eq!(flatten_whitespace(" \n\t "), "");
+    }
 
     /// Un seul caractère retiré.
     const ONE: CleanReport = CleanReport { invisible_removed: 1 };

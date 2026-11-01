@@ -26,7 +26,7 @@ use lf_domain::fond::{Fond, PaginationMode};
 use lf_domain::id::{ArticleId, DocumentId};
 use lf_domain::search::SearchQuery;
 use lf_domain::status::status_of;
-use lf_domain::text::clean_field;
+use lf_domain::text::{clean_field, flatten_whitespace};
 
 use super::dates::first_civil;
 use super::rules::{check_origin, note_suffix, restore_capped_title, suffix_start};
@@ -116,7 +116,8 @@ fn map_hit(
     };
     check_origin(result.origin.as_deref(), hit.id.as_str(), diags);
     hit.cid = hit_cid(fond, &hit.id, title.and_then(|title| title.cid.as_deref()), diags);
-    hit.title = restore_capped_title(fond, title.and_then(|title| title.title.as_deref()));
+    hit.title = restore_capped_title(fond, title.and_then(|title| title.title.as_deref()))
+        .map(|title| flatten_whitespace(&title));
     hit.nature = clean_field(result.nature.as_deref());
     hit.etat = status_of(result.etat.as_deref(), None);
     hit.idcc = result.idcc.as_deref().and_then(Idcc::parse);
@@ -347,6 +348,50 @@ mod tests {
         let title = title_of(Fond::Juri, JURI_CAPPED_PAGE, "JURITEXT000027366470");
         assert!(title.ends_with(" 11-19.130 …"), "{title}");
         assert!(!title.contains("11-19. "), "{title}");
+    }
+
+    /// Relevé C15 : recherche CNIL dont un titre porte des sauts de ligne.
+    const CNIL_C15_PAGE: &str = include_str!(
+        "../../tests/fixtures/recorded/search/c101/C15-cnil-search-protection-donnees-2021.json"
+    );
+    /// Relevé C15 : recherche ACCO « télétravail » dont les extraits portent des sauts de ligne.
+    const ACCO_C15_PAGE: &str =
+        include_str!("../../tests/fixtures/recorded/search/c101/C15-acco-search-teletravail.json");
+
+    /// L3-07 (search-15) : le titre de CNILTEXT000044033275, relevé sur trois lignes, tient sur une
+    /// ligne (et suit donc la citation repliée).
+    #[test]
+    fn hit_title_is_one_line() {
+        let title = title_of(Fond::Cnil, CNIL_C15_PAGE, "CNILTEXT000044033275");
+        assert!(!title.contains('\n'), "{title:?}");
+        assert!(title.ends_with("(rectificatif) (demande d’approbation n° 20005213)"), "{title:?}");
+    }
+
+    /// Les extraits ACCO relevés (les 4 portent des sauts de ligne dans le relevé) tiennent sur une ligne.
+    #[test]
+    fn acco_snippets_are_one_line() {
+        let (page, _) = page_of(Fond::Acco, ACCO_C15_PAGE);
+        let mut seen = 0_usize;
+        for hit in page.hits {
+            seen += 1;
+            let snippet = hit.snippet.expect("extrait");
+            assert!(!snippet.as_str().contains(['\n', '\r', '\t']), "{snippet:?}");
+        }
+        assert_eq!(seen, 4, "extraits relevés");
+    }
+
+    /// Jumeau : un titre déjà sur une ligne est inchangé ; les blancs multiples et les sauts de
+    /// ligne d'un titre LODA se replient en une espace.
+    #[test]
+    fn a_one_line_title_is_unchanged_and_blank_runs_are_folded() {
+        let one = loda_hit(
+            &json!({ "titles": [{ "id": "LEGITEXT000006070721", "title": "LOI n° 1 (2)" }] }),
+        );
+        assert_eq!(one.title.as_deref(), Some("LOI n° 1 (2)"));
+        let many = loda_hit(
+            &json!({ "titles": [{ "id": "LEGITEXT000006070721", "title": "LOI n° 1\n\n(2)" }] }),
+        );
+        assert_eq!(many.title.as_deref(), Some("LOI n° 1 (2)"));
     }
 
     /// Jumeau : un titre CONSTIT de 256 caractères est légitime et reste tel quel.
@@ -1333,10 +1378,10 @@ mod tests {
         let idccs = [275, 1486];
         let dates = [d(2025, 12, 19), d(2025, 2, 7)];
         let lengths = [215, 212];
-        let newlines = [5, 4];
+        // L3-07 (search-15) : l'extrait est aplati sur une ligne (il portait 5 et 4 sauts).
         let starts = [
-            "[...]définitions liées au télétravail 4\n3.1. Définition du Télétravail 4",
-            "[...]ACCORD TELETRAVAIL HOPIUM\nPRÉAMBULE 3",
+            "[...]définitions liées au télétravail 4 3.1. Définition du Télétravail 4",
+            "[...]ACCORD TELETRAVAIL HOPIUM PRÉAMBULE 3",
         ];
         for (index, hit) in page.hits.iter().enumerate() {
             assert_eq!(hit.id, doc_id(ids[index]), "{index}");
@@ -1346,7 +1391,7 @@ mod tests {
             assert_eq!(hit.date, Some(dates[index]), "{index}");
             assert_eq!((hit.nature.as_ref(), hit.etat.as_ref()), (None, None), "{index}");
             assert_eq!(snippet_len(hit), lengths[index], "{index}");
-            assert_eq!(snippet_str(hit).matches('\n').count(), newlines[index], "{index}");
+            assert!(!snippet_str(hit).contains('\n'), "{index}");
             assert!(snippet_str(hit).starts_with(starts[index]), "{index}");
         }
     }

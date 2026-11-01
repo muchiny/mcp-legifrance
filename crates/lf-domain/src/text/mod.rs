@@ -16,7 +16,7 @@ mod stopwords;
 mod summary;
 mod window;
 
-pub use clean::{CleanReport, clean, clean_field, clean_with_report};
+pub use clean::{CleanReport, clean, clean_field, clean_with_report, flatten_whitespace};
 pub use focus::{FOCUS_MAX_CHARS, Focus};
 pub use fold::fold;
 pub(crate) use html::is_invisible;

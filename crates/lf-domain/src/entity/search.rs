@@ -9,7 +9,7 @@ use crate::{
     fond::{Fond, PaginationMode},
     id::{ArticleId, DocumentId},
     status::LegalStatus,
-    text::clean,
+    text::{clean, flatten_whitespace},
     url::{ResourceKind, legifrance_url},
 };
 
@@ -61,7 +61,9 @@ impl Snippet {
 
 /// Texte de l'extrait : nettoyé, `None` si vide, coupé à [`SNIPPET_MAX_CHARS`].
 fn snippet_text(raw: &str) -> Option<String> {
-    let text = clean(raw);
+    // Un extrait tient sur une ligne : les sauts de ligne de la source (textes ACCO) deviennent
+    // une espace avant la coupe, qui se fait sur les espaces.
+    let text = flatten_whitespace(&clean(raw));
     if text.is_empty() {
         return None;
     }
@@ -403,6 +405,31 @@ mod tests {
         // 281 : coupé.
         let over = format!("{exact}s");
         assert_eq!(snippet_text(&over), Some(format!("{}mot…", "mot ".repeat(68))));
+    }
+
+    /// L3-07 (search-15) : un extrait de recherche tient sur une ligne ; les sauts de ligne et
+    /// les lignes vides de la source (96 textes ACCO sur 100) deviennent une espace.
+    #[test]
+    fn snippet_is_flattened_to_one_line() {
+        assert_eq!(
+            snippet_text("définitions liées au télétravail 4\n3.1. Champ\n\n\t d'application\r\n"),
+            Some("définitions liées au télétravail 4 3.1. Champ d'application".to_owned())
+        );
+        let snippet = Snippet::new("a\nb").unwrap();
+        assert_eq!(snippet.as_str(), "a b");
+        let article =
+            CodeArticleRef::new(ArticleId::parse("LEGIARTI000006419288").unwrap(), None, "x\ny");
+        assert_eq!(article.snippet.as_ref().map(Snippet::as_str), Some("x y"));
+    }
+
+    /// Jumeau : la coupe à 280 s'applique à l'extrait aplati, donc à la dernière espace (et non
+    /// à un saut de ligne) ; la longueur reste bornée.
+    #[test]
+    fn a_multi_line_snippet_is_cut_after_flattening() {
+        let long = "mot\n".repeat(80);
+        assert_eq!(snippet_text(&long), Some(format!("{}mot…", "mot ".repeat(68))));
+        let exact = format!("{}mots", "mot\n".repeat(69));
+        assert_eq!(snippet_text(&exact).map(|s| s.chars().count()), Some(SNIPPET_MAX_CHARS));
     }
 
     #[test]
