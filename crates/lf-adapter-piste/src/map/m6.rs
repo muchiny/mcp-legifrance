@@ -622,9 +622,11 @@ mod tests {
 
     #[test]
     fn kali_cont_hits_stays_linear_on_a_hostile_container() {
-        // Un conteneur démesuré (des dizaines de milliers de textes de base, tous abrogés) ne coûte
-        // pas un parcours des sections par texte : le temps reste très en deçà de la seconde.
-        let count = 30_000;
+        // Un conteneur démesuré (cent mille textes de base, tous abrogés) ne coûte pas un parcours
+        // des sections par texte. Le seuil est large (10 s, charge de la machine comprise) et la
+        // taille le rend sûr : linéaire, le parcours prend une fraction de seconde ; quadratique,
+        // il ferait 10^10 comparaisons, des minutes, bien au-delà du seuil.
+        let count = 100_000;
         let ids: Vec<String> = (0..count).map(|i| format!("KALITEXT{i:012}")).collect();
         let bases: Vec<&str> = ids.iter().map(String::as_str).collect();
         let sections: Vec<(&str, &str, &str)> =
@@ -634,7 +636,7 @@ mod tests {
         let hits = kali_cont_hits(&dto, &mut Diagnostics::default());
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id.as_str(), "KALITEXT000000000000");
-        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
     }
 
     #[test]

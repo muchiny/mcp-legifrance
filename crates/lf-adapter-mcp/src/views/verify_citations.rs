@@ -38,7 +38,8 @@ pub(crate) struct VerifyView {
     truncated: Option<bool>,
     // Un contrôle par citation, toujours présent.
     citations: Vec<CitationView>,
-    // Remarque exceptionnelle (liste raccourcie).
+    // Notes de la réponse : liste raccourcie par la mesure exacte du JSON (`truncated`), aucune
+    // citation reconnue, passage ou subdivision non contrôlés. Absente quand rien n'est à dire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String")]
     note: Option<String>,

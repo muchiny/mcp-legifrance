@@ -60,17 +60,19 @@ fn number_after_keyword(rest: &str) -> Option<usize> {
 /// Reste de `rest` après « article », « articles » ou « art. » (casse ignorée), si `rest` en
 /// commence par un, mot entier.
 fn strip_keyword(rest: &str) -> Option<&str> {
-    let is = |len: usize, word: &str| {
-        rest.get(..len).is_some_and(|head| head.eq_ignore_ascii_case(word))
+    // Reste de `rest` après `word` (casse ignorée) ; `None` si `rest` n'en commence pas ainsi ou si
+    // la coupe tombe au milieu d'un caractère.
+    let after = |word: &str| {
+        let (head, tail) = rest.split_at_checked(word.len())?;
+        head.eq_ignore_ascii_case(word).then_some(tail)
     };
-    if is(7, "article") {
-        let tail = rest.get(7..)?;
+    if let Some(tail) = after("article") {
         let tail = tail.strip_prefix(['s', 'S']).unwrap_or(tail);
         // Suivi d'une lettre ou d'un chiffre, c'est un autre mot (« articlé », « article5 »).
         return tail.chars().next().is_none_or(|c| !c.is_alphanumeric()).then_some(tail);
     }
-    if is(3, "art") {
-        return rest.get(3..)?.strip_prefix('.');
+    if let Some(tail) = after("art") {
+        return tail.strip_prefix('.');
     }
     None
 }

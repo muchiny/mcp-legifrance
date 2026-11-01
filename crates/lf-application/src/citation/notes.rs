@@ -396,8 +396,8 @@ fn mismatches_text(gaps: &[(Field, String, String)]) -> String {
 
 /// Gabarit de [`Note::DecisionLinkCodes`].
 const DECISION_LINK_CODES: &str = "The codes of decision links may be inexact: the API gives text \
-     fragments, and a code not written next to its article is left out; check the decision with \
-     fr_verify_citations.";
+     fragments, and a code not written next to its article is left out; check them in the \
+     decision text with fr_get_decision.";
 
 /// Textes de plusieurs notes mis bout à bout (une espace entre deux). Le premier est rendu en
 /// entier (rogné par la borne de [`Note::text`] s'il la dépasse à lui seul) ; chacun des suivants
@@ -772,7 +772,7 @@ mod tests {
             ),
             (
                 Note::DecisionLinkCodes,
-                "The codes of decision links may be inexact: the API gives text fragments, and a code not written next to its article is left out; check the decision with fr_verify_citations.",
+                "The codes of decision links may be inexact: the API gives text fragments, and a code not written next to its article is left out; check them in the decision text with fr_get_decision.",
             ),
             (
                 Note::NotInSnapshot {

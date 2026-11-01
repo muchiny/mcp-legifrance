@@ -1002,26 +1002,14 @@ mod tests {
         );
         const KEY: &str = "\"texte\":\"";
         let start = RAW.find(KEY).unwrap().saturating_add(KEY.len());
+        // Le texte de cette décision ne porte qu'une séquence d'échappement JSON, `\"` : on lit
+        // jusqu'au guillemet non échappé.
         let mut out = String::new();
         let mut chars = RAW[start..].chars();
         while let Some(c) = chars.next() {
             match c {
                 '"' => break,
-                '\\' => match chars.next() {
-                    Some('n') => out.push('\n'),
-                    Some('t') => out.push('\t'),
-                    Some('u') => {
-                        let code: String = chars.by_ref().take(4).collect();
-                        out.push(
-                            u32::from_str_radix(&code, 16)
-                                .ok()
-                                .and_then(char::from_u32)
-                                .unwrap_or('\u{fffd}'),
-                        );
-                    }
-                    Some(other) => out.push(other),
-                    None => break,
-                },
+                '\\' => out.extend(chars.next()),
                 other => out.push(other),
             }
         }

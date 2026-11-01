@@ -186,7 +186,7 @@ mod tests {
 
     /// Paramètres témoins : un champ obligatoire et un optionnel.
     #[derive(JsonSchema)]
-    #[allow(dead_code, reason = "lu par schemars seulement")]
+    #[expect(dead_code, reason = "lu par schemars seulement")]
     struct Params {
         /// Free-text query.
         query: String,
@@ -195,7 +195,6 @@ mod tests {
 
     /// Sortie témoin.
     #[derive(Serialize, JsonSchema)]
-    #[allow(dead_code, reason = "lu par schemars seulement")]
     struct View {
         count: u32,
     }
@@ -247,7 +246,7 @@ mod tests {
 
     /// Paramètres témoins de L5-01 : un entier borné avec défaut, une date, deux défauts nuls.
     #[derive(JsonSchema)]
-    #[allow(dead_code, reason = "lu par schemars seulement")]
+    #[expect(dead_code, reason = "lu par schemars seulement")]
     struct Bounded {
         #[schemars(with = "u32", range(min = 1, max = 100), extend("default" = 10))]
         page_size: Option<u32>,
@@ -389,7 +388,6 @@ mod tests {
 
     /// Sortie témoin : des champs absents plutôt que nuls (`skip_serializing_if`).
     #[derive(Serialize, JsonSchema)]
-    #[allow(dead_code, reason = "lu par schemars seulement")]
     struct Optional {
         #[serde(skip_serializing_if = "Option::is_none")]
         title: Option<String>,
@@ -399,7 +397,6 @@ mod tests {
     }
 
     #[derive(Serialize, JsonSchema)]
-    #[allow(dead_code, reason = "lu par schemars seulement")]
     struct Entry {
         #[serde(skip_serializing_if = "Option::is_none")]
         num: Option<String>,

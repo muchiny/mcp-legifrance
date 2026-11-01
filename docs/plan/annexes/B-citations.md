@@ -1370,7 +1370,7 @@ Tri : confiance décroissante, puis égalité de date avec la date citée, puis 
 | `OutOfCoverage` | `Légifrance only holds a selection of {court} decisions; absence is not proof (see fr_coverage).` | `unresolvable` |
 | `NotSupported` | `Not checkable in this version ({what}).` | `unresolvable` |
 | `NumberlessText` | `A text cited without a number cannot be checked here; find it with fr_search (query: its title and date).` (L2-10 ; remplace `NotSupported` « text cited without a number » ; la résolution de la Constitution et des textes à date seule reste un écart acté au contrat §7.3) | `unresolvable` |
-| `DecisionLinkCodes` | `The codes of decision links may be inexact: the API gives text fragments, and a code not written next to its article is left out; check the decision with fr_verify_citations.` (L4-13 ; décision seulement, dès qu'une citation tirée de `liens` ou de `citationJp` porte un code, gardé ou refusé ; aucun champ ni kind nouveau) | — |
+| `DecisionLinkCodes` | `The codes of decision links may be inexact: the API gives text fragments, and a code not written next to its article is left out; check them in the decision text with fr_get_decision.` (L4-13 ; décision seulement, dès qu'une citation tirée de `liens` ou de `citationJp` porte un code, gardé ou refusé ; aucun champ ni kind nouveau) | — |
 | `CouldNotConfirm` | `Could not confirm existence: nothing was found in {index}, which does not prove that it does not exist.` | `unresolvable` |
 | `NotChecked` | `Not checked: {reason} (upstream error, time budget).` | `unresolvable` |
 | `VersionSince` | `Current version in force since {date}.` | `verified` |
@@ -1672,7 +1672,7 @@ Elles sont reportées dans [09-risques-et-questions.md](../09-risques-et-questio
 | [V-122 · endpoints-m6-reponses] | (04) Formes réelles des réponses de `getJoWithNor`, `kaliContIdcc` et `/list/code`. |
 | [V-135 · endpoints-m7-reponses] | (04, V-135) Formes et tailles réelles de `tableMatieres`, `canonicalArticleVersion`, `getArticleByCid`, `relatedLinksArticle` et, pour la surface JORF tranchée à l'ouverture de M7, `/consult/jorf` (`/suggest` est retiré, 00 §8). |
 | [V-136 · related-links-forme] | (05) Forme de `/consult/relatedLinksArticle` et prise en charge des `KALIARTI`. |
-| [V-162 · seuil-quote-mismatch] | (05) Seuil de similarité entre `match` et `quote_mismatch`. |
+| [V-162 · seuil-quote-mismatch] | *(levée en 1.0.1, ADR-0020, AM-67)* Seuil de similarité entre `match` et `quote_mismatch` : remplacé par l'égalité stricte des mots. |
 | *État au 2026-10-29 (F2, sandbox)* | [V-122 · endpoints-m6-reponses] : `/list/code` (108 codes, 76 `VIGUEUR` et 32 `ABROGE`), `getJoWithNor` et `kaliContIdcc` jouées ; la pagination de `/list/code` est instable et `sort` n'ordonne rien (la table des codes est l'union des parcours, sans doublon). [V-135 · endpoints-m7-reponses] et [V-136 · related-links-forme] : jouées pour `canonicalArticleVersion`, `getArticleByCid` et `relatedLinksArticle` (article 9 du Code civil : 3 versions, 14 liens « cité par ») ; `tableMatieres` et `/consult/jorf` non essayés. Restent ouvertes : V-133 (endpoints ELI, jamais essayés) et V-139 à V-141 (URL à ouvrir dans un navigateur par le mainteneur). Le statut officiel de chaque V-xx est dans 09. |
 | [V-72 · mojibake-origine] | (03) Le mojibake vient-il de la capture des fixtures ou de l'API ? |
 | [V-73 · mojibake-cp1252] | Présence de mojibake de forme CP1252 (`â€™`) dans des réponses réelles et réparation par la règle de 00 §8. |

@@ -283,7 +283,7 @@ mod tests {
                 ],
                 "note": "The codes of decision links may be inexact: the API gives text \
                          fragments, and a code not written next to its article is left out; \
-                         check the decision with fr_verify_citations."
+                         check them in the decision text with fr_get_decision."
             })
         );
         assert_eq!(serde_json::from_str::<Value>(text_of(&result)).unwrap(), content);
