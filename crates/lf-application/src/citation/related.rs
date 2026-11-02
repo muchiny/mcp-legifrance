@@ -718,6 +718,62 @@ mod tests {
         );
     }
 
+    /// U08, related_diff-5 : `citationJp` de CETATEXT000050397014 (CE Ass., 24 octobre 2024,
+    /// n° 465144), reconstitué d'après le défaut, non relevé : deux décisions à la suite, dont la
+    /// première est citée au Lebon sans numéro. Le lien faux « CE, Ass., 30 mars 1966,
+    /// n° 328757 » mêlait la date de l'une et le numéro de l'autre.
+    const CITATION_JP_465144: &str = "CE, Ass., 30 mars 1966, Compagnie générale d'énergie radio-électrique, p. 257 ; \
+         CE, 23 juillet 2010, Soc. X, n° 328757 ; CE, 25 mars 1988, n° 65022 ; \
+         CE, 27 juin 2016, n° 382319 ; CE, 3 octobre 2018, n° 410611 ; \
+         CE, Sect., 3 juillet 1998, n° 158592 ; CE, 22 juillet 2022, n° 458590 ; \
+         CE, Sect., 30 juillet 2003, n° 215957 ; CE, 20 décembre 2013, n° 335235";
+
+    #[test]
+    fn a_citation_jp_chaining_two_decisions_never_mixes_date_and_number() {
+        let links = links_of(Some(CITATION_JP_465144), &[]);
+        assert_eq!(
+            shape(&links),
+            [
+                ("cites_case_law", "decision", "CE, 23 juillet 2010, n° 328757"),
+                ("cites_case_law", "decision", "CE, 25 mars 1988, n° 65022"),
+                ("cites_case_law", "decision", "CE, 27 juin 2016, n° 382319"),
+                ("cites_case_law", "decision", "CE, 3 octobre 2018, n° 410611"),
+                ("cites_case_law", "decision", "CE, Sect., 3 juillet 1998, n° 158592"),
+                ("cites_case_law", "decision", "CE, 22 juillet 2022, n° 458590"),
+                ("cites_case_law", "decision", "CE, Sect., 30 juillet 2003, n° 215957"),
+                ("cites_case_law", "decision", "CE, 20 décembre 2013, n° 335235"),
+            ]
+        );
+        assert!(links.iter().all(|link| !link.citation.contains("1966")));
+    }
+
+    #[test]
+    fn decision_links_of_html_citation_jp_with_br_and_numbering() {
+        for cited in [
+            "1. CE, Assemblée, 30 mars 1966, Cie X, p. 257<br/>2. CE, 23 juillet 2010, Y, n° 328757",
+            "CE, Ass., 30 mars 1966, Cie X, p. 257<br>CE, 23 juillet 2010, Y, n° 328757<br/>",
+        ] {
+            assert_eq!(
+                shape(&links_of(Some(cited), &[])),
+                [("cites_case_law", "decision", "CE, 23 juillet 2010, n° 328757")],
+                "{cited}"
+            );
+        }
+    }
+
+    /// U08, garde : un `citationJp` enregistré dont les références du Lebon n'ont aucune ancre
+    /// « CE » (CETATEXT000007742504) ne donne toujours aucun lien du Conseil d'État.
+    #[test]
+    fn a_recorded_citation_jp_without_a_ce_anchor_gives_no_ce_link() {
+        let cited = "1. Ab. jur. Section, 1968-03-01, Syndicat général des fabricants de semoule de \
+                     France, p. 149 ; Assemblée, 1979-10-22, Union démocratique du travail, p. 384. \
+                     2. Cf. C. Cass. Ch. Mixte, 1975-05-24, Administration des douanes c/ Société \
+                     Café Jacques Vabre, Bull. Civ. n° 4, p. 6 ; Cons. Const., 1988-10-21, Election \
+                     du député de la 5ème circonscription du Val-d'Oise, J.O. 1988-10-25, p. \
+                     13474<br/>";
+        assert!(links_of(Some(cited), &[]).iter().all(|link| !link.citation.starts_with("CE")));
+    }
+
     #[test]
     fn a_real_decision_gives_the_same_links_as_its_strings() {
         // `Decision::cited_case_law` et `Decision::applied_texts` (fixture consult_juri.json)

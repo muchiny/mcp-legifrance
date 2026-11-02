@@ -5,7 +5,12 @@
 //! U07 : les décisions et mises en demeure de la CNIL à numéro à série (« décision n°
 //! MED-2024-150 ») sont lues sans « CNIL » ni « délibération » devant, et les numéros d'ordre à
 //! quatre chiffres (`DF-2017-1448`) sont lus quand une série est écrite.
-use lf_domain::citation::{CitationRef, CnilNumber, Confidence, parse};
+//! U08 : deux décisions du Conseil d'État citées à la suite ne sont jamais lues comme une seule
+//! (la date de l'une, le numéro de l'autre).
+use lf_domain::citation::{
+    CaseNumber, CitationRef, CnilNumber, Confidence, Court, ParseOptions, parse, parse_with,
+};
+use proptest::prelude::*;
 
 /// Clés d'article lues (article de code ou de texte), dans l'ordre.
 fn keys(input: &str) -> Vec<String> {
@@ -253,4 +258,323 @@ fn a_four_digit_cnil_order_is_read_back_from_its_canonical_form() {
     let read = cnil("CNIL, décision DF-2017-1448");
     assert_eq!(read.len(), 1, "{read:?}");
     assert_eq!((read[0].1.as_deref(), read[0].2, read[0].3), (Some("DF"), 2017, 1448));
+}
+
+/// Décisions du Conseil d'État lues : texte du span, date (`aaaa-mm-jj`) et numéros de requête.
+fn ce_decisions(input: &str, strip_html: bool) -> Vec<(String, String, Vec<u32>)> {
+    let options = ParseOptions { strip_html, ..ParseOptions::default() };
+    parse_with(input, &options)
+        .iter()
+        .filter_map(|c| match &c.value {
+            CitationRef::Decision(d) if matches!(d.court, Some(Court::ConseilEtat { .. })) => {
+                let numbers = d
+                    .numbers
+                    .iter()
+                    .filter_map(|n| match n {
+                        CaseNumber::CeRequete(n) => Some(*n),
+                        _ => None,
+                    })
+                    .collect();
+                Some((
+                    input.get(c.span.start..c.span.end).unwrap_or_default().to_owned(),
+                    d.date.map(|date| date.to_string()).unwrap_or_default(),
+                    numbers,
+                ))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Un seul triplet attendu : la seconde référence, seule, avec sa date et son numéro.
+fn second_only(input: &str, strip_html: bool, text: &str) {
+    assert_eq!(
+        ce_decisions(input, strip_html),
+        [(text.to_owned(), "2010-07-23".to_owned(), vec![328_757])],
+        "{input:?}"
+    );
+}
+
+/// U08, V0 à V4, V6, V7 et V9 : la date de la première référence n'est jamais prêtée au numéro de
+/// la seconde. Chaînes reconstituées d'après le défaut related_diff-5 (non relevées).
+#[test]
+fn v1_to_v7_and_neighbours() {
+    // V1 : séparateur « ; », parties et page du Lebon.
+    second_only(
+        "CE, Ass., 30 mars 1966, Compagnie générale d'énergie radio-électrique, p. 257 ; CE, 23 juillet 2010, Soc. X, n° 328757.",
+        false,
+        "CE, 23 juillet 2010, Soc. X, n° 328757",
+    );
+    // V2 : sans parties.
+    second_only(
+        "CE, Ass., 30 mars 1966, p. 257 ; CE, 23 juillet 2010, n° 328757.",
+        false,
+        "CE, 23 juillet 2010, n° 328757",
+    );
+    // V3 : « , et ».
+    second_only(
+        "CE, Ass., 30 mars 1966, Cie X, p. 257, et CE, 23 juillet 2010, n° 328757.",
+        false,
+        "CE, 23 juillet 2010, n° 328757",
+    );
+    // V4 : « . » après le Lebon ; la mention « Leb. » de la seconde est reprise.
+    second_only(
+        "CE, Ass., 30 mars 1966, Compagnie générale, Leb. p. 257. CE, 23 juillet 2010, Société Y, n° 328757, Leb.",
+        false,
+        "CE, 23 juillet 2010, Société Y, n° 328757, Leb.",
+    );
+    // V6 : forme Légifrance en toutes lettres.
+    second_only(
+        "Conseil d'État, Assemblée, 30 mars 1966, Cie X ; Conseil d'État, 23 juillet 2010, Y, n° 328757",
+        false,
+        "Conseil d'État, 23 juillet 2010, Y, n° 328757",
+    );
+    // V7 : retour à la ligne, `<br/>` (citationJp) et `<br>`.
+    second_only(
+        "CE, Ass., 30 mars 1966, Cie X, p. 257\nCE, 23 juillet 2010, Y, n° 328757",
+        false,
+        "CE, 23 juillet 2010, Y, n° 328757",
+    );
+    second_only(
+        "CE, Ass., 30 mars 1966, Cie X, p. 257<br/>CE, 23 juillet 2010, Y, n° 328757",
+        true,
+        "CE, 23 juillet 2010, Y, n° 328757",
+    );
+    // V9 : « Assemblée » en toutes lettres et liste numérotée.
+    second_only(
+        "1. CE, Assemblée, 30 mars 1966, Cie X, p. 257<br/>2. CE, 23 juillet 2010, Y, n° 328757",
+        true,
+        "CE, 23 juillet 2010, Y, n° 328757",
+    );
+    // Trois références : la première (sans numéro) disparaît, les deux autres restent entières.
+    assert_eq!(
+        ce_decisions(
+            "CE, Ass., 30 mars 1966, Cie X, p. 257 ; CE, 23 juillet 2010, n° 328757 ; CE, 5 mai 2011, n° 400000",
+            false
+        ),
+        [
+            ("CE, 23 juillet 2010, n° 328757".to_owned(), "2010-07-23".to_owned(), vec![328_757]),
+            ("CE, 5 mai 2011, n° 400000".to_owned(), "2011-05-05".to_owned(), vec![400_000]),
+        ]
+    );
+}
+
+/// U08, V5 : une seconde référence SANS ancre « CE » (forme du Lebon, date ISO) ne prête pas son
+/// numéro à la première, et n'est pas lue seule.
+#[test]
+fn v5_a_second_reference_without_an_anchor_is_not_read() {
+    for input in [
+        "CE, Ass., 30 mars 1966, Cie X, p. 257 ; Section, 2010-07-23, Y, n° 328757.",
+        "CE, Ass., 30 mars 1966, Cie X ; Section, 23 juillet 2010, Y, n° 328757.",
+        "CE, Ass., 30 mars 1966, Cie X ; 23 juillet 2010, Y, n° 328757.",
+    ] {
+        assert_eq!(ce_decisions(input, false), [], "{input:?}");
+    }
+}
+
+/// U08, V8 : une seconde référence d'une autre juridiction, avec une date « du », n'est pas avalée.
+#[test]
+fn v8_a_foreign_second_reference_is_not_swallowed() {
+    for input in [
+        "CE, Ass., 30 mars 1966, Cie X, p. 257, ainsi que TA Lyon du 4 mai 2000, Y, n° 123456",
+        "CE, Ass., 30 mars 1966, Cie X, TA Lyon du 4 mai 2000, Y, n° 123456",
+        "CE, Ass., 30 mars 1966, Cie X, CAA Paris du 4 mai 2000, Y, n° 123456",
+        "CE, Ass., 30 mars 1966, Cie X, Cass. civ. 1re du 4 mai 2000, Y, n° 123456",
+    ] {
+        assert!(
+            ce_decisions(input, false).iter().all(|d| d.1 != "1966-03-30"),
+            "{input:?} : {:?}",
+            ce_decisions(input, false)
+        );
+    }
+}
+
+/// U08, garde : les voisins d'une référence du Conseil d'État qui ne sont pas du Conseil d'État
+/// restent lus seuls (le Conseil constitutionnel et la CEDH ne fusionnent pas avec le CE).
+#[test]
+fn neighbours_of_other_courts_stay_read_alone() {
+    let kinds = |input: &str| -> Vec<(String, String)> { shape(input) };
+    for (input, other) in [
+        (
+            "CE, Ass., 30 mars 1966, Cie X, p. 257 ; Cons. const., 22 juillet 2010, n° 2010-14/22 QPC",
+            ("Decision", "Cons. const., 22 juillet 2010, n° 2010-14/22 QPC"),
+        ),
+        (
+            "CE, Ass., 30 mars 1966, Cie X, p. 257 ; CEDH, 4 mai 2000, Rotaru c. Roumanie, n° 28341/95",
+            ("Unsupported", "CEDH, 4 mai 2000, Rotaru c. Roumanie, n° 28341/95"),
+        ),
+    ] {
+        let read = kinds(input);
+        assert_eq!(read, [(other.0.to_owned(), other.1.to_owned())], "{input:?}");
+    }
+}
+
+/// U08, garde : des parties qui portent une date « du », un « ; » entre deux noms ou une date de
+/// procédure après une virgule restent des parties (comme en 1.1.0).
+#[test]
+fn legit_parties_stay_one_decision() {
+    for (input, date, number) in [
+        (
+            "CE, 3 mars 2020, Commune de Lyon (arrêté du 5 mai 2018), n° 123456 ; CE, Ass., 30 mars 1966, Compagnie Générale, n° 50515",
+            "2020-03-03",
+            123_456,
+        ),
+        ("CE, 3 mars 2020, Nicolo ; Boisdet, n° 108243", "2020-03-03", 108_243),
+        ("CE, 5 mars 1999, Rouquette, 12 mai 2018, n° 194658", "1999-03-05", 194_658),
+        ("CE, ass., 3 févr. 1989, Compagnie Alitalia, n° 74052, Rec. p. 44", "1989-02-03", 74_052),
+    ] {
+        let read = ce_decisions(input, false);
+        assert_eq!((read[0].1.as_str(), read[0].2.clone()), (date, vec![number]), "{input:?}");
+    }
+    // La seconde référence du premier cas est lue avec sa propre date : la vraie décision de 1966.
+    let both = ce_decisions(
+        "CE, 3 mars 2020, Commune de Lyon (arrêté du 5 mai 2018), n° 123456 ; CE, Ass., 30 mars 1966, Compagnie Générale, n° 50515",
+        false,
+    );
+    assert_eq!(both.len(), 2);
+    assert_eq!((both[1].1.as_str(), both[1].2.clone()), ("1966-03-30", vec![50_515]));
+}
+
+/// U08, garde : les formes à référence unique du corpus restent lues entières, à l'identique.
+#[test]
+fn every_single_reference_ce_form_of_the_corpus_is_unchanged() {
+    for (input, date, numbers) in [
+        (
+            "Conseil d'État, 2ème - 7ème chambres réunies, 29/05/2026, 506507",
+            "2026-05-29",
+            vec![506_507],
+        ),
+        (
+            "Conseil d'Etat, 7 / 5 SSR, du 28 décembre 2001, 216642, mentionné aux tables du recueil Lebon",
+            "2001-12-28",
+            vec![216_642],
+        ),
+        (
+            "CE, 14 avril 2023, n° 462797, mentionné aux tables du Recueil Lebon",
+            "2023-04-14",
+            vec![462_797],
+        ),
+        ("CE, Sect., 22 février 2007, req. n° 264541, Leb., p. 541", "2007-02-22", vec![264_541]),
+        ("CE, 5e et 6e ch. réunies, 10 mars 2025, n° 489701", "2025-03-10", vec![489_701]),
+        ("CE, ord., 27 juillet 2021, n° 454852", "2021-07-27", vec![454_852]),
+        ("CE, 3 mars 2020, Nicolo ; Boisdet, n° 108243", "2020-03-03", vec![108_243]),
+    ] {
+        assert_eq!(
+            ce_decisions(input, false),
+            [(input.to_owned(), date.to_owned(), numbers)],
+            "{input:?}"
+        );
+    }
+}
+
+/// U08, garde : une longue liste de références est lue en temps borné.
+#[test]
+fn a_long_chain_of_ce_references_is_read_in_bounded_time() {
+    let input = "CE, 1 janvier 2000, X ; ".repeat(2_000);
+    let started = std::time::Instant::now();
+    let read = parse(&input);
+    assert!(read.len() <= 1_000);
+    assert!(started.elapsed() < std::time::Duration::from_secs(20), "{:?}", started.elapsed());
+}
+
+/// Une référence du Conseil d'État tirée au hasard.
+#[derive(Clone, Debug)]
+struct Reference {
+    formation: &'static str,
+    parties: &'static str,
+    page: bool,
+    number: Option<u32>,
+    day: u32,
+    month: (&'static str, u32),
+    year: u32,
+}
+
+const MONTHS: [(&str, u32); 6] =
+    [("mars", 3), ("juillet", 7), ("mai", 5), ("octobre", 10), ("janvier", 1), ("décembre", 12)];
+
+impl Reference {
+    fn date(&self) -> String {
+        format!("{:04}-{:02}-{:02}", self.year, self.month.1, self.day)
+    }
+
+    fn text(&self) -> String {
+        let head = format!(
+            "CE, {}{} {} {}, {}",
+            self.formation, self.day, self.month.0, self.year, self.parties
+        );
+        match self.number {
+            Some(n) => format!("{head}n° {n}"),
+            None if self.page => format!("{head}p. 257"),
+            None => head.trim_end_matches([',', ' ']).to_owned(),
+        }
+    }
+}
+
+fn reference(years: std::ops::Range<u32>, numbered: bool) -> impl Strategy<Value = Reference> {
+    (
+        prop::sample::select(vec!["", "Ass., ", "Sect., "]),
+        prop::sample::select(vec!["", "Cie X, ", "Société Y, "]),
+        any::<bool>(),
+        10_000u32..999_999,
+        1u32..=28,
+        prop::sample::select(MONTHS.to_vec()),
+        years,
+    )
+        .prop_map(move |(formation, parties, page, number, day, month, year)| Reference {
+            formation,
+            parties,
+            page,
+            number: numbered.then_some(number),
+            day,
+            month,
+            year,
+        })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { failure_persistence: None, ..ProptestConfig::default() })]
+
+    /// U08 : deux références à la suite, quel que soit le séparateur, ne se mélangent jamais.
+    /// Volet 1 : chaque décision lue a la date et le numéro d'une seule des deux références.
+    /// Volet 2 : la seconde référence (ancre CE, date, numéro) est toujours lue entière.
+    #[test]
+    fn no_cross_pairing(
+        first in reference(1960..2000, false),
+        second in reference(2000..2025, true),
+        separator in prop::sample::select(vec![" ; ", ", ", ", et ", ". ", "\n", " puis "]),
+    ) {
+        let (a, b) = (first.text(), second.text());
+        let input = format!("{a}{separator}{b}.");
+        let read = ce_decisions(&input, false);
+        for (_, date, numbers) in &read {
+            if let Some(n) = numbers.first() {
+                prop_assert!(
+                    *date == second.date() && Some(*n) == second.number,
+                    "{input:?} : {read:?}"
+                );
+            }
+        }
+        prop_assert!(
+            read.iter().any(|(_, date, numbers)| *date == second.date()
+                && numbers.as_slice() == [second.number.unwrap_or_default()]),
+            "{input:?} : {read:?}"
+        );
+    }
+
+    /// U08 : la même propriété quand la première référence porte aussi un numéro : les deux sont
+    /// lues, chacune avec sa date et son numéro.
+    #[test]
+    fn two_numbered_references_are_both_read(
+        first in reference(1960..2000, true),
+        second in reference(2000..2025, true),
+        separator in prop::sample::select(vec![" ; ", ", ", ", et ", ". ", "\n", " puis "]),
+    ) {
+        let input = format!("{}{separator}{}.", first.text(), second.text());
+        let read = ce_decisions(&input, false);
+        let pairs: Vec<(String, u32)> =
+            read.iter().filter_map(|d| Some((d.1.clone(), *d.2.first()?))).collect();
+        prop_assert!(pairs.contains(&(first.date(), first.number.unwrap_or_default())), "{input:?} : {read:?}");
+        prop_assert!(pairs.contains(&(second.date(), second.number.unwrap_or_default())), "{input:?} : {read:?}");
+        prop_assert_eq!(pairs.len(), 2, "{:?} : {:?}", input, read);
+    }
 }

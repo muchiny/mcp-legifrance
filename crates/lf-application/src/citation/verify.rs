@@ -550,6 +550,39 @@ mod tests {
         ));
     }
 
+    /// U08 (related_diff-5) : deux décisions du Conseil d'État citées à la suite ne sont lues que
+    /// comme la seconde, avec sa propre date : le corpus voit une citation, aucune note de date.
+    #[tokio::test]
+    async fn two_chained_ce_decisions_verify_without_date_mismatch() {
+        let corpus = FakeCorpus::new();
+        let id = "CETATEXT000022513010";
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Cetat, id)]));
+        corpus.push_get_decision(Ok(Decision {
+            decision_id: DecisionId::parse(id).unwrap(),
+            ecli: None,
+            num: Some("328757".to_owned()),
+            juridiction: None,
+            formation: None,
+            solution: None,
+            numero_affaire: vec![],
+            date_texte: CivilDate::new(2010, 7, 23),
+            nature: None,
+            title: Some("Conseil d'État, 23/07/2010, 328757".into()),
+            text: LongText::from_plain("Texte de la décision.").unwrap(),
+            official_summary: OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
+        }));
+        let text = "CE, Ass., 30 mars 1966, Compagnie générale d'énergie radio-électrique, p. 257 ; \
+                    CE, 23 juillet 2010, Soc. X, n° 328757.";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        assert_eq!(verification.checks.len(), 1);
+        let check = &verification.checks[0];
+        assert!(!note_text(check).contains("differs"), "{}", note_text(check));
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), id);
+    }
+
     /// Repro de verify_citations-2 et -14 : les quatre pourvois de l'E2E (relevés C4), cités avec
     /// une autre chambre, sont `invalid` avec la vraie chambre en note.
     #[tokio::test]
