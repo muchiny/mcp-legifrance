@@ -36,7 +36,7 @@
 - **Protocole.** Révision 2026-07-28 servie en mode « modern » (`server/discover`, `_meta` par requête) et versions 2025-11-25 et 2025-06-18 servies en mode « legacy » (`initialize`), dans le même binaire, par `rmcp`/`rmcp-macros` `=3.5.1`. Capacités : `tools` en v0.1 et v0.2 ; `resources`, `prompts` et `completions` en plus en v0.3. Pas de `logging`, ni sampling, ni roots, ni élicitation, ni MRTR, ni `x-mcp-header`.
 - **Outils.** 8 outils en v0.1 (noms de la référence), 10 en v0.2, 13 en v0.3. Chaque outil a une description anglaise de 3 à 6 phrases, un `inputSchema` strict (`enum`, bornes, `additionalProperties: false`), un `outputSchema` à racine objet et les annotations `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true` (Q11). `title` et descriptions en anglais, prompts en français (Q14).
 - **Retour progressif.** Les trois outils à texte long (`fr_get_text`, `fr_get_decision`, `fr_get_deliberation`) renvoient par défaut un résumé (officiel, dispositif ou début du texte) ; `detail="full"` donne une fenêtre `offset`/`max_chars` (4 000 par défaut) avec `next_offset` ; `focus` donne des passages classés par BM25. Sur la décision CONSTIT des fixtures, la sortie passe de 15 140 caractères (référence) à 1 147 (résumé).
-- **Coût fixe.** Instructions : 2 879 caractères en v0.1, 3 278 en v0.3 (référence : 4 470, coupée par Claude Code à 4 096). Descripteurs estimés à 19,4 Ko en v0.1 (référence : 17,6 Ko), dont 11,8 Ko hors `outputSchema`.
+- **Coût fixe.** Instructions : 3 091 caractères en v0.1 (2 879 en 1.0.1), 3 490 en v0.3 (3 278 en 1.0.1) (référence : 4 470, coupée par Claude Code à 4 096). Descripteurs estimés à 19,4 Ko en v0.1 (référence : 17,6 Ko), dont 11,8 Ko hors `outputSchema`.
 - **Stabilité.** `tests/tools.lock.json` contient le SHA-256 du JSON canonique de chaque descripteur, servi dans les deux ères et vérifié identique, plus les instructions et les capacités. `cargo xtask lock-descriptors --update` le régénère et `--check` (mode par défaut) le contrôle en CI (§9.4). Toute modification de la surface suit une politique SemVer (§9.5).
 
 ---
@@ -54,7 +54,7 @@
 | Pagination, filtrage, troncature avec des défauts raisonnables et un message qui guide | « pagination, range selection, filtering, and/or truncation with sensible default parameter values » (recherche 06 §7.1) | `page`/`has_more`, `toc_offset`/`next_toc_offset`, `offset`/`next_offset` ; la manière de continuer est dite dans la description et dans les instructions, pas répétée dans chaque réponse |
 | Erreurs actionnables | « clearly communicate specific and actionable improvements, rather than opaque error codes or tracebacks » (recherche 06 §3.5) | `[code]` + cause + correctif + outil à appeler (§7) |
 | Descriptions soignées | 3 à 4 phrases au moins ; dire quand utiliser, quand ne pas utiliser, ce que l'outil ne renvoie pas ; mots-clés en tête, car la recherche d'outils de Claude Code ne lit que le début (recherche 06 §3.2, §7.3 f) | 3 à 6 phrases en anglais (00 §6), premier mot-clé dans la première phrase, renvoi vers l'outil adéquat |
-| Instructions serveur | relations entre outils, déroulé, contraintes ; pas de duplication des descriptions ; concises (recherche 06 §7.1, §7.3 e) | §4 : 3 278 caractères au plus |
+| Instructions serveur | relations entre outils, déroulé, contraintes ; pas de duplication des descriptions ; concises (recherche 06 §7.1, §7.3 e) | §4 : 3 490 caractères au plus depuis la 1.1.0 (3 278 en 1.0.1) |
 | Pas d'état serveur | les handles sont un vecteur d'attaque ; préférer des curseurs explicites rejouables (recherche 06 §3.6) | aucun handle : `page`, `offset`, `toc_offset` sont des entiers rejouables ; le `PaginationMemo` de l'adapter PISTE n'est qu'un cache interne, sans lequel la page est servie avec la valeur de repli (00 §7, §1.4 règle 7) |
 
 ### 1.2 Ce que voit réellement le modèle
@@ -84,7 +84,7 @@ Source : documentation « Connect Claude Code to tools via MCP », lue le 2026-1
 | Avertissement de sortie | > 10 000 tokens | réponses par défaut entre 0,4 et 6 Ko de JSON (§6.5) |
 | Limite de sortie | 25 000 tokens (`MAX_MCP_OUTPUT_TOKENS`) | jamais atteinte avec le plafond dur du §6.4 |
 | Persistance sur disque | résultat texte > 50 000 caractères, sauf `_meta["anthropic/maxResultSizeChars"]` (plafond 500 000) | `max_chars` ≤ 40 000 (00 §7) et plafond dur de 45 000 caractères par réponse (§6.4) ; aucune clé `anthropic/*` émise |
-| `instructions` serveur | coupées à 4 096 caractères | ≤ 3 500 (00 §6), mesuré : 3 278 en v0.3 (§4) |
+| `instructions` serveur | coupées à 4 096 caractères | ≤ 3 500 (00 §6), mesuré : 3 490 en v0.3 depuis la 1.1.0, 3 278 en 1.0.1 (§4) |
 | Description d'un outil chargé d'emblée / via tool search | 4 096 / 16 384 caractères | 349 à 830 caractères (§5) |
 | Nom complet `mcp__<serveur>__<outil>` | 128 caractères | `fr_get_company_agreement` (24 caractères) laisse 97 caractères au nom du serveur |
 | Schéma d'entrée | pas de `anyOf`/`oneOf`/`allOf` à la racine ; propriétés de premier niveau sur 1 à 64 caractères `[A-Za-z0-9_.-]` ; schéma valide 2020-12, sinon l'outil est exclu | §2.5, vérifié par le verrou (§9.4) |
@@ -102,7 +102,7 @@ Source : documentation « Connect Claude Code to tools via MCP », lue le 2026-1
 7. **Aucun état serveur exposé entre deux appels.** Toute continuation passe par un entier rejouable. Le `PaginationMemo` de l'adapter PISTE (00 §7) garde la `typePagination` reçue pour la page suivante, mais n'est qu'un cache : sans lui (redémarrage, autre processus), la page est servie avec la valeur de repli, sans erreur (§5.1).
 8. **Les identifiants rendus sont ceux que d'autres outils consomment** (`article_id` d'une TOC pour `fr_get_text`, `id` d'un hit pour `fr_get_*`). Les autres (`cid` JORF, `LEGISCTA`, `KALICONT`) ne sont pas rendus en v0.1.
 9. **Les dates sont des chaînes ISO `AAAA-MM-JJ`.** Toute date ≥ 2222-01-01 (sentinelles observées `2999-01-01` et `2222-02-22`, règle des champs `…Computed` de l'OpenAPI) et tout `…Computed` nul sont omis (00 §4). Le sens d'une absence dépend du champ et figure dans les descriptions des outils concernés : date de fin (`date_fin`, `date_fin_version`) → « en vigueur sans date de fin » ; date de début (`date_debut`, `date_debut_version`) → « date d'entrée en vigueur non déterminée », l'`etat` `VIGUEUR_DIFF` portant l'information (**NON VÉRIFIÉ** [V-101 · sentinelle-2222-debut], V-101) ; date de publication ou du texte (`date_parution`, `date_publication`, `date`) → « inconnue ».
-10. **Textes officiels verbatim.** Seuls `clean` (balises `<mark>`, blancs, NBSP) et la réparation du mojibake s'appliquent (03 §7.1) ; aucune reformulation. **Exception des tableaux (1.0.1, L4-01)** : dans un article à tableau, les cellules d'une même ligne sont séparées par « | » (une ligne = un paragraphe), si bien que le texte n'y est plus strictement mot pour mot ; `text_length` et les `offset` comptent ces séparateurs. Les instructions du serveur (`crates/lf-adapter-mcp/src/text.rs`) disent « Texts are verbatim » et ne changent PAS en 1.0.1 : leur mise à jour attend 1.1.0 (D-12).
+10. **Textes officiels verbatim.** Seuls `clean` (balises `<mark>`, blancs, NBSP) et la réparation du mojibake s'appliquent (03 §7.1) ; aucune reformulation. **Exception des tableaux (1.0.1, L4-01)** : dans un article à tableau, les cellules d'une même ligne sont séparées par « | » (une ligne = un paragraphe), si bien que le texte n'y est plus strictement mot pour mot ; `text_length` et les `offset` comptent ces séparateurs. Les instructions du serveur (`crates/lf-adapter-mcp/src/text.rs`) disaient « Texts are verbatim » sans cette nuance en 1.0.1 ; depuis la 1.1.0 (D-12) elles disent « Texts are verbatim (table cells are joined with " | ") » (§4.1).
 11. **Messages en anglais**, comme les descriptions, les `title` et les instructions ; seuls les noms et textes des prompts sont en français (00 §6, adopté par défaut, Q14 ; 02 §9.3).
 12. **Aucune directive visant d'autres serveurs ou outils** dans les descriptions (prévention du « tool poisoning », recherche 06 §6).
 
@@ -469,14 +469,15 @@ French law from Légifrance through the official PISTE API (read-only): consolid
 4. Limits: `fr_coverage` says what this server does not cover and whether it runs on the PISTE sandbox.
 
 ## Long texts
-`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. For the text itself pass `detail="full"`; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.
+`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. A summary is never the whole text: pass `detail="full"` before quoting a threshold, amount or rate; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.
 
 ## Hard rules
 - Cite every source with its `citation` and `source_url`; for case law add the `ecli` when present.
 - Never invent an id, an ECLI, an ELI or a citation: take each one from tool output. Many CAA and TA decisions have no ECLI.
-- ELI: the API returns no native ELI for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.
+- ELI: none from the API for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.
 - Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the data, give this source and the consultation date (`consulted_on` in `fr_coverage`).
-- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim: this server does not decide whether a provision applies to a case.
+- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim (table cells are joined with " | "): this server does not decide whether a provision applies to a case.
+- `etat`: VIGUEUR in force; MODIFIE or REMPLACE older version (see `date_fin`); ABROGE repealed; ABROGE_DIFF in force, repeal scheduled.
 - An empty result does not mean the law is silent: call `fr_coverage` and tell the user what is missing.
 
 ## Errors
@@ -485,7 +486,7 @@ A failed call returns isError with a text that starts with a code:
 - `[not_found]` nothing exists for that id: search again.
 - `[rate_limited]` PISTE quota reached: wait the delay given, then retry.
 - `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.
-- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the server configuration.
+- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the configuration.
 - `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user.
 ```
 
@@ -495,11 +496,11 @@ Le test de dérive exige que les outils cités soient exactement les outils enre
 
 | Version | Ligne 1 de « Workflow » | Ligne 3 | Ligne 4 | Caractères | Octets UTF-8 | Outils cités |
 |---|---|---|---|---|---|---|
-| v0.1 | `` 1. Find: `fr_search` searches one fond, paged with `page` and `has_more`. `` | `` 3. Limits: `fr_coverage` … `` | — | **2 879** | 2 887 | 8 |
-| v0.2 | ligne v0.1 suivie de `` `fr_resolve` turns a free-text citation (…) into Legifrance ids. `` | `` 3. Check: `fr_verify_citations` checks every citation of a draft against the official record. `` | `` 4. Limits: … `` | **3 080** | 3 088 | 10 |
-| v0.3 | texte du §4.1 | texte du §4.1 | texte du §4.1 | **3 278** | 3 286 | 13 |
+| v0.1 | `` 1. Find: `fr_search` searches one fond, paged with `page` and `has_more`. `` | `` 3. Limits: `fr_coverage` … `` | — | **3 091** | 3 099 | 8 |
+| v0.2 | ligne v0.1 suivie de `` `fr_resolve` turns a free-text citation (…) into Legifrance ids. `` | `` 3. Check: `fr_verify_citations` checks every citation of a draft against the official record. `` | `` 4. Limits: … `` | **3 292** | 3 300 | 10 |
+| v0.3 | texte du §4.1 | texte du §4.1 | texte du §4.1 | **3 490** | 3 498 | 13 |
 
-Comptage : `len()` Python sur le texte exact, sans saut de ligne final, refait le 2026-10-15 sur ce brouillon après la révision 2 (ligne « Attribution », Q15 ; règle des versions qui renvoie à `fr_get_act`), puis le 2026-10-16 après la reformulation, à longueur égale, de la ligne `[upstream_error]` : l'invitation à réessayer vient du message, qui ne la porte que pour un échec réessayable (00 §8, §7.2). Les six codes d'erreur sont cités dans les trois versions. Marge sous la limite de 3 500 (00 §6) : 222 caractères en v0.3. L'attribution est la même dans les trois versions et ne contient pas de date, car le texte est statique et verrouillé (§4.3 règle 5) : la date de consultation du jour est rendue par `fr_coverage` (`consulted_on`, §5.8).
+Comptage : `len()` Python sur le texte exact, sans saut de ligne final, refait le 2026-10-15 sur ce brouillon après la révision 2 (ligne « Attribution », Q15 ; règle des versions qui renvoie à `fr_get_act`), puis le 2026-10-16 après la reformulation, à longueur égale, de la ligne `[upstream_error]` : l'invitation à réessayer vient du message, qui ne la porte que pour un échec réessayable (00 §8, §7.2). Les six codes d'erreur sont cités dans les trois versions. Marge sous la limite de 3 500 (00 §6) : 10 caractères en v0.3 depuis la 1.1.0 (D-12 ; 222 en 1.0.1, 3 278 caractères). D-12 a ajouté la phrase « A summary is never the whole text… », la nuance « (table cells are joined with " | ") » de L4-01 et la puce du glossaire de `etat`, et raccourci la puce ELI et le message `[config_error]` (sens inchangé) pour tenir 3 500 ; le test d'allowlist des jetons gagne `date_fin` et `etat`. L'attribution est la même dans les trois versions et ne contient pas de date, car le texte est statique et verrouillé (§4.3 règle 5) : la date de consultation du jour est rendue par `fr_coverage` (`consulted_on`, §5.8).
 
 ### 4.3 Règles de maintenance
 
@@ -518,7 +519,7 @@ Comptage : `len()` Python sur le texte exact, sans saut de ligne final, refait l
 
 | Sujet | Référence (`server.py:31-66`, recherche 01 annexe A.1) | Ici | Raison |
 |---|---|---|---|
-| Taille | 4 470 caractères, coupés à 4 096 par Claude Code | 2 879 à 3 278 | 00 §6 |
+| Taille | 4 470 caractères, coupés à 4 096 par Claude Code | 3 091 à 3 490 (2 879 à 3 278 en 1.0.1) | 00 §6 |
 | Attribution des données | absente | ligne « Attribution » : « Source : Légifrance / DILA — Licence Ouverte 2.0 », avec renvoi à la date de consultation de `fr_coverage` | 00 §6, §12 ; Q15 |
 | `eli_uri`, `human_readable_citation` | promis dans chaque réponse | `citation`, `source_url`, `eli` natif seulement | contrat v2 (00 §4, D-30) |
 | `not_found` | « … or a search returned nothing » | recherche vide = succès avec `hits: []` ; `not_found` = identifiant inexistant | E-04 (parité de comportement, phrase corrigée) |
@@ -604,17 +605,17 @@ flowchart LR
 
 **Objectif.** Trouver des textes, articles de code ou décisions par mots-clés dans un fond, avec pagination et filtres de date (corrige D-09, D-32 en partie, D-33).
 
-**Description** (830 caractères, 5 phrases) :
+**Description** (992 caractères, 6 phrases depuis la 1.1.0, D-12 ; 830 caractères en 1.0.1) :
 
 ```text
-Keyword search in one Légifrance fond (default LODA): laws and decrees (LODA), codes (CODE), case law (JURI, CONSTIT, CETAT), CNIL deliberations (CNIL), collective agreements (KALI) or company agreements (ACCO). Returns one page of hits (default 10) with id, title, snippet, citation and source_url; ask for the next `page` while `has_more` is true. `match` defaults to any word; use `all` or `exact` for precise queries, and `date_from`/`date_to` to filter by date. LODA and CODE hits are the versions in force on `version_date` (default: today in Paris). Open a hit with the fr_get_* tool for its id prefix (LEGITEXT: fr_get_act, JURITEXT/CONSTEXT/CETATEXT: fr_get_decision, CNILTEXT: fr_get_deliberation, KALITEXT: fr_get_convention, ACCOTEXT: fr_get_company_agreement); CODE hits also list matching `articles` for fr_get_text.
+Keyword search in one Légifrance fond (default LODA): laws and decrees (LODA), codes (CODE), case law (JURI, CONSTIT, CETAT), CNIL deliberations (CNIL), collective agreements (KALI) or company agreements (ACCO). Returns one page of hits with id, title, snippet, citation and source_url; ask for the next `page` while `has_more` is true. `match` defaults to any word: use `all` for several words, `exact` for a phrase, fr_resolve for one known article. `date_from`/`date_to` filter by date; for KALI, `in_force_only` keeps the texts in force (not the status of their articles). LODA and CODE hits are the versions in force on `version_date` (default: today in Paris); a hit `date` is the date Légifrance gives for that fond, not always the act date. Open a hit with the fr_get_* tool for its id prefix (LEGITEXT: fr_get_act, JURITEXT/CONSTEXT/CETATEXT: fr_get_decision, CNILTEXT: fr_get_deliberation, KALITEXT: fr_get_convention, ACCOTEXT: fr_get_company_agreement); CODE hits list `articles`.
 ```
 
 **Entrée** (ordre de validation : `fond`, `query`, `page_size` comme la référence, P-011 ; puis `page`, `match`, dates) :
 
 | Nom | Type JSON | Requis | Défaut | Contraintes | Description (anglais) |
 |---|---|---|---|---|---|
-| `query` | string | oui | — | `trim` ; 1 à 450 caractères ; caractères de contrôle retirés (D-32) ; limite réelle de l'API entre 451 et 498 caractères (mesurée en caractères, ASCII et accentués, non en octets ; intervalle non sondé), mesurée en sandbox le 2026-10-28 [V-81 · longueur-max-query] : la borne du domaine est ramenée à 450 (plan 2h, Task 17, C3) | `Free-text query, e.g. "republique numerique".` |
+| `query` | string | oui | — | `trim` ; 1 à 450 caractères ; caractères de contrôle retirés (D-32) ; limite réelle de l'API entre 451 et 498 caractères (mesurée en caractères, ASCII et accentués, non en octets ; intervalle non sondé), mesurée en sandbox le 2026-10-28 [V-81 · longueur-max-query] : la borne du domaine est ramenée à 450 (plan 2h, Task 17, C3) | `Free-text query, e.g. "republique numerique". AND/OR/NOT/~/^ are not operators.` (1.1.0, D-12) |
 | `fond` | string, `enum` des 8 fonds | non | `"LODA"` | `trim`, insensible à la casse (P-010) | `Fond to search (case-insensitive).` |
 | `match` | string, `enum ["any","all","exact"]` | non | `"any"` (adopté par défaut, Q10 : parité jusqu'à V-79 en M2 ; passage à `all` si V-79 confirme la sémantique « tous les mots dans un champ quelconque » et un rappel acceptable sur les 9 scénarios de la référence ; décision consignée avant le verrou des descripteurs de M4) | `any` → `UN_DES_MOTS`, `all` → `TOUS_LES_MOTS_DANS_UN_CHAMP`, `exact` → `EXACTE` (00 §8) ; sens de `all` avec `typeChamp = ALL` **NON VÉRIFIÉ** [V-79 · mode-all-semantique] | `"any": any word (default); "all": all words; "exact": exact phrase.` (le défaut cité suit Q10) |
 | `page` | integer | non | 1 | ≥ 1 ; `page × page_size ≤ 10 000` (limite de fenêtre Elasticsearch supposée, recherche 05 et [04-adapter-piste.md](04-adapter-piste.md) §6.7 : **NON VÉRIFIÉ** [V-83 · pagination-profonde]) | `Page number, from 1.` |
@@ -632,7 +633,7 @@ Keyword search in one Légifrance fond (default LODA): laws and decrees (LODA), 
 
 | Champ | Type | Présence | Règle |
 |---|---|---|---|
-| `total` | integer | toujours | `totalResultNumber`, sinon nombre de hits (parité) |
+| `total` | integer | toujours | `totalResultNumber`, sinon nombre de hits (parité). Description de sortie (1.1.0, D-12) : `Total results reported by Légifrance; for CODE, a count of codes (see total_articles for articles).` |
 | `page` | integer | toujours | page servie |
 | `has_more` | boolean | toujours | vrai si la page suivante existe **et** est atteignable : `page × page_size < total` et `(page + 1) × page_size ≤ 10 000`, même borne que la validation de `page`. Cela revient à `page × page_size < min(total, 10 000)` (03 §4.1) quand `page_size` divise 10 000 (10, 20, 25, 50, 100…). À la fin de la fenêtre atteignable, `has_more` vaut `false` même si `total` est plus grand, et `note` le dit. **Résultat CODE (L4-07, journey_patrimoine-11)** : `page_size` compte des articles lorsque l'amont pagine par article, alors que `total` compte des textes ; `has_more` est aussi vrai si `total_articles > page × page_size`, dans la même fenêtre atteignable de 10 000, quel que soit le `typePagination` reçu (l'API répond `ARTICLE` dès que peu de textes correspondent, même si `DEFAUT` est demandé ; `total_articles` n'est présent qu'en mode `ARTICLE`). Quand des articles restent, `note` vaut `{n} matching articles, {shown} shown (page {p}); request page={p+1} for the next articles of this code.` (`{shown}` = articles listés sur la page) ; la note de fin de fenêtre vaut aussi quand c'est `total_articles` qui dépasse la fenêtre. Description de l'outil (1.1.0, hors surface 1.0.1) : `for CODE hits, page also pages through the matching articles when total_articles exceeds the list` |
 | `total_articles` | integer | v0.2, CODE, si l'API le donne | nombre total d'articles correspondants (classe « ajout », 00 §7 ; porté dès v0.1 par `SearchPage.total_articles`, 03 §4.1) |
@@ -640,13 +641,13 @@ Keyword search in one Légifrance fond (default LODA): laws and decrees (LODA), 
 | `hits[].kind` | string | toujours | `loda`, `code`, `juri`, `constit`, `cetat`, `cnil`, `kali`, `acco` (03 §3.1) |
 | `hits[].id` | string | toujours | identifiant sans suffixe de version ; le préfixe donne l'outil de lecture |
 | `hits[].title` | string | si différent de `citation` | §5.0.4 |
-| `hits[].date` | string | si connue | premier présent parmi `date`, `datePublication`, `dateSignature`, hors sentinelle ; absent pour JURI, CONSTIT et CETAT (03 §4.1) |
+| `hits[].date` | string | si connue | premier présent parmi `date`, `datePublication`, `dateSignature`, hors sentinelle ; absent pour JURI, CONSTIT et CETAT (03 §4.1). Description de sortie (1.1.0, D-12) : `YYYY-MM-DD as Légifrance gives it for the fond (CNIL: publication, ACCO: signature), not always the act date; absent if unknown.` |
 | `hits[].nature`, `hits[].etat` | string | si présents | — |
 | `hits[].idcc` | string | v0.2, hits KALI et ACCO, si présent | IDCC de la convention (classe « ajout », 00 §7 ; porté dès v0.1 par `SearchHit.idcc`) |
 | `hits[].snippet` | string | si l'API en fournit | ≤ 280 caractères, `…` inclus (03 §7.3) |
 | `hits[].articles` | array of `{article_id, num?, snippet?}` | CODE (et KALI, sans `num`) si non vide | extraits d'articles, lisibles avec `fr_get_text` |
 | `hits[].citation`, `hits[].source_url` | string | toujours | contrat v2 ; un hit sans URL constructible est écarté et compté (03 §5.6 #19) |
-| `note` | string | exceptionnel | ex. extraits retirés pour respecter le plafond du §6.4 ; fin de la fenêtre atteignable : `Results beyond the first 10,000 are not reachable; narrow the query with match or date_from/date_to.` (FR-008) |
+| `note` | string | exceptionnel | ex. extraits retirés pour respecter le plafond du §6.4 ; fin de la fenêtre atteignable : `Results beyond the first 10,000 are not reachable; narrow the query with match or date_from/date_to.` (FR-008) ; notes de dégradation de taille (§6.4) ; **1.1.0 (D-10, search_all-9)** : quand la recherche ne trouve rien (`total` 0, aucun `total_articles` annoncé, `hits` vide), la note constante `No match: try other words, remove the date filters or call fr_coverage; an empty result does not mean the law is silent.` Elle ne coïncide jamais avec les autres notes, qui supposent un total positif ou des résultats. Une page vide d'une recherche dont le total est positif (page au-delà des résultats) ne reçoit pas cette note ; hors fenêtre atteignable elle reçoit la note de fin de fenêtre. |
 
 **Exemple** (`{"query": "urbanisme", "fond": "CETAT", "page_size": 3}` ; fixture search_cetat.json ; 1 501 caractères compacts contre 1 949 pour la référence, qui n'avait pas d'extraits) :
 
@@ -692,7 +693,7 @@ Hit CODE (fixture search_code.json, mojibake réparé, 408 caractères pour la r
  "citation":"Code civil","source_url":"https://www.legifrance.gouv.fr/codes/texte_lc/LEGITEXT000006070721"}
 ```
 
-**Erreurs** : `invalid_arg` (`fond`, `query`, `page_size`, `page` dont `page × page_size` > 10 000, `match`, dates, `version_date` hors LODA/CODE, filtre de date sans facette, paramètre inconnu, réponse impossible à loger sous le plafond du §6.4 ; §7.3) ; erreurs communes. **Jamais `not_found`** : une recherche vide est un succès `{"total":0,"page":1,"has_more":false,"hits":[]}` (parité E-04).
+**Erreurs** : `invalid_arg` (`fond`, `query`, `page_size`, `page` dont `page × page_size` > 10 000, `match`, dates, `version_date` hors LODA/CODE, filtre de date sans facette, paramètre inconnu, réponse impossible à loger sous le plafond du §6.4 ; §7.3) ; erreurs communes. **Jamais `not_found`** : une recherche vide est un succès `{"total":0,"page":1,"has_more":false,"hits":[],"note":"No match: …"}` (parité E-04 ; la `note` est ajoutée en 1.1.0, D-10 : voir le champ `note` ci-dessus).
 
 **Audit, cache, limites** : métrique = nombre de hits renvoyés (pas `total`, parité). Cache `Search` 1 h, clé (environnement, `SearchQuery` normalisée), recherche vide non mise en cache. Limites : 100 hits par page, 10 000 résultats atteignables, plafond de réponse du §6.4 (au-delà, extraits retirés en partant de la fin, avec `note`, puis dernières étapes du §6.4).
 
@@ -765,10 +766,10 @@ Le suffixe comme date par défaut (conservé par `parse_versioned` au lieu d'êt
 
 **Objectif.** Lire un article (LEGI ou KALI), avec sa citation, son statut, ses dates de validité, sa place dans le code, et la lecture progressive.
 
-**Description** (839 caractères depuis la 1.1.0, D-01 ; 733 en 1.0.1 ; 6 phrases comptées par `xtask`) :
+**Description** (925 caractères depuis la 1.1.0, D-01 et D-12 ; 733 en 1.0.1) :
 
 ```text
-Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (for example "Code civil, art. 9"), source_url, status, validity dates and parent code or text. By default (`detail`="summary") an article of up to 2,000 characters comes back whole and a longer one as a summary of about 1,200 characters (`summary_truncated` is true when the summary stops before the end of the text); `detail`="full" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).
+Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (for example "Code civil, art. 9"), source_url, status, validity dates and parent code or text. By default (`detail`="summary") an article of up to 2,000 characters comes back whole and a longer one as a summary of about 1,200 characters (`summary_truncated` is true when the summary stops before the end of the text). A summary is never the whole text: use `detail`="full" before quoting a threshold, amount or rate; it returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue; `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).
 ```
 
 *Comptage des phrases (amendement du 2026-10-29, F1)* : le contrôle `sentence_count` de `xtask` compte tout point suivi d'une espace, « e.g. » compris ; avec « e.g. » la description comptait sept phrases contre « 3 à 6 » attendues (avertissement de 00 §6). « e.g. » devient « for example » : 733 caractères et six phrases comptées (« art. » reste compté).
@@ -869,10 +870,10 @@ Le classement (considérant 14, puis 8) correspond au test d'acceptation de 03 �
 
 **Objectif.** Lire une délibération ou une décision de la CNIL.
 
-**Description** (485 caractères, 3 phrases) :
+**Description** (626 caractères depuis la 1.1.0, D-12 ; 485 en 1.0.1) :
 
 ```text
-Read a CNIL deliberation or decision by its CNILTEXT id (from fr_search on fond CNIL): number, nature (e.g. Sanction), status, dates, citation and source_url. By default a short text comes back whole in `text` and a long one as a `summary` (its beginning); `detail`="full" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`, and `focus` returns the most relevant passages (default 3). Personal data is redacted by the CNIL in published texts.
+Read a CNIL deliberation or decision by its CNILTEXT id (from fr_search on fond CNIL): number, nature (e.g. Sanction), status, dates, citation and source_url. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary`: the operative part of a sanction or formal notice, else the beginning of the text. `detail`="full" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. Personal data is redacted by the CNIL in published texts.
 ```
 
 **Entrée** : `deliberation_id` (string, requis, `CNILTEXT` + 12 chiffres ; `A CNILTEXT... id (from fr_search on fond CNIL).`) et les paramètres communs.
@@ -1058,10 +1059,10 @@ Catalogue des lacunes (rédaction définitive demandée par 03 §4.8) :
 
 **Objectif.** Contrôler en un appel toutes les citations juridiques d'un texte, typiquement une réponse rédigée par le modèle, contre le registre officiel (consolidation recommandée par le guide Anthropic, recherche 06 §7.3 a).
 
-**Description** (715 caractères, 5 phrases) :
+**Description** (939 caractères, 5 phrases depuis la 1.1.0, D-12 ; 715 caractères en 1.0.1) :
 
 ```text
-Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles, laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; a quoted excerpt right after a citation is compared with the official text. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.
+Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles (only when introduced by article or art.), laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements; found=0 does not prove that a text cites nothing. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; `verified` means the article exists, not that it says what the draft claims. A quoted excerpt is compared with the official text (`quote`) only when it is glued to the citation: no `quote` means NOT checked. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.
 ```
 
 **Entrée** :
@@ -1084,7 +1085,7 @@ Check every legal citation found in a text of up to 20,000 characters, for examp
 | `kind` | string | `code_article`, `text_article`, `text`, `decision`, `ecli`, `cnil_deliberation`, `convention`, `jorf`, `nor`, `eli`, `legifrance_id`, `unsupported` (variantes de `CitationRef` en `snake_case`) |
 | `status` | `enum ["verified","not_found","ambiguous","unresolvable","invalid"]` | voir ci-dessous |
 | `resolved` | `{id, citation, source_url, etat?, date_debut?, date_fin?}` | si un enregistrement officiel a été trouvé (y compris quand il contredit la citation). 1.1.0 (D-03) : `resolved` d'un article porte en plus les champs optionnels `etat`, `date_debut` et `date_fin`, avec les mêmes règles que les candidats de `fr_resolve` (§5.10) : date de fin sentinelle et valeurs absentes omises, aucun champ pour une décision ou un texte. Surcoût mesuré : au plus 67 caractères par article résolu (version MODIFIE avec deux dates), environ 44 pour une version en vigueur sans fin ; un article cité par son identifiant LEGIARTI ou KALIARTI porte ces champs comme un article trouvé par son numéro (D-03, suite), mais sans la note de version (`VersionSince`) que le chemin par numéro émet : asymétrie assumée (fiche D-03), l'article lu par identifiant n'a pas de `note` de version ; cent citations du test de volume de gap1-5 (extrait, enregistrement, note) passent de 36 611 à 43 311 caractères de JSON dans le cas le plus lourd, sans coupe sous le plafond de 45 000 |
-| `quote` | `enum ["match","quote_mismatch"]` | calculé automatiquement (00 §7) si un extrait entre guillemets (`« … »`, `"…"`) jouxte la citation et que le texte officiel a été lu |
+| `quote` | `enum ["match","quote_mismatch"]` | calculé automatiquement (00 §7) si un extrait entre guillemets (`« … »`, `"…"`) jouxte la citation et que le texte officiel a été lu. Description de sortie (1.1.0, D-12) : `match or quote_mismatch. Only for an excerpt glued to the citation; absent: not checked.` |
 | `note` | string | explication actionnable : écart, candidats, motif de non-résolution. Gabarit à paramètres typés : vocabulaire fermé (titre d'un code tiré du dictionnaire statique `CodeKey` de l'annexe B, famille, juridiction), dates ISO, identifiants validés, nombres ; jamais une chaîne libre de l'API (assainissement des sorties) |
 
 **Article après son texte (L1-08).** Un article cité après son texte (`loi n° 2016-1321 du 7 octobre 2016, art. 1er, I, 2°`, `décret n° 2019-1500 du 27 décembre 2019, article 3 et 4`) est lu comme `text_article` et non plus comme un `code_article` sans code. Un numéro de texte peut s'écrire sans « n° » après « loi », « décret » ou « ordonnance » (`loi 89-462`, `loi 78-17`) quand il porte son année ; `décret 93-1419 L` reste un numéro de décision. Même règle pour `fr_resolve` (§5.10) ; la résolution de l'article dans le texte reste celle de L2-06.
@@ -1165,7 +1166,7 @@ Turn one free-text legal citation into Légifrance ids, for example "article 124
 
 **Sortie** (`ResolveView`) : `interpreted_as?` (forme canonique de la citation reconnue, ex. « Code civil, art. 9 », pour que le modèle détecte une mauvaise lecture), `candidates` (toujours, ≤ 5, meilleure d'abord : `{id, kind, citation, source_url, confidence}` avec `kind` ∈ `article`, `loda`, `code`, `juri`, `constit`, `cetat`, `cnil`, `kali`, `acco` (+ `jorf` si la surface JORF est retenue à l'ouverture de M7, 00 §4) et `confidence` ∈ `high`, `medium`, `low`), `note?`.
 
-**Période de validité (1.1.0, D-03).** Chaque candidat d'un article (`kind=article`) porte en plus, quand l'API les donne, `etat` (code d'API de la version lue : VIGUEUR, MODIFIE, ABROGE…), `date_debut` et `date_fin` (dates ISO de la version). `date_fin` est omise pour une version sans fin (date sentinelle 2999 ou postérieure à 2222-01-01) ; chaque champ est omis quand l'API ne le donne pas. Aucun de ces champs pour une décision, un texte LODA, un code ou une délibération. Ils complètent la note de version de L2-12 (« Version in force on … »), qui reste inchangée, et permettent de lire la période sans appeler `fr_get_text`. Pour une citation en écart de numéro, le candidat de confiance moyenne porte la période de la version lue. Un article cité par son identifiant LEGIARTI ou KALIARTI porte la même période que l'article trouvé par son numéro (D-03, suite) ; ils restent absents pour une décision, un texte LODA, une délibération, une convention ou un accord d'entreprise.
+**Période de validité (1.1.0, D-03).** Chaque candidat d'un article (`kind=article`) porte en plus, quand l'API les donne, `etat` (code d'API de la version lue : VIGUEUR, MODIFIE, ABROGE…), `date_debut` et `date_fin` (dates ISO de la version). `date_fin` est omise pour une version sans fin (date sentinelle 2999 ou postérieure à 2222-01-01) ; chaque champ est omis quand l'API ne le donne pas. Aucun de ces champs pour une décision, un texte LODA, un code ou une délibération. Descriptions de sortie (1.1.0, D-12) : `etat` = `Status code of this article version (see the server instructions).`, `date_debut` = `First day of this version, YYYY-MM-DD.`, `date_fin` = `Day the next version takes effect; absent: no known end.` (mêmes textes pour `resolved` de `fr_verify_citations`, §5.9). Ils complètent la note de version de L2-12 (« Version in force on … »), qui reste inchangée, et permettent de lire la période sans appeler `fr_get_text`. Pour une citation en écart de numéro, le candidat de confiance moyenne porte la période de la version lue. Un article cité par son identifiant LEGIARTI ou KALIARTI porte la même période que l'article trouvé par son numéro (D-03, suite) ; ils restent absents pour une décision, un texte LODA, une délibération, une convention ou un accord d'entreprise.
 
 **Plages d'articles (1.0.1, L2-07).** Une plage donne un candidat unique de confiance `medium` (le premier article de la plage) et la note « Only the first and last articles of the range were checked. » ; dernière borne introuvable : aucun candidat et la note « The first article of the range exists, but its last, article {num}, was not found; check the number or the date. ».
 
@@ -1197,10 +1198,10 @@ Chemins de résolution (00 §3, §8 ; détail : annexe B, 04 §7) :
 
 **Objectif.** Naviguer dans les liens d'un article ou d'une décision.
 
-**Description** (489 caractères, 4 phrases) :
+**Description** (594 caractères, 4 phrases depuis la 1.1.0, D-12 ; 489 caractères en 1.0.1) :
 
 ```text
-List the legal links of an article (LEGIARTI) or a decision (JURITEXT, CONSTEXT, CETATEXT): texts it cites, texts citing it, and case law it refers to. Article links come from Légifrance with their ids; decision links are parsed from the decision's references and may lack an id (pass them to fr_resolve). Each link has a `relation`, a `citation` and, when known, an `id` and `source_url`. At most 100 links are returned: `truncated` is true when there are more, and there is no next page.
+List the legal links of an article (LEGIARTI) or a decision (JURITEXT, CONSTEXT, CETATEXT): texts it cites, texts citing it, and case law it refers to. Article links come from Légifrance with their ids; decision links are parsed from the decision's references, have no id and may carry an inexact code: pass one to fr_resolve only if its citation names a code. Each link has a `relation`, a `citation` and, when known, an `id` and `source_url`; `relation` as a parameter keeps one kind of link. At most 100 links are returned: `truncated` is true when there are more, and there is no next page.
 ```
 
 **Entrée** : `id` (string, requis ; `A LEGIARTI... article id or a JURITEXT..., CONSTEXT... or CETATEXT... decision id.`). `KALIARTI` est refusé en v0.3 : la prise en charge par `/consult/relatedLinksArticle` est **NON VÉRIFIÉE** [V-136 · related-links-forme].
@@ -1257,10 +1258,10 @@ Liens d'un article (`RelatedLinks` de 03 §4.11, d'après `LiensRelatifsDTO.natu
 
 **Objectif.** Montrer ce qui a changé dans un article entre deux dates.
 
-**Description** (403 caractères, 4 phrases) :
+**Description** (568 caractères depuis la 1.1.0, D-12 ; 403 en 1.0.1) :
 
 ```text
-Compare the versions of a code or law article (LEGIARTI) in force on `date_a` and `date_b` (YYYY-MM-DD; `date_b` defaults to today in Paris). Returns both versions with their validity dates (no `date_fin`: no end date) and a compact word-level diff: removed and added passages with a little context. `identical` is true when both dates fall in the same version. To read a single version use fr_get_text.
+Compare the versions of a code or law article (LEGIARTI) in force on `date_a` and `date_b` (YYYY-MM-DD; `date_b` defaults to today in Paris). Returns both versions with their validity dates and `etat`, and a compact word-level diff: removed and added passages with a little context. `date_fin` is the day the next version (or the repeal) takes effect, absent when there is no end date; `etat` is the Légifrance code (ABROGE_DIFF: still in force, repeal scheduled). `identical` is true when both dates fall in the same version. To read a single version use fr_get_text.
 ```
 
 **Entrée** :
@@ -1303,13 +1304,13 @@ Search several Légifrance fonds at once (default LODA, CODE, JURI, CETAT, CONST
 
 | Nom | Type JSON | Requis | Défaut | Contraintes | Description (anglais) |
 |---|---|---|---|---|---|
-| `query` | string | oui | — | comme `fr_search` | `Free-text query.` |
+| `query` | string | oui | — | comme `fr_search` | `Free-text query. AND/OR/NOT/~/^ are not operators.` (1.1.0, D-12) |
 | `fonds` | array of string (`enum` des fonds) | non | `["LODA","CODE","JURI","CETAT","CONSTIT"]` | 1 à 8 éléments uniques, insensibles à la casse (9 si la surface JORF est retenue à l'ouverture de M7, 00 §4) | `Fonds to search (default LODA, CODE, JURI, CETAT, CONSTIT).` |
 | `per_fond` | integer | non | 3 | 1 à 10 | `Hits per fond (1..10).` |
 
 `match` vaut `any` et `version_date` aujourd'hui pour LODA et CODE ; pas de filtre de date (affiner avec `fr_search`).
 
-**Sortie** (`SearchAllView`) : `groups` (toujours, dans l'ordre de `fonds`) ; chaque groupe : `fond`, puis soit `total`, `has_more`, `hits` (même forme que `fr_search`), soit `error` (`[code] message`).
+**Sortie** (`SearchAllView`) : `groups` (toujours, dans l'ordre de `fonds`) ; chaque groupe : `fond`, puis soit `total`, `has_more`, `hits` (même forme que `fr_search`), soit `error` (`[code] message`). Champ `note` (existant), en plus de la note de dégradation (§6.4) : quand chaque fond demandé a répondu sans résultat (`total` 0 et `hits` vide dans tous les groupes), 1.1.0 (D-10, search_all-9) ajoute `No match in any fond: try other words or other fonds, or call fr_coverage; an empty result does not mean the law is silent.` Un fond en erreur n'est pas un fond vide : dès qu'un groupe est une entrée d'erreur, ou compte un total ou un résultat, il n'y a pas de note. Le texte ne cite pas de filtre de date, que cet outil n'a pas.
 
 **Exemple** (forme seulement : hits tirés de deux fixtures enregistrées avec des requêtes différentes) :
 
@@ -1405,10 +1406,10 @@ Estimation de ce document : prototype qui reconstitue les descripteurs (descript
 
 | Élément | Estimation v0.3 | Mesuré |
 |---|---|---|
-| `instructions` | 3 278 caractères | 3 278 caractères (`sizes.instructions_chars`) |
+| `instructions` | 3 278 caractères | 3 278 caractères (`sizes.instructions_chars`) en 1.0.1 ; 3 490 depuis la 1.1.0 (D-12) |
 | `tools/list` complet | ≈ 27 900 octets | **31 853 octets** (`sizes.tools_list_bytes` ; `serde_json::to_vec` des outils rmcp et JSON canonique de `xtask` donnent le même nombre) ; **30 634 octets** depuis L5-01 (1.0.1, −1 219 : formats `uintN`, `default: null` et `"null"` de sortie retirés), soit 2 266 octets de marge sous le plafond de 32 900 (32 900 − 30 634) avant D-12 |
 | `tools/list` sans `outputSchema` | ≈ 17 400 | 17 821 octets (descripteur canonique du verrou sans la clé `outputSchema`) |
-| Descriptions seules | 7 225 caractères | 7 239 caractères (treize descriptions, aucune au-dessus de 1 000 : la plus longue, `fr_search`, en compte 830) |
+| Descriptions seules | 7 225 caractères | 7 239 caractères en 1.0.1 (treize descriptions, aucune au-dessus de 1 000 : la plus longue, `fr_search`, en compte 830) ; depuis la 1.1.0 (D-12), la plus longue, `fr_search`, en compte 992 |
 
 L'écart de l'estimation à la mesure tient aux schémas de sortie et aux `$defs` de schemars, plus grands que ceux du prototype (même constat à chaque étape : 29 000 prévus, 30 152 mesurés à douze outils, 31 853 à treize). Historique du plafond de `tools/list` en v0.3 : **29 000** (valeur initiale, mesure estimée + 10 %) → **33 500** (recalibré à l'intégration de V3 sur 30 152 octets mesurés à douze outils, plus 10 %) → **32 900** (F1, sur 31 853 octets mesurés à treize outils, plus 3 %, soit 32 808,6 arrondi à la centaine supérieure ; 31 814 avaient été mesurés juste après l'alignement de version). La règle « mesure plus 10 % » est abandonnée pour « mesure plus 3 % » : la surface est finale et le verrou change à chaque octet de description. Même valeur dans `descriptor_size_budget` (`crates/lf-adapter-mcp/tests/budgets.rs`) et dans `TOOLS_LIST_BUDGETS` de `xtask/src/lock_descriptors/checks.rs` (v0.1 : 20 000 et v0.2 : 24 000 inchangés).
 
@@ -1417,6 +1418,8 @@ L'écart de l'estimation à la mesure tient aux schémas de sortie et aux `$defs
 **Mesure 1.1.0 (vague V2a, 2026-11-02).** `tools/list` : **32 366 octets** (32 009 au verrou de la vague V1 après ses remarques de revue, +357 : D-02, la propriété `score` requise dans les `passages[]` de `fr_get_text`, `fr_get_decision` et `fr_get_deliberation`, +102 ; sa `description` de 76 caractères, répétée dans les trois sorties, +255 après les remarques de revue de la vague V2a) ; `instructions` inchangées (3 278 caractères). D-05 (suite) et D-03 (suite) ne changent aucune surface. Le plafond de 32 900 est conservé ; il reste 534 octets de marge pour la suite de la 1.1.0.
 
 **Mesure 1.1.0 (vague V2b, 2026-11-02).** `tools/list` : **32 608 octets** (32 366 au verrou de la vague V2a, +242 : D-08, la propriété d'entrée optionnelle `in_force_only` de `fr_search`) ; `instructions` inchangées (3 278 caractères). D-09 et D-06 (suite) ne changent aucune surface. Il ne restait que 292 octets sous le plafond de 32 900 pour la suite de la 1.1.0, et D-12 (descriptions et instructions) les dépasse : le plafond est relevé à **34 500** (Q27 = A, remarque de revue de V2b), dans `descriptor_size_budget` (`crates/lf-adapter-mcp/tests/budgets.rs`) et dans `TOOLS_LIST_BUDGETS` de `xtask`, soit 1 892 octets de marge.
+
+**Mesure 1.1.0 (vague V3, 2026-11-02).** `tools/list` : **34 229 octets** (`sizes.tools_list_bytes` ; 32 608 au verrou de la vague V2b, +1 621 : D-12, descriptions de huit outils — `fr_search`, `fr_search_all` [`query`], `fr_resolve` [sortie], `fr_verify_citations`, `fr_get_text`, `fr_get_deliberation`, `fr_get_related`, `fr_diff_article` —, descriptions de sortie de `fr_search`, `fr_resolve` et `fr_verify_citations`) ; `instructions` : **3 490 caractères** (3 278 jusque-là ; 10 de marge sur 3 500). Le plafond de 34 500 (Q27 = A, déjà relevé en V2b) est conservé ; il reste 271 octets de marge. La description de `fr_search` compte 992 caractères sur 1 000. D-10 ne change aucune surface (le champ `note` existait).
 
 Révision 2 : descriptions recomptées exactement (sens des dates absentes, défauts et suites demandés par 00 §6, 00 §4), puis le 2026-10-16 (défaut de `fond` dans `fr_search`, de `passages` dans `fr_get_text` : 27 caractères, sans effet sur les arrondis des lignes `tools/list`) ; les deux lignes `tools/list` sont l'estimation initiale augmentée de ces écarts et des champs ajoutés (`attribution`, `consulted_on`, `nor`, `title`, puis `idcc`, `total_articles` en v0.2), sans `$schema` (§2.5).
 
