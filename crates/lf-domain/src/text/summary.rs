@@ -16,8 +16,9 @@
 //! ignorés par les étapes 2 et 3 (03 §7.2). Les marqueurs de dispositif ont été validés sur une
 //! décision de chaque juridiction : les variantes anciennes sont NON VÉRIFIÉES (V-110, V-111) et
 //! retombent sur le début du texte. Les ordonnances du Conseil d'État et des cours administratives
-//! d'appel (« ORDONNE ») ont leur propre table, essayée après celle des arrêts (« DÉCIDE »). Ceux de la CNIL ont été lus sur trois sanctions, une mise en
-//! demeure et deux avis relevés (D-09) ; un avis n'a pas de dispositif et reste au début du texte.
+//! d'appel (« ORDONNE ») ont leur propre table, essayée après celle des arrêts (« DÉCIDE »). Ceux
+//! de la CNIL ont été lus sur trois sanctions, une mise en demeure et deux avis relevés (D-09) ;
+//! un avis n'a pas de dispositif et reste au début du texte.
 
 use std::fmt;
 

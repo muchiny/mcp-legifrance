@@ -408,6 +408,25 @@ impl Launch {
         Session::spawn(self.command())
     }
 
+    /// Comme [`Self::spawn`], sous une limite de taille de fichier de `blocks` blocs de 512 octets
+    /// (`ulimit -f` de `sh`, sans `unsafe`), SIGXFSZ ignoré : une écriture au-delà rend `EFBIG`
+    /// au lieu de tuer le processus, comme le fait la panne d'écriture partielle du noyau.
+    #[cfg(unix)]
+    pub(crate) fn spawn_with_file_size_limit(&self, blocks: u32) -> Session {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", r#"trap '' XFSZ; ulimit -f "$1"; shift; exec "$@""#, "sh"])
+            .arg(blocks.to_string())
+            .arg(BINARY)
+            .args(&self.args)
+            .env_clear()
+            .kill_on_drop(true);
+        for (name, value) in &self.vars {
+            command.env(name, value);
+        }
+        Session::spawn(command)
+    }
+
     /// Lance le processus sans stdin et attend sa fin (`check-config`, `--version`).
     pub(crate) async fn run_to_end(&self) -> Output {
         let mut command = self.command();

@@ -482,6 +482,109 @@ mod security {
         assert!(piste.requests().await.is_empty());
     }
 
+    /// Limite de taille de fichier des tests U17, en blocs de 512 octets.
+    #[cfg(unix)]
+    const FSIZE_BLOCKS: u32 = 4;
+
+    /// Journal d'audit arrêté au plafond de taille de fichier : une ligne complète (datée de
+    /// `date`) de 2 008 octets, puis un appel de `fr_coverage` sous `RLIMIT_FSIZE` (2 048 octets)
+    /// dont l'écriture est coupée net par le noyau : 40 octets du nouvel enregistrement, puis
+    /// `EFBIG`. Rend le journal et les octets du fragment.
+    #[cfg(unix)]
+    async fn journal_cut_at_the_size_limit(audit: &Path, date: &str) -> (PathBuf, Vec<u8>) {
+        let prefix = format!(r#"{{"ts":"{date}T00:00:00.000+00:00","tool":"fr_coverage","pad":""#);
+        let suffix = "\"}\n";
+        let filler = "x".repeat(2_008 - prefix.len() - suffix.len());
+        let whole = format!("{prefix}{filler}{suffix}");
+        assert_eq!(whole.len(), 2_008);
+        let journal = audit.join("mcp-legifrance.jsonl");
+        fs::write(&journal, &whole).expect("a prefilled journal");
+
+        let piste = FakePiste::silent().await;
+        let mut session =
+            Launch::new(audit).credentials().piste(&piste).spawn_with_file_size_limit(FSIZE_BLOCKS);
+        session.handshake().await;
+        // Le journal ne peut pas recevoir la ligne : l'appel échoue, le fragment reste.
+        let cut = session.request(&call(2, "fr_coverage", &json!({}))).await;
+        assert!(is_tool_error(&cut), "{cut}");
+        session.finish().await;
+        let bytes = fs::read(&journal).expect("the journal");
+        assert_eq!(bytes.len(), 2_048, "the write was cut at the limit");
+        assert_eq!(&bytes[..2_008], whole.as_bytes());
+        (journal, bytes[2_008..].to_vec())
+    }
+
+    /// Régression : gap2-2 (1.1.1), cas B du rejeu. La limite de taille de fichier coupe l'écriture
+    /// d'un enregistrement (40 octets écrits, puis `EFBIG`) ; la relance, sans limite, referme le
+    /// fragment avant d'écrire : un enregistrement parsable par appel, le fragment seul sur sa
+    /// ligne. Lu en octets. La seule du lot qui exerce la vraie panne du noyau.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn audit_write_cut_by_fsize_limit_does_not_swallow_the_next_record() {
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let (journal, fragment) = journal_cut_at_the_size_limit(audit.path(), "2999-01-01").await;
+        assert_eq!(fragment.len(), 40);
+        assert!(fragment.starts_with(b"{\"ts\":"), "a fragment of the cut record");
+
+        let piste = FakePiste::silent().await;
+        let mut session = Launch::new(audit.path()).credentials().piste(&piste).spawn();
+        session.handshake().await;
+        for id in 2..=3 {
+            let coverage = session.request(&call(id, "fr_coverage", &json!({}))).await;
+            assert!(!is_tool_error(&coverage), "{coverage}");
+        }
+        let finished = session.finish().await;
+        assert_eq!(finished.code(), Some(0), "stderr:\n{}", finished.stderr);
+        assert_eq!(finished.stderr.matches("partial line").count(), 1, "{}", finished.stderr);
+
+        let bytes = fs::read(&journal).expect("the journal");
+        assert!(bytes.ends_with(b"\n"), "the journal ends with a newline");
+        let lines: Vec<&[u8]> = bytes.split(|byte| *byte == b'\n').collect();
+        assert_eq!(lines.len(), 5, "four lines expected: {}", String::from_utf8_lossy(&bytes));
+        assert_eq!(lines[1], fragment.as_slice(), "the fragment stays alone and untouched");
+        for at in [0, 2, 3] {
+            let line: Value = serde_json::from_slice(lines[at]).expect("a parsable line");
+            assert_eq!(line["tool"], json!("fr_coverage"));
+        }
+    }
+
+    /// Régression : gap2-2 (1.1.1). Le journal resté au plafond de taille de fichier, avec son
+    /// fragment, change de jour : la rotation du lendemain a lieu quand même, même si le `\n` qui
+    /// referme l'archive est refusé (`EFBIG`) ; l'archive garde son fragment sans `\n`, le nouveau
+    /// journal reçoit la ligne de l'appel, parsable, et l'appel n'est pas une panne d'audit.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn audit_rotation_still_happens_when_the_archive_cannot_be_closed_by_fsize_limit() {
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let (journal, fragment) = journal_cut_at_the_size_limit(audit.path(), "2999-01-01").await;
+        let before = fs::read(&journal).expect("the journal");
+        // Le journal date d'un jour passé : la ligne de l'appel est celle du lendemain.
+        let mut dated = before.clone();
+        dated[7..11].copy_from_slice(b"2000");
+        fs::write(&journal, &dated).expect("a journal of another day");
+
+        let piste = FakePiste::silent().await;
+        let mut session = Launch::new(audit.path())
+            .credentials()
+            .piste(&piste)
+            .spawn_with_file_size_limit(FSIZE_BLOCKS);
+        session.handshake().await;
+        let coverage = session.request(&call(2, "fr_coverage", &json!({}))).await;
+        assert!(!is_tool_error(&coverage), "{coverage}");
+        let finished = session.finish().await;
+        assert_eq!(finished.code(), Some(0), "stderr:\n{}", finished.stderr);
+
+        let archive = audit.path().join("mcp-legifrance-2000-01-01.jsonl");
+        assert_eq!(fs::read(&archive).expect("the archive"), dated, "the archive is untouched");
+        assert!(dated.ends_with(&fragment), "the archive keeps its fragment");
+        let active = fs::read(&journal).expect("the new journal");
+        assert!(active.ends_with(b"\n"));
+        let lines: Vec<&[u8]> = active.split(|byte| *byte == b'\n').collect();
+        assert_eq!(lines.len(), 2, "one line: {}", String::from_utf8_lossy(&active));
+        let line: Value = serde_json::from_slice(lines[0]).expect("a parsable line");
+        assert_eq!(line["tool"], json!("fr_coverage"));
+    }
+
     // ---- D-40 : aucune partie d'URL à identifiants n'atteint une sortie -----------------------
 
     /// Les valeurs d'une URL piégée qui ne doivent apparaître nulle part.

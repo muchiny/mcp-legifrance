@@ -942,7 +942,8 @@ mod tests {
         assert_eq!(sent_modes(&rig).await.len(), 6);
     }
 
-    /// V6 : un autre champ de la clé entre la page 1 et la page 2 (correspondance, date de version) donne une clé neuve : la page 2 est à froid et relue une fois.
+    /// V6 : un autre champ de la clé entre la page 1 et la page 2 (correspondance, date de
+    /// version) donne une clé neuve : la page 2 est à froid et relue une fois.
     #[tokio::test]
     async fn a_cold_code_page_changes_nothing_when_another_key_field_differs() {
         let other_match = |mode| {

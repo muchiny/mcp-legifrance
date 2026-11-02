@@ -139,27 +139,33 @@ impl Store {
                 let line_len =
                     u64::try_from(line.len()).unwrap_or(u64::MAX).saturating_add(u64::from(torn));
                 let rotate = rotation::must_rotate(&active, date, line_len, self.rotate_bytes);
-                if torn {
-                    warn_partial_line(path, rotate);
-                }
                 if !rotate {
-                    return Ok(Ready { file, rotated: false, new_entry: active.len == 0, torn });
+                    let fragment = if torn { Fragment::Separator } else { Fragment::None };
+                    return Ok(Ready {
+                        file,
+                        rotated: false,
+                        new_entry: active.len == 0,
+                        fragment,
+                    });
                 }
                 // L'archive finit par `\n`, sans qu'un octet d'origine change : le nouveau journal
-                // est vide, il n'a donc pas de fragment à refermer.
-                let closed = if torn {
-                    file.write_all(b"\n").and_then(|()| file.sync_data())
-                } else {
-                    Ok(())
-                };
-                closed
-                    .and_then(|()| {
-                        // Windows ne renomme pas un fichier ouvert : on referme avant.
-                        drop(file);
-                        rotation::rotate(&self.dir, active.date.as_deref().unwrap_or(date))
-                    })
+                // est vide, il n'a donc pas de fragment à refermer. Au mieux : un journal arrêté
+                // au plafond de taille de fichier (`RLIMIT_FSIZE`) refuse cet octet, et la
+                // rotation, qui le libère, doit avoir lieu quand même ; l'archive garde alors son
+                // fragment tel quel.
+                if torn {
+                    drop(file.write_all(b"\n").and_then(|()| file.sync_data()));
+                }
+                // Windows ne renomme pas un fichier ouvert : on referme avant.
+                drop(file);
+                rotation::rotate(&self.dir, active.date.as_deref().unwrap_or(date))
                     .and_then(|_archive| open_private(path, Mode::Journal))
-                    .map(|file| Ready { file, rotated: true, new_entry: true, torn: false })
+                    .map(|file| Ready {
+                        file,
+                        rotated: true,
+                        new_entry: true,
+                        fragment: if torn { Fragment::Archived } else { Fragment::None },
+                    })
             })
     }
 
@@ -183,20 +189,40 @@ struct Ready {
     rotated: bool,
     /// Le fichier est neuf : son entrée de répertoire doit survivre à un arrêt brutal.
     new_entry: bool,
-    /// Le journal finit par une ligne partielle : la ligne est précédée d'un `\n` qui la referme.
-    torn: bool,
+    /// Ce que le journal finissait par : l'avertissement part une fois la ligne écrite, pas avant.
+    fragment: Fragment,
+}
+
+/// La fin du journal ouvert, avant l'écriture de la ligne.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Fragment {
+    /// Le journal finit par un `\n` (ou est vide).
+    None,
+    /// Une ligne partielle : la ligne est précédée d'un `\n` qui la referme.
+    Separator,
+    /// Une ligne partielle, partie avec l'archive : le nouveau journal est vide.
+    Archived,
 }
 
 impl Ready {
     /// `write_all` puis `sync_data` : la ligne est durable quand cette fonction rend `Ok`. Le
     /// séparateur éventuel et la ligne partent dans la même écriture.
     fn append(mut self, line: &str, dir: &Path) -> io::Result<Written> {
-        let text = if self.torn { Cow::Owned(format!("\n{line}")) } else { Cow::Borrowed(line) };
+        let text = if self.fragment == Fragment::Separator {
+            Cow::Owned(format!("\n{line}"))
+        } else {
+            Cow::Borrowed(line)
+        };
         self.file
             .write_all(text.as_bytes())
             .and_then(|()| self.file.sync_data())
             .and_then(|()| if self.new_entry { rotation::sync_dir(dir) } else { Ok(()) })
-            .map(|()| Written { bytes: line.len(), rotated: self.rotated })
+            .map(|()| {
+                if self.fragment != Fragment::None {
+                    warn_partial_line(&dir.join(ACTIVE_FILE), self.rotated);
+                }
+                Written { bytes: line.len(), rotated: self.rotated }
+            })
     }
 }
 
@@ -212,13 +238,15 @@ fn ends_mid_line(file: &mut File) -> io::Result<bool> {
         None => Ok(false),
         Some(last) => file.seek(SeekFrom::Start(last)).and_then(|_| {
             let mut byte = [0_u8; 1];
-            file.read_exact(&mut byte).map(|()| byte != *b"\n")
+            // `read`, pas `read_exact` : un fichier tronqué entre les deux n'est pas une panne.
+            file.read(&mut byte).map(|read| read == 1 && byte != *b"\n")
         }),
     })
 }
 
-/// `warn!` : le journal finissait par une ligne partielle, refermée avant l'enregistrement. Un
-/// événement par fragment (le `\n` écrit le referme), stderr seulement.
+/// `warn!` : le journal finissait par une ligne partielle, refermée avant l'enregistrement. Émis
+/// après l'écriture réussie : un événement par fragment (le `\n` écrit le referme), jamais pour
+/// une écriture qui échoue (le fragment reste alors ouvert) ; stderr seulement.
 fn warn_partial_line(path: &Path, rotated: bool) {
     tracing::warn!(
         path = %path.display(),
