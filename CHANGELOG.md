@@ -14,7 +14,17 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `1.1.0`.
+### Fixed
+
+- `fr_get_text` : la note d'un article de convention collective (KALIARTI) qui n'est plus en vigueur ne renvoie plus à `fr_resolve` avec une date ni à `fr_diff_article`, qui ne lisent pas une autre version de cet article (`fr_diff_article` refuse un KALIARTI, `fr_resolve` ne retrouve pas un article de convention par son numéro) : le conseil était circulaire. Elle renvoie à `fr_get_convention` avec `parent_id` (sinon `fr_search` dans le fond KALI) et à son `toc`, pour l'entrée de même numéro dans la même section ; une entrée affichée sans `etat` a l'`etat` de la convention elle-même (donc abrogée sous une convention abrogée), le `toc` est paginé (`toc_offset`) et il peut n'exister aucune version courante. Pour un KALIARTI `DENONCE`, la note dit que `fr_get_convention` avec `parent_id` donne l'`etat` de la convention elle-même. Le début de la note est inchangé pour les deux familles et le texte des articles de code (LEGIARTI) est inchangé, octet pour octet. Valeur du champ `note` existant, aucun changement de schéma. (cnil_kali_acco-6, errors-3)
+
+### Changed
+
+- Chaîne de sortie : la note de `fr_get_text` pour un KALIARTI en état terminé ou dénoncé change (voir Fixed). Un client qui y cherchait « fr_diff_article » pour un article de convention ne le trouve plus ; ce conseil était inapplicable.
+
+### Documentation
+
+- `docs/plan/05-outils-mcp.md` (champ `note`, 1.0.1 L3-13) : le contrat décrivait un texte unique pour les articles LEGIARTI et KALIARTI, que le CHANGELOG de la 1.0.1 reprenait ; il donne maintenant une fin de phrase par famille et par cas (état terminé, `DENONCE`). La phrase de la 1.0.1 reste telle quelle (historique) ; sa correction est celle-ci. (F10)
 
 ## [1.1.0] - 2026-11-02
 
