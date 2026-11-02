@@ -18,7 +18,7 @@ use lf_application::{
 use schemars::JsonSchema;
 use serde::Serialize;
 
-use super::fit::fit_under_cap;
+use super::{common::ValidityFields, fit::fit_under_cap};
 
 /// Note ajoutée quand la vue doit retirer des candidats pour tenir sous le plafond.
 const FURTHER_NOTE: &str = "Candidates were removed to keep the response under 45,000 characters.";
@@ -48,6 +48,20 @@ struct CandidateView {
     source_url: String,
     // high, medium ou low.
     confidence: String,
+    // Article seulement : état de la version lue (VIGUEUR, MODIFIE…) et ses dates (D-03). Les
+    // descriptions (D-12) renvoient au glossaire des instructions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String", description = crate::views::common::ETAT_GLOSSARY_SHORT)]
+    etat: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String", description = "First day of this version, YYYY-MM-DD.")]
+    date_debut: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "String",
+        description = "Day the next version (or the repeal) takes effect; absent: no known end."
+    )]
+    date_fin: Option<String>,
 }
 
 impl From<ResolveOutput> for ResolveView {
@@ -86,20 +100,24 @@ impl ResolveView {
 
 impl From<Candidate> for CandidateView {
     fn from(candidate: Candidate) -> Self {
+        let ValidityFields { etat, date_debut, date_fin } = candidate.record.validity.into();
         Self {
             id: candidate.record.id.as_str().to_owned(),
             kind: candidate.kind.as_str().to_owned(),
             citation: candidate.record.citation,
             source_url: candidate.record.source_url,
             confidence: candidate.confidence.as_str().to_owned(),
+            etat,
+            date_debut,
+            date_fin,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use lf_application::citation::{CandidateKind, ResolvedRecord};
-    use lf_domain::{citation::Confidence, id::DocumentId};
+    use lf_application::citation::{CandidateKind, ResolvedRecord, Validity};
+    use lf_domain::{citation::Confidence, date::CivilDate, id::DocumentId, status::LegalStatus};
     use pretty_assertions::assert_eq;
     use serde_json::{Value, json};
 
@@ -120,6 +138,7 @@ mod tests {
                 id: document,
                 citation: citation.to_owned(),
                 ecli: None,
+                validity: None,
             },
             confidence,
         }
@@ -199,6 +218,90 @@ mod tests {
             "Current version in force since 2016-10-01. 1 more citation(s) found; only the \
              first is resolved, use fr_verify_citations for the whole text."
         );
+    }
+
+    fn article_with(validity: Validity) -> Candidate {
+        let mut candidate = article_9();
+        candidate.record.validity = Some(validity);
+        candidate
+    }
+
+    fn period(
+        etat: Option<LegalStatus>,
+        debut: Option<CivilDate>,
+        fin: Option<CivilDate>,
+    ) -> Validity {
+        Validity { etat, date_debut: debut, date_fin: fin }
+    }
+
+    /// D-03 (journey_patrimoine-14) : article 779 du CGI lu au 2011-06-01, version MODIFIE du
+    /// 2010-05-01 au 2011-06-12 (valeurs de la réponse réelle, reconstituées).
+    #[test]
+    fn a_candidate_article_renders_its_validity_period() {
+        let candidate = article_with(period(
+            Some(LegalStatus::Modifie),
+            CivilDate::new(2010, 5, 1),
+            CivilDate::new(2011, 6, 12),
+        ));
+        assert_eq!(
+            json_of(output(vec![candidate], vec![])),
+            json!({
+                "interpreted_as": "Code civil, art. 9",
+                "candidates": [{
+                    "id": "LEGIARTI000006419288",
+                    "kind": "article",
+                    "citation": "Code civil, art. 9",
+                    "source_url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288",
+                    "confidence": "high",
+                    "etat": "MODIFIE",
+                    "date_debut": "2010-05-01",
+                    "date_fin": "2011-06-12"
+                }]
+            })
+        );
+    }
+
+    /// Jumeau : la version en vigueur n'a pas de fin (absente ou sentinelle 2999), le champ est
+    /// omis ; sans période (décision, texte), aucun des trois champs n'apparaît.
+    #[test]
+    fn an_open_ended_or_missing_period_is_omitted() {
+        for fin in [None, CivilDate::new(2999, 1, 1)] {
+            let candidate =
+                article_with(period(Some(LegalStatus::Vigueur), CivilDate::new(2013, 1, 1), fin));
+            let value = json_of(output(vec![candidate], vec![]));
+            let rendered = &value["candidates"][0];
+            assert_eq!(rendered["etat"], "VIGUEUR");
+            assert_eq!(rendered["date_debut"], "2013-01-01");
+            assert!(rendered.get("date_fin").is_none(), "{rendered}");
+        }
+        // Un début sentinelle ou absent, un état absent : champs omis un à un.
+        let candidate = article_with(period(None, None, CivilDate::new(2011, 6, 12)));
+        let value = json_of(output(vec![candidate], vec![]));
+        let rendered = value["candidates"][0].as_object().unwrap();
+        assert!(!rendered.contains_key("etat") && !rendered.contains_key("date_debut"));
+        assert_eq!(rendered["date_fin"], "2011-06-12");
+        let decision = candidate_of_decision();
+        let value = json_of(output(vec![decision], vec![]));
+        let rendered = value["candidates"][0].as_object().unwrap();
+        assert!(!rendered.contains_key("etat") && !rendered.contains_key("date_debut"));
+        assert!(!rendered.contains_key("date_fin"));
+    }
+
+    fn candidate_of_decision() -> Candidate {
+        candidate("JURITEXT000051743650", "Cour de cassation, 4 juin 2025", Confidence::Medium)
+    }
+
+    #[test]
+    fn the_view_with_a_period_validates_against_its_output_schema() {
+        let schema = Value::Object(output_schema::<ResolveView>().as_ref().clone());
+        let validator = jsonschema::validator_for(&schema).unwrap();
+        let dated = article_with(period(
+            Some(LegalStatus::Modifie),
+            CivilDate::new(2010, 5, 1),
+            CivilDate::new(2011, 6, 12),
+        ));
+        let value = json_of(output(vec![dated, candidate_of_decision()], vec![]));
+        assert!(validator.is_valid(&value), "{value}");
     }
 
     #[test]
@@ -294,6 +397,28 @@ mod tests {
         assert_eq!(value["candidates"], json!([]));
         assert_eq!(value["interpreted_as"].as_str().map(str::len), Some(50_000));
         assert!(value.get("note").is_none(), "{value}");
+    }
+
+    /// D-12 : les trois champs de validité d'un candidat disent ce qu'ils sont (D-03).
+    #[test]
+    fn the_validity_fields_of_a_candidate_are_described() {
+        let schema = Value::Object(output_schema::<ResolveView>().as_ref().clone());
+        let props = &schema["$defs"]["CandidateView"]["properties"];
+        assert!(
+            props["etat"]["description"]
+                .as_str()
+                .unwrap()
+                .contains("In force: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF."),
+            "{props}"
+        );
+        assert!(props["date_debut"]["description"].as_str().unwrap().contains("First day"));
+        assert!(
+            props["date_fin"]["description"]
+                .as_str()
+                .unwrap()
+                .contains("(or the repeal) takes effect; absent: no known end"),
+            "{props}"
+        );
     }
 
     #[test]

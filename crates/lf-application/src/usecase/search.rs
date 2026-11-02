@@ -5,7 +5,8 @@
 //! Sans réseau et dans l'ordre de la référence : `fond`, `query`, `page_size`, puis `page`,
 //! `match`, `date_from`, `date_to` et `version_date` (leur forme), puis les combinaisons, dans
 //! l'ordre du domaine : période inversée (`DateRange::new`), `version_date` hors LODA et CODE,
-//! période sur CODE, page hors de la fenêtre atteignable (`SearchQuery::new`). Le premier échec
+//! période sur CODE, page hors de la fenêtre atteignable (`SearchQuery::new`), puis `in_force_only`
+//! hors de KALI (`SearchQuery::with_in_force_only`, D-08). Le premier échec
 //! est rendu ; aucun appel au port ne part.
 //!
 //! # Dates par défaut (03 §6.4)
@@ -55,6 +56,20 @@ const TOOL: ToolName = ToolName::FR_SEARCH;
 const REACHABLE_NOTE: &str = "Results beyond the first 10,000 are not reachable; narrow the query \
                               with match or date_from/date_to.";
 
+/// Note d'une recherche sans résultat (D-10, 05 §5.1) : `hits` vide et aucun total annoncé. La
+/// recherche réussit, mais un modèle lit surtout la réponse : elle lui rappelle que le vide ne
+/// prouve pas le silence de la loi. Les autres notes (articles à lire, fin de fenêtre) supposent un
+/// total positif : elles ne coïncident jamais avec celle-ci.
+pub(crate) const NO_MATCH_NOTE: &str = "No match: try other words, remove the date filters or \
+                                        call fr_coverage; an empty result does not mean the law \
+                                        is silent.";
+
+/// Note de défense en profondeur de `in_force_only` : un résultat rendu a un `etat` que le filtre
+/// aurait dû écarter. Le texte nomme les trois états gardés (D-08) ; il ne dit pas que la source
+/// a tort, seulement que le filtre n'est peut-être pas appliqué.
+pub(crate) const FILTER_NOT_APPLIED_NOTE: &str = "in_force_only was set, but a hit is not VIGUEUR, \
+     VIGUEUR_ETEN or VIGUEUR_NON_ETEN: the source may not have applied the filter. Check each etat.";
+
 /// Longueur ISO d'une date rendue, `AAAA-MM-JJ`.
 const ISO_DATE_CHARS: usize = 10;
 
@@ -102,6 +117,7 @@ impl<'a, C: LegalCorpus, K: Clock> SearchUseCase<'a, C, K> {
             date_from,
             date_to,
             version_date,
+            in_force_only,
         } = input;
         let fond = fond_of(fond.as_deref())?;
         let text = text_of(query.as_deref())?;
@@ -114,6 +130,7 @@ impl<'a, C: LegalCorpus, K: Clock> SearchUseCase<'a, C, K> {
         let range = DateRange::new(from, to).map_err(|error| messages::domain(TOOL, &error))?;
         let version = version.or_else(|| fond.needs_version_date().then(|| self.today()));
         SearchQuery::new(fond, text, page, page_size, mode, range, version)
+            .and_then(|query| query.with_in_force_only(in_force_only.unwrap_or(false)))
             .map_err(|error| messages::domain(TOOL, &error))
     }
 
@@ -182,8 +199,8 @@ fn date_of(name: &'static str, value: Option<&str>) -> Result<Option<VersionDate
         .transpose()
 }
 
-/// Met la page du port en forme de réponse : `has_more`, note de fin de fenêtre, contrat de
-/// citation de chaque résultat, puis plafond de réponse.
+/// Met la page du port en forme de réponse : `has_more`, note (fin de fenêtre, articles à lire ou
+/// aucun résultat), contrat de citation de chaque résultat, puis plafond de réponse.
 fn present(query: &SearchQuery, page: SearchPage) -> Result<SearchOutput, AppError> {
     let (number, size) = (query.page(), query.page_size());
     // CODE : `page_size` compte des articles quand l'amont pagine par article, et `total` des
@@ -197,9 +214,17 @@ fn present(query: &SearchQuery, page: SearchPage) -> Result<SearchOutput, AppErr
     // Il reste des résultats après cette page, mais la fenêtre atteignable s'arrête ici.
     let seen = u64::from(number.get()).saturating_mul(u64::from(size.get()));
     let largest = page.total.max(articles.unwrap_or(0));
+    // Aucun résultat du tout (D-10) : ni total, ni article annoncé, ni résultat listé. Un seul
+    // chemin produit une note : les deux autres exigent un total positif.
+    let no_match = largest == 0 && page.hits.is_empty();
     let note = more_articles
         .map(|count| articles_note(count, &page.hits, number))
-        .or_else(|| (!more && seen < largest).then(|| REACHABLE_NOTE.to_owned()));
+        .or_else(|| (!more && seen < largest).then(|| REACHABLE_NOTE.to_owned()))
+        .or_else(|| no_match.then(|| NO_MATCH_NOTE.to_owned()));
+    // Défense en profondeur : `in_force_only` demandé, mais un résultat d'un autre état. La note
+    // s'ajoute aux autres.
+    let unfiltered = query.in_force_only() && page.hits.iter().any(escapes_in_force_filter);
+    let note = join_notes([note, unfiltered.then(|| FILTER_NOT_APPLIED_NOTE.to_owned())]);
     let mut output = SearchOutput {
         total: page.total,
         page: number.get(),
@@ -208,8 +233,27 @@ fn present(query: &SearchQuery, page: SearchPage) -> Result<SearchOutput, AppErr
         hits: page.hits.into_iter().map(hit_out).collect(),
         note,
     };
-    fit_under_target(&mut output, size)?;
+    // La note de défense renvoie à l'`etat` de chaque résultat : la dégradation le garde.
+    fit_under_target(&mut output, size, unfiltered)?;
     Ok(output)
+}
+
+/// Le résultat a-t-il un `etat` hors des trois que `in_force_only` garde (`VIGUEUR`,
+/// `VIGUEUR_ETEN`, `VIGUEUR_NON_ETEN`) ? Un résultat sans `etat` n'est pas signalé : rien ne dit
+/// qu'il échappe au filtre.
+fn escapes_in_force_filter(hit: &SearchHit) -> bool {
+    hit.etat.as_ref().is_some_and(|etat| {
+        !matches!(
+            etat,
+            LegalStatus::Vigueur | LegalStatus::VigueurEtendue | LegalStatus::VigueurNonEtendue
+        )
+    })
+}
+
+/// Les notes présentes, jointes par une espace ; `None` s'il n'y en a aucune.
+fn join_notes<const N: usize>(notes: [Option<String>; N]) -> Option<String> {
+    let notes: Vec<String> = notes.into_iter().flatten().collect();
+    (!notes.is_empty()).then(|| notes.join(" "))
 }
 
 /// Note des articles encore à lire sur les pages suivantes (CODE, 05 §5.1) : combien en
@@ -242,11 +286,15 @@ fn hit_out(hit: SearchHit) -> HitOut {
     clippy::arithmetic_side_effects,
     reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
 )]
-fn fit_under_target(output: &mut SearchOutput, requested: PageSize) -> Result<(), AppError> {
+fn fit_under_target(
+    output: &mut SearchOutput,
+    requested: PageSize,
+    keep_etat: bool,
+) -> Result<(), AppError> {
     let fixed = envelope_cost(output) + DEGRADE_NOTE_RESERVE;
     let over = |hits: &[HitOut]| fixed + page_cost(hits) > ResponseBudget::ESTIMATE_TARGET_CHARS;
     let snippets = strip_from_end(&mut output.hits, over, strip_snippets);
-    let details = strip_from_end(&mut output.hits, over, strip_details);
+    let details = strip_from_end(&mut output.hits, over, |out| strip_details(out, keep_etat));
     if over(&output.hits) {
         let largest = largest_page_size(&output.hits, fixed);
         return Err(messages::invalid_argument(format!(
@@ -258,10 +306,9 @@ fn fit_under_target(output: &mut SearchOutput, requested: PageSize) -> Result<()
     let notes = [
         output.note.take(),
         (snippets > 0).then(|| snippets_note(snippets)),
-        (details > 0).then(|| details_note(details)),
+        (details > 0).then(|| details_note(details, keep_etat)),
     ];
-    let notes: Vec<String> = notes.into_iter().flatten().collect();
-    output.note = (!notes.is_empty()).then(|| notes.join(" "));
+    output.note = join_notes(notes);
     Ok(())
 }
 
@@ -276,8 +323,9 @@ fn strip_snippets(out: &mut HitOut) -> bool {
 
 /// Retire la liste d'articles et les champs optionnels `title`, `nature`, `etat` et `date` ; vrai
 /// s'il y avait quelque chose de rendu à retirer (un titre contenu dans la citation et une date
-/// sentinelle ne le sont pas). L'`idcc` reste : il identifie la convention.
-fn strip_details(out: &mut HitOut) -> bool {
+/// sentinelle ne le sont pas). L'`idcc` reste : il identifie la convention. Avec `keep_etat`
+/// (note de défense de `in_force_only` posée : « Check each etat »), l'`etat` reste aussi.
+fn strip_details(out: &mut HitOut, keep_etat: bool) -> bool {
     let citation = out.citation.as_str();
     let hit = &mut out.hit;
     let had_articles = !hit.articles.is_empty();
@@ -287,7 +335,7 @@ fn strip_details(out: &mut HitOut) -> bool {
             .take()
             .is_some_and(|title| title_unless_in_citation(Some(&title), citation).is_some()),
         hit.nature.take().is_some(),
-        hit.etat.take().is_some(),
+        !keep_etat && hit.etat.take().is_some(),
         hit.date.take().is_some_and(|date| open_ended(Some(date)).is_some()),
     ];
     had_articles || had_fields.contains(&true)
@@ -302,11 +350,13 @@ fn snippets_note(hits: usize) -> String {
     )
 }
 
-/// Note des listes d'articles et champs optionnels retirés.
-fn details_note(hits: usize) -> String {
+/// Note des listes d'articles et champs optionnels retirés ; `etat` n'en fait pas partie quand
+/// `keep_etat` (note de défense de `in_force_only` posée).
+fn details_note(hits: usize, keep_etat: bool) -> String {
+    let fields = if keep_etat { "title, nature and date" } else { "title, nature, etat and date" };
     format!(
-        "Article lists and the optional fields title, nature, etat and date were removed from \
-         {} to keep the response under 45,000 characters; use a smaller page_size to get them.",
+        "Article lists and the optional fields {fields} were removed from {} to keep the response \
+         under 45,000 characters; use a smaller page_size to get them.",
         the_last_hits(hits)
     )
 }
@@ -538,6 +588,7 @@ mod tests {
             date_from: Some("2016-13-45".to_owned()),
             date_to: Some("nope".to_owned()),
             version_date: Some("later".to_owned()),
+            in_force_only: None,
         };
         // Chaque étape corrige l'argument qui vient d'être refusé : le suivant parle alors.
         assert_eq!(
@@ -740,6 +791,187 @@ mod tests {
             ..text("bail")
         };
         assert_eq!(rejected(both).await, "date_from=2026-01-01 is after date_to=2025-01-01.");
+    }
+
+    /// D-08 : le vrai positif, `in_force_only` sur KALI arrive au port.
+    #[tokio::test]
+    async fn in_force_only_on_kali_reaches_the_port() {
+        let corpus = serving(page_of(Fond::Kali, 0, vec![]));
+        let input = SearchInput {
+            fond: Some("kali".to_owned()),
+            in_force_only: Some(true),
+            ..text("convention collective")
+        };
+        run(&corpus, &clock(), input).await.unwrap();
+        let query = sent(&corpus);
+        assert_eq!((query.fond(), query.in_force_only()), (Fond::Kali, true));
+        assert_eq!(query.version_date(), None);
+    }
+
+    /// Résultat KALI d'état `etat` (code d'API).
+    fn kali_hit(n: u32, etat: &str) -> SearchHit {
+        SearchHit { etat: LegalStatus::parse(etat), ..bare(Fond::Kali, n) }
+    }
+
+    /// `in_force_only` demandé sur KALI, la source ayant répondu `hits`.
+    async fn in_force_search(flag: Option<bool>, hits: Vec<SearchHit>) -> SearchOutput {
+        let total = u64::try_from(hits.len()).unwrap();
+        let corpus = serving(page_of(Fond::Kali, total, hits));
+        let input = SearchInput {
+            fond: Some("KALI".to_owned()),
+            in_force_only: flag,
+            ..text("convention collective")
+        };
+        run(&corpus, &clock(), input).await.unwrap()
+    }
+
+    /// Défense en profondeur (revue finale de la PR 2) : la production ne peut pas être testée, et
+    /// une source qui ignorerait la facette `LEGAL_STATUS` rendrait des textes qui ne sont pas en
+    /// vigueur sans que rien ne le dise. Vrai positif : chaque état hors des trois gardés déclenche
+    /// la note, même parmi des états gardés.
+    #[tokio::test]
+    async fn in_force_only_flags_a_hit_whose_etat_is_not_a_kept_one() {
+        for etat in [
+            "DENONCE",
+            "ABROGE",
+            "MODIFIE",
+            "PERIME",
+            "REMPLACE",
+            "VIGUEUR_DIFF",
+            "ABROGE_DIFF",
+            "INITIALE",
+            "SANS_ETAT",
+            "SURPRISE",
+        ] {
+            let hits = vec![kali_hit(1, "VIGUEUR"), kali_hit(2, etat)];
+            let output = in_force_search(Some(true), hits).await;
+            assert_eq!(output.note.as_deref(), Some(FILTER_NOT_APPLIED_NOTE), "{etat}");
+        }
+    }
+
+    /// Jumeaux sans note : les trois états gardés, un résultat sans état (rien ne dit qu'il est
+    /// hors du filtre), un filtre non demandé, et un résultat hors filtre sur un filtre absent.
+    #[tokio::test]
+    async fn in_force_only_adds_no_note_when_every_known_etat_is_kept() {
+        let kept = || {
+            vec![
+                kali_hit(1, "VIGUEUR"),
+                kali_hit(2, "VIGUEUR_ETEN"),
+                kali_hit(3, "VIGUEUR_NON_ETEN"),
+                bare(Fond::Kali, 4),
+            ]
+        };
+        assert_eq!(in_force_search(Some(true), kept()).await.note, None);
+        let mixed = || vec![kali_hit(1, "VIGUEUR"), kali_hit(2, "DENONCE")];
+        for flag in [None, Some(false)] {
+            assert_eq!(in_force_search(flag, mixed()).await.note, None, "{flag:?}");
+        }
+    }
+
+    /// Second tour de la revue finale : la note de défense dit « Check each etat » ; une page
+    /// dégradée pour tenir sous la cible n'en retire donc pas l'`etat` (elle retire le reste des
+    /// champs optionnels, en partant de la fin).
+    #[tokio::test]
+    async fn a_degraded_page_keeps_the_etat_of_every_hit_when_the_filter_note_is_set() {
+        let hits = || -> Vec<SearchHit> {
+            (1..=60)
+                .map(|n| SearchHit {
+                    nature: Some("x".repeat(800)),
+                    ..kali_hit(n, if n == 60 { "DENONCE" } else { "VIGUEUR" })
+                })
+                .collect()
+        };
+        let search = |flag: Option<bool>| {
+            let corpus = serving(page_of(Fond::Kali, 60, hits()));
+            let input = SearchInput {
+                fond: Some("KALI".to_owned()),
+                in_force_only: flag,
+                page_size: Some(60),
+                ..text("convention collective")
+            };
+            async move { run(&corpus, &clock(), input).await.unwrap() }
+        };
+
+        let output = search(Some(true)).await;
+        let trimmed = output.hits.iter().filter(|h| h.hit.nature.is_none()).count();
+        assert!(trimmed > 0 && trimmed < 60, "{trimmed}");
+        assert!(output.hits.iter().all(|h| h.hit.etat.is_some()));
+        assert_eq!(output.hits[59].hit.etat, LegalStatus::parse("DENONCE"));
+        let note = output.note.as_deref().unwrap();
+        assert!(note.starts_with(FILTER_NOT_APPLIED_NOTE), "{note}");
+        assert!(note.ends_with(&details_note(trimmed, true)), "{note}");
+
+        // Jumeau sans filtre : la dégradation retire aussi l'`etat` des derniers résultats.
+        let output = search(None).await;
+        assert!(output.hits[59].hit.etat.is_none());
+        assert!(!output.note.as_deref().unwrap().contains("in_force_only"));
+    }
+
+    /// La note de défense s'ajoute aux autres notes au lieu de les remplacer.
+    #[tokio::test]
+    async fn the_filter_note_is_joined_with_the_other_notes() {
+        let corpus = serving(SearchPage::new(
+            Fond::Kali,
+            "bail",
+            Some(10_001),
+            None,
+            vec![kali_hit(1, "DENONCE")],
+            0,
+            PaginationMode::Defaut,
+        ));
+        let input = SearchInput {
+            fond: Some("KALI".to_owned()),
+            in_force_only: Some(true),
+            page: Some(1_000),
+            page_size: Some(10),
+            ..text("convention collective")
+        };
+        let output = run(&corpus, &clock(), input).await.unwrap();
+        assert_eq!(
+            output.note.as_deref(),
+            Some(format!("{REACHABLE_NOTE} {FILTER_NOT_APPLIED_NOTE}").as_str())
+        );
+    }
+
+    /// D-08 : `false` ou absent donne la requête de la 1.0.1, sur tous les fonds.
+    #[tokio::test]
+    async fn in_force_only_false_or_absent_changes_nothing() {
+        for fond in Fond::ALL {
+            for flag in [None, Some(false)] {
+                let corpus = serving(page_of(fond, 0, vec![]));
+                let input = SearchInput {
+                    fond: Some(fond.name().to_owned()),
+                    in_force_only: flag,
+                    ..text("bail")
+                };
+                run(&corpus, &clock(), input).await.unwrap();
+                assert!(!sent(&corpus).in_force_only(), "{fond} {flag:?}");
+            }
+        }
+    }
+
+    /// D-08 : tout autre fond, et le fond absent (LODA), refuse `in_force_only=true` en le disant.
+    #[tokio::test]
+    async fn in_force_only_is_rejected_outside_kali() {
+        for fond in Fond::ALL.into_iter().filter(|fond| *fond != Fond::Kali) {
+            let input = SearchInput {
+                fond: Some(fond.name().to_owned()),
+                in_force_only: Some(true),
+                ..text("bail")
+            };
+            assert_eq!(
+                rejected(input).await,
+                format!(
+                    "in_force_only only applies to fond KALI, not {fond}; set fond=KALI or remove it."
+                ),
+                "{fond}"
+            );
+        }
+        let no_fond = SearchInput { in_force_only: Some(true), ..text("bail") };
+        assert_eq!(
+            rejected(no_fond).await,
+            "in_force_only only applies to fond KALI, not LODA; set fond=KALI or remove it."
+        );
     }
 
     #[tokio::test]
@@ -1001,10 +1233,84 @@ mod tests {
                 has_more: false,
                 total_articles: None,
                 hits: vec![],
-                note: None
+                note: Some(NO_MATCH_NOTE.to_owned())
             }
         );
         assert_eq!(output.output_count_or_size(), 0);
+    }
+
+    /// D-10 : la note d'une recherche sans résultat reprend le texte de la fiche et tient très
+    /// en deçà de la réserve des notes de dégradation.
+    #[test]
+    fn the_no_match_note_names_the_ways_out() {
+        assert_eq!(
+            NO_MATCH_NOTE,
+            "No match: try other words, remove the date filters or call fr_coverage; an empty \
+             result does not mean the law is silent."
+        );
+        assert!(NO_MATCH_NOTE.len() < DEGRADE_NOTE_RESERVE_CHARS / 2);
+    }
+
+    /// D-10, faux positif évité : une page vide dont le total est positif (page au-delà des
+    /// résultats, fin de fenêtre) ne dit jamais « No match » : la loi n'est pas muette, la page
+    /// est seulement vide. La note de fin de fenêtre reste la seule note.
+    #[tokio::test]
+    async fn an_empty_page_of_a_non_empty_search_gets_no_no_match_note() {
+        let past_the_results = serving(page_of(Fond::Loda, 30, vec![]));
+        let input = SearchInput { page: Some(5), ..text("bail") };
+        let output = run(&past_the_results, &clock(), input).await.unwrap();
+        assert_eq!((output.total, output.hits.len(), output.note), (30, 0, None));
+
+        let past_the_window = serving(page_of(Fond::Loda, 50_000, vec![]));
+        let input = SearchInput { page: Some(333), page_size: Some(30), ..text("bail") };
+        let output = run(&past_the_window, &clock(), input).await.unwrap();
+        assert_eq!(output.note.as_deref(), Some(REACHABLE_NOTE));
+    }
+
+    /// D-10, faux positif évité : des articles annoncés (CODE) sans texte listé ne sont pas
+    /// « aucun résultat ».
+    #[tokio::test]
+    async fn an_empty_code_page_with_articles_announced_gets_no_no_match_note() {
+        let page = SearchPage::new(
+            Fond::Code,
+            "bail",
+            Some(0),
+            Some(5),
+            vec![],
+            0,
+            PaginationMode::Article,
+        );
+        let output = run(&serving(page), &clock(), text("bail")).await.unwrap();
+        assert_eq!((output.total, output.total_articles, output.note), (0, Some(5), None));
+    }
+
+    /// D-10, faux positif évité : un résultat présent, même si la source annonce un total nul,
+    /// n'est pas une recherche sans résultat.
+    #[tokio::test]
+    async fn a_listed_hit_gets_no_no_match_note_even_with_a_zero_total() {
+        let output = run(
+            &serving(page_of(Fond::Loda, 0, vec![bare(Fond::Loda, 1)])),
+            &clock(),
+            text("bail"),
+        )
+        .await
+        .unwrap();
+        assert_eq!((output.hits.len(), output.note), (1, None));
+    }
+
+    /// D-10, vrai positif conservé : la note vaut pour tout fond, et pour une page 2 vide d'une
+    /// recherche qui n'a rien trouvé.
+    #[tokio::test]
+    async fn the_no_match_note_applies_to_every_fond_and_page() {
+        for fond in ["LODA", "CODE", "JURI", "CNIL", "KALI", "ACCO"] {
+            let parsed = Fond::parse(fond).unwrap();
+            let input = SearchInput { fond: Some(fond.to_owned()), ..text("zzzz") };
+            let output = run(&serving(page_of(parsed, 0, vec![])), &clock(), input).await.unwrap();
+            assert_eq!(output.note.as_deref(), Some(NO_MATCH_NOTE), "{fond}");
+        }
+        let input = SearchInput { page: Some(2), ..text("zzzz") };
+        let output = run(&serving(page_of(Fond::Loda, 0, vec![])), &clock(), input).await.unwrap();
+        assert_eq!(output.note.as_deref(), Some(NO_MATCH_NOTE));
     }
 
     #[tokio::test]
@@ -1247,14 +1553,15 @@ mod tests {
              characters; use a smaller page_size to get them."
         );
         assert_eq!(
-            details_note(1),
+            details_note(1, false),
             "Article lists and the optional fields title, nature, etat and date were removed from \
              the last hit to keep the response under 45,000 characters; use a smaller page_size \
              to get them."
         );
         // Le pluriel reste pour deux et plus.
         assert!(snippets_note(2).contains("from the last 2 hits to"));
-        assert!(details_note(2).contains("from the last 2 hits to"));
+        assert!(details_note(2, false).contains("from the last 2 hits to"));
+        assert!(details_note(2, true).contains("fields title, nature and date were removed"));
     }
 
     #[test]
@@ -1273,7 +1580,7 @@ mod tests {
         assert_eq!(fixed + page_cost(&output.hits), TARGET);
         output.hits[1].hit.snippet = Snippet::new("last");
         // Le premier n'en a pas : seul le dernier est touché.
-        fit_under_target(&mut output, PageSize::new(2).unwrap()).unwrap();
+        fit_under_target(&mut output, PageSize::new(2).unwrap(), false).unwrap();
         assert!(output.hits[1].hit.snippet.is_none());
         assert_eq!(output.note, Some(snippets_note(1)));
         assert!(output.note.as_deref().unwrap().contains("from the last hit to"));
@@ -1281,7 +1588,7 @@ mod tests {
 
     #[test]
     fn degrade_notes_fit_in_their_reserve() {
-        let both = format!("{} {}", snippets_note(100), details_note(100));
+        let both = format!("{} {}", snippets_note(100), details_note(100, false));
         assert!(both.chars().count() <= DEGRADE_NOTE_RESERVE_CHARS, "{both}");
         assert_eq!(
             snippets_note(7),
@@ -1362,7 +1669,10 @@ mod tests {
         }));
         // La citation, calculée avant, survit au retrait du titre.
         assert!(output.hits[39].citation.starts_with("mot mot"));
-        assert_eq!(output.note, Some(format!("{} {}", snippets_note(40), details_note(trimmed))));
+        assert_eq!(
+            output.note,
+            Some(format!("{} {}", snippets_note(40), details_note(trimmed, false)))
+        );
     }
 
     #[tokio::test]
@@ -1415,7 +1725,7 @@ mod tests {
     #[test]
     fn the_degrade_note_reserve_covers_both_notes_and_the_note_field() {
         assert_eq!(DEGRADE_NOTE_RESERVE, 411);
-        let notes = snippets_note(100).len() + details_note(100).len();
+        let notes = snippets_note(100).len() + details_note(100, false).len();
         assert!(notes + 1 + r#","note":"""#.len() <= DEGRADE_NOTE_RESERVE);
     }
 
@@ -1449,13 +1759,13 @@ mod tests {
 
         let mut at_target = with_title(exact);
         assert_eq!(fixed + page_cost(&at_target.hits), TARGET);
-        fit_under_target(&mut at_target, PageSize::new(1).unwrap()).unwrap();
+        fit_under_target(&mut at_target, PageSize::new(1).unwrap(), false).unwrap();
         assert_eq!(at_target, with_title(exact));
 
         let mut over_target = with_title(exact + 1);
-        fit_under_target(&mut over_target, PageSize::new(1).unwrap()).unwrap();
+        fit_under_target(&mut over_target, PageSize::new(1).unwrap(), false).unwrap();
         assert_eq!(over_target.hits[0].hit.title, None);
-        assert_eq!(over_target.note, Some(details_note(1)));
+        assert_eq!(over_target.note, Some(details_note(1, false)));
     }
 
     #[test]
@@ -1503,7 +1813,7 @@ mod tests {
             [(fields, true), (articles, true), (both, true), (bare(Fond::Juri, 4), false)]
         {
             let mut out = plain(hit);
-            assert_eq!(strip_details(&mut out), expected);
+            assert_eq!(strip_details(&mut out, false), expected);
             assert_eq!(out.hit.articles, Vec::new());
             assert!(out.hit.title.is_none() && out.hit.nature.is_none());
             assert!(out.hit.etat.is_none() && out.hit.date.is_none());
@@ -1516,18 +1826,18 @@ mod tests {
             ..bare(Fond::Juri, 6)
         };
         let mut out = plain(unseen);
-        assert!(!strip_details(&mut out));
+        assert!(!strip_details(&mut out, false));
         assert!(out.hit.title.is_none() && out.hit.date.is_none());
         // L'`idcc` identifie la convention : il reste.
         let mut kept = plain(SearchHit { idcc: Idcc::parse("275"), ..bare(Fond::Kali, 5) });
-        assert!(!strip_details(&mut kept));
+        assert!(!strip_details(&mut kept, false));
         assert!(kept.hit.idcc.is_some());
     }
 
     #[test]
     fn the_details_note_names_the_count_and_the_fields() {
         assert_eq!(
-            details_note(7),
+            details_note(7, false),
             "Article lists and the optional fields title, nature, etat and date were removed from \
              the last 7 hits to keep the response under 45,000 characters; use a smaller \
              page_size to get them."

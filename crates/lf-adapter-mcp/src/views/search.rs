@@ -27,7 +27,9 @@ const FURTHER_NOTE: &str = "Further snippets and details were removed to keep th
 /// Une page de résultats de `fr_search`.
 #[derive(Debug, Serialize, JsonSchema)]
 pub(crate) struct SearchView {
-    /// Nombre total de résultats annoncé par la source.
+    #[schemars(
+        description = "Total results; for CODE, codes; total_articles (if present) counts articles."
+    )]
     total: u64,
     /// Page servie, à partir de 1.
     page: u32,
@@ -40,9 +42,13 @@ pub(crate) struct SearchView {
     total_articles: Option<u64>,
     /// Résultats, dans l'ordre de l'API ; toujours présents, même vides.
     hits: Vec<HitView>,
-    /// Remarque exceptionnelle (fin de la fenêtre atteignable, contenu retiré).
+    /// Indice facultatif (aucun résultat, fin de la fenêtre atteignable, articles à lire, contenu
+    /// retiré).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String")]
+    #[schemars(
+        with = "String",
+        description = "Hint: no match, window end, articles to page, or content removed."
+    )]
     note: Option<String>,
 }
 
@@ -58,9 +64,12 @@ struct HitView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String")]
     title: Option<String>,
-    /// Date `AAAA-MM-JJ`, si elle est connue.
+    /// Date `AAAA-MM-JJ` donnée par Légifrance pour le fond, pas toujours celle de l'acte.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String")]
+    #[schemars(
+        with = "String",
+        description = "YYYY-MM-DD as Légifrance gives it for the fond (CNIL: publication, ACCO: signature), not always the act date; absent if unknown."
+    )]
     date: Option<String>,
     /// Nature du texte.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -68,7 +77,7 @@ struct HitView {
     nature: Option<String>,
     /// État juridique, en code d'API (`VIGUEUR`, `ABROGE`...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String")]
+    #[schemars(with = "String", description = crate::views::common::ETAT_GLOSSARY_SHORT)]
     etat: Option<String>,
     /// IDCC (KALI et ACCO), à partir de la v0.2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -230,6 +239,15 @@ mod tests {
 
     use super::*;
     use crate::schema::output_schema;
+
+    /// D-12 : la règle générale de `etat` est dans la description du champ (`VIGUEUR_ETEN`, `PERIME`,
+    /// ANNULE... ne sont pas dans le glossaire des instructions).
+    #[test]
+    fn the_etat_field_carries_the_general_rule() {
+        let schema = serde_json::Value::Object(output_schema::<SearchView>().as_ref().clone());
+        let text = schema.to_string();
+        assert!(text.contains(crate::views::common::ETAT_GLOSSARY_SHORT), "{text}");
+    }
 
     const CAP: usize = ResponseBudget::HARD_CAP_CHARS;
 
@@ -471,6 +489,22 @@ mod tests {
         assert_eq!(hit["properties"]["title"]["type"], "string");
         assert_eq!(schema["$defs"]["ArticleView"]["required"], json!(["article_id"]));
         assert!(schema.get("additionalProperties").is_none(), "la sortie reste ouverte");
+    }
+
+    /// D-12 (search-2, search-13) : `date` dit d'où elle vient, `total` ce qu'il compte pour CODE.
+    #[test]
+    fn the_output_schema_says_what_date_and_total_are() {
+        let schema = Value::Object(output_schema::<SearchView>().as_ref().clone());
+        let date =
+            schema["$defs"]["HitView"]["properties"]["date"]["description"].as_str().unwrap();
+        assert!(date.contains("as Légifrance gives it for the fond"), "{date}");
+        assert!(date.contains("not always the act date"), "{date}");
+        let total = schema["properties"]["total"]["description"].as_str().unwrap();
+        assert!(total.contains("for CODE, codes"), "{total}");
+        assert!(total.contains("total_articles (if present) counts articles"), "{total}");
+        // `note` n'est plus décrite comme exceptionnelle : D-10 la pose à chaque recherche vide.
+        let note = schema["properties"]["note"]["description"].as_str().unwrap();
+        assert!(note.contains("no match") && note.contains("articles to page"), "{note}");
     }
 
     #[test]

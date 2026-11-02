@@ -21,18 +21,19 @@ use crate::{
     views::search::SearchView,
 };
 
-/// Description de l'outil (05 §5.1, 5 phrases). Source unique : elle ne cite que des outils de la
-/// surface v0.1.
+/// Description de l'outil (05 §5.1, 6 phrases, 991 caractères sur 1 000). Source unique : elle ne
+/// cite que des outils de la surface v0.1 et `fr_resolve` (D-12, Q21).
 const DESCRIPTION: &str = "Keyword search in one Légifrance fond (default LODA): laws and \
 decrees (LODA), codes (CODE), case law (JURI, CONSTIT, CETAT), CNIL deliberations (CNIL), \
-collective agreements (KALI) or company agreements (ACCO). Returns one page of hits (default 10) \
-with id, title, snippet, citation and source_url; ask for the next `page` while `has_more` is \
-true. `match` defaults to any word; use `all` or `exact` for precise queries, and \
-`date_from`/`date_to` to filter by date. LODA and CODE hits are the versions in force on \
-`version_date` (default: today in Paris). Open a hit with the fr_get_* tool for its id prefix \
-(LEGITEXT: fr_get_act, JURITEXT/CONSTEXT/CETATEXT: fr_get_decision, CNILTEXT: \
-fr_get_deliberation, KALITEXT: fr_get_convention, ACCOTEXT: fr_get_company_agreement); CODE hits \
-also list matching `articles` for fr_get_text.";
+collective agreements (KALI) or company agreements (ACCO). Returns one page of hits (default \
+10) with id, title, snippet, citation and source_url; ask for the next `page` while `has_more`. \
+`match` defaults to any word: use `all` for several words, `exact` for a phrase, fr_resolve for \
+one known article. `date_from`/`date_to` filter by date; for KALI, `in_force_only` keeps the \
+texts in force (not their articles' status). LODA and CODE hits are the versions in force \
+on `version_date` (default: today in Paris); a hit `date` is the date Légifrance gives for that \
+fond, not always the act date. Open a hit with the fr_get_* tool for its id prefix (LEGITEXT: \
+fr_get_act, JURITEXT/CONSTEXT/CETATEXT: fr_get_decision, CNILTEXT: fr_get_deliberation, \
+KALITEXT: fr_get_convention, ACCOTEXT: fr_get_company_agreement); CODE hits list `articles`.";
 
 #[tool_router(router = search_router, vis = "pub(crate)")]
 impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
@@ -177,7 +178,11 @@ mod tests {
         assert_eq!(result.is_error, Some(false));
         assert_eq!(
             result.structured_content.unwrap(),
-            json!({"total": 0, "page": 1, "has_more": false, "hits": []})
+            json!({
+                "total": 0, "page": 1, "has_more": false, "hits": [],
+                "note": "No match: try other words, remove the date filters or call \
+                         fr_coverage; an empty result does not mean the law is silent."
+            })
         );
     }
 
@@ -322,18 +327,44 @@ mod tests {
         let description = tool.description.as_deref().unwrap();
         assert_eq!(description, DESCRIPTION);
         let length = description.chars().count();
+        // Les mesures citées en 05 §5.1, §6.6 et dans le CHANGELOG : à changer avec elles.
+        assert_eq!(length, 991);
         assert!(length <= 1_000, "{length}");
         let sentences = description.split(". ").count();
         assert!((3..=6).contains(&sentences), "{sentences} phrases");
-        // Seuls des outils de la surface v0.1 sont cités : les huit premiers de `ToolName::ALL`.
-        let v01 = &ToolName::ALL[..8];
+        // Les outils cités sont les huit de la surface v0.1 et `fr_resolve` (D-12, Q21 : un
+        // article précis se résout, il ne se cherche pas).
+        let allowed: Vec<&str> = ToolName::ALL[..8]
+            .iter()
+            .chain([&ToolName::FR_RESOLVE])
+            .map(|name| name.as_str())
+            .collect();
         for cited in description.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
             if cited.starts_with("fr_") && !cited.ends_with('_') {
-                let known = v01.iter().any(|name| name.as_str() == cited);
-                assert!(known, "{cited} n'est pas un outil");
+                assert!(allowed.contains(&cited), "{cited} n'est pas un outil");
             }
         }
         assert!(!description.contains("fr_search_all"));
+    }
+
+    /// D-12 (search-2, Q21, Q28) : les phrases que la description ajoute, une par assertion.
+    #[test]
+    fn the_description_says_what_a_hit_date_is_how_to_pick_match_and_what_in_force_only_does() {
+        // Sens de `date` (search-2) : la date de Légifrance pour le fond, pas celle de l'acte.
+        assert!(
+            DESCRIPTION.contains(
+                "a hit `date` is the date Légifrance gives for that fond, not always the act date"
+            ),
+            "{DESCRIPTION}"
+        );
+        // Choix de `match` (Q21) : `all` pour plusieurs mots, `fr_resolve` pour un article précis.
+        assert!(DESCRIPTION.contains("`all` for several words"), "{DESCRIPTION}");
+        assert!(DESCRIPTION.contains("fr_resolve for one known article"), "{DESCRIPTION}");
+        // Q28 : `in_force_only` (KALI) filtre les textes, pas le statut de leurs articles.
+        assert!(DESCRIPTION.contains("`in_force_only`"), "{DESCRIPTION}");
+        assert!(DESCRIPTION.contains("not their articles' status"), "{DESCRIPTION}");
+        assert!(DESCRIPTION.contains("(default 10)"), "{DESCRIPTION}");
+        assert!(DESCRIPTION.chars().count() <= 1_000);
     }
 
     #[tokio::test]

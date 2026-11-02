@@ -21,13 +21,14 @@ use crate::{
     views::get_related::RelatedView,
 };
 
-/// Description de l'outil (05 §5.11, 489 caractères, 4 phrases). Source unique : elle ne cite que
+/// Description de l'outil (05 §5.11, 594 caractères, 4 phrases). Source unique : elle ne cite que
 /// `fr_resolve`, pour les liens de décision qui n'ont pas d'identifiant.
 const DESCRIPTION: &str = "List the legal links of an article (LEGIARTI) or a decision (JURITEXT, \
 CONSTEXT, CETATEXT): texts it cites, texts citing it, and case law it refers to. Article links \
-come from Légifrance with their ids; decision links are parsed from the decision's references \
-and may lack an id (pass them to fr_resolve). Each link has a `relation`, a `citation` and, when \
-known, an `id` and `source_url`. At most 100 links are returned: `truncated` is true when there \
+come from Légifrance with their ids; decision links are parsed from the decision's references, \
+have no id and may carry an inexact code: pass one to fr_resolve only if its citation names a code. \
+Each link has a `relation`, a `citation` and, when known, an `id` and `source_url`; `relation` \
+as a parameter keeps one kind of link. At most 100 links are returned: `truncated` is true when there \
 are more, and there is no next page.";
 
 #[tool_router(router = get_related_router, vis = "pub(crate)")]
@@ -424,6 +425,117 @@ mod tests {
         assert_eq!(fixture.corpus.calls(), 0, "aucun appel au port");
     }
 
+    /// Réponse enregistrée de `relatedLinksArticle` pour `LEGIARTI000006419288` (Code civil,
+    /// art. 9) : quatorze liens « cité par », dont des `JORFARTI` et des `JORFTEXT` sans outil.
+    const RECORDED: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/relatedLinksArticle/m7/relatedLinksArticle-LEGIARTI000006419288.json"
+    );
+
+    /// Les liens de [`RECORDED`], lus champ par champ comme l'adapter PISTE les range (`name` →
+    /// titre, `id` → cible quand l'identifiant se lit, `nature`) ; la date n'est pas rendue.
+    fn recorded_links() -> RelatedLinks {
+        let raw: Value = serde_json::from_str(RECORDED).unwrap();
+        let list = |key: &str| -> Vec<RelatedLink> {
+            raw[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|entry| {
+                    // La capture ne compte que des natures LODA (13) et KALI (1).
+                    let nature = match entry["nature"].as_str().unwrap() {
+                        "KALI" => RelatedNature::Kali,
+                        _ => RelatedNature::Loda,
+                    };
+                    link(nature, entry["id"].as_str(), entry["name"].as_str().unwrap())
+                })
+                .collect()
+        };
+        RelatedLinks { cites: list("liensCite"), cited_by: list("liensCitePar") }
+    }
+
+    #[tokio::test]
+    async fn the_recorded_links_are_unchanged_without_relation() {
+        // Non-régression D-05 : sans `relation`, la sortie est celle de la 1.0.1 (le golden a été
+        // relu contre la capture : quatorze liens, dans l'ordre de l'API, mêmes `kind`, `id` et
+        // `source_url`).
+        let fixture = Fixture::default();
+        serve_article(&fixture, recorded_links());
+
+        let result = call(&fixture, &json!({"id": ARTI})).await;
+
+        assert_eq!(result.is_error, Some(false));
+        let content = result.structured_content.clone().unwrap();
+        assert_eq!(content["total"], 14);
+        assert_eq!(content["links"].as_array().unwrap().len(), 14);
+        assert!(content.get("truncated").is_none());
+        insta::with_settings!({ snapshot_path => "../snapshots" }, {
+            insta::assert_json_snapshot!("related_recorded_unfiltered", content);
+        });
+        assert_eq!(serde_json::from_str::<Value>(text_of(&result)).unwrap(), content);
+    }
+
+    #[tokio::test]
+    async fn the_recorded_links_filtered_by_relation() {
+        let unfiltered = {
+            let fixture = Fixture::default();
+            serve_article(&fixture, recorded_links());
+            call(&fixture, &json!({"id": ARTI})).await.structured_content.unwrap()
+        };
+        // Les quatorze liens sont « cited_by » : le filtre les garde tous, octet pour octet.
+        let fixture = Fixture::default();
+        serve_article(&fixture, recorded_links());
+        let kept = call(&fixture, &json!({"id": ARTI, "relation": "CITED_BY"})).await;
+        assert_eq!(kept.structured_content.unwrap(), unfiltered);
+        // Aucun n'est « cites » : liste vide, `total` 0, pas de `truncated`, pas d'erreur.
+        serve_article(&fixture, recorded_links());
+        let none = call(&fixture, &json!({"id": ARTI, "relation": "cites"})).await;
+        assert_eq!(none.is_error, Some(false));
+        let content = none.structured_content.unwrap();
+        assert_eq!(content["total"], 0);
+        assert_eq!(content["links"], json!([]));
+        assert!(content.get("truncated").is_none());
+        assert_eq!(fixture.audit.records()[1].output_count_or_size, 0);
+    }
+
+    #[tokio::test]
+    async fn the_filter_is_applied_before_the_cap_in_the_json() {
+        let fixture = Fixture::default();
+        let jorf = |n: u32| link(RelatedNature::JorfCont, None, &format!("Loi n° {n}"));
+        serve_article(
+            &fixture,
+            RelatedLinks {
+                cites: (1..=150).map(jorf).collect(),
+                cited_by: (1_000..1_104).map(jorf).collect(),
+            },
+        );
+
+        let result = call(&fixture, &json!({"id": ARTI, "relation": "cited_by"})).await;
+
+        let content = result.structured_content.unwrap();
+        assert_eq!(content["total"], 104);
+        assert_eq!(content["truncated"], true);
+        let links = content["links"].as_array().unwrap();
+        assert_eq!(links.len(), 100);
+        assert!(links.iter().all(|link| link["relation"] == "cited_by"));
+        assert_eq!(links[0]["citation"], "Loi n° 1000");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_relation_is_an_invalid_arg_without_network() {
+        let fixture = Fixture::default();
+
+        let result = call(&fixture, &json!({"id": ARTI, "relation": "kind"})).await;
+
+        assert_eq!(result.is_error, Some(true));
+        assert_eq!(
+            text_of(&result),
+            "[invalid_arg] relation='kind' must be one of ['cites', 'cited_by', \
+             'cites_case_law', 'applies_text']."
+        );
+        assert_eq!(fixture.audit.records()[0].error_code, Some(ErrorCode::InvalidArg));
+        assert_eq!(fixture.corpus.calls(), 0, "aucun appel au port");
+    }
+
     #[tokio::test]
     async fn the_response_validates_against_the_advertised_output_schema() {
         let fixture = Fixture::default();
@@ -471,7 +583,16 @@ mod tests {
 
         let description = tool.description.as_deref().unwrap();
         assert_eq!(description, DESCRIPTION);
-        assert_eq!(description.chars().count(), 489, "05 §5.11");
+        assert_eq!(description.chars().count(), 594, "05 §5.11");
+        // D-12 (related_diff-2) : le paramètre `relation` est cité, et un lien sans code ne se
+        // passe pas à `fr_resolve`.
+        assert!(description.contains("`relation`"), "{description}");
+        assert!(
+            description.contains("pass one to fr_resolve only if its citation names a code"),
+            "{description}"
+        );
+        assert!(!description.contains("(pass them to fr_resolve)"), "{description}");
+        assert!(description.chars().count() <= 1_000);
         let sentences = description.split(". ").count();
         assert!((3..=6).contains(&sentences), "{sentences} phrases");
         // Les outils cités existent.
@@ -485,6 +606,7 @@ mod tests {
 
         let input = Value::Object(tool.input_schema.as_ref().clone());
         assert_eq!(input["required"], json!(["id"]));
+        assert_eq!(input["properties"]["relation"]["type"], "string");
         assert!(input.get("$schema").is_none());
         let output = Value::Object(tool.output_schema.as_ref().unwrap().as_ref().clone());
         assert_eq!(output["type"], "object");

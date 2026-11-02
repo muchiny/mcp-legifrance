@@ -105,6 +105,7 @@ expression: schema
       "type": "array"
     },
     "note": {
+      "description": "Hint: no match, or content removed.",
       "type": "string"
     }
   },

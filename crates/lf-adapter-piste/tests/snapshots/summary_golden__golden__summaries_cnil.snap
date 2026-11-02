@@ -1,0 +1,48 @@
+---
+source: crates/lf-adapter-piste/tests/summary_golden.rs
+expression: texts
+---
+[
+  {
+    "case": "sanction SAN-2025-008",
+    "chars": 602,
+    "source": "dispositif",
+    "text": "La formation restreinte de la CNIL, après en avoir délibéré, décide de :\n\n- prononcer à l’encontre de la société SAMARITAINE SAS, une amende administrative d’un montant de cent-mille (100 000) euros au regard des manquements constitués aux articles 5-1-a), 5-2, 5-1-c), 33 paragraphes 1 et 5 et 38-1 du Règlement (UE) n° 2016/679 du 27 avril 2016 relatif à la protection des données;\n\n- rendre publique, sur le site web de la CNIL et sur le site web de Légifrance, sa délibération, qui ne permettra plus d’identifier nommément les sociétés à l’issue d’une durée de deux ans à compter de sa publication.",
+    "truncated": false
+  },
+  {
+    "case": "sanction SAN-2018-008",
+    "chars": 309,
+    "source": "dispositif",
+    "text": "La formation restreinte de la CNIL, après en avoir délibéré, décide :\n\nde prononcer à l’encontre de la société X une sanction pécuniaire d’un montant de cinquante mille (50.000) euros ;\n\nde rendre publique sa délibération, qui sera anonymisée à l’expiration d’un délai de deux ans à compter de sa publication.",
+    "truncated": false
+  },
+  {
+    "case": "sanction SAN-2026-002",
+    "chars": 1038,
+    "source": "dispositif",
+    "text": "La formation restreinte de la CNIL, après en avoir délibéré, décide de :\n\n- prononcer à l’encontre de la société FREE, une amende administrative d’un montant de 15 000 000 (quinze millions) d’euros au regard des manquements constitués aux articles 32 et 34 du RGPD ;\n\n- prononcer une injonction, à l’encontre de la société FREE, de mettre en conformité le traitement avec les dispositions de l’article 32 du RGPD, et en particulier de mettre en œuvre les mesures techniques et organisationnelles appropriées, dans un délai de trois mois, afin de garantir un niveau de sécurité adapté au risque, notamment :\n\n• […] ;\n\n• […] ;\n\n- assortir l’injonction d’une astreinte de 25 000 (vingt-cinq mille) euros par jour de retard, les justificatifs de la mise en conformité devant être adressés à la formation restreinte dans le délai précité ;\n\n- de rendre publique, sur le site de la CNIL et sur le site de Légifrance, sa délibération, qui n’identifiera plus nommément la société à l’expiration d’un délai de deux ans à compter de sa publication.",
+    "truncated": false
+  },
+  {
+    "case": "mise en demeure MED-2024-150",
+    "chars": 1163,
+    "source": "dispositif",
+    "text": "En raison de l’ensemble de ces éléments et conformément aux dispositions de l’article 20 de la loi \" Informatique et Libertés \", il y a donc lieu de prononcer à l’égard du MINISTÈRE DE L’INTÉRIEUR, les mesures correctrices suivantes :\n\nUn RAPPEL AUX OBLIGATIONS LÉGALES, pour avoir utilisé des logiciels d’analyse vidéo (logiciels de rapprochement judiciaire) sans transmission préalable à la CNIL des engagements de conformité correspondants, dans les conditions rappelées ci-dessus, ce qui méconnaît les articles 4 et 31 de la loi \" Informatique et Libertés \".\n\nUne MISE EN DEMEURE, sous un délai de deux (2) mois à compter de la notification de la présente décision et sous réserve des mesures qu’il aurait déjà pu adopter :\n\n• de transmettre des engagements de conformité au règlement unique RU-018 pour les différents logiciels de rapprochement judiciaire (LRJ) mis en œuvre n’en ayant encore pas fait l’objet, conformément aux dispositions des articles 31 de la loi \" Informatique et Libertés \" et 6 du décret du 7 mai 2012. Cela concerne notammentle logiciel \" Physical Analyzer \" et le logiciel \" Axiom \" mis en œuvre par la préfecture de Police de Paris.",
+    "truncated": true
+  },
+  {
+    "case": "avis 2025-083",
+    "chars": 661,
+    "source": "lead",
+    "text": "N° de la saisine : n°25014013 | Thématiques : Compétences des polices municipales et des gardes champêtres, caméras aéroportées, caméras individuelles, dispositifs LAPI.\n\nOrganisme(s) à l’origine de la saisine : ministère de l’intérieur | Fondement de la saisine : article 8, I, 4°, a) de la loi \"informatique et libertés\"\n\nL’essentiel :\n\n1. Le projet de loi relatif à l’extension des compétences des polices municipales et des gardes champêtres vise notamment à accorder de nouveaux moyens d’actions à ces acteurs, par l’utilisation de caméras aéroportées, de caméras individuelles et de dispositifs de lecture automatisée des plaques d’immatriculation (LAPI).",
+    "truncated": false
+  },
+  {
+    "case": "avis 2025-107",
+    "chars": 1036,
+    "source": "lead",
+    "text": "N° de demande d'avis : 25010553 | Thématiques : RNIPP, état civil, NIR, identifiant, population d'intérêt\n\nOrganisme(s) à l'origine de la saisine : Institut national de la statistique et des études économiques (INSEE) | Fondement de la saisine : Article 30 de la loi n° 78-17 du 6 janvier 1978 modifiée relative à l'informatique, aux fichiers et aux libertés\n\nL'essentiel :\n\n1. Le projet de décret permet aux organismes autorisés à utiliser le Répertoire national d'identification des personnes physiques (RNIPP), de mieux répercuter, dans leurs propres traitements, les changements d'état-civil concernant les personnes dont elles ont récupéré les données pour les besoins de leurs missions - et qualifiées, de ce fait, de \"population d'intérêt\". La CNIL considère, sous certaines réserves, que cet usage - rendu possible par l'instauration d'un identifiant unique, associé à chaque personne relevant d'une population d'intérêt donnée - va dans le sens de la fiabilité des traitements et de l'exactitude des données qu'ils contiennent.",
+    "truncated": false
+  }
+]

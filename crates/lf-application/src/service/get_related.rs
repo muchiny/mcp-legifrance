@@ -63,7 +63,7 @@ mod tests {
 
     fn call(arguments: &str, id: Option<&str>) -> ToolCall<GetRelatedInput> {
         ToolCall {
-            input: Ok(GetRelatedInput { id: id.map(str::to_owned) }),
+            input: Ok(GetRelatedInput { id: id.map(str::to_owned), ..GetRelatedInput::default() }),
             canonical: CanonicalInput::new(arguments),
         }
     }

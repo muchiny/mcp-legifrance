@@ -247,13 +247,31 @@ mod tests {
     async fn an_official_summary_wins_over_the_dispositif() {
         let corpus = FakeCorpus::new();
         let mut given = decision(CONSTIT, &constit_text());
-        given.official_summary = OfficialSummary::new(["Sommaire officiel."], [""; 0]);
+        given.official_summary =
+            OfficialSummary::new(["Sommaire officiel de la décision."], [""; 0]);
         corpus.push_get_decision(Ok(given));
 
         let output = GetDecisionUseCase::new(&corpus).execute(input(Some(CONSTIT))).await.unwrap();
 
         assert_eq!(source(&output), Some(SummarySource::Official));
-        assert_eq!(output.reading.summary.unwrap().text, "Sommaire officiel.");
+        assert_eq!(output.reading.summary.unwrap().text, "Sommaire officiel de la décision.");
+    }
+
+    #[tokio::test]
+    async fn a_trivial_official_summary_yields_to_the_dispositif() {
+        // D-07 (decisions-1) : « X » n'est pas un sommaire officiel ; jumeau du test ci-dessus.
+        let corpus = FakeCorpus::new();
+        let mut given = decision(CONSTIT, &constit_text());
+        given.official_summary = OfficialSummary::new(["X"], [""; 0]);
+        corpus.push_get_decision(Ok(given));
+
+        let output = GetDecisionUseCase::new(&corpus).execute(input(Some(CONSTIT))).await.unwrap();
+
+        assert_eq!(source(&output), Some(SummarySource::Dispositif));
+        assert_eq!(
+            output.reading.summary.unwrap().text,
+            "Article 1er. - La disposition est conforme à la Constitution.\n\nArticle 2. - Cette décision sera publiée au Journal officiel."
+        );
     }
 
     #[tokio::test]

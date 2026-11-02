@@ -218,6 +218,63 @@ mod tests {
         assert_eq!(resolved.citation, "Code général des impôts, art. 777");
     }
 
+    /// Revue finale de la PR 2 (second tour) : un numéro préfixé (« L. 1234-5 ») est lu sans le mot
+    /// « article », avec le nom du code (vérifié) comme sans (lu, mais sans code : ambigu) ; un
+    /// numéro nu (« 1234-5 du code du travail ») ne l'est pas et reçoit la note d'absence.
+    #[tokio::test]
+    async fn a_prefixed_number_is_read_without_the_word_article_and_a_bare_one_is_not() {
+        let labour_code = || {
+            let corpus = FakeCorpus::new();
+            corpus.push_list_codes(Ok(vec![CodeListing {
+                id: LegiTextId::parse("LEGITEXT000006072050").unwrap(),
+                title: "Code du travail".to_owned(),
+                etat: Some(LegalStatus::Vigueur),
+            }]));
+            corpus
+        };
+        let mut official = article(1);
+        official.num = Some("L1234-5".to_owned());
+        official.code_title = Some("Code du travail".to_owned());
+        official.parent = Some(ParentText::new(
+            DocumentId::LegiText(LegiTextId::parse("LEGITEXT000006072050").unwrap()),
+            Some("CODE"),
+        ));
+
+        let corpus = labour_code();
+        corpus.push_find_article(Ok(official));
+        let output = run(
+            &corpus,
+            PisteEnvironment::Production,
+            Some("Voir L. 1234-5 du code du travail."),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!((output.found, output.checked), (1, 1));
+        assert_eq!(output.citations[0].status, CheckStatus::Verified);
+        assert_eq!(output.note, None);
+
+        // Sans nom de code : lu quand même (numéro à tiret), mais sans code, donc pas vérifié.
+        let output =
+            run(&labour_code(), PisteEnvironment::Production, Some("Voir L. 1234-5."), None)
+                .await
+                .unwrap();
+        assert_eq!((output.found, output.checked), (1, 1));
+        assert_ne!(output.citations[0].status, CheckStatus::Verified);
+
+        // Jumeau : le numéro nu exige « article » ou « art. ».
+        let output = run(
+            &labour_code(),
+            PisteEnvironment::Production,
+            Some("Voir 1234-5 du code du travail."),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(output.found, 0);
+        assert_eq!(output.note, Some(Note::NoCitationRecognised.text()));
+    }
+
     #[tokio::test]
     async fn text_and_max_citations_are_validated_before_any_call() {
         let corpus = FakeCorpus::new();
@@ -265,8 +322,9 @@ mod tests {
         assert_eq!(note, Note::NoCitationRecognised.text());
         assert_eq!(
             note,
-            "No citation recognised. Only citations introduced by 'article' or 'art.' are read; \
-             an empty result does not prove the text cites nothing."
+            "No citation recognised. A bare number needs 'article' or 'art.'; a prefixed one (L. \
+             1234-5, R., D.) needs neither, with or without a code name. An empty result does \
+             not prove the text cites nothing."
         );
         assert!(note.chars().count() <= 200);
         assert_eq!(corpus.calls(), 0);
@@ -411,6 +469,25 @@ mod tests {
             Some(Note::VersionSince(CivilDate::new(2016, 10, 1).unwrap()))
         );
         assert_eq!(output.note, None);
+    }
+
+    /// D-03 : l'enregistrement officiel d'un article vérifié porte la période de sa version.
+    #[tokio::test]
+    async fn the_record_of_a_verified_article_carries_its_validity() {
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1)));
+        let output = run(
+            &corpus,
+            PisteEnvironment::Production,
+            Some("Voir l'article 9 du code civil."),
+            None,
+        )
+        .await
+        .unwrap();
+        let validity = output.citations[0].resolved.as_ref().unwrap().validity.as_ref().unwrap();
+        assert_eq!(validity.date_debut, CivilDate::new(2016, 10, 1));
+        assert_eq!(validity.date_fin, None);
+        assert_eq!(validity.etat, Some(LegalStatus::Vigueur));
     }
 
     /// L2-17 : la subdivision fait partie de la clé de résolution. Le même article cité une fois

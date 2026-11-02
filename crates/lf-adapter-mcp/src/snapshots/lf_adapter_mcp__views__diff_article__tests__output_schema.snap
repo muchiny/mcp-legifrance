@@ -62,6 +62,9 @@ expression: schema
     "identical": {
       "type": "boolean"
     },
+    "note": {
+      "type": "string"
+    },
     "truncated": {
       "type": "boolean"
     },

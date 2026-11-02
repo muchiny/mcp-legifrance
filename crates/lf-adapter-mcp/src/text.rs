@@ -51,8 +51,7 @@ macro_rules! head {
              laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal \
              (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts \
              (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company \
-             agreements (ACCO). Use these tools for any question on French legislation, code \
-             articles or case law.\n",
+             agreements (ACCO). Use them for any question on French law or case law.\n",
             "\n",
             "## Workflow\n"
         )
@@ -118,8 +117,9 @@ macro_rules! tail {
             "\n",
             "## Long texts\n",
             "`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary \
-             by default. For the text itself pass `detail=\"full\"`; while `next_offset` is \
-             present, call again with `offset` set to it. To reach the relevant part directly, \
+             by default. A summary is never the whole text: pass `detail=\"full\"` before quoting a \
+             threshold, amount or rate; while `next_offset` is present, call again with `offset` \
+             set to it. To reach the relevant part directly, \
              pass `focus` with a few words: you get the best passages and their `offset`.\n",
             "\n",
             "## Hard rules\n",
@@ -127,16 +127,19 @@ macro_rules! tail {
              `ecli` when present.\n",
             "- Never invent an id, an ECLI, an ELI or a citation: take each one from tool \
              output. Many CAA and TA decisions have no ECLI.\n",
-            "- ELI: the API returns no native ELI for legislation. `source_url` is the stable \
-             Légifrance page, not an ELI; an `eli` field appears only when the API provides \
-             one.\n",
+            "- ELI: none from the API for legislation. `source_url` is the stable Légifrance \
+             page, not an ELI; an `eli` field appears only when the API provides one.\n",
             "- Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the \
              data, give this source and the consultation date (`consulted_on` in \
              `fr_coverage`).\n",
             "- Versions default to today's date in Paris; to get the law in force on another \
              day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, \
-             then read the article ids of that version with `fr_get_text`. Texts are verbatim: \
-             this server does not decide whether a provision applies to a case.\n",
+             then read the article ids of that version with `fr_get_text`. Texts are verbatim (table \
+             cells are joined with \" | \"): this server does not decide whether a provision \
+             applies to a case.\n",
+            "- `etat`: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF in force; VIGUEUR_DIFF \
+             not yet; MODIFIE, ABROGE, PERIME no longer; DENONCE may still apply (list: `etat` \
+             field).\n",
             "- An empty result does not mean the law is silent: call `fr_coverage` and tell the \
              user what is missing.\n",
             "\n",
@@ -149,7 +152,7 @@ macro_rules! tail {
             "- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else \
              report it.\n",
             "- `[config_error]` credentials or settings are missing or rejected: ask the user \
-             to fix the server configuration.\n",
+             to fix the configuration.\n",
             "- `[audit_error]` the local audit log could not be written, so the result was \
              withheld: tell the user."
         )
@@ -256,11 +259,44 @@ mod tests {
     #[test]
     fn instruction_sizes_match_the_counts_of_the_spec() {
         // 05 §4.2 : caractères et octets UTF-8, sans saut de ligne final, refaits avec Python.
+        // D-12 (1.1.0) : +220 caractères (glossaire de `etat`, résumé jamais complet, tableaux),
+        // pris sur 3 500 ; revue finale de la PR 2 : glossaire sans joker (règle courte, la règle complète est
+        // dans la description du champ `etat`), marge restante : 1 caractère.
         let measured = SURFACES.map(|surface| {
             let text = surface.instructions();
             (text.chars().count(), text.len())
         });
-        assert_eq!(measured, [(2_879, 2_887), (3_080, 3_088), (3_278, 3_286)]);
+        assert_eq!(measured, [(3_100, 3_108), (3_301, 3_309), (3_499, 3_507)]);
+    }
+
+    /// D-12 : glossaire de `etat`, résumé jamais complet, nuance de « verbatim » pour les tableaux.
+    /// Les trois ères de surface partagent ces sections.
+    #[test]
+    fn instructions_carry_the_etat_glossary_the_summary_warning_and_the_table_nuance() {
+        for surface in SURFACES {
+            let text = surface.instructions();
+            for state in [
+                "VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF in force",
+                "VIGUEUR_DIFF not yet",
+                "MODIFIE, ABROGE, PERIME no longer",
+                "DENONCE may still apply (list: `etat` field)",
+            ] {
+                assert!(text.contains(state), "{surface:?} : {state}");
+            }
+            assert!(
+                text.contains(
+                    "A summary is never the whole text: pass `detail=\"full\"` before quoting a \
+                     threshold, amount or rate"
+                ),
+                "{surface:?}"
+            );
+            assert!(
+                text.contains("Texts are verbatim (table cells are joined with \" | \")"),
+                "{surface:?}"
+            );
+            // L'ancienne phrase, qui laissait croire qu'un résumé suffit, a disparu.
+            assert!(!text.contains("For the text itself pass"), "{surface:?}");
+        }
     }
 
     #[test]
@@ -315,6 +351,7 @@ mod tests {
             "detail=\"full\"",
             "ecli",
             "eli",
+            "etat",
             "focus",
             "has_more",
             "next_offset",

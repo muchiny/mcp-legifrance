@@ -25,7 +25,7 @@ pub(crate) struct SearchParams {
     #[schemars(
         required,
         with = "String",
-        description = r#"Free-text query, e.g. "republique numerique"."#,
+        description = r#"Free-text query, e.g. "republique numerique". AND/OR/NOT/~/^ are unreliable; a dangling one fails the search. Trailing * is a wildcard."#,
         length(min = 1, max = 450)
     )]
     pub(crate) query: Option<String>,
@@ -81,6 +81,14 @@ pub(crate) struct SearchParams {
         extend("format" = "date")
     )]
     pub(crate) version_date: Option<String>,
+    /// Textes en vigueur seulement (`KALI` seulement, D-08).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "bool",
+        description = "KALI only: keep texts in force (VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN), drop DENONCE, MODIFIE, PERIME, REMPLACE, ABROGE. DENONCE excluded, though it may still apply during notice. It filters texts, not the status of their articles.",
+        extend("default" = false)
+    )]
+    pub(crate) in_force_only: Option<bool>,
 }
 
 impl From<SearchParams> for SearchInput {
@@ -94,6 +102,7 @@ impl From<SearchParams> for SearchInput {
             date_from: params.date_from,
             date_to: params.date_to,
             version_date: params.version_date,
+            in_force_only: params.in_force_only,
         }
     }
 }
@@ -122,10 +131,11 @@ mod tests {
     }
 
     #[test]
-    fn the_eight_arguments_reach_the_application_input_and_match_is_renamed() {
+    fn the_nine_arguments_reach_the_application_input_and_match_is_renamed() {
         let input = decode(&json!({
             "query": "bail", "fond": "code", "match": "all", "page": 2, "page_size": 25,
-            "date_from": "2020-01-01", "date_to": "2021-01-01", "version_date": "2026-01-01"
+            "date_from": "2020-01-01", "date_to": "2021-01-01", "version_date": "2026-01-01",
+            "in_force_only": true
         }))
         .unwrap();
         assert_eq!(
@@ -139,7 +149,54 @@ mod tests {
                 date_from: Some("2020-01-01".to_owned()),
                 date_to: Some("2021-01-01".to_owned()),
                 version_date: Some("2026-01-01".to_owned()),
+                in_force_only: Some(true),
             }
+        );
+    }
+
+    #[test]
+    fn in_force_only_is_a_strict_optional_boolean() {
+        assert_eq!(decode(&json!({"in_force_only": false})).unwrap().in_force_only, Some(false));
+        assert_eq!(decode(&json!({"in_force_only": null})).unwrap().in_force_only, None);
+        assert_eq!(
+            decode(&json!({"in_force_only": "yes"})).unwrap_err(),
+            "in_force_only: invalid type: string \"yes\", expected a boolean"
+        );
+    }
+
+    #[test]
+    fn the_schema_warns_about_operators_and_says_when_to_pick_each_match() {
+        let schema = schema();
+        // D-12 (search_all-1, gap5-4) : mesuré en bac à sable, `ET`/`OU` ne sont pas des opérateurs
+        // et le joker de fin est actif (V-80) ; « travail AND », « travail OR » et « NOT » font
+        // répondre 503/500 sur 8 fonds (E2E). La phrase ne dit donc pas « ne sont pas des
+        // opérateurs » (non mesuré pour AND/OR/NOT/~/^ au milieu d'une requête).
+        let query = schema["properties"]["query"]["description"].as_str().unwrap();
+        assert!(query.contains("AND/OR/NOT/~/^ are unreliable"), "{query}");
+        assert!(query.contains("a dangling one fails the search"), "{query}");
+        assert!(query.contains("Trailing * is a wildcard"), "{query}");
+        assert!(!query.contains("are not operators"), "{query}");
+        // Le mode par défaut reste annoncé ; `all` sert aux requêtes de plusieurs mots (Q21).
+        let mode = schema["properties"]["match"]["description"].as_str().unwrap();
+        assert!(mode.contains(r#""any": any word (default)"#), "{mode}");
+        assert!(mode.contains(r#""all": all words"#), "{mode}");
+    }
+
+    #[test]
+    fn the_schema_describes_in_force_only_as_an_optional_boolean_defaulting_to_false() {
+        let schema = schema();
+        let prop = &schema["properties"]["in_force_only"];
+        assert_eq!(prop["type"], "boolean");
+        assert_eq!(prop["default"], false);
+        assert_eq!(schema["required"], json!(["query"]));
+        let description = prop["description"].as_str().unwrap();
+        assert!(description.starts_with("KALI only: keep texts in force"), "{description}");
+        for state in ["VIGUEUR_NON_ETEN", "DENONCE", "MODIFIE", "PERIME", "REMPLACE", "ABROGE"] {
+            assert!(description.contains(state), "{state}");
+        }
+        assert!(
+            description.contains("DENONCE excluded, though it may still apply during notice"),
+            "{description}"
         );
     }
 
@@ -147,7 +204,7 @@ mod tests {
     fn null_is_read_as_absent() {
         let input = decode(&json!({
             "query": null, "fond": null, "match": null, "page": null, "page_size": null,
-            "date_from": null, "date_to": null, "version_date": null
+            "date_from": null, "date_to": null, "version_date": null, "in_force_only": null
         }))
         .unwrap();
         assert_eq!(input, SearchInput::default());

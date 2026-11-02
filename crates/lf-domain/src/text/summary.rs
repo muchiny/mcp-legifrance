@@ -4,7 +4,8 @@
 //! Ordre de préférence (00 §4) :
 //!
 //! 1. le sommaire officiel de la décision : `analyses`, sinon `titrages`, joints par une ligne
-//!    vide ;
+//!    vide, les entrées de moins de 20 caractères alphanumériques
+//!    (« X ») étant ignorées ;
 //! 2. le dispositif, quand la juridiction a une [`DispositifRule`] et que ses deux marqueurs sont
 //!    dans le texte ;
 //! 3. le début du texte, jusqu'à au moins [`LEAD_MIN_CHARS`] caractères.
@@ -14,7 +15,8 @@
 //! soulignés, égalités, étoiles et blancs, comme la ligne de tirets du Conseil d'État) sont
 //! ignorés par les étapes 2 et 3 (03 §7.2). Les marqueurs de dispositif ont été validés sur une
 //! décision de chaque juridiction : les variantes anciennes sont NON VÉRIFIÉES (V-110, V-111) et
-//! retombent sur le début du texte.
+//! retombent sur le début du texte. Ceux de la CNIL ont été lus sur trois sanctions, une mise en
+//! demeure et deux avis relevés (D-09) ; un avis n'a pas de dispositif et reste au début du texte.
 
 use std::fmt;
 
@@ -33,6 +35,12 @@ pub const SUMMARY_CAP_CHARS: usize = 1_200;
 /// Longueur minimale, en caractères, du début de texte rendu comme résumé quand ni sommaire
 /// officiel ni dispositif n'existent.
 pub const LEAD_MIN_CHARS: usize = 600;
+
+/// Nombre minimal de caractères alphanumériques (`char::is_alphanumeric`) d'une entrée du sommaire
+/// officiel pour qu'elle serve de résumé : en dessous, la donnée amont est dégénérée (« X » pour
+/// une ordonnance du TJ de Paris) et le résumé retombe sur le dispositif, puis sur le début du
+/// texte (D-07, 03 §7.9).
+const OFFICIAL_MIN_ALNUM_CHARS: usize = 20;
 
 /// D'où vient le résumé (`summary_source` de la sortie, 05 §5.0.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +72,10 @@ pub enum DispositifRule {
     ConseilConstitutionnel,
     /// Décision du Conseil d'État : après les considérants, paragraphes décoratifs écartés.
     ConseilEtat,
+    /// Délibération de la CNIL : après « PAR CES MOTIFS » (sanctions) ou « II- Mesures
+    /// correctrices prononcées par la CNIL » (mise en demeure), jusqu'à la signature ou à la
+    /// mention des voies de recours. Un avis n'a aucun de ces en-têtes : début du texte.
+    Cnil,
     /// Pas de règle de dispositif (autres fonds).
     None,
 }
@@ -101,6 +113,11 @@ struct Markers {
     headers: &'static [&'static str],
     /// Débuts de paragraphe qui ferment le dispositif. Exclu du résumé.
     footers: &'static [&'static str],
+    /// Titres de signature (vue repliée, sans blancs) : un paragraphe fait de ce titre seul, ou
+    /// suivi d'au plus [`SIGNATURE_MAX_NAME_WORDS`] mots à majuscule initiale (le nom du
+    /// signataire), ferme aussi le dispositif. Une phrase qui commence par le titre (« Le Président
+    /// de la CNIL est chargé… ») est un paragraphe du dispositif, pas la signature.
+    signatures: &'static [&'static str],
     /// Sans clôture, le dispositif court jusqu'à la fin du texte (il faut un en-tête et un corps
     /// non vide).
     open_ended: bool,
@@ -111,12 +128,31 @@ struct Markers {
 const CONSEIL_CONSTITUTIONNEL: Markers = Markers {
     headers: &["leconseilconstitutionneldecide", "decide"],
     footers: &["jugepar", "delibere", "rendupublic"],
+    signatures: &[],
     open_ended: true,
 };
 
 /// Conseil d'État : « D E C I D E : » (ou « DECIDE : ») … « Délibéré ».
 const CONSEIL_ETAT: Markers =
-    Markers { headers: &["decide"], footers: &["delibere"], open_ended: false };
+    Markers { headers: &["decide"], footers: &["delibere"], signatures: &[], open_ended: false };
+
+/// CNIL (D-09, relevés c110) : « PAR CES MOTIFS » ouvre le dispositif des quatre sanctions relevées
+/// (SAN-2018-008, SAN-2025-008, SAN-2026-002 et son jumeau), « II- Mesures correctrices
+/// prononcées par la CNIL » celui de l'unique mise en demeure relevée (MED-2024-150). Clôture :
+/// « Le Président » / « La Présidente » seuls ou suivis du nom du signataire (une phrase qui
+/// commence ainsi reste dans le dispositif) ou la mention des voies de recours (« Cette décision
+/// peut faire l'objet… », « Cette décision est susceptible de recours… » ; pas « Cette décision
+/// est rendue publique… », qui peut figurer dans le dispositif). Dispositif fermé : sans clôture,
+/// le texte reste au début.
+const CNIL: Markers = Markers {
+    headers: &["parcesmotifs", "ii-mesurescorrectricesprononceesparlacnil"],
+    footers: &["cettedecisionpeutfaire", "cettedecisionestsusceptible"],
+    signatures: &["lepresident", "lapresidente"],
+    open_ended: false,
+};
+
+/// Mots d'un nom de signataire qui suivent le titre d'une signature (« Jean-François CARREZ »).
+const SIGNATURE_MAX_NAME_WORDS: usize = 4;
 
 /// Résumé de `text`, d'au plus `min(max_chars, SUMMARY_CAP_CHARS)` caractères.
 ///
@@ -140,8 +176,10 @@ pub fn summary(
     Summary { source, text, truncated }
 }
 
-/// Sommaire officiel : `analyses`, sinon `titrages`, entrées rognées et non vides, jointes par
-/// une ligne vide. `None` quand ni l'une ni l'autre liste n'a d'entrée.
+/// Sommaire officiel : `analyses`, sinon `titrages`, entrées rognées et d'au moins
+/// [`OFFICIAL_MIN_ALNUM_CHARS`] caractères alphanumériques, jointes par une ligne vide. `None`
+/// quand ni l'une ni l'autre liste n'a d'entrée assez longue : le résumé retombe alors sur le
+/// dispositif, puis sur le début du texte.
 fn official_body(official: &OfficialSummary) -> Option<String> {
     [&official.analyses, &official.titrages]
         .into_iter()
@@ -149,7 +187,10 @@ fn official_body(official: &OfficialSummary) -> Option<String> {
             let kept: Vec<&str> = entries
                 .iter()
                 .map(|entry| entry.trim())
-                .filter(|entry| !entry.is_empty())
+                .filter(|entry| {
+                    entry.chars().filter(|c| c.is_alphanumeric()).count()
+                        >= OFFICIAL_MIN_ALNUM_CHARS
+                })
                 .collect();
             kept.join(BLOCK_SEPARATOR)
         })
@@ -180,6 +221,7 @@ fn dispositif(text: &LongText, rule: DispositifRule) -> Option<String> {
     let markers = match rule {
         DispositifRule::ConseilConstitutionnel => CONSEIL_CONSTITUTIONNEL,
         DispositifRule::ConseilEtat => CONSEIL_ETAT,
+        DispositifRule::Cnil => CNIL,
         DispositifRule::None => return None,
     };
     let mut body = Vec::new();
@@ -189,13 +231,34 @@ fn dispositif(text: &LongText, rule: DispositifRule) -> Option<String> {
         if !inside {
             let header = key.strip_suffix(':').unwrap_or(&key);
             inside = markers.headers.contains(&header);
-        } else if markers.footers.iter().any(|footer| key.starts_with(footer)) {
+        } else if closes(&markers, paragraph, &key) {
             return (!body.is_empty()).then(|| body.join(BLOCK_SEPARATOR));
         } else {
             body.push(paragraph);
         }
     }
     (markers.open_ended && !body.is_empty()).then(|| body.join(BLOCK_SEPARATOR))
+}
+
+/// Vrai si `paragraph` ferme le dispositif : il commence par une clôture (`key` est sa vue
+/// repliée), ou c'est une signature de `markers`.
+fn closes(markers: &Markers, paragraph: &str, key: &str) -> bool {
+    markers.footers.iter().any(|footer| key.starts_with(footer)) || is_signature(markers, paragraph)
+}
+
+/// Vrai pour un paragraphe qui est un titre de signature de `markers`, seul ou suivi d'au plus
+/// [`SIGNATURE_MAX_NAME_WORDS`] mots à majuscule initiale.
+fn is_signature(markers: &Markers, paragraph: &str) -> bool {
+    let mut words = paragraph.split_whitespace();
+    let title = marker_key(&words.by_ref().take(2).collect::<Vec<_>>().join(" "));
+    if !markers.signatures.contains(&title.as_str()) {
+        return false;
+    }
+    // Un mot de plus que le plus long nom suffit à conclure : un paragraphe géant n'est pas
+    // collecté en entier (revue finale de la PR 2).
+    let name: Vec<&str> = words.take(SIGNATURE_MAX_NAME_WORDS.saturating_add(1)).collect();
+    name.len() <= SIGNATURE_MAX_NAME_WORDS
+        && name.iter().all(|word| word.chars().next().is_some_and(char::is_uppercase))
 }
 
 /// Début de `text` : les premiers paragraphes, jusqu'à ce que le total atteigne au moins
@@ -235,6 +298,47 @@ mod tests {
     );
     const CETAT: &str =
         include_str!("../../../lf-adapter-piste/tests/fixtures/reference/consult_juri_cetat.json");
+    const CASSATION: &str =
+        include_str!("../../../lf-adapter-piste/tests/fixtures/reference/consult_juri.json");
+    const CETAT_OLD: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/F-juri-consult-CETATEXT000007742504.json"
+    );
+    const CETAT_NEW: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/F-juri-consult-CETATEXT000052137642.json"
+    );
+    const C4_CIV1: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-chambre-civ1-JURITEXT000038322046.json"
+    );
+    const C4_CIV3: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-chambre-civ3-JURITEXT000032056669.json"
+    );
+    const C4_COM: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-chambre-com-JURITEXT000054218381.json"
+    );
+    const C4_CRIM: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-chambre-crim-JURITEXT000021854686.json"
+    );
+    const C4_SOCIALE: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-chambre-formation-CHAMBRE_SOCIALE-JURITEXT000054929168.json"
+    );
+    const C4_I7: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-chambre-formation-I7-JURITEXT000045653019.json"
+    );
+    const C4_89: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-89-15.231-JURITEXT000007026394.json"
+    );
+    const C4_05: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-05-13.255-JURITEXT000007052928.json"
+    );
+    const C4_14: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-14-24.444-JURITEXT000031539712.json"
+    );
+    const C4_06: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-06-12.769-JURITEXT000017739957.json"
+    );
+    const C16_LIENS: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C16-juri-consult-liens-JURITEXT000038427064.json"
+    );
     /// 2022-196 PDR : « DÉCIDE » puis « Délibéré par… / Rendu public… », sans « Jugé par ».
     const PDR: &str = include_str!(
         "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C14-juri-consult-CC-2022-196-PDR-CONSTEXT000045802100.json"
@@ -242,6 +346,30 @@ mod tests {
     /// 2021-150 ORGA : « DÉCIDE : » seul comme en-tête.
     const ORGA: &str = include_str!(
         "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C14-juri-consult-CC-2021-150-ORGA-CONSTEXT000044239153.json"
+    );
+
+    /// Sanction SAN-2025-008 (relevé sandbox c110, D-09).
+    const CNIL_SAN_2025: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/cnil/c110/D09-cnil-consult-SAN-2025-008-CNILTEXT000052266505.json"
+    );
+    /// Sanction SAN-2018-008 (ancienne rédaction, « sanction pécuniaire »).
+    const CNIL_SAN_2018: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/cnil/c110/D09-cnil-consult-SAN-2018-008-CNILTEXT000037273346.json"
+    );
+    /// Sanction SAN-2026-002 (amende de 15 millions, injonction, astreinte).
+    const CNIL_SAN_2026: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/cnil/complet/cnil-CNILTEXT000053352643.json"
+    );
+    /// Mise en demeure MED-2024-150.
+    const CNIL_MED: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/cnil/c110/D09-cnil-consult-MED-2024-150-CNILTEXT000050719865.json"
+    );
+    /// Avis 2025-083 (projet de loi) et avis 2025-107 (projet de décret).
+    const CNIL_AVIS_083: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/cnil/c110/D09-cnil-consult-avis-2025-083-CNILTEXT000053018448.json"
+    );
+    const CNIL_AVIS_107: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/cnil/c110/D09-cnil-consult-avis-CNILTEXT000053308330.json"
     );
 
     /// Texte canonique d'une fixture réelle (`text.texteHtml`).
@@ -311,29 +439,48 @@ mod tests {
         let rule = DispositifRule::ConseilEtat;
 
         // Les analyses l'emportent sur les titrages, jointes par une ligne vide.
-        let both = official(&["Analyse A.", "Analyse B."], &["Titrage"]);
+        let both = official(
+            &["Analyse A du sommaire officiel.", "Analyse B du sommaire officiel."],
+            &["Titrage"],
+        );
         assert_eq!(
             parts(&summary(&body, Some(&both), rule, 4_000)),
-            (SummarySource::Official, "Analyse A.\n\nAnalyse B.", false)
+            (
+                SummarySource::Official,
+                "Analyse A du sommaire officiel.\n\nAnalyse B du sommaire officiel.",
+                false
+            )
         );
 
         // Sans analyse, les titrages.
-        let titrages = official(&[], &["Titrage 1", "Titrage 2"]);
+        let titrages =
+            official(&[], &["Titrage numéro 1 du sommaire", "Titrage numéro 2 du sommaire"]);
         assert_eq!(
             parts(&summary(&body, Some(&titrages), rule, 4_000)),
-            (SummarySource::Official, "Titrage 1\n\nTitrage 2", false)
+            (
+                SummarySource::Official,
+                "Titrage numéro 1 du sommaire\n\nTitrage numéro 2 du sommaire",
+                false
+            )
         );
 
         // Des analyses blanches ne comptent pas : les titrages prennent le relais, rognés.
-        let blank = official(&["", "   "], &["  Titrage  "]);
+        let blank = official(&["", "   "], &["  Titrage du sommaire officiel  "]);
         assert_eq!(
             parts(&summary(&body, Some(&blank), rule, 4_000)),
-            (SummarySource::Official, "Titrage", false)
+            (SummarySource::Official, "Titrage du sommaire officiel", false)
         );
-        let padded = official(&["  Analyse  ", "", "Suite."], &[]);
+        let padded = official(
+            &["  Analyse du sommaire officiel  ", "", "Suite de l'analyse officielle."],
+            &[],
+        );
         assert_eq!(
             parts(&summary(&body, Some(&padded), rule, 4_000)),
-            (SummarySource::Official, "Analyse\n\nSuite.", false)
+            (
+                SummarySource::Official,
+                "Analyse du sommaire officiel\n\nSuite de l'analyse officielle.",
+                false
+            )
         );
     }
 
@@ -350,6 +497,164 @@ mod tests {
         }
     }
 
+    /// TJ Paris, ordonnance du JME du 5 juillet 2022 (JURITEXT000046652043) : la donnée amont est
+    /// `sommaire[].abstrats = "X"` (D-07, défaut decisions-1). Capture réelle.
+    const TJ_PARIS_X: &str = include_str!(
+        "../../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-chambre-formation-CT0196-JURITEXT000046652043.json"
+    );
+
+    /// Sommaire officiel tel que le mapper l'écrit pour une fixture réelle : `abstrats` en
+    /// analyses puis `resumePrincipal` et `autreResume` en titrages pour la Cour de cassation, les
+    /// deux inversés pour le Conseil d'État (`map::decision::summary_of`).
+    fn recorded_official(json: &str, cetat: bool) -> OfficialSummary {
+        let value: serde_json::Value = serde_json::from_str(json).unwrap();
+        let entries = value["text"]["sommaire"].as_array().cloned().unwrap_or_default();
+        let pick = |keys: &[&str]| -> Vec<String> {
+            entries
+                .iter()
+                .flat_map(|entry| keys.iter().filter_map(|key| entry[*key].as_str()))
+                .map(str::to_owned)
+                .collect()
+        };
+        let (abstrats, resumes) = (pick(&["abstrats"]), pick(&["resumePrincipal", "autreResume"]));
+        if cetat {
+            OfficialSummary::new(resumes, abstrats)
+        } else {
+            OfficialSummary::new(abstrats, resumes)
+        }
+    }
+
+    /// Nombre de caractères alphanumériques de `s`, comme la règle du seuil.
+    fn alnum(s: &str) -> usize {
+        s.chars().filter(|c| c.is_alphanumeric()).count()
+    }
+
+    #[test]
+    fn a_trivial_official_summary_falls_back_to_the_lead() {
+        // Cas réel decisions-1 : « X » ne doit plus passer pour un sommaire officiel.
+        let value: serde_json::Value = serde_json::from_str(TJ_PARIS_X).unwrap();
+        assert_eq!(value["text"]["sommaire"][0]["abstrats"], "X");
+        let decision = fixture(TJ_PARIS_X);
+        let given = recorded_official(TJ_PARIS_X, false);
+        assert_eq!(given.analyses, ["X"]);
+        let got = summary(&decision, Some(&given), DispositifRule::None, 4_000);
+        assert_eq!(got.source, SummarySource::Lead);
+        assert!(got.text.starts_with("TRIBUNAL\n\nJUDICIAIRE\n\nDE PARIS"), "{}", got.text);
+        assert!(chars(&got.text) >= LEAD_MIN_CHARS);
+
+        // Synthétique : avec une règle de dispositif, c'est le dispositif qui prend le relais.
+        let decision = long(&["Visa.", "D E C I D E :", "Article 1er : A.", "Délibéré à Paris."]);
+        let trivial = official(&["X"], &[]);
+        let got = summary(&decision, Some(&trivial), DispositifRule::ConseilEtat, 4_000);
+        assert_eq!(parts(&got), (SummarySource::Dispositif, "Article 1er : A.", false));
+
+        // Jumeau : un sommaire officiel d'au moins 20 caractères alphanumériques est conservé.
+        let real = official(&["Le sommaire est assez long."], &[]);
+        let got = summary(&decision, Some(&real), DispositifRule::ConseilEtat, 4_000);
+        assert_eq!(parts(&got), (SummarySource::Official, "Le sommaire est assez long.", false));
+    }
+
+    #[test]
+    fn the_official_threshold_is_20_alphanumeric_characters() {
+        let body = long(&["Texte de repli, assez long pour servir de début."]);
+        let source = |entry: &str| {
+            summary(&body, Some(&official(&[entry], &[])), DispositifRule::None, 4_000).source
+        };
+        assert_eq!(OFFICIAL_MIN_ALNUM_CHARS, 20);
+
+        // Bornes 19 et 20, en analyses comme en titrages.
+        assert_eq!(source(&filler(19)), SummarySource::Lead);
+        assert_eq!(source(&filler(20)), SummarySource::Official);
+        let titrage = |entry: &str| {
+            summary(&body, Some(&official(&[], &[entry])), DispositifRule::None, 4_000).source
+        };
+        assert_eq!(titrage(&filler(19)), SummarySource::Lead);
+        assert_eq!(titrage(&filler(20)), SummarySource::Official);
+
+        // Seuls les caractères alphanumériques comptent : blancs, ponctuation, tirets et points
+        // de conduite n'en font pas partie, les lettres accentuées et les chiffres si.
+        let padded = format!("{} . - ... ;\t, !?", filler(19));
+        assert_eq!(source(&padded), SummarySource::Lead);
+        assert_eq!(source(&format!("{padded} z")), SummarySource::Official);
+        assert_eq!(source(&"é".repeat(20)), SummarySource::Official);
+        assert_eq!(source(&"é".repeat(19)), SummarySource::Lead);
+        assert_eq!(source(&"7".repeat(20)), SummarySource::Official);
+        assert_eq!(source(&format!("{}c", "a b ".repeat(9))), SummarySource::Lead);
+        assert_eq!(source(&"a b ".repeat(10)), SummarySource::Official);
+        assert_eq!(source(&"-".repeat(300)), SummarySource::Lead);
+    }
+
+    #[test]
+    fn trivial_entries_are_dropped_one_by_one() {
+        let body = long(&["Texte de repli."]);
+        let given = official(&["X", "Une analyse suffisamment longue.", "12"], &["Titrage"]);
+        let got = summary(&body, Some(&given), DispositifRule::None, 4_000);
+        assert_eq!(
+            parts(&got),
+            (SummarySource::Official, "Une analyse suffisamment longue.", false)
+        );
+
+        // Des analyses toutes triviales cèdent la place aux titrages, eux-mêmes filtrés.
+        let given = official(&["X", "Y"], &["Z", "Un titrage suffisamment long."]);
+        let got = summary(&body, Some(&given), DispositifRule::None, 4_000);
+        assert_eq!(parts(&got), (SummarySource::Official, "Un titrage suffisamment long.", false));
+
+        // Jumeau : deux entrées assez longues sont jointes comme avant.
+        let given =
+            official(&["Première analyse assez longue.", "Seconde analyse assez longue."], &[]);
+        let got = summary(&body, Some(&given), DispositifRule::None, 4_000);
+        assert_eq!(
+            parts(&got),
+            (
+                SummarySource::Official,
+                "Première analyse assez longue.\n\nSeconde analyse assez longue.",
+                false
+            )
+        );
+
+        // Tout trivial : repli.
+        let given = official(&["X"], &["Y"]);
+        let got = summary(&body, Some(&given), DispositifRule::None, 4_000);
+        assert_eq!(parts(&got), (SummarySource::Lead, "Texte de repli.", false));
+    }
+
+    #[test]
+    fn recorded_official_summaries_all_clear_the_threshold() {
+        // Sommaires officiels réels (Cour de cassation et Conseil d'État) : après la
+        // normalisation du mapper, aucune entrée utile ne tombe sous le seuil. Le Conseil
+        // constitutionnel n'a pas de sommaire officiel (le mapper n'en lit pas). Seule exception
+        // enregistrée : le « X » du TJ Paris, que la règle vise.
+        let recorded: [(&str, bool); 15] = [
+            (CASSATION, false),
+            (CETAT, true),
+            (CETAT_OLD, true),
+            (CETAT_NEW, true),
+            (C4_CIV1, false),
+            (C4_CIV3, false),
+            (C4_COM, false),
+            (C4_CRIM, false),
+            (C4_SOCIALE, false),
+            (C4_I7, false),
+            (C4_89, false),
+            (C4_05, false),
+            (C4_14, false),
+            (C4_06, false),
+            (C16_LIENS, false),
+        ];
+        let mut shortest = usize::MAX;
+        let mut entries = 0;
+        for (json, cetat) in recorded {
+            let given = recorded_official(json, cetat);
+            for entry in given.analyses.iter().chain(&given.titrages) {
+                entries += 1;
+                shortest = shortest.min(alnum(entry));
+            }
+        }
+        assert!(entries >= 30, "{entries}");
+        assert!(shortest >= OFFICIAL_MIN_ALNUM_CHARS, "{shortest}");
+        assert_eq!(shortest, 83, "plus court sommaire officiel réel conservé");
+    }
+
     #[test]
     fn official_wins_over_the_dispositif() {
         let decision = long(&[
@@ -358,9 +663,12 @@ mod tests {
             "Article 1er. - Rejet.",
             "Jugé par le Conseil constitutionnel.",
         ]);
-        let given = official(&["Sommaire officiel."], &[]);
+        let given = official(&["Sommaire officiel de la décision."], &[]);
         let got = summary(&decision, Some(&given), DispositifRule::ConseilConstitutionnel, 4_000);
-        assert_eq!(parts(&got), (SummarySource::Official, "Sommaire officiel.", false));
+        assert_eq!(
+            parts(&got),
+            (SummarySource::Official, "Sommaire officiel de la décision.", false)
+        );
     }
 
     #[test]
@@ -686,6 +994,239 @@ mod tests {
         }
     }
 
+    /// Paragraphes de `text` strictement entre le premier qui commence par `from` et le premier
+    /// suivant qui commence par `to`.
+    fn between(text: &LongText, from: &str, to: &str) -> String {
+        let all: Vec<&str> = text.paragraphs().map(|(_, p)| p).collect();
+        let start = all.iter().position(|p| p.starts_with(from)).unwrap();
+        let end = all.iter().skip(start).position(|p| p.starts_with(to)).unwrap();
+        all.iter().skip(start).take(end).skip(1).copied().collect::<Vec<_>>().join("\n\n")
+    }
+
+    #[test]
+    fn dispositif_cnil_sanctions_cite_the_pronounced_penalty() {
+        // Trois sanctions réelles : « PAR CES MOTIFS » ouvre le dispositif, « Le Président » le
+        // ferme. Aucune n'a de sommaire officiel (D-09).
+        let cases = [
+            (CNIL_SAN_2025, "amende administrative d’un montant de"),
+            (CNIL_SAN_2018, "sanction pécuniaire d’un montant de cinquante mille (50.000) euros"),
+            (CNIL_SAN_2026, "amende administrative d’un montant de 15 000 000 (quinze millions)"),
+        ];
+        for (json, penalty) in cases {
+            let text = fixture(json);
+            let got = summary(&text, None, DispositifRule::Cnil, 4_000);
+            assert_eq!(got.source, SummarySource::Dispositif, "{penalty}");
+            assert_eq!(got.text, between(&text, "PAR CES MOTIFS", "Le Président"), "{penalty}");
+            assert!(got.text.starts_with("La formation restreinte de la CNIL, après en avoir"));
+            assert!(got.text.contains(penalty), "{penalty}");
+            assert!(!got.text.contains("PAR CES MOTIFS") && !got.text.contains("Président"));
+            assert!(!got.truncated);
+        }
+    }
+
+    #[test]
+    fn dispositif_cnil_of_the_largest_sanction_is_cut_at_the_cap() {
+        // Jumeau borné : le dispositif de SAN-2026-002 (1 038 caractères) tient dans le plafond,
+        // mais un plafond plus bas le coupe sans changer de source.
+        let text = fixture(CNIL_SAN_2026);
+        let got = summary(&text, None, DispositifRule::Cnil, 300);
+        assert_eq!(got.source, SummarySource::Dispositif);
+        assert!(got.truncated);
+        assert!(chars(&got.text) <= 300);
+        assert!(between(&text, "PAR CES MOTIFS", "Le Président").starts_with(&got.text));
+    }
+
+    #[test]
+    fn dispositif_cnil_of_the_recorded_formal_notice() {
+        // MED-2024-150, seule mise en demeure relevée : « II- Mesures correctrices prononcées par
+        // la CNIL » ouvre le dispositif, « Cette décision est susceptible… » le ferme.
+        let text = fixture(CNIL_MED);
+        let got = summary(&text, None, DispositifRule::Cnil, 4_000);
+        assert_eq!(got.source, SummarySource::Dispositif);
+        assert!(got.truncated, "2 401 caractères pour un plafond de 1 200");
+        assert!(chars(&got.text) <= SUMMARY_CAP_CHARS);
+        assert!(got.text.starts_with("En raison de l’ensemble de ces éléments"));
+        assert!(got.text.contains("Une MISE EN DEMEURE, sous un délai de deux (2) mois"));
+        let whole = between(&text, "II- Mesures correctrices", "Cette décision est susceptible");
+        assert_eq!(chars(&whole), 2_401);
+        assert!(whole.starts_with(&got.text));
+    }
+
+    #[test]
+    fn dispositif_cnil_leaves_the_opinions_to_the_lead() {
+        // Deux avis réels : ni « PAR CES MOTIFS » ni « Mesures correctrices » (jumeau des
+        // sanctions) : le résumé reste le début du texte.
+        for json in [CNIL_AVIS_083, CNIL_AVIS_107] {
+            let text = fixture(json);
+            let got = summary(&text, None, DispositifRule::Cnil, 4_000);
+            assert_eq!(got.source, SummarySource::Lead);
+            assert!(text.as_str().starts_with(&got.text));
+            assert_eq!(parts(&got), parts(&summary(&text, None, DispositifRule::None, 4_000)));
+        }
+    }
+
+    #[test]
+    fn dispositif_cnil_header_and_footer_variants() {
+        // Synthétique : variantes de casse, de blancs, de deux-points et de clôture.
+        let rule = DispositifRule::Cnil;
+        for header in ["PAR CES MOTIFS", "Par ces motifs :", "par  ces  motifs", "PAR CES MOTIFS:"]
+        {
+            for footer in ["Le Président", "La Présidente", "Cette décision peut faire l’objet"]
+            {
+                let text = long(&["Visa.", header, "Décide de sanctionner.", footer, "Reste."]);
+                let got = summary(&text, None, rule, 4_000);
+                assert_eq!(
+                    parts(&got),
+                    (SummarySource::Dispositif, "Décide de sanctionner.", false),
+                    "{header} / {footer}"
+                );
+            }
+        }
+        // Mise en demeure.
+        let text = long(&[
+            "Visa.",
+            "II- Mesures correctrices prononcées par la CNIL",
+            "Une MISE EN DEMEURE sous deux mois.",
+            "La Présidente",
+        ]);
+        assert_eq!(
+            parts(&summary(&text, None, rule, 4_000)),
+            (SummarySource::Dispositif, "Une MISE EN DEMEURE sous deux mois.", false)
+        );
+    }
+
+    #[test]
+    fn dispositif_cnil_needs_both_markers_and_a_body() {
+        let rule = DispositifRule::Cnil;
+        let cases: [&[&str]; 7] = [
+            // en-tête introuvable
+            &["Visa.", "Motif.", "Le Président"],
+            // clôture introuvable : le dispositif n'est pas ouvert, pas de repli sur la fin
+            &["Visa.", "PAR CES MOTIFS", "La formation décide de sanctionner."],
+            // dispositif vide, ou réduit à des séparateurs
+            &["Visa.", "PAR CES MOTIFS", "Le Président"],
+            &["Visa.", "PAR CES MOTIFS", "-----", "Le Président"],
+            // clôture avant l'en-tête : elle ne ferme rien
+            &["Le Président", "PAR CES MOTIFS", "La formation décide de sanctionner."],
+            // une phrase qui contient les mots n'est pas l'en-tête
+            &["Il convient de préciser par ces motifs que…", "Corps.", "Le Président"],
+            // le marqueur d'une autre juridiction ne compte pas
+            &["Visa.", "D E C I D E :", "Article 1er : A.", "Délibéré."],
+        ];
+        for paragraphs in cases {
+            let text = long(paragraphs);
+            let got = summary(&text, None, rule, 4_000);
+            assert_eq!(got.source, SummarySource::Lead, "{paragraphs:?}");
+        }
+    }
+
+    #[test]
+    fn dispositif_cnil_official_summary_still_comes_first() {
+        let text = long(&["Visa.", "PAR CES MOTIFS", "La formation décide.", "Le Président"]);
+        let given = official(&["Analyse officielle assez longue pour servir."], &[]);
+        let got = summary(&text, Some(&given), DispositifRule::Cnil, 4_000);
+        assert_eq!(got.source, SummarySource::Official);
+    }
+
+    #[test]
+    fn dispositif_cnil_cost_is_linear_in_the_text() {
+        // Borne de coût : 100 000 caractères en 1 000 paragraphes, dispositif en fin de texte.
+        let mut paragraphs: Vec<String> = (0..999).map(|_| filler(99)).collect();
+        paragraphs.push("PAR CES MOTIFS".to_owned());
+        paragraphs.push("La formation restreinte décide de prononcer une amende.".to_owned());
+        paragraphs.push("Le Président".to_owned());
+        let refs: Vec<&str> = paragraphs.iter().map(String::as_str).collect();
+        let text = long(&refs);
+        assert!(text.char_len() >= 100_000);
+        let got = summary(&text, None, DispositifRule::Cnil, 4_000);
+        assert_eq!(
+            parts(&got),
+            (
+                SummarySource::Dispositif,
+                "La formation restreinte décide de prononcer une amende.",
+                false
+            )
+        );
+        // Sans marqueur, le même texte passe aussi et retombe sur le début.
+        let plain = long(&refs[..999]);
+        assert_eq!(summary(&plain, None, DispositifRule::Cnil, 4_000).source, SummarySource::Lead);
+    }
+
+    #[test]
+    fn dispositif_cnil_is_not_closed_by_a_sentence_that_starts_like_a_closing() {
+        // Synthétique : un paragraphe du dispositif qui commence comme la signature ou comme la
+        // mention des voies de recours ne le ferme pas, sinon une amende ou une injonction placée
+        // après lui serait perdue sans signal (`truncated` resterait faux).
+        let rule = DispositifRule::Cnil;
+        let body = [
+            "Le Président de la CNIL est chargé de notifier la présente décision.",
+            "Le Président est chargé de la publier.",
+            "La Présidente de la formation restreinte veille à son exécution.",
+            "Cette décision est rendue publique sur le site de la CNIL.",
+            "Cette décision sera notifiée à la société.",
+            "Prononce une amende administrative de 50 000 euros.",
+        ];
+        for closing in [
+            ["Le Président", "Jean-François CARREZ"],
+            ["La Présidente", "Marie-Laure DENIS"],
+            ["Cette décision peut faire l’objet d’un recours devant le Conseil d’État.", "Reste."],
+            ["Cette décision est susceptible de faire l’objet d’un recours.", "Reste."],
+        ] {
+            let mut paragraphs = vec!["Visa.", "PAR CES MOTIFS"];
+            paragraphs.extend(body);
+            paragraphs.extend(closing);
+            let got = summary(&long(&paragraphs), None, rule, 4_000);
+            assert_eq!(got.source, SummarySource::Dispositif, "{closing:?}");
+            assert_eq!(got.text, body.join("\n\n"), "{closing:?}");
+            assert!(!got.truncated);
+        }
+    }
+
+    #[test]
+    fn dispositif_cnil_signature_is_a_title_alone_or_with_a_name() {
+        let rule = DispositifRule::Cnil;
+        for signature in [
+            "Le Président",
+            "La Présidente",
+            "Le Président Jean-François CARREZ",
+            "La Présidente Marie-Laure DENIS",
+            "le président",
+        ] {
+            let text =
+                long(&["Visa.", "PAR CES MOTIFS", "Amende de 10 euros.", signature, "Reste."]);
+            let got = summary(&text, None, rule, 4_000);
+            assert_eq!(parts(&got).1, "Amende de 10 euros.", "{signature}");
+        }
+        // Un titre suivi d'un mot en minuscule ou d'un long texte est une phrase du dispositif.
+        for sentence in ["Le Président est chargé de la publication.", "Le Président A B C D E"]
+        {
+            let text = long(&[
+                "Visa.",
+                "PAR CES MOTIFS",
+                sentence,
+                "Amende de 10 euros.",
+                "Cette décision peut faire l’objet d’un recours.",
+            ]);
+            let got = summary(&text, None, rule, 4_000);
+            assert!(parts(&got).1.ends_with("Amende de 10 euros."), "{sentence}");
+        }
+    }
+
+    #[test]
+    fn a_giant_paragraph_after_a_title_is_not_a_signature() {
+        // Cinq cent mille mots à majuscule : plus de quatre mots de nom, donc une phrase du
+        // dispositif ; le parcours s'arrête au cinquième mot.
+        let giant = format!("Le Président {}", "Abc ".repeat(500_000));
+        assert!(!is_signature(&CNIL, &giant));
+        // Jumeaux : le plus long nom permis (quatre mots) est une signature, un cinquième non.
+        assert!(is_signature(&CNIL, "Le Président Ab Cd Ef Gh"));
+        assert!(!is_signature(&CNIL, "Le Président Ab Cd Ef Gh Ij"));
+        // Un mot en minuscule dans les quatre premiers : pas un nom.
+        assert!(!is_signature(&CNIL, "Le Président Ab cd"));
+        // Un titre qui n'est pas de la liste : jamais une signature.
+        assert!(!is_signature(&CNIL, "Le Greffier Ab"));
+    }
+
     #[test]
     fn dispositif_is_cut_at_the_cap() {
         let paragraph = sentences(100);
@@ -711,6 +1252,7 @@ mod tests {
         for rule in [
             DispositifRule::ConseilConstitutionnel,
             DispositifRule::ConseilEtat,
+            DispositifRule::Cnil,
             DispositifRule::None,
         ] {
             let got = summary(&decision, None, rule, 4_000);
@@ -841,6 +1383,23 @@ mod tests {
     }
 
     proptest! {
+        #[test]
+        fn an_official_source_always_has_enough_alphanumerics(
+            analyses in proptest::collection::vec("[ a-zA-Z0-9é.\\-]{0,40}", 0..4),
+            titrages in proptest::collection::vec("[ a-zA-Z0-9é.\\-]{0,40}", 0..4),
+        ) {
+            let body = long(&["Texte de repli."]);
+            let given = OfficialSummary { analyses, titrages };
+            let got = summary(&body, Some(&given), DispositifRule::None, SUMMARY_CAP_CHARS);
+            // Quatre entrées de 40 caractères au plus tiennent dans le plafond : jamais coupé.
+            prop_assert!(!got.truncated);
+            if got.source == SummarySource::Official {
+                prop_assert!(alnum(&got.text) >= OFFICIAL_MIN_ALNUM_CHARS);
+            } else {
+                prop_assert_eq!(got.text.as_str(), "Texte de repli.");
+            }
+        }
+
         #[test]
         fn summary_never_exceeds_its_budget(
             text in "[a-zé .!?\n]{0,2500}",

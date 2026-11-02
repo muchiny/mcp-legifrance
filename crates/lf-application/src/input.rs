@@ -96,6 +96,8 @@ pub struct SearchInput {
     pub date_to: Option<String>,
     /// Date de version pour `LODA` et `CODE`, `AAAA-MM-JJ`.
     pub version_date: Option<String>,
+    /// Garde les textes en vigueur seulement (`KALI` seulement, D-08) ; absent ou `false` : aucun filtre.
+    pub in_force_only: Option<bool>,
 }
 
 /// Arguments de `fr_get_act` (05 §5.2).
@@ -198,6 +200,9 @@ pub struct ResolveInput {
 pub struct GetRelatedInput {
     /// Identifiant d'un article ou d'une décision.
     pub id: Option<String>,
+    /// Sens des seuls liens demandés : `cites`, `cited_by`, `cites_case_law` ou `applies_text`
+    /// (insensible à la casse) ; tous les liens quand il est absent.
+    pub relation: Option<String>,
 }
 
 /// Arguments de `fr_diff_article` (05 §5.12).

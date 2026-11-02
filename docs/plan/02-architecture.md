@@ -975,7 +975,7 @@ pub struct SearchPage {                            // livré : fond, query, tota
 }
 ```
 
-`SearchQuery::new` applique les rejets de 00 §7 sans réseau, ce qui en fait des `invalid_arg` du cas d'usage : `version_date` hors LODA/CODE ; `date_from`/`date_to` sur un fond sans facette de date (CODE) ; `date_from` > `date_to` ; `page × page_size` > 10 000 (fenêtre supposée, V-83). L'adapter n'en garde qu'une copie défensive (`InvalidRequest { status: None }`), jamais atteinte si le domaine a validé (00 §5).
+`SearchQuery::new` applique les rejets de 00 §7 sans réseau, ce qui en fait des `invalid_arg` du cas d'usage : `version_date` hors LODA/CODE ; `date_from`/`date_to` sur un fond sans facette de date (CODE) ; `date_from` > `date_to` ; `page × page_size` > 10 000 (fenêtre supposée, V-83) ; `in_force_only` vrai hors KALI (1.1.0, D-08, `SearchQuery::with_in_force_only`, vérifié après la fenêtre atteignable). L'adapter n'en garde qu'une copie défensive (`InvalidRequest { status: None }`), jamais atteinte si le domaine a validé (00 §5).
 
 `NumberQuery` et `NumberKind` (M6) ont la forme définie par l'annexe B §6.6 (dont `version_date`, obligatoire pour CODE et LODA) ; le type est placé dans `lf-domain::search`, à côté de `SearchQuery`, parce que la clé de cache `Op::FindByNumber` (§7.2) et l'adapter l'utilisent, et que son constructeur renvoie un `DomainError`. `CodeListing { id: LegiTextId, title: String, etat: Option<LegalStatus> }` (forme proposée, définie dans 03) est l'entrée de `list_codes()` ; `RelatedLinks` (M7) est défini dans 03.
 

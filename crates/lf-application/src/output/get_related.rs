@@ -22,6 +22,17 @@ pub enum Relation {
 }
 
 impl Relation {
+    /// Les quatre sens, dans l'ordre où l'erreur de `relation` les liste.
+    pub const ALL: [Self; 4] = [Self::Cites, Self::CitedBy, Self::CitesCaseLaw, Self::AppliesText];
+
+    /// Le sens nommé par `raw` (paramètre `relation`), sans casse ni blancs autour ; `None` pour
+    /// toute autre valeur.
+    #[must_use]
+    pub fn parse(raw: &str) -> Option<Self> {
+        let raw = raw.trim();
+        Self::ALL.into_iter().find(|relation| raw.eq_ignore_ascii_case(relation.as_str()))
+    }
+
     /// Valeur `relation` de la réponse (`cites`, `cited_by`, `cites_case_law`, `applies_text`).
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -111,6 +122,19 @@ mod tests {
             [Relation::Cites, Relation::CitedBy, Relation::CitesCaseLaw, Relation::AppliesText]
                 .map(Relation::as_str);
         assert_eq!(rendered, ["cites", "cited_by", "cites_case_law", "applies_text"]);
+        assert_eq!(Relation::ALL.map(Relation::as_str), rendered);
+    }
+
+    #[test]
+    fn a_relation_is_parsed_without_case_or_surrounding_spaces() {
+        for relation in Relation::ALL {
+            let name = relation.as_str();
+            assert_eq!(Relation::parse(name), Some(relation));
+            assert_eq!(Relation::parse(&format!(" {} ", name.to_uppercase())), Some(relation));
+        }
+        for refused in ["", "cite", "cited-by", "cites cited_by"] {
+            assert_eq!(Relation::parse(refused), None, "{refused:?}");
+        }
     }
 
     #[test]

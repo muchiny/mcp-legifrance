@@ -30,6 +30,7 @@ pub(crate) struct ActView {
     nature: Option<String>,
     // Code d'API de l'état (VIGUEUR, ABROGE, VIGUEUR_ETEN...).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(description = crate::views::common::ETAT_GLOSSARY_SHORT)]
     etat: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     nor: Option<String>,
@@ -95,6 +96,15 @@ impl From<GetActOutput> for ActView {
 mod tests {
     use super::*;
     use crate::schema::output_schema;
+
+    /// D-12 : la règle générale de `etat` est dans la description du champ (`VIGUEUR_ETEN`, `PERIME`,
+    /// ANNULE... ne sont pas dans le glossaire des instructions).
+    #[test]
+    fn the_etat_field_carries_the_general_rule() {
+        let schema = serde_json::Value::Object(output_schema::<ActView>().as_ref().clone());
+        let text = schema.to_string();
+        assert!(text.contains(crate::views::common::ETAT_GLOSSARY_SHORT), "{text}");
+    }
     use lf_application::{budget::ResponseBudget, output::get_act::TocLine};
     use lf_domain::{
         date::{CivilDate, VersionDate},

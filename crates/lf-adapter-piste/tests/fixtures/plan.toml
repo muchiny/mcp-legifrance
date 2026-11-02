@@ -1169,3 +1169,117 @@ name = "c101/C17-constit-all-exacte-2010-14"
 endpoint = "/search"
 body = "{\"fond\":\"CONSTIT\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"2010-14\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":10,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
 allow_error = true
+
+# Sondes de capture 1.1.0, PR 2 : D-08 (in_force_only de fr_search, KALI) et D-09 (résumé CNIL tiré du dispositif).
+# Même format que crates/lf-adapter-piste/tests/fixtures/plan.toml. Sandbox, une requête par seconde au plus.
+# Lancement prévu après relecture du propriétaire : `--only c110/`. Rien n'a été lancé.
+# Onze sondes actives ; la douzième (consult d'une mise en demeure) dépend de l'identifiant que trouvera la sonde
+# c110/D09-search-cnil-mise-en-demeure : son bloc est en commentaire en fin de fichier, à compléter puis activer.
+# Valeurs attendues du sans-filtre (facette LEGAL_STATUS de search-KALI-100.json, capturé en sandbox) :
+#   total 27567 ; ABROGE 8001, DENONCE 479, MODIFIE 26, PERIME 1082, REMPLACE 267, VIGUEUR 513, VIGUEUR_ETEN 14204, VIGUEUR_NON_ETEN 2995.
+#   Donc avec VIGUEUR+VIGUEUR_ETEN+VIGUEUR_NON_ETEN : 17712 attendu si les valeurs s'additionnent (OU).
+
+# ---- D-08 : filtre LEGAL_STATUS sur KALI (forme `valeurs[]`, annexe C §3.6 ; FiltreDto actuel n'a pas encore `valeurs`) ----
+
+# Référence : même requête que identifiants/search-KALI-100, pour mesurer le total et la dérive depuis la dernière capture.
+[[probe]]
+name = "c110/D08-kali-cc-sans-filtre"
+endpoint = "/search"
+body = "{\"fond\":\"KALI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"convention collective\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":100,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+
+# Cœur de D-08 : total attendu 17712, aucun hit dont `etat` est ABROGE, REMPLACE, PERIME, DENONCE ou MODIFIE.
+[[probe]]
+name = "c110/D08-kali-cc-vigueur-3"
+endpoint = "/search"
+body = "{\"fond\":\"KALI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"convention collective\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"LEGAL_STATUS\",\"valeurs\":[\"VIGUEUR\",\"VIGUEUR_ETEN\",\"VIGUEUR_NON_ETEN\"]}],\"pageNumber\":1,\"pageSize\":100,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+# Une seule valeur (14204 attendu) : isole l'acceptation de la facette de la sémantique OU des valeurs multiples.
+[[probe]]
+name = "c110/D08-kali-cc-vigueur-eten"
+endpoint = "/search"
+body = "{\"fond\":\"KALI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"convention collective\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"LEGAL_STATUS\",\"valeurs\":[\"VIGUEUR_ETEN\"]}],\"pageNumber\":1,\"pageSize\":10,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+# Cas du constat journey_general-1 : Syntec 1987 (KALITEXT000005679895, ABROGE) et 2021 (KALITEXT000044253019, VIGUEUR_ETEN) doivent apparaître ici.
+[[probe]]
+name = "c110/D08-kali-syntec-sans-filtre"
+endpoint = "/search"
+body = "{\"fond\":\"KALI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"Syntec bureaux d'études techniques\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+
+# Même requête filtrée : KALITEXT000005679895 doit disparaître, KALITEXT000044253019 doit rester.
+[[probe]]
+name = "c110/D08-kali-syntec-vigueur-3"
+endpoint = "/search"
+body = "{\"fond\":\"KALI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"Syntec bureaux d'études techniques\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"LEGAL_STATUS\",\"valeurs\":[\"VIGUEUR\",\"VIGUEUR_ETEN\",\"VIGUEUR_NON_ETEN\"]}],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+# Combinaison avec le filtre de période (ordre des filtres : état puis période) ; à comparer à dates/v78-KALI-DATE_SIGNATURE-2020.
+[[probe]]
+name = "c110/D08-kali-cc-vigueur-3-date-signature-2020"
+endpoint = "/search"
+body = "{\"fond\":\"KALI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"UN_DES_MOTS\",\"valeur\":\"convention collective\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"LEGAL_STATUS\",\"valeurs\":[\"VIGUEUR\",\"VIGUEUR_ETEN\",\"VIGUEUR_NON_ETEN\"]},{\"facette\":\"DATE_SIGNATURE\",\"dates\":{\"start\":\"2020-01-01\",\"end\":\"2020-12-31\"}}],\"pageNumber\":1,\"pageSize\":10,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+# ---- D-09 : textes intégraux de délibérations CNIL (marqueurs d'en-tête et de clôture du dispositif) ----
+
+# Sanction SAN-2025-008 (Samaritaine, 18 septembre 2025, 100 000 euros ; text_length 46408 d'après le rejeu).
+[[probe]]
+name = "c110/D09-cnil-consult-SAN-2025-008-CNILTEXT000052266505"
+endpoint = "/consult/cnil"
+body = "{\"textId\": \"CNILTEXT000052266505\"}"
+
+# Sanction ancienne, société anonymisée (24 juillet 2018) : teste la stabilité des marqueurs entre époques de rédaction. SAN-2026-002 (CNILTEXT000053352643) est déjà enregistrée en entier et sert de troisième sanction sans nouvelle capture.
+[[probe]]
+name = "c110/D09-cnil-consult-SAN-2018-008-CNILTEXT000037273346"
+endpoint = "/consult/cnil"
+body = "{\"textId\": \"CNILTEXT000037273346\"}"
+
+# Avis sur un projet de loi (polices municipales, 25 septembre 2025), titre vu dans la fixture C9-cnil-taille2-page1 : le résumé d'un avis doit rester `lead`.
+[[probe]]
+name = "c110/D09-cnil-consult-avis-2025-083-CNILTEXT000053018448"
+endpoint = "/consult/cnil"
+body = "{\"textId\": \"CNILTEXT000053018448\"}"
+
+# Second avis, cité « (avis) » par le constat gap4-14 ; identifiant à confirmer (peut être l'avis RNIPP dont le résumé est déjà utile : témoin de non-régression).
+[[probe]]
+name = "c110/D09-cnil-consult-avis-CNILTEXT000053308330"
+endpoint = "/consult/cnil"
+body = "{\"textId\": \"CNILTEXT000053308330\"}"
+allow_error = true
+
+# Aucun CNILTEXT de mise en demeure n'est connu. Les MED-2024-150 et MED-2023-018 ont été vues par la revue. Cette recherche donne leurs identifiants (titres « Décision MED-... »).
+[[probe]]
+name = "c110/D09-search-cnil-mise-en-demeure"
+endpoint = "/search"
+body = "{\"fond\":\"CNIL\",\"recherche\":{\"champs\":[{\"typeChamp\":\"ALL\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"mise en demeure\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[{\"facette\":\"DATE_DELIB\",\"dates\":{\"start\":\"2024-01-01\",\"end\":\"2026-11-01\"}}],\"pageNumber\":1,\"pageSize\":10,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+allow_error = true
+
+# ---- D-06 : paires réelles de versions pour calibrer le seuil de 30 % (ajout de l'orchestrateur, revue V1) ----
+
+# 1382 actuel (« Les présomptions qui ne sont point établies par la loi… ») ; l'ancien 1382 (LEGIARTI000006438819) est déjà enregistré.
+[[probe]]
+name = "c110/D06-getArticle-1382-actuel-LEGIARTI000032042379"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000032042379\"}"
+allow_error = true
+
+# 1240 ancien (« Le paiement fait de bonne foi… ») ; le 1240 actuel (LEGIARTI000032041571, C7) est déjà enregistré.
+[[probe]]
+name = "c110/D06-getArticle-1240-ancien-LEGIARTI000006437044"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000006437044\"}"
+allow_error = true
+
+# CGI 777, version 13 (2013-2014), précédente de la version en vigueur LEGIARTI000030061736 (C11) : doit rester sans note.
+[[probe]]
+name = "c110/D06-getArticle-cgi-777-v13-LEGIARTI000026292569"
+endpoint = "/consult/getArticle"
+body = "{\"id\":\"LEGIARTI000026292569\"}"
+allow_error = true
+
+# Mise en demeure MED-2024-150 du 15 novembre 2024 (ministère de l'intérieur), identifiant donné par c110/D09-search-cnil-mise-en-demeure.
+[[probe]]
+name = "c110/D09-cnil-consult-MED-2024-150-CNILTEXT000050719865"
+endpoint = "/consult/cnil"
+body = "{\"textId\":\"CNILTEXT000050719865\"}"

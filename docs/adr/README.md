@@ -112,8 +112,10 @@ Toutes les questions de la colonne « Questions » sont adoptées par défaut et
 | [ADR-0019](0019-dilacorpus-hors-ligne.md) | `DilaCorpus` : le port `LegalCorpus` hors ligne, sur un index tantivy des dumps LEGI | **Proposé** (accepté à la fusion de la PR unique du plan fin-du-projet) | M9 | Q6 | [00-decisions](../plan/00-decisions.md) §5, [02-architecture](../plan/02-architecture.md) §8.5, [ADR-0004](0004-piste-puis-dila.md) |
 | [ADR-0020](0020-extrait-strict.md) | Règle d'extrait stricte pour `fr_verify_citations` | Accepté | 1.0.1 | Q5 | [00-decisions](../plan/00-decisions.md) §7, §14 (AM-67), [B-citations](../plan/annexes/B-citations.md) §7.9 |
 | [ADR-0021](0021-nettoyages-de-schema-correctifs.md) | Nettoyages de schéma classés en correctif par le verrou des descripteurs | Accepté | 1.0.1 | A14 (plan de correction) | [05-outils-mcp](../plan/05-outils-mcp.md) §9.5, [00-decisions](../plan/00-decisions.md) §14 (AM-71) |
+| [ADR-0022](0022-dispositif-cnil-et-seuil-de-similarite.md) | Règle de dispositif de la CNIL et seuil de similarité de `fr_diff_article` | **Proposé** (accepté à la fusion de la PR 2 de la 1.1.0) | 1.1.0 | D-09, D-06 (plan de correction) | [03-domaine](../plan/03-domaine.md) §7.9, [05-outils-mcp](../plan/05-outils-mcp.md) §5.12, [00-decisions](../plan/00-decisions.md) §14 (AM-74, AM-75) |
+| [ADR-0023](0023-article-entier-et-plafond-tools-list.md) | Article entier jusqu'à 2 000 caractères en mode résumé et plafond de `tools/list` de la 1.1.0 | **Proposé** (accepté à la fusion de la PR 2 de la 1.1.0 ; recalcul du plafond à confirmer par le propriétaire) | 1.1.0 | Q20 (décidée : B), Q27 (décidée : A) | [03-domaine](../plan/03-domaine.md) §7.9, [05-outils-mcp](../plan/05-outils-mcp.md) §5.3, §6.6, [00-decisions](../plan/00-decisions.md) §14 (AM-63, AM-72, AM-73) |
 
-Prochain numéro libre : **0021**. Un numéro n'est jamais réutilisé : les ex-0001 et ex-0002 du plan ont été renumérotés 0015 et 0016 parce que 0001 et 0002 étaient déjà livrés.
+Prochain numéro libre : **0024**. Un numéro n'est jamais réutilisé : les ex-0001 et ex-0002 du plan ont été renumérotés 0015 et 0016 parce que 0001 et 0002 étaient déjà livrés.
 
 Conditions d'acceptation des ADR proposés :
 
@@ -121,6 +123,8 @@ Conditions d'acceptation des ADR proposés :
 - [ ] **ADR-0017** : acceptation à la fusion de la PR du plan 2c.
 - [ ] **ADR-0018** : acceptation à la fusion de la PR unique du plan fin-du-projet.
 - [ ] **ADR-0019** : acceptation à la fusion de la PR unique du plan fin-du-projet ; Q6 (réseau de construction de l'index) et V-189 (licence par fonds) restent à confirmer.
+- [ ] **ADR-0022** : acceptation à la fusion de la PR 2 de la 1.1.0 (AM-74 et AM-75 avec lui) ; le seuil de similarité reste provisoire côté amendements (condition de réexamen dans l'ADR).
+- [ ] **ADR-0023** : acceptation à la fusion de la PR 2 de la 1.1.0 (AM-72 et AM-73 avec lui) ; le propriétaire confirme à la PR le recalcul du plafond de `tools/list` (36 500 octets, règle d'AM-63 appliquée à la mesure de 35 424 octets).
 - [ ] **ADR-0014** : réponse à Q10 (proposition par défaut : `any` jusqu'à V-79, puis `all` si V-79 confirme la sémantique et un rappel acceptable sur les 9 scénarios de la référence), consignée avant le verrou des descripteurs de M4 ; mesures de M5 sur la pagination profonde (V-83) et sur `typePagination` en page 2 (V-82), **réussies en sandbox le 2026-10-29** (06 §5.4) : reste la réponse à Q10, V-79 n'étant que partielle.
 
 Questions et vérifications à confirmer des ADR acceptés (une réponse contraire produit un nouvel ADR, §2) :

@@ -79,7 +79,9 @@ struct CritereDto<'a> {
     operateur: Operateur,
 }
 
-/// `FiltreDTO` : `single_date` (millisecondes Unix) pour `DATE_VERSION`, `dates` pour une plage.
+/// `FiltreDTO` : `single_date` (millisecondes Unix) pour `DATE_VERSION`, `dates` pour une plage,
+/// `valeurs` pour une facette à valeurs (`LEGAL_STATUS`, relevés c110/D08 : plusieurs valeurs
+/// se combinent en OU).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FiltreDto {
@@ -88,6 +90,8 @@ struct FiltreDto {
     single_date: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     dates: Option<DatePeriodDto>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    valeurs: Option<&'static [&'static str]>,
 }
 
 /// Période fermée, dates `AAAA-MM-JJ`.
@@ -138,6 +142,7 @@ struct Params<'a> {
     date_range: Option<DateRange>,
     version_date: Option<VersionDate>,
     pagination: PaginationMode,
+    in_force_only: bool,
 }
 
 /// Corps JSON de `/search` pour une requête validée.
@@ -164,6 +169,7 @@ pub(crate) fn search_body(
         date_range: query.date_range(),
         version_date: query.version_date(),
         pagination,
+        in_force_only: query.in_force_only(),
     };
     request_dto(&params).and_then(|dto| encode(&dto))
 }
@@ -260,10 +266,13 @@ fn check_reach(page: u32, page_size: u32) -> Result<(), CorpusError> {
     Ok(())
 }
 
-/// Filtres du corps, toujours dans cet ordre : version puis période.
+/// Filtres du corps, toujours dans cet ordre : version, état puis période.
 fn filtres(params: &Params<'_>) -> Result<Vec<FiltreDto>, CorpusError> {
     let mut filtres = Vec::new();
     filtres.extend(version_filter(params.fond, params.version_date)?);
+    if params.in_force_only {
+        filtres.push(in_force_filter(params.fond)?);
+    }
     if let Some(range) = params.date_range {
         filtres.push(range_filter(params.fond, range)?);
     }
@@ -280,6 +289,7 @@ fn version_filter(
             facette: DATE_VERSION,
             single_date: Some(paris_noon_ms(date)),
             dates: None,
+            valeurs: None,
         })),
         (true, None) => Err(defensive(format!("version_date missing for fond {}", fond.name()))),
         (false, Some(_)) => {
@@ -289,6 +299,23 @@ fn version_filter(
     }
 }
 
+/// États `LEGAL_STATUS` gardés par `in_force_only` (D-08). Les autres états de KALI (`ABROGE`,
+/// `DENONCE`, `MODIFIE`, `PERIME`, `REMPLACE`) sont exclus.
+const IN_FORCE_STATUSES: &[&str] = &["VIGUEUR", "VIGUEUR_ETEN", "VIGUEUR_NON_ETEN"];
+
+/// Filtre `LEGAL_STATUS` de `in_force_only` : relevé et validé sur KALI seulement.
+fn in_force_filter(fond: Fond) -> Result<FiltreDto, CorpusError> {
+    if fond != Fond::Kali {
+        return Err(defensive(format!("in_force_only not applicable to fond {}", fond.name())));
+    }
+    Ok(FiltreDto {
+        facette: "LEGAL_STATUS",
+        single_date: None,
+        dates: None,
+        valeurs: Some(IN_FORCE_STATUSES),
+    })
+}
+
 /// Filtre de période sur la facette de date du fond (04 §6.5).
 fn range_filter(fond: Fond, range: DateRange) -> Result<FiltreDto, CorpusError> {
     let facette = date_facet(fond)
@@ -296,6 +323,7 @@ fn range_filter(fond: Fond, range: DateRange) -> Result<FiltreDto, CorpusError> 
     Ok(FiltreDto {
         facette,
         single_date: None,
+        valeurs: None,
         dates: Some(DatePeriodDto {
             start: range.start().to_string(),
             end: range.end().to_string(),
@@ -389,6 +417,7 @@ mod tests {
             date_range: None,
             version_date: fond.needs_version_date().then(|| day("2026-10-15")),
             pagination: PaginationMode::Defaut,
+            in_force_only: false,
         }
     }
 
@@ -610,6 +639,93 @@ mod tests {
         assert_eq!(first, second);
         let want = r#"{"fond":"LODA_DATE","recherche":{"champs":[{"typeChamp":"ALL","criteres":[{"typeRecherche":"UN_DES_MOTS","valeur":"république numérique","operateur":"ET"}],"operateur":"ET"}],"filtres":[{"facette":"DATE_VERSION","singleDate":1792058400000},{"facette":"DATE_SIGNATURE","dates":{"start":"2016-01-01","end":"2016-12-31"}}],"pageNumber":1,"pageSize":10,"operateur":"ET","sort":"PERTINENCE","typePagination":"DEFAUT"}}"#;
         assert_eq!(String::from_utf8(first).unwrap(), want);
+    }
+
+    /// Les trois états « en vigueur » de la facette `LEGAL_STATUS` (relevés c110/D08, sandbox).
+    const IN_FORCE: [&str; 3] = ["VIGUEUR", "VIGUEUR_ETEN", "VIGUEUR_NON_ETEN"];
+
+    /// D-08 : la requête de la sonde `c110/D08-kali-cc-vigueur-3`, au caractère près.
+    #[test]
+    fn in_force_only_sends_the_legal_status_filter_on_kali() {
+        let with_status = Params { in_force_only: true, ..params(Fond::Kali) };
+        let want = r#"{"fond":"KALI","recherche":{"champs":[{"typeChamp":"ALL","criteres":[{"typeRecherche":"UN_DES_MOTS","valeur":"république numérique","operateur":"ET"}],"operateur":"ET"}],"filtres":[{"facette":"LEGAL_STATUS","valeurs":["VIGUEUR","VIGUEUR_ETEN","VIGUEUR_NON_ETEN"]}],"pageNumber":1,"pageSize":10,"operateur":"ET","sort":"PERTINENCE","typePagination":"DEFAUT"}}"#;
+        assert_eq!(
+            String::from_utf8(encode(&request_dto(&with_status).unwrap()).unwrap()).unwrap(),
+            want
+        );
+        assert_eq!(
+            body_of(&with_status),
+            expected("KALI", &json!([{"facette": "LEGAL_STATUS", "valeurs": IN_FORCE}]))
+        );
+    }
+
+    /// D-08, relevé `c110/D08-kali-cc-vigueur-3-date-signature-2020` : état puis période.
+    #[test]
+    fn the_status_filter_comes_before_the_date_range() {
+        let both = Params {
+            in_force_only: true,
+            date_range: range("2020-01-01", "2020-12-31"),
+            ..params(Fond::Kali)
+        };
+        assert_eq!(
+            body_of(&both),
+            expected(
+                "KALI",
+                &json!([
+                    {"facette": "LEGAL_STATUS", "valeurs": IN_FORCE},
+                    {"facette": "DATE_SIGNATURE", "dates": {"start": "2020-01-01", "end": "2020-12-31"}}
+                ])
+            )
+        );
+    }
+
+    /// D-08 : `false` (ou absent) ne change pas un octet de la requête de la 1.0.1.
+    #[test]
+    fn without_in_force_only_the_kali_body_is_the_one_of_1_0_1() {
+        let plain = r#"{"fond":"KALI","recherche":{"champs":[{"typeChamp":"ALL","criteres":[{"typeRecherche":"UN_DES_MOTS","valeur":"république numérique","operateur":"ET"}],"operateur":"ET"}],"filtres":[],"pageNumber":1,"pageSize":10,"operateur":"ET","sort":"PERTINENCE","typePagination":"DEFAUT"}}"#;
+        let off = encode(&request_dto(&params(Fond::Kali)).unwrap()).unwrap();
+        assert_eq!(String::from_utf8(off).unwrap(), plain);
+        let dated = Params { date_range: range("2016-01-01", "2016-12-31"), ..params(Fond::Kali) };
+        let want = r#""filtres":[{"facette":"DATE_SIGNATURE","dates":{"start":"2016-01-01","end":"2016-12-31"}}]"#;
+        assert!(
+            String::from_utf8(encode(&request_dto(&dated).unwrap()).unwrap())
+                .unwrap()
+                .contains(want)
+        );
+    }
+
+    #[test]
+    fn in_force_only_on_another_fond_is_defensive_invalid_request_without_network() {
+        for fond in Fond::ALL.into_iter().filter(|fond| *fond != Fond::Kali) {
+            let refused = Params { in_force_only: true, ..params(fond) };
+            assert_eq!(
+                request_dto(&refused).err(),
+                Some(invalid(&format!("in_force_only not applicable to fond {}", fond.name()))),
+                "{fond:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn search_body_reads_in_force_only_from_the_query() {
+        let build = |on: bool| {
+            let query = SearchQuery::new(
+                Fond::Kali,
+                QueryText::parse("convention collective").unwrap(),
+                NonZeroU32::MIN,
+                PageSize::DEFAULT,
+                MatchMode::Any,
+                None,
+                None,
+            )
+            .and_then(|query| query.with_in_force_only(on))
+            .unwrap();
+            serde_json::from_slice::<Value>(&search_body(&query, PaginationMode::Defaut).unwrap())
+                .unwrap()["recherche"]["filtres"]
+                .clone()
+        };
+        assert_eq!(build(true), json!([{"facette": "LEGAL_STATUS", "valeurs": IN_FORCE}]));
+        assert_eq!(build(false), json!([]));
     }
 
     #[test]

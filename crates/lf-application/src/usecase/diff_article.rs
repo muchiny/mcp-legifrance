@@ -17,7 +17,10 @@
 //! 3. Les deux dates dans la même version : `identical`, sans hunk et avec un seul `get_article`
 //!    (la citation). Sinon les deux textes se lisent ensemble.
 //! 4. Diff mot à mot ([`similar`], Myers) : un hunk par suite contiguë de mots changés, avec sa
-//!    position dans A (en caractères) et jusqu'à 60 caractères de contexte avant.
+//!    position dans A (en caractères) et jusqu'à 60 caractères de contexte avant. Si moins de 40 %
+//!    des mots de A se retrouvent dans B (comptés sur tout le diff, avant les plafonds), la
+//!    réponse porte une `note` : article renuméroté ou remplacé, les deux textes sont sans
+//!    rapport (D-06). Rien pour des textes identiques, ni quand un côté n'a aucun mot.
 //!
 //! # Plafond de réponse (05 §6.4)
 //!
@@ -79,6 +82,17 @@ const ENVELOPE_FIELDS: usize = 16;
 /// identifiant, deux dates et un code d'état.
 const ENVELOPE_TEXT_CHARS: usize = 20 + 2 * (20 + 2 * 10 + 16);
 
+/// Part des mots de A conservés dans B, en pourcentage, sous laquelle la réponse porte une note
+/// (D-06). Un amendement garde l'essentiel du texte (CGI 777, versions 13 à 14 : 99 %) ; deux
+/// textes sans rapport en gardent leurs mots outils, jusqu'à 30,4 % (Code civil, 1240 actuel contre
+/// ancien) sur des textes courts, 25,8 % au plus sur 45 paires d'articles de 130 à 3 900 mots. Calibré sur
+/// des relevés réels, voir les tests `the_threshold_*` et `long_unrelated_*` ci-dessous. Aucun
+/// amendement réel de 40 à 70 % n'est enregistré : la valeur reste provisoire de ce côté.
+const LOW_SIMILARITY_PERCENT: usize = 40;
+
+/// Note jointe quand les deux versions partagent très peu de texte (D-06).
+const LOW_SIMILARITY_NOTE: &str = "The two versions share little text: the article may have been renumbered or replaced. Read both with fr_get_text.";
+
 const _: () = assert!(CONTEXT_MAX_CHARS + 2 * (FIELD_CLIP_CHARS + 1) <= HUNK_TEXT_CAP);
 
 /// Comparaison de deux versions d'un article : analyse des arguments, deux appels au port au
@@ -120,19 +134,25 @@ impl<'a, C: LegalCorpus, K: Clock> DiffArticleUseCase<'a, C, K> {
         let version_a = in_force(&versions, date_a).ok_or_else(|| no_version(&id, date_a))?;
         let version_b = in_force(&versions, date_b).ok_or_else(|| no_version(&id, date_b))?;
         let identical = version_a.id == version_b.id;
-        let (target, hunks) = if identical {
-            (self.read(&id, version_b, date_b).await?, Vec::new())
+        let (target, diff) = if identical {
+            (self.read(&id, version_b, date_b).await?, WordDiff::default())
         } else {
             let (before, after) =
                 join(self.read(&id, version_a, date_a), self.read(&id, version_b, date_b)).await;
             let (before, after) = (before?, after?);
-            let hunks = word_hunks(before.text.as_str(), after.text.as_str(), deadline());
-            (after, hunks)
+            let diff = word_diff(before.text.as_str(), after.text.as_str(), deadline());
+            (after, diff)
         };
         let citation = target.contract().citation.as_str().to_owned();
+        let note = diff.shares_little().then(|| LOW_SIMILARITY_NOTE.to_owned());
         let (hunks, truncated) = fit(
-            hunks,
-            estimate_chars(ENVELOPE_FIELDS, ENVELOPE_TEXT_CHARS.saturating_add(chars(&citation))),
+            diff.hunks,
+            estimate_chars(
+                ENVELOPE_FIELDS.saturating_add(usize::from(note.is_some())),
+                ENVELOPE_TEXT_CHARS
+                    .saturating_add(chars(&citation))
+                    .saturating_add(note.as_deref().map_or(0, chars)),
+            ),
         );
         Ok(DiffArticleOutput {
             article_id: id,
@@ -142,6 +162,7 @@ impl<'a, C: LegalCorpus, K: Clock> DiffArticleUseCase<'a, C, K> {
             identical,
             hunks,
             truncated,
+            note,
         })
     }
 
@@ -277,8 +298,37 @@ impl<'a> WordIndex<'a> {
     }
 }
 
-/// Les changements de `old` vers `new`, mot à mot, au plus [`MAX_HUNKS`] + 1 : le surplus sert
-/// seulement à savoir qu'il y en avait davantage.
+/// Le diff mot à mot de `old` vers `new` : ses changements et la part de texte conservée.
+#[derive(Default)]
+struct WordDiff {
+    /// Au plus [`MAX_HUNKS`] + 1 changements : le surplus sert seulement à savoir qu'il y en
+    /// avait davantage.
+    hunks: Vec<HunkOut>,
+    /// Mots de A retrouvés dans B, sur tout le diff (pas seulement sur les hunks conservés).
+    kept: usize,
+    /// Mots de A.
+    old_words: usize,
+    /// Mots de B.
+    new_words: usize,
+    /// Faux quand l'échéance est passée pendant le calcul : `similar` rend alors un diff grossier
+    /// (tout le milieu retiré puis ajouté) et `kept` est sous-estimé.
+    exact: bool,
+}
+
+impl WordDiff {
+    /// Vrai quand le diff est exact (échéance tenue), que les deux textes ont des mots et que
+    /// moins de [`LOW_SIMILARITY_PERCENT`] % des mots de A sont conservés dans B : la comparaison
+    /// porte sans doute sur deux textes sans rapport (article renuméroté ou remplacé). Un côté sans
+    /// mot n'est pas une renumérotation (sans mot dans A, le seuil est nul et rien n'est jamais
+    /// en deçà) ; une échéance expirée ne donne jamais la note.
+    fn shares_little(&self) -> bool {
+        self.exact
+            && self.new_words > 0
+            && self.kept.saturating_mul(100) < self.old_words.saturating_mul(LOW_SIMILARITY_PERCENT)
+    }
+}
+
+/// Les changements de `old` vers `new`, mot à mot, et la part conservée (voir [`WordDiff`]).
 ///
 /// Un hunk est une suite contiguë de mots retirés et/ou ajoutés ; deux changements séparés par
 /// au moins un mot commun sont deux hunks. Les blancs sont ramenés à une espace dans les passages
@@ -287,12 +337,22 @@ impl<'a> WordIndex<'a> {
     clippy::indexing_slicing,
     reason = "les plages viennent du diff de ces mêmes mots ; `count` est au plus la longueur de `before`"
 )]
-fn word_hunks(old: &str, new: &str, deadline: Option<Instant>) -> Vec<HunkOut> {
+fn word_diff(old: &str, new: &str, deadline: Option<Instant>) -> WordDiff {
     let before = WordIndex::of(old);
     let after = WordIndex::of(new);
-    capture_diff_slices_deadline(Algorithm::Myers, &before.words, &after.words, deadline)
+    let ops: Vec<_> =
+        capture_diff_slices_deadline(Algorithm::Myers, &before.words, &after.words, deadline)
+            .iter()
+            .map(similar::DiffOp::as_tag_tuple)
+            .collect();
+    let exact = within_deadline(deadline, Instant::now());
+    let kept = ops
         .iter()
-        .map(similar::DiffOp::as_tag_tuple)
+        .filter(|(tag, ..)| *tag == DiffTag::Equal)
+        .map(|(_, old_range, _)| old_range.len())
+        .fold(0, usize::saturating_add);
+    let hunks = ops
+        .into_iter()
         .filter(|(tag, ..)| *tag != DiffTag::Equal)
         .take(MAX_HUNKS + 1)
         .map(|(_, old_range, new_range)| HunkOut {
@@ -301,7 +361,14 @@ fn word_hunks(old: &str, new: &str, deadline: Option<Instant>) -> Vec<HunkOut> {
             removed: passage(&before.words[old_range]),
             added: passage(&after.words[new_range]),
         })
-        .collect()
+        .collect();
+    WordDiff { hunks, kept, old_words: before.words.len(), new_words: after.words.len(), exact }
+}
+
+/// Vrai quand le diff est exact : pas d'échéance, ou `measured` (l'instant relevé après le calcul)
+/// strictement avant elle. À l'échéance même, `similar` a déjà pu rendre un diff grossier.
+fn within_deadline(deadline: Option<Instant>, measured: Instant) -> bool {
+    deadline.is_none_or(|limit| measured < limit)
 }
 
 /// Les mots joints par une espace ; `None` s'il n'y en a pas.
@@ -549,6 +616,15 @@ mod tests {
                        par écrit dans un délai de un mois. Aucun autre motif n'est admis.";
     const NEW: &str = "Le salarié peut être licencié pour faute lourde. La sanction est notifiée \
                        par écrit dans un délai de deux mois. Aucun autre motif n'est admis.";
+
+    // Textes enregistrés du Code civil, art. 9 (fixture `getArticleByCid-LEGIARTI000006419288`) :
+    // la version ABROGE (1927-08-14 au 1970-07-19) traite de la nationalité, la version en vigueur
+    // de la vie privée. Deux textes réels sans rapport : le cas d'une renumérotation (D-06).
+    const CIVIL_9_NATIONALITY: &str = r"Art. 9. — Tout individu né en France d’un étranger et qui n’y est pas domicilié à l’époque de sa majorité pourra, jusqu’à l’àge de vingt-deux ans accomplis, faire sa soumission de fixer en France son domicile, et, s’il l’y établit dans l’année à compter de l'acte de soumission, réclamer la qualité de Français par une déclaration qui sera enregistrée au ministère de la justice. S’il est âgé de moins de vingt et un ans accomplis, la déclaration sera faite en son nom par son père ; en cas de décès, par sa mère; en cas de décès du père et de la mère ou de leur exclusion de la tutelle, ou dans les cas prévus par les articles 141,142 et 143 du code civil, par le tuteur autorisé par délibération du conseil de famille. Il devient également Français si, ayant été porté sur le tableau de recensement, il prend part aux opérations de recrutement sans opposer son extranéité.";
+    const CIVIL_9_PRIVACY: &str = r"Chacun a droit au respect de sa vie privée. Les juges peuvent, sans préjudice de la réparation du dommage subi, prescrire toutes mesures, telles que séquestre, saisie et autres, propres à empêcher ou faire cesser une atteinte à l'intimité de la vie privée : ces mesures peuvent, s'il y a urgence, être ordonnées en référé.";
+    // Synthétique, non enregistré : le texte en vigueur de l'art. 9 avec quelques mots changés,
+    // le cas d'un amendement ordinaire.
+    const CIVIL_9_AMENDED: &str = r"Chacun a droit au respect de sa vie privée. Le juge peut, sans préjudice de la réparation du dommage subi, prescrire toutes mesures, telles que séquestre, saisie et autres, propres à empêcher ou faire cesser une atteinte à l'intimité de la vie privée : ces mesures peuvent, en cas d'urgence, être ordonnées en référé.";
 
     #[tokio::test]
     async fn diff_is_compact_hunks() {
@@ -889,7 +965,7 @@ mod tests {
     // ---------------------------------------------------------------------------------------
 
     fn hunks(old: &str, new: &str) -> Vec<HunkOut> {
-        word_hunks(old, new, None)
+        word_diff(old, new, None).hunks
     }
 
     fn hunk(at: u32, context: Option<&str>, removed: Option<&str>, added: Option<&str>) -> HunkOut {
@@ -1008,9 +1084,113 @@ mod tests {
         let old = (0..400).map(|n| format!("mot{n}")).collect::<Vec<_>>().join(" ");
         let new = (0..400).map(|n| format!("autre{}", n % 7)).collect::<Vec<_>>().join(" ");
         let expired = Instant::now().checked_sub(Duration::from_secs(10));
-        let rough = word_hunks(&old, &new, expired);
+        let rough = word_diff(&old, &new, expired).hunks;
         assert_ne!(rough, Vec::<HunkOut>::new());
         assert_eq!(applied(&old, &rough), words_of(&new));
+    }
+
+    /// Part conservée de `old` dans `new` : (mots conservés, mots de A, mots de B, note ?).
+    fn shared(old: &str, new: &str) -> (usize, usize, usize, bool) {
+        let diff = word_diff(old, new, None);
+        (diff.kept, diff.old_words, diff.new_words, diff.shares_little())
+    }
+
+    #[test]
+    fn the_note_threshold_is_forty_percent_of_the_words_of_a() {
+        let old = "a1 a2 a3 a4 a5 a6 a7 a8 a9 a10";
+        // 4 mots sur 10 conservés : 40 %, pas sous le seuil.
+        assert_eq!(shared(old, "a1 a2 a3 a4 x5 x6 x7 x8 x9 x10"), (4, 10, 10, false));
+        // 3 sur 10 : 30 %, sous le seuil.
+        assert_eq!(shared(old, "a1 a2 a3 x4 x5 x6 x7 x8 x9 x10"), (3, 10, 10, true));
+        // Tout conservé, rien conservé.
+        assert_eq!(shared(old, old), (10, 10, 10, false));
+        assert_eq!(shared(old, "x1 x2"), (0, 10, 2, true));
+    }
+
+    #[test]
+    fn the_share_is_taken_over_the_words_of_a_not_of_b() {
+        // 4 mots de A (sur 10) conservés dans un B de 100 mots : la part de A fait foi.
+        let old = "a1 a2 a3 a4 a5 a6 a7 a8 a9 a10";
+        let new = format!(
+            "a1 a2 a3 a4 {}",
+            (0..96).map(|n| format!("x{n}")).collect::<Vec<_>>().join(" ")
+        );
+        assert_eq!(shared(old, &new), (4, 10, 100, false));
+        // Et un B plus court qui garde tout de lui, mais 2 mots de A sur 10 seulement.
+        assert_eq!(shared(old, "a1 a2"), (2, 10, 2, true));
+    }
+
+    #[test]
+    fn a_side_without_words_never_gets_the_note() {
+        assert_eq!(shared("", ""), (0, 0, 0, false));
+        assert_eq!(shared("   ", "\n"), (0, 0, 0, false));
+        assert_eq!(shared("", "a b"), (0, 0, 2, false));
+        assert_eq!(shared("a b", ""), (0, 2, 0, false));
+    }
+
+    #[test]
+    fn an_expired_deadline_still_counts_the_words_it_kept() {
+        let old = (0..400).map(|n| format!("mot{n}")).collect::<Vec<_>>().join(" ");
+        let expired = Instant::now().checked_sub(Duration::from_secs(10));
+        let diff = word_diff(&old, &old, expired);
+        assert_eq!((diff.kept, diff.shares_little()), (400, false));
+    }
+
+    #[test]
+    fn an_expired_deadline_never_gives_the_note_for_a_mid_text_amendment() {
+        // Un amendement ordinaire : 90 % des mots conservés, mais le premier et le dernier mot
+        // changent, donc le préfixe et le suffixe communs ne couvrent rien. Échéance expirée, le
+        // diff grossier remplace tout le milieu : la part conservée serait sous-estimée.
+        let old = (0..400).map(|n| format!("mot{n}")).collect::<Vec<_>>().join(" ");
+        let new = (0..400)
+            .map(|n| if n % 10 == 0 || n == 399 { format!("autre{n}") } else { format!("mot{n}") })
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(shared(&old, &new), (360 - 1, 400, 400, false), "avec le temps voulu");
+        let expired = Instant::now().checked_sub(Duration::from_secs(10));
+        let rough = word_diff(&old, &new, expired);
+        assert!(!rough.shares_little(), "kept = {} sur {}", rough.kept, rough.old_words);
+    }
+
+    #[test]
+    fn the_deadline_is_met_only_strictly_before_it() {
+        let limit = Instant::now();
+        let before = limit.checked_sub(Duration::from_millis(1)).unwrap();
+        let after = limit.checked_add(Duration::from_millis(1)).unwrap();
+        assert!(within_deadline(Some(limit), before));
+        // À l'échéance même, le diff n'est pas tenu pour exact.
+        assert!(!within_deadline(Some(limit), limit));
+        assert!(!within_deadline(Some(limit), after));
+        assert!(within_deadline(None, after));
+    }
+
+    #[test]
+    fn a_side_without_words_has_a_zero_threshold_whatever_was_kept() {
+        let diff = |kept, old_words, new_words| WordDiff {
+            kept,
+            old_words,
+            new_words,
+            exact: true,
+            ..WordDiff::default()
+        };
+        assert!(!diff(0, 0, 3).shares_little());
+        assert!(!diff(5, 0, 3).shares_little());
+        // Jumeaux : un mot de A suffit à rouvrir le seuil, et B sans mot ferme la note.
+        assert!(diff(0, 1, 3).shares_little());
+        assert!(!diff(0, 1, 0).shares_little());
+        // Borne exacte : 40 % de 5 mots font 2 ; 2 conservés ne sont pas sous le seuil, 1 l'est.
+        assert!(!diff(2, 5, 5).shares_little());
+        assert!(diff(1, 5, 5).shares_little());
+    }
+
+    #[test]
+    fn a_diff_computed_in_time_is_exact_and_can_give_the_note() {
+        let old = "a1 a2 a3 a4 a5 a6 a7 a8 a9 a10";
+        assert!(
+            word_diff(old, "x1 x2", Instant::now().checked_add(Duration::from_secs(60)))
+                .shares_little()
+        );
+        assert!(word_diff(old, "x1 x2", None).shares_little());
     }
 
     #[test]
@@ -1123,5 +1303,265 @@ mod tests {
         assert_eq!(output.hunks.len(), 1);
         let text: usize = output.hunks.iter().map(hunk_text_chars).sum();
         assert!(text <= HUNK_TEXT_CAP, "{text}");
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Note de faible similarité (D-06)
+    // ---------------------------------------------------------------------------------------
+
+    /// La sortie du diff entre `a` (version 1) et `b` (version 2).
+    async fn diffed(a: &str, b: &str) -> DiffArticleOutput {
+        let corpus = serving(two_versions(), a, b);
+        run(&corpus, &clock(), input(&id_of(2), "2020-01-01", Some("2026-01-01"))).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn two_unrelated_texts_under_one_article_id_get_the_renumbering_note() {
+        let output = diffed(CIVIL_9_NATIONALITY, CIVIL_9_PRIVACY).await;
+
+        assert!(!output.identical);
+        assert_eq!(output.note.as_deref(), Some(LOW_SIMILARITY_NOTE));
+        assert_ne!(
+            output.hunks,
+            Vec::<HunkOut>::new(),
+            "la note s'ajoute au diff, elle ne le remplace pas"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_amendment_of_a_few_words_gets_no_note() {
+        let output = diffed(CIVIL_9_PRIVACY, CIVIL_9_AMENDED).await;
+
+        assert!(!output.identical);
+        assert_ne!(output.hunks, Vec::<HunkOut>::new());
+        assert_eq!(output.note, None);
+    }
+
+    /// Le champ `texte` d'un relevé `getArticle` (valeur lue telle qu'enregistrée, sans
+    /// `texteHtml`). Les textes de ces relevés ne portent aucune séquence d'échappement JSON : le
+    /// test échoue plutôt que de lire un texte déformé.
+    fn recorded_text(raw: &str) -> &str {
+        const KEY: &str = "\"texte\":\"";
+        let start = raw.find(KEY).unwrap().saturating_add(KEY.len());
+        let tail = &raw[start..];
+        let text = &tail[..tail.find('"').unwrap()];
+        assert!(!text.contains('\\'), "séquence d'échappement dans le relevé");
+        text
+    }
+
+    // Les six textes réels de la calibration du seuil (relevés `getArticle` de `c101/` et `c110/`).
+    // 1382 du Code civil : ancien (LEGIARTI000006438819, jusqu'au 2016-10-01) et actuel
+    // (LEGIARTI000032042379, sur les présomptions : l'ancien texte est devenu l'art. 1240).
+    // 1240 : ancien (LEGIARTI000006437044, le paiement fait de bonne foi) et actuel
+    // (LEGIARTI000032041571, la responsabilité). CGI 777 : versions 13 (LEGIARTI000026292569) et
+    // 14 (LEGIARTI000030061736), même tableau de taux.
+    fn civil_1382_old() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C7-getArticle-1382-ancienne-LEGIARTI000006438819.json"
+        ))
+    }
+    fn civil_1382_current() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c110/\
+             D06-getArticle-1382-actuel-LEGIARTI000032042379.json"
+        ))
+    }
+    fn civil_1240_old() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c110/\
+             D06-getArticle-1240-ancien-LEGIARTI000006437044.json"
+        ))
+    }
+    fn civil_1240_current() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C7-getArticle-1240-LEGIARTI000032041571.json"
+        ))
+    }
+    fn cgi_777_v13() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c110/\
+             D06-getArticle-cgi-777-v13-LEGIARTI000026292569.json"
+        ))
+    }
+    fn cgi_777_v14() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C11-getArticle-cgi-777-LEGIARTI000030061736.json"
+        ))
+    }
+
+    // Cinq textes réels longs (de 528 à 3 928 mots), sans rapport entre eux, pour la mesure du seuil
+    // sur des textes de la taille d'un vrai article de code (relevés `getArticle` de `c101/`).
+    fn cgi_163_bis_h() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C7-getArticle-cgi-163-bis-H-LEGIARTI000053543789.json"
+        ))
+    }
+    fn cgi_150_0_b_ter() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C1-getArticle-cgi-150-0-B-ter.json"
+        ))
+    }
+    fn cgi_199_terdecies_0_a() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C1-getArticle-cgi-199-terdecies-0-A.json"
+        ))
+    }
+    fn cgi_art_47288653() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C13-getArticle-LEGIARTI000047288653.json"
+        ))
+    }
+    fn rental_decency_43977105() -> &'static str {
+        recorded_text(include_str!(
+            "../../../lf-adapter-piste/tests/fixtures/recorded/consult/getArticle/c101/\
+             C8-getArticle-LEGIARTI000043977105.json"
+        ))
+    }
+
+    #[test]
+    fn the_recorded_texts_are_the_ones_the_calibration_names() {
+        assert!(civil_1382_old().starts_with("Tout fait quelconque de l'homme"));
+        assert!(civil_1382_current().starts_with("Les présomptions qui ne sont pas établies"));
+        assert!(civil_1240_old().starts_with("Le paiement fait de bonne foi"));
+        assert!(civil_1240_current().starts_with("Tout fait quelconque de l'homme"));
+        assert!(cgi_777_v13().starts_with("Les droits de mutation à titre gratuit"));
+        assert!(cgi_777_v14().starts_with("Les droits de mutation à titre gratuit"));
+    }
+
+    // Part de mots de A conservés dans B, mesurée avec `word_diff` sur les paires réelles
+    // (mots conservés, mots de A, mots de B) :
+    //   1382 ancien -> actuel : 4 sur 23 (17 %), note attendue (renumérotation, texte remplacé) ;
+    //   1240 ancien -> actuel : 7 sur 27 (26 %), note attendue (même cause) ;
+    //   CGI 777 v13 -> v14   : 292 sur 295 (99 %), aucune note (amendement d'un tarif).
+    // Deux textes sans rapport partagent déjà leurs mots outils : dans l'autre sens, 1240 actuel ->
+    // ancien garde 7 sur 23 (30,4 %), et l'ancien 1382 -> ancien 1240 aussi. Un seuil de 30 % les
+    // laissait passer sans note (et ne gardait que 4 points sur le 1240) ; 40 % garde 9 points sur
+    // la paire sans rapport la plus proche et 59 sur le CGI.
+    #[test]
+    fn the_threshold_separates_the_real_renumbered_pairs_from_the_real_amendment() {
+        assert_eq!(shared(civil_1382_old(), civil_1382_current()), (4, 23, 43, true));
+        assert_eq!(shared(civil_1240_old(), civil_1240_current()), (7, 27, 23, true));
+        assert_eq!(shared(cgi_777_v13(), cgi_777_v14()), (292, 295, 299, false));
+    }
+
+    #[test]
+    fn unrelated_real_texts_sharing_their_function_words_just_above_the_old_thirty_percent_threshold_get_the_note()
+     {
+        // 7 mots sur 23 : 30,4 %, au-dessus de l'ancien seuil de 30 %.
+        assert_eq!(shared(civil_1240_current(), civil_1240_old()), (7, 23, 27, true));
+        assert_eq!(shared(civil_1382_old(), civil_1240_old()), (7, 23, 27, true));
+        assert_eq!(shared(civil_1382_current(), civil_1382_old()), (4, 43, 23, true));
+    }
+
+    // Textes longs sans rapport : la LCS sur les mots outils croît avec la longueur, il fallait
+    // vérifier que la part conservée reste sous 40 %. Mesuré (mots conservés, mots de A, mots de
+    // B), dans les deux sens, sur les 45 paires de dix articles réels sans rapport (de 130 à
+    // 3 928 mots, CGI, loi de 1989, convention collective, annexe d'arrêté) : le maximum est de
+    // 25,8 % (CGI 163 bis H vers CGI 150-0 B ter, 486 sur 1 887), soit 14 points sous le
+    // seuil ; le CGI 150-0 B ter vers le 199 terdecies 0 A garde 19 % et son sens inverse 15 %.
+    // Aucun amendement réel de part intermédiaire (40 à 70 %) n'est enregistré : le seuil reste
+    // provisoire de ce côté, voir le CHANGELOG.
+    #[test]
+    fn long_unrelated_real_articles_stay_well_under_the_threshold() {
+        let long = [
+            (cgi_163_bis_h(), cgi_150_0_b_ter(), (486, 1887, 2634)),
+            (cgi_150_0_b_ter(), cgi_199_terdecies_0_a(), (500, 2634, 3928)),
+            (cgi_199_terdecies_0_a(), cgi_150_0_b_ter(), (603, 3928, 2634)),
+            (cgi_art_47288653(), cgi_150_0_b_ter(), (347, 1851, 2634)),
+            (rental_decency_43977105(), cgi_art_47288653(), (114, 528, 1851)),
+            (cgi_163_bis_h(), cgi_199_terdecies_0_a(), (356, 1887, 3928)),
+        ];
+        for (old, new, (kept, old_words, new_words)) in long {
+            // Note attendue : ces textes n'ont aucun rapport, ils doivent la recevoir.
+            assert_eq!(shared(old, new), (kept, old_words, new_words, true));
+            // Marge : la part reste sous 30 %, bien en dessous du seuil de 40 %.
+            assert!(kept * 100 < old_words * 30, "{kept} sur {old_words}");
+        }
+    }
+
+    #[tokio::test]
+    async fn real_renumbered_articles_get_the_note() {
+        for (old, new) in
+            [(civil_1382_old(), civil_1382_current()), (civil_1240_old(), civil_1240_current())]
+        {
+            let output = diffed(old, new).await;
+            assert!(!output.identical);
+            assert_eq!(output.note.as_deref(), Some(LOW_SIMILARITY_NOTE));
+            assert_ne!(output.hunks, Vec::<HunkOut>::new());
+        }
+    }
+
+    #[tokio::test]
+    async fn a_real_amendment_of_a_tariff_gets_no_note() {
+        let output = diffed(cgi_777_v13(), cgi_777_v14()).await;
+
+        assert!(!output.identical);
+        assert_ne!(output.hunks, Vec::<HunkOut>::new());
+        assert_eq!(output.note, None);
+    }
+
+    #[tokio::test]
+    async fn a_real_renumbering_that_keeps_the_text_gets_no_note() {
+        // Mesuré : l'ancien 1382 et le 1240 actuel portent le même texte, 23 mots sur 23
+        // conservés (100 %). La note ne vise que les renumérotations dont le texte change.
+        assert_eq!(shared(civil_1382_old(), civil_1240_current()), (23, 23, 23, false));
+        let output = diffed(civil_1382_old(), civil_1240_current()).await;
+
+        assert!(!output.identical);
+        assert_eq!(output.hunks, Vec::<HunkOut>::new());
+        assert_eq!(output.note, None);
+    }
+
+    #[tokio::test]
+    async fn identical_versions_get_no_note() {
+        let corpus = FakeCorpus::new();
+        corpus.push_article_versions(Ok(two_versions()));
+        corpus.push_get_article(Ok(article(2, CIVIL_9_PRIVACY)));
+
+        let output = run(&corpus, &clock(), input(&id_of(2), "2024-01-01", Some("2026-01-01")))
+            .await
+            .unwrap();
+
+        assert!(output.identical);
+        assert_eq!(output.note, None);
+    }
+
+    #[tokio::test]
+    async fn a_text_without_words_gets_no_note_and_no_division_by_zero() {
+        assert_eq!(diffed("", "").await.note, None);
+        assert_eq!(diffed("   ", "\n").await.note, None);
+        // Un seul côté vide : pas une renumérotation, ce que le diff montre déjà en entier.
+        assert_eq!(diffed("", CIVIL_9_PRIVACY).await.note, None);
+        assert_eq!(diffed(CIVIL_9_PRIVACY, "").await.note, None);
+    }
+
+    #[tokio::test]
+    async fn the_note_counts_kept_words_beyond_the_hunk_cap() {
+        // 2 000 mots, un sur quatre conservé (25 %) : 1 500 mots changés, en bien plus de
+        // `MAX_HUNKS` hunks. La part ne se lit pas sur les hunks conservés.
+        let old = (0..2_000).map(|n| format!("m{n}")).collect::<Vec<_>>().join(" ");
+        let new = (0..2_000)
+            .map(|n| if n % 4 == 0 { format!("m{n}") } else { format!("x{n}") })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let output = diffed(&old, &new).await;
+
+        assert!(output.truncated, "la réponse est bien coupée");
+        assert_eq!(output.note.as_deref(), Some(LOW_SIMILARITY_NOTE));
+        // Même cas, un mot sur deux conservé (50 %) : pas de note.
+        let half = (0..2_000)
+            .map(|n| if n % 2 == 0 { format!("m{n}") } else { format!("x{n}") })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let output = diffed(&old, &half).await;
+        assert!(output.truncated);
+        assert_eq!(output.note, None);
     }
 }

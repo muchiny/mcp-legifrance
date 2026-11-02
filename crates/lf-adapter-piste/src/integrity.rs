@@ -396,7 +396,7 @@ mod tests {
     // ---- Fixtures enregistrées (04 §13.4, plan 2h) ----------------------------------------
 
     /// Nombre de fixtures enregistrées versionnées (fichiers `.json`, sidecars non comptés).
-    const RECORDED: usize = 201;
+    const RECORDED: usize = 216;
 
     /// Clés obligatoires d'un sidecar enregistré (04 §13.4) ; `content_type` et
     /// `content_encoding` sont facultatives (absentes si l'en-tête l'était).

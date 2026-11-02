@@ -13,6 +13,7 @@ expression: schema
           "type": "string"
         },
         "quote": {
+          "description": "match or quote_mismatch. Only for an excerpt glued to the citation; absent: not checked.",
           "type": "string"
         },
         "raw": {
@@ -39,6 +40,18 @@ expression: schema
     "ResolvedView": {
       "properties": {
         "citation": {
+          "type": "string"
+        },
+        "date_debut": {
+          "description": "First day of this version, YYYY-MM-DD.",
+          "type": "string"
+        },
+        "date_fin": {
+          "description": "Day the next version (or the repeal) takes effect; absent: no known end.",
+          "type": "string"
+        },
+        "etat": {
+          "description": "In force: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF. Not yet: VIGUEUR_DIFF. DENONCE may still apply. Every code is classed in the etat of fr_get_text.",
           "type": "string"
         },
         "id": {

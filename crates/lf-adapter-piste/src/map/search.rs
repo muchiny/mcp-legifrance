@@ -1049,6 +1049,58 @@ mod tests {
         assert_eq!(date, Some(d(2020, 9, 11)));
     }
 
+    /// D-08, relevés `c110/D08-*` : la réponse filtrée ne porte que des états « en vigueur », la
+    /// réponse sans filtre en porte d'autres (le vrai positif, sans lequel le premier test serait vide).
+    const KALI_CC_ALL: &str =
+        include_str!("../../tests/fixtures/recorded/search/c110/D08-kali-cc-sans-filtre.json");
+    const KALI_CC_IN_FORCE: &str =
+        include_str!("../../tests/fixtures/recorded/search/c110/D08-kali-cc-vigueur-3.json");
+    const KALI_SYNTEC_ALL: &str =
+        include_str!("../../tests/fixtures/recorded/search/c110/D08-kali-syntec-sans-filtre.json");
+    const KALI_SYNTEC_IN_FORCE: &str =
+        include_str!("../../tests/fixtures/recorded/search/c110/D08-kali-syntec-vigueur-3.json");
+
+    fn states_of(json: &str) -> Vec<LegalStatus> {
+        let (page, _) = page_of(Fond::Kali, json);
+        page.hits.iter().filter_map(|hit| hit.etat.clone()).collect()
+    }
+
+    fn ids_of(json: &str) -> Vec<String> {
+        let (page, _) = page_of(Fond::Kali, json);
+        page.hits.iter().map(|hit| hit.id.as_str().to_owned()).collect()
+    }
+
+    #[test]
+    fn the_filtered_kali_page_holds_only_in_force_states() {
+        let (page, _) = page_of(Fond::Kali, KALI_CC_IN_FORCE);
+        assert_eq!(page.total, 17_733);
+        let states = states_of(KALI_CC_IN_FORCE);
+        assert_eq!(states.len(), 100);
+        let allowed =
+            [LegalStatus::Vigueur, LegalStatus::VigueurEtendue, LegalStatus::VigueurNonEtendue];
+        assert!(states.iter().all(|state| allowed.contains(state)), "{states:?}");
+    }
+
+    #[test]
+    fn the_unfiltered_kali_page_does_hold_other_states() {
+        let (page, _) = page_of(Fond::Kali, KALI_CC_ALL);
+        assert_eq!(page.total, 27_589);
+        assert!(states_of(KALI_CC_ALL).contains(&LegalStatus::Abroge));
+    }
+
+    #[test]
+    fn the_filter_drops_the_repealed_syntec_of_1987_and_keeps_the_one_of_2021() {
+        let (repealed, in_force) = ("KALITEXT000005679895", "KALITEXT000044253019");
+        let all = ids_of(KALI_SYNTEC_ALL);
+        assert!(
+            all.iter().any(|id| id == repealed) && all.iter().any(|id| id == in_force),
+            "{all:?}"
+        );
+        let kept = ids_of(KALI_SYNTEC_IN_FORCE);
+        assert!(!kept.iter().any(|id| id == repealed), "{kept:?}");
+        assert!(kept.iter().any(|id| id == in_force), "{kept:?}");
+    }
+
     /// Résultat de `json`, lu comme la production.
     fn result_of(json: &Value) -> SearchResultDto {
         decode(&json.to_string(), "/search").unwrap()

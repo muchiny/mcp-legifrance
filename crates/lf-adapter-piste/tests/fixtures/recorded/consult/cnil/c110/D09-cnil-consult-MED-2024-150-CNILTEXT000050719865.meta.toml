@@ -1,0 +1,14 @@
+endpoint = "/consult/cnil"
+request = "{\"textId\":\"CNILTEXT000050719865\"}"
+env = "sandbox"
+captured_at = "2026-11-01T23:05:11Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 221
+bytes_raw = 75771
+sha256_raw = "3ff4a7cb10bd450b8eed2d709d5e71985876a67c1d7b11f129420685a854cebb"
+sha256_file = "3ff4a7cb10bd450b8eed2d709d5e71985876a67c1d7b11f129420685a854cebb"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 1.0.1"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

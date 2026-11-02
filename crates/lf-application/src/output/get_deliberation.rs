@@ -10,7 +10,7 @@ use lf_domain::entity::Deliberation;
 use crate::{audited::AuditMetric, budget::Reading};
 
 /// Ce que `GetDeliberationUseCase` rend : la délibération (texte vidé) et sa lecture.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GetDeliberationOutput {
     /// Les métadonnées de la délibération. Son champ `text` est vidé : la lecture est dans
     /// [`GetDeliberationOutput::reading`].
@@ -73,6 +73,7 @@ mod tests {
             next_offset: None,
             passages: None,
             note: None,
+            summary_truncated: false,
         }
     }
 
@@ -98,8 +99,8 @@ mod tests {
             summary: Some(summary),
             text: Some("fghij".to_owned()),
             passages: Some(vec![
-                PassageOut { offset: 0, text: "klm".to_owned() },
-                PassageOut { offset: 9, text: "no".to_owned() },
+                PassageOut { offset: 0, text: "klm".to_owned(), score: 1.0 },
+                PassageOut { offset: 9, text: "no".to_owned(), score: 1.0 },
             ]),
             note: Some("la remarque n'est pas comptée".to_owned()),
             next_offset: Some(5),

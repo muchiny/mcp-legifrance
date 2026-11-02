@@ -22,8 +22,8 @@ use crate::{
     views::verify_citations::VerifyView,
 };
 
-/// Description de l'outil (715 caractères, 5 phrases ; 05 §5.9).
-pub(crate) const DESCRIPTION: &str = "Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles, laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; a quoted excerpt right after a citation is compared with the official text. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.";
+/// Description de l'outil (987 caractères, 5 phrases ; 05 §5.9 ; D-12 : ce que le contrôle ne dit pas).
+pub(crate) const DESCRIPTION: &str = "Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles (a bare number needs article/art.; one prefixed by L, R or D does not), laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements; found=0 does not prove that a text cites nothing. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; `verified` means the article exists, not that it says what the draft claims. A quoted excerpt is compared with the official text (`quote`) only when it is glued to the citation: no `quote` means NOT checked. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.";
 
 #[tool_router(router = verify_citations_router, vis = "pub(crate)")]
 impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
@@ -60,12 +60,34 @@ mod tests {
 
     #[test]
     fn the_description_is_the_documented_text() {
-        assert_eq!(DESCRIPTION.chars().count(), 715);
+        assert_eq!(DESCRIPTION.chars().count(), 968);
         assert!(DESCRIPTION.starts_with("Check every legal citation found in a text"));
         assert!(DESCRIPTION.contains("`max_citations` (default 50)"));
         assert!(DESCRIPTION.ends_with("for a single citation fr_resolve is lighter."));
         // Les outils cités le sont par leur nom d'enregistrement (05 §4.3).
         assert!(DESCRIPTION.contains("fr_resolve"));
+    }
+
+    /// D-12 (verify_citations-4 et -8, journey_patrimoine-3) : ce que le contrôle ne dit pas.
+    #[test]
+    fn the_description_says_what_is_checked_and_what_is_not() {
+        // Seul un extrait collé à la citation est contrôlé ; sans `quote`, rien n'a été contrôlé.
+        assert!(DESCRIPTION.contains("only when it is glued to the citation"), "{DESCRIPTION}");
+        assert!(DESCRIPTION.contains("no `quote` means NOT checked"), "{DESCRIPTION}");
+        // `found` à 0 ne prouve pas l'absence de citation ; un article de code se lit après
+        // « article » ou « art. ».
+        assert!(DESCRIPTION.contains("found=0 does not prove"), "{DESCRIPTION}");
+        // Revue finale de la PR 2 : seul un numéro nu exige « article » ou « art. » ; un numéro
+        // préfixé (L., R., D., LO, A), avec ou sans nom de code, est lu sans (grammaire des codes).
+        assert!(
+            DESCRIPTION
+                .contains("a bare number needs article/art.; one prefixed by L, R or D does not"),
+            "{DESCRIPTION}"
+        );
+        assert!(!DESCRIPTION.contains("only when introduced"), "{DESCRIPTION}");
+        // `verified` ne dit pas que l'article dit ce que le brouillon prétend.
+        assert!(DESCRIPTION.contains("`verified` means the article exists"), "{DESCRIPTION}");
+        assert!(DESCRIPTION.chars().count() <= 1_000);
     }
 
     #[cfg(feature = "test-support")]
@@ -75,7 +97,13 @@ mod tests {
             ports::{AuditStatus, CorpusError},
             tools::ToolName,
         };
-        use lf_domain::{entity::CodeListing, id::LegiTextId, status::LegalStatus};
+        use lf_domain::{
+            date::CivilDate,
+            entity::{ArticleText, CodeListing},
+            id::{ArticleId, LegiTextId},
+            status::LegalStatus,
+            text::LongText,
+        };
         use pretty_assertions::assert_eq;
         use rmcp::model::CallToolRequestParams;
         use serde_json::{Value, json};
@@ -130,6 +158,47 @@ mod tests {
             assert_eq!(records[0].tool, ToolName::FR_VERIFY_CITATIONS);
             assert_eq!(records[0].status, AuditStatus::Ok);
             assert_eq!(records[0].output_count_or_size, 1, "le nombre de citations contrôlées");
+        }
+
+        /// D-03-suite : un article cité par son identifiant LEGIARTI porte `etat`, `date_debut`
+        /// et `date_fin` sur le fil ; la date de fin sentinelle 2999 est omise ; pas de `note`
+        /// de version sur ce chemin (asymétrie assumée avec le chemin par numéro).
+        #[tokio::test]
+        async fn an_article_cited_by_its_identifier_carries_its_validity_on_the_wire() {
+            let article = |date_fin| ArticleText {
+                article_id: ArticleId::parse("LEGIARTI000006419288").unwrap(),
+                num: Some("9".to_owned()),
+                etat: LegalStatus::parse("VIGUEUR"),
+                code_title: Some("Code civil".to_owned()),
+                parent: None,
+                path: Vec::new(),
+                full_sections_titre: None,
+                date_debut: CivilDate::new(1970, 7, 19),
+                date_fin,
+                text: LongText::from_plain("Chacun a droit au respect de sa vie privée.").unwrap(),
+                nota: None,
+            };
+            let fixture = Fixture::default();
+            fixture.corpus.push_get_article(Ok(article(CivilDate::new(2999, 1, 1))));
+            let result =
+                call(&fixture, &json!({"text": "Voir LEGIARTI000006419288 pour la règle."})).await;
+            assert_eq!(result.is_error, Some(false));
+            let content = result.structured_content.unwrap();
+            let citation = &content["citations"][0];
+            assert_eq!(citation["status"], "verified", "{content}");
+            let resolved = &citation["resolved"];
+            assert_eq!(resolved["etat"], "VIGUEUR", "{content}");
+            assert_eq!(resolved["date_debut"], "1970-07-19", "{content}");
+            assert!(resolved.get("date_fin").is_none(), "sentinelle omise : {content}");
+            assert!(citation.get("note").is_none(), "{content}");
+
+            // Jumeau : une vraie date de fin est rendue.
+            let fixture = Fixture::default();
+            fixture.corpus.push_get_article(Ok(article(CivilDate::new(2011, 6, 12))));
+            let result =
+                call(&fixture, &json!({"text": "Voir LEGIARTI000006419288 pour la règle."})).await;
+            let content = result.structured_content.unwrap();
+            assert_eq!(content["citations"][0]["resolved"]["date_fin"], "2011-06-12", "{content}");
         }
 
         #[tokio::test]

@@ -27,8 +27,9 @@ pub(crate) const FOUND_DATES_MAX: usize = 5;
 const QUOTE_GAP: &str = "Quoted text not found in the official text.";
 
 /// Texte de [`Note::NoCitationRecognised`].
-const NO_CITATION: &str = "No citation recognised. Only citations introduced by 'article' or \
-     'art.' are read; an empty result does not prove the text cites nothing.";
+const NO_CITATION: &str = "No citation recognised. A bare number needs 'article' or 'art.'; a \
+     prefixed one (L. 1234-5, R., D.) needs neither, with or without a code name. An empty \
+     result does not prove the text cites nothing.";
 
 /// Texte de [`Note::NumberlessText`].
 const NUMBERLESS_TEXT: &str = "A text cited without a number cannot be checked here; find it with \
@@ -433,8 +434,16 @@ fn no_record_at_date_text(
 /// Texte de [`Note::NotCurrentVersion`].
 fn not_current_text(on: VersionDate, etat: &str, ended: Option<CivilDate>) -> String {
     let ended = ended.map_or_else(String::new, |date| format!(", ended {date}"));
+    // Une convention dénoncée peut encore s'appliquer pendant le préavis et la survie (glossaire
+    // de `etat`) : l'état est signalé sans dire que le texte est hors de vigueur.
+    let denounced = if etat == "DENONCE" {
+        "; denounced, may still apply during notice and survival"
+    } else {
+        ""
+    };
     format!(
-        "Version in force on {on} (etat={etat}{ended}); omit the date to read the current text."
+        "Version in force on {on} (etat={etat}{ended}{denounced}); omit the date to read the \
+         current text."
     )
 }
 
@@ -712,7 +721,7 @@ mod tests {
             ),
             (
                 Note::NoCitationRecognised,
-                "No citation recognised. Only citations introduced by 'article' or 'art.' are read; an empty result does not prove the text cites nothing.",
+                "No citation recognised. A bare number needs 'article' or 'art.'; a prefixed one (L. 1234-5, R., D.) needs neither, with or without a code name. An empty result does not prove the text cites nothing.",
             ),
             (
                 Note::OtherCitations { count: 2 },
@@ -860,6 +869,14 @@ mod tests {
             (
                 Note::NotCurrentVersion { on: date("2011-06-01"), etat: "ABROGE", ended: None },
                 "Version in force on 2011-06-01 (etat=ABROGE); omit the date to read the current text.",
+            ),
+            (
+                Note::NotCurrentVersion {
+                    on: date("2011-06-01"),
+                    etat: "DENONCE",
+                    ended: Some(civil(2011, 6, 12)),
+                },
+                "Version in force on 2011-06-01 (etat=DENONCE, ended 2011-06-12; denounced, may still apply during notice and survival); omit the date to read the current text.",
             ),
             (Note::SubdivisionNotChecked, "The sub-division was not checked, only the article."),
             (
