@@ -319,10 +319,10 @@ impl WordDiff {
     /// Vrai quand le diff est exact (échéance tenue), que les deux textes ont des mots et que
     /// moins de [`LOW_SIMILARITY_PERCENT`] % des mots de A sont conservés dans B : la comparaison
     /// porte sans doute sur deux textes sans rapport (article renuméroté ou remplacé). Un côté sans
-    /// mot n'est pas une renumérotation ; une échéance expirée ne donne jamais la note.
+    /// mot n'est pas une renumérotation (sans mot dans A, le seuil est nul et rien n'est jamais
+    /// en deçà) ; une échéance expirée ne donne jamais la note.
     fn shares_little(&self) -> bool {
         self.exact
-            && self.old_words > 0
             && self.new_words > 0
             && self.kept.saturating_mul(100) < self.old_words.saturating_mul(LOW_SIMILARITY_PERCENT)
     }
@@ -345,7 +345,7 @@ fn word_diff(old: &str, new: &str, deadline: Option<Instant>) -> WordDiff {
             .iter()
             .map(similar::DiffOp::as_tag_tuple)
             .collect();
-    let exact = deadline.is_none_or(|limit| Instant::now() < limit);
+    let exact = within_deadline(deadline, Instant::now());
     let kept = ops
         .iter()
         .filter(|(tag, ..)| *tag == DiffTag::Equal)
@@ -363,6 +363,12 @@ fn word_diff(old: &str, new: &str, deadline: Option<Instant>) -> WordDiff {
         })
         .collect();
     WordDiff { hunks, kept, old_words: before.words.len(), new_words: after.words.len(), exact }
+}
+
+/// Vrai quand le diff est exact : pas d'échéance, ou `measured` (l'instant relevé après le calcul)
+/// strictement avant elle. À l'échéance même, `similar` a déjà pu rendre un diff grossier.
+fn within_deadline(deadline: Option<Instant>, measured: Instant) -> bool {
+    deadline.is_none_or(|limit| measured < limit)
 }
 
 /// Les mots joints par une espace ; `None` s'il n'y en a pas.
@@ -1144,6 +1150,37 @@ mod tests {
         let expired = Instant::now().checked_sub(Duration::from_secs(10));
         let rough = word_diff(&old, &new, expired);
         assert!(!rough.shares_little(), "kept = {} sur {}", rough.kept, rough.old_words);
+    }
+
+    #[test]
+    fn the_deadline_is_met_only_strictly_before_it() {
+        let limit = Instant::now();
+        let before = limit.checked_sub(Duration::from_millis(1)).unwrap();
+        let after = limit.checked_add(Duration::from_millis(1)).unwrap();
+        assert!(within_deadline(Some(limit), before));
+        // À l'échéance même, le diff n'est pas tenu pour exact.
+        assert!(!within_deadline(Some(limit), limit));
+        assert!(!within_deadline(Some(limit), after));
+        assert!(within_deadline(None, after));
+    }
+
+    #[test]
+    fn a_side_without_words_has_a_zero_threshold_whatever_was_kept() {
+        let diff = |kept, old_words, new_words| WordDiff {
+            kept,
+            old_words,
+            new_words,
+            exact: true,
+            ..WordDiff::default()
+        };
+        assert!(!diff(0, 0, 3).shares_little());
+        assert!(!diff(5, 0, 3).shares_little());
+        // Jumeaux : un mot de A suffit à rouvrir le seuil, et B sans mot ferme la note.
+        assert!(diff(0, 1, 3).shares_little());
+        assert!(!diff(0, 1, 0).shares_little());
+        // Borne exacte : 40 % de 5 mots font 2 ; 2 conservés ne sont pas sous le seuil, 1 l'est.
+        assert!(!diff(2, 5, 5).shares_little());
+        assert!(diff(1, 5, 5).shares_little());
     }
 
     #[test]

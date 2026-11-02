@@ -602,6 +602,28 @@ mod tests {
     }
 
     #[test]
+    fn a_whole_text_with_a_cut_official_summary_flags_the_summary() {
+        // Texte court (article de 1 800 caractères, donc rendu entier) et sommaire officiel de
+        // 1 600 caractères, coupé au plafond de 1 200 : le texte est entier, le sommaire non.
+        let text = flat(1_800);
+        let request = request(|_| {}).for_article();
+        let cut_official = OfficialSummary::new(["Mot ".repeat(400)], Vec::<String>::new());
+        let flagged = read(&text, Some(&cut_official), DispositifRule::None, &request).unwrap();
+        assert_eq!(flagged.text.as_deref(), Some(text.as_str()));
+        assert_eq!(flagged.summary.as_ref().map(|s| s.source), Some(SummarySource::Official));
+        assert!(flagged.summary_truncated);
+        // Jumeau : un sommaire officiel court n'est pas coupé, le texte entier est le même.
+        let short = OfficialSummary::new(["Analyse officielle courte."], Vec::<String>::new());
+        let kept = read(&text, Some(&short), DispositifRule::None, &request).unwrap();
+        assert_eq!(kept.text.as_deref(), Some(text.as_str()));
+        assert_eq!(kept.summary.as_ref().map(|s| s.source), Some(SummarySource::Official));
+        assert!(!kept.summary_truncated);
+        // Jumeau : sans sommaire officiel, le début coupé n'est pas rendu et rien n'est signalé.
+        let bare = read(&text, None, DispositifRule::None, &request).unwrap();
+        assert_eq!((bare.summary, bare.summary_truncated), (None, false));
+    }
+
+    #[test]
     fn modes_without_a_summary_never_flag_one() {
         let text = long(&paragraphs(30, 4));
         let full = run(&text, &request(|i| i.detail = Some("full".to_owned()))).unwrap();
