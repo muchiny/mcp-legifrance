@@ -200,6 +200,68 @@ mod tests {
         );
     }
 
+    /// U15 : la note d'un KALIARTI terminé arrive au client avec le conseil des conventions, celle
+    /// d'un LEGIARTI avec le conseil des codes ; les deux familles par l'appel complet.
+    #[tokio::test]
+    async fn an_ended_kali_article_note_reaches_the_client() {
+        let fixture = Fixture::default();
+        let mut kali = article("Le salaire minimum est fixé par accord.");
+        kali.article_id = ArticleId::parse("KALIARTI000044253031").unwrap();
+        kali.parent =
+            Some(ParentText::new(DocumentId::parse("KALITEXT000044253019").unwrap(), None));
+        kali.etat = LegalStatus::parse("REMPLACE");
+        kali.date_fin = CivilDate::new(2023, 5, 1);
+        fixture.corpus.push_get_article(Ok(kali));
+        let mut legi = article(PRIVACY);
+        legi.etat = LegalStatus::parse("MODIFIE");
+        legi.date_fin = CivilDate::new(2016, 10, 1);
+        fixture.corpus.push_get_article(Ok(legi));
+
+        let kali = call(&fixture, &json!({"article_id": "KALIARTI000044253031"})).await;
+        let legi = call(&fixture, &json!({"article_id": ID})).await;
+
+        let kali = kali.structured_content.unwrap();
+        let note = kali["note"].as_str().unwrap();
+        assert!(note.starts_with("Not the version in force (etat=REMPLACE, ended 2023-05-01). "));
+        assert!(note.contains("fr_get_convention"), "{note}");
+        assert!(!note.contains("Use fr_resolve"), "{note}");
+        let legi = legi.structured_content.unwrap();
+        assert_eq!(
+            legi["note"],
+            "Not the version in force (etat=MODIFIE, ended 2016-10-01). Use fr_resolve with a date, or fr_diff_article, for the text in force."
+        );
+    }
+
+    #[tokio::test]
+    async fn an_ended_kali_article_and_a_denounced_one_reach_the_client_with_their_own_advice() {
+        let fixture = Fixture::default();
+        for (id, code) in [("KALIARTI000044253031", "ABROGE"), ("KALIARTI000005803334", "DENONCE")]
+        {
+            let mut kali = article("Texte.");
+            kali.article_id = ArticleId::parse(id).unwrap();
+            kali.parent =
+                Some(ParentText::new(DocumentId::parse("KALITEXT000005660172").unwrap(), None));
+            kali.etat = LegalStatus::parse(code);
+            kali.date_fin = CivilDate::new(2000, 1, 14);
+            fixture.corpus.push_get_article(Ok(kali));
+        }
+
+        let ended = call(&fixture, &json!({"article_id": "KALIARTI000044253031"})).await;
+        let denounced = call(&fixture, &json!({"article_id": "KALIARTI000005803334"})).await;
+
+        let ended = ended.structured_content.unwrap();
+        let ended = ended["note"].as_str().unwrap();
+        assert!(ended.starts_with("Not the version in force (etat=ABROGE, ended 2000-01-14)."));
+        assert!(ended.contains("look in its toc"), "{ended}");
+        let denounced = denounced.structured_content.unwrap();
+        let denounced = denounced["note"].as_str().unwrap();
+        assert!(
+            denounced.starts_with("Denounced (etat=DENONCE, ended 2000-01-14); it may still apply")
+        );
+        assert!(denounced.contains("gives the etat of the convention itself"), "{denounced}");
+        assert!(!denounced.contains("look in its toc"), "{denounced}");
+    }
+
     #[tokio::test]
     async fn sentinel_dates_omitted() {
         let fixture = Fixture::default();

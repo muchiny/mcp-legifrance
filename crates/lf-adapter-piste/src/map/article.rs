@@ -1076,6 +1076,25 @@ mod tests {
         assert_eq!(diags.id_mismatch, 0);
     }
 
+    /// U15 (garde) : un article de convention terminé garde sa famille, son `etat` et sa date de fin
+    /// au mapping (forme de production : Syntec art. 7, `REMPLACE`, fin 2023-05-01). La note de
+    /// `fr_get_text` se décide sur ces trois données.
+    #[test]
+    fn an_ended_kali_article_keeps_its_family_etat_and_end_date() {
+        let kali = "KALIARTI000044253031";
+        let json = format!(
+            r#"{{"id":"{kali}","num":"7","etat":"REMPLACE","dateDebut":"2022-01-01","dateFin":"2023-05-01","texte":"Texte","textTitles":[{{"nature":"???","titre":"Syntec","cid":"KALITEXT000044253019"}}]}}"#
+        );
+
+        let (mapped, _) = run(&json, kali);
+
+        let article = mapped.unwrap();
+        assert_eq!(article.article_id, art(kali));
+        assert_eq!(article.etat, Some(LegalStatus::Remplace));
+        assert_eq!(article.date_fin, Some(d(2023, 5, 1)));
+        assert_eq!(article.num.as_deref(), Some("7"));
+    }
+
     #[test]
     fn law_article_citation_through_the_mapping() {
         let law = "LEGIARTI000033219575";

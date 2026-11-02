@@ -14,7 +14,7 @@ use lf_application::output::get_text::GetTextOutput;
 use lf_domain::{
     contract::{Citable, Eli},
     date::CivilDate,
-    id::DocumentId,
+    id::{ArticleId, DocumentId},
     status::LegalStatus,
 };
 use schemars::JsonSchema;
@@ -79,6 +79,22 @@ fn readable_parent_id(id: &DocumentId) -> Option<String> {
     matches!(id, DocumentId::LegiText(_) | DocumentId::KaliText(_)).then(|| id.as_str().to_owned())
 }
 
+/// Fin de la note d'un article de code (LEGIARTI) terminé : `fr_resolve` avec une date et
+/// `fr_diff_article` lisent les autres versions d'un article de code.
+const LEGI_ENDED_ADVICE: &str =
+    "Use fr_resolve with a date, or fr_diff_article, for the text in force.";
+/// Fin de la note d'un article de code (LEGIARTI) dénoncé.
+const LEGI_DENOUNCED_ADVICE: &str =
+    "Use fr_resolve with a date, or fr_diff_article, to compare versions.";
+/// Fin de la note d'un article de convention (KALIARTI) terminé : `fr_diff_article` refuse un
+/// KALIARTI et `fr_resolve` ne retrouve pas « l'article 7 de la convention » par son numéro ; la
+/// table des matières de la convention est le seul chemin. Aucune promesse de version courante :
+/// sous un texte abrogé il n'y en a pas, et une entrée sans `etat` a celui de la convention.
+const KALI_ENDED_ADVICE: &str = "fr_resolve and fr_diff_article cannot give another version of a convention article: call fr_get_convention with parent_id (if absent, fr_search on fond KALI) and look in its toc (toc_offset pages it) for the entry with the same num in the same section; an entry shown without etat has the etat of the convention itself, and there may be no current version.";
+/// Fin de la note d'un article de convention (KALIARTI) dénoncé : pas de « même num » (le `toc`
+/// d'une convention dénoncée ne contient que l'article lu et son voisin).
+const KALI_DENOUNCED_ADVICE: &str = "fr_resolve and fr_diff_article cannot compare versions of a convention article: fr_get_convention with parent_id gives the etat of the convention itself.";
+
 /// Note (champ `note` existant, aucun octet de schéma) quand l'article lu n'est plus la version en
 /// vigueur : un texte exact d'une version terminée se lit sinon comme le droit actuel (L3-13).
 ///
@@ -88,26 +104,33 @@ fn readable_parent_id(id: &DocumentId) -> Option<String> {
 /// `ABROGE_DIFF` (encore en vigueur), `VIGUEUR_DIFF` (pas encore en vigueur : l'avertissement
 /// parlerait d'une version terminée), `INITIALE`, `SANS_ETAT` et les codes inconnus n'en portent pas. La date de fin n'est citée que
 /// si elle est réelle (hors zone sentinelle).
-fn not_in_force_note(etat: Option<&LegalStatus>, date_fin: Option<CivilDate>) -> Option<String> {
+///
+/// Le début de la note est le même pour les deux familles ; seule la fin dépend de l'identifiant :
+/// le conseil des codes (LEGIARTI) renverrait un lecteur de convention (KALIARTI) vers deux outils
+/// qui ne lisent pas une autre version de son article.
+fn not_in_force_note(
+    article_id: &ArticleId,
+    etat: Option<&LegalStatus>,
+    date_fin: Option<CivilDate>,
+) -> Option<String> {
     let etat = etat?;
     if !etat.is_superseded() {
         return None;
     }
+    let kali = matches!(article_id, ArticleId::Kali(_));
     let code = etat.as_api_code();
     let since =
         date_unless_sentinel(date_fin).map_or_else(String::new, |date| format!(", ended {date}"));
     // Une convention dénoncée peut encore s'appliquer pendant le préavis et la survie (glossaire
     // de `etat`) : l'avertissement le dit au lieu d'affirmer que ce n'est pas la version en vigueur.
     if matches!(etat, LegalStatus::Denonce) {
+        let advice = if kali { KALI_DENOUNCED_ADVICE } else { LEGI_DENOUNCED_ADVICE };
         return Some(format!(
-            "Denounced (etat={code}{since}); it may still apply during notice and survival. Use \
-             fr_resolve with a date, or fr_diff_article, to compare versions."
+            "Denounced (etat={code}{since}); it may still apply during notice and survival. {advice}"
         ));
     }
-    Some(format!(
-        "Not the version in force (etat={code}{since}). Use fr_resolve with a date, or \
-         fr_diff_article, for the text in force."
-    ))
+    let advice = if kali { KALI_ENDED_ADVICE } else { LEGI_ENDED_ADVICE };
+    Some(format!("Not the version in force (etat={code}{since}). {advice}"))
 }
 
 /// Joint la note de lecture et l'avertissement de version, séparés par une espace.
@@ -121,7 +144,8 @@ fn join_notes(reading: Option<String>, version: Option<String>) -> Option<String
 impl From<GetTextOutput> for ArticleView {
     fn from(output: GetTextOutput) -> Self {
         let GetTextOutput { article, nota, reading } = output;
-        let version_note = not_in_force_note(article.etat.as_ref(), article.date_fin);
+        let version_note =
+            not_in_force_note(&article.article_id, article.etat.as_ref(), article.date_fin);
         let mut reading = ReadingView::from(reading);
         reading.note = join_notes(reading.note.take(), version_note);
         let contract = article.contract();
@@ -443,7 +467,401 @@ mod tests {
 
         let view = view_json(output(kali, whole("Texte.")));
 
-        assert!(view["note"].as_str().unwrap().contains("etat=ABROGE, ended 2016-08-01"));
+        assert_eq!(
+            view["note"],
+            format!(
+                "Not the version in force (etat=ABROGE, ended 2016-08-01). {KALI_ENDED_ADVICE}"
+            )
+        );
+    }
+
+    // ---- U15 : la note d'un article de convention ne renvoie pas vers des outils qui ne le lisent pas.
+    // Les textes attendus sont écrits en toutes lettres : le test fige les octets, pas une constante.
+
+    const KALI_ENDED_ADVICE: &str = "fr_resolve and fr_diff_article cannot give another version of a convention article: call fr_get_convention with parent_id (if absent, fr_search on fond KALI) and look in its toc (toc_offset pages it) for the entry with the same num in the same section; an entry shown without etat has the etat of the convention itself, and there may be no current version.";
+    const KALI_DENOUNCED_ADVICE: &str = "fr_resolve and fr_diff_article cannot compare versions of a convention article: fr_get_convention with parent_id gives the etat of the convention itself.";
+    const ENDED_ETATS: [&str; 9] = [
+        "MODIFIE",
+        "MODIFIE_MORT_NE",
+        "ABROGE",
+        "PERIME",
+        "ANNULE",
+        "DISJOINT",
+        "REMPLACE",
+        "SUBSTITUE",
+        "TRANSFERE",
+    ];
+
+    /// Syntec, art. 7 (`KALIARTI000044253031`), sous la convention `KALITEXT000044253019`.
+    fn kali_with_etat(code: &str, date_fin: Option<CivilDate>) -> ArticleText {
+        ArticleText {
+            article_id: ArticleId::parse("KALIARTI000044253031").unwrap(),
+            num: Some("7".to_owned()),
+            parent: Some(ParentText::new(DocumentId::parse("KALITEXT000044253019").unwrap(), None)),
+            code_title: None,
+            ..with_etat(code, date_fin)
+        }
+    }
+
+    fn note_of(article: ArticleText) -> String {
+        let view = view_json(output(article, whole("T.")));
+        view["note"].as_str().expect("pas de note").to_owned()
+    }
+
+    /// Syntec art. 7 (c0798) : fin de phrase propre aux conventions, début inchangé.
+    #[test]
+    fn a_superseded_kali_article_points_to_its_convention_toc() {
+        let note = note_of(kali_with_etat("REMPLACE", Some(day(2023, 5, 1))));
+
+        assert_eq!(
+            note,
+            format!(
+                "Not the version in force (etat=REMPLACE, ended 2023-05-01). {KALI_ENDED_ADVICE}"
+            )
+        );
+        assert!(!note.contains("Use fr_resolve"), "{note}");
+    }
+
+    #[test]
+    fn every_ended_etat_on_a_kali_article_gets_the_convention_advice() {
+        for code in ENDED_ETATS {
+            let note = note_of(kali_with_etat(code, Some(day(2014, 3, 27))));
+            assert_eq!(
+                note,
+                format!(
+                    "Not the version in force (etat={code}, ended 2014-03-27). {KALI_ENDED_ADVICE}"
+                ),
+                "{code}"
+            );
+            assert!(!note.contains("Use fr_resolve"), "{code}: {note}");
+        }
+        // Sans date de fin ou avec la sentinelle : la date n'est pas citée, le conseil est le même.
+        for date_fin in [None, Some(day(2999, 1, 1))] {
+            assert_eq!(
+                note_of(kali_with_etat("ABROGE", date_fin)),
+                format!("Not the version in force (etat=ABROGE). {KALI_ENDED_ADVICE}"),
+                "{date_fin:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_denounced_kali_article_keeps_its_denounced_wording_with_the_convention_advice() {
+        // KALIARTI000005803334 : réel en production (c1986), fin 2000-01-14.
+        let denounced = |date_fin| ArticleText {
+            article_id: ArticleId::parse("KALIARTI000005803334").unwrap(),
+            parent: Some(ParentText::new(DocumentId::parse("KALITEXT000005660172").unwrap(), None)),
+            ..kali_with_etat("DENONCE", date_fin)
+        };
+
+        assert_eq!(
+            note_of(denounced(Some(day(2000, 1, 14)))),
+            format!(
+                "Denounced (etat=DENONCE, ended 2000-01-14); it may still apply during notice and \
+                 survival. {KALI_DENOUNCED_ADVICE}"
+            )
+        );
+        let without = note_of(denounced(None));
+        assert!(without.starts_with("Denounced (etat=DENONCE); it may still apply"), "{without}");
+        assert!(without.ends_with(KALI_DENOUNCED_ADVICE), "{without}");
+        assert!(!without.contains("Not the version in force"), "{without}");
+    }
+
+    #[test]
+    fn a_denounced_kali_article_does_not_send_the_reader_looking_for_another_version() {
+        let note = note_of(kali_with_etat("DENONCE", Some(day(2000, 1, 14))));
+
+        assert!(!note.contains("to compare versions"), "{note}");
+        assert!(!note.contains("Use fr_resolve"), "{note}");
+        assert!(!note.contains("for the text in force"), "{note}");
+    }
+
+    #[test]
+    fn a_denounced_kali_article_points_to_the_convention_etat_not_to_a_same_num() {
+        let note = note_of(kali_with_etat("DENONCE", Some(day(2000, 1, 14))));
+
+        assert!(note.contains("fr_get_convention with parent_id gives the etat"), "{note}");
+        assert!(!note.contains("same num"), "{note}");
+        assert!(!note.contains("toc"), "{note}");
+    }
+
+    /// KALIARTI000033860231 : préambule sans `num`, sous un texte en vigueur (KALITEXT000033860222).
+    #[test]
+    fn an_ended_kali_article_without_num_under_a_living_text_says_there_may_be_no_current_version()
+    {
+        let preamble = ArticleText {
+            article_id: ArticleId::parse("KALIARTI000033860231").unwrap(),
+            num: None,
+            parent: Some(ParentText::new(DocumentId::parse("KALITEXT000033860222").unwrap(), None)),
+            ..kali_with_etat("ABROGE", Some(day(2019, 1, 1)))
+        };
+
+        let note = note_of(preamble);
+
+        assert!(note.starts_with("Not the version in force (etat=ABROGE, ended 2019-01-01). "));
+        assert!(note.ends_with("and there may be no current version."), "{note}");
+    }
+
+    #[test]
+    fn the_kali_advice_follows_the_reading_note_after_a_space() {
+        let reading = Reading { note: Some("Reading note.".to_owned()), ..whole("T.") };
+
+        let ended =
+            view_json(output(kali_with_etat("REMPLACE", Some(day(2023, 5, 1))), reading.clone()));
+        assert_eq!(
+            ended["note"],
+            format!(
+                "Reading note. Not the version in force (etat=REMPLACE, ended 2023-05-01). \
+                 {KALI_ENDED_ADVICE}"
+            )
+        );
+        // Version en vigueur : la note de lecture reste seule, inchangée.
+        let current = view_json(output(kali_with_etat("VIGUEUR_ETEN", None), reading));
+        assert_eq!(current["note"], "Reading note.");
+    }
+
+    /// `fr_resolve` lit un KALIARTI par identifiant (il rend l'état et la fin) : la note ne dit pas
+    /// le contraire.
+    #[test]
+    fn the_kali_advice_does_not_claim_fr_resolve_cannot_read_a_kaliarti() {
+        for code in ["REMPLACE", "ABROGE", "DENONCE"] {
+            let note = note_of(kali_with_etat(code, Some(day(2023, 5, 1))));
+            assert!(!note.contains("do not read"), "{code}: {note}");
+            assert!(!note.contains("cannot read"), "{code}: {note}");
+            assert!(!note.contains("does not read"), "{code}: {note}");
+        }
+    }
+
+    #[test]
+    fn a_kali_note_without_parent_id_names_the_search_fallback() {
+        let orphan =
+            ArticleText { parent: None, ..kali_with_etat("REMPLACE", Some(day(2023, 5, 1))) };
+
+        let view = view_json(output(orphan, whole("T.")));
+
+        assert!(view.get("parent_id").is_none(), "{view}");
+        let note = view["note"].as_str().unwrap();
+        assert!(note.contains("(if absent, fr_search on fond KALI)"), "{note}");
+    }
+
+    #[test]
+    fn a_kali_article_with_an_unreadable_or_absent_parent_gets_the_same_note_and_no_parent_id() {
+        let expected = format!(
+            "Not the version in force (etat=REMPLACE, ended 2023-05-01). {KALI_ENDED_ADVICE}"
+        );
+        let jorf = Some(ParentText::new(DocumentId::parse("JORFTEXT000033202746").unwrap(), None));
+        for parent in [None, jorf] {
+            let article =
+                ArticleText { parent, ..kali_with_etat("REMPLACE", Some(day(2023, 5, 1))) };
+            let view = view_json(output(article, whole("T.")));
+            assert!(view.get("parent_id").is_none(), "{view}");
+            assert_eq!(view["note"], expected);
+        }
+    }
+
+    #[test]
+    fn the_kali_note_ignores_a_start_date_equal_to_the_end_date() {
+        let same_day = ArticleText {
+            date_debut: Some(day(2023, 5, 1)),
+            ..kali_with_etat("REMPLACE", Some(day(2023, 5, 1)))
+        };
+
+        assert_eq!(
+            note_of(same_day),
+            format!(
+                "Not the version in force (etat=REMPLACE, ended 2023-05-01). {KALI_ENDED_ADVICE}"
+            )
+        );
+    }
+
+    /// Un `match` exhaustif : un nouveau code de `LegalStatus` oblige à choisir ici.
+    const fn status_index(status: &LegalStatus) -> usize {
+        match status {
+            LegalStatus::Vigueur => 0,
+            LegalStatus::VigueurEtendue => 1,
+            LegalStatus::VigueurNonEtendue => 2,
+            LegalStatus::VigueurDifferee => 3,
+            LegalStatus::Abroge => 4,
+            LegalStatus::AbrogeDiff => 5,
+            LegalStatus::Modifie => 6,
+            LegalStatus::ModifieMortNe => 7,
+            LegalStatus::Perime => 8,
+            LegalStatus::Annule => 9,
+            LegalStatus::Disjoint => 10,
+            LegalStatus::Transfere => 11,
+            LegalStatus::Remplace => 12,
+            LegalStatus::Denonce => 13,
+            LegalStatus::Initiale => 14,
+            LegalStatus::SansEtat => 15,
+            LegalStatus::Substitue => 16,
+            LegalStatus::Other(_) => 17,
+        }
+    }
+
+    #[test]
+    fn superseded_status_x_family_note_shape() {
+        let statuses = [
+            LegalStatus::Vigueur,
+            LegalStatus::VigueurEtendue,
+            LegalStatus::VigueurNonEtendue,
+            LegalStatus::VigueurDifferee,
+            LegalStatus::Abroge,
+            LegalStatus::AbrogeDiff,
+            LegalStatus::Modifie,
+            LegalStatus::ModifieMortNe,
+            LegalStatus::Perime,
+            LegalStatus::Annule,
+            LegalStatus::Disjoint,
+            LegalStatus::Transfere,
+            LegalStatus::Remplace,
+            LegalStatus::Denonce,
+            LegalStatus::Initiale,
+            LegalStatus::SansEtat,
+            LegalStatus::Substitue,
+            LegalStatus::Other("NOUVEAU_CODE".to_owned()),
+        ];
+        for (index, status) in statuses.iter().enumerate() {
+            assert_eq!(status_index(status), index, "{status:?}");
+            let code = status.as_api_code();
+            for (family_id, is_kali) in
+                [("LEGIARTI000006419288", false), ("KALIARTI000044253031", true)]
+            {
+                let article = ArticleText {
+                    article_id: ArticleId::parse(family_id).unwrap(),
+                    ..with_etat(code, Some(day(2014, 3, 27)))
+                };
+                let view = view_json(output(article, whole("T.")));
+                let label = format!("{code} {family_id}");
+                if !status.is_superseded() {
+                    assert!(view.get("note").is_none(), "{label}: {view}");
+                    continue;
+                }
+                let note = view["note"].as_str().unwrap();
+                let start = if matches!(status, LegalStatus::Denonce) {
+                    "Denounced (etat=DENONCE, ended 2014-03-27); it may still apply"
+                } else {
+                    "Not the version in force (etat="
+                };
+                assert!(note.starts_with(start), "{label}: {note}");
+                // Un seul conseil, de la bonne famille.
+                let legi_advice = note.contains("Use fr_resolve with a date");
+                let kali_advice = note.contains("fr_get_convention");
+                assert_eq!((legi_advice, kali_advice), (!is_kali, is_kali), "{label}: {note}");
+            }
+        }
+    }
+
+    // ---- Gardes : le texte des articles de code ne bouge pas (garantie 14 : octet pour octet).
+
+    #[test]
+    fn a_legi_article_keeps_the_resolve_and_diff_advice() {
+        for code in ENDED_ETATS {
+            assert_eq!(
+                note_of(with_etat(code, Some(day(2014, 3, 27)))),
+                format!(
+                    "Not the version in force (etat={code}, ended 2014-03-27). Use fr_resolve with a date, or fr_diff_article, for the text in force."
+                ),
+                "{code}"
+            );
+        }
+        assert_eq!(
+            note_of(with_etat("DENONCE", Some(day(2014, 3, 27)))),
+            "Denounced (etat=DENONCE, ended 2014-03-27); it may still apply during notice and survival. Use fr_resolve with a date, or fr_diff_article, to compare versions."
+        );
+    }
+
+    /// Littéraux de la 1.1.0, 10 états x {date réelle, aucune, sentinelle}.
+    #[test]
+    fn every_ended_legi_note_is_byte_identical_to_1_1_0() {
+        let ten = ENDED_ETATS.iter().copied().chain(["DENONCE"]);
+        for code in ten {
+            for (date_fin, since) in [
+                (Some(day(2016, 10, 1)), ", ended 2016-10-01"),
+                (None, ""),
+                (Some(day(2999, 1, 1)), ""),
+            ] {
+                let expected = if code == "DENONCE" {
+                    format!(
+                        "Denounced (etat=DENONCE{since}); it may still apply during notice and survival. Use fr_resolve with a date, or fr_diff_article, to compare versions."
+                    )
+                } else {
+                    format!(
+                        "Not the version in force (etat={code}{since}). Use fr_resolve with a date, or fr_diff_article, for the text in force."
+                    )
+                };
+                assert_eq!(note_of(with_etat(code, date_fin)), expected, "{code} {date_fin:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_current_kali_article_carries_no_version_note() {
+        for code in [
+            "VIGUEUR",
+            "VIGUEUR_ETEN",
+            "VIGUEUR_NON_ETEN",
+            "VIGUEUR_DIFF",
+            "ABROGE_DIFF",
+            "INITIALE",
+            "SANS_ETAT",
+            "CODE_INCONNU",
+        ] {
+            let view = view_json(output(kali_with_etat(code, Some(day(2999, 1, 1))), whole("T.")));
+            assert!(view.get("note").is_none(), "{code}: {view}");
+        }
+        let none = ArticleText { etat: None, ..kali_with_etat("VIGUEUR", None) };
+        assert!(view_json(output(none, whole("T."))).get("note").is_none());
+    }
+
+    #[test]
+    fn a_kali_article_without_parent_still_gets_the_warning() {
+        let orphan =
+            ArticleText { parent: None, ..kali_with_etat("REMPLACE", Some(day(2023, 5, 1))) };
+
+        let view = view_json(output(orphan, whole("T.")));
+
+        assert!(view.get("parent_id").is_none(), "{view}");
+        let note = view["note"].as_str().unwrap();
+        assert!(note.starts_with("Not the version in force (etat=REMPLACE, ended 2023-05-01)."));
+    }
+
+    #[test]
+    fn a_long_kali_note_still_fits_under_the_response_cap() {
+        let long = "Texte de l'article. ".repeat(2_000);
+        let reading = Reading { text_length: 40_000, ..whole(&long) };
+
+        let view = view_json(output(kali_with_etat("REMPLACE", Some(day(2023, 5, 1))), reading));
+
+        let size = view.to_string().chars().count();
+        assert!(size <= ResponseBudget::HARD_CAP_CHARS, "{size}");
+        // La note n'est jamais amputée : la dégradation touche la lecture seulement.
+        let note = view["note"].as_str().unwrap();
+        assert!(note.starts_with("Not the version in force (etat=REMPLACE, ended 2023-05-01)."));
+        assert!(note.ends_with('.'), "{note}");
+    }
+
+    /// Une fenêtre riche en échappements qui tient pour un article de code garde la même taille pour
+    /// un article de convention : la note plus longue ne la raccourcit pas.
+    #[test]
+    fn the_longer_kali_note_does_not_shorten_an_escape_heavy_window_that_a_legi_article_keeps() {
+        let heavy = "\"\\😀 ".repeat(5_000);
+        let legi = view_json(output(with_etat("REMPLACE", Some(day(2023, 5, 1))), whole(&heavy)));
+        let kali =
+            view_json(output(kali_with_etat("REMPLACE", Some(day(2023, 5, 1))), whole(&heavy)));
+
+        assert!(kali.to_string().chars().count() <= ResponseBudget::HARD_CAP_CHARS);
+        assert_eq!(kali["text"], legi["text"]);
+        assert_eq!(kali.get("next_offset"), legi.get("next_offset"));
+    }
+
+    /// Garde de dérive : le conseil ne nomme que des outils qui acceptent un KALIARTI pour ce qu'il
+    /// promet. Si `fr_diff_article` acceptait un jour les KALIARTI, ce test force à relire le texte.
+    #[test]
+    fn the_kali_advice_names_only_tools_that_accept_a_kaliarti() {
+        assert!(lf_domain::id::LegiArtiId::parse("KALIARTI000044253031").is_err());
+        assert!(lf_domain::id::LegiArtiId::parse("LEGIARTI000006438819").is_ok());
+        assert!(KALI_ENDED_ADVICE.contains("fr_get_convention"));
+        assert!(KALI_DENOUNCED_ADVICE.contains("fr_get_convention"));
     }
 
     #[test]
