@@ -170,6 +170,75 @@ mod tests {
         );
     }
 
+    /// Citations CNIL lues par le vrai scanner : texte du span, série, année, ordre.
+    fn cnil_reads(input: &str) -> Vec<(String, Option<String>, u16, u16)> {
+        parse(input)
+            .iter()
+            .filter_map(|c| match &c.value {
+                CitationRef::CnilDeliberation(n) => Some((
+                    input.get(c.span.start..c.span.end).unwrap_or_default().to_owned(),
+                    n.series.clone(),
+                    n.year,
+                    n.seq,
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// U07 : les ancres sont celles du vrai scanner, pas posées à la main : « décision » et
+    /// « mise en demeure » suivis d'un numéro à série sont lus sans « CNIL » devant.
+    #[test]
+    fn cnil_decisions_are_read_by_the_real_scanner() {
+        for (input, series, year, seq) in [
+            ("décision n° MED-2024-150 du 15 novembre 2024", "MED", 2024, 150),
+            ("mise en demeure n° MED-2022-034 du 25 avril 2022", "MED", 2022, 34),
+            ("décision DF-2017-1448", "DF", 2017, 1448),
+            ("décision DR-2024-196 du 26 juillet 2024", "DR", 2024, 196),
+            ("décision DT-2019-003", "DT", 2019, 3),
+            ("décision SAN-2019-001 du 21 janvier 2019", "SAN", 2019, 1),
+            ("décision MEDP-2024-001", "MEDP", 2024, 1),
+            ("Décision HAB-2024-003", "HAB", 2024, 3),
+        ] {
+            let found = cnil_reads(input);
+            assert_eq!(found, [(input.to_owned(), Some(series.to_owned()), year, seq)], "{input}");
+            let high = parse(input).iter().all(|c| c.confidence == Confidence::High);
+            assert!(high, "{input}");
+        }
+        // Sans série, ni « CNIL » : une décision de toute autre autorité, pas une citation CNIL.
+        for input in ["décision n° 2023-062", "mise en demeure n° 2023-062", "décision 2025-1173"]
+        {
+            assert_eq!(cnil_reads(input), [], "{input}");
+        }
+        // Quatre chiffres sans série : jamais lus, même derrière « CNIL ».
+        assert_eq!(cnil_reads("CNIL, décision n° 2025-1173"), []);
+        assert_eq!(cnil_reads("CNIL, décision DF-2017-0448"), []);
+    }
+
+    /// U07 : la lecture d'une décision ne dépend pas de la présence d'une voisine ancrée par
+    /// « délibération » ou « CNIL ».
+    #[test]
+    fn cnil_reading_does_not_depend_on_the_neighbours() {
+        let alone = cnil_reads("décision DR-2024-196 du 26 juillet 2024");
+        assert_eq!(alone.len(), 1, "{alone:?}");
+        for input in [
+            "La mise en demeure MED-2023-018 du 3 avril 2023, puis la délibération n° MEDP-2023-001 du 13 avril 2023 ; décision DR-2024-196 du 26 juillet 2024.",
+            "La décision DR-2024-196 du 26 juillet 2024, puis la délibération n° 2023-062.",
+            "Voir la décision DR-2024-196 du 26 juillet 2024 (CNIL).",
+        ] {
+            let read = cnil_reads(input);
+            assert!(
+                read.iter().any(|r| r.0 == alone[0].0 && r.1 == alone[0].1 && r.3 == 196),
+                "{input} : {read:?}"
+            );
+        }
+        // Et seule la phrase sans voisine ne perd pas la sienne.
+        assert_eq!(
+            cnil_reads("La mise en demeure MED-2023-018 du 3 avril 2023 est citée.").len(),
+            1
+        );
+    }
+
     #[test]
     fn the_dictionary_is_reachable_from_the_module_root() {
         assert_eq!(CODES.len(), 77);

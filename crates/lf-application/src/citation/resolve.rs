@@ -4717,6 +4717,87 @@ mod tests {
         assert_eq!(resolution.outcome.note(Proof::Production), None);
     }
 
+    /// La seule citation que `parse` lit dans `text`.
+    fn only_citation(text: &str) -> Spanned<CitationRef> {
+        let mut items = parse(text);
+        assert_eq!(items.len(), 1, "{text:?} : {items:?}");
+        items.remove(0)
+    }
+
+    #[tokio::test]
+    async fn a_four_digit_cnil_number_is_sent_as_written() {
+        // U07 : le numéro à quatre chiffres part tel qu'il est écrit, sans « CNIL » devant.
+        let id = "CNILTEXT000035945338";
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Cnil, id)]));
+        corpus.push_get_deliberation(Ok(dateless_decision()));
+        let item = only_citation("décision DF-2017-1448");
+        let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified, "{resolution:?}");
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![
+                find_request(Fond::Cnil, NumberKind::Deliberation, "DF-2017-1448"),
+                PortRequest::GetDeliberation(CnilTextId::parse(id).unwrap()),
+            ]
+        );
+        // Citée avec une date, sur une fiche sans date fiable : ni écart ni confiance haute.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Cnil, id)]));
+        corpus.push_get_deliberation(Ok(dateless_decision()));
+        let item = only_citation("décision DF-2017-1448 du 5 avril 2018");
+        let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified, "{resolution:?}");
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+        assert_eq!(resolution.outcome.note(Proof::Production), Some(Note::DateNotChecked));
+    }
+
+    #[tokio::test]
+    async fn a_non_cnil_series_is_unresolvable_not_verified() {
+        // Une série inconnue derrière « CNIL » est lue (voie existante) : rien n'existe sous ce
+        // numéro, le verdict est « non vérifiable », jamais « vérifié » ni « absent ».
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        let item = only_citation("CNIL, décision PC-2023-045");
+        let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable, "{resolution:?}");
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![find_request(Fond::Cnil, NumberKind::Deliberation, "PC-2023-045")]
+        );
+        // Sans « CNIL » ni « délibération », la série inconnue n'est pas lue : aucun appel.
+        assert_eq!(parse("décision PC-2023-045 du 5 mai 2023"), []);
+    }
+
+    #[tokio::test]
+    async fn a_dated_old_df_decision_is_not_invalid() {
+        // Garde de la porte de livraison d'U07 (U06 d'abord) : « CNIL, décision DF-2014-288 du
+        // 12 mars 2014 » sur une fiche à date de repli retirée n'est jamais `invalid`.
+        let record = Deliberation { num: Some("DF-2014-288".to_owned()), ..dateless_decision() };
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Cnil, "CNILTEXT000035945338")]));
+        corpus.push_get_deliberation(Ok(record));
+        let item = only_citation("CNIL, décision DF-2014-288 du 12 mars 2014");
+        let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified, "{resolution:?}");
+        assert_eq!(resolution.outcome.note(Proof::Production), Some(Note::DateNotChecked));
+    }
+
+    #[tokio::test]
+    async fn a_med_number_with_a_decision_and_its_closure_is_ambiguous() {
+        // MED-2022-060 : la décision et sa clôture portent le même numéro, deux fiches : des
+        // candidats, sans lecture, comme pour toute délibération à deux fiches.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![
+            hit(Fond::Cnil, "CNILTEXT000046230001"),
+            hit(Fond::Cnil, "CNILTEXT000046230002"),
+        ]));
+        let item = only_citation("CNIL, décision n° MED-2022-060");
+        let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+        assert_eq!(status(&resolution), CheckStatus::Ambiguous, "{resolution:?}");
+        assert_eq!(corpus.calls_of("get_deliberation"), 0);
+    }
+
     #[tokio::test]
     async fn a_cnil_search_that_goes_wrong_is_reported_as_it_is() {
         let id = "CNILTEXT000053352643";

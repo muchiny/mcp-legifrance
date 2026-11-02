@@ -2010,6 +2010,24 @@ mod round_trip {
             })
     }
 
+    /// U07 : séries connues de la CNIL, numéro d'ordre de 1000 à 9999 (quatre chiffres).
+    fn cnil_four_digits() -> impl Strategy<Value = CitationRef> {
+        (
+            prop::sample::select(vec!["SAN", "MED", "MEDP", "DF", "DR", "DT", "HAB"]),
+            date(),
+            1000u16..=9999,
+        )
+            .prop_map(|(series, when, seq)| {
+                CitationRef::CnilDeliberation(lf_domain::citation::CnilCite {
+                    series: Some(series.to_owned()),
+                    year: when.year(),
+                    seq,
+                    date: Some(when),
+                    formation_restreinte: false,
+                })
+            })
+    }
+
     /// Clés que la forme canonique porte, par famille.
     fn canonical_keys(kind: &str) -> &'static [&'static str] {
         match kind {
@@ -2063,6 +2081,34 @@ mod round_trip {
         #[test]
         fn canonical_cnil_round_trips(c in cnil()) {
             assert_round_trip(&c)?;
+        }
+
+        /// U07 : avec une série, le numéro d'ordre va jusqu'à 9999 et la forme canonique se relit.
+        #[test]
+        fn cnil_round_trip_with_four_digit_series(c in cnil_four_digits()) {
+            assert_round_trip(&c)?;
+        }
+
+        /// U07 : « décision » ou « mise en demeure » suivi d'un numéro à série connue, sans
+        /// « CNIL » ni « délibération », est lu en entier, que l'ordre ait trois ou quatre chiffres.
+        #[test]
+        fn cnil_keyword_without_cnil_round_trip(
+            keyword in prop::sample::select(vec!["décision", "Décision", "mise en demeure"]),
+            series in prop::sample::select(vec!["SAN", "MED", "MEDP", "DF", "DR", "DT", "HAB"]),
+            year in 2000u16..=2099,
+            seq in prop_oneof![1u16..=999, 1000u16..=9999],
+        ) {
+            let text = format!("{keyword} n° {series}-{year:04}-{seq:03}");
+            let parsed = parse_with(&text, &base_options());
+            prop_assert_eq!(parsed.len(), 1, "{:?} -> {:?}", text, parsed);
+            match &parsed[0].value {
+                CitationRef::CnilDeliberation(c) => {
+                    prop_assert_eq!(c.series.as_deref(), Some(series));
+                    prop_assert_eq!((c.year, c.seq), (year, seq));
+                }
+                other => prop_assert!(false, "{} -> {:?}", text, other),
+            }
+            prop_assert_eq!((parsed[0].span.start, parsed[0].span.end), (0, text.len()));
         }
     }
 }

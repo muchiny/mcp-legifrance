@@ -66,6 +66,8 @@ pub(crate) enum AnchorClass {
     Sigle,
     /// Préfixe d'article suivi d'un chiffre : `(L\.\s?O\.?|(LO|L|R|D|A)\*{0,2}\.?)\s?\d`.
     ArticlePrefix,
+    /// Mot-clé CNIL lu seulement pour un numéro à série : `décision`, `mise en demeure`.
+    CnilKeyword,
 }
 
 /// Une ancre : sa classe et sa plage, en octets de `Normalized::text`.
@@ -101,6 +103,10 @@ const TEXT_NATURES: &[&str] = &[
     "l. n",
     "d. n",
 ];
+
+/// Mots-clés de la CNIL lus seulement pour un numéro à série (§4.11, `cnil_kw`) : `decision` et
+/// `mise en demeure`. `decision` est aussi une nature de texte (`TEXT_NATURES`).
+const CNIL_KEYWORDS: &[&str] = &["decision", "mise en demeure"];
 
 /// Juridictions, chambres et formations (§4.5 à §4.9), puis les indices d'enregistrement qui
 /// précèdent un numéro seul (§4.17, N28) : `pourvoi`, `requete`, `enregistre`, `affaire`.
@@ -239,6 +245,7 @@ static LEXICONS: LazyLock<Vec<Lexicon>> = LazyLock::new(|| {
         lexicon(AnchorClass::Code, &code_patterns()),
         lexicon(AnchorClass::Family, FAMILIES),
         lexicon(AnchorClass::Sink, SINKS),
+        lexicon(AnchorClass::CnilKeyword, CNIL_KEYWORDS),
     ]
 });
 
@@ -428,8 +435,8 @@ mod tests {
     #[test]
     fn anchor_classes_of_annex_b_4_16() {
         use AnchorClass::{
-            ArticleKeyword, ArticlePrefix, CaaNumber, CcNumber, Code, Court, Ecli, Family,
-            LegifranceId, Nor, Pourvoi, Rg, Sigle, Sink, TextNature,
+            ArticleKeyword, ArticlePrefix, CaaNumber, CcNumber, CnilKeyword, Code, Court, Ecli,
+            Family, LegifranceId, Nor, Pourvoi, Rg, Sigle, Sink, TextNature,
         };
         let cases: &[(&str, AnchorClass, &str)] = &[
             // Mots-clés d'articles et de subdivisions.
@@ -526,14 +533,76 @@ mod tests {
             ("article LO 141", ArticlePrefix, "LO 1"),
             ("article R*111-1", ArticlePrefix, "R*1"),
             ("note sous D. 2016, p. 1234", ArticlePrefix, "D. 2"),
+            // Mots-clés CNIL (U07), lus seulement pour un numéro à série.
+            ("Décision n° MED-2024-150 du 15 novembre 2024", CnilKeyword, "Décision"),
         ];
         for &(input, class, slice) in cases {
             let seen = found(input);
             assert!(has(input, class, slice), "{input:?} : {class:?} {slice:?} dans {seen:?}");
         }
-        // Les quinze classes du tableau sont couvertes.
+        // Les seize classes du tableau sont couvertes.
         let covered: BTreeSet<u8> = cases.iter().map(|&(_, class, _)| class as u8).collect();
-        assert_eq!(covered.len(), 15);
+        assert_eq!(covered.len(), 16);
+    }
+
+    /// U07 : `décision` et `mise en demeure` ancrent la classe `CnilKeyword` (casse et accents
+    /// ignorés), `décision` reste aussi une nature de texte, et un mot qui les contient ne les
+    /// ancre pas.
+    #[test]
+    fn cnil_keyword_anchors() {
+        for (text, slice) in [
+            ("Décision n° MED-2024-150", "Décision"),
+            ("décision MED-2024-150", "décision"),
+            ("DÉCISION MED-2024-150", "DÉCISION"),
+            ("decision MED-2024-150", "decision"),
+            ("la Mise en demeure MED-2022-034", "Mise en demeure"),
+            ("mise en demeure n° MED-2022-034", "mise en demeure"),
+            ("MISE EN DEMEURE MED-2022-034", "MISE EN DEMEURE"),
+        ] {
+            assert!(has(text, AnchorClass::CnilKeyword, slice), "{text:?} : {:?}", found(text));
+        }
+        for text in [
+            "le décisionnaire MED-2024-150",
+            "une précision MED-2024-150",
+            "la prédécision MED-2024-150",
+            "mise en demeures MED-2022-034",
+            "mise en demeure",
+        ] {
+            let seen = found(text);
+            let hits = seen.iter().filter(|(c, _)| *c == AnchorClass::CnilKeyword).count();
+            // « mise en demeure » seule est un mot-clé, les trois autres mots ne le sont pas.
+            assert_eq!(hits, usize::from(text == "mise en demeure"), "{text:?} : {seen:?}");
+        }
+        // Les grammaires du Conseil constitutionnel et des textes gardent leur ancre.
+        assert!(has("Décision n° 2020-092", AnchorClass::TextNature, "Décision"));
+        assert!(!has("la loi du 6 janvier 1978", AnchorClass::CnilKeyword, "loi"));
+    }
+
+    /// U07 : la nouvelle classe ne décale aucun discriminant ni aucune ancre existante, et
+    /// n'arrive qu'après les autres classes à plage égale.
+    #[test]
+    fn cnil_keyword_anchor_does_not_reorder_existing_anchors() {
+        // Dernière variante : les discriminants des quinze classes d'avant ne bougent pas.
+        assert_eq!(AnchorClass::ArticleKeyword as u8, 0);
+        assert_eq!(AnchorClass::ArticlePrefix as u8, 14);
+        assert_eq!(AnchorClass::CnilKeyword as u8, 15);
+        // Les ancres d'une délibération n'ont pas changé.
+        assert_eq!(
+            found("CNIL, délibération SAN-2026-002 du 8 janvier 2026"),
+            [
+                (AnchorClass::Family, "CNIL".to_owned()),
+                (AnchorClass::TextNature, "délibération".to_owned()),
+                (AnchorClass::Family, "délibération".to_owned()),
+            ]
+        );
+        // À plage égale, la classe nouvelle passe après la nature de texte.
+        assert_eq!(
+            found("Décision n° MED-2024-150"),
+            [
+                (AnchorClass::TextNature, "Décision".to_owned()),
+                (AnchorClass::CnilKeyword, "Décision".to_owned()),
+            ]
+        );
     }
 
     #[test]
