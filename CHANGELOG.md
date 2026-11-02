@@ -14,7 +14,11 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Ajouts compatibles de la 1.1.0 (vagues V1, V2a, V2b et V3) : champs de sortie optionnels, paramètre optionnel, textes de descriptions et d'instructions. Aucun champ requis retiré, aucun type changé, aucune valeur d'énumération retirée : `lock-descriptors --compare v1.0.1` classe ses 35 changements en 18 additions et 17 correctifs de texte, sans rupture.
+Rien depuis `1.1.0`.
+
+## [1.1.0] - 2026-11-02
+
+Ajouts compatibles de la 1.1.0 (PR #63, vagues V1, V2a, V2b et V3) : champs de sortie optionnels, paramètre optionnel, textes de descriptions et d'instructions. Aucun champ requis retiré, aucun type changé, aucune valeur d'énumération retirée : `lock-descriptors --compare v1.0.1` classe ses 35 changements en 18 additions et 17 correctifs de texte, sans rupture.
 
 ### Added
 
@@ -53,7 +57,7 @@ Ajouts compatibles de la 1.1.0 (vagues V1, V2a, V2b et V3) : champs de sortie op
 - Addition compatible : propriété de sortie `score` (number, sans minimum ni maximum), requise dans chaque élément de `passages` de `fr_get_text`, `fr_get_decision` et `fr_get_deliberation` (la seule propriété requise ajoutée, dans un objet de sortie : `--compare` la classe en addition). Dérogation assumée à la règle « tout ajout optionnel » : le champ est toujours présent en mode `focus`, un lecteur de sortie n'est pas affecté, seul un client qui valide ses propres fixtures de sortie contre le nouveau schéma les verrait refusées. Le champ porte une description (« BM25 relevance, only comparable between the passages of this answer. »). (D-02)
 - Addition compatible : propriété d'entrée optionnelle `in_force_only` (boolean, défaut false, non requise) de `fr_search` ; description de l'outil et sortie inchangées. (D-08)
 - Textes seulement (D-12) : descriptions de huit outils (`fr_search`, `fr_search_all` [`query`], `fr_resolve` [sortie], `fr_verify_citations`, `fr_get_text`, `fr_get_deliberation`, `fr_get_related`, `fr_diff_article`) et instructions ; aucun champ, type, énumération ni paramètre ajouté ou retiré. `--compare v1.0.1` les classe en correctifs de texte (les descriptions des propriétés de sortie `etat`, `date_debut` et `date_fin` ne comptent pas à part : ces propriétés sont déjà l'addition de D-03). `fr_search` cite désormais `fr_resolve`. D-10 ne change aucune surface : la note utilise le champ optionnel `note` existant.
-- `tools/list` : 30 634 → 35 424 octets (+4 790), sous le plafond de 36 500 : la règle d'AM-63 (mesure finale plus 3 %, soit 36 486,72, arrondie à la centaine supérieure) remplace les 34 500 de Q27 = A, posés avant les corrections de la revue finale de la PR 2 et à 18 octets de la mesure (AM-73 ; `budgets.rs` et `TOOLS_LIST_BUDGETS` de `xtask`), soit 1 076 octets de marge. Le glossaire de `etat` sans joker est la cause principale de l'écart avec les 34 482 octets du verrou de la vague V3 : complet dans `fr_get_text`, court dans `fr_search`, `fr_resolve`, `fr_verify_citations` et `fr_get_act` (complet partout : 36 484 octets) ; instructions 3 278 → 3 499 caractères (plafond 3 500 inchangé, marge 1). Le verrou `tests/tools.lock.json` et le manifeste MCPB (`packaging/mcpb/manifest.json`, descriptions de six outils) sont régénérés ; `server_version` reste 1.0.1 jusqu'à la PR de version (le saut « Minor » est exigé par `--compare`).
+- `tools/list` : 30 634 → 35 424 octets (+4 790), sous le plafond de 36 500 : la règle d'AM-63 (mesure finale plus 3 %, soit 36 486,72, arrondie à la centaine supérieure) remplace les 34 500 de Q27 = A, posés avant les corrections de la revue finale de la PR 2 et à 18 octets de la mesure (AM-73 ; `budgets.rs` et `TOOLS_LIST_BUDGETS` de `xtask`), soit 1 076 octets de marge. Le glossaire de `etat` sans joker est la cause principale de l'écart avec les 34 482 octets du verrou de la vague V3 : complet dans `fr_get_text`, court dans `fr_search`, `fr_resolve`, `fr_verify_citations` et `fr_get_act` (complet partout : 36 484 octets) ; instructions 3 278 → 3 499 caractères (plafond 3 500 inchangé, marge 1). Le verrou `tests/tools.lock.json` et le manifeste MCPB (`packaging/mcpb/manifest.json`, descriptions de six outils) sont régénérés ; `server_version` passe à 1.1.0 dans la PR de version (saut « Minor » exigé par `--compare`).
 
 ## [1.0.1] - 2026-11-01
 
@@ -318,7 +322,8 @@ Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0
 
 - Domaine seulement, visible par un client à partir de M4 : citation du Conseil constitutionnel sans « - objet » (P-035), plus de `eli_uri` (P-031, P-039), sentinelle de date omise (P-030).
 
-[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/muchiny/mcp-legifrance/commits/main
 [0.3.0]: https://github.com/muchiny/mcp-legifrance/commits/main

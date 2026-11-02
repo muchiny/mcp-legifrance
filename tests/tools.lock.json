@@ -104,7 +104,7 @@
       "sha256": "a8962d009b532fce81f04ae0076d85a61db68a9b774f90a58318301db2ffbedc"
     }
   },
-  "server_version": "1.0.1",
+  "server_version": "1.1.0",
   "sizes": {
     "instructions_chars": 3499,
     "tools_list_bytes": 35424
