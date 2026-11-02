@@ -1231,7 +1231,7 @@ pub enum CitationRef {
     Decision(DecisionCite),       // court: Option<Court> (Cass{chamber} | CourAppel | Tj | ConseilEtat{formation} | Caa | Ta |
                                   // ConseilConstitutionnel | …), date, numbers (Pourvoi | Rg | CeRequete | Caa | Ta | Cc | …), publication, …
     Ecli(Ecli),                   // ECLI:FR seulement (00 §4) ; un ECLI étranger donne Unsupported { family: ForeignEcli }
-    CnilDeliberation(CnilCite),   // series, year, seq, date, formation_restreinte
+    CnilDeliberation(CnilCite),   // series, year, seq (3 chiffres, ou 4 de 1000 à 9999 avec une série : DF-2017-1448), date, formation_restreinte
     Convention(ConventionCite),   // kind, idcc, brochure, avenant, title_hint, date
     Jorf(JorfCite),               // number, date, texte, page
     Nor(Nor),

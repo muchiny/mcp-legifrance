@@ -656,12 +656,15 @@ fr_cc_ord     = cc_year "." INT "." cc_type ;                         (* AAAA.N.
 ```ebnf
 cnil_cite     = [ 'CNIL' SEP ] cnil_kw [ WS "de la formation restreinte" ] [ WS 'CNIL' ] WS? [ NUM_SIGN ] cnil_num [ WS "du" WS DATE ] ;
 cnil_kw       = "délibération" | "délib." | "décision" | "mise en demeure" ;     (* « deliberation » sans accent via la clé (P173) *)
-cnil_num      = [ cnil_series "-" ] YEAR4 "-" /[0-9]{3}/ B ;           (* tirets après repli de U+2013 (P172) *)
+cnil_num      = [ cnil_series "-" ] YEAR4 "-" ( /[0-9]{3}/ | <série requise> /[1-9][0-9]{3}/ ) B ;   (* tirets après repli de U+2013 (P172) ; 1000 à 9999 seulement avec une série (U07) *)
 cnil_series   = 'SAN' | 'MED' | /[A-Z]{2,4}/ ;
+cnil_known    = 'SAN' | 'MED' | 'MEDP' | 'DF' | 'DR' | 'DT' | 'HAB' ;     (* séries lues derrière « décision » ou « mise en demeure » seuls (U07) *)
 ```
 
-- Confiance `High` si `CNIL` ou une série est présente (P170 à P176) ; sinon `Low` avec `emetteur_inconnu` : les délibérations municipales sont aussi numérotées `AAAA-NNN` (N16). Numéro incomplet (`SAN-2026`) : aucune citation (N15).
-- Formes réelles : `SAN-2026-002`, `SAN–2026-003` (fixtures), `MED-2018-024`, `2012-022`, `n°2023-062` (TIERS), anciens identifiants `MCN97020008A` (recherche 05 §1.7). Sens exact de `MED`, format attendu par `NUM_DELIB` (avec ou sans série) : **NON VÉRIFIÉ** [V-155 · cnil-num-delib-format].
+- Confiance `High` si `CNIL` ou une série est présente (P170 à P176) ; sinon `Low` avec `emetteur_inconnu` : les délibérations municipales sont aussi numérotées `AAAA-NNN` (N16). Numéro incomplet (`SAN-2026`) : aucune citation (N15), pas plus que quatre chiffres d'ordre sans série (`2025-1173`) ou avec un zéro de tête (`SAN-2026-0002`).
+- **Mots-clés seuls (U07, cnil_kali_acco-7).** `décision` et `mise en demeure` (`cnil_kw`) sont des ancres de la classe interne `CnilKeyword` : ils ne lisent un numéro CNIL que si une série de `cnil_known` est écrite, sans « CNIL » ni « délibération » devant (`décision n° MED-2024-150 du 15 novembre 2024`, `mise en demeure MED-2022-034`, `décision DF-2017-1448`, `décision DR-2024-196`). Sans série (`décision n° 2023-062`, `décision n° 2025-1173`) ou avec une série hors liste (`décision PC-2023-045`, `décision MLD-2016-253`), rien n'est lu par cette voie, pour que les décisions du Conseil constitutionnel, du Conseil d'État ou des communes ne deviennent pas des citations de la CNIL. La voie par `CNIL`, `délibération` et les sigles reste ouverte à toute série `[A-Z]{2,4}`. Les deux lectures sont fusionnées (même plage et même valeur : une seule citation).
+- **Hors périmètre de la 1.1.1** (figé par des négatifs du corpus, voir le CHANGELOG) : « de la CNIL » entre le mot-clé et le numéro, les listes et pluriels (« les décisions A et B » ne lit que la première), le séparateur espace des titres Légifrance (`MED 2022-054`, `DR 2016-495`), les décisions de 2014-2015 sans série et l'année CNIL à deux chiffres.
+- Formes réelles : `SAN-2026-002`, `SAN–2026-003` (fixtures), `MED-2018-024`, `MED-2024-150`, `MEDP-2024-001`, `DF-2017-1448` et `DF-2017-2671` (quatre chiffres d'ordre), `DR-2024-196`, `DT-2019-003`, `HAB-2024-003`, `2012-022`, `n°2023-062` (TIERS), anciens identifiants `MCN97020008A` (recherche 05 §1.7). Sens exact de `MED`, format attendu par `NUM_DELIB` (avec ou sans série) : **NON VÉRIFIÉ** [V-155 · cnil-num-delib-format].
 
 ### 4.12 Conventions collectives (KALI) et accords d'entreprise (ACCO)
 
@@ -747,6 +750,7 @@ Formes réelles : `directive 85/374/CEE du Conseil du 25 juillet 1985` (consult_
 | Natures de textes | idem | `loi`, `ordonnance`, `decret`, `arrete`, `reglement`, `l. n`, `d. n`, `ord.` |
 | Juridictions, chambres, formations | idem | `cass`, `cour de cassation`, `civ.`, `crim.`, `ch. mixte`, `premiere chambre civile`, `cour d'appel`, `tribunal judiciaire`, `conseil d'etat`, `cour administrative d'appel`, `tribunal administratif`, `jugement`, `arret`, `cons. const.`, `conseil constitutionnel` |
 | Codes | idem | titres repliés des 77 codes, abréviations (`c. civ.`, `c.civ.`, `c civ`…), anaphores (`meme code`, `dudit code`) |
+| Mots-clés CNIL (classe interne `CnilKeyword`, U07) | idem | `decision`, `mise en demeure` (lus seulement pour un numéro à série connue, §4.11) |
 | Autres familles | idem | `cnil`, `deliberation`, `delib.`, `idcc`, `convention collective`, `avenant`, `brochure`, `jorf`, `journal officiel`, `nor`, `/eli/`, `constitution`, `declaration`, `preambule`, `charte de l'environnement` |
 | Puits | idem | `directive`, `reglement (ue)`, `cjue`, `cedh`, `jcp`, `rtd`, `gaz. pal.`, `ajda`, `bull.`, `rec.`, `leb.` |
 | Jetons atomiques | `RegexSet` sur `text` | `(?i)ecli:` ; NOR `[A-Z]{4}\d{7}[A-Z]` ; identifiants `(LEGITEXT\|…)\d{12}` ; pourvoi `\d{2}-\d{2}\.?\d{3}` ; CAA `\d{2}(PA\|VE\|MA\|LY\|BX\|NT\|NC\|DA\|TL)\d{5}` ; RG `\d{2}/\d{4,5}` ; CC `\d{4}-\d+(/\d+)?\s?(DC\|QPC\|…)` ; sigles (`CE`, `CC`, `CGI`…) ; préfixes `(LO\|L\|R\|D\|A)\*{0,2}\.?\s?\d` |
@@ -1070,7 +1074,7 @@ Précisions reportées dans le résumé de 03 §8.6 (mêmes noms, conformes à 0
 | `CaaNumber { yy: u8, court: CaaCode, seq: u32 }` | `24MA02429` | idem | code dans la liste du §4.8 | search_cetat.json:9 |
 | `TaNumber(u32)` | `2005064` | 7 chiffres | — | consult_juri_cetat.json:68 |
 | `CcNumber { year: u16, seq: u32, joined: Vec<u32>, rectif: bool, kind: CcType }` | `2025-1173 QPC`, `2010-14/22 QPC` | `2025-1173` | type de la liste du §4.9 | consult_juri_constit.json:11 <br>**L1-04** : `year` reste sur 4 chiffres ; `FromStr` lit `AAAA-N` et `AA-N` (59-99) ; `Display` écrit 2 chiffres de 1959 à 1999 (`71-44`, `94-343/344`, `59-1`), 4 chiffres sinon, les deux formes se relisent ; `CcNumber::first_form() -> String` rend la première forme sans numéros joints, sans `R` ni type (`71-44`, `2010-14`), identique au début de `NUM_DEC` (sert à la recherche par numéro, L2-16). |
-| `CnilNumber { series: Option<String>, year: u16, seq: u16 }` | `SAN-2026-002`, `2023-062` | `SAN-2026-002` | 3 chiffres d'ordre | consult_cnil.json:11 |
+| `CnilNumber { series: Option<String>, year: u16, seq: u16 }` | `SAN-2026-002`, `2023-062`, `DF-2017-1448` | `SAN-2026-002` | 3 chiffres d'ordre, ou 4 (de 1000 à 9999, sans zéro de tête) quand une série est écrite | consult_cnil.json:11 |
 | `Idcc(u16)` (`contract::Idcc`, 03) | `2121`, `275` | sans zéros de tête | ≤ 4 chiffres [V-132 · idcc-bornes] | consult_kali.json:149 |
 | `Nor` (`contract::Nor`, 03) | `ECFI1524250L`, `cscx2531180s` | majuscules | 4 lettres + 7 chiffres + 1 lettre | consult_loda.json |
 
@@ -1695,7 +1699,7 @@ Elles sont reportées dans [09-risques-et-questions.md](../09-risques-et-questio
 | [V-114 · natures-constit] | (03) Valeurs de `nature` du Conseil constitutionnel hors QPC et DC, et sens des types rares (`OF`, `ORGA`, `AR16`, `ELEC`, `REF`, `AUTR`). |
 | [V-154 · cc-numeros-joints] | Forme, dans le champ `num` de l'API, des numéros joints (`2010-14/22`), des rectifications (`2015-491R`) et des types composés (`SEN/QPC`). |
 | [V-130 · constit-filtre-libelle] | Acceptation des libellés de `NATURE_CONSTIT` comme valeurs de filtre. |
-| [V-155 · cnil-num-delib-format] | Format attendu par `NUM_DELIB` (avec ou sans série), sens de `MED`, numérotation des mises en demeure publiques. |
+| [V-155 · cnil-num-delib-format] | Format attendu par `NUM_DELIB` (avec ou sans série), sens de `MED`, numérotation des mises en demeure publiques. Depuis U07 (1.1.1) : accueil d'un numéro à quatre chiffres d'ordre (`DF-2017-1448`) par `NUM_DELIB`, non relevé en bac à sable ; la lecture est corrigée, le résultat peut être `unresolvable`. |
 | [V-156 · nor-lettres-nature] | Sens des lettres finales du NOR autres que `L`, `R`, `C` (`D`, `A`, `S`, `M`…). |
 | [V-157 · numerotation-textes] | Bascule de l'année des numéros de textes de 2 à 4 chiffres, numérotation commune ou séparée par nature, textes antérieurs à 1945, égalité de l'année du numéro et de la signature. |
 | [V-158 · bloc-constit-loda] | Présence, titres exacts et découpage en articles de la Constitution, de la DDHC, du Préambule de 1946 et de la Charte dans LODA ; adressage des alinéas du Préambule. |
