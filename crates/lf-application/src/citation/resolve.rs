@@ -31,7 +31,7 @@ use lf_domain::{
         Confidence, ConventionCite, Court, DecisionCite, Flag, LegifranceIdRef, Resolvability,
         Spanned, TextCite, TextNature, TextNumber, UnresolvableWhy, UnsupportedFamily,
         VersionQualifier,
-        dict::courts::{CassChamber, CcType},
+        dict::courts::{CaaSeat, CassChamber, CcType},
         parse,
     },
     contract::{Citable, Eli, Nor},
@@ -406,7 +406,16 @@ struct Lookup {
     date: Option<CivilDate>,
     cc_type: Option<CcType>,
     chamber: Option<CassChamber>,
+    seat: Option<SeatCheck>,
     absent: Note,
+}
+
+/// Siège cité d'une cour administrative d'appel, avec le siège que porte le code de son numéro
+/// (`25MA02308` : Marseille), seconde source quand la décision officielle ne nomme aucun siège.
+#[derive(Clone, Copy)]
+struct SeatCheck {
+    cited: CaaSeat,
+    number: Option<CaaSeat>,
 }
 
 impl<'a, C: LegalCorpus> Resolver<'a, C> {
@@ -683,6 +692,16 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             Court::CourDeCassation { chamber } => *chamber,
             _ => None,
         };
+        let seat = match court {
+            Court::Caa { seat: Some(cited), .. } => Some(SeatCheck {
+                cited: *cited,
+                number: cite.numbers.iter().find_map(|number| match number {
+                    CaseNumber::Caa(caa) => Some(caa.court.seat()),
+                    _ => None,
+                }),
+            }),
+            _ => None,
+        };
         self.lookup(Lookup {
             fond,
             kind,
@@ -691,6 +710,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             date: cite.date,
             cc_type,
             chamber,
+            seat,
             absent,
         })
         .await
@@ -745,7 +765,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             let dates = found.iter().filter_map(|(_, decision)| decision.date_texte).collect();
             return no_record_at_date(&number, cited, dates);
         }
-        choose_decision(&found, spec.date, spec.cc_type, spec.chamber)
+        choose_decision(&found, spec.date, spec.cc_type, spec.chamber, spec.seat)
     }
 
     /// ECLI cité : numéro tiré de l'ordinal (CC, CE) ou facette ECLI (Cour de cassation), puis
@@ -766,6 +786,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             date: None,
             cc_type: None,
             chamber: None,
+            seat: None,
             absent,
         };
         let (resolution, index, strict) = match (court, second) {
@@ -1355,8 +1376,11 @@ fn is_conseil_etat(title: &str) -> bool {
     fold_line(title).starts_with("conseil d etat")
 }
 
+/// Les trois familles de titres amont : « CAA de X, … » (vers 2014 à ce jour), « COUR
+/// ADMINISTRATIVE D'APPEL DE X, … » (2010-2014) et « Cour administrative d'appel de X, … ».
 fn is_caa(title: &str) -> bool {
-    fold_line(title).contains("cour administrative d appel")
+    let folded = fold_line(title);
+    folded.split(' ').next() == Some("caa") || folded.contains("cour administrative d appel")
 }
 
 fn is_ta(title: &str) -> bool {
@@ -1421,6 +1445,7 @@ fn choose_decision(
     date: Option<CivilDate>,
     cc_type: Option<CcType>,
     chamber: Option<CassChamber>,
+    seat: Option<SeatCheck>,
 ) -> Resolution {
     let candidates = |found: &[(DocumentId, Decision)]| {
         let items = found
@@ -1461,6 +1486,7 @@ fn choose_decision(
     if let ChamberCheck::Differs(cited, actual) = chamber_check {
         gaps.push((Field::Chamber, cited.code().to_owned(), actual.code().to_owned()));
     }
+    gaps.extend(seat_gap(seat, decision));
     if let (Some(kind), Some(actual)) = (cc_type, decision.nature.as_deref())
         && fold_line(actual) != fold_line(kind.as_str())
     {
@@ -1476,6 +1502,38 @@ fn choose_decision(
     }
     let note = (chamber_check == ChamberCheck::NotComparable).then_some(Note::ChamberNotCompared);
     Resolution { official, ..verified(record, confidence, note) }
+}
+
+/// Écart de siège d'une cour administrative d'appel entre la citation et la décision consultée.
+/// Jamais d'écart sans siège cité ni siège connu de la décision.
+fn seat_gap(seat: Option<SeatCheck>, decision: &Decision) -> Option<(Field, String, String)> {
+    let check = seat?;
+    let official = official_seat(decision, check.number)?;
+    (official != check.cited)
+        .then(|| (Field::Seat, check.cited.as_str().to_owned(), official.as_str().to_owned()))
+}
+
+/// Siège que nomme la décision officielle : la juridiction, à défaut le début du titre (avant la
+/// première virgule), à défaut le siège du code du numéro cité. Une source qui nomme plusieurs
+/// sièges ne tranche pas : aucune comparaison.
+fn official_seat(decision: &Decision, number: Option<CaaSeat>) -> Option<CaaSeat> {
+    let head = decision.title.as_deref().and_then(|title| title.split(',').next());
+    for text in [decision.juridiction.as_deref(), head].into_iter().flatten() {
+        let mut named: Vec<CaaSeat> = Vec::new();
+        for word in fold_words(text) {
+            if let Some(found) = CaaSeat::parse_folded(&word)
+                && !named.contains(&found)
+            {
+                named.push(found);
+            }
+        }
+        match named.as_slice() {
+            [] => {}
+            [only] => return Some(*only),
+            _ => return None,
+        }
+    }
+    number
 }
 
 /// Égalité de l'ECLI natif du document avec l'ECLI cité (§7.3). `strict` : un ECLI différent ou
@@ -3377,6 +3435,403 @@ mod tests {
         assert!(is_ta(tribunal));
         assert!(!is_ta(conseil));
         assert!(!is_ta(appeal));
+        // Les titres amont réels des trois familles (U04) : « CAA de X », forme longue en capitales,
+        // forme longue en casse de phrase.
+        for real in [
+            "CAA de MARSEILLE, 5ème chambre, 02/10/2026, 25MA02308, Inédit au recueil Lebon",
+            "CAA de LYON, 2ème chambre, 18/12/2025, 24LY00227, Inédit au recueil Lebon",
+            "CAA de MARSEILLE, 1ère chambre - formation à 3, 07/06/2018, 16MA02962, Inédit au recueil Lebon",
+            "COUR ADMINISTRATIVE D'APPEL DE LYON, Formation plenière, 16/06/2010, 08LY00247",
+            "Cour administrative d'appel de Paris, 3e chambre, du 4 juin 1996, 94PA01899, publié au recueil Lebon",
+        ] {
+            assert!(is_caa(real), "{real}");
+            assert!(!is_conseil_etat(real), "{real}");
+            assert!(!is_ta(real), "{real}");
+        }
+        for other in [
+            "Conseil d'État, 2ème - 7ème chambres réunies, 29/05/2026, 506507",
+            "Conseil d'Etat, Assemblée, du 20 octobre 1989, 108243",
+            "Tribunal administratif de Lyon, du 25 octobre 1989, 12345",
+            "CAAX de Lyon",
+            "",
+        ] {
+            assert!(!is_caa(other), "{other}");
+        }
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // Cours administratives d'appel (U04)
+    // ----------------------------------------------------------------------------------------
+
+    /// Les neuf sièges et le code de leurs numéros de requête.
+    const CAA_SEATS: [(&str, &str); 9] = [
+        ("Paris", "PA"),
+        ("Versailles", "VE"),
+        ("Marseille", "MA"),
+        ("Lyon", "LY"),
+        ("Bordeaux", "BX"),
+        ("Nantes", "NT"),
+        ("Nancy", "NC"),
+        ("Douai", "DA"),
+        ("Toulouse", "TL"),
+    ];
+
+    const MARSEILLE_ID: &str = "CETATEXT000054955709";
+
+    /// Les trois familles de titres amont d'une CAA : « CAA de X, … » (vers 2014 à ce jour),
+    /// « COURS ADMINISTRATIVE D'APPEL DE X, … » (2010-2014) et « Cour administrative d'appel de X,
+    /// … » (jusqu'à 2009). Titres faits à la main d'après les relevés de production.
+    fn caa_titles(seat: &str, code: &str) -> [String; 3] {
+        [
+            format!(
+                "CAA de {}, 5ème chambre, 02/10/2026, 25{code}02308, Inédit au recueil Lebon",
+                seat.to_uppercase()
+            ),
+            format!(
+                "COUR ADMINISTRATIVE D'APPEL DE {}, Formation plenière, 16/06/2010, 08{code}00247",
+                seat.to_uppercase()
+            ),
+            format!(
+                "Cour administrative d'appel de {seat}, 3e chambre, du 4 juin 1996, 94{code}01899, publié au recueil Lebon"
+            ),
+        ]
+    }
+
+    /// Décision consultée d'une CAA : `juridiction` comme l'amont la donne (`CAA de MARSEILLE`).
+    fn caa_decision(id: &str, date: CivilDate, juridiction: Option<&str>) -> Decision {
+        Decision { juridiction: juridiction.map(str::to_owned), ..decision(id, date, None) }
+    }
+
+    /// Une CAA trouvée sous `title`, consultée à `date` ; la citation `text` est résolue.
+    async fn resolve_caa(
+        text: &str,
+        title: &str,
+        date: CivilDate,
+        juridiction: Option<&str>,
+    ) -> (Resolution, FakeCorpus) {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![titled(Fond::Cetat, MARSEILLE_ID, title)]));
+        corpus.push_get_decision(Ok(caa_decision(MARSEILLE_ID, date, juridiction)));
+        let resolution = resolve(&corpus, text).await;
+        (resolution, corpus)
+    }
+
+    #[test]
+    fn every_caa_seat_and_title_family_passes_the_court_filter() {
+        for (seat, code) in CAA_SEATS {
+            for title in caa_titles(seat, code) {
+                assert!(is_caa(&title), "{title}");
+                assert!(!is_conseil_etat(&title), "{title}");
+                assert!(!is_ta(&title), "{title}");
+            }
+        }
+    }
+
+    /// Les 35 titres de CAA du relevé `search-CETAT-100.json` (sandbox, 2026-10-28), recopiés à la
+    /// main : une seule famille (`CAA de X, …`) y figure.
+    const RECORDED_CAA_TITLES: [&str; 6] = [
+        "CAA de MARSEILLE, 4ème chambre, 09/06/2026, 24MA02429",
+        "CAA de NANCY, 3ème chambre, 22/05/2025, 22NC02259",
+        "CAA de NANCY, 3ème chambre, 05/02/2026, 24NC00220",
+        "CAA de PARIS, 7ème chambre, 16/06/2025, 23PA01023",
+        "CAA de LYON, 2ème chambre, 18/12/2025, 24LY00227, Inédit au recueil Lebon",
+        "CAA de MARSEILLE, 1ère chambre - formation à 3, 07/06/2018, 16MA02962, Inédit au recueil Lebon",
+    ];
+
+    #[test]
+    fn every_real_caa_title_of_the_recorded_search_passes_the_court_filter() {
+        for title in RECORDED_CAA_TITLES {
+            assert!(is_caa(title), "{title}");
+            assert!(!is_conseil_etat(title) && !is_ta(title), "{title}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_caa_cited_with_a_modern_title_is_resolved_and_verified() {
+        let title =
+            "CAA de MARSEILLE, 5ème chambre, 02/10/2026, 25MA02308, Inédit au recueil Lebon";
+        let (resolution, corpus) = resolve_caa(
+            "CAA Marseille, 2 octobre 2026, n° 25MA02308",
+            title,
+            civil(2026, 10, 2),
+            Some("CAA de MARSEILLE"),
+        )
+        .await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+        assert_eq!(note(&resolution), "");
+        let seen = corpus.seen_requests();
+        assert_eq!(
+            seen.iter().map(PortRequest::method).collect::<Vec<_>>(),
+            ["find_by_number", "get_decision"]
+        );
+        assert_eq!(seen[0], find_request(Fond::Cetat, NumberKind::Decision, "25MA02308"));
+    }
+
+    #[tokio::test]
+    async fn a_caa_cited_with_a_wrong_date_is_a_date_mismatch_not_an_absence() {
+        let title =
+            "CAA de MARSEILLE, 5ème chambre, 02/10/2026, 25MA02308, Inédit au recueil Lebon";
+        let (resolution, _) = resolve_caa(
+            "CAA Marseille, 3 octobre 2026, n° 25MA02308",
+            title,
+            civil(2026, 10, 2),
+            Some("CAA de MARSEILLE"),
+        )
+        .await;
+        assert_eq!(status(&resolution), CheckStatus::Invalid);
+        assert_eq!(
+            note(&resolution),
+            "Cited date 2026-10-03 differs from the official record (2026-10-02)."
+        );
+    }
+
+    #[tokio::test]
+    async fn a_caa_citation_resolves_in_each_form_against_each_title_family() {
+        for (seat, code) in CAA_SEATS {
+            for title in caa_titles(seat, code) {
+                for text in [
+                    format!("CAA {seat}, 2 octobre 2026, n° 25{code}02308"),
+                    format!("CAA de {seat}, 2 octobre 2026, n° 25{code}02308"),
+                    format!(
+                        "Cour administrative d'appel de {seat}, 2 octobre 2026, n° 25{code}02308"
+                    ),
+                ] {
+                    let (resolution, corpus) = resolve_caa(
+                        &text,
+                        &title,
+                        civil(2026, 10, 2),
+                        Some(&format!("CAA de {}", seat.to_uppercase())),
+                    )
+                    .await;
+                    assert_eq!(status(&resolution), CheckStatus::Verified, "{text} / {title}");
+                    assert_eq!(corpus.calls_of("get_decision"), 1, "{text} / {title}");
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_modern_caa_hit_the_corpus_cannot_consult_keeps_the_selection_note() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![titled(
+            Fond::Cetat,
+            MARSEILLE_ID,
+            "CAA de MARSEILLE, 5ème chambre, 02/10/2026, 25MA02308, Inédit au recueil Lebon",
+        )]));
+        corpus.push_get_decision(Err(CorpusError::NotFound { what: "décision".to_owned() }));
+        let resolution = resolve(&corpus, "CAA Marseille, 2 octobre 2026, n° 25MA02308").await;
+        assert_eq!(resolution.outcome, unresolvable_outcome(Note::OutOfCoverage { court: "CAA" }));
+        assert_eq!(corpus.calls_of("get_decision"), 1);
+    }
+
+    #[tokio::test]
+    async fn a_caa_cited_with_another_seat_is_a_seat_mismatch() {
+        let title =
+            "CAA de MARSEILLE, 5ème chambre, 02/10/2026, 25MA02308, Inédit au recueil Lebon";
+        let (resolution, _) = resolve_caa(
+            "CAA Lyon, 2 octobre 2026, n° 25MA02308",
+            title,
+            civil(2026, 10, 2),
+            Some("CAA de MARSEILLE"),
+        )
+        .await;
+        assert_eq!(status(&resolution), CheckStatus::Invalid);
+        assert_eq!(
+            note(&resolution),
+            "Cited seat Lyon differs from the official record (Marseille)."
+        );
+        // Date et siège faux : les deux écarts, ensemble.
+        let (resolution, _) = resolve_caa(
+            "CAA Lyon, 3 octobre 2026, n° 25MA02308",
+            title,
+            civil(2026, 10, 2),
+            Some("CAA de MARSEILLE"),
+        )
+        .await;
+        assert_eq!(
+            resolution.outcome.note(Proof::Production),
+            Some(Note::Mismatches(vec![
+                (Field::Date, "2026-10-03".to_owned(), "2026-10-02".to_owned()),
+                (Field::Seat, "Lyon".to_owned(), "Marseille".to_owned()),
+            ]))
+        );
+        // Ancien titre : « CAA Lyon … 94PA01899 » était `high` sur la décision de Paris en 1.1.0.
+        let old = "Cour administrative d'appel de Paris, 3e chambre, du 4 juin 1996, 94PA01899, publié au recueil Lebon";
+        let (resolution, _) =
+            resolve_caa("CAA Lyon, 4 juin 1996, n° 94PA01899", old, civil(1996, 6, 4), None).await;
+        assert_eq!(status(&resolution), CheckStatus::Invalid);
+        assert_eq!(note(&resolution), "Cited seat Lyon differs from the official record (Paris).");
+    }
+
+    #[tokio::test]
+    async fn a_caa_seat_is_compared_in_every_official_court_spelling() {
+        // Le siège officiel se lit dans `juridiction`, à défaut dans le début du titre.
+        for juridiction in [
+            Some("CAA de MARSEILLE"),
+            Some("Cour administrative d'appel de Marseille"),
+            Some("COUR ADMINISTRATIVE D'APPEL DE MARSEILLE"),
+            Some("cour administrative d'appel de marseille, 5ème chambre"),
+            // Aucun siège dans la juridiction : le début du titre le nomme.
+            Some("Cour administrative d'appel, 5ème chambre"),
+            None,
+        ] {
+            // Titre d'ancienne famille : le défaut de siège est seul en cause dans ce test.
+            let title = "Cour administrative d'appel de Marseille, 5ème chambre, du 2 octobre 2026, 25MA02308";
+            let (resolution, _) = resolve_caa(
+                "CAA Lyon, 2 octobre 2026, n° 25MA02308",
+                title,
+                civil(2026, 10, 2),
+                juridiction,
+            )
+            .await;
+            assert_eq!(status(&resolution), CheckStatus::Invalid, "{juridiction:?}");
+            assert_eq!(
+                note(&resolution),
+                "Cited seat Lyon differs from the official record (Marseille).",
+                "{juridiction:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_caa_cited_with_a_seatless_official_title_stays_high() {
+        // Ni la juridiction ni le titre ne nomment de siège : le code du numéro (`94PA` : Paris)
+        // est la seule source, et il s'accorde avec le siège cité.
+        let seatless = "Cour administrative d'appel, 5ème chambre, du 4 juin 1996, 94PA01899";
+        let (resolution, _) =
+            resolve_caa("CAA Paris, 4 juin 1996, n° 94PA01899", seatless, civil(1996, 6, 4), None)
+                .await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+        assert_eq!(note(&resolution), "");
+    }
+
+    #[tokio::test]
+    async fn a_cited_seat_that_the_record_names_or_does_not_name_never_raises_a_seat_gap() {
+        // Neuf sièges, six formes de juridiction : le siège cité est celui du numéro, donc jamais
+        // d'écart, qu'il soit nommé, absent ou nommé en forme longue.
+        for (seat, code) in CAA_SEATS {
+            let upper = seat.to_uppercase();
+            let named = [
+                Some(format!("CAA de {upper}")),
+                Some(format!("Cour administrative d'appel de {seat}")),
+                Some(format!("COUR ADMINISTRATIVE D'APPEL DE {upper}")),
+                Some("Cour administrative d'appel".to_owned()),
+                Some(String::new()),
+                None,
+            ];
+            for juridiction in named {
+                let text = format!("CAA {seat}, 2 octobre 2026, n° 25{code}02308");
+                // Titre d'ancienne famille : reconnu par la 1.1.0, donc le garde est vert avant.
+                let title = format!(
+                    "Cour administrative d'appel de {seat}, 5ème chambre, du 2 octobre 2026, 25{code}02308"
+                );
+                let (resolution, _) =
+                    resolve_caa(&text, &title, civil(2026, 10, 2), juridiction.as_deref()).await;
+                assert_eq!(status(&resolution), CheckStatus::Verified, "{text} / {juridiction:?}");
+                assert_eq!(note(&resolution), "", "{text} / {juridiction:?}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_caa_seat_falls_back_to_the_code_of_the_cited_number() {
+        // Ni la juridiction ni le titre ne nomment de siège : seul le code du numéro (`94PA` :
+        // Paris) peut le dire, et un siège cité différent est un écart.
+        let seatless = "Cour administrative d'appel, 5ème chambre, du 4 juin 1996, 94PA01899";
+        let (resolution, _) =
+            resolve_caa("CAA Lyon, 4 juin 1996, n° 94PA01899", seatless, civil(1996, 6, 4), None)
+                .await;
+        assert_eq!(status(&resolution), CheckStatus::Invalid);
+        assert_eq!(note(&resolution), "Cited seat Lyon differs from the official record (Paris).");
+    }
+
+    #[tokio::test]
+    async fn a_record_that_names_two_seats_never_raises_a_seat_gap() {
+        // Une source qui nomme plusieurs sièges ne tranche pas : aucune comparaison.
+        let old = "Cour administrative d'appel de Paris, 3e chambre, du 4 juin 1996, 94PA01899";
+        for juridiction in
+            ["CAA de PARIS et de LYON", "Cour administrative d'appel de Lyon ou de Paris"]
+        {
+            let (resolution, _) = resolve_caa(
+                "CAA Lyon, 4 juin 1996, n° 94PA01899",
+                old,
+                civil(1996, 6, 4),
+                Some(juridiction),
+            )
+            .await;
+            assert_eq!(status(&resolution), CheckStatus::Verified, "{juridiction}");
+            assert_eq!(note(&resolution), "", "{juridiction}");
+        }
+    }
+
+    #[tokio::test]
+    async fn old_title_witnesses_keep_their_confidence() {
+        let old = "Cour administrative d'appel de Paris, 3e chambre, du 4 juin 1996, 94PA01899, publié au recueil Lebon";
+        let (resolution, _) =
+            resolve_caa("CAA Paris, 4 juin 1996, n° 94PA01899", old, civil(1996, 6, 4), None).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+        let (resolution, _) =
+            resolve_caa("CAA Paris, 5 juin 1996, n° 94PA01899", old, civil(1996, 6, 4), None).await;
+        assert_eq!(status(&resolution), CheckStatus::Invalid);
+        assert_eq!(
+            note(&resolution),
+            "Cited date 1996-06-05 differs from the official record (1996-06-04)."
+        );
+    }
+
+    #[tokio::test]
+    async fn a_conseil_d_etat_hit_that_cites_a_caa_number_is_never_consulted() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![
+            titled(
+                Fond::Cetat,
+                "CETATEXT000051655317",
+                "Conseil d'État, 2ème - 7ème chambres réunies, 29/05/2026, 506507",
+            ),
+            titled(
+                Fond::Cetat,
+                "CETATEXT000051655318",
+                "Tribunal administratif de Lyon, du 25 octobre 1989, 22NC02259",
+            ),
+            titled(Fond::Cetat, "CETATEXT000051655319", "CAAX de Lyon, 22NC02259"),
+        ]));
+        let resolution = resolve(&corpus, "CAA Nancy, 22 mai 2025, n° 22NC02259").await;
+        assert_eq!(resolution.outcome, unresolvable_outcome(Note::OutOfCoverage { court: "CAA" }));
+        assert_eq!(corpus.calls_of("get_decision"), 0);
+    }
+
+    #[tokio::test]
+    async fn a_caa_hit_the_corpus_cannot_consult_keeps_the_selection_note() {
+        let old = "Cour administrative d'appel de Paris, 3e chambre, du 4 juin 1996, 94PA01899, publié au recueil Lebon";
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![titled(Fond::Cetat, MARSEILLE_ID, old)]));
+        corpus.push_get_decision(Err(CorpusError::NotFound { what: "décision".to_owned() }));
+        let resolution = resolve(&corpus, "CAA Paris, 4 juin 1996, n° 94PA01899").await;
+        assert_eq!(resolution.outcome, unresolvable_outcome(Note::OutOfCoverage { court: "CAA" }));
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![titled(Fond::Cetat, MARSEILLE_ID, old)]));
+        corpus.push_get_decision(Err(CorpusError::Timeout));
+        let resolution = resolve(&corpus, "CAA Paris, 4 juin 1996, n° 94PA01899").await;
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable);
+        assert!(matches!(resolution.outcome, Outcome::Failed(CorpusError::Timeout)));
+    }
+
+    #[tokio::test]
+    async fn a_joint_numbers_caa_is_a_known_limit_not_a_false_selection_claim() {
+        // Garantie 14, n° 3 : `NUM_DEC` exacte ne porte que le premier numéro d'une décision
+        // jointe d'avant 2020 ; cité seul, le second numéro ne trouve rien. Limite 1.1.0 figée :
+        // la note dit que l'absence ne prouve rien, elle ne prétend pas que la décision n'existe pas.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        let resolution = resolve(&corpus, "CAA Paris, 4 juin 2019, n° 12PA03901").await;
+        assert_eq!(resolution.outcome, unresolvable_outcome(Note::OutOfCoverage { court: "CAA" }));
+        let text = note(&resolution);
+        assert!(text.contains("absence is not proof"), "{text}");
+        assert!(!text.contains("not found") && !text.contains("not published"), "{text}");
+        assert_eq!(corpus.calls_of("get_decision"), 0);
     }
 
     // ----------------------------------------------------------------------------------------
@@ -3482,6 +3937,7 @@ mod tests {
             date: None,
             cc_type: None,
             chamber: None,
+            seat: None,
             absent: Note::CouldNotConfirm { index: "JURI" },
         }
     }
@@ -3663,7 +4119,7 @@ mod tests {
     fn the_decision_of_the_cited_day_is_chosen_with_high_confidence_and_its_text() {
         let day = civil(2025, 6, 4);
         let found = found_of(&[civil(2025, 6, 3), day, civil(2025, 6, 5)], None);
-        let chosen = choose_decision(&found, Some(day), None, None);
+        let chosen = choose_decision(&found, Some(day), None, None, None);
         assert_eq!(confidence_of(&chosen.outcome), Some(Confidence::High));
         assert_eq!(record_id(&chosen).as_deref(), Some("JURITEXT000000000002"));
         assert_eq!(chosen.official.as_deref(), Some("Texte de la décision."));
@@ -3673,7 +4129,7 @@ mod tests {
     #[test]
     fn a_single_decision_of_another_day_is_a_date_mismatch_carrying_its_text() {
         let found = found_of(&[civil(2025, 6, 5)], None);
-        let chosen = choose_decision(&found, Some(civil(2025, 6, 4)), None, None);
+        let chosen = choose_decision(&found, Some(civil(2025, 6, 4)), None, None, None);
         assert_eq!(
             chosen.outcome.note(Proof::Production),
             Some(Note::Mismatch {
@@ -3690,13 +4146,13 @@ mod tests {
     #[test]
     fn without_a_date_a_single_decision_is_medium_and_several_are_candidates() {
         let found = found_of(&[civil(2025, 6, 5)], None);
-        let chosen = choose_decision(&found, None, None, None);
+        let chosen = choose_decision(&found, None, None, None, None);
         assert_eq!(confidence_of(&chosen.outcome), Some(Confidence::Medium));
         assert_eq!(chosen.official.as_deref(), Some("Texte de la décision."));
 
         let many = found_of(&[civil(2025, 6, 5), civil(2025, 6, 6)], None);
         let (items, note) =
-            candidates_of(choose_decision(&many, None, None, None).outcome).unwrap();
+            candidates_of(choose_decision(&many, None, None, None, None).outcome).unwrap();
         assert_eq!(items.len(), 2);
         assert_eq!(note, Note::Candidates { n: 2 });
         assert!(
@@ -3710,18 +4166,20 @@ mod tests {
         // Deux décisions du jour cité.
         let twice = found_of(&[day, day], None);
         let (_, note) =
-            candidates_of(choose_decision(&twice, Some(day), None, None).outcome).unwrap();
+            candidates_of(choose_decision(&twice, Some(day), None, None, None).outcome).unwrap();
         assert_eq!(note, Note::Candidates { n: 2 });
         // Plusieurs décisions, aucune du jour cité : `lookup` l'écarte avant (`none_on_the_day`),
         // ce choix ne voit plus que les listes qu'une décision sans date laisse ouvertes.
         let other_days = found_of(&[civil(2025, 6, 5), civil(2025, 6, 6)], None);
         let (_, note) =
-            candidates_of(choose_decision(&other_days, Some(day), None, None).outcome).unwrap();
+            candidates_of(choose_decision(&other_days, Some(day), None, None, None).outcome)
+                .unwrap();
         assert_eq!(note, Note::Candidates { n: 2 });
         // Au-delà de cinq, cinq candidats et le compte exact.
         let dates: Vec<CivilDate> = (1..=6).map(|d| civil(2025, 7, d)).collect();
         let six = found_of(&dates, None);
-        let (items, note) = candidates_of(choose_decision(&six, None, None, None).outcome).unwrap();
+        let (items, note) =
+            candidates_of(choose_decision(&six, None, None, None, None).outcome).unwrap();
         assert_eq!(items.len(), MAX_CANDIDATES);
         assert_eq!(note, Note::Candidates { n: 6 });
     }
@@ -3729,8 +4187,13 @@ mod tests {
     #[test]
     fn a_constitutional_type_is_compared_only_when_the_record_names_one() {
         let day = civil(2025, 11, 7);
-        let mismatch =
-            choose_decision(&found_of(&[day], Some("DC")), Some(day), Some(CcType::Qpc), None);
+        let mismatch = choose_decision(
+            &found_of(&[day], Some("DC")),
+            Some(day),
+            Some(CcType::Qpc),
+            None,
+            None,
+        );
         assert_eq!(
             mismatch.outcome.note(Proof::Production),
             Some(Note::Mismatch {
@@ -3740,15 +4203,21 @@ mod tests {
             })
         );
         assert_eq!(mismatch.official.as_deref(), Some("Texte de la décision."));
-        let same =
-            choose_decision(&found_of(&[day], Some("QPC")), Some(day), Some(CcType::Qpc), None);
+        let same = choose_decision(
+            &found_of(&[day], Some("QPC")),
+            Some(day),
+            Some(CcType::Qpc),
+            None,
+            None,
+        );
         assert_eq!(confidence_of(&same.outcome), Some(Confidence::High));
         assert_eq!(same.official.as_deref(), Some("Texte de la décision."));
-        let unnamed = choose_decision(&found_of(&[day], None), Some(day), Some(CcType::Qpc), None);
+        let unnamed =
+            choose_decision(&found_of(&[day], None), Some(day), Some(CcType::Qpc), None, None);
         assert_eq!(confidence_of(&unnamed.outcome), Some(Confidence::High));
         // La date et le type en écart sont rendus ensemble.
         let found = found_of(&[day], Some("DC"));
-        let both = choose_decision(&found, Some(civil(2025, 11, 8)), Some(CcType::Qpc), None);
+        let both = choose_decision(&found, Some(civil(2025, 11, 8)), Some(CcType::Qpc), None, None);
         assert_eq!(
             both.outcome.note(Proof::Production),
             Some(Note::Mismatches(vec![
@@ -3812,7 +4281,7 @@ mod tests {
         let day = civil(2025, 6, 4);
         let soc = with_formation(&[day], Some("CHAMBRE_SOCIALE"));
         // Chambre seule.
-        let alone = choose_decision(&soc, Some(day), None, Some(CassChamber::Civ1));
+        let alone = choose_decision(&soc, Some(day), None, Some(CassChamber::Civ1), None);
         assert_eq!(
             alone.outcome.note(Proof::Production),
             Some(Note::Mismatch {
@@ -3823,7 +4292,8 @@ mod tests {
         );
         assert_eq!(alone.official.as_deref(), Some("Texte de la décision."));
         // Date et chambre.
-        let both = choose_decision(&soc, Some(civil(2025, 6, 5)), None, Some(CassChamber::Civ1));
+        let both =
+            choose_decision(&soc, Some(civil(2025, 6, 5)), None, Some(CassChamber::Civ1), None);
         assert_eq!(
             both.outcome.note(Proof::Production),
             Some(Note::Mismatches(vec![
@@ -3833,7 +4303,7 @@ mod tests {
         );
         // Date seule, bonne chambre : l'ancien rendu, un seul écart.
         let date_only =
-            choose_decision(&soc, Some(civil(2025, 6, 5)), None, Some(CassChamber::Soc));
+            choose_decision(&soc, Some(civil(2025, 6, 5)), None, Some(CassChamber::Soc), None);
         assert_eq!(
             date_only.outcome.note(Proof::Production),
             Some(Note::Mismatch {
@@ -3843,7 +4313,7 @@ mod tests {
             })
         );
         // Bonne chambre et bonne date : vérifié, sans note.
-        let fine = choose_decision(&soc, Some(day), None, Some(CassChamber::Soc));
+        let fine = choose_decision(&soc, Some(day), None, Some(CassChamber::Soc), None);
         assert_eq!(confidence_of(&fine.outcome), Some(Confidence::High));
         assert_eq!(fine.outcome.note(Proof::Production), None);
     }
@@ -3852,14 +4322,15 @@ mod tests {
     fn an_unexpected_formation_is_verified_with_a_note_and_a_date_gap_still_wins() {
         let day = civil(2025, 6, 4);
         let odd = with_formation(&[day], Some("CT0196"));
-        let noted = choose_decision(&odd, Some(day), None, Some(CassChamber::Soc));
+        let noted = choose_decision(&odd, Some(day), None, Some(CassChamber::Soc), None);
         assert_eq!(confidence_of(&noted.outcome), Some(Confidence::High));
         assert_eq!(noted.outcome.note(Proof::Production), Some(Note::ChamberNotCompared));
         // Une chambre non citée ne produit aucune note, même devant une formation inattendue.
-        let silent = choose_decision(&odd, Some(day), None, None);
+        let silent = choose_decision(&odd, Some(day), None, None, None);
         assert_eq!(silent.outcome.note(Proof::Production), None);
         // Un écart de date reste un écart de date : la note de chambre ne s'y ajoute pas.
-        let late = choose_decision(&odd, Some(civil(2025, 6, 5)), None, Some(CassChamber::Soc));
+        let late =
+            choose_decision(&odd, Some(civil(2025, 6, 5)), None, Some(CassChamber::Soc), None);
         assert_eq!(
             late.outcome.note(Proof::Production),
             Some(Note::Mismatch {

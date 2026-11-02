@@ -833,6 +833,55 @@ mod tests {
         assert!(matches!(output.notes.as_slice(), [Note::Mismatch { .. }]), "{:?}", output.notes);
     }
 
+    fn caa_decision(juridiction: &str) -> lf_domain::entity::Decision {
+        lf_domain::entity::Decision {
+            decision_id: lf_domain::id::DecisionId::parse("CETATEXT000054955709").unwrap(),
+            ecli: None,
+            num: None,
+            juridiction: Some(juridiction.to_owned()),
+            formation: None,
+            solution: None,
+            numero_affaire: vec![],
+            date_texte: CivilDate::new(2026, 10, 2),
+            nature: None,
+            title: None,
+            text: LongText::from_plain("Texte de la décision.").unwrap(),
+            official_summary: lf_domain::entity::OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
+        }
+    }
+
+    fn caa_hit() -> SearchHit {
+        let mut found =
+            SearchHit::new(Fond::Cetat, DocumentId::parse("CETATEXT000054955709").unwrap(), None)
+                .unwrap();
+        found.title = Some(
+            "CAA de MARSEILLE, 5ème chambre, 02/10/2026, 25MA02308, Inédit au recueil Lebon"
+                .to_owned(),
+        );
+        found
+    }
+
+    #[tokio::test]
+    async fn a_caa_is_resolved_with_high_confidence_and_no_selection_note() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![caa_hit()]));
+        corpus.push_get_decision(Ok(caa_decision("CAA de MARSEILLE")));
+        let output = resolve(&corpus, "CAA Marseille, 2 octobre 2026, n° 25MA02308").await;
+        assert_eq!(output.candidates.len(), 1);
+        assert_eq!(output.candidates[0].confidence, Confidence::High);
+        assert_eq!(output.notes, []);
+        // Un siège cité faux : un candidat `medium` et l'écart.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![caa_hit()]));
+        corpus.push_get_decision(Ok(caa_decision("CAA de MARSEILLE")));
+        let output = resolve(&corpus, "CAA Lyon, 2 octobre 2026, n° 25MA02308").await;
+        assert_eq!(output.candidates.len(), 1);
+        assert_eq!(output.candidates[0].confidence, Confidence::Medium);
+        assert!(matches!(output.notes.as_slice(), [Note::Mismatch { .. }]), "{:?}", output.notes);
+    }
+
     #[tokio::test]
     async fn a_corpus_failure_fails_the_call() {
         let corpus = corpus_with_civil_code();

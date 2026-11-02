@@ -943,6 +943,196 @@ mod tests {
         ));
     }
 
+    // ----------------------------------------------------------------------------------------
+    // Cours administratives d'appel (U04)
+    // ----------------------------------------------------------------------------------------
+
+    const CAA_ID: &str = "CETATEXT000054955709";
+    const MODERN_CAA_TITLE: &str =
+        "CAA de MARSEILLE, 5ème chambre, 02/10/2026, 25MA02308, Inédit au recueil Lebon";
+    const OLD_CAA_TITLE: &str = "Cour administrative d'appel de Paris, 3e chambre, du 4 juin 1996, \
+                                 94PA01899, publié au recueil Lebon";
+
+    fn caa_hit(title: &str) -> SearchHit {
+        let mut found = hit(Fond::Cetat, CAA_ID);
+        found.title = Some(title.to_owned());
+        found
+    }
+
+    fn caa_decision(juridiction: &str, date: CivilDate) -> Decision {
+        Decision {
+            decision_id: DecisionId::parse(CAA_ID).unwrap(),
+            ecli: None,
+            num: None,
+            juridiction: Some(juridiction.to_owned()),
+            formation: None,
+            solution: None,
+            numero_affaire: vec![],
+            date_texte: Some(date),
+            nature: None,
+            title: None,
+            text: LongText::from_plain("Texte de la décision.").unwrap(),
+            official_summary: OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn a_caa_citation_is_verified_like_fr_resolve() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![caa_hit(MODERN_CAA_TITLE)]));
+        corpus.push_get_decision(Ok(caa_decision(
+            "CAA de MARSEILLE",
+            CivilDate::new(2026, 10, 2).unwrap(),
+        )));
+        let verification = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "CAA Marseille, 2 octobre 2026, n° 25MA02308",
+        )
+        .await
+        .unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(note_text(check), "");
+        assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), CAA_ID);
+        // Une CAA absente du fond reste `unresolvable`, avec la note de sélection.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        let verification = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "CAA Marseille, 2 octobre 2026, n° 25MA02308",
+        )
+        .await
+        .unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Unresolvable);
+        assert_eq!(
+            note_text(check),
+            "Légifrance only holds a selection of CAA decisions; absence is not proof \
+             (see fr_coverage)."
+        );
+    }
+
+    #[tokio::test]
+    async fn a_caa_seat_mismatch_is_invalid_in_verify() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![caa_hit(MODERN_CAA_TITLE)]));
+        corpus.push_get_decision(Ok(caa_decision(
+            "CAA de MARSEILLE",
+            CivilDate::new(2026, 10, 2).unwrap(),
+        )));
+        let verification =
+            verify(&corpus, PisteEnvironment::Production, "CAA Lyon, 2 octobre 2026, n° 25MA02308")
+                .await
+                .unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Invalid);
+        assert_eq!(
+            note_text(check),
+            "Cited seat Lyon differs from the official record (Marseille)."
+        );
+    }
+
+    fn twenty_caa_citations() -> String {
+        (1..=20)
+            .map(|n| format!("CAA Marseille, 2 octobre 2026, n° 25MA023{n:02}."))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    #[tokio::test]
+    async fn twenty_caa_citations_cost_one_get_decision_each() {
+        let corpus = FakeCorpus::new();
+        for _ in 0..20 {
+            corpus.push_find_by_number(Ok(vec![caa_hit(MODERN_CAA_TITLE)]));
+            corpus.push_get_decision(Ok(caa_decision(
+                "CAA de MARSEILLE",
+                CivilDate::new(2026, 10, 2).unwrap(),
+            )));
+        }
+        let verification =
+            verify(&corpus, PisteEnvironment::Production, &twenty_caa_citations()).await.unwrap();
+        assert_eq!(verification.checks.len(), 20);
+        assert_eq!(corpus.calls_of("get_decision"), 20);
+        assert!(statuses(&verification).iter().all(|status| *status == CheckStatus::Verified));
+    }
+
+    #[tokio::test]
+    async fn twenty_old_title_caa_citations_verify_within_the_time_budget() {
+        // Titres anciens, déjà reconnus par la 1.1.0 : statuts et budget de temps seulement, aucun
+        // compte d'appels (le compte change avec U04 : il est porté par le test rouge ci-dessus).
+        let corpus = FakeCorpus::new();
+        for _ in 0..20 {
+            corpus.push_find_by_number(Ok(vec![caa_hit(OLD_CAA_TITLE)]));
+            corpus.push_get_decision(Ok(caa_decision(
+                "CAA de PARIS",
+                CivilDate::new(1996, 6, 4).unwrap(),
+            )));
+        }
+        let text = (1..=20)
+            .map(|n| format!("CAA Paris, 4 juin 1996, n° 94PA018{n:02}."))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+        assert_eq!(verification.checks.len(), 20);
+        assert!(statuses(&verification).iter().all(|status| *status == CheckStatus::Verified));
+        assert!(verification.checks.iter().all(|check| !note_text(check).contains("time budget")));
+    }
+
+    #[tokio::test]
+    async fn a_caa_consultation_failure_does_not_hide_the_other_citations() {
+        let corpus = FakeCorpus::new();
+        codes(&corpus);
+        corpus.push_find_by_number(Ok(vec![caa_hit(OLD_CAA_TITLE)]));
+        corpus.push_get_decision(Err(upstream()));
+        corpus.push_find_article(Ok(article(
+            6_419_288,
+            Some("9"),
+            CivilDate::new(2016, 10, 1),
+            "Chacun a droit au respect de sa vie privée.",
+        )));
+        let verification = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "CAA Paris, 4 juin 1996, n° 94PA01899 ; article 9 du code civil.",
+        )
+        .await
+        .unwrap();
+        assert_eq!(statuses(&verification), [CheckStatus::Unresolvable, CheckStatus::Verified]);
+    }
+
+    #[tokio::test]
+    async fn a_quote_glued_to_a_caa_citation_is_compared_with_the_official_text() {
+        let corpus = FakeCorpus::new();
+        for _ in 0..2 {
+            corpus.push_find_by_number(Ok(vec![caa_hit(MODERN_CAA_TITLE)]));
+            corpus.push_get_decision(Ok(caa_decision(
+                "CAA de MARSEILLE",
+                CivilDate::new(2026, 10, 2).unwrap(),
+            )));
+        }
+        let kept = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "CAA Marseille, 2 octobre 2026, n° 25MA02308 : « Texte de la décision. »",
+        )
+        .await
+        .unwrap();
+        assert_eq!(kept.checks[0].status, CheckStatus::Verified);
+        assert_eq!(kept.checks[0].quote, Some(QuoteCheck::Match));
+        let altered = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "CAA Marseille, 2 octobre 2026, n° 25MA02308 : « Un tout autre propos du juge. »",
+        )
+        .await
+        .unwrap();
+        assert_eq!(altered.checks[0].quote, Some(QuoteCheck::QuoteMismatch));
+    }
+
     fn find_travail(num: &str) -> PortRequest {
         PortRequest::FindArticle(
             LegiTextId::parse(TRAVAIL).unwrap(),
