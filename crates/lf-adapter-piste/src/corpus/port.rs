@@ -11,7 +11,8 @@
 //! alimente `search_body` et sa garde défensive, avant toute requête, jeton compris) et ne retient
 //! le mode reçu qu'**après** le mapping : sur `Err`, rien n'est retenu (R12). Une page de taille 1
 //! est demandée en taille 2 (PISTE ignore `pageNumber` à `pageSize` 1, L3-05) : la réponse est
-//! coupée à son créneau (`SearchResponseDto::keep_window`) avant le mapping.
+//! coupée à son créneau (`SearchResponseDto::keep_window`) avant le mapping. Un CODE répondu en
+//! `ARTICLE` à une page demandée en `DEFAUT` est relu une fois en `ARTICLE` (`reread_in_article`).
 
 use lf_application::ports::{ArticleAt, CorpusError, LegalCorpus};
 use lf_domain::date::VersionDate;
@@ -80,18 +81,32 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S>
         let mode = memo.mode_for(query);
         let (page, received) = self.search_in(query, mode).await?;
         memo.remember(query, received);
-        // CODE, `page_size` 1, mode non mémorisé : la requête a été doublée en `DEFAUT` (L3-05),
-        // or l'amont répond `ARTICLE`, où la taille compte des articles. La page reçue (deux
-        // articles, coupée à un hit) n'est pas celle qui est demandée et la page suivante
-        // redonnerait un article déjà rendu : elle est relue une fois, en `ARTICLE`, non doublée.
+        // CODE, mode non mémorisé, envoyé en `DEFAUT` mais répondu en `ARTICLE` (PISTE pagine par
+        // article : un seul code, beaucoup d'articles). Deux cas, relus une fois en `ARTICLE` :
+        // - `page_size` 1 : la requête a été doublée (L3-05) ; la page reçue (deux articles, coupée
+        //   à un hit) n'est pas celle qui est demandée et la page suivante redonnerait un article
+        //   déjà rendu ; la relecture est rendue telle quelle ;
+        // - page > 1 vide alors que l'amont annonce des résultats (gap3-1 : le mémo est vide, la
+        //   page de textes demandée en `DEFAUT` n'existe pas) ; la relecture n'est rendue que si
+        //   elle porte un article, sinon la page hors de la fin des articles reste vide.
         let doubled =
             wire_page_for(query.fond(), mode, query.page().get(), query.page_size().get())
                 .page_size
                 != query.page_size().get();
-        if doubled && query.fond() == Fond::Code && received == Some(PaginationMode::Article) {
-            let (page, received) = self.search_in(query, PaginationMode::Article).await?;
-            memo.remember(query, received);
-            return Ok(page);
+        if reread_in_article(
+            query.fond(),
+            mode,
+            received,
+            query.page().get(),
+            doubled,
+            page.hits.is_empty(),
+            page.total,
+        ) {
+            let (again, again_received) = self.search_in(query, PaginationMode::Article).await?;
+            memo.remember(query, again_received);
+            if doubled || again.hits.iter().any(|hit| !hit.articles.is_empty()) {
+                return Ok(again);
+            }
         }
         Ok(page)
     }
@@ -162,6 +177,24 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> LegalCorpus for PisteCorpus<K, S>
     }
 }
 
+/// Faut-il relire la page en `ARTICLE` (04 §6.6) ? Seul un CODE envoyé en `DEFAUT` et répondu en
+/// `ARTICLE` y prétend : soit la requête a été doublée (L3-05, `page_size` 1), soit c'est une page
+/// > 1 vide alors que l'amont annonce des résultats.
+fn reread_in_article(
+    fond: Fond,
+    sent: PaginationMode,
+    received: Option<PaginationMode>,
+    page_number: u32,
+    doubled: bool,
+    hits_empty: bool,
+    total: u64,
+) -> bool {
+    fond == Fond::Code
+        && sent == PaginationMode::Defaut
+        && received == Some(PaginationMode::Article)
+        && (doubled || (page_number > 1 && hits_empty && total > 0))
+}
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU32;
@@ -181,6 +214,7 @@ mod tests {
     use crate::map::Diagnostics;
     use crate::map::endpoint;
     use crate::map::fixtures::{Mapped, decoded, fixture, map_body, text as fixture_text};
+    use crate::memo::MemoKey;
     use crate::request::search::search_body;
     use crate::stats::StatsSnapshot;
     use crate::testing::capture_at;
@@ -712,6 +746,555 @@ mod tests {
         let first = rig.corpus.search(&sized(Fond::Code, 1, 1)).await.unwrap();
         assert_eq!(ids(&first), ["LEGITEXT000005634379"]);
         assert_eq!(sent_pages(&rig).await, [(json!(1), json!(2))]);
+    }
+
+    // ---- U09 (gap3-1) : page > 1 d'un CODE demandée à froid, relevés C12 (sandbox, 2026-11-01) --
+
+    /// Relevés C12 : `émoluments notaire donation`, CODE, `TOUS_LES_MOTS_DANS_UN_CHAMP`, pages de
+    /// taille 5. PISTE répond toujours `typePagination` `ARTICLE` (1 code, 16 articles) ; une page
+    /// > 1 demandée en `DEFAUT` revient vide, la même page demandée en `ARTICLE` porte les articles.
+    const C12_P1: &str = include_str!(
+        "../../tests/fixtures/recorded/search/c101/C12-code-emoluments-page1-defaut.json"
+    );
+    const C12_P2_DEFAUT: &str = include_str!(
+        "../../tests/fixtures/recorded/search/c101/C12-code-emoluments-page2-defaut.json"
+    );
+    const C12_P2_ARTICLE: &str = include_str!(
+        "../../tests/fixtures/recorded/search/c101/C12-code-emoluments-page2-article.json"
+    );
+    const C12_P3_DEFAUT: &str = include_str!(
+        "../../tests/fixtures/recorded/search/c101/C12-code-emoluments-page3-defaut.json"
+    );
+    const C12_P3_ARTICLE: &str = include_str!(
+        "../../tests/fixtures/recorded/search/c101/C12-code-emoluments-page3-article.json"
+    );
+    const C12_P4_DEFAUT: &str = include_str!(
+        "../../tests/fixtures/recorded/search/c101/C12-code-emoluments-page4-defaut.json"
+    );
+    const C12_P4_ARTICLE: &str = include_str!(
+        "../../tests/fixtures/recorded/search/c101/C12-code-emoluments-page4-article.json"
+    );
+
+    const C12_P1_IDS: [&str; 5] = [
+        "LEGIARTI000033254415",
+        "LEGIARTI000041684292",
+        "LEGIARTI000041684268",
+        "LEGIARTI000041684289",
+        "LEGIARTI000032132066",
+    ];
+    const C12_P2_IDS: [&str; 5] = [
+        "LEGIARTI000041684274",
+        "LEGIARTI000041684286",
+        "LEGIARTI000041684283",
+        "LEGIARTI000041684271",
+        "LEGIARTI000041684265",
+    ];
+    /// Les deux extraits de la page 3 sans identifiant sont écartés par le mapping.
+    const C12_P3_IDS: [&str; 5] = [
+        "LEGIARTI000041684262",
+        "LEGIARTI000041684280",
+        "LEGIARTI000041684277",
+        "LEGIARTI000041684614",
+        "LEGIARTI000041684332",
+    ];
+    const C12_P4_IDS: [&str; 1] = ["LEGIARTI000048153997"];
+
+    /// La requête de C12 à la page `page`, en pages de `size`.
+    fn c12(page: u32, size: u32) -> SearchQuery {
+        SearchQuery::new(
+            Fond::Code,
+            QueryText::parse("émoluments notaire donation").unwrap(),
+            NonZeroU32::new(page).unwrap(),
+            PageSize::new(size).unwrap(),
+            MatchMode::All,
+            None,
+            Some(version_date()),
+        )
+        .unwrap()
+    }
+
+    /// Réponse `body` à la requête de la page `wire_page` envoyée en `mode`.
+    async fn mode_replies(rig: &Rig, wire_page: u32, mode: &str, body: &str) {
+        Mock::given(method("POST"))
+            .and(path(format!("{API_BASE}{}", endpoint::SEARCH)))
+            .and(body_partial_json(
+                json!({"recherche": {"pageNumber": wire_page, "typePagination": mode}}),
+            ))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_raw(body.to_owned(), "application/json"),
+            )
+            .mount(&rig.server)
+            .await;
+    }
+
+    /// Un `Rig` qui répond comme la sandbox aux relevés C12 : `DEFAUT` vide à partir de la page 2,
+    /// `ARTICLE` porteur des articles.
+    async fn c12_rig() -> Rig {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        mode_replies(&rig, 1, "DEFAUT", C12_P1).await;
+        mode_replies(&rig, 2, "DEFAUT", C12_P2_DEFAUT).await;
+        mode_replies(&rig, 2, "ARTICLE", C12_P2_ARTICLE).await;
+        mode_replies(&rig, 3, "DEFAUT", C12_P3_DEFAUT).await;
+        mode_replies(&rig, 3, "ARTICLE", C12_P3_ARTICLE).await;
+        mode_replies(&rig, 4, "DEFAUT", C12_P4_DEFAUT).await;
+        mode_replies(&rig, 4, "ARTICLE", C12_P4_ARTICLE).await;
+        rig
+    }
+
+    /// Identifiants des articles du premier hit.
+    fn article_ids(page: &SearchPage) -> Vec<&str> {
+        page.hits
+            .first()
+            .map(|hit| hit.articles.iter().map(|article| article.article_id.as_str()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Une réponse `ARTICLE` d'une page hors de la fin des articles : le hit du code revient sans
+    /// aucun extrait (C12 page 4, sections vidées), `totalArticleResultNumber` à `articles`.
+    fn article_page_past_the_end(articles: u64) -> String {
+        let mut value: Value = serde_json::from_str(C12_P4_ARTICLE).unwrap();
+        value["results"][0]["sections"] = json!([]);
+        value["totalArticleResultNumber"] = json!(articles);
+        value.to_string()
+    }
+
+    /// V1 : page 2 en premier appel d'un processus neuf. PISTE répond à `DEFAUT` une page de textes
+    /// vide ; la page est relue une fois en `ARTICLE`.
+    #[tokio::test]
+    async fn cold_code_page_2_answered_by_article_is_read_again_in_article() {
+        let rig = c12_rig().await;
+        let page = rig.corpus.search(&c12(2, 5)).await.unwrap();
+        assert_eq!(article_ids(&page), C12_P2_IDS);
+        assert_eq!((page.total, page.total_articles), (1, Some(16)));
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("ARTICLE")]);
+        assert_eq!(sent_pages(&rig).await, [(json!(2), json!(5)), (json!(2), json!(5))]);
+    }
+
+    /// Suite de V1 : le mémo a appris `ARTICLE`, les pages suivantes partent directement ainsi, et
+    /// les pages 1 à 4 réunissent les 16 articles du relevé.
+    #[tokio::test]
+    async fn after_the_reread_the_next_page_goes_straight_to_article() {
+        let rig = c12_rig().await;
+        let mut union: Vec<String> = Vec::new();
+        let mut keep =
+            |page: &SearchPage| union.extend(article_ids(page).into_iter().map(str::to_owned));
+        let second = rig.corpus.search(&c12(2, 5)).await.unwrap();
+        assert_eq!(article_ids(&second), C12_P2_IDS);
+        keep(&second);
+        let third = rig.corpus.search(&c12(3, 5)).await.unwrap();
+        assert_eq!(article_ids(&third), C12_P3_IDS);
+        keep(&third);
+        let fourth = rig.corpus.search(&c12(4, 5)).await.unwrap();
+        assert_eq!(article_ids(&fourth), C12_P4_IDS);
+        keep(&fourth);
+        let first = rig.corpus.search(&c12(1, 5)).await.unwrap();
+        assert_eq!(article_ids(&first), C12_P1_IDS);
+        keep(&first);
+        assert_eq!(
+            sent_modes(&rig).await,
+            [
+                json!("DEFAUT"),
+                json!("ARTICLE"),
+                json!("ARTICLE"),
+                json!("ARTICLE"),
+                json!("DEFAUT")
+            ]
+        );
+        union.sort();
+        union.dedup();
+        assert_eq!(union.len(), 16);
+    }
+
+    /// V2 : la page 3 en premier appel rend les mêmes articles que la même page après un parcours
+    /// à chaud.
+    #[tokio::test]
+    async fn a_cold_traversal_starting_at_page_3_yields_the_same_articles_as_the_warm_one() {
+        let cold_rig = c12_rig().await;
+        let cold = cold_rig.corpus.search(&c12(3, 5)).await.unwrap();
+        let warm_rig = c12_rig().await;
+        for page in [1, 2] {
+            warm_rig.corpus.search(&c12(page, 5)).await.unwrap();
+        }
+        let warm = warm_rig.corpus.search(&c12(3, 5)).await.unwrap();
+        assert_eq!(article_ids(&cold), C12_P3_IDS);
+        assert_eq!(article_ids(&cold), article_ids(&warm));
+        assert_eq!(cold.total_articles, warm.total_articles);
+    }
+
+    /// V3 : `page_size` est dans la clé du mémo ; chaque taille nouvelle repart à froid et relit
+    /// une fois, puis la même clé part directement en `ARTICLE`.
+    #[tokio::test]
+    async fn a_page_size_change_between_pages_rereads_once_per_key() {
+        let rig = c12_rig().await;
+        rig.corpus.search(&c12(1, 10)).await.unwrap();
+        let second = rig.corpus.search(&c12(2, 5)).await.unwrap();
+        let third = rig.corpus.search(&c12(3, 20)).await.unwrap();
+        assert_eq!(article_ids(&second), C12_P2_IDS);
+        assert_eq!(article_ids(&third), C12_P3_IDS);
+        assert_eq!(
+            sent_modes(&rig).await,
+            [json!("DEFAUT"), json!("DEFAUT"), json!("ARTICLE"), json!("DEFAUT"), json!("ARTICLE")]
+        );
+        // La clé (page_size 5) est apprise : la même page repart directement en ARTICLE.
+        rig.corpus.search(&c12(2, 5)).await.unwrap();
+        assert_eq!(sent_modes(&rig).await.last(), Some(&json!("ARTICLE")));
+        assert_eq!(sent_modes(&rig).await.len(), 6);
+    }
+
+    /// V6 : un autre champ de la clé entre la page 1 et la page 2 (correspondance, date de version) donne une clé neuve : la page 2 est à froid et relue une fois.
+    #[tokio::test]
+    async fn a_cold_code_page_changes_nothing_when_another_key_field_differs() {
+        let other_match = |mode| {
+            SearchQuery::new(
+                Fond::Code,
+                QueryText::parse("émoluments notaire donation").unwrap(),
+                NonZeroU32::new(2).unwrap(),
+                PageSize::new(5).unwrap(),
+                mode,
+                None,
+                Some(version_date()),
+            )
+            .unwrap()
+        };
+        let other_day = SearchQuery::new(
+            Fond::Code,
+            QueryText::parse("émoluments notaire donation").unwrap(),
+            NonZeroU32::new(2).unwrap(),
+            PageSize::new(5).unwrap(),
+            MatchMode::All,
+            None,
+            Some(VersionDate::parse("2026-10-16").unwrap()),
+        )
+        .unwrap();
+        for second in [other_match(MatchMode::Any), other_day] {
+            let rig = c12_rig().await;
+            rig.corpus.search(&c12(1, 5)).await.unwrap();
+            let page = rig.corpus.search(&second).await.unwrap();
+            assert_eq!(article_ids(&page), C12_P2_IDS);
+            assert_eq!(
+                sent_modes(&rig).await,
+                [json!("DEFAUT"), json!("DEFAUT"), json!("ARTICLE")]
+            );
+        }
+    }
+
+    /// Table pure de la décision de relire en `ARTICLE`.
+    #[test]
+    fn reread_in_article_table() {
+        use PaginationMode::{Article, Defaut};
+        // (fond, envoyé, reçu, page, doublé, hits vides, total) -> relire ?
+        let table = [
+            // Page > 1 vide d'un CODE répondu en ARTICLE avec des résultats : relire.
+            (Fond::Code, Defaut, Some(Article), 2, false, true, 1, true),
+            (Fond::Code, Defaut, Some(Article), 7, false, true, 40, true),
+            // Requête doublée (L3-05) : relire, quel que soit le contenu.
+            (Fond::Code, Defaut, Some(Article), 1, true, false, 1, true),
+            (Fond::Code, Defaut, Some(Article), 2, true, true, 0, true),
+            // Page 1 : jamais, sauf doublée.
+            (Fond::Code, Defaut, Some(Article), 1, false, true, 1, false),
+            // Page non vide, ou sans résultat annoncé.
+            (Fond::Code, Defaut, Some(Article), 2, false, false, 1, false),
+            (Fond::Code, Defaut, Some(Article), 2, false, true, 0, false),
+            // Mode reçu DEFAUT ou absent.
+            (Fond::Code, Defaut, Some(Defaut), 2, false, true, 1, false),
+            (Fond::Code, Defaut, None, 2, false, true, 1, false),
+            // Autres fonds.
+            (Fond::Juri, Defaut, Some(Article), 2, false, true, 1, false),
+            (Fond::Loda, Defaut, Some(Article), 2, false, true, 1, false),
+            (Fond::Kali, Defaut, Some(Article), 2, true, true, 1, false),
+            // Déjà envoyé en ARTICLE : pas de boucle.
+            (Fond::Code, Article, Some(Article), 2, false, true, 1, false),
+            (Fond::Code, Article, Some(Article), 1, true, true, 1, false),
+        ];
+        for (fond, sent, received, page, doubled, empty, total, expected) in table {
+            assert_eq!(
+                super::reread_in_article(fond, sent, received, page, doubled, empty, total),
+                expected,
+                "{fond:?} {sent:?} {received:?} page {page} doubled {doubled} empty {empty} \
+                 total {total}"
+            );
+        }
+    }
+
+    /// Plusieurs hits à la relecture, un seul porte des articles : elle est rendue (tue `any` vers
+    /// `all`).
+    #[tokio::test]
+    async fn the_reread_is_kept_when_at_least_one_hit_carries_an_article() {
+        let mixed = {
+            let mut value: Value = serde_json::from_str(C12_P2_ARTICLE).unwrap();
+            let mut bare = value["results"][0].clone();
+            bare["titles"][0]["id"] = json!("LEGITEXT000006070299");
+            bare["sections"] = json!([]);
+            value["results"].as_array_mut().unwrap().insert(0, bare);
+            value["totalResultNumber"] = json!(2);
+            value.to_string()
+        };
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        mode_replies(
+            &rig,
+            2,
+            "DEFAUT",
+            &C12_P2_DEFAUT.replacen(r#""totalResultNumber":1"#, r#""totalResultNumber":2"#, 1),
+        )
+        .await;
+        mode_replies(&rig, 2, "ARTICLE", &mixed).await;
+        let page = rig.corpus.search(&c12(2, 5)).await.unwrap();
+        assert_eq!(page.hits.len(), 2);
+        assert_eq!(page.hits[1].articles.len(), 5);
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("ARTICLE")]);
+    }
+
+    /// La relecture ne change que `typePagination` (même page, même taille, mêmes filtres).
+    #[tokio::test]
+    async fn the_reread_differs_from_the_first_request_only_by_the_type_pagination() {
+        let rig = c12_rig().await;
+        rig.corpus.search(&c12(2, 5)).await.unwrap();
+        let mut bodies = search_bodies(&rig).await;
+        assert_eq!(bodies.len(), 2);
+        for body in &mut bodies {
+            body["recherche"].as_object_mut().unwrap().remove("typePagination");
+        }
+        assert_eq!(bodies[0], bodies[1]);
+    }
+
+    /// L'échec de la relecture est rendu tel quel (avant : une page vide muette) ; le mémo a déjà
+    /// appris `ARTICLE`, le nouvel essai part directement en `ARTICLE` et réussit.
+    #[tokio::test]
+    async fn a_failing_reread_of_a_cold_empty_code_page_is_an_error() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        mode_replies(&rig, 2, "DEFAUT", C12_P2_DEFAUT).await;
+        Mock::given(method("POST"))
+            .and(path(format!("{API_BASE}{}", endpoint::SEARCH)))
+            .and(body_partial_json(json!({"recherche": {"typePagination": "ARTICLE"}})))
+            .respond_with(ResponseTemplate::new(503))
+            .up_to_n_times(3)
+            .mount(&rig.server)
+            .await;
+        mode_replies(&rig, 2, "ARTICLE", C12_P2_ARTICLE).await;
+        assert!(rig.corpus.search(&c12(2, 5)).await.is_err());
+        let retried = rig.corpus.search(&c12(2, 5)).await.unwrap();
+        assert_eq!(article_ids(&retried), C12_P2_IDS);
+        let modes = sent_modes(&rig).await;
+        assert_eq!(modes.first(), Some(&json!("DEFAUT")));
+        assert_eq!(modes.iter().filter(|mode| **mode == json!("DEFAUT")).count(), 1);
+        assert_eq!(modes.last(), Some(&json!("ARTICLE")));
+    }
+
+    /// V8 : page hors de la fin des articles, à froid. La relecture ne porte aucun article : elle
+    /// n'est pas rendue, la page vide de la première réponse l'est (comme en 1.1.0), et la page a
+    /// été relue exactement une fois en `ARTICLE`.
+    #[tokio::test]
+    async fn cold_out_of_range_code_page_is_read_again_once_in_article() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        mode_replies(&rig, 5, "DEFAUT", C12_P3_DEFAUT).await;
+        mode_replies(&rig, 5, "ARTICLE", &article_page_past_the_end(16)).await;
+        let page = rig.corpus.search(&c12(5, 5)).await.unwrap();
+        assert_eq!(ids(&page), Vec::<&str>::new());
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("ARTICLE")]);
+    }
+
+    /// Garde de la même page hors fin : vide et mémo appris, sans compter les requêtes.
+    #[tokio::test]
+    async fn cold_out_of_range_code_page_stays_empty() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        mode_replies(&rig, 5, "DEFAUT", C12_P3_DEFAUT).await;
+        mode_replies(&rig, 5, "ARTICLE", &article_page_past_the_end(16)).await;
+        let query = c12(5, 5);
+        let page = rig.corpus.search(&query).await.unwrap();
+        assert_eq!(ids(&page), Vec::<&str>::new());
+        assert_eq!((page.total, page.total_articles), (1, None));
+        let learned = rig.corpus.inner.memo.lookup(&MemoKey::from_query(&query));
+        assert_eq!(learned, Some(PaginationMode::Article));
+    }
+
+    /// Production du 2026-11-02 (« notoriété acquisitive tarif », page 3 de taille 2, 3 articles) :
+    /// à froid, une page au-delà des articles reste vide, `total` 1, sans `total_articles`.
+    #[tokio::test]
+    async fn cold_code_page_beyond_the_articles_matches_production_notoriete() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        mode_replies(&rig, 3, "DEFAUT", C12_P3_DEFAUT).await;
+        mode_replies(&rig, 3, "ARTICLE", &article_page_past_the_end(3)).await;
+        let page = rig.corpus.search(&c12(3, 2)).await.unwrap();
+        assert_eq!(ids(&page), Vec::<&str>::new());
+        assert_eq!((page.total, page.total_articles), (1, None));
+    }
+
+    /// V-82 : un CODE répondu en `DEFAUT` (page vide, résultats annoncés) n'est pas relu.
+    #[tokio::test]
+    async fn a_cold_empty_code_page_answered_by_defaut_is_not_read_again() {
+        let by_defaut = C12_P2_DEFAUT.replacen(
+            r#""typePagination":"ARTICLE""#,
+            r#""typePagination":"DEFAUT""#,
+            1,
+        );
+        assert_ne!(by_defaut, C12_P2_DEFAUT);
+        let rig = Rig::new().await;
+        search_replies(&rig, &by_defaut).await;
+        let page = rig.corpus.search(&c12(2, 5)).await.unwrap();
+        assert_eq!(ids(&page), Vec::<&str>::new());
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT")]);
+    }
+
+    /// Hors CODE, `ARTICLE` n'existe pas : une page vide répondue ainsi n'est pas relue.
+    #[tokio::test]
+    async fn a_cold_empty_non_code_page_answered_by_article_is_not_read_again() {
+        let rig = Rig::new().await;
+        search_replies(&rig, r#"{"results":[],"totalResultNumber":1,"typePagination":"ARTICLE"}"#)
+            .await;
+        rig.corpus.search(&golden_page(Fond::Juri, 2, None)).await.unwrap();
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT")]);
+    }
+
+    /// Mémo déjà `ARTICLE` : une page vide répondue en `ARTICLE` n'est pas relue (pas de boucle).
+    #[tokio::test]
+    async fn a_memoized_article_empty_page_is_not_read_again() {
+        let rig = Rig::new().await;
+        search_replies(&rig, C12_P3_DEFAUT).await;
+        rig.corpus.inner.memo.remember(&c12(3, 5), Some(PaginationMode::Article));
+        let page = rig.corpus.search(&c12(3, 5)).await.unwrap();
+        assert_eq!(ids(&page), Vec::<&str>::new());
+        assert_eq!(sent_modes(&rig).await, [json!("ARTICLE")]);
+    }
+
+    /// Sans résultat annoncé (`totalResultNumber` 0), aucun article n'existe : pas de relecture.
+    #[tokio::test]
+    async fn a_cold_empty_code_page_with_a_total_of_zero_answered_by_article_is_not_read_again() {
+        let none =
+            C12_P2_DEFAUT.replacen(r#""totalResultNumber":1"#, r#""totalResultNumber":0"#, 1);
+        assert_ne!(none, C12_P2_DEFAUT);
+        let rig = Rig::new().await;
+        search_replies(&rig, &none).await;
+        rig.corpus.search(&c12(2, 5)).await.unwrap();
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT")]);
+    }
+
+    /// Sans `typePagination` dans la réponse, rien n'est appris et rien n'est relu.
+    #[tokio::test]
+    async fn a_cold_empty_code_page_without_type_pagination_is_not_read_again() {
+        let bare = C12_P2_DEFAUT.replacen(r#""typePagination":"ARTICLE","#, "", 1);
+        assert_ne!(bare, C12_P2_DEFAUT);
+        let rig = Rig::new().await;
+        search_replies(&rig, &bare).await;
+        rig.corpus.search(&c12(2, 5)).await.unwrap();
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT")]);
+    }
+
+    /// Page 1 vide d'un CODE répondue en `ARTICLE` : jamais relue (la condition est `page > 1`).
+    #[tokio::test]
+    async fn a_cold_empty_code_page_one_is_never_read_again() {
+        let rig = Rig::new().await;
+        search_replies(&rig, C12_P2_DEFAUT).await;
+        let page = rig.corpus.search(&c12(1, 5)).await.unwrap();
+        assert_eq!(ids(&page), Vec::<&str>::new());
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT")]);
+    }
+
+    /// Une page > 1 non vide à froid, même répondue en `ARTICLE`, n'est pas relue.
+    #[tokio::test]
+    async fn a_cold_non_empty_code_page_answered_by_article_is_not_read_again() {
+        let rig = Rig::new().await;
+        search_replies(&rig, C12_P2_ARTICLE).await;
+        let page = rig.corpus.search(&c12(2, 5)).await.unwrap();
+        assert_eq!(article_ids(&page), C12_P2_IDS);
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT")]);
+    }
+
+    /// Plusieurs codes (mode `DEFAUT` reçu) : la page 2 vide ou non est servie en une requête.
+    #[tokio::test]
+    async fn a_cold_code_page_two_with_several_codes_sends_one_request() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        page_replies(&rig, 2, CODE_PAGE_2).await;
+        let page = rig.corpus.search(&sized(Fond::Code, 2, 2)).await.unwrap();
+        assert_eq!(ids(&page), ["LEGITEXT000006070299", "LEGITEXT000006072665"]);
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT")]);
+    }
+
+    /// La relecture encore vide (page hors fin des deux côtés) est rendue sans troisième appel.
+    #[tokio::test]
+    async fn the_reread_that_is_still_empty_is_returned_without_a_third_call() {
+        let rig = Rig::new().await;
+        search_replies(&rig, C12_P2_DEFAUT).await;
+        let page = rig.corpus.search(&c12(2, 5)).await.unwrap();
+        assert_eq!(ids(&page), Vec::<&str>::new());
+        assert!(sent_modes(&rig).await.len() <= 2);
+    }
+
+    /// `page_size` 1 à froid, page 2 : le doublement puis la relecture, jamais une troisième
+    /// requête.
+    #[tokio::test]
+    async fn cold_code_page_size_1_is_read_again_once_only() {
+        let by_article = CODE_PAGE_1.replacen(
+            r#""typePagination":"DEFAUT""#,
+            r#""typePagination":"ARTICLE""#,
+            1,
+        );
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        sized_replies(&rig, 1, 2, &by_article).await;
+        sized_replies(&rig, 2, 1, &lone_article_page(CODE_PAGE_2)).await;
+        let page = rig.corpus.search(&sized(Fond::Code, 2, 1)).await.unwrap();
+        assert_eq!(ids(&page), ["LEGITEXT000006070299"]);
+        assert_eq!(sent_modes(&rig).await, [json!("DEFAUT"), json!("ARTICLE")]);
+    }
+
+    /// Branche « doublée » inchangée : la relecture est rendue même sans article.
+    #[tokio::test]
+    async fn the_doubled_branch_still_returns_a_reread_without_article() {
+        let by_article = CODE_PAGE_1.replacen(
+            r#""typePagination":"DEFAUT""#,
+            r#""typePagination":"ARTICLE""#,
+            1,
+        );
+        let bare = {
+            let mut value: Value = serde_json::from_str(&lone_article_page(CODE_PAGE_1)).unwrap();
+            value["results"][0]["sections"] = json!([]);
+            value.to_string()
+        };
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        sized_replies(&rig, 1, 2, &by_article).await;
+        sized_replies(&rig, 1, 1, &bare).await;
+        let page = rig.corpus.search(&sized(Fond::Code, 1, 1)).await.unwrap();
+        assert_eq!(ids(&page), ["LEGITEXT000005634379"]);
+        assert_eq!(article_ids(&page), Vec::<&str>::new());
+    }
+
+    /// Limite connue n° 1 (garantie 14, N-1) : `page_size` 1 en mode `ARTICLE` part comme en 1.1.0
+    /// (la page demandée telle quelle, sans doublement ni troncature), à chaud comme à froid.
+    #[tokio::test]
+    async fn code_article_page_of_one_keeps_the_1_1_0_requests() {
+        let lone = lone_article_page(CODE_PAGE_2);
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        page_replies(&rig, 1, &lone).await;
+        page_replies(&rig, 2, &lone).await;
+        page_replies(&rig, 3, &lone).await;
+        rig.corpus.inner.memo.remember(&sized(Fond::Code, 1, 1), Some(PaginationMode::Article));
+        for page in 2..=3 {
+            rig.corpus.search(&sized(Fond::Code, page, 1)).await.unwrap();
+        }
+        assert_eq!(sent_pages(&rig).await, [(json!(2), json!(1)), (json!(3), json!(1))]);
+        assert_eq!(sent_modes(&rig).await, [json!("ARTICLE"), json!("ARTICLE")]);
+    }
+
+    /// Limite connue n° 2 (garantie 14, gap3-3) : à chaud (mémo `ARTICLE`), une page au-delà des
+    /// articles rend le hit du code sans article, comme en 1.1.0.
+    #[tokio::test]
+    async fn a_warm_code_page_past_the_end_keeps_the_1_1_0_answer() {
+        let rig = Rig::new().await;
+        search_replies(&rig, &article_page_past_the_end(3)).await;
+        rig.corpus.inner.memo.remember(&c12(5, 5), Some(PaginationMode::Article));
+        let page = rig.corpus.search(&c12(5, 5)).await.unwrap();
+        assert_eq!(ids(&page), ["LEGITEXT000005634379"]);
+        assert_eq!(article_ids(&page), Vec::<&str>::new());
+        assert_eq!(page.total_articles, Some(3));
     }
 
     #[tokio::test]
