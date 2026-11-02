@@ -824,7 +824,7 @@ Read a court decision by id: JURITEXT (Cour de cassation, courts of appeal), CON
 
 **Sortie** (`DecisionView`) : `decision_id`, `ecli?` (natif, validé, jamais fabriqué), `juridiction?`, `formation?` (brut : code en JURI, texte en CETAT), `solution?`, `numero_affaire?` (omis si vide ; `[num]` pour CETAT, 03 §4.4), `date?`, `nature?`, `title?` (§5.0.4), `citation`, `source_url`, puis les champs de lecture.
 
-Résumé (00 §4, 03 §7.9) : sommaire officiel (`analyses`, sinon `titrages` ; `OfficialSummary` mappé par fond dans l'adapter : JURI `abstrats` → analyses, CETAT `resumePrincipal` → analyses) → `official` ; sinon dispositif pour CONSTIT et CETAT, et pour CNIL quand le texte porte les marqueurs d'une sanction ou d'une mise en demeure (1.1.0, D-09) → `dispositif` ; sinon début du texte (au moins 600 caractères) → `lead`. Pas d'heuristique « PAR CES MOTIFS » pour la Cour de cassation en v0.1 (00 §4). Variantes de dispositif **NON VÉRIFIÉES** [V-110 · dispositif-constit-variantes] [V-111 · dispositif-cetat-variantes] ; sens des champs du sommaire par fond **NON VÉRIFIÉ** [V-109 · sommaire-semantique-par-fond].
+Résumé (00 §4, 03 §7.9) : sommaire officiel (`analyses`, sinon `titrages` ; `OfficialSummary` mappé par fond dans l'adapter : JURI `abstrats` → analyses, CETAT `resumePrincipal` → analyses) → `official` ; sinon dispositif pour CONSTIT et CETAT (arrêts « D E C I D E » et, depuis la 1.1.1, ordonnances « ORDONNE » du Conseil d'État et des CAA ; `summary_truncated` n'est alors plus posé quand le dispositif tient dans le plafond), et pour CNIL quand le texte porte les marqueurs d'une sanction ou d'une mise en demeure (1.1.0, D-09) → `dispositif` ; sinon début du texte (au moins 600 caractères) → `lead`. Pas d'heuristique « PAR CES MOTIFS » pour la Cour de cassation en v0.1 (00 §4). Variantes de dispositif **NON VÉRIFIÉES** [V-110 · dispositif-constit-variantes] [V-111 · dispositif-cetat-variantes] ; sens des champs du sommaire par fond **NON VÉRIFIÉ** [V-109 · sommaire-semantique-par-fond].
 
 **Exemple 1 — résumé par défaut** (`{"decision_id": "CONSTEXT000052555275"}` ; fixture consult_juri_constit.json ; 1 147 caractères contre 15 140 pour la référence) :
 
@@ -867,6 +867,8 @@ Le classement (considérant 14, puis 8) correspond au test d'acceptation de 03 �
 **Audit, cache** : caractères renvoyés ; `Decision` 24 h.
 
 **Résumé d'une décision du Conseil constitutionnel (1.0.1, L4-03).** Quelle que soit sa nature (QPC, DC, PDR, ORGA…), le résumé est le dispositif quand l'en-tête « DÉCIDE » est présent : `summary_source = "dispositif"` (articles seuls, sans en-tête ni clôture « Jugé par / Délibéré par / Rendu public »). Sans en-tête reconnu, ou avec un dispositif vide, le résumé est le début du texte (`summary_source = "lead"`).
+
+**Résumé d'une ordonnance du Conseil d'État ou d'une CAA (1.1.1, U13).** Le résumé est le dispositif quand l'en-tête « O R D O N N E : » ou « ORDONNE » est présent : `summary_source = "dispositif"`, articles et copie sans l'en-tête ni la clôture (« Fait à », « Signé », « La République mande », « Pour expédition conforme »), et `summary_truncated` absent quand il tient dans le plafond (avant : début du texte, `lead`, `summary_truncated = true`). Une ordonnance ancienne sans aucun en-tête garde le début du texte.
 
 ### 5.5 `fr_get_deliberation` (v0.1)
 
@@ -1834,7 +1836,7 @@ Registre de référence : 09 §2 (identifiants V-xx, entre parenthèses ci-desso
 | [V-90 · texte-html-getarticle-juri] | (03) Présence de `texteHtml` sur `/consult/getArticle` et `/consult/juri` (JURI). |
 | [V-75 · taille-max-textes] | (03) Tailles réelles des textes et des TOC, pour calibrer les budgets. |
 | [V-110 · dispositif-constit-variantes] | (03) Marqueurs du dispositif du Conseil constitutionnel sur d'autres décisions. |
-| [V-111 · dispositif-cetat-variantes] | (03) Marqueurs du dispositif du CE, des CAA et des TA. |
+| [V-111 · dispositif-cetat-variantes] | (03) Marqueurs du dispositif du CE, des CAA et des TA (partiellement levée en 1.1.1 : ordonnances CE et CAA). |
 | [V-109 · sommaire-semantique-par-fond] | (03) Sens de `resumePrincipal` et `abstrats` selon le fond. |
 | [V-102 · eli-natif-null] | (03) `eli`/`idEli` restent `null` en production. |
 | [V-162 · seuil-quote-mismatch] | *(levée en 1.0.1, ADR-0020)* Seuil de similarité qui distinguait `match` de `quote_mismatch`. |
