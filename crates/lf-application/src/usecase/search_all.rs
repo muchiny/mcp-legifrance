@@ -1120,12 +1120,6 @@ mod tests {
             .iter()
             .zip(&after)
             .position(|(old, new)| old.hit.snippet.is_some() && new.hit.snippet.is_none())
-            .or_else(|| {
-                before
-                    .iter()
-                    .zip(&after)
-                    .position(|(old, new)| old.hit.articles != new.hit.articles)
-            })
             .expect("something was stripped");
         // On rend l'extrait de ce résultat.
         let mut restored = groups.clone();
@@ -1136,10 +1130,10 @@ mod tests {
             .nth(first_stripped)
             .unwrap();
         *target = before[first_stripped].clone();
+        let restored_len = exact_len(&restored, None);
         assert!(
-            exact_len(&restored, None) + NOTE_RESERVE > TARGET,
-            "un extrait de moins aurait suffi : {}",
-            exact_len(&restored, None)
+            restored_len + NOTE_RESERVE > TARGET,
+            "un extrait de moins aurait suffi : {restored_len}"
         );
     }
 
@@ -1263,11 +1257,36 @@ mod tests {
         let groups = vec![
             group_of(Fond::Juri, vec![hit]),
             GroupOut { fond: Fond::Cnil, result: Err(AppError::config(rich)) },
+            // Un appel annulé (sans code) dont le message porte les échappements courts.
+            GroupOut {
+                fond: Fond::Kali,
+                result: Err(AppError::Upstream {
+                    message: "t\ta\nb\rc\u{8}d\u{c}e".to_owned(),
+                    cause: UpstreamCause::Cancelled,
+                }),
+            },
         ];
         assert_eq!(counted(&groups), exact_len(&groups, None));
         // Le littéral : trois caractères riches coûtent 1 + 2 + 1 + 2 + 1 + 6 + 1 = 14 de plus.
         let json = json_of(&groups, None);
         assert!(json.contains(r#"a\"b\\c\u0001d"#), "{json}");
+    }
+
+    /// Un article de code sans numéro affiché : le champ `num` n'est pas rendu, et le coût reste
+    /// exactement le JSON rendu.
+    #[test]
+    fn a_code_article_without_a_num_costs_exactly_its_rendered_json() {
+        let mut hit = shaped(Fond::Code, 1);
+        hit.hit.articles = vec![CodeArticleRef::new(
+            ArticleId::Legi(LegiArtiId::parse("LEGIARTI000000000011").unwrap()),
+            None,
+            "article",
+        )];
+        let groups = vec![group_of(Fond::Code, vec![hit])];
+        assert_eq!(counted(&groups), exact_len(&groups, None));
+        let json = json_of(&groups, None);
+        assert!(!json.contains("\"num\""), "{json}");
+        assert!(json.contains("\"article_id\":\"LEGIARTI000000000011\""), "{json}");
     }
 
     /// KALI : un IDCC et une date sentinelle (2222-01-01, non rendue) ; le coût est exactement le
@@ -1377,11 +1396,7 @@ mod tests {
                     b.hits
                         .iter()
                         .zip(&a.hits)
-                        .filter(|(b, a)| {
-                            b.hit.snippet.is_some() && a.hit.snippet.is_none()
-                                || b.hit.articles != a.hit.articles
-                                    && b.hit.articles.iter().any(|x| x.snippet.is_some())
-                        })
+                        .filter(|(b, a)| b.hit.snippet.is_some() && a.hit.snippet.is_none())
                         .count()
                 })
                 .sum()
