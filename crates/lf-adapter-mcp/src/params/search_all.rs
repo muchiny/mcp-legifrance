@@ -20,7 +20,7 @@ pub(crate) struct SearchAllParams {
     #[schemars(
         required,
         with = "String",
-        description = "Free-text query.",
+        description = "Free-text query. AND/OR/NOT/~/^ are not operators.",
         length(min = 1, max = 450)
     )]
     pub(crate) query: Option<String>,
@@ -148,6 +148,13 @@ mod tests {
         assert_eq!(properties["per_fond"]["minimum"], 1);
         assert_eq!(properties["per_fond"]["maximum"], 10);
         assert_eq!(properties["per_fond"]["default"], 3);
+    }
+
+    #[test]
+    fn the_query_says_that_boolean_operators_are_not_operators() {
+        let schema = schema();
+        let query = schema["properties"]["query"]["description"].as_str().unwrap();
+        assert!(query.contains("AND/OR/NOT/~/^ are not operators"), "{query}");
     }
 
     #[test]

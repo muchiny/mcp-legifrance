@@ -1,6 +1,5 @@
 ---
 source: crates/lf-adapter-mcp/src/params/search.rs
-assertion_line: 252
 expression: schema()
 ---
 {
@@ -60,7 +59,7 @@ expression: schema()
       "type": "integer"
     },
     "query": {
-      "description": "Free-text query, e.g. \"republique numerique\".",
+      "description": "Free-text query, e.g. \"republique numerique\". AND/OR/NOT/~/^ are not operators.",
       "maxLength": 450,
       "minLength": 1,
       "type": "string"

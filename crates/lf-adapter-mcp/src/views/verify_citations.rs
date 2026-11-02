@@ -63,7 +63,10 @@ struct CitationView {
     resolved: Option<ResolvedView>,
     // match ou quote_mismatch, si un extrait entre guillemets jouxte la citation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String")]
+    #[schemars(
+        with = "String",
+        description = "match or quote_mismatch. Only for an excerpt glued to the citation; absent: not checked."
+    )]
     quote: Option<String>,
     // Explication actionnable : écart, candidats, motif de non-résolution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -84,15 +87,22 @@ struct ResolvedView {
     id: String,
     citation: String,
     source_url: String,
-    // Article seulement : état de la version lue (VIGUEUR, MODIFIE…) et ses dates (D-03).
+    // Article seulement : état de la version lue (VIGUEUR, MODIFIE…) et ses dates (D-03). Les
+    // descriptions (D-12) renvoient au glossaire des instructions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String")]
+    #[schemars(
+        with = "String",
+        description = "Status code of this article version (see the server instructions)."
+    )]
     etat: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String")]
+    #[schemars(with = "String", description = "First day of this version, YYYY-MM-DD.")]
     date_debut: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String")]
+    #[schemars(
+        with = "String",
+        description = "Day the next version takes effect; absent: no known end."
+    )]
     date_fin: Option<String>,
 }
 
@@ -493,6 +503,23 @@ mod tests {
             assert_eq!(value["citations"][0]["quote"], "quote_mismatch");
         }
         assert_eq!(statuses, ["verified", "not_found", "ambiguous", "unresolvable", "invalid"]);
+    }
+
+    /// D-12 : les trois champs de validité d'un enregistrement vérifié disent ce qu'ils sont
+    /// (D-03), et `quote` dit qu'il n'existe que pour un extrait collé à la citation.
+    #[test]
+    fn the_validity_fields_and_the_quote_are_described() {
+        let schema = Value::Object(output_schema::<VerifyView>().as_ref().clone());
+        let props = &schema["$defs"]["ResolvedView"]["properties"];
+        assert!(props["etat"]["description"].as_str().unwrap().contains("Status code"), "{props}");
+        assert!(props["date_debut"]["description"].as_str().unwrap().contains("First day"));
+        assert!(
+            props["date_fin"]["description"].as_str().unwrap().contains("absent: no known end"),
+            "{props}"
+        );
+        let quote =
+            schema["$defs"]["CitationView"]["properties"]["quote"]["description"].as_str().unwrap();
+        assert!(quote.contains("Only for an excerpt glued to the citation"), "{quote}");
     }
 
     #[test]

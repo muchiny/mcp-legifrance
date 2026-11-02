@@ -24,8 +24,10 @@ use crate::{
 /// Description de l'outil (05 §5.12, 4 phrases). Source unique : elle ne cite que `fr_get_text`.
 const DESCRIPTION: &str = "Compare the versions of a code or law article (LEGIARTI) in force on \
 `date_a` and `date_b` (YYYY-MM-DD; `date_b` defaults to today in Paris). Returns both versions \
-with their validity dates (no `date_fin`: no end date) and a compact word-level diff: removed \
-and added passages with a little context. `identical` is true when both dates fall in the same \
+with their validity dates and `etat`, and a compact word-level diff: removed and added passages \
+with a little context. `date_fin` is the day the next version (or the repeal) takes effect, absent \
+when there is no end date; `etat` is the Légifrance code (ABROGE_DIFF: still in force, repeal \
+scheduled). `identical` is true when both dates fall in the same \
 version. To read a single version use fr_get_text.";
 
 #[tool_router(router = diff_article_router, vis = "pub(crate)")]
@@ -299,6 +301,15 @@ mod tests {
         let description = tool.description.as_deref().unwrap();
         assert_eq!(description, DESCRIPTION);
         assert!(description.chars().count() <= 1_000);
+        // D-12 (related_diff-12) : `date_fin` est le jour où la version suivante prend effet ;
+        // `etat` est le code de Légifrance, `ABROGE_DIFF` encore en vigueur.
+        assert!(description.contains("`date_fin` is the day the next version"), "{description}");
+        assert!(description.contains("takes effect"), "{description}");
+        assert!(description.contains("`etat` is the Légifrance code"), "{description}");
+        assert!(
+            description.contains("ABROGE_DIFF: still in force, repeal scheduled"),
+            "{description}"
+        );
         let sentences = description.split(". ").count();
         assert!((3..=6).contains(&sentences), "{sentences} phrases");
         for cited in description.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {

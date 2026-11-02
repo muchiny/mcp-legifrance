@@ -25,7 +25,7 @@ pub(crate) struct SearchParams {
     #[schemars(
         required,
         with = "String",
-        description = r#"Free-text query, e.g. "republique numerique"."#,
+        description = r#"Free-text query, e.g. "republique numerique". AND/OR/NOT/~/^ are not operators."#,
         length(min = 1, max = 450)
     )]
     pub(crate) query: Option<String>,
@@ -162,6 +162,18 @@ mod tests {
             decode(&json!({"in_force_only": "yes"})).unwrap_err(),
             "in_force_only: invalid type: string \"yes\", expected a boolean"
         );
+    }
+
+    #[test]
+    fn the_schema_says_the_query_has_no_operators_and_when_to_pick_each_match() {
+        let schema = schema();
+        // D-12 (search_all-1, gap5-4) : aucun opérateur, sinon le moteur répond 503.
+        let query = schema["properties"]["query"]["description"].as_str().unwrap();
+        assert!(query.contains("AND/OR/NOT/~/^ are not operators"), "{query}");
+        // Le mode par défaut reste annoncé ; `all` sert aux requêtes de plusieurs mots (Q21).
+        let mode = schema["properties"]["match"]["description"].as_str().unwrap();
+        assert!(mode.contains(r#""any": any word (default)"#), "{mode}");
+        assert!(mode.contains(r#""all": all words"#), "{mode}");
     }
 
     #[test]

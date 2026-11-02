@@ -13,12 +13,15 @@ expression: schema
           "type": "string"
         },
         "date_debut": {
+          "description": "First day of this version, YYYY-MM-DD.",
           "type": "string"
         },
         "date_fin": {
+          "description": "Day the next version takes effect; absent: no known end.",
           "type": "string"
         },
         "etat": {
+          "description": "Status code of this article version (see the server instructions).",
           "type": "string"
         },
         "id": {

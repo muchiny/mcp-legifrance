@@ -22,8 +22,8 @@ use crate::{
     views::get_deliberation::DeliberationView,
 };
 
-/// Description de l'outil (485 caractères, 3 phrases ; 05 §5.5).
-pub(crate) const DESCRIPTION: &str = "Read a CNIL deliberation or decision by its CNILTEXT id (from fr_search on fond CNIL): number, nature (e.g. Sanction), status, dates, citation and source_url. By default a short text comes back whole in `text` and a long one as a `summary` (its beginning); `detail`=\"full\" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`, and `focus` returns the most relevant passages (default 3). Personal data is redacted by the CNIL in published texts.";
+/// Description de l'outil (626 caractères, 3 phrases ; 05 §5.5 ; D-12 : seuil, dispositif, priorité de `focus`).
+pub(crate) const DESCRIPTION: &str = "Read a CNIL deliberation or decision by its CNILTEXT id (from fr_search on fond CNIL): number, nature (e.g. Sanction), status, dates, citation and source_url. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary`: the operative part of a sanction or formal notice, else the beginning of the text. `detail`=\"full\" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. Personal data is redacted by the CNIL in published texts.";
 
 #[tool_router(router = get_deliberation_router, vis = "pub(crate)")]
 impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
@@ -60,12 +60,35 @@ mod tests {
 
     #[test]
     fn the_description_is_the_documented_text() {
-        assert_eq!(DESCRIPTION.chars().count(), 485);
+        assert_eq!(DESCRIPTION.chars().count(), 626);
         assert!(DESCRIPTION.starts_with("Read a CNIL deliberation or decision by its CNILTEXT id"));
         assert!(DESCRIPTION.contains("`detail`=\"full\""));
         assert!(DESCRIPTION.ends_with("Personal data is redacted by the CNIL in published texts."));
         // L'outil cité l'est par son nom d'enregistrement (05 §4.3).
         assert!(DESCRIPTION.contains("fr_search"));
+    }
+
+    /// D-12 (cnil_kali_acco-15, D-09) : seuil du texte entier, source du résumé, priorité de
+    /// `focus`.
+    #[test]
+    fn the_description_states_the_whole_text_threshold_the_operative_part_and_focus_precedence() {
+        assert!(
+            DESCRIPTION.contains("a text of about 1,200 characters or less comes back whole"),
+            "{DESCRIPTION}"
+        );
+        assert!(DESCRIPTION.contains("a longer one as a `summary`"), "{DESCRIPTION}");
+        assert!(
+            DESCRIPTION.contains("operative part of a sanction or formal notice"),
+            "{DESCRIPTION}"
+        );
+        assert!(DESCRIPTION.contains("else the beginning of the text"), "{DESCRIPTION}");
+        // L'ancienne promesse (« its beginning » pour tout résumé) est fausse depuis D-09.
+        assert!(!DESCRIPTION.contains("(its beginning)"), "{DESCRIPTION}");
+        assert!(
+            DESCRIPTION.contains("takes precedence over `detail` and `offset`"),
+            "{DESCRIPTION}"
+        );
+        assert!(DESCRIPTION.chars().count() <= 1_000);
     }
 
     #[cfg(feature = "test-support")]

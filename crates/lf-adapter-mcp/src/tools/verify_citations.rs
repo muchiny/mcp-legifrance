@@ -22,8 +22,8 @@ use crate::{
     views::verify_citations::VerifyView,
 };
 
-/// Description de l'outil (715 caractères, 5 phrases ; 05 §5.9).
-pub(crate) const DESCRIPTION: &str = "Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles, laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; a quoted excerpt right after a citation is compared with the official text. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.";
+/// Description de l'outil (939 caractères, 5 phrases ; 05 §5.9 ; D-12 : ce que le contrôle ne dit pas).
+pub(crate) const DESCRIPTION: &str = "Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles (only when introduced by article or art.), laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements; found=0 does not prove that a text cites nothing. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; `verified` means the article exists, not that it says what the draft claims. A quoted excerpt is compared with the official text (`quote`) only when it is glued to the citation: no `quote` means NOT checked. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.";
 
 #[tool_router(router = verify_citations_router, vis = "pub(crate)")]
 impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
@@ -60,12 +60,27 @@ mod tests {
 
     #[test]
     fn the_description_is_the_documented_text() {
-        assert_eq!(DESCRIPTION.chars().count(), 715);
+        assert_eq!(DESCRIPTION.chars().count(), 939);
         assert!(DESCRIPTION.starts_with("Check every legal citation found in a text"));
         assert!(DESCRIPTION.contains("`max_citations` (default 50)"));
         assert!(DESCRIPTION.ends_with("for a single citation fr_resolve is lighter."));
         // Les outils cités le sont par leur nom d'enregistrement (05 §4.3).
         assert!(DESCRIPTION.contains("fr_resolve"));
+    }
+
+    /// D-12 (verify_citations-4 et -8, journey_patrimoine-3) : ce que le contrôle ne dit pas.
+    #[test]
+    fn the_description_says_what_is_checked_and_what_is_not() {
+        // Seul un extrait collé à la citation est contrôlé ; sans `quote`, rien n'a été contrôlé.
+        assert!(DESCRIPTION.contains("only when it is glued to the citation"), "{DESCRIPTION}");
+        assert!(DESCRIPTION.contains("no `quote` means NOT checked"), "{DESCRIPTION}");
+        // `found` à 0 ne prouve pas l'absence de citation ; un article de code se lit après
+        // « article » ou « art. ».
+        assert!(DESCRIPTION.contains("found=0 does not prove"), "{DESCRIPTION}");
+        assert!(DESCRIPTION.contains("introduced by article or art."), "{DESCRIPTION}");
+        // `verified` ne dit pas que l'article dit ce que le brouillon prétend.
+        assert!(DESCRIPTION.contains("`verified` means the article exists"), "{DESCRIPTION}");
+        assert!(DESCRIPTION.chars().count() <= 1_000);
     }
 
     #[cfg(feature = "test-support")]

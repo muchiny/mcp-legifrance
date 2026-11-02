@@ -27,7 +27,9 @@ const FURTHER_NOTE: &str = "Further snippets and details were removed to keep th
 /// Une page de résultats de `fr_search`.
 #[derive(Debug, Serialize, JsonSchema)]
 pub(crate) struct SearchView {
-    /// Nombre total de résultats annoncé par la source.
+    #[schemars(
+        description = "Total results reported by Légifrance; for CODE, a count of codes (see total_articles for articles)."
+    )]
     total: u64,
     /// Page servie, à partir de 1.
     page: u32,
@@ -58,9 +60,12 @@ struct HitView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String")]
     title: Option<String>,
-    /// Date `AAAA-MM-JJ`, si elle est connue.
+    /// Date `AAAA-MM-JJ` donnée par Légifrance pour le fond, pas toujours celle de l'acte.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String")]
+    #[schemars(
+        with = "String",
+        description = "YYYY-MM-DD as Légifrance gives it for the fond (CNIL: publication, ACCO: signature), not always the act date; absent if unknown."
+    )]
     date: Option<String>,
     /// Nature du texte.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -471,6 +476,19 @@ mod tests {
         assert_eq!(hit["properties"]["title"]["type"], "string");
         assert_eq!(schema["$defs"]["ArticleView"]["required"], json!(["article_id"]));
         assert!(schema.get("additionalProperties").is_none(), "la sortie reste ouverte");
+    }
+
+    /// D-12 (search-2, search-13) : `date` dit d'où elle vient, `total` ce qu'il compte pour CODE.
+    #[test]
+    fn the_output_schema_says_what_date_and_total_are() {
+        let schema = Value::Object(output_schema::<SearchView>().as_ref().clone());
+        let date =
+            schema["$defs"]["HitView"]["properties"]["date"]["description"].as_str().unwrap();
+        assert!(date.contains("as Légifrance gives it for the fond"), "{date}");
+        assert!(date.contains("not always the act date"), "{date}");
+        let total = schema["properties"]["total"]["description"].as_str().unwrap();
+        assert!(total.contains("for CODE, a count of codes"), "{total}");
+        assert!(total.contains("total_articles"), "{total}");
     }
 
     #[test]

@@ -40,7 +40,7 @@ expression: schema()
       "type": "integer"
     },
     "query": {
-      "description": "Free-text query.",
+      "description": "Free-text query. AND/OR/NOT/~/^ are not operators.",
       "maxLength": 450,
       "minLength": 1,
       "type": "string"

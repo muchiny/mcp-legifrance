@@ -21,13 +21,14 @@ use crate::{
     views::get_related::RelatedView,
 };
 
-/// Description de l'outil (05 §5.11, 489 caractères, 4 phrases). Source unique : elle ne cite que
+/// Description de l'outil (05 §5.11, 594 caractères, 4 phrases). Source unique : elle ne cite que
 /// `fr_resolve`, pour les liens de décision qui n'ont pas d'identifiant.
 const DESCRIPTION: &str = "List the legal links of an article (LEGIARTI) or a decision (JURITEXT, \
 CONSTEXT, CETATEXT): texts it cites, texts citing it, and case law it refers to. Article links \
-come from Légifrance with their ids; decision links are parsed from the decision's references \
-and may lack an id (pass them to fr_resolve). Each link has a `relation`, a `citation` and, when \
-known, an `id` and `source_url`. At most 100 links are returned: `truncated` is true when there \
+come from Légifrance with their ids; decision links are parsed from the decision's references, \
+have no id and may carry an inexact code: pass one to fr_resolve only if its citation names a code. \
+Each link has a `relation`, a `citation` and, when known, an `id` and `source_url`; `relation` \
+as a parameter keeps one kind of link. At most 100 links are returned: `truncated` is true when there \
 are more, and there is no next page.";
 
 #[tool_router(router = get_related_router, vis = "pub(crate)")]
@@ -582,7 +583,16 @@ mod tests {
 
         let description = tool.description.as_deref().unwrap();
         assert_eq!(description, DESCRIPTION);
-        assert_eq!(description.chars().count(), 489, "05 §5.11");
+        assert_eq!(description.chars().count(), 594, "05 §5.11");
+        // D-12 (related_diff-2) : le paramètre `relation` est cité, et un lien sans code ne se
+        // passe pas à `fr_resolve`.
+        assert!(description.contains("`relation`"), "{description}");
+        assert!(
+            description.contains("pass one to fr_resolve only if its citation names a code"),
+            "{description}"
+        );
+        assert!(!description.contains("(pass them to fr_resolve)"), "{description}");
+        assert!(description.chars().count() <= 1_000);
         let sentences = description.split(". ").count();
         assert!((3..=6).contains(&sentences), "{sentences} phrases");
         // Les outils cités existent.
