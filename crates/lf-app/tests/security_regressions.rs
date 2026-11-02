@@ -432,6 +432,56 @@ mod security {
         assert_eq!(error.to_string(), format!("audit log unavailable ({:?})", error.kind));
     }
 
+    // ---- U17 : une ligne d'audit partielle n'avale pas l'enregistrement suivant ------------------
+
+    /// Régression : gap2-2 (1.1.1). Le journal préexistant finit par une ligne coupée (arrêt brutal,
+    /// disque plein) : le binaire réel la referme avant d'écrire l'appel suivant. Le fichier porte
+    /// quatre lignes : l'enregistrement d'origine, le fragment resté seul et intact, puis un
+    /// enregistrement parsable par appel (`fr_search` invalide, `fr_coverage`), dans l'ordre. Lu en
+    /// octets, pas par `audit_lines` (qui échoue sur le fragment). La date de la première ligne est
+    /// lointaine : aucune rotation par date ne vient brouiller le contrôle.
+    #[tokio::test]
+    async fn torn_audit_line_does_not_swallow_next_record() {
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let whole = concat!(
+            r#"{"ts":"2999-01-01T00:00:00.000+00:00","tool":"fr_coverage","input_hash":""#,
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            r#"","output_count_or_size":0,"duration_ms":1,"status":"ok","env":"sandbox","#,
+            r#""server_version":"0.0.0"}"#,
+            "\n"
+        );
+        let fragment = r#"{"ts":"2999-01-01T00:00:01.000+00:00","tool":"fr_se"#;
+        let journal = audit.path().join("mcp-legifrance.jsonl");
+        fs::write(&journal, format!("{whole}{fragment}")).expect("a prefilled journal");
+
+        let piste = FakePiste::silent().await;
+        let mut session = Launch::new(audit.path()).credentials().piste(&piste).spawn();
+        session.handshake().await;
+        let rejected =
+            session.request(&call(2, "fr_search", &json!({"query": "q", "fond": "Z"}))).await;
+        assert!(is_tool_error(&rejected), "{rejected}");
+        let coverage = session.request(&call(3, "fr_coverage", &json!({}))).await;
+        assert!(!is_tool_error(&coverage), "{coverage}");
+        let finished = session.finish().await;
+        assert_eq!(finished.code(), Some(0), "stderr:\n{}", finished.stderr);
+
+        let bytes = fs::read(&journal).expect("the journal");
+        assert!(bytes.ends_with(b"\n"), "the journal ends with a newline");
+        let lines: Vec<&[u8]> = bytes.split(|byte| *byte == b'\n').collect();
+        // Le découpage laisse un morceau vide après le dernier saut de ligne.
+        assert_eq!(lines.len(), 5, "four lines expected: {}", String::from_utf8_lossy(&bytes));
+        assert_eq!(lines[1], fragment.as_bytes(), "the fragment stays alone and untouched");
+        let tools: Vec<String> = [0, 2, 3]
+            .iter()
+            .map(|at| {
+                let line: Value = serde_json::from_slice(lines[*at]).expect("a parsable line");
+                line["tool"].as_str().expect("a tool").to_owned()
+            })
+            .collect();
+        assert_eq!(tools, ["fr_coverage", "fr_search", "fr_coverage"]);
+        assert!(piste.requests().await.is_empty());
+    }
+
     // ---- D-40 : aucune partie d'URL à identifiants n'atteint une sortie -----------------------
 
     /// Les valeurs d'une URL piégée qui ne doivent apparaître nulle part.

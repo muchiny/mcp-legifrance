@@ -6,8 +6,9 @@
 //! il remet les lignes à un fil qui possède le `Store`, et attend l'accusé.
 
 use std::{
+    borrow::Cow,
     fs::{self, File, OpenOptions},
-    io::{self, Read, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{Mutex, PoisonError},
     thread,
@@ -129,17 +130,37 @@ impl Store {
         line: &str,
         date: &str,
     ) -> io::Result<Ready> {
-        self.inspect(&mut file, path).and_then(|active| {
-            let line_len = u64::try_from(line.len()).unwrap_or(u64::MAX);
-            if !rotation::must_rotate(&active, date, line_len, self.rotate_bytes) {
-                return Ok(Ready { file, rotated: false, new_entry: active.len == 0 });
-            }
-            // Windows ne renomme pas un fichier ouvert : on referme avant.
-            drop(file);
-            rotation::rotate(&self.dir, active.date.as_deref().unwrap_or(date))
-                .and_then(|_archive| open_private(path, Mode::Journal))
-                .map(|file| Ready { file, rotated: true, new_entry: true })
-        })
+        // Ordre imposé : `inspect` relit la date de la première ligne depuis le début du fichier ;
+        // le contrôle de la queue déplace ensuite le curseur de lecture.
+        self.inspect(&mut file, path)
+            .and_then(|active| ends_mid_line(&mut file).map(|torn| (active, torn)))
+            .and_then(|(active, torn)| {
+                // Le saut de ligne qui referme le fragment compte dans le seuil de taille.
+                let line_len =
+                    u64::try_from(line.len()).unwrap_or(u64::MAX).saturating_add(u64::from(torn));
+                let rotate = rotation::must_rotate(&active, date, line_len, self.rotate_bytes);
+                if torn {
+                    warn_partial_line(path, rotate);
+                }
+                if !rotate {
+                    return Ok(Ready { file, rotated: false, new_entry: active.len == 0, torn });
+                }
+                // L'archive finit par `\n`, sans qu'un octet d'origine change : le nouveau journal
+                // est vide, il n'a donc pas de fragment à refermer.
+                let closed = if torn {
+                    file.write_all(b"\n").and_then(|()| file.sync_data())
+                } else {
+                    Ok(())
+                };
+                closed
+                    .and_then(|()| {
+                        // Windows ne renomme pas un fichier ouvert : on referme avant.
+                        drop(file);
+                        rotation::rotate(&self.dir, active.date.as_deref().unwrap_or(date))
+                    })
+                    .and_then(|_archive| open_private(path, Mode::Journal))
+                    .map(|file| Ready { file, rotated: true, new_entry: true, torn: false })
+            })
     }
 
     /// Taille et date de la première ligne du journal ; contrôle ses droits une fois s'il
@@ -162,17 +183,48 @@ struct Ready {
     rotated: bool,
     /// Le fichier est neuf : son entrée de répertoire doit survivre à un arrêt brutal.
     new_entry: bool,
+    /// Le journal finit par une ligne partielle : la ligne est précédée d'un `\n` qui la referme.
+    torn: bool,
 }
 
 impl Ready {
-    /// `write_all` puis `sync_data` : la ligne est durable quand cette fonction rend `Ok`.
+    /// `write_all` puis `sync_data` : la ligne est durable quand cette fonction rend `Ok`. Le
+    /// séparateur éventuel et la ligne partent dans la même écriture.
     fn append(mut self, line: &str, dir: &Path) -> io::Result<Written> {
+        let text = if self.torn { Cow::Owned(format!("\n{line}")) } else { Cow::Borrowed(line) };
         self.file
-            .write_all(line.as_bytes())
+            .write_all(text.as_bytes())
             .and_then(|()| self.file.sync_data())
             .and_then(|()| if self.new_entry { rotation::sync_dir(dir) } else { Ok(()) })
             .map(|()| Written { bytes: line.len(), rotated: self.rotated })
     }
+}
+
+/// Le journal ouvert finit-il au milieu d'une ligne ? Son dernier octet n'est pas `\n` : arrêt
+/// brutal, disque plein, fichier édité à la main, ou écriture d'un autre processus morte en route
+/// (le verrou est pris : ce n'est pas l'écriture d'un écrivain vivant). Un fichier vide non.
+///
+/// La taille se relit ici (`End(0)`) plutôt que de reprendre celle de `inspect` : un fichier vidé
+/// entre-temps (`copytruncate`) n'est pas une panne d'audit. Chaîne `and_then`, comme le reste du
+/// module : pas de région de couverture sur une branche d'erreur de disque inatteignable en test.
+fn ends_mid_line(file: &mut File) -> io::Result<bool> {
+    file.seek(SeekFrom::End(0)).and_then(|size| match size.checked_sub(1) {
+        None => Ok(false),
+        Some(last) => file.seek(SeekFrom::Start(last)).and_then(|_| {
+            let mut byte = [0_u8; 1];
+            file.read_exact(&mut byte).map(|()| byte != *b"\n")
+        }),
+    })
+}
+
+/// `warn!` : le journal finissait par une ligne partielle, refermée avant l'enregistrement. Un
+/// événement par fragment (le `\n` écrit le referme), stderr seulement.
+fn warn_partial_line(path: &Path, rotated: bool) {
+    tracing::warn!(
+        path = %path.display(),
+        rotated,
+        "audit journal ended in a partial line; it is closed with a newline before this record"
+    );
 }
 
 /// Les droits d'un fichier ou répertoire privé.
@@ -1102,6 +1154,484 @@ mod tests {
         assert_eq!(errors[0]["kind"], "Io");
         assert!(errors[0]["detail"].contains("blocker"), "{errors:?}");
         assert_eq!(errors[0]["message"], "audit write failed");
+    }
+
+    // ----- ligne partielle en fin de journal (U17, gap2-2) --------------------------------
+
+    /// Une ligne d'audit rendue (terminée par `\n`) pour l'appel `n`, daté du 15 octobre 2026.
+    fn call_line(n: u64) -> String {
+        line_of(&AuditRecord { output_count_or_size: n, ..record() })
+    }
+
+    fn line_of(call: &AuditRecord) -> String {
+        line::render(call, &hash::input_hash(&call.input)).unwrap()
+    }
+
+    /// Les `len` premiers octets de la ligne de l'appel `n` : le fragment qu'un arrêt brutal laisse.
+    fn fragment_of(n: u64, len: usize) -> Vec<u8> {
+        call_line(n).as_bytes()[..len].to_vec()
+    }
+
+    /// Les lignes d'un journal lues en octets (le fichier peut ne pas être de l'UTF-8), sans le
+    /// saut de ligne final ; un fichier qui ne finit pas par `\n` garde sa dernière ligne.
+    fn byte_lines(bytes: &[u8]) -> Vec<&[u8]> {
+        bytes.strip_suffix(b"\n").unwrap_or(bytes).split(|byte| *byte == b'\n').collect()
+    }
+
+    fn active_bytes(dir: &Path) -> Vec<u8> {
+        fs::read(dir.join(ACTIVE_FILE)).unwrap()
+    }
+
+    fn parses(line: &[u8]) -> bool {
+        serde_json::from_slice::<serde_json::Value>(line).is_ok()
+    }
+
+    /// Ajoute `bytes` au journal actif, comme le ferait un écrivain qui meurt en plein `write`.
+    fn append_raw(dir: &Path, bytes: &[u8]) {
+        let mut file =
+            OpenOptions::new().create(true).append(true).open(dir.join(ACTIVE_FILE)).unwrap();
+        file.write_all(bytes).unwrap();
+    }
+
+    /// Un `Store` sans limite de taille atteignable.
+    fn store(dir: &Path) -> Store {
+        Store::new(dir.to_owned(), 1 << 30, Duration::from_secs(1))
+    }
+
+    /// Les `warn!` « ligne partielle » vus par `capture` (les droits d'un fichier préécrit par un
+    /// test peuvent en émettre d'autres).
+    fn partial_warnings(capture: &Capture) -> Vec<Fields> {
+        capture
+            .events_at(Level::WARN)
+            .into_iter()
+            .filter(|fields| fields["message"].contains("partial line"))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_torn_last_line_is_closed_before_the_next_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let fragment = fragment_of(3, 89);
+        let mut prefill = [call_line(1), call_line(2)].concat().into_bytes();
+        prefill.extend_from_slice(&fragment);
+        fs::write(dir.path().join(ACTIVE_FILE), &prefill).unwrap();
+
+        journal(dir.path())
+            .record(&AuditRecord { output_count_or_size: 7, ..record() })
+            .await
+            .unwrap();
+
+        let bytes = active_bytes(dir.path());
+        assert!(bytes.ends_with(b"\n"), "le journal finit par un saut de ligne");
+        let lines = byte_lines(&bytes);
+        assert_eq!(lines.len(), 4, "deux appels, un fragment, un appel : {bytes:?}");
+        assert_eq!(lines[2], fragment.as_slice(), "le fragment reste seul sur sa ligne, intact");
+        assert!(!parses(lines[2]));
+        for at in [0, 1, 3] {
+            assert!(parses(lines[at]), "ligne {at} non parsable");
+        }
+        let last: serde_json::Value = serde_json::from_slice(lines[3]).unwrap();
+        assert_eq!(last["output_count_or_size"], 7);
+        assert_eq!(&bytes[..prefill.len()], prefill.as_slice(), "aucun octet d'origine modifié");
+    }
+
+    #[tokio::test]
+    async fn a_whole_json_line_missing_only_its_newline_stays_parsable() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = call_line(1);
+        fs::write(dir.path().join(ACTIVE_FILE), first.trim_end_matches('\n')).unwrap();
+
+        journal(dir.path())
+            .record(&AuditRecord { output_count_or_size: 2, ..record() })
+            .await
+            .unwrap();
+
+        let bytes = active_bytes(dir.path());
+        let lines = byte_lines(&bytes);
+        assert_eq!(lines.len(), 2, "{bytes:?}");
+        assert!(lines.iter().all(|line| parses(line)), "{bytes:?}");
+        assert_eq!(bytes, [first, call_line(2)].concat().into_bytes());
+    }
+
+    #[tokio::test]
+    async fn a_fragment_cut_inside_a_utf8_character_is_isolated() {
+        let dir = tempfile::tempdir().unwrap();
+        let accented =
+            AuditRecord { status: AuditStatus::Error, error: Some("é".to_owned()), ..record() };
+        let whole = line_of(&accented).into_bytes();
+        let lead = whole.iter().position(|byte| *byte == 0xC3).unwrap();
+        let fragment = whole[..=lead].to_vec();
+        assert_eq!(fragment.last(), Some(&0xC3));
+        fs::write(dir.path().join(ACTIVE_FILE), &fragment).unwrap();
+
+        journal(dir.path())
+            .record(&AuditRecord { output_count_or_size: 5, ..record() })
+            .await
+            .unwrap();
+
+        let bytes = active_bytes(dir.path());
+        let lines = byte_lines(&bytes);
+        assert_eq!(lines.len(), 2, "{bytes:?}");
+        assert_eq!(lines[0], fragment.as_slice(), "le fragment est conservé octet pour octet");
+        let last: serde_json::Value = serde_json::from_slice(lines[1]).unwrap();
+        assert_eq!(last["output_count_or_size"], 5);
+    }
+
+    /// Coupure à chaque position d'une ligne rendue, de 0 (fichier vide) à sa longueur (ligne
+    /// entière, `\n` compris) : l'enregistrement suivant a toujours sa ligne, parsable, et le
+    /// préfixe d'origine est intact.
+    #[test]
+    fn a_cut_at_every_byte_position_is_isolated() {
+        let whole = call_line(1).into_bytes();
+        let next = call_line(2).into_bytes();
+        for cut in 0..=whole.len() {
+            let dir = tempfile::tempdir().unwrap();
+            let prefix = &whole[..cut];
+            fs::write(dir.path().join(ACTIVE_FILE), prefix).unwrap();
+
+            store(dir.path()).append(&call_line(2), "2026-10-15").unwrap();
+
+            let bytes = active_bytes(dir.path());
+            let separator: &[u8] = if cut == 0 || cut == whole.len() { b"" } else { b"\n" };
+            assert_eq!(bytes, [prefix, separator, next.as_slice()].concat(), "coupure à {cut}");
+            let lines = byte_lines(&bytes);
+            assert!(lines.iter().all(|line| !line.is_empty()), "ligne vide, coupure à {cut}");
+            assert_eq!(lines.last().copied(), Some(&next[..next.len() - 1]), "coupure à {cut}");
+            assert!(parses(lines.last().unwrap()), "coupure à {cut}");
+        }
+    }
+
+    /// Après la première reprise, les ajouts suivants sont des ajouts ordinaires : une ligne par
+    /// appel, jamais de `\n` de plus.
+    #[test]
+    fn every_cut_position_then_clean_appends_keeps_one_line_per_call() {
+        let whole = call_line(1).into_bytes();
+        for cut in 0..=whole.len() {
+            let dir = tempfile::tempdir().unwrap();
+            let prefix = &whole[..cut];
+            fs::write(dir.path().join(ACTIVE_FILE), prefix).unwrap();
+            let mut store = store(dir.path());
+            for n in 2..=4 {
+                store.append(&call_line(n), "2026-10-15").unwrap();
+            }
+            let bytes = active_bytes(dir.path());
+            let separator: &[u8] = if cut == 0 || cut == whole.len() { b"" } else { b"\n" };
+            let tail: String = (2..=4).map(call_line).collect();
+            assert_eq!(bytes, [prefix, separator, tail.as_bytes()].concat(), "coupure à {cut}");
+        }
+    }
+
+    /// V4 et V5 : le fragment apparaît pendant la vie du fil d'écriture (échec d'un `write_all`
+    /// précédent, ou autre processus mort en écrivant) : le contrôle se fait à chaque ajout.
+    #[tokio::test]
+    async fn a_partial_write_by_another_writer_in_the_same_process_lifetime_is_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = journal(dir.path());
+        log.record(&AuditRecord { output_count_or_size: 1, ..record() }).await.unwrap();
+        let fragment = fragment_of(2, 50);
+        append_raw(dir.path(), &fragment);
+        log.record(&AuditRecord { output_count_or_size: 3, ..record() }).await.unwrap();
+
+        let bytes = active_bytes(dir.path());
+        let lines = byte_lines(&bytes);
+        assert_eq!(lines.len(), 3, "{bytes:?}");
+        assert_eq!(lines[1], fragment.as_slice());
+        assert!(parses(lines[0]) && parses(lines[2]));
+        let last: serde_json::Value = serde_json::from_slice(lines[2]).unwrap();
+        assert_eq!(last["output_count_or_size"], 3);
+    }
+
+    /// V7 : après une coupure de courant, certains systèmes de fichiers laissent une queue de
+    /// zéros. Son dernier octet n'est pas `\n` : elle est refermée comme un fragment.
+    #[tokio::test]
+    async fn a_zero_filled_tail_is_closed_before_the_next_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut prefill = call_line(1).into_bytes();
+        prefill.extend_from_slice(&[0_u8; 4096]);
+        fs::write(dir.path().join(ACTIVE_FILE), &prefill).unwrap();
+
+        journal(dir.path())
+            .record(&AuditRecord { output_count_or_size: 2, ..record() })
+            .await
+            .unwrap();
+
+        let bytes = active_bytes(dir.path());
+        assert_eq!(bytes, [prefill.as_slice(), b"\n", call_line(2).as_bytes()].concat());
+        let lines = byte_lines(&bytes);
+        assert_eq!(lines.len(), 3);
+        assert!(parses(lines[0]) && parses(lines[2]));
+    }
+
+    /// Deux fragments successifs, laissés à des moments différents : chacun est refermé, chacun
+    /// donne un `warn!`.
+    #[test]
+    fn two_successive_fragments_are_each_isolated() {
+        let (capture, _guard) = local_capture();
+        let dir = tempfile::tempdir().unwrap();
+        let (first, second) = (fragment_of(1, 70), fragment_of(2, 90));
+        fs::write(dir.path().join(ACTIVE_FILE), &first).unwrap();
+        let mut store = store(dir.path());
+        store.append(&call_line(3), "2026-10-15").unwrap();
+        append_raw(dir.path(), &second);
+        store.append(&call_line(4), "2026-10-15").unwrap();
+
+        let bytes = active_bytes(dir.path());
+        let expected = [
+            first.as_slice(),
+            b"\n",
+            call_line(3).as_bytes(),
+            second.as_slice(),
+            b"\n",
+            call_line(4).as_bytes(),
+        ]
+        .concat();
+        assert_eq!(bytes, expected);
+        assert_eq!(partial_warnings(&capture).len(), 2, "un avertissement par fragment");
+    }
+
+    /// V8 : le fragment est tout le contenu du fichier (sa date est illisible : pas de rotation
+    /// par date) ; l'ajout fonctionne.
+    #[tokio::test]
+    async fn a_fragment_as_the_only_content_keeps_working() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(ACTIVE_FILE), b"abc").unwrap();
+        journal(dir.path())
+            .record(&AuditRecord { output_count_or_size: 1, ..record() })
+            .await
+            .unwrap();
+        let bytes = active_bytes(dir.path());
+        assert_eq!(bytes, [b"abc\n".as_slice(), call_line(1).as_bytes()].concat());
+        assert_eq!(journals_in(dir.path()).len(), 1, "aucune rotation");
+    }
+
+    /// Un fragment plus court que le préfixe de date (17 octets) n'a pas de date : un appel du
+    /// lendemain ne fait pas tourner le journal, il est ajouté après le fragment refermé.
+    #[tokio::test]
+    async fn a_fragment_shorter_than_the_date_prefix_does_not_rotate_by_day() {
+        let dir = tempfile::tempdir().unwrap();
+        let fragment = br#"{"ts":"2026"#.to_vec();
+        assert!(fragment.len() < PREFIX_LEN);
+        fs::write(dir.path().join(ACTIVE_FILE), &fragment).unwrap();
+        let next_day = at_day(16);
+        journal(dir.path()).record(&next_day).await.unwrap();
+
+        assert_eq!(journals_in(dir.path()), [dir.path().join(ACTIVE_FILE)], "aucune archive");
+        assert_eq!(
+            active_bytes(dir.path()),
+            [fragment.as_slice(), b"\n", line_of(&next_day).as_bytes()].concat()
+        );
+    }
+
+    /// Le séparateur et la ligne partent dans la même écriture : le fichier est, octet pour octet,
+    /// le fragment, `\n`, la ligne ; `Written.bytes` ne compte que la ligne.
+    #[test]
+    fn the_separator_and_the_line_are_one_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let fragment = fragment_of(1, 100);
+        fs::write(dir.path().join(ACTIVE_FILE), &fragment).unwrap();
+        let line = call_line(2);
+        let written = store(dir.path()).append(&line, "2026-10-15").unwrap();
+        assert_eq!(written, Written { bytes: line.len(), rotated: false });
+        assert_eq!(
+            active_bytes(dir.path()),
+            [fragment.as_slice(), b"\n", line.as_bytes()].concat()
+        );
+    }
+
+    /// Rotation par date d'un journal dont la dernière ligne est partielle : le fragment (au moins
+    /// 17 octets : sa date se lit) part dans l'archive, qui est refermée par un seul `\n` ; le
+    /// nouveau journal n'a que la ligne de l'appel, sans `\n` initial.
+    #[test]
+    fn a_torn_journal_that_must_rotate_by_date_closes_its_archive() {
+        let dir = tempfile::tempdir().unwrap();
+        let fragment = fragment_of(1, 60);
+        fs::write(dir.path().join(ACTIVE_FILE), &fragment).unwrap();
+        let line = line_of(&at_day(16));
+        let written = store(dir.path()).append(&line, "2026-10-16").unwrap();
+        assert_eq!(written, Written { bytes: line.len(), rotated: true });
+        assert_eq!(
+            fs::read(dir.path().join("mcp-legifrance-2026-10-15.jsonl")).unwrap(),
+            [fragment.as_slice(), b"\n"].concat()
+        );
+        assert_eq!(active_bytes(dir.path()), line.as_bytes());
+    }
+
+    /// Le séparateur compte dans le seuil de taille : avec `rotate_bytes = f + n` le journal tourne
+    /// (le fragment est refermé dans l'archive) ; avec `f + n + 1` il ne tourne pas.
+    #[test]
+    fn a_torn_journal_that_must_rotate_by_size_counts_the_separator_then_closes_its_archive() {
+        let fragment = fragment_of(1, 60);
+        let line = call_line(2);
+        let (f, n) = (u64::try_from(fragment.len()).unwrap(), u64::try_from(line.len()).unwrap());
+
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(ACTIVE_FILE), &fragment).unwrap();
+        let written = Store::new(dir.path().to_owned(), f + n, Duration::from_secs(1))
+            .append(&line, "2026-10-15")
+            .unwrap();
+        assert!(written.rotated, "f + n + 1 octets dépassent f + n");
+        assert_eq!(
+            fs::read(dir.path().join("mcp-legifrance-2026-10-15.jsonl")).unwrap(),
+            [fragment.as_slice(), b"\n"].concat()
+        );
+        assert_eq!(active_bytes(dir.path()), line.as_bytes());
+
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(ACTIVE_FILE), &fragment).unwrap();
+        let written = Store::new(dir.path().to_owned(), f + n + 1, Duration::from_secs(1))
+            .append(&line, "2026-10-15")
+            .unwrap();
+        assert!(!written.rotated, "f + 1 + n octets tiennent dans f + n + 1");
+        assert_eq!(journals_in(dir.path()).len(), 1);
+        assert_eq!(
+            active_bytes(dir.path()),
+            [fragment.as_slice(), b"\n", line.as_bytes()].concat()
+        );
+    }
+
+    #[test]
+    fn the_separator_counts_in_the_rotation_size() {
+        let fragment = fragment_of(1, 80);
+        let line = call_line(2);
+        let (f, n) = (u64::try_from(fragment.len()).unwrap(), u64::try_from(line.len()).unwrap());
+        for (limit, rotated) in
+            [(f + n - 1, true), (f + n, true), (f + n + 1, false), (f + n + 2, false)]
+        {
+            let dir = tempfile::tempdir().unwrap();
+            fs::write(dir.path().join(ACTIVE_FILE), &fragment).unwrap();
+            let written = Store::new(dir.path().to_owned(), limit, Duration::from_secs(1))
+                .append(&line, "2026-10-15")
+                .unwrap();
+            assert_eq!(written.rotated, rotated, "limite {limit} (f = {f}, n = {n})");
+            let size = fs::metadata(dir.path().join(ACTIVE_FILE)).unwrap().len();
+            let expected = if rotated { n } else { f + 1 + n };
+            assert_eq!(size, expected, "limite {limit}");
+        }
+    }
+
+    #[test]
+    fn a_torn_journal_warns_once_with_its_path() {
+        let (capture, _guard) = local_capture();
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(ACTIVE_FILE), fragment_of(1, 40)).unwrap();
+        let mut store = store(dir.path());
+
+        store.append(&call_line(2), "2026-10-15").unwrap();
+        let warnings = partial_warnings(&capture);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0]["path"].ends_with("mcp-legifrance.jsonl"), "{warnings:?}");
+        assert_eq!(warnings[0]["rotated"], "false");
+
+        store.append(&call_line(3), "2026-10-15").unwrap();
+        assert_eq!(partial_warnings(&capture).len(), 1, "le saut de ligne a refermé le fragment");
+    }
+
+    #[test]
+    fn a_torn_journal_warns_with_rotated_flag_and_never_in_a_clean_one() {
+        let (capture, _guard) = local_capture();
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = store(dir.path());
+        for n in 1..=3 {
+            store.append(&call_line(n), "2026-10-15").unwrap();
+        }
+        assert_eq!(partial_warnings(&capture).len(), 0, "journal sain : aucun avertissement");
+
+        append_raw(dir.path(), &fragment_of(4, 60));
+        store.append(&line_of(&at_day(16)), "2026-10-16").unwrap();
+        let warnings = partial_warnings(&capture);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0]["rotated"], "true");
+    }
+
+    #[test]
+    fn ends_mid_line_looks_only_at_the_last_byte() {
+        let cases: [(&[u8], bool); 10] = [
+            (b"", false),
+            (b"\n", false),
+            (b"a", true),
+            (b"a\n", false),
+            (b"\na", true),
+            (b"\n\n", false),
+            (br#"{"ts":"2026-10-15"}"#, true),
+            (br#"{"ts":"2026-10-15"}"#.as_slice().strip_suffix(b"}").unwrap(), true),
+            (&[0x00], true),
+            (&[b'a', 0xC3], true),
+        ];
+        for (bytes, expected) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("probe");
+            fs::write(&path, bytes).unwrap();
+            let mut file = OpenOptions::new().read(true).append(true).open(&path).unwrap();
+            assert_eq!(ends_mid_line(&mut file).unwrap(), expected, "{bytes:?}");
+        }
+    }
+
+    // ----- gardes : ce qui marche en 1.1.0 et doit rester vrai ---------------------------
+
+    #[tokio::test]
+    async fn a_clean_journal_never_gets_an_extra_newline() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = journal(dir.path());
+        for n in 1..=3 {
+            log.record(&AuditRecord { output_count_or_size: n, ..record() }).await.unwrap();
+        }
+        let bytes = active_bytes(dir.path());
+        assert_eq!(bytes.split(|byte| *byte == b'\n').count(), 4, "trois `\\n`");
+        assert!(!bytes.windows(2).any(|pair| pair == b"\n\n"), "ligne vide");
+        assert_eq!(bytes, (1..=3).map(call_line).collect::<String>().into_bytes());
+
+        // Fichier absent : la ligne seule, sans `\n` initial. Fichier existant vide : idem.
+        let fresh = tempfile::tempdir().unwrap();
+        journal(fresh.path()).record(&record()).await.unwrap();
+        assert_eq!(active_bytes(fresh.path()), call_line(0).as_bytes());
+        let empty = tempfile::tempdir().unwrap();
+        fs::write(empty.path().join(ACTIVE_FILE), b"").unwrap();
+        journal(empty.path()).record(&record()).await.unwrap();
+        assert_eq!(active_bytes(empty.path()), call_line(0).as_bytes());
+    }
+
+    /// V6 : fragment et rotation due. Le fragment part dans l'archive (ses octets d'origine en
+    /// tête), le nouveau journal n'a que la ligne de l'appel, sans `\n` initial.
+    #[test]
+    fn a_torn_journal_that_must_rotate_archives_the_fragment_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let fragment = fragment_of(1, 60);
+        fs::write(dir.path().join(ACTIVE_FILE), &fragment).unwrap();
+        let line = line_of(&at_day(16));
+        let written = store(dir.path()).append(&line, "2026-10-16").unwrap();
+        assert!(written.rotated);
+        assert_eq!(journals_in(dir.path()).len(), 2);
+        let archive = fs::read(dir.path().join("mcp-legifrance-2026-10-15.jsonl")).unwrap();
+        assert!(archive.starts_with(&fragment), "l'archive commence par le fragment d'origine");
+        assert!(archive.len() <= fragment.len() + 1, "rien d'autre dans l'archive");
+        assert_eq!(active_bytes(dir.path()), line.as_bytes(), "aucune ligne vide en tête");
+    }
+
+    /// L'ordre dans `prepare` : la date de la première ligne se lit depuis le début du fichier,
+    /// avant le contrôle de la queue qui déplace le curseur.
+    #[test]
+    fn rotation_by_date_still_works_after_the_tail_check() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(ACTIVE_FILE), [call_line(1), call_line(2)].concat()).unwrap();
+        let written = store(dir.path()).append(&line_of(&at_day(16)), "2026-10-16").unwrap();
+        assert!(written.rotated);
+        let archive = dir.path().join("mcp-legifrance-2026-10-15.jsonl");
+        assert_eq!(lines_of(&archive).len(), 2);
+        assert_eq!(lines_of(&dir.path().join(ACTIVE_FILE)).len(), 1);
+    }
+
+    /// Un fichier vidé entre la mesure et le contrôle de la queue (`copytruncate`) n'est pas une
+    /// panne d'audit : la taille se relit au moment du contrôle.
+    #[test]
+    fn the_tail_check_does_not_fail_on_a_file_emptied_after_inspection() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("probe");
+        fs::write(&path, b"abcde").unwrap();
+        let mut file = OpenOptions::new().read(true).write(true).open(&path).unwrap();
+        let mut seen = Vec::new();
+        Read::by_ref(&mut file).take(17).read_to_end(&mut seen).unwrap();
+        file.set_len(0).unwrap();
+        assert!(!ends_mid_line(&mut file).unwrap());
     }
 
     /// Souscripteur minimal : `tracing-subscriber` est confiné à `lf-app` (R6), ce crate ne
