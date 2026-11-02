@@ -16,10 +16,13 @@
 //!
 //! # Plafond de réponse (05 §6.4)
 //!
-//! La taille de toute la réponse est estimée (somme des longueurs plus 64 par champ ou élément,
-//! cible 42 000), puis dégradée en partant du dernier résultat du dernier fond, sans jamais retirer
-//! un résultat : (1) extraits ; (2) listes d'articles et champs optionnels. Une `note` le dit. La
-//! mesure exacte, sur le JSON, est faite par la vue de `lf-adapter-mcp`.
+//! La taille de toute la réponse est la longueur exacte de son JSON compact, comme pour `fr_search`
+//! (clés, guillemets, séparateurs et échappements : `usecase::search::hit_cost`, plus l'enveloppe
+//! et les groupes de ce module). Elle est dégradée seulement si cette longueur dépasse la cible de
+//! 42 000 moins la réserve des notes, en partant du dernier résultat du dernier fond, sans jamais
+//! retirer un résultat : (1) extraits ; (2) listes d'articles et champs optionnels. Une `note` le
+//! dit. La vue de `lf-adapter-mcp` mesure encore le JSON (plafond de 45 000) : un filet, qui ne
+//! se déclenche plus que pour des cas pathologiques.
 //!
 //! # Progression
 //!
@@ -28,14 +31,12 @@
 
 use futures::{StreamExt, stream};
 use lf_domain::{
-    entity::Snippet,
     fond::Fond,
     search::{QueryText, check_quotes},
-    status::LegalStatus,
 };
 
 use crate::{
-    budget::{ResponseBudget, bounded, estimate_chars, strip_from_end, the_last_hits},
+    budget::{ResponseBudget, bounded, strip_from_end, the_last_hits},
     error::AppError,
     input::{SearchAllInput, SearchInput},
     messages,
@@ -45,7 +46,10 @@ use crate::{
     },
     ports::{Clock, LegalCorpus},
     tools::ToolName,
-    usecase::search::SearchUseCase,
+    usecase::search::{
+        DEGRADE_NOTE_RESERVE, JsonObject, SearchUseCase, digits, hit_cost, strip_details,
+        strip_snippets,
+    },
 };
 
 /// Outil que ce cas d'usage sert : nom des messages et de l'audit.
@@ -68,23 +72,8 @@ const CONCURRENCY: usize = 4;
 const NO_MATCH_NOTE: &str = "No match in any fond: try other words or other fonds, or call \
                              fr_coverage; an empty result does not mean the law is silent.";
 
-/// Longueur ISO d'une date rendue, `AAAA-MM-JJ`.
-const ISO_DATE_CHARS: usize = 10;
-
-/// Longueur maximale d'un IDCC rendu (1 à 9999).
-const IDCC_CHARS: usize = 4;
-
-/// Caractères d'un nom de fond (`CONSTIT`), le plus long.
-const FOND_NAME_CHARS: usize = 7;
-
-/// Caractères du préfixe `[upstream_error] ` d'une entrée d'erreur, le plus long.
-const ERROR_PREFIX_CHARS: usize = 17;
-
-/// Caractères réservés aux deux notes de dégradation : elles tiennent largement dedans.
-const DEGRADE_NOTE_RESERVE_CHARS: usize = 400;
-
-/// Coût estimé de la réservation des notes : le champ `note` et leur texte.
-const DEGRADE_NOTE_RESERVE: usize = estimate_chars(1, DEGRADE_NOTE_RESERVE_CHARS);
+/// L'enveloppe sans groupe ni note : `{"groups":[]}`.
+const ENVELOPE_CHARS: usize = r#"{"groups":[]}"#.len();
 
 /// Recherche multi-fonds : analyse des arguments, une recherche par fond, politique de réponse.
 pub(crate) struct SearchAllUseCase<'a, C: LegalCorpus, K: Clock> {
@@ -204,16 +193,11 @@ fn shared_failure(groups: &[GroupOut]) -> Option<AppError> {
 // Plafond de réponse
 // -------------------------------------------------------------------------------------------
 
-/// Dégrade les résultats, du dernier au premier, jusqu'à ce que l'estimation de la réponse passe
-/// sous la cible (05 §6.4). Rend la `note` qui le dit, s'il y a eu dégradation.
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
-)]
+/// Dégrade les résultats, du dernier au premier, jusqu'à ce que la longueur exacte de la réponse
+/// passe sous la cible, réserve des notes comprise (05 §6.4). Rend la `note` qui le dit, s'il y a
+/// eu dégradation.
 fn fit_under_target(groups: &mut [GroupOut]) -> Option<String> {
-    let fixed = estimate_chars(1, 0)
-        + DEGRADE_NOTE_RESERVE
-        + groups.iter().map(group_cost).fold(0, usize::saturating_add);
+    let fixed = envelope_cost(groups).saturating_add(DEGRADE_NOTE_RESERVE);
     let mut hits: Vec<&mut HitOut> = groups
         .iter_mut()
         .filter_map(|group| group.result.as_mut().ok())
@@ -224,7 +208,7 @@ fn fit_under_target(groups: &mut [GroupOut]) -> Option<String> {
         fixed.saturating_add(cost) > ResponseBudget::ESTIMATE_TARGET_CHARS
     };
     let snippets = strip_from_end(&mut hits, over, |out| strip_snippets(out));
-    let details = strip_from_end(&mut hits, over, |out| strip_details(out));
+    let details = strip_from_end(&mut hits, over, |out| strip_details(out, false));
     let notes = [
         (snippets > 0).then(|| snippets_note(snippets)),
         (details > 0).then(|| details_note(details)),
@@ -233,43 +217,39 @@ fn fit_under_target(groups: &mut [GroupOut]) -> Option<String> {
     (!notes.is_empty()).then(|| notes.join(" "))
 }
 
-/// Coût estimé d'un groupe hors résultats : `fond`, `total`, `has_more` et `hits`, ou `fond` et
-/// `error`.
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
-)]
+/// Longueur du JSON compact de l'enveloppe et de ses groupes, hors objets des résultats (ceux de
+/// [`hit_cost`]) : `{"groups":[`, les groupes séparés par des virgules, `]}`. Le champ `note`
+/// n'y est pas : [`DEGRADE_NOTE_RESERVE`] le réserve.
+fn envelope_cost(groups: &[GroupOut]) -> usize {
+    groups
+        .iter()
+        .map(group_cost)
+        .fold(ENVELOPE_CHARS, usize::saturating_add)
+        .saturating_add(groups.len().saturating_sub(1))
+}
+
+/// Longueur du JSON compact d'un groupe, hors objets des résultats : `fond`, puis `total`,
+/// `has_more` et `hits` (`[`, les virgules entre résultats, `]`), ou `error`.
 fn group_cost(group: &GroupOut) -> usize {
+    let mut json = JsonObject::default();
+    json.raw("fond", group.fond.name().len().saturating_add(2));
     match &group.result {
-        Ok(_) => estimate_chars(4, FOND_NAME_CHARS),
-        Err(error) => {
-            estimate_chars(2, FOND_NAME_CHARS + ERROR_PREFIX_CHARS + chars(error.message()))
+        Ok(found) => {
+            json.raw("total", digits(found.total));
+            json.raw("has_more", if found.has_more { 4 } else { 5 });
+            json.raw("hits", found.hits.len().saturating_sub(1).saturating_add(2));
         }
+        Err(error) => json.text("error", &error_text(error)),
     }
+    json.total()
 }
 
-/// Retire l'extrait du résultat et ceux de ses articles ; vrai s'il y en avait un.
-fn strip_snippets(out: &mut HitOut) -> bool {
-    let mut stripped = out.hit.snippet.take().is_some();
-    for article in &mut out.hit.articles {
-        stripped |= article.snippet.take().is_some();
+/// `[code] message`, comme la vue l'écrit ; un appel annulé n'a pas de code : le message seul.
+fn error_text(error: &AppError) -> String {
+    match error.code() {
+        Some(code) => format!("[{}] {}", code.as_str(), error.message()),
+        None => error.message().to_owned(),
     }
-    stripped
-}
-
-/// Retire la liste d'articles et les champs optionnels `title`, `nature`, `etat` et `date` ; vrai
-/// s'il y avait quelque chose à retirer. L'`idcc` reste : il identifie la convention.
-fn strip_details(out: &mut HitOut) -> bool {
-    let hit = &mut out.hit;
-    let had_articles = !hit.articles.is_empty();
-    hit.articles.clear();
-    let had_fields = [
-        hit.title.take().is_some(),
-        hit.nature.take().is_some(),
-        hit.etat.take().is_some(),
-        hit.date.take().is_some(),
-    ];
-    had_articles || had_fields.contains(&true)
 }
 
 /// Note des extraits retirés (05 §6.4).
@@ -291,65 +271,23 @@ fn details_note(hits: usize) -> String {
     )
 }
 
-/// Coût estimé d'un résultat : 64 par champ ou élément, plus la longueur de ses textes. `kind`,
-/// `id`, `citation` et `source_url` sont toujours rendus ; le reste seulement s'il est présent.
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
-)]
-fn hit_cost(out: &HitOut) -> usize {
-    let hit = &out.hit;
-    let articles = hit.articles.iter().flat_map(|article| {
-        [
-            Some(article.article_id.as_str()),
-            article.num.as_deref(),
-            article.snippet.as_ref().map(Snippet::as_str),
-        ]
-    });
-    let texts = [
-        Some(hit.fond.name()),
-        Some(hit.id.as_str()),
-        Some(out.citation.as_str()),
-        Some(out.source_url.as_str()),
-        hit.title.as_deref(),
-        hit.nature.as_deref(),
-        hit.etat.as_ref().map(LegalStatus::as_api_code),
-        hit.snippet.as_ref().map(Snippet::as_str),
-    ]
-    .into_iter()
-    .chain(articles)
-    .flatten();
-    let (fields, text) =
-        texts.fold((0, 0), |(fields, text), value| (fields + 1, text + chars(value)));
-    let dated = usize::from(hit.date.is_some());
-    let numbered = usize::from(hit.idcc.is_some());
-    // Les dates et l'IDCC ont une longueur connue ; la liste d'articles et chacun de ses éléments
-    // sont des champs de plus.
-    let structure = dated + numbered + usize::from(!hit.articles.is_empty()) + hit.articles.len();
-    estimate_chars(fields + structure, text + dated * ISO_DATE_CHARS + numbered * IDCC_CHARS)
-}
-
-/// Longueur en caractères (points de code) : l'unité du plafond.
-fn chars(text: &str) -> usize {
-    text.chars().count()
-}
-
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "tests : valeurs bornées par les données du test"
 )]
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{fmt::Write as _, time::Duration};
 
     use chrono::DateTime;
     use lf_domain::{
         contract::{Citable, Idcc},
         date::{CivilDate, VersionDate},
-        entity::{CodeArticleRef, SearchHit, SearchPage},
+        entity::{CodeArticleRef, SearchHit, SearchPage, Snippet},
         fond::PaginationMode,
         id::{ArticleId, DocumentId, LegiArtiId},
         search::MatchMode,
+        status::LegalStatus,
     };
     use pretty_assertions::assert_eq;
 
@@ -740,9 +678,7 @@ mod tests {
     /// Estimation de toute la réponse, comme `fit_under_target` la calcule.
     fn estimate(output: &SearchAllOutput) -> usize {
         let mut groups = output.groups.clone();
-        let fixed = estimate_chars(1, 0)
-            + DEGRADE_NOTE_RESERVE
-            + groups.iter().map(group_cost).fold(0, usize::saturating_add);
+        let fixed = envelope_cost(&groups) + DEGRADE_NOTE_RESERVE;
         let hits: usize = groups
             .iter_mut()
             .filter_map(|group| group.result.as_mut().ok())
@@ -763,16 +699,26 @@ mod tests {
 
     #[tokio::test]
     async fn search_all_trimmed_under_estimate() {
-        // Quatre fonds de dix résultats chargés : un peu au-delà de 42 000 caractères estimés, et
-        // les extraits suffisent à repasser dessous.
-        let fonds = [Fond::Loda, Fond::Code, Fond::Kali, Fond::Juri];
+        // Huit fonds de dix résultats chargés : au-delà de 42 000 caractères de JSON exact, et les
+        // extraits suffisent à repasser dessous (JURI en dernier : son citation porte le titre).
+        let fonds = [
+            Fond::Loda,
+            Fond::Kali,
+            Fond::Cetat,
+            Fond::Constit,
+            Fond::Cnil,
+            Fond::Acco,
+            Fond::Code,
+            Fond::Juri,
+        ];
         let corpus = FakeCorpus::new();
-        let mut untrimmed = 0;
+        let mut untrimmed = Vec::new();
         for fond in fonds {
             let page = loaded_page(fond, 10);
-            untrimmed += page.hits.iter().map(|hit| hit_cost(&hit_out_of(hit))).sum::<usize>();
+            untrimmed.push(group_of(fond, page.hits.iter().map(hit_out_of).collect()));
             corpus.push_search(Ok(page));
         }
+        let untrimmed = exact_len(&untrimmed, None);
         assert!(untrimmed > ResponseBudget::ESTIMATE_TARGET_CHARS, "{untrimmed}");
         let names: Vec<&str> = fonds.iter().map(|fond| fond.name()).collect();
 
@@ -780,23 +726,25 @@ mod tests {
 
         // Aucun résultat n'est retiré ; l'estimation passe sous la cible.
         let hits = all_hits(&output);
-        assert_eq!(hits.len(), 40);
+        assert_eq!(hits.len(), 80);
         assert!(estimate(&output) <= ResponseBudget::ESTIMATE_TARGET_CHARS);
         // Les extraits partent d'abord, en partant de la fin : le premier résultat garde le sien.
         assert!(hits[0].hit.snippet.is_some());
-        assert!(hits[39].hit.snippet.is_none());
-        assert!(hits[39].hit.title.is_some(), "les titres ne partent qu'ensuite");
+        assert!(hits[79].hit.snippet.is_none());
+        assert!(hits[79].hit.title.is_some(), "les titres ne partent qu'ensuite");
         let note = output.note.as_deref().expect("the response was degraded");
         assert!(note.starts_with("Snippets were removed from the last "), "{note}");
         assert!(note.contains("use fr_search on one fond"), "{note}");
         assert!(!note.contains("Article lists"), "{note}");
         // Les extraits d'articles partent avec ceux des résultats.
-        let code_hit = &output.groups[1].result.as_ref().unwrap().hits;
-        assert!(code_hit[0].hit.articles[0].snippet.is_some());
+        let code_hit = &output.groups[6].result.as_ref().unwrap().hits;
+        for out in code_hit {
+            assert_eq!(out.hit.snippet.is_none(), out.hit.articles[0].snippet.is_none());
+        }
         assert!(code_hit[9].hit.articles[0].snippet.is_none());
         assert!(code_hit[9].hit.articles[0].num.is_some(), "l'article reste, sans son extrait");
         // Les citations, calculées avant la dégradation, restent entières.
-        assert!(hits[39].citation.starts_with("JURI 10 titre"));
+        assert!(hits[79].citation.starts_with("JURI 10 titre"));
     }
 
     #[test]
@@ -834,7 +782,7 @@ mod tests {
             let hits = (1..=10)
                 .map(|n| SearchHit {
                     title: Some("t".repeat(100)),
-                    nature: Some("n".repeat(200)),
+                    nature: Some("n".repeat(600)),
                     ..bare(fond, n)
                 })
                 .collect();
@@ -869,75 +817,626 @@ mod tests {
         assert!(all_hits(&output)[0].hit.articles[0].snippet.is_some());
     }
 
-    #[test]
-    fn strip_helpers_report_whether_they_removed_something() {
-        let mut full = hit_out_of(&loaded(Fond::Code, 1));
-        assert!(strip_snippets(&mut full));
-        assert!(!strip_snippets(&mut full), "déjà retirés");
-        assert!(strip_details(&mut full));
-        assert!(!strip_details(&mut full), "déjà retirés");
-        assert_eq!(
-            (full.hit.title, full.hit.nature, full.hit.etat, full.hit.date),
-            (None, None, None, None)
-        );
-        assert_eq!(full.hit.articles, Vec::<CodeArticleRef>::new());
-        // Un article sans extrait n'est pas un extrait retiré.
-        let mut only_article = hit_out_of(&SearchHit {
-            articles: vec![CodeArticleRef::new(
-                ArticleId::Legi(LegiArtiId::parse("LEGIARTI000000000001").unwrap()),
-                None,
-                "",
-            )],
-            ..bare(Fond::Code, 1)
-        });
-        assert!(!strip_snippets(&mut only_article));
-        assert!(strip_details(&mut only_article), "la liste d'articles part");
-        // L'IDCC reste.
-        let mut kali = hit_out_of(&loaded(Fond::Kali, 1));
-        strip_details(&mut kali);
-        assert!(kali.hit.idcc.is_some());
+    // ---------------------------------------------------------------------------------------
+    // U16 : estimation exacte de la taille (search_all-2)
+    // ---------------------------------------------------------------------------------------
+
+    /// Caractères réservés aux notes dans l'estimation de `fr_search` (411 en dur : un changement
+    /// de la réserve se voit ici).
+    const NOTE_RESERVE: usize = 411;
+
+    const TARGET: usize = ResponseBudget::ESTIMATE_TARGET_CHARS;
+
+    // ---- l'oracle : la longueur exacte du JSON compact de la vue, écrite à part ----------------
+
+    /// Une chaîne JSON, échappée comme `serde_json` l'écrit.
+    fn q(text: &str) -> String {
+        let mut out = String::from("\"");
+        for c in text.chars() {
+            match c {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                '\u{8}' => out.push_str("\\b"),
+                '\u{c}' => out.push_str("\\f"),
+                c if c < ' ' => {
+                    let _ = write!(out, "\\u{:04x}", u32::from(c));
+                }
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+        out
     }
 
-    #[test]
-    fn the_cost_of_a_hit_counts_its_fields_and_its_texts() {
-        let bare_hit = hit_out_of(&bare(Fond::Juri, 1));
-        let base = hit_cost(&bare_hit);
-        // Quatre champs toujours rendus.
-        let texts = "JURI".len()
-            + bare_hit.hit.id.as_str().len()
-            + bare_hit.citation.chars().count()
-            + bare_hit.source_url.chars().count();
-        assert_eq!(base, estimate_chars(4, texts));
-        // Une date et un IDCC : un champ chacun, de longueur connue.
-        let dated = SearchHit {
+    /// Le JSON compact d'un résultat, dans l'ordre des champs de la vue.
+    fn json_hit(out: &HitOut) -> String {
+        let hit = &out.hit;
+        let mut fields = vec![
+            format!("\"kind\":{}", q(&hit.fond.name().to_ascii_lowercase())),
+            format!("\"id\":{}", q(hit.id.as_str())),
+        ];
+        if let Some(title) =
+            lf_domain::text::title_unless_in_citation(hit.title.as_deref(), &out.citation)
+        {
+            fields.push(format!("\"title\":{}", q(title)));
+        }
+        if let Some(date) = lf_domain::date::open_ended(hit.date) {
+            fields.push(format!("\"date\":\"{date}\""));
+        }
+        if let Some(nature) = &hit.nature {
+            fields.push(format!("\"nature\":{}", q(nature)));
+        }
+        if let Some(etat) = &hit.etat {
+            fields.push(format!("\"etat\":{}", q(etat.as_api_code())));
+        }
+        if let Some(idcc) = &hit.idcc {
+            fields.push(format!("\"idcc\":{}", q(&idcc.to_string())));
+        }
+        if let Some(snippet) = &hit.snippet {
+            fields.push(format!("\"snippet\":{}", q(snippet.as_str())));
+        }
+        if !hit.articles.is_empty() {
+            let articles: Vec<String> = hit
+                .articles
+                .iter()
+                .map(|article| {
+                    let mut parts =
+                        vec![format!("\"article_id\":{}", q(article.article_id.as_str()))];
+                    if let Some(num) = &article.num {
+                        parts.push(format!("\"num\":{}", q(num)));
+                    }
+                    if let Some(snippet) = &article.snippet {
+                        parts.push(format!("\"snippet\":{}", q(snippet.as_str())));
+                    }
+                    format!("{{{}}}", parts.join(","))
+                })
+                .collect();
+            fields.push(format!("\"articles\":[{}]", articles.join(",")));
+        }
+        fields.push(format!("\"citation\":{}", q(&out.citation)));
+        fields.push(format!("\"source_url\":{}", q(&out.source_url)));
+        format!("{{{}}}", fields.join(","))
+    }
+
+    /// Le JSON compact d'un groupe : ses résultats, ou son erreur.
+    fn json_group(group: &GroupOut) -> String {
+        let name = q(group.fond.name());
+        match &group.result {
+            Ok(found) => {
+                let hits: Vec<String> = found.hits.iter().map(json_hit).collect();
+                format!(
+                    "{{\"fond\":{name},\"total\":{},\"has_more\":{},\"hits\":[{}]}}",
+                    found.total,
+                    found.has_more,
+                    hits.join(",")
+                )
+            }
+            Err(error) => {
+                let text = match error.code() {
+                    Some(code) => format!("[{}] {}", code.as_str(), error.message()),
+                    None => error.message().to_owned(),
+                };
+                format!("{{\"fond\":{name},\"error\":{}}}", q(&text))
+            }
+        }
+    }
+
+    /// Le JSON compact de la réponse, `note` comprise.
+    fn json_of(groups: &[GroupOut], note: Option<&str>) -> String {
+        let groups: Vec<String> = groups.iter().map(json_group).collect();
+        let note = note.map(|note| format!(",\"note\":{}", q(note))).unwrap_or_default();
+        format!("{{\"groups\":[{}]{note}}}", groups.join(","))
+    }
+
+    /// Longueur exacte, en caractères, de la réponse.
+    fn exact_len(groups: &[GroupOut], note: Option<&str>) -> usize {
+        json_of(groups, note).chars().count()
+    }
+
+    /// Ce que l'application compte pour ces groupes, sans la réserve des notes.
+    fn counted(groups: &[GroupOut]) -> usize {
+        let hits: usize = groups
+            .iter()
+            .filter_map(|group| group.result.as_ref().ok())
+            .flat_map(|found| found.hits.iter())
+            .map(hit_cost)
+            .sum();
+        envelope_cost(groups) + hits
+    }
+
+    // ---- les données : aux longueurs du rejeu de production, sans texte de Légifrance -----------
+
+    /// Un résultat aux longueurs relevées en production : citation de 60 à 150 caractères, extrait
+    /// de 280, date, nature et `etat` ; CODE : trois articles à extrait de 272 caractères, sans
+    /// extrait propre ; KALI et ACCO : un IDCC. Le titre est celui de la citation (non rendu).
+    fn shaped(fond: Fond, n: u32) -> HitOut {
+        let base = bare(fond, n);
+        let citation = format!(
+            "{} n° {n} {}",
+            fond.name(),
+            "c".repeat(60 + 30 * usize::try_from(n % 4).unwrap())
+        );
+        let articles = if fond == Fond::Code {
+            (1..=3)
+                .map(|a| {
+                    CodeArticleRef::new(
+                        ArticleId::Legi(
+                            LegiArtiId::parse(&format!("LEGIARTI{:012}", n * 10 + a)).unwrap(),
+                        ),
+                        Some("L. 145-1".to_owned()),
+                        &"article ".repeat(34),
+                    )
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+        let hit = SearchHit {
+            title: Some(citation.clone()),
             date: CivilDate::new(2016, 10, 7),
-            idcc: Idcc::parse("1486"),
-            ..bare(Fond::Juri, 1)
+            nature: Some("ARRET".to_owned()),
+            etat: Some(LegalStatus::Vigueur),
+            snippet: (fond != Fond::Code).then(|| Snippet::new(&"extrait ".repeat(35)).unwrap()),
+            idcc: matches!(fond, Fond::Kali | Fond::Acco).then(|| Idcc::parse("1486").unwrap()),
+            articles,
+            ..base
         };
-        assert_eq!(hit_cost(&hit_out_of(&dated)), base + 2 * 64 + ISO_DATE_CHARS + IDCC_CHARS);
-        // Une liste d'articles : le champ, l'élément, l'identifiant, le numéro, l'extrait.
-        let with_article = SearchHit {
-            articles: vec![CodeArticleRef::new(
-                ArticleId::Legi(LegiArtiId::parse("LEGIARTI000000000001").unwrap()),
-                Some("9".to_owned()),
-                "abc",
-            )],
-            ..bare(Fond::Juri, 1)
-        };
-        assert_eq!(hit_cost(&hit_out_of(&with_article)), base + 5 * 64 + 20 + 1 + 3);
+        let source_url =
+            format!("https://www.legifrance.gouv.fr/{}/{}", fond.name(), hit.id.as_str());
+        HitOut { hit, citation, source_url }
     }
 
+    fn group_of(fond: Fond, hits: Vec<HitOut>) -> GroupOut {
+        GroupOut { fond, result: Ok(FondHits { total: 500, has_more: true, hits }) }
+    }
+
+    /// Un groupe par fond, `per_fond` résultats chacun.
+    fn shaped_groups(fonds: &[Fond], per_fond: u32) -> Vec<GroupOut> {
+        fonds
+            .iter()
+            .map(|fond| group_of(*fond, (1..=per_fond).map(|n| shaped(*fond, n)).collect()))
+            .collect()
+    }
+
+    const FIVE: [Fond; 5] = DEFAULT_FONDS;
+
+    /// Règle la `nature` du dernier résultat pour que la réponse sans note fasse `wanted`
+    /// caractères exactement.
+    fn padded_to(mut groups: Vec<GroupOut>, wanted: usize) -> Vec<GroupOut> {
+        let set = |groups: &mut Vec<GroupOut>, pad: usize| {
+            let last = groups.last_mut().unwrap().result.as_mut().unwrap().hits.last_mut().unwrap();
+            last.hit.nature = Some("n".repeat(pad));
+        };
+        set(&mut groups, 1);
+        let base = exact_len(&groups, None);
+        assert!(base <= wanted, "{base} > {wanted}");
+        set(&mut groups, 1 + wanted - base);
+        assert_eq!(exact_len(&groups, None), wanted);
+        groups
+    }
+
+    fn snippets_kept(groups: &[GroupOut]) -> usize {
+        groups
+            .iter()
+            .filter_map(|group| group.result.as_ref().ok())
+            .flat_map(|found| found.hits.iter())
+            .filter(|out| {
+                out.hit.snippet.is_some() || out.hit.articles.iter().any(|a| a.snippet.is_some())
+            })
+            .count()
+    }
+
+    fn every_hit_keeps_its_details(groups: &[GroupOut]) -> bool {
+        groups
+            .iter()
+            .filter_map(|group| group.result.as_ref().ok())
+            .flat_map(|found| found.hits.iter())
+            .all(|out| out.hit.etat.is_some() && out.hit.date.is_some() && out.hit.nature.is_some())
+    }
+
+    /// V1 : 5 fonds x 10 résultats aux longueurs de production, JSON exact d'environ 36 000
+    /// caractères : sous la cible, rien n'est retiré (la 1.1.0 retirait tous les extraits).
     #[test]
-    fn the_cost_of_an_error_group_counts_its_message() {
-        let failed = GroupOut { fond: Fond::Cnil, result: Err(AppError::config("no credentials")) };
-        assert_eq!(
-            group_cost(&failed),
-            estimate_chars(2, FOND_NAME_CHARS + ERROR_PREFIX_CHARS + 14)
+    fn a_production_shaped_response_under_the_cap_is_not_degraded() {
+        let mut groups = shaped_groups(&FIVE, 10);
+        let before = groups.clone();
+        let size = exact_len(&groups, None);
+        assert!((33_000..=40_000).contains(&size), "{size}");
+
+        let note = fit_under_target(&mut groups);
+
+        assert_eq!(note, None);
+        assert_eq!(groups, before);
+    }
+
+    /// V2 : 8 fonds x 10, JSON exact au-dessus de la cible mais sous elle sans les extraits : seuls
+    /// des extraits partent, en partant de la fin ; tous les résultats gardent `etat`, `date` et
+    /// `nature` (la 1.1.0 les retirait dès le 4e résultat).
+    #[test]
+    fn etat_date_and_nature_survive_when_removing_snippets_is_enough() {
+        let mut groups = shaped_groups(&Fond::ALL, 10);
+        assert!(exact_len(&groups, None) > TARGET);
+        let mut without = groups.clone();
+        for out in without
+            .iter_mut()
+            .filter_map(|g| g.result.as_mut().ok())
+            .flat_map(|f| f.hits.iter_mut())
+        {
+            strip_snippets(out);
+        }
+        assert!(exact_len(&without, None) < TARGET - NOTE_RESERVE);
+
+        let note = fit_under_target(&mut groups).expect("the response was degraded");
+
+        assert!(note.starts_with("Snippets were removed from the last "), "{note}");
+        assert!(!note.contains("Article lists"), "{note}");
+        assert!(every_hit_keeps_its_details(&groups));
+        assert!(snippets_kept(&groups) > 0, "les premiers extraits restent");
+        assert!(exact_len(&groups, Some(&note)) <= TARGET);
+    }
+
+    /// Le bord : la réponse qui tient pile à `cible - réserve` est conservée ; un caractère de plus
+    /// et un extrait, le dernier, part.
+    #[test]
+    fn a_response_exactly_at_the_target_is_kept_and_one_character_more_strips_one_snippet() {
+        let edge = TARGET - NOTE_RESERVE;
+        let mut at_target = padded_to(shaped_groups(&FIVE, 10), edge);
+        let before = at_target.clone();
+        assert_eq!(fit_under_target(&mut at_target), None);
+        assert_eq!(at_target, before);
+
+        let mut over = padded_to(shaped_groups(&FIVE, 10), edge + 1);
+        let before = over.clone();
+        let note = fit_under_target(&mut over);
+        assert_eq!(note, Some(snippets_note(1)));
+        let mut expected = before;
+        let last = expected.last_mut().unwrap().result.as_mut().unwrap().hits.last_mut().unwrap();
+        last.hit.snippet = None;
+        assert_eq!(over, expected);
+    }
+
+    /// Minimalité : la dégradation s'arrête dès que la réponse tient ; rendre le dernier extrait
+    /// retiré la ferait repasser au-dessus de la limite.
+    #[test]
+    fn degradation_stops_as_soon_as_the_response_fits() {
+        let original = shaped_groups(&Fond::ALL, 10);
+        let mut groups = original.clone();
+        let note = fit_under_target(&mut groups).expect("degraded");
+        assert!(exact_len(&groups, Some(&note)) <= TARGET);
+
+        // Le dernier résultat dont l'extrait a été retiré en dernier : le plus petit indice.
+        let flat = |groups: &[GroupOut]| -> Vec<HitOut> {
+            groups
+                .iter()
+                .filter_map(|g| g.result.as_ref().ok())
+                .flat_map(|f| f.hits.iter().cloned())
+                .collect()
+        };
+        let (before, after) = (flat(&original), flat(&groups));
+        let first_stripped = before
+            .iter()
+            .zip(&after)
+            .position(|(old, new)| old.hit.snippet.is_some() && new.hit.snippet.is_none())
+            .or_else(|| {
+                before
+                    .iter()
+                    .zip(&after)
+                    .position(|(old, new)| old.hit.articles != new.hit.articles)
+            })
+            .expect("something was stripped");
+        // On rend l'extrait de ce résultat.
+        let mut restored = groups.clone();
+        let target = restored
+            .iter_mut()
+            .filter_map(|g| g.result.as_mut().ok())
+            .flat_map(|f| f.hits.iter_mut())
+            .nth(first_stripped)
+            .unwrap();
+        *target = before[first_stripped].clone();
+        assert!(
+            exact_len(&restored, None) + NOTE_RESERVE > TARGET,
+            "un extrait de moins aurait suffi : {}",
+            exact_len(&restored, None)
         );
-        let found = GroupOut {
+    }
+
+    /// Les coûts d'un groupe et de l'enveloppe sont la longueur du JSON compact (littéraux).
+    #[test]
+    fn group_and_envelope_costs_are_the_length_of_the_compact_json() {
+        let json_len = |json: &str| json.chars().count();
+        // Un groupe plein, deux résultats : leurs objets sont comptés à part, la virgule et les
+        // crochets de la liste sont du groupe.
+        let full = group_of(Fond::Loda, vec![shaped(Fond::Loda, 1), shaped(Fond::Loda, 2)]);
+        assert_eq!(
+            group_cost(&full),
+            json_len(r#"{"fond":"LODA","total":500,"has_more":true,"hits":[,]}"#)
+        );
+        // Un groupe vide.
+        let empty = GroupOut {
             fond: Fond::Cnil,
             result: Ok(FondHits { total: 0, has_more: false, hits: vec![] }),
         };
-        assert_eq!(group_cost(&found), estimate_chars(4, FOND_NAME_CHARS));
+        let empty_json = r#"{"fond":"CNIL","total":0,"has_more":false,"hits":[]}"#;
+        assert_eq!(group_cost(&empty), json_len(empty_json));
+        assert_eq!(json_group(&empty), empty_json);
+        // Un groupe en erreur.
+        let failed = GroupOut { fond: Fond::Cnil, result: Err(AppError::config("no credentials")) };
+        let failed_json = r#"{"fond":"CNIL","error":"[config_error] no credentials"}"#;
+        assert_eq!(group_cost(&failed), json_len(failed_json));
+        assert_eq!(json_group(&failed), failed_json);
+        // L'enveloppe : `{"groups":[` + groupes séparés par des virgules + `]}`.
+        assert_eq!(envelope_cost(&[]), json_len(r#"{"groups":[]}"#));
+        assert_eq!(
+            envelope_cost(std::slice::from_ref(&empty)),
+            json_len(&format!(r#"{{"groups":[{empty_json}]}}"#))
+        );
+        assert_eq!(
+            envelope_cost(&[empty.clone(), failed.clone(), empty.clone()]),
+            json_len(&format!(r#"{{"groups":[{empty_json},{failed_json},{empty_json}]}}"#))
+        );
+        // Un total de plusieurs chiffres, et le `has_more` vrai (4 caractères) ou faux (5).
+        let big = GroupOut {
+            fond: Fond::Loda,
+            result: Ok(FondHits { total: 1_234_567, has_more: true, hits: vec![] }),
+        };
+        assert_eq!(
+            group_cost(&big),
+            json_len(r#"{"fond":"LODA","total":1234567,"has_more":true,"hits":[]}"#)
+        );
+        // Le plein, résultats compris, égale l'oracle.
+        assert_eq!(
+            counted(std::slice::from_ref(&full)),
+            exact_len(std::slice::from_ref(&full), None)
+        );
+    }
+
+    /// Un groupe vide et un groupe en erreur gardent leur forme exacte dans l'enveloppe.
+    #[test]
+    fn an_empty_group_and_a_failed_group_keep_their_exact_shape_in_the_envelope() {
+        let groups = vec![
+            group_of(Fond::Loda, vec![shaped(Fond::Loda, 1)]),
+            GroupOut {
+                fond: Fond::Cnil,
+                result: Ok(FondHits { total: 0, has_more: false, hits: vec![] }),
+            },
+            GroupOut { fond: Fond::Juri, result: Err(AppError::config("boom")) },
+            group_of(Fond::Kali, vec![shaped(Fond::Kali, 1), shaped(Fond::Kali, 2)]),
+        ];
+        assert_eq!(counted(&groups), exact_len(&groups, None));
+    }
+
+    /// Une erreur est comptée `[code] message` ; un appel annulé n'a pas de code : le message seul.
+    #[test]
+    fn an_error_group_is_counted_with_its_code_and_without_it_when_cancelled() {
+        let with_code =
+            GroupOut { fond: Fond::Juri, result: Err(AppError::config("no credentials")) };
+        assert_eq!(
+            group_cost(&with_code),
+            r#"{"fond":"JURI","error":"[config_error] no credentials"}"#.chars().count()
+        );
+        let cancelled = GroupOut {
+            fond: Fond::Juri,
+            result: Err(AppError::Upstream {
+                message: "cancelled".to_owned(),
+                cause: UpstreamCause::Cancelled,
+            }),
+        };
+        assert_eq!(cancelled.result.as_ref().unwrap_err().code(), None);
+        assert_eq!(
+            group_cost(&cancelled),
+            r#"{"fond":"JURI","error":"cancelled"}"#.chars().count()
+        );
+    }
+
+    /// Un groupe en erreur au milieu est compté et ne décale pas l'ordre de dégradation : les
+    /// extraits partent en partant du dernier résultat du dernier fond.
+    #[test]
+    fn an_error_group_inside_the_list_is_counted_and_does_not_shift_the_strip_order() {
+        let mut groups = shaped_groups(&Fond::ALL, 10);
+        groups[3] = GroupOut { fond: Fond::Constit, result: Err(AppError::config("down")) };
+        groups[5] = GroupOut { fond: Fond::Cnil, result: Err(AppError::config("down")) };
+        assert_eq!(counted(&groups), exact_len(&groups, None));
+        let original = groups.clone();
+
+        let note = fit_under_target(&mut groups);
+
+        assert!(note.is_some_and(|note| note.starts_with("Snippets were removed")));
+        assert_eq!(groups[3], original[3], "l'erreur reste telle quelle");
+        let hits =
+            |group: &GroupOut| group.result.as_ref().map(|f| f.hits.clone()).unwrap_or_default();
+        // Le premier résultat du premier fond garde son extrait ; le dernier du dernier le perd.
+        assert!(hits(&groups[0])[0].hit.snippet.is_some());
+        assert!(hits(&groups[7]).last().unwrap().hit.snippet.is_none());
+    }
+
+    /// Les échappements JSON sont comptés : `"`, `\` (deux) et U+0001 (six) dans la citation, dans
+    /// `source_url` et dans le message d'une erreur.
+    #[test]
+    fn json_escapes_in_citations_and_errors_are_counted() {
+        let rich = "a\"b\\c\u{1}d";
+        let mut hit = shaped(Fond::Juri, 1);
+        hit.citation = rich.repeat(5);
+        hit.source_url = format!("https://x/{rich}");
+        let groups = vec![
+            group_of(Fond::Juri, vec![hit]),
+            GroupOut { fond: Fond::Cnil, result: Err(AppError::config(rich)) },
+        ];
+        assert_eq!(counted(&groups), exact_len(&groups, None));
+        // Le littéral : trois caractères riches coûtent 1 + 2 + 1 + 2 + 1 + 6 + 1 = 14 de plus.
+        let json = json_of(&groups, None);
+        assert!(json.contains(r#"a\"b\\c\u0001d"#), "{json}");
+    }
+
+    /// KALI : un IDCC et une date sentinelle (2222-01-01, non rendue) ; le coût est exactement le
+    /// JSON rendu.
+    #[test]
+    fn a_kali_hit_with_idcc_and_a_sentinel_date_costs_exactly_its_rendered_json() {
+        let hit = SearchHit {
+            date: CivilDate::new(2222, 1, 1),
+            idcc: Idcc::parse("1486"),
+            nature: Some("CONVENTION".to_owned()),
+            ..bare(Fond::Kali, 1)
+        };
+        let out =
+            HitOut { citation: "Convention".to_owned(), source_url: "https://u".to_owned(), hit };
+        let expected = format!(
+            concat!(
+                r#"{{"kind":"kali","id":"{}","nature":"CONVENTION","#,
+                r#""idcc":"1486","citation":"Convention","source_url":"https://u"}}"#
+            ),
+            out.hit.id.as_str()
+        );
+        assert_eq!(json_hit(&out), expected);
+        assert_eq!(hit_cost(&out), expected.chars().count());
+    }
+
+    /// Un titre contenu dans la citation n'est pas rendu : le retirer ne compte pas comme un détail
+    /// retiré, et la note des détails ne le compte pas.
+    #[test]
+    fn a_hit_whose_title_is_in_its_citation_does_not_count_as_stripped_details() {
+        // 80 résultats dont seul le dernier a un `nature` (rendu) : la note compte un résultat,
+        // pas les 79 dont seul le titre, déjà dans la citation, a été retiré.
+        let mut groups: Vec<GroupOut> = Fond::ALL
+            .iter()
+            .map(|fond| {
+                let hits = (1..=10)
+                    .map(|n| {
+                        let mut out = shaped(*fond, n);
+                        out.hit.snippet = None;
+                        out.hit.articles.clear();
+                        out.hit.etat = None;
+                        out.hit.date = None;
+                        out.hit.nature = Some("n".repeat(700));
+                        out
+                    })
+                    .collect();
+                group_of(*fond, hits)
+            })
+            .collect();
+        assert!(exact_len(&groups, None) > TARGET);
+
+        let note = fit_under_target(&mut groups).expect("degraded");
+
+        // Chaque résultat retiré avait une nature rendue : le compte est le nombre de natures
+        // effectivement retirées.
+        let removed = groups
+            .iter()
+            .filter_map(|g| g.result.as_ref().ok())
+            .flat_map(|f| f.hits.iter())
+            .filter(|out| out.hit.nature.is_none())
+            .count();
+        assert!(removed > 0);
+        assert_eq!(note, details_note(removed));
+
+        // Seul le titre (dans la citation) à retirer : rien n'est compté, aucune note.
+        let mut titles_only: Vec<GroupOut> = Fond::ALL
+            .iter()
+            .map(|fond| {
+                let hits = (1..=10)
+                    .map(|n| {
+                        let mut out = shaped(*fond, n);
+                        out.hit.snippet = None;
+                        out.hit.articles.clear();
+                        out.hit.etat = None;
+                        out.hit.date = None;
+                        out.hit.nature = None;
+                        out.citation = format!("{} {}", out.citation, "x".repeat(600));
+                        out.hit.title = Some(out.citation.clone());
+                        out
+                    })
+                    .collect();
+                group_of(*fond, hits)
+            })
+            .collect();
+        assert!(exact_len(&titles_only, None) > TARGET);
+        assert_eq!(fit_under_target(&mut titles_only), None, "rien de rendu à retirer");
+    }
+
+    /// Un résultat sans extrait entouré de résultats dégradés : « the last N hits » compte les
+    /// résultats dont l'extrait a été retiré, comme en 1.1.0 (limite connue, garantie 14 n° 9,
+    /// 1.1.2).
+    #[test]
+    fn the_note_counts_the_suffix_walked_as_in_1_1_0() {
+        let mut groups = shaped_groups(&Fond::ALL, 10);
+        // L'avant-dernier résultat n'a pas d'extrait.
+        let hits = &mut groups[7].result.as_mut().unwrap().hits;
+        hits[8].hit.snippet = None;
+        let original = groups.clone();
+
+        let note = fit_under_target(&mut groups).expect("degraded");
+
+        let lost = |before: &[GroupOut], after: &[GroupOut]| -> usize {
+            before
+                .iter()
+                .zip(after)
+                .map(|(b, a)| {
+                    let (b, a) = (b.result.as_ref().unwrap(), a.result.as_ref().unwrap());
+                    b.hits
+                        .iter()
+                        .zip(&a.hits)
+                        .filter(|(b, a)| {
+                            b.hit.snippet.is_some() && a.hit.snippet.is_none()
+                                || b.hit.articles != a.hit.articles
+                                    && b.hit.articles.iter().any(|x| x.snippet.is_some())
+                        })
+                        .count()
+                })
+                .sum()
+        };
+        let removed = lost(&original, &groups);
+        assert!(removed >= 3, "{removed}");
+        assert!(
+            note.starts_with(&format!("Snippets were removed from the last {removed} hits ")),
+            "{note}"
+        );
+        assert!(note.contains("the last"), "{note}");
+    }
+
+    /// Les deux notes, pour 80 résultats, tiennent dans la réserve de 411 caractères (le champ
+    /// `note` et l'espace qui les joint en prennent 11).
+    #[test]
+    fn the_degrade_notes_fit_in_their_reserve() {
+        let both = snippets_note(80).chars().count() + 1 + details_note(80).chars().count();
+        assert!(both <= NOTE_RESERVE - 11, "{both}");
+    }
+
+    /// L'estimation ne sous-compte jamais, sur V1 (5 x 10), V2 (8 x 10) et V8 (CNIL, CODE, KALI
+    /// x 10).
+    #[test]
+    fn the_estimate_never_undercounts_on_any_surface() {
+        for (fonds, per_fond) in [
+            (FIVE.to_vec(), 10),
+            (Fond::ALL.to_vec(), 10),
+            (vec![Fond::Cnil, Fond::Code, Fond::Kali], 10),
+            (FIVE.to_vec(), 5),
+        ] {
+            let groups = shaped_groups(&fonds, per_fond);
+            let measured = exact_len(&groups, None);
+            assert!(counted(&groups) >= measured, "{fonds:?} x {per_fond}");
+        }
+    }
+
+    /// V8 : CNIL, CODE et KALI x 10 tiennent sous la cible : rien n'est retiré.
+    #[test]
+    fn cnil_code_and_kali_times_ten_are_not_degraded() {
+        let mut groups = shaped_groups(&[Fond::Cnil, Fond::Code, Fond::Kali], 10);
+        assert!(exact_len(&groups, None) < TARGET - NOTE_RESERVE);
+        let before = groups.clone();
+        assert_eq!(fit_under_target(&mut groups), None);
+        assert_eq!(groups, before);
+    }
+
+    /// Un total de recherche 5 x 5 (17 800 caractères, le relevé c1030) est inchangé : l'ancienne et
+    /// la nouvelle estimation s'accordent à ne rien retirer.
+    #[test]
+    fn five_by_five_is_untouched() {
+        let mut groups = shaped_groups(&FIVE, 5);
+        assert!(exact_len(&groups, None) < 25_000);
+        let before = groups.clone();
+        assert_eq!(fit_under_target(&mut groups), None);
+        assert_eq!(groups, before);
     }
 }

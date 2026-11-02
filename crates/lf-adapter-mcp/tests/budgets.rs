@@ -601,6 +601,27 @@ mod budgets {
                 },
                 check: search_all_groups,
             },
+            Case {
+                name: "search_all_5_fonds_x_10_hits_typical",
+                tool: "fr_search_all",
+                arguments: json!({"query": "bail", "per_fond": 10}),
+                extreme: Extreme::Ordinary,
+                setup: |fixture| {
+                    for fond in DEFAULT_FONDS {
+                        fixture.corpus.push_search(Ok(typical_page(fond, 10)));
+                    }
+                    Raw { chars: 0, bytes: 0 }
+                },
+                check: |observed| {
+                    let hits = all_hits_of(observed);
+                    assert_eq!(hits.len(), 50);
+                    let kept = hits.iter().filter(|hit| has_a_snippet(hit)).count();
+                    assert_eq!(kept, 50, "tous les extraits restent");
+                    assert!(observed.value.get("note").is_none(), "{}", observed.note());
+                    assert!(observed.chars <= TARGET, "{}", observed.chars);
+                    json!({"groups": 5, "hits": hits.len(), "snippets_kept": kept})
+                },
+            },
             // ---- fr_get_act et fr_get_convention ----------------------------------------------
             Case {
                 name: "act_500_toc_entries_with_long_titles",
@@ -1195,6 +1216,244 @@ mod budgets {
             assert!(!over.note().contains(FURTHER_NOTE), "{name}: {}", over.note());
             assert!(over.chars <= TARGET, "{name}: {}", over.chars);
         }
+    }
+
+    // ---- fr_search_all : l'estimation exacte (U16, search_all-2) --------------------------------
+
+    /// Un résultat aux longueurs relevées en production : titre de 60 à 150 caractères, date,
+    /// `nature`, `etat`, extrait de 280 caractères ; CODE : trois articles à extrait de 272
+    /// caractères, sans extrait propre ; KALI et ACCO : un IDCC. Aucun texte de Légifrance.
+    fn typical_hit(fond: Fond, n: u32) -> SearchHit {
+        let title = format!("{} n° {n} {}", fond.name(), "c".repeat(60 + 30 * (n as usize % 4)));
+        let articles = if fond == Fond::Code {
+            (1..=3)
+                .map(|a| {
+                    CodeArticleRef::new(
+                        ArticleId::parse(&format!("LEGIARTI{:012}", n * 10 + a)).unwrap(),
+                        Some("L. 145-1".to_owned()),
+                        &"article ".repeat(34),
+                    )
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        SearchHit {
+            nature: Some("ARRET".to_owned()),
+            etat: Some(LegalStatus::Vigueur),
+            snippet: (fond != Fond::Code).then(|| Snippet::new(&"extrait ".repeat(35)).unwrap()),
+            idcc: matches!(fond, Fond::Kali | Fond::Acco).then(|| Idcc::parse("1486").unwrap()),
+            articles,
+            ..hit(fond, n, &title, "")
+        }
+    }
+
+    fn typical_page(fond: Fond, per_fond: u32) -> SearchPage {
+        page(fond, (1..=per_fond).map(|n| typical_hit(fond, n)).collect())
+    }
+
+    /// Appelle `fr_search_all` sur `fonds`, `per_fond` résultats chacun, aux données typiques.
+    async fn search_all_typical(fonds: &[Fond], per_fond: u32) -> Observed {
+        let fixture = Fixture::default();
+        for fond in fonds {
+            fixture.corpus.push_search(Ok(typical_page(*fond, per_fond)));
+        }
+        let names: Vec<&str> = fonds.iter().map(|fond| fond.name()).collect();
+        let arguments = json!({"query": "bail", "fonds": names, "per_fond": per_fond});
+        let observed = Observed::of(&call(&fixture, "fr_search_all", &arguments).await);
+        assert!(observed.error.is_none(), "{:?}", observed.error);
+        observed
+    }
+
+    fn all_hits_of(observed: &Observed) -> Vec<&Value> {
+        observed.value["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|group| group["hits"].as_array().into_iter().flatten())
+            .collect()
+    }
+
+    /// Un résultat garde un extrait, le sien ou celui d'un de ses articles.
+    fn has_a_snippet(hit: &Value) -> bool {
+        hit.get("snippet").is_some()
+            || hit["articles"]
+                .as_array()
+                .is_some_and(|articles| articles.iter().any(|a| a.get("snippet").is_some()))
+    }
+
+    const DEFAULT_FONDS: [Fond; 5] =
+        [Fond::Loda, Fond::Code, Fond::Juri, Fond::Cetat, Fond::Constit];
+
+    /// V1 (search_all-2). Cinq fonds de dix résultats aux longueurs de production : le JSON exact
+    /// tient sous la cible, donc tous les extraits et tous les champs restent, sans note (la 1.1.0
+    /// retirait tous les extraits et rendait moins que `per_fond=5`).
+    #[tokio::test]
+    async fn search_all_5_fonds_x_10_hits_keeps_every_snippet_and_etat() {
+        let observed = search_all_typical(&DEFAULT_FONDS, 10).await;
+        let hits = all_hits_of(&observed);
+        assert_eq!(hits.len(), 50);
+        assert!(hits.iter().all(|hit| has_a_snippet(hit)));
+        assert!(hits.iter().all(|hit| hit["etat"] == "VIGUEUR" && hit.get("date").is_some()));
+        assert!(observed.value.get("note").is_none(), "{}", observed.note());
+        assert!(observed.chars <= TARGET, "{}", observed.chars);
+    }
+
+    /// V8 (plan). CNIL, CODE et KALI x 10 tiennent sous la cible : aucune dégradation.
+    #[tokio::test]
+    async fn search_all_cnil_code_kali_x_10_is_not_degraded() {
+        let observed = search_all_typical(&[Fond::Cnil, Fond::Code, Fond::Kali], 10).await;
+        let hits = all_hits_of(&observed);
+        assert_eq!(hits.len(), 30);
+        assert!(hits.iter().all(|hit| has_a_snippet(hit)));
+        assert!(observed.value.get("note").is_none(), "{}", observed.note());
+    }
+
+    /// V2 (search_all-2). Huit fonds x 10 : seuls les derniers extraits partent, jamais `etat`,
+    /// `date` ni `nature` (la 1.1.0 les retirait dès le 4e résultat), et la réponse approche la
+    /// cible au lieu d'en rester très loin.
+    #[tokio::test]
+    async fn search_all_8_fonds_x_10_strips_only_the_last_snippets_and_keeps_etat() {
+        let observed = search_all_typical(&Fond::ALL, 10).await;
+        let hits = all_hits_of(&observed);
+        assert_eq!(hits.len(), 80);
+        assert!(hits.iter().all(|hit| hit["etat"] == "VIGUEUR" && hit.get("date").is_some()));
+        assert!(hits.iter().all(|hit| hit.get("nature").is_some()));
+        assert!(has_a_snippet(hits[0]), "le premier résultat garde son extrait");
+        assert!(!has_a_snippet(hits[79]), "le dernier perd le sien");
+        assert!(observed.note().starts_with("Snippets were removed from the last "));
+        assert!(!observed.note().contains("Article lists"), "{}", observed.note());
+        assert!(!observed.note().contains(FURTHER_NOTE), "{}", observed.note());
+        assert!(observed.chars <= TARGET && observed.chars + 1_500 > TARGET, "{}", observed.chars);
+    }
+
+    /// La non-monotonie de la 1.1.0 : `per_fond=10` rendait 15,6 k, moins que `per_fond=5`
+    /// (17,8 k). Grille `per_fond` 1 à 10 sur trois jeux de fonds : sous le plafond, sans le repli
+    /// de la vue, et la taille ne baisse (presque) jamais quand `per_fond` monte.
+    #[tokio::test]
+    async fn search_all_per_fond_grid_is_bounded_and_nearly_monotone() {
+        let sets: [Vec<Fond>; 3] =
+            [DEFAULT_FONDS.to_vec(), vec![Fond::Code, Fond::Kali, Fond::Acco], Fond::ALL.to_vec()];
+        for fonds in &sets {
+            let mut previous = 0;
+            for per_fond in 1..=10 {
+                let observed = search_all_typical(fonds, per_fond).await;
+                assert!(observed.chars <= TARGET, "{fonds:?} x {per_fond}: {}", observed.chars);
+                assert!(!observed.note().contains(FURTHER_NOTE), "{}", observed.note());
+                // Un extrait de 280 caractères de tolérance au plus, à la cible.
+                assert!(
+                    observed.chars + 700 >= previous,
+                    "{fonds:?} x {per_fond}: {} after {previous}",
+                    observed.chars
+                );
+                previous = observed.chars;
+            }
+        }
+        // Le cas rapporté : `per_fond=10` rend plus que `per_fond=5` sur les cinq fonds.
+        let five = search_all_typical(&DEFAULT_FONDS, 5).await;
+        let ten = search_all_typical(&DEFAULT_FONDS, 10).await;
+        assert!(five.value.get("note").is_none() && ten.value.get("note").is_none());
+        assert!(ten.chars > five.chars, "{} <= {}", ten.chars, five.chars);
+    }
+
+    /// Réserve des notes de dégradation dans l'estimation de `fr_search_all` (la même que celle de
+    /// `fr_search`).
+    const SEARCH_ALL_NOTE_RESERVE: usize = NOTE_RESERVE;
+
+    /// L'estimation de `fr_search_all` est la longueur du JSON mesuré, au caractère : une réponse
+    /// qui fait pile `cible - réserve` caractères passe sans note, un caractère de plus retire un
+    /// extrait. Avec un groupe en erreur, des IDCC (KALI) et un CODE à articles.
+    #[tokio::test]
+    async fn search_all_estimate_matches_the_measured_size_to_the_character() {
+        use lf_application::ports::CorpusError;
+
+        let render = async |padding: usize| {
+            let fixture = Fixture::default();
+            fixture.corpus.push_search(Ok(typical_page(Fond::Loda, 10)));
+            fixture.corpus.push_search(Err(CorpusError::Timeout));
+            fixture.corpus.push_search(Ok(typical_page(Fond::Code, 10)));
+            let mut kali = typical_page(Fond::Kali, 10);
+            if let Some(last) = kali.hits.last_mut() {
+                last.nature = Some("n".repeat(padding));
+            }
+            fixture.corpus.push_search(Ok(kali));
+            let arguments = json!({
+                "query": "bail", "fonds": ["LODA", "JURI", "CODE", "KALI"], "per_fond": 10
+            });
+            let observed = Observed::of(&call(&fixture, "fr_search_all", &arguments).await);
+            assert!(observed.error.is_none(), "{:?}", observed.error);
+            observed
+        };
+        let (one, two) = (render(1_000).await, render(1_001).await);
+        assert_eq!(two.chars, one.chars + 1, "un caractère de nature, un de réponse");
+        assert!(one.note().is_empty(), "{}", one.note());
+        let edge = 1_000 + (TARGET - SEARCH_ALL_NOTE_RESERVE - one.chars);
+        let fits = render(edge).await;
+        assert_eq!(fits.chars, TARGET - SEARCH_ALL_NOTE_RESERVE);
+        assert!(fits.note().is_empty(), "{}", fits.note());
+        assert!(all_hits_of(&fits).iter().all(|hit| has_a_snippet(hit)));
+        let over = render(edge + 1).await;
+        assert!(over.note().starts_with("Snippets were removed"), "{}", over.note());
+        assert!(!over.note().contains(FURTHER_NOTE), "{}", over.note());
+        assert!(over.chars <= TARGET, "{}", over.chars);
+    }
+
+    /// Une réponse riche en échappements (43,6 k de JSON exact, entre la cible et le plafond) est amputée de ses derniers
+    /// extraits, avec la note de l'application et sans le repli de la vue ; elle n'est pas refusée.
+    #[tokio::test]
+    async fn an_escape_rich_response_between_the_target_and_the_cap_is_trimmed_not_refused() {
+        let fixture = Fixture::default();
+        for fond in DEFAULT_FONDS {
+            let hits = (1..=10).map(|n| hit(fond, n, &nasty(90), &nasty(280))).collect();
+            fixture.corpus.push_search(Ok(page(fond, hits)));
+        }
+        let arguments = json!({"query": "bail", "per_fond": 10});
+        let observed = Observed::of(&call(&fixture, "fr_search_all", &arguments).await);
+        assert!(observed.error.is_none(), "{:?}", observed.error);
+        assert_eq!(all_hits_of(&observed).len(), 50);
+        assert!(observed.note().starts_with("Snippets were removed"), "{}", observed.note());
+        assert!(!observed.note().contains(FURTHER_NOTE), "{}", observed.note());
+        assert!(observed.chars <= TARGET, "{}", observed.chars);
+    }
+
+    /// Garde : cinq fonds x 5 (relevé c1030, 17 800 caractères) sont rendus sans note, comme en
+    /// 1.1.0 : l'ancienne et la nouvelle estimation s'accordent à ne rien retirer.
+    #[tokio::test]
+    async fn search_all_unchanged_when_the_1_1_0_estimate_and_the_exact_size_agree() {
+        let observed = search_all_typical(&DEFAULT_FONDS, 5).await;
+        let hits = all_hits_of(&observed);
+        assert_eq!(hits.len(), 25);
+        assert!(hits.iter().all(|hit| has_a_snippet(hit)));
+        assert!(observed.value.get("note").is_none(), "{}", observed.note());
+        assert!(observed.chars < 25_000, "{}", observed.chars);
+    }
+
+    /// Garde (hors domaine, comportement 1.1.0) : des citations pathologiques (1 000 caractères x
+    /// 80 résultats) ne font perdre aucun résultat, même si la réponse dépasse le plafond.
+    #[tokio::test]
+    async fn search_all_with_pathological_citations_keeps_every_hit_and_may_exceed_the_cap() {
+        let fixture = Fixture::default();
+        for fond in Fond::ALL {
+            let hits = (1..=10)
+                .map(|n| hit(fond, n, &format!("{n} {}", "x".repeat(997)), &"mot ".repeat(70)))
+                .collect();
+            fixture.corpus.push_search(Ok(page(fond, hits)));
+        }
+        let arguments = json!({
+            "query": "bail",
+            "fonds": ["LODA", "CODE", "JURI", "CONSTIT", "CETAT", "CNIL", "KALI", "ACCO"],
+            "per_fond": 10
+        });
+        let result = call(&fixture, "fr_search_all", &arguments).await;
+        assert_ne!(result.is_error, Some(true));
+        let value = result.structured_content.clone().expect("a structured content");
+        let hits: usize = value["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|group| group["hits"].as_array().map_or(0, Vec::len))
+            .sum();
+        assert_eq!(hits, 80, "aucun résultat n'est retiré");
     }
 
     /// Régression : D-33. La `page_size` proposée par un refus tient : la page ainsi demandée est

@@ -79,7 +79,7 @@ const DEGRADE_NOTE_RESERVE_CHARS: usize = 400;
 
 /// Réservation des notes : leur texte, plus le champ `note` s'il n'existe pas encore (`,"note":""`,
 /// 10 caractères) ou l'espace qui joint la nouvelle note à l'ancienne.
-const DEGRADE_NOTE_RESERVE: usize = DEGRADE_NOTE_RESERVE_CHARS + 11;
+pub(super) const DEGRADE_NOTE_RESERVE: usize = DEGRADE_NOTE_RESERVE_CHARS + 11;
 
 /// Recherche plein texte : analyse des arguments, un appel au port, politique de réponse.
 pub(crate) struct SearchUseCase<'a, C: LegalCorpus, K: Clock> {
@@ -313,7 +313,7 @@ fn fit_under_target(
 }
 
 /// Retire l'extrait du résultat et ceux de ses articles ; vrai s'il y en avait un.
-fn strip_snippets(out: &mut HitOut) -> bool {
+pub(super) fn strip_snippets(out: &mut HitOut) -> bool {
     let mut stripped = out.hit.snippet.take().is_some();
     for article in &mut out.hit.articles {
         stripped |= article.snippet.take().is_some();
@@ -325,7 +325,7 @@ fn strip_snippets(out: &mut HitOut) -> bool {
 /// s'il y avait quelque chose de rendu à retirer (un titre contenu dans la citation et une date
 /// sentinelle ne le sont pas). L'`idcc` reste : il identifie la convention. Avec `keep_etat`
 /// (note de défense de `in_force_only` posée : « Check each etat »), l'`etat` reste aussi.
-fn strip_details(out: &mut HitOut, keep_etat: bool) -> bool {
+pub(super) fn strip_details(out: &mut HitOut, keep_etat: bool) -> bool {
     let citation = out.citation.as_str();
     let hit = &mut out.hit;
     let had_articles = !hit.articles.is_empty();
@@ -379,38 +379,38 @@ fn largest_page_size(hits: &[HitOut], fixed: usize) -> usize {
 /// Longueur, en caractères, du JSON compact d'un objet en construction : `{`, ses champs séparés
 /// par des virgules, `}`. Les clés sont de l'ASCII.
 #[derive(Default)]
-struct JsonObject {
+pub(super) struct JsonObject {
     len: usize,
     fields: usize,
 }
 
 impl JsonObject {
     /// Champ `"clé":valeur` dont la valeur occupe `value` caractères, guillemets compris.
-    fn raw(&mut self, key: &str, value: usize) {
+    pub(super) fn raw(&mut self, key: &str, value: usize) {
         // `"` + clé + `"` + `:` : trois caractères autour de la clé.
         self.len = self.len.saturating_add(key.len()).saturating_add(3).saturating_add(value);
         self.fields = self.fields.saturating_add(1);
     }
 
     /// Champ texte : la valeur entre guillemets, échappée comme `serde_json` l'écrit.
-    fn text(&mut self, key: &str, value: &str) {
+    pub(super) fn text(&mut self, key: &str, value: &str) {
         self.raw(key, escaped_chars(value).saturating_add(2));
     }
 
     /// Champ texte présent seulement s'il y a une valeur.
-    fn optional_text(&mut self, key: &str, value: Option<&str>) {
+    pub(super) fn optional_text(&mut self, key: &str, value: Option<&str>) {
         if let Some(value) = value {
             self.text(key, value);
         }
     }
 
-    fn total(&self) -> usize {
+    pub(super) fn total(&self) -> usize {
         self.len.saturating_add(self.fields.saturating_sub(1)).saturating_add(2)
     }
 }
 
 /// Nombre de chiffres d'un entier écrit en décimal.
-fn digits(number: u64) -> usize {
+pub(super) fn digits(number: u64) -> usize {
     number.to_string().len()
 }
 
@@ -443,7 +443,7 @@ fn page_cost(hits: &[HitOut]) -> usize {
 /// champs, dans les mêmes conditions. `kind`, `id`, `citation` et `source_url` sont toujours
 /// rendus ; `title` seulement s'il n'est pas dans la citation, `date` hors de la zone sentinelle,
 /// le reste s'il est présent.
-fn hit_cost(out: &HitOut) -> usize {
+pub(super) fn hit_cost(out: &HitOut) -> usize {
     let hit = &out.hit;
     let mut json = JsonObject::default();
     json.raw("kind", hit.fond.name().len().saturating_add(2));

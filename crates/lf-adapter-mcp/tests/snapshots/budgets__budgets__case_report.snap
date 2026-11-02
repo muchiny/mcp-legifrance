@@ -80,7 +80,18 @@ expression: report
     "kept": {
       "groups": 8,
       "hits": 80,
-      "snippets_kept": 0
+      "snippets_kept": 9
+    },
+    "outcome": "rendered",
+    "tool": "fr_search_all",
+    "under_estimation_target": true
+  },
+  {
+    "case": "search_all_5_fonds_x_10_hits_typical",
+    "kept": {
+      "groups": 5,
+      "hits": 50,
+      "snippets_kept": 50
     },
     "outcome": "rendered",
     "tool": "fr_search_all",
