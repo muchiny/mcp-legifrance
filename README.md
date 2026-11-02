@@ -420,7 +420,7 @@ Pour un utilisateur de la référence Python (`fr-eli-mcp`). La note complète, 
 ## Confidentialité et sécurité
 
 - **Ce qui part sur le réseau** : vos requêtes de recherche et les identifiants de documents, avec vos identifiants PISTE, vers l'API Légifrance (DILA) par PISTE (AIFE). Rien d'autre (voir [Hôtes contactés](#hôtes-contactés)).
-- **Ce qui reste sur votre machine** : un journal d'audit au format JSONL (`mcp-legifrance.jsonl`, avec rotation), à raison d'une ligne par appel d'outil, quelle qu'en soit l'issue. Il contient une **empreinte** SHA-256 des arguments, jamais le texte de vos requêtes en clair, ni secret. En mode `strict` (défaut), un échec d'écriture fait échouer l'appel. Plusieurs processus peuvent partager le même dossier.
+- **Ce qui reste sur votre machine** : un journal d'audit au format JSONL (`mcp-legifrance.jsonl`, avec rotation), à raison d'une ligne par appel d'outil, quelle qu'en soit l'issue. Il contient une **empreinte** SHA-256 des arguments, jamais le texte de vos requêtes en clair, ni secret. En mode `strict` (défaut), un échec d'écriture fait échouer l'appel. Plusieurs processus peuvent partager le même dossier. Après un arrêt brutal, une ligne coupée reste dans le journal, seule sur sa ligne : l'appel suivant garde sa ligne complète (lecture tolérante : `jq -R 'fromjson?'`).
 - **Journaux** : sur stderr uniquement ; stdout ne porte que le protocole. Ni secret, ni texte de requête n'y figure.
 - Les textes renvoyés sont des **données**, pas des instructions : un modèle ne doit pas exécuter ce qu'un texte juridique lui demanderait.
 - Détails : [PRIVACY.md](PRIVACY.md) (confidentialité) et [SECURITY.md](SECURITY.md) (signalement d'une vulnérabilité par le signalement privé de GitHub, limites connues).

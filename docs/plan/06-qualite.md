@@ -1529,7 +1529,7 @@ sequenceDiagram
   alt date ≠ date UTC de la ligne, ou taille + ligne > 16 Mio
     W->>F: renommer en mcp-legifrance-AAAA-MM-JJ[-n].jsonl, puis synchroniser le répertoire (Unix)
   end
-  W->>F: ouvrir en ajout (0600, refus des liens symboliques), write_all, sync_data, fermer
+  W->>F: ouvrir en ajout (0600, refus des liens symboliques), lire le dernier octet (si ce n'est pas \n : fragment, la ligne est précédée d'un \n), write_all, sync_data, fermer
   W->>F: relâcher le verrou
   W-->>U: accusé Ok, ou AuditError { kind }
 ```
@@ -1538,7 +1538,7 @@ sequenceDiagram
 2. **Fil dédié** : un `std::thread` reçoit les lignes par un canal `tokio::sync::mpsc` borné (capacité proposée : 1 024) et répond par un `oneshot`. Le cas d'usage attend l'accusé, ce qu'exige le mode `strict` (D-16). Si le fil disparaît, l'erreur est `WriterGone`.
 3. **Verrou** : verrou consultatif exclusif `fs4`, pris sur un fichier dédié `.mcp-legifrance.lock` plutôt que sur le journal, pour que la rotation puisse renommer le journal. Plusieurs processus (Claude Code et VS Code) écrivent ainsi le même répertoire. L'API exacte de `fs4` 1.1 est **NON VÉRIFIÉ** [V-09 · fs4-verrou-api] ; l'atomicité multi-processus, surtout sous Windows, est **NON VÉRIFIÉ** [V-164 · audit-multi-processus].
 4. **Ouverture à chaque ligne, sous le verrou** : le fichier est ouvert, écrit, synchronisé et fermé pour chaque ligne. Aucun descripteur ne reste ouvert entre deux lignes. Ainsi, un renommage fait par un autre processus ne laisse jamais un écrivain sur un fichier obsolète, et Windows ne refuse pas le renommage d'un fichier encore ouvert. Le coût (une ligne par appel d'outil) est négligeable devant un appel PISTE. C'est le schéma d'écriture de 00 §7 (AM-30), repris par 02 §3.5.
-5. **Durabilité** : `write_all` d'une ligne complète, puis `sync_data` avant l'accusé. Une ligne acquittée survit à un arrêt brutal. Le coût de `sync_data` selon le système de fichiers (SSD, répertoire personnel réseau, Windows) est **NON VÉRIFIÉ** [V-166 · cout-sync-data].
+5. **Durabilité** : `write_all` d'une ligne complète, puis `sync_data` avant l'accusé. Sous le verrou, à chaque ajout, le dernier octet du journal actif est relu : s'il n'est pas `\n` (arrêt brutal, disque plein, édition manuelle), la ligne est précédée d'un `\n` dans la même écriture, le fragment reste une ligne isolée et l'appel garde sa ligne ; un `warn!` le signale (stderr) et le `\n` compte dans le seuil de rotation. Si la rotation a lieu, l'archive est refermée par un `\n`. Le fragment n'est jamais supprimé : le journal se lit de façon tolérante (`jq -R 'fromjson?'`). Une ligne acquittée survit à un arrêt brutal. Le coût de `sync_data` selon le système de fichiers (SSD, répertoire personnel réseau, Windows) est **NON VÉRIFIÉ** [V-166 · cout-sync-data].
 6. **Rotation** : le fichier actif est `mcp-legifrance.jsonl` (annexe A §4.8). Comme `ts` est la première clé, la date UTC de la première ligne occupe les octets 7 à 16 du fichier (`{"ts":"AAAA-MM-JJ…`). Sous le verrou, si cette date diffère de la date UTC de la nouvelle ligne, ou si la taille du fichier plus celle de la ligne dépasse 16 Mio (02 §3.5), le fichier actif est renommé en `mcp-legifrance-AAAA-MM-JJ.jsonl`, suivi de `-1`, `-2`… si ce nom existe déjà. Sous Unix, le répertoire est ensuite synchronisé (`File::open(dir)?.sync_all()`).
 7. **Rétention** : aucune suppression automatique (02 §3.5). La purge relève de l'utilisateur, qui en est informé par le README (question §15.2 n° 1).
 
