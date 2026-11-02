@@ -7,9 +7,9 @@
   },
   "eras_identical": true,
   "instructions": {
-    "chars": 3278,
-    "sha256": "342dcbd746a0d903b97ddc34476772c90f9301ef7b358d37901100269b720f08",
-    "text": "French law from Légifrance through the official PISTE API (read-only): consolidated laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company agreements (ACCO). Use these tools for any question on French legislation, code articles or case law.\n\n## Workflow\n1. Find: `fr_search` searches one fond, paged with `page` and `has_more`; `fr_search_all` returns a few hits from several fonds. `fr_resolve` turns a free-text citation (code article, law number, ECLI, case number) into Legifrance ids.\n2. Read by id prefix: LEGITEXT -> `fr_get_act` (metadata and table of contents); LEGIARTI or KALIARTI -> `fr_get_text`; JURITEXT, CONSTEXT or CETATEXT -> `fr_get_decision`; CNILTEXT -> `fr_get_deliberation`; KALITEXT -> `fr_get_convention`; ACCOTEXT -> `fr_get_company_agreement` (metadata only: the full text is a .docx on Légifrance).\n3. Check and navigate: `fr_verify_citations` checks every citation of a draft against the official record; `fr_get_related` lists what an article or a decision cites or is cited by; `fr_diff_article` compares two versions of an article.\n4. Limits: `fr_coverage` says what this server does not cover and whether it runs on the PISTE sandbox.\n\n## Long texts\n`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. For the text itself pass `detail=\"full\"`; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.\n\n## Hard rules\n- Cite every source with its `citation` and `source_url`; for case law add the `ecli` when present.\n- Never invent an id, an ECLI, an ELI or a citation: take each one from tool output. Many CAA and TA decisions have no ECLI.\n- ELI: the API returns no native ELI for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.\n- Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the data, give this source and the consultation date (`consulted_on` in `fr_coverage`).\n- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim: this server does not decide whether a provision applies to a case.\n- An empty result does not mean the law is silent: call `fr_coverage` and tell the user what is missing.\n\n## Errors\nA failed call returns isError with a text that starts with a code:\n- `[invalid_arg]` an argument is missing or malformed: fix it as the message says.\n- `[not_found]` nothing exists for that id: search again.\n- `[rate_limited]` PISTE quota reached: wait the delay given, then retry.\n- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.\n- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the server configuration.\n- `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user."
+    "chars": 3490,
+    "sha256": "d69d521f92bf4f05a9c8034427b24383c9b00223d195b665e7fc15712f282fe6",
+    "text": "French law from Légifrance through the official PISTE API (read-only): consolidated laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company agreements (ACCO). Use these tools for any question on French legislation, code articles or case law.\n\n## Workflow\n1. Find: `fr_search` searches one fond, paged with `page` and `has_more`; `fr_search_all` returns a few hits from several fonds. `fr_resolve` turns a free-text citation (code article, law number, ECLI, case number) into Legifrance ids.\n2. Read by id prefix: LEGITEXT -> `fr_get_act` (metadata and table of contents); LEGIARTI or KALIARTI -> `fr_get_text`; JURITEXT, CONSTEXT or CETATEXT -> `fr_get_decision`; CNILTEXT -> `fr_get_deliberation`; KALITEXT -> `fr_get_convention`; ACCOTEXT -> `fr_get_company_agreement` (metadata only: the full text is a .docx on Légifrance).\n3. Check and navigate: `fr_verify_citations` checks every citation of a draft against the official record; `fr_get_related` lists what an article or a decision cites or is cited by; `fr_diff_article` compares two versions of an article.\n4. Limits: `fr_coverage` says what this server does not cover and whether it runs on the PISTE sandbox.\n\n## Long texts\n`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. A summary is never the whole text: pass `detail=\"full\"` before quoting a threshold, amount or rate; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.\n\n## Hard rules\n- Cite every source with its `citation` and `source_url`; for case law add the `ecli` when present.\n- Never invent an id, an ECLI, an ELI or a citation: take each one from tool output. Many CAA and TA decisions have no ECLI.\n- ELI: none from the API for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.\n- Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the data, give this source and the consultation date (`consulted_on` in `fr_coverage`).\n- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim (table cells are joined with \" | \"): this server does not decide whether a provision applies to a case.\n- `etat`: VIGUEUR in force; MODIFIE or REMPLACE older version (see `date_fin`); ABROGE repealed; ABROGE_DIFF in force, repeal scheduled.\n- An empty result does not mean the law is silent: call `fr_coverage` and tell the user what is missing.\n\n## Errors\nA failed call returns isError with a text that starts with a code:\n- `[invalid_arg]` an argument is missing or malformed: fix it as the message says.\n- `[not_found]` nothing exists for that id: search again.\n- `[rate_limited]` PISTE quota reached: wait the delay given, then retry.\n- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.\n- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the configuration.\n- `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user."
   },
   "lock_format": 1,
   "prompts": {
@@ -106,10 +106,10 @@
   },
   "server_version": "1.0.1",
   "sizes": {
-    "instructions_chars": 3278,
-    "tools_list_bytes": 32608
+    "instructions_chars": 3490,
+    "tools_list_bytes": 34229
   },
-  "surface_sha256": "c93ed8e4366dbf3d2afc3a7e791ffeb204861e5495ffb7ac0eb65b9ea6258934",
+  "surface_sha256": "e0da5a41ebf4e2669bc73acbc695390fbf860ed7320df139f9a564a719cefe3a",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -270,7 +270,7 @@
           "readOnlyHint": true,
           "title": "Compare article versions"
         },
-        "description": "Compare the versions of a code or law article (LEGIARTI) in force on `date_a` and `date_b` (YYYY-MM-DD; `date_b` defaults to today in Paris). Returns both versions with their validity dates (no `date_fin`: no end date) and a compact word-level diff: removed and added passages with a little context. `identical` is true when both dates fall in the same version. To read a single version use fr_get_text.",
+        "description": "Compare the versions of a code or law article (LEGIARTI) in force on `date_a` and `date_b` (YYYY-MM-DD; `date_b` defaults to today in Paris). Returns both versions with their validity dates and `etat`, and a compact word-level diff: removed and added passages with a little context. `date_fin` is the day the next version (or the repeal) takes effect, absent when there is no end date; `etat` is the Légifrance code (ABROGE_DIFF: still in force, repeal scheduled). `identical` is true when both dates fall in the same version. To read a single version use fr_get_text.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -381,7 +381,7 @@
         },
         "title": "Compare article versions"
       },
-      "sha256": "a9bf3082ffd943a3043045d9e8bebcdab22b5831190706d1cc60e7d73ed672e8"
+      "sha256": "5b4e8c630b7f39aea894ffbb860b8590602e5ed0cc3cb977973f1e4b23344c16"
     },
     "fr_get_act": {
       "descriptor": {
@@ -921,7 +921,7 @@
           "readOnlyHint": true,
           "title": "Read a CNIL deliberation"
         },
-        "description": "Read a CNIL deliberation or decision by its CNILTEXT id (from fr_search on fond CNIL): number, nature (e.g. Sanction), status, dates, citation and source_url. By default a short text comes back whole in `text` and a long one as a `summary` (its beginning); `detail`=\"full\" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`, and `focus` returns the most relevant passages (default 3). Personal data is redacted by the CNIL in published texts.",
+        "description": "Read a CNIL deliberation or decision by its CNILTEXT id (from fr_search on fond CNIL): number, nature (e.g. Sanction), status, dates, citation and source_url. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary`: the operative part of a sanction or formal notice, else the beginning of the text. `detail`=\"full\" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. Personal data is redacted by the CNIL in published texts.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -1068,7 +1068,7 @@
         },
         "title": "Read a CNIL deliberation"
       },
-      "sha256": "c3688bfae0716b9003fe3abd465e92b5f1000871c901ec3eb96a1b982c01cbaa"
+      "sha256": "aec67226ff56b018eeae067b74d4ea09d98f07ab721e059ca7b5c8fa2a161824"
     },
     "fr_get_related": {
       "descriptor": {
@@ -1079,7 +1079,7 @@
           "readOnlyHint": true,
           "title": "Related texts and decisions"
         },
-        "description": "List the legal links of an article (LEGIARTI) or a decision (JURITEXT, CONSTEXT, CETATEXT): texts it cites, texts citing it, and case law it refers to. Article links come from Légifrance with their ids; decision links are parsed from the decision's references and may lack an id (pass them to fr_resolve). Each link has a `relation`, a `citation` and, when known, an `id` and `source_url`. At most 100 links are returned: `truncated` is true when there are more, and there is no next page.",
+        "description": "List the legal links of an article (LEGIARTI) or a decision (JURITEXT, CONSTEXT, CETATEXT): texts it cites, texts citing it, and case law it refers to. Article links come from Légifrance with their ids; decision links are parsed from the decision's references, have no id and may carry an inexact code: pass one to fr_resolve only if its citation names a code. Each link has a `relation`, a `citation` and, when known, an `id` and `source_url`; `relation` as a parameter keeps one kind of link. At most 100 links are returned: `truncated` is true when there are more, and there is no next page.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -1170,7 +1170,7 @@
         },
         "title": "Related texts and decisions"
       },
-      "sha256": "040e38ebb041250066db7840da2e8365b481b4213384ab08b06e7d25a3209633"
+      "sha256": "6f91e17c5f92f2eed3a7211b4786cd654a83d94641ae530282c2f3f260f1b6cf"
     },
     "fr_get_text": {
       "descriptor": {
@@ -1181,7 +1181,7 @@
           "readOnlyHint": true,
           "title": "Read an article"
         },
-        "description": "Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (for example \"Code civil, art. 9\"), source_url, status, validity dates and parent code or text. By default (`detail`=\"summary\") an article of up to 2,000 characters comes back whole and a longer one as a summary of about 1,200 characters (`summary_truncated` is true when the summary stops before the end of the text); `detail`=\"full\" returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue. `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).",
+        "description": "Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (for example \"Code civil, art. 9\"), source_url, status, validity dates and parent code or text. By default (`detail`=\"summary\") an article of up to 2,000 characters comes back whole and a longer one as a summary of about 1,200 characters (`summary_truncated` is true when the summary stops before the end of the text). A summary is never the whole text: use `detail`=\"full\" before quoting a threshold, amount or rate; it returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue; `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -1339,7 +1339,7 @@
         },
         "title": "Read an article"
       },
-      "sha256": "4dd96ac23b13d76a5ea0fb702a6ee64d540638f54317bb2cbae3405a3041ffcd"
+      "sha256": "2b49a3aaaeb8e8634e89dda285a748e3c766fa2db07db2b81ec018b4716d1ede"
     },
     "fr_resolve": {
       "descriptor": {
@@ -1383,12 +1383,15 @@
                   "type": "string"
                 },
                 "date_debut": {
+                  "description": "First day of this version, YYYY-MM-DD.",
                   "type": "string"
                 },
                 "date_fin": {
+                  "description": "Day the next version takes effect; absent: no known end.",
                   "type": "string"
                 },
                 "etat": {
+                  "description": "Status code of this article version (see the server instructions).",
                   "type": "string"
                 },
                 "id": {
@@ -1432,7 +1435,7 @@
         },
         "title": "Resolve a legal citation"
       },
-      "sha256": "03584837c017458045c91de8570b793871b68fc100281c6ff3e1bba0e403f540"
+      "sha256": "37dea4f965eade86d2a9681770e4c9013913cc3554a2a47f7ab3b4cb1106dbad"
     },
     "fr_search": {
       "descriptor": {
@@ -1443,7 +1446,7 @@
           "readOnlyHint": true,
           "title": "Search Légifrance"
         },
-        "description": "Keyword search in one Légifrance fond (default LODA): laws and decrees (LODA), codes (CODE), case law (JURI, CONSTIT, CETAT), CNIL deliberations (CNIL), collective agreements (KALI) or company agreements (ACCO). Returns one page of hits (default 10) with id, title, snippet, citation and source_url; ask for the next `page` while `has_more` is true. `match` defaults to any word; use `all` or `exact` for precise queries, and `date_from`/`date_to` to filter by date. LODA and CODE hits are the versions in force on `version_date` (default: today in Paris). Open a hit with the fr_get_* tool for its id prefix (LEGITEXT: fr_get_act, JURITEXT/CONSTEXT/CETATEXT: fr_get_decision, CNILTEXT: fr_get_deliberation, KALITEXT: fr_get_convention, ACCOTEXT: fr_get_company_agreement); CODE hits also list matching `articles` for fr_get_text.",
+        "description": "Keyword search in one Légifrance fond (default LODA): laws and decrees (LODA), codes (CODE), case law (JURI, CONSTIT, CETAT), CNIL deliberations (CNIL), collective agreements (KALI) or company agreements (ACCO). Returns one page of hits with id, title, snippet, citation and source_url; ask for the next `page` while `has_more` is true. `match` defaults to any word: use `all` for several words, `exact` for a phrase, fr_resolve for one known article. `date_from`/`date_to` filter by date; for KALI, `in_force_only` keeps the texts in force (not the status of their articles). LODA and CODE hits are the versions in force on `version_date` (default: today in Paris); a hit `date` is the date Légifrance gives for that fond, not always the act date. Open a hit with the fr_get_* tool for its id prefix (LEGITEXT: fr_get_act, JURITEXT/CONSTEXT/CETATEXT: fr_get_decision, CNILTEXT: fr_get_deliberation, KALITEXT: fr_get_convention, ACCOTEXT: fr_get_company_agreement); CODE hits list `articles`.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -1501,7 +1504,7 @@
               "type": "integer"
             },
             "query": {
-              "description": "Free-text query, e.g. \"republique numerique\".",
+              "description": "Free-text query, e.g. \"republique numerique\". AND/OR/NOT/~/^ are not operators.",
               "maxLength": 450,
               "minLength": 1,
               "type": "string"
@@ -1556,7 +1559,7 @@
                   "type": "string"
                 },
                 "date": {
-                  "description": "Date `AAAA-MM-JJ`, si elle est connue.",
+                  "description": "YYYY-MM-DD as Légifrance gives it for the fond (CNIL: publication, ACCO: signature), not always the act date; absent if unknown.",
                   "type": "string"
                 },
                 "etat": {
@@ -1623,7 +1626,7 @@
               "type": "integer"
             },
             "total": {
-              "description": "Nombre total de résultats annoncé par la source.",
+              "description": "Total results reported by Légifrance; for CODE, a count of codes (see total_articles for articles).",
               "minimum": 0,
               "type": "integer"
             },
@@ -1643,7 +1646,7 @@
         },
         "title": "Search Légifrance"
       },
-      "sha256": "18751352fef5daf49ddcf86e34145a7df1ae164cb6dae8e41b56b32e8d81e309"
+      "sha256": "7c7641ea58a8c0595b86d1b26133b31b96d4d0416a824e622a42f3efc6997099"
     },
     "fr_search_all": {
       "descriptor": {
@@ -1693,7 +1696,7 @@
               "type": "integer"
             },
             "query": {
-              "description": "Free-text query.",
+              "description": "Free-text query. AND/OR/NOT/~/^ are not operators.",
               "maxLength": 450,
               "minLength": 1,
               "type": "string"
@@ -1818,7 +1821,7 @@
         },
         "title": "Search several fonds"
       },
-      "sha256": "6a0c9f21aed065a7b16ed249f959874b48688e371c0ffd9a7faeda04a6556d7f"
+      "sha256": "902e39d50c11f4d494e93016282008db8ea1be7000502459b2397ab345f0f41f"
     },
     "fr_verify_citations": {
       "descriptor": {
@@ -1829,7 +1832,7 @@
           "readOnlyHint": true,
           "title": "Verify legal citations"
         },
-        "description": "Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles, laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; a quoted excerpt right after a citation is compared with the official text. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.",
+        "description": "Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles (only when introduced by article or art.), laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements; found=0 does not prove that a text cites nothing. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; `verified` means the article exists, not that it says what the draft claims. A quoted excerpt is compared with the official text (`quote`) only when it is glued to the citation: no `quote` means NOT checked. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -1864,6 +1867,7 @@
                   "type": "string"
                 },
                 "quote": {
+                  "description": "match or quote_mismatch. Only for an excerpt glued to the citation; absent: not checked.",
                   "type": "string"
                 },
                 "raw": {
@@ -1893,12 +1897,15 @@
                   "type": "string"
                 },
                 "date_debut": {
+                  "description": "First day of this version, YYYY-MM-DD.",
                   "type": "string"
                 },
                 "date_fin": {
+                  "description": "Day the next version takes effect; absent: no known end.",
                   "type": "string"
                 },
                 "etat": {
+                  "description": "Status code of this article version (see the server instructions).",
                   "type": "string"
                 },
                 "id": {
@@ -1965,8 +1972,8 @@
         },
         "title": "Verify legal citations"
       },
-      "sha256": "c539d50242a936db43da2baa069526f49b042500b03555eba7c63357a7dc8ce2"
+      "sha256": "fb80bb3a08afd6e3e49027834e5c5b19a81b139a27e8f2fdb60ee40e1f8a1cdf"
     }
   },
-  "toolset_sha256": "2df9f020d4e5672f43060d55e02ac9645c84a3c1193b6507d7ae97430bc6094d"
+  "toolset_sha256": "df3e5ba763c634463477e8e70f2042cc7e22ec9022c933a322bdd71af3bb0bc4"
 }
