@@ -107,9 +107,9 @@
   "server_version": "1.0.1",
   "sizes": {
     "instructions_chars": 3499,
-    "tools_list_bytes": 35395
+    "tools_list_bytes": 35424
   },
-  "surface_sha256": "63822c20ae5cebfa1a3288e4d565c12ed4145ce611e528b848f12a176d63abe6",
+  "surface_sha256": "707200c6117fc78b72493ce646958dd9b6d5638309713a97cd2945c2a6c92c21",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -1254,7 +1254,7 @@
               "type": "string"
             },
             "etat": {
-              "description": "In force: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF. Not yet in force: VIGUEUR_DIFF (deferred entry, date_debut may be absent). No longer in force: MODIFIE, ABROGE, PERIME, ANNULE, REMPLACE, TRANSFERE, SUBSTITUE, DISJOINT, MODIFIE_MORT_NE. DENONCE: denounced, may still apply during notice and survival (Labour Code, article L2261-10). INITIALE, SANS_ETAT: no signal.",
+              "description": "In force: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF. Not yet in force: VIGUEUR_DIFF (deferred entry, date_debut may be absent). No longer in force: MODIFIE, ABROGE, PERIME, ANNULE, REMPLACE, TRANSFERE, SUBSTITUE, DISJOINT, MODIFIE_MORT_NE (never in force: modified before taking effect). DENONCE: denounced, may still apply during notice and survival (Labour Code, article L2261-10). INITIALE, SANS_ETAT: no signal.",
               "type": "string"
             },
             "next_offset": {
@@ -1341,7 +1341,7 @@
         },
         "title": "Read an article"
       },
-      "sha256": "6047e163d0509c97dffc70569a39380e261ae30b0a1a280f90a9815918a469e8"
+      "sha256": "7c9dbe678b00f5c94578f43c668f1ddb191e24bc08072b5b9145724819c28b60"
     },
     "fr_resolve": {
       "descriptor": {
@@ -1835,7 +1835,7 @@
           "readOnlyHint": true,
           "title": "Verify legal citations"
         },
-        "description": "Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles (a bare number needs article/art.; L-, R- or D- numbers followed by the code name do not), laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements; found=0 does not prove that a text cites nothing. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; `verified` means the article exists, not that it says what the draft claims. A quoted excerpt is compared with the official text (`quote`) only when it is glued to the citation: no `quote` means NOT checked. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.",
+        "description": "Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles (a bare number needs article/art.; one prefixed by L, R or D does not), laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements; found=0 does not prove that a text cites nothing. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; `verified` means the article exists, not that it says what the draft claims. A quoted excerpt is compared with the official text (`quote`) only when it is glued to the citation: no `quote` means NOT checked. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -1975,8 +1975,8 @@
         },
         "title": "Verify legal citations"
       },
-      "sha256": "c5e42162440c07d606fd0c70fdcc6b4450a108dfa26ea5455bb932805fab1c4a"
+      "sha256": "be51a6e4cd67f1f91289213f993c62a87c1f1023384e59e9a96922d94073f260"
     }
   },
-  "toolset_sha256": "d12df0758a927ce7bc1f1ae72bd573b78c2aee751da380b9102e829bc57458e7"
+  "toolset_sha256": "d902ff6bc63ed7f9006f942d6a93ad7709b95878be2548f4074afe8832948603"
 }

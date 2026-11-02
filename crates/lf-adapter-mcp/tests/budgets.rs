@@ -1300,7 +1300,8 @@ mod budgets {
     /// 34 500 (Q27 = A, 05 §6.6) : 32 608 octets mesurés à la vague V2b, 34 229 avec les
     /// descriptions de D-12, 34 482 avec les remarques de revue de la vague V3 (marge de 18
     /// octets). La revue finale de la PR 2 (AM-73) applique la règle d'AM-63 à la mesure finale,
-    /// 35 395 octets : plus 3 %, arrondi à la centaine supérieure, soit 36 500. La même valeur est dans `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`), qui mesure le même JSON canonique.
+    /// 35 424 octets (35 395 au premier tour, 35 424 au second) : plus 3 % (36 486,72), arrondi à la
+    /// centaine supérieure, soit 36 500. La même valeur est dans `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`), qui mesure le même JSON canonique.
     #[tokio::test]
     async fn descriptor_size_budget() {
         let client = Fixture::default().connect().await;

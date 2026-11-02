@@ -23,7 +23,7 @@ pub(crate) fn title_unless_in_citation(title: Option<&str>, citation: &str) -> O
 pub(crate) const ETAT_GLOSSARY: &str = "In force: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, \
 ABROGE_DIFF. Not yet in force: VIGUEUR_DIFF (deferred entry, date_debut may be absent). No longer \
 in force: MODIFIE, ABROGE, PERIME, ANNULE, REMPLACE, TRANSFERE, SUBSTITUE, DISJOINT, \
-MODIFIE_MORT_NE. DENONCE: denounced, may still apply during notice and survival (Labour Code, \
+MODIFIE_MORT_NE (never in force: modified before taking effect). DENONCE: denounced, may still apply during notice and survival (Labour Code, \
 article L2261-10). INITIALE, SANS_ETAT: no signal.";
 
 /// Version courte du glossaire, pour les champs `etat` des autres vues (`fr_search`, `fr_resolve`,

@@ -146,6 +146,7 @@ fn room_for_reading(article: &ArticleText, nota: Option<&str>, reading: &Reading
 mod tests {
     use super::*;
     use crate::{
+        budget::PassageOut,
         error::{ErrorCode, UpstreamCause},
         input::ReadingInput,
         ports::CorpusError,
@@ -621,6 +622,52 @@ mod tests {
         assert_eq!(none.nota, None);
     }
 
+    /// Second tour de la revue finale : l'estimation compte `summary_truncated` (un des
+    /// [`READING_FIELDS`]) et le `score` de chaque passage (un des [`PASSAGE_FIELDS`]), absents du
+    /// compte d'avant la 1.1.0 : à texte égal, la place restante est plus petite de
+    /// `64 × (1 + passages)` que celle d'un décompte qui les ignorerait.
+    #[test]
+    fn the_room_counts_summary_truncated_and_the_score_of_each_passage() {
+        let mut heavy = article("Texte.");
+        heavy.path = vec!["x".repeat(4_000)];
+        let metadata_chars = ARTICLE_FIXED_CHARS
+            + heavy.contract().citation.as_str().chars().count()
+            + 1
+            + "Code civil".chars().count()
+            + 4_000;
+        let reading_of = |passages: Option<usize>| Reading {
+            summary: None,
+            text: None,
+            text_length: 0,
+            next_offset: None,
+            passages: passages.map(|n| {
+                (0..n)
+                    .map(|offset| PassageOut {
+                        offset: u32::try_from(offset).unwrap(),
+                        text: String::new(),
+                        score: 1.0,
+                    })
+                    .collect()
+            }),
+            note: None,
+            summary_truncated: false,
+        };
+        let target = ResponseBudget::ESTIMATE_TARGET_CHARS;
+        let per_field = ResponseBudget::ESTIMATE_PER_FIELD;
+        for passages in [0_usize, 2, 5] {
+            let room = room_for_reading(&heavy, None, &reading_of(Some(passages)));
+            // Champs : 12 de l'article, 1 niveau de plan, 8 de la lecture, 4 par passage.
+            let fields = 12 + 1 + 8 + 4 * passages;
+            assert_eq!(room, target - estimate_chars(fields, metadata_chars), "{passages}");
+            // Sans `summary_truncated` ni les scores : 1 champ de lecture et 1 par passage de moins.
+            let ignoring_them = target - estimate_chars(fields - 1 - passages, metadata_chars);
+            assert_eq!(ignoring_them - room, per_field * (1 + passages), "{passages}");
+        }
+        // Sans passages (lecture en résumé ou en fenêtre), seul `summary_truncated` pèse en plus.
+        let none = room_for_reading(&heavy, None, &reading_of(None));
+        assert_eq!(none, target - estimate_chars(12 + 1 + 8, metadata_chars));
+    }
+
     #[tokio::test]
     async fn the_window_leaves_room_for_the_metadata_under_the_estimate_target() {
         // Dix niveaux de plan de 400 caractères : les métadonnées pèsent environ 4 000 caractères,
@@ -643,7 +690,8 @@ mod tests {
         let untouched = read_with(&corpus, reading(wide)).await.unwrap();
 
         let kept = shortened.reading.text.unwrap();
-        // 4 000 caractères de plan, 29 champs ou éléments à 64 : il reste au plus 36 000 environ.
+        // 4 000 caractères de plan, 30 champs ou éléments à 64 (12 de l'article, 10 niveaux de plan
+        // et 8 de la lecture) : il reste au plus 36 000 environ.
         let size = chars(&kept);
         assert!(size < 36_500 && size > 18_000, "{size}");
         // `next_offset` reste exact : la fenêtre raccourcie finit où la suivante commence.

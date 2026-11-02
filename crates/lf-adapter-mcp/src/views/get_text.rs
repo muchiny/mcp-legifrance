@@ -84,7 +84,7 @@ fn readable_parent_id(id: &DocumentId) -> Option<String> {
 ///
 /// Déclenchée par l'`etat` seul, sans horloge, selon [`LegalStatus::is_superseded`] (règle commune
 /// avec `fr_resolve`) : `MODIFIE`, `MODIFIE_MORT_NE`, `ABROGE`, `PERIME`, `ANNULE`, `DISJOINT`,
-/// `REMPLACE`, `SUBSTITUE`, `TRANSFERE`, `DENONCE`. `VIGUEUR`, `VIGUEUR_ETEN`, `VIGUEUR_NON_ETEN`,
+/// `REMPLACE`, `SUBSTITUE`, `TRANSFERE`, `DENONCE` (dont le texte dit « Denounced… may still apply »). `VIGUEUR`, `VIGUEUR_ETEN`, `VIGUEUR_NON_ETEN`,
 /// `ABROGE_DIFF` (encore en vigueur), `VIGUEUR_DIFF` (pas encore en vigueur : l'avertissement
 /// parlerait d'une version terminée), `INITIALE`, `SANS_ETAT` et les codes inconnus n'en portent pas. La date de fin n'est citée que
 /// si elle est réelle (hors zone sentinelle).
@@ -96,6 +96,14 @@ fn not_in_force_note(etat: Option<&LegalStatus>, date_fin: Option<CivilDate>) ->
     let code = etat.as_api_code();
     let since =
         date_unless_sentinel(date_fin).map_or_else(String::new, |date| format!(", ended {date}"));
+    // Une convention dénoncée peut encore s'appliquer pendant le préavis et la survie (glossaire
+    // de `etat`) : l'avertissement le dit au lieu d'affirmer que ce n'est pas la version en vigueur.
+    if matches!(etat, LegalStatus::Denonce) {
+        return Some(format!(
+            "Denounced (etat={code}{since}); it may still apply during notice and survival. Use \
+             fr_resolve with a date, or fr_diff_article, to compare versions."
+        ));
+    }
     Some(format!(
         "Not the version in force (etat={code}{since}). Use fr_resolve with a date, or \
          fr_diff_article, for the text in force."
@@ -360,7 +368,6 @@ mod tests {
             "REMPLACE",
             "SUBSTITUE",
             "TRANSFERE",
-            "DENONCE",
         ];
         for code in ended {
             let view = view_json(output(with_etat(code, Some(day(2014, 3, 27))), whole("T.")));
@@ -386,6 +393,23 @@ mod tests {
         // Sans `etat` : aucune note.
         let none = ArticleText { etat: None, ..article() };
         assert!(view_json(output(none, whole("T."))).get("note").is_none());
+    }
+
+    /// Second tour de la revue finale : une convention dénoncée peut encore s'appliquer pendant le
+    /// préavis et la survie (glossaire de `etat`) ; l'avertissement ne dit donc pas « Not the version
+    /// in force » pour `DENONCE`, mais l'état reste signalé, avec ou sans date de fin.
+    #[test]
+    fn a_denounced_text_is_flagged_without_saying_it_is_out_of_force() {
+        let view = view_json(output(with_etat("DENONCE", Some(day(2014, 3, 27))), whole("T.")));
+        assert_eq!(
+            view["note"],
+            "Denounced (etat=DENONCE, ended 2014-03-27); it may still apply during notice and \
+             survival. Use fr_resolve with a date, or fr_diff_article, to compare versions."
+        );
+        let view = view_json(output(with_etat("DENONCE", None), whole("T.")));
+        let note = view["note"].as_str().unwrap();
+        assert!(note.starts_with("Denounced (etat=DENONCE); it may still apply"), "{note}");
+        assert!(!note.contains("Not the version in force"), "{note}");
     }
 
     #[test]

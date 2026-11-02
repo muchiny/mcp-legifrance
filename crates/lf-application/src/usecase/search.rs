@@ -233,7 +233,8 @@ fn present(query: &SearchQuery, page: SearchPage) -> Result<SearchOutput, AppErr
         hits: page.hits.into_iter().map(hit_out).collect(),
         note,
     };
-    fit_under_target(&mut output, size)?;
+    // La note de défense renvoie à l'`etat` de chaque résultat : la dégradation le garde.
+    fit_under_target(&mut output, size, unfiltered)?;
     Ok(output)
 }
 
@@ -285,11 +286,15 @@ fn hit_out(hit: SearchHit) -> HitOut {
     clippy::arithmetic_side_effects,
     reason = "estimation de taille : sommes de longueurs de textes et de compteurs déjà en mémoire, donc sous `usize::MAX`"
 )]
-fn fit_under_target(output: &mut SearchOutput, requested: PageSize) -> Result<(), AppError> {
+fn fit_under_target(
+    output: &mut SearchOutput,
+    requested: PageSize,
+    keep_etat: bool,
+) -> Result<(), AppError> {
     let fixed = envelope_cost(output) + DEGRADE_NOTE_RESERVE;
     let over = |hits: &[HitOut]| fixed + page_cost(hits) > ResponseBudget::ESTIMATE_TARGET_CHARS;
     let snippets = strip_from_end(&mut output.hits, over, strip_snippets);
-    let details = strip_from_end(&mut output.hits, over, strip_details);
+    let details = strip_from_end(&mut output.hits, over, |out| strip_details(out, keep_etat));
     if over(&output.hits) {
         let largest = largest_page_size(&output.hits, fixed);
         return Err(messages::invalid_argument(format!(
@@ -301,7 +306,7 @@ fn fit_under_target(output: &mut SearchOutput, requested: PageSize) -> Result<()
     let notes = [
         output.note.take(),
         (snippets > 0).then(|| snippets_note(snippets)),
-        (details > 0).then(|| details_note(details)),
+        (details > 0).then(|| details_note(details, keep_etat)),
     ];
     output.note = join_notes(notes);
     Ok(())
@@ -318,8 +323,9 @@ fn strip_snippets(out: &mut HitOut) -> bool {
 
 /// Retire la liste d'articles et les champs optionnels `title`, `nature`, `etat` et `date` ; vrai
 /// s'il y avait quelque chose de rendu à retirer (un titre contenu dans la citation et une date
-/// sentinelle ne le sont pas). L'`idcc` reste : il identifie la convention.
-fn strip_details(out: &mut HitOut) -> bool {
+/// sentinelle ne le sont pas). L'`idcc` reste : il identifie la convention. Avec `keep_etat`
+/// (note de défense de `in_force_only` posée : « Check each etat »), l'`etat` reste aussi.
+fn strip_details(out: &mut HitOut, keep_etat: bool) -> bool {
     let citation = out.citation.as_str();
     let hit = &mut out.hit;
     let had_articles = !hit.articles.is_empty();
@@ -329,7 +335,7 @@ fn strip_details(out: &mut HitOut) -> bool {
             .take()
             .is_some_and(|title| title_unless_in_citation(Some(&title), citation).is_some()),
         hit.nature.take().is_some(),
-        hit.etat.take().is_some(),
+        !keep_etat && hit.etat.take().is_some(),
         hit.date.take().is_some_and(|date| open_ended(Some(date)).is_some()),
     ];
     had_articles || had_fields.contains(&true)
@@ -344,11 +350,13 @@ fn snippets_note(hits: usize) -> String {
     )
 }
 
-/// Note des listes d'articles et champs optionnels retirés.
-fn details_note(hits: usize) -> String {
+/// Note des listes d'articles et champs optionnels retirés ; `etat` n'en fait pas partie quand
+/// `keep_etat` (note de défense de `in_force_only` posée).
+fn details_note(hits: usize, keep_etat: bool) -> String {
+    let fields = if keep_etat { "title, nature and date" } else { "title, nature, etat and date" };
     format!(
-        "Article lists and the optional fields title, nature, etat and date were removed from \
-         {} to keep the response under 45,000 characters; use a smaller page_size to get them.",
+        "Article lists and the optional fields {fields} were removed from {} to keep the response \
+         under 45,000 characters; use a smaller page_size to get them.",
         the_last_hits(hits)
     )
 }
@@ -858,6 +866,45 @@ mod tests {
         for flag in [None, Some(false)] {
             assert_eq!(in_force_search(flag, mixed()).await.note, None, "{flag:?}");
         }
+    }
+
+    /// Second tour de la revue finale : la note de défense dit « Check each etat » ; une page
+    /// dégradée pour tenir sous la cible n'en retire donc pas l'`etat` (elle retire le reste des
+    /// champs optionnels, en partant de la fin).
+    #[tokio::test]
+    async fn a_degraded_page_keeps_the_etat_of_every_hit_when_the_filter_note_is_set() {
+        let hits = || -> Vec<SearchHit> {
+            (1..=60)
+                .map(|n| SearchHit {
+                    nature: Some("x".repeat(800)),
+                    ..kali_hit(n, if n == 60 { "DENONCE" } else { "VIGUEUR" })
+                })
+                .collect()
+        };
+        let search = |flag: Option<bool>| {
+            let corpus = serving(page_of(Fond::Kali, 60, hits()));
+            let input = SearchInput {
+                fond: Some("KALI".to_owned()),
+                in_force_only: flag,
+                page_size: Some(60),
+                ..text("convention collective")
+            };
+            async move { run(&corpus, &clock(), input).await.unwrap() }
+        };
+
+        let output = search(Some(true)).await;
+        let trimmed = output.hits.iter().filter(|h| h.hit.nature.is_none()).count();
+        assert!(trimmed > 0 && trimmed < 60, "{trimmed}");
+        assert!(output.hits.iter().all(|h| h.hit.etat.is_some()));
+        assert_eq!(output.hits[59].hit.etat, LegalStatus::parse("DENONCE"));
+        let note = output.note.as_deref().unwrap();
+        assert!(note.starts_with(FILTER_NOT_APPLIED_NOTE), "{note}");
+        assert!(note.ends_with(&details_note(trimmed, true)), "{note}");
+
+        // Jumeau sans filtre : la dégradation retire aussi l'`etat` des derniers résultats.
+        let output = search(None).await;
+        assert!(output.hits[59].hit.etat.is_none());
+        assert!(!output.note.as_deref().unwrap().contains("in_force_only"));
     }
 
     /// La note de défense s'ajoute aux autres notes au lieu de les remplacer.
@@ -1506,14 +1553,15 @@ mod tests {
              characters; use a smaller page_size to get them."
         );
         assert_eq!(
-            details_note(1),
+            details_note(1, false),
             "Article lists and the optional fields title, nature, etat and date were removed from \
              the last hit to keep the response under 45,000 characters; use a smaller page_size \
              to get them."
         );
         // Le pluriel reste pour deux et plus.
         assert!(snippets_note(2).contains("from the last 2 hits to"));
-        assert!(details_note(2).contains("from the last 2 hits to"));
+        assert!(details_note(2, false).contains("from the last 2 hits to"));
+        assert!(details_note(2, true).contains("fields title, nature and date were removed"));
     }
 
     #[test]
@@ -1532,7 +1580,7 @@ mod tests {
         assert_eq!(fixed + page_cost(&output.hits), TARGET);
         output.hits[1].hit.snippet = Snippet::new("last");
         // Le premier n'en a pas : seul le dernier est touché.
-        fit_under_target(&mut output, PageSize::new(2).unwrap()).unwrap();
+        fit_under_target(&mut output, PageSize::new(2).unwrap(), false).unwrap();
         assert!(output.hits[1].hit.snippet.is_none());
         assert_eq!(output.note, Some(snippets_note(1)));
         assert!(output.note.as_deref().unwrap().contains("from the last hit to"));
@@ -1540,7 +1588,7 @@ mod tests {
 
     #[test]
     fn degrade_notes_fit_in_their_reserve() {
-        let both = format!("{} {}", snippets_note(100), details_note(100));
+        let both = format!("{} {}", snippets_note(100), details_note(100, false));
         assert!(both.chars().count() <= DEGRADE_NOTE_RESERVE_CHARS, "{both}");
         assert_eq!(
             snippets_note(7),
@@ -1621,7 +1669,10 @@ mod tests {
         }));
         // La citation, calculée avant, survit au retrait du titre.
         assert!(output.hits[39].citation.starts_with("mot mot"));
-        assert_eq!(output.note, Some(format!("{} {}", snippets_note(40), details_note(trimmed))));
+        assert_eq!(
+            output.note,
+            Some(format!("{} {}", snippets_note(40), details_note(trimmed, false)))
+        );
     }
 
     #[tokio::test]
@@ -1674,7 +1725,7 @@ mod tests {
     #[test]
     fn the_degrade_note_reserve_covers_both_notes_and_the_note_field() {
         assert_eq!(DEGRADE_NOTE_RESERVE, 411);
-        let notes = snippets_note(100).len() + details_note(100).len();
+        let notes = snippets_note(100).len() + details_note(100, false).len();
         assert!(notes + 1 + r#","note":"""#.len() <= DEGRADE_NOTE_RESERVE);
     }
 
@@ -1708,13 +1759,13 @@ mod tests {
 
         let mut at_target = with_title(exact);
         assert_eq!(fixed + page_cost(&at_target.hits), TARGET);
-        fit_under_target(&mut at_target, PageSize::new(1).unwrap()).unwrap();
+        fit_under_target(&mut at_target, PageSize::new(1).unwrap(), false).unwrap();
         assert_eq!(at_target, with_title(exact));
 
         let mut over_target = with_title(exact + 1);
-        fit_under_target(&mut over_target, PageSize::new(1).unwrap()).unwrap();
+        fit_under_target(&mut over_target, PageSize::new(1).unwrap(), false).unwrap();
         assert_eq!(over_target.hits[0].hit.title, None);
-        assert_eq!(over_target.note, Some(details_note(1)));
+        assert_eq!(over_target.note, Some(details_note(1, false)));
     }
 
     #[test]
@@ -1762,7 +1813,7 @@ mod tests {
             [(fields, true), (articles, true), (both, true), (bare(Fond::Juri, 4), false)]
         {
             let mut out = plain(hit);
-            assert_eq!(strip_details(&mut out), expected);
+            assert_eq!(strip_details(&mut out, false), expected);
             assert_eq!(out.hit.articles, Vec::new());
             assert!(out.hit.title.is_none() && out.hit.nature.is_none());
             assert!(out.hit.etat.is_none() && out.hit.date.is_none());
@@ -1775,18 +1826,18 @@ mod tests {
             ..bare(Fond::Juri, 6)
         };
         let mut out = plain(unseen);
-        assert!(!strip_details(&mut out));
+        assert!(!strip_details(&mut out, false));
         assert!(out.hit.title.is_none() && out.hit.date.is_none());
         // L'`idcc` identifie la convention : il reste.
         let mut kept = plain(SearchHit { idcc: Idcc::parse("275"), ..bare(Fond::Kali, 5) });
-        assert!(!strip_details(&mut kept));
+        assert!(!strip_details(&mut kept, false));
         assert!(kept.hit.idcc.is_some());
     }
 
     #[test]
     fn the_details_note_names_the_count_and_the_fields() {
         assert_eq!(
-            details_note(7),
+            details_note(7, false),
             "Article lists and the optional fields title, nature, etat and date were removed from \
              the last 7 hits to keep the response under 45,000 characters; use a smaller \
              page_size to get them."

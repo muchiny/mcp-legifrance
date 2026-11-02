@@ -31,7 +31,7 @@ const HINTS: [(&str, bool); 4] = [
 /// 31 853 octets mesurés, plus 3 % (32 808,6), arrondis à la centaine supérieure (32 900). La
 /// 1.1.0 le relève à 34 500 (Q27 = A) : 32 608 octets mesurés à la vague V2b, D-12 ajoute des
 /// descriptions ; la revue finale de la PR 2 (AM-73) applique la règle d'AM-63 à la mesure finale,
-/// 35 395 octets, soit 36 500. Le test `descriptor_size_budget` de `lf-adapter-mcp` porte la même valeur.
+/// 35 424 octets (36 486,72 avec 3 %), soit 36 500. Le test `descriptor_size_budget` de `lf-adapter-mcp` porte la même valeur.
 const TOOLS_LIST_BUDGETS: [usize; 3] = [20_000, 24_000, 36_500];
 
 /// Outils qui n'existent qu'à partir de v0.2 (M6) et de v0.3 (M7) : ils fixent le budget.

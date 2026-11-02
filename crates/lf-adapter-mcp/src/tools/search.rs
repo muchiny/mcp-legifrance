@@ -21,7 +21,7 @@ use crate::{
     views::search::SearchView,
 };
 
-/// Description de l'outil (05 §5.1, 6 phrases, 992 caractères sur 1 000). Source unique : elle ne
+/// Description de l'outil (05 §5.1, 6 phrases, 991 caractères sur 1 000). Source unique : elle ne
 /// cite que des outils de la surface v0.1 et `fr_resolve` (D-12, Q21).
 const DESCRIPTION: &str = "Keyword search in one Légifrance fond (default LODA): laws and \
 decrees (LODA), codes (CODE), case law (JURI, CONSTIT, CETAT), CNIL deliberations (CNIL), \
@@ -327,6 +327,8 @@ mod tests {
         let description = tool.description.as_deref().unwrap();
         assert_eq!(description, DESCRIPTION);
         let length = description.chars().count();
+        // Les mesures citées en 05 §5.1, §6.6 et dans le CHANGELOG : à changer avec elles.
+        assert_eq!(length, 991);
         assert!(length <= 1_000, "{length}");
         let sentences = description.split(". ").count();
         assert!((3..=6).contains(&sentences), "{sentences} phrases");
