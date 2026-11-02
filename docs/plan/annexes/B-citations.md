@@ -561,7 +561,8 @@ ch_reunies    = ORDN { WS? ( "et" | "-" | "/" | "," ) WS? ORDN } WS ( "ch." | "c
 ch_seule      = ( ORD1_F | ORDN ) WS ( "ch." | "chambre" ) [ WS "jugeant seule" ] | 'CHS' ;
 ssr           = INT WS? "/" WS? INT WS 'SSR' | ORDN WS "et" WS ORDN WS "sous-sections réunies" | 'SSR' ;   (* « 7 / 5 SSR », P125 *)
 ssjs          = ( ORD1_F | ORDN ) WS "sous-section" [ WS "jugeant seule" ] | 'SSJS' ;
-parties       = <texte sans « n° » ni chiffre de tête, ≤ 120 caractères, jusqu'à la virgule précédant ce_numbers> ;   (* P128 *)
+parties       = <texte sans « n° » ni chiffre de tête, ≤ 120 caractères, jusqu'à la virgule précédant ce_numbers ; arrêté avant
+                 toute autre référence (voir ci-dessous) et jamais lu à l'intérieur d'un groupe ( ), [ ] ou « »> ;   (* P128, U08 *)
 ce_numbers    = [ ( "req." | "requête" ) WS ] ( NUM_SIGN | NUM_SIGN_PL ) ce_num { LIST_SEP ce_num } | ce_num ;
 ce_num        = /[0-9]{4,6}/ B ;                                     (* 506507 ; 216642 ; 74052 ; 99522 *)
 lebon         = ( "Rec." | "Leb." | "Lebon" | "Rec. Lebon" | "recueil Lebon" ) [ WS ( "T." | "tables" ) ] [ SEP ] [ "p." WS INT ]
@@ -569,6 +570,8 @@ lebon         = ( "Rec." | "Leb." | "Lebon" | "Rec. Lebon" | "recueil Lebon" ) [
 lf_title_ce   = ( "Conseil d'État" | "Conseil d'Etat" ) SEP <formation libre, relue par ce_formation> SEP [ "du" WS ] ( DATE_NUM | DATE_PROSE )
                 SEP ce_num [ SEP lebon ] ;
 ```
+
+**Fin de la zone `parties` (1.1.1, U08, related_diff-5).** La zone ne traverse jamais la référence suivante, sans quoi la date de la première décision était associée au numéro de la seconde (`CE, Ass., 30 mars 1966, Cie X, p. 257 ; CE, 23 juillet 2010, n° 328757` donnait « CE, Ass., 30 mars 1966, n° 328757 »). Elle s'arrête, à profondeur de parenthèses nulle, à la première position où l'une de ces règles s'applique : R1' « ; » suivi d'une juridiction (`ce_court`) ou d'une date ; R2 un en-tête complet (juridiction, séparateur, formation facultative, date) en début de mot ; R2' une juridiction suivie d'un séparateur après « . » ou « et » (seconde référence sans date : elle n'est pas lue et ne prête pas son numéro) ; R3' une formation suivie d'une date après « , », « . » ou « ; » ; R4 une page du Lebon « p. 257 » en mot entier (marque d'une référence sans numéro) ; R5 une autre juridiction (`TA`, `CAA`, `CEDH`, `CJUE`, `Cass.`, `Cons. const.`, et `Cour`, `Tribunal`, `Trib.` à majuscule quand une date les suit à moins de 60 caractères). Restent dans les parties : un « ; » entre deux noms (« Nicolo ; Boisdet »), une date nue après une virgule (« Rouquette, 12 mai 2018 »), « du » ou « le » + date (« arrêté du 5 mai 2018 »), un nom de partie comme « Cour nationale du droit d'asile ». Une virgule dans un groupe parenthésé ne termine pas la zone, et un fermant sans ouvrant l'arrête. Exemple non fusionné : `CE, Ass., 30 mars 1966, p. 257 ; CE, 23 juillet 2010, n° 328757` ne donne qu'une décision, « CE, 23 juillet 2010, n° 328757 ». Une référence sans numéro (Lebon avant 1980) n'est pas lue seule : fonctionnalité reportée (1.2.0 au plus tôt).
 
 | Formation (`CeFormation`, code corpus) | Variantes | Suffixe ECLI | Source |
 |---|---|---|---|
