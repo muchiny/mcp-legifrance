@@ -1,7 +1,7 @@
 //! Garde du plafond dur d'une réponse (05 §6.4, 02 §6.1, 00 §7).
 //!
 //! Les tranches d'outils mesurent ici la taille **exacte** du JSON compact, en caractères, de la
-//! vue construite. Pour `fr_search`, l'application a déjà compté exactement ce JSON (échappements
+//! vue construite. Pour `fr_search` et `fr_search_all`, l'application a déjà compté exactement ce JSON (échappements
 //! compris) avant de construire la vue : cette mesure n'est qu'un filet. Pour les autres outils,
 //! l'estimation (`budget::estimate_chars`) est conservatrice mais pas exacte : une fenêtre riche en
 //! échappements JSON (`"`, `\`, U+0000 à U+001F, qui prennent 2 à 6 caractères) ou en caractères

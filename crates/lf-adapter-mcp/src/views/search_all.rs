@@ -6,8 +6,9 @@
 //! `views::common` ; `idcc` est un ajout de la v0.2, rendu seulement si la surface annoncée n'est
 //! pas la v0.1 ([`SURFACE`]).
 //!
-//! La mesure exacte du JSON compact suit la construction (`views::fit`) : l'estimation de
-//! l'application ignore les échappements JSON, et la vue reprend la dégradation dans le même
+//! La mesure exacte du JSON compact suit la construction (`views::fit`) : l'application compte
+//! déjà exactement ce JSON (échappements compris), donc cette mesure n'est qu'un filet, qui ne se
+//! déclenche plus que pour des cas pathologiques ; la vue reprend alors la dégradation dans le même
 //! ordre, du dernier résultat du dernier fond au premier : extraits, puis listes d'articles et
 //! champs optionnels. Jamais un résultat (05 §6.4). Les commentaires des champs sont des `//` : un
 //! doc comment partirait dans l'`outputSchema`, dont la taille compte (05 §3.4).
