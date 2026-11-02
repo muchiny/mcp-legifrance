@@ -36,7 +36,7 @@ pub(crate) struct ArticleView {
     num: Option<String>,
     // Code d'API de l'état (VIGUEUR, ABROGE, VIGUEUR_DIFF...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String")]
+    #[schemars(with = "String", description = "In force: VIGUEUR*, ABROGE_DIFF; other codes not.")]
     etat: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String")]
@@ -140,6 +140,15 @@ impl From<GetTextOutput> for ArticleView {
 mod tests {
     use super::*;
     use crate::schema::output_schema;
+
+    /// D-12 : la règle générale de `etat` est dans la description du champ (`VIGUEUR_ETEN`, `PERIME`,
+    /// ANNULE... ne sont pas dans le glossaire des instructions).
+    #[test]
+    fn the_etat_field_carries_the_general_rule() {
+        let schema = serde_json::Value::Object(output_schema::<ArticleView>().as_ref().clone());
+        let text = schema.to_string();
+        assert!(text.contains("In force: VIGUEUR*, ABROGE_DIFF; other codes not."), "{text}");
+    }
     use lf_application::{
         budget::{PassageOut, Reading, ResponseBudget},
         output::get_text::GetTextOutput,

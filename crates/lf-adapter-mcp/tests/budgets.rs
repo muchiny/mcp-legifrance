@@ -1298,7 +1298,8 @@ mod budgets {
     /// une dernière fois sur la surface finale, les treize outils : 31 853 octets mesurés, plus 3 %
     /// (32 808,6), arrondis à la centaine supérieure, soit 32 900 octets ; la 1.1.0 le relève à
     /// 34 500 (Q27 = A, 05 §6.6) : 32 608 octets mesurés à la vague V2b, 34 229 avec les
-    /// descriptions de D-12 (marge de 271 octets). La même valeur est dans `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`), qui mesure le même JSON canonique.
+    /// descriptions de D-12, 34 482 avec les remarques de revue de la vague V3 (marge de 18
+    /// octets). La même valeur est dans `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`), qui mesure le même JSON canonique.
     #[tokio::test]
     async fn descriptor_size_budget() {
         let client = Fixture::default().connect().await;

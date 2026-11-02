@@ -25,11 +25,11 @@ use crate::{
 /// cite que des outils de la surface v0.1 et `fr_resolve` (D-12, Q21).
 const DESCRIPTION: &str = "Keyword search in one Légifrance fond (default LODA): laws and \
 decrees (LODA), codes (CODE), case law (JURI, CONSTIT, CETAT), CNIL deliberations (CNIL), \
-collective agreements (KALI) or company agreements (ACCO). Returns one page of hits with id, \
-title, snippet, citation and source_url; ask for the next `page` while `has_more` is true. \
+collective agreements (KALI) or company agreements (ACCO). Returns one page of hits (default \
+10) with id, title, snippet, citation and source_url; ask for the next `page` while `has_more`. \
 `match` defaults to any word: use `all` for several words, `exact` for a phrase, fr_resolve for \
 one known article. `date_from`/`date_to` filter by date; for KALI, `in_force_only` keeps the \
-texts in force (not the status of their articles). LODA and CODE hits are the versions in force \
+texts in force (not their articles' status). LODA and CODE hits are the versions in force \
 on `version_date` (default: today in Paris); a hit `date` is the date Légifrance gives for that \
 fond, not always the act date. Open a hit with the fr_get_* tool for its id prefix (LEGITEXT: \
 fr_get_act, JURITEXT/CONSTEXT/CETATEXT: fr_get_decision, CNILTEXT: fr_get_deliberation, \
@@ -360,7 +360,8 @@ mod tests {
         assert!(DESCRIPTION.contains("fr_resolve for one known article"), "{DESCRIPTION}");
         // Q28 : `in_force_only` (KALI) filtre les textes, pas le statut de leurs articles.
         assert!(DESCRIPTION.contains("`in_force_only`"), "{DESCRIPTION}");
-        assert!(DESCRIPTION.contains("not the status of their articles"), "{DESCRIPTION}");
+        assert!(DESCRIPTION.contains("not their articles' status"), "{DESCRIPTION}");
+        assert!(DESCRIPTION.contains("(default 10)"), "{DESCRIPTION}");
         assert!(DESCRIPTION.chars().count() <= 1_000);
     }
 

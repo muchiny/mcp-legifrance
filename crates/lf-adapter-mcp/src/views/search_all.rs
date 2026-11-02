@@ -38,9 +38,9 @@ const FURTHER_NOTE: &str = "Further snippets and details were removed to keep th
 pub(crate) struct SearchAllView {
     // Un groupe par fond, toujours présent.
     groups: Vec<GroupView>,
-    // Remarque exceptionnelle (contenu retiré).
+    // Indice facultatif (aucun résultat, contenu retiré).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String")]
+    #[schemars(with = "String", description = "Hint: no match, or content removed.")]
     note: Option<String>,
 }
 

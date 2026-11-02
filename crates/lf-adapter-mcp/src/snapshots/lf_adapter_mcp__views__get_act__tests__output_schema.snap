@@ -29,6 +29,7 @@ expression: schema
       "type": "string"
     },
     "etat": {
+      "description": "In force: VIGUEUR*, ABROGE_DIFF; other codes not.",
       "type": "string"
     },
     "jo_reference": {

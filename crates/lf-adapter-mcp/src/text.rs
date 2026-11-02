@@ -138,8 +138,8 @@ macro_rules! tail {
              then read the article ids of that version with `fr_get_text`. Texts are verbatim (table \
              cells are joined with \" | \"): this server does not decide whether a provision \
              applies to a case.\n",
-            "- `etat`: VIGUEUR in force; MODIFIE or REMPLACE older version (see `date_fin`); ABROGE \
-             repealed; ABROGE_DIFF in force, repeal scheduled.\n",
+            "- `etat`: VIGUEUR* (VIGUEUR_ETEN...) in force; ABROGE_DIFF in force, repeal \
+             scheduled; any other code (MODIFIE, ABROGE, PERIME...) not in force.\n",
             "- An empty result does not mean the law is silent: call `fr_coverage` and tell the \
              user what is missing.\n",
             "\n",
@@ -259,13 +259,13 @@ mod tests {
     #[test]
     fn instruction_sizes_match_the_counts_of_the_spec() {
         // 05 §4.2 : caractères et octets UTF-8, sans saut de ligne final, refaits avec Python.
-        // D-12 (1.1.0) : +212 caractères (glossaire de `etat`, résumé jamais complet, tableaux),
-        // pris sur 3 500 ; la marge restante est de 10 caractères.
+        // D-12 (1.1.0) : +220 caractères (glossaire de `etat`, résumé jamais complet, tableaux),
+        // pris sur 3 500 ; la marge restante est de 2 caractères.
         let measured = SURFACES.map(|surface| {
             let text = surface.instructions();
             (text.chars().count(), text.len())
         });
-        assert_eq!(measured, [(3_091, 3_099), (3_292, 3_300), (3_490, 3_498)]);
+        assert_eq!(measured, [(3_099, 3_107), (3_300, 3_308), (3_498, 3_506)]);
     }
 
     /// D-12 : glossaire de `etat`, résumé jamais complet, nuance de « verbatim » pour les tableaux.
@@ -275,10 +275,9 @@ mod tests {
         for surface in SURFACES {
             let text = surface.instructions();
             for state in [
-                "VIGUEUR in force",
-                "MODIFIE or REMPLACE older version (see `date_fin`)",
-                "ABROGE repealed",
+                "VIGUEUR* (VIGUEUR_ETEN...) in force",
                 "ABROGE_DIFF in force, repeal scheduled",
+                "any other code (MODIFIE, ABROGE, PERIME...) not in force",
             ] {
                 assert!(text.contains(state), "{surface:?} : {state}");
             }
@@ -347,7 +346,6 @@ mod tests {
             "citation",
             "consulted_on",
             "date",
-            "date_fin",
             "detail=\"full\"",
             "ecli",
             "eli",

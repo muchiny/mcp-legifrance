@@ -25,7 +25,7 @@ pub(crate) struct SearchParams {
     #[schemars(
         required,
         with = "String",
-        description = r#"Free-text query, e.g. "republique numerique". AND/OR/NOT/~/^ are not operators."#,
+        description = r#"Free-text query, e.g. "republique numerique". AND/OR/NOT/~/^ are unreliable; a dangling one fails the search. Trailing * is a wildcard."#,
         length(min = 1, max = 450)
     )]
     pub(crate) query: Option<String>,
@@ -165,11 +165,17 @@ mod tests {
     }
 
     #[test]
-    fn the_schema_says_the_query_has_no_operators_and_when_to_pick_each_match() {
+    fn the_schema_warns_about_operators_and_says_when_to_pick_each_match() {
         let schema = schema();
-        // D-12 (search_all-1, gap5-4) : aucun opérateur, sinon le moteur répond 503.
+        // D-12 (search_all-1, gap5-4) : mesuré en bac à sable, `ET`/`OU` ne sont pas des opérateurs
+        // et le joker de fin est actif (V-80) ; « travail AND », « travail OR » et « NOT » font
+        // répondre 503/500 sur 8 fonds (E2E). La phrase ne dit donc pas « ne sont pas des
+        // opérateurs » (non mesuré pour AND/OR/NOT/~/^ au milieu d'une requête).
         let query = schema["properties"]["query"]["description"].as_str().unwrap();
-        assert!(query.contains("AND/OR/NOT/~/^ are not operators"), "{query}");
+        assert!(query.contains("AND/OR/NOT/~/^ are unreliable"), "{query}");
+        assert!(query.contains("a dangling one fails the search"), "{query}");
+        assert!(query.contains("Trailing * is a wildcard"), "{query}");
+        assert!(!query.contains("are not operators"), "{query}");
         // Le mode par défaut reste annoncé ; `all` sert aux requêtes de plusieurs mots (Q21).
         let mode = schema["properties"]["match"]["description"].as_str().unwrap();
         assert!(mode.contains(r#""any": any word (default)"#), "{mode}");

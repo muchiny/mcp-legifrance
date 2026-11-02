@@ -51,10 +51,7 @@ struct CandidateView {
     // Article seulement : état de la version lue (VIGUEUR, MODIFIE…) et ses dates (D-03). Les
     // descriptions (D-12) renvoient au glossaire des instructions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(
-        with = "String",
-        description = "Status code of this article version (see the server instructions)."
-    )]
+    #[schemars(with = "String", description = "In force: VIGUEUR*, ABROGE_DIFF; other codes not.")]
     etat: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String", description = "First day of this version, YYYY-MM-DD.")]
@@ -62,7 +59,7 @@ struct CandidateView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "String",
-        description = "Day the next version takes effect; absent: no known end."
+        description = "Day the next version (or the repeal) takes effect; absent: no known end."
     )]
     date_fin: Option<String>,
 }
@@ -407,10 +404,19 @@ mod tests {
     fn the_validity_fields_of_a_candidate_are_described() {
         let schema = Value::Object(output_schema::<ResolveView>().as_ref().clone());
         let props = &schema["$defs"]["CandidateView"]["properties"];
-        assert!(props["etat"]["description"].as_str().unwrap().contains("Status code"), "{props}");
+        assert!(
+            props["etat"]["description"]
+                .as_str()
+                .unwrap()
+                .contains("In force: VIGUEUR*, ABROGE_DIFF;"),
+            "{props}"
+        );
         assert!(props["date_debut"]["description"].as_str().unwrap().contains("First day"));
         assert!(
-            props["date_fin"]["description"].as_str().unwrap().contains("absent: no known end"),
+            props["date_fin"]["description"]
+                .as_str()
+                .unwrap()
+                .contains("(or the repeal) takes effect; absent: no known end"),
             "{props}"
         );
     }

@@ -28,7 +28,7 @@ const FURTHER_NOTE: &str = "Further snippets and details were removed to keep th
 #[derive(Debug, Serialize, JsonSchema)]
 pub(crate) struct SearchView {
     #[schemars(
-        description = "Total results reported by Légifrance; for CODE, a count of codes (see total_articles for articles)."
+        description = "Total results; for CODE, codes; total_articles (if present) counts articles."
     )]
     total: u64,
     /// Page servie, à partir de 1.
@@ -42,9 +42,13 @@ pub(crate) struct SearchView {
     total_articles: Option<u64>,
     /// Résultats, dans l'ordre de l'API ; toujours présents, même vides.
     hits: Vec<HitView>,
-    /// Remarque exceptionnelle (fin de la fenêtre atteignable, contenu retiré).
+    /// Indice facultatif (aucun résultat, fin de la fenêtre atteignable, articles à lire, contenu
+    /// retiré).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String")]
+    #[schemars(
+        with = "String",
+        description = "Hint: no match, window end, articles to page, or content removed."
+    )]
     note: Option<String>,
 }
 
@@ -73,7 +77,7 @@ struct HitView {
     nature: Option<String>,
     /// État juridique, en code d'API (`VIGUEUR`, `ABROGE`...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String")]
+    #[schemars(with = "String", description = "In force: VIGUEUR*, ABROGE_DIFF; other codes not.")]
     etat: Option<String>,
     /// IDCC (KALI et ACCO), à partir de la v0.2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -235,6 +239,15 @@ mod tests {
 
     use super::*;
     use crate::schema::output_schema;
+
+    /// D-12 : la règle générale de `etat` est dans la description du champ (`VIGUEUR_ETEN`, `PERIME`,
+    /// ANNULE... ne sont pas dans le glossaire des instructions).
+    #[test]
+    fn the_etat_field_carries_the_general_rule() {
+        let schema = serde_json::Value::Object(output_schema::<SearchView>().as_ref().clone());
+        let text = schema.to_string();
+        assert!(text.contains("In force: VIGUEUR*, ABROGE_DIFF; other codes not."), "{text}");
+    }
 
     const CAP: usize = ResponseBudget::HARD_CAP_CHARS;
 
@@ -487,8 +500,11 @@ mod tests {
         assert!(date.contains("as Légifrance gives it for the fond"), "{date}");
         assert!(date.contains("not always the act date"), "{date}");
         let total = schema["properties"]["total"]["description"].as_str().unwrap();
-        assert!(total.contains("for CODE, a count of codes"), "{total}");
-        assert!(total.contains("total_articles"), "{total}");
+        assert!(total.contains("for CODE, codes"), "{total}");
+        assert!(total.contains("total_articles (if present) counts articles"), "{total}");
+        // `note` n'est plus décrite comme exceptionnelle : D-10 la pose à chaque recherche vide.
+        let note = schema["properties"]["note"]["description"].as_str().unwrap();
+        assert!(note.contains("no match") && note.contains("articles to page"), "{note}");
     }
 
     #[test]

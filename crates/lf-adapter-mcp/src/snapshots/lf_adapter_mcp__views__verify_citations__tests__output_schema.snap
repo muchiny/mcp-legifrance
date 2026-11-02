@@ -47,11 +47,11 @@ expression: schema
           "type": "string"
         },
         "date_fin": {
-          "description": "Day the next version takes effect; absent: no known end.",
+          "description": "Day the next version (or the repeal) takes effect; absent: no known end.",
           "type": "string"
         },
         "etat": {
-          "description": "Status code of this article version (see the server instructions).",
+          "description": "In force: VIGUEUR*, ABROGE_DIFF; other codes not.",
           "type": "string"
         },
         "id": {

@@ -40,7 +40,7 @@ expression: schema()
       "type": "integer"
     },
     "query": {
-      "description": "Free-text query. AND/OR/NOT/~/^ are not operators.",
+      "description": "Free-text query. AND/OR/NOT/~/^ are unreliable; a dangling one fails the search. Trailing * is a wildcard.",
       "maxLength": 450,
       "minLength": 1,
       "type": "string"
