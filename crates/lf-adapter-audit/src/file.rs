@@ -688,6 +688,30 @@ mod tests {
         assert_eq!(lines_of(&dir.path().join(ACTIVE_FILE)).len(), 2);
     }
 
+    /// Seul un journal vide est une entrée de répertoire neuve : `append` ne synchronise le
+    /// répertoire que dans ce cas. Un répertoire absent le rend observable : sa synchronisation
+    /// échoue, celle d'un journal déjà plein n'a pas lieu.
+    #[test]
+    fn only_an_empty_journal_is_a_new_directory_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let absent = dir.path().join("absent");
+        let path = dir.path().join(ACTIVE_FILE);
+        let line = "{\"n\":1}\n";
+        let mut store = Store::new(dir.path().to_path_buf(), 1_000_000, Duration::from_secs(1));
+
+        let fresh = store
+            .prepare(open_private(&path, Mode::Journal).unwrap(), &path, line, "2026-10-15")
+            .unwrap();
+        assert!(fresh.new_entry && !fresh.rotated);
+        assert!(fresh.append(line, &absent).is_err(), "le répertoire neuf est synchronisé");
+
+        let full = store
+            .prepare(open_private(&path, Mode::Journal).unwrap(), &path, line, "2026-10-15")
+            .unwrap();
+        assert!(!full.new_entry && !full.rotated);
+        full.append(line, &absent).unwrap();
+    }
+
     #[tokio::test]
     async fn an_unencodable_record_is_an_encode_error_and_writes_nothing() {
         let dir = tempfile::tempdir().unwrap();
