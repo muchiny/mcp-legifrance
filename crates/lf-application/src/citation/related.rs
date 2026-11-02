@@ -700,6 +700,24 @@ mod tests {
         assert!(out.iter().all(|link| link.id.is_none() && link.source_url.is_none()));
     }
 
+    /// U03 : un titre « article 700 b du code de procédure civile » ne donne plus de lien sur
+    /// l'article voisin « 700 » (le numéro tronqué n'est pas lu).
+    #[test]
+    fn decision_links_ignores_a_lowercase_suffix_article_without_a_link_u03() {
+        for title in [
+            "article 700 b du code de procédure civile",
+            "Article 700 b du CPC ; article 1240 b du code civil",
+            "articles 700 et 701 b du code de procédure civile",
+        ] {
+            assert_eq!(links_of(None, &[title.to_owned()]), vec![], "{title}");
+        }
+        // Jumeau : sans la lettre, le lien existe.
+        assert_eq!(
+            links_of(None, &["article 700 du code de procédure civile".to_owned()]).len(),
+            1
+        );
+    }
+
     #[test]
     fn a_real_decision_gives_the_same_links_as_its_strings() {
         // `Decision::cited_case_law` et `Decision::applied_texts` (fixture consult_juri.json)

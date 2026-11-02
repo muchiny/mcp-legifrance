@@ -440,10 +440,34 @@ fn capital_letters(text: &str, at: usize) -> Option<(String, usize)> {
         .then(|| (letters.to_owned(), at + len))
 }
 
+/// Lettres minuscules qui, devant un point, abrègent un mot et non un suffixe : « s. » (suivants),
+/// « p. » (page), « c. » (contre ou code), « t. » (tome), « v. » (voir).
+const ABBREVIATION_LETTERS: [char; 5] = ['c', 'p', 's', 't', 'v'];
+
+/// Une lettre minuscule isolée lue en `start`, après un numéro (« 757 b », « 150-0 b ter ») : un
+/// suffixe écrit en minuscule, que la grammaire ne lit pas (N36, annexe B §4.2). Exemptées : « a »
+/// (verbe avoir) et « y » (« y compris ») ; une lettre suivie de `)` (subdivision « b) »), d'une
+/// apostrophe, de `°` ou de `/` ; une abréviation devant un point (`ABBREVIATION_LETTERS`) ; le
+/// début d'un code (« 1240 c civ »). La lettre doit tenir seule entre deux frontières de mot.
+fn lone_lowercase_letter(text: &str, start: usize) -> bool {
+    let mut letters = letters_word(text, start).chars();
+    let (Some(letter), None) = (letters.next(), letters.next()) else {
+        return false;
+    };
+    let after = start + letter.len_utf8();
+    let follower = next_char(text, after);
+    letter.is_ascii_lowercase()
+        && !matches!(letter, 'a' | 'y')
+        && boundary(text, after)
+        && !matches!(follower, Some(')' | '\'' | '°' | '/'))
+        && !(follower == Some('.') && ABBREVIATION_LETTERS.contains(&letter))
+        && dict_at(text, start).is_none()
+}
+
 /// Suffixes d'un numéro : `[adverbe [-entier]] [lettres] [adverbe]`, chacun au plus une fois
 /// (`199 undecies B`, `150-0 B ter`, `199 terdecies-0 A`). `None` quand un adverbe ou une lettre
-/// valide ne peut plus être lu après un adverbe (`5 bis ter`, `885-0 V bis A`) : le numéro serait
-/// tronqué, donc aucune citation n'est émise.
+/// valide ne peut plus être lu après un adverbe (`5 bis ter`, `885-0 V bis A`), ou qu'une lettre
+/// minuscule isolée suit (`757 b`) : le numéro serait tronqué, donc aucune citation n'est émise.
 fn suffixes(text: &str, at: usize) -> Option<(Suffixes, usize)> {
     let (mut found, mut end) = (Suffixes::default(), at);
     while let Some(start) = ws(text, end) {
@@ -463,6 +487,8 @@ fn suffixes(text: &str, at: usize) -> Option<(Suffixes, usize)> {
                 return if found.after_adverb() { None } else { Some((found, end)) };
             }
             end = after;
+        } else if lone_lowercase_letter(text, start) {
+            return None;
         } else {
             break;
         }
@@ -484,8 +510,20 @@ const SPECIALS: [(&str, SpecialNum); 5] = [
     ("preliminaire", SpecialNum::Preliminaire),
 ];
 
-/// `art_num` : le numéro d'article et sa fin.
-pub(super) fn art_num(text: &str, at: usize) -> Option<(ArticleNum, usize)> {
+/// Lecture d'un numéro d'article en un point du texte.
+#[derive(Debug)]
+enum NumRead {
+    /// Pas de numéro lisible ici (ni refusé : « 2e » collé, « 2° », « 5- »…).
+    Absent,
+    /// Un numéro est écrit mais `suffixes` le refuse (adverbe, lettre capitale ou lettre minuscule
+    /// isolée non lisibles) : il serait tronqué.
+    Refused,
+    /// Le numéro et sa fin.
+    Read(ArticleNum, usize),
+}
+
+/// `read_num` : le numéro d'article lu en `at`, ou la raison pour laquelle il ne l'est pas.
+fn read_num(text: &str, at: usize) -> NumRead {
     let special =
         SPECIALS.iter().find_map(|&(lit, special)| word(text, at, lit).map(|end| (special, end)));
     let (num, end) = if let Some((special, end)) = special {
@@ -503,8 +541,13 @@ pub(super) fn art_num(text: &str, at: usize) -> Option<(ArticleNum, usize)> {
         )
     } else {
         let (found, pos) = prefix(text, at).map_or((None, at), |(p, pos)| (Some(p), pos));
-        let (base, pos) = base_num(text, pos)?;
-        let (Suffixes { latin, latin_sub, letters, latin_after }, end) = suffixes(text, pos)?;
+        let Some((base, pos)) = base_num(text, pos) else {
+            return NumRead::Absent;
+        };
+        let Some((Suffixes { latin, latin_sub, letters, latin_after }, end)) = suffixes(text, pos)
+        else {
+            return NumRead::Refused;
+        };
         (
             ArticleNum {
                 prefix: found,
@@ -518,7 +561,15 @@ pub(super) fn art_num(text: &str, at: usize) -> Option<(ArticleNum, usize)> {
             end,
         )
     };
-    num_end(text, end).then_some((num, end))
+    if num_end(text, end) { NumRead::Read(num, end) } else { NumRead::Absent }
+}
+
+/// `art_num` : le numéro d'article et sa fin.
+pub(super) fn art_num(text: &str, at: usize) -> Option<(ArticleNum, usize)> {
+    match read_num(text, at) {
+        NumRead::Read(num, end) => Some((num, end)),
+        NumRead::Absent | NumRead::Refused => None,
+    }
 }
 
 /// Rang d'un alinéa écrit après « al. » : un ordinal (« 1er », « 2e », « dernier ») avant un
@@ -713,33 +764,44 @@ fn list_sep(text: &str, at: usize) -> Option<usize> {
     ws(text, end)
 }
 
-/// Seconde borne d'une plage : « à 1100-2 ». Le « à » est lu avec son accent : « a » est aussi
-/// le verbe avoir.
-fn range_end(text: &str, at: usize) -> Option<Item> {
+/// Début de la seconde borne d'une plage : « à 1100-2 ». Le « à » est lu avec son accent : « a » est
+/// aussi le verbe avoir.
+fn range_bound(text: &str, at: usize) -> Option<usize> {
     let start = ws(text, at)?;
     let after = consume(text, start, 'à').or_else(|| consume(text, start, 'À'))?;
-    art_item(text, ws(text, after)?)
+    ws(text, after)
 }
 
-/// `art_list` : des articles séparés par `LIST_SEP`, ou une plage « 1100 à 1100-2 ».
+/// `art_list` : des articles séparés par `LIST_SEP`, ou une plage « 1100 à 1100-2 ». Un numéro
+/// refusé après un séparateur ou à la borne d'une plage refuse toute la liste : rendre les autres
+/// perdrait un article sans signal (« articles 757 et 787 b »).
 pub(super) fn art_list(text: &str, at: usize) -> Option<ArtList> {
     let first = art_item(text, at)?;
-    if let Some(last) = range_end(text, first.end) {
-        let mut subs = first.subs;
-        subs.extend(last.subs);
-        let item = Item {
-            num: first.num,
-            range_to: Some(last.num),
-            span: first.span.start..last.span.end,
-            subs,
-            version: first.version.or(last.version),
-            end: last.end,
-        };
-        return Some(ArtList { end: item.end, items: vec![item] });
+    if let Some(pos) = range_bound(text, first.end) {
+        if matches!(read_num(text, pos), NumRead::Refused) {
+            return None;
+        }
+        if let Some(last) = art_item(text, pos) {
+            let mut subs = first.subs;
+            subs.extend(last.subs);
+            let item = Item {
+                num: first.num,
+                range_to: Some(last.num),
+                span: first.span.start..last.span.end,
+                subs,
+                version: first.version.or(last.version),
+                end: last.end,
+            };
+            return Some(ArtList { end: item.end, items: vec![item] });
+        }
     }
     let mut end = first.end;
     let mut items = vec![first];
-    while let Some(next) = list_sep(text, end).and_then(|pos| art_item(text, pos)) {
+    while let Some(pos) = list_sep(text, end) {
+        if matches!(read_num(text, pos), NumRead::Refused) {
+            return None;
+        }
+        let Some(next) = art_item(text, pos) else { break };
         end = next.end;
         items.push(next);
     }
@@ -2922,6 +2984,221 @@ mod tests {
         assert_eq!(num_of("200 bis I"), Some(key("200 bis I", 9)));
         assert_eq!(num_of("5 bis A l'égard de"), Some(key("5 bis A", 7)));
         assert_eq!(num_of("5 bis A du"), Some(key("5 bis A", 7)));
+    }
+
+    // ---- U03 : une lettre minuscule isolée après un numéro (« 757 b ») ----------------------
+
+    /// Les numéros suivis d'une lettre minuscule isolée sont refusés en entier (filet N36).
+    #[test]
+    fn a_lone_lowercase_letter_refuses_the_number_u03() {
+        for refused in [
+            "757 b",
+            "787 b du",
+            "1240 b",
+            "L. 1234-5 b",
+            "R. 123-4 b du",
+            "150-0 b ter",
+            "199 undecies b",
+            "5 bis b",
+            "5 B b",
+            "757 d.",
+            "757 b.",
+            "757 b,",
+            "5 x",
+            "5 e",
+        ] {
+            assert_eq!(num_of(refused), None, "{refused}");
+        }
+    }
+
+    /// Le numéro préfixé (« L. 1234-5 b », V6) est refusé comme le numéro nu, avec ou sans mot-clé.
+    #[test]
+    fn a_prefixed_number_with_a_lone_lowercase_letter_is_refused_u03() {
+        for refused in ["L. 1234-5 b du code", "LO 141 b", "R*111-1 b", "D. 12 b"] {
+            assert_eq!(num_of(refused), None, "{refused}");
+            assert_eq!(list_of(refused), None, "{refused}");
+        }
+    }
+
+    /// Un élément refusé après un séparateur refuse toute la liste, pas le seul premier élément.
+    #[test]
+    fn a_refused_item_refuses_the_whole_list_u03() {
+        for refused in [
+            "5 et 6 b",
+            "5, 6 b du",
+            "5 ou 6 b",
+            "5, 6 et 7 b",
+            "5 et 6 bis ter",
+            "5 et 6 B b",
+            "5, 6 et 7 bis b",
+        ] {
+            assert_eq!(list_of(refused), None, "{refused}");
+        }
+        // La lettre refusée est celle du premier élément : la liste est refusée aussi.
+        assert_eq!(list_of("5 b et 6"), None);
+    }
+
+    /// Les jumeaux lus des listes et des plages : lettre capitale, abréviation, numéro préfixé.
+    #[test]
+    fn the_twins_of_a_refused_list_keep_their_reading_u03() {
+        assert_eq!(num_of("L. 1234-5 B du"), Some(key("L1234-5 B", 11)));
+        assert_eq!(num_of("L. 1234-5 du code"), Some(key("L1234-5", 9)));
+        assert_eq!(
+            list_of("5 et 6 B"),
+            Some((vec![entry("5", None, "5", 0), entry("6 B", None, "6 B", 0)], 8))
+        );
+        assert_eq!(
+            list_of("5 et 6 s. du"),
+            Some((vec![entry("5", None, "5", 0), entry("6", None, "6", 0)], 6))
+        );
+        assert_eq!(list_of("5 à 6 B du"), Some((vec![entry("5", Some("6 B"), "5 à 6 B", 0)], 8)));
+        assert_eq!(list_of("5 à 6 s. du"), Some((vec![entry("5", Some("6"), "5 à 6", 0)], 6)));
+    }
+
+    /// Une borne de plage refusée refuse la plage entière (« 5 à 6 b » n'est pas « 5 »).
+    #[test]
+    fn a_refused_range_bound_refuses_the_range_u03() {
+        for refused in
+            ["5 à 6 b", "5 À 6 b du", "757 à 760 b", "5 à 6 bis ter", "5 b à 6", "5 à 6 B b"]
+        {
+            assert_eq!(list_of(refused), None, "{refused}");
+        }
+    }
+
+    /// Une lettre minuscule collée ne refuse rien : la liste est coupée comme en 1.1.0 (ordinaux
+    /// « 2e », « 3ème », « 1re » après une virgule).
+    #[test]
+    fn a_glued_ordinal_after_a_separator_cuts_the_list_and_does_not_refuse_it_u03() {
+        for (text, first) in [
+            ("1103, 2e alinéa", "1103"),
+            ("1103, 3ème", "1103"),
+            ("1103, 1re", "1103"),
+            ("1103 et 6b", "1103"),
+            ("5 et 6b", "5"),
+        ] {
+            let (items, _) = list_of(text).unwrap_or_default();
+            let keys: Vec<&str> = items.iter().map(|item| item.0.as_str()).collect();
+            assert_eq!(keys, [first], "{text}");
+        }
+        assert_eq!(num_of("787b"), None);
+        assert_eq!(num_of("1234-5a"), None);
+    }
+
+    /// Un article lisible avant une lettre collée reste lu.
+    #[test]
+    fn a_readable_article_before_a_glued_ordinal_is_still_found_u03() {
+        let found = list_of("5, 2e al.").unwrap();
+        assert_eq!(found.0.len(), 1);
+        assert_eq!(found.0.first().map(|item| item.0.as_str()), Some("5"));
+    }
+
+    /// « et s » sans point : la lettre n'est pas collée au numéro, la lecture de la 1.1.0 est
+    /// figée (limite documentée).
+    #[test]
+    fn a_lowercase_et_s_without_dot_keeps_its_current_reading_u03() {
+        assert_eq!(list_of("1240 et s du"), Some((vec![entry("1240", None, "1240", 0)], 4)));
+        assert_eq!(list_of("1240 et s. du"), Some((vec![entry("1240", None, "1240", 0)], 4)));
+        assert_eq!(num_of("1240 et s du"), Some(key("1240", 4)));
+    }
+
+    /// « 757 b » n'est jamais lu « 757 B » : la 1.1.1 refuse de lire, elle ne décide pas que « b »
+    /// vaut « B » (nouvelle forme d'entrée, 1.2.0). Garde n° 6 de la garantie 14.
+    #[test]
+    fn a_lone_lowercase_b_is_never_read_as_the_capital_b_u03() {
+        for text in ["757 b", "787 b", "1240 b", "757 b du", "787 b."] {
+            if let Some((number, _)) = num_of(text) {
+                assert!(!number.ends_with(" B"), "{text} : {number}");
+            }
+            for entry in list_of(text).map_or_else(Vec::new, |(items, _)| items) {
+                assert!(!entry.0.contains('B'), "{text} : {entry:?}");
+            }
+        }
+    }
+
+    /// Chaque exemption de la règle a sa ligne : ces entrées gardent leur lecture.
+    #[test]
+    fn each_exemption_of_the_lone_letter_rule_is_pinned_u03() {
+        // `a` (verbe avoir) et `y` (« y compris »).
+        assert_eq!(num_of("5 a"), Some(key("5", 1)));
+        assert_eq!(num_of("5 a prévu"), Some(key("5", 1)));
+        assert_eq!(num_of("5 y compris"), Some(key("5", 1)));
+        assert_eq!(num_of("5 y"), Some(key("5", 1)));
+        // Frontière de mot : la lettre doit être seule.
+        assert_eq!(num_of("5 b2"), Some(key("5", 1)));
+        assert_eq!(num_of("5 bé"), Some(key("5", 1)));
+        assert_eq!(num_of("5 bd"), Some(key("5", 1)));
+        // Subdivision, apostrophe, item, barre.
+        assert_eq!(num_of("5 b) du"), Some(key("5", 1)));
+        assert_eq!(num_of("5 d'une"), Some(key("5", 1)));
+        assert_eq!(num_of("5 s'applique"), Some(key("5", 1)));
+        assert_eq!(num_of("5 n° 3"), Some(key("5", 1)));
+        assert_eq!(num_of("5 b/c"), Some(key("5", 1)));
+        // Abréviations devant un point : c, p, s, t, v.
+        for letter in ['c', 'p', 's', 't', 'v'] {
+            let text = format!("5 {letter}. du");
+            assert_eq!(num_of(&text), Some(key("5", 1)), "{text}");
+        }
+        assert_eq!(num_of("5 p. 3"), Some(key("5", 1)));
+        assert_eq!(num_of("5 s. du"), Some(key("5", 1)));
+        assert_eq!(num_of("5 c. civ."), Some(key("5", 1)));
+        // Un code abrégé en minuscules (`dict_at`).
+        assert_eq!(num_of("5 c civ"), Some(key("5", 1)));
+        assert_eq!(num_of("1240 c civ"), Some(key("1240", 4)));
+        assert_eq!(num_of("9 c. civ."), Some(key("9", 1)));
+        // Suites de listes.
+        assert_eq!(list_of("5 a 6"), Some((vec![entry("5", None, "5", 0)], 1)));
+    }
+
+    /// Table lettre x suite : la règle se lit en une expression, comparée à l'oracle.
+    #[test]
+    fn the_lone_letter_rule_matches_its_oracle_for_every_letter_and_follower_u03() {
+        let followers = ["", " du", ",", ".", ")", "'x", "°", "/", "2", "é", " et 6", " (note)"];
+        for letter in 'a'..='z' {
+            for follower in followers {
+                let text = format!("5 {letter}{follower}");
+                let exempt_letter = matches!(letter, 'a' | 'y');
+                let exempt_follower = follower.starts_with([')', '\'', '°', '/'])
+                    || follower.starts_with(|c: char| c.is_alphanumeric())
+                    || (follower.starts_with('.') && "cpstv".contains(letter));
+                let refused = !exempt_letter && !exempt_follower;
+                let expected = if refused { None } else { Some(key("5", 1)) };
+                assert_eq!(num_of(&text), expected, "{text}");
+            }
+        }
+    }
+
+    /// Propriété : aucune lettre minuscule isolée ne laisse un numéro tronqué.
+    mod u03_properties {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        proptest! {
+            #[test]
+            fn no_truncated_number_for_a_lone_lowercase_letter_u03(
+                base in "[1-9][0-9]{0,3}(-[0-9]{1,2})?",
+                letter in "[b-xz]",
+            ) {
+                let text = format!("{base} {letter} du code civil");
+                prop_assert!(num_of(&text).is_none(), "numéro tronqué : {text}");
+                let prefixed = format!("art. {text}");
+                let kw = art_kw(&prefixed, 0).unwrap();
+                prop_assert!(art_list(&prefixed, kw).is_none(), "{prefixed}");
+            }
+
+            #[test]
+            fn a_refused_citation_leaves_the_composition_intact_u03(
+                base in "[1-9][0-9]{0,3}",
+                letter in "[b-xz]",
+            ) {
+                use crate::citation::parse;
+                let neighbour = "art. 1240 du code civil";
+                let refused = format!("art. {base} {letter} du CGI");
+                let alone = parse(neighbour);
+                let together = parse(&format!("{refused} ; {neighbour}"));
+                prop_assert_eq!(together.len(), alone.len(), "{}", refused);
+            }
+        }
     }
 
     #[test]

@@ -21,7 +21,10 @@
 use std::cmp::Reverse;
 
 use lf_domain::{
-    citation::{CitationRef, Confidence, ParseOptions, Spanned, format::canonical, parse_with},
+    citation::{
+        CitationRef, Confidence, ParseOptions, Span, Spanned, format::canonical, parse_with,
+        unread_article_mentions,
+    },
     date::VersionDate,
 };
 
@@ -87,18 +90,31 @@ impl<'a, C: LegalCorpus, K: Clock> ResolveUseCase<'a, C, K> {
         let options = ParseOptions { today: Some(today.as_civil()), ..ParseOptions::default() };
         let parsed = parse_with(&citation, &options);
         let Some((first, others)) = parsed.split_first() else {
+            // Un numéro d'article écrit mais refusé (« 787 b ») n'est pas une citation absente.
+            let note = if unread_article_mentions(&citation, &[]) {
+                Note::ArticleNotRead
+            } else {
+                Note::NoCitationRecognised
+            };
             return Ok(ResolveOutput {
                 interpreted_as: None,
                 candidates: Vec::new(),
-                notes: vec![Note::NoCitationRecognised],
+                notes: vec![note],
             });
         };
+        // Une mention d'article refusée (« art. 757 b ») à côté d'une citation lue : elle est dite
+        // en tête, pour qu'une autre citation résolue ne la fasse pas oublier.
+        let spans: Vec<Span> = parsed.iter().map(|cite| cite.span).collect();
 
         let outcome = self.resolve(first, today, date).await;
         if let Outcome::Failed(error) = &outcome {
             return Err(port_failure(TOOL, "the citation", error));
         }
-        let mut notes: Vec<Note> = note_of(&outcome, self.proof).into_iter().collect();
+        let mut notes: Vec<Note> = Vec::new();
+        if unread_article_mentions(&citation, &spans) {
+            notes.push(Note::ArticleNotRead);
+        }
+        notes.extend(note_of(&outcome, self.proof));
         if !others.is_empty() {
             notes.push(Note::OtherCitations { count: others.len() });
         }
@@ -672,6 +688,67 @@ mod tests {
         assert_eq!(output.candidates, []);
         assert_eq!(output.notes, [Note::NoCitationRecognised]);
         assert_eq!(corpus.calls(), 0);
+    }
+
+    /// U03 : un numéro refusé (« 757 b ») ne résout rien et la note dit qu'un article n'a pas été
+    /// lu, au lieu d'accuser l'absence de code ou de citation ; aucun appel au corpus.
+    #[tokio::test]
+    async fn a_refused_lowercase_suffix_resolves_nothing_and_says_the_article_was_not_read_u03() {
+        for citation in [
+            "article 787 b du CGI",
+            "art. 757 b du code général des impôts",
+            "CGI, art. 757 b",
+            "art 757 b code general des impots",
+            "article 1240b du code civil",
+            "art. 1240 b du code civil",
+            "article L. 1234-5 b du code du travail",
+        ] {
+            let corpus = corpus_with_civil_code();
+            let output = resolve(&corpus, citation).await;
+            assert_eq!(output.interpreted_as, None, "{citation}");
+            assert_eq!(output.candidates, [], "{citation}");
+            assert_eq!(output.notes, [Note::ArticleNotRead], "{citation}");
+            assert_eq!(corpus.calls(), 0, "{citation}");
+        }
+        // Jumeaux : sans article illisible, la note de l'absence de citation reste.
+        let corpus = FakeCorpus::new();
+        for citation in ["bonjour tout le monde", "1234-5 du code du travail"] {
+            let output = resolve(&corpus, citation).await;
+            assert_eq!(output.notes, [Note::NoCitationRecognised], "{citation}");
+        }
+        // Jumeau : la majuscule est lue et résolue.
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "787 B")));
+        let output = resolve(&corpus, "art. 787 B du code civil").await;
+        assert_eq!(output.candidates.len(), 1);
+        assert_eq!(output.interpreted_as.as_deref(), Some("Code civil, art. 787 B"));
+    }
+
+    /// U03 : une mention refusée placée avant une citation lue est signalée en tête des notes,
+    /// même si l'autre citation est résolue en confiance haute.
+    #[tokio::test]
+    async fn a_refused_first_mention_is_flagged_even_when_a_later_citation_resolves_u03() {
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "1240")));
+        let output = resolve(&corpus, "art. 757 b du CGI ; article 1240 du code civil").await;
+        assert_eq!(output.interpreted_as.as_deref(), Some("Code civil, art. 1240"));
+        assert_eq!(output.candidates.len(), 1);
+        assert_eq!(output.notes.first(), Some(&Note::ArticleNotRead), "{:?}", output.notes);
+        // Jumeau : sans mention refusée, aucune note d'article illisible.
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "1240")));
+        let output = resolve(&corpus, "article 1240 du code civil").await;
+        assert!(!output.notes.contains(&Note::ArticleNotRead), "{:?}", output.notes);
+    }
+
+    /// U03 : un article refusé à côté d'un texte résolu ajoute la note de l'article illisible.
+    #[tokio::test]
+    async fn a_refused_article_next_to_a_resolved_text_adds_the_unread_note_u03() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(texts(1)));
+        let output = resolve(&corpus, "art. 757 b du CGI ; loi n° 2016-1321").await;
+        assert_eq!(output.candidates.len(), 1);
+        assert_eq!(output.notes.first(), Some(&Note::ArticleNotRead), "{:?}", output.notes);
     }
 
     #[tokio::test]
