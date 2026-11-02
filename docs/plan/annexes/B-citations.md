@@ -311,6 +311,8 @@ MONTH        = "janvier" | "février" | "mars" | "avril" | "mai" | "juin" | "jui
 YEAR4        = /(1[5-9][0-9]{2}|20[0-9]{2})/ B ;
 DATE_PROSE   = DAY WS MONTH WS YEAR4 ;                         (* 7 octobre 2016 ; 07 novembre 2025 ; DU 4 JUIN 2025 *)
 DATE_NUM     = /(0?[1-9]|[12][0-9]|3[01])[\/.](0?[1-9]|1[0-2])[\/.]/ YEAR4 ;   (* 29/05/2026 *)
+             | /(0?[1-9]|[12][0-9]|3[01])-(0?[1-9]|1[0-2])-/ YEAR4 ;            (* 25-11-2015 : deux tirets, jurisprudence seule (AM-82) ; 12/05-2020 n'est pas une date ;
+                                                                                  les lecteurs de `jorf.rs` et de `codes.rs` ne lisent pas le tiret (limite, 1.2.0) *)
 DATE_ISO     = YEAR4 "-" /(0[1-9]|1[0-2])/ "-" /(0[1-9]|[12][0-9]|3[01])/ ;     (* 2026-04-30 *)
 MOIS_REPU    = "vendémiaire" | "brumaire" | "frimaire" | "nivôse" | "pluviôse" | "ventôse"
              | "germinal" | "floréal" | "prairial" | "messidor" | "thermidor" | "fructidor" ;
@@ -468,11 +470,12 @@ anaphore_txt  = "son" WS "article" WS art_num ;                      (* « Son a
 ### 4.5 Cour de cassation
 
 ```ebnf
-cass_decision = cass_court [ SEP cass_chamber ] SEP [ kind WS ] DATE_LINK SEP cass_numbers
-                  { SEP publication } [ WS? "(" solution ")" ] [ SEP form_pub ]        (* P095–P099, P102–P104, P106, P108 *)
+cass_decision = cass_court [ SEP cass_chamber ] SEP [ kind WS ] DATE_LINK NUMBER_LINK cass_numbers
+                  { SEP publication } [ CLOSER ] [ WS? "(" solution ")" ] [ SEP form_pub ]        (* P095–P099, P102–P104, P106, P108 ; U12 : parenthèse, crochet *)
+              | cass_court SEP cass_chamber SEP cass_numbers      (* sans date : chambre comparée, Medium (AM-84, U12) *)
               | cass_short SEP DATE SEP cass_numbers { SEP publication } [ WS? "(" solution ")" ]   (* citationJp : P090, P093, P094 *)
               | cass_short SEP DATE                                  (* sans numéro : numero_manquant (N20) *)
-              | cass_chamber_long SEP DATE_LINK SEP pourvoi          (* P107 *)
+              | cass_chamber_long [ WS "de la Cour de cassation" ] SEP DATE_LINK SEP pourvoi          (* P107 ; U12 G4 *)
               | lf_title_cass                                        (* titres Légifrance : P091, P092, P101 *)
               | cass_court WS? "(" cass_chamber_long SEP "arrêt" WS NUM_SIGN INT WS "du" WS DATE ")"   (* P105 *)
               | "Arrêt" WS NUM_SIGN INT [ WS form_letter ] WS "Pourvoi" WS NUM_SIGN [ key_letter ] pourvoi   (* en-tête, P100 *)
@@ -480,7 +483,10 @@ cass_decision = cass_court [ SEP cass_chamber ] SEP [ kind WS ] DATE_LINK SEP ca
               | NUM_SIGN pourvoi ;                                   (* juridiction inférée de la forme du numéro (N29) *)
 cass_court    = "Cass." | "Cass" | "Cour de cassation" | "C. cass." ;
 cass_chamber  = civ_n | "civ." | "com." | "soc." | "crim." | "ass. plén." | "ch. mixte" | "ch. réunies" | "req." | 'AP' ;
-civ_n         = ( ORD1_F | ORDN ) WS "civ." | "civ." WS ( ORD1_F | ORDN | INT ) ;   (* « Civ. 1ère », « civ. 4e » → drapeau *)
+civ_n         = ( ORD1_F | ORDN ) WS [ ( "chambre" | "ch." ) WS ] "civ." | ( ORD1_F | ORDN ) WS "ch." WS "civile"
+              | "civ." WS? ( ORD1_F | ORDN | INT ) ;   (* « Civ. 1ère », « civ. 4e » → drapeau ; « civ.1re » collé et « 2e ch. civ. » (U12) *)
+NUMBER_LINK   = SEP [ ( "(" | "[" ) WS? ] ;  (* l'ouverture n'est sautée que si cass_numbers la suit ; le tiret n'est PAS une jonction (U12 G3) *)
+CLOSER        = WS? ( ")" | "]" ) ;          (* le fermant qui correspond à l'ouverture sautée, juste après les numéros et leurs publications *)
 cass_short    = ( ORD1_F | ORDN ) WS "Civ." | "Civ." WS ( ORD1_F | ORDN | INT ) | "Com." | "Soc." | "Crim."
               | "Ass. plén." | "Ch. mixte" ;     (* seulement suivi de SEP DATE : sinon pas une chambre (N18, N19) *)
 cass_chamber_long = ( "première" | "deuxième" | "troisième" ) WS "chambre civile"
@@ -785,7 +791,7 @@ Les sigles et les préfixes sont cherchés sur `text` (casse significative) avec
 | Sigle `CP` après un article | `article 121-3 CP` | Code pénal, `Low`, `sigle_ambigu:CP` | N05 |
 | `Soc.`, `Com.` sans date | `la Soc. Générale`, `Com. de communes` | rien | N18, N19 |
 | Chambre civile > 3 | `Cass. civ. 4e, …` | `chamber = None`, `chambre_inexistante:civ4` | N08 |
-| Pourvoi seul | `n° 21-23.174` | `Decision { CCASS }`, `Medium`, `court_via = forme_du_numero` | N29 |
+| Pourvoi seul | `n° 21-23.174` | `Decision { CCASS }`, `Medium`, `court_via = forme_du_numero` ; drapeau `tete_decision_non_lue` si une date, un sigle ou une chambre non lus le précèdent (U12), sans changer le statut | N29 |
 | Pourvoi mal formé | `pourvoi n° 21-23.1745` | rien | N39 |
 | Numéro seul après un indice d'enregistrement | `sous le n° 506507` | `Decision { court: None }`, `juridiction_manquante` | N28 |
 | `Décision AAAA-N` sans type | `Décision 2025-1173` | `Decision { court: None }`, `juridiction_et_type_manquants` | N21 |
@@ -828,6 +834,7 @@ Le cas N28 est le plus exposé aux faux positifs (« facture n° 123456 ») : un
 | `CaaCodeSiegeIncoherent` | `caa_code_siege_incoherent` | code de CAA ≠ siège cité | Suspect | — |
 | `DateRepublicaine` | `date_republicaine` | date du calendrier républicain conservée brute | Info | — |
 | `MojibakeRepare` | `mojibake_repare` | l'étape 1 a modifié le texte | Info | P077, P109 |
+| `TeteDecisionNonLue` | `tete_decision_non_lue` | un pourvoi de la Cour de cassation est lu seul (N29) alors qu'une date (année à quatre chiffres, `j/m/aa`), un sigle ou une chambre précède le numéro (`Cass. soc., 25/11/15, n° …`, `req. n° …`) ; interne, jamais rendu | Info | U12 |
 
 **Ambiguïtés** (`Ambiguity`, une au plus par citation) : `code_manquant` (N02), `code_implicite` (N41), `texte_manquant` (N03, N26), `sigle_ambigu:<X>` (N04, N05), `anaphore_non_resolue`, `numero_manquant` (N20), `juridiction_manquante` (N28), `juridiction_et_type_manquants` (N21), `emetteur_inconnu` (N16), `convention_inconnue` (N17), `convention_non_identifiee` (N27), `reference_de_publication_seule` (N31), `appellation` (N35), `code_a_variantes` (§5.2).
 
@@ -1371,6 +1378,8 @@ Tri : confiance décroissante, puis égalité de date avec la date citée, puis 
 | `Mismatches` | `Cited {champ1} {cité1} differs from the official record ({officiel1}); {champ2} {cité2} differs ({officiel2})[; …].` à partir de deux champs durs en écart, dans l'ordre date, chambre, type de décision (ex. `Cited date 2021-05-05 differs from the official record (2000-12-20); chamber SOC differs (CIV1).`) ; un seul écart garde `Mismatch` (L2-05) | `invalid` |
 | `ChamberNotCompared` | `The cited chamber could not be compared: the official record gives a formation that is not a modern Cour de cassation chamber.` (L2-05, Q7) | `verified` |
 | `DateNotChecked` | `Date not checked: the record has no reliable date.` (CNIL, U06, AM-80 : date citée, fiche sans date fiable) | `verified` (confiance moyenne) |
+| `HeadNotRead` | `Only the case number was matched: the court, chamber or date written before it was not read and not checked.` (U12 : drapeau `tete_decision_non_lue`, posé par citation après la résolution) | `verified` |
+| `OnlyFirstNumberChecked` | `Only the first case number was checked.` (U12 : pourvois joints, un seul numéro est recherché) | `verified` |
 | `NativeEcli` | `Native ECLI is {ecli}.` | `invalid`, `verified` |
 | `Impossible` | `{fact}.` (ex. `There is no 4th civil chamber at the Cour de cassation.`) | `invalid` |
 | `AmbiguousSigle` | `'{sigle}' is ambiguous ({meanings}); name the code in full.` | `ambiguous` |
