@@ -23,3 +23,8 @@ xtask/src/lock_descriptors.rs
 crates/lf-application/src/citation/policy.rs
 crates/lf-application/src/citation/notes.rs
 crates/lf-domain/src/citation/unread.rs
+crates/lf-adapter-mcp/src/views/get_text.rs
+crates/lf-adapter-piste/src/corpus/port.rs
+crates/lf-application/src/usecase/search_all.rs
+crates/lf-adapter-mcp/src/views/search_all.rs
+crates/lf-adapter-audit/src/file.rs
