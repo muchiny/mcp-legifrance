@@ -39,6 +39,9 @@ const NUMBERLESS_TEXT: &str = "A text cited without a number cannot be checked h
 const NO_DECISION_REFERENCES: &str = "The API gives no references for this decision; its text may \
      still cite some: read it with fr_get_decision and check it with fr_verify_citations.";
 
+/// Texte de [`Note::DateNotChecked`].
+const DATE_NOT_CHECKED: &str = "Date not checked: the record has no reliable date.";
+
 /// Champ dont l'écart donne `invalid` (annexe B §6.6, champs durs de §7.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
@@ -155,6 +158,10 @@ pub enum Note {
     /// moderne (juridiction du fond, chambre historique, valeur inconnue) : le contrôle de la
     /// chambre n'a pas pu se faire, `verified` conservé.
     ChamberNotCompared,
+    /// Date citée d'une délibération ou décision de la CNIL, mais l'enregistrement officiel n'en a
+    /// pas de fiable (l'amont ne donne qu'une date de repli, 31 décembre ou 1er janvier) : la
+    /// date n'a pas pu être contrôlée, `verified` de confiance moyenne conservé (AM-80).
+    DateNotChecked,
     /// ECLI natif de la décision consultée.
     NativeEcli(Ecli),
     /// Impossibilité syntaxique relevée par le parseur : `invalid`.
@@ -509,6 +516,10 @@ impl Note {
 
     /// Texte anglais de la note, gabarit de l'annexe B §7.10, borné à [`NOTE_MAX_CHARS`] caractères.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "un gabarit par variante de `Note` : une branche de plus (AM-80)"
+    )]
     pub fn text(&self) -> String {
         let text = match self {
             Self::NotInForce { code, num, date } => fit(code, |code| {
@@ -528,6 +539,7 @@ impl Note {
             Self::ChamberNotCompared => "The cited chamber could not be compared: the official \
                  record gives a formation that is not a modern Cour de cassation chamber."
                 .to_owned(),
+            Self::DateNotChecked => DATE_NOT_CHECKED.to_owned(),
             Self::NativeEcli(ecli) => format!("Native ECLI is {ecli}."),
             Self::Impossible { fact } => format!("{fact}."),
             Self::AmbiguousSigle { sigle } => format!(
@@ -836,6 +848,11 @@ mod tests {
         ]
     }
 
+    /// La note d'une date citée que la fiche officielle ne permet pas de contrôler (AM-80).
+    fn date_catalogue() -> Vec<(Note, &'static str)> {
+        vec![(Note::DateNotChecked, "Date not checked: the record has no reliable date.")]
+    }
+
     /// Les notes de plage d'articles (L2-07).
     fn range_catalogue() -> Vec<(Note, &'static str)> {
         vec![
@@ -914,6 +931,7 @@ mod tests {
         for (note, expected) in catalogue()
             .into_iter()
             .chain(later_catalogue())
+            .chain(date_catalogue())
             .chain(range_catalogue())
             .chain(version_catalogue())
         {

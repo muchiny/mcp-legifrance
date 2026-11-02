@@ -2134,6 +2134,7 @@ mod tests {
                     ),
                     (Note::Mismatches(_), Note::Mismatches(vec![]), "Mismatches"),
                     (Note::ChamberNotCompared, Note::ChamberNotCompared, "ChamberNotCompared"),
+                    (Note::DateNotChecked, Note::DateNotChecked, "DateNotChecked"),
                     (Note::NativeEcli(_), Note::NativeEcli(ecli), "NativeEcli"),
                     (Note::Impossible { .. }, Note::Impossible { fact: "" }, "Impossible"),
                     (

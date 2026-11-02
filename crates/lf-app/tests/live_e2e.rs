@@ -286,14 +286,26 @@ mod scenarios {
         let deliberation =
             run.tool("7", "fr_get_deliberation", &json!({"deliberation_id": id})).await;
         assert_readable("7", &deliberation);
-        assert!(
-            deliberation["citation"]
-                .as_str()
-                .unwrap_or_default()
-                .starts_with("CNIL, délibération n°"),
-            "scenario 7: {}",
-            deliberation["citation"]
-        );
+        // Une assertion par cas (AM-80) : le mot de la citation suit le titre long ; une clôture
+        // est citée par son titre long verbatim ; sans titre long rendu, la forme « CNIL, … n° ».
+        let citation = deliberation["citation"].as_str().unwrap_or_default();
+        let title = deliberation["title"].as_str().unwrap_or_default();
+        // Le titre long est omis quand la citation le contient (une clôture) : la citation le dit.
+        let head = if title.is_empty() { citation } else { title };
+        let opening = head.split_whitespace().next().unwrap_or_default().to_lowercase();
+        if opening.starts_with("clôture") || opening.starts_with("cloture") {
+            assert_eq!(citation, head, "scenario 7 (clôture)");
+            assert!(title.is_empty(), "scenario 7 (clôture): {title}");
+        } else if opening == "décision" || opening == "decision" {
+            assert!(citation.starts_with("CNIL, décision n°"), "scenario 7 (décision): {citation}");
+        } else if opening == "délibération" || opening == "deliberation" {
+            assert!(
+                citation.starts_with("CNIL, délibération n°"),
+                "scenario 7 (délibération): {citation}"
+            );
+        } else {
+            assert!(citation.starts_with("CNIL, "), "scenario 7: {citation}");
+        }
 
         // 8. KALI : `convention collective`, 3 ; sa table des matières mène à des articles.
         let (id, _) = run.search("8", "KALI", "convention collective", 3).await;

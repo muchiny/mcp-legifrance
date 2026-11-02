@@ -1014,6 +1014,38 @@ mod budgets {
         insta::assert_json_snapshot!("case_report", report);
     }
 
+    /// U06 (AM-80) : une clôture CNIL dont le titre long fait 999 caractères riches en
+    /// échappements est citée verbatim (sous les 1 000 caractères de la citation), `title` est
+    /// omis, et la réponse, fenêtre de 40 000 caractères comprise, tient sous le plafond dur.
+    #[tokio::test]
+    async fn closure_with_999_char_long_title_fits_the_cap() {
+        let long: String =
+            format!("Clôture de la mise en demeure {}", nasty(999)).chars().take(999).collect();
+        assert_eq!(long.chars().count(), 999);
+        let text = nasty_paragraphs(6_500);
+        let closure = Deliberation {
+            num: Some("MED-2022-060".to_owned()),
+            nature: Some("Décision".to_owned()),
+            nature_delib: Some("Cloture".to_owned()),
+            title: Some("Décision MED-2022-060 du 16 septembre 2022".to_owned()),
+            title_long: Some(long.clone()),
+            ..deliberation(&text)
+        };
+        let fixture = Fixture::default();
+        fixture.corpus.push_get_deliberation(Ok(closure));
+        let arguments =
+            json!({"deliberation_id": DELIBERATION_ID, "detail": "full", "max_chars": 40_000});
+        let observed = Observed::of(&call(&fixture, "fr_get_deliberation", &arguments).await);
+        assert!(observed.error.is_none(), "{:?}", observed.error);
+        assert!(observed.chars <= CAP, "{} characters", observed.chars);
+        assert_eq!(observed.value["citation"], long.as_str());
+        assert!(observed.value.get("title").is_none(), "{}", observed.value["title"]);
+        assert!(!observed.value.to_string().contains("16 septembre"));
+        // La fenêtre est raccourcie, `next_offset` reste exact.
+        let window = observed.value["text"].as_str().expect("a text window");
+        assert_eq!(observed.value["next_offset"], window.chars().count());
+    }
+
     /// L4-06 (search-5). Cent résultats JURI aux citations typiques (une soixantaine de
     /// caractères) ne sont plus refusés : l'estimation à 64 par champ les refusait à partir de
     /// `page_size=97`, alors que la réponse exacte tient largement sous le plafond.

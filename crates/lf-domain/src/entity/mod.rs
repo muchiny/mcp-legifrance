@@ -135,7 +135,9 @@ mod tests {
                     nature: None,
                     nature_delib: None,
                     etat: None,
-                    date_texte: None,
+                    // Date connue : sans elle, le titre court (fabriqué avec la date de l'acte)
+                    // n'est plus le repli de la citation d'une délibération (AM-80).
+                    date_texte: crate::date::CivilDate::new(2026, 1, 8),
                     date_publication: None,
                     title: title.map(Into::into),
                     title_long: None,

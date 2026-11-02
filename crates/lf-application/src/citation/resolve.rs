@@ -833,7 +833,12 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
                         actual.to_string(),
                     ),
                     (Some(_), Some(_)) => verified(record, Confidence::High, None),
-                    _ => verified(record, Confidence::Medium, None),
+                    // Date citée, mais l'enregistrement n'en a pas de fiable (l'amont ne donne
+                    // qu'une date de repli) : ni écart ni confiance haute, et la note le dit.
+                    (Some(_), None) => {
+                        verified(record, Confidence::Medium, Some(Note::DateNotChecked))
+                    }
+                    (None, _) => verified(record, Confidence::Medium, None),
                 }
             }
             many => Resolution::of(candidates_of_hits(many)),
@@ -4156,6 +4161,89 @@ mod tests {
                 actual: "2026-01-09".to_owned()
             })
         );
+    }
+
+    /// Résolution de `cnil_item(cited)` sur une fiche `found`.
+    async fn resolve_cnil(cited: Option<CivilDate>, found: Deliberation) -> Resolution {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Cnil, "CNILTEXT000053352643")]));
+        corpus.push_get_deliberation(Ok(found));
+        resolve_with(&corpus, &codes(), &cnil_item(cited), None).await
+    }
+
+    /// Citation de la fiche d'un verdict `verified`.
+    fn verified_citation(outcome: Outcome) -> Option<String> {
+        if let Outcome::Verified { record, .. } = outcome { Some(record.citation) } else { None }
+    }
+
+    /// Fiche d'une décision CNIL dont la date a été retirée (date de repli de l'amont).
+    fn dateless_decision() -> Deliberation {
+        Deliberation {
+            num: Some("DF-2017-1448".to_owned()),
+            nature: Some("Décision".to_owned()),
+            date_texte: None,
+            title_long: Some("Décision DF-2017-1448 autorisant la société KEYMANTICS".to_owned()),
+            ..deliberation(civil(2017, 12, 31))
+        }
+    }
+
+    #[tokio::test]
+    async fn cnil_with_unknown_date_is_medium() {
+        // Citée « du 12 mai 2017 » sur une fiche sans date : jamais un faux écart, `verified` de
+        // confiance moyenne.
+        let resolution = resolve_cnil(Some(civil(2017, 5, 12)), dateless_decision()).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified, "{resolution:?}");
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+        // Citée « du 31 décembre 2017 » (la date de repli) : pas de `High` circulaire non plus.
+        let resolution = resolve_cnil(Some(civil(2017, 12, 31)), dateless_decision()).await;
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+        // La fiche rendue dit « décision », sans date.
+        assert_eq!(
+            verified_citation(resolution.outcome).as_deref(),
+            Some("CNIL, décision n° DF-2017-1448")
+        );
+        // Une fiche décision à date établie : « décision » et sa date.
+        let med = Deliberation {
+            num: Some("MED-2024-150".to_owned()),
+            nature: Some("Décision".to_owned()),
+            title_long: Some(
+                "Décision n° MED-2024-150 du 15 novembre 2024 mettant en demeure X".to_owned(),
+            ),
+            ..deliberation(civil(2024, 11, 15))
+        };
+        let resolution = resolve_cnil(Some(civil(2024, 11, 15)), med).await;
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+        assert_eq!(
+            verified_citation(resolution.outcome).as_deref(),
+            Some("CNIL, décision n° MED-2024-150 du 15 novembre 2024")
+        );
+    }
+
+    #[tokio::test]
+    async fn cnil_sanction_on_31_december_stays_high() {
+        // SAN-2021-024 : le 31 décembre est la vraie date (confirmée par le titre long), citée
+        // identique : `verified` de confiance haute, sans note.
+        let record = deliberation(civil(2021, 12, 31));
+        let resolution = resolve_cnil(Some(civil(2021, 12, 31)), record).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+        assert_eq!(resolution.outcome.note(Proof::Production), None);
+    }
+
+    #[tokio::test]
+    async fn cnil_cited_date_unverifiable_is_noted() {
+        // Date citée, fiche sans date : la note dit que la date n'a pas été contrôlée.
+        let resolution = resolve_cnil(Some(civil(2017, 5, 12)), dateless_decision()).await;
+        assert_eq!(resolution.outcome.note(Proof::Production), Some(Note::DateNotChecked));
+        assert_eq!(note(&resolution), "Date not checked: the record has no reliable date.");
+        // Aucune date citée, ou date citée sur une fiche datée : pas cette note.
+        let resolution = resolve_cnil(None, dateless_decision()).await;
+        assert_eq!(resolution.outcome.note(Proof::Production), None);
+        let resolution =
+            resolve_cnil(Some(civil(2026, 1, 8)), deliberation(civil(2026, 1, 8))).await;
+        assert_eq!(resolution.outcome.note(Proof::Production), None);
+        let resolution = resolve_cnil(None, deliberation(civil(2026, 1, 8))).await;
+        assert_eq!(resolution.outcome.note(Proof::Production), None);
     }
 
     #[tokio::test]

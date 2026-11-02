@@ -975,6 +975,19 @@ mod tests {
     }
 
     #[test]
+    fn cnil_forms_unchanged_by_u06() {
+        // U06 ne touche pas la forme canonique d'une citation LUE : « décision n° MED-2018-024 »
+        // est reconnue (cnil.rs) et rendue avec le mot « délibération », comme en 1.1.0.
+        let read = crate::citation::parse("CNIL, décision n° MED-2018-024");
+        assert_eq!(read.len(), 1, "{read:?}");
+        let one = read.first().unwrap();
+        assert!(
+            matches!(&one.value, CitationRef::CnilDeliberation(c) if c.year == 2018 && c.seq == 24)
+        );
+        assert_eq!(canonical(&one.value).as_deref(), Some("CNIL, délibération n° MED-2018-024"));
+    }
+
+    #[test]
     fn cnil_forms() {
         let render = |series, year, seq, on| {
             canonical(&CitationRef::CnilDeliberation(cnil(series, year, seq, on)))
