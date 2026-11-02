@@ -1363,6 +1363,7 @@ Tri : confiance décroissante, puis égalité de date avec la date citée, puis 
 | `Mismatch` | `Cited {field} {cited} differs from the official record ({actual}).` | `invalid` |
 | `Mismatches` | `Cited {champ1} {cité1} differs from the official record ({officiel1}); {champ2} {cité2} differs ({officiel2})[; …].` à partir de deux champs durs en écart, dans l'ordre date, chambre, type de décision (ex. `Cited date 2021-05-05 differs from the official record (2000-12-20); chamber SOC differs (CIV1).`) ; un seul écart garde `Mismatch` (L2-05) | `invalid` |
 | `ChamberNotCompared` | `The cited chamber could not be compared: the official record gives a formation that is not a modern Cour de cassation chamber.` (L2-05, Q7) | `verified` |
+| `DateNotChecked` | `Date not checked: the record has no reliable date.` (CNIL, U06, AM-80 : date citée, fiche sans date fiable) | `verified` (confiance moyenne) |
 | `NativeEcli` | `Native ECLI is {ecli}.` | `invalid`, `verified` |
 | `Impossible` | `{fact}.` (ex. `There is no 4th civil chamber at the Cour de cassation.`) | `invalid` |
 | `AmbiguousSigle` | `'{sigle}' is ambiguous ({meanings}); name the code in full.` | `ambiguous` |
