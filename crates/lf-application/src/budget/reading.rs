@@ -602,6 +602,33 @@ mod tests {
     }
 
     #[test]
+    fn an_ordonnance_dispositif_is_not_flagged_truncated() {
+        // Texte de plus de 1 200 caractères : le mode résumé ne le rend pas entier. Le dispositif
+        // d'une ordonnance (« O R D O N N E : » jusqu'à `Fait à`) tient dans le plafond : il est
+        // complet, `summary_truncated` est faux.
+        let decision = long(&format!(
+            "{}\n\nO R D O N N E :\n\nArticle 1er : La requête est rejetée.\n\n\
+             Fait à Paris, le octobre 2026\n\nSigné : Philippe Ranquet",
+            paragraphs(20, 4)
+        ));
+        let short = read(&decision, None, DispositifRule::ConseilEtat, &request(|_| {})).unwrap();
+        let summary = short.summary.as_ref().unwrap();
+        assert_eq!(summary.source, SummarySource::Dispositif);
+        assert_eq!(summary.text, "Article 1er : La requête est rejetée.");
+        assert!(!short.summary_truncated);
+        // Dispositif plus long que le plafond : coupé, et signalé.
+        let long_dispositif = long(&format!(
+            "{}\n\nO R D O N N E :\n\n{}\n\nFait à Paris, le octobre 2026",
+            paragraphs(20, 4),
+            paragraphs(10, 4)
+        ));
+        let cut =
+            read(&long_dispositif, None, DispositifRule::ConseilEtat, &request(|_| {})).unwrap();
+        assert_eq!(cut.summary.as_ref().map(|s| s.source), Some(SummarySource::Dispositif));
+        assert!(cut.summary_truncated);
+    }
+
+    #[test]
     fn a_whole_text_with_a_cut_official_summary_flags_the_summary() {
         // Texte court (article de 1 800 caractères, donc rendu entier) et sommaire officiel de
         // 1 600 caractères, coupé au plafond de 1 200 : le texte est entier, le sommaire non.
