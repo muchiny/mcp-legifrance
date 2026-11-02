@@ -1655,10 +1655,11 @@ Les volumes réels (grandes décisions, longues TOC, codes) ne sont connus qu'ap
 ### 13.3 CHANGELOG
 
 - Format Keep a Changelog 1.1.0 et SemVer, avec la règle d'avant 1.0 de 05 §9.5 (une rupture ou un ajout fait passer de `0.x` à `0.(x+1).0`).
-- Rubriques : `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`, plus trois rubriques propres au projet :
+- Rubriques : `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`, plus quatre rubriques propres au projet :
   - **Tool surface** : obligatoire dès que le verrou change, même pour une simple reformulation, car les clients qui épinglent redemandent une approbation (05 §9.5) ;
   - **Parity** : divergences de parité introduites, avec leur clé de l'annexe A §4 ;
-  - **Protocol** : versions servies, comportements par ère, montée de rmcp.
+  - **Protocol** : versions servies, comportements par ère, montée de rmcp ;
+  - **Documentation** : correction d'une phrase fausse d'une section déjà publiée (jamais réécrite : l'erreur y reste, la correction est dans le journal) ou ajout d'une limite connue, sans changement de comportement.
 - Une section `Unreleased` en tête ; chaque version porte sa date ISO et un lien de comparaison.
 - La v0.1.0 contient la note de migration depuis la référence (annexe A §6).
 - Contrôles du job de release (§7.1) : `changelog_has_entry_for_version` (une section existe pour la version du crate) ; `cargo xtask lock-descriptors --compare <étiquette précédente>` (la classe de changement de la surface correspond au saut de version, et la rubrique « Tool surface » est présente si le verrou a changé).

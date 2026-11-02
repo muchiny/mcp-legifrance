@@ -1,10 +1,10 @@
 # ADR-0023 — Article entier jusqu'à 2 000 caractères en mode résumé et plafond de `tools/list` de la 1.1.0
 
-- **Statut** : **Proposé** (accepté à la fusion de la PR 2 de la 1.1.0 ; Q20 = B et Q27 = A sont des décisions du propriétaire, le recalcul du plafond selon la règle d'AM-63 est de l'orchestrateur de la revue finale et le propriétaire le confirmera à la PR)
+- **Statut** : **Accepté** le 2026-11-02, à la fusion de la PR #63 (PR 2 de la 1.1.0). Q20 = B et Q27 = A sont des décisions du propriétaire ; le recalcul du plafond selon la règle d'AM-63 (36 500 octets) est de l'orchestrateur de la revue finale, et le propriétaire l'a confirmé à l'acceptation du plan 1.1.1 (2026-11-02), où il a accepté les recommandations
 - **Date** : 2026-11-02
 - **Jalons concernés** : version 1.1.0 (tâche D-01 du plan de correction, constat decisions-4 ; tâche D-12 pour les descriptions)
 - **Questions liées** : Q20 (décidée : B, par le propriétaire), Q27 (décidée : A, par le propriétaire)
-- Amendements : AM-72 et AM-73 (00 §14), proposés jusqu'à la fusion. Amende 03 §7.9, 05 §5.3 et §6.6, 06 §12.2 et AM-63.
+- Amendements : AM-72 et AM-73 (00 §14), acceptés avec lui. Amende 03 §7.9, 05 §5.3 et §6.6, 06 §12.2 et AM-63.
 
 ## Contexte
 
@@ -25,7 +25,7 @@ Deux règles de la 1.1.0 modifient des valeurs posées en 00, ce qui exige un AD
 
 - La règle d'AM-63 s'applique à la mesure **finale** : mesure 35 424 octets, plus 3 % (36 486,72), arrondie à la centaine supérieure : **36 500** octets pour v0.3 (v0.1 : 20 000 et v0.2 : 24 000 inchangés), soit 1 076 octets de marge. La valeur est la même qu'au premier tour de la revue finale (35 395 octets donnaient 36 456,85, donc 36 500).
 - Même valeur dans `descriptor_size_budget` (`crates/lf-adapter-mcp/tests/budgets.rs`) et dans `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`).
-- **Origine des chiffres.** Q27 = A (34 500) est une décision du propriétaire. Le passage à 36 500 est un **recalcul de l'orchestrateur** selon la règle d'AM-63, non une décision du propriétaire : le propriétaire le confirmera à la PR. Il est à recalculer si la mesure change (mesure plus 3 %, arrondie à la centaine supérieure) aux deux endroits et dans 05 §6.6, 06 §12.2, AM-73 et le CHANGELOG.
+- **Origine des chiffres.** Q27 = A (34 500) est une décision du propriétaire. Le passage à 36 500 est un **recalcul de l'orchestrateur** selon la règle d'AM-63, non une décision du propriétaire : le propriétaire l'a confirmé à l'acceptation du plan 1.1.1 (2026-11-02). Il est à recalculer si la mesure change (mesure plus 3 %, arrondie à la centaine supérieure) aux deux endroits et dans 05 §6.6, 06 §12.2, AM-73 et le CHANGELOG.
 - La limite de 3 500 caractères des instructions ne bouge pas (3 499 mesurés) : une règle courte y figure, la règle complète est dans la description du champ `etat` de `fr_get_text`.
 
 ## Conséquences
