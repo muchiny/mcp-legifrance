@@ -578,3 +578,230 @@ proptest! {
         prop_assert_eq!(pairs.len(), 2, "{:?} : {:?}", input, read);
     }
 }
+
+// U12 : un pourvoi de la Cour de cassation cité avec une date à tirets, un sigle collé, un
+// numéro entre parenthèses ou une chambre sans date est lu en entier ; la tête qui ne l'est pas
+// est signalée par un drapeau.
+mod u12 {
+    use lf_domain::citation::dict::courts::CassChamber;
+    use lf_domain::citation::{Ambiguity, CitationRef, Court, Flag, Spanned, parse};
+    use lf_domain::date::CivilDate;
+    use proptest::prelude::*;
+
+    /// Une décision lue : texte du span, date, chambre, drapeau de tête non lue, ambiguïté.
+    type Read = (String, Option<CivilDate>, Option<CassChamber>, bool, Option<Ambiguity>);
+
+    fn reads(input: &str) -> Vec<Read> {
+        parse(input)
+            .iter()
+            .filter_map(|c| {
+                let CitationRef::Decision(d) = &c.value else { return None };
+                let Some(Court::CourDeCassation { chamber }) = d.court else { return None };
+                Some((
+                    input.get(c.span.start..c.span.end)?.to_owned(),
+                    d.date,
+                    chamber,
+                    c.flags.contains(&Flag::TeteDecisionNonLue),
+                    c.ambiguity.clone(),
+                ))
+            })
+            .collect()
+    }
+
+    fn day(y: u16, m: u8, d: u8) -> Option<CivilDate> {
+        CivilDate::new(y, m, d)
+    }
+
+    const POURVOI: &str = "n° 14-24.444";
+
+    /// V1 à V8 : les dates à tirets et le sigle collé sont lus en entier, chambre et date comprises.
+    #[test]
+    fn the_reported_drafts_and_variants_v1_to_v17() {
+        let whole = |input: &str, date, chamber| {
+            assert_eq!(reads(input), [(input.to_owned(), date, chamber, false, None)], "{input}");
+        };
+        // V1 à V3 : les trois entrées du rapport.
+        whole("Cass. crim. 01-01-2000, n° 14-24.444", day(2000, 1, 1), Some(CassChamber::Crim));
+        whole("Cass. soc. 25-11-2015, n° 14-24.444", day(2015, 11, 25), Some(CassChamber::Soc));
+        whole("Cass. crim. 25-11-2015, n° 14-24.444", day(2015, 11, 25), Some(CassChamber::Crim));
+        // V4.
+        // Le sigle collé à « Cass. » : le span commence au sigle (comme « Cass.crim. »).
+        whole("soc. 25-11-2015 n° 14-24.444", day(2015, 11, 25), Some(CassChamber::Soc));
+        let got = reads("Cass.soc. 25-11-2015 n° 14-24.444");
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].0, "soc. 25-11-2015 n° 14-24.444");
+        whole("Cass. soc., le 25-11-2015, n° 14-24.444", day(2015, 11, 25), Some(CassChamber::Soc));
+        whole(
+            "Cour de cassation, chambre criminelle, 25-11-2015, n° 14-24.444",
+            day(2015, 11, 25),
+            Some(CassChamber::Crim),
+        );
+        // « ch. soc. » : la lecture commence au sigle, comme en 1.1.0.
+        whole("soc. 25/11/2015 n° 14-24.444", day(2015, 11, 25), Some(CassChamber::Soc));
+        // V5 : sans « n° », la date à tirets est lue.
+        whole("Cass. soc. 25-11-2015, 14-24.444", day(2015, 11, 25), Some(CassChamber::Soc));
+        // V6 à V8 : sigle collé.
+        whole("civ.1re, 4 juin 2025, n° 24-13.470", day(2025, 6, 4), Some(CassChamber::Civ1));
+        let got = reads("Cass.civ.1re, 4 juin 2025, n° 24-13.470");
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].0, "civ.1re, 4 juin 2025, n° 24-13.470");
+        let got = reads("Cass.civ.2e, 4 juin 2025, n° 24-13.470");
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].2, Some(CassChamber::Civ2));
+        let got = reads("Cass.civ.1re, 4 juin 2024, n° 24-13.470");
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].1, day(2024, 6, 4));
+        // V9 à V12 : une seule citation, le numéro est dans le span (V12 : le tiret ne lie pas).
+        whole("Cass. com., 12 mars 1999 (n° 14-24.444)", day(1999, 3, 12), Some(CassChamber::Com));
+        for input in [
+            "Cass. crim. 25 novembre 2015 (pourvoi n° 14-24.444)",
+            "Cass. soc. du 25 novembre 2015 (pourvoi n° 14-24.444)",
+            "Cass. soc., arrêt du 25 novembre 2015 (n° 14-24.444)",
+            "Cass. soc., 25 novembre 2015, [n° 14-24.444]",
+            "Cass. soc., 25 novembre 2015 [n° 14-24.444]",
+        ] {
+            let got = reads(input);
+            assert_eq!(got.len(), 1, "{input} : {got:?}");
+            assert_eq!(got[0].0, input, "{input}");
+            assert_eq!(got[0].1, day(2015, 11, 25), "{input}");
+            assert!(!got[0].3, "{input}");
+        }
+        let got = reads("Cass. crim., 25 novembre 2015 - n° 14-24.444");
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert_eq!(got[0].4, Some(Ambiguity::NumeroManquant));
+        assert!(got[1].3, "V12 : le pourvoi lu seul porte le drapeau : {got:?}");
+        // V13 à V16 : tête non lisible, signalée.
+        for input in [
+            "Cass. crim., 25 novembre 2015, req. n° 14-24.444",
+            "Cass. crim., 25/11/15, n° 14-24.444",
+            "Cass. soc., 25.11.15, n° 14-24.444",
+            "Cass. crim., nov. 2015, n° 14-24.444",
+        ] {
+            let got = reads(input);
+            let flagged = got.iter().filter(|r| r.3).count();
+            assert_eq!(flagged, 1, "{input} : {got:?}");
+        }
+        // V16 : chambre sans date, lue (AM-84), comparée par l'application.
+        let got = reads("Cass. soc., pourvoi n° 24-13.470");
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].0, "Cass. soc., pourvoi n° 24-13.470");
+        assert_eq!(got[0].2, Some(CassChamber::Soc));
+        // V17 : sans « n° » derrière la parenthèse, le pourvoi n'est plus perdu.
+        let got = reads("Cass. soc. 25 novembre 2015 (14-24.444)");
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].0, "Cass. soc. 25 novembre 2015 (14-24.444)");
+    }
+
+    /// Garde : les formes déjà complètes et le pourvoi nu gardent leur lecture (contrôles OK du rapport).
+    #[test]
+    fn the_complete_forms_and_the_bare_number_are_read_as_in_1_1_0() {
+        for (input, date, chamber) in [
+            (
+                "Cass. soc., 25 novembre 2015, n° 14-24.444",
+                day(2015, 11, 25),
+                Some(CassChamber::Soc),
+            ),
+            (
+                "Cass. com., 25 novembre 2015, n° 14-24.444",
+                day(2015, 11, 25),
+                Some(CassChamber::Com),
+            ),
+            ("Cass. crim. 25/11/2015 n° 14-24.444", day(2015, 11, 25), Some(CassChamber::Crim)),
+            ("Cass. crim. 25.11.2015 n° 14-24.444", day(2015, 11, 25), Some(CassChamber::Crim)),
+            (
+                "Cass. civ. 1ère, 4 juin 2025, n° 24-13.470",
+                day(2025, 6, 4),
+                Some(CassChamber::Civ1),
+            ),
+            ("Cass. 1re civ., 4 juin 2025, n° 24-13.470", day(2025, 6, 4), Some(CassChamber::Civ1)),
+            ("Civ. 1re, 4 juin 2025, 24-13.470", day(2025, 6, 4), Some(CassChamber::Civ1)),
+        ] {
+            let got = reads(input);
+            assert_eq!(got.len(), 1, "{input} : {got:?}");
+            assert_eq!(got[0].0, input, "{input}");
+            assert_eq!((got[0].1, got[0].2, got[0].3), (date, chamber, false), "{input}");
+        }
+        assert_eq!(reads(POURVOI), [(POURVOI.to_owned(), None, None, false, None)]);
+    }
+
+    /// Les trois entrées du rapport : le nombre de citations lues.
+    #[test]
+    fn the_reported_sentence_reads_three_decisions() {
+        let input = "Cass. crim. 01-01-2000, n° 14-24.444 ; Cass. com., 12 mars 1999 (n° 14-24.444) ; Cass. crim. 1/1/2000 n° 14-24.444";
+        let got = reads(input);
+        assert_eq!(got.len(), 3, "{got:?}");
+        assert_eq!(got[0].0, "Cass. crim. 01-01-2000, n° 14-24.444");
+        assert_eq!(got[1].0, "Cass. com., 12 mars 1999 (n° 14-24.444)");
+        assert_eq!(got[2].0, "Cass. crim. 1/1/2000 n° 14-24.444");
+    }
+
+    /// Les familles voisines lisent aussi les dates à tirets, comme les dates à barres.
+    #[test]
+    fn neighbour_families_keep_their_slash_reading_and_gain_dashes() {
+        for (dashed, slashed) in [
+            ("CE, 12-03-2020, n° 123456", "CE, 12/03/2020, n° 123456"),
+            ("CAA Paris, 12-03-2020, n° 18PA01234", "CAA Paris, 12/03/2020, n° 18PA01234"),
+            (
+                "Cons. const., décision n° 2020-123 QPC du 12-03-2020",
+                "Cons. const., décision n° 2020-123 QPC du 12/03/2020",
+            ),
+            ("TA Lyon, 12-03-2020, n° 1801234", "TA Lyon, 12/03/2020, n° 1801234"),
+        ] {
+            let slash = parse(slashed);
+            assert!(!slash.is_empty(), "{slashed}");
+            let dash = parse(dashed);
+            let values =
+                |v: &[Spanned<CitationRef>]| v.iter().map(|c| c.value.clone()).collect::<Vec<_>>();
+            assert_eq!(values(&dash), values(&slash), "{dashed}");
+            assert_eq!(dash.len(), slash.len(), "{dashed}");
+        }
+    }
+
+    /// Garde : les numéros d'affaire à tirets ne sont jamais lus comme des dates, ni les lois à tirets.
+    #[test]
+    fn numbered_cases_with_dashes_are_never_dates() {
+        let value = |input: &str| parse(input).into_iter().map(|c| c.value).collect::<Vec<_>>();
+        for input in [
+            "Cons. const., décision n° 2020-123 QPC",
+            "Cons. const., décision n° 71-44 DC",
+            "Cass. soc., n° 10-12.345",
+            "CE, n° 12-12-345",
+        ] {
+            let found = value(input);
+            for v in &found {
+                if let CitationRef::Decision(d) = v {
+                    assert_eq!(d.date, None, "{input} : {d:?}");
+                }
+            }
+        }
+        // Le lecteur des lois ne change pas (garantie 14 n° 8).
+        let found = parse("loi n° 89-462 du 6-07-1989");
+        let again = parse("loi n° 89-462 du 6-07-1989");
+        assert_eq!(found, again);
+    }
+
+    proptest! {
+        /// Une date valide à tirets, à barres ou à points donne la même lecture ; le numéro entre
+        /// parenthèses ou après la virgule aussi, pour toutes les chambres.
+        #[test]
+        fn dash_slash_and_parenthesis_forms_parse_alike(
+            d in 1_u8..=28, m in 1_u8..=12, y in 1950_u16..=2025,
+            chamber in prop::sample::select(vec!["soc.", "crim.", "com.", "civ. 1re", "civ. 2e", "civ. 3e", "ass. plén."]),
+        ) {
+            let canon = format!("Cass. {chamber}, {d}/{m}/{y}, n° 14-24.444");
+            let want = parse(&canon);
+            prop_assert_eq!(want.len(), 1);
+            for variant in [
+                format!("Cass. {chamber}, {d}-{m}-{y}, n° 14-24.444"),
+                format!("Cass. {chamber}, {d}.{m}.{y}, n° 14-24.444"),
+                format!("Cass. {chamber}, {d}-{m}-{y} (n° 14-24.444)"),
+                format!("Cass. {chamber}, {d}/{m}/{y} [n° 14-24.444]"),
+            ] {
+                let got = parse(&variant);
+                prop_assert_eq!(got.len(), 1, "{}", variant);
+                prop_assert_eq!(&got[0].value, &want[0].value, "{}", variant);
+                prop_assert_eq!(got[0].span.end.saturating_sub(got[0].span.start), variant.len(), "{}", variant);
+            }
+        }
+    }
+}

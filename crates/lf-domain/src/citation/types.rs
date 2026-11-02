@@ -258,6 +258,9 @@ pub enum Flag {
     DateRepublicaine,
     /// L'étape 1 de la normalisation a modifié le texte.
     MojibakeRepare,
+    /// Un pourvoi de la Cour de cassation est lu seul alors qu'une date, une chambre ou un sigle
+    /// est écrit juste avant lui : la tête de la décision n'a pas été lue (U12).
+    TeteDecisionNonLue,
 }
 
 impl Flag {
@@ -280,6 +283,7 @@ impl Flag {
             Self::CaaCodeSiegeIncoherent => "caa_code_siege_incoherent".into(),
             Self::DateRepublicaine => "date_republicaine".into(),
             Self::MojibakeRepare => "mojibake_repare".into(),
+            Self::TeteDecisionNonLue => "tete_decision_non_lue".into(),
         }
     }
 
@@ -298,7 +302,9 @@ impl Flag {
             | Self::AnneeImprobable
             | Self::TypeCcInconnu(_)
             | Self::CaaCodeSiegeIncoherent => Severity::Suspect,
-            Self::DateRepublicaine | Self::MojibakeRepare => Severity::Info,
+            Self::DateRepublicaine | Self::MojibakeRepare | Self::TeteDecisionNonLue => {
+                Severity::Info
+            }
         }
     }
 }
@@ -1878,6 +1884,7 @@ mod tests {
             (Flag::CaaCodeSiegeIncoherent, "caa_code_siege_incoherent", Suspect),
             (Flag::DateRepublicaine, "date_republicaine", Info),
             (Flag::MojibakeRepare, "mojibake_repare", Info),
+            (Flag::TeteDecisionNonLue, "tete_decision_non_lue", Info),
         ];
         for (flag, code, severity) in table {
             assert_eq!(flag.code(), code);

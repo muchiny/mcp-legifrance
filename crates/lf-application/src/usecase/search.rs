@@ -2134,6 +2134,12 @@ mod tests {
                     ),
                     (Note::Mismatches(_), Note::Mismatches(vec![]), "Mismatches"),
                     (Note::ChamberNotCompared, Note::ChamberNotCompared, "ChamberNotCompared"),
+                    (Note::HeadNotRead, Note::HeadNotRead, "HeadNotRead"),
+                    (
+                        Note::OnlyFirstNumberChecked,
+                        Note::OnlyFirstNumberChecked,
+                        "OnlyFirstNumberChecked"
+                    ),
                     (Note::DateNotChecked, Note::DateNotChecked, "DateNotChecked"),
                     (Note::NativeEcli(_), Note::NativeEcli(ecli), "NativeEcli"),
                     (Note::Impossible { .. }, Note::Impossible { fact: "" }, "Impossible"),
@@ -2324,6 +2330,7 @@ mod tests {
                     ),
                     (Flag::DateRepublicaine, Flag::DateRepublicaine, "date_republicaine"),
                     (Flag::MojibakeRepare, Flag::MojibakeRepare, "mojibake_repare"),
+                    (Flag::TeteDecisionNonLue, Flag::TeteDecisionNonLue, "tete_decision_non_lue"),
                 ]
             );
         }

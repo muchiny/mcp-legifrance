@@ -31,6 +31,7 @@ use lf_domain::{
 use crate::{
     citation::{
         Candidate, CandidateKind, Note, ResolvedRecord,
+        notes::reading_gaps,
         policy::MAX_CANDIDATES,
         resolve::{CodeTable, Outcome, Proof, Resolver, needs_codes},
     },
@@ -115,6 +116,9 @@ impl<'a, C: LegalCorpus, K: Clock> ResolveUseCase<'a, C, K> {
             notes.push(Note::ArticleNotRead);
         }
         notes.extend(note_of(&outcome, self.proof));
+        if matches!(outcome, Outcome::Verified { .. }) {
+            notes.extend(reading_gaps(first));
+        }
         if !others.is_empty() {
             notes.push(Note::OtherCitations { count: others.len() });
         }
@@ -767,6 +771,49 @@ mod tests {
             ]
         );
         assert_eq!(corpus.calls_of("find_article"), 1, "une seule citation est cherchée");
+    }
+
+    /// U12 : `fr_resolve` porte la même note de tête non lue que `fr_verify_citations`, et rien
+    /// quand la tête est lue.
+    #[tokio::test]
+    async fn resolve_reports_an_unread_head_like_verify() {
+        use lf_domain::{
+            entity::{Decision, OfficialSummary},
+            id::DecisionId,
+        };
+        let id = "JURITEXT000031539712";
+        let corpus_for = || {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![
+                SearchHit::new(Fond::Juri, DocumentId::parse(id).unwrap(), None).unwrap(),
+            ]));
+            corpus.push_get_decision(Ok(Decision {
+                decision_id: DecisionId::parse(id).unwrap(),
+                ecli: None,
+                num: None,
+                juridiction: None,
+                formation: Some("CHAMBRE_SOCIALE".to_owned()),
+                solution: None,
+                numero_affaire: vec![],
+                date_texte: CivilDate::new(2015, 11, 25),
+                nature: Some("ARRET".to_owned()),
+                title: None,
+                text: LongText::from_plain("Texte de la décision.").unwrap(),
+                official_summary: OfficialSummary::default(),
+                cited_case_law: None,
+                applied_texts: vec![],
+            }));
+            corpus
+        };
+        let unread = resolve(&corpus_for(), "Cass. soc., 25/11/15, n° 14-24.444").await;
+        assert_eq!(unread.candidates.len(), 1);
+        assert_eq!(unread.notes, [Note::HeadNotRead]);
+        let right = resolve(&corpus_for(), "Cass. soc. 25-11-2015, n° 14-24.444").await;
+        assert_eq!(right.candidates.len(), 1);
+        assert_eq!(right.notes, []);
+        let joined =
+            resolve(&corpus_for(), "Cass. soc., 25 novembre 2015, n° 14-24.444 et 14-24.445").await;
+        assert_eq!(joined.notes, [Note::OnlyFirstNumberChecked]);
     }
 
     #[tokio::test]

@@ -1177,6 +1177,15 @@ mod tests {
         }
     }
 
+    /// Garantie 14 n° 8 (U12) : le lecteur des lois ne lit pas les dates à tirets ; seule la
+    /// jurisprudence (`cassation::lex`) les lit. Limite écrite, 1.2.0.
+    #[test]
+    fn a_dashed_date_is_not_a_date_in_jorf_u12() {
+        for text in ["6-07-1989", "01-01-2020", "10-01-2019", "25-11-2015"] {
+            assert_eq!(win0(text).date(0), None, "{text}");
+        }
+    }
+
     #[test]
     fn every_date_form_of_annex_b_4_1() {
         let at = |text: &str| {

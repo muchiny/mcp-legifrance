@@ -415,6 +415,7 @@ mod tests {
                         " et ", ", ", "loi n° 2016-1321", " du 7 octobre 2016", " susvisée",
                         "Cass. civ. 1re, 5 mai 2021, n° 19-12.345", "ECLI:FR:CCASS:2021:C100399",
                         "NOR : ECFI1524250L", "150-0 B ter", "199 terdecies-0 A", " bis", " ter", "-0 ", "<p>", "</p>", "&nbsp;", "Ã©", "\u{200b}", "\n",
+                        " (n° 14-24.444)", "25-11-2015", "civ.1re", " - n° ", " [", "Cass.", " req. n° ", "25/11/15",
                     ]),
                     0..20,
                 ),

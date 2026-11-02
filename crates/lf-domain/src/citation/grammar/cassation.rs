@@ -380,6 +380,32 @@ pub(crate) mod lex {
         ("douzieme", 12),
     ];
 
+    /// Mots de la vue clé qui, juste avant un pourvoi, annoncent une juridiction ou une chambre
+    /// de la Cour de cassation non lue.
+    const HEAD_WORDS: [&str; 21] = [
+        "cass",
+        "cassation",
+        "crim",
+        "civ",
+        "soc",
+        "com",
+        "plen",
+        "mixte",
+        "reunies",
+        "criminelle",
+        "sociale",
+        "commerciale",
+        "civile",
+        "req",
+        "requetes",
+        "1re",
+        "1ere",
+        "2e",
+        "2eme",
+        "3e",
+        "3eme",
+    ];
+
     impl Cur<'_> {
         /// Caractère du texte normalisé.
         pub(crate) fn ch(&self, i: usize) -> Option<char> {
@@ -646,14 +672,20 @@ pub(crate) mod lex {
             Some(Self::dated(e, y, m, d))
         }
 
-        /// `DATE_NUM` : `29/05/2026`, `9.6.2026`.
+        /// `DATE_NUM` : `29/05/2026`, `9.6.2026`, `29-05-2026`. Le tiret ne vaut qu'aux deux
+        /// séparateurs à la fois : `12/05-2020` n'est pas une date.
         fn date_num(&self, i: usize) -> Option<DateHit> {
             let e = self.digits(i, 1, 2)?;
             let d = u8::try_from(self.val(i, e)).unwrap_or(0);
-            (matches!(self.ch(e), Some('/' | '.')) && (1..=31).contains(&d)).then_some(())?;
-            let me = self.digits(e + 1, 1, 2)?;
-            let m = u8::try_from(self.val(e + 1, me)).unwrap_or(0);
-            (matches!(self.ch(me), Some('/' | '.')) && (1..=12).contains(&m)).then_some(())?;
+            let dashed = self.is(e, '-');
+            (dashed || matches!(self.ch(e), Some('/' | '.'))).then_some(())?;
+            (1..=31).contains(&d).then_some(())?;
+            let ms = e + 1;
+            let me = self.digits(ms, 1, 2)?;
+            let m = u8::try_from(self.val(ms, me)).unwrap_or(0);
+            let second =
+                if dashed { self.is(me, '-') } else { matches!(self.ch(me), Some('/' | '.')) };
+            (second && (1..=12).contains(&m)).then_some(())?;
             let (e, y) = self.year4(me + 1)?;
             Some(Self::dated(e, y, m, d))
         }
@@ -727,6 +759,71 @@ pub(crate) mod lex {
             self.kwb(w, "de").and_then(|x| self.ws(x)).or_else(|| self.kw(w, "d'"))
         }
 
+        /// Caractères de la vue clé avant `end`, du plus proche au plus lointain.
+        fn back(&self, end: usize) -> impl Iterator<Item = char> + '_ {
+            self.k.get(..end).unwrap_or_default().iter().rev().copied()
+        }
+
+        /// Recule depuis `p` tant que le caractère de la vue clé précédent est un séparateur de
+        /// tête (espace, ponctuation, parenthèse, crochet, tiret).
+        fn back_over_separators(&self, p: usize) -> usize {
+            let n = self
+                .back(p)
+                .take_while(|c| matches!(c, ' ' | ',' | ';' | ':' | '(' | ')' | '[' | ']' | '-'))
+                .count();
+            p.saturating_sub(n)
+        }
+
+        /// Mot (lettres et chiffres de la vue clé) qui finit en `end`, et son début.
+        fn word_before(&self, end: usize) -> (usize, String) {
+            let start =
+                end.saturating_sub(self.back(end).take_while(|c| c.is_alphanumeric()).count());
+            (start, self.key_text(start, end))
+        }
+
+        /// La séquence de chiffres et de séparateurs `/`, `.`, `-` qui finit en `end` est-elle une
+        /// date : une année de quatre chiffres entre 1500 et 2099, ou `j/m/aa` ?
+        fn date_run_before(&self, end: usize) -> bool {
+            let n = self
+                .back(end)
+                .take_while(|c| c.is_ascii_digit() || matches!(c, '/' | '.' | '-'))
+                .count();
+            let run = self.key_text(end.saturating_sub(n), end);
+            let groups: Vec<&str> =
+                run.trim_start_matches(['/', '.', '-']).split(['/', '.', '-']).collect();
+            match groups.as_slice() {
+                [.., year] if year.len() == 4 => {
+                    year.parse::<u16>().is_ok_and(|y| (1500..=2099).contains(&y))
+                }
+                [day, month, year] => {
+                    year.len() == 2
+                        && (1..=2).contains(&day.len())
+                        && (1..=2).contains(&month.len())
+                }
+                _ => false,
+            }
+        }
+
+        /// Vrai si le pourvoi qui commence en `s` est précédé, après les séparateurs et un mot
+        /// `pourvoi` facultatif, d'une date (année de quatre chiffres, `j/m/aa`) ou d'un sigle de
+        /// juridiction ou de chambre : la tête de la décision n'a pas été lue (U12, F1). Un point
+        /// de fin de phrase derrière une date n'en fait pas une tête. Lecture linéaire : chaque
+        /// retour en arrière s'arrête au premier caractère qui n'est pas de sa classe.
+        pub(crate) fn head_before(&self, s: usize) -> bool {
+            let mut p = self.back_over_separators(s);
+            let (start, word) = self.word_before(p);
+            if matches!(word.as_str(), "pourvoi" | "pourvois") {
+                p = self.back_over_separators(start);
+            }
+            let dotted = self.back(p).next() == Some('.');
+            let end = if dotted { p.saturating_sub(1) } else { p };
+            match self.back(end).next() {
+                Some(c) if c.is_ascii_digit() => !dotted && self.date_run_before(end),
+                Some(_) => HEAD_WORDS.contains(&self.word_before(end).1.as_str()),
+                None => false,
+            }
+        }
+
         /// `adm_chamber` : ordinal, `chambre` ou `ch.`, qualificatif facultatif de 40 caractères
         /// au plus. Fins possibles, de la plus longue à la plus courte.
         pub(crate) fn ordinal_chamber_ends(&self, i: usize) -> Vec<usize> {
@@ -786,10 +883,20 @@ fn civil(n: u8) -> (Option<CassChamber>, Option<Flag>) {
     }
 }
 
-/// `civ_n` : `1re civ.`, `civ. 1re`, `civ. 4e`, `civ. 1`.
+/// `civ_n` : `1re civ.`, `2e ch. civ.`, `1re chambre civ.`, `1re ch. civile`, `civ. 1re`,
+/// `civ.1re`, `civ. 4e`, `civ. 1`.
 fn civ_number(c: &Cur<'_>, i: usize) -> Option<(usize, u8)> {
-    let before = c.ordinal(i).and_then(|(e, n)| c.abbr(c.ws(e)?, "civ").map(|e| (e, n)));
-    let after = c.abbr(i, "civ").and_then(|e| c.ws(e)).and_then(|w| {
+    let before = c.ordinal(i).and_then(|(e, n)| {
+        let w = c.ws(e)?;
+        let plain = c.abbr(w, "civ");
+        let long = c.kwb(w, "chambre").and_then(|k| c.ws(k)).and_then(|k| c.abbr(k, "civ"));
+        let short = c
+            .abbr(w, "ch")
+            .and_then(|k| c.ws(k))
+            .and_then(|k| c.abbr(k, "civ").or_else(|| c.kwb(k, "civile")));
+        plain.or(long).or(short).map(|end| (end, n))
+    });
+    let after = c.abbr(i, "civ").map(|e| c.ws0(e)).and_then(|w| {
         c.ordinal(w).or_else(|| {
             let e = c.exact(w, 1).filter(|&e| c.bound(e) && c.date(w).is_none())?;
             Some((e, u8::try_from(c.val(w, e)).unwrap_or(0)))
@@ -827,9 +934,14 @@ fn chamber_short(c: &Cur<'_>, i: usize) -> Option<Chamber> {
 
 /// `cass_chamber_long` : `première chambre civile`, `chambre sociale`, `assemblée plénière`…
 fn chamber_long(c: &Cur<'_>, i: usize) -> Option<Chamber> {
-    let numbered =
-        [("premiere", 1), ("deuxieme", 2), ("troisieme", 3)].iter().find_map(|(w, n)| {
+    let numbered = [("premiere", 1), ("deuxieme", 2), ("troisieme", 3)]
+        .iter()
+        .find_map(|(w, n)| {
             c.kwb(i, w).and_then(|e| c.kwb(c.ws(e)?, "chambre civile")).map(|e| (e, *n))
+        })
+        .or_else(|| {
+            let (e, n) = c.ordinal(i).filter(|_| c.digit(i))?;
+            c.kwb(c.ws(e)?, "chambre civile").map(|end| (end, n))
         });
     if let Some((e, n)) = numbered {
         let (chamber, flag) = civil(n);
@@ -1026,11 +1138,25 @@ struct Tail {
     formation: Option<(String, Vec<char>)>,
 }
 
-/// `SEP cass_numbers { SEP publication } [solution] [SEP form_pub]`.
+/// Jonction de la date (ou de la chambre) au numéro : `SEP`, puis une ouverture facultative `(` ou
+/// `[` suivie d'espaces. Rend la position où chercher le numéro et le fermant attendu. Si aucun
+/// numéro ne suit l'ouverture, `tail` ne lit rien, comme en 1.1.0 où l'ouverture bloquait le numéro.
+fn number_link(c: &Cur<'_>, i: usize) -> Option<(usize, Option<char>)> {
+    let p = c.sep(i)?;
+    Some(match c.ch(p) {
+        Some('(') => (c.ws0(p + 1), Some(')')),
+        Some('[') => (c.ws0(p + 1), Some(']')),
+        _ => (p, None),
+    })
+}
+
+/// `SEP ["(" | "["] cass_numbers { SEP publication } [")" | "]"] [solution] [SEP form_pub]`.
 fn tail(c: &Cur<'_>, i: usize) -> Tail {
     let mut out =
         Tail { end: i, numbers: Vec::new(), publication: None, solution: None, formation: None };
-    let Some((mut end, numbers)) = c.sep(i).and_then(|p| cass_numbers(c, p)) else {
+    let Some((closer, mut end, numbers)) = number_link(c, i)
+        .and_then(|(p, closer)| cass_numbers(c, p).map(|(end, numbers)| (closer, end, numbers)))
+    else {
         return out;
     };
     out.numbers = numbers;
@@ -1039,6 +1165,12 @@ fn tail(c: &Cur<'_>, i: usize) -> Tail {
             out.publication = Some(Publication { bulletin: Some(b), lebon: None });
         }
         end = e;
+    }
+    if let Some(close) = closer {
+        let q = c.ws0(end);
+        if c.is(q, close) {
+            end = q + 1;
+        }
     }
     if let Some((e, text)) = solution(c, end) {
         out.solution = Some(text);
@@ -1087,28 +1219,46 @@ fn finish(
     if missing { hit.with_ambiguity(Ambiguity::NumeroManquant) } else { hit }
 }
 
-/// `cass_court [SEP chambre] SEP [kind WS] DATE_LINK …` et `cass_short SEP DATE …`.
+/// `cass_court [SEP chambre] SEP [kind WS] DATE_LINK …` et `cass_short SEP DATE …`. Avec le mot
+/// `Cass.` et une chambre, la date peut manquer : `Cass. crim., n° X` (AM-84, confiance moyenne).
 fn short_form(c: &Cur<'_>, s: usize) -> Option<Hit> {
-    let (p, chamber) = if let Some(e) = court(c, s) {
+    let (p, chamber, chamber_end) = if let Some(e) = court(c, s) {
         let p = c.sep(e)?;
         match chamber_any(c, p).and_then(|ch| c.sep(ch.0).map(|r| (r, ch))) {
-            Some((r, (_, chamber, flag))) => (r, Some((chamber, flag))),
-            None => (p, None),
+            Some((r, (end, chamber, flag))) => (r, Some((chamber, flag)), Some(end)),
+            None => (p, None, None),
         }
     } else {
         let (e, chamber, flag) = chamber_short(c, s)?;
-        (c.sep(e)?, Some((chamber, flag)))
+        (c.sep(e)?, Some((chamber, flag)), None)
     };
     let (p, kind) = match kind_word(c, p).and_then(|(e, k)| c.ws(e).map(|w| (w, k))) {
         Some((w, k)) => (w, Some(k)),
         None => (p, None),
     };
-    let date = c.date_link(p)?;
+    let Some(date) = c.date_link(p) else {
+        return dateless_form(c, s, chamber?, chamber_end?);
+    };
     let (chamber, flag) = chamber.unwrap_or((None, None));
     let mut dec = lex::decision(Some(Court::CourDeCassation { chamber }));
     dec.kind = kind;
     let tail = tail(c, date.end);
     Some(finish(s, dec, date, tail, flag.into_iter().collect()))
+}
+
+/// `cass_court SEP chambre SEP cass_numbers` : décision sans date, chambre lue (AM-84).
+fn dateless_form(
+    c: &Cur<'_>,
+    s: usize,
+    chamber: (Option<CassChamber>, Option<Flag>),
+    chamber_end: usize,
+) -> Option<Hit> {
+    let tail = tail(c, chamber_end);
+    (!tail.numbers.is_empty()).then_some(())?;
+    let (chamber, flag) = chamber;
+    let dec = lex::decision(Some(Court::CourDeCassation { chamber }));
+    let date = lex::DateHit { end: chamber_end, date: None, flags: Vec::new() };
+    Some(finish(s, dec, date, tail, flag.into_iter().collect()).with_confidence(Confidence::Medium))
 }
 
 /// `lf_title_cass` : `Cour de cassation, civile, Chambre civile 1, 4 juin 2025, 24-13.470, …`.
@@ -1132,9 +1282,11 @@ fn legifrance_title(c: &Cur<'_>, s: usize) -> Option<Hit> {
     Some(finish(s, dec, date, tail, flag.into_iter().collect()))
 }
 
-/// `cass_chamber_long SEP DATE_LINK SEP pourvoi` : la juridiction se déduit de la chambre.
+/// `cass_chamber_long ["de la Cour de cassation"] SEP DATE_LINK SEP pourvoi` : la juridiction se
+/// déduit de la chambre.
 fn long_chamber(c: &Cur<'_>, s: usize) -> Option<Hit> {
     let (e, chamber, flag) = chamber_long(c, s)?;
+    let e = c.ws(e).and_then(|w| c.kwb(w, "de la cour de cassation")).unwrap_or(e);
     let date = c.date_link(c.sep(e)?)?;
     let tail = tail(c, date.end);
     (!tail.numbers.is_empty()).then_some(())?;
@@ -1205,7 +1357,8 @@ fn pourvoi_alone(c: &Cur<'_>, s: usize) -> Option<Hit> {
     let mut dec = lex::decision(Some(Court::CourDeCassation { chamber: None }));
     dec.court_via = Some(CourtVia::FormeDuNumero);
     dec.numbers = numbers;
-    Some(Hit::decision(s, end, dec).with_confidence(Confidence::Medium))
+    let unread = c.head_before(s).then_some(Flag::TeteDecisionNonLue);
+    Some(Hit::decision(s, end, dec).with_confidence(Confidence::Medium).with_flags(unread))
 }
 
 /// Aides de test partagées par les six grammaires de juridictions.
@@ -1969,6 +2122,477 @@ mod tests {
                 vec![pv(0, 0, 7, None)]
             ))
         );
+    }
+
+    /// Citations de `parse` : texte d'origine couvert, décision.
+    fn parsed(input: &str) -> Vec<(String, crate::citation::types::DecisionCite)> {
+        crate::citation::parse(input)
+            .into_iter()
+            .filter_map(|c| match c.value {
+                CitationRef::Decision(d) => {
+                    Some((input.get(c.span.start..c.span.end).unwrap_or_default().to_owned(), d))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Drapeaux et ambiguïtés des citations de `parse`.
+    fn parsed_flags(input: &str) -> Vec<(Vec<Flag>, Option<Ambiguity>)> {
+        crate::citation::parse(input).into_iter().map(|c| (c.flags, c.ambiguity)).collect()
+    }
+
+    /// U12 G1 : un jour, un mois et une année séparés par deux tirets sont une date.
+    #[test]
+    fn dates_with_dashes_are_dates() {
+        for (text, want) in [
+            ("25-11-2015", date(2015, 11, 25)),
+            ("1-1-2000", date(2000, 1, 1)),
+            ("01-01-2000", date(2000, 1, 1)),
+            ("31-12-1999", date(1999, 12, 31)),
+        ] {
+            let hit = read(text, |c| c.date(0));
+            assert_eq!(hit.map(|h| (h.end, h.date)), Some((text.chars().count(), want)), "{text}");
+        }
+        // Une date à tirets impossible est lue, avec son drapeau (comme `31/02/2020`).
+        let hit = read("31-02-2020", |c| c.date(0)).map(|h| (h.date, h.flags));
+        assert_eq!(hit, Some((None, vec![Flag::DateInvalide])));
+    }
+
+    /// U12 G1 (garde) : le tiret ne se lit que des deux côtés, et jamais pour un numéro d'affaire.
+    #[test]
+    fn dashed_dates_stay_strict() {
+        for text in [
+            "25-11-15",
+            "25/11-2015",
+            "25-11/2015",
+            "25.11-2015",
+            "25-11.2015",
+            "12-13-2020",
+            "32-01-2020",
+            "00-01-2020",
+            "25-11-20155",
+            "14-24.444",
+            "10-12.345",
+            "20-12345",
+            "71-44 DC",
+            "n° 14-12-345",
+        ] {
+            assert_eq!(read(text, |c| c.date(0)), None, "{text}");
+        }
+        // Les formes à barre et à point gardent leur lecture.
+        assert!(read("25/11/2015", |c| c.date(0)).is_some());
+        assert!(read("25.11.2015", |c| c.date(0)).is_some());
+        assert!(read("2015-11-25", |c| c.date(0)).is_some());
+    }
+
+    /// U12 G2 : `civ.` collé à son ordinal ou à son chiffre.
+    #[test]
+    fn glued_civ_chamber() {
+        for (text, want) in [("civ.1re", (7, 1)), ("civ.2e", (6, 2)), ("civ.3", (5, 3))] {
+            assert_eq!(read(text, |c| civ_number(c, 0)), Some(want), "{text}");
+        }
+        assert_eq!(
+            read("civ.1re", |c| chamber_short(c, 0)),
+            Some((7, Some(CassChamber::Civ1), None))
+        );
+        assert_eq!(
+            read("civ.2e", |c| chamber_short(c, 0)),
+            Some((6, Some(CassChamber::Civ2), None))
+        );
+    }
+
+    /// U12 G2 (garde) : collé ou non, `civ.` ne lit ni une date, ni un nombre, ni un mot.
+    #[test]
+    fn a_glued_civ_does_not_read_a_date_a_big_number_or_a_word() {
+        for text in ["civ.12", "civ.4 juin 2020", "civ.x", "civ.", "civ. 12", "civ. 4 juin 2020"] {
+            assert_eq!(read(text, |c| civ_number(c, 0)), None, "{text}");
+        }
+        assert_eq!(read("civ. 3", |c| civ_number(c, 0)), Some((6, 3)));
+        assert_eq!(read("civ. 1re", |c| civ_number(c, 0)), Some((8, 1)));
+        assert_eq!(read("1re civ.", |c| civ_number(c, 0)), Some((8, 1)));
+    }
+
+    /// U12 G2bis : `ch.` ou `chambre` entre l'ordinal et `civ.`, ordinal chiffré devant `chambre
+    /// civile`.
+    #[test]
+    fn ordinal_chamber_with_ch_or_chambre_is_read() {
+        for (text, want) in [
+            ("2e ch. civ.", CassChamber::Civ2),
+            ("1re chambre civ.", CassChamber::Civ1),
+            ("3e ch civ", CassChamber::Civ3),
+            ("1ère chambre civile", CassChamber::Civ1),
+            ("2ème chambre civile", CassChamber::Civ2),
+            ("1re ch. civile", CassChamber::Civ1),
+        ] {
+            let got = read(text, |c| chamber_any(c, 0));
+            assert_eq!(got, Some((text.chars().count(), Some(want), None)), "{text}");
+        }
+        // Garde : les formes déjà lues le restent.
+        assert_eq!(
+            read("première chambre civile", |c| chamber_any(c, 0)),
+            Some((23, Some(CassChamber::Civ1), None))
+        );
+        assert_eq!(
+            read("1re civ.", |c| chamber_any(c, 0)),
+            Some((8, Some(CassChamber::Civ1), None))
+        );
+        // Un ordinal sans « civ. » ni « chambre civile » n'est pas une chambre.
+        for text in ["2e ch. soc.", "1re chambre sociale", "2e ch.", "2e chambre"] {
+            assert_eq!(read(text, |c| chamber_any(c, 0)), None, "{text}");
+        }
+    }
+
+    /// U12 G3 : une parenthèse, un crochet ouvrant le numéro après la date ne coupent plus la
+    /// décision en deux.
+    #[test]
+    fn tail_links_with_opener_or_dash() {
+        for input in [
+            "Cass. com., 12 mars 1999 (n° 14-24.444)",
+            "Cass. com., 12 mars 1999 [n° 14-24.444]",
+            "Cass. com., 12 mars 1999 (pourvoi n° 14-24.444)",
+            "Cass. com., 12 mars 1999 (14-24.444)",
+            "Cass. com., 12 mars 1999, (n° 14-24.444)",
+            "Cass. com., 12 mars 1999 ( n° 14-24.444 )",
+            "Cass. com., 12 mars 1999 (n° 14-24.444 )",
+            "Cass. com., 12 mars 1999 [ n° 14-24.444]",
+        ] {
+            let got = parsed(input);
+            assert_eq!(got.len(), 1, "{input} : {got:?}");
+            assert_eq!(got[0].0, input, "{input}");
+            assert_eq!(got[0].1.numbers, vec![pv(14, 24, 444, None)], "{input}");
+            assert_eq!(got[0].1.date, date(1999, 3, 12), "{input}");
+            assert_eq!(
+                got[0].1.court,
+                Some(Court::CourDeCassation { chamber: Some(CassChamber::Com) })
+            );
+            assert_eq!(parsed_flags(input)[0].1, None, "{input}");
+        }
+        // La mention de 15 caractères avant le texte et le point qui suit ne sont pas avalés.
+        let got = parsed("Voir Cass. soc., 25 novembre 2015 (n° 14-24.444). Suite.");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, "Cass. soc., 25 novembre 2015 (n° 14-24.444)");
+    }
+
+    /// U12 G3 : un fermant manquant, ou une parenthèse sans numéro, ne change rien.
+    #[test]
+    fn tail_without_a_closer_or_a_number_after_the_opener() {
+        // Sans fermant : la lecture s'arrête au numéro.
+        let got = parsed("Cass. com., 12 mars 1999 (n° 14-24.444 et la suite");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, "Cass. com., 12 mars 1999 (n° 14-24.444");
+        // Un fermant d'une autre espèce n'est pas le fermant.
+        let got = parsed("Cass. com., 12 mars 1999 (n° 14-24.444] suite");
+        assert_eq!(got[0].0, "Cass. com., 12 mars 1999 (n° 14-24.444");
+        let got = parsed("Cass. com., 12 mars 1999 [n° 14-24.444) suite");
+        assert_eq!(got[0].0, "Cass. com., 12 mars 1999 [n° 14-24.444");
+    }
+
+    /// U12 G3 (garde) : une parenthèse qui ne contient pas de numéro ne lie rien.
+    #[test]
+    fn a_parenthesis_without_a_number_changes_nothing() {
+        for input in
+            ["Cass. com., 12 mars 1999 (rejet)", "Cass. com., 12 mars 1999 (voir n° 14-24.444)"]
+        {
+            let got = parsed(input);
+            assert_eq!(got[0].0, "Cass. com., 12 mars 1999", "{input}");
+            assert_eq!(got[0].1.numbers, vec![], "{input}");
+            assert_eq!(parsed_flags(input)[0].1, Some(Ambiguity::NumeroManquant), "{input}");
+        }
+    }
+
+    /// U12 G3 (garde) : le tiret ne lie pas la date au numéro (V12) ; le pourvoi lu seul porte le
+    /// drapeau de tête non lue (F1) sans être modifié.
+    #[test]
+    fn a_dash_between_a_date_and_a_number_is_not_linked() {
+        for input in [
+            "Cass. crim., 25 novembre 2015 - n° 14-24.444",
+            "Cass. crim., 25 novembre 2015 – n° 14-24.444",
+            "Cass. crim., 25 novembre 2015\n- n° 14-24.444",
+        ] {
+            let got = parsed(input);
+            assert_eq!(got.len(), 2, "{input} : {got:?}");
+            assert_eq!(got[0].0, "Cass. crim., 25 novembre 2015", "{input}");
+            assert_eq!(got[1].0, "n° 14-24.444", "{input}");
+            assert_eq!(got[1].1.court_via, Some(CourtVia::FormeDuNumero), "{input}");
+        }
+    }
+
+    /// U12 G3 : le fermant se lit après les numéros et leurs publications, avant la solution et
+    /// la formation.
+    #[test]
+    fn closing_bracket_order_with_tail() {
+        let got = parsed("Cass. soc., 25 novembre 2015 (n° 14-24.444, Inédit) (rejet) FS-D");
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].0, "Cass. soc., 25 novembre 2015 (n° 14-24.444, Inédit) (rejet) FS-D");
+        let dec = &got[0].1;
+        assert_eq!(
+            dec.publication,
+            Some(Publication { bulletin: Some(BulletinRef::Inedit), lebon: None })
+        );
+        assert_eq!(dec.solution.as_deref(), Some("rejet"));
+        assert_eq!(dec.formation_code.as_deref(), Some("FS"));
+        // Publication entre le numéro et le fermant, sans fermant : la lecture s'arrête à la publication.
+        let got = parsed("Cass. soc., 25 novembre 2015 (n° 14-24.444, Publié au bulletin");
+        assert_eq!(got[0].0, "Cass. soc., 25 novembre 2015 (n° 14-24.444, Publié au bulletin");
+        // Garde : la forme à virgule garde sa lecture et son span.
+        let got = parsed("Cass. soc., 25 novembre 2015, n° 14-24.444 (rejet) FS-B suite");
+        assert_eq!(got[0].0, "Cass. soc., 25 novembre 2015, n° 14-24.444 (rejet) FS-B");
+    }
+
+    /// U12 : `Cass. crim., n° X` : la chambre est lue sans date, confiance moyenne (AM-84).
+    #[test]
+    fn a_chamber_without_a_date_is_read() {
+        let input = "Cass. crim., n° 14-24.444";
+        let got = parsed(input);
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].0, input);
+        assert_eq!(
+            got[0].1.court,
+            Some(Court::CourDeCassation { chamber: Some(CassChamber::Crim) })
+        );
+        assert_eq!(got[0].1.date, None);
+        assert_eq!(got[0].1.court_via, None);
+        assert_eq!(got[0].1.numbers, vec![pv(14, 24, 444, None)]);
+        let found = crate::citation::parse(input);
+        assert_eq!(found[0].confidence, Confidence::Medium);
+        assert!(!found[0].flags.contains(&Flag::TeteDecisionNonLue));
+        for other in [
+            "Cass. civ. 1re, pourvoi n° 14-24.444",
+            "Cass. soc. n° 14-24.444",
+            "Cass. com. 14-24.444",
+        ] {
+            let got = parsed(other);
+            assert_eq!(got.len(), 1, "{other} : {got:?}");
+            assert_eq!(got[0].0, other);
+            assert_eq!(got[0].1.date, None, "{other}");
+        }
+    }
+
+    /// U12 AM-84 : une chambre sans date ni numéro derrière n'est pas une décision.
+    #[test]
+    fn a_chamber_without_a_date_or_a_number_is_not_a_citation() {
+        for input in ["Cass. crim., voir ci-dessus", "Cass. soc., pourvoi", "Cass. com. x 12"] {
+            assert_eq!(parsed(input), vec![], "{input}");
+            assert_eq!(read(input, |c| short_form(c, 0)).map(|hit| hit.end), None, "{input}");
+        }
+    }
+
+    /// U12 (garde) : sans chambre lue, le numéro reste lu seul (N29).
+    #[test]
+    fn a_court_without_a_chamber_or_a_date_leaves_the_number_alone() {
+        for (input, span) in [
+            ("Cass., n° 14-24.444", "n° 14-24.444"),
+            ("Cour de cassation, n° 14-24.444", "n° 14-24.444"),
+            ("Voir n° 14-24.444", "n° 14-24.444"),
+            ("n° 14-24.444", "n° 14-24.444"),
+        ] {
+            let got = parsed(input);
+            assert_eq!(got.len(), 1, "{input} : {got:?}");
+            assert_eq!(got[0].0, span, "{input}");
+            assert_eq!(got[0].1.court_via, Some(CourtVia::FormeDuNumero), "{input}");
+            assert_eq!(got[0].1.court, Some(Court::CourDeCassation { chamber: None }), "{input}");
+        }
+    }
+
+    /// U12 G4 : la chambre écrite devant « de la Cour de cassation » est lue.
+    #[test]
+    fn chamber_before_the_court_name_is_read() {
+        let input = "Chambre sociale de la Cour de cassation, 25 novembre 2015, n° 14-24.444";
+        let got = parsed(input);
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].0, input);
+        assert_eq!(
+            got[0].1.court,
+            Some(Court::CourDeCassation { chamber: Some(CassChamber::Soc) })
+        );
+        assert_eq!(got[0].1.date, date(2015, 11, 25));
+        assert_eq!(got[0].1.court_via, Some(CourtVia::Chambre));
+        // Garde : sans le nom de la Cour, la chambre longue garde sa lecture.
+        let got = parsed("Chambre sociale, 25 novembre 2015, n° 14-24.444");
+        assert_eq!(got[0].0, "Chambre sociale, 25 novembre 2015, n° 14-24.444");
+        // « de la Cour » sans « de cassation » n'est pas le nom de la Cour.
+        assert!(
+            read("chambre sociale de la cour d'appel, 4 juin 2025, n° 24-13.470", |c| {
+                long_chamber(c, 0)
+            })
+            .is_none()
+        );
+    }
+
+    /// U12 : la forme complète à date à tirets couvre tout le texte (garde de la 3e forme du rapport).
+    #[test]
+    fn a_right_dashed_head_is_one_citation_covering_the_whole_text_u12() {
+        let input = "Cass. soc. 25-11-2015, n° 14-24.444";
+        let got = parsed(input);
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].0, input);
+        assert_eq!(got[0].1.date, date(2015, 11, 25));
+        assert_eq!(
+            got[0].1.court,
+            Some(Court::CourDeCassation { chamber: Some(CassChamber::Soc) })
+        );
+        let flags = parsed_flags(input);
+        assert!(!flags[0].0.contains(&Flag::TeteDecisionNonLue));
+        assert_eq!(crate::citation::parse(input)[0].confidence, Confidence::High);
+    }
+
+    /// U12 F1 : le drapeau de tête non lue ne se pose que sur un pourvoi précédé d'une date, d'un
+    /// sigle ou d'une chambre.
+    #[test]
+    fn head_before_flags_only_a_date_or_a_court_just_before_the_number() {
+        for text in [
+            "Cass. soc., pourvoi n° 24-13.470",
+            "Cass. soc., 25/11/15, n° 14-24.444",
+            "Cass. soc., 25.11.15, n° 14-24.444",
+            "Cass. soc., 25-11-15, n° 14-24.444",
+            "Cass. crim., nov. 2015, n° 14-24.444",
+            "Cass. crim., req. n° 14-24.444",
+            "arrêt, civ. n° 14-24.444",
+            "arrêt Cass.soc. n° 14-24.444",
+            "arrêt (Cass. 1re civ.) n° 14-24.444",
+            "arrêt de la chambre sociale n° 14-24.444",
+            "Cour de cassation, n° 14-24.444",
+            "Cass. n° 14-24.444",
+            "de la Cour de cassation : n° 14-24.444",
+            "arrêt du 25 novembre 2015 [n° 14-24.444]",
+            "arrêt du 25 novembre 2015 - n° 14-24.444",
+            "arrêt du 25 novembre 2015, pourvois n° 14-24.444",
+            "arrêt ass. plén. n° 14-24.444",
+            "arrêt ch. mixte n° 14-24.444",
+            "arrêt 2e civ. n° 14-24.444",
+            "arrêt 1ere n° 14-24.444",
+            "soc. n° 14-24.444",
+            "2015 n° 14-24.444",
+            "25/11/15 n° 14-24.444",
+            "commerciale n° 14-24.444",
+            "arrêt 1re n° 14-24.444",
+            "arrêt 1500 n° 14-24.444",
+            "arrêt 2099 n° 14-24.444",
+        ] {
+            let at = text.rfind("n°").map_or(0, |b| text[..b].chars().count());
+            assert!(read(text, |c| c.head_before(at)), "{text}");
+        }
+    }
+
+    /// U12 F1 (garde) : rien n'est signalé quand ce qui précède n'est ni une date ni un sigle.
+    #[test]
+    fn head_before_ignores_what_is_not_a_head() {
+        for text in [
+            "n° 14-24.444",
+            "voir n° 14-24.444",
+            "arrêt et n° 14-24.444",
+            "2015. N° 14-24.444",
+            "Dans l'arrêt n° 14-24.444",
+            "page 12 n° 14-24.444",
+            "le 14 n° 14-24.444",
+            "arrêt n° 14-24.123 et n° 14-24.444",
+            "arrêt 14-24.123, n° 14-24.444",
+            "Cass. soc. 25 novembre 2015. N° 14-24.444",
+            "civil. n° 14-24.444",
+            "commun n° 14-24.444",
+            "ancien socle n° 14-24.444",
+            "arrêt 1499 n° 14-24.444",
+            "arrêt 2100 n° 14-24.444",
+            "arrêt 25/11/145 n° 14-24.444",
+            "arrêt 5/1 n° 14-24.444",
+            "arrêt 123/11/15 n° 14-24.444",
+            "arrêt 12/123/15 n° 14-24.444",
+            "arrêt xsoc n° 14-24.444",
+        ] {
+            let at = text
+                .rfind("n°")
+                .or_else(|| text.rfind("N°"))
+                .map_or(0, |b| text[..b].chars().count());
+            assert!(!read(text, |c| c.head_before(at)), "{text}");
+        }
+        // Début de texte : rien avant.
+        assert!(!read("n° 14-24.444", |c| c.head_before(0)));
+        assert!(!read("  n° 14-24.444", |c| c.head_before(2)));
+    }
+
+    /// U12 F1 : le drapeau est posé sur le pourvoi lu seul (à travers `parse`), pas sur la forme
+    /// nue (N29) ni sur la forme complète.
+    #[test]
+    fn the_flag_is_set_on_the_lone_pourvoi_with_an_unread_head() {
+        let flagged = |input: &str| {
+            crate::citation::parse(input)
+                .iter()
+                .map(|c| c.flags.contains(&Flag::TeteDecisionNonLue))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(flagged("Cass. soc., pourvoi n° 24-13.470"), [false]);
+        assert_eq!(flagged("Cass.soc. n° 14-24.444"), [true]);
+        assert_eq!(flagged("Cass. soc., 25/11/15, n° 14-24.444"), [true]);
+        assert_eq!(flagged("Cass. crim., nov. 2015, n° 14-24.444"), [true]);
+        assert_eq!(flagged("Cass. soc., req. n° 14-24.444"), [true]);
+        assert_eq!(flagged("n° 14-24.444"), [false]);
+        assert_eq!(flagged("Cass. soc., 25 novembre 2015, n° 14-24.444"), [false]);
+        assert_eq!(flagged("Cass. soc., 25-11-2015, n° 14-24.444"), [false]);
+        assert_eq!(flagged("Cass. com., 12 mars 1999 (n° 14-24.444)"), [false]);
+    }
+
+    /// U12 (garde) : aucune forme complète du jeu de tests ne porte le drapeau de tête non lue.
+    #[test]
+    fn complete_forms_get_no_new_flag() {
+        for input in [
+            "Cass. soc., 25 novembre 2015, n° 14-24.444",
+            "Cass. civ. 1re, 4 juin 2025, n° 24-13.470",
+            "Cass. 1re civ., 4 juin 2025, n° 24-13.470",
+            "Civ. 1re, 4 juin 2025, 24-13.470",
+            "Cass. soc., 25 novembre 2015, pourvoi n° 14-24.444 (cassation)",
+            "Cass. crim. 25/11/2015, n° 14-24.444",
+            "Cass. crim. 25.11.2015 n° 14-24.444",
+            "Cour de cassation, civile, Chambre civile 1, 4 juin 2025, 24-13.470, Publié au bulletin",
+            "Première chambre civile, 4 juin 2025, 24-13.470",
+            "1re Civ., 25 mai 2023, pourvoi n° 21-23.174 (cassation partielle)",
+            "Cass. ass. plén., 6 octobre 2006, n° 05-13.255",
+        ] {
+            for flags in parsed_flags(input) {
+                assert!(!flags.0.contains(&Flag::TeteDecisionNonLue), "{input} : {flags:?}");
+            }
+        }
+    }
+
+    /// U12 garantie 14 n° 7 : « N° de pourvoi : » et « n°: » ne sont pas lus, comme en 1.1.0
+    /// (aucune citation) ; la forme sans deux-points garde sa lecture.
+    #[test]
+    fn a_pourvoi_label_with_a_colon_keeps_its_1_1_0_reading_u12() {
+        for input in ["N° de pourvoi : 14-24.444", "n°: 14-24.444", "N° de pourvoi: 14-24.444"] {
+            assert_eq!(crate::citation::parse(input), vec![], "{input}");
+        }
+        for (input, span) in
+            [("pourvoi n° 14-24.444", "n° 14-24.444"), ("Pourvoi N° 14-24.444", "N° 14-24.444")]
+        {
+            let got = parsed(input);
+            assert_eq!(got.len(), 1, "{input} : {got:?}");
+            assert_eq!(got[0].0, span, "{input}");
+        }
+    }
+
+    /// U12 : `head_before` est borné et linéaire (20 000 caractères).
+    #[test]
+    fn head_before_is_bounded_and_linear() {
+        let input = "Cass. soc., pourvoi n° 24-13.470 ; 25/11/15, ".repeat(450);
+        assert!(input.chars().count() > 18_000);
+        let started = std::time::Instant::now();
+        let n = crate::citation::parse(&input).len();
+        assert!(n > 100, "{n}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "{:?}", started.elapsed());
+        for run in [
+            format!("{}n° 14-24.444", "9".repeat(20_000)),
+            format!("{} n° 14-24.444", "9/".repeat(10_000)),
+        ] {
+            let n = crate::citation::normalize::normalize(
+                &run,
+                crate::citation::normalize::Steps::default(),
+            );
+            let doc = lex::Doc::new(&n);
+            let at = run.chars().count() - 12;
+            let started = std::time::Instant::now();
+            let _ = doc.cur(at).head_before(at);
+            assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        }
     }
 
     #[test]

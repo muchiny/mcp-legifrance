@@ -9,7 +9,7 @@
 //! 05 §5.9) ; le gabarit et ses paramètres vivent côte à côte pour ne pas pouvoir diverger.
 
 use lf_domain::{
-    citation::Sigle,
+    citation::{CitationRef, Flag, Sigle, Spanned},
     date::{CivilDate, VersionDate},
     ecli::Ecli,
     fond::Fond,
@@ -158,6 +158,11 @@ pub enum Note {
     /// moderne (juridiction du fond, chambre historique, valeur inconnue) : le contrôle de la
     /// chambre n'a pas pu se faire, `verified` conservé.
     ChamberNotCompared,
+    /// Pourvoi de la Cour de cassation lu seul : la juridiction, la chambre ou la date écrite avant
+    /// lui n'a pas été lue ni contrôlée (U12), `verified` conservé.
+    HeadNotRead,
+    /// Pourvois joints : seul le premier numéro a été contrôlé (U12), `verified` conservé.
+    OnlyFirstNumberChecked,
     /// Date citée d'une délibération ou décision de la CNIL, mais l'enregistrement officiel n'en a
     /// pas de fiable (l'amont ne donne qu'une date de repli, 31 décembre ou 1er janvier) : la
     /// date n'a pas pu être contrôlée, `verified` de confiance moyenne conservé (AM-80).
@@ -466,6 +471,27 @@ fn quote_gap_text(inner: &Note) -> String {
     }
 }
 
+/// Notes d'écart de lecture d'une décision de la Cour de cassation `verified` ou résolue : la
+/// tête (date, chambre, sigle) que la grammaire n'a pas lue ([`Note::HeadNotRead`]), puis les
+/// pourvois joints dont seul le premier est contrôlé ([`Note::OnlyFirstNumberChecked`]).
+pub(crate) fn reading_gaps(item: &Spanned<CitationRef>) -> Vec<Note> {
+    let mut gaps = Vec::new();
+    if item.flags.contains(&Flag::TeteDecisionNonLue) {
+        gaps.push(Note::HeadNotRead);
+    }
+    if matches!(&item.value, CitationRef::Decision(decision) if decision.numbers.len() > 1) {
+        gaps.push(Note::OnlyFirstNumberChecked);
+    }
+    gaps
+}
+
+/// Gabarit de [`Note::HeadNotRead`].
+const HEAD_NOT_READ: &str = "Only the case number was matched: the court, chamber or date written \
+     before it was not read and not checked.";
+
+/// Gabarit de [`Note::OnlyFirstNumberChecked`].
+const ONLY_FIRST_NUMBER_CHECKED: &str = "Only the first case number was checked.";
+
 /// Gabarit de [`Note::SubdivisionNotChecked`].
 const SUBDIVISION_NOT_CHECKED: &str = "The sub-division was not checked, only the article.";
 
@@ -539,6 +565,8 @@ impl Note {
             Self::ChamberNotCompared => "The cited chamber could not be compared: the official \
                  record gives a formation that is not a modern Cour de cassation chamber."
                 .to_owned(),
+            Self::HeadNotRead => HEAD_NOT_READ.to_owned(),
+            Self::OnlyFirstNumberChecked => ONLY_FIRST_NUMBER_CHECKED.to_owned(),
             Self::DateNotChecked => DATE_NOT_CHECKED.to_owned(),
             Self::NativeEcli(ecli) => format!("Native ECLI is {ecli}."),
             Self::Impossible { fact } => format!("{fact}."),
@@ -848,6 +876,17 @@ mod tests {
         ]
     }
 
+    /// Les notes d'écart de lecture d'une décision de la Cour de cassation (U12).
+    fn reading_catalogue() -> Vec<(Note, &'static str)> {
+        vec![
+            (
+                Note::HeadNotRead,
+                "Only the case number was matched: the court, chamber or date written before it was not read and not checked.",
+            ),
+            (Note::OnlyFirstNumberChecked, "Only the first case number was checked."),
+        ]
+    }
+
     /// La note d'une date citée que la fiche officielle ne permet pas de contrôler (AM-80).
     fn date_catalogue() -> Vec<(Note, &'static str)> {
         vec![(Note::DateNotChecked, "Date not checked: the record has no reliable date.")]
@@ -932,6 +971,7 @@ mod tests {
             .into_iter()
             .chain(later_catalogue())
             .chain(date_catalogue())
+            .chain(reading_catalogue())
             .chain(range_catalogue())
             .chain(version_catalogue())
         {

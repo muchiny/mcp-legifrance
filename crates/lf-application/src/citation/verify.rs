@@ -19,8 +19,8 @@ use std::{collections::HashMap, time::Duration};
 use futures::{StreamExt, stream};
 use lf_domain::{
     citation::{
-        CitationRef, ParseOptions, Span, Spanned, adjacent_quote, parse_with, quoted_passages,
-        unread_article_mentions,
+        CitationRef, Flag, ParseOptions, Span, Spanned, adjacent_quote, parse_with,
+        quoted_passages, unread_article_mentions,
     },
     date::VersionDate,
 };
@@ -28,6 +28,7 @@ use tokio::time::{Instant, timeout_at};
 
 use super::{
     CheckStatus, CitationCheck, Note, QuoteCheck,
+    notes::reading_gaps,
     policy::{CONCURRENCY, budget_of, check_quote},
     resolve::{CodeTable, Outcome, Proof, Resolution, Resolver, needs_codes, offline},
 };
@@ -92,8 +93,14 @@ fn has_unread_article(text: &str, parsed: &[Spanned<CitationRef>]) -> bool {
 
 /// Clé de résolution d'une citation : tout ce qui peut changer le résultat de la recherche. Deux
 /// citations de même clé (énumérations, répétitions) partagent leur résolution.
+///
+/// Le drapeau `TeteDecisionNonLue` n'entre pas dans la clé : il ne change pas la recherche, seulement
+/// la note de la citation qui le porte (posée dans [`compose`]). Sinon deux mentions du même
+/// pourvoi, l'une à tête non lue, l'autre nue, seraient résolues deux fois.
 fn key_of(item: &Spanned<CitationRef>) -> String {
-    format!("{:?}|{:?}|{:?}", item.value, item.ambiguity, item.flags)
+    let flags: Vec<&Flag> =
+        item.flags.iter().filter(|flag| **flag != Flag::TeteDecisionNonLue).collect();
+    format!("{:?}|{:?}|{:?}", item.value, item.ambiguity, flags)
 }
 
 /// Résout `item` avant `limit` ; passé ce délai, la citation n'est pas contrôlée.
@@ -219,6 +226,21 @@ fn with_quote_gap(
     Some(note.map_or(Note::QuoteMismatch, |inner| Note::WithQuoteMismatch(Box::new(inner))))
 }
 
+/// Écarts de lecture d'une décision `verified` (tête non lue, pourvois joints) : leurs notes
+/// suivent la note du statut. Un autre statut garde sa note seule.
+fn with_reading_gaps(
+    status: CheckStatus,
+    note: Option<Note>,
+    item: &Spanned<CitationRef>,
+) -> Option<Note> {
+    if status != CheckStatus::Verified {
+        return note;
+    }
+    reading_gaps(item)
+        .into_iter()
+        .fold(note, |acc, gap| Some(acc.map_or(gap.clone(), |inner| inner.then(gap))))
+}
+
 /// Contrôle d'une citation : statut, enregistrement, extrait cité et note, span en points de code.
 fn compose(
     proof: Proof,
@@ -235,6 +257,7 @@ fn compose(
     let quote = verdict.flatten();
     let status = outcome.status(proof);
     let note = with_quote_gap(status, outcome.note(proof), quote, verdict == Some(None));
+    let note = with_reading_gaps(status, note, item);
     let raw = text.get(item.span.start..item.span.end).unwrap_or_default();
     CitationCheck {
         span: item.span.to_chars(text),
@@ -641,6 +664,397 @@ mod tests {
             assert_eq!(note_text(check), expected, "{text}");
             assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), id);
         }
+    }
+
+    /// Décision de la Cour de cassation du relevé C4 (14-24.444, chambre sociale) ou du relevé
+    /// 24-13.470 (première chambre civile), bâtie à la main.
+    fn cassation_record(id: &str, formation: &str, date: (u16, u8, u8)) -> Decision {
+        Decision {
+            decision_id: DecisionId::parse(id).unwrap(),
+            ecli: None,
+            num: None,
+            juridiction: None,
+            formation: Some(formation.to_owned()),
+            solution: None,
+            numero_affaire: vec![],
+            date_texte: CivilDate::new(date.0, date.1, date.2),
+            nature: Some("ARRET".to_owned()),
+            title: None,
+            text: LongText::from_plain("Texte de la décision.").unwrap(),
+            official_summary: OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
+        }
+    }
+
+    const SOC_ID: &str = "JURITEXT000031539712";
+    const CIV1_ID: &str = "JURITEXT000051743650";
+
+    /// Corpus qui répond `SOC_ID` (relevé C4) à la première recherche.
+    fn soc_corpus() -> FakeCorpus {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, SOC_ID)]));
+        corpus.push_get_decision(Ok(cassation_record(SOC_ID, "CHAMBRE_SOCIALE", (2015, 11, 25))));
+        corpus
+    }
+
+    /// Corpus qui répond `CIV1_ID` (relevé 24-13.470) à la première recherche.
+    fn civ1_corpus() -> FakeCorpus {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, CIV1_ID)]));
+        corpus.push_get_decision(Ok(cassation_record(CIV1_ID, "CHAMBRE_CIVILE_1", (2025, 6, 4))));
+        corpus
+    }
+
+    /// U12 V3 : date à tirets et mauvaise chambre : `invalid` avec la vraie chambre.
+    #[tokio::test]
+    async fn a_dashed_date_with_the_wrong_chamber_is_invalid() {
+        let corpus = soc_corpus();
+        let verification =
+            verify(&corpus, PisteEnvironment::Production, "Cass. crim. 25-11-2015, n° 14-24.444")
+                .await
+                .unwrap();
+        assert_eq!(verification.found, 1);
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Invalid);
+        assert_eq!(note_text(check), "Cited chamber CRIM differs from the official record (SOC).");
+        assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), SOC_ID);
+        assert_eq!(check.raw, "Cass. crim. 25-11-2015, n° 14-24.444");
+    }
+
+    /// U12 V1 : une date à tirets antérieure au pourvoi est `invalid` hors ligne.
+    #[tokio::test]
+    async fn a_dashed_date_before_the_year_of_the_appeal_is_invalid_offline() {
+        let corpus = soc_corpus();
+        let verification =
+            verify(&corpus, PisteEnvironment::Production, "Cass. crim. 01-01-2000, n° 14-24.444")
+                .await
+                .unwrap();
+        assert_eq!(verification.found, 1);
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Invalid);
+        assert_eq!(note_text(check), "The year of the appeal number is after the decision year.");
+        assert_eq!(corpus.calls(), 0);
+    }
+
+    /// U12 V8 : date citée à tirets différente de la date officielle : `invalid`.
+    #[tokio::test]
+    async fn a_dashed_date_that_differs_is_invalid() {
+        let corpus = civ1_corpus();
+        let verification = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Cass.civ.1re, 4 juin 2024, n° 24-13.470",
+        )
+        .await
+        .unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Invalid);
+        assert_eq!(
+            note_text(check),
+            "Cited date 2024-06-04 differs from the official record (2025-06-04)."
+        );
+        let corpus = soc_corpus();
+        let verification =
+            verify(&corpus, PisteEnvironment::Production, "Cass. soc. 26-11-2015, n° 14-24.444")
+                .await
+                .unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Invalid);
+        assert_eq!(
+            note_text(check),
+            "Cited date 2015-11-26 differs from the official record (2015-11-25)."
+        );
+    }
+
+    /// U12 V6 et V7 : `civ.` collé à son ordinal est une chambre, comparée.
+    #[tokio::test]
+    async fn a_glued_chamber_is_compared() {
+        let corpus = civ1_corpus();
+        let wrong =
+            verify(&corpus, PisteEnvironment::Production, "Cass.civ.2e, 4 juin 2025, n° 24-13.470")
+                .await
+                .unwrap();
+        assert_eq!(wrong.checks[0].status, CheckStatus::Invalid);
+        assert_eq!(
+            note_text(&wrong.checks[0]),
+            "Cited chamber CIV2 differs from the official record (CIV1)."
+        );
+        let corpus = civ1_corpus();
+        let right = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Cass.civ.1re, 4 juin 2025, n° 24-13.470",
+        )
+        .await
+        .unwrap();
+        assert_eq!(right.checks[0].status, CheckStatus::Verified);
+        assert_eq!(right.checks[0].note, None);
+        assert_eq!(right.checks[0].raw, "civ.1re, 4 juin 2025, n° 24-13.470");
+    }
+
+    /// U12 G2bis : `2e ch. civ.` est une chambre, comparée.
+    #[tokio::test]
+    async fn an_ordinal_ch_civ_chamber_is_compared() {
+        let corpus = civ1_corpus();
+        let wrong = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Cass. 2e ch. civ., 4 juin 2025, n° 24-13.470",
+        )
+        .await
+        .unwrap();
+        assert_eq!(wrong.checks[0].status, CheckStatus::Invalid);
+        assert_eq!(
+            note_text(&wrong.checks[0]),
+            "Cited chamber CIV2 differs from the official record (CIV1)."
+        );
+    }
+
+    /// U12 G4 : la chambre écrite devant « de la Cour de cassation » est comparée.
+    #[tokio::test]
+    async fn a_chamber_before_the_court_name_is_compared() {
+        let corpus = soc_corpus();
+        let wrong = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Chambre criminelle de la Cour de cassation, 25 novembre 2015, n° 14-24.444",
+        )
+        .await
+        .unwrap();
+        assert_eq!(wrong.checks[0].status, CheckStatus::Invalid);
+        assert_eq!(
+            note_text(&wrong.checks[0]),
+            "Cited chamber CRIM differs from the official record (SOC)."
+        );
+    }
+
+    /// U12 AM-84 : « Cass. crim., n° X » sans date : la chambre est comparée.
+    #[tokio::test]
+    async fn a_chamber_without_a_date_is_compared() {
+        let corpus = soc_corpus();
+        let wrong = verify(&corpus, PisteEnvironment::Production, "Cass. crim., n° 14-24.444")
+            .await
+            .unwrap();
+        assert_eq!(wrong.found, 1);
+        assert_eq!(wrong.checks[0].status, CheckStatus::Invalid);
+        assert_eq!(
+            note_text(&wrong.checks[0]),
+            "Cited chamber CRIM differs from the official record (SOC)."
+        );
+        let corpus = soc_corpus();
+        let right = verify(&corpus, PisteEnvironment::Production, "Cass. soc., n° 14-24.444")
+            .await
+            .unwrap();
+        assert_eq!(right.checks[0].status, CheckStatus::Verified);
+        assert_eq!(right.checks[0].note, None);
+    }
+
+    /// U12 V9 : un pourvoi entre parenthèses est une seule citation, contrôlée hors ligne quand
+    /// l'année est postérieure.
+    #[tokio::test]
+    async fn a_parenthesised_number_is_one_citation() {
+        let corpus = soc_corpus();
+        let verification = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Cass. com., 12 mars 1999 (n° 14-24.444)",
+        )
+        .await
+        .unwrap();
+        assert_eq!(verification.found, 1);
+        assert_eq!(verification.checks[0].status, CheckStatus::Invalid);
+        assert_eq!(corpus.calls(), 0);
+    }
+
+    /// U12 : une citation entre parenthèses et vérifiée reste une citation (deux appels).
+    #[tokio::test]
+    async fn a_verified_parenthesised_number_keeps_one_citation() {
+        let corpus = soc_corpus();
+        let verification = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Cass. soc., 25 novembre 2015 (pourvoi n° 14-24.444)",
+        )
+        .await
+        .unwrap();
+        assert_eq!(verification.found, 1);
+        assert_eq!(verification.checks[0].status, CheckStatus::Verified);
+        assert_eq!(verification.checks[0].note, None);
+        assert_eq!(corpus.calls_of("find_by_number"), 1);
+        assert_eq!(corpus.calls_of("get_decision"), 1);
+    }
+
+    /// U12 (garde) : 3e cas de la repro E2E, tête juste : `verified` sans note, deux appels.
+    #[tokio::test]
+    async fn a_right_dashed_head_stays_verified_without_a_head_note() {
+        let corpus = soc_corpus();
+        let verification =
+            verify(&corpus, PisteEnvironment::Production, "Cass. soc. 25-11-2015, n° 14-24.444")
+                .await
+                .unwrap();
+        assert_eq!(verification.found, 1);
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(check.note, None);
+        assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), SOC_ID);
+        assert_eq!(corpus.calls(), 2);
+    }
+
+    /// U12 F2 : un pourvoi dont la tête n'est pas lue est `verified` avec la note ; un pourvoi nu
+    /// n'a pas de note.
+    #[tokio::test]
+    async fn an_unread_head_is_reported() {
+        let head_not_read = "Only the case number was matched: the court, chamber or date written \
+                             before it was not read and not checked.";
+        for text in [
+            "Cass. soc., 25/11/15, n° 14-24.444",
+            "Cass. soc., nov. 2015, n° 14-24.444",
+            "Cass. soc., req. n° 14-24.444",
+        ] {
+            let corpus = soc_corpus();
+            let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+            let check = &verification.checks[0];
+            assert_eq!(check.status, CheckStatus::Verified, "{text}");
+            assert_eq!(note_text(check), head_not_read, "{text}");
+        }
+        let corpus = soc_corpus();
+        let bare = verify(&corpus, PisteEnvironment::Production, "n° 14-24.444").await.unwrap();
+        assert_eq!(bare.checks[0].status, CheckStatus::Verified);
+        assert_eq!(bare.checks[0].note, None);
+    }
+
+    /// U12 F2 : une citation qui n'est pas `verified` garde la note de son statut seule.
+    #[test]
+    fn a_status_other_than_verified_keeps_its_own_note_alone() {
+        let item =
+            lf_domain::citation::parse("Cass. soc., 25/11/15, n° 14-24.444 et 14-24.445").remove(0);
+        assert!(item.flags.contains(&Flag::TeteDecisionNonLue));
+        let own = Some(Note::NoCourt);
+        for status in [CheckStatus::Invalid, CheckStatus::NotFound, CheckStatus::Ambiguous] {
+            assert_eq!(with_reading_gaps(status, own.clone(), &item), own, "{status:?}");
+            assert_eq!(with_reading_gaps(status, None, &item), None, "{status:?}");
+        }
+        // Sans note de statut, les deux écarts se suivent ; derrière une longue note, la borne de
+        // 200 caractères ne garde que ce qui tient en entier.
+        let both = with_reading_gaps(CheckStatus::Verified, None, &item).unwrap();
+        assert_eq!(
+            both.text(),
+            "Only the case number was matched: the court, chamber or date written before it was \
+             not read and not checked. Only the first case number was checked."
+        );
+        let after_own = with_reading_gaps(CheckStatus::Verified, own, &item).unwrap();
+        assert!(after_own.text().starts_with("No court given"));
+        assert!(after_own.text().chars().count() <= 200);
+        let bare =
+            lf_domain::citation::parse("Cass. soc., 25 novembre 2015, n° 14-24.444").remove(0);
+        assert_eq!(with_reading_gaps(CheckStatus::Verified, None, &bare), None);
+    }
+
+    /// U12 F2 : la note n'est posée que sur la citation à tête non lue.
+    #[tokio::test]
+    async fn the_head_not_read_note_is_set_only_on_the_citation_with_an_unread_head() {
+        let corpus = soc_corpus();
+        let verification = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Cass. soc., 25/11/15, n° 14-24.444 ; et ailleurs : n° 14-24.444",
+        )
+        .await
+        .unwrap();
+        assert_eq!(verification.checks.len(), 2);
+        assert!(note_text(&verification.checks[0]).starts_with("Only the case number was matched"));
+        assert_eq!(verification.checks[1].note, None);
+    }
+
+    /// U12 F2 (garde) : le drapeau ne scinde pas la clé de résolution, une seule recherche.
+    #[tokio::test]
+    async fn the_head_not_read_flag_does_not_split_the_resolution_key() {
+        let corpus = soc_corpus();
+        let verification = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Cass. soc., 25/11/15, n° 14-24.444 ; et ailleurs : n° 14-24.444",
+        )
+        .await
+        .unwrap();
+        assert_eq!(verification.checks.len(), 2);
+        assert_eq!(corpus.calls_of("find_by_number"), 1);
+    }
+
+    /// U12 (garde) : la clé de résolution ignore le seul nouveau drapeau, pas les autres drapeaux
+    /// d'information.
+    #[test]
+    fn key_of_is_unchanged_for_the_existing_info_flags() {
+        let base = lf_domain::citation::parse("Cass. soc., 25 novembre 2015, n° 14-24.444");
+        let item = base[0].clone();
+        let plain = key_of(&item);
+        for flag in
+            [lf_domain::citation::Flag::DateRepublicaine, lf_domain::citation::Flag::MojibakeRepare]
+        {
+            let mut flagged = item.clone();
+            flagged.flags.push(flag);
+            assert_eq!(
+                key_of(&flagged),
+                format!("{:?}|{:?}|{:?}", flagged.value, flagged.ambiguity, flagged.flags)
+            );
+            assert_ne!(key_of(&flagged), plain);
+        }
+    }
+
+    /// U12 F2 : le drapeau de tête non lue n'entre pas dans la clé de résolution.
+    #[test]
+    fn key_of_ignores_the_head_not_read_flag() {
+        let item =
+            lf_domain::citation::parse("Cass. soc., 25 novembre 2015, n° 14-24.444")[0].clone();
+        let plain = key_of(&item);
+        let mut unread = item.clone();
+        unread.flags.push(lf_domain::citation::Flag::TeteDecisionNonLue);
+        assert_eq!(key_of(&unread), plain);
+        unread.flags.push(lf_domain::citation::Flag::DateRepublicaine);
+        assert_ne!(key_of(&unread), plain);
+    }
+
+    /// U12 F3 : pourvois joints, seul le premier est contrôlé, la note le dit.
+    #[tokio::test]
+    async fn only_the_first_case_number_is_checked_note() {
+        let corpus = soc_corpus();
+        let verification = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Cass. soc., 25 novembre 2015, n° 14-24.444 et 14-24.445",
+        )
+        .await
+        .unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(note_text(check), "Only the first case number was checked.");
+        assert_eq!(corpus.calls_of("find_by_number"), 1);
+        // Un seul numéro : aucune note.
+        let corpus = soc_corpus();
+        let one = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Cass. soc., 25 novembre 2015, n° 14-24.444",
+        )
+        .await
+        .unwrap();
+        assert_eq!(one.checks[0].note, None);
+    }
+
+    /// U12 : un extrait collé après le fermant est rattaché à la décision.
+    #[tokio::test]
+    async fn a_quote_after_a_parenthesised_number_is_attached() {
+        let corpus = soc_corpus();
+        let verification = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Cass. soc., 25 novembre 2015 (n° 14-24.444) : « Texte de la décision. »",
+        )
+        .await
+        .unwrap();
+        assert!(!verification.unattached_quote);
+        assert_eq!(verification.checks[0].quote, Some(QuoteCheck::Match));
     }
 
     #[tokio::test]

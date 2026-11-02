@@ -2782,6 +2782,15 @@ mod tests {
         (Some(iso.to_owned()), Vec::new(), end)
     }
 
+    /// Garantie 14 n° 8 (U12) : le lecteur des versions d'article ne lit pas les dates à tirets ;
+    /// seule la jurisprudence les lit. Limite écrite, 1.2.0.
+    #[test]
+    fn a_dashed_date_is_not_a_date_in_codes_u12() {
+        for text in ["6-07-1989", "01-01-2020", "25-11-2015"] {
+            assert_eq!(date_of(text), None, "{text}");
+        }
+    }
+
     #[test]
     fn dates_in_every_written_form() {
         assert_eq!(date_of("1er janvier 2018"), Some(valid("2018-01-01", 16)));
