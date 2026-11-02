@@ -1329,7 +1329,7 @@ Audit (00 §7) : `output_count_or_size` = nombre de citations (`checked`, 05 §5
 
 Entrée (05 §5.10) : `citation` de 1 à 1 000 caractères, `date?` (`VersionDate`, défaut aujourd'hui Paris) (00 §7). Sortie : `interpreted_as?`, `candidates[{id, kind, citation, source_url, confidence}]` (au plus 5, meilleur d'abord, 00 §7), `note?`.
 
-1. `parse_with(citation, …)` ; aucune citation → `candidates: []`, note `NoCitationRecognised` : « No citation recognised. Only citations introduced by 'article' or 'art.' are read; an empty result does not prove the text cites nothing. » (texte partagé avec `fr_verify_citations`, L2-08). Plusieurs → la première est résolue, la note signale les autres et renvoie à `fr_verify_citations` (05 §5.10).
+1. `parse_with(citation, …)` ; aucune citation → `candidates: []`, note `NoCitationRecognised` : « No citation recognised. A bare number needs 'article' or 'art.'; L., R. and D. numbers followed by the code name are read without. An empty result does not prove the text cites nothing. » (texte partagé avec `fr_verify_citations`, L2-08). Plusieurs → la première est résolue, la note signale les autres et renvoie à `fr_verify_citations` (05 §5.10).
 2. `interpreted_as` = `format::canonical` (§6.5), pour que le modèle détecte une mauvaise lecture.
 3. Résolution par famille (§7.3), avec `date` comme date de version des articles. Pour les ambiguïtés bloquantes, recherche de candidats quand une requête exacte existe (article sans code, décision sans numéro, `Décision AAAA-N` : `find_by_number(Constit, Decision, …)`).
 4. Rien trouvé : succès avec `candidates: []` et la note du motif ; jamais `not_found` en erreur (05 §5.10).

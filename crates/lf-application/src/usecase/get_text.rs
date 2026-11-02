@@ -34,12 +34,12 @@ const TOOL: ToolName = ToolName::FR_GET_TEXT;
 /// `path`, `date_debut`, `date_fin`, `nota`, `eli`, `citation`, `source_url`.
 const ARTICLE_FIELDS: usize = 12;
 
-/// Champs de la lecture : `summary`, `summary_source`, `text`, `text_length`, `next_offset`,
-/// `passages` et `note`.
-const READING_FIELDS: usize = 7;
+/// Champs de la lecture : `summary`, `summary_source`, `summary_truncated`, `text`, `text_length`,
+/// `next_offset`, `passages` et `note`.
+const READING_FIELDS: usize = 8;
 
-/// Éléments comptés par passage : l'élément de la liste, `offset` et `text`.
-const PASSAGE_FIELDS: usize = 3;
+/// Éléments comptés par passage : l'élément de la liste, `offset`, `text` et `score`.
+const PASSAGE_FIELDS: usize = 4;
 
 /// Caractères des champs de taille fixe de l'article : deux identifiants, deux dates, l'état et
 /// l'URL de la page.

@@ -51,8 +51,7 @@ macro_rules! head {
              laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal \
              (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts \
              (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company \
-             agreements (ACCO). Use these tools for any question on French legislation, code \
-             articles or case law.\n",
+             agreements (ACCO). Use them for any question on French law or case law.\n",
             "\n",
             "## Workflow\n"
         )
@@ -138,8 +137,9 @@ macro_rules! tail {
              then read the article ids of that version with `fr_get_text`. Texts are verbatim (table \
              cells are joined with \" | \"): this server does not decide whether a provision \
              applies to a case.\n",
-            "- `etat`: VIGUEUR* (VIGUEUR_ETEN...) in force; ABROGE_DIFF in force, repeal \
-             scheduled; any other code (MODIFIE, ABROGE, PERIME...) not in force.\n",
+            "- `etat`: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF in force; VIGUEUR_DIFF \
+             not yet; MODIFIE, ABROGE, PERIME no longer; DENONCE may still apply (list: `etat` \
+             field).\n",
             "- An empty result does not mean the law is silent: call `fr_coverage` and tell the \
              user what is missing.\n",
             "\n",
@@ -260,12 +260,13 @@ mod tests {
     fn instruction_sizes_match_the_counts_of_the_spec() {
         // 05 §4.2 : caractères et octets UTF-8, sans saut de ligne final, refaits avec Python.
         // D-12 (1.1.0) : +220 caractères (glossaire de `etat`, résumé jamais complet, tableaux),
-        // pris sur 3 500 ; la marge restante est de 2 caractères.
+        // pris sur 3 500 ; revue finale de la PR 2 : glossaire sans joker (règle courte, la règle complète est
+        // dans la description du champ `etat`), marge restante : 1 caractère.
         let measured = SURFACES.map(|surface| {
             let text = surface.instructions();
             (text.chars().count(), text.len())
         });
-        assert_eq!(measured, [(3_099, 3_107), (3_300, 3_308), (3_498, 3_506)]);
+        assert_eq!(measured, [(3_100, 3_108), (3_301, 3_309), (3_499, 3_507)]);
     }
 
     /// D-12 : glossaire de `etat`, résumé jamais complet, nuance de « verbatim » pour les tableaux.
@@ -275,9 +276,10 @@ mod tests {
         for surface in SURFACES {
             let text = surface.instructions();
             for state in [
-                "VIGUEUR* (VIGUEUR_ETEN...) in force",
-                "ABROGE_DIFF in force, repeal scheduled",
-                "any other code (MODIFIE, ABROGE, PERIME...) not in force",
+                "VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF in force",
+                "VIGUEUR_DIFF not yet",
+                "MODIFIE, ABROGE, PERIME no longer",
+                "DENONCE may still apply (list: `etat` field)",
             ] {
                 assert!(text.contains(state), "{surface:?} : {state}");
             }

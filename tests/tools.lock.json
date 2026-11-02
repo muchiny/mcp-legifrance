@@ -7,9 +7,9 @@
   },
   "eras_identical": true,
   "instructions": {
-    "chars": 3498,
-    "sha256": "58f358227794bab079714cc3189c19853f050a409f994cb6cc5ccae50e1258da",
-    "text": "French law from Légifrance through the official PISTE API (read-only): consolidated laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company agreements (ACCO). Use these tools for any question on French legislation, code articles or case law.\n\n## Workflow\n1. Find: `fr_search` searches one fond, paged with `page` and `has_more`; `fr_search_all` returns a few hits from several fonds. `fr_resolve` turns a free-text citation (code article, law number, ECLI, case number) into Legifrance ids.\n2. Read by id prefix: LEGITEXT -> `fr_get_act` (metadata and table of contents); LEGIARTI or KALIARTI -> `fr_get_text`; JURITEXT, CONSTEXT or CETATEXT -> `fr_get_decision`; CNILTEXT -> `fr_get_deliberation`; KALITEXT -> `fr_get_convention`; ACCOTEXT -> `fr_get_company_agreement` (metadata only: the full text is a .docx on Légifrance).\n3. Check and navigate: `fr_verify_citations` checks every citation of a draft against the official record; `fr_get_related` lists what an article or a decision cites or is cited by; `fr_diff_article` compares two versions of an article.\n4. Limits: `fr_coverage` says what this server does not cover and whether it runs on the PISTE sandbox.\n\n## Long texts\n`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. A summary is never the whole text: pass `detail=\"full\"` before quoting a threshold, amount or rate; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.\n\n## Hard rules\n- Cite every source with its `citation` and `source_url`; for case law add the `ecli` when present.\n- Never invent an id, an ECLI, an ELI or a citation: take each one from tool output. Many CAA and TA decisions have no ECLI.\n- ELI: none from the API for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.\n- Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the data, give this source and the consultation date (`consulted_on` in `fr_coverage`).\n- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim (table cells are joined with \" | \"): this server does not decide whether a provision applies to a case.\n- `etat`: VIGUEUR* (VIGUEUR_ETEN...) in force; ABROGE_DIFF in force, repeal scheduled; any other code (MODIFIE, ABROGE, PERIME...) not in force.\n- An empty result does not mean the law is silent: call `fr_coverage` and tell the user what is missing.\n\n## Errors\nA failed call returns isError with a text that starts with a code:\n- `[invalid_arg]` an argument is missing or malformed: fix it as the message says.\n- `[not_found]` nothing exists for that id: search again.\n- `[rate_limited]` PISTE quota reached: wait the delay given, then retry.\n- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.\n- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the configuration.\n- `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user."
+    "chars": 3499,
+    "sha256": "b5b3940fdc37fd720bdb0120d08d576c945c73ce6a1425e33443e301b5796665",
+    "text": "French law from Légifrance through the official PISTE API (read-only): consolidated laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company agreements (ACCO). Use them for any question on French law or case law.\n\n## Workflow\n1. Find: `fr_search` searches one fond, paged with `page` and `has_more`; `fr_search_all` returns a few hits from several fonds. `fr_resolve` turns a free-text citation (code article, law number, ECLI, case number) into Legifrance ids.\n2. Read by id prefix: LEGITEXT -> `fr_get_act` (metadata and table of contents); LEGIARTI or KALIARTI -> `fr_get_text`; JURITEXT, CONSTEXT or CETATEXT -> `fr_get_decision`; CNILTEXT -> `fr_get_deliberation`; KALITEXT -> `fr_get_convention`; ACCOTEXT -> `fr_get_company_agreement` (metadata only: the full text is a .docx on Légifrance).\n3. Check and navigate: `fr_verify_citations` checks every citation of a draft against the official record; `fr_get_related` lists what an article or a decision cites or is cited by; `fr_diff_article` compares two versions of an article.\n4. Limits: `fr_coverage` says what this server does not cover and whether it runs on the PISTE sandbox.\n\n## Long texts\n`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. A summary is never the whole text: pass `detail=\"full\"` before quoting a threshold, amount or rate; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.\n\n## Hard rules\n- Cite every source with its `citation` and `source_url`; for case law add the `ecli` when present.\n- Never invent an id, an ECLI, an ELI or a citation: take each one from tool output. Many CAA and TA decisions have no ECLI.\n- ELI: none from the API for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.\n- Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the data, give this source and the consultation date (`consulted_on` in `fr_coverage`).\n- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim (table cells are joined with \" | \"): this server does not decide whether a provision applies to a case.\n- `etat`: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF in force; VIGUEUR_DIFF not yet; MODIFIE, ABROGE, PERIME no longer; DENONCE may still apply (list: `etat` field).\n- An empty result does not mean the law is silent: call `fr_coverage` and tell the user what is missing.\n\n## Errors\nA failed call returns isError with a text that starts with a code:\n- `[invalid_arg]` an argument is missing or malformed: fix it as the message says.\n- `[not_found]` nothing exists for that id: search again.\n- `[rate_limited]` PISTE quota reached: wait the delay given, then retry.\n- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.\n- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the configuration.\n- `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user."
   },
   "lock_format": 1,
   "prompts": {
@@ -106,10 +106,10 @@
   },
   "server_version": "1.0.1",
   "sizes": {
-    "instructions_chars": 3498,
-    "tools_list_bytes": 34482
+    "instructions_chars": 3499,
+    "tools_list_bytes": 35395
   },
-  "surface_sha256": "5bf6b1d0e2ac6db4564afbdd330800442cc10a91d18e4208fdc761590b85a3bb",
+  "surface_sha256": "63822c20ae5cebfa1a3288e4d565c12ed4145ce611e528b848f12a176d63abe6",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -452,7 +452,7 @@
               "type": "string"
             },
             "etat": {
-              "description": "In force: VIGUEUR*, ABROGE_DIFF; other codes not.",
+              "description": "In force: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF. Not yet: VIGUEUR_DIFF. DENONCE may still apply. Every code is classed in the etat of fr_get_text.",
               "type": "string"
             },
             "jo_reference": {
@@ -531,7 +531,7 @@
         },
         "title": "Read a law, decree or code"
       },
-      "sha256": "b2d4853023350a2ae6b59e032cd0a5714f0a7a22aee73e74aad659cb86ad404f"
+      "sha256": "e7fb790386f5110614b02858516fa4bdd9411b3ea05802e76672e98615e4e4ed"
     },
     "fr_get_company_agreement": {
       "descriptor": {
@@ -1089,7 +1089,7 @@
               "type": "string"
             },
             "relation": {
-              "description": "Only the links of this relation: cites or cited_by for an article, cites_case_law or applies_text for a decision. Omit it to get them all. The filter is applied before the 100-link cap, and total counts the links of that relation.",
+              "description": "Only the links of this relation: cites or cited_by for an article, cites_case_law or applies_text for a decision; the other family is refused. Omit it to get them all. The filter is applied before the 100-link cap, and total counts the links of that relation.",
               "enum": [
                 "cites",
                 "cited_by",
@@ -1171,7 +1171,7 @@
         },
         "title": "Related texts and decisions"
       },
-      "sha256": "6f91e17c5f92f2eed3a7211b4786cd654a83d94641ae530282c2f3f260f1b6cf"
+      "sha256": "82c0fbb8457a43004cd9576655c375b069ec2476d752ad988de770ae85c1e0bc"
     },
     "fr_get_text": {
       "descriptor": {
@@ -1254,7 +1254,7 @@
               "type": "string"
             },
             "etat": {
-              "description": "In force: VIGUEUR*, ABROGE_DIFF; other codes not.",
+              "description": "In force: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF. Not yet in force: VIGUEUR_DIFF (deferred entry, date_debut may be absent). No longer in force: MODIFIE, ABROGE, PERIME, ANNULE, REMPLACE, TRANSFERE, SUBSTITUE, DISJOINT, MODIFIE_MORT_NE. DENONCE: denounced, may still apply during notice and survival (Labour Code, article L2261-10). INITIALE, SANS_ETAT: no signal.",
               "type": "string"
             },
             "next_offset": {
@@ -1341,7 +1341,7 @@
         },
         "title": "Read an article"
       },
-      "sha256": "548a7b64f79c4fd96b254320d26ecf311a87e6908e90f91de5e5ab7ff0d1e3c6"
+      "sha256": "6047e163d0509c97dffc70569a39380e261ae30b0a1a280f90a9815918a469e8"
     },
     "fr_resolve": {
       "descriptor": {
@@ -1393,7 +1393,7 @@
                   "type": "string"
                 },
                 "etat": {
-                  "description": "In force: VIGUEUR*, ABROGE_DIFF; other codes not.",
+                  "description": "In force: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF. Not yet: VIGUEUR_DIFF. DENONCE may still apply. Every code is classed in the etat of fr_get_text.",
                   "type": "string"
                 },
                 "id": {
@@ -1437,7 +1437,7 @@
         },
         "title": "Resolve a legal citation"
       },
-      "sha256": "9db2503fd063a80fcced4d448d923fb49dac667bdf268e59dbdaa8a5612596d1"
+      "sha256": "fc4a41290bde5570c774538d07cc25ee05c71fb0356eee11e6ec65446d0c9056"
     },
     "fr_search": {
       "descriptor": {
@@ -1479,7 +1479,7 @@
             },
             "in_force_only": {
               "default": false,
-              "description": "KALI only: keep texts in force (VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN), drop DENONCE, MODIFIE, PERIME, REMPLACE, ABROGE. It filters texts, not the status of their articles.",
+              "description": "KALI only: keep texts in force (VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN), drop DENONCE, MODIFIE, PERIME, REMPLACE, ABROGE. DENONCE excluded, though it may still apply during notice. It filters texts, not the status of their articles.",
               "type": "boolean"
             },
             "match": {
@@ -1565,7 +1565,7 @@
                   "type": "string"
                 },
                 "etat": {
-                  "description": "In force: VIGUEUR*, ABROGE_DIFF; other codes not.",
+                  "description": "In force: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF. Not yet: VIGUEUR_DIFF. DENONCE may still apply. Every code is classed in the etat of fr_get_text.",
                   "type": "string"
                 },
                 "id": {
@@ -1648,7 +1648,7 @@
         },
         "title": "Search Légifrance"
       },
-      "sha256": "eb5a5b0481284ab885a49edf97727236ea73f1afdb4a36db1d79c72f02fea805"
+      "sha256": "cef5fed350406dc416ae0a727c7b7beb1dfc39961d10b1eb4c45144f255a38bc"
     },
     "fr_search_all": {
       "descriptor": {
@@ -1835,7 +1835,7 @@
           "readOnlyHint": true,
           "title": "Verify legal citations"
         },
-        "description": "Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles (only when introduced by article or art.), laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements; found=0 does not prove that a text cites nothing. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; `verified` means the article exists, not that it says what the draft claims. A quoted excerpt is compared with the official text (`quote`) only when it is glued to the citation: no `quote` means NOT checked. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.",
+        "description": "Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles (a bare number needs article/art.; L-, R- or D- numbers followed by the code name do not), laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements; found=0 does not prove that a text cites nothing. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; `verified` means the article exists, not that it says what the draft claims. A quoted excerpt is compared with the official text (`quote`) only when it is glued to the citation: no `quote` means NOT checked. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -1908,7 +1908,7 @@
                   "type": "string"
                 },
                 "etat": {
-                  "description": "In force: VIGUEUR*, ABROGE_DIFF; other codes not.",
+                  "description": "In force: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF. Not yet: VIGUEUR_DIFF. DENONCE may still apply. Every code is classed in the etat of fr_get_text.",
                   "type": "string"
                 },
                 "id": {
@@ -1975,8 +1975,8 @@
         },
         "title": "Verify legal citations"
       },
-      "sha256": "3bfb7ceb45463d335b75c1e9d6ca4e8894446f42ef1abbb894a102fe5479d7c6"
+      "sha256": "c5e42162440c07d606fd0c70fdcc6b4450a108dfa26ea5455bb932805fab1c4a"
     }
   },
-  "toolset_sha256": "124863ec2d6b44766f235e887c7c852ea998c9b1e5e796b56c4633064827bf6e"
+  "toolset_sha256": "d12df0758a927ce7bc1f1ae72bd573b78c2aee751da380b9102e829bc57458e7"
 }

@@ -90,7 +90,7 @@ struct ResolvedView {
     // Article seulement : état de la version lue (VIGUEUR, MODIFIE…) et ses dates (D-03). Les
     // descriptions (D-12) renvoient au glossaire des instructions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String", description = "In force: VIGUEUR*, ABROGE_DIFF; other codes not.")]
+    #[schemars(with = "String", description = crate::views::common::ETAT_GLOSSARY_SHORT)]
     etat: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String", description = "First day of this version, YYYY-MM-DD.")]
@@ -512,7 +512,7 @@ mod tests {
             props["etat"]["description"]
                 .as_str()
                 .unwrap()
-                .contains("In force: VIGUEUR*, ABROGE_DIFF;"),
+                .contains("In force: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF."),
             "{props}"
         );
         assert!(props["date_debut"]["description"].as_str().unwrap().contains("First day"));

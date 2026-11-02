@@ -254,7 +254,9 @@ fn is_signature(markers: &Markers, paragraph: &str) -> bool {
     if !markers.signatures.contains(&title.as_str()) {
         return false;
     }
-    let name: Vec<&str> = words.collect();
+    // Un mot de plus que le plus long nom suffit à conclure : un paragraphe géant n'est pas
+    // collecté en entier (revue finale de la PR 2).
+    let name: Vec<&str> = words.take(SIGNATURE_MAX_NAME_WORDS.saturating_add(1)).collect();
     name.len() <= SIGNATURE_MAX_NAME_WORDS
         && name.iter().all(|word| word.chars().next().is_some_and(char::is_uppercase))
 }
@@ -1208,6 +1210,21 @@ mod tests {
             let got = summary(&text, None, rule, 4_000);
             assert!(parts(&got).1.ends_with("Amende de 10 euros."), "{sentence}");
         }
+    }
+
+    #[test]
+    fn a_giant_paragraph_after_a_title_is_not_a_signature() {
+        // Cinq cent mille mots à majuscule : plus de quatre mots de nom, donc une phrase du
+        // dispositif ; le parcours s'arrête au cinquième mot.
+        let giant = format!("Le Président {}", "Abc ".repeat(500_000));
+        assert!(!is_signature(&CNIL, &giant));
+        // Jumeaux : le plus long nom permis (quatre mots) est une signature, un cinquième non.
+        assert!(is_signature(&CNIL, "Le Président Ab Cd Ef Gh"));
+        assert!(!is_signature(&CNIL, "Le Président Ab Cd Ef Gh Ij"));
+        // Un mot en minuscule dans les quatre premiers : pas un nom.
+        assert!(!is_signature(&CNIL, "Le Président Ab cd"));
+        // Un titre qui n'est pas de la liste : jamais une signature.
+        assert!(!is_signature(&CNIL, "Le Greffier Ab"));
     }
 
     #[test]

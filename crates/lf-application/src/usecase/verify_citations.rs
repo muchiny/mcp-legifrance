@@ -265,8 +265,9 @@ mod tests {
         assert_eq!(note, Note::NoCitationRecognised.text());
         assert_eq!(
             note,
-            "No citation recognised. Only citations introduced by 'article' or 'art.' are read; \
-             an empty result does not prove the text cites nothing."
+            "No citation recognised. A bare number needs 'article' or 'art.'; L., R. and D. numbers \
+             followed by the code name are read without. An empty result does not prove the text \
+             cites nothing."
         );
         assert!(note.chars().count() <= 200);
         assert_eq!(corpus.calls(), 0);

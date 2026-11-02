@@ -1299,13 +1299,14 @@ mod budgets {
     /// (32 808,6), arrondis à la centaine supérieure, soit 32 900 octets ; la 1.1.0 le relève à
     /// 34 500 (Q27 = A, 05 §6.6) : 32 608 octets mesurés à la vague V2b, 34 229 avec les
     /// descriptions de D-12, 34 482 avec les remarques de revue de la vague V3 (marge de 18
-    /// octets). La même valeur est dans `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`), qui mesure le même JSON canonique.
+    /// octets). La revue finale de la PR 2 (AM-73) applique la règle d'AM-63 à la mesure finale,
+    /// 35 395 octets : plus 3 %, arrondi à la centaine supérieure, soit 36 500. La même valeur est dans `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`), qui mesure le même JSON canonique.
     #[tokio::test]
     async fn descriptor_size_budget() {
         let client = Fixture::default().connect().await;
         let tools = client.list_all_tools().await.unwrap();
         let bytes = serde_json::to_vec(&tools).unwrap().len();
-        assert!(bytes <= 34_500, "tools/list: {bytes} bytes");
+        assert!(bytes <= 36_500, "tools/list: {bytes} bytes");
         for tool in &tools {
             let description = tool.description.as_deref().unwrap_or("");
             assert!(description.chars().count() <= 1_000, "{}: {description}", tool.name);

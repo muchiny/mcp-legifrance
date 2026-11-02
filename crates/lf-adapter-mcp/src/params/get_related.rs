@@ -26,7 +26,7 @@ pub(crate) struct GetRelatedParams {
     #[serde(default)]
     #[schemars(
         with = "String",
-        description = "Only the links of this relation: cites or cited_by for an article, cites_case_law or applies_text for a decision. Omit it to get them all. The filter is applied before the 100-link cap, and total counts the links of that relation.",
+        description = "Only the links of this relation: cites or cited_by for an article, cites_case_law or applies_text for a decision; the other family is refused. Omit it to get them all. The filter is applied before the 100-link cap, and total counts the links of that relation.",
         extend("enum" = ["cites", "cited_by", "cites_case_law", "applies_text"])
     )]
     pub(crate) relation: Option<String>,
@@ -123,6 +123,7 @@ mod tests {
         );
         let description = relation["description"].as_str().unwrap();
         assert!(description.chars().count() <= 1000, "{description}");
+        assert!(description.contains("the other family is refused"), "{description}");
     }
 
     #[test]

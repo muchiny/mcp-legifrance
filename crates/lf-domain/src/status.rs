@@ -108,9 +108,11 @@ impl LegalStatus {
 
     /// Cette version n'est-elle plus celle en vigueur, d'après son seul `etat` (sans horloge) ?
     /// Vrai pour `MODIFIE`, `MODIFIE_MORT_NE`, `ABROGE`, `PERIME`, `ANNULE`, `DISJOINT`,
-    /// `TRANSFERE`, `REMPLACE`, `DENONCE` et `SUBSTITUE`. Faux pour `VIGUEUR*`, `INITIALE`,
-    /// `SANS_ETAT`, les codes inconnus et `ABROGE_DIFF` : une abrogation différée est encore en
-    /// vigueur aujourd'hui, rien n'autorise à dire que la version est remplacée. Règle unique de
+    /// `TRANSFERE`, `REMPLACE`, `DENONCE` et `SUBSTITUE`. Faux pour `VIGUEUR`, `VIGUEUR_ETEN`,
+    /// `VIGUEUR_NON_ETEN`, `VIGUEUR_DIFF` (entrée différée : pas encore en vigueur, ce n'est pas
+    /// une version remplacée), `INITIALE`, `SANS_ETAT`, les codes inconnus et `ABROGE_DIFF` : une
+    /// abrogation différée est encore en vigueur aujourd'hui, rien n'autorise à dire que la
+    /// version est remplacée. Règle unique de
     /// `fr_resolve` (note de version) et de `fr_get_text` (avertissement), qui ne doivent pas
     /// diverger (revue finale I2).
     ///

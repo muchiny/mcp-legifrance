@@ -36,7 +36,7 @@ pub(crate) struct ArticleView {
     num: Option<String>,
     // Code d'API de l'état (VIGUEUR, ABROGE, VIGUEUR_DIFF...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String", description = "In force: VIGUEUR*, ABROGE_DIFF; other codes not.")]
+    #[schemars(with = "String", description = crate::views::common::ETAT_GLOSSARY)]
     etat: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String")]
@@ -84,8 +84,9 @@ fn readable_parent_id(id: &DocumentId) -> Option<String> {
 ///
 /// Déclenchée par l'`etat` seul, sans horloge, selon [`LegalStatus::is_superseded`] (règle commune
 /// avec `fr_resolve`) : `MODIFIE`, `MODIFIE_MORT_NE`, `ABROGE`, `PERIME`, `ANNULE`, `DISJOINT`,
-/// `REMPLACE`, `SUBSTITUE`, `TRANSFERE`, `DENONCE`. `VIGUEUR*`, `ABROGE_DIFF` (encore en vigueur),
-/// `INITIALE`, `SANS_ETAT` et les codes inconnus n'en portent pas. La date de fin n'est citée que
+/// `REMPLACE`, `SUBSTITUE`, `TRANSFERE`, `DENONCE`. `VIGUEUR`, `VIGUEUR_ETEN`, `VIGUEUR_NON_ETEN`,
+/// `ABROGE_DIFF` (encore en vigueur), `VIGUEUR_DIFF` (pas encore en vigueur : l'avertissement
+/// parlerait d'une version terminée), `INITIALE`, `SANS_ETAT` et les codes inconnus n'en portent pas. La date de fin n'est citée que
 /// si elle est réelle (hors zone sentinelle).
 fn not_in_force_note(etat: Option<&LegalStatus>, date_fin: Option<CivilDate>) -> Option<String> {
     let etat = etat?;
@@ -147,7 +148,7 @@ mod tests {
     fn the_etat_field_carries_the_general_rule() {
         let schema = serde_json::Value::Object(output_schema::<ArticleView>().as_ref().clone());
         let text = schema.to_string();
-        assert!(text.contains("In force: VIGUEUR*, ABROGE_DIFF; other codes not."), "{text}");
+        assert!(text.contains(crate::views::common::ETAT_GLOSSARY), "{text}");
     }
     use lf_application::{
         budget::{PassageOut, Reading, ResponseBudget},

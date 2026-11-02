@@ -78,7 +78,7 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
     /// # Errors
     ///
     /// `invalid_arg` si `id` est absent, mal formé ou d'une famille que l'outil ne lit pas, ou si
-    /// `relation` n'est pas l'un des quatre sens (sans appel au port) ; `not_found` si le corpus ne connaît pas l'article ou la décision (message
+    /// `relation` n'est pas l'un des quatre sens ou n'est pas un sens de la famille de `id` (sans appel au port) ; `not_found` si le corpus ne connaît pas l'article ou la décision (message
     /// de l'outil de lecture correspondant, 05 §7.4) ; sinon l'erreur du port, traduite par
     /// [`port_failure`].
     pub(crate) async fn execute(
@@ -97,10 +97,22 @@ impl<'a, C: LegalCorpus> GetRelatedUseCase<'a, C> {
         })?;
         let relation = relation_of(input.relation.as_deref())?;
         match parsed {
-            DocumentId::LegiArti(id) => self.article(id, relation).await,
-            DocumentId::JuriText(id) => self.decision(DecisionId::Juri(id), relation).await,
-            DocumentId::ConsText(id) => self.decision(DecisionId::Constit(id), relation).await,
-            DocumentId::CetaText(id) => self.decision(DecisionId::Cetat(id), relation).await,
+            DocumentId::LegiArti(id) => {
+                let relation = in_family(relation, "an article", ARTICLE_RELATIONS)?;
+                self.article(id, relation).await
+            }
+            DocumentId::JuriText(id) => {
+                let relation = in_family(relation, "a decision", DECISION_RELATIONS)?;
+                self.decision(DecisionId::Juri(id), relation).await
+            }
+            DocumentId::ConsText(id) => {
+                let relation = in_family(relation, "a decision", DECISION_RELATIONS)?;
+                self.decision(DecisionId::Constit(id), relation).await
+            }
+            DocumentId::CetaText(id) => {
+                let relation = in_family(relation, "a decision", DECISION_RELATIONS)?;
+                self.decision(DecisionId::Cetat(id), relation).await
+            }
             other => Err(unsupported(&other)),
         }
     }
@@ -165,6 +177,33 @@ fn relation_of(raw: Option<&str>) -> Result<Option<Relation>, AppError> {
         })
     })
     .transpose()
+}
+
+/// Les deux sens d'un article.
+const ARTICLE_RELATIONS: [Relation; 2] = [Relation::Cites, Relation::CitedBy];
+
+/// Les deux sens d'une décision.
+const DECISION_RELATIONS: [Relation; 2] = [Relation::CitesCaseLaw, Relation::AppliesText];
+
+/// `relation` si elle est absente ou l'un des sens de la famille de l'identifiant (`valid`) ; sinon
+/// un `invalid_arg` hors réseau qui liste les sens de cette famille. Sans ce refus, un sens de
+/// l'autre famille rendrait `total: 0` et `links: []`, que rien ne distingue d'un vrai « aucun
+/// lien » (revue finale de la PR 2).
+fn in_family(
+    relation: Option<Relation>,
+    subject: &str,
+    valid: [Relation; 2],
+) -> Result<Option<Relation>, AppError> {
+    match relation {
+        Some(wanted) if !valid.contains(&wanted) => {
+            let list = valid.map(|item| format!("'{}'", item.as_str())).join(", ");
+            Err(messages::invalid_argument(format!(
+                "relation='{}' does not apply to {subject}; use one of [{list}] or omit relation.",
+                wanted.as_str()
+            )))
+        }
+        other => Ok(other),
+    }
 }
 
 /// La réponse de la page `id` (`contract` : sa citation et sa page) pour `links`, ramenée aux
@@ -560,9 +599,8 @@ mod tests {
         let out = run_relation(&referenced(), JURI, "CITES_CASE_LAW").await.unwrap();
         let relations: Vec<_> = out.links.iter().map(|link| link.relation).collect();
         assert_eq!((relations, out.total), (vec![Relation::CitesCaseLaw], 1));
-        // Une relation d'article n'existe pas pour une décision : liste vide.
-        let out = run_relation(&referenced(), JURI, "cited_by").await.unwrap();
-        assert_eq!((out.links.len(), out.total, out.truncated), (0, 0, false));
+        // Une relation d'article n'existe pas pour une décision : refusée, voir
+        // `a_relation_of_another_family_is_refused_with_the_valid_ones`.
         // Sans filtre, les deux sont rendus (jumeau).
         let out = run(&referenced(), Some(JURI)).await.unwrap();
         assert_eq!(out.total, 2);
@@ -582,6 +620,55 @@ mod tests {
                 )
             );
             assert_eq!(corpus.calls(), 0, "un rejet local n'appelle pas le port");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_relation_of_another_family_is_refused_with_the_valid_ones() {
+        // Un article : `cites_case_law` et `applies_text` n'existent que pour une décision.
+        for raw in ["cites_case_law", " APPLIES_TEXT "] {
+            let corpus = FakeCorpus::new();
+            let error = run_relation(&corpus, ARTI, raw).await.unwrap_err();
+            assert_eq!(error.code(), Some(ErrorCode::InvalidArg), "{raw:?}");
+            assert_eq!(
+                error.message(),
+                format!(
+                    "relation='{}' does not apply to an article; use one of ['cites', \
+                     'cited_by'] or omit relation.",
+                    raw.trim().to_ascii_lowercase()
+                )
+            );
+            assert_eq!(corpus.calls(), 0, "un rejet local n'appelle pas le port");
+        }
+        // Une décision, quel que soit son fonds : `cites` et `cited_by` n'existent que pour un
+        // article.
+        for (id, raw) in [(JURI, "cites"), (CONSTIT, "cited_by"), (CETAT, "Cites")] {
+            let corpus = FakeCorpus::new();
+            let error = run_relation(&corpus, id, raw).await.unwrap_err();
+            assert_eq!(error.code(), Some(ErrorCode::InvalidArg), "{id} {raw:?}");
+            assert_eq!(
+                error.message(),
+                format!(
+                    "relation='{}' does not apply to a decision; use one of ['cites_case_law', \
+                     'applies_text'] or omit relation.",
+                    raw.to_ascii_lowercase()
+                )
+            );
+            assert_eq!(corpus.calls(), 0, "un rejet local n'appelle pas le port");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_relation_of_the_right_family_is_not_refused() {
+        // Jumeau : les relations de la famille passent, sur un article comme sur une décision.
+        for raw in ["cites", "cited_by"] {
+            let corpus = serving(RelatedLinks::default());
+            assert!(run_relation(&corpus, ARTI, raw).await.is_ok(), "{raw}");
+        }
+        for raw in ["cites_case_law", "applies_text"] {
+            let corpus = FakeCorpus::new();
+            corpus.push_get_decision(Ok(decision(JURI, "texte")));
+            assert!(run_relation(&corpus, JURI, raw).await.is_ok(), "{raw}");
         }
     }
 
@@ -908,9 +995,6 @@ mod tests {
             shape,
             (vec![Relation::CitesCaseLaw, Relation::AppliesText], 2, Some(Note::DecisionLinkCodes))
         );
-        // Une relation qu'une décision n'a pas : liste vide, aucune note sur des codes absents.
-        let shape = shape_of(&with_code_and_case_law(), Some("cited_by")).await;
-        assert_eq!(shape, (vec![], 0, None));
     }
 
     #[tokio::test]
@@ -971,9 +1055,8 @@ mod tests {
         assert!(bounds_of(Some(&cited), applied(), None).await.2);
         assert!(bounds_of(Some(&cited), applied(), Some("cites_case_law")).await.2);
         assert!(bounds_of(Some(&cited), applied(), Some("applies_text")).await.2);
-        // Une relation qu'une décision n'a pas : rien n'a pu être perdu pour elle.
-        assert_eq!(bounds_of(Some(&cited), applied(), Some("cited_by")).await, (0, 0, false));
-        assert_eq!(bounds_of(Some(&cited), applied(), Some("cites")).await, (0, 0, false));
+        // Une relation d'article est refusée pour une décision avant toute lecture
+        // (`a_relation_of_another_family_is_refused_with_the_valid_ones`).
     }
 
     #[tokio::test]

@@ -85,7 +85,7 @@ pub(crate) struct SearchParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "bool",
-        description = "KALI only: keep texts in force (VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN), drop DENONCE, MODIFIE, PERIME, REMPLACE, ABROGE. It filters texts, not the status of their articles.",
+        description = "KALI only: keep texts in force (VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN), drop DENONCE, MODIFIE, PERIME, REMPLACE, ABROGE. DENONCE excluded, though it may still apply during notice. It filters texts, not the status of their articles.",
         extend("default" = false)
     )]
     pub(crate) in_force_only: Option<bool>,
@@ -194,6 +194,10 @@ mod tests {
         for state in ["VIGUEUR_NON_ETEN", "DENONCE", "MODIFIE", "PERIME", "REMPLACE", "ABROGE"] {
             assert!(description.contains(state), "{state}");
         }
+        assert!(
+            description.contains("DENONCE excluded, though it may still apply during notice"),
+            "{description}"
+        );
     }
 
     #[test]

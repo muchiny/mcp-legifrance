@@ -1168,9 +1168,11 @@ fn article_found(
 }
 
 /// Code d'état d'une version qui n'est plus en vigueur, en vocabulaire fermé. `None` : version en
-/// vigueur (y compris étendue ou non étendue, différée, initiale, `ABROGE_DIFF`), ou état sans
-/// signal (`SANS_ETAT` et code inconnu : rien n'autorise à dire que la version est remplacée). La
-/// décision est celle de [`LegalStatus::is_superseded`], règle commune avec `fr_get_text` ; le test
+/// vigueur (`VIGUEUR`, étendue ou non étendue, `ABROGE_DIFF`), version pas encore en vigueur
+/// (`VIGUEUR_DIFF` : une entrée différée n'est pas une version remplacée), ou état sans signal
+/// (`INITIALE`, `SANS_ETAT` et code inconnu : rien n'autorise à dire que la version est
+/// remplacée). `DENONCE` est rendu : le texte est dénoncé, même si une convention peut encore
+/// s'appliquer pendant le préavis (le glossaire de `etat` le dit). La décision est celle de [`LegalStatus::is_superseded`], règle commune avec `fr_get_text` ; le test
 /// `the_replaced_code_follows_the_one_superseded_rule` garde l'accord des deux.
 const fn replaced_code(status: &LegalStatus) -> Option<&'static str> {
     match status {

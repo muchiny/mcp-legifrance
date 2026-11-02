@@ -27,8 +27,9 @@ pub(crate) const FOUND_DATES_MAX: usize = 5;
 const QUOTE_GAP: &str = "Quoted text not found in the official text.";
 
 /// Texte de [`Note::NoCitationRecognised`].
-const NO_CITATION: &str = "No citation recognised. Only citations introduced by 'article' or \
-     'art.' are read; an empty result does not prove the text cites nothing.";
+const NO_CITATION: &str = "No citation recognised. A bare number needs 'article' or 'art.'; L., \
+     R. and D. numbers followed by the code name are read without. An empty result does not \
+     prove the text cites nothing.";
 
 /// Texte de [`Note::NumberlessText`].
 const NUMBERLESS_TEXT: &str = "A text cited without a number cannot be checked here; find it with \
@@ -712,7 +713,7 @@ mod tests {
             ),
             (
                 Note::NoCitationRecognised,
-                "No citation recognised. Only citations introduced by 'article' or 'art.' are read; an empty result does not prove the text cites nothing.",
+                "No citation recognised. A bare number needs 'article' or 'art.'; L., R. and D. numbers followed by the code name are read without. An empty result does not prove the text cites nothing.",
             ),
             (
                 Note::OtherCitations { count: 2 },

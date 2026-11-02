@@ -64,6 +64,12 @@ pub(crate) const NO_MATCH_NOTE: &str = "No match: try other words, remove the da
                                         call fr_coverage; an empty result does not mean the law \
                                         is silent.";
 
+/// Note de défense en profondeur de `in_force_only` : un résultat rendu a un `etat` que le filtre
+/// aurait dû écarter. Le texte nomme les trois états gardés (D-08) ; il ne dit pas que la source
+/// a tort, seulement que le filtre n'est peut-être pas appliqué.
+pub(crate) const FILTER_NOT_APPLIED_NOTE: &str = "in_force_only was set, but a hit is not VIGUEUR, \
+     VIGUEUR_ETEN or VIGUEUR_NON_ETEN: the source may not have applied the filter. Check each etat.";
+
 /// Longueur ISO d'une date rendue, `AAAA-MM-JJ`.
 const ISO_DATE_CHARS: usize = 10;
 
@@ -215,6 +221,10 @@ fn present(query: &SearchQuery, page: SearchPage) -> Result<SearchOutput, AppErr
         .map(|count| articles_note(count, &page.hits, number))
         .or_else(|| (!more && seen < largest).then(|| REACHABLE_NOTE.to_owned()))
         .or_else(|| no_match.then(|| NO_MATCH_NOTE.to_owned()));
+    // Défense en profondeur : `in_force_only` demandé, mais un résultat d'un autre état. La note
+    // s'ajoute aux autres.
+    let unfiltered = query.in_force_only() && page.hits.iter().any(escapes_in_force_filter);
+    let note = join_notes([note, unfiltered.then(|| FILTER_NOT_APPLIED_NOTE.to_owned())]);
     let mut output = SearchOutput {
         total: page.total,
         page: number.get(),
@@ -225,6 +235,24 @@ fn present(query: &SearchQuery, page: SearchPage) -> Result<SearchOutput, AppErr
     };
     fit_under_target(&mut output, size)?;
     Ok(output)
+}
+
+/// Le résultat a-t-il un `etat` hors des trois que `in_force_only` garde (`VIGUEUR`,
+/// `VIGUEUR_ETEN`, `VIGUEUR_NON_ETEN`) ? Un résultat sans `etat` n'est pas signalé : rien ne dit
+/// qu'il échappe au filtre.
+fn escapes_in_force_filter(hit: &SearchHit) -> bool {
+    hit.etat.as_ref().is_some_and(|etat| {
+        !matches!(
+            etat,
+            LegalStatus::Vigueur | LegalStatus::VigueurEtendue | LegalStatus::VigueurNonEtendue
+        )
+    })
+}
+
+/// Les notes présentes, jointes par une espace ; `None` s'il n'y en a aucune.
+fn join_notes<const N: usize>(notes: [Option<String>; N]) -> Option<String> {
+    let notes: Vec<String> = notes.into_iter().flatten().collect();
+    (!notes.is_empty()).then(|| notes.join(" "))
 }
 
 /// Note des articles encore à lire sur les pages suivantes (CODE, 05 §5.1) : combien en
@@ -275,8 +303,7 @@ fn fit_under_target(output: &mut SearchOutput, requested: PageSize) -> Result<()
         (snippets > 0).then(|| snippets_note(snippets)),
         (details > 0).then(|| details_note(details)),
     ];
-    let notes: Vec<String> = notes.into_iter().flatten().collect();
-    output.note = (!notes.is_empty()).then(|| notes.join(" "));
+    output.note = join_notes(notes);
     Ok(())
 }
 
@@ -771,6 +798,92 @@ mod tests {
         let query = sent(&corpus);
         assert_eq!((query.fond(), query.in_force_only()), (Fond::Kali, true));
         assert_eq!(query.version_date(), None);
+    }
+
+    /// Résultat KALI d'état `etat` (code d'API).
+    fn kali_hit(n: u32, etat: &str) -> SearchHit {
+        SearchHit { etat: LegalStatus::parse(etat), ..bare(Fond::Kali, n) }
+    }
+
+    /// `in_force_only` demandé sur KALI, la source ayant répondu `hits`.
+    async fn in_force_search(flag: Option<bool>, hits: Vec<SearchHit>) -> SearchOutput {
+        let total = u64::try_from(hits.len()).unwrap();
+        let corpus = serving(page_of(Fond::Kali, total, hits));
+        let input = SearchInput {
+            fond: Some("KALI".to_owned()),
+            in_force_only: flag,
+            ..text("convention collective")
+        };
+        run(&corpus, &clock(), input).await.unwrap()
+    }
+
+    /// Défense en profondeur (revue finale de la PR 2) : la production ne peut pas être testée, et
+    /// une source qui ignorerait la facette `LEGAL_STATUS` rendrait des textes qui ne sont pas en
+    /// vigueur sans que rien ne le dise. Vrai positif : chaque état hors des trois gardés déclenche
+    /// la note, même parmi des états gardés.
+    #[tokio::test]
+    async fn in_force_only_flags_a_hit_whose_etat_is_not_a_kept_one() {
+        for etat in [
+            "DENONCE",
+            "ABROGE",
+            "MODIFIE",
+            "PERIME",
+            "REMPLACE",
+            "VIGUEUR_DIFF",
+            "ABROGE_DIFF",
+            "INITIALE",
+            "SANS_ETAT",
+            "SURPRISE",
+        ] {
+            let hits = vec![kali_hit(1, "VIGUEUR"), kali_hit(2, etat)];
+            let output = in_force_search(Some(true), hits).await;
+            assert_eq!(output.note.as_deref(), Some(FILTER_NOT_APPLIED_NOTE), "{etat}");
+        }
+    }
+
+    /// Jumeaux sans note : les trois états gardés, un résultat sans état (rien ne dit qu'il est
+    /// hors du filtre), un filtre non demandé, et un résultat hors filtre sur un filtre absent.
+    #[tokio::test]
+    async fn in_force_only_adds_no_note_when_every_known_etat_is_kept() {
+        let kept = || {
+            vec![
+                kali_hit(1, "VIGUEUR"),
+                kali_hit(2, "VIGUEUR_ETEN"),
+                kali_hit(3, "VIGUEUR_NON_ETEN"),
+                bare(Fond::Kali, 4),
+            ]
+        };
+        assert_eq!(in_force_search(Some(true), kept()).await.note, None);
+        let mixed = || vec![kali_hit(1, "VIGUEUR"), kali_hit(2, "DENONCE")];
+        for flag in [None, Some(false)] {
+            assert_eq!(in_force_search(flag, mixed()).await.note, None, "{flag:?}");
+        }
+    }
+
+    /// La note de défense s'ajoute aux autres notes au lieu de les remplacer.
+    #[tokio::test]
+    async fn the_filter_note_is_joined_with_the_other_notes() {
+        let corpus = serving(SearchPage::new(
+            Fond::Kali,
+            "bail",
+            Some(10_001),
+            None,
+            vec![kali_hit(1, "DENONCE")],
+            0,
+            PaginationMode::Defaut,
+        ));
+        let input = SearchInput {
+            fond: Some("KALI".to_owned()),
+            in_force_only: Some(true),
+            page: Some(1_000),
+            page_size: Some(10),
+            ..text("convention collective")
+        };
+        let output = run(&corpus, &clock(), input).await.unwrap();
+        assert_eq!(
+            output.note.as_deref(),
+            Some(format!("{REACHABLE_NOTE} {FILTER_NOT_APPLIED_NOTE}").as_str())
+        );
     }
 
     /// D-08 : `false` ou absent donne la requête de la 1.0.1, sur tous les fonds.

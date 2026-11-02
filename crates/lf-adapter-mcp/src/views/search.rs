@@ -77,7 +77,7 @@ struct HitView {
     nature: Option<String>,
     /// État juridique, en code d'API (`VIGUEUR`, `ABROGE`...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String", description = "In force: VIGUEUR*, ABROGE_DIFF; other codes not.")]
+    #[schemars(with = "String", description = crate::views::common::ETAT_GLOSSARY_SHORT)]
     etat: Option<String>,
     /// IDCC (KALI et ACCO), à partir de la v0.2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -246,7 +246,7 @@ mod tests {
     fn the_etat_field_carries_the_general_rule() {
         let schema = serde_json::Value::Object(output_schema::<SearchView>().as_ref().clone());
         let text = schema.to_string();
-        assert!(text.contains("In force: VIGUEUR*, ABROGE_DIFF; other codes not."), "{text}");
+        assert!(text.contains(crate::views::common::ETAT_GLOSSARY_SHORT), "{text}");
     }
 
     const CAP: usize = ResponseBudget::HARD_CAP_CHARS;

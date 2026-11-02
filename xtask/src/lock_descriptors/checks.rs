@@ -30,8 +30,9 @@ const HINTS: [(&str, bool); 4] = [
 /// v0.1 et v0.2. Le budget de v0.3 est posé par F1 sur la surface finale, les treize outils :
 /// 31 853 octets mesurés, plus 3 % (32 808,6), arrondis à la centaine supérieure (32 900). La
 /// 1.1.0 le relève à 34 500 (Q27 = A) : 32 608 octets mesurés à la vague V2b, D-12 ajoute des
-/// descriptions. Le test `descriptor_size_budget` de `lf-adapter-mcp` porte la même valeur.
-const TOOLS_LIST_BUDGETS: [usize; 3] = [20_000, 24_000, 34_500];
+/// descriptions ; la revue finale de la PR 2 (AM-73) applique la règle d'AM-63 à la mesure finale,
+/// 35 395 octets, soit 36 500. Le test `descriptor_size_budget` de `lf-adapter-mcp` porte la même valeur.
+const TOOLS_LIST_BUDGETS: [usize; 3] = [20_000, 24_000, 36_500];
 
 /// Outils qui n'existent qu'à partir de v0.2 (M6) et de v0.3 (M7) : ils fixent le budget.
 const V02_TOOLS: [&str; 2] = ["fr_verify_citations", "fr_resolve"];
@@ -797,7 +798,7 @@ mod tests {
             run(&v01, VERSION).errors,
             ["tools/list is 20001 bytes, over the 20000 bytes budget (05 §6.6)"]
         );
-        for (extra, budget) in [("fr_resolve", 24_000), ("fr_search_all", 34_500)] {
+        for (extra, budget) in [("fr_resolve", 24_000), ("fr_search_all", 36_500)] {
             let mut bigger = surface();
             bigger.tools.insert(extra.to_owned(), tool(extra));
             padded(&mut bigger, budget);
