@@ -985,6 +985,92 @@ mod tests {
         assert_eq!(corpus.calls_of("find_by_number"), 1);
     }
 
+    /// Corpus qui répond `SOC_ID` à `times` résolutions successives (une recherche, une lecture).
+    fn soc_corpus_for(times: usize) -> FakeCorpus {
+        let corpus = FakeCorpus::new();
+        for _ in 0..times {
+            corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, SOC_ID)]));
+            corpus.push_get_decision(Ok(cassation_record(
+                SOC_ID,
+                "CHAMBRE_SOCIALE",
+                (2015, 11, 25),
+            )));
+        }
+        corpus
+    }
+
+    /// U12 (garde de coût, AM-82) : un même pourvoi cité avec une tête à tirets puis nu a deux clés
+    /// de résolution, donc deux résolutions (deux recherches, deux lectures). Deux mentions
+    /// identiques n'en font qu'une. Le nombre est celui de `key_of`, fixé ici sans le changer.
+    #[tokio::test]
+    async fn a_pourvoi_cited_with_a_dashed_head_then_bare_costs_two_resolutions() {
+        let corpus = soc_corpus_for(3);
+        let verification = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Cass. soc., 25-11-2015, n° 14-24.444 ; et ailleurs : n° 14-24.444",
+        )
+        .await
+        .unwrap();
+        assert_eq!(verification.checks.len(), 2);
+        assert_eq!(corpus.calls_of("find_by_number"), 2);
+        assert_eq!(corpus.calls_of("get_decision"), 2);
+        // Deux fois la même tête à tirets : une seule résolution.
+        let corpus = soc_corpus_for(3);
+        let twice = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Cass. soc., 25-11-2015, n° 14-24.444 ; Cass. soc., 25-11-2015, n° 14-24.444",
+        )
+        .await
+        .unwrap();
+        assert_eq!(twice.checks.len(), 2);
+        assert_eq!(corpus.calls_of("find_by_number"), 1);
+        assert_eq!(corpus.calls_of("get_decision"), 1);
+    }
+
+    /// U12 (garde de coût, AM-84) : un pourvoi cité avec sa chambre sans date puis nu a deux clés de
+    /// résolution (une de plus qu'en 1.1.0, où les deux mentions étaient `n° X`) ; avec une tête à
+    /// tirets en plus, trois. Trois mentions nues ou identiques n'en font qu'une.
+    #[tokio::test]
+    async fn a_pourvoi_cited_with_a_chamber_then_bare_costs_one_resolution_more_than_in_1_1_0() {
+        let corpus = soc_corpus_for(3);
+        let verification = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Cass. soc., n° 14-24.444 ; et ailleurs : n° 14-24.444",
+        )
+        .await
+        .unwrap();
+        assert_eq!(verification.checks.len(), 2);
+        assert_eq!(corpus.calls_of("find_by_number"), 2);
+        assert_eq!(corpus.calls_of("get_decision"), 2);
+        // La tête à tirets, la chambre sans date et le numéro nu : trois clés, trois résolutions.
+        let corpus = soc_corpus_for(4);
+        let three = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "Cass. soc., 25-11-2015, n° 14-24.444 ; Cass. soc., n° 14-24.444 ; et ailleurs : n° 14-24.444",
+        )
+        .await
+        .unwrap();
+        assert_eq!(three.checks.len(), 3);
+        assert_eq!(corpus.calls_of("find_by_number"), 3);
+        assert_eq!(corpus.calls_of("get_decision"), 3);
+        // Trois mentions nues : une seule résolution, comme en 1.1.0.
+        let corpus = soc_corpus_for(3);
+        let bare = verify(
+            &corpus,
+            PisteEnvironment::Production,
+            "n° 14-24.444 ; et ailleurs : n° 14-24.444 ; enfin : n° 14-24.444",
+        )
+        .await
+        .unwrap();
+        assert_eq!(bare.checks.len(), 3);
+        assert_eq!(corpus.calls_of("find_by_number"), 1);
+        assert_eq!(corpus.calls_of("get_decision"), 1);
+    }
+
     /// U12 (garde) : la clé de résolution ignore le seul nouveau drapeau, pas les autres drapeaux
     /// d'information.
     #[test]

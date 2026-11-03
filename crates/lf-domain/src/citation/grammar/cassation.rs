@@ -2195,6 +2195,24 @@ mod tests {
         assert!(read("2015-11-25", |c| c.date(0)).is_some());
     }
 
+    /// U12 G1 (garde) : un jour et un mois valides ne font pas une date quand l'année a deux ou
+    /// trois chiffres. Le refus vient ici du nombre de chiffres de l'année, pas d'un « n° » en tête
+    /// (le texte commence par le jour) ni du jour ou du mois ; la même date à quatre chiffres est lue.
+    #[test]
+    fn a_dashed_date_with_a_short_year_is_refused_by_its_digits() {
+        for (short, full) in [
+            ("25-11-15", "25-11-2015"),
+            ("1-1-99", "1-1-1999"),
+            ("01-01-00", "01-01-2000"),
+            ("14-12-345", "14-12-2015"),
+            ("25-11-015", "25-11-2015"),
+            ("31-12-999", "31-12-1999"),
+        ] {
+            assert_eq!(read(short, |c| c.date(0)), None, "{short}");
+            assert!(read(full, |c| c.date(0)).is_some(), "{full}");
+        }
+    }
+
     /// U12 G2 : `civ.` collé à son ordinal ou à son chiffre.
     #[test]
     fn glued_civ_chamber() {

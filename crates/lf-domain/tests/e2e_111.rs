@@ -759,6 +759,43 @@ mod u12 {
         }
     }
 
+    /// Garde (AM-82) : la famille « fond » (cours d'appel, tribunaux judiciaires) lit aussi les
+    /// dates à tirets, de bout en bout : même valeur et même étendue que la forme à barres, avec la
+    /// date écrite lue.
+    #[test]
+    fn the_fond_family_reads_dashed_dates() {
+        for (dashed, slashed, date) in [
+            (
+                "Cour d'appel de Limoges, 21-05-2015, 14/00554",
+                "Cour d'appel de Limoges, 21/05/2015, 14/00554",
+                day(2015, 5, 21),
+            ),
+            (
+                "CA Paris, pôle 5, ch. 9, 4-04-2024, n° 23/13690",
+                "CA Paris, pôle 5, ch. 9, 4/04/2024, n° 23/13690",
+                day(2024, 4, 4),
+            ),
+            (
+                "Cour d'appel de Paris, Pôle 1 - Chambre 12, 23-06-2025, n°24/15215",
+                "Cour d'appel de Paris, Pôle 1 - Chambre 12, 23/06/2025, n°24/15215",
+                day(2025, 6, 23),
+            ),
+        ] {
+            let slash = parse(slashed);
+            assert_eq!(slash.len(), 1, "{slashed}");
+            let dash = parse(dashed);
+            assert_eq!(dash.len(), 1, "{dashed}");
+            assert_eq!(dash[0].value, slash[0].value, "{dashed}");
+            assert_eq!((dash[0].span.start, dash[0].span.end), (0, dashed.len()), "{dashed}");
+            assert!(
+                matches!(&dash[0].value, CitationRef::Decision(read)
+                    if matches!(read.court, Some(Court::CourAppel { .. })) && read.date == date),
+                "{dashed} : {:?}",
+                dash[0].value
+            );
+        }
+    }
+
     /// Garde : les numéros d'affaire à tirets ne sont jamais lus comme des dates, ni les lois à tirets.
     #[test]
     fn numbered_cases_with_dashes_are_never_dates() {
