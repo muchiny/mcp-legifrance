@@ -37,8 +37,8 @@ use std::time::{Duration, Instant};
 use futures::future::join;
 use lf_domain::{
     contract::Citable,
-    date::{VersionDate, open_ended},
-    entity::{ArticleText, ArticleVersion},
+    date::VersionDate,
+    entity::{ArticleText, ArticleVersion, in_force_on},
     id::{ArticleId, LegiArtiId},
 };
 use similar::{Algorithm, DiffTag, capture_diff_slices_deadline};
@@ -134,8 +134,8 @@ impl<'a, C: LegalCorpus, K: Clock> DiffArticleUseCase<'a, C, K> {
             .article_versions(&ArticleId::Legi(id.clone()))
             .await
             .map_err(|error| port_error(&id, date_a, &error))?;
-        let version_a = in_force(&versions, date_a).ok_or_else(|| no_version(&id, date_a))?;
-        let version_b = in_force(&versions, date_b).ok_or_else(|| no_version(&id, date_b))?;
+        let version_a = in_force_on(&versions, date_a).ok_or_else(|| no_version(&id, date_a))?;
+        let version_b = in_force_on(&versions, date_b).ok_or_else(|| no_version(&id, date_b))?;
         let identical = version_a.id == version_b.id;
         let (target, diff) = if identical {
             (self.read(&id, version_b, date_b).await?, WordDiff::default())
@@ -220,26 +220,6 @@ fn port_error(requested: &LegiArtiId, date: VersionDate, error: &CorpusError) ->
 /// `not_found` : aucune version de l'article n'est en vigueur à `date` (05 §7.4).
 fn no_version(id: &LegiArtiId, date: VersionDate) -> AppError {
     AppError::not_found(format!("No version of {id} is in force on {date}."))
-}
-
-/// La version en vigueur à `date` : celle dont `date_debut..date_fin` la contient (début compris,
-/// fin exclue), la plus récente si plusieurs la contiennent. Une version sans `date_debut` ne
-/// contient aucune date.
-///
-/// La `date_fin` réelle d'une version est le premier jour hors vigueur : le jour où la suivante
-/// prend effet, ou le jour de l'abrogation. Au jour de bascule, seule la suivante contient la date ;
-/// sans suivante (dernière version abrogée, trou entre deux versions), aucune version n'est en
-/// vigueur (mesure T11 du 2026-11-02 : 99 frontières contiguës, 14 terminales, 5 trous). Une
-/// version de durée nulle ou « mort-née » (fin avant début) ne contient jamais rien.
-fn in_force(versions: &[ArticleVersion], date: VersionDate) -> Option<&ArticleVersion> {
-    let day = date.as_civil();
-    versions
-        .iter()
-        .filter(|version| {
-            open_ended(version.date_debut).is_some_and(|start| start <= day)
-                && open_ended(version.date_fin).is_none_or(|end| day < end)
-        })
-        .max_by_key(|version| version.date_debut)
 }
 
 /// La version telle que la réponse la décrit.
@@ -888,7 +868,7 @@ mod tests {
     }
 
     fn id_on(versions: &[ArticleVersion], raw: &str) -> Option<LegiArtiId> {
-        in_force(versions, date(raw)).map(|version| version.id.clone())
+        in_force_on(versions, date(raw)).map(|version| version.id.clone())
     }
 
     #[test]
@@ -1345,7 +1325,7 @@ mod tests {
         for list in grid_lists() {
             let versions = grid_versions(&list);
             for n in 0..GRID_DAYS {
-                let served = in_force(&versions, VersionDate::try_from(grid_day(n)).unwrap())
+                let served = in_force_on(&versions, VersionDate::try_from(grid_day(n)).unwrap())
                     .map(|version| version.id.clone());
                 let expected =
                     grid_oracle(&list, n).map(|index| arti(u32::try_from(index).unwrap() + 1));
