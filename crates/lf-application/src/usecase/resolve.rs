@@ -841,7 +841,7 @@ mod tests {
         assert_eq!(output.interpreted_as.as_deref(), Some("Code civil, art. 9999"));
         assert_eq!(
             output.notes[0].text(),
-            "Code civil has no article 9999 in force on 2026-10-29. The article may exist in earlier versions; retry with a date."
+            "Code civil has no article 9999 in force on 2026-10-29. The article may exist in an earlier or later version; retry with a date."
         );
 
         // En bac à sable, la note dit que ses données diffèrent de la production.

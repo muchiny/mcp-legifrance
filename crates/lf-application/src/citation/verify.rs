@@ -407,7 +407,7 @@ mod tests {
         assert_eq!(check.status, CheckStatus::NotFound);
         assert_eq!(
             note_text(check),
-            "Code civil has no article 9999 in force on 2026-10-29. The article may exist in earlier versions; retry with a date."
+            "Code civil has no article 9999 in force on 2026-10-29. The article may exist in an earlier or later version; retry with a date."
         );
         assert!(check.resolved.is_none());
         assert_eq!(
@@ -477,7 +477,7 @@ mod tests {
         assert_eq!(
             note_text(check),
             "No article record matches Code civil, art. 9999 on 2026-10-29 in the PISTE sandbox; \
-             sandbox data differ from production. The article may exist in earlier versions; retry with a date."
+             sandbox data differ from production. The article may exist in an earlier or later version; retry with a date."
         );
     }
 

@@ -2104,7 +2104,12 @@ mod tests {
                 [
                     (
                         Note::NotInForce { .. },
-                        Note::NotInForce { code: String::new(), num: String::new(), date: on },
+                        Note::NotInForce {
+                            code: String::new(),
+                            num: String::new(),
+                            date: on,
+                            date_given: false,
+                        },
                         "NotInForce"
                     ),
                     (
@@ -2216,7 +2221,12 @@ mod tests {
                     ),
                     (
                         Note::NotInSandbox { .. },
-                        Note::NotInSandbox { family: "", value: String::new(), date: None },
+                        Note::NotInSandbox {
+                            family: "",
+                            value: String::new(),
+                            date: None,
+                            date_given: false,
+                        },
                         "NotInSandbox"
                     ),
                     (

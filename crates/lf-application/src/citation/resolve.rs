@@ -136,12 +136,19 @@ pub(crate) struct Miss {
     family: &'static str,
     value: String,
     date: Option<VersionDate>,
+    /// Une date a été donnée (par l'appelant ou la citation) : voir `Note::NotInForce` (U01-N).
+    date_given: bool,
 }
 
 impl Miss {
     /// Note d'une absence constatée dans le bac à sable de PISTE.
     fn in_sandbox(&self) -> Note {
-        Note::NotInSandbox { family: self.family, value: self.value.clone(), date: self.date }
+        Note::NotInSandbox {
+            family: self.family,
+            value: self.value.clone(),
+            date: self.date,
+            date_given: self.date_given,
+        }
     }
 
     /// Note d'une absence constatée dans l'instantané local.
@@ -563,11 +570,18 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             }
         }
         let key = num.num_key();
-        let prod = Note::NotInForce { code: label.to_owned(), num: key.clone(), date: at.date() };
+        let date_given = when.is_some();
+        let prod = Note::NotInForce {
+            code: label.to_owned(),
+            num: key.clone(),
+            date: at.date(),
+            date_given,
+        };
         let miss = Miss {
             family: "article",
             value: format!("{label}, art. {key}"),
             date: Some(at.date()),
+            date_given,
         };
         let family = if absence_proven { Family::CodeArticle } else { Family::Text };
         Resolution::of(Self::when_absent(
@@ -998,7 +1012,8 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             Err(CorpusError::NotFound { .. }) => {
                 let prod =
                     Note::NoRecord { family: "identifier", value: label.clone(), date: None };
-                let miss = Miss { family: "identifier", value: label, date: None };
+                let miss =
+                    Miss { family: "identifier", value: label, date: None, date_given: false };
                 Resolution::of(Self::when_absent(
                     Family::LegifranceId,
                     prod,
@@ -2831,7 +2846,7 @@ mod tests {
         assert_eq!(status(&resolution), CheckStatus::NotFound);
         assert_eq!(
             note(&resolution),
-            "LEGITEXT000033202746 has no article 6 in force on 2026-10-29. The article may exist in earlier versions; retry with a date."
+            "LEGITEXT000033202746 has no article 6 in force on 2026-10-29. The article may exist in an earlier or later version; retry with a date."
         );
         // Texte sans date citée : confiance moyenne, l'absence ne prouve rien.
         let corpus = FakeCorpus::new();
@@ -2947,7 +2962,7 @@ mod tests {
     fn statuses_follow_the_source_for_an_absence() {
         let absent = Outcome::Absent {
             prod: Note::NoRecord { family: "text", value: "1".to_owned(), date: None },
-            miss: Miss { family: "text", value: "1".to_owned(), date: None },
+            miss: Miss { family: "text", value: "1".to_owned(), date: None, date_given: false },
         };
         // Seule la production prouve l'absence ; le bac à sable et l'instantané local ne prouvent rien.
         assert_eq!(absent.status(Proof::Production), CheckStatus::NotFound);
@@ -5655,6 +5670,50 @@ mod tests {
         );
     }
 
+    /// U01-N : sans date, la note conseille d'en donner une ; avec une date explicite, y compris
+    /// celle du jour de Paris, elle conseille d'en essayer une autre (jamais « retry »).
+    #[tokio::test]
+    async fn a_dated_absence_says_try_another_date_and_an_undated_one_says_retry_with_a_date() {
+        let item = first("article 9 du code civil");
+        let head = "Code civil has no article 9 in force on";
+        let later = "The article may exist in an earlier or later version;";
+        let cases = [
+            (None, "2026-10-29", "retry with a date."),
+            (Some("2020-01-01"), "2020-01-01", "try another date."),
+            (Some("2026-10-29"), "2026-10-29", "try another date."),
+        ];
+        for (given, shown, advice) in cases {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_article(Err(not_found()));
+            let at = given.map(|raw| VersionDate::parse(raw).unwrap());
+            let resolution = resolve_with(&corpus, &codes(), &item, at).await;
+            assert_eq!(status(&resolution), CheckStatus::NotFound, "{given:?}");
+            assert_eq!(note(&resolution), format!("{head} {shown}. {later} {advice}"), "{given:?}");
+        }
+    }
+
+    /// U01-N, garde : l'adapter refait son repli pour chaque variante de clé, le port est donc
+    /// interrogé une fois par variante (« 1er » puis « 1 »).
+    #[tokio::test]
+    async fn a_dated_absence_with_two_key_variants_asks_the_port_once_per_variant() {
+        let item = first("article 1er du code civil");
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Err(not_found()));
+        corpus.push_find_article(Err(not_found()));
+        let at = Some(VersionDate::parse("2020-01-01").unwrap());
+        let resolution = resolve_with(&corpus, &codes(), &item, at).await;
+        assert_eq!(status(&resolution), CheckStatus::NotFound);
+        let asked: Vec<String> = corpus
+            .seen_requests()
+            .into_iter()
+            .filter_map(|request| match request {
+                PortRequest::FindArticle(_, num, _) => Some(num),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(asked, ["1er", "1"]);
+    }
+
     #[tokio::test]
     async fn a_code_cited_by_a_title_outside_the_dictionary_is_searched_by_its_listed_id() {
         let item = code_item(CodeRef::Unknown("code civil".to_owned()), art("9"));
@@ -5673,7 +5732,12 @@ mod tests {
         assert_eq!(status(&resolution), CheckStatus::NotFound);
         assert_eq!(
             resolution.outcome.note(Proof::Production),
-            Some(Note::NotInForce { code: CIVIL.to_owned(), num: "9".to_owned(), date: today() })
+            Some(Note::NotInForce {
+                code: CIVIL.to_owned(),
+                num: "9".to_owned(),
+                date: today(),
+                date_given: false
+            })
         );
 
         let unlisted = code_item(CodeRef::Unknown("code de la voirie".to_owned()), art("9"));
@@ -6435,7 +6499,8 @@ mod tests {
             Some(Note::NotInSandbox {
                 family: "identifier",
                 value: "JURITEXT000051743650".to_owned(),
-                date: None
+                date: None,
+                date_given: false
             })
         );
         let corpus = FakeCorpus::new();
