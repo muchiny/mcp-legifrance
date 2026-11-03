@@ -1006,8 +1006,7 @@ mod tests {
         let result = run(&corpus, &clock(), input).await;
         assert!(
             result.is_err(),
-            "{what} : la date {missing} est hors vigueur, l'appel devrait échouer (identical = {:?})",
-            result.as_ref().map(|output| output.identical),
+            "{what} : la date {missing} est hors vigueur, l'appel devrait échouer",
         );
         let error = result.unwrap_err();
         assert_eq!(error.code(), Some(ErrorCode::NotFound), "{what}");

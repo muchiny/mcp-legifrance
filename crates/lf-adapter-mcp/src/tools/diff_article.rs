@@ -262,7 +262,7 @@ mod tests {
             let result =
                 call(&fixture, &json!({"article_id": id, "date_a": date_a, "date_b": date_b}))
                     .await;
-            assert_eq!(result.is_error, Some(true), "{id} : {}", text_of(&result));
+            assert_eq!(result.is_error, Some(true));
             assert_eq!(
                 text_of(&result),
                 format!("[not_found] No version of {id} is in force on {date_b}.")
