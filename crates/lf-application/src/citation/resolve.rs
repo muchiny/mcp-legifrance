@@ -1517,7 +1517,10 @@ fn seat_gap(seat: Option<SeatCheck>, decision: &Decision) -> Option<(Field, Stri
 /// première virgule), à défaut le siège du code du numéro cité. Une source qui nomme plusieurs
 /// sièges ne tranche pas : aucune comparaison.
 fn official_seat(decision: &Decision, number: Option<CaaSeat>) -> Option<CaaSeat> {
-    let head = decision.title.as_deref().and_then(|title| title.split(',').next());
+    let head = decision
+        .title
+        .as_deref()
+        .map(|title| title.split_once(',').map_or(title, |(head, _)| head));
     for text in [decision.juridiction.as_deref(), head].into_iter().flatten() {
         let mut named: Vec<CaaSeat> = Vec::new();
         for word in fold_words(text) {
@@ -3695,6 +3698,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_caa_seat_is_read_from_the_title_of_the_consulted_record() {
+        // Le numéro cité (`25PA` : Paris) et la juridiction (absente) ne disent rien du siège
+        // officiel : seul le titre de la fiche consultée nomme Marseille, avec ou sans virgule.
+        let hit_title = "Cour administrative d'appel, 5ème chambre, du 2 octobre 2026, 25PA02308";
+        for title in ["Cour administrative d'appel de Marseille, 5ème chambre", "CAA de Marseille"]
+        {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![titled(Fond::Cetat, MARSEILLE_ID, hit_title)]));
+            corpus.push_get_decision(Ok(Decision {
+                title: Some(title.to_owned()),
+                ..caa_decision(MARSEILLE_ID, civil(2026, 10, 2), None)
+            }));
+            let resolution = resolve(&corpus, "CAA Lyon, 2 octobre 2026, n° 25PA02308").await;
+            assert_eq!(status(&resolution), CheckStatus::Invalid);
+            assert_eq!(
+                note(&resolution),
+                "Cited seat Lyon differs from the official record (Marseille)."
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_seat_of_the_cited_number_is_the_one_of_its_first_caa_number() {
+        // Un numéro étranger à une CAA devant le numéro de CAA (état construit : l'analyseur ne
+        // le produit pas) ne change ni la recherche ni le siège lu dans le numéro.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![titled(
+            Fond::Cetat,
+            MARSEILLE_ID,
+            "Cour administrative d'appel, 5ème chambre, du 2 octobre 2026, 25PA02308",
+        )]));
+        corpus.push_get_decision(Ok(caa_decision(MARSEILLE_ID, civil(2026, 10, 2), None)));
+        let item = decision_item(
+            Some(Court::Caa { seat: CaaSeat::parse_folded("lyon"), chamber: None }),
+            vec![CaseNumber::CeRequete(123_456), CaseNumber::Caa("25PA02308".parse().unwrap())],
+            Some(civil(2026, 10, 2)),
+        );
+        let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+        assert_eq!(status(&resolution), CheckStatus::Invalid);
+        assert_eq!(note(&resolution), "Cited seat Lyon differs from the official record (Paris).");
+    }
+
+    #[tokio::test]
     async fn a_caa_cited_with_a_seatless_official_title_stays_high() {
         // Ni la juridiction ni le titre ne nomment de siège : le code du numéro (`94PA` : Paris)
         // est la seule source, et il s'accorde avec le siège cité.
@@ -3816,7 +3862,7 @@ mod tests {
         corpus.push_get_decision(Err(CorpusError::Timeout));
         let resolution = resolve(&corpus, "CAA Paris, 4 juin 1996, n° 94PA01899").await;
         assert_eq!(status(&resolution), CheckStatus::Unresolvable);
-        assert!(matches!(resolution.outcome, Outcome::Failed(CorpusError::Timeout)));
+        assert_eq!(resolution.outcome, Outcome::Failed(CorpusError::Timeout));
     }
 
     #[tokio::test]
@@ -4668,6 +4714,8 @@ mod tests {
         // Citée « du 31 décembre 2017 » (la date de repli) : pas de `High` circulaire non plus.
         let resolution = resolve_cnil(Some(civil(2017, 12, 31)), dateless_decision()).await;
         assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+        // Un verdict qui n'est pas `verified` n'a pas de fiche.
+        assert_eq!(verified_citation(Outcome::Failed(CorpusError::Timeout)), None);
         // La fiche rendue dit « décision », sans date.
         assert_eq!(
             verified_citation(resolution.outcome).as_deref(),

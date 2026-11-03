@@ -2137,6 +2137,13 @@ mod tests {
             .collect()
     }
 
+    /// Une citation qui n'est pas une décision n'est pas comptée par `parsed`.
+    #[test]
+    fn parsed_keeps_only_decisions() {
+        assert_eq!(parsed("article 1240 du code civil").len(), 0);
+        assert_eq!(parsed("Cass. soc., 4 juin 2025, n° 24-13.470").len(), 1);
+    }
+
     /// Drapeaux et ambiguïtés des citations de `parse`.
     fn parsed_flags(input: &str) -> Vec<(Vec<Flag>, Option<Ambiguity>)> {
         crate::citation::parse(input).into_iter().map(|c| (c.flags, c.ambiguity)).collect()
@@ -2577,8 +2584,8 @@ mod tests {
         assert!(input.chars().count() > 18_000);
         let started = std::time::Instant::now();
         let n = crate::citation::parse(&input).len();
-        assert!(n > 100, "{n}");
-        assert!(started.elapsed() < std::time::Duration::from_secs(20), "{:?}", started.elapsed());
+        assert!(n > 100);
+        assert!(started.elapsed() < std::time::Duration::from_secs(20));
         for run in [
             format!("{}n° 14-24.444", "9".repeat(20_000)),
             format!("{} n° 14-24.444", "9/".repeat(10_000)),

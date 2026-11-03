@@ -559,7 +559,7 @@ mod tests {
             ("mise en demeure n° MED-2022-034", "mise en demeure"),
             ("MISE EN DEMEURE MED-2022-034", "MISE EN DEMEURE"),
         ] {
-            assert!(has(text, AnchorClass::CnilKeyword, slice), "{text:?} : {:?}", found(text));
+            assert!(has(text, AnchorClass::CnilKeyword, slice));
         }
         for text in [
             "le décisionnaire MED-2024-150",

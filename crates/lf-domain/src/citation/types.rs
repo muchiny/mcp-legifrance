@@ -1526,7 +1526,7 @@ impl FromStr for CnilNumber {
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let invalid = NumberParseError { kind: "cnil" };
         let mut parts: Vec<&str> = text.split('-').collect();
-        let order = parts.pop().ok_or(invalid)?;
+        let order = parts.pop().unwrap_or_default();
         let year = parts.pop().and_then(|y| fixed_digits(y, 4)).ok_or(invalid)?;
         let series = match parts.as_slice() {
             [] => None,

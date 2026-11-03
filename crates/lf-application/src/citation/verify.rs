@@ -601,7 +601,7 @@ mod tests {
         let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
         assert_eq!(verification.checks.len(), 1);
         let check = &verification.checks[0];
-        assert!(!note_text(check).contains("differs"), "{}", note_text(check));
+        assert!(!note_text(check).contains("differs"));
         assert_eq!(check.status, CheckStatus::Verified);
         assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), id);
     }

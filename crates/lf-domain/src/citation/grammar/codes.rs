@@ -3115,12 +3115,10 @@ mod tests {
     #[test]
     fn a_lone_lowercase_b_is_never_read_as_the_capital_b_u03() {
         for text in ["757 b", "787 b", "1240 b", "757 b du", "787 b."] {
-            if let Some((number, _)) = num_of(text) {
-                assert!(!number.ends_with(" B"), "{text} : {number}");
-            }
-            for entry in list_of(text).map_or_else(Vec::new, |(items, _)| items) {
-                assert!(!entry.0.contains('B'), "{text} : {entry:?}");
-            }
+            // Refusé en entier : ni « 757 B » ni aucun numéro, dans la lecture seule comme dans
+            // la liste.
+            assert_eq!(num_of(text), None);
+            assert_eq!(list_of(text), None);
         }
     }
 

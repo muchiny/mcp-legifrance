@@ -477,6 +477,6 @@ mod tests {
         // La même citation écrite deux fois reste deux citations (le doublon est de plage ET de
         // valeur, pas de valeur seule).
         let twice = format!("décision DR-2024-196. {filler}Puis la décision DR-2024-196.");
-        assert_eq!(real(&twice).len(), 2, "{:?}", real(&twice));
+        assert_eq!(real(&twice).len(), 2);
     }
 }

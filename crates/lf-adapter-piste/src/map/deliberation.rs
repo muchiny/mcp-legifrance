@@ -211,10 +211,16 @@ fn date_at(chars: &[char], pos: usize) -> Option<CivilDate> {
         month = cursor.word();
     }
     let month =
-        u8::try_from(MONTHS.iter().position(|name| *name == month)?.saturating_add(1)).ok()?;
+        MONTHS.iter().zip(1_u8..).find_map(|(name, number)| (*name == month).then_some(number))?;
     cursor.skip_blanks();
     let (year, len) = cursor.number(4)?;
-    CivilDate::new(u16::try_from(year).ok().filter(|_| len == 4)?, month, u8::try_from(day).ok()?)
+    // Deux chiffres au plus : la conversion ne peut pas échouer, et un jour hors plage est de
+    // toute façon refusé par `CivilDate::new`.
+    CivilDate::new(
+        u16::try_from(year).ok().filter(|_| len == 4)?,
+        month,
+        u8::try_from(day).unwrap_or(u8::MAX),
+    )
 }
 
 /// `true` si le caractère de `chars` avant `index` n'est pas alphanumérique (ou n'existe pas) :
@@ -970,6 +976,14 @@ mod tests {
             ),
             day(2017, 12, 7)
         );
+    }
+
+    #[test]
+    fn a_number_without_a_letter_or_a_digit_recovers_no_date() {
+        let chars = folded_chars("Décision n° DF-2017-1448 du 7 décembre 2017");
+        assert_eq!(date_of_number(&chars, "DF-2017-1448"), CivilDate::new(2017, 12, 7));
+        assert_eq!(date_of_number(&chars, ""), None);
+        assert_eq!(date_of_number(&chars, " - "), None);
     }
 
     #[test]
