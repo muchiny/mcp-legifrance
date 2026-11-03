@@ -4,7 +4,7 @@
 - **Date** : 2026-11-02
 - **Jalons concernés** : version 1.1.1 (correctifs du test de bout en bout de la 1.1.0 en production)
 - **Questions liées** : Q3 (politique des tests live et des fixtures, 00 §10)
-- Amendements : AM-78 (U14) et AM-88 (00 §14), tous deux dans `00-decisions.md` §14. Les autres numéros de AM-79 à AM-87 sont des propositions, pas des réservations : une unité qui sort de la 1.1.1 libère le sien, et cet ADR le dit en une ligne ; leurs entrées s'ajoutent ici avec le code de leur unité.
+- Amendements : AM-78 (U14), AM-83 (U11) et AM-88 (00 §14), tous trois dans `00-decisions.md` §14. Les autres numéros de AM-79 à AM-87 sont des propositions, pas des réservations : une unité qui sort de la 1.1.1 libère le sien, et cet ADR le dit en une ligne ; leurs entrées s'ajoutent ici avec le code de leur unité.
 
 ## Contexte
 
@@ -20,6 +20,12 @@ Le test de bout en bout de la 1.1.0 en production (2026-11-02) a confirmé 21 d�
 2. **`fr_get_act` (D19).** `date_fin_version` d'un texte suit la même règle (`end <= today` donne la note « past version »). Cet alignement est fait par analogie : la mesure T11 ne porte que sur des articles, aucun relevé au niveau du texte.
 3. **Mesure T11 (production, 2026-11-02).** 213 lectures, 62 articles, 119 frontières : 99 contiguës, 14 terminales, 5 trous, 1 décalage d'un jour après une version mort-née (99 + 14 + 5 + 1 = 119), aucun recouvrement. Le propriétaire a retenu le 2026-11-03 la règle « option a » : seuls un recouvrement et un décalage d'un jour hors version mort-née bloquent. Le décalage mort-né est donc une exception ratifiée au seuil « 0 fin veille » de la porte T11, traitée par la règle des versions mort-nées ci-dessus.
 4. **Limite connue.** Le libellé « Until {date_fin} » de la ressource `legifrance://article/{id}` se lit comme une borne incluse alors que la fin est exclue ; il n'est pas changé en 1.1.1 (aucun changement de surface).
+
+### Tiret et barre entre numéros du Conseil d'État (AM-83, U11)
+
+1. **Grammaire.** `n° 194658-196116` et `n° 194658/196116` sont lus comme deux numéros de requête. Le second ne peut être une année (1500-2099) et aucun chiffre ni point ne le suit (`n° 194658-196116-5`, `n° 410000-5`, `n° 2021-1234` restent non lus). L'espace entre deux numéros n'est pas lu (1.2.0).
+2. **Résolution.** Chaque numéro cité (3 au plus, hors 1500-2099) est essayé en recherche exacte `NUM_DEC` ; si aucun hit du Conseil d'État ne reste, une seule recherche plein texte CETAT exacte du premier numéro (page de 10, sans période) ne retient que les décisions dont le titre porte ce numéro. Coût d'une citation introuvable : N + 1 appels pour N numéros cités (N <= 3), contre 1 en 1.1.0. Une erreur du repli laisse `unresolvable`, jamais un échec ; elle est journalisée au niveau `debug` par le nom de sa variante seul.
+3. **Note.** « Only one of the case numbers was checked. » s'applique à toute décision du Conseil d'État citée avec plus d'un numéro, y compris quand le second est une année jamais cherchée ou que le premier numéro a suffi.
 
 ### Dérogation de rejeu de production (AM-88)
 
