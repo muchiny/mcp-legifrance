@@ -4,7 +4,7 @@
 - **Date** : 2026-11-02
 - **Jalons concernés** : version 1.1.1 (correctifs du test de bout en bout de la 1.1.0 en production)
 - **Questions liées** : Q3 (politique des tests live et des fixtures, 00 §10)
-- Amendements : AM-78 (U14), AM-83 (U11) et AM-88 (00 §14), tous trois dans `00-decisions.md` §14. Les autres numéros de AM-79 à AM-87 sont des propositions, pas des réservations : une unité qui sort de la 1.1.1 libère le sien, et cet ADR le dit en une ligne ; leurs entrées s'ajoutent ici avec le code de leur unité.
+- Amendements : AM-78 (U14), AM-83 (U11), AM-87 (U10) et AM-88 (00 §14), tous dans `00-decisions.md` §14. Les autres numéros de AM-79 à AM-86 sont des propositions, pas des réservations : une unité qui sort de la 1.1.1 libère le sien, et cet ADR le dit en une ligne ; leurs entrées s'ajoutent ici avec le code de leur unité.
 
 ## Contexte
 
@@ -26,6 +26,12 @@ Le test de bout en bout de la 1.1.0 en production (2026-11-02) a confirmé 21 d�
 1. **Grammaire.** `n° 194658-196116` et `n° 194658/196116` sont lus comme deux numéros de requête. Le second ne peut être une année (1500-2099) et aucun chiffre ni point ne le suit (`n° 194658-196116-5`, `n° 410000-5`, `n° 2021-1234` restent non lus). L'espace entre deux numéros n'est pas lu (1.2.0).
 2. **Résolution.** Chaque numéro cité (3 au plus, hors 1500-2099) est essayé en recherche exacte `NUM_DEC` ; si aucun hit du Conseil d'État ne reste, une seule recherche plein texte CETAT exacte du premier numéro (page de 10, sans période) ne retient que les décisions dont le titre porte ce numéro. Coût d'une citation introuvable : N + 1 appels pour N numéros cités (N <= 3), contre 1 en 1.1.0. Une erreur du repli laisse `unresolvable`, jamais un échec ; elle est journalisée au niveau `debug` par le nom de sa variante seul.
 3. **Note.** « Only one of the case numbers was checked. » s'applique à toute décision du Conseil d'État citée avec plus d'un numéro, y compris quand le second est une année jamais cherchée ou que le premier numéro a suffi.
+
+### Lecture du sommaire d'un texte non codifié (AM-87, U10 et étage 2 d'U01)
+
+1. **Règle.** Pour un article d'une loi, d'un décret ou d'une ordonnance, l'échec de `find_article` ne prouve pas l'absence : `getArticleWithIdAndNum` ne rend que la version en vigueur. Le résolveur lit le sommaire du texte au jour cité (à défaut celui d'aujourd'hui) une fois par appel, puis l'article de même numéro (les suites de chiffres comptent : `10-2` et `102` sont deux articles). Un article modificatif (ni état ni date) est `verified` de confiance moyenne avec la note `ArticleWithoutVersion` ; un article absent d'un sommaire complet reste `not_found` ; un sommaire incomplet, trop gros ou illisible donne `unresolvable` ou l'erreur amont. Les codes ne lisent aucun sommaire.
+2. **Étage 2 d'U01.** Le repli daté de l'adaptateur lit lui-même la table des matières à la date pour un texte non codifié, mais ne rend l'article que si sa lecture le dit en vigueur ce jour-là (`in_force_on` : début présent, fin exclue) et si le numéro est le même (suites de chiffres comprises). Un article modificatif, ou une version qui ne couvre pas la date, est un `NotFound` de recherche, et le sommaire du résolveur le qualifie : jamais un `verified` de confiance haute.
+3. **Coût.** Sur le chemin daté qui échoue seulement : au plus 12 appels amont par citation à deux variantes de clé (U01), plus la lecture du sommaire et celle de l'article listé (U10, mémorisées par appel). Un `lawDecree` peut peser jusqu'à 16 Mio ; les lectures de sommaire de l'étage 2 ne passent pas par le mémo du résolveur (limite connue, bornée par le limiteur de débit et le budget de temps de l'appel).
 
 ### Dérogation de rejeu de production (AM-88)
 
