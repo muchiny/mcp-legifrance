@@ -257,6 +257,17 @@ pub enum Note {
         /// Fin de vigueur de la version lue.
         ended: Option<CivilDate>,
     },
+    /// Article d'un texte non codifié qui figure au sommaire mais n'a aucune version en vigueur à
+    /// la date (article modificatif d'une loi) : `verified` de confiance moyenne, l'article existe
+    /// et a été lu (U10).
+    ArticleWithoutVersion {
+        /// Titre de la loi, tel que la recherche du texte le rend ; raccourci par « … » s'il faut.
+        title: String,
+        /// Numéro d'article, sous sa forme de clé.
+        num: String,
+        /// Date de la recherche.
+        date: VersionDate,
+    },
     /// Citation d'article avec une subdivision (alinéa, point, phrase…) : seul l'article est
     /// contrôlé (L2-17, gap3-8). Statut inchangé.
     SubdivisionNotChecked,
@@ -355,8 +366,14 @@ const fn meanings(sigle: Sigle) -> &'static str {
 /// quand le texte dépasse [`NOTE_MAX_CHARS`], le titre est raccourci par « … » plutôt que de
 /// couper la fin de la note, qui porte la piste donnée à l'appelant.
 fn fit(label: &str, build: impl Fn(&str) -> String) -> String {
+    fit_within(NOTE_MAX_CHARS, label, build)
+}
+
+/// Comme [`fit`], pour une note qui doit tenir sous `max` caractères (U10 : une note qui en laisse
+/// la place à celles qui la suivent).
+fn fit_within(max: usize, label: &str, build: impl Fn(&str) -> String) -> String {
     let full = build(label);
-    let over = full.chars().count().saturating_sub(NOTE_MAX_CHARS);
+    let over = full.chars().count().saturating_sub(max);
     if over == 0 {
         return full;
     }
@@ -367,7 +384,7 @@ fn fit(label: &str, build: impl Fn(&str) -> String) -> String {
     match label.rsplit_once(", art. ") {
         Some((title, key)) => {
             let clipped = build(&format!("{}, art. {key}", shrink(title, over)));
-            let left = clipped.chars().count().saturating_sub(NOTE_MAX_CHARS);
+            let left = clipped.chars().count().saturating_sub(max);
             if left == 0 {
                 return clipped;
             }
@@ -411,8 +428,25 @@ fn range_text(note: &Note) -> String {
             "The first article of the range exists, but its last, article {num}, was not found; \
              check the number or the date."
         ),
-        _ => "Only the first and last articles of the range were checked.".to_owned(),
+        _ => RANGE_ENDPOINTS_ONLY.to_owned(),
     }
+}
+
+/// Gabarit de [`Note::RangeEndpointsOnly`].
+const RANGE_ENDPOINTS_ONLY: &str = "Only the first and last articles of the range were checked.";
+
+/// Texte de [`Note::ArticleWithoutVersion`]. Le titre est la seule partie qui rétrécit, pour que la
+/// mention de plage qui la suit (elle justifie la confiance `medium`) tienne sous 200 caractères
+/// avec elle, comme l'écart d'extrait qui la précède.
+fn article_without_version_text(title: &str, num: &str, date: VersionDate) -> String {
+    let room =
+        NOTE_MAX_CHARS.saturating_sub(RANGE_ENDPOINTS_ONLY.chars().count().saturating_add(1));
+    fit_within(room, title, |title| {
+        format!(
+            "No version in force on {date}: art. {num} of {title} amends other texts; read it \
+             with fr_get_text."
+        )
+    })
 }
 
 /// Texte de plusieurs écarts : le premier avec le gabarit `Mismatch`, les suivants abrégés,
@@ -560,11 +594,11 @@ impl Note {
         Self::Chain(parts)
     }
 
-    /// L'avertissement de version (`NotCurrentVersion`) que porte cette note en tête, seul ou en
-    /// début de chaîne.
+    /// L'avertissement de version (`NotCurrentVersion`, `ArticleWithoutVersion`) que porte cette
+    /// note en tête, seul ou en début de chaîne.
     pub(crate) fn version_warning(&self) -> Option<&Self> {
         match self {
-            Self::NotCurrentVersion { .. } => Some(self),
+            Self::NotCurrentVersion { .. } | Self::ArticleWithoutVersion { .. } => Some(self),
             Self::Chain(parts) => parts.first().filter(|first| first.version_warning().is_some()),
             _ => None,
         }
@@ -654,6 +688,9 @@ impl Note {
             Self::CodeNotListed => "Code not found in the list of codes.".to_owned(),
             Self::VersionSince(date) => format!("Current version in force since {date}."),
             Self::NotCurrentVersion { on, etat, ended } => not_current_text(*on, etat, *ended),
+            Self::ArticleWithoutVersion { title, num, date } => {
+                article_without_version_text(title, num, *date)
+            }
             Self::SubdivisionNotChecked => SUBDIVISION_NOT_CHECKED.to_owned(),
             Self::QuoteNotAttached => QUOTE_NOT_ATTACHED.to_owned(),
             Self::ArticleNotRead => ARTICLE_NOT_READ.to_owned(),
@@ -1271,6 +1308,81 @@ mod tests {
         assert_eq!(bare.chars().count(), NOTE_MAX_CHARS, "{bare}");
         assert!(bare.contains("é… in the PISTE sandbox"), "{bare}");
         assert!(bare.ends_with("retry with a date."), "{bare}");
+    }
+
+    /// U10 : texte exact de la note d'un article de loi sans version en vigueur.
+    #[test]
+    fn article_without_version_text() {
+        let note = Note::ArticleWithoutVersion {
+            title: "LOI n° 2018-493 du 20 juin 2018".to_owned(),
+            num: "1".to_owned(),
+            date: date("2026-10-29"),
+        };
+        assert_eq!(
+            note.text(),
+            "No version in force on 2026-10-29: art. 1 of LOI n° 2018-493 du 20 juin 2018 amends \
+             other texts; read it with fr_get_text."
+        );
+        assert!(!note.text().contains("repealed"));
+    }
+
+    /// U10 : avec un titre de 300 caractères, seul le titre rétrécit. La note reste entière en
+    /// tête de l'écart d'extrait, seule ou avec la mention de plage ; la subdivision, moins utile,
+    /// saute si elle ne tient plus.
+    #[test]
+    fn the_amending_note_survives_quote_gap_subdivision_and_range() {
+        const TAIL: &str = " amends other texts; read it with fr_get_text.";
+        let note = Note::ArticleWithoutVersion {
+            title: "é".repeat(300),
+            num: "36".to_owned(),
+            date: date("2026-10-29"),
+        };
+        let alone = note.text();
+        assert!(alone.starts_with("No version in force on 2026-10-29: art. 36 of é"), "{alone}");
+        assert!(alone.contains("é… amends"), "{alone}");
+        assert!(alone.ends_with(TAIL), "{alone}");
+        assert!(alone.chars().count() <= NOTE_MAX_CHARS, "{alone}");
+
+        let range = Note::RangeEndpointsOnly.text();
+        let with_range = note.clone().then(Note::RangeEndpointsOnly).text();
+        assert_eq!(with_range, format!("{alone} {range}"));
+        assert!(with_range.chars().count() <= NOTE_MAX_CHARS, "{with_range}");
+
+        let with_gap = Note::WithQuoteMismatch(Box::new(note.clone())).text();
+        assert_eq!(with_gap, format!("{QUOTE_GAP} {alone}"));
+        assert!(with_gap.chars().count() <= NOTE_MAX_CHARS, "{with_gap}");
+
+        let everything = Note::WithQuoteMismatch(Box::new(
+            note.clone().then(Note::SubdivisionNotChecked).then(Note::RangeEndpointsOnly),
+        ))
+        .text();
+        assert!(everything.starts_with(QUOTE_GAP), "{everything}");
+        assert!(everything.contains(TAIL), "{everything}");
+        assert!(everything.chars().count() <= NOTE_MAX_CHARS, "{everything}");
+
+        // Un titre court n'est pas touché.
+        let short = Note::ArticleWithoutVersion {
+            title: "Loi n° 78-17".to_owned(),
+            num: "1".to_owned(),
+            date: date("2026-10-29"),
+        };
+        assert!(!short.text().contains('…'));
+    }
+
+    /// U10 : la note de l'article modificatif est l'avertissement de version de la plage (elle
+    /// reste en tête devant la mention de plage), comme `NotCurrentVersion`.
+    #[test]
+    fn the_amending_note_is_a_version_warning() {
+        let note = Note::ArticleWithoutVersion {
+            title: "Loi n° 78-17".to_owned(),
+            num: "1".to_owned(),
+            date: date("2026-10-29"),
+        };
+        assert_eq!(note.version_warning(), Some(&note));
+        let chained = note.clone().then(Note::RangeEndpointsOnly);
+        assert_eq!(chained.version_warning(), Some(&note));
+        let behind = Note::SubdivisionNotChecked.then(note);
+        assert_eq!(behind.version_warning(), None);
     }
 
     #[test]

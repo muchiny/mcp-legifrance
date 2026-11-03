@@ -19,13 +19,16 @@
 //!
 //! # Limites de cette version
 //!
-//! L'article d'un texte est cherché par `find_article` sur le `LEGITEXT` résolu, sans parcourir
-//! la table des matières. Un texte cité par sa seule date, la formation du Conseil d'État, le
+//! L'article d'un texte est cherché par `find_article` sur le `LEGITEXT` résolu ; seul l'échec de
+//! toutes les variantes de sa clé fait lire la table des matières du texte (jamais pour un code),
+//! qui seule prouve l'absence (U10). Un texte cité par sa seule date, la formation du Conseil d'État, le
 //! siège d'une cour d'appel ou d'un tribunal, les avenants et les alinéas du Préambule ne sont pas
 //! contrôlés (`NotSupported`, `NumberlessText` ou ignorés). La chambre de la Cour de cassation l'est, sur les seules
 //! chambres modernes (`check_chamber`).
 
-use std::num::NonZeroU32;
+use std::{collections::HashMap, num::NonZeroU32, sync::Arc};
+
+use futures::lock::Mutex;
 
 use lf_domain::{
     citation::{
@@ -39,7 +42,7 @@ use lf_domain::{
     contract::{Citable, Eli, Nor},
     date::{CivilDate, VersionDate},
     ecli::Ecli,
-    entity::{CodeListing, Decision, SearchHit},
+    entity::{Act, ArticleText, CodeListing, Decision, SearchHit, Toc, TocArticle, TocNode},
     fond::Fond,
     id::{ArticleId, CnilTextId, DecisionId, DocumentId, LegiTextId},
     search::{
@@ -404,6 +407,44 @@ pub(crate) struct Resolver<'a, C: LegalCorpus> {
     corpus: &'a C,
     today: VersionDate,
     codes: &'a CodeTable,
+    /// Sommaires lus pendant cet appel (U10).
+    acts: ActMemo,
+}
+
+/// Sommaires déjà lus par un [`Resolver`], par (texte, jour), erreurs comprises : une citation
+/// d'article d'un texte non codifié ne relit pas le sommaire qu'une autre vient de lire. Le
+/// verrou est tenu pendant la lecture : deux citations qui attendent le même sommaire ne le lisent
+/// qu'une fois.
+type ActMemo = Mutex<HashMap<(LegiTextId, VersionDate), Result<Arc<Act>, CorpusError>>>;
+
+/// Où chercher l'article cité.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    /// Un code : `find_article` fait foi, le sommaire d'un code n'est jamais lu.
+    Code,
+    /// Un texte non codifié : après l'échec de `find_article`, le sommaire du texte tranche (U10).
+    Text,
+}
+
+/// Comment la version lue d'un article du sommaire se rapporte au jour voulu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reading {
+    /// Elle est en vigueur ce jour-là.
+    Covers,
+    /// Ni état ni date : un article modificatif, qui n'a jamais de version en vigueur.
+    Amending,
+    /// Elle ne couvre pas le jour voulu (abrogée, pas encore en vigueur, remplacée).
+    Elsewhere,
+}
+
+/// Ce que le sommaire d'un texte dit de l'article cité.
+enum Listing {
+    /// Au sommaire : la version lue et sa relation au jour voulu.
+    Read(Box<ArticleText>, Reading),
+    /// Pas au sommaire (complet), ou au sommaire sans version de ce jour : l'absence est prouvée.
+    Absent,
+    /// La lecture ne prouve rien (échec, sommaire incomplet) : l'issue à rendre, jamais `Absent`.
+    Unproven(Box<Resolution>),
 }
 
 /// Nombre maximal de numéros de requête du Conseil d'État essayés comme formes (U11).
@@ -440,8 +481,8 @@ struct SeatCheck {
 
 impl<'a, C: LegalCorpus> Resolver<'a, C> {
     /// Moteur pour un appel : `today` est le jour de Paris, `codes` la liste des codes déjà chargée.
-    pub(crate) const fn new(corpus: &'a C, today: VersionDate, codes: &'a CodeTable) -> Self {
-        Self { corpus, today, codes }
+    pub(crate) fn new(corpus: &'a C, today: VersionDate, codes: &'a CodeTable) -> Self {
+        Self { corpus, today, codes, acts: Mutex::default() }
     }
 
     /// Résout une citation. `at` est la date de version voulue par l'appelant (la date de
@@ -544,10 +585,13 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         };
         let label =
             if matches!(code, CodeRef::Known(_)) { label } else { listing.id.as_str().to_owned() };
-        self.article_in(&listing.id, &label, num, when, true).await
+        self.article_in(&listing.id, &label, num, when, true, Scope::Code).await
     }
 
-    /// Article de `text`, essayé sous chacune des variantes de sa clé.
+    /// Article de `text`, essayé sous chacune des variantes de sa clé. `label` nomme le texte dans
+    /// les notes. Pour un texte non codifié (`Scope::Text`), l'échec de toutes les variantes ne
+    /// prouve rien : `getArticleWithIdAndNum` ne rend que la version en vigueur, et un article
+    /// modificatif n'en a jamais ; le sommaire du texte tranche (annexe B §7.2, U10).
     async fn article_in(
         &self,
         text: &LegiTextId,
@@ -555,6 +599,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         num: &ArticleNum,
         when: Option<VersionDate>,
         absence_proven: bool,
+        scope: Scope,
     ) -> Resolution {
         // D5 : une date explicite qui vaut le jour de Paris est la version en vigueur.
         let at = match when {
@@ -569,8 +614,30 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
                 Err(error) => return Resolution::failed(error),
             }
         }
+        if scope == Scope::Text {
+            match self.listing(text, &variants, at).await {
+                Listing::Unproven(done) => return *done,
+                Listing::Read(article, Reading::Covers) => {
+                    return article_found(&article, &variants, at);
+                }
+                Listing::Read(article, _) => {
+                    return amending_found(&article, &variants, at, label, num);
+                }
+                Listing::Absent => {}
+            }
+        }
+        Self::absent_article(label, num, at, when.is_some(), absence_proven)
+    }
+
+    /// Issue d'un article que ni `find_article` ni le sommaire n'ont trouvé.
+    fn absent_article(
+        label: &str,
+        num: &ArticleNum,
+        at: ArticleAt,
+        date_given: bool,
+        absence_proven: bool,
+    ) -> Resolution {
         let key = num.num_key();
-        let date_given = when.is_some();
         let prod = Note::NotInForce {
             code: label.to_owned(),
             num: key.clone(),
@@ -590,6 +657,67 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             miss,
             Note::CouldNotConfirm { index: "LODA" },
         ))
+    }
+
+    /// Ce que le sommaire du texte dit de l'article cité : l'entrée qui porte le numéro est lue
+    /// (`get_article`, identifiant pris au sommaire) et sa version comparée au jour voulu. Une
+    /// lecture qui échoue, ou un sommaire incomplet qui ne porte pas l'article, ne prouvent pas
+    /// l'absence : `Unproven` rend l'issue (jamais `Absent`).
+    async fn listing(&self, text: &LegiTextId, variants: &[String], at: ArticleAt) -> Listing {
+        let act = match self.toc_of(text, at).await {
+            Ok(act) => act,
+            Err(error) => return Listing::Unproven(Box::new(listing_failure(error))),
+        };
+        let toc = &act.body.toc;
+        let Some(entry) = listed(toc, variants) else {
+            // Des articles écartés du sommaire (identifiant invalide, doublon) pourraient être
+            // celui qu'on cherche : l'absence n'est prouvée que par un sommaire complet.
+            return if toc.dropped() == 0 {
+                Listing::Absent
+            } else {
+                Listing::Unproven(Box::new(Resolution::unresolvable(Note::CouldNotConfirm {
+                    index: "LODA",
+                })))
+            };
+        };
+        // Le sommaire du jour dit déjà que cette version est remplacée : rien à lire.
+        let replaced = entry.etat.as_ref().is_some_and(|etat| replaced_code(etat).is_some());
+        if replaced && matches!(at, ArticleAt::Today(_)) {
+            return Listing::Absent;
+        }
+        let id = entry.article_id.clone();
+        let article = match self.corpus.get_article(&id).await {
+            Ok(article) => article,
+            Err(error) => return Listing::Unproven(Box::new(listing_failure(error))),
+        };
+        match reading_of(&article, at.date()) {
+            Reading::Elsewhere => Listing::Absent,
+            reading => Listing::Read(Box::new(article), reading),
+        }
+    }
+
+    /// Sommaire de `text` au jour voulu ; à défaut de version du texte ce jour-là, celui
+    /// d'aujourd'hui (le jour de la première version consolidée n'a pas de version antérieure).
+    async fn toc_of(&self, text: &LegiTextId, at: ArticleAt) -> Result<Arc<Act>, CorpusError> {
+        let day = at.date();
+        match self.read_act(text, day).await {
+            Err(CorpusError::NotFound { .. }) if day != self.today => {
+                self.read_act(text, self.today).await
+            }
+            other => other,
+        }
+    }
+
+    /// `get_act(text, day)`, lu une seule fois par appel (voir [`ActMemo`]).
+    async fn read_act(&self, text: &LegiTextId, day: VersionDate) -> Result<Arc<Act>, CorpusError> {
+        let mut memo = self.acts.lock().await;
+        let key = (text.clone(), day);
+        if let Some(done) = memo.get(&key) {
+            return done.clone();
+        }
+        let read = self.corpus.get_act(text, day).await.map(Arc::new);
+        memo.insert(key, read.clone());
+        read
     }
 
     /// Issue d'une absence selon la table de la politique (§7.2).
@@ -614,11 +742,13 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             Err(why) => return not_supported(why),
         };
         match self.text(text).await {
-            TextStep::Found { id, confidence, .. } => {
+            TextStep::Found { id, record, confidence } => {
                 let sure = confidence == Confidence::High;
-                let first = self.article_in(&id, id.as_str(), &article.num, when, sure).await;
+                let title = record.citation.as_str();
+                let first =
+                    self.article_in(&id, title, &article.num, when, sure, Scope::Text).await;
                 close_range(first, article.range_to.as_ref(), async |end| {
-                    self.article_in(&id, id.as_str(), end, when, sure).await
+                    self.article_in(&id, title, end, when, sure, Scope::Text).await
                 })
                 .await
             }
@@ -1286,6 +1416,126 @@ fn article_found(
     Resolution { official, ..verified(record, Confidence::High, note) }
 }
 
+/// Issue d'une lecture du sommaire ou de l'article qu'il liste qui échoue : une absence
+/// (`NotFound`) ou une réponse trop grosse ou illisible ne prouvent pas l'inexistence ; toute autre
+/// erreur est celle du corpus (jamais `not_found`).
+fn listing_failure(error: CorpusError) -> Resolution {
+    match error {
+        CorpusError::NotFound { .. }
+        | CorpusError::TooLarge { .. }
+        | CorpusError::Decode { .. } => {
+            Resolution::unresolvable(Note::CouldNotConfirm { index: "LODA" })
+        }
+        other => Resolution::failed(other),
+    }
+}
+
+/// Chiffres d'un numéro, par suites maximales (`102-1` : `102`, `1`) : deux numéros dont les
+/// lettres et chiffres repliés sont égaux mais que les tirets découpent autrement (`10-2` et
+/// `102`) ne sont pas le même article.
+fn digit_runs(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_ascii_digit())
+        .filter(|run| !run.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Forme de comparaison d'un numéro : lettres et chiffres repliés, et suites de chiffres.
+fn number_shape(text: &str) -> (String, Vec<String>) {
+    (squash(text), digit_runs(text))
+}
+
+/// Le numéro `toc_num` du sommaire est-il l'une des formes `cited` (formes de comparaison des
+/// variantes de la clé citée) ? « 1er » vaut « 1 » ; « 1 bis », « 102-1 » et « 102 » sont trois
+/// articles.
+fn same_number(toc_num: &str, cited: &[(String, Vec<String>)]) -> bool {
+    let trimmed = toc_num.trim();
+    let bare = trimmed
+        .strip_suffix("er")
+        .or_else(|| trimmed.strip_suffix("ER"))
+        .filter(|rest| rest.ends_with(|c: char| c.is_ascii_digit()));
+    std::iter::once(trimmed).chain(bare).any(|num| cited.contains(&number_shape(num)))
+}
+
+/// Article du sommaire qui porte l'un des numéros `variants`, en préordre. À numéro égal, celui
+/// dont l'état n'est pas remplacé, à défaut le premier. Le parcours est borné par la taille du
+/// sommaire (au plus [`lf_domain::entity::TOC_MAX_DEPTH`] niveaux).
+fn listed<'a>(toc: &'a Toc, variants: &[String]) -> Option<&'a TocArticle> {
+    let cited: Vec<(String, Vec<String>)> = variants.iter().map(|v| number_shape(v)).collect();
+    let mut matching: Vec<&TocArticle> = Vec::new();
+    let mut stack: Vec<&TocNode> = toc.roots().iter().rev().collect();
+    while let Some(node) = stack.pop() {
+        match node {
+            TocNode::Section(section) => stack.extend(section.children.iter().rev()),
+            TocNode::Article(article) => {
+                if article.num.as_deref().is_some_and(|num| same_number(num, &cited)) {
+                    matching.push(article);
+                }
+            }
+        }
+    }
+    matching
+        .iter()
+        .copied()
+        .find(|article| article.etat.as_ref().is_none_or(|etat| replaced_code(etat).is_none()))
+        .or_else(|| matching.first().copied())
+}
+
+/// Relation de la version lue `article` au jour `day`. La fenêtre est `debut <= jour < fin`
+/// (début compris, fin exclue, comme celle du DILA), avec un début présent ; `VIGUEUR_DIFF` ne
+/// couvre jamais. Sans début : ni état ni `SANS_ETAT` ni `INITIALE` est un article modificatif ;
+/// un état en vigueur sans date de fin couvre ; le reste (abrogé, remplacé) ne couvre pas.
+fn reading_of(article: &ArticleText, day: VersionDate) -> Reading {
+    let day = day.as_civil();
+    match (article.date_debut, article.etat.as_ref()) {
+        (Some(start), etat) => {
+            let started = start <= day && article.date_fin.is_none_or(|end| day < end);
+            if started && etat != Some(&LegalStatus::VigueurDifferee) {
+                Reading::Covers
+            } else {
+                Reading::Elsewhere
+            }
+        }
+        (None, None | Some(LegalStatus::SansEtat | LegalStatus::Initiale)) => Reading::Amending,
+        (
+            None,
+            Some(
+                LegalStatus::Vigueur
+                | LegalStatus::VigueurEtendue
+                | LegalStatus::VigueurNonEtendue
+                | LegalStatus::AbrogeDiff,
+            ),
+        ) if article.date_fin.is_none() => Reading::Covers,
+        (None, Some(_)) => Reading::Elsewhere,
+    }
+}
+
+/// Article modificatif listé au sommaire : il existe et a été lu, mais n'a aucune version en
+/// vigueur. `verified` de confiance moyenne, avec la note qui le dit ; le texte lu sert à comparer
+/// un extrait. Un numéro lu qui diffère du numéro cité reste l'écart d'`article_found`.
+fn amending_found(
+    article: &ArticleText,
+    variants: &[String],
+    at: ArticleAt,
+    title: &str,
+    num: &ArticleNum,
+) -> Resolution {
+    let Resolution { outcome, official } = article_found(article, variants, at);
+    let outcome = match outcome {
+        Outcome::Verified { record, .. } => Outcome::Verified {
+            record,
+            confidence: Confidence::Medium,
+            note: Some(Note::ArticleWithoutVersion {
+                title: title.to_owned(),
+                num: num.num_key(),
+                date: at.date(),
+            }),
+        },
+        other => other,
+    };
+    Resolution { outcome, official }
+}
+
 /// Code d'état d'une version qui n'est plus en vigueur, en vocabulaire fermé. `None` : version en
 /// vigueur (`VIGUEUR`, étendue ou non étendue, `ABROGE_DIFF`), version pas encore en vigueur
 /// (`VIGUEUR_DIFF` : une entrée différée n'est pas une version remplacée), ou état sans signal
@@ -1760,7 +2010,8 @@ mod tests {
         },
         contract::{Idcc, Nor},
         entity::{
-            Act, ArticleText, CompanyAgreement, Convention, Deliberation, SearchPage, TextBody,
+            Act, ArticleDraft, ArticleText, CompanyAgreement, Convention, Deliberation, SearchPage,
+            SectionDraft, TextBody, Toc, TocDraft,
         },
         fond::PaginationMode,
         id::{AccoTextId, ArticleId, CnilTextId, KaliTextId},
@@ -2842,16 +3093,19 @@ mod tests {
         let corpus = FakeCorpus::new();
         corpus.push_find_by_number(Ok(vec![law_hit()]));
         corpus.push_find_article(Err(not_found()));
+        // U10 : l'absence se prouve par le sommaire (sans l'article 6), et la note nomme la loi.
+        corpus.push_get_act(Ok(toc_act(&[toc_entry(1, "1", None)])));
         let resolution = resolve(&corpus, LAW).await;
         assert_eq!(status(&resolution), CheckStatus::NotFound);
         assert_eq!(
             note(&resolution),
-            "LEGITEXT000033202746 has no article 6 in force on 2026-10-29. The article may exist in an earlier or later version; retry with a date."
+            "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1) has no article 6 in force on 2026-10-29. The article may exist in an earlier or later version; retry with a date."
         );
         // Texte sans date citée : confiance moyenne, l'absence ne prouve rien.
         let corpus = FakeCorpus::new();
         corpus.push_find_by_number(Ok(vec![law_hit()]));
         corpus.push_find_article(Err(not_found()));
+        corpus.push_get_act(Ok(toc_act(&[toc_entry(1, "1", None)])));
         let resolution = resolve(&corpus, "article 6 de la loi n° 2016-1321").await;
         assert_eq!(status(&resolution), CheckStatus::Unresolvable);
     }
@@ -5900,6 +6154,644 @@ mod tests {
         }
     }
 
+    // ----------------------------------------------------------------------------------------
+    // U10 : l'absence d'un article de texte non codifié se prouve par le sommaire
+    // ----------------------------------------------------------------------------------------
+
+    const LAW_ID: &str = "LEGITEXT000033202746";
+    const LAW_TITLE: &str = "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)";
+    const LAW_REF: &str = "de la loi n° 2016-1321 du 7 octobre 2016";
+
+    fn law_id() -> LegiTextId {
+        LegiTextId::parse(LAW_ID).unwrap()
+    }
+
+    fn law_article(num: &str) -> String {
+        format!("article {num} {LAW_REF}")
+    }
+
+    fn toc_article_id(n: u32) -> String {
+        format!("LEGIARTI{n:012}")
+    }
+
+    /// Article de sommaire brut : rang `n` (identifiant), numéro et état brut.
+    fn toc_entry(n: u32, num: &str, etat: Option<&str>) -> ArticleDraft {
+        ArticleDraft {
+            id: Some(toc_article_id(n)),
+            num: Some(num.to_owned()),
+            etat: etat.map(str::to_owned),
+            ..ArticleDraft::default()
+        }
+    }
+
+    fn act_of(toc: Toc) -> Act {
+        Act { text_id: law_id(), body: TextBody { toc, ..TextBody::default() } }
+    }
+
+    /// Loi dont le sommaire à plat porte ces articles.
+    fn toc_act(entries: &[ArticleDraft]) -> Act {
+        act_of(Toc::build(TocDraft { sections: vec![], articles: entries.to_vec() }).unwrap())
+    }
+
+    /// Les `count` premiers numéros d'un sommaire d'articles sans état.
+    fn numbered_entries(count: u32) -> Vec<ArticleDraft> {
+        (1..=count).map(|n| toc_entry(n, &n.to_string(), None)).collect()
+    }
+
+    /// Article modificatif tel que l'amont le rend : ni état ni date.
+    fn amending(n: u32, num: Option<&str>) -> ArticleText {
+        ArticleText {
+            article_id: ArticleId::parse(&toc_article_id(n)).unwrap(),
+            num: num.map(str::to_owned),
+            etat: None,
+            date_debut: None,
+            date_fin: None,
+            text: LongText::from_plain("A modifié les dispositions suivantes : LOI n° 78-17.")
+                .unwrap(),
+            ..article(num)
+        }
+    }
+
+    fn get_act_of(date: VersionDate) -> PortRequest {
+        PortRequest::GetAct(law_id(), date)
+    }
+
+    fn get_article_of(n: u32) -> PortRequest {
+        PortRequest::GetArticle(ArticleId::parse(&toc_article_id(n)).unwrap())
+    }
+
+    fn methods(corpus: &FakeCorpus) -> Vec<&'static str> {
+        corpus.seen_requests().iter().map(PortRequest::method).collect()
+    }
+
+    /// Corpus où la loi est trouvée, l'article manque à `find_article` (trois fois, de quoi couvrir
+    /// toutes les variantes de clé), et le sommaire est `entries`.
+    fn law_with_toc(entries: &[ArticleDraft]) -> FakeCorpus {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![law_hit()]));
+        for _ in 0..3 {
+            corpus.push_find_article(Err(not_found()));
+        }
+        corpus.push_get_act(Ok(toc_act(entries)));
+        corpus
+    }
+
+    #[tokio::test]
+    async fn an_amending_article_listed_in_the_toc_is_verified_with_a_note() {
+        let corpus = law_with_toc(&[toc_entry(1, "1", None), toc_entry(2, "2", None)]);
+        corpus.push_get_article(Ok(amending(2, Some("2"))));
+        let resolution = resolve(&corpus, &law_article("2")).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+        assert_eq!(record_id(&resolution).as_deref(), Some("LEGIARTI000000000002"));
+        let expected = Note::ArticleWithoutVersion {
+            title: LAW_TITLE.to_owned(),
+            num: "2".to_owned(),
+            date: today(),
+        };
+        assert_eq!(resolution.outcome.note(Proof::Production), Some(expected));
+        let text = note(&resolution);
+        assert!(
+            text.starts_with("No version in force on 2026-10-29: art. 2 of LOI n° 2016-1321"),
+            "{text}"
+        );
+        // La version lue sert de texte officiel : un extrait collé est comparé au texte réel.
+        assert_eq!(
+            resolution.official.as_deref(),
+            Some("A modifié les dispositions suivantes : LOI n° 78-17.")
+        );
+        assert_eq!(methods(&corpus), ["find_by_number", "find_article", "get_act", "get_article"]);
+        let requests = corpus.seen_requests();
+        assert_eq!(requests[2], get_act_of(today()));
+        assert_eq!(requests[3], get_article_of(2));
+    }
+
+    #[tokio::test]
+    async fn an_article_missing_from_the_toc_stays_not_found_and_names_the_law() {
+        let corpus = law_with_toc(&numbered_entries(37));
+        let resolution = resolve(&corpus, &law_article("50")).await;
+        assert_eq!(status(&resolution), CheckStatus::NotFound);
+        assert_eq!(
+            note(&resolution),
+            format!(
+                "{LAW_TITLE} has no article 50 in force on 2026-10-29. The article may exist in an earlier or later version; retry with a date."
+            )
+        );
+        assert_eq!(corpus.calls_of("get_act"), 1);
+        assert_eq!(corpus.calls_of("get_article"), 0);
+    }
+
+    #[tokio::test]
+    async fn absence_needs_a_complete_toc() {
+        // Un article en double est écarté du sommaire : l'arbre n'est plus complet.
+        let mut entries = numbered_entries(3);
+        entries.push(toc_entry(1, "9", None));
+        assert_eq!(toc_act(&entries).body.toc.dropped(), 1);
+        let corpus = law_with_toc(&entries);
+        let resolution = resolve(&corpus, &law_article("50")).await;
+        assert_eq!(
+            resolution.outcome,
+            unresolvable_outcome(Note::CouldNotConfirm { index: "LODA" })
+        );
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable);
+    }
+
+    /// Garde : un texte de confiance moyenne (date non citée) ne prouve jamais l'absence.
+    #[tokio::test]
+    async fn an_unsure_text_with_a_missing_article_is_unresolvable() {
+        let corpus = law_with_toc(&numbered_entries(5));
+        let resolution = resolve(&corpus, "article 50 de la loi n° 2016-1321").await;
+        assert_eq!(
+            resolution.outcome,
+            unresolvable_outcome(Note::CouldNotConfirm { index: "LODA" })
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unsure_text_reads_the_toc_but_never_proves_absence() {
+        let corpus = law_with_toc(&numbered_entries(5));
+        let resolution = resolve(&corpus, "article 50 de la loi n° 2016-1321").await;
+        assert_eq!(
+            resolution.outcome,
+            unresolvable_outcome(Note::CouldNotConfirm { index: "LODA" })
+        );
+        assert_eq!(corpus.calls_of("get_act"), 1);
+
+        // Trouvé au sommaire : `verified`, de confiance moyenne.
+        let corpus = law_with_toc(&numbered_entries(5));
+        corpus.push_get_article(Ok(amending(3, Some("3"))));
+        let resolution = resolve(&corpus, "article 3 de la loi n° 2016-1321").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+    }
+
+    #[tokio::test]
+    async fn the_cited_1er_matches_a_toc_num_1() {
+        let corpus = law_with_toc(&[toc_entry(1, "1", None)]);
+        corpus.push_get_article(Ok(amending(1, Some("1"))));
+        let resolution = resolve(&corpus, &law_article("1er")).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+        let find = |num: &str| {
+            PortRequest::FindArticle(law_id(), num.to_owned(), ArticleAt::Today(today()))
+        };
+        assert_eq!(
+            corpus.seen_requests()[1..],
+            [find("1er"), find("1"), get_act_of(today()), get_article_of(1)]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_article_in_a_nested_section_is_found() {
+        let leaf = SectionDraft {
+            id: Some("LEGISCTA000000000002".to_owned()),
+            title: Some("Chapitre Ier".to_owned()),
+            articles: vec![toc_entry(7, "7", None)],
+            ..SectionDraft::default()
+        };
+        let root = SectionDraft {
+            id: Some("LEGISCTA000000000001".to_owned()),
+            title: Some("Titre Ier".to_owned()),
+            sections: vec![leaf],
+            articles: vec![toc_entry(1, "1", None)],
+            ..SectionDraft::default()
+        };
+        let toc = Toc::build(TocDraft { sections: vec![root], articles: vec![] }).unwrap();
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![law_hit()]));
+        corpus.push_find_article(Err(not_found()));
+        corpus.push_get_act(Ok(act_of(toc)));
+        corpus.push_get_article(Ok(amending(7, Some("7"))));
+        let resolution = resolve(&corpus, &law_article("7")).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(record_id(&resolution).as_deref(), Some("LEGIARTI000000000007"));
+    }
+
+    /// Un seul article au sommaire (numéro `toc_num`), cité sous le numéro `cited` : `verified`
+    /// s'il est lu, `not_found` sinon. La version lue ne porte pas de numéro : aucun écart n'est
+    /// possible, seul l'appariement du sommaire décide.
+    async fn toc_decides(toc_num: &str, cited: &str) -> CheckStatus {
+        let corpus = law_with_toc(&[toc_entry(1, toc_num, None)]);
+        corpus.push_get_article(Ok(amending(1, None)));
+        status(&resolve(&corpus, &law_article(cited)).await)
+    }
+
+    #[tokio::test]
+    async fn toc_num_er_suffix_and_duplicate_numbers() {
+        let cases = [
+            // « er » du sommaire ou de la citation : le même article.
+            ("1er", "1", CheckStatus::Verified),
+            ("1er", "1er", CheckStatus::Verified),
+            ("1", "1er", CheckStatus::Verified),
+            // Un suffixe latin, un numéro composé : jamais le même article.
+            ("1 bis", "1", CheckStatus::NotFound),
+            ("1", "1 bis", CheckStatus::NotFound),
+            ("102", "102-1", CheckStatus::NotFound),
+            ("102-1", "102", CheckStatus::NotFound),
+            ("102-1", "102-1", CheckStatus::Verified),
+            ("10-2", "102", CheckStatus::NotFound),
+            ("102", "10-2", CheckStatus::NotFound),
+            ("1 bis", "1 bis", CheckStatus::Verified),
+            ("Unique", "unique", CheckStatus::Verified),
+        ];
+        for (toc_num, cited, expected) in cases {
+            assert_eq!(toc_decides(toc_num, cited).await, expected, "{toc_num:?} cité {cited:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn two_toc_articles_with_the_same_number_pick_the_covering_one() {
+        for entries in [
+            vec![toc_entry(10, "5", Some("ABROGE")), toc_entry(11, "5", Some("VIGUEUR"))],
+            vec![toc_entry(11, "5", Some("VIGUEUR")), toc_entry(10, "5", Some("ABROGE"))],
+        ] {
+            let corpus = law_with_toc(&entries);
+            corpus.push_get_article(Ok(ArticleText {
+                article_id: ArticleId::parse(&toc_article_id(11)).unwrap(),
+                ..article(Some("5"))
+            }));
+            let resolution = resolve(&corpus, &law_article("5")).await;
+            assert_eq!(status(&resolution), CheckStatus::Verified);
+            assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+            assert_eq!(corpus.seen_requests().last(), Some(&get_article_of(11)));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_toc_with_dropped_entries_still_finds_a_present_article() {
+        let mut entries = numbered_entries(3);
+        entries.push(toc_entry(1, "9", None));
+        assert_eq!(toc_act(&entries).body.toc.dropped(), 1);
+        let corpus = law_with_toc(&entries);
+        corpus.push_get_article(Ok(amending(2, Some("2"))));
+        let resolution = resolve(&corpus, &law_article("2")).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+    }
+
+    /// Sommaire fixe : un article cité est trouvé si et seulement si son numéro replié y figure.
+    #[tokio::test]
+    async fn toc_membership_decides_not_found() {
+        let in_toc = ["1", "2", "2 bis", "3", "36", "37", "Unique"];
+        let entries: Vec<ArticleDraft> =
+            in_toc.iter().zip(1_u32..).map(|(num, n)| toc_entry(n, num, None)).collect();
+        let present = ["1", "1er", "2", "2 bis", "3", "36", "37", "unique"];
+        let absent = [
+            "2 ter", "2-1", "4", "10", "11", "12", "20", "21", "35", "38", "50", "100", "999",
+            "1 bis", "3 bis", "36 bis", "37-1", "13", "14", "15", "16", "17", "18", "19", "22",
+            "23", "24", "25", "26", "27", "28", "29",
+        ];
+        assert_eq!(present.len() + absent.len(), 40);
+        for (num, expected) in present
+            .iter()
+            .map(|num| (num, CheckStatus::Verified))
+            .chain(absent.iter().map(|num| (num, CheckStatus::NotFound)))
+        {
+            let corpus = law_with_toc(&entries);
+            corpus.push_get_article(Ok(amending(1, None)));
+            let resolution = resolve(&corpus, &law_article(num)).await;
+            assert_eq!(status(&resolution), expected, "article {num}");
+        }
+    }
+
+    #[tokio::test]
+    async fn toc_membership_uses_the_real_number_lists() {
+        // Loi de 37 articles (loi 2018-493) : 1 à 37 trouvés, 38 à 60 non.
+        let thirty_seven = numbered_entries(37);
+        for n in 1_u32..=60 {
+            let corpus = law_with_toc(&thirty_seven);
+            corpus.push_get_article(Ok(amending(1, None)));
+            let expected = if n <= 37 { CheckStatus::Verified } else { CheckStatus::NotFound };
+            let resolution = resolve(&corpus, &law_article(&n.to_string())).await;
+            assert_eq!(status(&resolution), expected, "article {n}");
+        }
+        // Loi de 113 articles avec un 102-1 : « 102 » et « 102-1 » trouvés, « 102-2 » et 114 non.
+        let mut hundred_thirteen = numbered_entries(113);
+        hundred_thirteen.push(toc_entry(500, "102-1", None));
+        for (cited, expected) in [
+            ("102", CheckStatus::Verified),
+            ("102-1", CheckStatus::Verified),
+            ("102-2", CheckStatus::NotFound),
+            ("113", CheckStatus::Verified),
+            ("114", CheckStatus::NotFound),
+        ] {
+            let corpus = law_with_toc(&hundred_thirteen);
+            corpus.push_get_article(Ok(amending(1, None)));
+            let resolution = resolve(&corpus, &law_article(cited)).await;
+            assert_eq!(status(&resolution), expected, "article {cited}");
+        }
+        // Un texte à article unique.
+        let corpus = law_with_toc(&[toc_entry(1, "Unique", None)]);
+        corpus.push_get_article(Ok(amending(1, None)));
+        let resolution = resolve(&corpus, &law_article("unique")).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+    }
+
+    #[tokio::test]
+    async fn a_toc_article_in_force_on_the_date_is_verified_high() {
+        let corpus = law_with_toc(&[toc_entry(6, "6", Some("VIGUEUR"))]);
+        corpus.push_get_article(Ok(ArticleText {
+            article_id: ArticleId::parse(&toc_article_id(6)).unwrap(),
+            ..article(Some("6"))
+        }));
+        let resolution = resolve(&corpus, &law_article("6")).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+        assert_eq!(
+            resolution.outcome.note(Proof::Production),
+            Some(Note::VersionSince(civil(2016, 10, 1)))
+        );
+        assert_eq!(resolution.official.as_deref(), Some("Texte officiel."));
+    }
+
+    #[tokio::test]
+    async fn a_toc_version_of_a_past_date_that_covers_it_is_high_with_the_not_current_note() {
+        let day = VersionDate::parse("2018-01-01").unwrap();
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![law_hit()]));
+        corpus.push_find_article(Err(not_found()));
+        corpus.push_get_act(Ok(toc_act(&[toc_entry(6, "6", Some("MODIFIE"))])));
+        corpus.push_get_article(Ok(ArticleText {
+            article_id: ArticleId::parse(&toc_article_id(6)).unwrap(),
+            etat: Some(LegalStatus::Modifie),
+            date_fin: Some(civil(2019, 5, 1)),
+            ..article(Some("6"))
+        }));
+        let item = first(&law_article("6"));
+        let resolution = resolve_with(&corpus, &codes(), &item, Some(day)).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+        assert_eq!(
+            resolution.outcome.note(Proof::Production),
+            Some(Note::NotCurrentVersion {
+                on: day,
+                etat: "MODIFIE",
+                ended: Some(civil(2019, 5, 1))
+            })
+        );
+        assert_eq!(corpus.seen_requests()[2], get_act_of(day));
+    }
+
+    /// Fenêtre de couverture d'une version lue au sommaire : `debut <= jour < fin`, début compris,
+    /// fin exclue (même table que la parité avec la fenêtre du DILA, `map.rs`). Le début absent est
+    /// hors parité : état en vigueur sans dates couvre, `VIGUEUR_DIFF` ne couvre pas.
+    #[tokio::test]
+    async fn a_toc_version_window_is_debut_inclusive_fin_exclusive() {
+        // (début, fin, état, couvre le 2026-10-29)
+        let rows = [
+            (Some(civil(2026, 10, 29)), None, LegalStatus::Vigueur, true),
+            (Some(civil(2026, 10, 30)), None, LegalStatus::Vigueur, false),
+            (Some(civil(2026, 10, 28)), Some(civil(2026, 10, 29)), LegalStatus::Vigueur, false),
+            (Some(civil(2026, 10, 28)), Some(civil(2026, 10, 30)), LegalStatus::Vigueur, true),
+            (Some(civil(2020, 1, 1)), None, LegalStatus::Vigueur, true),
+            (Some(civil(2020, 1, 1)), Some(civil(2021, 1, 1)), LegalStatus::Vigueur, false),
+            (None, None, LegalStatus::Vigueur, true),
+            (None, None, LegalStatus::VigueurDifferee, false),
+        ];
+        for (start, end, etat, covers) in rows {
+            let corpus = law_with_toc(&[toc_entry(6, "6", Some("VIGUEUR"))]);
+            corpus.push_get_article(Ok(ArticleText {
+                article_id: ArticleId::parse(&toc_article_id(6)).unwrap(),
+                etat: Some(etat.clone()),
+                date_debut: start,
+                date_fin: end,
+                ..article(Some("6"))
+            }));
+            let resolution = resolve(&corpus, &law_article("6")).await;
+            let expected = if covers { CheckStatus::Verified } else { CheckStatus::NotFound };
+            assert_eq!(status(&resolution), expected, "{start:?} {end:?} {etat:?}");
+            if covers {
+                assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_text_without_a_version_on_the_date_falls_back_to_todays_toc() {
+        let day = VersionDate::parse("2018-06-21").unwrap();
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![law_hit()]));
+        corpus.push_find_article(Err(not_found()));
+        corpus.push_get_act(Err(not_found()));
+        corpus.push_get_act(Ok(toc_act(&[toc_entry(1, "1", None)])));
+        corpus.push_get_article(Ok(amending(1, Some("1"))));
+        let item = first(&law_article("1"));
+        let resolution = resolve_with(&corpus, &codes(), &item, Some(day)).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+        let requests = corpus.seen_requests();
+        assert_eq!(requests[2], get_act_of(day));
+        assert_eq!(requests[3], get_act_of(today()));
+        assert_eq!(requests[4], get_article_of(1));
+        assert_eq!(
+            resolution.outcome.note(Proof::Production),
+            Some(Note::ArticleWithoutVersion {
+                title: LAW_TITLE.to_owned(),
+                num: "1".to_owned(),
+                date: day
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn get_act_not_found_on_the_final_try_is_unresolvable_never_not_found() {
+        type Case = (Vec<CorpusError>, Option<VersionDate>, Outcome, usize);
+        let past = VersionDate::parse("2018-06-21").unwrap();
+        let confirm = || unresolvable_outcome(Note::CouldNotConfirm { index: "LODA" });
+        let rate = || CorpusError::RateLimited { retry_after: None };
+        let cases: Vec<Case> = vec![
+            // Aujourd'hui : un seul essai ; un jour passé : le sommaire d'aujourd'hui en repli.
+            (vec![not_found()], None, confirm(), 1),
+            (vec![not_found(), not_found()], Some(past), confirm(), 2),
+            (vec![upstream()], None, Outcome::Failed(upstream()), 1),
+            (vec![upstream()], Some(past), Outcome::Failed(upstream()), 1),
+            (vec![rate()], None, Outcome::Failed(rate()), 1),
+            (vec![CorpusError::Timeout], None, Outcome::Failed(CorpusError::Timeout), 1),
+            (vec![CorpusError::TooLarge { detail: "16 MiB".to_owned() }], None, confirm(), 1),
+            (vec![CorpusError::Decode { detail: "json".to_owned() }], None, confirm(), 1),
+        ];
+        for (answers, date, expected, reads) in cases {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![law_hit()]));
+            corpus.push_find_article(Err(not_found()));
+            for answer in &answers {
+                corpus.push_get_act(Err(answer.clone()));
+            }
+            let item = first(&law_article("50"));
+            let resolution = resolve_with(&corpus, &codes(), &item, date).await;
+            assert_eq!(resolution.outcome, expected, "{answers:?} {date:?}");
+            assert_eq!(corpus.calls_of("get_act"), reads, "{answers:?} {date:?}");
+            assert_eq!(corpus.calls_of("get_article"), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_listed_article_is_unresolvable() {
+        let corpus = law_with_toc(&[toc_entry(1, "1", None)]);
+        corpus.push_get_article(Err(not_found()));
+        let resolution = resolve(&corpus, &law_article("1")).await;
+        assert_eq!(
+            resolution.outcome,
+            unresolvable_outcome(Note::CouldNotConfirm { index: "LODA" })
+        );
+        let corpus = law_with_toc(&[toc_entry(1, "1", None)]);
+        corpus.push_get_article(Err(upstream()));
+        let resolution = resolve(&corpus, &law_article("1")).await;
+        assert_eq!(resolution.outcome, Outcome::Failed(upstream()));
+    }
+
+    #[tokio::test]
+    async fn a_made_up_article_of_a_toocommon_big_law_toc_is_unresolvable_with_the_wanted_wording()
+    {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![law_hit()]));
+        corpus.push_find_article(Err(not_found()));
+        corpus.push_get_act(Err(CorpusError::TooLarge { detail: "16 MiB".to_owned() }));
+        let resolution = resolve(&corpus, &law_article("9999")).await;
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable);
+        assert_eq!(
+            note(&resolution),
+            "Could not confirm existence: nothing was found in LODA, which does not prove that it does not exist."
+        );
+    }
+
+    #[tokio::test]
+    async fn a_range_keeps_the_amending_note() {
+        let corpus = law_with_toc(&numbered_entries(3));
+        corpus.push_get_article(Ok(amending(1, Some("1"))));
+        corpus.push_get_article(Ok(amending(3, Some("3"))));
+        let resolution = resolve(&corpus, &format!("articles 1 à 3 {LAW_REF}")).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+        let text = note(&resolution);
+        assert!(text.starts_with("No version in force on 2026-10-29: art. 1 of"), "{text}");
+        assert!(
+            text.ends_with("Only the first and last articles of the range were checked."),
+            "{text}"
+        );
+        assert!(text.chars().count() <= 200, "{text}");
+        // Le sommaire est lu une fois pour les deux bornes.
+        assert_eq!(corpus.calls_of("get_act"), 1);
+
+        // Borne finale absente du sommaire : `ambiguous`.
+        let corpus = law_with_toc(&numbered_entries(3));
+        corpus.push_get_article(Ok(amending(1, Some("1"))));
+        let resolution = resolve(&corpus, &format!("articles 1 à 40 {LAW_REF}")).await;
+        assert_eq!(status(&resolution), CheckStatus::Ambiguous);
+        assert!(note(&resolution).contains("its last, article 40, was not found"));
+    }
+
+    #[tokio::test]
+    async fn a_list_and_a_mixed_range_of_amending_articles() {
+        // Plage « 32 à 36 » : le début est un article de fond, la fin un article modificatif.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![law_hit()]));
+        corpus.push_find_article(Ok(numbered(32, "32")));
+        corpus.push_find_article(Err(not_found()));
+        corpus.push_get_act(Ok(toc_act(&[toc_entry(36, "36", None)])));
+        corpus.push_get_article(Ok(amending(36, Some("36"))));
+        let resolution = resolve(&corpus, &format!("articles 32 à 36 {LAW_REF}")).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+        assert_eq!(resolution.outcome.note(Proof::Production), Some(Note::RangeEndpointsOnly));
+
+        // Plage « 1 à 36 » : les deux bornes sont modificatives, la note de la première reste en tête.
+        let corpus = law_with_toc(&[toc_entry(1, "1", None), toc_entry(36, "36", None)]);
+        corpus.push_get_article(Ok(amending(1, Some("1"))));
+        corpus.push_get_article(Ok(amending(36, Some("36"))));
+        let resolution = resolve(&corpus, &format!("articles 1 à 36 {LAW_REF}")).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        let text = note(&resolution);
+        assert!(text.starts_with("No version in force on 2026-10-29: art. 1 of"), "{text}");
+        assert!(text.ends_with("were checked."), "{text}");
+    }
+
+    // ---- gardes : cas qui marchent en 1.1.0 et ne changent pas ----
+
+    #[tokio::test]
+    async fn a_repealed_toc_article_stays_not_found() {
+        let corpus = law_with_toc(&[toc_entry(42, "42", Some("ABROGE"))]);
+        let resolution = resolve(&corpus, &law_article("42")).await;
+        assert_eq!(status(&resolution), CheckStatus::NotFound);
+        let text = note(&resolution);
+        assert!(text.contains("has no article 42 in force on 2026-10-29"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn an_article_listed_before_its_start_date_is_not_found() {
+        let day = VersionDate::parse("2018-06-21").unwrap();
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![law_hit()]));
+        corpus.push_find_article(Err(not_found()));
+        corpus.push_get_act(Ok(toc_act(&[toc_entry(32, "32", Some("VIGUEUR"))])));
+        corpus.push_get_article(Ok(ArticleText {
+            article_id: ArticleId::parse(&toc_article_id(32)).unwrap(),
+            date_debut: Some(civil(2018, 6, 22)),
+            ..article(Some("32"))
+        }));
+        let item = first(&law_article("32"));
+        let resolution = resolve_with(&corpus, &codes(), &item, Some(day)).await;
+        assert_eq!(status(&resolution), CheckStatus::NotFound);
+        assert!(note(&resolution).contains("has no article 32 in force on 2018-06-21"));
+    }
+
+    #[tokio::test]
+    async fn a_range_across_a_repealed_end_is_not_verified() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![law_hit()]));
+        corpus.push_find_article(Ok(numbered(1, "5")));
+        corpus.push_find_article(Err(not_found()));
+        corpus.push_get_act(Ok(toc_act(&[
+            toc_entry(5, "5", None),
+            toc_entry(51, "5-1", Some("ABROGE")),
+        ])));
+        let resolution = resolve(&corpus, &format!("articles 5 à 5-1 {LAW_REF}")).await;
+        assert_eq!(status(&resolution), CheckStatus::Ambiguous);
+        assert!(note(&resolution).contains("its last, article 5-1, was not found"));
+    }
+
+    #[tokio::test]
+    async fn a_code_article_never_reads_a_toc() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_article(Err(not_found()));
+        let resolution = resolve(&corpus, "article 9999 du code civil").await;
+        assert_eq!(status(&resolution), CheckStatus::NotFound);
+        assert_eq!(corpus.calls_of("get_act"), 0);
+        assert_eq!(corpus.calls_of("get_article"), 0);
+    }
+
+    #[tokio::test]
+    async fn a_code_article_miss_makes_no_toc_call_in_every_proof_mode() {
+        let on = VersionDate::parse("2018-01-01").unwrap();
+        for proof in [Proof::Production, Proof::Sandbox, Proof::Snapshot] {
+            for date in [None, Some(on)] {
+                let corpus = FakeCorpus::new();
+                corpus.push_find_article(Err(not_found()));
+                corpus.push_find_article(Err(not_found()));
+                let item = first("article 9999 du code civil");
+                let resolution = resolve_with(&corpus, &codes(), &item, date).await;
+                let expected = if proof == Proof::Production {
+                    CheckStatus::NotFound
+                } else {
+                    CheckStatus::Unresolvable
+                };
+                assert_eq!(resolution.outcome.status(proof), expected, "{proof:?} {date:?}");
+                assert_eq!(corpus.calls_of("get_act"), 0, "{proof:?} {date:?}");
+                assert_eq!(corpus.calls_of("get_article"), 0, "{proof:?} {date:?}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_found_article_never_reads_the_toc() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![law_hit()]));
+        corpus.push_find_article(Ok(article(Some("6"))));
+        let resolution = resolve(&corpus, &law_article("6")).await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(corpus.calls_of("get_act"), 0);
+        assert_eq!(corpus.calls_of("get_article"), 0);
+    }
+
     /// Plage d'un texte non codifié : le texte est cherché une fois, les deux articles dans ce
     /// texte.
     #[tokio::test]
@@ -5919,6 +6811,7 @@ mod tests {
         corpus.push_find_by_number(Ok(vec![hit(Fond::Loda, "LEGITEXT000033202746")]));
         corpus.push_find_article(Ok(numbered(1, "3")));
         corpus.push_find_article(Err(not_found()));
+        corpus.push_get_act(Ok(toc_act(&[toc_entry(1, "3", None)])));
         let resolution = resolve(&corpus, "articles 3 à 99 de la loi n° 2016-1321").await;
         assert_eq!(status(&resolution), CheckStatus::Ambiguous);
         assert_eq!(

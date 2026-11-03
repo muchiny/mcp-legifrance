@@ -2198,6 +2198,15 @@ mod tests {
                         "NotCurrentVersion"
                     ),
                     (
+                        Note::ArticleWithoutVersion { .. },
+                        Note::ArticleWithoutVersion {
+                            title: String::new(),
+                            num: String::new(),
+                            date: on,
+                        },
+                        "ArticleWithoutVersion"
+                    ),
+                    (
                         Note::SubdivisionNotChecked,
                         Note::SubdivisionNotChecked,
                         "SubdivisionNotChecked"

@@ -752,6 +752,53 @@ mod tests {
         assert_eq!(variant(&error), "Decode");
     }
 
+    /// U10, garde (vert avant et après) : `getArticleWithIdAndNum` ne rend que la version en
+    /// vigueur. La réponse vide d'un article modificatif est un `NotFound`, que l'application lit
+    /// au sommaire ; un article sans état ni dates, lui, est accepté tel quel (état et dates `None`).
+    #[tokio::test]
+    async fn an_article_without_etat_or_dates_maps_to_an_article_text() {
+        let by_number = json!({"id": "LEGITEXT000037086729", "num": "1"});
+        let law = LegiTextId::parse("LEGITEXT000037086729").unwrap();
+        let today = ArticleAt::Today(day("2026-10-28"));
+
+        // Réponse vide : `NotFound` sur le chemin du jour (la recherche datée suit, sans suite).
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        serve(
+            &rig,
+            "/consult/getArticleWithIdAndNum",
+            &by_number,
+            json_reply(200, UNKNOWN_NUMBER),
+            1,
+        )
+        .await;
+        let empty = json!({"totalResultNumber": 0, "typePagination": "ARTICLE", "results": []});
+        Mock::given(method("POST"))
+            .and(path(route("/search")))
+            .respond_with(json_reply(200, &empty.to_string()))
+            .mount(&rig.server)
+            .await;
+        let error = rig.corpus.find_article(&law, "1", today).await.unwrap_err();
+        assert_eq!(variant(&error), "NotFound");
+
+        // Un article sans `etat` ni dates : accepté, états et dates absents.
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        let body = json!({"executionTime": 0, "dereferenced": false, "article": {
+            "id": "LEGIARTI000037086763",
+            "num": "1",
+            "texte": "A modifié les dispositions suivantes : LOI n° 78-17 du 6 janvier 1978",
+            "context": {"titresTM": []},
+        }})
+        .to_string();
+        serve(&rig, "/consult/getArticleWithIdAndNum", &by_number, json_reply(200, &body), 1).await;
+        let found = rig.corpus.find_article(&law, "1", today).await.unwrap();
+        assert_eq!(found.article_id.as_str(), "LEGIARTI000037086763");
+        assert_eq!(found.num.as_deref(), Some("1"));
+        assert_eq!((found.etat, found.date_debut, found.date_fin), (None, None, None));
+        assert!(found.text.as_str().starts_with("A modifié les dispositions"));
+    }
+
     /// Une page de recherche de `count` codes porteurs de l'article `num`, avec `total` résultats.
     fn search_page(first_code: u64, count: u64, num: &str, total: u64) -> String {
         let results: Vec<Value> = (first_code..first_code + count)

@@ -588,6 +588,25 @@ mod tests {
         }
     }
 
+    /// U10 : la table de `a_toc_version_window_is_debut_inclusive_fin_exclusive` (cas d'usage de
+    /// `fr_resolve`, lecture du sommaire) est celle de la fenêtre du DILA sur toute version dont le
+    /// début est présent. Vert avant et après U10.
+    #[test]
+    fn the_toc_reading_window_table_matches_the_dila_window() {
+        let day = date(2026, 10, 29).unwrap();
+        let rows = [
+            (date(2026, 10, 29), None, true),
+            (date(2026, 10, 30), None, false),
+            (date(2026, 10, 28), date(2026, 10, 29), false),
+            (date(2026, 10, 28), date(2026, 10, 30), true),
+            (date(2020, 1, 1), None, true),
+            (date(2020, 1, 1), date(2021, 1, 1), false),
+        ];
+        for (start, end, covers) in rows {
+            assert_eq!(in_force(start, end, day), covers, "{start:?} {end:?}");
+        }
+    }
+
     #[test]
     fn the_window_rule_is_debut_inclusive_fin_exclusive() {
         let at = date(2026, 10, 15).unwrap();

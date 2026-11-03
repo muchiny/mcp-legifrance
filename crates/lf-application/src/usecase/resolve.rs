@@ -193,7 +193,7 @@ mod tests {
     use lf_domain::{
         citation::Sigle,
         date::CivilDate,
-        entity::{ArticleText, CodeListing, SearchHit},
+        entity::{Act, ArticleDraft, ArticleText, CodeListing, SearchHit, TextBody, Toc, TocDraft},
         fond::Fond,
         id::{ArticleId, DocumentId, LegiTextId},
         status::LegalStatus,
@@ -938,5 +938,49 @@ mod tests {
                 .await
                 .unwrap_err();
         assert_eq!(error.code(), Some(ErrorCode::UpstreamError));
+    }
+
+    /// U10 : l'article d'une loi qui figure au sommaire sans version en vigueur est un candidat de
+    /// confiance moyenne, avec son identifiant et la note, aujourd'hui comme à une date passée.
+    #[tokio::test]
+    async fn resolve_returns_the_amending_article_as_a_medium_candidate() {
+        let law = LegiTextId::parse("LEGITEXT000033202746").unwrap();
+        let hit = || {
+            let mut law_hit =
+                SearchHit::new(Fond::Loda, DocumentId::LegiText(law.clone()), None).unwrap();
+            law_hit.nature = Some("LOI".to_owned());
+            law_hit.date = CivilDate::new(2016, 10, 9);
+            law_hit.title = Some("LOI n° 2016-1321 du 7 octobre 2016".to_owned());
+            law_hit
+        };
+        let act = || {
+            let articles = vec![ArticleDraft {
+                id: Some("LEGIARTI000000000001".to_owned()),
+                num: Some("1".to_owned()),
+                ..ArticleDraft::default()
+            }];
+            let toc = Toc::build(TocDraft { sections: vec![], articles }).unwrap();
+            Act { text_id: law.clone(), body: TextBody { toc, ..TextBody::default() } }
+        };
+        let amending = ArticleText { etat: None, date_debut: None, ..article(1, "1") };
+        for (date, day) in [(None, "2026-10-29"), (Some("2018-06-21"), "2018-06-21")] {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![hit()]));
+            corpus.push_find_article(Err(not_found()));
+            corpus.push_get_act(Ok(act()));
+            corpus.push_get_article(Ok(amending.clone()));
+            let citation = "article 1 de la loi n° 2016-1321 du 7 octobre 2016";
+            let output =
+                run(&corpus, PisteEnvironment::Production, input(citation, date)).await.unwrap();
+            assert_eq!(output.candidates.len(), 1, "{date:?}");
+            assert_eq!(output.candidates[0].confidence, Confidence::Medium, "{date:?}");
+            assert_eq!(output.candidates[0].record.id.as_str(), "LEGIARTI000000000001");
+            let notes: Vec<String> = output.notes.iter().map(Note::text).collect();
+            assert_eq!(notes.len(), 1, "{notes:?}");
+            assert!(
+                notes[0].starts_with(&format!("No version in force on {day}: art. 1 of LOI")),
+                "{notes:?}"
+            );
+        }
     }
 }

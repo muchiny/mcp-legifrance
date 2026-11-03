@@ -281,7 +281,10 @@ mod tests {
     use lf_domain::{
         date::CivilDate,
         ecli::Ecli,
-        entity::{ArticleText, CodeListing, Decision, OfficialSummary, SearchHit},
+        entity::{
+            Act, ArticleDraft, ArticleText, CodeListing, Decision, OfficialSummary, SearchHit,
+            TextBody, Toc, TocDraft,
+        },
         fond::Fond,
         id::{ArticleId, DecisionId, DocumentId, LegiTextId},
         status::LegalStatus,
@@ -1991,5 +1994,159 @@ mod tests {
         assert_eq!(verification.found, 50);
         assert!(verification.checks.iter().all(|check| check.status == CheckStatus::Unresolvable));
         assert!(verification.checks.iter().all(|check| note_text(check).contains("CETAT")));
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // U10 : article d'une loi dont le sommaire, et non `find_article`, prouve l'existence
+    // ----------------------------------------------------------------------------------------
+
+    const LAW: &str = "LEGITEXT000033202746";
+    const LAW_REF: &str = "de la loi n° 2016-1321 du 7 octobre 2016";
+
+    fn law_hit() -> SearchHit {
+        let mut law = hit(Fond::Loda, LAW);
+        law.nature = Some("LOI".to_owned());
+        law.date = CivilDate::new(2016, 10, 9);
+        law.title =
+            Some("LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique (1)".into());
+        law
+    }
+
+    /// Sommaire à plat de la loi : `(rang, numéro, état brut)`.
+    fn law_act(entries: &[(u32, &str, Option<&str>)]) -> Act {
+        let articles = entries
+            .iter()
+            .map(|(n, num, etat)| ArticleDraft {
+                id: Some(format!("LEGIARTI{n:012}")),
+                num: Some((*num).to_owned()),
+                etat: etat.map(str::to_owned),
+                ..ArticleDraft::default()
+            })
+            .collect();
+        let toc = Toc::build(TocDraft { sections: vec![], articles }).unwrap();
+        Act {
+            text_id: LegiTextId::parse(LAW).unwrap(),
+            body: TextBody { toc, ..TextBody::default() },
+        }
+    }
+
+    /// Article modificatif : ni état ni date.
+    fn amending_article(n: u32) -> ArticleText {
+        ArticleText {
+            etat: None,
+            ..article(n, None, None, "A modifié les dispositions suivantes : LOI n° 78-17.")
+        }
+    }
+
+    /// Corpus d'une loi trouvée où chaque article manque à `find_article`.
+    fn law_corpus(citations: u32, act: Act) -> FakeCorpus {
+        law_corpus_on(FakeCorpus::new(), citations, act)
+    }
+
+    fn law_corpus_on(corpus: FakeCorpus, citations: u32, act: Act) -> FakeCorpus {
+        for _ in 0..citations {
+            corpus.push_find_by_number(Ok(vec![law_hit()]));
+            corpus.push_find_article(Err(not_found()));
+        }
+        corpus.push_get_act(Ok(act));
+        corpus
+    }
+
+    #[tokio::test]
+    async fn an_amending_article_of_a_law_is_verified_not_not_found() {
+        let text = format!("article 1 {LAW_REF}");
+        let corpus = law_corpus(1, law_act(&[(1, "1", None), (2, "2", None)]));
+        corpus.push_get_article(Ok(amending_article(1)));
+        let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(check.resolved.as_ref().unwrap().id.as_str(), "LEGIARTI000000000001");
+        assert!(note_text(check).starts_with("No version in force on 2026-10-29: art. 1 of LOI"));
+        assert_eq!(check.quote, None);
+
+        // Un extrait collé à la citation est comparé au texte réellement lu.
+        let quoted = format!("{text} : « A modifié les dispositions suivantes »");
+        let corpus = law_corpus(1, law_act(&[(1, "1", None)]));
+        corpus.push_get_article(Ok(amending_article(1)));
+        let verification = verify(&corpus, PisteEnvironment::Production, &quoted).await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(check.quote, Some(QuoteCheck::Match));
+    }
+
+    #[tokio::test]
+    async fn an_amending_article_with_a_mismatched_quote_keeps_its_main_note() {
+        let text = format!("article 1 {LAW_REF} : « Les articles 12 et 13 sont abrogés »");
+        let corpus = law_corpus(1, law_act(&[(1, "1", None)]));
+        corpus.push_get_article(Ok(amending_article(1)));
+        let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(check.quote, Some(QuoteCheck::QuoteMismatch));
+        let note = note_text(check);
+        assert!(
+            note.starts_with("Quoted text not found in the official text. No version in force"),
+            "{note}"
+        );
+        assert!(note.ends_with("read it with fr_get_text."), "{note}");
+        assert!(note.chars().count() <= 200, "{note}");
+    }
+
+    /// Garde : un article abrogé cité tel quel, avec son texte entre guillemets, n'est jamais
+    /// `verified`.
+    #[tokio::test]
+    async fn a_repealed_article_quoted_verbatim_is_never_verified() {
+        let text = format!("article 42 {LAW_REF} : « Texte de l'article abrogé »");
+        let corpus = law_corpus(1, law_act(&[(42, "42", Some("ABROGE"))]));
+        let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::NotFound);
+        assert_eq!(check.quote, None);
+        assert!(check.resolved.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_list_of_amending_articles_reads_the_toc_once() {
+        let text = format!("articles 1 et 36 {LAW_REF}");
+        let corpus = law_corpus(2, law_act(&[(1, "1", None), (36, "36", None)]));
+        // Les deux lectures reçoivent la même réponse : l'ordre d'arrivée importe peu.
+        corpus.push_get_article(Ok(ArticleText { num: None, ..amending_article(1) }));
+        corpus.push_get_article(Ok(ArticleText { num: None, ..amending_article(1) }));
+        let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+        assert_eq!(verification.found, 2);
+        assert_eq!(statuses(&verification), [CheckStatus::Verified, CheckStatus::Verified]);
+        assert_eq!(corpus.calls_of("get_act"), 1);
+    }
+
+    #[tokio::test]
+    async fn ten_citations_of_one_absent_text_article_read_the_toc_once() {
+        let text =
+            (50..60).map(|n| format!("article {n} {LAW_REF}")).collect::<Vec<_>>().join(" ; ");
+        let corpus = law_corpus(10, law_act(&[(1, "1", None), (2, "2", None)]));
+        let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+        assert_eq!(verification.checks.len(), 10);
+        assert!(verification.checks.iter().all(|check| check.status == CheckStatus::NotFound));
+        assert!(
+            verification
+                .checks
+                .iter()
+                .all(|check| note_text(check).starts_with("LOI n° 2016-1321"))
+        );
+        assert_eq!(corpus.calls_of("get_act"), 1);
+    }
+
+    /// 50 citations d'articles absents d'une même loi restent dans le budget de temps : le
+    /// sommaire n'est lu qu'une fois.
+    #[tokio::test(start_paused = true)]
+    async fn fifty_absent_text_articles_stay_within_the_time_budget() {
+        let text =
+            (50..100).map(|n| format!("article {n} {LAW_REF}")).collect::<Vec<_>>().join(" ; ");
+        let delayed = FakeCorpus::new().with_delay(Duration::from_millis(100));
+        let corpus = law_corpus_on(delayed, 50, law_act(&[(1, "1", None)]));
+        let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+        assert_eq!(verification.checks.len(), 50);
+        assert_eq!(verification.found, 50);
+        assert!(verification.checks.iter().all(|check| check.status == CheckStatus::NotFound));
+        assert_eq!(corpus.calls_of("get_act"), 1);
     }
 }
