@@ -125,7 +125,10 @@ struct Markers {
     /// ne ferme pas « Fait application de… », « signe » ne ferme pas « Signet… ». Exclu du résumé.
     word_footers: &'static [&'static [&'static str]],
     /// En-têtes d'une autre table (paragraphes entiers, comme `headers`) qui ferment le
-    /// dispositif : le début d'un arrêt « D E C I D E » arrête une ordonnance ouverte.
+    /// dispositif : le début d'un arrêt « D E C I D E » arrête une ordonnance ouverte. Depuis
+    /// qu'un texte à en-tête « D E C I D E » n'est plus lu par la table des ordonnances
+    /// ([`dispositif`]), cette clôture ne joue plus par `dispositif` : elle garde la table
+    /// cohérente seule.
     closing_headers: &'static [&'static str],
     /// Sans clôture, le dispositif court jusqu'à la fin du texte (il faut un en-tête et un corps
     /// non vide).
@@ -160,7 +163,7 @@ const CONSEIL_ETAT: Markers = Markers {
 };
 
 /// Ordonnances du Conseil d'État et des cours administratives d'appel (référés, tri), essayées
-/// après [`CONSEIL_ETAT`] : « O R D O N N E : » ou « ORDONNE » … `Fait à`, `Signé`, « La
+/// après [`CONSEIL_ETAT`], et seulement pour un texte sans en-tête « D E C I D E » : « O R D O N N E : » ou « ORDONNE » … `Fait à`, `Signé`, « La
 /// République mande et ordonne… », `Pour expédition conforme` ou un titre de greffier ou de
 /// secrétaire. Une ordonnance n'a pas de « Délibéré » : sans clôture (CAA de Marseille, 2026), le
 /// dispositif court jusqu'à la fin du texte, pieds de page (« 2 », « N° 26MA02038 ») retirés.
@@ -277,12 +280,23 @@ fn markers_for(rule: DispositifRule) -> &'static [Markers] {
 /// clôture, les deux exclus, joints par une ligne vide. `None` si la règle est `None`, si
 /// l'en-tête manque, si la clôture manque (la clôture ne compte qu'après l'en-tête) sauf pour une
 /// règle à dispositif ouvert (fin du texte), ou si le dispositif est vide.
+///
+/// Les tables de `rule` sont essayées dans l'ordre, mais une table suivante ne l'est que si le
+/// texte ne porte aucun en-tête de la première : un arrêt « D E C I D E » sans clôture (texte
+/// coupé) reste au début du texte, comme en 1.1.0, même s'il cite plus haut un paragraphe
+/// « ORDONNE » (AM-81).
 fn dispositif(text: &LongText, rule: DispositifRule) -> Option<String> {
-    markers_for(rule).iter().find_map(|markers| scan(text, markers))
+    let (first, others) = markers_for(rule).split_first()?;
+    let (found, header_seen) = scan(text, first);
+    if found.is_some() || header_seen {
+        return found;
+    }
+    others.iter().find_map(|markers| scan(text, markers).0)
 }
 
-/// Dispositif de `text` selon une seule table de marqueurs (voir [`dispositif`]).
-fn scan(text: &LongText, markers: &Markers) -> Option<String> {
+/// Dispositif de `text` selon une seule table de marqueurs (voir [`dispositif`]), et vrai si un
+/// en-tête de la table a été rencontré, quel que soit le résultat.
+fn scan(text: &LongText, markers: &Markers) -> (Option<String>, bool) {
     let mut body = Vec::new();
     let mut inside = false;
     for paragraph in content_paragraphs(text) {
@@ -293,7 +307,7 @@ fn scan(text: &LongText, markers: &Markers) -> Option<String> {
         } else if is_header && markers.ordonnance {
             body.clear();
         } else if closes(markers, paragraph, &key) {
-            return (!body.is_empty()).then(|| body.join(BLOCK_SEPARATOR));
+            return ((!body.is_empty()).then(|| body.join(BLOCK_SEPARATOR)), true);
         } else {
             body.push(paragraph);
         }
@@ -303,7 +317,7 @@ fn scan(text: &LongText, markers: &Markers) -> Option<String> {
             body.pop();
         }
     }
-    (markers.open_ended && !body.is_empty()).then(|| body.join(BLOCK_SEPARATOR))
+    ((markers.open_ended && !body.is_empty()).then(|| body.join(BLOCK_SEPARATOR)), inside)
 }
 
 /// Vue repliée d'un paragraphe sans son `:` final : ce qu'une table compare à ses en-têtes.
@@ -1608,12 +1622,13 @@ mod tests {
         }
     }
 
-    /// Un « D E C I D E » rencontré dans un dispositif d'ordonnance ouvert le ferme.
+    /// Un texte qui porte un « D E C I D E » est lu par la seule table des arrêts (AM-81) : sans
+    /// « Délibéré », il reste au début du texte, même avec un « ORDONNE » plus haut.
     #[test]
     fn dispositif_ordonnance_with_decide_after_header() {
         let got =
             ordo(&["Visa.", "ORDONNE :", "Article 1er : A.", "D E C I D E :", "Article 2 : B."]);
-        assert_eq!(parts(&got), (SummarySource::Dispositif, "Article 1er : A.", false));
+        assert_eq!(got.source, SummarySource::Lead);
     }
 
     #[test]
@@ -1752,7 +1767,8 @@ mod tests {
         ]);
         assert_eq!(got.source, SummarySource::Lead);
         // « ORDONNE » après « D E C I D E » : la seconde table rendait la fin du texte.
-        let got = ordo(&["Visa.", "D E C I D E :", "Article 1er : A.", "ORDONNE", "Article 2 : B."]);
+        let got =
+            ordo(&["Visa.", "D E C I D E :", "Article 1er : A.", "ORDONNE", "Article 2 : B."]);
         assert_eq!(got.source, SummarySource::Lead);
     }
 
@@ -1860,6 +1876,11 @@ mod tests {
             let key = marker_key(p);
             key.strip_suffix(':').unwrap_or(&key) == "ordonne"
         })
+    }
+
+    /// Vrai si un paragraphe de `text` est, entier, l'en-tête « decide » (arrêt).
+    fn has_whole_decide(text: &LongText) -> bool {
+        content_paragraphs(text).any(|p| header_of(&marker_key(p)) == "decide")
     }
 
     const POOL: [&str; 26] = [
@@ -2120,8 +2141,8 @@ mod tests {
         }
 
         /// Différentiel contre la copie figée de l'algorithme 1.1.0 : un dispositif déjà trouvé ne
-        /// change jamais ; un dispositif nouveau exige un paragraphe « ordonne » entier ; les
-        /// autres règles ne changent pas.
+        /// change jamais ; un dispositif nouveau exige un paragraphe « ordonne » entier et aucun
+        /// « decide » entier ; les autres règles ne changent pas.
         #[test]
         fn new_dispositif_extends_old_without_changing_it(
             picks in proptest::collection::vec(0usize..64, 0..14),
@@ -2136,6 +2157,7 @@ mod tests {
                     prop_assert_eq!(&new, &old);
                 } else if new.is_some() {
                     prop_assert!(has_whole_ordonne(&text));
+                    prop_assert!(!has_whole_decide(&text));
                 }
             }
         }
