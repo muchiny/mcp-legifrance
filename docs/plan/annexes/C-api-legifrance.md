@@ -742,7 +742,7 @@ Déclarés par le Swagger, absents de la fixture : `texteHtml`, `notaHtml`, `art
 | `id` | `JURITEXT000051743650` | `CONSTEXT000052555275` | `CETATEXT000054178503` | `CNILTEXT000053352643` |
 | `cid` | null | null | null | null |
 | `origine` / `nature` | `JURI` / `ARRET` | `CONSTIT` / `QPC` | `CETAT` / `Texte` | `CNIL` / `Délibération` |
-| `num` | `12500399` (n° interne) | `2025-1173` | `506507` (n° de requête ? **NON VÉRIFIÉ** [V-112 · cetat-num-requete]) | `SAN-2026-002` |
+| `num` | `12500399` (n° interne) | `2025-1173` | `506507` (n° de requête ? **NON VÉRIFIÉ** [V-112 · cetat-num-requete] ; une décision jointe d'avant 2000 porte tous ses numéros dans le titre et dans `numeroAffaire` : « Conseil d'Etat, Assemblée, du 5 mars 1999, 194658 196116, publié au recueil Lebon », `numeroAffaire` = `["194658 196116"]` (CETATEXT000008000361, lu en production le 2026-11-02) ; `num` est donc très probablement la chaîne entière, non relevé) | `SAN-2026-002` |
 | `numeroAffaire[]` | `["24-13.470"]` | [] | [] | [] |
 | `ecli` | `ECLI:FR:CCASS:2025:C100399` | `ECLI:FR:CC:2025:2025.1173.QPC` | `ECLI:FR:CECHR:2026:506507.20260529` | null |
 | `juridiction` / `natureJuridiction` | `Cour de cassation` / idem | `Conseil constitutionnel` / idem | `Conseil d'État` / `CONSEIL_ETAT` | null |
