@@ -728,6 +728,22 @@ mod tests {
         assert_eq!(output.interpreted_as.as_deref(), Some("Code civil, art. 787 B"));
     }
 
+    /// U03, limite connue (CHANGELOG, ADR-0024 AM-85) : un numéro préfixé sans mot-clé
+    /// (« L. 1234-5 b du code du travail ») est refusé comme les autres, mais reçoit la note
+    /// générique « No citation recognised » et non celle de l'article non lu, car le filet de
+    /// l'article non lu exige « article » ou « art. ». Figé tel quel ; aucun appel au corpus.
+    #[tokio::test]
+    async fn a_prefixed_number_without_keyword_and_a_lowercase_suffix_gets_the_generic_note_u03() {
+        for citation in ["L. 1234-5 b du code du travail", "L1234-5 b du code du travail"] {
+            let corpus = corpus_with_civil_code();
+            let output = resolve(&corpus, citation).await;
+            assert_eq!(output.interpreted_as, None, "{citation}");
+            assert_eq!(output.candidates, [], "{citation}");
+            assert_eq!(output.notes, [Note::NoCitationRecognised], "{citation}");
+            assert_eq!(corpus.calls(), 0, "{citation}");
+        }
+    }
+
     /// U03 : une mention refusée placée avant une citation lue est signalée en tête des notes,
     /// même si l'autre citation est résolue en confiance haute.
     #[tokio::test]
