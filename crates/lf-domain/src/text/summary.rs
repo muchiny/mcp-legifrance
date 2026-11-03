@@ -124,12 +124,6 @@ struct Markers {
     /// mot sont ignorés), qui ferment aussi le dispositif. Plus strict que `footers` : « fait à »
     /// ne ferme pas « Fait application de… », « signe » ne ferme pas « Signet… ». Exclu du résumé.
     word_footers: &'static [&'static [&'static str]],
-    /// En-têtes d'une autre table (paragraphes entiers, comme `headers`) qui ferment le
-    /// dispositif : le début d'un arrêt « D E C I D E » arrête une ordonnance ouverte. Depuis
-    /// qu'un texte à en-tête « D E C I D E » n'est plus lu par la table des ordonnances
-    /// ([`dispositif`]), cette clôture ne joue plus par `dispositif` : elle garde la table
-    /// cohérente seule.
-    closing_headers: &'static [&'static str],
     /// Sans clôture, le dispositif court jusqu'à la fin du texte (il faut un en-tête et un corps
     /// non vide).
     open_ended: bool,
@@ -146,7 +140,6 @@ const CONSEIL_CONSTITUTIONNEL: Markers = Markers {
     footers: &["jugepar", "delibere", "rendupublic"],
     signatures: &[],
     word_footers: &[],
-    closing_headers: &[],
     open_ended: true,
     ordonnance: false,
 };
@@ -157,15 +150,14 @@ const CONSEIL_ETAT: Markers = Markers {
     footers: &["delibere"],
     signatures: &[],
     word_footers: &[],
-    closing_headers: &[],
     open_ended: false,
     ordonnance: false,
 };
 
 /// Ordonnances du Conseil d'État et des cours administratives d'appel (référés, tri), essayées
-/// après [`CONSEIL_ETAT`], et seulement pour un texte sans en-tête « D E C I D E » : « O R D O N N E : » ou « ORDONNE » … `Fait à`, `Signé`, « La
-/// République mande et ordonne… », `Pour expédition conforme` ou un titre de greffier ou de
-/// secrétaire. Une ordonnance n'a pas de « Délibéré » : sans clôture (CAA de Marseille, 2026), le
+/// après [`CONSEIL_ETAT`], et seulement pour un texte sans paragraphe « D E C I D E » entier :
+/// « O R D O N N E : » ou « ORDONNE » … `Fait à`, `Signé`, « La République mande et
+/// ordonne… », `Pour expédition conforme` ou un titre de greffier ou de secrétaire. Une ordonnance n'a pas de « Délibéré » : sans clôture (CAA de Marseille, 2026), le
 /// dispositif court jusqu'à la fin du texte, pieds de page (« 2 », « N° 26MA02038 ») retirés.
 /// Formes lues sur sept textes (CE, CAA de Paris, de Marseille et de Douai, 2005 à 2026) : V-111
 /// reste ouverte pour les tribunaux administratifs et les ordonnances plus anciennes. Une
@@ -180,7 +172,6 @@ const CONSEIL_ETAT_ORDONNANCE: Markers = Markers {
         &["la", "republique", "mande"],
         &["pour", "expedition"],
     ],
-    closing_headers: &["decide"],
     open_ended: true,
     ordonnance: true,
 };
@@ -198,7 +189,6 @@ const CNIL: Markers = Markers {
     footers: &["cettedecisionpeutfaire", "cettedecisionestsusceptible"],
     signatures: &["lepresident", "lapresidente"],
     word_footers: &[],
-    closing_headers: &[],
     open_ended: false,
     ordonnance: false,
 };
@@ -326,11 +316,10 @@ fn header_of(key: &str) -> &str {
 }
 
 /// Vrai si `paragraph` ferme le dispositif : il commence par une clôture (`key` est sa vue
-/// repliée), par une clôture en mots, c'est un en-tête qui ferme, ou une signature de `markers`.
+/// repliée), par une clôture en mots, ou c'est une signature de `markers`.
 fn closes(markers: &Markers, paragraph: &str, key: &str) -> bool {
     markers.footers.iter().any(|footer| key.starts_with(footer))
         || markers.word_footers.iter().any(|words| starts_with_words(paragraph, words))
-        || markers.closing_headers.contains(&header_of(key))
         || is_signature(markers, paragraph)
 }
 
