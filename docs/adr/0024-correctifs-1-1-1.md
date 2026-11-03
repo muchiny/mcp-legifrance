@@ -4,7 +4,7 @@
 - **Date** : 2026-11-02
 - **Jalons concernés** : version 1.1.1 (correctifs du test de bout en bout de la 1.1.0 en production)
 - **Questions liées** : Q3 (politique des tests live et des fixtures, 00 §10)
-- Amendements : AM-88 (00 §14). Les numéros AM-78 à AM-87 sont des propositions, pas des réservations : une unité qui sort de la 1.1.1 libère le sien, et cet ADR le dit en une ligne.
+- Amendements : AM-78 (U14) et AM-88 (00 §14), tous deux dans `00-decisions.md` §14. Les autres numéros de AM-79 à AM-87 sont des propositions, pas des réservations : une unité qui sort de la 1.1.1 libère le sien, et cet ADR le dit en une ligne ; leurs entrées s'ajoutent ici avec le code de leur unité.
 
 ## Contexte
 
@@ -13,6 +13,13 @@ Le test de bout en bout de la 1.1.0 en production (2026-11-02) a confirmé 21 d�
 00 §10 (Q3) n'admet en production que des **sondes** en lecture seule, lancées à la main par le mainteneur avant chaque étiquette, à 1 requête par seconde au plus. Un rejeu de plusieurs milliers d'appels sur trois serveurs n'est pas une sonde : il faut une dérogation écrite.
 
 ## Décision
+
+### Borne `date_fin` exclusive de `fr_diff_article` (AM-78, U14)
+
+1. **Règle.** Une version d'article couvre `date_debut <= D < date_fin` : `date_fin` est le premier jour hors vigueur (jour d'entrée en vigueur de la suivante, ou jour de l'abrogation). Au jour de `date_fin` de la dernière version, `fr_diff_article` rend `not_found`, comme `fr_resolve`. Un trou entre deux versions ne sert rien ; une version de durée nulle ou mort-née (fin avant début) n'est jamais servie ; la plus récente l'emporte quand plusieurs contiennent le jour ; pas de `date_fin - 1`. Remplace « bornes `date_debut..=date_fin` » de 00 §7 (L5-02).
+2. **`fr_get_act` (D19).** `date_fin_version` d'un texte suit la même règle (`end <= today` donne la note « past version »). Cet alignement est fait par analogie : la mesure T11 ne porte que sur des articles, aucun relevé au niveau du texte.
+3. **Mesure T11 (production, 2026-11-02).** 213 lectures, 62 articles, 119 frontières : 99 contiguës, 14 terminales, 5 trous, 1 décalage d'un jour après une version mort-née (99 + 14 + 5 + 1 = 119), aucun recouvrement. Le propriétaire a retenu le 2026-11-03 la règle « option a » : seuls un recouvrement et un décalage d'un jour hors version mort-née bloquent. Le décalage mort-né est donc une exception ratifiée au seuil « 0 fin veille » de la porte T11, traitée par la règle des versions mort-nées ci-dessus.
+4. **Limite connue.** Le libellé « Until {date_fin} » de la ressource `legifrance://article/{id}` se lit comme une borne incluse alors que la fin est exclue ; il n'est pas changé en 1.1.1 (aucun changement de surface).
 
 ### Dérogation de rejeu de production (AM-88)
 
