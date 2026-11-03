@@ -38,3 +38,5 @@ crates/lf-domain/src/entity/deliberation.rs
 crates/lf-domain/src/contract/rules.rs
 crates/lf-adapter-piste/src/map/deliberation.rs
 crates/lf-adapter-mcp/src/views/get_deliberation.rs
+crates/lf-application/src/usecase/diff_article.rs
+crates/lf-application/src/usecase/get_act.rs
