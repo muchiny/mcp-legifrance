@@ -1734,6 +1734,28 @@ mod tests {
         assert_eq!(got.source, SummarySource::Lead);
     }
 
+    /// Régression évitée (AM-81) : la 1.1.0 rendait `lead` pour un arrêt « D E C I D E » sans
+    /// « Délibéré » ; un paragraphe « ORDONNE » cité plus haut (ou plus bas) dans les motifs ne
+    /// doit pas faire prendre ces motifs pour le dispositif. La seconde table ne sert qu'un texte
+    /// sans en-tête « D E C I D E ».
+    #[test]
+    fn decide_without_deliberation_stays_lead_even_with_an_ordonne_paragraph() {
+        // « ORDONNE » avant « D E C I D E » : la seconde table s'arrêtait sur « D E C I D E »
+        // et rendait les motifs.
+        let got = ordo(&[
+            "Visa.",
+            "ORDONNE",
+            "Considérant que le premier juge a statué.",
+            "D E C I D E :",
+            "Article 1er : A.",
+            "Fait à Paris, le 1er mars.",
+        ]);
+        assert_eq!(got.source, SummarySource::Lead);
+        // « ORDONNE » après « D E C I D E » : la seconde table rendait la fin du texte.
+        let got = ordo(&["Visa.", "D E C I D E :", "Article 1er : A.", "ORDONNE", "Article 2 : B."]);
+        assert_eq!(got.source, SummarySource::Lead);
+    }
+
     #[test]
     fn a_decide_judgment_keeps_its_dispositif_when_a_stray_ordonne_precedes() {
         let got = ordo(&[
