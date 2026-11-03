@@ -12,3 +12,6 @@ mutants.out*/
 /cobertura.xml
 /clippy-report.json
 /.scannerwork
+# Dossier cible de cargo posé par erreur à la racine (a déjà été commité une fois)
+/debug/
+/.rustc_info.json

@@ -2,11 +2,15 @@
 //! extrait cité.
 //!
 //! Une [`Note`] est une valeur structurée : un gabarit fixe et des paramètres **typés**. Aucun
-//! paramètre n'est une chaîne libre venue de l'API ou du texte soumis : le titre d'un code vient du
+//! paramètre n'est une chaîne libre venue du texte soumis : le titre d'un code vient du
 //! dictionnaire statique (`CodeKey::title`), les familles, juridictions et motifs sont des
 //! vocabulaires fermés (`&'static str`), les dates sont rendues en ISO, les numéros par leur forme
-//! canonique. [`Note::text`] la rend en anglais, bornée à 200 caractères (assainissement des sorties,
-//! 05 §5.9) ; le gabarit et ses paramètres vivent côte à côte pour ne pas pouvoir diverger.
+//! canonique. **Une exception, le titre d'une loi** (`NotInForce` et `ArticleWithoutVersion` d'un
+//! texte non codifié) : c'est la citation de l'enregistrement trouvé, un texte de l'API dont le
+//! mapper de recherche n'aplatit que les espaces ; il n'est borné que par [`Note::text`], qui le
+//! raccourcit par « … » (200 caractères au plus pour la note entière). [`Note::text`] la rend en
+//! anglais, bornée à 200 caractères (assainissement des sorties, 05 §5.9) ; le gabarit et ses
+//! paramètres vivent côte à côte pour ne pas pouvoir diverger.
 
 use lf_domain::{
     citation::{CitationRef, Court, Flag, Sigle, Spanned},

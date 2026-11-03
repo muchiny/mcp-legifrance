@@ -1373,7 +1373,7 @@ Tri : confiance décroissante, puis égalité de date avec la date citée, puis 
 
 | Note | Gabarit (≤ 200 caractères) | Statut |
 |---|---|---|
-| `NotInForce` | `{code} has no article {num} in force on {date}. The article may exist in earlier versions; retry with a date.` (exemple de 05 §5.9) | `not_found` |
+| `NotInForce` | `{code} has no article {num} in force on {date}. The article may exist in an earlier or later version; retry with a date.` si aucune date n'a été donnée, `… The article may exist in an earlier or later version; try another date.` si une date a été donnée (exemple de 05 §5.9) | `not_found` |
 | `NoRecord` | `No {family} record matches {value}{ on date}.` | `not_found` |
 | `Mismatch` | `Cited {field} {cited} differs from the official record ({actual}).` | `invalid` |
 | `Mismatches` | `Cited {champ1} {cité1} differs from the official record ({officiel1}); {champ2} {cité2} differs ({officiel2})[; …].` à partir de deux champs durs en écart, dans l'ordre date, chambre, type de décision (ex. `Cited date 2021-05-05 differs from the official record (2000-12-20); chamber SOC differs (CIV1).`) ; un seul écart garde `Mismatch` (L2-05) | `invalid` |
@@ -1408,9 +1408,9 @@ Tri : confiance décroissante, puis égalité de date avec la date citée, puis 
 | `ArticleNotRead` | `An article reference could not be read and was not checked.` (revue finale I3 ; note de la réponse de `fr_verify_citations` quand `found > 0`, avant `QuoteNotAttached` si les deux s'appliquent) | sans objet (réponse) |
 | `QuoteTooLong` | `The quoted passage was too long to compare and was not checked.` (revue finale S1 ; budget d'états épuisé, `quote` absent ; en tête de la note d'un résultat `verified`, comme `WithQuoteMismatch`) | `verified` seulement |
 | `Chain(notes)` | les textes bout à bout séparés par une espace : la première en entier (rognée à 200), les suivantes seulement si elles tiennent en entier sous 200 caractères (L2-12, L2-17). Limite assumée en 1.0.1 : avec un écart d'extrait (43) puis une version remplacée (112 au pire), une note suivante qui ne tient pas (la subdivision, 51 : 208) est omise sans signal ; la lecture d'un sigle par défaut et la plage (une seule note) sautent ensemble derrière une version de MODIFIE_MORT_NE pour tout titre plus long que « Code civil » ; la confiance `medium` reste. Les champs structurés de 1.1.0 lèvent cette limite | `verified` |
-| `NotInSandbox` | `No {family} record matches {value}{ on date} in the PISTE sandbox; sandbox data differ from production.` ; pour la famille `article` seulement, on ajoute ` The article may exist in earlier versions; retry with a date.` | `unresolvable` (sandbox : remplace `NotInForce` et `NoRecord`, 00 §7) |
+| `NotInSandbox` | `No {family} record matches {value}{ on date} in the PISTE sandbox; sandbox data differ from production.` ; pour la famille `article` seulement, on ajoute ` The article may exist in an earlier or later version; retry with a date.` (` … try another date.` si une date a été donnée) | `unresolvable` (sandbox : remplace `NotInForce` et `NoRecord`, 00 §7) |
 
-Texte de `NoAgreement` : `No collective agreement identified; give its IDCC (e.g. 'IDCC 1486').` (la résolution par titre n'existe pas, par conception). Règle commune aux notes `NotInForce` et `NotInSandbox` d'un article : si le texte dépasse 200 caractères, le titre du code est raccourci par « … » pour que la piste « earlier versions » reste entière (L2-09).
+Texte de `NoAgreement` : `No collective agreement identified; give its IDCC (e.g. 'IDCC 1486').` (la résolution par titre n'existe pas, par conception). Règle commune aux notes `NotInForce` et `NotInSandbox` d'un article : si le texte dépasse 200 caractères, le titre du code est raccourci par « … » pour que la piste « earlier or later version » reste entière (L2-09).
 
 **Paramètres typés** (assainissement des sorties, 05 §5.9 ; test `notes_are_static_templates`, 06 §2.6). Chaque note est un gabarit fixe dont chaque paramètre a un type fermé, jamais une chaîne libre issue de l'API :
 

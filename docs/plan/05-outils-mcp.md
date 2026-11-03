@@ -1112,7 +1112,7 @@ Citations hors périmètre (L1-07) : les articles cités du TFUE, du TUE, de la 
 
 Textes numérotés (L2-01, L2-02 ; aussi `fr_resolve`, §5.10) : la nature vient du hit, le numéro est cherché sous `AA-N` puis `AAAA-N` avant 2000, et la date citée est comparée à la date de signature lue dans le titre du hit. Sans date lisible dans le titre ou sans date citée, la confiance est `medium`.
 
-Notes (L2-09) : la note d'un article sans code reconnu ne renvoie plus à `fr_resolve` ; les notes « article absent en vigueur » et « article absent du bac à sable » ajoutent « The article may exist in earlier versions; retry with a date. » (voir annexe B §7.10).
+Notes (L2-09) : la note d'un article sans code reconnu ne renvoie plus à `fr_resolve` ; les notes « article absent en vigueur » et « article absent du bac à sable » ajoutent « The article may exist in an earlier or later version; retry with a date. » (« … try another date. » quand une date a été donnée ; voir annexe B §7.10).
 
 Comparaison de l'extrait (règle stricte, ADR-0020) : `match` si chaque mot de l'extrait cité figure, à la suite et dans l'ordre, dans le texte officiel lu (casse, accents, ponctuation, espaces, apostrophes, repères d'énumération et forme « L. 1234-9 » tolérés ; « […] » vaut coupure, au moins 3 mots avec ellipse) ; `quote_mismatch` sinon, dès qu'un mot ou un chiffre diffère. Le seuil de similarité (V-162) est supprimé. Pas de paramètre dédié : le contrôle est automatique quand un extrait jouxte la citation (00 §7). Un champ `quote_diff` est envisagé pour 1.1.0.
 
@@ -1141,7 +1141,7 @@ Entrée `text` : `Selon l'article 9 du code civil, « Chacun a droit au respect 
     {"span": {"start": 193, "end": 237}, "raw": "décision n° 2025-1173 QPC du 7 novembre 2025", "kind": "decision", "status": "verified",
      "resolved": {"id": "CONSTEXT000052555275", "citation": "Cons. const., décision n° 2025-1173 QPC du 7 novembre 2025", "source_url": "https://www.legifrance.gouv.fr/cons/id/CONSTEXT000052555275"}},
     {"span": {"start": 253, "end": 279}, "raw": "article 9999 du code civil", "kind": "code_article", "status": "not_found",
-     "note": "Code civil has no article 9999 in force on 2026-10-15. The article may exist in earlier versions; retry with a date."}
+     "note": "Code civil has no article 9999 in force on 2026-10-15. The article may exist in an earlier or later version; retry with a date."}
   ]
 }
 ```

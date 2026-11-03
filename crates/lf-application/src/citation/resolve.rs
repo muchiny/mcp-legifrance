@@ -411,11 +411,17 @@ pub(crate) struct Resolver<'a, C: LegalCorpus> {
     acts: ActMemo,
 }
 
-/// Sommaires déjà lus par un [`Resolver`], par (texte, jour), erreurs comprises : une citation
-/// d'article d'un texte non codifié ne relit pas le sommaire qu'une autre vient de lire. Le
-/// verrou est tenu pendant la lecture : deux citations qui attendent le même sommaire ne le lisent
-/// qu'une fois.
-type ActMemo = Mutex<HashMap<(LegiTextId, VersionDate), Result<Arc<Act>, CorpusError>>>;
+/// Sommaires déjà lus par un [`Resolver`], par (texte, jour), erreurs comprises (y compris
+/// `Timeout` et `RateLimited` : une relecture dans le même appel retomberait sur la même échéance
+/// ou le même quota) : une citation d'article d'un texte non codifié ne relit pas le sommaire
+/// qu'une autre vient de lire. Le verrou de la table n'est tenu que pour trouver ou créer la case
+/// d'une clé ; la lecture réseau se fait sous le verrou de la case : deux citations qui attendent
+/// le même sommaire ne le lisent qu'une fois, et la lecture d'un texte ne retarde pas celle d'un
+/// autre. La table vit le temps d'un appel et compte au plus deux cases par citation.
+type ActMemo = Mutex<HashMap<(LegiTextId, VersionDate), ActCell>>;
+
+/// Case d'un sommaire du mémo : vide tant qu'il n'a pas été lu.
+type ActCell = Arc<Mutex<Option<Result<Arc<Act>, CorpusError>>>>;
 
 /// Où chercher l'article cité.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -423,7 +429,10 @@ enum Scope {
     /// Un code : `find_article` fait foi, le sommaire d'un code n'est jamais lu.
     Code,
     /// Un texte non codifié : après l'échec de `find_article`, le sommaire du texte tranche (U10).
-    Text,
+    /// La date de signature lue sur son titre, quand il en porte une : à une date qui la précède,
+    /// le texte n'existait pas et son sommaire (celui d'aujourd'hui, faute de version ce jour-là)
+    /// ne prouve rien.
+    Text(Option<CivilDate>),
 }
 
 /// Comment la version lue d'un article du sommaire se rapporte au jour voulu.
@@ -614,7 +623,9 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
                 Err(error) => return Resolution::failed(error),
             }
         }
-        if scope == Scope::Text {
+        if let Scope::Text(born) = scope
+            && born.is_none_or(|born| born <= at.date().as_civil())
+        {
             match self.listing(text, &variants, at).await {
                 Listing::Unproven(done) => return *done,
                 Listing::Read(article, Reading::Covers) => {
@@ -710,13 +721,16 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
 
     /// `get_act(text, day)`, lu une seule fois par appel (voir [`ActMemo`]).
     async fn read_act(&self, text: &LegiTextId, day: VersionDate) -> Result<Arc<Act>, CorpusError> {
-        let mut memo = self.acts.lock().await;
-        let key = (text.clone(), day);
-        if let Some(done) = memo.get(&key) {
+        let cell = {
+            let mut memo = self.acts.lock().await;
+            Arc::clone(memo.entry((text.clone(), day)).or_default())
+        };
+        let mut slot = cell.lock().await;
+        if let Some(done) = slot.as_ref() {
             return done.clone();
         }
         let read = self.corpus.get_act(text, day).await.map(Arc::new);
-        memo.insert(key, read.clone());
+        *slot = Some(read.clone());
         read
     }
 
@@ -742,13 +756,14 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             Err(why) => return not_supported(why),
         };
         match self.text(text).await {
-            TextStep::Found { id, record, confidence } => {
+            TextStep::Found { id, record, confidence, signed } => {
                 let sure = confidence == Confidence::High;
                 let title = record.citation.as_str();
-                let first =
-                    self.article_in(&id, title, &article.num, when, sure, Scope::Text).await;
+                let first = self
+                    .article_in(&id, title, &article.num, when, sure, Scope::Text(signed))
+                    .await;
                 close_range(first, article.range_to.as_ref(), async |end| {
-                    self.article_in(&id, title, end, when, sure, Scope::Text).await
+                    self.article_in(&id, title, end, when, sure, Scope::Text(signed)).await
                 })
                 .await
             }
@@ -809,7 +824,12 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
                 let compared = cite.date.is_some() && signed[*only] == cite.date;
                 let confidence = if compared { Confidence::High } else { Confidence::Medium };
                 let record = ResolvedRecord::of(hit.id.clone(), hit);
-                TextStep::Found { id: ids[*only].clone(), record, confidence }
+                TextStep::Found {
+                    id: ids[*only].clone(),
+                    record,
+                    confidence,
+                    signed: signed[*only],
+                }
             }
             ([], [only]) => TextStep::Done(text_mismatch(cite, only, &fits[0])),
             _ => TextStep::Done(Resolution::of(candidates_of_hits(&hits))),
@@ -1225,8 +1245,13 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
 
 /// Étape de résolution d'un texte.
 enum TextStep {
-    /// Un texte, sûr ou non (`confidence`).
-    Found { id: LegiTextId, record: ResolvedRecord, confidence: Confidence },
+    /// Un texte, sûr ou non (`confidence`), avec sa date de signature quand son titre en porte une.
+    Found {
+        id: LegiTextId,
+        record: ResolvedRecord,
+        confidence: Confidence,
+        signed: Option<CivilDate>,
+    },
     /// Résolution terminée sans texte (écart, plusieurs candidats, introuvable).
     Done(Resolution),
 }
@@ -1401,7 +1426,12 @@ fn article_found(
     let official = Some(article.text.as_str().to_owned());
     if let Some(actual) = article.num.as_deref() {
         let squashed = squash(actual);
-        if !variants.iter().any(|variant| squash(variant) == squashed) {
+        let runs = digit_runs(actual);
+        // Les tirets comptent : « 242 » n'est pas « 24-2 » (mêmes lettres et chiffres, autres suites).
+        if !variants
+            .iter()
+            .any(|variant| squash(variant) == squashed && digit_runs(variant) == runs)
+        {
             let cited = variants.first().cloned().unwrap_or_default();
             return Resolution {
                 official,
@@ -2229,6 +2259,19 @@ mod tests {
         );
         assert_eq!(resolution.outcome.record().unwrap().id.as_str(), "LEGIARTI000006419288");
         assert_eq!(resolution.official.as_deref(), Some("Texte officiel."));
+    }
+
+    /// Les tirets comptent : le numéro lu qui a les mêmes lettres et chiffres que le numéro cité
+    /// mais d'autres suites de chiffres est un autre article (écart, jamais `verified`).
+    #[tokio::test]
+    async fn an_article_whose_number_differs_only_by_hyphens_is_a_mismatch() {
+        for (cited, actual) in [("242", "24-2"), ("101", "10-1"), ("31", "3-1"), ("10-21", "102-1")]
+        {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_article(Ok(article(Some(actual))));
+            let resolution = resolve(&corpus, &format!("article {cited} du code civil")).await;
+            assert_eq!(status(&resolution), CheckStatus::Invalid, "{cited} contre {actual}");
+        }
     }
 
     #[tokio::test]
@@ -6307,19 +6350,9 @@ mod tests {
         assert_eq!(status(&resolution), CheckStatus::Unresolvable);
     }
 
-    /// Garde : un texte de confiance moyenne (date non citée) ne prouve jamais l'absence.
-    #[tokio::test]
-    async fn an_unsure_text_with_a_missing_article_is_unresolvable() {
-        let corpus = law_with_toc(&numbered_entries(5));
-        let resolution = resolve(&corpus, "article 50 de la loi n° 2016-1321").await;
-        assert_eq!(
-            resolution.outcome,
-            unresolvable_outcome(Note::CouldNotConfirm { index: "LODA" })
-        );
-    }
-
     #[tokio::test]
     async fn an_unsure_text_reads_the_toc_but_never_proves_absence() {
+        // Garde : un texte de confiance moyenne (date non citée) ne prouve jamais l'absence.
         let corpus = law_with_toc(&numbered_entries(5));
         let resolution = resolve(&corpus, "article 50 de la loi n° 2016-1321").await;
         assert_eq!(
@@ -6332,6 +6365,26 @@ mod tests {
         let corpus = law_with_toc(&numbered_entries(5));
         corpus.push_get_article(Ok(amending(3, Some("3"))));
         let resolution = resolve(&corpus, "article 3 de la loi n° 2016-1321").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
+    }
+
+    /// À une date qui précède la signature du texte, celui-ci n'existait pas : son sommaire (celui
+    /// d'aujourd'hui, faute de version ce jour-là) ne fait pas exister l'article. Le jour de la
+    /// signature, il est lu comme avant.
+    #[tokio::test]
+    async fn an_amending_article_cited_before_its_law_was_signed_is_not_verified() {
+        let before = Some(VersionDate::parse("2000-01-01").unwrap());
+        let corpus = law_with_toc(&[toc_entry(1, "1", None)]);
+        corpus.push_get_article(Ok(amending(1, Some("1"))));
+        let resolution = resolve_with(&corpus, &codes(), &first(&law_article("1")), before).await;
+        assert_ne!(status(&resolution), CheckStatus::Verified);
+        assert_eq!((corpus.calls_of("get_act"), corpus.calls_of("get_article")), (0, 0));
+
+        let signed = Some(VersionDate::parse("2016-10-07").unwrap());
+        let corpus = law_with_toc(&[toc_entry(1, "1", None)]);
+        corpus.push_get_article(Ok(amending(1, Some("1"))));
+        let resolution = resolve_with(&corpus, &codes(), &first(&law_article("1")), signed).await;
         assert_eq!(status(&resolution), CheckStatus::Verified);
         assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::Medium));
     }
