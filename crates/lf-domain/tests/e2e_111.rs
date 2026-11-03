@@ -7,6 +7,8 @@
 //! quatre chiffres (`DF-2017-1448`) sont lus quand une série est écrite.
 //! U08 : deux décisions du Conseil d'État citées à la suite ne sont jamais lues comme une seule
 //! (la date de l'une, le numéro de l'autre).
+//! U11 : une décision du Conseil d'État à numéros joints (tiret ou barre) suivie d'une autre citation
+//! ne fusionne pas avec elle.
 use lf_domain::citation::{
     CaseNumber, CitationRef, CnilNumber, Confidence, Court, ParseOptions, parse, parse_with,
 };
@@ -801,6 +803,48 @@ mod u12 {
                 prop_assert_eq!(got.len(), 1, "{}", variant);
                 prop_assert_eq!(&got[0].value, &want[0].value, "{}", variant);
                 prop_assert_eq!(got[0].span.end.saturating_sub(got[0].span.start), variant.len(), "{}", variant);
+            }
+        }
+    }
+}
+
+/// U11 (AM-83), composition : une décision du Conseil d'État à numéros joints par un tiret ou une
+/// barre, suivie d'une autre décision, donne deux citations aux spans disjoints, la première
+/// avec ses deux numéros, la seconde avec le sien, quel que soit le séparateur et ce qui suit.
+#[test]
+fn a_joined_ce_citation_followed_by_another_never_merges_with_it() {
+    let first = |link: &str| format!("CE, Ass., 5 mars 1999, n° 194658{link}196116");
+    let second = "CE, 5 mai 2011, n° 400000";
+    let numbers = |c: &lf_domain::citation::Spanned<CitationRef>| match &c.value {
+        CitationRef::Decision(d) => d.numbers.clone(),
+        _ => Vec::new(),
+    };
+
+    for link in ["-", "/"] {
+        for sep in [" ; ", ". ", ", ", " et "] {
+            for after in ["", ",", " et", ", publié au recueil Lebon", " ; art. 9 C. civ."] {
+                let head = first(link);
+                let input = format!("{head}{sep}{second}{after}");
+                let got = parse(&input);
+                let decisions: Vec<_> =
+                    got.iter().filter(|c| matches!(c.value, CitationRef::Decision(_))).collect();
+                assert_eq!(decisions.len(), 2, "{input}");
+                assert_eq!(
+                    numbers(decisions[0]),
+                    [CaseNumber::CeRequete(194_658), CaseNumber::CeRequete(196_116)],
+                    "{input}"
+                );
+                assert_eq!(numbers(decisions[1]), [CaseNumber::CeRequete(400_000)], "{input}");
+                assert_eq!(
+                    input.get(decisions[0].span.start..decisions[0].span.end),
+                    Some(head.as_str()),
+                    "{input}"
+                );
+                assert!(decisions[0].span.end <= decisions[1].span.start, "{input}");
+                assert!(
+                    input[decisions[1].span.start..decisions[1].span.end].starts_with(second),
+                    "{input}"
+                );
             }
         }
     }

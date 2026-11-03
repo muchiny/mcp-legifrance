@@ -355,7 +355,7 @@ mod tests {
     }
 
     /// Citations complètes (code compris) du corpus positif, dont les formes de L1-01.
-    const COMPLETE: [&str; 20] = [
+    const COMPLETE: [&str; 23] = [
         "l'article 1240 du code civil",
         "art. L. 1234-5 du code du travail",
         "CGI, art. 150-0 B ter",
@@ -377,6 +377,10 @@ mod tests {
         "art. 9 C. civ.",
         "art. 1240 du code pénal",
         "art. 1103 et suivants du code civil",
+        // U11 (AM-83) : décisions du Conseil d'État, requêtes jointes par un tiret ou une barre.
+        "CE, Ass., 5 mars 1999, n° 194658-196116",
+        "CE, 5 mars 1999, n° 194658/196116",
+        "CE, 5 mai 2011, n° 400000",
     ];
 
     mod no_panic {
@@ -418,6 +422,9 @@ mod tests {
                         " (n° 14-24.444)", "25-11-2015", "civ.1re", " - n° ", " [", "Cass.", " req. n° ", "25/11/15",
                         "RG n° ", "2e ch. civ.", " (n° 14-24.444", "[n° ", "n°: ",
                         "Chambre sociale de la Cour de cassation",
+                        // U11 (AM-83) : requêtes jointes du Conseil d'État, liens et années.
+                        "CE, 5 mars 1999, n° ", "194658-196116", "194658/196116", "-2018", "-5",
+                        "/196116-5", " ; CE, 5 mai 2011, n° 400000",
                     ]),
                     0..20,
                 ),

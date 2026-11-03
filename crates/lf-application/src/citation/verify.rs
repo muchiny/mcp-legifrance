@@ -1947,6 +1947,32 @@ mod tests {
         assert_eq!(corpus.calls(), 80);
     }
 
+    /// U11, risque de coût (pire cas) : une citation du Conseil d'État introuvable à trois numéros
+    /// coûte trois recherches exactes puis une recherche de repli (N + 1 appels, 4 au lieu de 1
+    /// en 1.1.0).
+    #[tokio::test]
+    async fn unfound_ce_citations_with_three_numbers_cost_four_calls_each() {
+        let corpus = FakeCorpus::new();
+        for _ in 0..10 {
+            for _ in 0..3 {
+                corpus.push_find_by_number(Ok(vec![]));
+            }
+            corpus.push_search(Ok(cetat_page(vec![])));
+        }
+        let text = (0..10_u32)
+            .map(|n| {
+                let base = 410_000 + 10 * n;
+                format!("CE, 5 mars 1999, nos {}, {} et {} ; ", base, base + 1, base + 2)
+            })
+            .collect::<Vec<String>>()
+            .concat();
+        let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+        assert_eq!(verification.checks.len(), 10);
+        assert!(verification.checks.iter().all(|check| check.status == CheckStatus::Unresolvable));
+        assert_eq!((corpus.calls_of("find_by_number"), corpus.calls_of("search")), (30, 10));
+        assert_eq!(corpus.calls(), 40);
+    }
+
     /// U11, garde : 50 citations du Conseil d'État introuvables restent dans le budget de temps et
     /// sont toutes contrôlées (aucune sortie de délai), avec ou sans repli. Aucun compte d'appels.
     #[tokio::test(start_paused = true)]

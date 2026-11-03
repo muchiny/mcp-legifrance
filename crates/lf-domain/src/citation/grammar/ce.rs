@@ -1092,6 +1092,21 @@ mod tests {
         }
     }
 
+    /// U11, garde : une citation à numéros joints suivie d'un autre nombre (après un point-virgule,
+    /// un point, une espace, un montant ou une année) ne le prend jamais pour un numéro de la
+    /// liste : le texte repris s'arrête au second numéro.
+    #[test]
+    fn a_valid_ce_citation_followed_by_a_number_is_not_a_list() {
+        let two = vec![CaseNumber::CeRequete(194_658), CaseNumber::CeRequete(196_116)];
+        let head = "CE, Ass., 5 mars 1999, n° 194658-196116";
+        for tail in [" ; 400000", " 400000", " 2018", " 15000 euros", ". 400000"] {
+            let input = format!("{head}{tail}");
+            let got = readings(&input);
+            assert_eq!(got.first(), Some(&(head.to_owned(), two.clone())), "{input}");
+            assert_eq!(got.len(), 1, "{input}");
+        }
+    }
+
     /// U11 : la lecture d'un numéro lié s'arrête net hors de ses conditions (début au milieu d'un
     /// mot, chiffres suivis d'une lettre ou d'un autre signe, rien après le lien).
     #[test]

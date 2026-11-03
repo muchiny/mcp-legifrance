@@ -823,7 +823,16 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         }) else {
             return Vec::new();
         };
-        let Ok(page) = self.corpus.search(&query).await else { return Vec::new() };
+        let page = match self.corpus.search(&query).await {
+            Ok(page) => page,
+            Err(error) => {
+                // Au mieux, mais pas muet : seul le nom de la variante est journalisé, ni requête,
+                // ni texte de l'appelant, ni `detail`.
+                let (variant, _) = crate::failure::variant_and_detail(&error);
+                tracing::debug!(variant, "joined-number fallback search failed; left unresolvable");
+                return Vec::new();
+            }
+        };
         let page_len = usize::try_from(PageSize::DEFAULT.get()).unwrap_or(usize::MAX);
         page.hits
             .into_iter()
@@ -6608,6 +6617,35 @@ mod tests {
                 // le correctif.
                 assert_eq!(corpus.calls_of("search"), 1, "{error:?}");
                 assert_eq!(corpus.calls_of("get_decision"), 0, "{error:?}");
+            }
+        }
+
+        #[tokio::test]
+        async fn a_failing_fallback_search_leaves_a_debug_trace_with_the_variant_only() {
+            let errors = [
+                (CorpusError::RateLimited { retry_after: None }, "RateLimited"),
+                (CorpusError::Timeout, "Timeout"),
+                (upstream(), "Upstream"),
+            ];
+            for (error, variant) in errors {
+                let (capture, _guard) = crate::capture::Capture::install();
+                let corpus = FakeCorpus::new();
+                corpus.push_find_by_number(Ok(vec![]));
+                corpus.push_search(Err(error));
+                let item = cited(&[194_658], civil(1999, 3, 5));
+                let _ = resolve_with(&corpus, &codes(), &item, None).await;
+                let events = capture.event_fields();
+                assert_eq!(events.len(), 1, "{variant}");
+                assert_eq!(events[0].0, tracing::Level::DEBUG, "{variant}");
+                assert_eq!(events[0].1["variant"], variant);
+                // Ni le numéro cité (texte de l'appelant) ni le `detail` de l'erreur.
+                assert!(
+                    !capture
+                        .all_values()
+                        .iter()
+                        .any(|v| v.contains("194658") || v.contains("down")),
+                    "{variant}"
+                );
             }
         }
 
