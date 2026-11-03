@@ -1772,6 +1772,24 @@ mod tests {
         assert_eq!(got.source, SummarySource::Lead);
     }
 
+    /// Limite connue : avec une clôture reconnue, un pied de page placé AVANT elle reste dans le
+    /// dispositif (seuls les pieds de page finaux d'un dispositif sans clôture sont retirés).
+    #[test]
+    fn dispositif_ordonnance_footer_before_a_recognised_closing_stays_in_the_body() {
+        let got = ordo(&[
+            "Visa.",
+            "ORDONNE :",
+            "Article 1er : A.",
+            "2",
+            "N° 26MA02038",
+            "Fait à Paris, le 1er mars.",
+        ]);
+        assert_eq!(
+            parts(&got),
+            (SummarySource::Dispositif, "Article 1er : A.\n\n2\n\nN° 26MA02038", false)
+        );
+    }
+
     #[test]
     fn a_decide_judgment_keeps_its_dispositif_when_a_stray_ordonne_precedes() {
         let got = ordo(&[
