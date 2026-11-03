@@ -759,9 +759,11 @@ pub(crate) mod lex {
             self.kwb(w, "de").and_then(|x| self.ws(x)).or_else(|| self.kw(w, "d'"))
         }
 
-        /// Caractères de la vue clé avant `end`, du plus proche au plus lointain.
+        /// Caractères de la vue clé avant `end`, du plus proche au plus lointain, au plus `BEFORE`
+        /// (la fenêtre de tête) : le coût d'un retour en arrière ne dépend pas de la longueur du
+        /// texte. Une suite plus longue perd au pire une note de tête non lue, jamais une lecture.
         fn back(&self, end: usize) -> impl Iterator<Item = char> + '_ {
-            self.k.get(..end).unwrap_or_default().iter().rev().copied()
+            self.k.get(end.saturating_sub(BEFORE)..end).unwrap_or_default().iter().rev().copied()
         }
 
         /// Recule depuis `p` tant que le caractère de la vue clé précédent est un séparateur de
@@ -2577,15 +2579,38 @@ mod tests {
         }
     }
 
-    /// U12 : `head_before` est borné et linéaire (20 000 caractères).
+    /// U12 : `head_before` est borné et linéaire. Garde relative : l'analyse d'un texte hostile
+    /// (beaucoup de pourvois, chacun précédé d'une longue suite de chiffres et de séparateurs) de
+    /// 20 000 caractères ne coûte pas plus de 30 fois celle du même texte de 2 000 caractères
+    /// (dix fois plus long : un coût quadratique donnerait environ 100). Chaque mesure est la
+    /// meilleure de trois, avec un plancher de 5 ms contre le bruit.
     #[test]
     fn head_before_is_bounded_and_linear() {
-        let input = "Cass. soc., pourvoi n° 24-13.470 ; 25/11/15, ".repeat(450);
-        assert!(input.chars().count() > 18_000);
-        let started = std::time::Instant::now();
-        let n = crate::citation::parse(&input).len();
-        assert!(n > 100);
-        assert!(started.elapsed() < std::time::Duration::from_secs(20));
+        fn best_of_three(input: &str) -> (usize, std::time::Duration) {
+            let mut best = std::time::Duration::MAX;
+            let mut found = 0;
+            for _ in 0..3 {
+                let started = std::time::Instant::now();
+                found = crate::citation::parse(input).len();
+                best = best.min(started.elapsed());
+            }
+            (found, best)
+        }
+        let unit = format!(
+            "{} n° 14-24.444 ; Cass. soc., pourvoi n° 24-13.470 ; 25/11/15, ",
+            "9/".repeat(20)
+        );
+        let hostile = |chars: usize| unit.repeat(chars.div_ceil(unit.chars().count()));
+        let (small, large) = (hostile(2_000), hostile(20_000));
+        assert!(large.chars().count() >= 20_000);
+        let (found_small, t_small) = best_of_three(&small);
+        let (found_large, t_large) = best_of_three(&large);
+        assert!(found_small > 10 && found_large > 100, "{found_small} / {found_large}");
+        let floor = std::time::Duration::from_millis(5);
+        assert!(
+            t_large <= 30 * t_small.max(floor),
+            "20 000 caractères : {t_large:?}, 2 000 caractères : {t_small:?}"
+        );
         for run in [
             format!("{}n° 14-24.444", "9".repeat(20_000)),
             format!("{} n° 14-24.444", "9/".repeat(10_000)),
@@ -2598,8 +2623,23 @@ mod tests {
             let at = run.chars().count() - 12;
             let started = std::time::Instant::now();
             let _ = doc.cur(at).head_before(at);
-            assert!(started.elapsed() < std::time::Duration::from_secs(1));
+            assert!(started.elapsed() < std::time::Duration::from_millis(200));
         }
+        // La fenêtre de tête (80 caractères) borne le retour en arrière : une date lue juste
+        // avant des séparateurs proches est une tête, derrière plus de 80 caractères de
+        // séparateurs elle n'en est plus une (au pire une note perdue).
+        let head = |separators: usize| {
+            let run = format!("25/11/15{} n° 14-24.444", ", ;".repeat(separators));
+            let n = crate::citation::normalize::normalize(
+                &run,
+                crate::citation::normalize::Steps::default(),
+            );
+            let doc = lex::Doc::new(&n);
+            let at = run.chars().count() - 12;
+            doc.cur(at).head_before(at)
+        };
+        assert!(head(5));
+        assert!(!head(40));
     }
 
     #[test]

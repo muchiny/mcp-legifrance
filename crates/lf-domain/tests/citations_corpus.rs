@@ -2162,6 +2162,38 @@ fn perf_parse_20k() {
     assert!(best <= ceiling, "parse_with a mis {best:?} (plafond {ceiling:?}, cible {target:?})");
 }
 
+/// Revue de la vague 2 (U08) : forme hostile pour la zone « parties » du Conseil d'État. Chaque
+/// en-tête « CE, date, » est suivi de 24 « Trib. » en majuscule : à chacune des 121 positions de
+/// la zone, `foreign_court_at` cherche une date devant chaque mot de juridiction. Même plafond
+/// que `perf_parse_20k`.
+#[test]
+fn perf_parse_20k_hostile_ce_parties() {
+    let unit = format!("CE, 1 janvier 2020, {}", "Trib. ".repeat(24));
+    let mut text = String::new();
+    while text.chars().count() < 20_000 {
+        text.push_str(&unit);
+    }
+    let options = base_options();
+    let found = parse_with(&text, &options).len();
+    let best = (0..5)
+        .map(|_| {
+            let start = std::time::Instant::now();
+            let again = parse_with(&text, &options);
+            let elapsed = start.elapsed();
+            assert_eq!(again.len(), found);
+            elapsed
+        })
+        .min()
+        .expect("cinq mesures");
+    eprintln!(
+        "perf_parse_20k_hostile_ce_parties : {best:?} pour {} caractères et {found} citations",
+        text.chars().count()
+    );
+    let target = std::time::Duration::from_millis(50);
+    let ceiling = if cfg!(debug_assertions) { target * 60 } else { target * 3 };
+    assert!(best <= ceiling, "parse_with a mis {best:?} (plafond {ceiling:?}, cible {target:?})");
+}
+
 // ---------------------------------------------------------------------------------------------
 // Tests.
 // ---------------------------------------------------------------------------------------------

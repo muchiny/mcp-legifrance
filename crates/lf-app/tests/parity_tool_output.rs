@@ -966,6 +966,56 @@ mod parity {
         assert_eq!(requests.len(), 2 + 2 * 16, "{by_path:?}");
     }
 
+    /// U12 (revue vague 2) : `fr_verify_citations` sur le binaire réel et les réponses PISTE
+    /// relevées du pourvoi 14-24.444 (chambre sociale, 25 novembre 2015). Une tête lue et exacte
+    /// (« Cass. soc. 25-11-2015, n° … ») reste `verified`, sans note ; une date illisible devant le
+    /// numéro (`25/11/15`) reste `verified` sur le seul numéro (`raw`) et porte la note de tête non lue.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn verify_citations_on_recorded_14_24_444_wire_shape() {
+        const SEARCH: &[u8] = include_bytes!(
+            "../../lf-adapter-piste/tests/fixtures/recorded/search/c101/C4-juri-affaire-14-24.444.json"
+        );
+        const CONSULT: &[u8] = include_bytes!(
+            "../../lf-adapter-piste/tests/fixtures/recorded/consult/juri/c101/C4-juri-consult-14-24.444-JURITEXT000031539712.json"
+        );
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(TOKEN_PATH))
+            .respond_with(reply(
+                br#"{"access_token":"wire-token","token_type":"Bearer","expires_in":3600}"#,
+            ))
+            .mount(&server)
+            .await;
+        serve(&server, "/search", &json!({"fond": "JURI"}), SEARCH).await;
+        serve(&server, "/consult/juri", &json!({"textId": "JURITEXT000031539712"}), CONSULT).await;
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let mut session = Session::start(&server, audit.path(), Era::Legacy).await;
+        for (text, raw, note) in [
+            ("Cass. soc. 25-11-2015, n° 14-24.444", "Cass. soc. 25-11-2015, n° 14-24.444", None),
+            (
+                "Cass. soc., 25/11/15, n° 14-24.444",
+                "n° 14-24.444",
+                Some(
+                    "Only the case number was matched: the court, chamber or date written before \
+                     it was not read and not checked.",
+                ),
+            ),
+        ] {
+            let result = session.call("fr_verify_citations", &json!({"text": text})).await;
+            let output = structured(&result, text);
+            let checks = output["citations"].as_array().expect("a citations array");
+            assert_eq!(checks.len(), 1, "{text}: {output}");
+            assert_eq!(checks[0]["status"], "verified", "{text}: {output}");
+            assert_eq!(checks[0]["raw"], raw, "{text}: {output}");
+            match note {
+                Some(expected) => assert_eq!(checks[0]["note"], expected, "{text}: {output}"),
+                None => assert!(checks[0].get("note").is_none(), "{text}: {output}"),
+            }
+        }
+        let stderr = session.finish().await;
+        assert!(!stderr.contains("panicked"), "{stderr}");
+    }
+
     // ---- D-30 : aucun `eli_uri`, aucun ELI fabriqué --------------------------------------------
 
     /// Les chemins (`/a/0/b`) des clés de `value`, à toute profondeur, dont le nom (sans `_` ni

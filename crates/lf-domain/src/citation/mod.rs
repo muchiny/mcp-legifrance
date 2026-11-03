@@ -416,6 +416,8 @@ mod tests {
                         "Cass. civ. 1re, 5 mai 2021, n° 19-12.345", "ECLI:FR:CCASS:2021:C100399",
                         "NOR : ECFI1524250L", "150-0 B ter", "199 terdecies-0 A", " bis", " ter", "-0 ", "<p>", "</p>", "&nbsp;", "Ã©", "\u{200b}", "\n",
                         " (n° 14-24.444)", "25-11-2015", "civ.1re", " - n° ", " [", "Cass.", " req. n° ", "25/11/15",
+                        "RG n° ", "2e ch. civ.", " (n° 14-24.444", "[n° ", "n°: ",
+                        "Chambre sociale de la Cour de cassation",
                     ]),
                     0..20,
                 ),

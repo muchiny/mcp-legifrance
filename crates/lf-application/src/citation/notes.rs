@@ -1242,4 +1242,24 @@ mod tests {
         // `Candidates` garde son renvoi : la liste est celle de `fr_resolve`.
         assert!(Note::Candidates { n: 2 }.text().contains("fr_resolve"));
     }
+
+    /// Revue vague 2 : la note des numéros joints vaut pour toute décision à plusieurs numéros
+    /// (Conseil d'État, CAA, TA), pas seulement pour la Cour de cassation : `number_forms` ne
+    /// cherche que le premier numéro. Une décision à un seul numéro n'en porte pas.
+    #[test]
+    fn joined_numbers_of_any_court_get_the_first_number_note() {
+        for text in [
+            "CE, 3 mars 2020, nos 123456 et 123457",
+            "Cass. soc., 25 novembre 2015, n° 14-24.444 et 14-24.445",
+        ] {
+            let item = lf_domain::citation::parse(text).remove(0);
+            assert!(
+                matches!(&item.value, CitationRef::Decision(decision) if decision.numbers.len() == 2),
+                "{text}"
+            );
+            assert_eq!(reading_gaps(&item), [Note::OnlyFirstNumberChecked], "{text}");
+        }
+        let single = lf_domain::citation::parse("CE, 3 mars 2020, n° 123456").remove(0);
+        assert_eq!(reading_gaps(&single), []);
+    }
 }

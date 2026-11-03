@@ -690,6 +690,23 @@ mod tests {
             .collect()
     }
 
+    /// Revue vague 2 (U08), limite connue : la zone « parties » suit les parenthèses et les
+    /// guillemets. Une `(` ou une `«` sans fermant masque les virgules qui suivent, et un `)`
+    /// isolé arrête la zone : la référence que la 1.1.0 lisait n'est plus lue (l'écriture
+    /// équilibrée l'est toujours).
+    #[test]
+    fn an_unbalanced_opener_or_closer_hides_the_commas_after_it() {
+        let balanced = "Société X (en liquidation), n° 123456";
+        assert_eq!(commas(balanced), [26]);
+        for text in [
+            "Société X (en liquidation, n° 123456",
+            "Société X « en liquidation, n° 123456",
+            "Société X en liquidation), n° 123456",
+        ] {
+            assert_eq!(commas(text), Vec::<usize>::new(), "{text}");
+        }
+    }
+
     /// U08 (a) : une seconde référence qui porte l'ancre « CE » est lue seule, avec sa date et
     /// son numéro ; la date de la première ne lui est jamais prêtée.
     #[test]

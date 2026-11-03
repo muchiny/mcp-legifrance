@@ -761,6 +761,22 @@ mod tests {
         }
     }
 
+    /// U12 : un pourvoi entre parenthèses ou crochets dans un `citationJp` est UN lien (le numéro
+    /// et sa date), pas deux ; `fr_get_related` change de forme pour ces écritures.
+    #[test]
+    fn a_parenthesised_citation_jp_is_one_link() {
+        for cited in [
+            "Cass. 1re civ., 25 mai 2023 (n° 21-23.174)",
+            "Cass. 1re civ., 25 mai 2023 [n° 21-23.174]",
+            "Cass. 1re civ., 25 mai 2023, pourvoi n° 21-23.174",
+        ] {
+            let links = links_of(Some(cited), &[]);
+            assert_eq!(links.len(), 1, "{cited}");
+            assert!(links[0].citation.contains("21-23.174"), "{cited}");
+            assert!(links[0].citation.contains("2023"), "{cited}");
+        }
+    }
+
     /// U08, garde : un `citationJp` enregistré dont les références du Lebon n'ont aucune ancre
     /// « CE » (CETATEXT000007742504) ne donne toujours aucun lien du Conseil d'État.
     #[test]
