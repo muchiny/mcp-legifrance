@@ -28,3 +28,13 @@ crates/lf-adapter-piste/src/corpus/port.rs
 crates/lf-application/src/usecase/search_all.rs
 crates/lf-adapter-mcp/src/views/search_all.rs
 crates/lf-adapter-audit/src/file.rs
+crates/lf-application/src/usecase/resolve.rs
+crates/lf-application/src/usecase/verify_citations.rs
+crates/lf-domain/src/citation/grammar/ce.rs
+crates/lf-domain/src/citation/grammar/cnil.rs
+crates/lf-domain/src/citation/grammar/cassation.rs
+crates/lf-domain/src/citation/types.rs
+crates/lf-domain/src/entity/deliberation.rs
+crates/lf-domain/src/contract/rules.rs
+crates/lf-adapter-piste/src/map/deliberation.rs
+crates/lf-adapter-mcp/src/views/get_deliberation.rs
