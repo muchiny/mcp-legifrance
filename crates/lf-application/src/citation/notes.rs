@@ -9,7 +9,7 @@
 //! 05 §5.9) ; le gabarit et ses paramètres vivent côte à côte pour ne pas pouvoir diverger.
 
 use lf_domain::{
-    citation::{CitationRef, Flag, Sigle, Spanned},
+    citation::{CitationRef, Court, Flag, Sigle, Spanned},
     date::{CivilDate, VersionDate},
     ecli::Ecli,
     fond::Fond,
@@ -163,6 +163,9 @@ pub enum Note {
     HeadNotRead,
     /// Pourvois joints : seul le premier numéro a été contrôlé (U12), `verified` conservé.
     OnlyFirstNumberChecked,
+    /// Requêtes jointes du Conseil d'État : un seul des numéros cités a servi à retrouver la
+    /// décision (le premier qui l'a trouvée, U11), `verified` conservé.
+    OnlyOneNumberChecked,
     /// Date citée d'une délibération ou décision de la CNIL, mais l'enregistrement officiel n'en a
     /// pas de fiable (l'amont ne donne qu'une date de repli, 31 décembre ou 1er janvier) : la
     /// date n'a pas pu être contrôlée, `verified` de confiance moyenne conservé (AM-80).
@@ -479,8 +482,16 @@ pub(crate) fn reading_gaps(item: &Spanned<CitationRef>) -> Vec<Note> {
     if item.flags.contains(&Flag::TeteDecisionNonLue) {
         gaps.push(Note::HeadNotRead);
     }
-    if matches!(&item.value, CitationRef::Decision(decision) if decision.numbers.len() > 1) {
-        gaps.push(Note::OnlyFirstNumberChecked);
+    if let CitationRef::Decision(decision) = &item.value
+        && decision.numbers.len() > 1
+    {
+        // Le Conseil d'État essaie ses numéros un à un (U11) : le premier n'est pas toujours celui
+        // qui a retrouvé la décision.
+        gaps.push(if matches!(decision.court, Some(Court::ConseilEtat { .. })) {
+            Note::OnlyOneNumberChecked
+        } else {
+            Note::OnlyFirstNumberChecked
+        });
     }
     gaps
 }
@@ -491,6 +502,9 @@ const HEAD_NOT_READ: &str = "Only the case number was matched: the court, chambe
 
 /// Gabarit de [`Note::OnlyFirstNumberChecked`].
 const ONLY_FIRST_NUMBER_CHECKED: &str = "Only the first case number was checked.";
+
+/// Gabarit de [`Note::OnlyOneNumberChecked`].
+const ONLY_ONE_NUMBER_CHECKED: &str = "Only one of the case numbers was checked.";
 
 /// Gabarit de [`Note::SubdivisionNotChecked`].
 const SUBDIVISION_NOT_CHECKED: &str = "The sub-division was not checked, only the article.";
@@ -567,6 +581,7 @@ impl Note {
                 .to_owned(),
             Self::HeadNotRead => HEAD_NOT_READ.to_owned(),
             Self::OnlyFirstNumberChecked => ONLY_FIRST_NUMBER_CHECKED.to_owned(),
+            Self::OnlyOneNumberChecked => ONLY_ONE_NUMBER_CHECKED.to_owned(),
             Self::DateNotChecked => DATE_NOT_CHECKED.to_owned(),
             Self::NativeEcli(ecli) => format!("Native ECLI is {ecli}."),
             Self::Impossible { fact } => format!("{fact}."),
@@ -884,6 +899,7 @@ mod tests {
                 "Only the case number was matched: the court, chamber or date written before it was not read and not checked.",
             ),
             (Note::OnlyFirstNumberChecked, "Only the first case number was checked."),
+            (Note::OnlyOneNumberChecked, "Only one of the case numbers was checked."),
         ]
     }
 
@@ -1244,22 +1260,37 @@ mod tests {
     }
 
     /// Revue vague 2 : la note des numéros joints vaut pour toute décision à plusieurs numéros
-    /// (Conseil d'État, CAA, TA), pas seulement pour la Cour de cassation : `number_forms` ne
-    /// cherche que le premier numéro. Une décision à un seul numéro n'en porte pas.
+    /// dont seul le premier est cherché (Cour de cassation) ; le Conseil d'État, qui essaie ses
+    /// numéros un à un, a la sienne (U11, test suivant). Une décision à un seul numéro n'en porte
+    /// pas.
     #[test]
     fn joined_numbers_of_any_court_get_the_first_number_note() {
-        for text in [
-            "CE, 3 mars 2020, nos 123456 et 123457",
-            "Cass. soc., 25 novembre 2015, n° 14-24.444 et 14-24.445",
-        ] {
+        let text = "Cass. soc., 25 novembre 2015, n° 14-24.444 et 14-24.445";
+        let item = lf_domain::citation::parse(text).remove(0);
+        assert!(
+            matches!(&item.value, CitationRef::Decision(decision) if decision.numbers.len() == 2),
+            "{text}"
+        );
+        assert_eq!(reading_gaps(&item), [Note::OnlyFirstNumberChecked], "{text}");
+        let single = lf_domain::citation::parse("CE, 3 mars 2020, n° 123456").remove(0);
+        assert_eq!(reading_gaps(&single), []);
+    }
+
+    /// U11 : le Conseil d'État essaie ses numéros un à un (jusqu'à trois) et garde celui qui
+    /// retrouve la décision : ce n'est pas toujours le premier. La note dit qu'un seul des
+    /// numéros a servi, pas le premier.
+    #[test]
+    fn joined_numbers_of_the_conseil_d_etat_note_that_only_one_number_was_checked() {
+        for text in
+            ["CE, 3 mars 2020, nos 123456 et 123457", "CE, 3 mars 2020, n° 397851 et 393099"]
+        {
             let item = lf_domain::citation::parse(text).remove(0);
             assert!(
                 matches!(&item.value, CitationRef::Decision(decision) if decision.numbers.len() == 2),
                 "{text}"
             );
-            assert_eq!(reading_gaps(&item), [Note::OnlyFirstNumberChecked], "{text}");
+            assert_eq!(reading_gaps(&item), [Note::OnlyOneNumberChecked], "{text}");
         }
-        let single = lf_domain::citation::parse("CE, 3 mars 2020, n° 123456").remove(0);
-        assert_eq!(reading_gaps(&single), []);
+        assert_eq!(Note::OnlyOneNumberChecked.text(), "Only one of the case numbers was checked.");
     }
 }

@@ -183,13 +183,43 @@ fn requete(c: &Cur<'_>, i: usize) -> Option<(usize, CaseNumber)> {
     requete_end(c, i).map(|e| (e, CaseNumber::CeRequete(c.val(i, e))))
 }
 
+/// `ce_num [(- | /) ce_num]` : un numéro de requête, ou deux numéros que relie un tiret ou une
+/// barre sans espace (`194658-196116`, `194658/196116`, forme des requêtes jointes, U11 B1). Le
+/// lien exige deux numéros de 4 à 6 chiffres hors 1500-2099 (ni une année, ni un numéro de texte
+/// comme `2021-1234`) et aucun chiffre ni point après le second (`194658-196116-5` n'est rien).
+fn requete_run(c: &Cur<'_>, i: usize) -> Option<(usize, Vec<CaseNumber>)> {
+    if let Some((e, n)) = requete(c, i) {
+        return Some((e, vec![n]));
+    }
+    c.left_ok(i).then_some(())?;
+    let first = c.digits(i, 4, 6)?;
+    (c.is(first, '-') || c.is(first, '/')).then_some(())?;
+    let start = first.saturating_add(1);
+    let second = c.digits(start, 4, 6).filter(|&e| c.num_end_ok(e))?;
+    (c.year4(i).is_none() && c.year4(start).is_none()).then_some(())?;
+    Some((
+        second,
+        vec![CaseNumber::CeRequete(c.val(i, first)), CaseNumber::CeRequete(c.val(start, second))],
+    ))
+}
+
+/// `ce_run { LIST_SEP ce_run }` : suite de numéros de requête.
+fn request_list(c: &Cur<'_>, i: usize) -> Option<(usize, Vec<CaseNumber>)> {
+    let (mut end, mut numbers) = requete_run(c, i)?;
+    while let Some((e, next)) = c.list_sep(end).and_then(|p| requete_run(c, p)) {
+        numbers.extend(next);
+        end = e;
+    }
+    Some((end, numbers))
+}
+
 /// `ce_numbers` : `[req. | requête] (n° | nos) ce_num { LIST_SEP ce_num }` ou un numéro seul.
 fn ce_numbers(c: &Cur<'_>, i: usize) -> Option<(usize, Vec<CaseNumber>)> {
     let p = c.abbr(i, "req").or_else(|| c.kwb(i, "requete")).and_then(|e| c.ws(e)).unwrap_or(i);
     if let Some((q, _)) = c.num_sign(p, true) {
-        return lex::number_list(c, q, requete);
+        return request_list(c, q);
     }
-    requete(c, i).map(|(e, n)| (e, vec![n]))
+    requete_run(c, i)
 }
 
 /// Longueur maximale, en caractères, de la zone « parties ».
@@ -981,5 +1011,121 @@ mod tests {
             assert_eq!(read(text, |c| page(c, 0)), None, "{text}");
         }
         assert_eq!(read("xyz", |c| lebon(c, 0)), None);
+    }
+
+    /// Ce que la grammaire lit de `input` : texte repris et numéros de chaque décision.
+    fn readings(input: &str) -> Vec<(String, Vec<CaseNumber>)> {
+        run(scan, input, &[(Sigle, "CE")])
+            .into_iter()
+            .map(|got| (matched(input, &got).to_owned(), decision(&got).numbers.clone()))
+            .collect()
+    }
+
+    /// U11 B1 (AM-83) : le tiret et la barre, sans espace, relient deux numéros de requête ; la
+    /// citation est lue en entier, avec ses deux numéros.
+    #[test]
+    fn joined_request_numbers() {
+        let two = vec![CaseNumber::CeRequete(194_658), CaseNumber::CeRequete(196_116)];
+        for input in [
+            "CE, Ass., 5 mars 1999, n° 194658-196116",
+            "CE, Ass., 5 mars 1999, n° 194658/196116",
+            "CE, Ass., 5 mars 1999, nos 194658-196116",
+            "CE, Ass., 5 mars 1999, Rouquette, n° 194658/196116",
+            "CE, Ass., 5 mars 1999, 194658-196116",
+        ] {
+            assert_eq!(readings(input), [(input.to_owned(), two.clone())], "{input}");
+        }
+        // Le lien se mêle aux séparateurs de liste, trois numéros au plus lus ici comme au-delà.
+        let input = "CE, 5 mars 1999, n° 194658-196116 et 196117";
+        let want = vec![
+            CaseNumber::CeRequete(194_658),
+            CaseNumber::CeRequete(196_116),
+            CaseNumber::CeRequete(196_117),
+        ];
+        assert_eq!(readings(input), [(input.to_owned(), want)]);
+        let input = "CE, 5 mars 1999, n° 194658, 196116/196117";
+        let want = vec![
+            CaseNumber::CeRequete(194_658),
+            CaseNumber::CeRequete(196_116),
+            CaseNumber::CeRequete(196_117),
+        ];
+        assert_eq!(readings(input), [(input.to_owned(), want)]);
+        // Une mention du Lebon après les deux numéros reste reprise.
+        let input = "CE, Ass., 5 mars 1999, n° 194658-196116, publié au recueil Lebon";
+        let got = readings(input);
+        assert_eq!(got[0].0, input);
+        assert_eq!(got[0].1, two);
+    }
+
+    /// U11, garde : les listes déjà lues en 1.1.0 le restent.
+    #[test]
+    fn already_read_lists_of_request_numbers_keep_their_reading() {
+        let two = vec![CaseNumber::CeRequete(194_658), CaseNumber::CeRequete(196_116)];
+        for input in [
+            "CE, Ass., 5 mars 1999, nos 194658, 196116",
+            "CE, Ass., 5 mars 1999, n°s 194658 et 196116",
+            "CE, Ass., 5 mars 1999, n° 194658 ou 196116",
+        ] {
+            assert_eq!(readings(input), [(input.to_owned(), two.clone())], "{input}");
+        }
+    }
+
+    /// U11, garde (garantie 14 : l'espace entre deux numéros reste hors périmètre) : un nombre qui
+    /// suit un numéro de requête après une espace, un montant ou une année n'est pas un second
+    /// numéro, et les formes à tiret ou barre qui ne sont pas deux numéros ne sont pas liées.
+    #[test]
+    fn a_number_followed_by_an_amount_or_a_year_keeps_its_1_1_0_span() {
+        let one = |n: u32| vec![CaseNumber::CeRequete(n)];
+        for (input, text, want) in [
+            (
+                "CE, 28 mars 2018, n° 458590 15000 euros",
+                "CE, 28 mars 2018, n° 458590",
+                one(458_590),
+            ),
+            ("CE, 28 mars 2018, n° 158592 1998", "CE, 28 mars 2018, n° 158592", one(158_592)),
+            ("CE, 28 mars 2018, n° 410000 2018", "CE, 28 mars 2018, n° 410000", one(410_000)),
+            // Tiret ou barre entourés d'espaces : pas un lien.
+            ("CE, 28 mars 2018, n° 410000 - 196116", "CE, 28 mars 2018, n° 410000", one(410_000)),
+            ("CE, 28 mars 2018, n° 410000 / 196116", "CE, 28 mars 2018, n° 410000", one(410_000)),
+        ] {
+            assert_eq!(readings(input), [(text.to_owned(), want)], "{input}");
+        }
+    }
+
+    /// U11 : la lecture d'un numéro lié s'arrête net hors de ses conditions (début au milieu d'un
+    /// mot, chiffres suivis d'une lettre ou d'un autre signe, rien après le lien).
+    #[test]
+    fn a_joined_request_number_is_cut_short_outside_its_forms() {
+        assert_eq!(read("x194658-196116", |c| requete_run(c, 1)), None);
+        for text in ["194658x", "194658-196", "194658/196116x"] {
+            assert_eq!(read(text, |c| requete_run(c, 0)), None, "{text}");
+        }
+        assert_eq!(
+            read("194658-196116", |c| requete_run(c, 0)),
+            Some((13, vec![CaseNumber::CeRequete(194_658), CaseNumber::CeRequete(196_116)]))
+        );
+    }
+
+    /// U11, négatifs : un numéro suivi d'un tiret ou d'une barre qui n'en fait pas deux numéros
+    /// n'est pas une liste, et les numéros de textes ne sont jamais lus comme des requêtes jointes.
+    #[test]
+    fn ce_joined_numbers_negatives() {
+        for input in [
+            "CE, 28 mars 2018, n° 410000-5",
+            "CE, 28 mars 2018, n° 410000-2018",
+            "CE, 28 mars 2018, n° 410000/2018",
+            "CE, 28 mars 2018, n° 2021-1234",
+            "CE, 28 mars 2018, n° 194658-196116-5",
+            "CE, 28 mars 2018, n° 194658-196116.5",
+            "CE, 28 mars 2018, n° 194658-1961167",
+            "CE, 28 mars 2018, n° 2010-14/22 QPC",
+            // Groupement de milliers : limite figée (D16), la citation n'est pas lue.
+            "CE, 28 mars 2018, n° 194 658",
+            "CE, 28 mars 2018, décret n° 2021-1234",
+            "CE, 28 mars 2018, loi n° 58-1067",
+        ] {
+            // Comme en 1.1.0 : aucune décision n'est lue.
+            assert_eq!(readings(input), [], "{input}");
+        }
     }
 }

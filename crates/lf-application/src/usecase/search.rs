@@ -2140,6 +2140,11 @@ mod tests {
                         Note::OnlyFirstNumberChecked,
                         "OnlyFirstNumberChecked"
                     ),
+                    (
+                        Note::OnlyOneNumberChecked,
+                        Note::OnlyOneNumberChecked,
+                        "OnlyOneNumberChecked"
+                    ),
                     (Note::DateNotChecked, Note::DateNotChecked, "DateNotChecked"),
                     (Note::NativeEcli(_), Note::NativeEcli(ecli), "NativeEcli"),
                     (Note::Impossible { .. }, Note::Impossible { fact: "" }, "Impossible"),

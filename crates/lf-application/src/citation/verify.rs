@@ -1829,4 +1829,141 @@ mod tests {
         assert_eq!((verification.found, verification.checks.len()), (0, 0));
         assert_eq!(corpus.calls(), 0);
     }
+
+    /// U11 : décision du Conseil d'État à numéros joints, sans autre champ que ceux que le
+    /// résolveur lit (identifiant et date).
+    fn joined_record(id: &str, date: (u16, u8, u8)) -> Decision {
+        Decision {
+            decision_id: DecisionId::parse(id).unwrap(),
+            ecli: None,
+            num: None,
+            juridiction: None,
+            formation: None,
+            solution: None,
+            numero_affaire: vec![],
+            date_texte: CivilDate::new(date.0, date.1, date.2),
+            nature: None,
+            title: None,
+            text: LongText::from_plain("Texte de la décision.").unwrap(),
+            official_summary: OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
+        }
+    }
+
+    fn titled_hit(id: &str, title: &str) -> SearchHit {
+        let mut found = hit(Fond::Cetat, id);
+        found.title = Some(title.to_owned());
+        found
+    }
+
+    fn cetat_page(hits: Vec<SearchHit>) -> lf_domain::entity::SearchPage {
+        lf_domain::entity::SearchPage::new(
+            Fond::Cetat,
+            "194658",
+            None,
+            None,
+            hits,
+            0,
+            lf_domain::fond::PaginationMode::Defaut,
+        )
+    }
+
+    /// U11 (verify_citations-2) : Rouquette et Sarran, cités par un seul de leurs numéros, sont
+    /// `verified` par le repli plein texte ; la citation en double n'est résolue qu'une fois.
+    #[tokio::test]
+    async fn a_joined_ce_decision_is_verified() {
+        let rouquette = "CETATEXT000008000361";
+        let sarran = "CETATEXT000008008495";
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        corpus.push_search(Ok(cetat_page(vec![titled_hit(
+            rouquette,
+            "Conseil d'Etat, Assemblée, du 5 mars 1999, 194658 196116, publié au recueil Lebon",
+        )])));
+        corpus.push_get_decision(Ok(joined_record(rouquette, (1999, 3, 5))));
+        corpus.push_find_by_number(Ok(vec![]));
+        corpus.push_search(Ok(cetat_page(vec![titled_hit(
+            sarran,
+            "Conseil d'Etat, Assemblée, du 30 octobre 1998, 200286 200287, publié au recueil Lebon",
+        )])));
+        corpus.push_get_decision(Ok(joined_record(sarran, (1998, 10, 30))));
+        let text = "CE, Ass., 5 mars 1999, Rouquette, n° 194658 ; CE, Ass., 30 octobre 1998, \
+                    Sarran, n° 200287 ; CE, Ass., 5 mars 1999, Rouquette, n° 194658";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        let ids: Vec<(&CheckStatus, Option<&str>)> = verification
+            .checks
+            .iter()
+            .map(|check| (&check.status, check.resolved.as_ref().map(|r| r.id.as_str())))
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                (&CheckStatus::Verified, Some(rouquette)),
+                (&CheckStatus::Verified, Some(sarran)),
+                (&CheckStatus::Verified, Some(rouquette)),
+            ]
+        );
+        assert_eq!(corpus.calls_of("search"), 2);
+        assert_eq!(corpus.unserved(), 0);
+    }
+
+    /// U11 : une citation qui nomme les deux numéros porte la note qu'un seul a servi.
+    #[tokio::test]
+    async fn a_joined_ce_citation_with_both_numbers_notes_that_one_was_checked() {
+        let rouquette = "CETATEXT000008000361";
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        corpus.push_find_by_number(Ok(vec![]));
+        corpus.push_search(Ok(cetat_page(vec![titled_hit(
+            rouquette,
+            "Conseil d'Etat, Assemblée, du 5 mars 1999, 194658 196116, publié au recueil Lebon",
+        )])));
+        corpus.push_get_decision(Ok(joined_record(rouquette, (1999, 3, 5))));
+        let text = "CE, Ass., 5 mars 1999, Rouquette, nos 194658 et 196116";
+        let verification = verify(&corpus, PisteEnvironment::Production, text).await.unwrap();
+        let check = &verification.checks[0];
+        assert_eq!(check.status, CheckStatus::Verified);
+        assert_eq!(note_text(check), "Only one of the case numbers was checked.");
+    }
+
+    /// U11, risque de coût : 40 citations du Conseil d'État introuvables coûtent chacune une
+    /// recherche exacte puis la recherche de repli (80 appels, au lieu de 40).
+    #[tokio::test]
+    async fn forty_unfound_ce_citations_cost_two_searches_each() {
+        let corpus = FakeCorpus::new();
+        for _ in 0..40 {
+            corpus.push_find_by_number(Ok(vec![]));
+            corpus.push_search(Ok(cetat_page(vec![])));
+        }
+        let text = (0..40_u32)
+            .map(|n| format!("CE, 5 mars 1999, n° {} ; ", 410_000 + n))
+            .collect::<Vec<String>>()
+            .concat();
+        let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+        assert_eq!(verification.checks.len(), 40);
+        assert!(verification.checks.iter().all(|check| check.status == CheckStatus::Unresolvable));
+        assert_eq!((corpus.calls_of("find_by_number"), corpus.calls_of("search")), (40, 40));
+        assert_eq!(corpus.calls(), 80);
+    }
+
+    /// U11, garde : 50 citations du Conseil d'État introuvables restent dans le budget de temps et
+    /// sont toutes contrôlées (aucune sortie de délai), avec ou sans repli. Aucun compte d'appels.
+    #[tokio::test(start_paused = true)]
+    async fn fifty_unfound_ce_citations_stay_within_the_time_budget() {
+        let corpus = FakeCorpus::new().with_delay(Duration::from_millis(100));
+        for _ in 0..50 {
+            corpus.push_find_by_number(Ok(vec![]));
+            corpus.push_search(Ok(cetat_page(vec![])));
+        }
+        let text = (0..50_u32)
+            .map(|n| format!("CE, 5 mars 1999, n° {} ; ", 410_000 + n))
+            .collect::<Vec<String>>()
+            .concat();
+        let verification = verify(&corpus, PisteEnvironment::Production, &text).await.unwrap();
+        assert_eq!(verification.checks.len(), 50);
+        assert_eq!(verification.found, 50);
+        assert!(verification.checks.iter().all(|check| check.status == CheckStatus::Unresolvable));
+        assert!(verification.checks.iter().all(|check| note_text(check).contains("CETAT")));
+    }
 }

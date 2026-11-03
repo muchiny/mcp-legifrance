@@ -25,6 +25,8 @@
 //! contrôlés (`NotSupported`, `NumberlessText` ou ignorés). La chambre de la Cour de cassation l'est, sur les seules
 //! chambres modernes (`check_chamber`).
 
+use std::num::NonZeroU32;
+
 use lf_domain::{
     citation::{
         Ambiguity, ArticleNum, ArticleRef, CaseNumber, CitationRef, CnilCite, CnilNumber, CodeRef,
@@ -40,7 +42,10 @@ use lf_domain::{
     entity::{CodeListing, Decision, SearchHit},
     fond::Fond,
     id::{ArticleId, CnilTextId, DecisionId, DocumentId, LegiTextId},
-    search::{NUMBER_VALUE_MAX_CHARS, NumberKind, NumberQuery, NumberValue},
+    search::{
+        MatchMode, NUMBER_VALUE_MAX_CHARS, NumberKind, NumberQuery, NumberValue, PageSize,
+        QueryText, SearchQuery,
+    },
     status::LegalStatus,
     url::WEB_BASE,
 };
@@ -394,6 +399,9 @@ pub(crate) struct Resolver<'a, C: LegalCorpus> {
     codes: &'a CodeTable,
 }
 
+/// Nombre maximal de numéros de requête du Conseil d'État essayés comme formes (U11).
+const CE_FORMS_MAX: usize = 3;
+
 /// Filtre sur l'intitulé d'une décision (tribunal administratif, cour administrative d'appel…).
 type TitleFilter = fn(&str) -> bool;
 
@@ -407,6 +415,11 @@ struct Lookup {
     cc_type: Option<CcType>,
     chamber: Option<CassChamber>,
     seat: Option<SeatCheck>,
+    /// Premier numéro cité d'une requête du Conseil d'État, cherché en plein texte quand les
+    /// recherches exactes ne trouvent rien : les décisions jointes anciennes ne portent pas ce
+    /// numéro seul dans `NUM_DEC` (U11). `None` hors Conseil d'État et pour un numéro de forme
+    /// inconnue.
+    joined_fallback: Option<String>,
     absent: Note,
 }
 
@@ -702,6 +715,19 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             }),
             _ => None,
         };
+        let joined_fallback = match court {
+            Court::ConseilEtat { .. }
+                if matches!(
+                    cite.numbers
+                        .iter()
+                        .find(|n| matches!(n, CaseNumber::CeRequete(_) | CaseNumber::Unknown(_))),
+                    Some(CaseNumber::CeRequete(_))
+                ) =>
+            {
+                forms.first().cloned()
+            }
+            _ => None,
+        };
         self.lookup(Lookup {
             fond,
             kind,
@@ -711,6 +737,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             cc_type,
             chamber,
             seat,
+            joined_fallback,
             absent,
         })
         .await
@@ -734,6 +761,12 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         }
         if let Some(filter) = spec.title_filter {
             hits.retain(|hit| hit.title.as_deref().is_none_or(filter));
+        }
+        if hits.is_empty()
+            && let Some(cited) = spec.joined_fallback.as_deref()
+        {
+            hits = self.joined_hits(cited).await;
+            cited.clone_into(&mut number);
         }
         if hits.is_empty() {
             return Resolution::unresolvable(spec.absent);
@@ -768,6 +801,41 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         choose_decision(&found, spec.date, spec.cc_type, spec.chamber, spec.seat)
     }
 
+    /// Repli des requêtes jointes du Conseil d'État (U11) : le `num` d'une décision jointe ancienne
+    /// est la chaîne de ses numéros (« 194658 196116 »), qu'aucun d'eux ne trouve en `NUM_DEC`
+    /// exacte. Une recherche plein texte exacte du numéro cité, dans CETAT, page de
+    /// [`PageSize::DEFAULT`] (10, comme `fr_search`) et sans période (une date fausse doit rester un écart), ne retient
+    /// que les décisions du Conseil d'État dont le titre porte ce numéro après sa date : le plein
+    /// texte ramène aussi des décisions qui le citent. Au mieux : toute erreur, de requête ou de
+    /// port, laisse la citation `unresolvable` comme en 1.1.0 et ne la fait jamais échouer.
+    async fn joined_hits(&self, number: &str) -> Vec<SearchHit> {
+        let Some(query) = QueryText::parse(number).ok().and_then(|text| {
+            SearchQuery::new(
+                Fond::Cetat,
+                text,
+                NonZeroU32::MIN,
+                PageSize::DEFAULT,
+                MatchMode::Exact,
+                None,
+                None,
+            )
+            .ok()
+        }) else {
+            return Vec::new();
+        };
+        let Ok(page) = self.corpus.search(&query).await else { return Vec::new() };
+        let page_len = usize::try_from(PageSize::DEFAULT.get()).unwrap_or(usize::MAX);
+        page.hits
+            .into_iter()
+            .take(page_len)
+            .filter(|hit| {
+                hit.title.as_deref().is_some_and(|title| {
+                    is_conseil_etat(title) && title_numbers(title).iter().any(|n| n == number)
+                })
+            })
+            .collect()
+    }
+
     /// ECLI cité : numéro tiré de l'ordinal (CC, CE) ou facette ECLI (Cour de cassation), puis
     /// égalité stricte avec l'ECLI natif du document consulté.
     async fn ecli(&self, cited: &Ecli) -> Resolution {
@@ -787,6 +855,7 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
             cc_type: None,
             chamber: None,
             seat: None,
+            joined_fallback: None,
             absent,
         };
         let (resolution, index, strict) = match (court, second) {
@@ -1294,6 +1363,34 @@ fn judged_on(hit: &SearchHit) -> Option<CivilDate> {
     })
 }
 
+/// Numéros de requête que le titre d'une décision du Conseil d'État porte après sa date (U11) :
+/// « Conseil d'Etat, Assemblée, du 5 mars 1999, 194658 196116, publié au recueil Lebon » donne
+/// `194658` et `196116`. Le titre se découpe comme dans [`judged_on`] ; le premier segment qui se
+/// lit comme une date ferme la zone des formations et de l'année, et chaque segment suivant donne
+/// ses jetons (séparés par tout caractère non alphanumérique : espace, « et », barre, tiret) faits
+/// de 4 à 6 chiffres seuls. Un titre sans date ne donne rien : le repli ne valide jamais par défaut.
+fn title_numbers(title: &str) -> Vec<String> {
+    let mut dated = false;
+    let mut numbers = Vec::new();
+    for segment in title.split(',').flat_map(|part| part.split(" - ")) {
+        if dated {
+            numbers.extend(
+                segment
+                    .split(|c: char| !c.is_ascii_alphanumeric())
+                    .filter(|token| {
+                        (4..=6).contains(&token.len()) && token.bytes().all(|b| b.is_ascii_digit())
+                    })
+                    .map(str::to_owned),
+            );
+        } else {
+            let segment = segment.trim();
+            dated =
+                CivilDate::from_french(segment.strip_prefix("du ").unwrap_or(segment)).is_some();
+        }
+    }
+    numbers
+}
+
 /// Plusieurs décisions portent ce numéro et toutes sont datées d'un autre jour que `cited`. Une
 /// décision sans date ne peut rien écarter : elle laisse la question ouverte.
 fn none_on_the_day(found: &[(DocumentId, Decision)], cited: CivilDate) -> bool {
@@ -1340,12 +1437,9 @@ fn number_forms(court: &Court, numbers: &[CaseNumber]) -> Option<(Fond, NumberKi
             _ => None,
         })
         .map(|forms| (Fond::Juri, NumberKind::Case, forms)),
-        Court::ConseilEtat { .. } => case(|number| match number {
-            CaseNumber::CeRequete(n) => Some(vec![n.to_string()]),
-            CaseNumber::Unknown(raw) => Some(vec![raw.clone()]),
-            _ => None,
-        })
-        .map(|forms| (Fond::Cetat, NumberKind::Decision, forms)),
+        Court::ConseilEtat { .. } => {
+            ce_forms(numbers).map(|forms| (Fond::Cetat, NumberKind::Decision, forms))
+        }
         Court::Caa { .. } => case(|number| match number {
             CaseNumber::Caa(n) => Some(vec![n.to_string()]),
             _ => None,
@@ -1370,6 +1464,30 @@ fn number_forms(court: &Court, numbers: &[CaseNumber]) -> Option<(Fond, NumberKi
         })
         .map(|forms| (Fond::Constit, NumberKind::Decision, forms)),
     }
+}
+
+/// Numéros de requête du Conseil d'État essayés un à un par `lookup`, du premier au troisième
+/// (U11) : une décision jointe n'est parfois retrouvée que par l'un de ses numéros. Un nombre de
+/// 1500 à 2099 à côté d'un autre numéro est une année et n'est jamais cherché. Un premier numéro
+/// de forme inconnue est cherché tel quel, seul, comme en 1.1.0.
+fn ce_forms(numbers: &[CaseNumber]) -> Option<Vec<String>> {
+    let first =
+        numbers.iter().find(|n| matches!(n, CaseNumber::CeRequete(_) | CaseNumber::Unknown(_)))?;
+    if let CaseNumber::Unknown(raw) = first {
+        return Some(vec![raw.clone()]);
+    }
+    let mut requests: Vec<u32> = Vec::new();
+    for number in numbers {
+        if let CaseNumber::CeRequete(n) = number
+            && !requests.contains(n)
+        {
+            requests.push(*n);
+        }
+    }
+    let numbers_only: Vec<u32> =
+        requests.iter().copied().filter(|n| !(1500..=2099).contains(n)).collect();
+    let kept = if numbers_only.is_empty() { requests } else { numbers_only };
+    Some(kept.iter().take(CE_FORMS_MAX).map(ToString::to_string).collect())
 }
 
 fn is_conseil_etat(title: &str) -> bool {
@@ -1617,7 +1735,10 @@ mod tests {
             Anaphora, ArticleRef, EcliFamily, IdPrefix, Sigle, Span, SpecialNum, UnsupportedCite,
         },
         contract::{Idcc, Nor},
-        entity::{Act, ArticleText, CompanyAgreement, Convention, Deliberation, TextBody},
+        entity::{
+            Act, ArticleText, CompanyAgreement, Convention, Deliberation, SearchPage, TextBody,
+        },
+        fond::PaginationMode,
         id::{AccoTextId, ArticleId, CnilTextId, KaliTextId},
         text::LongText,
     };
@@ -3944,6 +4065,16 @@ mod tests {
             let corpus = FakeCorpus::new();
             corpus.push_find_by_number(Ok(vec![]));
             corpus.push_find_by_number(Ok(vec![]));
+            // Le Conseil d'État tente en plus une recherche plein texte (U11) : page vide.
+            corpus.push_search(Ok(SearchPage::new(
+                Fond::Cetat,
+                "506507",
+                None,
+                None,
+                vec![],
+                0,
+                PaginationMode::Defaut,
+            )));
             let item = decision_item(Some(court), vec![number], None);
             let resolution = resolve_with(&corpus, &codes(), &item, None).await;
             assert_eq!(resolution.outcome, unresolvable_outcome(absent), "{label}");
@@ -3984,6 +4115,7 @@ mod tests {
             cc_type: None,
             chamber: None,
             seat: None,
+            joined_fallback: None,
             absent: Note::CouldNotConfirm { index: "JURI" },
         }
     }
@@ -6301,5 +6433,466 @@ mod tests {
         corpus.push_get_decision(Err(upstream()));
         let resolution = resolve_with(&corpus, &codes(), &item, None).await;
         assert_eq!(resolution.outcome, Outcome::Failed(upstream()));
+    }
+
+    /// U11 (verify_citations-2) : décisions du Conseil d'État à numéros joints. Les titres sont
+    /// copiés de réponses publiques de production (Licence Ouverte) ; aucune forme amont n'est
+    /// prouvée ici, seulement la logique du résolveur.
+    mod joined_ce {
+        use std::num::NonZeroU32;
+
+        use lf_domain::{
+            entity::SearchPage,
+            fond::PaginationMode,
+            search::{MatchMode, PageSize, QueryText, SearchQuery},
+        };
+
+        use pretty_assertions::assert_eq;
+
+        use super::*;
+
+        const ROUQUETTE: &str = "CETATEXT000008000361";
+        const ROUQUETTE_TITLE: &str =
+            "Conseil d'Etat, Assemblée, du 5 mars 1999, 194658 196116, publié au recueil Lebon";
+        const SARRAN_TITLE: &str =
+            "Conseil d'Etat, Assemblée, du 30 octobre 1998, 200286 200287, publié au recueil Lebon";
+        const MODERN_TITLE: &str =
+            "Conseil d'État, 6ème - 5ème chambres réunies, 21/04/2021, 393099";
+        const NOISE_TITLE: &str =
+            "Conseil d'Etat, 10ème et 9ème sous-sections réunies, du 30 décembre 2009, 322484";
+
+        fn page(hits: Vec<SearchHit>) -> SearchPage {
+            SearchPage::new(Fond::Cetat, "194658", None, None, hits, 0, PaginationMode::Defaut)
+        }
+
+        /// La recherche plein texte de repli : CETAT, exacte, page 1 de 10, sans période.
+        fn fallback_request(text: &str) -> PortRequest {
+            PortRequest::Search(
+                SearchQuery::new(
+                    Fond::Cetat,
+                    QueryText::parse(text).unwrap(),
+                    NonZeroU32::MIN,
+                    PageSize::new(10).unwrap(),
+                    MatchMode::Exact,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            )
+        }
+
+        fn get_request(id: &str) -> PortRequest {
+            PortRequest::GetDecision(DecisionId::parse(id).unwrap())
+        }
+
+        fn cited(numbers: &[u32], on: CivilDate) -> Spanned<CitationRef> {
+            decision_item(
+                Some(conseil_etat()),
+                numbers.iter().map(|&n| CaseNumber::CeRequete(n)).collect(),
+                Some(on),
+            )
+        }
+
+        fn rouquette_corpus() -> FakeCorpus {
+            let corpus = FakeCorpus::new();
+            corpus.push_search(Ok(page(vec![titled(Fond::Cetat, ROUQUETTE, ROUQUETTE_TITLE)])));
+            corpus.push_get_decision(Ok(decision(ROUQUETTE, civil(1999, 3, 5), None)));
+            corpus
+        }
+
+        #[tokio::test]
+        async fn a_joined_ce_decision_is_found_by_either_of_its_numbers() {
+            let day = civil(1999, 3, 5);
+            for (numbers, tried, searched) in [
+                (vec![194_658], vec!["194658"], "194658"),
+                (vec![196_116], vec!["196116"], "196116"),
+                (vec![194_658, 196_116], vec!["194658", "196116"], "194658"),
+            ] {
+                let corpus = rouquette_corpus();
+                for _ in &tried {
+                    corpus.push_find_by_number(Ok(vec![]));
+                }
+                let resolution = resolve_with(&corpus, &codes(), &cited(&numbers, day), None).await;
+                assert_eq!(status(&resolution), CheckStatus::Verified, "{numbers:?}");
+                assert_eq!(confidence_of(&resolution.outcome), Some(Confidence::High));
+                assert_eq!(record_id(&resolution).as_deref(), Some(ROUQUETTE), "{numbers:?}");
+                let mut want: Vec<PortRequest> = tried
+                    .iter()
+                    .map(|form| find_request(Fond::Cetat, NumberKind::Decision, form))
+                    .collect();
+                want.push(fallback_request(searched));
+                want.push(get_request(ROUQUETTE));
+                assert_eq!(corpus.seen_requests(), want, "{numbers:?}");
+                assert_eq!(corpus.unserved(), 0, "{numbers:?}");
+            }
+        }
+
+        #[tokio::test]
+        async fn the_fallback_filters_on_the_searched_number_not_on_every_cited_number() {
+            let day = civil(1999, 3, 5);
+            // L'année citée à côté du numéro n'est jamais cherchée comme numéro.
+            let corpus = rouquette_corpus();
+            corpus.push_find_by_number(Ok(vec![]));
+            let resolution =
+                resolve_with(&corpus, &codes(), &cited(&[194_658, 1999], day), None).await;
+            assert_eq!(status(&resolution), CheckStatus::Verified);
+            assert_eq!(corpus.calls_of("find_by_number"), 1);
+            // Un second numéro absent du titre ne fait pas écarter la décision : seul le numéro
+            // cherché compte, comme pour l'exacte.
+            let corpus = rouquette_corpus();
+            corpus.push_find_by_number(Ok(vec![]));
+            corpus.push_find_by_number(Ok(vec![]));
+            let resolution =
+                resolve_with(&corpus, &codes(), &cited(&[194_658, 999_999], day), None).await;
+            assert_eq!(status(&resolution), CheckStatus::Verified);
+            assert_eq!(
+                corpus.seen_requests(),
+                vec![
+                    find_request(Fond::Cetat, NumberKind::Decision, "194658"),
+                    find_request(Fond::Cetat, NumberKind::Decision, "999999"),
+                    fallback_request("194658"),
+                    get_request(ROUQUETTE),
+                ]
+            );
+        }
+
+        #[tokio::test]
+        async fn a_joined_ce_decision_with_a_wrong_date_is_invalid() {
+            let corpus = rouquette_corpus();
+            corpus.push_find_by_number(Ok(vec![]));
+            let item = cited(&[194_658], civil(1999, 3, 6));
+            let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+            assert_eq!(status(&resolution), CheckStatus::Invalid);
+            assert_eq!(
+                resolution.outcome.note(Proof::Production),
+                Some(Note::Mismatch {
+                    field: Field::Date,
+                    cited: "1999-03-06".to_owned(),
+                    actual: "1999-03-05".to_owned()
+                })
+            );
+            assert_eq!(record_id(&resolution).as_deref(), Some(ROUQUETTE));
+        }
+
+        #[tokio::test]
+        async fn the_fallback_runs_when_the_exact_search_finds_only_another_court() {
+            let corpus = rouquette_corpus();
+            corpus.push_find_by_number(Ok(vec![titled(
+                Fond::Cetat,
+                "CETATEXT000051655318",
+                "Tribunal administratif de Paris",
+            )]));
+            let item = cited(&[194_658], civil(1999, 3, 5));
+            let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+            assert_eq!(status(&resolution), CheckStatus::Verified);
+            assert_eq!(corpus.calls_of("search"), 1);
+            assert_eq!(corpus.calls_of("get_decision"), 1);
+        }
+
+        #[tokio::test]
+        async fn a_failing_fallback_search_keeps_the_1_1_0_unresolvable() {
+            let errors =
+                [CorpusError::RateLimited { retry_after: None }, CorpusError::Timeout, upstream()];
+            for error in errors {
+                let corpus = FakeCorpus::new();
+                corpus.push_find_by_number(Ok(vec![]));
+                corpus.push_search(Err(error.clone()));
+                let item = cited(&[194_658], civil(1999, 3, 5));
+                let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+                assert_eq!(
+                    resolution.outcome,
+                    unresolvable_outcome(Note::CouldNotConfirm { index: "CETAT" }),
+                    "{error:?}"
+                );
+                // Une recherche de repli a bien été tentée : sans cela le test serait vert sans
+                // le correctif.
+                assert_eq!(corpus.calls_of("search"), 1, "{error:?}");
+                assert_eq!(corpus.calls_of("get_decision"), 0, "{error:?}");
+            }
+        }
+
+        #[tokio::test]
+        async fn the_fallback_search_page_limit_is_the_documented_one() {
+            let noise = |n: u32| {
+                titled(
+                    Fond::Cetat,
+                    &format!("CETATEXT{:012}", 100 + n),
+                    &format!("Conseil d'Etat, du 30 décembre 2009, {}", 322_000 + n),
+                )
+            };
+            let proper = titled(Fond::Cetat, ROUQUETTE, ROUQUETTE_TITLE);
+            let day = civil(1999, 3, 5);
+            // Le rang 10 (la page entière) est retenu.
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![]));
+            let mut hits: Vec<SearchHit> = (1..=9).map(noise).collect();
+            hits.push(proper.clone());
+            corpus.push_search(Ok(page(hits)));
+            corpus.push_get_decision(Ok(decision(ROUQUETTE, day, None)));
+            let resolution = resolve_with(&corpus, &codes(), &cited(&[194_658], day), None).await;
+            assert_eq!(status(&resolution), CheckStatus::Verified);
+            // Le rang 11 ne l'est pas : la page demandée est de 10.
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![]));
+            let mut hits: Vec<SearchHit> = (1..=10).map(noise).collect();
+            hits.push(proper);
+            corpus.push_search(Ok(page(hits)));
+            let resolution = resolve_with(&corpus, &codes(), &cited(&[194_658], day), None).await;
+            assert_eq!(
+                resolution.outcome,
+                unresolvable_outcome(Note::CouldNotConfirm { index: "CETAT" })
+            );
+            assert_eq!(corpus.calls_of("get_decision"), 0);
+        }
+
+        #[test]
+        fn every_cited_ce_number_is_tried_as_a_form_up_to_three() {
+            let req = |n: u32| CaseNumber::CeRequete(n);
+            let ce = conseil_etat();
+            let want = |forms: &[&str]| super::forms(Fond::Cetat, NumberKind::Decision, forms);
+            assert_eq!(
+                number_forms(&ce, &[req(194_658), req(196_116)]),
+                want(&["194658", "196116"])
+            );
+            // Trois au plus, dans l'ordre de la citation.
+            assert_eq!(
+                number_forms(&ce, &[req(100_001), req(100_002), req(100_003), req(100_004)]),
+                want(&["100001", "100002", "100003"])
+            );
+            // Sans doublon.
+            assert_eq!(
+                number_forms(&ce, &[req(194_658), req(194_658), req(196_116)]),
+                want(&["194658", "196116"])
+            );
+            // Un nombre de 1500 à 2099 à côté d'un autre numéro est une année, jamais cherchée ;
+            // seul, il reste un numéro.
+            assert_eq!(number_forms(&ce, &[req(999_999), req(2022)]), want(&["999999"]));
+            assert_eq!(number_forms(&ce, &[req(2022), req(999_999)]), want(&["999999"]));
+            assert_eq!(number_forms(&ce, &[req(2022)]), want(&["2022"]));
+            assert_eq!(number_forms(&ce, &[req(1499), req(1500)]), want(&["1499"]));
+            assert_eq!(number_forms(&ce, &[req(2099), req(2100)]), want(&["2100"]));
+            // Un numéro de forme inconnue reste cherché tel quel, seul.
+            let unknown = CaseNumber::Unknown("X 1".to_owned());
+            assert_eq!(number_forms(&ce, &[unknown, req(194_658)]), want(&["X 1"]));
+        }
+
+        #[tokio::test]
+        async fn a_number_that_is_not_a_query_makes_no_fallback_call() {
+            let corpus = FakeCorpus::new();
+            let codes = codes();
+            assert_eq!(resolver(&corpus, &codes).joined_hits("").await, vec![]);
+            assert_eq!(corpus.calls(), 0);
+        }
+
+        #[tokio::test]
+        async fn the_fallback_never_validates_noise() {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![]));
+            corpus.push_search(Ok(page(vec![
+                titled(Fond::Cetat, "CETATEXT000021630789", NOISE_TITLE),
+                titled(
+                    Fond::Cetat,
+                    "CETATEXT000051655317",
+                    "Tribunal administratif de Paris, 6ème chambre, 01/01/2020, 196116",
+                ),
+                hit(Fond::Cetat, "CETATEXT000051655318"),
+                titled(Fond::Cetat, "CETATEXT000051655319", "Conseil d'Etat, sans date, 196116"),
+            ])));
+            let item = cited(&[196_116], civil(1999, 3, 5));
+            let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+            assert_eq!(
+                resolution.outcome,
+                unresolvable_outcome(Note::CouldNotConfirm { index: "CETAT" })
+            );
+            assert_eq!(corpus.calls_of("get_decision"), 0);
+        }
+
+        #[tokio::test]
+        async fn a_decision_quoting_the_number_in_its_text_is_not_validated() {
+            // CE 30/12/2009 n° 327366 cite « n°s 290604, 290605 » dans son texte : le plein texte
+            // la ramène pour 290604, mais son titre ne porte que son propre numéro.
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![]));
+            corpus.push_search(Ok(page(vec![titled(
+                Fond::Cetat,
+                "CETATEXT000021630789",
+                "Conseil d'Etat, 10ème et 9ème sous-sections réunies, du 30 décembre 2009, 327366",
+            )])));
+            let item = cited(&[290_604], civil(2009, 12, 30));
+            let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+            assert_eq!(
+                resolution.outcome,
+                unresolvable_outcome(Note::CouldNotConfirm { index: "CETAT" })
+            );
+            assert_eq!(corpus.calls_of("get_decision"), 0);
+        }
+
+        #[tokio::test]
+        async fn a_modern_joined_second_number_stays_unresolvable_with_the_declared_limit() {
+            // Limite connue (garantie 14, n° 4) : le titre d'une décision moderne jointe ne porte
+            // que le premier numéro ; cité par le second, il n'est pas retrouvé.
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![]));
+            corpus.push_search(Ok(page(vec![titled(
+                Fond::Cetat,
+                "CETATEXT000043000000",
+                MODERN_TITLE,
+            )])));
+            let item = cited(&[397_844], civil(2021, 4, 21));
+            let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+            assert_eq!(
+                resolution.outcome,
+                unresolvable_outcome(Note::CouldNotConfirm { index: "CETAT" })
+            );
+            assert_eq!(corpus.calls_of("get_decision"), 0);
+        }
+
+        #[tokio::test]
+        async fn the_fallback_is_for_the_conseil_d_etat_only() {
+            let rg = || CaseNumber::Rg("24/15215".parse().unwrap());
+            let cases = [
+                (cassation(), pourvoi()),
+                (Court::CourAppel { seat: None, chamber: None }, rg()),
+                (Court::TribunalJudiciaire { seat: None }, rg()),
+                (Court::AutreJudiciaire { label: "CPH".to_owned() }, rg()),
+                (
+                    Court::Caa { seat: None, chamber: None },
+                    CaseNumber::Caa("24MA02429".parse().unwrap()),
+                ),
+                (
+                    Court::Ta { seat: None, chamber: None },
+                    CaseNumber::Ta("2005064".parse().unwrap()),
+                ),
+                (Court::ConseilConstitutionnel, CaseNumber::Cc("2025-1173 QPC".parse().unwrap())),
+            ];
+            for (court, number) in cases {
+                let label = format!("{court:?}");
+                let corpus = FakeCorpus::new();
+                for _ in 0..3 {
+                    corpus.push_find_by_number(Ok(vec![]));
+                }
+                let item = decision_item(Some(court), vec![number], Some(civil(1999, 3, 5)));
+                let _ = resolve_with(&corpus, &codes(), &item, None).await;
+                assert!(corpus.calls_of("find_by_number") >= 1, "{label}");
+                assert_eq!(corpus.calls_of("search"), 0, "{label}");
+            }
+        }
+
+        #[tokio::test]
+        async fn the_fallback_never_runs_for_unknown_case_numbers_or_other_courts() {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![]));
+            let item = decision_item(
+                Some(conseil_etat()),
+                vec![CaseNumber::Unknown("X 1".to_owned())],
+                Some(civil(1999, 3, 5)),
+            );
+            let _ = resolve_with(&corpus, &codes(), &item, None).await;
+            assert_eq!(corpus.calls_of("search"), 0);
+            // Un numéro de pourvoi cité devant le Conseil d'État n'est pas un numéro de requête.
+            let corpus = FakeCorpus::new();
+            let item = decision_item(Some(conseil_etat()), vec![pourvoi()], None);
+            let _ = resolve_with(&corpus, &codes(), &item, None).await;
+            assert_eq!(corpus.calls(), 0);
+        }
+
+        #[tokio::test]
+        async fn the_fallback_is_skipped_when_the_exact_search_finds_a_conseil_d_etat_hit() {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![titled(Fond::Cetat, ROUQUETTE, ROUQUETTE_TITLE)]));
+            corpus.push_get_decision(Ok(decision(ROUQUETTE, civil(1999, 3, 5), None)));
+            let item = cited(&[194_658], civil(1999, 3, 5));
+            let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+            assert_eq!(status(&resolution), CheckStatus::Verified);
+            assert_eq!(
+                corpus.seen_requests(),
+                vec![
+                    find_request(Fond::Cetat, NumberKind::Decision, "194658"),
+                    get_request(ROUQUETTE),
+                ]
+            );
+        }
+
+        #[tokio::test]
+        async fn the_ce_ecli_path_makes_no_fallback_search() {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![]));
+            let resolution = resolve_with(&corpus, &codes(), &ecli_item(CE_ECLI), None).await;
+            assert_eq!(
+                resolution.outcome,
+                unresolvable_outcome(Note::CouldNotConfirm { index: "CETAT" })
+            );
+            assert_eq!(corpus.calls_of("search"), 0);
+            assert_eq!(corpus.calls_of("find_by_number"), 1);
+        }
+
+        #[test]
+        fn title_numbers_reads_the_numbers_after_the_date() {
+            let both = ["194658", "196116"];
+            for (title, want) in [
+                (ROUQUETTE_TITLE, &both[..]),
+                (SARRAN_TITLE, &["200286", "200287"][..]),
+                (
+                    "Conseil d'État, 6ème - 5ème chambres réunies, 31/05/2024, 467427",
+                    &["467427"][..],
+                ),
+                (NOISE_TITLE, &["322484"][..]),
+                ("Conseil d'Etat, du 5 mars 1999, 194658,196116", &both[..]),
+                ("Conseil d'Etat, du 5 mars 1999, 194658 et 196116", &both[..]),
+                ("Conseil d'Etat, du 5 mars 1999, 194658/196116", &both[..]),
+                ("Conseil d'Etat, du 5 mars 1999, 194658-196116", &both[..]),
+                ("Conseil d'Etat, du 5 mars 1999, 194658\u{a0}196116", &both[..]),
+                // Sans date lisible, ou sans rien après elle : aucun numéro.
+                ("Conseil d'Etat, 194658 196116", &[][..]),
+                ("Conseil d'Etat, du 5 mars 1999", &[][..]),
+                ("", &[][..]),
+            ] {
+                assert_eq!(title_numbers(title), want, "{title:?}");
+            }
+        }
+
+        #[test]
+        fn title_numbers_ignores_digits_before_the_date_and_the_year() {
+            for (title, want) in [
+                ("Conseil d'Etat, 10/ 8 SSR, du 25 mars 1988, 65022", &["65022"][..]),
+                (
+                    "Conseil d'Etat, 7 / 5 SSR, du 28 décembre 2001, 216642, mentionné aux tables du recueil Lebon",
+                    &["216642"][..],
+                ),
+                (
+                    "Conseil d'État, 2ème - 7ème chambres réunies, 29/05/2026, 506507",
+                    &["506507"][..],
+                ),
+                // L'année du segment de date n'est jamais un numéro ; une année égale au numéro
+                // n'est lue que dans le segment qui suit la date.
+                ("Conseil d'Etat, Assemblée, du 5 mars 1999, 194658", &["194658"][..]),
+                ("Conseil d'Etat, du 5 mars 1999, 1999", &["1999"][..]),
+                // Seuls les jetons de 4 à 6 chiffres sont des numéros.
+                ("Conseil d'Etat, du 5 mars 1999, 123 1234567 12345", &["12345"][..]),
+                ("Conseil d'Etat, du 5 mars 1999, 12PA03899 410000", &["410000"][..]),
+            ] {
+                assert_eq!(title_numbers(title), want, "{title:?}");
+            }
+        }
+
+        #[test]
+        fn title_numbers_on_real_titles_of_every_shape() {
+            for (title, want) in [
+                ("Conseil d'Etat, 10/ 8 SSR, du 25 mars 1988, 65022", vec!["65022"]),
+                (
+                    "Conseil d'Etat, 8 / 3 SSR, du 20 octobre 1989, 108243, publié au recueil Lebon",
+                    vec!["108243"],
+                ),
+                (MODERN_TITLE, vec!["393099"]),
+                ("Conseil d'État, 5ème chambre, 29/05/2026, 506507", vec!["506507"]),
+            ] {
+                assert_eq!(title_numbers(title), want, "{title:?}");
+            }
+        }
+
+        #[test]
+        fn a_modern_joined_title_carries_only_the_first_number() {
+            assert_eq!(title_numbers(MODERN_TITLE), ["393099"]);
+        }
     }
 }

@@ -402,6 +402,39 @@ mod tests {
         assert!(page.hits.iter().all(|hit| hit.id.as_str() != "CONSTEXT000022762681"));
     }
 
+    /// U11 (verify_citations-2) : le titre d'une décision du Conseil d'État à numéros joints, tel
+    /// que PISTE le rend (deux numéros séparés par une espace, mention du Lebon), traverse le
+    /// mapping de `/search` sans perdre un numéro ; les blancs de mise en page (espace insécable,
+    /// saut de ligne) se replient en une espace. Réponse construite à la main d'après les titres
+    /// relevés en production le 2026-11-02 : elle ne prouve pas la forme amont.
+    #[test]
+    fn a_joined_ce_title_survives_the_search_mapping() {
+        let json = json!({
+            "results": [{
+                "titles": [{
+                    "id": "CETATEXT000008000361",
+                    "cid": "CETATEXT000008000361",
+                    "title": "Conseil d'Etat, Assemblée,\n du 5 mars 1999, 194658\u{a0}196116, publié au recueil Lebon",
+                }],
+                "text": "Le <mark>194658</mark> est joint au 196116.",
+                "origin": "CETAT",
+            }]
+        })
+        .to_string();
+        let mut diags = Diagnostics::default();
+        let query = query_of(Fond::Cetat, "194658", 10);
+        let page = search_page(dto(&json), &query, &mut diags).unwrap();
+        assert_eq!(diags, Diagnostics::default());
+        assert_eq!(page.hits.len(), 1);
+        assert_eq!(
+            page.hits[0].title.as_deref(),
+            Some(
+                "Conseil d'Etat, Assemblée, du 5 mars 1999, 194658 196116, publié au recueil Lebon"
+            )
+        );
+        assert_eq!(page.hits[0].id.as_str(), "CETATEXT000008000361");
+    }
+
     /// Jumeau : un titre déjà sur une ligne est inchangé ; les blancs multiples et les sauts de
     /// ligne d'un titre LODA se replient en une espace.
     #[test]
