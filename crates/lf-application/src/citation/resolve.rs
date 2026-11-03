@@ -5957,15 +5957,12 @@ mod tests {
         let at = Some(VersionDate::parse("2020-01-01").unwrap());
         let resolution = resolve_with(&corpus, &codes(), &item, at).await;
         assert_eq!(status(&resolution), CheckStatus::NotFound);
-        let asked: Vec<String> = corpus
-            .seen_requests()
-            .into_iter()
-            .filter_map(|request| match request {
-                PortRequest::FindArticle(_, num, _) => Some(num),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(asked, ["1er", "1"]);
+        assert_eq!(corpus.calls(), 2);
+        assert_eq!(corpus.calls_of("find_article"), 2);
+        let asked = corpus.seen_requests();
+        for (request, num) in asked.iter().zip(["1er", "1"]) {
+            assert!(format!("{request:?}").contains(&format!("{num:?}")), "{request:?} / {num}");
+        }
     }
 
     #[tokio::test]
@@ -6264,6 +6261,20 @@ mod tests {
         let requests = corpus.seen_requests();
         assert_eq!(requests[2], get_act_of(today()));
         assert_eq!(requests[3], get_article_of(2));
+    }
+
+    /// Intégration 3b : le sommaire liste « 2 » mais la lecture rend un autre numéro : l'écart
+    /// d'`article_found` est rendu tel quel, sans la note de l'article modificatif.
+    #[tokio::test]
+    async fn a_listed_article_read_under_another_number_is_a_mismatch_not_an_amending_note() {
+        let corpus = law_with_toc(&[toc_entry(1, "1", None), toc_entry(2, "2", None)]);
+        corpus.push_get_article(Ok(amending(2, Some("3"))));
+        let resolution = resolve(&corpus, &law_article("2")).await;
+        assert_eq!(status(&resolution), CheckStatus::Invalid);
+        assert!(!matches!(
+            resolution.outcome.note(Proof::Production),
+            Some(Note::ArticleWithoutVersion { .. })
+        ));
     }
 
     #[tokio::test]

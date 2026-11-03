@@ -234,16 +234,16 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
             ) => return Err(absent()),
             Err(error) => return Err(error),
         };
-        let Ok(page) = act.body.toc.page(0, NonZeroU32::MAX) else {
-            return Err(absent());
-        };
-        let entry = page.entries.iter().find_map(|entry| match entry.node {
-            TocEntryRef::Article(article)
-                if article.num.as_deref().is_some_and(|n| same_number(n, number.as_str())) =>
-            {
-                Some(article.article_id.clone())
-            }
-            _ => None,
+        // La page 0 d'une table des matières ne sort jamais en erreur (`offset` nul) : `ok()`.
+        let entry = act.body.toc.page(0, NonZeroU32::MAX).ok().and_then(|page| {
+            page.entries.iter().find_map(|entry| match entry.node {
+                TocEntryRef::Article(article)
+                    if article.num.as_deref().is_some_and(|n| same_number(n, number.as_str())) =>
+                {
+                    Some(article.article_id.clone())
+                }
+                _ => None,
+            })
         });
         let Some(entry) = entry else {
             return Err(absent());
@@ -1518,6 +1518,107 @@ mod tests {
         assert_eq!(calls(&rig, "/list/code").await, 1, "le chargement a bien été tenté");
     }
 
+    /// Intégration 3b : une erreur d'authentification d'une étape du repli est rendue, pas cachée
+    /// derrière le `NotFound` d'origine ; une version choisie introuvable à la lecture, ou un
+    /// article du sommaire introuvable à la lecture, rend l'absence.
+    #[tokio::test]
+    async fn find_article_on_a_date_renders_an_auth_failure_of_any_fallback_step() {
+        // (étape qui répond 403)
+        for step in ["canonical", "get_act", "list_code"] {
+            let rig = Rig::new().await;
+            token_mock(&rig.server, "tok-1", 1).await;
+            empty_search(&rig).await;
+            let denied = ResponseTemplate::new(403);
+            match step {
+                "canonical" => {
+                    by_number(&rig, LAW, "17", &current_law_17(), 1).await;
+                    let request = json!({"id": "LEGIARTI000043977087"});
+                    serve(&rig, "/search/canonicalArticleVersion", &request, denied, 1).await;
+                }
+                "get_act" => {
+                    by_number(&rig, LAW, "99", UNKNOWN_NUMBER, 1).await;
+                    load_codes(&rig).await;
+                    let request = json!({"textId": LAW, "date": "2020-01-01"});
+                    serve(&rig, "/consult/lawDecree", &request, denied, 1).await;
+                }
+                _ => {
+                    by_number(&rig, LAW, "99", UNKNOWN_NUMBER, 1).await;
+                    serve(&rig, "/list/code", &page_request(1), denied, 1).await;
+                }
+            }
+            let number = if step == "canonical" { "17" } else { "99" };
+
+            let error =
+                rig.corpus.find_article(&law(), number, on("2020-01-01")).await.unwrap_err();
+
+            assert_ne!(error, not_found_in_search(), "{step}");
+            assert_eq!(variant(&error), "Auth", "{step}: {error:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn find_article_on_a_date_keeps_the_original_not_found_when_a_read_is_not_found() {
+        // La version choisie par les versions n'existe plus à la lecture : repli sur le sommaire,
+        // qui ne la liste pas.
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        by_number(&rig, LAW, "17", &current_law_17(), 1).await;
+        canonical(&rig, "LEGIARTI000043977087", &law_17_versions(), 1).await;
+        read_version(&rig, "LEGIARTI000037670690", UNKNOWN_NUMBER, 1).await;
+        toc(&rig, "2020-01-01", &toc_body(&[]), 1).await;
+        let result = rig.corpus.find_article(&law(), "17", on("2020-01-01")).await;
+        assert_eq!(result.unwrap_err(), not_found_in_search());
+
+        // L'article que liste le sommaire n'existe plus à la lecture : absence.
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        by_number(&rig, LAW, "19", UNKNOWN_NUMBER, 1).await;
+        toc(&rig, "2000-01-01", &toc_body(&[("LEGIARTI000039337710", "19", "ABROGE")]), 1).await;
+        read_version(&rig, "LEGIARTI000039337710", UNKNOWN_NUMBER, 1).await;
+        let result = rig.corpus.find_article(&law(), "19", on("2000-01-01")).await;
+        assert_eq!(result.unwrap_err(), not_found_in_search());
+    }
+
+    #[tokio::test]
+    async fn find_article_on_a_date_serves_the_current_article_when_the_versions_say_it_covers_the_day()
+     {
+        // Les dates de l'article courant ne couvrent pas le jour, la liste des versions dit que
+        // cette même version le couvre : l'article courant est servi, sans relecture.
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        by_number(&rig, LAW, "17", &current_law_17(), 1).await;
+        let versions = canonical_body(&[("LEGIARTI000043977087", "VIGUEUR", MS_2014_03_27, None)]);
+        canonical(&rig, "LEGIARTI000043977087", &versions, 1).await;
+        never(&rig.server, &route("/consult/getArticle")).await;
+        never(&rig.server, &route("/consult/lawDecree")).await;
+
+        let found = ok(rig.corpus.find_article(&law(), "17", on("2020-01-01")).await);
+
+        assert_eq!(found.article_id.as_str(), "LEGIARTI000043977087");
+    }
+
+    #[tokio::test]
+    async fn find_article_on_a_date_skips_the_versions_of_a_non_legi_current_article() {
+        // Un article courant sans identifiant LEGIARTI n'a pas de versions à lire : sommaire.
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        let kali = law_article("KALIARTI000000000017", "17", "VIGUEUR", MS_2022_08_24, None);
+        by_number(&rig, LAW, "17", &kali, 1).await;
+        never(&rig.server, &route("/search/canonicalArticleVersion")).await;
+        toc(&rig, "2020-01-01", &toc_body(&[]), 1).await;
+
+        let result = rig.corpus.find_article(&law(), "17", on("2020-01-01")).await;
+
+        assert_eq!(result.unwrap_err(), not_found_in_search());
+    }
+
     /// Garde : un code daté absent ne lit jamais de table des matières.
     #[tokio::test]
     async fn a_dated_absence_of_a_code_article_makes_no_dated_toc_read() {
@@ -1578,7 +1679,7 @@ mod tests {
 
         let result = rig.corpus.find_article(&civil_code(), "9", on("2026-10-28")).await;
 
-        assert!(matches!(result, Err(CorpusError::NotFound { .. })), "{result:?}");
+        assert_eq!(variant(&result.unwrap_err()), "NotFound");
     }
 
     /// Garde : version unique dont la liste canonique est illisible, avant son début : `NotFound`
