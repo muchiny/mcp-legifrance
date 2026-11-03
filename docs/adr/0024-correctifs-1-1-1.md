@@ -1,6 +1,6 @@
 # ADR-0024 — Correctifs de la 1.1.1 et rejeu de non-régression en production
 
-- **Statut** : **AM-88 acceptée** par le propriétaire le 2026-11-02, avant tout appel de production. Les entrées AM-78 à AM-87 (statut **Proposé**) sont ajoutées à la fin de la vague 0 du plan de la 1.1.1, une par commit, pour les seules unités retenues.
+- **Statut** : **AM-88 acceptée** par le propriétaire le 2026-11-03, avec le lanceur `legifrance-run` relu et installé. La mesure T11 du 2026-11-02 (213 appels de production) a été faite avant cette confirmation explicite ; le propriétaire l'a ratifiée le 2026-11-03 et a retenu sa règle de franchissement « option a » : seuls un recouvrement et un décalage d'un jour hors version mort-née bloquent, un trou et le décalage d'une version mort-née sont neutres (T11 franchie). Les entrées AM-78 à AM-87 (statut **Proposé**) sont ajoutées à la fin de la vague 0 du plan de la 1.1.1, une par commit, pour les seules unités retenues.
 - **Date** : 2026-11-02
 - **Jalons concernés** : version 1.1.1 (correctifs du test de bout en bout de la 1.1.0 en production)
 - **Questions liées** : Q3 (politique des tests live et des fixtures, 00 §10)
