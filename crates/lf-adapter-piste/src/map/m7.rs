@@ -354,6 +354,24 @@ mod tests {
     }
 
     #[test]
+    fn the_recorded_version_chains_are_contiguous() {
+        // Garde de `fr_diff_article` (U14) : sur les réponses enregistrées, la `date_fin` d'une
+        // version est le `date_debut` de la suivante (ni trou, ni recouvrement, ni fin « veille »),
+        // et la dernière n'a pas de fin. La règle `debut <= D < fin` repose sur cette égalité.
+        for (name, versions) in [
+            ("canonical", canonical(CANONICAL_FIXTURE, &mut Diagnostics::default())),
+            ("by_cid", listed(BY_CID_FIXTURE, &mut Diagnostics::default())),
+        ] {
+            let versions = versions.unwrap();
+            assert!(versions.len() > 1, "{name}");
+            for pair in versions.windows(2) {
+                assert_eq!(pair[0].date_fin, pair[1].date_debut, "{name} : {pair:?}");
+            }
+            assert_eq!(versions.last().map(|version| version.date_fin), Some(None), "{name}");
+        }
+    }
+
+    #[test]
     fn versions_sort_by_start_date_then_ordre() {
         let json = r#"{"articleVersions":[
             {"id":"LEGIARTI000000000003","dateDebut":86400000,"ordre":3},

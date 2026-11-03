@@ -114,10 +114,11 @@ mod tests {
         }
     }
 
-    /// Deux versions de l'article : la 1 jusqu'au 2023-09-07, la 2 depuis le lendemain.
+    /// Deux versions de l'article : la 1 jusqu'au 2023-09-07 compris, la 2 depuis le 2023-09-08,
+    /// qui est aussi la `date_fin` de la 1 (frontières contiguës des données réelles).
     fn two_versions(fixture: &Fixture, old: &str, new: &str) {
         fixture.corpus.push_article_versions(Ok(vec![
-            version(1, (2016, 10, 9), Some((2023, 9, 7))),
+            version(1, (2016, 10, 9), Some((2023, 9, 8))),
             version(2, (2023, 9, 8), None),
         ]));
         fixture.corpus.push_get_article(Ok(article(1, old)));
@@ -165,7 +166,7 @@ mod tests {
                 "version_a": {
                     "article_id": "LEGIARTI000000000001",
                     "date_debut": "2016-10-09",
-                    "date_fin": "2023-09-07",
+                    "date_fin": "2023-09-08",
                     "etat": "VIGUEUR"
                 },
                 "version_b": {
@@ -234,6 +235,41 @@ mod tests {
             "[not_found] No version of LEGIARTI000000000001 is in force on 2010-01-01."
         );
         assert_eq!(fixture.audit.records()[0].error_code, Some(ErrorCode::NotFound));
+    }
+
+    /// Version `id` de l'article, en vigueur de `from` à `to` (`date_fin`, premier jour hors vigueur).
+    fn real_version(id: &str, from: (u16, u8, u8), to: (u16, u8, u8)) -> ArticleVersion {
+        ArticleVersion {
+            id: LegiArtiId::parse(id).unwrap(),
+            num: Some("222-1".to_owned()),
+            etat: Some(LegalStatus::Abroge),
+            date_debut: CivilDate::new(from.0, from.1, from.2),
+            date_fin: CivilDate::new(to.0, to.1, to.2),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_date_b_on_the_date_fin_of_the_last_repealed_version_is_a_not_found_tool_error() {
+        // L1236-1 du Code du travail et 885 U du CGI : abrogés sans successeur, `fr_resolve` dit
+        // déjà « aucun article en vigueur » le jour de `date_fin`.
+        for (id, from, to, date_a, date_b) in [
+            ("LEGIARTI000006901165", (2008, 5, 1), (2008, 6, 27), "2008-05-15", "2008-06-27"),
+            ("LEGIARTI000026947130", (2013, 1, 1), (2018, 1, 1), "2017-12-15", "2018-01-01"),
+        ] {
+            let fixture = Fixture::default();
+            fixture.corpus.push_article_versions(Ok(vec![real_version(id, from, to)]));
+            fixture.corpus.push_get_article(Ok(article(1, "texte")));
+            let result =
+                call(&fixture, &json!({"article_id": id, "date_a": date_a, "date_b": date_b}))
+                    .await;
+            assert_eq!(result.is_error, Some(true), "{id} : {}", text_of(&result));
+            assert_eq!(
+                text_of(&result),
+                format!("[not_found] No version of {id} is in force on {date_b}.")
+            );
+            assert_eq!(fixture.audit.records()[0].error_code, Some(ErrorCode::NotFound));
+            assert_eq!(fixture.corpus.seen_requests().len(), 1, "aucun texte n'est lu");
+        }
     }
 
     #[tokio::test]

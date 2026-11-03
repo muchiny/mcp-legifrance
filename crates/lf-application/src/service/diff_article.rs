@@ -144,7 +144,7 @@ mod tests {
     fn corpus() -> FakeCorpus {
         let corpus = FakeCorpus::new();
         corpus.push_article_versions(Ok(vec![
-            version(1, (2016, 10, 9), Some((2023, 9, 7))),
+            version(1, (2016, 10, 9), Some((2023, 9, 8))),
             version(2, (2023, 9, 8), None),
         ]));
         corpus.push_get_article(Ok(article(1, "est puni de un an")));

@@ -836,7 +836,7 @@ mod budgets {
                 setup: |fixture| {
                     let (old, new) = (changing_words('o'), changing_words('n'));
                     fixture.corpus.push_article_versions(Ok(vec![
-                        version(1, (2016, 10, 9), Some((2023, 9, 7))),
+                        version(1, (2016, 10, 9), Some((2023, 9, 8))),
                         version(2, (2023, 9, 8), None),
                     ]));
                     fixture.corpus.push_get_article(Ok(diff_article(1, &old)));

@@ -520,6 +520,29 @@ mod tests {
     }
 
     #[test]
+    fn the_window_matches_the_grid_rule_of_the_diff_article_use_case() {
+        // Parité avec `DiffArticleUseCase` (`in_force`, U14) sur une version dont le début est
+        // présent : la grille et l'oracle sont ceux du test
+        // `the_version_in_force_is_the_one_starting_last_among_those_with_debut_le_day_lt_fin`
+        // de `lf-application` (jours 0 à 6, début 1 à 5, fin absente ou 1 à 6). Le début absent
+        // est exclu de la parité : l'adapter le traite comme ouvert, le cas d'usage ne sert
+        // jamais une version sans début.
+        let at = |n: u8| date(2020, 1, n + 1).unwrap();
+        for start in 1..=5_u8 {
+            for end in std::iter::once(None).chain((1..=6).map(Some)) {
+                for n in 0..7_u8 {
+                    let expected = start <= n && end.is_none_or(|end| n < end);
+                    let served = in_force(Some(at(start)), end.map(at), at(n));
+                    assert_eq!(served, expected, "début {start}, fin {end:?}, jour {n}");
+                }
+            }
+        }
+        // Début absent : la fenêtre de l'adapter reste ouverte (différence assumée).
+        assert!(in_force(None, Some(at(3)), at(2)));
+        assert!(!in_force(None, Some(at(3)), at(3)));
+    }
+
+    #[test]
     fn the_window_rule_is_debut_inclusive_fin_exclusive() {
         let at = date(2026, 10, 15).unwrap();
         assert!(in_force(None, None, at));
