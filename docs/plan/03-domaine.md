@@ -548,7 +548,7 @@ Les deux dates sont des champs de sens différent quand elles sont omises (00 §
 | `nature` | `Option<String>` | `nature` | `Délibération` (ou `Décision`, facette `TYPE`, recherche 03 §5) |
 | `nature_delib` | `Option<String>` | `natureDelib` | `Sanction` |
 | `etat` | `Option<LegalStatus>` | `etat` | `VIGUEUR` |
-| `date` | `Option<CivilDate>` | `dateTexteComputed`, sinon `dateTexte` | `2026-01-08` |
+| `date` | `Option<CivilDate>` | `dateTexteComputed`, sinon `dateTexte` | `2026-01-08` ; `None` quand l'amont ne donne qu'une date de repli (31 décembre, 1er janvier ou postérieure à la publication, sauf confirmée par le titre long ; AM-80, règle en §5.4) |
 | `date_publication` | `Option<CivilDate>` | `datePubliComputed`, sinon `datePubli` | `2026-01-14` |
 | `title`, `title_long` | `Option<String>` | `titre`, `titreLong` | `Délibération SAN-2026-002 du 8 janvier 2026` |
 | `text` | `LongText` | `texteHtml` (`<p>`), sinon `texte` | 3 paragraphes sur la fixture tronquée (§7.10) |
