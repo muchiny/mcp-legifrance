@@ -183,7 +183,7 @@ impl Cursor<'_> {
             len = len.saturating_add(1);
             self.bump();
         }
-        (0 < len && len <= max).then_some((value, len))
+        (1..=max).contains(&len).then_some((value, len))
     }
 
     /// Suite maximale de lettres.
@@ -984,6 +984,31 @@ mod tests {
         assert_eq!(date_of_number(&chars, "DF-2017-1448"), CivilDate::new(2017, 12, 7));
         assert_eq!(date_of_number(&chars, ""), None);
         assert_eq!(date_of_number(&chars, " - "), None);
+    }
+
+    #[test]
+    fn the_marker_and_the_du_must_both_be_spelled_out() {
+        let date = CivilDate::new(2017, 12, 7);
+        // Le marqueur « n° » doit être entier : un autre mot suivi de « ° » n'en est pas un.
+        let chars = folded_chars("Décision x° DF-2017-1448 du 7 décembre 2017");
+        assert_eq!(date_of_number(&chars, "DF-2017-1448"), None);
+        let chars = folded_chars("Décision n° DF-2017-1448 du 7 décembre 2017");
+        assert_eq!(date_of_number(&chars, "DF-2017-1448"), date);
+        // Le « du » doit être entier : ni « d » seul, ni « xu ».
+        let chars = folded_chars("Décision n° DF-2017-1448 d 7 décembre 2017");
+        assert_eq!(date_of_number(&chars, "DF-2017-1448"), None);
+        let chars = folded_chars("Décision n° DF-2017-1448 xu 7 décembre 2017");
+        assert_eq!(date_of_number(&chars, "DF-2017-1448"), None);
+    }
+
+    #[test]
+    fn a_day_of_three_digits_is_never_a_date() {
+        let chars = folded_chars("du 12 décembre 2017");
+        assert_eq!(date_at(&chars, 2), CivilDate::new(2017, 12, 12));
+        let chars = folded_chars("du 012 décembre 2017");
+        assert_eq!(date_at(&chars, 2), None);
+        let chars = folded_chars("du décembre 2017");
+        assert_eq!(date_at(&chars, 2), None);
     }
 
     #[test]
