@@ -6995,6 +6995,35 @@ mod tests {
         );
     }
 
+    /// Un article sans début couvre le jour seulement si son état est en vigueur et qu'il n'a pas
+    /// de fin ; une fin présente le range parmi les versions d'ailleurs (mutation vague 3b).
+    #[test]
+    fn an_article_without_start_covers_only_while_in_force_and_open_ended() {
+        let undated = |etat: LegalStatus, date_fin: Option<CivilDate>| ArticleText {
+            etat: Some(etat),
+            date_debut: None,
+            date_fin,
+            ..numbered(1, "121-3")
+        };
+        for etat in [
+            LegalStatus::Vigueur,
+            LegalStatus::VigueurEtendue,
+            LegalStatus::VigueurNonEtendue,
+            LegalStatus::AbrogeDiff,
+        ] {
+            assert_eq!(
+                reading_of(&undated(etat.clone(), None), today()),
+                Reading::Covers,
+                "{etat:?} sans fin"
+            );
+            assert_eq!(
+                reading_of(&undated(etat.clone(), Some(civil(2011, 6, 12))), today()),
+                Reading::Elsewhere,
+                "{etat:?} avec fin"
+            );
+        }
+    }
+
     /// Revue finale I2 : `replaced_code` et la règle commune `is_superseded` (celle de
     /// `fr_get_text`) donnent le même verdict pour chacun des 17 codes et pour un code inconnu ;
     /// un code remplacé est le code de l'API.

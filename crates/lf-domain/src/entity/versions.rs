@@ -123,6 +123,15 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_end_day_of_the_last_version_is_out_of_force() {
+        // `date_fin` est le premier jour hors vigueur : sans suivante, aucune version ce jour-là.
+        let versions = vec![version(1, Some((2000, 1, 1)), Some((2010, 1, 1)))];
+        assert_eq!(id_on(&versions, "2009-12-31"), Some(1), "la veille de la fin");
+        assert_eq!(id_on(&versions, "2010-01-01"), None, "le jour de la fin");
+        assert_eq!(id_on(&versions, "2010-01-02"), None, "le lendemain");
+    }
+
     /// Garde : vert sur la souche (qui ne sert jamais rien) et après.
     #[test]
     fn a_version_without_start_is_never_in_force() {

@@ -1768,6 +1768,23 @@ mod tests {
         }
     }
 
+    /// Les lettres comptent : même suites de chiffres, lettres différentes, autre article ; « er »
+    /// ne se replie que derrière des chiffres (mutation vague 3b).
+    #[test]
+    fn numbers_that_differ_by_their_letters_are_other_articles() {
+        for (left, right) in [
+            ("L121-1", "R121-1"),
+            ("1bis", "1ter"),
+            ("er", ""),
+            ("Premier", "Premi"),
+            ("Ier", "I"),
+            ("1er", "2"),
+        ] {
+            assert!(!same_number(left, right), "{left} et {right} sont deux articles");
+        }
+        assert!(same_number("2ER", "2"), "« 2ER » vaut « 2 »");
+    }
+
     /// Étage 2 : « 242 » n'est pas l'article 24-2 du sommaire (un tiret n'est pas replié).
     #[tokio::test]
     async fn the_dated_toc_never_serves_an_article_whose_number_differs_by_a_hyphen() {
