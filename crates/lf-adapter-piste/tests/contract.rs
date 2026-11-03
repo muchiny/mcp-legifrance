@@ -313,8 +313,9 @@ mod contract {
             ("/consult/cnil", 3),
             ("/consult/kaliText", 3),
             ("/consult/acco", 3),
-            // « Aujourd'hui » : 2 lectures et 1 numéro absent (200 à enveloppe nulle).
-            ("/consult/getArticleWithIdAndNum", 3),
+            // « Aujourd'hui » : 2 lectures et 1 numéro absent (200 à enveloppe nulle), plus 1
+            // pour le repli par les versions du numéro absent à une date (U01-R).
+            ("/consult/getArticleWithIdAndNum", 4),
             // IDCC présent (2) ; NOR absent (1, 400 classé en liste vide).
             ("/consult/kaliContIdcc", 2),
             ("/consult/getJoWithNor", 1),

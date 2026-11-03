@@ -45,7 +45,7 @@ pub use toc::{
     ArticleDraft, SectionDraft, TOC_MAX_DEPTH, Toc, TocArticle, TocDraft, TocEntry, TocEntryRef,
     TocNode, TocPage, TocSection,
 };
-pub use versions::ArticleVersion;
+pub use versions::{ArticleVersion, in_force_on};
 
 #[cfg(test)]
 mod tests {

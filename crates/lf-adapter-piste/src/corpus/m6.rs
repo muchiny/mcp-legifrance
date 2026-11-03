@@ -6,6 +6,10 @@
 //!   différée), comme pour toute autre date, la recherche exacte `CODE_DATE` sur `NUM_ARTICLE` et
 //!   `DATE_VERSION` prend le relais, et l'article trouvé est lu par `getArticle`. L'application a
 //!   déjà résolu le code en `LEGITEXT` par `list_codes` (D5) : l'adapter ne voit que le texte.
+//!   Pour [`ArticleAt::On`], quand cette recherche ne trouve rien (l'index daté ne contient ni les
+//!   LODA ni les articles de code d'avant ~1994-1999), repli de U01 : la version courante, puis les
+//!   versions de l'article (`canonicalArticleVersion`, règle `in_force_on`), puis, pour un texte
+//!   non codifié, sa table des matières à la date. Jamais pour `Today`, jamais après une erreur.
 //! - **`find_by_number`** : `/search` en `EXACTE` pour les numéros d'article, de texte, d'affaire,
 //!   de décision, de délibération et l'IDCC des accords d'entreprise ; la facette `ECLI` pour
 //!   JURI et CETAT ; trois consultations (NOR, IDCC des conventions, ELI cité) qui rendent au plus
@@ -25,9 +29,11 @@ use std::pin::pin;
 use lf_application::ports::{ArticleAt, CorpusError, LegalCorpus};
 use lf_domain::{
     date::VersionDate,
-    entity::{ArticleText, CodeListing, SearchHit, SearchPage},
+    entity::{
+        ArticleText, ArticleVersion, CodeListing, SearchHit, SearchPage, TocEntryRef, in_force_on,
+    },
     fond::Fond,
-    id::LegiTextId,
+    id::{ArticleId, LegiTextId},
     search::{NumberKind, NumberQuery, NumberValue, has_more},
 };
 
@@ -74,7 +80,13 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
                 return current;
             }
         }
-        self.article_on(text, number, at.date()).await
+        if let Some(article) = self.article_on(text, number.clone(), at.date()).await? {
+            return Ok(article);
+        }
+        match at {
+            ArticleAt::On(date) => self.article_by_versions(text, &number, date).await,
+            ArticleAt::Today(_) => Err(not_found(endpoint::SEARCH)),
+        }
     }
 
     /// `getArticleWithIdAndNum` : la version en vigueur de l'article `number` du texte `text`.
@@ -92,13 +104,14 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     }
 
     /// Recherche exacte de l'article `number` à la date `date` dans les codes, puis lecture de la
-    /// version trouvée pour `text` (04 §7.2 étape 3).
+    /// version trouvée pour `text` (04 §7.2 étape 3). `None` : la recherche n'a pas trouvé
+    /// l'article (index daté sans ce texte, lacunaire avant ~1994-1999, jamais LODA).
     async fn article_on(
         &self,
         text: &LegiTextId,
         number: NumberValue,
         date: VersionDate,
-    ) -> Result<ArticleText, CorpusError> {
+    ) -> Result<Option<ArticleText>, CorpusError> {
         let num = number.as_str().to_owned();
         let query = NumberQuery {
             fond: Fond::Code,
@@ -111,12 +124,133 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
         loop {
             let (found, more) = self.search_numbers(&query, page).await?;
             if let Some(id) = map::article_of_text(&found, text, &num) {
-                return self.get_article(&id).await;
+                return self.get_article(&id).await.map(Some);
             }
             if !more || page.get() >= MAX_ARTICLE_PAGES {
-                return Err(not_found(endpoint::SEARCH));
+                return Ok(None);
             }
             page = page.saturating_add(1);
+        }
+    }
+
+    /// Repli d'une recherche datée sans résultat (U01) : l'index daté `CODE_DATE` ne contient ni
+    /// les LODA ni les articles de code d'avant ~1994-1999. Étage 1 : la version courante
+    /// (`getArticleWithIdAndNum`) puis, si elle ne couvre pas la date, les versions de l'article
+    /// (`canonicalArticleVersion`) et la règle [`in_force_on`] ; étage 2, pour un texte non
+    /// codifié seulement : sa table des matières à la date. Une erreur de transport ou
+    /// d'authentification est rendue ; l'absence reste le `NotFound` de la recherche, comme en
+    /// 1.1.0.
+    async fn article_by_versions(
+        &self,
+        text: &LegiTextId,
+        number: &NumberValue,
+        date: VersionDate,
+    ) -> Result<ArticleText, CorpusError> {
+        let current = match self.article_by_number(text, number).await {
+            Ok(current) => Some(current),
+            Err(CorpusError::NotFound { .. }) => None,
+            Err(error) => return Err(error),
+        };
+        if let Some(current) = current
+            && let Some(article) = self.version_in_force(current, number, date).await?
+        {
+            return Ok(article);
+        }
+        self.article_in_dated_toc(text, number, date).await
+    }
+
+    /// La version de l'article `current` en vigueur à `date` : `current` elle-même si elle la
+    /// couvre, sinon celle que désignent les versions de l'article ; `None` si aucune ne convient
+    /// (liste illisible ou vide comprise, numéro différent).
+    async fn version_in_force(
+        &self,
+        current: ArticleText,
+        number: &NumberValue,
+        date: VersionDate,
+    ) -> Result<Option<ArticleText>, CorpusError> {
+        let ArticleId::Legi(current_id) = current.article_id.clone() else {
+            return Ok(None);
+        };
+        let here = ArticleVersion {
+            id: current_id.clone(),
+            num: current.num.clone(),
+            etat: current.etat.clone(),
+            date_debut: current.date_debut,
+            date_fin: current.date_fin,
+        };
+        if in_force_on(std::slice::from_ref(&here), date).is_some() {
+            return Ok(Some(current));
+        }
+        let versions = match self.article_versions_impl(&ArticleId::Legi(current_id)).await {
+            Ok(versions) => versions,
+            Err(
+                CorpusError::NotFound { .. }
+                | CorpusError::Decode { .. }
+                | CorpusError::Upstream { .. },
+            ) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let Some(chosen) = in_force_on(&versions, date) else {
+            return Ok(None);
+        };
+        if chosen.id == here.id {
+            return Ok(Some(current));
+        }
+        if chosen.num.as_deref().is_some_and(|n| !same_number(n, number.as_str())) {
+            return Ok(None);
+        }
+        let read = match self.get_article(&ArticleId::Legi(chosen.id.clone())).await {
+            Ok(read) => read,
+            Err(CorpusError::NotFound { .. }) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        // `numero` est nul dans la liste canonique : le numéro ne se vérifie qu'à la lecture.
+        let same = read.num.as_deref().is_none_or(|n| same_number(n, number.as_str()));
+        Ok(same.then_some(read))
+    }
+
+    /// Étage 2 : l'article de `number` dans la table des matières de `text` à `date`, pour un
+    /// texte non codifié (un code garde le résultat de l'index daté). Rend le `NotFound` de la
+    /// recherche quand la table n'a pas l'article, est trop grande ou illisible.
+    async fn article_in_dated_toc(
+        &self,
+        text: &LegiTextId,
+        number: &NumberValue,
+        date: VersionDate,
+    ) -> Result<ArticleText, CorpusError> {
+        let absent = || not_found(endpoint::SEARCH);
+        match self.list_codes_impl().await {
+            Ok(codes) if codes.iter().any(|code| code.id == *text) => return Err(absent()),
+            Ok(_) => {}
+            Err(error @ CorpusError::Auth { .. }) => return Err(error),
+            Err(_) => return Err(absent()),
+        }
+        let act = match self.get_act(text, date).await {
+            Ok(act) => act,
+            Err(
+                CorpusError::NotFound { .. }
+                | CorpusError::TooLarge { .. }
+                | CorpusError::Decode { .. },
+            ) => return Err(absent()),
+            Err(error) => return Err(error),
+        };
+        let Ok(page) = act.body.toc.page(0, NonZeroU32::MAX) else {
+            return Err(absent());
+        };
+        let entry = page.entries.iter().find_map(|entry| match entry.node {
+            TocEntryRef::Article(article)
+                if article.num.as_deref().is_some_and(|n| same_number(n, number.as_str())) =>
+            {
+                Some(article.article_id.clone())
+            }
+            _ => None,
+        });
+        let Some(entry) = entry else {
+            return Err(absent());
+        };
+        match self.get_article(&entry).await {
+            Err(CorpusError::NotFound { .. }) => Err(absent()),
+            other => other,
         }
     }
 
@@ -311,6 +445,24 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
         }
         Ok(repeated)
     }
+}
+
+/// Forme comparable d'un numéro d'article : lettres et chiffres repliés en minuscules, rien
+/// d'autre, et « 1er » vaut « 1 ».
+fn number_key(raw: &str) -> String {
+    let key: String =
+        raw.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect();
+    match key.strip_suffix("er") {
+        Some(digits) if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) => {
+            digits.to_owned()
+        }
+        _ => key,
+    }
+}
+
+/// Deux numéros désignent-ils le même article (espaces, points, casse, « 1er » comme « 1 ») ?
+fn same_number(left: &str, right: &str) -> bool {
+    number_key(left) == number_key(right)
 }
 
 /// Un identifiant inconnu d'une consultation n'est pas une erreur de recherche : aucun hit.
@@ -645,6 +797,10 @@ mod tests {
                 .await;
         }
         never(&rig.server, &route("/consult/getArticle")).await;
+        // U01-R : après l'épuisement des trois pages, le repli par les versions interroge la
+        // version courante (« numéro inconnu » : fin) ; garde sans compte d'appels.
+        by_number(&rig, "LEGITEXT000006070721", "9", UNKNOWN_NUMBER, 0).await;
+        never(&rig.server, &route("/search/canonicalArticleVersion")).await;
 
         let result =
             rig.corpus.find_article(&civil_code(), "9", ArticleAt::On(day("2026-10-28"))).await;
@@ -665,6 +821,743 @@ mod tests {
             assert_eq!(error, request::invalid_article_number(), "{num:?}");
         }
         assert!(rig.server.received_requests().await.unwrap().is_empty());
+    }
+
+    // ---- U01-R : repli par les versions et table des matières datée ---------------------------
+
+    /// Fixtures `derivee` de U01 : aucun relevé sandbox (D1) n'existe. Les formes sont celles des
+    /// relevés `getArticleWithIdAndNum-code-civil-9` (enveloppe d'un article) et
+    /// `canonicalArticleVersion-LEGIARTI000006419288` (liste de versions) ; les identifiants et
+    /// les dates de l'article 17 de la loi 89-462 sont ceux relevés en production le 2026-11-02
+    /// (fiche U01, §2) ; le texte des articles est un marqueur, rien n'est copié d'un texte tiers.
+    /// Les ids de l'art. 8 du Code civil, de l'art. 24-2 et de l'art. 1 de la loi sont synthétiques.
+    const LAW: &str = "LEGITEXT000006069108";
+    /// Sentinelle `2999-01-01` de l'API, en millisecondes.
+    const NO_END: i64 = 32_472_144_000_000;
+    const MS_1927_08_14: i64 = -1_337_558_400_000;
+    const MS_1950_01_01: i64 = -631_152_000_000;
+    const MS_1970_07_19: i64 = 17_193_600_000;
+    const MS_1989_07_08: i64 = 615_859_200_000;
+    const MS_2014_03_27: i64 = 1_395_878_400_000;
+    const MS_2018_11_25: i64 = 1_543_104_000_000;
+    const MS_2022_08_24: i64 = 1_661_299_200_000;
+    const MS_2019_01_01: i64 = 1_546_300_800_000;
+    const MS_1990_01_01: i64 = 631_152_000_000;
+
+    fn law() -> LegiTextId {
+        LegiTextId::parse(LAW).unwrap()
+    }
+
+    /// Enveloppe d'un article (`getArticle`, `getArticleWithIdAndNum`) dérivée de `CIVIL_9`.
+    fn derived_article(
+        id: &str,
+        num: &str,
+        etat: &str,
+        start: i64,
+        end: Option<i64>,
+        text: (&str, &str, &str),
+    ) -> String {
+        let (text_id, title, nature) = text;
+        let mut body: Value = serde_json::from_str(CIVIL_9).unwrap();
+        let article = &mut body["article"];
+        article["id"] = json!(id);
+        article["cid"] = json!(id);
+        article["num"] = json!(num);
+        article["etat"] = json!(etat);
+        article["dateDebut"] = json!(start);
+        article["dateFin"] = json!(end.unwrap_or(NO_END));
+        article["texte"] = json!("[texte dérivé : non relevé]");
+        article["texteHtml"] = json!("<p>[texte dérivé : non relevé]</p>");
+        article["lienModifications"] = json!([]);
+        article["context"]["titreTxt"][0] = json!({"titre": title, "cid": text_id, "id": text_id});
+        article["textTitles"][0]["id"] = json!(text_id);
+        article["textTitles"][0]["cid"] = json!(text_id);
+        article["textTitles"][0]["titre"] = json!(title);
+        article["textTitles"][0]["titreLong"] = json!(title);
+        article["textTitles"][0]["nature"] = json!(nature);
+        body.to_string()
+    }
+
+    fn law_article(id: &str, num: &str, etat: &str, start: i64, end: Option<i64>) -> String {
+        let text = (LAW, "Loi n° 89-462 du 6 juillet 1989", "LOI");
+        derived_article(id, num, etat, start, end, text)
+    }
+
+    fn civil_article(id: &str, num: &str, etat: &str, start: i64, end: Option<i64>) -> String {
+        derived_article(id, num, etat, start, end, ("LEGITEXT000006070721", "Code civil", "CODE"))
+    }
+
+    /// Réponse de `canonicalArticleVersion` : (id, état, début, fin), `numero` à `null`.
+    fn canonical_body(versions: &[(&str, &str, i64, Option<i64>)]) -> String {
+        let list: Vec<Value> = versions
+            .iter()
+            .map(|(id, etat, start, end)| {
+                json!({"id": id, "etat": etat, "version": "1.0", "dateDebut": start,
+                       "dateFin": end.unwrap_or(NO_END), "numero": null, "ordre": null})
+            })
+            .collect();
+        json!({"articleVersions": list}).to_string()
+    }
+
+    /// Les trois versions de l'article 17 de la loi 89-462 (ids et dates relevés en production).
+    fn law_17_versions() -> String {
+        canonical_body(&[
+            ("LEGIARTI000028806710", "MODIFIE", MS_2014_03_27, Some(MS_2018_11_25)),
+            ("LEGIARTI000037670690", "MODIFIE", MS_2018_11_25, Some(MS_2022_08_24)),
+            ("LEGIARTI000043977087", "VIGUEUR", MS_2022_08_24, None),
+        ])
+    }
+
+    fn current_law_17() -> String {
+        law_article("LEGIARTI000043977087", "17", "VIGUEUR", MS_2022_08_24, None)
+    }
+
+    /// Sommaire daté d'un texte non codifié : (id, numéro, état).
+    fn toc_body(entries: &[(&str, &str, &str)]) -> String {
+        let articles: Vec<Value> = entries
+            .iter()
+            .map(|(id, num, etat)| {
+                json!({"executionTime": 0, "dereferenced": false, "id": id, "cid": id,
+                       "intOrdre": 524_287, "etat": etat, "num": num, "path": null,
+                       "pathTitle": [], "content": "<p>[texte dérivé]</p>", "nota": "",
+                       "articleVersion": "1.0", "type": "AUTONOME"})
+            })
+            .collect();
+        json!({"executionTime": 0, "dereferenced": false, "id": format!("{LAW}_01-01-2000"),
+               "cid": null, "title": "Loi n° 89-462 du 6 juillet 1989", "nature": "LOI",
+               "jurisState": "Vigueur", "dateDebutVersion": "1999-12-17",
+               "dateFinVersion": "2999-01-01", "appellations": [],
+               "sections": [{"executionTime": 0, "dereferenced": false,
+                   "id": "LEGISCTA000006000001", "cid": "JORFSCTA000006000001",
+                   "intOrdre": 524_287, "etat": "VIGUEUR", "title": "Titre Ier",
+                   "sections": [], "articles": articles}],
+               "articles": []})
+        .to_string()
+    }
+
+    const EMPTY_SEARCH: &str = r#"{"totalResultNumber":0,"results":[]}"#;
+
+    /// `/search` répond « aucun hit », `times` fois exactement (0 : sans exigence de compte).
+    async fn empty_search(rig: &Rig) {
+        Mock::given(method("POST"))
+            .and(path(route("/search")))
+            .respond_with(json_reply(200, EMPTY_SEARCH))
+            .mount(&rig.server)
+            .await;
+    }
+
+    /// Comme `serve`, mais `times` à 0 veut dire « à volonté, sans exigence de compte » : le
+    /// garde ne dépend pas du nombre d'appels que la souche émet.
+    async fn serve_or_lenient(
+        rig: &Rig,
+        endpoint: &str,
+        request: &Value,
+        reply: ResponseTemplate,
+        times: u64,
+    ) {
+        if times > 0 {
+            return serve(rig, endpoint, request, reply, times).await;
+        }
+        Mock::given(method("POST"))
+            .and(path(route(endpoint)))
+            .and(body_json(request))
+            .respond_with(reply)
+            .mount(&rig.server)
+            .await;
+    }
+
+    async fn by_number(rig: &Rig, text: &str, num: &str, reply: &str, times: u64) {
+        let request = json!({"id": text, "num": num});
+        serve_or_lenient(
+            rig,
+            "/consult/getArticleWithIdAndNum",
+            &request,
+            json_reply(200, reply),
+            times,
+        )
+        .await;
+    }
+
+    async fn canonical(rig: &Rig, id: &str, reply: &str, times: u64) {
+        serve_or_lenient(
+            rig,
+            "/search/canonicalArticleVersion",
+            &json!({"id": id}),
+            json_reply(200, reply),
+            times,
+        )
+        .await;
+    }
+
+    async fn read_version(rig: &Rig, id: &str, reply: &str, times: u64) {
+        serve_or_lenient(
+            rig,
+            "/consult/getArticle",
+            &json!({"id": id}),
+            json_reply(200, reply),
+            times,
+        )
+        .await;
+    }
+
+    async fn toc(rig: &Rig, date: &str, reply: &str, times: u64) {
+        let request = json!({"textId": LAW, "date": date});
+        serve_or_lenient(rig, "/consult/lawDecree", &request, json_reply(200, reply), times).await;
+    }
+
+    /// Charge la table des codes (2 appels `/list/code`), une fois.
+    async fn load_codes(rig: &Rig) {
+        serve(rig, "/list/code", &page_request(1), json_reply(200, PAGE_1), 1).await;
+        serve(rig, "/list/code", &page_request(2), json_reply(200, PAGE_2), 1).await;
+        rig.corpus.list_codes().await.unwrap();
+    }
+
+    /// L'article du résultat, ou un échec par assertion (jamais par `unwrap`).
+    fn ok(result: Result<ArticleText, CorpusError>) -> ArticleText {
+        assert!(result.is_ok(), "un article était attendu : {result:?}");
+        result.unwrap()
+    }
+
+    fn on(date: &str) -> ArticleAt {
+        ArticleAt::On(day(date))
+    }
+
+    fn not_found_in_search() -> CorpusError {
+        CorpusError::NotFound { what: "/search".to_owned() }
+    }
+
+    async fn calls(rig: &Rig, endpoint: &str) -> usize {
+        requests_to(&rig.server, &route(endpoint)).await
+    }
+
+    #[tokio::test]
+    async fn find_article_on_a_date_falls_back_to_the_versions_for_a_law() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        by_number(&rig, LAW, "17", &current_law_17(), 1).await;
+        canonical(&rig, "LEGIARTI000043977087", &law_17_versions(), 1).await;
+        let old = law_article(
+            "LEGIARTI000037670690",
+            "17",
+            "MODIFIE",
+            MS_2018_11_25,
+            Some(MS_2022_08_24),
+        );
+        read_version(&rig, "LEGIARTI000037670690", &old, 1).await;
+        never(&rig.server, &route("/consult/lawDecree")).await;
+
+        let found = ok(rig.corpus.find_article(&law(), "17", on("2020-01-01")).await);
+
+        assert_eq!(found.article_id.as_str(), "LEGIARTI000037670690");
+        assert_eq!(found.num.as_deref(), Some("17"));
+        assert_eq!(found.etat, Some(LegalStatus::Modifie));
+    }
+
+    #[tokio::test]
+    async fn find_article_on_a_date_serves_the_current_article_of_a_single_version_law_without_the_versions()
+     {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        let single = law_article("LEGIARTI000047000001", "3", "VIGUEUR", MS_2019_01_01, None);
+        by_number(&rig, LAW, "3", &single, 1).await;
+        never(&rig.server, &route("/search/canonicalArticleVersion")).await;
+        never(&rig.server, &route("/consult/getArticle")).await;
+        never(&rig.server, &route("/consult/lawDecree")).await;
+
+        let found = ok(rig.corpus.find_article(&law(), "3", on("2020-06-01")).await);
+
+        assert_eq!(found.article_id.as_str(), "LEGIARTI000047000001");
+    }
+
+    #[tokio::test]
+    async fn find_article_on_a_date_falls_back_to_the_versions_for_civil_code_art_9_in_1960() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        by_number(&rig, "LEGITEXT000006070721", "9", CIVIL_9, 1).await;
+        let versions = include_str!(
+            "../../tests/fixtures/recorded/search/canonicalArticleVersion/m7/canonicalArticleVersion-LEGIARTI000006419288.json"
+        );
+        canonical(&rig, "LEGIARTI000006419288", versions, 1).await;
+        let abroge = civil_article(
+            "LEGIARTI000050396821",
+            "9",
+            "ABROGE",
+            MS_1927_08_14,
+            Some(MS_1970_07_19),
+        );
+        read_version(&rig, "LEGIARTI000050396821", &abroge, 1).await;
+
+        let found = ok(rig.corpus.find_article(&civil_code(), "9", on("1960-01-01")).await);
+
+        assert_eq!(found.article_id.as_str(), "LEGIARTI000050396821");
+        assert_eq!(found.etat, Some(LegalStatus::Abroge));
+    }
+
+    #[tokio::test]
+    async fn find_article_on_a_date_falls_back_to_the_versions_for_civil_code_art_8_in_1985() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        let current = civil_article("LEGIARTI000006419287", "8", "VIGUEUR", MS_1990_01_01, None);
+        by_number(&rig, "LEGITEXT000006070721", "8", &current, 1).await;
+        let versions = canonical_body(&[
+            ("LEGIARTI000999000001", "MODIFIE", MS_1950_01_01, Some(MS_1990_01_01)),
+            ("LEGIARTI000006419287", "VIGUEUR", MS_1990_01_01, None),
+        ]);
+        canonical(&rig, "LEGIARTI000006419287", &versions, 1).await;
+        let old = civil_article(
+            "LEGIARTI000999000001",
+            "8",
+            "MODIFIE",
+            MS_1950_01_01,
+            Some(MS_1990_01_01),
+        );
+        read_version(&rig, "LEGIARTI000999000001", &old, 1).await;
+
+        let found = ok(rig.corpus.find_article(&civil_code(), "8", on("1985-06-01")).await);
+
+        assert_eq!(found.article_id.as_str(), "LEGIARTI000999000001");
+    }
+
+    /// Garde : une date antérieure à la première version reste introuvable, rien n'est lu.
+    #[tokio::test]
+    async fn find_article_on_a_date_before_the_first_version_is_not_found() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        by_number(&rig, "LEGITEXT000006070721", "9", CIVIL_9, 0).await;
+        let versions = include_str!(
+            "../../tests/fixtures/recorded/search/canonicalArticleVersion/m7/canonicalArticleVersion-LEGIARTI000006419288.json"
+        );
+        canonical(&rig, "LEGIARTI000006419288", versions, 0).await;
+        never(&rig.server, &route("/consult/getArticle")).await;
+
+        let result = rig.corpus.find_article(&civil_code(), "9", on("1800-01-01")).await;
+
+        assert_eq!(result.unwrap_err(), not_found_in_search());
+    }
+
+    #[tokio::test]
+    async fn find_article_on_a_date_reads_the_dated_toc_for_an_article_repealed_today() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        by_number(&rig, LAW, "19", UNKNOWN_NUMBER, 1).await;
+        let entries = [
+            ("LEGIARTI000006000010", "1", "VIGUEUR"),
+            ("LEGIARTI000039337710", "19", "ABROGE"),
+            ("LEGIARTI000039337711", "24-2", "ABROGE"),
+        ];
+        toc(&rig, "2000-01-01", &toc_body(&entries), 1).await;
+        let repealed =
+            law_article("LEGIARTI000039337710", "19", "ABROGE", MS_1989_07_08, Some(MS_2014_03_27));
+        read_version(&rig, "LEGIARTI000039337710", &repealed, 1).await;
+        never(&rig.server, &route("/search/canonicalArticleVersion")).await;
+
+        let found = ok(rig.corpus.find_article(&law(), "19", on("2000-01-01")).await);
+
+        assert_eq!(found.article_id.as_str(), "LEGIARTI000039337710");
+        assert_eq!(found.etat, Some(LegalStatus::Abroge));
+    }
+
+    #[tokio::test]
+    async fn find_article_on_a_date_reads_the_dated_toc_for_art_24_2_of_law_89_462_at_2000_01_01() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        by_number(&rig, LAW, "24-2", UNKNOWN_NUMBER, 1).await;
+        let entries =
+            [("LEGIARTI000039337710", "19", "ABROGE"), ("LEGIARTI000039337711", "24-2", "ABROGE")];
+        toc(&rig, "2000-01-01", &toc_body(&entries), 1).await;
+        let repealed = law_article(
+            "LEGIARTI000039337711",
+            "24-2",
+            "ABROGE",
+            MS_1989_07_08,
+            Some(MS_2014_03_27),
+        );
+        read_version(&rig, "LEGIARTI000039337711", &repealed, 1).await;
+
+        let found = ok(rig.corpus.find_article(&law(), "24-2", on("2000-01-01")).await);
+
+        assert_eq!(found.article_id.as_str(), "LEGIARTI000039337711");
+    }
+
+    #[tokio::test]
+    async fn gap4_2_resolve_serves_the_version_that_the_get_text_note_points_to() {
+        // `fr_get_text` d'une version abrogée (LEGIARTI000039337710) renvoie vers `fr_resolve`
+        // avec une date : le second maillon, l'appel daté, est servi par la table des matières.
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        by_number(&rig, LAW, "19", UNKNOWN_NUMBER, 1).await;
+        let entries = [("LEGIARTI000039337710", "19", "ABROGE")];
+        toc(&rig, "2013-12-31", &toc_body(&entries), 1).await;
+        let repealed =
+            law_article("LEGIARTI000039337710", "19", "ABROGE", MS_1989_07_08, Some(MS_2014_03_27));
+        read_version(&rig, "LEGIARTI000039337710", &repealed, 1).await;
+
+        let found = ok(rig.corpus.find_article(&law(), "19", on("2013-12-31")).await);
+
+        assert_eq!(found.article_id.as_str(), "LEGIARTI000039337710");
+    }
+
+    #[tokio::test]
+    async fn find_article_on_a_date_unknown_article_costs_two_extra_calls() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        by_number(&rig, LAW, "99", UNKNOWN_NUMBER, 1).await;
+        toc(&rig, "2000-01-01", &toc_body(&[("LEGIARTI000039337710", "19", "ABROGE")]), 1).await;
+        never(&rig.server, &route("/search/canonicalArticleVersion")).await;
+        never(&rig.server, &route("/consult/getArticle")).await;
+
+        let result = rig.corpus.find_article(&law(), "99", on("2000-01-01")).await;
+
+        assert_eq!(result.unwrap_err(), not_found_in_search());
+        assert_eq!(calls(&rig, "/consult/getArticleWithIdAndNum").await, 1);
+        assert_eq!(calls(&rig, "/consult/lawDecree").await, 1);
+    }
+
+    #[tokio::test]
+    async fn find_article_on_a_date_fallback_total_calls_are_bounded() {
+        // Chemin le plus long : version courante, liste canonique vide puis `getArticleByCid`,
+        // lecture d'une version dont le numéro diffère, table des matières, lecture de l'entrée :
+        // exactement 6 appels de repli.
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        let current = law_article("LEGIARTI000043977087", "17", "VIGUEUR", MS_2022_08_24, None);
+        by_number(&rig, LAW, "17", &current, 1).await;
+        canonical(&rig, "LEGIARTI000043977087", r#"{"articleVersions":[]}"#, 1).await;
+        let listed = json!({"listArticle": [{
+            "id": "LEGIARTI000028806710", "etat": "MODIFIE",
+            "dateDebut": MS_2014_03_27, "dateFin": MS_2018_11_25}]})
+        .to_string();
+        serve(
+            &rig,
+            "/consult/getArticleByCid",
+            &json!({"cid": "LEGIARTI000043977087"}),
+            json_reply(200, &listed),
+            1,
+        )
+        .await;
+        let other = law_article(
+            "LEGIARTI000028806710",
+            "18",
+            "MODIFIE",
+            MS_2014_03_27,
+            Some(MS_2018_11_25),
+        );
+        read_version(&rig, "LEGIARTI000028806710", &other, 1).await;
+        toc(&rig, "2015-01-01", &toc_body(&[("LEGIARTI000039337710", "17", "MODIFIE")]), 1).await;
+        let found = law_article(
+            "LEGIARTI000039337710",
+            "17",
+            "MODIFIE",
+            MS_2014_03_27,
+            Some(MS_2018_11_25),
+        );
+        read_version(&rig, "LEGIARTI000039337710", &found, 1).await;
+
+        let article = ok(rig.corpus.find_article(&law(), "17", on("2015-01-01")).await);
+
+        assert_eq!(article.article_id.as_str(), "LEGIARTI000039337710");
+        let names = [
+            "/consult/getArticleWithIdAndNum",
+            "/search/canonicalArticleVersion",
+            "/consult/getArticleByCid",
+            "/consult/getArticle",
+            "/consult/lawDecree",
+        ];
+        let mut total = 0;
+        for name in names {
+            total += calls(&rig, name).await;
+        }
+        assert_eq!(total, 6);
+    }
+
+    #[tokio::test]
+    async fn find_article_fallback_reads_then_rejects_a_renumbered_article() {
+        // Liste canonique réelle : `numero` est `null`, le numéro ne se vérifie qu'à la lecture.
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        by_number(&rig, "LEGITEXT000006070721", "10", CIVIL_9, 1).await;
+        let versions = include_str!(
+            "../../tests/fixtures/recorded/search/canonicalArticleVersion/m7/canonicalArticleVersion-LEGIARTI000006419288.json"
+        );
+        canonical(&rig, "LEGIARTI000006419288", versions, 1).await;
+        let old = civil_article(
+            "LEGIARTI000050396821",
+            "9",
+            "ABROGE",
+            MS_1927_08_14,
+            Some(MS_1970_07_19),
+        );
+        read_version(&rig, "LEGIARTI000050396821", &old, 1).await;
+
+        let result = rig.corpus.find_article(&civil_code(), "10", on("1960-01-01")).await;
+
+        assert_eq!(result.unwrap_err(), not_found_in_search());
+        assert_eq!(calls(&rig, "/consult/getArticle").await, 1);
+    }
+
+    #[tokio::test]
+    async fn find_article_fallback_compares_the_number_before_reading_when_by_cid_carries_it() {
+        // (numéro demandé, numéro de la version listée, lue ?)
+        let table =
+            [("1er", "1", true), ("L324-2-2", "L. 324-2-2", true), ("L111-3", "L111-2", false)];
+        for (asked, listed_num, read) in table {
+            let rig = Rig::new().await;
+            token_mock(&rig.server, "tok-1", 1).await;
+            empty_search(&rig).await;
+            load_codes(&rig).await;
+            let current =
+                civil_article("LEGIARTI000006419288", asked, "VIGUEUR", MS_2022_08_24, None);
+            by_number(&rig, "LEGITEXT000006070721", asked, &current, 1).await;
+            canonical(&rig, "LEGIARTI000006419288", CANONICAL_NO_BYTE, 1).await;
+            let listed = json!({"listArticle": [{
+                "id": "LEGIARTI000050396821", "num": listed_num, "etat": "ABROGE",
+                "dateDebut": MS_1927_08_14, "dateFin": MS_1970_07_19}]})
+            .to_string();
+            serve(
+                &rig,
+                "/consult/getArticleByCid",
+                &json!({"cid": "LEGIARTI000006419288"}),
+                json_reply(200, &listed),
+                1,
+            )
+            .await;
+            let body = civil_article(
+                "LEGIARTI000050396821",
+                listed_num,
+                "ABROGE",
+                MS_1927_08_14,
+                Some(MS_1970_07_19),
+            );
+            read_version(&rig, "LEGIARTI000050396821", &body, u64::from(read)).await;
+
+            let result = rig.corpus.find_article(&civil_code(), asked, on("1960-01-01")).await;
+
+            assert_eq!(result.is_ok(), read, "{asked} / {listed_num}: {result:?}");
+            assert_eq!(calls(&rig, "/consult/getArticle").await, usize::from(read), "{asked}");
+        }
+    }
+
+    /// Un 200 sans aucun octet : `canonicalArticleVersion` « introuvable » (fixture `inconnu`).
+    const CANONICAL_NO_BYTE: &str = "";
+
+    #[tokio::test]
+    async fn find_article_on_a_date_failed_fallback_is_not_hidden() {
+        // (réponse de getArticleWithIdAndNum, variante attendue)
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        by_number(&rig, LAW, "17", "{", 1).await;
+        let error = rig.corpus.find_article(&law(), "17", on("2020-01-01")).await.unwrap_err();
+        assert_eq!(variant(&error), "Decode");
+
+        // Une version choisie mais illisible n'est pas une absence non plus.
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        by_number(&rig, LAW, "17", &current_law_17(), 1).await;
+        canonical(&rig, "LEGIARTI000043977087", &law_17_versions(), 1).await;
+        read_version(&rig, "LEGIARTI000037670690", "{", 1).await;
+        let error = rig.corpus.find_article(&law(), "17", on("2020-01-01")).await.unwrap_err();
+        assert_eq!(variant(&error), "Decode");
+    }
+
+    #[tokio::test]
+    async fn two_articles_of_the_same_text_and_date_never_share_a_fallback_failure() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        by_number(&rig, LAW, "99", UNKNOWN_NUMBER, 1).await;
+        toc(&rig, "2020-01-01", &toc_body(&[("LEGIARTI000039337710", "19", "ABROGE")]), 1).await;
+        by_number(&rig, LAW, "17", &current_law_17(), 1).await;
+        canonical(&rig, "LEGIARTI000043977087", &law_17_versions(), 1).await;
+        let old = law_article(
+            "LEGIARTI000037670690",
+            "17",
+            "MODIFIE",
+            MS_2018_11_25,
+            Some(MS_2022_08_24),
+        );
+        read_version(&rig, "LEGIARTI000037670690", &old, 1).await;
+
+        let absent = rig.corpus.find_article(&law(), "99", on("2020-01-01")).await;
+        let present = rig.corpus.find_article(&law(), "17", on("2020-01-01")).await;
+
+        assert_eq!(absent.unwrap_err(), not_found_in_search());
+        assert_eq!(ok(present).article_id.as_str(), "LEGIARTI000037670690");
+    }
+
+    #[tokio::test]
+    async fn find_article_on_a_date_for_two_key_variants_costs_at_most_twelve_calls() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        by_number(&rig, LAW, "1er", UNKNOWN_NUMBER, 1).await;
+        by_number(&rig, LAW, "1", UNKNOWN_NUMBER, 1).await;
+        let empty_toc = toc_body(&[]);
+        toc(&rig, "2000-01-01", &empty_toc, 2).await;
+
+        let first = rig.corpus.find_article(&law(), "1er", on("2000-01-01")).await;
+        let second = rig.corpus.find_article(&law(), "1", on("2000-01-01")).await;
+
+        assert_eq!(first.unwrap_err(), not_found_in_search());
+        assert_eq!(second.unwrap_err(), not_found_in_search());
+        let names = [
+            "/consult/getArticleWithIdAndNum",
+            "/search/canonicalArticleVersion",
+            "/consult/getArticleByCid",
+            "/consult/getArticle",
+            "/consult/lawDecree",
+        ];
+        let mut total = 0;
+        for name in names {
+            total += calls(&rig, name).await;
+        }
+        assert!(total <= 12, "{total}");
+        assert_eq!(total, 4);
+    }
+
+    #[tokio::test]
+    async fn a_dated_absence_with_a_cold_code_table_costs_two_list_code_calls_once() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        serve(&rig, "/list/code", &page_request(1), json_reply(200, PAGE_1), 1).await;
+        serve(&rig, "/list/code", &page_request(2), json_reply(200, PAGE_2), 1).await;
+        by_number(&rig, LAW, "99", UNKNOWN_NUMBER, 2).await;
+        toc(&rig, "2000-01-01", &toc_body(&[]), 2).await;
+
+        let first = rig.corpus.find_article(&law(), "99", on("2000-01-01")).await;
+        assert_eq!(first.unwrap_err(), not_found_in_search());
+        assert_eq!(calls(&rig, "/list/code").await, 2);
+        let second = rig.corpus.find_article(&law(), "99", on("2000-01-01")).await;
+        assert_eq!(second.unwrap_err(), not_found_in_search());
+
+        assert_eq!(calls(&rig, "/list/code").await, 2);
+        assert_eq!(calls(&rig, "/consult/lawDecree").await, 2);
+    }
+
+    #[tokio::test]
+    async fn a_failed_code_table_load_keeps_the_original_not_found() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        serve(&rig, "/list/code", &page_request(1), json_reply(200, "{"), 1).await;
+        by_number(&rig, LAW, "99", UNKNOWN_NUMBER, 1).await;
+        never(&rig.server, &route("/consult/lawDecree")).await;
+
+        let result = rig.corpus.find_article(&law(), "99", on("2000-01-01")).await;
+
+        assert_eq!(result.unwrap_err(), not_found_in_search());
+        assert_eq!(calls(&rig, "/list/code").await, 1, "le chargement a bien été tenté");
+    }
+
+    /// Garde : un code daté absent ne lit jamais de table des matières.
+    #[tokio::test]
+    async fn a_dated_absence_of_a_code_article_makes_no_dated_toc_read() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        by_number(&rig, "LEGITEXT000006070721", "99999", UNKNOWN_NUMBER, 0).await;
+        never(&rig.server, &route("/consult/lawDecree")).await;
+
+        let result = rig.corpus.find_article(&civil_code(), "99999", on("2000-01-01")).await;
+
+        assert_eq!(result.unwrap_err(), not_found_in_search());
+    }
+
+    /// Garde : `TooLarge` sur la table des matières garde le `NotFound` d'origine.
+    #[tokio::test]
+    async fn find_article_on_a_date_reads_the_dated_toc_too_large_keeps_the_original_not_found() {
+        let rig = Rig::tuned(|setup| setup.tuning.max_body_bytes = 100_000).await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        by_number(&rig, LAW, "19", UNKNOWN_NUMBER, 0).await;
+        toc(&rig, "2000-01-01", &" ".repeat(150_000), 0).await;
+
+        let result = rig.corpus.find_article(&law(), "19", on("2000-01-01")).await;
+
+        assert_eq!(result.unwrap_err(), not_found_in_search());
+    }
+
+    /// Garde : un échec du jour (`Today`) ne rejoue pas le repli par les versions.
+    #[tokio::test]
+    async fn find_article_today_miss_does_not_run_the_version_fallback() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        by_number(&rig, LAW, "99", UNKNOWN_NUMBER, 1).await;
+        never(&rig.server, &route("/search/canonicalArticleVersion")).await;
+        never(&rig.server, &route("/consult/lawDecree")).await;
+        never(&rig.server, &route("/consult/getArticle")).await;
+
+        let result =
+            rig.corpus.find_article(&law(), "99", ArticleAt::Today(day("2026-10-28"))).await;
+
+        assert_eq!(result.unwrap_err(), not_found_in_search());
+        assert_eq!(calls(&rig, "/consult/getArticleWithIdAndNum").await, 1);
+    }
+
+    /// Garde : un hit de la recherche dont la lecture échoue ne déclenche pas le repli.
+    #[tokio::test]
+    async fn find_article_search_hit_then_getarticle_not_found_does_not_run_the_fallback() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        serve(&rig, "/search", &exact_article_request("9", 1), json_reply(200, EXACT_9), 1).await;
+        read_version(&rig, "LEGIARTI000006419288", UNKNOWN_NUMBER, 1).await;
+        never(&rig.server, &route("/consult/getArticleWithIdAndNum")).await;
+        never(&rig.server, &route("/search/canonicalArticleVersion")).await;
+
+        let result = rig.corpus.find_article(&civil_code(), "9", on("2026-10-28")).await;
+
+        assert!(matches!(result, Err(CorpusError::NotFound { .. })), "{result:?}");
+    }
+
+    /// Garde : version unique dont la liste canonique est illisible, avant son début : `NotFound`
+    /// comme en 1.1.0, jamais une erreur nouvelle.
+    #[tokio::test]
+    async fn find_article_on_a_date_before_a_single_version_loda_start_stays_not_found() {
+        let rig = Rig::new().await;
+        token_mock(&rig.server, "tok-1", 1).await;
+        empty_search(&rig).await;
+        load_codes(&rig).await;
+        let single = law_article("LEGIARTI000047000001", "3", "VIGUEUR", MS_2019_01_01, None);
+        by_number(&rig, LAW, "3", &single, 0).await;
+        canonical(&rig, "LEGIARTI000047000001", CANONICAL_NO_BYTE, 0).await;
+        serve_or_lenient(
+            &rig,
+            "/consult/getArticleByCid",
+            &json!({"cid": "LEGIARTI000047000001"}),
+            json_reply(200, r#"{"listArticle":[]}"#),
+            0,
+        )
+        .await;
+        toc(&rig, "2010-01-01", &toc_body(&[]), 0).await;
+
+        let result = rig.corpus.find_article(&law(), "3", on("2010-01-01")).await;
+
+        assert_eq!(result.unwrap_err(), not_found_in_search());
     }
 
     // ---- find_by_number : /search -----------------------------------------------------------
