@@ -105,15 +105,19 @@ Le test de bout en bout de la 1.1.0 en production (2026-11-02) a confirmé 21 d�
 
 ### Dérogation de rejeu de production (AM-88)
 
-1. **Objet.** Le rejeu de non-régression de la 1.1.1 (plan de la 1.1.1, section 6) peut appeler l'API PISTE de production, en lecture seule : rejeu de base de la 1.1.0, pilote A/A (bruit), mesure de la borne `date_fin` (porte T11 de l'unité U14, au moins 130 lectures), « porte 0 » de chaque vague (environ 300 appels) et rejeu complet final (2 092 appels sur trois serveurs : 1.1.0, 1.1.1, 1.1.0).
+1. **Objet.** Le rejeu de non-régression de la 1.1.1 (plan de la 1.1.1, section 6) peut appeler l'API PISTE de production, en lecture seule : rejeu de base de la 1.1.0, pilote A/A (bruit), mesure de la borne `date_fin` (porte T11 de l'unité U14, au moins 130 lectures), « porte 0 » de chaque vague (environ 300 appels) et rejeu complet final (2 092 appels, deux binaires : 1.1.0 et 1.1.1, quatre lectures de base par appel dans l'ordre ABBA ou BAAB tiré par appel, puis les relectures que le classement demande).
 2. **Débit.** Débit PISTE **cumulé** de 1 requête par seconde au plus : un seul serveur actif à la fois, `LF_PISTE_RPS=1`, `LF_PISTE_BURST=1`, `LF_PISTE_CONCURRENCY=1`. Sur `[rate_limited]`, attente du délai donné.
 3. **Lancement.** À la main, sur la machine du mainteneur, par le lanceur `legifrance-run` (hors dépôt, relu par le propriétaire et par l'agent `security-auditor` avant installation). Le lanceur lit lui-même les identifiants ; aucun secret en argument, en fichier du dépôt, en fixture ni en journal. Jamais en CI.
 4. **Portée.** Seulement les binaires de la liste autorisée du lanceur (1.1.0 sauvegardée, candidats 1.1.1 construits depuis la branche de correctifs). Sorties hors dépôt (`/var/tmp/lf-nr/`), droits 0700. Les réponses rejouées ne deviennent pas des fixtures.
 5. **Durée.** Cette dérogation vaut pour la 1.1.1 seulement. Elle tombe à la publication de la 1.1.1, ou à la décision du propriétaire de l'arrêter.
+6. **Seuils du rejeu (fixés par le propriétaire le 2026-11-04).** PISTE répond depuis plusieurs répliques prises presque en alternance : le pilote A/A/A n° 2 du 2026-11-03 (330 appels, la 1.1.0 contre elle-même) en trouve 15 sur 327 qui varient d'eux-mêmes (4,6 %, intervalle de Wilson à 95 % : 2,8 % à 7,4 %), sans aucune fausse alerte. Une lecture de la 1.1.1 n'est excusée que si sa forme exacte a été produite par la 1.1.0 sur le même appel ; les seuils ci-dessous ne disent que quand le rejeu est trop bruité pour être cru, ou ce qui reste à relire.
+   - **Borne de bruit : 8 %** des appels classés (le plan en prévoyait 2 %, que PISTE dépasse seul). Au-delà, le rejeu ne valide rien.
+   - **Relectures sans préfixe.** Un appel douteux est relu dans un processus neuf, sans rejouer les appels qui le précèdent dans sa session, sauf si sa réponse dépend de la session : page > 1 d'une recherche dans un code, appels relus « à froid / à chaud ». Un nouveau pilote A/A court valide ce changement (aucune fausse alerte) avant le rejeu final, qui tient alors dans une journée de Paris.
+   - **Couverture étroite bloquante.** Un appel bruité où la 1.1.1 ne rend que la forme majoritaire de la 1.1.0, sans que l'absence de l'autre forme soit significative (drapeau `B_SUPPORT_ETROIT` du harnais), bloque la release tant qu'il n'a pas été relu à la main, avec des lectures de plus si besoin : une régression d'ordre figée sur la forme majoritaire (fréquence 0,7 ou plus) n'est pas détectée autrement.
 
 ## Conséquences
 
-- La release 1.1.1 exige un rejeu complet qui PASSE (aucun écart inattendu, indéterminé ou instable) sur la tête de la branche de correctifs avant la fusion. Sans rejeu, la release est suspendue, sauf accord écrit du propriétaire de livrer sans rejeu.
+- La release 1.1.1 exige un rejeu complet qui PASSE (aucun écart inattendu, indéterminé ou instable, bruit sous la borne de 8 %, chaque appel à couverture étroite relu à la main) sur la tête de la branche de correctifs avant la fusion. Sans rejeu, la release est suspendue, sauf accord écrit du propriétaire de livrer sans rejeu.
 - Le quota de production réel n'est pas documenté : un `[rate_limited]` est noté au compte rendu.
 - La politique Q3 reste inchangée pour tout le reste : sandbox par défaut, production jamais en CI.
 
