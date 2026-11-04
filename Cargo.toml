@@ -93,7 +93,7 @@ similar = { version = "3.2", default-features = false, features = ["std", "text"
 # M9 (lf-adapter-dila) : défauts de tantivy sauf `columnar-zstd-compression`, qui tire zstd 0.13 (zstd,
 # zstd-safe et zstd-sys : RUSTSEC-2026-0391, -0398, -0403 et -0410, `cargo deny` rouge). `mmap` est gardé
 # (index sur disque, D21) ; la compression des documents reste lz4 (ADR-0018)
-tantivy = { version = "0.26", default-features = false, features = ["mmap", "stopwords", "lz4-compression", "stemmer"] }
+tantivy = { version = "0.27", default-features = false, features = ["mmap", "stopwords", "lz4-compression", "stemmer"] }
 quick-xml = "0.42"
 tar = { version = "0.4", default-features = false }
 tempfile = "3"
