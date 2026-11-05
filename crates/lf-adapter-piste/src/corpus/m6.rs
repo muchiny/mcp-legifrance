@@ -137,9 +137,14 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     /// les LODA ni les articles de code d'avant ~1994-1999. Étage 1 : la version courante
     /// (`getArticleWithIdAndNum`) puis, si elle ne couvre pas la date, les versions de l'article
     /// (`canonicalArticleVersion`) et la règle [`in_force_on`] ; étage 2, pour un texte non
-    /// codifié seulement : sa table des matières à la date. Une erreur de transport ou
-    /// d'authentification est rendue ; l'absence reste le `NotFound` de la recherche, comme en
-    /// 1.1.0.
+    /// codifié seulement : sa table des matières à la date. L'absence reste le `NotFound` de la
+    /// recherche, comme en 1.1.0. Ne sont pas rendus, mais rendus en ce même `NotFound` : l'échec
+    /// des versions de l'article (`canonicalArticleVersion` : erreur amont, réseau et 5xx compris,
+    /// réponse trop grosse ou illisible) et celui de `/list/code` (toute erreur sauf
+    /// l'authentification). Sont rendues : les autres erreurs des versions (authentification,
+    /// quota, délai, requête refusée) et toute erreur de la lecture de la version courante, d'une
+    /// version choisie, du sommaire ou de l'article qu'il liste (hors absence, et hors réponse
+    /// trop grosse ou illisible du sommaire).
     async fn article_by_versions(
         &self,
         text: &LegiTextId,
