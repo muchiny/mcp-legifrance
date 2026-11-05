@@ -6438,6 +6438,11 @@ mod tests {
             ("1er bis", vec!["1"], CheckStatus::Invalid),
             ("10", vec!["1"], CheckStatus::Invalid),
             ("102", vec!["10-2"], CheckStatus::Invalid),
+            // Le suffixe « er » n'est retiré qu'après un chiffre (revue finale).
+            ("1 ter", vec!["1 t"], CheckStatus::Invalid),
+            ("1 quater", vec!["1 quat"], CheckStatus::Invalid),
+            ("Aer", vec!["A"], CheckStatus::Invalid),
+            ("1ER", vec!["1"], CheckStatus::Verified),
         ];
         for (actual, cited, expected) in cases {
             let variants: Vec<String> = cited.iter().map(|v| (*v).to_owned()).collect();
@@ -7720,6 +7725,35 @@ mod tests {
                 vec![
                     find_request(Fond::Cetat, NumberKind::Decision, "111111"),
                     find_request(Fond::Cetat, NumberKind::Decision, "222222"),
+                    get_request(ROUQUETTE),
+                ]
+            );
+            assert_eq!(corpus.unserved(), 0);
+        }
+
+        /// Revue finale (U11) : le filtre vaut pour chaque numéro, y compris le deuxième. Le deuxième
+        /// ne ramène qu'un tribunal : il est écarté à son tour, le troisième donne la décision.
+        #[tokio::test]
+        async fn a_second_number_found_only_in_another_court_does_not_stop_the_third() {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![]));
+            corpus.push_find_by_number(Ok(vec![titled(
+                Fond::Cetat,
+                "CETATEXT000051655318",
+                "Tribunal administratif de Paris",
+            )]));
+            corpus.push_find_by_number(Ok(vec![titled(Fond::Cetat, ROUQUETTE, ROUQUETTE_TITLE)]));
+            corpus.push_get_decision(Ok(decision(ROUQUETTE, civil(1999, 3, 5), None)));
+            let item = cited(&[111_111, 222_222, 333_333], civil(1999, 3, 5));
+            let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+            assert_eq!(status(&resolution), CheckStatus::Verified);
+            assert_eq!(record_id(&resolution).as_deref(), Some(ROUQUETTE));
+            assert_eq!(
+                corpus.seen_requests(),
+                vec![
+                    find_request(Fond::Cetat, NumberKind::Decision, "111111"),
+                    find_request(Fond::Cetat, NumberKind::Decision, "222222"),
+                    find_request(Fond::Cetat, NumberKind::Decision, "333333"),
                     get_request(ROUQUETTE),
                 ]
             );

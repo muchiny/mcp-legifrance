@@ -138,7 +138,7 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
     /// (`getArticleWithIdAndNum`) puis, si elle ne couvre pas la date, les versions de l'article
     /// (`canonicalArticleVersion`) et la règle [`in_force_on`] ; étage 2, pour un texte non
     /// codifié seulement : sa table des matières à la date. L'absence reste le `NotFound` de la
-    /// recherche, comme en 1.1.0. Ne sont pas rendus, mais rendus en ce même `NotFound` : l'échec
+    /// recherche, comme en 1.1.0. Sont masqués en ce même `NotFound` : l'échec
     /// des versions de l'article (`canonicalArticleVersion` : erreur amont, réseau et 5xx compris,
     /// réponse trop grosse ou illisible) et celui de `/list/code` (toute erreur sauf
     /// l'authentification). Sont rendues : les autres erreurs des versions (authentification,

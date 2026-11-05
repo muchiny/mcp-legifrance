@@ -737,6 +737,21 @@ mod tests {
         }
     }
 
+    /// Revue finale (U08) : un crochet qui s'ouvre avant le numéro et se ferme après lui masque
+    /// la virgule ; un nom de partie TA ou CAA entre parenthèses, crochets ou guillemets ne ferme
+    /// rien (la fermeture ne s'évalue qu'à profondeur nulle).
+    #[test]
+    fn a_bracket_around_the_number_hides_the_comma_and_a_court_name_inside_one_closes_nothing() {
+        assert_eq!(commas("Société X [en liquidation, n° 123456]"), Vec::<usize>::new());
+        for text in [
+            "Société X (TA Paris), n° 123456",
+            "Société X [CAA Paris], n° 123456",
+            "Société X « TA Paris », n° 123456",
+        ] {
+            assert_eq!(commas(text).len(), 1, "{text}");
+        }
+    }
+
     /// U08 (a) : une seconde référence qui porte l'ancre « CE » est lue seule, avec sa date et
     /// son numéro ; la date de la première ne lui est jamais prêtée.
     #[test]
