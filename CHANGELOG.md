@@ -7,6 +7,7 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - **Tool surface** : obligatoire dès que le verrou des descripteurs change.
 - **Parity** : clé de `docs/plan/annexes/A-parite.md` §4.
 - **Protocol** : versions MCP, ères, montée de rmcp.
+- **Documentation** : correction d'une phrase fausse d'une section déjà publiée (jamais réécrite : l'erreur y reste, la correction est ici) ou ajout d'une limite connue, sans changement de comportement.
 
 `[Unreleased]` reste en tête. Chaque version portera sa date ISO et un lien de comparaison. La première version publiée est la 1.0.0.
 
@@ -73,6 +74,15 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ### Documentation
 
+Corrections de phrases fausses ou trop fortes des sections `[1.0.1]` et `[1.1.0]`, relevées par le test de bout en bout de la 1.1.0 en production (2026-11-02). Ces deux sections restent telles que publiées ; le contrat (`docs/plan/05-outils-mcp.md`) est corrigé. Aucun code, aucun descripteur ne change.
+
+- `fr_get_related` (`[1.1.0]`, Added, D-05) : la phrase « ce qui rend accessibles les liens « cités par » d'un article très cité (L. 1234-9 du Code du travail : 254 liens, 100 servis jusque-là) » est fausse pour cet article. Ses 254 liens sont tous `cited_by` : `relation=cited_by` rend `total` 254, `truncated` vrai et 100 liens, sans page suivante, comme sans filtre. Le filtre sert aux articles qui mêlent `cites` et `cited_by` et dont les 100 liens servis viennent d'une seule relation ; une relation de plus de 100 liens reste tronquée à 100 : limite connue, hors 1.1.1. (related_diff-4)
+- `fr_verify_citations` (`[1.0.1]`, Changed, L2-07) : « `verified` de confiance moyenne » pour une plage d'articles ne vaut que pour `fr_resolve`. La sortie de `fr_verify_citations` n'a pas de champ de confiance ; la réserve y est portée par la note « Only the first and last articles of the range were checked. ». (rejeu-4-1)
+- `fr_get_deliberation` (`[1.1.0]`, Changed, D-09) : le résumé « dispositif » d'une mise en demeure n'est établi que sur MED-2024-150 (ADR-0022). Trois mises en demeure de 2019 sur trois restent en `lead` (modèle sans « II- Mesures correctrices prononcées par la CNIL »). Aucune note ne dit que le dispositif n'a pas été trouvé ; seuls `summary_source` = `lead` et `summary_truncated` vrai le laissent entendre. La description de l'outil n'est pas reformulée en 1.1.1. (nouveautes_1_1_0-1)
+- `fr_get_deliberation` (`[1.1.0]`, Changed, D-09) : la liste « avec l'amende, l'injonction, l'astreinte et la publicité prononcées » décrit le contenu possible du dispositif, pas le résumé : celui-ci est plafonné à 1 200 caractères et une sanction longue peut être coupée avant l'astreinte ou la publicité (`summary_truncated` vrai ; `detail="full"` ou `focus` pour la suite). (cnil_kali_acco-9)
+- `fr_verify_citations` (`[1.0.1]`, Changed, L1-07) : la phrase sur « règlement (UE) 2016/679 du 27 avril 2016 (RGPD), art. 17 » ne vaut qu'avec le sigle entre parenthèses. Sans sigle (« le règlement (UE) 2016/679 du 27 avril 2016, art. 17 »), l'article reste `code_article` `ambiguous` avec le conseil de nommer le code : limite connue. (verify_citations-7)
+- Contrat 05 : §5.11 (`fr_get_related`) dit au présent que la description de l'outil mentionne `relation` ; §5.12 (`fr_diff_article`) cite le texte réellement publié de la description, au lieu du texte prévu avant D-12 et d'un test « à écrire ».
+- ADR-0022 et ADR-0023 passent de « Proposé » à « Accepté » (2026-11-02, fusion de la PR #63), avec AM-72 à AM-77 de `docs/plan/00-decisions.md` (AM-76 et AM-77 vont au-delà de la lettre de D25 : mise en cohérence du statut) et les cases de `docs/adr/README.md`. Pour ADR-0023, le recalcul du plafond de `tools/list` (36 500 octets, règle d'AM-63) est confirmé par le propriétaire à l'acceptation du plan 1.1.1 (2026-11-02).
 - `docs/plan/05-outils-mcp.md` (champ `note`, 1.0.1 L3-13) : le contrat décrivait un texte unique pour les articles LEGIARTI et KALIARTI, que le CHANGELOG de la 1.0.1 reprenait ; il donne maintenant une fin de phrase par famille et par cas (état terminé, `DENONCE`). La phrase de la 1.0.1 reste telle quelle (historique) ; sa correction est celle-ci. (F10)
 - Journal d'audit : `docs/plan/06-qualite.md` §11.5 (diagramme et étapes 4 et 5), `docs/plan/02-architecture.md` §3.5 et la documentation du crate `lf-adapter-audit` disent que le contrôle de la queue du journal se fait à chaque ajout, sous le verrou, et ce que devient un fragment.
 - `docs/plan/03-domaine.md` §7.9, `05-outils-mcp.md` et `07-feuille-de-route.md` : le dispositif des ordonnances du Conseil d'État et des CAA (en-tête, clôtures, pieds de page), V-111 partiellement levée (sept textes lus le 2026-11-02). (U13)
@@ -88,6 +98,7 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - `docs/plan/05-outils-mcp.md` (§5.12, sémantique de `date_fin`, exemple et erreurs de `fr_diff_article` ; §5.2, note de `fr_get_act`) et `docs/plan/03-domaine.md` (§ dates de version) : la `date_fin` d'une version est le premier jour hors vigueur (`date_debut <= D < date_fin`), au lieu de « `date_debut..=date_fin` » ; le point ouvert « dernière version abrogée au jour de sa `date_fin` » est clos par la mesure du 2026-11-02, et l'exemple de `fr_diff_article` recale la fin de A sur le début de B.
 - `docs/plan/05-outils-mcp.md` §5.9 (repli plein texte du Conseil d'État, limites), `docs/plan/annexes/B-citations.md` (grammaire `ce_run` : tiret et barre entre deux numéros, ligne du Conseil d'État de la table de résolution, note `OnlyOneNumberChecked`), `docs/plan/annexes/C-api-legifrance.md` (`num` CETAT d'une décision jointe) et `docs/plan/09-risques-et-questions.md` (V-112 : relevés non faits). L'entrée d'ADR (AM-83) est tenue par l'intégrateur. (U11)
 - `docs/plan/05-outils-mcp.md` §5.9 (`not_found` d'un article de texte exige le sommaire), `docs/plan/annexes/B-citations.md` §7.2 (lecture du sommaire après l'échec de `find_article`, un seul `get_article`) et §7.10 (note `ArticleWithoutVersion`), `docs/plan/04-adapter-piste.md` §7.2 (V-118 : un article modificatif sans version en vigueur n'est pas rendu par `getArticleWithIdAndNum`, constat de production) et `docs/plan/annexes/C-api-legifrance.md` : le contrat est respecté par le code (U10, AM-87).
+
 
 ## [1.1.0] - 2026-11-02
 

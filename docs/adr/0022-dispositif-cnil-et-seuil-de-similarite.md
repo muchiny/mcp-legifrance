@@ -1,10 +1,10 @@
 # ADR-0022 — Règle de dispositif de la CNIL et seuil de similarité de `fr_diff_article`
 
-- **Statut** : **Proposé** (accepté à la fusion de la PR 2 de la 1.1.0 ; décisions D-09 et D-06 du plan de correction, revue finale du 2026-11-02)
+- **Statut** : **Accepté** le 2026-11-02, à la fusion de la PR #63 (PR 2 de la 1.1.0) ; décisions D-09 et D-06 du plan de correction, revue finale du 2026-11-02
 - **Date** : 2026-11-02
 - **Jalons concernés** : version 1.1.0 (tâches D-09, D-06 et D-06-suite)
 - **Questions liées** : aucune ouverte ; le seuil est **provisoire** côté amendements (voir plus bas)
-- Amendements : AM-74 et AM-75 (00 §14), eux aussi proposés jusqu'à la fusion. Amende 03 §7.9 (résumé) et 05 §5.12. Les décisions Q20 = B et le plafond de `tools/list` de la même PR sont dans l'[ADR-0023](0023-article-entier-et-plafond-tools-list.md).
+- Amendements : AM-74 et AM-75 (00 §14), acceptés avec lui. Amende 03 §7.9 (résumé) et 05 §5.12. Les décisions Q20 = B et le plafond de `tools/list` de la même PR sont dans l'[ADR-0023](0023-article-entier-et-plafond-tools-list.md).
 
 ## Contexte
 
