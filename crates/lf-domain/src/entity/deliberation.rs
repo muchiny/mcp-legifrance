@@ -468,6 +468,21 @@ mod tests {
     }
 
     #[test]
+    fn a_number_ending_with_the_title_year_keeps_it_and_adds_no_date() {
+        // Cas trouvé par la propriété ci-dessous : le numéro finit par l'année du titre ; la
+        // citation garde le numéro entier et n'ajoute pas la date du titre.
+        let d = record(
+            Some("AA-2000-2017"),
+            None,
+            None,
+            None,
+            Some("Décision AA-2000-2017 du 31 décembre 2017"),
+            None,
+        );
+        assert_eq!(citation_of(&d), "CNIL, délibération n° AA-2000-2017");
+    }
+
+    #[test]
     fn short_title_with_placeholder_date_is_never_the_fallback() {
         // Sans numéro et sans date : le titre court est fabriqué avec la date de repli ; il n'est
         // pas cité. Le titre long (s'il y en a un) puis l'identifiant prennent le relais.
@@ -514,7 +529,10 @@ mod tests {
                 prop_assert!(citation.ends_with(&num), "{citation}");
                 prop_assert!(!citation.contains(" du "), "{citation}");
                 prop_assert!(!citation.contains("décembre"), "{citation}");
-                prop_assert!(!citation.contains("2017"), "{citation}");
+                // L'année se cherche hors du numéro, qui peut lui-même finir par « 2017 »
+                // (« AA-2000-2017 », trouvé par la mutation finale du 2026-11-05).
+                let head = citation.strip_suffix(num.as_str()).unwrap_or_default();
+                prop_assert!(!head.contains("2017"), "{citation}");
             }
         }
     }
