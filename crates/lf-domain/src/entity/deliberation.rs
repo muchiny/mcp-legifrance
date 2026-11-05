@@ -53,7 +53,7 @@ impl Deliberation {
     /// Clôture de mise en demeure : le titre long commence par « Clôture » ou « Courrier de
     /// clôture ». Sans titre long, `nature_delib` « Cloture » le dit. Un titre long qui ne
     /// commence pas ainsi l'emporte sur `nature_delib` (CNILTEXT000023602913).
-    fn is_closure(&self) -> bool {
+    pub fn is_closure(&self) -> bool {
         match self.long_title() {
             Some(long) => is_cnil_closure_title(long),
             None => self.nature_delib.as_deref().is_some_and(|kind| fold(kind).trim() == "cloture"),

@@ -61,17 +61,20 @@ pub(crate) struct DeliberationView {
 ///
 /// Le titre court n'est essayé que si le titre long est absent ou blanc, et seulement si la date
 /// de l'acte est connue (`date_known`) : il est fabriqué par l'amont avec la même date, que le
-/// mapper retire quand ce n'est qu'un repli (AM-80).
+/// mapper retire quand ce n'est qu'un repli (AM-80). Jamais pour une clôture (`closure`) : ce titre
+/// porte la date de la lettre de clôture, qui n'est jamais rendue, même quand la clôture n'est
+/// reconnue que par `nature_delib` et n'a pas de titre long.
 fn rendered_title(
     title_long: Option<&str>,
     title: Option<&str>,
     citation: &str,
     date_known: bool,
+    closure: bool,
 ) -> Option<String> {
     if title_long.is_some_and(|long| !long.trim().is_empty()) {
         return title_unless_in_citation(title_long, citation);
     }
-    if date_known { title_unless_in_citation(title, citation) } else { None }
+    if date_known && !closure { title_unless_in_citation(title, citation) } else { None }
 }
 
 impl From<GetDeliberationOutput> for DeliberationView {
@@ -86,6 +89,7 @@ impl From<GetDeliberationOutput> for DeliberationView {
                 deliberation.title.as_deref(),
                 citation,
                 deliberation.date_texte.is_some(),
+                deliberation.is_closure(),
             ),
             num: deliberation.num.clone(),
             nature: deliberation.nature.clone(),
@@ -247,7 +251,7 @@ mod tests {
     #[test]
     fn title_long_rule() {
         let rendered = |title_long: Option<&str>, title: Option<&str>, citation: &str| {
-            rendered_title(title_long, title, citation, true)
+            rendered_title(title_long, title, citation, true, false)
         };
         // Le titre long qui n'est pas dans la citation l'emporte sur le titre court.
         assert_eq!(rendered(Some(TITLE_LONG), Some(TITLE), CITATION), Some(TITLE_LONG.to_owned()));
@@ -324,6 +328,32 @@ mod tests {
         };
         let actual = view(closure);
         assert_eq!(actual["citation"], long);
+        assert!(actual.get("title").is_none(), "{actual}");
+        assert!(!actual.to_string().contains("16 septembre"), "{actual}");
+    }
+
+    /// Revue finale (U06) : une clôture reconnue par `nature_delib` seule, sans titre long, garde
+    /// sa citation neutre ou l'identifiant, et `title` n'est jamais le titre court daté de la lettre.
+    #[test]
+    fn a_closure_without_long_title_never_renders_the_letter_date() {
+        let closure = Deliberation {
+            num: Some("MED-2022-060".to_owned()),
+            nature: Some("Décision".to_owned()),
+            nature_delib: Some("Cloture".to_owned()),
+            date_texte: CivilDate::new(2022, 9, 16),
+            title: Some("Décision MED-2022-060 du 16 septembre 2022".to_owned()),
+            title_long: None,
+            ..free()
+        };
+        let actual = view(closure.clone());
+        assert_eq!(actual["citation"], "CNIL, clôture de la décision n° MED-2022-060");
+        assert!(actual.get("title").is_none(), "{actual}");
+        // La date de la lettre n'est pas une date d'acte rendue ailleurs que dans le champ `date`.
+        assert!(!actual["citation"].to_string().contains("16 septembre"), "{actual}");
+        // Sans numéro non plus : la citation, obligatoire, est le repli sur l'identifiant.
+        let numberless = Deliberation { num: None, ..closure };
+        let actual = view(numberless);
+        assert_eq!(actual["citation"], "Légifrance CNILTEXT000053352643");
         assert!(actual.get("title").is_none(), "{actual}");
         assert!(!actual.to_string().contains("16 septembre"), "{actual}");
     }
