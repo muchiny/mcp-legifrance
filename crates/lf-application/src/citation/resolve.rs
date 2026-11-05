@@ -914,17 +914,21 @@ impl<'a, C: LegalCorpus> Resolver<'a, C> {
         let mut number = String::new();
         for form in &spec.forms {
             match self.by_number(spec.fond, spec.kind, form).await {
-                Ok(found) if found.is_empty() => {}
-                Ok(found) => {
-                    hits = found;
-                    number.clone_from(form);
-                    break;
+                Ok(mut found) => {
+                    // Le filtre de titre s'applique à chaque forme : un numéro qui ne ramène que
+                    // d'autres juridictions (même numéro à un TA ou une CAA) n'arrête pas la
+                    // recherche, les numéros suivants sont essayés (U11, revue finale).
+                    if let Some(filter) = spec.title_filter {
+                        found.retain(|hit| hit.title.as_deref().is_none_or(filter));
+                    }
+                    if !found.is_empty() {
+                        hits = found;
+                        number.clone_from(form);
+                        break;
+                    }
                 }
                 Err(error) => return Resolution::failed(error),
             }
-        }
-        if let Some(filter) = spec.title_filter {
-            hits.retain(|hit| hit.title.as_deref().is_none_or(filter));
         }
         if hits.is_empty()
             && let Some(cited) = spec.joined_fallback.as_deref()
@@ -7692,6 +7696,34 @@ mod tests {
             assert_eq!(status(&resolution), CheckStatus::Verified);
             assert_eq!(corpus.calls_of("search"), 1);
             assert_eq!(corpus.calls_of("get_decision"), 1);
+        }
+
+        /// Revue finale (U11) : le filtre de titre s'applique à chaque numéro, pas après le premier
+        /// qui rend un hit. Un premier numéro qui ne ramène qu'un tribunal ou une cour d'appel
+        /// administrative n'arrête pas la recherche : les numéros suivants sont essayés.
+        #[tokio::test]
+        async fn a_first_number_found_only_in_another_court_does_not_stop_the_next_numbers() {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![titled(
+                Fond::Cetat,
+                "CETATEXT000051655318",
+                "Tribunal administratif de Paris",
+            )]));
+            corpus.push_find_by_number(Ok(vec![titled(Fond::Cetat, ROUQUETTE, ROUQUETTE_TITLE)]));
+            corpus.push_get_decision(Ok(decision(ROUQUETTE, civil(1999, 3, 5), None)));
+            let item = cited(&[111_111, 222_222], civil(1999, 3, 5));
+            let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+            assert_eq!(status(&resolution), CheckStatus::Verified);
+            assert_eq!(record_id(&resolution).as_deref(), Some(ROUQUETTE));
+            assert_eq!(
+                corpus.seen_requests(),
+                vec![
+                    find_request(Fond::Cetat, NumberKind::Decision, "111111"),
+                    find_request(Fond::Cetat, NumberKind::Decision, "222222"),
+                    get_request(ROUQUETTE),
+                ]
+            );
+            assert_eq!(corpus.unserved(), 0);
         }
 
         #[tokio::test]
