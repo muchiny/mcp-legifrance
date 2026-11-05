@@ -598,6 +598,13 @@ mod note_lengths {
                         })
                     })
                 })
+                .chain(labels().into_iter().flat_map(|label| {
+                    nums().into_iter().map(move |num| Note::NotInSnapshot {
+                        family: "article",
+                        value: format!("{label}, art. {num}"),
+                        date: Some(version("2026-12-31")),
+                    })
+                }))
                 .collect(),
             Kind::NoCitationRecognised => vec![Note::NoCitationRecognised],
             Kind::OtherCitations => vec![Note::OtherCitations { count: usize::MAX }],
@@ -658,10 +665,11 @@ mod note_lengths {
     /// Les variantes qui adaptent leur longueur au plafond (`fit`, `join_fitting`, `quote_gap_text`) :
     /// elles peuvent remplir les 200 caractères sans rien perdre d'utile. Toutes les autres, aux
     /// valeurs réalistes, restent strictement en dessous : à 200 pile, elles seraient rognées.
-    const FILLS_THE_CAP: [Kind; 6] = [
+    const FILLS_THE_CAP: [Kind; 7] = [
         Kind::NotInForce,
         Kind::NoRecordAtDate,
         Kind::NotInSandbox,
+        Kind::NotInSnapshot,
         Kind::ArticleWithoutVersion,
         Kind::Chain,
         Kind::WithQuoteMismatch,
@@ -866,6 +874,15 @@ mod note_lengths {
                     }
                     .text();
                     assert!(sandbox.ends_with(hint), "{sandbox}");
+                    let snapshot = Note::NotInSnapshot {
+                        family: "article",
+                        value: format!("{label}, art. {num}"),
+                        date: Some(version("2026-12-31")),
+                    }
+                    .text();
+                    assert!(
+                        snapshot.ends_with("in the local DILA snapshot, which may be out of date.")
+                    );
                 }
             }
         }

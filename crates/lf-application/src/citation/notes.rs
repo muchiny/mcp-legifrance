@@ -5,10 +5,11 @@
 //! paramètre n'est une chaîne libre venue du texte soumis : le titre d'un code vient du
 //! dictionnaire statique (`CodeKey::title`), les familles, juridictions et motifs sont des
 //! vocabulaires fermés (`&'static str`), les dates sont rendues en ISO, les numéros par leur forme
-//! canonique. **Une exception, le titre d'une loi** (`NotInForce` et `ArticleWithoutVersion` d'un
-//! texte non codifié) : c'est la citation de l'enregistrement trouvé, un texte de l'API dont le
-//! mapper de recherche n'aplatit que les espaces ; il n'est borné que par [`Note::text`], qui le
-//! raccourcit par « … » (200 caractères au plus pour la note entière). [`Note::text`] la rend en
+//! canonique. **Une exception, le titre d'une loi** (`NotInForce`, `ArticleWithoutVersion` et, en
+//! mode hors ligne, `NotInSnapshot` d'un texte non codifié) : c'est la citation de l'enregistrement
+//! trouvé, un texte de l'API dont le mapper de recherche n'aplatit que les espaces ; il n'est
+//! borné que par [`Note::text`], qui le raccourcit par « … » (200 caractères au plus pour la note
+//! entière). [`Note::text`] la rend en
 //! anglais, bornée à 200 caractères (assainissement des sorties, 05 §5.9) ; le gabarit et ses
 //! paramètres vivent côte à côte pour ne pas pouvoir diverger.
 
@@ -714,11 +715,13 @@ impl Note {
                     earlier_versions(family, *date_given)
                 )
             }),
-            Self::NotInSnapshot { family, value, date } => format!(
-                "No {family} record matches {value}{} in the local DILA snapshot, which may be out \
-                 of date.",
-                on(*date)
-            ),
+            Self::NotInSnapshot { family, value, date } => fit(value, |value| {
+                format!(
+                    "No {family} record matches {value}{} in the local DILA snapshot, which may \
+                     be out of date.",
+                    on(*date)
+                )
+            }),
             Self::NoCitationRecognised => NO_CITATION.to_owned(),
             Self::OtherCitations { count } => format!(
                 "{count} more citation(s) found; only the first is resolved, use \
@@ -1404,6 +1407,38 @@ mod tests {
             date: Some(date("2026-11-01")),
         };
         assert!(!snapshot.text().contains("earlier or later"));
+    }
+
+    /// Revue finale (U10) : en mode hors ligne le libellé est le titre amont complet ; il rétrécit
+    /// (comme pour `NotInSandbox`) au lieu de laisser le rognage final couper la fin de la note.
+    #[test]
+    fn a_long_title_does_not_clip_the_tail_of_the_snapshot_note() {
+        let title = "Loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs et \
+                     portant modification de la loi n° 86-1290 du 23 décembre 1986";
+        let note = Note::NotInSnapshot {
+            family: "article",
+            value: format!("{title}, art. 99"),
+            date: Some(date("2020-01-01")),
+        }
+        .text();
+        assert!(note.chars().count() <= NOTE_MAX_CHARS, "{note}");
+        assert!(
+            note.ends_with(" on 2020-01-01 in the local DILA snapshot, which may be out of date."),
+            "{note}"
+        );
+        assert!(note.contains('…') && note.contains(", art. 99 on 2020-01-01"), "{note}");
+        // Un libellé court reste rendu tel quel, octet pour octet.
+        let short = Note::NotInSnapshot {
+            family: "article",
+            value: "Code civil, art. 9999".to_owned(),
+            date: Some(date("2026-11-01")),
+        }
+        .text();
+        assert_eq!(
+            short,
+            "No article record matches Code civil, art. 9999 on 2026-11-01 in the local DILA \
+             snapshot, which may be out of date."
+        );
     }
 
     #[test]
