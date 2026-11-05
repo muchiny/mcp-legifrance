@@ -1425,13 +1425,11 @@ fn article_found(
         ResolvedRecord { validity: Validity::of(article), ..ResolvedRecord::of(id, article) };
     let official = Some(article.text.as_str().to_owned());
     if let Some(actual) = article.num.as_deref() {
-        let squashed = squash(actual);
-        let runs = digit_runs(actual);
-        // Les tirets comptent : « 242 » n'est pas « 24-2 » (mêmes lettres et chiffres, autres suites).
-        if !variants
-            .iter()
-            .any(|variant| squash(variant) == squashed && digit_runs(variant) == runs)
-        {
+        // Les tirets comptent : « 242 » n'est pas « 24-2 » (mêmes lettres et chiffres, autres
+        // suites). Même équivalence « 1er » / « 1 » que l'appariement du sommaire : un article lu
+        // sous ce numéro grâce au sommaire n'est pas un écart.
+        let cited: Vec<(String, Vec<String>)> = variants.iter().map(|v| number_shape(v)).collect();
+        if !same_number(actual, &cited) {
             let cited = variants.first().cloned().unwrap_or_default();
             return Resolution {
                 official,
@@ -6403,6 +6401,53 @@ mod tests {
             corpus.seen_requests()[1..],
             [find("1er"), find("1"), get_act_of(today()), get_article_of(1)]
         );
+    }
+
+    /// Revue finale (U10) : le sommaire apparie « 1er » à une citation « 1 » ; l'article lu porte
+    /// alors le numéro « 1er », et la comparaison de `article_found` doit admettre la même
+    /// équivalence (jamais un faux `invalid`), qu'il soit modificatif ou en vigueur.
+    #[tokio::test]
+    async fn a_toc_read_article_numbered_1er_verifies_a_cited_1() {
+        for read in
+            [amending(1, Some("1er")), ArticleText { num: Some("1er".into()), ..article(None) }]
+        {
+            for cited in ["1", "1er"] {
+                let corpus = law_with_toc(&[toc_entry(1, "1er", None)]);
+                corpus.push_get_article(Ok(read.clone()));
+                let resolution = resolve(&corpus, &law_article(cited)).await;
+                assert_eq!(status(&resolution), CheckStatus::Verified, "{cited:?} / {read:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn article_found_accepts_1_and_1er_in_both_directions_and_nothing_wider() {
+        let at = ArticleAt::Today(today());
+        let cases = [
+            ("1er", vec!["1"], CheckStatus::Verified),
+            ("1", vec!["1er", "1"], CheckStatus::Verified),
+            ("1", vec!["1"], CheckStatus::Verified),
+            ("1er", vec!["10"], CheckStatus::Invalid),
+            ("1er", vec!["11"], CheckStatus::Invalid),
+            ("1er", vec!["1 bis"], CheckStatus::Invalid),
+            ("1 bis", vec!["1"], CheckStatus::Invalid),
+            ("1er bis", vec!["1"], CheckStatus::Invalid),
+            ("10", vec!["1"], CheckStatus::Invalid),
+            ("102", vec!["10-2"], CheckStatus::Invalid),
+        ];
+        for (actual, cited, expected) in cases {
+            let variants: Vec<String> = cited.iter().map(|v| (*v).to_owned()).collect();
+            let found = article_found(&numbered(1, actual), &variants, at);
+            assert_eq!(status(&found), expected, "lu {actual:?} cité {cited:?}");
+            let amended = amending_found(
+                &ArticleText { etat: None, date_debut: None, ..numbered(1, actual) },
+                &variants,
+                at,
+                "Loi",
+                &"1".parse::<ArticleNum>().unwrap(),
+            );
+            assert_eq!(status(&amended), expected, "modificatif lu {actual:?} cité {cited:?}");
+        }
     }
 
     #[tokio::test]
