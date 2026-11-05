@@ -21,19 +21,33 @@
 //! - citations tranchées hors ligne (année future, sigle ambigu, droit de l'Union) et deux
 //!   répétitions, qui ne coûtent aucun appel.
 //!
-//! # Ce que les trois tests mesurent
+//! # Ce que les cinq tests mesurent
 //!
 //! - `fifty_mixed_citations_...` : la liste exacte des 50 verdicts (statut et note), les compteurs
 //!   (`found`, `checked`, `truncated`), le nombre **exact** d'appels du port, méthode par méthode
-//!   (85), sa borne documentée, la concurrence (au plus 4 résolutions en vol), la durée virtuelle
-//!   (entre le travail divisé par 4 et le travail en série, sous le budget de 80 % du délai) et la
-//!   ligne d'audit. Toutes les notes tiennent en 200 caractères.
+//!   (85), sa borne documentée, la concurrence (exactement 4 résolutions en vol au pic), la durée
+//!   virtuelle (entre le travail divisé par 4 et ce travail plus la plus longue chaîne d'une
+//!   citation : une concurrence réduite à 2 ou à 1 la dépasse) et la ligne d'audit. Les notes
+//!   sont comparées en entier, donc rien n'est rogné sans que le test le voie (le plafond de 200
+//!   caractères est gardé pour toutes les variantes par `note_lengths.rs`).
 //! - `a_slow_upstream_...` : chaque appel dure 4 s ; le budget de temps (80 % de 60 s) est atteint.
 //!   Les citations non finies sont `unresolvable` avec la note « Not checked: time budget. », les
 //!   autres gardent leur verdict exact, aucun appel ne part après le budget, la réponse n'est pas
 //!   une erreur d'échéance, la durée ne dépasse pas le budget.
 //! - `fifty_five_...` : au-delà de `max_citations` (50 par défaut), `truncated` est vrai, `found`
 //!   compte tout, et les citations en trop ne coûtent aucun appel.
+//! - `each_costliest_shape_...` : le mélange de 50 ne contient aucune citation qui atteigne la borne
+//!   par citation (`PORT_CALLS_PER_CITATION_MAX`) ; ce test passe donc en revue, une citation à la
+//!   fois, les formes les plus coûteuses (article daté d'une loi non codifiée, 6 appels, avec repli
+//!   sur le sommaire du jour trouvé ; version remplacée trouvée d'emblée ; date antérieure à la
+//!   signature, sans lecture de sommaire ; entrée du sommaire déjà remplacée, sans lecture ;
+//!   sommaire trop gros, illisible, en échec amont ou amputé, article listé trop gros à lire : les
+//!   passages de `not_found` à `unresolvable` de R1-12 ; Conseil d'État à trois numéros joints avec
+//!   repli plein texte et cinq consultations, 9 appels ; cinq, puis six décisions sous un même
+//!   numéro, `CONSULT_LIMIT`) : verdict, note et appels exacts, méthode par méthode.
+//! - `fifty_citations_that_each_cost_the_maximum_...` : cinquante décisions du Conseil d'État à
+//!   9 appels chacune : 450 appels exactement, contre la borne de 451, 4 voies, la durée virtuelle
+//!   exacte (13 vagues de 9 appels) et le budget de temps.
 //!
 //! # Rapport avec les gardes qui existent déjà
 //!
@@ -53,20 +67,30 @@
 //! réponses de `ScriptedCorpus` sont indexées par les arguments de l'appel, et tout appel qui n'a
 //! pas de réponse écrite est relevé (`unscripted`) et fait échouer le test.
 //!
-//! Le harnais n'existe qu'avec la feature `test-support` (`--all-features`). Tout le fichier est sous
-//! `cfg(test)` : les aides partagent les règles de lint des tests (`unwrap` et `expect` permis,
-//! `clippy.toml`).
+//! Le harnais n'existe qu'avec la feature `test-support` (`--all-features`, ce que font `make test`
+//! et `make lint`). Sans elle, les tests de ce fichier ne sont pas compilés : un `cargo test -p
+//! lf-application` nu n'en lance aucun, et le test ignoré `needs_the_test_support_feature` le dit
+//! dans la sortie (déclarer `required-features` dans `Cargo.toml` sortirait du cadre « tests
+//! seulement »). Tout le fichier est sous `cfg(test)` : les aides partagent les règles de lint des
+//! tests (`unwrap` et `expect` permis, `clippy.toml`).
 
-#![cfg(feature = "test-support")]
-#![expect(
+#[cfg(not(feature = "test-support"))]
+mod needs_test_support {
+    /// Rend visible, dans la sortie de `cargo test`, que les gardes de pire cas ne tournent pas.
+    #[test]
+    #[ignore = "worst_case_verify exige --all-features (feature `test-support`)"]
+    fn needs_the_test_support_feature() {}
+}
+
+#[cfg(feature = "test-support")]
+#[expect(
     clippy::arithmetic_side_effects,
     reason = "tests : valeurs bornées par les données du test"
 )]
-
 #[cfg(test)]
 mod worst_case {
     use std::{
-        collections::HashMap,
+        collections::{BTreeMap, HashMap},
         future::pending,
         sync::{
             Arc, Mutex, MutexGuard, PoisonError,
@@ -120,7 +144,11 @@ mod worst_case {
     /// `BUDGET_PERCENT` de `citation/policy.rs`).
     const DEADLINE: Duration = Duration::from_secs(60);
     const BUDGET: Duration = Duration::from_secs(48);
-    /// Résolutions en vol au plus (`CONCURRENCY` de `citation/policy.rs`, constante privée).
+    /// Résolutions en vol au plus (`CONCURRENCY` de `citation/policy.rs`, constante privée). Les
+    /// constantes de ce bloc (`DEADLINE`, `BUDGET`, `CONCURRENCY`) et `CONSULT_LIMIT` (5, voir
+    /// `PORT_CALLS_PER_CITATION_MAX`) sont épinglées par le test unitaire
+    /// `the_constants_match_the_annex` de `policy.rs` : si l'une change, c'est lui qui nomme la
+    /// constante, ce fichier ne fait que le recouper par l'arithmétique des appels et des durées.
     const CONCURRENCY: usize = 4;
 
     /// Appels du port, par méthode, que ce texte provoque (calculés à la main, case par case, dans
@@ -517,12 +545,14 @@ mod worst_case {
 
     /// Sommaire à plat de la loi : les articles qui y figurent sans version (modificatifs).
     fn law_act() -> Act {
-        let articles = [1_u32, 36, 37, 38, 39]
+        // L'article 40 porte un état « remplacé » : le sommaire du jour dit déjà qu'il n'y a rien à
+        // lire (aucune citation du mélange de 50 ne le vise ; voir `each_costliest_shape_...`).
+        let articles = [1_u32, 36, 37, 38, 39, 40]
             .into_iter()
             .map(|n| ArticleDraft {
                 id: Some(legi(n)),
                 num: Some(n.to_string()),
-                etat: None,
+                etat: (n == 40).then(|| "MODIFIE".to_owned()),
                 ..ArticleDraft::default()
             })
             .collect();
@@ -620,6 +650,18 @@ mod worst_case {
         fa.insert(key_article(LAW, "153", on("2017-01-01")), Err(not_found()));
         fa.insert(key_article(LAW, "154", on("2018-06-01")), Err(not_found()));
         fa.insert(key_article(LAW, "39", on("2017-01-01")), Err(not_found()));
+        // Cas hors du mélange de 50, pour `each_costliest_shape_...` : « 1er » daté du 2017-01-01 que
+        // seul le sommaire du jour trouve ; l'article 2, daté, trouvé tout de suite mais remplacé
+        // depuis ; des articles absents (7 du jour, 3 d'avant la signature, 40 remplacé au sommaire).
+        fa.insert(key_article(LAW, "1er", on("2017-01-01")), Err(not_found()));
+        fa.insert(key_article(LAW, "1", on("2017-01-01")), Err(not_found()));
+        fa.insert(
+            key_article(LAW, "2", on("2017-01-01")),
+            Ok(past(300, "2", LegalStatus::Modifie, civil(2016, 10, 9), civil(2018, 1, 1))),
+        );
+        fa.insert(key_article(LAW, "3", on("2000-01-01")), Err(not_found()));
+        fa.insert(key_article(LAW, "7", today), Err(not_found()));
+        fa.insert(key_article(LAW, "40", today), Err(not_found()));
 
         // Sommaires : celui du jour, celui du 2018-06-01 ; aucun ne l'est au 2017-01-01 (le
         // sommaire du jour sert alors de repli).
@@ -629,6 +671,8 @@ mod worst_case {
         for n in [36_u32, 37, 38, 39] {
             corpus.get_article.insert(legi(n), Ok(amending(n)));
         }
+        // L'article 1 du sommaire, en vigueur depuis la signature de la loi.
+        corpus.get_article.insert(legi(1), Ok(in_force(1, "1", civil(2016, 10, 9))));
 
         // Index des textes numérotés.
         let mut law_hit = hit(Fond::Loda, LAW, Some(LAW_TITLE));
@@ -1086,7 +1130,19 @@ mod worst_case {
 
     /// Appelle `LegalService::verify_citations` sur `text` avec un corpus qui répond après `delay`.
     async fn call_tool(text: &str, delay: Duration) -> Observed {
-        let corpus = Arc::new(world(delay));
+        call_tool_with(text, delay, |_| {}).await
+    }
+
+    /// Comme [`call_tool`], après avoir modifié le monde simulé (`tweak`) : une réponse de plus ou
+    /// une réponse remplacée par un échec.
+    async fn call_tool_with(
+        text: &str,
+        delay: Duration,
+        tweak: impl FnOnce(&mut ScriptedCorpus),
+    ) -> Observed {
+        let mut world = world(delay);
+        tweak(&mut world);
+        let corpus = Arc::new(world);
         let audit = Arc::new(MemoryAuditLog::new());
         let settings = ServiceSettings {
             policy: AuditPolicy {
@@ -1143,11 +1199,15 @@ mod worst_case {
     }
 
     fn audited_once_ok(observed: &Observed) {
+        audited_once_with(observed, 50);
+    }
+
+    fn audited_once_with(observed: &Observed, checked: u64) {
         let records = observed.audit.records();
         assert_eq!(records.len(), 1, "une seule ligne par appel");
         assert_eq!(records[0].tool, ToolName::FR_VERIFY_CITATIONS);
         assert_eq!(records[0].status, AuditStatus::Ok);
-        assert_eq!(records[0].output_count_or_size, 50, "le nombre de citations contrôlées");
+        assert_eq!(records[0].output_count_or_size, checked, "le nombre de citations contrôlées");
         assert_eq!(records[0].error_code, None);
     }
 
@@ -1223,23 +1283,31 @@ mod worst_case {
             corpus.calls().iter().filter(|c| c.method == "get_act").all(|c| c.key.starts_with(LAW))
         );
 
-        // La concurrence : au plus quatre résolutions en vol, et la liste des codes se lit seule,
-        // avant elles.
-        assert!(corpus.max_concurrency() <= CONCURRENCY, "{}", corpus.max_concurrency());
-        assert!(corpus.max_concurrency() > 1, "le test doit exercer la concurrence");
+        // La concurrence : exactement quatre résolutions en vol au pic (pas moins : une régression
+        // à 2 voies, ou en série, doit se voir), et la liste des codes se lit seule, avant elles.
+        assert_eq!(corpus.max_concurrency(), CONCURRENCY);
         let calls = corpus.calls();
         assert_eq!(calls[0].method, "list_codes");
         assert!(calls[1..].iter().all(|call| call.started >= delay));
 
-        // La durée (virtuelle) : entre le travail réparti sur quatre voies et le travail en série,
-        // et sous le budget de 80 % du délai de l'outil.
+        // La durée (virtuelle, donc exacte à chaque exécution) : au moins le travail réparti sur
+        // quatre voies ; au plus la liste des codes, puis ce travail réparti sur quatre voies, plus
+        // la plus longue chaîne d'appels d'une citation (borne des ordonnancements en liste). Mesuré à
+        // 2,3 s pour 85 appels de 100 ms (8,5 s en série) ; la borne haute, 2,6 s, est dépassée dès
+        // que la concurrence tombe à 2 (4,2 s au moins) ou à 1.
         let work = |n: usize| delay * u32::try_from(n).unwrap();
+        let longest_chain = cases.iter().map(|c| c.calls).max().unwrap();
         assert!(
             observed.elapsed >= delay + work((EXPECTED_TOTAL - 1).div_ceil(CONCURRENCY)),
             "{:?}",
             observed.elapsed
         );
-        assert!(observed.elapsed <= work(EXPECTED_TOTAL), "{:?}", observed.elapsed);
+        assert!(
+            observed.elapsed
+                <= work(1 + (EXPECTED_TOTAL - 1).div_ceil(CONCURRENCY) + longest_chain),
+            "{:?}",
+            observed.elapsed
+        );
         assert!(observed.elapsed < BUDGET, "{:?}", observed.elapsed);
 
         audited_once_ok(&observed);
@@ -1338,5 +1406,375 @@ mod worst_case {
         );
         let records = observed.audit.records();
         assert_eq!(records[0].output_count_or_size, 50);
+    }
+
+    // ---- les formes les plus coûteuses, une à une -----------------------------------------------
+
+    /// Titre d'une décision du Conseil d'État jointe, avec ses numéros (U11).
+    fn ce_title(numbers: &str) -> String {
+        format!("Conseil d'Etat, Assemblée, du 5 mars 1999, {numbers}, publié au recueil Lebon")
+    }
+
+    /// `count` décisions du Conseil d'État du 5 mars 1999 d'identifiants `CETATEXT{base + rang}`,
+    /// leurs `SearchHit` (titre portant `numbers`) et leur lecture.
+    fn ce_decisions(
+        corpus: &mut ScriptedCorpus,
+        base: u32,
+        count: u32,
+        numbers: &str,
+    ) -> Vec<SearchHit> {
+        (0..count)
+            .map(|rank| {
+                let id = format!("CETATEXT{:012}", base + rank);
+                corpus
+                    .get_decision
+                    .insert(id.clone(), Ok(decision(&id, civil(1999, 3, 5), None, None)));
+                hit(Fond::Cetat, &id, Some(&ce_title(numbers)))
+            })
+            .collect()
+    }
+
+    /// Un numéro de requête qui rend `count` décisions du Conseil d'État du 5 mars 1999.
+    fn script_ce_number(corpus: &mut ScriptedCorpus, number: u32, count: u32) {
+        let hits = ce_decisions(corpus, 7_000_000 + number % 1_000_000, count, &number.to_string());
+        corpus.find_by_number.insert(format!("CETAT|Decision|{number}"), Ok(hits));
+    }
+
+    /// Trois numéros joints qu'aucune recherche exacte ne trouve, et un repli plein texte du premier
+    /// qui rend `count` décisions du Conseil d'État du 5 mars 1999 (U11 : « N + 1 appels »).
+    fn script_ce_joined(corpus: &mut ScriptedCorpus, first: u32, count: u32) {
+        let numbers = format!("{first} {} {}", first + 1, first + 2);
+        for number in [first, first + 1, first + 2] {
+            corpus.find_by_number.insert(format!("CETAT|Decision|{number}"), Ok(vec![]));
+        }
+        let hits = ce_decisions(corpus, 8_000_000 + first % 1_000_000, count, &numbers);
+        corpus.search.push((first.to_string(), page(Fond::Cetat, hits)));
+    }
+
+    /// Une citation qui atteint la borne de son cas, avec le modèle de la réponse et les appels
+    /// exacts du port, méthode par méthode (la liste des codes, lue une fois pour un code, en plus
+    /// pour les articles de code : aucun ici n'est un article de code).
+    struct Extreme {
+        name: &'static str,
+        raw: &'static str,
+        /// Citation trouvée qui suit, quand l'échec amont de la première rendrait l'appel entier
+        /// en erreur (toutes les citations en échec amont : l'outil échoue). Elle coûte la liste des
+        /// codes et un `find_article`, que le test ajoute à `calls`.
+        companion: Option<&'static str>,
+        tweak: fn(&mut ScriptedCorpus),
+        status: CheckStatus,
+        note: String,
+        calls: &'static [(&'static str, usize)],
+    }
+
+    fn counts_of(corpus: &ScriptedCorpus) -> Vec<(&'static str, usize)> {
+        let mut counts = BTreeMap::<&'static str, usize>::new();
+        for call in corpus.calls() {
+            *counts.entry(call.method).or_default() += 1;
+        }
+        counts.into_iter().collect()
+    }
+
+    #[expect(clippy::too_many_lines, reason = "une entrée par forme de coût")]
+    fn extremes() -> Vec<Extreme> {
+        use CheckStatus::{Ambiguous, NotFound, Unresolvable, Verified};
+        vec![
+            // ---- loi non codifiée : le coût maximal d'un article est 6 appels (borne documentée).
+            // Daté, « 1er » : deux variantes de clé (2 `find_article`), le sommaire du jour voulu
+            // absent (1 `get_act`) puis celui du jour (1 `get_act`), l'article lu (1 `get_article`)
+            // dont la version couvre la date (U01/U10 : repli daté trouvé, article ordinaire).
+            Extreme {
+                name: "loi, daté, sommaire en repli, article ordinaire trouvé (6 appels)",
+                raw: "article 1er au 1er janvier 2017 de la loi n° 2016-1321 du 7 octobre 2016",
+                companion: None,
+                tweak: |_| {},
+                status: Verified,
+                note: String::new(),
+                calls: &[
+                    ("find_article", 2),
+                    ("find_by_number", 1),
+                    ("get_act", 2),
+                    ("get_article", 1),
+                ],
+            },
+            // Daté, `find_article` répond d'emblée mais la version est remplacée depuis : la note
+            // d'écart de version (`NotCurrentVersion`) d'un texte non codifié, 2 appels.
+            Extreme {
+                name: "loi, daté, trouvé par find_article, version remplacée (2 appels)",
+                raw: "article 2 au 1er janvier 2017 de la loi n° 2016-1321 du 7 octobre 2016",
+                companion: None,
+                tweak: |_| {},
+                status: Verified,
+                note: past_note("2017-01-01", "MODIFIE", "2018-01-01"),
+                calls: &[("find_article", 1), ("find_by_number", 1)],
+            },
+            // Avant la signature de la loi (2016-10-09) : aucune version ne peut exister, le
+            // sommaire n'est pas lu (garde `born` d'`article_in`).
+            Extreme {
+                name: "loi, daté d'avant sa signature : aucun sommaire lu (2 appels)",
+                raw: "article 3 au 1er janvier 2000 de la loi n° 2016-1321 du 7 octobre 2016",
+                companion: None,
+                tweak: |_| {},
+                status: NotFound,
+                note: absent_note(LAW_TITLE, "3", "2000-01-01", TRY_OTHER),
+                calls: &[("find_article", 1), ("find_by_number", 1)],
+            },
+            // Le sommaire du jour range l'article parmi les versions remplacées : rien à lire,
+            // aucun `get_article` (3 appels au lieu de 4).
+            Extreme {
+                name: "loi, entrée du sommaire du jour remplacée : pas de lecture (3 appels)",
+                raw: "article 40 de la loi n° 2016-1321 du 7 octobre 2016",
+                companion: None,
+                tweak: |_| {},
+                status: NotFound,
+                note: absent_note(LAW_TITLE, "40", TODAY, RETRY),
+                calls: &[("find_article", 1), ("find_by_number", 1), ("get_act", 1)],
+            },
+            // Le sommaire échoue : trop gros, illisible (R1-12 : `not_found` devient `unresolvable`).
+            Extreme {
+                name: "loi, sommaire trop gros : unresolvable LODA, pas not_found (3 appels)",
+                raw: "article 7 de la loi n° 2016-1321 du 7 octobre 2016",
+                companion: None,
+                tweak: |corpus| {
+                    corpus.get_act.insert(
+                        format!("{LAW}|{TODAY}"),
+                        Err(CorpusError::TooLarge { detail: "> 16 MiB".to_owned() }),
+                    );
+                },
+                status: Unresolvable,
+                note: NOT_CONFIRMED_LODA.to_owned(),
+                calls: &[("find_article", 1), ("find_by_number", 1), ("get_act", 1)],
+            },
+            Extreme {
+                name: "loi, sommaire illisible : unresolvable LODA (3 appels)",
+                raw: "article 7 de la loi n° 2016-1321 du 7 octobre 2016",
+                companion: None,
+                tweak: |corpus| {
+                    corpus.get_act.insert(
+                        format!("{LAW}|{TODAY}"),
+                        Err(CorpusError::Decode { detail: "invalid UTF-8".to_owned() }),
+                    );
+                },
+                status: Unresolvable,
+                note: NOT_CONFIRMED_LODA.to_owned(),
+                calls: &[("find_article", 1), ("find_by_number", 1), ("get_act", 1)],
+            },
+            Extreme {
+                name: "loi, sommaire en échec amont : unresolvable, erreur du corpus (3 appels)",
+                raw: "article 7 de la loi n° 2016-1321 du 7 octobre 2016",
+                companion: Some("article 1240 du code civil"),
+                tweak: |corpus| {
+                    corpus.get_act.insert(
+                        format!("{LAW}|{TODAY}"),
+                        Err(CorpusError::Upstream {
+                            status: Some(503),
+                            retryable: true,
+                            detail: "down".to_owned(),
+                        }),
+                    );
+                },
+                status: Unresolvable,
+                note: "Not checked: upstream error.".to_owned(),
+                calls: &[("find_article", 1), ("find_by_number", 1), ("get_act", 1)],
+            },
+            // Sommaire complet mais amputé (`dropped() > 0`) et sans l'article : l'absence n'est
+            // pas prouvée.
+            Extreme {
+                name: "loi, sommaire amputé : l'absence n'est pas prouvée (3 appels)",
+                raw: "article 7 de la loi n° 2016-1321 du 7 octobre 2016",
+                companion: None,
+                tweak: |corpus| {
+                    let draft = TocDraft {
+                        sections: vec![],
+                        articles: vec![ArticleDraft {
+                            id: Some("pas un identifiant".to_owned()),
+                            num: Some("7".to_owned()),
+                            ..ArticleDraft::default()
+                        }],
+                    };
+                    let toc = Toc::build(draft).unwrap();
+                    assert_eq!(toc.dropped(), 1);
+                    let act = Act {
+                        text_id: LegiTextId::parse(LAW).unwrap(),
+                        body: TextBody { toc, ..TextBody::default() },
+                    };
+                    corpus.get_act.insert(format!("{LAW}|{TODAY}"), Ok(act));
+                },
+                status: Unresolvable,
+                note: NOT_CONFIRMED_LODA.to_owned(),
+                calls: &[("find_article", 1), ("find_by_number", 1), ("get_act", 1)],
+            },
+            // Modificatif daté : les deux sommaires (le jour voulu absent, le jour courant), puis
+            // l'article lu.
+            Extreme {
+                name: "loi, modificatif daté, sommaire en repli (5 appels)",
+                raw: "article 39 au 1er janvier 2017 de la loi n° 2016-1321 du 7 octobre 2016",
+                companion: None,
+                tweak: |_| {},
+                status: Verified,
+                note: amending_note("2017-01-01", "39"),
+                calls: &[
+                    ("find_article", 1),
+                    ("find_by_number", 1),
+                    ("get_act", 2),
+                    ("get_article", 1),
+                ],
+            },
+            // La lecture de l'article listé échoue (trop gros).
+            Extreme {
+                name: "loi, article listé trop gros à lire : unresolvable LODA (4 appels)",
+                raw: "article 36 de la loi n° 2016-1321 du 7 octobre 2016",
+                companion: None,
+                tweak: |corpus| {
+                    corpus.get_article.insert(
+                        legi(36),
+                        Err(CorpusError::TooLarge { detail: "> 16 MiB".to_owned() }),
+                    );
+                },
+                status: Unresolvable,
+                note: NOT_CONFIRMED_LODA.to_owned(),
+                calls: &[
+                    ("find_article", 1),
+                    ("find_by_number", 1),
+                    ("get_act", 1),
+                    ("get_article", 1),
+                ],
+            },
+            // ---- Conseil d'État : le coût maximal d'une décision est 9 appels (borne documentée).
+            // Trois numéros joints (3 recherches exactes), le repli plein texte (1) qui rend cinq
+            // décisions (`CONSULT_LIMIT`), toutes consultées (5).
+            Extreme {
+                name: "CE, trois numéros, repli plein texte à cinq décisions (9 appels)",
+                raw: "CE, 5 mars 1999, nos 430000, 430001 et 430002",
+                companion: None,
+                tweak: |corpus| script_ce_joined(corpus, 430_000, 5),
+                status: Ambiguous,
+                note: "5 records match; call fr_resolve to list them.".to_owned(),
+                calls: &[("find_by_number", 3), ("get_decision", 5), ("search", 1)],
+            },
+            // Exactement CONSULT_LIMIT décisions : toutes sont consultées.
+            Extreme {
+                name: "CE, un numéro à cinq décisions : cinq consultations (6 appels)",
+                raw: "CE, 5 mars 1999, n° 420005",
+                companion: None,
+                tweak: |corpus| script_ce_number(corpus, 420_005, 5),
+                status: Ambiguous,
+                note: "5 records match; call fr_resolve to list them.".to_owned(),
+                calls: &[("find_by_number", 1), ("get_decision", 5)],
+            },
+            // Un de plus : plus aucune consultation, la citation est ambiguë (candidats).
+            Extreme {
+                name: "CE, un numéro à six décisions : ambiguë, aucune consultation (1 appel)",
+                raw: "CE, 5 mars 1999, n° 420006",
+                companion: None,
+                tweak: |corpus| script_ce_number(corpus, 420_006, 6),
+                status: Ambiguous,
+                note: "6 records match; call fr_resolve to list them.".to_owned(),
+                calls: &[("find_by_number", 1)],
+            },
+        ]
+    }
+
+    /// Chaque forme qui atteint la borne de son cas, seule dans le texte : verdict exact, note exacte
+    /// et appels exacts du port (R1-12, R1-17 ; U01, U10, U11). Une citation seule rend les appels
+    /// attribuables sans ambiguïté, quel que soit l'ordonnancement.
+    #[tokio::test(start_paused = true)]
+    async fn each_costliest_shape_costs_its_exact_calls_and_never_exceeds_the_documented_maximum() {
+        let mut deepest = 0_usize;
+        for extreme in extremes() {
+            let text = match extreme.companion {
+                Some(companion) => format!("{} ; {companion}", extreme.raw),
+                None => extreme.raw.to_owned(),
+            };
+            let size = 1 + usize::from(extreme.companion.is_some());
+            let observed = call_tool_with(&text, Duration::from_millis(100), extreme.tweak).await;
+            let output = &observed.output;
+            assert_eq!((output.found, output.checked), (size, size), "{}", extreme.name);
+            let check = &output.citations[0];
+            assert_eq!(check.raw, extreme.raw, "{}", extreme.name);
+            assert_eq!(
+                (check.status, note_of(check)),
+                (extreme.status, extreme.note.clone()),
+                "{}",
+                extreme.name
+            );
+            assert_eq!(observed.corpus.unscripted(), Vec::<String>::new(), "{}", extreme.name);
+            let mut expected: BTreeMap<&str, usize> = extreme.calls.iter().copied().collect();
+            if extreme.companion.is_some() {
+                *expected.entry("find_article").or_default() += 1;
+                *expected.entry("list_codes").or_default() += 1;
+            }
+            assert_eq!(
+                counts_of(&observed.corpus),
+                expected.into_iter().collect::<Vec<_>>(),
+                "{}",
+                extreme.name
+            );
+            let total: usize = extreme.calls.iter().map(|(_, n)| n).sum();
+            assert!(total <= PORT_CALLS_PER_CITATION_MAX, "{}", extreme.name);
+            deepest = deepest.max(total);
+            audited_once_with(&observed, u64::try_from(size).unwrap());
+        }
+        // La borne documentée est atteinte (9 : un Conseil d'État à trois numéros joints), et celle
+        // d'un article de loi non codifiée aussi (6 : le premier cas).
+        assert_eq!(deepest, PORT_CALLS_PER_CITATION_MAX);
+    }
+
+    /// Cinquante citations qui coûtent chacune le maximum (9 appels : trois numéros joints du
+    /// Conseil d'État, repli plein texte, cinq consultations) : le total approche la borne
+    /// documentée de 1 + 50 x 9, les verdicts restent exacts et le travail, réparti sur quatre
+    /// voies, tient dans le budget de temps.
+    #[tokio::test(start_paused = true)]
+    async fn fifty_citations_that_each_cost_the_maximum_stay_within_the_bound_and_the_budget() {
+        let numbers: Vec<u32> = (0..50).map(|rank| 500_000 + 10 * rank).collect();
+        let text = numbers
+            .iter()
+            .map(|n| format!("CE, 5 mars 1999, nos {n}, {}, {}", n + 1, n + 2))
+            .collect::<Vec<_>>()
+            .join(" ; ");
+        let delay = Duration::from_millis(100);
+        let observed = call_tool_with(&text, delay, |corpus| {
+            for n in &numbers {
+                script_ce_joined(corpus, *n, 5);
+            }
+        })
+        .await;
+
+        let output = &observed.output;
+        assert_eq!((output.found, output.checked, output.truncated), (50, 50, false));
+        assert_eq!(output.note, None);
+        for check in &output.citations {
+            assert_eq!(
+                (check.status, note_of(check)),
+                (
+                    CheckStatus::Ambiguous,
+                    "5 records match; call fr_resolve to list them.".to_owned()
+                ),
+                "{}",
+                check.raw
+            );
+        }
+        let corpus = &observed.corpus;
+        assert_eq!(corpus.unscripted(), Vec::<String>::new());
+        // Pas de code cité : la liste des codes n'est pas lue, et 50 x 9 = 450 appels exactement.
+        assert_eq!(corpus.calls_of("list_codes"), 0);
+        assert_eq!(
+            counts_of(corpus),
+            [("find_by_number", 150), ("get_decision", 250), ("search", 50)]
+        );
+        let total = corpus.calls().len();
+        assert_eq!(total, 50 * PORT_CALLS_PER_CITATION_MAX);
+        assert!(total <= 1 + 50 * PORT_CALLS_PER_CITATION_MAX);
+        // Quatre voies de neuf appels : 50 citations en 13 vagues (12 pleines, 1 de deux), soit
+        // 13 x 9 appels de 100 ms, loin du budget de 48 s.
+        assert_eq!(corpus.max_concurrency(), CONCURRENCY);
+        assert_eq!(
+            observed.elapsed,
+            delay
+                * u32::try_from(50_usize.div_ceil(CONCURRENCY) * PORT_CALLS_PER_CITATION_MAX)
+                    .unwrap()
+        );
+        assert!(observed.elapsed < BUDGET);
+        audited_once_ok(&observed);
     }
 }

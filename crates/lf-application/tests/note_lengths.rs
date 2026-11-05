@@ -22,6 +22,24 @@
 //! caractères, pour que la borne tienne même si un vocabulaire s'allonge. Les titres de codes sont
 //! lus dans le dictionnaire (`CODES`), jamais recopiés.
 //!
+//! # Ce que « 200 caractères » prouve, et ce qu'il ne prouve pas
+//!
+//! `Note::text` finit par un rognage brut à 200 caractères (`messages::clip`) : `<= 200` est donc
+//! vrai de toute note, quel que soit son gabarit, et ne garde que ce rognage. Ce qu'on veut garder
+//! (R1-17), c'est que le rognage ne mange jamais le contenu utile d'une note réelle. Trois gardes
+//! s'y emploient, à côté de la borne :
+//!
+//! - `every_realistic_note_is_whole_and_not_clipped` mesure à part les notes sans paramètre
+//!   démesuré (`is_absurd` écarte `LONG_STATIC`, les valeurs de 300 caractères, la clé de 120
+//!   chiffres, le titre de loi de 600 caractères) : elles finissent par la ponctuation de leur
+//!   gabarit et, hors des variantes qui s'adaptent au plafond, restent strictement sous 200 ;
+//! - `a_chain_keeps_whole_parts_only_...` : une chaîne ne contient que des notes entières, dans
+//!   l'ordre (`join_fitting`) ;
+//! - `realistic_long_notes_are_rendered_whole` épingle le texte exact de notes réalistes longues.
+//!
+//! Limite assumée : les vocabulaires fermés sont recopiés ci-dessus à la main ; une entrée de
+//! production plus longue que la plus longue recopiée ne s'y voit pas avant d'y être ajoutée.
+//!
 //! Tout le fichier est sous `cfg(test)` : les aides partagent les règles de lint des tests
 //! (`unwrap` et `expect` permis, `clippy.toml`).
 
@@ -591,8 +609,10 @@ mod note_lengths {
 
     // ---- les gardes ----------------------------------------------------------------------------
 
-    /// La garde elle-même (R1-17) : toute variante de `Note`, à ses valeurs les plus longues, tient
-    /// en `NOTE_MAX_CHARS` caractères (points de code, pas octets).
+    /// La borne (R1-17) : toute variante de `Note`, à ses valeurs les plus longues, tient en
+    /// `NOTE_MAX_CHARS` caractères (points de code, pas octets). Cette borne est celle du rognage
+    /// final de `Note::text` : elle garde ce rognage, pas le contenu utile (voir plus bas
+    /// `every_realistic_note_is_whole_and_not_clipped` et `a_chain_keeps_whole_parts_only_...`).
     #[test]
     fn every_note_variant_at_its_longest_stays_within_200_characters() {
         assert_eq!(NOTE_MAX_CHARS, 200, "le plafond documenté (annexe B §7.10) est de 200");
@@ -615,6 +635,174 @@ mod note_lengths {
         // est rognée à 200 pile, pas sous le plafond par accident).
         assert_eq!(longest_seen, NOTE_MAX_CHARS);
         assert!(measured > 1_000, "{measured} notes mesurées");
+    }
+
+    /// Marqueurs des paramètres démesurés de `longest` : `LONG_STATIC` et les valeurs de 300 « é »,
+    /// la clé de 120 chiffres, le titre de loi de 600 caractères (son motif se répète).
+    fn is_absurd(note: &Note) -> bool {
+        let shown = format!("{note:?}");
+        ["é".repeat(20), "1".repeat(40), "(1) ; pour une".to_owned()]
+            .iter()
+            .any(|marker| shown.contains(marker.as_str()))
+    }
+
+    /// Les notes de `longest` dont aucun paramètre n'est démesuré : ce que le moteur peut rendre.
+    fn realistic_notes() -> Vec<(Kind, Note)> {
+        ALL_KINDS
+            .iter()
+            .flat_map(|&kind| longest(kind).into_iter().map(move |note| (kind, note)))
+            .filter(|(_, note)| !is_absurd(note))
+            .collect()
+    }
+
+    /// Les variantes qui adaptent leur longueur au plafond (`fit`, `join_fitting`, `quote_gap_text`) :
+    /// elles peuvent remplir les 200 caractères sans rien perdre d'utile. Toutes les autres, aux
+    /// valeurs réalistes, restent strictement en dessous : à 200 pile, elles seraient rognées.
+    const FILLS_THE_CAP: [Kind; 6] = [
+        Kind::NotInForce,
+        Kind::NoRecordAtDate,
+        Kind::NotInSandbox,
+        Kind::ArticleWithoutVersion,
+        Kind::Chain,
+        Kind::WithQuoteMismatch,
+    ];
+
+    /// La borne de 200 caractères est aussi un rognage de sûreté (`messages::clip`) : une note
+    /// démesurée y est coupée sans un mot, si bien que « <= 200 » ne prouve rien d'une note
+    /// réaliste. Ce test mesure donc à part ce que le moteur rend vraiment, sans valeur démesurée :
+    /// la note est entière (elle finit par la ponctuation de son gabarit) et, hors des variantes qui
+    /// s'adaptent au plafond, strictement sous 200 caractères, donc jamais rognée. Un gabarit qui
+    /// s'allonge ou une valeur fermée qui dépasse le plus long connu y échoue, au lieu de passer par
+    /// le rognage.
+    #[test]
+    fn every_realistic_note_is_whole_and_not_clipped() {
+        let notes = realistic_notes();
+        let kinds: BTreeSet<Kind> = notes.iter().map(|(kind, _)| *kind).collect();
+        let all: BTreeSet<Kind> = ALL_KINDS.iter().copied().collect();
+        assert_eq!(kinds, all, "chaque variante a au moins une note réaliste");
+        assert!(notes.len() > 200, "{} notes réalistes", notes.len());
+        for (kind, note) in &notes {
+            let text = note.text();
+            let chars = text.chars().count();
+            assert!(chars <= NOTE_MAX_CHARS, "{kind:?} : {chars} caractères : {text}");
+            assert!(text.ends_with('.'), "{kind:?} : note coupée ? {text}");
+            if !FILLS_THE_CAP.contains(kind) {
+                assert!(chars < NOTE_MAX_CHARS, "{kind:?} : {chars} caractères, rognée ? {text}");
+            }
+        }
+    }
+
+    /// Une chaîne de notes n'est jamais coupée au milieu d'une phrase (`join_fitting`, « mieux vaut
+    /// une note de moins qu'une phrase coupée ») : son texte est celui de sa première note, suivi
+    /// de certaines des suivantes, **entières** et dans l'ordre, chacune précédée d'une espace. Les
+    /// chaînes sans valeur démesurée sont mesurées ; la plus longue (version lue, lecture du sigle et
+    /// huit autres notes) dépasse 200 caractères mise bout à bout et en perd donc, entières.
+    #[test]
+    fn a_chain_keeps_whole_parts_only_and_drops_the_ones_that_do_not_fit() {
+        let mut chains = 0_usize;
+        let mut dropped_somewhere = false;
+        for (_, note) in realistic_notes() {
+            let Note::Chain(parts) = &note else { continue };
+            let texts: Vec<String> = parts.iter().map(Note::text).collect();
+            let text = note.text();
+            let (first, others) = texts.split_first().unwrap();
+            assert!(
+                text.starts_with(first.as_str()),
+                "la chaîne ne commence pas par {first} : {text}"
+            );
+            let mut rest = &text[first.len()..];
+            let mut kept = 0_usize;
+            for other in others {
+                if let Some(after) = rest.strip_prefix(&format!(" {other}")) {
+                    rest = after;
+                    kept += 1;
+                }
+            }
+            assert_eq!(rest, "", "une partie coupée en son milieu, ou hors ordre : {text}");
+            assert!(text.ends_with('.'), "{text}");
+            let whole = texts.join(" ");
+            if whole.chars().count() > NOTE_MAX_CHARS {
+                // Elle ne tient pas en entier : au moins une partie est omise, aucune n'est coupée.
+                assert!(kept < others.len(), "rien d'omis alors que {whole} dépasse 200");
+                assert!(text.chars().count() <= NOTE_MAX_CHARS, "{text}");
+                dropped_somewhere = true;
+            } else {
+                assert_eq!(text, whole);
+            }
+            chains += 1;
+        }
+        assert!(chains >= 8, "{chains} chaînes mesurées");
+        assert!(dropped_somewhere, "aucune chaîne ne dépasse 200 : la mesure tourne à vide");
+    }
+
+    /// Notes réalistes, textes exacts : les variantes dont la longueur dépend de plusieurs
+    /// paramètres (écarts, doublons de numéro, version lue, chaînes, écart d'extrait) gardent leur
+    /// contenu utile jusqu'au bout, sans rognage. Un gabarit qui s'allonge change ces textes.
+    #[test]
+    fn realistic_long_notes_are_rendered_whole() {
+        let warning = || Note::NotCurrentVersion {
+            on: version("2026-12-31"),
+            etat: "MODIFIE_MORT_NE",
+            ended: Some(civil(2016, 10, 1)),
+        };
+        let read_as = || Note::ReadAs {
+            sigle: Sigle::Cpce,
+            code: "Code des postes et des communications électroniques",
+        };
+        let expected: Vec<(Note, &str)> = vec![
+            (
+                Note::Mismatches(vec![
+                    (Field::Date, "2026-10-03".to_owned(), "2026-10-02".to_owned()),
+                    (Field::Chamber, "CIV1".to_owned(), "SOC".to_owned()),
+                    (Field::Seat, "Marseille".to_owned(), "Lyon".to_owned()),
+                    (Field::CcType, "QPC".to_owned(), "DC".to_owned()),
+                ]),
+                "Cited date 2026-10-03 differs from the official record (2026-10-02); chamber CIV1 \
+                 differs (SOC); seat Marseille differs (Lyon); decision type QPC differs (DC).",
+            ),
+            (
+                Note::NoRecordAtDate {
+                    n: 12,
+                    number: "SAN-2026-002 / 14-24.444 / 410000".to_owned(),
+                    date: civil(2021, 3, 17),
+                    found: five_dates(),
+                    more: 7,
+                },
+                "12 records share number SAN-2026-002 / 14-24.444 / 410000, none dated 2021-03-17; \
+                 dates found: 1989-12-01, 1989-12-02, 1989-12-03, 1989-12-04, 1989-12-05 and 7 \
+                 more.",
+            ),
+            (
+                warning(),
+                "Version in force on 2026-12-31 (etat=MODIFIE_MORT_NE, ended 2016-10-01); omit the \
+                 date to read the current text.",
+            ),
+            (
+                Note::Chain(vec![
+                    warning(),
+                    read_as(),
+                    Note::RangeEndpointsOnly,
+                    Note::SubdivisionNotChecked,
+                    Note::HeadNotRead,
+                ]),
+                "Version in force on 2026-12-31 (etat=MODIFIE_MORT_NE, ended 2016-10-01); omit the \
+                 date to read the current text. Read 'CPCE' as Code des postes et des communications \
+                 électroniques.",
+            ),
+            (
+                Note::WithQuoteMismatch(Box::new(Note::Chain(vec![
+                    warning(),
+                    read_as(),
+                    Note::RangeEndpointsOnly,
+                ]))),
+                "Quoted text not found in the official text. Version in force on 2026-12-31 \
+                 (etat=MODIFIE_MORT_NE, ended 2016-10-01); omit the date to read the current text.",
+            ),
+        ];
+        for (note, text) in expected {
+            assert!(!is_absurd(&note), "{note:?}");
+            assert_eq!(note.text(), text, "{note:?}");
+        }
     }
 
     /// Chaque `Kind` est atteint : `ALL_KINDS` couvre chaque variante une fois, et
