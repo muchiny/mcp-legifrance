@@ -7760,6 +7760,47 @@ mod tests {
             assert_eq!(corpus.unserved(), 0);
         }
 
+        /// Revue de sécurité (U11) : coût au pire quand chaque numéro cité ne ramène qu'un
+        /// tribunal ou une cour administrative d'appel. Trois recherches par numéro (plafond des
+        /// formes), une seule recherche plein texte de repli, aucune décision consultée, et la
+        /// citation reste `unresolvable` comme en 1.1.0.
+        #[tokio::test]
+        async fn three_numbers_found_only_in_other_courts_cost_three_finds_and_one_search() {
+            let corpus = FakeCorpus::new();
+            for court in [
+                "Tribunal administratif de Paris",
+                "Cour administrative d'appel de Lyon",
+                "Tribunal administratif de Lille",
+            ] {
+                corpus.push_find_by_number(Ok(vec![titled(
+                    Fond::Cetat,
+                    "CETATEXT000051655318",
+                    court,
+                )]));
+            }
+            corpus.push_search(Ok(page(vec![])));
+            let item = cited(&[111_111, 222_222, 333_333], civil(1999, 3, 5));
+            let resolution = resolve_with(&corpus, &codes(), &item, None).await;
+            assert_eq!(
+                resolution.outcome,
+                unresolvable_outcome(Note::CouldNotConfirm { index: "CETAT" })
+            );
+            assert_eq!(corpus.calls_of("find_by_number"), 3);
+            assert_eq!(corpus.calls_of("search"), 1);
+            assert_eq!(corpus.calls_of("get_decision"), 0);
+            assert_eq!(
+                corpus.seen_requests().get(..3),
+                Some(
+                    &[
+                        find_request(Fond::Cetat, NumberKind::Decision, "111111"),
+                        find_request(Fond::Cetat, NumberKind::Decision, "222222"),
+                        find_request(Fond::Cetat, NumberKind::Decision, "333333"),
+                    ][..]
+                )
+            );
+            assert_eq!(corpus.unserved(), 0);
+        }
+
         #[tokio::test]
         async fn a_failing_fallback_search_keeps_the_1_1_0_unresolvable() {
             let errors =
