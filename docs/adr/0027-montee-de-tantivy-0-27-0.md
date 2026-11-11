@@ -41,7 +41,7 @@
 ### Positives
 
 - Un index d'un autre analyseur n'est plus lu en silence : le modèle et l'opérateur sont dirigés vers la reconstruction.
-- Environ 40 lignes de production dans 5 fichiers, aucune dépendance ni table de `check-arch` de plus ; la marque naît et meurt avec l'index.
+- 47 lignes de code de production (hors commentaires et lignes vides ; mesure du 2026-11-11) dans 5 fichiers, aucune dépendance ni table de `check-arch` de plus ; la marque naît et meurt avec l'index.
 
 ### Négatives
 
