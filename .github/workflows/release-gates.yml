@@ -46,7 +46,7 @@ jobs:
         with:
           toolchain: 1.99.0
           components: clippy, rustfmt
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           # cargo-about 0.9.2 (2026-08-18) : la 0.9.3 (2026-10-26) n'a pas 14 jours.
           tool: cargo-nextest@0.9.148,cargo-deny@0.20.2,cargo-about@0.9.2
