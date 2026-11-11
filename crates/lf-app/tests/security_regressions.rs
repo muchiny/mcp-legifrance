@@ -482,18 +482,15 @@ mod security {
         assert!(piste.requests().await.is_empty());
     }
 
-    /// Limite de taille de fichier des tests U17, en blocs de 512 octets. Linux seulement : ces
-    /// tests décrivent la coupure faite par le noyau Linux (40 octets écrits, puis `EFBIG`) ; sous
-    /// macOS l'appel réussit au lieu d'être coupé (CI `macos-15` du 2026-11-11, cause non
-    /// élucidée). Le cas indépendant du système est `torn_audit_line_does_not_swallow_next_record`.
-    #[cfg(target_os = "linux")]
-    const FSIZE_BLOCKS: u32 = 4;
+    /// Limite de taille de fichier des tests U17, en octets.
+    #[cfg(unix)]
+    const FSIZE_LIMIT: u64 = 2_048;
 
     /// Journal d'audit arrêté au plafond de taille de fichier : une ligne complète (datée de
     /// `date`) de 2 008 octets, puis un appel de `fr_coverage` sous `RLIMIT_FSIZE` (2 048 octets)
     /// dont l'écriture est coupée net par le noyau : 40 octets du nouvel enregistrement, puis
     /// `EFBIG`. Rend le journal et les octets du fragment.
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     async fn journal_cut_at_the_size_limit(audit: &Path, date: &str) -> (PathBuf, Vec<u8>) {
         let prefix = format!(r#"{{"ts":"{date}T00:00:00.000+00:00","tool":"fr_coverage","pad":""#);
         let suffix = "\"}\n";
@@ -505,14 +502,23 @@ mod security {
 
         let piste = FakePiste::silent().await;
         let mut session =
-            Launch::new(audit).credentials().piste(&piste).spawn_with_file_size_limit(FSIZE_BLOCKS);
+            Launch::new(audit).credentials().piste(&piste).spawn_with_file_size_limit(FSIZE_LIMIT);
         session.handshake().await;
         // Le journal ne peut pas recevoir la ligne : l'appel échoue, le fragment reste.
         let cut = session.request(&call(2, "fr_coverage", &json!({}))).await;
-        assert!(is_tool_error(&cut), "{cut}");
+        assert!(
+            is_tool_error(&cut),
+            "the call was not cut (`ulimit -f` block: {} bytes): {cut}",
+            crate::common::ulimit_block_bytes()
+        );
         session.finish().await;
         let bytes = fs::read(&journal).expect("the journal");
-        assert_eq!(bytes.len(), 2_048, "the write was cut at the limit");
+        assert_eq!(
+            bytes.len(),
+            2_048,
+            "the write was cut at the limit (`ulimit -f` block: {} bytes)",
+            crate::common::ulimit_block_bytes()
+        );
         assert_eq!(&bytes[..2_008], whole.as_bytes());
         (journal, bytes[2_008..].to_vec())
     }
@@ -521,7 +527,7 @@ mod security {
     /// d'un enregistrement (40 octets écrits, puis `EFBIG`) ; la relance, sans limite, referme le
     /// fragment avant d'écrire : un enregistrement parsable par appel, le fragment seul sur sa
     /// ligne. Lu en octets. La seule du lot qui exerce la vraie panne du noyau.
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     #[tokio::test]
     async fn audit_write_cut_by_fsize_limit_does_not_swallow_the_next_record() {
         let audit = tempfile::tempdir().expect("a temporary directory");
@@ -555,7 +561,7 @@ mod security {
     /// fragment, change de jour : la rotation du lendemain a lieu quand même, même si le `\n` qui
     /// referme l'archive est refusé (`EFBIG`) ; l'archive garde son fragment sans `\n`, le nouveau
     /// journal reçoit la ligne de l'appel, parsable, et l'appel n'est pas une panne d'audit.
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     #[tokio::test]
     async fn audit_rotation_still_happens_when_the_archive_cannot_be_closed_by_fsize_limit() {
         let audit = tempfile::tempdir().expect("a temporary directory");
@@ -570,7 +576,7 @@ mod security {
         let mut session = Launch::new(audit.path())
             .credentials()
             .piste(&piste)
-            .spawn_with_file_size_limit(FSIZE_BLOCKS);
+            .spawn_with_file_size_limit(FSIZE_LIMIT);
         session.handshake().await;
         let coverage = session.request(&call(2, "fr_coverage", &json!({}))).await;
         assert!(!is_tool_error(&coverage), "{coverage}");
