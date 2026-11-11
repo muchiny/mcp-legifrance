@@ -1429,9 +1429,9 @@ mod tests {
     fn an_index_without_a_stamp_is_stale() {
         let dir = tempfile::tempdir().unwrap();
         write_with_payload(dir.path(), None);
-        assert!(matches!(Engine::open(dir.path()), Err(OpenError::Stale)));
+        assert_eq!(Engine::open(dir.path()).unwrap_err(), OpenError::Stale);
         // le refus ne change rien : l'index reste tel quel, et refusé
-        assert!(matches!(Engine::open(dir.path()), Err(OpenError::Stale)));
+        assert_eq!(Engine::open(dir.path()).unwrap_err(), OpenError::Stale);
     }
 
     #[test]
@@ -1439,7 +1439,7 @@ mod tests {
         for other in ["fr_legi-0", "fr_legi-999", ""] {
             let dir = tempfile::tempdir().unwrap();
             write_with_payload(dir.path(), Some(other));
-            assert!(matches!(Engine::open(dir.path()), Err(OpenError::Stale)), "{other:?}");
+            assert_eq!(Engine::open(dir.path()).unwrap_err(), OpenError::Stale, "{other:?}");
         }
     }
 
@@ -1455,10 +1455,7 @@ mod tests {
         let engine = Engine::in_memory().unwrap();
         engine.fail_nth_access(1);
         let error = engine.check_stamp().unwrap_err();
-        assert!(
-            matches!(&error, OpenError::Store(store) if store.detail.contains("read the index metadata")),
-            "{error:?}"
-        );
+        assert!(error.to_string().contains("cannot read the index metadata"), "{error}");
         assert!(!engine.fault_pending());
         assert_eq!(engine.check_stamp(), Ok(()));
     }
@@ -1537,6 +1534,6 @@ mod tests {
             );
         }
         // un mot vide reste sans jeton
-        assert!(tokens("qu'il").is_empty());
+        assert_eq!(tokens("qu'il").len(), 0);
     }
 }
