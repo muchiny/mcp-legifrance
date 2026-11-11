@@ -6,6 +6,11 @@
 #   noms `live_*` (nom nextest `live::live_x` d'un test d'intégration, d'où `(^|::)live_`).
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
+# Dès le premier échec, les tests encore en cours sont arrêtés au lieu d'être attendus (nextest
+# 0.9.111 ou plus). Sans cela, un mutant de boucle sans fin, tué vite dans un module, reste noyé
+# derrière un test long d'un autre module qui boucle aussi, et cargo-mutants rend TIMEOUT au lieu
+# de « tué ». Le profil `ci` du job `test` garde `fail-fast = false` : il n'est pas concerné.
+fail-fast = { max-fail = 1, terminate = "immediate" }
 
 # lf-domain : un mutant de la grammaire de citations qui ne fait plus avancer la lecture (`abbr`,
 # `consume`…) fait boucler tous les tests d'analyse. Nextest attend la fin des tests en cours avant
@@ -13,6 +18,15 @@ slow-timeout = { period = "30s", terminate-after = 4 }
 # cargo-mutants rend TIMEOUT au lieu de « tué ». Le test le plus long du crate dure 2,3 s.
 [[profile.default.overrides]]
 filter = 'package(lf-domain)'
+slow-timeout = { period = "5s", terminate-after = 4 }
+
+# lf-adapter-piste, date des délibérations CNIL (`map::deliberation`) : un mutant du curseur qui
+# n'avance plus (`Cursor::bump` remplacé par `()`) fait boucler huit tests de ce module et
+# `map::mutations::tests::fixture_mutations_never_panic`. Ce dernier dure de 13 à 24 s sans mutant
+# et ne peut pas recevoir de borne courte : la borne est posée sur les tests du module, dont le
+# plus long dure moins d'une seconde, et l'arrêt immédiat ci-dessus coupe le test long.
+[[profile.default.overrides]]
+filter = 'package(lf-adapter-piste) & test(/^map::deliberation::/)'
 slow-timeout = { period = "5s", terminate-after = 4 }
 
 [profile.ci]

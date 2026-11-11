@@ -72,7 +72,10 @@ fn strip_keyword(rest: &str) -> Option<&str> {
         return tail.chars().next().is_none_or(|c| !c.is_alphanumeric()).then_some(tail);
     }
     if let Some(tail) = after("art") {
-        return tail.strip_prefix('.');
+        // « art. 5 » comme « art 5 » (le parseur lit les deux) ; « arte 5 » n'est pas un mot-clé.
+        return tail
+            .strip_prefix('.')
+            .or_else(|| tail.starts_with(char::is_whitespace).then_some(tail));
     }
     None
 }
@@ -186,6 +189,8 @@ mod tests {
             "article LO. 12",
             "article LO12",
             "x ; art. 12",
+            // U03 : le parseur lit « art 5 » sans point, le filet aussi.
+            "art 5",
         ] {
             assert!(unread_article_mentions(yes, &none), "{yes}");
         }
@@ -199,7 +204,6 @@ mod tests {
             "article5",
             "articlé 5",
             "articles5",
-            "art 5",
             "art",
             "particle 5",
             "smart. 5",
@@ -253,5 +257,19 @@ mod tests {
             (0..50_000).map(|i| Span { start: i * 10, end: i * 10 + 9 }).collect();
         assert!(!unread_article_mentions(&numbered, &spans));
         assert!(unread_article_mentions(&numbered, &spans[1..]));
+    }
+
+    /// U03 (V10) : « art 757 b » sans point est aussi une mention d'article non lue.
+    #[test]
+    fn a_keyword_without_a_dot_is_a_mention_u03() {
+        assert!(unread_article_mentions("art 757 b code general des impots", &[]));
+        assert!(unread_article_mentions("Voir art 757 b.", &[]));
+        // Jumeaux : un mot qui commence par « art », ou « art » sans numéro, n'en est pas un.
+        assert!(!unread_article_mentions("arte 757", &[]));
+        assert!(!unread_article_mentions("l'art sacré", &[]));
+        assert!(!unread_article_mentions("art", &[]));
+        assert!(!unread_article_mentions("martial 5", &[]));
+        // Lu : la mention est couverte par un span.
+        assert!(!unread_article_mentions("art 757", &[Span { start: 0, end: 7 }]));
     }
 }

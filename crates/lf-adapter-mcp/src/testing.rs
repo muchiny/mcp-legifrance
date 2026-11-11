@@ -1593,7 +1593,8 @@ mod tests {
 
     /// Review Focus 5 : EOF pendant un appel en vol. Le serveur se termine avec le code 0 en moins
     /// d'une seconde, sans attendre les 30 s de l'amont ni les 5 s que rmcp accorde sinon aux
-    /// réponses en vol (`service.rs:1762-1766`), et l'appel garde sa ligne d'audit. rmcp écrit
+    /// réponses en vol (`service.rs:1762-1766` en 3.5.1, `:1774-1778` en 3.9.0), et l'appel garde
+    /// sa ligne d'audit. rmcp écrit
     /// encore la réponse de l'appel annulé avant de s'arrêter (`isError`, « cancelled by client »),
     /// une fois le gestionnaire revenu, donc après sa ligne d'audit.
     #[tokio::test]
@@ -1627,7 +1628,8 @@ mod tests {
     }
 
     /// L5-03 (protocol-7) : deux annulations d'un appel en vol, deux sorties. Sur
-    /// `notifications/cancelled`, rmcp jette la réponse (`service.rs:1503-1505`) : rien n'est écrit.
+    /// `notifications/cancelled`, rmcp jette la réponse (`service.rs:1503-1505` en 3.5.1, `:1509`
+    /// en 3.9.0) : rien n'est écrit.
     /// À l'EOF de l'entrée, il écrit encore la réponse `isError` « cancelled by client », sans
     /// `[code]`, à l'arrêt. Voulu (AM-64) : le client est parti, rmcp est épinglé et le texte sans
     /// code dit que personne ne lira la réponse. Dans les deux cas : sortie 0 et une ligne d'audit

@@ -6,14 +6,17 @@
 //! 1. Validation sans réseau : `article_id` (un `LEGIARTI`), `date_a` (requise), puis `date_b`
 //!    (aujourd'hui à Paris par défaut, jamais la date UTC, D-19).
 //! 2. Un appel `article_versions` : la version en vigueur à chaque date. Une version couvre
-//!    `date_debut..=date_fin` (absente = sans date de fin) ; une version sans `date_debut` n'est
-//!    en vigueur à aucune date (sentinelle `2222-02-22` des entrées en vigueur différée, V-101).
-//!    Sur les données réelles, la `date_fin` d'une version est le jour d'entrée en vigueur de la
-//!    suivante (L1234-9 : fin et début suivant le 2017-09-24) : ce jour appartient donc déjà à la
-//!    suivante. Le test `<=` couvre les deux versions ce jour-là, et la plus récente l'emporte ;
-//!    on ne passe ni à `day < end` ni à `date_fin - 1` (L5-02). Une `date_fin` future (CGI 200 :
-//!    2027-01-01, état `ABROGE_DIFF`) est une fin programmée, servie telle que l'API la donne.
-//!    Aucune version : `not_found` « No version of {id} is in force on {date}. ».
+//!    `date_debut..date_fin` : `date_debut` comprise, `date_fin` exclue (absente = sans date de
+//!    fin) ; une version sans `date_debut` n'est en vigueur à aucune date (sentinelle
+//!    `2222-02-22` des entrées en vigueur différée, V-101). Sur les données réelles, la `date_fin`
+//!    d'une version est le premier jour hors vigueur : le jour d'entrée en vigueur de la suivante
+//!    (L1234-9 : fin et début suivant le 2017-09-24) ou celui de l'abrogation (L1236-1 : fin le
+//!    2008-06-27, `fr_resolve` ne trouve rien ce jour-là). Ce jour appartient donc à la suivante,
+//!    et sans suivante à aucune version ; une version de durée nulle (début = fin) n'est jamais en
+//!    vigueur, comme dans la fenêtre `debut <= D < fin` de l'adapter DILA. Une `date_fin` future
+//!    (CGI 200 : 2027-01-01, état `ABROGE_DIFF`) est une fin programmée, servie telle que l'API la
+//!    donne jusqu'à la veille. Aucune version : `not_found` « No version of {id} is in force on
+//!    {date}. ».
 //! 3. Les deux dates dans la même version : `identical`, sans hunk et avec un seul `get_article`
 //!    (la citation). Sinon les deux textes se lisent ensemble.
 //! 4. Diff mot à mot ([`similar`], Myers) : un hunk par suite contiguë de mots changés, avec sa
@@ -34,8 +37,8 @@ use std::time::{Duration, Instant};
 use futures::future::join;
 use lf_domain::{
     contract::Citable,
-    date::{VersionDate, open_ended},
-    entity::{ArticleText, ArticleVersion},
+    date::VersionDate,
+    entity::{ArticleText, ArticleVersion, in_force_on},
     id::{ArticleId, LegiArtiId},
 };
 use similar::{Algorithm, DiffTag, capture_diff_slices_deadline};
@@ -131,8 +134,8 @@ impl<'a, C: LegalCorpus, K: Clock> DiffArticleUseCase<'a, C, K> {
             .article_versions(&ArticleId::Legi(id.clone()))
             .await
             .map_err(|error| port_error(&id, date_a, &error))?;
-        let version_a = in_force(&versions, date_a).ok_or_else(|| no_version(&id, date_a))?;
-        let version_b = in_force(&versions, date_b).ok_or_else(|| no_version(&id, date_b))?;
+        let version_a = in_force_on(&versions, date_a).ok_or_else(|| no_version(&id, date_a))?;
+        let version_b = in_force_on(&versions, date_b).ok_or_else(|| no_version(&id, date_b))?;
         let identical = version_a.id == version_b.id;
         let (target, diff) = if identical {
             (self.read(&id, version_b, date_b).await?, WordDiff::default())
@@ -217,24 +220,6 @@ fn port_error(requested: &LegiArtiId, date: VersionDate, error: &CorpusError) ->
 /// `not_found` : aucune version de l'article n'est en vigueur à `date` (05 §7.4).
 fn no_version(id: &LegiArtiId, date: VersionDate) -> AppError {
     AppError::not_found(format!("No version of {id} is in force on {date}."))
-}
-
-/// La version en vigueur à `date` : celle dont `date_debut..=date_fin` la contient, la plus
-/// récente si plusieurs la contiennent. Une version sans `date_debut` ne contient aucune date.
-///
-/// La `date_fin` réelle d'une version est le jour où la suivante prend effet : ce jour-là, les deux
-/// versions contiennent la date et la plus récente l'emporte (bornes comprises, jamais `day < end`).
-/// La borne n'est « incluse » que faute de successeur ; le cas d'une dernière version abrogée au
-/// jour de sa `date_fin`, sans suivante, reste à mesurer (L5-02).
-fn in_force(versions: &[ArticleVersion], date: VersionDate) -> Option<&ArticleVersion> {
-    let day = date.as_civil();
-    versions
-        .iter()
-        .filter(|version| {
-            open_ended(version.date_debut).is_some_and(|start| start <= day)
-                && open_ended(version.date_fin).is_none_or(|end| day <= end)
-        })
-        .max_by_key(|version| version.date_debut)
 }
 
 /// La version telle que la réponse la décrit.
@@ -511,8 +496,8 @@ mod tests {
 
     type Ymd = Option<(u16, u8, u8)>;
 
-    /// Version `n` en vigueur de `from` à `to` (`to` : borne de `in_force`, jour d'entrée en
-    /// vigueur de la suivante dans les données réelles ; `None` : sans borne).
+    /// Version `n` en vigueur de `from` à `to` (`to` : premier jour hors vigueur, jour d'entrée
+    /// en vigueur de la suivante dans les données réelles ; `None` : sans borne).
     fn version(n: u32, from: Ymd, to: Ymd) -> ArticleVersion {
         ArticleVersion {
             id: arti(n),
@@ -523,10 +508,11 @@ mod tests {
         }
     }
 
-    /// Deux versions : la 1 jusqu'au 2023-09-07, la 2 depuis le 2023-09-08.
+    /// Deux versions contiguës, comme les données réelles : la 1 jusqu'au 2023-09-07 compris, la 2
+    /// depuis le 2023-09-08, qui est aussi la `date_fin` de la 1.
     fn two_versions() -> Vec<ArticleVersion> {
         vec![
-            version(1, Some((2016, 10, 9)), Some((2023, 9, 7))),
+            version(1, Some((2016, 10, 9)), Some((2023, 9, 8))),
             version(2, Some((2023, 9, 8)), None),
         ]
     }
@@ -663,7 +649,7 @@ mod tests {
         assert_eq!(output.citation, "Code civil, art. 9");
         assert_eq!(output.version_a.article_id, arti(1));
         assert_eq!(output.version_a.date_debut, Some(day(2016, 10, 9)));
-        assert_eq!(output.version_a.date_fin, Some(day(2023, 9, 7)));
+        assert_eq!(output.version_a.date_fin, Some(day(2023, 9, 8)));
         assert_eq!(output.version_a.etat, Some(LegalStatus::Vigueur));
         assert_eq!(output.version_b.article_id, arti(2));
         assert_eq!(output.version_b.date_fin, None);
@@ -680,10 +666,11 @@ mod tests {
 
     #[tokio::test]
     async fn diff_dates_default_today_paris() {
-        // 23 h 30 UTC le 28 octobre : il est déjà le 29 à Paris. La version 1 s'est terminée la
-        // veille, la 2 commence ce jour-là : seule la date de Paris désigne la 2.
+        // 23 h 30 UTC le 28 octobre : il est déjà le 29 à Paris. La version 1 s'arrête le 29
+        // (premier jour hors vigueur), la 2 commence ce jour-là : seule la date de Paris désigne
+        // la 2 (le 28 UTC désignerait la 1).
         let versions = vec![
-            version(1, Some((2020, 1, 1)), Some((2026, 10, 28))),
+            version(1, Some((2020, 1, 1)), Some((2026, 10, 29))),
             version(2, Some((2026, 10, 29)), None),
         ];
         let utc_evening = Utc.with_ymd_and_hms(2026, 10, 28, 23, 30, 0).unwrap();
@@ -881,16 +868,16 @@ mod tests {
     }
 
     fn id_on(versions: &[ArticleVersion], raw: &str) -> Option<LegiArtiId> {
-        in_force(versions, date(raw)).map(|version| version.id.clone())
+        in_force_on(versions, date(raw)).map(|version| version.id.clone())
     }
 
     #[test]
-    fn a_version_covers_its_first_and_last_day() {
+    fn a_version_covers_its_first_day_up_to_the_day_before_its_date_fin() {
         let versions = two_versions();
         assert_eq!(id_on(&versions, "2016-10-08"), None, "la veille du début");
         assert_eq!(id_on(&versions, "2016-10-09"), Some(arti(1)));
-        assert_eq!(id_on(&versions, "2023-09-07"), Some(arti(1)), "la borne de fin est comprise");
-        assert_eq!(id_on(&versions, "2023-09-08"), Some(arti(2)));
+        assert_eq!(id_on(&versions, "2023-09-07"), Some(arti(1)), "le dernier jour réel");
+        assert_eq!(id_on(&versions, "2023-09-08"), Some(arti(2)), "le jour de `date_fin`");
         assert_eq!(id_on(&versions, "2221-12-31"), Some(arti(2)), "sans date de fin");
     }
 
@@ -958,6 +945,433 @@ mod tests {
         assert_eq!(id_on(&versions, "2015-01-01"), Some(arti(3)));
         assert_eq!(id_on(&versions, "2025-01-01"), Some(arti(2)));
         assert_eq!(id_on(&versions, "2005-01-01"), Some(arti(1)));
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Version en vigueur : `date_fin` est le premier jour hors vigueur (U14, related_diff-3)
+    // ---------------------------------------------------------------------------------------
+
+    #[test]
+    fn the_last_version_is_not_in_force_on_its_date_fin() {
+        // V1 : L1236-1 du Code du travail (LEGIARTI000006901165), abrogé sans successeur.
+        let versions = vec![version(1, Some((2008, 5, 1)), Some((2008, 6, 27)))];
+        assert_eq!(id_on(&versions, "2008-06-26"), Some(arti(1)), "le dernier jour réel");
+        assert_eq!(id_on(&versions, "2008-06-27"), None, "le jour de `date_fin`");
+        assert_eq!(id_on(&versions, "2008-06-28"), None, "le lendemain");
+        // V3 : l'article 885 U du CGI (LEGIARTI000026947130), supprimé avec l'ISF.
+        let versions = vec![version(1, Some((2013, 1, 1)), Some((2018, 1, 1)))];
+        assert_eq!(id_on(&versions, "2017-12-31"), Some(arti(1)), "le dernier jour réel");
+        assert_eq!(id_on(&versions, "2018-01-01"), None, "le jour de `date_fin`");
+    }
+
+    /// Corpus qui sert `versions`, puis deux fois un texte quelconque : ces tests regardent la
+    /// sélection de la version, pas le diff.
+    fn selecting(versions: Vec<ArticleVersion>) -> FakeCorpus {
+        let corpus = FakeCorpus::new();
+        corpus.push_article_versions(Ok(versions));
+        corpus.push_get_article(Ok(article(1, "texte")));
+        corpus.push_get_article(Ok(article(1, "texte")));
+        corpus
+    }
+
+    /// L'appel `input` sur `versions` échoue en `not_found` à la date `missing`, avant toute
+    /// lecture de texte (`what` : la variante, pour le message d'échec).
+    async fn assert_no_version(
+        versions: Vec<ArticleVersion>,
+        input: DiffArticleInput,
+        missing: &str,
+        what: &str,
+    ) {
+        let corpus = selecting(versions);
+        let result = run(&corpus, &clock(), input).await;
+        assert!(
+            result.is_err(),
+            "{what} : la date {missing} est hors vigueur, l'appel devrait échouer",
+        );
+        let error = result.unwrap_err();
+        assert_eq!(error.code(), Some(ErrorCode::NotFound), "{what}");
+        assert_eq!(
+            error.message(),
+            format!("No version of {} is in force on {missing}.", id_of(1)),
+            "{what}"
+        );
+        assert_eq!(corpus.calls(), 1, "{what} : seul `article_versions` est appelé");
+    }
+
+    #[tokio::test]
+    async fn a_date_on_the_date_fin_of_the_last_version_is_not_found() {
+        let versions = || vec![version(1, Some((2008, 5, 1)), Some((2008, 6, 27)))];
+        let id = id_of(1);
+        // V1 : `date_b` au jour de `date_fin`.
+        assert_no_version(
+            versions(),
+            input(&id, "2008-05-15", Some("2008-06-27")),
+            "2008-06-27",
+            "V1",
+        )
+        .await;
+        // V2 : `date_a` au jour de `date_fin`, `date_b` omise ou égale.
+        assert_no_version(versions(), input(&id, "2008-06-27", None), "2008-06-27", "V2 omise")
+            .await;
+        assert_no_version(
+            versions(),
+            input(&id, "2008-06-27", Some("2008-06-27")),
+            "2008-06-27",
+            "V2 égale",
+        )
+        .await;
+        // V4 : ordre inversé, `date_a` au jour de `date_fin` et `date_b` la veille.
+        assert_no_version(
+            versions(),
+            input(&id, "2008-06-27", Some("2008-06-26")),
+            "2008-06-27",
+            "V4",
+        )
+        .await;
+        // Le lendemain n'est pas mieux servi.
+        assert_no_version(
+            versions(),
+            input(&id, "2008-05-15", Some("2008-06-28")),
+            "2008-06-28",
+            "lendemain",
+        )
+        .await;
+        // V3 : l'article 885 U, supprimé le 2018-01-01.
+        assert_no_version(
+            vec![version(1, Some((2013, 1, 1)), Some((2018, 1, 1)))],
+            input(&id, "2017-12-15", Some("2018-01-01")),
+            "2018-01-01",
+            "V3",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn today_on_the_date_fin_of_the_last_version_is_not_found() {
+        // V8 : l'article est abrogé aujourd'hui (2026-10-29 à Paris), `date_b` omise.
+        let repealed_today = vec![version(1, Some((2020, 1, 1)), Some((2026, 10, 29)))];
+        assert_no_version(repealed_today, input(&id_of(1), "2025-01-01", None), "2026-10-29", "V8")
+            .await;
+    }
+
+    #[tokio::test]
+    async fn an_article_repealed_today_is_not_found_when_date_b_defaults_to_today() {
+        let mut repealed = version(1, Some((2020, 1, 1)), Some((2026, 10, 29)));
+        repealed.etat = Some(LegalStatus::Abroge);
+        // `date_a` est le dernier jour réel : seule `date_b`, par défaut aujourd'hui, échoue.
+        assert_no_version(
+            vec![repealed.clone()],
+            input(&id_of(1), "2026-10-28", None),
+            "2026-10-29",
+            "dernier jour réel en A",
+        )
+        .await;
+
+        // Jumeau : abrogé demain, l'article est encore servi aujourd'hui.
+        repealed.date_fin = Some(day(2026, 10, 30));
+        let corpus = selecting(vec![repealed]);
+        let output = run(&corpus, &clock(), input(&id_of(1), "2026-10-28", None)).await.unwrap();
+        assert!(output.identical);
+        assert_eq!(output.version_b.date_fin, Some(day(2026, 10, 30)));
+    }
+
+    #[test]
+    fn on_the_date_fin_of_a_version_with_a_gap_before_the_next_nothing_is_in_force() {
+        // V6 : la version A se termine le 2010-01-01, la B ne commence que le 2010-01-04.
+        let versions = vec![
+            version(1, Some((2000, 1, 1)), Some((2010, 1, 1))),
+            version(2, Some((2010, 1, 4)), None),
+        ];
+        assert_eq!(id_on(&versions, "2009-12-31"), Some(arti(1)), "le dernier jour de A");
+        assert_eq!(id_on(&versions, "2010-01-01"), None, "le jour de `date_fin` de A");
+        assert_eq!(id_on(&versions, "2010-01-02"), None);
+        assert_eq!(id_on(&versions, "2010-01-03"), None);
+        assert_eq!(id_on(&versions, "2010-01-04"), Some(arti(2)), "le premier jour de B");
+    }
+
+    #[test]
+    fn a_chain_with_a_gap_serves_the_next_version_on_its_first_day_and_nothing_before() {
+        // CGI 777 (LEGIARTI000006310348 puis 000006310349) : un trou de 88 jours, comme la mesure
+        // T11 du 2026-11-02 en a relevé cinq. Dates de la chaîne réelle (début de la 1 : 1983-12-30).
+        let versions = vec![
+            version(1, Some((1983, 12, 30)), Some((2002, 1, 1))),
+            version(2, Some((2002, 3, 31)), Some((2007, 8, 22))),
+            version(3, Some((2007, 8, 22)), None),
+        ];
+        assert_eq!(id_on(&versions, "2001-12-31"), Some(arti(1)));
+        assert_eq!(id_on(&versions, "2002-01-01"), None, "premier jour du trou");
+        assert_eq!(id_on(&versions, "2002-03-30"), None, "dernier jour du trou");
+        assert_eq!(
+            id_on(&versions, "2002-03-31"),
+            Some(arti(2)),
+            "première journée de la suivante"
+        );
+        assert_eq!(id_on(&versions, "2007-08-21"), Some(arti(2)));
+        assert_eq!(id_on(&versions, "2007-08-22"), Some(arti(3)), "bascule contiguë");
+    }
+
+    #[test]
+    fn a_version_that_starts_and_ends_the_same_day_or_ends_before_it_starts_is_never_in_force() {
+        // V7 : durée nulle (début = fin) ou « mort-née » (fin avant début, 6 960 articles DILA).
+        let zero = vec![version(1, Some((2006, 12, 27)), Some((2006, 12, 27)))];
+        for raw in ["2006-12-26", "2006-12-27", "2006-12-28"] {
+            assert_eq!(id_on(&zero, raw), None, "durée nulle, {raw}");
+        }
+        let stillborn = vec![version(1, Some((2006, 12, 27)), Some((2006, 12, 20)))];
+        for raw in ["2006-12-19", "2006-12-20", "2006-12-23", "2006-12-27", "2006-12-28"] {
+            assert_eq!(id_on(&stillborn, raw), None, "fin avant début, {raw}");
+        }
+        // Même quand une version suivante commence ce jour-là.
+        let with_successor = vec![
+            version(1, Some((2000, 1, 1)), Some((2006, 12, 27))),
+            version(2, Some((2006, 12, 27)), Some((2006, 12, 27))),
+            version(3, Some((2006, 12, 27)), None),
+        ];
+        assert_eq!(id_on(&with_successor, "2006-12-26"), Some(arti(1)));
+        assert_eq!(id_on(&with_successor, "2006-12-27"), Some(arti(3)));
+    }
+
+    #[test]
+    fn a_zero_length_version_listed_after_the_real_one_is_never_served_on_its_day() {
+        // Le port trie par `date_debut` puis `ordre` : une version de durée nulle peut suivre la
+        // vraie, ou la précéder. Dans les deux ordres, la vraie est servie le jour D.
+        let real = version(1, Some((2000, 1, 1)), None);
+        let zero = version(2, Some((2006, 12, 27)), Some((2006, 12, 27)));
+        for versions in [vec![real.clone(), zero.clone()], vec![zero.clone(), real.clone()]] {
+            assert_eq!(id_on(&versions, "2006-12-27"), Some(arti(1)), "le jour D");
+            assert_eq!(id_on(&versions, "2006-12-28"), Some(arti(1)), "le lendemain");
+        }
+        // Même début que la vraie : l'égalité de début ne la fait pas servir non plus.
+        let real = version(1, Some((2006, 12, 27)), None);
+        for versions in [vec![real.clone(), zero.clone()], vec![zero, real]] {
+            assert_eq!(id_on(&versions, "2006-12-27"), Some(arti(1)), "début égal");
+        }
+    }
+
+    #[test]
+    fn a_scheduled_repeal_without_successor_ends_on_its_date_fin() {
+        // V5 : `ABROGE_DIFF`, `date_fin` future, aucune `VIGUEUR_DIFF` derrière.
+        let mut scheduled = version(1, Some((2022, 1, 1)), Some((2027, 1, 1)));
+        scheduled.etat = Some(LegalStatus::AbrogeDiff);
+        let versions = vec![scheduled];
+        assert_eq!(id_on(&versions, "2026-12-31"), Some(arti(1)), "la veille, encore en vigueur");
+        assert_eq!(id_on(&versions, "2027-01-01"), None, "le jour de l'abrogation");
+    }
+
+    #[test]
+    fn a_deferred_end_sentinel_and_a_missing_start_keep_their_meaning_on_the_boundary_day() {
+        // Garde : la sentinelle de fin (zone 2222+) ne limite rien, même au dernier jour
+        // acceptable ; une version sans début n'est jamais servie, quelle que soit sa fin.
+        let versions = vec![
+            version(1, Some((2000, 1, 1)), Some((2999, 1, 1))),
+            version(2, Some((2010, 1, 1)), Some((2222, 1, 1))),
+            version(3, None, None),
+            version(4, None, Some((2030, 1, 1))),
+        ];
+        assert_eq!(id_on(&versions, "2005-01-01"), Some(arti(1)));
+        assert_eq!(id_on(&versions, "2010-01-01"), Some(arti(2)));
+        assert_eq!(id_on(&versions, "2221-12-31"), Some(arti(2)), "dernier jour acceptable");
+        assert_eq!(id_on(&versions, "1999-12-31"), None, "avant tout début");
+        let only_unstarted = vec![version(3, None, None), version(4, None, Some((2030, 1, 1)))];
+        assert_eq!(id_on(&only_unstarted, "2029-12-31"), None);
+        assert_eq!(id_on(&only_unstarted, "2221-12-31"), None);
+    }
+
+    #[test]
+    fn a_chain_taken_from_the_recorded_code_civil_9_switches_on_the_shared_date() {
+        // Garde sur donnée réelle : dates de la fixture sandbox
+        // `canonicalArticleVersion-LEGIARTI000006419288` (1889-06-28, 1927-08-14, 1970-07-19).
+        let versions = vec![
+            version(1, Some((1889, 6, 28)), Some((1927, 8, 14))),
+            version(2, Some((1927, 8, 14)), Some((1970, 7, 19))),
+            version(3, Some((1970, 7, 19)), None),
+        ];
+        assert_eq!(id_on(&versions, "1889-06-27"), None);
+        assert_eq!(id_on(&versions, "1889-06-28"), Some(arti(1)));
+        assert_eq!(id_on(&versions, "1927-08-13"), Some(arti(1)));
+        assert_eq!(id_on(&versions, "1927-08-14"), Some(arti(2)), "bascule 1 vers 2");
+        assert_eq!(id_on(&versions, "1970-07-18"), Some(arti(2)));
+        assert_eq!(id_on(&versions, "1970-07-19"), Some(arti(3)), "bascule 2 vers 3");
+        assert_eq!(id_on(&versions, "2026-10-29"), Some(arti(3)));
+    }
+
+    #[tokio::test]
+    async fn the_real_code_civil_9_fixture_dates_switch_through_the_use_case() {
+        // Mêmes dates que ci-dessus, par `execute` : chaque bascule sépare deux versions.
+        let versions = || {
+            vec![
+                version(1, Some((1889, 6, 28)), Some((1927, 8, 14))),
+                version(2, Some((1927, 8, 14)), Some((1970, 7, 19))),
+                version(3, Some((1970, 7, 19)), None),
+            ]
+        };
+        for (a, b, ids) in
+            [("1927-08-13", "1927-08-14", (1, 2)), ("1970-07-18", "1970-07-19", (2, 3))]
+        {
+            let corpus = FakeCorpus::new();
+            corpus.push_article_versions(Ok(versions()));
+            corpus.push_get_article(Ok(article(ids.0, "avant")));
+            corpus.push_get_article(Ok(article(ids.1, "après")));
+            let output = run(&corpus, &clock(), input(&id_of(3), a, Some(b))).await.unwrap();
+            assert!(!output.identical, "{a} / {b}");
+            assert_eq!(output.version_a.article_id, arti(ids.0), "{a}");
+            assert_eq!(output.version_b.article_id, arti(ids.1), "{b}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_date_a_error_comes_first_and_makes_no_text_read() {
+        // Garde : `date_a` est validée avant `date_b`. `date_a` avant la première version (hors
+        // vigueur avant comme après le correctif), `date_b` au jour de `date_fin`.
+        let versions = || vec![version(1, Some((2008, 5, 1)), Some((2008, 6, 27)))];
+        assert_no_version(
+            versions(),
+            input(&id_of(1), "2000-01-01", Some("2008-06-27")),
+            "2000-01-01",
+            "date_a avant le début",
+        )
+        .await;
+        assert_no_version(
+            versions(),
+            input(&id_of(1), "2000-01-01", Some("2009-01-01")),
+            "2000-01-01",
+            "date_a avant le début, date_b après la fin",
+        )
+        .await;
+    }
+
+    // Grille exhaustive : jours numérotés 0 à 6 (le jour `n` est le 2020-01-`n + 1`), de 1 à 3
+    // versions, chacune avec un début absent ou `1..=5` et une fin absente ou `1..=6`.
+
+    /// Début et fin d'une version de la grille, en numéros de jour.
+    type Span = (Option<u8>, Option<u8>);
+
+    const GRID_DAYS: u8 = 7;
+
+    /// Les 42 durées possibles d'une version de la grille.
+    fn grid_spans() -> Vec<Span> {
+        let starts = std::iter::once(None).chain((1..=5).map(Some));
+        starts
+            .flat_map(|start| {
+                std::iter::once(None).chain((1..=6).map(Some)).map(move |end| (start, end))
+            })
+            .collect()
+    }
+
+    /// Toutes les listes de 1 à 3 durées de la grille, dans l'ordre de l'énumération.
+    fn grid_lists() -> Vec<Vec<Span>> {
+        let spans = grid_spans();
+        let mut lists: Vec<Vec<Span>> = spans.iter().map(|span| vec![*span]).collect();
+        let mut previous = lists.clone();
+        for _ in 1..3 {
+            previous = previous
+                .iter()
+                .flat_map(|list| {
+                    spans.iter().map(move |span| {
+                        let mut longer = list.clone();
+                        longer.push(*span);
+                        longer
+                    })
+                })
+                .collect();
+            lists.extend(previous.iter().cloned());
+        }
+        lists
+    }
+
+    fn grid_day(n: u8) -> CivilDate {
+        day(2020, 1, n + 1)
+    }
+
+    fn grid_versions(list: &[Span]) -> Vec<ArticleVersion> {
+        list.iter()
+            .enumerate()
+            .map(|(index, (start, end))| ArticleVersion {
+                id: arti(u32::try_from(index).unwrap() + 1),
+                num: None,
+                etat: None,
+                date_debut: start.map(grid_day),
+                date_fin: end.map(grid_day),
+            })
+            .collect()
+    }
+
+    /// L'oracle de la grille, écrit sans `open_ended` ni `max_by_key` : une boucle qui retient,
+    /// parmi les versions qui commencent au plus tard le jour `day` et se terminent après lui, celle
+    /// dont le début est le plus grand, la dernière de la liste en cas d'égalité. Un début absent
+    /// n'est jamais servi. Renvoie l'index (à partir de 0) de la version servie.
+    fn grid_oracle(list: &[Span], day: u8) -> Option<usize> {
+        let mut best: Option<(usize, u8)> = None;
+        for (index, (start, end)) in list.iter().enumerate() {
+            let Some(start) = *start else { continue };
+            let started = start <= day;
+            let not_ended = match end {
+                Some(end) => day < *end,
+                None => true,
+            };
+            if !(started && not_ended) {
+                continue;
+            }
+            match best {
+                Some((_, best_start)) if best_start > start => {}
+                _ => best = Some((index, start)),
+            }
+        }
+        best.map(|(index, _)| index)
+    }
+
+    #[test]
+    fn the_version_in_force_is_the_one_starting_last_among_those_with_debut_le_day_lt_fin() {
+        for list in grid_lists() {
+            let versions = grid_versions(&list);
+            for n in 0..GRID_DAYS {
+                let served = in_force_on(&versions, VersionDate::try_from(grid_day(n)).unwrap())
+                    .map(|version| version.id.clone());
+                let expected =
+                    grid_oracle(&list, n).map(|index| arti(u32::try_from(index).unwrap() + 1));
+                assert_eq!(served, expected, "versions {list:?}, jour {n}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_grid_oracle_counts_its_cases() {
+        let lists = grid_lists();
+        // 42 + 42² + 42³ listes, chacune lue à sept jours.
+        assert_eq!(grid_spans().len(), 42);
+        assert_eq!(lists.len(), 42 + 42 * 42 + 42 * 42 * 42);
+        assert!(lists.len() > 70_000);
+        let mut served = 0_usize;
+        let mut empty = 0_usize;
+        for list in &lists {
+            for n in 0..GRID_DAYS {
+                if grid_oracle(list, n).is_some() {
+                    served += 1;
+                } else {
+                    empty += 1;
+                }
+            }
+        }
+        assert_eq!(served + empty, lists.len() * usize::from(GRID_DAYS));
+        assert!(served > 100_000 && empty > 100_000, "{served} servis, {empty} vides");
+    }
+
+    #[test]
+    fn the_oracle_of_the_grid_test_is_independent_of_the_selection_code() {
+        // Valeurs écrites à la main, sans passer par `in_force` : l'oracle porte la règle.
+        // Fin exclue, début compris.
+        assert_eq!(grid_oracle(&[(Some(1), Some(3))], 0), None);
+        assert_eq!(grid_oracle(&[(Some(1), Some(3))], 1), Some(0));
+        assert_eq!(grid_oracle(&[(Some(1), Some(3))], 2), Some(0));
+        assert_eq!(grid_oracle(&[(Some(1), Some(3))], 3), None);
+        // Début absent : jamais servie ; fin absente : sans limite.
+        assert_eq!(grid_oracle(&[(None, None)], 6), None);
+        assert_eq!(grid_oracle(&[(Some(2), None)], 6), Some(0));
+        // Le début le plus grand l'emporte, la dernière de la liste en cas d'égalité.
+        assert_eq!(grid_oracle(&[(Some(1), None), (Some(3), Some(5))], 4), Some(1));
+        assert_eq!(grid_oracle(&[(Some(1), None), (Some(3), Some(5))], 5), Some(0));
+        assert_eq!(grid_oracle(&[(Some(2), None), (Some(2), None)], 3), Some(1));
+        assert_eq!(grid_oracle(&[(Some(2), Some(2)), (Some(1), None)], 2), Some(1));
     }
 
     // ---------------------------------------------------------------------------------------

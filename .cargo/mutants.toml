@@ -45,4 +45,10 @@ exclude_re = [
     # car il supprime le raccourci (même résultat par le chemin lent, seulement plus coûteux). Le
     # mutant `>` reste visé : il casse la composition Hangul (nfc_composes_by_group).
     'normalize\.rs:\d+:\d+: replace < with (<=|==) in joins$',
+    # citation/resolve.rs, `Resolver::toc_of` : le garde `day != self.today` ne sert qu'à ne pas relire
+    # le même jour. Mis à `true` avec `day == self.today`, le repli relit `read_act(text, today)`, donc
+    # la même clé `(text, day)` de `ActMemo`, qui garde aussi l'erreur (`*slot = Some(read.clone())`) :
+    # il rend la même `NotFound` sans second appel au port. Sortie et appels identiques (équivalent,
+    # vague 3b). Le mutant `!=` -> `==` reste visé et tué.
+    'resolve\.rs:\d+:\d+: replace match guard day != self\.today with true in Resolver<.a, C>::toc_of$',
 ]

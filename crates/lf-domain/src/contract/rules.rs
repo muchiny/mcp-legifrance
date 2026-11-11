@@ -1,6 +1,6 @@
 //! Règles de citation françaises : fonctions pures, une par convention.
 
-use crate::{date::CivilDate, entity::ParentNature};
+use crate::{date::CivilDate, entity::ParentNature, text::fold};
 
 /// Parité avec la vérité Python des chaînes : `""` vaut absent
 /// (`citations.py:256-261`, `303-317`, `377-378`, `458`).
@@ -104,6 +104,56 @@ pub fn constit_citation(
 /// référence écrit `deliberation` (`citations.py:377-378`).
 pub fn cnil_citation(num: Option<&str>, date: Option<CivilDate>) -> Option<String> {
     Some(format!("CNIL, délibération n° {} du {}", present(num)?, date?.to_french()))
+}
+
+/// Mot qui qualifie un acte de la CNIL dans sa citation (AM-80).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CnilWord {
+    /// « délibération » (sanctions, avis, recommandations de la formation restreinte ou plénière).
+    Deliberation,
+    /// « décision » (mises en demeure, autorisations, décisions DF/DR).
+    Decision,
+}
+
+impl CnilWord {
+    /// Le mot écrit dans la citation.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Deliberation => "délibération",
+            Self::Decision => "décision",
+        }
+    }
+}
+
+/// Citation d'un acte de la CNIL lu par `/consult/cnil` : `CNIL, décision n° MED-2024-150 du
+/// 15 novembre 2024`, ou `CNIL, décision n° DF-2017-1448` quand la date est inconnue (AM-80).
+/// `""` vaut absent ; sans numéro, `None`. [`cnil_citation`] reste la forme canonique d'une
+/// citation lue.
+pub fn cnil_consult_citation(
+    word: CnilWord,
+    num: Option<&str>,
+    date: Option<CivilDate>,
+) -> Option<String> {
+    let mut out = format!("CNIL, {} n° {}", word.label(), present(num)?);
+    if let Some(date) = date {
+        out.push_str(" du ");
+        out.push_str(&date.to_french());
+    }
+    Some(out)
+}
+
+/// Le titre long d'une clôture de mise en demeure commence par « Clôture » ou « Courrier de
+/// clôture » (casse et accents repliés) : l'acte cité est celui de la lettre, pas la décision.
+#[must_use]
+pub fn is_cnil_closure_title(title: &str) -> bool {
+    let folded = fold(title);
+    let mut words = folded.split(|c: char| !c.is_alphabetic()).filter(|word| !word.is_empty());
+    match words.next() {
+        Some("cloture") => true,
+        Some("courrier") => words.next() == Some("de") && words.next() == Some("cloture"),
+        _ => false,
+    }
 }
 
 /// `<titre> (<raison sociale>)` pour un accord d'entreprise (`citations.py:458`).
@@ -315,6 +365,102 @@ mod tests {
         assert_eq!(cnil_citation(Some("SAN-2026-002"), None), None);
         // "" vaut absent (citations.py:377-378).
         assert_eq!(cnil_citation(Some(""), jan_8), None);
+    }
+
+    #[test]
+    fn cnil_consult_citation_golden() {
+        let jan_8 = CivilDate::new(2026, 1, 8);
+        let nov_15 = CivilDate::new(2024, 11, 15);
+        let cases = [
+            // (mot, numéro, date, citation attendue)
+            (
+                CnilWord::Deliberation,
+                Some("SAN-2026-002"),
+                jan_8,
+                Some("CNIL, délibération n° SAN-2026-002 du 8 janvier 2026"),
+            ),
+            (
+                CnilWord::Decision,
+                Some("MED-2024-150"),
+                nov_15,
+                Some("CNIL, décision n° MED-2024-150 du 15 novembre 2024"),
+            ),
+            (
+                CnilWord::Decision,
+                Some("DF-2017-1448"),
+                CivilDate::new(2017, 12, 7),
+                Some("CNIL, décision n° DF-2017-1448 du 7 décembre 2017"),
+            ),
+            (
+                CnilWord::Decision,
+                Some("DR-2013-538"),
+                CivilDate::new(2014, 1, 1),
+                Some("CNIL, décision n° DR-2013-538 du 1er janvier 2014"),
+            ),
+            // Sans date : la forme s'arrête au numéro.
+            (
+                CnilWord::Decision,
+                Some("DF-2017-1448"),
+                None,
+                Some("CNIL, décision n° DF-2017-1448"),
+            ),
+            (
+                CnilWord::Deliberation,
+                Some("2014-001"),
+                None,
+                Some("CNIL, délibération n° 2014-001"),
+            ),
+            // Sans numéro, ou numéro vide : pas de citation (le repli est celui de l'entité).
+            (CnilWord::Decision, None, nov_15, None),
+            (CnilWord::Deliberation, Some(""), jan_8, None),
+            (CnilWord::Deliberation, None, None, None),
+        ];
+        for (word, num, date, expected) in cases {
+            assert_eq!(
+                cnil_consult_citation(word, num, date).as_deref(),
+                expected,
+                "{word:?} {num:?} {date:?}"
+            );
+        }
+        assert_eq!(CnilWord::Deliberation.label(), "délibération");
+        assert_eq!(CnilWord::Decision.label(), "décision");
+    }
+
+    #[test]
+    fn cnil_closure_title_golden() {
+        let closures = [
+            "Clôture de la décision n° MED-2022-060 du 25 avril 2022",
+            "clôture de la mise en demeure",
+            "CLÔTURE DE LA MISE EN DEMEURE n° MED-2017-053",
+            "Cloture de la decision n° MED-2023-018 du 3 avril 2023",
+            "  Clôture  ",
+            "Clôture: décision n° MED-2022-060",
+            "Courrier de clôture de la mise en demeure",
+            "courrier  de   clôture",
+            "COURRIER DE CLOTURE de la décision n° MED-2022-060",
+        ];
+        for title in closures {
+            assert!(is_cnil_closure_title(title), "{title:?}");
+        }
+        let others = [
+            "",
+            "   ",
+            "Décision n° MED-2022-060 du 25 avril 2022 mettant en demeure",
+            "Délibération n° SAN-2026-002 du 8 janvier 2026",
+            // « clôture » ailleurs que tout au début, ou mot différent.
+            "Décision de clôture de la procédure",
+            "Délibération portant clôture du dossier",
+            "Clôturée",
+            "Clôtures de comptes",
+            "Courrier de mise en demeure",
+            "Courrier de la clôture",
+            "Courrier clôture",
+            "Courrier de",
+            "Courrier",
+        ];
+        for title in others {
+            assert!(!is_cnil_closure_title(title), "{title:?}");
+        }
     }
 
     #[test]

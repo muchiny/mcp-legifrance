@@ -13,6 +13,11 @@
 //!   attend alors cette fin jusqu'au drainage de 5 s (`failed to acknowledge subscription:
 //!   Transport closed`). Le filtre laisse donc [`LISTEN_EOF_GRACE`] à la boucle avant de rendre
 //!   l'EOF, et seulement quand une écoute a été reçue.
+//!
+//! Relu sur rmcp 3.9.0 le 2026-11-11 (ADR-0026, annexe D §9.5) : les numéros de ligne ci-dessus
+//! sont ceux de 3.5.1. En 3.9.0, les deux premiers comportements sont inchangés
+//! (`service/server.rs:673-677`, `service.rs:1774-1778`) ; la course de l'accusé de `listen` n'a
+//! pas été remesurée, et [`LISTEN_EOF_GRACE`] est gardé.
 
 use std::time::Duration;
 
@@ -115,7 +120,8 @@ impl<T: Transport<RoleServer>> Transport<RoleServer> for PreLifecycleFilter<T> {
 }
 
 /// `initialize`, ou requête autre que `server/discover` et `ping` dont le `_meta` est complet et
-/// la version dans [`SUPPORTED`] : la règle d'ouverture de rmcp (`service/server.rs:597-668`).
+/// la version dans [`SUPPORTED`] : la règle d'ouverture de rmcp (`service/server.rs:597-668` en
+/// 3.5.1, `:589-660` en 3.9.0, même règle).
 fn opens_lifecycle(request: &ClientRequest) -> bool {
     match request {
         ClientRequest::InitializeRequest(_) => true,

@@ -313,8 +313,9 @@ mod contract {
             ("/consult/cnil", 3),
             ("/consult/kaliText", 3),
             ("/consult/acco", 3),
-            // « Aujourd'hui » : 2 lectures et 1 numéro absent (200 à enveloppe nulle).
-            ("/consult/getArticleWithIdAndNum", 3),
+            // « Aujourd'hui » : 2 lectures et 1 numéro absent (200 à enveloppe nulle), plus 1
+            // pour le repli par les versions du numéro absent à une date (U01-R).
+            ("/consult/getArticleWithIdAndNum", 4),
             // IDCC présent (2) ; NOR absent (1, 400 classé en liste vide).
             ("/consult/kaliContIdcc", 2),
             ("/consult/getJoWithNor", 1),
@@ -331,5 +332,60 @@ mod contract {
         }
         let total = 1 + routes.iter().map(|(_, expected)| expected).sum::<usize>();
         assert_eq!(requests.len(), total);
+    }
+
+    /// U11 (verify_citations-2) : le repli du Conseil d'État cherche le numéro cité en plein texte
+    /// (`ALL`), exact, dans CETAT, page 1 de 10 et sans filtre de période ; l'adapter n'a pas de
+    /// règle propre au repli. Réponse construite à la main d'après un titre relevé en production
+    /// (le 2026-11-02) : elle ne prouve pas la forme amont ni le rang du hit propre.
+    #[tokio::test]
+    async fn the_joined_fallback_sends_a_cetat_exact_search() {
+        use std::num::NonZeroU32;
+
+        use lf_domain::search::{MatchMode, PageSize, QueryText, SearchQuery};
+
+        const PAGE: &str = r#"{"executionTime":3,"totalResultNumber":1,"results":[{"titles":[{"id":"CETATEXT000008000361","cid":"CETATEXT000008000361","title":"Conseil d'Etat, Assemblée, du 5 mars 1999, 194658 196116, publié au recueil Lebon"}],"origin":"CETAT","text":"x"}]}"#;
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(TOKEN_PATH))
+            .respond_with(json_reply(
+                200,
+                br#"{"access_token":"contract-token","token_type":"Bearer","expires_in":3600}"#,
+            ))
+            .mount(&server)
+            .await;
+        let wire = json!({
+            "fond": "CETAT",
+            "recherche": {
+                "champs": [{
+                    "typeChamp": "ALL",
+                    "criteres": [{"typeRecherche": "EXACTE", "valeur": "194658"}],
+                }],
+                "filtres": [],
+                "pageNumber": 1,
+                "pageSize": 10,
+            },
+        });
+        serve(&server, "/search", wire, PAGE.as_bytes()).await;
+        let corpus = corpus_for(&server);
+        let query = SearchQuery::new(
+            Fond::Cetat,
+            QueryText::parse("194658").unwrap(),
+            NonZeroU32::MIN,
+            PageSize::new(10).unwrap(),
+            MatchMode::Exact,
+            None,
+            None,
+        )
+        .unwrap();
+        let page = lf_application::ports::LegalCorpus::search(&corpus, &query).await.unwrap();
+        assert_eq!(page.hits.len(), 1);
+        assert_eq!(
+            page.hits[0].title.as_deref(),
+            Some(
+                "Conseil d'Etat, Assemblée, du 5 mars 1999, 194658 196116, publié au recueil Lebon"
+            )
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 2);
     }
 }

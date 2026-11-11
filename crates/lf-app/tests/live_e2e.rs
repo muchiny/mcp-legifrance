@@ -176,6 +176,40 @@ mod scenarios {
         }
     }
 
+    /// Scénario 7, une assertion par cas (AM-80) : une clôture est citée par son titre long
+    /// verbatim (la citation ne commence pas par « CNIL, » et `title` est omis) ; sinon la citation
+    /// est « CNIL, {mot} n° … » ou, sans titre long, « CNIL, clôture de la décision n° … ». Le mot
+    /// est borné à ces trois formes ; il n'est pas comparé à `title`, qui peut être le titre court
+    /// (sans titre long) dont le premier mot ne suit pas la nature.
+    fn assert_cnil_citation(deliberation: &Value) {
+        let citation = deliberation["citation"].as_str().unwrap_or_default();
+        let title = deliberation["title"].as_str().unwrap_or_default();
+        let first_word = |text: &str| -> String {
+            text.split(|c: char| !c.is_alphabetic())
+                .find(|w| !w.is_empty())
+                .unwrap_or_default()
+                .to_lowercase()
+        };
+        match citation.strip_prefix("CNIL, ") {
+            None => {
+                let opening = first_word(citation);
+                assert!(
+                    matches!(opening.as_str(), "clôture" | "cloture" | "courrier"),
+                    "scenario 7 (clôture): {citation}"
+                );
+                assert!(title.is_empty(), "scenario 7 (clôture): {title}");
+            }
+            Some(rest) => {
+                let word = first_word(rest);
+                assert!(
+                    matches!(word.as_str(), "décision" | "délibération" | "clôture"),
+                    "scenario 7: {citation}"
+                );
+                assert!(rest.contains("n°"), "scenario 7: {citation}");
+            }
+        }
+    }
+
     /// Texte ou résumé non vide, citation et URL : ce que tout outil de lecture rend (05 §6.2 :
     /// un texte long n'est plus rendu en entier par défaut, d'où « `text` ou `summary` »).
     fn assert_readable(scenario: &str, view: &Value) {
@@ -286,14 +320,7 @@ mod scenarios {
         let deliberation =
             run.tool("7", "fr_get_deliberation", &json!({"deliberation_id": id})).await;
         assert_readable("7", &deliberation);
-        assert!(
-            deliberation["citation"]
-                .as_str()
-                .unwrap_or_default()
-                .starts_with("CNIL, délibération n°"),
-            "scenario 7: {}",
-            deliberation["citation"]
-        );
+        assert_cnil_citation(&deliberation);
 
         // 8. KALI : `convention collective`, 3 ; sa table des matières mène à des articles.
         let (id, _) = run.search("8", "KALI", "convention collective", 3).await;

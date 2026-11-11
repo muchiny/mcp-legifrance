@@ -180,6 +180,41 @@ mod tests {
         })
     }
 
+    /// U10, garde (vert avant et après) : le sommaire d'une loi garde les numéros « Unique »,
+    /// composés (`102-1`) et les articles abrogés, dans leur ordre : `fr_verify_citations` les
+    /// apparie au numéro cité.
+    #[test]
+    fn a_law_toc_keeps_unique_hyphenated_and_repealed_numbers() {
+        let numbered = |id: &str, num: &str, etat: Option<&str>| TocArticleDto {
+            num: text!(num),
+            etat: etat.map(str::to_owned),
+            ..article(id)
+        };
+        let articles = vec![
+            numbered("LEGIARTI000000000001", "Unique", Some("VIGUEUR")),
+            numbered("LEGIARTI000000000002", "102-1", Some("VIGUEUR")),
+            numbered("LEGIARTI000000000003", "42", Some("ABROGE")),
+            numbered("LEGIARTI000000000004", "1er", None),
+        ];
+        let mut diags = Diagnostics::default();
+        let toc = build(vec![], articles, endpoint::LAW_DECREE, &mut diags).unwrap();
+        let page = toc.page(0, whole()).unwrap();
+        let listed: Vec<(Option<&str>, Option<LegalStatus>)> = articles_in(&page.entries)
+            .into_iter()
+            .map(|(_, article)| (article.num.as_deref(), article.etat.clone()))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                (Some("Unique"), Some(LegalStatus::Vigueur)),
+                (Some("102-1"), Some(LegalStatus::Vigueur)),
+                (Some("42"), Some(LegalStatus::Abroge)),
+                (Some("1er"), None),
+            ]
+        );
+        assert_eq!(toc.dropped(), 0);
+    }
+
     #[test]
     fn section_draft_copies_every_field() {
         let dto = TocSectionDto {

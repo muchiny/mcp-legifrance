@@ -31,7 +31,7 @@ pub fn port_failure(tool: ToolName, subject: &str, error: &CorpusError) -> AppEr
 
 /// Nom de la variante et texte de journal de l'erreur. Le `match` est exhaustif : une variante
 /// ajoutée au port devra dire ce qu'elle journalise.
-fn variant_and_detail(error: &CorpusError) -> (&'static str, Option<&str>) {
+pub(crate) fn variant_and_detail(error: &CorpusError) -> (&'static str, Option<&str>) {
     match error {
         CorpusError::NotFound { what } => ("NotFound", Some(what)),
         CorpusError::InvalidRequest { status: _, detail } => ("InvalidRequest", Some(detail)),

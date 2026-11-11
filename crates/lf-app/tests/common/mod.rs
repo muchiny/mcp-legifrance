@@ -408,6 +408,30 @@ impl Launch {
         Session::spawn(self.command())
     }
 
+    /// Comme [`Self::spawn`], sous une limite de taille de fichier de `bytes` octets (`ulimit -f`
+    /// de `sh`, sans `unsafe`), SIGXFSZ ignoré : une écriture au-delà rend `EFBIG` au lieu de
+    /// tuer le processus, comme le fait la panne d'écriture partielle du noyau. `ulimit -f`
+    /// compte en blocs dont la taille dépend du `sh` (voir [`ulimit_block_bytes`]) : elle est
+    /// mesurée, et `bytes` doit en être un multiple.
+    #[cfg(unix)]
+    pub(crate) fn spawn_with_file_size_limit(&self, bytes: u64) -> Session {
+        let block = ulimit_block_bytes();
+        assert_eq!(bytes % block, 0, "{bytes} bytes is not a whole number of {block}-byte blocks");
+        let blocks = bytes / block;
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", r#"trap '' XFSZ; ulimit -f "$1"; shift; exec "$@""#, "sh"])
+            .arg(blocks.to_string())
+            .arg(BINARY)
+            .args(&self.args)
+            .env_clear()
+            .kill_on_drop(true);
+        for (name, value) in &self.vars {
+            command.env(name, value);
+        }
+        Session::spawn(command)
+    }
+
     /// Lance le processus sans stdin et attend sa fin (`check-config`, `--version`).
     pub(crate) async fn run_to_end(&self) -> Output {
         let mut command = self.command();
@@ -954,4 +978,25 @@ impl Session {
             None => String::new(),
         }
     }
+}
+
+/// Taille, en octets, du bloc que compte `ulimit -f` dans le `/bin/sh` de la machine. Elle n'est
+/// pas la même partout (512 octets pour `dash` et pour `bash` en mode POSIX, 1 024 pour d'autres
+/// `sh`) : elle est donc mesurée. Sous `ulimit -f 1`, une écriture octet par octet s'arrête à
+/// cette taille.
+#[cfg(unix)]
+pub(crate) fn ulimit_block_bytes() -> u64 {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let probe = dir.path().join("probe");
+    let script =
+        r#"trap '' XFSZ; ulimit -f 1; dd if=/dev/zero of="$1" bs=1 count=4096 2>/dev/null; exit 0"#;
+    let status = std::process::Command::new("/bin/sh")
+        .args(["-c", script, "sh"])
+        .arg(&probe)
+        .status()
+        .expect("sh runs");
+    assert!(status.success(), "the probe shell failed: {status}");
+    let block = std::fs::metadata(&probe).expect("the probe file").len();
+    assert!(block == 512 || block == 1_024, "unexpected `ulimit -f` block: {block} bytes");
+    block
 }

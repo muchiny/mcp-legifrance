@@ -15,8 +15,10 @@
 //! soulignés, égalités, étoiles et blancs, comme la ligne de tirets du Conseil d'État) sont
 //! ignorés par les étapes 2 et 3 (03 §7.2). Les marqueurs de dispositif ont été validés sur une
 //! décision de chaque juridiction : les variantes anciennes sont NON VÉRIFIÉES (V-110, V-111) et
-//! retombent sur le début du texte. Ceux de la CNIL ont été lus sur trois sanctions, une mise en
-//! demeure et deux avis relevés (D-09) ; un avis n'a pas de dispositif et reste au début du texte.
+//! retombent sur le début du texte. Les ordonnances du Conseil d'État et des cours administratives
+//! d'appel (« ORDONNE ») ont leur propre table, essayée après celle des arrêts (« DÉCIDE »). Ceux
+//! de la CNIL ont été lus sur trois sanctions, une mise en demeure et deux avis relevés (D-09) ;
+//! un avis n'a pas de dispositif et reste au début du texte.
 
 use std::fmt;
 
@@ -118,9 +120,17 @@ struct Markers {
     /// signataire), ferme aussi le dispositif. Une phrase qui commence par le titre (« Le Président
     /// de la CNIL est chargé… ») est un paragraphe du dispositif, pas la signature.
     signatures: &'static [&'static str],
+    /// Débuts de paragraphe, en mots repliés (un mot par entrée ; un `:` et ce qui le suit dans le
+    /// mot sont ignorés), qui ferment aussi le dispositif. Plus strict que `footers` : « fait à »
+    /// ne ferme pas « Fait application de… », « signe » ne ferme pas « Signet… ». Exclu du résumé.
+    word_footers: &'static [&'static [&'static str]],
     /// Sans clôture, le dispositif court jusqu'à la fin du texte (il faut un en-tête et un corps
     /// non vide).
     open_ended: bool,
+    /// Dispositif d'ordonnance : le dernier en-tête gagne (un en-tête rencontré dans le dispositif
+    /// le recommence), et les pieds de page finaux sont retirés d'un dispositif qui court jusqu'à
+    /// la fin du texte ([`is_page_footer`]).
+    ordonnance: bool,
 }
 
 /// Conseil constitutionnel : « LE CONSEIL CONSTITUTIONNEL DÉCIDE : » ou « DÉCIDE : » (décisions
@@ -129,12 +139,42 @@ const CONSEIL_CONSTITUTIONNEL: Markers = Markers {
     headers: &["leconseilconstitutionneldecide", "decide"],
     footers: &["jugepar", "delibere", "rendupublic"],
     signatures: &[],
+    word_footers: &[],
     open_ended: true,
+    ordonnance: false,
 };
 
 /// Conseil d'État : « D E C I D E : » (ou « DECIDE : ») … « Délibéré ».
-const CONSEIL_ETAT: Markers =
-    Markers { headers: &["decide"], footers: &["delibere"], signatures: &[], open_ended: false };
+const CONSEIL_ETAT: Markers = Markers {
+    headers: &["decide"],
+    footers: &["delibere"],
+    signatures: &[],
+    word_footers: &[],
+    open_ended: false,
+    ordonnance: false,
+};
+
+/// Ordonnances du Conseil d'État et des cours administratives d'appel (référés, tri), essayées
+/// après [`CONSEIL_ETAT`], et seulement pour un texte sans paragraphe « D E C I D E » entier :
+/// « O R D O N N E : » ou « ORDONNE » … `Fait à`, `Signé`, « La République mande et
+/// ordonne… », `Pour expédition conforme` ou un titre de greffier ou de secrétaire. Une ordonnance n'a pas de « Délibéré » : sans clôture (CAA de Marseille, 2026), le
+/// dispositif court jusqu'à la fin du texte, pieds de page (« 2 », « N° 26MA02038 ») retirés.
+/// Formes lues sur sept textes (CE, CAA de Paris, de Marseille et de Douai, 2005 à 2026) : V-111
+/// reste ouverte pour les tribunaux administratifs et les ordonnances plus anciennes. Une
+/// ordonnance sans aucun en-tête (CE, 2001) reste au début du texte.
+const CONSEIL_ETAT_ORDONNANCE: Markers = Markers {
+    headers: &["ordonne"],
+    footers: &[],
+    signatures: &["lasecretaire", "lagreffiere", "legreffier", "lesecretaire"],
+    word_footers: &[
+        &["fait", "a"],
+        &["signe"],
+        &["la", "republique", "mande"],
+        &["pour", "expedition"],
+    ],
+    open_ended: true,
+    ordonnance: true,
+};
 
 /// CNIL (D-09, relevés c110) : « PAR CES MOTIFS » ouvre le dispositif des quatre sanctions relevées
 /// (SAN-2018-008, SAN-2025-008, SAN-2026-002 et son jumeau), « II- Mesures correctrices
@@ -148,7 +188,9 @@ const CNIL: Markers = Markers {
     headers: &["parcesmotifs", "ii-mesurescorrectricesprononceesparlacnil"],
     footers: &["cettedecisionpeutfaire", "cettedecisionestsusceptible"],
     signatures: &["lepresident", "lapresidente"],
+    word_footers: &[],
     open_ended: false,
+    ordonnance: false,
 };
 
 /// Mots d'un nom de signataire qui suivent le titre d'une signature (« Jean-François CARREZ »).
@@ -213,37 +255,97 @@ fn marker_key(paragraph: &str) -> String {
     fold(paragraph).chars().filter(|c| !c.is_whitespace()).collect()
 }
 
+/// Tables de marqueurs essayées, dans l'ordre, pour `rule` : la première qui donne un dispositif
+/// gagne. Aucune table pour la règle `None`.
+fn markers_for(rule: DispositifRule) -> &'static [Markers] {
+    match rule {
+        DispositifRule::ConseilConstitutionnel => &[CONSEIL_CONSTITUTIONNEL],
+        DispositifRule::ConseilEtat => &[CONSEIL_ETAT, CONSEIL_ETAT_ORDONNANCE],
+        DispositifRule::Cnil => &[CNIL],
+        DispositifRule::None => &[],
+    }
+}
+
 /// Dispositif de `text` selon `rule` : les paragraphes entre l'en-tête et le paragraphe de
 /// clôture, les deux exclus, joints par une ligne vide. `None` si la règle est `None`, si
 /// l'en-tête manque, si la clôture manque (la clôture ne compte qu'après l'en-tête) sauf pour une
 /// règle à dispositif ouvert (fin du texte), ou si le dispositif est vide.
+///
+/// Les tables de `rule` sont essayées dans l'ordre, mais une table suivante ne l'est que si le
+/// texte ne porte aucun en-tête de la première : un arrêt « D E C I D E » sans clôture (texte
+/// coupé) reste au début du texte, comme en 1.1.0, même s'il cite plus haut un paragraphe
+/// « ORDONNE » (AM-81).
 fn dispositif(text: &LongText, rule: DispositifRule) -> Option<String> {
-    let markers = match rule {
-        DispositifRule::ConseilConstitutionnel => CONSEIL_CONSTITUTIONNEL,
-        DispositifRule::ConseilEtat => CONSEIL_ETAT,
-        DispositifRule::Cnil => CNIL,
-        DispositifRule::None => return None,
-    };
+    let (first, others) = markers_for(rule).split_first()?;
+    let (found, header_seen) = scan(text, first);
+    if found.is_some() || header_seen {
+        return found;
+    }
+    others.iter().find_map(|markers| scan(text, markers).0)
+}
+
+/// Dispositif de `text` selon une seule table de marqueurs (voir [`dispositif`]), et vrai si un
+/// en-tête de la table a été rencontré, quel que soit le résultat.
+fn scan(text: &LongText, markers: &Markers) -> (Option<String>, bool) {
     let mut body = Vec::new();
     let mut inside = false;
     for paragraph in content_paragraphs(text) {
         let key = marker_key(paragraph);
+        let is_header = markers.headers.contains(&header_of(&key));
         if !inside {
-            let header = key.strip_suffix(':').unwrap_or(&key);
-            inside = markers.headers.contains(&header);
-        } else if closes(&markers, paragraph, &key) {
-            return (!body.is_empty()).then(|| body.join(BLOCK_SEPARATOR));
+            inside = is_header;
+        } else if is_header && markers.ordonnance {
+            body.clear();
+        } else if closes(markers, paragraph, &key) {
+            return ((!body.is_empty()).then(|| body.join(BLOCK_SEPARATOR)), true);
         } else {
             body.push(paragraph);
         }
     }
-    (markers.open_ended && !body.is_empty()).then(|| body.join(BLOCK_SEPARATOR))
+    if markers.ordonnance {
+        while body.last().is_some_and(|last| is_page_footer(last)) {
+            body.pop();
+        }
+    }
+    ((markers.open_ended && !body.is_empty()).then(|| body.join(BLOCK_SEPARATOR)), inside)
+}
+
+/// Vue repliée d'un paragraphe sans son `:` final : ce qu'une table compare à ses en-têtes.
+fn header_of(key: &str) -> &str {
+    key.strip_suffix(':').unwrap_or(key)
 }
 
 /// Vrai si `paragraph` ferme le dispositif : il commence par une clôture (`key` est sa vue
-/// repliée), ou c'est une signature de `markers`.
+/// repliée), par une clôture en mots, ou c'est une signature de `markers`.
 fn closes(markers: &Markers, paragraph: &str, key: &str) -> bool {
-    markers.footers.iter().any(|footer| key.starts_with(footer)) || is_signature(markers, paragraph)
+    markers.footers.iter().any(|footer| key.starts_with(footer))
+        || markers.word_footers.iter().any(|words| starts_with_words(paragraph, words))
+        || is_signature(markers, paragraph)
+}
+
+/// Vrai si les premiers mots de `paragraph`, repliés, sont `words` : un `:` dans un mot coupe ce
+/// mot (« Signé:X » donne `signe`), « Fait à Paris » commence par `["fait", "a"]` et
+/// « Fait application » non.
+fn starts_with_words(paragraph: &str, words: &[&str]) -> bool {
+    let mut given = paragraph.split_whitespace();
+    words.iter().all(|want| {
+        given.next().is_some_and(|word| marker_key(word).split(':').next() == Some(*want))
+    })
+}
+
+/// Préfixes d'un numéro de pied de page, vue repliée : « N° », « Nº » (U+00BA), « Nos », « N°s ».
+const PAGE_NUMBER_PREFIXES: [&str; 4] = ["n°s", "nos", "n°", "nº"];
+
+/// Vrai pour un pied de page : un paragraphe fait de chiffres ASCII seuls (« 2 ») ou un numéro
+/// qui commence par « N° », « Nº », « Nos » ou « N°s » suivi d'un chiffre (« N° 26MA02038 »).
+fn is_page_footer(paragraph: &str) -> bool {
+    let key = marker_key(paragraph);
+    (!key.is_empty() && key.chars().all(|c| c.is_ascii_digit()))
+        || PAGE_NUMBER_PREFIXES.iter().any(|prefix| {
+            key.strip_prefix(prefix)
+                .and_then(|rest| rest.chars().next())
+                .is_some_and(|c| c.is_ascii_digit())
+        })
 }
 
 /// Vrai pour un paragraphe qui est un titre de signature de `markers`, seul ou suivi d'au plus
@@ -1227,6 +1329,602 @@ mod tests {
         assert!(!is_signature(&CNIL, "Le Greffier Ab"));
     }
 
+    /// Résumé « Conseil d'État » (règle des `CETATEXT`) sans plafond utile, pour les ordonnances.
+    fn ordo(paragraphs: &[&str]) -> Summary {
+        summary(&long(paragraphs), None, DispositifRule::ConseilEtat, 4_000)
+    }
+
+    /// Les trois paragraphes du dispositif des ordonnances synthétiques ci-dessous.
+    const ORDO_BODY: &str = "Article 1er : La requête est rejetée.\n\n\
+        Article 2 : La présente ordonnance sera notifiée à la requérante.\n\n\
+        Copie en sera adressée au ministre.";
+
+    /// V1 (CE juge des référés, 520784) : « O R D O N N E : » et tirets, deux articles, une copie,
+    /// puis `Fait à`, `Signé` et `Pour expédition conforme`. Texte synthétique calqué sur la forme
+    /// relevée en production le 2026-11-02 (aucune donnée de production).
+    #[test]
+    fn dispositif_ordonnance_ce_refere() {
+        let got = ordo(&[
+            "Vu la procédure suivante :",
+            "Par une requête, enregistrée le 23 octobre 2026, le syndicat X demande au juge des \
+             référés de suspendre l'exécution de la dépêche du 12 octobre 2026.",
+            "O R D O N N E :",
+            "------------------",
+            "Article 1er : La requête est rejetée.",
+            "Article 2 : La présente ordonnance sera notifiée à la requérante.",
+            "Copie en sera adressée au ministre.",
+            "Fait à Paris, le octobre 2026",
+            "Signé : Philippe Ranquet",
+            "Pour expédition conforme,",
+        ]);
+        assert_eq!(parts(&got), (SummarySource::Dispositif, ORDO_BODY, false));
+    }
+
+    /// V2 (CAA Paris juge des référés, 25PA04153), V6 (CAA Paris, art. R. 222-1) et V7 (CAA Douai
+    /// 2005) : « ORDONNE » sans deux-points ou « ORDONNE : », clôtures `Fait à` et `La République
+    /// mande`.
+    #[test]
+    fn dispositif_ordonnance_caa_refere() {
+        let v2 = ordo(&[
+            "Vu la procédure suivante :",
+            "Procédure contentieuse antérieure : la caisse a demandé au juge des référés.",
+            "ORDONNE",
+            "Article 1er : La requête est rejetée.",
+            "Article 2 : La présente ordonnance sera notifiée à la requérante.",
+            "Copie en sera adressée au ministre.",
+            "Fait à Paris, le 29 octobre 2026.",
+            "Le juge d'appel des référés,",
+            "La République mande et ordonne au ministre de pourvoir à l'exécution de la présente \
+             ordonnance.",
+        ]);
+        assert_eq!(parts(&v2), (SummarySource::Dispositif, ORDO_BODY, false));
+
+        let v6 = ordo(&[
+            "Vu la requête.",
+            "ORDONNE :",
+            "Article 1er : La requête est rejetée.",
+            "Article 2 : La présente ordonnance sera notifiée à la requérante.",
+            "Copie en sera adressée au ministre.",
+            "Fait à Paris le 1er avril 2026.",
+            "Le président assesseur,",
+            "La République mande et ordonne au ministre de pourvoir à l'exécution.",
+            "N° 24PA0391505",
+        ]);
+        assert_eq!(parts(&v6), (SummarySource::Dispositif, ORDO_BODY, false));
+
+        let v7 = ordo(&[
+            "Vu la requête.",
+            "ORDONNE :",
+            "Article 1er : La requête est rejetée.",
+            "Article 2 : La présente ordonnance sera notifiée à la requérante.",
+            "Copie en sera adressée au ministre.",
+            "Fait à Douai le 21 mars 2005",
+            "Signé : S. DAËL",
+            "La République mande et ordonne.",
+            "Pour expédition conforme :",
+        ]);
+        assert_eq!(parts(&v7), (SummarySource::Dispositif, ORDO_BODY, false));
+    }
+
+    #[test]
+    fn dispositif_ordonnance_header_variants() {
+        for header in
+            ["O R D O N N E :", "ORDONNE", "ORDONNE :", "Ordonne:", "ordonne", "O R D O N N E"]
+        {
+            let got = ordo(&["Visa.", header, "Article 1er : A.", "Fait à Paris, le 1er mars."]);
+            assert_eq!(
+                parts(&got),
+                (SummarySource::Dispositif, "Article 1er : A.", false),
+                "{header}"
+            );
+        }
+    }
+
+    /// Une clôture à la fois : le dispositif s'arrête avant, ce qui suit n'en fait pas partie.
+    #[test]
+    fn dispositif_ordonnance_footer_variants() {
+        let closers = [
+            "Fait à Paris, le 29 octobre 2026.",
+            "Fait à Douai le 21 mars 2005",
+            "Fait a Paris",
+            "FAIT À PARIS",
+            "Signé : Philippe Ranquet",
+            "Signé: Philippe Ranquet",
+            "Signé X",
+            "La République mande et ordonne au ministre de pourvoir à l'exécution.",
+            "Pour expédition conforme,",
+            "Pour expédition conforme :",
+            "La secrétaire",
+            "Le secrétaire Jean DUPONT",
+            "La greffière",
+            "Le greffier Jean DUPONT",
+        ];
+        for closer in closers {
+            let got =
+                ordo(&["Visa.", "ORDONNE :", "Article 1er : A.", closer, "Après la clôture."]);
+            assert_eq!(
+                parts(&got),
+                (SummarySource::Dispositif, "Article 1er : A.", false),
+                "{closer}"
+            );
+        }
+    }
+
+    /// V5 (CAA Marseille, 26MA02038) : aucune clôture, le dispositif court jusqu'à la fin ; les
+    /// pieds de page « 2 » et « N° 26MA02038 » en sont retirés.
+    #[test]
+    fn dispositif_ordonnance_without_closing_runs_to_the_end() {
+        let head = ["Vu la requête.", "O R D O N N E :"];
+        let tail = [
+            "Article 1er : La requête est rejetée.",
+            "Article 2 : La présente ordonnance sera notifiée à la requérante.",
+            "Copie en sera adressée au ministre.",
+        ];
+        let footers = ["2", "N° 26MA02038"];
+        let with_footers: Vec<&str> = head.iter().chain(&tail).chain(&footers).copied().collect();
+        assert_eq!(parts(&ordo(&with_footers)), (SummarySource::Dispositif, ORDO_BODY, false));
+        let without: Vec<&str> = head.iter().chain(&tail).copied().collect();
+        assert_eq!(parts(&ordo(&without)), (SummarySource::Dispositif, ORDO_BODY, false));
+    }
+
+    /// Les pieds de page finaux sont retirés du corps, ils ne ferment rien : chaque forme, seule
+    /// ou empilée.
+    #[test]
+    fn dispositif_ordonnance_trailing_page_footers_are_trimmed_not_closers() {
+        let base = ["Visa.", "ORDONNE :", "Article 1er : A.", "Copie en sera adressée."];
+        let expected = "Article 1er : A.\n\nCopie en sera adressée.";
+        let footers: [&[&str]; 9] = [
+            &["2"],
+            &["12"],
+            &["N° 26MA02038"],
+            &["N°26MA02038"],
+            &["Nº 12"],
+            &["Nos 12 et 13"],
+            &["N°s 12 et 13"],
+            &["2", "N° 26MA02038"],
+            &["N° 26MA02038", "2", "3"],
+        ];
+        for tail in footers {
+            let all: Vec<&str> = base.iter().chain(tail).copied().collect();
+            assert_eq!(
+                parts(&ordo(&all)),
+                (SummarySource::Dispositif, expected, false),
+                "{tail:?}"
+            );
+        }
+        // Un paragraphe qui ressemble à un pied de page sans en être un reste dans le dispositif.
+        let look_alikes = [
+            "Nombre de requérants : 12",
+            "Nos observations sont rejetées.",
+            "N° de rôle à rappeler.",
+            "2 000 euros sont mis à la charge de l'État.",
+            "Article 3 : 2",
+        ];
+        for last in look_alikes {
+            let all: Vec<&str> = base.iter().chain(&[last]).copied().collect();
+            let want = format!("{expected}\n\n{last}");
+            assert_eq!(
+                parts(&ordo(&all)),
+                (SummarySource::Dispositif, want.as_str(), false),
+                "{last}"
+            );
+        }
+    }
+
+    /// Un chiffre ou « N° » au milieu du dispositif ne ferme rien : sinon la coupure serait
+    /// silencieuse (`truncated` resterait faux).
+    #[test]
+    fn dispositif_ordonnance_page_marks_only_close_at_the_end() {
+        let got = ordo(&[
+            "Visa.",
+            "ORDONNE :",
+            "Article 1er : A.",
+            "2",
+            "N° 26MA02038",
+            "Article 2 : B.",
+            "Copie en sera adressée.",
+        ]);
+        assert_eq!(
+            parts(&got),
+            (
+                SummarySource::Dispositif,
+                "Article 1er : A.\n\n2\n\nN° 26MA02038\n\nArticle 2 : B.\n\nCopie en sera adressée.",
+                false
+            )
+        );
+    }
+
+    #[test]
+    fn dispositif_ordonnance_last_header_wins() {
+        let got = ordo(&[
+            "Visa.",
+            "ORDONNE :",
+            "Article 1er : A.",
+            "Considérant que le juge ordonne.",
+            "O R D O N N E :",
+            "Article 1er : B.",
+            "Fait à Paris, le 1er mars.",
+        ]);
+        assert_eq!(parts(&got), (SummarySource::Dispositif, "Article 1er : B.", false));
+    }
+
+    /// Cinq structures de clôture, calquées sur des formes relevées (textes synthétiques).
+    #[test]
+    fn dispositif_ordonnance_real_closing_shapes() {
+        let expected = "Article 1er : La requête est rejetée.\n\n\
+            Article 2 : La présente ordonnance sera notifiée à la requérante.";
+        let shapes: [&[&str]; 5] = [
+            // CAA Paris (26PA01905) : date, titre du juge, formule exécutoire, numéro de pied.
+            &[
+                "ORDONNE :",
+                "Article 1er : La requête est rejetée.",
+                "Article 2 : La présente ordonnance sera notifiée à la requérante.",
+                "Fait à Paris, le 12 mars 2026.",
+                "La présidente de la 4ème chambre,",
+                "La République mande et ordonne au ministre de pourvoir à l'exécution.",
+                "N° 26PA01905",
+            ],
+            // CAA Douai : signature puis formule exécutoire.
+            &[
+                "ORDONNE :",
+                "Article 1er : La requête est rejetée.",
+                "Article 2 : La présente ordonnance sera notifiée à la requérante.",
+                "Signé : S. DAËL",
+                "La République mande et ordonne.",
+                "Pour expédition conforme :",
+            ],
+            // CAA Marseille : aucune clôture, pieds de page.
+            &[
+                "O R D O N N E :",
+                "Article 1er : La requête est rejetée.",
+                "Article 2 : La présente ordonnance sera notifiée à la requérante.",
+                "2",
+                "N° 26MA02038",
+            ],
+            // CE référé : tirets, date, signature, formule, expédition.
+            &[
+                "O R D O N N E :",
+                "------------------",
+                "Article 1er : La requête est rejetée.",
+                "Article 2 : La présente ordonnance sera notifiée à la requérante.",
+                "Fait à Paris, le octobre 2026",
+                "Signé : Philippe Ranquet",
+                "La République mande et ordonne.",
+                "Pour expédition conforme,",
+            ],
+            // Désistement : titre de greffier seul pour clôture.
+            &[
+                "ORDONNE",
+                "Article 1er : La requête est rejetée.",
+                "Article 2 : La présente ordonnance sera notifiée à la requérante.",
+                "Le greffier Jean DUPONT",
+            ],
+        ];
+        for shape in shapes {
+            let mut all = vec!["Vu la requête."];
+            all.extend_from_slice(shape);
+            assert_eq!(
+                parts(&ordo(&all)),
+                (SummarySource::Dispositif, expected, false),
+                "{shape:?}"
+            );
+        }
+    }
+
+    /// Un texte qui porte un « D E C I D E » est lu par la seule table des arrêts (AM-81) : sans
+    /// « Délibéré », il reste au début du texte, même avec un « ORDONNE » plus haut.
+    #[test]
+    fn dispositif_ordonnance_with_decide_after_header() {
+        let got =
+            ordo(&["Visa.", "ORDONNE :", "Article 1er : A.", "D E C I D E :", "Article 2 : B."]);
+        assert_eq!(got.source, SummarySource::Lead);
+    }
+
+    #[test]
+    fn dispositif_ordonnance_cost_is_linear() {
+        // Borne de coût : 100 000 caractères en 1 000 paragraphes, dispositif en fin de texte.
+        let mut paragraphs: Vec<String> = (0..997).map(|_| filler(99)).collect();
+        paragraphs.push("ORDONNE :".to_owned());
+        paragraphs.push("Article 1er : La requête est rejetée.".to_owned());
+        paragraphs.push("Fait à Paris, le 1er mars.".to_owned());
+        let refs: Vec<&str> = paragraphs.iter().map(String::as_str).collect();
+        let text = long(&refs);
+        assert!(text.char_len() >= 99_000);
+        assert_eq!(
+            parts(&summary(&text, None, DispositifRule::ConseilEtat, 4_000)),
+            (SummarySource::Dispositif, "Article 1er : La requête est rejetée.", false)
+        );
+        // Sans en-tête, le même texte retombe sur le début (les deux passes ne trouvent rien).
+        let plain = long(&refs[..997]);
+        assert_eq!(
+            summary(&plain, None, DispositifRule::ConseilEtat, 4_000).source,
+            SummarySource::Lead
+        );
+    }
+
+    /// Garde (vert avant et après) : l'en-tête est un paragraphe ENTIER, il faut un corps, et une
+    /// ordonnance ancienne sans aucun en-tête (V8, CE 2001) reste au début du texte (D18).
+    #[test]
+    fn dispositif_ordonnance_needs_a_whole_header_and_a_body() {
+        let cases: [&[&str]; 9] = [
+            // une phrase qui contient « ordonne » n'est pas l'en-tête
+            &[
+                "Visa.",
+                "Le juge ordonne la suspension.",
+                "Article 1er : A.",
+                "Fait à Paris, le 1er mars.",
+            ],
+            // la formule exécutoire n'ouvre rien
+            &[
+                "Visa.",
+                "La République mande et ordonne au ministre de pourvoir à l'exécution.",
+                "Article 1er : A.",
+            ],
+            // en-tête sans corps
+            &["Visa.", "ORDONNE :"],
+            // en-tête suivi tout de suite d'une clôture
+            &["Visa.", "ORDONNE :", "Fait à Paris, le 1er mars.", "Signé : X"],
+            // en-tête suivi de séparateurs seuls
+            &["Visa.", "ORDONNE :", "------", "=====", "Fait à Paris, le 1er mars."],
+            // en-tête suivi de pieds de page seuls
+            &["Visa.", "ORDONNE :", "2", "N° 26MA02038"],
+            // V8 : ordonnance de 2001, dispositif sans aucun en-tête ni clôture
+            &["Considérant que la demande est fondée.", "Article 1er : A.", "Article 3 : B."],
+            // le marqueur d'une autre juridiction ne compte pas
+            &[
+                "Visa.",
+                "LE CONSEIL CONSTITUTIONNEL DÉCIDE :",
+                "Article 1er. - A.",
+                "Jugé par le Conseil.",
+            ],
+            // la clôture avant l'en-tête ne ferme rien, et rien ne suit
+            &["Fait à Paris, le 1er mars.", "ORDONNE :"],
+        ];
+        for paragraphs in cases {
+            let got = ordo(paragraphs);
+            assert_eq!(got.source, SummarySource::Lead, "{paragraphs:?}");
+        }
+    }
+
+    /// Garde : un arrêt « D E C I D E » est lu comme avant, `decide` gagne et reste fermé.
+    #[test]
+    fn decide_still_wins_and_is_still_closed() {
+        // Arrêt ordinaire : dispositif fermé par « Délibéré ».
+        let got = ordo(&["Visa.", "D E C I D E :", "Article 1er : A.", "Délibéré à l'issue."]);
+        assert_eq!(parts(&got), (SummarySource::Dispositif, "Article 1er : A.", false));
+        // « D E C I D E », des articles et « Fait à », mais pas de « Délibéré » : le début.
+        let got =
+            ordo(&["Visa.", "D E C I D E :", "Article 1er : A.", "Fait à Paris, le 1er mars."]);
+        assert_eq!(got.source, SummarySource::Lead);
+        // « D E C I D E » et « ORDONNE » à la fois, avec « Délibéré » : `decide` gagne.
+        let got = ordo(&[
+            "Visa.",
+            "ORDONNE :",
+            "Article 1er : B.",
+            "D E C I D E :",
+            "Article 1er : A.",
+            "Délibéré à l'issue.",
+        ]);
+        assert_eq!(parts(&got), (SummarySource::Dispositif, "Article 1er : A.", false));
+    }
+
+    #[test]
+    fn decide_with_ordonne_block_inside_stays_decide() {
+        // Un arrêt qui reproduit une ordonnance dans ses motifs (CAA Toulouse CETATEXT000054854608).
+        let got = ordo(&[
+            "Visa.",
+            "D E C I D E :",
+            "ORDONNE",
+            "Article 1er : A.",
+            "Fait à Paris, le 1er mars.",
+            "Article 2 : B.",
+            "Délibéré à l'issue.",
+        ]);
+        assert_eq!(
+            parts(&got),
+            (
+                SummarySource::Dispositif,
+                "ORDONNE\n\nArticle 1er : A.\n\nFait à Paris, le 1er mars.\n\nArticle 2 : B.",
+                false
+            )
+        );
+    }
+
+    #[test]
+    fn decide_without_deliberation_and_no_ordonne_stays_lead() {
+        let got = ordo(&["Visa.", "D E C I D E :", "Article 1er : A.", "Signé : X"]);
+        assert_eq!(got.source, SummarySource::Lead);
+        let got = ordo(&["Visa.", "D E C I D E :", "Article 1er : A.", "2", "N° 26MA02038"]);
+        assert_eq!(got.source, SummarySource::Lead);
+    }
+
+    /// Régression évitée (AM-81) : la 1.1.0 rendait `lead` pour un arrêt « D E C I D E » sans
+    /// « Délibéré » ; un paragraphe « ORDONNE » cité plus haut (ou plus bas) dans les motifs ne
+    /// doit pas faire prendre ces motifs pour le dispositif. La seconde table ne sert qu'un texte
+    /// sans en-tête « D E C I D E ».
+    #[test]
+    fn decide_without_deliberation_stays_lead_even_with_an_ordonne_paragraph() {
+        // « ORDONNE » avant « D E C I D E » : la seconde table s'arrêtait sur « D E C I D E »
+        // et rendait les motifs.
+        let got = ordo(&[
+            "Visa.",
+            "ORDONNE",
+            "Considérant que le premier juge a statué.",
+            "D E C I D E :",
+            "Article 1er : A.",
+            "Fait à Paris, le 1er mars.",
+        ]);
+        assert_eq!(got.source, SummarySource::Lead);
+        // « ORDONNE » après « D E C I D E » : la seconde table rendait la fin du texte.
+        let got =
+            ordo(&["Visa.", "D E C I D E :", "Article 1er : A.", "ORDONNE", "Article 2 : B."]);
+        assert_eq!(got.source, SummarySource::Lead);
+    }
+
+    /// Limite connue : avec une clôture reconnue, un pied de page placé AVANT elle reste dans le
+    /// dispositif (seuls les pieds de page finaux d'un dispositif sans clôture sont retirés).
+    #[test]
+    fn dispositif_ordonnance_footer_before_a_recognised_closing_stays_in_the_body() {
+        let got = ordo(&[
+            "Visa.",
+            "ORDONNE :",
+            "Article 1er : A.",
+            "2",
+            "N° 26MA02038",
+            "Fait à Paris, le 1er mars.",
+        ]);
+        assert_eq!(
+            parts(&got),
+            (SummarySource::Dispositif, "Article 1er : A.\n\n2\n\nN° 26MA02038", false)
+        );
+    }
+
+    #[test]
+    fn a_decide_judgment_keeps_its_dispositif_when_a_stray_ordonne_precedes() {
+        let got = ordo(&[
+            "Visa.",
+            "ORDONNE",
+            "Considérant que le premier juge a statué.",
+            "D E C I D E :",
+            "Article 1er : A.",
+            "Délibéré à l'issue.",
+        ]);
+        assert_eq!(parts(&got), (SummarySource::Dispositif, "Article 1er : A.", false));
+    }
+
+    /// Garde : les autres règles ne lisent pas « ORDONNE ».
+    #[test]
+    fn ordonne_is_ignored_by_the_other_rules() {
+        let text = long(&[
+            "Vu la procédure suivante :",
+            "O R D O N N E :",
+            "Article 1er : La requête est rejetée.",
+            "Fait à Paris, le octobre 2026",
+            "Signé : Philippe Ranquet",
+        ]);
+        for rule in
+            [DispositifRule::ConseilConstitutionnel, DispositifRule::Cnil, DispositifRule::None]
+        {
+            assert_eq!(summary(&text, None, rule, 4_000).source, SummarySource::Lead, "{rule:?}");
+        }
+    }
+
+    /// Garde : le sommaire officiel passe avant le dispositif d'une ordonnance.
+    #[test]
+    fn official_summary_still_wins_over_an_ordonnance_dispositif() {
+        let text = long(&["Visa.", "ORDONNE :", "Article 1er : A.", "Fait à Paris, le 1er mars."]);
+        let given = official(&["Analyse officielle de la décision, assez longue."], &[]);
+        let got = summary(&text, Some(&given), DispositifRule::ConseilEtat, 4_000);
+        assert_eq!(
+            parts(&got),
+            (SummarySource::Official, "Analyse officielle de la décision, assez longue.", false)
+        );
+    }
+
+    /// Les phrases qui commencent comme une clôture sans en être une ne ferment pas (« Fait
+    /// application », « Signet », « Nombre de »…) ; un « N° » au milieu ne ferme pas non plus.
+    #[test]
+    fn dispositif_ordonnance_footers_do_not_close_on_look_alike_sentences() {
+        let look_alikes = [
+            "Fait ainsi état de la situation du requérant.",
+            "Fait application de l'article L. 521-1 du code de justice administrative.",
+            "Signet de la requête.",
+            "Signée par le juge des référés.",
+            "Nombre de requérants : 3.",
+            "N° 12 de la requête est joint.",
+            "Pour expédier la copie, le greffe est saisi.",
+            "La République mandelbrot.",
+            "Le greffier en chef est chargé de l'exécution.",
+        ];
+        for line in look_alikes {
+            let got = ordo(&["Visa.", "ORDONNE :", "Article 1er : A.", line, "Article 2 : B."]);
+            let want = format!("Article 1er : A.\n\n{line}\n\nArticle 2 : B.");
+            assert_eq!(parts(&got), (SummarySource::Dispositif, want.as_str(), false), "{line}");
+        }
+    }
+
+    /// Frozen copy of the 1.1.0 algorithm (`CONSEIL_ETAT` seule pour les `CETATEXT`), pour les
+    /// différentiels : le nouvel algorithme ne doit jamais changer un dispositif déjà trouvé.
+    fn old_dispositif(text: &LongText, rule: DispositifRule) -> Option<String> {
+        let markers = match rule {
+            DispositifRule::ConseilConstitutionnel => CONSEIL_CONSTITUTIONNEL,
+            DispositifRule::ConseilEtat => CONSEIL_ETAT,
+            DispositifRule::Cnil => CNIL,
+            DispositifRule::None => return None,
+        };
+        let mut body = Vec::new();
+        let mut inside = false;
+        for paragraph in content_paragraphs(text) {
+            let key = marker_key(paragraph);
+            if !inside {
+                let header = key.strip_suffix(':').unwrap_or(&key);
+                inside = markers.headers.contains(&header);
+            } else if markers.footers.iter().any(|footer| key.starts_with(footer))
+                || is_signature(&markers, paragraph)
+            {
+                return (!body.is_empty()).then(|| body.join(BLOCK_SEPARATOR));
+            } else {
+                body.push(paragraph);
+            }
+        }
+        (markers.open_ended && !body.is_empty()).then(|| body.join(BLOCK_SEPARATOR))
+    }
+
+    const ALL_RULES: [DispositifRule; 4] = [
+        DispositifRule::ConseilConstitutionnel,
+        DispositifRule::ConseilEtat,
+        DispositifRule::Cnil,
+        DispositifRule::None,
+    ];
+
+    /// Vrai si un paragraphe de `text` est, entier, l'en-tête « ordonne ».
+    fn has_whole_ordonne(text: &LongText) -> bool {
+        content_paragraphs(text).any(|p| {
+            let key = marker_key(p);
+            key.strip_suffix(':').unwrap_or(&key) == "ordonne"
+        })
+    }
+
+    /// Vrai si un paragraphe de `text` est, entier, l'en-tête « decide » (arrêt).
+    fn has_whole_decide(text: &LongText) -> bool {
+        content_paragraphs(text).any(|p| header_of(&marker_key(p)) == "decide")
+    }
+
+    const POOL: [&str; 26] = [
+        "Visa.",
+        "D E C I D E :",
+        "DÉCIDE :",
+        "ORDONNE",
+        "O R D O N N E :",
+        "Ordonne:",
+        "Article 1er : A.",
+        "Article 2 : B.",
+        "Délibéré à l'issue de la séance.",
+        "Fait à Paris, le 1er mars.",
+        "Signé : X",
+        "La République mande et ordonne.",
+        "Pour expédition conforme,",
+        "2",
+        "N° 26MA02038",
+        "-----",
+        "Le Président",
+        "La Présidente Jeanne DUPONT",
+        "PAR CES MOTIFS",
+        "Cette décision peut faire l'objet d'un recours.",
+        "LE CONSEIL CONSTITUTIONNEL DÉCIDE :",
+        "Jugé par le Conseil.",
+        "Considérant que X.",
+        "La greffière",
+        "Rendu public le 1er mars.",
+        "Copie en sera adressée au ministre.",
+    ];
+
+    fn pool_text(picks: &[usize]) -> LongText {
+        let paragraphs: Vec<&str> =
+            picks.iter().filter_map(|i| POOL.iter().cycle().nth(*i)).copied().collect();
+        long(&paragraphs)
+    }
+
     #[test]
     fn dispositif_is_cut_at_the_cap() {
         let paragraph = sentences(100);
@@ -1410,6 +2108,77 @@ mod tests {
             prop_assert!(chars(&got.text) <= max_chars.min(SUMMARY_CAP_CHARS));
             prop_assert_eq!(got.text.trim(), got.text.as_str());
             prop_assert_eq!(got.source, SummarySource::Lead);
+        }
+
+        /// Une ordonnance : les lignes « Article N » entre l'en-tête et `Fait à` font le résumé,
+        /// coupé au plafond, jamais plus long que `min(max_chars, 1200)`.
+        #[test]
+        fn an_ordonnance_summary_is_its_articles(
+            articles in proptest::collection::vec(
+                "Article [1-9] : [a-z]{1,30}( [a-z]{1,10}){0,5}", 1..8),
+            max_chars in 0usize..3_000,
+        ) {
+            let mut paragraphs = vec!["Visa.", "ORDONNE :"];
+            paragraphs.extend(articles.iter().map(String::as_str));
+            paragraphs.push("Fait à Paris, le 1er mars.");
+            let got = summary(&long(&paragraphs), None, DispositifRule::ConseilEtat, max_chars);
+            let cap = max_chars.min(SUMMARY_CAP_CHARS);
+            prop_assert_eq!(got.source, SummarySource::Dispositif);
+            prop_assert!(chars(&got.text) <= cap);
+            let joined = articles.join("\n\n");
+            if chars(&joined) <= cap {
+                prop_assert_eq!(got.text.as_str(), joined.as_str());
+                prop_assert!(!got.truncated);
+            } else {
+                prop_assert!(got.truncated);
+            }
+        }
+
+        /// Sans paragraphe « ordonne » ni « décide » entier, le début du texte fait le résumé.
+        #[test]
+        fn a_text_without_a_whole_header_stays_a_lead(text in "[a-zé .!?\n]{0,2500}") {
+            let body = LongText::from_plain(&text).unwrap();
+            prop_assume!(!has_whole_ordonne(&body));
+            prop_assume!(!content_paragraphs(&body).any(|p| {
+                let key = marker_key(p);
+                key.strip_suffix(':').unwrap_or(&key) == "decide"
+            }));
+            let got = summary(&body, None, DispositifRule::ConseilEtat, 4_000);
+            prop_assert_eq!(got.source, SummarySource::Lead);
+        }
+
+        /// Différentiel contre la copie figée de l'algorithme 1.1.0 : un dispositif déjà trouvé ne
+        /// change jamais ; un dispositif nouveau exige un paragraphe « ordonne » entier et aucun
+        /// « decide » entier ; les autres règles ne changent pas.
+        #[test]
+        fn new_dispositif_extends_old_without_changing_it(
+            picks in proptest::collection::vec(0usize..64, 0..14),
+        ) {
+            let text = pool_text(&picks);
+            for rule in ALL_RULES {
+                let old = old_dispositif(&text, rule);
+                let new = dispositif(&text, rule);
+                if rule != DispositifRule::ConseilEtat {
+                    prop_assert_eq!(&new, &old, "{:?}", rule);
+                } else if old.is_some() {
+                    prop_assert_eq!(&new, &old);
+                } else if new.is_some() {
+                    prop_assert!(has_whole_ordonne(&text));
+                    prop_assert!(!has_whole_decide(&text));
+                }
+            }
+        }
+
+        /// Sans paragraphe « ordonne » entier, rien ne change, pour aucune règle.
+        #[test]
+        fn dispositif_new_equals_old_without_ordonne_header(
+            picks in proptest::collection::vec(0usize..64, 0..14),
+        ) {
+            let text = pool_text(&picks);
+            prop_assume!(!has_whole_ordonne(&text));
+            for rule in ALL_RULES {
+                prop_assert_eq!(dispositif(&text, rule), old_dispositif(&text, rule), "{:?}", rule);
+            }
         }
     }
 }

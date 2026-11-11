@@ -769,6 +769,44 @@ mod tests {
         ]);
     }
 
+    /// Garantie 14 n° 8 (U12) : `puits.rs` prend le lecteur de date de `jorf.rs`, qui ne lit pas les
+    /// dates à tirets (seule la jurisprudence `cassation::lex` les lit, AM-82), comme en 1.1.0.
+    /// Limite écrite, 1.2.0 : la forme à barres de chaque cas est le témoin qu'elle est lue.
+    #[test]
+    fn a_dashed_date_is_not_a_date_in_puits_u12() {
+        // Actes de l'Union : la date à tirets n'est pas absorbée, l'acte reste un puits sans elle.
+        for (dashed, slashed, bare) in [
+            (
+                "règlement 2016/679 du 27-04-2016",
+                "règlement 2016/679 du 27/04/2016",
+                "règlement 2016/679",
+            ),
+            (
+                "règlement 2016/679 en date du 27-04-2016",
+                "règlement 2016/679 en date du 27/04/2016",
+                "règlement 2016/679",
+            ),
+            (
+                "directive 85/374/CEE du Conseil du 25-07-1985",
+                "directive 85/374/CEE du Conseil du 25/07/1985",
+                "directive 85/374/CEE du Conseil",
+            ),
+        ] {
+            let needle = dashed.split(' ').next().unwrap_or_default();
+            assert_eq!(one(dashed, needle).text, bare, "{dashed}");
+            assert_eq!(one(slashed, needle).text, slashed, "{slashed}");
+        }
+        // CJUE et CEDH : la date est obligatoire, sans elle ni l'une ni l'autre n'est un puits.
+        for (dashed, slashed, needle) in [
+            ("CJUE, 12-03-2020, aff. C-362/14", "CJUE, 12/03/2020, aff. C-362/14", "CJUE"),
+            ("Trib. UE, 12-03-2020, T-123/18", "Trib. UE, 12/03/2020, T-123/18", "Trib"),
+            ("CEDH, 26-04-1979, req. n° 6538/74", "CEDH, 26/04/1979, req. n° 6538/74", "CEDH"),
+        ] {
+            assert_eq!(sink(dashed, needle), [], "{dashed}");
+            assert_eq!(one(slashed, needle).text, slashed, "{slashed}");
+        }
+    }
+
     // ---- Doctrine ------------------------------------------------------------------------------
 
     #[test]

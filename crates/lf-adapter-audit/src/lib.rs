@@ -17,6 +17,12 @@
 //!   `sync_data`, puis ferme le fichier et relâche le verrou. Aucun descripteur ne reste ouvert
 //!   entre deux lignes : plusieurs processus peuvent écrire le même répertoire sans qu'aucune
 //!   ligne soit coupée (V-164), et Windows peut renommer le journal.
+//! - **Ligne partielle en queue** : sous le verrou, avant d'écrire, le fil relit le dernier octet
+//!   du journal actif. S'il n'est pas `\n` (arrêt brutal, disque plein, fichier édité), la ligne est
+//!   précédée d'un `\n`, dans le même `write_all` : le fragment reste une ligne isolée, intacte,
+//!   et l'appel garde sa ligne. Un `warn!` le signale. Aucune ligne **acquittée** n'est coupée,
+//!   mais un fragment laissé par une écriture qui a échoué ou par un arrêt brutal n'est jamais
+//!   supprimé : lire le journal de façon tolérante.
 //! - **Rotation sous le même verrou** : à 16 Mio ou au changement de date UTC, le journal actif
 //!   est renommé en `mcp-legifrance-AAAA-MM-JJ[-n].jsonl`. Rien n'est supprimé.
 //! - **Attentes bornées** : le verrou est tenté de façon non bloquante pendant 10 s au plus, puis

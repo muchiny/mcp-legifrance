@@ -79,7 +79,7 @@ const DEGRADE_NOTE_RESERVE_CHARS: usize = 400;
 
 /// Réservation des notes : leur texte, plus le champ `note` s'il n'existe pas encore (`,"note":""`,
 /// 10 caractères) ou l'espace qui joint la nouvelle note à l'ancienne.
-const DEGRADE_NOTE_RESERVE: usize = DEGRADE_NOTE_RESERVE_CHARS + 11;
+pub(super) const DEGRADE_NOTE_RESERVE: usize = DEGRADE_NOTE_RESERVE_CHARS + 11;
 
 /// Recherche plein texte : analyse des arguments, un appel au port, politique de réponse.
 pub(crate) struct SearchUseCase<'a, C: LegalCorpus, K: Clock> {
@@ -313,7 +313,7 @@ fn fit_under_target(
 }
 
 /// Retire l'extrait du résultat et ceux de ses articles ; vrai s'il y en avait un.
-fn strip_snippets(out: &mut HitOut) -> bool {
+pub(super) fn strip_snippets(out: &mut HitOut) -> bool {
     let mut stripped = out.hit.snippet.take().is_some();
     for article in &mut out.hit.articles {
         stripped |= article.snippet.take().is_some();
@@ -325,7 +325,7 @@ fn strip_snippets(out: &mut HitOut) -> bool {
 /// s'il y avait quelque chose de rendu à retirer (un titre contenu dans la citation et une date
 /// sentinelle ne le sont pas). L'`idcc` reste : il identifie la convention. Avec `keep_etat`
 /// (note de défense de `in_force_only` posée : « Check each etat »), l'`etat` reste aussi.
-fn strip_details(out: &mut HitOut, keep_etat: bool) -> bool {
+pub(super) fn strip_details(out: &mut HitOut, keep_etat: bool) -> bool {
     let citation = out.citation.as_str();
     let hit = &mut out.hit;
     let had_articles = !hit.articles.is_empty();
@@ -379,38 +379,38 @@ fn largest_page_size(hits: &[HitOut], fixed: usize) -> usize {
 /// Longueur, en caractères, du JSON compact d'un objet en construction : `{`, ses champs séparés
 /// par des virgules, `}`. Les clés sont de l'ASCII.
 #[derive(Default)]
-struct JsonObject {
+pub(super) struct JsonObject {
     len: usize,
     fields: usize,
 }
 
 impl JsonObject {
     /// Champ `"clé":valeur` dont la valeur occupe `value` caractères, guillemets compris.
-    fn raw(&mut self, key: &str, value: usize) {
+    pub(super) fn raw(&mut self, key: &str, value: usize) {
         // `"` + clé + `"` + `:` : trois caractères autour de la clé.
         self.len = self.len.saturating_add(key.len()).saturating_add(3).saturating_add(value);
         self.fields = self.fields.saturating_add(1);
     }
 
     /// Champ texte : la valeur entre guillemets, échappée comme `serde_json` l'écrit.
-    fn text(&mut self, key: &str, value: &str) {
+    pub(super) fn text(&mut self, key: &str, value: &str) {
         self.raw(key, escaped_chars(value).saturating_add(2));
     }
 
     /// Champ texte présent seulement s'il y a une valeur.
-    fn optional_text(&mut self, key: &str, value: Option<&str>) {
+    pub(super) fn optional_text(&mut self, key: &str, value: Option<&str>) {
         if let Some(value) = value {
             self.text(key, value);
         }
     }
 
-    fn total(&self) -> usize {
+    pub(super) fn total(&self) -> usize {
         self.len.saturating_add(self.fields.saturating_sub(1)).saturating_add(2)
     }
 }
 
 /// Nombre de chiffres d'un entier écrit en décimal.
-fn digits(number: u64) -> usize {
+pub(super) fn digits(number: u64) -> usize {
     number.to_string().len()
 }
 
@@ -443,7 +443,7 @@ fn page_cost(hits: &[HitOut]) -> usize {
 /// champs, dans les mêmes conditions. `kind`, `id`, `citation` et `source_url` sont toujours
 /// rendus ; `title` seulement s'il n'est pas dans la citation, `date` hors de la zone sentinelle,
 /// le reste s'il est présent.
-fn hit_cost(out: &HitOut) -> usize {
+pub(super) fn hit_cost(out: &HitOut) -> usize {
     let hit = &out.hit;
     let mut json = JsonObject::default();
     json.raw("kind", hit.fond.name().len().saturating_add(2));
@@ -1900,5 +1900,463 @@ mod tests {
         let input = SearchInput { fond: Some("JURI".to_owned()), ..text("bail") };
         let output = run(&corpus, &clock(), input).await.unwrap();
         assert_eq!(output.output_count_or_size(), 2);
+    }
+
+    /// X1 : garde de vocabulaire (plan 1.1.1, invariant I2).
+    ///
+    /// `status`, `kind`, `confidence`, `match`, `quote`, `court_via`, `relation`, `summary_source`
+    /// et les notes sont des chaînes libres du schéma de sortie (hors `relation` et
+    /// `summary_source`) : le verrou de `tests/tools.lock.json` ne voit pas une valeur ajoutée. Ce
+    /// module épingle la liste exacte de chacun. Il est ici parce que `mode_of` (le `match` de
+    /// `fr_search`) est privé à ce fichier.
+    ///
+    /// Une valeur ajoutée fait échouer ce test de deux façons : le `match` sans joker de la macro
+    /// ne compile plus (variante nouvelle), et la liste de chaînes n'est plus égale (valeur
+    /// changée). Il faut alors justifier le changement (`SemVer` : une valeur nouvelle est un
+    /// changement du contrat).
+    mod vocabulary_guard {
+        use std::fmt::Debug;
+
+        use lf_domain::{
+            citation::{CitationKind, Confidence, CourtVia, EcliFamily, Flag, Sigle},
+            date::{CivilDate, VersionDate},
+            ecli::Ecli,
+            fond::Fond,
+            search::MatchMode,
+            text::SummarySource,
+        };
+        use pretty_assertions::assert_eq;
+
+        use super::super::mode_of;
+        use crate::{
+            citation::{CandidateKind, CheckStatus, Field, NotCheckedReason, Note, QuoteCheck},
+            output::get_related::Relation,
+        };
+
+        /// Épingle `$what` : le `match` sans joker force la mise à jour de la liste quand une
+        /// variante est ajoutée ; la comparaison de chaînes quand une valeur change.
+        macro_rules! pin {
+            ($what:literal, $get:expr, [$(($pat:pat, $value:expr, $wire:literal)),+ $(,)?]) => {{
+                let samples = [$($value),+];
+                for sample in &samples {
+                    match sample {
+                        $($pat => ()),+
+                    }
+                }
+                let got: Vec<String> = samples.iter().map($get).map(|wire| wire.to_string()).collect();
+                let want: Vec<String> = vec![$($wire.to_owned()),+];
+                assert_eq!(got, want, $what);
+            }};
+        }
+
+        /// Nom de la variante d'après sa sortie `Debug` (`NotInForce { .. }` donne `NotInForce`).
+        fn variant_name(value: &impl Debug) -> String {
+            format!("{value:?}")
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect()
+        }
+
+        fn civil(year: u16, month: u8, day: u8) -> CivilDate {
+            CivilDate::new(year, month, day).unwrap()
+        }
+
+        fn version(text: &str) -> VersionDate {
+            VersionDate::parse(text).unwrap()
+        }
+
+        #[test]
+        #[expect(
+            clippy::too_many_lines,
+            reason = "table de valeurs épinglées, une ligne par valeur"
+        )]
+        fn the_closed_vocabularies_of_the_unlocked_fields_are_pinned_x1() {
+            // status (fr_resolve, fr_verify_citations)
+            pin!(
+                "status",
+                |v: &CheckStatus| v.as_str(),
+                [
+                    (CheckStatus::Verified, CheckStatus::Verified, "verified"),
+                    (CheckStatus::NotFound, CheckStatus::NotFound, "not_found"),
+                    (CheckStatus::Ambiguous, CheckStatus::Ambiguous, "ambiguous"),
+                    (CheckStatus::Unresolvable, CheckStatus::Unresolvable, "unresolvable"),
+                    (CheckStatus::Invalid, CheckStatus::Invalid, "invalid"),
+                ]
+            );
+            // kind (fr_verify_citations)
+            pin!(
+                "kind (verify)",
+                |v: &CitationKind| v.snake_case(),
+                [
+                    (CitationKind::CodeArticle, CitationKind::CodeArticle, "code_article"),
+                    (CitationKind::TextArticle, CitationKind::TextArticle, "text_article"),
+                    (CitationKind::Text, CitationKind::Text, "text"),
+                    (CitationKind::Decision, CitationKind::Decision, "decision"),
+                    (CitationKind::Ecli, CitationKind::Ecli, "ecli"),
+                    (
+                        CitationKind::CnilDeliberation,
+                        CitationKind::CnilDeliberation,
+                        "cnil_deliberation"
+                    ),
+                    (CitationKind::Convention, CitationKind::Convention, "convention"),
+                    (CitationKind::Jorf, CitationKind::Jorf, "jorf"),
+                    (CitationKind::Nor, CitationKind::Nor, "nor"),
+                    (CitationKind::Eli, CitationKind::Eli, "eli"),
+                    (CitationKind::LegifranceId, CitationKind::LegifranceId, "legifrance_id"),
+                    (CitationKind::Unsupported, CitationKind::Unsupported, "unsupported"),
+                ]
+            );
+            assert_eq!(CitationKind::ALL.len(), 12);
+            // kind (candidats de fr_resolve)
+            pin!(
+                "kind (resolve)",
+                |v: &CandidateKind| v.as_str(),
+                [
+                    (CandidateKind::Article, CandidateKind::Article, "article"),
+                    (CandidateKind::Loda, CandidateKind::Loda, "loda"),
+                    (CandidateKind::Code, CandidateKind::Code, "code"),
+                    (CandidateKind::Juri, CandidateKind::Juri, "juri"),
+                    (CandidateKind::Constit, CandidateKind::Constit, "constit"),
+                    (CandidateKind::Cetat, CandidateKind::Cetat, "cetat"),
+                    (CandidateKind::Cnil, CandidateKind::Cnil, "cnil"),
+                    (CandidateKind::Kali, CandidateKind::Kali, "kali"),
+                    (CandidateKind::Acco, CandidateKind::Acco, "acco"),
+                ]
+            );
+            // confidence (candidats de fr_resolve)
+            pin!(
+                "confidence",
+                |v: &Confidence| v.as_str(),
+                [
+                    (Confidence::Low, Confidence::Low, "low"),
+                    (Confidence::Medium, Confidence::Medium, "medium"),
+                    (Confidence::High, Confidence::High, "high"),
+                ]
+            );
+            // match (entrée de fr_search)
+            pin!(
+                "match",
+                |v: &MatchMode| ["any", "all", "exact"]
+                    .into_iter()
+                    .find(|wire| mode_of(Some(wire)).is_ok_and(|mode| mode == *v))
+                    .unwrap_or("?"),
+                [
+                    (MatchMode::Any, MatchMode::Any, "any"),
+                    (MatchMode::All, MatchMode::All, "all"),
+                    (MatchMode::Exact, MatchMode::Exact, "exact"),
+                ]
+            );
+            assert!(mode_of(Some("fuzzy")).is_err());
+            // quote (fr_verify_citations)
+            pin!(
+                "quote",
+                |v: &QuoteCheck| v.as_str(),
+                [
+                    (QuoteCheck::Match, QuoteCheck::Match, "match"),
+                    (QuoteCheck::QuoteMismatch, QuoteCheck::QuoteMismatch, "quote_mismatch"),
+                ]
+            );
+            // court_via (corpus de citations)
+            pin!(
+                "court_via",
+                |v: &CourtVia| v.code(),
+                [
+                    (CourtVia::FormeDuNumero, CourtVia::FormeDuNumero, "forme_du_numero"),
+                    (CourtVia::Chambre, CourtVia::Chambre, "chambre"),
+                ]
+            );
+            // relation (fr_get_related)
+            pin!(
+                "relation",
+                |v: &Relation| v.as_str(),
+                [
+                    (Relation::Cites, Relation::Cites, "cites"),
+                    (Relation::CitedBy, Relation::CitedBy, "cited_by"),
+                    (Relation::CitesCaseLaw, Relation::CitesCaseLaw, "cites_case_law"),
+                    (Relation::AppliesText, Relation::AppliesText, "applies_text"),
+                ]
+            );
+            assert_eq!(Relation::ALL.len(), 4);
+            // summary_source (fr_get_text, fr_get_decision, fr_get_deliberation)
+            pin!(
+                "summary_source",
+                |v: &SummarySource| v.as_str(),
+                [
+                    (SummarySource::Official, SummarySource::Official, "official"),
+                    (SummarySource::Dispositif, SummarySource::Dispositif, "dispositif"),
+                    (SummarySource::Lead, SummarySource::Lead, "lead"),
+                ]
+            );
+        }
+
+        #[test]
+        #[expect(
+            clippy::too_many_lines,
+            reason = "table de variantes, une ligne par variante épinglée"
+        )]
+        fn the_note_variants_and_their_closed_parameters_are_pinned_x1() {
+            let ecli = Ecli::parse("ECLI:FR:CECHR:2026:506507.20260529").unwrap();
+            let on = version("2026-01-15");
+            let day = civil(2026, 1, 15);
+            pin!(
+                "Note",
+                |v: &Note| variant_name(v),
+                [
+                    (
+                        Note::NotInForce { .. },
+                        Note::NotInForce {
+                            code: String::new(),
+                            num: String::new(),
+                            date: on,
+                            date_given: false,
+                        },
+                        "NotInForce"
+                    ),
+                    (
+                        Note::NoRecord { .. },
+                        Note::NoRecord { family: "", value: String::new(), date: None },
+                        "NoRecord"
+                    ),
+                    (
+                        Note::NoRecordAtDate { .. },
+                        Note::NoRecordAtDate {
+                            n: 1,
+                            number: String::new(),
+                            date: day,
+                            found: vec![],
+                            more: 0
+                        },
+                        "NoRecordAtDate"
+                    ),
+                    (
+                        Note::Mismatch { .. },
+                        Note::Mismatch {
+                            field: Field::Date,
+                            cited: String::new(),
+                            actual: String::new()
+                        },
+                        "Mismatch"
+                    ),
+                    (Note::Mismatches(_), Note::Mismatches(vec![]), "Mismatches"),
+                    (Note::ChamberNotCompared, Note::ChamberNotCompared, "ChamberNotCompared"),
+                    (Note::HeadNotRead, Note::HeadNotRead, "HeadNotRead"),
+                    (
+                        Note::OnlyFirstNumberChecked,
+                        Note::OnlyFirstNumberChecked,
+                        "OnlyFirstNumberChecked"
+                    ),
+                    (
+                        Note::OnlyOneNumberChecked,
+                        Note::OnlyOneNumberChecked,
+                        "OnlyOneNumberChecked"
+                    ),
+                    (Note::DateNotChecked, Note::DateNotChecked, "DateNotChecked"),
+                    (Note::NativeEcli(_), Note::NativeEcli(ecli), "NativeEcli"),
+                    (Note::Impossible { .. }, Note::Impossible { fact: "" }, "Impossible"),
+                    (
+                        Note::AmbiguousSigle { .. },
+                        Note::AmbiguousSigle { sigle: Sigle::Ce },
+                        "AmbiguousSigle"
+                    ),
+                    (Note::ReadAs { .. }, Note::ReadAs { sigle: Sigle::Ce, code: "" }, "ReadAs"),
+                    (
+                        Note::MissingTarget { .. },
+                        Note::MissingTarget { num: String::new() },
+                        "MissingTarget"
+                    ),
+                    (
+                        Note::NoNumber { .. },
+                        Note::NoNumber { fond: Fond::Juri, date: None },
+                        "NoNumber"
+                    ),
+                    (Note::NoCourt, Note::NoCourt, "NoCourt"),
+                    (Note::NoAgreement, Note::NoAgreement, "NoAgreement"),
+                    (Note::Candidates { .. }, Note::Candidates { n: 2 }, "Candidates"),
+                    (Note::OutOfScope { .. }, Note::OutOfScope { family: "" }, "OutOfScope"),
+                    (
+                        Note::OutOfCoverage { .. },
+                        Note::OutOfCoverage { court: "" },
+                        "OutOfCoverage"
+                    ),
+                    (Note::NotSupported { .. }, Note::NotSupported { what: "" }, "NotSupported"),
+                    (Note::NumberlessText, Note::NumberlessText, "NumberlessText"),
+                    (
+                        Note::CouldNotConfirm { .. },
+                        Note::CouldNotConfirm { index: "" },
+                        "CouldNotConfirm"
+                    ),
+                    (
+                        Note::NotChecked { .. },
+                        Note::NotChecked { reason: NotCheckedReason::Upstream },
+                        "NotChecked"
+                    ),
+                    (Note::CodeNotListed, Note::CodeNotListed, "CodeNotListed"),
+                    (Note::VersionSince(_), Note::VersionSince(day), "VersionSince"),
+                    (
+                        Note::NotCurrentVersion { .. },
+                        Note::NotCurrentVersion { on, etat: "", ended: None },
+                        "NotCurrentVersion"
+                    ),
+                    (
+                        Note::ArticleWithoutVersion { .. },
+                        Note::ArticleWithoutVersion {
+                            title: String::new(),
+                            num: String::new(),
+                            date: on,
+                        },
+                        "ArticleWithoutVersion"
+                    ),
+                    (
+                        Note::SubdivisionNotChecked,
+                        Note::SubdivisionNotChecked,
+                        "SubdivisionNotChecked"
+                    ),
+                    (Note::QuoteNotAttached, Note::QuoteNotAttached, "QuoteNotAttached"),
+                    (Note::ArticleNotRead, Note::ArticleNotRead, "ArticleNotRead"),
+                    (Note::Chain(_), Note::Chain(vec![]), "Chain"),
+                    (Note::RangeEndpointsOnly, Note::RangeEndpointsOnly, "RangeEndpointsOnly"),
+                    (Note::WithRange(_), Note::WithRange(Box::new(Note::NoCourt)), "WithRange"),
+                    (
+                        Note::RangeEndNotFound { .. },
+                        Note::RangeEndNotFound { num: String::new() },
+                        "RangeEndNotFound"
+                    ),
+                    (Note::QuoteMismatch, Note::QuoteMismatch, "QuoteMismatch"),
+                    (Note::QuoteTooLong, Note::QuoteTooLong, "QuoteTooLong"),
+                    (
+                        Note::WithQuoteMismatch(_),
+                        Note::WithQuoteMismatch(Box::new(Note::NoCourt)),
+                        "WithQuoteMismatch"
+                    ),
+                    (
+                        Note::NotInSandbox { .. },
+                        Note::NotInSandbox {
+                            family: "",
+                            value: String::new(),
+                            date: None,
+                            date_given: false,
+                        },
+                        "NotInSandbox"
+                    ),
+                    (
+                        Note::NotInSnapshot { .. },
+                        Note::NotInSnapshot { family: "", value: String::new(), date: None },
+                        "NotInSnapshot"
+                    ),
+                    (
+                        Note::NoCitationRecognised,
+                        Note::NoCitationRecognised,
+                        "NoCitationRecognised"
+                    ),
+                    (
+                        Note::OtherCitations { .. },
+                        Note::OtherCitations { count: 1 },
+                        "OtherCitations"
+                    ),
+                    (Note::UseSearch, Note::UseSearch, "UseSearch"),
+                    (
+                        Note::NoDecisionReferences,
+                        Note::NoDecisionReferences,
+                        "NoDecisionReferences"
+                    ),
+                    (Note::DecisionLinkCodes, Note::DecisionLinkCodes, "DecisionLinkCodes"),
+                ]
+            );
+            pin!(
+                "Field",
+                |v: &Field| v.label(),
+                [
+                    (Field::Date, Field::Date, "date"),
+                    (Field::Number, Field::Number, "number"),
+                    (Field::Chamber, Field::Chamber, "chamber"),
+                    (Field::Formation, Field::Formation, "formation"),
+                    (Field::Seat, Field::Seat, "seat"),
+                    (Field::Ecli, Field::Ecli, "ECLI"),
+                    (Field::Nature, Field::Nature, "nature"),
+                    (Field::CcType, Field::CcType, "decision type"),
+                    (Field::Code, Field::Code, "code"),
+                    (Field::ArticleNum, Field::ArticleNum, "article number"),
+                ]
+            );
+            pin!(
+                "NotCheckedReason",
+                |v: &NotCheckedReason| v.label(),
+                [
+                    (NotCheckedReason::Upstream, NotCheckedReason::Upstream, "upstream error"),
+                    (NotCheckedReason::TimeBudget, NotCheckedReason::TimeBudget, "time budget"),
+                ]
+            );
+        }
+
+        #[test]
+        fn the_citation_flags_are_pinned_x1() {
+            pin!(
+                "Flag",
+                |v: &Flag| v.code().into_owned(),
+                [
+                    (Flag::DateInvalide, Flag::DateInvalide, "date_invalide"),
+                    (Flag::AnneeFuture, Flag::AnneeFuture, "annee_future"),
+                    (
+                        Flag::ChambreInexistante(_),
+                        Flag::ChambreInexistante("civ4".to_owned()),
+                        "chambre_inexistante:civ4"
+                    ),
+                    (
+                        Flag::ChambreCassInconnue(_),
+                        Flag::ChambreCassInconnue("XX".to_owned()),
+                        "chambre_cass_inconnue:XX"
+                    ),
+                    (
+                        Flag::EcliOrdinalNonConforme(EcliFamily::Cc),
+                        Flag::EcliOrdinalNonConforme(EcliFamily::Cc),
+                        "ordinal_cc_non_conforme"
+                    ),
+                    (
+                        Flag::EcliOrdinalNonConforme(EcliFamily::Ce),
+                        Flag::EcliOrdinalNonConforme(EcliFamily::Ce),
+                        "ordinal_ce_non_conforme"
+                    ),
+                    (
+                        Flag::EcliOrdinalNonConforme(EcliFamily::Cass),
+                        Flag::EcliOrdinalNonConforme(EcliFamily::Cass),
+                        "ordinal_cass_non_conforme"
+                    ),
+                    (
+                        Flag::EcliAnneeAnterieureNumero,
+                        Flag::EcliAnneeAnterieureNumero,
+                        "ecli_annee_anterieure_numero"
+                    ),
+                    (
+                        Flag::AnneePourvoiPosterieure,
+                        Flag::AnneePourvoiPosterieure,
+                        "annee_pourvoi_posterieure"
+                    ),
+                    (
+                        Flag::EcliCodeCeSeul,
+                        Flag::EcliCodeCeSeul,
+                        "code_juridiction_CE_seul_jamais_utilise"
+                    ),
+                    (
+                        Flag::AnneeNumeroDifferenteAnneeDate,
+                        Flag::AnneeNumeroDifferenteAnneeDate,
+                        "annee_numero_differente_annee_date"
+                    ),
+                    (Flag::AnneeImprobable, Flag::AnneeImprobable, "annee_improbable"),
+                    (
+                        Flag::TypeCcInconnu(_),
+                        Flag::TypeCcInconnu("X".to_owned()),
+                        "type_cc_inconnu:X"
+                    ),
+                    (
+                        Flag::CaaCodeSiegeIncoherent,
+                        Flag::CaaCodeSiegeIncoherent,
+                        "caa_code_siege_incoherent"
+                    ),
+                    (Flag::DateRepublicaine, Flag::DateRepublicaine, "date_republicaine"),
+                    (Flag::MojibakeRepare, Flag::MojibakeRepare, "mojibake_repare"),
+                    (Flag::TeteDecisionNonLue, Flag::TeteDecisionNonLue, "tete_decision_non_lue"),
+                ]
+            );
+        }
     }
 }

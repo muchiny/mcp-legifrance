@@ -21,13 +21,17 @@
 use std::cmp::Reverse;
 
 use lf_domain::{
-    citation::{CitationRef, Confidence, ParseOptions, Spanned, format::canonical, parse_with},
+    citation::{
+        CitationRef, Confidence, ParseOptions, Span, Spanned, format::canonical, parse_with,
+        unread_article_mentions,
+    },
     date::VersionDate,
 };
 
 use crate::{
     citation::{
         Candidate, CandidateKind, Note, ResolvedRecord,
+        notes::reading_gaps,
         policy::MAX_CANDIDATES,
         resolve::{CodeTable, Outcome, Proof, Resolver, needs_codes},
     },
@@ -87,18 +91,34 @@ impl<'a, C: LegalCorpus, K: Clock> ResolveUseCase<'a, C, K> {
         let options = ParseOptions { today: Some(today.as_civil()), ..ParseOptions::default() };
         let parsed = parse_with(&citation, &options);
         let Some((first, others)) = parsed.split_first() else {
+            // Un numéro d'article écrit mais refusé (« 787 b ») n'est pas une citation absente.
+            let note = if unread_article_mentions(&citation, &[]) {
+                Note::ArticleNotRead
+            } else {
+                Note::NoCitationRecognised
+            };
             return Ok(ResolveOutput {
                 interpreted_as: None,
                 candidates: Vec::new(),
-                notes: vec![Note::NoCitationRecognised],
+                notes: vec![note],
             });
         };
+        // Une mention d'article refusée (« art. 757 b ») à côté d'une citation lue : elle est dite
+        // en tête, pour qu'une autre citation résolue ne la fasse pas oublier.
+        let spans: Vec<Span> = parsed.iter().map(|cite| cite.span).collect();
 
         let outcome = self.resolve(first, today, date).await;
         if let Outcome::Failed(error) = &outcome {
             return Err(port_failure(TOOL, "the citation", error));
         }
-        let mut notes: Vec<Note> = note_of(&outcome, self.proof).into_iter().collect();
+        let mut notes: Vec<Note> = Vec::new();
+        if unread_article_mentions(&citation, &spans) {
+            notes.push(Note::ArticleNotRead);
+        }
+        notes.extend(note_of(&outcome, self.proof));
+        if matches!(outcome, Outcome::Verified { .. }) {
+            notes.extend(reading_gaps(first));
+        }
         if !others.is_empty() {
             notes.push(Note::OtherCitations { count: others.len() });
         }
@@ -173,7 +193,7 @@ mod tests {
     use lf_domain::{
         citation::Sigle,
         date::CivilDate,
-        entity::{ArticleText, CodeListing, SearchHit},
+        entity::{Act, ArticleDraft, ArticleText, CodeListing, SearchHit, TextBody, Toc, TocDraft},
         fond::Fond,
         id::{ArticleId, DocumentId, LegiTextId},
         status::LegalStatus,
@@ -674,6 +694,83 @@ mod tests {
         assert_eq!(corpus.calls(), 0);
     }
 
+    /// U03 : un numéro refusé (« 757 b ») ne résout rien et la note dit qu'un article n'a pas été
+    /// lu, au lieu d'accuser l'absence de code ou de citation ; aucun appel au corpus.
+    #[tokio::test]
+    async fn a_refused_lowercase_suffix_resolves_nothing_and_says_the_article_was_not_read_u03() {
+        for citation in [
+            "article 787 b du CGI",
+            "art. 757 b du code général des impôts",
+            "CGI, art. 757 b",
+            "art 757 b code general des impots",
+            "article 1240b du code civil",
+            "art. 1240 b du code civil",
+            "article L. 1234-5 b du code du travail",
+        ] {
+            let corpus = corpus_with_civil_code();
+            let output = resolve(&corpus, citation).await;
+            assert_eq!(output.interpreted_as, None, "{citation}");
+            assert_eq!(output.candidates, [], "{citation}");
+            assert_eq!(output.notes, [Note::ArticleNotRead], "{citation}");
+            assert_eq!(corpus.calls(), 0, "{citation}");
+        }
+        // Jumeaux : sans article illisible, la note de l'absence de citation reste.
+        let corpus = FakeCorpus::new();
+        for citation in ["bonjour tout le monde", "1234-5 du code du travail"] {
+            let output = resolve(&corpus, citation).await;
+            assert_eq!(output.notes, [Note::NoCitationRecognised], "{citation}");
+        }
+        // Jumeau : la majuscule est lue et résolue.
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "787 B")));
+        let output = resolve(&corpus, "art. 787 B du code civil").await;
+        assert_eq!(output.candidates.len(), 1);
+        assert_eq!(output.interpreted_as.as_deref(), Some("Code civil, art. 787 B"));
+    }
+
+    /// U03, limite connue (CHANGELOG, ADR-0024 AM-85) : un numéro préfixé sans mot-clé
+    /// (« L. 1234-5 b du code du travail ») est refusé comme les autres, mais reçoit la note
+    /// générique « No citation recognised » et non celle de l'article non lu, car le filet de
+    /// l'article non lu exige « article » ou « art. ». Figé tel quel ; aucun appel au corpus.
+    #[tokio::test]
+    async fn a_prefixed_number_without_keyword_and_a_lowercase_suffix_gets_the_generic_note_u03() {
+        for citation in ["L. 1234-5 b du code du travail", "L1234-5 b du code du travail"] {
+            let corpus = corpus_with_civil_code();
+            let output = resolve(&corpus, citation).await;
+            assert_eq!(output.interpreted_as, None, "{citation}");
+            assert_eq!(output.candidates, [], "{citation}");
+            assert_eq!(output.notes, [Note::NoCitationRecognised], "{citation}");
+            assert_eq!(corpus.calls(), 0, "{citation}");
+        }
+    }
+
+    /// U03 : une mention refusée placée avant une citation lue est signalée en tête des notes,
+    /// même si l'autre citation est résolue en confiance haute.
+    #[tokio::test]
+    async fn a_refused_first_mention_is_flagged_even_when_a_later_citation_resolves_u03() {
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "1240")));
+        let output = resolve(&corpus, "art. 757 b du CGI ; article 1240 du code civil").await;
+        assert_eq!(output.interpreted_as.as_deref(), Some("Code civil, art. 1240"));
+        assert_eq!(output.candidates.len(), 1);
+        assert_eq!(output.notes.first(), Some(&Note::ArticleNotRead), "{:?}", output.notes);
+        // Jumeau : sans mention refusée, aucune note d'article illisible.
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1, "1240")));
+        let output = resolve(&corpus, "article 1240 du code civil").await;
+        assert!(!output.notes.contains(&Note::ArticleNotRead), "{:?}", output.notes);
+    }
+
+    /// U03 : un article refusé à côté d'un texte résolu ajoute la note de l'article illisible.
+    #[tokio::test]
+    async fn a_refused_article_next_to_a_resolved_text_adds_the_unread_note_u03() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(texts(1)));
+        let output = resolve(&corpus, "art. 757 b du CGI ; loi n° 2016-1321").await;
+        assert_eq!(output.candidates.len(), 1);
+        assert_eq!(output.notes.first(), Some(&Note::ArticleNotRead), "{:?}", output.notes);
+    }
+
     #[tokio::test]
     async fn only_the_first_citation_is_resolved_and_the_others_are_counted() {
         let corpus = corpus_with_civil_code();
@@ -690,6 +787,49 @@ mod tests {
             ]
         );
         assert_eq!(corpus.calls_of("find_article"), 1, "une seule citation est cherchée");
+    }
+
+    /// U12 : `fr_resolve` porte la même note de tête non lue que `fr_verify_citations`, et rien
+    /// quand la tête est lue.
+    #[tokio::test]
+    async fn resolve_reports_an_unread_head_like_verify() {
+        use lf_domain::{
+            entity::{Decision, OfficialSummary},
+            id::DecisionId,
+        };
+        let id = "JURITEXT000031539712";
+        let corpus_for = || {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![
+                SearchHit::new(Fond::Juri, DocumentId::parse(id).unwrap(), None).unwrap(),
+            ]));
+            corpus.push_get_decision(Ok(Decision {
+                decision_id: DecisionId::parse(id).unwrap(),
+                ecli: None,
+                num: None,
+                juridiction: None,
+                formation: Some("CHAMBRE_SOCIALE".to_owned()),
+                solution: None,
+                numero_affaire: vec![],
+                date_texte: CivilDate::new(2015, 11, 25),
+                nature: Some("ARRET".to_owned()),
+                title: None,
+                text: LongText::from_plain("Texte de la décision.").unwrap(),
+                official_summary: OfficialSummary::default(),
+                cited_case_law: None,
+                applied_texts: vec![],
+            }));
+            corpus
+        };
+        let unread = resolve(&corpus_for(), "Cass. soc., 25/11/15, n° 14-24.444").await;
+        assert_eq!(unread.candidates.len(), 1);
+        assert_eq!(unread.notes, [Note::HeadNotRead]);
+        let right = resolve(&corpus_for(), "Cass. soc. 25-11-2015, n° 14-24.444").await;
+        assert_eq!(right.candidates.len(), 1);
+        assert_eq!(right.notes, []);
+        let joined =
+            resolve(&corpus_for(), "Cass. soc., 25 novembre 2015, n° 14-24.444 et 14-24.445").await;
+        assert_eq!(joined.notes, [Note::OnlyFirstNumberChecked]);
     }
 
     #[tokio::test]
@@ -717,7 +857,7 @@ mod tests {
         assert_eq!(output.interpreted_as.as_deref(), Some("Code civil, art. 9999"));
         assert_eq!(
             output.notes[0].text(),
-            "Code civil has no article 9999 in force on 2026-10-29. The article may exist in earlier versions; retry with a date."
+            "Code civil has no article 9999 in force on 2026-10-29. The article may exist in an earlier or later version; retry with a date."
         );
 
         // En bac à sable, la note dit que ses données diffèrent de la production.
@@ -756,6 +896,55 @@ mod tests {
         assert!(matches!(output.notes.as_slice(), [Note::Mismatch { .. }]), "{:?}", output.notes);
     }
 
+    fn caa_decision(juridiction: &str) -> lf_domain::entity::Decision {
+        lf_domain::entity::Decision {
+            decision_id: lf_domain::id::DecisionId::parse("CETATEXT000054955709").unwrap(),
+            ecli: None,
+            num: None,
+            juridiction: Some(juridiction.to_owned()),
+            formation: None,
+            solution: None,
+            numero_affaire: vec![],
+            date_texte: CivilDate::new(2026, 10, 2),
+            nature: None,
+            title: None,
+            text: LongText::from_plain("Texte de la décision.").unwrap(),
+            official_summary: lf_domain::entity::OfficialSummary::default(),
+            cited_case_law: None,
+            applied_texts: vec![],
+        }
+    }
+
+    fn caa_hit() -> SearchHit {
+        let mut found =
+            SearchHit::new(Fond::Cetat, DocumentId::parse("CETATEXT000054955709").unwrap(), None)
+                .unwrap();
+        found.title = Some(
+            "CAA de MARSEILLE, 5ème chambre, 02/10/2026, 25MA02308, Inédit au recueil Lebon"
+                .to_owned(),
+        );
+        found
+    }
+
+    #[tokio::test]
+    async fn a_caa_is_resolved_with_high_confidence_and_no_selection_note() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![caa_hit()]));
+        corpus.push_get_decision(Ok(caa_decision("CAA de MARSEILLE")));
+        let output = resolve(&corpus, "CAA Marseille, 2 octobre 2026, n° 25MA02308").await;
+        assert_eq!(output.candidates.len(), 1);
+        assert_eq!(output.candidates[0].confidence, Confidence::High);
+        assert_eq!(output.notes, []);
+        // Un siège cité faux : un candidat `medium` et l'écart.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![caa_hit()]));
+        corpus.push_get_decision(Ok(caa_decision("CAA de MARSEILLE")));
+        let output = resolve(&corpus, "CAA Lyon, 2 octobre 2026, n° 25MA02308").await;
+        assert_eq!(output.candidates.len(), 1);
+        assert_eq!(output.candidates[0].confidence, Confidence::Medium);
+        assert!(matches!(output.notes.as_slice(), [Note::Mismatch { .. }]), "{:?}", output.notes);
+    }
+
     #[tokio::test]
     async fn a_corpus_failure_fails_the_call() {
         let corpus = corpus_with_civil_code();
@@ -765,5 +954,49 @@ mod tests {
                 .await
                 .unwrap_err();
         assert_eq!(error.code(), Some(ErrorCode::UpstreamError));
+    }
+
+    /// U10 : l'article d'une loi qui figure au sommaire sans version en vigueur est un candidat de
+    /// confiance moyenne, avec son identifiant et la note, aujourd'hui comme à une date passée.
+    #[tokio::test]
+    async fn resolve_returns_the_amending_article_as_a_medium_candidate() {
+        let law = LegiTextId::parse("LEGITEXT000033202746").unwrap();
+        let hit = || {
+            let mut law_hit =
+                SearchHit::new(Fond::Loda, DocumentId::LegiText(law.clone()), None).unwrap();
+            law_hit.nature = Some("LOI".to_owned());
+            law_hit.date = CivilDate::new(2016, 10, 9);
+            law_hit.title = Some("LOI n° 2016-1321 du 7 octobre 2016".to_owned());
+            law_hit
+        };
+        let act = || {
+            let articles = vec![ArticleDraft {
+                id: Some("LEGIARTI000000000001".to_owned()),
+                num: Some("1".to_owned()),
+                ..ArticleDraft::default()
+            }];
+            let toc = Toc::build(TocDraft { sections: vec![], articles }).unwrap();
+            Act { text_id: law.clone(), body: TextBody { toc, ..TextBody::default() } }
+        };
+        let amending = ArticleText { etat: None, date_debut: None, ..article(1, "1") };
+        for (date, day) in [(None, "2026-10-29"), (Some("2018-06-21"), "2018-06-21")] {
+            let corpus = FakeCorpus::new();
+            corpus.push_find_by_number(Ok(vec![hit()]));
+            corpus.push_find_article(Err(not_found()));
+            corpus.push_get_act(Ok(act()));
+            corpus.push_get_article(Ok(amending.clone()));
+            let citation = "article 1 de la loi n° 2016-1321 du 7 octobre 2016";
+            let output =
+                run(&corpus, PisteEnvironment::Production, input(citation, date)).await.unwrap();
+            assert_eq!(output.candidates.len(), 1, "{date:?}");
+            assert_eq!(output.candidates[0].confidence, Confidence::Medium, "{date:?}");
+            assert_eq!(output.candidates[0].record.id.as_str(), "LEGIARTI000000000001");
+            let notes: Vec<String> = output.notes.iter().map(Note::text).collect();
+            assert_eq!(notes.len(), 1, "{notes:?}");
+            assert!(
+                notes[0].starts_with(&format!("No version in force on {day}: art. 1 of LOI")),
+                "{notes:?}"
+            );
+        }
     }
 }

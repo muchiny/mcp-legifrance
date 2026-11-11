@@ -520,6 +520,94 @@ mod tests {
     }
 
     #[test]
+    fn the_window_matches_the_grid_rule_of_the_diff_article_use_case() {
+        // Parité avec `DiffArticleUseCase` (`in_force`, U14) sur une version dont le début est
+        // présent : la grille et l'oracle sont ceux du test
+        // `the_version_in_force_is_the_one_starting_last_among_those_with_debut_le_day_lt_fin`
+        // de `lf-application` (jours 0 à 6, début 1 à 5, fin absente ou 1 à 6). Le début absent
+        // est exclu de la parité : l'adapter le traite comme ouvert, le cas d'usage ne sert
+        // jamais une version sans début.
+        let at = |n: u8| date(2020, 1, n + 1).unwrap();
+        for start in 1..=5_u8 {
+            for end in std::iter::once(None).chain((1..=6).map(Some)) {
+                for n in 0..7_u8 {
+                    let expected = start <= n && end.is_none_or(|end| n < end);
+                    let served = in_force(Some(at(start)), end.map(at), at(n));
+                    assert_eq!(served, expected, "début {start}, fin {end:?}, jour {n}");
+                }
+            }
+        }
+        // Début absent : la fenêtre de l'adapter reste ouverte (différence assumée).
+        assert!(in_force(None, Some(at(3)), at(2)));
+        assert!(!in_force(None, Some(at(3)), at(3)));
+    }
+
+    /// Une version sur la fenêtre `debut..fin`, pour `in_force_on` (U01).
+    fn one_version(
+        debut: Option<CivilDate>,
+        fin: Option<CivilDate>,
+    ) -> [lf_domain::entity::ArticleVersion; 1] {
+        [lf_domain::entity::ArticleVersion {
+            id: lf_domain::id::LegiArtiId::parse("LEGIARTI000000000001").unwrap(),
+            num: None,
+            etat: None,
+            date_debut: debut,
+            date_fin: fin,
+        }]
+    }
+
+    #[test]
+    fn in_force_on_matches_the_dila_window() {
+        // Parité de la règle de domaine (`in_force_on`, U01) avec la fenêtre du DILA, sur toute
+        // version dont le début est présent : fin absente ou présente, date avant, au début,
+        // avant la fin, à la fin, après. Le début absent est exclu (voir le jumeau suivant).
+        let at = |n: u8| date(2020, 1, n + 1).unwrap();
+        for start in 1..=5_u8 {
+            for end in std::iter::once(None).chain((1..=6).map(Some)) {
+                for n in 0..7_u8 {
+                    let versions = one_version(Some(at(start)), end.map(at));
+                    let day = lf_domain::date::VersionDate::try_from(at(n)).unwrap();
+                    let served = lf_domain::entity::in_force_on(&versions, day).is_some();
+                    let window = in_force(Some(at(start)), end.map(at), at(n));
+                    assert_eq!(served, window, "début {start}, fin {end:?}, jour {n}");
+                }
+            }
+        }
+    }
+
+    /// Différence assumée : sans date de début, la fenêtre du DILA est ouverte, la règle de
+    /// domaine ne sert jamais la version (comme `fr_diff_article` en 1.1.0). Vert avant et après.
+    #[test]
+    fn a_version_without_start_is_never_in_force_while_the_dila_window_is_open() {
+        let at = |n: u8| date(2020, 1, n + 1).unwrap();
+        let day = lf_domain::date::VersionDate::try_from(at(2)).unwrap();
+        for end in [None, Some(at(3))] {
+            assert!(in_force(None, end, at(2)), "la fenêtre du DILA reste ouverte");
+            let versions = one_version(None, end);
+            assert!(lf_domain::entity::in_force_on(&versions, day).is_none());
+        }
+    }
+
+    /// U10 : la table de `a_toc_version_window_is_debut_inclusive_fin_exclusive` (cas d'usage de
+    /// `fr_resolve`, lecture du sommaire) est celle de la fenêtre du DILA sur toute version dont le
+    /// début est présent. Vert avant et après U10.
+    #[test]
+    fn the_toc_reading_window_table_matches_the_dila_window() {
+        let day = date(2026, 10, 29).unwrap();
+        let rows = [
+            (date(2026, 10, 29), None, true),
+            (date(2026, 10, 30), None, false),
+            (date(2026, 10, 28), date(2026, 10, 29), false),
+            (date(2026, 10, 28), date(2026, 10, 30), true),
+            (date(2020, 1, 1), None, true),
+            (date(2020, 1, 1), date(2021, 1, 1), false),
+        ];
+        for (start, end, covers) in rows {
+            assert_eq!(in_force(start, end, day), covers, "{start:?} {end:?}");
+        }
+    }
+
+    #[test]
     fn the_window_rule_is_debut_inclusive_fin_exclusive() {
         let at = date(2026, 10, 15).unwrap();
         assert!(in_force(None, None, at));

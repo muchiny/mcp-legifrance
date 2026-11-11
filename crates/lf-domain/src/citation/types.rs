@@ -258,6 +258,9 @@ pub enum Flag {
     DateRepublicaine,
     /// L'étape 1 de la normalisation a modifié le texte.
     MojibakeRepare,
+    /// Un pourvoi de la Cour de cassation est lu seul alors qu'une date, une chambre ou un sigle
+    /// est écrit juste avant lui : la tête de la décision n'a pas été lue (U12).
+    TeteDecisionNonLue,
 }
 
 impl Flag {
@@ -280,6 +283,7 @@ impl Flag {
             Self::CaaCodeSiegeIncoherent => "caa_code_siege_incoherent".into(),
             Self::DateRepublicaine => "date_republicaine".into(),
             Self::MojibakeRepare => "mojibake_repare".into(),
+            Self::TeteDecisionNonLue => "tete_decision_non_lue".into(),
         }
     }
 
@@ -298,7 +302,9 @@ impl Flag {
             | Self::AnneeImprobable
             | Self::TypeCcInconnu(_)
             | Self::CaaCodeSiegeIncoherent => Severity::Suspect,
-            Self::DateRepublicaine | Self::MojibakeRepare => Severity::Info,
+            Self::DateRepublicaine | Self::MojibakeRepare | Self::TeteDecisionNonLue => {
+                Severity::Info
+            }
         }
     }
 }
@@ -1495,15 +1501,23 @@ impl fmt::Display for CcNumber {
     }
 }
 
-/// Numéro d'une délibération de la CNIL (`SAN-2026-002`, `2023-062`).
+/// Numéro d'une délibération de la CNIL (`SAN-2026-002`, `2023-062`, `DF-2017-1448`).
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct CnilNumber {
     /// Série (`SAN`, `MED`).
     pub series: Option<String>,
     /// Année.
     pub year: u16,
-    /// Numéro d'ordre, sur trois chiffres.
+    /// Numéro d'ordre : trois chiffres, ou quatre (de 1000 à 9999) quand une série est écrite.
     pub seq: u16,
+}
+
+/// Le numéro d'ordre CNIL tient-il dans la grammaire ? `digits` chiffres écrits, de valeur
+/// `value`, avec ou sans série : trois chiffres toujours ; quatre chiffres seulement avec une
+/// série et une valeur d'au moins 1000 (un zéro de tête n'est jamais lu, et la forme canonique
+/// `{:03}` se relit à l'identique). Règle commune de `CnilNumber::from_str` et de la grammaire.
+pub(crate) const fn cnil_order_fits(digits: usize, value: u32, has_series: bool) -> bool {
+    digits == 3 || (digits == 4 && has_series && value >= 1000)
 }
 
 impl FromStr for CnilNumber {
@@ -1512,7 +1526,7 @@ impl FromStr for CnilNumber {
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let invalid = NumberParseError { kind: "cnil" };
         let mut parts: Vec<&str> = text.split('-').collect();
-        let seq = parts.pop().and_then(|s| fixed_digits(s, 3)).ok_or(invalid)?;
+        let order = parts.pop().unwrap_or_default();
         let year = parts.pop().and_then(|y| fixed_digits(y, 4)).ok_or(invalid)?;
         let series = match parts.as_slice() {
             [] => None,
@@ -1521,6 +1535,10 @@ impl FromStr for CnilNumber {
             }
             _ => return Err(invalid),
         };
+        let seq = fixed_digits_any(order)
+            .filter(|&value| cnil_order_fits(order.len(), value, series.is_some()))
+            .and_then(|value| u16::try_from(value).ok())
+            .ok_or(invalid)?;
         Ok(Self { series, year, seq })
     }
 }
@@ -1866,6 +1884,7 @@ mod tests {
             (Flag::CaaCodeSiegeIncoherent, "caa_code_siege_incoherent", Suspect),
             (Flag::DateRepublicaine, "date_republicaine", Info),
             (Flag::MojibakeRepare, "mojibake_repare", Info),
+            (Flag::TeteDecisionNonLue, "tete_decision_non_lue", Info),
         ];
         for (flag, code, severity) in table {
             assert_eq!(flag.code(), code);
@@ -2401,6 +2420,51 @@ mod tests {
             );
         }
         assert_eq!(NumberParseError { kind: "rg" }.to_string(), "invalid rg number");
+    }
+
+    /// U07 : un numéro d'ordre CNIL à quatre chiffres se lit quand une série est écrite et que la
+    /// valeur est d'au moins 1000 ; il se réécrit à l'identique. Sans série, ou avec un zéro de
+    /// tête, il est refusé (la forme canonique doit se relire, cible de fuzzing `citation_parse`).
+    #[test]
+    fn cnil_number_four_digits_round_trip() {
+        for (text, series, year, seq) in [
+            ("DF-2017-1448", "DF", 2017, 1448),
+            ("DF-2017-1061", "DF", 2017, 1061),
+            ("DF-2017-2671", "DF", 2017, 2671),
+            ("SAN-2026-1000", "SAN", 2026, 1000),
+            ("SAN-2026-9999", "SAN", 2026, 9999),
+        ] {
+            let parsed = text.parse::<CnilNumber>();
+            assert!(parsed.is_ok(), "{text:?} : {parsed:?}");
+            let cnil = parsed.expect("lu ci-dessus");
+            assert_eq!((cnil.series.as_deref(), cnil.year, cnil.seq), (Some(series), year, seq));
+            assert_eq!(cnil.to_string(), text);
+            assert_eq!(cnil.to_string().parse::<CnilNumber>(), Ok(cnil));
+        }
+        // Trois chiffres : toujours lus, avec ou sans série, zéros de tête compris.
+        for text in ["SAN-2026-999", "DF-2017-288", "SAN-2026-001", "2023-062", "2023-999"] {
+            assert!(text.parse::<CnilNumber>().is_ok(), "{text:?}");
+        }
+        // Quatre chiffres sans série, avec un zéro de tête, ou cinq chiffres : refusés.
+        for bad in [
+            "2017-1448",
+            "2025-1173",
+            "2017-1000",
+            "DF-2017-0448",
+            "DF-2017-0999",
+            "SAN-2026-0002",
+            "SAN-2026-0001",
+            "SAN-2026-0000",
+            "SAN-2026-10000",
+            "SAN-2026-12345",
+            "SAN-2026-99",
+        ] {
+            assert_eq!(
+                bad.parse::<CnilNumber>(),
+                Err(NumberParseError { kind: "cnil" }),
+                "{bad:?}"
+            );
+        }
     }
 
     /// Une année lue sur quatre chiffres avec des zéros de tête se réécrit sur quatre chiffres : la

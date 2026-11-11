@@ -32,7 +32,8 @@ pub use eli::{ELI_MAX_CHARS, Eli};
 pub use idcc::Idcc;
 pub use nor::Nor;
 pub use rules::{
-    article_citation, article_citation_for, cnil_citation, constit_citation, with_company,
+    CnilWord, article_citation, article_citation_for, cnil_citation, cnil_consult_citation,
+    constit_citation, is_cnil_closure_title, with_company,
 };
 pub(crate) use text::cut_at_word;
 pub use text::{CITATION_MAX_CHARS, CitationText};

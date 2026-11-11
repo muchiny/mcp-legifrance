@@ -48,7 +48,8 @@ impl ResponseBudget {
     /// Poids estimé d'un champ ou d'un élément dans les listes de liens de `fr_get_related` : une
     /// clé JSON courte, ses guillemets et son séparateur en pèsent 10 à 18, d'où une marge sous 24
     /// (64 surestimait d'un facteur 2 à 3 et rognait ou refusait des pages qui tenaient).
-    /// `fr_search` n'estime plus : il calcule la longueur exacte du JSON de sa vue.
+    /// `fr_search` et `fr_search_all` n'estiment plus : ils calculent la longueur exacte du JSON de
+    /// leur vue.
     pub const ESTIMATE_PER_LIST_FIELD: usize = 24;
     /// Nombre de résultats de recherche atteignables (`page × page_size`).
     pub const REACHABLE_RESULTS: u64 = lf_domain::search::REACHABLE_RESULTS;

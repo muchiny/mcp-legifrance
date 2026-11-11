@@ -127,7 +127,8 @@ impl<A: AuditLog> Audited<A> {
     /// - L'erreur de `work`, telle quelle.
     /// - `upstream_error` ([`crate::error::UpstreamCause::Deadline`]) au-delà de `policy.deadline`.
     /// - `Upstream { cause: Cancelled }`, sans code, après une annulation : le client a renoncé à
-    ///   la réponse, et rmcp 3.5.1 ne l'envoie pas (`service.rs:1503-1505` journalise « dropping
+    ///   la réponse, et rmcp ne l'envoie pas (3.5.1 : `service.rs:1503-1505`, 3.9.0 : `:1509`,
+    ///   journalise « dropping
     ///   response for cancelled request » ; mesure du spike 0A, `spikes/rmcp-stdio/README.md`,
     ///   § « Annulation : rmcp jette la réponse »). La ligne d'audit est donc la seule trace de
     ///   l'appel annulé.
@@ -203,7 +204,7 @@ impl<A: AuditLog> Audited<A> {
                 let original = result.as_ref().err().and_then(AppError::code);
                 Err(messages::audit(&error, original))
             }
-            // Mode `BestEffort`, ou annulation : le client a renoncé à la réponse (rmcp 3.5.1 ne
+            // Mode `BestEffort`, ou annulation : le client a renoncé à la réponse (rmcp ne
             // l'envoie pas), il n'y a rien à retenir ; une seule tentative d'écriture, dont
             // l'échec est signalé.
             (outcome, mode) => {

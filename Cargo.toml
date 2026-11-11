@@ -61,8 +61,8 @@ chrono-tz = { version = "0.10", default-features = false }
 # --- Dépendances de la fin du projet (plan fin-du-projet 0B, ADR-0018) ---
 # MCP (confiné à lf-adapter-mcp, R6) : seuls crates épinglés exactement (00 §6, contrôle de check-arch) ;
 # features par défaut de rmcp (base64, macros, server) ; `transport-io` est ajoutée par le membre
-rmcp = { version = "=3.5.1" }
-rmcp-macros = { version = "=3.5.1" }
+rmcp = { version = "=3.9.0" }
+rmcp-macros = { version = "=3.9.0" }
 # `derive` : le derive émet des chemins `schemars::…` ; `std` : défaut de schemars, repris explicitement
 schemars = { version = "1.2", default-features = false, features = ["derive", "std"] }
 # CancellationToken (sync) : aucune feature nécessaire

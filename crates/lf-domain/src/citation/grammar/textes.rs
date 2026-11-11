@@ -1463,4 +1463,32 @@ mod tests {
         assert_eq!(trim_connectors("sur la"), "sur");
         assert_eq!(trim_connectors(""), "");
     }
+
+    /// U03 : « art. 4 b » après ou avant une loi n'est pas lu « art. 4 » ; le texte, lui, reste lu.
+    #[test]
+    fn a_lone_lowercase_suffix_never_reads_the_article_of_a_text_u03() {
+        use crate::citation::{CitationRef, parse};
+        for input in [
+            "loi n° 78-17 du 6 janvier 1978, art. 4 b",
+            "article 4 b de la loi n° 78-17 du 6 janvier 1978",
+            "articles 4 et 5 b de la loi n° 78-17 du 6 janvier 1978",
+            "article 61 b de la Constitution",
+        ] {
+            let with_article = parse(input)
+                .iter()
+                .filter(|cite| matches!(cite.value, CitationRef::TextArticle { .. }))
+                .count();
+            assert_eq!(with_article, 0, "{input}");
+        }
+        // Jumeau : sans la lettre, l'article est lu.
+        for input in
+            ["loi n° 78-17 du 6 janvier 1978, art. 4 B", "loi n° 78-17 du 6 janvier 1978, art. 4"]
+        {
+            let read = parse(input);
+            assert!(
+                read.iter().any(|cite| matches!(cite.value, CitationRef::TextArticle { .. })),
+                "{input}"
+            );
+        }
+    }
 }

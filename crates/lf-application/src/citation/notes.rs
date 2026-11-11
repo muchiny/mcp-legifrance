@@ -2,14 +2,19 @@
 //! extrait cité.
 //!
 //! Une [`Note`] est une valeur structurée : un gabarit fixe et des paramètres **typés**. Aucun
-//! paramètre n'est une chaîne libre venue de l'API ou du texte soumis : le titre d'un code vient du
+//! paramètre n'est une chaîne libre venue du texte soumis : le titre d'un code vient du
 //! dictionnaire statique (`CodeKey::title`), les familles, juridictions et motifs sont des
 //! vocabulaires fermés (`&'static str`), les dates sont rendues en ISO, les numéros par leur forme
-//! canonique. [`Note::text`] la rend en anglais, bornée à 200 caractères (assainissement des sorties,
-//! 05 §5.9) ; le gabarit et ses paramètres vivent côte à côte pour ne pas pouvoir diverger.
+//! canonique. **Une exception, le titre d'une loi** (`NotInForce`, `ArticleWithoutVersion` et, en
+//! mode hors ligne, `NotInSnapshot` d'un texte non codifié) : c'est la citation de l'enregistrement
+//! trouvé, un texte de l'API dont le mapper de recherche n'aplatit que les espaces ; il n'est
+//! borné que par [`Note::text`], qui le raccourcit par « … » (200 caractères au plus pour la note
+//! entière). [`Note::text`] la rend en
+//! anglais, bornée à 200 caractères (assainissement des sorties, 05 §5.9) ; le gabarit et ses
+//! paramètres vivent côte à côte pour ne pas pouvoir diverger.
 
 use lf_domain::{
-    citation::Sigle,
+    citation::{CitationRef, Court, Flag, Sigle, Spanned},
     date::{CivilDate, VersionDate},
     ecli::Ecli,
     fond::Fond,
@@ -38,6 +43,9 @@ const NUMBERLESS_TEXT: &str = "A text cited without a number cannot be checked h
 /// Texte de [`Note::NoDecisionReferences`].
 const NO_DECISION_REFERENCES: &str = "The API gives no references for this decision; its text may \
      still cite some: read it with fr_get_decision and check it with fr_verify_citations.";
+
+/// Texte de [`Note::DateNotChecked`].
+const DATE_NOT_CHECKED: &str = "Date not checked: the record has no reliable date.";
 
 /// Champ dont l'écart donne `invalid` (annexe B §6.6, champs durs de §7.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,6 +122,9 @@ pub enum Note {
         num: String,
         /// Date de la recherche.
         date: VersionDate,
+        /// L'appelant ou la citation a donné une date (même égale au jour de Paris) : la note
+        /// conseille alors une autre date, au lieu de « retry with a date » (U01-N).
+        date_given: bool,
     },
     /// Aucun enregistrement : `not_found` (production).
     NoRecord {
@@ -155,6 +166,18 @@ pub enum Note {
     /// moderne (juridiction du fond, chambre historique, valeur inconnue) : le contrôle de la
     /// chambre n'a pas pu se faire, `verified` conservé.
     ChamberNotCompared,
+    /// Pourvoi de la Cour de cassation lu seul : la juridiction, la chambre ou la date écrite avant
+    /// lui n'a pas été lue ni contrôlée (U12), `verified` conservé.
+    HeadNotRead,
+    /// Pourvois joints : seul le premier numéro a été contrôlé (U12), `verified` conservé.
+    OnlyFirstNumberChecked,
+    /// Requêtes jointes du Conseil d'État : un seul des numéros cités a servi à retrouver la
+    /// décision (le premier qui l'a trouvée, U11), `verified` conservé.
+    OnlyOneNumberChecked,
+    /// Date citée d'une délibération ou décision de la CNIL, mais l'enregistrement officiel n'en a
+    /// pas de fiable (l'amont ne donne qu'une date de repli, 31 décembre ou 1er janvier) : la
+    /// date n'a pas pu être contrôlée, `verified` de confiance moyenne conservé (AM-80).
+    DateNotChecked,
     /// ECLI natif de la décision consultée.
     NativeEcli(Ecli),
     /// Impossibilité syntaxique relevée par le parseur : `invalid`.
@@ -239,6 +262,17 @@ pub enum Note {
         /// Fin de vigueur de la version lue.
         ended: Option<CivilDate>,
     },
+    /// Article d'un texte non codifié qui figure au sommaire mais n'a aucune version en vigueur à
+    /// la date (article modificatif d'une loi) : `verified` de confiance moyenne, l'article existe
+    /// et a été lu (U10).
+    ArticleWithoutVersion {
+        /// Titre de la loi, tel que la recherche du texte le rend ; raccourci par « … » s'il faut.
+        title: String,
+        /// Numéro d'article, sous sa forme de clé.
+        num: String,
+        /// Date de la recherche.
+        date: VersionDate,
+    },
     /// Citation d'article avec une subdivision (alinéa, point, phrase…) : seul l'article est
     /// contrôlé (L2-17, gap3-8). Statut inchangé.
     SubdivisionNotChecked,
@@ -285,6 +319,8 @@ pub enum Note {
         value: String,
         /// Date de la recherche, s'il y en a une.
         date: Option<VersionDate>,
+        /// L'appelant ou la citation a donné une date : voir [`Note::NotInForce`] (U01-N).
+        date_given: bool,
     },
     /// Absence constatée dans l'index local DILA, un instantané peut-être périmé : `unresolvable`,
     /// jamais `not_found`.
@@ -335,28 +371,54 @@ const fn meanings(sigle: Sigle) -> &'static str {
 /// quand le texte dépasse [`NOTE_MAX_CHARS`], le titre est raccourci par « … » plutôt que de
 /// couper la fin de la note, qui porte la piste donnée à l'appelant.
 fn fit(label: &str, build: impl Fn(&str) -> String) -> String {
+    fit_within(NOTE_MAX_CHARS, label, build)
+}
+
+/// Comme [`fit`], pour une note qui doit tenir sous `max` caractères (U10 : une note qui en laisse
+/// la place à celles qui la suivent).
+fn fit_within(max: usize, label: &str, build: impl Fn(&str) -> String) -> String {
     let full = build(label);
-    let over = full.chars().count().saturating_sub(NOTE_MAX_CHARS);
+    let over = full.chars().count().saturating_sub(max);
     if over == 0 {
         return full;
     }
-    let shrink = |title: &str| {
+    let shrink = |title: &str, over: usize| {
         let keep = title.chars().count().saturating_sub(over.saturating_add(1));
         title.chars().take(keep).chain(std::iter::once('…')).collect::<String>()
     };
     match label.rsplit_once(", art. ") {
-        Some((title, key)) => build(&format!("{}, art. {key}", shrink(title))),
-        None => build(&shrink(label)),
+        Some((title, key)) => {
+            let clipped = build(&format!("{}, art. {key}", shrink(title, over)));
+            let left = clipped.chars().count().saturating_sub(max);
+            if left == 0 {
+                return clipped;
+            }
+            // Le titre est réduit à « … » et la note dépasse encore : c'est la clé qui est
+            // raccourcie, jamais la piste finale.
+            build(&format!("…, art. {}", shrink(key, left)))
+        }
+        None => build(&shrink(label, over)),
     }
 }
 
-/// Piste donnée avec l'absence d'un article : une version plus ancienne peut exister (resolve-5).
-const EARLIER_VERSIONS: &str = "The article may exist in earlier versions; retry with a date.";
+/// Piste donnée avec l'absence d'un article sans date donnée : une version plus ancienne, ou plus
+/// tardive si l'entrée en vigueur est différée, peut exister (resolve-5, journey_general-1).
+const EARLIER_OR_LATER_RETRY: &str =
+    "The article may exist in an earlier or later version; retry with a date.";
 
-/// ` {EARLIER_VERSIONS}` pour la famille « article » (les seuls articles ont des versions
-/// datées), rien pour les autres familles.
-fn earlier_versions(family: &str) -> String {
-    if family == "article" { format!(" {EARLIER_VERSIONS}") } else { String::new() }
+/// Même piste quand une date a été donnée : « retry with a date » serait circulaire.
+const EARLIER_OR_LATER_TRY_OTHER: &str =
+    "The article may exist in an earlier or later version; try another date.";
+
+/// Piste donnée avec l'absence d'un article, selon qu'une date a été donnée ou non (U01-N).
+const fn hint(date_given: bool) -> &'static str {
+    if date_given { EARLIER_OR_LATER_TRY_OTHER } else { EARLIER_OR_LATER_RETRY }
+}
+
+/// ` {piste}` pour la famille « article » (les seuls articles ont des versions datées), rien pour
+/// les autres familles.
+fn earlier_versions(family: &str, date_given: bool) -> String {
+    if family == "article" { format!(" {}", hint(date_given)) } else { String::new() }
 }
 
 /// ` on {date}` quand la date est connue.
@@ -371,8 +433,25 @@ fn range_text(note: &Note) -> String {
             "The first article of the range exists, but its last, article {num}, was not found; \
              check the number or the date."
         ),
-        _ => "Only the first and last articles of the range were checked.".to_owned(),
+        _ => RANGE_ENDPOINTS_ONLY.to_owned(),
     }
+}
+
+/// Gabarit de [`Note::RangeEndpointsOnly`].
+const RANGE_ENDPOINTS_ONLY: &str = "Only the first and last articles of the range were checked.";
+
+/// Texte de [`Note::ArticleWithoutVersion`]. Le titre est la seule partie qui rétrécit, pour que la
+/// mention de plage qui la suit (elle justifie la confiance `medium`) tienne sous 200 caractères
+/// avec elle, comme l'écart d'extrait qui la précède.
+fn article_without_version_text(title: &str, num: &str, date: VersionDate) -> String {
+    let room =
+        NOTE_MAX_CHARS.saturating_sub(RANGE_ENDPOINTS_ONLY.chars().count().saturating_add(1));
+    fit_within(room, title, |title| {
+        format!(
+            "No version in force on {date}: art. {num} of {title} amends other texts; read it \
+             with fr_get_text."
+        )
+    })
 }
 
 /// Texte de plusieurs écarts : le premier avec le gabarit `Mismatch`, les suivants abrégés,
@@ -459,6 +538,38 @@ fn quote_gap_text(inner: &Note) -> String {
     }
 }
 
+/// Notes d'écart de lecture d'une décision de la Cour de cassation `verified` ou résolue : la
+/// tête (date, chambre, sigle) que la grammaire n'a pas lue ([`Note::HeadNotRead`]), puis les
+/// pourvois joints dont seul le premier est contrôlé ([`Note::OnlyFirstNumberChecked`]).
+pub(crate) fn reading_gaps(item: &Spanned<CitationRef>) -> Vec<Note> {
+    let mut gaps = Vec::new();
+    if item.flags.contains(&Flag::TeteDecisionNonLue) {
+        gaps.push(Note::HeadNotRead);
+    }
+    if let CitationRef::Decision(decision) = &item.value
+        && decision.numbers.len() > 1
+    {
+        // Le Conseil d'État essaie ses numéros un à un (U11) : le premier n'est pas toujours celui
+        // qui a retrouvé la décision.
+        gaps.push(if matches!(decision.court, Some(Court::ConseilEtat { .. })) {
+            Note::OnlyOneNumberChecked
+        } else {
+            Note::OnlyFirstNumberChecked
+        });
+    }
+    gaps
+}
+
+/// Gabarit de [`Note::HeadNotRead`].
+const HEAD_NOT_READ: &str = "Only the case number was matched: the court, chamber or date written \
+     before it was not read and not checked.";
+
+/// Gabarit de [`Note::OnlyFirstNumberChecked`].
+const ONLY_FIRST_NUMBER_CHECKED: &str = "Only the first case number was checked.";
+
+/// Gabarit de [`Note::OnlyOneNumberChecked`].
+const ONLY_ONE_NUMBER_CHECKED: &str = "Only one of the case numbers was checked.";
+
 /// Gabarit de [`Note::SubdivisionNotChecked`].
 const SUBDIVISION_NOT_CHECKED: &str = "The sub-division was not checked, only the article.";
 
@@ -488,11 +599,11 @@ impl Note {
         Self::Chain(parts)
     }
 
-    /// L'avertissement de version (`NotCurrentVersion`) que porte cette note en tête, seul ou en
-    /// début de chaîne.
+    /// L'avertissement de version (`NotCurrentVersion`, `ArticleWithoutVersion`) que porte cette
+    /// note en tête, seul ou en début de chaîne.
     pub(crate) fn version_warning(&self) -> Option<&Self> {
         match self {
-            Self::NotCurrentVersion { .. } => Some(self),
+            Self::NotCurrentVersion { .. } | Self::ArticleWithoutVersion { .. } => Some(self),
             Self::Chain(parts) => parts.first().filter(|first| first.version_warning().is_some()),
             _ => None,
         }
@@ -509,10 +620,14 @@ impl Note {
 
     /// Texte anglais de la note, gabarit de l'annexe B §7.10, borné à [`NOTE_MAX_CHARS`] caractères.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "un gabarit par variante de `Note` : une branche de plus (AM-80)"
+    )]
     pub fn text(&self) -> String {
         let text = match self {
-            Self::NotInForce { code, num, date } => fit(code, |code| {
-                format!("{code} has no article {num} in force on {date}. {EARLIER_VERSIONS}")
+            Self::NotInForce { code, num, date, date_given } => fit(code, |code| {
+                format!("{code} has no article {num} in force on {date}. {}", hint(*date_given))
             }),
             Self::NoRecord { family, value, date } => {
                 format!("No {family} record matches {value}{}.", on(*date))
@@ -528,6 +643,10 @@ impl Note {
             Self::ChamberNotCompared => "The cited chamber could not be compared: the official \
                  record gives a formation that is not a modern Cour de cassation chamber."
                 .to_owned(),
+            Self::HeadNotRead => HEAD_NOT_READ.to_owned(),
+            Self::OnlyFirstNumberChecked => ONLY_FIRST_NUMBER_CHECKED.to_owned(),
+            Self::OnlyOneNumberChecked => ONLY_ONE_NUMBER_CHECKED.to_owned(),
+            Self::DateNotChecked => DATE_NOT_CHECKED.to_owned(),
             Self::NativeEcli(ecli) => format!("Native ECLI is {ecli}."),
             Self::Impossible { fact } => format!("{fact}."),
             Self::AmbiguousSigle { sigle } => format!(
@@ -574,6 +693,9 @@ impl Note {
             Self::CodeNotListed => "Code not found in the list of codes.".to_owned(),
             Self::VersionSince(date) => format!("Current version in force since {date}."),
             Self::NotCurrentVersion { on, etat, ended } => not_current_text(*on, etat, *ended),
+            Self::ArticleWithoutVersion { title, num, date } => {
+                article_without_version_text(title, num, *date)
+            }
             Self::SubdivisionNotChecked => SUBDIVISION_NOT_CHECKED.to_owned(),
             Self::QuoteNotAttached => QUOTE_NOT_ATTACHED.to_owned(),
             Self::ArticleNotRead => ARTICLE_NOT_READ.to_owned(),
@@ -585,19 +707,21 @@ impl Note {
             Self::QuoteMismatch => QUOTE_GAP.to_owned(),
             Self::QuoteTooLong => QUOTE_TOO_LONG.to_owned(),
             Self::WithQuoteMismatch(inner) => quote_gap_text(inner),
-            Self::NotInSandbox { family, value, date } => fit(value, |value| {
+            Self::NotInSandbox { family, value, date, date_given } => fit(value, |value| {
                 format!(
                     "No {family} record matches {value}{} in the PISTE sandbox; sandbox data \
                      differ from production.{}",
                     on(*date),
-                    earlier_versions(family)
+                    earlier_versions(family, *date_given)
                 )
             }),
-            Self::NotInSnapshot { family, value, date } => format!(
-                "No {family} record matches {value}{} in the local DILA snapshot, which may be out \
-                 of date.",
-                on(*date)
-            ),
+            Self::NotInSnapshot { family, value, date } => fit(value, |value| {
+                format!(
+                    "No {family} record matches {value}{} in the local DILA snapshot, which may \
+                     be out of date.",
+                    on(*date)
+                )
+            }),
             Self::NoCitationRecognised => NO_CITATION.to_owned(),
             Self::OtherCitations { count } => format!(
                 "{count} more citation(s) found; only the first is resolved, use \
@@ -628,6 +752,7 @@ mod tests {
     }
 
     /// Une note de chaque variante, avec le texte de l'annexe B §7.10.
+    #[expect(clippy::too_many_lines, reason = "un exemple par variante de `Note`")]
     fn catalogue() -> Vec<(Note, &'static str)> {
         let ecli = Ecli::parse("ECLI:FR:CECHR:2026:506507.20260529").unwrap();
         vec![
@@ -636,8 +761,9 @@ mod tests {
                     code: "Code civil".to_owned(),
                     num: "9999".to_owned(),
                     date: date("2026-10-15"),
+                    date_given: false,
                 },
-                "Code civil has no article 9999 in force on 2026-10-15. The article may exist in earlier versions; retry with a date.",
+                "Code civil has no article 9999 in force on 2026-10-15. The article may exist in an earlier or later version; retry with a date.",
             ),
             (
                 Note::NoRecord {
@@ -716,6 +842,7 @@ mod tests {
                     family: "code article",
                     value: "9999".to_owned(),
                     date: Some(date("2026-10-29")),
+                    date_given: false,
                 },
                 "No code article record matches 9999 on 2026-10-29 in the PISTE sandbox; sandbox data differ from production.",
             ),
@@ -733,6 +860,7 @@ mod tests {
 
     /// Les notes de la fin du projet : absence dans l'instantané local de l'index DILA (V4-02) et
     /// décision sans références pour `fr_get_related` (V4-05).
+    #[expect(clippy::too_many_lines, reason = "un exemple par variante de `Note`")]
     fn later_catalogue() -> Vec<(Note, &'static str)> {
         vec![
             (
@@ -772,8 +900,9 @@ mod tests {
                     family: "article",
                     value: "Code général des impôts, art. 885 A".to_owned(),
                     date: Some(date("2026-11-01")),
+                    date_given: false,
                 },
-                "No article record matches Code général des impôts, art. 885 A on 2026-11-01 in the PISTE sandbox; sandbox data differ from production. The article may exist in earlier versions; retry with a date.",
+                "No article record matches Code général de…, art. 885 A on 2026-11-01 in the PISTE sandbox; sandbox data differ from production. The article may exist in an earlier or later version; retry with a date.",
             ),
             (
                 Note::NoDecisionReferences,
@@ -834,6 +963,23 @@ mod tests {
                 "The cited chamber could not be compared: the official record gives a formation that is not a modern Cour de cassation chamber.",
             ),
         ]
+    }
+
+    /// Les notes d'écart de lecture d'une décision de la Cour de cassation (U12).
+    fn reading_catalogue() -> Vec<(Note, &'static str)> {
+        vec![
+            (
+                Note::HeadNotRead,
+                "Only the case number was matched: the court, chamber or date written before it was not read and not checked.",
+            ),
+            (Note::OnlyFirstNumberChecked, "Only the first case number was checked."),
+            (Note::OnlyOneNumberChecked, "Only one of the case numbers was checked."),
+        ]
+    }
+
+    /// La note d'une date citée que la fiche officielle ne permet pas de contrôler (AM-80).
+    fn date_catalogue() -> Vec<(Note, &'static str)> {
+        vec![(Note::DateNotChecked, "Date not checked: the record has no reliable date.")]
     }
 
     /// Les notes de plage d'articles (L2-07).
@@ -914,6 +1060,8 @@ mod tests {
         for (note, expected) in catalogue()
             .into_iter()
             .chain(later_catalogue())
+            .chain(date_catalogue())
+            .chain(reading_catalogue())
             .chain(range_catalogue())
             .chain(version_catalogue())
         {
@@ -1108,13 +1256,15 @@ mod tests {
     #[test]
     fn the_earlier_versions_hint_survives_the_clip_for_every_code() {
         use lf_domain::citation::CODES;
-        const HINT: &str = "The article may exist in earlier versions; retry with a date.";
+        const HINT: &str =
+            "The article may exist in an earlier or later version; retry with a date.";
         for entry in CODES {
             let num = "L1234-5-1".to_owned();
             let in_force = Note::NotInForce {
                 code: entry.title.to_owned(),
                 num: num.clone(),
                 date: date("2026-11-01"),
+                date_given: false,
             }
             .text();
             assert!(in_force.ends_with(HINT), "{in_force}");
@@ -1124,6 +1274,7 @@ mod tests {
                 family: "article",
                 value: format!("{}, art. {num}", entry.title),
                 date: Some(date("2026-11-01")),
+                date_given: false,
             }
             .text();
             assert!(sandbox.ends_with(HINT), "{sandbox}");
@@ -1139,6 +1290,7 @@ mod tests {
             code: "Code civil".to_owned(),
             num: "9".to_owned(),
             date: date("2026-11-01"),
+            date_given: false,
         };
         assert!(!short.text().contains('…'));
         let long_title = "Code du domaine de l'Etat et des collectivités publiques applicable à la collectivité territoriale de Mayotte";
@@ -1146,17 +1298,98 @@ mod tests {
             code: long_title.to_owned(),
             num: "L1234-5-1".to_owned(),
             date: date("2026-11-01"),
+            date_given: false,
         }
         .text();
         assert_eq!(long.chars().count(), NOTE_MAX_CHARS, "{long}");
         assert!(long.starts_with("Code du domaine de l'Etat"), "{long}");
         assert!(long.contains("… has no article L1234-5-1 in force"), "{long}");
         // Sans « , art. » dans la valeur, c'est la valeur entière qui est raccourcie.
-        let bare =
-            Note::NotInSandbox { family: "article", value: "é".repeat(300), date: None }.text();
+        let bare = Note::NotInSandbox {
+            family: "article",
+            value: "é".repeat(300),
+            date: None,
+            date_given: false,
+        }
+        .text();
         assert_eq!(bare.chars().count(), NOTE_MAX_CHARS, "{bare}");
         assert!(bare.contains("é… in the PISTE sandbox"), "{bare}");
         assert!(bare.ends_with("retry with a date."), "{bare}");
+    }
+
+    /// U10 : texte exact de la note d'un article de loi sans version en vigueur.
+    #[test]
+    fn article_without_version_text() {
+        let note = Note::ArticleWithoutVersion {
+            title: "LOI n° 2018-493 du 20 juin 2018".to_owned(),
+            num: "1".to_owned(),
+            date: date("2026-10-29"),
+        };
+        assert_eq!(
+            note.text(),
+            "No version in force on 2026-10-29: art. 1 of LOI n° 2018-493 du 20 juin 2018 amends \
+             other texts; read it with fr_get_text."
+        );
+        assert!(!note.text().contains("repealed"));
+    }
+
+    /// U10 : avec un titre de 300 caractères, seul le titre rétrécit. La note reste entière en
+    /// tête de l'écart d'extrait, seule ou avec la mention de plage ; la subdivision, moins utile,
+    /// saute si elle ne tient plus.
+    #[test]
+    fn the_amending_note_survives_quote_gap_subdivision_and_range() {
+        const TAIL: &str = " amends other texts; read it with fr_get_text.";
+        let note = Note::ArticleWithoutVersion {
+            title: "é".repeat(300),
+            num: "36".to_owned(),
+            date: date("2026-10-29"),
+        };
+        let alone = note.text();
+        assert!(alone.starts_with("No version in force on 2026-10-29: art. 36 of é"), "{alone}");
+        assert!(alone.contains("é… amends"), "{alone}");
+        assert!(alone.ends_with(TAIL), "{alone}");
+        assert!(alone.chars().count() <= NOTE_MAX_CHARS, "{alone}");
+
+        let range = Note::RangeEndpointsOnly.text();
+        let with_range = note.clone().then(Note::RangeEndpointsOnly).text();
+        assert_eq!(with_range, format!("{alone} {range}"));
+        assert!(with_range.chars().count() <= NOTE_MAX_CHARS, "{with_range}");
+
+        let with_gap = Note::WithQuoteMismatch(Box::new(note.clone())).text();
+        assert_eq!(with_gap, format!("{QUOTE_GAP} {alone}"));
+        assert!(with_gap.chars().count() <= NOTE_MAX_CHARS, "{with_gap}");
+
+        let everything = Note::WithQuoteMismatch(Box::new(
+            note.clone().then(Note::SubdivisionNotChecked).then(Note::RangeEndpointsOnly),
+        ))
+        .text();
+        assert!(everything.starts_with(QUOTE_GAP), "{everything}");
+        assert!(everything.contains(TAIL), "{everything}");
+        assert!(everything.chars().count() <= NOTE_MAX_CHARS, "{everything}");
+
+        // Un titre court n'est pas touché.
+        let short = Note::ArticleWithoutVersion {
+            title: "Loi n° 78-17".to_owned(),
+            num: "1".to_owned(),
+            date: date("2026-10-29"),
+        };
+        assert!(!short.text().contains('…'));
+    }
+
+    /// U10 : la note de l'article modificatif est l'avertissement de version de la plage (elle
+    /// reste en tête devant la mention de plage), comme `NotCurrentVersion`.
+    #[test]
+    fn the_amending_note_is_a_version_warning() {
+        let note = Note::ArticleWithoutVersion {
+            title: "Loi n° 78-17".to_owned(),
+            num: "1".to_owned(),
+            date: date("2026-10-29"),
+        };
+        assert_eq!(note.version_warning(), Some(&note));
+        let chained = note.clone().then(Note::RangeEndpointsOnly);
+        assert_eq!(chained.version_warning(), Some(&note));
+        let behind = Note::SubdivisionNotChecked.then(note);
+        assert_eq!(behind.version_warning(), None);
     }
 
     #[test]
@@ -1165,14 +1398,47 @@ mod tests {
             family: "decision",
             value: "506507".to_owned(),
             date: Some(date("2026-11-01")),
+            date_given: false,
         };
-        assert!(!decision.text().contains("earlier versions"));
+        assert!(!decision.text().contains("earlier or later"));
         let snapshot = Note::NotInSnapshot {
             family: "article",
             value: "Code civil, art. 9999".to_owned(),
             date: Some(date("2026-11-01")),
         };
-        assert!(!snapshot.text().contains("earlier versions"));
+        assert!(!snapshot.text().contains("earlier or later"));
+    }
+
+    /// Revue finale (U10) : en mode hors ligne le libellé est le titre amont complet ; il rétrécit
+    /// (comme pour `NotInSandbox`) au lieu de laisser le rognage final couper la fin de la note.
+    #[test]
+    fn a_long_title_does_not_clip_the_tail_of_the_snapshot_note() {
+        let title = "Loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs et \
+                     portant modification de la loi n° 86-1290 du 23 décembre 1986";
+        let note = Note::NotInSnapshot {
+            family: "article",
+            value: format!("{title}, art. 99"),
+            date: Some(date("2020-01-01")),
+        }
+        .text();
+        assert!(note.chars().count() <= NOTE_MAX_CHARS, "{note}");
+        assert!(
+            note.ends_with(" on 2020-01-01 in the local DILA snapshot, which may be out of date."),
+            "{note}"
+        );
+        assert!(note.contains('…') && note.contains(", art. 99 on 2020-01-01"), "{note}");
+        // Un libellé court reste rendu tel quel, octet pour octet.
+        let short = Note::NotInSnapshot {
+            family: "article",
+            value: "Code civil, art. 9999".to_owned(),
+            date: Some(date("2026-11-01")),
+        }
+        .text();
+        assert_eq!(
+            short,
+            "No article record matches Code civil, art. 9999 on 2026-11-01 in the local DILA \
+             snapshot, which may be out of date."
+        );
     }
 
     #[test]
@@ -1183,5 +1449,178 @@ mod tests {
         assert!(unconfirmed.contains("does not prove"), "{unconfirmed}");
         // `Candidates` garde son renvoi : la liste est celle de `fr_resolve`.
         assert!(Note::Candidates { n: 2 }.text().contains("fr_resolve"));
+    }
+
+    /// Revue vague 2 : la note des numéros joints vaut pour toute décision à plusieurs numéros
+    /// dont seul le premier est cherché (Cour de cassation) ; le Conseil d'État, qui essaie ses
+    /// numéros un à un, a la sienne (U11, test suivant). Une décision à un seul numéro n'en porte
+    /// pas.
+    #[test]
+    fn joined_numbers_of_any_court_get_the_first_number_note() {
+        let text = "Cass. soc., 25 novembre 2015, n° 14-24.444 et 14-24.445";
+        let item = lf_domain::citation::parse(text).remove(0);
+        assert!(
+            matches!(&item.value, CitationRef::Decision(decision) if decision.numbers.len() == 2),
+            "{text}"
+        );
+        assert_eq!(reading_gaps(&item), [Note::OnlyFirstNumberChecked], "{text}");
+        let single = lf_domain::citation::parse("CE, 3 mars 2020, n° 123456").remove(0);
+        assert_eq!(reading_gaps(&single), []);
+    }
+
+    /// U11 : le Conseil d'État essaie ses numéros un à un (jusqu'à trois) et garde celui qui
+    /// retrouve la décision : ce n'est pas toujours le premier. La note dit qu'un seul des
+    /// numéros a servi, pas le premier.
+    #[test]
+    fn joined_numbers_of_the_conseil_d_etat_note_that_only_one_number_was_checked() {
+        for text in
+            ["CE, 3 mars 2020, nos 123456 et 123457", "CE, 3 mars 2020, n° 397851 et 393099"]
+        {
+            let item = lf_domain::citation::parse(text).remove(0);
+            assert!(
+                matches!(&item.value, CitationRef::Decision(decision) if decision.numbers.len() == 2),
+                "{text}"
+            );
+            assert_eq!(reading_gaps(&item), [Note::OnlyOneNumberChecked], "{text}");
+        }
+        assert_eq!(Note::OnlyOneNumberChecked.text(), "Only one of the case numbers was checked.");
+    }
+    // ---------------------------------------------------------------------------------------
+    // U01-N : l'absence d'un article peut aussi tenir à une version plus tardive
+    // ---------------------------------------------------------------------------------------
+
+    fn not_in_force(date_given: bool) -> Note {
+        Note::NotInForce {
+            code: "Code civil".to_owned(),
+            num: "9".to_owned(),
+            date: date("2026-10-15"),
+            date_given,
+        }
+    }
+
+    #[test]
+    fn not_in_force_note_for_today_names_an_earlier_or_later_version() {
+        assert_eq!(
+            not_in_force(false).text(),
+            "Code civil has no article 9 in force on 2026-10-15. The article may exist in an earlier or later version; retry with a date."
+        );
+    }
+
+    #[test]
+    fn not_in_force_note_with_a_given_date_names_an_earlier_or_later_version_and_does_not_say_retry_with_a_date()
+     {
+        let text = not_in_force(true).text();
+        assert_eq!(
+            text,
+            "Code civil has no article 9 in force on 2026-10-15. The article may exist in an earlier or later version; try another date."
+        );
+        assert!(!text.contains("retry with a date"), "{text}");
+    }
+
+    #[test]
+    fn sandbox_absence_note_uses_the_same_two_hints() {
+        let sandbox = |date_given| {
+            Note::NotInSandbox {
+                family: "article",
+                value: "Code général des impôts, art. 885 A".to_owned(),
+                date: Some(date("2026-11-01")),
+                date_given,
+            }
+            .text()
+        };
+        // Le conseil allongé ne laisse que 28 caractères (29 avec le gabarit daté) à la valeur :
+        // le titre du code est raccourci, jamais le conseil.
+        let tail =
+            "art. 885 A on 2026-11-01 in the PISTE sandbox; sandbox data differ from production.";
+        assert_eq!(
+            sandbox(false),
+            format!(
+                "No article record matches Code général de…, {tail} The article may exist in an earlier or later version; retry with a date."
+            )
+        );
+        assert_eq!(
+            sandbox(true),
+            format!(
+                "No article record matches Code général des…, {tail} The article may exist in an earlier or later version; try another date."
+            )
+        );
+    }
+
+    #[test]
+    fn the_old_earlier_versions_only_hint_is_gone() {
+        for date_given in [false, true] {
+            let in_force = not_in_force(date_given).text();
+            assert!(!in_force.contains("earlier versions"), "{in_force}");
+            let sandbox = Note::NotInSandbox {
+                family: "article",
+                value: "Code civil, art. 9".to_owned(),
+                date: Some(date("2026-11-01")),
+                date_given,
+            }
+            .text();
+            assert!(!sandbox.contains("earlier versions"), "{sandbox}");
+        }
+    }
+
+    /// Avec le conseil allongé, le bac à sable ne laisse que 20 caractères à la clé de l'article
+    /// (21 avec le gabarit daté) : une clé de 21 caractères est raccourcie, jamais le conseil.
+    #[test]
+    fn a_key_too_long_for_the_room_is_clipped_not_the_hint() {
+        let text = Note::NotInSandbox {
+            family: "article",
+            value: "Code civil, art. 199 terdecies-0 A bis".to_owned(),
+            date: Some(date("2026-11-01")),
+            date_given: false,
+        }
+        .text();
+        assert!(text.chars().count() <= NOTE_MAX_CHARS, "{text}");
+        assert!(text.ends_with("; retry with a date."), "{text}");
+        assert!(text.contains("… on 2026-11-01 in the PISTE sandbox"), "{text}");
+        assert!(text.starts_with("No article record matches …, art. 199 terdecies-0 A"), "{text}");
+    }
+
+    /// Garde : toute absence d'article tient dans 200 caractères, la clé survit et la note finit
+    /// par le conseil que rend `earlier_versions` (vert avant et après U01-N).
+    #[test]
+    fn every_absence_note_stays_within_200_chars_with_the_new_hint() {
+        use lf_domain::citation::CODES;
+        for entry in CODES {
+            for key in ["L1234-5-1", "199 terdecies-0 A bi"] {
+                for date_given in [false, true] {
+                    let hint = earlier_versions("article", date_given);
+                    let in_force = Note::NotInForce {
+                        code: entry.title.to_owned(),
+                        num: key.to_owned(),
+                        date: date("2026-11-01"),
+                        date_given,
+                    }
+                    .text();
+                    assert!(in_force.chars().count() <= NOTE_MAX_CHARS, "{in_force}");
+                    assert!(in_force.contains(&format!("article {key} in force")), "{in_force}");
+                    assert!(in_force.ends_with(&hint), "{in_force}");
+                    let sandbox = Note::NotInSandbox {
+                        family: "article",
+                        value: format!("{}, art. {key}", entry.title),
+                        date: Some(date("2026-11-01")),
+                        date_given,
+                    }
+                    .text();
+                    assert!(sandbox.chars().count() <= NOTE_MAX_CHARS, "{sandbox}");
+                    assert!(sandbox.contains(&format!(", art. {key} on 2026-11-01")), "{sandbox}");
+                    assert!(sandbox.ends_with(&hint), "{sandbox}");
+                }
+            }
+        }
+        for date_given in [false, true] {
+            let bare = Note::NotInSandbox {
+                family: "article",
+                value: "é".repeat(300),
+                date: Some(date("2026-11-01")),
+                date_given,
+            }
+            .text();
+            assert!(bare.chars().count() <= NOTE_MAX_CHARS, "{bare}");
+            assert!(bare.ends_with(&earlier_versions("article", date_given)), "{bare}");
+        }
     }
 }

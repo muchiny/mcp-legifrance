@@ -21,7 +21,8 @@ use crate::{
 
 /// Règle de repérage du dispositif d'après le préfixe de l'identifiant (03 §7.9) : « décide » à
 /// « juge par » pour le Conseil constitutionnel (`CONSTEXT`), « décide » à « délibéré » pour le
-/// Conseil d'État et la justice administrative (`CETATEXT`), aucune pour la Cour de cassation et
+/// Conseil d'État et la justice administrative (`CETATEXT`, ou « ordonne » jusqu'à « fait à » pour
+/// leurs ordonnances), aucune pour la Cour de cassation et
 /// les cours d'appel (`JURITEXT`, pas d'heuristique « PAR CES MOTIFS » en v0.1, 00 §4).
 pub(crate) fn dispositif_rule(id: &DecisionId) -> DispositifRule {
     match id {
@@ -201,6 +202,34 @@ mod tests {
         let juri = use_case.execute(input(Some(JURI))).await.unwrap();
         assert_eq!(source(&juri), Some(SummarySource::Lead));
         assert!(juri.reading.summary.unwrap().text.starts_with("1. Considérant"));
+    }
+
+    #[tokio::test]
+    async fn an_ordonnance_summary_is_its_operative_part() {
+        // Ordonnance de référé du Conseil d'État (forme de 520784, texte synthétique) :
+        // « O R D O N N E : », deux articles, puis `Fait à`, `Signé`, `Pour expédition conforme`.
+        let text = format!(
+            "{}\n\nO R D O N N E :\n\n------------------\n\n\
+             Article 1er : La requête est rejetée.\n\n\
+             Article 2 : La présente ordonnance sera notifiée à la requérante.\n\n\
+             Fait à Paris, le octobre 2026\n\nSigné : Philippe Ranquet\n\n\
+             Pour expédition conforme,",
+            fillers(12)
+        );
+        let corpus = FakeCorpus::new();
+        corpus.push_get_decision(Ok(decision(CETAT, &text)));
+
+        let output = GetDecisionUseCase::new(&corpus).execute(input(Some(CETAT))).await.unwrap();
+
+        assert_eq!(source(&output), Some(SummarySource::Dispositif));
+        assert!(!output.reading.summary_truncated);
+        let summary = output.reading.summary.unwrap();
+        assert!(!summary.truncated);
+        assert_eq!(
+            summary.text,
+            "Article 1er : La requête est rejetée.\n\n\
+             Article 2 : La présente ordonnance sera notifiée à la requérante."
+        );
     }
 
     #[tokio::test]

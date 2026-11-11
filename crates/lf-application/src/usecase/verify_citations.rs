@@ -102,8 +102,16 @@ impl<'a, C: LegalCorpus, K: Clock> VerifyCitationsUseCase<'a, C, K> {
         let found = verified.found;
         let citations = verified.checks;
         // Sans citation, la note dit déjà qu'il n'y a rien à contrôler : un extrait ne s'y ajoute pas.
+        // Un article écrit mais refusé (« 757 b ») n'est pas une citation absente.
         let note = if found == 0 {
-            Some(Note::NoCitationRecognised.text())
+            Some(
+                if verified.unread_article {
+                    Note::ArticleNotRead
+                } else {
+                    Note::NoCitationRecognised
+                }
+                .text(),
+            )
         } else {
             response_note(verified.unread_article, verified.unattached_quote)
         };
@@ -273,6 +281,64 @@ mod tests {
         .unwrap();
         assert_eq!(output.found, 0);
         assert_eq!(output.note, Some(Note::NoCitationRecognised.text()));
+    }
+
+    /// U03 : un numéro refusé (« 757 b ») n'est pas une citation absente : la réponse dit qu'un
+    /// article n'a pas été lu, sans interroger le corpus.
+    #[tokio::test]
+    async fn a_refused_lowercase_suffix_is_an_unread_article_not_a_missing_citation_u03() {
+        let corpus = corpus_with_civil_code();
+        for text in [
+            "Voir CGI, art. 757 b.",
+            "l'article 757 b du CGI",
+            "articles 757 et 787 b du CGI",
+            "article 1240b du code civil",
+        ] {
+            let output =
+                run(&corpus, PisteEnvironment::Production, Some(text), None).await.unwrap();
+            assert_eq!((output.found, output.checked), (0, 0), "{text}");
+            assert_eq!(output.note, Some(Note::ArticleNotRead.text()), "{text}");
+        }
+        assert_eq!(corpus.calls(), 0);
+        // Jumeaux : sans article illisible, la note reste celle de l'absence de citation.
+        for text in ["Bonjour, ceci ne cite rien.", "Voir 1234-5 du code du travail."] {
+            let output =
+                run(&corpus, PisteEnvironment::Production, Some(text), None).await.unwrap();
+            assert_eq!(output.found, 0, "{text}");
+            assert_eq!(output.note, Some(Note::NoCitationRecognised.text()), "{text}");
+        }
+        // V8 : la liste refusée est signalée, la citation voisine est lue.
+        let corpus = corpus_with_civil_code();
+        corpus.push_find_article(Ok(article(1)));
+        let output = run(
+            &corpus,
+            PisteEnvironment::Production,
+            Some("articles 757 b et 787 b du CGI, puis l'article 1240 du code civil."),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(output.found, 1);
+        assert_eq!(output.note, Some(Note::ArticleNotRead.text()));
+    }
+
+    /// U03 : sans citation lue, un article refusé et un passage entre guillemets donnent la seule
+    /// note de l'article illisible (l'extrait ne s'ajoute pas à une réponse vide).
+    #[tokio::test]
+    async fn the_note_of_an_empty_answer_with_a_refused_article_and_a_quote_is_article_not_read_u03()
+     {
+        let corpus = corpus_with_civil_code();
+        let output = run(
+            &corpus,
+            PisteEnvironment::Production,
+            Some("Selon l'art. 757 b du CGI, \u{ab} la donation est rapportable \u{bb}."),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(output.found, 0);
+        assert_eq!(output.note, Some(Note::ArticleNotRead.text()));
+        assert_eq!(corpus.calls(), 0);
     }
 
     #[tokio::test]

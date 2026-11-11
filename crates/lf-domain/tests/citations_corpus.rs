@@ -1,4 +1,4 @@
-//! Corpus de citations (annexe B §8, T-M6-03) : 185 positifs et 45 négatifs, lus tels quels dans
+//! Corpus de citations (annexe B §8, T-M6-03) : 211 positifs et 61 négatifs, lus tels quels dans
 //! `tests/data/citations/`, sans aucune table de surcharge (§8.4). Le domaine n'a pas de `serde` :
 //! le harnais projette chaque [`Spanned<CitationRef>`] vers un `serde_json::Value` aux clés du
 //! corpus (§8.3), puis compare en sous-ensemble.
@@ -2010,6 +2010,24 @@ mod round_trip {
             })
     }
 
+    /// U07 : séries connues de la CNIL, numéro d'ordre de 1000 à 9999 (quatre chiffres).
+    fn cnil_four_digits() -> impl Strategy<Value = CitationRef> {
+        (
+            prop::sample::select(vec!["SAN", "MED", "MEDP", "DF", "DR", "DT", "HAB"]),
+            date(),
+            1000u16..=9999,
+        )
+            .prop_map(|(series, when, seq)| {
+                CitationRef::CnilDeliberation(lf_domain::citation::CnilCite {
+                    series: Some(series.to_owned()),
+                    year: when.year(),
+                    seq,
+                    date: Some(when),
+                    formation_restreinte: false,
+                })
+            })
+    }
+
     /// Clés que la forme canonique porte, par famille.
     fn canonical_keys(kind: &str) -> &'static [&'static str] {
         match kind {
@@ -2064,6 +2082,34 @@ mod round_trip {
         fn canonical_cnil_round_trips(c in cnil()) {
             assert_round_trip(&c)?;
         }
+
+        /// U07 : avec une série, le numéro d'ordre va jusqu'à 9999 et la forme canonique se relit.
+        #[test]
+        fn cnil_round_trip_with_four_digit_series(c in cnil_four_digits()) {
+            assert_round_trip(&c)?;
+        }
+
+        /// U07 : « décision » ou « mise en demeure » suivi d'un numéro à série connue, sans
+        /// « CNIL » ni « délibération », est lu en entier, que l'ordre ait trois ou quatre chiffres.
+        #[test]
+        fn cnil_keyword_without_cnil_round_trip(
+            keyword in prop::sample::select(vec!["décision", "Décision", "mise en demeure"]),
+            series in prop::sample::select(vec!["SAN", "MED", "MEDP", "DF", "DR", "DT", "HAB"]),
+            year in 2000u16..=2099,
+            seq in prop_oneof![1u16..=999, 1000u16..=9999],
+        ) {
+            let text = format!("{keyword} n° {series}-{year:04}-{seq:03}");
+            let parsed = parse_with(&text, &base_options());
+            prop_assert_eq!(parsed.len(), 1, "{:?} -> {:?}", text, parsed);
+            match &parsed[0].value {
+                CitationRef::CnilDeliberation(c) => {
+                    prop_assert_eq!(c.series.as_deref(), Some(series));
+                    prop_assert_eq!((c.year, c.seq), (year, seq));
+                }
+                other => prop_assert!(false, "{} -> {:?}", text, other),
+            }
+            prop_assert_eq!((parsed[0].span.start, parsed[0].span.end), (0, text.len()));
+        }
     }
 }
 
@@ -2116,6 +2162,38 @@ fn perf_parse_20k() {
     assert!(best <= ceiling, "parse_with a mis {best:?} (plafond {ceiling:?}, cible {target:?})");
 }
 
+/// Revue de la vague 2 (U08) : forme hostile pour la zone « parties » du Conseil d'État. Chaque
+/// en-tête « CE, date, » est suivi de 24 « Trib. » en majuscule : à chacune des 121 positions de
+/// la zone, `foreign_court_at` cherche une date devant chaque mot de juridiction. Même plafond
+/// que `perf_parse_20k`.
+#[test]
+fn perf_parse_20k_hostile_ce_parties() {
+    let unit = format!("CE, 1 janvier 2020, {}", "Trib. ".repeat(24));
+    let mut text = String::new();
+    while text.chars().count() < 20_000 {
+        text.push_str(&unit);
+    }
+    let options = base_options();
+    let found = parse_with(&text, &options).len();
+    let best = (0..5)
+        .map(|_| {
+            let start = std::time::Instant::now();
+            let again = parse_with(&text, &options);
+            let elapsed = start.elapsed();
+            assert_eq!(again.len(), found);
+            elapsed
+        })
+        .min()
+        .expect("cinq mesures");
+    eprintln!(
+        "perf_parse_20k_hostile_ce_parties : {best:?} pour {} caractères et {found} citations",
+        text.chars().count()
+    );
+    let target = std::time::Duration::from_millis(50);
+    let ceiling = if cfg!(debug_assertions) { target * 60 } else { target * 3 };
+    assert!(best <= ceiling, "parse_with a mis {best:?} (plafond {ceiling:?}, cible {target:?})");
+}
+
 // ---------------------------------------------------------------------------------------------
 // Tests.
 // ---------------------------------------------------------------------------------------------
@@ -2123,15 +2201,15 @@ fn perf_parse_20k() {
 #[test]
 fn corpus_has_the_documented_size() {
     let (pos, neg) = (cases(POSITIVES), cases(NEGATIVES));
-    assert_eq!(pos.len(), 185);
-    assert_eq!(neg.len(), 45);
+    assert_eq!(pos.len(), 211);
+    assert_eq!(neg.len(), 61);
     let expectations = |cs: &[Case]| cs.iter().map(|c| c.expect.len()).sum::<usize>();
-    assert_eq!(expectations(&pos), 217);
+    assert_eq!(expectations(&pos), 247);
     assert_eq!(expectations(&neg), 32);
     let mut ids: Vec<&str> = pos.iter().chain(&neg).map(|c| c.id.as_str()).collect();
     ids.sort_unstable();
     ids.dedup();
-    assert_eq!(ids.len(), 230, "identifiants uniques");
+    assert_eq!(ids.len(), 272, "identifiants uniques");
 }
 
 #[test]
@@ -2235,6 +2313,7 @@ fn flag_and_ambiguity_codes_cover_the_corpus_vocabulary() {
                         Flag::AnneeFuture,
                         Flag::EcliCodeCeSeul,
                         Flag::AnneeNumeroDifferenteAnneeDate,
+                        Flag::TeteDecisionNonLue,
                     ]
                     .iter()
                     .any(|k| k.code() == f)
@@ -2249,7 +2328,7 @@ fn flag_and_ambiguity_codes_cover_the_corpus_vocabulary() {
 }
 
 /// Revue finale I3 : la note « article non lu » de `fr_verify_citations` ne se déclenche sur aucun
-/// des 185 textes du corpus positif (tous ont leurs articles lus par le parseur), et
+/// des 205 textes du corpus positif (tous ont leurs articles lus par le parseur), et
 /// se déclenche sur les deux formes que le filet N36 refuse en entier.
 #[test]
 fn no_positive_case_has_an_unread_article_mention() {
@@ -2262,8 +2341,9 @@ fn no_positive_case_has_an_unread_article_mention() {
         }
     }
     assert_eq!(flagged, Vec::<String>::new());
-    // Corpus négatif : les `article N` nus (N03, N26, N27, N41, N43) ne font pas de bruit ; seul
-    // N36 (`expect` vide), qui cite un article que le parseur ne lit pas, est signalé.
+    // Corpus négatif : les `article N` nus (N03, N26, N27, N41, N43) ne font pas de bruit ; seuls
+    // N36, N46 et N47 (`expect` vide), qui citent un article que le parseur ne lit pas, sont
+    // signalés.
     let mut flagged_negatives = Vec::new();
     for case in cases(NEGATIVES) {
         let spans: Vec<_> =
@@ -2272,7 +2352,7 @@ fn no_positive_case_has_an_unread_article_mention() {
             flagged_negatives.push(case.id);
         }
     }
-    assert_eq!(flagged_negatives, vec!["N36".to_owned()]);
+    assert_eq!(flagged_negatives, ["N36", "N46", "N47"].map(str::to_owned).to_vec());
     for refused in ["CGI, art. 885-0 V bis A", "art. 150-0 B ter I du CGI"] {
         let input = format!("article 1240 du code civil ; {refused}");
         let spans: Vec<_> =

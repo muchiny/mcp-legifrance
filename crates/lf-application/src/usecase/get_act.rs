@@ -7,8 +7,10 @@
 //! dépasse la cible du budget (05 §6.4, étape 1) : `next_toc_offset` suit la page réellement
 //! rendue. Le découpage de la table est partagé avec `fr_get_convention` (`TocRequest`).
 //!
-//! Une version lue à une date choisie dont `date_fin_version` (hors sentinelle) précède aujourd'hui
-//! à Paris porte la `note` « past version » (L3-14) : `etat` est celui du texte, pas de la version.
+//! Une version lue à une date choisie dont `date_fin_version` (hors sentinelle) est aujourd'hui à
+//! Paris ou avant porte la `note` « past version » (L3-14) : `date_fin_version` est le premier jour
+//! hors vigueur de la version, comme la `date_fin` d'un article ; `etat` est celui du texte, pas de
+//! la version.
 //!
 //! Un `NotFound` du port pour une date choisie par l'appelant (`date` ou suffixe de `text_id`)
 //! devient « No version of {id} is available on {date}… » : PISTE répond le même 400 pour un id
@@ -100,7 +102,7 @@ impl<'a, C: LegalCorpus, K: Clock> GetActUseCase<'a, C, K> {
         // la version servie est celle d'aujourd'hui, et « call without date » n'apprendrait rien.
         let ended = dated
             && open_ended(act.body.date_fin_version)
-                .is_some_and(|end| end < self.clock.today_paris());
+                .is_some_and(|end| end <= self.clock.today_paris());
         let note = match (is_code, ended) {
             (true, true) => Some(CODE_PAST_VERSION_NOTE),
             (true, false) => Some(CODE_NOTE),
@@ -752,7 +754,7 @@ mod tests {
         let output = run(&corpus_with(ended), &clock(), suffixed).await.unwrap();
         assert_eq!(output.note, Some(PAST_VERSION_NOTE));
 
-        // La veille d'aujourd'hui est révolue ; le jour même, la version sert encore.
+        // La veille d'aujourd'hui est révolue (le jour même aussi : test suivant).
         let output =
             run(&corpus_with(act_ending("LOI", day(2026, 10, 28))), &clock(), dated("2026-10-01"))
                 .await
@@ -762,14 +764,33 @@ mod tests {
 
     #[tokio::test]
     async fn get_act_keeps_no_note_for_a_version_still_in_force() {
-        // Jumeau : fin le jour même, fin future (abrogation programmée), sentinelle de l'API et
-        // fin absente ne disent jamais « version passée ».
-        for end in [Some(day(2026, 10, 29)), Some(day(2027, 1, 1)), Some(day(2999, 1, 1)), None] {
+        // Jumeau : fin demain, fin future (abrogation programmée), sentinelle de l'API et fin
+        // absente ne disent jamais « version passée ».
+        for end in [Some(day(2026, 10, 30)), Some(day(2027, 1, 1)), Some(day(2999, 1, 1)), None] {
             let mut current = act("LOI", toc(1, 1, "Titre"));
             current.body.date_fin_version = end;
             let output = run(&corpus_with(current), &clock(), dated("2026-10-01")).await.unwrap();
             assert_eq!(output.note, None, "{end:?}");
         }
+    }
+
+    #[tokio::test]
+    async fn get_act_on_a_dated_version_ending_today_says_it_is_a_past_version() {
+        // D19 : `date_fin_version` est le premier jour hors vigueur (comme `date_fin` d'un
+        // article) : le jour même, la version est déjà révolue. Aujourd'hui : 2026-10-29.
+        let output =
+            run(&corpus_with(act_ending("LOI", day(2026, 10, 29))), &clock(), dated("2026-10-01"))
+                .await
+                .unwrap();
+        assert_eq!(output.note, Some(PAST_VERSION_NOTE));
+        let output =
+            run(&corpus_with(act_ending("CODE", day(2026, 10, 29))), &clock(), dated("2026-10-01"))
+                .await
+                .unwrap();
+        assert_eq!(
+            output.note.map(str::to_owned),
+            Some(format!("{CODE_NOTE} {PAST_VERSION_NOTE}"))
+        );
     }
 
     #[tokio::test]

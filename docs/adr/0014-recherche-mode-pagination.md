@@ -43,8 +43,8 @@
 4. **`typePagination`, jamais exposée au modèle** (00 §7) :
    - elle n'est ni un paramètre d'entrée ni un champ de sortie ;
    - l'adapter mémorise la valeur reçue dans un `PaginationMemo`, dont la clé est la requête normalisée **sans** `page` (TTL 1 h, au plus 1 024 entrées), et la renvoie à PISTE pour la page suivante, comme l'exige le Swagger ;
-   - sans mémo (redémarrage, autre processus) : `ARTICLE` pour CODE en page > 1, `DEFAUT` sinon (04 §6.6) ;
-   - si les mesures de M5 montrent que le mémo ne suffit pas (V-82), on ajoutera un paramètre opaque `pagination`, classé comme « ajout » (05 §13.1 n° 7).
+   - sans mémo (redémarrage, autre processus) : `DEFAUT` pour tous les fonds (le repli `ARTICLE` pour CODE a été abandonné le 2026-10-28, V-82) ; depuis la 1.1.1, une page > 1 de CODE qui revient vide en mode `ARTICLE` avec des résultats annoncés est relue une fois en `ARTICLE` (04 §6.6 règle 3, AM-79, ADR-0024) ;
+   - si les mesures de M5 montrent que le mémo ne suffit pas (V-82), on ajoutera un paramètre opaque `pagination`, classé comme « ajout » (05 §13.1 n° 7). La 1.1.1 ne l'ajoute pas : elle relit en interne une page > 1 de CODE vide répondue en `ARTICLE` (AM-79, ADR-0024).
 5. **Une recherche vide est un succès** `{"total":0,"page":1,"has_more":false,"hits":[]}`, jamais `not_found` (parité E-04).
 6. **Requête normalisée par le domaine** (`QueryText`) : trim, blancs repliés, caractères de contrôle retirés, 1 à 450 caractères (D-32 ; borne ramenée de 500 à 450 par V-81).
 7. **Le défaut et la manière d'obtenir la suite** figurent dans la description de `fr_search` et dans les instructions. Ils ne sont pas répétés dans chaque réponse ([ADR-0006](0006-sortie-compacte-retour-progressif.md)).
@@ -71,7 +71,7 @@
 ### Négatives
 
 - **`any` reste bruyant** (D-32) : le modèle doit penser à `all` ou `exact`. La description le lui dit.
-- Le mémo de `typePagination` est un état caché, propre au processus : il est perdu au redémarrage et n'est pas partagé entre clients. Le repli sans mémo est `DEFAUT` pour tous les fonds : le repli `ARTICLE` pour CODE, tiré de `search_code.json`, rejouait la page 1 en sandbox (V-82, 2026-10-28, tâche C5 du plan 2h) ; l'écart éventuel entre une page servie avec le mémo et sans lui, ailleurs ou en production, reste mesuré par V-82 (M5).
+- Le mémo de `typePagination` est un état caché, propre au processus : il est perdu au redémarrage et n'est pas partagé entre clients. Le repli sans mémo est `DEFAUT` pour tous les fonds : le repli `ARTICLE` pour CODE, tiré de `search_code.json`, rejouait la page 1 en sandbox (V-82, 2026-10-28, tâche C5 du plan 2h) ; l'écart éventuel entre une page servie avec le mémo et sans lui, ailleurs ou en production, reste mesuré par V-82 (M5). En production (2026-11-02), une page > 1 d'un CODE demandée sans mémo revenait vide quand PISTE pagine par article ; la 1.1.1 la relit une fois en `ARTICLE` (AM-79, ADR-0024).
 - La borne de 10 000 est une hypothèse. Si elle est fausse, elle prive de résultats atteignables ou laisse passer des erreurs.
 
 ### À surveiller

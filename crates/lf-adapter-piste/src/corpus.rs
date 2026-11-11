@@ -482,6 +482,35 @@ mod tests {
 
     type TestCorpus = PisteCorpus<ManualClock, RecordingSleeper>;
 
+    /// Un vrai service (`fr_resolve`, `fr_diff_article`…) au-dessus de `corpus`, journal d'audit en
+    /// mémoire, jour de Paris le 2026-11-03 : les tests croisés des outils (U01) s'y appuient.
+    pub(super) fn service_of(
+        corpus: TestCorpus,
+    ) -> lf_application::service::LegalService<
+        TestCorpus,
+        lf_application::testing::MemoryAuditLog,
+        lf_application::testing::FixedClock,
+    > {
+        use chrono::TimeZone;
+        use lf_application::audited::{AuditMode, AuditPolicy};
+        use lf_application::service::{ConfigurationState, LegalService, ServiceSettings};
+        use lf_application::testing::{FixedClock, MemoryAuditLog};
+
+        let settings = ServiceSettings {
+            policy: AuditPolicy {
+                mode: AuditMode::Strict,
+                deadline: Duration::from_secs(60),
+                env: lf_application::ports::PisteEnvironment::Production,
+                server_version: "9.9.9",
+            },
+            configuration: ConfigurationState::default(),
+            budget: lf_application::budget::ResponseBudget,
+        };
+        let now = chrono::Utc.with_ymd_and_hms(2026, 11, 3, 8, 30, 0).unwrap();
+        let today = lf_domain::date::CivilDate::new(2026, 11, 3).unwrap();
+        LegalService::new(corpus, MemoryAuditLog::new(), FixedClock::new(now, today), settings)
+    }
+
     pub(super) const fn secs(n: u64) -> Duration {
         Duration::from_secs(n)
     }

@@ -20,7 +20,7 @@ juridique.
 
 ## Résumé
 
-- MIT License (`MIT`) : 281 paquet(s)
+- MIT License (`MIT`) : 282 paquet(s)
 - Unicode License v3 (`Unicode-3.0`) : 19 paquet(s)
 - Apache License 2.0 (`Apache-2.0`) : 11 paquet(s)
 - ISC License (`ISC`) : 4 paquet(s)
@@ -1093,8 +1093,8 @@ Utilisé par :
 
 - `aws-lc-sys` 0.45.0 : https://github.com/aws/aws-lc-rs
 - `datasketches` 0.2.0 : https://github.com/apache/datasketches-rust
-- `rmcp-macros` 3.5.1 : https://github.com/modelcontextprotocol/rust-sdk/
-- `rmcp` 3.5.1 : https://github.com/modelcontextprotocol/rust-sdk/
+- `rmcp-macros` 3.9.0 : https://github.com/modelcontextprotocol/rust-sdk/
+- `rmcp` 3.9.0 : https://github.com/modelcontextprotocol/rust-sdk/
 - `ryu` 1.0.23 : https://github.com/dtolnay/ryu
 - `sync_wrapper` 1.0.2 : https://github.com/Actyx/sync_wrapper
 
@@ -3493,6 +3493,7 @@ DEALINGS IN THE SOFTWARE.
 
 Utilisé par :
 
+- `const-oid` 0.10.2 : https://github.com/RustCrypto/formats
 - `cpufeatures` 0.3.1 : https://github.com/RustCrypto/utils
 
 ~~~~~~~~
