@@ -690,7 +690,8 @@ mod tests {
 
     /// Seul un journal vide est une entrée de répertoire neuve : `append` ne synchronise le
     /// répertoire que dans ce cas. Un répertoire absent le rend observable : sa synchronisation
-    /// échoue, celle d'un journal déjà plein n'a pas lieu.
+    /// échoue, celle d'un journal déjà plein n'a pas lieu. Hors Unix, `sync_dir` est sans effet :
+    /// l'écriture du journal neuf réussit, et seule la suite du test reste vérifiée.
     #[test]
     fn only_an_empty_journal_is_a_new_directory_entry() {
         let dir = tempfile::tempdir().unwrap();
@@ -703,7 +704,11 @@ mod tests {
             .prepare(open_private(&path, Mode::Journal).unwrap(), &path, line, "2026-10-15")
             .unwrap();
         assert!(fresh.new_entry && !fresh.rotated);
-        assert!(fresh.append(line, &absent).is_err(), "le répertoire neuf est synchronisé");
+        let appended = fresh.append(line, &absent);
+        #[cfg(unix)]
+        assert!(appended.is_err(), "le répertoire neuf est synchronisé");
+        #[cfg(not(unix))]
+        appended.unwrap();
 
         let full = store
             .prepare(open_private(&path, Mode::Journal).unwrap(), &path, line, "2026-10-15")

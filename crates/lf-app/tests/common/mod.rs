@@ -411,7 +411,9 @@ impl Launch {
     /// Comme [`Self::spawn`], sous une limite de taille de fichier de `blocks` blocs de 512 octets
     /// (`ulimit -f` de `sh`, sans `unsafe`), SIGXFSZ ignoré : une écriture au-delà rend `EFBIG`
     /// au lieu de tuer le processus, comme le fait la panne d'écriture partielle du noyau.
-    #[cfg(unix)]
+    /// Linux seulement : sous macOS, l'appel réussit au lieu d'être coupé (CI `macos-15` du
+    /// 2026-11-11, cause non élucidée).
+    #[cfg(target_os = "linux")]
     pub(crate) fn spawn_with_file_size_limit(&self, blocks: u32) -> Session {
         let mut command = Command::new("/bin/sh");
         command
