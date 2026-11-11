@@ -50,7 +50,7 @@ use lf_domain::{
 };
 
 use crate::{
-    error::{IngestError, StoreError},
+    error::{IngestError, OpenError, StoreError},
     index::{Engine, IndexStore, TextKey, View, fold_num, one_copy_per_id, read_failure},
     ingest::IngestLimits,
     map::{
@@ -88,8 +88,9 @@ impl DilaCorpus {
     ///
     /// # Errors
     ///
-    /// [`StoreError`] si le dossier est inutilisable ou si l'index a un autre schéma.
-    pub fn open(dir: &Path) -> Result<Self, StoreError> {
+    /// [`OpenError::Store`] si le dossier est inutilisable ou si l'index a un autre schéma ;
+    /// [`OpenError::Stale`] si l'index a été bâti par une autre version de l'analyseur.
+    pub fn open(dir: &Path) -> Result<Self, OpenError> {
         Engine::open(dir).map(Self::from_engine)
     }
 
@@ -1634,6 +1635,28 @@ mod tests {
         let reopened = DilaCorpus::open(&index_dir).unwrap();
         assert_eq!(reopened.engine().len(), documents);
         assert!(reopened.get_act(&architects, today()).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn an_index_stamped_by_another_version_is_refused_by_the_corpus() {
+        let archives = archive_dir();
+        let work = tempfile::tempdir().unwrap();
+        let index_dir = work.path().join("index");
+        let corpus = DilaCorpus::open(&index_dir).unwrap();
+        corpus
+            .sync(
+                archives.path().to_path_buf(),
+                work.path().join("registry.toml"),
+                IngestLimits::default(),
+            )
+            .await
+            .unwrap();
+        drop(corpus);
+        let meta = index_dir.join("meta.json");
+        let json = std::fs::read_to_string(&meta).unwrap();
+        assert!(json.contains(crate::index::INDEX_STAMP), "the build stamped the index");
+        std::fs::write(&meta, json.replace(crate::index::INDEX_STAMP, "x")).unwrap();
+        assert_eq!(DilaCorpus::open(&index_dir).unwrap_err(), crate::error::OpenError::Stale);
     }
 
     #[tokio::test]

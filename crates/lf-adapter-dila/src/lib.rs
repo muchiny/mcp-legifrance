@@ -48,7 +48,7 @@ mod testing;
 
 pub use archive::{ArchiveKind, ArchiveName, ArchiveStamp};
 pub use corpus::DilaCorpus;
-pub use error::{IngestError, StoreError};
+pub use error::{IngestError, OpenError, StoreError};
 pub use index::{Engine, IndexStore, french_analyzer};
 pub use ingest::{IngestLimits, IngestReport, Rejection, ingest_archive};
 pub use model::Document;

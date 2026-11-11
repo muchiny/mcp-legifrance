@@ -33,6 +33,13 @@
 //! français. Le repli précède la racinisation : `règlement` et `reglement` arrivent identiques au
 //! racinisateur, donc se retrouvent l'un l'autre.
 //!
+//! # Marque de version
+//!
+//! Les racines de mots dépendent de la version du racinisateur : un index bâti avec d'autres
+//! racines que celles des requêtes répond faux, sans erreur. Chaque commit pose donc [`INDEX_STAMP`]
+//! dans la charge utile de commit de tantivy, et [`Engine::open`] refuse un index non vide qui ne
+//! la porte pas. Rien n'est supprimé ni reconstruit automatiquement.
+//!
 //! # Écriture
 //!
 //! [`IndexStore`] implémente [`DocStore`] : l'ingestion y range les documents, et
@@ -70,7 +77,7 @@ use tracing::warn;
 
 use crate::{
     codec,
-    error::StoreError,
+    error::{OpenError, StoreError},
     model::Document,
     path::{DocKind, Tree},
     store::{DocStore, StoredDoc, preferred_copy},
@@ -78,6 +85,18 @@ use crate::{
 
 /// Nom de l'analyseur français dans le gestionnaire de tokenizers de l'index.
 pub const ANALYZER: &str = "fr_legi";
+
+/// Marque de version de l'index : la génération de l'analyseur qui l'a bâti. Elle est écrite
+/// dans la charge utile de commit de tantivy (`meta.json`), à **chaque** commit, par le seul site
+/// de commit de production ([`IndexStore::commit`]), et vérifiée une fois à l'ouverture sur disque
+/// ([`Engine::open`]) : un index non vide sans cette marque est refusé ([`OpenError::Stale`]).
+///
+/// **À incrémenter** (`fr_legi-2`, etc.) dès qu'un changement modifie les jetons que
+/// [`french_analyzer`] produit : nouveau racinisateur ou mise à jour qui change des racines,
+/// liste de mots vides, filtre ou découpage. Le test `french_stems_are_pinned` fait échouer la CI
+/// quand les racines qu'il liste changent ; il faut alors incrémenter la marque et mettre à jour
+/// sa table. Les index déjà bâtis sont alors refusés, et leurs propriétaires les reconstruisent.
+pub const INDEX_STAMP: &str = "fr_legi-1";
 
 /// Mémoire de l'écrivain tantivy (un seul fil d'indexation : le global fait 5,25 millions de
 /// membres, et l'ingestion lit déjà en flux).
@@ -349,6 +368,12 @@ pub(crate) fn read_failure(error: &impl Display) -> CorpusError {
     }
 }
 
+/// La marque lue dans l'index est-elle acceptable ? Oui si c'est [`INDEX_STAMP`], ou si l'index n'a
+/// ni marque ni segment (rien n'y est périmé : le prochain commit posera la marque).
+fn stamp_is_current(stamp: Option<&str>, has_segments: bool) -> bool {
+    stamp == Some(INDEX_STAMP) || (stamp.is_none() && !has_segments)
+}
+
 /// Un enregistrement de l'index qui ne se décode plus (index d'une autre version du crate).
 pub(crate) fn unreadable_entry() -> CorpusError {
     warn!("an entry of the local DILA index cannot be decoded");
@@ -372,16 +397,32 @@ impl std::fmt::Debug for Engine {
 impl Engine {
     /// Ouvre l'index du dossier `dir`, le crée s'il n'existe pas.
     ///
+    /// Un index qui contient des documents doit porter la marque [`INDEX_STAMP`] ; un index vide
+    /// sans marque (dossier neuf, ou premier build interrompu avant son premier commit) s'ouvre.
+    ///
     /// # Errors
     ///
-    /// [`StoreError`] si le dossier est inutilisable ou si l'index qu'il contient a un autre
-    /// schéma (à reconstruire depuis les dumps).
-    pub fn open(dir: &Path) -> Result<Self, StoreError> {
-        std::fs::create_dir_all(dir)
+    /// [`OpenError::Store`] si le dossier est inutilisable ou si l'index qu'il contient a un
+    /// autre schéma (à reconstruire depuis les dumps) ; [`OpenError::Stale`] si l'index a été bâti
+    /// par une autre version de l'analyseur (ou sans marque) et doit être reconstruit.
+    pub fn open(dir: &Path) -> Result<Self, OpenError> {
+        let engine = std::fs::create_dir_all(dir)
             .map_err(text)
             .and_then(|()| MmapDirectory::open(dir).map_err(text))
             .and_then(Self::build)
-            .map_err(StoreError::new)
+            .map_err(StoreError::new)?;
+        engine.check_stamp()?;
+        Ok(engine)
+    }
+
+    /// Refuse l'index dont les documents n'ont pas été racinisés par la version courante.
+    fn check_stamp(&self) -> Result<(), OpenError> {
+        let metas = self.write("read the index metadata", self.index.load_metas())?;
+        if stamp_is_current(metas.payload.as_deref(), !metas.segments.is_empty()) {
+            Ok(())
+        } else {
+            Err(OpenError::Stale)
+        }
     }
 
     /// Un index en mémoire, vide : tests et petits dumps.
@@ -820,7 +861,12 @@ impl DocStore for IndexStore {
         if !self.dirty {
             return Ok(());
         }
-        self.engine.write("commit the index", self.writer.commit())?;
+        // Tantivy remet la charge utile à zéro à chaque commit : la marque se pose à chacun.
+        let committed = self.writer.prepare_commit().and_then(|mut prepared| {
+            prepared.set_payload(INDEX_STAMP);
+            prepared.commit()
+        });
+        self.engine.write("commit the index", committed)?;
         self.engine.write("reload the index", self.engine.reader.reload())?;
         self.dirty = false;
         self.needs_flush = false;
@@ -1276,5 +1322,144 @@ mod tests {
                 detail: detail.to_owned()
             }
         );
+    }
+
+    /// La marque lue dans les métadonnées de l'index (sa charge utile de commit).
+    fn stamp_of(engine: &Engine) -> Option<String> {
+        engine.index.load_metas().unwrap().payload
+    }
+
+    /// Écrit un index sur disque sans passer par [`IndexStore`] : un document, un commit dont la
+    /// charge utile est `payload` (aucune si `None`), comme le ferait une autre version du code.
+    fn write_with_payload(dir: &Path, payload: Option<&str>) {
+        let engine = Engine::open(dir).unwrap();
+        let mut writer: IndexWriter = engine.index.writer_with_num_threads(1, 15_000_000).unwrap();
+        let mut doc = TantivyDocument::default();
+        doc.add_text(engine.fields.key, "a-key");
+        doc.add_text(engine.fields.id, ID);
+        doc.add_bytes(engine.fields.payload, &[1, 2, 3]);
+        writer.add_document(doc).unwrap();
+        let mut prepared = writer.prepare_commit().unwrap();
+        if let Some(payload) = payload {
+            prepared.set_payload(payload);
+        }
+        prepared.commit().unwrap();
+    }
+
+    #[test]
+    fn a_commit_stamps_the_index() {
+        let (engine, mut store) = fresh();
+        assert_eq!(stamp_of(&engine), None, "a new index carries no stamp");
+        put_article(&mut store, "code_en_vigueur", 1, "<p>texte</p>");
+        store.commit().unwrap();
+        assert_eq!(stamp_of(&engine).as_deref(), Some(INDEX_STAMP));
+    }
+
+    #[test]
+    fn every_kind_of_commit_keeps_the_stamp() {
+        let (engine, mut store) = fresh();
+        let key = doc_key("code_en_vigueur", CID, DocKind::Article, ID);
+        let dir = text_dir("code_en_vigueur", CID);
+
+        put_article(&mut store, "code_en_vigueur", 1, "<p>un</p>");
+        store.commit().unwrap();
+        assert_eq!(stamp_of(&engine).as_deref(), Some(INDEX_STAMP));
+
+        store.reset().unwrap();
+        store.commit().unwrap();
+        assert_eq!(engine.len(), 0);
+        assert_eq!(stamp_of(&engine).as_deref(), Some(INDEX_STAMP), "after a reset");
+
+        // la lecture du dernier état force un commit avant le retrait
+        put_article(&mut store, "code_en_vigueur", 1, "<p>deux</p>");
+        assert!(store.remove_file(&key).unwrap());
+        assert_eq!(stamp_of(&engine).as_deref(), Some(INDEX_STAMP), "after a forced commit");
+        store.commit().unwrap();
+        assert_eq!(engine.len(), 0);
+        assert_eq!(stamp_of(&engine).as_deref(), Some(INDEX_STAMP), "after a removal");
+
+        put_article(&mut store, "code_en_vigueur", 1, "<p>trois</p>");
+        // le retrait de dossier valide d'abord ce qui attend, puis compte
+        assert_eq!(store.remove_text_dir(&dir).unwrap(), 1);
+        assert_eq!(stamp_of(&engine).as_deref(), Some(INDEX_STAMP), "after a forced commit");
+        store.commit().unwrap();
+        assert_eq!(engine.len(), 0);
+        assert_eq!(stamp_of(&engine).as_deref(), Some(INDEX_STAMP), "after a folder removal");
+    }
+
+    #[test]
+    fn a_commit_without_a_write_leaves_the_stamp_alone() {
+        let (engine, mut store) = fresh();
+        store.commit().unwrap();
+        assert_eq!(stamp_of(&engine), None, "nothing was written, nothing is stamped");
+    }
+
+    #[test]
+    fn only_the_current_stamp_or_an_empty_index_is_accepted() {
+        // marque courante : accepté, avec ou sans segment
+        assert!(stamp_is_current(Some(INDEX_STAMP), true));
+        assert!(stamp_is_current(Some(INDEX_STAMP), false));
+        // une autre marque : refusé, avec ou sans segment
+        assert!(!stamp_is_current(Some("fr_legi-0"), true));
+        assert!(!stamp_is_current(Some("fr_legi-0"), false));
+        assert!(!stamp_is_current(Some(""), false));
+        // pas de marque : accepté seulement si l'index est vide
+        assert!(stamp_is_current(None, false));
+        assert!(!stamp_is_current(None, true));
+    }
+
+    #[test]
+    fn a_new_directory_opens_and_opens_again_after_a_build() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index");
+        // un dossier neuf, ouvert puis abandonné avant tout commit, s'ouvre encore
+        drop(Engine::open(&path).unwrap());
+        {
+            let engine = Arc::new(Engine::open(&path).unwrap());
+            let mut store = IndexStore::new(Arc::clone(&engine)).unwrap();
+            put_article(&mut store, "code_en_vigueur", 1, "<p>durable</p>");
+            store.commit().unwrap();
+        }
+        let engine = Engine::open(&path).unwrap();
+        assert_eq!(engine.len(), 1);
+        assert_eq!(stamp_of(&engine).as_deref(), Some(INDEX_STAMP));
+    }
+
+    #[test]
+    fn an_index_without_a_stamp_is_stale() {
+        let dir = tempfile::tempdir().unwrap();
+        write_with_payload(dir.path(), None);
+        assert!(matches!(Engine::open(dir.path()), Err(OpenError::Stale)));
+        // le refus ne change rien : l'index reste tel quel, et refusé
+        assert!(matches!(Engine::open(dir.path()), Err(OpenError::Stale)));
+    }
+
+    #[test]
+    fn an_index_with_another_stamp_is_stale() {
+        for other in ["fr_legi-0", "fr_legi-999", ""] {
+            let dir = tempfile::tempdir().unwrap();
+            write_with_payload(dir.path(), Some(other));
+            assert!(matches!(Engine::open(dir.path()), Err(OpenError::Stale)), "{other:?}");
+        }
+    }
+
+    #[test]
+    fn an_index_with_the_current_stamp_written_elsewhere_opens() {
+        let dir = tempfile::tempdir().unwrap();
+        write_with_payload(dir.path(), Some(INDEX_STAMP));
+        assert_eq!(Engine::open(dir.path()).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn reading_the_metadata_can_fail() {
+        let engine = Engine::in_memory().unwrap();
+        engine.fail_nth_access(1);
+        let error = engine.check_stamp().unwrap_err();
+        assert!(
+            matches!(&error, OpenError::Store(store) if store.detail.contains("read the index metadata")),
+            "{error:?}"
+        );
+        assert!(!engine.fault_pending());
+        assert_eq!(engine.check_stamp(), Ok(()));
     }
 }
