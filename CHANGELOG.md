@@ -15,6 +15,12 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
+Rien depuis `1.1.1`.
+
+## [1.1.1] - 2026-11-11
+
+Correctifs des défauts relevés par le test de bout en bout de la 1.1.0 en production (2026-11-02, PR #77), et montée de `rmcp` à 3.9.0 pour trois avis de sécurité. Aucun outil, paramètre, champ ni valeur d'énumération nouveau : `lock-descriptors --compare v1.1.0` répond « no surface change » (montée de correctif). Des textes de sortie changent : voir les puces « Chaîne de sortie » sous `### Changed`.
+
 ### Fixed
 
 - `fr_get_text` : la note d'un article de convention collective (KALIARTI) qui n'est plus en vigueur ne renvoie plus à `fr_resolve` avec une date ni à `fr_diff_article`, qui ne lisent pas une autre version de cet article (`fr_diff_article` refuse un KALIARTI, `fr_resolve` ne retrouve pas un article de convention par son numéro) : le conseil était circulaire. Elle renvoie à `fr_get_convention` avec `parent_id` (sinon `fr_search` dans le fond KALI) et à son `toc`, pour l'entrée de même numéro dans la même section ; une entrée affichée sans `etat` a l'`etat` de la convention elle-même (donc abrogée sous une convention abrogée), le `toc` est paginé (`toc_offset`) et il peut n'exister aucune version courante. Pour un KALIARTI `DENONCE`, la note dit que `fr_get_convention` avec `parent_id` donne l'`etat` de la convention elle-même. Le début de la note est inchangé pour les deux familles et le texte des articles de code (LEGIARTI) est inchangé, octet pour octet. Valeur du champ `note` existant, aucun changement de schéma. (cnil_kali_acco-6, errors-3)
@@ -414,7 +420,8 @@ Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0
 
 - Domaine seulement, visible par un client à partir de M4 : citation du Conseil constitutionnel sans « - objet » (P-035), plus de `eli_uri` (P-031, P-039), sentinelle de date omise (P-030).
 
-[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/muchiny/mcp-legifrance/commits/main
