@@ -17,7 +17,7 @@ include-dev = true
 allow = [
   "MIT",                 # tokio, hyper, governor, bytes, ... (34 paquets sans autre licence admise, dont phf et phf_shared ; `cargo deny list`)
   "Apache-2.0",          # nonzero_ext, sync_wrapper (seules), ryu et dunce (alternative), aws-lc-sys
-  "Unicode-3.0",         # icu_*, yoke, zerovec, ... (19 paquets) ; unicode-ident
+  "Unicode-3.0",         # icu_*, yoke, zerovec, ... (20 paquets) ; unicode-ident, unicode-normalization depuis 0.1.26
   "ISC",                 # aws-lc-rs, aws-lc-sys, rustls-webpki, untrusted (chaîne TLS de reqwest, T-M2-03)
   "BSD-3-Clause",        # aws-lc-sys, subtle (chaîne TLS de reqwest)
   "CDLA-Permissive-2.0", # webpki-root-certs (racines de certificats, chaîne TLS de reqwest)
@@ -52,7 +52,7 @@ skip = [
   { crate = "base64@0.22.1", reason = "tantivy 0.26.2 (index DILA, M9) et wiremock 0.6.5 (dev de lf-adapter-piste et de mcp-legifrance) exigent ^0.22 ; reqwest, hyper-util et rmcp 3.9.0 sont en 0.23" },
   { crate = "core-foundation@0.9.4", reason = "system-configuration 0.7.0 <- hyper-util 0.1.21 <- reqwest, axum et wiremock (macOS seulement) ; rustls-platform-verifier et security-framework sont en 0.10" },
   { crate = "fs4@0.13.1", reason = "D21 : tantivy 0.26.2 tire fs4 ^0.13.1 par sa feature `mmap`, que l'index sur disque de M9 exige ; lf-adapter-audit prend fs4 1.1 (confinement : `wrappers` de fs4 plus bas)" },
-  { crate = "getrandom@0.3.4", reason = "ahash 0.8.12, jsonschema 0.58.6, jsonschema-value et referencing (dev de lf-adapter-mcp, xtask) ; jobserver, rand 0.10, tempfile et uuid sont en 0.4" },
+  { crate = "getrandom@0.3.4", reason = "ahash 0.8.12, jsonschema 0.60.2, jsonschema-value et referencing (dev de lf-adapter-mcp, xtask) ; jobserver, rand 0.10, tempfile et uuid sont en 0.4" },
   { crate = "hashbrown@0.16.1", reason = "governor 0.10.4 (lf-adapter-piste) et lru 0.16.4 <- tantivy 0.26.2 ; indexmap 2.14.2 et referencing (jsonschema) sont en 0.17" },
   { crate = "r-efi@5.3.0", reason = "getrandom 0.3.4 (cible UEFI) ; getrandom 0.4.3 tire r-efi 6.0.0 (voir getrandom@0.3.4)" },
   { crate = "similar@2.7.0", reason = "insta 1.49.0 (dev de lf-adapter-mcp et de lf-adapter-piste) exige ^2 ; lf-application est en 3.2 (D10 levée le 2026-10-30). À retirer quand insta passe à similar 3" },

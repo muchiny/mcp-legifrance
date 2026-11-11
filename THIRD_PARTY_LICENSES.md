@@ -21,7 +21,7 @@ juridique.
 ## Résumé
 
 - MIT License (`MIT`) : 282 paquet(s)
-- Unicode License v3 (`Unicode-3.0`) : 19 paquet(s)
+- Unicode License v3 (`Unicode-3.0`) : 20 paquet(s)
 - Apache License 2.0 (`Apache-2.0`) : 11 paquet(s)
 - ISC License (`ISC`) : 4 paquet(s)
 - BSD 3-Clause "New" or "Revised" License (`BSD-3-Clause`) : 2 paquet(s)
@@ -880,7 +880,7 @@ Utilisé par :
 
 Utilisé par :
 
-- `similar` 3.2.0 : https://github.com/mitsuhiko/similar
+- `similar` 3.2.1 : https://github.com/mitsuhiko/similar
 
 ~~~~~~~~
                               Apache License
@@ -1993,7 +1993,7 @@ Utilisé par :
 - `fs4` 0.13.1 : https://github.com/al8n/fs4-rs
 - `fs4` 1.1.0 : https://github.com/al8n/fs4
 - `heck` 0.5.0 : https://github.com/withoutboats/heck
-- `unicode-normalization` 0.1.25 : https://github.com/unicode-rs/unicode-normalization
+- `unicode-normalization` 0.1.26 : https://github.com/unicode-rs/unicode-normalization
 
 ~~~~~~~~
 Copyright (c) 2015 The Rust Project Developers
@@ -4496,8 +4496,8 @@ SOFTWARE.
 
 Utilisé par :
 
-- `jsonschema` 0.58.6 : https://github.com/Stranger6667/jsonschema
-- `referencing` 0.58.6 : https://github.com/Stranger6667/jsonschema
+- `jsonschema` 0.60.2 : https://github.com/Stranger6667/jsonschema
+- `referencing` 0.60.2 : https://github.com/Stranger6667/jsonschema
 
 ~~~~~~~~
 MIT License
@@ -4685,8 +4685,8 @@ Utilisé par :
 - `chrono` 0.4.45 : https://github.com/chronotope/chrono
 - `governor` 0.10.4 : https://github.com/boinkor-net/governor.git
 - `htmlescape` 0.3.1 : https://github.com/veddan/rust-htmlescape
-- `jsonschema-regex` 0.58.6 : https://github.com/Stranger6667/jsonschema
-- `jsonschema-value` 0.58.6 : https://github.com/Stranger6667/jsonschema
+- `jsonschema-regex` 0.60.2 : https://github.com/Stranger6667/jsonschema
+- `jsonschema-value` 0.60.2 : https://github.com/Stranger6667/jsonschema
 - `num-cmp` 0.1.0 : https://github.com/lifthrasiir/num-cmp
 - `ownedbytes` 0.9.0 : https://github.com/quickwit-oss/tantivy
 - `tantivy-bitpacker` 0.10.0 : https://github.com/quickwit-oss/tantivy
@@ -4739,7 +4739,7 @@ Utilisé par :
 
 - `tokio-stream` 0.1.19 : https://github.com/tokio-rs/tokio
 - `tokio-util` 0.7.20 : https://github.com/tokio-rs/tokio
-- `tokio` 1.53.3 : https://github.com/tokio-rs/tokio
+- `tokio` 1.54.1 : https://github.com/tokio-rs/tokio
 
 ~~~~~~~~
 MIT License
@@ -6106,6 +6106,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 Utilisé par :
 
 - `unicode-ident` 1.0.27 : https://github.com/dtolnay/unicode-ident
+- `unicode-normalization` 0.1.26 : https://github.com/unicode-rs/unicode-normalization
 
 ~~~~~~~~
 UNICODE LICENSE V3
