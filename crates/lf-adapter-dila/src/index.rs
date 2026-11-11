@@ -1462,4 +1462,81 @@ mod tests {
         assert!(!engine.fault_pending());
         assert_eq!(engine.check_stamp(), Ok(()));
     }
+
+    /// Racines figées, mesurées avec tantivy 0.27.0 (frostem, Snowball français récent). Les mots
+    /// dont la racine a changé depuis tantivy 0.26.2 (rust-stemmers) portent l'ancienne racine en
+    /// commentaire. Ce test ne voit que les mots listés : un changement d'analyseur qui touche
+    /// d'autres mots ne le fait pas rougir.
+    const PINNED_STEMS: &[(&str, &str)] = &[
+        ("française", "franc"), // 0.26.2 : francais
+        ("français", "franc"),
+        ("francaise", "franc"), // 0.26.2 : francais
+        ("mauvais", "mauvais"), // 0.26.2 : mauv
+        ("mauvaise", "mauvais"),
+        ("mauve", "mauv"),
+        ("niais", "niais"), // 0.26.2 : ni
+        ("ni", "ni"),
+        ("jaloux", "jalou"), // 0.26.2 : jaloux
+        ("heureux", "heureux"),
+        ("heureuse", "heureux"),
+        ("époux", "epou"), // 0.26.2 : epoux
+        ("épouse", "epous"),
+        ("l'article", "articl"),
+        ("d'office", "offic"),
+        ("travailleuse", "travaill"),
+        ("anglaise", "anglais"),
+        ("portugaise", "portug"), // 0.26.2 : portugais
+        ("chanteuse", "chanteux"),
+        ("délibération", "deliber"),
+        ("licenciement", "licenci"),
+        ("abusif", "abus"),
+        ("abusive", "abus"),
+        ("résiliation", "resili"),
+        ("bail", "bail"),
+        ("baux", "baux"),
+        ("loyers", "loyer"),
+        ("impôt", "impot"),
+        ("impôts", "impot"),
+        ("fiscale", "fiscal"),
+        ("fiscaux", "fiscal"),
+        ("sociétés", "societ"),
+        ("associé", "assoc"),
+        ("contrat", "contrat"),
+        ("contrats", "contrat"),
+        ("obligations", "oblig"),
+        ("tribunal", "tribunal"),
+        ("tribunaux", "tribunal"),
+        ("cour", "cour"),
+        ("cassation", "cassat"),
+        ("arrêt", "arret"),
+        ("arrêts", "arret"),
+        ("décision", "decis"),
+        ("décisions", "decis"),
+        ("juridiction", "juridict"),
+        ("compétente", "competent"),
+        ("responsabilité", "responsabilit"),
+        ("dommages", "dommag"),
+        ("intérêts", "interet"),
+        ("roux", "roux"),
+        ("doux", "doux"),
+        ("règlement", "regl"),
+        ("reglement", "regl"),
+        ("articles", "articl"),
+        ("application", "appliqu"),
+        ("dispositions", "disposit"),
+    ];
+
+    #[test]
+    fn french_stems_are_pinned() {
+        for (word, stem) in PINNED_STEMS {
+            let found: Vec<String> = tokens(word).into_iter().map(|(_, token)| token).collect();
+            assert_eq!(
+                found,
+                [*stem],
+                "the stem of {word:?} changed: bump INDEX_STAMP and update this table"
+            );
+        }
+        // un mot vide reste sans jeton
+        assert!(tokens("qu'il").is_empty());
+    }
 }
