@@ -25,6 +25,23 @@ impl StoreError {
     }
 }
 
+/// Échec de l'ouverture de l'index sur le disque.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum OpenError {
+    /// Le dossier est inutilisable, ou l'index qu'il contient a un autre schéma.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+    /// L'index contient des documents mais ne porte pas la marque de cette version de
+    /// l'analyseur : il a été bâti par une autre version, ou par une qui ne la notait pas. Ses
+    /// racines de mots ne sont plus celles des requêtes : il faut le reconstruire.
+    #[error(
+        "the local DILA index was built by another version of this server's text analyser, or by \
+         one that did not record it, and must be rebuilt: remove the index directory, then run \
+         build-dila-index again"
+    )]
+    Stale,
+}
+
 /// Échec de l'ingestion d'une archive, de la lecture du registre ou de la planification.
 #[derive(Debug, Error)]
 pub enum IngestError {
@@ -77,6 +94,19 @@ mod tests {
         assert_eq!(error.detail, "disk full");
         assert_eq!(error.to_string(), "document store failure: disk full");
         assert_eq!(IngestError::from(error).to_string(), "document store failure: disk full");
+    }
+
+    #[test]
+    fn opening_an_index_fails_with_a_store_error_or_a_request_to_rebuild() {
+        let store = OpenError::from(StoreError::new("disk full"));
+        assert_eq!(store, OpenError::Store(StoreError::new("disk full")));
+        assert_eq!(store.to_string(), "document store failure: disk full");
+        assert_eq!(
+            OpenError::Stale.to_string(),
+            "the local DILA index was built by another version of this server's text analyser, \
+             or by one that did not record it, and must be rebuilt: remove the index directory, \
+             then run build-dila-index again"
+        );
     }
 
     #[test]

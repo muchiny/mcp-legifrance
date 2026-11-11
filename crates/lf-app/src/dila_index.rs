@@ -8,9 +8,12 @@
 //!   la commande n'applique que ce qui est nouveau ; un nouveau global refait l'index.
 //! - **Un seul écrivain** : un autre processus qui tient le verrou de l'index fait échouer la
 //!   commande (code 1), jamais corrompre l'index.
+//! - **Index d'une autre version** : un index bâti par une autre version de l'analyseur de textes
+//!   est refusé (code 1, message qui demande de supprimer le dossier d'index puis de relancer) ;
+//!   rien n'est supprimé, reconstruit ni écrit.
 //!
-//! Codes de sortie : 0 (index à jour), 1 (ingestion en échec), 2 (usage : répertoire d'archives
-//! absent, ou aucun répertoire d'index).
+//! Codes de sortie : 0 (index à jour), 1 (ingestion en échec, ou index à reconstruire), 2 (usage :
+//! répertoire d'archives absent, ou aucun répertoire d'index).
 
 use std::{
     io::Write,
@@ -248,6 +251,67 @@ mod tests {
         assert_eq!(format!("{exit:?}"), code(EXIT_USAGE));
         assert!(text.is_empty(), "{text}");
         assert!(!foreign.path().join("registry.tsv").exists());
+    }
+
+    /// Tous les fichiers de `dir` (nom et contenu) : de quoi prouver qu'une commande refusée n'a
+    /// rien touché.
+    fn snapshot(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| {
+                let path = entry.unwrap().path();
+                (path.file_name().unwrap().to_string_lossy().into_owned(), fs::read(&path).unwrap())
+            })
+            .collect()
+    }
+
+    /// Fait passer l'index de `dir` pour celui d'une autre version de l'analyseur.
+    fn make_stale(dir: &Path) {
+        let meta = dir.join("meta.json");
+        let json = fs::read_to_string(&meta).unwrap();
+        let stamp = lf_adapter_dila::index::INDEX_STAMP;
+        assert!(json.contains(stamp), "the build stamped the index");
+        fs::write(&meta, json.replace(stamp, "x")).unwrap();
+    }
+
+    #[tokio::test]
+    async fn build_refuses_a_stale_index_and_changes_nothing() {
+        let index = TempDir::new().unwrap();
+        let first = archives(&[GLOBAL]);
+        let (exit, text) = build(&CorpusSource::Piste, &args(&first, Some(&index))).await;
+        assert_eq!(format!("{exit:?}"), format!("{:?}", ExitCode::SUCCESS), "{text}");
+        make_stale(index.path());
+        let before = snapshot(index.path());
+        assert!(before.contains_key(REGISTRY_FILE));
+
+        // un incrément à appliquer, pour que la commande ait de quoi écrire si elle ouvrait l'index
+        let more = archives(&[GLOBAL, INCREMENT]);
+        let mut out = Vec::new();
+        let error =
+            run(&CorpusSource::Piste, &args(&more, Some(&index)), &mut out).await.unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains("cannot open the local DILA index"), "{message}");
+        assert!(message.contains("must be rebuilt"), "{message}");
+        assert!(message.contains("remove the index directory"), "{message}");
+        assert_eq!(out, Vec::<u8>::new());
+        assert_eq!(snapshot(index.path()), before, "nothing was deleted, rebuilt or written");
+    }
+
+    #[tokio::test]
+    async fn build_into_a_new_directory_works_after_a_stale_one() {
+        let stale = TempDir::new().unwrap();
+        let from = archives(&[GLOBAL, INCREMENT]);
+        build(&CorpusSource::Piste, &args(&from, Some(&stale))).await;
+        make_stale(stale.path());
+
+        let fresh = TempDir::new().unwrap();
+        let (exit, text) = build(&CorpusSource::Piste, &args(&from, Some(&fresh))).await;
+        assert_eq!(format!("{exit:?}"), format!("{:?}", ExitCode::SUCCESS), "{text}");
+        assert!(text.contains("The index holds 23 documents."), "{text}");
+        // et l'index neuf se rouvre, une seconde fois, sans rien à refaire
+        let (exit, text) = build(&CorpusSource::Piste, &args(&from, Some(&fresh))).await;
+        assert_eq!(format!("{exit:?}"), format!("{:?}", ExitCode::SUCCESS), "{text}");
+        assert!(text.contains("up to date"), "{text}");
     }
 
     #[tokio::test]

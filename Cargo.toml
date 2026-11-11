@@ -90,10 +90,12 @@ unicode-normalization = { version = "0.1", default-features = false }
 # D10 levée le 2026-10-30 par le propriétaire : 3.2 malgré insta, qui garde 2.7 (doublon listé dans `deny.toml`).
 # `std` est nécessaire : sans lui, `Instant` devient `()` et `capture_diff_slices_deadline` perd sa date limite.
 similar = { version = "3.2", default-features = false, features = ["std", "text"] }
-# M9 (lf-adapter-dila) : défauts de tantivy sauf `columnar-zstd-compression`, qui tire zstd 0.13 (zstd,
-# zstd-safe et zstd-sys : RUSTSEC-2026-0391, -0398, -0403 et -0410, `cargo deny` rouge). `mmap` est gardé
-# (index sur disque, D21) ; la compression des documents reste lz4 (ADR-0018)
-tantivy = { version = "0.26", default-features = false, features = ["mmap", "stopwords", "lz4-compression", "stemmer"] }
+# M9 (lf-adapter-dila) : défauts de tantivy sauf `columnar-zstd-compression`, qui tirait zstd 0.13 avec
+# tantivy 0.26 (zstd, zstd-safe et zstd-sys : RUSTSEC-2026-0391, -0398, -0403 et -0410, `cargo deny`
+# rouge). tantivy 0.27 passe à zstd 0.14 : la feature reste retirée, son rétablissement est une suite
+# possible (ADR-0027). `mmap` est gardé (index sur disque, D21) ; la compression des documents reste
+# lz4 (ADR-0018)
+tantivy = { version = "0.27", default-features = false, features = ["mmap", "stopwords", "lz4-compression", "stemmer"] }
 quick-xml = "0.42"
 tar = { version = "0.4", default-features = false }
 tempfile = "3"

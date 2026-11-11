@@ -5,6 +5,7 @@
 - **Jalons concernés** : M3 à M9 (plan `2026-10-29-fin-du-projet-parallele.md`, plan retiré : voir [README du plan §3.5](../plan/README.md#35-plans-dimplémentation-retirés), vague 0, unité 0B)
 - **Questions liées** : —
 - Révisé le 2026-10-29 (F6-b, fin de projet) : les exceptions `STUB(V0)` de `cargo machete` ont disparu (décision 1) ; `winnow` n'est pas employé (décision 3) ; `fs4@0.13.1` est un `skip` de `deny.toml` et `multiple-versions` vaut `deny` (décision 5, T-M5-09). Le statut reste « Proposé » jusqu'à la fusion de la PR unique.
+- **Note du 2026-11-11** (sans réécrire ce qui précède) : [ADR-0027](0027-montee-de-tantivy-0-27-0.md) monte `tantivy` à 0.27.0 ; les mentions « 0.26.2 » ci-dessous sont celles de l'origine. `fs4@0.13.1` y reste tiré par `tantivy` ; `deny.toml` compte dix `skip` au lieu de huit (`rand@0.9.5` et `rand_core@0.9.5` ajoutés, `base64@0.22.1` retiré). `tantivy` 0.27.0 est sur `zstd` 0.14 : le rétablissement de `columnar-zstd-compression` (décision 6, « À surveiller ») n'est pas fait.
 - Amende [00-decisions.md](../plan/00-decisions.md) §2 (tableau des crates par membre) et §11.1 (liste blanche de `lf-domain`), [02-architecture.md](../plan/02-architecture.md) §3.0.1 (`similar`), §3.0.2 (les squelettes ne déclaraient pas de dépendance d'avance) et §4.3 (`wrappers`), et [06-qualite.md](../plan/06-qualite.md) §7.6 et §9.1 (mutation en CI, `deny.toml`).
 
 ## Contexte

@@ -15,7 +15,9 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `1.1.1`.
+### Changed
+
+- Index local DILA (feature `dila`, incluse dans les binaires publiés) : `tantivy` passe de 0.26.2 à 0.27.0, dont le racinisateur français change (`frostem`, Snowball récent, à la place de `rust-stemmers`) : sur 57 mots mesurés, 7 changent de racine (`française` et `francaise` : `francais` devient `franc`, ce qui les rapproche de `français` ; `mauvais` : `mauv` devient `mauvais` ; `niais` : `ni` devient `niais` ; `jaloux` : `jalou` ; `époux` : `epou` ; `portugaise` : `portug`). **Il faut reconstruire l'index** : l'index porte désormais une marque de version de l'analyseur (`INDEX_STAMP`, écrite à chaque commit dans `meta.json`), et un index non vide sans marque, ou d'une autre marque, est refusé à l'ouverture. Le serveur rend alors la source locale indisponible (jamais de repli sur PISTE) avec le texte « the local DILA index was built by another version of this server and must be rebuilt with mcp-legifrance build-dila-index (see the README, offline mode) » ; `build-dila-index` s'arrête (code 1) avec « cannot open the local DILA index: the local DILA index was built by another version of this server's text analyser, or by one that did not record it, and must be rebuilt: remove the index directory, then run build-dila-index again ». Rien n'est supprimé ni reconstruit automatiquement : supprimez le dossier d'index en entier puis relancez `build-dila-index` avec les mêmes archives (README, « Mode hors ligne »). Un index vide sans marque s'ouvre. Surface MCP inchangée (verrou des descripteurs inchangé). Les utilisateurs de PISTE ne sont pas touchés. Ne repassez pas à une version antérieure sur un index reconstruit (ADR-0027, AM-91). Le numéro de la version qui porte ce changement n'est pas décidé.
 
 ## [1.1.1] - 2026-11-11
 

@@ -248,6 +248,14 @@ mcp-legifrance de Ktulu-Analog. Cinq règles (08 §9.4) :
   liste blanche de `deny.toml`, `make deny` et `make machete` verts.
 - Tout changement de `Cargo.lock` régénère `THIRD_PARTY_LICENSES.md` dans la
   même PR (section « Licences tierces »).
+- Une montée de `tantivy` ou de `frostem` (le racinisateur que `tantivy` tire ;
+  même par un simple `cargo update`, `frostem` est republié souvent et `tantivy`
+  l'accepte en `^1`) peut changer des racines de mots français sans changer
+  l'API : avant de fusionner, relancer les tests `french_stems_are_pinned` et
+  `french_stop_words_are_pinned` (`lf-adapter-dila`), mesurer les racines de
+  quelques dizaines de mots avant et après (ADR-0027), et incrémenter
+  `INDEX_STAMP` si l'une change. Les tests ne voient que les mots listés ; le
+  verrou n'est pas lu par un test (suite possible, ADR-0027).
 
 ## Toolchain
 

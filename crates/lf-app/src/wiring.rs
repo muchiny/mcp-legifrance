@@ -89,6 +89,12 @@ pub(crate) type AppService = LegalService<AppCorpus, AppAudit, SystemClock>;
 const INDEX_UNREADABLE: &str =
     "the local DILA index cannot be opened: check LF_DILA_DIR and the server log";
 
+/// Ce que le modèle lit quand l'index local DILA a été bâti par une autre version de l'analyseur
+/// de textes : ni chemin ni numéro de version.
+#[cfg(feature = "dila")]
+const INDEX_STALE: &str = "the local DILA index was built by another version of this server and \
+    must be rebuilt with mcp-legifrance build-dila-index (see the README, offline mode)";
+
 /// Ce que le modèle lit quand `LF_DILA_DIR` ne désigne aucun répertoire, ou que l'index n'a aucun
 /// document : une source vide ne prouve l'absence de rien.
 #[cfg(feature = "dila")]
@@ -211,6 +217,13 @@ fn local_index(dir: &Path) -> AnyCorpus {
             AnyCorpus::Unavailable(INDEX_EMPTY.to_owned())
         }
         Ok(corpus) => AnyCorpus::Dila(corpus),
+        Err(lf_adapter_dila::OpenError::Stale) => {
+            tracing::error!(
+                "the local DILA index must be rebuilt: it was built by another version of the \
+                 text analyser"
+            );
+            AnyCorpus::Unavailable(INDEX_STALE.to_owned())
+        }
         Err(error) => {
             // L'opérateur lit la cause dans stderr ; le modèle n'en voit ni cause ni chemin.
             tracing::error!(%error, "cannot open the local DILA index");
@@ -690,6 +703,34 @@ mod tests {
         }
         // Un répertoire absent n'est pas créé par la lecture.
         assert!(!missing.exists());
+    }
+
+    /// Un index d'une autre version de l'analyseur se lit mal : la source est indisponible, le
+    /// modèle lit de reconstruire l'index (texte fixe, sans chemin), et rien ne repasse par PISTE.
+    #[cfg(feature = "dila")]
+    #[tokio::test]
+    async fn a_stale_index_is_unavailable_and_asks_for_a_rebuild() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let index = dir.path().join("stale-index");
+        filled_index(&index).await;
+        let meta = index.join("meta.json");
+        let json = std::fs::read_to_string(&meta).expect("the index descriptor is read");
+        let stamp = lf_adapter_dila::index::INDEX_STAMP;
+        assert!(json.contains(stamp), "the build stamped the index");
+        std::fs::write(&meta, json.replace(stamp, "x")).expect("the stamp is changed");
+        let config = config_with(&[("LF_DILA_DIR", index.to_str().unwrap())]);
+        let corpus = corpus_for(&config);
+        assert!(matches!(corpus, AnyCorpus::Unavailable(_)));
+        for (operation, result) in every_operation(&corpus).await {
+            let detail = settings_detail(&result.unwrap_err());
+            assert_eq!(detail, INDEX_STALE, "{operation}");
+            assert!(detail.contains("build-dila-index"), "{operation}: {detail}");
+            assert!(!detail.contains("stale-index"), "{operation}: {detail}");
+        }
+        assert!(
+            INDEX_STALE.is_ascii() && !INDEX_STALE.chars().any(|c| c.is_ascii_digit()),
+            "English, with no path and no version number"
+        );
     }
 
     #[cfg(feature = "dila")]
