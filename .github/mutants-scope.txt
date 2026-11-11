@@ -42,3 +42,8 @@ crates/lf-application/src/usecase/diff_article.rs
 crates/lf-application/src/usecase/get_act.rs
 crates/lf-domain/src/entity/versions.rs
 crates/lf-adapter-piste/src/corpus/m6.rs
+crates/lf-adapter-dila/src/index.rs
+crates/lf-adapter-dila/src/error.rs
+crates/lf-adapter-dila/src/corpus.rs
+crates/lf-app/src/wiring.rs
+crates/lf-app/src/dila_index.rs

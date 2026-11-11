@@ -55,6 +55,7 @@
 - **Retour à un binaire 1.1.x** sur un index reconstruit : tantivy 0.26 ignore la charge utile et ouvre l'index ; les racines redeviennent fausses, en silence, sans garde possible. Ne repassez pas à une version antérieure sur un index reconstruit.
 - La marque n'est lue qu'à l'ouverture : un index remplacé sous un serveur en marche n'est pas couvert (déjà déconseillé : ne lancez pas `build-dila-index` pendant qu'un client lit le même index).
 - Un registre gardé avec un index vidé fait répondre « à jour » à `build-dila-index` sur un index vide (comportement antérieur) : supprimez le dossier entier.
+- **Mesuré le 2026-11-11, de bout en bout, sur les mini-archives du dépôt** (Linux, binaires de développement, sans réseau ni PISTE) : un index bâti par le binaire 1.1.0 installé (`tantivy` 0.26.2 ; 23 documents, 2 segments, charge utile de commit absente) est ouvert par le binaire de la branche sans erreur de format, puis refusé par la marque. `build-dila-index` sort en code 1 avec le message de la décision 5 et laisse le dossier identique (`diff -r` vide). `serve` avec `LF_DILA_DIR` sur ce dossier répond `[config_error]` avec le texte fixe de la décision 4 à `fr_search`. Après suppression du dossier, `build-dila-index` le reconstruit (23 documents, marque `fr_legi-1`), le relancer répond « à jour », et `serve` répond à `fr_search`.
 - **NON VÉRIFIÉ** : classement et rappel sur de vrais dumps ; reconstruction sur les archives réelles avec le binaire neuf.
 - MSRV : 1.88 pour `tantivy` 0.27.0, sans marge.
 
