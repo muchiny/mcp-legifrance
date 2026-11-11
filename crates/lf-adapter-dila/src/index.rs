@@ -93,9 +93,11 @@ pub const ANALYZER: &str = "fr_legi";
 ///
 /// **À incrémenter** (`fr_legi-2`, etc.) dès qu'un changement modifie les jetons que
 /// [`french_analyzer`] produit : nouveau racinisateur ou mise à jour qui change des racines,
-/// liste de mots vides, filtre ou découpage. Le test `french_stems_are_pinned` fait échouer la CI
-/// quand les racines qu'il liste changent ; il faut alors incrémenter la marque et mettre à jour
-/// sa table. Les index déjà bâtis sont alors refusés, et leurs propriétaires les reconstruisent.
+/// liste de mots vides, filtre ou découpage. Les tests `french_stems_are_pinned` et
+/// `french_stop_words_are_pinned` font échouer la CI quand les racines ou les mots vides qu'ils
+/// listent changent ; il faut alors incrémenter la marque et mettre à jour leurs tables. Ils ne
+/// voient que les mots listés : **une montée de `tantivy` ou de `frostem` (même par un simple
+/// `cargo update`) relance la mesure des racines** (CONTRIBUTING, section « Dépendances »). Les index déjà bâtis sont alors refusés, et leurs propriétaires les reconstruisent.
 pub const INDEX_STAMP: &str = "fr_legi-1";
 
 /// Mémoire de l'écrivain tantivy (un seul fil d'indexation : le global fait 5,25 millions de
@@ -1533,7 +1535,22 @@ mod tests {
                 "the stem of {word:?} changed: bump INDEX_STAMP and update this table"
             );
         }
-        // un mot vide reste sans jeton
-        assert_eq!(tokens("qu'il").len(), 0);
+    }
+
+    /// Mots vides français : aucun ne doit produire de jeton. La liste vient de tantivy
+    /// (`stopwords`) ; si elle change, ce test le voit pour ces mots seulement.
+    const PINNED_STOP_WORDS: &[&str] = &[
+        "qu'il", "le", "la", "les", "de", "des", "du", "un", "une", "et", "est", "que", "qui",
+        "dans", "pour", "par", "sur", "au", "aux", "ce", "ces",
+    ];
+
+    #[test]
+    fn french_stop_words_are_pinned() {
+        for word in PINNED_STOP_WORDS {
+            assert!(
+                tokens(word).is_empty(),
+                "{word:?} is no longer a stop word: bump INDEX_STAMP and update this table"
+            );
+        }
     }
 }

@@ -4,7 +4,7 @@
 - **Date** : 2026-11-11
 - **Jalons concernés** : M9 (`lf-adapter-dila`), version qui suit la 1.1.1 (numéro non décidé par le propriétaire)
 - **Questions liées** : — (le numéro de la version qui porte ce changement reste à décider)
-- Amendements : AM-91 (00 §14). Révise le « huit `skip` » d'[ADR-0018](0018-dependances-fin-de-projet.md) §5 (dix depuis cette montée) et complète la décision 8 d'[ADR-0019](0019-dilacorpus-hors-ligne.md). Les numéros ADR-0025 et AM-89 restent réservés par la branche locale `docs/debit-rejeux-1.1.2` ; 0026 et AM-90 sont ceux de la montée de `rmcp`.
+- Amendements : AM-91 (00 §14). Révise le « huit `skip` » d'[ADR-0018](0018-dependances-fin-de-projet.md) §5 (dix depuis cette montée) et complète la décision 8 d'[ADR-0019](0019-dilacorpus-hors-ligne.md). Les numéros ADR-0025 et AM-89 restent réservés par la branche locale du débit des rejeux ; 0026 et AM-90 sont ceux de la montée de `rmcp`.
 
 ## Contexte
 
@@ -32,7 +32,7 @@
 3. **Règle d'acceptation** (`stamp_is_current`) : marque égale à `INDEX_STAMP`, accepté ; autre marque (y compris plus récente), refusé ; **pas de marque** : refusé si l'index contient des segments, accepté s'il est vide (dossier neuf, ou premier build interrompu avant son premier commit : rien de périmé à cacher). Le refus est l'erreur `OpenError::Stale`.
 4. **Serveur** : un index refusé rend la source locale indisponible (jamais de repli sur PISTE, ADR-0019 décision 8), avec le texte fixe, en anglais, sans chemin ni numéro de version : « the local DILA index was built by another version of this server and must be rebuilt with mcp-legifrance build-dila-index (see the README, offline mode) ». La cause détaillée va au journal (stderr). Les autres refus (absent, vide, illisible) gardent leurs textes.
 5. **`build-dila-index`** ouvre l'index par `DilaCorpus::open` : sur un index refusé, il s'arrête avec le message « cannot open the local DILA index: the local DILA index was built by another version of this server's text analyser, or by one that did not record it, and must be rebuilt: remove the index directory, then run build-dila-index again », code de sortie 1, **sans rien supprimer, reconstruire ni écrire**. L'utilisateur supprime lui-même le dossier d'index (le registre `registry.tsv` y est : il part avec lui) puis relance ; ou il pointe `--index` vers un dossier neuf et change `LF_DILA_DIR`. Pas d'option `--rebuild`.
-6. **Règle d'entretien** (commentaire de `INDEX_STAMP`) : tout changement qui modifie les jetons de `french_analyzer` (racinisateur, mots vides, filtre, découpage) incrémente la marque. Le test `french_stems_are_pinned` (56 mots, racines mesurées avec 0.27.0) fait rougir la CI quand l'une de ces racines change.
+6. **Règle d'entretien** (commentaire de `INDEX_STAMP`) : tout changement qui modifie les jetons de `french_analyzer` (racinisateur, mots vides, filtre, découpage) incrémente la marque. Les tests `french_stems_are_pinned` (56 mots racinisés, racines mesurées avec 0.27.0) et `french_stop_words_are_pinned` (21 mots vides, dont « qu'il » : mesuré en 0.27.0, sans jeton) font rougir la CI quand l'une de ces racines change ou qu'un de ces mots vides produit un jeton. Les 57 mots de la mesure du contexte sont ces 56 mots plus « qu'il », mot vide.
 7. **Le numéro de la version qui porte ce changement n'est pas décidé.** Le CHANGELOG l'écrit sous `[Unreleased]` ; les documents disent « la version qui suit la 1.1.1 ».
 8. **Hors périmètre, suites possibles** (non faites) : lecture de la marque par `check-config` ; option `--rebuild` ; empreinte calculée à l'exécution à la place d'une marque entretenue à la main ; fixture binaire d'un index 0.26 ; épinglage par test des versions de `tantivy` et de `frostem` ; rétablissement de `columnar-zstd-compression` ; protection des binaires 1.1.x déjà publiés (impossible : ils ignorent la marque).
 
@@ -47,7 +47,7 @@
 
 - **Tout utilisateur du mode hors ligne doit reconstruire son index** (un index de 3,6 Go, archives déjà là, rien à retélécharger ; 1 h 10 et 3,6 Go de mémoire mesurés sur les archives réelles avec un binaire de développement, durée du binaire publié non mesurée). Les utilisateurs de PISTE ne sont pas touchés.
 - Un seul texte pour « index plus ancien » et « plus récent » : voulu.
-- Entretien manuel de la marque : un changement d'analyseur oublié n'est vu que par les mots listés dans le test.
+- Entretien manuel de la marque : un changement d'analyseur oublié n'est vu que par les mots listés dans les tests. Risque connu : `frostem` est republié souvent (synchronisation quotidienne avec Snowball) et `tantivy` l'accepte en `^1` ; `Cargo.lock` le fige (1.20260821.8), donc les binaires publiés et `cargo install --locked` ne bougent pas, mais un `cargo update` peut changer des racines sans que la marque monte. Parade retenue : la consigne de CONTRIBUTING (section « Dépendances ») et les deux tables de mots ; un test qui lit `Cargo.lock` reste une suite possible (décision 8).
 - Dix `skip` dans `deny.toml` au lieu de huit (`rand@0.9.5` et `rand_core@0.9.5`, tirés par `tantivy-columnar` 0.27.0 ; `base64@0.22.1` retiré, devenu inutile). Le skip `similar@2.7.0` est signalé inutile par `cargo deny` depuis avant cette montée (dev seulement) : laissé tel quel.
 
 ### À surveiller

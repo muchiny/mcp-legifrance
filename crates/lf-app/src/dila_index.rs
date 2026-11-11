@@ -12,8 +12,8 @@
 //!   est refusé (code 1, message qui demande de supprimer le dossier d'index puis de relancer) ;
 //!   rien n'est supprimé, reconstruit ni écrit.
 //!
-//! Codes de sortie : 0 (index à jour), 1 (ingestion en échec, ou index à reconstruire), 2 (usage : répertoire d'archives
-//! absent, ou aucun répertoire d'index).
+//! Codes de sortie : 0 (index à jour), 1 (ingestion en échec, ou index à reconstruire), 2 (usage :
+//! répertoire d'archives absent, ou aucun répertoire d'index).
 
 use std::{
     io::Write,
