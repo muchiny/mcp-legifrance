@@ -49,7 +49,7 @@ multiple-versions = "deny"
 wildcards = "deny"
 allow-wildcard-paths = true
 skip = [
-  { crate = "base64@0.22.1", reason = "tantivy 0.26.2 (index DILA, M9) et wiremock 0.6.5 (dev de lf-adapter-piste et de mcp-legifrance) exigent ^0.22 ; reqwest, hyper-util et rmcp 3.5.1 sont en 0.23" },
+  { crate = "base64@0.22.1", reason = "tantivy 0.26.2 (index DILA, M9) et wiremock 0.6.5 (dev de lf-adapter-piste et de mcp-legifrance) exigent ^0.22 ; reqwest, hyper-util et rmcp 3.9.0 sont en 0.23" },
   { crate = "core-foundation@0.9.4", reason = "system-configuration 0.7.0 <- hyper-util 0.1.21 <- reqwest, axum et wiremock (macOS seulement) ; rustls-platform-verifier et security-framework sont en 0.10" },
   { crate = "fs4@0.13.1", reason = "D21 : tantivy 0.26.2 tire fs4 ^0.13.1 par sa feature `mmap`, que l'index sur disque de M9 exige ; lf-adapter-audit prend fs4 1.1 (confinement : `wrappers` de fs4 plus bas)" },
   { crate = "getrandom@0.3.4", reason = "ahash 0.8.12, jsonschema 0.58.6, jsonschema-value et referencing (dev de lf-adapter-mcp, xtask) ; jobserver, rand 0.10, tempfile et uuid sont en 0.4" },
@@ -75,7 +75,7 @@ deny = [
   { crate = "rmcp-macros", wrappers = ["lf-adapter-mcp", "rmcp"], reason = "macros de rmcp : déclaré par l'adapter MCP pour son épinglage exact, tiré par rmcp" },
   { crate = "schemars", wrappers = ["lf-adapter-mcp", "rmcp"], reason = "schémas JSON des outils : confinés à l'adapter MCP, tirés par rmcp" },
   { crate = "moka", wrappers = ["lf-adapter-cache"], reason = "cache mémoire confiné à l'adapter de cache (R6)" },
-  { crate = "sha2", wrappers = ["lf-adapter-audit"], reason = "empreintes de l'audit confinées à l'adapter d'audit (R6)" },
+  { crate = "sha2", wrappers = ["lf-adapter-audit", "rmcp"], reason = "empreintes de l'audit confinées à l'adapter d'audit (R6) ; rmcp 3.9.0 en dépend directement (dépendance non optionnelle, même version 0.11)" },
   { crate = "fs4", wrappers = ["lf-adapter-audit", "tantivy"], reason = "verrou de fichier de l'audit (fs4 1.x) ; tantivy tire fs4 0.13 par sa feature `mmap` (D21)" },
   { crate = "axum", wrappers = ["lf-adapter-mcp"], reason = "serveur HTTP du transport Streamable HTTP confiné à l'adapter MCP (R6, M8)" },
   { crate = "tantivy", wrappers = ["lf-adapter-dila"], reason = "index local confiné à l'adapter DILA (R6, M9)" },

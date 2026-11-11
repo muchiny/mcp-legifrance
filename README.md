@@ -447,7 +447,7 @@ Le registre complet des points ouverts est dans [`docs/plan/09-risques-et-questi
 |---|---|
 | Langage | Rust (édition 2024, MSRV 1.88, chaîne 1.99.0 épinglée), workspace Cargo `crates/lf-*`, binaire `mcp-legifrance` |
 | Architecture | hexagonale : `lf-domain` pur → `lf-application` (ports, cas d'usage) → adapters PISTE, cache, audit, MCP → `lf-app` (binaire) |
-| SDK MCP | `rmcp` 3.5.1 |
+| SDK MCP | `rmcp` 3.9.0 |
 | Qualité | 100 % de couverture en lignes, régions et fonctions, à une exception nommée près (`stdio.rs`, la colle sur les vrais stdin et stdout, couverte par un test de bout en bout du binaire) ; mutation : le diff de chaque PR est muté sur les fichiers à risque seulement, le reste du code l'est chaque semaine, et des mutants survivants y sont connus et non résolus ; `make ci` est la preuve de complétion |
 
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** : boucle de développement, portes de qualité, règles de licence des contributions.

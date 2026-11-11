@@ -5,6 +5,7 @@
 - **Jalons concernés** : spike rmcp (avant la conception des ports de M3 ; 00 §11.1), M4 (stdio, deux ères), M7 (resources, prompts, completions), M8 (HTTP)
 - **Questions liées** : Q7 (versions legacy servies), Q8 (`ttlMs`/`cacheScope`), Q4 (HTTP partagé), Q14 (langues) ; propositions adoptées par défaut, à confirmer (00 §13). Spikes V-28 et V-29 (avant M3) ; V-34 et V-35 en M4.
 - Révisé le 2026-10-15 (revue) : alignement sur 00 §6 révision 2 : `supportedVersions` et repli `-32022` (AM-11) ; `PreLifecycleFilter` et écarts du cycle de vie (AM-12) ; ressource introuvable en `-32002` aux pairs legacy (AM-09) ; `subscriptions/listen` (AM-10) ; HTTP de M8 (AM-13) ; contrôle final du 2026-10-16 : rmcp soumis à la règle d'âge (éligible le 2026-10-19) ; version connue non servie dans l'en-tête HTTP et débit des invocations (00 §6). Réconcilié le 2026-10-16 avec le livré (M0-M1) : le spike de compilation, non livré en M0, est reporté avant la conception des ports de M3 (00 §11.1).
+- Révisé le 2026-11-11 ([ADR-0026](0026-montee-de-rmcp-3-9-0.md), correctif de sécurité) : épinglage porté de `=3.5.1` à `=3.9.0` pour `rmcp` et `rmcp-macros` ; le reste de la décision (politique d'épinglage exact, dual-era, ères servies) est inchangé. Le titre, la date et le corps ci-dessous décrivent la décision d'origine : les numéros de ligne du code de `rmcp` qui y sont cités sont ceux de 3.5.1, non relus sur 3.9.0.
 
 ## Contexte
 

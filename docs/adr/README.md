@@ -46,12 +46,12 @@ Exception datée : lors de la réconciliation du 2026-10-16 (décisions C1 à C7
 
 ## 3. Conventions
 
-- Fichier `docs/adr/NNNN-titre-en-kebab-case.md`, numéro sur 4 chiffres. Les ADR 0001 et 0002 ont été livrés avec M0 ; ce plan crée les ADR 0003 à 0016 (0015 et 0016 sont les ex-0001 et ex-0002 du plan, renumérotés le 2026-10-16) ; la numérotation continue à **0019** (0017 : réessais sans `backon`, plan 2c ; 0018 : dépendances de la fin du projet ; 0019 : `DilaCorpus`, M9) et un numéro n'est **jamais** réutilisé (06 §13.2).
+- Fichier `docs/adr/NNNN-titre-en-kebab-case.md`, numéro sur 4 chiffres. Les ADR 0001 et 0002 ont été livrés avec M0 ; ce plan crée les ADR 0003 à 0016 (0015 et 0016 sont les ex-0001 et ex-0002 du plan, renumérotés le 2026-10-16) ; la numérotation continue à **0019** (0017 : réessais sans `backon`, plan 2c ; 0018 : dépendances de la fin du projet ; 0019 : `DilaCorpus`, M9), puis 0020 à 0024 (correctifs 1.0.1 à 1.1.1) et 0026 (montée de `rmcp`), et un numéro n'est **jamais** réutilisé (06 §13.2).
 - Langue : français ; identifiants techniques tels quels.
 - Longueur : 40 à 120 lignes. Un ADR est court ; le détail est dans le plan, vers lequel il renvoie.
 - Sources : chaque fait non trivial est sourcé, par exemple (recherche 03 §4), (référence `citations.py:309`), (fixture `consult_juri_cetat.json`) ou une URL. Les défauts de la référence sont cités `D-01…D-47` ([recherche 02](../recherche/02-defauts.md)), les points de parité `P-xxx` et les écarts `E-xx` ([recherche 01](../recherche/01-parite.md)).
 - Ce qui n'est pas vérifié est marqué **NON VÉRIFIÉ** et suivi d'une étiquette `[V-xx · étiquette]`. Les étiquettes sont reprises dans le registre V-xx de [09-risques-et-questions.md](../plan/09-risques-et-questions.md). Un ADR emploie l'étiquette de référence, jamais un alias (09 §2.1, index §2.19) ; le marqueur prend la forme finale de 09 §2.19.
-- Les versions de crates citées (par exemple moka 0.12.16, fs4 1.1, chrono-tz 0.10.4) sont des **versions de référence** relevées les 2026-10-15 et 2026-10-16, pas des planchers : `[workspace.dependencies]` écrit l'exigence au niveau mineur, sauf `rmcp` et `rmcp-macros`, épinglés `"=3.5.1"`, et le verrou retient la plus haute version éligible à la règle d'âge (00 §2).
+- Les versions de crates citées (par exemple moka 0.12.16, fs4 1.1, chrono-tz 0.10.4) sont des **versions de référence** relevées les 2026-10-15 et 2026-10-16, pas des planchers : `[workspace.dependencies]` écrit l'exigence au niveau mineur, sauf `rmcp` et `rmcp-macros`, épinglés exactement (`"=3.5.1"` à l'origine, `"=3.9.0"` depuis ADR-0026), et le verrou retient la plus haute version éligible à la règle d'âge (00 §2).
 - Tout extrait de code Rust est « non compilé, à valider au jalon qui l'implémente ».
 
 ## 4. Modèle
@@ -93,7 +93,7 @@ Toutes les questions de la colonne « Questions » sont adoptées par défaut et
 |---|---|---|---|---|---|
 | [ADR-0001](0001-architecture-hexagonale.md) | Architecture hexagonale en workspace de crates | **Remplacé par ADR-0016** | M0 (livré) | — | [02-architecture](../plan/02-architecture.md) |
 | [ADR-0002](0002-portes-qualite.md) | Tests unitaires, couverture et mutation au maximum | Accepté | M0, tous | — | [00-decisions](../plan/00-decisions.md) §10, [06-qualite](../plan/06-qualite.md) |
-| [ADR-0003](0003-mcp-2026-07-28-dual-era-rmcp.md) | MCP 2026-07-28 en dual-era avec `rmcp =3.5.1` | Accepté (révisé) | spike rmcp, M4, M7, M8 | Q4, Q7, Q8, Q14 | [annexe D](../plan/annexes/D-mcp-2026-07-28.md), [05-outils-mcp](../plan/05-outils-mcp.md) |
+| [ADR-0003](0003-mcp-2026-07-28-dual-era-rmcp.md) | MCP 2026-07-28 en dual-era avec `rmcp =3.5.1` | Accepté (révisé ; épinglage `=3.9.0` depuis ADR-0026) | spike rmcp, M4, M7, M8 | Q4, Q7, Q8, Q14 | [annexe D](../plan/annexes/D-mcp-2026-07-28.md), [05-outils-mcp](../plan/05-outils-mcp.md) |
 | [ADR-0004](0004-piste-puis-dila.md) | PISTE d'abord, DILA ensuite derrière le même port | Accepté (révisé) | M2, M9 | Q3, Q6, Q15 | [04-adapter-piste](../plan/04-adapter-piste.md), [annexe C](../plan/annexes/C-api-legifrance.md) |
 | [ADR-0005](0005-pas-de-configuration-distante.md) | Aucune configuration distante ni télémétrie | Accepté (révisé) | M2, M4 | — | [02-architecture](../plan/02-architecture.md) §8.2, [08-distribution](../plan/08-distribution.md) §1.4 |
 | [ADR-0006](0006-sortie-compacte-retour-progressif.md) | Sortie compacte via `structuredContent` et retour progressif | Accepté (révisé) | M4, M5 | Q11 | [05-outils-mcp](../plan/05-outils-mcp.md) §1, §6 |
@@ -115,8 +115,9 @@ Toutes les questions de la colonne « Questions » sont adoptées par défaut et
 | [ADR-0022](0022-dispositif-cnil-et-seuil-de-similarite.md) | Règle de dispositif de la CNIL et seuil de similarité de `fr_diff_article` | Accepté (2026-11-02, fusion de la PR #63) | 1.1.0 | D-09, D-06 (plan de correction) | [03-domaine](../plan/03-domaine.md) §7.9, [05-outils-mcp](../plan/05-outils-mcp.md) §5.12, [00-decisions](../plan/00-decisions.md) §14 (AM-74, AM-75) |
 | [ADR-0023](0023-article-entier-et-plafond-tools-list.md) | Article entier jusqu'à 2 000 caractères en mode résumé et plafond de `tools/list` de la 1.1.0 | Accepté (2026-11-02, fusion de la PR #63 ; recalcul du plafond confirmé par le propriétaire à l'acceptation du plan 1.1.1) | 1.1.0 | Q20 (décidée : B), Q27 (décidée : A) | [03-domaine](../plan/03-domaine.md) §7.9, [05-outils-mcp](../plan/05-outils-mcp.md) §5.3, §6.6, [00-decisions](../plan/00-decisions.md) §14 (AM-63, AM-72, AM-73) |
 | [ADR-0024](0024-correctifs-1-1-1.md) | Correctifs de la 1.1.1 et rejeu de non-régression en production | **Accepté** (AM-88 le 2026-11-03, AM-78 à AM-87 le 2026-11-04) | 1.1.1 | Q3 | [00-decisions](../plan/00-decisions.md) §10, §14 (AM-88) |
+| [ADR-0026](0026-montee-de-rmcp-3-9-0.md) | Montée de rmcp à 3.9.0 (correctif de sécurité ; révise l'épinglage d'ADR-0003) | **Accepté** (2026-11-11) | 1.1.1 | — | [00-decisions](../plan/00-decisions.md) §2, §6, §14 (AM-90), [annexe D](../plan/annexes/D-mcp-2026-07-28.md) §9 |
 
-Prochain numéro libre : **0024**. Un numéro n'est jamais réutilisé : les ex-0001 et ex-0002 du plan ont été renumérotés 0015 et 0016 parce que 0001 et 0002 étaient déjà livrés.
+Prochain numéro libre : **0027**. **0025 est réservé** (et AM-89 aussi, côté 00 §14) par la branche locale `docs/debit-rejeux-1.1.2` (rejeux de production accélérés, prévus en 1.1.2), non fusionnée : ne pas l'utiliser. Un numéro n'est jamais réutilisé : les ex-0001 et ex-0002 du plan ont été renumérotés 0015 et 0016 parce que 0001 et 0002 étaient déjà livrés.
 
 Conditions d'acceptation des ADR proposés :
 

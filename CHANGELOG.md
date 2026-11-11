@@ -72,6 +72,14 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 - Chaîne de sortie : la note d'absence d'un article (`not_found` en production, `unresolvable` en bac à sable) de `fr_resolve` et de `fr_verify_citations` change (voir Fixed, U01) ; une citation datée d'un article de LODA ou d'un code ancien passe de `not_found` / `candidates: []` à `verified` (ou `invalid` avec l'écart de numéro).
 - Chaîne de sortie : un article de loi, de décret ou d'ordonnance qui figure au sommaire sans version en vigueur passe de `not_found` (`candidates: []` pour `fr_resolve`) à `verified` de confiance moyenne (un candidat `medium`) avec la note `ArticleWithoutVersion` (U10), et la note d'absence d'un article de texte nomme la loi par son titre. Surface MCP inchangée : aucune description, aucun schéma, aucun champ ni valeur d'énumération ajouté ; `tests/tools.lock.json` inchangé.
 
+### Security
+
+- Dépendance `rmcp` (et `rmcp-macros`) : de 3.5.1 à 3.9.0, qui corrige trois avis RustSec publiés contre 3.5.1 : RUSTSEC-2026-0457 (client OAuth, corrigé en 3.7.0), RUSTSEC-2026-0461 (cache de schémas d'outils sans borne du transport Streamable HTTP serveur, corrigé en 3.6.0) et RUSTSEC-2026-0462 (corps de réponse sans borne des clients Streamable HTTP, corrigé en 3.9.0). Les binaires publiés de la 1.1.0 ne compilent pas le code visé ; le mode HTTP local (construction depuis les sources avec la feature `http`) était visé par RUSTSEC-2026-0461. Surface des outils inchangée (`tests/tools.lock.json` inchangé). Exception `security-fix` à la règle d'âge de 14 jours : 3.9.0 est publiée le 2026-11-05 (ADR-0026, AM-90).
+
+### Protocol
+
+- `rmcp` et `rmcp-macros` : épinglage exact porté de `=3.5.1` à `=3.9.0` (ADR-0026). Versions MCP servies, ères, descripteurs et instructions inchangés : le verrou `tests/tools.lock.json` est identique et les transcriptions JSON-RPC du dépôt passent sans modification. Changement de comportement relevé à la lecture de rmcp (annexe D §9.5) : sur stdio, une ligne de plus de 16 Mio est jetée sans réponse, alors que 3.5.1 n'avait pas de plafond.
+
 ### Documentation
 
 Corrections de phrases fausses ou trop fortes des sections `[1.0.1]` et `[1.1.0]`, relevées par le test de bout en bout de la 1.1.0 en production (2026-11-02). Ces deux sections restent telles que publiées ; le contrat (`docs/plan/05-outils-mcp.md`) est corrigé. Aucun code, aucun descripteur ne change.

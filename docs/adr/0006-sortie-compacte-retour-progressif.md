@@ -29,7 +29,7 @@
 1. **Le `structuredContent` EST la réponse compacte** (00 §6) :
    - champs `None` omis (`skip_serializing_if = "Option::is_none"`) ;
    - listes optionnelles vides omises ; les listes principales (`hits`, `toc`, `passages`…) restent toujours présentes ;
-   - tout champ non-`Option` omis conditionnellement (liste vide, booléen par défaut) porte `#[serde(default, skip_serializing_if = …)]` : sans `default`, schemars le laisse dans `required`, car rmcp génère l'`outputSchema` en contrat `Deserialize`, et le `structuredContent` qui l'omet ne serait plus conforme au schéma annoncé (05 §1.4 règle 1 ; 02 §3.6) ;
+   - tout champ non-`Option` omis conditionnellement (liste vide, booléen par défaut) porte `#[serde(default, skip_serializing_if = …)]` : sans `default`, schemars le laisse dans `required`, car rmcp génère l'`outputSchema` en contrat `Deserialize`, et le `structuredContent` qui l'omet ne serait plus conforme au schéma annoncé (05 §1.4 règle 1 ; 02 §3.6) ; note du 2026-11-11 : ce motif vaut pour rmcp 3.5.1 ; depuis rmcp 3.9.0 (ADR-0026) l'`outputSchema` est généré en contrat de sérialisation, la règle est gardée et les descripteurs publiés sont inchangés (annexe D §9.5) ;
    - aucun doublon : `eli_uri` disparaît ([ADR-0009](0009-contrat-de-citation-v2.md)) et `title` est omis quand `citation` le contient ;
    - aucune note répétée : elles vont dans les instructions et dans `fr_coverage` ;
    - racine toujours objet.

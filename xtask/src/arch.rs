@@ -29,7 +29,7 @@
 //!   `", "`), en plus de R2 pour `lf-application` (règles distinctes, pas de
 //!   dédoublonnage) ; `NEVER_RENAMED` (`rmcp`) interdit en outre tout
 //!   renommage dans le manifeste, `{membre} must not rename rmcp` ; `PINNED`
-//!   (`rmcp`, `rmcp-macros`) exige l'épinglage exact `=3.5.1`, de tout kind,
+//!   (`rmcp`, `rmcp-macros`) exige l'épinglage exact `=3.9.0`, de tout kind,
 //!   `{membre} must pin {dep} to {exigence} (found {lue})` (T-M4-15) ;
 //! - R7 : aucun membre ne dépend directement de `async-trait` (ADR-0012) ;
 //! - R8 : en dépendance de développement, `lf-domain` et `lf-application`
@@ -165,7 +165,7 @@ const NEVER_RENAMED: [&str; 1] = ["rmcp"];
 /// Crates épinglés exactement (R6, T-M4-15) : `(crate, exigence)`. `rmcp` déclare une exigence
 /// caret sur `rmcp-macros` : sans épinglage direct des deux, un `cargo update` pourrait les
 /// désassortir (02 §3.0.1). Une montée passe par un ADR et par cette table.
-const PINNED: [(&str, &str); 2] = [("rmcp", "=3.5.1"), ("rmcp-macros", "=3.5.1")];
+const PINNED: [(&str, &str); 2] = [("rmcp", "=3.9.0"), ("rmcp-macros", "=3.9.0")];
 
 /// Portes d'un crate confiné, `None` s'il ne l'est pas.
 fn doors(dep: &str) -> Option<&'static [&'static str]> {
@@ -1567,21 +1567,22 @@ mod tests {
                 requiring(pkg("lf-adapter-mcp", &["lf-application", "rmcp"]), requirements);
             [pkg("lf-domain", &[]), package]
         };
-        // Les deux épinglés `=3.5.1` : aucune violation (les autres exigences sont libres).
-        let pinned = [("rmcp", "=3.5.1"), ("rmcp-macros", "=3.5.1"), ("schemars", "^1.2")];
+        // Les deux épinglés `=3.9.0` : aucune violation (les autres exigences sont libres).
+        let pinned = [("rmcp", "=3.9.0"), ("rmcp-macros", "=3.9.0"), ("schemars", "^1.2")];
         assert_eq!(violations(&mcp(&pinned)), Vec::<String>::new());
         // Exigence caret, plancher, autre version exacte ou intervalle : refusée, pour chacun.
         for (dep, found) in [
-            ("rmcp", "^3.5.1"),
-            ("rmcp", ">=3.5.1"),
+            ("rmcp", "^3.9.0"),
+            ("rmcp", ">=3.9.0"),
+            ("rmcp", "=3.5.1"),
             ("rmcp", "=3.5.2"),
             ("rmcp-macros", "^3.5"),
-            ("rmcp-macros", "=3.5.1, <4"),
+            ("rmcp-macros", "=3.9.0, <4"),
             ("rmcp", "*"),
         ] {
             assert_eq!(
                 violations(&mcp(&[(dep, found)])),
-                [format!("lf-adapter-mcp must pin {dep} to =3.5.1 (found {found})")],
+                [format!("lf-adapter-mcp must pin {dep} to =3.9.0 (found {found})")],
                 "{dep} {found}"
             );
         }
@@ -1589,8 +1590,8 @@ mod tests {
         assert_eq!(
             violations(&mcp(&[("rmcp", "^3"), ("rmcp-macros", "^3")])),
             [
-                "lf-adapter-mcp must pin rmcp to =3.5.1 (found ^3)",
-                "lf-adapter-mcp must pin rmcp-macros to =3.5.1 (found ^3)",
+                "lf-adapter-mcp must pin rmcp to =3.9.0 (found ^3)",
+                "lf-adapter-mcp must pin rmcp-macros to =3.9.0 (found ^3)",
             ]
         );
         // Lue dans `cargo metadata`, quel que soit le kind : un `rmcp` de développement non
@@ -1607,7 +1608,7 @@ mod tests {
                     "id": "b", "name": "lf-adapter-mcp", "version": "0.0.0", "edition": "2024",
                     "manifest_path": "/w/lf-adapter-mcp/Cargo.toml", "targets": [],
                     "dependencies": [
-                        { "name": "rmcp", "kind": null, "req": "=3.5.1" },
+                        { "name": "rmcp", "kind": null, "req": "=3.9.0" },
                         { "name": "rmcp", "kind": "dev", "req": "^3.5", "features": ["client"] }
                     ]
                 }
@@ -1618,7 +1619,7 @@ mod tests {
             .into_iter()
             .map(|p| Package { lints_workspace: true, ..p })
             .collect();
-        assert_eq!(violations(&graph), ["lf-adapter-mcp must pin rmcp to =3.5.1 (found ^3.5)"]);
+        assert_eq!(violations(&graph), ["lf-adapter-mcp must pin rmcp to =3.9.0 (found ^3.5)"]);
     }
 
     #[test]
