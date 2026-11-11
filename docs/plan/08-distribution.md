@@ -1276,7 +1276,7 @@ Les CGU générales du portail PISTE (AIFE) n'ont pas été lues : **NON VÉRIFI
 
 **v1.0.0 (M9)**
 
-- [ ] Fonctionnalité `dila` dans les binaires publiés ; taille remesurée ; mode de téléchargement des dumps tel que tranché par 02 §3.9 reporté au §1.4 (par défaut, script hors binaire vers `echanges.dila.gouv.fr`, le binaire ne lisant qu'un répertoire local) ; volume d'index documenté pour l'image ; attribution Licence Ouverte des dumps ([V-189 · dila-licence-par-fonds]).
+- [ ] Fonctionnalité `dila` dans les binaires publiés ; taille remesurée ; mode de téléchargement des dumps tel que tranché par 02 §3.9 reporté au §1.4 (par défaut, script hors binaire vers `echanges.dila.gouv.fr`, le binaire ne lisant qu'un répertoire local) ; volume d'index documenté pour l'image ; mise à jour de l'index : un index bâti par une autre version de l'analyseur est refusé et à reconstruire (README « Mode hors ligne », ADR-0027) ; attribution Licence Ouverte des dumps ([V-189 · dila-licence-par-fonds]).
 - [ ] Réexamen du canal Cargo (00 §12, Q13) : publication des crates sur crates.io ou maintien de `cargo install --git` ; si publication, job `publish-crates`, entrée `cargo` et jeton `mcp-name:` (§6.4), après [V-207 · cargo-publish-workspace], [V-208 · crates-io-limites-publication], [V-209 · crates-io-trusted-publishing] et [V-172 · registre-mcp-cargo].
 
 ---

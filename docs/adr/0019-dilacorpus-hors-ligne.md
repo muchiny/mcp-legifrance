@@ -4,6 +4,7 @@
 - **Date** : 2026-10-29
 - **Jalons concernés** : M9 (`lf-adapter-dila`, tâches T-M9-02 et T-M9-03), câblage dans `lf-app`
 - **Questions liées** : Q6 (accès réseau à `echanges.dila.gouv.fr`, proposition adoptée par défaut, à confirmer)
+- **Note du 2026-11-11** (sans réécrire ce qui précède) : complété par [ADR-0027](0027-montee-de-tantivy-0-27-0.md). Un index bâti par une autre version de l'analyseur de textes est refusé à l'ouverture (marque de version dans l'index) ; la source locale est alors indisponible, avec un texte qui demande de reconstruire l'index, comme pour la décision 8 : jamais de repli sur PISTE. Le texte de la décision 2 sur une lecture d'index en échec reste vrai pour ce cas-là.
 - Complète [ADR-0004](0004-piste-puis-dila.md) (PISTE d'abord, DILA derrière le même port) et [ADR-0018](0018-dependances-fin-de-projet.md) (dépendances, `fs4` en deux versions). Ne modifie aucune décision de [00-decisions.md](../plan/00-decisions.md) : elle consigne ce que M9 a livré de 00 §5 (« M9 : LEGI seul »).
 
 ## Contexte
