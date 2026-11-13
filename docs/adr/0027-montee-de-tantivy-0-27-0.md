@@ -1,9 +1,9 @@
 # ADR-0027 — Montée de tantivy à 0.27.0 et marque de version de l'index
 
-- **Statut** : **Proposé** — accepté à la fusion de la PR qui l'applique (la conception a été retenue sous sa forme minimale, voir « Alternatives »)
+- **Statut** : **Accepté** (2026-11-11, à la fusion de la PR #80 ; la conception a été retenue sous sa forme minimale, voir « Alternatives »)
 - **Date** : 2026-11-11
-- **Jalons concernés** : M9 (`lf-adapter-dila`), version qui suit la 1.1.1 (numéro non décidé par le propriétaire)
-- **Questions liées** : — (le numéro de la version qui porte ce changement reste à décider)
+- **Jalons concernés** : M9 (`lf-adapter-dila`), 1.2.0 (numéro décidé par le propriétaire le 2026-11-13)
+- **Questions liées** : —
 - Amendements : AM-91 (00 §14). Révise le « huit `skip` » d'[ADR-0018](0018-dependances-fin-de-projet.md) §5 (dix depuis cette montée) et complète la décision 8 d'[ADR-0019](0019-dilacorpus-hors-ligne.md). Les numéros ADR-0025 et AM-89 restent réservés par la branche locale du débit des rejeux ; 0026 et AM-90 sont ceux de la montée de `rmcp`.
 
 ## Contexte
@@ -33,7 +33,7 @@
 4. **Serveur** : un index refusé rend la source locale indisponible (jamais de repli sur PISTE, ADR-0019 décision 8), avec le texte fixe, en anglais, sans chemin ni numéro de version : « the local DILA index was built by another version of this server and must be rebuilt with mcp-legifrance build-dila-index (see the README, offline mode) ». La cause détaillée va au journal (stderr). Les autres refus (absent, vide, illisible) gardent leurs textes.
 5. **`build-dila-index`** ouvre l'index par `DilaCorpus::open` : sur un index refusé, il s'arrête avec le message « cannot open the local DILA index: the local DILA index was built by another version of this server's text analyser, or by one that did not record it, and must be rebuilt: remove the index directory, then run build-dila-index again », code de sortie 1, **sans rien supprimer, reconstruire ni écrire**. L'utilisateur supprime lui-même le dossier d'index (le registre `registry.tsv` y est : il part avec lui) puis relance ; ou il pointe `--index` vers un dossier neuf et change `LF_DILA_DIR`. Pas d'option `--rebuild`.
 6. **Règle d'entretien** (commentaire de `INDEX_STAMP`) : tout changement qui modifie les jetons de `french_analyzer` (racinisateur, mots vides, filtre, découpage) incrémente la marque. Les tests `french_stems_are_pinned` (56 mots racinisés, racines mesurées avec 0.27.0) et `french_stop_words_are_pinned` (21 mots vides, dont « qu'il » : mesuré en 0.27.0, sans jeton) font rougir la CI quand l'une de ces racines change ou qu'un de ces mots vides produit un jeton. Les 57 mots de la mesure du contexte sont ces 56 mots plus « qu'il », mot vide.
-7. **Le numéro de la version qui porte ce changement n'est pas décidé.** Le CHANGELOG l'écrit sous `[Unreleased]` ; les documents disent « la version qui suit la 1.1.1 ».
+7. **Version 1.2.0** (numéro décidé par le propriétaire le 2026-11-13 ; à la fusion de la PR #80, il ne l'était pas : le CHANGELOG portait l'entrée sous `[Unreleased]` et les documents disaient « la version qui suit la 1.1.1 »). Le numéro mineur signale la reconstruction demandée aux utilisateurs du mode hors ligne ; la surface des outils ne change pas.
 8. **Hors périmètre, suites possibles** (non faites) : lecture de la marque par `check-config` ; option `--rebuild` ; empreinte calculée à l'exécution à la place d'une marque entretenue à la main ; fixture binaire d'un index 0.26 ; épinglage par test des versions de `tantivy` et de `frostem` ; rétablissement de `columnar-zstd-compression` ; protection des binaires 1.1.x déjà publiés (impossible : ils ignorent la marque).
 
 ## Conséquences

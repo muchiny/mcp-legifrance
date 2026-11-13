@@ -15,9 +15,19 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
+Rien depuis `1.2.0`.
+
+## [1.2.0] - 2026-11-13
+
+Montée de `tantivy` à 0.27.0 pour l'index local DILA (mode hors ligne), avec une marque de version de l'index (PR #80). **Les utilisateurs du mode hors ligne doivent reconstruire leur index** ; ceux qui interrogent PISTE ne sont pas touchés. Aucun outil, paramètre, champ ni valeur d'énumération nouveau : `lock-descriptors --compare v1.1.1` répond « no surface change ». Le numéro mineur signale la reconstruction demandée, pas un ajout à la surface des outils.
+
 ### Changed
 
-- Index local DILA (feature `dila`, incluse dans les binaires publiés) : `tantivy` passe de 0.26.2 à 0.27.0, dont le racinisateur français change (`frostem`, Snowball récent, à la place de `rust-stemmers`) : sur 57 mots mesurés, 7 changent de racine (`française` et `francaise` : `francais` devient `franc`, ce qui les rapproche de `français` ; `mauvais` : `mauv` devient `mauvais` ; `niais` : `ni` devient `niais` ; `jaloux` : `jalou` ; `époux` : `epou` ; `portugaise` : `portug`). **Il faut reconstruire l'index** : l'index porte désormais une marque de version de l'analyseur (`INDEX_STAMP`, écrite à chaque commit dans `meta.json`), et un index non vide sans marque, ou d'une autre marque, est refusé à l'ouverture. Le serveur rend alors la source locale indisponible (jamais de repli sur PISTE) avec le texte « the local DILA index was built by another version of this server and must be rebuilt with mcp-legifrance build-dila-index (see the README, offline mode) » ; `build-dila-index` s'arrête (code 1) avec « cannot open the local DILA index: the local DILA index was built by another version of this server's text analyser, or by one that did not record it, and must be rebuilt: remove the index directory, then run build-dila-index again ». Rien n'est supprimé ni reconstruit automatiquement : supprimez le dossier d'index en entier puis relancez `build-dila-index` avec les mêmes archives (README, « Mode hors ligne »). Un index vide sans marque s'ouvre. Surface MCP inchangée (verrou des descripteurs inchangé). Les utilisateurs de PISTE ne sont pas touchés. Ne repassez pas à une version antérieure sur un index reconstruit (ADR-0027, AM-91). Le numéro de la version qui porte ce changement n'est pas décidé.
+- Index local DILA (feature `dila`, incluse dans les binaires publiés) : `tantivy` passe de 0.26.2 à 0.27.0, dont le racinisateur français change (`frostem`, Snowball récent, à la place de `rust-stemmers`) : sur 57 mots mesurés, 7 changent de racine (`française` et `francaise` : `francais` devient `franc`, ce qui les rapproche de `français` ; `mauvais` : `mauv` devient `mauvais` ; `niais` : `ni` devient `niais` ; `jaloux` : `jalou` ; `époux` : `epou` ; `portugaise` : `portug`). **Il faut reconstruire l'index** : l'index porte désormais une marque de version de l'analyseur (`INDEX_STAMP`, écrite à chaque commit dans `meta.json`), et un index non vide sans marque, ou d'une autre marque, est refusé à l'ouverture. Le serveur rend alors la source locale indisponible (jamais de repli sur PISTE) avec le texte « the local DILA index was built by another version of this server and must be rebuilt with mcp-legifrance build-dila-index (see the README, offline mode) » ; `build-dila-index` s'arrête (code 1) avec « cannot open the local DILA index: the local DILA index was built by another version of this server's text analyser, or by one that did not record it, and must be rebuilt: remove the index directory, then run build-dila-index again ». Rien n'est supprimé ni reconstruit automatiquement : supprimez le dossier d'index en entier puis relancez `build-dila-index` avec les mêmes archives (README, « Mode hors ligne »). Un index vide sans marque s'ouvre. Surface MCP inchangée (verrou des descripteurs inchangé). Les utilisateurs de PISTE ne sont pas touchés. Ne repassez pas à une version antérieure sur un index reconstruit (ADR-0027, AM-91).
+
+### Documentation
+
+- La section `[1.1.1]` annonce des suites sous deux numéros de version que la 1.2.0 ne tient pas. Sont notées « 1.2.0 » de nouvelles formes d'entrée : la lettre minuscule isolée après un numéro d'article (« art. 757 b », garantie 14, n° 6), les formes CNIL non lues (U07), « N° de pourvoi : » avec deux-points (garantie 14, n° 7) et les dates à tirets hors jurisprudence (garantie 14, n° 8). Sont notés « reportée en 1.1.2 » deux défauts : `fr_diff_article` sur un article de texte non codifié à version unique (U02) et le zéro de tête d'un numéro de RG (U05). La 1.2.0 ne porte que la montée de `tantivy` et il n'y a pas eu de 1.1.2 : aucune de ces limites n'est levée, elles restent telles que la section `[1.1.1]` les décrit. Elles sont reportées à une version ultérieure, dont le numéro n'est pas arrêté. Les mêmes mentions dans ADR-0024, dans l'annexe B-citations et dans `docs/plan/09-risques-et-questions.md` (qui ajoute la partie C3 d'U04) se lisent de la même façon.
 
 ## [1.1.1] - 2026-11-11
 
@@ -422,7 +432,8 @@ Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0
 
 - Domaine seulement, visible par un client à partir de M4 : citation du Conseil constitutionnel sans « - objet » (P-035), plus de `eli_uri` (P-031, P-039), sentinelle de date omise (P-030).
 
-[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.0.0...v1.0.1
