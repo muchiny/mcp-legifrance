@@ -46,7 +46,7 @@ Exception datée : lors de la réconciliation du 2026-10-16 (décisions C1 à C7
 
 ## 3. Conventions
 
-- Fichier `docs/adr/NNNN-titre-en-kebab-case.md`, numéro sur 4 chiffres. Les ADR 0001 et 0002 ont été livrés avec M0 ; ce plan crée les ADR 0003 à 0016 (0015 et 0016 sont les ex-0001 et ex-0002 du plan, renumérotés le 2026-10-16) ; la numérotation continue à **0019** (0017 : réessais sans `backon`, plan 2c ; 0018 : dépendances de la fin du projet ; 0019 : `DilaCorpus`, M9), puis 0020 à 0024 (correctifs 1.0.1 à 1.1.1) 0026 (montée de `rmcp`) et 0027 (montée de `tantivy` et marque de version de l'index), et un numéro n'est **jamais** réutilisé (06 §13.2).
+- Fichier `docs/adr/NNNN-titre-en-kebab-case.md`, numéro sur 4 chiffres. Les ADR 0001 et 0002 ont été livrés avec M0 ; ce plan crée les ADR 0003 à 0016 (0015 et 0016 sont les ex-0001 et ex-0002 du plan, renumérotés le 2026-10-16) ; la numérotation continue à **0019** (0017 : réessais sans `backon`, plan 2c ; 0018 : dépendances de la fin du projet ; 0019 : `DilaCorpus`, M9), puis 0020 à 0024 (correctifs 1.0.1 à 1.1.1) 0026 (montée de `rmcp`), 0027 (montée de `tantivy` et marque de version de l'index) et 0028 (BOFiP, port `TaxDoctrine`), et un numéro n'est **jamais** réutilisé (06 §13.2).
 - Langue : français ; identifiants techniques tels quels.
 - Longueur : 40 à 120 lignes. Un ADR est court ; le détail est dans le plan, vers lequel il renvoie.
 - Sources : chaque fait non trivial est sourcé, par exemple (recherche 03 §4), (référence `citations.py:309`), (fixture `consult_juri_cetat.json`) ou une URL. Les défauts de la référence sont cités `D-01…D-47` ([recherche 02](../recherche/02-defauts.md)), les points de parité `P-xxx` et les écarts `E-xx` ([recherche 01](../recherche/01-parite.md)).
@@ -117,8 +117,9 @@ Toutes les questions de la colonne « Questions » sont adoptées par défaut et
 | [ADR-0024](0024-correctifs-1-1-1.md) | Correctifs de la 1.1.1 et rejeu de non-régression en production | **Accepté** (AM-88 le 2026-11-03, AM-78 à AM-87 le 2026-11-04) | 1.1.1 | Q3 | [00-decisions](../plan/00-decisions.md) §10, §14 (AM-88) |
 | [ADR-0026](0026-montee-de-rmcp-3-9-0.md) | Montée de rmcp à 3.9.0 (correctif de sécurité ; révise l'épinglage d'ADR-0003) | **Accepté** (2026-11-11) | 1.1.1 | — | [00-decisions](../plan/00-decisions.md) §2, §6, §14 (AM-90), [annexe D](../plan/annexes/D-mcp-2026-07-28.md) §9 |
 | [ADR-0027](0027-montee-de-tantivy-0-27-0.md) | Montée de tantivy à 0.27.0 et marque de version de l'index DILA (refus d'un index d'un autre analyseur) | **Accepté** (2026-11-11) | M9, 1.2.0 | — | [00-decisions](../plan/00-decisions.md) §2, §5, §14 (AM-91), [ADR-0019](0019-dilacorpus-hors-ligne.md), [02-architecture](../plan/02-architecture.md) §8.5 |
+| [ADR-0028](0028-bofip-doctrine-fiscale.md) | BOFiP : la doctrine fiscale derrière un port distinct (`TaxDoctrine`), lue en direct sur le jeu ouvert de la DGFiP | **Proposé** (accepté à la fusion de la PR qui le porte ; Q28 à Q31 décidées le 2026-11-15 : A) | version mineure qui suit la 1.2.0 | Q28, Q29, Q30, Q31 | [00-decisions](../plan/00-decisions.md) §1, §2, §3, §7, §14 (AM-92), [ADR-0004](0004-piste-puis-dila.md) décision 7, [09-risques-et-questions](../plan/09-risques-et-questions.md) §2.22 |
 
-Prochain numéro libre : **0028**. **0025 est réservé** (et AM-89 aussi, côté 00 §14) par la branche locale `docs/debit-rejeux-1.1.2` (rejeux de production accélérés, prévus « en 1.1.2 » avant que la 1.2.0 ne suive la 1.1.1 : numéro à revoir), non fusionnée : ne pas l'utiliser. Un numéro n'est jamais réutilisé : les ex-0001 et ex-0002 du plan ont été renumérotés 0015 et 0016 parce que 0001 et 0002 étaient déjà livrés.
+Prochain numéro libre : **0029**. **0025 est réservé** (et AM-89 aussi, côté 00 §14) par la branche locale `docs/debit-rejeux-1.1.2` (rejeux de production accélérés, prévus « en 1.1.2 » avant que la 1.2.0 ne suive la 1.1.1 : numéro à revoir), non fusionnée : ne pas l'utiliser. Un numéro n'est jamais réutilisé : les ex-0001 et ex-0002 du plan ont été renumérotés 0015 et 0016 parce que 0001 et 0002 étaient déjà livrés.
 
 Conditions d'acceptation des ADR proposés :
 
@@ -126,6 +127,7 @@ Conditions d'acceptation des ADR proposés :
 - [ ] **ADR-0017** : acceptation à la fusion de la PR du plan 2c.
 - [ ] **ADR-0018** : acceptation à la fusion de la PR unique du plan fin-du-projet.
 - [x] **ADR-0027** : accepté à la fusion de la PR #80 (2026-11-11) ; version 1.2.0 (numéro décidé par le propriétaire le 2026-11-13).
+- [ ] **ADR-0028** : acceptation à la fusion de la PR qui le porte (avec AM-92 et les textes de 00 §1, §2, §3 et §7) ; Q28 à Q31 décidées par le propriétaire le 2026-11-15 (A pour chacune) ; V-222, V-223 et V-225 à lever avant la livraison du code.
 - [ ] **ADR-0019** : acceptation à la fusion de la PR unique du plan fin-du-projet ; Q6 (réseau de construction de l'index) et V-189 (licence par fonds) restent à confirmer.
 - [x] **ADR-0022** : acceptation à la fusion de la PR 2 de la 1.1.0, #63, le 2026-11-02 (AM-74 et AM-75 avec lui) ; le seuil de similarité reste provisoire côté amendements (condition de réexamen dans l'ADR).
 - [x] **ADR-0023** : acceptation à la fusion de la PR 2 de la 1.1.0, #63, le 2026-11-02 (AM-72 et AM-73 avec lui) ; le propriétaire a confirmé à l'acceptation du plan 1.1.1 (2026-11-02) le recalcul du plafond de `tools/list` (36 500 octets, règle d'AM-63 appliquée à la mesure de 35 424 octets).
@@ -158,6 +160,7 @@ graph LR
     A6 --> A9[0009 citation v2]
     A12 --> A4[0004 PISTE puis DILA]
     A4 --> A19[0019 DilaCorpus]
+    A4 --> A28[0028 BOFiP]
     A11[0011 dates] --> A7
     A5[0005 pas de config distante] --> A13[0013 distribution]
     A8 --> A10

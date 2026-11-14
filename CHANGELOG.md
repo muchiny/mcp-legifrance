@@ -15,7 +15,11 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `1.2.0`.
+Aucun changement de code depuis `1.2.0`.
+
+### Documentation
+
+- ADR-0028 (statut « Proposé ») : le BOFiP, doctrine de l'administration fiscale, sera lu derrière un port distinct (`TaxDoctrine`), en direct sur le jeu ouvert `bofip-vigueur` de la DGFiP, par deux outils nouveaux (`fr_search_bofip`, `fr_get_bofip`). Décision seulement : aucun code, aucun outil, aucun descripteur ne change encore. `docs/plan/00-decisions.md` §1, §2, §3 et §7 portent les textes (AM-92) ; sept points non vérifiés sont ouverts (V-219 à V-225, `docs/plan/09-risques-et-questions.md` §2.22).
 
 ## [1.2.0] - 2026-11-13
 
