@@ -26,7 +26,7 @@ Deux règles de la 1.1.0 modifient des valeurs posées en 00, ce qui exige un AD
 - La règle d'AM-63 s'applique à la mesure **finale** : mesure 35 424 octets, plus 3 % (36 486,72), arrondie à la centaine supérieure : **36 500** octets pour v0.3 (v0.1 : 20 000 et v0.2 : 24 000 inchangés), soit 1 076 octets de marge. La valeur est la même qu'au premier tour de la revue finale (35 395 octets donnaient 36 456,85, donc 36 500).
 - Même valeur dans `descriptor_size_budget` (`crates/lf-adapter-mcp/tests/budgets.rs`) et dans `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`).
 - **Origine des chiffres.** Q27 = A (34 500) est une décision du propriétaire. Le passage à 36 500 est un **recalcul de l'orchestrateur** selon la règle d'AM-63, non une décision du propriétaire : le propriétaire l'a confirmé à l'acceptation du plan 1.1.1 (2026-11-02). Il est à recalculer si la mesure change (mesure plus 3 %, arrondie à la centaine supérieure) aux deux endroits et dans 05 §6.6, 06 §12.2, AM-73 et le CHANGELOG.
-- La limite de 3 500 caractères des instructions ne bouge pas (3 499 mesurés) : une règle courte y figure, la règle complète est dans la description du champ `etat` de `fr_get_text`.
+- La limite de 3 500 caractères des instructions ne bouge pas (3 499 mesurés) : une règle courte y figure, la règle complète est dans la description du champ `etat` de `fr_get_text`. (Référence ajoutée le 2026-11-15 : [ADR-0029](0029-bofip-precisions-apres-mesure.md) porte cette limite à 3 700 à la livraison des outils BOFiP, AM-93.)
 
 ## Conséquences
 

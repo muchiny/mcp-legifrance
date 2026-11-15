@@ -9,6 +9,8 @@
 > **État.** M0 et M1 sont **livrés** (plan 1, `2026-10-15-m0-m1-fondations-domaine.md`, plan retiré : voir [README du plan §3.5](README.md#35-plans-dimplémentation-retirés), PR #2) : leurs tâches `T-M0-xx` et `T-M1-xx` gardent leur identifiant et portent un statut (livrée, livrée en partie, remplacée, reportée). **M2 commence par sa tâche 0** (00 §11.1 : T-M2-24 à T-M2-28). La tête de M2 est livrée par le plan 2a (`2026-10-16-m2a-tete.md`) puis par le plan 2b (`2026-10-21-m2b-application.md` : `SearchQuery` et ses types, `lf-application`, extensions de `check-arch`), puis par le plan 2c (`2026-10-21-m2c-adapter-piste.md` : T-M2-02 et T-M2-28 livrées ; T-M2-01, -03, -04 et -27 en partie), puis par le plan 2d (`2026-10-22-m2d-requetes-dto-erreurs.md` : requêtes `/search` et `PaginationMemo` (T-M2-05, hors branchement), DTO (T-M2-06), classification « introuvable » (T-M2-08) ; T-M2-01 en partie : champs privés et `with_tuning`) ; puis par le plan 2e (`2026-10-23-m2e-domaine-texte-entites.md`, **domaine seul** : `LegalStatus`, `Nor`, `Idcc`, `DocumentId`, `LongText`, lexer HTML partagé, `Snippet`, `OfficialSummary`, entités complètes, 16 fixtures installées) ; puis par le plan 2f (`2026-10-23-m2f-budget-et-mapping.md` : budget de décodage R11, R13, D-24, **mapping pur** `map/` avec ses diagnostics, contrats sur les 16 fixtures) ; puis par le plan 2g (`2026-10-24-m2g-impl-legalcorpus.md` : `impl LegalCorpus`, branchement du décodage et du mapping sous le permis de concurrence, DTO réduits aux champs lus, golden de niveau 1, snapshots, intégrité des fixtures, job `surface`) ; puis par le plan 2h, PR 1 (`2026-10-28-m2h-outils-et-sondes.md` : `record-fixture` (T-M2-11), tests live et `live.yml` (T-M2-12), I-5, intégrité des fixtures enregistrées) ; reste : matrice TLS (propriétaire), réglages de `lf-app` et les sondes T-M2-14 à T-M2-22 (plan 2h, PR 2) ; T-M2-13 passe en M4 (`lf-app` naît en M4). **M3 commence** par le plan 3a (`2026-10-28-m3a-socle-application.md`, socle de l'application : ports d'audit et d'horloge, `ToolCall`, `ToolName`, `AppError`, module `messages`, doublures `test-support`, décorateur `Audited` ; `CorpusError` typé, dont `TooLarge` ; T-M3-01 à T-M3-03 livrées en partie) ; les cas d'usage et la façade suivent au plan 3b, l'audit JSONL, le cache et l'horloge système au plan 3c. Les plans d'implémentation exécutables (retirés) déclinaient ce document jalon par jalon (plan 2 = M2…). Priorité en cas d'incompatibilité (en-tête de 00) : l'exigence de qualité de 00 §10 ; puis le code livré et les décisions C1 à C7 ; puis ce document.
 >
 > **Fin du projet (2026-10-29).** Les jalons M3 à M9 et la Distribution ont été écrits sur une seule branche, `feat/fin-du-projet`, par la PR unique #27 (`2026-10-29-fin-du-projet-parallele.md`, vagues V0 à V4 puis fin F1 à F6), à la version **0.3.0** sans release ni étiquette (D14). État par jalon au §4.3 ; une case n'est cochée que si le livrable existe et que le test nommé (ou son équivalent relu) existe et passe sur les trois OS à la tête `4d97b69` ; les portes de couverture à 100 % et de mutation, rouges à cette tête, ne sont pas comptées (§4.3). Amendements : 00 §14 (AM-50 à AM-66), statuts des vérifications : 09 §2.20.
+>
+> **Jalon MB, BOFiP (2026-11-15).** Ajouté par ADR-0028 et ADR-0029 (AM-92, AM-93) : tâches `T-MB-yy` au §2.11, aucun code livré.
 
 Documents liés : [00-decisions.md](00-decisions.md) (normatif : §11 jalons, §13 questions), [01-existant.md](01-existant.md) (§4.16 : clôture des défauts par jalon), [02-architecture.md](02-architecture.md) (crates, dépendances, ports), [03-domaine.md](03-domaine.md) (§11), [04-adapter-piste.md](04-adapter-piste.md) (§13, §15), [05-outils-mcp.md](05-outils-mcp.md) (§9, §11), [06-qualite.md](06-qualite.md) (§7 CI, §13.4 définition de « terminé », §14), [08-distribution.md](08-distribution.md) (§7, §10), [09-risques-et-questions.md](09-risques-et-questions.md) (§2.18 synthèse par jalon, §3 questions, §5 critères), annexes [A](annexes/A-parite.md), [B](annexes/B-citations.md), [C](annexes/C-api-legifrance.md), [D](annexes/D-mcp-2026-07-28.md), [index des ADR](../adr/README.md).
 
@@ -16,7 +18,7 @@ Documents liés : [00-decisions.md](00-decisions.md) (normatif : §11 jalons, §
 
 0. [Mode d'emploi](#0-mode-demploi)
 1. [Vue d'ensemble](#1-vue-densemble)
-2. [Jalons](#2-jalons) : [M0](#20-m0--fondations-livré-plan-1), [M1](#21-m1--domaine-livré-plan-1), [M2](#22-m2--adapter-piste), [M3](#23-m3--application), [M4](#24-m4--adapter-mcp), [M5 et v0.1.0](#25-m5--économie-de-contexte-et-v010), [M6](#26-m6--citations-v020), [M7](#27-m7--navigation-v030), [M8](#28-m8--http-optionnel-v040), [M9](#29-m9--hors-ligne-v100), [Distribution](#210-distribution-transverse)
+2. [Jalons](#2-jalons) : [M0](#20-m0--fondations-livré-plan-1), [M1](#21-m1--domaine-livré-plan-1), [M2](#22-m2--adapter-piste), [M3](#23-m3--application), [M4](#24-m4--adapter-mcp), [M5 et v0.1.0](#25-m5--économie-de-contexte-et-v010), [M6](#26-m6--citations-v020), [M7](#27-m7--navigation-v030), [M8](#28-m8--http-optionnel-v040), [M9](#29-m9--hors-ligne-v100), [Distribution](#210-distribution-transverse), [MB (BOFiP)](#211-mb--bofip-doctrine-fiscale)
 3. [Ordre conseillé et parallélisation](#3-ordre-conseillé-et-parallélisation)
 4. [Suivi](#4-suivi)
 5. [Sources](#sources)
@@ -38,7 +40,7 @@ Documents liés : [00-decisions.md](00-decisions.md) (normatif : §11 jalons, §
   Où : crate ou fichiers · Livrable : … · Vérification : test nommé ou critère observable · Spéc. : document §x · Taille : S, M ou L · Après : T-…
 ```
 
-- **Identifiant.** `T-Mx-yy` : `x` est le numéro du jalon (0 à 9), `yy` un rang à deux chiffres dans le jalon. Les tâches de la Distribution transverse portent `T-MD-yy` (`x` = D). Le rang n'impose pas l'ordre : la mention « Après » donne les dépendances. Un identifiant n'est jamais réutilisé ni renuméroté (§4.5).
+- **Identifiant.** `T-Mx-yy` : `x` est le numéro du jalon (0 à 9), `yy` un rang à deux chiffres dans le jalon. Les tâches de la Distribution transverse portent `T-MD-yy` (`x` = D), celles du jalon BOFiP `T-MB-yy` (`x` = B, §2.11). Le rang n'impose pas l'ordre : la mention « Après » donne les dépendances. Un identifiant n'est jamais réutilisé ni renuméroté (§4.5).
 - **Taille** (estimation pour une personne ou un agent, hors relecture et hors délais externes : comptes, certificats, réponses aux questions) : **S** ≤ 1 jour ; **M** 2 à 5 jours ; **L** 1 à 2 semaines (au-delà, découper). Les tailles sont recalibrées à la clôture de M0.
 - **Terminé.** Une tâche est terminée quand sa vérification est obtenue **et** que la définition de « terminé » de 00 §10 et de 06 §13.4 est satisfaite : `make ci` vert (fmt, lint, test, doc, arch, deny, machete, cov), `make cov` à 100 % (lignes, régions, fonctions, `--lib`), `make mutants FILE=…` à 0 `MISSED` et 0 `TIMEOUT` sur les fichiers touchés (diff de PR muté en CI ; sur la machine WSL, mutation uniquement par ce `Makefile`), tests sous Linux, macOS et Windows (matrice à partir de M2), rustdoc, sécurité, CHANGELOG, report des points **NON VÉRIFIÉ** dans 09, revue humaine.
 - **Fichiers de test.** Sauf `tests/live.rs` (`#[ignore]`), les tests e2e du binaire et les compléments, les tests nommés ci-dessous vivent dans un `#[cfg(test)] mod tests` du fichier testé (00 §10) : les chemins `tests/*.rs` des champs « Où » sont des emplacements logiques.
@@ -68,6 +70,7 @@ Les questions Q1 à Q15 de 00 §13 portent chacune une proposition adoptée par 
 | M8 HTTP (optionnel) | Streamable HTTP local, puis distant | v0.4.0 | G, K, J | Q4 | **V-42** ; profil partagé : **V-62**, **V-175**, **V-176** | 7 |
 | M9 Hors ligne | `lf-adapter-dila`, sélection d'adapter | **v1.0.0** | D, G | Q6 (DILA), Q13 (réexamen) | **V-180**, **V-185**, **V-186**, **V-187** | 6 |
 | Distribution (transverse) | binaires, signature, MCPB, OCI, registre MCP, `cargo install --git` | dès v0.1.0 | A, W, M, K, R, G | Q1 (avant publication immuable), Q5, Q13 | **V-173** (si certificat, Q5), **V-197**, **V-204** | 15 |
+| MB BOFiP | doctrine fiscale : port `TaxDoctrine`, `lf-adapter-bofip`, `fr_search_bofip`, `fr_get_bofip` (ADR-0028, ADR-0029) | version mineure qui suit la 1.2.0 | G (portail ouvert, sans compte) ; P pour le rejeu de T-MB-44 | Q28 à Q34 décidées | **V-222** (levée), **V-223** et **V-225** (partielles) | 28 |
 
 Versions : SemVer de la surface d'outils de 05 §9.5 (avant 1.0, une rupture ou un ajout fait passer de `0.x` à `0.(x+1).0`). M8 étant optionnel, M9 peut suivre directement v0.3.0. Hors de cette feuille de route : Judilibre (après v0.3.0, V-181 à V-183), fonds JUFI (après v1.0, V-184), canaux supplémentaires (MSI, Homebrew, winget… après v0.1.0, 09 §3.16.3).
 
@@ -1012,6 +1015,118 @@ Les tâches gardent leur identifiant et reçoivent un statut. Bilan : 1 livrée 
 | T-MD-13 | V-212, V-213 |
 | T-MD-15 | V-172, V-207, V-208, V-209 (avec T-M9-05) |
 
+### 2.11 MB — BOFiP (doctrine fiscale)
+
+**Objectif.** Rendre lisible et citable la doctrine fiscale en vigueur (BOFiP) par deux outils, `fr_search_bofip` et `fr_get_bofip`, derrière un port distinct (`TaxDoctrine`), sans rien changer à Légifrance : ni `LegalCorpus`, ni les treize outils en place, ni le format du journal d'audit ([ADR-0028](../adr/0028-bofip-doctrine-fiscale.md), [ADR-0029](../adr/0029-bofip-precisions-apres-mesure.md) ; 00 §1, §2, §3, §6, §7 ; AM-92, AM-93). Version : la mineure qui suit la 1.2.0, numéro à décider par le propriétaire.
+
+**Prérequis.** ADR-0028 accepté (PR #83) et ADR-0029 accepté (T-MB-01) ; Q28 à Q34 décidées (A pour chacune) ; portail ouvert `data.economie.gouv.fr`, sans compte (G). Aucun appel à PISTE, sauf le rejeu de T-MB-44 (P), sur accord du propriétaire donné à ce moment-là et aux règles d'AM-88.
+
+**Garanties de non-régression** (chacune a sa preuve ; une garantie rompue arrête le travail) :
+
+- **G0** : `make ci` vert sur `main` avant de commencer (T-MB-05).
+- **G1** : les 13 descripteurs existants ne changent pas : même `sha256` dans `tests/tools.lock.json` avant et après.
+- **G1 bis** : les réponses de 12 outils ne changent pas (parité et snapshots) ; celle de `fr_coverage` change de façon bornée : famille `BOFIP`, FR-009, FR-102, FR-104, FR-106, FR-107, rien d'autre (05 §5.8).
+- **G2** : aucun fichier de `lf-adapter-piste`, `lf-adapter-dila` ni `lf-adapter-cache` n'est modifié.
+- **G3** : les instructions v0.1 et v0.2 sont identiques à l'octet ; la v0.3 gagne une ligne (05 §4.2).
+- **G4 et G5** : mode hors ligne, `LF_BOFIP=off` ou valeur invalide : aucune requête, prouvé par un proxy témoin avec un contraste (source active : exactement une connexion vers `data.economie.gouv.fr:443`).
+- **G6 et G7** : une ligne d'audit par appel des quinze outils ; format du journal inchangé.
+- **G8** : `make ci` vert à la fin de chaque vague ; couverture 100 % ; 0 mutant survivant sur les fichiers nouveaux.
+- **G9** : la sortie de `check-config` ne change pas tant que `LF_BOFIP` n'est pas définie et que la source n'est pas coupée d'office.
+- **G10** : rejeu des 13 questions patrimoniales avant et après (base : 33/40), sur accord (T-MB-44).
+
+**Tâches.** Cinq vagues sur une seule branche (`feat/bofip`) ; une PR de documentation (T-MB-01), puis une PR de code unique (T-MB-45).
+
+Vague 0 — préparation, aucun code de produit.
+
+- [ ] T-MB-01 — **PR de documentation.** ADR-0029 et AM-93 ; textes de 00 §1, §2, §3, §6, §7 ; schémas des deux outils et couverture dans 05 ; cette section ; journal de 09.\
+  Où : `docs/adr/`, `docs/plan/00`, `05`, `07`, `09`, `CHANGELOG.md` · Livrable : PR fusionnée · Vérification : relecture du propriétaire · Spéc. : ADR-0029 · Taille : S
+- [ ] T-MB-02 — **Mesure du classement.** Les 13 questions patrimoniales du test de bout en bout de la 1.1.0, texte seul puis titre et texte, cinq premiers résultats. *Faite le 2026-11-15 (26 requêtes) : 10 questions sur 13 dans chaque réglage, `search(contenu, …)` gardé ; V-221 levée (09 §2.20). Case à cocher par le propriétaire.*\
+  Où : portail ouvert · Livrable : ligne V-221 de 09 §2.20 · Vérification : la page attendue dans les cinq premiers résultats pour 10 questions au moins · Spéc. : ADR-0029 « À surveiller » · Taille : S
+- [ ] T-MB-03 — **Fixtures et sondes restantes.** Une douzaine de réponses réelles du portail (recherche pleine, vide, page suivante ; lecture simple, double de même date, sans texte, la plus longue, identifiant inconnu ; refus 400), avec un `README` voisin (adresse, date, licence de la DGFiP, taille). *Sondes faites le 2026-11-15 : aucun refus jusqu'à 12 000 caractères d'adresse ; une entrée Unicode décomposée trouve moins (18 contre 75) ; les 9 173 permaliens suivent la grammaire stricte. Les fixtures viennent avec le crate (T-MB-20).*\
+  Où : `crates/lf-adapter-bofip/tests/fixtures/` · Livrable : fixtures et `README` · Vérification : `fixtures_are_listed_with_their_source` · Spéc. : 06 (fixtures) ; ADR-0028 « Tests qui la gardent » · Taille : S
+- [ ] T-MB-04 — **Phrase d'opposabilité.** Relire l'article L. 80 A du livre des procédures fiscales dans Légifrance et figer `doctrine_note`. *État au 2026-11-15 : phrase rédigée d'après `BOI-SJ-RES-10-10-10` ; l'article reste à relire (V-225 partielle).*\
+  Où : `crates/lf-adapter-mcp/src/views/` · Livrable : texte de `doctrine_note` · Vérification : V-225 levée dans 09 §2.20 · Spéc. : ADR-0028 décision 7 · Taille : S · Avant : T-MB-35
+- [ ] T-MB-05 — **G0.** `make ci` sur `main`, RAM et disque contrôlés avant tout travail lourd. *Faite le 2026-11-15 sur `e743eeb` : code de sortie 0. Case à cocher par le propriétaire.*\
+  Où : dépôt · Livrable : journal de `make ci` · Vérification : code de sortie 0 · Spéc. : 00 §10 · Taille : S
+
+Vague 1 — domaine et application, sans réseau, surface inchangée.
+
+- [ ] T-MB-10 — **Types d'entrée.** `BoiId` (majuscules ASCII avant le contrôle, 64 octets au plus), `PublicationId`, `Serie`, `DoctrineKind`, `KindFilter`, `DoctrineTerms` (NFC, ponctuation en espaces, vide refusé).\
+  Où : `crates/lf-domain/src/doctrine/` · Livrable : types et tests de propriété · Vérification : `boi_id_rejects_non_ascii_case_folds`, `punctuation_only_query_refused_before_network`, `invisible_letters_and_nfd_normalized` ; mutation du fichier · Spéc. : ADR-0029 décisions 1 à 3 · Taille : M
+- [ ] T-MB-11 — **Texte, adresse, citation.** Nettoyage du texte en une passe, `BofipUrl` (grammaire stricte, type distinct de `SourceUrl`), citation, `DoctrineDoc`, `DoctrineHit`, `DoctrinePage`, `DoctrineQuery` (refus au-delà de 10 000 résultats, hors de `new`).\
+  Où : `crates/lf-domain/src/doctrine/` · Livrable : types et fonctions pures · Vérification : `entities_decoded_in_one_pass`, `permalink_grammar_rejects_hostile_forms` ; mutation du fichier · Spéc. : ADR-0029 décisions 4 et 5 ; 05 §5.15 · Taille : M · Après : T-MB-10
+- [ ] T-MB-12 — **Port et erreurs.** `TaxDoctrine` (async natif, sans `dyn`), `DoctrineError`, `NoDoctrine` (source coupée), `FakeDoctrine` derrière `test-support`, messages qui nomment le BOFiP et jamais PISTE.\
+  Où : `crates/lf-application/src/ports/doctrine.rs`, `messages.rs` · Livrable : port et doublures · Vérification : `doctrine_errors_map_to_the_six_codes` · Spéc. : 00 §3, §5 ; ADR-0028 décision 1 · Taille : S · Après : T-MB-11
+- [ ] T-MB-13 — **Paramètre générique.** `LegalService` et `LegifranceServer` reçoivent un paramètre `D: TaxDoctrine` muni d'un défaut (`NoDoctrine`) ; `new` ne change pas, `with_doctrine` pose la source. Commence par une compilation d'essai ; si les constructions existantes devaient changer, arrêt et retour au propriétaire (G2).\
+  Où : `crates/lf-application/src/service/`, `crates/lf-adapter-mcp/src/server.rs`, `crates/lf-app/src/wiring.rs` · Livrable : commit sans changement de comportement · Vérification : `make ci` vert, aucun fichier de `lf-adapter-piste` touché · Spéc. : 00 §3 · Taille : S · Après : T-MB-12
+- [ ] T-MB-14 — **Cas d'usage.** `SearchBofipUseCase`, `GetBofipUseCase` (une publication, deux, aucune, sans texte, numéro qui ne correspond pas), entrées canoniques, métriques d'audit ; constantes `ToolName` créées **hors** de `ToolName::ALL`.\
+  Où : `crates/lf-application/src/usecase/`, `tools.rs` · Livrable : cas d'usage testés sur `FakeDoctrine` · Vérification : `two_publications_without_selector_are_listed`, `wrong_publication_id_is_not_found`, `publication_without_text_points_to_source_url` · Spéc. : 05 §5.14, §5.15 · Taille : M · Après : T-MB-13
+- [ ] T-MB-15 — **Couverture, côté domaine.** État de la source BOFiP dans les faits de configuration (un type à trois états, pas un booléen de plus), FR-009, FR-102 et FR-104 reformulées, FR-106 et FR-107 calculées, sans effet sur `status`.\
+  Où : `crates/lf-domain/src/coverage.rs`, `crates/lf-application/src/usecase/coverage.rs` · Livrable : lacunes · Vérification : `bofip_gap_follows_the_source_state`, `bofip_gaps_never_change_status` ; `coverage_gaps_fr001_to_fr009` garde son nom · Spéc. : 05 §5.8 · Taille : M · Après : T-MB-12
+
+Vague 2 — adapter BOFiP.
+
+- [ ] T-MB-20 — **Squelette du crate.** `lf-adapter-bofip` ; sa ligne dans `RULES`, porte `reqwest` seule dans `CONFINED`, `deny.toml` (`wrappers` de `reqwest`), membre du workspace. Documentation de `reqwest` relue avant d'écrire.\
+  Où : `crates/lf-adapter-bofip/`, `xtask/src/arch.rs`, `deny.toml`, `Cargo.toml` · Livrable : crate vide conforme · Vérification : `bofip_member_has_a_rule`, `make arch`, `make deny` · Spéc. : 00 §2 ; ADR-0029 décision 9 · Taille : S · Après : T-MB-12
+- [ ] T-MB-21 — **Construction de la requête.** Fonction unique des littéraux sur valeurs typées, clauses `search`, type, série, identifiant ; adresse bâtie par l'analyseur d'adresses, jamais par concaténation.\
+  Où : `crates/lf-adapter-bofip/src/query.rs` · Livrable : requêtes · Vérification : `where_has_exactly_n_literals_for_any_input` (test de propriété) ; mutation du fichier · Spéc. : ADR-0029 décision 3 ; 05 §5.14 · Taille : M · Après : T-MB-20
+- [ ] T-MB-22 — **Client.** Adresse fixe, `https` sans exception, aucune redirection, corps borné après décompression, échéance, débit et quota (quatre règles), table des statuts, aucun réessai, erreurs sans adresse ni mots.\
+  Où : `crates/lf-adapter-bofip/src/http.rs`, `pace.rs` · Livrable : client · Vérification : `transport_errors_never_contain_query_words`, `production_client_refuses_plain_http`, `redirect_not_followed`, `gzip_bomb_capped_after_decompression`, `second_call_after_429_stays_local`, `daily_budget_exhausted_is_local`, `retry_after_capped_at_one_hour`, `error_code_validated_message_dropped` · Spéc. : ADR-0029 décisions 6 et 7 · Taille : M · Après : T-MB-21
+- [ ] T-MB-23 — **Décodage.** DTO tolérants aux champs inconnus, passage au domaine, contrôle des identifiants rendus et du nombre de résultats, anomalies comptées.\
+  Où : `crates/lf-adapter-bofip/src/dto.rs`, `mapping.rs` · Livrable : `BofipDoctrine: TaxDoctrine` · Vérification : `returned_id_equals_requested_id`, `results_over_limit_is_decode`, tests sur les fixtures de T-MB-03 · Spéc. : ADR-0029 décision 6 · Taille : M · Après : T-MB-22, T-MB-03
+- [ ] T-MB-24 — **Test en direct.** `live_bofip_*`, ignoré par défaut ; second job de `live.yml`, sans secret, non bloquant.\
+  Où : `crates/lf-adapter-bofip/tests/live.rs`, `.github/workflows/live.yml` · Livrable : test et job · Vérification : `live_job_has_no_piste_secret` ; un passage manuel vert · Spéc. : ADR-0028 « Tests qui la gardent » · Taille : S · Après : T-MB-23
+
+Vague 3 — MCP et binaire : la surface change ici, en une fois.
+
+- [ ] T-MB-30 — **Outils.** Paramètres, vues, outils et routeurs ; `ToolName::ALL` de 13 à 15 ; ligne d'instructions de la v0.3 ; snapshots. Un seul commit : les tests de dérive lient ces éléments.\
+  Où : `crates/lf-adapter-mcp/src/{params,views,tools}/`, `server.rs`, `text.rs`, `crates/lf-application/src/tools.rs` · Livrable : deux outils servis · Vérification : `instructions_cite_exactly_the_tools_of_their_surface` (nom inchangé), `every_tool_goes_through_audited` · Spéc. : 05 §4.2, §5.14, §5.15 · Taille : M · Après : T-MB-14, T-MB-23
+- [ ] T-MB-31 — **Plafonds.** Instructions à 3 700 (trois constantes), plafond de `tools/list` recalculé par la règle d'AM-63 sur la mesure finale, tailles épinglées.\
+  Où : `text.rs`, `xtask/src/instructions.rs`, `xtask/src/lock_descriptors/checks.rs`, `crates/lf-adapter-mcp/tests/budgets.rs` · Livrable : budgets · Vérification : `instructions_fit_budget`, `descriptor_size_budget` · Spéc. : 00 §6 ; 05 §4.2, §6.6 · Taille : S · Après : T-MB-30
+- [ ] T-MB-32 — **Vue de `fr_coverage`.** Famille `BOFIP` toujours rendue, réponse de la surface v0.1 tenue sous sa cible, ressource et métrique d'audit.\
+  Où : `crates/lf-adapter-mcp/src/views/coverage.rs`, `resources.rs` · Livrable : vue · Vérification : `bofip_family_is_always_rendered`, `every_registered_tool_is_in_a_family_or_general`, `the_v01_sandbox_response_stays_near_its_target` · Spéc. : 05 §5.8 · Taille : S · Après : T-MB-15, T-MB-30
+- [ ] T-MB-33 — **Configuration et assemblage.** `LF_BOFIP` (échec fermé), ligne de `check-config`, source active ou coupée choisie au démarrage, profils stdio et HTTP.\
+  Où : `crates/lf-app/src/config.rs`, `check.rs`, `wiring.rs` · Livrable : binaire assemblé · Vérification : `invalid_lf_bofip_turns_source_off`, `unusable_dila_dir_turns_source_off`, tests de `check-config` à 14 lignes inchangés · Spéc. : 00 §1 ; ADR-0029 décision 8 · Taille : M · Après : T-MB-30
+- [ ] T-MB-34 — **Tests du binaire.** G4, G5 et G6 par le proxy témoin des tests existants ; `check-config` et `fr_coverage` n'envoient rien.\
+  Où : `crates/lf-app/tests/` · Livrable : tests · Vérification : `offline_and_off_send_nothing_through_proxy_witness`, `check_config_and_coverage_send_nothing` · Spéc. : ADR-0019 décision 8 ; ADR-0029 « Tests qui la gardent » · Taille : M · Après : T-MB-33
+- [ ] T-MB-35 — **Verrou.** `cargo xtask lock-descriptors --update`, diff relu (G1), `make lock`, `make instructions`.\
+  Où : `tests/tools.lock.json`, `packaging/` · Livrable : verrou à quinze outils · Vérification : 13 `sha256` inchangés, 2 nouveaux · Spéc. : 05 §9 · Taille : S · Après : T-MB-31, T-MB-32, T-MB-04
+
+Vague 4 — documentation, revues, clôture.
+
+- [ ] T-MB-40 — **Documentation utilisateur.** README (variable, hôte contacté, attribution, mode hors ligne), `PRIVACY.md`, `SECURITY.md`, 02, 05, 06, 08, `CONTRIBUTING.md` ; CHANGELOG (« Added », « Changed » pour `fr_coverage`, « Tool surface »).\
+  Où : racine, `docs/plan/` · Livrable : documents · Vérification : contrôle des variables du README (`CONTRIBUTING.md`) · Spéc. : ADR-0028 décision 9 · Taille : M · Après : T-MB-35
+- [ ] T-MB-41 — **Revues.** Revue de code et audit de sécurité, une vague de corrections, une re-revue.\
+  Où : branche · Livrable : constats traités · Vérification : aucun constat bloquant ouvert · Spéc. : 06 §13 · Taille : M · Après : T-MB-40
+- [ ] T-MB-42 — **Mutation.** `make mutants-diff`, un fichier à la fois ; fichiers nouveaux dans `.github/mutants-scope.txt`.\
+  Où : fichiers du diff · Livrable : rapport · Vérification : 0 `MISSED`, 0 `TIMEOUT` · Spéc. : 00 §10 · Taille : M · Après : T-MB-41
+- [ ] T-MB-43 — **`make ci` final.** Sortie gardée comme preuve.\
+  Où : branche · Livrable : journal · Vérification : code de sortie 0 · Spéc. : 00 §10 · Taille : S · Après : T-MB-42
+- [ ] T-MB-44 — **Rejeu des 13 questions**, avant et après, en production, sur accord du propriétaire (AM-88).\
+  Où : hors dépôt · Livrable : note de 0 à 40, comparée à 33 · Vérification : aucune question ne perd de points · Spéc. : AM-88 · Taille : M · Prérequis : P · Après : T-MB-43
+- [ ] T-MB-45 — **PR de code unique**, puis PR de version après sa fusion ; l'étiquette est posée par le propriétaire.\
+  Où : GitHub · Livrable : PR · Vérification : CI verte · Spéc. : 06 §13 · Taille : S · Après : T-MB-43
+
+**Règles d'exécution.** Un seul `cargo` à la fois sur la machine WSL ; mutation par `make mutants FILE=…` seulement. Arrêt immédiat et compte rendu au propriétaire : premier refus 429 du portail ; `sha256` d'un des 13 descripteurs qui change ; besoin d'un paquet nouveau dans `Cargo.lock` ; fichier de `lf-adapter-piste`, `lf-adapter-dila` ou `lf-adapter-cache` à modifier. Moins de 200 requêtes sur le portail ouvert pour tout le jalon, une par seconde.
+
+**Critères d'acceptation.**
+
+- [ ] Les deux outils répondent sur des réponses réelles du portail gardées en fixtures, et sur le portail lui-même (test en direct).
+- [ ] G0 à G9 tenues, chacune avec sa preuve ; G10 sur accord.
+- [ ] V-225 levée avant le verrou ; V-219, V-221 et V-223 consignées avec leurs réserves (09 §2.20).
+- [ ] `make ci` vert, couverture 100 %, 0 mutant survivant sur les fichiers nouveaux.
+- [ ] README, `PRIVACY.md` et `SECURITY.md` nomment le nouvel hôte ; rubrique « Tool surface » du CHANGELOG.
+
+**Vérifications rattachées.**
+
+| Tâche | Vérifications |
+|---|---|
+| T-MB-02 | V-221 |
+| T-MB-03 | V-222, V-224 |
+| T-MB-04 | **V-225** |
+| T-MB-22 | V-219 |
+| T-MB-40 | **V-223** |
+
 ---
 
 ## 3. Ordre conseillé et parallélisation
@@ -1106,6 +1221,7 @@ La PR de clôture (« close: Mx ») contient :
 | M8 | **profil local livré** (`serve-http`, jeton, `tests/http.rs`) ; suite de conformité HTTP : un scénario encore rouge à `4d97b69` ; profil distant non fait (Q4) | 2 / 7 (T-M8-02, -03) | 0 / 4 : V-42 non levée | #27 | — |
 | M9 | **livré, LEGI seul** (`lf-adapter-dila`, `DilaCorpus`, sélection par `LF_DILA_DIR` ; feature `dila` absente des binaires publiés) ; pas de release v1.0.0 | 4 / 6 (T-M9-01 à -04) | V-185, V-186, V-187 levées ; V-188, V-189 consignées ; V-180 consignée (obligations non lues) | #27 | — |
 | Distribution | **configurée, jamais exercée en release** (dist, MCPB, OCI, `server.json`, portes de release présents ; état en CI non relevé dans ce lot) ; signature non faite (Q5) | 3 / 16 (T-MD-01, -03, -04 ; T-MD-16 ajoutée par la revue de sécurité F4) | compris dans la recette v0.1.0 : V-197, V-204 non levées | #27 | — |
+| MB (BOFiP) | à faire ; préparation faite le 2026-11-15 (T-MB-02 et T-MB-05 ; T-MB-03 et T-MB-04 en partie) | 0 / 28 (cases à cocher par le propriétaire) | 1 / 3 : V-222 levée ; V-223 et V-225 partielles | — | — |
 
 Statuts : `à faire`, `en cours`, `bloqué (prérequis)` avec le prérequis manquant, `terminé`. « Terminé » pour M0 et M1 vaut au sens du livré (plan 1) ; la colonne « Tâches cochées » y décompte les statuts des tâches (§2.0, §2.1) et les reliquats sont suivis par 00 §11.1. Les onze vérifications bloquantes de la recette v0.1.0 sont V-46, V-59, V-103, V-139, V-140, V-142, V-143, V-144, V-173 (si certificat), V-197 et V-204 (09 §2.18).
 
