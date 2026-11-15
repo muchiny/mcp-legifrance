@@ -134,12 +134,14 @@ const DEV_ONLY_FEATURES: [(&str, &str); 2] =
 /// Les portes `lf-adapter-dila` sont actives depuis la vague 0 du plan fin-du-projet : le membre
 /// figure dans `RULES` (M9, derrière la feature `dila` de `mcp-legifrance`). Dans la table,
 /// `lf-app` s'écrit `mcp-legifrance`.
+/// `lf-adapter-bofip` (jalon MB) n'a que la porte de `reqwest` : ni `rustls`, ni `governor`, ni
+/// `backon` (ADR-0029, décision 9).
 const CONFINED: [(&str, &[&str]); 21] = [
     ("rmcp", &["lf-adapter-mcp"]),
     ("rmcp-macros", &["lf-adapter-mcp"]),
     ("schemars", &["lf-adapter-mcp"]),
     ("axum", &["lf-adapter-mcp"]),
-    ("reqwest", &["lf-adapter-piste"]),
+    ("reqwest", &["lf-adapter-piste", "lf-adapter-bofip"]),
     ("rustls", &["lf-adapter-piste"]),
     ("backon", &["lf-adapter-piste"]),
     ("governor", &["lf-adapter-piste"]),
@@ -221,7 +223,7 @@ const LIBRARY: CrateRule = CrateRule {
     dev_adapters: true,
 };
 
-const RULES: [CrateRule; 9] = [
+const RULES: [CrateRule; 10] = [
     CrateRule {
         name: "lf-domain",
         external: Some(&DOMAIN_ALLOWED),
@@ -241,6 +243,7 @@ const RULES: [CrateRule; 9] = [
     CrateRule { name: "lf-adapter-audit", internal: &["lf-application"], ..LIBRARY },
     CrateRule { name: "lf-adapter-mcp", internal: &["lf-application", "lf-domain"], ..LIBRARY },
     CrateRule { name: "lf-adapter-dila", internal: &["lf-application", "lf-domain"], ..LIBRARY },
+    CrateRule { name: "lf-adapter-bofip", internal: &["lf-application", "lf-domain"], ..LIBRARY },
     CrateRule {
         name: "mcp-legifrance",
         internal: &[
@@ -251,6 +254,7 @@ const RULES: [CrateRule; 9] = [
             "lf-adapter-audit",
             "lf-adapter-mcp",
             "lf-adapter-dila",
+            "lf-adapter-bofip",
         ],
         bin: true,
         lib: false,
@@ -1233,7 +1237,7 @@ mod tests {
         // R2 (liste fermée) d'abord, puis R6 pour les crates aussi confinés.
         let confined = [
             ("rmcp", "lf-adapter-mcp"),
-            ("reqwest", "lf-adapter-piste"),
+            ("reqwest", "lf-adapter-piste, lf-adapter-bofip"),
             ("moka", "lf-adapter-cache"),
             ("governor", "lf-adapter-piste"),
             ("backon", "lf-adapter-piste"),
@@ -1255,7 +1259,7 @@ mod tests {
         ("rmcp-macros", &["lf-adapter-mcp"]),
         ("schemars", &["lf-adapter-mcp"]),
         ("axum", &["lf-adapter-mcp"]),
-        ("reqwest", &["lf-adapter-piste"]),
+        ("reqwest", &["lf-adapter-piste", "lf-adapter-bofip"]),
         ("rustls", &["lf-adapter-piste"]),
         ("backon", &["lf-adapter-piste"]),
         ("governor", &["lf-adapter-piste"]),
@@ -1275,7 +1279,7 @@ mod tests {
     ];
 
     /// Membres connus de `RULES`.
-    const MEMBERS: [&str; 9] = [
+    const MEMBERS: [&str; 10] = [
         "lf-domain",
         "lf-application",
         "lf-adapter-piste",
@@ -1283,6 +1287,7 @@ mod tests {
         "lf-adapter-audit",
         "lf-adapter-mcp",
         "lf-adapter-dila",
+        "lf-adapter-bofip",
         "mcp-legifrance",
         "xtask",
     ];
@@ -1620,6 +1625,54 @@ mod tests {
             .map(|p| Package { lints_workspace: true, ..p })
             .collect();
         assert_eq!(violations(&graph), ["lf-adapter-mcp must pin rmcp to =3.9.0 (found ^3.5)"]);
+    }
+
+    /// Jalon MB : `lf-adapter-bofip` n'a qu'une porte, celle de `reqwest` (ADR-0029, décision 9).
+    #[test]
+    fn bofip_member_has_a_rule() {
+        let bofip = |deps: &[&str]| [pkg("lf-domain", &[]), pkg("lf-adapter-bofip", deps)];
+        // Sa porte (R6) et ses internes admis : `lf-application` et `lf-domain`.
+        let own = ["lf-application", "lf-domain", "reqwest", "serde", "serde_json", "tokio"];
+        assert_eq!(violations(&bofip(&own)), Vec::<String>::new());
+        // R3 : ni autre adapter ni `mcp-legifrance` ; R6 : aucune autre porte, pas même celles
+        // que le client PISTE ouvre à côté de `reqwest`.
+        assert_eq!(
+            violations(&bofip(&[
+                "lf-adapter-piste",
+                "mcp-legifrance",
+                "rustls",
+                "governor",
+                "backon",
+                "moka",
+                "secrecy",
+            ])),
+            [
+                "lf-adapter-bofip must not depend on lf-adapter-piste",
+                "lf-adapter-bofip must not depend on mcp-legifrance",
+                "lf-adapter-bofip must not depend on rustls (confined to lf-adapter-piste)",
+                "lf-adapter-bofip must not depend on governor (confined to lf-adapter-piste)",
+                "lf-adapter-bofip must not depend on backon (confined to lf-adapter-piste)",
+                "lf-adapter-bofip must not depend on moka (confined to lf-adapter-cache)",
+                "lf-adapter-bofip must not depend on secrecy (confined to lf-adapter-piste, mcp-legifrance)",
+            ]
+        );
+        // `mcp-legifrance` peut le prendre ; `lf-application` et un autre adapter, non. La porte
+        // de `reqwest` reste fermée à tous les autres membres.
+        let graph = [
+            pkg("lf-domain", &[]),
+            pkg("lf-application", &["lf-adapter-bofip"]),
+            pkg("lf-adapter-piste", &["lf-adapter-bofip", "reqwest"]),
+            pkg("lf-adapter-cache", &["reqwest"]),
+            app(&["lf-adapter-bofip"]),
+        ];
+        assert_eq!(
+            violations(&graph),
+            [
+                "lf-application must not depend on lf-adapter-bofip",
+                "lf-adapter-piste must not depend on lf-adapter-bofip",
+                "lf-adapter-cache must not depend on reqwest (confined to lf-adapter-piste, lf-adapter-bofip)",
+            ]
+        );
     }
 
     #[test]

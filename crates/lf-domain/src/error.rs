@@ -234,6 +234,38 @@ pub enum DomainError {
         /// Nature demandée (`"article"`, `"ecli"`, ...), nom du paramètre côté utilisateur.
         kind: &'static str,
     },
+    /// Identifiant du BOFiP absent ou malformé ([`BoiId`](crate::doctrine::BoiId)).
+    ///
+    /// Ne se construit pas hors du crate :
+    ///
+    /// ```compile_fail
+    /// let _ = lf_domain::DomainError::InvalidBoiId { input: "x".repeat(99) };
+    /// ```
+    #[error(
+        "invalid BOFiP identifier {input:?}: expected letters, digits and hyphens, e.g. BOI-ENR-DMTG-10-50-20"
+    )]
+    #[non_exhaustive]
+    InvalidBoiId {
+        /// Entrée reçue, tronquée.
+        input: String,
+    },
+    /// Série du BOFiP malformée ([`Serie`](crate::doctrine::Serie)).
+    ///
+    /// Ne se construit pas hors du crate :
+    ///
+    /// ```compile_fail
+    /// let _ = lf_domain::DomainError::InvalidSerie { input: "x".repeat(99) };
+    /// ```
+    #[error("invalid BOFiP serie {input:?}: expected 1 to 16 letters or digits, e.g. ENR")]
+    #[non_exhaustive]
+    InvalidSerie {
+        /// Entrée reçue, tronquée.
+        input: String,
+    },
+    /// Requête de recherche sans mot : il ne reste ni lettre ni chiffre une fois la ponctuation
+    /// retirée ([`DoctrineTerms`](crate::doctrine::DoctrineTerms)).
+    #[error("query contains no searchable word")]
+    QueryWithoutWords,
 }
 
 /// Recopie `input` pour un message d'erreur, tronquée à [`ECHO_MAX_CHARS`] caractères.
@@ -248,6 +280,7 @@ mod tests {
     use super::*;
     use crate::{
         date::{CivilDate, VersionDate},
+        doctrine::{BoiId, Serie},
         ecli::Ecli,
         id::{AnyId, ArticleId, DecisionId, DocumentId, LegiTextId, SectionId, parse_versioned},
     };
@@ -262,6 +295,8 @@ mod tests {
             | DomainError::InvalidEcli { input }
             | DomainError::UnknownFond { input }
             | DomainError::BadSuffix { input }
+            | DomainError::InvalidBoiId { input }
+            | DomainError::InvalidSerie { input }
             | DomainError::HitKindMismatch { id: input, .. } => input,
             DomainError::EmptyCoverageGaps
             | DomainError::TocTooDeep { .. }
@@ -279,6 +314,7 @@ mod tests {
             | DomainError::TextTooLarge { .. }
             | DomainError::OffsetPastEnd { .. }
             | DomainError::FocusWithoutTerms
+            | DomainError::QueryWithoutWords
             | DomainError::NumberKindNotApplicable { .. } => "",
         }
     }
@@ -397,6 +433,16 @@ mod tests {
             "offset=20000 is at or past the end of the text (text_length=14332)"
         );
         assert_eq!(DomainError::FocusWithoutTerms.to_string(), "focus contains no searchable word");
+        assert_eq!(DomainError::QueryWithoutWords.to_string(), "query contains no searchable word");
+        assert_eq!(
+            DomainError::InvalidBoiId { input: "boi enr".into() }.to_string(),
+            "invalid BOFiP identifier \"boi enr\": expected letters, digits and hyphens, e.g. \
+             BOI-ENR-DMTG-10-50-20"
+        );
+        assert_eq!(
+            DomainError::InvalidSerie { input: "E N R".into() }.to_string(),
+            "invalid BOFiP serie \"E N R\": expected 1 to 16 letters or digits, e.g. ENR"
+        );
         assert_eq!(
             DomainError::FocusTooLong { len: 1396, max: 500 }.to_string(),
             "focus is 1396 characters long (max 500)"
@@ -429,6 +475,8 @@ mod tests {
             CivilDate::parse(&long).unwrap_err(),
             Ecli::parse(&long).unwrap_err(),
             Fond::parse(&long).unwrap_err(),
+            BoiId::parse(&long).unwrap_err(),
+            Serie::parse(&long).unwrap_err(),
         ];
         for error in &errors {
             assert_eq!(echoed(error), echo(&long));
@@ -470,6 +518,7 @@ mod tests {
             DomainError::OffsetPastEnd { offset: 20_000, text_length: 14_332 },
             DomainError::FocusTooLong { len: 501, max: 500 },
             DomainError::FocusWithoutTerms,
+            DomainError::QueryWithoutWords,
             DomainError::NumberKindNotApplicable { fond: Fond::Cnil, kind: "ecli" },
         ] {
             assert_eq!(echoed(&error), "", "{error}");

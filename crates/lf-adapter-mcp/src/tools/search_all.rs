@@ -19,7 +19,7 @@ use std::future::Future;
 
 use lf_application::{
     input::SearchAllInput,
-    ports::{AuditLog, Clock, LegalCorpus},
+    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
 };
 use rmcp::{
     Json, Peer, RoleServer,
@@ -46,7 +46,7 @@ refine with fr_search on the relevant fond, which supports paging and filters. A
 yields an error entry without failing the others.";
 
 #[tool_router(router = search_all_router, vis = "pub(crate)")]
-impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
     #[tool(
         name = "fr_search_all",
         title = "Search several fonds",

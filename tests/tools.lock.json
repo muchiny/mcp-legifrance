@@ -7,9 +7,9 @@
   },
   "eras_identical": true,
   "instructions": {
-    "chars": 3499,
-    "sha256": "b5b3940fdc37fd720bdb0120d08d576c945c73ce6a1425e33443e301b5796665",
-    "text": "French law from Légifrance through the official PISTE API (read-only): consolidated laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company agreements (ACCO). Use them for any question on French law or case law.\n\n## Workflow\n1. Find: `fr_search` searches one fond, paged with `page` and `has_more`; `fr_search_all` returns a few hits from several fonds. `fr_resolve` turns a free-text citation (code article, law number, ECLI, case number) into Legifrance ids.\n2. Read by id prefix: LEGITEXT -> `fr_get_act` (metadata and table of contents); LEGIARTI or KALIARTI -> `fr_get_text`; JURITEXT, CONSTEXT or CETATEXT -> `fr_get_decision`; CNILTEXT -> `fr_get_deliberation`; KALITEXT -> `fr_get_convention`; ACCOTEXT -> `fr_get_company_agreement` (metadata only: the full text is a .docx on Légifrance).\n3. Check and navigate: `fr_verify_citations` checks every citation of a draft against the official record; `fr_get_related` lists what an article or a decision cites or is cited by; `fr_diff_article` compares two versions of an article.\n4. Limits: `fr_coverage` says what this server does not cover and whether it runs on the PISTE sandbox.\n\n## Long texts\n`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. A summary is never the whole text: pass `detail=\"full\"` before quoting a threshold, amount or rate; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.\n\n## Hard rules\n- Cite every source with its `citation` and `source_url`; for case law add the `ecli` when present.\n- Never invent an id, an ECLI, an ELI or a citation: take each one from tool output. Many CAA and TA decisions have no ECLI.\n- ELI: none from the API for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.\n- Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the data, give this source and the consultation date (`consulted_on` in `fr_coverage`).\n- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim (table cells are joined with \" | \"): this server does not decide whether a provision applies to a case.\n- `etat`: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF in force; VIGUEUR_DIFF not yet; MODIFIE, ABROGE, PERIME no longer; DENONCE may still apply (list: `etat` field).\n- An empty result does not mean the law is silent: call `fr_coverage` and tell the user what is missing.\n\n## Errors\nA failed call returns isError with a text that starts with a code:\n- `[invalid_arg]` an argument is missing or malformed: fix it as the message says.\n- `[not_found]` nothing exists for that id: search again.\n- `[rate_limited]` PISTE quota reached: wait the delay given, then retry.\n- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.\n- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the configuration.\n- `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user."
+    "chars": 3688,
+    "sha256": "51b46055015c207191901ab14227d167560f796edf3580ea24fa816623af7321",
+    "text": "French law from Légifrance through the official PISTE API (read-only): consolidated laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company agreements (ACCO). Use them for any question on French law or case law.\n\n## Workflow\n1. Find: `fr_search` searches one fond, paged with `page` and `has_more`; `fr_search_all` returns a few hits from several fonds. `fr_resolve` turns a free-text citation (code article, law number, ECLI, case number) into Legifrance ids.\n2. Read by id prefix: LEGITEXT -> `fr_get_act` (metadata and table of contents); LEGIARTI or KALIARTI -> `fr_get_text`; JURITEXT, CONSTEXT or CETATEXT -> `fr_get_decision`; CNILTEXT -> `fr_get_deliberation`; KALITEXT -> `fr_get_convention`; ACCOTEXT -> `fr_get_company_agreement` (metadata only: the full text is a .docx on Légifrance).\n3. Check and navigate: `fr_verify_citations` checks every citation of a draft against the official record; `fr_get_related` lists what an article or a decision cites or is cited by; `fr_diff_article` compares two versions of an article.\n4. Limits: `fr_coverage` says what this server does not cover and whether it runs on the PISTE sandbox.\n5. Tax doctrine: `fr_search_bofip` then `fr_get_bofip` read BOFiP, the tax administration's published doctrine: its reading of tax law, not the law itself, and only what is in force today.\n\n## Long texts\n`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. A summary is never the whole text: pass `detail=\"full\"` before quoting a threshold, amount or rate; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.\n\n## Hard rules\n- Cite every source with its `citation` and `source_url`; for case law add the `ecli` when present.\n- Never invent an id, an ECLI, an ELI or a citation: take each one from tool output. Many CAA and TA decisions have no ECLI.\n- ELI: none from the API for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.\n- Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the data, give this source and the consultation date (`consulted_on` in `fr_coverage`).\n- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim (table cells are joined with \" | \"): this server does not decide whether a provision applies to a case.\n- `etat`: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF in force; VIGUEUR_DIFF not yet; MODIFIE, ABROGE, PERIME no longer; DENONCE may still apply (list: `etat` field).\n- An empty result does not mean the law is silent: call `fr_coverage` and tell the user what is missing.\n\n## Errors\nA failed call returns isError with a text that starts with a code:\n- `[invalid_arg]` an argument is missing or malformed: fix it as the message says.\n- `[not_found]` nothing exists for that id: search again.\n- `[rate_limited]` PISTE quota reached: wait the delay given, then retry.\n- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.\n- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the configuration.\n- `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user."
   },
   "lock_format": 1,
   "prompts": {
@@ -106,10 +106,10 @@
   },
   "server_version": "1.2.0",
   "sizes": {
-    "instructions_chars": 3499,
-    "tools_list_bytes": 35424
+    "instructions_chars": 3688,
+    "tools_list_bytes": 41878
   },
-  "surface_sha256": "707200c6117fc78b72493ce646958dd9b6d5638309713a97cd2945c2a6c92c21",
+  "surface_sha256": "54940254c6a226f4a02f6ab23672e1ad74d8808875b6b2ca60be8d57db407979",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -532,6 +532,204 @@
         "title": "Read a law, decree or code"
       },
       "sha256": "e7fb790386f5110614b02858516fa4bdd9411b3ea05802e76672e98615e4e4ed"
+    },
+    "fr_get_bofip": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Read a BOFiP publication"
+        },
+        "description": "Read one BOFiP publication by its id (BOI-... or ACTU-..., from fr_search_bofip): title, kind, serie, valid_from, citation and source_url. BOFiP is the tax administration's doctrine, not the law; only the publication in force today is served, never a past version. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary` (its beginning). `detail`=\"full\" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. A few ids designate two publications: the answer then lists them, and `publication_id` selects one.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "detail": {
+              "description": "\"summary\" (default): metadata and a short summary. \"full\": the text from offset, up to max_chars.",
+              "enum": [
+                "summary",
+                "full"
+              ],
+              "type": "string"
+            },
+            "focus": {
+              "description": "A few words: return the best matching passages instead of the summary or window.",
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "description": "A BOFiP id: BOI-... or ACTU-... (from fr_search_bofip).",
+              "type": "string"
+            },
+            "max_chars": {
+              "default": 4000,
+              "description": "Maximum characters of text returned (500 to 40000).",
+              "maximum": 40000,
+              "minimum": 500,
+              "type": "integer"
+            },
+            "offset": {
+              "default": 0,
+              "description": "Start position in characters for detail=\"full\"; pass the next_offset of the previous call.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "passages": {
+              "default": 3,
+              "description": "Number of passages returned with focus.",
+              "maximum": 10,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "publication_id": {
+              "description": "Selects one publication when the id designates two (value from fr_search_bofip or from `publications`).",
+              "maximum": 9999999,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
+        "name": "fr_get_bofip",
+        "outputSchema": {
+          "properties": {
+            "attribution": {
+              "type": "string"
+            },
+            "citation": {
+              "type": "string"
+            },
+            "division": {
+              "type": "string"
+            },
+            "doctrine_note": {
+              "description": "What BOFiP is, and the limit of this source.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "doctrine",
+                "news"
+              ],
+              "type": "string"
+            },
+            "next_offset": {
+              "description": "Pass as offset to read the next window.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "note": {
+              "type": "string"
+            },
+            "passages": {
+              "items": {
+                "properties": {
+                  "offset": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "score": {
+                    "description": "BM25 relevance, only comparable between the passages of this answer.",
+                    "type": "number"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "offset",
+                  "text",
+                  "score"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "publication_id": {
+              "description": "Number of the publication on the BOFiP site.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "publications": {
+              "description": "Present when the id designates several publications: call again with one publication_id.",
+              "items": {
+                "properties": {
+                  "publication_id": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "source_url": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "valid_from": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "publication_id",
+                  "title"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "serie": {
+              "type": "string"
+            },
+            "source_url": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "summary_source": {
+              "enum": [
+                "official",
+                "dispositif",
+                "lead"
+              ],
+              "type": "string"
+            },
+            "summary_truncated": {
+              "description": "True when the summary itself is cut short or is only the opening of the text. Absent for an official summary or operative part that is given whole (it may still cover only part of the text).",
+              "type": "boolean"
+            },
+            "text": {
+              "type": "string"
+            },
+            "text_length": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "title": {
+              "type": "string"
+            },
+            "valid_from": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "attribution",
+            "doctrine_note"
+          ],
+          "type": "object"
+        },
+        "title": "Read a BOFiP publication"
+      },
+      "sha256": "3823a15794247de840f6dccd05f6f296ff3447c65e7aa18252fc134c01c1d494"
     },
     "fr_get_company_agreement": {
       "descriptor": {
@@ -1826,6 +2024,141 @@
       },
       "sha256": "6d8883a7a96a2af11b3d6120abe1d4eb4bc791db23fa754664c5d9babd514d76"
     },
+    "fr_search_bofip": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Search the tax doctrine (BOFiP)"
+        },
+        "description": "Search BOFiP, the published doctrine of the French tax administration (DGFiP): how the administration reads tax law, not the law itself. All the words of `query` must appear in a publication; the last word also matches as a prefix; there are no operators and no quoted phrases, so use a few plain words. Narrow with `serie` (for example ENR for registration and inheritance duties, IR for income tax, RFPI for property income and capital gains). `kind` selects doctrine pages (default), news items, or all. Returns id, publication_id, title, kind, serie, valid_from and source_url, paged with `page` and `has_more`; never the text: read it with fr_get_bofip. Only publications in force today are available.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "default": "doctrine",
+              "description": "\"doctrine\" (default): doctrine pages; \"news\": news items; \"all\": both.",
+              "enum": [
+                "doctrine",
+                "news",
+                "all"
+              ],
+              "type": "string"
+            },
+            "page": {
+              "default": 1,
+              "description": "Page number, from 1.",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "page_size": {
+              "default": 10,
+              "description": "Hits per page (1..100).",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "query": {
+              "description": "A few plain words: all must appear in the publication, the last one also as a prefix. No operators, no quoted phrases.",
+              "maxLength": 450,
+              "minLength": 1,
+              "type": "string"
+            },
+            "serie": {
+              "description": "Series code, e.g. ENR (registration and inheritance duties), IR (income tax), RFPI (property income and capital gains).",
+              "maxLength": 16,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        },
+        "name": "fr_search_bofip",
+        "outputSchema": {
+          "properties": {
+            "attribution": {
+              "type": "string"
+            },
+            "doctrine_note": {
+              "description": "What BOFiP is, and the limit of this source.",
+              "type": "string"
+            },
+            "has_more": {
+              "description": "True if the next page exists and can be reached.",
+              "type": "boolean"
+            },
+            "hits": {
+              "items": {
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "doctrine",
+                      "news"
+                    ],
+                    "type": "string"
+                  },
+                  "publication_id": {
+                    "description": "Number of the publication on the BOFiP site.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "serie": {
+                    "type": "string"
+                  },
+                  "source_url": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "valid_from": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "publication_id",
+                  "title",
+                  "kind"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "note": {
+              "type": "string"
+            },
+            "page": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "total": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "total",
+            "page",
+            "has_more",
+            "hits",
+            "attribution",
+            "doctrine_note"
+          ],
+          "type": "object"
+        },
+        "title": "Search the tax doctrine (BOFiP)"
+      },
+      "sha256": "b9fd0bdadb94f74a14cbfe7f0832d7b71ae138726c4c0c207ab05888bfe264b0"
+    },
     "fr_verify_citations": {
       "descriptor": {
         "annotations": {
@@ -1978,5 +2311,5 @@
       "sha256": "be51a6e4cd67f1f91289213f993c62a87c1f1023384e59e9a96922d94073f260"
     }
   },
-  "toolset_sha256": "d902ff6bc63ed7f9006f942d6a93ad7709b95878be2548f4074afe8832948603"
+  "toolset_sha256": "09bbea7d7070385c2aaf2a6a4b3b51a385e5d1e8061a3607a1030a111580b2cd"
 }

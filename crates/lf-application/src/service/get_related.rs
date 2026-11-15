@@ -12,12 +12,12 @@ use crate::{
     error::AppError,
     input::{GetRelatedInput, ToolCall},
     output::get_related::GetRelatedOutput,
-    ports::{AuditLog, Clock, LegalCorpus},
+    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
     tools::ToolName,
     usecase::get_related::GetRelatedUseCase,
 };
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
     /// `fr_get_related` : les liens d'un article ou d'une décision, cent au plus (05 §5.11),
     /// audité sous `fr_get_related` (métrique : nombre de liens renvoyés). `cancel` se résout quand
     /// le client annule.

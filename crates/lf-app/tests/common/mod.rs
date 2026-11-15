@@ -24,8 +24,8 @@ use std::{
     collections::{VecDeque, hash_map::RandomState},
     fs,
     hash::{BuildHasher as _, Hasher as _},
-    io::ErrorKind,
-    net::TcpListener,
+    io::{BufRead as _, BufReader as LineReader, ErrorKind},
+    net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
     time::{Duration, Instant},
@@ -310,6 +310,32 @@ impl Trap {
             }
         }
     }
+
+    /// La première ligne de chaque connexion en attente, dans l'ordre d'arrivée : pour un proxy,
+    /// `CONNECT hôte:port HTTP/1.1`, qui dit quel hôte le binaire voulait joindre. Le piège ne
+    /// répond jamais : rien ne sort de la machine. Chaque connexion lue est fermée.
+    pub(crate) fn contacts(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        loop {
+            match self.listener.accept() {
+                Ok((stream, _)) => lines.push(first_line(stream)),
+                Err(error) => {
+                    assert_eq!(error.kind(), ErrorKind::WouldBlock, "{error}");
+                    return lines;
+                }
+            }
+        }
+    }
+}
+
+/// La première ligne écrite sur `stream`, sans sa fin de ligne. Le client a déjà écrit puis
+/// abandonné : la ligne est dans le tampon du noyau, la lecture ne dure pas.
+fn first_line(stream: TcpStream) -> String {
+    stream.set_nonblocking(false).expect("a blocking stream");
+    stream.set_read_timeout(Some(Duration::from_secs(5))).expect("a read timeout");
+    let mut line = String::new();
+    LineReader::new(stream).read_line(&mut line).expect("a first line");
+    line.trim_end().to_owned()
 }
 
 // --- Lancement ------------------------------------------------------------------------------------

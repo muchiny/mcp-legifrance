@@ -1594,6 +1594,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "lf-adapter-bofip"
+version = "1.2.0"
+dependencies = [
+ "chrono",
+ "flate2",
+ "lf-application",
+ "lf-domain",
+ "pretty_assertions",
+ "proptest",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "wiremock",
+]
+
+[[package]]
 name = "lf-adapter-cache"
 version = "1.2.0"
 dependencies = [
@@ -1785,6 +1804,7 @@ dependencies = [
  "clap",
  "dirs",
  "lf-adapter-audit",
+ "lf-adapter-bofip",
  "lf-adapter-cache",
  "lf-adapter-dila",
  "lf-adapter-mcp",

@@ -5,11 +5,16 @@
 //!
 //! La forme livrée est gardée (D11 du plan « fin du projet », qui tranche M1-D20) ; la fonction
 //! pure [`coverage`] la remplit (03 §4.8) : le catalogue statique des lacunes FR-001 à FR-009 et
-//! les lacunes calculées FR-101 à FR-104 d'après l'environnement, la configuration
+//! les lacunes calculées FR-101 à FR-107 d'après l'environnement, la configuration
 //! ([`ConfigFacts`]) et les fonds servis. Le domaine ne nomme aucun outil MCP : une famille porte
 //! le nom du fond (`Fond::name`), et c'est l'adapter MCP qui rattache libellé et outils à ce
 //! fond. De même, une lacune nomme le fond concerné dans `family`, vide quand elle vaut pour le
 //! connecteur entier.
+//!
+//! La doctrine fiscale (BOFiP, ADR-0028) n'est pas un fond de Légifrance : son état
+//! ([`DoctrineSource`]) ne crée aucune famille ici et ne change jamais le statut. Il donne une
+//! lacune de famille [`DOCTRINE_FAMILY`] (FR-106 ou FR-107) et reformule trois lacunes ; tant
+//! que le serveur ne sert aucun outil du BOFiP, la couverture est celle d'avant, mot pour mot.
 
 use std::fmt;
 
@@ -140,7 +145,25 @@ impl Coverage {
     }
 }
 
-/// Ce que la configuration du processus apprend à la couverture (03 §4.8) : quatre faits, sans
+/// État de la source de doctrine fiscale (BOFiP, ADR-0028), tel que la couverture le lit : un
+/// fait à trois états, pas un booléen. Il ne change jamais le statut : le BOFiP n'est pas un fond
+/// de Légifrance, et il se lit sans identifiants PISTE.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum DoctrineSource {
+    /// Le serveur ne sert aucun outil du BOFiP : la couverture n'en dit rien, et ses textes sont
+    /// ceux d'avant le jalon MB.
+    #[default]
+    NotServed,
+    /// Source active : lacune FR-106 (seules les publications en vigueur sont servies).
+    Active,
+    /// Source coupée (`LF_BOFIP=off`, valeur invalide ou mode hors ligne) : lacune FR-107.
+    Off,
+}
+
+/// Famille (`family`) des lacunes du BOFiP, qui n'est pas un fond de Légifrance.
+pub const DOCTRINE_FAMILY: &str = "BOFIP";
+
+/// Ce que la configuration du processus apprend à la couverture (03 §4.8) : cinq faits, sans
 /// secret ni phrase. La liste des problèmes détectés reste dans `lf-application`
 /// (`ConfigurationState`) et n'entre pas dans le domaine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,6 +181,9 @@ pub struct ConfigFacts {
     /// La source des textes est l'instantané local de l'index DILA (LEGI seul), non PISTE en
     /// direct (FR-105) : la couverture le dit, et son statut n'est jamais `Ok`.
     pub local_snapshot: bool,
+    /// État de la source de doctrine fiscale (FR-106 active, FR-107 coupée), sans effet sur le
+    /// statut.
+    pub doctrine: DoctrineSource,
 }
 
 /// Source des données de chaque famille (`SOURCE`, `coverage.py:57`).
@@ -303,6 +329,58 @@ const LOCAL_SNAPSHOT_GAP: GapText = GapText {
     fallback: "Treat an absence as unproven; unset LF_DILA_DIR to query Légifrance live.",
 };
 
+/// FR-106 : source BOFiP active. Le jeu ouvert ne porte que les publications en vigueur.
+const DOCTRINE_IN_FORCE_ONLY_GAP: GapText = GapText {
+    id: "FR-106",
+    fond: None,
+    missing: "BOFiP holds only the publications in force today: no past version of the tax doctrine is served.",
+    fallback: "Check valid_from; for earlier facts, look up the past versions on the BOFiP website (source_url).",
+};
+
+/// FR-107 : source BOFiP coupée (`LF_BOFIP=off`, valeur invalide, ou mode hors ligne).
+const DOCTRINE_OFF_GAP: GapText = GapText {
+    id: "FR-107",
+    fond: None,
+    missing: "The BOFiP source is turned off (LF_BOFIP, or offline mode): fr_search_bofip and fr_get_bofip fail with config_error.",
+    fallback: "The operator can set LF_BOFIP=on; search words are then sent to the DGFiP open data portal.",
+};
+
+/// Les trois lacunes reformulées quand le serveur sert les outils du BOFiP (05 §5.8) : la
+/// doctrine fiscale n'est plus dite non couverte (FR-009), et une configuration PISTE absente ou
+/// invalide ne fait plus échouer « tous les outils » (FR-102, FR-104), puisque ceux du BOFiP
+/// marchent sans elle. Seul `missing` change.
+static WITH_DOCTRINE: [GapText; 3] = [
+    GapText {
+        id: "FR-009",
+        fond: None,
+        missing: "Not covered: EU law, CJEU and ECHR case law, doctrine other than the tax doctrine (BOFiP), circulars, parliamentary documents.",
+        fallback: "Use EUR-Lex, HUDOC or the relevant official source.",
+    },
+    GapText {
+        id: "FR-102",
+        fond: None,
+        missing: "PISTE credentials are not configured: every tool that reads Légifrance fails with config_error.",
+        fallback: "Set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET.",
+    },
+    GapText {
+        id: "FR-104",
+        fond: None,
+        missing: "The server configuration is invalid (see configuration.problems): every tool that reads Légifrance fails with config_error.",
+        fallback: "Fix the variables listed in configuration.problems; run mcp-legifrance check-config.",
+    },
+];
+
+/// Le texte de `gap` quand le serveur sert les outils du BOFiP : celui de [`WITH_DOCTRINE`] s'il
+/// y en a un pour cet identifiant, sinon `gap` lui-même.
+fn reworded(gap: &GapText) -> &GapText {
+    WITH_DOCTRINE.iter().find(|other| other.id == gap.id).unwrap_or(gap)
+}
+
+/// Lacune du BOFiP : celle de `text`, de famille [`DOCTRINE_FAMILY`].
+fn doctrine_gap(text: &GapText) -> CoverageGap {
+    CoverageGap { family: DOCTRINE_FAMILY.to_owned(), ..text.to_gap() }
+}
+
 /// Famille d'un fond servi : le nom du fond, sans outil (hors du domaine). Interrogée en direct,
 /// sauf depuis l'instantané local, qui n'a pas de date de capture rendue.
 fn family_of(fond: Fond, local_snapshot: bool) -> CoverageFamily {
@@ -327,7 +405,11 @@ fn family_of(fond: Fond, local_snapshot: bool) -> CoverageFamily {
 /// - **Note de date** : `AS_OF_NOTE`, ou `SNAPSHOT_AS_OF_NOTE` depuis l'instantané local.
 /// - **Lacunes** : le catalogue FR-001 à FR-009, puis les lacunes calculées dans l'ordre FR-101
 ///   (bac à sable), FR-102 (identifiants absents), FR-103 (hôte personnalisé), FR-104 (problème
-///   de configuration) et FR-105 (instantané local, LEGI seul). Jamais vide.
+///   de configuration), FR-105 (instantané local, LEGI seul), puis celle du BOFiP : FR-106
+///   (source active) ou FR-107 (source coupée). Jamais vide.
+/// - **BOFiP** ([`ConfigFacts::doctrine`]) : sans effet sur le statut, les familles et la note
+///   de date. Quand le serveur sert ses outils, FR-009, FR-102 et FR-104 prennent leur texte
+///   reformulé ; sinon, tout est rendu comme avant le jalon MB.
 #[must_use]
 pub fn coverage(env: PisteEnvironment, facts: &ConfigFacts, served: &[Fond]) -> Coverage {
     let healthy = facts.credentials_configured && !facts.has_problems && !facts.local_snapshot;
@@ -347,10 +429,18 @@ pub fn coverage(env: PisteEnvironment, facts: &ConfigFacts, served: &[Fond]) -> 
         (facts.has_problems, &INVALID_CONFIG_GAP),
         (facts.local_snapshot, &LOCAL_SNAPSHOT_GAP),
     ];
+    let doctrine_served = facts.doctrine != DoctrineSource::NotServed;
+    let of_doctrine = match facts.doctrine {
+        DoctrineSource::NotServed => None,
+        DoctrineSource::Active => Some(&DOCTRINE_IN_FORCE_ONLY_GAP),
+        DoctrineSource::Off => Some(&DOCTRINE_OFF_GAP),
+    };
     let known_gaps = STATIC_GAPS
         .iter()
         .chain(computed.into_iter().filter_map(|(active, gap)| active.then_some(gap)))
+        .map(|gap| if doctrine_served { reworded(gap) } else { gap })
         .map(GapText::to_gap)
+        .chain(of_doctrine.map(doctrine_gap))
         .collect();
 
     let as_of_note = if facts.local_snapshot { SNAPSHOT_AS_OF_NOTE } else { AS_OF_NOTE };
@@ -434,9 +524,10 @@ mod tests {
         custom_host: false,
         has_problems: false,
         local_snapshot: false,
+        doctrine: DoctrineSource::NotServed,
     };
 
-    /// Les seize combinaisons de faits de configuration.
+    /// Les seize combinaisons de faits de configuration, sans outil du BOFiP servi.
     fn all_facts() -> Vec<ConfigFacts> {
         let flags = [false, true];
         flags
@@ -449,6 +540,7 @@ mod tests {
                             custom_host,
                             has_problems,
                             local_snapshot,
+                            doctrine: DoctrineSource::NotServed,
                         })
                     })
                 })
@@ -715,6 +807,7 @@ mod tests {
             custom_host: true,
             has_problems: true,
             local_snapshot: true,
+            doctrine: DoctrineSource::NotServed,
         };
         let c = coverage(PisteEnvironment::Sandbox, &everything, &Fond::ALL);
         assert_eq!(&ids(&c)[9..], ["FR-101", "FR-102", "FR-103", "FR-104", "FR-105"]);
@@ -780,5 +873,149 @@ mod tests {
         assert_eq!(c.as_of_note(), "note");
         assert_eq!(c.families(), [family()]);
         assert_eq!(c.known_gaps(), [gap()]);
+    }
+    // ---------------------------------------------------------------------------------------
+    // BOFiP (jalon MB, 05 §5.8) : l'état de la source de doctrine.
+    // ---------------------------------------------------------------------------------------
+
+    const DOCTRINE_STATES: [DoctrineSource; 3] =
+        [DoctrineSource::NotServed, DoctrineSource::Active, DoctrineSource::Off];
+
+    /// Identifiant, famille, `missing` et `fallback` de chaque lacune, dans l'ordre.
+    fn table(c: &Coverage) -> Vec<(&str, &str, &str, &str)> {
+        c.known_gaps()
+            .iter()
+            .map(|g| (g.id.as_str(), g.family.as_str(), g.missing.as_str(), g.fallback.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn the_doctrine_source_is_not_served_by_default() {
+        assert_eq!(DoctrineSource::default(), DoctrineSource::NotServed);
+        assert_eq!(DOCTRINE_FAMILY, "BOFIP");
+        // Trois états distincts, comparés et hachés par valeur.
+        let set: HashSet<DoctrineSource> = DOCTRINE_STATES.into_iter().collect();
+        assert_eq!(set.len(), 3);
+    }
+
+    #[test]
+    fn bofip_gap_follows_the_source_state() {
+        let of = |doctrine| {
+            coverage(PisteEnvironment::Production, &ConfigFacts { doctrine, ..HEALTHY }, &Fond::ALL)
+        };
+        // Aucun outil du BOFiP servi : ni lacune ni famille du BOFiP.
+        let not_served = of(DoctrineSource::NotServed);
+        assert_eq!(ids(&not_served).len(), 9);
+        assert!(not_served.known_gaps().iter().all(|gap| gap.family != DOCTRINE_FAMILY));
+        // Source active : FR-106, après le catalogue.
+        let active = of(DoctrineSource::Active);
+        assert_eq!(&ids(&active)[9..], ["FR-106"]);
+        assert_eq!(
+            table(&active)[9],
+            (
+                "FR-106",
+                "BOFIP",
+                "BOFiP holds only the publications in force today: no past version of the tax \
+                 doctrine is served.",
+                "Check valid_from; for earlier facts, look up the past versions on the BOFiP \
+                 website (source_url)."
+            )
+        );
+        // Source coupée : FR-107, et jamais FR-106.
+        let off = of(DoctrineSource::Off);
+        assert_eq!(&ids(&off)[9..], ["FR-107"]);
+        assert_eq!(
+            table(&off)[9],
+            (
+                "FR-107",
+                "BOFIP",
+                "The BOFiP source is turned off (LF_BOFIP, or offline mode): fr_search_bofip and \
+                 fr_get_bofip fail with config_error.",
+                "The operator can set LF_BOFIP=on; search words are then sent to the DGFiP open \
+                 data portal."
+            )
+        );
+        // Le catalogue statique garde neuf lacunes dans les trois états.
+        assert_eq!(STATIC_GAPS.len(), 9);
+    }
+
+    /// Les trois lacunes reformulées ne le sont que si le serveur sert les outils du BOFiP ; les
+    /// autres lacunes, et tous les `fallback`, ne changent jamais.
+    #[test]
+    fn three_gaps_are_reworded_only_when_the_bofip_tools_are_served() {
+        // Tous les faits fâcheux : toutes les lacunes calculées sont présentes.
+        let everything = |doctrine| ConfigFacts {
+            credentials_configured: false,
+            custom_host: true,
+            has_problems: true,
+            local_snapshot: true,
+            doctrine,
+        };
+        let of = |doctrine| coverage(PisteEnvironment::Sandbox, &everything(doctrine), &Fond::ALL);
+        let before = of(DoctrineSource::NotServed);
+        assert_eq!(
+            [
+                gap_of(&before, "FR-009").missing.as_str(),
+                gap_of(&before, "FR-102").missing.as_str(),
+                gap_of(&before, "FR-104").missing.as_str(),
+            ],
+            [
+                "Not covered: EU law, CJEU and ECHR case law, doctrine, circulars, parliamentary \
+                 documents.",
+                "PISTE credentials are not configured: every tool except fr_coverage fails with \
+                 config_error.",
+                "The server configuration is invalid (see configuration.problems): every tool \
+                 except fr_coverage fails with config_error.",
+            ]
+        );
+        for doctrine in [DoctrineSource::Active, DoctrineSource::Off] {
+            let served = of(doctrine);
+            assert_eq!(
+                [
+                    gap_of(&served, "FR-009").missing.as_str(),
+                    gap_of(&served, "FR-102").missing.as_str(),
+                    gap_of(&served, "FR-104").missing.as_str(),
+                ],
+                [
+                    "Not covered: EU law, CJEU and ECHR case law, doctrine other than the tax \
+                     doctrine (BOFiP), circulars, parliamentary documents.",
+                    "PISTE credentials are not configured: every tool that reads Légifrance fails \
+                     with config_error.",
+                    "The server configuration is invalid (see configuration.problems): every tool \
+                     that reads Légifrance fails with config_error.",
+                ],
+                "{doctrine:?}"
+            );
+            // Hors ces trois `missing` et la lacune du BOFiP, tout est rendu comme avant.
+            let reworded = ["FR-009", "FR-102", "FR-104"];
+            let (served, before) = (table(&served), table(&before));
+            assert_eq!(served.len(), before.len() + 1);
+            for (now, then) in served.iter().zip(&before) {
+                assert_eq!((now.0, now.1, now.3), (then.0, then.1, then.3));
+                assert_eq!(now.2 == then.2, !reworded.contains(&now.0), "{}", now.0);
+            }
+        }
+    }
+
+    #[test]
+    fn bofip_gaps_never_change_status() {
+        for env in [PisteEnvironment::Sandbox, PisteEnvironment::Production] {
+            for facts in all_facts() {
+                let before = coverage(env, &facts, &Fond::ALL);
+                for (doctrine, id) in
+                    [(DoctrineSource::Active, "FR-106"), (DoctrineSource::Off, "FR-107")]
+                {
+                    let with = coverage(env, &ConfigFacts { doctrine, ..facts }, &Fond::ALL);
+                    assert_eq!(with.status(), before.status(), "{env:?} {facts:?} {doctrine:?}");
+                    // Ni les familles ni la note de date ne dépendent du BOFiP.
+                    assert_eq!(with.families(), before.families());
+                    assert_eq!(with.as_of_note(), before.as_of_note());
+                    // Les mêmes lacunes, dans le même ordre, plus celle du BOFiP en dernier.
+                    let mut wanted = ids(&before);
+                    wanted.push(id);
+                    assert_eq!(ids(&with), wanted);
+                }
+            }
+        }
     }
 }

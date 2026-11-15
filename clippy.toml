@@ -3,6 +3,11 @@ allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-indexing-slicing-in-tests = true
 
+# Noms propres à casse mêlée admis sans accents graves dans la documentation (`doc_markdown`) :
+# `..` garde la liste par défaut de clippy. BOFiP : Bulletin officiel des finances publiques,
+# impôts ; DGFiP : direction générale des finances publiques (jalon MB, ADR-0028).
+doc-valid-idents = ["BOFiP", "DGFiP", ".."]
+
 # Entrées-sorties non déterministes (T-M3-10, 00 §11.1) : l'horloge et l'environnement passent par
 # des ports (`Clock`, `ProcessEnv`) pour que les tests restent déterministes. Exceptions admises :
 # `lf-app` (`clock.rs`, `config.rs`), `xtask/src/main.rs`, et les sites de test ou d'exemple qui

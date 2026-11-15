@@ -11,14 +11,14 @@ use crate::{
     error::AppError,
     input::{ResolveInput, ToolCall},
     output::resolve::ResolveOutput,
-    ports::{AuditLog, Clock, LegalCorpus},
+    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
     tools::ToolName,
     usecase::resolve::ResolveUseCase,
 };
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
     /// `fr_resolve` : transforme une citation libre en identifiants Légifrance (05 §5.10), auditée
     /// sous `fr_resolve` (métrique : 1).
     ///

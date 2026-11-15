@@ -3,6 +3,7 @@ name: live
 # Tests live contre PISTE **sandbox** (04 §13.5, 06 §7.5, T-M2-12) : manuel et hebdomadaire,
 # jamais sur `pull_request` (une PR d'un fork n'a pas les secrets), jamais de production (Q3,
 # 00 §10). Un passage à la fois (quota PISTE) ; un test à la fois (profil nextest `live`).
+# Second job, `bofip` (T-MB-24, ADR-0028) : le portail ouvert de la DGFiP, sans aucun secret.
 on:
   workflow_dispatch:
   schedule:
@@ -54,4 +55,29 @@ jobs:
         run: >-
           cargo nextest run -p lf-adapter-piste --test live --test live_m5 --test live_m6 --test live_m7
           --all-features --locked
+          --profile live --run-ignored only --no-fail-fast
+
+  # Portail ouvert `data.economie.gouv.fr` (jeu `bofip-vigueur`, ADR-0028 et ADR-0029) : ni compte,
+  # ni clé, donc ni secret ni environnement protégé (contrôlé par `live_job_has_no_piste_secret`).
+  # Trois requêtes par passage, une par seconde. Non bloquant : le portail peut refuser un passage
+  # (quota, panne) sans que ce soit un défaut du dépôt.
+  bofip:
+    name: live (bofip)
+    if: github.repository == 'muchiny/mcp-legifrance' # jamais sur un fork
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-nextest@0.9.148
+      - run: >-
+          cargo nextest run -p lf-adapter-bofip --test live --locked
           --profile live --run-ignored only --no-fail-fast

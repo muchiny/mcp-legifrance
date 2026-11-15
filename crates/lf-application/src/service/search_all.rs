@@ -16,14 +16,14 @@ use crate::{
     error::AppError,
     input::{SearchAllInput, ToolCall},
     output::search_all::SearchAllOutput,
-    ports::{AuditLog, Clock, LegalCorpus},
+    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
     tools::ToolName,
     usecase::search_all::SearchAllUseCase,
 };
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
     /// `fr_search_all` : recherche dans plusieurs fonds à la fois (05 §5.13), auditée sous
     /// `fr_search_all` (métrique : somme des résultats rendus).
     ///

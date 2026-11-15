@@ -1,0 +1,4 @@
+{
+  "error_code": "ODSQLSyntaxError",
+  "message": "ODSQL syntax exception: unexpected end of line at position 15 in search(contenu,. Clause(s) containing the error(s): where."
+}

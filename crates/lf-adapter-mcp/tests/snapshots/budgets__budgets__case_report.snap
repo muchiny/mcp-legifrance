@@ -223,6 +223,46 @@ expression: report
     "under_estimation_target": true
   },
   {
+    "case": "bofip_search_100_hits_with_1000_char_titles",
+    "kept": {
+      "hits": 100,
+      "titles_shortened": 94
+    },
+    "outcome": "rendered",
+    "tool": "fr_search_bofip",
+    "under_estimation_target": true
+  },
+  {
+    "case": "bofip_search_100_hits_with_escape_rich_titles",
+    "kept": {
+      "refused": true,
+      "suggested_page_size": 90
+    },
+    "outcome": "refused",
+    "tool": "fr_search_bofip",
+    "under_estimation_target": null
+  },
+  {
+    "case": "bofip_get_40000_char_escape_rich_window",
+    "kept": {
+      "text_length": 58498,
+      "window_chars": 19998
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_bofip",
+    "under_estimation_target": true
+  },
+  {
+    "case": "bofip_get_choice_of_10_publications_with_1000_char_titles",
+    "kept": {
+      "chars": 12249,
+      "publications": 10
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_bofip",
+    "under_estimation_target": true
+  },
+  {
     "case": "coverage",
     "kept": {
       "fonds_listed": true

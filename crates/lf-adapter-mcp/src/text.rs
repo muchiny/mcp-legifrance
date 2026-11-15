@@ -4,7 +4,7 @@
 //! prompts (français) rejoignent ce module avec leurs tranches.
 //!
 //! Les instructions sont servies telles quelles dans `server/discover` (ère moderne) et dans le
-//! résultat d'`initialize` (ère legacy) : le même texte, en anglais, au plus 3 500 caractères,
+//! résultat d'`initialize` (ère legacy) : le même texte, en anglais, au plus 3 700 caractères,
 //! attribution des données comprise. Une surface plus riche cite plus d'outils : seules les
 //! lignes de la section « Workflow » changent (05 §4.2). Le texte ne dépend jamais de
 //! l'environnement (05 §4.3, règle 5).
@@ -16,11 +16,12 @@ pub enum Surface {
     V01,
     /// v0.2 : plus la vérification et la résolution de citations (M6).
     V02,
-    /// v0.3 : plus la recherche multi-fonds, les prompts et les ressources (M7).
+    /// v0.3 : plus la recherche multi-fonds, les prompts et les ressources (M7) ; depuis le jalon
+    /// MB, plus les deux outils du BOFiP (pas de surface `V04` : celle-ci, seule servie, s'étend).
     V03,
 }
 
-/// Surface servie par ce binaire : la complète, qui annonce les treize outils de
+/// Surface servie par ce binaire : la complète, qui annonce les quinze outils de
 /// `ToolName::ALL`, les resources, les prompts et les complétions.
 pub const SURFACE: Surface = Surface::V03;
 
@@ -35,10 +36,11 @@ impl Surface {
     }
 }
 
-/// Plafond des instructions, en caractères Unicode (00 §6, 05 §4.3 règle 2). Éprouvé par
-/// `instructions_fit_budget` et, sur le binaire, par `cargo xtask instructions-size`.
+/// Plafond des instructions, en caractères Unicode (00 §6, 05 §4.3 règle 2 ; relevé de 3 500 à
+/// 3 700 par AM-93 pour la ligne du BOFiP). Éprouvé par `instructions_fit_budget` et, sur le
+/// binaire, par `cargo xtask instructions-size`.
 #[cfg(test)]
-pub(crate) const INSTRUCTIONS_BUDGET_CHARS: usize = 3_500;
+pub(crate) const INSTRUCTIONS_BUDGET_CHARS: usize = 3_700;
 
 // Les trois textes ne diffèrent que par les lignes 1, 3 et 4 de « Workflow » : les morceaux communs
 // sont des macros qui se développent en littéraux, que `concat!` assemble à la compilation.
@@ -106,6 +108,16 @@ macro_rules! limits {
     () => {
         "Limits: `fr_coverage` says what this server does not cover and whether it runs on the \
          PISTE sandbox."
+    };
+}
+
+/// Ligne du BOFiP (jalon MB), en v0.3 seulement : les deux outils, ce qu'est la doctrine fiscale
+/// et sa limite. Aucune adresse : seuls les liens vers Légifrance sont admis.
+macro_rules! tax_doctrine {
+    () => {
+        "Tax doctrine: `fr_search_bofip` then `fr_get_bofip` read BOFiP, the tax administration's \
+         published doctrine: its reading of tax law, not the law itself, and only what is in \
+         force today."
     };
 }
 
@@ -178,7 +190,8 @@ pub(crate) const INSTRUCTIONS_V02: &str = concat!(
     tail!()
 );
 
-/// Instructions de la surface v0.3 : 13 outils cités, 3 278 caractères (05 §4.1 et §4.2).
+/// Instructions de la surface v0.3 : 15 outils cités (05 §4.1 et §4.2). Depuis le jalon MB, une
+/// ligne 5 nomme les deux outils du BOFiP ; les textes des v0.1 et v0.2 n'ont pas bougé.
 pub(crate) const INSTRUCTIONS_V03: &str = concat!(
     head!(),
     "1. Find: `fr_search` searches one fond, paged with `page` and `has_more`; \
@@ -189,6 +202,8 @@ pub(crate) const INSTRUCTIONS_V03: &str = concat!(
     check_v03!(),
     "\n4. ",
     limits!(),
+    "\n5. ",
+    tax_doctrine!(),
     "\n",
     tail!()
 );
@@ -205,16 +220,18 @@ mod tests {
     /// Les trois surfaces, de la plus petite à la plus riche.
     const SURFACES: [Surface; 3] = [Surface::V01, Surface::V02, Surface::V03];
 
-    /// Outils cités, par surface : les 8 de la v0.1, puis M6, puis M7 (05 §4.2).
+    /// Outils cités, par surface : les 8 de la v0.1, puis M6, puis M7 et les deux du BOFiP
+    /// (05 §4.2).
     fn cited_tools(surface: Surface) -> BTreeSet<&'static str> {
         let v01 = ToolName::ALL[..8].iter().map(|tool| tool.as_str());
         let m6 = [ToolName::FR_VERIFY_CITATIONS, ToolName::FR_RESOLVE].map(ToolName::as_str);
         let m7 = [ToolName::FR_GET_RELATED, ToolName::FR_DIFF_ARTICLE, ToolName::FR_SEARCH_ALL]
             .map(ToolName::as_str);
+        let mb = [ToolName::FR_SEARCH_BOFIP, ToolName::FR_GET_BOFIP].map(ToolName::as_str);
         match surface {
             Surface::V01 => v01.collect(),
             Surface::V02 => v01.chain(m6).collect(),
-            Surface::V03 => v01.chain(m6).chain(m7).collect(),
+            Surface::V03 => v01.chain(m6).chain(m7).chain(mb).collect(),
         }
     }
 
@@ -253,7 +270,7 @@ mod tests {
             let size = surface.instructions().chars().count();
             assert!(size <= INSTRUCTIONS_BUDGET_CHARS, "{surface:?} : {size} caractères");
         }
-        assert_eq!(INSTRUCTIONS_BUDGET_CHARS, 3_500);
+        assert_eq!(INSTRUCTIONS_BUDGET_CHARS, 3_700);
     }
 
     #[test]
@@ -266,7 +283,9 @@ mod tests {
             let text = surface.instructions();
             (text.chars().count(), text.len())
         });
-        assert_eq!(measured, [(3_100, 3_108), (3_301, 3_309), (3_499, 3_507)]);
+        // Jalon MB (AM-93) : la v0.3 gagne la ligne du BOFiP, 189 caractères avec son numéro ;
+        // les v0.1 et v0.2 sont identiques à l'octet (G3).
+        assert_eq!(measured, [(3_100, 3_108), (3_301, 3_309), (3_688, 3_696)]);
     }
 
     /// D-12 : glossaire de `etat`, résumé jamais complet, nuance de « verbatim » pour les tableaux.
@@ -322,7 +341,7 @@ mod tests {
             assert_eq!(cited, cited_tools(surface), "{surface:?}");
         }
         let counts = SURFACES.map(|surface| cited_tools(surface).len());
-        assert_eq!(counts, [8, 10, 13]);
+        assert_eq!(counts, [8, 10, 15]);
     }
 
     #[test]

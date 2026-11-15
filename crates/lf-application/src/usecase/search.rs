@@ -156,7 +156,7 @@ fn text_of(value: Option<&str>) -> Result<QueryText, AppError> {
 }
 
 /// `page_size` : 10 par défaut, de 1 à 100 (P-011), `i64` hors de `u32` compris.
-fn page_size_of(value: Option<i64>) -> Result<PageSize, AppError> {
+pub(super) fn page_size_of(value: Option<i64>) -> Result<PageSize, AppError> {
     let Some(value) = value else { return Ok(PageSize::DEFAULT) };
     u32::try_from(value).ok().and_then(|size| PageSize::new(size).ok()).ok_or_else(|| {
         messages::out_of_range(
@@ -171,7 +171,7 @@ fn page_size_of(value: Option<i64>) -> Result<PageSize, AppError> {
 /// `page` : 1 par défaut, au moins 1. Au-delà de `u32::MAX` la page est de toute façon hors de la
 /// fenêtre atteignable : elle est saturée, et `SearchQuery::new` la refuse (le message cite alors
 /// la page saturée).
-fn page_of(value: Option<i64>) -> Result<NonZeroU32, AppError> {
+pub(super) fn page_of(value: Option<i64>) -> Result<NonZeroU32, AppError> {
     let Some(value) = value else { return Ok(NonZeroU32::MIN) };
     if value < 1 {
         return Err(messages::out_of_range("page", value, 1, i64::MAX));
@@ -251,7 +251,7 @@ fn escapes_in_force_filter(hit: &SearchHit) -> bool {
 }
 
 /// Les notes présentes, jointes par une espace ; `None` s'il n'y en a aucune.
-fn join_notes<const N: usize>(notes: [Option<String>; N]) -> Option<String> {
+pub(super) fn join_notes<const N: usize>(notes: [Option<String>; N]) -> Option<String> {
     let notes: Vec<String> = notes.into_iter().flatten().collect();
     (!notes.is_empty()).then(|| notes.join(" "))
 }
@@ -296,7 +296,7 @@ fn fit_under_target(
     let snippets = strip_from_end(&mut output.hits, over, strip_snippets);
     let details = strip_from_end(&mut output.hits, over, |out| strip_details(out, keep_etat));
     if over(&output.hits) {
-        let largest = largest_page_size(&output.hits, fixed);
+        let largest = largest_page_size(&output.hits, fixed, hit_cost);
         return Err(messages::invalid_argument(format!(
             "page_size={} would exceed the 45,000-character response cap for this query; use \
              page_size <= {largest}.",
@@ -362,13 +362,14 @@ fn details_note(hits: usize, keep_etat: bool) -> String {
 }
 
 /// Plus grande `page_size` dont les premiers résultats, ainsi dégradés, tiennent sous la cible :
-/// déterministe, donc rejouable. Au moins 1, pour ne jamais proposer une page vide.
-fn largest_page_size(hits: &[HitOut], fixed: usize) -> usize {
+/// déterministe, donc rejouable. Au moins 1, pour ne jamais proposer une page vide. `cost` est la
+/// longueur du JSON d'un résultat ([`hit_cost`] ici ; `fr_search_bofip` passe la sienne).
+pub(super) fn largest_page_size<T>(hits: &[T], fixed: usize, cost: impl Fn(&T) -> usize) -> usize {
     hits.iter()
         .enumerate()
         .scan(fixed, |used, (index, out)| {
             // Une virgule sépare chaque résultat du précédent.
-            *used = used.saturating_add(hit_cost(out)).saturating_add(usize::from(index > 0));
+            *used = used.saturating_add(cost(out)).saturating_add(usize::from(index > 0));
             Some(*used)
         })
         .take_while(|&used| used <= ResponseBudget::ESTIMATE_TARGET_CHARS)
@@ -1705,7 +1706,7 @@ mod tests {
         // Un seul résultat démesuré (hors bornes réelles) : la taille proposée ne tombe pas à 0.
         let huge = SearchHit { title: Some("x".repeat(60_000)), ..bare(Fond::Juri, 1) };
         let hit = HitOut { citation: "c".to_owned(), source_url: "u".to_owned(), hit: huge };
-        assert_eq!(largest_page_size(&[hit], 0), 1);
+        assert_eq!(largest_page_size(&[hit], 0, hit_cost), 1);
     }
 
     /// Les virgules entre résultats comptent, une par résultat après le premier : trois résultats
@@ -1715,8 +1716,8 @@ mod tests {
         let hits: Vec<HitOut> = (1..=3).map(|n| plain(bare(Fond::Juri, n))).collect();
         let costs: usize = hits.iter().map(hit_cost).sum();
         let exact = ResponseBudget::ESTIMATE_TARGET_CHARS - costs - 2;
-        assert_eq!(largest_page_size(&hits, exact), 3);
-        assert_eq!(largest_page_size(&hits, exact + 1), 2);
+        assert_eq!(largest_page_size(&hits, exact, hit_cost), 3);
+        assert_eq!(largest_page_size(&hits, exact + 1, hit_cost), 2);
     }
 
     /// La réserve des notes de dégradation vaut 411 caractères : le test de dérive de

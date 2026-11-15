@@ -147,8 +147,9 @@ mod security {
 
     /// Régression : D-07. Chaque outil que `tools/list` annonce, appelé avec une entrée vide (rejetée
     /// pour la plupart, acceptée pour `fr_coverage`), produit exactement une ligne d'audit à son nom,
-    /// écrite avant que la réponse ne parte. La liste annoncée est celle des treize outils
-    /// enregistrés (`ToolName::ALL`) : un outil ajouté sans audit ou sans test ferait échouer ce test.
+    /// écrite avant que la réponse ne parte. La liste annoncée est celle des quinze outils
+    /// enregistrés (`ToolName::ALL`, les deux du BOFiP compris) : un outil ajouté sans audit ou sans
+    /// test ferait échouer ce test.
     #[tokio::test]
     async fn every_tool_goes_through_audited() {
         let audit = tempfile::tempdir().expect("a temporary directory");
@@ -777,6 +778,11 @@ mod security {
     /// PISTE (`piste.gouv.fr` et ses sous-domaines), `www.legifrance.gouv.fr`, le dépôt du projet,
     /// et la boucle locale en `http` (surcharge locale, 04 §2.3). Un userinfo ou un hôte qui n'est
     /// qu'un préfixe d'un autre (`legifrance.gouv.fr.example.org`) n'y est pas.
+    ///
+    /// BOFiP (ADR-0029, décision 5) : `bofip.impots.gouv.fr`, l'hôte exact, en `https` seul. C'est
+    /// le préfixe de la grammaire des adresses rendues dans `source_url` ; il n'est jamais appelé.
+    /// Et `data.economie.gouv.fr`, l'hôte exact, en `https` seul : le portail du jeu `bofip-vigueur`,
+    /// seule adresse que `lf-adapter-bofip` appelle, fixée dans le code (ADR-0028, décision 4).
     fn allowlisted(url: &str) -> bool {
         let Some((scheme, rest)) = url.split_once("://") else { return false };
         if rest.contains('@') {
@@ -792,6 +798,8 @@ mod security {
                 name == "piste.gouv.fr"
                     || name.ends_with(".piste.gouv.fr")
                     || name == "www.legifrance.gouv.fr"
+                    || name == "bofip.impots.gouv.fr"
+                    || name == "data.economie.gouv.fr"
                     || rest.starts_with("github.com/muchiny/mcp-legifrance")
             }
             "http" => matches!(name, "127.0.0.1" | "localhost" | "[::1]"),
@@ -814,7 +822,7 @@ mod security {
 
     /// Régression : D-04. Aucune URL littérale du code de production (`crates/*/src`, hors modules
     /// de test) ne sort de la liste blanche : hôtes `*.piste.gouv.fr`, `www.legifrance.gouv.fr`,
-    /// dépôt du projet, boucle locale. Une URL pour un autre hôte (télémétrie, manifeste distant) y
+    /// dépôt du projet, boucle locale, et les deux hôtes exacts du BOFiP (voir `allowlisted`). Une URL pour un autre hôte (télémétrie, manifeste distant) y
     /// serait vue. L'analyse elle-même est vérifiée sur des exemples, et ne lit pas zéro fichier.
     #[test]
     fn production_sources_contain_only_allowlisted_urls() {
@@ -827,14 +835,38 @@ mod security {
                       let e = \"https://github.com/muchiny/mcp-legifrance\";\n\
                       let f = \"http://127.0.0.1:8080/x\";\n\
                       let g = \"http://sandbox-api.piste.gouv.fr/x\";\n\
-                      #[cfg(test)]\nmod tests { let h = \"https://tests.example.org\"; }\n";
+                      let h = \"https://bofip.impots.gouv.fr/bofip/1-PGP.html\";\n\
+                      let i = \"https://bofip.impots.gouv.fr.example.org/\";\n\
+                      let j = \"https://www.bofip.impots.gouv.fr/\";\n\
+                      let k = \"http://bofip.impots.gouv.fr/\";\n\
+                      let l = \"https://data.economie.gouv.fr/api/explore/v2.1/catalog\";\n\
+                      let m = \"https://data.economie.gouv.fr.example.org/\";\n\
+                      let n = \"https://economie.gouv.fr/\";\n\
+                      let o = \"http://data.economie.gouv.fr/\";\n\
+                      #[cfg(test)]\nmod tests { let z = \"https://tests.example.org\"; }\n";
         let verdicts: Vec<(usize, bool)> = url_hosts(production_part(sample))
             .iter()
             .map(|(line, url)| (*line, allowlisted(url)))
             .collect();
         assert_eq!(
             verdicts,
-            [(1, true), (3, false), (4, false), (5, false), (6, true), (7, true), (8, false)]
+            [
+                (1, true),
+                (3, false),
+                (4, false),
+                (5, false),
+                (6, true),
+                (7, true),
+                (8, false),
+                (9, true),
+                (10, false),
+                (11, false),
+                (12, false),
+                (13, true),
+                (14, false),
+                (15, false),
+                (16, false),
+            ]
         );
 
         let mut files = Vec::new();

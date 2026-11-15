@@ -12,13 +12,14 @@ use super::{
 /// Versions de protocole que les trois sessions négocient (00 §6) : `supportedVersions` les contient.
 pub(crate) const SESSION_VERSIONS: [&str; 3] = ["2026-07-28", "2025-11-25", "2025-06-18"];
 
-/// Plafond des instructions, en caractères Unicode (05 §4, §6.6).
-pub(crate) const INSTRUCTIONS_MAX_CHARS: usize = 3_500;
+/// Plafond des instructions, en caractères Unicode (05 §4, §6.6 ; relevé de 3 500 à 3 700 par
+/// AM-93, pour la ligne du BOFiP).
+pub(crate) const INSTRUCTIONS_MAX_CHARS: usize = 3_700;
 
 /// Plafond d'une description d'outil, en caractères (05 §6.6).
 const DESCRIPTION_MAX_CHARS: usize = 1_000;
 
-/// Annotations exigées sur les 13 outils (05 §5.0.1) : nom et valeur.
+/// Annotations exigées sur les 15 outils (05 §5.0.1) : nom et valeur.
 const HINTS: [(&str, bool); 4] = [
     ("readOnlyHint", true),
     ("destructiveHint", false),
@@ -31,8 +32,10 @@ const HINTS: [(&str, bool); 4] = [
 /// 31 853 octets mesurés, plus 3 % (32 808,6), arrondis à la centaine supérieure (32 900). La
 /// 1.1.0 le relève à 34 500 (Q27 = A) : 32 608 octets mesurés à la vague V2b, D-12 ajoute des
 /// descriptions ; la revue finale de la PR 2 (AM-73) applique la règle d'AM-63 à la mesure finale,
-/// 35 424 octets (36 486,72 avec 3 %), soit 36 500. Le test `descriptor_size_budget` de `lf-adapter-mcp` porte la même valeur.
-const TOOLS_LIST_BUDGETS: [usize; 3] = [20_000, 24_000, 36_500];
+/// 35 424 octets (36 486,72 avec 3 %), soit 36 500. Le jalon MB (AM-93) ajoute les deux outils du
+/// BOFiP à la surface v0.3 : 41 878 octets mesurés sur les quinze outils (43 134,34 avec 3 %), soit
+/// 43 200. Le test `descriptor_size_budget` de `lf-adapter-mcp` porte la même valeur.
+const TOOLS_LIST_BUDGETS: [usize; 3] = [20_000, 24_000, 43_200];
 
 /// Outils qui n'existent qu'à partir de v0.2 (M6) et de v0.3 (M7) : ils fixent le budget.
 const V02_TOOLS: [&str; 2] = ["fr_verify_citations", "fr_resolve"];
@@ -768,7 +771,7 @@ mod tests {
                 "serverInfo.name is `other`, expected `mcp-legifrance`",
                 "serverInfo.version is `9.9.9`, the crate version is `0.1.0`",
                 "supportedVersions does not list 2025-11-25",
-                "instructions have 3501 characters, over 3500",
+                "instructions have 3701 characters, over 3700",
             ]
         );
         let at_limit = findings_with(|surface| {
@@ -798,7 +801,7 @@ mod tests {
             run(&v01, VERSION).errors,
             ["tools/list is 20001 bytes, over the 20000 bytes budget (05 §6.6)"]
         );
-        for (extra, budget) in [("fr_resolve", 24_000), ("fr_search_all", 36_500)] {
+        for (extra, budget) in [("fr_resolve", 24_000), ("fr_search_all", 43_200)] {
             let mut bigger = surface();
             bigger.tools.insert(extra.to_owned(), tool(extra));
             padded(&mut bigger, budget);

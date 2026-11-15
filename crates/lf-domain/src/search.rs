@@ -318,8 +318,9 @@ pub fn has_more(page: NonZeroU32, page_size: PageSize, total: u64) -> bool {
     page.saturating_mul(size) < total && within_reach(page.saturating_add(1), size)
 }
 
-/// Fenêtre unique partagée par le rejet d'une page et par [`has_more`].
-fn within_reach(page: u64, page_size: u64) -> bool {
+/// Fenêtre unique partagée par le rejet d'une page et par [`has_more`] ; la recherche du BOFiP
+/// ([`DoctrineQuery`](crate::doctrine::DoctrineQuery)) a la même, mesurée sur son portail.
+pub(crate) fn within_reach(page: u64, page_size: u64) -> bool {
     page.saturating_mul(page_size) <= REACHABLE_RESULTS
 }
 

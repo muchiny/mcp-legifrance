@@ -39,6 +39,10 @@ mod budgets {
     use lf_domain::{
         contract::Idcc,
         date::CivilDate,
+        doctrine::{
+            BoiId, DoctrineDoc, DoctrineHit, DoctrineKind, DoctrinePage, Permalink, Serie,
+            clean_text,
+        },
         entity::{
             Act, ArticleText, ArticleVersion, CodeArticleRef, CompanyAgreement, Convention,
             Decision, Deliberation, OfficialSummary, ParentText, SearchHit, SearchPage,
@@ -325,6 +329,64 @@ mod budgets {
             container_id: Some("KALICONT000005635096".to_owned()),
             bulletin: Some("BO n°2024-20".to_owned()),
         }
+    }
+
+    const BOI_ID: &str = "BOI-ENR-DMTG-10-50-20";
+
+    /// Le permalien de la publication `n` de [`BOI_ID`].
+    fn bofip_link(n: u32) -> Permalink {
+        let raw = format!(
+            "https://bofip.impots.gouv.fr/bofip/{n}-PGP.html/identifiant={BOI_ID}-20230524"
+        );
+        Permalink::parse(&raw).unwrap()
+    }
+
+    /// Un résultat de recherche du BOFiP : la publication `n`, de titre `title`.
+    fn bofip_hit(n: u32, title: &str) -> DoctrineHit {
+        let link = bofip_link(n);
+        DoctrineHit {
+            id: BoiId::parse(BOI_ID).unwrap(),
+            publication_id: link.publication_id,
+            title: title.to_owned(),
+            kind: DoctrineKind::Doctrine,
+            serie: Some(Serie::parse("ENR").unwrap()),
+            valid_from: CivilDate::new(2023, 5, 24),
+            source_url: link.url,
+        }
+    }
+
+    /// Une page de `count` résultats du BOFiP et le coût brut de leurs titres.
+    fn bofip_page(count: u32, title: impl Fn(u32) -> String) -> (DoctrinePage, Raw) {
+        let titles: Vec<String> = (1..=count).map(title).collect();
+        let raw = Raw::of(titles.iter().map(String::as_str));
+        let hits = (1..=count).zip(&titles).map(|(n, title)| bofip_hit(n, title)).collect();
+        (DoctrinePage { total: u64::from(count), hits }, raw)
+    }
+
+    /// La publication `n` du BOFiP, de titre `title` et de texte `text`.
+    fn bofip_doc(n: u32, title: &str, text: &str) -> DoctrineDoc {
+        let link = bofip_link(n);
+        DoctrineDoc {
+            id: BoiId::parse(BOI_ID).unwrap(),
+            publication_id: link.publication_id,
+            title: title.to_owned(),
+            kind: DoctrineKind::Doctrine,
+            serie: Some(Serie::parse("ENR").unwrap()),
+            division: Some("DMTG".to_owned()),
+            valid_from: CivilDate::new(2023, 5, 24),
+            source_url: link.url,
+            text: clean_text(text).unwrap().0,
+        }
+    }
+
+    /// Les titres raccourcis d'une page du BOFiP : 120 caractères, `…` compris.
+    fn shortened_titles(hits: &[Value]) -> usize {
+        hits.iter()
+            .filter(|hit| {
+                let title = hit["title"].as_str().unwrap();
+                title.ends_with('…') && title.chars().count() == 120
+            })
+            .count()
     }
 
     // ---- les cas -------------------------------------------------------------------------------
@@ -853,6 +915,89 @@ mod budgets {
                     json!({"hunks": hunks.len(), "truncated": true})
                 },
             },
+            // ---- fr_search_bofip et fr_get_bofip ----------------------------------------------
+            Case {
+                name: "bofip_search_100_hits_with_1000_char_titles",
+                tool: "fr_search_bofip",
+                arguments: json!({"query": "donation", "page_size": 100}),
+                extreme: Extreme::OverTheCap,
+                setup: |fixture| {
+                    let (page, raw) = bofip_page(100, |n| format!("{n} {}", "x".repeat(996)));
+                    fixture.doctrine.push_search(Ok(page));
+                    raw
+                },
+                check: |observed| {
+                    // Aucun résultat n'est retiré : les titres longs sont raccourcis par la fin,
+                    // et la note dit exactement combien (05 §5.14).
+                    let hits = hits_of(observed);
+                    assert_eq!(hits.len(), 100, "aucun résultat n'est retiré");
+                    let shortened = shortened_titles(hits);
+                    assert!((1..100).contains(&shortened), "{shortened}");
+                    assert_eq!(shortened_titles(&hits[100 - shortened..]), shortened);
+                    assert!(
+                        observed
+                            .note()
+                            .starts_with(&format!("{shortened} long titles were shortened")),
+                        "{}",
+                        observed.note()
+                    );
+                    assert!(observed.chars <= TARGET, "{}", observed.chars);
+                    json!({"hits": hits.len(), "titles_shortened": shortened})
+                },
+            },
+            Case {
+                name: "bofip_search_100_hits_with_escape_rich_titles",
+                tool: "fr_search_bofip",
+                arguments: json!({"query": "donation", "page_size": 100}),
+                extreme: Extreme::OverTheCap,
+                setup: |fixture| {
+                    let (page, raw) = bofip_page(100, |_| nasty(1_000));
+                    fixture.doctrine.push_search(Ok(page));
+                    raw
+                },
+                check: |observed| {
+                    // Même raccourcis à 120 caractères, cent titres riches en échappements ne
+                    // tiennent pas : la page est refusée avec la `page_size` qui tient.
+                    let message = observed.error.as_deref().expect("a refusal");
+                    assert!(message.starts_with("[invalid_arg] page_size=100 would exceed"));
+                    let suggested = suggested_page_size(message);
+                    assert!((1..100).contains(&suggested), "{message}");
+                    json!({"refused": true, "suggested_page_size": suggested})
+                },
+            },
+            Case {
+                name: "bofip_get_40000_char_escape_rich_window",
+                tool: "fr_get_bofip",
+                arguments: json!({"id": BOI_ID, "detail": "full", "max_chars": 40_000}),
+                extreme: Extreme::OverTheCap,
+                setup: |fixture| {
+                    let text = nasty_paragraphs(6_500);
+                    let raw = Raw::of([bofip_window_of(&text, 40_000).as_str()]);
+                    fixture.doctrine.push_get(Ok(vec![bofip_doc(3369, "Donations", &text)]));
+                    raw
+                },
+                check: reading_window,
+            },
+            Case {
+                name: "bofip_get_choice_of_10_publications_with_1000_char_titles",
+                tool: "fr_get_bofip",
+                arguments: json!({"id": BOI_ID}),
+                extreme: Extreme::Ordinary,
+                setup: |fixture| {
+                    // Dix publications au plus sous un identifiant (plafond du cas d'usage), aux
+                    // titres les plus longs que le domaine admette : la liste tient entière.
+                    let title = "x".repeat(1_000);
+                    let docs = (1..=10).map(|n| bofip_doc(n, &title, "Texte.")).collect();
+                    fixture.doctrine.push_get(Ok(docs));
+                    Raw { chars: 0, bytes: 0 }
+                },
+                check: |observed| {
+                    let listed = observed.value["publications"].as_array().expect("a list");
+                    assert_eq!(listed.len(), 10);
+                    assert!(observed.value.get("text").is_none());
+                    json!({"publications": listed.len(), "chars": observed.chars})
+                },
+            },
             // ---- fr_coverage ------------------------------------------------------------------
             Case {
                 name: "coverage",
@@ -884,6 +1029,12 @@ mod budgets {
     /// Les `max_chars` premiers caractères de `text` : la fenêtre que l'outil lirait sans dégrader.
     fn window_of(text: &str, max_chars: usize) -> String {
         LongText::from_plain(text).unwrap().as_str().chars().take(max_chars).collect()
+    }
+
+    /// La même fenêtre pour une publication du BOFiP : son texte passe par `clean_text`, comme
+    /// dans [`bofip_doc`], qui recolle les sauts de ligne placés au milieu des phrases.
+    fn bofip_window_of(text: &str, max_chars: usize) -> String {
+        clean_text(text).unwrap().0.as_str().chars().take(max_chars).collect()
     }
 
     /// Une fenêtre de lecture dégradée : elle est plus courte que demandée mais jamais vide,
@@ -1592,13 +1743,16 @@ mod budgets {
     /// descriptions de D-12, 34 482 avec les remarques de revue de la vague V3 (marge de 18
     /// octets). La revue finale de la PR 2 (AM-73) applique la règle d'AM-63 à la mesure finale,
     /// 35 424 octets (35 395 au premier tour, 35 424 au second) : plus 3 % (36 486,72), arrondi à la
-    /// centaine supérieure, soit 36 500. La même valeur est dans `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`), qui mesure le même JSON canonique.
+    /// centaine supérieure, soit 36 500. Le jalon MB (AM-93) ajoute les deux outils du BOFiP :
+    /// 41 878 octets mesurés sur les quinze outils, plus 3 % (43 134,34), soit 43 200. La même
+    /// valeur est dans `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`), qui mesure le même
+    /// JSON canonique.
     #[tokio::test]
     async fn descriptor_size_budget() {
         let client = Fixture::default().connect().await;
         let tools = client.list_all_tools().await.unwrap();
         let bytes = serde_json::to_vec(&tools).unwrap().len();
-        assert!(bytes <= 36_500, "tools/list: {bytes} bytes");
+        assert!(bytes <= 43_200, "tools/list: {bytes} bytes");
         for tool in &tools {
             let description = tool.description.as_deref().unwrap_or("");
             assert!(description.chars().count() <= 1_000, "{}: {description}", tool.name);

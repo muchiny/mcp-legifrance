@@ -41,6 +41,7 @@
       ],
       "command": "${__dirname}/server/launcher",
       "env": {
+        "LF_BOFIP": "${user_config.bofip}",
         "LF_PISTE_CLIENT_ID": "${user_config.piste_client_id}",
         "LF_PISTE_CLIENT_SECRET": "${user_config.piste_client_secret}",
         "LF_PISTE_ENV": "${user_config.piste_env}"
@@ -66,6 +67,10 @@
     {
       "description": "Read a consolidated law, decree or code by its LEGITEXT id (from fr_search on LODA or CODE): metadata, citation, source_url and a table of contents of sections and articles with their `article_id`. Returns the version in force on `date` (YYYY-MM-DD; default: the version named by a suffixed text_id, else today in Paris); without `date_fin_version` that version has no end date. The table of contents is paged: up to `toc_limit` entries (default 100) from `toc_offset`; continue with `next_toc_offset`. It does not return article text: read an article with fr_get_text. For a collective agreement (KALITEXT) use fr_get_convention.",
       "name": "fr_get_act"
+    },
+    {
+      "description": "Read one BOFiP publication by its id (BOI-... or ACTU-..., from fr_search_bofip): title, kind, serie, valid_from, citation and source_url. BOFiP is the tax administration's doctrine, not the law; only the publication in force today is served, never a past version. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary` (its beginning). `detail`=\"full\" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. A few ids designate two publications: the answer then lists them, and `publication_id` selects one.",
+      "name": "fr_get_bofip"
     },
     {
       "description": "Read a company-level agreement (accord d'entreprise) by its ACCOTEXT id from fr_search on fond ACCO. Returns METADATA ONLY: company, SIRET, IDCC, APE code, sector, themes, signatory unions, dates, citation and source_url. Légifrance distributes the full text only as a .docx attachment, which this tool does not return: point the user to source_url.",
@@ -104,12 +109,23 @@
       "name": "fr_search_all"
     },
     {
+      "description": "Search BOFiP, the published doctrine of the French tax administration (DGFiP): how the administration reads tax law, not the law itself. All the words of `query` must appear in a publication; the last word also matches as a prefix; there are no operators and no quoted phrases, so use a few plain words. Narrow with `serie` (for example ENR for registration and inheritance duties, IR for income tax, RFPI for property income and capital gains). `kind` selects doctrine pages (default), news items, or all. Returns id, publication_id, title, kind, serie, valid_from and source_url, paged with `page` and `has_more`; never the text: read it with fr_get_bofip. Only publications in force today are available.",
+      "name": "fr_search_bofip"
+    },
+    {
       "description": "Check every legal citation found in a text of up to 20,000 characters, for example a draft answer, against the official Légifrance record. Recognises code articles (a bare number needs article/art.; one prefixed by L, R or D does not), laws and decrees, court decisions, ECLI, CNIL deliberations and collective agreements; found=0 does not prove that a text cites nothing. For each citation returns its `span`, a `status` (verified, not_found, ambiguous, unresolvable or invalid), the official record when found and a `note` explaining any mismatch; `verified` means the article exists, not that it says what the draft claims. A quoted excerpt is compared with the official text (`quote`) only when it is glued to the citation: no `quote` means NOT checked. It checks the first `max_citations` (default 50); if `truncated` is true, call again on the rest of the text. Use it before giving the user an answer that cites law; for a single citation fr_resolve is lighter.",
       "name": "fr_verify_citations"
     }
   ],
   "tools_generated": false,
   "user_config": {
+    "bofip": {
+      "default": "on",
+      "description": "on (default) or off. The two tax doctrine tools read the open data portal of the French tax administration (data.economie.gouv.fr) and send it your search words. off turns that source off; any other value turns it off too.",
+      "required": false,
+      "title": "Tax doctrine source (BOFiP)",
+      "type": "string"
+    },
     "piste_client_id": {
       "description": "Client ID of your own Légifrance application on piste.gouv.fr (never share it).",
       "required": true,

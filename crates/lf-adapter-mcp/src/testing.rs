@@ -33,13 +33,15 @@ use lf_application::{
     audited::{AuditMode, AuditPolicy},
     budget::ResponseBudget,
     ports::{
-        ArticleAt, AuditError, AuditLog, AuditRecord, CorpusError, LegalCorpus, PisteEnvironment,
+        ArticleAt, AuditError, AuditLog, AuditRecord, CorpusError, DoctrineError, LegalCorpus,
+        PisteEnvironment, TaxDoctrine,
     },
-    service::{ConfigurationState, LegalService, ServiceSettings},
-    testing::{FakeCorpus, FixedClock, MemoryAuditLog},
+    service::{ConfigurationState, DoctrineSource, LegalService, ServiceSettings},
+    testing::{FakeCorpus, FakeDoctrine, FixedClock, MemoryAuditLog},
 };
 use lf_domain::{
     date::{CivilDate, VersionDate},
+    doctrine::{BoiId, DoctrineDoc, DoctrinePage, DoctrineQuery},
     entity::{
         Act, ArticleText, ArticleVersion, CodeListing, CompanyAgreement, Convention, Decision,
         Deliberation, RelatedLinks, SearchHit, SearchPage,
@@ -161,8 +163,21 @@ impl AuditLog for SharedAudit {
     }
 }
 
+/// Source de doctrine partagée : le service possède sa source, le test en garde une poignée.
+pub struct SharedDoctrine(pub Arc<FakeDoctrine>);
+
+impl TaxDoctrine for SharedDoctrine {
+    async fn search(&self, query: &DoctrineQuery) -> Result<DoctrinePage, DoctrineError> {
+        self.0.search(query).await
+    }
+
+    async fn get(&self, id: &BoiId) -> Result<Vec<DoctrineDoc>, DoctrineError> {
+        self.0.get(id).await
+    }
+}
+
 /// Le serveur monté sur les doubles partagés d'une [`Fixture`].
-pub type FixtureServer = LegifranceServer<SharedCorpus, SharedAudit, FixedClock>;
+pub type FixtureServer = LegifranceServer<SharedCorpus, SharedAudit, FixedClock, SharedDoctrine>;
 
 /// Un serveur de test et les poignées sur ce qu'il contient.
 ///
@@ -171,6 +186,9 @@ pub type FixtureServer = LegifranceServer<SharedCorpus, SharedAudit, FixedClock>
 pub struct Fixture {
     /// Corpus factice du service : programmer les réponses (`push_*`), relire les appels.
     pub corpus: Arc<FakeCorpus>,
+    /// Fausse source de doctrine (BOFiP) du service : programmer `push_search` et `push_get`,
+    /// relire les appels. Sans réponse programmée, un appel rend une erreur lisible.
+    pub doctrine: Arc<FakeDoctrine>,
     /// Journal d'audit en mémoire du service : relire les lignes (`records`).
     pub audit: Arc<MemoryAuditLog>,
     /// Réglages du service : audit strict, échéance de 60 s, bac à sable, identifiants configurés.
@@ -183,6 +201,7 @@ impl Default for Fixture {
     fn default() -> Self {
         Self {
             corpus: Arc::new(FakeCorpus::new()),
+            doctrine: Arc::new(FakeDoctrine::new()),
             audit: Arc::new(MemoryAuditLog::new()),
             settings: ServiceSettings {
                 policy: AuditPolicy {
@@ -191,8 +210,11 @@ impl Default for Fixture {
                     env: PisteEnvironment::Sandbox,
                     server_version: env!("CARGO_PKG_VERSION"),
                 },
+                // La source de doctrine est active, comme dans le binaire par défaut : le
+                // serveur enregistre ses deux outils.
                 configuration: ConfigurationState {
                     credentials_configured: true,
+                    doctrine: DoctrineSource::Active,
                     ..ConfigurationState::default()
                 },
                 budget: ResponseBudget,
@@ -231,7 +253,8 @@ impl Fixture {
             SharedAudit(Arc::clone(&self.audit)),
             clock,
             self.settings.clone(),
-        );
+        )
+        .with_doctrine(SharedDoctrine(Arc::clone(&self.doctrine)));
         LegifranceServer::new(Arc::new(service))
     }
 

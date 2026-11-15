@@ -1,11 +1,11 @@
-//! Les 13 outils, un fichier par outil : chacun porte son bloc `#[tool_router]`, que
-//! [`LegifranceServer::new`](crate::LegifranceServer::new) additionne aux douze autres.
+//! Les 15 outils, un fichier par outil : chacun porte son bloc `#[tool_router]`, que
+//! [`LegifranceServer::new`](crate::LegifranceServer::new) additionne aux quatorze autres.
 //!
 //! # Motif `#[tool]` retenu par le spike 0A (`spikes/rmcp-stdio/README.md`, V-28 et V-29 OK)
 //!
 //! ```text
 //! #[tool_router(router = search_router, vis = "pub(crate)")]
-//! impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
+//! impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
 //!     #[tool(
 //!         name = "fr_search",
 //!         title = "Search Légifrance",
@@ -40,12 +40,13 @@
 //! - **Import des macros** : `#[tool]`, `#[tool_router]` et `#[tool_handler]` viennent de
 //!   `rmcp_macros` (dépendance directe, épinglée `=3.9.0` comme `rmcp`, R6) et non de leur
 //!   réexport par `rmcp` : la dépendance est employée, `cargo machete` n'a rien à ignorer.
-//! - **Bornes génériques** : aucune n'est ajoutée par les macros ; `LegalCorpus`, `AuditLog` et
-//!   `Clock` portent déjà `Send + Sync + 'static`.
+//! - **Bornes génériques** : aucune n'est ajoutée par les macros ; `LegalCorpus`, `AuditLog`,
+//!   `Clock` et `TaxDoctrine` portent déjà `Send + Sync + 'static`.
 
 mod coverage;
 mod diff_article;
 mod get_act;
+mod get_bofip;
 mod get_company_agreement;
 mod get_convention;
 mod get_decision;
@@ -55,4 +56,5 @@ mod get_text;
 mod resolve;
 mod search;
 mod search_all;
+mod search_bofip;
 mod verify_citations;

@@ -68,7 +68,7 @@ deny = [
   # wrappers : crates déjà dans le graphe (rmcp, moka et le reste arrivent en 0B, plus bas).
   # Seconde ligne derrière R6 de `cargo xtask check-arch` (02 §4.3) : un autre membre qui déclare
   # reqwest, ou un dev-dependency qui le tire (graph all-features), rend `check bans` rouge.
-  { crate = "reqwest", wrappers = ["lf-adapter-piste"], reason = "HTTP sortant confiné à l'adapter PISTE (R6)" },
+  { crate = "reqwest", wrappers = ["lf-adapter-piste", "lf-adapter-bofip"], reason = "HTTP sortant confiné aux adapters PISTE et BOFiP (R6 ; ADR-0029, décision 9)" },
   { crate = "governor", wrappers = ["lf-adapter-piste"], reason = "limiteur de débit confiné à l'adapter PISTE (R6)" },
   # Confinements de la fin du projet (ADR-0018). `wrappers` ne regarde que le parent direct : ce sont les
   # parents directs réels (`cargo tree -i <crate> -e normal,dev --all-features --depth 1`).

@@ -6,8 +6,15 @@
 //! les autres ne vont qu'au journal), puis délègue la rédaction du message à
 //! [`messages::corpus_error`], qui reste pur. Le module n'est pas pur (il émet un événement
 //! `tracing`), d'où sa place hors de `messages`.
+//!
+//! [`doctrine_failure`] fait de même pour une [`DoctrineError`] du port de doctrine (BOFiP).
 
-use crate::{error::AppError, messages, ports::CorpusError, tools::ToolName};
+use crate::{
+    error::AppError,
+    messages,
+    ports::{CorpusError, DoctrineError, PortalCode},
+    tools::ToolName,
+};
 
 /// Traduit l'erreur du port en `AppError` pour `tool`, après l'avoir journalisée.
 ///
@@ -42,6 +49,43 @@ pub(crate) fn variant_and_detail(error: &CorpusError) -> (&'static str, Option<&
         CorpusError::Config { kind: _, detail } => ("Config", Some(detail)),
         CorpusError::Decode { detail } => ("Decode", Some(detail)),
         CorpusError::TooLarge { detail } => ("TooLarge", Some(detail)),
+    }
+}
+
+/// Traduit l'erreur du port de doctrine en `AppError` pour `tool`, après l'avoir journalisée.
+///
+/// L'événement `doctrine call failed` porte l'outil, le nom de la variante et son détail : le
+/// `detail` fixe de l'adapter, ou le code d'erreur du portail pour un refus. L'adapter garantit
+/// qu'aucun détail ne porte l'adresse de la requête, ses mots ni un message du portail (ADR-0029,
+/// décision 6). Niveau `info` pour une publication introuvable et pour une source coupée, issues
+/// attendues ; `warn` sinon. `subject` est l'identifiant demandé, cité par le message
+/// `not_found` du modèle mais jamais journalisé : c'est la valeur d'un argument (02 §11.3).
+#[must_use]
+pub fn doctrine_failure(tool: ToolName, subject: &str, error: &DoctrineError) -> AppError {
+    let (variant, detail) = doctrine_variant_and_detail(error);
+    let tool_name = tool.as_str();
+    if matches!(error, DoctrineError::NotFound | DoctrineError::Disabled) {
+        tracing::info!(tool = tool_name, variant, detail, "doctrine call failed");
+    } else {
+        tracing::warn!(tool = tool_name, variant, detail, "doctrine call failed");
+    }
+    messages::doctrine_error(tool, subject, error)
+}
+
+/// Nom de la variante et texte de journal de l'erreur du port de doctrine. Le `match` est
+/// exhaustif : une variante ajoutée au port devra dire ce qu'elle journalise.
+fn doctrine_variant_and_detail(error: &DoctrineError) -> (&'static str, Option<&str>) {
+    match error {
+        DoctrineError::Disabled => ("Disabled", None),
+        DoctrineError::NotFound => ("NotFound", None),
+        DoctrineError::RateLimited { retry_after: _ } => ("RateLimited", None),
+        DoctrineError::InvalidRequest { status: _, code } => {
+            ("InvalidRequest", code.as_ref().map(PortalCode::as_str))
+        }
+        DoctrineError::Upstream { status: _, retryable: _, detail } => ("Upstream", Some(detail)),
+        DoctrineError::Timeout => ("Timeout", None),
+        DoctrineError::Decode { detail } => ("Decode", Some(detail)),
+        DoctrineError::TooLarge { detail } => ("TooLarge", Some(detail)),
     }
 }
 
@@ -167,5 +211,94 @@ mod tests {
         let tools: Vec<String> =
             capture.event_fields().into_iter().map(|(_, fields)| fields["tool"].clone()).collect();
         assert_eq!(tools, ["fr_search", "fr_get_decision"]);
+    }
+    /// Champs attendus de l'événement d'échec du port de doctrine.
+    fn doctrine_fields(
+        tool: &str,
+        variant: &str,
+        detail: Option<&str>,
+    ) -> BTreeMap<&'static str, String> {
+        let mut fields = fields(tool, variant, detail);
+        fields.insert("message", "doctrine call failed".to_owned());
+        fields
+    }
+
+    /// Les huit variantes du port de doctrine, avec le niveau, le nom et le détail attendus.
+    fn doctrine_rows() -> Vec<(DoctrineError, Level, &'static str, Option<&'static str>)> {
+        vec![
+            (DoctrineError::Disabled, Level::INFO, "Disabled", None),
+            (DoctrineError::NotFound, Level::INFO, "NotFound", None),
+            (
+                DoctrineError::RateLimited { retry_after: Some(Duration::from_secs(900)) },
+                Level::WARN,
+                "RateLimited",
+                None,
+            ),
+            (
+                DoctrineError::InvalidRequest {
+                    status: 400,
+                    code: PortalCode::parse("ODSQLSyntaxError"),
+                },
+                Level::WARN,
+                "InvalidRequest",
+                Some("ODSQLSyntaxError"),
+            ),
+            (
+                DoctrineError::InvalidRequest { status: 400, code: None },
+                Level::WARN,
+                "InvalidRequest",
+                None,
+            ),
+            (
+                DoctrineError::Upstream {
+                    status: Some(503),
+                    retryable: true,
+                    detail: "HTTP 503 on records".to_owned(),
+                },
+                Level::WARN,
+                "Upstream",
+                Some("HTTP 503 on records"),
+            ),
+            (DoctrineError::Timeout, Level::WARN, "Timeout", None),
+            (
+                DoctrineError::Decode { detail: "records: unexpected id".to_owned() },
+                Level::WARN,
+                "Decode",
+                Some("records: unexpected id"),
+            ),
+            (
+                DoctrineError::TooLarge { detail: "response too large (> 4 MiB)".to_owned() },
+                Level::WARN,
+                "TooLarge",
+                Some("response too large (> 4 MiB)"),
+            ),
+        ]
+    }
+
+    #[test]
+    fn doctrine_failure_logs_the_detail_then_returns_the_model_message() {
+        const BOI: &str = "BOI-ENR-DMTG-10-50-20";
+        for (error, level, variant, detail) in doctrine_rows() {
+            let (capture, _guard) = Capture::install();
+            let got = doctrine_failure(ToolName::FR_GET_BOFIP, BOI, &error);
+            assert_eq!(got, messages::doctrine_error(ToolName::FR_GET_BOFIP, BOI, &error));
+            assert_eq!(
+                capture.event_fields(),
+                vec![(level, doctrine_fields("fr_get_bofip", variant, detail))],
+                "{variant}"
+            );
+            // L'identifiant demandé (argument du modèle) n'est jamais journalisé.
+            assert!(!capture.all_values().iter().any(|v| v.contains(BOI)), "{variant}");
+        }
+    }
+
+    #[test]
+    fn doctrine_failure_names_the_tool_it_was_called_for() {
+        let (capture, _guard) = Capture::install();
+        let _ = doctrine_failure(ToolName::FR_SEARCH_BOFIP, "", &DoctrineError::Timeout);
+        assert_eq!(
+            capture.event_fields(),
+            vec![(Level::WARN, doctrine_fields("fr_search_bofip", "Timeout", None))]
+        );
     }
 }

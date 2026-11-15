@@ -1,0 +1,48 @@
+---
+source: crates/lf-adapter-mcp/src/params/search_bofip.rs
+expression: schema()
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "default": "doctrine",
+      "description": "\"doctrine\" (default): doctrine pages; \"news\": news items; \"all\": both.",
+      "enum": [
+        "doctrine",
+        "news",
+        "all"
+      ],
+      "type": "string"
+    },
+    "page": {
+      "default": 1,
+      "description": "Page number, from 1.",
+      "minimum": 1,
+      "type": "integer"
+    },
+    "page_size": {
+      "default": 10,
+      "description": "Hits per page (1..100).",
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "query": {
+      "description": "A few plain words: all must appear in the publication, the last one also as a prefix. No operators, no quoted phrases.",
+      "maxLength": 450,
+      "minLength": 1,
+      "type": "string"
+    },
+    "serie": {
+      "description": "Series code, e.g. ENR (registration and inheritance duties), IR (income tax), RFPI (property income and capital gains).",
+      "maxLength": 16,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "type": "object"
+}
