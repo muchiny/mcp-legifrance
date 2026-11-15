@@ -121,12 +121,18 @@ expression: "sandbox_view(Surface::V01)"
     {
       "fallback": "Use EUR-Lex, HUDOC or the relevant official source.",
       "id": "FR-009",
-      "missing": "Not covered: EU law, CJEU and ECHR case law, doctrine, circulars, parliamentary documents."
+      "missing": "Not covered: EU law, CJEU and ECHR case law, doctrine other than the tax doctrine (BOFiP), circulars, parliamentary documents."
     },
     {
       "fallback": "Set LF_PISTE_ENV=production with production credentials.",
       "id": "FR-101",
       "missing": "Running on the PISTE sandbox: data may differ from production and availability is not guaranteed."
+    },
+    {
+      "fallback": "Check valid_from; for earlier facts, look up the past versions on the BOFiP website (source_url).",
+      "fond": "BOFIP",
+      "id": "FR-106",
+      "missing": "BOFiP holds only the publications in force today: no past version of the tax doctrine is served."
     }
   ],
   "general_tools": [

@@ -119,8 +119,9 @@ mod tests {
             assert_eq!(records[0].tool, ToolName::FR_COVERAGE);
             assert_eq!(records[0].status, AuditStatus::Ok);
             assert_eq!(records[0].input.as_str(), "{}");
-            // Bac à sable avec identifiants : neuf lacunes du catalogue et FR-101.
-            assert_eq!(records[0].output_count_or_size, 10);
+            // Bac à sable avec identifiants : neuf lacunes du catalogue, FR-101 et FR-106 (BOFiP,
+            // source active).
+            assert_eq!(records[0].output_count_or_size, 11);
         }
 
         #[tokio::test]

@@ -29,7 +29,7 @@ exigences de qualité (§10) y font foi. Ce fichier dit comment les tenir au quo
 | Couverture | `make cov` | 100 % lignes, régions, fonctions (`--lib`), à une exclusion nommée près : `crates/lf-adapter-mcp/src/stdio.rs` (`COV_IGNORE` du `Makefile`, D6), colle sur les vrais stdin et stdout couverte par l'e2e du binaire ; toute autre exclusion exige la même justification |
 | Mutation | `make mutants FILE=…` / CI | 0 mutant `MISSED` sur le fichier touché ; en CI, le diff de la PR n'est muté que sur les fichiers de `.github/mutants-scope.txt` (D7), le reste chaque semaine |
 | Parité | `make surface` | golden de parité reproduit à l'octet depuis les fixtures, table des codes identique à celle du plan |
-| Instructions du serveur | `make instructions` | 3 500 caractères au plus (05 §4.1), mesurés sur le binaire |
+| Instructions du serveur | `make instructions` | 3 700 caractères au plus (05 §4.1 ; AM-93), mesurés sur le binaire |
 | Verrou des descripteurs | `make lock` | `tests/tools.lock.json`, manifeste MCPB et `server.json` identiques au binaire ; après un changement de description, de schéma, de version ou de surface : `cargo xtask lock-descriptors --update`, puis relire le diff (les identifiants de `server.json` se changent à la main) |
 | Analyse statique | job `sonar` (CI) ; en local, `make cov` puis `make cov-cobertura` et `make clippy-json` produisent ses deux rapports | informatif, non bloquant |
 

@@ -1,5 +1,5 @@
-//! Les 13 outils, un fichier par outil : chacun porte son bloc `#[tool_router]`, que
-//! [`LegifranceServer::new`](crate::LegifranceServer::new) additionne aux douze autres.
+//! Les 15 outils, un fichier par outil : chacun porte son bloc `#[tool_router]`, que
+//! [`LegifranceServer::new`](crate::LegifranceServer::new) additionne aux quatorze autres.
 //!
 //! # Motif `#[tool]` retenu par le spike 0A (`spikes/rmcp-stdio/README.md`, V-28 et V-29 OK)
 //!
@@ -46,6 +46,7 @@
 mod coverage;
 mod diff_article;
 mod get_act;
+mod get_bofip;
 mod get_company_agreement;
 mod get_convention;
 mod get_decision;
@@ -55,4 +56,5 @@ mod get_text;
 mod resolve;
 mod search;
 mod search_all;
+mod search_bofip;
 mod verify_citations;

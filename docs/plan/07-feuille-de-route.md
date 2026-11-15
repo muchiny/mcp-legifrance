@@ -10,7 +10,7 @@
 >
 > **Fin du projet (2026-10-29).** Les jalons M3 à M9 et la Distribution ont été écrits sur une seule branche, `feat/fin-du-projet`, par la PR unique #27 (`2026-10-29-fin-du-projet-parallele.md`, vagues V0 à V4 puis fin F1 à F6), à la version **0.3.0** sans release ni étiquette (D14). État par jalon au §4.3 ; une case n'est cochée que si le livrable existe et que le test nommé (ou son équivalent relu) existe et passe sur les trois OS à la tête `4d97b69` ; les portes de couverture à 100 % et de mutation, rouges à cette tête, ne sont pas comptées (§4.3). Amendements : 00 §14 (AM-50 à AM-66), statuts des vérifications : 09 §2.20.
 >
-> **Jalon MB, BOFiP (2026-11-15).** Ajouté par ADR-0028 et ADR-0029 (AM-92, AM-93) : tâches `T-MB-yy` au §2.11, aucun code livré.
+> **Jalon MB, BOFiP (2026-11-15).** Ajouté par ADR-0028 et ADR-0029 (AM-92, AM-93) : tâches `T-MB-yy` au §2.11 ; code écrit sur la branche `feat/bofip` le 2026-11-15 (état au §2.11), en attente de la PR de code unique (T-MB-45).
 
 Documents liés : [00-decisions.md](00-decisions.md) (normatif : §11 jalons, §13 questions), [01-existant.md](01-existant.md) (§4.16 : clôture des défauts par jalon), [02-architecture.md](02-architecture.md) (crates, dépendances, ports), [03-domaine.md](03-domaine.md) (§11), [04-adapter-piste.md](04-adapter-piste.md) (§13, §15), [05-outils-mcp.md](05-outils-mcp.md) (§9, §11), [06-qualite.md](06-qualite.md) (§7 CI, §13.4 définition de « terminé », §14), [08-distribution.md](08-distribution.md) (§7, §10), [09-risques-et-questions.md](09-risques-et-questions.md) (§2.18 synthèse par jalon, §3 questions, §5 critères), annexes [A](annexes/A-parite.md), [B](annexes/B-citations.md), [C](annexes/C-api-legifrance.md), [D](annexes/D-mcp-2026-07-28.md), [index des ADR](../adr/README.md).
 
@@ -70,7 +70,7 @@ Les questions Q1 à Q15 de 00 §13 portent chacune une proposition adoptée par 
 | M8 HTTP (optionnel) | Streamable HTTP local, puis distant | v0.4.0 | G, K, J | Q4 | **V-42** ; profil partagé : **V-62**, **V-175**, **V-176** | 7 |
 | M9 Hors ligne | `lf-adapter-dila`, sélection d'adapter | **v1.0.0** | D, G | Q6 (DILA), Q13 (réexamen) | **V-180**, **V-185**, **V-186**, **V-187** | 6 |
 | Distribution (transverse) | binaires, signature, MCPB, OCI, registre MCP, `cargo install --git` | dès v0.1.0 | A, W, M, K, R, G | Q1 (avant publication immuable), Q5, Q13 | **V-173** (si certificat, Q5), **V-197**, **V-204** | 15 |
-| MB BOFiP | doctrine fiscale : port `TaxDoctrine`, `lf-adapter-bofip`, `fr_search_bofip`, `fr_get_bofip` (ADR-0028, ADR-0029) | version mineure qui suit la 1.2.0 | G (portail ouvert, sans compte) ; P pour le rejeu de T-MB-44 | Q28 à Q34 décidées | **V-222** (levée), **V-223** et **V-225** (partielles) | 28 |
+| MB BOFiP | doctrine fiscale : port `TaxDoctrine`, `lf-adapter-bofip`, `fr_search_bofip`, `fr_get_bofip` (ADR-0028, ADR-0029) | version mineure qui suit la 1.2.0 | G (portail ouvert, sans compte) ; P pour le rejeu de T-MB-44 | Q28 à Q34 décidées | **V-222** et **V-225** (levées), **V-223** (levée avec réserve) | 28 |
 
 Versions : SemVer de la surface d'outils de 05 §9.5 (avant 1.0, une rupture ou un ajout fait passer de `0.x` à `0.(x+1).0`). M8 étant optionnel, M9 peut suivre directement v0.3.0. Hors de cette feuille de route : Judilibre (après v0.3.0, V-181 à V-183), fonds JUFI (après v1.0, V-184), canaux supplémentaires (MSI, Homebrew, winget… après v0.1.0, 09 §3.16.3).
 
@@ -1036,6 +1036,13 @@ Les tâches gardent leur identifiant et reçoivent un statut. Bilan : 1 livrée 
 
 **Tâches.** Cinq vagues sur une seule branche (`feat/bofip`) ; une PR de documentation (T-MB-01), puis une PR de code unique (T-MB-45).
 
+**État au 2026-11-15.** Les cases ci-dessous restent à cocher par le propriétaire, à la fusion de la PR de code.
+
+- Vague 0 : faite (PR #84 pour T-MB-01 ; sondes, fixtures et mesures pour T-MB-02, T-MB-03 et T-MB-05 ; article L. 80 A relu pour T-MB-04, V-225 levée).
+- Vague 1 (T-MB-10 à T-MB-15) : commit `b37e3b9`. Vague 2 (T-MB-20 à T-MB-24) : commit `5d1ee91`. Vagues 3 (T-MB-30 à T-MB-35) et 4 (T-MB-40 à T-MB-43) : commits suivants de la branche.
+- Revues (T-MB-41) : une revue de code et un audit de sécurité sur toute la branche, sans constat bloquant ni élevé. Repris dans la vague de corrections : décodage de `results` arrêté au 101ᵉ enregistrement (motif d'amplification déjà traité pour PISTE), repos relu après l'attente du tour de départ, `Retry-After` de zéro seconde lu comme un en-tête absent, refus de deux publications de même numéro, message de la source coupée rendu neutre, liste exacte des en-têtes envoyés contrôlée par un test, textes de `PRIVACY.md` et de `SECURITY.md` corrigés. Laissés tels quels, par choix : une variable `LF_BOFIP` vide compte comme absente (règle commune à toutes les variables du serveur, désormais écrite dans les trois documents) ; un enregistrement mal formé fait échouer la page entière (échec fermé, ADR-0029 décision 6) ; pas de tri explicite de la recherche (l'ordre du portail est celui de la pertinence, un tri par champ le remplacerait ; mesuré le 2026-11-15 sur une recherche de 350 résultats : deux pages de 10 rendent la même suite qu'une page de 20, et un même appel répété rend le même ordre).
+- Restent : le rejeu des 13 questions (T-MB-44), sur accord du propriétaire, puis la PR de code (T-MB-45).
+
 Vague 0 — préparation, aucun code de produit.
 
 - [ ] T-MB-01 — **PR de documentation.** ADR-0029 et AM-93 ; textes de 00 §1, §2, §3, §6, §7 ; schémas des deux outils et couverture dans 05 ; cette section ; journal de 09.\
@@ -1044,7 +1051,7 @@ Vague 0 — préparation, aucun code de produit.
   Où : portail ouvert · Livrable : ligne V-221 de 09 §2.20 · Vérification : la page attendue dans les cinq premiers résultats pour 10 questions au moins · Spéc. : ADR-0029 « À surveiller » · Taille : S
 - [ ] T-MB-03 — **Fixtures et sondes restantes.** Une douzaine de réponses réelles du portail (recherche pleine, vide, page suivante ; lecture simple, double de même date, sans texte, la plus longue, identifiant inconnu ; refus 400), avec un `README` voisin (adresse, date, licence de la DGFiP, taille). *Sondes faites le 2026-11-15 : aucun refus jusqu'à 12 000 caractères d'adresse ; une entrée Unicode décomposée trouve moins (18 contre 75) ; les 9 173 permaliens suivent la grammaire stricte. Les fixtures viennent avec le crate (T-MB-20).*\
   Où : `crates/lf-adapter-bofip/tests/fixtures/` · Livrable : fixtures et `README` · Vérification : `fixtures_are_listed_with_their_source` · Spéc. : 06 (fixtures) ; ADR-0028 « Tests qui la gardent » · Taille : S
-- [ ] T-MB-04 — **Phrase d'opposabilité.** Relire l'article L. 80 A du livre des procédures fiscales dans Légifrance et figer `doctrine_note`. *État au 2026-11-15 : phrase rédigée d'après `BOI-SJ-RES-10-10-10` ; l'article reste à relire (V-225 partielle).*\
+- [ ] T-MB-04 — **Phrase d'opposabilité.** Relire l'article L. 80 A du livre des procédures fiscales dans Légifrance et figer `doctrine_note`. *Faite le 2026-11-15 : phrase rédigée d'après `BOI-SJ-RES-10-10-10`, puis confrontée à l'article relu dans Légifrance (`LEGIARTI000037312533`, en vigueur depuis le 2018-08-12 ; deux appels de lecture en production, sur accord du propriétaire) ; phrase gardée telle quelle, V-225 levée. Case à cocher par le propriétaire.*\
   Où : `crates/lf-adapter-mcp/src/views/` · Livrable : texte de `doctrine_note` · Vérification : V-225 levée dans 09 §2.20 · Spéc. : ADR-0028 décision 7 · Taille : S · Avant : T-MB-35
 - [ ] T-MB-05 — **G0.** `make ci` sur `main`, RAM et disque contrôlés avant tout travail lourd. *Faite le 2026-11-15 sur `e743eeb` : code de sortie 0. Case à cocher par le propriétaire.*\
   Où : dépôt · Livrable : journal de `make ci` · Vérification : code de sortie 0 · Spéc. : 00 §10 · Taille : S
@@ -1113,7 +1120,7 @@ Vague 4 — documentation, revues, clôture.
 
 - [ ] Les deux outils répondent sur des réponses réelles du portail gardées en fixtures, et sur le portail lui-même (test en direct).
 - [ ] G0 à G9 tenues, chacune avec sa preuve ; G10 sur accord.
-- [ ] V-225 levée avant le verrou ; V-219, V-221 et V-223 consignées avec leurs réserves (09 §2.20).
+- [ ] V-225 levée avant le verrou ; V-219, V-221 et V-223 consignées avec leurs réserves (09 §2.20). *V-225 levée le 2026-11-15 : article L. 80 A relu dans Légifrance, phrase gardée.*
 - [ ] `make ci` vert, couverture 100 %, 0 mutant survivant sur les fichiers nouveaux.
 - [ ] README, `PRIVACY.md` et `SECURITY.md` nomment le nouvel hôte ; rubrique « Tool surface » du CHANGELOG.
 
@@ -1221,7 +1228,7 @@ La PR de clôture (« close: Mx ») contient :
 | M8 | **profil local livré** (`serve-http`, jeton, `tests/http.rs`) ; suite de conformité HTTP : un scénario encore rouge à `4d97b69` ; profil distant non fait (Q4) | 2 / 7 (T-M8-02, -03) | 0 / 4 : V-42 non levée | #27 | — |
 | M9 | **livré, LEGI seul** (`lf-adapter-dila`, `DilaCorpus`, sélection par `LF_DILA_DIR` ; feature `dila` absente des binaires publiés) ; pas de release v1.0.0 | 4 / 6 (T-M9-01 à -04) | V-185, V-186, V-187 levées ; V-188, V-189 consignées ; V-180 consignée (obligations non lues) | #27 | — |
 | Distribution | **configurée, jamais exercée en release** (dist, MCPB, OCI, `server.json`, portes de release présents ; état en CI non relevé dans ce lot) ; signature non faite (Q5) | 3 / 16 (T-MD-01, -03, -04 ; T-MD-16 ajoutée par la revue de sécurité F4) | compris dans la recette v0.1.0 : V-197, V-204 non levées | #27 | — |
-| MB (BOFiP) | à faire ; préparation faite le 2026-11-15 (T-MB-02 et T-MB-05 ; T-MB-03 et T-MB-04 en partie) | 0 / 28 (cases à cocher par le propriétaire) | 1 / 3 : V-222 levée ; V-223 et V-225 partielles | — | — |
+| MB (BOFiP) | code écrit sur `feat/bofip` le 2026-11-15 (vagues 0 à 4) ; restent le rejeu des 13 questions (T-MB-44, sur accord du propriétaire) et la PR de code (T-MB-45) | 0 / 28 (cases à cocher par le propriétaire) | 3 / 3 : V-222 et V-225 levées, V-223 levée avec réserve | — | — |
 
 Statuts : `à faire`, `en cours`, `bloqué (prérequis)` avec le prérequis manquant, `terminé`. « Terminé » pour M0 et M1 vaut au sens du livré (plan 1) ; la colonne « Tâches cochées » y décompte les statuts des tâches (§2.0, §2.1) et les reliquats sont suivis par 00 §11.1. Les onze vérifications bloquantes de la recette v0.1.0 sont V-46, V-59, V-103, V-139, V-140, V-142, V-143, V-144, V-173 (si certificat), V-197 et V-204 (09 §2.18).
 

@@ -1,4 +1,4 @@
-//! Le serveur MCP : `LegifranceServer` assemble les 13 routeurs d'outils et délègue les
+//! Le serveur MCP : `LegifranceServer` assemble les 15 routeurs d'outils et délègue les
 //! resources, les prompts et les complétions (05 §3, §8).
 //!
 //! Le serveur est générique sur les quatre ports de la façade (`C`, `A`, `K`, et `D`, la source
@@ -60,7 +60,7 @@ use crate::{
 };
 
 /// Nombre d'outils du catalogue (05 §3) : un routeur par fichier de `tools/`.
-const ROUTERS: usize = 13;
+const ROUTERS: usize = 15;
 
 /// Nom du serveur dans `serverInfo` (05 §2.2).
 const SERVER_NAME: &str = "mcp-legifrance";
@@ -94,7 +94,7 @@ pub struct LegifranceServer<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrin
 }
 
 impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
-    /// Serveur dont le routeur additionne les treize routeurs d'outils de `tools/`, annonçant la
+    /// Serveur dont le routeur additionne les quinze routeurs d'outils de `tools/`, annonçant la
     /// surface [`SURFACE`].
     #[must_use]
     pub fn new(service: Arc<LegalService<C, A, K, D>>) -> Self {
@@ -112,7 +112,7 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, 
         Self { service, info: server_config(surface), tool_router }
     }
 
-    /// Les routeurs des 13 outils, dans l'ordre du catalogue (05 §3). La longueur du tableau est
+    /// Les routeurs des 15 outils, dans l'ordre du catalogue (05 §3). La longueur du tableau est
     /// vérifiée à la compilation : retirer ou oublier un routeur ne compile pas.
     fn routers() -> [ToolRouter<Self>; ROUTERS] {
         [
@@ -129,6 +129,8 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, 
             Self::get_related_router(),
             Self::diff_article_router(),
             Self::search_all_router(),
+            Self::search_bofip_router(),
+            Self::get_bofip_router(),
         ]
     }
 
@@ -784,7 +786,7 @@ mod tests {
             text::LongText,
         };
 
-        use crate::testing::{SharedAudit, SharedCorpus};
+        use crate::testing::{SharedAudit, SharedCorpus, SharedDoctrine};
 
         const ARTICLE_URI: &str = "legifrance://article/LEGIARTI000006419288";
         const DECISION_URI: &str = "legifrance://decision/JURITEXT000037999394";
@@ -807,7 +809,8 @@ mod tests {
                 SharedAudit(Arc::clone(&fixture.audit)),
                 FixedClock::new(now, fixture.today),
                 fixture.settings.clone(),
-            );
+            )
+            .with_doctrine(SharedDoctrine(Arc::clone(&fixture.doctrine)));
             LegifranceServer::with_surface(Arc::new(service), Surface::V03)
         }
 

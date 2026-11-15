@@ -342,7 +342,7 @@ const DOCTRINE_OFF_GAP: GapText = GapText {
     id: "FR-107",
     fond: None,
     missing: "The BOFiP source is turned off (LF_BOFIP, or offline mode): fr_search_bofip and fr_get_bofip fail with config_error.",
-    fallback: "Set LF_BOFIP=on to query the DGFiP open data portal.",
+    fallback: "The operator can set LF_BOFIP=on; search words are then sent to the DGFiP open data portal.",
 };
 
 /// Les trois lacunes reformulées quand le serveur sert les outils du BOFiP (05 §5.8) : la
@@ -931,7 +931,8 @@ mod tests {
                 "BOFIP",
                 "The BOFiP source is turned off (LF_BOFIP, or offline mode): fr_search_bofip and \
                  fr_get_bofip fail with config_error.",
-                "Set LF_BOFIP=on to query the DGFiP open data portal."
+                "The operator can set LF_BOFIP=on; search words are then sent to the DGFiP open \
+                 data portal."
             )
         );
         // Le catalogue statique garde neuf lacunes dans les trois états.

@@ -1,6 +1,6 @@
 # ADR-0029 — BOFiP : précisions et corrections d'ADR-0028 après la mesure du jeu entier
 
-- **Statut** : **Proposé** — accepté à la fusion de la PR qui le porte.
+- **Statut** : **Accepté** (2026-11-15, à la fusion de la PR #84)
 - **Date** : 2026-11-15
 - **Jalons concernés** : MB (BOFiP), dans la version mineure qui suit la 1.2.0 (numéro à décider par le propriétaire)
 - **Questions liées** : Q32 (départage de deux publications), Q33 (plafond des instructions), Q34 (nature cherchée par défaut) : **décidées par le propriétaire le 2026-11-15, A pour chacune** (voir « Questions tranchées »)

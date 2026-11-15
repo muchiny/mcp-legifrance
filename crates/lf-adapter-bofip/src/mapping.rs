@@ -3,12 +3,14 @@
 //!
 //! Le portail n'est pas cru sur parole. Une réponse est refusée ([`DoctrineError::Decode`]) si :
 //!
-//! - elle n'est pas le JSON attendu ;
+//! - elle n'est pas le JSON attendu, ou porte plus d'enregistrements qu'une page n'en tient (le
+//!   décodage s'arrête alors au premier de trop, voir `dto`) ;
 //! - elle porte plus d'enregistrements que demandé, ou un total incohérent avec eux ;
 //! - un enregistrement n'a pas d'identifiant valide, pas de numéro de publication lisible dans
 //!   son permalien, ou une nature inconnue ;
 //! - en recherche, un résultat sort de la nature demandée ;
-//! - en lecture, une publication porte un autre identifiant que celui demandé.
+//! - en lecture, une publication porte un autre identifiant que celui demandé, ou deux
+//!   publications portent le même numéro (il ne départagerait plus rien).
 //!
 //! Le reste est toléré et **compté** ([`Anomalies`]) : une série ou une date illisible est
 //! omise, une adresse hors de la grammaire stricte n'est pas rendue, une entité inconnue reste
@@ -16,6 +18,8 @@
 //!
 //! Aucun `detail` d'erreur ne cite une valeur du corps : seulement un texte fixe et, pour un
 //! JSON invalide, la position de la faute.
+
+use std::collections::BTreeSet;
 
 use lf_application::ports::DoctrineError;
 use lf_domain::{
@@ -111,6 +115,12 @@ pub(crate) fn docs(
         .iter()
         .map(|record| doc(record, requested, &mut anomalies))
         .collect::<Result<Vec<_>, _>>()?;
+    // Le numéro départage les publications d'un même identifiant : deux fois le même, et
+    // `publication_id` ne désignerait que la première.
+    let mut numbers = BTreeSet::new();
+    if !docs.iter().all(|doc| numbers.insert(doc.publication_id)) {
+        return Err(decode("get response: two publications share a publication number"));
+    }
     Ok(Decoded { value: docs, anomalies })
 }
 
@@ -302,6 +312,17 @@ mod tests {
         body(1, &[record(changes)])
     }
 
+    /// Enregistrement complet dont le permalien porte le numéro `number`.
+    fn numbered(number: u32) -> serde_json::Value {
+        let link = format!("https://bofip.impots.gouv.fr/bofip/{number}-PGP.html/identifiant={ID}");
+        record(&[("permalien", link.into())])
+    }
+
+    /// `count` enregistrements complets, de numéros distincts.
+    fn distinct(count: u32) -> Vec<serde_json::Value> {
+        (1..=count).map(numbered).collect()
+    }
+
     fn decode_error(detail: &str) -> DoctrineError {
         DoctrineError::Decode { detail: detail.to_owned() }
     }
@@ -367,14 +388,44 @@ mod tests {
     fn results_over_limit_is_decode() {
         let expected = decode_error("more results than the requested limit");
         // Lecture : dix publications au plus.
-        let ten = vec![record(&[]); 10];
-        assert_eq!(docs(&body(10, &ten), &id()).unwrap().value.len(), 10);
-        let eleven = vec![record(&[]); 11];
-        assert_eq!(docs(&body(11, &eleven), &id()), Err(expected.clone()));
+        assert_eq!(docs(&body(10, &distinct(10)), &id()).unwrap().value.len(), 10);
+        assert_eq!(docs(&body(11, &distinct(11)), &id()), Err(expected.clone()));
         // Recherche : jamais plus que la taille de page demandée.
         let three = vec![record(&[]); 3];
         assert_eq!(page(&body(40, &three), 3, KindFilter::All).unwrap().value.hits.len(), 3);
         assert_eq!(page(&body(40, &three), 2, KindFilter::All), Err(expected));
+    }
+
+    /// Au-delà de la plus grande page, le décodage s'arrête : le refus est celui d'un JSON
+    /// inattendu, avec sa position, et non celui de la limite demandée.
+    #[test]
+    fn a_body_with_more_records_than_a_page_is_refused_while_it_is_read() {
+        let full = vec![record(&[]); 100];
+        assert_eq!(page(&body(100, &full), 100, KindFilter::All).unwrap().value.hits.len(), 100);
+        let over = vec![record(&[]); 101];
+        for (route, refused) in [
+            ("search", page(&body(101, &over), 100, KindFilter::All).map(|_| ())),
+            ("get", docs(&body(101, &over), &id()).map(|_| ())),
+        ] {
+            let shown = format!("{refused:?}");
+            let start = format!(
+                "Err(Decode {{ detail: \"{route} response is not the expected JSON (line 1, column "
+            );
+            assert!(shown.starts_with(&start), "{shown}");
+        }
+    }
+
+    #[test]
+    fn two_publications_with_the_same_number_are_refused() {
+        let expected = decode_error("get response: two publications share a publication number");
+        let twice = [numbered(3369), numbered(3369)];
+        assert_eq!(docs(&body(2, &twice), &id()), Err(expected.clone()));
+        // Le doublon est vu où qu'il soit dans la liste.
+        let apart = [numbered(3369), numbered(13_033), numbered(3369)];
+        assert_eq!(docs(&body(3, &apart), &id()), Err(expected));
+        let two = docs(&body(2, &[numbered(3369), numbered(13_033)]), &id()).unwrap().value;
+        let numbers: Vec<u32> = two.iter().map(|doc| doc.publication_id.get()).collect();
+        assert_eq!(numbers, [3369, 13_033]);
     }
 
     #[test]
@@ -413,9 +464,11 @@ mod tests {
         assert_eq!(decoded.anomalies, Anomalies { unknown_entities: 2, dropped_fields: 0 });
         assert!(!decoded.anomalies.is_empty());
         // Les anomalies de deux publications s'additionnent.
-        let two =
-            body(2, &[record(&[("contenu", raw.into())]), record(&[("contenu", "&bull;".into())])]);
-        assert_eq!(docs(&two, &id()).unwrap().anomalies.unknown_entities, 3);
+        let mut first = numbered(3369);
+        first["contenu"] = raw.into();
+        let mut second = numbered(13_033);
+        second["contenu"] = "&bull;".into();
+        assert_eq!(docs(&body(2, &[first, second]), &id()).unwrap().anomalies.unknown_entities, 3);
     }
 
     #[test]

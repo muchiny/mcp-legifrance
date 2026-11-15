@@ -1,0 +1,80 @@
+---
+source: crates/lf-adapter-mcp/src/views/search_bofip.rs
+expression: schema
+---
+{
+  "properties": {
+    "attribution": {
+      "type": "string"
+    },
+    "doctrine_note": {
+      "description": "What BOFiP is, and the limit of this source.",
+      "type": "string"
+    },
+    "has_more": {
+      "description": "True if the next page exists and can be reached.",
+      "type": "boolean"
+    },
+    "hits": {
+      "items": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "doctrine",
+              "news"
+            ],
+            "type": "string"
+          },
+          "publication_id": {
+            "description": "Number of the publication on the BOFiP site.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "serie": {
+            "type": "string"
+          },
+          "source_url": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "valid_from": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "publication_id",
+          "title",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "note": {
+      "type": "string"
+    },
+    "page": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "total": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "total",
+    "page",
+    "has_more",
+    "hits",
+    "attribution",
+    "doctrine_note"
+  ],
+  "type": "object"
+}

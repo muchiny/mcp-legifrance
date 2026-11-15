@@ -84,7 +84,7 @@ Source : documentation « Connect Claude Code to tools via MCP », lue le 2026-1
 | Avertissement de sortie | > 10 000 tokens | réponses par défaut entre 0,4 et 6 Ko de JSON (§6.5) |
 | Limite de sortie | 25 000 tokens (`MAX_MCP_OUTPUT_TOKENS`) | jamais atteinte avec le plafond dur du §6.4 |
 | Persistance sur disque | résultat texte > 50 000 caractères, sauf `_meta["anthropic/maxResultSizeChars"]` (plafond 500 000) | `max_chars` ≤ 40 000 (00 §7) et plafond dur de 45 000 caractères par réponse (§6.4) ; aucune clé `anthropic/*` émise |
-| `instructions` serveur | coupées à 4 096 caractères | ≤ 3 500 (00 §6), mesuré : 3 499 en v0.3 depuis la 1.1.0, 3 278 en 1.0.1 (§4) ; 3 700 à la livraison des outils BOFiP (ADR-0029, AM-93 ; non livré, §4.2) |
+| `instructions` serveur | coupées à 4 096 caractères | ≤ 3 700 depuis la livraison des outils BOFiP (00 §6, ADR-0029, AM-93 ; 3 500 jusqu'à la 1.2.0), mesuré : 3 688 en v0.3 au jalon MB, 3 499 depuis la 1.1.0, 3 278 en 1.0.1 (§4) |
 | Description d'un outil chargé d'emblée / via tool search | 4 096 / 16 384 caractères | 349 à 830 caractères (§5) |
 | Nom complet `mcp__<serveur>__<outil>` | 128 caractères | `fr_get_company_agreement` (24 caractères) laisse 97 caractères au nom du serveur |
 | Schéma d'entrée | pas de `anyOf`/`oneOf`/`allOf` à la racine ; propriétés de premier niveau sur 1 à 64 caractères `[A-Za-z0-9_.-]` ; schéma valide 2020-12, sinon l'outil est exclu | §2.5, vérifié par le verrou (§9.4) |
@@ -504,14 +504,14 @@ Le test de dérive exige que les outils cités soient exactement les outils enre
 
 Comptage : `len()` Python sur le texte exact, sans saut de ligne final, refait le 2026-10-15 sur ce brouillon après la révision 2 (ligne « Attribution », Q15 ; règle des versions qui renvoie à `fr_get_act`), puis le 2026-10-16 après la reformulation, à longueur égale, de la ligne `[upstream_error]` : l'invitation à réessayer vient du message, qui ne la porte que pour un échec réessayable (00 §8, §7.2). Les six codes d'erreur sont cités dans les trois versions. Marge sous la limite de 3 500 (00 §6) : 1 caractère en v0.3 depuis la 1.1.0 (D-12, puis la revue finale de la PR 2 ; 222 en 1.0.1, 3 278 caractères). D-12 a ajouté la phrase « A summary is never the whole text… », la nuance « (table cells are joined with " | ") » de L4-01 et la puce du glossaire de `etat`, et raccourci la puce ELI et le message `[config_error]` (sens inchangé) pour tenir 3 500 ; le test d'allowlist des jetons gagne `date_fin` et `etat`. La revue finale de la PR 2 remplace le joker de la puce `etat` (« VIGUEUR* … tout autre code non ») par une règle courte sans joker (VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN et ABROGE_DIFF en vigueur, VIGUEUR_DIFF pas encore, MODIFIE, ABROGE et PERIME plus, DENONCE peut encore s'appliquer, renvoi à la description du champ) et raccourcit la phrase d'ouverture (« Use them for any question on French law or case law. ») pour rester à 3 500 ; la règle complète est dans la description du champ `etat` de `fr_get_text` (§5.3). L'attribution est la même dans les trois versions et ne contient pas de date, car le texte est statique et verrouillé (§4.3 règle 5) : la date de consultation du jour est rendue par `fr_coverage` (`consulted_on`, §5.8).
 
-**Outils BOFiP (ADR-0029, AM-93, Q33 ; non livré).** Avec 1 caractère de marge, la ligne qui cite `fr_search_bofip` et `fr_get_bofip` ne tient pas sous 3 500, et le test de dérive exige que chaque outil enregistré soit cité. À la livraison des deux outils :
+**Outils BOFiP (ADR-0029, AM-93, Q33 ; livré au jalon MB).** Avec 1 caractère de marge, la ligne qui cite `fr_search_bofip` et `fr_get_bofip` ne tenait pas sous 3 500, et le test de dérive exige que chaque outil enregistré soit cité. Depuis la livraison des deux outils :
 
 - le plafond passe à **3 700** caractères (Claude Code coupe à 4 096 : 396 caractères de marge), dans `text.rs`, dans `cargo xtask instructions-size` et dans le contrôle du verrou ;
 - la variante v0.3, seule servie, gagne une ligne à la fin de « Workflow » ; les variantes v0.1 et v0.2 restent identiques à l'octet ; aucune variante nouvelle ;
-- brouillon de la ligne (longueur mesurée à la livraison, sans adresse : seuls les liens vers `legifrance.gouv.fr` sont admis dans ce texte) : `` 5. Tax doctrine: `fr_search_bofip` then `fr_get_bofip` read BOFiP, the tax administration's published doctrine: not the law, in-force publications only. `` ;
+- ligne livrée (sans adresse : seuls les liens vers `legifrance.gouv.fr` sont admis dans ce texte) : `` 5. Tax doctrine: `fr_search_bofip` then `fr_get_bofip` read BOFiP, the tax administration's published doctrine: its reading of tax law, not the law itself, and only what is in force today. `` ; la variante v0.3 mesure **3 688 caractères** (3 696 octets), soit 12 de marge sous 3 700 ; les variantes v0.1 (3 100) et v0.2 (3 301) n'ont pas bougé ;
 - la ligne `[rate_limited]` ne change pas : le message d'erreur de l'outil nomme la source qui a refusé.
 
-Jusqu'à la livraison, le code et ses tests gardent 3 500.
+Tests : `instructions_fit_budget`, `instructions_cite_exactly_the_tools_of_their_surface` (8, 10 puis 15 outils cités), `cargo xtask instructions-size`.
 
 ### 4.3 Règles de maintenance
 
@@ -563,10 +563,10 @@ Jusqu'à la livraison, le code et ses tests gardent 3 500.
 | `fr_get_related` | v0.3 | Related texts and decisions | `GetRelatedUseCase` | nombre de liens | `Related` 24 h, `Decision` 24 h |
 | `fr_diff_article` | v0.3 | Compare article versions | `DiffArticleUseCase` | nombre de hunks | `Versions` 24 h, `Article` 24 h |
 | `fr_search_all` | v0.3 | Search several fonds | `SearchAllUseCase` | nombre total de hits | `Search` 1 h par fond |
-| `fr_search_bofip` | non livré (ADR-0028, ADR-0029) | Search the tax doctrine (BOFiP) | `SearchBofipUseCase` | nombre de hits renvoyés | aucun (ADR-0028) |
-| `fr_get_bofip` | non livré (ADR-0028, ADR-0029) | Read a BOFiP publication | `GetBofipUseCase` | caractères renvoyés, ou nombre de publications listées | aucun (ADR-0028) |
+| `fr_search_bofip` | v0.3 (jalon MB ; ADR-0028, ADR-0029) | Search the tax doctrine (BOFiP) | `SearchBofipUseCase` | nombre de hits renvoyés | aucun (ADR-0028) |
+| `fr_get_bofip` | v0.3 (jalon MB ; ADR-0028, ADR-0029) | Read a BOFiP publication | `GetBofipUseCase` | caractères renvoyés, ou nombre de publications listées | aucun (ADR-0028) |
 
-- Annotations identiques sur les 13 outils : `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true` (00 §6, parité P-002 ; contenu externe traité comme non fiable). `openWorldHint: true` est adopté par défaut (Q11) et réexaminé avant v0.1.0 au vu de V-53 (confirmation des résultats dans VS Code, **NON VÉRIFIÉ** [V-53 · vscode-openworld-confirm]) ; tout changement passe par le verrou des descripteurs et le CHANGELOG (§9.5). `title` est renseigné deux fois avec la même valeur, car VS Code lit `annotations.title` en premier et la spécification `title` en premier (recherche 06 §3.2). `title` est en anglais, comme les descriptions (00 §6, adopté par défaut, Q14).
+- Annotations identiques sur les 15 outils (13 jusqu'à la 1.2.0) : `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true` (00 §6, parité P-002 ; contenu externe traité comme non fiable). `openWorldHint: true` est adopté par défaut (Q11) et réexaminé avant v0.1.0 au vu de V-53 (confirmation des résultats dans VS Code, **NON VÉRIFIÉ** [V-53 · vscode-openworld-confirm]) ; tout changement passe par le verrou des descripteurs et le CHANGELOG (§9.5). `title` est renseigné deux fois avec la même valeur, car VS Code lit `annotations.title` en premier et la spécification `title` en premier (recherche 06 §3.2). `title` est en anglais, comme les descriptions (00 §6, adopté par défaut, Q14).
 - En erreur, la métrique vaut 0 (00 §7). « Caractères renvoyés » = somme des caractères de `text`, `summary` et des `passages[].text` de la réponse, hors métadonnées ; c'est aussi la métrique d'une lecture de resource (M7, §8.2).
 - Le cache n'enregistre ni les erreurs ni les réponses vides (00 §9) ; un succès servi depuis le cache est audité comme les autres (02 §7.2).
 - Erreurs communes à tous les outils qui appellent PISTE : `config_error`, `rate_limited`, `upstream_error`, `audit_error` (§7.2). `fr_coverage` ne peut renvoyer que `invalid_arg` (argument inconnu) et `audit_error`.
@@ -1047,20 +1047,20 @@ Catalogue des lacunes (rédaction définitive demandée par 03 §4.8) :
 
 **Instantané local (M9, V4-02 puis `fix(coverage)` de F1, 2026-10-29).** Quand `LF_DILA_DIR` choisit l'index local (feature `dila`, absente des binaires publiés), `ConfigFacts` porte un quatrième fait, `local_snapshot`, et la couverture ne se présente plus comme du direct de production : (1) lacune calculée FR-105 (les identifiants calculés vont de FR-101 à FR-105) ; (2) `status` vaut `degraded`, jamais `ok` ; (3) dans le domaine, les familles sont `live: false` (la vue n'a pas de champ `live`) et leur source est `SNAPSHOT_SOURCE` ; (4) `as_of_note` vaut `SNAPSHOT_AS_OF_NOTE` (« Data comes from a local snapshot of the DILA LEGI dumps, not from a live query … ») au lieu de « Data is queried live … » ; (5) seules les familles LODA et CODE sont servies ; (6) `source` devient « Légifrance (DILA), from a local snapshot of the LEGI dumps; not queried live. ». Le schéma de sortie n'a pas changé : le drapeau n'est pas un champ de la vue. L'environnement de l'audit reste `production` pour l'index local, et seul le drapeau le distingue.
 
-**BOFiP (ADR-0028 et ADR-0029, AM-93 ; non livré).** À la livraison des outils BOFiP (§5.14, §5.15), la réponse de `fr_coverage` change, pas son descripteur (ni la description, ni le schéma de sortie) :
+**BOFiP (ADR-0028 et ADR-0029, AM-93 ; livré au jalon MB).** Depuis la livraison des outils BOFiP (§5.14, §5.15), la réponse de `fr_coverage` change, pas son descripteur (ni la description, ni le schéma de sortie : son entrée du verrou est identique à celle de la 1.2.0) :
 
 - **Famille.** `families` gagne `{"fond": "BOFIP", "label": …, "tools": ["fr_search_bofip", "fr_get_bofip"]}` à la surface v0.3, que la source soit active ou coupée : tout outil enregistré figure dans une famille ou dans `general_tools` (D-34). `BOFIP` n'est pas un fond de Légifrance : la vue le rend par un chemin à part. Le libellé dit la source et la licence (« BOFiP-Impôts / DGFiP — Licence Ouverte 2.0 »).
 - **`attribution` et `source` ne changent pas** (constantes du tableau ci-dessus). La mention de la DGFiP est portée par chaque réponse des deux outils.
 - **Lacunes reformulées.** FR-009 : la doctrine fiscale n'est plus dite « non couverte » sans réserve. FR-102 et FR-104 : « every tool except fr_coverage fails » devient « every tool that reads Légifrance fails », car les outils BOFiP marchent sans identifiants PISTE.
 - **Lacunes calculées nouvelles**, sans effet sur `status` (le catalogue statique garde neuf lacunes, les identifiants calculés vont de FR-101 à FR-107) :
 
-| Id | Fond | `missing` (brouillon) | `fallback` (brouillon) | Présente |
+| Id | Fond | `missing` | `fallback` | Présente |
 |---|---|---|---|---|
 | FR-106 | BOFIP | BOFiP holds only the publications in force today: no past version of the tax doctrine is served. | Check valid_from; for earlier facts, look up the past versions on the BOFiP website (source_url). | si la source BOFiP est active |
-| FR-107 | BOFIP | The BOFiP source is turned off (LF_BOFIP, or offline mode): fr_search_bofip and fr_get_bofip fail with config_error. | Set LF_BOFIP=on to query the DGFiP open data portal. | si la source BOFiP est coupée (`LF_BOFIP=off`, valeur invalide, ou `LF_DILA_DIR` défini sans `LF_BOFIP=on`) |
+| FR-107 | BOFIP | The BOFiP source is turned off (LF_BOFIP, or offline mode): fr_search_bofip and fr_get_bofip fail with config_error. | The operator can set LF_BOFIP=on; search words are then sent to the DGFiP open data portal. | si la source BOFiP est coupée (`LF_BOFIP=off`, valeur invalide, ou `LF_DILA_DIR` défini sans `LF_BOFIP=on`) |
 
-- **Tailles.** La réponse de la surface v0.1 est bornée par un test à 3 727 caractères (3 424 mesurés le 2026-11-15, 303 de marge) : les textes définitifs sont écrits pour y tenir, ou la cible du §6.5 est relevée avec la mesure. La métrique d'audit (nombre de lacunes) et la ressource `legifrance://coverage` suivent.
-- **Tests à ajouter** : `bofip_family_is_always_rendered`, `bofip_gap_follows_the_source_state`, `bofip_gaps_never_change_status` ; `every_registered_tool_is_in_a_family_or_general` couvre alors quinze outils.
+- **Tailles.** La réponse de la surface v0.1 est bornée par un test à 3 727 caractères : **3 711 mesurés à la livraison** (3 424 avant, source active : FR-009 reformulée et FR-106 ajoutée), soit 16 de marge ; la cible du §6.5 n'a pas eu à bouger. La métrique d'audit (nombre de lacunes : 11 en bac à sable, source active) et la ressource `legifrance://coverage` suivent.
+- **Tests** : `bofip_family_is_always_rendered` (vue : dernière famille à la v0.3, absente des surfaces v0.1 et v0.2), `the_bofip_gap_names_its_family` (vue), `bofip_gap_follows_the_source_state` et `bofip_gaps_never_change_status` (domaine) ; `every_registered_tool_is_in_a_family_or_general` couvre quinze outils ; `the_v01_sandbox_response_stays_near_its_target` garde la borne.
 
 **Exemple** (v0.1, sandbox, identifiants présents ; 3 389 caractères contre 1 343 pour la référence, qui ne déclarait que 3 familles et 2 lacunes ; 3 358 avant l'ajout de `attribution` et `consulted_on` en révision 2) : voir l'objet complet dans le snapshot `coverage_v01_sandbox` (06) ; extrait :
 
@@ -1361,14 +1361,14 @@ Search several Légifrance fonds at once (default LODA, CODE, JURI, CETAT, CONST
 
 **Audit, cache, limites** : métrique = somme des hits. Requêtes parallèles (`join_all`), régulées par le limiteur ([V-62 · quota-piste-prod]) ; annulation propagée à toutes les sous-requêtes ; notifications de progression optionnelles si `progressToken` (§2.4), jamais émises après l'annulation (`ct.is_cancelled()` testé avant chaque notification, §3.5). Taille : le JSON exact de la réponse est mesuré (§6.4) ; tant qu'il tient sous la cible de 42 000 caractères moins la réserve des notes, rien n'est retiré (cinq fonds × 10 résultats aux longueurs usuelles font environ 36 000 caractères) ; au-delà, seuls les extraits des derniers résultats partent, en partant de la fin, avec `note`, puis, si cela ne suffit pas, les listes d'articles et les champs optionnels.
 
-### 5.14 `fr_search_bofip` (non livré : ADR-0028, ADR-0029, jalon MB)
+### 5.14 `fr_search_bofip` (livré au jalon MB : ADR-0028, ADR-0029)
 
 **Objectif.** Chercher dans le BOFiP (Bulletin officiel des finances publiques, impôts), la doctrine publiée de l'administration fiscale, lue en direct sur le jeu ouvert `bofip-vigueur` de la DGFiP. Ce n'est pas la loi, et seules les publications en vigueur sont servies.
 
-**Description** (brouillon ; texte et longueur fixés au verrou des descripteurs, 1 000 caractères au plus, sans adresse) :
+**Description** (texte du verrou des descripteurs : 706 caractères, 6 phrases, sans adresse ; « for example » et non « e.g. », dont le point compterait pour une fin de phrase dans le contrôle d'AM-63) :
 
 ```text
-Search BOFiP, the published doctrine of the French tax administration (DGFiP): how the administration reads tax law, not the law itself. All the words of `query` must appear in a publication; the last word also matches as a prefix; there are no operators and no quoted phrases, so use a few plain words. Narrow with `serie` (e.g. ENR for registration and inheritance duties, IR for income tax, RFPI for property income and capital gains). `kind` selects doctrine pages (default), news items, or all. Returns id, publication_id, title, kind, serie, valid_from and source_url, paged with `page` and `has_more`; never the text: read it with fr_get_bofip. Only publications in force today are available.
+Search BOFiP, the published doctrine of the French tax administration (DGFiP): how the administration reads tax law, not the law itself. All the words of `query` must appear in a publication; the last word also matches as a prefix; there are no operators and no quoted phrases, so use a few plain words. Narrow with `serie` (for example ENR for registration and inheritance duties, IR for income tax, RFPI for property income and capital gains). `kind` selects doctrine pages (default), news items, or all. Returns id, publication_id, title, kind, serie, valid_from and source_url, paged with `page` and `has_more`; never the text: read it with fr_get_bofip. Only publications in force today are available.
 ```
 
 **Entrée** :
@@ -1387,14 +1387,14 @@ Search BOFiP, the published doctrine of the French tax administration (DGFiP): h
 
 **Erreurs** : `invalid_arg` (paramètres, requête vide après nettoyage, page hors limite) ; `config_error` (source coupée, 00 §1, texte fixe, sans E/S) ; `rate_limited` (refus 429 du portail, repos de la source ou budget du jour épuisé ; jamais de nouvelle tentative) ; `upstream_error` (autre statut, délai, réponse trop grande ou non conforme) ; `audit_error`. Un message ne porte jamais l'adresse de la requête ni ses mots. **Audit, cache** : nombre de hits renvoyés ; aucun cache (ADR-0028).
 
-### 5.15 `fr_get_bofip` (non livré : ADR-0028, ADR-0029, jalon MB)
+### 5.15 `fr_get_bofip` (livré au jalon MB : ADR-0028, ADR-0029)
 
 **Objectif.** Lire une publication du BOFiP par son identifiant, avec le retour progressif des lectures longues (§5.0.2, §5.0.3).
 
-**Description** (brouillon ; texte et longueur fixés au verrou des descripteurs) :
+**Description** (texte du verrou des descripteurs : 707 caractères, 5 phrases ; les points de suspension sont en ASCII) :
 
 ```text
-Read one BOFiP publication by its id (BOI-… or ACTU-…, from fr_search_bofip): title, kind, serie, valid_from, citation and source_url. BOFiP is the tax administration's doctrine, not the law; only the publication in force today is served, never a past version. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary` (its beginning). `detail`="full" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. A few ids designate two publications: the answer then lists them, and `publication_id` selects one.
+Read one BOFiP publication by its id (BOI-... or ACTU-..., from fr_search_bofip): title, kind, serie, valid_from, citation and source_url. BOFiP is the tax administration's doctrine, not the law; only the publication in force today is served, never a past version. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary` (its beginning). `detail`="full" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. A few ids designate two publications: the answer then lists them, and `publication_id` selects one.
 ```
 
 **Entrée** : `id` (string, requis ; majuscules, chiffres et traits d'union, 64 octets au plus, mis en majuscules ASCII avant le contrôle), `publication_id` (integer, facultatif, 1 à 9 999 999 ; valeur rendue par `fr_search_bofip` ou par la liste ci-dessous) et les paramètres communs (§5.0.2). Ordre de validation : `id`, `publication_id`, puis l'ordre commun.
@@ -1414,7 +1414,7 @@ Read one BOFiP publication by its id (BOI-… or ACTU-…, from fr_search_bofip)
 
 **Sortie** (`BofipView`) : `id`, `publication_id`, `title`, `kind`, `serie?`, `division?`, `valid_from?`, `citation` (« BOFiP, {id}, {début de validité en toutes lettres} », par exemple `BOFiP, BOI-ENR-DMTG-10-50-20, 24 mai 2023` ; sans date : « BOFiP, {id} »), `source_url?` (même règle qu'au §5.14), puis les champs de lecture (§5.0.3), `publications?`, `attribution`, `doctrine_note`, `note?`.
 
-**Erreurs** : `invalid_arg` ; `not_found` `No BOFiP publication found for {id}.` ; `config_error`, `rate_limited`, `upstream_error`, `audit_error` comme au §5.14. Le portail répond `200` avec zéro résultat pour un identifiant inconnu : c'est l'adapter qui en fait un `not_found`. Chaque identifiant rendu par le portail est validé et doit être celui qui a été demandé, sinon `upstream_error`. **Audit, cache** : caractères renvoyés, ou nombre de publications listées ; aucun cache : chaque fenêtre de lecture relit la publication entière sur le portail (181 Ko au plus).
+**Erreurs** : `invalid_arg` ; `not_found` `No BOFiP publication found for {id}. Check the id, or search with fr_search_bofip.` ; `config_error`, `rate_limited`, `upstream_error`, `audit_error` comme au §5.14. Le portail répond `200` avec zéro résultat pour un identifiant inconnu : c'est l'adapter qui en fait un `not_found`. Chaque identifiant rendu par le portail est validé et doit être celui qui a été demandé, et deux publications ne peuvent pas porter le même numéro, sinon `upstream_error`. **Audit, cache** : caractères renvoyés, ou nombre de publications listées ; aucun cache : chaque fenêtre de lecture relit la publication entière sur le portail (181 Ko au plus).
 
 ---
 
@@ -1515,6 +1515,8 @@ L'écart de l'estimation à la mesure tient aux schémas de sortie et aux `$defs
 
 **Mesure 1.1.0 (revue finale de la PR 2, 2026-11-02).** `tools/list` : **35 424 octets** (`sizes.tools_list_bytes` ; 34 482 au verrou de la vague V3 après ses remarques de revue, +942 dont +29 au second tour de la revue finale [35 395 au premier] : le glossaire de `etat` sans joker, complet (environ 370 caractères) dans `fr_get_text` et court (environ 150) dans `fr_search`, `fr_resolve`, `fr_verify_citations` et `fr_get_act`, au lieu de 55 caractères ; la phrase sur `DENONCE` de la description de `in_force_only` ; la reformulation de la description de `fr_verify_citations`, reprise au second tour (« one prefixed by L, R or D does not », −18 caractères) ; « the other family is refused » dans `relation` ; au second tour, `MODIFIE_MORT_NE` qualifié « never in force » dans le glossaire complet de `fr_get_text`) ; `instructions` : **3 499 caractères** (marge de 1). Le plafond n'est plus celui de Q27 = A (34 500, posé avant ces corrections et à 18 octets de la mesure) : la règle d'AM-63, mesure plus 3 % (36 486,72), arrondie à la centaine supérieure, donne **36 500**, soit 1 076 octets de marge (AM-73 ; la valeur est la même qu'au premier tour de la revue finale, 35 395 octets donnant 36 456,85). Même valeur dans `descriptor_size_budget` (`crates/lf-adapter-mcp/tests/budgets.rs`) et dans `TOOLS_LIST_BUDGETS` de `xtask`. Une version complète du glossaire dans les cinq champs aurait donné 36 484 octets (mesure refaite au second tour). La description la plus longue reste celle de `fr_search` (991 caractères, verrouillée par `assert_eq!` dans `tools/search.rs`) ; celle de `fr_verify_citations` en compte 968 (987 avant le second tour).
 
+**Mesure du jalon MB (2026-11-15, quinze outils).** `tools/list` : **41 878 octets** (`sizes.tools_list_bytes` ; 35 424 à treize outils, +6 454 pour `fr_search_bofip` et `fr_get_bofip` : deux descriptions de 706 et 707 caractères, deux schémas d'entrée et deux schémas de sortie, dont celui de la lecture longue). Plafond recalculé par la règle d'AM-63 : 41 878 plus 3 % (43 134,34), arrondi à la centaine supérieure, soit **43 200**, 1 322 octets de marge. Les entrées des treize outils en place sont identiques, à l'octet, à celles du verrou de la 1.2.0 (comparaison des deux fichiers ; garantie G1 de 07 §2.11). Instructions : 3 688 caractères (§4.2).
+
 Révision 2 : descriptions recomptées exactement (sens des dates absentes, défauts et suites demandés par 00 §6, 00 §4), puis le 2026-10-16 (défaut de `fond` dans `fr_search`, de `passages` dans `fr_get_text` : 27 caractères, sans effet sur les arrondis des lignes `tools/list`) ; les deux lignes `tools/list` sont l'estimation initiale augmentée de ces écarts et des champs ajoutés (`attribution`, `consulted_on`, `nor`, `title`, puis `idcc`, `total_articles` en v0.2), sans `$schema` (§2.5).
 
 Lecture :
@@ -1530,7 +1532,7 @@ Leviers de réduction, par ordre d'efficacité, à appliquer si la mesure de M4 
 4. descriptions des paramètres de lecture communs raccourcies (elles sont répétées 3 fois) ;
 5. en dernier recours, phrases de description fusionnées, en restant à 3 phrases au moins (00 §6).
 
-Budgets CI (test `descriptor_size_budget`, recalibrés sur la mesure réelle : voir « Mesure réelle ») : `tools/list` ≤ 20 000 octets en v0.1, 24 000 en v0.2, **32 900 en v0.3, relevé à 36 500 en 1.1.0** (34 500 posé par Q27 = A, puis remplacé par la règle d'AM-63 sur la mesure finale de 35 424 octets, AM-73 ; 29 000 à l'origine) ; `instructions` ≤ 3 500 caractères ; chaque description ≤ 1 000 caractères (bien sous 4 096).
+Budgets CI (test `descriptor_size_budget`, recalibrés sur la mesure réelle : voir « Mesure réelle ») : `tools/list` ≤ 20 000 octets en v0.1, 24 000 en v0.2, **32 900 en v0.3, relevé à 36 500 en 1.1.0** (34 500 posé par Q27 = A, puis remplacé par la règle d'AM-63 sur la mesure finale de 35 424 octets, AM-73 ; 29 000 à l'origine), **puis à 43 200 au jalon MB** (41 878 octets à quinze outils, AM-93) ; `instructions` ≤ 3 700 caractères (3 500 jusqu'à la 1.2.0) ; chaque description ≤ 1 000 caractères (bien sous 4 096).
 
 ---
 

@@ -249,6 +249,12 @@ mod tests {
         let requests = server.received_requests().await.unwrap();
         assert_eq!(requests[0].url.query(), Some("limit=1"));
         assert_eq!(requests[0].headers.get("referer"), None);
+        // Tout ce qui part avec une requête : quatre en-têtes, sans cookie ni identifiant.
+        let mut names: Vec<&str> =
+            requests[0].headers.keys().map(reqwest::header::HeaderName::as_str).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["accept", "accept-encoding", "host", "user-agent"]);
+        assert_eq!(requests[0].headers.get("accept-encoding").unwrap(), "gzip");
     }
 
     #[test]

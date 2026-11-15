@@ -12,7 +12,7 @@ use lf_application::{
 };
 use lf_domain::{
     contract::ELI_NOTE,
-    coverage::{CoverageFamily, CoverageGap, CoverageStatus},
+    coverage::{CoverageFamily, CoverageGap, CoverageStatus, DOCTRINE_FAMILY},
     fond::Fond,
 };
 use schemars::JsonSchema;
@@ -181,11 +181,38 @@ fn family_view(family: &CoverageFamily, surface: Surface) -> Option<FamilyView> 
     })
 }
 
-/// Lacune rendue : `fond` n'est présent que si la lacune en désigne un.
+/// Libellé de la famille du BOFiP : la source et sa licence (ADR-0029, décision 10).
+const DOCTRINE_LABEL: &str =
+    "Tax doctrine: BOFiP-Impôts (DGFiP open data portal, Licence Ouverte 2.0), in force only";
+
+/// Famille du BOFiP, qui n'est pas un fond de Légifrance : le domaine ne la liste pas, la vue la
+/// rend à la surface qui enregistre ses deux outils, que la source soit active ou coupée (D-34 :
+/// tout outil enregistré figure dans une famille). L'état de la source se lit dans les lacunes
+/// (FR-106, FR-107).
+fn doctrine_family() -> FamilyView {
+    FamilyView {
+        fond: DOCTRINE_FAMILY.to_owned(),
+        label: DOCTRINE_LABEL.to_owned(),
+        tools: [ToolName::FR_SEARCH_BOFIP, ToolName::FR_GET_BOFIP]
+            .map(|tool| tool.as_str().to_owned())
+            .into(),
+    }
+}
+
+/// Nom de famille d'une lacune : un fond de Légifrance, ou la famille du BOFiP ; `None` pour une
+/// lacune qui ne désigne aucune famille.
+fn gap_family(family: &str) -> Option<String> {
+    if family == DOCTRINE_FAMILY {
+        return Some(DOCTRINE_FAMILY.to_owned());
+    }
+    Fond::parse(family).ok().map(|fond| fond.name().to_owned())
+}
+
+/// Lacune rendue : `fond` n'est présent que si la lacune désigne une famille.
 fn gap_view(gap: &CoverageGap) -> GapView {
     GapView {
         id: gap.id.clone(),
-        fond: Fond::parse(&gap.family).ok().map(|fond| fond.name().to_owned()),
+        fond: gap_family(&gap.family),
         missing: gap.missing.clone(),
         fallback: gap.fallback.clone(),
     }
@@ -214,6 +241,7 @@ impl CoverageView {
                 .families()
                 .iter()
                 .filter_map(|family| family_view(family, surface))
+                .chain((surface == Surface::V03).then(doctrine_family))
                 .collect(),
             gaps: coverage.known_gaps().iter().map(gap_view).collect(),
         }
@@ -253,7 +281,8 @@ mod tests {
             custom_host,
             has_problems: !problems.is_empty(),
             local_snapshot: false,
-            doctrine: DoctrineSource::NotServed,
+            // Le serveur sert les outils du BOFiP, source active : le défaut du binaire.
+            doctrine: DoctrineSource::Active,
         };
         CoverageOutput {
             coverage: coverage(environment, &facts, &Fond::ALL),
@@ -325,7 +354,8 @@ mod tests {
             custom_host: false,
             has_problems: false,
             local_snapshot: true,
-            doctrine: DoctrineSource::NotServed,
+            // Un instantané local coupe la source du BOFiP, sauf `LF_BOFIP=on`.
+            doctrine: DoctrineSource::Off,
         };
         out.coverage = coverage(PisteEnvironment::Production, &facts, &[Fond::Loda, Fond::Code]);
         out.configuration.local_snapshot = true;
@@ -344,14 +374,17 @@ mod tests {
             .iter()
             .map(|gap| gap["id"].as_str().unwrap())
             .collect();
-        assert_eq!(ids.last(), Some(&"FR-105"));
+        // La lacune de l'instantané, puis celle du BOFiP, coupé d'office par l'instantané.
+        assert_eq!(ids[ids.len() - 2..], ["FR-105", "FR-107"]);
         let fonds: Vec<&str> = view["families"]
             .as_array()
             .unwrap()
             .iter()
             .map(|family| family["fond"].as_str().unwrap())
             .collect();
-        assert_eq!(fonds, ["LODA", "CODE"]);
+        // La famille du BOFiP suit ses deux outils, enregistrés même quand la source est coupée
+        // (ce que fait un instantané local, sauf `LF_BOFIP=on`).
+        assert_eq!(fonds, ["LODA", "CODE", "BOFIP"]);
         // Le schéma de sortie n'a pas changé : le drapeau n'est pas un champ de la vue.
         assert!(view["configuration"].get("local_snapshot").is_none());
     }
@@ -445,7 +478,8 @@ mod tests {
             .iter()
             .map(|f| f["fond"].as_str().unwrap())
             .collect();
-        assert_eq!(fonds, ["KALI"]);
+        // La famille du BOFiP ne vient pas du domaine : la vue l'ajoute à la surface v0.3.
+        assert_eq!(fonds, ["KALI", "BOFIP"]);
     }
 
     #[test]
@@ -478,23 +512,84 @@ mod tests {
         .unwrap();
         assert_eq!(view["status"], "ok");
         assert!(view["configuration"].get("problems").is_none());
-        let last = view["gaps"].as_array().unwrap().last().unwrap().clone();
-        assert_eq!(last["id"], "FR-103");
+        // L'hôte personnalisé est la dernière lacune de configuration ; celle du BOFiP la suit.
+        let gaps = view["gaps"].as_array().unwrap();
+        let ids: Vec<&str> = gaps.iter().map(|gap| gap["id"].as_str().unwrap()).collect();
+        assert_eq!(ids[ids.len() - 2..], ["FR-103", "FR-106"]);
     }
 
     #[test]
     fn coverage_lists_sandbox_gap() {
         let view = sandbox_view(Surface::V01);
         let gaps = view["gaps"].as_array().unwrap();
-        assert_eq!(gaps.len(), 10);
+        // Neuf lacunes du catalogue, FR-101, puis celle du BOFiP (source active).
+        assert_eq!(gaps.len(), 11);
         assert_eq!(
-            gaps.last().unwrap(),
-            &json!({
+            gaps[9],
+            json!({
                 "id": "FR-101",
                 "missing": "Running on the PISTE sandbox: data may differ from production and availability is not guaranteed.",
                 "fallback": "Set LF_PISTE_ENV=production with production credentials."
             })
         );
+    }
+
+    /// La lacune du BOFiP porte sa famille dans `fond`, alors que ce n'est pas un fond de
+    /// Légifrance : FR-106 quand la source est active, FR-107 quand elle est coupée.
+    #[test]
+    fn the_bofip_gap_names_its_family() {
+        let view = sandbox_view(Surface::V01);
+        assert_eq!(
+            view["gaps"].as_array().unwrap().last().unwrap(),
+            &json!({
+                "id": "FR-106",
+                "fond": "BOFIP",
+                "missing": "BOFiP holds only the publications in force today: no past version of the tax doctrine is served.",
+                "fallback": "Check valid_from; for earlier facts, look up the past versions on the BOFiP website (source_url)."
+            })
+        );
+        assert_eq!(gap_family("BOFIP"), Some("BOFIP".to_owned()));
+        assert_eq!(gap_family("JURI"), Some("JURI".to_owned()));
+        assert_eq!(gap_family(""), None);
+        assert_eq!(gap_family("bofip"), None);
+    }
+
+    /// La famille du BOFiP : rendue à la surface v0.3 seule (les deux autres n'enregistrent pas
+    /// ses outils), la dernière, avec ses deux outils et un libellé qui dit la source et la
+    /// licence ; rendue de la même façon quand la source est coupée (D-34 : tout outil
+    /// enregistré figure dans une famille).
+    #[test]
+    fn bofip_family_is_always_rendered() {
+        for surface in [Surface::V01, Surface::V02] {
+            let view = sandbox_view(surface);
+            let families = view["families"].as_array().unwrap();
+            assert_eq!(families.len(), 8, "{surface:?}");
+            assert!(families.iter().all(|family| family["fond"] != "BOFIP"), "{surface:?}");
+        }
+        let family = json!({
+            "fond": "BOFIP",
+            "label": "Tax doctrine: BOFiP-Impôts (DGFiP open data portal, Licence Ouverte 2.0), in force only",
+            "tools": ["fr_search_bofip", "fr_get_bofip"]
+        });
+        let view = sandbox_view(Surface::V03);
+        let families = view["families"].as_array().unwrap();
+        assert_eq!(families.len(), 9);
+        assert_eq!(families[8], family);
+
+        let mut off = output(PisteEnvironment::Sandbox, true, false, &[]);
+        let facts = ConfigFacts {
+            credentials_configured: true,
+            custom_host: false,
+            has_problems: false,
+            local_snapshot: false,
+            doctrine: DoctrineSource::Off,
+        };
+        off.coverage = coverage(PisteEnvironment::Sandbox, &facts, &Fond::ALL);
+        let view = serde_json::to_value(CoverageView::new(off, Surface::V03)).unwrap();
+        let families = view["families"].as_array().unwrap();
+        assert_eq!(families.len(), 9);
+        assert_eq!(families[8], family);
+        assert_eq!(view["gaps"].as_array().unwrap().last().unwrap()["id"], "FR-107");
     }
 
     #[test]
@@ -538,6 +633,7 @@ mod tests {
                 ("FR-008", None),
                 ("FR-009", None),
                 ("FR-101", None),
+                ("FR-106", Some("BOFIP")),
             ]
         );
     }
@@ -567,8 +663,14 @@ mod tests {
     fn registered(surface: Surface) -> BTreeSet<&'static str> {
         let v01 = ToolName::ALL[..8].iter().map(|tool| tool.as_str());
         let v02 = [ToolName::FR_VERIFY_CITATIONS, ToolName::FR_RESOLVE].map(ToolName::as_str);
-        let v03 = [ToolName::FR_GET_RELATED, ToolName::FR_DIFF_ARTICLE, ToolName::FR_SEARCH_ALL]
-            .map(ToolName::as_str);
+        let v03 = [
+            ToolName::FR_GET_RELATED,
+            ToolName::FR_DIFF_ARTICLE,
+            ToolName::FR_SEARCH_ALL,
+            ToolName::FR_SEARCH_BOFIP,
+            ToolName::FR_GET_BOFIP,
+        ]
+        .map(ToolName::as_str);
         let mut tools: BTreeSet<&str> = v01.into_iter().collect();
         if surface != Surface::V01 {
             tools.extend(v02);
@@ -587,7 +689,7 @@ mod tests {
             let view = sandbox_view(surface);
             assert_eq!(named_tools(&view), registered(surface), "{surface:?}");
         }
-        // Le binaire annonce `SURFACE`, la surface complète : les treize outils de `ToolName::ALL`.
+        // Le binaire annonce `SURFACE`, la surface complète : les quinze outils de `ToolName::ALL`.
         let announced = named_tools(
             &serde_json::to_value(CoverageView::from(output(
                 PisteEnvironment::Sandbox,

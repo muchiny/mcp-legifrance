@@ -6,7 +6,7 @@
 //! (les instructions) puis `tools/list` (les descripteurs), attend chaque réponse avant d'envoyer
 //! la suivante, ferme stdin, puis :
 //!
-//! - échoue si les instructions dépassent 3 500 caractères Unicode ;
+//! - échoue si les instructions dépassent 3 700 caractères Unicode ;
 //! - affiche le compte, la marge, la plus longue ligne, et la taille de la liste des outils.
 //!
 //! Aucun réseau, aucun identifiant : le binaire n'appelle PISTE qu'à l'exécution d'un outil.
@@ -22,8 +22,9 @@ use std::{
 
 use serde_json::{Value, json};
 
-/// Plafond des instructions, en caractères Unicode (00 §6).
-pub const BUDGET_CHARS: usize = 3_500;
+/// Plafond des instructions, en caractères Unicode (00 §6 ; 3 500 jusqu'à AM-93, qui le relève
+/// pour la ligne du BOFiP).
+pub const BUDGET_CHARS: usize = 3_700;
 
 /// Attente maximale d'une réponse du serveur.
 #[cfg(not(test))]
@@ -52,7 +53,7 @@ impl Measure {
     }
 }
 
-/// Mesure les instructions du serveur et échoue au-delà de 3 500 caractères.
+/// Mesure les instructions du serveur et échoue au-delà de 3 700 caractères.
 ///
 /// # Errors
 ///
@@ -303,7 +304,7 @@ mod tests {
         assert_eq!(measured.longest_line, 3);
         assert_eq!(measured.tools, 2);
         assert_eq!(measured.descriptor_bytes, r#"[{"name":"fr_0"},{"name":"fr_1"}]"#.len());
-        assert_eq!(measured.margin(), 3_494);
+        assert_eq!(measured.margin(), 3_694);
     }
 
     #[test]
@@ -327,7 +328,7 @@ mod tests {
         let over = measure(&canned(&"a".repeat(BUDGET_CHARS + 1), 1)).unwrap();
         assert_eq!(
             verdict(&over).unwrap_err(),
-            "instructions are 3501 characters, 1 over the budget of 3500"
+            "instructions are 3701 characters, 1 over the budget of 3700"
         );
     }
 
@@ -336,7 +337,7 @@ mod tests {
         let measured = measure(&canned("ab\ncde", 1)).unwrap();
         assert_eq!(
             report(&measured),
-            "instructions: 6 characters (6 bytes), budget 3500, margin 3494, longest line 3 \
+            "instructions: 6 characters (6 bytes), budget 3700, margin 3694, longest line 3 \
              characters\ndescriptors: 1 tools, 17 bytes of JSON in tools/list"
         );
     }
@@ -389,7 +390,7 @@ mod tests {
         let printed = String::from_utf8(out).unwrap();
         assert!(
             printed
-                .starts_with("instructions: 2879 characters (2879 bytes), budget 3500, margin 621")
+                .starts_with("instructions: 2879 characters (2879 bytes), budget 3700, margin 821")
         );
         assert!(
             printed.ends_with("descriptors: 8 tools, 129 bytes of JSON in tools/list\n"),
@@ -404,8 +405,8 @@ mod tests {
     #[test]
     fn run_prints_then_fails_over_the_budget() {
         let mut out = Vec::new();
-        let error = run_with(&mut out, &|_| Ok(canned(&"a".repeat(3_600), 1))).unwrap_err();
-        assert_eq!(error, "instructions are 3600 characters, 100 over the budget of 3500");
+        let error = run_with(&mut out, &|_| Ok(canned(&"a".repeat(3_800), 1))).unwrap_err();
+        assert_eq!(error, "instructions are 3800 characters, 100 over the budget of 3700");
         assert!(String::from_utf8(out).unwrap().contains("margin 0"));
     }
 

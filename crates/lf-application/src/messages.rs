@@ -50,9 +50,13 @@ const CREDENTIALS_REJECTED_HINT: &str =
 /// Message d'une source BOFiP coupée (05 §5.14) : texte fixe, rendu sans aucune E/S. Il ne dit
 /// pas laquelle des trois causes joue (`LF_BOFIP=off`, valeur invalide, mode hors ligne) :
 /// `check-config` le dit à l'opérateur.
+///
+/// La coupure peut être voulue (refus d'envoyer des recherches à un tiers, mode hors ligne) : le
+/// texte dit comment rouvrir la source et ce que cela envoie, sans y inviter.
 pub const DOCTRINE_DISABLED_MESSAGE: &str = "the BOFiP source is turned off (LF_BOFIP is off or \
      invalid, or the server runs offline with LF_DILA_DIR): fr_search_bofip and fr_get_bofip are \
-     unavailable. Set LF_BOFIP=on to query the DGFiP open data portal.";
+     unavailable. The operator can turn it on with LF_BOFIP=on; search words are then sent to the \
+     DGFiP open data portal.";
 
 /// Message d'une réponse du portail du BOFiP illisible ou non conforme, repris pour un
 /// `NotFound` qu'une recherche ne devrait jamais recevoir.
@@ -1054,6 +1058,10 @@ mod tests {
             ToolName::FR_RESOLVE,
             ToolName::FR_GET_RELATED,
             ToolName::FR_DIFF_ARTICLE,
+            // BOFiP : `CorpusError` ne les atteint jamais, leurs erreurs viennent de
+            // `DoctrineError` (`doctrine_error`, test `doctrine_errors_map_to_the_six_codes`).
+            ToolName::FR_SEARCH_BOFIP,
+            ToolName::FR_GET_BOFIP,
         ];
         for tool in ToolName::ALL {
             assert!(
@@ -2019,8 +2027,9 @@ mod tests {
                 ErrorCode::ConfigError,
                 None,
                 "the BOFiP source is turned off (LF_BOFIP is off or invalid, or the server runs \
-                 offline with LF_DILA_DIR): fr_search_bofip and fr_get_bofip are unavailable. Set \
-                 LF_BOFIP=on to query the DGFiP open data portal."
+                 offline with LF_DILA_DIR): fr_search_bofip and fr_get_bofip are unavailable. The \
+                 operator can turn it on with LF_BOFIP=on; search words are then sent to the \
+                 DGFiP open data portal."
                     .to_owned(),
             ),
             (

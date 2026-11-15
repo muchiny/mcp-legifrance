@@ -158,6 +158,271 @@ mod degraded {
     }
 }
 
+/// Doctrine fiscale (BOFiP, jalon MB) dans la composition réelle : coupée, la source n'envoie
+/// rien ; active, elle n'ouvre qu'une connexion, vers le seul hôte du portail (G4, G5, G9 du plan,
+/// ADR-0029).
+///
+/// Le binaire vise une adresse fixe, sans variable de surcharge : aucun faux portail ne peut le
+/// servir. Le chemin de succès des deux outils est prouvé ailleurs (`FakeDoctrine` dans
+/// `lf-adapter-mcp`, faux serveurs dans `lf-adapter-bofip`). Ici, le proxy du processus est un
+/// piège qui ne répond jamais : il compte les connexions et lit l'hôte qu'elles demandaient.
+#[cfg(test)]
+mod bofip {
+    use std::path::Path;
+
+    use serde_json::{Value, json};
+
+    use crate::common::{Launch, Session, Trap, audit_lines, call, first_text, is_tool_error};
+
+    /// Le texte fixe d'un outil du BOFiP quand la source est coupée.
+    const DISABLED: &str = "[config_error] the BOFiP source is turned off (LF_BOFIP is off or \
+        invalid, or the server runs offline with LF_DILA_DIR): fr_search_bofip and fr_get_bofip \
+        are unavailable. The operator can turn it on with LF_BOFIP=on; search words are then sent \
+        to the DGFiP open data portal.";
+
+    /// Mot cherché que rien ne doit recopier : ni journal, ni message d'erreur.
+    const SENTINEL: &str = "zzsentinellezz";
+
+    /// La seule destination admise d'une connexion du BOFiP, telle qu'un proxy la reçoit.
+    const PORTAL_TUNNEL: &str = "CONNECT data.economie.gouv.fr:443 HTTP/1.1";
+
+    const BOI: &str = "BOI-ENR-DMTG-10-50-20";
+
+    /// Une façon de couper la source.
+    struct Off {
+        /// Ce que le cas montre, pour les messages d'échec.
+        what: &'static str,
+        /// Variable posée en plus des identifiants.
+        var: (&'static str, &'static str),
+    }
+
+    const OFF: [Off; 4] = [
+        Off { what: "LF_BOFIP=off", var: ("LF_BOFIP", "off") },
+        Off { what: "LF_BOFIP=OFF", var: ("LF_BOFIP", "OFF") },
+        // Échec fermé : un refus mal écrit coupe la source au lieu de la laisser active.
+        Off { what: "invalid LF_BOFIP", var: ("LF_BOFIP", "false") },
+        // Mode hors ligne : `LF_DILA_DIR` défini, même inutilisable.
+        Off { what: "unusable LF_DILA_DIR", var: ("LF_DILA_DIR", "relative/index") },
+    ];
+
+    /// Lancement dont le proxy est `trap`, délai par requête d'une seconde : une requête qui
+    /// partirait arriverait au piège, et l'appel se terminerait vite.
+    fn launch(audit: &Path, trap: &Trap) -> Launch {
+        Launch::new(audit).credentials().proxy(trap).env("LF_HTTP_TIMEOUT_S", "1")
+    }
+
+    /// Appelle les deux outils du BOFiP et rend leurs réponses.
+    async fn call_both(session: &mut Session) -> [Value; 2] {
+        let query = format!("{SENTINEL} donation");
+        let search = session.request(&call(2, "fr_search_bofip", &json!({"query": query}))).await;
+        let get = session.request(&call(3, "fr_get_bofip", &json!({"id": BOI}))).await;
+        [search, get]
+    }
+
+    /// G4 et G5 : source coupée (demande, valeur invalide, mode hors ligne), les deux outils
+    /// répondent le texte fixe, audité, sans qu'aucune connexion ne s'ouvre. Contraste, sans
+    /// lequel un piège muet ne prouverait rien : source active, chaque appel ouvre exactement une
+    /// connexion, vers `data.economie.gouv.fr:443`, et son erreur ne cite ni l'hôte ni les mots.
+    #[tokio::test]
+    async fn offline_and_off_send_nothing_through_proxy_witness() {
+        for case in &OFF {
+            let audit = tempfile::tempdir().expect("a temporary directory");
+            let trap = Trap::bind();
+            let (name, value) = case.var;
+            let mut session = launch(audit.path(), &trap).env(name, value).spawn();
+            session.handshake().await;
+            for answer in call_both(&mut session).await {
+                assert!(is_tool_error(&answer), "{}: {answer}", case.what);
+                assert_eq!(first_text(&answer), DISABLED, "{}", case.what);
+            }
+            let finished = session.finish().await;
+            assert_eq!(finished.code(), Some(0), "{}: stderr:\n{}", case.what, finished.stderr);
+            assert_eq!(trap.contacts(), Vec::<String>::new(), "{}", case.what);
+            assert!(!finished.stderr.contains(SENTINEL), "{}: {}", case.what, finished.stderr);
+
+            let lines = audit_lines(audit.path());
+            let audited: Vec<(&Value, &Value, &Value)> = lines
+                .iter()
+                .map(|line| (&line["tool"], &line["status"], &line["error_code"]))
+                .collect();
+            assert_eq!(
+                audited,
+                [
+                    (&json!("fr_search_bofip"), &json!("error"), &json!("config_error")),
+                    (&json!("fr_get_bofip"), &json!("error"), &json!("config_error")),
+                ],
+                "{}",
+                case.what
+            );
+        }
+
+        // Contraste : sans aucun réglage, la source est active et joint le portail, par le proxy.
+        // Rejoué au niveau de journal le plus bavard : les bibliothèques HTTP et TLS écrivent
+        // par `log`, que le binaire relaie vers stderr, et ne doivent pas y citer les mots.
+        for log in [None, Some("trace")] {
+            let audit = tempfile::tempdir().expect("a temporary directory");
+            let trap = Trap::bind();
+            let mut launch = launch(audit.path(), &trap);
+            if let Some(level) = log {
+                launch = launch.env("LF_LOG", level);
+            }
+            let mut session = launch.spawn();
+            session.handshake().await;
+            let answers = call_both(&mut session).await;
+            let finished = session.finish().await;
+            assert_eq!(finished.code(), Some(0), "{log:?}: stderr:\n{}", finished.stderr);
+            for answer in &answers {
+                assert!(is_tool_error(answer), "{log:?}: {answer}");
+                let text = first_text(answer);
+                assert!(text.starts_with("[upstream_error] "), "{log:?}: {text}");
+                assert!(!text.contains(SENTINEL) && !text.contains("economie"), "{log:?}: {text}");
+            }
+            // Une connexion par appel, jamais de nouvelle tentative, et un seul hôte.
+            assert_eq!(trap.contacts(), [PORTAL_TUNNEL, PORTAL_TUNNEL], "{log:?}");
+            assert!(!finished.stderr.contains(SENTINEL), "{log:?}: {}", finished.stderr);
+            // Le niveau demandé est bien en vigueur : sans cela, l'absence du mot ne prouverait
+            // rien.
+            assert_eq!(finished.stderr.contains("TRACE"), log.is_some(), "{log:?}");
+        }
+    }
+
+    /// G5 et G9 : `check-config` et `fr_coverage` n'envoient rien, que la source soit active ou
+    /// coupée. Sans `LF_BOFIP`, la sortie de `check-config` ne nomme pas la variable ;
+    /// `fr_coverage` rend la famille `BOFIP` et la lacune de l'état de la source.
+    #[tokio::test]
+    async fn check_config_and_coverage_send_nothing() {
+        for (vars, line, gap) in [
+            (&[][..], None, "FR-106"),
+            (&[("LF_BOFIP", "on")][..], Some(["LF_BOFIP", "LF_BOFIP", "on", "ok"]), "FR-106"),
+            (&[("LF_BOFIP", "off")][..], Some(["LF_BOFIP", "LF_BOFIP", "off", "ok"]), "FR-107"),
+        ] {
+            let audit = tempfile::tempdir().expect("a temporary directory");
+            let trap = Trap::bind();
+            let mut launch = launch(audit.path(), &trap);
+            for (name, value) in vars {
+                launch = launch.env(name, value);
+            }
+
+            let report = launch.clone().args(&["check-config"]).run_to_end().await;
+            assert_eq!(report.code, Some(0), "{vars:?}: {report:?}");
+            assert!(report.stdout.contains("Result: valid"), "{vars:?}: {}", report.stdout);
+            let shown: Option<Vec<&str>> = report
+                .stdout
+                .lines()
+                .find(|row| row.starts_with("LF_BOFIP"))
+                .map(|row| row.split_whitespace().collect());
+            assert_eq!(shown, line.map(Vec::from), "{vars:?}: {}", report.stdout);
+
+            let mut session = launch.spawn();
+            session.handshake().await;
+            let coverage = session.request(&call(2, "fr_coverage", &json!({}))).await;
+            assert!(!is_tool_error(&coverage), "{vars:?}: {coverage}");
+            let view = &coverage["result"]["structuredContent"];
+            // La source du BOFiP ne change jamais le statut : il reste celui de PISTE.
+            assert_eq!(view["status"], "ok", "{vars:?}: {coverage}");
+            let families = view["families"].as_array().expect("families");
+            assert_eq!(
+                families.last().expect("a family")["tools"],
+                json!(["fr_search_bofip", "fr_get_bofip"]),
+                "{vars:?}: {coverage}"
+            );
+            let gaps = view["gaps"].as_array().expect("gaps");
+            let last = gaps.last().expect("a gap");
+            assert_eq!((&last["id"], &last["fond"]), (&json!(gap), &json!("BOFIP")), "{vars:?}");
+            let finished = session.finish().await;
+            assert_eq!(finished.code(), Some(0), "{vars:?}: stderr:\n{}", finished.stderr);
+            assert_eq!(trap.contacts(), Vec::<String>::new(), "{vars:?}");
+        }
+    }
+
+    /// Échec fermé (ADR-0029, décision 8) : `LF_BOFIP` ni `on` ni `off` coupe la source. Le
+    /// serveur démarre et le dit (`error!` sur stderr, problème de `check-config`, code 2), sans
+    /// recopier la valeur ; PISTE n'est pas dégradé pour autant.
+    #[tokio::test]
+    async fn invalid_lf_bofip_turns_source_off() {
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let trap = Trap::bind();
+        let launch = launch(audit.path(), &trap).env("LF_BOFIP", SENTINEL);
+
+        let report = launch.clone().args(&["check-config"]).run_to_end().await;
+        assert_eq!(report.code, Some(2), "{report:?}");
+        assert!(report.stdout.contains("Result: invalid"), "{}", report.stdout);
+        assert!(
+            report
+                .stdout
+                .contains("  - LF_BOFIP must be on or off: the BOFiP source is turned off"),
+            "{}",
+            report.stdout
+        );
+        let row = report.stdout.lines().find(|row| row.starts_with("LF_BOFIP")).expect("a row");
+        assert_eq!(
+            row.split_whitespace().collect::<Vec<_>>(),
+            ["LF_BOFIP", "LF_BOFIP", "off", "(invalid", "value)", "problem"]
+        );
+        assert!(!report.stdout.contains(SENTINEL) && !report.stderr.contains(SENTINEL));
+
+        let mut session = launch.spawn();
+        session.handshake().await;
+        for answer in call_both(&mut session).await {
+            assert_eq!(first_text(&answer), DISABLED);
+        }
+        let coverage = session.request(&call(4, "fr_coverage", &json!({}))).await;
+        let view = &coverage["result"]["structuredContent"];
+        assert_eq!(view["status"], "ok", "{coverage}");
+        assert!(view["configuration"].get("problems").is_none(), "{coverage}");
+        assert_eq!(view["gaps"].as_array().expect("gaps").last().expect("a gap")["id"], "FR-107");
+        let finished = session.finish().await;
+        assert_eq!(finished.code(), Some(0), "stderr:\n{}", finished.stderr);
+        assert!(
+            finished
+                .stderr
+                .lines()
+                .any(|line| line.contains("ERROR") && line.contains("LF_BOFIP must be on or off")),
+            "{}",
+            finished.stderr
+        );
+        assert!(!finished.stderr.contains(SENTINEL), "{}", finished.stderr);
+        assert_eq!(trap.contacts(), Vec::<String>::new());
+    }
+
+    /// Mode hors ligne : `LF_DILA_DIR` défini coupe la source d'office, même quand il est
+    /// inutilisable, et `check-config` le montre. Seul `LF_BOFIP=on` la rétablit : la source
+    /// joint alors le portail, alors que les textes de Légifrance restent indisponibles.
+    #[tokio::test]
+    async fn unusable_dila_dir_turns_source_off() {
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let trap = Trap::bind();
+        let offline = launch(audit.path(), &trap).env("LF_DILA_DIR", "relative/index");
+
+        let report = offline.clone().args(&["check-config"]).run_to_end().await;
+        let row = report.stdout.lines().find(|row| row.starts_with("LF_BOFIP")).expect("a row");
+        assert_eq!(
+            row.split_whitespace().collect::<Vec<_>>(),
+            ["LF_BOFIP", "default", "off", "(LF_DILA_DIR", "is", "set)", "ok"]
+        );
+        // Le seul problème est celui de `LF_DILA_DIR` : la coupure d'office n'en est pas un.
+        assert_eq!(report.code, Some(2), "{report:?}");
+        assert!(!report.stdout.contains("LF_BOFIP must be"), "{}", report.stdout);
+        assert_eq!(trap.contacts(), Vec::<String>::new());
+
+        // `LF_BOFIP=on` explicite : la source revient, et elle seule joint le réseau.
+        let mut session = offline.env("LF_BOFIP", "on").spawn();
+        session.handshake().await;
+        let [search, get] = call_both(&mut session).await;
+        for answer in [&search, &get] {
+            assert!(first_text(answer).starts_with("[upstream_error] "), "{answer}");
+        }
+        let legifrance = session.request(&call(4, "fr_search", &json!({"query": "bail"}))).await;
+        assert!(
+            first_text(&legifrance).starts_with("[config_error] LF_DILA_DIR must be an absolute"),
+            "{legifrance}"
+        );
+        let finished = session.finish().await;
+        assert_eq!(finished.code(), Some(0), "stderr:\n{}", finished.stderr);
+        assert_eq!(trap.contacts(), [PORTAL_TUNNEL, PORTAL_TUNNEL]);
+    }
+}
+
 /// Composition réelle avec un faux PISTE qui répond : cache et `User-Agent`.
 #[cfg(test)]
 mod upstream {

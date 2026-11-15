@@ -329,6 +329,11 @@ mod tests {
         assert_eq!(search_url("", &query), expected);
     }
 
+    /// Quarante caractères au plus, pris dans tout Unicode.
+    fn any_text() -> impl Strategy<Value = String> {
+        proptest::collection::vec(proptest::char::any(), 0..=40).prop_map(String::from_iter)
+    }
+
     fn any_kind() -> impl Strategy<Value = KindFilter> {
         prop_oneof![Just(KindFilter::Doctrine), Just(KindFilter::News), Just(KindFilter::All)]
     }
@@ -337,11 +342,14 @@ mod tests {
         /// Quelle que soit l'entrée, la clause garde son squelette et porte exactement un
         /// littéral par valeur : les mots, puis la nature et la série quand elles sont
         /// demandées. Aucune entrée ne ferme un littéral ni n'ajoute un opérateur.
+        ///
+        /// Les caractères sont pris dans tout Unicode, contrôles et caractères de format compris
+        /// (`\0`, saut de ligne, U+202E) : le domaine les retire ou en fait des espaces.
         #[test]
         fn where_has_exactly_n_literals_for_any_input(
-            before in "\\PC{0,40}",
+            before in any_text(),
             word in "[a-z0-9éèàùç]{1,12}",
-            after in "\\PC{0,40}",
+            after in any_text(),
             serie in proptest::option::of("[A-Za-z0-9]{1,16}"),
             kind in any_kind(),
         ) {

@@ -10,7 +10,10 @@
 //! - **[`DAILY_BUDGET`] requêtes par jour (UTC) et par processus** : au-delà,
 //!   [`DoctrineError::RateLimited`] sans réseau, jusqu'à minuit UTC ;
 //! - **repos après un refus 429** : la durée annoncée par `Retry-After`, [`REST_MAX`] au plus,
-//!   [`REST_DEFAULT`] si l'en-tête manque ; pendant le repos, tout appel est refusé sans réseau.
+//!   [`REST_DEFAULT`] si l'en-tête manque, est illisible ou annonce zéro seconde (un refus qui
+//!   invite à revenir aussitôt n'annonce rien d'utilisable) ; pendant le repos, tout nouvel appel
+//!   est refusé sans réseau, et celui qui attendait son tour de départ ne part pas. Un appel déjà
+//!   parti n'est pas rattrapé : avec deux lectures en vol, au plus une requête de plus.
 //!
 //! Aucun réessai, nulle part. Le calcul est une machine à états pure ([`Schedule`]) ; [`Pace`]
 //! lui ajoute le verrou, le sémaphore et l'attente.
@@ -38,7 +41,7 @@ pub(crate) const DAILY_BUDGET: u32 = 10_000;
 /// Repos le plus long après un refus 429, quoi qu'annonce le portail.
 pub(crate) const REST_MAX: Duration = Duration::from_secs(3_600);
 
-/// Repos après un refus 429 sans `Retry-After` lisible.
+/// Repos après un refus 429 sans `Retry-After` lisible, ou qui annonce zéro seconde.
 pub(crate) const REST_DEFAULT: Duration = Duration::from_secs(900);
 
 /// Secondes d'un jour.
@@ -97,10 +100,7 @@ impl Schedule {
         today: UtcDay,
         remaining: Duration,
     ) -> Result<Duration, DoctrineError> {
-        if now < self.rest_until {
-            let left = self.rest_until.saturating_sub(now);
-            return Err(DoctrineError::RateLimited { retry_after: Some(left) });
-        }
+        self.rested(now)?;
         if today.number != self.day {
             self.day = today.number;
             self.used = 0;
@@ -117,10 +117,23 @@ impl Schedule {
         Ok(wait)
     }
 
+    /// Vérifie qu'aucun repos n'est en cours à l'instant `now`.
+    ///
+    /// # Errors
+    ///
+    /// [`DoctrineError::RateLimited`] pendant un repos, avec le temps qu'il lui reste.
+    fn rested(&self, now: Duration) -> Result<(), DoctrineError> {
+        if now < self.rest_until {
+            let left = self.rest_until.saturating_sub(now);
+            return Err(DoctrineError::RateLimited { retry_after: Some(left) });
+        }
+        Ok(())
+    }
+
     /// Ouvre un repos à l'instant `now`, de la durée `announced` par le portail, bornée ; rend
-    /// la durée retenue.
+    /// la durée retenue. Zéro seconde est lu comme une durée absente : le repos par défaut.
     fn rest(&mut self, now: Duration, announced: Option<Duration>) -> Duration {
-        let rest = announced.unwrap_or(REST_DEFAULT).min(REST_MAX);
+        let rest = announced.filter(|rest| !rest.is_zero()).unwrap_or(REST_DEFAULT).min(REST_MAX);
         self.rest_until = now.saturating_add(rest);
         rest
     }
@@ -163,6 +176,9 @@ impl<W: Clock, T: Timer> Pace<W, T> {
     /// Attend une place en vol, puis son tour de départ, pour un appel à qui il reste
     /// `remaining`.
     ///
+    /// Le repos est relu après l'attente du tour : un refus 429 reçu par un autre appel pendant
+    /// cette attente arrête aussi celui-ci, qui garde le départ compté au budget.
+    ///
     /// # Errors
     ///
     /// [`DoctrineError::Timeout`] si la place ou le tour ne viennent pas dans `remaining` ;
@@ -179,6 +195,7 @@ impl<W: Clock, T: Timer> Pace<W, T> {
         let today = UtcDay::at(self.wall.now_utc().timestamp());
         let wait = self.schedule().plan(now, today, left)?;
         self.timer.sleep(wait).await;
+        self.schedule().rested(self.timer.now())?;
         Ok(Permit { _in_flight: in_flight })
     }
 
@@ -279,13 +296,15 @@ mod tests {
     fn retry_after_capped_at_one_hour() {
         let rows = [
             (Some(s(120)), s(120)),
-            (Some(s(0)), s(0)),
+            (Some(s(1)), s(1)),
+            (Some(ms(1)), ms(1)),
             (Some(s(3_600)), s(3_600)),
             (Some(s(3_601)), s(3_600)),
             (Some(s(86_400)), s(3_600)),
             (Some(Duration::MAX), s(3_600)),
-            // Sans en-tête lisible : un quart d'heure.
+            // Sans en-tête lisible, ou avec zéro seconde : un quart d'heure.
             (None, s(900)),
+            (Some(s(0)), s(900)),
         ];
         for (announced, rest) in rows {
             let mut schedule = Schedule::default();
@@ -425,6 +444,27 @@ mod tests {
         // Sans durée annoncée : un quart d'heure, compté depuis l'instant du refus.
         assert_eq!(pace.rest(None), s(900));
         assert_eq!(pace.schedule().rest_until, s(120) + s(900));
+    }
+
+    /// Un refus 429 reçu pendant qu'un autre appel attend son tour de départ arrête aussi cet
+    /// appel : il ne part pas pendant le repos.
+    #[tokio::test]
+    async fn a_rest_opened_while_a_call_waits_for_its_turn_stops_that_call() {
+        // Chaque attente rend la main une fois : le refus a le temps d'arriver.
+        let pace = Pace::new(TestWall::at(MIDDAY), ManualTimer::yielding());
+        let first = pace.acquire(LONG).await.unwrap();
+        // Le second appel attend 500 ms ; le refus du premier arrive pendant cette attente.
+        let waiting = pace.acquire(LONG);
+        let refusal = async { pace.rest(Some(s(120))) };
+        let (second, rest) = tokio::join!(waiting, refusal);
+        assert_eq!(rest, s(120));
+        // Repos ouvert à l'instant 0, attente finie à 500 ms : il en reste 119,5 s.
+        let left = Some(ms(119_500));
+        assert_eq!(second.err(), Some(DoctrineError::RateLimited { retry_after: left }));
+        // Le départ réservé reste compté au budget ; la place en vol est rendue.
+        assert_eq!(pace.schedule().used, 2);
+        drop(first);
+        assert_eq!(pace.in_flight.available_permits(), IN_FLIGHT_MAX);
     }
 
     #[tokio::test]

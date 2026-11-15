@@ -12,10 +12,13 @@ Ce qu'il fait en plus de chercher et de lire un texte :
 - **Lire le droit à une date.** Un texte ou un article tel qu'il était en vigueur un jour donné (`fr_search`, `fr_get_act`, `fr_resolve`), et la comparaison de deux versions d'un article (`fr_diff_article`).
 - **Sans intermédiaire.** Le serveur tourne sur votre machine et parle à PISTE avec vos propres identifiants : aucun service tiers ne voit vos requêtes (voir [Hôtes contactés](#hôtes-contactés)).
 - **Hors ligne, en option.** Les codes, lois et décrets peuvent être lus dans une copie locale, sans compte PISTE ni réseau (voir [Mode hors ligne](#mode-hors-ligne-index-local-dila)).
+- **Doctrine fiscale (BOFiP).** `fr_search_bofip` et `fr_get_bofip` lisent le Bulletin officiel des finances publiques, c'est-à-dire la lecture que l'administration fiscale fait de la loi, sur le portail de données ouvertes de la DGFiP, sans compte (voir [Doctrine fiscale](#doctrine-fiscale-bofip)).
 
 > **Binaires non signés.** Les binaires et le bundle MCPB ne sont signés par aucun certificat (ni Authenticode sous Windows, ni notarisation sous macOS). Sous Windows, Smart App Control peut bloquer l'exécutable : ne le désactivez pas, utilisez l'image Docker ou WSL. Sous macOS, Gatekeeper peut demander une confirmation. Les sommes SHA-256 et les attestations de provenance GitHub permettent de contrôler ce que vous installez (voir [Vérifier un téléchargement](#vérifier-un-téléchargement)).
 >
 > **Statut.** Cette page décrit la version **1.2.0**. Les commandes d'installation citent l'étiquette `v1.2.0` : elles s'appliquent dès que sa release figure sur la [page des releases](https://github.com/muchiny/mcp-legifrance/releases) ; pour une autre version publiée, remplacez le numéro. La première version publiée est la 1.0.0 (2026-10-31).
+>
+> **Pas encore publié.** Les deux outils du BOFiP (`fr_search_bofip`, `fr_get_bofip`) et la variable `LF_BOFIP` décrits ci-dessous ne sont **pas** dans la 1.2.0 : ils sont dans le code du dépôt et arriveront avec la version suivante (rubrique `[Unreleased]` du [CHANGELOG](CHANGELOG.md)). Un binaire 1.2.0 sert treize outils.
 
 ## Sommaire
 
@@ -34,7 +37,7 @@ Ce qu'il fait en plus de chercher et de lire un texte :
 
 ## Ce que fait le serveur
 
-Treize outils, tous en lecture seule (`readOnlyHint`), qui interrogent Légifrance sur le réseau (`openWorldHint`) :
+Quinze outils, tous en lecture seule (`readOnlyHint`), qui interrogent le réseau (`openWorldHint`) : treize lisent Légifrance, deux lisent le BOFiP.
 
 | Outil | Rôle |
 |---|---|
@@ -51,8 +54,21 @@ Treize outils, tous en lecture seule (`readOnlyHint`), qui interrogent Légifran
 | `fr_get_related` | Liens juridiques d'un article ou d'une décision : textes cités, textes qui le citent, jurisprudence mentionnée. |
 | `fr_diff_article` | Compare les versions d'un article à deux dates : passages retirés et ajoutés, avec un peu de contexte. |
 | `fr_search_all` | Recherche dans plusieurs fonds à la fois : les meilleurs résultats de chacun, groupés par fonds, avec leurs totaux. |
+| `fr_search_bofip` | Recherche dans le BOFiP (doctrine de l'administration fiscale) par quelques mots simples, avec un filtre de série (`ENR`, `IR`, `RFPI`…) et de nature (doctrine, actualités). Rend des titres et des identifiants, jamais le texte. |
+| `fr_get_bofip` | Texte d'une publication du BOFiP par son identifiant (`BOI-…`, `ACTU-…`), avec la même lecture progressive que `fr_get_text`. |
 
 **Retour progressif.** Pour économiser le contexte du modèle, un texte de plus de 1 200 caractères est d'abord rendu en résumé. Pour le lire en entier, demandez `detail: "full"` et enchaînez avec `offset = next_offset` ; `focus` extrait les passages qui correspondent à des mots donnés. Une réponse ne dépasse jamais 45 000 caractères de JSON compact.
+
+### Doctrine fiscale (BOFiP)
+
+Le BOFiP (Bulletin officiel des finances publiques, impôts) est la **doctrine de l'administration fiscale** : ce que la Direction générale des finances publiques (DGFiP) écrit pour dire comment elle lit la loi fiscale. Ce n'est pas la loi : un article du code général des impôts se lit avec `fr_get_text`, le commentaire que l'administration en donne se lit avec `fr_get_bofip`.
+
+- **Aucun compte.** Les deux outils lisent le jeu ouvert `bofip-vigueur` du portail `data.economie.gouv.fr`. Ils marchent sans identifiants PISTE, et même si la configuration PISTE est absente ou invalide.
+- **En vigueur seulement.** Le jeu ne porte que les publications en vigueur aujourd'hui : aucune version passée n'est servie, alors que la doctrine applicable à une situation est celle du jour des faits (l'article L. 80 A du livre des procédures fiscales protège le contribuable qui a suivi l'interprétation publiée et non rapportée « à la date des opérations en cause »). Chaque réponse le rappelle (`doctrine_note`) et donne la date de début de validité (`valid_from`) et l'adresse de la page sur le site du BOFiP (`source_url`), où les versions passées se consultent.
+- **Chercher.** Tous les mots de `query` doivent figurer dans la publication ; le dernier vaut aussi comme début de mot. Il n'y a ni opérateur ni expression entre guillemets : employez quelques mots simples.
+- **Lire.** Quelques identifiants désignent deux publications : la réponse les liste alors, et `publication_id` en choisit une.
+- **Débit.** Le serveur envoie au plus 2 requêtes par seconde au portail et 10 000 par jour et par processus ; après un refus `429` du portail, il attend sans réessayer et répond `[rate_limited]`.
+- **Couper la source.** `LF_BOFIP=off` : les deux outils répondent `[config_error]` sans appel réseau. Voir [Variables d'environnement](#variables-denvironnement).
 
 **Resources, prompts et complétions.** En plus des outils, le serveur expose la resource `legifrance://coverage`, quatre modèles de resources (`legifrance://act/{text_id}`, `legifrance://article/{article_id}`, `legifrance://code/{code}/article/{num}`, `legifrance://decision/{decision_id}`), trois prompts en français (`analyser_decision`, `etat_du_droit`, `verifier_citations`) et la complétion de leurs arguments.
 
@@ -310,8 +326,17 @@ La configuration vient **uniquement** de l'environnement (aucun fichier, aucune 
 | `LF_AUDIT_DIR` | répertoire du journal d'audit | chemin absolu (un `~/` en tête est développé) ; défaut : répertoire de données de l'utilisateur, sous-dossier `mcp-legifrance/audit` |
 | `LF_AUDIT_MODE` | conduite si le journal ne peut pas être écrit | `strict` (défaut : l'appel d'outil échoue en `[audit_error]`) ou `best-effort` |
 | `LF_LOG` | filtre des journaux (syntaxe `tracing`), écrits sur stderr | défaut : `info`, avec `warn` pour les bibliothèques réseau et MCP |
-| `LF_HTTP_TIMEOUT_S` | délai par requête vers PISTE, en secondes | 1 à 300, défaut 40 |
+| `LF_HTTP_TIMEOUT_S` | délai par requête vers PISTE et vers le portail du BOFiP, en secondes | 1 à 300, défaut 40 |
 | `LF_TOOL_DEADLINE_S` | délai global par appel d'outil, en secondes | 1 à 600, défaut 60 |
+| `LF_BOFIP` | source de doctrine fiscale (outils `fr_search_bofip` et `fr_get_bofip`) | `on` (défaut) ou `off`, casse indifférente ; voir ci-dessous |
+
+`LF_BOFIP` ne figure ni dans `server.json` ni dans le manifeste du bundle MCPB : pour l'employer, ajoutez-la au bloc `env` de votre client. **Une installation par le bundle MCPB n'offre donc pas ce réglage** : pour couper la source, installez le binaire et déclarez le serveur à la main dans votre client. Trois règles :
+
+- sans cette variable (ou si elle est vide : une variable vide compte comme absente, voir plus haut), la source est **active**, sauf en [mode hors ligne](#mode-hors-ligne-index-local-dila) : dès que `LF_DILA_DIR` est défini, elle est coupée d'office, et seul `LF_BOFIP=on` la rétablit ;
+- **toute autre valeur que `on` ou `off` coupe la source** (`false`, `0`, `no`, une faute de frappe) : un refus mal écrit ne doit pas envoyer vos mots de recherche à un tiers. Le serveur démarre, le dit sur stderr, et `check-config` le signale comme un problème (code de sortie 2) ;
+- il n'existe aucune variable d'adresse pour cette source : l'hôte est fixé dans le code.
+
+`check-config` n'affiche la ligne `LF_BOFIP` que si la variable est définie ou si la source est coupée d'office.
 
 Règles des surcharges d'adresse : `https` obligatoire (`http` n'est admis que vers `127.0.0.1`, `::1` et `localhost`) ; ni identifiant utilisateur, ni paramètres, ni fragment dans l'adresse. Un hôte autre que les quatre hôtes officiels est accepté avec l'avertissement `CustomHost` (au démarrage, dans `check-config` et dans les lacunes de `fr_coverage`). Un hôte officiel de l'**autre** environnement est un problème `EnvMismatch` : le serveur ne déduit jamais l'environnement des adresses, il demande `LF_PISTE_ENV=production`.
 
@@ -330,7 +355,7 @@ Ces quatre réglages ne figurent ni dans `server.json` ni dans le manifeste du b
 
 ### Configuration invalide : mode dégradé
 
-Si la configuration PISTE est invalide (environnement inconnu, adresse refusée, identifiants absents), le serveur **démarre quand même** : chaque outil PISTE répond `[config_error] …` sans appel réseau, et `fr_coverage` comme `check-config` décrivent le problème.
+Si la configuration PISTE est invalide (environnement inconnu, adresse refusée, identifiants absents), le serveur **démarre quand même** : chaque outil PISTE répond `[config_error] …` sans appel réseau, et `fr_coverage` comme `check-config` décrivent le problème. Les deux outils du BOFiP ne dépendent pas de PISTE : ils continuent de répondre.
 
 ### Variables héritées de fr-eli-mcp
 
@@ -353,6 +378,8 @@ L'avertissement a la forme `FR_ELI_ENV ignored: it is never read`, ou `FR_ELI_CL
 ## Mode hors ligne (index local DILA)
 
 Option : au lieu d'appeler PISTE, le serveur lit une **copie locale** des codes, lois et décrets de Légifrance (le fonds LEGI des données ouvertes de la DILA). Vous n'avez alors ni compte PISTE à créer, ni requête qui quitte votre ordinateur. Les **décisions de justice, les délibérations de la CNIL, les conventions collectives et les accords d'entreprise ne sont pas dans cette copie** : ces outils répondent `[config_error]` et demandent PISTE. Quand `LF_DILA_DIR` est défini, le serveur ne se rabat jamais sur PISTE.
+
+**Et le BOFiP ?** En mode hors ligne, la source du BOFiP est **coupée d'office**, que le dossier d'index soit utilisable ou non : `fr_search_bofip` et `fr_get_bofip` répondent `[config_error]`, et aucune requête ne part. Si vous voulez la doctrine fiscale tout en gardant les textes de Légifrance en local, ajoutez `LF_BOFIP=on` : ces deux outils, et eux seuls, contactent alors `data.economie.gouv.fr`.
 
 **Place nécessaire** (mesurée le 2026-10-31 sur les archives réelles : 1 fichier complet du 2025-07-13 et 481 mises à jour) : 3,1 Go d'archives à télécharger, puis un index de 3,6 Go (2 405 838 documents, aucun membre refusé), soit environ 7 Go de disque. La construction a pris 1 h 10 avec un binaire de développement non optimisé et 3,6 Go de mémoire au plus ; la durée avec le binaire publié n'a pas été mesurée.
 
@@ -389,13 +416,16 @@ Le serveur ne contacte que les hôtes ci-dessous, et seulement dans les cas indi
 | Binaire, `LF_PISTE_ENV=sandbox` (défaut) | `sandbox-oauth.piste.gouv.fr`, `sandbox-api.piste.gouv.fr` | au premier appel d'outil, jamais au démarrage |
 | Binaire, `LF_PISTE_ENV=production` | `oauth.piste.gouv.fr`, `api.piste.gouv.fr` (exercés à la main par le mainteneur depuis le 2026-11-02, jamais par la CI) | idem |
 | Binaire avec `LF_PISTE_OAUTH_URL` ou `LF_PISTE_BASE_URL` | l'hôte que vous fournissez (`https`, ou `http` vers la boucle locale seulement) ; avertissement `CustomHost` s'il n'est pas l'un des quatre hôtes officiels | idem |
-| `check-config --online` | l'hôte OAuth de l'environnement choisi : une requête de jeton, jamais d'appel à l'API | à la demande |
+| Binaire, source du BOFiP active (défaut ; coupée par `LF_BOFIP=off` ou par `LF_DILA_DIR`) | `data.economie.gouv.fr` (portail de données ouvertes du ministère de l'Économie, jeu `bofip-vigueur`), en `https`, à une adresse fixée dans le code, sans redirection suivie | à chaque appel de `fr_search_bofip` ou de `fr_get_bofip`, jamais au démarrage ni par les autres outils |
+| `check-config --online` | l'hôte OAuth de l'environnement choisi : une requête de jeton, jamais d'appel à l'API ni au portail du BOFiP | à la demande |
 | Installeurs shell et PowerShell, bundle MCPB, archives | `github.com` et l'hôte vers lequel GitHub redirige le téléchargement des fichiers de release | à l'installation |
 | `cargo install --git` | `github.com` (clone du dépôt à l'étiquette), `index.crates.io` et `static.crates.io` (dépendances) | à l'installation |
 | Image Docker | `ghcr.io` | au `docker pull` |
 | Script de téléchargement des dumps DILA (version 1.0, hors binaire) | `echanges.dila.gouv.fr` | lancé explicitement par l'utilisateur |
 
-Derrière un proxy d'entreprise, le binaire emploie le proxy système ; la prise en compte des variables de proxy usuelles n'est pas vérifiée. Les installeurs de dist déclarent respecter les variables de proxy usuelles.
+Le site `bofip.impots.gouv.fr` n'est jamais contacté : son adresse n'apparaît que dans le champ `source_url` des réponses, pour que vous puissiez ouvrir la page.
+
+Derrière un proxy d'entreprise, le binaire emploie le proxy système ; la prise en compte des variables de proxy usuelles n'est pas vérifiée pour PISTE. Pour le BOFiP, les tests du binaire montrent qu'il suit `HTTPS_PROXY` : le proxy voit alors le nom de l'hôte (`data.economie.gouv.fr`), jamais les mots cherchés, qui restent dans la connexion chiffrée. Les installeurs de dist déclarent respecter les variables de proxy usuelles.
 
 ## Attribution, licence des données et non-affiliation
 
@@ -403,11 +433,15 @@ Derrière un proxy d'entreprise, le binaire emploie le proxy système ; la prise
 
 > Source : Légifrance / DILA — Licence Ouverte 2.0
 
+**Doctrine fiscale.** Les publications rendues par `fr_search_bofip` et `fr_get_bofip` proviennent du jeu `bofip-vigueur` de la Direction générale des finances publiques (DGFiP), publié sur `data.economie.gouv.fr` sous **Licence Ouverte 2.0**. Chaque réponse de ces deux outils porte la mention à reprendre dans son champ `attribution` :
+
+> Source : BOFiP-Impôts / DGFiP — Licence Ouverte 2.0
+
 **Date de consultation.** Quand vous citez ou republiez un texte obtenu par ce serveur, indiquez aussi la date à laquelle vous l'avez consulté. L'outil `fr_coverage` la fournit : son champ `consulted_on` donne la date du jour (fuseau Europe/Paris), et son champ `attribution` porte la mention ci-dessus. Les instructions du serveur rappellent la source et la licence. La Licence Ouverte demande le concédant et la date de dernière mise à jour ; le serveur ne dispose pas d'un champ fiable de mise à jour par document, et la date de consultation en tient lieu. Qu'une mention globale suffise est une lecture adoptée par défaut, non confirmée.
 
-**Valeur des textes.** Seules les éditions du Journal officiel signées électroniquement font foi : une réponse de ce serveur n'a pas de valeur opposable et n'est pas un avis juridique. Les décisions de justice sont diffusées **pseudonymisées** et les délibérations de la CNIL **occultées** ; le serveur ne lève ni l'un ni l'autre.
+**Valeur des textes.** Seules les éditions du Journal officiel signées électroniquement font foi : une réponse de ce serveur n'a pas de valeur opposable et n'est pas un avis juridique. Le BOFiP est la doctrine de l'administration, pas la loi ; le serveur n'en sert que les publications en vigueur aujourd'hui, et ne dit pas si un passage s'applique à votre situation ni à une période passée. Les décisions de justice sont diffusées **pseudonymisées** et les délibérations de la CNIL **occultées** ; le serveur ne lève ni l'un ni l'autre.
 
-**Non-affiliation.** Ce projet n'est ni édité, ni approuvé, ni soutenu par la DILA, ni par l'AIFE (qui exploite PISTE), ni par aucune autorité publique. « Légifrance » désigne le service public de diffusion du droit : le produit s'appelle `mcp-legifrance`, ses titres portent « (unofficial) », et il n'emploie aucun logo de Légifrance ni de l'État. *Not affiliated with or endorsed by DILA, AIFE or any French public body.*
+**Non-affiliation.** Ce projet n'est ni édité, ni approuvé, ni soutenu par la DILA, ni par l'AIFE (qui exploite PISTE), ni par la DGFiP, ni par aucune autorité publique. « Légifrance » désigne le service public de diffusion du droit : le produit s'appelle `mcp-legifrance`, ses titres portent « (unofficial) », et il n'emploie aucun logo de Légifrance ni de l'État. *Not affiliated with or endorsed by DILA, AIFE or any French public body.*
 
 **Licence du code.** Apache-2.0 ([LICENSE](LICENSE)), titulaire Loïc Wernert. Le projet est une réécriture en Rust de [`matematicsolutions/fr-eli-mcp`](https://github.com/matematicsolutions/fr-eli-mcp) (commit `d3b5b13`, Apache-2.0), dont il reprend des textes adaptés et des fixtures de test : voir [NOTICE](NOTICE). Aucune ligne n'est reprise de projets sous licence AGPL. Les licences des bibliothèques tierces liées au binaire sont réunies dans le fichier de licences tierces fourni à la racine du dépôt et dans chaque archive.
 
@@ -427,7 +461,7 @@ Pour un utilisateur de la référence Python (`fr-eli-mcp`). La note complète, 
 
 ## Confidentialité et sécurité
 
-- **Ce qui part sur le réseau** : vos requêtes de recherche et les identifiants de documents, avec vos identifiants PISTE, vers l'API Légifrance (DILA) par PISTE (AIFE). Rien d'autre (voir [Hôtes contactés](#hôtes-contactés)).
+- **Ce qui part sur le réseau** : vos requêtes de recherche et les identifiants de documents, avec vos identifiants PISTE, vers l'API Légifrance (DILA) par PISTE (AIFE). Pour les deux outils du BOFiP : vos mots de recherche et les identifiants de publications, sans aucun identifiant de compte mais avec votre adresse IP, vers le portail `data.economie.gouv.fr`, hébergé par un prestataire du ministère. Rien d'autre (voir [Hôtes contactés](#hôtes-contactés)). Une recherche fiscale peut en dire long sur votre situation : `LF_BOFIP=off` coupe cette source.
 - **Ce qui reste sur votre machine** : un journal d'audit au format JSONL (`mcp-legifrance.jsonl`, avec rotation), à raison d'une ligne par appel d'outil, quelle qu'en soit l'issue. Il contient une **empreinte** SHA-256 des arguments, jamais le texte de vos requêtes en clair, ni secret. En mode `strict` (défaut), un échec d'écriture fait échouer l'appel. Plusieurs processus peuvent partager le même dossier. Après un arrêt brutal, une ligne coupée reste dans le journal, seule sur sa ligne : l'appel suivant garde sa ligne complète (lecture tolérante : `jq -R 'fromjson?'`).
 - **Journaux** : sur stderr uniquement ; stdout ne porte que le protocole. Ni secret, ni texte de requête n'y figure.
 - Les textes renvoyés sont des **données**, pas des instructions : un modèle ne doit pas exécuter ce qu'un texte juridique lui demanderait.
@@ -445,6 +479,7 @@ Le projet note ses incertitudes plutôt que de les taire. Pour la 1.2.0 :
 - Le bac à sable PISTE renvoie parfois d'autres données que la production.
 - L'index local DILA a été construit une fois sur les archives réelles (1 h 10 avec un binaire de développement) et interrogé sur quelques requêtes, sur Linux seulement, avant la montée de `tantivy` de la 1.2.0 : depuis, la reconstruction n'a été contrôlée que sur les mini-archives du dépôt, pas sur les archives réelles (ADR-0027). La durée avec le binaire publié, le comportement sous Windows et macOS, la date de l'instantané dans les réponses et la licence propre à chaque fonds ne sont pas vérifiés.
 - L'adresse Légifrance qu'un article de loi reçoit dans `source_url` n'a pas été ouverte dans un navigateur pour confirmer qu'elle s'affiche.
+- **BOFiP** (pas encore publié) : le quota du portail n'est connu que par ses en-têtes (50 000 requêtes par jour, portée inconnue) et aucun refus `429` n'a été observé ; ni le pays d'hébergement du portail ni la durée de conservation de ses journaux ne sont publiés ; le portail peut changer de forme sans prévenir (un test hebdomadaire le signale, il ne l'empêche pas).
 
 Le registre complet des points ouverts est dans [`docs/plan/09-risques-et-questions.md`](docs/plan/09-risques-et-questions.md).
 

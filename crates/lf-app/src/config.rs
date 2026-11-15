@@ -19,6 +19,10 @@
 //!   ([`CorpusSource`]). Le binaire ne télécharge aucun dump (plan « fin du projet » : script hors
 //!   binaire) ; le répertoire contient un index déjà bâti. Si la source locale est demandée sans
 //!   pouvoir servir, le serveur est dégradé et ne se rabat jamais sur PISTE.
+//! - Doctrine fiscale (jalon MB) : le portail ouvert de la DGFiP, active par défaut et sans
+//!   identifiants ([`BofipSource`]). `LF_BOFIP` la coupe ; elle l'est d'office en mode hors ligne
+//!   (`LF_DILA_DIR` défini), et toute valeur autre que `on` ou `off` la coupe aussi : échec fermé
+//!   (ADR-0029, décision 8). Aucune variable d'adresse : l'hôte est fixé dans le code.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -28,6 +32,7 @@ use std::{
     time::Duration,
 };
 
+use lf_adapter_bofip::BofipConfig;
 use lf_adapter_piste::{
     ConfigProblem, ConfigWarning, PisteConfig, PisteCredentials, PisteEndpoints, PisteTuning,
     RateQuota,
@@ -72,6 +77,9 @@ const MOJIBAKE_REPAIR: &str = "LF_PISTE_MOJIBAKE_REPAIR";
 /// des textes ; absent, PISTE reste la source.
 const DILA_DIR: &str = "LF_DILA_DIR";
 
+/// `LF_BOFIP` : source de doctrine fiscale (BOFiP, jalon MB), `on` ou `off`.
+const BOFIP: &str = "LF_BOFIP";
+
 /// Équivalent hérité de `LF_PISTE_CLIENT_ID`.
 const LEGACY_CLIENT_ID: &str = "FR_ELI_CLIENT_ID";
 /// Équivalent hérité de `LF_PISTE_CLIENT_SECRET`.
@@ -94,8 +102,8 @@ const IGNORED_LEGACY: [&str; 5] = [
 ];
 
 /// Variables dont la valeur est lue : la liste fermée de 00 §1, `LF_DILA_DIR` (M9, à ajouter à 00 §1
-/// et à 02 §8.2) et les `FR_ELI_*` de compatibilité.
-const READ_VARIABLES: [&str; 20] = [
+/// et à 02 §8.2), `LF_BOFIP` (jalon MB) et les `FR_ELI_*` de compatibilité.
+const READ_VARIABLES: [&str; 21] = [
     PISTE_ENV,
     CLIENT_ID,
     CLIENT_SECRET,
@@ -111,6 +119,7 @@ const READ_VARIABLES: [&str; 20] = [
     CONCURRENCY,
     MOJIBAKE_REPAIR,
     DILA_DIR,
+    BOFIP,
     LEGACY_CLIENT_ID,
     LEGACY_CLIENT_SECRET,
     LEGACY_OAUTH_URL,
@@ -118,7 +127,8 @@ const READ_VARIABLES: [&str; 20] = [
     LEGACY_AUDIT_DIR,
 ];
 
-/// `User-Agent` des requêtes vers PISTE (04 §4.2) : nom, version du binaire et dépôt.
+/// `User-Agent` des requêtes vers PISTE (04 §4.2) et vers le portail du BOFiP : nom, version du
+/// binaire et dépôt.
 const USER_AGENT: &str = concat!(
     "mcp-legifrance/",
     env!("CARGO_PKG_VERSION"),
@@ -288,6 +298,60 @@ impl CorpusSource {
     }
 }
 
+/// Pourquoi la source de doctrine fiscale est coupée.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BofipOff {
+    /// `LF_BOFIP=off`.
+    Requested,
+    /// `LF_BOFIP` porte une autre valeur que `on` ou `off` : échec fermé.
+    Invalid,
+    /// Mode hors ligne : `LF_DILA_DIR` est défini et `LF_BOFIP` ne dit rien.
+    Offline,
+}
+
+impl BofipOff {
+    /// Ce que `check-config` et le journal de démarrage affichent : l'état, et sa cause quand ce
+    /// n'est pas une demande explicite. Jamais la valeur lue.
+    pub(crate) fn shown(self) -> &'static str {
+        match self {
+            Self::Requested => "off",
+            Self::Invalid => "off (invalid value)",
+            Self::Offline => "off (LF_DILA_DIR is set)",
+        }
+    }
+}
+
+/// Source de doctrine fiscale (BOFiP, ADR-0028 et ADR-0029) : le portail ouvert de la DGFiP, ou
+/// rien.
+///
+/// Elle ne dépend pas de PISTE : ni identifiants, ni environnement. Coupée, chaque outil du BOFiP
+/// répond `[config_error]` sans qu'aucun client HTTP soit construit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum BofipSource {
+    /// Le portail est interrogé, avec ces réglages de client.
+    On(BofipConfig),
+    /// Source coupée, et pourquoi.
+    Off(BofipOff),
+}
+
+impl BofipSource {
+    /// Nom de la source dans le journal de démarrage.
+    pub(crate) fn label(&self) -> &'static str {
+        match self {
+            Self::On(_) => "bofip",
+            Self::Off(reason) => reason.shown(),
+        }
+    }
+
+    /// L'état que `fr_coverage` rend : source active (lacune FR-106) ou coupée (FR-107).
+    pub(crate) fn coverage(&self) -> DoctrineSource {
+        match self {
+            Self::On(_) => DoctrineSource::Active,
+            Self::Off(_) => DoctrineSource::Off,
+        }
+    }
+}
+
 /// Réglages de l'audit (00 §1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AuditSettings {
@@ -313,6 +377,8 @@ pub(crate) struct AppConfig {
     pub(crate) configuration: ConfigurationState,
     /// Source des textes : PISTE, ou l'index local DILA (`LF_DILA_DIR`, M9).
     pub(crate) source: CorpusSource,
+    /// Source de doctrine fiscale : le portail du BOFiP, ou rien (`LF_BOFIP`, jalon MB).
+    pub(crate) bofip: BofipSource,
 }
 
 /// Avertissement ou problème relevé en lisant la configuration (jamais de secret ni de valeur lue).
@@ -358,6 +424,8 @@ pub(crate) enum Notice {
     AuditDir(AuditDirProblem),
     /// Index local DILA demandé et inutilisable : mode dégradé, jamais un repli sur PISTE.
     DilaDir(DilaDirProblem),
+    /// `LF_BOFIP` n'est ni `on` ni `off` : la source du BOFiP est coupée (échec fermé).
+    InvalidBofip,
     /// Identifiants PISTE absents : mode dégradé.
     CredentialsMissing,
 }
@@ -371,6 +439,7 @@ impl Notice {
                 | Self::Problem(_)
                 | Self::AuditDir(_)
                 | Self::DilaDir(_)
+                | Self::InvalidBofip
                 | Self::CredentialsMissing
         )
     }
@@ -410,6 +479,9 @@ impl fmt::Display for Notice {
             Self::Problem(problem) => problem.fmt(f),
             Self::AuditDir(problem) => problem.fmt(f),
             Self::DilaDir(problem) => problem.fmt(f),
+            Self::InvalidBofip => {
+                write!(f, "{BOFIP} must be on or off: the BOFiP source is turned off")
+            }
             Self::CredentialsMissing => {
                 write!(f, "PISTE credentials missing: set {CLIENT_ID} and {CLIENT_SECRET}")
             }
@@ -496,8 +568,9 @@ pub(crate) struct Loaded {
     pub(crate) config: AppConfig,
     /// Avertissements et problèmes, dans l'ordre de lecture.
     pub(crate) notices: Vec<Notice>,
-    /// Une ligne par variable de la liste fermée, dans l'ordre de 02 §8.2, plus `LF_DILA_DIR` en
-    /// dernier quand elle est définie (sans elle, la table garde ses quatorze lignes).
+    /// Une ligne par variable de la liste fermée, dans l'ordre de 02 §8.2, plus `LF_DILA_DIR`
+    /// quand elle est définie, puis `LF_BOFIP` quand elle est définie ou que la source est coupée
+    /// d'office (sans elles, la table garde ses quatorze lignes).
     pub(crate) lines: Vec<SettingLine>,
 }
 
@@ -730,6 +803,37 @@ impl<E: EnvSource> Collector<'_, E> {
         }
     }
 
+    /// `LF_BOFIP` (jalon MB) : `on` ou `off`, casse ignorée. Rend la raison de la coupure, ou
+    /// `None` si la source est active.
+    ///
+    /// Absente ou blanche : la source est active, sauf en mode hors ligne (`offline` :
+    /// `LF_DILA_DIR` est défini, utilisable ou non), où elle est coupée d'office. Une valeur
+    /// explicite l'emporte. Toute autre valeur coupe la source, avec un problème : un refus mal
+    /// écrit (`false`, `0`, `no`) ne doit pas envoyer les mots d'une recherche à un tiers.
+    ///
+    /// La ligne de `check-config` n'existe que si la variable est définie ou si la source est
+    /// coupée d'office : sans cela, la sortie est celle d'avant le jalon.
+    fn bofip(&mut self, offline: bool) -> Option<BofipOff> {
+        let read = self.read(BOFIP, None);
+        let Some(raw) = read.value else {
+            if offline {
+                self.line(BOFIP, Source::Default, BofipOff::Offline.shown(), LineState::Ok);
+                return Some(BofipOff::Offline);
+            }
+            return None;
+        };
+        let (off, state) = if raw.eq_ignore_ascii_case("on") {
+            (None, LineState::Ok)
+        } else if raw.eq_ignore_ascii_case("off") {
+            (Some(BofipOff::Requested), LineState::Ok)
+        } else {
+            self.notices.push(Notice::InvalidBofip);
+            (Some(BofipOff::Invalid), LineState::Problem)
+        };
+        self.line(BOFIP, read.source, off.map_or("on", BofipOff::shown), state);
+        off
+    }
+
     /// `LF_AUDIT_MODE` : `strict` (défaut, Q9) ou `best-effort`. Une valeur inconnue donne
     /// `strict`, le choix prudent, et un problème.
     fn audit_mode(&mut self) -> AuditMode {
@@ -921,6 +1025,9 @@ pub(crate) fn load(env: &impl EnvSource) -> Loaded {
     if let CorpusSource::Unusable(problem) = &source {
         problems.push(problem.to_string());
     }
+    // Mode hors ligne : `LF_DILA_DIR` est défini, utilisable ou non. La source du BOFiP y est
+    // coupée d'office, sauf `LF_BOFIP=on` (ADR-0029, décision 8).
+    let bofip_off = reader.bofip(!matches!(source, CorpusSource::Piste));
 
     // Les variables héritées jamais lues ne sont que signalées.
     for variable in IGNORED_LEGACY {
@@ -930,8 +1037,14 @@ pub(crate) fn load(env: &impl EnvSource) -> Loaded {
     }
 
     let tool_deadline = Duration::from_secs(u64::from(tool_deadline));
+    let request_timeout = Duration::from_secs(u64::from(request_timeout));
+    // Le client du BOFiP reprend le `User-Agent`, le délai par requête et l'échéance de PISTE.
+    let bofip = bofip_off.map_or_else(
+        || BofipSource::On(BofipConfig::new(USER_AGENT.to_owned(), request_timeout, tool_deadline)),
+        BofipSource::Off,
+    );
     let tuning = PisteTuning {
-        request_timeout: Duration::from_secs(u64::from(request_timeout)),
+        request_timeout,
         tool_deadline,
         rate: RateQuota::new(non_zero_u32(per_second), non_zero_u32(burst)),
         max_concurrency: non_zero_u16(concurrency),
@@ -954,11 +1067,11 @@ pub(crate) fn load(env: &impl EnvSource) -> Loaded {
             // L'index local est un instantané : une absence n'y prouve rien et `fr_coverage` ne le
             // présente pas comme du direct. Une source inutilisable ne sert aucun texte.
             local_snapshot: matches!(source, CorpusSource::Dila(_)),
-            // Aucun outil du BOFiP n'est encore servi : l'état sera lu de `LF_BOFIP` quand la
-            // source sera branchée (jalon MB, 00 §1).
-            doctrine: DoctrineSource::NotServed,
+            // Le serveur sert les deux outils du BOFiP : la source est active ou coupée.
+            doctrine: bofip.coverage(),
         },
         source,
+        bofip,
     };
     Loaded { config, notices: reader.notices, lines: reader.lines }
 }
@@ -1109,9 +1222,11 @@ mod tests {
                 custom_host: false,
                 problems: Vec::new(),
                 local_snapshot: false,
-                doctrine: DoctrineSource::NotServed,
+                // La source du BOFiP est active sans aucun réglage (Q29 = A).
+                doctrine: DoctrineSource::Active,
             }
         );
+        assert_eq!(config.bofip, default_bofip());
     }
 
     #[test]
@@ -1752,6 +1867,153 @@ mod tests {
         assert!(AuditDirProblem::NoDataDir.to_string().contains("set LF_AUDIT_DIR"));
     }
 
+    // --- Source de doctrine fiscale : LF_BOFIP (jalon MB) ---------------------------------------
+
+    /// La source active d'une configuration par défaut : le `User-Agent` de PISTE, 40 s par
+    /// requête, 60 s par appel d'outil.
+    fn default_bofip() -> BofipSource {
+        BofipSource::On(BofipConfig::new(
+            USER_AGENT.to_owned(),
+            Duration::from_secs(40),
+            Duration::from_secs(60),
+        ))
+    }
+
+    fn bofip_line(source: Source, value: &str, state: LineState) -> SettingLine {
+        SettingLine { name: BOFIP, source, value: value.to_owned(), state }
+    }
+
+    #[test]
+    fn the_bofip_source_is_on_by_default_without_a_line() {
+        let cases: [&[(&str, &str)]; 2] = [&[], &[(BOFIP, "  ")]];
+        for pairs in cases {
+            let loaded = with_credentials(pairs);
+            assert_eq!(loaded.config.bofip, default_bofip());
+            assert_eq!(loaded.config.configuration.doctrine, DoctrineSource::Active);
+            // G9 : sans la variable, `check-config` garde ses quatorze lignes et ne dit rien.
+            assert_eq!(loaded.lines.len(), 14);
+            assert_eq!(loaded.notices, Vec::new());
+        }
+        // La source ne dépend pas de PISTE : sans identifiants, elle reste active.
+        let bare = loaded(&[]);
+        assert_eq!(bare.config.bofip, default_bofip());
+        assert_eq!(bare.config.configuration.doctrine, DoctrineSource::Active);
+        assert!(!bare.config.configuration.credentials_configured);
+    }
+
+    #[test]
+    fn the_bofip_client_follows_the_http_timeout_and_the_tool_deadline() {
+        let loaded = with_credentials(&[(HTTP_TIMEOUT, "7"), (TOOL_DEADLINE, "90")]);
+        assert_eq!(
+            loaded.config.bofip,
+            BofipSource::On(BofipConfig::new(
+                USER_AGENT.to_owned(),
+                Duration::from_secs(7),
+                Duration::from_secs(90),
+            ))
+        );
+        // PISTE garde les mêmes valeurs : un seul réglage pour les deux sources.
+        assert_eq!(tuning_of(&loaded).request_timeout, Duration::from_secs(7));
+        assert_eq!(tuning_of(&loaded).tool_deadline, Duration::from_secs(90));
+    }
+
+    #[test]
+    fn lf_bofip_on_and_off_are_read_whatever_the_case() {
+        let off = BofipSource::Off(BofipOff::Requested);
+        let cases = [
+            ("on", default_bofip(), DoctrineSource::Active, "on"),
+            ("ON", default_bofip(), DoctrineSource::Active, "on"),
+            (" On ", default_bofip(), DoctrineSource::Active, "on"),
+            ("off", off.clone(), DoctrineSource::Off, "off"),
+            ("OFF", off.clone(), DoctrineSource::Off, "off"),
+            (" oFf ", off, DoctrineSource::Off, "off"),
+        ];
+        for (raw, source, doctrine, shown) in cases {
+            let loaded = with_credentials(&[(BOFIP, raw)]);
+            assert_eq!(loaded.config.bofip, source, "{raw}");
+            assert_eq!(loaded.config.configuration.doctrine, doctrine, "{raw}");
+            assert_eq!(loaded.notices, Vec::new(), "{raw}");
+            // La ligne vient en dernier, après les quatorze autres.
+            assert_eq!(loaded.lines.len(), 15, "{raw}");
+            assert_eq!(
+                loaded.lines.last().unwrap(),
+                &bofip_line(Source::Variable(BOFIP), shown, LineState::Ok),
+                "{raw}"
+            );
+        }
+    }
+
+    /// Échec fermé (ADR-0029, décision 8) : un refus mal écrit coupe la source au lieu de la
+    /// laisser active, et la valeur lue n'est recopiée nulle part.
+    #[test]
+    fn an_invalid_lf_bofip_turns_the_source_off_with_a_problem() {
+        for raw in ["false", "0", "no", "true", "1", "yes", "onn", "o n", "of", "disabled"] {
+            let loaded = with_credentials(&[(BOFIP, raw)]);
+            assert_eq!(loaded.config.bofip, BofipSource::Off(BofipOff::Invalid), "{raw}");
+            assert_eq!(loaded.config.configuration.doctrine, DoctrineSource::Off, "{raw}");
+            assert_eq!(loaded.notices, [Notice::InvalidBofip], "{raw}");
+            assert!(!loaded.is_valid(), "{raw}");
+            assert_eq!(
+                loaded.lines.last().unwrap(),
+                &bofip_line(Source::Variable(BOFIP), "off (invalid value)", LineState::Problem),
+                "{raw}"
+            );
+            // PISTE n'en souffre pas : aucun problème de configuration, pas de mode dégradé.
+            assert_eq!(loaded.config.source, CorpusSource::Piste, "{raw}");
+            assert_eq!(loaded.config.configuration.problems, Vec::<String>::new(), "{raw}");
+        }
+        assert_eq!(
+            Notice::InvalidBofip.to_string(),
+            "LF_BOFIP must be on or off: the BOFiP source is turned off"
+        );
+        // La valeur refusée n'est recopiée ni dans la configuration, ni dans le journal.
+        let loaded = with_credentials(&[(BOFIP, "zzsentinellezz")]);
+        assert!(!format!("{loaded:?}").contains("zzsentinellezz"));
+        let logs = logs_of(&loaded);
+        assert!(logs.contains("ERROR") && logs.contains("LF_BOFIP must be on or off"), "{logs}");
+        assert!(!logs.contains("zzsentinellezz"), "{logs}");
+    }
+
+    /// Mode hors ligne : `LF_DILA_DIR` défini coupe la source d'office, qu'il soit utilisable ou
+    /// non ; seul `LF_BOFIP=on` la rétablit, et une valeur explicite l'emporte toujours.
+    #[test]
+    fn a_dila_dir_turns_the_bofip_source_off_unless_lf_bofip_is_on() {
+        let usable = abs_str("index");
+        for dir in [usable.as_str(), "relative/index"] {
+            let offline = loaded(&[(DILA_DIR, dir)]);
+            assert_eq!(offline.config.bofip, BofipSource::Off(BofipOff::Offline), "{dir}");
+            assert_eq!(offline.config.configuration.doctrine, DoctrineSource::Off, "{dir}");
+            // La coupure d'office n'est pas un problème : seule sa ligne la montre.
+            assert!(!offline.notices.contains(&Notice::InvalidBofip), "{dir}");
+            assert_eq!(
+                offline.lines.last().unwrap(),
+                &bofip_line(Source::Default, "off (LF_DILA_DIR is set)", LineState::Ok),
+                "{dir}"
+            );
+
+            let forced = loaded(&[(DILA_DIR, dir), (BOFIP, "on")]);
+            assert_eq!(forced.config.bofip, default_bofip(), "{dir}");
+            assert_eq!(forced.config.configuration.doctrine, DoctrineSource::Active, "{dir}");
+            assert_eq!(
+                forced.lines.last().unwrap(),
+                &bofip_line(Source::Variable(BOFIP), "on", LineState::Ok),
+                "{dir}"
+            );
+            let explicit = loaded(&[(DILA_DIR, dir), (BOFIP, "off")]);
+            assert_eq!(explicit.config.bofip, BofipSource::Off(BofipOff::Requested), "{dir}");
+            let invalid = loaded(&[(DILA_DIR, dir), (BOFIP, "maybe")]);
+            assert_eq!(invalid.config.bofip, BofipSource::Off(BofipOff::Invalid), "{dir}");
+        }
+    }
+
+    #[test]
+    fn the_bofip_source_names_itself_for_the_startup_log() {
+        assert_eq!(default_bofip().label(), "bofip");
+        assert_eq!(BofipSource::Off(BofipOff::Requested).label(), "off");
+        assert_eq!(BofipSource::Off(BofipOff::Invalid).label(), "off (invalid value)");
+        assert_eq!(BofipSource::Off(BofipOff::Offline).label(), "off (LF_DILA_DIR is set)");
+    }
+
     // --- Source locale DILA (M9) ----------------------------------------------------------------
 
     #[test]
@@ -1779,9 +2041,10 @@ mod tests {
         assert_eq!(local.config.configuration.problems, Vec::<String>::new());
         // L'index local est un instantané ; PISTE, même avec des identifiants, n'en est pas un.
         assert!(local.config.configuration.local_snapshot);
-        // La ligne de `check-config` vient après les quatorze autres, et seulement si définie.
-        assert_eq!(local.lines.len(), 15);
-        let shown = local.lines.last().unwrap();
+        // La ligne de `check-config` vient après les quatorze autres, et seulement si définie ;
+        // celle de `LF_BOFIP` la suit, la source étant coupée d'office en mode hors ligne.
+        assert_eq!(local.lines.len(), 16);
+        let shown = &local.lines[14];
         assert_eq!(shown.name, DILA_DIR);
         assert_eq!(shown.source, Source::Variable(DILA_DIR));
         assert_eq!(shown.value, abs("index").display().to_string());
@@ -2074,6 +2337,7 @@ mod tests {
             Notice::CredentialsMissing,
             Notice::AuditDir(AuditDirProblem::NotAbsolute),
             Notice::DilaDir(DilaDirProblem::NotAbsolute),
+            Notice::InvalidBofip,
             Notice::Problem(ConfigProblem::invalid_env("x")),
         ];
         for notice in problems {
@@ -2224,6 +2488,7 @@ mod tests {
             "LF_PISTE_CONCURRENCY",
             "LF_PISTE_MOJIBAKE_REPAIR",
             "LF_DILA_DIR",
+            "LF_BOFIP",
         ];
         let legacy = [
             "FR_ELI_CLIENT_ID",

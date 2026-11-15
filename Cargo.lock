@@ -1804,6 +1804,7 @@ dependencies = [
  "clap",
  "dirs",
  "lf-adapter-audit",
+ "lf-adapter-bofip",
  "lf-adapter-cache",
  "lf-adapter-dila",
  "lf-adapter-mcp",

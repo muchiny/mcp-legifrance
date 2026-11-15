@@ -1,6 +1,6 @@
 //! Câblage : assemble les adapters en un `LegalService`, puis le sert sur stdio (02 §8.4).
 //!
-//! La composition de production est `LegalService<AnyCorpus, AppAudit, SystemClock>`
+//! La composition de production est `LegalService<AnyCorpus, AppAudit, SystemClock, AnyDoctrine>`
 //! ([`AppService`]) :
 //!
 //! - [`AnyCorpus`] choisit la source des textes à l'exécution (02 §8.5), sans `Box<dyn>` : PISTE
@@ -16,7 +16,12 @@
 //!   (02 §8.2), jamais un refus de démarrer ;
 //! - le mode d'audit (`LF_AUDIT_MODE`, `strict` par défaut, Q9) et l'échéance d'un appel
 //!   (`LF_TOOL_DEADLINE_S`) arrivent dans l'[`AuditPolicy`] de la façade par
-//!   [`service_settings`].
+//!   [`service_settings`] ;
+//! - [`AnyDoctrine`] est la source de doctrine fiscale (jalon MB) : le portail ouvert du BOFiP,
+//!   ou rien. `BofipDoctrine::new` ne fait aucune E/S (le client HTTP naît au premier appel), et
+//!   la source ne dépend pas de PISTE : elle sert même sans identifiants. Coupée (`LF_BOFIP`,
+//!   mode hors ligne), aucun client n'est construit et chaque outil du BOFiP répond
+//!   `[config_error]`, sans réseau.
 //!
 //! # Source locale DILA (M9)
 //!
@@ -47,6 +52,7 @@ use std::{path::Path, process::ExitCode, sync::Arc};
 
 use anyhow::Context as _;
 use lf_adapter_audit::JsonlAuditLog;
+use lf_adapter_bofip::BofipDoctrine;
 use lf_adapter_cache::{CachePolicy, CachedCorpus};
 #[cfg(feature = "dila")]
 use lf_adapter_dila::DilaCorpus;
@@ -57,12 +63,13 @@ use lf_application::{
     budget::ResponseBudget,
     ports::{
         ArticleAt, AuditError, AuditErrorKind, AuditLog, AuditRecord, ConfigKind, CorpusError,
-        LegalCorpus, PisteEnvironment,
+        DoctrineError, LegalCorpus, PisteEnvironment, TaxDoctrine,
     },
     service::{LegalService, ServiceSettings},
 };
 use lf_domain::{
     date::VersionDate,
+    doctrine::{BoiId, DoctrineDoc, DoctrinePage, DoctrineQuery},
     entity::{
         Act, ArticleText, ArticleVersion, CodeListing, CompanyAgreement, Convention, Decision,
         Deliberation, RelatedLinks, SearchHit, SearchPage,
@@ -74,14 +81,15 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     clock::SystemClock,
-    config::{AppConfig, AuditSettings, CorpusSource},
+    config::{AppConfig, AuditSettings, BofipSource, CorpusSource},
 };
 
 /// Le corpus de production : PISTE derrière le cache, ou l'index local DILA (02 §8.5).
 pub(crate) type AppCorpus = AnyCorpus;
 
-/// La façade de production : corpus, journal d'audit et horloge de [`build`].
-pub(crate) type AppService = LegalService<AppCorpus, AppAudit, SystemClock>;
+/// La façade de production : corpus, journal d'audit, horloge et source de doctrine de
+/// [`build`].
+pub(crate) type AppService = LegalService<AppCorpus, AppAudit, SystemClock, AnyDoctrine>;
 
 /// Ce que le modèle lit quand l'index local DILA demandé ne peut pas être ouvert : ni chemin ni
 /// cause, que le journal de diagnostic porte.
@@ -238,6 +246,47 @@ fn local_index(_dir: &Path) -> AnyCorpus {
     AnyCorpus::Unavailable(crate::config::DilaDirProblem::NotCompiled.to_string())
 }
 
+/// Source de doctrine fiscale, choisie une fois au démarrage : le portail du BOFiP, ou rien. Un
+/// enum de dispatch statique, comme [`AnyCorpus`].
+#[expect(
+    clippy::large_enum_variant,
+    reason = "une seule valeur par processus, tenue par la façade : une boîte n'économiserait rien"
+)]
+pub(crate) enum AnyDoctrine {
+    /// Le portail ouvert de la DGFiP (`data.economie.gouv.fr`, jeu `bofip-vigueur`).
+    Bofip(BofipDoctrine<SystemClock>),
+    /// Source coupée : chaque opération répond [`DoctrineError::Disabled`], que le modèle lit en
+    /// `[config_error]`, sans client ni réseau.
+    Off,
+}
+
+impl TaxDoctrine for AnyDoctrine {
+    async fn search(&self, query: &DoctrineQuery) -> Result<DoctrinePage, DoctrineError> {
+        match self {
+            Self::Bofip(portal) => portal.search(query).await,
+            Self::Off => Err(DoctrineError::Disabled),
+        }
+    }
+
+    async fn get(&self, id: &BoiId) -> Result<Vec<DoctrineDoc>, DoctrineError> {
+        match self {
+            Self::Bofip(portal) => portal.get(id).await,
+            Self::Off => Err(DoctrineError::Disabled),
+        }
+    }
+}
+
+/// La source de doctrine que la configuration demande. Coupée, aucun client n'est construit ;
+/// active, la construction ne fait aucune E/S.
+pub(crate) fn doctrine_for(config: &AppConfig) -> AnyDoctrine {
+    match &config.bofip {
+        BofipSource::On(settings) => {
+            AnyDoctrine::Bofip(BofipDoctrine::new(settings.clone(), SystemClock))
+        }
+        BofipSource::Off(_) => AnyDoctrine::Off,
+    }
+}
+
 /// Journal d'audit du processus : le fichier JSONL, ou l'impossibilité d'en avoir un.
 ///
 /// Une configuration d'audit inutilisable (`LF_AUDIT_DIR` relatif, répertoire personnel ou de
@@ -316,12 +365,14 @@ fn audit_environment(config: &AppConfig) -> PisteEnvironment {
 /// s'il est demandé, ouvre son répertoire, qui doit exister et porter des documents.
 pub(crate) fn build(config: &AppConfig) -> AppService {
     tracing::info!(source = config.source.label(), "corpus source");
+    tracing::info!(source = config.bofip.label(), "tax doctrine source");
     LegalService::new(
         corpus_for(config),
         AppAudit::open(&config.audit),
         SystemClock,
         service_settings(config),
     )
+    .with_doctrine(doctrine_for(config))
 }
 
 /// Commande `serve` : sert le serveur MCP sur stdin et stdout jusqu'à l'EOF de stdin ou jusqu'à
@@ -353,11 +404,14 @@ mod tests {
     use lf_application::{
         audited::AuditMode,
         error::ErrorCode,
-        input::{CanonicalInput, CoverageInput, ToolCall},
+        input::{CanonicalInput, CoverageInput, GetBofipInput, SearchBofipInput, ToolCall},
+        messages::DOCTRINE_DISABLED_MESSAGE,
         ports::AuditStatus,
+        service::DoctrineSource,
         tools::ToolName,
     };
     use lf_domain::{
+        doctrine::{DoctrineTerms, KindFilter},
         fond::Fond,
         search::{MatchMode, NumberKind, NumberValue, PageSize, QueryText},
     };
@@ -570,6 +624,91 @@ mod tests {
         }
     }
 
+    // --- Source de doctrine fiscale (jalon MB) --------------------------------------------------
+
+    const BOI: &str = "BOI-ENR-DMTG-10-50-20";
+
+    fn doctrine_query() -> DoctrineQuery {
+        DoctrineQuery::new(
+            DoctrineTerms::parse("donation").unwrap(),
+            None,
+            KindFilter::Doctrine,
+            NonZeroU32::MIN,
+            PageSize::new(10).unwrap(),
+        )
+        .unwrap()
+    }
+
+    /// Les trois façons de couper la source : la demande, une valeur invalide, le mode hors ligne
+    /// (ici avec un `LF_DILA_DIR` inutilisable).
+    const BOFIP_OFF: [(&str, &str); 3] =
+        [("LF_BOFIP", "off"), ("LF_BOFIP", "false"), ("LF_DILA_DIR", "relative/index")];
+
+    /// Par défaut, la source est le portail : la construire ne fait aucune E/S, et elle ne
+    /// dépend pas des identifiants PISTE.
+    #[test]
+    fn the_bofip_portal_is_the_doctrine_source_by_default() {
+        assert!(matches!(doctrine_for(&config_with(&[])), AnyDoctrine::Bofip(_)));
+        let bare = load(&MapEnv::new(&[])).config;
+        assert!(matches!(doctrine_for(&bare), AnyDoctrine::Bofip(_)));
+        assert_eq!(service_settings(&bare).configuration.doctrine, DoctrineSource::Active);
+        // `LF_BOFIP=on` rétablit la source en mode hors ligne.
+        let forced = config_with(&[("LF_DILA_DIR", "relative/index"), ("LF_BOFIP", "on")]);
+        assert!(matches!(doctrine_for(&forced), AnyDoctrine::Bofip(_)));
+    }
+
+    /// Source coupée : les deux opérations répondent `Disabled`, sans client ni réseau.
+    #[tokio::test]
+    async fn a_bofip_source_turned_off_answers_disabled_on_both_operations() {
+        for pair in BOFIP_OFF {
+            let config = config_with(&[pair]);
+            assert_eq!(service_settings(&config).configuration.doctrine, DoctrineSource::Off);
+            let doctrine = doctrine_for(&config);
+            assert!(matches!(doctrine, AnyDoctrine::Off), "{pair:?}");
+            assert_eq!(doctrine.search(&doctrine_query()).await, Err(DoctrineError::Disabled));
+            assert_eq!(
+                doctrine.get(&BoiId::parse(BOI).unwrap()).await,
+                Err(DoctrineError::Disabled)
+            );
+        }
+    }
+
+    /// La façade assemblée : source coupée, les deux outils du BOFiP répondent `[config_error]`
+    /// avec le texte fixe, audité, et `fr_coverage` rend la lacune FR-107 ; par défaut, FR-106.
+    #[tokio::test]
+    async fn the_built_service_serves_the_bofip_tools_and_reports_the_source_state() {
+        let search = || ToolCall {
+            input: Ok(SearchBofipInput {
+                query: Some("donation".to_owned()),
+                ..SearchBofipInput::default()
+            }),
+            canonical: CanonicalInput::new(r#"{"query":"donation"}"#),
+        };
+        let get = || ToolCall {
+            input: Ok(GetBofipInput { id: Some(BOI.to_owned()), ..GetBofipInput::default() }),
+            canonical: CanonicalInput::new(r#"{"id":"BOI-ENR-DMTG-10-50-20"}"#),
+        };
+        let last_gap = |output: &lf_application::output::coverage::CoverageOutput| {
+            output.coverage.known_gaps().last().map(|gap| gap.id.clone())
+        };
+        for pair in BOFIP_OFF {
+            let dir = tempfile::tempdir().expect("a temporary directory");
+            let service = build(&config_with(&[audit_dir(dir.path()), pair]));
+            let error = service.search_bofip(search(), pending()).await.unwrap_err();
+            assert_eq!(error.code(), Some(ErrorCode::ConfigError), "{pair:?}");
+            assert_eq!(error.message(), DOCTRINE_DISABLED_MESSAGE, "{pair:?}");
+            let error = service.get_bofip(get(), pending()).await.unwrap_err();
+            assert_eq!(error.code(), Some(ErrorCode::ConfigError), "{pair:?}");
+            assert_eq!(error.message(), DOCTRINE_DISABLED_MESSAGE, "{pair:?}");
+            let coverage = service.coverage(coverage_call(), pending()).await.unwrap();
+            assert_eq!(last_gap(&coverage).as_deref(), Some("FR-107"), "{pair:?}");
+        }
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let service = build(&config_with(&[audit_dir(dir.path())]));
+        let coverage = service.coverage(coverage_call(), pending()).await.unwrap();
+        assert_eq!(last_gap(&coverage).as_deref(), Some("FR-106"));
+    }
+
     #[test]
     fn piste_stays_the_source_unless_a_local_index_is_asked_for() {
         let corpus = corpus_for(&config_with(&[]));
@@ -674,8 +813,10 @@ mod tests {
         assert_eq!(output.environment, PisteEnvironment::Production);
         assert_eq!(output.configuration.problems, Vec::<String>::new());
         assert!(output.configuration.local_snapshot);
-        let gaps = output.coverage.known_gaps();
-        assert_eq!(gaps.last().map(|gap| gap.id.as_str()), Some("FR-105"));
+        // La lacune de l'instantané, puis celle du BOFiP, coupé d'office en mode hors ligne.
+        let gaps: Vec<&str> =
+            output.coverage.known_gaps().iter().map(|gap| gap.id.as_str()).collect();
+        assert_eq!(gaps[gaps.len() - 2..], ["FR-105", "FR-107"]);
         let families: Vec<&str> =
             output.coverage.families().iter().map(|family| family.name.as_str()).collect();
         assert_eq!(families, ["LODA", "CODE"]);

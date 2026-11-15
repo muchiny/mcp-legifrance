@@ -214,7 +214,8 @@ mcp-legifrance/                      # ex-mcp-ligitfrance, renommé par son prop
 │   ├── lf-adapter-audit/            # §3.5
 │   ├── lf-adapter-mcp/              # §3.6
 │   ├── lf-app/                      # §3.7 (paquet et binaire mcp-legifrance ; répertoire lf-app, Q1)
-│   └── lf-adapter-dila/             # §3.9 (M9 seulement)
+│   ├── lf-adapter-dila/             # §3.9 (M9 seulement)
+│   └── lf-adapter-bofip/            # §3.10 (jalon MB : doctrine fiscale, ADR-0028 et ADR-0029)
 ├── xtask/                           # §3.8 : check-arch (livré), record-fixture (livré, plan 2h), lock-descriptors, instructions-size (M4)
 ├── tests/                           # données de test partagées, pas un crate (chemins : 06 §1.4, qui fait foi)
 │   ├── tools.lock.json              # verrou des descripteurs (cargo xtask lock-descriptors --update, M4 ; 05 §9) — 00-decisions §10
@@ -697,6 +698,14 @@ pub fn registered_tool_names() -> Vec<&'static str>;   // pour les tests de coh�
 - **Dépendances** : `lf-application`, `lf-domain`, `tantivy` 0.27.0, `quick-xml` 0.42.0, `tar` 0.4.46, `flate2` 1.1.10, `tokio` (`rt`) : la recherche tantivy est synchrone, donc lancée dans `spawn_blocking`. Aucun client HTTP.
 - **Téléchargement des dumps** (à trancher en M9, à inscrire au registre de 09) : en l'état des règles, le binaire ne peut pas télécharger lui-même les dumps, puisque `reqwest` est confiné à `lf-adapter-piste` (R6, ban `wrappers` du §4.3) et qu'un adapter ne dépend pas d'un autre (R3). Proposition par défaut : téléchargement hors binaire, par un script documenté depuis `echanges.dila.gouv.fr`, le binaire ne lisant qu'un répertoire local. Toute autre option (`wrappers` étendu à `lf-adapter-dila`, module de téléchargement dans `lf-app`) amende R3 ou R6 et `deny.toml`.
 - **Sélection** : `enum AnyCorpus` dans `lf-app` (§8.5).
+
+### 3.10 `lf-adapter-bofip` (jalon MB)
+
+- **Responsabilité** : `BofipDoctrine: TaxDoctrine` (00 §3), lecture en direct du jeu ouvert `bofip-vigueur` de la DGFiP sur `data.economie.gouv.fr`, sans compte (ADR-0028, ADR-0029). Ce port est distinct de `LegalCorpus` : le crate ne connaît aucune entité de Légifrance.
+- **Fichiers** : `query.rs` (fonction unique des littéraux, adresse bâtie par l'analyseur d'adresses), `http.rs` (client unique : `https` seul, aucune redirection, corps borné après décompression), `pace.rs` et `time.rs` (2 départs par seconde, 2 lectures en vol, 10 000 requêtes par jour UTC et par processus, repos après un 429 : un `Retry-After` de zéro seconde est lu comme un en-tête absent, et le repos est relu après l'attente du tour de départ, pour arrêter aussi l'appel qui attendait), `dto.rs` et `mapping.rs` (DTO tolérants, `results` lu élément par élément et arrêté au 101ᵉ enregistrement, passage au domaine, contrôle de l'identifiant rendu, refus de deux publications de même numéro), `doctrine.rs` (le port), `testing.rs` (doublures, derrière `cfg(test)`).
+- **Dépendances** : `lf-application`, `lf-domain`, `reqwest` (features `gzip`, `system-proxy`, `rustls` : seule porte de `CONFINED` ouverte à ce crate, ADR-0029 décision 9), `serde`, `serde_json`, `tokio` (`time`, `sync`), `tracing`. Aucun paquet nouveau au verrou. Ni `governor`, ni `backon`, ni `secrecy`, ni cache : le débit est tenu par `pace.rs`, il n'y a ni réessai ni identifiant.
+- **Sélection** : `enum AnyDoctrine` dans `lf-app` (`Bofip` ou `Off`), choisi au démarrage d'après `LF_BOFIP` et `LF_DILA_DIR` (§8.2). Coupée, la source rend `DoctrineError::Disabled` sans E/S.
+- **Tests** : fixtures réelles du portail (`tests/fixtures/`, avec leur `README`), `tests/live.rs` (ignoré par défaut, job `bofip` de `live.yml`, sans secret).
 
 ---
 
@@ -1271,8 +1280,17 @@ Lecture **unique** au démarrage depuis un `EnvSource`. En production, c'est l'e
 | `LF_PISTE_CONCURRENCY` | réglage avancé : requêtes API en vol (sémaphore) | entier 1..=16 | 4 | — | idem |
 | `LF_PISTE_MOJIBAKE_REPAIR` | réglage avancé : réparation du mojibake sur les corps PISTE | `on` ou `off` | `on` | — | idem |
 | `LF_MCP_HTTP_TOKEN` (M8) | jeton statique du profil HTTP local (nom proposé, figé en M8) | chaîne non vide, stockée en `SecretString` | aucun | — | figé en M8 (Q4) |
+| `LF_BOFIP` (jalon MB) | source de doctrine fiscale (`fr_search_bofip`, `fr_get_bofip`) | `on` ou `off`, casse ASCII ignorée | `on` ; `off` d'office quand `LF_DILA_DIR` est défini, utilisable ou non | — | **source coupée** (échec fermé), avis `InvalidBofip` de niveau problème : `error!` au démarrage, `check-config` « invalid » et code 2 ; la configuration PISTE n'est pas dégradée |
 
 Les quatre réglages avancés ne sont déclarés ni dans `server.json` ni dans le manifeste MCPB : ils sont documentés dans le README et affichés par `check-config` (00 §1, §12).
+
+**`LF_BOFIP` (jalon MB ; ADR-0028 décision 8, ADR-0029 décision 8).** Elle n'est pas non plus déclarée dans `server.json` ni dans le manifeste MCPB (`packaging/check-server-json.sh` impose exactement trois variables). Trois règles la distinguent des autres réglages :
+
+- une valeur explicite l'emporte : `LF_BOFIP=on` rétablit la source en mode hors ligne, `LF_BOFIP=off` la coupe en direct ;
+- une valeur invalide ne rend pas le défaut, elle **coupe** : un refus mal écrit (`false`, `0`, `no`) ne doit pas envoyer les mots d'une recherche à un tiers ;
+- `check-config` n'affiche la ligne `LF_BOFIP` que si la variable est définie (valeur `on`, `off` ou `off (invalid value)`) ou si la source est coupée d'office (`off (LF_DILA_DIR is set)`, source « défaut ») : sans cela, sa sortie reste celle de la 1.2.0, à l'octet (garantie G9 de 07 §2.11).
+
+La source ne lit aucun identifiant et aucune adresse : elle marche quand la configuration PISTE est absente ou invalide, et le client reprend `LF_HTTP_TIMEOUT_S` et `LF_TOOL_DEADLINE_S`. Le démarrage journalise son état (`tax doctrine source`, valeur `bofip` ou le motif de la coupure).
 
 **Priorité** : options de la CLI (en M8 seulement, et jamais pour un secret), puis `LF_*`, puis `FR_ELI_*`, puis défauts.
 - Une valeur vide ou blanche compte comme absente : les bundles MCPB et les clients MCP transmettent souvent des chaînes vides.

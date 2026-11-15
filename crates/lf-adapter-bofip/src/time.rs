@@ -93,6 +93,8 @@ mod doubles {
         sleeps: Arc<Mutex<Vec<Duration>>>,
         /// Durée à partir de laquelle une attente ne finit jamais.
         hold_from: Option<Duration>,
+        /// Vrai si chaque attente rend la main une fois avant de finir.
+        yields: bool,
     }
 
     impl ManualTimer {
@@ -100,6 +102,12 @@ mod doubles {
         /// avancer : une limite lointaine qui ne tombe pas pendant le test.
         pub(crate) fn holding(from: Duration) -> Self {
             Self { hold_from: Some(from), ..Self::default() }
+        }
+
+        /// Minuteur dont chaque attente rend la main une fois avant de finir : le temps qu'un
+        /// autre appel, interrogé entre-temps, reçoive son refus.
+        pub(crate) fn yielding() -> Self {
+            Self { yields: true, ..Self::default() }
         }
 
         /// Avance le temps de `by`.
@@ -123,9 +131,13 @@ mod doubles {
         fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send {
             let timer = self.clone();
             let held = self.hold_from.is_some_and(|from| duration >= from);
+            let yields = self.yields;
             async move {
                 if held {
                     pending::<()>().await;
+                }
+                if yields {
+                    tokio::task::yield_now().await;
                 }
                 timer.sleeps.lock().unwrap().push(duration);
                 timer.advance(duration);

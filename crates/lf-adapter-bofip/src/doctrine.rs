@@ -555,7 +555,14 @@ mod tests {
 
     #[tokio::test]
     async fn the_rest_after_a_429_is_bounded() {
-        let rows = [(Some("86400"), 3_600), (Some("3600"), 3_600), (Some("0"), 0), (None, 900)];
+        // Zéro seconde n'annonce rien d'utilisable : un quart d'heure, comme sans en-tête.
+        let rows = [
+            (Some("86400"), 3_600),
+            (Some("3600"), 3_600),
+            (Some("1"), 1),
+            (Some("0"), 900),
+            (None, 900),
+        ];
         for (header, rest) in rows {
             let template = header.iter().fold(ResponseTemplate::new(429), |template, value| {
                 template.insert_header("retry-after", *value)

@@ -147,8 +147,9 @@ mod security {
 
     /// Régression : D-07. Chaque outil que `tools/list` annonce, appelé avec une entrée vide (rejetée
     /// pour la plupart, acceptée pour `fr_coverage`), produit exactement une ligne d'audit à son nom,
-    /// écrite avant que la réponse ne parte. La liste annoncée est celle des treize outils
-    /// enregistrés (`ToolName::ALL`) : un outil ajouté sans audit ou sans test ferait échouer ce test.
+    /// écrite avant que la réponse ne parte. La liste annoncée est celle des quinze outils
+    /// enregistrés (`ToolName::ALL`, les deux du BOFiP compris) : un outil ajouté sans audit ou sans
+    /// test ferait échouer ce test.
     #[tokio::test]
     async fn every_tool_goes_through_audited() {
         let audit = tempfile::tempdir().expect("a temporary directory");
