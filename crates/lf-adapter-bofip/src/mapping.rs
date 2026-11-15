@@ -788,8 +788,52 @@ mod tests {
         let decoded = docs(&fixture("get-longest.json"), &id).unwrap();
         let doc = &decoded.value[0];
         assert_eq!((decoded.value.len(), doc.publication_id.get()), (1, 6273));
-        // 167 535 caractères dans le jeu ; un peu plus une fois le texte mis en paragraphes.
-        assert_eq!(doc.text.as_str().chars().count(), 168_548);
+        // 167 535 caractères dans le jeu ; un peu plus une fois le texte mis en paragraphes
+        // (168 548), moins un : un seul saut de ligne y est recollé. C'est la limite connue
+        // d'AM-95, un nom coupé à son trait d'union (« Savignésous- », puis « le-Lude »), qui
+        // reçoit une espace de trop.
+        assert_eq!(doc.text.as_str().chars().count(), 168_547);
+    }
+
+    /// Publication de 2018 dont le portail sert le texte avec des sauts de ligne au milieu des
+    /// phrases : six sont recollés (49 lignes, 43 paragraphes). Les titres, les numéros de
+    /// paragraphe et les cellules du tableau restent séparés ; une ligne qui commence par un
+    /// chiffre n'est pas recollée (« L'article », puis « 977 du CGI »).
+    #[test]
+    fn a_real_wrapped_publication_is_read_in_whole_sentences() {
+        let id = BoiId::parse("BOI-PAT-IFI-40-10").unwrap();
+        let decoded = docs(&fixture("get-wrapped.json"), &id).unwrap();
+        assert_eq!((decoded.anomalies, decoded.value.len()), (CLEAN, 1));
+        let text = &decoded.value[0].text;
+        let paragraphs: Vec<&str> = text.paragraphs().map(|(_, paragraph)| paragraph).collect();
+        assert_eq!((paragraphs.len(), text.as_str().chars().count()), (43, 1_868));
+        assert_eq!(
+            paragraphs[..9],
+            [
+                "I. Seuil d'imposition",
+                "1",
+                "Le seuil d’assujettissement à l'impôt sur la fortune immobilière (IFI) est prévu \
+                 à l'article 964 du code général des impôts (CGI). Ainsi, sont redevables de \
+                 l'IFI les personnes physiques dont la valeur nette des actifs immobiliers \
+                 imposables au 1er janvier de l'année d'imposition est supérieure à 1,3 M€.",
+                "II. Tarif",
+                "10",
+                "L'article",
+                "977 du CGI fixe le tarif de l'impôt, qui est calculé selon le barème progressif \
+                 suivant :",
+                "Fraction de la valeur nette taxable du patrimoine immobilier",
+                "Tarif applicable",
+            ]
+        );
+        assert_eq!(
+            paragraphs[24],
+            "Le 2 de l'article 977 du CGI prévoit un mécanisme de décote pour atténuer l’effet de \
+             seuil à l’entrée du barème de l’IFI. Ainsi, pour les redevables dont le patrimoine \
+             immobilier a une valeur nette taxable égale ou supérieure à 1 300 000 € et \
+             inférieure à 1 400 000 €, le montant de l'impôt calculé selon le barème progressif \
+             est réduit d'une somme égale à 17 500 € - 1,25 % P, où P est la valeur nette \
+             taxable du patrimoine immobilier."
+        );
     }
 
     #[test]

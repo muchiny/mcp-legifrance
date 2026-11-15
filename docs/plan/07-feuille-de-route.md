@@ -1048,7 +1048,8 @@ Les tâches gardent leur identifiant et reçoivent un statut. Bilan : 1 livrée 
   - **La vérification de T-MB-44, « aucune question ne perd de points », n'est pas tenue telle qu'elle est écrite** : cinq questions perdent de 1 à 4 points. La mesure ne permet pas de l'imputer à la source : il n'y a qu'une réponse par passe, et les deux questions sans aucun appel au BOFiP s'écartent de +2 et de −4 points.
   - La comparaison à 33 / 40 n'est pas valable : le test de novembre laissait 28 appels par réponse en médiane, ce rejeu 16.
   - Usage : 386 appels d'outil vers Légifrance sur les trois passes (environ 820 requêtes, à 2,13 requêtes par appel en moyenne), 70 requêtes au portail (environ 137 sur les 200 du jalon), trois processus du serveur, aucun refus de débit.
-  - Défauts relevés par le rejeu, non corrigés dans la PR de code : 09 §2.20, journal du 2026-11-15.
+  - Défauts relevés par le rejeu : 09 §2.20, journal du 2026-11-15. Le premier est corrigé dans la PR de code (ci-dessous) ; les trois autres ne le sont pas.
+- Correction après le rejeu (AM-95, choix du propriétaire du 2026-11-15) : les sauts de ligne placés au milieu des phrases sont recollés dans le texte des publications (`crates/lf-domain/src/doctrine/text.rs`). 200 649 sauts dans 5 543 publications de 2012 à 2020 ; le code et une simulation indépendante donnent le même nombre de paragraphes pour chacune des 9 173 publications du jeu. Une revue de code et un audit de sécurité du changement, sans constat bloquant ni moyen ; trois corrections en sont sorties (décision prise sans les caractères invisibles, repère de liste « a° », une copie du texte libérée plus tôt). Deux requêtes de plus au portail (environ 139 sur les 200 du jalon), aucun appel à Légifrance.
 - Restent : la fusion de la PR de code (PR #85, T-MB-45) par le propriétaire, puis la PR de version.
 
 Vague 0 — préparation, aucun code de produit.

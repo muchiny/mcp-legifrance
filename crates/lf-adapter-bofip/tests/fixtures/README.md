@@ -8,7 +8,7 @@ ouvert, sans compte ni clé.
 - Date de l'enregistrement : 2026-11-15
 - Éditeur : Direction générale des finances publiques (DGFiP)
 - Licence : Licence Ouverte 2.0 (Etalab). Mention : « Source : BOFiP-Impôts / DGFiP ».
-- Débit de l'enregistrement : une requête par seconde, treize requêtes.
+- Débit de l'enregistrement : une requête par seconde, quatorze requêtes.
 
 Le portail change chaque semaine : ces fichiers sont une photographie du 2026-11-15, pas l'état
 courant de la doctrine. Ne pas les éditer à la main ; pour les refaire, rejouer les requêtes
@@ -27,6 +27,7 @@ le même `select`, plus `division` et `contenu`, et `limit=10`.
 - `get-no-text.json` (564 octets) : lecture de `BOI-LETTRE-000150`, publication sans texte (`contenu` nul).
 - `get-single.json` (34252 octets) : lecture de `BOI-ENR-DMTG-10-50-20`, une publication.
 - `get-unknown.json` (33 octets) : lecture de `BOI-ZZ-INCONNU-99`, identifiant inconnu, aucun résultat.
+- `get-wrapped.json` (2984 octets) : lecture de `BOI-PAT-IFI-40-10`, publication de 2018 dont les lignes sont coupées au milieu des phrases.
 - `search-all.json` (2080 octets) : `where=search(contenu, "donation")`, sans filtre de type, `limit=5`, `offset=0`.
 - `search-donation-page1.json` (4113 octets) : `where=search(contenu, "donation abattement") and type = "Contenu"`, `limit=10`, `offset=0`.
 - `search-donation-page2.json` (4458 octets) : la même recherche, `offset=10`.

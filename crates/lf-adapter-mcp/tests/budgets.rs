@@ -972,7 +972,7 @@ mod budgets {
                 extreme: Extreme::OverTheCap,
                 setup: |fixture| {
                     let text = nasty_paragraphs(6_500);
-                    let raw = Raw::of([window_of(&text, 40_000).as_str()]);
+                    let raw = Raw::of([bofip_window_of(&text, 40_000).as_str()]);
                     fixture.doctrine.push_get(Ok(vec![bofip_doc(3369, "Donations", &text)]));
                     raw
                 },
@@ -1029,6 +1029,12 @@ mod budgets {
     /// Les `max_chars` premiers caractères de `text` : la fenêtre que l'outil lirait sans dégrader.
     fn window_of(text: &str, max_chars: usize) -> String {
         LongText::from_plain(text).unwrap().as_str().chars().take(max_chars).collect()
+    }
+
+    /// La même fenêtre pour une publication du BOFiP : son texte passe par `clean_text`, comme
+    /// dans [`bofip_doc`], qui recolle les sauts de ligne placés au milieu des phrases.
+    fn bofip_window_of(text: &str, max_chars: usize) -> String {
+        clean_text(text).unwrap().0.as_str().chars().take(max_chars).collect()
     }
 
     /// Une fenêtre de lecture dégradée : elle est plus courte que demandée mais jamais vide,

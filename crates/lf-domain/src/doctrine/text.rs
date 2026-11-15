@@ -5,6 +5,11 @@
 //! fois), `&nbsp;` (14 532), `&gt;` (492), `&amp;` (328) et `&lt;` (114). S'y ajoutent des retours
 //! chariot, des tabulations et des espaces insécables.
 //!
+//! Dans 5 543 publications, toutes datées de 2012 à 2020, le champ garde des sauts de ligne placés
+//! au milieu des phrases (même jeu, mesure du 2026-11-15 : 200 649 sauts). Ils sont remplacés par
+//! une espace avant la mise en paragraphes : sans cela, chaque bout de phrase deviendrait un
+//! paragraphe, et un passage rendu par une lecture ciblée serait un bout de phrase (AM-95).
+//!
 //! Les cinq entités sont traitées en **une seule passe** : le résultat d'un décodage n'est jamais
 //! relu, donc `&amp;lt;` reste `&lt;` (le texte parlait de l'entité, il n'écrivait pas un
 //! chevron). Toute autre entité est laissée telle quelle et comptée : le compte est rendu à
@@ -14,7 +19,7 @@
 
 use crate::{
     error::DomainError,
-    text::{LongText, flatten_whitespace, strip_invisible},
+    text::{LongText, flatten_whitespace, is_invisible, strip_invisible},
 };
 
 /// Longueur maximale, en caractères, d'un champ court rendu ([`clean_line`]) ; au-delà, le champ
@@ -28,10 +33,17 @@ const KNOWN_ENTITIES: [(&str, &str); 5] =
 /// Longueur maximale du nom d'une entité comptée comme inconnue (`&` et `;` exclus).
 const ENTITY_NAME_MAX: usize = 32;
 
+/// Fins de ligne après lesquelles la ligne suivante commence un paragraphe : la phrase est finie,
+/// ou elle annonce une suite (liste, exemple).
+const SENTENCE_ENDS: [char; 5] = ['.', ':', ';', '!', '?'];
+
 /// Texte canonique du champ `contenu` et nombre d'entités inconnues qui y restent.
 ///
 /// `&#13;` et le retour chariot sont retirés ; `&nbsp;`, l'espace insécable et la tabulation
-/// deviennent une espace ; `&lt;`, `&gt;` et `&amp;` sont décodés. Le texte passe ensuite par
+/// deviennent une espace ; `&lt;`, `&gt;` et `&amp;` sont décodés. Un saut de ligne placé au
+/// milieu d'une phrase devient une espace : la ligne d'avant ne finit pas par `.`, `:`, `;`, `!`
+/// ou `?`, et la ligne d'après commence par une minuscule, sans être un repère de liste. Le texte
+/// passe ensuite par
 /// [`LongText::from_plain`] : un paragraphe par ligne non blanche, caractères invisibles
 /// retirés, blancs repliés.
 ///
@@ -41,6 +53,9 @@ const ENTITY_NAME_MAX: usize = 32;
 /// let (text, unknown) = clean_text("1&#13;\nTaux&nbsp;: 5 % &amp; 10 %&#13;\n&eacute;")?;
 /// assert_eq!(text.as_str(), "1\n\nTaux : 5 % & 10 %\n\n&eacute;");
 /// assert_eq!(unknown, 1);
+///
+/// let (text, _) = clean_text("10\nLe seuil est prévu\nà l'article 964.\nII. Tarif")?;
+/// assert_eq!(text.as_str(), "10\n\nLe seuil est prévu à l'article 964.\n\nII. Tarif");
 /// # Ok::<(), lf_domain::DomainError>(())
 /// ```
 ///
@@ -48,8 +63,13 @@ const ENTITY_NAME_MAX: usize = 32;
 ///
 /// [`DomainError::TextTooLarge`] si le texte dépasse [`LongText::MAX_CHARS`] caractères.
 pub fn clean_text(raw: &str) -> Result<(LongText, u32), DomainError> {
-    let (decoded, unknown) = decode(raw);
-    LongText::from_plain(&decoded).map(|text| (text, unknown))
+    // Le texte décodé est libéré dès qu'il est recollé : une seule copie reste pendant la mise en
+    // paragraphes.
+    let (joined, unknown) = {
+        let (decoded, unknown) = decode(raw);
+        (rejoined(&decoded), unknown)
+    };
+    LongText::from_plain(&joined).map(|text| (text, unknown))
 }
 
 /// Champ court (titre, division) sur une ligne : mêmes entités que [`clean_text`], caractères
@@ -96,6 +116,73 @@ fn decode(raw: &str) -> (String, u32) {
 /// Ajoute `text` à `out`, sans ses retours chariot.
 fn push_without_cr(out: &mut String, text: &str) {
     out.extend(text.chars().filter(|c| *c != '\r'));
+}
+
+/// `text` où chaque saut de ligne placé au milieu d'une phrase ([`continues`]) est remplacé par
+/// une espace. Rien d'autre ne change : ni caractère ajouté, ni caractère retiré.
+///
+/// Mesure du 2026-11-15 sur les 9 173 publications : 200 649 sauts recollés dans 5 543
+/// publications de 2012 à 2020. Dans les 1 405 publications de 2021 à 2023, où chaque ligne est
+/// déjà un paragraphe, la règle recolle 47 sauts dans 23 publications : deux cellules de tableau
+/// se suivent alors sur une ligne. Les publications depuis 2024 n'ont aucun saut de ligne.
+///
+/// Limites connues, mesurées sur le même jeu. Un saut placé devant un chiffre, une majuscule ou
+/// une parenthèse reste un saut (« L'article », puis « 977 du CGI »), faute de pouvoir le
+/// distinguer d'un titre suivi de son numéro de paragraphe. Une ligne finie par le point d'une
+/// abréviation reste coupée (529 sauts : « (cf. », puis « art. »). Une ligne faite d'un seul
+/// nombre suit la règle commune (314 sauts, le plus souvent un numéro d'article : « 39 », puis
+/// « quinquies H du CGI »). Un trait d'union collé au mot d'avant est presque toujours une
+/// incise, que l'espace sert (17 sauts sur 18) ; un nom coupé à son trait d'union reçoit une
+/// espace de trop (« Savignésous- », puis « le-Lude »).
+fn rejoined(text: &str) -> String {
+    let mut lines = text.split('\n');
+    let mut previous = lines.next().unwrap_or_default();
+    let mut out = String::with_capacity(text.len());
+    out.push_str(previous);
+    for line in lines {
+        out.push(if continues(previous, line) { ' ' } else { '\n' });
+        out.push_str(line);
+        previous = line;
+    }
+    out
+}
+
+/// Vrai si le saut de ligne entre `previous` et `line` tombe au milieu d'une phrase : `previous`
+/// ne finit pas par une ponctuation de [`SENTENCE_ENDS`] et `line` commence au milieu d'une
+/// phrase ([`starts_mid_sentence`]). Les blancs et les caractères invisibles de fin de `previous`
+/// et de début de `line` ne comptent pas ([`is_edge`]). Une ligne blanche, d'un côté ou de
+/// l'autre, sépare toujours.
+fn continues(previous: &str, line: &str) -> bool {
+    let open = previous
+        .trim_end_matches(is_edge)
+        .chars()
+        .next_back()
+        .is_some_and(|last| !SENTENCE_ENDS.contains(&last));
+    open && starts_mid_sentence(line.trim_start_matches(is_edge))
+}
+
+/// Vrai pour un caractère qui ne compte pas au bord d'une ligne : un blanc, ou un caractère
+/// invisible que [`LongText::from_plain`] retire ensuite. La décision de recoller se prend ainsi
+/// sur ce que le lecteur verra.
+fn is_edge(c: char) -> bool {
+    c.is_whitespace() || is_invisible(c)
+}
+
+/// Vrai si `line` commence par une lettre minuscule, sans être un repère de liste : une seule
+/// lettre suivie de `.`, de `)` ou de `°`, puis d'un blanc ou de la fin de la ligne
+/// (« a. Principe », « b) », « a° Principe »). « n° 12 » n'est pas un repère : c'est un numéro.
+/// « art. 642 » et « à l'article » commencent au milieu d'une phrase. Un caractère invisible qui
+/// n'est pas un blanc est sauté : il ne sera pas rendu.
+fn starts_mid_sentence(line: &str) -> bool {
+    let mut chars = line.chars().filter(|c| c.is_whitespace() || !is_invisible(*c));
+    let first = chars.next();
+    let sign = match chars.next() {
+        Some('.' | ')') => true,
+        Some('°') => first != Some('n'),
+        _ => false,
+    };
+    let marker = sign && chars.next().is_none_or(char::is_whitespace);
+    first.is_some_and(char::is_lowercase) && !marker
 }
 
 /// Vrai si `tail`, le texte qui suit un `&`, commence comme une entité : un `#` facultatif, de
@@ -158,9 +245,152 @@ mod tests {
 
     #[test]
     fn carriage_returns_are_removed_and_lines_become_paragraphs() {
-        assert_eq!(cleaned("un\r\ndeux&#13;\ntrois"), ("un\n\ndeux\n\ntrois".to_owned(), 0));
+        assert_eq!(cleaned("Un.\r\nDeux.&#13;\nTrois."), ("Un.\n\nDeux.\n\nTrois.".to_owned(), 0));
         assert_eq!(cleaned("a\rb"), ("ab".to_owned(), 0));
         assert_eq!(decode("\r\ra\r\n\r"), ("a\n".to_owned(), 0));
+    }
+
+    /// Extrait de `BOI-PAT-IFI-40-10` (2018), tel que le portail le sert : les sauts de ligne
+    /// placés au milieu des phrases sont recollés ; le titre, les numéros de paragraphe et la
+    /// ligne qui commence par un chiffre restent des paragraphes.
+    #[test]
+    fn a_line_break_inside_a_sentence_becomes_a_space() {
+        let raw = "I. Seuil d'imposition\n1\nLe seuil d’assujettissement à l'impôt sur la fortune \
+                   immobilière (IFI) est prévu\nà l'article 964 du code général des impôts (CGI). \
+                   Ainsi, sont redevables de l'IFI les personnes physiques dont la valeur \
+                   nette\ndes actifs immobiliers imposables au 1er janvier de l'année \
+                   d'imposition est supérieure à 1,3 M€.\nII. Tarif\n10\nL'article\n977 du \
+                   CGI\u{a0}fixe le tarif de l'impôt";
+        let (text, _) = clean_text(raw).unwrap();
+        let paragraphs: Vec<&str> = text.paragraphs().map(|(_, paragraph)| paragraph).collect();
+        assert_eq!(
+            paragraphs,
+            [
+                "I. Seuil d'imposition",
+                "1",
+                "Le seuil d’assujettissement à l'impôt sur la fortune immobilière (IFI) est prévu \
+                 à l'article 964 du code général des impôts (CGI). Ainsi, sont redevables de \
+                 l'IFI les personnes physiques dont la valeur nette des actifs immobiliers \
+                 imposables au 1er janvier de l'année d'imposition est supérieure à 1,3 M€.",
+                "II. Tarif",
+                "10",
+                "L'article",
+                "977 du CGI fixe le tarif de l'impôt",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_finished_line_ends_its_paragraph() {
+        for end in SENTENCE_ENDS {
+            assert!(!continues(&format!("fin{end}"), "suite"), "{end}");
+            assert!(!continues(&format!("fin{end} \t"), "suite"), "{end}");
+        }
+        for open in ["la valeur nette", "prévu,", "(CGI", "de 10 %", "l'article 964", "fin »"] {
+            assert!(continues(open, "suite"), "{open}");
+        }
+        assert_eq!(cleaned("Phrase finie.\nsuite"), ("Phrase finie.\n\nsuite".to_owned(), 0));
+    }
+
+    #[test]
+    fn a_line_that_starts_a_paragraph_is_not_joined() {
+        for start in
+            ["Les dons", "977 du CGI", "10", "- six mois", "(CGI, art. 642)", "« Pinel »", ""]
+        {
+            assert!(!continues("ligne ouverte", start), "{start}");
+            assert!(!starts_mid_sentence(start), "{start}");
+        }
+        assert_eq!(cleaned("I. Tarif\nLe tarif"), ("I. Tarif\n\nLe tarif".to_owned(), 0));
+    }
+
+    /// Un repère de liste est une seule minuscule suivie de `.`, de `)` ou de `°`, puis d'un
+    /// blanc ou de la fin de la ligne. Une abréviation, un mot court ou « n° » n'en est pas un.
+    #[test]
+    fn a_list_marker_is_not_joined() {
+        for marker in [
+            "a. Obligations des bénéficiaires",
+            "b) Cas particuliers",
+            "a° Principe",
+            "a.",
+            "b)",
+            "f°",
+            "c.\tx",
+        ] {
+            assert!(!starts_mid_sentence(marker), "{marker}");
+        }
+        for start in [
+            "art. 642).",
+            "n° 2018-1317",
+            "n°",
+            "a°b",
+            "à l'article 964",
+            "du CGI",
+            "de la",
+            "a.b",
+            "a)b",
+            "p",
+            "à",
+        ] {
+            assert!(starts_mid_sentence(start), "{start}");
+        }
+        assert_eq!(
+            cleaned("3. Obligations\na. Des bénéficiaires\nsont tenus"),
+            ("3. Obligations\n\na. Des bénéficiaires sont tenus".to_owned(), 0)
+        );
+        assert_eq!(
+            cleaned("1° Réintégrations\na° Principe\n(loi\nn° 2018-1317)"),
+            ("1° Réintégrations\n\na° Principe\n\n(loi n° 2018-1317)".to_owned(), 0)
+        );
+    }
+
+    #[test]
+    fn a_blank_line_always_separates() {
+        assert!(!continues("", "suite") && !continues(" \t\u{a0}", "suite"));
+        assert!(!continues("ligne ouverte", " \t\u{a0}"));
+        for raw in
+            ["Fraction\n\ntaxable", "Fraction\n \u{a0}\t\ntaxable", "Fraction\n&nbsp;\ntaxable"]
+        {
+            assert_eq!(cleaned(raw), ("Fraction\n\ntaxable".to_owned(), 0), "{raw:?}");
+        }
+        // Les blancs autour du saut ne comptent pas.
+        assert_eq!(cleaned("la valeur \t\n\u{a0} nette"), ("la valeur nette".to_owned(), 0));
+    }
+
+    /// La décision se prend sur ce que le lecteur verra : un caractère invisible ne cache ni une
+    /// fin de phrase, ni une minuscule, ni un repère de liste, et une ligne qui n'a que des
+    /// caractères invisibles est une ligne blanche.
+    #[test]
+    fn the_decision_ignores_invisible_characters() {
+        assert!(!continues("fin.\u{200b}", "suite") && !continues("fin. \u{feff} ", "suite"));
+        assert!(continues("fin\u{200b} ", "suite") && continues("fin", "\u{feff} \u{200b}suite"));
+        assert!(!continues("fin", "\u{feff}Suite") && !continues("\u{200b}", "suite"));
+        assert!(!continues("fin", "\u{200b}\u{feff}"));
+        // Dans un repère de liste : le caractère invisible est sauté, le blanc de contrôle compte.
+        for marker in ["a.\u{200b} Des bénéficiaires", "a\u{200b}. Des", "a.\u{b}Des", "a\u{feff})"]
+        {
+            assert!(!starts_mid_sentence(marker), "{marker:?}");
+        }
+        assert!(starts_mid_sentence("d\u{200b}u CGI") && starts_mid_sentence("a.\u{200b}b"));
+        assert_eq!(cleaned("Fin.\u{200b}\nsuite"), ("Fin.\n\nsuite".to_owned(), 0));
+        assert_eq!(cleaned("fin\n\u{feff}suite"), ("fin suite".to_owned(), 0));
+        assert_eq!(cleaned("fin\n\u{200b}\nsuite"), ("fin\n\nsuite".to_owned(), 0));
+        assert_eq!(
+            cleaned("Obligations\na.\u{200b} Des bénéficiaires"),
+            ("Obligations\n\na. Des bénéficiaires".to_owned(), 0)
+        );
+    }
+
+    #[test]
+    fn rejoining_changes_line_breaks_only() {
+        assert_eq!(rejoined(""), "");
+        assert_eq!(rejoined("a"), "a");
+        assert_eq!(rejoined("a\nb"), "a b");
+        assert_eq!(rejoined("A.\nb"), "A.\nb");
+        assert_eq!(rejoined(" a \n b \nC\n\nd\n"), " a   b \nC\n\nd\n");
+        assert_eq!(rejoined("a\nb\nfin.\nd"), "a b fin.\nd");
+        // Les caractères invisibles ne sont pas touchés ici : ils restent comptés ensuite.
+        let (text, _) = clean_text("plus\u{b}\nvalue\u{200b}").unwrap();
+        assert_eq!((text.as_str(), text.invisible_removed()), ("plus value", 2));
     }
 
     #[test]
@@ -240,6 +470,21 @@ mod tests {
         #[test]
         fn text_without_ampersand_is_unchanged(raw in "[^&\r]{0,200}") {
             prop_assert_eq!(decode(&raw), (raw.clone(), 0));
+        }
+
+        /// Le recollage ne change que des sauts de ligne, chacun en une espace : même longueur,
+        /// mêmes caractères partout ailleurs.
+        #[test]
+        fn rejoining_only_turns_line_breaks_into_spaces(
+            raw in "(\\PC|[\n\u{200b}\u{feff}\u{85}\u{b}\u{a0}]){0,60}"
+        ) {
+            let out = rejoined(&raw);
+            prop_assert_eq!(out.len(), raw.len());
+            let only_breaks = raw
+                .chars()
+                .zip(out.chars())
+                .all(|(before, after)| before == after || (before == '\n' && after == ' '));
+            prop_assert!(only_breaks);
         }
 
         /// Le décodage ne laisse aucun retour chariot et ne rallonge jamais le texte.
