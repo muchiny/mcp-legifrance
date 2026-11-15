@@ -15,6 +15,12 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
+Rien depuis `1.3.1`.
+
+## [1.3.1] - 2026-11-15
+
+Correctif du premier des trois défauts relevés par le rejeu des 13 questions (09 §2.20) : les publications du BOFiP depuis 2024 se lisent par paragraphe (ADR-0030, PR #87 et #88). Aucun outil, paramètre, champ ni valeur d'énumération nouveau : `lock-descriptors --compare v1.3.0` répond « no surface change » (montée de correctif). Le texte rendu par `fr_get_bofip` change, pour toutes les publications : voir `### Changed`. Rien ne change pour Légifrance. Les deux autres défauts du rejeu (bruit de la recherche, fraîcheur) restent ouverts.
+
 ### Fixed
 
 - `fr_get_bofip` : les publications depuis 2024 se lisent par paragraphe. Le portail sert leur texte brut sans aucun saut de ligne (1 737 publications sur 9 173, mesure du 2026-11-15) : la 1.3.0 rendait chacune en un seul paragraphe, numéros de paragraphe et cellules de tableau collés au texte, et une lecture ciblée (`focus`) rendait la publication entière. Le texte vient désormais du champ HTML du jeu (`contenu_html`), lu par le lecteur HTML qui lit déjà Légifrance : un paragraphe par bloc, le numéro de paragraphe seul dans le sien (« 10 », « 20 »), une ligne de tableau par paragraphe (cellules séparées par ` | `), la date à la place du jeton `[node:date:…]` (755 jetons ; pour les 116 jetons `[node:date:self]`, la mention que le portail écrit lui-même, « [date de publication insérée automatiquement] »). Les publications plus anciennes y gagnent aussi : leurs tableaux se lisent ligne par ligne et les coupures au milieu des phrases que la 1.3.0 laissait disparaissent (71 450 paragraphes de moins jusqu'à 2023). Mesure sur les 9 173 publications avec ce code : aucune refusée, aucun repli, les mêmes mots qu'avant. (ADR-0030, AM-97)
@@ -485,7 +491,8 @@ Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0
 
 - Domaine seulement, visible par un client à partir de M4 : citation du Conseil constitutionnel sans « - objet » (P-035), plus de `eli_uri` (P-031, P-039), sentinelle de date omise (P-030).
 
-[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.1.1...v1.3.0
 [1.2.0]: https://github.com/muchiny/mcp-legifrance/pull/81
 [1.1.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.1.0...v1.1.1
