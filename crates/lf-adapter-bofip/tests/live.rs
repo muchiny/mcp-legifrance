@@ -148,7 +148,8 @@ mod live {
     #[test]
     fn live_job_has_no_piste_secret() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/live.yml");
-        let workflow = fs::read_to_string(path).unwrap();
+        // Sous Windows, git rend le fichier avec des fins de ligne CRLF : lu ici en LF.
+        let workflow = fs::read_to_string(path).unwrap().replace("\r\n", "\n");
 
         let bofip = job(&workflow, "bofip");
         let found = ["secrets.", "LF_PISTE_", "environment:"].map(|word| bofip.contains(word));
