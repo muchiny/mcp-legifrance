@@ -15,7 +15,13 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Doctrine fiscale : deux outils nouveaux, `fr_search_bofip` et `fr_get_bofip`, lisent le BOFiP (Bulletin officiel des finances publiques, impôts) sur le portail de données ouvertes de la DGFiP, sans compte (jalon MB ; ADR-0028 et ADR-0029). Le serveur contacte donc **un hôte de plus, `data.economie.gouv.fr`**, quand l'un de ces deux outils est appelé ; `LF_BOFIP=off` coupe cette source. Rien ne change pour Légifrance : les treize outils en place gardent leurs descripteurs à l'octet, le port `LegalCorpus`, les adapters PISTE, DILA et cache et le format du journal d'audit ne sont pas touchés.
+Rien depuis `1.3.0`.
+
+## [1.3.0] - 2026-11-15
+
+Doctrine fiscale : deux outils nouveaux, `fr_search_bofip` et `fr_get_bofip`, lisent le BOFiP (Bulletin officiel des finances publiques, impôts) sur le portail de données ouvertes de la DGFiP, sans compte (jalon MB ; ADR-0028 et ADR-0029). Le serveur contacte donc **un hôte de plus, `data.economie.gouv.fr`**, quand l'un de ces deux outils est appelé ; `LF_BOFIP=off` coupe cette source. Rien d'autre ne change pour Légifrance par rapport à la 1.2.0 : les treize outils en place gardent leurs descripteurs à l'octet, le port `LegalCorpus`, les adapters PISTE, DILA et cache et le format du journal d'audit ne sont pas touchés. Le numéro mineur signale les deux outils ajoutés : `lock-descriptors --compare` classe le changement en « addition ».
+
+**Cette version contient aussi la 1.2.0, qui n'a pas été publiée** (section `[1.2.0]` ci-dessous) : montée de `tantivy` à 0.27.0 et marque de version de l'index local. **Les utilisateurs du mode hors ligne qui viennent de la 1.1.1 doivent reconstruire leur index** ; ceux qui interrogent PISTE ne sont pas touchés.
 
 ### Added
 
@@ -30,6 +36,7 @@ Doctrine fiscale : deux outils nouveaux, `fr_search_bofip` et `fr_get_bofip`, li
 
 ### Changed
 
+- Index local DILA (mode hors ligne) : les changements de la 1.2.0, non publiée, sont repris ici (`tantivy` 0.27.0, marque de version de l'index ; détail dans la section `[1.2.0]`). Un index construit par la 1.1.1 ou par une version antérieure est refusé à l'ouverture, avec un texte qui demande de le reconstruire : supprimer le dossier d'index en entier, puis relancer `build-dila-index` (README, « Mode hors ligne »).
 - `fr_coverage`, réponse seulement (description et schémas inchangés) : famille `BOFIP` ajoutée à la fin de `families` (surface v0.3), source active ou coupée ; lacune FR-009 reformulée (la doctrine fiscale n'est plus dite « non couverte » sans réserve) ; FR-102 et FR-104 disent « every tool that reads Légifrance fails » au lieu de « every tool except fr_coverage fails », puisque les outils du BOFiP marchent sans PISTE ; deux lacunes calculées nouvelles, sans effet sur `status` : FR-106 (source active : publications en vigueur seulement) et FR-107 (source coupée). Le nombre de lacunes rendu passe de 10 à 11 en bac à sable, source active. `attribution` et `source` ne changent pas.
 - Instructions du serveur (surface v0.3) : une ligne de plus à la fin de « Workflow », qui cite les deux outils ; 3 499 → 3 688 caractères, plafond porté de 3 500 à 3 700 (ADR-0029, AM-93 ; Claude Code coupe à 4 096). Les variantes v0.1 et v0.2 sont identiques à l'octet.
 - `check-config` : une valeur invalide de `LF_BOFIP` rend « invalid » et le code de sortie 2.
@@ -37,7 +44,7 @@ Doctrine fiscale : deux outils nouveaux, `fr_search_bofip` et `fr_get_bofip`, li
 ### Tool surface
 
 - Addition : deux outils, `fr_search_bofip` et `fr_get_bofip`, ajoutés à la fin de la liste (15 outils au lieu de 13), avec les mêmes quatre annotations que les autres (`readOnlyHint`, `destructiveHint: false`, `idempotentHint`, `openWorldHint`). Titres : « Search the tax doctrine (BOFiP) » et « Read a BOFiP publication ». Descriptions : 706 et 707 caractères.
-- Les entrées des treize outils en place, `fr_coverage` compris, sont identiques à celles du verrou de la 1.2.0 (comparaison des deux fichiers, à l'octet).
+- Les entrées des treize outils en place, `fr_coverage` compris, sont identiques à celles du verrou de la 1.2.0 (comparaison des deux fichiers, à l'octet), donc à celles de la 1.1.1, dernière version publiée : la 1.2.0 ne changeait pas la surface, et `lock-descriptors --compare v1.1.1` ne relève que les deux outils ajoutés et le texte des instructions.
 - Instructions : texte de la v0.3 allongé (voir « Changed »).
 - `tools/list` : 35 424 → 41 878 octets (+6 454). Plafond recalculé par la règle d'AM-63 (mesure finale plus 3 %, soit 43 134,34, arrondie à la centaine supérieure) : **43 200** au lieu de 36 500, même valeur dans `descriptor_size_budget` et dans `TOOLS_LIST_BUDGETS` de `xtask` ; 1 322 octets de marge. Le verrou `tests/tools.lock.json` et le manifeste MCPB (`packaging/mcpb/manifest.json`, deux outils ajoutés) sont régénérés ; `server.json` ne change pas ; `server_version` reste 1.2.0 jusqu'à la PR de version.
 
@@ -46,10 +53,13 @@ Doctrine fiscale : deux outils nouveaux, `fr_search_bofip` et `fr_get_bofip`, li
 - README (« Doctrine fiscale », variable `LF_BOFIP`, hôtes contactés, attribution, mode hors ligne), `PRIVACY.md` (ce qui part vers le portail, à qui, et ce qui n'est pas publié : pays d'hébergement et durée de conservation des journaux, V-223) et `SECURITY.md` (section sur la source de doctrine fiscale) nomment le nouvel hôte. `docs/plan/` : 00, 02 (§3.10, §8.2), 05, 06 (§2.10), 07, 08 et 09 portent ce qui est livré et mesuré.
 - La phrase de `doctrine_note` sur l'article L. 80 A du livre des procédures fiscales (« A taxpayer may rely on it against the administration under the conditions of article L. 80 A ») a été écrite d'après le BOFiP (`BOI-SJ-RES-10-10-10`), puis confrontée le 2026-11-15 à l'article lu dans Légifrance (`LEGIARTI000037312533`, version en vigueur depuis le 2018-08-12) : son troisième alinéa vise l'interprétation publiée et non rapportée « à la date des opérations en cause ». La phrase est gardée telle quelle (V-225 levée).
 - **Limite connue.** Aucune version passée de la doctrine n'est servie, alors que la doctrine applicable à une situation est celle du jour des faits ; `fr_resolve` et `fr_verify_citations` ne reconnaissent pas les références `BOI-…` ; `fr_search_all` n'interroge pas le BOFiP (ADR-0028, décision 11).
+- **Limites relevées par le rejeu des 13 questions du 2026-11-15, non corrigées dans cette version** (09 §2.20). Publications depuis 2024 : le portail sert leur texte sans aucun saut de ligne, les numéros de paragraphe y sont collés au texte (« 20Lorsqu'un ») et un jeton brut `[node:date:…]` peut rester. Recherche : le portail exige tous les mots, et des résultats hors sujet remontent. Fraîcheur : rien ne signale qu'une publication est plus ancienne que la loi qu'elle commente. Ces trois points sont prévus après la 1.3.0, un par un.
 - ADR-0028 (statut « Proposé ») : le BOFiP, doctrine de l'administration fiscale, sera lu derrière un port distinct (`TaxDoctrine`), en direct sur le jeu ouvert `bofip-vigueur` de la DGFiP, par deux outils nouveaux (`fr_search_bofip`, `fr_get_bofip`). Décision seulement dans sa PR (#83, #84) : le code est décrit par les rubriques ci-dessus. `docs/plan/00-decisions.md` §1, §2, §3 et §7 portent les textes (AM-92) ; sept points non vérifiés sont ouverts (V-219 à V-225, `docs/plan/09-risques-et-questions.md` §2.22).
 - ADR-0029 (statut « Proposé ») : précisions et corrections d'ADR-0028 après la lecture du jeu `bofip-vigueur` entier, le 2026-11-15. Décision seulement dans sa PR (#83, #84) : le code est décrit par les rubriques ci-dessus. `fr_get_bofip` départagera deux publications de même identifiant par `publication_id` et non par leur début de validité (23 identifiants concernés, pas cinq, dont 9 de même date) ; `fr_search_bofip` cherchera la doctrine seule par défaut (`kind`) ; une valeur invalide de `LF_BOFIP` coupera la source ; un budget de 10 000 requêtes par jour s'ajoutera aux 2 requêtes par seconde ; `fr_coverage` gagnera une famille BOFiP et deux lacunes calculées ; le plafond des instructions du serveur passera de 3 500 à 3 700 caractères à la livraison. `docs/plan/00-decisions.md` porte les textes (AM-93), `docs/plan/05-outils-mcp.md` les schémas des deux outils (§5.14, §5.15), `docs/plan/07-feuille-de-route.md` les tâches (§2.11). ADR-0028 passe au statut « Accepté ». ADR-0029 passe à son tour au statut « Accepté » (fusion de la PR #84).
 
-## [1.2.0] - 2026-11-13
+## [1.2.0] - non publiée
+
+**Sans release.** Version préparée le 2026-11-13 (PR #81), mais l'étiquette `v1.2.0` n'a jamais été posée : aucun binaire 1.2.0 n'existe. Ses changements sont livrés par la `1.3.0` (choix du propriétaire du 2026-11-15, AM-96).
 
 Montée de `tantivy` à 0.27.0 pour l'index local DILA (mode hors ligne), avec une marque de version de l'index (PR #80). **Les utilisateurs du mode hors ligne doivent reconstruire leur index** ; ceux qui interrogent PISTE ne sont pas touchés. Aucun outil, paramètre, champ ni valeur d'énumération nouveau : `lock-descriptors --compare v1.1.1` répond « no surface change ». Le numéro mineur signale la reconstruction demandée, pas un ajout à la surface des outils.
 
@@ -464,8 +474,9 @@ Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0
 
 - Domaine seulement, visible par un client à partir de M4 : citation du Conseil constitutionnel sans « - objet » (P-035), plus de `eli_uri` (P-031, P-039), sentinelle de date omise (P-030).
 
-[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.2.0...HEAD
-[1.2.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.1.1...v1.2.0
+[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.1.1...v1.3.0
+[1.2.0]: https://github.com/muchiny/mcp-legifrance/pull/81
 [1.1.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.0.0...v1.0.1

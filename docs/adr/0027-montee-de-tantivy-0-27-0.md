@@ -2,7 +2,7 @@
 
 - **Statut** : **Accepté** (2026-11-11, à la fusion de la PR #80 ; la conception a été retenue sous sa forme minimale, voir « Alternatives »)
 - **Date** : 2026-11-11
-- **Jalons concernés** : M9 (`lf-adapter-dila`), 1.2.0 (numéro décidé par le propriétaire le 2026-11-13)
+- **Jalons concernés** : M9 (`lf-adapter-dila`), 1.2.0 (numéro décidé par le propriétaire le 2026-11-13) ; la 1.2.0 n'a pas été publiée, la 1.3.0 la reprend (AM-96, 2026-11-15)
 - **Questions liées** : —
 - Amendements : AM-91 (00 §14). Révise le « huit `skip` » d'[ADR-0018](0018-dependances-fin-de-projet.md) §5 (dix depuis cette montée) et complète la décision 8 d'[ADR-0019](0019-dilacorpus-hors-ligne.md). Les numéros ADR-0025 et AM-89 restent réservés par la branche locale du débit des rejeux ; 0026 et AM-90 sont ceux de la montée de `rmcp`.
 

@@ -22,7 +22,7 @@
     "jurisprudence"
   ],
   "license": "Apache-2.0",
-  "long_description": "Search and read French legislation, codes and case law from Légifrance through the official PISTE API, with stable citations and source URLs. Requires your own free PISTE application credentials. Not affiliated with or endorsed by DILA.",
+  "long_description": "Search and read French legislation, codes and case law from Légifrance through the official PISTE API, with stable citations and source URLs. Also searches and reads the tax doctrine in force (BOFiP) from the DGFiP open data portal, without an account. Requires your own free PISTE application credentials. Not affiliated with or endorsed by DILA or DGFiP.",
   "manifest_version": "0.3",
   "name": "mcp-legifrance",
   "privacy_policies": [
@@ -148,5 +148,5 @@
       "type": "string"
     }
   },
-  "version": "1.2.0"
+  "version": "1.3.0"
 }
