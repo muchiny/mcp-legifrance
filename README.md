@@ -330,7 +330,7 @@ La configuration vient **uniquement** de l'environnement (aucun fichier, aucune 
 | `LF_TOOL_DEADLINE_S` | délai global par appel d'outil, en secondes | 1 à 600, défaut 60 |
 | `LF_BOFIP` | source de doctrine fiscale (outils `fr_search_bofip` et `fr_get_bofip`) | `on` (défaut) ou `off`, casse indifférente ; voir ci-dessous |
 
-`LF_BOFIP` ne figure ni dans `server.json` ni dans le manifeste du bundle MCPB : pour l'employer, ajoutez-la au bloc `env` de votre client. **Une installation par le bundle MCPB n'offre donc pas ce réglage** : pour couper la source, installez le binaire et déclarez le serveur à la main dans votre client. Trois règles :
+`LF_BOFIP` ne figure pas dans `server.json` : pour l'employer, ajoutez-la au bloc `env` de votre client. **Le bundle MCPB, lui, n'a pas de bloc `env` à modifier : il portera un réglage « Tax doctrine source (BOFiP) »**, `on` par défaut ; écrivez-y `off` pour couper la source. Ce réglage arrive avec les deux outils : le bundle de la 1.2.0 n'a ni les uns ni l'autre. Trois règles :
 
 - sans cette variable (ou si elle est vide : une variable vide compte comme absente, voir plus haut), la source est **active**, sauf en [mode hors ligne](#mode-hors-ligne-index-local-dila) : dès que `LF_DILA_DIR` est défini, elle est coupée d'office, et seul `LF_BOFIP=on` la rétablit ;
 - **toute autre valeur que `on` ou `off` coupe la source** (`false`, `0`, `no`, une faute de frappe) : un refus mal écrit ne doit pas envoyer vos mots de recherche à un tiers. Le serveur démarre, le dit sur stderr, et `check-config` le signale comme un problème (code de sortie 2) ;

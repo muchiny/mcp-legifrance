@@ -460,6 +460,7 @@ mcp-legifrance-0.1.0.mcpb          # ZIP (mcpb pack), construit sous Linux
       "command": "${__dirname}/server/launcher",
       "args": ["serve"],
       "env": {
+        "LF_BOFIP": "${user_config.bofip}",
         "LF_PISTE_CLIENT_ID": "${user_config.piste_client_id}",
         "LF_PISTE_CLIENT_SECRET": "${user_config.piste_client_secret}",
         "LF_PISTE_ENV": "${user_config.piste_env}"
@@ -470,6 +471,11 @@ mcp-legifrance-0.1.0.mcpb          # ZIP (mcpb pack), construit sous Linux
     }
   },
   "user_config": {
+    "bofip": {
+      "type": "string", "title": "Tax doctrine source (BOFiP)",
+      "description": "on (default) or off. The two tax doctrine tools read the open data portal of the French tax administration (data.economie.gouv.fr) and send it your search words. off turns that source off; any other value turns it off too.",
+      "required": false, "default": "on"
+    },
     "piste_client_id": {
       "type": "string", "title": "PISTE client ID",
       "description": "Client ID of your own Légifrance application on piste.gouv.fr (never share it).",
@@ -495,8 +501,8 @@ Règles :
 - **`manifest_version = "0.3"`** : la version annoncée comme courante (`MANIFEST.md:3`). La 0.4 n'ajoute que le type `uv` (`src/schemas/0.4.ts:1`), inutile ici. Son acceptation par les versions courantes de Claude Desktop et Claude Code est **NON VÉRIFIÉE** [V-199 · mcpb-version-manifeste].
 - **Variables autorisées** dans `mcp_config` : `${__dirname}`, `${pathSeparator}`, `${/}`, `${user_config.*}` (`src/node/validate.ts`, motif `VALID_VARIABLE_PATTERN`).
 - **Secrets** : `sensitive: true` sur les deux identifiants (« mask input and store securely », `MANIFEST.md:572`). Les variables sont transmises par `env`, recommandé pour les données sensibles (`MANIFEST.md:581`), et jamais par `args`, lisibles dans `ps`.
-- **Ni les réglages avancés de 00 §1** (`LF_PISTE_RPS`, `LF_PISTE_BURST`, `LF_PISTE_CONCURRENCY`, `LF_PISTE_MOJIBAKE_REPAIR`) **dans `user_config` ou `env`** : 00 §1 et §12 les excluent du manifeste MCPB ; ils sont documentés dans le README et affichés par `check-config` (§8.1). **`LF_BOFIP` non plus** (jalon MB) : la source de doctrine fiscale est active sans réglage, la variable ne sert qu'à la couper ou à la rétablir en mode hors ligne. Conséquence, relevée par l'audit de sécurité du jalon : le bundle n'offre aucun moyen de couper la source ; qui veut la couper installe le binaire et déclare le serveur à la main, avec `LF_BOFIP=off` dans le bloc `env` (README et `PRIVACY.md` le disent). Un réglage `user_config` pour cette variable reste une décision ouverte du propriétaire.
-- **Pas de `LF_AUDIT_DIR` ni de `LF_AUDIT_MODE` dans `user_config`** : la valeur transmise pour une option facultative non renseignée (chaîne vide ou littéral `${user_config.x}`) est **NON VÉRIFIÉE** [V-200 · mcpb-user-config-vide]. Une chaîne vide est traitée comme absente (02 §8.2) ; un littéral non substitué serait en revanche pris pour un chemin invalide, et en mode `strict` ce serait `audit_error`. Les défauts de 02 §8.2 s'appliquent donc. `piste_env` a un `default` explicite pour la même raison.
+- **Ni les réglages avancés de 00 §1** (`LF_PISTE_RPS`, `LF_PISTE_BURST`, `LF_PISTE_CONCURRENCY`, `LF_PISTE_MOJIBAKE_REPAIR`) **dans `user_config` ou `env`** : 00 §1 et §12 les excluent du manifeste MCPB ; ils sont documentés dans le README et affichés par `check-config` (§8.1). **`LF_BOFIP`, elle, est déclarée** (jalon MB, AM-94 ; réglage `bofip`, `on` par défaut). Raison, relevée par l'audit de sécurité du jalon : un bundle n'a pas de bloc `env` que l'utilisateur puisse modifier, donc sans ce réglage une installation par le bundle ne pourrait pas couper la source, alors qu'elle envoie les mots d'une recherche à un second hôte. Le type est `string`, comme `piste_env`, et non `boolean` : un booléen serait transmis en `true` ou `false` (`src/shared/config.ts`, `getMcpConfigForManifest`), valeurs que le serveur refuse (00 §1 : toute autre valeur que `on` ou `off` coupe la source). `server.json` ne la déclare pas (§6.2) : là, le bloc `env` du client se modifie à la main.
+- **Pas de `LF_AUDIT_DIR` ni de `LF_AUDIT_MODE` dans `user_config`** : la valeur transmise pour une option facultative non renseignée (chaîne vide ou littéral `${user_config.x}`) est **NON VÉRIFIÉE** [V-200 · mcpb-user-config-vide]. Une chaîne vide est traitée comme absente (02 §8.2) ; un littéral non substitué serait en revanche pris pour un chemin invalide, et en mode `strict` ce serait `audit_error`. Les défauts de 02 §8.2 s'appliquent donc. `piste_env` et `bofip` ont un `default` explicite pour la même raison : le défaut du manifeste est fusionné avant les valeurs saisies (`getMcpConfigForManifest`), donc la variable est toujours substituée. Si le champ `bofip` est vidé à la main, la chaîne vide compte comme absente et la source reste active (00 §1) ; un littéral non substitué, lui, la couperait (échec fermé).
 - **`user_config` ne connaît pas d'`enum`** (`src/schemas/0.3.ts:65-77`) : une valeur de `piste_env` invalide produit le mode dégradé de 02 §8.2 (`[config_error]` sur les outils PISTE, diagnostic dans `fr_coverage`).
 - **`tools`** : générés depuis `tests/tools.lock.json` (nom et description de chaque outil), comme le demandent 05 §9.4 et la recherche 06 §8.1. Le schéma 0.3 n'accepte que `name` et `description` (`src/schemas/0.3.ts:53-56`).
 - **`prompts`** : absents jusqu'à v0.3.0, puis `prompts_generated: true` sans liste statique. Le champ `text` obligatoire d'un prompt MCPB est un gabarit côté client (`src/schemas/0.3.ts:58-63`), alors que nos prompts (00 §7) sont rendus par le serveur ; les déclarer exposerait à une validation par l'hôte contre une déclaration inexacte (`MANIFEST.md:737`).
@@ -1035,7 +1041,7 @@ claude mcp add-json legifrance '{"type":"stdio","command":"/home/alice/.mcp-legi
 
 ### 8.3 Claude Desktop
 
-- **MCPB, voie recommandée** : double-cliquer sur `mcp-legifrance-<version>.mcpb` ou le glisser dans les réglages d'extensions. Claude Desktop demande les trois `user_config` (§4.3). Ce que Claude Desktop transmet au modèle reste **NON VÉRIFIÉ** [V-51 · desktop-structured-content] (05 §10.2).
+- **MCPB, voie recommandée** : double-cliquer sur `mcp-legifrance-<version>.mcpb` ou le glisser dans les réglages d'extensions. Claude Desktop demande les `user_config` du §4.3 : les deux identifiants, obligatoires, puis l'environnement et la source de doctrine fiscale, facultatifs (trois réglages jusqu'à la 1.2.0, quatre ensuite). Ce que Claude Desktop transmet au modèle reste **NON VÉRIFIÉ** [V-51 · desktop-structured-content] (05 §10.2).
 - **Configuration manuelle** (`claude_desktop_config.json` ; emplacement habituel `~/Library/Application Support/Claude/` sous macOS et `%APPDATA%\Claude\` sous Windows, **NON VÉRIFIÉ** [V-212 · syntaxe-config-clients]) :
 
 ```json

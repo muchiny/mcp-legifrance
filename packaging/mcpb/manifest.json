@@ -41,6 +41,7 @@
       ],
       "command": "${__dirname}/server/launcher",
       "env": {
+        "LF_BOFIP": "${user_config.bofip}",
         "LF_PISTE_CLIENT_ID": "${user_config.piste_client_id}",
         "LF_PISTE_CLIENT_SECRET": "${user_config.piste_client_secret}",
         "LF_PISTE_ENV": "${user_config.piste_env}"
@@ -118,6 +119,13 @@
   ],
   "tools_generated": false,
   "user_config": {
+    "bofip": {
+      "default": "on",
+      "description": "on (default) or off. The two tax doctrine tools read the open data portal of the French tax administration (data.economie.gouv.fr) and send it your search words. off turns that source off; any other value turns it off too.",
+      "required": false,
+      "title": "Tax doctrine source (BOFiP)",
+      "type": "string"
+    },
     "piste_client_id": {
       "description": "Client ID of your own Légifrance application on piste.gouv.fr (never share it).",
       "required": true,
