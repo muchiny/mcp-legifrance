@@ -84,7 +84,7 @@ Source : documentation « Connect Claude Code to tools via MCP », lue le 2026-1
 | Avertissement de sortie | > 10 000 tokens | réponses par défaut entre 0,4 et 6 Ko de JSON (§6.5) |
 | Limite de sortie | 25 000 tokens (`MAX_MCP_OUTPUT_TOKENS`) | jamais atteinte avec le plafond dur du §6.4 |
 | Persistance sur disque | résultat texte > 50 000 caractères, sauf `_meta["anthropic/maxResultSizeChars"]` (plafond 500 000) | `max_chars` ≤ 40 000 (00 §7) et plafond dur de 45 000 caractères par réponse (§6.4) ; aucune clé `anthropic/*` émise |
-| `instructions` serveur | coupées à 4 096 caractères | ≤ 3 500 (00 §6), mesuré : 3 499 en v0.3 depuis la 1.1.0, 3 278 en 1.0.1 (§4) |
+| `instructions` serveur | coupées à 4 096 caractères | ≤ 3 500 (00 §6), mesuré : 3 499 en v0.3 depuis la 1.1.0, 3 278 en 1.0.1 (§4) ; 3 700 à la livraison des outils BOFiP (ADR-0029, AM-93 ; non livré, §4.2) |
 | Description d'un outil chargé d'emblée / via tool search | 4 096 / 16 384 caractères | 349 à 830 caractères (§5) |
 | Nom complet `mcp__<serveur>__<outil>` | 128 caractères | `fr_get_company_agreement` (24 caractères) laisse 97 caractères au nom du serveur |
 | Schéma d'entrée | pas de `anyOf`/`oneOf`/`allOf` à la racine ; propriétés de premier niveau sur 1 à 64 caractères `[A-Za-z0-9_.-]` ; schéma valide 2020-12, sinon l'outil est exclu | §2.5, vérifié par le verrou (§9.4) |
@@ -504,6 +504,15 @@ Le test de dérive exige que les outils cités soient exactement les outils enre
 
 Comptage : `len()` Python sur le texte exact, sans saut de ligne final, refait le 2026-10-15 sur ce brouillon après la révision 2 (ligne « Attribution », Q15 ; règle des versions qui renvoie à `fr_get_act`), puis le 2026-10-16 après la reformulation, à longueur égale, de la ligne `[upstream_error]` : l'invitation à réessayer vient du message, qui ne la porte que pour un échec réessayable (00 §8, §7.2). Les six codes d'erreur sont cités dans les trois versions. Marge sous la limite de 3 500 (00 §6) : 1 caractère en v0.3 depuis la 1.1.0 (D-12, puis la revue finale de la PR 2 ; 222 en 1.0.1, 3 278 caractères). D-12 a ajouté la phrase « A summary is never the whole text… », la nuance « (table cells are joined with " | ") » de L4-01 et la puce du glossaire de `etat`, et raccourci la puce ELI et le message `[config_error]` (sens inchangé) pour tenir 3 500 ; le test d'allowlist des jetons gagne `date_fin` et `etat`. La revue finale de la PR 2 remplace le joker de la puce `etat` (« VIGUEUR* … tout autre code non ») par une règle courte sans joker (VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN et ABROGE_DIFF en vigueur, VIGUEUR_DIFF pas encore, MODIFIE, ABROGE et PERIME plus, DENONCE peut encore s'appliquer, renvoi à la description du champ) et raccourcit la phrase d'ouverture (« Use them for any question on French law or case law. ») pour rester à 3 500 ; la règle complète est dans la description du champ `etat` de `fr_get_text` (§5.3). L'attribution est la même dans les trois versions et ne contient pas de date, car le texte est statique et verrouillé (§4.3 règle 5) : la date de consultation du jour est rendue par `fr_coverage` (`consulted_on`, §5.8).
 
+**Outils BOFiP (ADR-0029, AM-93, Q33 ; non livré).** Avec 1 caractère de marge, la ligne qui cite `fr_search_bofip` et `fr_get_bofip` ne tient pas sous 3 500, et le test de dérive exige que chaque outil enregistré soit cité. À la livraison des deux outils :
+
+- le plafond passe à **3 700** caractères (Claude Code coupe à 4 096 : 396 caractères de marge), dans `text.rs`, dans `cargo xtask instructions-size` et dans le contrôle du verrou ;
+- la variante v0.3, seule servie, gagne une ligne à la fin de « Workflow » ; les variantes v0.1 et v0.2 restent identiques à l'octet ; aucune variante nouvelle ;
+- brouillon de la ligne (longueur mesurée à la livraison, sans adresse : seuls les liens vers `legifrance.gouv.fr` sont admis dans ce texte) : `` 5. Tax doctrine: `fr_search_bofip` then `fr_get_bofip` read BOFiP, the tax administration's published doctrine: not the law, in-force publications only. `` ;
+- la ligne `[rate_limited]` ne change pas : le message d'erreur de l'outil nomme la source qui a refusé.
+
+Jusqu'à la livraison, le code et ses tests gardent 3 500.
+
 ### 4.3 Règles de maintenance
 
 1. **Source unique** : `lf-adapter-mcp::text::INSTRUCTIONS`. Aucune copie dans la documentation utilisateur : le README renvoie au verrou, qui contient le texte (§9.3).
@@ -554,6 +563,8 @@ Comptage : `len()` Python sur le texte exact, sans saut de ligne final, refait l
 | `fr_get_related` | v0.3 | Related texts and decisions | `GetRelatedUseCase` | nombre de liens | `Related` 24 h, `Decision` 24 h |
 | `fr_diff_article` | v0.3 | Compare article versions | `DiffArticleUseCase` | nombre de hunks | `Versions` 24 h, `Article` 24 h |
 | `fr_search_all` | v0.3 | Search several fonds | `SearchAllUseCase` | nombre total de hits | `Search` 1 h par fond |
+| `fr_search_bofip` | non livré (ADR-0028, ADR-0029) | Search the tax doctrine (BOFiP) | `SearchBofipUseCase` | nombre de hits renvoyés | aucun (ADR-0028) |
+| `fr_get_bofip` | non livré (ADR-0028, ADR-0029) | Read a BOFiP publication | `GetBofipUseCase` | caractères renvoyés, ou nombre de publications listées | aucun (ADR-0028) |
 
 - Annotations identiques sur les 13 outils : `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true` (00 §6, parité P-002 ; contenu externe traité comme non fiable). `openWorldHint: true` est adopté par défaut (Q11) et réexaminé avant v0.1.0 au vu de V-53 (confirmation des résultats dans VS Code, **NON VÉRIFIÉ** [V-53 · vscode-openworld-confirm]) ; tout changement passe par le verrou des descripteurs et le CHANGELOG (§9.5). `title` est renseigné deux fois avec la même valeur, car VS Code lit `annotations.title` en premier et la spécification `title` en premier (recherche 06 §3.2). `title` est en anglais, comme les descriptions (00 §6, adopté par défaut, Q14).
 - En erreur, la métrique vaut 0 (00 §7). « Caractères renvoyés » = somme des caractères de `text`, `summary` et des `passages[].text` de la réponse, hors métadonnées ; c'est aussi la métrique d'une lecture de resource (M7, §8.2).
@@ -1036,6 +1047,21 @@ Catalogue des lacunes (rédaction définitive demandée par 03 §4.8) :
 
 **Instantané local (M9, V4-02 puis `fix(coverage)` de F1, 2026-10-29).** Quand `LF_DILA_DIR` choisit l'index local (feature `dila`, absente des binaires publiés), `ConfigFacts` porte un quatrième fait, `local_snapshot`, et la couverture ne se présente plus comme du direct de production : (1) lacune calculée FR-105 (les identifiants calculés vont de FR-101 à FR-105) ; (2) `status` vaut `degraded`, jamais `ok` ; (3) dans le domaine, les familles sont `live: false` (la vue n'a pas de champ `live`) et leur source est `SNAPSHOT_SOURCE` ; (4) `as_of_note` vaut `SNAPSHOT_AS_OF_NOTE` (« Data comes from a local snapshot of the DILA LEGI dumps, not from a live query … ») au lieu de « Data is queried live … » ; (5) seules les familles LODA et CODE sont servies ; (6) `source` devient « Légifrance (DILA), from a local snapshot of the LEGI dumps; not queried live. ». Le schéma de sortie n'a pas changé : le drapeau n'est pas un champ de la vue. L'environnement de l'audit reste `production` pour l'index local, et seul le drapeau le distingue.
 
+**BOFiP (ADR-0028 et ADR-0029, AM-93 ; non livré).** À la livraison des outils BOFiP (§5.14, §5.15), la réponse de `fr_coverage` change, pas son descripteur (ni la description, ni le schéma de sortie) :
+
+- **Famille.** `families` gagne `{"fond": "BOFIP", "label": …, "tools": ["fr_search_bofip", "fr_get_bofip"]}` à la surface v0.3, que la source soit active ou coupée : tout outil enregistré figure dans une famille ou dans `general_tools` (D-34). `BOFIP` n'est pas un fond de Légifrance : la vue le rend par un chemin à part. Le libellé dit la source et la licence (« BOFiP-Impôts / DGFiP — Licence Ouverte 2.0 »).
+- **`attribution` et `source` ne changent pas** (constantes du tableau ci-dessus). La mention de la DGFiP est portée par chaque réponse des deux outils.
+- **Lacunes reformulées.** FR-009 : la doctrine fiscale n'est plus dite « non couverte » sans réserve. FR-102 et FR-104 : « every tool except fr_coverage fails » devient « every tool that reads Légifrance fails », car les outils BOFiP marchent sans identifiants PISTE.
+- **Lacunes calculées nouvelles**, sans effet sur `status` (le catalogue statique garde neuf lacunes, les identifiants calculés vont de FR-101 à FR-107) :
+
+| Id | Fond | `missing` (brouillon) | `fallback` (brouillon) | Présente |
+|---|---|---|---|---|
+| FR-106 | BOFIP | BOFiP holds only the publications in force today: no past version of the tax doctrine is served. | Check valid_from; for earlier facts, look up the past versions on the BOFiP website (source_url). | si la source BOFiP est active |
+| FR-107 | BOFIP | The BOFiP source is turned off (LF_BOFIP, or offline mode): fr_search_bofip and fr_get_bofip fail with config_error. | Set LF_BOFIP=on to query the DGFiP open data portal. | si la source BOFiP est coupée (`LF_BOFIP=off`, valeur invalide, ou `LF_DILA_DIR` défini sans `LF_BOFIP=on`) |
+
+- **Tailles.** La réponse de la surface v0.1 est bornée par un test à 3 727 caractères (3 424 mesurés le 2026-11-15, 303 de marge) : les textes définitifs sont écrits pour y tenir, ou la cible du §6.5 est relevée avec la mesure. La métrique d'audit (nombre de lacunes) et la ressource `legifrance://coverage` suivent.
+- **Tests à ajouter** : `bofip_family_is_always_rendered`, `bofip_gap_follows_the_source_state`, `bofip_gaps_never_change_status` ; `every_registered_tool_is_in_a_family_or_general` couvre alors quinze outils.
+
 **Exemple** (v0.1, sandbox, identifiants présents ; 3 389 caractères contre 1 343 pour la référence, qui ne déclarait que 3 familles et 2 lacunes ; 3 358 avant l'ajout de `attribution` et `consulted_on` en révision 2) : voir l'objet complet dans le snapshot `coverage_v01_sandbox` (06) ; extrait :
 
 ```json
@@ -1334,6 +1360,61 @@ Search several Légifrance fonds at once (default LODA, CODE, JURI, CETAT, CONST
 **Erreurs** : `invalid_arg` (paramètres) ; si **tous** les fonds échouent avec le même code (cas typique : `config_error`), l'appel échoue avec ce code ; sinon erreurs par groupe. `audit_error` fait échouer l'appel.
 
 **Audit, cache, limites** : métrique = somme des hits. Requêtes parallèles (`join_all`), régulées par le limiteur ([V-62 · quota-piste-prod]) ; annulation propagée à toutes les sous-requêtes ; notifications de progression optionnelles si `progressToken` (§2.4), jamais émises après l'annulation (`ct.is_cancelled()` testé avant chaque notification, §3.5). Taille : le JSON exact de la réponse est mesuré (§6.4) ; tant qu'il tient sous la cible de 42 000 caractères moins la réserve des notes, rien n'est retiré (cinq fonds × 10 résultats aux longueurs usuelles font environ 36 000 caractères) ; au-delà, seuls les extraits des derniers résultats partent, en partant de la fin, avec `note`, puis, si cela ne suffit pas, les listes d'articles et les champs optionnels.
+
+### 5.14 `fr_search_bofip` (non livré : ADR-0028, ADR-0029, jalon MB)
+
+**Objectif.** Chercher dans le BOFiP (Bulletin officiel des finances publiques, impôts), la doctrine publiée de l'administration fiscale, lue en direct sur le jeu ouvert `bofip-vigueur` de la DGFiP. Ce n'est pas la loi, et seules les publications en vigueur sont servies.
+
+**Description** (brouillon ; texte et longueur fixés au verrou des descripteurs, 1 000 caractères au plus, sans adresse) :
+
+```text
+Search BOFiP, the published doctrine of the French tax administration (DGFiP): how the administration reads tax law, not the law itself. All the words of `query` must appear in a publication; the last word also matches as a prefix; there are no operators and no quoted phrases, so use a few plain words. Narrow with `serie` (e.g. ENR for registration and inheritance duties, IR for income tax, RFPI for property income and capital gains). `kind` selects doctrine pages (default), news items, or all. Returns id, publication_id, title, kind, serie, valid_from and source_url, paged with `page` and `has_more`; never the text: read it with fr_get_bofip. Only publications in force today are available.
+```
+
+**Entrée** :
+
+| Nom | Type JSON | Requis | Défaut | Contraintes |
+|---|---|---|---|---|
+| `query` | string | oui | — | 1 à 450 caractères, comme `fr_search` ; mise en forme NFC, puis tout caractère qui n'est ni une lettre ni un chiffre devient un espace ; au moins un mot doit rester, sinon `invalid_arg` avant tout appel réseau |
+| `serie` | string | non | — | `^[A-Z0-9]{1,16}$` après passage en majuscules ; liste ouverte (30 codes le 2026-11-15, de `AIS` à `TVA` ; 6 publications sans série) : un code inconnu donne zéro résultat, pas une erreur |
+| `kind` | string, `enum ["doctrine","news","all"]` | non | `"doctrine"` | `doctrine` : pages de commentaires (type « Contenu » du jeu, 6 367) ; `news` : actualités (2 806) ; insensible à la casse |
+| `page_size` | integer | non | 10 | 1 à 100 |
+| `page` | integer | non | 1 | ≥ 1 ; `page × page_size` ≤ 10 000 (limite du portail), sinon `invalid_arg` |
+
+**Requête amont** (04 ne la décrit pas : elle est propre à `lf-adapter-bofip`). `GET` sur une adresse fixe, `https` seul, aucune redirection suivie. `select` sans `contenu` ni `contenu_html` ; `where = search(contenu, "<mots>")`, plus le type selon `kind`, plus la série. Une fonction unique écrit tous les littéraux : elle n'accepte que des valeurs typées par le domaine et échappe `\` puis `"`. Mesure du 2026-11-15 sur les 13 questions patrimoniales du test de bout en bout de la 1.1.0 : la page attendue est dans les cinq premiers résultats pour 10 questions (V-221, 09 §2.20).
+
+**Sortie** (`BofipSearchView`) : `total`, `page`, `has_more`, `hits`, `attribution` (constante : `Source : BOFiP-Impôts / DGFiP — Licence Ouverte 2.0`), `doctrine_note` (constante : nature du texte et limite, rédigée sur l'article L. 80 A du LPF, V-225), `note?`. Un hit : `id` (`BOI-…`, `ACTU-…`), `publication_id` (entier : numéro de la publication sur le site du BOFiP, unique), `title`, `kind` (`doctrine` ou `news`), `serie?`, `valid_from?` (début de validité), `source_url?` (seulement si le permalien suit la grammaire `https://bofip.impots.gouv.fr/bofip/<1 à 7 chiffres>-PGP.html`, suivi d'au plus un segment de lettres, chiffres et `. _ % = -`, 512 octets au plus). Jamais le texte.
+
+**Erreurs** : `invalid_arg` (paramètres, requête vide après nettoyage, page hors limite) ; `config_error` (source coupée, 00 §1, texte fixe, sans E/S) ; `rate_limited` (refus 429 du portail, repos de la source ou budget du jour épuisé ; jamais de nouvelle tentative) ; `upstream_error` (autre statut, délai, réponse trop grande ou non conforme) ; `audit_error`. Un message ne porte jamais l'adresse de la requête ni ses mots. **Audit, cache** : nombre de hits renvoyés ; aucun cache (ADR-0028).
+
+### 5.15 `fr_get_bofip` (non livré : ADR-0028, ADR-0029, jalon MB)
+
+**Objectif.** Lire une publication du BOFiP par son identifiant, avec le retour progressif des lectures longues (§5.0.2, §5.0.3).
+
+**Description** (brouillon ; texte et longueur fixés au verrou des descripteurs) :
+
+```text
+Read one BOFiP publication by its id (BOI-… or ACTU-…, from fr_search_bofip): title, kind, serie, valid_from, citation and source_url. BOFiP is the tax administration's doctrine, not the law; only the publication in force today is served, never a past version. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary` (its beginning). `detail`="full" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. A few ids designate two publications: the answer then lists them, and `publication_id` selects one.
+```
+
+**Entrée** : `id` (string, requis ; majuscules, chiffres et traits d'union, 64 octets au plus, mis en majuscules ASCII avant le contrôle), `publication_id` (integer, facultatif, 1 à 9 999 999 ; valeur rendue par `fr_search_bofip` ou par la liste ci-dessous) et les paramètres communs (§5.0.2). Ordre de validation : `id`, `publication_id`, puis l'ordre commun.
+
+**Comportement.**
+
+| Cas | Réponse |
+|---|---|
+| Aucune publication pour `id` | `not_found` |
+| Une publication | lecture (`summary`, `text`, `passages` selon §5.0.3) ; résumé : `lead`, le BOFiP ne publie pas de sommaire |
+| Une publication, `publication_id` différent du sien | `not_found`, le message nomme le numéro qui existe |
+| Deux publications, sans `publication_id` (23 identifiants le 2026-11-15, dont 9 de même début de validité) | `publications` : liste `{publication_id, title, valid_from?, source_url?}`, sans texte, avec une note |
+| Deux publications, `publication_id` de l'une | lecture de celle-ci |
+| Publication sans texte dans le jeu (50 le 2026-11-15 : annexes, formulaires, lettres, cartes) | métadonnées, `text_length` à 0, note qui renvoie à `source_url` |
+
+**Texte.** Il vient du champ `contenu` (jamais de `contenu_html`), nettoyé en une seule passe : `&#13;` et le retour chariot sont retirés ; `&nbsp;`, l'espace insécable et la tabulation deviennent un espace ; `&lt;`, `&gt;` et `&amp;` sont décodés (`&amp;lt;` reste `&lt;`). Toute autre entité est laissée telle quelle. Le plus long texte mesuré fait 167 535 caractères (`BOI-ANNX-000050`) : le plafond dur de 45 000 caractères par réponse (§6.4) s'applique, comme aux autres lectures.
+
+**Sortie** (`BofipView`) : `id`, `publication_id`, `title`, `kind`, `serie?`, `division?`, `valid_from?`, `citation` (« BOFiP, {id}, {début de validité en toutes lettres} », par exemple `BOFiP, BOI-ENR-DMTG-10-50-20, 24 mai 2023` ; sans date : « BOFiP, {id} »), `source_url?` (même règle qu'au §5.14), puis les champs de lecture (§5.0.3), `publications?`, `attribution`, `doctrine_note`, `note?`.
+
+**Erreurs** : `invalid_arg` ; `not_found` `No BOFiP publication found for {id}.` ; `config_error`, `rate_limited`, `upstream_error`, `audit_error` comme au §5.14. Le portail répond `200` avec zéro résultat pour un identifiant inconnu : c'est l'adapter qui en fait un `not_found`. Chaque identifiant rendu par le portail est validé et doit être celui qui a été demandé, sinon `upstream_error`. **Audit, cache** : caractères renvoyés, ou nombre de publications listées ; aucun cache : chaque fenêtre de lecture relit la publication entière sur le portail (181 Ko au plus).
 
 ---
 

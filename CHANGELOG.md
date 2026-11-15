@@ -20,6 +20,7 @@ Aucun changement de code depuis `1.2.0`.
 ### Documentation
 
 - ADR-0028 (statut « Proposé ») : le BOFiP, doctrine de l'administration fiscale, sera lu derrière un port distinct (`TaxDoctrine`), en direct sur le jeu ouvert `bofip-vigueur` de la DGFiP, par deux outils nouveaux (`fr_search_bofip`, `fr_get_bofip`). Décision seulement : aucun code, aucun outil, aucun descripteur ne change encore. `docs/plan/00-decisions.md` §1, §2, §3 et §7 portent les textes (AM-92) ; sept points non vérifiés sont ouverts (V-219 à V-225, `docs/plan/09-risques-et-questions.md` §2.22).
+- ADR-0029 (statut « Proposé ») : précisions et corrections d'ADR-0028 après la lecture du jeu `bofip-vigueur` entier, le 2026-11-15. Décision seulement : aucun code, aucun outil, aucun descripteur ne change encore. `fr_get_bofip` départagera deux publications de même identifiant par `publication_id` et non par leur début de validité (23 identifiants concernés, pas cinq, dont 9 de même date) ; `fr_search_bofip` cherchera la doctrine seule par défaut (`kind`) ; une valeur invalide de `LF_BOFIP` coupera la source ; un budget de 10 000 requêtes par jour s'ajoutera aux 2 requêtes par seconde ; `fr_coverage` gagnera une famille BOFiP et deux lacunes calculées ; le plafond des instructions du serveur passera de 3 500 à 3 700 caractères à la livraison. `docs/plan/00-decisions.md` porte les textes (AM-93), `docs/plan/05-outils-mcp.md` les schémas des deux outils (§5.14, §5.15), `docs/plan/07-feuille-de-route.md` les tâches (§2.11). ADR-0028 passe au statut « Accepté ».
 
 ## [1.2.0] - 2026-11-13
 

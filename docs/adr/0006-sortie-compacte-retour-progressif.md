@@ -5,6 +5,7 @@
 - **Jalons concernés** : M4 (vues de sortie, schémas), M5 (économie de contexte, budgets mesurés : v0.1.0)
 - **Questions liées** : Q11 (`openWorldHint`, proposition adoptée par défaut, à confirmer avant v0.1.0)
 - Révisé le 2026-10-15 (revue) : champs omissibles en `#[serde(default, …)]` ; `detail = "full"` quand `offset > 0` (AM-43) ; sources du résumé (AM-16) ; plafond dur de 45 000 caractères estimé puis mesuré, avec ordre de dégradation complet (AM-15) ; annotations et Q11 (AM-14).
+- Référence ajoutée le 2026-11-15 : le plafond des instructions de la décision 7 (3 500 caractères) est porté à 3 700 à la livraison des outils BOFiP par [ADR-0029](0029-bofip-precisions-apres-mesure.md) (AM-93).
 
 ## Contexte
 
