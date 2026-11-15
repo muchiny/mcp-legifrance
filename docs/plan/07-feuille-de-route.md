@@ -10,7 +10,7 @@
 >
 > **Fin du projet (2026-10-29).** Les jalons M3 à M9 et la Distribution ont été écrits sur une seule branche, `feat/fin-du-projet`, par la PR unique #27 (`2026-10-29-fin-du-projet-parallele.md`, vagues V0 à V4 puis fin F1 à F6), à la version **0.3.0** sans release ni étiquette (D14). État par jalon au §4.3 ; une case n'est cochée que si le livrable existe et que le test nommé (ou son équivalent relu) existe et passe sur les trois OS à la tête `4d97b69` ; les portes de couverture à 100 % et de mutation, rouges à cette tête, ne sont pas comptées (§4.3). Amendements : 00 §14 (AM-50 à AM-66), statuts des vérifications : 09 §2.20.
 >
-> **Jalon MB, BOFiP (2026-11-15).** Ajouté par ADR-0028 et ADR-0029 (AM-92, AM-93) : tâches `T-MB-yy` au §2.11 ; code écrit sur la branche `feat/bofip` le 2026-11-15 (état au §2.11), en attente de la PR de code unique (T-MB-45).
+> **Jalon MB, BOFiP (2026-11-15).** Ajouté par ADR-0028 et ADR-0029 (AM-92, AM-93) : tâches `T-MB-yy` au §2.11 ; code écrit sur la branche `feat/bofip` le 2026-11-15 (état au §2.11) ; PR de code unique ouverte (PR #85, T-MB-45) ; rejeu des 13 questions fait le même jour (T-MB-44, résultat au §2.11).
 
 Documents liés : [00-decisions.md](00-decisions.md) (normatif : §11 jalons, §13 questions), [01-existant.md](01-existant.md) (§4.16 : clôture des défauts par jalon), [02-architecture.md](02-architecture.md) (crates, dépendances, ports), [03-domaine.md](03-domaine.md) (§11), [04-adapter-piste.md](04-adapter-piste.md) (§13, §15), [05-outils-mcp.md](05-outils-mcp.md) (§9, §11), [06-qualite.md](06-qualite.md) (§7 CI, §13.4 définition de « terminé », §14), [08-distribution.md](08-distribution.md) (§7, §10), [09-risques-et-questions.md](09-risques-et-questions.md) (§2.18 synthèse par jalon, §3 questions, §5 critères), annexes [A](annexes/A-parite.md), [B](annexes/B-citations.md), [C](annexes/C-api-legifrance.md), [D](annexes/D-mcp-2026-07-28.md), [index des ADR](../adr/README.md).
 
@@ -1041,7 +1041,15 @@ Les tâches gardent leur identifiant et reçoivent un statut. Bilan : 1 livrée 
 - Vague 0 : faite (PR #84 pour T-MB-01 ; sondes, fixtures et mesures pour T-MB-02, T-MB-03 et T-MB-05 ; article L. 80 A relu pour T-MB-04, V-225 levée).
 - Vague 1 (T-MB-10 à T-MB-15) : commit `b37e3b9`. Vague 2 (T-MB-20 à T-MB-24) : commit `5d1ee91`. Vagues 3 (T-MB-30 à T-MB-35) et 4 (T-MB-40 à T-MB-43) : commits suivants de la branche.
 - Revues (T-MB-41) : une revue de code et un audit de sécurité sur toute la branche, sans constat bloquant ni élevé. Repris dans la vague de corrections : décodage de `results` arrêté au 101ᵉ enregistrement (motif d'amplification déjà traité pour PISTE), repos relu après l'attente du tour de départ, `Retry-After` de zéro seconde lu comme un en-tête absent, refus de deux publications de même numéro, message de la source coupée rendu neutre, liste exacte des en-têtes envoyés contrôlée par un test, textes de `PRIVACY.md` et de `SECURITY.md` corrigés. Laissés tels quels, par choix : une variable `LF_BOFIP` vide compte comme absente (règle commune à toutes les variables du serveur, désormais écrite dans les trois documents) ; un enregistrement mal formé fait échouer la page entière (échec fermé, ADR-0029 décision 6) ; pas de tri explicite de la recherche (l'ordre du portail est celui de la pertinence, un tri par champ le remplacerait ; mesuré le 2026-11-15 sur une recherche de 350 résultats : deux pages de 10 rendent la même suite qu'une page de 20, et un même appel répété rend le même ordre).
-- Restent : le rejeu des 13 questions (T-MB-44), sur accord du propriétaire, puis la PR de code (T-MB-45).
+- Rejeu des 13 questions (T-MB-44) : fait le 2026-11-15 en production, sur accord du propriétaire, aux règles d'AM-88 (une requête par seconde, un serveur à la fois, lanceur `legifrance-run`), avec le binaire de la branche au commit `90e9b9f`. Deux passes de 13 réponses, 16 appels d'outil au plus par réponse : source coupée, puis source active (8 appels au plus vers les deux outils du BOFiP). Le lanceur ne transmet pas `LF_BOFIP` : la passe « source coupée » est émulée par le relais du rejeu, qui masque les deux outils et rend le message de la source coupée. Un juge par question note les deux réponses sur quatre critères de 0 à 10, sans savoir de quelle passe vient chacune.
+  - **Résultat : 30,9 / 40 source coupée, 31,2 / 40 source active.** Écart moyen de +0,3 point, erreur type de 0,75 : aucune différence mesurable. Le juge préfère la réponse de la source active pour 8 questions, l'autre pour 5. Aucune erreur grave dans les 26 réponses.
+  - Par critère (source coupée, puis active) : exactitude 8,1 et 7,6 ; fraîcheur 7,2 et 7,4 ; sources 8,4 et 8,4 ; complétude 7,2 et 7,8.
+  - La doctrine a été lue pour 11 questions sur 13. Les juges y relèvent 59 faits précis absents de la loi (cumul d'exonérations, exemples chiffrés, délais, tolérances) et 6 confusions sans chiffre faux, sur 4 questions.
+  - **La vérification de T-MB-44, « aucune question ne perd de points », n'est pas tenue telle qu'elle est écrite** : cinq questions perdent de 1 à 4 points. La mesure ne permet pas de l'imputer à la source : il n'y a qu'une réponse par passe, et les deux questions sans aucun appel au BOFiP s'écartent de +2 et de −4 points.
+  - La comparaison à 33 / 40 n'est pas valable : le test de novembre laissait 28 appels par réponse en médiane, ce rejeu 16.
+  - Usage : 386 appels d'outil vers Légifrance sur les trois passes (environ 820 requêtes, à 2,13 requêtes par appel en moyenne), 70 requêtes au portail (environ 137 sur les 200 du jalon), trois processus du serveur, aucun refus de débit.
+  - Défauts relevés par le rejeu, non corrigés dans la PR de code : 09 §2.20, journal du 2026-11-15.
+- Restent : la fusion de la PR de code (PR #85, T-MB-45) par le propriétaire, puis la PR de version.
 
 Vague 0 — préparation, aucun code de produit.
 
@@ -1110,7 +1118,8 @@ Vague 4 — documentation, revues, clôture.
 - [ ] T-MB-43 — **`make ci` final.** Sortie gardée comme preuve.\
   Où : branche · Livrable : journal · Vérification : code de sortie 0 · Spéc. : 00 §10 · Taille : S · Après : T-MB-42
 - [ ] T-MB-44 — **Rejeu des 13 questions**, avant et après, en production, sur accord du propriétaire (AM-88).\
-  Où : hors dépôt · Livrable : note de 0 à 40, comparée à 33 · Vérification : aucune question ne perd de points · Spéc. : AM-88 · Taille : M · Prérequis : P · Après : T-MB-43
+  Où : hors dépôt · Livrable : note de 0 à 40, comparée à 33 · Vérification : aucune question ne perd de points · Spéc. : AM-88 · Taille : M · Prérequis : P · Après : T-MB-43\
+  *Fait le 2026-11-15 : 30,9 / 40 source coupée, 31,2 / 40 source active ; vérification non tenue telle qu'elle est écrite (cinq questions perdent de 1 à 4 points, dans le bruit de la mesure) ; détail dans l'état ci-dessus.*
 - [ ] T-MB-45 — **PR de code unique**, puis PR de version après sa fusion ; l'étiquette est posée par le propriétaire.\
   Où : GitHub · Livrable : PR · Vérification : CI verte · Spéc. : 06 §13 · Taille : S · Après : T-MB-43
 
@@ -1119,7 +1128,7 @@ Vague 4 — documentation, revues, clôture.
 **Critères d'acceptation.**
 
 - [ ] Les deux outils répondent sur des réponses réelles du portail gardées en fixtures, et sur le portail lui-même (test en direct).
-- [ ] G0 à G9 tenues, chacune avec sa preuve ; G10 sur accord.
+- [ ] G0 à G9 tenues, chacune avec sa preuve ; G10 sur accord. *G10 : rejeu fait le 2026-11-15, résultat dans l'état ci-dessus.*
 - [ ] V-225 levée avant le verrou ; V-219, V-221 et V-223 consignées avec leurs réserves (09 §2.20). *V-225 levée le 2026-11-15 : article L. 80 A relu dans Légifrance, phrase gardée.*
 - [ ] `make ci` vert, couverture 100 %, 0 mutant survivant sur les fichiers nouveaux.
 - [ ] README, `PRIVACY.md` et `SECURITY.md` nomment le nouvel hôte ; rubrique « Tool surface » du CHANGELOG.
@@ -1228,7 +1237,7 @@ La PR de clôture (« close: Mx ») contient :
 | M8 | **profil local livré** (`serve-http`, jeton, `tests/http.rs`) ; suite de conformité HTTP : un scénario encore rouge à `4d97b69` ; profil distant non fait (Q4) | 2 / 7 (T-M8-02, -03) | 0 / 4 : V-42 non levée | #27 | — |
 | M9 | **livré, LEGI seul** (`lf-adapter-dila`, `DilaCorpus`, sélection par `LF_DILA_DIR` ; feature `dila` absente des binaires publiés) ; pas de release v1.0.0 | 4 / 6 (T-M9-01 à -04) | V-185, V-186, V-187 levées ; V-188, V-189 consignées ; V-180 consignée (obligations non lues) | #27 | — |
 | Distribution | **configurée, jamais exercée en release** (dist, MCPB, OCI, `server.json`, portes de release présents ; état en CI non relevé dans ce lot) ; signature non faite (Q5) | 3 / 16 (T-MD-01, -03, -04 ; T-MD-16 ajoutée par la revue de sécurité F4) | compris dans la recette v0.1.0 : V-197, V-204 non levées | #27 | — |
-| MB (BOFiP) | code écrit sur `feat/bofip` le 2026-11-15 (vagues 0 à 4) ; restent le rejeu des 13 questions (T-MB-44, sur accord du propriétaire) et la PR de code (T-MB-45) | 0 / 28 (cases à cocher par le propriétaire) | 3 / 3 : V-222 et V-225 levées, V-223 levée avec réserve | — | — |
+| MB (BOFiP) | code écrit sur `feat/bofip` le 2026-11-15 (vagues 0 à 4) ; rejeu des 13 questions fait (T-MB-44 : 30,9 puis 31,2 / 40) ; PR de code #85 ouverte (T-MB-45), à fusionner par le propriétaire | 0 / 28 (cases à cocher par le propriétaire) | 3 / 3 : V-222 et V-225 levées, V-223 levée avec réserve | — | — |
 
 Statuts : `à faire`, `en cours`, `bloqué (prérequis)` avec le prérequis manquant, `terminé`. « Terminé » pour M0 et M1 vaut au sens du livré (plan 1) ; la colonne « Tâches cochées » y décompte les statuts des tâches (§2.0, §2.1) et les reliquats sont suivis par 00 §11.1. Les onze vérifications bloquantes de la recette v0.1.0 sont V-46, V-59, V-103, V-139, V-140, V-142, V-143, V-144, V-173 (si certificat), V-197 et V-204 (09 §2.18).
 
