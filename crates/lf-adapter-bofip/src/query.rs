@@ -21,9 +21,11 @@ use reqwest::Url;
 pub(crate) const SEARCH_SELECT: &str =
     "identifiant_juridique,titre,type,serie,debut_de_validite,permalien";
 
-/// Champs demandés par une lecture : le texte (`contenu`), jamais `contenu_html`.
-pub(crate) const GET_SELECT: &str =
-    "identifiant_juridique,titre,type,serie,division,debut_de_validite,permalien,contenu";
+/// Champs demandés par une lecture : le texte sous ses deux formes, dans la même requête. Le
+/// champ HTML (`contenu_html`) est lu ; le champ brut (`contenu`) le garde et le remplace s'il
+/// est incomplet (ADR-0030).
+pub(crate) const GET_SELECT: &str = "identifiant_juridique,titre,type,serie,division,debut_de_validite,permalien,contenu,\
+     contenu_html";
 
 /// Nombre de publications demandées par une lecture. Un identifiant en désigne une, parfois deux
 /// (mesure du 2026-11-15) : une réponse qui en annonce plus est refusée, jamais tronquée.
@@ -293,18 +295,25 @@ mod tests {
             get_url(RECORDS_URL, &id).unwrap().as_str(),
             "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/bofip-vigueur/records\
              ?select=identifiant_juridique%2Ctitre%2Ctype%2Cserie%2Cdivision%2Cdebut_de_validite\
-             %2Cpermalien%2Ccontenu\
+             %2Cpermalien%2Ccontenu%2Ccontenu_html\
              &where=identifiant_juridique+%3D+%22BOI-IF-TH-10-50-40%22&limit=10"
         );
     }
 
-    /// Le texte du portail n'est jamais demandé par une recherche, ni sa forme HTML par personne.
+    /// Le texte du portail n'est jamais demandé par une recherche ; une lecture le demande sous
+    /// ses deux formes (ADR-0030).
     #[test]
     fn the_text_is_only_selected_by_a_read() {
         assert_eq!(SEARCH_SELECT.split(',').find(|field| field.starts_with("contenu")), None);
         let read: Vec<&str> =
             GET_SELECT.split(',').filter(|field| field.starts_with("contenu")).collect();
-        assert_eq!(read, ["contenu"]);
+        assert_eq!(read, ["contenu", "contenu_html"]);
+        // La lecture ne demande rien d'autre de plus que la recherche, sauf la division.
+        let extra: Vec<&str> = GET_SELECT
+            .split(',')
+            .filter(|field| !SEARCH_SELECT.split(',').any(|known| known == *field))
+            .collect();
+        assert_eq!(extra, ["division", "contenu", "contenu_html"]);
     }
 
     /// Les paramètres déjà présents dans la base sont remplacés, pas complétés.

@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [citation_parse, dto_decode, from_html, ids, text, version_date]
+        target: [bofip_text, citation_parse, dto_decode, from_html, ids, text, version_date]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,8 +61,19 @@ jobs:
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-fuzz@0.13.1
-      - if: matrix.target != 'dto_decode' && matrix.target != 'from_html' && matrix.target != 'citation_parse'
+      - if: matrix.target != 'dto_decode' && matrix.target != 'from_html' && matrix.target != 'citation_parse' && matrix.target != 'bofip_text'
         run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=300
+      # bofip_text : lecture du texte d'une publication du BOFiP (ADR-0030 : guillemets doublés,
+      # restes de document, garde, repli). Graines commitées dans fuzz/seeds/bofip_text : le champ
+      # HTML, un octet nul, puis le champ brut de quatre publications réelles (barème de 2026 avec
+      # tableau et date, publication de 2018 aux lignes coupées, actualité de 2020 aux restes de
+      # document, lettre sans texte). Même principe que from_html : libFuzzer n'écrit que dans le
+      # premier dossier. `-max_len` couvre la plus longue graine (environ 8 Kio).
+      - if: matrix.target == 'bofip_text'
+        run: |
+          mkdir -p fuzz/corpus/bofip_text
+          cargo +nightly fuzz run bofip_text fuzz/corpus/bofip_text fuzz/seeds/bofip_text \
+            -- -max_total_time=300 -max_len=16384
       # citation_parse : graines des numéros composés et des décisions du Conseil constitutionnel
       # (« 150-0 B ter », « 199 terdecies-0 A », « 71-44 DC », « 94-343/344 DC »), commitées dans
       # fuzz/seeds/citation_parse (format Arbitrary de la cible). Même principe que from_html :

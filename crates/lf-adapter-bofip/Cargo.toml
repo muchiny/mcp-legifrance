@@ -12,7 +12,8 @@ publish.workspace = true
 # port TaxDoctrine, DoctrineError, PortalCode ; port Clock (jour UTC du budget) ; Deadline :
 # délai global publié par Audited (variable locale de tâche), lu comme durée restante
 lf-application.workspace = true
-# valeurs de la doctrine (BoiId, DoctrineQuery, DoctrineHit, DoctrineDoc, Permalink, clean_text)
+# valeurs de la doctrine (BoiId, DoctrineQuery, DoctrineHit, DoctrineDoc, Permalink,
+# publication_text)
 lf-domain.workspace = true
 # client HTTP unique (http.rs), seule porte ouverte à ce crate (ADR-0029, décision 9) ; gzip :
 # décompression transparente, bornée après coup ; system-proxy : HTTPS_PROXY / NO_PROXY ;

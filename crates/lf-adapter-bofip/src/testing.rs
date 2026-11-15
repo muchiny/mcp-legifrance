@@ -206,6 +206,6 @@ mod tests {
             .map(|line| line.split(" : ").next().unwrap())
             .collect();
         assert_eq!(listed, present);
-        assert_eq!(listed.len(), 14);
+        assert_eq!(listed.len(), 16);
     }
 }

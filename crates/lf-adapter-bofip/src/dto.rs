@@ -84,8 +84,12 @@ pub(crate) struct Record {
     pub(crate) debut_de_validite: Option<String>,
     /// Adresse de la publication sur le site du BOFiP ; elle porte son numéro.
     pub(crate) permalien: Option<String>,
-    /// Texte entier ; demandé par la lecture seulement, `null` pour une publication sans texte.
+    /// Texte entier, brut ; demandé par la lecture seulement, `null` pour une publication sans
+    /// texte.
     pub(crate) contenu: Option<String>,
+    /// Texte entier, en HTML ; demandé par la lecture seulement. Le portail y double chaque
+    /// guillemet double (ADR-0030).
+    pub(crate) contenu_html: Option<String>,
 }
 
 /// Corps d'un refus (400). Son `message` recopie la requête : il n'est jamais lu.

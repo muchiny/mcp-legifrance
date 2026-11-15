@@ -41,7 +41,7 @@ mod budgets {
         date::CivilDate,
         doctrine::{
             BoiId, DoctrineDoc, DoctrineHit, DoctrineKind, DoctrinePage, Permalink, Serie,
-            clean_text,
+            clean_text, publication_text,
         },
         entity::{
             Act, ArticleText, ArticleVersion, CodeArticleRef, CompanyAgreement, Convention,
@@ -377,6 +377,43 @@ mod budgets {
             source_url: link.url,
             text: clean_text(text).unwrap().0,
         }
+    }
+
+    /// Les publications d'une réponse réelle du portail du BOFiP (`name`, enregistrée pour
+    /// `lf-adapter-bofip`), lues comme cet adapter les lit : le texte vient du champ HTML, le
+    /// champ brut le garde (ADR-0030). Aucun repli n'est admis sur ces réponses.
+    ///
+    /// Reprise réduite de `mapping::doc` de l'adapter, que ce crate ne peut pas prendre en
+    /// dépendance : seul le texte est fidèle, la nature et la série sont fixées ici.
+    fn real_bofip_docs(name: &str) -> Vec<DoctrineDoc> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../lf-adapter-bofip/tests/fixtures")
+            .join(name);
+        let body: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let records = body["results"].as_array().unwrap();
+        records
+            .iter()
+            .map(|record| {
+                let link = Permalink::parse(record["permalien"].as_str().unwrap()).unwrap();
+                let read =
+                    publication_text(record["contenu_html"].as_str(), record["contenu"].as_str())
+                        .unwrap();
+                assert!(!read.fell_back, "{name}");
+                DoctrineDoc {
+                    id: BoiId::parse(record["identifiant_juridique"].as_str().unwrap()).unwrap(),
+                    publication_id: link.publication_id,
+                    title: record["titre"].as_str().unwrap().to_owned(),
+                    kind: DoctrineKind::Doctrine,
+                    serie: None,
+                    division: None,
+                    valid_from: record["debut_de_validite"]
+                        .as_str()
+                        .and_then(|date| CivilDate::parse(date).ok()),
+                    source_url: link.url,
+                    text: read.text,
+                }
+            })
+            .collect()
     }
 
     /// Les titres raccourcis d'une page du BOFiP : 120 caractères, `…` compris.
@@ -1703,6 +1740,96 @@ mod budgets {
         }
         assert_eq!(rebuilt, canonical, "the pages must rebuild the text without loss");
         assert!(pages >= 2, "{pages}");
+    }
+
+    /// Régression : ADR-0030. Les publications réelles du BOFiP, lues dans leur champ HTML, se
+    /// lisent page par page sous le plafond dur, sans perte : suivre `next_offset` redonne le
+    /// texte entier. Aucune balise du portail n'arrive dans une réponse.
+    #[tokio::test]
+    async fn real_bofip_publications_read_from_html_fit_and_partition() {
+        let rows = [
+            ("get-longest.json", 162, 5),
+            ("get-single.json", 160, 1),
+            ("get-wrapped.json", 26, 1),
+            ("get-recent-table.json", 28, 1),
+            ("get-header.json", 11, 1),
+        ];
+        for (name, paragraphs, expected_pages) in rows {
+            let docs = real_bofip_docs(name);
+            assert_eq!(docs.len(), 1, "{name}");
+            let canonical = docs[0].text.as_str().to_owned();
+            assert_eq!(docs[0].text.paragraphs().count(), paragraphs, "{name}");
+            let fixture = Fixture::default();
+            let mut rebuilt = String::new();
+            let mut offset = 0_u64;
+            let mut pages = 0;
+            loop {
+                fixture.doctrine.push_get(Ok(docs.clone()));
+                let arguments = json!({
+                    "id": docs[0].id.as_str(),
+                    "detail": "full",
+                    "offset": offset,
+                    "max_chars": 40_000
+                });
+                let observed = Observed::of(&call(&fixture, "fr_get_bofip", &arguments).await);
+                assert!(observed.error.is_none(), "{name}: {:?}", observed.error);
+                assert!(observed.chars <= CAP, "{name}, page {pages}: {}", observed.chars);
+                assert_eq!(
+                    observed.value["text_length"].as_u64(),
+                    Some(canonical.chars().count() as u64),
+                    "{name}"
+                );
+                let text = observed.value["text"].as_str().unwrap();
+                for markup in ["<p", "</", "class=", "<table", "<td", "[node:", "\"\""] {
+                    assert!(!text.contains(markup), "{name}: {markup}");
+                }
+                rebuilt.push_str(text);
+                pages += 1;
+                match observed.value.get("next_offset") {
+                    Some(next) => offset = next.as_u64().unwrap(),
+                    None => break,
+                }
+                assert!(pages < 20, "{name}: the reading does not end");
+            }
+            assert_eq!(rebuilt, canonical, "{name}: the pages must rebuild the text");
+            assert_eq!(pages, expected_pages, "{name}");
+        }
+    }
+
+    /// Régression : ADR-0030. Une publication de 2026, dont le champ brut tient en un seul
+    /// paragraphe : lue dans le champ HTML, ses numéros de paragraphe sont seuls dans leur
+    /// paragraphe, son barème se lit ligne par ligne, et une lecture ciblée rend des passages,
+    /// plus le texte entier.
+    #[tokio::test]
+    async fn a_recent_bofip_publication_is_served_in_paragraphs_and_passages() {
+        let docs = real_bofip_docs("get-recent-table.json");
+        let whole = docs[0].text.as_str().chars().count();
+        let fixture = Fixture::default();
+        fixture.doctrine.push_get(Ok(docs.clone()));
+        let arguments = json!({"id": "BOI-IR-LIQ-20-10", "detail": "full", "max_chars": 40_000});
+        let observed = Observed::of(&call(&fixture, "fr_get_bofip", &arguments).await);
+        let text = observed.value["text"].as_str().unwrap();
+        assert!(text.starts_with("Actualité liée : 07/04/2026 : IR - Indexation du barème"));
+        for alone in ["\n\n1\n\n", "\n\n10\n\n", "\n\n30\n\n", "\n\n40\n\n"] {
+            assert!(text.contains(alone), "{alone:?}");
+        }
+        assert!(text.contains(
+            "\n\nFraction de revenu imposable par part | Taux\n\nN’excédant pas 11 600 € | 0 \
+             %\n\nSupérieure à 11 600 € et inférieure ou égale à 29 579 € | 11 %\n\n"
+        ));
+
+        fixture.doctrine.push_get(Ok(docs));
+        let arguments = json!({"id": "BOI-IR-LIQ-20-10", "focus": "taux tranche 29 579"});
+        let observed = Observed::of(&call(&fixture, "fr_get_bofip", &arguments).await);
+        assert!(observed.error.is_none(), "{:?}", observed.error);
+        let passages = observed.value["passages"].as_array().expect("passages");
+        assert!(!passages.is_empty() && observed.value.get("text").is_none());
+        let texts: Vec<&str> =
+            passages.iter().map(|passage| passage["text"].as_str().unwrap()).collect();
+        assert!(texts.iter().any(|text| text.contains("29 579 €")), "{texts:?}");
+        // Avant ADR-0030, le seul passage possible était la publication entière.
+        let longest = texts.iter().map(|text| text.chars().count()).max().unwrap();
+        assert!(longest < whole / 2, "{longest} of {whole}");
     }
 
     /// Régression : D-47, D-33. Les pages d'une table des matières coupée se partitionnent :
