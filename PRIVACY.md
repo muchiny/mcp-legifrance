@@ -2,7 +2,7 @@
 
 Dernière mise à jour : 2026-11-15.
 
-mcp-legifrance est un serveur MCP qui tourne **sur votre poste**. Il interroge l'API Légifrance du portail PISTE avec **vos** identifiants et, pour les deux outils de doctrine fiscale (`fr_search_bofip`, `fr_get_bofip`, pas encore publiés : version qui suit la 1.2.0), le portail de données ouvertes du ministère de l'Économie. Il ne parle à personne d'autre. Il n'a ni compte, ni télémétrie, ni service tiers à lui : le projet ne reçoit aucune de vos données. Cette page dit précisément ce qui part, ce qui reste sur votre poste, et ce qui n'est pas vérifié (`docs/plan/08-distribution.md` §1.4 et §9.8). Elle est la politique de confidentialité référencée par `privacy_policies` du bundle MCPB.
+mcp-legifrance est un serveur MCP qui tourne **sur votre poste**. Il interroge l'API Légifrance du portail PISTE avec **vos** identifiants et, pour les deux outils de doctrine fiscale (`fr_search_bofip`, `fr_get_bofip`, depuis la 1.3.0), le portail de données ouvertes du ministère de l'Économie. Il ne parle à personne d'autre. Il n'a ni compte, ni télémétrie, ni service tiers à lui : le projet ne reçoit aucune de vos données. Cette page dit précisément ce qui part, ce qui reste sur votre poste, et ce qui n'est pas vérifié (`docs/plan/08-distribution.md` §1.4 et §9.8). Elle est la politique de confidentialité référencée par `privacy_policies` du bundle MCPB.
 
 Ce produit n'est ni édité, ni approuvé, ni soutenu par la DILA, ni par la DGFiP.
 

@@ -2,7 +2,7 @@
 
 - **Statut** : **Accepté** (2026-11-15, à la fusion de la PR #83)
 - **Date** : 2026-11-15
-- **Jalons concernés** : la version mineure qui suit la 1.2.0 (numéro à décider par le propriétaire)
+- **Jalons concernés** : la version mineure qui suit la 1.2.0, soit la 1.3.0 (numéro décidé par le propriétaire le 2026-11-15)
 - **Questions liées** : Q28 (mode d'accès), Q29 (activation), Q30 (forme des outils), Q31 (citations BOI) : **décidées par le propriétaire le 2026-11-15, A pour chacune** (voir « Questions tranchées »)
 - Applique la décision 7 d'[ADR-0004](0004-piste-puis-dila.md) (« Judilibre et les autres sources (BOFiP, AN, Sénat) sont hors périmètre. Leur ajout passe par un nouvel ADR, derrière le même port ou un port distinct justifié »). Amende [00-decisions.md](../plan/00-decisions.md) §1, §2, §3 et §7 (AM-92).
 - **Note du 2026-11-15** (sans réécrire ce qui suit) : [ADR-0029](0029-bofip-precisions-apres-mesure.md) révise les décisions 2, 4, 5, 6, 8, 9, 10 et 12 après la mesure du jeu entier (AM-93). Les points changés : départage par `publication_id` et non par le début de validité (23 identifiants à deux publications, pas cinq), filtre `kind`, porte `rustls` non ouverte, `LF_BOFIP` invalide qui coupe la source, quota du jour, couverture, plafond des instructions à 3 700. Les mentions correspondantes ci-dessous sont celles de l'origine.

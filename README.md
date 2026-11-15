@@ -16,9 +16,9 @@ Ce qu'il fait en plus de chercher et de lire un texte :
 
 > **Binaires non signés.** Les binaires et le bundle MCPB ne sont signés par aucun certificat (ni Authenticode sous Windows, ni notarisation sous macOS). Sous Windows, Smart App Control peut bloquer l'exécutable : ne le désactivez pas, utilisez l'image Docker ou WSL. Sous macOS, Gatekeeper peut demander une confirmation. Les sommes SHA-256 et les attestations de provenance GitHub permettent de contrôler ce que vous installez (voir [Vérifier un téléchargement](#vérifier-un-téléchargement)).
 >
-> **Statut.** Cette page décrit la version **1.2.0**. Les commandes d'installation citent l'étiquette `v1.2.0` : elles s'appliquent dès que sa release figure sur la [page des releases](https://github.com/muchiny/mcp-legifrance/releases) ; pour une autre version publiée, remplacez le numéro. La première version publiée est la 1.0.0 (2026-10-31).
+> **Statut.** Cette page décrit la version **1.3.0**. La 1.2.0 n'a pas été publiée : la 1.3.0 la contient. Les commandes d'installation citent l'étiquette `v1.3.0` : elles s'appliquent dès que sa release figure sur la [page des releases](https://github.com/muchiny/mcp-legifrance/releases) ; pour une autre version publiée, remplacez le numéro. La première version publiée est la 1.0.0 (2026-10-31).
 >
-> **Pas encore publié.** Les deux outils du BOFiP (`fr_search_bofip`, `fr_get_bofip`) et la variable `LF_BOFIP` décrits ci-dessous ne sont **pas** dans la 1.2.0 : ils sont dans le code du dépôt et arriveront avec la version suivante (rubrique `[Unreleased]` du [CHANGELOG](CHANGELOG.md)). Un binaire 1.2.0 sert treize outils.
+> **Depuis la 1.3.0.** Les deux outils du BOFiP (`fr_search_bofip`, `fr_get_bofip`) et la variable `LF_BOFIP` décrits ci-dessous arrivent avec la 1.3.0 (voir le [CHANGELOG](CHANGELOG.md)). Un binaire plus ancien sert treize outils.
 
 ## Sommaire
 
@@ -95,7 +95,7 @@ Si vos clés sont divulguées, réinitialisez-les sur PISTE sans attendre, puis 
 | Canal | Pour qui | Commande ou action | Intégrité |
 |---|---|---|---|
 | Installeur (archives de la release) | juristes et développeurs à l'aise en terminal | `curl … \| sh` (Linux, macOS) ; `irm … \| iex` (Windows) | HTTPS ; sommes SHA-256 et attestations, non signé |
-| **Bundle MCPB** | Claude Desktop | double-clic sur `mcp-legifrance-1.2.0.mcpb` | `fileSha256` vérifié par le client ; non signé |
+| **Bundle MCPB** | Claude Desktop | double-clic sur `mcp-legifrance-1.3.0.mcpb` | `fileSha256` vérifié par le client ; non signé |
 | **Image Docker** | isolation, VS Code (galerie), Docker Desktop | `docker run -i --rm …` | digest, attestation |
 | **`cargo install --git`** | développeurs Rust | compilation locale depuis le dépôt, à l'étiquette | `Cargo.lock` imposé par `--locked` ; non signé |
 
@@ -107,12 +107,12 @@ Le serveur est aussi déclaré au registre MCP sous le nom `io.github.muchiny/mc
 
 ```sh
 # Linux, macOS
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/muchiny/mcp-legifrance/releases/download/v1.2.0/mcp-legifrance-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/muchiny/mcp-legifrance/releases/download/v1.3.0/mcp-legifrance-installer.sh | sh
 ```
 
 ```powershell
 # Windows
-powershell -c "irm https://github.com/muchiny/mcp-legifrance/releases/download/v1.2.0/mcp-legifrance-installer.ps1 | iex"
+powershell -c "irm https://github.com/muchiny/mcp-legifrance/releases/download/v1.3.0/mcp-legifrance-installer.ps1 | iex"
 ```
 
 Le binaire est posé dans `~/.mcp-legifrance/bin/mcp-legifrance` (Windows : dossier `.mcp-legifrance\bin` de votre dossier utilisateur, fichier `mcp-legifrance.exe`) et ce répertoire est ajouté au `PATH`. Une application graphique déjà ouverte (Claude Desktop, VS Code) ne voit pas le nouveau `PATH` : redémarrez-la, ou donnez le **chemin absolu** dans sa configuration, comme dans les exemples plus bas. L'installeur ne fait aucune mise à jour automatique : pour changer de version, relancez-le avec l'étiquette voulue.
@@ -133,19 +133,19 @@ Les noms d'archives suivent le motif `mcp-legifrance-<cible>.tar.xz` (Windows : 
 
 ### Bundle MCPB (Claude Desktop)
 
-1. Télécharger `mcp-legifrance-1.2.0.mcpb` depuis la page de la release.
+1. Télécharger `mcp-legifrance-1.3.0.mcpb` depuis la page de la release.
 2. Le double-cliquer, ou le glisser dans les réglages d'extensions de Claude Desktop.
-3. Renseigner les trois champs demandés : identifiant client PISTE, secret client PISTE (tous deux conservés par le stockage sécurisé du client) et environnement (`sandbox` par défaut).
+3. Renseigner les quatre champs proposés : identifiant client PISTE, secret client PISTE (tous deux conservés par le stockage sécurisé du client), environnement (`sandbox` par défaut) et source de doctrine fiscale (`on` par défaut ; `off` la coupe).
 
 Un seul bundle sert toutes les plateformes ; il choisit le bon binaire au lancement. C'est la voie la plus simple si vous n'êtes pas développeur : aucune configuration JSON à écrire.
 
 ### Image Docker
 
 ```sh
-docker pull ghcr.io/muchiny/mcp-legifrance:1.2.0
+docker pull ghcr.io/muchiny/mcp-legifrance:1.3.0
 
 # vérification de la configuration (aucun secret sur la ligne de commande : -e NOM sans valeur)
-docker run --rm -e LF_PISTE_CLIENT_ID -e LF_PISTE_CLIENT_SECRET ghcr.io/muchiny/mcp-legifrance:1.2.0 check-config
+docker run --rm -e LF_PISTE_CLIENT_ID -e LF_PISTE_CLIENT_SECRET ghcr.io/muchiny/mcp-legifrance:1.3.0 check-config
 ```
 
 L'image est publique, minimale (distroless), exécutée par un utilisateur non root, pour linux/amd64 et linux/arm64. `-i` est indispensable : le client dialogue avec le serveur par l'entrée et la sortie standard. Le journal d'audit est écrit dans `/data/audit` ; montez-y un volume nommé pour le conserver (exemple plus bas). L'image est faite pour un usage **local**.
@@ -153,7 +153,7 @@ L'image est publique, minimale (distroless), exécutée par un utilisateur non r
 ### `cargo install --git`
 
 ```sh
-cargo install --git https://github.com/muchiny/mcp-legifrance --tag v1.2.0 --locked mcp-legifrance
+cargo install --git https://github.com/muchiny/mcp-legifrance --tag v1.3.0 --locked mcp-legifrance
 ```
 
 - Prérequis : une chaîne Rust d'au moins la version 1.88 et un compilateur C. Le fournisseur TLS actuel (aws-lc) peut réclamer d'autres outils de compilation sur certaines plateformes (non confirmé hors Linux).
@@ -282,7 +282,7 @@ Fichier `~/.cursor/mcp.json` (global) ou `.cursor/mcp.json` (projet). Format et 
       "args": ["run", "-i", "--rm",
                "-e", "LF_PISTE_CLIENT_ID", "-e", "LF_PISTE_CLIENT_SECRET", "-e", "LF_PISTE_ENV",
                "-v", "mcp-legifrance-audit:/data/audit",
-               "ghcr.io/muchiny/mcp-legifrance:1.2.0"],
+               "ghcr.io/muchiny/mcp-legifrance:1.3.0"],
       "env": {
         "LF_PISTE_CLIENT_ID": "${LF_PISTE_CLIENT_ID}",
         "LF_PISTE_CLIENT_SECRET": "${LF_PISTE_CLIENT_SECRET}",
@@ -330,7 +330,7 @@ La configuration vient **uniquement** de l'environnement (aucun fichier, aucune 
 | `LF_TOOL_DEADLINE_S` | délai global par appel d'outil, en secondes | 1 à 600, défaut 60 |
 | `LF_BOFIP` | source de doctrine fiscale (outils `fr_search_bofip` et `fr_get_bofip`) | `on` (défaut) ou `off`, casse indifférente ; voir ci-dessous |
 
-`LF_BOFIP` ne figure pas dans `server.json` : pour l'employer, ajoutez-la au bloc `env` de votre client. **Le bundle MCPB, lui, n'a pas de bloc `env` à modifier : il portera un réglage « Tax doctrine source (BOFiP) »**, `on` par défaut ; écrivez-y `off` pour couper la source. Ce réglage arrive avec les deux outils : le bundle de la 1.2.0 n'a ni les uns ni l'autre. Trois règles :
+`LF_BOFIP` ne figure pas dans `server.json` : pour l'employer, ajoutez-la au bloc `env` de votre client. **Le bundle MCPB, lui, n'a pas de bloc `env` à modifier : il porte un réglage « Tax doctrine source (BOFiP) »**, `on` par défaut ; écrivez-y `off` pour couper la source. Ce réglage arrive avec les deux outils, en 1.3.0 : un bundle plus ancien n'a ni les uns ni l'autre. Trois règles :
 
 - sans cette variable (ou si elle est vide : une variable vide compte comme absente, voir plus haut), la source est **active**, sauf en [mode hors ligne](#mode-hors-ligne-index-local-dila) : dès que `LF_DILA_DIR` est défini, elle est coupée d'office, et seul `LF_BOFIP=on` la rétablit ;
 - **toute autre valeur que `on` ou `off` coupe la source** (`false`, `0`, `no`, une faute de frappe) : un refus mal écrit ne doit pas envoyer vos mots de recherche à un tiers. Le serveur démarre, le dit sur stderr, et `check-config` le signale comme un problème (code de sortie 2) ;
@@ -403,7 +403,7 @@ Option : au lieu d'appeler PISTE, le serveur lit une **copie locale** des codes,
 
 - C'est un **instantané** : un texte publié après le fichier téléchargé manque, et une absence est rendue `unresolvable`, jamais `not_found`. La date de l'instantané n'est pas encore indiquée dans les réponses ; le fichier `registry.tsv` du dossier d'index liste les archives appliquées.
 - Pour mettre à jour, relancez les étapes 1 et 2. Un nouveau fichier complet de la DILA refait l'index depuis zéro. Ne lancez pas `build-dila-index` pendant qu'un client lit le même index.
-- **Après une montée de version qui change l'analyseur de textes** (la 1.2.0, voir le [CHANGELOG](CHANGELOG.md) ; `tantivy` 0.27.0 change la racine de quelques mots français), le serveur et `build-dila-index` **refusent l'ancien index et le disent** : le serveur rend la source locale indisponible, avec un texte qui demande de reconstruire l'index (il ne se rabat pas sur PISTE), et la commande s'arrête avec « must be rebuilt ». Rien n'est supprimé ni reconstruit automatiquement. Marche à suivre : supprimez le dossier d'index **en entier** (le registre `registry.tsv` s'y trouve : le garder avec un index vidé ferait répondre « à jour » à la commande), puis relancez l'étape 2 avec les mêmes archives, qui restent sur le disque : rien à retélécharger. Pour garder l'ancien dossier le temps de vérifier, construisez dans un dossier neuf (`--index`), puis changez `LF_DILA_DIR`. Ne repassez pas à une version antérieure sur un index reconstruit : elle ne voit pas la marque et lirait des racines fausses sans rien dire.
+- **Après une montée de version qui change l'analyseur de textes** (la 1.3.0, qui reprend la 1.2.0 jamais publiée, voir le [CHANGELOG](CHANGELOG.md) ; `tantivy` 0.27.0 change la racine de quelques mots français), le serveur et `build-dila-index` **refusent l'ancien index et le disent** : le serveur rend la source locale indisponible, avec un texte qui demande de reconstruire l'index (il ne se rabat pas sur PISTE), et la commande s'arrête avec « must be rebuilt ». Rien n'est supprimé ni reconstruit automatiquement. Marche à suivre : supprimez le dossier d'index **en entier** (le registre `registry.tsv` s'y trouve : le garder avec un index vidé ferait répondre « à jour » à la commande), puis relancez l'étape 2 avec les mêmes archives, qui restent sur le disque : rien à retélécharger. Pour garder l'ancien dossier le temps de vérifier, construisez dans un dossier neuf (`--index`), puis changez `LF_DILA_DIR`. Ne repassez pas à une version antérieure sur un index reconstruit : elle ne voit pas la marque et lirait des racines fausses sans rien dire.
 - Le script est en bash : sous Windows, il n'a pas été essayé (WSL ou Git Bash). Le bundle MCPB ne propose pas ce réglage, et l'image Docker n'a pas été essayée avec un index monté.
 - **Licence des données.** Les fiches de la DILA demandent de mentionner la paternité (DILA), l'adresse de téléchargement, le nom du fichier et sa date. En cas de doute, citez : « Source : DILA, base LEGI, Légifrance, fichier `<nom>` du `<date>`, `https://echanges.dila.gouv.fr/OPENDATA/LEGI/` ». Les fiches citent la Licence Ouverte 2.0 et le portail data.gouv.fr celle de 2014 : l'écart n'est pas tranché (voir `docs/recherche/10-dumps-dila.md` §8).
 
@@ -469,7 +469,7 @@ Pour un utilisateur de la référence Python (`fr-eli-mcp`). La note complète, 
 
 ## Ce qui n'est pas encore vérifié
 
-Le projet note ses incertitudes plutôt que de les taire. Pour la 1.2.0 :
+Le projet note ses incertitudes plutôt que de les taire. Pour la 1.3.0 :
 
 - La **production** PISTE n'est exercée qu'à la main par le mainteneur (test de bout en bout de la 1.1.0, le 2026-11-02) : la CI ne joue que le bac à sable, et seulement une partie des tests live chaque semaine.
 - La syntaxe de configuration de chaque client est tirée de sa documentation ; elle n'a pas été éprouvée sur une installation réelle (priorité : Claude Code et VS Code). Les formats de Cursor et l'emplacement des fichiers de Claude Desktop sont à confirmer.
@@ -477,9 +477,9 @@ Le projet note ses incertitudes plutôt que de les taire. Pour la 1.2.0 :
 - `cargo install --git` n'a pas encore été essayé sous macOS et Windows.
 - Le chemin par défaut du journal d'audit sous Windows, ses permissions, la prise en compte d'un proxy et le comportement de VS Code face à `openWorldHint` ne sont pas mesurés.
 - Le bac à sable PISTE renvoie parfois d'autres données que la production.
-- L'index local DILA a été construit une fois sur les archives réelles (1 h 10 avec un binaire de développement) et interrogé sur quelques requêtes, sur Linux seulement, avant la montée de `tantivy` de la 1.2.0 : depuis, la reconstruction n'a été contrôlée que sur les mini-archives du dépôt, pas sur les archives réelles (ADR-0027). La durée avec le binaire publié, le comportement sous Windows et macOS, la date de l'instantané dans les réponses et la licence propre à chaque fonds ne sont pas vérifiés.
+- L'index local DILA a été construit une fois sur les archives réelles (1 h 10 avec un binaire de développement) et interrogé sur quelques requêtes, sur Linux seulement, avant la montée de `tantivy` (livrée par la 1.3.0) : depuis, la reconstruction n'a été contrôlée que sur les mini-archives du dépôt, pas sur les archives réelles (ADR-0027). La durée avec le binaire publié, le comportement sous Windows et macOS, la date de l'instantané dans les réponses et la licence propre à chaque fonds ne sont pas vérifiés.
 - L'adresse Légifrance qu'un article de loi reçoit dans `source_url` n'a pas été ouverte dans un navigateur pour confirmer qu'elle s'affiche.
-- **BOFiP** (pas encore publié) : le quota du portail n'est connu que par ses en-têtes (50 000 requêtes par jour, portée inconnue) et aucun refus `429` n'a été observé ; ni le pays d'hébergement du portail ni la durée de conservation de ses journaux ne sont publiés ; le portail peut changer de forme sans prévenir (un test hebdomadaire le signale, il ne l'empêche pas).
+- **BOFiP** : le quota du portail n'est connu que par ses en-têtes (50 000 requêtes par jour, portée inconnue) et aucun refus `429` n'a été observé ; ni le pays d'hébergement du portail ni la durée de conservation de ses journaux ne sont publiés ; le portail peut changer de forme sans prévenir (un test hebdomadaire le signale, il ne l'empêche pas).
 
 Le registre complet des points ouverts est dans [`docs/plan/09-risques-et-questions.md`](docs/plan/09-risques-et-questions.md).
 
