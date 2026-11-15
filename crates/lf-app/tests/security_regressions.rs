@@ -780,6 +780,8 @@ mod security {
     ///
     /// BOFiP (ADR-0029, décision 5) : `bofip.impots.gouv.fr`, l'hôte exact, en `https` seul. C'est
     /// le préfixe de la grammaire des adresses rendues dans `source_url` ; il n'est jamais appelé.
+    /// Et `data.economie.gouv.fr`, l'hôte exact, en `https` seul : le portail du jeu `bofip-vigueur`,
+    /// seule adresse que `lf-adapter-bofip` appelle, fixée dans le code (ADR-0028, décision 4).
     fn allowlisted(url: &str) -> bool {
         let Some((scheme, rest)) = url.split_once("://") else { return false };
         if rest.contains('@') {
@@ -796,6 +798,7 @@ mod security {
                     || name.ends_with(".piste.gouv.fr")
                     || name == "www.legifrance.gouv.fr"
                     || name == "bofip.impots.gouv.fr"
+                    || name == "data.economie.gouv.fr"
                     || rest.starts_with("github.com/muchiny/mcp-legifrance")
             }
             "http" => matches!(name, "127.0.0.1" | "localhost" | "[::1]"),
@@ -818,7 +821,7 @@ mod security {
 
     /// Régression : D-04. Aucune URL littérale du code de production (`crates/*/src`, hors modules
     /// de test) ne sort de la liste blanche : hôtes `*.piste.gouv.fr`, `www.legifrance.gouv.fr`,
-    /// dépôt du projet, boucle locale. Une URL pour un autre hôte (télémétrie, manifeste distant) y
+    /// dépôt du projet, boucle locale, et les deux hôtes exacts du BOFiP (voir `allowlisted`). Une URL pour un autre hôte (télémétrie, manifeste distant) y
     /// serait vue. L'analyse elle-même est vérifiée sur des exemples, et ne lit pas zéro fichier.
     #[test]
     fn production_sources_contain_only_allowlisted_urls() {
@@ -835,6 +838,10 @@ mod security {
                       let i = \"https://bofip.impots.gouv.fr.example.org/\";\n\
                       let j = \"https://www.bofip.impots.gouv.fr/\";\n\
                       let k = \"http://bofip.impots.gouv.fr/\";\n\
+                      let l = \"https://data.economie.gouv.fr/api/explore/v2.1/catalog\";\n\
+                      let m = \"https://data.economie.gouv.fr.example.org/\";\n\
+                      let n = \"https://economie.gouv.fr/\";\n\
+                      let o = \"http://data.economie.gouv.fr/\";\n\
                       #[cfg(test)]\nmod tests { let z = \"https://tests.example.org\"; }\n";
         let verdicts: Vec<(usize, bool)> = url_hosts(production_part(sample))
             .iter()
@@ -854,6 +861,10 @@ mod security {
                 (10, false),
                 (11, false),
                 (12, false),
+                (13, true),
+                (14, false),
+                (15, false),
+                (16, false),
             ]
         );
 
