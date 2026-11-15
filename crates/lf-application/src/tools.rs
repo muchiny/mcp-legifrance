@@ -41,6 +41,11 @@ impl ToolName {
     pub const FR_DIFF_ARTICLE: Self = Self("fr_diff_article");
     /// `fr_search_all` (M7).
     pub const FR_SEARCH_ALL: Self = Self("fr_search_all");
+    /// `fr_search_bofip` (MB). Hors de [`ToolName::ALL`] tant que l'outil n'est pas enregistré
+    /// par l'adapter MCP : il y entre avec son routeur et la ligne d'instructions (T-MB-30).
+    pub const FR_SEARCH_BOFIP: Self = Self("fr_search_bofip");
+    /// `fr_get_bofip` (MB). Hors de [`ToolName::ALL`] comme [`ToolName::FR_SEARCH_BOFIP`].
+    pub const FR_GET_BOFIP: Self = Self("fr_get_bofip");
 
     /// Lecture de la resource `legifrance://article/{article_id}` (M7), nom d'audit
     /// `resource:article`.
@@ -126,6 +131,21 @@ mod tests {
         }
         let names: HashSet<&str> = later.iter().map(|(_, name)| *name).collect();
         assert_eq!(names.len(), later.len());
+    }
+
+    /// Les deux outils du BOFiP ont leur nom d'audit dès le jalon MB, mais n'entrent dans `ALL`
+    /// qu'avec leur routeur (T-MB-30) : jusque-là, les tests de dérive entre `ALL`, les outils
+    /// enregistrés et les instructions restent verts.
+    #[test]
+    fn bofip_tools_have_constants_outside_all_until_registered() {
+        let pending = [
+            (ToolName::FR_SEARCH_BOFIP, "fr_search_bofip"),
+            (ToolName::FR_GET_BOFIP, "fr_get_bofip"),
+        ];
+        for (tool, name) in pending {
+            assert_eq!(tool.as_str(), name);
+            assert!(!ToolName::ALL.contains(&tool), "{name}");
+        }
     }
 
     #[test]

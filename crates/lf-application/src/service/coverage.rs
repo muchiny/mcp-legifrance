@@ -12,14 +12,14 @@ use crate::{
     error::AppError,
     input::{CoverageInput, ToolCall},
     output::coverage::CoverageOutput,
-    ports::{AuditLog, Clock, LegalCorpus},
+    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
     tools::ToolName,
     usecase::coverage::CoverageUseCase,
 };
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
     /// `fr_coverage` : ce que le serveur couvre, son environnement et l'état de sa configuration,
     /// sans appel au port (05 §5.8). Métrique d'audit : le nombre de lacunes.
     ///

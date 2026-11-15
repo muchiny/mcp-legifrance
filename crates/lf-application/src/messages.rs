@@ -10,6 +10,7 @@ use std::time::Duration;
 use lf_domain::{
     DomainError,
     date::{CivilDate, VersionDate},
+    doctrine::{BoiId, PublicationId},
     fond::Fond,
     text::is_invisible,
 };
@@ -19,6 +20,7 @@ use crate::{
     ports::{
         audit::AuditError,
         corpus::{AuthOrigin, ConfigKind, CorpusError},
+        doctrine::{DoctrineError, PortalCode},
     },
     tools::ToolName,
 };
@@ -44,6 +46,20 @@ const TOO_LARGE_FOR_GET_ACT: &str = "this text is too large for fr_get_act; read
 /// Message d'un refus d'identifiants (sans le statut, que `credentials_rejected` ajoute).
 const CREDENTIALS_REJECTED_HINT: &str =
     ": check LF_PISTE_CLIENT_ID, LF_PISTE_CLIENT_SECRET and LF_PISTE_ENV.";
+
+/// Message d'une source BOFiP coupée (05 §5.14) : texte fixe, rendu sans aucune E/S. Il ne dit
+/// pas laquelle des trois causes joue (`LF_BOFIP=off`, valeur invalide, mode hors ligne) :
+/// `check-config` le dit à l'opérateur.
+pub const DOCTRINE_DISABLED_MESSAGE: &str = "the BOFiP source is turned off (LF_BOFIP is off or \
+     invalid, or the server runs offline with LF_DILA_DIR): fr_search_bofip and fr_get_bofip are \
+     unavailable. Set LF_BOFIP=on to query the DGFiP open data portal.";
+
+/// Message d'une réponse du portail du BOFiP illisible ou non conforme, repris pour un
+/// `NotFound` qu'une recherche ne devrait jamais recevoir.
+const DOCTRINE_DECODE_MESSAGE: &str = "unexpected response from the BOFiP portal; report it.";
+
+/// Message d'une réponse du portail du BOFiP au-delà de la borne de corps.
+const DOCTRINE_TOO_LARGE_MESSAGE: &str = "the BOFiP portal answer is too large; report it.";
 
 /// Coupe `message` à `max_chars` caractères (points de code), sans jamais scinder un caractère
 /// multi-octets. Pas de points de suspension : la coupe est une borne de sûreté, pas un résumé.
@@ -231,23 +247,25 @@ fn upstream(tool: ToolName, status: Option<u16>, retryable: bool) -> AppError {
         retry_suffix(retryable)
     };
     match status {
-        Some(status) => {
-            let reason = match status {
-                500 => " (internal server error)",
-                502 => " (bad gateway)",
-                503 => " (service unavailable)",
-                504 => " (gateway timeout)",
-                _ => "",
-            };
-            AppError::Upstream {
-                message: format!("Legifrance/PISTE HTTP {status}{reason}{suffix}"),
-                cause: UpstreamCause::Status(status),
-            }
-        }
+        Some(status) => AppError::Upstream {
+            message: format!("Legifrance/PISTE HTTP {status}{}{suffix}", status_reason(status)),
+            cause: UpstreamCause::Status(status),
+        },
         None => AppError::Upstream {
             message: format!("could not reach Legifrance/PISTE (connection failed){suffix}"),
             cause: UpstreamCause::Network,
         },
+    }
+}
+
+/// Nom du statut entre parenthèses, pour les quatre statuts de panne documentés ; vide sinon.
+const fn status_reason(status: u16) -> &'static str {
+    match status {
+        500 => " (internal server error)",
+        502 => " (bad gateway)",
+        503 => " (service unavailable)",
+        504 => " (gateway timeout)",
+        _ => "",
     }
 }
 
@@ -301,6 +319,98 @@ fn config(kind: ConfigKind, detail: &str) -> AppError {
         ConfigKind::Settings => clip(detail, SETTINGS_DETAIL_MAX),
     };
     AppError::config(message)
+}
+
+/// Traduit une erreur du port de doctrine en `AppError` (05 §5.14, §5.15).
+///
+/// `subject` est l'identifiant demandé, cité par le message `not_found` de `fr_get_bofip` (vide
+/// pour `fr_search_bofip`). Le `match` est exhaustif. Aucun `detail` n'est recopié, aucun
+/// `Display` de [`DoctrineError`] n'est appelé : le message est bâti sur la variante, le statut
+/// et le [`PortalCode`], et il nomme le BOFiP, jamais PISTE ni Légifrance.
+#[must_use]
+pub fn doctrine_error(tool: ToolName, subject: &str, error: &DoctrineError) -> AppError {
+    match error {
+        DoctrineError::Disabled => AppError::config(DOCTRINE_DISABLED_MESSAGE),
+        DoctrineError::NotFound => doctrine_not_found(tool, subject),
+        DoctrineError::RateLimited { retry_after } => doctrine_rate_limited(*retry_after),
+        DoctrineError::InvalidRequest { status, code } => doctrine_rejected(*status, code.as_ref()),
+        DoctrineError::Upstream { status, retryable, detail: _ } => {
+            doctrine_upstream(*status, *retryable)
+        }
+        DoctrineError::Timeout => AppError::Upstream {
+            message: format!("the BOFiP portal did not answer in time{}", retry_suffix(true)),
+            cause: UpstreamCause::Timeout,
+        },
+        DoctrineError::Decode { detail: _ } => doctrine_decode(DOCTRINE_DECODE_MESSAGE),
+        DoctrineError::TooLarge { detail: _ } => doctrine_decode(DOCTRINE_TOO_LARGE_MESSAGE),
+    }
+}
+
+/// Réponse du portail inexploitable : non réessayable, donc sans invitation à réessayer.
+fn doctrine_decode(message: &str) -> AppError {
+    AppError::Upstream { message: message.to_owned(), cause: UpstreamCause::Decode }
+}
+
+/// Message `not_found` de `fr_get_bofip` (05 §5.15). Une recherche ne peut pas le recevoir :
+/// repli défensif sur le message de `Decode`.
+fn doctrine_not_found(tool: ToolName, subject: &str) -> AppError {
+    match tool {
+        ToolName::FR_GET_BOFIP => AppError::not_found(format!(
+            "No BOFiP publication found for {subject}. Check the id, or search with \
+             fr_search_bofip."
+        )),
+        _ => doctrine_decode(DOCTRINE_DECODE_MESSAGE),
+    }
+}
+
+/// `publication_id` qui ne désigne aucune des publications de l'identifiant (05 §5.15) : le
+/// message nomme le ou les numéros qui existent, dans l'ordre reçu.
+#[must_use]
+pub fn doctrine_publication_not_found(
+    id: &BoiId,
+    wanted: PublicationId,
+    existing: &[PublicationId],
+) -> AppError {
+    let numbers = existing.iter().map(ToString::to_string).collect::<Vec<_>>().join(" or ");
+    AppError::not_found(format!(
+        "No BOFiP publication {wanted} for {id}: publication_id must be {numbers}."
+    ))
+}
+
+/// Quota du portail, repos de la source ou budget du jour : secondes arrondies au supérieur, ou
+/// « later » sans délai exploitable (absent ou nul).
+fn doctrine_rate_limited(retry_after: Option<Duration>) -> AppError {
+    let message = match retry_after {
+        Some(delay) if !delay.is_zero() => {
+            format!("BOFiP portal quota reached; retry in {} s.", ceil_secs(delay))
+        }
+        Some(_) | None => "BOFiP portal quota reached; retry later.".to_owned(),
+    };
+    AppError::RateLimited { message, retry_after }
+}
+
+/// Refus 400 du portail : le statut, et le code d'erreur quand il a la forme attendue.
+fn doctrine_rejected(status: u16, code: Option<&PortalCode>) -> AppError {
+    let code = code.map_or_else(String::new, |code| format!(", {}", code.as_str()));
+    AppError::Upstream {
+        message: format!("the BOFiP portal rejected the request (HTTP {status}{code}); report it."),
+        cause: UpstreamCause::Status(status),
+    }
+}
+
+/// Panne du portail. Sans statut, c'est une erreur réseau.
+fn doctrine_upstream(status: Option<u16>, retryable: bool) -> AppError {
+    let suffix = retry_suffix(retryable);
+    match status {
+        Some(status) => AppError::Upstream {
+            message: format!("BOFiP portal HTTP {status}{}{suffix}", status_reason(status)),
+            cause: UpstreamCause::Status(status),
+        },
+        None => AppError::Upstream {
+            message: format!("could not reach the BOFiP portal (connection failed){suffix}"),
+            cause: UpstreamCause::Network,
+        },
+    }
 }
 
 /// Longueur maximale, en caractères, d'une valeur de l'utilisateur recopiée dans un message
@@ -438,8 +548,8 @@ pub fn domain_arg(tool: ToolName, arg: Option<&'static str>, error: &DomainError
             "in_force_only only applies to fond KALI, not {fond}; set fond=KALI or remove it."
         )),
         DomainError::PageBeyondReach { page, page_size, max } => invalid_argument(format!(
-            "page={page} with page_size={page_size} goes beyond the {max} reachable results; \
-             narrow the query with match or date_from/date_to."
+            "page={page} with page_size={page_size} goes beyond the {max} reachable results; {}",
+            narrow_hint(tool)
         )),
         DomainError::OffsetPastEnd { offset, text_length } => invalid_argument(format!(
             "offset={offset} is at or past the end of the text (text_length={text_length}); restart \
@@ -457,10 +567,46 @@ pub fn domain_arg(tool: ToolName, arg: Option<&'static str>, error: &DomainError
         DomainError::NumberKindNotApplicable { fond, kind } => {
             invalid_argument(format!("{kind} is not a number kind of fond {fond}."))
         }
+        DomainError::InvalidBoiId { input, .. } => invalid_boi_id(id, input),
+        DomainError::InvalidSerie { input, .. } => invalid_serie(input),
+        DomainError::QueryWithoutWords => invalid_argument(QUERY_WITHOUT_WORDS),
         DomainError::HitKindMismatch { .. }
         | DomainError::TocTooDeep { .. }
         | DomainError::TextTooLarge { .. }
         | DomainError::EmptyCoverageGaps => decode(),
+    }
+}
+
+/// Message d'une requête du BOFiP sans lettre ni chiffre (05 §5.14).
+const QUERY_WITHOUT_WORDS: &str = "query contains no searchable word (only punctuation or symbols); \
+                                   give a few plain words.";
+
+/// Identifiant qui n'a pas la forme d'un identifiant du BOFiP (05 §5.15) : l'argument `id` est
+/// nommé, la valeur recopiée sous forme sûre, et le message dit où en trouver un.
+fn invalid_boi_id(id: &str, input: &str) -> AppError {
+    invalid_argument(format!(
+        "{id}='{}' is not a BOFiP identifier (letters, digits and hyphens, e.g. \
+         BOI-ENR-DMTG-10-50-20); find one with fr_search_bofip.",
+        shown(input)
+    ))
+}
+
+/// Code de série mal formé (05 §5.14). Un code bien formé mais inconnu n'est pas une erreur : la
+/// recherche rend alors zéro résultat.
+fn invalid_serie(input: &str) -> AppError {
+    invalid_argument(format!(
+        "serie='{}' is not a BOFiP serie code (1 to 16 letters or digits, e.g. ENR, IR, RFPI); \
+         omit it to search every serie.",
+        shown(input)
+    ))
+}
+
+/// Comment resserrer une recherche dont la page sort de la fenêtre atteignable : chaque moteur a
+/// ses filtres, et celui du BOFiP n'a ni mode de correspondance ni période.
+fn narrow_hint(tool: ToolName) -> &'static str {
+    match tool {
+        ToolName::FR_SEARCH_BOFIP => "narrow the query with more words or with serie.",
+        _ => "narrow the query with match or date_from/date_to.",
     }
 }
 
@@ -1850,6 +1996,268 @@ mod tests {
                     "unexpected response from Legifrance; report it."
                 ),
                 "{error}"
+            );
+        }
+    }
+    // ---------------------------------------------------------------------------------------
+    // BOFiP (jalon MB) : erreurs du port de doctrine et erreurs du domaine propres au BOFiP.
+    // ---------------------------------------------------------------------------------------
+
+    const BOI: &str = "BOI-ENR-DMTG-10-50-20";
+
+    /// Chaque variante du port de doctrine, avec le code, la cause et le message attendus pour
+    /// `fr_get_bofip`.
+    fn doctrine_rows() -> Vec<(DoctrineError, ErrorCode, Option<UpstreamCause>, String)> {
+        let upstream = |status, retryable| DoctrineError::Upstream {
+            status,
+            retryable,
+            detail: SENTINEL.to_owned(),
+        };
+        vec![
+            (
+                DoctrineError::Disabled,
+                ErrorCode::ConfigError,
+                None,
+                "the BOFiP source is turned off (LF_BOFIP is off or invalid, or the server runs \
+                 offline with LF_DILA_DIR): fr_search_bofip and fr_get_bofip are unavailable. Set \
+                 LF_BOFIP=on to query the DGFiP open data portal."
+                    .to_owned(),
+            ),
+            (
+                DoctrineError::NotFound,
+                ErrorCode::NotFound,
+                None,
+                format!(
+                    "No BOFiP publication found for {BOI}. Check the id, or search with \
+                     fr_search_bofip."
+                ),
+            ),
+            (
+                DoctrineError::RateLimited { retry_after: Some(Duration::from_millis(1_500)) },
+                ErrorCode::RateLimited,
+                None,
+                "BOFiP portal quota reached; retry in 2 s.".to_owned(),
+            ),
+            (
+                DoctrineError::RateLimited { retry_after: Some(Duration::ZERO) },
+                ErrorCode::RateLimited,
+                None,
+                "BOFiP portal quota reached; retry later.".to_owned(),
+            ),
+            (
+                DoctrineError::RateLimited { retry_after: None },
+                ErrorCode::RateLimited,
+                None,
+                "BOFiP portal quota reached; retry later.".to_owned(),
+            ),
+            (
+                DoctrineError::InvalidRequest {
+                    status: 400,
+                    code: PortalCode::parse("ODSQLSyntaxError"),
+                },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Status(400)),
+                "the BOFiP portal rejected the request (HTTP 400, ODSQLSyntaxError); report it."
+                    .to_owned(),
+            ),
+            (
+                DoctrineError::InvalidRequest { status: 400, code: None },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Status(400)),
+                "the BOFiP portal rejected the request (HTTP 400); report it.".to_owned(),
+            ),
+            (
+                upstream(Some(503), true),
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Status(503)),
+                "BOFiP portal HTTP 503 (service unavailable); retry once, then report it."
+                    .to_owned(),
+            ),
+            (
+                upstream(Some(404), false),
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Status(404)),
+                "BOFiP portal HTTP 404; report it.".to_owned(),
+            ),
+            (
+                upstream(None, true),
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Network),
+                "could not reach the BOFiP portal (connection failed); retry once, then report it."
+                    .to_owned(),
+            ),
+            (
+                DoctrineError::Timeout,
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Timeout),
+                "the BOFiP portal did not answer in time; retry once, then report it.".to_owned(),
+            ),
+            (
+                DoctrineError::Decode { detail: SENTINEL.to_owned() },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Decode),
+                "unexpected response from the BOFiP portal; report it.".to_owned(),
+            ),
+            (
+                DoctrineError::TooLarge { detail: SENTINEL.to_owned() },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Decode),
+                "the BOFiP portal answer is too large; report it.".to_owned(),
+            ),
+        ]
+    }
+
+    /// Les deux outils du BOFiP rendent les six codes de 02 §9, et eux seuls : quatre viennent du
+    /// port de doctrine, `invalid_arg` de la validation du domaine, `audit_error` du journal.
+    #[test]
+    fn doctrine_errors_map_to_the_six_codes() {
+        let mut codes = Vec::new();
+        for (error, code, cause, message) in doctrine_rows() {
+            let app = doctrine_error(ToolName::FR_GET_BOFIP, BOI, &error);
+            assert_eq!(view(&app), (Some(code), cause, message.as_str()));
+            codes.push(code);
+        }
+        let invalid = domain(ToolName::FR_GET_BOFIP, &BoiId::parse("?").unwrap_err());
+        codes.extend(invalid.code());
+        let failure = AuditError { kind: AuditErrorKind::Io, detail: String::new() };
+        codes.extend(audit(&failure, None).code());
+        codes.sort_by_key(|code| code.as_str());
+        codes.dedup();
+        let mut all = ErrorCode::ALL;
+        all.sort_by_key(|code| code.as_str());
+        assert_eq!(codes, all);
+    }
+
+    /// Aucun message du BOFiP ne nomme PISTE ni Légifrance, ne recopie un `detail` du port, ni ne
+    /// change selon l'outil, hors le `not_found` de `fr_get_bofip`.
+    #[test]
+    fn doctrine_messages_name_the_portal_and_never_echo_a_detail() {
+        for (error, _, _, message) in doctrine_rows() {
+            for tool in [ToolName::FR_SEARCH_BOFIP, ToolName::FR_GET_BOFIP] {
+                let app = doctrine_error(tool, BOI, &error);
+                let text = app.message();
+                assert!(text.contains("BOFiP"), "{text}");
+                for word in
+                    ["PISTE", "Legifrance", "Légifrance", "example.invalid", "client_secret"]
+                {
+                    assert!(!text.contains(word), "{text}");
+                }
+                assert!(text.chars().count() <= 300, "{text}");
+            }
+            if error != DoctrineError::NotFound {
+                assert_eq!(
+                    doctrine_error(ToolName::FR_SEARCH_BOFIP, "", &error).message(),
+                    message
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_search_never_receives_a_doctrine_not_found_and_falls_back_to_decode() {
+        for tool in [ToolName::FR_SEARCH_BOFIP, ToolName::FR_SEARCH, ToolName::FR_COVERAGE] {
+            assert_eq!(
+                doctrine_error(tool, "", &DoctrineError::NotFound),
+                expected_upstream(
+                    UpstreamCause::Decode,
+                    "unexpected response from the BOFiP portal; report it."
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn doctrine_rate_limit_keeps_the_announced_delay() {
+        let delay = Some(Duration::from_secs(900));
+        assert_eq!(
+            doctrine_error(
+                ToolName::FR_SEARCH_BOFIP,
+                "",
+                &DoctrineError::RateLimited { retry_after: delay }
+            ),
+            AppError::RateLimited {
+                message: "BOFiP portal quota reached; retry in 900 s.".to_owned(),
+                retry_after: delay,
+            }
+        );
+    }
+
+    #[test]
+    fn a_wrong_publication_id_names_the_numbers_that_exist() {
+        let id = BoiId::parse(BOI).unwrap();
+        let number = |value| PublicationId::new(value).unwrap();
+        assert_eq!(
+            doctrine_publication_not_found(&id, number(9), &[number(3350)]),
+            AppError::not_found(format!(
+                "No BOFiP publication 9 for {BOI}: publication_id must be 3350."
+            ))
+        );
+        assert_eq!(
+            doctrine_publication_not_found(&id, number(9), &[number(3350), number(12_001)]),
+            AppError::not_found(format!(
+                "No BOFiP publication 9 for {BOI}: publication_id must be 3350 or 12001."
+            ))
+        );
+    }
+
+    #[test]
+    fn bofip_input_errors_have_their_own_texts() {
+        use lf_domain::doctrine::{DoctrineTerms, Serie};
+        let rows = [
+            (
+                ToolName::FR_GET_BOFIP,
+                BoiId::parse("LEGIARTI 000006419288").unwrap_err(),
+                "id='LEGIARTI 000006419288' is not a BOFiP identifier (letters, digits and \
+                 hyphens, e.g. BOI-ENR-DMTG-10-50-20); find one with fr_search_bofip.",
+            ),
+            (
+                ToolName::FR_SEARCH_BOFIP,
+                Serie::parse("EN R\n").unwrap_err(),
+                "serie='EN R\\n' is not a BOFiP serie code (1 to 16 letters or digits, e.g. ENR, \
+                 IR, RFPI); omit it to search every serie.",
+            ),
+            (
+                ToolName::FR_SEARCH_BOFIP,
+                DoctrineTerms::parse("« … »").unwrap_err(),
+                "query contains no searchable word (only punctuation or symbols); give a few \
+                 plain words.",
+            ),
+            (
+                ToolName::FR_SEARCH_BOFIP,
+                DomainError::PageBeyondReach { page: 101, page_size: 100, max: 10_000 },
+                "page=101 with page_size=100 goes beyond the 10000 reachable results; narrow the \
+                 query with more words or with serie.",
+            ),
+            (
+                ToolName::FR_SEARCH_BOFIP,
+                PublicationId::new(0).unwrap_err(),
+                "publication_id=0 out of range (1..9999999).",
+            ),
+        ];
+        for (tool, error, text) in rows {
+            assert_eq!(domain(tool, &error), invalid(text), "{error}");
+        }
+        // `domain_arg` nomme l'argument de l'identifiant quand l'appelant le donne.
+        assert_eq!(
+            domain_arg(ToolName::FR_GET_BOFIP, Some("boi"), &BoiId::parse("").unwrap_err()),
+            invalid(
+                "boi='' is not a BOFiP identifier (letters, digits and hyphens, e.g. \
+                 BOI-ENR-DMTG-10-50-20); find one with fr_search_bofip."
+            )
+        );
+    }
+
+    /// Les autres recherches gardent leur consigne : seule celle du BOFiP parle de `serie`.
+    #[test]
+    fn page_beyond_reach_hint_depends_on_the_search_engine() {
+        let error = DomainError::PageBeyondReach { page: 200, page_size: 100, max: 10_000 };
+        for tool in [ToolName::FR_SEARCH, ToolName::FR_SEARCH_ALL, ToolName::FR_GET_BOFIP] {
+            assert_eq!(
+                domain(tool, &error),
+                invalid(
+                    "page=200 with page_size=100 goes beyond the 10000 reachable results; narrow \
+                     the query with match or date_from/date_to."
+                )
             );
         }
     }

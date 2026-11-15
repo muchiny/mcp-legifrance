@@ -7,7 +7,7 @@
 
 use lf_application::{
     input::GetDecisionInput,
-    ports::{AuditLog, Clock, LegalCorpus},
+    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
 };
 use rmcp::{Json, model::JsonObject};
 use rmcp_macros::{tool, tool_router};
@@ -26,7 +26,7 @@ use crate::{
 const DESCRIPTION: &str = r#"Read a court decision by id: JURITEXT (Cour de cassation, courts of appeal), CONSTEXT (Conseil constitutionnel) or CETATEXT (Conseil d'État, administrative courts), as found by fr_search. Returns court, formation, solution, case numbers, date, the native `ecli` when Légifrance has one (never invented), citation and source_url. By default it adds a short `summary`: the official summary when published, else the operative part or the beginning of the text; a short decision comes back whole in `text`. Use `detail`="full" with `offset`/`max_chars` (default 4,000 characters) to read the text page by page (follow `next_offset`), or `focus` to get the best matching passages (default 3)."#;
 
 #[tool_router(router = get_decision_router, vis = "pub(crate)")]
-impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
     #[tool(
         name = "fr_get_decision",
         title = "Read a court decision",

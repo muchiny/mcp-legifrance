@@ -32,7 +32,11 @@ use lf_adapter_piste::{
     ConfigProblem, ConfigWarning, PisteConfig, PisteCredentials, PisteEndpoints, PisteTuning,
     RateQuota,
 };
-use lf_application::{audited::AuditMode, ports::PisteEnvironment, service::ConfigurationState};
+use lf_application::{
+    audited::AuditMode,
+    ports::PisteEnvironment,
+    service::{ConfigurationState, DoctrineSource},
+};
 use secrecy::SecretString;
 use tracing_subscriber::EnvFilter;
 
@@ -950,6 +954,9 @@ pub(crate) fn load(env: &impl EnvSource) -> Loaded {
             // L'index local est un instantané : une absence n'y prouve rien et `fr_coverage` ne le
             // présente pas comme du direct. Une source inutilisable ne sert aucun texte.
             local_snapshot: matches!(source, CorpusSource::Dila(_)),
+            // Aucun outil du BOFiP n'est encore servi : l'état sera lu de `LF_BOFIP` quand la
+            // source sera branchée (jalon MB, 00 §1).
+            doctrine: DoctrineSource::NotServed,
         },
         source,
     };
@@ -1101,7 +1108,8 @@ mod tests {
                 credentials_configured: true,
                 custom_host: false,
                 problems: Vec::new(),
-                local_snapshot: false
+                local_snapshot: false,
+                doctrine: DoctrineSource::NotServed,
             }
         );
     }

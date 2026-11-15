@@ -186,4 +186,27 @@ mod tests {
         let output = CoverageUseCase::new(&settings, &clock).execute(&CoverageInput);
         assert_eq!(output.consulted_on, CivilDate::new(2026, 10, 29).unwrap());
     }
+    /// L'état de la source de doctrine vient de la configuration de la façade : il donne FR-106
+    /// ou FR-107 sans changer le statut, et rien tant qu'aucun outil du BOFiP n'est servi.
+    #[test]
+    fn the_bofip_source_state_reaches_the_coverage_without_changing_the_status() {
+        use crate::service::DoctrineSource;
+
+        let run_with = |doctrine| {
+            let configuration = ConfigurationState { doctrine, ..configured() };
+            run(&settings(PisteEnvironment::Production, AuditMode::Strict, configuration))
+        };
+        let rows = [
+            (DoctrineSource::NotServed, "FR-009", 9),
+            (DoctrineSource::Active, "FR-106", 10),
+            (DoctrineSource::Off, "FR-107", 10),
+        ];
+        for (doctrine, last, count) in rows {
+            let output = run_with(doctrine);
+            assert_eq!(output.coverage.status(), CoverageStatus::Ok, "{doctrine:?}");
+            assert_eq!((gap_ids(&output).last(), gap_ids(&output).len()), (Some(&last), count));
+            // Les huit familles de Légifrance, sans famille du BOFiP dans le domaine.
+            assert_eq!(output.coverage.families().len(), 8);
+        }
+    }
 }

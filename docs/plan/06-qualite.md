@@ -452,7 +452,7 @@ Paquet Cargo `mcp-legifrance`, répertoire `crates/lf-app` (00 §2 ; Q1) : les c
 | `tz_env_does_not_change_today` | `TZ=Pacific/Kiritimati` sans effet sur la date par défaut | PT7 | M4 |
 | `user_agent_contains_crate_version` | User-Agent reçu par wiremock | D-43, P-025 | M4 |
 | `readme_mentions_only_supported_env_vars` | les jetons `[A-Z][A-Z0-9_]{5,}` du README qui ressemblent à des variables sont dans la table de 02 §8.2 (ou dans la liste des variables obsolètes) | D-42 | M4 |
-| `production_sources_contain_only_allowlisted_urls` | aucune URL littérale hors liste blanche (`*.piste.gouv.fr`, `www.legifrance.gouv.fr`, dépôt du projet) dans `crates/*/src` | D-04 | M4 |
+| `production_sources_contain_only_allowlisted_urls` | aucune URL littérale hors liste blanche (`*.piste.gouv.fr`, `www.legifrance.gouv.fr`, dépôt du projet ; depuis le jalon MB, `bofip.impots.gouv.fr`, hôte exact du préfixe des adresses rendues, jamais appelé : ADR-0029, décision 5) dans `crates/*/src` | D-04 | M4 |
 | `versions_are_consistent` | version du paquet `mcp-legifrance` = `serverInfo.version` = `server_version` du verrou = version de `server.json` = version du manifeste MCPB (les deux derniers générés et contrôlés par `cargo xtask lock-descriptors`, 00 §2) | recherche 06 §8.3 | M4 |
 | `regression_catalog_is_implemented` | chaque nom de test du §3.1 dont le jalon est atteint existe dans le code, ou est couvert par la table de correspondance « livré » du §3.1 (lecture de ce document ; ignoré, avec un message, si `docs/` est absent) ; les quelque 130 tests livrés ne sont pas renommés | D-43 | M5 |
 | `perf_*` (`#[ignore]`) | mesures du §12 | — | M5 |

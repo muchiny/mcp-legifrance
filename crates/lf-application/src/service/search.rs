@@ -12,14 +12,14 @@ use crate::{
     error::AppError,
     input::{SearchInput, ToolCall},
     output::search::SearchOutput,
-    ports::{AuditLog, Clock, LegalCorpus},
+    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
     tools::ToolName,
     usecase::search::SearchUseCase,
 };
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
     /// `fr_search` : recherche plein texte dans un fond (05 §5.1), auditée sous `fr_search`.
     ///
     /// `cancel` se résout quand le client annule l'appel ; l'appel est alors abandonné et audité

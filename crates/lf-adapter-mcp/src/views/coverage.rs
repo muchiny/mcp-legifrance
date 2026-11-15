@@ -232,7 +232,7 @@ mod tests {
 
     use lf_application::output::coverage::CoverageConfiguration;
     use lf_domain::{
-        coverage::{ConfigFacts, Coverage, coverage},
+        coverage::{ConfigFacts, Coverage, DoctrineSource, coverage},
         date::CivilDate,
     };
     use pretty_assertions::assert_eq;
@@ -253,6 +253,7 @@ mod tests {
             custom_host,
             has_problems: !problems.is_empty(),
             local_snapshot: false,
+            doctrine: DoctrineSource::NotServed,
         };
         CoverageOutput {
             coverage: coverage(environment, &facts, &Fond::ALL),
@@ -324,6 +325,7 @@ mod tests {
             custom_host: false,
             has_problems: false,
             local_snapshot: true,
+            doctrine: DoctrineSource::NotServed,
         };
         out.coverage = coverage(PisteEnvironment::Production, &facts, &[Fond::Loda, Fond::Code]);
         out.configuration.local_snapshot = true;

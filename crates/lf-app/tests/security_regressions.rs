@@ -777,6 +777,9 @@ mod security {
     /// PISTE (`piste.gouv.fr` et ses sous-domaines), `www.legifrance.gouv.fr`, le dépôt du projet,
     /// et la boucle locale en `http` (surcharge locale, 04 §2.3). Un userinfo ou un hôte qui n'est
     /// qu'un préfixe d'un autre (`legifrance.gouv.fr.example.org`) n'y est pas.
+    ///
+    /// BOFiP (ADR-0029, décision 5) : `bofip.impots.gouv.fr`, l'hôte exact, en `https` seul. C'est
+    /// le préfixe de la grammaire des adresses rendues dans `source_url` ; il n'est jamais appelé.
     fn allowlisted(url: &str) -> bool {
         let Some((scheme, rest)) = url.split_once("://") else { return false };
         if rest.contains('@') {
@@ -792,6 +795,7 @@ mod security {
                 name == "piste.gouv.fr"
                     || name.ends_with(".piste.gouv.fr")
                     || name == "www.legifrance.gouv.fr"
+                    || name == "bofip.impots.gouv.fr"
                     || rest.starts_with("github.com/muchiny/mcp-legifrance")
             }
             "http" => matches!(name, "127.0.0.1" | "localhost" | "[::1]"),
@@ -827,14 +831,30 @@ mod security {
                       let e = \"https://github.com/muchiny/mcp-legifrance\";\n\
                       let f = \"http://127.0.0.1:8080/x\";\n\
                       let g = \"http://sandbox-api.piste.gouv.fr/x\";\n\
-                      #[cfg(test)]\nmod tests { let h = \"https://tests.example.org\"; }\n";
+                      let h = \"https://bofip.impots.gouv.fr/bofip/1-PGP.html\";\n\
+                      let i = \"https://bofip.impots.gouv.fr.example.org/\";\n\
+                      let j = \"https://www.bofip.impots.gouv.fr/\";\n\
+                      let k = \"http://bofip.impots.gouv.fr/\";\n\
+                      #[cfg(test)]\nmod tests { let z = \"https://tests.example.org\"; }\n";
         let verdicts: Vec<(usize, bool)> = url_hosts(production_part(sample))
             .iter()
             .map(|(line, url)| (*line, allowlisted(url)))
             .collect();
         assert_eq!(
             verdicts,
-            [(1, true), (3, false), (4, false), (5, false), (6, true), (7, true), (8, false)]
+            [
+                (1, true),
+                (3, false),
+                (4, false),
+                (5, false),
+                (6, true),
+                (7, true),
+                (8, false),
+                (9, true),
+                (10, false),
+                (11, false),
+                (12, false),
+            ]
         );
 
         let mut files = Vec::new();

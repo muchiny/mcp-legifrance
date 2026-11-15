@@ -23,6 +23,7 @@ pub use clean::{
 pub use focus::{FOCUS_MAX_CHARS, Focus};
 pub use fold::fold;
 pub use html::is_invisible;
+pub(crate) use html::strip_invisible;
 pub use long_text::LongText;
 pub use passages::{Passage, passages};
 pub use rank::{B, K1, Scored, rank};

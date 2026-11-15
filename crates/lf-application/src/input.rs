@@ -227,6 +227,32 @@ pub struct SearchAllInput {
     pub per_fond: Option<i64>,
 }
 
+/// Arguments de `fr_search_bofip` (05 §5.14).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SearchBofipInput {
+    /// Mots cherchés : tous doivent figurer dans la publication.
+    pub query: Option<String>,
+    /// Code de série (`ENR`, `IR`…) ; absent : toutes les séries.
+    pub serie: Option<String>,
+    /// Nature des publications : `doctrine` (défaut), `news` ou `all`.
+    pub kind: Option<String>,
+    /// Numéro de page, à partir de 1.
+    pub page: Option<i64>,
+    /// Résultats par page, de 1 à 100.
+    pub page_size: Option<i64>,
+}
+
+/// Arguments de `fr_get_bofip` (05 §5.15).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GetBofipInput {
+    /// Identifiant de la publication (`BOI-…`, `ACTU-…`).
+    pub id: Option<String>,
+    /// Numéro de la publication, quand deux publications portent le même identifiant.
+    pub publication_id: Option<i64>,
+    /// Paramètres de lecture.
+    pub reading: ReadingInput,
+}
+
 /// Lecture d'une resource MCP (05 §8).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResourceInput {

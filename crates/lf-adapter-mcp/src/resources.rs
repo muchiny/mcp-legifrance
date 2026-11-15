@@ -298,6 +298,7 @@ mod tests {
                     custom_host: false,
                     has_problems: false,
                     local_snapshot: false,
+                    doctrine: lf_domain::coverage::DoctrineSource::NotServed,
                 },
                 &lf_domain::fond::Fond::ALL,
             ),

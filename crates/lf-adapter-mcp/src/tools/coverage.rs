@@ -6,7 +6,7 @@
 
 use lf_application::{
     input::CoverageInput,
-    ports::{AuditLog, Clock, LegalCorpus},
+    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
 };
 use rmcp::{Json, model::JsonObject};
 use rmcp_macros::{tool, tool_router};
@@ -25,7 +25,7 @@ use crate::{
 pub(crate) const DESCRIPTION: &str = "Describe what this server covers, how it is sourced and what it does NOT cover. Call it before telling a user that the law \"does not contain\" something, and whenever a search comes back empty: the gap may be in this server, not in the law. Each gap comes with a fallback. It also reports the PISTE environment (sandbox or production), whether the configuration is complete, the data source and licence with today's consultation date, and the note on ELI identifiers. No arguments, no network call.";
 
 #[tool_router(router = coverage_router, vis = "pub(crate)")]
-impl<C: LegalCorpus, A: AuditLog, K: Clock> LegifranceServer<C, A, K> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
     #[tool(
         name = "fr_coverage",
         title = "Coverage and known gaps",

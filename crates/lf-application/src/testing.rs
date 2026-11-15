@@ -1,8 +1,9 @@
 //! Doublures de test des ports de `lf-application` (06 §2.2), derrière la feature `test-support`.
 //!
 //! [`FakeCorpus`] rejoue des réponses programmées et note chaque appel avec ses arguments
-//! ([`PortRequest`]), [`FixedClock`] fige l'heure, [`MemoryAuditLog`] garde les lignes écrites et
-//! [`FailingAuditLog`] échoue toujours. Les doublures servent aux tests de ce crate (`cfg(test)`)
+//! ([`PortRequest`]), [`FakeDoctrine`] fait de même pour le port de doctrine
+//! ([`DoctrineRequest`]), [`FixedClock`] fige l'heure, [`MemoryAuditLog`] garde les lignes écrites
+//! et [`FailingAuditLog`] échoue toujours. Les doublures servent aux tests de ce crate (`cfg(test)`)
 //! et, par la feature, aux dev-dependencies des autres membres : `cargo xtask check-arch` (R10)
 //! interdit de l'activer en dépendance normale, aucun binaire ne les embarque.
 //!
@@ -24,6 +25,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use lf_domain::{
     date::{CivilDate, VersionDate},
+    doctrine::{BoiId, DoctrineDoc, DoctrinePage, DoctrineQuery},
     entity::{
         Act, ArticleText, ArticleVersion, CodeListing, CompanyAgreement, Convention, Decision,
         Deliberation, RelatedLinks, SearchHit, SearchPage,
@@ -36,7 +38,7 @@ use crate::{
     deadline::Deadline,
     ports::{
         ArticleAt, AuditError, AuditErrorKind, AuditLog, AuditRecord, Clock, ConfigKind,
-        CorpusError, LegalCorpus,
+        CorpusError, DoctrineError, LegalCorpus, TaxDoctrine,
     },
 };
 
@@ -364,6 +366,94 @@ impl LegalCorpus for FakeCorpus {
     }
 }
 
+/// Un appel reçu par [`FakeDoctrine`] : la méthode du port et une copie de son argument.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DoctrineRequest {
+    /// `search(query)`.
+    Search(DoctrineQuery),
+    /// `get(id)`.
+    Get(BoiId),
+}
+
+/// File de réponses d'une méthode du port de doctrine.
+type DoctrineResponses<T> = Mutex<VecDeque<Result<T, DoctrineError>>>;
+
+/// Fausse source de doctrine : une file de réponses par méthode du port, rejouées dans l'ordre.
+///
+/// Une file vide rend un `Decode` qui nomme la méthode : un test qui oublie de programmer une
+/// réponse échoue avec un message lisible. Chaque appel est noté avec son argument
+/// ([`FakeDoctrine::seen_requests`]) : un test vérifie ainsi ce qui est demandé au port, et
+/// qu'un argument refusé ne l'atteint jamais.
+#[derive(Default)]
+pub struct FakeDoctrine {
+    search: DoctrineResponses<DoctrinePage>,
+    get: DoctrineResponses<Vec<DoctrineDoc>>,
+    /// Chaque appel reçu, dans l'ordre des appels.
+    requests: Mutex<Vec<DoctrineRequest>>,
+}
+
+impl FakeDoctrine {
+    /// Fausse source sans réponse programmée.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Programme la prochaine réponse de `search`.
+    pub fn push_search(&self, response: Result<DoctrinePage, DoctrineError>) {
+        lock(&self.search).push_back(response);
+    }
+
+    /// Programme la prochaine réponse de `get`.
+    pub fn push_get(&self, response: Result<Vec<DoctrineDoc>, DoctrineError>) {
+        lock(&self.get).push_back(response);
+    }
+
+    /// Nombre total d'appels reçus, toutes méthodes confondues.
+    #[must_use]
+    pub fn calls(&self) -> usize {
+        lock(&self.requests).len()
+    }
+
+    /// Chaque appel reçu, avec une copie de son argument, dans l'ordre des appels.
+    #[must_use]
+    pub fn seen_requests(&self) -> Vec<DoctrineRequest> {
+        lock(&self.requests).clone()
+    }
+
+    /// Note l'appel, puis rend la réponse suivante de la file, ou un `Decode` qui nomme `method`.
+    fn serve<T>(
+        &self,
+        request: DoctrineRequest,
+        responses: &DoctrineResponses<T>,
+        method: &str,
+    ) -> Result<T, DoctrineError> {
+        lock(&self.requests).push(request);
+        lock(responses).pop_front().unwrap_or_else(|| {
+            Err(DoctrineError::Decode {
+                detail: format!("FakeDoctrine: no response programmed for {method}"),
+            })
+        })
+    }
+}
+
+/// La fausse source n'attend rien : chaque méthode rend un futur déjà prêt.
+impl TaxDoctrine for FakeDoctrine {
+    fn search(
+        &self,
+        query: &DoctrineQuery,
+    ) -> impl Future<Output = Result<DoctrinePage, DoctrineError>> + Send {
+        ready(self.serve(DoctrineRequest::Search(query.clone()), &self.search, "search"))
+    }
+
+    fn get(
+        &self,
+        id: &BoiId,
+    ) -> impl Future<Output = Result<Vec<DoctrineDoc>, DoctrineError>> + Send {
+        ready(self.serve(DoctrineRequest::Get(id.clone()), &self.get, "get"))
+    }
+}
+
 /// Horloge figée : reçoit ses deux valeurs, pour que `lf-application` n'ait pas besoin de
 /// `chrono-tz` (R2, 02 §5.3).
 #[derive(Debug, Clone, Copy)]
@@ -529,6 +619,78 @@ pub(crate) mod fixtures {
     /// rien est prêt au premier sondage.
     pub(crate) fn poll_once<F: Future + Send>(future: F) -> Poll<F::Output> {
         pin!(future).poll(&mut Context::from_waker(Waker::noop()))
+    }
+
+    /// Valeurs du BOFiP pour les tests du crate : un identifiant, ses publications, une requête.
+    pub(crate) mod bofip {
+        use std::num::NonZeroU32;
+
+        use lf_domain::{
+            date::CivilDate,
+            doctrine::{
+                BoiId, DoctrineDoc, DoctrineHit, DoctrineKind, DoctrineQuery, DoctrineTerms,
+                KindFilter, Permalink, Serie, clean_text,
+            },
+            search::PageSize,
+        };
+
+        /// Identifiant des publications de test.
+        pub(crate) const ID: &str = "BOI-ENR-DMTG-10-50-20";
+
+        /// [`ID`], validé.
+        pub(crate) fn id() -> BoiId {
+            BoiId::parse(ID).unwrap()
+        }
+
+        /// Permalien de la publication `number`, à la forme mesurée sur le portail.
+        fn permalink(number: u32) -> Permalink {
+            let raw = format!(
+                "https://bofip.impots.gouv.fr/bofip/{number}-PGP.html/identifiant={ID}-20230524"
+            );
+            Permalink::parse(&raw).unwrap()
+        }
+
+        /// Publication `number` de [`ID`], de texte `text` (vide : publication sans texte).
+        pub(crate) fn doc(number: u32, text: &str) -> DoctrineDoc {
+            let link = permalink(number);
+            DoctrineDoc {
+                id: id(),
+                publication_id: link.publication_id,
+                title: format!("ENR - Mutations à titre gratuit - Donations ({number})"),
+                kind: DoctrineKind::Doctrine,
+                serie: Some(Serie::parse("ENR").unwrap()),
+                division: Some("DMTG".to_owned()),
+                valid_from: CivilDate::new(2023, 5, 24),
+                source_url: link.url,
+                text: clean_text(text).unwrap().0,
+            }
+        }
+
+        /// Résultat de recherche : la publication `number` de [`ID`], de titre `title`.
+        pub(crate) fn hit(number: u32, title: &str) -> DoctrineHit {
+            let link = permalink(number);
+            DoctrineHit {
+                id: id(),
+                publication_id: link.publication_id,
+                title: title.to_owned(),
+                kind: DoctrineKind::Doctrine,
+                serie: Some(Serie::parse("ENR").unwrap()),
+                valid_from: CivilDate::new(2023, 5, 24),
+                source_url: link.url,
+            }
+        }
+
+        /// Requête valide : `donation`, doctrine seule, première page de dix résultats.
+        pub(crate) fn query() -> DoctrineQuery {
+            DoctrineQuery::new(
+                DoctrineTerms::parse("donation").unwrap(),
+                None,
+                KindFilter::default(),
+                NonZeroU32::MIN,
+                PageSize::DEFAULT,
+            )
+            .unwrap()
+        }
     }
 }
 
@@ -1049,5 +1211,49 @@ mod tests {
             assert_eq!(error.kind, kind);
             assert_eq!(error.detail, format!("FailingAuditLog: simulated {kind:?} failure"));
         }
+    }
+    #[tokio::test]
+    async fn fake_doctrine_serves_each_method_from_its_own_queue_and_records_the_calls() {
+        use fixtures::bofip;
+        use lf_domain::doctrine::DoctrinePage;
+
+        let doctrine = FakeDoctrine::new();
+        assert_eq!((doctrine.calls(), doctrine.seen_requests()), (0, Vec::new()));
+        let page = DoctrinePage { total: 1, hits: vec![bofip::hit(3350, "Donations")] };
+        doctrine.push_search(Ok(page.clone()));
+        doctrine.push_search(Err(DoctrineError::Timeout));
+        doctrine.push_get(Ok(vec![bofip::doc(3350, "Texte.")]));
+        doctrine.push_get(Err(DoctrineError::NotFound));
+
+        // Chaque méthode suit sa propre file, dans l'ordre programmé.
+        assert_eq!(doctrine.get(&bofip::id()).await, Ok(vec![bofip::doc(3350, "Texte.")]));
+        assert_eq!(doctrine.search(&bofip::query()).await, Ok(page));
+        assert_eq!(doctrine.search(&bofip::query()).await, Err(DoctrineError::Timeout));
+        assert_eq!(doctrine.get(&bofip::id()).await, Err(DoctrineError::NotFound));
+
+        assert_eq!(doctrine.calls(), 4);
+        assert_eq!(
+            doctrine.seen_requests(),
+            vec![
+                DoctrineRequest::Get(bofip::id()),
+                DoctrineRequest::Search(bofip::query()),
+                DoctrineRequest::Search(bofip::query()),
+                DoctrineRequest::Get(bofip::id()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn fake_doctrine_empty_queue_is_a_decode_error_naming_the_method() {
+        use fixtures::bofip;
+
+        let doctrine = FakeDoctrine::new();
+        let empty = |method: &str| DoctrineError::Decode {
+            detail: format!("FakeDoctrine: no response programmed for {method}"),
+        };
+        assert_eq!(doctrine.search(&bofip::query()).await, Err(empty("search")));
+        assert_eq!(doctrine.get(&bofip::id()).await, Err(empty("get")));
+        // Un appel qui trouve une file vide est quand même noté.
+        assert_eq!(doctrine.calls(), 2);
     }
 }
