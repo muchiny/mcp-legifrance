@@ -10,7 +10,7 @@
 >
 > **Fin du projet (2026-10-29).** Les jalons M3 à M9 et la Distribution ont été écrits sur une seule branche, `feat/fin-du-projet`, par la PR unique #27 (`2026-10-29-fin-du-projet-parallele.md`, vagues V0 à V4 puis fin F1 à F6), à la version **0.3.0** sans release ni étiquette (D14). État par jalon au §4.3 ; une case n'est cochée que si le livrable existe et que le test nommé (ou son équivalent relu) existe et passe sur les trois OS à la tête `4d97b69` ; les portes de couverture à 100 % et de mutation, rouges à cette tête, ne sont pas comptées (§4.3). Amendements : 00 §14 (AM-50 à AM-66), statuts des vérifications : 09 §2.20.
 >
-> **Jalon MB, BOFiP (2026-11-15).** Ajouté par ADR-0028 et ADR-0029 (AM-92, AM-93) : tâches `T-MB-yy` au §2.11 ; code écrit sur la branche `feat/bofip` le 2026-11-15 (état au §2.11) ; PR de code unique fusionnée le 2026-11-15 (PR #85, T-MB-45), puis PR de version 1.3.0 ; rejeu des 13 questions fait le même jour (T-MB-44, résultat au §2.11).
+> **Jalon MB, BOFiP (2026-11-15).** Ajouté par ADR-0028 et ADR-0029 (AM-92, AM-93) : tâches `T-MB-yy` au §2.11 ; code écrit sur la branche `feat/bofip` le 2026-11-15 (état au §2.11) ; PR de code unique fusionnée le 2026-11-15 (PR #85, T-MB-45), puis PR de version 1.3.0 (PR #86, fusionnée le même jour) ; rejeu des 13 questions fait le même jour (T-MB-44, résultat au §2.11). Suite après la 1.3.0 : le texte des publications lu dans le champ HTML du jeu (ADR-0030, AM-97 ; tâches T-MB-50 à T-MB-57 au §2.11).
 
 Documents liés : [00-decisions.md](00-decisions.md) (normatif : §11 jalons, §13 questions), [01-existant.md](01-existant.md) (§4.16 : clôture des défauts par jalon), [02-architecture.md](02-architecture.md) (crates, dépendances, ports), [03-domaine.md](03-domaine.md) (§11), [04-adapter-piste.md](04-adapter-piste.md) (§13, §15), [05-outils-mcp.md](05-outils-mcp.md) (§9, §11), [06-qualite.md](06-qualite.md) (§7 CI, §13.4 définition de « terminé », §14), [08-distribution.md](08-distribution.md) (§7, §10), [09-risques-et-questions.md](09-risques-et-questions.md) (§2.18 synthèse par jalon, §3 questions, §5 critères), annexes [A](annexes/A-parite.md), [B](annexes/B-citations.md), [C](annexes/C-api-legifrance.md), [D](annexes/D-mcp-2026-07-28.md), [index des ADR](../adr/README.md).
 
@@ -70,7 +70,7 @@ Les questions Q1 à Q15 de 00 §13 portent chacune une proposition adoptée par 
 | M8 HTTP (optionnel) | Streamable HTTP local, puis distant | v0.4.0 | G, K, J | Q4 | **V-42** ; profil partagé : **V-62**, **V-175**, **V-176** | 7 |
 | M9 Hors ligne | `lf-adapter-dila`, sélection d'adapter | **v1.0.0** | D, G | Q6 (DILA), Q13 (réexamen) | **V-180**, **V-185**, **V-186**, **V-187** | 6 |
 | Distribution (transverse) | binaires, signature, MCPB, OCI, registre MCP, `cargo install --git` | dès v0.1.0 | A, W, M, K, R, G | Q1 (avant publication immuable), Q5, Q13 | **V-173** (si certificat, Q5), **V-197**, **V-204** | 15 |
-| MB BOFiP | doctrine fiscale : port `TaxDoctrine`, `lf-adapter-bofip`, `fr_search_bofip`, `fr_get_bofip` (ADR-0028, ADR-0029) | 1.3.0 | G (portail ouvert, sans compte) ; P pour le rejeu de T-MB-44 | Q28 à Q34 décidées | **V-222** et **V-225** (levées), **V-223** (levée avec réserve) | 28 |
+| MB BOFiP | doctrine fiscale : port `TaxDoctrine`, `lf-adapter-bofip`, `fr_search_bofip`, `fr_get_bofip` (ADR-0028, ADR-0029) ; texte lu dans le champ HTML (ADR-0030) | 1.3.0, puis un correctif | G (portail ouvert, sans compte) ; P pour le rejeu de T-MB-44 | Q28 à Q35 décidées | **V-222** et **V-225** (levées), **V-223** (levée avec réserve) | 36 |
 
 Versions : SemVer de la surface d'outils de 05 §9.5 (avant 1.0, une rupture ou un ajout fait passer de `0.x` à `0.(x+1).0`). M8 étant optionnel, M9 peut suivre directement v0.3.0. Hors de cette feuille de route : Judilibre (après v0.3.0, V-181 à V-183), fonds JUFI (après v1.0, V-184), canaux supplémentaires (MSI, Homebrew, winget… après v0.1.0, 09 §3.16.3).
 
@@ -1051,6 +1051,7 @@ Les tâches gardent leur identifiant et reçoivent un statut. Bilan : 1 livrée 
   - Défauts relevés par le rejeu : 09 §2.20, journal du 2026-11-15. Le premier est corrigé dans la PR de code (ci-dessous) ; les trois autres ne le sont pas.
 - Correction après le rejeu (AM-95, choix du propriétaire du 2026-11-15) : les sauts de ligne placés au milieu des phrases sont recollés dans le texte des publications (`crates/lf-domain/src/doctrine/text.rs`). 200 649 sauts dans 5 543 publications de 2012 à 2020 ; le code et une simulation indépendante donnent le même nombre de paragraphes pour chacune des 9 173 publications du jeu. Une revue de code et un audit de sécurité du changement, sans constat bloquant ni moyen ; trois corrections en sont sorties (décision prise sans les caractères invisibles, repère de liste « a° », une copie du texte libérée plus tôt). Deux requêtes de plus au portail (environ 139 sur les 200 du jalon), aucun appel à Légifrance.
 - PR de code #85 fusionnée par le propriétaire le 2026-11-15. Version : 1.3.0, numéro décidé par le propriétaire le même jour (PR de version). La 1.2.0 n'a pas été publiée : la 1.3.0 la reprend (AM-96). Restent : l'étiquette `v1.3.0`, posée par le propriétaire ; les défauts 2 à 4 relevés par le rejeu, reportés après la 1.3.0 (choix du propriétaire du 2026-11-15) : une PR à part, un défaut à la fois, en commençant par les publications depuis 2024.
+- Publications depuis 2024 (2026-11-15) : PR de version #86 fusionnée ; sonde du jeu entier (quatre requêtes au portail, 143 sur les 200 du jalon) ; le propriétaire choisit de lire le champ HTML pour toutes les publications, le texte brut restant en secours (Q35 = A, ADR-0030, AM-97). Tâches T-MB-50 à T-MB-57, à la fin de cette section.
 
 Vague 0 — préparation, aucun code de produit.
 
@@ -1143,6 +1144,37 @@ Vague 4 — documentation, revues, clôture.
 | T-MB-04 | **V-225** |
 | T-MB-22 | V-219 |
 | T-MB-40 | **V-223** |
+| T-MB-55 | V-226 |
+
+**Suite après la 1.3.0 : le texte lu dans le champ HTML** ([ADR-0030](../adr/0030-bofip-texte-lu-dans-le-html.md), AM-97, Q35 = A). C'est le premier des trois défauts relevés par le rejeu (09 §2.20) : depuis 2024, le portail sert le texte des publications sans aucun saut de ligne. Une seule branche (`fix/bofip-html`), une seule PR : l'ADR et ce plan d'abord, relus par le propriétaire, puis le code dans la même PR. Les deux autres défauts (bruit de la recherche, fraîcheur) viennent ensuite, chacun dans sa PR.
+
+Garanties (chacune a sa preuve ; une garantie rompue arrête le travail et le propriétaire est prévenu) :
+
+- **H1** : aucun fichier de `crates/lf-domain/src/text/` (le lecteur HTML que Légifrance emploie), de `lf-adapter-piste`, de `lf-adapter-dila` ni de `lf-adapter-cache` n'est modifié (`git diff --stat origin/main`).
+- **H2** : les quinze descripteurs gardent leur `sha256` dans `tests/tools.lock.json`.
+- **H3** : aucun paquet de plus dans `Cargo.lock` ni dans `fuzz/Cargo.lock`.
+- **H4** : sur le jeu entier, avec le code de la branche : aucune publication refusée, aucun repli pris, mêmes mots que la lecture de la 1.3.0 (date à la place du jeton et séparateurs de tableau mis à part), enregistrements à identifiant double compris.
+- **H5** : `make ci` vert, couverture 100 %, 0 mutant survivant sur les fichiers touchés.
+- **H6** : moins de 200 requêtes au portail depuis le début du jalon (143 au 2026-11-15), une par seconde, arrêt au premier refus 429 ; aucun appel à PISTE.
+
+- [ ] T-MB-50 — **ADR-0030, AM-97 et ce plan**, relus par le propriétaire avant le code.\
+  Où : `docs/adr/`, `docs/plan/00`, `07`, `09` · Livrable : premier commit de la PR · Vérification : accord du propriétaire · Spéc. : ADR-0030 · Taille : S
+- [ ] T-MB-51 — **Domaine : préparation du champ et choix de la lecture.** Réduction des guillemets doublés, en-tête écarté, lecture par `LongText::from_html`, garde à 90 %, repli sur la lecture du texte brut (`clean_text`, inchangée).\
+  Où : `crates/lf-domain/src/doctrine/text.rs` · Livrable : fonction pure et ses tests (unitaires et de propriété) · Vérification : tests d'ADR-0030 · Spéc. : ADR-0030 décisions 2 à 5 · Taille : M · Après : T-MB-50
+- [ ] T-MB-52 — **Adapter : les deux champs.** `contenu_html` dans le `select` d'une lecture et dans le DTO ; mapping ; repli compté et journalisé avec les anomalies ; fixtures de lecture réenregistrées avec les deux champs, plus une publication depuis 2024 qui porte un tableau et une date (une dizaine de requêtes au portail).\
+  Où : `crates/lf-adapter-bofip/` · Livrable : code, fixtures et leur README · Vérification : tests sur réponses réelles · Spéc. : ADR-0030 décisions 1 et 4 · Taille : M · Après : T-MB-51
+- [ ] T-MB-53 — **Sortie et budgets.** Tests de l'adapter MCP sur les nouvelles fixtures : numéros de paragraphe seuls dans leur paragraphe, lignes de tableau, aucune balise rendue, plafonds de 05 §6.4.\
+  Où : `crates/lf-adapter-mcp/tests/` · Livrable : tests · Vérification : `cargo nextest` · Spéc. : 05 §5.15, §6.4 · Taille : S · Après : T-MB-52
+- [ ] T-MB-54 — **Mesure du jeu entier avec le code de la branche** (programme jetable hors dépôt, sur les exports du 2026-11-15 : aucune requête).\
+  Où : hors dépôt · Livrable : chiffres dans 09 §2.20 · Vérification : H4 · Spéc. : ADR-0030 « À surveiller » · Taille : S · Après : T-MB-52
+- [ ] T-MB-55 — **Fuzz et test en direct.** Une cible de fuzz pour la lecture du texte des publications (préparation, garde, repli) ; le test en direct hebdomadaire contrôle que le portail double toujours les guillemets et qu'une publication depuis 2024 se lit en plusieurs paragraphes.\
+  Où : `fuzz/`, `.github/workflows/weekly.yml`, `crates/lf-adapter-bofip/tests/live.rs` · Livrable : cible et test · Vérification : la cible compile et tourne (`weekly.yml`) ; le test en direct est lancé une fois · Spéc. : ADR-0030, V-226 · Taille : S · Après : T-MB-51
+- [ ] T-MB-56 — **Documents.** 05 §5.15 ; les deux lignes de `SECURITY.md` sur le champ HTML ; CHANGELOG ; README si une phrase le demande.\
+  Où : `docs/plan/05`, `SECURITY.md`, `CHANGELOG.md` · Livrable : textes · Vérification : relecture · Spéc. : ADR-0030 · Taille : S · Après : T-MB-52
+- [ ] T-MB-57 — **Revues, mutation, `make ci`, PR.** Revue de code et audit de sécurité du changement ; `make mutants FILE=…` sur chaque fichier touché ; `make ci` ; CI de la PR verte ; le propriétaire fusionne.\
+  Où : branche, GitHub · Livrable : PR · Vérification : H1 à H6 · Spéc. : 06 §13, 00 §10 · Taille : M · Après : T-MB-53 à T-MB-56
+
+Pas de rejeu des 13 questions pour ce correctif : sa preuve est la mesure du jeu entier (H4). Le prochain rejeu vient avec la prochaine source, avec un critère sur la moyenne proposé avant de le lancer (choix du propriétaire du 2026-11-15).
 
 ---
 
@@ -1238,7 +1270,7 @@ La PR de clôture (« close: Mx ») contient :
 | M8 | **profil local livré** (`serve-http`, jeton, `tests/http.rs`) ; suite de conformité HTTP : un scénario encore rouge à `4d97b69` ; profil distant non fait (Q4) | 2 / 7 (T-M8-02, -03) | 0 / 4 : V-42 non levée | #27 | — |
 | M9 | **livré, LEGI seul** (`lf-adapter-dila`, `DilaCorpus`, sélection par `LF_DILA_DIR` ; feature `dila` absente des binaires publiés) ; pas de release v1.0.0 | 4 / 6 (T-M9-01 à -04) | V-185, V-186, V-187 levées ; V-188, V-189 consignées ; V-180 consignée (obligations non lues) | #27 | — |
 | Distribution | **configurée, jamais exercée en release** (dist, MCPB, OCI, `server.json`, portes de release présents ; état en CI non relevé dans ce lot) ; signature non faite (Q5) | 3 / 16 (T-MD-01, -03, -04 ; T-MD-16 ajoutée par la revue de sécurité F4) | compris dans la recette v0.1.0 : V-197, V-204 non levées | #27 | — |
-| MB (BOFiP) | code écrit sur `feat/bofip` le 2026-11-15 (vagues 0 à 4) ; rejeu des 13 questions fait (T-MB-44 : 30,9 puis 31,2 / 40) ; PR de code #85 fusionnée le 2026-11-15 (T-MB-45) ; PR de version 1.3.0 ; étiquette à poser par le propriétaire | 0 / 28 (cases à cocher par le propriétaire) | 3 / 3 : V-222 et V-225 levées, V-223 levée avec réserve | — | — |
+| MB (BOFiP) | code écrit sur `feat/bofip` le 2026-11-15 (vagues 0 à 4) ; rejeu des 13 questions fait (T-MB-44 : 30,9 puis 31,2 / 40) ; PR de code #85 fusionnée le 2026-11-15 (T-MB-45) ; PR de version 1.3.0 #86 fusionnée le même jour ; étiquette à poser par le propriétaire ; suite : texte lu dans le champ HTML (ADR-0030, T-MB-50 à T-MB-57, branche `fix/bofip-html`) | 0 / 36 (cases à cocher par le propriétaire) | 3 / 3 : V-222 et V-225 levées, V-223 levée avec réserve | — | — |
 
 Statuts : `à faire`, `en cours`, `bloqué (prérequis)` avec le prérequis manquant, `terminé`. « Terminé » pour M0 et M1 vaut au sens du livré (plan 1) ; la colonne « Tâches cochées » y décompte les statuts des tâches (§2.0, §2.1) et les reliquats sont suivis par 00 §11.1. Les onze vérifications bloquantes de la recette v0.1.0 sont V-46, V-59, V-103, V-139, V-140, V-142, V-143, V-144, V-173 (si certificat), V-197 et V-204 (09 §2.18).
 

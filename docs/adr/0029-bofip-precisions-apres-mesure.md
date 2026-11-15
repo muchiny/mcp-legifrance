@@ -5,6 +5,7 @@
 - **Jalons concernés** : MB (BOFiP), dans la version mineure qui suit la 1.2.0, soit la 1.3.0 (numéro décidé par le propriétaire le 2026-11-15)
 - **Questions liées** : Q32 (départage de deux publications), Q33 (plafond des instructions), Q34 (nature cherchée par défaut) : **décidées par le propriétaire le 2026-11-15, A pour chacune** (voir « Questions tranchées »)
 - Amendements : AM-93 (00 §14). Révise les décisions 2, 4, 5, 6, 8, 9, 10 et 12 d'[ADR-0028](0028-bofip-doctrine-fiscale.md), sans le remplacer : le port distinct, le crate, la lecture en direct, les deux outils et la coupure en mode hors ligne restent en vigueur. Révise aussi le plafond des instructions d'[ADR-0006](0006-sortie-compacte-retour-progressif.md) (décision 7) et la phrase d'[ADR-0023](0023-article-entier-et-plafond-tools-list.md) qui le maintenait à 3 500. Amende [00-decisions.md](../plan/00-decisions.md) §1, §2, §3, §6 et §7.
+- **Note du 2026-11-15** (sans réécrire ce qui suit) : [ADR-0030](0030-bofip-texte-lu-dans-le-html.md) fait de la décision 4 (nettoyage du champ `contenu`) la lecture de secours : le texte d'une publication vient d'abord de `contenu_html` (AM-97).
 
 ## Contexte
 
