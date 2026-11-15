@@ -6,10 +6,16 @@
 //! cargo nextest run -p lf-adapter-bofip --test live --profile live --run-ignored only
 //! ```
 //!
-//! Aucun secret : le portail est ouvert, sans compte ni clé. Trois requêtes par passage, une par
+//! Aucun secret : le portail est ouvert, sans compte ni clé. Cinq requêtes par passage, une par
 //! seconde au plus (une pause d'une seconde avant chaque appel ; le profil `live` joue un test à
 //! la fois). Un refus 429 n'est pas un défaut du client : le test le dit sur stderr et s'arrête
 //! sans échouer, et rien n'est réessayé.
+//!
+//! Deux tests gardent la lecture du champ HTML (ADR-0030, V-226) : une publication depuis 2024
+//! se lit en plusieurs paragraphes, et le portail double toujours chaque guillemet double du
+//! champ `contenu_html`. Le second lit la réponse brute : c'est la seule requête de ce fichier
+//! qui ne passe pas par le client de production. Son client suit les mêmes règles : `https`
+//! seul, aucune redirection suivie, corps plafonné à 4 Mio.
 //!
 //! `live_job_has_no_piste_secret` n'appelle rien : il relit `live.yml` et tourne avec les tests
 //! ordinaires (il n'est pas ignoré).
@@ -37,15 +43,24 @@ mod live {
     const KNOWN: &str = "BOI-ENR-DMTG-10-50-20";
     /// Identifiant bien formé qui ne désigne rien.
     const UNKNOWN: &str = "BOI-ZZ-INCONNU-99";
+    /// Publication depuis 2024, dont le champ brut n'a aucun saut de ligne : le barème de l'impôt
+    /// sur le revenu, avec ses numéros de paragraphe et son tableau.
+    const RECENT: &str = "BOI-IR-LIQ-20-10";
+    /// Plafond du corps d'une lecture, celui du client de production (4 Mio).
+    const BODY_MAX_BYTES: usize = 4 * 1024 * 1024;
 
-    /// Client de production, tel que le binaire le compose. L'horloge ne sert qu'au jour UTC du
-    /// budget de requêtes : une horloge fixe suffit à trois appels.
-    fn doctrine() -> BofipDoctrine<FixedClock> {
-        let agent = format!(
+    /// `User-Agent` du binaire.
+    fn agent() -> String {
+        format!(
             "mcp-legifrance/{} (+https://github.com/muchiny/mcp-legifrance)",
             env!("CARGO_PKG_VERSION")
-        );
-        let config = BofipConfig::new(agent, Duration::from_secs(20), Duration::from_secs(60));
+        )
+    }
+
+    /// Client de production, tel que le binaire le compose. L'horloge ne sert qu'au jour UTC du
+    /// budget de requêtes : une horloge fixe suffit à quelques appels.
+    fn doctrine() -> BofipDoctrine<FixedClock> {
+        let config = BofipConfig::new(agent(), Duration::from_secs(20), Duration::from_secs(60));
         let clock = FixedClock::new(DateTime::UNIX_EPOCH, CivilDate::new(1970, 1, 1).unwrap());
         BofipDoctrine::new(config, clock)
     }
@@ -124,6 +139,85 @@ mod live {
             return;
         }
         assert_eq!(result, Err(DoctrineError::NotFound));
+    }
+
+    // ---- le texte lu dans le champ HTML (ADR-0030) ----------------------------------------------
+
+    /// Une publication depuis 2024 se lit en plusieurs paragraphes : ses numéros de paragraphe
+    /// sont seuls dans leur paragraphe et son tableau se lit ligne par ligne. Lue dans le champ
+    /// brut (champ HTML retiré du jeu, ou écarté par la garde), elle tiendrait en un paragraphe.
+    #[tokio::test]
+    #[ignore = "live: calls data.economie.gouv.fr"]
+    async fn live_bofip_recent_publication_reads_in_paragraphs() {
+        let id = BoiId::parse(RECENT).unwrap();
+        pause().await;
+        let result = doctrine().get(&id).await;
+        let Some(docs) =
+            unless_limited("live_bofip_recent_publication_reads_in_paragraphs", result)
+        else {
+            return;
+        };
+        assert_ne!(docs.len(), 0);
+        for doc in &docs {
+            let paragraphs: Vec<&str> =
+                doc.text.paragraphs().map(|(_, paragraph)| paragraph).collect();
+            assert!(paragraphs.len() >= 10, "paragraphs: {}", paragraphs.len());
+            let numbered = |paragraph: &&str| paragraph.chars().all(|c| c.is_ascii_digit());
+            assert!(paragraphs.iter().any(numbered), "no paragraph number on its own");
+            assert!(paragraphs.iter().any(|paragraph| paragraph.contains(" | ")), "no table row");
+            let text = doc.text.as_str();
+            for markup in ["[node:", "class=", "<p", "</"] {
+                assert!(!text.contains(markup), "{markup} in the text");
+            }
+        }
+    }
+
+    /// V-226 : le portail double toujours chaque guillemet double du champ `contenu_html`
+    /// (`class=""x""`). La lecture réduit ces suites tant qu'elles sont toutes paires ; le jour
+    /// où ce test échoue, la règle des guillemets d'ADR-0030 est à relire.
+    #[tokio::test]
+    #[ignore = "live: calls data.economie.gouv.fr"]
+    async fn live_bofip_html_field_still_doubles_its_quotes() {
+        // Adresse fixe, sans aucune valeur d'appelant : le champ HTML de `RECENT`, seul.
+        let url = format!(
+            "{RECORDS_URL}?select=contenu_html\
+             &where=identifiant_juridique%20%3D%20%22{RECENT}%22&limit=1"
+        );
+        let client = reqwest::Client::builder()
+            .user_agent(agent())
+            .timeout(Duration::from_secs(20))
+            .https_only(true)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        pause().await;
+        let mut response = client.get(url).send().await.unwrap();
+        let status = response.status().as_u16();
+        let limited = if status == 429 {
+            Err(DoctrineError::RateLimited { retry_after: None })
+        } else {
+            Ok(())
+        };
+        let Some(()) = unless_limited("live_bofip_html_field_still_doubles_its_quotes", limited)
+        else {
+            return;
+        };
+        assert_eq!(status, 200);
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await.unwrap() {
+            body.extend_from_slice(&chunk);
+            assert!(body.len() <= BODY_MAX_BYTES, "answer over {BODY_MAX_BYTES} bytes");
+        }
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let html = body["results"][0]["contenu_html"]
+            .as_str()
+            .expect("no `contenu_html` text in the answer: the portal changed");
+        let runs: Vec<usize> =
+            html.split(|c| c != '"').map(str::len).filter(|length| *length > 0).collect();
+        assert!(runs.len() >= 10, "quote runs in the HTML field: {}", runs.len());
+        let odd = runs.iter().filter(|length| !length.is_multiple_of(2)).count();
+        assert_eq!(odd, 0, "odd runs of quotes: the portal no longer doubles every quote");
+        assert!(html.contains("class=\"\""), "no doubled quote after an attribute name");
     }
 
     // ---- le job de la CI -------------------------------------------------------------------------

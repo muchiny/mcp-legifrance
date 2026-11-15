@@ -15,7 +15,18 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `1.3.0`.
+### Fixed
+
+- `fr_get_bofip` : les publications depuis 2024 se lisent par paragraphe. Le portail sert leur texte brut sans aucun saut de ligne (1 737 publications sur 9 173, mesure du 2026-11-15) : la 1.3.0 rendait chacune en un seul paragraphe, numéros de paragraphe et cellules de tableau collés au texte, et une lecture ciblée (`focus`) rendait la publication entière. Le texte vient désormais du champ HTML du jeu (`contenu_html`), lu par le lecteur HTML qui lit déjà Légifrance : un paragraphe par bloc, le numéro de paragraphe seul dans le sien (« 10 », « 20 »), une ligne de tableau par paragraphe (cellules séparées par ` | `), la date à la place du jeton `[node:date:…]` (755 jetons ; pour les 116 jetons `[node:date:self]`, la mention que le portail écrit lui-même, « [date de publication insérée automatiquement] »). Les publications plus anciennes y gagnent aussi : leurs tableaux se lisent ligne par ligne et les coupures au milieu des phrases que la 1.3.0 laissait disparaissent (71 450 paragraphes de moins jusqu'à 2023). Mesure sur les 9 173 publications avec ce code : aucune refusée, aucun repli, les mêmes mots qu'avant. (ADR-0030, AM-97)
+
+### Changed
+
+- `fr_get_bofip` : `text_length` et les positions de lecture (`offset`, `next_offset`, position d'un passage) changent pour toutes les publications, puisque la mise en paragraphes change. Une lecture commencée avec la 1.3.0 et poursuivie avec cette version ne tombe pas au même endroit : la reprendre à `offset` 0. Les descripteurs des quinze outils ne changent pas.
+- Une lecture du BOFiP télécharge environ 2,45 fois plus qu'en 1.3.0 (les deux formes du texte dans la même requête ; 350 980 octets au plus pour un identifiant, sous le plafond inchangé de 4 Mio). Rien ne change pour la recherche, qui ne demande toujours aucun texte.
+
+### Security
+
+- Le champ HTML du portail du BOFiP est désormais lu, ce que la 1.3.0 excluait (ADR-0028, décision 4, révisée par ADR-0030). C'est le lecteur écrit à la main qui lit déjà le HTML de Légifrance : aucune bibliothèque HTML, aucun paquet de plus dans `Cargo.lock`. Le balisage n'est jamais interprété : balises, attributs, commentaires et zones `script` et `style` fermées sont retirés ; un balisage mal formé peut sortir tel quel, en texte, comme pour Légifrance. Deux réparations propres au portail le précèdent (guillemets doublés réduits quand toutes les suites sont paires ; restes de document écartés dans trois publications). Garde : si le texte lu dans le HTML compte moins de 90 % des lettres et des chiffres du texte brut, le texte brut est servi par la lecture de la 1.3.0, inchangée, et le repli est compté dans les journaux (`html_fallbacks`, jamais une valeur). Cible de fuzz `bofip_text` et deux tests en direct hebdomadaires de plus (V-226). `SECURITY.md` est mis à jour.
 
 ## [1.3.0] - 2026-11-15
 

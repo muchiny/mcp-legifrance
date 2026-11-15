@@ -60,8 +60,8 @@ pub struct DoctrineDoc {
     pub valid_from: Option<CivilDate>,
     /// Adresse sur le site du BOFiP ; `None` : le permalien sort de la grammaire stricte.
     pub source_url: Option<BofipUrl>,
-    /// Texte nettoyé ([`clean_text`](super::clean_text)) ; vide pour une publication sans texte
-    /// dans le jeu (annexe, formulaire, lettre, carte : 50 publications le 2026-11-15).
+    /// Texte lu ([`publication_text`](super::publication_text)) ; vide pour une publication
+    /// sans texte dans le jeu (annexe, formulaire, lettre, carte : 50 publications le 2026-11-15).
     pub text: LongText,
 }
 

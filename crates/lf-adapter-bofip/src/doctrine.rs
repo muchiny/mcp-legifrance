@@ -184,6 +184,7 @@ fn report(route: Route, anomalies: Anomalies) {
             route = route.template(),
             unknown_entities = anomalies.unknown_entities,
             dropped_fields = anomalies.dropped_fields,
+            html_fallbacks = anomalies.html_fallbacks,
             "BOFiP answer accepted with anomalies"
         );
     }
@@ -671,6 +672,7 @@ mod tests {
             text.contains("records?get")
                 && text.contains("unknown_entities=3")
                 && text.contains("dropped_fields=1")
+                && text.contains("html_fallbacks=1")
         );
         assert!(!text.contains("eacute") && !text.contains("IN-T"));
     }
@@ -680,8 +682,12 @@ mod tests {
         start_journal();
         report(Route::Search, Anomalies::default());
         assert_eq!(journal(), "");
-        report(Route::Search, Anomalies { unknown_entities: 0, dropped_fields: 1 });
+        report(Route::Search, Anomalies { dropped_fields: 1, ..Anomalies::default() });
         assert!(journal().contains("dropped_fields=1"));
+        start_journal();
+        report(Route::Get, Anomalies { html_fallbacks: 2, ..Anomalies::default() });
+        let text = journal();
+        assert!(text.contains("html_fallbacks=2") && text.contains("records?get"));
     }
 
     // ---- aucune panne ne porte les mots de la requête ----------------------------------------------
