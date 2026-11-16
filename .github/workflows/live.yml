@@ -59,7 +59,7 @@ jobs:
 
   # Portail ouvert `data.economie.gouv.fr` (jeu `bofip-vigueur`, ADR-0028 et ADR-0029) : ni compte,
   # ni clé, donc ni secret ni environnement protégé (contrôlé par `live_job_has_no_piste_secret`).
-  # Cinq requêtes par passage, une par seconde. Non bloquant : le portail peut refuser un passage
+  # Neuf requêtes par passage, une par seconde. Non bloquant : le portail peut refuser un passage
   # (quota, panne) sans que ce soit un défaut du dépôt.
   bofip:
     name: live (bofip)

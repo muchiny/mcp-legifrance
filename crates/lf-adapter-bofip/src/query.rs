@@ -12,9 +12,20 @@
 //!
 //! L'adresse est bâtie par l'analyseur d'adresses (`Url::query_pairs_mut`), qui encode chaque
 //! paramètre ; jamais par concaténation.
+//!
+//! # Mots exacts ou approchants (ADR-0031)
+//!
+//! `search(contenu, "…")` est une recherche approchée : elle retrouve aussi les mots qui
+//! ressemblent au mot cherché (une ou deux lettres de différence, accents retirés, dernier mot
+//! en préfixe). `contenu like "…"` exige tous les mots tels qu'ils sont écrits, accents et casse
+//! ignorés, dans n'importe quel ordre (sens mesuré, V-227). Une recherche en mots exacts envoie
+//! les deux : `like` choisit les publications, `search()` les classe. Les mots ne portent que des
+//! lettres, des chiffres et des espaces : aucun caractère à sens spécial n'atteint `like`.
 
 use lf_application::ports::DoctrineError;
-use lf_domain::doctrine::{BoiId, DoctrineKind, DoctrineQuery, DoctrineTerms, Serie};
+use lf_domain::doctrine::{
+    BoiId, DoctrineKind, DoctrineMatch, DoctrineQuery, DoctrineTerms, Serie,
+};
 use reqwest::Url;
 
 /// Champs demandés par une recherche : jamais le texte (`contenu`, `contenu_html`).
@@ -83,11 +94,16 @@ fn push_quoted(clause: &mut String, text: &str) {
     clause.push('"');
 }
 
-/// Clause d'une recherche : tous les mots dans le texte, puis la nature et la série demandées.
+/// Clause d'une recherche : tous les mots dans le texte, exacts si la requête le demande
+/// (ADR-0031), puis la nature et la série demandées.
 pub(crate) fn search_where(query: &DoctrineQuery) -> String {
     let mut clause = String::from("search(contenu, ");
     push_literal(&mut clause, Literal::Terms(query.terms()));
     clause.push(')');
+    if query.matching() == DoctrineMatch::Exact {
+        clause.push_str(" and contenu like ");
+        push_literal(&mut clause, Literal::Terms(query.terms()));
+    }
     if let Some(kind) = query.kind().kind() {
         clause.push_str(" and type = ");
         push_literal(&mut clause, Literal::Kind(kind));
@@ -150,7 +166,10 @@ fn records_url(base: &str, pairs: &[(&str, &str)]) -> Result<Url, DoctrineError>
 mod tests {
     use std::num::NonZeroU32;
 
-    use lf_domain::{doctrine::KindFilter, search::PageSize};
+    use lf_domain::{
+        doctrine::KindFilter,
+        search::{PageSize, QUERY_MAX_CHARS},
+    };
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
 
@@ -199,18 +218,26 @@ mod tests {
         (skeleton, literals)
     }
 
+    /// La clause approchée est celle de la 1.3.1 ; la clause exacte y ajoute `like`, sur les
+    /// mêmes mots, avant les filtres (ADR-0031).
     #[test]
-    fn the_search_clause_follows_the_requested_kind_and_serie() {
+    fn the_search_clause_follows_the_matching_the_kind_and_the_serie() {
         let rows = [
             (
                 query("donation abattement", None, KindFilter::Doctrine, 1, 10),
+                r#"search(contenu, "donation abattement") and contenu like "donation abattement" and type = "Contenu""#,
                 r#"search(contenu, "donation abattement") and type = "Contenu""#,
             ),
             (
                 query("donation", None, KindFilter::News, 1, 5),
+                r#"search(contenu, "donation") and contenu like "donation" and type = "Actualité""#,
                 r#"search(contenu, "donation") and type = "Actualité""#,
             ),
-            (query("donation", None, KindFilter::All, 1, 5), r#"search(contenu, "donation")"#),
+            (
+                query("donation", None, KindFilter::All, 1, 5),
+                r#"search(contenu, "donation") and contenu like "donation""#,
+                r#"search(contenu, "donation")"#,
+            ),
             (
                 query(
                     "déclaration de succession délai dépôt",
@@ -219,15 +246,19 @@ mod tests {
                     1,
                     5,
                 ),
+                r#"search(contenu, "déclaration de succession délai dépôt") and contenu like "déclaration de succession délai dépôt" and type = "Contenu" and serie = "ENR""#,
                 r#"search(contenu, "déclaration de succession délai dépôt") and type = "Contenu" and serie = "ENR""#,
             ),
             (
                 query("bail", Some("RFPI"), KindFilter::All, 3, 20),
+                r#"search(contenu, "bail") and contenu like "bail" and serie = "RFPI""#,
                 r#"search(contenu, "bail") and serie = "RFPI""#,
             ),
         ];
-        for (query, clause) in rows {
-            assert_eq!(search_where(&query), clause);
+        for (query, exact, approximate) in rows {
+            assert_eq!(query.matching(), DoctrineMatch::Exact);
+            assert_eq!(search_where(&query), exact);
+            assert_eq!(search_where(&query.approximate()), approximate);
         }
     }
 
@@ -274,12 +305,13 @@ mod tests {
             url.unwrap().as_str(),
             "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/bofip-vigueur/records\
              ?select=identifiant_juridique%2Ctitre%2Ctype%2Cserie%2Cdebut_de_validite%2Cpermalien\
-             &where=search%28contenu%2C+%22donation+abattement%22%29+and+type+%3D+%22Contenu%22\
+             &where=search%28contenu%2C+%22donation+abattement%22%29\
+             +and+contenu+like+%22donation+abattement%22+and+type+%3D+%22Contenu%22\
              &limit=10&offset=10"
         );
-        let news = search_url(RECORDS_URL, &query("été", Some("IR"), KindFilter::News, 1, 100));
+        let news = query("été", Some("IR"), KindFilter::News, 1, 100).approximate();
         assert_eq!(
-            news.unwrap().query(),
+            search_url(RECORDS_URL, &news).unwrap().query(),
             Some(
                 "select=identifiant_juridique%2Ctitre%2Ctype%2Cserie%2Cdebut_de_validite%2Cpermalien\
                  &where=search%28contenu%2C+%22%C3%A9t%C3%A9%22%29+and+type+%3D+%22Actualit%C3%A9%22\
@@ -316,6 +348,26 @@ mod tests {
         assert_eq!(extra, ["division", "contenu", "contenu_html"]);
     }
 
+    /// L'adresse la plus longue que l'adapter peut écrire : mots exacts (écrits deux fois), 450
+    /// lettres codées sur quatre octets, série de 16 caractères, actualités, dernière page
+    /// atteignable. Le portail a accepté une adresse de 11 136 caractères (mesure du 2026-11-16,
+    /// ADR-0031) : une borne de la requête ou une clause qui allongerait l'adresse au-delà doit
+    /// refaire cette mesure.
+    #[test]
+    fn the_longest_search_address_fits_what_the_portal_accepted() {
+        const ACCEPTED_BY_THE_PORTAL: usize = 11_136;
+        let words = "\u{20000}".repeat(QUERY_MAX_CHARS);
+        assert!(DoctrineTerms::parse(&format!("{words}\u{20000}")).is_err());
+        let longest = query(&words, Some("AAAAAAAAAAAAAAAA"), KindFilter::News, 100, 100);
+        let length = search_url(RECORDS_URL, &longest).unwrap().as_str().len();
+        assert_eq!(length, 11_122);
+        assert!(length <= ACCEPTED_BY_THE_PORTAL);
+        // La requête approchée de la même recherche, celle de la 1.3.1, est presque deux fois
+        // plus courte.
+        let approximate = search_url(RECORDS_URL, &longest.approximate()).unwrap();
+        assert_eq!(approximate.as_str().len(), 5_698);
+    }
+
     /// Les paramètres déjà présents dans la base sont remplacés, pas complétés.
     #[test]
     fn parameters_of_the_base_are_replaced() {
@@ -349,8 +401,9 @@ mod tests {
 
     proptest! {
         /// Quelle que soit l'entrée, la clause garde son squelette et porte exactement un
-        /// littéral par valeur : les mots, puis la nature et la série quand elles sont
-        /// demandées. Aucune entrée ne ferme un littéral ni n'ajoute un opérateur.
+        /// littéral par valeur : les mots (deux fois en mots exacts, une fois sinon), puis la
+        /// nature et la série quand elles sont demandées. Aucune entrée ne ferme un littéral ni
+        /// n'ajoute un opérateur.
         ///
         /// Les caractères sont pris dans tout Unicode, contrôles et caractères de format compris
         /// (`\0`, saut de ligne, U+202E) : le domaine les retire ou en fait des espaces.
@@ -361,6 +414,7 @@ mod tests {
             after in any_text(),
             serie in proptest::option::of("[A-Za-z0-9]{1,16}"),
             kind in any_kind(),
+            exact in any::<bool>(),
         ) {
             let terms = DoctrineTerms::parse(&format!("{before} {word} {after}")).unwrap();
             let serie = serie.map(|code| Serie::parse(&code).unwrap());
@@ -372,14 +426,39 @@ mod tests {
                 PageSize::DEFAULT,
             )
             .unwrap();
+            let query = if exact { query } else { query.approximate() };
 
             let mut skeleton = String::from("search(contenu, ?)");
             let mut literals = vec![terms.as_str().to_owned()];
+            if exact {
+                skeleton.push_str(" and contenu like ?");
+                literals.push(terms.as_str().to_owned());
+            }
             literals.extend(kind.kind().map(|kind| portal_kind(kind).to_owned()));
             skeleton.push_str(kind.kind().map_or("", |_| " and type = ?"));
             literals.extend(serie.as_ref().map(|serie| serie.as_str().to_owned()));
             skeleton.push_str(serie.as_ref().map_or("", |_| " and serie = ?"));
             prop_assert_eq!(lex(&search_where(&query)), (skeleton, literals));
+        }
+
+        /// Les mots d'une clause ne portent que des lettres, des chiffres et des espaces : rien
+        /// qui puisse avoir un sens spécial pour `like` (`%`, `_`, `*`) ou pour le filtre. Entrée
+        /// prise dans tout Unicode, contrôles et caractères de format compris, ou parmi les
+        /// caractères imprimables, plus riches en lettres.
+        #[test]
+        fn the_words_of_a_clause_are_letters_digits_and_spaces(
+            text in prop_oneof![any_text(), "\\PC{1,60}"],
+        ) {
+            if let Ok(terms) = DoctrineTerms::parse(&text) {
+                let query = DoctrineQuery::new(
+                    terms, None, KindFilter::All, NonZeroU32::MIN, PageSize::DEFAULT,
+                )
+                .unwrap();
+                let (skeleton, literals) = lex(&search_where(&query));
+                prop_assert_eq!(skeleton, "search(contenu, ?) and contenu like ?");
+                prop_assert_eq!(&literals[0], &literals[1]);
+                prop_assert!(literals[0].chars().all(|c| c.is_alphanumeric() || c == ' '));
+            }
         }
 
         /// L'échappement seul, sur une chaîne libre que le domaine ne laisserait pas passer : un

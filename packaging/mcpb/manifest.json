@@ -109,7 +109,7 @@
       "name": "fr_search_all"
     },
     {
-      "description": "Search BOFiP, the published doctrine of the French tax administration (DGFiP): how the administration reads tax law, not the law itself. All the words of `query` must appear in a publication; the last word also matches as a prefix; there are no operators and no quoted phrases, so use a few plain words. Narrow with `serie` (for example ENR for registration and inheritance duties, IR for income tax, RFPI for property income and capital gains). `kind` selects doctrine pages (default), news items, or all. Returns id, publication_id, title, kind, serie, valid_from and source_url, paged with `page` and `has_more`; never the text: read it with fr_get_bofip. Only publications in force today are available.",
+      "description": "Search BOFiP, the published doctrine of the French tax administration (DGFiP): how the administration reads tax law, not the law itself. Every word of `query` must appear in a publication exactly as written, accents and case aside: no prefixes, no operators, no quoted phrases, so use a few plain words and try both singular and plural forms. If no publication holds them all, the search falls back to approximate spelling and says so in `note`. Narrow with `serie` (for example ENR for registration and inheritance duties, IR for income tax, RFPI for property income and capital gains); `kind` selects doctrine pages (default), news items, or all. Returns id, publication_id, title, kind, serie, valid_from and source_url, paged with `page` and `has_more`; never the text: read it with fr_get_bofip. Only publications in force today are available.",
       "name": "fr_search_bofip"
     },
     {

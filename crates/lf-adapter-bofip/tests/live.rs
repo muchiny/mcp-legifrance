@@ -6,7 +6,7 @@
 //! cargo nextest run -p lf-adapter-bofip --test live --profile live --run-ignored only
 //! ```
 //!
-//! Aucun secret : le portail est ouvert, sans compte ni clé. Cinq requêtes par passage, une par
+//! Aucun secret : le portail est ouvert, sans compte ni clé. Neuf requêtes par passage, une par
 //! seconde au plus (une pause d'une seconde avant chaque appel ; le profil `live` joue un test à
 //! la fois). Un refus 429 n'est pas un défaut du client : le test le dit sur stderr et s'arrête
 //! sans échouer, et rien n'est réessayé.
@@ -16,6 +16,10 @@
 //! champ `contenu_html`. Le second lit la réponse brute : c'est la seule requête de ce fichier
 //! qui ne passe pas par le client de production. Son client suit les mêmes règles : `https`
 //! seul, aucune redirection suivie, corps plafonné à 4 Mio.
+//!
+//! Deux tests gardent la recherche en mots exacts (ADR-0031, V-227) : le sens de `contenu like`
+//! n'a été que mesuré. Un mot mal écrit n'a aucun résultat exact et en a par la recherche
+//! approchée ; deux mots bien écrits en ont moins en mots exacts qu'en recherche approchée.
 //!
 //! `live_job_has_no_piste_secret` n'appelle rien : il relit `live.yml` et tourne avec les tests
 //! ordinaires (il n'est pas ignoré).
@@ -35,7 +39,7 @@ mod live {
     };
     use lf_domain::{
         date::CivilDate,
-        doctrine::{BoiId, DoctrineKind, DoctrineQuery, DoctrineTerms, KindFilter},
+        doctrine::{BoiId, DoctrineKind, DoctrineMatch, DoctrineQuery, DoctrineTerms, KindFilter},
         search::PageSize,
     };
 
@@ -139,6 +143,63 @@ mod live {
             return;
         }
         assert_eq!(result, Err(DoctrineError::NotFound));
+    }
+
+    // ---- la recherche en mots exacts (ADR-0031, V-227) --------------------------------------------
+
+    /// Recherche de `words` parmi les pages de doctrine, cinq résultats, en mots exacts.
+    fn doctrine_search(words: &str) -> DoctrineQuery {
+        DoctrineQuery::new(
+            DoctrineTerms::parse(words).unwrap(),
+            None,
+            KindFilter::Doctrine,
+            NonZeroU32::MIN,
+            PageSize::new(5).unwrap(),
+        )
+        .unwrap()
+    }
+
+    /// Totaux de `query` en mots exacts puis en mots approchants, ou `None` après un refus 429.
+    async fn both_totals(test: &str, query: DoctrineQuery) -> Option<(u64, u64)> {
+        assert_eq!(query.matching(), DoctrineMatch::Exact);
+        let doctrine = doctrine();
+        pause().await;
+        let exact = unless_limited(test, doctrine.search(&query).await)?;
+        pause().await;
+        let approximate = unless_limited(test, doctrine.search(&query.approximate()).await)?;
+        Some((exact.total, approximate.total))
+    }
+
+    /// Un mot mal écrit n'a aucun résultat exact ; la recherche approchée le retrouve (le
+    /// portail en rendait 122 le 2026-11-16). Si `like` devenait approché, le premier total ne
+    /// serait plus nul ; s'il disparaissait, la requête serait refusée.
+    #[tokio::test]
+    #[ignore = "live: calls data.economie.gouv.fr"]
+    async fn live_bofip_a_misspelled_word_has_no_exact_match_but_an_approximate_one() {
+        let test = "live_bofip_a_misspelled_word_has_no_exact_match_but_an_approximate_one";
+        let Some((exact, approximate)) =
+            both_totals(test, doctrine_search("donnation abattement")).await
+        else {
+            return;
+        };
+        assert_eq!(exact, 0);
+        assert!(approximate >= 20, "approximate: {approximate}");
+    }
+
+    /// Deux mots bien écrits : moins de résultats en mots exacts qu'en recherche approchée (58
+    /// contre 433 le 2026-11-16), mais pas aucun. Si `like` devenait plus strict (ordre des mots,
+    /// accents), le premier total tomberait à zéro.
+    #[tokio::test]
+    #[ignore = "live: calls data.economie.gouv.fr"]
+    async fn live_bofip_exact_words_find_fewer_publications_than_approximate_ones() {
+        let test = "live_bofip_exact_words_find_fewer_publications_than_approximate_ones";
+        let Some((exact, approximate)) =
+            both_totals(test, doctrine_search("donation abattement")).await
+        else {
+            return;
+        };
+        assert!(exact >= 20, "exact: {exact}");
+        assert!(exact.saturating_mul(2) < approximate, "exact {exact}, approximate {approximate}");
     }
 
     // ---- le texte lu dans le champ HTML (ADR-0030) ----------------------------------------------

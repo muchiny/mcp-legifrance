@@ -9,11 +9,12 @@ ouvert, sans compte ni clé.
 - Éditeur : Direction générale des finances publiques (DGFiP)
 - Licence : Licence Ouverte 2.0 (Etalab). Mention : « Source : BOFiP-Impôts / DGFiP ».
 - Débit de l'enregistrement : une requête par seconde. Quatorze requêtes le matin ; le soir, huit
-  de plus pour les lectures, refaites avec le champ `contenu_html` (ADR-0030).
+  de plus pour les lectures, refaites avec le champ `contenu_html` (ADR-0030). Le 2026-11-16, deux
+  recherches de plus, pour les mots exacts (ADR-0031).
 
-Le portail change chaque semaine : ces fichiers sont une photographie du 2026-11-15, pas l'état
-courant de la doctrine. Ne pas les éditer à la main ; pour les refaire, rejouer les requêtes
-ci-dessous et mettre à jour les tailles. Le test `fixtures_are_listed_with_their_source` compare
+Le portail change chaque semaine : ces fichiers sont une photographie du 2026-11-15 (du
+2026-11-16 pour les deux recherches d'ADR-0031), pas l'état courant de la doctrine. Ne pas les
+éditer à la main ; pour les refaire, rejouer les requêtes ci-dessous et mettre à jour les tailles. Le test `fixtures_are_listed_with_their_source` compare
 cette liste (nom et taille en octets) au contenu du dossier.
 
 ## Fichiers
@@ -34,8 +35,10 @@ ici.
 - `get-unknown.json` (33 octets) : lecture de `BOI-ZZ-INCONNU-99`, identifiant inconnu, aucun résultat.
 - `get-wrapped.json` (8044 octets) : lecture de `BOI-PAT-IFI-40-10`, publication de 2018 dont les lignes de `contenu` sont coupées au milieu des phrases, avec deux tableaux.
 - `search-all.json` (2080 octets) : `where=search(contenu, "donation")`, sans filtre de type, `limit=5`, `offset=0`.
+- `search-approximate-misspelled.json` (4394 octets) : enregistrée le 2026-11-16, `where=search(contenu, "donnation abattement") and type = "Contenu"`, `limit=10`, `offset=0` : la recherche approchée, qui retrouve « donation » sous la faute de frappe (122 résultats). La même recherche en mots exacts (`… and contenu like "donnation abattement"`) ne trouve rien : sa réponse est, à l'octet près, celle de `search-empty.json`.
 - `search-donation-page1.json` (4113 octets) : `where=search(contenu, "donation abattement") and type = "Contenu"`, `limit=10`, `offset=0`.
 - `search-donation-page2.json` (4458 octets) : la même recherche, `offset=10`.
 - `search-empty.json` (33 octets) : `where=search(contenu, "zzyzxqqw") and type = "Contenu"`, aucun résultat.
+- `search-exact.json` (4261 octets) : enregistrée le 2026-11-16, `where=search(contenu, "donation abattement") and contenu like "donation abattement" and type = "Contenu"`, `limit=10`, `offset=0` : la recherche en mots exacts d'ADR-0031 (58 résultats, contre 433 pour `search-donation-page1.json`, la même recherche sans `like`, enregistrée la veille).
 - `search-news.json` (2229 octets) : `where=search(contenu, "donation") and type = "Actualité"`, `limit=5`, `offset=0`.
 - `search-serie-enr.json` (2013 octets) : `where=search(contenu, "déclaration de succession délai dépôt") and type = "Contenu" and serie = "ENR"`, `limit=5`, `offset=0`.

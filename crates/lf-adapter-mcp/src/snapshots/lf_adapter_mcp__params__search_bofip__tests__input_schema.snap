@@ -29,7 +29,7 @@ expression: schema()
       "type": "integer"
     },
     "query": {
-      "description": "A few plain words: all must appear in the publication, the last one also as a prefix. No operators, no quoted phrases.",
+      "description": "A few plain words, each found exactly as written (accents and case aside); approximate spelling only if nothing matches. No operators, no quoted phrases.",
       "maxLength": 450,
       "minLength": 1,
       "type": "string"

@@ -8,6 +8,15 @@
 //! la fenêtre atteignable du portail (`DoctrineQuery::new` : `page × page_size` ≤ 10 000). Le
 //! premier échec est rendu ; aucun appel au port ne part.
 //!
+//! # Mots exacts, puis recherche approchée en secours (ADR-0031)
+//!
+//! Un premier appel au port demande les mots exacts. S'il ne trouve **aucune** publication
+//! (total nul), un second appel demande la même requête, mots approchants admis
+//! ([`DoctrineQuery::approximate`] : mêmes mots, mêmes filtres, même page), et la réponse le dit
+//! dans `note`. Jamais autrement : une page vide au-delà de la fin d'une recherche qui a des
+//! résultats exacts ne déclenche rien, et une erreur du premier appel est rendue telle quelle.
+//! Le second appel n'est pas un réessai : c'est une autre question, posée après une réponse.
+//!
 //! # Réponse du port
 //!
 //! Une page qui porte plus de résultats que `page_size` n'est pas conforme : `upstream_error`,
@@ -25,7 +34,8 @@
 
 use lf_domain::{
     doctrine::{
-        BofipUrl, DoctrineHit, DoctrinePage, DoctrineQuery, DoctrineTerms, KindFilter, Serie,
+        BofipUrl, DoctrineHit, DoctrineMatch, DoctrinePage, DoctrineQuery, DoctrineTerms,
+        KindFilter, Serie,
     },
     search::{PageSize, has_more},
 };
@@ -47,11 +57,18 @@ use crate::{
 /// Outil que ce cas d'usage sert : nom des messages et de l'audit.
 const TOOL: ToolName = ToolName::FR_SEARCH_BOFIP;
 
-/// Note d'une recherche sans résultat : elle rappelle la règle du portail (tous les mots), les
-/// filtres qui ont pu écarter des publications, et que le vide ne prouve rien.
-pub(crate) const NO_MATCH_NOTE: &str = "No match: every word of query must appear in a \
-     publication. Try fewer or other words, remove serie, or set kind=\"all\"; an empty result \
-     does not mean the tax administration has published nothing on the subject.";
+/// Note d'une recherche sans résultat, même approché : elle rappelle la règle (tous les mots),
+/// ce que l'appelant peut changer, et que le vide ne prouve rien.
+pub(crate) const NO_MATCH_NOTE: &str = "No match, even with approximate spelling: every word of \
+     query must appear in a publication. Try fewer or other words, the singular or plural form, \
+     remove serie, or set kind=\"all\"; an empty result does not mean the tax administration has \
+     published nothing on the subject.";
+
+/// Note d'une page servie par la recherche approchée (ADR-0031, décision 5) : aucune publication
+/// ne porte tous les mots tels quels, et ceux de la page n'y correspondent qu'à peu près.
+pub(crate) const APPROXIMATE_NOTE: &str = "No publication contains every word of query as \
+     written; these results match only approximately (a word may differ by a letter or two, or \
+     be the start of a longer word): check each title before relying on it, or try other words.";
 
 /// Note de fin de fenêtre atteignable : le portail ne sert pas au-delà de 10 000 résultats.
 const REACHABLE_NOTE: &str = "Results beyond the first 10,000 are not reachable; narrow the query \
@@ -66,7 +83,8 @@ pub(crate) const TITLE_SHORT_CHARS: usize = 120;
 /// Longueur ISO d'une date rendue, `AAAA-MM-JJ`.
 const ISO_DATE_CHARS: usize = 10;
 
-/// Recherche dans le BOFiP : analyse des arguments, un appel au port, politique de réponse.
+/// Recherche dans le BOFiP : analyse des arguments, un appel au port (deux si aucune publication
+/// ne porte tous les mots tels quels), politique de réponse.
 pub(crate) struct SearchBofipUseCase<'a, D: TaxDoctrine> {
     doctrine: &'a D,
 }
@@ -77,7 +95,8 @@ impl<'a, D: TaxDoctrine> SearchBofipUseCase<'a, D> {
         Self { doctrine }
     }
 
-    /// Valide `input`, interroge le port et met la page en forme.
+    /// Valide `input`, interroge le port en mots exacts, puis en mots approchants si rien
+    /// d'exact n'existe, et met la page en forme.
     ///
     /// # Errors
     ///
@@ -89,13 +108,25 @@ impl<'a, D: TaxDoctrine> SearchBofipUseCase<'a, D> {
         input: SearchBofipInput,
     ) -> Result<SearchBofipOutput, AppError> {
         let query = query_of(&input)?;
-        let page = self
-            .doctrine
-            .search(&query)
-            .await
-            .map_err(|error| doctrine_failure(TOOL, "", &error))?;
+        let page = self.search(&query).await?;
+        if !is_empty(&page) {
+            return present(&query, page);
+        }
+        let query = query.approximate();
+        let page = self.search(&query).await?;
         present(&query, page)
     }
+
+    /// Un appel au port, son erreur traduite pour l'outil.
+    async fn search(&self, query: &DoctrineQuery) -> Result<DoctrinePage, AppError> {
+        self.doctrine.search(query).await.map_err(|error| doctrine_failure(TOOL, "", &error))
+    }
+}
+
+/// Vrai si la recherche n'a trouvé aucune publication : total nul et page vide. Une page vide
+/// au-delà de la fin d'une recherche qui a des résultats ne l'est pas.
+fn is_empty(page: &DoctrinePage) -> bool {
+    page.total == 0 && page.hits.is_empty()
 }
 
 /// Requête validée du port, ou premier argument refusé.
@@ -126,7 +157,9 @@ fn kind_of(value: Option<&str>) -> Result<KindFilter, AppError> {
     KindFilter::parse(value).ok_or_else(|| messages::not_one_of("kind", value, &KindFilter::NAMES))
 }
 
-/// Met la page du port en forme : suite, notes, plafond de réponse.
+/// Met la page du port en forme : suite, notes, plafond de réponse. La note dit d'abord comment
+/// les mots ont correspondu (aucun résultat, ou résultats approchés), puis la fin de la fenêtre
+/// atteignable.
 fn present(query: &DoctrineQuery, page: DoctrinePage) -> Result<SearchBofipOutput, AppError> {
     let (number, size) = (query.page(), query.page_size());
     let asked = usize::try_from(size.get()).unwrap_or(usize::MAX);
@@ -138,15 +171,20 @@ fn present(query: &DoctrineQuery, page: DoctrinePage) -> Result<SearchBofipOutpu
     // Il reste des résultats après cette page, mais la fenêtre atteignable s'arrête ici.
     let seen = u64::from(number.get()).saturating_mul(u64::from(size.get()));
     let unreachable = !more && seen < page.total;
-    let no_match = page.total == 0 && page.hits.is_empty();
-    // Les deux notes s'excluent : la première exige un total positif.
-    let note = if unreachable { Some(REACHABLE_NOTE) } else { no_match.then_some(NO_MATCH_NOTE) };
+    let matching = match (is_empty(&page), query.matching()) {
+        (true, _) => Some(NO_MATCH_NOTE),
+        (false, DoctrineMatch::Approximate) => Some(APPROXIMATE_NOTE),
+        (false, DoctrineMatch::Exact) => None,
+    };
+    // « Aucun résultat » et la fin de fenêtre s'excluent : la seconde exige un total positif.
+    let note =
+        join_notes([matching.map(str::to_owned), unreachable.then(|| REACHABLE_NOTE.to_owned())]);
     let mut output = SearchBofipOutput {
         total: page.total,
         page: number.get(),
         has_more: more,
         hits: page.hits,
-        note: note.map(str::to_owned),
+        note,
     };
     fit_under_target(&mut output, size)?;
     Ok(output)
@@ -272,10 +310,40 @@ mod tests {
         input: SearchBofipInput,
         response: Result<DoctrinePage, DoctrineError>,
     ) -> (Result<SearchBofipOutput, AppError>, FakeDoctrine) {
+        run_all(input, vec![response]).await
+    }
+
+    /// Comme [`run`], avec une réponse programmée par appel au port, dans l'ordre.
+    async fn run_all(
+        input: SearchBofipInput,
+        responses: Vec<Result<DoctrinePage, DoctrineError>>,
+    ) -> (Result<SearchBofipOutput, AppError>, FakeDoctrine) {
         let doctrine = FakeDoctrine::new();
-        doctrine.push_search(response);
+        for response in responses {
+            doctrine.push_search(response);
+        }
         let result = SearchBofipUseCase::new(&doctrine).execute(input).await;
         (result, doctrine)
+    }
+
+    /// Recherche de `words` en mots exacts, avec les valeurs par défaut de l'outil.
+    fn exact(words: &str) -> DoctrineQuery {
+        DoctrineQuery::new(
+            DoctrineTerms::parse(words).unwrap(),
+            None,
+            KindFilter::Doctrine,
+            NonZeroU32::MIN,
+            PageSize::DEFAULT,
+        )
+        .unwrap()
+    }
+
+    /// Les deux appels du secours : `words` en mots exacts, puis les mêmes en mots approchants.
+    fn both_calls(words: &str) -> Vec<DoctrineRequest> {
+        vec![
+            DoctrineRequest::Search(exact(words)),
+            DoctrineRequest::Search(exact(words).approximate()),
+        ]
     }
 
     /// Message d'un argument refusé ; vérifie qu'aucun appel n'atteint le port.
@@ -365,7 +433,7 @@ mod tests {
         );
         // Dernière page atteignable : l'appel part.
         input.page = Some(100);
-        let (result, doctrine) = run(input, Ok(page(0, Vec::new()))).await;
+        let (result, doctrine) = run(input, Ok(page(10_000, hits(1, "Donations")))).await;
         assert_eq!((result.is_ok(), doctrine.calls()), (true, 1));
     }
 
@@ -377,9 +445,65 @@ mod tests {
         );
     }
 
+    /// Des résultats exacts : un seul appel, en mots exacts, et aucune note (ADR-0031).
+    #[tokio::test]
+    async fn exact_results_are_served_after_a_single_exact_call() {
+        let found = hits(2, "Donations");
+        let (result, doctrine) = run(text("donation"), Ok(page(58, found.clone()))).await;
+        assert_eq!(
+            result.unwrap(),
+            SearchBofipOutput { total: 58, page: 1, has_more: true, hits: found, note: None }
+        );
+        assert_eq!(doctrine.seen_requests(), vec![DoctrineRequest::Search(exact("donation"))]);
+        assert_eq!(exact("donation").matching(), DoctrineMatch::Exact);
+    }
+
+    /// Rien d'exact : la même requête part en mots approchants (mêmes mots, mêmes filtres, même
+    /// page), et la réponse le dit.
+    #[tokio::test]
+    async fn without_exact_results_the_same_query_is_sent_approximately_and_said_so() {
+        let input = SearchBofipInput {
+            serie: Some("ENR".to_owned()),
+            kind: Some("all".to_owned()),
+            page: Some(2),
+            page_size: Some(5),
+            ..text("donnation abattement")
+        };
+        let found = hits(5, "Donations");
+        let (result, doctrine) =
+            run_all(input, vec![Ok(page(0, Vec::new())), Ok(page(122, found.clone()))]).await;
+        assert_eq!(
+            result.unwrap(),
+            SearchBofipOutput {
+                total: 122,
+                page: 2,
+                has_more: true,
+                hits: found,
+                note: Some(APPROXIMATE_NOTE.to_owned()),
+            }
+        );
+        let exact = DoctrineQuery::new(
+            DoctrineTerms::parse("donnation abattement").unwrap(),
+            Some(Serie::parse("ENR").unwrap()),
+            KindFilter::All,
+            NonZeroU32::new(2).unwrap(),
+            PageSize::new(5).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            doctrine.seen_requests(),
+            vec![
+                DoctrineRequest::Search(exact.clone()),
+                DoctrineRequest::Search(exact.approximate())
+            ]
+        );
+    }
+
+    /// Rien, même approché : deux appels, et la note dit la règle et quoi changer.
     #[tokio::test]
     async fn an_empty_result_explains_the_search_rule() {
-        let (result, _) = run(text("zzzz"), Ok(page(0, Vec::new()))).await;
+        let (result, doctrine) =
+            run_all(text("zzzz"), vec![Ok(page(0, Vec::new())), Ok(page(0, Vec::new()))]).await;
         assert_eq!(
             result.unwrap(),
             SearchBofipOutput {
@@ -390,14 +514,92 @@ mod tests {
                 note: Some(NO_MATCH_NOTE.to_owned()),
             }
         );
-        // Une page vide au-delà de la fin d'une recherche qui a des résultats n'est pas « aucun
-        // résultat ».
+        assert_eq!(doctrine.seen_requests(), both_calls("zzzz"));
+        // Une page vide au-delà de la fin d'une recherche qui a des résultats exacts n'est pas
+        // « aucun résultat » : un seul appel, aucune note.
         let input = SearchBofipInput { page: Some(9), ..text("donation") };
-        let (result, _) = run(input, Ok(page(12, Vec::new()))).await;
-        assert_eq!(result.unwrap().note, None);
-        // Un total nul avec des résultats (réponse incohérente) ne dit pas « aucun résultat ».
-        let (result, _) = run(text("donation"), Ok(page(0, hits(1, "Donations")))).await;
-        assert_eq!(result.unwrap().note, None);
+        let (result, doctrine) = run(input, Ok(page(12, Vec::new()))).await;
+        assert_eq!((result.unwrap().note, doctrine.calls()), (None, 1));
+        // Un total nul avec des résultats (réponse incohérente) n'est pas « aucun résultat » non
+        // plus : la page est rendue, sans second appel.
+        let (result, doctrine) = run(text("donation"), Ok(page(0, hits(1, "Donations")))).await;
+        assert_eq!((result.unwrap().note, doctrine.calls()), (None, 1));
+        // De même pour la recherche approchée : des résultats, ou une page au-delà de sa fin,
+        // gardent la note des résultats approchés.
+        for second in [page(3, Vec::new()), page(0, hits(1, "Donations"))] {
+            let (result, _) =
+                run_all(text("donation"), vec![Ok(page(0, Vec::new())), Ok(second)]).await;
+            assert_eq!(result.unwrap().note.as_deref(), Some(APPROXIMATE_NOTE));
+        }
+    }
+
+    /// Une erreur du premier appel est rendue sans second appel ; une erreur du second est
+    /// rendue elle aussi.
+    #[tokio::test]
+    async fn an_error_of_either_call_is_returned() {
+        let (result, doctrine) = run(text("donation"), Err(DoctrineError::Timeout)).await;
+        let error = result.unwrap_err();
+        assert_eq!(error.code(), Some(ErrorCode::UpstreamError));
+        assert_without_query_words(&error, "donation");
+        assert_eq!(doctrine.seen_requests(), vec![DoctrineRequest::Search(exact("donation"))]);
+        let limited = DoctrineError::RateLimited { retry_after: None };
+        let (result, doctrine) =
+            run_all(text("donation"), vec![Ok(page(0, Vec::new())), Err(limited)]).await;
+        let error = result.unwrap_err();
+        assert_eq!(error.code(), Some(ErrorCode::RateLimited));
+        assert_without_query_words(&error, "donation");
+        assert_eq!(doctrine.seen_requests(), both_calls("donation"));
+    }
+
+    /// Une erreur rendue ne cite pas les mots de la requête, ni dans son texte, ni dans sa forme
+    /// de débogage (ADR-0029, étendu par ADR-0031 à la seconde requête).
+    fn assert_without_query_words(error: &AppError, words: &str) {
+        let shown = format!("{error} | {error:?}");
+        assert!(!shown.contains(words), "{shown}");
+    }
+
+    /// Une page approchée garde ses deux notes, dans l'ordre : comment les mots ont correspondu,
+    /// puis la fin de la fenêtre atteignable ; une page approchée trop longue est refusée.
+    #[tokio::test]
+    async fn an_approximate_page_keeps_both_notes_and_the_page_size_rule() {
+        let input = SearchBofipInput { page: Some(100), page_size: Some(100), ..text("impot") };
+        let (result, _) =
+            run_all(input, vec![Ok(page(0, Vec::new())), Ok(page(10_001, hits(100, "Impôt")))])
+                .await;
+        assert_eq!(result.unwrap().note, Some(format!("{APPROXIMATE_NOTE} {REACHABLE_NOTE}")));
+        let input = SearchBofipInput { page_size: Some(2), ..text("donation") };
+        let (result, _) =
+            run_all(input, vec![Ok(page(0, Vec::new())), Ok(page(3, hits(3, "Donations")))]).await;
+        assert_eq!(result.unwrap_err().code(), Some(ErrorCode::UpstreamError));
+    }
+
+    /// Les notes de ce cas d'usage sont des constantes, sans gabarit à remplir : elles ne peuvent
+    /// pas citer les mots de la requête. Elles comptent dans l'enveloppe de la réponse ; le
+    /// budget avec la plus longue combinaison de notes est tenu par le test suivant.
+    #[test]
+    fn the_notes_are_fixed_texts() {
+        for note in [NO_MATCH_NOTE, APPROXIMATE_NOTE, REACHABLE_NOTE] {
+            assert!(!note.contains('{') && !note.is_empty(), "{note}");
+        }
+        assert!(APPROXIMATE_NOTE.contains("approximately"));
+        assert!(NO_MATCH_NOTE.contains("even with approximate spelling"));
+    }
+
+    /// Des titres raccourcis dans une page approchée : la note des résultats approchés vient
+    /// d'abord, celle des titres ensuite, et la réponse tient sous la cible.
+    #[tokio::test]
+    async fn an_approximate_page_with_shortened_titles_keeps_its_note_first() {
+        let input = SearchBofipInput { page_size: Some(100), ..text("donation") };
+        let list = hits(100, &"t".repeat(400));
+        let (result, _) = run_all(input, vec![Ok(page(0, Vec::new())), Ok(page(100, list))]).await;
+        let output = result.unwrap();
+        let note = output.note.clone().unwrap();
+        assert!(note.starts_with(&format!("{APPROXIMATE_NOTE} ")), "{note}");
+        assert!(note.ends_with("use a smaller page_size, or fr_get_bofip, to get them whole."));
+        assert!(
+            envelope_cost(&output) + BOFIP_CONSTANTS_RESERVE_CHARS + page_cost(&output.hits)
+                <= ResponseBudget::ESTIMATE_TARGET_CHARS
+        );
     }
 
     #[tokio::test]

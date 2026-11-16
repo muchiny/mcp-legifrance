@@ -15,7 +15,22 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `1.3.1`.
+Correctif du deuxième des trois défauts relevés par le rejeu des 13 questions (09 §2.20) : la recherche du BOFiP rendait des résultats hors sujet (ADR-0031, PR #90 et la PR du code).
+
+### Fixed
+
+- `fr_search_bofip` : la recherche demande d'abord les mots exacts. La recherche du portail est approchée : elle retrouvait aussi les mots qui ressemblent au mot cherché (une ou deux lettres de différence, accents retirés), si bien que « donation » trouvait aussi « fonction » ou « location ». Chaque mot de `query` doit désormais figurer tel qu'il est écrit, accents et casse mis à part. Sur les 31 recherches du rejeu, 169 résultats au lieu de 820 ; la page attendue est dans les cinq premiers résultats pour 8 requêtes de mesure sur 9, contre 5 (mesure du 2026-11-16 avec le binaire de la branche).
+
+### Changed
+
+- `fr_search_bofip` : si aucune publication ne porte tous les mots tels quels, la recherche approchée de la 1.3.1 est envoyée, et `note` le dit. Une recherche envoie donc une requête au portail, deux dans ce cas ; la seconde compte dans le débit et dans le quota du jour comme la première, et ce n'est pas un réessai : après une erreur, aucune requête ne suit.
+- `fr_search_bofip` : le dernier mot ne vaut plus comme début de mot, et le singulier ne trouve plus le pluriel : essayez les deux formes. Sur les 25 publications lues pendant le rejeu, 22 sortent encore de la recherche qui les avait trouvées.
+- `fr_search_bofip` : la note d'une recherche sans aucun résultat dit qu'il n'y en a pas même en mots approchants, et propose aussi le singulier ou le pluriel.
+
+### Tool surface
+
+- Correctif : la description de `fr_search_bofip` et celle de son paramètre `query` sont récrites (mots tels qu'ils sont écrits, plus de début de mot, recherche approchée en secours signalée dans `note`). `lock-descriptors --compare`, contre le verrou de la 1.3.1, ne relève que ces deux textes reformulés (`text reworded`). Les quatorze autres outils et les instructions ne changent pas. ADR-0031 (décision 6) classe ce changement en correctif, bien que la règle décrite change sur le début de mot ; le numéro de version reste décidé par le propriétaire.
+- `tools/list` : 41 878 → 42 055 octets (+177), sous le plafond de 43 200.
 
 ## [1.3.1] - 2026-11-15
 

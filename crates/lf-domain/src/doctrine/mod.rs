@@ -3,7 +3,8 @@
 //!
 //! Le BOFiP n'est pas un fond de Légifrance : ses identifiants (`BOI-…`, `ACTU-…`) n'ont ni la
 //! forme ni le sens d'un [`Id`](crate::id::Id), ses adresses ne sont pas sous
-//! [`WEB_BASE`](crate::url::WEB_BASE), et sa recherche n'a ni opérateur ni mode de correspondance.
+//! [`WEB_BASE`](crate::url::WEB_BASE), et sa recherche n'a ni opérateur ni phrase exacte : des
+//! mots, cherchés tels quels ou à peu près ([`DoctrineMatch`], ADR-0031).
 //! Il a donc ses propres types, tous validés sans réseau : une valeur construite est déjà
 //! conforme, et l'adapter n'écrit dans la requête amont que des valeurs typées ici (ADR-0029,
 //! décision 3).
@@ -27,7 +28,7 @@ mod url;
 pub use entity::{DoctrineDoc, DoctrineHit, DoctrinePage, doctrine_citation};
 pub use id::{BOI_ID_MAX_BYTES, BoiId, PublicationId, SERIE_MAX_BYTES, Serie};
 pub use kind::{DoctrineKind, KindFilter};
-pub use query::DoctrineQuery;
+pub use query::{DoctrineMatch, DoctrineQuery};
 pub use terms::DoctrineTerms;
 pub use text::{LINE_MAX_CHARS, PublicationText, clean_line, clean_text, publication_text};
 pub use url::{BOFIP_PAGE_BASE, BOFIP_URL_MAX_BYTES, BofipUrl, Permalink};

@@ -107,9 +107,9 @@
   "server_version": "1.3.1",
   "sizes": {
     "instructions_chars": 3688,
-    "tools_list_bytes": 41878
+    "tools_list_bytes": 42055
   },
-  "surface_sha256": "54940254c6a226f4a02f6ab23672e1ad74d8808875b6b2ca60be8d57db407979",
+  "surface_sha256": "34df7d21f00782dab5103405693968a959dd787c46e4245400adbd265bc72013",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -2033,7 +2033,7 @@
           "readOnlyHint": true,
           "title": "Search the tax doctrine (BOFiP)"
         },
-        "description": "Search BOFiP, the published doctrine of the French tax administration (DGFiP): how the administration reads tax law, not the law itself. All the words of `query` must appear in a publication; the last word also matches as a prefix; there are no operators and no quoted phrases, so use a few plain words. Narrow with `serie` (for example ENR for registration and inheritance duties, IR for income tax, RFPI for property income and capital gains). `kind` selects doctrine pages (default), news items, or all. Returns id, publication_id, title, kind, serie, valid_from and source_url, paged with `page` and `has_more`; never the text: read it with fr_get_bofip. Only publications in force today are available.",
+        "description": "Search BOFiP, the published doctrine of the French tax administration (DGFiP): how the administration reads tax law, not the law itself. Every word of `query` must appear in a publication exactly as written, accents and case aside: no prefixes, no operators, no quoted phrases, so use a few plain words and try both singular and plural forms. If no publication holds them all, the search falls back to approximate spelling and says so in `note`. Narrow with `serie` (for example ENR for registration and inheritance duties, IR for income tax, RFPI for property income and capital gains); `kind` selects doctrine pages (default), news items, or all. Returns id, publication_id, title, kind, serie, valid_from and source_url, paged with `page` and `has_more`; never the text: read it with fr_get_bofip. Only publications in force today are available.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -2061,7 +2061,7 @@
               "type": "integer"
             },
             "query": {
-              "description": "A few plain words: all must appear in the publication, the last one also as a prefix. No operators, no quoted phrases.",
+              "description": "A few plain words, each found exactly as written (accents and case aside); approximate spelling only if nothing matches. No operators, no quoted phrases.",
               "maxLength": 450,
               "minLength": 1,
               "type": "string"
@@ -2157,7 +2157,7 @@
         },
         "title": "Search the tax doctrine (BOFiP)"
       },
-      "sha256": "b9fd0bdadb94f74a14cbfe7f0832d7b71ae138726c4c0c207ab05888bfe264b0"
+      "sha256": "5866611fe5ebc09d370846fed74e53df63427900053e82aeca6756edcea15cda"
     },
     "fr_verify_citations": {
       "descriptor": {
@@ -2311,5 +2311,5 @@
       "sha256": "be51a6e4cd67f1f91289213f993c62a87c1f1023384e59e9a96922d94073f260"
     }
   },
-  "toolset_sha256": "09bbea7d7070385c2aaf2a6a4b3b51a385e5d1e8061a3607a1030a111580b2cd"
+  "toolset_sha256": "ebbba5c03849ca7a32abed9184290854ba7d49cbdd7ec555407fb41d21074664"
 }
