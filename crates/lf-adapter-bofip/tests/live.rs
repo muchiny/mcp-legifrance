@@ -104,7 +104,9 @@ mod live {
         let Some(page) = unless_limited("live_bofip_search_returns_doctrine_only", result) else {
             return;
         };
-        assert!(page.total >= 100, "total: {}", page.total);
+        // Mots exacts depuis la 1.3.2 (ADR-0031) : 58 publications le 2026-11-16, contre 433 en
+        // mots approchants. Le seuil de 100 datait de la recherche approchée.
+        assert!(page.total >= 20, "total: {}", page.total);
         assert_eq!(page.hits.len(), 5);
         for hit in &page.hits {
             assert_eq!(hit.kind, DoctrineKind::Doctrine, "{}", hit.id.as_str());
