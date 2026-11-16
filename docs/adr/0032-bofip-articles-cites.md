@@ -83,6 +83,12 @@ Mesures du 2026-11-16, hors dépôt. La première est faite hors ligne, sur l'ex
 
    `fr_resolve` et `fr_verify_citations` ne lisent toujours pas les références `BOI-…` (Q31 = A).
 
+**Note du 2026-11-16 (code, T-MB-68).** La décision 2 dit « tout le texte ». Le code lit au plus les 200 000 premiers caractères (`CITED_TEXT_MAX_CHARS`), coupés à la fin du dernier paragraphe entier qui y tient : une coupe au milieu d'une citation pourrait lister un autre article (« CGI, art. 1135 bis » coupé après « 113 »). Au-delà, `cited_articles_truncated` vaut `true`.
+
+- **Pourquoi.** Le portail peut rendre jusqu'à 4 Mio de texte (plafond de l'adapter). Sur un texte hostile de cette taille, mesuré le 2026-11-16 (binaire optimisé), la lecture des citations prend jusqu'à 5,1 s sans borne et 0,9 s avec elle. La préparation du même texte prend 41 ms.
+- **Effet sur le jeu : aucun.** La plus longue publication compte 167 694 caractères. Sur l'export du 2026-11-15, les listes sont identiques avec et sans la borne (K4).
+- Le reste de la décision est inchangé.
+
 ## Question tranchée
 
 La question a été posée au propriétaire avec une recommandation, après la sonde en production. Il a répondu « 1 » le 2026-11-16.
@@ -106,8 +112,9 @@ La question a été posée au propriétaire avec une recommandation, après la s
 - **La liste n'est pas tout ce que la page cite.**
   - Les articles des lois et décrets non codifiés n'y sont pas.
   - Le parseur ne reconnaît pas la forme longue d'un article d'annexe (« article 75 de l'annexe II au code général des impôts »), seulement la forme courte (« CGI, ann. II, art. 75 »). C'est une limite du parseur, relevée par la sonde et non corrigée ici.
+  - Il ne rattache pas non plus le code à une liste de plages (« articles 1 à 2 et 3 à 4 du code civil ») : 3 publications du jeu en portent une (relevé du 2026-11-16, avec le code). Même statut.
 - Un article abrogé ressort de `fr_verify_citations` en `not_found` : la note de cet outil dit qu'aucune version n'est en vigueur aujourd'hui et propose de réessayer avec une date. L'appelant doit comprendre que l'article a disparu.
-- Chaque lecture coûte jusqu'à 65 ms de plus, et la réponse grandit (128 caractères en médiane pour la liste, environ 2 500 au plus).
+- Chaque lecture coûte jusqu'à 65 ms de plus (0,9 s au pire sur un texte hostile, note ci-dessus), et la réponse grandit (128 caractères en médiane pour la liste, environ 2 500 au plus).
 - Un descripteur change : les clients qui épinglent les descripteurs redemandent une approbation.
 - La vérification exige un compte PISTE.
 

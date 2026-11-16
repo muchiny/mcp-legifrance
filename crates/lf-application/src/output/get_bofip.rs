@@ -2,13 +2,14 @@
 //!
 //! Deux formes : une publication lue ([`BofipPublication`] : ses métadonnées et la lecture déjà
 //! faite de son texte), ou la liste des publications qui portent le même identifiant
-//! ([`BofipChoice`]), sans aucun texte, quand l'appel ne dit pas laquelle lire. La citation se
+//! ([`BofipChoice`]), sans aucun texte, quand l'appel ne dit pas laquelle lire. Une publication
+//! lue porte aussi les articles de code que cite son texte entier (ADR-0032). La citation se
 //! tire de la publication ([`lf_domain::doctrine::DoctrineDoc::citation`]) ; `attribution` et
 //! `doctrine_note` sont des constantes de la vue.
 
 use lf_domain::{
     date::CivilDate,
-    doctrine::{BofipUrl, BoiId, DoctrineDoc, PublicationId},
+    doctrine::{BofipUrl, BoiId, CitedArticles, DoctrineDoc, PublicationId},
 };
 
 use crate::{audited::AuditMetric, budget::Reading, output::get_text::returned_chars};
@@ -42,6 +43,9 @@ pub struct BofipPublication {
     /// La lecture du texte selon le mode demandé : résumé, texte plein ou passages. Pour une
     /// publication sans texte : `text_length` à 0 et une remarque.
     pub reading: Reading,
+    /// Les articles de code cités par le texte entier, quelle que soit la fenêtre lue ; vide pour
+    /// une publication sans texte (ADR-0032).
+    pub cited: CitedArticles,
 }
 
 /// Les publications qui portent un même identifiant, quand l'appel n'en choisit aucune.
@@ -116,6 +120,7 @@ mod tests {
         GetBofipOutput::Publication(Box::new(BofipPublication {
             doc: bofip::doc(3350, ""),
             reading,
+            cited: CitedArticles::default(),
         }))
     }
 
@@ -144,7 +149,11 @@ mod tests {
 
     #[test]
     fn only_a_reading_has_a_publication() {
-        let read = BofipPublication { doc: bofip::doc(3350, ""), reading: reading(12) };
+        let read = BofipPublication {
+            doc: bofip::doc(3350, ""),
+            reading: reading(12),
+            cited: CitedArticles::default(),
+        };
         let output = GetBofipOutput::Publication(Box::new(read.clone()));
         assert_eq!(output.publication(), Some(&read));
         let choice = BofipChoice { id: bofip::id(), publications: Vec::new(), note: String::new() };

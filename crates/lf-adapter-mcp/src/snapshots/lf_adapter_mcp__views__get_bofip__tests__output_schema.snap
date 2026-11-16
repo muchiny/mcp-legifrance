@@ -10,6 +10,17 @@ expression: schema
     "citation": {
       "type": "string"
     },
+    "cited_articles": {
+      "description": "Code articles cited by the whole text, at most 50: check them with fr_verify_citations.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "cited_articles_truncated": {
+      "description": "true when cited_articles is incomplete.",
+      "type": "boolean"
+    },
     "division": {
       "type": "string"
     },

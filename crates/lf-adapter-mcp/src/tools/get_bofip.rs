@@ -22,8 +22,8 @@ use crate::{
     views::get_bofip::BofipView,
 };
 
-/// Description du descripteur, mot pour mot (05 §5.15, 707 caractères, sans adresse).
-pub(crate) const DESCRIPTION: &str = r#"Read one BOFiP publication by its id (BOI-... or ACTU-..., from fr_search_bofip): title, kind, serie, valid_from, citation and source_url. BOFiP is the tax administration's doctrine, not the law; only the publication in force today is served, never a past version. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary` (its beginning). `detail`="full" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. A few ids designate two publications: the answer then lists them, and `publication_id` selects one."#;
+/// Description du descripteur, mot pour mot (05 §5.15, 878 caractères, sans adresse).
+pub(crate) const DESCRIPTION: &str = r#"Read one BOFiP publication by its id (BOI-... or ACTU-..., from fr_search_bofip): title, kind, serie, valid_from, citation, source_url and cited_articles (the code articles its text cites, at most 50). BOFiP is the tax administration's doctrine, not the law; only the publication in force today is served, never a past version, and it may predate a change of the law: check cited_articles with fr_verify_citations before relying on it. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary` (its beginning). `detail`="full" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. A few ids designate two publications: the answer then lists them, and `publication_id` selects one."#;
 
 #[tool_router(router = get_bofip_router, vis = "pub(crate)")]
 impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
@@ -60,10 +60,15 @@ mod tests {
 
     #[test]
     fn the_description_is_the_documented_text() {
-        assert_eq!(DESCRIPTION.chars().count(), 707);
+        assert_eq!(DESCRIPTION.chars().count(), 878);
         assert!(DESCRIPTION.starts_with("Read one BOFiP publication by its id"));
         assert!(DESCRIPTION.contains("not the law"));
         assert!(DESCRIPTION.contains("never a past version"));
+        // ADR-0032 : la liste des articles cités, et comment la vérifier.
+        assert!(
+            DESCRIPTION.contains("cited_articles (the code articles its text cites, at most 50)")
+        );
+        assert!(DESCRIPTION.contains("check cited_articles with fr_verify_citations"));
         assert!(DESCRIPTION.ends_with("and `publication_id` selects one."));
         // Aucune adresse : seuls les liens vers Légifrance sont admis dans un descripteur.
         assert!(!DESCRIPTION.contains("http"));

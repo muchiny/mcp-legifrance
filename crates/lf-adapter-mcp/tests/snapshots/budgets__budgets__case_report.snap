@@ -253,9 +253,22 @@ expression: report
     "under_estimation_target": true
   },
   {
+    "case": "bofip_get_40000_char_window_with_60_long_cited_articles",
+    "kept": {
+      "cited_articles": 50,
+      "window": {
+        "text_length": 67069,
+        "window_chars": 19992
+      }
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_bofip",
+    "under_estimation_target": true
+  },
+  {
     "case": "bofip_get_choice_of_10_publications_with_1000_char_titles",
     "kept": {
-      "chars": 12249,
+      "chars": 12496,
       "publications": 10
     },
     "outcome": "rendered",

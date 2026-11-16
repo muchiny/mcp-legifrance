@@ -15,7 +15,26 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `1.3.2`.
+Dernier des trois défauts relevés par le rejeu des 13 questions (09 §2.20) : une publication du BOFiP peut être plus ancienne que la loi qu'elle commente, et rien ne le signalait (ADR-0032, PR #94 et la PR de code).
+
+### Added
+
+- `fr_get_bofip` : `cited_articles`, les articles de code que cite le texte entier de la publication, quelle que soit la fenêtre lue.
+  - Forme canonique, celle de `fr_resolve` et de `fr_verify_citations` (« Code général des impôts, art. 1135 bis »), chaque article une fois, dans l'ordre de sa première apparition, une plage par ses deux bornes.
+  - 50 au plus, lus dans les 200 000 premiers caractères du texte (la plus longue publication en compte 167 694). `cited_articles_truncated: true` signale une liste incomplète.
+  - Seulement les codes du dictionnaire des citations : ni lois ni décrets non codifiés.
+  - Mesure sur les 9 173 publications du jeu : au moins un article dans 79 % des pages de doctrine, liste complète pour 99,25 % d'entre elles, et chaque liste relue à l'identique par `fr_verify_citations`.
+
+### Changed
+
+- `fr_get_bofip` : la note de doctrine ajoute une phrase. Une publication peut être plus ancienne que la loi qu'elle explique : avant de s'y fier, vérifier les articles cités avec `fr_verify_citations` (date de début de chaque version en vigueur), puis avec `fr_diff_article` depuis `valid_from`.
+- L'outil ne vérifie rien lui-même et n'envoie aucune requête de plus : la lecture du BOFiP ne demande toujours aucun compte. Mesure en production du 2026-11-16 : sur dix changements d'articles tirés au hasard, un seul touchait ce que disait la page ; une alerte automatique aurait surtout été du bruit.
+
+### Tool surface
+
+- Ajout : `fr_get_bofip` gagne deux champs de sortie facultatifs, `cited_articles` et `cited_articles_truncated`, et sa description est récrite pour les nommer.
+- `lock-descriptors --compare`, contre le verrou de la 1.3.2, ne relève rien d'autre. Il demande une version mineure.
+- `tools/list` : 42 055 → 42 492 octets (+437), sous le plafond de 43 200.
 
 ## [1.3.2] - 2026-11-16
 

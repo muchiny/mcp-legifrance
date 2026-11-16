@@ -8,8 +8,11 @@
 //! - **une liste** : les publications qui portent le même identifiant, sans aucun texte, quand
 //!   l'appel ne dit pas laquelle lire.
 //!
+//! Une publication lue porte aussi les articles de code que cite son texte entier
+//! (`cited_articles`, ADR-0032).
+//!
 //! Les deux formes partagent un seul schéma de sortie : `id` et les deux constantes du BOFiP
-//! ([`BOFIP_ATTRIBUTION`], [`DOCTRINE_NOTE`]) sont toujours là, tout le reste est facultatif. Les
+//! ([`BOFIP_ATTRIBUTION`], [`READ_DOCTRINE_NOTE`]) sont toujours là, tout le reste est facultatif. Les
 //! champs absents sont omis (jamais `null`). Les commentaires des champs sont des `//` : un
 //! commentaire de documentation partirait dans l'`outputSchema`, dont la taille compte (05 §3.4).
 
@@ -22,8 +25,19 @@ use serde::Serialize;
 use super::{
     fit::fit_under_cap,
     reading::ReadingView,
-    search_bofip::{BOFIP_ATTRIBUTION, BofipKindView, DOCTRINE_NOTE},
+    search_bofip::{BOFIP_ATTRIBUTION, BofipKindView, doctrine_note},
 };
+
+/// `doctrine_note` de la lecture : celle de la recherche ([`DOCTRINE_NOTE`](super::search_bofip::DOCTRINE_NOTE)),
+/// suivie d'une phrase fixe sur les articles cités (ADR-0032, décision 5). La lecture ne juge pas
+/// si une publication est périmée : la sonde du 2026-11-16 a trouvé sept changements sans effet
+/// sur dix ; elle dit comment le vérifier.
+pub(crate) const READ_DOCTRINE_NOTE: &str = concat!(
+    doctrine_note!(),
+    " A publication may be older than the law it explains: before relying on it, check the code \
+     articles it cites (cited_articles) with fr_verify_citations, which gives the start date of \
+     each version in force, then with fr_diff_article from valid_from."
+);
 
 // Les noms de champs et leur ordre sont ceux de 05 §5.15.
 #[derive(Debug, Serialize, JsonSchema)]
@@ -65,6 +79,15 @@ struct PublicationView {
     source_url: Option<String>,
     #[serde(flatten)]
     reading: ReadingView,
+    // Articles de code cités par le texte entier, quelle que soit la fenêtre (ADR-0032).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(
+        description = "Code articles cited by the whole text, at most 50: check them with fr_verify_citations."
+    )]
+    cited_articles: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "true when cited_articles is incomplete.")]
+    cited_articles_truncated: Option<bool>,
 }
 
 // Les publications d'un même identifiant, et comment en lire une.
@@ -93,7 +116,7 @@ struct PublicationRefView {
 
 impl From<BofipPublication> for PublicationView {
     fn from(publication: BofipPublication) -> Self {
-        let BofipPublication { doc, reading } = publication;
+        let BofipPublication { doc, reading, cited } = publication;
         Self {
             citation: doc.citation(),
             publication_id: doc.publication_id.get(),
@@ -104,6 +127,8 @@ impl From<BofipPublication> for PublicationView {
             valid_from: doc.valid_from.map(|date| date.to_string()),
             source_url: doc.source_url.map(|url| url.as_str().to_owned()),
             reading: reading.into(),
+            cited_articles: cited.articles,
+            cited_articles_truncated: cited.truncated.then_some(true),
         }
     }
 }
@@ -143,7 +168,7 @@ impl From<GetBofipOutput> for BofipView {
             publication,
             choice,
             attribution: BOFIP_ATTRIBUTION.to_owned(),
-            doctrine_note: DOCTRINE_NOTE.to_owned(),
+            doctrine_note: READ_DOCTRINE_NOTE.to_owned(),
         };
         // L'application ne voit pas les échappements JSON : la mesure exacte tranche, et la
         // fenêtre raccourcie garde un `next_offset` exact. Une liste n'a rien à retirer.
@@ -165,14 +190,16 @@ mod tests {
     use lf_application::budget::{PassageOut, Reading, ResponseBudget};
     use lf_domain::{
         date::CivilDate,
-        doctrine::{BoiId, DoctrineDoc, DoctrineKind, Permalink, Serie},
+        doctrine::{
+            BoiId, CITED_ARTICLES_MAX, CitedArticles, DoctrineDoc, DoctrineKind, Permalink, Serie,
+        },
         text::{LongText, Summary, SummarySource},
     };
     use pretty_assertions::assert_eq;
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::schema::output_schema;
+    use crate::{schema::output_schema, views::search_bofip::DOCTRINE_NOTE};
 
     const ID: &str = "BOI-ENR-DMTG-10-50-20";
     const URL: &str = "https://bofip.impots.gouv.fr/bofip/3369-PGP.html/identifiant=BOI-ENR-DMTG-10-50-20-20230524";
@@ -206,7 +233,11 @@ mod tests {
     }
 
     fn published(doc: DoctrineDoc, reading: Reading) -> GetBofipOutput {
-        GetBofipOutput::Publication(Box::new(BofipPublication { doc, reading }))
+        GetBofipOutput::Publication(Box::new(BofipPublication {
+            doc,
+            reading,
+            cited: CitedArticles::default(),
+        }))
     }
 
     fn json_of(output: GetBofipOutput) -> Value {
@@ -257,7 +288,7 @@ mod tests {
                 "summary_truncated": true,
                 "text_length": 28_323,
                 "attribution": "Source : BOFiP-Impôts / DGFiP — Licence Ouverte 2.0",
-                "doctrine_note": DOCTRINE_NOTE,
+                "doctrine_note": READ_DOCTRINE_NOTE,
             })
         );
     }
@@ -312,7 +343,7 @@ mod tests {
                 "text_length": 0,
                 "note": "This publication has no text.",
                 "attribution": BOFIP_ATTRIBUTION,
-                "doctrine_note": DOCTRINE_NOTE,
+                "doctrine_note": READ_DOCTRINE_NOTE,
             })
         );
     }
@@ -334,9 +365,80 @@ mod tests {
                 ],
                 "note": "2 publications share this id; pass publication_id to read one.",
                 "attribution": BOFIP_ATTRIBUTION,
-                "doctrine_note": DOCTRINE_NOTE,
+                "doctrine_note": READ_DOCTRINE_NOTE,
             })
         );
+    }
+
+    fn cited(articles: &[&str], truncated: bool) -> CitedArticles {
+        CitedArticles { articles: articles.iter().map(|a| (*a).to_owned()).collect(), truncated }
+    }
+
+    fn with_cited(reading: Reading, cited: CitedArticles) -> GetBofipOutput {
+        GetBofipOutput::Publication(Box::new(BofipPublication { doc: doc(), reading, cited }))
+    }
+
+    /// Les articles cités suivent la lecture ; le drapeau n'est rendu que s'il vaut `true`.
+    #[test]
+    fn the_cited_articles_follow_the_reading_and_the_flag_only_when_true() {
+        let articles = ["Code général des impôts, art. 790", "Code civil, art. 9"];
+        let value = json_of(with_cited(reading(28_323), cited(&articles, false)));
+        assert_eq!(value["cited_articles"], json!(articles));
+        assert!(value.get("cited_articles_truncated").is_none());
+        // L'ordre des champs est celui de la sortie sérialisée (une `Value` les trierait).
+        let view = BofipView::from(with_cited(reading(28_323), cited(&articles, false)));
+        let raw = serde_json::to_string(&view).unwrap();
+        let at = |name: &str| raw.find(&format!("\"{name}\":")).unwrap();
+        assert!(
+            at("text_length") < at("cited_articles") && at("cited_articles") < at("attribution")
+        );
+
+        let value = json_of(with_cited(reading(28_323), cited(&articles, true)));
+        assert_eq!(value["cited_articles_truncated"], true);
+
+        let value = json_of(with_cited(reading(28_323), CitedArticles::default()));
+        assert!(
+            value.get("cited_articles").is_none()
+                && value.get("cited_articles_truncated").is_none()
+        );
+    }
+
+    /// La note de la lecture reprend celle de la recherche mot pour mot, puis dit comment
+    /// vérifier les articles cités, sans juger la publication.
+    #[test]
+    fn the_reading_note_extends_the_search_note_with_how_to_check_the_articles() {
+        let added = READ_DOCTRINE_NOTE.strip_prefix(DOCTRINE_NOTE).unwrap();
+        assert_eq!(
+            added,
+            " A publication may be older than the law it explains: before relying on it, check \
+             the code articles it cites (cited_articles) with fr_verify_citations, which gives \
+             the start date of each version in force, then with fr_diff_article from valid_from."
+        );
+        assert_eq!(json_of(choice())["doctrine_note"], READ_DOCTRINE_NOTE);
+    }
+
+    /// Cinquante citations parmi les plus longues que le dictionnaire puisse écrire, avec une
+    /// fenêtre pleine d'échappements : la liste reste entière, la fenêtre seule raccourcit.
+    #[test]
+    fn fifty_long_citations_keep_the_response_under_the_hard_cap() {
+        let longest = lf_domain::citation::CODES
+            .iter()
+            .map(|entry| entry.title)
+            .max_by_key(|title| title.chars().count())
+            .unwrap();
+        let articles: Vec<String> = (0..CITED_ARTICLES_MAX)
+            .map(|i| format!("{longest}, art. R*** {i}-123-45-67 quinquies AA"))
+            .collect();
+        let text = "\"mot\" ".repeat(6_600);
+        let length = u32::try_from(text.chars().count()).unwrap();
+        let window = Reading { text: Some(text), ..reading(length) };
+        let list = CitedArticles { articles: articles.clone(), truncated: true };
+        let view = BofipView::from(with_cited(window, list));
+        let size = serde_json::to_string(&view).unwrap().chars().count();
+        assert!(size <= ResponseBudget::HARD_CAP_CHARS, "{size}");
+        let publication = view.publication.as_ref().unwrap();
+        assert_eq!(publication.cited_articles, articles);
+        assert!(publication.reading.text.as_ref().unwrap().chars().count() < 6_600 * 6);
     }
 
     /// Une fenêtre riche en échappements JSON dépasse le plafond dur : la vue la raccourcit et
@@ -391,6 +493,8 @@ mod tests {
             [
                 "attribution",
                 "citation",
+                "cited_articles",
+                "cited_articles_truncated",
                 "division",
                 "doctrine_note",
                 "id",

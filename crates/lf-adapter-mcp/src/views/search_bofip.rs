@@ -23,6 +23,15 @@ use super::fit::fit_under_cap;
 /// décision 9).
 pub(crate) const BOFIP_ATTRIBUTION: &str = "Source : BOFiP-Impôts / DGFiP — Licence Ouverte 2.0";
 
+/// Texte de [`DOCTRINE_NOTE`], en macro : la note de la lecture (`fr_get_bofip`) le reprend mot
+/// pour mot et y ajoute une phrase (`concat!` n'accepte que des littéraux).
+macro_rules! doctrine_note {
+    () => {
+        "BOFiP is the tax administration's published doctrine: its reading of tax law, not the law itself. A taxpayer may rely on it against the administration under the conditions of article L. 80 A of the Livre des procédures fiscales. Only the publications in force today are available here: check the validity date before relying on a passage for an earlier period."
+    };
+}
+pub(crate) use doctrine_note;
+
 /// `doctrine_note` des réponses du BOFiP : nature du texte, garantie de l'article L. 80 A du LPF
 /// et limite de la source (ADR-0029, V-225).
 ///
@@ -31,7 +40,7 @@ pub(crate) const BOFIP_ATTRIBUTION: &str = "Source : BOFiP-Impôts / DGFiP — L
 /// texte fiscal selon l'interprétation publiée par l'administration et non rapportée « à la date
 /// des opérations en cause » : d'où « under the conditions of », et le rappel de la date de
 /// validité, puisque seule la doctrine en vigueur aujourd'hui est servie.
-pub(crate) const DOCTRINE_NOTE: &str = "BOFiP is the tax administration's published doctrine: its reading of tax law, not the law itself. A taxpayer may rely on it against the administration under the conditions of article L. 80 A of the Livre des procédures fiscales. Only the publications in force today are available here: check the validity date before relying on a passage for an earlier period.";
+pub(crate) const DOCTRINE_NOTE: &str = doctrine_note!();
 
 // Nature d'une publication.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
