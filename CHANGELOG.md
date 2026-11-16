@@ -15,7 +15,11 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Correctif du deuxième des trois défauts relevés par le rejeu des 13 questions (09 §2.20) : la recherche du BOFiP rendait des résultats hors sujet (ADR-0031, PR #90 et la PR du code).
+Rien depuis `1.3.2`.
+
+## [1.3.2] - 2026-11-16
+
+Correctif du deuxième des trois défauts relevés par le rejeu des 13 questions (09 §2.20) : la recherche du BOFiP rendait des résultats hors sujet (ADR-0031, PR #90 et #91). Aucun outil, paramètre, champ ni valeur d'énumération nouveau : `lock-descriptors --compare v1.3.1` ne relève que deux textes reformulés (montée de correctif, numéro décidé par le propriétaire le 2026-11-16).
 
 ### Fixed
 
@@ -29,7 +33,7 @@ Correctif du deuxième des trois défauts relevés par le rejeu des 13 questions
 
 ### Tool surface
 
-- Correctif : la description de `fr_search_bofip` et celle de son paramètre `query` sont récrites (mots tels qu'ils sont écrits, plus de début de mot, recherche approchée en secours signalée dans `note`). `lock-descriptors --compare`, contre le verrou de la 1.3.1, ne relève que ces deux textes reformulés (`text reworded`). Les quatorze autres outils et les instructions ne changent pas. ADR-0031 (décision 6) classe ce changement en correctif, bien que la règle décrite change sur le début de mot ; le numéro de version reste décidé par le propriétaire.
+- Correctif : la description de `fr_search_bofip` et celle de son paramètre `query` sont récrites (mots tels qu'ils sont écrits, plus de début de mot, recherche approchée en secours signalée dans `note`). `lock-descriptors --compare`, contre le verrou de la 1.3.1, ne relève que ces deux textes reformulés (`text reworded`). Les quatorze autres outils et les instructions ne changent pas. ADR-0031 (décision 6) classe ce changement en correctif, bien que la règle décrite change sur le début de mot ; le propriétaire a retenu ce classement (1.3.2, 2026-11-16).
 - `tools/list` : 41 878 → 42 055 octets (+177), sous le plafond de 43 200.
 
 ## [1.3.1] - 2026-11-15
@@ -506,7 +510,8 @@ Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0
 
 - Domaine seulement, visible par un client à partir de M4 : citation du Conseil constitutionnel sans « - objet » (P-035), plus de `eli_uri` (P-031, P-039), sentinelle de date omise (P-030).
 
-[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.1.1...v1.3.0
 [1.2.0]: https://github.com/muchiny/mcp-legifrance/pull/81
