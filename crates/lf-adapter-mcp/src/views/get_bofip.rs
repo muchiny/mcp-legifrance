@@ -35,8 +35,9 @@ use super::{
 pub(crate) const READ_DOCTRINE_NOTE: &str = concat!(
     doctrine_note!(),
     " A publication may be older than the law it explains: before relying on it, check the code \
-     articles it cites (cited_articles) with fr_verify_citations, which gives the start date of \
-     each version in force, then with fr_diff_article from valid_from."
+     articles it cites (cited_articles, the same on every page) once with fr_verify_citations, \
+     which gives the start date of each version in force; for an article whose version started \
+     after valid_from, fr_diff_article from valid_from shows what changed."
 );
 
 // Les noms de champs et leur ordre sont ceux de 05 §5.15.
@@ -411,14 +412,17 @@ mod tests {
         assert_eq!(
             added,
             " A publication may be older than the law it explains: before relying on it, check \
-             the code articles it cites (cited_articles) with fr_verify_citations, which gives \
-             the start date of each version in force, then with fr_diff_article from valid_from."
+             the code articles it cites (cited_articles, the same on every page) once with \
+             fr_verify_citations, which gives the start date of each version in force; for an \
+             article whose version started after valid_from, fr_diff_article from valid_from \
+             shows what changed."
         );
         assert_eq!(json_of(choice())["doctrine_note"], READ_DOCTRINE_NOTE);
     }
 
-    /// Cinquante citations parmi les plus longues que le dictionnaire puisse écrire, avec une
-    /// fenêtre pleine d'échappements : la liste reste entière, la fenêtre seule raccourcit.
+    /// Cinquante entrées de la pire longueur (le plus long titre du dictionnaire, le plus long
+    /// numéro lisible), avec une fenêtre qui tiendrait seule sous le plafond dur : la liste la
+    /// fait dépasser, la fenêtre raccourcit et la liste reste entière.
     #[test]
     fn fifty_long_citations_keep_the_response_under_the_hard_cap() {
         let longest = lf_domain::citation::CODES
@@ -426,19 +430,37 @@ mod tests {
             .map(|entry| entry.title)
             .max_by_key(|title| title.chars().count())
             .unwrap();
+        // Le numéro le plus long que la fenêtre du parseur puisse lire (ancre + 432 caractères) :
+        // environ 500 caractères par entrée. Dans le jeu, la plus longue en compte 96.
         let articles: Vec<String> = (0..CITED_ARTICLES_MAX)
-            .map(|i| format!("{longest}, art. R*** {i}-123-45-67 quinquies AA"))
+            .map(|i| format!("{longest}, art. {i}{}", "-1".repeat(216)))
             .collect();
-        let text = "\"mot\" ".repeat(6_600);
-        let length = u32::try_from(text.chars().count()).unwrap();
-        let window = Reading { text: Some(text), ..reading(length) };
+        assert!(articles.iter().all(|a| a.chars().count() > 490));
+        let size = |view: &BofipView| serde_json::to_string(view).unwrap().chars().count();
+        let kept = |view: &BofipView| {
+            view.publication.as_ref().unwrap().reading.text.as_ref().unwrap().chars().count()
+        };
+        let with_window = |text: &str, cited: CitedArticles| {
+            let length = u32::try_from(text.chars().count()).unwrap();
+            BofipView::from(with_cited(
+                Reading { text: Some(text.to_owned()), ..reading(length) },
+                cited,
+            ))
+        };
+        // Une fenêtre qui laisse 500 caractères sous le plafond quand elle est seule.
+        let room = ResponseBudget::HARD_CAP_CHARS.saturating_sub(500);
+        let text =
+            "a".repeat(room.saturating_sub(size(&with_window("", CitedArticles::default()))));
+        let alone = with_window(&text, CitedArticles::default());
+        assert_eq!(kept(&alone), text.chars().count(), "seule, la fenêtre tient entière");
+
         let list = CitedArticles { articles: articles.clone(), truncated: true };
-        let view = BofipView::from(with_cited(window, list));
-        let size = serde_json::to_string(&view).unwrap().chars().count();
-        assert!(size <= ResponseBudget::HARD_CAP_CHARS, "{size}");
-        let publication = view.publication.as_ref().unwrap();
-        assert_eq!(publication.cited_articles, articles);
-        assert!(publication.reading.text.as_ref().unwrap().chars().count() < 6_600 * 6);
+        let view = with_window(&text, list);
+        let total = size(&view);
+        assert!(total <= ResponseBudget::HARD_CAP_CHARS, "{total}");
+        assert_eq!(view.publication.as_ref().unwrap().cited_articles, articles);
+        let (shortened, whole) = (kept(&view), kept(&alone));
+        assert!(shortened < whole, "{shortened} {whole}");
     }
 
     /// Une fenêtre riche en échappements JSON dépasse le plafond dur : la vue la raccourcit et

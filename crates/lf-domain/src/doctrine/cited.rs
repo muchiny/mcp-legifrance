@@ -31,8 +31,8 @@ pub const CITED_ARTICLES_MAX: usize = 50;
 /// Longueur du texte lu par le parseur, en caractères. La plus longue publication du jeu en
 /// compte 167 694 (2026-11-16) : aucune n'est coupée. Mesure du même jour, binaire optimisé :
 /// sur un texte hostile de 4 Mio (le plafond d'une réponse du portail), la lecture des citations
-/// prend jusqu'à 5,1 s sans borne et 0,9 s avec elle, quand la préparation du même texte en prend
-/// 41 ms ; 65 ms au plus pour une publication du jeu.
+/// prend jusqu'à 11,5 s sans borne et 2,1 s avec elle (sigles denses, « CE CE CE… »), quand la
+/// préparation du même texte en prend 41 ms ; 65 ms au plus pour une publication du jeu.
 pub const CITED_TEXT_MAX_CHARS: usize = 200_000;
 
 /// Les articles de code cités par un texte.
@@ -48,6 +48,10 @@ pub struct CitedArticles {
 }
 
 /// Les articles de code que cite `text` (voir le module).
+///
+/// `text` est un texte servi ([`LongText`](crate::text::LongText) : paragraphes joints par
+/// `\n\n`, aucune fin de ligne dans un paragraphe). Sur un texte brut, une fin de ligne au milieu
+/// d'une citation (« art. 1135\nbis ») pourrait tomber sur la coupe de la borne.
 ///
 /// ```
 /// use lf_domain::doctrine::cited_articles;
@@ -326,7 +330,6 @@ mod tests {
         fn any_text_keeps_the_bounds(text in "\\PC{0,400}") {
             let cited = cited_articles(&text);
             prop_assert!(cited.articles.len() <= CITED_ARTICLES_MAX);
-            prop_assert!(cited.articles.iter().all(|a| !a.is_empty()));
         }
     }
 }

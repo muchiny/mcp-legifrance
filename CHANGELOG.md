@@ -27,7 +27,7 @@ Dernier des trois défauts relevés par le rejeu des 13 questions (09 §2.20) : 
 
 ### Changed
 
-- `fr_get_bofip` : la note de doctrine ajoute une phrase. Une publication peut être plus ancienne que la loi qu'elle explique : avant de s'y fier, vérifier les articles cités avec `fr_verify_citations` (date de début de chaque version en vigueur), puis avec `fr_diff_article` depuis `valid_from`.
+- `fr_get_bofip` : la note de doctrine ajoute une phrase. Une publication peut être plus ancienne que la loi qu'elle explique : avant de s'y fier, vérifier une fois les articles cités avec `fr_verify_citations` (date de début de chaque version en vigueur ; la liste est la même à chaque page), puis, pour un article dont la version a commencé après `valid_from`, lire le changement avec `fr_diff_article`.
 - L'outil ne vérifie rien lui-même et n'envoie aucune requête de plus : la lecture du BOFiP ne demande toujours aucun compte. Mesure en production du 2026-11-16 : sur dix changements d'articles tirés au hasard, un seul touchait ce que disait la page ; une alerte automatique aurait surtout été du bruit.
 
 ### Tool surface

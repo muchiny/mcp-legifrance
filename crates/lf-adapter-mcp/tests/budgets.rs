@@ -1096,8 +1096,6 @@ mod budgets {
         clean_text(text).unwrap().0.as_str().chars().take(max_chars).collect()
     }
 
-    /// Une fenêtre de lecture dégradée : elle est plus courte que demandée mais jamais vide,
-    /// `next_offset` est exact et la remarque est celle de la lecture.
     /// `count` articles distincts du code au plus long titre du dictionnaire, un par paragraphe.
     fn long_cited_articles(count: u32) -> String {
         let longest = lf_domain::citation::CODES
@@ -1111,6 +1109,8 @@ mod budgets {
             .join("\n")
     }
 
+    /// Une fenêtre de lecture dégradée : elle est plus courte que demandée mais jamais vide,
+    /// `next_offset` est exact et la remarque est celle de la lecture.
     fn reading_window(observed: &Observed) -> Value {
         let text = observed.value["text"].as_str().expect("a text window");
         let length = observed.value["text_length"].as_u64().expect("a text_length");

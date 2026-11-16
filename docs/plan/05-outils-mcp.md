@@ -1430,13 +1430,13 @@ La liste est omise quand elle est vide, pour une publication sans texte et dans 
 
 La `doctrine_note` de cet outil est celle du §5.14 suivie d'une phrase fixe :
 
-« A publication may be older than the law it explains: before relying on it, check the code articles it cites (cited_articles) with fr_verify_citations, which gives the start date of each version in force, then with fr_diff_article from valid_from. »
+« A publication may be older than the law it explains: before relying on it, check the code articles it cites (cited_articles, the same on every page) once with fr_verify_citations, which gives the start date of each version in force; for an article whose version started after valid_from, fr_diff_article from valid_from shows what changed. »
 
 L'outil ne vérifie rien lui-même et n'envoie aucune requête de plus, ni au portail ni à PISTE. Mesure du 2026-11-16 sur les 9 173 publications :
 
 - au moins un article dans 79 % des pages de doctrine ;
 - liste complète pour 99,25 % d'entre elles ;
-- 65 ms de lecture des citations au plus (0,9 s sur un texte hostile de 4 Mio grâce à la borne, 5,1 s sans elle) ;
+- 65 ms de lecture des citations au plus ; sur un texte hostile, 2,1 s au pire mesuré grâce à la borne (sigles denses, « CE CE CE… »), 11,5 s sur 4 Mio sans elle ;
 - chaque liste, jointe par « ; » ou par des retours à la ligne, relue à l'identique par `fr_verify_citations`.
 
 **Erreurs** : `invalid_arg` ; `not_found` `No BOFiP publication found for {id}. Check the id, or search with fr_search_bofip.` ; `config_error`, `rate_limited`, `upstream_error`, `audit_error` comme au §5.14. Le portail répond `200` avec zéro résultat pour un identifiant inconnu : c'est l'adapter qui en fait un `not_found`. Chaque identifiant rendu par le portail est validé et doit être celui qui a été demandé, et deux publications ne peuvent pas porter le même numéro, sinon `upstream_error`. **Audit, cache** : caractères renvoyés, ou nombre de publications listées ; aucun cache : chaque fenêtre de lecture relit la publication entière sur le portail (181 Ko au plus).
