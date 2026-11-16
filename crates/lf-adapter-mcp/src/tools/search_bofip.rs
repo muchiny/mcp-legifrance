@@ -22,10 +22,11 @@ use crate::{
     views::search_bofip::BofipSearchView,
 };
 
-/// Description du descripteur, mot pour mot (05 §5.14, 706 caractères, 6 phrases, sans adresse ;
+/// Description du descripteur, mot pour mot (05 §5.14, 848 caractères, 6 phrases, sans adresse ;
 /// « for example » et non « e.g. », que le contrôle du nombre de phrases compte comme une fin de
-/// phrase, AM-63).
-pub(crate) const DESCRIPTION: &str = "Search BOFiP, the published doctrine of the French tax administration (DGFiP): how the administration reads tax law, not the law itself. All the words of `query` must appear in a publication; the last word also matches as a prefix; there are no operators and no quoted phrases, so use a few plain words. Narrow with `serie` (for example ENR for registration and inheritance duties, IR for income tax, RFPI for property income and capital gains). `kind` selects doctrine pages (default), news items, or all. Returns id, publication_id, title, kind, serie, valid_from and source_url, paged with `page` and `has_more`; never the text: read it with fr_get_bofip. Only publications in force today are available.";
+/// phrase, AM-63). Elle dit la règle d'ADR-0031 : les mots tels qu'ils sont écrits, puis la
+/// recherche approchée en secours, signalée dans `note`.
+pub(crate) const DESCRIPTION: &str = "Search BOFiP, the published doctrine of the French tax administration (DGFiP): how the administration reads tax law, not the law itself. Every word of `query` must appear in a publication exactly as written, accents and case aside: no prefixes, no operators, no quoted phrases, so use a few plain words and try both singular and plural forms. If no publication holds them all, the search falls back to approximate spelling and says so in `note`. Narrow with `serie` (for example ENR for registration and inheritance duties, IR for income tax, RFPI for property income and capital gains); `kind` selects doctrine pages (default), news items, or all. Returns id, publication_id, title, kind, serie, valid_from and source_url, paged with `page` and `has_more`; never the text: read it with fr_get_bofip. Only publications in force today are available.";
 
 #[tool_router(router = search_bofip_router, vis = "pub(crate)")]
 impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
@@ -62,9 +63,13 @@ mod tests {
 
     #[test]
     fn the_description_is_the_documented_text() {
-        assert_eq!(DESCRIPTION.chars().count(), 706);
+        assert_eq!(DESCRIPTION.chars().count(), 848);
         assert!(DESCRIPTION.starts_with("Search BOFiP, the published doctrine"));
         assert!(DESCRIPTION.contains("not the law itself"));
+        // La règle d'ADR-0031 : mots exacts, plus de préfixe, secours dit dans `note`.
+        assert!(DESCRIPTION.contains("exactly as written, accents and case aside: no prefixes"));
+        assert!(DESCRIPTION.contains("falls back to approximate spelling and says so in `note`"));
+        assert!(!DESCRIPTION.contains("matches as a prefix"));
         assert!(DESCRIPTION.contains("read it with fr_get_bofip"));
         assert!(DESCRIPTION.ends_with("Only publications in force today are available."));
         // Aucune adresse : seuls les liens vers Légifrance sont admis dans un descripteur.

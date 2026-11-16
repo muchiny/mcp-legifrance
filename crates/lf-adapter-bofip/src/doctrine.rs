@@ -291,6 +291,7 @@ mod tests {
 
     // ---- les deux requêtes -----------------------------------------------------------------------
 
+    /// Une recherche en mots exacts envoie `search()` et `like` sur les mêmes mots (ADR-0031).
     #[tokio::test]
     async fn a_search_sends_the_typed_query_and_decodes_the_page() {
         let server = MockServer::start().await;
@@ -299,11 +300,11 @@ mod tests {
             .and(query_param("select", SEARCH_SELECT))
             .and(query_param(
                 "where",
-                r#"search(contenu, "donation abattement") and type = "Contenu" and serie = "ENR""#,
+                r#"search(contenu, "donation abattement") and contenu like "donation abattement" and type = "Contenu" and serie = "ENR""#,
             ))
             .and(query_param("limit", "20"))
             .and(query_param("offset", "40"))
-            .respond_with(ok("search-donation-page1.json"))
+            .respond_with(ok("search-exact.json"))
             .expect(1)
             .mount(&server)
             .await;
@@ -317,9 +318,32 @@ mod tests {
         )
         .unwrap();
         let page = doctrine.search(&query).await.unwrap();
-        assert_eq!((page.total, page.hits.len()), (433, 10));
+        assert_eq!((page.total, page.hits.len()), (58, 10));
         assert_eq!(page.hits[0].id.as_str(), "BOI-ENR-DMTG-20-30-20-30");
         assert_eq!(server.received_requests().await.unwrap()[0].url.query_pairs().count(), 4);
+    }
+
+    /// Une recherche approchée envoie la clause de la 1.3.1, sans `like` (ADR-0031, décision 2).
+    #[tokio::test]
+    async fn an_approximate_search_sends_search_alone() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/records"))
+            .and(query_param("select", SEARCH_SELECT))
+            .and(query_param(
+                "where",
+                r#"search(contenu, "donnation abattement") and type = "Contenu""#,
+            ))
+            .and(query_param("limit", "10"))
+            .and(query_param("offset", "0"))
+            .respond_with(ok("search-approximate-misspelled.json"))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let (doctrine, _timer) = doctrine_on(&server.uri(), config());
+        let page = doctrine.search(&query("donnation abattement").approximate()).await.unwrap();
+        assert_eq!((page.total, page.hits.len()), (122, 10));
+        assert_eq!(page.hits[0].id.as_str(), "BOI-ENR-DMTG-10-50-50");
     }
 
     #[tokio::test]

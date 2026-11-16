@@ -20,7 +20,7 @@ pub(crate) struct SearchBofipParams {
     #[schemars(
         required,
         with = "String",
-        description = "A few plain words: all must appear in the publication, the last one also as a prefix. No operators, no quoted phrases.",
+        description = "A few plain words, each found exactly as written (accents and case aside); approximate spelling only if nothing matches. No operators, no quoted phrases.",
         length(min = 1, max = 450)
     )]
     pub(crate) query: Option<String>,
@@ -162,15 +162,17 @@ mod tests {
         assert_eq!(properties["page_size"]["default"], 10);
     }
 
-    /// La description de `query` dit la règle mesurée du portail : tous les mots, le dernier en
-    /// préfixe, ni opérateur ni expression entre guillemets (ADR-0029).
+    /// La description de `query` dit la règle de la recherche : chaque mot tel qu'il est écrit,
+    /// la recherche approchée seulement si rien ne correspond (ADR-0031), ni opérateur ni
+    /// expression entre guillemets (ADR-0029).
     #[test]
     fn the_query_states_the_matching_rule_of_the_portal() {
         let schema = schema();
         let query = schema["properties"]["query"]["description"].as_str().unwrap();
-        assert!(query.contains("all must appear in the publication"), "{query}");
-        assert!(query.contains("the last one also as a prefix"), "{query}");
+        assert!(query.contains("each found exactly as written"), "{query}");
+        assert!(query.contains("approximate spelling only if nothing matches"), "{query}");
         assert!(query.contains("No operators, no quoted phrases"), "{query}");
+        assert!(!query.contains("prefix"), "{query}");
     }
 
     #[test]

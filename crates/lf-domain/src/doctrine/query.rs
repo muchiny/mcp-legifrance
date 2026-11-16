@@ -1,4 +1,5 @@
-//! Requête de recherche validée de `fr_search_bofip` (05 §5.14).
+//! Requête de recherche validée de `fr_search_bofip` (05 §5.14), et la façon dont ses mots
+//! doivent correspondre au texte ([`DoctrineMatch`], ADR-0031).
 
 use std::num::NonZeroU32;
 
@@ -9,7 +10,24 @@ use crate::{
 
 use super::{id::Serie, kind::KindFilter, terms::DoctrineTerms};
 
-/// Recherche dans le BOFiP : des mots, une série facultative, les natures voulues, une page.
+/// Façon dont les mots d'une recherche doivent correspondre au texte d'une publication
+/// (ADR-0031).
+///
+/// La recherche du portail est approchée : elle retrouve aussi les mots qui ressemblent au mot
+/// cherché (« donation » trouve « fonction »). Une recherche demande donc d'abord les mots
+/// exacts ; la recherche approchée ne sert qu'en secours, quand aucune publication ne les porte
+/// tous. Qui décide du secours : le cas d'usage de `lf-application`, pas l'adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum DoctrineMatch {
+    /// Tous les mots, tels qu'ils sont écrits, accents et casse ignorés.
+    #[default]
+    Exact,
+    /// Tous les mots, à une ou deux lettres près, le dernier en préfixe : la recherche du portail.
+    Approximate,
+}
+
+/// Recherche dans le BOFiP : des mots, une série facultative, les natures voulues, une page, et
+/// la façon dont les mots doivent correspondre.
 ///
 /// Les champs sont privés : l'invariant de [`new`](Self::new) tient pour toute valeur construite.
 /// Le portail refuse `offset + limit > 10 000` (mesure du 2026-11-15), soit
@@ -22,10 +40,11 @@ pub struct DoctrineQuery {
     kind: KindFilter,
     page: NonZeroU32,
     page_size: PageSize,
+    matching: DoctrineMatch,
 }
 
 impl DoctrineQuery {
-    /// Assemble une requête et vérifie que sa page est atteignable.
+    /// Assemble une requête en mots exacts et vérifie que sa page est atteignable.
     ///
     /// # Errors
     ///
@@ -37,7 +56,13 @@ impl DoctrineQuery {
         page: NonZeroU32,
         page_size: PageSize,
     ) -> Result<Self, DomainError> {
-        Self { terms, serie, kind, page, page_size }.checked()
+        Self { terms, serie, kind, page, page_size, matching: DoctrineMatch::default() }.checked()
+    }
+
+    /// La même requête, mots approchants admis : mêmes mots, mêmes filtres, même page.
+    #[must_use]
+    pub fn approximate(self) -> Self {
+        Self { matching: DoctrineMatch::Approximate, ..self }
     }
 
     /// Mots cherchés.
@@ -53,6 +78,11 @@ impl DoctrineQuery {
     /// Natures demandées.
     pub fn kind(&self) -> KindFilter {
         self.kind
+    }
+
+    /// Façon dont les mots doivent correspondre : exacte pour une requête neuve.
+    pub fn matching(&self) -> DoctrineMatch {
+        self.matching
     }
 
     /// Numéro de page, à partir de 1.
@@ -110,6 +140,27 @@ mod tests {
         assert_eq!(query.serie().map(Serie::as_str), Some("ENR"));
         assert_eq!(query.kind(), KindFilter::News);
         assert_eq!((query.page().get(), query.page_size().get()), (3, 25));
+    }
+
+    /// Une requête neuve demande les mots exacts ; `approximate` ne change que cela.
+    #[test]
+    fn a_new_query_asks_for_exact_words_and_approximate_changes_nothing_else() {
+        let exact = query(3, 25).unwrap();
+        assert_eq!(exact.matching(), DoctrineMatch::Exact);
+        assert_eq!(DoctrineMatch::default(), DoctrineMatch::Exact);
+        let approximate = exact.clone().approximate();
+        assert_eq!(approximate.matching(), DoctrineMatch::Approximate);
+        assert_ne!(approximate, exact);
+        assert_eq!(
+            (approximate.terms(), approximate.serie(), approximate.kind()),
+            (exact.terms(), exact.serie(), exact.kind())
+        );
+        assert_eq!(
+            (approximate.page(), approximate.page_size(), approximate.offset()),
+            (exact.page(), exact.page_size(), 50)
+        );
+        // Demandé deux fois : la même requête.
+        assert_eq!(approximate.clone().approximate(), approximate);
     }
 
     #[test]

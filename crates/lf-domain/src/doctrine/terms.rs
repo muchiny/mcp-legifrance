@@ -1,7 +1,9 @@
 //! Mots d'une recherche dans le BOFiP (ADR-0029, décision 3).
 //!
 //! La recherche du portail (`search()`) exige tous les mots, prend le dernier pour un préfixe et
-//! n'a aucun opérateur. Mesures du 2026-11-15 :
+//! n'a aucun opérateur. Elle retrouve aussi les mots approchants : la règle des mots exacts est
+//! celle de [`DoctrineMatch`](super::DoctrineMatch) (ADR-0031), sur les mêmes mots. Mesures du
+//! 2026-11-15 :
 //!
 //! - un mot à trait d'union qui n'est pas le dernier ne trouve rien (« plus-value immobilière » :
 //!   0 résultat ; « plus value immobilière » : 357) ;
