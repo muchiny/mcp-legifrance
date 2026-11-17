@@ -542,6 +542,12 @@ mod tests {
     );
     const EXACT_9: &str =
         include_str!("../../tests/fixtures/recorded/search/m6/search-exacte-num-article-9.json");
+    /// Recherche `NUM_AFFAIRE` d'un RG de cour d'appel, relevée en production le 2026-11-17 (U05) :
+    /// la forme écrite « 10/01944 » ramène l'arrêt, la forme sans zéro « 10/1944 » ne ramène rien.
+    const RG_WRITTEN: &str =
+        include_str!("../../tests/fixtures/recorded/search/u05/juri-num-affaire-10-01944.json");
+    const RG_WITHOUT_ZERO: &str =
+        include_str!("../../tests/fixtures/recorded/search/u05/juri-num-affaire-10-1944.json");
     const ECLI_JURI: &str = include_str!(
         "../../tests/fixtures/recorded/search/m6/search-ecli-JURI-ECLI-FR-CCASS-2025-C100399.json"
     );
@@ -2158,6 +2164,37 @@ mod tests {
                 (&search["typePagination"], &search["pageSize"], &search["pageNumber"]),
                 (&json!(pagination), &json!(size), &json!(1)),
                 "{fond:?} {kind:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_appeal_court_rg_is_found_only_under_its_written_width() {
+        for (value, body, expected) in [
+            ("10/01944", RG_WRITTEN, &["JURITEXT000023812516"][..]),
+            ("10/1944", RG_WITHOUT_ZERO, &[]),
+        ] {
+            let rig = Rig::new().await;
+            token_mock(&rig.server, "tok-1", 1).await;
+            let request = json!({"fond": "JURI", "recherche": {
+                "champs": [{"typeChamp": "NUM_AFFAIRE", "criteres": [
+                    {"typeRecherche": "EXACTE", "valeur": value, "operateur": "ET"}],
+                    "operateur": "ET"}],
+                "filtres": [], "pageNumber": 1, "pageSize": 20, "operateur": "ET",
+                "sort": "PERTINENCE", "typePagination": "DEFAUT"}});
+            serve(&rig, "/search", &request, json_reply(200, body), 1).await;
+
+            let hits = rig
+                .corpus
+                .find_by_number(&query(Fond::Juri, NumberKind::Case, value))
+                .await
+                .unwrap();
+
+            let ids: Vec<&str> = hits.iter().map(|hit| hit.id.as_str()).collect();
+            assert_eq!(ids, expected, "{value}");
+            assert!(
+                hits.iter().all(|hit| hit.title.as_deref().is_some_and(|t| t.ends_with(value))),
+                "{value}"
             );
         }
     }

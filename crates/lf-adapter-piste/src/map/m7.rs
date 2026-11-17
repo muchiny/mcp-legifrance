@@ -7,12 +7,20 @@
 //! absent l'ordre reçu est gardé (tri stable). [`related_links`] garde tous les liens, dans l'ordre
 //! reçu : la borne de 100 liens relève de l'application (05 §5.11).
 //!
+//! Une liste de versions peut nommer, à côté des versions consolidées (`LEGIARTI`), la version
+//! d'origine de l'article au Journal officiel (`JORFARTI`, sans période : ses deux dates valent la
+//! sentinelle 2999-01-01). Relevé en production le 2026-11-17 pour des articles de loi, de décret
+//! ou d'arrêté à version unique (U02). Cette entrée, et elle seule, est écartée et comptée
+//! (`versions_dropped`) : une version se lit par son `LEGIARTI`, jamais par un `JORFARTI`. Un
+//! `JORFARTI` qui porte une période ou un suffixe, comme tout autre identifiant qui n'est pas un
+//! `LEGIARTI`, reste une erreur `Decode` : une version réelle ne disparaît jamais en silence.
+//!
 //! Aucune valeur du corps ne sort d'ici : une erreur `Decode` ne nomme que l'endpoint et le chemin
 //! du champ (`articleVersions[].id`, `liensCite[].dateVigeur`).
 
 use lf_application::ports::CorpusError;
 use lf_domain::entity::{ArticleVersion, RelatedLink, RelatedLinks, RelatedNature};
-use lf_domain::id::{DocumentId, LegiArtiId};
+use lf_domain::id::{DocumentId, ID_DIGITS, LegiArtiId, PREFIX_LEN};
 use lf_domain::status::LegalStatus;
 use lf_domain::text::clean_field;
 
@@ -32,6 +40,9 @@ pub(crate) const CANONICAL_ARTICLE_VERSION: &str = "/search/canonicalArticleVers
 pub(crate) const GET_ARTICLE_BY_CID: &str = "/consult/getArticleByCid";
 /// Gabarit de `/consult/relatedLinksArticle` : liens d'un article.
 pub(crate) const RELATED_LINKS_ARTICLE: &str = "/consult/relatedLinksArticle";
+
+/// Préfixe de l'article d'origine au Journal officiel, écarté des listes de versions.
+const ORIGINAL_JORF_ARTICLE: &str = "JORFARTI";
 
 /// Chemins des champs lus d'une liste de versions, pour les erreurs `Decode`.
 struct VersionFields {
@@ -108,24 +119,54 @@ impl<'a> From<&'a ListedArticleDto> for Row<'a> {
 /// Une version et sa clé de tri secondaire (`ordre`, `None` s'il est absent ou illisible).
 type Ranked = (Option<i64>, ArticleVersion);
 
-/// La version de `row`, avec son `ordre`.
+/// Vrai si `raw` est un identifiant `JORFARTI` : préfixe et douze chiffres, blancs autour et casse
+/// ignorés, sans suffixe.
+fn is_jorf_article(raw: &str) -> bool {
+    raw.trim().split_at_checked(PREFIX_LEN).is_some_and(|(prefix, digits)| {
+        prefix.eq_ignore_ascii_case(ORIGINAL_JORF_ARTICLE)
+            && digits.len() == ID_DIGITS
+            && digits.bytes().all(|byte| byte.is_ascii_digit())
+    })
+}
+
+/// Vrai si la version de `row` n'a aucune période : ses deux dates sont absentes ou valent la
+/// sentinelle de date ouverte (2999-01-01).
+///
+/// # Errors
+///
+/// [`CorpusError::Decode`] de `fields.date_debut` ou `fields.date_fin` (`unreadable date`).
+fn without_period(
+    row: &Row<'_>,
+    fields: &VersionFields,
+    diags: &mut Diagnostics,
+) -> Result<bool, CorpusError> {
+    Ok(civil(row.date_debut, fields.date_debut, diags)?.is_none()
+        && civil(row.date_fin, fields.date_fin, diags)?.is_none())
+}
+
+/// La version de `row`, avec son `ordre` ; `None` pour la version d'origine au Journal officiel
+/// (un `JORFARTI` sans période), écartée et comptée.
 ///
 /// # Errors
 ///
 /// [`CorpusError::Decode`] de `fields.id` (`missing identifier` s'il est absent ou blanc,
-/// `invalid identifier` s'il n'est pas un `LEGIARTI`) ou de `fields.date_debut` ou
-/// `fields.date_fin` (`unreadable date`).
+/// `invalid identifier` s'il n'est pas un `LEGIARTI`, y compris un `JORFARTI` qui porte une
+/// période) ou de `fields.date_debut` ou `fields.date_fin` (`unreadable date`).
 fn version(
     row: &Row<'_>,
     fields: &VersionFields,
     diags: &mut Diagnostics,
-) -> Result<Ranked, CorpusError> {
+) -> Result<Option<Ranked>, CorpusError> {
     let raw = non_blank(row.id).ok_or_else(|| fields.id.decode("missing identifier"))?;
+    if is_jorf_article(raw) && without_period(row, fields, diags)? {
+        diags.note_version_dropped();
+        return Ok(None);
+    }
     let id = parse_counted::<LegiArtiId>(raw, diags).map_err(|error| fields.id.domain(&error))?;
     let date_debut = civil(row.date_debut, fields.date_debut, diags)?;
     let date_fin = civil(row.date_fin, fields.date_fin, diags)?;
     let ordre = row.ordre.and_then(|ordre| ordre.trim().parse::<i64>().ok());
-    Ok((
+    Ok(Some((
         ordre,
         ArticleVersion {
             id,
@@ -134,11 +175,12 @@ fn version(
             date_debut,
             date_fin,
         },
-    ))
+    )))
 }
 
 /// Les versions de `items`, de la plus ancienne à la plus récente (début de vigueur, puis
-/// `ordre`) ; l'ordre reçu départage le reste.
+/// `ordre`) ; l'ordre reçu départage le reste. Les versions d'origine au Journal officiel sont
+/// écartées : voir `version`.
 ///
 /// # Errors
 ///
@@ -154,6 +196,7 @@ where
     let mut ranked = items
         .iter()
         .map(|item| version(&Row::from(item), fields, diags))
+        .filter_map(Result::transpose)
         .collect::<Result<Vec<Ranked>, _>>()?;
     ranked.sort_by_key(|(ordre, version)| (version.date_debut, *ordre));
     Ok(ranked.into_iter().map(|(_, version)| version).collect())
@@ -162,8 +205,8 @@ where
 /// Versions de la réponse `dto` de `/search/canonicalArticleVersion`, de la plus ancienne à la plus
 /// récente ; leurs anomalies sont comptées dans `diags`.
 ///
-/// Une liste vide est un résultat vide, non une erreur : c'est l'appelant qui bascule alors sur
-/// `getArticleByCid` (04 §7.3).
+/// Une liste vide, ou qui ne nomme que la version d'origine au Journal officiel, est un résultat
+/// vide, non une erreur : c'est l'appelant qui bascule alors sur `getArticleByCid` (04 §7.3).
 ///
 /// # Errors
 ///
@@ -182,19 +225,21 @@ pub(crate) fn article_versions(
 ///
 /// # Errors
 ///
-/// [`CorpusError::NotFound`] (`/consult/getArticleByCid`) si la liste est absente, `null` ou
-/// vide : c'est le repli, et un article sans aucune version n'existe pas ; `diags` n'est alors pas
-/// touché. [`CorpusError::Decode`] de la première version dont l'identifiant ou une date est
+/// [`CorpusError::NotFound`] (`/consult/getArticleByCid`) si la liste est absente, `null`, vide
+/// ou ne nomme que la version d'origine au Journal officiel : c'est le repli, et un article sans
+/// aucune version consolidée n'a rien à comparer ; les versions écartées restent comptées dans
+/// `diags`. [`CorpusError::Decode`] de la première version dont l'identifiant ou une date est
 /// refusé : voir `version`.
 pub(crate) fn listed_article_versions(
     dto: GetListArticleResponseDto,
     diags: &mut Diagnostics,
 ) -> Result<Vec<ArticleVersion>, CorpusError> {
     let GetListArticleResponseDto { list_article } = dto;
-    if list_article.is_empty() {
+    let versions = version_list(&list_article, &LISTED_FIELDS, diags)?;
+    if versions.is_empty() {
         return Err(not_found(GET_ARTICLE_BY_CID));
     }
-    version_list(&list_article, &LISTED_FIELDS, diags)
+    Ok(versions)
 }
 
 /// Nature d'un lien : les cinq valeurs de l'API, casse et blancs ignorés ; toute autre valeur est
@@ -283,6 +328,25 @@ mod tests {
     const RELATED_FIXTURE: &str = include_str!(
         "../../tests/fixtures/recorded/consult/relatedLinksArticle/m7/relatedLinksArticle-LEGIARTI000006419288.json"
     );
+    /// Réponses de `canonicalArticleVersion` relevées en production le 2026-11-17 (U02) : un
+    /// article d'arrêté et un article de loi, chacun à version unique ; la liste nomme aussi la
+    /// version d'origine au Journal officiel (`JORFARTI`, dates sentinelles).
+    const SINGLE_VERSION_FIXTURES: [(&str, &str, (u16, u8, u8)); 2] = [
+        (
+            "LEGIARTI000054980190",
+            include_str!(
+                "../../tests/fixtures/recorded/search/canonicalArticleVersion/u02/canonicalArticleVersion-LEGIARTI000054980190.json"
+            ),
+            (2026, 10, 15),
+        ),
+        (
+            "LEGIARTI000049708723",
+            include_str!(
+                "../../tests/fixtures/recorded/search/canonicalArticleVersion/u02/canonicalArticleVersion-LEGIARTI000049708723.json"
+            ),
+            (2024, 6, 15),
+        ),
+    ];
     /// Article sans aucun lien : `liensCite` et `liensCitePar` vides.
     const NO_LINKS_FIXTURE: &str = include_str!(
         "../../tests/fixtures/recorded/consult/relatedLinksArticle/m7/relatedLinksArticle-LEGIARTI000033205058.json"
@@ -426,9 +490,89 @@ mod tests {
     }
 
     #[test]
+    fn the_recorded_single_version_articles_keep_their_consolidated_version() {
+        for (id, json, (year, month, day)) in SINGLE_VERSION_FIXTURES {
+            let mut diags = Diagnostics::default();
+            assert_eq!(
+                canonical(json, &mut diags),
+                Ok(vec![ArticleVersion {
+                    id: legi(id),
+                    num: None,
+                    etat: Some(LegalStatus::Vigueur),
+                    date_debut: Some(d(year, month, day)),
+                    date_fin: None,
+                }]),
+                "{id}"
+            );
+            assert_eq!(
+                diags,
+                Diagnostics { versions_dropped: 1, ..Diagnostics::default() },
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_original_jorf_article_is_dropped_and_counted_wherever_it_stands() {
+        // Avant, entre ou après les versions consolidées, sans période (dates absentes ou à la
+        // sentinelle, en millisecondes ou en texte) : le tri des versions gardées n'en dépend pas.
+        for original in [
+            r#"{"id":"JORFARTI000054979611"}"#,
+            r#"{"id":"  jorfarti000054979611 ","dateDebut":32472144000000}"#,
+            r#"{"id":"JORFARTI000054979611","dateDebut":"2999-01-01","dateFin":"2999-01-01"}"#,
+            r#"{"id":"JORFARTI000054979611","dateFin":32472144000000}"#,
+        ] {
+            let newer = r#"{"id":"LEGIARTI000006419288","dateDebut":"2020-01-01"}"#;
+            let older = r#"{"id":"LEGIARTI000050396803","dateDebut":"2010-01-01"}"#;
+            for items in [
+                format!("{original},{newer},{older}"),
+                format!("{newer},{original},{older}"),
+                format!("{newer},{older},{original}"),
+            ] {
+                let mut diags = Diagnostics::default();
+                let versions =
+                    canonical(&format!(r#"{{"articleVersions":[{items}]}}"#), &mut diags).unwrap();
+                let ids: Vec<&str> = versions.iter().map(|version| version.id.as_str()).collect();
+                assert_eq!(ids, ["LEGIARTI000050396803", "LEGIARTI000006419288"], "{items}");
+                assert_eq!(diags.versions_dropped, 1, "{items}");
+                assert_eq!(diags.upstream_suffix_stripped, 0, "{items}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_list_naming_only_the_original_jorf_article_has_no_version() {
+        let json =
+            r#"{"articleVersions":[{"id":"JORFARTI000054979611"},{"id":"JORFARTI000054979612"}]}"#;
+        let mut diags = Diagnostics::default();
+        // Liste canonique : un résultat vide, d'où le repli de l'appelant sur `getArticleByCid`.
+        assert_eq!(canonical(json, &mut diags), Ok(Vec::new()));
+        assert_eq!(diags, Diagnostics { versions_dropped: 2, ..Diagnostics::default() });
+        // Repli : aucune version consolidée, l'article n'a rien à comparer ; l'écart reste compté.
+        let mut diags = Diagnostics::default();
+        assert_eq!(
+            listed(&json.replace("articleVersions", "listArticle"), &mut diags),
+            Err(CorpusError::NotFound { what: GET_ARTICLE_BY_CID.to_owned() })
+        );
+        assert_eq!(diags, Diagnostics { versions_dropped: 2, ..Diagnostics::default() });
+    }
+
+    #[test]
     fn a_version_without_a_readable_identifier_is_a_decode_error() {
+        // Seule la version d'origine au Journal officiel, bien formée, est écartée : tout autre
+        // identifiant qui n'est pas un `LEGIARTI` reste refusé.
         for (id, category) in [
             (r#""id":"JORFTEXT000000000001""#, "invalid identifier"),
+            (r#""id":"KALIARTI000000000001""#, "invalid identifier"),
+            (r#""id":"JORFARTI12""#, "invalid identifier"),
+            (r#""id":"JORFARTI000054979611_01-01-2020""#, "invalid identifier"),
+            // Un `JORFARTI` qui porte une période n'est pas la version d'origine sans date : il
+            // n'est pas écarté en silence.
+            (r#""id":"JORFARTI000054979611","dateDebut":"2020-01-01""#, "invalid identifier"),
+            (r#""id":"JORFARTI000054979611","dateFin":"2020-01-01""#, "invalid identifier"),
+            (r#""id":"JORFARTI0000000000012""#, "invalid identifier"),
+            (r#""id":"JORFARTI00000000000A""#, "invalid identifier"),
+            (r#""id":"JORFART000000000001""#, "invalid identifier"),
             (r#""id":"LEGIARTI12""#, "invalid identifier"),
             (r#""id":"  ""#, "missing identifier"),
             (r#""num":"9""#, "missing identifier"),
@@ -447,6 +591,25 @@ mod tests {
                 listed(&json, &mut Diagnostics::default()),
                 Err(decode_error(GET_ARTICLE_BY_CID, &format!("listArticle[].id: {category}"))),
                 "{id}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unreadable_date_of_the_original_jorf_article_is_a_decode_error() {
+        for (dates, field) in [
+            (r#""dateDebut":"pas une date""#, "dateDebut"),
+            (r#""dateDebut":"2999-01-01","dateFin":"pas une date""#, "dateFin"),
+        ] {
+            let json =
+                format!(r#"{{"articleVersions":[{{"id":"JORFARTI000054979611",{dates}}}]}}"#);
+            assert_eq!(
+                canonical(&json, &mut Diagnostics::default()),
+                Err(decode_error(
+                    CANONICAL_ARTICLE_VERSION,
+                    &format!("articleVersions[].{field}: unreadable date")
+                )),
+                "{dates}"
             );
         }
     }

@@ -1069,6 +1069,7 @@ Les tâches gardent leur identifiant et reçoivent un statut. Bilan : 1 livrée 
   - `focus` sans passage trouvé : la lecture ciblée d'une actualité de 890 caractères rend `passages: []` et la note « No passage matches focus; read the text with detail="full". », sans le texte. C'est le comportement commun à toutes les lectures (05, champ `note`) ; rendre en entier un texte aussi court épargnerait un appel. Amélioration possible, non décidée.
   - Décision du propriétaire du 2026-11-17 (choix 1) : la source reste telle quelle. Suite : les deux défauts hauts reportés de la 1.1.1 (U02, U05), puis Service-Public.
   - Usage : 199 appels d'outil pour la passe (140 vers Légifrance, 59 vers le portail) et 69 pour les juges (56 et 13), soit environ 420 requêtes à PISTE et 72 au portail ; un serveur à la fois ; aucun refus de débit. Trois agents ont lancé une fois deux appels en même temps ; le relais les a passés l'un après l'autre.
+- **U02 et U05 corrigés (2026-11-17, à publier)** : relevés de production lancés par le propriétaire (cinq requêtes), puis correctifs dans une PR de code. U02 : la version d'origine au Journal officiel (`JORFARTI`) est écartée des listes de versions ; U05 : le numéro de RG garde sa largeur écrite (09 §2.20, V-135 et V-120). Suite : Service-Public.
 
 Vague 0 — préparation, aucun code de produit.
 

@@ -101,6 +101,15 @@ mod tests {
     const BY_CID: &str = include_str!(
         "../../tests/fixtures/recorded/consult/getArticleByCid/m7/getArticleByCid-LEGIARTI000006419288.json"
     );
+    /// `canonicalArticleVersion` d'un article d'arrêté à version unique, relevé en production le
+    /// 2026-11-17 (U02) : la version consolidée, puis la version d'origine au Journal officiel.
+    const SINGLE_VERSION: &str = include_str!(
+        "../../tests/fixtures/recorded/search/canonicalArticleVersion/u02/canonicalArticleVersion-LEGIARTI000054980190.json"
+    );
+    /// `getArticleByCid` du même article, relevé le même jour : une liste vide.
+    const SINGLE_VERSION_BY_CID: &str = include_str!(
+        "../../tests/fixtures/recorded/consult/getArticleByCid/u02/getArticleByCid-LEGIARTI000054980190.json"
+    );
     /// `relatedLinksArticle` : quatorze liens « cité par ».
     const RELATED: &str = include_str!(
         "../../tests/fixtures/recorded/consult/relatedLinksArticle/m7/relatedLinksArticle-LEGIARTI000006419288.json"
@@ -194,6 +203,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_single_version_article_is_served_from_the_canonical_list_without_fallback() {
+        // U02 : la version d'origine au Journal officiel faisait refuser toute la liste
+        // (`Decode`, puis `upstream_error` pour `fr_diff_article`). Le repli, lui, n'aurait rien
+        // rendu : `getArticleByCid` répond par une liste vide pour cet article.
+        let id = "LEGIARTI000054980190";
+        assert_eq!(SINGLE_VERSION_BY_CID, r#"{"executionTime":0,"listArticle":[]}"#);
+        let rig = rig().await;
+        serve(&rig, CANONICAL_ARTICLE_VERSION, &json!({"id": id}), json_reply(200, SINGLE_VERSION))
+            .await;
+        never(&rig.server, &route(GET_ARTICLE_BY_CID)).await;
+        let versions = rig.corpus.article_versions(&ArticleId::parse(id).unwrap()).await.unwrap();
+        assert_eq!(ids(&versions), [id]);
+        assert_eq!(versions[0].etat, Some(LegalStatus::Vigueur));
+        assert_eq!(versions[0].date_fin, None);
+        assert_eq!(rig.corpus.stats().versions_dropped, 1);
+    }
+
+    #[tokio::test]
     async fn article_versions_fall_back_when_canonical_answers_without_a_byte() {
         let rig = rig().await;
         serve(&rig, CANONICAL_ARTICLE_VERSION, &json!({"id": ARTICLE}), no_byte()).await;
@@ -246,7 +273,8 @@ mod tests {
     #[tokio::test]
     async fn article_versions_are_not_found_when_the_fallback_has_none() {
         for fallback in [
-            json_reply(200, r#"{"executionTime":0,"listArticle":[]}"#),
+            // La réponse réelle d'un article à version unique (U02, production, 2026-11-17).
+            json_reply(200, SINGLE_VERSION_BY_CID),
             no_byte(),
             json_reply(400, UNKNOWN_ID_400),
         ] {

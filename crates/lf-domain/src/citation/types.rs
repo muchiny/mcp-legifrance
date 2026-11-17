@@ -1322,13 +1322,33 @@ impl fmt::Display for Pourvoi {
     }
 }
 
-/// Numéro de répertoire général `AA/NNNN` ou `AA/NNNNN`.
+/// Numéro de répertoire général `AA/NNNN` ou `AA/NNNNN`, à la largeur où il est écrit.
+///
+/// La largeur fait partie du numéro : l'index de Légifrance range `10/01944` sous cette forme, et
+/// ne trouve rien pour `10/1944` (relevé en production le 2026-11-17, U05). L'égalité la compare
+/// donc aussi : `10/01944` et `10/1944` sont deux formes écrites distinctes.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct RgNumber {
     /// Année, sur deux chiffres.
     pub yy: u8,
     /// Numéro d'ordre.
     pub seq: u32,
+    /// Nombre de chiffres écrits du numéro d'ordre, zéros de tête compris : 4 ou 5. La lecture
+    /// (`FromStr`, grammaire) ne produit rien d'autre ; `Display` complète le numéro d'ordre de
+    /// zéros jusqu'à cette largeur, et `forms` traite toute valeur autre que 5 comme 4.
+    pub width: u8,
+}
+
+impl RgNumber {
+    /// Formes à chercher, la forme écrite d'abord : `10/01944` puis `10/1944`, `10/1944` puis
+    /// `10/01944`. Un numéro d'ordre qui ne tient que sur cinq chiffres (`24/15215`) n'a qu'une
+    /// forme.
+    pub fn forms(self) -> Vec<String> {
+        let written = self.to_string();
+        let width = if self.width == 5 { 4 } else { 5 };
+        let other = Self { width, ..self }.to_string();
+        if other == written { vec![written] } else { vec![written, other] }
+    }
 }
 
 impl FromStr for RgNumber {
@@ -1337,21 +1357,24 @@ impl FromStr for RgNumber {
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let invalid = NumberParseError { kind: "rg" };
         let (yy, seq) = text.split_once('/').ok_or(invalid)?;
-        if !matches!(seq.len(), 4 | 5) {
-            return Err(invalid);
-        }
+        let width = match seq.len() {
+            4 => 4,
+            5 => 5,
+            _ => return Err(invalid),
+        };
         Ok(Self {
             yy: two_digits(yy).ok_or(invalid)?,
             seq: fixed_digits(seq, seq.len()).ok_or(invalid)?,
+            width,
         })
     }
 }
 
 impl fmt::Display for RgNumber {
-    /// Forme `24/15215`, complétée à quatre chiffres au moins. Les zéros de tête d'un numéro
-    /// écrit sur cinq chiffres (`14/00554`) ne sont pas gardés : le texte brut les porte.
+    /// Forme écrite : `24/15215`, `10/01944`, `23/1234`, le numéro d'ordre complété de zéros
+    /// jusqu'à sa largeur.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:02}/{:04}", self.yy, self.seq)
+        write!(f, "{:02}/{:0width$}", self.yy, self.seq, width = usize::from(self.width))
     }
 }
 
@@ -2337,13 +2360,17 @@ mod tests {
 
     #[test]
     fn rg_and_administrative_numbers_round_trip() {
-        for text in ["24/15215", "23/1234", "24/0123"] {
+        // Les zéros de tête sont gardés : `10/01944` est la forme que l'index connaît (U05).
+        for text in [
+            "24/15215", "23/1234", "24/0123", "14/00554", "10/01944", "10/00025", "09/03042",
+            "00/00000", "00/0000", "99/99999",
+        ] {
             let rg: RgNumber = text.parse().expect("valide");
             assert_eq!(rg.to_string(), text);
         }
-        assert_eq!("24/15215".parse::<RgNumber>(), Ok(RgNumber { yy: 24, seq: 15215 }));
-        // Le cinquième chiffre d'un numéro à zéros de tête n'est pas gardé.
-        assert_eq!("14/00554".parse::<RgNumber>().map(|r| r.to_string()), Ok("14/0554".to_owned()));
+        assert_eq!("24/15215".parse::<RgNumber>(), Ok(RgNumber { yy: 24, seq: 15215, width: 5 }));
+        assert_eq!("10/01944".parse::<RgNumber>(), Ok(RgNumber { yy: 10, seq: 1944, width: 5 }));
+        assert_eq!("10/1944".parse::<RgNumber>(), Ok(RgNumber { yy: 10, seq: 1944, width: 4 }));
         for bad in ["", "24/123", "24/123456", "2/12345", "24-15215", "24/1234a"] {
             assert_eq!(bad.parse::<RgNumber>(), Err(NumberParseError { kind: "rg" }), "{bad:?}");
         }
@@ -2358,6 +2385,45 @@ mod tests {
         assert_eq!(TaNumber(42).to_string(), "0000042");
         for bad in ["", "200506", "20050645", "200506x"] {
             assert_eq!(bad.parse::<TaNumber>(), Err(NumberParseError { kind: "ta" }), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn rg_forms_start_with_the_written_one_and_add_the_other_width() {
+        for (text, forms) in [
+            ("10/01944", &["10/01944", "10/1944"][..]),
+            ("10/1944", &["10/1944", "10/01944"]),
+            ("10/0123", &["10/0123", "10/00123"]),
+            ("10/00123", &["10/00123", "10/0123"]),
+            ("10/9999", &["10/9999", "10/09999"]),
+            ("00/00000", &["00/00000", "00/0000"]),
+            // Cinq chiffres significatifs : une seule forme.
+            ("24/15215", &["24/15215"]),
+            ("10/10000", &["10/10000"]),
+            ("99/99999", &["99/99999"]),
+        ] {
+            let rg: RgNumber = text.parse().expect("valide");
+            assert_eq!(rg.forms(), forms, "{text}");
+        }
+    }
+
+    proptest::proptest! {
+        /// Toute forme écrite valide se relit à l'identique, et chacune de ses formes de
+        /// recherche désigne le même numéro.
+        #[test]
+        fn every_written_rg_reads_back_identically(yy in 0_u8..100, seq in 0_u32..100_000, five: bool) {
+            let width = if five || seq >= 10_000 { 5 } else { 4 };
+            let text = format!("{yy:02}/{seq:0width$}", width = usize::from(width));
+            let rg: RgNumber = text.parse().expect("valide");
+            proptest::prop_assert_eq!(rg, RgNumber { yy, seq, width });
+            proptest::prop_assert_eq!(rg.to_string(), text.clone());
+            let forms = rg.forms();
+            proptest::prop_assert_eq!(forms.first(), Some(&text));
+            for form in &forms {
+                let other: RgNumber = form.parse().expect("forme valide");
+                proptest::prop_assert_eq!((other.yy, other.seq), (yy, seq));
+            }
+            proptest::prop_assert_eq!(forms.len(), if seq < 10_000 { 2 } else { 1 });
         }
     }
 

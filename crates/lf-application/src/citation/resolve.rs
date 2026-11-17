@@ -1738,7 +1738,8 @@ fn number_forms(court: &Court, numbers: &[CaseNumber]) -> Option<(Fond, NumberKi
         Court::CourAppel { .. }
         | Court::TribunalJudiciaire { .. }
         | Court::AutreJudiciaire { .. } => case(|number| match number {
-            CaseNumber::Rg(rg) => Some(vec![rg.to_string()]),
+            // La forme écrite, puis l'autre largeur (`10/01944`, `10/1944`) : U05.
+            CaseNumber::Rg(rg) => Some(rg.forms()),
             CaseNumber::Portalis(raw) | CaseNumber::Unknown(raw) => Some(vec![raw.clone()]),
             _ => None,
         })
@@ -2583,6 +2584,67 @@ mod tests {
         let resolution = resolve(&corpus, text).await;
         assert_eq!(status(&resolution), CheckStatus::Verified);
         assert_eq!(resolution.outcome.note(Proof::Production), None);
+    }
+
+    /// Arrêt de la cour d'appel de Versailles du 30 mars 2011, RG `10/01944` : l'index ne le
+    /// trouve que sous cette forme, zéro de tête compris (relevé en production le 2026-11-17).
+    const VERSAILLES_RG: &str = "JURITEXT000023812516";
+
+    #[tokio::test]
+    async fn a_leading_zero_rg_is_searched_as_written() {
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, VERSAILLES_RG)]));
+        corpus.push_get_decision(Ok(decision(VERSAILLES_RG, civil(2011, 3, 30), None)));
+        let resolution =
+            resolve(&corpus, "Cour d'appel de Versailles, 30 mars 2011, 10/01944").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![
+                find_request(Fond::Juri, NumberKind::Case, "10/01944"),
+                PortRequest::GetDecision(DecisionId::parse(VERSAILLES_RG).unwrap()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn the_other_rg_width_is_tried_only_after_an_empty_answer() {
+        // Écrit sans le zéro, le numéro est cherché une seconde fois avec lui.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        corpus.push_find_by_number(Ok(vec![hit(Fond::Juri, VERSAILLES_RG)]));
+        corpus.push_get_decision(Ok(decision(VERSAILLES_RG, civil(2011, 3, 30), None)));
+        let resolution =
+            resolve(&corpus, "Cour d'appel de Versailles, 30 mars 2011, 10/1944").await;
+        assert_eq!(status(&resolution), CheckStatus::Verified);
+        assert_eq!(
+            corpus.seen_requests(),
+            vec![
+                find_request(Fond::Juri, NumberKind::Case, "10/1944"),
+                find_request(Fond::Juri, NumberKind::Case, "10/01944"),
+                PortRequest::GetDecision(DecisionId::parse(VERSAILLES_RG).unwrap()),
+            ]
+        );
+
+        // Deux réponses vides : deux recherches, puis la note de la cour d'appel.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        corpus.push_find_by_number(Ok(vec![]));
+        let resolution =
+            resolve(&corpus, "Cour d'appel de Versailles, 30 mars 2011, 10/01944").await;
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable);
+        assert_eq!(
+            resolution.outcome.note(Proof::Production),
+            Some(Note::OutOfCoverage { court: "Cour d'appel" })
+        );
+        assert_eq!(corpus.calls_of("find_by_number"), 2);
+
+        // Un numéro sur cinq chiffres significatifs n'a qu'une forme : une seule recherche.
+        let corpus = FakeCorpus::new();
+        corpus.push_find_by_number(Ok(vec![]));
+        let resolution = resolve(&corpus, "Cour d'appel de Paris, 23 juin 2025, n° 24/15215").await;
+        assert_eq!(status(&resolution), CheckStatus::Unresolvable);
+        assert_eq!(corpus.calls_of("find_by_number"), 1);
     }
 
     #[tokio::test]
@@ -3778,10 +3840,16 @@ mod tests {
             Court::TribunalJudiciaire { seat: None },
             Court::AutreJudiciaire { label: "CPH".to_owned() },
         ];
+        let leading_zero = CaseNumber::Rg("10/01944".parse().unwrap());
         for court in &lower {
             assert_eq!(
                 number_forms(court, std::slice::from_ref(&rg)),
                 forms(Fond::Juri, NumberKind::Case, &["24/15215"]),
+                "{court:?}"
+            );
+            assert_eq!(
+                number_forms(court, std::slice::from_ref(&leading_zero)),
+                forms(Fond::Juri, NumberKind::Case, &["10/01944", "10/1944"]),
                 "{court:?}"
             );
             assert_eq!(

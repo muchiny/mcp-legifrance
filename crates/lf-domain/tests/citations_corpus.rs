@@ -192,7 +192,7 @@ fn case_number(number: &CaseNumber) -> Value {
             "yy": p.yy, "seq": p.seq,
         }),
         CaseNumber::Rg(rg) => {
-            json!({"type": "rg", "value": rg.to_string(), "yy": rg.yy, "seq": rg.seq})
+            json!({"type": "rg", "value": rg.to_string(), "yy": rg.yy, "seq": rg.seq, "width": rg.width})
         }
         CaseNumber::Portalis(p) => json!({"type": "portalis", "value": p}),
         CaseNumber::CeRequete(n) => json!({"type": "ce_requete", "value": n.to_string()}),
@@ -467,15 +467,6 @@ fn subset(path: &str, expected: &Value, got: &Value) -> Result<(), String> {
     }
 }
 
-/// Numéros de RG : les zéros de tête du second bloc ne sont pas gardés par le type (`14/00554`).
-fn same_rg(expected: &Value, got: &Value) -> bool {
-    let parse = |v: &Value| -> Option<(u32, u32)> {
-        let (yy, seq) = v.as_str()?.split_once('/')?;
-        Some((yy.parse().ok()?, seq.parse().ok()?))
-    };
-    parse(expected).is_some() && parse(expected) == parse(got)
-}
-
 /// Compare la projection `got` à l'attente `expected` (clés présentes seulement).
 fn compare_fields(expected: &Value, got: &Value) -> Result<(), String> {
     let want = expected.as_object().expect("attente objet");
@@ -513,12 +504,11 @@ fn compare_numbers(expected: &Value, got: &Value) -> Result<(), String> {
     if want.len() != have.len() {
         return Err(format!("numbers : {} attendus, {} obtenus ({got})", want.len(), have.len()));
     }
+    // Comparaison stricte, numéros de RG compris : leur largeur écrite est gardée (U05).
     for (i, (w, h)) in want.iter().zip(have).enumerate() {
-        let is_rg = w.get("type").and_then(Value::as_str) == Some("rg");
         for (key, value) in w.as_object().into_iter().flatten() {
             let found = h.get(key).unwrap_or(&Value::Null);
-            let ok = if is_rg && key == "value" { same_rg(value, found) } else { value == found };
-            if !ok {
+            if value != found {
                 return Err(format!("numbers[{i}].{key} : attendu {value}, obtenu {found}"));
             }
         }
@@ -1417,6 +1407,12 @@ fn trial_court_forms_of_annex_b_4_6() {
         row(
             "C.A. Versailles, 4 juin 2020, n° 17/04940",
             json!({"kind": "Decision", "court": "CA", "seat": "VERSAILLES"}),
+        ),
+        // RG à zéro de tête : gardé tel qu'il est écrit, la forme que l'index connaît (U05).
+        row(
+            "Cour d'appel de Versailles, 30 mars 2011, 10/01944",
+            json!({"kind": "Decision", "court": "CA", "seat": "VERSAILLES", "date": "2011-03-30",
+                   "numbers": [{"type": "rg", "value": "10/01944", "yy": 10, "seq": 1944, "width": 5}]}),
         ),
         // Siège écrit en toutes lettres : l'alias est ramené à la valeur de la facette.
         row(
