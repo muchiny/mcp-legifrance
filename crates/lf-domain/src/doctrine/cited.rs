@@ -307,6 +307,15 @@ mod tests {
     }
 
     proptest! {
+        // 32 cas : chaque cas analyse jusqu'à 52 textes. Avec les 256 cas par défaut, le test
+        // durait 18 s en debug et dépassait la borne de 20 s des tests de `lf-domain` sur les
+        // runners de la CI (`.config/nextest.toml`).
+        #![proptest_config(ProptestConfig {
+            cases: 32,
+            failure_persistence: None,
+            ..ProptestConfig::default()
+        })]
+
         /// Quelles que soient les citations, la liste tient sous le plafond, sans doublon, et
         /// chaque élément est relu à l'identique : seul, puis dans la liste jointe par « ; » ou
         /// par des retours à la ligne (l'usage de `fr_verify_citations`).
@@ -324,6 +333,9 @@ mod tests {
             prop_assert_eq!(reread(&cited.articles.join("; ")), cited.articles.clone());
             prop_assert_eq!(reread(&cited.articles.join("\n")), cited.articles.clone());
         }
+    }
+
+    proptest! {
 
         /// Sur un texte quelconque, la fonction est totale et garde ses bornes.
         #[test]
