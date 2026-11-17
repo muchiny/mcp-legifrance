@@ -15,7 +15,11 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Correctifs des deux défauts hauts reportés de la 1.1.1 (U02 et U05), écrits sur des réponses de l'API relevées en production le 2026-11-17 : cinq requêtes en lecture, une par seconde, lancées par le propriétaire (00 §10 Q3, fixtures `env = "production"` sous `u02/` et `u05/`). Aucun outil, paramètre, champ ni valeur d'énumération nouveau.
+Rien depuis `1.4.1`.
+
+## [1.4.1] - 2026-11-17
+
+Correctifs des deux défauts hauts reportés de la 1.1.1 (U02 et U05, PR #98), écrits sur des réponses de l'API relevées en production le 2026-11-17 : cinq requêtes en lecture, une par seconde, lancées par le propriétaire (00 §10 Q3, fixtures `env = "production"` sous `u02/` et `u05/`). Aucun outil, paramètre, champ ni valeur d'énumération nouveau : `lock-descriptors --compare v1.4.0` répond « no surface change », d'où une version de correctif.
 
 ### Fixed
 
@@ -545,7 +549,8 @@ Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0
 
 - Domaine seulement, visible par un client à partir de M4 : citation du Conseil constitutionnel sans « - objet » (P-035), plus de `eli_uri` (P-031, P-039), sentinelle de date omise (P-030).
 
-[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.0...v1.3.1
