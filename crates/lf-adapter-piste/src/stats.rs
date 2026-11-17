@@ -2,7 +2,7 @@
 //! par `PisteCorpus::stats()` sous forme d'instantané.
 //!
 //! Un seul compteur `mojibake_unrepaired` couvre les deux causes d'un corps gardé tel quel
-//! (réparation coupée, réparation refusée par le domaine). Les neuf compteurs de mapping
+//! (réparation coupée, réparation refusée par le domaine). Les dix compteurs de mapping
 //! reçoivent les [`Diagnostics`] d'un mapping par `record_mapping`, qui journalise une ligne par
 //! compteur non nul : l'endpoint et le nombre, jamais un identifiant ni une valeur du corps.
 
@@ -37,6 +37,8 @@ pub struct StatsSnapshot {
     pub toc_dropped: u64,
     /// Caractères invisibles ou bidirectionnels retirés des textes.
     pub invisible_chars_removed: u64,
+    /// Versions d'article écartées : la version d'origine au Journal officiel (`JORFARTI`).
+    pub versions_dropped: u64,
 }
 
 /// Compteurs partagés de l'adapter.
@@ -53,6 +55,7 @@ pub(crate) struct Stats {
     invalid_nor: AtomicU64,
     toc_dropped: AtomicU64,
     invisible_chars_removed: AtomicU64,
+    versions_dropped: AtomicU64,
 }
 
 impl Stats {
@@ -90,6 +93,7 @@ impl Stats {
         add(&self.invalid_nor, diags.invalid_nor);
         add(&self.toc_dropped, diags.toc_dropped);
         add(&self.invisible_chars_removed, diags.invisible_chars_removed);
+        add(&self.versions_dropped, diags.versions_dropped);
         log_mapping(endpoint, diags);
     }
 
@@ -107,6 +111,7 @@ impl Stats {
             invalid_nor: self.invalid_nor.load(Ordering::Relaxed),
             toc_dropped: self.toc_dropped.load(Ordering::Relaxed),
             invisible_chars_removed: self.invisible_chars_removed.load(Ordering::Relaxed),
+            versions_dropped: self.versions_dropped.load(Ordering::Relaxed),
         }
     }
 }
@@ -179,6 +184,13 @@ fn log_mapping(endpoint: &str, diags: &Diagnostics) {
             endpoint,
             count = diags.invisible_chars_removed,
             "invisible or bidirectional characters removed from text"
+        );
+    }
+    if diags.versions_dropped > 0 {
+        tracing::debug!(
+            endpoint,
+            count = diags.versions_dropped,
+            "article versions dropped: original Journal officiel version (JORFARTI)"
         );
     }
 }
@@ -269,7 +281,7 @@ mod tests {
         (snapshot.mojibake_repairs, snapshot.mojibake_unrepaired)
     }
 
-    /// Diagnostics aux neuf compteurs non nuls et distincts.
+    /// Diagnostics aux dix compteurs non nuls et distincts.
     fn primes() -> Diagnostics {
         Diagnostics {
             dropped_hits: 2,
@@ -281,6 +293,7 @@ mod tests {
             invalid_nor: 17,
             toc_dropped: 19,
             invisible_chars_removed: 23,
+            versions_dropped: 29,
         }
     }
 
@@ -298,6 +311,7 @@ mod tests {
             invalid_nor: 17 * times,
             toc_dropped: 19 * times,
             invisible_chars_removed: 23 * times,
+            versions_dropped: 29 * times,
         }
     }
 
@@ -317,6 +331,7 @@ mod tests {
                 invalid_nor: 0,
                 toc_dropped: 0,
                 invisible_chars_removed: 0,
+                versions_dropped: 0,
             }
         );
     }
@@ -464,6 +479,11 @@ mod tests {
                 "DEBUG",
                 "invisible or bidirectional characters removed from text",
             ),
+            (
+                Diagnostics { versions_dropped: 42, ..zero },
+                "DEBUG",
+                "article versions dropped: original Journal officiel version (JORFARTI)",
+            ),
         ];
         for (diags, level, message) in cases {
             let stats = Stats::default();
@@ -488,11 +508,14 @@ mod tests {
     fn mapping_log_carries_no_identifier_or_body_text() {
         let stats = Stats::default();
         let log = capturing(|| stats.record_mapping("/consult/juri", &primes())).text();
-        assert_eq!(log.lines().count(), 9, "{log}");
-        assert_eq!(log.matches('"').count(), 18, "{log}");
+        assert_eq!(log.lines().count(), 10, "{log}");
+        assert_eq!(log.matches('"').count(), 20, "{log}");
         // Le message fixe de `upstream_suffix_stripped` nomme la famille `LEGITEXT` : c'est la
         // seule occurrence admise, tout identifiant `LEGITEXT` journalisé en ajouterait une.
         assert_eq!(log.matches("LEGITEXT").count(), 1, "{log}");
+        // De même, le message fixe de `versions_dropped` nomme la famille `JORFARTI`, sans chiffre.
+        assert_eq!(log.matches("JORFARTI").count(), 1, "{log}");
+        assert!(!log.contains("JORFARTI0"), "{log}");
         assert!(!log.contains("JURITEXT"), "{log}");
     }
 }

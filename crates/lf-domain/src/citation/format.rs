@@ -912,6 +912,18 @@ mod tests {
                 ),
                 Some("Cass. soc., 4 juin 2025, n° 24-13.470, 24-13.471"),
             ),
+            // RG à zéro de tête, écrit comme cité : la forme rendue dans `interpreted_as` (U05).
+            (
+                decision_ref(
+                    Some(Court::CourAppel {
+                        seat: Some(CaSeat::from_facet("VERSAILLES").expect("siège connu")),
+                        chamber: None,
+                    }),
+                    Some(date(2011, 3, 30)),
+                    vec![CaseNumber::Rg("10/01944".parse().expect("RG"))],
+                ),
+                Some("CA Versailles, 30 mars 2011, n° 10/01944"),
+            ),
             // Sans juridiction (N21, N28), ou sans numéro ni date (N31, juridiction seule).
             (decision_ref(None, Some(date(2026, 5, 29)), numbers()), None),
             (decision_ref(ce(), None, Vec::new()), None),
@@ -928,6 +940,9 @@ mod tests {
         let cases = [
             (pourvoi("21-23174"), "21-23.174"),
             (CaseNumber::Rg("24/15215".parse().expect("RG")), "24/15215"),
+            // Zéro de tête gardé, et quatre chiffres restent quatre (U05).
+            (CaseNumber::Rg("10/01944".parse().expect("RG")), "10/01944"),
+            (CaseNumber::Rg("10/1944".parse().expect("RG")), "10/1944"),
             (CaseNumber::Portalis("35L7-V-B7H-CIDHB".to_owned()), "35L7-V-B7H-CIDHB"),
             (CaseNumber::CeRequete(216_642), "216642"),
             (CaseNumber::Caa("24MA02429".parse().expect("CAA")), "24MA02429"),

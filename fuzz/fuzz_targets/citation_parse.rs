@@ -69,7 +69,7 @@ fuzz_target!(|input: (&str, u8, u8)| {
         assert!(Pourvoi::from_str(&pourvoi.to_string()).is_ok());
     }
     if let Ok(rg) = RgNumber::from_str(data) {
-        assert!(RgNumber::from_str(&rg.to_string()).is_ok());
+        assert_eq!(RgNumber::from_str(&rg.to_string()), Ok(rg));
     }
     if let Ok(caa) = CaaNumber::from_str(data) {
         assert_eq!(CaaNumber::from_str(&caa.to_string()), Ok(caa));

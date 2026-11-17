@@ -1,0 +1,14 @@
+endpoint = "/search"
+request = "{\"fond\":\"JURI\",\"recherche\":{\"champs\":[{\"typeChamp\":\"NUM_AFFAIRE\",\"criteres\":[{\"typeRecherche\":\"EXACTE\",\"valeur\":\"10/01944\",\"operateur\":\"ET\"}],\"operateur\":\"ET\"}],\"filtres\":[],\"pageNumber\":1,\"pageSize\":20,\"operateur\":\"ET\",\"sort\":\"PERTINENCE\",\"typePagination\":\"DEFAUT\"}}"
+env = "production"
+captured_at = "2026-11-17T03:31:28Z"
+http_status = 200
+content_type = "application/json"
+elapsed_ms = 526
+bytes_raw = 2715
+sha256_raw = "3a6c869d5c9ed4f94fb1a8685ceb1f2086584a229e6b61b53e6e929abae4b884"
+sha256_file = "3a6c869d5c9ed4f94fb1a8685ceb1f2086584a229e6b61b53e6e929abae4b884"
+mojibake_detected = false
+redactions = []
+tool = "xtask record-fixture 1.4.0"
+license = "Licence Ouverte 2.0 — source : Légifrance / DILA"

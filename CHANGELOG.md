@@ -15,7 +15,19 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `1.4.0`.
+Correctifs des deux défauts hauts reportés de la 1.1.1 (U02 et U05), écrits sur des réponses de l'API relevées en production le 2026-11-17 : cinq requêtes en lecture, une par seconde, lancées par le propriétaire (00 §10 Q3, fixtures `env = "production"` sous `u02/` et `u05/`). Aucun outil, paramètre, champ ni valeur d'énumération nouveau.
+
+### Fixed
+
+- `fr_diff_article` ne rend plus `[upstream_error] unexpected response from Legifrance` pour un article de loi, de décret ou d'arrêté qui n'a qu'une version (U02, related_diff-1).
+  - Cause : la liste des versions de PISTE (`canonicalArticleVersion`) nomme aussi la version d'origine de l'article au Journal officiel (`JORFARTI`, sans période : ses deux dates valent la sentinelle 2999-01-01). L'adaptateur ne lit que des `LEGIARTI` et refusait toute la liste.
+  - Cette entrée, sans période, est maintenant écartée et comptée (`versions_dropped`, journalisé en `debug`). Un `JORFARTI` qui porterait une période ou un suffixe, comme tout autre identifiant qui n'est pas un `LEGIARTI`, reste refusé : une version réelle ne disparaît jamais en silence.
+  - L'outil compare la version consolidée : `identical: true` entre deux dates de sa période, `not_found` avant son début. Aucune requête de plus : le repli sur `getArticleByCid` n'aurait rien donné, il répond par une liste vide pour ces articles.
+- `fr_resolve` et `fr_verify_citations` gardent le zéro de tête d'un numéro de RG de cour d'appel ou de juridiction du fond (U05, gap5-1).
+  - « 10/01944 » est cherché tel quel : c'est la forme que l'index de Légifrance connaît (relevé : une décision pour « 10/01944 », aucune pour « 10/1944 »). `interpreted_as` le restitue (« CA Versailles, 30 mars 2011, n° 10/01944 »).
+  - Si la forme écrite ne trouve rien, l'autre largeur est essayée (« 10/1944 » puis « 10/01944 », ou l'inverse) : une requête de plus, seulement dans ce cas et pour un numéro d'ordre inférieur à 10 000.
+  - Limite connue : le siège d'une cour d'appel ou d'un tribunal n'est pas comparé à celui de la décision trouvée. Quand deux juridictions partagent un numéro, la date départage ; une citation datée du jour d'une décision d'une autre cour est vérifiée sur celle-ci.
+  - Limite connue : l'autre largeur n'est essayée que si la forme écrite ne ramène aucune décision. Si « 10/1944 » ramène la décision d'une autre juridiction, celle qui est rangée sous « 10/01944 » n'est pas cherchée, et la citation est déclarée sans décision à la date citée.
 
 ## [1.4.0] - 2026-11-17
 

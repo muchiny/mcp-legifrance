@@ -74,3 +74,7 @@ crates/lf-adapter-mcp/src/views/get_bofip.rs
 crates/lf-adapter-mcp/src/views/coverage.rs
 crates/lf-adapter-mcp/src/tools/search_bofip.rs
 crates/lf-adapter-mcp/src/tools/get_bofip.rs
+crates/lf-adapter-piste/src/map/m7.rs
+crates/lf-adapter-piste/src/map/mod.rs
+crates/lf-adapter-piste/src/stats.rs
+crates/lf-domain/src/citation/grammar/fond.rs

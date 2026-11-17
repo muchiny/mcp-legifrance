@@ -30,18 +30,20 @@ pub(crate) fn scan(n: &Normalized, anchors: &[Anchor]) -> Vec<Candidate> {
     lex::scan_family(n, anchors, &CLASSES, None, &GRAMMARS)
 }
 
-/// `rg` : `AA/NNNN` ou `AA/NNNNN`.
+/// `rg` : `AA/NNNN` ou `AA/NNNNN`, à sa largeur écrite (U05).
 fn rg(c: &Cur<'_>, i: usize) -> Option<(usize, CaseNumber)> {
     if !c.left_ok(i) {
         return None;
     }
     let yy = c.digits(i, 2, 2).filter(|&e| c.is(e, '/'))?;
-    let end = c.digits(yy + 1, 4, 5).filter(|&e| c.num_end_ok(e))?;
+    let start = yy + 1;
+    let end = c.digits(start, 4, 5).filter(|&e| c.num_end_ok(e))?;
     Some((
         end,
         CaseNumber::Rg(RgNumber {
             yy: u8::try_from(c.val(i, yy)).unwrap_or(0),
-            seq: c.val(yy + 1, end),
+            seq: c.val(start, end),
+            width: u8::try_from(end.saturating_sub(start)).unwrap_or(0),
         }),
     ))
 }
@@ -193,8 +195,8 @@ mod tests {
         Ambiguity, CaseNumber, Confidence, Court, DecisionCite, Flag, RgNumber,
     };
 
-    fn rg(yy: u8, seq: u32) -> CaseNumber {
-        CaseNumber::Rg(RgNumber { yy, seq })
+    fn rg(yy: u8, seq: u32, width: u8) -> CaseNumber {
+        CaseNumber::Rg(RgNumber { yy, seq, width })
     }
 
     fn ca(seat: &str, chamber: Option<&str>) -> DecisionCite {
@@ -212,7 +214,7 @@ mod tests {
                 vec![(CourtA, "Cour d'appel")],
                 DecisionCite {
                     date: date(2025, 6, 23),
-                    numbers: vec![rg(24, 15215)],
+                    numbers: vec![rg(24, 15215, 5)],
                     ..ca("paris", Some("Pôle 1 - Chambre 12"))
                 },
             ),
@@ -221,8 +223,17 @@ mod tests {
                 vec![(CourtA, "Cour d'appel")],
                 DecisionCite {
                     date: date(2020, 6, 4),
-                    numbers: vec![rg(17, 4940)],
+                    numbers: vec![rg(17, 4940, 5)],
                     ..ca("versailles", Some("6e Chambre"))
+                },
+            ),
+            (
+                "Cour d'appel de Versailles, 30 mars 2011, 10/01944",
+                vec![(CourtA, "Cour d'appel"), (Rg, "10/01944")],
+                DecisionCite {
+                    date: date(2011, 3, 30),
+                    numbers: vec![rg(10, 1944, 5)],
+                    ..ca("versailles", None)
                 },
             ),
             (
@@ -230,7 +241,7 @@ mod tests {
                 vec![(CourtA, "Cour d'appel"), (Rg, "14/00554")],
                 DecisionCite {
                     date: date(2015, 5, 21),
-                    numbers: vec![rg(14, 554)],
+                    numbers: vec![rg(14, 554, 5)],
                     ..ca("limoges", None)
                 },
             ),
@@ -239,7 +250,7 @@ mod tests {
                 vec![(Sigle, "CA")],
                 DecisionCite {
                     date: date(2024, 4, 4),
-                    numbers: vec![rg(23, 13690)],
+                    numbers: vec![rg(23, 13690, 5)],
                     ..ca("paris", Some("pôle 5, ch. 9"))
                 },
             ),
@@ -248,7 +259,7 @@ mod tests {
                 vec![(CourtA, "C.A.")],
                 DecisionCite {
                     date: date(2021, 3, 2),
-                    numbers: vec![rg(20, 12)],
+                    numbers: vec![rg(20, 12, 5)],
                     ..ca("aix-en-provence", Some("1re chambre civile"))
                 },
             ),
@@ -257,7 +268,7 @@ mod tests {
                 vec![(CourtA, "Cour d'appel")],
                 DecisionCite {
                     date: date(2019, 5, 3),
-                    numbers: vec![rg(18, 321)],
+                    numbers: vec![rg(18, 321, 5)],
                     ..ca("agen", None)
                 },
             ),
@@ -274,7 +285,7 @@ mod tests {
             *decision(&got),
             DecisionCite {
                 date: date(2020, 6, 4),
-                numbers: vec![rg(14, 554)],
+                numbers: vec![rg(14, 554, 5)],
                 ..ca("rennes", Some("chambre 1 section 2"))
             }
         );
@@ -295,7 +306,7 @@ mod tests {
         assert_eq!(
             *decision(&got),
             DecisionCite {
-                numbers: vec![rg(23, 13690), CaseNumber::Portalis("35L7-V-B7H-CIDHB".into())],
+                numbers: vec![rg(23, 13690, 5), CaseNumber::Portalis("35L7-V-B7H-CIDHB".into())],
                 ..blank()
             }
         );
@@ -305,7 +316,7 @@ mod tests {
         let short = "N° RG 23/13690, puis";
         let got = only(run(scan, short, &[(Rg, "23/13690")]));
         assert_eq!(matched(short, &got), "N° RG 23/13690");
-        assert_eq!(decision(&got).numbers, [rg(23, 13690)]);
+        assert_eq!(decision(&got).numbers, [rg(23, 13690, 5)]);
     }
 
     #[test]
@@ -317,7 +328,7 @@ mod tests {
             *decision(&got),
             DecisionCite {
                 date: date(2026, 4, 30),
-                numbers: vec![rg(25, 497)],
+                numbers: vec![rg(25, 497, 5)],
                 ..with_court(Court::TribunalJudiciaire { seat: Some("LILLE".into()) })
             }
         );
@@ -345,7 +356,7 @@ mod tests {
         );
         let input = "CPH Lyon, 3 mars 2019, n° 18/00321";
         let got = only(run(scan, input, &[(Sigle, "CPH")]));
-        assert_eq!(decision(&got).numbers, [rg(18, 321)]);
+        assert_eq!(decision(&got).numbers, [rg(18, 321, 5)]);
         assert_eq!(decision(&got).court, Some(Court::AutreJudiciaire { label: "CPH Lyon".into() }));
         let input = "Conseil de prud'hommes d'Angers, 3 mars 2019, 18/00321";
         let got = only(run(scan, input, &[(CourtA, "Conseil de prud'hommes")]));
@@ -378,7 +389,10 @@ mod tests {
 
     #[test]
     fn case_numbers_cut_short_are_not_numbers() {
-        assert_eq!(read("24/15215", |c| super::rg(c, 0)), Some((8, rg(24, 15215))));
+        assert_eq!(read("24/15215", |c| super::rg(c, 0)), Some((8, rg(24, 15215, 5))));
+        // La largeur écrite est gardée : zéro de tête compris, ou quatre chiffres (U05).
+        assert_eq!(read("10/01944", |c| super::rg(c, 0)), Some((8, rg(10, 1944, 5))));
+        assert_eq!(read("10/1944", |c| super::rg(c, 0)), Some((7, rg(10, 1944, 4))));
         for text in ["24-15215", "24/123"] {
             assert_eq!(read(text, |c| super::rg(c, 0)), None, "{text}");
         }
@@ -436,7 +450,7 @@ mod tests {
             let input = format!("N° RG 23/13690{tail}");
             let got = only(run(scan, &input, &[(Rg, "23/13690")]));
             assert_eq!(matched(&input, &got), "N° RG 23/13690", "{input}");
-            assert_eq!(decision(&got).numbers, [rg(23, 13690)], "{input}");
+            assert_eq!(decision(&got).numbers, [rg(23, 13690, 5)], "{input}");
         }
     }
 }

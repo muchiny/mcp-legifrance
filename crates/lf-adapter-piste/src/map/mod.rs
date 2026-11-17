@@ -76,6 +76,9 @@ pub(crate) struct Diagnostics {
     pub(crate) toc_dropped: u32,
     /// Caractères invisibles ou bidirectionnels retirés des textes.
     pub(crate) invisible_chars_removed: u32,
+    /// Versions d'article écartées : la version d'origine au Journal officiel (`JORFARTI`), que
+    /// `canonicalArticleVersion` liste à côté des versions consolidées.
+    pub(crate) versions_dropped: u32,
 }
 
 impl Diagnostics {
@@ -122,6 +125,11 @@ impl Diagnostics {
     /// Ajoute `removed` caractères invisibles ou bidirectionnels retirés.
     pub(crate) fn add_invisible(&mut self, removed: u32) {
         self.invisible_chars_removed = self.invisible_chars_removed.saturating_add(removed);
+    }
+
+    /// Compte une version d'article écartée.
+    pub(crate) fn note_version_dropped(&mut self) {
+        self.versions_dropped = self.versions_dropped.saturating_add(1);
     }
 }
 
@@ -182,7 +190,7 @@ mod tests {
     type Note = fn(&mut Diagnostics);
 
     /// Un cas par `note_*` : la fonction et les compteurs attendus après un appel depuis zéro.
-    fn notes() -> [(Note, Diagnostics); 7] {
+    fn notes() -> [(Note, Diagnostics); 8] {
         let zero = Diagnostics::default();
         [
             (Diagnostics::note_dropped_hit, Diagnostics { dropped_hits: 1, ..zero }),
@@ -195,10 +203,11 @@ mod tests {
             (Diagnostics::note_origin_mismatch, Diagnostics { origin_mismatch: 1, ..zero }),
             (Diagnostics::note_invalid_ecli, Diagnostics { invalid_native_ecli: 1, ..zero }),
             (Diagnostics::note_invalid_nor, Diagnostics { invalid_nor: 1, ..zero }),
+            (Diagnostics::note_version_dropped, Diagnostics { versions_dropped: 1, ..zero }),
         ]
     }
 
-    /// Les neuf compteurs à `u32::MAX`.
+    /// Les dix compteurs à `u32::MAX`.
     fn saturated() -> Diagnostics {
         Diagnostics {
             dropped_hits: u32::MAX,
@@ -210,6 +219,7 @@ mod tests {
             invalid_nor: u32::MAX,
             toc_dropped: u32::MAX,
             invisible_chars_removed: u32::MAX,
+            versions_dropped: u32::MAX,
         }
     }
 
@@ -227,6 +237,7 @@ mod tests {
                 invalid_nor: 0,
                 toc_dropped: 0,
                 invisible_chars_removed: 0,
+                versions_dropped: 0,
             }
         );
     }
