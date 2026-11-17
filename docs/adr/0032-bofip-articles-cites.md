@@ -66,7 +66,7 @@ Mesures du 2026-11-16, hors dépôt. La première est faite hors ligne, sur l'ex
    - Les instructions du serveur ne changent pas (3 688 caractères sur 3 700, AM-93).
 6. **Où la règle est écrite.**
    - Une fonction pure du domaine (module `doctrine`) bâtit la liste à partir du texte, avec le parseur de citations.
-   - Le cas d'usage `get_bofip` l'appelle sur le texte entier, avant la lecture.
+   - Le cas d'usage `get_bofip` l'appelle sur le texte entier, quelle que soit la fenêtre lue.
    - Le port `TaxDoctrine`, l'adapter du BOFiP et le parseur de citations ne changent pas.
 7. **Surface et classement du changement.**
    - Deux champs de sortie facultatifs : c'est un **ajout** (05 §9.5), donc une version mineure. Le propriétaire décide du numéro à la PR de version.
@@ -82,6 +82,15 @@ Mesures du 2026-11-16, hors dépôt. La première est faite hors ligne, sur l'ex
    - les treize outils de Légifrance.
 
    `fr_resolve` et `fr_verify_citations` ne lisent toujours pas les références `BOI-…` (Q31 = A).
+
+**Note du 2026-11-16 (code, T-MB-68).** La décision 2 dit « tout le texte ». Le code lit au plus les 200 000 premiers caractères (`CITED_TEXT_MAX_CHARS`), coupés à la fin du dernier paragraphe entier qui y tient : une coupe au milieu d'une citation pourrait lister un autre article (« CGI, art. 1135 bis » coupé après « 113 »). Au-delà, `cited_articles_truncated` vaut `true`.
+
+- **Pourquoi.** Le portail peut rendre jusqu'à 4 Mio de texte (plafond de l'adapter). Le garde-fou de 1 000 citations ne borne pas le coût, qui suit le nombre d'ancres. Sur un texte hostile de cette taille, mesuré le 2026-11-16 (binaire optimisé, treize formes), la lecture des citations prend jusqu'à 11,5 s sans borne et 2,1 s avec elle, pour la forme la plus chère (sigles denses, « CE CE CE… »). La préparation du même texte prend 41 ms.
+- **Risque résiduel, faible.** Le calcul reste synchrone dans le cas d'usage, comme BM25 et `fr_diff_article` : un texte hostile peut occuper un fil d'exécution du serveur 2,1 s par lecture. Il faudrait un portail compromis (DGFiP, en TLS).
+- **Effet sur le jeu : aucun.** La plus longue publication compte 167 694 caractères. Sur l'export du 2026-11-15, les listes sont identiques avec et sans la borne (K4).
+- **Texte exact de la phrase de la note** (décision 5 : il s'écrit avec le code) : elle dit aussi que la liste est la même à chaque page et qu'on la vérifie une fois, et ne renvoie à `fr_diff_article` que pour un article dont la version a commencé après `valid_from`. Les appels à Légifrance restent ainsi au plus juste.
+- **Sigles ambigus.** Sur l'export, 134 citations gardées sur 94 361 viennent d'un sigle à faible confiance (« CPI », « CCP », « CP ») ; toutes sont résolvables, et les exemples lus sont justes. Elles restent listées.
+- Le reste de la décision est inchangé.
 
 ## Question tranchée
 
@@ -106,8 +115,9 @@ La question a été posée au propriétaire avec une recommandation, après la s
 - **La liste n'est pas tout ce que la page cite.**
   - Les articles des lois et décrets non codifiés n'y sont pas.
   - Le parseur ne reconnaît pas la forme longue d'un article d'annexe (« article 75 de l'annexe II au code général des impôts »), seulement la forme courte (« CGI, ann. II, art. 75 »). C'est une limite du parseur, relevée par la sonde et non corrigée ici.
+  - Il ne rattache pas non plus le code à une liste de plages (« articles 1 à 2 et 3 à 4 du code civil ») : 3 publications du jeu en portent une (relevé du 2026-11-16, avec le code). Même statut.
 - Un article abrogé ressort de `fr_verify_citations` en `not_found` : la note de cet outil dit qu'aucune version n'est en vigueur aujourd'hui et propose de réessayer avec une date. L'appelant doit comprendre que l'article a disparu.
-- Chaque lecture coûte jusqu'à 65 ms de plus, et la réponse grandit (128 caractères en médiane pour la liste, environ 2 500 au plus).
+- Chaque lecture coûte jusqu'à 65 ms de plus (2,1 s au pire mesuré sur un texte hostile, note ci-dessus), et la réponse grandit (128 caractères en médiane pour la liste, environ 2 500 au plus).
 - Un descripteur change : les clients qui épinglent les descripteurs redemandent une approbation.
 - La vérification exige un compte PISTE.
 

@@ -1016,6 +1016,28 @@ mod budgets {
                 check: reading_window,
             },
             Case {
+                name: "bofip_get_40000_char_window_with_60_long_cited_articles",
+                tool: "fr_get_bofip",
+                arguments: json!({"id": BOI_ID, "detail": "full", "max_chars": 40_000}),
+                extreme: Extreme::OverTheCap,
+                setup: |fixture| {
+                    // ADR-0032 : soixante articles du code au plus long titre en tête du texte,
+                    // puis une fenêtre riche en échappements. La liste, plafonnée à 50, reste
+                    // entière : seule la fenêtre raccourcit.
+                    let text = format!("{}\n{}", long_cited_articles(60), nasty_paragraphs(6_500));
+                    let raw = Raw::of([bofip_window_of(&text, 40_000).as_str()]);
+                    fixture.doctrine.push_get(Ok(vec![bofip_doc(3369, "Donations", &text)]));
+                    raw
+                },
+                check: |observed| {
+                    let kept = reading_window(observed);
+                    let cited = observed.value["cited_articles"].as_array().expect("a list");
+                    assert_eq!(cited.len(), 50);
+                    assert_eq!(observed.value["cited_articles_truncated"], true);
+                    json!({"window": kept, "cited_articles": cited.len()})
+                },
+            },
+            Case {
                 name: "bofip_get_choice_of_10_publications_with_1000_char_titles",
                 tool: "fr_get_bofip",
                 arguments: json!({"id": BOI_ID}),
@@ -1072,6 +1094,19 @@ mod budgets {
     /// dans [`bofip_doc`], qui recolle les sauts de ligne placés au milieu des phrases.
     fn bofip_window_of(text: &str, max_chars: usize) -> String {
         clean_text(text).unwrap().0.as_str().chars().take(max_chars).collect()
+    }
+
+    /// `count` articles distincts du code au plus long titre du dictionnaire, un par paragraphe.
+    fn long_cited_articles(count: u32) -> String {
+        let longest = lf_domain::citation::CODES
+            .iter()
+            .map(|entry| entry.title)
+            .max_by_key(|title| title.chars().count())
+            .expect("a dictionary");
+        (1..=count)
+            .map(|n| format!("Voir l'article R. {n}-123-45 du {}.", longest.to_lowercase()))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// Une fenêtre de lecture dégradée : elle est plus courte que demandée mais jamais vide,

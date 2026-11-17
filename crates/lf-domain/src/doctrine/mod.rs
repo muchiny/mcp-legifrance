@@ -16,7 +16,9 @@
 //!   (son champ HTML, et [`clean_text`] pour son champ brut, en secours), [`clean_line`] pour un
 //!   champ court,
 //!   [`Permalink`] et [`BofipUrl`] pour l'adresse, [`doctrine_citation`] pour la citation.
+//! - articles de code cités par une publication lue : [`cited_articles`] (ADR-0032).
 
+mod cited;
 mod entity;
 mod id;
 mod kind;
@@ -25,6 +27,7 @@ mod terms;
 mod text;
 mod url;
 
+pub use cited::{CITED_ARTICLES_MAX, CITED_TEXT_MAX_CHARS, CitedArticles, cited_articles};
 pub use entity::{DoctrineDoc, DoctrineHit, DoctrinePage, doctrine_citation};
 pub use id::{BOI_ID_MAX_BYTES, BoiId, PublicationId, SERIE_MAX_BYTES, Serie};
 pub use kind::{DoctrineKind, KindFilter};

@@ -25,9 +25,16 @@
 //!
 //! Le résumé d'une publication longue est son début (`lead`) : le BOFiP ne publie pas de sommaire
 //! et n'a pas de dispositif.
+//!
+//! # Articles cités (ADR-0032)
+//!
+//! Une publication lue porte les articles de code que cite son texte **entier**
+//! ([`cited_articles`]) : la liste est la même à chaque fenêtre, quels que soient `detail`, `focus`
+//! et `offset`. Le cas d'usage ne la vérifie pas : l'appelant le fait avec `fr_verify_citations`
+//! puis `fr_diff_article`, et aucune requête ne part vers Légifrance.
 
 use lf_domain::{
-    doctrine::{BoiId, DoctrineDoc, PublicationId},
+    doctrine::{BoiId, CitedArticles, DoctrineDoc, PublicationId, cited_articles},
     text::DispositifRule,
 };
 
@@ -157,18 +164,19 @@ fn select(
     read_publication(doc, request)
 }
 
-/// Lit le texte de `doc` selon `request`, puis le lâche : la sortie ne porte que la lecture.
+/// Lit le texte de `doc` selon `request`, en tire les articles cités, puis le lâche : la sortie ne
+/// porte que la lecture et la liste.
 fn read_publication(
     mut doc: DoctrineDoc,
     request: &ReadingRequest,
 ) -> Result<GetBofipOutput, AppError> {
     let text = std::mem::take(&mut doc.text);
-    let reading = if text.is_empty() {
-        without_text(doc.source_url.is_some())
+    let (reading, cited) = if text.is_empty() {
+        (without_text(doc.source_url.is_some()), CitedArticles::default())
     } else {
-        read(&text, None, DispositifRule::None, request)?
+        (read(&text, None, DispositifRule::None, request)?, cited_articles(text.as_str()))
     };
-    Ok(GetBofipOutput::Publication(Box::new(BofipPublication { doc, reading })))
+    Ok(GetBofipOutput::Publication(Box::new(BofipPublication { doc, reading, cited })))
 }
 
 /// Lecture d'une publication sans texte, quel que soit le mode demandé : rien à lire, et une
@@ -277,6 +285,8 @@ mod tests {
                 summary_truncated: false,
             }
         );
+        // Un texte qui ne cite aucun article de code : liste vide.
+        assert_eq!(read.cited, CitedArticles::default());
         // L'identifiant part validé : rogné et en majuscules.
         assert_eq!(doctrine.seen_requests(), vec![DoctrineRequest::Get(bofip::id())]);
     }
@@ -293,6 +303,47 @@ mod tests {
         assert_eq!(read.reading.text, None);
         assert_eq!(read.reading.text_length, u32::try_from(text.chars().count()).unwrap());
         assert!(read.reading.summary_truncated);
+    }
+
+    #[tokio::test]
+    async fn the_cited_articles_come_from_the_whole_text_whatever_the_window() {
+        // Le premier et le dernier paragraphe citent un article : aucune fenêtre courte ne voit
+        // les deux, et la liste les porte toujours, dans l'ordre du texte.
+        let filler: Vec<String> = (1..=60)
+            .map(|n| format!("Paragraphe {n} : la donation ouvre droit à un abattement."))
+            .collect();
+        let raw = format!(
+            "L'article 1135 bis du code général des impôts s'applique.\n{}\nVoir l'article 9 du \
+             code civil, puis de nouveau l'article 1135 bis du code général des impôts.",
+            filler.join("\n")
+        );
+        let doc = bofip::doc(3350, &raw);
+        let expected = CitedArticles {
+            articles: vec![
+                "Code général des impôts, art. 1135 bis".to_owned(),
+                "Code civil, art. 9".to_owned(),
+            ],
+            truncated: false,
+        };
+        let length = doc.text.as_str().chars().count();
+        for reading in [
+            ReadingInput::default(),
+            ReadingInput {
+                detail: Some("full".to_owned()),
+                max_chars: Some(500),
+                ..ReadingInput::default()
+            },
+            ReadingInput {
+                detail: Some("full".to_owned()),
+                offset: Some(i64::try_from(length.saturating_sub(100)).unwrap()),
+                ..ReadingInput::default()
+            },
+            ReadingInput { focus: Some("abattement".to_owned()), ..ReadingInput::default() },
+        ] {
+            let call = GetBofipInput { reading: reading.clone(), ..input(ID) };
+            let (result, _) = run(call, Ok(vec![doc.clone()])).await;
+            assert_eq!(publication(&result.unwrap()).cited, expected, "{reading:?}");
+        }
     }
 
     #[tokio::test]
@@ -445,6 +496,7 @@ mod tests {
                 summary_truncated: false,
             }
         );
+        assert_eq!(read.cited, CitedArticles::default());
         // Sans adresse sûre à rendre, la note ne renvoie pas à un champ absent.
         let unlinked = DoctrineDoc { source_url: None, ..bofip::doc(3350, "") };
         let (result, _) = run(input(ID), Ok(vec![unlinked])).await;

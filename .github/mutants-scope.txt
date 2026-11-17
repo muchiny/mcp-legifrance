@@ -44,6 +44,7 @@ crates/lf-domain/src/entity/versions.rs
 crates/lf-adapter-piste/src/corpus/m6.rs
 crates/lf-adapter-dila/src/index.rs
 crates/lf-app/src/wiring.rs
+crates/lf-domain/src/doctrine/cited.rs
 crates/lf-domain/src/doctrine/entity.rs
 crates/lf-domain/src/doctrine/id.rs
 crates/lf-domain/src/doctrine/kind.rs

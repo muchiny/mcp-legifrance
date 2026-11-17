@@ -107,9 +107,9 @@
   "server_version": "1.3.2",
   "sizes": {
     "instructions_chars": 3688,
-    "tools_list_bytes": 42055
+    "tools_list_bytes": 42492
   },
-  "surface_sha256": "34df7d21f00782dab5103405693968a959dd787c46e4245400adbd265bc72013",
+  "surface_sha256": "fdda1871d907f29cf41b6ca24e6b8481867bbbfa14b6946689e80affff2dd96d",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -542,7 +542,7 @@
           "readOnlyHint": true,
           "title": "Read a BOFiP publication"
         },
-        "description": "Read one BOFiP publication by its id (BOI-... or ACTU-..., from fr_search_bofip): title, kind, serie, valid_from, citation and source_url. BOFiP is the tax administration's doctrine, not the law; only the publication in force today is served, never a past version. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary` (its beginning). `detail`=\"full\" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. A few ids designate two publications: the answer then lists them, and `publication_id` selects one.",
+        "description": "Read one BOFiP publication by its id (BOI-... or ACTU-..., from fr_search_bofip): title, kind, serie, valid_from, citation, source_url and cited_articles (the code articles its text cites, at most 50). BOFiP is the tax administration's doctrine, not the law; only the publication in force today is served, never a past version, and it may predate a change of the law: check cited_articles with fr_verify_citations before relying on it. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary` (its beginning). `detail`=\"full\" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. A few ids designate two publications: the answer then lists them, and `publication_id` selects one.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -604,6 +604,17 @@
             },
             "citation": {
               "type": "string"
+            },
+            "cited_articles": {
+              "description": "Code articles cited by the whole text, at most 50: check them with fr_verify_citations.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "cited_articles_truncated": {
+              "description": "true when cited_articles is incomplete.",
+              "type": "boolean"
             },
             "division": {
               "type": "string"
@@ -729,7 +740,7 @@
         },
         "title": "Read a BOFiP publication"
       },
-      "sha256": "3823a15794247de840f6dccd05f6f296ff3447c65e7aa18252fc134c01c1d494"
+      "sha256": "15ef0c82db6f06803241bf4e11d0e71129d63a499c7df51278b8a75ae8f4c85e"
     },
     "fr_get_company_agreement": {
       "descriptor": {
@@ -2311,5 +2322,5 @@
       "sha256": "be51a6e4cd67f1f91289213f993c62a87c1f1023384e59e9a96922d94073f260"
     }
   },
-  "toolset_sha256": "ebbba5c03849ca7a32abed9184290854ba7d49cbdd7ec555407fb41d21074664"
+  "toolset_sha256": "7b97f9a5c8b8277e23547c5e34a0a27e99e417e09a30db514b57e971670515e6"
 }

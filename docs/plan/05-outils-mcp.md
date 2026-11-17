@@ -1387,14 +1387,14 @@ Search BOFiP, the published doctrine of the French tax administration (DGFiP): h
 
 **Erreurs** : `invalid_arg` (paramètres, requête vide après nettoyage, page hors limite) ; `config_error` (source coupée, 00 §1, texte fixe, sans E/S) ; `rate_limited` (refus 429 du portail, repos de la source ou budget du jour épuisé ; jamais de nouvelle tentative) ; `upstream_error` (autre statut, délai, réponse trop grande ou non conforme) ; `audit_error`. Un message ne porte jamais l'adresse de la requête ni ses mots. **Audit, cache** : nombre de hits renvoyés ; aucun cache (ADR-0028).
 
-### 5.15 `fr_get_bofip` (livré au jalon MB : ADR-0028, ADR-0029)
+### 5.15 `fr_get_bofip` (livré au jalon MB : ADR-0028, ADR-0029 ; articles cités : ADR-0032)
 
 **Objectif.** Lire une publication du BOFiP par son identifiant, avec le retour progressif des lectures longues (§5.0.2, §5.0.3).
 
-**Description** (texte du verrou des descripteurs : 707 caractères, 5 phrases ; les points de suspension sont en ASCII) :
+**Description** (texte du verrou des descripteurs : 878 caractères, 5 phrases, depuis ADR-0032 ; 707 en 1.3.2 ; les points de suspension sont en ASCII) :
 
 ```text
-Read one BOFiP publication by its id (BOI-... or ACTU-..., from fr_search_bofip): title, kind, serie, valid_from, citation and source_url. BOFiP is the tax administration's doctrine, not the law; only the publication in force today is served, never a past version. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary` (its beginning). `detail`="full" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. A few ids designate two publications: the answer then lists them, and `publication_id` selects one.
+Read one BOFiP publication by its id (BOI-... or ACTU-..., from fr_search_bofip): title, kind, serie, valid_from, citation, source_url and cited_articles (the code articles its text cites, at most 50). BOFiP is the tax administration's doctrine, not the law; only the publication in force today is served, never a past version, and it may predate a change of the law: check cited_articles with fr_verify_citations before relying on it. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary` (its beginning). `detail`="full" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. A few ids designate two publications: the answer then lists them, and `publication_id` selects one.
 ```
 
 **Entrée** : `id` (string, requis ; majuscules, chiffres et traits d'union, 64 octets au plus, mis en majuscules ASCII avant le contrôle), `publication_id` (integer, facultatif, 1 à 9 999 999 ; valeur rendue par `fr_search_bofip` ou par la liste ci-dessous) et les paramètres communs (§5.0.2). Ordre de validation : `id`, `publication_id`, puis l'ordre commun.
@@ -1412,7 +1412,32 @@ Read one BOFiP publication by its id (BOI-... or ACTU-..., from fr_search_bofip)
 
 **Texte** (ADR-0030, AM-97). Une lecture demande au portail les deux formes du texte, `contenu_html` et `contenu`, dans la même requête. Le texte vient de `contenu_html`, lu par le lecteur HTML du domaine (03 §7.2) : un paragraphe par bloc, le numéro de paragraphe seul dans le sien, une ligne de tableau par paragraphe (cellules jointes par ` | `), la date à la place du jeton `[node:date:…]` que porte le champ brut (pour le jeton `[node:date:self]` de 116 publications, la mention que le portail écrit lui-même : « [date de publication insérée automatiquement] »), aucune balise bien formée rendue (un balisage mal formé peut sortir tel quel, en texte, comme pour Légifrance). Deux réparations propres au portail précèdent la lecture : les suites de guillemets doubles sont réduites de moitié quand toutes sont de longueur paire (le portail double chaque guillemet, V-226) ; si la première balise du champ est une balise ouvrante `html`, ce qui la précède et le `<` qui finit le champ sont écartés (trois publications). **Secours** : si `contenu_html` est absent ou blanc, ou si son texte compte moins de 90 % des lettres et des chiffres de la lecture de `contenu` (garde de 03 §7.4, comptée ici en lettres et chiffres ; le repli est alors compté dans les journaux), le texte vient du champ `contenu`, nettoyé en une seule passe : `&#13;` et le retour chariot sont retirés ; `&nbsp;`, l'espace insécable et la tabulation deviennent un espace ; `&lt;`, `&gt;` et `&amp;` sont décodés (`&amp;lt;` reste `&lt;`). Toute autre entité est laissée telle quelle. Un saut de ligne placé au milieu d'une phrase devient une espace (AM-95) : la ligne d'avant ne finit pas par `.`, `:`, `;`, `!` ou `?`, et la ligne d'après commence par une minuscule, sans être un repère de liste (« a. », « b) », « a° ») ; 5 543 publications de 2012 à 2020 sont servies ainsi par le portail. Mesure du 2026-11-15 sur les 9 173 publications : aucun repli. Le plus long texte fait 167 694 caractères (`BOI-ANNX-000050`) : le plafond dur de 45 000 caractères par réponse (§6.4) s'applique, comme aux autres lectures.
 
-**Sortie** (`BofipView`) : `id`, `publication_id`, `title`, `kind`, `serie?`, `division?`, `valid_from?`, `citation` (« BOFiP, {id}, {début de validité en toutes lettres} », par exemple `BOFiP, BOI-ENR-DMTG-10-50-20, 24 mai 2023` ; sans date : « BOFiP, {id} »), `source_url?` (même règle qu'au §5.14), puis les champs de lecture (§5.0.3), `publications?`, `attribution`, `doctrine_note`, `note?`.
+**Sortie** (`BofipView`) : `id`, `publication_id`, `title`, `kind`, `serie?`, `division?`, `valid_from?`, `citation` (« BOFiP, {id}, {début de validité en toutes lettres} », par exemple `BOFiP, BOI-ENR-DMTG-10-50-20, 24 mai 2023` ; sans date : « BOFiP, {id} »), `source_url?` (même règle qu'au §5.14), puis les champs de lecture (§5.0.3), `cited_articles?`, `cited_articles_truncated?`, `publications?`, `attribution`, `doctrine_note`, `note?`.
+
+**Articles cités** (ADR-0032, AM-99, Q37 = 1). Une publication lue porte `cited_articles` : les articles des codes du dictionnaire (annexe B) que le parseur de citations du domaine reconnaît dans son texte **entier**, et non dans la fenêtre rendue. La liste est donc la même quels que soient `detail`, `focus` et `offset`. Règles de la liste (fonction `cited_articles` de `lf_domain::doctrine`, parseur inchangé, options par défaut) :
+
+- forme canonique, celle de `fr_resolve` (`Code général des impôts, art. 1135 bis`) ;
+- chaque article une seule fois, dans l'ordre de sa première apparition ;
+- une plage par ses deux bornes ;
+- 50 articles au plus (le défaut de `max_citations` de `fr_verify_citations`, §5.9) ;
+- les 200 000 premiers caractères du texte au plus (`CITED_TEXT_MAX_CHARS`), coupés à la fin du dernier paragraphe entier qui y tient, pour ne jamais couper une citation ; la plus longue publication du jeu en compte 167 694 (note du 2026-11-16 d'ADR-0032).
+
+Les articles de lois et de décrets non codifiés n'y sont pas, ni un article sans code ou d'un code inconnu.
+
+`cited_articles_truncated: true` signale une liste incomplète : le texte cite plus de 50 articles, il dépasse 200 000 caractères, ou le parseur a atteint son garde-fou de 1 000 citations (un texte qui en porte exactement 1 000 compte comme coupé).
+
+La liste est omise quand elle est vide, pour une publication sans texte et dans la forme « liste ». Le drapeau n'est rendu que s'il vaut `true`.
+
+La `doctrine_note` de cet outil est celle du §5.14 suivie d'une phrase fixe :
+
+« A publication may be older than the law it explains: before relying on it, check the code articles it cites (cited_articles, the same on every page) once with fr_verify_citations, which gives the start date of each version in force; for an article whose version started after valid_from, fr_diff_article from valid_from shows what changed. »
+
+L'outil ne vérifie rien lui-même et n'envoie aucune requête de plus, ni au portail ni à PISTE. Mesure du 2026-11-16 sur les 9 173 publications :
+
+- au moins un article dans 79 % des pages de doctrine ;
+- liste complète pour 99,25 % d'entre elles ;
+- 65 ms de lecture des citations au plus ; sur un texte hostile, 2,1 s au pire mesuré grâce à la borne (sigles denses, « CE CE CE… »), 11,5 s sur 4 Mio sans elle ;
+- chaque liste, jointe par « ; » ou par des retours à la ligne, relue à l'identique par `fr_verify_citations`.
 
 **Erreurs** : `invalid_arg` ; `not_found` `No BOFiP publication found for {id}. Check the id, or search with fr_search_bofip.` ; `config_error`, `rate_limited`, `upstream_error`, `audit_error` comme au §5.14. Le portail répond `200` avec zéro résultat pour un identifiant inconnu : c'est l'adapter qui en fait un `not_found`. Chaque identifiant rendu par le portail est validé et doit être celui qui a été demandé, et deux publications ne peuvent pas porter le même numéro, sinon `upstream_error`. **Audit, cache** : caractères renvoyés, ou nombre de publications listées ; aucun cache : chaque fenêtre de lecture relit la publication entière sur le portail (181 Ko au plus).
 
