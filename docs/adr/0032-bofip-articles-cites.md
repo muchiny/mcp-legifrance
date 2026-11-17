@@ -1,8 +1,8 @@
 # ADR-0032 — BOFiP : la lecture d'une publication liste les articles de code qu'elle cite ; leur vérification reste à l'appelant
 
-- **Statut** : **Accepté** à la fusion de la PR qui le porte (choix du propriétaire du 2026-11-16, pris avant l'écriture de ce document).
+- **Statut** : **Accepté** (2026-11-16, fusion de la PR #94 ; choix du propriétaire du 2026-11-16, pris avant l'écriture de ce document). Précisé avec le code (PR #95, fusionnée le 2026-11-17 ; voir la note datée).
 - **Date** : 2026-11-16
-- **Jalons concernés** : MB (BOFiP), troisième correctif après la 1.3.0. Il ajoute deux champs de sortie facultatifs : une version mineure est proposée (décision 7), et le numéro reste décidé par le propriétaire à la PR de version.
+- **Jalons concernés** : MB (BOFiP), troisième correctif après la 1.3.0. Il ajoute deux champs de sortie facultatifs : version mineure, soit la 1.4.0 (numéro décidé par le propriétaire le 2026-11-17, qui retient le classement de la décision 7).
 - **Questions liées** : Q37 (comment dire qu'une publication peut être plus ancienne que la loi qu'elle commente) : **décidée par le propriétaire le 2026-11-16, option 1** (voir « Question tranchée »).
 - Amendements : AM-99 (00 §14). Complète la décision 6 d'[ADR-0028](0028-bofip-doctrine-fiscale.md) (ce que rend la lecture) sans la changer. Rien ne change dans [ADR-0029](0029-bofip-precisions-apres-mesure.md), [ADR-0030](0030-bofip-texte-lu-dans-le-html.md) ni [ADR-0031](0031-bofip-recherche-mots-exacts.md). Amende [00-decisions.md](../plan/00-decisions.md) §7.
 

@@ -15,7 +15,11 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Dernier des trois défauts relevés par le rejeu des 13 questions (09 §2.20) : une publication du BOFiP peut être plus ancienne que la loi qu'elle commente, et rien ne le signalait (ADR-0032, PR #94 et la PR de code).
+Rien depuis `1.4.0`.
+
+## [1.4.0] - 2026-11-17
+
+Dernier des trois défauts relevés par le rejeu des 13 questions (09 §2.20) : une publication du BOFiP peut être plus ancienne que la loi qu'elle commente, et rien ne le signalait (ADR-0032, PR #94 et #95). Version mineure, choisie par le propriétaire le 2026-11-17 : deux champs de sortie nouveaux, aucun outil ni paramètre nouveau.
 
 ### Added
 
@@ -529,7 +533,8 @@ Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0
 
 - Domaine seulement, visible par un client à partir de M4 : citation du Conseil constitutionnel sans « - objet » (P-035), plus de `eli_uri` (P-031, P-039), sentinelle de date omise (P-030).
 
-[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.2...HEAD
+[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.1.1...v1.3.0
