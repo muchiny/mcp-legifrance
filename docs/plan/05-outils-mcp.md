@@ -84,7 +84,7 @@ Source : documentation « Connect Claude Code to tools via MCP », lue le 2026-1
 | Avertissement de sortie | > 10 000 tokens | réponses par défaut entre 0,4 et 6 Ko de JSON (§6.5) |
 | Limite de sortie | 25 000 tokens (`MAX_MCP_OUTPUT_TOKENS`) | jamais atteinte avec le plafond dur du §6.4 |
 | Persistance sur disque | résultat texte > 50 000 caractères, sauf `_meta["anthropic/maxResultSizeChars"]` (plafond 500 000) | `max_chars` ≤ 40 000 (00 §7) et plafond dur de 45 000 caractères par réponse (§6.4) ; aucune clé `anthropic/*` émise |
-| `instructions` serveur | coupées à 4 096 caractères | ≤ 3 700 depuis la livraison des outils BOFiP (00 §6, ADR-0029, AM-93 ; 3 500 jusqu'à la 1.2.0), mesuré : 3 688 en v0.3 au jalon MB, 3 499 depuis la 1.1.0, 3 278 en 1.0.1 (§4) |
+| `instructions` serveur | coupées à 4 096 caractères | ≤ 3 700 depuis la livraison des outils BOFiP (00 §6, ADR-0029, AM-93 ; 3 500 jusqu'à la 1.2.0), ≤ 4 000 à la livraison des outils Service-Public (ADR-0033, AM-100 ; §4.2), mesuré : 3 688 en v0.3 au jalon MB, 3 499 depuis la 1.1.0, 3 278 en 1.0.1 (§4) |
 | Description d'un outil chargé d'emblée / via tool search | 4 096 / 16 384 caractères | 349 à 830 caractères (§5) |
 | Nom complet `mcp__<serveur>__<outil>` | 128 caractères | `fr_get_company_agreement` (24 caractères) laisse 97 caractères au nom du serveur |
 | Schéma d'entrée | pas de `anyOf`/`oneOf`/`allOf` à la racine ; propriétés de premier niveau sur 1 à 64 caractères `[A-Za-z0-9_.-]` ; schéma valide 2020-12, sinon l'outil est exclu | §2.5, vérifié par le verrou (§9.4) |
@@ -510,6 +510,13 @@ Comptage : `len()` Python sur le texte exact, sans saut de ligne final, refait l
 - la variante v0.3, seule servie, gagne une ligne à la fin de « Workflow » ; les variantes v0.1 et v0.2 restent identiques à l'octet ; aucune variante nouvelle ;
 - ligne livrée (sans adresse : seuls les liens vers `legifrance.gouv.fr` sont admis dans ce texte) : `` 5. Tax doctrine: `fr_search_bofip` then `fr_get_bofip` read BOFiP, the tax administration's published doctrine: its reading of tax law, not the law itself, and only what is in force today. `` ; la variante v0.3 mesure **3 688 caractères** (3 696 octets), soit 12 de marge sous 3 700 ; les variantes v0.1 (3 100) et v0.2 (3 301) n'ont pas bougé ;
 - la ligne `[rate_limited]` ne change pas : le message d'erreur de l'outil nomme la source qui a refusé.
+
+**Outils Service-Public (ADR-0033, AM-100 ; jalon MS, non livré).** La ligne qui cite les deux outils ne tient pas sous 3 700 (3 688 mesurés en 1.4.1). À la livraison :
+
+- le plafond passe à **4 000** caractères (Claude Code coupe à 4 096 : 96 caractères de marge), dans les trois mêmes constantes que pour le BOFiP ;
+- la variante v0.3 gagne une ligne à la fin de « Workflow » ; les variantes v0.1 et v0.2 restent identiques à l'octet ;
+- ligne proposée, 248 caractères, environ 3 937 au total (sans adresse ; « Legifrance » sans accent, comme ailleurs dans ce texte) : `` 6. Public guidance: `fr_search_service_public` then `fr_get_service_public` read the Service-Public practical sheets (DILA): plain-language administrative guidance, not the law; a sheet lists in `legal_references` the Legifrance texts it relies on. `` ;
+- texte figé par T-MS-30, mesure finale par `make instructions`.
 
 Tests : `instructions_fit_budget`, `instructions_cite_exactly_the_tools_of_their_surface` (8, 10 puis 15 outils cités), `cargo xtask instructions-size`.
 
@@ -1062,6 +1069,19 @@ Catalogue des lacunes (rédaction définitive demandée par 03 §4.8) :
 - **Tailles.** La réponse de la surface v0.1 est bornée par un test à 3 727 caractères : **3 711 mesurés à la livraison** (3 424 avant, source active : FR-009 reformulée et FR-106 ajoutée), soit 16 de marge ; la cible du §6.5 n'a pas eu à bouger. La métrique d'audit (nombre de lacunes : 11 en bac à sable, source active) et la ressource `legifrance://coverage` suivent.
 - **Tests** : `bofip_family_is_always_rendered` (vue : dernière famille à la v0.3, absente des surfaces v0.1 et v0.2), `the_bofip_gap_names_its_family` (vue), `bofip_gap_follows_the_source_state` et `bofip_gaps_never_change_status` (domaine) ; `every_registered_tool_is_in_a_family_or_general` couvre quinze outils ; `the_v01_sandbox_response_stays_near_its_target` garde la borne.
 
+**Service-Public (ADR-0033, AM-100 ; non livré, jalon MS).** À la livraison des outils Service-Public (§5.16, §5.17), la réponse de `fr_coverage` change, pas son descripteur :
+
+- **Famille.** `families` gagne `{"fond": "SERVICE_PUBLIC", "label": …, "tools": ["fr_search_service_public", "fr_get_service_public"]}` à la surface v0.3, source active ou coupée, par le même chemin à part que `BOFIP`. Le libellé dit la source et la licence (« Service-Public.gouv.fr / DILA — Licence Ouverte 2.0 »).
+- **`attribution` et `source` ne changent pas.** Les mentions de la DILA sont portées par chaque réponse des deux outils.
+- **Lacunes calculées nouvelles**, à la surface v0.3 seulement, sans effet sur `status`. Le domaine les calcule sans connaître la surface (`ConfigFacts`) ; la vue (`CoverageView::new`) écarte les lacunes de la famille `SERVICE_PUBLIC` hors de la v0.3. C'est un filtre nouveau : FR-106 du BOFiP figure dans la réponse v0.1, dont la borne de 3 727 caractères n'a que 16 de marge. Les réponses v0.1 et v0.2 restent donc identiques à l'octet (G1 bis de 07 §2.12) :
+
+| Id | Fond | `missing` | `fallback` | Présente |
+|---|---|---|---|---|
+| FR-108 | SERVICE_PUBLIC | Service-Public sheets are searched by their titles only and served as published today, for Particuliers and Entreprendre (not Associations). | Browse the folders (N... ids) with fr_get_service_public; for the rule at a given date, read the Légifrance texts listed in legal_references. | si la source Service-Public est active |
+| FR-109 | SERVICE_PUBLIC | The Service-Public source is turned off (LF_SERVICE_PUBLIC, or offline mode): fr_search_service_public and fr_get_service_public fail with config_error. | The operator can set LF_SERVICE_PUBLIC=on; sheet numbers are then sent to the DILA server, search words never are. | si la source est coupée (`LF_SERVICE_PUBLIC=off`, valeur invalide, ou `LF_DILA_DIR` défini sans `LF_SERVICE_PUBLIC=on`) |
+
+- **Tests** (à écrire) : domaine (T-MS-16) `service_public_gap_follows_the_source_state`, `service_public_gaps_never_change_status` ; vue (T-MS-32) `service_public_family_is_always_rendered_at_v03`, `service_public_gaps_only_at_v03` ; inchangés et verts : `the_v01_sandbox_response_stays_near_its_target` et le snapshot `coverage_v01_sandbox` ; `every_registered_tool_is_in_a_family_or_general` couvre dix-sept outils.
+
 **Exemple** (v0.1, sandbox, identifiants présents ; 3 389 caractères contre 1 343 pour la référence, qui ne déclarait que 3 familles et 2 lacunes ; 3 358 avant l'ajout de `attribution` et `consulted_on` en révision 2) : voir l'objet complet dans le snapshot `coverage_v01_sandbox` (06) ; extrait :
 
 ```json
@@ -1440,6 +1460,70 @@ L'outil ne vérifie rien lui-même et n'envoie aucune requête de plus, ni au po
 - chaque liste, jointe par « ; » ou par des retours à la ligne, relue à l'identique par `fr_verify_citations`.
 
 **Erreurs** : `invalid_arg` ; `not_found` `No BOFiP publication found for {id}. Check the id, or search with fr_search_bofip.` ; `config_error`, `rate_limited`, `upstream_error`, `audit_error` comme au §5.14. Le portail répond `200` avec zéro résultat pour un identifiant inconnu : c'est l'adapter qui en fait un `not_found`. Chaque identifiant rendu par le portail est validé et doit être celui qui a été demandé, et deux publications ne peuvent pas porter le même numéro, sinon `upstream_error`. **Audit, cache** : caractères renvoyés, ou nombre de publications listées ; aucun cache : chaque fenêtre de lecture relit la publication entière sur le portail (181 Ko au plus).
+
+### 5.16 `fr_search_service_public` (jalon MS, non livré : ADR-0033)
+
+**Objectif.** Trouver une fiche pratique de Service-Public.gouv.fr (DILA), l'information administrative rédigée pour le public, ou un dossier de thème qui en regroupe plusieurs. Ce n'est pas la loi ; seule la version du jour est servie.
+
+**Description** (projet ; texte figé au verrou par T-MS-35, sans adresse ; « for example » et non « e.g. », AM-63) :
+
+```text
+Search the practical sheets of Service-Public.gouv.fr, the French administration's plain-language guide to rights and procedures (DILA): what the rules mean for a given situation, not the law itself. The search runs on the titles of the sheets and of the theme folders, never on their text: use a few plain words, each of which must start a word of the title, accents and case aside. `audience` picks particuliers (default), entreprendre (businesses and the self-employed) or all. Returns ids (F... for a sheet, N... for a folder) to read with fr_get_service_public, never the text.
+```
+
+**Entrée** :
+
+| Nom | Type JSON | Requis | Défaut | Contraintes |
+|---|---|---|---|---|
+| `query` | string | oui | — | 1 à 450 caractères, comme `fr_search` ; mise en forme NFC, tout caractère qui n'est ni une lettre ni un chiffre devient un espace ; au moins un mot doit rester, sinon `invalid_arg` avant tout appel réseau |
+| `audience` | string, `enum ["particuliers","entreprendre","all"]` | non | `"particuliers"` | insensible à la casse |
+| `page_size` | integer | non | 10 | 1 à 50 |
+| `page` | integer | non | 1 | ≥ 1 |
+
+**Recherche** (locale, aucune requête ne porte un mot de `query`). Le catalogue d'un public joint les titres de `idxDateModifImp.xml` (fiches) et ceux de `menu.xml` (thèmes, sous-thèmes, dossiers). Il est téléchargé au premier besoin (deux requêtes par public), gardé en mémoire 24 h, une seule lecture à la fois par public. Correspondance : chaque mot de `query`, sans casse ni accents, doit commencer un mot du titre (« loyer » trouve « loyers », pas « déployer »). Ordre proposé, à confirmer par la mesure de T-MS-03 (V-229) : fiches d'abord, titre le plus court d'abord, puis dossiers et thèmes ; à égalité, numéro croissant. Avec `all`, un numéro présent dans les deux flux n'est rendu qu'une fois, sous `particuliers`.
+
+**Sortie** (`GuidanceSearchView`) : `total`, `page`, `has_more`, `hits`, `attribution` (constante : `Source : Service-Public.gouv.fr / DILA — Licence Ouverte 2.0`), `source_files` (pour chaque catalogue lu : `url`, `name`, `date`), `guidance_note` (constante : information administrative, pas la loi ; version du jour seulement ; recherche sur les titres), `note?` (aucun résultat : propose moins de mots, l'autre public, ou un dossier). Chaque hit : `id`, `audience`, `kind` (`sheet`, `folder`, `theme`), `title`, `updated?` (date de dernière modification importante, fiches seulement), `source_url?` (adresse publique, grammaire stricte du §5.17).
+
+**Erreurs** : `invalid_arg` (paramètres, requête vide après nettoyage) ; `config_error` (source coupée, 00 §1, texte fixe, sans E/S) ; `rate_limited` (refus 429, repos de la source, budget du jour épuisé ; jamais de nouvelle tentative) ; `upstream_error` (autre statut, délai, catalogue illisible ou trop grand) ; `audit_error`. Aucune erreur ne porte un mot de la recherche.
+
+### 5.17 `fr_get_service_public` (jalon MS, non livré : ADR-0033)
+
+**Objectif.** Lire une fiche pratique ou un dossier de Service-Public.gouv.fr par son numéro, avec le retour progressif des lectures longues (§5.0.2, §5.0.3), et donner les textes de Légifrance sur lesquels la fiche s'appuie.
+
+**Description** (projet ; texte figé au verrou par T-MS-35) :
+
+```text
+Read one Service-Public.gouv.fr practical sheet (F...) or folder (N...) by its id from fr_search_service_public, for its audience. A sheet returns its title, description, date, citation, source_url and legal_references: the Légifrance texts it relies on, with the ids that fr_get_text, fr_get_act, fr_get_convention or fr_get_decision read. A folder lists its sheets. This is administrative guidance written for the public, not the law, and only today's version is served: read the texts in legal_references before relying on a precise point.
+```
+
+**Entrée** : `id` (string, requis ; `F` ou `N` suivi de 1 à 7 chiffres, mis en majuscules ASCII avant le contrôle), `audience` (`particuliers` par défaut, ou `entreprendre`) et les paramètres communs (§5.0.2). Ordre de validation : `id`, `audience`, paramètres communs ; tout refus avant le réseau.
+
+**Requête amont.** `GET https://lecomarquage.service-public.gouv.fr/vdd/3.5/{part|pro}/xml/{id}.xml`, adresse bâtie à partir des valeurs typées ; `https` seul, aucune redirection suivie, corps plafonné à 2 Mio. Statuts : 200 lu ; 404 `not_found` ; 429 `rate_limited` ; autre `upstream_error`.
+
+**Comportement.**
+
+| Cas | Réponse |
+|---|---|
+| Fiche (`F…`) | lecture : `summary` (description puis titres des chapitres), `text` ou `passages` selon §5.0.3 |
+| Dossier ou thème (`N…`) | `entries` : `{id, kind, title}` de ses sous-dossiers et de ses fiches, sans texte |
+| Numéro absent du public demandé | `not_found`, le message nomme l'autre public |
+| Fichier au-delà de 2 Mio (un seul le 2026-11-23 : `F37096`, recherche guidée de 18 Mo) | `upstream_error`, le message donne l'adresse publique de la fiche |
+| Document qui déclare un `DOCTYPE` ou une entité, ou dépasse les bornes de profondeur ou d'éléments | `upstream_error`, sans contenu |
+
+**Texte.** Le domaine rend les blocs que l'adapter a lus : titres de chapitre et de sous-chapitre, paragraphes, listes, tableaux (une ligne par paragraphe, cellules séparées par « | »), situations et cas (chaque bloc précédé de son intitulé, par exemple « Cas : Vous êtes locataire »), encadrés « À savoir », « Attention », « À noter » annoncés comme tels. Un lien vers une autre fiche garde son numéro (« titre (F1234) »). Les éléments et attributs inconnus sont ignorés, leur texte gardé quand ils en ont (engagement de la DILA : des champs peuvent s'ajouter).
+
+**Sortie** (`GuidanceView`) : `id`, `audience`, `kind` (`sheet`, `folder`, `theme`), `sheet_type?` (fiche : type du flux, par exemple « Fiche d'information conditionnée »), `title`, `description?`, `theme?`, `updated?`, `citation` (« Service-Public.gouv.fr, {titre} ({id}), mise à jour du {date en toutes lettres} » ; sans date, sans la fin), `source_url?` (seulement `https://www.service-public.gouv.fr/particuliers/vosdroits/{id}` ou `https://entreprendre.service-public.gouv.fr/vosdroits/{id}` ; jamais appelée), `legal_references?`, `legal_references_truncated?`, `entries?` (dossier), puis les champs de lecture (§5.0.3), `attribution`, `source_file` (`url` complète du fichier lu, `name`, `date` : en-tête `Last-Modified`, à défaut la date portée par la fiche), `guidance_note`.
+
+**Références légales** (ADR-0033 décision 8, Q40 = A). Tirées des éléments `Reference` et de `dc:source` de la fiche, adresses de `https://www.legifrance.gouv.fr/` seulement. Grammaire stricte du chemin, écrite d'après les 118 formes relevées le 2026-11-23 : `/{fonds}/{vue}/{ID}` ou `/{fonds}/{vue}/{ID}/{ID}` (par exemple `/codes/section_lc/LEGITEXT…/LEGISCTA…`), barre finale, date `AAAA-MM-JJ` et ancre `#{ID}` facultatives ; toute requête (`?…`) écarte l'adresse. L'adresse rendue est reconstruite à partir des parties lues (date gardée, ancre retirée), jamais recopiée. La cible est le **dernier** identifiant du chemin :
+
+- `{id, title?, source_url}` quand un outil en place lit le numéro : `LEGIARTI` (`fr_get_text`), `LEGITEXT` (`fr_get_act`), `KALITEXT` (`fr_get_convention`), `JURITEXT`, `CETATEXT`, `CONSTEXT` (`fr_get_decision`) ;
+- `{title?, source_url}` sinon (`JORFTEXT`, `LEGISCTA`, `JORFARTI`…) : une référence à une section ne donne jamais le numéro du code entier ;
+- une seule fois chacune, dans l'ordre de première apparition, 50 au plus ; `legal_references_truncated: true` au-delà ;
+- toute autre adresse (arrêtés préfectoraux, documents hébergés ailleurs) est omise, jamais rendue.
+
+L'outil n'envoie aucune requête vers Légifrance : l'appelant lit les textes avec les outils en place.
+
+**Erreurs** : `invalid_arg` ; `not_found` `No Service-Public sheet or folder {id} for {audience}. Try audience {other}, or search with fr_search_service_public.` ; `config_error`, `rate_limited`, `upstream_error`, `audit_error` comme au §5.16.
 
 ---
 
