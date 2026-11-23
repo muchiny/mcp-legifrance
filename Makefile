@@ -70,8 +70,12 @@ deny:
 # Avis RustSec sur fuzz/Cargo.lock (M1-D16), hors `make ci` : réseau (base d'avis). Le binaire
 # `cargo-audit audit` et non `cargo audit` : la sous-commande passe par rustup et téléchargerait la
 # chaîne épinglée par rust-toolchain.toml. Hors ligne : ajouter `--no-fetch`.
+# cargo-audit ne lit pas deny.toml : chaque exception de `[advisories] ignore` qui touche
+# fuzz/Cargo.lock est reprise ici, avec la même date de revue.
+# RUSTSEC-2026-0543 (chrono sans mainteneur, tiré par lf-application) : revue avant 2027-02-28.
+AUDIT_FUZZ_IGNORE := --ignore RUSTSEC-2026-0543
 audit-fuzz:
-	cargo-audit audit --deny warnings --file fuzz/Cargo.lock
+	cargo-audit audit --deny warnings $(AUDIT_FUZZ_IGNORE) --file fuzz/Cargo.lock
 
 # Âge minimal des paquets du registre ajoutés ou montés dans Cargo.lock depuis $(MIN_AGE_BASE)
 # (réseau : index sparse de crates.io). Étape `min-age` du job deny de la CI, sur PR seulement.
