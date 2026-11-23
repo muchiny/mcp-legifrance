@@ -27,10 +27,10 @@
   - **2 694 fiches sur 2 997 citent Légifrance** (`dc:source` et éléments `Reference`). Formes d'adresse relevées : `codes/section_lc/LEGITEXT…` (7 741), `codes/id/LEGISCTA…` (7 123), `codes/article_lc/LEGIARTI…` (5 410), `loda/id/JORFTEXT…` (4 553), `loda/article_lc/LEGIARTI…` (1 728), `jorf/id/JORFTEXT…` (1 603), puis `KALITEXT`, `JURITEXT` et d'autres plus rares ;
   - le catalogue donne, pour chaque fiche, son numéro, son type, sa date de dernière modification importante et son titre ; le menu donne l'arbre thème, sous-thème, dossier.
 - **Les deux publics.** Entreprendre compte 775 fiches. 106 numéros existent dans les deux flux : même titre et même texte pour les 106, seuls changent l'adresse publique (`www.service-public.gouv.fr/particuliers/…` ou `entreprendre.service-public.gouv.fr/…`) et la place dans le menu.
-- **Les conditions de la licence**, écrites sur la page du jeu. Le réutilisateur doit mentionner :
-  - la paternité, « Service-Public.gouv.fr / DILA » ;
-  - l'adresse complète de téléchargement ;
-  - le nom du fichier ;
+- **Les conditions de la licence**, écrites sur la page de chaque jeu et dans sa fiche de présentation par la DILA (mise à jour du 1er octobre 2025, lue le 2026-11-23). Le réutilisateur doit mentionner :
+  - la paternité, **propre à chaque public** : « Service-Public.gouv.fr/DILA » pour Particuliers, « Entreprendre.Service-Public.gouv.fr/DILA » pour Entreprendre ;
+  - l'adresse complète de téléchargement (« l'url d'accès longue ») ;
+  - le nom du fichier téléchargé ;
   - sa date.
 
   Il doit aussi tenir compte des mises à jour que la DILA annonce dans le forum de discussion du jeu.
@@ -104,7 +104,7 @@
 
    Le sens inverse, de l'article vers ses fiches par la route PISTE `servicePublicLinksArticle`, n'est pas branché.
 9. **Les mentions de la licence et la nature du texte, à chaque réponse.**
-   - L'attribution est une constante : « Service-Public.gouv.fr / DILA — Licence Ouverte 2.0 ».
+   - L'attribution suit le public lu : « Source : Service-Public.gouv.fr / DILA — Licence Ouverte 2.0 » pour Particuliers, « Source : Entreprendre.Service-Public.gouv.fr / DILA — Licence Ouverte 2.0 » pour Entreprendre ; une recherche sur les deux publics porte les deux, dans cet ordre, séparées par « ; ».
    - Une lecture donne en plus :
      - l'adresse complète du fichier lu ;
      - son nom ;
