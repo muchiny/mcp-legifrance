@@ -91,7 +91,7 @@
      - un numéro absent du public demandé rend `not_found`, et le message nomme l'autre public.
    - `fr_search_all` reste sur les fonds de Légifrance.
 8. **De la fiche vers la loi seulement** (Q40 = A). Une fiche lue porte `legal_references` : ses références vers Légifrance, tirées des éléments `Reference` et de `dc:source`. Règles :
-   - seules les adresses de `www.legifrance.gouv.fr` dont le chemin suit une grammaire stricte sont retenues : fonds, vue, un ou deux identifiants, date et ancre facultatives (118 formes relevées le 2026-11-23, dont `codes/section_lc/LEGITEXT…/LEGISCTA…`) ; l'adresse rendue est reconstruite à partir des parties lues, jamais recopiée. Les autres (arrêtés préfectoraux, documents hébergés ailleurs, `download/pdf?…`) ne sont jamais rendues ;
+   - seules les adresses de `www.legifrance.gouv.fr` dont le chemin suit une grammaire stricte sont retenues : fonds, vue, un ou deux identifiants, date et ancre facultatives (118 formes relevées le 2026-11-23, dont `codes/section_lc/LEGITEXT…/LEGISCTA…`) ; une requête (`?idSecParent=…`, présente sur plus d'une centaine de liens vers des articles) est ignorée ; l'adresse rendue est reconstruite à partir des parties lues, jamais recopiée. `dc:source` est une liste d'adresses séparées par des virgules. Les autres (arrêtés préfectoraux, documents hébergés ailleurs, `download/pdf?id=…`, `circulaire/id/…`) ne sont jamais rendues ;
    - la cible est le **dernier** identifiant du chemin : une référence à une section (`LEGISCTA`) ne donne pas le numéro du code entier ;
    - le numéro est donné quand un outil en place sait le lire :
      - `LEGIARTI` pour `fr_get_text` ;
