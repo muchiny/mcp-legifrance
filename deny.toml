@@ -5,7 +5,18 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
-ignore = []
+# Chaque exception porte sa raison et sa date de revue (relevé du 2026-11-23, PR à part).
+ignore = [
+  # revue avant 2026-12-04 : url 2.5.9 corrige la faille, publiée le 2026-11-20 ; elle passe la règle
+  # des 14 jours (`make min-age`) le 2026-12-04, puis `cargo update -p url --precise 2.5.9` et retrait
+  # de cette exception.
+  { id = "RUSTSEC-2026-0592", reason = "Url::origin() n'est appelée ni par le projet, ni par reqwest 0.13.5, ni par tower-http 0.6.11, seuls dépendants de url (relevé du 2026-11-23) ; url 2.5.9 prise le 2026-12-04, règle des 14 jours" },
+  # revue avant 2027-02-28 : chrono sans mainteneur, aucune version corrigée ; rmcp 3.9.0 et
+  # schemars 1.2.3 en dépendent eux-mêmes, le projet ne peut pas s'en passer seul.
+  { id = "RUSTSEC-2026-0543", reason = "chrono sans mainteneur, pas une faille ; rmcp et schemars en dépendent ; remplaçant (jiff ou time) à réexaminer avant le 2027-02-28" },
+  # revue avant 2027-02-28 : chrono-tz suit chrono (fuseau Europe/Paris de lf-adapter-piste et lf-app).
+  { id = "RUSTSEC-2026-0555", reason = "chrono-tz sans mainteneur, pas une faille ; suit chrono ; à réexaminer avant le 2027-02-28" },
+]
 
 [licenses]
 version = 2
