@@ -15,7 +15,10 @@
 //! - **un XML lu sans risque** : `DOCTYPE` et entités inconnues refusés, profondeur et nombre
 //!   d'éléments bornés, aucune erreur ne cite le texte lu (`xml`) ;
 //! - **une page traduite sans perte silencieuse** : numéro de la page recoupé avec celui demandé,
-//!   éléments inconnus traversés et leur texte gardé, références de Légifrance seules (`page`).
+//!   éléments inconnus traversés et leur texte gardé, références de Légifrance seules (`page`) ;
+//! - **une archive par public en mémoire** : un téléchargement à la fois, partagé ; attente bornée
+//!   par l'échéance de l'appel ; revalidée au bout de 24 h, servie 48 h de plus après un échec ;
+//!   index construit hors du fil de l'appel et servi entier (`store`).
 
 #[cfg_attr(
     not(test),
@@ -32,6 +35,11 @@ mod client;
     expect(dead_code, reason = "traduction lue par la source Service-Public (T-MS-25)")
 )]
 mod page;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "magasin lu par la source Service-Public (T-MS-25)")
+)]
+mod store;
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "lecteur XML lu par la source Service-Public (T-MS-25)")

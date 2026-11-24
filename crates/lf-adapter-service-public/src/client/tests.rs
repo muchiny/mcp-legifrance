@@ -24,14 +24,8 @@ const ORIGIN: &str = "https://lecomarquage.service-public.gouv.fr";
 const REAL_ETAG: &str = "\"6b059e81-1734757\"";
 const REAL_LAST_MODIFIED: &str = "Tue, 24 Nov 2026 14:26:09 GMT";
 
-/// Client de test : les adresses de production, dont l'origine est remplacée par `base`.
 fn local(base: &str, timeout: Duration, limit: u64) -> ArchiveClient {
-    ArchiveClient::with(
-        build_client(AGENT, timeout, true).unwrap(),
-        archive_url(Audience::Particuliers).replacen(ORIGIN, base, 1),
-        archive_url(Audience::Entreprendre).replacen(ORIGIN, base, 1),
-        limit,
-    )
+    ArchiveClient::local(base, timeout, limit).unwrap()
 }
 
 fn client(server: &MockServer) -> ArchiveClient {
@@ -212,7 +206,7 @@ fn a_download_is_printed_without_its_body() {
 
 #[tokio::test]
 async fn a_body_over_the_cap_is_refused() {
-    let over = upstream_error(Some(200), false, "archive over 1000 bytes");
+    let over = GuidanceError::TooLarge { detail: "archive over 1000 bytes".to_owned() };
     // Annoncé par `Content-Length` : refusé avant lecture.
     let template = ResponseTemplate::new(200).set_body_bytes(vec![b'a'; 1_001]);
     let reply = client(&server(template).await).fetch(Audience::Particuliers, None).await;

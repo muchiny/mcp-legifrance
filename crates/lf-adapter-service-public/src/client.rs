@@ -118,6 +118,21 @@ impl ArchiveClient {
         Self { http, particuliers, entreprendre, limit, rest: Rest::default() }
     }
 
+    /// Client d'un serveur de test : les adresses de production, dont l'origine est remplacée par
+    /// `base` (`http://127.0.0.1:…`), en clair.
+    #[cfg(test)]
+    pub(crate) fn local(base: &str, timeout: Duration, limit: u64) -> Result<Self, GuidanceError> {
+        let origin = "https://lecomarquage.service-public.gouv.fr";
+        build_client("mcp-legifrance-tests/0", timeout, true).map(|http| {
+            Self::with(
+                http,
+                archive_url(Audience::Particuliers).replacen(origin, base, 1),
+                archive_url(Audience::Entreprendre).replacen(origin, base, 1),
+                limit,
+            )
+        })
+    }
+
     fn url(&self, audience: Audience) -> &str {
         match audience {
             Audience::Particuliers => &self.particuliers,
@@ -131,9 +146,9 @@ impl ArchiveClient {
     /// # Errors
     ///
     /// [`GuidanceError::RateLimited`] (429, ou repos en cours ; `retry_after` dit le repos qui
-    /// reste) ; [`GuidanceError::Timeout`] ; [`GuidanceError::Upstream`] pour une panne réseau
-    /// (sans statut), un statut refusé, un `304` sans requête conditionnelle ou une archive
-    /// au-delà de [`ARCHIVE_MAX_BYTES`]. Aucune ne porte l'adresse.
+    /// reste) ; [`GuidanceError::Timeout`] ; [`GuidanceError::TooLarge`] pour une archive au-delà
+    /// de la borne ; [`GuidanceError::Upstream`] pour une panne réseau (sans statut), un statut
+    /// refusé ou un `304` sans requête conditionnelle. Aucune ne porte l'adresse.
     pub(crate) async fn fetch(
         &self,
         audience: Audience,
@@ -244,7 +259,7 @@ fn http_date(value: &HeaderValue) -> Option<DateTime<Utc>> {
 
 /// Erreur « archive trop grosse », au libellé de la borne.
 fn too_large(limit: u64) -> GuidanceError {
-    upstream(Some(200), false, &format!("archive over {limit} bytes"))
+    GuidanceError::TooLarge { detail: format!("archive over {limit} bytes") }
 }
 
 /// Erreur amont au libellé fixe.

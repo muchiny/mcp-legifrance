@@ -28,13 +28,17 @@ thiserror.workspace = true
 # fonctions que le client du BOFiP, sans gzip (l'archive est déjà compressée) : system-proxy,
 # HTTPS_PROXY / NO_PROXY ; rustls, TLS (aucun paquet de plus au verrou)
 reqwest = { workspace = true, features = ["system-proxy", "rustls"] }
+# store.rs : rt, tâche du téléchargement et `spawn_blocking` de l'index ; sync, signal de fin
+# partagé (`watch`) ; time, attente bornée et âge de l'archive (`Instant`, suspendu en test)
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
 
 [dev-dependencies]
 # test de propriété du lecteur d'archive (octets quelconques)
 proptest.workspace = true
 pretty_assertions.workspace = true
-# client.rs : #[tokio::test], serveurs bruts d'une connexion
-tokio = { workspace = true, features = ["macros", "net", "rt", "io-util"] }
+# #[tokio::test] ; net, io-util : serveurs bruts d'une connexion (client.rs) ; test-util :
+# temps suspendu des tests du magasin (store.rs)
+tokio = { workspace = true, features = ["macros", "net", "rt", "io-util", "test-util"] }
 # client.rs : faux serveur de la DILA
 wiremock.workspace = true
 

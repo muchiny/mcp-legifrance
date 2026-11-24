@@ -430,4 +430,4 @@ fn to_usize(value: u32) -> usize {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -44,6 +44,16 @@ mod end {
     pub(super) const COMMENT_LEN: usize = 20;
 }
 
+/// Octets d'une archive des entrées `(nom, contenu)`, compressées : pour les tests des autres
+/// modules.
+pub(crate) fn zip_of(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let entries: Vec<(&[u8], &[u8], Method)> = entries
+        .iter()
+        .map(|(name, content)| (name.as_bytes(), *content, Method::Deflated))
+        .collect();
+    Zip::build(&entries).bytes
+}
+
 /// Une archive écrite ici, et où sont ses enregistrements.
 struct Zip {
     bytes: Vec<u8>,
