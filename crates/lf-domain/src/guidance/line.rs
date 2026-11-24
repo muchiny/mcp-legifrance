@@ -10,8 +10,15 @@ use crate::text::{flatten_whitespace, strip_invisible};
 pub const LINE_MAX_CHARS: usize = 1_000;
 
 /// `raw` sans caractère invisible, blancs repliés en une espace et bords retirés,
-/// [`LINE_MAX_CHARS`] caractères au plus (`…` ensuite).
-pub(crate) fn clean_line(raw: &str) -> String {
+/// [`LINE_MAX_CHARS`] caractères au plus (`…` ensuite) : la forme de tout champ court d'une page
+/// (titre, résumé, intitulé), que l'adapter écrit avec cette règle.
+///
+/// ```
+/// use lf_domain::guidance::clean_line;
+///
+/// assert_eq!(clean_line(" Solde\u{200b} bancaire\n insaisissable "), "Solde bancaire insaisissable");
+/// ```
+pub fn clean_line(raw: &str) -> String {
     let (visible, _) = strip_invisible(raw);
     let flat = flatten_whitespace(&visible);
     let mut chars = flat.chars();

@@ -12,7 +12,13 @@ publish.workspace = true
 # lecteur d'archive (archive.rs) : `read::DeflateDecoder` pour les entrées `deflate`, `Crc` pour
 # la somme CRC-32 ; porte ouverte à ce crate (ADR-0033, décision 2), backend Rust pur
 flate2.workspace = true
-# erreurs du lecteur d'archive, sans octet lu
+# valeurs du domaine (page.rs) : SheetId, Block, GuidanceDoc, IndexedPage, GuidanceMenu,
+# legal_references, ServicePublicUrl
+lf-domain.workspace = true
+# lecteur XML (xml.rs) : `Reader` et ses événements, sans `serde` ; porte ouverte à ce crate
+# (ADR-0033, décision 2)
+quick-xml.workspace = true
+# erreurs du lecteur d'archive et du lecteur XML, sans octet lu
 thiserror.workspace = true
 
 [dev-dependencies]

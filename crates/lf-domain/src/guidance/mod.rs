@@ -32,7 +32,7 @@ pub use index::{
     GuidanceHit, GuidanceIndex, GuidancePage, GuidanceQuery, IndexedPage, STOP_WORDS, TITLE_WEIGHT,
     search,
 };
-pub use line::LINE_MAX_CHARS;
+pub use line::{LINE_MAX_CHARS, clean_line};
 pub use menu::{GuidanceMenu, MENU_DEPTH_MAX, MENU_ENTRIES_MAX, MENU_TITLE_MAX_CHARS, MenuEntry};
 pub use references::{
     LEGAL_REFERENCES_MAX, LegalReference, LegalReferences, legal_references, source_urls,

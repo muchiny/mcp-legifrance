@@ -1693,8 +1693,10 @@ name = "lf-adapter-service-public"
 version = "1.4.1"
 dependencies = [
  "flate2",
+ "lf-domain",
  "pretty_assertions",
  "proptest",
+ "quick-xml",
  "thiserror",
 ]
 
