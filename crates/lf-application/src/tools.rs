@@ -45,6 +45,12 @@ impl ToolName {
     pub const FR_SEARCH_BOFIP: Self = Self("fr_search_bofip");
     /// `fr_get_bofip` (MB) : la lecture d'une publication de la doctrine fiscale.
     pub const FR_GET_BOFIP: Self = Self("fr_get_bofip");
+    /// `fr_search_service_public` (MS) : la recherche dans les fiches de Service-Public. Hors de
+    /// [`ALL`](Self::ALL) tant que l'outil n'est pas servi (T-MS-30).
+    pub const FR_SEARCH_SERVICE_PUBLIC: Self = Self("fr_search_service_public");
+    /// `fr_get_service_public` (MS) : la lecture d'une fiche ou d'un dossier de Service-Public.
+    /// Hors de [`ALL`](Self::ALL) tant que l'outil n'est pas servi (T-MS-30).
+    pub const FR_GET_SERVICE_PUBLIC: Self = Self("fr_get_service_public");
 
     /// Lecture de la resource `legifrance://article/{article_id}` (M7), nom d'audit
     /// `resource:article`.

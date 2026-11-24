@@ -7,12 +7,15 @@
 //! [`messages::corpus_error`], qui reste pur. Le module n'est pas pur (il émet un événement
 //! `tracing`), d'où sa place hors de `messages`.
 //!
-//! [`doctrine_failure`] fait de même pour une [`DoctrineError`] du port de doctrine (BOFiP).
+//! [`doctrine_failure`] fait de même pour une [`DoctrineError`] du port de doctrine (BOFiP), et
+//! [`guidance_failure`] pour une [`GuidanceError`] du port de Service-Public.
+
+use lf_domain::guidance::{Audience, SheetId};
 
 use crate::{
     error::AppError,
     messages,
-    ports::{CorpusError, DoctrineError, PortalCode},
+    ports::{CorpusError, DoctrineError, GuidanceError, PortalCode},
     tools::ToolName,
 };
 
@@ -86,6 +89,50 @@ fn doctrine_variant_and_detail(error: &DoctrineError) -> (&'static str, Option<&
         DoctrineError::Timeout => ("Timeout", None),
         DoctrineError::Decode { detail } => ("Decode", Some(detail)),
         DoctrineError::TooLarge { detail } => ("TooLarge", Some(detail)),
+    }
+}
+
+/// Traduit l'erreur du port de Service-Public en `AppError` pour `tool`, après l'avoir
+/// journalisée.
+///
+/// L'événement `guidance call failed` porte l'outil, le nom de la variante et le `detail` fixe
+/// de l'adapter ; jamais un mot de la recherche, ni le numéro ou l'adresse de la page demandée,
+/// valeurs d'arguments (02 §11.3). Niveau `info` pour une page absente, une source coupée et une
+/// archive en cours de téléchargement, issues attendues ; `warn` sinon. `missing` est la page
+/// demandée par une lecture, que le message `not_found` cite.
+#[must_use]
+pub fn guidance_failure(
+    tool: ToolName,
+    missing: Option<(&SheetId, Audience)>,
+    error: &GuidanceError,
+) -> AppError {
+    let (variant, detail) = guidance_variant_and_detail(error);
+    let tool_name = tool.as_str();
+    if matches!(
+        error,
+        GuidanceError::NotFound | GuidanceError::Disabled | GuidanceError::Downloading
+    ) {
+        tracing::info!(tool = tool_name, variant, detail, "guidance call failed");
+    } else {
+        tracing::warn!(tool = tool_name, variant, detail, "guidance call failed");
+    }
+    messages::guidance_error(missing, error)
+}
+
+/// Nom de la variante et texte de journal de l'erreur du port de Service-Public. Le `match` est
+/// exhaustif : une variante ajoutée au port devra dire ce qu'elle journalise.
+fn guidance_variant_and_detail(error: &GuidanceError) -> (&'static str, Option<&str>) {
+    match error {
+        GuidanceError::Disabled => ("Disabled", None),
+        GuidanceError::NotFound => ("NotFound", None),
+        GuidanceError::RateLimited { retry_after: _ } => ("RateLimited", None),
+        GuidanceError::Downloading => ("Downloading", None),
+        // L'adresse nomme la page demandée : un argument, jamais journalisé.
+        GuidanceError::EntryTooLarge { source_url: _ } => ("EntryTooLarge", None),
+        GuidanceError::Upstream { status: _, retryable: _, detail } => ("Upstream", Some(detail)),
+        GuidanceError::Timeout => ("Timeout", None),
+        GuidanceError::Decode { detail } => ("Decode", Some(detail)),
+        GuidanceError::TooLarge { detail } => ("TooLarge", Some(detail)),
     }
 }
 
@@ -299,6 +346,86 @@ mod tests {
         assert_eq!(
             capture.event_fields(),
             vec![(Level::WARN, doctrine_fields("fr_search_bofip", "Timeout", None))]
+        );
+    }
+
+    /// Champs attendus de l'événement d'échec du port de Service-Public.
+    fn guidance_fields(
+        tool: &str,
+        variant: &str,
+        detail: Option<&str>,
+    ) -> BTreeMap<&'static str, String> {
+        let mut fields = fields(tool, variant, detail);
+        fields.insert("message", "guidance call failed".to_owned());
+        fields
+    }
+
+    /// Les neuf variantes du port de Service-Public, avec le niveau, le nom et le détail attendus.
+    fn guidance_rows() -> Vec<(GuidanceError, Level, &'static str, Option<&'static str>)> {
+        let id = SheetId::parse("F1437").unwrap();
+        let url = lf_domain::guidance::ServicePublicUrl::read(None, Audience::Particuliers, &id);
+        vec![
+            (GuidanceError::Disabled, Level::INFO, "Disabled", None),
+            (GuidanceError::NotFound, Level::INFO, "NotFound", None),
+            (GuidanceError::Downloading, Level::INFO, "Downloading", None),
+            (
+                GuidanceError::RateLimited { retry_after: Some(Duration::from_secs(60)) },
+                Level::WARN,
+                "RateLimited",
+                None,
+            ),
+            (GuidanceError::EntryTooLarge { source_url: url }, Level::WARN, "EntryTooLarge", None),
+            (
+                GuidanceError::Upstream {
+                    status: Some(502),
+                    retryable: true,
+                    detail: "archive download: HTTP 502".to_owned(),
+                },
+                Level::WARN,
+                "Upstream",
+                Some("archive download: HTTP 502"),
+            ),
+            (GuidanceError::Timeout, Level::WARN, "Timeout", None),
+            (
+                GuidanceError::Decode { detail: "zip: data descriptor".to_owned() },
+                Level::WARN,
+                "Decode",
+                Some("zip: data descriptor"),
+            ),
+            (
+                GuidanceError::TooLarge { detail: "archive over 64 MiB".to_owned() },
+                Level::WARN,
+                "TooLarge",
+                Some("archive over 64 MiB"),
+            ),
+        ]
+    }
+
+    #[test]
+    fn guidance_failure_logs_the_detail_then_returns_the_model_message() {
+        let id = SheetId::parse("F1437").unwrap();
+        let missing = Some((&id, Audience::Particuliers));
+        for (error, level, variant, detail) in guidance_rows() {
+            let (capture, _guard) = Capture::install();
+            let got = guidance_failure(ToolName::FR_GET_SERVICE_PUBLIC, missing, &error);
+            assert_eq!(got, messages::guidance_error(missing, &error));
+            assert_eq!(
+                capture.event_fields(),
+                vec![(level, guidance_fields("fr_get_service_public", variant, detail))],
+                "{variant}"
+            );
+            // Le numéro demandé (argument du modèle) n'est jamais journalisé, même dans l'adresse.
+            assert!(!capture.all_values().iter().any(|v| v.contains("1437")), "{variant}");
+        }
+    }
+
+    #[test]
+    fn guidance_failure_names_the_tool_it_was_called_for() {
+        let (capture, _guard) = Capture::install();
+        let _ = guidance_failure(ToolName::FR_SEARCH_SERVICE_PUBLIC, None, &GuidanceError::Timeout);
+        assert_eq!(
+            capture.event_fields(),
+            vec![(Level::WARN, guidance_fields("fr_search_service_public", "Timeout", None))]
         );
     }
 }

@@ -2,7 +2,8 @@
 //!
 //! [`FakeCorpus`] rejoue des réponses programmées et note chaque appel avec ses arguments
 //! ([`PortRequest`]), [`FakeDoctrine`] fait de même pour le port de doctrine
-//! ([`DoctrineRequest`]), [`FixedClock`] fige l'heure, [`MemoryAuditLog`] garde les lignes écrites
+//! ([`DoctrineRequest`]) et [`FakeGuidance`] pour celui de Service-Public ([`GuidanceRequest`]),
+//! [`FixedClock`] fige l'heure, [`MemoryAuditLog`] garde les lignes écrites
 //! et [`FailingAuditLog`] échoue toujours. Les doublures servent aux tests de ce crate (`cfg(test)`)
 //! et, par la feature, aux dev-dependencies des autres membres : `cargo xtask check-arch` (R10)
 //! interdit de l'activer en dépendance normale, aucun binaire ne les embarque.
@@ -30,6 +31,7 @@ use lf_domain::{
         Act, ArticleText, ArticleVersion, CodeListing, CompanyAgreement, Convention, Decision,
         Deliberation, RelatedLinks, SearchHit, SearchPage,
     },
+    guidance::{Audience, GuidanceDoc, GuidancePage, GuidanceQuery, SheetId},
     id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId},
     search::{NumberQuery, SearchQuery},
 };
@@ -38,7 +40,7 @@ use crate::{
     deadline::Deadline,
     ports::{
         ArticleAt, AuditError, AuditErrorKind, AuditLog, AuditRecord, Clock, ConfigKind,
-        CorpusError, DoctrineError, LegalCorpus, TaxDoctrine,
+        CorpusError, DoctrineError, GuidanceError, LegalCorpus, PublicGuidance, TaxDoctrine,
     },
 };
 
@@ -451,6 +453,94 @@ impl TaxDoctrine for FakeDoctrine {
         id: &BoiId,
     ) -> impl Future<Output = Result<Vec<DoctrineDoc>, DoctrineError>> + Send {
         ready(self.serve(DoctrineRequest::Get(id.clone()), &self.get, "get"))
+    }
+}
+
+/// Un appel reçu par [`FakeGuidance`] : la méthode du port et une copie de ses arguments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GuidanceRequest {
+    /// `search(query)`.
+    Search(GuidanceQuery),
+    /// `get(audience, id)`.
+    Get(Audience, SheetId),
+}
+
+/// File de réponses d'une méthode du port de Service-Public.
+type GuidanceResponses<T> = Mutex<VecDeque<Result<T, GuidanceError>>>;
+
+/// Fausse source de Service-Public : une file de réponses par méthode du port, rejouées dans
+/// l'ordre, comme [`FakeDoctrine`].
+///
+/// Une file vide rend un `Decode` qui nomme la méthode. Chaque appel est noté avec ses arguments
+/// ([`FakeGuidance::seen_requests`]).
+#[derive(Default)]
+pub struct FakeGuidance {
+    search: GuidanceResponses<GuidancePage>,
+    get: GuidanceResponses<GuidanceDoc>,
+    /// Chaque appel reçu, dans l'ordre des appels.
+    requests: Mutex<Vec<GuidanceRequest>>,
+}
+
+impl FakeGuidance {
+    /// Fausse source sans réponse programmée.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Programme la prochaine réponse de `search`.
+    pub fn push_search(&self, response: Result<GuidancePage, GuidanceError>) {
+        lock(&self.search).push_back(response);
+    }
+
+    /// Programme la prochaine réponse de `get`.
+    pub fn push_get(&self, response: Result<GuidanceDoc, GuidanceError>) {
+        lock(&self.get).push_back(response);
+    }
+
+    /// Nombre total d'appels reçus, toutes méthodes confondues.
+    #[must_use]
+    pub fn calls(&self) -> usize {
+        lock(&self.requests).len()
+    }
+
+    /// Chaque appel reçu, avec une copie de ses arguments, dans l'ordre des appels.
+    #[must_use]
+    pub fn seen_requests(&self) -> Vec<GuidanceRequest> {
+        lock(&self.requests).clone()
+    }
+
+    /// Note l'appel, puis rend la réponse suivante de la file, ou un `Decode` qui nomme `method`.
+    fn serve<T>(
+        &self,
+        request: GuidanceRequest,
+        responses: &GuidanceResponses<T>,
+        method: &str,
+    ) -> Result<T, GuidanceError> {
+        lock(&self.requests).push(request);
+        lock(responses).pop_front().unwrap_or_else(|| {
+            Err(GuidanceError::Decode {
+                detail: format!("FakeGuidance: no response programmed for {method}"),
+            })
+        })
+    }
+}
+
+/// La fausse source n'attend rien : chaque méthode rend un futur déjà prêt.
+impl PublicGuidance for FakeGuidance {
+    fn search(
+        &self,
+        query: &GuidanceQuery,
+    ) -> impl Future<Output = Result<GuidancePage, GuidanceError>> + Send {
+        ready(self.serve(GuidanceRequest::Search(query.clone()), &self.search, "search"))
+    }
+
+    fn get(
+        &self,
+        audience: Audience,
+        id: &SheetId,
+    ) -> impl Future<Output = Result<GuidanceDoc, GuidanceError>> + Send {
+        ready(self.serve(GuidanceRequest::Get(audience, id.clone()), &self.get, "get"))
     }
 }
 
@@ -1255,5 +1345,70 @@ mod tests {
         assert_eq!(doctrine.get(&bofip::id()).await, Err(empty("get")));
         // Un appel qui trouve une file vide est quand même noté.
         assert_eq!(doctrine.calls(), 2);
+    }
+
+    /// Requête et page lue de Service-Public, pour les tests de [`FakeGuidance`].
+    fn guidance_query() -> GuidanceQuery {
+        GuidanceQuery {
+            terms: lf_domain::guidance::GuidanceTerms::parse("solde bancaire").unwrap(),
+            audience: lf_domain::guidance::AudienceFilter::All,
+            page: std::num::NonZeroU32::MIN,
+            page_size: lf_domain::search::PageSize::DEFAULT,
+        }
+    }
+
+    fn guidance_folder(id: &SheetId) -> GuidanceDoc {
+        use lf_domain::guidance::{GuidanceContent, ServicePublicUrl};
+        GuidanceDoc {
+            source_url: ServicePublicUrl::read(None, Audience::Particuliers, id),
+            id: id.clone(),
+            audience: Audience::Particuliers,
+            sheet_type: Some("Dossier".to_owned()),
+            title: "Opérations bancaires".to_owned(),
+            description: None,
+            theme: None,
+            updated: None,
+            content: GuidanceContent::Folder(Vec::new()),
+        }
+    }
+
+    #[tokio::test]
+    async fn fake_guidance_serves_each_method_from_its_own_queue_and_records_the_calls() {
+        let guidance = FakeGuidance::new();
+        assert_eq!((guidance.calls(), guidance.seen_requests()), (0, Vec::new()));
+        let id = SheetId::parse("N31675").unwrap();
+        let page = GuidancePage { total: 0, hits: Vec::new() };
+        guidance.push_search(Ok(page.clone()));
+        guidance.push_search(Err(GuidanceError::Downloading));
+        guidance.push_get(Ok(guidance_folder(&id)));
+        guidance.push_get(Err(GuidanceError::NotFound));
+
+        assert_eq!(guidance.get(Audience::Particuliers, &id).await, Ok(guidance_folder(&id)));
+        assert_eq!(guidance.search(&guidance_query()).await, Ok(page));
+        assert_eq!(guidance.search(&guidance_query()).await, Err(GuidanceError::Downloading));
+        assert_eq!(guidance.get(Audience::Entreprendre, &id).await, Err(GuidanceError::NotFound));
+
+        assert_eq!(guidance.calls(), 4);
+        assert_eq!(
+            guidance.seen_requests(),
+            vec![
+                GuidanceRequest::Get(Audience::Particuliers, id.clone()),
+                GuidanceRequest::Search(guidance_query()),
+                GuidanceRequest::Search(guidance_query()),
+                GuidanceRequest::Get(Audience::Entreprendre, id),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn fake_guidance_empty_queue_is_a_decode_error_naming_the_method() {
+        let guidance = FakeGuidance::new();
+        let empty = |method: &str| GuidanceError::Decode {
+            detail: format!("FakeGuidance: no response programmed for {method}"),
+        };
+        let id = SheetId::parse("F1437").unwrap();
+        assert_eq!(guidance.search(&guidance_query()).await, Err(empty("search")));
+        assert_eq!(guidance.get(Audience::Particuliers, &id).await, Err(empty("get")));
+        assert_eq!(guidance.calls(), 2);
     }
 }

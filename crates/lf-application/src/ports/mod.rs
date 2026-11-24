@@ -4,9 +4,11 @@ pub mod audit;
 pub mod clock;
 pub mod corpus;
 pub mod doctrine;
+pub mod guidance;
 
 pub use audit::{AuditError, AuditErrorKind, AuditLog, AuditRecord, AuditStatus};
 pub use clock::Clock;
 pub use corpus::{ArticleAt, AuthOrigin, ConfigKind, CorpusError, LegalCorpus};
 pub use doctrine::{DoctrineError, NoDoctrine, PortalCode, TaxDoctrine};
+pub use guidance::{GuidanceError, NoGuidance, PublicGuidance};
 pub use lf_domain::coverage::PisteEnvironment;
