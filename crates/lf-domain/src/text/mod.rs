@@ -26,6 +26,7 @@ pub use html::is_invisible;
 pub(crate) use html::strip_invisible;
 pub use long_text::LongText;
 pub use passages::{Passage, passages};
+pub(crate) use rank::count_f64;
 pub use rank::{B, K1, Scored, rank};
 pub use summary::{
     DispositifRule, LEAD_MIN_CHARS, SUMMARY_CAP_CHARS, Summary, SummarySource, summary,

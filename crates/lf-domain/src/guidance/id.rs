@@ -56,6 +56,15 @@ impl SheetId {
         &self.0
     }
 
+    /// Le nombre écrit après la lettre (`1437` pour `F1437`) : à score égal, les résultats d'une
+    /// recherche suivent l'ordre croissant de ce nombre (05 §5.16).
+    pub fn number(&self) -> u32 {
+        // Sept chiffres au plus : la valeur tient dans un `u32`, sans débordement possible.
+        self.0.bytes().skip(1).fold(0, |number: u32, digit| {
+            number.saturating_mul(10).saturating_add(u32::from(digit.saturating_sub(b'0')))
+        })
+    }
+
     /// Vrai pour une page de navigation (`N…` : dossier ou thème), faux pour une fiche (`F…`).
     pub fn is_navigation(&self) -> bool {
         self.0.starts_with('N')
@@ -121,6 +130,14 @@ mod tests {
     fn sheets_and_navigation_pages_are_told_apart() {
         assert!(!SheetId::parse("F1437").unwrap().is_navigation());
         assert!(SheetId::parse("n31675").unwrap().is_navigation());
+    }
+
+    #[test]
+    fn number_is_the_value_of_the_digits() {
+        for (input, number) in [("F1437", 1437), ("n0042", 42), ("F9999999", 9_999_999), ("F0", 0)]
+        {
+            assert_eq!(SheetId::parse(input).unwrap().number(), number);
+        }
     }
 
     #[test]

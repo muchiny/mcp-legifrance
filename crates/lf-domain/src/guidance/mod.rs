@@ -8,6 +8,7 @@
 //! - entrées : [`SheetId`], [`Audience`], [`AudienceFilter`], [`GuidanceTerms`] ;
 //! - forme de comparaison d'un mot, commune à la requête et à l'index : [`fold_word`] ;
 //! - textes de Légifrance cités par une fiche : [`legal_references`] (ADR-0033, décision 8) ;
+//! - recherche locale : [`GuidanceIndex`] et [`search`] (BM25, ADR-0033, décision 3) ;
 //! - page lue : [`GuidanceDoc`], son texte rendu à partir de ses [`Block`] ([`render`]), son
 //!   adresse publique [`ServicePublicUrl`].
 
@@ -15,6 +16,7 @@ mod audience;
 mod blocks;
 mod doc;
 mod id;
+mod index;
 mod line;
 mod references;
 mod terms;
@@ -24,6 +26,10 @@ pub use audience::{Audience, AudienceFilter};
 pub use blocks::{BLOCK_DEPTH_MAX, Block, HeadingLevel, Inline, Label, SheetText, render};
 pub use doc::{GuidanceContent, GuidanceDoc, GuidanceKind, NavigationEntry};
 pub use id::{SHEET_ID_MAX_DIGITS, SheetId};
+pub use index::{
+    GuidanceHit, GuidanceIndex, GuidancePage, GuidanceQuery, IndexedPage, STOP_WORDS, TITLE_WEIGHT,
+    search,
+};
 pub use line::LINE_MAX_CHARS;
 pub use references::{
     LEGAL_REFERENCES_MAX, LegalReference, LegalReferences, legal_references, source_urls,

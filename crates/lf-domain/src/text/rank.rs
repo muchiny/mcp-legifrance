@@ -95,7 +95,7 @@ fn query_terms(query: &str) -> BTreeSet<String> {
     clippy::as_conversions,
     reason = "aucune conversion `usize` vers `f64` sans perte n'existe ; comptes ≪ 2^52"
 )]
-fn count_f64(n: usize) -> f64 {
+pub(crate) fn count_f64(n: usize) -> f64 {
     n as f64
 }
 

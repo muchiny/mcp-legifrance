@@ -81,7 +81,7 @@ pub(crate) fn search_words(input: &str) -> Result<String, DomainError> {
 
 /// Mots de `text` : forme NFC, tout caractère qui n'est pas un caractère de mot remplacé par une
 /// espace, mots joints par une seule espace.
-fn plain_words(text: &str) -> String {
+pub(crate) fn plain_words(text: &str) -> String {
     let spaced: String = text.nfc().map(|c| if is_word_char(c) { c } else { ' ' }).collect();
     spaced.split(' ').filter(|word| !word.is_empty()).collect::<Vec<_>>().join(" ")
 }
