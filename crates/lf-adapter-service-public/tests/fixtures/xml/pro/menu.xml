@@ -1,0 +1,286 @@
+<?xml version="1.0" encoding="UTF-8"?><Menu xsi:noNamespaceSchemaLocation="../Schemas/3.5/indexes/Menu.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:date xmlns:dc="http://purl.org/dc/elements/1.1/">2026-11-22T10:24:37</dc:date>
+<Audience>Professionnels</Audience><ItemMenu type="Theme" ID="N31900">
+<Titre>Étapes de vie</Titre><ItemMenu type="Dossier" ID="N31901">
+<Titre>Je crée</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31902">
+<Titre>Je reprends</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31906">
+<Titre>Je transmets</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31905">
+<Titre>Je clos</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Theme" ID="N31926">
+<Titre>Baux</Titre><ItemMenu type="Dossier" ID="N31379">
+<Titre>Bail commercial</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31380">
+<Titre>Bail professionnel</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32025">
+<Titre>Bail rural</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32000">
+<Titre>Baux de courte durée et saisonniers</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Theme" ID="N24266">
+<Titre>Comptabilité - Facturation</Titre><ItemMenu type="Dossier" ID="N31383">
+<Titre>Règles comptables</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31384">
+<Titre>Documents commerciaux (factures, devis, CGV)</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Theme" ID="N31925">
+<Titre>Difficultés financières</Titre><ItemMenu type="Dossier" ID="N32600">
+<Titre>1- Se protéger et détecter les signaux d'alerte</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32550">
+<Titre>2- Réagir aux premières difficultés</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32476">
+<Titre>3- Éviter la cessation des paiements</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32478">
+<Titre>4- Traiter les difficultés avec l'aide du tribunal</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32479">
+<Titre>5- Fermer l’entreprise</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32579">
+<Titre>6- Rebondir après la fermeture d'une entreprise</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Theme" ID="N32300">
+<Titre>Environnement</Titre><ItemMenu type="Dossier" ID="N32301">
+<Titre>Économie circulaire - Déchets</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32302">
+<Titre>Bâtiment - Énergie</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32303">
+<Titre>Transports - Mobilité</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32306">
+<Titre>Gestion des risques - Installations classées</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32304">
+<Titre>Responsabilité Sociétale des Entreprises (RSE)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31355">
+<Titre>Publicité</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32305">
+<Titre>Agriculture</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Theme" ID="N31928">
+<Titre>Financement</Titre><ItemMenu type="Dossier" ID="N22284">
+<Titre>Modes de financement</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32375">
+<Titre>Garanties de financement</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N16153">
+<Titre>Aides de l'État et des collectivités territoriales</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Theme" ID="N24265">
+<Titre>Fiscalité</Titre><ItemMenu type="Sous-theme" ID="N10736">
+<Titre>Impôts liés à l'activité de l'entreprise</Titre><ItemMenu type="Dossier" ID="N13442">
+<Titre>Impôt sur les sociétés</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N23456">
+<Titre>Impôt sur le revenu</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N13445">
+<Titre>Taxe sur la valeur ajoutée (TVA)</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N22249">
+<Titre>Fiscalité immobilière</Titre><ItemMenu type="Dossier" ID="N13443">
+<Titre>Contribution économique territoriale (CET)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N22470">
+<Titre>Taxes foncières</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N22471">
+<Titre>Taxes locales</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N23457">
+<Titre>Autres impôts et taxes</Titre><ItemMenu type="Dossier" ID="N13444">
+<Titre>Taxes liées aux salaires</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N22250">
+<Titre>Taxes diverses</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N32118">
+<Titre>Allègements fiscaux</Titre><ItemMenu type="Dossier" ID="N32117">
+<Titre>Crédits d'impôts</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N10812">
+<Titre>Réductions d'impôts</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32119">
+<Titre>Exonérations d'impôts</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N32325">
+<Titre>Contrôle de l'impôt</Titre><ItemMenu type="Dossier" ID="N32326">
+<Titre>Fraude fiscale</Titre>
+</ItemMenu>
+</ItemMenu>
+<VoirAussi important="non"><Fiche ID="F31190" audience="Professionnels"><Titre>Quels sont les numéros d'identification d'une entreprise ?</Titre></Fiche></VoirAussi></ItemMenu>
+<ItemMenu type="Theme" ID="N32112">
+<Titre>Fonctionnement de l'entreprise</Titre><ItemMenu type="Dossier" ID="N32225">
+<Titre>Formes juridiques</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32113">
+<Titre>Gouvernance - Gérance</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32114">
+<Titre>Modifications de l'entreprise</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32105">
+<Titre>Litiges commerciaux</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Theme" ID="N24268">
+<Titre>Pratiques commerciales</Titre><ItemMenu type="Sous-theme" ID="N32835">
+<Titre>Modes d’exploitation commerciale</Titre><ItemMenu type="Dossier" ID="N32102">
+<Titre>Franchise</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32836">
+<Titre>Location-gérance</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N31352">
+<Titre>Réglementation</Titre><ItemMenu type="Dossier" ID="N31354">
+<Titre>Conditions de vente - Prix</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32110">
+<Titre>Méthodes de vente</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31782">
+<Titre>Établissements recevant du public (ERP)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31353">
+<Titre>Autorisations pour l'installation d'un commerce</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N32104">
+<Titre>Développement commercial</Titre><ItemMenu type="Dossier" ID="N32111">
+<Titre>Essor de l'activité</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32106">
+<Titre>International</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31387">
+<Titre>Marchés publics</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31355">
+<Titre>Publicité</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N32107">
+<Titre>Stratégie numérique - Data</Titre><ItemMenu type="Dossier" ID="N32108">
+<Titre>Commerce en ligne</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32109">
+<Titre>Gestion et protection des données</Titre>
+</ItemMenu>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Theme" ID="N24267">
+<Titre>Ressources humaines</Titre><ItemMenu type="Sous-theme" ID="N10778">
+<Titre>Recrutement - Aides à l'emploi</Titre><ItemMenu type="Dossier" ID="N22781">
+<Titre>Recrutement</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N23663">
+<Titre>Aides à l'embauche</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N11240">
+<Titre>Alternance</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N17109">
+<Titre>Contrats de travail, stages en entreprise</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N474">
+<Titre>Rémunération</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N10813">
+<Titre>Réglementation du travail</Titre><ItemMenu type="Dossier" ID="N32426">
+<Titre>Congés</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N14601">
+<Titre>Santé et sécurité au travail</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31006">
+<Titre>Licenciement</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N13415">
+<Titre>Fin et rupture de contrat</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31002">
+<Titre>Chômage partiel (activité partielle)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N13414">
+<Titre>Formation</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N17310">
+<Titre>Droits syndicaux</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31825">
+<Titre>Intéressement - Participation</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N23430">
+<Titre>Protection sociale</Titre><ItemMenu type="Dossier" ID="N10779">
+<Titre>Cotisations et contributions sociales de l'employeur</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N10805">
+<Titre>Protection sociale d'un travailleur indépendant</Titre>
+</ItemMenu>
+</ItemMenu>
+<VoirAussi important="non"><Fiche ID="F2140" audience="Professionnels"><Titre>Intéressement</Titre></Fiche><Fiche ID="F2141" audience="Professionnels"><Titre>Participation</Titre></Fiche><Fiche ID="F23106" audience="Professionnels"><Titre>Obligations d'affichage dans l'entreprise</Titre></Fiche></VoirAussi></ItemMenu>
+<ItemMenu type="Theme" ID="N24269">
+<Titre>Secteurs d'activité</Titre><ItemMenu type="Dossier" ID="N31930">
+<Titre>Activités de services</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32305">
+<Titre>Agriculture</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N13347">
+<Titre>Arts et culture</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32552">
+<Titre>BTP - Bâtiment et travaux publics</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32625">
+<Titre>Commerce</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32551">
+<Titre>Juridique et financier</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31358">
+<Titre>Tourisme - Restauration</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32480">
+<Titre>Santé</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N18568">
+<Titre>Transports</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N13345">
+<Titre>Urbanisme</Titre>
+</ItemMenu>
+</ItemMenu>
+</Menu>
