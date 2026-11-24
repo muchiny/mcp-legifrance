@@ -1,102 +1,27 @@
-//! Tests du magasin : un faux téléchargeur aux réponses écrites d'avance, retenu par une barrière
-//! quand le test veut un téléchargement en cours, sur le temps suspendu de `tokio` ; puis un essai
-//! de bout en bout avec le vrai client contre un faux serveur local.
-
-use std::collections::VecDeque;
+//! Tests du magasin : le faux téléchargeur de `testing`, sur le temps suspendu de `tokio` ; puis un
+//! essai de bout en bout avec le vrai client contre un faux serveur local.
 
 use pretty_assertions::assert_eq;
-use tokio::{sync::Semaphore, time::advance};
+use tokio::time::advance;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{header, method, path},
 };
 
 use super::*;
-use crate::archive::tests::zip_of;
+use crate::{
+    archive::tests::zip_of,
+    testing::{Fake, PART, PRO, call, fresh, server_error},
+};
 
-const PART: &[u8] = include_bytes!("../../tests/fixtures/archives/part-vosdroits-mini.zip");
-const PRO: &[u8] = include_bytes!("../../tests/fixtures/archives/pro-vosdroits-mini.zip");
 const F1437: &[u8] = include_bytes!("../../tests/fixtures/xml/part/F1437.xml");
 const MENU: &[u8] = include_bytes!("../../tests/fixtures/xml/part/menu.xml");
 const WAIT: Duration = Duration::from_secs(300);
 const P: Audience = Audience::Particuliers;
 const E: Audience = Audience::Entreprendre;
 
-type Reply = Result<Fetched, GuidanceError>;
-
-/// Faux téléchargeur : réponses dans l'ordre, appels notés, barrière avant chaque réponse.
-struct Fake {
-    replies: Mutex<VecDeque<Reply>>,
-    calls: Mutex<Vec<(Audience, Option<String>)>>,
-    gate: Semaphore,
-}
-
-impl Fake {
-    /// Répond sans attendre.
-    fn open(replies: impl IntoIterator<Item = Reply>) -> Arc<Self> {
-        Self::with(replies, Semaphore::MAX_PERMITS)
-    }
-
-    /// Retient chaque réponse jusqu'à [`Fake::release`].
-    fn held(replies: impl IntoIterator<Item = Reply>) -> Arc<Self> {
-        Self::with(replies, 0)
-    }
-
-    fn with(replies: impl IntoIterator<Item = Reply>, permits: usize) -> Arc<Self> {
-        Arc::new(Self {
-            replies: Mutex::new(replies.into_iter().collect()),
-            calls: Mutex::new(Vec::new()),
-            gate: Semaphore::new(permits),
-        })
-    }
-
-    /// Laisse partir une réponse retenue.
-    fn release(&self) {
-        self.gate.add_permits(1);
-    }
-
-    fn calls(&self) -> Vec<(Audience, Option<String>)> {
-        self.calls.lock().unwrap().clone()
-    }
-}
-
-impl Fetch for Arc<Fake> {
-    fn fetch(
-        &self,
-        audience: Audience,
-        etag: Option<&str>,
-    ) -> impl Future<Output = Result<Fetched, GuidanceError>> + Send {
-        let fake = Arc::clone(self);
-        fake.calls.lock().unwrap().push((audience, etag.map(str::to_owned)));
-        async move {
-            fake.gate.acquire().await.unwrap().forget();
-            fake.replies.lock().unwrap().pop_front().unwrap()
-        }
-    }
-}
-
-fn fresh(body: &[u8], etag: &str) -> Fetched {
-    Fetched::Fresh(Download {
-        body: body.to_vec(),
-        etag: Some(etag.to_owned()),
-        last_modified: None,
-    })
-}
-
 fn store(fake: &Arc<Fake>) -> Store<Arc<Fake>> {
     Store::new(Arc::clone(fake), WAIT)
-}
-
-fn server_error() -> GuidanceError {
-    GuidanceError::Upstream {
-        status: Some(500),
-        retryable: true,
-        detail: "server error".to_owned(),
-    }
-}
-
-fn call(audience: Audience, etag: Option<&str>) -> (Audience, Option<String>) {
-    (audience, etag.map(str::to_owned))
 }
 
 fn download(body: Vec<u8>) -> Download {
@@ -186,7 +111,7 @@ fn a_loaded_archive_is_printed_without_its_bytes() {
     let loaded = load(E, Download { etag: Some("\"e\"".to_owned()), ..download(PRO.to_vec()) });
     assert_eq!(
         format!("{:?}", loaded.unwrap()),
-        r#"Loaded { entries: 3, pages: 2, menu_places: 100, etag: Some("\"e\""), last_modified: None }"#
+        r#"Loaded { bytes: 7590, entries: 3, ignored: 0, pages: 2, menu_places: 100, etag: Some("\"e\""), last_modified: None }"#
     );
 }
 
@@ -381,7 +306,7 @@ async fn the_client_feeds_the_store() {
         .expect(1)
         .mount(&server)
         .await;
-    let client = ArchiveClient::local(&server.uri(), WAIT, 1 << 20).unwrap();
+    let client = ArchiveClient::local(&server.uri(), WAIT, 1 << 20);
     let store = Store::new(client, WAIT);
     let loaded = store.current(P).await.unwrap();
     assert_eq!((loaded.index.len(), loaded.etag.as_deref()), (10, Some("\"6b059e81-1734757\"")));

@@ -20,28 +20,13 @@
 //!   par l'échéance de l'appel ; revalidée au bout de 24 h, servie 48 h de plus après un échec ;
 //!   index construit hors du fil de l'appel et servi entier (`store`).
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "lecteur d'archive lu par la source Service-Public (T-MS-25)")
-)]
 mod archive;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "client lu par la source Service-Public (T-MS-23)")
-)]
 mod client;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "traduction lue par la source Service-Public (T-MS-25)")
-)]
+mod guidance;
 mod page;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "magasin lu par la source Service-Public (T-MS-25)")
-)]
 mod store;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "lecteur XML lu par la source Service-Public (T-MS-25)")
-)]
+#[cfg(test)]
+mod testing;
 mod xml;
+
+pub use guidance::{ServicePublicConfig, ServicePublicGuidance};

@@ -87,7 +87,9 @@ pub(crate) struct Loaded {
 impl fmt::Debug for Loaded {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Loaded")
+            .field("bytes", &self.archive.byte_len())
             .field("entries", &self.archive.len())
+            .field("ignored", &self.archive.ignored())
             .field("pages", &self.index.len())
             .field("menu_places", &self.menu.len())
             .field("etag", &self.etag)
@@ -190,6 +192,16 @@ impl<F: Fetch> Store<F> {
         match audience {
             Audience::Particuliers => &self.particuliers,
             Audience::Entreprendre => &self.entreprendre,
+        }
+    }
+
+    /// Lance le téléchargement de `audience` s'il le faut, sans l'attendre : une recherche sur les
+    /// deux publics charge leurs archives ensemble.
+    pub(crate) fn prepare(&self, audience: Audience) {
+        let slot = self.slot(audience);
+        let mut state = slot.lock();
+        if matches!(state.step(Instant::now()), Step::Start) {
+            self.start(slot, &mut state);
         }
     }
 

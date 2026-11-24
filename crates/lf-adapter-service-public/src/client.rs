@@ -22,7 +22,7 @@
 
 use std::{
     fmt,
-    sync::{Mutex, PoisonError},
+    sync::{Mutex, OnceLock, PoisonError},
     time::{Duration, Instant},
 };
 
@@ -88,8 +88,15 @@ pub(crate) enum Fetched {
 }
 
 /// Client des deux archives, avec le repos de la source.
+///
+/// Le client HTTP naît au premier téléchargement, comme celui du BOFiP : construire la source ne
+/// fait aucune E/S et ne peut pas échouer ; un échec de construction est rendu à chaque appel.
 pub(crate) struct ArchiveClient {
-    http: Client,
+    user_agent: String,
+    timeout: Duration,
+    /// Vrai pour un serveur de test seulement : le client admet alors `http`.
+    plain_http: bool,
+    http: OnceLock<Result<Client, GuidanceError>>,
     particuliers: String,
     entreprendre: String,
     /// Taille maximale du corps : [`ARCHIVE_MAX_BYTES`] en production.
@@ -99,38 +106,47 @@ pub(crate) struct ArchiveClient {
 
 impl ArchiveClient {
     /// Client de production : les deux adresses de [`archive_url`], `https` seul, délai de
-    /// [`DOWNLOAD_TIMEOUT`].
-    ///
-    /// # Errors
-    ///
-    /// [`GuidanceError::Upstream`], sans adresse, si `reqwest` ne peut pas construire le client
-    /// (`User-Agent` invalide, TLS inutilisable).
-    pub(crate) fn production(user_agent: &str) -> Result<Self, GuidanceError> {
-        Ok(Self::with(
-            build_client(user_agent, DOWNLOAD_TIMEOUT, false)?,
+    /// [`DOWNLOAD_TIMEOUT`], corps de [`ARCHIVE_MAX_BYTES`] au plus.
+    pub(crate) fn production(user_agent: &str) -> Self {
+        Self::with(
+            Target { user_agent, timeout: DOWNLOAD_TIMEOUT, plain_http: false },
             archive_url(Audience::Particuliers).to_owned(),
             archive_url(Audience::Entreprendre).to_owned(),
             ARCHIVE_MAX_BYTES,
-        ))
+        )
     }
 
-    fn with(http: Client, particuliers: String, entreprendre: String, limit: u64) -> Self {
-        Self { http, particuliers, entreprendre, limit, rest: Rest::default() }
+    fn with(target: Target<'_>, particuliers: String, entreprendre: String, limit: u64) -> Self {
+        Self {
+            user_agent: target.user_agent.to_owned(),
+            timeout: target.timeout,
+            plain_http: target.plain_http,
+            http: OnceLock::new(),
+            particuliers,
+            entreprendre,
+            limit,
+            rest: Rest::default(),
+        }
     }
 
     /// Client d'un serveur de test : les adresses de production, dont l'origine est remplacée par
-    /// `base` (`http://127.0.0.1:…`), en clair.
+    /// `base` (`http://127.0.0.1:…`), en clair. Compilé pour les tests de ce crate seulement.
     #[cfg(test)]
-    pub(crate) fn local(base: &str, timeout: Duration, limit: u64) -> Result<Self, GuidanceError> {
+    pub(crate) fn local(base: &str, timeout: Duration, limit: u64) -> Self {
         let origin = "https://lecomarquage.service-public.gouv.fr";
-        build_client("mcp-legifrance-tests/0", timeout, true).map(|http| {
-            Self::with(
-                http,
-                archive_url(Audience::Particuliers).replacen(origin, base, 1),
-                archive_url(Audience::Entreprendre).replacen(origin, base, 1),
-                limit,
-            )
-        })
+        Self::with(
+            Target { user_agent: "mcp-legifrance-tests/0", timeout, plain_http: true },
+            archive_url(Audience::Particuliers).replacen(origin, base, 1),
+            archive_url(Audience::Entreprendre).replacen(origin, base, 1),
+            limit,
+        )
+    }
+
+    /// Le client HTTP, construit au premier besoin.
+    fn http(&self) -> Result<&Client, GuidanceError> {
+        let built =
+            self.http.get_or_init(|| build_client(&self.user_agent, self.timeout, self.plain_http));
+        built.as_ref().map_err(GuidanceError::clone)
     }
 
     fn url(&self, audience: Audience) -> &str {
@@ -157,7 +173,7 @@ impl ArchiveClient {
         if let Some(left) = self.rest.left(Instant::now()) {
             return Err(GuidanceError::RateLimited { retry_after: Some(left) });
         }
-        let mut request = self.http.get(self.url(audience));
+        let mut request = self.http()?.get(self.url(audience));
         if let Some(etag) = etag {
             request = request.header(IF_NONE_MATCH, etag);
         }
@@ -174,6 +190,14 @@ impl ArchiveClient {
             status => Err(upstream(Some(status), false, "unexpected status")),
         }
     }
+}
+
+/// Réglages du client HTTP.
+#[derive(Clone, Copy)]
+struct Target<'a> {
+    user_agent: &'a str,
+    timeout: Duration,
+    plain_http: bool,
 }
 
 /// Fin du repos de la source, s'il y en a un.

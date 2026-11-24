@@ -184,6 +184,7 @@ impl Archive {
     }
 
     /// Vrai si l'archive ne retient aucune entrée.
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()

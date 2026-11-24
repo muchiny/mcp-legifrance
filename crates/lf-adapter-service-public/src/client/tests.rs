@@ -25,7 +25,7 @@ const REAL_ETAG: &str = "\"6b059e81-1734757\"";
 const REAL_LAST_MODIFIED: &str = "Tue, 24 Nov 2026 14:26:09 GMT";
 
 fn local(base: &str, timeout: Duration, limit: u64) -> ArchiveClient {
-    ArchiveClient::local(base, timeout, limit).unwrap()
+    ArchiveClient::local(base, timeout, limit)
 }
 
 fn client(server: &MockServer) -> ArchiveClient {
@@ -101,7 +101,7 @@ async fn no_request_carries_a_search_word() {
 
 #[test]
 fn production_targets_the_two_fixed_addresses_with_its_bounds() {
-    let production = ArchiveClient::production(AGENT).unwrap();
+    let production = ArchiveClient::production(AGENT);
     assert_eq!(production.url(Audience::Particuliers), format!("{ORIGIN}{PART}"));
     assert_eq!(production.url(Audience::Entreprendre), format!("{ORIGIN}{PRO}"));
     assert_eq!(production.limit, 67_108_864);
@@ -109,10 +109,15 @@ fn production_targets_the_two_fixed_addresses_with_its_bounds() {
     assert_eq!((REST_DEFAULT, REST_MAX), (Duration::from_secs(900), Duration::from_secs(3_600)));
 }
 
-#[test]
-fn an_agent_that_is_not_a_header_value_builds_no_client() {
-    let refused = ArchiveClient::production("agent\nsur deux lignes").err();
-    assert_eq!(refused, Some(upstream_error(None, false, "could not build the HTTP client")));
+/// Un client qui ne se construit pas refuse chaque appel, sans réseau ; la construction n'est
+/// tentée qu'une fois.
+#[tokio::test]
+async fn an_agent_that_is_not_a_header_value_builds_no_client() {
+    let refused = ArchiveClient::production("agent\nsur deux lignes");
+    let expected = upstream_error(None, false, "could not build the HTTP client");
+    for audience in [Audience::Particuliers, Audience::Entreprendre] {
+        assert_eq!(refused.fetch(audience, None).await, Err(expected.clone()));
+    }
 }
 
 /// Le client de production refuse une adresse `http` avant toute connexion.
@@ -120,7 +125,7 @@ fn an_agent_that_is_not_a_header_value_builds_no_client() {
 async fn production_client_refuses_plain_http() {
     let server = server(ResponseTemplate::new(200)).await;
     let production = ArchiveClient::with(
-        build_client(AGENT, LONG, false).unwrap(),
+        Target { user_agent: AGENT, timeout: LONG, plain_http: false },
         format!("{}{PART}", server.uri()),
         format!("{}{PRO}", server.uri()),
         1_000,
