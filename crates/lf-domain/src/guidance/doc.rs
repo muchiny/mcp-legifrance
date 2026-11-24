@@ -145,7 +145,9 @@ impl GuidanceDoc {
     /// # Ok::<(), lf_domain::DomainError>(())
     /// ```
     pub fn citation(&self) -> String {
-        let head = format!("{}, {} ({})", self.audience.site(), self.title, self.id);
+        // Le site où la page est publiée, celui de `source_url` : une page de l'archive
+        // d'Entreprendre peut l'être sur Service-Public.gouv.fr.
+        let head = format!("{}, {} ({})", self.source_url.site().site(), self.title, self.id);
         match self.updated {
             Some(date) => format!("{head}, mise à jour du {}", date.to_french()),
             None => head,
@@ -199,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn citation_names_the_site_of_the_audience_and_the_date() {
+    fn citation_names_the_site_of_the_address_and_the_date() {
         let part = doc(Audience::Particuliers, sheet(&[]));
         assert_eq!(
             part.citation(),
@@ -208,6 +210,11 @@ mod tests {
         let mut pro = doc(Audience::Entreprendre, sheet(&[]));
         pro.updated = None;
         assert_eq!(pro.citation(), "Entreprendre.Service-Public.gouv.fr, Smic (F2408)");
+        // Une page de l'archive d'Entreprendre publiée sur Service-Public.gouv.fr : la citation
+        // nomme le site de son adresse.
+        let given = "https://www.service-public.gouv.fr/particuliers/vosdroits/F2408";
+        pro.source_url = ServicePublicUrl::read(Some(given), Audience::Entreprendre, &pro.id);
+        assert_eq!(pro.citation(), "Service-Public.gouv.fr, Smic (F2408)");
     }
 
     #[test]

@@ -2,12 +2,13 @@
 //!
 //! L'index d'un public tient le titre et le résumé (`dc:description`) de chaque fiche et page de
 //! navigation de son archive. La recherche est la règle mesurée à T-MS-03 (V-229 : 17 succès sur
-//! 20, la fiche attendue dans les cinq premiers) :
+//! 20, la fiche attendue dans les cinq premiers), confirmée à T-MS-46 sur vingt questions
+//! nouvelles (18 sur 20) :
 //!
 //! - mots de la page : ceux du titre, comptés [`TITLE_WEIGHT`] fois, puis ceux du résumé, sous
 //!   leur forme de comparaison ([`fold_word`]) ;
 //! - mots de la requête : ceux de [`GuidanceTerms::folded`], sans les mots vides de
-//!   [`STOP_WORDS`], sauf s'il ne reste rien ;
+//!   [`STOP_WORDS`], sauf s'il ne reste rien, et chacun une fois ;
 //! - un mot de la requête correspond à tous les mots de l'index qu'il commence (« loyer » trouve
 //!   « loyers », pas « déployer ») ;
 //! - score BM25 ([`K1`], [`B`], IDF de Lucene) : pour chaque mot de la requête, la fréquence est
@@ -18,9 +19,14 @@
 //! Avec plusieurs publics (`all`), un numéro trouvé sous Particuliers n'est rendu qu'une fois,
 //! sous Particuliers : relevé du 2026-11-24, les 109 numéros communs aux deux archives y ont le
 //! même titre et le même résumé.
+//!
+//! **Budget** : l'archive vient du réseau, et ses titres et résumés font la taille de l'index. Au
+//! plus [`INDEX_WORDS_MAX`] mots distincts et [`INDEX_POSTINGS_MAX`] couples (mot, page) ; au-delà,
+//! la construction s'arrête ([`IndexTooLarge`]) avant d'aller plus loin en mémoire. Relevé du
+//! 2026-11-24 : 6 334 mots et 76 955 couples pour Particuliers, 3 623 et 23 184 pour Entreprendre.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
     num::NonZeroU32,
 };
 
@@ -41,6 +47,31 @@ use super::{
 
 /// Poids du titre : ses mots comptent trois fois.
 pub const TITLE_WEIGHT: usize = 3;
+
+/// Mots distincts d'un index, au plus : seize fois l'archive de Particuliers du 2026-11-24.
+pub const INDEX_WORDS_MAX: usize = 100_000;
+
+/// Couples (mot, page) d'un index, au plus : six fois et demie l'archive de Particuliers du
+/// 2026-11-24.
+pub const INDEX_POSTINGS_MAX: usize = 500_000;
+
+/// Index refusé : plus de mots ou de couples que son budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("search index over budget ({words} words, {postings} postings at most)")]
+pub struct IndexTooLarge {
+    words: usize,
+    postings: usize,
+}
+
+/// Bornes d'un index.
+#[derive(Debug, Clone, Copy)]
+struct Budget {
+    words: usize,
+    postings: usize,
+}
+
+/// Le budget de production.
+const BUDGET: Budget = Budget { words: INDEX_WORDS_MAX, postings: INDEX_POSTINGS_MAX };
 
 /// Mots vides retirés de la requête, triés : la liste fermée de la mesure de T-MS-03, sous leur
 /// forme de comparaison (« à » s'y écrit `a`).
@@ -93,8 +124,20 @@ pub struct GuidanceIndex {
 
 impl GuidanceIndex {
     /// Construit l'index de `pages`, dans l'ordre donné.
-    pub fn build(pages: Vec<IndexedPage>) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// [`IndexTooLarge`] au-delà de [`INDEX_WORDS_MAX`] mots distincts ou de
+    /// [`INDEX_POSTINGS_MAX`] couples (mot, page).
+    pub fn build(pages: Vec<IndexedPage>) -> Result<Self, IndexTooLarge> {
+        Self::build_within(pages, BUDGET)
+    }
+
+    /// Construit l'index de `pages` sous `budget`, arrêté au premier dépassement.
+    fn build_within(pages: Vec<IndexedPage>, budget: Budget) -> Result<Self, IndexTooLarge> {
+        let over = IndexTooLarge { words: budget.words, postings: budget.postings };
         let mut by_word: BTreeMap<String, Vec<Posting>> = BTreeMap::new();
+        let mut postings_count = 0_usize;
         let mut lengths = Vec::with_capacity(pages.len());
         let mut total_length = 0_usize;
         for (page, rank) in pages.iter().zip(0_u32..) {
@@ -109,13 +152,25 @@ impl GuidanceIndex {
                 length = length.saturating_add(1);
             }
             for (word, count) in counts {
-                by_word.entry(word).or_default().push(Posting { page: rank, count });
+                postings_count = postings_count.saturating_add(1);
+                if postings_count > budget.postings {
+                    return Err(over);
+                }
+                let distinct = by_word.len();
+                let posting = Posting { page: rank, count };
+                match by_word.entry(word) {
+                    Entry::Occupied(mut known) => known.get_mut().push(posting),
+                    Entry::Vacant(_) if distinct >= budget.words => return Err(over),
+                    Entry::Vacant(new) => {
+                        new.insert(vec![posting]);
+                    }
+                }
             }
             lengths.push(length);
             total_length = total_length.saturating_add(length);
         }
         let (words, postings) = by_word.into_iter().unzip();
-        Self { pages, words, postings, lengths, total_length }
+        Ok(Self { pages, words, postings, lengths, total_length })
     }
 
     /// Nombre de pages.
@@ -179,9 +234,12 @@ fn index_words(text: &str) -> Vec<String> {
     plain_words(text).split(' ').map(fold_word).filter(|word| !word.is_empty()).collect()
 }
 
-/// Mots de la requête qui comptent : sans les mots vides, sauf s'il ne reste rien.
+/// Mots de la requête qui comptent : sans les mots vides, sauf s'il ne reste rien ; chacun une
+/// fois, à sa première place.
 fn query_words(terms: &GuidanceTerms) -> Vec<&str> {
-    let all: Vec<&str> = terms.folded().iter().map(String::as_str).collect();
+    let mut seen = BTreeSet::new();
+    let all: Vec<&str> =
+        terms.folded().iter().map(String::as_str).filter(|word| seen.insert(*word)).collect();
     let kept: Vec<&str> =
         all.iter().copied().filter(|word| STOP_WORDS.binary_search(word).is_err()).collect();
     if kept.is_empty() { all } else { kept }
@@ -307,6 +365,7 @@ mod tests {
                 .map(|(id, title, summary)| page(Audience::Particuliers, id, title, summary))
                 .collect(),
         )
+        .unwrap()
     }
 
     fn query(words: &str, audience: AudienceFilter, page: u32, page_size: u32) -> GuidanceQuery {
@@ -399,6 +458,66 @@ mod tests {
     }
 
     #[test]
+    fn a_repeated_query_word_counts_once() {
+        let index = index(&[
+            ("F1", "Loyer et charges", "Le loyer du logement"),
+            ("F2", "Charges de copropriété", ""),
+            ("F3", "Loyer", ""),
+        ]);
+        let scored = |words: &str| -> Vec<(String, f64)> {
+            let terms = GuidanceTerms::parse(words).unwrap();
+            index
+                .ranked(&terms)
+                .into_iter()
+                .map(|(page, score)| (page.id.to_string(), score))
+                .collect()
+        };
+        assert_eq!(scored("loyer loyer charges"), scored("loyer charges"));
+        assert_eq!(scored("de de"), scored("de"));
+    }
+
+    fn pages(titles: &[(&str, &str)]) -> Vec<IndexedPage> {
+        titles.iter().map(|(id, title)| page(Audience::Particuliers, id, title, "")).collect()
+    }
+
+    #[test]
+    fn the_index_stops_at_its_budget_of_distinct_words() {
+        // Trois mots distincts, trois couples.
+        let three = pages(&[("F1", "alpha beta"), ("F2", "gamma beta")]);
+        let fits = Budget { words: 3, postings: 4 };
+        assert_eq!(
+            GuidanceIndex::build_within(three.clone(), fits).map(|index| index.words.len()),
+            Ok(3)
+        );
+        let tight = Budget { words: 2, postings: 4 };
+        assert_eq!(
+            GuidanceIndex::build_within(three, tight),
+            Err(IndexTooLarge { words: 2, postings: 4 })
+        );
+    }
+
+    #[test]
+    fn the_index_stops_at_its_budget_of_postings() {
+        // Un mot, sur deux pages : deux couples.
+        let two = pages(&[("F1", "alpha"), ("F2", "alpha alpha")]);
+        let fits = Budget { words: 1, postings: 2 };
+        assert_eq!(GuidanceIndex::build_within(two.clone(), fits).map(|index| index.len()), Ok(2));
+        let tight = Budget { words: 1, postings: 1 };
+        let refused = GuidanceIndex::build_within(two, tight);
+        assert_eq!(refused, Err(IndexTooLarge { words: 1, postings: 1 }));
+        assert_eq!(
+            refused.unwrap_err().to_string(),
+            "search index over budget (1 words, 1 postings at most)"
+        );
+    }
+
+    #[test]
+    fn the_production_budget_is_the_measured_archive_with_its_margin() {
+        assert_eq!((INDEX_WORDS_MAX, INDEX_POSTINGS_MAX), (100_000, 500_000));
+        assert_eq!(GuidanceIndex::build(pages(&[("F1", "alpha")])).map(|index| index.len()), Ok(1));
+    }
+
+    #[test]
     fn equal_scores_follow_the_number() {
         let index = index(&[
             ("N20", "Impôts", ""),
@@ -411,7 +530,7 @@ mod tests {
 
     #[test]
     fn an_empty_index_finds_nothing() {
-        let empty = GuidanceIndex::build(Vec::new());
+        let empty = GuidanceIndex::build(Vec::new()).unwrap();
         assert!(empty.is_empty());
         assert_eq!(empty.len(), 0);
         assert_eq!(found(&empty, "loyer"), Vec::<String>::new());
@@ -428,7 +547,8 @@ mod tests {
         let pro = GuidanceIndex::build(vec![
             page(Audience::Entreprendre, "F2408", "Avantages en nature", ""),
             page(Audience::Entreprendre, "F5", "Nature et avantages", "avantages en nature"),
-        ]);
+        ])
+        .unwrap();
         let all = query("avantages nature", AudienceFilter::All, 1, 10);
         let both = [(Audience::Particuliers, &part), (Audience::Entreprendre, &pro)];
         let page = search(both, &all);
@@ -484,7 +604,7 @@ mod tests {
         let mut sheet =
             page(Audience::Particuliers, "F1437", "Solde bancaire insaisissable (SBI)", "Saisie");
         sheet.updated = CivilDate::new(2026, 4, 1);
-        let index = GuidanceIndex::build(vec![sheet.clone()]);
+        let index = GuidanceIndex::build(vec![sheet.clone()]).unwrap();
         assert_eq!(index.pages(), [sheet.clone()]);
         let result = search(
             [(Audience::Particuliers, &index)],
@@ -535,6 +655,7 @@ mod tests {
                 })
                 .collect(),
         )
+        .unwrap()
     }
 
     /// Un petit index tiré des fixtures : ordres attendus calculés hors du dépôt par une copie

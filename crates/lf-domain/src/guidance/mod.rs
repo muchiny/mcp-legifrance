@@ -29,8 +29,8 @@ pub use blocks::{BLOCK_DEPTH_MAX, Block, HeadingLevel, Inline, Label, SheetText,
 pub use doc::{GuidanceContent, GuidanceDoc, GuidanceKind, NavigationEntry};
 pub use id::{SHEET_ID_MAX_DIGITS, SheetId};
 pub use index::{
-    GuidanceHit, GuidanceIndex, GuidancePage, GuidanceQuery, IndexedPage, STOP_WORDS, TITLE_WEIGHT,
-    search,
+    GuidanceHit, GuidanceIndex, GuidancePage, GuidanceQuery, INDEX_POSTINGS_MAX, INDEX_WORDS_MAX,
+    IndexTooLarge, IndexedPage, STOP_WORDS, TITLE_WEIGHT, search,
 };
 pub use line::{LINE_MAX_CHARS, clean_line};
 pub use menu::{GuidanceMenu, MENU_DEPTH_MAX, MENU_ENTRIES_MAX, MENU_TITLE_MAX_CHARS, MenuEntry};

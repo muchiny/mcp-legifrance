@@ -326,7 +326,7 @@ impl PublicGuidance for AnyGuidance {
 pub(crate) fn guidance_for(config: &AppConfig) -> AnyGuidance {
     match &config.service_public {
         ServicePublicSource::On(settings) => {
-            AnyGuidance::ServicePublic(ServicePublicGuidance::new(settings))
+            AnyGuidance::ServicePublic(ServicePublicGuidance::new(settings, SystemClock))
         }
         ServicePublicSource::Off(_) => AnyGuidance::Off,
     }

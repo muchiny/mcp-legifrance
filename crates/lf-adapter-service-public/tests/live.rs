@@ -21,9 +21,11 @@
 mod live {
     use std::{fs, num::NonZeroU32, path::Path, time::Duration};
 
+    use chrono::{DateTime, Utc};
     use lf_adapter_service_public::{ServicePublicConfig, ServicePublicGuidance};
-    use lf_application::ports::{GuidanceError, PublicGuidance};
+    use lf_application::ports::{Clock, GuidanceError, PublicGuidance};
     use lf_domain::{
+        date::CivilDate,
         guidance::{
             ARCHIVE_NAME, Audience, AudienceFilter, GuidanceKind, GuidanceQuery, GuidanceTerms,
             SheetId, archive_url,
@@ -37,6 +39,24 @@ mod live {
     const COMMON: &str = "F2408";
     /// Numéro bien formé qu'aucune archive ne porte.
     const UNKNOWN: &str = "F9999999";
+
+    /// Horloge civile du système, comme celle du binaire.
+    struct Wall;
+
+    impl Clock for Wall {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "test en direct : l'horloge du système, comme `SystemClock` du binaire"
+        )]
+        fn now_utc(&self) -> DateTime<Utc> {
+            DateTime::from(std::time::SystemTime::now())
+        }
+
+        /// Jamais lue par l'adapter.
+        fn today_paris(&self) -> CivilDate {
+            CivilDate::new(2026, 11, 24).unwrap()
+        }
+    }
 
     /// `User-Agent` du binaire.
     fn agent() -> String {
@@ -76,7 +96,7 @@ mod live {
     #[ignore = "live: calls lecomarquage.service-public.gouv.fr"]
     async fn live_service_public_reads_and_searches_both_archives() {
         let config = ServicePublicConfig::new(agent(), Duration::from_secs(280));
-        let guidance = ServicePublicGuidance::new(&config);
+        let guidance = ServicePublicGuidance::new(&config, Wall);
 
         // Particuliers : une requête, puis tout se sert de l'archive en mémoire.
         let found = guidance

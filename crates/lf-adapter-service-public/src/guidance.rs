@@ -2,8 +2,9 @@
 //! (ADR-0033 ; 05 §5.16 et §5.17 ; T-MS-25).
 //!
 //! - **Recherche** : l'index de chaque public demandé (`all` : les deux archives se chargent
-//!   ensemble), puis la recherche du domaine. Aucune requête ne porte un mot cherché : la seule
-//!   requête est le téléchargement de l'archive.
+//!   ensemble, et la recherche échoue si l'une manque), puis la recherche du domaine, sur un fil
+//!   bloquant. Aucune requête ne porte un mot cherché : la seule requête est le téléchargement de
+//!   l'archive.
 //! - **Lecture** : l'entrée `{numéro}.xml` de l'archive du public, lue en mémoire sur un fil
 //!   bloquant, traduite en page du domaine avec son chemin (menu du public). Entrée absente :
 //!   `NotFound` (le cas d'usage nomme l'autre public) ; au-delà de 2 Mio : `EntryTooLarge` avec
@@ -12,7 +13,7 @@
 use std::{future::Future, sync::Arc, time::Duration};
 
 use lf_application::ports::{
-    ArchiveFile, GuidanceError, GuidanceFound, GuidanceRead, PublicGuidance,
+    ArchiveFile, Clock, GuidanceError, GuidanceFound, GuidanceRead, PublicGuidance,
 };
 use lf_domain::guidance::{
     Audience, GuidanceDoc, GuidanceQuery, ServicePublicUrl, SheetId, search,
@@ -50,12 +51,14 @@ pub struct ServicePublicGuidance {
 }
 
 impl ServicePublicGuidance {
-    /// Source de production : les deux adresses fixes de la DILA, `https` seul.
-    pub fn new(config: &ServicePublicConfig) -> Self {
+    /// Source de production : les deux adresses fixes de la DILA, `https` seul. `clock` donne
+    /// l'heure civile, qui date les archives même quand la machine a dormi.
+    pub fn new(config: &ServicePublicConfig, clock: impl Clock) -> Self {
         Self {
             source: Source::new(
                 ArchiveClient::production(&config.user_agent),
                 config.tool_deadline,
+                Arc::new(clock),
             ),
         }
     }
@@ -64,7 +67,8 @@ impl ServicePublicGuidance {
     #[cfg(test)]
     pub(crate) fn local(base: &str, tool_deadline: Duration) -> Self {
         let client = ArchiveClient::local(base, tool_deadline, crate::client::ARCHIVE_MAX_BYTES);
-        Self { source: Source::new(client, tool_deadline) }
+        let clock = Arc::new(crate::testing::TestWall::at(crate::testing::MIDDAY));
+        Self { source: Source::new(client, tool_deadline, clock) }
     }
 }
 
@@ -91,8 +95,8 @@ pub(crate) struct Source<F> {
 }
 
 impl<F: Fetch> Source<F> {
-    pub(crate) fn new(fetcher: F, tool_deadline: Duration) -> Self {
-        Self { store: Store::new(fetcher, tool_deadline) }
+    pub(crate) fn new(fetcher: F, tool_deadline: Duration, clock: Arc<dyn Clock>) -> Self {
+        Self { store: Store::new(fetcher, tool_deadline, clock) }
     }
 
     /// Recherche dans les index des publics de la requête.
@@ -108,10 +112,16 @@ impl<F: Fetch> Source<F> {
         for audience in audiences {
             loaded.push((*audience, self.store.current(*audience).await?));
         }
-        let page =
-            search(loaded.iter().map(|(audience, archive)| (*audience, &archive.index)), query);
         let files = loaded.iter().map(|(audience, archive)| file(*audience, archive)).collect();
-        Ok(GuidanceFound { page, files })
+        // Sur un fil bloquant : le classement parcourt les index, et ne doit pas retenir un fil
+        // du runtime.
+        let query = query.clone();
+        off_thread(move || {
+            let indexes = loaded.iter().map(|(audience, archive)| (*audience, &archive.index));
+            Ok(search(indexes, &query))
+        })
+        .await
+        .map(|page| GuidanceFound { page, files })
     }
 
     /// Lecture de la page `id` dans l'archive de `audience`.

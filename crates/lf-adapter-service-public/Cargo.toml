@@ -31,6 +31,8 @@ reqwest = { workspace = true, features = ["system-proxy", "rustls"] }
 # store.rs : rt, tâche du téléchargement et `spawn_blocking` de l'index ; sync, signal de fin
 # partagé (`watch`) ; time, attente bornée et âge de l'archive (`Instant`, suspendu en test)
 tokio = { workspace = true, features = ["rt", "sync", "time"] }
+# journal du chargement et des échecs de l'archive (store.rs), sans adresse ni contenu lu
+tracing.workspace = true
 
 [dev-dependencies]
 # test de propriété du lecteur d'archive (octets quelconques)
@@ -41,6 +43,8 @@ pretty_assertions.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt", "io-util", "test-util"] }
 # client.rs : faux serveur de la DILA
 wiremock.workspace = true
+# fmt + MakeWriter en mémoire pour capter les événements du magasin (testing.rs)
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

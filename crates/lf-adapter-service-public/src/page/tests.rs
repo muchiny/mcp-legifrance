@@ -177,6 +177,10 @@ fn a_table_is_read_row_by_row() {
 fn a_folder_lists_its_sheets_and_a_theme_its_folders_by_group() {
     let folder = read(N31675, "N31675");
     assert_eq!(folder.kind(), GuidanceKind::Folder);
+    // Le flux écrit `type="Dossier"` : il répète la nature, `sheet_type` ne le rend pas.
+    let marker = br#"type="Dossier""#;
+    assert!(N31675.windows(marker.len()).any(|bytes| bytes == marker));
+    assert_eq!(folder.sheet_type, None);
     assert_eq!(chapters(&folder), Vec::<String>::new());
     let listed = entries(&folder);
     assert_eq!(listed.len(), 3);
@@ -191,6 +195,7 @@ fn a_folder_lists_its_sheets_and_a_theme_its_folders_by_group() {
     );
     let theme = read(N19804, "N19804");
     assert_eq!(theme.kind(), GuidanceKind::Theme);
+    assert_eq!(theme.sheet_type, None);
     // Un thème est à la racine du menu.
     assert_eq!(theme.path, Vec::<String>::new());
     let listed = entries(&theme);

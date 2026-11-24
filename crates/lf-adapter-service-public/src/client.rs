@@ -271,6 +271,9 @@ async fn read_archive(mut response: Response, limit: u64) -> Result<Download, Gu
         }
         body.extend_from_slice(&chunk);
     }
+    // La croissance par doublement laisse jusqu'au double de la place utile ; l'archive est
+    // gardée un jour au moins.
+    body.shrink_to_fit();
     Ok(Download { body, etag, last_modified })
 }
 

@@ -18,7 +18,7 @@ use super::*;
 use crate::{
     archive::tests::zip_of,
     client::{Download, Fetched},
-    testing::{Fake, PART, PRO, call, fresh, server_error},
+    testing::{Fake, MIDDAY, PART, PRO, TestWall, call, fresh, server_error},
 };
 
 const WAIT: Duration = Duration::from_secs(300);
@@ -28,7 +28,7 @@ const PART_PATH: &str = "/vdd/3.5/part/zip/vosdroits-latest.zip";
 const PRO_PATH: &str = "/vdd/3.5/pro/zip/vosdroits-latest.zip";
 
 fn source(fake: &Arc<Fake>) -> Source<Arc<Fake>> {
-    Source::new(Arc::clone(fake), WAIT)
+    Source::new(Arc::clone(fake), WAIT, Arc::new(TestWall::at(MIDDAY)))
 }
 
 fn query(words: &str, audience: AudienceFilter) -> GuidanceQuery {
@@ -237,5 +237,5 @@ async fn a_read_sends_no_request_once_the_archive_is_loaded() {
 #[test]
 fn the_production_source_is_built_without_io() {
     let config = ServicePublicConfig::new("mcp-legifrance/1.5.0".to_owned(), WAIT);
-    let _guidance = ServicePublicGuidance::new(&config);
+    let _guidance = ServicePublicGuidance::new(&config, TestWall::at(MIDDAY));
 }

@@ -229,7 +229,13 @@ fn meta(
     Ok(Meta {
         path: menu.path(&id, parent.as_ref()),
         source_url: ServicePublicUrl::read(root.attr("spUrl"), audience, &id),
-        sheet_type: root.attr("type").map(clean_line).filter(|value| !value.is_empty()),
+        // Le type du flux n'a de sens que pour une fiche ; celui d'un dossier ou d'un thème
+        // répète sa nature (`kind`).
+        sheet_type: root
+            .attr("type")
+            .filter(|_| kind == GuidanceKind::Sheet)
+            .map(clean_line)
+            .filter(|value| !value.is_empty()),
         description: line_of(root.child("dc:description")),
         theme: line_of(root.child("Theme").and_then(|theme| theme.child("Titre"))),
         id,

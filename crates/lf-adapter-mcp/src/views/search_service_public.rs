@@ -431,10 +431,13 @@ mod tests {
         assert!(!SEARCH_GUIDANCE_NOTE.contains("http"));
     }
 
-    /// Une page pleine de titres et de chemins de taille réelle passe sous le plafond dur, et la
-    /// vue ne retire jamais un résultat.
+    /// La vue rend chaque résultat reçu : c'est le cas d'usage qui raccourcit les titres et retire
+    /// les chemins avant elle. Une page pleine de titres plus longs que les vrais reste loin du
+    /// plafond dur ; le pire cas (titres et chemins pleins de guillemets) est prouvé côté
+    /// application (`the_worst_page_fits_once_its_titles_and_paths_are_cut`) et par les cas
+    /// extrêmes de `tests/budgets.rs`.
     #[test]
-    fn a_full_page_stays_whole_under_the_hard_cap() {
+    fn the_view_renders_every_hit_it_receives() {
         let title = "é".repeat(120);
         let hits: Vec<GuidanceHit> = (1..=50)
             .map(|number| hit(Audience::Particuliers, &format!("F{number}"), &title))

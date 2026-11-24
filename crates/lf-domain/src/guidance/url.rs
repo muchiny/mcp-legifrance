@@ -88,6 +88,29 @@ impl ServicePublicUrl {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Le site de l'adresse : une page de l'archive d'un public peut être publiée sur l'autre site
+    /// (`spUrl`), et la citation nomme alors ce site-là.
+    ///
+    /// ```
+    /// use lf_domain::guidance::{Audience, ServicePublicUrl, SheetId};
+    ///
+    /// let id = SheetId::parse("F2408")?;
+    /// let given = "https://www.service-public.gouv.fr/particuliers/vosdroits/F2408";
+    /// let url = ServicePublicUrl::read(Some(given), Audience::Entreprendre, &id);
+    /// assert_eq!(url.site(), Audience::Particuliers);
+    /// let rebuilt = ServicePublicUrl::read(None, Audience::Entreprendre, &id);
+    /// assert_eq!(rebuilt.site(), Audience::Entreprendre);
+    /// # Ok::<(), lf_domain::DomainError>(())
+    /// ```
+    pub fn site(&self) -> Audience {
+        // Une adresse ne se construit que sous la base d'un des deux sites (`read`).
+        if self.0.starts_with(page_base(Audience::Entreprendre)) {
+            Audience::Entreprendre
+        } else {
+            Audience::Particuliers
+        }
+    }
 }
 
 impl fmt::Display for ServicePublicUrl {

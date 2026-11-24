@@ -499,24 +499,35 @@ fn errors_name_the_refusal_without_any_byte_read() {
     );
 }
 
+/// Ouvre `bytes` et, si l'archive est retenue, lit chacune de ses entrées.
+fn open_and_read_all(bytes: Vec<u8>) {
+    if let Ok(archive) = Archive::open(bytes) {
+        let names: Vec<String> = archive.names().map(str::to_owned).collect();
+        for name in names {
+            let _ = archive.read(&name, ENTRY_MAX_BYTES);
+            let _ = archive.head(&name);
+        }
+    }
+}
+
 proptest! {
-    /// Des octets quelconques, ou une vraie archive dont un octet change, ne font jamais paniquer
-    /// le lecteur, et toute entrée retenue se lit sans paniquer.
+    /// Une vraie archive coupée, allongée d'un octet (tous les décalages qui suivent glissent) ou
+    /// dont un octet change ne fait jamais paniquer le lecteur, et toute entrée retenue se lit sans
+    /// paniquer. Partir d'une vraie archive atteint les contrôles du répertoire et des en-têtes,
+    /// que des octets tirés au hasard n'atteignent presque jamais.
     #[test]
-    fn any_bytes_are_refused_or_read_without_panic(
-        bytes in proptest::collection::vec(any::<u8>(), 0..512),
+    fn real_archives_cut_lengthened_or_changed_never_panic(
+        cut in 0..PRO.len(),
+        insert in 0..=PRO.len(),
         at in 0..PRO.len(),
         value in any::<u8>(),
     ) {
-        let _ = Archive::open(bytes);
+        open_and_read_all(PRO[..cut].to_vec());
+        let mut longer = PRO.to_vec();
+        longer.insert(insert, value);
+        open_and_read_all(longer);
         let mut changed = PRO.to_vec();
         changed[at] = value;
-        if let Ok(archive) = Archive::open(changed) {
-            let names: Vec<String> = archive.names().map(str::to_owned).collect();
-            for name in names {
-                let _ = archive.read(&name, ENTRY_MAX_BYTES);
-                let _ = archive.head(&name);
-            }
-        }
+        open_and_read_all(changed);
     }
 }

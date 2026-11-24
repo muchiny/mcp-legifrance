@@ -3,14 +3,21 @@
 //! `#[cfg(test)]` seulement.
 
 use std::{
+    cell::RefCell,
     collections::VecDeque,
     future::Future,
-    sync::{Arc, Mutex},
+    io,
+    sync::{
+        Arc, Mutex, Once,
+        atomic::{AtomicI64, Ordering},
+    },
 };
 
-use lf_application::ports::GuidanceError;
-use lf_domain::guidance::Audience;
+use chrono::{DateTime, Utc};
+use lf_application::ports::{Clock, GuidanceError};
+use lf_domain::{date::CivilDate, guidance::Audience};
 use tokio::sync::Semaphore;
+use tracing_subscriber::fmt::MakeWriter;
 
 use crate::{
     client::{Download, Fetched},
@@ -96,4 +103,113 @@ pub(crate) fn server_error() -> GuidanceError {
 /// Un appel noté par le faux téléchargeur.
 pub(crate) fn call(audience: Audience, etag: Option<&str>) -> (Audience, Option<String>) {
     (audience, etag.map(str::to_owned))
+}
+
+/// 2026-11-24T12:00:00Z, en secondes depuis le 1970-01-01.
+pub(crate) const MIDDAY: i64 = 1_795_521_600;
+
+/// Horloge civile de test, réglée à la main et partagée par ses clones.
+#[derive(Debug, Clone)]
+pub(crate) struct TestWall(Arc<AtomicI64>);
+
+impl TestWall {
+    /// Horloge arrêtée à `timestamp` (secondes depuis le 1970-01-01, UTC).
+    pub(crate) fn at(timestamp: i64) -> Self {
+        Self(Arc::new(AtomicI64::new(timestamp)))
+    }
+
+    /// Avance (ou recule) l'horloge de `seconds`.
+    pub(crate) fn shift(&self, seconds: i64) {
+        self.0.fetch_add(seconds, Ordering::SeqCst);
+    }
+}
+
+impl Clock for TestWall {
+    fn now_utc(&self) -> DateTime<Utc> {
+        DateTime::from_timestamp(self.0.load(Ordering::SeqCst), 0).unwrap()
+    }
+
+    /// Jamais lue par l'adapter : une date fixe.
+    fn today_paris(&self) -> CivilDate {
+        CivilDate::new(2026, 11, 24).unwrap()
+    }
+}
+
+thread_local! {
+    /// Journal du fil courant : chaque test tourne sur son propre fil.
+    static JOURNAL: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Écrit dans le journal du fil courant : `io::Write` et `MakeWriter` à la fois.
+#[derive(Clone, Copy)]
+struct ThreadLog;
+
+impl io::Write for ThreadLog {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        JOURNAL.with_borrow_mut(|journal| journal.extend_from_slice(buf));
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl MakeWriter<'_> for ThreadLog {
+    type Writer = Self;
+
+    fn make_writer(&self) -> Self::Writer {
+        *self
+    }
+}
+
+/// Vide le journal du fil courant et s'assure que tous les événements `tracing`, jusqu'au
+/// niveau `TRACE`, y sont écrits. À appeler au début d'un test qui lit [`journal`].
+///
+/// L'abonné est global et installé une seule fois : un abonné local changerait l'intérêt mis en
+/// cache par chaque point d'instrumentation, et un test voisin pourrait le figer sur « jamais ».
+pub(crate) fn start_journal() {
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(ThreadLog)
+            .with_ansi(false)
+            .with_max_level(tracing::Level::TRACE)
+            .finish();
+        tracing::subscriber::set_global_default(subscriber).unwrap();
+    });
+    JOURNAL.with_borrow_mut(Vec::clear);
+}
+
+/// Le journal écrit par ce fil depuis [`start_journal`], vidé par la lecture.
+pub(crate) fn journal() -> String {
+    String::from_utf8(JOURNAL.with_borrow_mut(std::mem::take)).unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    #[test]
+    fn the_test_wall_is_set_by_hand_and_shared_by_its_clones() {
+        let wall = TestWall::at(MIDDAY);
+        let other = wall.clone();
+        assert_eq!(wall.now_utc().to_rfc3339(), "2026-11-24T12:00:00+00:00");
+        other.shift(-3_600);
+        assert_eq!(wall.now_utc().to_rfc3339(), "2026-11-24T11:00:00+00:00");
+        assert_eq!(wall.today_paris(), CivilDate::new(2026, 11, 24).unwrap());
+    }
+
+    #[test]
+    fn the_journal_holds_the_events_of_this_thread_until_it_is_read() {
+        start_journal();
+        tracing::warn!(count = 3, "événement de test");
+        let text = journal();
+        assert!(text.contains(" WARN ") && text.contains("événement de test count=3"));
+        assert_eq!(journal(), "");
+        // L'écrivain n'a rien à vider.
+        assert!(io::Write::flush(&mut ThreadLog).is_ok());
+    }
 }

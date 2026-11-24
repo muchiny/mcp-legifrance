@@ -131,18 +131,25 @@ impl LegalReferences {
     }
 }
 
-/// Les adresses d'un champ `dc:source`, séparées par des virgules, bords retirés. Un morceau qui
-/// n'est pas une adresse (une virgule écrite dans une ancre `#:~:text=…` coupe l'adresse) sera
+/// Les adresses de Légifrance d'un champ `dc:source`, séparées par des virgules, bords retirés.
+/// Un morceau qui ne commence pas par `https://www.legifrance.gouv.fr/` est omis tout de suite :
+/// [`legal_references`] l'écarterait, et la fiche vient du réseau (un champ de 2 Mio fait de
+/// virgules donnerait un million de morceaux). Un morceau qui commence ainsi sans être une
+/// adresse de la grammaire (une virgule écrite dans une ancre `#:~:text=…` coupe l'adresse) sera
 /// écarté par [`legal_references`].
 ///
 /// ```
 /// use lf_domain::guidance::source_urls;
 ///
-/// let urls: Vec<&str> = source_urls("https://a.example/x, https://b.example/y").collect();
-/// assert_eq!(urls, ["https://a.example/x", "https://b.example/y"]);
+/// let field = "https://www.legifrance.gouv.fr/codes/id/LEGIARTI000006421305, https://a.example/y";
+/// let urls: Vec<&str> = source_urls(field).collect();
+/// assert_eq!(urls, ["https://www.legifrance.gouv.fr/codes/id/LEGIARTI000006421305"]);
 /// ```
 pub fn source_urls(dc_source: &str) -> impl Iterator<Item = &str> {
-    dc_source.split(',').map(str::trim).filter(|url| !url.is_empty())
+    dc_source
+        .split(',')
+        .map(str::trim)
+        .filter(|url| url.strip_prefix(WEB_BASE).is_some_and(|rest| rest.starts_with('/')))
 }
 
 /// Références de Légifrance tirées des liens d'une fiche, chacun donné avec son titre éventuel,
@@ -507,11 +514,20 @@ mod tests {
     }
 
     #[test]
-    fn dc_source_is_split_at_commas() {
-        let urls: Vec<&str> =
-            source_urls(" https://a.example/x ,https://b.example/y,, ,").collect();
-        assert_eq!(urls, ["https://a.example/x", "https://b.example/y"]);
+    fn dc_source_is_split_at_commas_and_keeps_legifrance_only() {
+        let field = " https://www.legifrance.gouv.fr/a ,https://www.legifrance.gouv.fr/b,, ,\
+                     https://a.example/x,https://www.legifrance.gouv.fr,\
+                     https://www.legifrance.gouv.fr.example/c,http://www.legifrance.gouv.fr/d";
+        let urls: Vec<&str> = source_urls(field).collect();
+        assert_eq!(urls, ["https://www.legifrance.gouv.fr/a", "https://www.legifrance.gouv.fr/b"]);
         assert_eq!(source_urls("").count(), 0);
+        // Rien de ce que le filtre omet n'aurait été gardé.
+        let omitted = [
+            "https://a.example/x",
+            "https://www.legifrance.gouv.fr",
+            "https://www.legifrance.gouv.fr.example/c",
+        ];
+        assert_eq!(legal_references(omitted.map(|url| (None, url))), LegalReferences::default());
     }
 
     /// Liens d'une fixture, dans l'ordre du document : chaque adresse de `dc:source`, puis
