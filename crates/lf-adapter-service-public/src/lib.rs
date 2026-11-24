@@ -7,6 +7,8 @@
 //!
 //! Ce que le crate garantit, quel que soit l'appelant :
 //!
+//! - **une requête fermée** : deux adresses fixes, `https` seul, aucune redirection suivie,
+//!   corps borné à 64 Mio, aucun réessai, repos après un 429, erreurs sans adresse (`client`) ;
 //! - **une lecture d'archive bornée** : sous-ensemble du format servi seulement, répertoire
 //!   central recoupé avec chaque en-tête local, entrées qui ne se chevauchent pas, décompression
 //!   arrêtée au premier octet au-delà de la borne, somme CRC-32 vérifiée (`archive`) ;
@@ -20,6 +22,11 @@
     expect(dead_code, reason = "lecteur d'archive lu par la source Service-Public (T-MS-25)")
 )]
 mod archive;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "client lu par la source Service-Public (T-MS-23)")
+)]
+mod client;
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "traduction lue par la source Service-Public (T-MS-25)")

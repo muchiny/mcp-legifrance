@@ -31,6 +31,22 @@ fn text_of(doc: &GuidanceDoc) -> String {
     doc.text().unwrap().as_str().to_owned()
 }
 
+/// Entrées d'un dossier ou d'un thème ; aucune pour une fiche.
+fn entries(doc: &GuidanceDoc) -> &[NavigationEntry] {
+    match &doc.content {
+        GuidanceContent::Folder(entries) | GuidanceContent::Theme(entries) => entries,
+        GuidanceContent::Sheet { .. } => &[],
+    }
+}
+
+/// Titres des chapitres d'une fiche ; aucun pour un dossier ou un thème.
+fn chapters(doc: &GuidanceDoc) -> &[String] {
+    match &doc.content {
+        GuidanceContent::Sheet { text, .. } => &text.chapters,
+        GuidanceContent::Folder(_) | GuidanceContent::Theme(_) => &[],
+    }
+}
+
 /// Une petite fiche : `body` est placé sous `Publication`, après les métadonnées.
 fn sheet(body: &str) -> GuidanceDoc {
     let xml = format!(
@@ -87,8 +103,8 @@ fn a_real_sheet_becomes_its_page() {
     assert!(text.contains("sommes insaisissables (F31185)"));
     // Ni renvois, ni contacts, ni titres de références dans le texte.
     assert!(!text.contains("Code des procédures civiles"));
-    let GuidanceContent::Sheet { text: sheet_text, .. } = &doc.content else { return };
-    assert_eq!(sheet_text.chapters, Vec::<String>::new());
+    assert_eq!(chapters(&doc), Vec::<String>::new());
+    assert_eq!(entries(&doc), []);
     // `dc:source` d'abord, puis les `Reference` qui donnent les titres des mêmes textes.
     let references = doc.legal_references().unwrap().references();
     let ids: Vec<Option<&str>> = references.iter().map(LegalReference::id).collect();
@@ -161,10 +177,11 @@ fn a_table_is_read_row_by_row() {
 fn a_folder_lists_its_sheets_and_a_theme_its_folders_by_group() {
     let folder = read(N31675, "N31675");
     assert_eq!(folder.kind(), GuidanceKind::Folder);
-    let GuidanceContent::Folder(entries) = &folder.content else { return };
-    assert_eq!(entries.len(), 3);
+    assert_eq!(chapters(&folder), Vec::<String>::new());
+    let listed = entries(&folder);
+    assert_eq!(listed.len(), 3);
     assert_eq!(
-        entries[0],
+        listed[0],
         NavigationEntry {
             id: id("F2384"),
             kind: GuidanceKind::Sheet,
@@ -176,9 +193,9 @@ fn a_folder_lists_its_sheets_and_a_theme_its_folders_by_group() {
     assert_eq!(theme.kind(), GuidanceKind::Theme);
     // Un thème est à la racine du menu.
     assert_eq!(theme.path, Vec::<String>::new());
-    let GuidanceContent::Theme(entries) = &theme.content else { return };
+    let listed = entries(&theme);
     assert_eq!(
-        entries[0],
+        listed[0],
         NavigationEntry {
             id: id("N105"),
             kind: GuidanceKind::Folder,
@@ -186,7 +203,7 @@ fn a_folder_lists_its_sheets_and_a_theme_its_folders_by_group() {
             group: Some("Étranger en France".to_owned()),
         }
     );
-    assert_eq!(entries.last().unwrap().group.as_deref(), Some("Français à l'étranger"));
+    assert_eq!(listed.last().unwrap().group.as_deref(), Some("Français à l'étranger"));
 }
 
 #[test]
@@ -204,8 +221,8 @@ fn navigation_entries_skip_bad_numbers_and_take_their_titles() {
         &GuidanceMenu::default(),
     )
     .unwrap();
-    let GuidanceContent::Folder(entries) = doc.content else { return };
-    let listed: Vec<(&str, &str, Option<&str>)> = entries
+    assert_eq!(doc.kind(), GuidanceKind::Folder);
+    let listed: Vec<(&str, &str, Option<&str>)> = entries(&doc)
         .iter()
         .map(|entry| (entry.id.as_str(), entry.title.as_str(), entry.group.as_deref()))
         .collect();
@@ -242,11 +259,11 @@ fn a_page_that_is_not_the_requested_publication_is_refused() {
 
 #[test]
 fn a_text_beyond_the_long_text_bound_is_refused() {
-    let mut root =
-        parse(br#"<Publication ID="F1"><dc:title>T</dc:title><Texte/></Publication>"#).unwrap();
-    let Some(Child::Element(texte)) = root.children.get_mut(1) else { return };
+    let mut root = parse(br#"<Publication ID="F1"><dc:title>T</dc:title></Publication>"#).unwrap();
+    let mut texte = parse(b"<Texte/>").unwrap();
     let size = usize::try_from(LongText::MAX_CHARS).unwrap() + 1;
     texte.children.push(Child::Text("a".repeat(size)));
+    root.children.push(Child::Element(texte));
     let error = page(&root, Audience::Particuliers, &id("F1"), &GuidanceMenu::default());
     assert_eq!(error, Err(PageError::TooLong));
 }

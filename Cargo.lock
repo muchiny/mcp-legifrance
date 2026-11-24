@@ -1692,12 +1692,17 @@ dependencies = [
 name = "lf-adapter-service-public"
 version = "1.4.1"
 dependencies = [
+ "chrono",
  "flate2",
+ "lf-application",
  "lf-domain",
  "pretty_assertions",
  "proptest",
  "quick-xml",
+ "reqwest",
  "thiserror",
+ "tokio",
+ "wiremock",
 ]
 
 [[package]]
