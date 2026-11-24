@@ -783,6 +783,12 @@ mod security {
     /// le préfixe de la grammaire des adresses rendues dans `source_url` ; il n'est jamais appelé.
     /// Et `data.economie.gouv.fr`, l'hôte exact, en `https` seul : le portail du jeu `bofip-vigueur`,
     /// seule adresse que `lf-adapter-bofip` appelle, fixée dans le code (ADR-0028, décision 4).
+    ///
+    /// Service-Public (ADR-0033, décisions 4 et 6), hôtes exacts en `https` seul :
+    /// `www.service-public.gouv.fr` et `entreprendre.service-public.gouv.fr`, préfixes des
+    /// adresses publiques rendues dans `source_url`, jamais appelés ; et
+    /// `lecomarquage.service-public.gouv.fr`, l'hôte des archives du jour, seule adresse que
+    /// `lf-adapter-service-public` appelle, fixée dans le code.
     fn allowlisted(url: &str) -> bool {
         let Some((scheme, rest)) = url.split_once("://") else { return false };
         if rest.contains('@') {
@@ -800,6 +806,9 @@ mod security {
                     || name == "www.legifrance.gouv.fr"
                     || name == "bofip.impots.gouv.fr"
                     || name == "data.economie.gouv.fr"
+                    || name == "www.service-public.gouv.fr"
+                    || name == "entreprendre.service-public.gouv.fr"
+                    || name == "lecomarquage.service-public.gouv.fr"
                     || rest.starts_with("github.com/muchiny/mcp-legifrance")
             }
             "http" => matches!(name, "127.0.0.1" | "localhost" | "[::1]"),
@@ -843,6 +852,13 @@ mod security {
                       let m = \"https://data.economie.gouv.fr.example.org/\";\n\
                       let n = \"https://economie.gouv.fr/\";\n\
                       let o = \"http://data.economie.gouv.fr/\";\n\
+                      let p = \"https://www.service-public.gouv.fr/particuliers/vosdroits/F1\";\n\
+                      let q = \"https://entreprendre.service-public.gouv.fr/vosdroits/F1\";\n\
+                      let r = \"https://lecomarquage.service-public.gouv.fr/vdd/3.5/part/zip/x.zip\";\n\
+                      let s = \"https://service-public.gouv.fr/particuliers/vosdroits/F1\";\n\
+                      let t = \"https://www.service-public.gouv.fr.example.org/\";\n\
+                      let u = \"http://www.service-public.gouv.fr/\";\n\
+                      let v = \"https://associations.service-public.gouv.fr/\";\n\
                       #[cfg(test)]\nmod tests { let z = \"https://tests.example.org\"; }\n";
         let verdicts: Vec<(usize, bool)> = url_hosts(production_part(sample))
             .iter()
@@ -866,6 +882,13 @@ mod security {
                 (14, false),
                 (15, false),
                 (16, false),
+                (17, true),
+                (18, true),
+                (19, true),
+                (20, false),
+                (21, false),
+                (22, false),
+                (23, false),
             ]
         );
 

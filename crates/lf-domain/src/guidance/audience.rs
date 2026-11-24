@@ -48,6 +48,14 @@ impl Audience {
         }
     }
 
+    /// Nom du site de ce public, dans la citation et l'attribution (ADR-0033, décision 9).
+    pub const fn site(self) -> &'static str {
+        match self {
+            Self::Particuliers => "Service-Public.gouv.fr",
+            Self::Entreprendre => "Entreprendre.Service-Public.gouv.fr",
+        }
+    }
+
     /// L'autre public, que nomme le message d'un numéro absent (05 §5.17).
     #[must_use]
     pub const fn other(self) -> Self {
@@ -121,6 +129,14 @@ mod tests {
         let mut sorted = Audience::ALL.map(Audience::name);
         sorted.sort_unstable();
         assert_eq!(sorted, Audience::NAMES);
+    }
+
+    #[test]
+    fn each_audience_names_its_site() {
+        assert_eq!(
+            Audience::ALL.map(Audience::site),
+            ["Service-Public.gouv.fr", "Entreprendre.Service-Public.gouv.fr"]
+        );
     }
 
     #[test]

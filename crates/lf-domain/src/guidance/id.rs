@@ -142,7 +142,9 @@ mod tests {
         /// Ce qui est accepté est exactement `F` ou `N` suivi de 1 à 7 chiffres ASCII, et se
         /// relit à l'identique.
         #[test]
-        fn accepted_ids_have_the_strict_form(input in "\\PC{0,12}") {
+        fn accepted_ids_have_the_strict_form(
+            input in prop_oneof!["\\PC{0,12}", "[ \t]{0,2}[FfNnRr][0-9]{0,9}[ \t]{0,2}"],
+        ) {
             if let Ok(id) = SheetId::parse(&input) {
                 let text = id.as_str();
                 let (prefix, digits) = text.split_at(1);

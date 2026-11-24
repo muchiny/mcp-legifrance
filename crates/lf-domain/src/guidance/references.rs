@@ -175,8 +175,7 @@ impl<'a> Link<'a> {
         let path = rest.split(['?', '#']).next().unwrap_or_default();
         let path = path.strip_suffix('/').unwrap_or(path);
         let mut segments = path.split('/');
-        let fonds = segments.next()?;
-        let view = segments.next()?;
+        let (Some(fonds), Some(view)) = (segments.next(), segments.next()) else { return None };
         VIEWS.binary_search(&(fonds, view)).ok()?;
         let mut ids = Vec::new();
         let mut date = None;
