@@ -276,6 +276,61 @@ expression: report
     "under_estimation_target": true
   },
   {
+    "case": "service_public_search_50_hits_with_1000_char_titles",
+    "kept": {
+      "hits": 50,
+      "titles_shortened": 24
+    },
+    "outcome": "rendered",
+    "tool": "fr_search_service_public",
+    "under_estimation_target": true
+  },
+  {
+    "case": "service_public_search_50_hits_with_escape_rich_titles_and_paths",
+    "kept": {
+      "hits": 50,
+      "paths_removed": 20,
+      "titles_shortened": 50
+    },
+    "outcome": "rendered",
+    "tool": "fr_search_service_public",
+    "under_estimation_target": true
+  },
+  {
+    "case": "service_public_get_40000_char_escape_rich_window",
+    "kept": {
+      "text_length": 58498,
+      "window_chars": 19998
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_service_public",
+    "under_estimation_target": true
+  },
+  {
+    "case": "service_public_get_40000_char_window_with_60_long_references",
+    "kept": {
+      "references": 50,
+      "titles_shortened": 44,
+      "window": {
+        "text_length": 58498,
+        "window_chars": 9999
+      }
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_service_public",
+    "under_estimation_target": true
+  },
+  {
+    "case": "service_public_get_folder_with_100_entries",
+    "kept": {
+      "chars": 12639,
+      "entries": 100
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_service_public",
+    "under_estimation_target": true
+  },
+  {
     "case": "coverage",
     "kept": {
       "fonds_listed": true

@@ -61,7 +61,7 @@ use crate::{
 };
 
 /// Nombre d'outils du catalogue (05 §3) : un routeur par fichier de `tools/`.
-const ROUTERS: usize = 15;
+const ROUTERS: usize = 17;
 
 /// Nom du serveur dans `serverInfo` (05 §2.2).
 const SERVER_NAME: &str = "mcp-legifrance";
@@ -104,7 +104,7 @@ pub struct LegifranceServer<
 impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
     LegifranceServer<C, A, K, D, G>
 {
-    /// Serveur dont le routeur additionne les quinze routeurs d'outils de `tools/`, annonçant la
+    /// Serveur dont le routeur additionne les dix-sept routeurs d'outils de `tools/`, annonçant la
     /// surface [`SURFACE`].
     #[must_use]
     pub fn new(service: Arc<LegalService<C, A, K, D, G>>) -> Self {
@@ -125,7 +125,7 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
         Self { service, info: server_config(surface), tool_router }
     }
 
-    /// Les routeurs des 15 outils, dans l'ordre du catalogue (05 §3). La longueur du tableau est
+    /// Les routeurs des 17 outils, dans l'ordre du catalogue (05 §3). La longueur du tableau est
     /// vérifiée à la compilation : retirer ou oublier un routeur ne compile pas.
     fn routers() -> [ToolRouter<Self>; ROUTERS] {
         [
@@ -144,6 +144,8 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
             Self::search_all_router(),
             Self::search_bofip_router(),
             Self::get_bofip_router(),
+            Self::search_service_public_router(),
+            Self::get_service_public_router(),
         ]
     }
 
@@ -801,7 +803,7 @@ mod tests {
             text::LongText,
         };
 
-        use crate::testing::{SharedAudit, SharedCorpus, SharedDoctrine};
+        use crate::testing::{SharedAudit, SharedCorpus, SharedDoctrine, SharedGuidance};
 
         const ARTICLE_URI: &str = "legifrance://article/LEGIARTI000006419288";
         const DECISION_URI: &str = "legifrance://decision/JURITEXT000037999394";
@@ -825,7 +827,8 @@ mod tests {
                 FixedClock::new(now, fixture.today),
                 fixture.settings.clone(),
             )
-            .with_doctrine(SharedDoctrine(Arc::clone(&fixture.doctrine)));
+            .with_doctrine(SharedDoctrine(Arc::clone(&fixture.doctrine)))
+            .with_guidance(SharedGuidance(Arc::clone(&fixture.guidance)));
             LegifranceServer::with_surface(Arc::new(service), Surface::V03)
         }
 

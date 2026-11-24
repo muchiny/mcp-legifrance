@@ -147,9 +147,9 @@ mod security {
 
     /// Régression : D-07. Chaque outil que `tools/list` annonce, appelé avec une entrée vide (rejetée
     /// pour la plupart, acceptée pour `fr_coverage`), produit exactement une ligne d'audit à son nom,
-    /// écrite avant que la réponse ne parte. La liste annoncée est celle des quinze outils
-    /// enregistrés (`ToolName::ALL`, les deux du BOFiP compris) : un outil ajouté sans audit ou sans
-    /// test ferait échouer ce test.
+    /// écrite avant que la réponse ne parte. La liste annoncée est celle des dix-sept outils
+    /// enregistrés (`ToolName::ALL`, les deux du BOFiP et les deux de Service-Public compris) : un
+    /// outil ajouté sans audit ou sans test ferait échouer ce test.
     #[tokio::test]
     async fn every_tool_goes_through_audited() {
         let audit = tempfile::tempdir().expect("a temporary directory");
@@ -829,10 +829,35 @@ mod security {
         }
     }
 
+    /// Vrai si `text`, le fichier d'un module, déclare son sous-module `tests` sous `#[cfg(test)]`
+    /// (`mod tests;`, le code dans `tests.rs` à côté) : ce fichier-là n'entre pas dans le binaire.
+    fn declares_test_module(text: &str) -> bool {
+        let lines: Vec<&str> = text.lines().map(str::trim).collect();
+        lines.windows(2).any(|pair| {
+            pair[0] == "#[cfg(test)]"
+                && pair[1].strip_suffix("mod tests;").is_some_and(|before| {
+                    before.is_empty() || before == "pub(crate) " || before == "pub(super) "
+                })
+        })
+    }
+
+    /// Vrai si `file` est un `tests.rs` que son module parent (`page.rs` pour `page/tests.rs`)
+    /// déclare sous `#[cfg(test)]`.
+    fn is_test_module_file(file: &Path) -> bool {
+        file.file_name().is_some_and(|name| name == "tests.rs")
+            && file
+                .parent()
+                .and_then(|dir| fs::read_to_string(dir.with_extension("rs")).ok())
+                .is_some_and(|parent| declares_test_module(&parent))
+    }
+
     /// Régression : D-04. Aucune URL littérale du code de production (`crates/*/src`, hors modules
     /// de test) ne sort de la liste blanche : hôtes `*.piste.gouv.fr`, `www.legifrance.gouv.fr`,
-    /// dépôt du projet, boucle locale, et les deux hôtes exacts du BOFiP (voir `allowlisted`). Une URL pour un autre hôte (télémétrie, manifeste distant) y
-    /// serait vue. L'analyse elle-même est vérifiée sur des exemples, et ne lit pas zéro fichier.
+    /// dépôt du projet, boucle locale, et les hôtes exacts du BOFiP et de Service-Public (voir
+    /// `allowlisted`). Une URL pour un autre hôte (télémétrie, manifeste distant) y serait vue.
+    /// Un module de test est soit la fin d'un fichier après `#[cfg(test)]`, soit un `tests.rs`
+    /// que son parent déclare sous `#[cfg(test)]`. L'analyse elle-même est vérifiée sur des
+    /// exemples, et ne lit pas zéro fichier.
     #[test]
     fn production_sources_contain_only_allowlisted_urls() {
         // L'analyse voit les URL piégées et laisse passer les permises.
@@ -892,6 +917,21 @@ mod security {
             ]
         );
 
+        // Un `tests.rs` n'est sauté que si son parent le déclare sous `#[cfg(test)]`.
+        let declared = [
+            ("#[cfg(test)]\nmod tests;\n", true),
+            ("    #[cfg(test)]\n    pub(crate) mod tests;\n", true),
+            ("#[cfg(test)]\npub(super) mod tests;\n", true),
+            ("mod tests;\n", false),
+            ("#[cfg(test)]\n\nmod tests;\n", false),
+            ("#[cfg(test)]\npub mod tests;\n", false),
+            ("#[cfg(test)]\nmod testing;\n", false),
+            ("#[cfg(test)]\nmod tests {}\n", false),
+        ];
+        for (text, expected) in declared {
+            assert_eq!(declares_test_module(text), expected, "{text:?}");
+        }
+
         let mut files = Vec::new();
         let crates = repository().join("crates");
         for entry in fs::read_dir(&crates).expect("the crates directory").flatten() {
@@ -899,11 +939,16 @@ mod security {
         }
         assert!(files.len() > 100, "only {} source files scanned", files.len());
         let mut scanned_urls = 0;
+        let mut skipped_test_files = 0;
         let mut offenders = Vec::new();
         for file in &files {
             // `testing.rs` est le module des doublons d'essai (feature `test-support`), absent du
             // binaire : ses URL visent le faux serveur local du test (`http://{}`).
             if file.file_name().is_some_and(|name| name == "testing.rs") {
+                continue;
+            }
+            if is_test_module_file(file) {
+                skipped_test_files += 1;
                 continue;
             }
             let text = fs::read_to_string(file).expect("a UTF-8 source file");
@@ -918,6 +963,8 @@ mod security {
             }
         }
         assert!(scanned_urls >= 5, "only {scanned_urls} URLs found: the scan is blind");
+        // Les modules de test de `lf-adapter-service-public` sont bien reconnus.
+        assert!(skipped_test_files >= 6, "only {skipped_test_files} test files recognised");
         assert!(offenders.is_empty(), "URLs outside the allowlist:\n{}", offenders.join("\n"));
     }
 

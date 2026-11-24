@@ -1,0 +1,60 @@
+---
+source: crates/lf-adapter-mcp/src/params/get_service_public.rs
+expression: schema()
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "audience": {
+      "default": "particuliers",
+      "description": "Audience of the sheet, as given by fr_search_service_public.",
+      "enum": [
+        "particuliers",
+        "entreprendre"
+      ],
+      "type": "string"
+    },
+    "detail": {
+      "description": "\"summary\" (default): metadata and a short summary. \"full\": the text from offset, up to max_chars.",
+      "enum": [
+        "summary",
+        "full"
+      ],
+      "type": "string"
+    },
+    "focus": {
+      "description": "A few words: return the best matching passages instead of the summary or window.",
+      "maxLength": 500,
+      "minLength": 1,
+      "type": "string"
+    },
+    "id": {
+      "description": "A sheet (F...) or folder (N...) id from fr_search_service_public.",
+      "type": "string"
+    },
+    "max_chars": {
+      "default": 4000,
+      "description": "Maximum characters of text returned (500 to 40000).",
+      "maximum": 40000,
+      "minimum": 500,
+      "type": "integer"
+    },
+    "offset": {
+      "default": 0,
+      "description": "Start position in characters for detail=\"full\"; pass the next_offset of the previous call.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "passages": {
+      "default": 3,
+      "description": "Number of passages returned with focus.",
+      "maximum": 10,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}

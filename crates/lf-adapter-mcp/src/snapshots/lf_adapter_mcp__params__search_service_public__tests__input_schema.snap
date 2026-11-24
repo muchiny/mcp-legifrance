@@ -1,0 +1,42 @@
+---
+source: crates/lf-adapter-mcp/src/params/search_service_public.rs
+expression: schema()
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "audience": {
+      "default": "particuliers",
+      "description": "\"particuliers\" (default): individuals; \"entreprendre\": businesses and the self-employed; \"all\": both.",
+      "enum": [
+        "particuliers",
+        "entreprendre",
+        "all"
+      ],
+      "type": "string"
+    },
+    "page": {
+      "default": 1,
+      "description": "Page number, from 1.",
+      "minimum": 1,
+      "type": "integer"
+    },
+    "page_size": {
+      "default": 10,
+      "description": "Hits per page (1..50).",
+      "maximum": 50,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "query": {
+      "description": "A few plain words, matched against sheet and folder titles and summaries (accents and case aside; a word also matches the longer words it starts).",
+      "maxLength": 450,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "type": "object"
+}

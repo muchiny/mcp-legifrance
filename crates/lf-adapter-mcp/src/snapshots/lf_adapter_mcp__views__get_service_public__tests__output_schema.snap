@@ -1,0 +1,205 @@
+---
+source: crates/lf-adapter-mcp/src/views/get_service_public.rs
+expression: schema
+---
+{
+  "properties": {
+    "attribution": {
+      "type": "string"
+    },
+    "audience": {
+      "enum": [
+        "particuliers",
+        "entreprendre"
+      ],
+      "type": "string"
+    },
+    "citation": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "entries": {
+      "items": {
+        "properties": {
+          "group": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "sheet",
+              "folder",
+              "theme"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "guidance_note": {
+      "description": "What Service-Public sheets are, and the limit of this source.",
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "sheet",
+        "folder",
+        "theme"
+      ],
+      "type": "string"
+    },
+    "legal_references": {
+      "description": "Legifrance texts the sheet relies on, at most 50; id is given when a tool of this server reads it.",
+      "items": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source_url": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "legal_references_truncated": {
+      "description": "true when legal_references is incomplete.",
+      "type": "boolean"
+    },
+    "next_offset": {
+      "description": "Pass as offset to read the next window.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "note": {
+      "type": "string"
+    },
+    "passages": {
+      "items": {
+        "properties": {
+          "offset": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "score": {
+            "description": "BM25 relevance, only comparable between the passages of this answer.",
+            "type": "number"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "offset",
+          "text",
+          "score"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "path": {
+      "description": "Place in the site, from the broadest heading to the narrowest.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "sheet_type": {
+      "type": "string"
+    },
+    "source_file": {
+      "description": "The archive and the entry read.",
+      "properties": {
+        "date": {
+          "type": "string"
+        },
+        "entry": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "name",
+        "entry"
+      ],
+      "type": "object"
+    },
+    "source_url": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "summary_source": {
+      "enum": [
+        "official",
+        "dispositif",
+        "lead"
+      ],
+      "type": "string"
+    },
+    "summary_truncated": {
+      "description": "True when the summary itself is cut short or is only the opening of the text. Absent for an official summary or operative part that is given whole (it may still cover only part of the text).",
+      "type": "boolean"
+    },
+    "text": {
+      "type": "string"
+    },
+    "text_length": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "theme": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "updated": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "audience",
+    "kind",
+    "title",
+    "citation",
+    "source_url",
+    "attribution",
+    "source_file",
+    "guidance_note"
+  ],
+  "type": "object"
+}

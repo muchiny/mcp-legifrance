@@ -2,9 +2,11 @@
 //! de sa configuration.
 //!
 //! Le domaine calcule le statut, les familles (une par fond servi) et les lacunes (catalogue
-//! FR-001 à FR-009, puis FR-101 à FR-105) ; la vue y ajoute ce qui est de présentation : le libellé
+//! FR-001 à FR-009, puis FR-101 à FR-109) ; la vue y ajoute ce qui est de présentation : le libellé
 //! et les outils de chaque famille (le domaine ne nomme aucun outil), les outils transverses selon
 //! la surface annoncée, la source, l'attribution des données et la date de consultation (Q15).
+//! Elle écarte aussi les lacunes de Service-Public (FR-108, FR-109) hors de la v0.3, la seule
+//! surface qui sert ses outils : les réponses v0.1 et v0.2 restent celles d'avant le jalon MS.
 //! Pas de commentaire de doc sur les champs : le schéma de sortie n'en porte aucun.
 
 use lf_application::{
@@ -12,7 +14,7 @@ use lf_application::{
 };
 use lf_domain::{
     contract::ELI_NOTE,
-    coverage::{CoverageFamily, CoverageGap, CoverageStatus, DOCTRINE_FAMILY},
+    coverage::{CoverageFamily, CoverageGap, CoverageStatus, DOCTRINE_FAMILY, GUIDANCE_FAMILY},
     fond::Fond,
 };
 use schemars::JsonSchema;
@@ -199,13 +201,36 @@ fn doctrine_family() -> FamilyView {
     }
 }
 
-/// Nom de famille d'une lacune : un fond de Légifrance, ou la famille du BOFiP ; `None` pour une
-/// lacune qui ne désigne aucune famille.
+/// Libellé de la famille de Service-Public : les deux sites et la licence (ADR-0033, décision 12).
+const GUIDANCE_LABEL: &str = "Practical sheets: Service-Public.gouv.fr and \
+     Entreprendre.Service-Public.gouv.fr (DILA, Licence Ouverte 2.0), today's version only";
+
+/// Famille de Service-Public, rendue comme celle du BOFiP : à la surface qui enregistre ses deux
+/// outils, que la source soit active ou coupée ; l'état de la source se lit dans les lacunes
+/// (FR-108, FR-109).
+fn guidance_family() -> FamilyView {
+    FamilyView {
+        fond: GUIDANCE_FAMILY.to_owned(),
+        label: GUIDANCE_LABEL.to_owned(),
+        tools: [ToolName::FR_SEARCH_SERVICE_PUBLIC, ToolName::FR_GET_SERVICE_PUBLIC]
+            .map(|tool| tool.as_str().to_owned())
+            .into(),
+    }
+}
+
+/// Nom de famille d'une lacune : un fond de Légifrance, la famille du BOFiP ou celle de
+/// Service-Public ; `None` pour une lacune qui ne désigne aucune famille.
 fn gap_family(family: &str) -> Option<String> {
-    if family == DOCTRINE_FAMILY {
-        return Some(DOCTRINE_FAMILY.to_owned());
+    if family == DOCTRINE_FAMILY || family == GUIDANCE_FAMILY {
+        return Some(family.to_owned());
     }
     Fond::parse(family).ok().map(|fond| fond.name().to_owned())
+}
+
+/// Vrai si la lacune est rendue à `surface` : celles de Service-Public ne le sont qu'à la v0.3
+/// (05 §5.8, G1 bis), les autres toujours.
+fn gap_shown(gap: &CoverageGap, surface: Surface) -> bool {
+    surface == Surface::V03 || gap.family != GUIDANCE_FAMILY
 }
 
 /// Lacune rendue : `fond` n'est présent que si la lacune désigne une famille.
@@ -242,8 +267,14 @@ impl CoverageView {
                 .iter()
                 .filter_map(|family| family_view(family, surface))
                 .chain((surface == Surface::V03).then(doctrine_family))
+                .chain((surface == Surface::V03).then(guidance_family))
                 .collect(),
-            gaps: coverage.known_gaps().iter().map(gap_view).collect(),
+            gaps: coverage
+                .known_gaps()
+                .iter()
+                .filter(|gap| gap_shown(gap, surface))
+                .map(gap_view)
+                .collect(),
         }
     }
 }
@@ -281,9 +312,10 @@ mod tests {
             custom_host,
             has_problems: !problems.is_empty(),
             local_snapshot: false,
-            // Le serveur sert les outils du BOFiP, source active : le défaut du binaire.
+            // Le serveur sert les outils du BOFiP et de Service-Public, sources actives : le
+            // défaut du binaire.
             doctrine: DoctrineSource::Active,
-            guidance: GuidanceSource::NotServed,
+            guidance: GuidanceSource::Active,
         };
         CoverageOutput {
             coverage: coverage(environment, &facts, &Fond::ALL),
@@ -355,9 +387,10 @@ mod tests {
             custom_host: false,
             has_problems: false,
             local_snapshot: true,
-            // Un instantané local coupe la source du BOFiP, sauf `LF_BOFIP=on`.
+            // Un instantané local coupe les sources du BOFiP et de Service-Public, sauf
+            // `LF_BOFIP=on` et `LF_SERVICE_PUBLIC=on`.
             doctrine: DoctrineSource::Off,
-            guidance: GuidanceSource::NotServed,
+            guidance: GuidanceSource::Off,
         };
         out.coverage = coverage(PisteEnvironment::Production, &facts, &[Fond::Loda, Fond::Code]);
         out.configuration.local_snapshot = true;
@@ -376,17 +409,18 @@ mod tests {
             .iter()
             .map(|gap| gap["id"].as_str().unwrap())
             .collect();
-        // La lacune de l'instantané, puis celle du BOFiP, coupé d'office par l'instantané.
-        assert_eq!(ids[ids.len() - 2..], ["FR-105", "FR-107"]);
+        // La lacune de l'instantané, puis celles du BOFiP et de Service-Public, coupés d'office
+        // par l'instantané.
+        assert_eq!(ids[ids.len() - 3..], ["FR-105", "FR-107", "FR-109"]);
         let fonds: Vec<&str> = view["families"]
             .as_array()
             .unwrap()
             .iter()
             .map(|family| family["fond"].as_str().unwrap())
             .collect();
-        // La famille du BOFiP suit ses deux outils, enregistrés même quand la source est coupée
-        // (ce que fait un instantané local, sauf `LF_BOFIP=on`).
-        assert_eq!(fonds, ["LODA", "CODE", "BOFIP"]);
+        // Les familles du BOFiP et de Service-Public suivent leurs outils, enregistrés même quand
+        // la source est coupée (ce que fait un instantané local).
+        assert_eq!(fonds, ["LODA", "CODE", "BOFIP", "SERVICE_PUBLIC"]);
         // Le schéma de sortie n'a pas changé : le drapeau n'est pas un champ de la vue.
         assert!(view["configuration"].get("local_snapshot").is_none());
     }
@@ -480,8 +514,9 @@ mod tests {
             .iter()
             .map(|f| f["fond"].as_str().unwrap())
             .collect();
-        // La famille du BOFiP ne vient pas du domaine : la vue l'ajoute à la surface v0.3.
-        assert_eq!(fonds, ["KALI", "BOFIP"]);
+        // Les familles du BOFiP et de Service-Public ne viennent pas du domaine : la vue les
+        // ajoute à la surface v0.3.
+        assert_eq!(fonds, ["KALI", "BOFIP", "SERVICE_PUBLIC"]);
     }
 
     #[test]
@@ -514,10 +549,11 @@ mod tests {
         .unwrap();
         assert_eq!(view["status"], "ok");
         assert!(view["configuration"].get("problems").is_none());
-        // L'hôte personnalisé est la dernière lacune de configuration ; celle du BOFiP la suit.
+        // L'hôte personnalisé est la dernière lacune de configuration ; celles du BOFiP et de
+        // Service-Public la suivent.
         let gaps = view["gaps"].as_array().unwrap();
         let ids: Vec<&str> = gaps.iter().map(|gap| gap["id"].as_str().unwrap()).collect();
-        assert_eq!(ids[ids.len() - 2..], ["FR-103", "FR-106"]);
+        assert_eq!(ids[ids.len() - 3..], ["FR-103", "FR-106", "FR-108"]);
     }
 
     #[test]
@@ -551,15 +587,32 @@ mod tests {
             })
         );
         assert_eq!(gap_family("BOFIP"), Some("BOFIP".to_owned()));
+        assert_eq!(gap_family("SERVICE_PUBLIC"), Some("SERVICE_PUBLIC".to_owned()));
         assert_eq!(gap_family("JURI"), Some("JURI".to_owned()));
         assert_eq!(gap_family(""), None);
         assert_eq!(gap_family("bofip"), None);
+        assert_eq!(gap_family("service_public"), None);
+    }
+
+    /// Sortie du bac à sable dont les deux sources sont dans l'état `doctrine` et `guidance`.
+    fn sources(doctrine: DoctrineSource, guidance: GuidanceSource) -> CoverageOutput {
+        let mut out = output(PisteEnvironment::Sandbox, true, false, &[]);
+        let facts = ConfigFacts {
+            credentials_configured: true,
+            custom_host: false,
+            has_problems: false,
+            local_snapshot: false,
+            doctrine,
+            guidance,
+        };
+        out.coverage = coverage(PisteEnvironment::Sandbox, &facts, &Fond::ALL);
+        out
     }
 
     /// La famille du BOFiP : rendue à la surface v0.3 seule (les deux autres n'enregistrent pas
-    /// ses outils), la dernière, avec ses deux outils et un libellé qui dit la source et la
-    /// licence ; rendue de la même façon quand la source est coupée (D-34 : tout outil
-    /// enregistré figure dans une famille).
+    /// ses outils), avant celle de Service-Public, avec ses deux outils et un libellé qui dit la
+    /// source et la licence ; rendue de la même façon quand la source est coupée (D-34 : tout
+    /// outil enregistré figure dans une famille).
     #[test]
     fn bofip_family_is_always_rendered() {
         for surface in [Surface::V01, Surface::V02] {
@@ -575,24 +628,98 @@ mod tests {
         });
         let view = sandbox_view(Surface::V03);
         let families = view["families"].as_array().unwrap();
-        assert_eq!(families.len(), 9);
+        assert_eq!(families.len(), 10);
         assert_eq!(families[8], family);
 
-        let mut off = output(PisteEnvironment::Sandbox, true, false, &[]);
-        let facts = ConfigFacts {
-            credentials_configured: true,
-            custom_host: false,
-            has_problems: false,
-            local_snapshot: false,
-            doctrine: DoctrineSource::Off,
-            guidance: GuidanceSource::NotServed,
-        };
-        off.coverage = coverage(PisteEnvironment::Sandbox, &facts, &Fond::ALL);
+        let off = sources(DoctrineSource::Off, GuidanceSource::Active);
         let view = serde_json::to_value(CoverageView::new(off, Surface::V03)).unwrap();
         let families = view["families"].as_array().unwrap();
-        assert_eq!(families.len(), 9);
+        assert_eq!(families.len(), 10);
         assert_eq!(families[8], family);
-        assert_eq!(view["gaps"].as_array().unwrap().last().unwrap()["id"], "FR-107");
+        let ids: Vec<&str> = view["gaps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|gap| gap["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids[ids.len() - 2..], ["FR-107", "FR-108"]);
+    }
+
+    /// La famille de Service-Public : rendue à la surface v0.3 seule, la dernière, après celle du
+    /// BOFiP, avec ses deux outils et un libellé qui dit les deux sites et la licence ; rendue de
+    /// la même façon quand la source est coupée.
+    #[test]
+    fn service_public_family_is_always_rendered_at_v03() {
+        for surface in [Surface::V01, Surface::V02] {
+            let view = sandbox_view(surface);
+            let families = view["families"].as_array().unwrap();
+            assert!(
+                families.iter().all(|family| family["fond"] != "SERVICE_PUBLIC"),
+                "{surface:?}"
+            );
+        }
+        let family = json!({
+            "fond": "SERVICE_PUBLIC",
+            "label": "Practical sheets: Service-Public.gouv.fr and Entreprendre.Service-Public.gouv.fr (DILA, Licence Ouverte 2.0), today's version only",
+            "tools": ["fr_search_service_public", "fr_get_service_public"]
+        });
+        for guidance in [GuidanceSource::Active, GuidanceSource::Off] {
+            let out = sources(DoctrineSource::Active, guidance);
+            let view = serde_json::to_value(CoverageView::new(out, Surface::V03)).unwrap();
+            let families = view["families"].as_array().unwrap();
+            assert_eq!(families.len(), 10, "{guidance:?}");
+            assert_eq!(families[9], family, "{guidance:?}");
+        }
+    }
+
+    /// Les lacunes de Service-Public suivent l'état de la source, à la v0.3 seulement : les
+    /// réponses v0.1 et v0.2 sont celles d'avant le jalon MS (G1 bis), quel que soit l'état.
+    #[test]
+    fn service_public_gaps_only_at_v03() {
+        let rows = [
+            (GuidanceSource::Active, Some("FR-108")),
+            (GuidanceSource::Off, Some("FR-109")),
+            (GuidanceSource::NotServed, None),
+        ];
+        for (guidance, expected) in rows {
+            for surface in [Surface::V01, Surface::V02, Surface::V03] {
+                let out = sources(DoctrineSource::Active, guidance);
+                let view = serde_json::to_value(CoverageView::new(out, surface)).unwrap();
+                let gaps = view["gaps"].as_array().unwrap();
+                let found: Vec<&str> = gaps
+                    .iter()
+                    .filter(|gap| gap.get("fond") == Some(&json!("SERVICE_PUBLIC")))
+                    .map(|gap| gap["id"].as_str().unwrap())
+                    .collect();
+                let wanted: Vec<&str> =
+                    expected.filter(|_| surface == Surface::V03).into_iter().collect();
+                assert_eq!(found, wanted, "{guidance:?} {surface:?}");
+                // Sans effet sur le statut.
+                assert_eq!(view["status"], "ok", "{guidance:?} {surface:?}");
+            }
+        }
+        // À la v0.1, la réponse est la même, à l'octet, que la source soit servie ou non.
+        let served =
+            CoverageView::new(sources(DoctrineSource::Active, GuidanceSource::Off), Surface::V01);
+        let unserved = CoverageView::new(
+            sources(DoctrineSource::Active, GuidanceSource::NotServed),
+            Surface::V01,
+        );
+        assert_eq!(
+            serde_json::to_string(&served).unwrap(),
+            serde_json::to_string(&unserved).unwrap()
+        );
+        let last = sources(DoctrineSource::Active, GuidanceSource::Active);
+        let view = serde_json::to_value(CoverageView::new(last, Surface::V03)).unwrap();
+        assert_eq!(
+            view["gaps"].as_array().unwrap().last().unwrap(),
+            &json!({
+                "id": "FR-108",
+                "fond": "SERVICE_PUBLIC",
+                "missing": "Service-Public sheets are searched by their titles and summaries, not their full text, and served as published today, for Particuliers and Entreprendre (not Associations); the first search downloads the day's archive.",
+                "fallback": "Browse the folders (N... ids) with fr_get_service_public; for the rule at a given date, read the Légifrance texts listed in legal_references."
+            })
+        );
     }
 
     #[test]
@@ -672,6 +799,8 @@ mod tests {
             ToolName::FR_SEARCH_ALL,
             ToolName::FR_SEARCH_BOFIP,
             ToolName::FR_GET_BOFIP,
+            ToolName::FR_SEARCH_SERVICE_PUBLIC,
+            ToolName::FR_GET_SERVICE_PUBLIC,
         ]
         .map(ToolName::as_str);
         let mut tools: BTreeSet<&str> = v01.into_iter().collect();
@@ -692,7 +821,7 @@ mod tests {
             let view = sandbox_view(surface);
             assert_eq!(named_tools(&view), registered(surface), "{surface:?}");
         }
-        // Le binaire annonce `SURFACE`, la surface complète : les quinze outils de `ToolName::ALL`.
+        // Le binaire annonce `SURFACE`, la surface complète : les dix-sept outils de `ToolName::ALL`.
         let announced = named_tools(
             &serde_json::to_value(CoverageView::from(output(
                 PisteEnvironment::Sandbox,

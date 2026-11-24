@@ -1183,6 +1183,10 @@ mod tests {
             // `DoctrineError` (`doctrine_error`, test `doctrine_errors_map_to_the_six_codes`).
             ToolName::FR_SEARCH_BOFIP,
             ToolName::FR_GET_BOFIP,
+            // Service-Public : de même, leurs erreurs viennent de `GuidanceError`
+            // (`guidance_error`), dont le `not_found` nomme l'autre public.
+            ToolName::FR_SEARCH_SERVICE_PUBLIC,
+            ToolName::FR_GET_SERVICE_PUBLIC,
         ];
         for tool in ToolName::ALL {
             assert!(

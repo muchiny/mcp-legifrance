@@ -3,9 +3,10 @@
 //! Source unique des noms : l'audit les inscrit (`AuditRecord::tool`) et l'adapter MCP les
 //! enregistre. [`ToolName::ALL`] sert au test de dérive entre les deux.
 //!
-//! `ALL` compte les quinze outils enregistrés (v0.1 à v0.3, puis les deux du BOFiP, jalon MB). La lecture d'une resource est
-//! auditée sous `resource:<gabarit>` (`RESOURCE_*`, 05 §8.2) : ces noms ne sont pas des outils et
-//! ne figurent jamais dans `ALL`.
+//! `ALL` compte les dix-sept outils enregistrés (v0.1 à v0.3, puis les deux du BOFiP, jalon MB,
+//! et les deux de Service-Public, jalon MS). La lecture d'une resource est auditée sous
+//! `resource:<gabarit>` (`RESOURCE_*`, 05 §8.2) : ces noms ne sont pas des outils et ne figurent
+//! jamais dans `ALL`.
 
 /// Nom d'un outil MCP (préfixé `fr_`) ou d'une lecture de resource (préfixé `resource:`).
 ///
@@ -45,11 +46,9 @@ impl ToolName {
     pub const FR_SEARCH_BOFIP: Self = Self("fr_search_bofip");
     /// `fr_get_bofip` (MB) : la lecture d'une publication de la doctrine fiscale.
     pub const FR_GET_BOFIP: Self = Self("fr_get_bofip");
-    /// `fr_search_service_public` (MS) : la recherche dans les fiches de Service-Public. Hors de
-    /// [`ALL`](Self::ALL) tant que l'outil n'est pas servi (T-MS-30).
+    /// `fr_search_service_public` (MS) : la recherche dans les fiches de Service-Public.
     pub const FR_SEARCH_SERVICE_PUBLIC: Self = Self("fr_search_service_public");
     /// `fr_get_service_public` (MS) : la lecture d'une fiche ou d'un dossier de Service-Public.
-    /// Hors de [`ALL`](Self::ALL) tant que l'outil n'est pas servi (T-MS-30).
     pub const FR_GET_SERVICE_PUBLIC: Self = Self("fr_get_service_public");
 
     /// Lecture de la resource `legifrance://article/{article_id}` (M7), nom d'audit
@@ -65,10 +64,11 @@ impl ToolName {
     /// Lecture de `legifrance://coverage` (M7), nom d'audit `resource:coverage`.
     pub const RESOURCE_COVERAGE: Self = Self("resource:coverage");
 
-    /// Les quinze outils enregistrés, dans l'ordre du catalogue (05 §3) : les huit de la v0.1,
-    /// puis ceux de M6 et de M7, puis les deux du BOFiP (MB). Les nouveaux noms s'ajoutent à la
-    /// fin : `ALL[..8]` désigne les outils de la v0.1 et `ALL[..13]` ceux de la v0.3 d'origine.
-    pub const ALL: [Self; 15] = [
+    /// Les dix-sept outils enregistrés, dans l'ordre du catalogue (05 §3) : les huit de la v0.1,
+    /// puis ceux de M6 et de M7, puis les deux du BOFiP (MB), puis les deux de Service-Public
+    /// (MS). Les nouveaux noms s'ajoutent à la fin : `ALL[..8]` désigne les outils de la v0.1 et
+    /// `ALL[..13]` ceux de la v0.3 d'origine.
+    pub const ALL: [Self; 17] = [
         Self::FR_SEARCH,
         Self::FR_GET_ACT,
         Self::FR_GET_TEXT,
@@ -84,6 +84,8 @@ impl ToolName {
         Self::FR_SEARCH_ALL,
         Self::FR_SEARCH_BOFIP,
         Self::FR_GET_BOFIP,
+        Self::FR_SEARCH_SERVICE_PUBLIC,
+        Self::FR_GET_SERVICE_PUBLIC,
     ];
 
     /// Le nom tel qu'il apparaît dans `tools/list` et dans le journal d'audit.
@@ -120,6 +122,8 @@ mod tests {
                 "fr_search_all",
                 "fr_search_bofip",
                 "fr_get_bofip",
+                "fr_search_service_public",
+                "fr_get_service_public",
             ]
         );
         assert!(names.iter().all(|name| name.starts_with("fr_")));
@@ -143,11 +147,19 @@ mod tests {
         assert_eq!(names.len(), later.len());
     }
 
-    /// Les deux outils du BOFiP sont enregistrés (T-MB-30) et viennent à la fin de `ALL` : les
-    /// treize premiers noms, et leur ordre, sont ceux d'avant le jalon MB.
+    /// Les deux outils du BOFiP (T-MB-30), puis les deux de Service-Public (T-MS-30), viennent à
+    /// la fin de `ALL` : les treize premiers noms, et leur ordre, sont ceux d'avant le jalon MB.
     #[test]
-    fn bofip_tools_are_the_last_two_of_all() {
-        assert_eq!(ToolName::ALL[13..], [ToolName::FR_SEARCH_BOFIP, ToolName::FR_GET_BOFIP]);
+    fn bofip_then_service_public_tools_are_the_last_four_of_all() {
+        assert_eq!(
+            ToolName::ALL[13..],
+            [
+                ToolName::FR_SEARCH_BOFIP,
+                ToolName::FR_GET_BOFIP,
+                ToolName::FR_SEARCH_SERVICE_PUBLIC,
+                ToolName::FR_GET_SERVICE_PUBLIC,
+            ]
+        );
         assert_eq!(ToolName::ALL[12], ToolName::FR_SEARCH_ALL);
         assert_eq!(ToolName::ALL[7], ToolName::FR_COVERAGE);
     }
@@ -170,6 +182,8 @@ mod tests {
             ToolName::FR_SEARCH_ALL,
             ToolName::FR_SEARCH_BOFIP,
             ToolName::FR_GET_BOFIP,
+            ToolName::FR_SEARCH_SERVICE_PUBLIC,
+            ToolName::FR_GET_SERVICE_PUBLIC,
         ];
         assert_eq!(ToolName::ALL, constants);
         assert_eq!(ToolName::ALL.into_iter().collect::<HashSet<_>>().len(), constants.len());

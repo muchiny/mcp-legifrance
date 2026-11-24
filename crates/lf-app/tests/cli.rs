@@ -288,7 +288,8 @@ mod bofip {
 
     /// G5 et G9 : `check-config` et `fr_coverage` n'envoient rien, que la source soit active ou
     /// coupée. Sans `LF_BOFIP`, la sortie de `check-config` ne nomme pas la variable ;
-    /// `fr_coverage` rend la famille `BOFIP` et la lacune de l'état de la source.
+    /// `fr_coverage` rend la famille `BOFIP`, avant celle de Service-Public, et la lacune de
+    /// l'état de la source.
     #[tokio::test]
     async fn check_config_and_coverage_send_nothing() {
         for (vars, line, gap) in [
@@ -320,15 +321,21 @@ mod bofip {
             let view = &coverage["result"]["structuredContent"];
             // La source du BOFiP ne change jamais le statut : il reste celui de PISTE.
             assert_eq!(view["status"], "ok", "{vars:?}: {coverage}");
+            // Les familles du BOFiP puis de Service-Public ferment la liste (05 §5.8).
             let families = view["families"].as_array().expect("families");
+            let tools: Vec<&Value> = families.iter().rev().take(2).map(|f| &f["tools"]).collect();
             assert_eq!(
-                families.last().expect("a family")["tools"],
-                json!(["fr_search_bofip", "fr_get_bofip"]),
+                tools,
+                [
+                    &json!(["fr_search_service_public", "fr_get_service_public"]),
+                    &json!(["fr_search_bofip", "fr_get_bofip"]),
+                ],
                 "{vars:?}: {coverage}"
             );
             let gaps = view["gaps"].as_array().expect("gaps");
-            let last = gaps.last().expect("a gap");
-            assert_eq!((&last["id"], &last["fond"]), (&json!(gap), &json!("BOFIP")), "{vars:?}");
+            let bofip: Vec<&Value> =
+                gaps.iter().filter(|g| g["fond"] == "BOFIP").map(|g| &g["id"]).collect();
+            assert_eq!(bofip, [&json!(gap)], "{vars:?}");
             let finished = session.finish().await;
             assert_eq!(finished.code(), Some(0), "{vars:?}: stderr:\n{}", finished.stderr);
             assert_eq!(trap.contacts(), Vec::<String>::new(), "{vars:?}");
