@@ -263,9 +263,25 @@ pub enum DomainError {
         input: String,
     },
     /// Requête de recherche sans mot : il ne reste ni lettre ni chiffre une fois la ponctuation
-    /// retirée ([`DoctrineTerms`](crate::doctrine::DoctrineTerms)).
+    /// retirée ([`DoctrineTerms`](crate::doctrine::DoctrineTerms),
+    /// [`GuidanceTerms`](crate::guidance::GuidanceTerms)).
     #[error("query contains no searchable word")]
     QueryWithoutWords,
+    /// Numéro de Service-Public malformé ([`SheetId`](crate::guidance::SheetId)).
+    ///
+    /// Ne se construit pas hors du crate :
+    ///
+    /// ```compile_fail
+    /// let _ = lf_domain::DomainError::InvalidSheetId { input: "x".repeat(99) };
+    /// ```
+    #[error(
+        "invalid Service-Public id {input:?}: expected F (sheet) or N (folder) and 1 to 7 digits, e.g. F1437"
+    )]
+    #[non_exhaustive]
+    InvalidSheetId {
+        /// Entrée reçue, tronquée.
+        input: String,
+    },
 }
 
 /// Recopie `input` pour un message d'erreur, tronquée à [`ECHO_MAX_CHARS`] caractères.
@@ -282,6 +298,7 @@ mod tests {
         date::{CivilDate, VersionDate},
         doctrine::{BoiId, Serie},
         ecli::Ecli,
+        guidance::SheetId,
         id::{AnyId, ArticleId, DecisionId, DocumentId, LegiTextId, SectionId, parse_versioned},
     };
     use pretty_assertions::assert_eq;
@@ -297,6 +314,7 @@ mod tests {
             | DomainError::BadSuffix { input }
             | DomainError::InvalidBoiId { input }
             | DomainError::InvalidSerie { input }
+            | DomainError::InvalidSheetId { input }
             | DomainError::HitKindMismatch { id: input, .. } => input,
             DomainError::EmptyCoverageGaps
             | DomainError::TocTooDeep { .. }
@@ -444,6 +462,11 @@ mod tests {
             "invalid BOFiP serie \"E N R\": expected 1 to 16 letters or digits, e.g. ENR"
         );
         assert_eq!(
+            DomainError::InvalidSheetId { input: "R42".into() }.to_string(),
+            "invalid Service-Public id \"R42\": expected F (sheet) or N (folder) and 1 to 7 digits, \
+             e.g. F1437"
+        );
+        assert_eq!(
             DomainError::FocusTooLong { len: 1396, max: 500 }.to_string(),
             "focus is 1396 characters long (max 500)"
         );
@@ -477,6 +500,7 @@ mod tests {
             Fond::parse(&long).unwrap_err(),
             BoiId::parse(&long).unwrap_err(),
             Serie::parse(&long).unwrap_err(),
+            SheetId::parse(&long).unwrap_err(),
         ];
         for error in &errors {
             assert_eq!(echoed(error), echo(&long));

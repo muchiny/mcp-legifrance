@@ -55,20 +55,27 @@ impl DoctrineTerms {
     /// aussi quand la forme NFC allonge la requête au-delà de la borne (certaines lettres s'y
     /// écrivent en plusieurs caractères).
     pub fn parse(input: &str) -> Result<Self, DomainError> {
-        let query = QueryText::parse(input)?;
-        let words = plain_words(query.as_str());
-        match words.chars().count() {
-            0 => Err(DomainError::QueryWithoutWords),
-            len if len > QUERY_MAX_CHARS => {
-                Err(DomainError::QueryTooLong { len, max: QUERY_MAX_CHARS })
-            }
-            _ => Ok(Self(words)),
-        }
+        search_words(input).map(Self)
     }
 
     /// Les mots, séparés par une espace.
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// Mots d'une requête de recherche, règle commune au BOFiP et à Service-Public (ADR-0033,
+/// décision 3) : `input` validé comme une requête de `fr_search`, puis réduit à ses mots
+/// ([`DoctrineTerms::parse`] en donne les erreurs).
+pub(crate) fn search_words(input: &str) -> Result<String, DomainError> {
+    let query = QueryText::parse(input)?;
+    let words = plain_words(query.as_str());
+    match words.chars().count() {
+        0 => Err(DomainError::QueryWithoutWords),
+        len if len > QUERY_MAX_CHARS => {
+            Err(DomainError::QueryTooLong { len, max: QUERY_MAX_CHARS })
+        }
+        _ => Ok(words),
     }
 }
 

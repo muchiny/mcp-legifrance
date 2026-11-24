@@ -573,6 +573,7 @@ pub fn domain_arg(tool: ToolName, arg: Option<&'static str>, error: &DomainError
         }
         DomainError::InvalidBoiId { input, .. } => invalid_boi_id(id, input),
         DomainError::InvalidSerie { input, .. } => invalid_serie(input),
+        DomainError::InvalidSheetId { input, .. } => invalid_sheet_id(id, input),
         DomainError::QueryWithoutWords => invalid_argument(QUERY_WITHOUT_WORDS),
         DomainError::HitKindMismatch { .. }
         | DomainError::TocTooDeep { .. }
@@ -591,6 +592,16 @@ fn invalid_boi_id(id: &str, input: &str) -> AppError {
     invalid_argument(format!(
         "{id}='{}' is not a BOFiP identifier (letters, digits and hyphens, e.g. \
          BOI-ENR-DMTG-10-50-20); find one with fr_search_bofip.",
+        shown(input)
+    ))
+}
+
+/// Numéro qui n'a pas la forme d'un numéro de Service-Public (05 §5.17) : l'argument est nommé,
+/// la valeur recopiée sous forme sûre, et le message dit où en trouver un.
+fn invalid_sheet_id(id: &str, input: &str) -> AppError {
+    invalid_argument(format!(
+        "{id}='{}' is not a Service-Public id (F for a sheet or N for a folder, then 1 to 7 \
+         digits, e.g. F1437); find one with fr_search_service_public.",
         shown(input)
     ))
 }
@@ -2247,6 +2258,17 @@ mod tests {
             assert_eq!(domain(tool, &error), invalid(text), "{error}");
         }
         // `domain_arg` nomme l'argument de l'identifiant quand l'appelant le donne.
+        assert_eq!(
+            domain_arg(
+                ToolName::FR_GET_BOFIP,
+                Some("id"),
+                &lf_domain::guidance::SheetId::parse("R42\n").unwrap_err()
+            ),
+            invalid(
+                "id='R42\\n' is not a Service-Public id (F for a sheet or N for a folder, then 1 \
+                 to 7 digits, e.g. F1437); find one with fr_search_service_public."
+            )
+        );
         assert_eq!(
             domain_arg(ToolName::FR_GET_BOFIP, Some("boi"), &BoiId::parse("").unwrap_err()),
             invalid(
