@@ -11,12 +11,14 @@ use crate::{
     error::AppError,
     input::{GetActInput, ToolCall},
     output::get_act::GetActOutput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
     tools::ToolName,
     usecase::get_act::GetActUseCase,
 };
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegalService<C, A, K, D, G>
+{
     /// `fr_get_act` : un texte consolidé et une page de sa table des matières. `cancel` se
     /// résout quand le client annule.
     ///

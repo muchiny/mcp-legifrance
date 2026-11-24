@@ -4,7 +4,7 @@
 
 use lf_application::{
     input::GetTextInput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
 };
 use rmcp::{Json, model::JsonObject};
 use rmcp_macros::{tool, tool_router};
@@ -24,7 +24,9 @@ use crate::{
 const DESCRIPTION: &str = "Read one article by id: LEGIARTI (from fr_get_act or a CODE search hit) or KALIARTI (from fr_get_convention). Returns its citation (for example \"Code civil, art. 9\"), source_url, status, validity dates and parent code or text. By default (`detail`=\"summary\") an article of up to 2,000 characters comes back whole and a longer one as a summary of about 1,200 characters (`summary_truncated` is true when the summary stops before the end of the text). A summary is never the whole text: use `detail`=\"full\" before quoting a threshold, amount or rate; it returns up to `max_chars` (default 4,000) from `offset`, and `next_offset` tells where to continue; `focus` returns the most relevant passages instead (default 3). Each LEGIARTI id is one version of the article: `date_debut` and `date_fin` bound its validity; without `date_fin` it has no end date, and without `date_debut` its entry into force is not set yet (see `etat`).";
 
 #[tool_router(router = get_text_router, vis = "pub(crate)")]
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegifranceServer<C, A, K, D, G>
+{
     #[tool(
         name = "fr_get_text",
         title = "Read an article",

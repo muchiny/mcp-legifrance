@@ -8,11 +8,13 @@ use super::LegalService;
 use crate::{
     input::CompleteInput,
     output::complete::CompleteOutput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
     usecase::complete::CompleteUseCase,
 };
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegalService<C, A, K, D, G>
+{
     /// Complète la variable `code` du gabarit `legifrance://code/{code}/article/{num}` : au plus
     /// 100 slugs de codes, préfixes d'abord. Jamais d'erreur ni de ligne d'audit : une variable
     /// autre que `code`, un débit dépassé (10 par seconde pour tout le processus), une erreur du

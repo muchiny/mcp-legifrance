@@ -3,7 +3,7 @@
 
 use lf_application::{
     input::GetActInput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
 };
 use rmcp::{Json, model::JsonObject};
 use rmcp_macros::{tool, tool_router};
@@ -22,7 +22,9 @@ use crate::{
 const DESCRIPTION: &str = "Read a consolidated law, decree or code by its LEGITEXT id (from fr_search on LODA or CODE): metadata, citation, source_url and a table of contents of sections and articles with their `article_id`. Returns the version in force on `date` (YYYY-MM-DD; default: the version named by a suffixed text_id, else today in Paris); without `date_fin_version` that version has no end date. The table of contents is paged: up to `toc_limit` entries (default 100) from `toc_offset`; continue with `next_toc_offset`. It does not return article text: read an article with fr_get_text. For a collective agreement (KALITEXT) use fr_get_convention.";
 
 #[tool_router(router = get_act_router, vis = "pub(crate)")]
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegifranceServer<C, A, K, D, G>
+{
     #[tool(
         name = "fr_get_act",
         title = "Read a law, decree or code",

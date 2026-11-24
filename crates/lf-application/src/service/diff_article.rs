@@ -12,14 +12,16 @@ use crate::{
     error::AppError,
     input::{DiffArticleInput, ToolCall},
     output::diff_article::DiffArticleOutput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
     tools::ToolName,
     usecase::diff_article::DiffArticleUseCase,
 };
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegalService<C, A, K, D, G>
+{
     /// `fr_diff_article` : compare les versions d'un article en vigueur à deux dates (05 §5.12),
     /// auditée sous `fr_diff_article` (métrique : nombre de hunks).
     ///

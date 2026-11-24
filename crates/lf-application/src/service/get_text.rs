@@ -11,12 +11,14 @@ use crate::{
     error::AppError,
     input::{GetTextInput, ToolCall},
     output::get_text::GetTextOutput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
     tools::ToolName,
     usecase::get_text::GetTextUseCase,
 };
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegalService<C, A, K, D, G>
+{
     /// `fr_get_text` : un article en résumé, en fenêtre de texte ou en passages. `cancel` se
     /// résout quand le client annule.
     ///

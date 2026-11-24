@@ -7,7 +7,7 @@
 
 use lf_application::{
     input::GetDeliberationInput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
 };
 use rmcp::{Json, model::JsonObject};
 use rmcp_macros::{tool, tool_router};
@@ -26,7 +26,9 @@ use crate::{
 pub(crate) const DESCRIPTION: &str = "Read a CNIL deliberation or decision by its CNILTEXT id (from fr_search on fond CNIL): number, nature (e.g. Sanction), status, dates, citation and source_url. By default a text of about 1,200 characters or less comes back whole in `text` and a longer one as a `summary`: the operative part of a sanction or formal notice, else the beginning of the text. `detail`=\"full\" pages through the text with `offset`/`max_chars` (default 4,000 characters) and `next_offset`; `focus` returns the most relevant passages (default 3) and takes precedence over `detail` and `offset`. Personal data is redacted by the CNIL in published texts.";
 
 #[tool_router(router = get_deliberation_router, vis = "pub(crate)")]
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegifranceServer<C, A, K, D, G>
+{
     #[tool(
         name = "fr_get_deliberation",
         title = "Read a CNIL deliberation",

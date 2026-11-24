@@ -11,14 +11,16 @@ use crate::{
     error::AppError,
     input::{GetCompanyAgreementInput, ToolCall},
     output::get_company_agreement::GetCompanyAgreementOutput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
     tools::ToolName,
     usecase::get_company_agreement::GetCompanyAgreementUseCase,
 };
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegalService<C, A, K, D, G>
+{
     /// `fr_get_company_agreement` : métadonnées d'un accord d'entreprise (05 §5.7). Métrique
     /// d'audit : 1.
     ///

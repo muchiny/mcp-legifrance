@@ -11,14 +11,16 @@ use crate::{
     error::AppError,
     input::{GetDeliberationInput, ToolCall},
     output::get_deliberation::GetDeliberationOutput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
     tools::ToolName,
     usecase::get_deliberation::GetDeliberationUseCase,
 };
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegalService<C, A, K, D, G>
+{
     /// `fr_get_deliberation` : lecture d'une délibération de la CNIL, en résumé, en fenêtre de texte
     /// ou en passages (05 §5.5). Métrique d'audit : les caractères renvoyés.
     ///

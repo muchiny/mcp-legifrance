@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! #[tool_router(router = search_router, vis = "pub(crate)")]
-//! impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
+//! impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance> LegifranceServer<C, A, K, D, G> {
 //!     #[tool(
 //!         name = "fr_search",
 //!         title = "Search Légifrance",

@@ -6,7 +6,7 @@
 
 use lf_application::{
     input::GetRelatedInput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
 };
 use rmcp::{Json, model::JsonObject};
 use rmcp_macros::{tool, tool_router};
@@ -32,7 +32,9 @@ as a parameter keeps one kind of link. At most 100 links are returned: `truncate
 are more, and there is no next page.";
 
 #[tool_router(router = get_related_router, vis = "pub(crate)")]
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegifranceServer<C, A, K, D, G>
+{
     #[tool(
         name = "fr_get_related",
         title = "Related texts and decisions",
