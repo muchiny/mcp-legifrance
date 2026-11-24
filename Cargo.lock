@@ -1826,6 +1826,7 @@ dependencies = [
  "lf-adapter-dila",
  "lf-adapter-mcp",
  "lf-adapter-piste",
+ "lf-adapter-service-public",
  "lf-application",
  "lf-domain",
  "secrecy",

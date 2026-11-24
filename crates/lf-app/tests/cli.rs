@@ -377,7 +377,14 @@ mod bofip {
         let view = &coverage["result"]["structuredContent"];
         assert_eq!(view["status"], "ok", "{coverage}");
         assert!(view["configuration"].get("problems").is_none(), "{coverage}");
-        assert_eq!(view["gaps"].as_array().expect("gaps").last().expect("a gap")["id"], "FR-107");
+        let bofip: Vec<&Value> = view["gaps"]
+            .as_array()
+            .expect("gaps")
+            .iter()
+            .filter(|gap| gap["fond"] == "BOFIP")
+            .map(|gap| &gap["id"])
+            .collect();
+        assert_eq!(bofip, [&json!("FR-107")], "{coverage}");
         let finished = session.finish().await;
         assert_eq!(finished.code(), Some(0), "stderr:\n{}", finished.stderr);
         assert!(
@@ -427,6 +434,286 @@ mod bofip {
         let finished = session.finish().await;
         assert_eq!(finished.code(), Some(0), "stderr:\n{}", finished.stderr);
         assert_eq!(trap.contacts(), [PORTAL_TUNNEL, PORTAL_TUNNEL]);
+    }
+}
+
+/// Jalon MS : la source Service-Public dans le binaire (T-MS-34 ; ADR-0033, « Tests qui la
+/// gardent »). Le proxy témoin ne voit que `CONNECT hôte:443` et ne répond jamais : que les
+/// requêtes ne portent aucun mot ni numéro (G10) est prouvé sur faux serveur, dans l'adapter.
+#[cfg(test)]
+mod service_public {
+    use std::path::Path;
+
+    use serde_json::{Value, json};
+
+    use crate::common::{Launch, Session, Trap, audit_lines, call, first_text, is_tool_error};
+
+    /// Le texte fixe d'un outil de Service-Public quand la source est coupée.
+    const DISABLED: &str = "[config_error] the Service-Public source is turned off \
+        (LF_SERVICE_PUBLIC is off or invalid, or the server runs offline with LF_DILA_DIR): \
+        fr_search_service_public and fr_get_service_public are unavailable. The operator can turn \
+        it on with LF_SERVICE_PUBLIC=on; the day's archive is then downloaded from the DILA \
+        server, and neither search words nor sheet numbers are sent.";
+
+    /// Réponse d'un appel dont l'attente s'achève pendant le téléchargement.
+    const DOWNLOADING: &str =
+        "[upstream_error] Service-Public archive is still downloading; retry in a minute.";
+
+    /// Mot cherché que rien ne doit recopier : ni journal, ni message d'erreur.
+    const SENTINEL: &str = "zzsentinellezz";
+
+    /// La seule destination admise d'une connexion de Service-Public, telle qu'un proxy la reçoit.
+    const ARCHIVE_TUNNEL: &str = "CONNECT lecomarquage.service-public.gouv.fr:443 HTTP/1.1";
+
+    /// Une façon de couper la source.
+    struct Off {
+        /// Ce que le cas montre, pour les messages d'échec.
+        what: &'static str,
+        /// Variable posée en plus des identifiants.
+        var: (&'static str, &'static str),
+    }
+
+    const OFF: [Off; 4] = [
+        Off { what: "LF_SERVICE_PUBLIC=off", var: ("LF_SERVICE_PUBLIC", "off") },
+        Off { what: "LF_SERVICE_PUBLIC=OFF", var: ("LF_SERVICE_PUBLIC", "OFF") },
+        // Échec fermé : un refus mal écrit coupe la source au lieu de la laisser active.
+        Off { what: "invalid LF_SERVICE_PUBLIC", var: ("LF_SERVICE_PUBLIC", "false") },
+        // Mode hors ligne : `LF_DILA_DIR` défini, même inutilisable.
+        Off { what: "unusable LF_DILA_DIR", var: ("LF_DILA_DIR", "relative/index") },
+    ];
+
+    /// Lancement dont le proxy est `trap`, échéance de 2 s par appel. Seule l'échéance borne
+    /// l'attente du téléchargement (ADR-0033) : un appel attend 1 s (l'échéance moins sa marge),
+    /// le temps que la connexion atteigne le piège, puis répond que l'archive se télécharge.
+    fn launch(audit: &Path, trap: &Trap) -> Launch {
+        Launch::new(audit).credentials().proxy(trap).env("LF_TOOL_DEADLINE_S", "2")
+    }
+
+    /// Appelle les deux outils de Service-Public, sur l'archive de Particuliers, et rend leurs
+    /// réponses.
+    async fn call_both(session: &mut Session) -> [Value; 2] {
+        let query = format!("{SENTINEL} logement");
+        let search =
+            session.request(&call(2, "fr_search_service_public", &json!({"query": query}))).await;
+        let get = session.request(&call(3, "fr_get_service_public", &json!({"id": "F1437"}))).await;
+        [search, get]
+    }
+
+    /// Les lacunes de `fr_coverage` du fonds `SERVICE_PUBLIC`.
+    fn service_public_gaps(view: &Value) -> Vec<&Value> {
+        view["gaps"]
+            .as_array()
+            .expect("gaps")
+            .iter()
+            .filter(|gap| gap["fond"] == "SERVICE_PUBLIC")
+            .map(|gap| &gap["id"])
+            .collect()
+    }
+
+    /// G4 et G5 : source coupée (demande, valeur invalide, mode hors ligne), les deux outils
+    /// répondent le texte fixe, audité, sans qu'aucune connexion ne s'ouvre. Contraste, sans
+    /// lequel un piège muet ne prouverait rien : source active, les deux appels partagent un seul
+    /// téléchargement, donc une seule connexion, vers `lecomarquage.service-public.gouv.fr:443`,
+    /// et leur réponse ne cite ni l'hôte ni les mots.
+    #[tokio::test]
+    async fn offline_and_off_send_nothing_through_proxy_witness() {
+        for case in &OFF {
+            let audit = tempfile::tempdir().expect("a temporary directory");
+            let trap = Trap::bind();
+            let (name, value) = case.var;
+            let mut session = launch(audit.path(), &trap).env(name, value).spawn();
+            session.handshake().await;
+            for answer in call_both(&mut session).await {
+                assert!(is_tool_error(&answer), "{}: {answer}", case.what);
+                assert_eq!(first_text(&answer), DISABLED, "{}", case.what);
+            }
+            let finished = session.finish().await;
+            assert_eq!(finished.code(), Some(0), "{}: stderr:\n{}", case.what, finished.stderr);
+            assert_eq!(trap.contacts(), Vec::<String>::new(), "{}", case.what);
+            assert!(!finished.stderr.contains(SENTINEL), "{}: {}", case.what, finished.stderr);
+
+            let lines = audit_lines(audit.path());
+            let audited: Vec<(&Value, &Value, &Value)> = lines
+                .iter()
+                .map(|line| (&line["tool"], &line["status"], &line["error_code"]))
+                .collect();
+            assert_eq!(
+                audited,
+                [
+                    (&json!("fr_search_service_public"), &json!("error"), &json!("config_error")),
+                    (&json!("fr_get_service_public"), &json!("error"), &json!("config_error")),
+                ],
+                "{}",
+                case.what
+            );
+        }
+
+        // Contraste : sans aucun réglage, la source est active et télécharge l'archive, par le
+        // proxy. Rejoué au niveau de journal le plus bavard : les bibliothèques HTTP et TLS
+        // écrivent par `log`, que le binaire relaie vers stderr, et ne doivent pas y citer les
+        // mots.
+        for log in [None, Some("trace")] {
+            let audit = tempfile::tempdir().expect("a temporary directory");
+            let trap = Trap::bind();
+            let mut launch = launch(audit.path(), &trap);
+            if let Some(level) = log {
+                launch = launch.env("LF_LOG", level);
+            }
+            let mut session = launch.spawn();
+            session.handshake().await;
+            let answers = call_both(&mut session).await;
+            let finished = session.finish().await;
+            assert_eq!(finished.code(), Some(0), "{log:?}: stderr:\n{}", finished.stderr);
+            for answer in &answers {
+                assert!(is_tool_error(answer), "{log:?}: {answer}");
+                assert_eq!(first_text(answer), DOWNLOADING, "{log:?}");
+            }
+            // Un seul téléchargement pour les deux appels, et un seul hôte.
+            assert_eq!(trap.contacts(), [ARCHIVE_TUNNEL], "{log:?}");
+            assert!(!finished.stderr.contains(SENTINEL), "{log:?}: {}", finished.stderr);
+            // Le niveau demandé est bien en vigueur : sans cela, l'absence du mot ne prouverait
+            // rien.
+            assert_eq!(finished.stderr.contains("TRACE"), log.is_some(), "{log:?}");
+        }
+    }
+
+    /// G5 et G9 : `check-config` et `fr_coverage` n'envoient rien, que la source soit active ou
+    /// coupée. Sans `LF_SERVICE_PUBLIC`, la sortie de `check-config` ne nomme pas la variable ;
+    /// `fr_coverage` rend la famille `SERVICE_PUBLIC`, la dernière, et la lacune de l'état de la
+    /// source.
+    #[tokio::test]
+    async fn check_config_and_coverage_send_nothing() {
+        let on = ["LF_SERVICE_PUBLIC", "LF_SERVICE_PUBLIC", "on", "ok"];
+        let off = ["LF_SERVICE_PUBLIC", "LF_SERVICE_PUBLIC", "off", "ok"];
+        for (vars, line, gap) in [
+            (&[][..], None, "FR-108"),
+            (&[("LF_SERVICE_PUBLIC", "on")][..], Some(on), "FR-108"),
+            (&[("LF_SERVICE_PUBLIC", "off")][..], Some(off), "FR-109"),
+        ] {
+            let audit = tempfile::tempdir().expect("a temporary directory");
+            let trap = Trap::bind();
+            let mut launch = launch(audit.path(), &trap);
+            for (name, value) in vars {
+                launch = launch.env(name, value);
+            }
+
+            let report = launch.clone().args(&["check-config"]).run_to_end().await;
+            assert_eq!(report.code, Some(0), "{vars:?}: {report:?}");
+            assert!(report.stdout.contains("Result: valid"), "{vars:?}: {}", report.stdout);
+            let shown: Option<Vec<&str>> = report
+                .stdout
+                .lines()
+                .find(|row| row.starts_with("LF_SERVICE_PUBLIC"))
+                .map(|row| row.split_whitespace().collect());
+            assert_eq!(shown, line.map(Vec::from), "{vars:?}: {}", report.stdout);
+
+            let mut session = launch.spawn();
+            session.handshake().await;
+            let coverage = session.request(&call(2, "fr_coverage", &json!({}))).await;
+            assert!(!is_tool_error(&coverage), "{vars:?}: {coverage}");
+            let view = &coverage["result"]["structuredContent"];
+            // La source de Service-Public ne change jamais le statut : il reste celui de PISTE.
+            assert_eq!(view["status"], "ok", "{vars:?}: {coverage}");
+            let families = view["families"].as_array().expect("families");
+            assert_eq!(
+                families.last().expect("a family")["tools"],
+                json!(["fr_search_service_public", "fr_get_service_public"]),
+                "{vars:?}: {coverage}"
+            );
+            assert_eq!(service_public_gaps(view), [&json!(gap)], "{vars:?}");
+            let finished = session.finish().await;
+            assert_eq!(finished.code(), Some(0), "{vars:?}: stderr:\n{}", finished.stderr);
+            assert_eq!(trap.contacts(), Vec::<String>::new(), "{vars:?}");
+        }
+    }
+
+    /// Échec fermé (ADR-0033, décision 10) : `LF_SERVICE_PUBLIC` ni `on` ni `off` coupe la
+    /// source. Le serveur démarre et le dit (`error!` sur stderr, problème de `check-config`,
+    /// code 2), sans recopier la valeur ; PISTE n'est pas dégradé pour autant.
+    #[tokio::test]
+    async fn invalid_lf_service_public_turns_source_off() {
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let trap = Trap::bind();
+        let launch = launch(audit.path(), &trap).env("LF_SERVICE_PUBLIC", SENTINEL);
+
+        let report = launch.clone().args(&["check-config"]).run_to_end().await;
+        assert_eq!(report.code, Some(2), "{report:?}");
+        assert!(report.stdout.contains("Result: invalid"), "{}", report.stdout);
+        let problem = "  - LF_SERVICE_PUBLIC must be on or off: the Service-Public source is \
+                       turned off";
+        assert!(report.stdout.contains(problem), "{}", report.stdout);
+        let row =
+            report.stdout.lines().find(|row| row.starts_with("LF_SERVICE_PUBLIC")).expect("a row");
+        assert_eq!(
+            row.split_whitespace().collect::<Vec<_>>(),
+            ["LF_SERVICE_PUBLIC", "LF_SERVICE_PUBLIC", "off", "(invalid", "value)", "problem"]
+        );
+        assert!(!report.stdout.contains(SENTINEL) && !report.stderr.contains(SENTINEL));
+
+        let mut session = launch.spawn();
+        session.handshake().await;
+        for answer in call_both(&mut session).await {
+            assert_eq!(first_text(&answer), DISABLED);
+        }
+        let coverage = session.request(&call(4, "fr_coverage", &json!({}))).await;
+        let view = &coverage["result"]["structuredContent"];
+        assert_eq!(view["status"], "ok", "{coverage}");
+        assert!(view["configuration"].get("problems").is_none(), "{coverage}");
+        assert_eq!(service_public_gaps(view), [&json!("FR-109")], "{coverage}");
+        let finished = session.finish().await;
+        assert_eq!(finished.code(), Some(0), "stderr:\n{}", finished.stderr);
+        assert!(
+            finished.stderr.lines().any(|line| {
+                line.contains("ERROR") && line.contains("LF_SERVICE_PUBLIC must be on or off")
+            }),
+            "{}",
+            finished.stderr
+        );
+        assert!(!finished.stderr.contains(SENTINEL), "{}", finished.stderr);
+        assert_eq!(trap.contacts(), Vec::<String>::new());
+    }
+
+    /// Mode hors ligne : `LF_DILA_DIR` défini coupe la source d'office, même quand il est
+    /// inutilisable, et `check-config` le montre. Seul `LF_SERVICE_PUBLIC=on` la rétablit : la
+    /// source télécharge alors l'archive, alors que les textes de Légifrance restent
+    /// indisponibles et que le BOFiP reste coupé.
+    #[tokio::test]
+    async fn unusable_dila_dir_turns_source_off() {
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let trap = Trap::bind();
+        let offline = launch(audit.path(), &trap).env("LF_DILA_DIR", "relative/index");
+
+        let report = offline.clone().args(&["check-config"]).run_to_end().await;
+        let row =
+            report.stdout.lines().find(|row| row.starts_with("LF_SERVICE_PUBLIC")).expect("a row");
+        assert_eq!(
+            row.split_whitespace().collect::<Vec<_>>(),
+            ["LF_SERVICE_PUBLIC", "default", "off", "(LF_DILA_DIR", "is", "set)", "ok"]
+        );
+        // Le seul problème est celui de `LF_DILA_DIR` : la coupure d'office n'en est pas un.
+        assert_eq!(report.code, Some(2), "{report:?}");
+        assert!(!report.stdout.contains("LF_SERVICE_PUBLIC must be"), "{}", report.stdout);
+        assert_eq!(trap.contacts(), Vec::<String>::new());
+
+        // `LF_SERVICE_PUBLIC=on` explicite : la source revient, et elle seule joint le réseau.
+        let mut session = offline.env("LF_SERVICE_PUBLIC", "on").spawn();
+        session.handshake().await;
+        for answer in call_both(&mut session).await {
+            assert_eq!(first_text(&answer), DOWNLOADING, "{answer}");
+        }
+        let bofip = session.request(&call(4, "fr_search_bofip", &json!({"query": "don"}))).await;
+        assert!(
+            first_text(&bofip).starts_with("[config_error] the BOFiP source is turned off"),
+            "{bofip}"
+        );
+        let legifrance = session.request(&call(5, "fr_search", &json!({"query": "bail"}))).await;
+        assert!(
+            first_text(&legifrance).starts_with("[config_error] LF_DILA_DIR must be an absolute"),
+            "{legifrance}"
+        );
+        let finished = session.finish().await;
+        assert_eq!(finished.code(), Some(0), "stderr:\n{}", finished.stderr);
+        assert_eq!(trap.contacts(), [ARCHIVE_TUNNEL]);
     }
 }
 

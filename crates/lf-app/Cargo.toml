@@ -23,6 +23,7 @@ lf-domain.workspace = true
 lf-application.workspace = true
 lf-adapter-piste.workspace = true
 lf-adapter-bofip.workspace = true
+lf-adapter-service-public.workspace = true
 lf-adapter-cache.workspace = true
 lf-adapter-audit.workspace = true
 lf-adapter-mcp.workspace = true

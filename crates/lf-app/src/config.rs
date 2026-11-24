@@ -23,6 +23,9 @@
 //!   identifiants ([`BofipSource`]). `LF_BOFIP` la coupe ; elle l'est d'office en mode hors ligne
 //!   (`LF_DILA_DIR` défini), et toute valeur autre que `on` ou `off` la coupe aussi : échec fermé
 //!   (ADR-0029, décision 8). Aucune variable d'adresse : l'hôte est fixé dans le code.
+//! - Fiches pratiques (jalon MS) : les archives du jour de Service-Public, mêmes règles par
+//!   `LF_SERVICE_PUBLIC` ([`ServicePublicSource`], ADR-0033, décision 10). Aucune variable
+//!   d'adresse ni identifiant.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -37,6 +40,7 @@ use lf_adapter_piste::{
     ConfigProblem, ConfigWarning, PisteConfig, PisteCredentials, PisteEndpoints, PisteTuning,
     RateQuota,
 };
+use lf_adapter_service_public::ServicePublicConfig;
 use lf_application::{
     audited::AuditMode,
     ports::PisteEnvironment,
@@ -79,6 +83,8 @@ const DILA_DIR: &str = "LF_DILA_DIR";
 
 /// `LF_BOFIP` : source de doctrine fiscale (BOFiP, jalon MB), `on` ou `off`.
 const BOFIP: &str = "LF_BOFIP";
+/// `LF_SERVICE_PUBLIC` : source des fiches pratiques (Service-Public, jalon MS), `on` ou `off`.
+const SERVICE_PUBLIC: &str = "LF_SERVICE_PUBLIC";
 
 /// Équivalent hérité de `LF_PISTE_CLIENT_ID`.
 const LEGACY_CLIENT_ID: &str = "FR_ELI_CLIENT_ID";
@@ -102,8 +108,9 @@ const IGNORED_LEGACY: [&str; 5] = [
 ];
 
 /// Variables dont la valeur est lue : la liste fermée de 00 §1, `LF_DILA_DIR` (M9, à ajouter à 00 §1
-/// et à 02 §8.2), `LF_BOFIP` (jalon MB) et les `FR_ELI_*` de compatibilité.
-const READ_VARIABLES: [&str; 21] = [
+/// et à 02 §8.2), `LF_BOFIP` (jalon MB), `LF_SERVICE_PUBLIC` (jalon MS) et les `FR_ELI_*` de
+/// compatibilité.
+const READ_VARIABLES: [&str; 22] = [
     PISTE_ENV,
     CLIENT_ID,
     CLIENT_SECRET,
@@ -120,6 +127,7 @@ const READ_VARIABLES: [&str; 21] = [
     MOJIBAKE_REPAIR,
     DILA_DIR,
     BOFIP,
+    SERVICE_PUBLIC,
     LEGACY_CLIENT_ID,
     LEGACY_CLIENT_SECRET,
     LEGACY_OAUTH_URL,
@@ -298,18 +306,18 @@ impl CorpusSource {
     }
 }
 
-/// Pourquoi la source de doctrine fiscale est coupée.
+/// Pourquoi une source ouverte (BOFiP ou Service-Public) est coupée.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BofipOff {
-    /// `LF_BOFIP=off`.
+pub(crate) enum SourceOff {
+    /// Sa variable (`LF_BOFIP`, `LF_SERVICE_PUBLIC`) vaut `off`.
     Requested,
-    /// `LF_BOFIP` porte une autre valeur que `on` ou `off` : échec fermé.
+    /// Sa variable porte une autre valeur que `on` ou `off` : échec fermé.
     Invalid,
-    /// Mode hors ligne : `LF_DILA_DIR` est défini et `LF_BOFIP` ne dit rien.
+    /// Mode hors ligne : `LF_DILA_DIR` est défini et la variable de la source ne dit rien.
     Offline,
 }
 
-impl BofipOff {
+impl SourceOff {
     /// Ce que `check-config` et le journal de démarrage affichent : l'état, et sa cause quand ce
     /// n'est pas une demande explicite. Jamais la valeur lue.
     pub(crate) fn shown(self) -> &'static str {
@@ -331,7 +339,7 @@ pub(crate) enum BofipSource {
     /// Le portail est interrogé, avec ces réglages de client.
     On(BofipConfig),
     /// Source coupée, et pourquoi.
-    Off(BofipOff),
+    Off(SourceOff),
 }
 
 impl BofipSource {
@@ -348,6 +356,37 @@ impl BofipSource {
         match self {
             Self::On(_) => DoctrineSource::Active,
             Self::Off(_) => DoctrineSource::Off,
+        }
+    }
+}
+
+/// Source des fiches pratiques (Service-Public, ADR-0033) : les archives du jour de la DILA, ou
+/// rien.
+///
+/// Elle ne dépend pas de PISTE : ni identifiants, ni environnement. Coupée, chaque outil de
+/// Service-Public répond `[config_error]` sans qu'aucun client HTTP soit construit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ServicePublicSource {
+    /// Les archives sont téléchargées, avec ces réglages.
+    On(ServicePublicConfig),
+    /// Source coupée, et pourquoi.
+    Off(SourceOff),
+}
+
+impl ServicePublicSource {
+    /// Nom de la source dans le journal de démarrage.
+    pub(crate) fn label(&self) -> &'static str {
+        match self {
+            Self::On(_) => "service-public",
+            Self::Off(reason) => reason.shown(),
+        }
+    }
+
+    /// L'état que `fr_coverage` rend : source active (lacune FR-108) ou coupée (FR-109).
+    pub(crate) fn coverage(&self) -> GuidanceSource {
+        match self {
+            Self::On(_) => GuidanceSource::Active,
+            Self::Off(_) => GuidanceSource::Off,
         }
     }
 }
@@ -379,6 +418,8 @@ pub(crate) struct AppConfig {
     pub(crate) source: CorpusSource,
     /// Source de doctrine fiscale : le portail du BOFiP, ou rien (`LF_BOFIP`, jalon MB).
     pub(crate) bofip: BofipSource,
+    /// Source des fiches pratiques : Service-Public, ou rien (`LF_SERVICE_PUBLIC`, jalon MS).
+    pub(crate) service_public: ServicePublicSource,
 }
 
 /// Avertissement ou problème relevé en lisant la configuration (jamais de secret ni de valeur lue).
@@ -426,6 +467,9 @@ pub(crate) enum Notice {
     DilaDir(DilaDirProblem),
     /// `LF_BOFIP` n'est ni `on` ni `off` : la source du BOFiP est coupée (échec fermé).
     InvalidBofip,
+    /// `LF_SERVICE_PUBLIC` n'est ni `on` ni `off` : la source de Service-Public est coupée
+    /// (échec fermé).
+    InvalidServicePublic,
     /// Identifiants PISTE absents : mode dégradé.
     CredentialsMissing,
 }
@@ -440,6 +484,7 @@ impl Notice {
                 | Self::AuditDir(_)
                 | Self::DilaDir(_)
                 | Self::InvalidBofip
+                | Self::InvalidServicePublic
                 | Self::CredentialsMissing
         )
     }
@@ -481,6 +526,12 @@ impl fmt::Display for Notice {
             Self::DilaDir(problem) => problem.fmt(f),
             Self::InvalidBofip => {
                 write!(f, "{BOFIP} must be on or off: the BOFiP source is turned off")
+            }
+            Self::InvalidServicePublic => {
+                write!(
+                    f,
+                    "{SERVICE_PUBLIC} must be on or off: the Service-Public source is turned off"
+                )
             }
             Self::CredentialsMissing => {
                 write!(f, "PISTE credentials missing: set {CLIENT_ID} and {CLIENT_SECRET}")
@@ -569,8 +620,9 @@ pub(crate) struct Loaded {
     /// Avertissements et problèmes, dans l'ordre de lecture.
     pub(crate) notices: Vec<Notice>,
     /// Une ligne par variable de la liste fermée, dans l'ordre de 02 §8.2, plus `LF_DILA_DIR`
-    /// quand elle est définie, puis `LF_BOFIP` quand elle est définie ou que la source est coupée
-    /// d'office (sans elles, la table garde ses quatorze lignes).
+    /// quand elle est définie, puis `LF_BOFIP` et `LF_SERVICE_PUBLIC`, chacune quand elle est
+    /// définie ou que sa source est coupée d'office (sans elles, la table garde ses quatorze
+    /// lignes).
     pub(crate) lines: Vec<SettingLine>,
 }
 
@@ -803,8 +855,9 @@ impl<E: EnvSource> Collector<'_, E> {
         }
     }
 
-    /// `LF_BOFIP` (jalon MB) : `on` ou `off`, casse ignorée. Rend la raison de la coupure, ou
-    /// `None` si la source est active.
+    /// L'interrupteur `variable` d'une source ouverte (`LF_BOFIP`, jalon MB ; `LF_SERVICE_PUBLIC`,
+    /// jalon MS) : `on` ou `off`, casse ignorée. Rend la raison de la coupure, ou `None` si la
+    /// source est active ; `invalid` est le problème d'une autre valeur.
     ///
     /// Absente ou blanche : la source est active, sauf en mode hors ligne (`offline` :
     /// `LF_DILA_DIR` est défini, utilisable ou non), où elle est coupée d'office. Une valeur
@@ -813,24 +866,29 @@ impl<E: EnvSource> Collector<'_, E> {
     ///
     /// La ligne de `check-config` n'existe que si la variable est définie ou si la source est
     /// coupée d'office : sans cela, la sortie est celle d'avant le jalon.
-    fn bofip(&mut self, offline: bool) -> Option<BofipOff> {
-        let read = self.read(BOFIP, None);
+    fn switch(
+        &mut self,
+        variable: &'static str,
+        invalid: Notice,
+        offline: bool,
+    ) -> Option<SourceOff> {
+        let read = self.read(variable, None);
         let Some(raw) = read.value else {
             if offline {
-                self.line(BOFIP, Source::Default, BofipOff::Offline.shown(), LineState::Ok);
-                return Some(BofipOff::Offline);
+                self.line(variable, Source::Default, SourceOff::Offline.shown(), LineState::Ok);
+                return Some(SourceOff::Offline);
             }
             return None;
         };
         let (off, state) = if raw.eq_ignore_ascii_case("on") {
             (None, LineState::Ok)
         } else if raw.eq_ignore_ascii_case("off") {
-            (Some(BofipOff::Requested), LineState::Ok)
+            (Some(SourceOff::Requested), LineState::Ok)
         } else {
-            self.notices.push(Notice::InvalidBofip);
-            (Some(BofipOff::Invalid), LineState::Problem)
+            self.notices.push(invalid);
+            (Some(SourceOff::Invalid), LineState::Problem)
         };
-        self.line(BOFIP, read.source, off.map_or("on", BofipOff::shown), state);
+        self.line(variable, read.source, off.map_or("on", SourceOff::shown), state);
         off
     }
 
@@ -1025,9 +1083,12 @@ pub(crate) fn load(env: &impl EnvSource) -> Loaded {
     if let CorpusSource::Unusable(problem) = &source {
         problems.push(problem.to_string());
     }
-    // Mode hors ligne : `LF_DILA_DIR` est défini, utilisable ou non. La source du BOFiP y est
-    // coupée d'office, sauf `LF_BOFIP=on` (ADR-0029, décision 8).
-    let bofip_off = reader.bofip(!matches!(source, CorpusSource::Piste));
+    // Mode hors ligne : `LF_DILA_DIR` est défini, utilisable ou non. Les sources du BOFiP et de
+    // Service-Public y sont coupées d'office, sauf `on` explicite (ADR-0029, décision 8 ;
+    // ADR-0033, décision 10).
+    let offline = !matches!(source, CorpusSource::Piste);
+    let bofip_off = reader.switch(BOFIP, Notice::InvalidBofip, offline);
+    let service_public_off = reader.switch(SERVICE_PUBLIC, Notice::InvalidServicePublic, offline);
 
     // Les variables héritées jamais lues ne sont que signalées.
     for variable in IGNORED_LEGACY {
@@ -1042,6 +1103,12 @@ pub(crate) fn load(env: &impl EnvSource) -> Loaded {
     let bofip = bofip_off.map_or_else(
         || BofipSource::On(BofipConfig::new(USER_AGENT.to_owned(), request_timeout, tool_deadline)),
         BofipSource::Off,
+    );
+    // Le téléchargeur de Service-Public reprend le `User-Agent` et l'échéance d'un appel : une
+    // archive se télécharge en une requête, qu'aucun délai par requête ne borne (ADR-0033).
+    let service_public = service_public_off.map_or_else(
+        || ServicePublicSource::On(ServicePublicConfig::new(USER_AGENT.to_owned(), tool_deadline)),
+        ServicePublicSource::Off,
     );
     let tuning = PisteTuning {
         request_timeout,
@@ -1069,11 +1136,12 @@ pub(crate) fn load(env: &impl EnvSource) -> Loaded {
             local_snapshot: matches!(source, CorpusSource::Dila(_)),
             // Le serveur sert les deux outils du BOFiP : la source est active ou coupée.
             doctrine: bofip.coverage(),
-            // Le serveur ne sert pas encore les outils de Service-Public (T-MS-25).
-            guidance: GuidanceSource::NotServed,
+            // Le serveur sert les deux outils de Service-Public : la source est active ou coupée.
+            guidance: service_public.coverage(),
         },
         source,
         bofip,
+        service_public,
     };
     Loaded { config, notices: reader.notices, lines: reader.lines }
 }
@@ -1224,12 +1292,14 @@ mod tests {
                 custom_host: false,
                 problems: Vec::new(),
                 local_snapshot: false,
-                // La source du BOFiP est active sans aucun réglage (Q29 = A).
+                // Les sources du BOFiP et de Service-Public sont actives sans aucun réglage
+                // (Q29 = A ; ADR-0033, décision 10).
                 doctrine: DoctrineSource::Active,
-                guidance: GuidanceSource::NotServed,
+                guidance: GuidanceSource::Active,
             }
         );
         assert_eq!(config.bofip, default_bofip());
+        assert_eq!(config.service_public, default_service_public());
     }
 
     #[test]
@@ -1886,6 +1956,11 @@ mod tests {
         SettingLine { name: BOFIP, source, value: value.to_owned(), state }
     }
 
+    /// La ligne de `check-config` de la variable `name`, si elle existe.
+    fn line_of<'a>(loaded: &'a Loaded, name: &str) -> Option<&'a SettingLine> {
+        loaded.lines.iter().find(|line| line.name == name)
+    }
+
     #[test]
     fn the_bofip_source_is_on_by_default_without_a_line() {
         let cases: [&[(&str, &str)]; 2] = [&[], &[(BOFIP, "  ")]];
@@ -1922,7 +1997,7 @@ mod tests {
 
     #[test]
     fn lf_bofip_on_and_off_are_read_whatever_the_case() {
-        let off = BofipSource::Off(BofipOff::Requested);
+        let off = BofipSource::Off(SourceOff::Requested);
         let cases = [
             ("on", default_bofip(), DoctrineSource::Active, "on"),
             ("ON", default_bofip(), DoctrineSource::Active, "on"),
@@ -1952,7 +2027,7 @@ mod tests {
     fn an_invalid_lf_bofip_turns_the_source_off_with_a_problem() {
         for raw in ["false", "0", "no", "true", "1", "yes", "onn", "o n", "of", "disabled"] {
             let loaded = with_credentials(&[(BOFIP, raw)]);
-            assert_eq!(loaded.config.bofip, BofipSource::Off(BofipOff::Invalid), "{raw}");
+            assert_eq!(loaded.config.bofip, BofipSource::Off(SourceOff::Invalid), "{raw}");
             assert_eq!(loaded.config.configuration.doctrine, DoctrineSource::Off, "{raw}");
             assert_eq!(loaded.notices, [Notice::InvalidBofip], "{raw}");
             assert!(!loaded.is_valid(), "{raw}");
@@ -1984,13 +2059,13 @@ mod tests {
         let usable = abs_str("index");
         for dir in [usable.as_str(), "relative/index"] {
             let offline = loaded(&[(DILA_DIR, dir)]);
-            assert_eq!(offline.config.bofip, BofipSource::Off(BofipOff::Offline), "{dir}");
+            assert_eq!(offline.config.bofip, BofipSource::Off(SourceOff::Offline), "{dir}");
             assert_eq!(offline.config.configuration.doctrine, DoctrineSource::Off, "{dir}");
             // La coupure d'office n'est pas un problème : seule sa ligne la montre.
             assert!(!offline.notices.contains(&Notice::InvalidBofip), "{dir}");
             assert_eq!(
-                offline.lines.last().unwrap(),
-                &bofip_line(Source::Default, "off (LF_DILA_DIR is set)", LineState::Ok),
+                line_of(&offline, BOFIP),
+                Some(&bofip_line(Source::Default, "off (LF_DILA_DIR is set)", LineState::Ok)),
                 "{dir}"
             );
 
@@ -1998,23 +2073,192 @@ mod tests {
             assert_eq!(forced.config.bofip, default_bofip(), "{dir}");
             assert_eq!(forced.config.configuration.doctrine, DoctrineSource::Active, "{dir}");
             assert_eq!(
-                forced.lines.last().unwrap(),
-                &bofip_line(Source::Variable(BOFIP), "on", LineState::Ok),
+                line_of(&forced, BOFIP),
+                Some(&bofip_line(Source::Variable(BOFIP), "on", LineState::Ok)),
                 "{dir}"
             );
             let explicit = loaded(&[(DILA_DIR, dir), (BOFIP, "off")]);
-            assert_eq!(explicit.config.bofip, BofipSource::Off(BofipOff::Requested), "{dir}");
+            assert_eq!(explicit.config.bofip, BofipSource::Off(SourceOff::Requested), "{dir}");
             let invalid = loaded(&[(DILA_DIR, dir), (BOFIP, "maybe")]);
-            assert_eq!(invalid.config.bofip, BofipSource::Off(BofipOff::Invalid), "{dir}");
+            assert_eq!(invalid.config.bofip, BofipSource::Off(SourceOff::Invalid), "{dir}");
         }
     }
 
     #[test]
     fn the_bofip_source_names_itself_for_the_startup_log() {
         assert_eq!(default_bofip().label(), "bofip");
-        assert_eq!(BofipSource::Off(BofipOff::Requested).label(), "off");
-        assert_eq!(BofipSource::Off(BofipOff::Invalid).label(), "off (invalid value)");
-        assert_eq!(BofipSource::Off(BofipOff::Offline).label(), "off (LF_DILA_DIR is set)");
+        assert_eq!(BofipSource::Off(SourceOff::Requested).label(), "off");
+        assert_eq!(BofipSource::Off(SourceOff::Invalid).label(), "off (invalid value)");
+        assert_eq!(BofipSource::Off(SourceOff::Offline).label(), "off (LF_DILA_DIR is set)");
+    }
+
+    // --- Fiches pratiques : LF_SERVICE_PUBLIC (jalon MS) ----------------------------------------
+
+    /// La source active d'une configuration par défaut : le `User-Agent` de PISTE et 60 s par
+    /// appel d'outil.
+    fn default_service_public() -> ServicePublicSource {
+        ServicePublicSource::On(ServicePublicConfig::new(
+            USER_AGENT.to_owned(),
+            Duration::from_secs(60),
+        ))
+    }
+
+    fn service_public_line(source: Source, value: &str, state: LineState) -> SettingLine {
+        SettingLine { name: SERVICE_PUBLIC, source, value: value.to_owned(), state }
+    }
+
+    #[test]
+    fn the_service_public_source_is_on_by_default_without_a_line() {
+        let cases: [&[(&str, &str)]; 2] = [&[], &[(SERVICE_PUBLIC, "  ")]];
+        for pairs in cases {
+            let loaded = with_credentials(pairs);
+            assert_eq!(loaded.config.service_public, default_service_public());
+            assert_eq!(loaded.config.configuration.guidance, GuidanceSource::Active);
+            // G9 : sans la variable, `check-config` garde ses quatorze lignes et ne dit rien.
+            assert_eq!(loaded.lines.len(), 14);
+            assert_eq!(loaded.notices, Vec::new());
+        }
+        // La source ne dépend pas de PISTE : sans identifiants, elle reste active.
+        let bare = loaded(&[]);
+        assert_eq!(bare.config.service_public, default_service_public());
+        assert_eq!(bare.config.configuration.guidance, GuidanceSource::Active);
+    }
+
+    /// Le téléchargement suit l'échéance d'un appel d'outil, jamais le délai par requête de PISTE.
+    #[test]
+    fn the_service_public_download_follows_the_tool_deadline_only() {
+        let loaded = with_credentials(&[(HTTP_TIMEOUT, "7"), (TOOL_DEADLINE, "90")]);
+        assert_eq!(
+            loaded.config.service_public,
+            ServicePublicSource::On(ServicePublicConfig::new(
+                USER_AGENT.to_owned(),
+                Duration::from_secs(90),
+            ))
+        );
+    }
+
+    #[test]
+    fn lf_service_public_on_and_off_are_read_whatever_the_case() {
+        let off = ServicePublicSource::Off(SourceOff::Requested);
+        let cases = [
+            ("on", default_service_public(), GuidanceSource::Active, "on"),
+            (" On ", default_service_public(), GuidanceSource::Active, "on"),
+            ("off", off.clone(), GuidanceSource::Off, "off"),
+            (" oFf ", off, GuidanceSource::Off, "off"),
+        ];
+        for (raw, source, guidance, shown) in cases {
+            let loaded = with_credentials(&[(SERVICE_PUBLIC, raw)]);
+            assert_eq!(loaded.config.service_public, source, "{raw}");
+            assert_eq!(loaded.config.configuration.guidance, guidance, "{raw}");
+            assert_eq!(loaded.notices, Vec::new(), "{raw}");
+            // La ligne vient en dernier, après les quatorze autres.
+            assert_eq!(loaded.lines.len(), 15, "{raw}");
+            assert_eq!(
+                loaded.lines.last(),
+                Some(&service_public_line(Source::Variable(SERVICE_PUBLIC), shown, LineState::Ok)),
+                "{raw}"
+            );
+            // L'autre source ouverte n'en dépend pas.
+            assert_eq!(loaded.config.bofip, default_bofip(), "{raw}");
+        }
+        // Les deux variables : la ligne du BOFiP précède celle de Service-Public.
+        let both = with_credentials(&[(SERVICE_PUBLIC, "off"), (BOFIP, "off")]);
+        let names: Vec<&str> = both.lines[14..].iter().map(|line| line.name).collect();
+        assert_eq!(names, [BOFIP, SERVICE_PUBLIC]);
+    }
+
+    /// Échec fermé (ADR-0033, décision 10) : un refus mal écrit coupe la source au lieu de la
+    /// laisser active, et la valeur lue n'est recopiée nulle part.
+    #[test]
+    fn an_invalid_lf_service_public_turns_the_source_off_with_a_problem() {
+        for raw in ["false", "0", "no", "true", "1", "yes", "onn", "of", "disabled"] {
+            let loaded = with_credentials(&[(SERVICE_PUBLIC, raw)]);
+            assert_eq!(
+                loaded.config.service_public,
+                ServicePublicSource::Off(SourceOff::Invalid),
+                "{raw}"
+            );
+            assert_eq!(loaded.config.configuration.guidance, GuidanceSource::Off, "{raw}");
+            assert_eq!(loaded.notices, [Notice::InvalidServicePublic], "{raw}");
+            assert!(!loaded.is_valid(), "{raw}");
+            assert_eq!(
+                loaded.lines.last(),
+                Some(&service_public_line(
+                    Source::Variable(SERVICE_PUBLIC),
+                    "off (invalid value)",
+                    LineState::Problem
+                )),
+                "{raw}"
+            );
+            // PISTE et le BOFiP n'en souffrent pas : aucun problème de configuration.
+            assert_eq!(loaded.config.source, CorpusSource::Piste, "{raw}");
+            assert_eq!(loaded.config.bofip, default_bofip(), "{raw}");
+            assert_eq!(loaded.config.configuration.problems, Vec::<String>::new(), "{raw}");
+        }
+        assert_eq!(
+            Notice::InvalidServicePublic.to_string(),
+            "LF_SERVICE_PUBLIC must be on or off: the Service-Public source is turned off"
+        );
+        // La valeur refusée n'est recopiée ni dans la configuration, ni dans le journal.
+        let loaded = with_credentials(&[(SERVICE_PUBLIC, "zzsentinellezz")]);
+        assert!(!format!("{loaded:?}").contains("zzsentinellezz"));
+        let logs = logs_of(&loaded);
+        assert!(logs.contains("ERROR"), "{logs}");
+        assert!(logs.contains("LF_SERVICE_PUBLIC must be on or off"), "{logs}");
+        assert!(!logs.contains("zzsentinellezz"), "{logs}");
+    }
+
+    /// Mode hors ligne : `LF_DILA_DIR` défini coupe la source d'office, qu'il soit utilisable ou
+    /// non ; seul `LF_SERVICE_PUBLIC=on` la rétablit, et une valeur explicite l'emporte toujours.
+    #[test]
+    fn a_dila_dir_turns_the_service_public_source_off_unless_lf_service_public_is_on() {
+        let usable = abs_str("index");
+        for dir in [usable.as_str(), "relative/index"] {
+            let offline = loaded(&[(DILA_DIR, dir)]);
+            assert_eq!(
+                offline.config.service_public,
+                ServicePublicSource::Off(SourceOff::Offline),
+                "{dir}"
+            );
+            assert_eq!(offline.config.configuration.guidance, GuidanceSource::Off, "{dir}");
+            assert!(!offline.notices.contains(&Notice::InvalidServicePublic), "{dir}");
+            assert_eq!(
+                offline.lines.last(),
+                Some(&service_public_line(
+                    Source::Default,
+                    "off (LF_DILA_DIR is set)",
+                    LineState::Ok
+                )),
+                "{dir}"
+            );
+
+            let forced = loaded(&[(DILA_DIR, dir), (SERVICE_PUBLIC, "on")]);
+            assert_eq!(forced.config.service_public, default_service_public(), "{dir}");
+            assert_eq!(forced.config.configuration.guidance, GuidanceSource::Active, "{dir}");
+            // Le BOFiP reste coupé d'office : chaque source a son interrupteur.
+            assert_eq!(forced.config.bofip, BofipSource::Off(SourceOff::Offline), "{dir}");
+            let explicit = loaded(&[(DILA_DIR, dir), (SERVICE_PUBLIC, "off")]);
+            assert_eq!(
+                explicit.config.service_public,
+                ServicePublicSource::Off(SourceOff::Requested),
+                "{dir}"
+            );
+            let invalid = loaded(&[(DILA_DIR, dir), (SERVICE_PUBLIC, "maybe")]);
+            assert_eq!(
+                invalid.config.service_public,
+                ServicePublicSource::Off(SourceOff::Invalid),
+                "{dir}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_service_public_source_names_itself_for_the_startup_log() {
+        assert_eq!(default_service_public().label(), "service-public");
+        let off = |reason| ServicePublicSource::Off(reason).label();
+        assert_eq!(off(SourceOff::Requested), "off");
+        assert_eq!(off(SourceOff::Invalid), "off (invalid value)");
+        assert_eq!(off(SourceOff::Offline), "off (LF_DILA_DIR is set)");
     }
 
     // --- Source locale DILA (M9) ----------------------------------------------------------------
@@ -2045,8 +2289,9 @@ mod tests {
         // L'index local est un instantané ; PISTE, même avec des identifiants, n'en est pas un.
         assert!(local.config.configuration.local_snapshot);
         // La ligne de `check-config` vient après les quatorze autres, et seulement si définie ;
-        // celle de `LF_BOFIP` la suit, la source étant coupée d'office en mode hors ligne.
-        assert_eq!(local.lines.len(), 16);
+        // celles de `LF_BOFIP` et de `LF_SERVICE_PUBLIC` la suivent, les deux sources étant
+        // coupées d'office en mode hors ligne.
+        assert_eq!(local.lines.len(), 17);
         let shown = &local.lines[14];
         assert_eq!(shown.name, DILA_DIR);
         assert_eq!(shown.source, Source::Variable(DILA_DIR));
@@ -2139,7 +2384,9 @@ mod tests {
     #[test]
     fn no_variable_admits_dereferenced_or_inap_content() {
         for name in READ_VARIABLES {
-            let upper = name.to_ascii_uppercase();
+            // `LF_SERVICE_PUBLIC` (jalon MS) ne vise pas la source locale : il allume ou coupe les
+            // fiches de Service-Public, `on` ou `off` seulement ; son nom seul porte « PUBLIC ».
+            let upper = name.to_ascii_uppercase().replace("SERVICE_PUBLIC", "");
             for forbidden in ["DEREFERENCED", "INAP", "PUBLIC", "ALL_FUNDS", "JORF"] {
                 assert!(!upper.contains(forbidden), "{name} could widen the local source");
             }
@@ -2341,6 +2588,7 @@ mod tests {
             Notice::AuditDir(AuditDirProblem::NotAbsolute),
             Notice::DilaDir(DilaDirProblem::NotAbsolute),
             Notice::InvalidBofip,
+            Notice::InvalidServicePublic,
             Notice::Problem(ConfigProblem::invalid_env("x")),
         ];
         for notice in problems {
@@ -2492,6 +2740,7 @@ mod tests {
             "LF_PISTE_MOJIBAKE_REPAIR",
             "LF_DILA_DIR",
             "LF_BOFIP",
+            "LF_SERVICE_PUBLIC",
         ];
         let legacy = [
             "FR_ELI_CLIENT_ID",
