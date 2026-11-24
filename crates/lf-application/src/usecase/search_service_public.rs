@@ -20,8 +20,11 @@
 //! compact de la vue l'écrira, plus une réserve pour ses champs constants
 //! ([`GUIDANCE_CONSTANTS_RESERVE_CHARS`]), puis comparée à la cible de 42 000 caractères. Un titre
 //! peut faire 1 000 caractères : les titres des derniers résultats sont raccourcis à 120
-//! caractères, avec une `note`, sans jamais retirer un résultat. À 50 résultats au plus, la page
-//! raccourcie tient toujours (test `the_worst_page_fits_once_its_titles_are_shortened`).
+//! caractères, avec une `note`, sans jamais retirer un résultat. Le chemin d'un résultat (Q41) a
+//! trois intitulés de 120 caractères au plus (147 caractères mesurés en tout) : si la page
+//! dépasse encore la cible, ce qui n'arrive qu'avec des titres faits de caractères échappés, le
+//! chemin des derniers résultats est retiré, avec une seconde note. À 50 résultats au plus, la
+//! page tient toujours (test `the_worst_page_fits_once_its_titles_and_paths_are_cut`).
 
 use std::num::NonZeroU32;
 
@@ -181,8 +184,28 @@ fn fit_under_target(output: &mut SearchServicePublicOutput) {
         fixed.saturating_add(page_cost(hits)) > ResponseBudget::ESTIMATE_TARGET_CHARS
     };
     let shortened = strip_from_end(&mut output.hits, over, shorten_title);
+    let unplaced = strip_from_end(&mut output.hits, over, drop_path);
     let titles = (shortened > 0).then(|| titles_note(shortened));
-    output.note = join_notes([output.note.take(), titles]);
+    let paths = (unplaced > 0).then(|| paths_note(unplaced));
+    output.note = join_notes([output.note.take(), titles, paths]);
+}
+
+/// Retire le chemin du résultat ; vrai s'il en avait un.
+fn drop_path(hit: &mut GuidanceHit) -> bool {
+    !std::mem::take(&mut hit.path).is_empty()
+}
+
+/// Note des chemins retirés : leur nombre, et où les lire.
+fn paths_note(count: usize) -> String {
+    let subject = if count == 1 {
+        "The path of 1 hit was".to_owned()
+    } else {
+        format!("The paths of {count} hits were")
+    };
+    format!(
+        "{subject} left out to keep the response under 45,000 characters; \
+         fr_get_service_public gives the path of a page."
+    )
 }
 
 /// Coupe le titre du résultat à [`TITLE_SHORT_CHARS`] caractères, `…` compris ; vrai s'il était
@@ -231,13 +254,14 @@ fn page_cost(hits: &[GuidanceHit]) -> usize {
 }
 
 /// Longueur du JSON compact d'un résultat, telle que la vue l'écrit : `id`, `audience`, `kind`,
-/// `title` et `source_url` toujours ; `updated` s'il est connu.
+/// `title` et `source_url` toujours ; `path` s'il n'est pas vide, `updated` s'il est connu.
 fn hit_cost(hit: &GuidanceHit) -> usize {
     let mut json = JsonObject::default();
     json.text("id", hit.id.as_str());
     json.text("audience", hit.audience.name());
     json.text("kind", hit.kind.as_str());
     json.text("title", &hit.title);
+    json.optional_texts("path", &hit.path);
     if hit.updated.is_some() {
         json.raw("updated", ISO_DATE_CHARS.saturating_add(2));
     }
@@ -247,7 +271,7 @@ fn hit_cost(hit: &GuidanceHit) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use lf_domain::guidance::Audience;
+    use lf_domain::guidance::{Audience, MENU_DEPTH_MAX, MENU_TITLE_MAX_CHARS};
     use pretty_assertions::assert_eq;
 
     use super::*;
@@ -436,25 +460,56 @@ mod tests {
     /// échappés). Les derniers titres sont raccourcis jusqu'à tenir sous la cible ; aucun résultat
     /// n'est retiré.
     #[tokio::test]
-    async fn the_worst_page_fits_once_its_titles_are_shortened() {
+    async fn the_worst_page_fits_once_its_titles_and_paths_are_cut() {
         let title = "\"".repeat(1_000);
+        let worst_path = vec!["\"".repeat(MENU_TITLE_MAX_CHARS); MENU_DEPTH_MAX];
+        let page = hits(50, &title)
+            .into_iter()
+            .map(|hit| GuidanceHit { path: worst_path.clone(), ..hit })
+            .collect();
         let input = SearchServicePublicInput { page_size: Some(50), ..words("aide") };
-        let response = found(AudienceFilter::Particuliers, 9_999, hits(50, &title));
+        let response = found(AudienceFilter::Particuliers, 9_999, page);
         let (output, _) = run(input, Ok(response)).await;
         let output = output.unwrap();
         assert_eq!(output.hits.len(), 50);
-        let shortened = output.hits.iter().filter(|hit| hit.title.ends_with('…')).count();
-        assert!(shortened > 0);
-        // Les titres raccourcis sont les derniers, à la longueur fixée.
+        // Tous les titres raccourcis d'abord, puis les chemins des derniers résultats retirés.
+        assert!(output.hits.iter().all(|hit| hit.title.chars().count() == TITLE_SHORT_CHARS));
+        let unplaced = output.hits.iter().filter(|hit| hit.path.is_empty()).count();
+        assert!(unplaced > 0 && unplaced < 50, "{unplaced}");
         for (index, hit) in output.hits.iter().enumerate() {
-            let short = index >= 50 - shortened;
-            assert_eq!(hit.title.chars().count(), if short { TITLE_SHORT_CHARS } else { 1_000 });
+            assert_eq!(hit.path.is_empty(), index >= 50 - unplaced);
         }
         let size =
             envelope_cost(&output) + page_cost(&output.hits) + GUIDANCE_CONSTANTS_RESERVE_CHARS;
         assert!(size <= ResponseBudget::ESTIMATE_TARGET_CHARS, "{size}");
+        assert_eq!(output.note, Some(format!("{} {}", titles_note(50), paths_note(unplaced))));
+    }
+
+    /// Une page de titres longs, aux chemins de taille réelle (147 caractères au plus, mesure du
+    /// 2026-11-24) : seuls des titres sont raccourcis, aucun chemin n'est retiré.
+    #[tokio::test]
+    async fn real_sized_paths_are_kept_whole() {
+        let real_path = vec!["a".repeat(60), "b".repeat(40), "c".repeat(47)];
+        let page = hits(50, &"\"".repeat(1_000))
+            .into_iter()
+            .map(|hit| GuidanceHit { path: real_path.clone(), ..hit })
+            .collect();
+        let input = SearchServicePublicInput { page_size: Some(50), ..words("aide") };
+        let (output, _) = run(input, Ok(found(AudienceFilter::Particuliers, 50, page))).await;
+        let output = output.unwrap();
+        assert!(output.hits.iter().all(|hit| hit.path == real_path));
+        let shortened = output.hits.iter().filter(|hit| hit.title.ends_with('…')).count();
         assert_eq!(output.note, Some(titles_note(shortened)));
-        assert!(output.note.unwrap().starts_with(&format!("{shortened} long titles were")));
+    }
+
+    #[test]
+    fn one_hit_without_its_path_is_named_in_the_singular() {
+        assert_eq!(
+            paths_note(1),
+            "The path of 1 hit was left out to keep the response under 45,000 characters; \
+             fr_get_service_public gives the path of a page."
+        );
+        assert!(paths_note(3).starts_with("The paths of 3 hits were left out"));
     }
 
     /// Seuls les derniers titres sont raccourcis, et un titre court n'est pas compté.
@@ -496,12 +551,17 @@ mod tests {
     fn a_hit_costs_its_compact_json() {
         let dated = hit(Audience::Entreprendre, "F31901", "Compte \"pro\"");
         let json = format!(
-            r#"{{"id":"F31901","audience":"entreprendre","kind":"sheet","title":"Compte \"pro\"","updated":"2026-04-01","source_url":"{}"}}"#,
+            r#"{{"id":"F31901","audience":"entreprendre","kind":"sheet","title":"Compte \"pro\"","path":["Argent","Banque","Compte bancaire"],"updated":"2026-04-01","source_url":"{}"}}"#,
             dated.source_url
         );
         assert_eq!(hit_cost(&dated), json.chars().count());
-        let undated = GuidanceHit { updated: None, ..dated };
+        let undated = GuidanceHit { updated: None, ..dated.clone() };
         assert_eq!(hit_cost(&undated), json.chars().count() - r#","updated":"2026-04-01""#.len());
+        let unplaced = GuidanceHit { path: Vec::new(), ..dated.clone() };
+        let path = r#","path":["Argent","Banque","Compte bancaire"]"#;
+        assert_eq!(hit_cost(&unplaced), json.chars().count() - path.len());
+        let quoted = GuidanceHit { path: vec!["\"a\"".to_owned()], ..dated };
+        assert_eq!(hit_cost(&quoted), hit_cost(&unplaced) + r#","path":["\"a\""]"#.len());
         assert_eq!(page_cost(&[]), 0);
     }
 }

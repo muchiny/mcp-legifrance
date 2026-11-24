@@ -405,6 +405,19 @@ impl JsonObject {
         }
     }
 
+    /// Liste de textes, présente seulement si elle n'est pas vide : `["a","b"]`.
+    pub(super) fn optional_texts(&mut self, key: &str, values: &[String]) {
+        if values.is_empty() {
+            return;
+        }
+        let items = values
+            .iter()
+            .map(|value| escaped_chars(value).saturating_add(2))
+            .fold(0, usize::saturating_add);
+        let commas = values.len().saturating_sub(1);
+        self.raw(key, items.saturating_add(commas).saturating_add(2));
+    }
+
     pub(super) fn total(&self) -> usize {
         self.len.saturating_add(self.fields.saturating_sub(1)).saturating_add(2)
     }

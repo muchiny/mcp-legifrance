@@ -182,7 +182,7 @@ fn references_note(count: usize) -> String {
 
 /// Longueur du JSON compact des métadonnées de `doc`, sans sa liste ni la lecture : `id`,
 /// `audience`, `kind`, `title`, `citation` et `source_url` toujours ; `sheet_type`,
-/// `description`, `theme`, `updated` et `legal_references_truncated` s'ils sont présents.
+/// `description`, `theme`, `path`, `updated` et `legal_references_truncated` s'ils sont présents.
 fn metadata_cost(doc: &GuidanceDoc) -> usize {
     let mut json = JsonObject::default();
     json.text("id", doc.id.as_str());
@@ -192,6 +192,7 @@ fn metadata_cost(doc: &GuidanceDoc) -> usize {
     json.text("title", &doc.title);
     json.optional_text("description", doc.description.as_deref());
     json.optional_text("theme", doc.theme.as_deref());
+    json.optional_texts("path", &doc.path);
     if doc.updated.is_some() {
         json.raw("updated", ISO_DATE_FIELD);
     }
@@ -555,11 +556,12 @@ mod tests {
             sheet_type: None,
             description: None,
             theme: None,
+            path: Vec::new(),
             updated: None,
             ..full.clone()
         };
         let extra = format!(
-            r#","sheet_type":"Fiche d'information","description":"{DESCRIPTION}","theme":"Argent","updated":"2026-04-01""#
+            r#","sheet_type":"Fiche d'information","description":"{DESCRIPTION}","theme":"Argent","path":["Argent","Banque"],"updated":"2026-04-01""#
         );
         let citation_gap = full.citation().chars().count() - bare.citation().chars().count();
         assert_eq!(

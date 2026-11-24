@@ -79,6 +79,10 @@ pub struct GuidanceDoc {
     pub description: Option<String>,
     /// Thème de rattachement.
     pub theme: Option<String>,
+    /// Chemin dans le site, tiré du menu ([`GuidanceMenu::path`](super::GuidanceMenu::path)) :
+    /// intitulés du thème, du sous-thème et du dossier, du plus large au plus étroit ; vide hors du
+    /// menu (Q41).
+    pub path: Vec<String>,
     /// Date de dernière modification importante (fiches).
     pub updated: Option<CivilDate>,
     /// Adresse publique.
@@ -130,6 +134,7 @@ impl GuidanceDoc {
     ///     title: "Solde bancaire insaisissable (SBI)".to_owned(),
     ///     description: None,
     ///     theme: None,
+    ///     path: vec!["Justice".to_owned(), "Saisies et recouvrements".to_owned()],
     ///     updated: CivilDate::new(2026, 4, 1),
     ///     content: GuidanceContent::Folder(Vec::new()),
     /// };
@@ -183,6 +188,7 @@ mod tests {
             title: "Smic".to_owned(),
             description: Some("Le salaire minimum interprofessionnel de croissance.".to_owned()),
             theme: Some("Travail - Formation".to_owned()),
+            path: vec!["Travail - Formation".to_owned(), "Rémunération".to_owned()],
             updated: CivilDate::new(2026, 1, 15),
             content,
         }

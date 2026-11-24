@@ -9,6 +9,7 @@
 //! - forme de comparaison d'un mot, commune à la requête et à l'index : [`fold_word`] ;
 //! - textes de Légifrance cités par une fiche : [`legal_references`] (ADR-0033, décision 8) ;
 //! - recherche locale : [`GuidanceIndex`] et [`search`] (BM25, ADR-0033, décision 3) ;
+//! - chemin d'une page dans le site, tiré du menu : [`GuidanceMenu`] (Q41) ;
 //! - page lue : [`GuidanceDoc`], son texte rendu à partir de ses [`Block`] ([`render`]), son
 //!   adresse publique [`ServicePublicUrl`].
 
@@ -18,6 +19,7 @@ mod doc;
 mod id;
 mod index;
 mod line;
+mod menu;
 mod references;
 mod terms;
 mod url;
@@ -31,6 +33,7 @@ pub use index::{
     search,
 };
 pub use line::LINE_MAX_CHARS;
+pub use menu::{GuidanceMenu, MENU_DEPTH_MAX, MENU_ENTRIES_MAX, MENU_TITLE_MAX_CHARS, MenuEntry};
 pub use references::{
     LEGAL_REFERENCES_MAX, LegalReference, LegalReferences, legal_references, source_urls,
 };

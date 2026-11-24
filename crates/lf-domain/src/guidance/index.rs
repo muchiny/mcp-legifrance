@@ -58,6 +58,10 @@ pub struct IndexedPage {
     pub kind: GuidanceKind,
     /// Titre, sur une ligne.
     pub title: String,
+    /// Chemin dans le site, tiré du menu ([`GuidanceMenu::path`](super::GuidanceMenu::path)) :
+    /// intitulés du thème, du sous-thème et du dossier, du plus large au plus étroit ; vide hors du
+    /// menu (Q41).
+    pub path: Vec<String>,
     /// Résumé (`dc:description`), sur une ligne ; vide s'il manque.
     pub summary: String,
     /// Date de dernière modification importante (fiches).
@@ -212,6 +216,10 @@ pub struct GuidanceHit {
     pub kind: GuidanceKind,
     /// Titre.
     pub title: String,
+    /// Chemin dans le site, tiré du menu ([`GuidanceMenu::path`](super::GuidanceMenu::path)) :
+    /// intitulés du thème, du sous-thème et du dossier, du plus large au plus étroit ; vide hors du
+    /// menu (Q41).
+    pub path: Vec<String>,
     /// Date de dernière modification importante (fiches).
     pub updated: Option<CivilDate>,
     /// Adresse publique.
@@ -264,6 +272,7 @@ pub fn search<'a>(
             id: page.id.clone(),
             kind: page.kind,
             title: page.title.clone(),
+            path: page.path.clone(),
             updated: page.updated,
             source_url: page.source_url.clone(),
         })
@@ -285,6 +294,7 @@ mod tests {
             kind: if id.is_navigation() { GuidanceKind::Folder } else { GuidanceKind::Sheet },
             id,
             title: title.to_owned(),
+            path: Vec::new(),
             summary: summary.to_owned(),
             updated: None,
         }
@@ -487,6 +497,7 @@ mod tests {
                 id: sheet.id,
                 kind: GuidanceKind::Sheet,
                 title: sheet.title,
+                path: sheet.path,
                 updated: sheet.updated,
                 source_url: sheet.source_url,
             }]

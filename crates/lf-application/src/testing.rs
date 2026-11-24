@@ -856,6 +856,7 @@ pub(crate) mod fixtures {
                 title: format!("Titre de la fiche {raw}"),
                 description: Some(DESCRIPTION.to_owned()),
                 theme: Some("Argent".to_owned()),
+                path: vec!["Argent".to_owned(), "Banque".to_owned()],
                 updated: CivilDate::new(2026, 4, 1),
                 content: GuidanceContent::Sheet { text: render(&blocks).unwrap(), references },
             }
@@ -876,6 +877,7 @@ pub(crate) mod fixtures {
                 title: format!("Dossier {raw}"),
                 description: None,
                 theme: None,
+                path: vec!["Argent".to_owned()],
                 updated: None,
                 content: GuidanceContent::Folder(entries),
             }
@@ -900,6 +902,7 @@ pub(crate) mod fixtures {
                 id,
                 kind: GuidanceKind::Sheet,
                 title: title.to_owned(),
+                path: vec!["Argent".to_owned(), "Banque".to_owned(), "Compte bancaire".to_owned()],
                 updated: CivilDate::new(2026, 4, 1),
             }
         }
