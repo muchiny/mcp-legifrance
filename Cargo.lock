@@ -1689,6 +1689,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lf-adapter-service-public"
+version = "1.4.1"
+dependencies = [
+ "flate2",
+ "pretty_assertions",
+ "proptest",
+ "thiserror",
+]
+
+[[package]]
 name = "lf-application"
 version = "1.4.1"
 dependencies = [

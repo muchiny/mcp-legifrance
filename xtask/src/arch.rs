@@ -135,13 +135,14 @@ const DEV_ONLY_FEATURES: [(&str, &str); 2] =
 /// figure dans `RULES` (M9, derrière la feature `dila` de `mcp-legifrance`). Dans la table,
 /// `lf-app` s'écrit `mcp-legifrance`.
 /// `lf-adapter-bofip` (jalon MB) n'a que la porte de `reqwest` : ni `rustls`, ni `governor`, ni
-/// `backon` (ADR-0029, décision 9).
+/// `backon` (ADR-0029, décision 9). `lf-adapter-service-public` (jalon MS) a celles de `reqwest`,
+/// de `quick-xml` et de `flate2` (ADR-0033, décision 2).
 const CONFINED: [(&str, &[&str]); 21] = [
     ("rmcp", &["lf-adapter-mcp"]),
     ("rmcp-macros", &["lf-adapter-mcp"]),
     ("schemars", &["lf-adapter-mcp"]),
     ("axum", &["lf-adapter-mcp"]),
-    ("reqwest", &["lf-adapter-piste", "lf-adapter-bofip"]),
+    ("reqwest", &["lf-adapter-piste", "lf-adapter-bofip", "lf-adapter-service-public"]),
     ("rustls", &["lf-adapter-piste"]),
     ("backon", &["lf-adapter-piste"]),
     ("governor", &["lf-adapter-piste"]),
@@ -149,9 +150,9 @@ const CONFINED: [(&str, &[&str]); 21] = [
     ("sha2", &["lf-adapter-audit", "xtask"]),
     ("fs4", &["lf-adapter-audit", "xtask"]),
     ("tantivy", &["lf-adapter-dila"]),
-    ("quick-xml", &["lf-adapter-dila"]),
+    ("quick-xml", &["lf-adapter-dila", "lf-adapter-service-public"]),
     ("tar", &["lf-adapter-dila"]),
-    ("flate2", &["lf-adapter-dila"]),
+    ("flate2", &["lf-adapter-dila", "lf-adapter-service-public"]),
     ("clap", &["mcp-legifrance"]),
     ("tracing-subscriber", &["mcp-legifrance"]),
     ("dirs", &["mcp-legifrance"]),
@@ -223,7 +224,7 @@ const LIBRARY: CrateRule = CrateRule {
     dev_adapters: true,
 };
 
-const RULES: [CrateRule; 10] = [
+const RULES: [CrateRule; 11] = [
     CrateRule {
         name: "lf-domain",
         external: Some(&DOMAIN_ALLOWED),
@@ -245,6 +246,11 @@ const RULES: [CrateRule; 10] = [
     CrateRule { name: "lf-adapter-dila", internal: &["lf-application", "lf-domain"], ..LIBRARY },
     CrateRule { name: "lf-adapter-bofip", internal: &["lf-application", "lf-domain"], ..LIBRARY },
     CrateRule {
+        name: "lf-adapter-service-public",
+        internal: &["lf-application", "lf-domain"],
+        ..LIBRARY
+    },
+    CrateRule {
         name: "mcp-legifrance",
         internal: &[
             "lf-domain",
@@ -255,6 +261,7 @@ const RULES: [CrateRule; 10] = [
             "lf-adapter-mcp",
             "lf-adapter-dila",
             "lf-adapter-bofip",
+            "lf-adapter-service-public",
         ],
         bin: true,
         lib: false,
@@ -1237,7 +1244,7 @@ mod tests {
         // R2 (liste fermée) d'abord, puis R6 pour les crates aussi confinés.
         let confined = [
             ("rmcp", "lf-adapter-mcp"),
-            ("reqwest", "lf-adapter-piste, lf-adapter-bofip"),
+            ("reqwest", "lf-adapter-piste, lf-adapter-bofip, lf-adapter-service-public"),
             ("moka", "lf-adapter-cache"),
             ("governor", "lf-adapter-piste"),
             ("backon", "lf-adapter-piste"),
@@ -1259,7 +1266,7 @@ mod tests {
         ("rmcp-macros", &["lf-adapter-mcp"]),
         ("schemars", &["lf-adapter-mcp"]),
         ("axum", &["lf-adapter-mcp"]),
-        ("reqwest", &["lf-adapter-piste", "lf-adapter-bofip"]),
+        ("reqwest", &["lf-adapter-piste", "lf-adapter-bofip", "lf-adapter-service-public"]),
         ("rustls", &["lf-adapter-piste"]),
         ("backon", &["lf-adapter-piste"]),
         ("governor", &["lf-adapter-piste"]),
@@ -1267,9 +1274,9 @@ mod tests {
         ("sha2", &["lf-adapter-audit", "xtask"]),
         ("fs4", &["lf-adapter-audit", "xtask"]),
         ("tantivy", &["lf-adapter-dila"]),
-        ("quick-xml", &["lf-adapter-dila"]),
+        ("quick-xml", &["lf-adapter-dila", "lf-adapter-service-public"]),
         ("tar", &["lf-adapter-dila"]),
-        ("flate2", &["lf-adapter-dila"]),
+        ("flate2", &["lf-adapter-dila", "lf-adapter-service-public"]),
         ("clap", &["mcp-legifrance"]),
         ("tracing-subscriber", &["mcp-legifrance"]),
         ("dirs", &["mcp-legifrance"]),
@@ -1279,7 +1286,7 @@ mod tests {
     ];
 
     /// Membres connus de `RULES`.
-    const MEMBERS: [&str; 10] = [
+    const MEMBERS: [&str; 11] = [
         "lf-domain",
         "lf-application",
         "lf-adapter-piste",
@@ -1288,6 +1295,7 @@ mod tests {
         "lf-adapter-mcp",
         "lf-adapter-dila",
         "lf-adapter-bofip",
+        "lf-adapter-service-public",
         "mcp-legifrance",
         "xtask",
     ];
@@ -1670,7 +1678,54 @@ mod tests {
             [
                 "lf-application must not depend on lf-adapter-bofip",
                 "lf-adapter-piste must not depend on lf-adapter-bofip",
-                "lf-adapter-cache must not depend on reqwest (confined to lf-adapter-piste, lf-adapter-bofip)",
+                "lf-adapter-cache must not depend on reqwest (confined to lf-adapter-piste, lf-adapter-bofip, lf-adapter-service-public)",
+            ]
+        );
+    }
+
+    /// Jalon MS : `lf-adapter-service-public` a les portes de `reqwest`, de `quick-xml` et de
+    /// `flate2`, et aucune autre (ADR-0033, décision 2).
+    #[test]
+    fn service_public_member_has_a_rule() {
+        let member =
+            |deps: &[&str]| [pkg("lf-domain", &[]), pkg("lf-adapter-service-public", deps)];
+        let own = ["lf-application", "lf-domain", "reqwest", "quick-xml", "flate2", "tokio"];
+        assert_eq!(violations(&member(&own)), Vec::<String>::new());
+        // R3 : ni autre adapter ni `mcp-legifrance` ; R6 : aucune autre porte, pas même celles
+        // de l'adapter DILA qui ouvre aussi `quick-xml` et `flate2`.
+        assert_eq!(
+            violations(&member(&[
+                "lf-adapter-bofip",
+                "lf-adapter-dila",
+                "mcp-legifrance",
+                "rustls",
+                "tantivy",
+                "tar",
+            ])),
+            [
+                "lf-adapter-service-public must not depend on lf-adapter-bofip",
+                "lf-adapter-service-public must not depend on lf-adapter-dila",
+                "lf-adapter-service-public must not depend on mcp-legifrance",
+                "lf-adapter-service-public must not depend on rustls (confined to lf-adapter-piste)",
+                "lf-adapter-service-public must not depend on tantivy (confined to lf-adapter-dila)",
+                "lf-adapter-service-public must not depend on tar (confined to lf-adapter-dila)",
+            ]
+        );
+        // `mcp-legifrance` peut le prendre ; `lf-application` et un autre adapter, non ; les
+        // portes de `quick-xml` et `flate2` restent fermées aux autres membres.
+        let graph = [
+            pkg("lf-domain", &[]),
+            pkg("lf-application", &["lf-adapter-service-public"]),
+            pkg("lf-adapter-bofip", &["lf-adapter-service-public", "quick-xml", "flate2"]),
+            app(&["lf-adapter-service-public"]),
+        ];
+        assert_eq!(
+            violations(&graph),
+            [
+                "lf-application must not depend on lf-adapter-service-public",
+                "lf-adapter-bofip must not depend on lf-adapter-service-public",
+                "lf-adapter-bofip must not depend on quick-xml (confined to lf-adapter-dila, lf-adapter-service-public)",
+                "lf-adapter-bofip must not depend on flate2 (confined to lf-adapter-dila, lf-adapter-service-public)",
             ]
         );
     }

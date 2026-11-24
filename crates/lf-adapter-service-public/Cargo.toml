@@ -1,0 +1,24 @@
+[package]
+name = "lf-adapter-service-public"
+description = "Adapter Service-Public du MCP Légifrance : fiches pratiques de Service-Public.gouv.fr (DILA), lues dans l'archive du jour gardée en mémoire, implémentation du port PublicGuidance."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# lecteur d'archive (archive.rs) : `read::DeflateDecoder` pour les entrées `deflate`, `Crc` pour
+# la somme CRC-32 ; porte ouverte à ce crate (ADR-0033, décision 2), backend Rust pur
+flate2.workspace = true
+# erreurs du lecteur d'archive, sans octet lu
+thiserror.workspace = true
+
+[dev-dependencies]
+# test de propriété du lecteur d'archive (octets quelconques)
+proptest.workspace = true
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true
