@@ -20,10 +20,13 @@
 //! sous Particuliers : relevé du 2026-11-24, les 109 numéros communs aux deux archives y ont le
 //! même titre et le même résumé.
 //!
-//! **Budget** : l'archive vient du réseau, et ses titres et résumés font la taille de l'index. Au
-//! plus [`INDEX_WORDS_MAX`] mots distincts et [`INDEX_POSTINGS_MAX`] couples (mot, page) ; au-delà,
-//! la construction s'arrête ([`IndexTooLarge`]) avant d'aller plus loin en mémoire. Relevé du
-//! 2026-11-24 : 6 334 mots et 76 955 couples pour Particuliers, 3 623 et 23 184 pour Entreprendre.
+//! **Budget** : l'archive vient du réseau, et ses titres, résumés et chemins font la taille de
+//! l'index. Au plus [`INDEX_WORDS_MAX`] mots distincts, [`INDEX_POSTINGS_MAX`] couples (mot, page)
+//! et [`INDEX_TEXT_BYTES_MAX`] octets de texte gardés ; au-delà, la construction s'arrête
+//! ([`IndexTooLarge`]) avant de lire la page suivante. Un mot de l'index ou de la requête est coupé
+//! à [`INDEX_WORD_CHARS_MAX`] caractères. Relevé du 2026-11-24 : 6 334 mots, 76 955 couples et
+//! 0,86 Mo de texte pour Particuliers, 3 623 mots, 23 184 couples et 0,25 Mo pour Entreprendre ;
+//! aucun mot de plus de 20 caractères.
 
 use std::{
     collections::{BTreeMap, BTreeSet, btree_map::Entry},
@@ -55,12 +58,24 @@ pub const INDEX_WORDS_MAX: usize = 100_000;
 /// 2026-11-24.
 pub const INDEX_POSTINGS_MAX: usize = 500_000;
 
-/// Index refusé : plus de mots ou de couples que son budget.
+/// Octets de texte gardés par un index, au plus (titres, résumés et intitulés des chemins de ses
+/// pages) : près de dix fois l'archive de Particuliers du 2026-11-24.
+pub const INDEX_TEXT_BYTES_MAX: usize = 8 * 1024 * 1024;
+
+/// Caractères d'un mot de l'index ou de la requête, après repli ; au-delà, le mot est coupé, des
+/// deux côtés de la même façon : un mot coupé trouve encore les mots qu'il commence.
+pub const INDEX_WORD_CHARS_MAX: usize = 40;
+
+/// Index refusé : plus de mots, de couples ou de texte que son budget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("search index over budget ({words} words, {postings} postings at most)")]
+#[error(
+    "search index over budget ({words} words, {postings} postings, {text_bytes} bytes of text at \
+     most)"
+)]
 pub struct IndexTooLarge {
     words: usize,
     postings: usize,
+    text_bytes: usize,
 }
 
 /// Bornes d'un index.
@@ -68,10 +83,15 @@ pub struct IndexTooLarge {
 struct Budget {
     words: usize,
     postings: usize,
+    text_bytes: usize,
 }
 
 /// Le budget de production.
-const BUDGET: Budget = Budget { words: INDEX_WORDS_MAX, postings: INDEX_POSTINGS_MAX };
+const BUDGET: Budget = Budget {
+    words: INDEX_WORDS_MAX,
+    postings: INDEX_POSTINGS_MAX,
+    text_bytes: INDEX_TEXT_BYTES_MAX,
+};
 
 /// Mots vides retirés de la requête, triés : la liste fermée de la mesure de T-MS-03, sous leur
 /// forme de comparaison (« à » s'y écrit `a`).
@@ -101,6 +121,16 @@ pub struct IndexedPage {
     pub source_url: ServicePublicUrl,
 }
 
+impl IndexedPage {
+    /// Octets de texte que l'index garde pour la page : titre, résumé et intitulés du chemin.
+    fn text_bytes(&self) -> usize {
+        self.path
+            .iter()
+            .map(String::len)
+            .fold(self.title.len().saturating_add(self.summary.len()), usize::saturating_add)
+    }
+}
+
 /// Une page qui porte un mot de l'index, et combien de fois.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Posting {
@@ -123,54 +153,28 @@ pub struct GuidanceIndex {
 }
 
 impl GuidanceIndex {
-    /// Construit l'index de `pages`, dans l'ordre donné.
+    /// Construit l'index de `pages`, dans l'ordre donné. Les pages sont lues une à une : un
+    /// itérateur paresseux n'est pas lu au-delà du budget.
     ///
     /// # Errors
     ///
-    /// [`IndexTooLarge`] au-delà de [`INDEX_WORDS_MAX`] mots distincts ou de
-    /// [`INDEX_POSTINGS_MAX`] couples (mot, page).
-    pub fn build(pages: Vec<IndexedPage>) -> Result<Self, IndexTooLarge> {
+    /// [`IndexTooLarge`] au-delà de [`INDEX_WORDS_MAX`] mots distincts, de [`INDEX_POSTINGS_MAX`]
+    /// couples (mot, page) ou de [`INDEX_TEXT_BYTES_MAX`] octets de texte.
+    pub fn build(pages: impl IntoIterator<Item = IndexedPage>) -> Result<Self, IndexTooLarge> {
         Self::build_within(pages, BUDGET)
     }
 
-    /// Construit l'index de `pages` sous `budget`, arrêté au premier dépassement.
-    fn build_within(pages: Vec<IndexedPage>, budget: Budget) -> Result<Self, IndexTooLarge> {
-        let over = IndexTooLarge { words: budget.words, postings: budget.postings };
-        let mut by_word: BTreeMap<String, Vec<Posting>> = BTreeMap::new();
-        let mut postings_count = 0_usize;
-        let mut lengths = Vec::with_capacity(pages.len());
-        let mut total_length = 0_usize;
-        for (page, rank) in pages.iter().zip(0_u32..) {
-            let mut counts: BTreeMap<String, u32> = BTreeMap::new();
-            let mut length = 0_usize;
-            let title = index_words(&page.title);
-            let summary = index_words(&page.summary);
-            let titles = std::iter::repeat_n(title.iter(), TITLE_WEIGHT).flatten();
-            for word in titles.chain(summary.iter()) {
-                let count = counts.entry(word.clone()).or_default();
-                *count = count.saturating_add(1);
-                length = length.saturating_add(1);
-            }
-            for (word, count) in counts {
-                postings_count = postings_count.saturating_add(1);
-                if postings_count > budget.postings {
-                    return Err(over);
-                }
-                let distinct = by_word.len();
-                let posting = Posting { page: rank, count };
-                match by_word.entry(word) {
-                    Entry::Occupied(mut known) => known.get_mut().push(posting),
-                    Entry::Vacant(_) if distinct >= budget.words => return Err(over),
-                    Entry::Vacant(new) => {
-                        new.insert(vec![posting]);
-                    }
-                }
-            }
-            lengths.push(length);
-            total_length = total_length.saturating_add(length);
+    /// Construit l'index de `pages` sous `budget`, arrêté au premier dépassement. La boucle seule
+    /// est générique : le travail est dans [`Builder`].
+    fn build_within(
+        pages: impl IntoIterator<Item = IndexedPage>,
+        budget: Budget,
+    ) -> Result<Self, IndexTooLarge> {
+        let mut builder = Builder::new(budget);
+        for page in pages {
+            builder.add(page)?;
         }
-        let (words, postings) = by_word.into_iter().unzip();
-        Ok(Self { pages, words, postings, lengths, total_length })
+        Ok(builder.finish())
     }
 
     /// Nombre de pages.
@@ -191,7 +195,8 @@ impl GuidanceIndex {
     /// Pages qui portent au moins un mot de la requête, avec leur score strictement positif,
     /// dans l'ordre du classement.
     fn ranked(&self, terms: &GuidanceTerms) -> Vec<(&IndexedPage, f64)> {
-        let mut scores = vec![0.0_f64; self.pages.len()];
+        // Score des seules pages trouvées : le coût suit les couples lus, pas les pages.
+        let mut scores: BTreeMap<u32, f64> = BTreeMap::new();
         let pages = count_f64(self.pages.len());
         let average = count_f64(self.total_length) / pages;
         for word in query_words(terms) {
@@ -204,16 +209,25 @@ impl GuidanceIndex {
             }
             let found = count_f64(frequencies.len());
             let idf = (1.0 + (pages - found + 0.5) / (found + 0.5)).ln();
-            for ((score, length), rank) in scores.iter_mut().zip(&self.lengths).zip(0_u32..) {
-                if let Some(&frequency) = frequencies.get(&rank) {
-                    let norm = 1.0 - B + B * count_f64(*length) / average;
-                    let frequency = f64::from(frequency);
-                    *score += idf * frequency * (K1 + 1.0) / (frequency + K1 * norm);
-                }
+            for (rank, frequency) in frequencies {
+                let length = usize::try_from(rank)
+                    .ok()
+                    .and_then(|rank| self.lengths.get(rank))
+                    .copied()
+                    .unwrap_or_default();
+                let norm = 1.0 - B + B * count_f64(length) / average;
+                let frequency = f64::from(frequency);
+                *scores.entry(rank).or_default() +=
+                    idf * frequency * (K1 + 1.0) / (frequency + K1 * norm);
             }
         }
-        let mut ranked: Vec<(&IndexedPage, f64)> =
-            self.pages.iter().zip(scores).filter(|(_, score)| *score > 0.0).collect();
+        let mut ranked: Vec<(&IndexedPage, f64)> = self
+            .pages
+            .iter()
+            .zip(0_u32..)
+            .filter_map(|(page, rank)| scores.get(&rank).map(|score| (page, *score)))
+            .filter(|(_, score)| *score > 0.0)
+            .collect();
         ranked.sort_by(|(left, left_score), (right, right_score)| {
             right_score.total_cmp(left_score).then_with(|| by_number(&left.id, &right.id))
         });
@@ -228,10 +242,105 @@ impl GuidanceIndex {
     }
 }
 
+/// Un index en construction, sous son budget.
+struct Builder {
+    budget: Budget,
+    pages: Vec<IndexedPage>,
+    by_word: BTreeMap<String, Vec<Posting>>,
+    /// Couples (mot, page) posés.
+    postings: usize,
+    /// Octets de texte gardés.
+    text_bytes: usize,
+    lengths: Vec<usize>,
+    total_length: usize,
+}
+
+impl Builder {
+    fn new(budget: Budget) -> Self {
+        Self {
+            budget,
+            pages: Vec::new(),
+            by_word: BTreeMap::new(),
+            postings: 0,
+            text_bytes: 0,
+            lengths: Vec::new(),
+            total_length: 0,
+        }
+    }
+
+    /// Ajoute `page`, au rang suivant ; refusé au premier dépassement du budget.
+    fn add(&mut self, page: IndexedPage) -> Result<(), IndexTooLarge> {
+        let budget = self.budget;
+        let over = IndexTooLarge {
+            words: budget.words,
+            postings: budget.postings,
+            text_bytes: budget.text_bytes,
+        };
+        self.text_bytes = self.text_bytes.saturating_add(page.text_bytes());
+        if self.text_bytes > budget.text_bytes {
+            return Err(over);
+        }
+        // Le budget de texte borne le nombre de pages bien en deçà de `u32::MAX`.
+        let rank = u32::try_from(self.pages.len()).unwrap_or(u32::MAX);
+        let mut counts: BTreeMap<String, u32> = BTreeMap::new();
+        let mut length = 0_usize;
+        let title = index_words(&page.title);
+        let summary = index_words(&page.summary);
+        let titles = std::iter::repeat_n(title.iter(), TITLE_WEIGHT).flatten();
+        for word in titles.chain(summary.iter()) {
+            let count = counts.entry(word.clone()).or_default();
+            *count = count.saturating_add(1);
+            length = length.saturating_add(1);
+        }
+        for (word, count) in counts {
+            self.postings = self.postings.saturating_add(1);
+            if self.postings > budget.postings {
+                return Err(over);
+            }
+            let distinct = self.by_word.len();
+            let posting = Posting { page: rank, count };
+            match self.by_word.entry(word) {
+                Entry::Occupied(mut known) => known.get_mut().push(posting),
+                Entry::Vacant(_) if distinct >= budget.words => return Err(over),
+                Entry::Vacant(new) => {
+                    new.insert(vec![posting]);
+                }
+            }
+        }
+        self.lengths.push(length);
+        self.total_length = self.total_length.saturating_add(length);
+        self.pages.push(page);
+        Ok(())
+    }
+
+    fn finish(self) -> GuidanceIndex {
+        let (words, postings) = self.by_word.into_iter().unzip();
+        GuidanceIndex {
+            pages: self.pages,
+            words,
+            postings,
+            lengths: self.lengths,
+            total_length: self.total_length,
+        }
+    }
+}
+
 /// Mots de `text` sous leur forme de comparaison, dans l'ordre : la règle de la requête
-/// ([`GuidanceTerms`]), sans borne de longueur.
+/// ([`GuidanceTerms`]), chacun coupé à [`INDEX_WORD_CHARS_MAX`] caractères.
 fn index_words(text: &str) -> Vec<String> {
-    plain_words(text).split(' ').map(fold_word).filter(|word| !word.is_empty()).collect()
+    plain_words(text)
+        .split(' ')
+        .map(|word| capped(&fold_word(word)).to_owned())
+        .filter(|word| !word.is_empty())
+        .collect()
+}
+
+/// Les [`INDEX_WORD_CHARS_MAX`] premiers caractères de `word`.
+fn capped(word: &str) -> &str {
+    word.char_indices()
+        .nth(INDEX_WORD_CHARS_MAX)
+        .and_then(|(end, _)| word.get(..end))
+        .unwrap_or(word)
 }
 
 /// Mots de la requête qui comptent : sans les mots vides, sauf s'il ne reste rien ; chacun une
@@ -239,7 +348,7 @@ fn index_words(text: &str) -> Vec<String> {
 fn query_words(terms: &GuidanceTerms) -> Vec<&str> {
     let mut seen = BTreeSet::new();
     let all: Vec<&str> =
-        terms.folded().iter().map(String::as_str).filter(|word| seen.insert(*word)).collect();
+        terms.folded().iter().map(|word| capped(word)).filter(|word| seen.insert(*word)).collect();
     let kept: Vec<&str> =
         all.iter().copied().filter(|word| STOP_WORDS.binary_search(word).is_err()).collect();
     if kept.is_empty() { all } else { kept }
@@ -362,8 +471,7 @@ mod tests {
         GuidanceIndex::build(
             pages
                 .iter()
-                .map(|(id, title, summary)| page(Audience::Particuliers, id, title, summary))
-                .collect(),
+                .map(|(id, title, summary)| page(Audience::Particuliers, id, title, summary)),
         )
         .unwrap()
     }
@@ -484,15 +592,15 @@ mod tests {
     fn the_index_stops_at_its_budget_of_distinct_words() {
         // Trois mots distincts, trois couples.
         let three = pages(&[("F1", "alpha beta"), ("F2", "gamma beta")]);
-        let fits = Budget { words: 3, postings: 4 };
+        let fits = Budget { words: 3, postings: 4, text_bytes: 100 };
         assert_eq!(
             GuidanceIndex::build_within(three.clone(), fits).map(|index| index.words.len()),
             Ok(3)
         );
-        let tight = Budget { words: 2, postings: 4 };
+        let tight = Budget { words: 2, postings: 4, text_bytes: 100 };
         assert_eq!(
             GuidanceIndex::build_within(three, tight),
-            Err(IndexTooLarge { words: 2, postings: 4 })
+            Err(IndexTooLarge { words: 2, postings: 4, text_bytes: 100 })
         );
     }
 
@@ -500,21 +608,74 @@ mod tests {
     fn the_index_stops_at_its_budget_of_postings() {
         // Un mot, sur deux pages : deux couples.
         let two = pages(&[("F1", "alpha"), ("F2", "alpha alpha")]);
-        let fits = Budget { words: 1, postings: 2 };
+        let fits = Budget { words: 1, postings: 2, text_bytes: 100 };
         assert_eq!(GuidanceIndex::build_within(two.clone(), fits).map(|index| index.len()), Ok(2));
-        let tight = Budget { words: 1, postings: 1 };
+        let tight = Budget { words: 1, postings: 1, text_bytes: 100 };
         let refused = GuidanceIndex::build_within(two, tight);
-        assert_eq!(refused, Err(IndexTooLarge { words: 1, postings: 1 }));
+        assert_eq!(refused, Err(IndexTooLarge { words: 1, postings: 1, text_bytes: 100 }));
         assert_eq!(
             refused.unwrap_err().to_string(),
-            "search index over budget (1 words, 1 postings at most)"
+            "search index over budget (1 words, 1 postings, 100 bytes of text at most)"
         );
+    }
+
+    /// Le texte compté : titre, résumé et chaque intitulé du chemin, en octets (« é » en vaut deux).
+    #[test]
+    fn the_index_stops_at_its_budget_of_text() {
+        let mut first = page(Audience::Particuliers, "F1", "Été", "abc");
+        first.path = vec!["de".to_owned(), "fgh".to_owned()];
+        let second = page(Audience::Particuliers, "F2", "i", "");
+        assert_eq!(first.text_bytes(), 5 + 3 + 2 + 3);
+        let fits = Budget { words: 10, postings: 10, text_bytes: 14 };
+        let both = [first.clone(), second.clone()];
+        assert_eq!(GuidanceIndex::build_within(both.clone(), fits).map(|index| index.len()), Ok(2));
+        let tight = Budget { words: 10, postings: 10, text_bytes: 13 };
+        assert_eq!(
+            GuidanceIndex::build_within(both, tight),
+            Err(IndexTooLarge { words: 10, postings: 10, text_bytes: 13 })
+        );
+    }
+
+    /// Les pages d'un itérateur paresseux sont lues une à une : rien n'est lu après le dépassement.
+    #[test]
+    fn the_index_reads_no_page_past_its_budget() {
+        let mut read = 0_usize;
+        let lazy = ["F1", "F2", "F3"].into_iter().map(|id| {
+            read = read.saturating_add(1);
+            page(Audience::Particuliers, id, "abcd", "")
+        });
+        let tight = Budget { words: 10, postings: 10, text_bytes: 6 };
+        assert!(GuidanceIndex::build_within(lazy, tight).is_err());
+        assert_eq!(read, 2);
     }
 
     #[test]
     fn the_production_budget_is_the_measured_archive_with_its_margin() {
-        assert_eq!((INDEX_WORDS_MAX, INDEX_POSTINGS_MAX), (100_000, 500_000));
+        assert_eq!(
+            (INDEX_WORDS_MAX, INDEX_POSTINGS_MAX, INDEX_TEXT_BYTES_MAX, INDEX_WORD_CHARS_MAX),
+            (100_000, 500_000, 8_388_608, 40)
+        );
         assert_eq!(GuidanceIndex::build(pages(&[("F1", "alpha")])).map(|index| index.len()), Ok(1));
+    }
+
+    /// Un mot long est coupé à 40 caractères dans l'index et dans la requête : il trouve encore
+    /// les mots qu'il commence, coupés ou non. Un mot hangûl se replie en jamos (trois pour « 각 »)
+    /// avant d'être coupé : 14 syllabes donnent 42 jamos, et 40 restent.
+    #[test]
+    fn long_words_are_cut_on_both_sides() {
+        let long = "a".repeat(45);
+        let index = index(&[("F1", &long, ""), ("F2", "abc", ""), ("F3", &"각".repeat(14), "")]);
+        let lengths: Vec<usize> = index.words.iter().map(|word| word.chars().count()).collect();
+        assert_eq!(lengths, [40, 3, 40]);
+        assert_eq!(fold_word(&"각".repeat(14)).chars().count(), 42);
+        assert_eq!(found(&index, &"a".repeat(39)), ["F1"]);
+        assert_eq!(found(&index, &"a".repeat(40)), ["F1"]);
+        assert_eq!(found(&index, &"a".repeat(41)), ["F1"]);
+        assert_eq!(found(&index, &format!("{}b", "a".repeat(40))), ["F1"]);
+        assert_eq!(found(&index, &format!("{}b", "a".repeat(39))), Vec::<String>::new());
+        assert_eq!(found(&index, "ab"), ["F2"]);
+        assert_eq!(capped(&"é".repeat(41)), "é".repeat(40));
+        assert_eq!(capped("abc"), "abc");
     }
 
     #[test]
@@ -637,24 +798,19 @@ mod tests {
                     .replace("&amp;", "&")
             })
         };
-        GuidanceIndex::build(
-            files
-                .iter()
-                .map(|xml| {
-                    let id = field(xml, "dc:identifier").unwrap();
-                    let mut page = page(
-                        audience,
-                        &id,
-                        &field(xml, "dc:title").unwrap(),
-                        &field(xml, "dc:description").unwrap(),
-                    );
-                    if xml.contains(r#" type="Theme""#) {
-                        page.kind = GuidanceKind::Theme;
-                    }
-                    page
-                })
-                .collect(),
-        )
+        GuidanceIndex::build(files.iter().map(|xml| {
+            let id = field(xml, "dc:identifier").unwrap();
+            let mut page = page(
+                audience,
+                &id,
+                &field(xml, "dc:title").unwrap(),
+                &field(xml, "dc:description").unwrap(),
+            );
+            if xml.contains(r#" type="Theme""#) {
+                page.kind = GuidanceKind::Theme;
+            }
+            page
+        }))
         .unwrap()
     }
 

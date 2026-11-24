@@ -22,14 +22,14 @@ const WAIT: Duration = Duration::from_secs(300);
 const P: Audience = Audience::Particuliers;
 const E: Audience = Audience::Entreprendre;
 
-fn store(fake: &Arc<Fake>) -> Store<Arc<Fake>> {
+fn store(fake: &Arc<Fake>) -> Store<Arc<Fake>, TestWall> {
     walled(fake).0
 }
 
 /// Le magasin et son horloge civile, à régler par le test.
-fn walled(fake: &Arc<Fake>) -> (Store<Arc<Fake>>, TestWall) {
+fn walled(fake: &Arc<Fake>) -> (Store<Arc<Fake>, TestWall>, TestWall) {
     let wall = TestWall::at(MIDDAY);
-    (Store::new(Arc::clone(fake), WAIT, Arc::new(wall.clone())), wall)
+    (Store::new(Arc::clone(fake), WAIT, wall.clone()), wall)
 }
 
 fn download(body: Vec<u8>) -> Download {
@@ -159,8 +159,8 @@ fn an_archive_over_the_index_budget_is_refused() {
     let refs: Vec<(&str, &[u8])> =
         entries.iter().map(|(name, xml)| (name.as_str(), xml.as_slice())).collect();
     let refused = load(P, download(zip_of(&refs))).unwrap_err();
-    let detail =
-        "archive refused: search index over budget (100000 words, 500000 postings at most)";
+    let detail = "archive refused: search index over budget (100000 words, 500000 postings, \
+                  8388608 bytes of text at most)";
     assert_eq!(refused, GuidanceError::Decode { detail: detail.to_owned() });
     // Les 357 premières pages tiennent sous le budget.
     let fits = load(P, download(zip_of(&refs[..357]))).unwrap();
@@ -355,16 +355,26 @@ async fn without_an_archive_the_failure_is_returned_until_the_next_attempt() {
     assert_eq!(fake.calls(), [call(P, None), call(P, None), call(P, None)]);
 }
 
+fn body_cut() -> GuidanceError {
+    GuidanceError::Upstream { status: None, retryable: true, detail: BODY_CUT.to_owned() }
+}
+
 #[test]
-fn refusals_in_a_row_space_out_the_attempts() {
-    let gaps = [0, 1, 2, 3, 4, 9].map(|refusals| refusal_gap(refusals).as_secs());
+fn costly_failures_in_a_row_space_out_the_attempts() {
+    let gaps = [0, 1, 2, 3, 4, 9].map(|costly| backoff(costly).as_secs());
     assert_eq!(gaps, [60, 60, 900, 3_600, 21_600, 21_600]);
     let decode = GuidanceError::Decode { detail: "archive refused".to_owned() };
     let large = GuidanceError::TooLarge { detail: "archive over 64 bytes".to_owned() };
-    assert!(refused(&decode) && refused(&large));
+    assert_eq!((cost(&decode), cost(&large)), (Cost::Refused, Cost::Refused));
+    assert_eq!((cost(&GuidanceError::Timeout), cost(&body_cut())), (Cost::Cut, Cost::Cut));
     let limited = GuidanceError::RateLimited { retry_after: None };
-    for other in [server_error(), GuidanceError::Timeout, limited, GuidanceError::Downloading] {
-        assert!(!refused(&other));
+    let connect = GuidanceError::Upstream {
+        status: None,
+        retryable: true,
+        detail: "network error (connect)".to_owned(),
+    };
+    for other in [server_error(), connect, limited, GuidanceError::Downloading] {
+        assert_eq!(cost(&other), Cost::Small);
     }
 }
 
@@ -418,6 +428,76 @@ async fn refused_archives_space_out_the_attempts_until_a_success() {
     assert_eq!(fake.calls().len(), 7);
 }
 
+/// Un `304` remet aussi le compte à zéro : le refus suivant coûte de nouveau une minute.
+#[tokio::test(start_paused = true)]
+async fn a_revalidation_resets_the_count_of_refusals() {
+    let broken = || Ok(fresh(b"<html>maintenance</html>", "bad"));
+    let fake = Fake::open([
+        Ok(fresh(PART, "v1")),
+        broken(),
+        broken(),
+        Ok(Fetched::NotModified),
+        broken(),
+        broken(),
+    ]);
+    let store = store(&fake);
+    let second = Duration::from_secs(1);
+    let first = store.current(P).await.unwrap();
+    advance(FRESH_FOR).await;
+    assert!(Arc::ptr_eq(&first, &store.current(P).await.unwrap()));
+    advance(RETRY_AFTER_FAILURE).await;
+    assert!(Arc::ptr_eq(&first, &store.current(P).await.unwrap()));
+    // Deux refus : un quart d'heure, puis le `304`.
+    advance(Duration::from_secs(900)).await;
+    assert!(Arc::ptr_eq(&first, &store.current(P).await.unwrap()));
+    assert_eq!(fake.calls().len(), 4);
+    advance(FRESH_FOR).await;
+    assert!(Arc::ptr_eq(&first, &store.current(P).await.unwrap()));
+    assert_eq!(fake.calls().len(), 5);
+    advance(RETRY_AFTER_FAILURE.saturating_sub(second)).await;
+    assert!(Arc::ptr_eq(&first, &store.current(P).await.unwrap()));
+    assert_eq!(fake.calls().len(), 5);
+    advance(second).await;
+    assert!(Arc::ptr_eq(&first, &store.current(P).await.unwrap()));
+    assert_eq!(fake.calls().len(), 6);
+}
+
+/// Un corps coupé ou un délai dépassé espace aussi les tentatives, une heure au plus ; une panne
+/// sans corps lu ne compte pas.
+#[tokio::test(start_paused = true)]
+async fn cut_downloads_space_out_the_attempts_up_to_an_hour() {
+    start_journal();
+    let fake = Fake::open([
+        Err(GuidanceError::Timeout),
+        Err(body_cut()),
+        Err(server_error()),
+        Err(GuidanceError::Timeout),
+        Err(body_cut()),
+        Err(body_cut()),
+        Ok(fresh(PART, "v1")),
+    ]);
+    let store = store(&fake);
+    let second = Duration::from_secs(1);
+    let mut calls = 0_usize;
+    for (gap, error) in [
+        (60, GuidanceError::Timeout),
+        (900, body_cut()),
+        (60, server_error()),
+        (3_600, GuidanceError::Timeout),
+        (3_600, body_cut()),
+        (3_600, body_cut()),
+    ] {
+        assert_eq!(store.current(P).await.unwrap_err(), error);
+        calls = calls.saturating_add(1);
+        assert!(journal().contains(&format!("retry_in_s={gap}")));
+        advance(Duration::from_secs(gap).saturating_sub(second)).await;
+        assert_eq!(store.current(P).await.unwrap_err(), error);
+        assert_eq!(fake.calls().len(), calls);
+        advance(second).await;
+    }
+    assert_eq!(store.current(P).await.unwrap().index.len(), 10);
+}
+
 /// Un téléchargement qui panique est un échec comme un autre : le public n'en reste pas bloqué.
 #[tokio::test(start_paused = true)]
 async fn a_download_that_panics_frees_its_public() {
@@ -455,7 +535,22 @@ async fn an_archive_is_revalidated_after_the_machine_slept() {
     assert_eq!(fake.calls().len(), 3);
 }
 
-/// Une archive en sursis se sert après une attente courte quand sa revalidation tarde ; la
+/// L'horloge civile saute de quatre jours en avant (date corrigée au démarrage) : l'archive a
+/// vieilli d'autant. La revalidation échoue, et l'archive ne se sert plus ; un `304` la rend.
+#[tokio::test(start_paused = true)]
+async fn a_wall_clock_jump_past_the_reprieve_retires_the_archive_until_a_success() {
+    let fake = Fake::open([Ok(fresh(PART, "v1")), Err(server_error()), Ok(Fetched::NotModified)]);
+    let (store, wall) = walled(&fake);
+    let first = store.current(P).await.unwrap();
+    wall.shift(4 * 24 * 3_600);
+    assert_eq!(store.current(P).await.unwrap_err(), server_error());
+    advance(RETRY_AFTER_FAILURE).await;
+    assert!(Arc::ptr_eq(&first, &store.current(P).await.unwrap()));
+    assert_eq!(fake.calls(), [call(P, None), call(P, Some("v1")), call(P, Some("v1"))]);
+}
+
+/// Une archive en sursis se sert après une attente courte quand sa revalidation tarde : dix
+/// secondes en tout depuis le début de la revalidation, pour tous les appels qui l'attendent ; la
 /// revalidation finie, l'archive du jour se sert sans attente.
 #[tokio::test(start_paused = true)]
 async fn a_stale_archive_waits_briefly_for_its_revalidation() {
@@ -464,16 +559,26 @@ async fn a_stale_archive_waits_briefly_for_its_revalidation() {
     let store = store(&fake);
     let first = store.current(P).await.unwrap();
     advance(FRESH_FOR).await;
-    let start = Instant::now();
-    assert!(Arc::ptr_eq(&first, &store.current(P).await.unwrap()));
-    let waited = start.elapsed();
-    assert!(waited >= STALE_WAIT && waited < STALE_WAIT.saturating_add(Duration::from_millis(10)));
-    // Une échéance plus courte reste la borne.
+    let within = |waited: Duration, expected: Duration| {
+        waited >= expected && waited < expected.saturating_add(Duration::from_millis(10))
+    };
+    // Une échéance plus courte reste la borne : deux secondes (trois, moins la marge).
     let start = Instant::now();
     let reply = Deadline::after(Duration::from_secs(3)).scope(store.current(P)).await;
     assert!(Arc::ptr_eq(&first, &reply.unwrap()));
-    assert!(start.elapsed() < Duration::from_millis(2_010));
+    assert!(within(start.elapsed(), Duration::from_secs(2)));
+    // L'appel suivant attend ce qui reste des dix secondes.
+    let start = Instant::now();
+    assert!(Arc::ptr_eq(&first, &store.current(P).await.unwrap()));
+    assert!(within(start.elapsed(), STALE_WAIT.saturating_sub(Duration::from_secs(2))));
+    // Les dix secondes passées, un appel n'attend plus.
+    let start = Instant::now();
+    assert!(Arc::ptr_eq(&first, &store.current(P).await.unwrap()));
+    assert!(within(start.elapsed(), Duration::ZERO));
+    // La revalidation finie (attendue sur son signal), l'archive du jour se sert.
     fake.release();
+    let mut done = store.slot(P).lock().running.clone().map(|running| running.done).unwrap();
+    assert!(done.wait_for(|finished| *finished).await.is_ok());
     let second = store.current(P).await.unwrap();
     assert_eq!(second.etag.as_deref(), Some("v2"));
     assert_eq!(fake.calls(), [call(P, None), call(P, Some("v1"))]);
@@ -497,7 +602,7 @@ async fn the_client_feeds_the_store() {
         .mount(&server)
         .await;
     let client = ArchiveClient::local(&server.uri(), WAIT, 1 << 20);
-    let store = Store::new(client, WAIT, Arc::new(TestWall::at(MIDDAY)));
+    let store = Store::new(client, WAIT, TestWall::at(MIDDAY));
     let loaded = store.current(P).await.unwrap();
     assert_eq!((loaded.index.len(), loaded.etag.as_deref()), (10, Some("\"6b059e81-1734757\"")));
     assert!(Arc::ptr_eq(&loaded, &store.current(P).await.unwrap()));

@@ -262,7 +262,9 @@ async fn read_archive(mut response: Response, limit: u64) -> Result<Download, Gu
     if response.content_length().is_some_and(|length| length > limit) {
         return Err(too_large(limit));
     }
-    let mut body = Vec::new();
+    // La place annoncée d'un coup, sous la borne : pas de recopie en grandissant.
+    let announced = response.content_length().and_then(|length| usize::try_from(length).ok());
+    let mut body = Vec::with_capacity(announced.unwrap_or(0));
     let mut received: u64 = 0;
     while let Some(chunk) = response.chunk().await.map_err(classify)? {
         received = received.saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
@@ -271,8 +273,8 @@ async fn read_archive(mut response: Response, limit: u64) -> Result<Download, Gu
         }
         body.extend_from_slice(&chunk);
     }
-    // La croissance par doublement laisse jusqu'au double de la place utile ; l'archive est
-    // gardée un jour au moins.
+    // Sans longueur annoncée (ou si elle ment), la croissance par doublement laisse jusqu'au double
+    // de la place utile ; l'archive est gardée un jour au moins.
     body.shrink_to_fit();
     Ok(Download { body, etag, last_modified })
 }
@@ -288,6 +290,10 @@ fn http_date(value: &HeaderValue) -> Option<DateTime<Utc>> {
 fn too_large(limit: u64) -> GuidanceError {
     GuidanceError::TooLarge { detail: format!("archive over {limit} bytes") }
 }
+
+/// Libellé d'un corps interrompu : le magasin espace les tentatives qui suivent (une archive a
+/// été lue en partie).
+pub(crate) const BODY_CUT: &str = "network error (body)";
 
 /// Erreur amont au libellé fixe.
 fn upstream(status: Option<u16>, retryable: bool, detail: &str) -> GuidanceError {
@@ -311,7 +317,7 @@ fn classify_parts(timeout: bool, connect: bool, body: bool) -> GuidanceError {
     let kind = if connect {
         "network error (connect)"
     } else if body {
-        "network error (body)"
+        BODY_CUT
     } else {
         "network error (request)"
     };

@@ -147,7 +147,7 @@ impl GuidanceDoc {
     pub fn citation(&self) -> String {
         // Le site où la page est publiée, celui de `source_url` : une page de l'archive
         // d'Entreprendre peut l'être sur Service-Public.gouv.fr.
-        let head = format!("{}, {} ({})", self.source_url.site().site(), self.title, self.id);
+        let head = format!("{}, {} ({})", self.source_url.audience().site(), self.title, self.id);
         match self.updated {
             Some(date) => format!("{head}, mise à jour du {}", date.to_french()),
             None => head,

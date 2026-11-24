@@ -89,7 +89,7 @@ impl ServicePublicUrl {
         &self.0
     }
 
-    /// Le site de l'adresse : une page de l'archive d'un public peut être publiée sur l'autre site
+    /// Le public du site de l'adresse : une page de l'archive d'un public peut être publiée sur l'autre site
     /// (`spUrl`), et la citation nomme alors ce site-là.
     ///
     /// ```
@@ -98,12 +98,12 @@ impl ServicePublicUrl {
     /// let id = SheetId::parse("F2408")?;
     /// let given = "https://www.service-public.gouv.fr/particuliers/vosdroits/F2408";
     /// let url = ServicePublicUrl::read(Some(given), Audience::Entreprendre, &id);
-    /// assert_eq!(url.site(), Audience::Particuliers);
+    /// assert_eq!(url.audience(), Audience::Particuliers);
     /// let rebuilt = ServicePublicUrl::read(None, Audience::Entreprendre, &id);
-    /// assert_eq!(rebuilt.site(), Audience::Entreprendre);
+    /// assert_eq!(rebuilt.audience(), Audience::Entreprendre);
     /// # Ok::<(), lf_domain::DomainError>(())
     /// ```
-    pub fn site(&self) -> Audience {
+    pub fn audience(&self) -> Audience {
         // Une adresse ne se construit que sous la base d'un des deux sites (`read`).
         if self.0.starts_with(page_base(Audience::Entreprendre)) {
             Audience::Entreprendre

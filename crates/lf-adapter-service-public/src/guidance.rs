@@ -2,8 +2,8 @@
 //! (ADR-0033 ; 05 §5.16 et §5.17 ; T-MS-25).
 //!
 //! - **Recherche** : l'index de chaque public demandé (`all` : les deux archives se chargent
-//!   ensemble, et la recherche échoue si l'une manque), puis la recherche du domaine, sur un fil
-//!   bloquant. Aucune requête ne porte un mot cherché : la seule requête est le téléchargement de
+//!   ensemble, leurs attentes courent ensemble, et la recherche échoue si l'une manque), puis la
+//!   recherche du domaine, sur un fil bloquant. Aucune requête ne porte un mot cherché : la seule requête est le téléchargement de
 //!   l'archive.
 //! - **Lecture** : l'entrée `{numéro}.xml` de l'archive du public, lue en mémoire sur un fil
 //!   bloquant, traduite en page du domaine avec son chemin (menu du public). Entrée absente :
@@ -45,34 +45,37 @@ impl ServicePublicConfig {
 /// Fiches pratiques de Service-Public.gouv.fr, lues dans l'archive du jour de chaque public.
 ///
 /// `new` ne fait aucune E/S : rien n'est téléchargé avant le premier appel, et le client HTTP naît
-/// avec le premier téléchargement. Une instance par processus : elle garde les archives.
-pub struct ServicePublicGuidance {
-    source: Source<ArchiveClient>,
+/// avec le premier téléchargement. Une instance par processus : elle garde les archives. `K` est
+/// l'horloge civile (le port [`Clock`]).
+pub struct ServicePublicGuidance<K> {
+    source: Source<ArchiveClient, K>,
 }
 
-impl ServicePublicGuidance {
+impl<K: Clock> ServicePublicGuidance<K> {
     /// Source de production : les deux adresses fixes de la DILA, `https` seul. `clock` donne
     /// l'heure civile, qui date les archives même quand la machine a dormi.
-    pub fn new(config: &ServicePublicConfig, clock: impl Clock) -> Self {
+    pub fn new(config: &ServicePublicConfig, clock: K) -> Self {
         Self {
             source: Source::new(
                 ArchiveClient::production(&config.user_agent),
                 config.tool_deadline,
-                Arc::new(clock),
+                clock,
             ),
         }
     }
+}
 
+#[cfg(test)]
+impl ServicePublicGuidance<crate::testing::TestWall> {
     /// Source d'un serveur de test, en `http`. Compilé pour les tests de ce crate seulement.
-    #[cfg(test)]
     pub(crate) fn local(base: &str, tool_deadline: Duration) -> Self {
         let client = ArchiveClient::local(base, tool_deadline, crate::client::ARCHIVE_MAX_BYTES);
-        let clock = Arc::new(crate::testing::TestWall::at(crate::testing::MIDDAY));
+        let clock = crate::testing::TestWall::at(crate::testing::MIDDAY);
         Self { source: Source::new(client, tool_deadline, clock) }
     }
 }
 
-impl PublicGuidance for ServicePublicGuidance {
+impl<K: Clock> PublicGuidance for ServicePublicGuidance<K> {
     fn search(
         &self,
         query: &GuidanceQuery,
@@ -90,12 +93,12 @@ impl PublicGuidance for ServicePublicGuidance {
 }
 
 /// La source, sur n'importe quel téléchargeur : le client en production, un faux dans les tests.
-pub(crate) struct Source<F> {
-    store: Store<F>,
+pub(crate) struct Source<F, K> {
+    store: Store<F, K>,
 }
 
-impl<F: Fetch> Source<F> {
-    pub(crate) fn new(fetcher: F, tool_deadline: Duration, clock: Arc<dyn Clock>) -> Self {
+impl<F: Fetch, K: Clock> Source<F, K> {
+    pub(crate) fn new(fetcher: F, tool_deadline: Duration, clock: K) -> Self {
         Self { store: Store::new(fetcher, tool_deadline, clock) }
     }
 

@@ -299,7 +299,7 @@ pub(crate) fn doctrine_for(config: &AppConfig) -> AnyDoctrine {
 pub(crate) enum AnyGuidance {
     /// Les archives du jour de la DILA (`lecomarquage.service-public.gouv.fr`), gardées en
     /// mémoire.
-    ServicePublic(ServicePublicGuidance),
+    ServicePublic(ServicePublicGuidance<SystemClock>),
     /// Source coupée : chaque opération répond [`GuidanceError::Disabled`], que le modèle lit en
     /// `[config_error]`, sans client ni réseau.
     Off,

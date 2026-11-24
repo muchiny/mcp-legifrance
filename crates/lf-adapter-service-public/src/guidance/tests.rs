@@ -18,6 +18,7 @@ use super::*;
 use crate::{
     archive::tests::zip_of,
     client::{Download, Fetched},
+    store::{FRESH_FOR, STALE_WAIT},
     testing::{Fake, MIDDAY, PART, PRO, TestWall, call, fresh, server_error},
 };
 
@@ -27,8 +28,8 @@ const E: Audience = Audience::Entreprendre;
 const PART_PATH: &str = "/vdd/3.5/part/zip/vosdroits-latest.zip";
 const PRO_PATH: &str = "/vdd/3.5/pro/zip/vosdroits-latest.zip";
 
-fn source(fake: &Arc<Fake>) -> Source<Arc<Fake>> {
-    Source::new(Arc::clone(fake), WAIT, Arc::new(TestWall::at(MIDDAY)))
+fn source(fake: &Arc<Fake>) -> Source<Arc<Fake>, TestWall> {
+    Source::new(Arc::clone(fake), WAIT, TestWall::at(MIDDAY))
 }
 
 fn query(words: &str, audience: AudienceFilter) -> GuidanceQuery {
@@ -97,6 +98,28 @@ async fn a_search_on_all_loads_both_archives_together() {
     assert_eq!(common, [(P, "F2408")]);
     let audiences: Vec<Audience> = found.files.iter().map(|file| file.audience).collect();
     assert_eq!(audiences, [P, E]);
+}
+
+/// `all`, deux archives en sursis dont la revalidation tarde : les deux revalidations partent
+/// ensemble, et la recherche n'attend que dix secondes en tout, pas dix par public.
+#[tokio::test(start_paused = true)]
+async fn a_search_on_two_stale_archives_waits_ten_seconds_in_all() {
+    let fake = Fake::held([Ok(fresh(PART, "p")), Ok(fresh(PRO, "e"))]);
+    fake.release();
+    fake.release();
+    let source = source(&fake);
+    let all = query("frais professionnels avantages", AudienceFilter::All);
+    let first = source.search(&all).await.unwrap();
+    tokio::time::advance(FRESH_FOR).await;
+    let start = tokio::time::Instant::now();
+    let stale = source.search(&all).await.unwrap();
+    let waited = start.elapsed();
+    assert!(waited >= STALE_WAIT && waited < STALE_WAIT.saturating_add(Duration::from_millis(10)));
+    assert_eq!(hits(&stale), hits(&first));
+    assert_eq!(
+        fake.calls(),
+        [call(P, None), call(E, None), call(P, Some("p")), call(E, Some("e"))]
+    );
 }
 
 #[tokio::test]
