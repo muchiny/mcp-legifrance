@@ -460,8 +460,7 @@ pub fn guidance_error(missing: Option<(&SheetId, Audience)>, error: &GuidanceErr
         },
         GuidanceError::EntryTooLarge { source_url } => AppError::Upstream {
             message: format!(
-                "this Service-Public page is too large to read here (over 2 MiB); read it at \
-                 {source_url}."
+                "this Service-Public page is too large to read here; read it at {source_url}."
             ),
             cause: UpstreamCause::Decode,
         },
@@ -2440,7 +2439,7 @@ mod tests {
                 GuidanceError::EntryTooLarge { source_url: url },
                 ErrorCode::UpstreamError,
                 Some(UpstreamCause::Decode),
-                "this Service-Public page is too large to read here (over 2 MiB); read it at \
+                "this Service-Public page is too large to read here; read it at \
                  https://www.service-public.gouv.fr/particuliers/vosdroits/F37096."
                     .to_owned(),
             ),

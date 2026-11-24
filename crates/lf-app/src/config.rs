@@ -40,7 +40,7 @@ use lf_adapter_piste::{
 use lf_application::{
     audited::AuditMode,
     ports::PisteEnvironment,
-    service::{ConfigurationState, DoctrineSource},
+    service::{ConfigurationState, DoctrineSource, GuidanceSource},
 };
 use secrecy::SecretString;
 use tracing_subscriber::EnvFilter;
@@ -1069,6 +1069,8 @@ pub(crate) fn load(env: &impl EnvSource) -> Loaded {
             local_snapshot: matches!(source, CorpusSource::Dila(_)),
             // Le serveur sert les deux outils du BOFiP : la source est active ou coupée.
             doctrine: bofip.coverage(),
+            // Le serveur ne sert pas encore les outils de Service-Public (T-MS-25).
+            guidance: GuidanceSource::NotServed,
         },
         source,
         bofip,
@@ -1224,6 +1226,7 @@ mod tests {
                 local_snapshot: false,
                 // La source du BOFiP est active sans aucun réglage (Q29 = A).
                 doctrine: DoctrineSource::Active,
+                guidance: GuidanceSource::NotServed,
             }
         );
         assert_eq!(config.bofip, default_bofip());

@@ -16,7 +16,7 @@
 //! (non audité, liste vide en cas d'erreur), dans `resource.rs` et `complete.rs`.
 
 use lf_domain::coverage::ConfigFacts;
-pub use lf_domain::coverage::DoctrineSource;
+pub use lf_domain::coverage::{DoctrineSource, GuidanceSource};
 
 use crate::{
     audited::{AuditPolicy, Audited},
@@ -36,12 +36,14 @@ mod get_convention;
 mod get_decision;
 mod get_deliberation;
 mod get_related;
+mod get_service_public;
 mod get_text;
 mod resolve;
 mod resource;
 mod search;
 mod search_all;
 mod search_bofip;
+mod search_service_public;
 mod verify_citations;
 
 /// État de la configuration du processus, tel que `fr_coverage` le rend (05 §5.8). Rempli par
@@ -65,10 +67,14 @@ pub struct ConfigurationState {
     /// coupée (FR-107), ou `NotServed`, le défaut, tant que le serveur ne sert pas ses outils.
     /// Posé par `lf-app` avec la source elle-même (`LegalService::with_doctrine`).
     pub doctrine: DoctrineSource,
+    /// État de la source des fiches de Service-Public, pour `fr_coverage` : active (FR-108),
+    /// coupée (FR-109), ou `NotServed`, le défaut, tant que le serveur ne sert pas ses outils.
+    /// Posé par `lf-app` avec la source elle-même (`LegalService::with_guidance`).
+    pub guidance: GuidanceSource,
 }
 
 impl ConfigurationState {
-    /// Les cinq faits que le domaine lit pour calculer la couverture ; la liste des problèmes
+    /// Les six faits que le domaine lit pour calculer la couverture ; la liste des problèmes
     /// n'y entre pas.
     #[must_use]
     pub fn facts(&self) -> ConfigFacts {
@@ -78,6 +84,7 @@ impl ConfigurationState {
             has_problems: !self.problems.is_empty(),
             local_snapshot: self.local_snapshot,
             doctrine: self.doctrine,
+            guidance: self.guidance,
         }
     }
 }
@@ -200,7 +207,7 @@ pub(crate) mod bofip_fixtures {
         audited::{AuditMode, AuditPolicy},
         budget::ResponseBudget,
         ports::{AuditError, AuditLog, AuditRecord, NoDoctrine, PisteEnvironment},
-        testing::{FakeCorpus, FakeDoctrine, FixedClock, MemoryAuditLog},
+        testing::{FakeCorpus, FakeDoctrine, FakeGuidance, FixedClock, MemoryAuditLog},
     };
 
     /// Journal partagé : le service possède le sien, le test en garde une poignée.
@@ -246,6 +253,16 @@ pub(crate) mod bofip_fixtures {
         let (service, log) = service_without_doctrine();
         (service.with_doctrine(FakeDoctrine::new()), log)
     }
+
+    /// Façade de test sans doctrine, avec une fausse source de Service-Public.
+    pub(crate) type GuidedService =
+        LegalService<FakeCorpus, SharedAudit, FixedClock, NoDoctrine, FakeGuidance>;
+
+    /// La façade de `LegalService::new`, avec une fausse source de Service-Public.
+    pub(crate) fn service_with_guidance() -> (GuidedService, Arc<MemoryAuditLog>) {
+        let (service, log) = service_without_doctrine();
+        (service.with_guidance(FakeGuidance::new()), log)
+    }
 }
 
 #[cfg(test)]
@@ -285,6 +302,7 @@ mod tests {
                 has_problems: false,
                 local_snapshot: false,
                 doctrine: DoctrineSource::NotServed,
+                guidance: GuidanceSource::NotServed,
             }
         );
         let degraded = ConfigurationState {
@@ -293,6 +311,7 @@ mod tests {
             problems: vec!["LF_PISTE_ENV is invalid".to_owned()],
             local_snapshot: false,
             doctrine: DoctrineSource::NotServed,
+            guidance: GuidanceSource::NotServed,
         };
         assert_eq!(
             degraded.facts(),
@@ -302,6 +321,7 @@ mod tests {
                 has_problems: true,
                 local_snapshot: false,
                 doctrine: DoctrineSource::NotServed,
+                guidance: GuidanceSource::NotServed,
             }
         );
         let snapshot = ConfigurationState { local_snapshot: true, ..Default::default() };
@@ -313,12 +333,18 @@ mod tests {
                 has_problems: false,
                 local_snapshot: true,
                 doctrine: DoctrineSource::NotServed,
+                guidance: GuidanceSource::NotServed,
             }
         );
         // L'état de la source de doctrine passe tel quel, dans ses trois valeurs.
         for doctrine in [DoctrineSource::NotServed, DoctrineSource::Active, DoctrineSource::Off] {
             let state = ConfigurationState { doctrine, ..Default::default() };
             assert_eq!(state.facts().doctrine, doctrine);
+        }
+        // Celui de la source de Service-Public aussi.
+        for guidance in [GuidanceSource::NotServed, GuidanceSource::Active, GuidanceSource::Off] {
+            let state = ConfigurationState { guidance, ..Default::default() };
+            assert_eq!(state.facts().guidance, guidance);
         }
         // Une configuration par défaut n'a ni identifiants ni problème, PISTE pour source, et
         // aucun outil du BOFiP servi.
@@ -330,6 +356,7 @@ mod tests {
                 has_problems: false,
                 local_snapshot: false,
                 doctrine: DoctrineSource::NotServed,
+                guidance: GuidanceSource::NotServed,
             }
         );
     }

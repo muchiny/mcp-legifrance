@@ -31,7 +31,7 @@ use lf_domain::{
         Act, ArticleText, ArticleVersion, CodeListing, CompanyAgreement, Convention, Decision,
         Deliberation, RelatedLinks, SearchHit, SearchPage,
     },
-    guidance::{Audience, GuidanceDoc, GuidancePage, GuidanceQuery, SheetId},
+    guidance::{Audience, GuidanceQuery, SheetId},
     id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId},
     search::{NumberQuery, SearchQuery},
 };
@@ -40,7 +40,8 @@ use crate::{
     deadline::Deadline,
     ports::{
         ArticleAt, AuditError, AuditErrorKind, AuditLog, AuditRecord, Clock, ConfigKind,
-        CorpusError, DoctrineError, GuidanceError, LegalCorpus, PublicGuidance, TaxDoctrine,
+        CorpusError, DoctrineError, GuidanceError, GuidanceFound, GuidanceRead, LegalCorpus,
+        PublicGuidance, TaxDoctrine,
     },
 };
 
@@ -475,8 +476,8 @@ type GuidanceResponses<T> = Mutex<VecDeque<Result<T, GuidanceError>>>;
 /// ([`FakeGuidance::seen_requests`]).
 #[derive(Default)]
 pub struct FakeGuidance {
-    search: GuidanceResponses<GuidancePage>,
-    get: GuidanceResponses<GuidanceDoc>,
+    search: GuidanceResponses<GuidanceFound>,
+    get: GuidanceResponses<GuidanceRead>,
     /// Chaque appel reçu, dans l'ordre des appels.
     requests: Mutex<Vec<GuidanceRequest>>,
 }
@@ -489,12 +490,12 @@ impl FakeGuidance {
     }
 
     /// Programme la prochaine réponse de `search`.
-    pub fn push_search(&self, response: Result<GuidancePage, GuidanceError>) {
+    pub fn push_search(&self, response: Result<GuidanceFound, GuidanceError>) {
         lock(&self.search).push_back(response);
     }
 
     /// Programme la prochaine réponse de `get`.
-    pub fn push_get(&self, response: Result<GuidanceDoc, GuidanceError>) {
+    pub fn push_get(&self, response: Result<GuidanceRead, GuidanceError>) {
         lock(&self.get).push_back(response);
     }
 
@@ -531,7 +532,7 @@ impl PublicGuidance for FakeGuidance {
     fn search(
         &self,
         query: &GuidanceQuery,
-    ) -> impl Future<Output = Result<GuidancePage, GuidanceError>> + Send {
+    ) -> impl Future<Output = Result<GuidanceFound, GuidanceError>> + Send {
         ready(self.serve(GuidanceRequest::Search(query.clone()), &self.search, "search"))
     }
 
@@ -539,7 +540,7 @@ impl PublicGuidance for FakeGuidance {
         &self,
         audience: Audience,
         id: &SheetId,
-    ) -> impl Future<Output = Result<GuidanceDoc, GuidanceError>> + Send {
+    ) -> impl Future<Output = Result<GuidanceRead, GuidanceError>> + Send {
         ready(self.serve(GuidanceRequest::Get(audience, id.clone()), &self.get, "get"))
     }
 }
@@ -780,6 +781,155 @@ pub(crate) mod fixtures {
                 PageSize::DEFAULT,
             )
             .unwrap()
+        }
+    }
+
+    /// Valeurs de Service-Public pour les tests du crate : fiches, dossiers, résultats, requête et
+    /// archives.
+    pub(crate) mod service_public {
+        use std::num::NonZeroU32;
+
+        use chrono::{DateTime, Utc};
+        use lf_domain::{
+            date::CivilDate,
+            guidance::{
+                Audience, AudienceFilter, Block, GuidanceContent, GuidanceDoc, GuidanceHit,
+                GuidanceKind, GuidancePage, GuidanceQuery, GuidanceTerms, HeadingLevel, Inline,
+                LegalReferences, NavigationEntry, ServicePublicUrl, SheetId, legal_references,
+                render,
+            },
+            search::PageSize,
+        };
+
+        use crate::ports::{ArchiveFile, GuidanceFound, GuidanceRead};
+
+        /// Adresse Légifrance de l'article cité par chaque fiche de test.
+        pub(crate) const ARTICLE_URL: &str =
+            "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000032041571";
+
+        /// Description des fiches de test : assez longue pour entrer dans le résumé officiel.
+        pub(crate) const DESCRIPTION: &str =
+            "Le solde bancaire insaisissable est une somme laissée sur le compte.";
+
+        /// Numéro `raw`, validé.
+        pub(crate) fn id(raw: &str) -> SheetId {
+            SheetId::parse(raw).unwrap()
+        }
+
+        /// Date de l'archive de test : l'en-tête `Last-Modified` relevé le 2026-11-24
+        /// (`Tue, 24 Nov 2026 14:26:09 GMT`).
+        pub(crate) fn archive_date() -> DateTime<Utc> {
+            DateTime::from_timestamp(1_795_530_369, 0).unwrap()
+        }
+
+        /// Archive datée de `audience`.
+        pub(crate) fn file(audience: Audience) -> ArchiveFile {
+            ArchiveFile { audience, last_modified: Some(archive_date()) }
+        }
+
+        /// Fiche `raw` de `audience` : un chapitre, un paragraphe `text`, un article cité.
+        pub(crate) fn sheet(audience: Audience, raw: &str, text: &str) -> GuidanceDoc {
+            let references = legal_references([(Some("Code civil : article 1240"), ARTICLE_URL)]);
+            sheet_citing(audience, raw, text, references)
+        }
+
+        /// Comme [`sheet`], avec les références `references`.
+        pub(crate) fn sheet_citing(
+            audience: Audience,
+            raw: &str,
+            text: &str,
+            references: LegalReferences,
+        ) -> GuidanceDoc {
+            let id = id(raw);
+            let blocks = [
+                Block::Heading {
+                    level: HeadingLevel::Chapter,
+                    text: vec![Inline::Text("Bénéficiaires".to_owned())],
+                },
+                Block::Paragraph(vec![Inline::Text(text.to_owned())]),
+            ];
+            GuidanceDoc {
+                source_url: ServicePublicUrl::read(None, audience, &id),
+                id,
+                audience,
+                sheet_type: Some("Fiche d'information".to_owned()),
+                title: format!("Titre de la fiche {raw}"),
+                description: Some(DESCRIPTION.to_owned()),
+                theme: Some("Argent".to_owned()),
+                updated: CivilDate::new(2026, 4, 1),
+                content: GuidanceContent::Sheet { text: render(&blocks).unwrap(), references },
+            }
+        }
+
+        /// Dossier `raw` de `audience`, qui liste `entries`.
+        pub(crate) fn folder(
+            audience: Audience,
+            raw: &str,
+            entries: Vec<NavigationEntry>,
+        ) -> GuidanceDoc {
+            let id = id(raw);
+            GuidanceDoc {
+                source_url: ServicePublicUrl::read(None, audience, &id),
+                id,
+                audience,
+                sheet_type: Some("Dossier".to_owned()),
+                title: format!("Dossier {raw}"),
+                description: None,
+                theme: None,
+                updated: None,
+                content: GuidanceContent::Folder(entries),
+            }
+        }
+
+        /// Entrée d'un dossier : la fiche `raw`, de titre `title`, sans groupe.
+        pub(crate) fn entry(raw: &str, title: &str) -> NavigationEntry {
+            NavigationEntry {
+                id: id(raw),
+                kind: GuidanceKind::Sheet,
+                title: title.to_owned(),
+                group: None,
+            }
+        }
+
+        /// Résultat de recherche : la fiche `raw` de `audience`, de titre `title`.
+        pub(crate) fn hit(audience: Audience, raw: &str, title: &str) -> GuidanceHit {
+            let id = id(raw);
+            GuidanceHit {
+                source_url: ServicePublicUrl::read(None, audience, &id),
+                audience,
+                id,
+                kind: GuidanceKind::Sheet,
+                title: title.to_owned(),
+                updated: CivilDate::new(2026, 4, 1),
+            }
+        }
+
+        /// Requête de `words` sur `audience`, première page de dix résultats.
+        pub(crate) fn query(words: &str, audience: AudienceFilter) -> GuidanceQuery {
+            GuidanceQuery {
+                terms: GuidanceTerms::parse(words).unwrap(),
+                audience,
+                page: NonZeroU32::MIN,
+                page_size: PageSize::DEFAULT,
+            }
+        }
+
+        /// Réponse de recherche : `hits` sur `total`, avec l'archive datée de chaque public de
+        /// `audience`.
+        pub(crate) fn found(
+            audience: AudienceFilter,
+            total: u64,
+            hits: Vec<GuidanceHit>,
+        ) -> GuidanceFound {
+            GuidanceFound {
+                page: GuidancePage { total, hits },
+                files: audience.audiences().iter().copied().map(file).collect(),
+            }
+        }
+
+        /// Réponse de lecture : `doc`, avec l'archive datée de son public.
+        pub(crate) fn read(doc: GuidanceDoc) -> GuidanceRead {
+            GuidanceRead { file: file(doc.audience), doc }
         }
     }
 }
@@ -1347,45 +1497,26 @@ mod tests {
         assert_eq!(doctrine.calls(), 2);
     }
 
-    /// Requête et page lue de Service-Public, pour les tests de [`FakeGuidance`].
-    fn guidance_query() -> GuidanceQuery {
-        GuidanceQuery {
-            terms: lf_domain::guidance::GuidanceTerms::parse("solde bancaire").unwrap(),
-            audience: lf_domain::guidance::AudienceFilter::All,
-            page: std::num::NonZeroU32::MIN,
-            page_size: lf_domain::search::PageSize::DEFAULT,
-        }
-    }
-
-    fn guidance_folder(id: &SheetId) -> GuidanceDoc {
-        use lf_domain::guidance::{GuidanceContent, ServicePublicUrl};
-        GuidanceDoc {
-            source_url: ServicePublicUrl::read(None, Audience::Particuliers, id),
-            id: id.clone(),
-            audience: Audience::Particuliers,
-            sheet_type: Some("Dossier".to_owned()),
-            title: "Opérations bancaires".to_owned(),
-            description: None,
-            theme: None,
-            updated: None,
-            content: GuidanceContent::Folder(Vec::new()),
-        }
-    }
-
     #[tokio::test]
     async fn fake_guidance_serves_each_method_from_its_own_queue_and_records_the_calls() {
+        use fixtures::service_public::{folder, found, hit, query, read};
+        use lf_domain::guidance::AudienceFilter;
+
         let guidance = FakeGuidance::new();
         assert_eq!((guidance.calls(), guidance.seen_requests()), (0, Vec::new()));
         let id = SheetId::parse("N31675").unwrap();
-        let page = GuidancePage { total: 0, hits: Vec::new() };
+        let page =
+            found(AudienceFilter::All, 1, vec![hit(Audience::Particuliers, "F1437", "Compte")]);
+        let doc = read(folder(Audience::Particuliers, "N31675", Vec::new()));
+        let words = || query("solde bancaire", AudienceFilter::All);
         guidance.push_search(Ok(page.clone()));
         guidance.push_search(Err(GuidanceError::Downloading));
-        guidance.push_get(Ok(guidance_folder(&id)));
+        guidance.push_get(Ok(doc.clone()));
         guidance.push_get(Err(GuidanceError::NotFound));
 
-        assert_eq!(guidance.get(Audience::Particuliers, &id).await, Ok(guidance_folder(&id)));
-        assert_eq!(guidance.search(&guidance_query()).await, Ok(page));
-        assert_eq!(guidance.search(&guidance_query()).await, Err(GuidanceError::Downloading));
+        assert_eq!(guidance.get(Audience::Particuliers, &id).await, Ok(doc));
+        assert_eq!(guidance.search(&words()).await, Ok(page));
+        assert_eq!(guidance.search(&words()).await, Err(GuidanceError::Downloading));
         assert_eq!(guidance.get(Audience::Entreprendre, &id).await, Err(GuidanceError::NotFound));
 
         assert_eq!(guidance.calls(), 4);
@@ -1393,8 +1524,8 @@ mod tests {
             guidance.seen_requests(),
             vec![
                 GuidanceRequest::Get(Audience::Particuliers, id.clone()),
-                GuidanceRequest::Search(guidance_query()),
-                GuidanceRequest::Search(guidance_query()),
+                GuidanceRequest::Search(words()),
+                GuidanceRequest::Search(words()),
                 GuidanceRequest::Get(Audience::Entreprendre, id),
             ]
         );
@@ -1407,7 +1538,9 @@ mod tests {
             detail: format!("FakeGuidance: no response programmed for {method}"),
         };
         let id = SheetId::parse("F1437").unwrap();
-        assert_eq!(guidance.search(&guidance_query()).await, Err(empty("search")));
+        let words =
+            fixtures::service_public::query("solde", lf_domain::guidance::AudienceFilter::All);
+        assert_eq!(guidance.search(&words).await, Err(empty("search")));
         assert_eq!(guidance.get(Audience::Particuliers, &id).await, Err(empty("get")));
         assert_eq!(guidance.calls(), 2);
     }

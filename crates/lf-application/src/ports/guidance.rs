@@ -13,10 +13,50 @@
 
 use std::{future::ready, time::Duration};
 
+use chrono::{DateTime, Utc};
 use lf_domain::guidance::{
-    Audience, GuidanceDoc, GuidancePage, GuidanceQuery, ServicePublicUrl, SheetId,
+    Audience, GuidanceDoc, GuidancePage, GuidanceQuery, ServicePublicUrl, SheetId, archive_url,
 };
 use thiserror::Error;
+
+/// Archive du jour d'un public, dans les termes de la DILA (ADR-0033, décision 9) : son adresse
+/// ([`ArchiveFile::url`]) et son nom ([`ARCHIVE_NAME`](lf_domain::guidance::ARCHIVE_NAME)) se
+/// déduisent du public ; seule sa date vient du serveur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArchiveFile {
+    /// Public de l'archive.
+    pub audience: Audience,
+    /// En-tête `Last-Modified` reçu avec l'archive gardée en mémoire ; `None` s'il manquait ou ne
+    /// se lisait pas.
+    pub last_modified: Option<DateTime<Utc>>,
+}
+
+impl ArchiveFile {
+    /// Adresse complète de l'archive, fixée dans le code.
+    #[must_use]
+    pub const fn url(&self) -> &'static str {
+        archive_url(self.audience)
+    }
+}
+
+/// Ce que rend une recherche : la page de résultats, et l'archive de chaque public cherché.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuidanceFound {
+    /// Résultats de la page demandée.
+    pub page: GuidancePage,
+    /// Les archives lues, une par public cherché. Le cas d'usage n'en prend que les dates des
+    /// publics de la requête.
+    pub files: Vec<ArchiveFile>,
+}
+
+/// Ce que rend une lecture : la page lue, et l'archive dont elle vient.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GuidanceRead {
+    /// La fiche ou la page de navigation.
+    pub doc: GuidanceDoc,
+    /// L'archive du public lu.
+    pub file: ArchiveFile,
+}
 
 /// Port sortant vers les fiches pratiques de Service-Public.
 ///
@@ -27,7 +67,7 @@ pub trait PublicGuidance: Send + Sync + 'static {
     fn search(
         &self,
         query: &GuidanceQuery,
-    ) -> impl Future<Output = Result<GuidancePage, GuidanceError>> + Send;
+    ) -> impl Future<Output = Result<GuidanceFound, GuidanceError>> + Send;
 
     /// La page `id` de l'archive de `audience` : une fiche avec son texte, ou un dossier avec ses
     /// entrées. Un numéro absent de cette archive est un [`GuidanceError::NotFound`] ; la page
@@ -36,7 +76,7 @@ pub trait PublicGuidance: Send + Sync + 'static {
         &self,
         audience: Audience,
         id: &SheetId,
-    ) -> impl Future<Output = Result<GuidanceDoc, GuidanceError>> + Send;
+    ) -> impl Future<Output = Result<GuidanceRead, GuidanceError>> + Send;
 }
 
 /// Erreurs du port.
@@ -64,7 +104,9 @@ pub enum GuidanceError {
     /// moins une seconde ; le téléchargement continue (ADR-0033, décision 3).
     #[error("archive still downloading")]
     Downloading,
-    /// Entrée de l'archive au-delà de 2 Mio une fois décompressée : la page se lit sur le site.
+    /// Page trop grande pour être rendue ici : entrée de l'archive au-delà de 2 Mio une fois
+    /// décompressée (adapter), ou métadonnées qui ne tiennent pas sous le plafond de réponse (cas
+    /// d'usage). La page se lit sur le site.
     #[error("entry too large")]
     EntryTooLarge {
         /// Adresse publique de la page, que le message donne.
@@ -109,7 +151,7 @@ impl PublicGuidance for NoGuidance {
     fn search(
         &self,
         _query: &GuidanceQuery,
-    ) -> impl Future<Output = Result<GuidancePage, GuidanceError>> + Send {
+    ) -> impl Future<Output = Result<GuidanceFound, GuidanceError>> + Send {
         ready(Err(GuidanceError::Disabled))
     }
 
@@ -117,7 +159,7 @@ impl PublicGuidance for NoGuidance {
         &self,
         _audience: Audience,
         _id: &SheetId,
-    ) -> impl Future<Output = Result<GuidanceDoc, GuidanceError>> + Send {
+    ) -> impl Future<Output = Result<GuidanceRead, GuidanceError>> + Send {
         ready(Err(GuidanceError::Disabled))
     }
 }
@@ -147,6 +189,19 @@ mod tests {
         for audience in Audience::ALL {
             assert_eq!(NoGuidance.get(audience, &id).await, Err(GuidanceError::Disabled));
         }
+    }
+
+    #[test]
+    fn an_archive_file_names_the_archive_of_its_audience() {
+        let part = ArchiveFile { audience: Audience::Particuliers, last_modified: None };
+        let pro = ArchiveFile { audience: Audience::Entreprendre, ..part };
+        assert_eq!(
+            [part.url(), pro.url()],
+            [
+                "https://lecomarquage.service-public.gouv.fr/vdd/3.5/part/zip/vosdroits-latest.zip",
+                "https://lecomarquage.service-public.gouv.fr/vdd/3.5/pro/zip/vosdroits-latest.zip",
+            ]
+        );
     }
 
     #[test]

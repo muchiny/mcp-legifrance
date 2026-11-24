@@ -78,6 +78,32 @@ impl LegalReference {
     pub fn source_url(&self) -> &str {
         &self.source_url
     }
+
+    /// Raccourcit le titre à `max_chars` caractères, `…` compris ; vrai s'il était plus long. Le
+    /// numéro et l'adresse ne changent jamais : la référence reste lisible par son outil. Sert au
+    /// plafond de réponse (05 §6.4).
+    ///
+    /// ```
+    /// use lf_domain::guidance::legal_references;
+    ///
+    /// let url = "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288";
+    /// let mut found = legal_references([(Some("Code civil : article 1240"), url)]);
+    /// let reference = &mut found.references_mut()[0];
+    /// assert!(reference.shorten_title(11));
+    /// assert_eq!(reference.title(), Some("Code civil…"));
+    /// assert_eq!(reference.id(), Some("LEGIARTI000006419288"));
+    /// assert!(!reference.shorten_title(11));
+    /// ```
+    pub fn shorten_title(&mut self, max_chars: usize) -> bool {
+        let Some(title) = &mut self.title else { return false };
+        let long = title.chars().count() > max_chars;
+        if long {
+            let mut kept: String = title.chars().take(max_chars.saturating_sub(1)).collect();
+            kept.push('…');
+            *title = kept;
+        }
+        long
+    }
 }
 
 /// Les références d'une fiche, dans l'ordre de première apparition, et si la borne en a coupé.
@@ -96,6 +122,12 @@ impl LegalReferences {
     /// Vrai quand la fiche cite plus de [`LEGAL_REFERENCES_MAX`] textes distincts.
     pub fn truncated(&self) -> bool {
         self.truncated
+    }
+
+    /// Les références gardées, à raccourcir ([`LegalReference::shorten_title`]) : ni ajout ni
+    /// retrait possible, l'ordre et la borne restent ceux de la lecture.
+    pub fn references_mut(&mut self) -> &mut [LegalReference] {
+        &mut self.references
     }
 }
 
@@ -394,6 +426,33 @@ mod tests {
             let target = path.rsplit('/').next().map(str::to_owned);
             assert_eq!(rows, [(target.filter(|_| readable), None, url.clone())], "{path}");
         }
+    }
+
+    /// Le plafond de réponse raccourcit un titre, jamais le numéro ni l'adresse ; une référence
+    /// sans titre, ou d'un titre déjà court, ne change pas.
+    #[test]
+    fn shortening_a_title_keeps_the_id_and_the_address() {
+        let article = "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419288";
+        let jorf = "https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000000886460";
+        let mut found =
+            legal_references([(Some("Code civil : article 1240"), article), (None, jorf)]);
+        let (with_title, rest) = found.references_mut().split_first_mut().unwrap();
+        let without = &mut rest[0];
+        // Exactement à la borne : rien à faire.
+        assert!(!with_title.shorten_title(25));
+        assert_eq!(with_title.title(), Some("Code civil : article 1240"));
+        assert!(with_title.shorten_title(24));
+        assert_eq!(with_title.title(), Some("Code civil : article 12…"));
+        assert_eq!(with_title.title().unwrap().chars().count(), 24);
+        assert_eq!(
+            (with_title.id(), with_title.source_url()),
+            (Some("LEGIARTI000006419288"), article)
+        );
+        assert!(!without.shorten_title(1));
+        assert_eq!(without.title(), None);
+        // L'ordre, la borne et le drapeau ne bougent pas.
+        assert_eq!(found.references().len(), 2);
+        assert!(!found.truncated());
     }
 
     #[test]

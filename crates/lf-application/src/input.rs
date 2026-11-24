@@ -253,6 +253,30 @@ pub struct GetBofipInput {
     pub reading: ReadingInput,
 }
 
+/// Arguments de `fr_search_service_public` (05 §5.16).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SearchServicePublicInput {
+    /// Mots cherchés dans les titres et résumés des fiches.
+    pub query: Option<String>,
+    /// Public : `particuliers` (défaut), `entreprendre` ou `all`.
+    pub audience: Option<String>,
+    /// Numéro de page, à partir de 1.
+    pub page: Option<i64>,
+    /// Résultats par page, de 1 à 50.
+    pub page_size: Option<i64>,
+}
+
+/// Arguments de `fr_get_service_public` (05 §5.17).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GetServicePublicInput {
+    /// Numéro de la fiche (`F…`) ou de la page de navigation (`N…`).
+    pub id: Option<String>,
+    /// Public de l'archive lue : `particuliers` (défaut) ou `entreprendre`.
+    pub audience: Option<String>,
+    /// Paramètres de lecture.
+    pub reading: ReadingInput,
+}
+
 /// Lecture d'une resource MCP (05 §8).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResourceInput {

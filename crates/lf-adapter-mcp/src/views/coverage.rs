@@ -260,7 +260,7 @@ mod tests {
 
     use lf_application::output::coverage::CoverageConfiguration;
     use lf_domain::{
-        coverage::{ConfigFacts, Coverage, DoctrineSource, coverage},
+        coverage::{ConfigFacts, Coverage, DoctrineSource, GuidanceSource, coverage},
         date::CivilDate,
     };
     use pretty_assertions::assert_eq;
@@ -283,6 +283,7 @@ mod tests {
             local_snapshot: false,
             // Le serveur sert les outils du BOFiP, source active : le défaut du binaire.
             doctrine: DoctrineSource::Active,
+            guidance: GuidanceSource::NotServed,
         };
         CoverageOutput {
             coverage: coverage(environment, &facts, &Fond::ALL),
@@ -356,6 +357,7 @@ mod tests {
             local_snapshot: true,
             // Un instantané local coupe la source du BOFiP, sauf `LF_BOFIP=on`.
             doctrine: DoctrineSource::Off,
+            guidance: GuidanceSource::NotServed,
         };
         out.coverage = coverage(PisteEnvironment::Production, &facts, &[Fond::Loda, Fond::Code]);
         out.configuration.local_snapshot = true;
@@ -583,6 +585,7 @@ mod tests {
             has_problems: false,
             local_snapshot: false,
             doctrine: DoctrineSource::Off,
+            guidance: GuidanceSource::NotServed,
         };
         off.coverage = coverage(PisteEnvironment::Sandbox, &facts, &Fond::ALL);
         let view = serde_json::to_value(CoverageView::new(off, Surface::V03)).unwrap();

@@ -105,6 +105,14 @@ impl GuidanceDoc {
         }
     }
 
+    /// Références légales d'une fiche ; `None` pour une page de navigation.
+    pub fn legal_references(&self) -> Option<&LegalReferences> {
+        match &self.content {
+            GuidanceContent::Sheet { references, .. } => Some(references),
+            GuidanceContent::Folder(_) | GuidanceContent::Theme(_) => None,
+        }
+    }
+
     /// « {site}, {titre} ({numéro}), mise à jour du {date} » (05 §5.17) ; sans date, sans la fin.
     ///
     /// ```
@@ -229,10 +237,13 @@ mod tests {
             (read.kind(), read.text().map(LongText::as_str)),
             (GuidanceKind::Sheet, Some("Montant"))
         );
+        assert_eq!(read.legal_references(), Some(&LegalReferences::default()));
         let folder = doc(Audience::Particuliers, GuidanceContent::Folder(vec![entry.clone()]));
         assert_eq!((folder.kind(), folder.text()), (GuidanceKind::Folder, None));
+        assert_eq!(folder.legal_references(), None);
         let theme = doc(Audience::Particuliers, GuidanceContent::Theme(vec![entry]));
         assert_eq!((theme.kind(), theme.text()), (GuidanceKind::Theme, None));
+        assert_eq!(theme.legal_references(), None);
     }
 
     #[test]

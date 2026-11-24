@@ -35,4 +35,7 @@ pub use references::{
     LEGAL_REFERENCES_MAX, LegalReference, LegalReferences, legal_references, source_urls,
 };
 pub use terms::{GuidanceTerms, fold_word};
-pub use url::{ENTREPRENDRE_PAGE_BASE, PARTICULIERS_PAGE_BASE, ServicePublicUrl};
+pub use url::{
+    ARCHIVE_NAME, ENTREPRENDRE_ARCHIVE_URL, ENTREPRENDRE_PAGE_BASE, PARTICULIERS_ARCHIVE_URL,
+    PARTICULIERS_PAGE_BASE, ServicePublicUrl, archive_url,
+};

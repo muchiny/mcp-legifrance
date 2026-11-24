@@ -22,6 +22,34 @@ pub const PARTICULIERS_PAGE_BASE: &str =
 /// Début de l'adresse d'une page du site Entreprendre.
 pub const ENTREPRENDRE_PAGE_BASE: &str = "https://entreprendre.service-public.gouv.fr/vosdroits/";
 
+/// Adresse de l'archive du jour du public Particuliers (ADR-0033, décision 4) : fixée dans le
+/// code, sans variable de surcharge.
+pub const PARTICULIERS_ARCHIVE_URL: &str =
+    "https://lecomarquage.service-public.gouv.fr/vdd/3.5/part/zip/vosdroits-latest.zip";
+
+/// Adresse de l'archive du jour du public Entreprendre.
+pub const ENTREPRENDRE_ARCHIVE_URL: &str =
+    "https://lecomarquage.service-public.gouv.fr/vdd/3.5/pro/zip/vosdroits-latest.zip";
+
+/// Nom du fichier téléchargé, dans les termes de la DILA (`name` de `source_files`).
+pub const ARCHIVE_NAME: &str = "vosdroits-latest.zip";
+
+/// Adresse de l'archive du jour de `audience` : la seule requête de la source.
+///
+/// ```
+/// use lf_domain::guidance::{ARCHIVE_NAME, Audience, archive_url};
+///
+/// assert!(archive_url(Audience::Entreprendre).ends_with("/pro/zip/vosdroits-latest.zip"));
+/// assert!(archive_url(Audience::Particuliers).ends_with(ARCHIVE_NAME));
+/// ```
+#[must_use]
+pub const fn archive_url(audience: Audience) -> &'static str {
+    match audience {
+        Audience::Particuliers => PARTICULIERS_ARCHIVE_URL,
+        Audience::Entreprendre => ENTREPRENDRE_ARCHIVE_URL,
+    }
+}
+
 /// Adresse publique d'une fiche ou d'une page de navigation : toujours
 /// [`PARTICULIERS_PAGE_BASE`] ou [`ENTREPRENDRE_PAGE_BASE`] suivi du numéro, rien d'autre.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -117,6 +145,17 @@ mod tests {
         ] {
             assert_eq!(read(Some(given), Audience::Particuliers, "F1437"), part, "{given:?}");
         }
+    }
+
+    /// Les deux archives sont sur l'hôte de la DILA, en `https`, et ne diffèrent que par le
+    /// public.
+    #[test]
+    fn archive_addresses_are_fixed_and_distinct() {
+        let prefix = "https://lecomarquage.service-public.gouv.fr/vdd/3.5/";
+        assert_eq!(
+            Audience::ALL.map(archive_url),
+            [format!("{prefix}part/zip/{ARCHIVE_NAME}"), format!("{prefix}pro/zip/{ARCHIVE_NAME}"),]
+        );
     }
 
     /// Les adresses des fiches réelles de T-MS-02 sont gardées telles quelles.
