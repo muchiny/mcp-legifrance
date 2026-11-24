@@ -1271,7 +1271,7 @@ Pas de rejeu des 13 questions dans ce plan : il mesurerait V-228 (le modèle sui
 - **G1 bis** : les réponses de 14 outils ne changent pas (parité et snapshots) ; celle de `fr_coverage` change de façon bornée à la surface v0.3 seulement : famille `SERVICE_PUBLIC`, FR-108, FR-109, rien d'autre (05 §5.8) ; ses réponses v0.1 et v0.2 sont identiques à l'octet, par un filtre de la vue que T-MS-32 écrit (le domaine calcule les lacunes sans connaître la surface).
 - **G2** : aucun fichier de `lf-adapter-piste`, `lf-adapter-dila`, `lf-adapter-cache` ni `lf-adapter-bofip` n'est modifié.
 - **G3** : les instructions v0.1 et v0.2 sont identiques à l'octet ; la v0.3 gagne une ligne (05 §4.2), sous le plafond de 4 000 caractères.
-- **G4 et G5** : mode hors ligne, `LF_SERVICE_PUBLIC=off` ou valeur invalide : aucune requête, prouvé par le proxy témoin avec un contraste (source active, avec `LF_TOOL_DEADLINE_S=1` : une lecture ouvre une connexion vers `lecomarquage.service-public.gouv.fr:443`). Qu'une lecture n'ouvre plus rien une fois l'archive chargée est prouvé sur faux serveur (T-MS-25).
+- **G4 et G5** : mode hors ligne, `LF_SERVICE_PUBLIC=off` ou valeur invalide : aucune requête, prouvé par le proxy témoin avec un contraste (source active, avec `LF_TOOL_DEADLINE_S=2` : une lecture ouvre une connexion vers `lecomarquage.service-public.gouv.fr:443` ; à 1 s, l'attente serait nulle, voir T-MS-34). Qu'une lecture n'ouvre plus rien une fois l'archive chargée est prouvé sur faux serveur (T-MS-25).
 - **G6 et G7** : une ligne d'audit par appel des dix-sept outils ; format du journal inchangé.
 - **G8** : `make ci` vert à la fin de chaque vague ; couverture 100 % ; 0 mutant survivant sur les fichiers nouveaux.
 - **G9** : la sortie de `check-config` ne change pas tant que `LF_SERVICE_PUBLIC` n'est pas définie et que la source n'est pas coupée d'office.
@@ -1345,7 +1345,7 @@ Vague 3 — MCP et binaire : la surface change ici, en une fois.
 
 Vague 4 — documentation, revues, clôture.
 
-- [ ] T-MS-40 — **Documentation utilisateur.** README (variable, hôte contacté, mentions de la licence, mode hors ligne), `PRIVACY.md` (V-230), `SECURITY.md`, 02, 05 (état livré des §4.1, §4.2, §5.16, §5.17), 06 (plafond des instructions aux §2 et suivants), 08, `CONTRIBUTING.md` (plafond des instructions) ; CHANGELOG (« Added », « Changed » pour `fr_coverage`, « Tool surface »).\
+- [x] T-MS-40 — **Documentation utilisateur.** README (variable, hôte contacté, mentions de la licence, mode hors ligne), `PRIVACY.md` (V-230), `SECURITY.md`, 02, 05 (état livré des §4.1, §4.2, §5.16, §5.17), 06 (plafond des instructions aux §2 et suivants), 08, `CONTRIBUTING.md` (plafond des instructions) ; CHANGELOG (« Added », « Changed » pour `fr_coverage`, « Tool surface »). *Livrée le 2026-11-24 : README (section des fiches pratiques, variable, hôte, mode hors ligne, mentions, limites mesurées à T-MS-46), `PRIVACY.md` (section du serveur de la DILA, V-230), `SECURITY.md` (section de la source, en deux langues), 02 (§3.11, §8.2, R6), 05 (§4.1, §4.2, §5.0.1, §5.8, §5.16, §5.17, §6 ; cinq écarts du texte au code corrigés, dont `source_url` toujours présente), 06 (§2.11, budgets), 08 (§1.4, §4.3, §6.2, §11), `CONTRIBUTING.md`, CHANGELOG `[Unreleased]` (`lock-descriptors --compare v1.4.1` : deux ajouts, version mineure). Les variables citées par le README sont toutes lues par le binaire.*\
   Où : racine, `docs/plan/` · Livrable : documents · Vérification : contrôle des variables du README (CONTRIBUTING) · Spéc. : ADR-0033 décisions 9 et 10 · Taille : S · Après : T-MS-35
 - [ ] T-MS-41 — **Revues.** Revue de code et audit de sécurité (lecteur d'archive, lecture du XML, adresses, mots de recherche), une vague de corrections, une re-revue.\
   Où : branche · Livrable : constats traités · Vérification : aucun constat bloquant ni élevé ouvert · Spéc. : 06 §13 · Taille : S · Après : T-MS-40
@@ -1357,14 +1357,14 @@ Vague 4 — documentation, revues, clôture.
   Où : hors dépôt · Livrable : note de 0 à 40 · Vérification : critère fixé avant le rejeu · Spéc. : AM-88 · Taille : M · Prérequis : P · Après : T-MS-43
 - [ ] T-MS-45 — **PR de code unique**, puis PR de version (1.5.0 proposée) après sa fusion ; l'étiquette est posée par le propriétaire.\
   Où : GitHub · Livrable : PR · Vérification : CI verte · Spéc. : 06 §13 · Taille : S · Après : T-MS-43, T-MS-46
-- [ ] T-MS-46 — **Mesure de confirmation (V-229, V-235).** Vingt questions nouvelles, écrites et jugées à l'aveugle comme à T-MS-03, jamais publiées, cherchées avec le binaire de la branche sur l'archive du jour ; durée du premier appel et mémoire résidente avant et après relevées. Résultat au journal de 09 §2.20, sans les questions.\
+- [x] T-MS-46 — **Mesure de confirmation (V-229, V-235).** Vingt questions nouvelles, écrites et jugées à l'aveugle comme à T-MS-03, jamais publiées, cherchées avec le binaire de la branche sur l'archive du jour ; durée du premier appel et mémoire résidente avant et après relevées. Résultat au journal de 09 §2.20, sans les questions. *Faite le 2026-11-24 : 18 sur 20, seuil atteint ; premier appel 3,6 s et 1,2 s ; 47 Mio de mémoire de plus (estimation : 35 Mio). Quatre téléchargements (deux pour le juge, deux par le binaire).*\
   Où : hors dépôt, puis `docs/plan/09` · Livrable : mesure · Vérification : la fiche attendue dans les cinq premiers résultats pour 15 questions sur 20 au moins ; sinon arrêt et décision du propriétaire · Spéc. : ADR-0033 « À surveiller » · Taille : S · Après : T-MS-35
 
 **Critères d'acceptation.**
 
 - [ ] Les deux outils répondent sur l'archive de test et les fixtures réelles, et sur le serveur de la DILA lui-même (test en direct).
 - [ ] G0 à G11 tenues, chacune avec sa preuve.
-- [ ] V-229 confirmée par T-MS-46 (15 sur 20 au moins) ; V-235 mesurée ; V-230 à V-234 consignées avec leurs réserves (09 §2.23).
+- [x] V-229 confirmée par T-MS-46 (15 sur 20 au moins : 18 sur 20) ; V-235 mesurée ; V-230 à V-234 consignées avec leurs réserves (09 §2.23).
 - [ ] `make ci` vert, couverture 100 %, 0 mutant survivant sur les fichiers nouveaux ; audit de sécurité du lecteur d'archive fait (T-MS-41).
 - [ ] README, `PRIVACY.md` et `SECURITY.md` nomment le nouvel hôte ; rubrique « Tool surface » du CHANGELOG.
 
