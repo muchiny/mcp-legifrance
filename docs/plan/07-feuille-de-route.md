@@ -1351,7 +1351,7 @@ Vague 4 — documentation, revues, clôture.
   Où : branche · Livrable : constats traités · Vérification : aucun constat bloquant ni élevé ouvert · Spéc. : 06 §13 · Taille : S · Après : T-MS-40
 - [x] T-MS-42 — **Mutation.** `make mutants-diff`, un fichier à la fois ; fichiers nouveaux dans `.github/mutants-scope.txt`. *Faite les 24 et 25 novembre 2026 par `make mutants FILE=…` sur les 29 fichiers de la portée (675 mutants) : 13 survivants et une boucle sans fin au premier passage ; tests ajoutés (bornes et délais figés, cas limites de la cible de taille, titre de bloc, image légendée, `degrade` d'un dossier), filtre de score inutile retiré, un mutant équivalent exclu avec sa raison (`\|` et `^` sur deux drapeaux d'un bit, `.cargo/mutants.toml`) ; second passage des 7 fichiers concernés : 0 survivant, 0 boucle. Journaux dans `/var/tmp/lf-ms42/`.*\
   Où : branche · Livrable : 0 mutant survivant · Vérification : journaux gardés · Spéc. : 00 §10 · Taille : S · Après : T-MS-41
-- [ ] T-MS-43 — **`make ci` final.** Sortie gardée comme preuve.\
+- [x] T-MS-43 — **`make ci` final.** Sortie gardée comme preuve. *Fait le 2026-11-25 sur `73980b7` : code 0, 5 651 tests, couverture 100 % des régions, des fonctions et des lignes ; journal `/var/tmp/lf-ms43/make-ci.log`.*\
   Où : branche · Livrable : journal · Vérification : code de sortie 0 · Spéc. : 00 §10 · Taille : S · Après : T-MS-42
 - [ ] T-MS-44 — **Mesure d'apport (facultative).** Rejeu des 13 questions avant et après, en production, seulement si le propriétaire le demande ; critère et coût présentés avant de lancer (AM-88).\
   Où : hors dépôt · Livrable : note de 0 à 40 · Vérification : critère fixé avant le rejeu · Spéc. : AM-88 · Taille : M · Prérequis : P · Après : T-MS-43
@@ -1365,7 +1365,7 @@ Vague 4 — documentation, revues, clôture.
 - [ ] Les deux outils répondent sur l'archive de test et les fixtures réelles, et sur le serveur de la DILA lui-même (test en direct).
 - [ ] G0 à G11 tenues, chacune avec sa preuve.
 - [x] V-229 confirmée par T-MS-46 (15 sur 20 au moins : 18 sur 20) ; V-235 mesurée ; V-230 à V-234 consignées avec leurs réserves (09 §2.23).
-- [ ] `make ci` vert, couverture 100 %, 0 mutant survivant sur les fichiers nouveaux ; audit de sécurité du lecteur d'archive fait (T-MS-41).
+- [x] `make ci` vert, couverture 100 %, 0 mutant survivant sur les fichiers nouveaux ; audit de sécurité du lecteur d'archive fait (T-MS-41).
 - [ ] README, `PRIVACY.md` et `SECURITY.md` nomment le nouvel hôte ; rubrique « Tool surface » du CHANGELOG.
 
 **Vérifications rattachées.**
